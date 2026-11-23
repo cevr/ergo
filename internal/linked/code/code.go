@@ -28,7 +28,7 @@ var ergo__InitFailed any
 
 // ergo__InitRun runs the package-level lets in the first call, and raises the
 // panic that ended them again in every later call.
-func ergo__InitRun(env *Env) {
+func ergo__InitRun(env *ergo__Env) {
 	ergo__InitOnce.Do(func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -51,9 +51,9 @@ func ergo__InitRun(env *Env) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Plan(ctx go__context.Context, p0 go__io.ReadWriter, p1 string, p2 string, p3 bool) ([]string, error) {
 	v, err := ergo.Call(ctx, "Plan", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Plan_1(env, p0, p1, p2, p3), nil
+		return ergo__Plan_1(env, p0, p1, p2, p3), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -62,9 +62,9 @@ func Plan(ctx go__context.Context, p0 go__io.ReadWriter, p1 string, p2 string, p
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Apply(ctx go__context.Context, p0 string, p1 string) ([]string, error) {
 	v, err := ergo.Call(ctx, "Apply", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t, Ambient: hostConsole{}}
+		env := &ergo__Env{task: t, Ambient: hostConsole{}}
 		ergo__InitRun(env)
-		return Apply_1(env, p0, p1), nil
+		return ergo__Apply_1(env, p0, p1), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -73,9 +73,9 @@ func Apply(ctx go__context.Context, p0 string, p1 string) ([]string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Rewrite(ctx go__context.Context, p0 string, p1 string, p2 string, p3 string) ([]string, error) {
 	v, err := ergo.Call(ctx, "Rewrite", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t, Ambient: hostConsole{}}
+		env := &ergo__Env{task: t, Ambient: hostConsole{}}
 		ergo__InitRun(env)
-		return Rewrite_1(env, p0, p1, p2, p3), nil
+		return ergo__Rewrite_1(env, p0, p1, p2, p3), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -84,9 +84,9 @@ func Rewrite(ctx go__context.Context, p0 string, p1 string, p2 string, p3 string
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Recover(ctx go__context.Context, p0 string) ([]string, error) {
 	v, err := ergo.Call(ctx, "Recover", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t, Ambient: hostConsole{}}
+		env := &ergo__Env{task: t, Ambient: hostConsole{}}
 		ergo__InitRun(env)
-		return Recover_1(env, p0), nil
+		return ergo__Recover_1(env, p0), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -95,9 +95,9 @@ func Recover(ctx go__context.Context, p0 string) ([]string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Run(ctx go__context.Context, p0 []string, p1 string) ([]string, error) {
 	v, err := ergo.Call(ctx, "Run", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Run_1(env, p0, p1), nil
+		return ergo__Run_1(env, p0, p1), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -106,9 +106,9 @@ func Run(ctx go__context.Context, p0 []string, p1 string) ([]string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Api(ctx go__context.Context, p0 string, p1 bool) ([]string, error) {
 	v, err := ergo.Call(ctx, "Api", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Api_1(env, p0, p1), nil
+		return ergo__Api_1(env, p0, p1), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -117,9 +117,9 @@ func Api(ctx go__context.Context, p0 string, p1 bool) ([]string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func ApiDiff(ctx go__context.Context, p0 string, p1 string, p2 bool) ([]string, error) {
 	v, err := ergo.Call(ctx, "ApiDiff", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return ApiDiff_1(env, p0, p1, p2), nil
+		return ergo__ApiDiff_1(env, p0, p1, p2), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -128,9 +128,9 @@ func ApiDiff(ctx go__context.Context, p0 string, p1 string, p2 bool) ([]string, 
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Machines(ctx go__context.Context, p0 string, p1 bool) ([]string, error) {
 	v, err := ergo.Call(ctx, "Machines", func(t *rt.Task) ([]string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Machines_1(env, p0, p1), nil
+		return ergo__Machines_1(env, p0, p1), nil
 	})
 	return append([]string(nil), v...), err
 }
@@ -140,13 +140,13 @@ type hostConsole struct{}
 
 func (hostConsole) ambient(_ *rt.Task) {}
 
-type Env struct {
+type ergo__Env struct {
 	task    *rt.Task
 	Reader  code__Reader_1
-	Ambient Ambient
+	Ambient ergo__Ambient
 }
 
-func ergo__EncodeSource(env *Env, w Writer, v code__Source) {
+func ergo__EncodeSource(env *ergo__Env, w ergo__Writer, v code__Source) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "file")
 	w.String(env.task, string(v.File))
@@ -155,7 +155,7 @@ func ergo__EncodeSource(env *Env, w Writer, v code__Source) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_25(env *Env, w Writer, v []code__Source) {
+func ergo__EncodeSlice_25(env *ergo__Env, w ergo__Writer, v []code__Source) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeSource(env, w, e)
@@ -163,7 +163,7 @@ func ergo__EncodeSlice_25(env *Env, w Writer, v []code__Source) {
 	w.EndList(env.task)
 }
 
-func ergo__Encodeask(env *Env, w Writer, v ask) {
+func ergo__Encodeask(env *ergo__Env, w ergo__Writer, v ask) {
 	switch x := v.(type) {
 	case askCheck:
 		w.BeginObject(env.task, 1)
@@ -180,7 +180,7 @@ func ergo__Encodeask(env *Env, w Writer, v ask) {
 	}
 }
 
-func ergo__DecodeSource(env *Env, r Reader) (code__Source, error) {
+func ergo__DecodeSource(env *ergo__Env, r ergo__Reader) (code__Source, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Source), err
 	}
@@ -210,15 +210,15 @@ func ergo__DecodeSource(env *Env, r Reader) (code__Source, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Source), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Source), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Source), WireMissingField{Path: r.Path(env.task), Field: "text"}
+		return *new(code__Source), ergo__WireMissingField{Path: r.Path(env.task), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_25(env *Env, r Reader) ([]code__Source, error) {
+func ergo__DecodeSlice_25(env *ergo__Env, r ergo__Reader) ([]code__Source, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Source), err
 	}
@@ -234,7 +234,7 @@ func ergo__DecodeSlice_25(env *Env, r Reader) ([]code__Source, error) {
 	return out, nil
 }
 
-func ergo__Decodeask(env *Env, r Reader) (ask, error) {
+func ergo__Decodeask(env *ergo__Env, r ergo__Reader) (ask, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(ask), err
 	}
@@ -261,7 +261,7 @@ func ergo__Decodeask(env *Env, r Reader) (ask, error) {
 		}
 		r.End(env.task)
 		if !seen {
-			return *new(ask), WireMissingField{Path: r.Path(env.task), Field: "sources"}
+			return *new(ask), ergo__WireMissingField{Path: r.Path(env.task), Field: "sources"}
 		}
 		return out, nil
 	case "askFormat":
@@ -283,14 +283,14 @@ func ergo__Decodeask(env *Env, r Reader) (ask, error) {
 		}
 		r.End(env.task)
 		if !seen_1 {
-			return *new(ask), WireMissingField{Path: r.Path(env.task), Field: "text"}
+			return *new(ask), ergo__WireMissingField{Path: r.Path(env.task), Field: "text"}
 		}
 		return out_1, nil
 	}
-	return *new(ask), WireUnknownTag{Path: r.Path(env.task), Tag: tag}
+	return *new(ask), ergo__WireUnknownTag{Path: r.Path(env.task), Tag: tag}
 }
 
-func ergo__WriteSource(env *Env, wv json__text, v code__Source) json__text {
+func ergo__WriteSource(env *ergo__Env, wv json__text, v code__Source) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"file\":"))
@@ -302,7 +302,7 @@ func ergo__WriteSource(env *Env, wv json__text, v code__Source) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_25(env *Env, wv json__text, v []code__Source) json__text {
+func ergo__WriteSlice_25(env *ergo__Env, wv json__text, v []code__Source) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -316,7 +316,7 @@ func ergo__WriteSlice_25(env *Env, wv json__text, v []code__Source) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_25(env *Env, wv json__text, v []code__Source) json__text {
+func ergo__WriteSlice_entry_25(env *ergo__Env, wv json__text, v []code__Source) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -329,7 +329,7 @@ func ergo__WriteSlice_entry_25(env *Env, wv json__text, v []code__Source) json__
 	return wv
 }
 
-func ergo__Writeask(env *Env, wv json__text, v ask) json__text {
+func ergo__Writeask(env *ergo__Env, wv json__text, v ask) json__text {
 	w := &wv
 	switch x := v.(type) {
 	case askCheck:
@@ -349,7 +349,7 @@ func ergo__Writeask(env *Env, wv json__text, v ask) json__text {
 	return wv
 }
 
-func ergo__ReadSource(env *Env, r http__queryReader) (code__Source, error) {
+func ergo__ReadSource(env *ergo__Env, r http__queryReader) (code__Source, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Source), err
 	}
@@ -379,15 +379,15 @@ func ergo__ReadSource(env *Env, r http__queryReader) (code__Source, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Source), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Source), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Source), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__Source), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_25(env *Env, r http__queryReader) ([]code__Source, error) {
+func ergo__ReadSlice_25(env *ergo__Env, r http__queryReader) ([]code__Source, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Source), err
 	}
@@ -403,7 +403,7 @@ func ergo__ReadSlice_25(env *Env, r http__queryReader) ([]code__Source, error) {
 	return out, nil
 }
 
-func ergo__Readask(env *Env, r http__queryReader) (ask, error) {
+func ergo__Readask(env *ergo__Env, r http__queryReader) (ask, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(ask), err
 	}
@@ -430,7 +430,7 @@ func ergo__Readask(env *Env, r http__queryReader) (ask, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(ask), WireMissingField{Path: (r).Path(env), Field: "sources"}
+			return *new(ask), ergo__WireMissingField{Path: (r).Path(env), Field: "sources"}
 		}
 		return out, nil
 	case "askFormat":
@@ -452,14 +452,14 @@ func ergo__Readask(env *Env, r http__queryReader) (ask, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(ask), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(ask), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	}
-	return *new(ask), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(ask), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadSource_1(env *Env, r json__Reader_1) (code__Source, error) {
+func ergo__ReadSource_1(env *ergo__Env, r json__Reader_1) (code__Source, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Source), err
 	}
@@ -489,15 +489,15 @@ func ergo__ReadSource_1(env *Env, r json__Reader_1) (code__Source, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Source), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Source), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Source), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__Source), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_60(env *Env, r json__Reader_1) ([]code__Source, error) {
+func ergo__ReadSlice_60(env *ergo__Env, r json__Reader_1) ([]code__Source, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Source), err
 	}
@@ -513,7 +513,7 @@ func ergo__ReadSlice_60(env *Env, r json__Reader_1) ([]code__Source, error) {
 	return out, nil
 }
 
-func ergo__Readask_1(env *Env, r json__Reader_1) (ask, error) {
+func ergo__Readask_1(env *ergo__Env, r json__Reader_1) (ask, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(ask), err
 	}
@@ -540,7 +540,7 @@ func ergo__Readask_1(env *Env, r json__Reader_1) (ask, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(ask), WireMissingField{Path: (r).Path(env), Field: "sources"}
+			return *new(ask), ergo__WireMissingField{Path: (r).Path(env), Field: "sources"}
 		}
 		return out, nil
 	case "askFormat":
@@ -562,14 +562,14 @@ func ergo__Readask_1(env *Env, r json__Reader_1) (ask, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(ask), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(ask), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	}
-	return *new(ask), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(ask), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadSource_2(env *Env, r json__Stream) (code__Source, error) {
+func ergo__ReadSource_2(env *ergo__Env, r json__Stream) (code__Source, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Source), err
 	}
@@ -599,15 +599,15 @@ func ergo__ReadSource_2(env *Env, r json__Stream) (code__Source, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Source), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Source), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Source), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__Source), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_95(env *Env, r json__Stream) ([]code__Source, error) {
+func ergo__ReadSlice_95(env *ergo__Env, r json__Stream) ([]code__Source, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Source), err
 	}
@@ -623,7 +623,7 @@ func ergo__ReadSlice_95(env *Env, r json__Stream) ([]code__Source, error) {
 	return out, nil
 }
 
-func ergo__Readask_2(env *Env, r json__Stream) (ask, error) {
+func ergo__Readask_2(env *ergo__Env, r json__Stream) (ask, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(ask), err
 	}
@@ -650,7 +650,7 @@ func ergo__Readask_2(env *Env, r json__Stream) (ask, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(ask), WireMissingField{Path: (r).Path(env), Field: "sources"}
+			return *new(ask), ergo__WireMissingField{Path: (r).Path(env), Field: "sources"}
 		}
 		return out, nil
 	case "askFormat":
@@ -672,11 +672,11 @@ func ergo__Readask_2(env *Env, r json__Stream) (ask, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(ask), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(ask), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	}
-	return *new(ask), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(ask), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
 func ergoNilTag[T comparable](v T) uint8 {
@@ -687,7 +687,7 @@ func ergoNilTag[T comparable](v T) uint8 {
 	return 0
 }
 
-func ergo__EncodeDecl(env *Env, w Writer, v code__Decl) {
+func ergo__EncodeDecl(env *ergo__Env, w ergo__Writer, v code__Decl) {
 	w.BeginObject(env.task, 8)
 	w.Key(env.task, "handle")
 	w.String(env.task, string(v.Handle))
@@ -708,7 +708,7 @@ func ergo__EncodeDecl(env *Env, w Writer, v code__Decl) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_9(env *Env, w Writer, v []code__Decl) {
+func ergo__EncodeSlice_9(env *ergo__Env, w ergo__Writer, v []code__Decl) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeDecl(env, w, e)
@@ -716,7 +716,7 @@ func ergo__EncodeSlice_9(env *Env, w Writer, v []code__Decl) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeSite(env *Env, w Writer, v code__Site) {
+func ergo__EncodeSite(env *ergo__Env, w ergo__Writer, v code__Site) {
 	w.BeginObject(env.task, 7)
 	w.Key(env.task, "symbol")
 	w.String(env.task, string(v.Symbol))
@@ -735,7 +735,7 @@ func ergo__EncodeSite(env *Env, w Writer, v code__Site) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_24(env *Env, w Writer, v []code__Site) {
+func ergo__EncodeSlice_24(env *ergo__Env, w ergo__Writer, v []code__Site) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeSite(env, w, e)
@@ -743,7 +743,7 @@ func ergo__EncodeSlice_24(env *Env, w Writer, v []code__Site) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeSlice_34(env *Env, w Writer, v []string) {
+func ergo__EncodeSlice_34(env *ergo__Env, w ergo__Writer, v []string) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		w.String(env.task, string(e))
@@ -751,7 +751,7 @@ func ergo__EncodeSlice_34(env *Env, w Writer, v []string) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeSlice_29(env *Env, w Writer, v []int) {
+func ergo__EncodeSlice_29(env *ergo__Env, w ergo__Writer, v []int) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		w.Int(env.task, int64(e))
@@ -759,7 +759,7 @@ func ergo__EncodeSlice_29(env *Env, w Writer, v []int) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeContract(env *Env, w Writer, v code__Contract) {
+func ergo__EncodeContract(env *ergo__Env, w ergo__Writer, v code__Contract) {
 	w.BeginObject(env.task, 10)
 	w.Key(env.task, "name")
 	w.String(env.task, string(v.Name))
@@ -784,7 +784,7 @@ func ergo__EncodeContract(env *Env, w Writer, v code__Contract) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_8(env *Env, w Writer, v []code__Contract) {
+func ergo__EncodeSlice_8(env *ergo__Env, w ergo__Writer, v []code__Contract) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeContract(env, w, e)
@@ -792,7 +792,7 @@ func ergo__EncodeSlice_8(env *Env, w Writer, v []code__Contract) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeBinding(env *Env, w Writer, v code__Binding) {
+func ergo__EncodeBinding(env *ergo__Env, w ergo__Writer, v code__Binding) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "capability")
 	w.String(env.task, string(v.Capability))
@@ -801,7 +801,7 @@ func ergo__EncodeBinding(env *Env, w Writer, v code__Binding) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_5(env *Env, w Writer, v []code__Binding) {
+func ergo__EncodeSlice_5(env *ergo__Env, w ergo__Writer, v []code__Binding) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeBinding(env, w, e)
@@ -809,7 +809,7 @@ func ergo__EncodeSlice_5(env *Env, w Writer, v []code__Binding) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeCall(env *Env, w Writer, v code__Call) {
+func ergo__EncodeCall(env *ergo__Env, w ergo__Writer, v code__Call) {
 	w.BeginObject(env.task, 10)
 	w.Key(env.task, "from")
 	w.String(env.task, string(v.From))
@@ -834,7 +834,7 @@ func ergo__EncodeCall(env *Env, w Writer, v code__Call) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_6(env *Env, w Writer, v []code__Call) {
+func ergo__EncodeSlice_6(env *ergo__Env, w ergo__Writer, v []code__Call) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeCall(env, w, e)
@@ -842,7 +842,7 @@ func ergo__EncodeSlice_6(env *Env, w Writer, v []code__Call) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeNeed(env *Env, w Writer, v code__Need) {
+func ergo__EncodeNeed(env *ergo__Env, w ergo__Writer, v code__Need) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "of")
 	w.String(env.task, string(v.Of))
@@ -851,7 +851,7 @@ func ergo__EncodeNeed(env *Env, w Writer, v code__Need) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_19(env *Env, w Writer, v []code__Need) {
+func ergo__EncodeSlice_19(env *ergo__Env, w ergo__Writer, v []code__Need) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeNeed(env, w, e)
@@ -859,7 +859,7 @@ func ergo__EncodeSlice_19(env *Env, w Writer, v []code__Need) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeFailing(env *Env, w Writer, v code__Failing) {
+func ergo__EncodeFailing(env *ergo__Env, w ergo__Writer, v code__Failing) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "of")
 	w.String(env.task, string(v.Of))
@@ -868,7 +868,7 @@ func ergo__EncodeFailing(env *Env, w Writer, v code__Failing) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_13(env *Env, w Writer, v []code__Failing) {
+func ergo__EncodeSlice_13(env *ergo__Env, w ergo__Writer, v []code__Failing) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeFailing(env, w, e)
@@ -876,7 +876,7 @@ func ergo__EncodeSlice_13(env *Env, w Writer, v []code__Failing) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodePlace(env *Env, w Writer, v code__Place) {
+func ergo__EncodePlace(env *ergo__Env, w ergo__Writer, v code__Place) {
 	w.BeginObject(env.task, 3)
 	w.Key(env.task, "what")
 	w.String(env.task, string(v.What))
@@ -887,7 +887,7 @@ func ergo__EncodePlace(env *Env, w Writer, v code__Place) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeTransition(env *Env, w Writer, v code__Transition) {
+func ergo__EncodeTransition(env *ergo__Env, w ergo__Writer, v code__Transition) {
 	w.BeginObject(env.task, 3)
 	w.Key(env.task, "decision")
 	w.String(env.task, string(v.Decision))
@@ -898,7 +898,7 @@ func ergo__EncodeTransition(env *Env, w Writer, v code__Transition) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_27(env *Env, w Writer, v []code__Transition) {
+func ergo__EncodeSlice_27(env *ergo__Env, w ergo__Writer, v []code__Transition) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeTransition(env, w, e)
@@ -906,7 +906,7 @@ func ergo__EncodeSlice_27(env *Env, w Writer, v []code__Transition) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeAlt(env *Env, w Writer, v code__Alt) {
+func ergo__EncodeAlt(env *ergo__Env, w ergo__Writer, v code__Alt) {
 	w.BeginObject(env.task, 5)
 	w.Key(env.task, "states")
 	ergo__EncodeSlice_34(env, w, v.States)
@@ -921,7 +921,7 @@ func ergo__EncodeAlt(env *Env, w Writer, v code__Alt) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_1(env *Env, w Writer, v []code__Alt) {
+func ergo__EncodeSlice_1(env *ergo__Env, w ergo__Writer, v []code__Alt) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeAlt(env, w, e)
@@ -929,7 +929,7 @@ func ergo__EncodeSlice_1(env *Env, w Writer, v []code__Alt) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeArm(env *Env, w Writer, v code__Arm) {
+func ergo__EncodeArm(env *ergo__Env, w ergo__Writer, v code__Arm) {
 	w.BeginObject(env.task, 8)
 	w.Key(env.task, "at")
 	ergo__EncodePlace(env, w, v.At)
@@ -950,7 +950,7 @@ func ergo__EncodeArm(env *Env, w Writer, v code__Arm) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_3(env *Env, w Writer, v []code__Arm) {
+func ergo__EncodeSlice_3(env *ergo__Env, w ergo__Writer, v []code__Arm) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeArm(env, w, e)
@@ -958,7 +958,7 @@ func ergo__EncodeSlice_3(env *Env, w Writer, v []code__Arm) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeTimer(env *Env, w Writer, v code__Timer) {
+func ergo__EncodeTimer(env *ergo__Env, w ergo__Writer, v code__Timer) {
 	w.BeginObject(env.task, 3)
 	w.Key(env.task, "state")
 	w.String(env.task, string(v.State))
@@ -969,7 +969,7 @@ func ergo__EncodeTimer(env *Env, w Writer, v code__Timer) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_26(env *Env, w Writer, v []code__Timer) {
+func ergo__EncodeSlice_26(env *ergo__Env, w ergo__Writer, v []code__Timer) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeTimer(env, w, e)
@@ -977,7 +977,7 @@ func ergo__EncodeSlice_26(env *Env, w Writer, v []code__Timer) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeSlice_22(env *Env, w Writer, v []code__Place) {
+func ergo__EncodeSlice_22(env *ergo__Env, w ergo__Writer, v []code__Place) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodePlace(env, w, e)
@@ -985,7 +985,7 @@ func ergo__EncodeSlice_22(env *Env, w Writer, v []code__Place) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeMachineGraph(env *Env, w Writer, v code__MachineGraph) {
+func ergo__EncodeMachineGraph(env *ergo__Env, w ergo__Writer, v code__MachineGraph) {
 	w.BeginObject(env.task, 10)
 	w.Key(env.task, "handle")
 	w.String(env.task, string(v.Handle))
@@ -1010,7 +1010,7 @@ func ergo__EncodeMachineGraph(env *Env, w Writer, v code__MachineGraph) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_17(env *Env, w Writer, v []code__MachineGraph) {
+func ergo__EncodeSlice_17(env *ergo__Env, w ergo__Writer, v []code__MachineGraph) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeMachineGraph(env, w, e)
@@ -1018,7 +1018,7 @@ func ergo__EncodeSlice_17(env *Env, w Writer, v []code__MachineGraph) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodePackage(env *Env, w Writer, v code__Package) {
+func ergo__EncodePackage(env *ergo__Env, w ergo__Writer, v code__Package) {
 	w.BeginObject(env.task, 10)
 	w.Key(env.task, "path")
 	w.String(env.task, string(v.Path))
@@ -1043,7 +1043,7 @@ func ergo__EncodePackage(env *Env, w Writer, v code__Package) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_20(env *Env, w Writer, v []code__Package) {
+func ergo__EncodeSlice_20(env *ergo__Env, w ergo__Writer, v []code__Package) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodePackage(env, w, e)
@@ -1051,7 +1051,7 @@ func ergo__EncodeSlice_20(env *Env, w Writer, v []code__Package) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeTables(env *Env, w Writer, v code__Tables) {
+func ergo__EncodeTables(env *ergo__Env, w ergo__Writer, v code__Tables) {
 	w.BeginObject(env.task, 3)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -1062,7 +1062,7 @@ func ergo__EncodeTables(env *Env, w Writer, v code__Tables) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeExtent(env *Env, w Writer, v code__Extent) {
+func ergo__EncodeExtent(env *ergo__Env, w ergo__Writer, v code__Extent) {
 	w.BeginObject(env.task, 4)
 	w.Key(env.task, "handle")
 	w.String(env.task, string(v.Handle))
@@ -1075,7 +1075,7 @@ func ergo__EncodeExtent(env *Env, w Writer, v code__Extent) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_12(env *Env, w Writer, v []code__Extent) {
+func ergo__EncodeSlice_12(env *ergo__Env, w ergo__Writer, v []code__Extent) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeExtent(env, w, e)
@@ -1083,7 +1083,7 @@ func ergo__EncodeSlice_12(env *Env, w Writer, v []code__Extent) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeEdit(env *Env, w Writer, v code__Edit) {
+func ergo__EncodeEdit(env *ergo__Env, w ergo__Writer, v code__Edit) {
 	w.BeginObject(env.task, 4)
 	w.Key(env.task, "file")
 	w.String(env.task, string(v.File))
@@ -1096,7 +1096,7 @@ func ergo__EncodeEdit(env *Env, w Writer, v code__Edit) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_11(env *Env, w Writer, v []code__Edit) {
+func ergo__EncodeSlice_11(env *ergo__Env, w ergo__Writer, v []code__Edit) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeEdit(env, w, e)
@@ -1104,7 +1104,7 @@ func ergo__EncodeSlice_11(env *Env, w Writer, v []code__Edit) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeDiagnostic(env *Env, w Writer, v code__Diagnostic) {
+func ergo__EncodeDiagnostic(env *ergo__Env, w ergo__Writer, v code__Diagnostic) {
 	w.BeginObject(env.task, 6)
 	w.Key(env.task, "code")
 	w.String(env.task, string(v.Code))
@@ -1121,7 +1121,7 @@ func ergo__EncodeDiagnostic(env *Env, w Writer, v code__Diagnostic) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_10(env *Env, w Writer, v []code__Diagnostic) {
+func ergo__EncodeSlice_10(env *ergo__Env, w ergo__Writer, v []code__Diagnostic) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeDiagnostic(env, w, e)
@@ -1129,7 +1129,7 @@ func ergo__EncodeSlice_10(env *Env, w Writer, v []code__Diagnostic) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeBind(env *Env, w Writer, v code__Bind) {
+func ergo__EncodeBind(env *ergo__Env, w ergo__Writer, v code__Bind) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "op")
 	w.String(env.task, string(v.Op))
@@ -1138,7 +1138,7 @@ func ergo__EncodeBind(env *Env, w Writer, v code__Bind) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_4(env *Env, w Writer, v []code__Bind) {
+func ergo__EncodeSlice_4(env *ergo__Env, w ergo__Writer, v []code__Bind) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeBind(env, w, e)
@@ -1146,7 +1146,7 @@ func ergo__EncodeSlice_4(env *Env, w Writer, v []code__Bind) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeReport(env *Env, w Writer, v code__Report) {
+func ergo__EncodeReport(env *ergo__Env, w ergo__Writer, v code__Report) {
 	w.BeginObject(env.task, 6)
 	w.Key(env.task, "tables")
 	ergo__EncodeTables(env, w, v.Tables)
@@ -1163,7 +1163,7 @@ func ergo__EncodeReport(env *Env, w Writer, v code__Report) {
 	w.EndObject(env.task)
 }
 
-func ergo__Encodereply(env *Env, w Writer, v reply) {
+func ergo__Encodereply(env *ergo__Env, w ergo__Writer, v reply) {
 	switch x := v.(type) {
 	case replyReport:
 		w.BeginObject(env.task, 1)
@@ -1186,7 +1186,7 @@ func ergo__Encodereply(env *Env, w Writer, v reply) {
 	}
 }
 
-func ergo__DecodeDecl(env *Env, r Reader) (code__Decl, error) {
+func ergo__DecodeDecl(env *ergo__Env, r ergo__Reader) (code__Decl, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Decl), err
 	}
@@ -1264,33 +1264,33 @@ func ergo__DecodeDecl(env *Env, r Reader) (code__Decl, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "handle"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "name"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "name"}
 	}
 	if !seen_3 {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "package"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "package"}
 	}
 	if !seen_4 {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "exported"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "exported"}
 	}
 	if !seen_5 {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_6 {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "line"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "line"}
 	}
 	if !seen_7 {
-		return *new(code__Decl), WireMissingField{Path: r.Path(env.task), Field: "column"}
+		return *new(code__Decl), ergo__WireMissingField{Path: r.Path(env.task), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_9(env *Env, r Reader) ([]code__Decl, error) {
+func ergo__DecodeSlice_9(env *ergo__Env, r ergo__Reader) ([]code__Decl, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Decl), err
 	}
@@ -1306,7 +1306,7 @@ func ergo__DecodeSlice_9(env *Env, r Reader) ([]code__Decl, error) {
 	return out, nil
 }
 
-func ergo__DecodeSite(env *Env, r Reader) (code__Site, error) {
+func ergo__DecodeSite(env *ergo__Env, r ergo__Reader) (code__Site, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Site), err
 	}
@@ -1376,30 +1376,30 @@ func ergo__DecodeSite(env *Env, r Reader) (code__Site, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Site), WireMissingField{Path: r.Path(env.task), Field: "symbol"}
+		return *new(code__Site), ergo__WireMissingField{Path: r.Path(env.task), Field: "symbol"}
 	}
 	if !seen_1 {
-		return *new(code__Site), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+		return *new(code__Site), ergo__WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Site), WireMissingField{Path: r.Path(env.task), Field: "package"}
+		return *new(code__Site), ergo__WireMissingField{Path: r.Path(env.task), Field: "package"}
 	}
 	if !seen_3 {
-		return *new(code__Site), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Site), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_4 {
-		return *new(code__Site), WireMissingField{Path: r.Path(env.task), Field: "line"}
+		return *new(code__Site), ergo__WireMissingField{Path: r.Path(env.task), Field: "line"}
 	}
 	if !seen_5 {
-		return *new(code__Site), WireMissingField{Path: r.Path(env.task), Field: "column"}
+		return *new(code__Site), ergo__WireMissingField{Path: r.Path(env.task), Field: "column"}
 	}
 	if !seen_6 {
-		return *new(code__Site), WireMissingField{Path: r.Path(env.task), Field: "in"}
+		return *new(code__Site), ergo__WireMissingField{Path: r.Path(env.task), Field: "in"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_24(env *Env, r Reader) ([]code__Site, error) {
+func ergo__DecodeSlice_24(env *ergo__Env, r ergo__Reader) ([]code__Site, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Site), err
 	}
@@ -1415,7 +1415,7 @@ func ergo__DecodeSlice_24(env *Env, r Reader) ([]code__Site, error) {
 	return out, nil
 }
 
-func ergo__DecodeSlice_34(env *Env, r Reader) ([]string, error) {
+func ergo__DecodeSlice_34(env *ergo__Env, r ergo__Reader) ([]string, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]string), err
 	}
@@ -1432,7 +1432,7 @@ func ergo__DecodeSlice_34(env *Env, r Reader) ([]string, error) {
 	return out, nil
 }
 
-func ergo__DecodeSlice_29(env *Env, r Reader) ([]int, error) {
+func ergo__DecodeSlice_29(env *ergo__Env, r ergo__Reader) ([]int, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]int), err
 	}
@@ -1449,7 +1449,7 @@ func ergo__DecodeSlice_29(env *Env, r Reader) ([]int, error) {
 	return out, nil
 }
 
-func ergo__DecodeContract(env *Env, r Reader) (code__Contract, error) {
+func ergo__DecodeContract(env *ergo__Env, r ergo__Reader) (code__Contract, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Contract), err
 	}
@@ -1539,39 +1539,39 @@ func ergo__DecodeContract(env *Env, r Reader) (code__Contract, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "name"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "signature"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "signature"}
 	}
 	if !seen_2 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "typeParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "typeParameters"}
 	}
 	if !seen_3 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "fails"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "fails"}
 	}
 	if !seen_4 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "needs"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "needs"}
 	}
 	if !seen_5 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "takes"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "takes"}
 	}
 	if !seen_6 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "takesParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "takesParameters"}
 	}
 	if !seen_7 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "takesSelf"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "takesSelf"}
 	}
 	if !seen_8 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "takesInferred"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "takesInferred"}
 	}
 	if !seen_9 {
-		return *new(code__Contract), WireMissingField{Path: r.Path(env.task), Field: "own"}
+		return *new(code__Contract), ergo__WireMissingField{Path: r.Path(env.task), Field: "own"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_8(env *Env, r Reader) ([]code__Contract, error) {
+func ergo__DecodeSlice_8(env *ergo__Env, r ergo__Reader) ([]code__Contract, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Contract), err
 	}
@@ -1587,7 +1587,7 @@ func ergo__DecodeSlice_8(env *Env, r Reader) ([]code__Contract, error) {
 	return out, nil
 }
 
-func ergo__DecodeBinding(env *Env, r Reader) (code__Binding, error) {
+func ergo__DecodeBinding(env *ergo__Env, r ergo__Reader) (code__Binding, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Binding), err
 	}
@@ -1617,15 +1617,15 @@ func ergo__DecodeBinding(env *Env, r Reader) (code__Binding, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Binding), WireMissingField{Path: r.Path(env.task), Field: "capability"}
+		return *new(code__Binding), ergo__WireMissingField{Path: r.Path(env.task), Field: "capability"}
 	}
 	if !seen_1 {
-		return *new(code__Binding), WireMissingField{Path: r.Path(env.task), Field: "provider"}
+		return *new(code__Binding), ergo__WireMissingField{Path: r.Path(env.task), Field: "provider"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_5(env *Env, r Reader) ([]code__Binding, error) {
+func ergo__DecodeSlice_5(env *ergo__Env, r ergo__Reader) ([]code__Binding, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Binding), err
 	}
@@ -1641,7 +1641,7 @@ func ergo__DecodeSlice_5(env *Env, r Reader) ([]code__Binding, error) {
 	return out, nil
 }
 
-func ergo__DecodeCall(env *Env, r Reader) (code__Call, error) {
+func ergo__DecodeCall(env *ergo__Env, r ergo__Reader) (code__Call, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Call), err
 	}
@@ -1730,39 +1730,39 @@ func ergo__DecodeCall(env *Env, r Reader) (code__Call, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "from"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "from"}
 	}
 	if !seen_1 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "to"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "line"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "column"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "brings"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "brings"}
 	}
 	if !seen_6 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "discharged"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "discharged"}
 	}
 	if !seen_7 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "bound"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "bound"}
 	}
 	if !seen_8 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "raises"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "raises"}
 	}
 	if !seen_9 {
-		return *new(code__Call), WireMissingField{Path: r.Path(env.task), Field: "caught"}
+		return *new(code__Call), ergo__WireMissingField{Path: r.Path(env.task), Field: "caught"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_6(env *Env, r Reader) ([]code__Call, error) {
+func ergo__DecodeSlice_6(env *ergo__Env, r ergo__Reader) ([]code__Call, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Call), err
 	}
@@ -1778,7 +1778,7 @@ func ergo__DecodeSlice_6(env *Env, r Reader) ([]code__Call, error) {
 	return out, nil
 }
 
-func ergo__DecodeNeed(env *Env, r Reader) (code__Need, error) {
+func ergo__DecodeNeed(env *ergo__Env, r ergo__Reader) (code__Need, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Need), err
 	}
@@ -1808,15 +1808,15 @@ func ergo__DecodeNeed(env *Env, r Reader) (code__Need, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Need), WireMissingField{Path: r.Path(env.task), Field: "of"}
+		return *new(code__Need), ergo__WireMissingField{Path: r.Path(env.task), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Need), WireMissingField{Path: r.Path(env.task), Field: "capability"}
+		return *new(code__Need), ergo__WireMissingField{Path: r.Path(env.task), Field: "capability"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_19(env *Env, r Reader) ([]code__Need, error) {
+func ergo__DecodeSlice_19(env *ergo__Env, r ergo__Reader) ([]code__Need, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Need), err
 	}
@@ -1832,7 +1832,7 @@ func ergo__DecodeSlice_19(env *Env, r Reader) ([]code__Need, error) {
 	return out, nil
 }
 
-func ergo__DecodeFailing(env *Env, r Reader) (code__Failing, error) {
+func ergo__DecodeFailing(env *ergo__Env, r ergo__Reader) (code__Failing, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Failing), err
 	}
@@ -1862,15 +1862,15 @@ func ergo__DecodeFailing(env *Env, r Reader) (code__Failing, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Failing), WireMissingField{Path: r.Path(env.task), Field: "of"}
+		return *new(code__Failing), ergo__WireMissingField{Path: r.Path(env.task), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Failing), WireMissingField{Path: r.Path(env.task), Field: "failure"}
+		return *new(code__Failing), ergo__WireMissingField{Path: r.Path(env.task), Field: "failure"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_13(env *Env, r Reader) ([]code__Failing, error) {
+func ergo__DecodeSlice_13(env *ergo__Env, r ergo__Reader) ([]code__Failing, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Failing), err
 	}
@@ -1886,7 +1886,7 @@ func ergo__DecodeSlice_13(env *Env, r Reader) ([]code__Failing, error) {
 	return out, nil
 }
 
-func ergo__DecodePlace(env *Env, r Reader) (code__Place, error) {
+func ergo__DecodePlace(env *ergo__Env, r ergo__Reader) (code__Place, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Place), err
 	}
@@ -1924,18 +1924,18 @@ func ergo__DecodePlace(env *Env, r Reader) (code__Place, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Place), WireMissingField{Path: r.Path(env.task), Field: "what"}
+		return *new(code__Place), ergo__WireMissingField{Path: r.Path(env.task), Field: "what"}
 	}
 	if !seen_1 {
-		return *new(code__Place), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Place), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Place), WireMissingField{Path: r.Path(env.task), Field: "line"}
+		return *new(code__Place), ergo__WireMissingField{Path: r.Path(env.task), Field: "line"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeTransition(env *Env, r Reader) (code__Transition, error) {
+func ergo__DecodeTransition(env *ergo__Env, r ergo__Reader) (code__Transition, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Transition), err
 	}
@@ -1972,18 +1972,18 @@ func ergo__DecodeTransition(env *Env, r Reader) (code__Transition, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Transition), WireMissingField{Path: r.Path(env.task), Field: "decision"}
+		return *new(code__Transition), ergo__WireMissingField{Path: r.Path(env.task), Field: "decision"}
 	}
 	if !seen_1 {
-		return *new(code__Transition), WireMissingField{Path: r.Path(env.task), Field: "to"}
+		return *new(code__Transition), ergo__WireMissingField{Path: r.Path(env.task), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Transition), WireMissingField{Path: r.Path(env.task), Field: "at"}
+		return *new(code__Transition), ergo__WireMissingField{Path: r.Path(env.task), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_27(env *Env, r Reader) ([]code__Transition, error) {
+func ergo__DecodeSlice_27(env *ergo__Env, r ergo__Reader) ([]code__Transition, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Transition), err
 	}
@@ -1999,7 +1999,7 @@ func ergo__DecodeSlice_27(env *Env, r Reader) ([]code__Transition, error) {
 	return out, nil
 }
 
-func ergo__DecodeAlt(env *Env, r Reader) (code__Alt, error) {
+func ergo__DecodeAlt(env *ergo__Env, r ergo__Reader) (code__Alt, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Alt), err
 	}
@@ -2051,24 +2051,24 @@ func ergo__DecodeAlt(env *Env, r Reader) (code__Alt, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Alt), WireMissingField{Path: r.Path(env.task), Field: "states"}
+		return *new(code__Alt), ergo__WireMissingField{Path: r.Path(env.task), Field: "states"}
 	}
 	if !seen_1 {
-		return *new(code__Alt), WireMissingField{Path: r.Path(env.task), Field: "anyState"}
+		return *new(code__Alt), ergo__WireMissingField{Path: r.Path(env.task), Field: "anyState"}
 	}
 	if !seen_2 {
-		return *new(code__Alt), WireMissingField{Path: r.Path(env.task), Field: "signals"}
+		return *new(code__Alt), ergo__WireMissingField{Path: r.Path(env.task), Field: "signals"}
 	}
 	if !seen_3 {
-		return *new(code__Alt), WireMissingField{Path: r.Path(env.task), Field: "anySignal"}
+		return *new(code__Alt), ergo__WireMissingField{Path: r.Path(env.task), Field: "anySignal"}
 	}
 	if !seen_4 {
-		return *new(code__Alt), WireMissingField{Path: r.Path(env.task), Field: "partial"}
+		return *new(code__Alt), ergo__WireMissingField{Path: r.Path(env.task), Field: "partial"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_1(env *Env, r Reader) ([]code__Alt, error) {
+func ergo__DecodeSlice_1(env *ergo__Env, r ergo__Reader) ([]code__Alt, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Alt), err
 	}
@@ -2084,7 +2084,7 @@ func ergo__DecodeSlice_1(env *Env, r Reader) ([]code__Alt, error) {
 	return out, nil
 }
 
-func ergo__DecodeArm(env *Env, r Reader) (code__Arm, error) {
+func ergo__DecodeArm(env *ergo__Env, r ergo__Reader) (code__Arm, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Arm), err
 	}
@@ -2157,33 +2157,33 @@ func ergo__DecodeArm(env *Env, r Reader) (code__Arm, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "at"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "at"}
 	}
 	if !seen_1 {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "states"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "states"}
 	}
 	if !seen_2 {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "anyState"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "anyState"}
 	}
 	if !seen_3 {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "signals"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "anySignal"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "anySignal"}
 	}
 	if !seen_5 {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "partial"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "partial"}
 	}
 	if !seen_6 {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "edges"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "edges"}
 	}
 	if !seen_7 {
-		return *new(code__Arm), WireMissingField{Path: r.Path(env.task), Field: "alts"}
+		return *new(code__Arm), ergo__WireMissingField{Path: r.Path(env.task), Field: "alts"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_3(env *Env, r Reader) ([]code__Arm, error) {
+func ergo__DecodeSlice_3(env *ergo__Env, r ergo__Reader) ([]code__Arm, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Arm), err
 	}
@@ -2199,7 +2199,7 @@ func ergo__DecodeSlice_3(env *Env, r Reader) ([]code__Arm, error) {
 	return out, nil
 }
 
-func ergo__DecodeTimer(env *Env, r Reader) (code__Timer, error) {
+func ergo__DecodeTimer(env *ergo__Env, r ergo__Reader) (code__Timer, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Timer), err
 	}
@@ -2236,18 +2236,18 @@ func ergo__DecodeTimer(env *Env, r Reader) (code__Timer, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Timer), WireMissingField{Path: r.Path(env.task), Field: "state"}
+		return *new(code__Timer), ergo__WireMissingField{Path: r.Path(env.task), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Timer), WireMissingField{Path: r.Path(env.task), Field: "signal"}
+		return *new(code__Timer), ergo__WireMissingField{Path: r.Path(env.task), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Timer), WireMissingField{Path: r.Path(env.task), Field: "at"}
+		return *new(code__Timer), ergo__WireMissingField{Path: r.Path(env.task), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_26(env *Env, r Reader) ([]code__Timer, error) {
+func ergo__DecodeSlice_26(env *ergo__Env, r ergo__Reader) ([]code__Timer, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Timer), err
 	}
@@ -2263,7 +2263,7 @@ func ergo__DecodeSlice_26(env *Env, r Reader) ([]code__Timer, error) {
 	return out, nil
 }
 
-func ergo__DecodeSlice_22(env *Env, r Reader) ([]code__Place, error) {
+func ergo__DecodeSlice_22(env *ergo__Env, r ergo__Reader) ([]code__Place, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Place), err
 	}
@@ -2279,7 +2279,7 @@ func ergo__DecodeSlice_22(env *Env, r Reader) ([]code__Place, error) {
 	return out, nil
 }
 
-func ergo__DecodeMachineGraph(env *Env, r Reader) (code__MachineGraph, error) {
+func ergo__DecodeMachineGraph(env *ergo__Env, r ergo__Reader) (code__MachineGraph, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__MachineGraph), err
 	}
@@ -2366,39 +2366,39 @@ func ergo__DecodeMachineGraph(env *Env, r Reader) (code__MachineGraph, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "handle"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "name"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "name"}
 	}
 	if !seen_2 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "states"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "states"}
 	}
 	if !seen_3 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "signals"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "initial"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "initial"}
 	}
 	if !seen_5 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "arms"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "arms"}
 	}
 	if !seen_6 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "timers"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "timers"}
 	}
 	if !seen_7 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "work"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "work"}
 	}
 	if !seen_8 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "exit"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "exit"}
 	}
 	if !seen_9 {
-		return *new(code__MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "unsure"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: r.Path(env.task), Field: "unsure"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_17(env *Env, r Reader) ([]code__MachineGraph, error) {
+func ergo__DecodeSlice_17(env *ergo__Env, r ergo__Reader) ([]code__MachineGraph, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__MachineGraph), err
 	}
@@ -2414,7 +2414,7 @@ func ergo__DecodeSlice_17(env *Env, r Reader) ([]code__MachineGraph, error) {
 	return out, nil
 }
 
-func ergo__DecodePackage(env *Env, r Reader) (code__Package, error) {
+func ergo__DecodePackage(env *ergo__Env, r ergo__Reader) (code__Package, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Package), err
 	}
@@ -2501,39 +2501,39 @@ func ergo__DecodePackage(env *Env, r Reader) (code__Package, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "path"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "path"}
 	}
 	if !seen_1 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "decls"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "decls"}
 	}
 	if !seen_4 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "sites"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "sites"}
 	}
 	if !seen_5 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "contracts"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "contracts"}
 	}
 	if !seen_6 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "calls"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "calls"}
 	}
 	if !seen_7 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "needs"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "needs"}
 	}
 	if !seen_8 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "fails"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "fails"}
 	}
 	if !seen_9 {
-		return *new(code__Package), WireMissingField{Path: r.Path(env.task), Field: "machines"}
+		return *new(code__Package), ergo__WireMissingField{Path: r.Path(env.task), Field: "machines"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_20(env *Env, r Reader) ([]code__Package, error) {
+func ergo__DecodeSlice_20(env *ergo__Env, r ergo__Reader) ([]code__Package, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Package), err
 	}
@@ -2549,7 +2549,7 @@ func ergo__DecodeSlice_20(env *Env, r Reader) ([]code__Package, error) {
 	return out, nil
 }
 
-func ergo__DecodeTables(env *Env, r Reader) (code__Tables, error) {
+func ergo__DecodeTables(env *ergo__Env, r ergo__Reader) (code__Tables, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Tables), err
 	}
@@ -2586,18 +2586,18 @@ func ergo__DecodeTables(env *Env, r Reader) (code__Tables, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Tables), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__Tables), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Tables), WireMissingField{Path: r.Path(env.task), Field: "root"}
+		return *new(code__Tables), ergo__WireMissingField{Path: r.Path(env.task), Field: "root"}
 	}
 	if !seen_2 {
-		return *new(code__Tables), WireMissingField{Path: r.Path(env.task), Field: "packages"}
+		return *new(code__Tables), ergo__WireMissingField{Path: r.Path(env.task), Field: "packages"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeExtent(env *Env, r Reader) (code__Extent, error) {
+func ergo__DecodeExtent(env *ergo__Env, r ergo__Reader) (code__Extent, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Extent), err
 	}
@@ -2643,21 +2643,21 @@ func ergo__DecodeExtent(env *Env, r Reader) (code__Extent, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Extent), WireMissingField{Path: r.Path(env.task), Field: "handle"}
+		return *new(code__Extent), ergo__WireMissingField{Path: r.Path(env.task), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Extent), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Extent), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Extent), WireMissingField{Path: r.Path(env.task), Field: "start"}
+		return *new(code__Extent), ergo__WireMissingField{Path: r.Path(env.task), Field: "start"}
 	}
 	if !seen_3 {
-		return *new(code__Extent), WireMissingField{Path: r.Path(env.task), Field: "end"}
+		return *new(code__Extent), ergo__WireMissingField{Path: r.Path(env.task), Field: "end"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_12(env *Env, r Reader) ([]code__Extent, error) {
+func ergo__DecodeSlice_12(env *ergo__Env, r ergo__Reader) ([]code__Extent, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Extent), err
 	}
@@ -2673,7 +2673,7 @@ func ergo__DecodeSlice_12(env *Env, r Reader) ([]code__Extent, error) {
 	return out, nil
 }
 
-func ergo__DecodeEdit(env *Env, r Reader) (code__Edit, error) {
+func ergo__DecodeEdit(env *ergo__Env, r ergo__Reader) (code__Edit, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Edit), err
 	}
@@ -2719,21 +2719,21 @@ func ergo__DecodeEdit(env *Env, r Reader) (code__Edit, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Edit), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Edit), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Edit), WireMissingField{Path: r.Path(env.task), Field: "start"}
+		return *new(code__Edit), ergo__WireMissingField{Path: r.Path(env.task), Field: "start"}
 	}
 	if !seen_2 {
-		return *new(code__Edit), WireMissingField{Path: r.Path(env.task), Field: "end"}
+		return *new(code__Edit), ergo__WireMissingField{Path: r.Path(env.task), Field: "end"}
 	}
 	if !seen_3 {
-		return *new(code__Edit), WireMissingField{Path: r.Path(env.task), Field: "text"}
+		return *new(code__Edit), ergo__WireMissingField{Path: r.Path(env.task), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_11(env *Env, r Reader) ([]code__Edit, error) {
+func ergo__DecodeSlice_11(env *ergo__Env, r ergo__Reader) ([]code__Edit, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Edit), err
 	}
@@ -2749,7 +2749,7 @@ func ergo__DecodeSlice_11(env *Env, r Reader) ([]code__Edit, error) {
 	return out, nil
 }
 
-func ergo__DecodeDiagnostic(env *Env, r Reader) (code__Diagnostic, error) {
+func ergo__DecodeDiagnostic(env *ergo__Env, r ergo__Reader) (code__Diagnostic, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Diagnostic), err
 	}
@@ -2810,27 +2810,27 @@ func ergo__DecodeDiagnostic(env *Env, r Reader) (code__Diagnostic, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Diagnostic), WireMissingField{Path: r.Path(env.task), Field: "code"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: r.Path(env.task), Field: "code"}
 	}
 	if !seen_1 {
-		return *new(code__Diagnostic), WireMissingField{Path: r.Path(env.task), Field: "message"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: r.Path(env.task), Field: "message"}
 	}
 	if !seen_2 {
-		return *new(code__Diagnostic), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Diagnostic), WireMissingField{Path: r.Path(env.task), Field: "line"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: r.Path(env.task), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Diagnostic), WireMissingField{Path: r.Path(env.task), Field: "column"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: r.Path(env.task), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Diagnostic), WireMissingField{Path: r.Path(env.task), Field: "fix"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: r.Path(env.task), Field: "fix"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_10(env *Env, r Reader) ([]code__Diagnostic, error) {
+func ergo__DecodeSlice_10(env *ergo__Env, r ergo__Reader) ([]code__Diagnostic, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Diagnostic), err
 	}
@@ -2846,7 +2846,7 @@ func ergo__DecodeSlice_10(env *Env, r Reader) ([]code__Diagnostic, error) {
 	return out, nil
 }
 
-func ergo__DecodeBind(env *Env, r Reader) (code__Bind, error) {
+func ergo__DecodeBind(env *ergo__Env, r ergo__Reader) (code__Bind, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Bind), err
 	}
@@ -2876,15 +2876,15 @@ func ergo__DecodeBind(env *Env, r Reader) (code__Bind, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Bind), WireMissingField{Path: r.Path(env.task), Field: "op"}
+		return *new(code__Bind), ergo__WireMissingField{Path: r.Path(env.task), Field: "op"}
 	}
 	if !seen_1 {
-		return *new(code__Bind), WireMissingField{Path: r.Path(env.task), Field: "by"}
+		return *new(code__Bind), ergo__WireMissingField{Path: r.Path(env.task), Field: "by"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_4(env *Env, r Reader) ([]code__Bind, error) {
+func ergo__DecodeSlice_4(env *ergo__Env, r ergo__Reader) ([]code__Bind, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Bind), err
 	}
@@ -2900,7 +2900,7 @@ func ergo__DecodeSlice_4(env *Env, r Reader) ([]code__Bind, error) {
 	return out, nil
 }
 
-func ergo__DecodeReport(env *Env, r Reader) (code__Report, error) {
+func ergo__DecodeReport(env *ergo__Env, r ergo__Reader) (code__Report, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Report), err
 	}
@@ -2957,27 +2957,27 @@ func ergo__DecodeReport(env *Env, r Reader) (code__Report, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Report), WireMissingField{Path: r.Path(env.task), Field: "tables"}
+		return *new(code__Report), ergo__WireMissingField{Path: r.Path(env.task), Field: "tables"}
 	}
 	if !seen_1 {
-		return *new(code__Report), WireMissingField{Path: r.Path(env.task), Field: "extents"}
+		return *new(code__Report), ergo__WireMissingField{Path: r.Path(env.task), Field: "extents"}
 	}
 	if !seen_2 {
-		return *new(code__Report), WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
+		return *new(code__Report), ergo__WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Report), WireMissingField{Path: r.Path(env.task), Field: "code"}
+		return *new(code__Report), ergo__WireMissingField{Path: r.Path(env.task), Field: "code"}
 	}
 	if !seen_4 {
-		return *new(code__Report), WireMissingField{Path: r.Path(env.task), Field: "binds"}
+		return *new(code__Report), ergo__WireMissingField{Path: r.Path(env.task), Field: "binds"}
 	}
 	if !seen_5 {
-		return *new(code__Report), WireMissingField{Path: r.Path(env.task), Field: "workspace"}
+		return *new(code__Report), ergo__WireMissingField{Path: r.Path(env.task), Field: "workspace"}
 	}
 	return out, nil
 }
 
-func ergo__Decodereply(env *Env, r Reader) (reply, error) {
+func ergo__Decodereply(env *ergo__Env, r ergo__Reader) (reply, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(reply), err
 	}
@@ -3004,7 +3004,7 @@ func ergo__Decodereply(env *Env, r Reader) (reply, error) {
 		}
 		r.End(env.task)
 		if !seen {
-			return *new(reply), WireMissingField{Path: r.Path(env.task), Field: "report"}
+			return *new(reply), ergo__WireMissingField{Path: r.Path(env.task), Field: "report"}
 		}
 		return out, nil
 	case "replyText":
@@ -3026,7 +3026,7 @@ func ergo__Decodereply(env *Env, r Reader) (reply, error) {
 		}
 		r.End(env.task)
 		if !seen_1 {
-			return *new(reply), WireMissingField{Path: r.Path(env.task), Field: "text"}
+			return *new(reply), ergo__WireMissingField{Path: r.Path(env.task), Field: "text"}
 		}
 		return out_1, nil
 	case "replyFailed":
@@ -3048,14 +3048,14 @@ func ergo__Decodereply(env *Env, r Reader) (reply, error) {
 		}
 		r.End(env.task)
 		if !seen_2 {
-			return *new(reply), WireMissingField{Path: r.Path(env.task), Field: "reason"}
+			return *new(reply), ergo__WireMissingField{Path: r.Path(env.task), Field: "reason"}
 		}
 		return out_2, nil
 	}
-	return *new(reply), WireUnknownTag{Path: r.Path(env.task), Tag: tag}
+	return *new(reply), ergo__WireUnknownTag{Path: r.Path(env.task), Tag: tag}
 }
 
-func ergo__WriteDecl(env *Env, wv json__text, v code__Decl) json__text {
+func ergo__WriteDecl(env *ergo__Env, wv json__text, v code__Decl) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"handle\":"))
@@ -3079,7 +3079,7 @@ func ergo__WriteDecl(env *Env, wv json__text, v code__Decl) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_9(env *Env, wv json__text, v []code__Decl) json__text {
+func ergo__WriteSlice_9(env *ergo__Env, wv json__text, v []code__Decl) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3093,7 +3093,7 @@ func ergo__WriteSlice_9(env *Env, wv json__text, v []code__Decl) json__text {
 	return wv
 }
 
-func ergo__WriteSite(env *Env, wv json__text, v code__Site) json__text {
+func ergo__WriteSite(env *ergo__Env, wv json__text, v code__Site) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"symbol\":"))
@@ -3115,7 +3115,7 @@ func ergo__WriteSite(env *Env, wv json__text, v code__Site) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_24(env *Env, wv json__text, v []code__Site) json__text {
+func ergo__WriteSlice_24(env *ergo__Env, wv json__text, v []code__Site) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3129,7 +3129,7 @@ func ergo__WriteSlice_24(env *Env, wv json__text, v []code__Site) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_34(env *Env, wv json__text, v []string) json__text {
+func ergo__WriteSlice_34(env *ergo__Env, wv json__text, v []string) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3145,7 +3145,7 @@ func ergo__WriteSlice_34(env *Env, wv json__text, v []string) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_29(env *Env, wv json__text, v []int) json__text {
+func ergo__WriteSlice_29(env *ergo__Env, wv json__text, v []int) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3161,7 +3161,7 @@ func ergo__WriteSlice_29(env *Env, wv json__text, v []int) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_34(env *Env, wv json__text, v []string) json__text {
+func ergo__WriteSlice_entry_34(env *ergo__Env, wv json__text, v []string) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3176,7 +3176,7 @@ func ergo__WriteSlice_entry_34(env *Env, wv json__text, v []string) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_29(env *Env, wv json__text, v []int) json__text {
+func ergo__WriteSlice_entry_29(env *ergo__Env, wv json__text, v []int) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3191,7 +3191,7 @@ func ergo__WriteSlice_entry_29(env *Env, wv json__text, v []int) json__text {
 	return wv
 }
 
-func ergo__WriteContract(env *Env, wv json__text, v code__Contract) json__text {
+func ergo__WriteContract(env *ergo__Env, wv json__text, v code__Contract) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"name\":"))
@@ -3226,7 +3226,7 @@ func ergo__WriteContract(env *Env, wv json__text, v code__Contract) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_8(env *Env, wv json__text, v []code__Contract) json__text {
+func ergo__WriteSlice_8(env *ergo__Env, wv json__text, v []code__Contract) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3240,7 +3240,7 @@ func ergo__WriteSlice_8(env *Env, wv json__text, v []code__Contract) json__text 
 	return wv
 }
 
-func ergo__WriteBinding(env *Env, wv json__text, v code__Binding) json__text {
+func ergo__WriteBinding(env *ergo__Env, wv json__text, v code__Binding) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"capability\":"))
@@ -3252,7 +3252,7 @@ func ergo__WriteBinding(env *Env, wv json__text, v code__Binding) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_5(env *Env, wv json__text, v []code__Binding) json__text {
+func ergo__WriteSlice_5(env *ergo__Env, wv json__text, v []code__Binding) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3266,7 +3266,7 @@ func ergo__WriteSlice_5(env *Env, wv json__text, v []code__Binding) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_5(env *Env, wv json__text, v []code__Binding) json__text {
+func ergo__WriteSlice_entry_5(env *ergo__Env, wv json__text, v []code__Binding) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3279,7 +3279,7 @@ func ergo__WriteSlice_entry_5(env *Env, wv json__text, v []code__Binding) json__
 	return wv
 }
 
-func ergo__WriteCall(env *Env, wv json__text, v code__Call) json__text {
+func ergo__WriteCall(env *ergo__Env, wv json__text, v code__Call) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"from\":"))
@@ -3316,7 +3316,7 @@ func ergo__WriteCall(env *Env, wv json__text, v code__Call) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_6(env *Env, wv json__text, v []code__Call) json__text {
+func ergo__WriteSlice_6(env *ergo__Env, wv json__text, v []code__Call) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3330,7 +3330,7 @@ func ergo__WriteSlice_6(env *Env, wv json__text, v []code__Call) json__text {
 	return wv
 }
 
-func ergo__WriteNeed(env *Env, wv json__text, v code__Need) json__text {
+func ergo__WriteNeed(env *ergo__Env, wv json__text, v code__Need) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"of\":"))
@@ -3342,7 +3342,7 @@ func ergo__WriteNeed(env *Env, wv json__text, v code__Need) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_19(env *Env, wv json__text, v []code__Need) json__text {
+func ergo__WriteSlice_19(env *ergo__Env, wv json__text, v []code__Need) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3356,7 +3356,7 @@ func ergo__WriteSlice_19(env *Env, wv json__text, v []code__Need) json__text {
 	return wv
 }
 
-func ergo__WriteFailing(env *Env, wv json__text, v code__Failing) json__text {
+func ergo__WriteFailing(env *ergo__Env, wv json__text, v code__Failing) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"of\":"))
@@ -3368,7 +3368,7 @@ func ergo__WriteFailing(env *Env, wv json__text, v code__Failing) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_13(env *Env, wv json__text, v []code__Failing) json__text {
+func ergo__WriteSlice_13(env *ergo__Env, wv json__text, v []code__Failing) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3382,7 +3382,7 @@ func ergo__WriteSlice_13(env *Env, wv json__text, v []code__Failing) json__text 
 	return wv
 }
 
-func ergo__WritePlace(env *Env, wv json__text, v code__Place) json__text {
+func ergo__WritePlace(env *ergo__Env, wv json__text, v code__Place) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"what\":"))
@@ -3396,7 +3396,7 @@ func ergo__WritePlace(env *Env, wv json__text, v code__Place) json__text {
 	return wv
 }
 
-func ergo__WritePlace_entry(env *Env, wv json__text, v code__Place) json__text {
+func ergo__WritePlace_entry(env *ergo__Env, wv json__text, v code__Place) json__text {
 	w := &wv
 	(w).raw(string("{\"what\":"))
 	(w).stringBody(string(v.What))
@@ -3409,7 +3409,7 @@ func ergo__WritePlace_entry(env *Env, wv json__text, v code__Place) json__text {
 	return wv
 }
 
-func ergo__WriteTransition(env *Env, wv json__text, v code__Transition) json__text {
+func ergo__WriteTransition(env *ergo__Env, wv json__text, v code__Transition) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"decision\":"))
@@ -3424,7 +3424,7 @@ func ergo__WriteTransition(env *Env, wv json__text, v code__Transition) json__te
 	return wv
 }
 
-func ergo__WriteSlice_27(env *Env, wv json__text, v []code__Transition) json__text {
+func ergo__WriteSlice_27(env *ergo__Env, wv json__text, v []code__Transition) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3438,7 +3438,7 @@ func ergo__WriteSlice_27(env *Env, wv json__text, v []code__Transition) json__te
 	return wv
 }
 
-func ergo__WriteAlt(env *Env, wv json__text, v code__Alt) json__text {
+func ergo__WriteAlt(env *ergo__Env, wv json__text, v code__Alt) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"states\":"))
@@ -3460,7 +3460,7 @@ func ergo__WriteAlt(env *Env, wv json__text, v code__Alt) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_1(env *Env, wv json__text, v []code__Alt) json__text {
+func ergo__WriteSlice_1(env *ergo__Env, wv json__text, v []code__Alt) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3474,7 +3474,7 @@ func ergo__WriteSlice_1(env *Env, wv json__text, v []code__Alt) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_27(env *Env, wv json__text, v []code__Transition) json__text {
+func ergo__WriteSlice_entry_27(env *ergo__Env, wv json__text, v []code__Transition) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3487,7 +3487,7 @@ func ergo__WriteSlice_entry_27(env *Env, wv json__text, v []code__Transition) js
 	return wv
 }
 
-func ergo__WriteSlice_entry_1(env *Env, wv json__text, v []code__Alt) json__text {
+func ergo__WriteSlice_entry_1(env *ergo__Env, wv json__text, v []code__Alt) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3500,7 +3500,7 @@ func ergo__WriteSlice_entry_1(env *Env, wv json__text, v []code__Alt) json__text
 	return wv
 }
 
-func ergo__WriteArm(env *Env, wv json__text, v code__Arm) json__text {
+func ergo__WriteArm(env *ergo__Env, wv json__text, v code__Arm) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"at\":"))
@@ -3533,7 +3533,7 @@ func ergo__WriteArm(env *Env, wv json__text, v code__Arm) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_3(env *Env, wv json__text, v []code__Arm) json__text {
+func ergo__WriteSlice_3(env *ergo__Env, wv json__text, v []code__Arm) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3547,7 +3547,7 @@ func ergo__WriteSlice_3(env *Env, wv json__text, v []code__Arm) json__text {
 	return wv
 }
 
-func ergo__WriteTimer(env *Env, wv json__text, v code__Timer) json__text {
+func ergo__WriteTimer(env *ergo__Env, wv json__text, v code__Timer) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"state\":"))
@@ -3562,7 +3562,7 @@ func ergo__WriteTimer(env *Env, wv json__text, v code__Timer) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_26(env *Env, wv json__text, v []code__Timer) json__text {
+func ergo__WriteSlice_26(env *ergo__Env, wv json__text, v []code__Timer) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3576,7 +3576,7 @@ func ergo__WriteSlice_26(env *Env, wv json__text, v []code__Timer) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_22(env *Env, wv json__text, v []code__Place) json__text {
+func ergo__WriteSlice_22(env *ergo__Env, wv json__text, v []code__Place) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3590,7 +3590,7 @@ func ergo__WriteSlice_22(env *Env, wv json__text, v []code__Place) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_3(env *Env, wv json__text, v []code__Arm) json__text {
+func ergo__WriteSlice_entry_3(env *ergo__Env, wv json__text, v []code__Arm) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3603,7 +3603,7 @@ func ergo__WriteSlice_entry_3(env *Env, wv json__text, v []code__Arm) json__text
 	return wv
 }
 
-func ergo__WriteSlice_entry_26(env *Env, wv json__text, v []code__Timer) json__text {
+func ergo__WriteSlice_entry_26(env *ergo__Env, wv json__text, v []code__Timer) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3616,7 +3616,7 @@ func ergo__WriteSlice_entry_26(env *Env, wv json__text, v []code__Timer) json__t
 	return wv
 }
 
-func ergo__WriteSlice_entry_22(env *Env, wv json__text, v []code__Place) json__text {
+func ergo__WriteSlice_entry_22(env *ergo__Env, wv json__text, v []code__Place) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3629,7 +3629,7 @@ func ergo__WriteSlice_entry_22(env *Env, wv json__text, v []code__Place) json__t
 	return wv
 }
 
-func ergo__WriteMachineGraph(env *Env, wv json__text, v code__MachineGraph) json__text {
+func ergo__WriteMachineGraph(env *ergo__Env, wv json__text, v code__MachineGraph) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"handle\":"))
@@ -3670,7 +3670,7 @@ func ergo__WriteMachineGraph(env *Env, wv json__text, v code__MachineGraph) json
 	return wv
 }
 
-func ergo__WriteSlice_17(env *Env, wv json__text, v []code__MachineGraph) json__text {
+func ergo__WriteSlice_17(env *ergo__Env, wv json__text, v []code__MachineGraph) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3684,7 +3684,7 @@ func ergo__WriteSlice_17(env *Env, wv json__text, v []code__MachineGraph) json__
 	return wv
 }
 
-func ergo__WriteSlice_entry_9(env *Env, wv json__text, v []code__Decl) json__text {
+func ergo__WriteSlice_entry_9(env *ergo__Env, wv json__text, v []code__Decl) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3697,7 +3697,7 @@ func ergo__WriteSlice_entry_9(env *Env, wv json__text, v []code__Decl) json__tex
 	return wv
 }
 
-func ergo__WriteSlice_entry_24(env *Env, wv json__text, v []code__Site) json__text {
+func ergo__WriteSlice_entry_24(env *ergo__Env, wv json__text, v []code__Site) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3710,7 +3710,7 @@ func ergo__WriteSlice_entry_24(env *Env, wv json__text, v []code__Site) json__te
 	return wv
 }
 
-func ergo__WriteSlice_entry_8(env *Env, wv json__text, v []code__Contract) json__text {
+func ergo__WriteSlice_entry_8(env *ergo__Env, wv json__text, v []code__Contract) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3723,7 +3723,7 @@ func ergo__WriteSlice_entry_8(env *Env, wv json__text, v []code__Contract) json_
 	return wv
 }
 
-func ergo__WriteSlice_entry_6(env *Env, wv json__text, v []code__Call) json__text {
+func ergo__WriteSlice_entry_6(env *ergo__Env, wv json__text, v []code__Call) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3736,7 +3736,7 @@ func ergo__WriteSlice_entry_6(env *Env, wv json__text, v []code__Call) json__tex
 	return wv
 }
 
-func ergo__WriteSlice_entry_19(env *Env, wv json__text, v []code__Need) json__text {
+func ergo__WriteSlice_entry_19(env *ergo__Env, wv json__text, v []code__Need) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3749,7 +3749,7 @@ func ergo__WriteSlice_entry_19(env *Env, wv json__text, v []code__Need) json__te
 	return wv
 }
 
-func ergo__WriteSlice_entry_13(env *Env, wv json__text, v []code__Failing) json__text {
+func ergo__WriteSlice_entry_13(env *ergo__Env, wv json__text, v []code__Failing) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3762,7 +3762,7 @@ func ergo__WriteSlice_entry_13(env *Env, wv json__text, v []code__Failing) json_
 	return wv
 }
 
-func ergo__WriteSlice_entry_17(env *Env, wv json__text, v []code__MachineGraph) json__text {
+func ergo__WriteSlice_entry_17(env *ergo__Env, wv json__text, v []code__MachineGraph) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3775,7 +3775,7 @@ func ergo__WriteSlice_entry_17(env *Env, wv json__text, v []code__MachineGraph) 
 	return wv
 }
 
-func ergo__WritePackage(env *Env, wv json__text, v code__Package) json__text {
+func ergo__WritePackage(env *ergo__Env, wv json__text, v code__Package) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"path\":"))
@@ -3816,7 +3816,7 @@ func ergo__WritePackage(env *Env, wv json__text, v code__Package) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_20(env *Env, wv json__text, v []code__Package) json__text {
+func ergo__WriteSlice_20(env *ergo__Env, wv json__text, v []code__Package) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3830,7 +3830,7 @@ func ergo__WriteSlice_20(env *Env, wv json__text, v []code__Package) json__text 
 	return wv
 }
 
-func ergo__WriteSlice_entry_20(env *Env, wv json__text, v []code__Package) json__text {
+func ergo__WriteSlice_entry_20(env *ergo__Env, wv json__text, v []code__Package) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3843,7 +3843,7 @@ func ergo__WriteSlice_entry_20(env *Env, wv json__text, v []code__Package) json_
 	return wv
 }
 
-func ergo__WriteTables(env *Env, wv json__text, v code__Tables) json__text {
+func ergo__WriteTables(env *ergo__Env, wv json__text, v code__Tables) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -3858,7 +3858,7 @@ func ergo__WriteTables(env *Env, wv json__text, v code__Tables) json__text {
 	return wv
 }
 
-func ergo__WriteExtent(env *Env, wv json__text, v code__Extent) json__text {
+func ergo__WriteExtent(env *ergo__Env, wv json__text, v code__Extent) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"handle\":"))
@@ -3874,7 +3874,7 @@ func ergo__WriteExtent(env *Env, wv json__text, v code__Extent) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_12(env *Env, wv json__text, v []code__Extent) json__text {
+func ergo__WriteSlice_12(env *ergo__Env, wv json__text, v []code__Extent) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3888,7 +3888,7 @@ func ergo__WriteSlice_12(env *Env, wv json__text, v []code__Extent) json__text {
 	return wv
 }
 
-func ergo__WriteEdit(env *Env, wv json__text, v code__Edit) json__text {
+func ergo__WriteEdit(env *ergo__Env, wv json__text, v code__Edit) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"file\":"))
@@ -3904,7 +3904,7 @@ func ergo__WriteEdit(env *Env, wv json__text, v code__Edit) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_11(env *Env, wv json__text, v []code__Edit) json__text {
+func ergo__WriteSlice_11(env *ergo__Env, wv json__text, v []code__Edit) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3918,7 +3918,7 @@ func ergo__WriteSlice_11(env *Env, wv json__text, v []code__Edit) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_11(env *Env, wv json__text, v []code__Edit) json__text {
+func ergo__WriteSlice_entry_11(env *ergo__Env, wv json__text, v []code__Edit) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -3931,7 +3931,7 @@ func ergo__WriteSlice_entry_11(env *Env, wv json__text, v []code__Edit) json__te
 	return wv
 }
 
-func ergo__WriteDiagnostic(env *Env, wv json__text, v code__Diagnostic) json__text {
+func ergo__WriteDiagnostic(env *ergo__Env, wv json__text, v code__Diagnostic) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"code\":"))
@@ -3952,7 +3952,7 @@ func ergo__WriteDiagnostic(env *Env, wv json__text, v code__Diagnostic) json__te
 	return wv
 }
 
-func ergo__WriteSlice_10(env *Env, wv json__text, v []code__Diagnostic) json__text {
+func ergo__WriteSlice_10(env *ergo__Env, wv json__text, v []code__Diagnostic) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3966,7 +3966,7 @@ func ergo__WriteSlice_10(env *Env, wv json__text, v []code__Diagnostic) json__te
 	return wv
 }
 
-func ergo__WriteBind(env *Env, wv json__text, v code__Bind) json__text {
+func ergo__WriteBind(env *ergo__Env, wv json__text, v code__Bind) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"op\":"))
@@ -3978,7 +3978,7 @@ func ergo__WriteBind(env *Env, wv json__text, v code__Bind) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_4(env *Env, wv json__text, v []code__Bind) json__text {
+func ergo__WriteSlice_4(env *ergo__Env, wv json__text, v []code__Bind) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -3992,7 +3992,7 @@ func ergo__WriteSlice_4(env *Env, wv json__text, v []code__Bind) json__text {
 	return wv
 }
 
-func ergo__WriteTables_entry(env *Env, wv json__text, v code__Tables) json__text {
+func ergo__WriteTables_entry(env *ergo__Env, wv json__text, v code__Tables) json__text {
 	w := &wv
 	(w).raw(string("{\"revision\":"))
 	(w).stringBody(string(v.Revision))
@@ -4006,7 +4006,7 @@ func ergo__WriteTables_entry(env *Env, wv json__text, v code__Tables) json__text
 	return wv
 }
 
-func ergo__WriteSlice_entry_12(env *Env, wv json__text, v []code__Extent) json__text {
+func ergo__WriteSlice_entry_12(env *ergo__Env, wv json__text, v []code__Extent) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -4019,7 +4019,7 @@ func ergo__WriteSlice_entry_12(env *Env, wv json__text, v []code__Extent) json__
 	return wv
 }
 
-func ergo__WriteSlice_entry_10(env *Env, wv json__text, v []code__Diagnostic) json__text {
+func ergo__WriteSlice_entry_10(env *ergo__Env, wv json__text, v []code__Diagnostic) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -4032,7 +4032,7 @@ func ergo__WriteSlice_entry_10(env *Env, wv json__text, v []code__Diagnostic) js
 	return wv
 }
 
-func ergo__WriteSlice_entry_4(env *Env, wv json__text, v []code__Bind) json__text {
+func ergo__WriteSlice_entry_4(env *ergo__Env, wv json__text, v []code__Bind) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -4045,7 +4045,7 @@ func ergo__WriteSlice_entry_4(env *Env, wv json__text, v []code__Bind) json__tex
 	return wv
 }
 
-func ergo__WriteReport(env *Env, wv json__text, v code__Report) json__text {
+func ergo__WriteReport(env *ergo__Env, wv json__text, v code__Report) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"tables\":"))
@@ -4074,7 +4074,7 @@ func ergo__WriteReport(env *Env, wv json__text, v code__Report) json__text {
 	return wv
 }
 
-func ergo__WriteReport_entry(env *Env, wv json__text, v code__Report) json__text {
+func ergo__WriteReport_entry(env *ergo__Env, wv json__text, v code__Report) json__text {
 	w := &wv
 	(w).raw(string("{\"tables\":"))
 	(w).setComma(bool(false))
@@ -4102,7 +4102,7 @@ func ergo__WriteReport_entry(env *Env, wv json__text, v code__Report) json__text
 	return wv
 }
 
-func ergo__Writereply(env *Env, wv json__text, v reply) json__text {
+func ergo__Writereply(env *ergo__Env, wv json__text, v reply) json__text {
 	w := &wv
 	switch x := v.(type) {
 	case replyReport:
@@ -4128,7 +4128,7 @@ func ergo__Writereply(env *Env, wv json__text, v reply) json__text {
 	return wv
 }
 
-func ergo__ReadDecl(env *Env, r http__queryReader) (code__Decl, error) {
+func ergo__ReadDecl(env *ergo__Env, r http__queryReader) (code__Decl, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Decl), err
 	}
@@ -4206,33 +4206,33 @@ func ergo__ReadDecl(env *Env, r http__queryReader) (code__Decl, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_3 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_4 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "exported"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "exported"}
 	}
 	if !seen_5 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_6 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_7 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_9(env *Env, r http__queryReader) ([]code__Decl, error) {
+func ergo__ReadSlice_9(env *ergo__Env, r http__queryReader) ([]code__Decl, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Decl), err
 	}
@@ -4248,7 +4248,7 @@ func ergo__ReadSlice_9(env *Env, r http__queryReader) ([]code__Decl, error) {
 	return out, nil
 }
 
-func ergo__ReadSite(env *Env, r http__queryReader) (code__Site, error) {
+func ergo__ReadSite(env *ergo__Env, r http__queryReader) (code__Site, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Site), err
 	}
@@ -4318,30 +4318,30 @@ func ergo__ReadSite(env *Env, r http__queryReader) (code__Site, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "symbol"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "symbol"}
 	}
 	if !seen_1 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_3 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_4 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_5 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_6 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "in"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "in"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_24(env *Env, r http__queryReader) ([]code__Site, error) {
+func ergo__ReadSlice_24(env *ergo__Env, r http__queryReader) ([]code__Site, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Site), err
 	}
@@ -4357,7 +4357,7 @@ func ergo__ReadSlice_24(env *Env, r http__queryReader) ([]code__Site, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_34(env *Env, r http__queryReader) ([]string, error) {
+func ergo__ReadSlice_34(env *ergo__Env, r http__queryReader) ([]string, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]string), err
 	}
@@ -4374,7 +4374,7 @@ func ergo__ReadSlice_34(env *Env, r http__queryReader) ([]string, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_29(env *Env, r http__queryReader) ([]int, error) {
+func ergo__ReadSlice_29(env *ergo__Env, r http__queryReader) ([]int, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]int), err
 	}
@@ -4391,7 +4391,7 @@ func ergo__ReadSlice_29(env *Env, r http__queryReader) ([]int, error) {
 	return out, nil
 }
 
-func ergo__ReadContract(env *Env, r http__queryReader) (code__Contract, error) {
+func ergo__ReadContract(env *ergo__Env, r http__queryReader) (code__Contract, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Contract), err
 	}
@@ -4481,39 +4481,39 @@ func ergo__ReadContract(env *Env, r http__queryReader) (code__Contract, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "signature"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "signature"}
 	}
 	if !seen_2 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "typeParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "typeParameters"}
 	}
 	if !seen_3 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "fails"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "fails"}
 	}
 	if !seen_4 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "needs"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "needs"}
 	}
 	if !seen_5 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takes"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takes"}
 	}
 	if !seen_6 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesParameters"}
 	}
 	if !seen_7 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesSelf"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesSelf"}
 	}
 	if !seen_8 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesInferred"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesInferred"}
 	}
 	if !seen_9 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "own"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "own"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_8(env *Env, r http__queryReader) ([]code__Contract, error) {
+func ergo__ReadSlice_8(env *ergo__Env, r http__queryReader) ([]code__Contract, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Contract), err
 	}
@@ -4529,7 +4529,7 @@ func ergo__ReadSlice_8(env *Env, r http__queryReader) ([]code__Contract, error) 
 	return out, nil
 }
 
-func ergo__ReadBinding(env *Env, r http__queryReader) (code__Binding, error) {
+func ergo__ReadBinding(env *ergo__Env, r http__queryReader) (code__Binding, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Binding), err
 	}
@@ -4559,15 +4559,15 @@ func ergo__ReadBinding(env *Env, r http__queryReader) (code__Binding, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Binding), WireMissingField{Path: (r).Path(env), Field: "capability"}
+		return *new(code__Binding), ergo__WireMissingField{Path: (r).Path(env), Field: "capability"}
 	}
 	if !seen_1 {
-		return *new(code__Binding), WireMissingField{Path: (r).Path(env), Field: "provider"}
+		return *new(code__Binding), ergo__WireMissingField{Path: (r).Path(env), Field: "provider"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_5(env *Env, r http__queryReader) ([]code__Binding, error) {
+func ergo__ReadSlice_5(env *ergo__Env, r http__queryReader) ([]code__Binding, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Binding), err
 	}
@@ -4583,7 +4583,7 @@ func ergo__ReadSlice_5(env *Env, r http__queryReader) ([]code__Binding, error) {
 	return out, nil
 }
 
-func ergo__ReadCall(env *Env, r http__queryReader) (code__Call, error) {
+func ergo__ReadCall(env *ergo__Env, r http__queryReader) (code__Call, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Call), err
 	}
@@ -4672,39 +4672,39 @@ func ergo__ReadCall(env *Env, r http__queryReader) (code__Call, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "from"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_1 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "to"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "brings"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "brings"}
 	}
 	if !seen_6 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "discharged"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "discharged"}
 	}
 	if !seen_7 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "bound"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "bound"}
 	}
 	if !seen_8 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "raises"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "raises"}
 	}
 	if !seen_9 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "caught"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "caught"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_6(env *Env, r http__queryReader) ([]code__Call, error) {
+func ergo__ReadSlice_6(env *ergo__Env, r http__queryReader) ([]code__Call, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Call), err
 	}
@@ -4720,7 +4720,7 @@ func ergo__ReadSlice_6(env *Env, r http__queryReader) ([]code__Call, error) {
 	return out, nil
 }
 
-func ergo__ReadNeed(env *Env, r http__queryReader) (code__Need, error) {
+func ergo__ReadNeed(env *ergo__Env, r http__queryReader) (code__Need, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Need), err
 	}
@@ -4750,15 +4750,15 @@ func ergo__ReadNeed(env *Env, r http__queryReader) (code__Need, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Need), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__Need), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Need), WireMissingField{Path: (r).Path(env), Field: "capability"}
+		return *new(code__Need), ergo__WireMissingField{Path: (r).Path(env), Field: "capability"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_19(env *Env, r http__queryReader) ([]code__Need, error) {
+func ergo__ReadSlice_19(env *ergo__Env, r http__queryReader) ([]code__Need, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Need), err
 	}
@@ -4774,7 +4774,7 @@ func ergo__ReadSlice_19(env *Env, r http__queryReader) ([]code__Need, error) {
 	return out, nil
 }
 
-func ergo__ReadFailing(env *Env, r http__queryReader) (code__Failing, error) {
+func ergo__ReadFailing(env *ergo__Env, r http__queryReader) (code__Failing, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Failing), err
 	}
@@ -4804,15 +4804,15 @@ func ergo__ReadFailing(env *Env, r http__queryReader) (code__Failing, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Failing), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__Failing), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Failing), WireMissingField{Path: (r).Path(env), Field: "failure"}
+		return *new(code__Failing), ergo__WireMissingField{Path: (r).Path(env), Field: "failure"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_13(env *Env, r http__queryReader) ([]code__Failing, error) {
+func ergo__ReadSlice_13(env *ergo__Env, r http__queryReader) ([]code__Failing, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Failing), err
 	}
@@ -4828,7 +4828,7 @@ func ergo__ReadSlice_13(env *Env, r http__queryReader) ([]code__Failing, error) 
 	return out, nil
 }
 
-func ergo__ReadPlace(env *Env, r http__queryReader) (code__Place, error) {
+func ergo__ReadPlace(env *ergo__Env, r http__queryReader) (code__Place, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Place), err
 	}
@@ -4866,18 +4866,18 @@ func ergo__ReadPlace(env *Env, r http__queryReader) (code__Place, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "what"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "what"}
 	}
 	if !seen_1 {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	return out, nil
 }
 
-func ergo__ReadTransition(env *Env, r http__queryReader) (code__Transition, error) {
+func ergo__ReadTransition(env *ergo__Env, r http__queryReader) (code__Transition, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Transition), err
 	}
@@ -4914,18 +4914,18 @@ func ergo__ReadTransition(env *Env, r http__queryReader) (code__Transition, erro
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "decision"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "decision"}
 	}
 	if !seen_1 {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "to"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_27(env *Env, r http__queryReader) ([]code__Transition, error) {
+func ergo__ReadSlice_27(env *ergo__Env, r http__queryReader) ([]code__Transition, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Transition), err
 	}
@@ -4941,7 +4941,7 @@ func ergo__ReadSlice_27(env *Env, r http__queryReader) ([]code__Transition, erro
 	return out, nil
 }
 
-func ergo__ReadAlt(env *Env, r http__queryReader) (code__Alt, error) {
+func ergo__ReadAlt(env *ergo__Env, r http__queryReader) (code__Alt, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Alt), err
 	}
@@ -4993,24 +4993,24 @@ func ergo__ReadAlt(env *Env, r http__queryReader) (code__Alt, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_1 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "anyState"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "anyState"}
 	}
 	if !seen_2 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_3 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "anySignal"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "anySignal"}
 	}
 	if !seen_4 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "partial"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "partial"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_1(env *Env, r http__queryReader) ([]code__Alt, error) {
+func ergo__ReadSlice_1(env *ergo__Env, r http__queryReader) ([]code__Alt, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Alt), err
 	}
@@ -5026,7 +5026,7 @@ func ergo__ReadSlice_1(env *Env, r http__queryReader) ([]code__Alt, error) {
 	return out, nil
 }
 
-func ergo__ReadArm(env *Env, r http__queryReader) (code__Arm, error) {
+func ergo__ReadArm(env *ergo__Env, r http__queryReader) (code__Arm, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Arm), err
 	}
@@ -5099,33 +5099,33 @@ func ergo__ReadArm(env *Env, r http__queryReader) (code__Arm, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	if !seen_1 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_2 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "anyState"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "anyState"}
 	}
 	if !seen_3 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "anySignal"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "anySignal"}
 	}
 	if !seen_5 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "partial"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "partial"}
 	}
 	if !seen_6 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "edges"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "edges"}
 	}
 	if !seen_7 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "alts"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "alts"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_3(env *Env, r http__queryReader) ([]code__Arm, error) {
+func ergo__ReadSlice_3(env *ergo__Env, r http__queryReader) ([]code__Arm, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Arm), err
 	}
@@ -5141,7 +5141,7 @@ func ergo__ReadSlice_3(env *Env, r http__queryReader) ([]code__Arm, error) {
 	return out, nil
 }
 
-func ergo__ReadTimer(env *Env, r http__queryReader) (code__Timer, error) {
+func ergo__ReadTimer(env *ergo__Env, r http__queryReader) (code__Timer, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Timer), err
 	}
@@ -5178,18 +5178,18 @@ func ergo__ReadTimer(env *Env, r http__queryReader) (code__Timer, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "state"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "signal"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_26(env *Env, r http__queryReader) ([]code__Timer, error) {
+func ergo__ReadSlice_26(env *ergo__Env, r http__queryReader) ([]code__Timer, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Timer), err
 	}
@@ -5205,7 +5205,7 @@ func ergo__ReadSlice_26(env *Env, r http__queryReader) ([]code__Timer, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_22(env *Env, r http__queryReader) ([]code__Place, error) {
+func ergo__ReadSlice_22(env *ergo__Env, r http__queryReader) ([]code__Place, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Place), err
 	}
@@ -5221,7 +5221,7 @@ func ergo__ReadSlice_22(env *Env, r http__queryReader) ([]code__Place, error) {
 	return out, nil
 }
 
-func ergo__ReadMachineGraph(env *Env, r http__queryReader) (code__MachineGraph, error) {
+func ergo__ReadMachineGraph(env *ergo__Env, r http__queryReader) (code__MachineGraph, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__MachineGraph), err
 	}
@@ -5308,39 +5308,39 @@ func ergo__ReadMachineGraph(env *Env, r http__queryReader) (code__MachineGraph, 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_2 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_3 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "initial"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "initial"}
 	}
 	if !seen_5 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "arms"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "arms"}
 	}
 	if !seen_6 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "timers"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "timers"}
 	}
 	if !seen_7 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "work"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "work"}
 	}
 	if !seen_8 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "exit"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "exit"}
 	}
 	if !seen_9 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "unsure"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "unsure"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_17(env *Env, r http__queryReader) ([]code__MachineGraph, error) {
+func ergo__ReadSlice_17(env *ergo__Env, r http__queryReader) ([]code__MachineGraph, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__MachineGraph), err
 	}
@@ -5356,7 +5356,7 @@ func ergo__ReadSlice_17(env *Env, r http__queryReader) ([]code__MachineGraph, er
 	return out, nil
 }
 
-func ergo__ReadPackage(env *Env, r http__queryReader) (code__Package, error) {
+func ergo__ReadPackage(env *ergo__Env, r http__queryReader) (code__Package, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Package), err
 	}
@@ -5443,39 +5443,39 @@ func ergo__ReadPackage(env *Env, r http__queryReader) (code__Package, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "path"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
 	}
 	if !seen_1 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "decls"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "decls"}
 	}
 	if !seen_4 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	if !seen_5 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "contracts"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "contracts"}
 	}
 	if !seen_6 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "calls"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "calls"}
 	}
 	if !seen_7 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "needs"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "needs"}
 	}
 	if !seen_8 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "fails"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "fails"}
 	}
 	if !seen_9 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "machines"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "machines"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_20(env *Env, r http__queryReader) ([]code__Package, error) {
+func ergo__ReadSlice_20(env *ergo__Env, r http__queryReader) ([]code__Package, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Package), err
 	}
@@ -5491,7 +5491,7 @@ func ergo__ReadSlice_20(env *Env, r http__queryReader) ([]code__Package, error) 
 	return out, nil
 }
 
-func ergo__ReadTables(env *Env, r http__queryReader) (code__Tables, error) {
+func ergo__ReadTables(env *ergo__Env, r http__queryReader) (code__Tables, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Tables), err
 	}
@@ -5528,18 +5528,18 @@ func ergo__ReadTables(env *Env, r http__queryReader) (code__Tables, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "root"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "root"}
 	}
 	if !seen_2 {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "packages"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
 	}
 	return out, nil
 }
 
-func ergo__ReadExtent(env *Env, r http__queryReader) (code__Extent, error) {
+func ergo__ReadExtent(env *ergo__Env, r http__queryReader) (code__Extent, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Extent), err
 	}
@@ -5585,21 +5585,21 @@ func ergo__ReadExtent(env *Env, r http__queryReader) (code__Extent, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "start"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "start"}
 	}
 	if !seen_3 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "end"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "end"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_12(env *Env, r http__queryReader) ([]code__Extent, error) {
+func ergo__ReadSlice_12(env *ergo__Env, r http__queryReader) ([]code__Extent, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Extent), err
 	}
@@ -5615,7 +5615,7 @@ func ergo__ReadSlice_12(env *Env, r http__queryReader) ([]code__Extent, error) {
 	return out, nil
 }
 
-func ergo__ReadEdit(env *Env, r http__queryReader) (code__Edit, error) {
+func ergo__ReadEdit(env *ergo__Env, r http__queryReader) (code__Edit, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Edit), err
 	}
@@ -5661,21 +5661,21 @@ func ergo__ReadEdit(env *Env, r http__queryReader) (code__Edit, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "start"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "start"}
 	}
 	if !seen_2 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "end"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "end"}
 	}
 	if !seen_3 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_11(env *Env, r http__queryReader) ([]code__Edit, error) {
+func ergo__ReadSlice_11(env *ergo__Env, r http__queryReader) ([]code__Edit, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Edit), err
 	}
@@ -5691,7 +5691,7 @@ func ergo__ReadSlice_11(env *Env, r http__queryReader) ([]code__Edit, error) {
 	return out, nil
 }
 
-func ergo__ReadDiagnostic(env *Env, r http__queryReader) (code__Diagnostic, error) {
+func ergo__ReadDiagnostic(env *ergo__Env, r http__queryReader) (code__Diagnostic, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Diagnostic), err
 	}
@@ -5752,27 +5752,27 @@ func ergo__ReadDiagnostic(env *Env, r http__queryReader) (code__Diagnostic, erro
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "code"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "code"}
 	}
 	if !seen_1 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "message"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "message"}
 	}
 	if !seen_2 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "fix"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "fix"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_10(env *Env, r http__queryReader) ([]code__Diagnostic, error) {
+func ergo__ReadSlice_10(env *ergo__Env, r http__queryReader) ([]code__Diagnostic, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Diagnostic), err
 	}
@@ -5788,7 +5788,7 @@ func ergo__ReadSlice_10(env *Env, r http__queryReader) ([]code__Diagnostic, erro
 	return out, nil
 }
 
-func ergo__ReadBind(env *Env, r http__queryReader) (code__Bind, error) {
+func ergo__ReadBind(env *ergo__Env, r http__queryReader) (code__Bind, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Bind), err
 	}
@@ -5818,15 +5818,15 @@ func ergo__ReadBind(env *Env, r http__queryReader) (code__Bind, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Bind), WireMissingField{Path: (r).Path(env), Field: "op"}
+		return *new(code__Bind), ergo__WireMissingField{Path: (r).Path(env), Field: "op"}
 	}
 	if !seen_1 {
-		return *new(code__Bind), WireMissingField{Path: (r).Path(env), Field: "by"}
+		return *new(code__Bind), ergo__WireMissingField{Path: (r).Path(env), Field: "by"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_4(env *Env, r http__queryReader) ([]code__Bind, error) {
+func ergo__ReadSlice_4(env *ergo__Env, r http__queryReader) ([]code__Bind, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Bind), err
 	}
@@ -5842,7 +5842,7 @@ func ergo__ReadSlice_4(env *Env, r http__queryReader) ([]code__Bind, error) {
 	return out, nil
 }
 
-func ergo__ReadReport(env *Env, r http__queryReader) (code__Report, error) {
+func ergo__ReadReport(env *ergo__Env, r http__queryReader) (code__Report, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Report), err
 	}
@@ -5899,27 +5899,27 @@ func ergo__ReadReport(env *Env, r http__queryReader) (code__Report, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "tables"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "tables"}
 	}
 	if !seen_1 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "extents"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "extents"}
 	}
 	if !seen_2 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "code"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "code"}
 	}
 	if !seen_4 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "binds"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "binds"}
 	}
 	if !seen_5 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "workspace"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "workspace"}
 	}
 	return out, nil
 }
 
-func ergo__Readreply(env *Env, r http__queryReader) (reply, error) {
+func ergo__Readreply(env *ergo__Env, r http__queryReader) (reply, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(reply), err
 	}
@@ -5946,7 +5946,7 @@ func ergo__Readreply(env *Env, r http__queryReader) (reply, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "report"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "report"}
 		}
 		return out, nil
 	case "replyText":
@@ -5968,7 +5968,7 @@ func ergo__Readreply(env *Env, r http__queryReader) (reply, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	case "replyFailed":
@@ -5990,14 +5990,14 @@ func ergo__Readreply(env *Env, r http__queryReader) (reply, error) {
 		}
 		(r).End(env)
 		if !seen_2 {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "reason"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "reason"}
 		}
 		return out_2, nil
 	}
-	return *new(reply), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(reply), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadDecl_1(env *Env, r json__Reader_1) (code__Decl, error) {
+func ergo__ReadDecl_1(env *ergo__Env, r json__Reader_1) (code__Decl, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Decl), err
 	}
@@ -6075,33 +6075,33 @@ func ergo__ReadDecl_1(env *Env, r json__Reader_1) (code__Decl, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_3 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_4 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "exported"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "exported"}
 	}
 	if !seen_5 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_6 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_7 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_44(env *Env, r json__Reader_1) ([]code__Decl, error) {
+func ergo__ReadSlice_44(env *ergo__Env, r json__Reader_1) ([]code__Decl, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Decl), err
 	}
@@ -6117,7 +6117,7 @@ func ergo__ReadSlice_44(env *Env, r json__Reader_1) ([]code__Decl, error) {
 	return out, nil
 }
 
-func ergo__ReadSite_1(env *Env, r json__Reader_1) (code__Site, error) {
+func ergo__ReadSite_1(env *ergo__Env, r json__Reader_1) (code__Site, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Site), err
 	}
@@ -6187,30 +6187,30 @@ func ergo__ReadSite_1(env *Env, r json__Reader_1) (code__Site, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "symbol"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "symbol"}
 	}
 	if !seen_1 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_3 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_4 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_5 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_6 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "in"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "in"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_59(env *Env, r json__Reader_1) ([]code__Site, error) {
+func ergo__ReadSlice_59(env *ergo__Env, r json__Reader_1) ([]code__Site, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Site), err
 	}
@@ -6226,7 +6226,7 @@ func ergo__ReadSlice_59(env *Env, r json__Reader_1) ([]code__Site, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_69(env *Env, r json__Reader_1) ([]string, error) {
+func ergo__ReadSlice_69(env *ergo__Env, r json__Reader_1) ([]string, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]string), err
 	}
@@ -6243,7 +6243,7 @@ func ergo__ReadSlice_69(env *Env, r json__Reader_1) ([]string, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_64(env *Env, r json__Reader_1) ([]int, error) {
+func ergo__ReadSlice_64(env *ergo__Env, r json__Reader_1) ([]int, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]int), err
 	}
@@ -6260,7 +6260,7 @@ func ergo__ReadSlice_64(env *Env, r json__Reader_1) ([]int, error) {
 	return out, nil
 }
 
-func ergo__ReadContract_1(env *Env, r json__Reader_1) (code__Contract, error) {
+func ergo__ReadContract_1(env *ergo__Env, r json__Reader_1) (code__Contract, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Contract), err
 	}
@@ -6350,39 +6350,39 @@ func ergo__ReadContract_1(env *Env, r json__Reader_1) (code__Contract, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "signature"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "signature"}
 	}
 	if !seen_2 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "typeParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "typeParameters"}
 	}
 	if !seen_3 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "fails"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "fails"}
 	}
 	if !seen_4 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "needs"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "needs"}
 	}
 	if !seen_5 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takes"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takes"}
 	}
 	if !seen_6 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesParameters"}
 	}
 	if !seen_7 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesSelf"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesSelf"}
 	}
 	if !seen_8 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesInferred"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesInferred"}
 	}
 	if !seen_9 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "own"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "own"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_43(env *Env, r json__Reader_1) ([]code__Contract, error) {
+func ergo__ReadSlice_43(env *ergo__Env, r json__Reader_1) ([]code__Contract, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Contract), err
 	}
@@ -6398,7 +6398,7 @@ func ergo__ReadSlice_43(env *Env, r json__Reader_1) ([]code__Contract, error) {
 	return out, nil
 }
 
-func ergo__ReadBinding_1(env *Env, r json__Reader_1) (code__Binding, error) {
+func ergo__ReadBinding_1(env *ergo__Env, r json__Reader_1) (code__Binding, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Binding), err
 	}
@@ -6428,15 +6428,15 @@ func ergo__ReadBinding_1(env *Env, r json__Reader_1) (code__Binding, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Binding), WireMissingField{Path: (r).Path(env), Field: "capability"}
+		return *new(code__Binding), ergo__WireMissingField{Path: (r).Path(env), Field: "capability"}
 	}
 	if !seen_1 {
-		return *new(code__Binding), WireMissingField{Path: (r).Path(env), Field: "provider"}
+		return *new(code__Binding), ergo__WireMissingField{Path: (r).Path(env), Field: "provider"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_40(env *Env, r json__Reader_1) ([]code__Binding, error) {
+func ergo__ReadSlice_40(env *ergo__Env, r json__Reader_1) ([]code__Binding, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Binding), err
 	}
@@ -6452,7 +6452,7 @@ func ergo__ReadSlice_40(env *Env, r json__Reader_1) ([]code__Binding, error) {
 	return out, nil
 }
 
-func ergo__ReadCall_1(env *Env, r json__Reader_1) (code__Call, error) {
+func ergo__ReadCall_1(env *ergo__Env, r json__Reader_1) (code__Call, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Call), err
 	}
@@ -6541,39 +6541,39 @@ func ergo__ReadCall_1(env *Env, r json__Reader_1) (code__Call, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "from"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_1 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "to"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "brings"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "brings"}
 	}
 	if !seen_6 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "discharged"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "discharged"}
 	}
 	if !seen_7 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "bound"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "bound"}
 	}
 	if !seen_8 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "raises"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "raises"}
 	}
 	if !seen_9 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "caught"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "caught"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_41(env *Env, r json__Reader_1) ([]code__Call, error) {
+func ergo__ReadSlice_41(env *ergo__Env, r json__Reader_1) ([]code__Call, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Call), err
 	}
@@ -6589,7 +6589,7 @@ func ergo__ReadSlice_41(env *Env, r json__Reader_1) ([]code__Call, error) {
 	return out, nil
 }
 
-func ergo__ReadNeed_1(env *Env, r json__Reader_1) (code__Need, error) {
+func ergo__ReadNeed_1(env *ergo__Env, r json__Reader_1) (code__Need, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Need), err
 	}
@@ -6619,15 +6619,15 @@ func ergo__ReadNeed_1(env *Env, r json__Reader_1) (code__Need, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Need), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__Need), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Need), WireMissingField{Path: (r).Path(env), Field: "capability"}
+		return *new(code__Need), ergo__WireMissingField{Path: (r).Path(env), Field: "capability"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_54(env *Env, r json__Reader_1) ([]code__Need, error) {
+func ergo__ReadSlice_54(env *ergo__Env, r json__Reader_1) ([]code__Need, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Need), err
 	}
@@ -6643,7 +6643,7 @@ func ergo__ReadSlice_54(env *Env, r json__Reader_1) ([]code__Need, error) {
 	return out, nil
 }
 
-func ergo__ReadFailing_1(env *Env, r json__Reader_1) (code__Failing, error) {
+func ergo__ReadFailing_1(env *ergo__Env, r json__Reader_1) (code__Failing, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Failing), err
 	}
@@ -6673,15 +6673,15 @@ func ergo__ReadFailing_1(env *Env, r json__Reader_1) (code__Failing, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Failing), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__Failing), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Failing), WireMissingField{Path: (r).Path(env), Field: "failure"}
+		return *new(code__Failing), ergo__WireMissingField{Path: (r).Path(env), Field: "failure"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_48(env *Env, r json__Reader_1) ([]code__Failing, error) {
+func ergo__ReadSlice_48(env *ergo__Env, r json__Reader_1) ([]code__Failing, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Failing), err
 	}
@@ -6697,7 +6697,7 @@ func ergo__ReadSlice_48(env *Env, r json__Reader_1) ([]code__Failing, error) {
 	return out, nil
 }
 
-func ergo__ReadPlace_1(env *Env, r json__Reader_1) (code__Place, error) {
+func ergo__ReadPlace_1(env *ergo__Env, r json__Reader_1) (code__Place, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Place), err
 	}
@@ -6735,18 +6735,18 @@ func ergo__ReadPlace_1(env *Env, r json__Reader_1) (code__Place, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "what"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "what"}
 	}
 	if !seen_1 {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	return out, nil
 }
 
-func ergo__ReadTransition_1(env *Env, r json__Reader_1) (code__Transition, error) {
+func ergo__ReadTransition_1(env *ergo__Env, r json__Reader_1) (code__Transition, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Transition), err
 	}
@@ -6783,18 +6783,18 @@ func ergo__ReadTransition_1(env *Env, r json__Reader_1) (code__Transition, error
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "decision"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "decision"}
 	}
 	if !seen_1 {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "to"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_62(env *Env, r json__Reader_1) ([]code__Transition, error) {
+func ergo__ReadSlice_62(env *ergo__Env, r json__Reader_1) ([]code__Transition, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Transition), err
 	}
@@ -6810,7 +6810,7 @@ func ergo__ReadSlice_62(env *Env, r json__Reader_1) ([]code__Transition, error) 
 	return out, nil
 }
 
-func ergo__ReadAlt_1(env *Env, r json__Reader_1) (code__Alt, error) {
+func ergo__ReadAlt_1(env *ergo__Env, r json__Reader_1) (code__Alt, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Alt), err
 	}
@@ -6862,24 +6862,24 @@ func ergo__ReadAlt_1(env *Env, r json__Reader_1) (code__Alt, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_1 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "anyState"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "anyState"}
 	}
 	if !seen_2 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_3 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "anySignal"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "anySignal"}
 	}
 	if !seen_4 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "partial"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "partial"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_36(env *Env, r json__Reader_1) ([]code__Alt, error) {
+func ergo__ReadSlice_36(env *ergo__Env, r json__Reader_1) ([]code__Alt, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Alt), err
 	}
@@ -6895,7 +6895,7 @@ func ergo__ReadSlice_36(env *Env, r json__Reader_1) ([]code__Alt, error) {
 	return out, nil
 }
 
-func ergo__ReadArm_1(env *Env, r json__Reader_1) (code__Arm, error) {
+func ergo__ReadArm_1(env *ergo__Env, r json__Reader_1) (code__Arm, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Arm), err
 	}
@@ -6968,33 +6968,33 @@ func ergo__ReadArm_1(env *Env, r json__Reader_1) (code__Arm, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	if !seen_1 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_2 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "anyState"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "anyState"}
 	}
 	if !seen_3 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "anySignal"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "anySignal"}
 	}
 	if !seen_5 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "partial"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "partial"}
 	}
 	if !seen_6 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "edges"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "edges"}
 	}
 	if !seen_7 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "alts"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "alts"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_38(env *Env, r json__Reader_1) ([]code__Arm, error) {
+func ergo__ReadSlice_38(env *ergo__Env, r json__Reader_1) ([]code__Arm, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Arm), err
 	}
@@ -7010,7 +7010,7 @@ func ergo__ReadSlice_38(env *Env, r json__Reader_1) ([]code__Arm, error) {
 	return out, nil
 }
 
-func ergo__ReadTimer_1(env *Env, r json__Reader_1) (code__Timer, error) {
+func ergo__ReadTimer_1(env *ergo__Env, r json__Reader_1) (code__Timer, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Timer), err
 	}
@@ -7047,18 +7047,18 @@ func ergo__ReadTimer_1(env *Env, r json__Reader_1) (code__Timer, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "state"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "signal"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_61(env *Env, r json__Reader_1) ([]code__Timer, error) {
+func ergo__ReadSlice_61(env *ergo__Env, r json__Reader_1) ([]code__Timer, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Timer), err
 	}
@@ -7074,7 +7074,7 @@ func ergo__ReadSlice_61(env *Env, r json__Reader_1) ([]code__Timer, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_57(env *Env, r json__Reader_1) ([]code__Place, error) {
+func ergo__ReadSlice_57(env *ergo__Env, r json__Reader_1) ([]code__Place, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Place), err
 	}
@@ -7090,7 +7090,7 @@ func ergo__ReadSlice_57(env *Env, r json__Reader_1) ([]code__Place, error) {
 	return out, nil
 }
 
-func ergo__ReadMachineGraph_1(env *Env, r json__Reader_1) (code__MachineGraph, error) {
+func ergo__ReadMachineGraph_1(env *ergo__Env, r json__Reader_1) (code__MachineGraph, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__MachineGraph), err
 	}
@@ -7177,39 +7177,39 @@ func ergo__ReadMachineGraph_1(env *Env, r json__Reader_1) (code__MachineGraph, e
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_2 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_3 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "initial"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "initial"}
 	}
 	if !seen_5 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "arms"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "arms"}
 	}
 	if !seen_6 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "timers"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "timers"}
 	}
 	if !seen_7 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "work"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "work"}
 	}
 	if !seen_8 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "exit"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "exit"}
 	}
 	if !seen_9 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "unsure"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "unsure"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_52(env *Env, r json__Reader_1) ([]code__MachineGraph, error) {
+func ergo__ReadSlice_52(env *ergo__Env, r json__Reader_1) ([]code__MachineGraph, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__MachineGraph), err
 	}
@@ -7225,7 +7225,7 @@ func ergo__ReadSlice_52(env *Env, r json__Reader_1) ([]code__MachineGraph, error
 	return out, nil
 }
 
-func ergo__ReadPackage_1(env *Env, r json__Reader_1) (code__Package, error) {
+func ergo__ReadPackage_1(env *ergo__Env, r json__Reader_1) (code__Package, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Package), err
 	}
@@ -7312,39 +7312,39 @@ func ergo__ReadPackage_1(env *Env, r json__Reader_1) (code__Package, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "path"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
 	}
 	if !seen_1 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "decls"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "decls"}
 	}
 	if !seen_4 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	if !seen_5 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "contracts"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "contracts"}
 	}
 	if !seen_6 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "calls"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "calls"}
 	}
 	if !seen_7 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "needs"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "needs"}
 	}
 	if !seen_8 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "fails"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "fails"}
 	}
 	if !seen_9 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "machines"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "machines"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_55(env *Env, r json__Reader_1) ([]code__Package, error) {
+func ergo__ReadSlice_55(env *ergo__Env, r json__Reader_1) ([]code__Package, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Package), err
 	}
@@ -7360,7 +7360,7 @@ func ergo__ReadSlice_55(env *Env, r json__Reader_1) ([]code__Package, error) {
 	return out, nil
 }
 
-func ergo__ReadTables_1(env *Env, r json__Reader_1) (code__Tables, error) {
+func ergo__ReadTables_1(env *ergo__Env, r json__Reader_1) (code__Tables, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Tables), err
 	}
@@ -7397,18 +7397,18 @@ func ergo__ReadTables_1(env *Env, r json__Reader_1) (code__Tables, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "root"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "root"}
 	}
 	if !seen_2 {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "packages"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
 	}
 	return out, nil
 }
 
-func ergo__ReadExtent_1(env *Env, r json__Reader_1) (code__Extent, error) {
+func ergo__ReadExtent_1(env *ergo__Env, r json__Reader_1) (code__Extent, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Extent), err
 	}
@@ -7454,21 +7454,21 @@ func ergo__ReadExtent_1(env *Env, r json__Reader_1) (code__Extent, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "start"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "start"}
 	}
 	if !seen_3 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "end"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "end"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_47(env *Env, r json__Reader_1) ([]code__Extent, error) {
+func ergo__ReadSlice_47(env *ergo__Env, r json__Reader_1) ([]code__Extent, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Extent), err
 	}
@@ -7484,7 +7484,7 @@ func ergo__ReadSlice_47(env *Env, r json__Reader_1) ([]code__Extent, error) {
 	return out, nil
 }
 
-func ergo__ReadEdit_1(env *Env, r json__Reader_1) (code__Edit, error) {
+func ergo__ReadEdit_1(env *ergo__Env, r json__Reader_1) (code__Edit, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Edit), err
 	}
@@ -7530,21 +7530,21 @@ func ergo__ReadEdit_1(env *Env, r json__Reader_1) (code__Edit, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "start"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "start"}
 	}
 	if !seen_2 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "end"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "end"}
 	}
 	if !seen_3 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_46(env *Env, r json__Reader_1) ([]code__Edit, error) {
+func ergo__ReadSlice_46(env *ergo__Env, r json__Reader_1) ([]code__Edit, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Edit), err
 	}
@@ -7560,7 +7560,7 @@ func ergo__ReadSlice_46(env *Env, r json__Reader_1) ([]code__Edit, error) {
 	return out, nil
 }
 
-func ergo__ReadDiagnostic_1(env *Env, r json__Reader_1) (code__Diagnostic, error) {
+func ergo__ReadDiagnostic_1(env *ergo__Env, r json__Reader_1) (code__Diagnostic, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Diagnostic), err
 	}
@@ -7621,27 +7621,27 @@ func ergo__ReadDiagnostic_1(env *Env, r json__Reader_1) (code__Diagnostic, error
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "code"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "code"}
 	}
 	if !seen_1 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "message"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "message"}
 	}
 	if !seen_2 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "fix"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "fix"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_45(env *Env, r json__Reader_1) ([]code__Diagnostic, error) {
+func ergo__ReadSlice_45(env *ergo__Env, r json__Reader_1) ([]code__Diagnostic, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Diagnostic), err
 	}
@@ -7657,7 +7657,7 @@ func ergo__ReadSlice_45(env *Env, r json__Reader_1) ([]code__Diagnostic, error) 
 	return out, nil
 }
 
-func ergo__ReadBind_1(env *Env, r json__Reader_1) (code__Bind, error) {
+func ergo__ReadBind_1(env *ergo__Env, r json__Reader_1) (code__Bind, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Bind), err
 	}
@@ -7687,15 +7687,15 @@ func ergo__ReadBind_1(env *Env, r json__Reader_1) (code__Bind, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Bind), WireMissingField{Path: (r).Path(env), Field: "op"}
+		return *new(code__Bind), ergo__WireMissingField{Path: (r).Path(env), Field: "op"}
 	}
 	if !seen_1 {
-		return *new(code__Bind), WireMissingField{Path: (r).Path(env), Field: "by"}
+		return *new(code__Bind), ergo__WireMissingField{Path: (r).Path(env), Field: "by"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_39(env *Env, r json__Reader_1) ([]code__Bind, error) {
+func ergo__ReadSlice_39(env *ergo__Env, r json__Reader_1) ([]code__Bind, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Bind), err
 	}
@@ -7711,7 +7711,7 @@ func ergo__ReadSlice_39(env *Env, r json__Reader_1) ([]code__Bind, error) {
 	return out, nil
 }
 
-func ergo__ReadReport_1(env *Env, r json__Reader_1) (code__Report, error) {
+func ergo__ReadReport_1(env *ergo__Env, r json__Reader_1) (code__Report, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Report), err
 	}
@@ -7768,27 +7768,27 @@ func ergo__ReadReport_1(env *Env, r json__Reader_1) (code__Report, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "tables"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "tables"}
 	}
 	if !seen_1 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "extents"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "extents"}
 	}
 	if !seen_2 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "code"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "code"}
 	}
 	if !seen_4 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "binds"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "binds"}
 	}
 	if !seen_5 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "workspace"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "workspace"}
 	}
 	return out, nil
 }
 
-func ergo__Readreply_1(env *Env, r json__Reader_1) (reply, error) {
+func ergo__Readreply_1(env *ergo__Env, r json__Reader_1) (reply, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(reply), err
 	}
@@ -7815,7 +7815,7 @@ func ergo__Readreply_1(env *Env, r json__Reader_1) (reply, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "report"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "report"}
 		}
 		return out, nil
 	case "replyText":
@@ -7837,7 +7837,7 @@ func ergo__Readreply_1(env *Env, r json__Reader_1) (reply, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	case "replyFailed":
@@ -7859,14 +7859,14 @@ func ergo__Readreply_1(env *Env, r json__Reader_1) (reply, error) {
 		}
 		(r).End(env)
 		if !seen_2 {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "reason"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "reason"}
 		}
 		return out_2, nil
 	}
-	return *new(reply), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(reply), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadDecl_2(env *Env, r json__Stream) (code__Decl, error) {
+func ergo__ReadDecl_2(env *ergo__Env, r json__Stream) (code__Decl, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Decl), err
 	}
@@ -7944,33 +7944,33 @@ func ergo__ReadDecl_2(env *Env, r json__Stream) (code__Decl, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_3 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_4 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "exported"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "exported"}
 	}
 	if !seen_5 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_6 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_7 {
-		return *new(code__Decl), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Decl), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_79(env *Env, r json__Stream) ([]code__Decl, error) {
+func ergo__ReadSlice_79(env *ergo__Env, r json__Stream) ([]code__Decl, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Decl), err
 	}
@@ -7986,7 +7986,7 @@ func ergo__ReadSlice_79(env *Env, r json__Stream) ([]code__Decl, error) {
 	return out, nil
 }
 
-func ergo__ReadSite_2(env *Env, r json__Stream) (code__Site, error) {
+func ergo__ReadSite_2(env *ergo__Env, r json__Stream) (code__Site, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Site), err
 	}
@@ -8056,30 +8056,30 @@ func ergo__ReadSite_2(env *Env, r json__Stream) (code__Site, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "symbol"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "symbol"}
 	}
 	if !seen_1 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_3 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_4 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_5 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_6 {
-		return *new(code__Site), WireMissingField{Path: (r).Path(env), Field: "in"}
+		return *new(code__Site), ergo__WireMissingField{Path: (r).Path(env), Field: "in"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_94(env *Env, r json__Stream) ([]code__Site, error) {
+func ergo__ReadSlice_94(env *ergo__Env, r json__Stream) ([]code__Site, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Site), err
 	}
@@ -8095,7 +8095,7 @@ func ergo__ReadSlice_94(env *Env, r json__Stream) ([]code__Site, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_104(env *Env, r json__Stream) ([]string, error) {
+func ergo__ReadSlice_104(env *ergo__Env, r json__Stream) ([]string, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]string), err
 	}
@@ -8112,7 +8112,7 @@ func ergo__ReadSlice_104(env *Env, r json__Stream) ([]string, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_99(env *Env, r json__Stream) ([]int, error) {
+func ergo__ReadSlice_99(env *ergo__Env, r json__Stream) ([]int, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]int), err
 	}
@@ -8129,7 +8129,7 @@ func ergo__ReadSlice_99(env *Env, r json__Stream) ([]int, error) {
 	return out, nil
 }
 
-func ergo__ReadContract_2(env *Env, r json__Stream) (code__Contract, error) {
+func ergo__ReadContract_2(env *ergo__Env, r json__Stream) (code__Contract, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Contract), err
 	}
@@ -8219,39 +8219,39 @@ func ergo__ReadContract_2(env *Env, r json__Stream) (code__Contract, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "signature"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "signature"}
 	}
 	if !seen_2 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "typeParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "typeParameters"}
 	}
 	if !seen_3 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "fails"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "fails"}
 	}
 	if !seen_4 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "needs"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "needs"}
 	}
 	if !seen_5 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takes"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takes"}
 	}
 	if !seen_6 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesParameters"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesParameters"}
 	}
 	if !seen_7 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesSelf"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesSelf"}
 	}
 	if !seen_8 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "takesInferred"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "takesInferred"}
 	}
 	if !seen_9 {
-		return *new(code__Contract), WireMissingField{Path: (r).Path(env), Field: "own"}
+		return *new(code__Contract), ergo__WireMissingField{Path: (r).Path(env), Field: "own"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_78(env *Env, r json__Stream) ([]code__Contract, error) {
+func ergo__ReadSlice_78(env *ergo__Env, r json__Stream) ([]code__Contract, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Contract), err
 	}
@@ -8267,7 +8267,7 @@ func ergo__ReadSlice_78(env *Env, r json__Stream) ([]code__Contract, error) {
 	return out, nil
 }
 
-func ergo__ReadBinding_2(env *Env, r json__Stream) (code__Binding, error) {
+func ergo__ReadBinding_2(env *ergo__Env, r json__Stream) (code__Binding, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Binding), err
 	}
@@ -8297,15 +8297,15 @@ func ergo__ReadBinding_2(env *Env, r json__Stream) (code__Binding, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Binding), WireMissingField{Path: (r).Path(env), Field: "capability"}
+		return *new(code__Binding), ergo__WireMissingField{Path: (r).Path(env), Field: "capability"}
 	}
 	if !seen_1 {
-		return *new(code__Binding), WireMissingField{Path: (r).Path(env), Field: "provider"}
+		return *new(code__Binding), ergo__WireMissingField{Path: (r).Path(env), Field: "provider"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_75(env *Env, r json__Stream) ([]code__Binding, error) {
+func ergo__ReadSlice_75(env *ergo__Env, r json__Stream) ([]code__Binding, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Binding), err
 	}
@@ -8321,7 +8321,7 @@ func ergo__ReadSlice_75(env *Env, r json__Stream) ([]code__Binding, error) {
 	return out, nil
 }
 
-func ergo__ReadCall_2(env *Env, r json__Stream) (code__Call, error) {
+func ergo__ReadCall_2(env *ergo__Env, r json__Stream) (code__Call, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Call), err
 	}
@@ -8410,39 +8410,39 @@ func ergo__ReadCall_2(env *Env, r json__Stream) (code__Call, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "from"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_1 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "to"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "brings"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "brings"}
 	}
 	if !seen_6 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "discharged"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "discharged"}
 	}
 	if !seen_7 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "bound"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "bound"}
 	}
 	if !seen_8 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "raises"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "raises"}
 	}
 	if !seen_9 {
-		return *new(code__Call), WireMissingField{Path: (r).Path(env), Field: "caught"}
+		return *new(code__Call), ergo__WireMissingField{Path: (r).Path(env), Field: "caught"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_76(env *Env, r json__Stream) ([]code__Call, error) {
+func ergo__ReadSlice_76(env *ergo__Env, r json__Stream) ([]code__Call, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Call), err
 	}
@@ -8458,7 +8458,7 @@ func ergo__ReadSlice_76(env *Env, r json__Stream) ([]code__Call, error) {
 	return out, nil
 }
 
-func ergo__ReadNeed_2(env *Env, r json__Stream) (code__Need, error) {
+func ergo__ReadNeed_2(env *ergo__Env, r json__Stream) (code__Need, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Need), err
 	}
@@ -8488,15 +8488,15 @@ func ergo__ReadNeed_2(env *Env, r json__Stream) (code__Need, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Need), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__Need), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Need), WireMissingField{Path: (r).Path(env), Field: "capability"}
+		return *new(code__Need), ergo__WireMissingField{Path: (r).Path(env), Field: "capability"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_89(env *Env, r json__Stream) ([]code__Need, error) {
+func ergo__ReadSlice_89(env *ergo__Env, r json__Stream) ([]code__Need, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Need), err
 	}
@@ -8512,7 +8512,7 @@ func ergo__ReadSlice_89(env *Env, r json__Stream) ([]code__Need, error) {
 	return out, nil
 }
 
-func ergo__ReadFailing_2(env *Env, r json__Stream) (code__Failing, error) {
+func ergo__ReadFailing_2(env *ergo__Env, r json__Stream) (code__Failing, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Failing), err
 	}
@@ -8542,15 +8542,15 @@ func ergo__ReadFailing_2(env *Env, r json__Stream) (code__Failing, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Failing), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__Failing), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_1 {
-		return *new(code__Failing), WireMissingField{Path: (r).Path(env), Field: "failure"}
+		return *new(code__Failing), ergo__WireMissingField{Path: (r).Path(env), Field: "failure"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_83(env *Env, r json__Stream) ([]code__Failing, error) {
+func ergo__ReadSlice_83(env *ergo__Env, r json__Stream) ([]code__Failing, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Failing), err
 	}
@@ -8566,7 +8566,7 @@ func ergo__ReadSlice_83(env *Env, r json__Stream) ([]code__Failing, error) {
 	return out, nil
 }
 
-func ergo__ReadPlace_2(env *Env, r json__Stream) (code__Place, error) {
+func ergo__ReadPlace_2(env *ergo__Env, r json__Stream) (code__Place, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Place), err
 	}
@@ -8604,18 +8604,18 @@ func ergo__ReadPlace_2(env *Env, r json__Stream) (code__Place, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "what"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "what"}
 	}
 	if !seen_1 {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Place), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Place), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	return out, nil
 }
 
-func ergo__ReadTransition_2(env *Env, r json__Stream) (code__Transition, error) {
+func ergo__ReadTransition_2(env *ergo__Env, r json__Stream) (code__Transition, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Transition), err
 	}
@@ -8652,18 +8652,18 @@ func ergo__ReadTransition_2(env *Env, r json__Stream) (code__Transition, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "decision"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "decision"}
 	}
 	if !seen_1 {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "to"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(code__Transition), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Transition), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_97(env *Env, r json__Stream) ([]code__Transition, error) {
+func ergo__ReadSlice_97(env *ergo__Env, r json__Stream) ([]code__Transition, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Transition), err
 	}
@@ -8679,7 +8679,7 @@ func ergo__ReadSlice_97(env *Env, r json__Stream) ([]code__Transition, error) {
 	return out, nil
 }
 
-func ergo__ReadAlt_2(env *Env, r json__Stream) (code__Alt, error) {
+func ergo__ReadAlt_2(env *ergo__Env, r json__Stream) (code__Alt, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Alt), err
 	}
@@ -8731,24 +8731,24 @@ func ergo__ReadAlt_2(env *Env, r json__Stream) (code__Alt, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_1 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "anyState"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "anyState"}
 	}
 	if !seen_2 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_3 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "anySignal"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "anySignal"}
 	}
 	if !seen_4 {
-		return *new(code__Alt), WireMissingField{Path: (r).Path(env), Field: "partial"}
+		return *new(code__Alt), ergo__WireMissingField{Path: (r).Path(env), Field: "partial"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_71(env *Env, r json__Stream) ([]code__Alt, error) {
+func ergo__ReadSlice_71(env *ergo__Env, r json__Stream) ([]code__Alt, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Alt), err
 	}
@@ -8764,7 +8764,7 @@ func ergo__ReadSlice_71(env *Env, r json__Stream) ([]code__Alt, error) {
 	return out, nil
 }
 
-func ergo__ReadArm_2(env *Env, r json__Stream) (code__Arm, error) {
+func ergo__ReadArm_2(env *ergo__Env, r json__Stream) (code__Arm, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Arm), err
 	}
@@ -8837,33 +8837,33 @@ func ergo__ReadArm_2(env *Env, r json__Stream) (code__Arm, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	if !seen_1 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_2 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "anyState"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "anyState"}
 	}
 	if !seen_3 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "anySignal"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "anySignal"}
 	}
 	if !seen_5 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "partial"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "partial"}
 	}
 	if !seen_6 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "edges"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "edges"}
 	}
 	if !seen_7 {
-		return *new(code__Arm), WireMissingField{Path: (r).Path(env), Field: "alts"}
+		return *new(code__Arm), ergo__WireMissingField{Path: (r).Path(env), Field: "alts"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_73(env *Env, r json__Stream) ([]code__Arm, error) {
+func ergo__ReadSlice_73(env *ergo__Env, r json__Stream) ([]code__Arm, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Arm), err
 	}
@@ -8879,7 +8879,7 @@ func ergo__ReadSlice_73(env *Env, r json__Stream) ([]code__Arm, error) {
 	return out, nil
 }
 
-func ergo__ReadTimer_2(env *Env, r json__Stream) (code__Timer, error) {
+func ergo__ReadTimer_2(env *ergo__Env, r json__Stream) (code__Timer, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Timer), err
 	}
@@ -8916,18 +8916,18 @@ func ergo__ReadTimer_2(env *Env, r json__Stream) (code__Timer, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "state"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "signal"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Timer), WireMissingField{Path: (r).Path(env), Field: "at"}
+		return *new(code__Timer), ergo__WireMissingField{Path: (r).Path(env), Field: "at"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_96(env *Env, r json__Stream) ([]code__Timer, error) {
+func ergo__ReadSlice_96(env *ergo__Env, r json__Stream) ([]code__Timer, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Timer), err
 	}
@@ -8943,7 +8943,7 @@ func ergo__ReadSlice_96(env *Env, r json__Stream) ([]code__Timer, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_92(env *Env, r json__Stream) ([]code__Place, error) {
+func ergo__ReadSlice_92(env *ergo__Env, r json__Stream) ([]code__Place, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Place), err
 	}
@@ -8959,7 +8959,7 @@ func ergo__ReadSlice_92(env *Env, r json__Stream) ([]code__Place, error) {
 	return out, nil
 }
 
-func ergo__ReadMachineGraph_2(env *Env, r json__Stream) (code__MachineGraph, error) {
+func ergo__ReadMachineGraph_2(env *ergo__Env, r json__Stream) (code__MachineGraph, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__MachineGraph), err
 	}
@@ -9046,39 +9046,39 @@ func ergo__ReadMachineGraph_2(env *Env, r json__Stream) (code__MachineGraph, err
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_2 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "states"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "states"}
 	}
 	if !seen_3 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "signals"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "signals"}
 	}
 	if !seen_4 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "initial"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "initial"}
 	}
 	if !seen_5 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "arms"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "arms"}
 	}
 	if !seen_6 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "timers"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "timers"}
 	}
 	if !seen_7 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "work"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "work"}
 	}
 	if !seen_8 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "exit"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "exit"}
 	}
 	if !seen_9 {
-		return *new(code__MachineGraph), WireMissingField{Path: (r).Path(env), Field: "unsure"}
+		return *new(code__MachineGraph), ergo__WireMissingField{Path: (r).Path(env), Field: "unsure"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_87(env *Env, r json__Stream) ([]code__MachineGraph, error) {
+func ergo__ReadSlice_87(env *ergo__Env, r json__Stream) ([]code__MachineGraph, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__MachineGraph), err
 	}
@@ -9094,7 +9094,7 @@ func ergo__ReadSlice_87(env *Env, r json__Stream) ([]code__MachineGraph, error) 
 	return out, nil
 }
 
-func ergo__ReadPackage_2(env *Env, r json__Stream) (code__Package, error) {
+func ergo__ReadPackage_2(env *ergo__Env, r json__Stream) (code__Package, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Package), err
 	}
@@ -9181,39 +9181,39 @@ func ergo__ReadPackage_2(env *Env, r json__Stream) (code__Package, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "path"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
 	}
 	if !seen_1 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "decls"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "decls"}
 	}
 	if !seen_4 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	if !seen_5 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "contracts"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "contracts"}
 	}
 	if !seen_6 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "calls"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "calls"}
 	}
 	if !seen_7 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "needs"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "needs"}
 	}
 	if !seen_8 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "fails"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "fails"}
 	}
 	if !seen_9 {
-		return *new(code__Package), WireMissingField{Path: (r).Path(env), Field: "machines"}
+		return *new(code__Package), ergo__WireMissingField{Path: (r).Path(env), Field: "machines"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_90(env *Env, r json__Stream) ([]code__Package, error) {
+func ergo__ReadSlice_90(env *ergo__Env, r json__Stream) ([]code__Package, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Package), err
 	}
@@ -9229,7 +9229,7 @@ func ergo__ReadSlice_90(env *Env, r json__Stream) ([]code__Package, error) {
 	return out, nil
 }
 
-func ergo__ReadTables_2(env *Env, r json__Stream) (code__Tables, error) {
+func ergo__ReadTables_2(env *ergo__Env, r json__Stream) (code__Tables, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Tables), err
 	}
@@ -9266,18 +9266,18 @@ func ergo__ReadTables_2(env *Env, r json__Stream) (code__Tables, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "root"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "root"}
 	}
 	if !seen_2 {
-		return *new(code__Tables), WireMissingField{Path: (r).Path(env), Field: "packages"}
+		return *new(code__Tables), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
 	}
 	return out, nil
 }
 
-func ergo__ReadExtent_2(env *Env, r json__Stream) (code__Extent, error) {
+func ergo__ReadExtent_2(env *ergo__Env, r json__Stream) (code__Extent, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Extent), err
 	}
@@ -9323,21 +9323,21 @@ func ergo__ReadExtent_2(env *Env, r json__Stream) (code__Extent, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "handle"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "handle"}
 	}
 	if !seen_1 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_2 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "start"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "start"}
 	}
 	if !seen_3 {
-		return *new(code__Extent), WireMissingField{Path: (r).Path(env), Field: "end"}
+		return *new(code__Extent), ergo__WireMissingField{Path: (r).Path(env), Field: "end"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_82(env *Env, r json__Stream) ([]code__Extent, error) {
+func ergo__ReadSlice_82(env *ergo__Env, r json__Stream) ([]code__Extent, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Extent), err
 	}
@@ -9353,7 +9353,7 @@ func ergo__ReadSlice_82(env *Env, r json__Stream) ([]code__Extent, error) {
 	return out, nil
 }
 
-func ergo__ReadEdit_2(env *Env, r json__Stream) (code__Edit, error) {
+func ergo__ReadEdit_2(env *ergo__Env, r json__Stream) (code__Edit, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Edit), err
 	}
@@ -9399,21 +9399,21 @@ func ergo__ReadEdit_2(env *Env, r json__Stream) (code__Edit, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "start"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "start"}
 	}
 	if !seen_2 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "end"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "end"}
 	}
 	if !seen_3 {
-		return *new(code__Edit), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__Edit), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_81(env *Env, r json__Stream) ([]code__Edit, error) {
+func ergo__ReadSlice_81(env *ergo__Env, r json__Stream) ([]code__Edit, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Edit), err
 	}
@@ -9429,7 +9429,7 @@ func ergo__ReadSlice_81(env *Env, r json__Stream) ([]code__Edit, error) {
 	return out, nil
 }
 
-func ergo__ReadDiagnostic_2(env *Env, r json__Stream) (code__Diagnostic, error) {
+func ergo__ReadDiagnostic_2(env *ergo__Env, r json__Stream) (code__Diagnostic, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Diagnostic), err
 	}
@@ -9490,27 +9490,27 @@ func ergo__ReadDiagnostic_2(env *Env, r json__Stream) (code__Diagnostic, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "code"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "code"}
 	}
 	if !seen_1 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "message"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "message"}
 	}
 	if !seen_2 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_3 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_4 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "column"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	if !seen_5 {
-		return *new(code__Diagnostic), WireMissingField{Path: (r).Path(env), Field: "fix"}
+		return *new(code__Diagnostic), ergo__WireMissingField{Path: (r).Path(env), Field: "fix"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_80(env *Env, r json__Stream) ([]code__Diagnostic, error) {
+func ergo__ReadSlice_80(env *ergo__Env, r json__Stream) ([]code__Diagnostic, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Diagnostic), err
 	}
@@ -9526,7 +9526,7 @@ func ergo__ReadSlice_80(env *Env, r json__Stream) ([]code__Diagnostic, error) {
 	return out, nil
 }
 
-func ergo__ReadBind_2(env *Env, r json__Stream) (code__Bind, error) {
+func ergo__ReadBind_2(env *ergo__Env, r json__Stream) (code__Bind, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Bind), err
 	}
@@ -9556,15 +9556,15 @@ func ergo__ReadBind_2(env *Env, r json__Stream) (code__Bind, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Bind), WireMissingField{Path: (r).Path(env), Field: "op"}
+		return *new(code__Bind), ergo__WireMissingField{Path: (r).Path(env), Field: "op"}
 	}
 	if !seen_1 {
-		return *new(code__Bind), WireMissingField{Path: (r).Path(env), Field: "by"}
+		return *new(code__Bind), ergo__WireMissingField{Path: (r).Path(env), Field: "by"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_74(env *Env, r json__Stream) ([]code__Bind, error) {
+func ergo__ReadSlice_74(env *ergo__Env, r json__Stream) ([]code__Bind, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Bind), err
 	}
@@ -9580,7 +9580,7 @@ func ergo__ReadSlice_74(env *Env, r json__Stream) ([]code__Bind, error) {
 	return out, nil
 }
 
-func ergo__ReadReport_2(env *Env, r json__Stream) (code__Report, error) {
+func ergo__ReadReport_2(env *ergo__Env, r json__Stream) (code__Report, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Report), err
 	}
@@ -9637,27 +9637,27 @@ func ergo__ReadReport_2(env *Env, r json__Stream) (code__Report, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "tables"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "tables"}
 	}
 	if !seen_1 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "extents"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "extents"}
 	}
 	if !seen_2 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_3 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "code"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "code"}
 	}
 	if !seen_4 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "binds"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "binds"}
 	}
 	if !seen_5 {
-		return *new(code__Report), WireMissingField{Path: (r).Path(env), Field: "workspace"}
+		return *new(code__Report), ergo__WireMissingField{Path: (r).Path(env), Field: "workspace"}
 	}
 	return out, nil
 }
 
-func ergo__Readreply_2(env *Env, r json__Stream) (reply, error) {
+func ergo__Readreply_2(env *ergo__Env, r json__Stream) (reply, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(reply), err
 	}
@@ -9684,7 +9684,7 @@ func ergo__Readreply_2(env *Env, r json__Stream) (reply, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "report"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "report"}
 		}
 		return out, nil
 	case "replyText":
@@ -9706,7 +9706,7 @@ func ergo__Readreply_2(env *Env, r json__Stream) (reply, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	case "replyFailed":
@@ -9728,23 +9728,23 @@ func ergo__Readreply_2(env *Env, r json__Stream) (reply, error) {
 		}
 		(r).End(env)
 		if !seen_2 {
-			return *new(reply), WireMissingField{Path: (r).Path(env), Field: "reason"}
+			return *new(reply), ergo__WireMissingField{Path: (r).Path(env), Field: "reason"}
 		}
 		return out_2, nil
 	}
-	return *new(reply), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(reply), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
 // ergo__opsGoCheckerAsChecker provides code.Checker through the functions of main.GoChecker (an operations conversion).
 type ergo__opsGoCheckerAsChecker struct {
-	v   GoChecker
-	env *Env
+	v   ergo__GoChecker
+	env *ergo__Env
 }
 
 func (a *ergo__opsGoCheckerAsChecker) Check(t *rt.Task, p []code__Source) (code__Report, error) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -9757,7 +9757,7 @@ func (a *ergo__opsGoCheckerAsChecker) Check(t *rt.Task, p []code__Source) (code_
 func (a *ergo__opsGoCheckerAsChecker) Format(t *rt.Task, p string) (string, error) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -9767,7 +9767,7 @@ func (a *ergo__opsGoCheckerAsChecker) Format(t *rt.Task, p string) (string, erro
 	return (a.v).Format(e, p)
 }
 
-func ergo__EncodeFileRead(env *Env, w Writer, v code__FileRead) {
+func ergo__EncodeFileRead(env *ergo__Env, w ergo__Writer, v code__FileRead) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "file")
 	w.String(env.task, string(v.File))
@@ -9776,7 +9776,7 @@ func ergo__EncodeFileRead(env *Env, w Writer, v code__FileRead) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_15(env *Env, w Writer, v []code__FileRead) {
+func ergo__EncodeSlice_15(env *ergo__Env, w ergo__Writer, v []code__FileRead) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeFileRead(env, w, e)
@@ -9784,7 +9784,7 @@ func ergo__EncodeSlice_15(env *Env, w Writer, v []code__FileRead) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeFileChange(env *Env, w Writer, v code__FileChange) {
+func ergo__EncodeFileChange(env *ergo__Env, w ergo__Writer, v code__FileChange) {
 	w.BeginObject(env.task, 4)
 	w.Key(env.task, "file")
 	w.String(env.task, string(v.File))
@@ -9797,7 +9797,7 @@ func ergo__EncodeFileChange(env *Env, w Writer, v code__FileChange) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_14(env *Env, w Writer, v []code__FileChange) {
+func ergo__EncodeSlice_14(env *ergo__Env, w ergo__Writer, v []code__FileChange) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeFileChange(env, w, e)
@@ -9805,7 +9805,7 @@ func ergo__EncodeSlice_14(env *Env, w Writer, v []code__FileChange) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeProof(env *Env, w Writer, v code__Proof) {
+func ergo__EncodeProof(env *ergo__Env, w ergo__Writer, v code__Proof) {
 	switch v.tag {
 	case 0:
 		x := code__Alpha{}
@@ -9828,7 +9828,7 @@ func ergo__EncodeProof(env *Env, w Writer, v code__Proof) {
 	}
 }
 
-func ergo__EncodeVerdict(env *Env, w Writer, v code__Verdict) {
+func ergo__EncodeVerdict(env *ergo__Env, w ergo__Writer, v code__Verdict) {
 	switch v.tag {
 	case 0:
 		x := v.as0()
@@ -9847,7 +9847,7 @@ func ergo__EncodeVerdict(env *Env, w Writer, v code__Verdict) {
 	}
 }
 
-func ergo__EncodeOption(env *Env, w Writer, v Option[code__Contract]) {
+func ergo__EncodeOption(env *ergo__Env, w ergo__Writer, v ergo__Option[code__Contract]) {
 	switch v.tag {
 	case 0:
 		x := v.v0
@@ -9857,7 +9857,7 @@ func ergo__EncodeOption(env *Env, w Writer, v Option[code__Contract]) {
 		ergo__EncodeContract(env, w, x.Value)
 		w.EndObject(env.task)
 	case 1:
-		x := None{}
+		x := ergo__None{}
 		_ = x
 		w.BeginObject(env.task, 0)
 		w.Tag(env.task, "None")
@@ -9865,7 +9865,7 @@ func ergo__EncodeOption(env *Env, w Writer, v Option[code__Contract]) {
 	}
 }
 
-func ergo__EncodeApiChange(env *Env, w Writer, v code__ApiChange) {
+func ergo__EncodeApiChange(env *ergo__Env, w ergo__Writer, v code__ApiChange) {
 	w.BeginObject(env.task, 4)
 	w.Key(env.task, "name")
 	w.String(env.task, string(v.Name))
@@ -9878,7 +9878,7 @@ func ergo__EncodeApiChange(env *Env, w Writer, v code__ApiChange) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_2(env *Env, w Writer, v []code__ApiChange) {
+func ergo__EncodeSlice_2(env *ergo__Env, w ergo__Writer, v []code__ApiChange) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeApiChange(env, w, e)
@@ -9886,7 +9886,7 @@ func ergo__EncodeSlice_2(env *Env, w Writer, v []code__ApiChange) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodePlanned(env *Env, w Writer, v code__Planned) {
+func ergo__EncodePlanned(env *ergo__Env, w ergo__Writer, v code__Planned) {
 	w.BeginObject(env.task, 7)
 	w.Key(env.task, "id")
 	w.String(env.task, string(v.ID))
@@ -9905,7 +9905,7 @@ func ergo__EncodePlanned(env *Env, w Writer, v code__Planned) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeFileRead(env *Env, r Reader) (code__FileRead, error) {
+func ergo__DecodeFileRead(env *ergo__Env, r ergo__Reader) (code__FileRead, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__FileRead), err
 	}
@@ -9935,15 +9935,15 @@ func ergo__DecodeFileRead(env *Env, r Reader) (code__FileRead, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__FileRead), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileRead), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_15(env *Env, r Reader) ([]code__FileRead, error) {
+func ergo__DecodeSlice_15(env *ergo__Env, r ergo__Reader) ([]code__FileRead, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__FileRead), err
 	}
@@ -9959,7 +9959,7 @@ func ergo__DecodeSlice_15(env *Env, r Reader) ([]code__FileRead, error) {
 	return out, nil
 }
 
-func ergo__DecodeFileChange(env *Env, r Reader) (code__FileChange, error) {
+func ergo__DecodeFileChange(env *ergo__Env, r ergo__Reader) (code__FileChange, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__FileChange), err
 	}
@@ -10005,21 +10005,21 @@ func ergo__DecodeFileChange(env *Env, r Reader) (code__FileChange, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__FileChange), WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileChange), WireMissingField{Path: r.Path(env.task), Field: "old"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__FileChange), WireMissingField{Path: r.Path(env.task), Field: "new"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__FileChange), WireMissingField{Path: r.Path(env.task), Field: "text"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_14(env *Env, r Reader) ([]code__FileChange, error) {
+func ergo__DecodeSlice_14(env *ergo__Env, r ergo__Reader) ([]code__FileChange, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__FileChange), err
 	}
@@ -10035,7 +10035,7 @@ func ergo__DecodeSlice_14(env *Env, r Reader) ([]code__FileChange, error) {
 	return out, nil
 }
 
-func ergo__DecodeProof(env *Env, r Reader) (code__Proof, error) {
+func ergo__DecodeProof(env *ergo__Env, r ergo__Reader) (code__Proof, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Proof), err
 	}
@@ -10075,10 +10075,10 @@ func ergo__DecodeProof(env *Env, r Reader) (code__Proof, error) {
 		r.End(env.task)
 		return (code__Proof{}).of2(out_2), nil
 	}
-	return *new(code__Proof), WireUnknownTag{Path: r.Path(env.task), Tag: tag}
+	return *new(code__Proof), ergo__WireUnknownTag{Path: r.Path(env.task), Tag: tag}
 }
 
-func ergo__DecodeVerdict(env *Env, r Reader) (code__Verdict, error) {
+func ergo__DecodeVerdict(env *ergo__Env, r ergo__Reader) (code__Verdict, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Verdict), err
 	}
@@ -10105,7 +10105,7 @@ func ergo__DecodeVerdict(env *Env, r Reader) (code__Verdict, error) {
 		}
 		r.End(env.task)
 		if !seen {
-			return *new(code__Verdict), WireMissingField{Path: r.Path(env.task), Field: "proof"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: r.Path(env.task), Field: "proof"}
 		}
 		return (code__Verdict{}).of0(out), nil
 	case "Blocked":
@@ -10126,31 +10126,31 @@ func ergo__DecodeVerdict(env *Env, r Reader) (code__Verdict, error) {
 		}
 		r.End(env.task)
 		if !seen_1 {
-			return *new(code__Verdict), WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
 		}
 		return (code__Verdict{}).of1(out_1), nil
 	}
-	return *new(code__Verdict), WireUnknownTag{Path: r.Path(env.task), Tag: tag}
+	return *new(code__Verdict), ergo__WireUnknownTag{Path: r.Path(env.task), Tag: tag}
 }
 
-func ergo__DecodeOption(env *Env, r Reader) (Option[code__Contract], error) {
+func ergo__DecodeOption(env *ergo__Env, r ergo__Reader) (ergo__Option[code__Contract], error) {
 	if err := r.BeginObject(env.task); err != nil {
-		return *new(Option[code__Contract]), err
+		return *new(ergo__Option[code__Contract]), err
 	}
 	tag, err_1 := r.Tag(env.task)
 	if err_1 != nil {
-		return *new(Option[code__Contract]), err_1
+		return *new(ergo__Option[code__Contract]), err_1
 	}
 	switch tag {
 	case "Some":
-		var out Some[code__Contract]
+		var out ergo__Some[code__Contract]
 		var seen bool
 		for r.More(env.task) {
 			switch r.Key(env.task) {
 			case "value":
 				f, err_2 := ergo__DecodeContract(env, r)
 				if err_2 != nil {
-					return *new(Option[code__Contract]), err_2
+					return *new(ergo__Option[code__Contract]), err_2
 				}
 				out.Value = f
 				seen = true
@@ -10160,11 +10160,11 @@ func ergo__DecodeOption(env *Env, r Reader) (Option[code__Contract], error) {
 		}
 		r.End(env.task)
 		if !seen {
-			return *new(Option[code__Contract]), WireMissingField{Path: r.Path(env.task), Field: "value"}
+			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: r.Path(env.task), Field: "value"}
 		}
-		return (Option[code__Contract]{}).of0(out), nil
+		return (ergo__Option[code__Contract]{}).of0(out), nil
 	case "None":
-		var out_1 None
+		var out_1 ergo__None
 		for r.More(env.task) {
 			switch r.Key(env.task) {
 			default:
@@ -10172,12 +10172,12 @@ func ergo__DecodeOption(env *Env, r Reader) (Option[code__Contract], error) {
 			}
 		}
 		r.End(env.task)
-		return (Option[code__Contract]{}).of1(out_1), nil
+		return (ergo__Option[code__Contract]{}).of1(out_1), nil
 	}
-	return *new(Option[code__Contract]), WireUnknownTag{Path: r.Path(env.task), Tag: tag}
+	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: r.Path(env.task), Tag: tag}
 }
 
-func ergo__DecodeApiChange(env *Env, r Reader) (code__ApiChange, error) {
+func ergo__DecodeApiChange(env *ergo__Env, r ergo__Reader) (code__ApiChange, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__ApiChange), err
 	}
@@ -10221,21 +10221,21 @@ func ergo__DecodeApiChange(env *Env, r Reader) (code__ApiChange, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__ApiChange), WireMissingField{Path: r.Path(env.task), Field: "name"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__ApiChange), WireMissingField{Path: r.Path(env.task), Field: "old"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__ApiChange), WireMissingField{Path: r.Path(env.task), Field: "new"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__ApiChange), WireMissingField{Path: r.Path(env.task), Field: "breaksResourceCallers"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: r.Path(env.task), Field: "breaksResourceCallers"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_2(env *Env, r Reader) ([]code__ApiChange, error) {
+func ergo__DecodeSlice_2(env *ergo__Env, r ergo__Reader) ([]code__ApiChange, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__ApiChange), err
 	}
@@ -10251,7 +10251,7 @@ func ergo__DecodeSlice_2(env *Env, r Reader) ([]code__ApiChange, error) {
 	return out, nil
 }
 
-func ergo__DecodePlanned(env *Env, r Reader) (code__Planned, error) {
+func ergo__DecodePlanned(env *ergo__Env, r ergo__Reader) (code__Planned, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Planned), err
 	}
@@ -10317,30 +10317,30 @@ func ergo__DecodePlanned(env *Env, r Reader) (code__Planned, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Planned), WireMissingField{Path: r.Path(env.task), Field: "id"}
+		return *new(code__Planned), ergo__WireMissingField{Path: r.Path(env.task), Field: "id"}
 	}
 	if !seen_1 {
-		return *new(code__Planned), WireMissingField{Path: r.Path(env.task), Field: "change"}
+		return *new(code__Planned), ergo__WireMissingField{Path: r.Path(env.task), Field: "change"}
 	}
 	if !seen_2 {
-		return *new(code__Planned), WireMissingField{Path: r.Path(env.task), Field: "reads"}
+		return *new(code__Planned), ergo__WireMissingField{Path: r.Path(env.task), Field: "reads"}
 	}
 	if !seen_3 {
-		return *new(code__Planned), WireMissingField{Path: r.Path(env.task), Field: "files"}
+		return *new(code__Planned), ergo__WireMissingField{Path: r.Path(env.task), Field: "files"}
 	}
 	if !seen_4 {
-		return *new(code__Planned), WireMissingField{Path: r.Path(env.task), Field: "patch"}
+		return *new(code__Planned), ergo__WireMissingField{Path: r.Path(env.task), Field: "patch"}
 	}
 	if !seen_5 {
-		return *new(code__Planned), WireMissingField{Path: r.Path(env.task), Field: "verdict"}
+		return *new(code__Planned), ergo__WireMissingField{Path: r.Path(env.task), Field: "verdict"}
 	}
 	if !seen_6 {
-		return *new(code__Planned), WireMissingField{Path: r.Path(env.task), Field: "impact"}
+		return *new(code__Planned), ergo__WireMissingField{Path: r.Path(env.task), Field: "impact"}
 	}
 	return out, nil
 }
 
-func ergo__WriteFileRead(env *Env, wv json__text, v code__FileRead) json__text {
+func ergo__WriteFileRead(env *ergo__Env, wv json__text, v code__FileRead) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"file\":"))
@@ -10352,7 +10352,7 @@ func ergo__WriteFileRead(env *Env, wv json__text, v code__FileRead) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_15(env *Env, wv json__text, v []code__FileRead) json__text {
+func ergo__WriteSlice_15(env *ergo__Env, wv json__text, v []code__FileRead) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -10366,7 +10366,7 @@ func ergo__WriteSlice_15(env *Env, wv json__text, v []code__FileRead) json__text
 	return wv
 }
 
-func ergo__WriteFileChange(env *Env, wv json__text, v code__FileChange) json__text {
+func ergo__WriteFileChange(env *ergo__Env, wv json__text, v code__FileChange) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"file\":"))
@@ -10382,7 +10382,7 @@ func ergo__WriteFileChange(env *Env, wv json__text, v code__FileChange) json__te
 	return wv
 }
 
-func ergo__WriteSlice_14(env *Env, wv json__text, v []code__FileChange) json__text {
+func ergo__WriteSlice_14(env *ergo__Env, wv json__text, v []code__FileChange) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -10396,7 +10396,7 @@ func ergo__WriteSlice_14(env *Env, wv json__text, v []code__FileChange) json__te
 	return wv
 }
 
-func ergo__WriteProof(env *Env, wv json__text, v code__Proof) json__text {
+func ergo__WriteProof(env *ergo__Env, wv json__text, v code__Proof) json__text {
 	w := &wv
 	switch v.tag {
 	case 0:
@@ -10421,7 +10421,7 @@ func ergo__WriteProof(env *Env, wv json__text, v code__Proof) json__text {
 	return wv
 }
 
-func ergo__WriteProof_entry(env *Env, wv json__text, v code__Proof) json__text {
+func ergo__WriteProof_entry(env *ergo__Env, wv json__text, v code__Proof) json__text {
 	w := &wv
 	switch v.tag {
 	case 0:
@@ -10446,7 +10446,7 @@ func ergo__WriteProof_entry(env *Env, wv json__text, v code__Proof) json__text {
 	return wv
 }
 
-func ergo__WriteVerdict(env *Env, wv json__text, v code__Verdict) json__text {
+func ergo__WriteVerdict(env *ergo__Env, wv json__text, v code__Verdict) json__text {
 	w := &wv
 	switch v.tag {
 	case 0:
@@ -10469,7 +10469,7 @@ func ergo__WriteVerdict(env *Env, wv json__text, v code__Verdict) json__text {
 	return wv
 }
 
-func ergo__WriteContract_entry(env *Env, wv json__text, v code__Contract) json__text {
+func ergo__WriteContract_entry(env *ergo__Env, wv json__text, v code__Contract) json__text {
 	w := &wv
 	(w).raw(string("{\"name\":"))
 	(w).stringBody(string(v.Name))
@@ -10503,7 +10503,7 @@ func ergo__WriteContract_entry(env *Env, wv json__text, v code__Contract) json__
 	return wv
 }
 
-func ergo__WriteOption(env *Env, wv json__text, v Option[code__Contract]) json__text {
+func ergo__WriteOption(env *ergo__Env, wv json__text, v ergo__Option[code__Contract]) json__text {
 	w := &wv
 	switch v.tag {
 	case 0:
@@ -10515,7 +10515,7 @@ func ergo__WriteOption(env *Env, wv json__text, v Option[code__Contract]) json__
 		(w).raw(string("}"))
 		(w).setComma(bool(true))
 	case 1:
-		x := None{}
+		x := ergo__None{}
 		_ = x
 		(w).sep()
 		(w).raw(string("{\"_tag\":\"None\"}"))
@@ -10524,7 +10524,7 @@ func ergo__WriteOption(env *Env, wv json__text, v Option[code__Contract]) json__
 	return wv
 }
 
-func ergo__WriteOption_entry(env *Env, wv json__text, v Option[code__Contract]) json__text {
+func ergo__WriteOption_entry(env *ergo__Env, wv json__text, v ergo__Option[code__Contract]) json__text {
 	w := &wv
 	switch v.tag {
 	case 0:
@@ -10535,7 +10535,7 @@ func ergo__WriteOption_entry(env *Env, wv json__text, v Option[code__Contract]) 
 		(w).raw(string("}"))
 		(w).setComma(bool(true))
 	case 1:
-		x := None{}
+		x := ergo__None{}
 		_ = x
 		(w).sep()
 		(w).raw(string("{\"_tag\":\"None\"}"))
@@ -10544,7 +10544,7 @@ func ergo__WriteOption_entry(env *Env, wv json__text, v Option[code__Contract]) 
 	return wv
 }
 
-func ergo__WriteApiChange(env *Env, wv json__text, v code__ApiChange) json__text {
+func ergo__WriteApiChange(env *ergo__Env, wv json__text, v code__ApiChange) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"name\":"))
@@ -10564,7 +10564,7 @@ func ergo__WriteApiChange(env *Env, wv json__text, v code__ApiChange) json__text
 	return wv
 }
 
-func ergo__WriteSlice_2(env *Env, wv json__text, v []code__ApiChange) json__text {
+func ergo__WriteSlice_2(env *ergo__Env, wv json__text, v []code__ApiChange) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -10578,7 +10578,7 @@ func ergo__WriteSlice_2(env *Env, wv json__text, v []code__ApiChange) json__text
 	return wv
 }
 
-func ergo__WriteSlice_entry_15(env *Env, wv json__text, v []code__FileRead) json__text {
+func ergo__WriteSlice_entry_15(env *ergo__Env, wv json__text, v []code__FileRead) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -10591,7 +10591,7 @@ func ergo__WriteSlice_entry_15(env *Env, wv json__text, v []code__FileRead) json
 	return wv
 }
 
-func ergo__WriteSlice_entry_14(env *Env, wv json__text, v []code__FileChange) json__text {
+func ergo__WriteSlice_entry_14(env *ergo__Env, wv json__text, v []code__FileChange) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -10604,7 +10604,7 @@ func ergo__WriteSlice_entry_14(env *Env, wv json__text, v []code__FileChange) js
 	return wv
 }
 
-func ergo__WriteVerdict_entry(env *Env, wv json__text, v code__Verdict) json__text {
+func ergo__WriteVerdict_entry(env *ergo__Env, wv json__text, v code__Verdict) json__text {
 	w := &wv
 	switch v.tag {
 	case 0:
@@ -10625,7 +10625,7 @@ func ergo__WriteVerdict_entry(env *Env, wv json__text, v code__Verdict) json__te
 	return wv
 }
 
-func ergo__WriteSlice_entry_2(env *Env, wv json__text, v []code__ApiChange) json__text {
+func ergo__WriteSlice_entry_2(env *ergo__Env, wv json__text, v []code__ApiChange) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -10638,7 +10638,7 @@ func ergo__WriteSlice_entry_2(env *Env, wv json__text, v []code__ApiChange) json
 	return wv
 }
 
-func ergo__WritePlanned(env *Env, wv json__text, v code__Planned) json__text {
+func ergo__WritePlanned(env *ergo__Env, wv json__text, v code__Planned) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"id\":"))
@@ -10667,7 +10667,7 @@ func ergo__WritePlanned(env *Env, wv json__text, v code__Planned) json__text {
 	return wv
 }
 
-func ergo__ReadFileRead(env *Env, r http__queryReader) (code__FileRead, error) {
+func ergo__ReadFileRead(env *ergo__Env, r http__queryReader) (code__FileRead, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__FileRead), err
 	}
@@ -10697,15 +10697,15 @@ func ergo__ReadFileRead(env *Env, r http__queryReader) (code__FileRead, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__FileRead), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileRead), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_15(env *Env, r http__queryReader) ([]code__FileRead, error) {
+func ergo__ReadSlice_15(env *ergo__Env, r http__queryReader) ([]code__FileRead, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__FileRead), err
 	}
@@ -10721,7 +10721,7 @@ func ergo__ReadSlice_15(env *Env, r http__queryReader) ([]code__FileRead, error)
 	return out, nil
 }
 
-func ergo__ReadFileChange(env *Env, r http__queryReader) (code__FileChange, error) {
+func ergo__ReadFileChange(env *ergo__Env, r http__queryReader) (code__FileChange, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__FileChange), err
 	}
@@ -10767,21 +10767,21 @@ func ergo__ReadFileChange(env *Env, r http__queryReader) (code__FileChange, erro
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "old"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "new"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_14(env *Env, r http__queryReader) ([]code__FileChange, error) {
+func ergo__ReadSlice_14(env *ergo__Env, r http__queryReader) ([]code__FileChange, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__FileChange), err
 	}
@@ -10797,7 +10797,7 @@ func ergo__ReadSlice_14(env *Env, r http__queryReader) ([]code__FileChange, erro
 	return out, nil
 }
 
-func ergo__ReadProof(env *Env, r http__queryReader) (code__Proof, error) {
+func ergo__ReadProof(env *ergo__Env, r http__queryReader) (code__Proof, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Proof), err
 	}
@@ -10837,10 +10837,10 @@ func ergo__ReadProof(env *Env, r http__queryReader) (code__Proof, error) {
 		(r).End(env)
 		return (code__Proof{}).of2(out_2), nil
 	}
-	return *new(code__Proof), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Proof), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadVerdict(env *Env, r http__queryReader) (code__Verdict, error) {
+func ergo__ReadVerdict(env *ergo__Env, r http__queryReader) (code__Verdict, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Verdict), err
 	}
@@ -10867,7 +10867,7 @@ func ergo__ReadVerdict(env *Env, r http__queryReader) (code__Verdict, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(code__Verdict), WireMissingField{Path: (r).Path(env), Field: "proof"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: (r).Path(env), Field: "proof"}
 		}
 		return (code__Verdict{}).of0(out), nil
 	case "Blocked":
@@ -10888,31 +10888,31 @@ func ergo__ReadVerdict(env *Env, r http__queryReader) (code__Verdict, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(code__Verdict), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 		}
 		return (code__Verdict{}).of1(out_1), nil
 	}
-	return *new(code__Verdict), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Verdict), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadOption(env *Env, r http__queryReader) (Option[code__Contract], error) {
+func ergo__ReadOption(env *ergo__Env, r http__queryReader) (ergo__Option[code__Contract], error) {
 	if err := (r).BeginObject(env); err != nil {
-		return *new(Option[code__Contract]), err
+		return *new(ergo__Option[code__Contract]), err
 	}
 	tag, err_1 := (r).Tag(env)
 	if err_1 != nil {
-		return *new(Option[code__Contract]), err_1
+		return *new(ergo__Option[code__Contract]), err_1
 	}
 	switch tag {
 	case "Some":
-		var out Some[code__Contract]
+		var out ergo__Some[code__Contract]
 		var seen bool
 		for (r).More(env) {
 			switch (r).Key(env) {
 			case "value":
 				f, err_2 := ergo__ReadContract(env, r)
 				if err_2 != nil {
-					return *new(Option[code__Contract]), err_2
+					return *new(ergo__Option[code__Contract]), err_2
 				}
 				out.Value = f
 				seen = true
@@ -10922,11 +10922,11 @@ func ergo__ReadOption(env *Env, r http__queryReader) (Option[code__Contract], er
 		}
 		(r).End(env)
 		if !seen {
-			return *new(Option[code__Contract]), WireMissingField{Path: (r).Path(env), Field: "value"}
+			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: (r).Path(env), Field: "value"}
 		}
-		return (Option[code__Contract]{}).of0(out), nil
+		return (ergo__Option[code__Contract]{}).of0(out), nil
 	case "None":
-		var out_1 None
+		var out_1 ergo__None
 		for (r).More(env) {
 			switch (r).Key(env) {
 			default:
@@ -10934,12 +10934,12 @@ func ergo__ReadOption(env *Env, r http__queryReader) (Option[code__Contract], er
 			}
 		}
 		(r).End(env)
-		return (Option[code__Contract]{}).of1(out_1), nil
+		return (ergo__Option[code__Contract]{}).of1(out_1), nil
 	}
-	return *new(Option[code__Contract]), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadApiChange(env *Env, r http__queryReader) (code__ApiChange, error) {
+func ergo__ReadApiChange(env *ergo__Env, r http__queryReader) (code__ApiChange, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ApiChange), err
 	}
@@ -10983,21 +10983,21 @@ func ergo__ReadApiChange(env *Env, r http__queryReader) (code__ApiChange, error)
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "old"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "new"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "breaksResourceCallers"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "breaksResourceCallers"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_2(env *Env, r http__queryReader) ([]code__ApiChange, error) {
+func ergo__ReadSlice_2(env *ergo__Env, r http__queryReader) ([]code__ApiChange, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__ApiChange), err
 	}
@@ -11013,7 +11013,7 @@ func ergo__ReadSlice_2(env *Env, r http__queryReader) ([]code__ApiChange, error)
 	return out, nil
 }
 
-func ergo__ReadPlanned(env *Env, r http__queryReader) (code__Planned, error) {
+func ergo__ReadPlanned(env *ergo__Env, r http__queryReader) (code__Planned, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Planned), err
 	}
@@ -11079,30 +11079,30 @@ func ergo__ReadPlanned(env *Env, r http__queryReader) (code__Planned, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "id"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "id"}
 	}
 	if !seen_1 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "change"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "change"}
 	}
 	if !seen_2 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "reads"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "reads"}
 	}
 	if !seen_3 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "files"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "files"}
 	}
 	if !seen_4 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "patch"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "patch"}
 	}
 	if !seen_5 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "verdict"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "verdict"}
 	}
 	if !seen_6 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "impact"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "impact"}
 	}
 	return out, nil
 }
 
-func ergo__ReadFileRead_1(env *Env, r json__Reader_1) (code__FileRead, error) {
+func ergo__ReadFileRead_1(env *ergo__Env, r json__Reader_1) (code__FileRead, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__FileRead), err
 	}
@@ -11132,15 +11132,15 @@ func ergo__ReadFileRead_1(env *Env, r json__Reader_1) (code__FileRead, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__FileRead), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileRead), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_50(env *Env, r json__Reader_1) ([]code__FileRead, error) {
+func ergo__ReadSlice_50(env *ergo__Env, r json__Reader_1) ([]code__FileRead, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__FileRead), err
 	}
@@ -11156,7 +11156,7 @@ func ergo__ReadSlice_50(env *Env, r json__Reader_1) ([]code__FileRead, error) {
 	return out, nil
 }
 
-func ergo__ReadFileChange_1(env *Env, r json__Reader_1) (code__FileChange, error) {
+func ergo__ReadFileChange_1(env *ergo__Env, r json__Reader_1) (code__FileChange, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__FileChange), err
 	}
@@ -11202,21 +11202,21 @@ func ergo__ReadFileChange_1(env *Env, r json__Reader_1) (code__FileChange, error
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "old"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "new"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_49(env *Env, r json__Reader_1) ([]code__FileChange, error) {
+func ergo__ReadSlice_49(env *ergo__Env, r json__Reader_1) ([]code__FileChange, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__FileChange), err
 	}
@@ -11232,7 +11232,7 @@ func ergo__ReadSlice_49(env *Env, r json__Reader_1) ([]code__FileChange, error) 
 	return out, nil
 }
 
-func ergo__ReadProof_1(env *Env, r json__Reader_1) (code__Proof, error) {
+func ergo__ReadProof_1(env *ergo__Env, r json__Reader_1) (code__Proof, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Proof), err
 	}
@@ -11272,10 +11272,10 @@ func ergo__ReadProof_1(env *Env, r json__Reader_1) (code__Proof, error) {
 		(r).End(env)
 		return (code__Proof{}).of2(out_2), nil
 	}
-	return *new(code__Proof), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Proof), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadVerdict_1(env *Env, r json__Reader_1) (code__Verdict, error) {
+func ergo__ReadVerdict_1(env *ergo__Env, r json__Reader_1) (code__Verdict, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Verdict), err
 	}
@@ -11302,7 +11302,7 @@ func ergo__ReadVerdict_1(env *Env, r json__Reader_1) (code__Verdict, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(code__Verdict), WireMissingField{Path: (r).Path(env), Field: "proof"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: (r).Path(env), Field: "proof"}
 		}
 		return (code__Verdict{}).of0(out), nil
 	case "Blocked":
@@ -11323,31 +11323,31 @@ func ergo__ReadVerdict_1(env *Env, r json__Reader_1) (code__Verdict, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(code__Verdict), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 		}
 		return (code__Verdict{}).of1(out_1), nil
 	}
-	return *new(code__Verdict), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Verdict), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadOption_2(env *Env, r json__Reader_1) (Option[code__Contract], error) {
+func ergo__ReadOption_2(env *ergo__Env, r json__Reader_1) (ergo__Option[code__Contract], error) {
 	if err := (r).BeginObject(env); err != nil {
-		return *new(Option[code__Contract]), err
+		return *new(ergo__Option[code__Contract]), err
 	}
 	tag, err_1 := (r).Tag(env)
 	if err_1 != nil {
-		return *new(Option[code__Contract]), err_1
+		return *new(ergo__Option[code__Contract]), err_1
 	}
 	switch tag {
 	case "Some":
-		var out Some[code__Contract]
+		var out ergo__Some[code__Contract]
 		var seen bool
 		for (r).More(env) {
 			switch (r).Key(env) {
 			case "value":
 				f, err_2 := ergo__ReadContract_1(env, r)
 				if err_2 != nil {
-					return *new(Option[code__Contract]), err_2
+					return *new(ergo__Option[code__Contract]), err_2
 				}
 				out.Value = f
 				seen = true
@@ -11357,11 +11357,11 @@ func ergo__ReadOption_2(env *Env, r json__Reader_1) (Option[code__Contract], err
 		}
 		(r).End(env)
 		if !seen {
-			return *new(Option[code__Contract]), WireMissingField{Path: (r).Path(env), Field: "value"}
+			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: (r).Path(env), Field: "value"}
 		}
-		return (Option[code__Contract]{}).of0(out), nil
+		return (ergo__Option[code__Contract]{}).of0(out), nil
 	case "None":
-		var out_1 None
+		var out_1 ergo__None
 		for (r).More(env) {
 			switch (r).Key(env) {
 			default:
@@ -11369,12 +11369,12 @@ func ergo__ReadOption_2(env *Env, r json__Reader_1) (Option[code__Contract], err
 			}
 		}
 		(r).End(env)
-		return (Option[code__Contract]{}).of1(out_1), nil
+		return (ergo__Option[code__Contract]{}).of1(out_1), nil
 	}
-	return *new(Option[code__Contract]), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadApiChange_1(env *Env, r json__Reader_1) (code__ApiChange, error) {
+func ergo__ReadApiChange_1(env *ergo__Env, r json__Reader_1) (code__ApiChange, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ApiChange), err
 	}
@@ -11418,21 +11418,21 @@ func ergo__ReadApiChange_1(env *Env, r json__Reader_1) (code__ApiChange, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "old"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "new"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "breaksResourceCallers"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "breaksResourceCallers"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_37(env *Env, r json__Reader_1) ([]code__ApiChange, error) {
+func ergo__ReadSlice_37(env *ergo__Env, r json__Reader_1) ([]code__ApiChange, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__ApiChange), err
 	}
@@ -11448,7 +11448,7 @@ func ergo__ReadSlice_37(env *Env, r json__Reader_1) ([]code__ApiChange, error) {
 	return out, nil
 }
 
-func ergo__ReadPlanned_1(env *Env, r json__Reader_1) (code__Planned, error) {
+func ergo__ReadPlanned_1(env *ergo__Env, r json__Reader_1) (code__Planned, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Planned), err
 	}
@@ -11514,30 +11514,30 @@ func ergo__ReadPlanned_1(env *Env, r json__Reader_1) (code__Planned, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "id"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "id"}
 	}
 	if !seen_1 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "change"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "change"}
 	}
 	if !seen_2 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "reads"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "reads"}
 	}
 	if !seen_3 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "files"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "files"}
 	}
 	if !seen_4 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "patch"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "patch"}
 	}
 	if !seen_5 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "verdict"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "verdict"}
 	}
 	if !seen_6 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "impact"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "impact"}
 	}
 	return out, nil
 }
 
-func ergo__ReadFileRead_2(env *Env, r json__Stream) (code__FileRead, error) {
+func ergo__ReadFileRead_2(env *ergo__Env, r json__Stream) (code__FileRead, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__FileRead), err
 	}
@@ -11567,15 +11567,15 @@ func ergo__ReadFileRead_2(env *Env, r json__Stream) (code__FileRead, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__FileRead), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileRead), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__FileRead), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_85(env *Env, r json__Stream) ([]code__FileRead, error) {
+func ergo__ReadSlice_85(env *ergo__Env, r json__Stream) ([]code__FileRead, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__FileRead), err
 	}
@@ -11591,7 +11591,7 @@ func ergo__ReadSlice_85(env *Env, r json__Stream) ([]code__FileRead, error) {
 	return out, nil
 }
 
-func ergo__ReadFileChange_2(env *Env, r json__Stream) (code__FileChange, error) {
+func ergo__ReadFileChange_2(env *ergo__Env, r json__Stream) (code__FileChange, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__FileChange), err
 	}
@@ -11637,21 +11637,21 @@ func ergo__ReadFileChange_2(env *Env, r json__Stream) (code__FileChange, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_1 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "old"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "new"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__FileChange), WireMissingField{Path: (r).Path(env), Field: "text"}
+		return *new(code__FileChange), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_84(env *Env, r json__Stream) ([]code__FileChange, error) {
+func ergo__ReadSlice_84(env *ergo__Env, r json__Stream) ([]code__FileChange, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__FileChange), err
 	}
@@ -11667,7 +11667,7 @@ func ergo__ReadSlice_84(env *Env, r json__Stream) ([]code__FileChange, error) {
 	return out, nil
 }
 
-func ergo__ReadProof_2(env *Env, r json__Stream) (code__Proof, error) {
+func ergo__ReadProof_2(env *ergo__Env, r json__Stream) (code__Proof, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Proof), err
 	}
@@ -11707,10 +11707,10 @@ func ergo__ReadProof_2(env *Env, r json__Stream) (code__Proof, error) {
 		(r).End(env)
 		return (code__Proof{}).of2(out_2), nil
 	}
-	return *new(code__Proof), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Proof), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadVerdict_2(env *Env, r json__Stream) (code__Verdict, error) {
+func ergo__ReadVerdict_2(env *ergo__Env, r json__Stream) (code__Verdict, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Verdict), err
 	}
@@ -11737,7 +11737,7 @@ func ergo__ReadVerdict_2(env *Env, r json__Stream) (code__Verdict, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(code__Verdict), WireMissingField{Path: (r).Path(env), Field: "proof"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: (r).Path(env), Field: "proof"}
 		}
 		return (code__Verdict{}).of0(out), nil
 	case "Blocked":
@@ -11758,31 +11758,31 @@ func ergo__ReadVerdict_2(env *Env, r json__Stream) (code__Verdict, error) {
 		}
 		(r).End(env)
 		if !seen_1 {
-			return *new(code__Verdict), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+			return *new(code__Verdict), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 		}
 		return (code__Verdict{}).of1(out_1), nil
 	}
-	return *new(code__Verdict), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Verdict), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadOption_4(env *Env, r json__Stream) (Option[code__Contract], error) {
+func ergo__ReadOption_4(env *ergo__Env, r json__Stream) (ergo__Option[code__Contract], error) {
 	if err := (r).BeginObject(env); err != nil {
-		return *new(Option[code__Contract]), err
+		return *new(ergo__Option[code__Contract]), err
 	}
 	tag, err_1 := (r).Tag(env)
 	if err_1 != nil {
-		return *new(Option[code__Contract]), err_1
+		return *new(ergo__Option[code__Contract]), err_1
 	}
 	switch tag {
 	case "Some":
-		var out Some[code__Contract]
+		var out ergo__Some[code__Contract]
 		var seen bool
 		for (r).More(env) {
 			switch (r).Key(env) {
 			case "value":
 				f, err_2 := ergo__ReadContract_2(env, r)
 				if err_2 != nil {
-					return *new(Option[code__Contract]), err_2
+					return *new(ergo__Option[code__Contract]), err_2
 				}
 				out.Value = f
 				seen = true
@@ -11792,11 +11792,11 @@ func ergo__ReadOption_4(env *Env, r json__Stream) (Option[code__Contract], error
 		}
 		(r).End(env)
 		if !seen {
-			return *new(Option[code__Contract]), WireMissingField{Path: (r).Path(env), Field: "value"}
+			return *new(ergo__Option[code__Contract]), ergo__WireMissingField{Path: (r).Path(env), Field: "value"}
 		}
-		return (Option[code__Contract]{}).of0(out), nil
+		return (ergo__Option[code__Contract]{}).of0(out), nil
 	case "None":
-		var out_1 None
+		var out_1 ergo__None
 		for (r).More(env) {
 			switch (r).Key(env) {
 			default:
@@ -11804,12 +11804,12 @@ func ergo__ReadOption_4(env *Env, r json__Stream) (Option[code__Contract], error
 			}
 		}
 		(r).End(env)
-		return (Option[code__Contract]{}).of1(out_1), nil
+		return (ergo__Option[code__Contract]{}).of1(out_1), nil
 	}
-	return *new(Option[code__Contract]), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(ergo__Option[code__Contract]), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadApiChange_2(env *Env, r json__Stream) (code__ApiChange, error) {
+func ergo__ReadApiChange_2(env *ergo__Env, r json__Stream) (code__ApiChange, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ApiChange), err
 	}
@@ -11853,21 +11853,21 @@ func ergo__ReadApiChange_2(env *Env, r json__Stream) (code__ApiChange, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "name"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_1 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "old"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "old"}
 	}
 	if !seen_2 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "new"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "new"}
 	}
 	if !seen_3 {
-		return *new(code__ApiChange), WireMissingField{Path: (r).Path(env), Field: "breaksResourceCallers"}
+		return *new(code__ApiChange), ergo__WireMissingField{Path: (r).Path(env), Field: "breaksResourceCallers"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_72(env *Env, r json__Stream) ([]code__ApiChange, error) {
+func ergo__ReadSlice_72(env *ergo__Env, r json__Stream) ([]code__ApiChange, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__ApiChange), err
 	}
@@ -11883,7 +11883,7 @@ func ergo__ReadSlice_72(env *Env, r json__Stream) ([]code__ApiChange, error) {
 	return out, nil
 }
 
-func ergo__ReadPlanned_2(env *Env, r json__Stream) (code__Planned, error) {
+func ergo__ReadPlanned_2(env *ergo__Env, r json__Stream) (code__Planned, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Planned), err
 	}
@@ -11949,30 +11949,30 @@ func ergo__ReadPlanned_2(env *Env, r json__Stream) (code__Planned, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "id"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "id"}
 	}
 	if !seen_1 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "change"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "change"}
 	}
 	if !seen_2 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "reads"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "reads"}
 	}
 	if !seen_3 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "files"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "files"}
 	}
 	if !seen_4 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "patch"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "patch"}
 	}
 	if !seen_5 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "verdict"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "verdict"}
 	}
 	if !seen_6 {
-		return *new(code__Planned), WireMissingField{Path: (r).Path(env), Field: "impact"}
+		return *new(code__Planned), ergo__WireMissingField{Path: (r).Path(env), Field: "impact"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeSlice_7(env *Env, w Writer, v []code__Change) {
+func ergo__EncodeSlice_7(env *ergo__Env, w ergo__Writer, v []code__Change) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeChange(env, w, e)
@@ -11980,7 +11980,7 @@ func ergo__EncodeSlice_7(env *Env, w Writer, v []code__Change) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeChange(env *Env, w Writer, v code__Change) {
+func ergo__EncodeChange(env *ergo__Env, w ergo__Writer, v code__Change) {
 	switch x := v.(type) {
 	case code__Replace:
 		w.BeginObject(env.task, 2)
@@ -12027,7 +12027,7 @@ func ergo__EncodeChange(env *Env, w Writer, v code__Change) {
 	}
 }
 
-func ergo__DecodeSlice_7(env *Env, r Reader) ([]code__Change, error) {
+func ergo__DecodeSlice_7(env *ergo__Env, r ergo__Reader) ([]code__Change, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Change), err
 	}
@@ -12043,7 +12043,7 @@ func ergo__DecodeSlice_7(env *Env, r Reader) ([]code__Change, error) {
 	return out, nil
 }
 
-func ergo__DecodeChange(env *Env, r Reader) (code__Change, error) {
+func ergo__DecodeChange(env *ergo__Env, r ergo__Reader) (code__Change, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Change), err
 	}
@@ -12079,10 +12079,10 @@ func ergo__DecodeChange(env *Env, r Reader) (code__Change, error) {
 		}
 		r.End(env.task)
 		if !seen {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "of"}
 		}
 		if !seen_1 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "text"}
 		}
 		return out, nil
 	case "Insert":
@@ -12112,10 +12112,10 @@ func ergo__DecodeChange(env *Env, r Reader) (code__Change, error) {
 		}
 		r.End(env.task)
 		if !seen_2 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "after"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "after"}
 		}
 		if !seen_3 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "text"}
 		}
 		return out_1, nil
 	case "Delete":
@@ -12137,7 +12137,7 @@ func ergo__DecodeChange(env *Env, r Reader) (code__Change, error) {
 		}
 		r.End(env.task)
 		if !seen_4 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "of"}
 		}
 		return out_2, nil
 	case "Fixes":
@@ -12158,7 +12158,7 @@ func ergo__DecodeChange(env *Env, r Reader) (code__Change, error) {
 		}
 		r.End(env.task)
 		if !seen_5 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "rules"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "rules"}
 		}
 		return out_3, nil
 	case "Script":
@@ -12179,7 +12179,7 @@ func ergo__DecodeChange(env *Env, r Reader) (code__Change, error) {
 		}
 		r.End(env.task)
 		if !seen_6 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "steps"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "steps"}
 		}
 		return out_4, nil
 	case "Rename":
@@ -12209,17 +12209,17 @@ func ergo__DecodeChange(env *Env, r Reader) (code__Change, error) {
 		}
 		r.End(env.task)
 		if !seen_7 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "of"}
 		}
 		if !seen_8 {
-			return *new(code__Change), WireMissingField{Path: r.Path(env.task), Field: "to"}
+			return *new(code__Change), ergo__WireMissingField{Path: r.Path(env.task), Field: "to"}
 		}
 		return out_5, nil
 	}
-	return *new(code__Change), WireUnknownTag{Path: r.Path(env.task), Tag: tag}
+	return *new(code__Change), ergo__WireUnknownTag{Path: r.Path(env.task), Tag: tag}
 }
 
-func ergo__WriteSlice_7(env *Env, wv json__text, v []code__Change) json__text {
+func ergo__WriteSlice_7(env *ergo__Env, wv json__text, v []code__Change) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -12233,7 +12233,7 @@ func ergo__WriteSlice_7(env *Env, wv json__text, v []code__Change) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_7(env *Env, wv json__text, v []code__Change) json__text {
+func ergo__WriteSlice_entry_7(env *ergo__Env, wv json__text, v []code__Change) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -12246,7 +12246,7 @@ func ergo__WriteSlice_entry_7(env *Env, wv json__text, v []code__Change) json__t
 	return wv
 }
 
-func ergo__WriteChange(env *Env, wv json__text, v code__Change) json__text {
+func ergo__WriteChange(env *ergo__Env, wv json__text, v code__Change) json__text {
 	w := &wv
 	switch x := v.(type) {
 	case code__Replace:
@@ -12297,7 +12297,7 @@ func ergo__WriteChange(env *Env, wv json__text, v code__Change) json__text {
 	return wv
 }
 
-func ergo__ReadSlice_7(env *Env, r http__queryReader) ([]code__Change, error) {
+func ergo__ReadSlice_7(env *ergo__Env, r http__queryReader) ([]code__Change, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Change), err
 	}
@@ -12313,7 +12313,7 @@ func ergo__ReadSlice_7(env *Env, r http__queryReader) ([]code__Change, error) {
 	return out, nil
 }
 
-func ergo__ReadChange(env *Env, r http__queryReader) (code__Change, error) {
+func ergo__ReadChange(env *ergo__Env, r http__queryReader) (code__Change, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Change), err
 	}
@@ -12349,10 +12349,10 @@ func ergo__ReadChange(env *Env, r http__queryReader) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		if !seen_1 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out, nil
 	case "Insert":
@@ -12382,10 +12382,10 @@ func ergo__ReadChange(env *Env, r http__queryReader) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_2 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "after"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "after"}
 		}
 		if !seen_3 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	case "Delete":
@@ -12407,7 +12407,7 @@ func ergo__ReadChange(env *Env, r http__queryReader) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_4 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		return out_2, nil
 	case "Fixes":
@@ -12428,7 +12428,7 @@ func ergo__ReadChange(env *Env, r http__queryReader) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_5 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "rules"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "rules"}
 		}
 		return out_3, nil
 	case "Script":
@@ -12449,7 +12449,7 @@ func ergo__ReadChange(env *Env, r http__queryReader) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_6 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "steps"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "steps"}
 		}
 		return out_4, nil
 	case "Rename":
@@ -12479,17 +12479,17 @@ func ergo__ReadChange(env *Env, r http__queryReader) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_7 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		if !seen_8 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "to"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 		}
 		return out_5, nil
 	}
-	return *new(code__Change), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Change), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadSlice_42(env *Env, r json__Reader_1) ([]code__Change, error) {
+func ergo__ReadSlice_42(env *ergo__Env, r json__Reader_1) ([]code__Change, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Change), err
 	}
@@ -12505,7 +12505,7 @@ func ergo__ReadSlice_42(env *Env, r json__Reader_1) ([]code__Change, error) {
 	return out, nil
 }
 
-func ergo__ReadChange_1(env *Env, r json__Reader_1) (code__Change, error) {
+func ergo__ReadChange_1(env *ergo__Env, r json__Reader_1) (code__Change, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Change), err
 	}
@@ -12541,10 +12541,10 @@ func ergo__ReadChange_1(env *Env, r json__Reader_1) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		if !seen_1 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out, nil
 	case "Insert":
@@ -12574,10 +12574,10 @@ func ergo__ReadChange_1(env *Env, r json__Reader_1) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_2 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "after"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "after"}
 		}
 		if !seen_3 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	case "Delete":
@@ -12599,7 +12599,7 @@ func ergo__ReadChange_1(env *Env, r json__Reader_1) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_4 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		return out_2, nil
 	case "Fixes":
@@ -12620,7 +12620,7 @@ func ergo__ReadChange_1(env *Env, r json__Reader_1) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_5 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "rules"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "rules"}
 		}
 		return out_3, nil
 	case "Script":
@@ -12641,7 +12641,7 @@ func ergo__ReadChange_1(env *Env, r json__Reader_1) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_6 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "steps"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "steps"}
 		}
 		return out_4, nil
 	case "Rename":
@@ -12671,17 +12671,17 @@ func ergo__ReadChange_1(env *Env, r json__Reader_1) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_7 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		if !seen_8 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "to"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 		}
 		return out_5, nil
 	}
-	return *new(code__Change), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Change), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
-func ergo__ReadSlice_77(env *Env, r json__Stream) ([]code__Change, error) {
+func ergo__ReadSlice_77(env *ergo__Env, r json__Stream) ([]code__Change, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Change), err
 	}
@@ -12697,7 +12697,7 @@ func ergo__ReadSlice_77(env *Env, r json__Stream) ([]code__Change, error) {
 	return out, nil
 }
 
-func ergo__ReadChange_2(env *Env, r json__Stream) (code__Change, error) {
+func ergo__ReadChange_2(env *ergo__Env, r json__Stream) (code__Change, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Change), err
 	}
@@ -12733,10 +12733,10 @@ func ergo__ReadChange_2(env *Env, r json__Stream) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		if !seen_1 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out, nil
 	case "Insert":
@@ -12766,10 +12766,10 @@ func ergo__ReadChange_2(env *Env, r json__Stream) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_2 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "after"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "after"}
 		}
 		if !seen_3 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "text"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "text"}
 		}
 		return out_1, nil
 	case "Delete":
@@ -12791,7 +12791,7 @@ func ergo__ReadChange_2(env *Env, r json__Stream) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_4 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		return out_2, nil
 	case "Fixes":
@@ -12812,7 +12812,7 @@ func ergo__ReadChange_2(env *Env, r json__Stream) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_5 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "rules"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "rules"}
 		}
 		return out_3, nil
 	case "Script":
@@ -12833,7 +12833,7 @@ func ergo__ReadChange_2(env *Env, r json__Stream) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_6 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "steps"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "steps"}
 		}
 		return out_4, nil
 	case "Rename":
@@ -12863,26 +12863,26 @@ func ergo__ReadChange_2(env *Env, r json__Stream) (code__Change, error) {
 		}
 		(r).End(env)
 		if !seen_7 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "of"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 		}
 		if !seen_8 {
-			return *new(code__Change), WireMissingField{Path: (r).Path(env), Field: "to"}
+			return *new(code__Change), ergo__WireMissingField{Path: (r).Path(env), Field: "to"}
 		}
 		return out_5, nil
 	}
-	return *new(code__Change), WireUnknownTag{Path: (r).Path(env), Tag: tag}
+	return *new(code__Change), ergo__WireUnknownTag{Path: (r).Path(env), Tag: tag}
 }
 
 // ergo__opsHostFilesAsFiles provides code.Files through the functions of code.HostFiles (an operations conversion).
 type ergo__opsHostFilesAsFiles struct {
 	v   code__HostFiles
-	env *Env
+	env *ergo__Env
 }
 
 func (a *ergo__opsHostFilesAsFiles) Read(t *rt.Task, p string) (string, error) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -12895,7 +12895,7 @@ func (a *ergo__opsHostFilesAsFiles) Read(t *rt.Task, p string) (string, error) {
 func (a *ergo__opsHostFilesAsFiles) Write(t *rt.Task, p string, p_1 string) error {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -12908,7 +12908,7 @@ func (a *ergo__opsHostFilesAsFiles) Write(t *rt.Task, p string, p_1 string) erro
 func (a *ergo__opsHostFilesAsFiles) Exchange(t *rt.Task, p string, p_1 string) error {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -12921,7 +12921,7 @@ func (a *ergo__opsHostFilesAsFiles) Exchange(t *rt.Task, p string, p_1 string) e
 func (a *ergo__opsHostFilesAsFiles) Remove(t *rt.Task, p string) error {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -12934,7 +12934,7 @@ func (a *ergo__opsHostFilesAsFiles) Remove(t *rt.Task, p string) error {
 func (a *ergo__opsHostFilesAsFiles) Exists(t *rt.Task, p string) (bool, error) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -12947,7 +12947,7 @@ func (a *ergo__opsHostFilesAsFiles) Exists(t *rt.Task, p string) (bool, error) {
 func (a *ergo__opsHostFilesAsFiles) Lock(t *rt.Task) error {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -12960,7 +12960,7 @@ func (a *ergo__opsHostFilesAsFiles) Lock(t *rt.Task) error {
 func (a *ergo__opsHostFilesAsFiles) Unlock(t *rt.Task) error {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -12973,7 +12973,7 @@ func (a *ergo__opsHostFilesAsFiles) Unlock(t *rt.Task) error {
 // ergo__opsIndexAsReader provides code.Reader through the functions of code.Index (an operations conversion).
 type ergo__opsIndexAsReader struct {
 	v   code__Index
-	env *Env
+	env *ergo__Env
 }
 
 func (a *ergo__opsIndexAsReader) Describe(_ *rt.Task) code__Summary {
@@ -12999,7 +12999,7 @@ func (a *ergo__opsIndexAsReader) Calls(_ *rt.Task, p code__CallQuery) (code__Cal
 func (a *ergo__opsIndexAsReader) Api(t *rt.Task, p code__ApiQuery) (code__ApiView, error) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -13012,7 +13012,7 @@ func (a *ergo__opsIndexAsReader) Api(t *rt.Task, p code__ApiQuery) (code__ApiVie
 func (a *ergo__opsIndexAsReader) Reach(t *rt.Task, p code__ReachQuery) (code__ReachPage, error) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -13025,7 +13025,7 @@ func (a *ergo__opsIndexAsReader) Reach(t *rt.Task, p code__ReachQuery) (code__Re
 func (a *ergo__opsIndexAsReader) MachineOf(t *rt.Task, p string) (code__MachineView, error) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -13109,7 +13109,7 @@ func ergo__CloneMachineView(v code__MachineView) code__MachineView {
 	return c
 }
 
-func ergo__EncodePair(env *Env, w Writer, v code__Pair) {
+func ergo__EncodePair(env *ergo__Env, w ergo__Writer, v code__Pair) {
 	w.BeginObject(env.task, 3)
 	w.Key(env.task, "state")
 	w.String(env.task, string(v.State))
@@ -13120,7 +13120,7 @@ func ergo__EncodePair(env *Env, w Writer, v code__Pair) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_21(env *Env, w Writer, v []code__Pair) {
+func ergo__EncodeSlice_21(env *ergo__Env, w ergo__Writer, v []code__Pair) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodePair(env, w, e)
@@ -13128,7 +13128,7 @@ func ergo__EncodeSlice_21(env *Env, w Writer, v []code__Pair) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeMachineView(env *Env, w Writer, v code__MachineView) {
+func ergo__EncodeMachineView(env *ergo__Env, w ergo__Writer, v code__MachineView) {
 	w.BeginObject(env.task, 4)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -13141,7 +13141,7 @@ func ergo__EncodeMachineView(env *Env, w Writer, v code__MachineView) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_18(env *Env, w Writer, v []code__MachineView) {
+func ergo__EncodeSlice_18(env *ergo__Env, w ergo__Writer, v []code__MachineView) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeMachineView(env, w, e)
@@ -13149,7 +13149,7 @@ func ergo__EncodeSlice_18(env *Env, w Writer, v []code__MachineView) {
 	w.EndList(env.task)
 }
 
-func ergo__DecodePair(env *Env, r Reader) (code__Pair, error) {
+func ergo__DecodePair(env *ergo__Env, r ergo__Reader) (code__Pair, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Pair), err
 	}
@@ -13186,18 +13186,18 @@ func ergo__DecodePair(env *Env, r Reader) (code__Pair, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Pair), WireMissingField{Path: r.Path(env.task), Field: "state"}
+		return *new(code__Pair), ergo__WireMissingField{Path: r.Path(env.task), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Pair), WireMissingField{Path: r.Path(env.task), Field: "signal"}
+		return *new(code__Pair), ergo__WireMissingField{Path: r.Path(env.task), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Pair), WireMissingField{Path: r.Path(env.task), Field: "arms"}
+		return *new(code__Pair), ergo__WireMissingField{Path: r.Path(env.task), Field: "arms"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_21(env *Env, r Reader) ([]code__Pair, error) {
+func ergo__DecodeSlice_21(env *ergo__Env, r ergo__Reader) ([]code__Pair, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Pair), err
 	}
@@ -13213,7 +13213,7 @@ func ergo__DecodeSlice_21(env *Env, r Reader) ([]code__Pair, error) {
 	return out, nil
 }
 
-func ergo__DecodeMachineView(env *Env, r Reader) (code__MachineView, error) {
+func ergo__DecodeMachineView(env *ergo__Env, r ergo__Reader) (code__MachineView, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__MachineView), err
 	}
@@ -13257,21 +13257,21 @@ func ergo__DecodeMachineView(env *Env, r Reader) (code__MachineView, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__MachineView), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__MachineView), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: r.Path(env.task), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__MachineView), WireMissingField{Path: r.Path(env.task), Field: "graph"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: r.Path(env.task), Field: "graph"}
 	}
 	if !seen_3 {
-		return *new(code__MachineView), WireMissingField{Path: r.Path(env.task), Field: "reachable"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: r.Path(env.task), Field: "reachable"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_18(env *Env, r Reader) ([]code__MachineView, error) {
+func ergo__DecodeSlice_18(env *ergo__Env, r ergo__Reader) ([]code__MachineView, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__MachineView), err
 	}
@@ -13287,7 +13287,7 @@ func ergo__DecodeSlice_18(env *Env, r Reader) ([]code__MachineView, error) {
 	return out, nil
 }
 
-func ergo__WritePair(env *Env, wv json__text, v code__Pair) json__text {
+func ergo__WritePair(env *ergo__Env, wv json__text, v code__Pair) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"state\":"))
@@ -13302,7 +13302,7 @@ func ergo__WritePair(env *Env, wv json__text, v code__Pair) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_21(env *Env, wv json__text, v []code__Pair) json__text {
+func ergo__WriteSlice_21(env *ergo__Env, wv json__text, v []code__Pair) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -13316,7 +13316,7 @@ func ergo__WriteSlice_21(env *Env, wv json__text, v []code__Pair) json__text {
 	return wv
 }
 
-func ergo__WriteMachineGraph_entry(env *Env, wv json__text, v code__MachineGraph) json__text {
+func ergo__WriteMachineGraph_entry(env *ergo__Env, wv json__text, v code__MachineGraph) json__text {
 	w := &wv
 	(w).raw(string("{\"handle\":"))
 	(w).stringBody(string(v.Handle))
@@ -13356,7 +13356,7 @@ func ergo__WriteMachineGraph_entry(env *Env, wv json__text, v code__MachineGraph
 	return wv
 }
 
-func ergo__WriteSlice_entry_21(env *Env, wv json__text, v []code__Pair) json__text {
+func ergo__WriteSlice_entry_21(env *ergo__Env, wv json__text, v []code__Pair) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -13369,7 +13369,7 @@ func ergo__WriteSlice_entry_21(env *Env, wv json__text, v []code__Pair) json__te
 	return wv
 }
 
-func ergo__WriteMachineView(env *Env, wv json__text, v code__MachineView) json__text {
+func ergo__WriteMachineView(env *ergo__Env, wv json__text, v code__MachineView) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -13388,7 +13388,7 @@ func ergo__WriteMachineView(env *Env, wv json__text, v code__MachineView) json__
 	return wv
 }
 
-func ergo__WriteSlice_18(env *Env, wv json__text, v []code__MachineView) json__text {
+func ergo__WriteSlice_18(env *ergo__Env, wv json__text, v []code__MachineView) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -13402,7 +13402,7 @@ func ergo__WriteSlice_18(env *Env, wv json__text, v []code__MachineView) json__t
 	return wv
 }
 
-func ergo__ReadPair(env *Env, r http__queryReader) (code__Pair, error) {
+func ergo__ReadPair(env *ergo__Env, r http__queryReader) (code__Pair, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Pair), err
 	}
@@ -13439,18 +13439,18 @@ func ergo__ReadPair(env *Env, r http__queryReader) (code__Pair, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "state"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "signal"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "arms"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "arms"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_21(env *Env, r http__queryReader) ([]code__Pair, error) {
+func ergo__ReadSlice_21(env *ergo__Env, r http__queryReader) ([]code__Pair, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Pair), err
 	}
@@ -13466,7 +13466,7 @@ func ergo__ReadSlice_21(env *Env, r http__queryReader) ([]code__Pair, error) {
 	return out, nil
 }
 
-func ergo__ReadMachineView(env *Env, r http__queryReader) (code__MachineView, error) {
+func ergo__ReadMachineView(env *ergo__Env, r http__queryReader) (code__MachineView, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__MachineView), err
 	}
@@ -13510,21 +13510,21 @@ func ergo__ReadMachineView(env *Env, r http__queryReader) (code__MachineView, er
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "graph"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "graph"}
 	}
 	if !seen_3 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "reachable"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "reachable"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_18(env *Env, r http__queryReader) ([]code__MachineView, error) {
+func ergo__ReadSlice_18(env *ergo__Env, r http__queryReader) ([]code__MachineView, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__MachineView), err
 	}
@@ -13540,7 +13540,7 @@ func ergo__ReadSlice_18(env *Env, r http__queryReader) ([]code__MachineView, err
 	return out, nil
 }
 
-func ergo__ReadPair_1(env *Env, r json__Reader_1) (code__Pair, error) {
+func ergo__ReadPair_1(env *ergo__Env, r json__Reader_1) (code__Pair, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Pair), err
 	}
@@ -13577,18 +13577,18 @@ func ergo__ReadPair_1(env *Env, r json__Reader_1) (code__Pair, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "state"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "signal"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "arms"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "arms"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_56(env *Env, r json__Reader_1) ([]code__Pair, error) {
+func ergo__ReadSlice_56(env *ergo__Env, r json__Reader_1) ([]code__Pair, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Pair), err
 	}
@@ -13604,7 +13604,7 @@ func ergo__ReadSlice_56(env *Env, r json__Reader_1) ([]code__Pair, error) {
 	return out, nil
 }
 
-func ergo__ReadMachineView_1(env *Env, r json__Reader_1) (code__MachineView, error) {
+func ergo__ReadMachineView_1(env *ergo__Env, r json__Reader_1) (code__MachineView, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__MachineView), err
 	}
@@ -13648,21 +13648,21 @@ func ergo__ReadMachineView_1(env *Env, r json__Reader_1) (code__MachineView, err
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "graph"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "graph"}
 	}
 	if !seen_3 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "reachable"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "reachable"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_53(env *Env, r json__Reader_1) ([]code__MachineView, error) {
+func ergo__ReadSlice_53(env *ergo__Env, r json__Reader_1) ([]code__MachineView, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__MachineView), err
 	}
@@ -13678,7 +13678,7 @@ func ergo__ReadSlice_53(env *Env, r json__Reader_1) ([]code__MachineView, error)
 	return out, nil
 }
 
-func ergo__ReadPair_2(env *Env, r json__Stream) (code__Pair, error) {
+func ergo__ReadPair_2(env *ergo__Env, r json__Stream) (code__Pair, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Pair), err
 	}
@@ -13715,18 +13715,18 @@ func ergo__ReadPair_2(env *Env, r json__Stream) (code__Pair, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "state"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "state"}
 	}
 	if !seen_1 {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "signal"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "signal"}
 	}
 	if !seen_2 {
-		return *new(code__Pair), WireMissingField{Path: (r).Path(env), Field: "arms"}
+		return *new(code__Pair), ergo__WireMissingField{Path: (r).Path(env), Field: "arms"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_91(env *Env, r json__Stream) ([]code__Pair, error) {
+func ergo__ReadSlice_91(env *ergo__Env, r json__Stream) ([]code__Pair, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Pair), err
 	}
@@ -13742,7 +13742,7 @@ func ergo__ReadSlice_91(env *Env, r json__Stream) ([]code__Pair, error) {
 	return out, nil
 }
 
-func ergo__ReadMachineView_2(env *Env, r json__Stream) (code__MachineView, error) {
+func ergo__ReadMachineView_2(env *ergo__Env, r json__Stream) (code__MachineView, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__MachineView), err
 	}
@@ -13786,21 +13786,21 @@ func ergo__ReadMachineView_2(env *Env, r json__Stream) (code__MachineView, error
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "graph"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "graph"}
 	}
 	if !seen_3 {
-		return *new(code__MachineView), WireMissingField{Path: (r).Path(env), Field: "reachable"}
+		return *new(code__MachineView), ergo__WireMissingField{Path: (r).Path(env), Field: "reachable"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_88(env *Env, r json__Stream) ([]code__MachineView, error) {
+func ergo__ReadSlice_88(env *ergo__Env, r json__Stream) ([]code__MachineView, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__MachineView), err
 	}
@@ -13841,7 +13841,7 @@ func (e code__CheckFailed) Error() string {
 // ergo__opstextAsText provides json.Text through the functions of json.text (an operations conversion).
 type ergo__opstextAsText struct {
 	v   json__text
-	env *Env
+	env *ergo__Env
 }
 
 func (a *ergo__opstextAsText) Written(_ *rt.Task) string {
@@ -13899,7 +13899,7 @@ func (a *ergo__opstextAsText) floatBody(_ *rt.Task, p float64) {
 func (a *ergo__opstextAsText) finish(t *rt.Task, p int) string {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -13916,7 +13916,7 @@ func (a *ergo__opstextAsText) bytes(_ *rt.Task) []uint8 {
 func (a *ergo__opstextAsText) drop(t *rt.Task, p int) {
 	e := a.env
 	if e == nil || e.task != t {
-		c := Env{task: t}
+		c := ergo__Env{task: t}
 		if e != nil {
 			c = *e
 			c.task = t
@@ -13982,20 +13982,20 @@ func (a *ergo__opstextAsText) EndObject(_ *rt.Task) {
 	(&a.v).EndObject()
 }
 
-func json__Encode[T any](env *Env, wT struct {
-	Enc     func(*Env, Writer, T) (struct{}, error)
-	Dec     func(*Env, Reader) (T, error)
-	Direct0 func(*Env, json__text, T) json__text
-	Read0   func(*Env, http__queryReader) (T, error)
-	Read1   func(*Env, json__Reader_1) (T, error)
-	Read2   func(*Env, json__Stream) (T, error)
+func json__Encode[T any](env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (T, error)
+	Direct0 func(*ergo__Env, json__text, T) json__text
+	Read0   func(*ergo__Env, http__queryReader) (T, error)
+	Read1   func(*ergo__Env, json__Reader_1) (T, error)
+	Read2   func(*ergo__Env, json__Stream) (T, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, T) (struct{}, error)
-		Dec     func(*Env, Reader) (T, error)
-		Direct0 func(*Env, json__text, T) json__text
-		Read0   func(*Env, http__queryReader) (T, error)
-		Read1   func(*Env, json__Reader_1) (T, error)
-		Read2   func(*Env, json__Stream) (T, error)
+		Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (T, error)
+		Direct0 func(*ergo__Env, json__text, T) json__text
+		Read0   func(*ergo__Env, http__queryReader) (T, error)
+		Read1   func(*ergo__Env, json__Reader_1) (T, error)
+		Read2   func(*ergo__Env, json__Stream) (T, error)
 		Absent  func(T) bool
 		Empty   T
 	}
@@ -14010,20 +14010,20 @@ func json__Encode[T any](env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i443730450(env *Env, wT struct {
-	Enc     func(*Env, Writer, ask) (struct{}, error)
-	Dec     func(*Env, Reader) (ask, error)
-	Direct0 func(*Env, json__text, ask) json__text
-	Read0   func(*Env, http__queryReader) (ask, error)
-	Read1   func(*Env, json__Reader_1) (ask, error)
-	Read2   func(*Env, json__Stream) (ask, error)
+func json__EncodeMono_i443730450(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, ask) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (ask, error)
+	Direct0 func(*ergo__Env, json__text, ask) json__text
+	Read0   func(*ergo__Env, http__queryReader) (ask, error)
+	Read1   func(*ergo__Env, json__Reader_1) (ask, error)
+	Read2   func(*ergo__Env, json__Stream) (ask, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, ask) (struct{}, error)
-		Dec     func(*Env, Reader) (ask, error)
-		Direct0 func(*Env, json__text, ask) json__text
-		Read0   func(*Env, http__queryReader) (ask, error)
-		Read1   func(*Env, json__Reader_1) (ask, error)
-		Read2   func(*Env, json__Stream) (ask, error)
+		Enc     func(*ergo__Env, ergo__Writer, ask) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (ask, error)
+		Direct0 func(*ergo__Env, json__text, ask) json__text
+		Read0   func(*ergo__Env, http__queryReader) (ask, error)
+		Read1   func(*ergo__Env, json__Reader_1) (ask, error)
+		Read2   func(*ergo__Env, json__Stream) (ask, error)
 		Absent  func(ask) bool
 		Empty   ask
 	}
@@ -14043,7 +14043,7 @@ type json__Codec[T any] struct {
 	MaxDepth int
 }
 
-type Writer interface {
+type ergo__Writer interface {
 	Null(*rt.Task)
 	Number(*rt.Task, string)
 	Bool(*rt.Task, bool)
@@ -14060,9 +14060,9 @@ type Writer interface {
 	EndObject(*rt.Task)
 }
 
-type Reader interface {
+type ergo__Reader interface {
 	TakeNull(*rt.Task) bool
-	Peek(*rt.Task) WireKind
+	Peek(*rt.Task) ergo__WireKind
 	Number(*rt.Task) (string, error)
 	Path(*rt.Task) string
 	Bool(*rt.Task) (bool, error)
@@ -14080,22 +14080,22 @@ type Reader interface {
 	End(*rt.Task)
 }
 
-type WireMissingField struct {
+type ergo__WireMissingField struct {
 	Path  string
 	Field string
 }
 
-func (e WireMissingField) Error() string {
-	return "WireMissingField" + ergo__textWireMissingField(e)
+func (e ergo__WireMissingField) Error() string {
+	return "WireMissingField" + ergo__textergo__WireMissingField(e)
 }
 
-type WireUnknownTag struct {
+type ergo__WireUnknownTag struct {
 	Path string
 	Tag  string
 }
 
-func (e WireUnknownTag) Error() string {
-	return "WireUnknownTag" + ergo__textWireUnknownTag(e)
+func (e ergo__WireUnknownTag) Error() string {
+	return "WireUnknownTag" + ergo__textergo__WireUnknownTag(e)
 }
 
 type json__text struct {
@@ -14128,27 +14128,27 @@ type http__queryReader struct {
 	state    *ergo.Ref[int]
 	at       *ergo.Ref[int]
 	item     *ergo.Ref[int]
-	repeated *ergo.Ref[Option[string]]
+	repeated *ergo.Ref[ergo__Option[string]]
 }
 
-func (r http__queryReader) BeginObject(env *Env) error {
+func (r http__queryReader) BeginObject(env *ergo__Env) error {
 	env.task.Check()
 	v := (r.state).Get()
 	if v != int(0) {
 		v_1 := (r).Path(env)
-		return WireWrongKind{Path: v_1, Want: "an object"}
+		return ergo__WireWrongKind{Path: v_1, Want: "an object"}
 	}
 	(r.state).Set(int(1))
 	return nil
 }
 
-func (r http__queryReader) Tag(env *Env) (string, error) {
+func (r http__queryReader) Tag(env *ergo__Env) (string, error) {
 	env.task.Check()
 	v := (r).Path(env)
-	return "", WireMissingField{Path: v, Field: "_tag"}
+	return "", ergo__WireMissingField{Path: v, Field: "_tag"}
 }
 
-func (r http__queryReader) More(env *Env) bool {
+func (r http__queryReader) More(env *ergo__Env) bool {
 	env.task.Check()
 	v := (r.state).Get()
 	if v == int(1) {
@@ -14166,7 +14166,7 @@ func (r http__queryReader) More(env *Env) bool {
 	return b
 }
 
-func (r http__queryReader) Key(env *Env) string {
+func (r http__queryReader) Key(env *ergo__Env) string {
 	env.task.Check()
 	(r.state).Set(int(2))
 	t := r.groups
@@ -14174,19 +14174,19 @@ func (r http__queryReader) Key(env *Env) string {
 	return t[v].name
 }
 
-func (r http__queryReader) BeginList(env *Env) error {
+func (r http__queryReader) BeginList(env *ergo__Env) error {
 	env.task.Check()
 	v := (r.state).Get()
 	if v != int(2) {
 		v_1 := (r).Path(env)
-		return WireWrongKind{Path: v_1, Want: "a list"}
+		return ergo__WireWrongKind{Path: v_1, Want: "a list"}
 	}
 	(r.state).Set(int(3))
 	(r.item).Set(int(0))
 	return nil
 }
 
-func (r http__queryReader) String(env *Env) (string, error) {
+func (r http__queryReader) String(env *ergo__Env) (string, error) {
 	env.task.Check()
 	v, err := (r).value(env, "a string")
 	if err != nil {
@@ -14195,7 +14195,7 @@ func (r http__queryReader) String(env *Env) (string, error) {
 	return v, nil
 }
 
-func (r http__queryReader) Skip(env *Env) {
+func (r http__queryReader) Skip(env *ergo__Env) {
 	env.task.Check()
 	(r.state).Set(int(1))
 	t := r.at
@@ -14204,7 +14204,7 @@ func (r http__queryReader) Skip(env *Env) {
 	return
 }
 
-func (r http__queryReader) End(env *Env) {
+func (r http__queryReader) End(env *ergo__Env) {
 	env.task.Check()
 	v := (r.state).Get()
 	if v == int(3) {
@@ -14218,7 +14218,7 @@ func (r http__queryReader) End(env *Env) {
 	return
 }
 
-func (r http__queryReader) Path(env *Env) string {
+func (r http__queryReader) Path(env *ergo__Env) string {
 	env.task.Check()
 	v := (r.state).Get()
 	switch v {
@@ -14241,73 +14241,73 @@ type json__Reader_1 struct {
 	c *ergo.Cursor
 }
 
-func (r json__Reader_1) BeginObject(env *Env) error {
+func (r json__Reader_1) BeginObject(env *ergo__Env) error {
 	env.task.Check()
 	v := (r.c).BeginObject()
 	if !v {
 		v_1 := (r.c).Path()
-		return WireWrongKind{Path: v_1, Want: "an object"}
+		return ergo__WireWrongKind{Path: v_1, Want: "an object"}
 	}
 	return nil
 }
 
-func (r json__Reader_1) Tag(env *Env) (string, error) {
+func (r json__Reader_1) Tag(env *ergo__Env) (string, error) {
 	env.task.Check()
 	v := (r.c).Tag()
 	v_1 := (r.c).Wrong()
 	if v_1 {
 		v_2 := (r.c).Path()
-		return "", WireMissingField{Path: v_2, Field: "_tag"}
+		return "", ergo__WireMissingField{Path: v_2, Field: "_tag"}
 	}
 	return v, nil
 }
 
-func (r json__Reader_1) More(env *Env) bool {
+func (r json__Reader_1) More(env *ergo__Env) bool {
 	env.task.Check()
 	v := (r.c).More()
 	return v
 }
 
-func (r json__Reader_1) Key(env *Env) string {
+func (r json__Reader_1) Key(env *ergo__Env) string {
 	env.task.Check()
 	v := (r.c).Key()
 	return v
 }
 
-func (r json__Reader_1) BeginList(env *Env) error {
+func (r json__Reader_1) BeginList(env *ergo__Env) error {
 	env.task.Check()
 	v := (r.c).BeginList()
 	if !v {
 		v_1 := (r.c).Path()
-		return WireWrongKind{Path: v_1, Want: "an array"}
+		return ergo__WireWrongKind{Path: v_1, Want: "an array"}
 	}
 	return nil
 }
 
-func (r json__Reader_1) String(env *Env) (string, error) {
+func (r json__Reader_1) String(env *ergo__Env) (string, error) {
 	env.task.Check()
 	v := (r.c).String()
 	v_1 := (r.c).Wrong()
 	if v_1 {
 		v_2 := (r.c).Path()
-		return "", WireWrongKind{Path: v_2, Want: "a string"}
+		return "", ergo__WireWrongKind{Path: v_2, Want: "a string"}
 	}
 	return v, nil
 }
 
-func (r json__Reader_1) Skip(env *Env) {
+func (r json__Reader_1) Skip(env *ergo__Env) {
 	env.task.Check()
 	(r.c).Skip()
 	return
 }
 
-func (r json__Reader_1) End(env *Env) {
+func (r json__Reader_1) End(env *ergo__Env) {
 	env.task.Check()
 	(r.c).End()
 	return
 }
 
-func (r json__Reader_1) Path(env *Env) string {
+func (r json__Reader_1) Path(env *ergo__Env) string {
 	env.task.Check()
 	v := (r.c).Path()
 	return v
@@ -14325,11 +14325,11 @@ func ergo__Clonescan(v json__scan) json__scan {
 	return c
 }
 
-func (r json__Stream) BeginObject(env *Env) error {
+func (r json__Stream) BeginObject(env *ergo__Env) error {
 	env.task.Check()
 	for {
 		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				var v_1 bool
 				{
@@ -14357,7 +14357,7 @@ func (r json__Stream) BeginObject(env *Env) error {
 					if s.nf < len(s.frames) {
 						s.frames[s.nf] = f
 					} else {
-						s.frames = Append[json__frame](s.frames, f)
+						s.frames = ergo__Append[json__frame](s.frames, f)
 					}
 					s.nf = (s.nf + int(1))
 					v_1 = true
@@ -14398,7 +14398,7 @@ func (r json__Stream) BeginObject(env *Env) error {
 			return r_1
 		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
 		if v_10.wrong {
-			return WireWrongKind{Path: v_10.path, Want: "an object"}
+			return ergo__WireWrongKind{Path: v_10.path, Want: "an object"}
 		}
 		if !v_10.starved {
 			return nil
@@ -14407,11 +14407,11 @@ func (r json__Stream) BeginObject(env *Env) error {
 	}
 }
 
-func (r json__Stream) Tag(env *Env) (string, error) {
+func (r json__Stream) Tag(env *ergo__Env) (string, error) {
 	env.task.Check()
 	for {
 		v_6 := ergo.RefModifyInPlace[json__scan, json__got[string]](env.task, r.st, func(p_1 *json__scan) json__got[string] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[string], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[string], error) {
 				v := (&(*p)).opening()
 				v_1 := (&(*p)).tag(env_1)
 				var v_2 json__got[string]
@@ -14449,7 +14449,7 @@ func (r json__Stream) Tag(env *Env) (string, error) {
 			return r_1
 		}, func(v_5 json__scan) json__scan { return ergo__Clonescan(v_5) }, true, true)
 		if v_6.wrong {
-			return "", WireMissingField{Path: v_6.path, Field: "_tag"}
+			return "", ergo__WireMissingField{Path: v_6.path, Field: "_tag"}
 		}
 		if !v_6.starved {
 			return v_6.v, nil
@@ -14458,11 +14458,11 @@ func (r json__Stream) Tag(env *Env) (string, error) {
 	}
 }
 
-func (r json__Stream) More(env *Env) bool {
+func (r json__Stream) More(env *ergo__Env) bool {
 	env.task.Check()
 	for {
 		v_6 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				var v_1 bool
 				{
@@ -14517,10 +14517,10 @@ func (r json__Stream) More(env *Env) bool {
 	}
 }
 
-func (r json__Stream) Key(env *Env) string {
+func (r json__Stream) Key(env *ergo__Env) string {
 	env.task.Check()
 	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
-		r_1, _ := func(env_1 *Env, p *json__scan) (string, error) {
+		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (string, error) {
 			v := (&(*p)).key()
 			return v, nil
 		}(env, p_1)
@@ -14529,11 +14529,11 @@ func (r json__Stream) Key(env *Env) string {
 	return v_2
 }
 
-func (r json__Stream) BeginList(env *Env) error {
+func (r json__Stream) BeginList(env *ergo__Env) error {
 	env.task.Check()
 	for {
 		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				var v_1 bool
 				{
@@ -14561,7 +14561,7 @@ func (r json__Stream) BeginList(env *Env) error {
 					if s.nf < len(s.frames) {
 						s.frames[s.nf] = f
 					} else {
-						s.frames = Append[json__frame](s.frames, f)
+						s.frames = ergo__Append[json__frame](s.frames, f)
 					}
 					s.nf = (s.nf + int(1))
 					v_1 = true
@@ -14602,7 +14602,7 @@ func (r json__Stream) BeginList(env *Env) error {
 			return r_1
 		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
 		if v_10.wrong {
-			return WireWrongKind{Path: v_10.path, Want: "an array"}
+			return ergo__WireWrongKind{Path: v_10.path, Want: "an array"}
 		}
 		if !v_10.starved {
 			return nil
@@ -14611,11 +14611,11 @@ func (r json__Stream) BeginList(env *Env) error {
 	}
 }
 
-func (r json__Stream) String(env *Env) (string, error) {
+func (r json__Stream) String(env *ergo__Env) (string, error) {
 	env.task.Check()
 	for {
 		v_12 := ergo.RefModifyInPlace[json__scan, json__got[string]](env.task, r.st, func(p_1 *json__scan) json__got[string] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[string], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[string], error) {
 				v := (&(*p)).opening()
 				var v_1 string
 				{
@@ -14693,7 +14693,7 @@ func (r json__Stream) String(env *Env) (string, error) {
 			return r_1
 		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
 		if v_12.wrong {
-			return "", WireWrongKind{Path: v_12.path, Want: "a string"}
+			return "", ergo__WireWrongKind{Path: v_12.path, Want: "a string"}
 		}
 		if !v_12.starved {
 			return v_12.v, nil
@@ -14702,11 +14702,11 @@ func (r json__Stream) String(env *Env) (string, error) {
 	}
 }
 
-func (r json__Stream) Skip(env *Env) {
+func (r json__Stream) Skip(env *ergo__Env) {
 	env.task.Check()
 	for {
 		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				{
 					var s *json__scan = (&(*p))
@@ -14743,11 +14743,11 @@ func (r json__Stream) Skip(env *Env) {
 	}
 }
 
-func (r json__Stream) End(env *Env) {
+func (r json__Stream) End(env *ergo__Env) {
 	env.task.Check()
 	for {
 		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				(&(*p)).end(env_1)
 				var v_1 json__got[bool]
@@ -14780,10 +14780,10 @@ func (r json__Stream) End(env *Env) {
 	}
 }
 
-func (r json__Stream) Path(env *Env) string {
+func (r json__Stream) Path(env *ergo__Env) string {
 	env.task.Check()
 	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
-		r_1, _ := func(env_1 *Env, p *json__scan) (string, error) {
+		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (string, error) {
 			v := (&(*p)).path(env_1)
 			return v, nil
 		}(env, p_1)
@@ -14792,27 +14792,27 @@ func (r json__Stream) Path(env *Env) string {
 	return v_2
 }
 
-type Some[T any] struct {
+type ergo__Some[T any] struct {
 	Value T
 }
 
-type None struct {
+type ergo__None struct {
 }
 
-func json__Decode[T any](env *Env, wT struct {
-	Enc     func(*Env, Writer, T) (struct{}, error)
-	Dec     func(*Env, Reader) (T, error)
-	Direct0 func(*Env, json__text, T) json__text
-	Read0   func(*Env, http__queryReader) (T, error)
-	Read1   func(*Env, json__Reader_1) (T, error)
-	Read2   func(*Env, json__Stream) (T, error)
+func json__Decode[T any](env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (T, error)
+	Direct0 func(*ergo__Env, json__text, T) json__text
+	Read0   func(*ergo__Env, http__queryReader) (T, error)
+	Read1   func(*ergo__Env, json__Reader_1) (T, error)
+	Read2   func(*ergo__Env, json__Stream) (T, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, T) (struct{}, error)
-		Dec     func(*Env, Reader) (T, error)
-		Direct0 func(*Env, json__text, T) json__text
-		Read0   func(*Env, http__queryReader) (T, error)
-		Read1   func(*Env, json__Reader_1) (T, error)
-		Read2   func(*Env, json__Stream) (T, error)
+		Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (T, error)
+		Direct0 func(*ergo__Env, json__text, T) json__text
+		Read0   func(*ergo__Env, http__queryReader) (T, error)
+		Read1   func(*ergo__Env, json__Reader_1) (T, error)
+		Read2   func(*ergo__Env, json__Stream) (T, error)
 		Absent  func(T) bool
 		Empty   T
 	}
@@ -14844,20 +14844,20 @@ func json__Decode[T any](env *Env, wT struct {
 	return v_3, nil
 }
 
-func json__DecodeMono_i697505319(env *Env, wT struct {
-	Enc     func(*Env, Writer, reply) (struct{}, error)
-	Dec     func(*Env, Reader) (reply, error)
-	Direct0 func(*Env, json__text, reply) json__text
-	Read0   func(*Env, http__queryReader) (reply, error)
-	Read1   func(*Env, json__Reader_1) (reply, error)
-	Read2   func(*Env, json__Stream) (reply, error)
+func json__DecodeMono_i697505319(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (reply, error)
+	Direct0 func(*ergo__Env, json__text, reply) json__text
+	Read0   func(*ergo__Env, http__queryReader) (reply, error)
+	Read1   func(*ergo__Env, json__Reader_1) (reply, error)
+	Read2   func(*ergo__Env, json__Stream) (reply, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, reply) (struct{}, error)
-		Dec     func(*Env, Reader) (reply, error)
-		Direct0 func(*Env, json__text, reply) json__text
-		Read0   func(*Env, http__queryReader) (reply, error)
-		Read1   func(*Env, json__Reader_1) (reply, error)
-		Read2   func(*Env, json__Stream) (reply, error)
+		Enc     func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (reply, error)
+		Direct0 func(*ergo__Env, json__text, reply) json__text
+		Read0   func(*ergo__Env, http__queryReader) (reply, error)
+		Read1   func(*ergo__Env, json__Reader_1) (reply, error)
+		Read2   func(*ergo__Env, json__Stream) (reply, error)
 		Absent  func(reply) bool
 		Empty   reply
 	}
@@ -15056,7 +15056,7 @@ func (t *json__text) intBody(n int64) {
 	t.out = ergo.JSONAppendInt(t.out, n)
 }
 
-func (r http__queryReader) Bool(env *Env) (bool, error) {
+func (r http__queryReader) Bool(env *ergo__Env) (bool, error) {
 	env.task.Check()
 	v := (r).Path(env)
 	v_1, err := (r).value(env, "a boolean")
@@ -15069,10 +15069,10 @@ func (r http__queryReader) Bool(env *Env) (bool, error) {
 	if v_1 == "false" {
 		return false, nil
 	}
-	return false, WireWrongKind{Path: v, Want: "a boolean"}
+	return false, ergo__WireWrongKind{Path: v, Want: "a boolean"}
 }
 
-func (r http__queryReader) Int(env *Env) (int64, error) {
+func (r http__queryReader) Int(env *ergo__Env) (int64, error) {
 	env.task.Check()
 	v := (r).Path(env)
 	v_1, err := (r).value(env, "an integer")
@@ -15082,40 +15082,40 @@ func (r http__queryReader) Int(env *Env) (int64, error) {
 	v_2, err_1 := ergo.StrconvParseInt(v_1, int(10), int(64))
 	var v_3 int64
 	if err_1 != nil {
-		return 0, WireWrongKind{Path: v, Want: "an integer"}
+		return 0, ergo__WireWrongKind{Path: v, Want: "an integer"}
 	} else {
 		v_3 = v_2
 	}
 	return v_3, nil
 }
 
-func (r json__Reader_1) Bool(env *Env) (bool, error) {
+func (r json__Reader_1) Bool(env *ergo__Env) (bool, error) {
 	env.task.Check()
 	v := (r.c).Bool()
 	v_1 := (r.c).Wrong()
 	if v_1 {
 		v_2 := (r.c).Path()
-		return false, WireWrongKind{Path: v_2, Want: "a boolean"}
+		return false, ergo__WireWrongKind{Path: v_2, Want: "a boolean"}
 	}
 	return v, nil
 }
 
-func (r json__Reader_1) Int(env *Env) (int64, error) {
+func (r json__Reader_1) Int(env *ergo__Env) (int64, error) {
 	env.task.Check()
 	v := (r.c).Int()
 	v_1 := (r.c).Wrong()
 	if v_1 {
 		v_2 := (r.c).Path()
-		return 0, WireWrongKind{Path: v_2, Want: "an integer"}
+		return 0, ergo__WireWrongKind{Path: v_2, Want: "an integer"}
 	}
 	return v, nil
 }
 
-func (r json__Stream) Bool(env *Env) (bool, error) {
+func (r json__Stream) Bool(env *ergo__Env) (bool, error) {
 	env.task.Check()
 	for {
 		v_9 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				var v_1 bool
 				{
@@ -15171,7 +15171,7 @@ func (r json__Stream) Bool(env *Env) (bool, error) {
 			return r_1
 		}, func(v_8 json__scan) json__scan { return ergo__Clonescan(v_8) }, true, true)
 		if v_9.wrong {
-			return false, WireWrongKind{Path: v_9.path, Want: "a boolean"}
+			return false, ergo__WireWrongKind{Path: v_9.path, Want: "a boolean"}
 		}
 		if !v_9.starved {
 			return v_9.v, nil
@@ -15180,11 +15180,11 @@ func (r json__Stream) Bool(env *Env) (bool, error) {
 	}
 }
 
-func (r json__Stream) Int(env *Env) (int64, error) {
+func (r json__Stream) Int(env *ergo__Env) (int64, error) {
 	env.task.Check()
 	for {
 		v_12 := ergo.RefModifyInPlace[json__scan, json__got[int64]](env.task, r.st, func(p_1 *json__scan) json__got[int64] {
-			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[int64], error) {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[int64], error) {
 				v := (&(*p)).opening()
 				var v_1 int64
 				{
@@ -15262,7 +15262,7 @@ func (r json__Stream) Int(env *Env) (int64, error) {
 			return r_1
 		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
 		if v_12.wrong {
-			return 0, WireWrongKind{Path: v_12.path, Want: "an integer"}
+			return 0, ergo__WireWrongKind{Path: v_12.path, Want: "an integer"}
 		}
 		if !v_12.starved {
 			return v_12.v, nil
@@ -15271,29 +15271,29 @@ func (r json__Stream) Int(env *Env) (int64, error) {
 	}
 }
 
-type WireWrongKind struct {
+type ergo__WireWrongKind struct {
 	Path string
 	Want string
 }
 
-func (e WireWrongKind) Error() string {
-	return "WireWrongKind" + ergo__textWireWrongKind(e)
+func (e ergo__WireWrongKind) Error() string {
+	return "WireWrongKind" + ergo__textergo__WireWrongKind(e)
 }
 
-func json__DecodeMono_i1727456663(env *Env, wT struct {
-	Enc     func(*Env, Writer, []code__Source) (struct{}, error)
-	Dec     func(*Env, Reader) ([]code__Source, error)
-	Direct0 func(*Env, json__text, []code__Source) json__text
-	Read0   func(*Env, http__queryReader) ([]code__Source, error)
-	Read1   func(*Env, json__Reader_1) ([]code__Source, error)
-	Read2   func(*Env, json__Stream) ([]code__Source, error)
+func json__DecodeMono_i1727456663(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+	Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+	Read0   func(*ergo__Env, http__queryReader) ([]code__Source, error)
+	Read1   func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+	Read2   func(*ergo__Env, json__Stream) ([]code__Source, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, []code__Source) (struct{}, error)
-		Dec     func(*Env, Reader) ([]code__Source, error)
-		Direct0 func(*Env, json__text, []code__Source) json__text
-		Read0   func(*Env, http__queryReader) ([]code__Source, error)
-		Read1   func(*Env, json__Reader_1) ([]code__Source, error)
-		Read2   func(*Env, json__Stream) ([]code__Source, error)
+		Enc     func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+		Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+		Read0   func(*ergo__Env, http__queryReader) ([]code__Source, error)
+		Read1   func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+		Read2   func(*ergo__Env, json__Stream) ([]code__Source, error)
 		Absent  func([]code__Source) bool
 		Empty   []code__Source
 	}
@@ -15389,7 +15389,7 @@ type code__Planned struct {
 	Impact  []code__ApiChange
 }
 
-func (s code__Session) Plan(env *Env, c code__Change) (code__Planned, error) {
+func (s code__Session) Plan(env *ergo__Env, c code__Change) (code__Planned, error) {
 	env.task.Check()
 	v, err := code__planChange(env, s.sources, c, s.checker)
 	if err != nil {
@@ -15403,7 +15403,7 @@ func code__Open(sources []code__Source, checker code__Checker, store code__Store
 	return code__Session{sources: sources, checker: checker, store: store}
 }
 
-func code__NewStore(env *Env) code__Store {
+func code__NewStore(env *ergo__Env) code__Store {
 	env.task.Check()
 	v := ergo.NewRef[[]code__Planned]([]code__Planned{})
 	return code__Store{plans: v}
@@ -15437,20 +15437,20 @@ func (e code__Capture) Error() string {
 	return "Capture" + ergo__textcode__Capture(e)
 }
 
-func json__EncodeMono_i1506984564(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Planned) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Planned, error)
-	Direct0 func(*Env, json__text, code__Planned) json__text
-	Read0   func(*Env, http__queryReader) (code__Planned, error)
-	Read1   func(*Env, json__Reader_1) (code__Planned, error)
-	Read2   func(*Env, json__Stream) (code__Planned, error)
+func json__EncodeMono_i1506984564(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Planned, error)
+	Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Planned, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Planned, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Planned, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Planned) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Planned, error)
-		Direct0 func(*Env, json__text, code__Planned) json__text
-		Read0   func(*Env, http__queryReader) (code__Planned, error)
-		Read1   func(*Env, json__Reader_1) (code__Planned, error)
-		Read2   func(*Env, json__Stream) (code__Planned, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Planned, error)
+		Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Planned, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Planned, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Planned, error)
 		Absent  func(code__Planned) bool
 		Empty   code__Planned
 	}
@@ -15521,20 +15521,20 @@ func (x code__Proof) ErgoVariant() string { return [...]string{"Alpha", "SameCod
 
 type code__ApiChange struct {
 	Name                  string
-	Old                   Option[code__Contract]
-	New                   Option[code__Contract]
+	Old                   ergo__Option[code__Contract]
+	New                   ergo__Option[code__Contract]
 	BreaksResourceCallers bool
 }
 
-type Option[T any] struct {
+type ergo__Option[T any] struct {
 	tag uint8
-	v0  Some[T]
+	v0  ergo__Some[T]
 }
 
-func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
-func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
-func (x Option[T]) ErgoVariant() string {
-	return [...]func() string{ergo.VariantOf[Some[T]], ergo.VariantOf[None]}[x.tag]()
+func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] { return ergo__Option[T]{tag: 0, v0: v} }
+func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T]    { return ergo__Option[T]{tag: 1} }
+func (x ergo__Option[T]) ErgoVariant() string {
+	return [...]func() string{ergo.VariantOf[ergo__Some[T]], ergo.VariantOf[ergo__None]}[x.tag]()
 }
 
 func (p code__Planned) PlanText() string {
@@ -15581,20 +15581,20 @@ func strings__HasPrefix(s string, prefix string) bool {
 	return r
 }
 
-func json__DecodeMono_i2181974622(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Change) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Change, error)
-	Direct0 func(*Env, json__text, code__Change) json__text
-	Read0   func(*Env, http__queryReader) (code__Change, error)
-	Read1   func(*Env, json__Reader_1) (code__Change, error)
-	Read2   func(*Env, json__Stream) (code__Change, error)
+func json__DecodeMono_i2181974622(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Change) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Change, error)
+	Direct0 func(*ergo__Env, json__text, code__Change) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Change, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Change, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Change, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Change) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Change, error)
-		Direct0 func(*Env, json__text, code__Change) json__text
-		Read0   func(*Env, http__queryReader) (code__Change, error)
-		Read1   func(*Env, json__Reader_1) (code__Change, error)
-		Read2   func(*Env, json__Stream) (code__Change, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Change) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Change, error)
+		Direct0 func(*ergo__Env, json__text, code__Change) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Change, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Change, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Change, error)
 		Absent  func(code__Change) bool
 		Empty   code__Change
 	}
@@ -15642,20 +15642,20 @@ func code__ParseChange(text_1 string) (code__Change, error) {
 	return c, nil
 }
 
-func json__EncodeMono_i398550328(env *Env, wT struct {
-	Enc     func(*Env, Writer, string) (struct{}, error)
-	Dec     func(*Env, Reader) (string, error)
-	Direct0 func(*Env, json__text, string) json__text
-	Read0   func(*Env, http__queryReader) (string, error)
-	Read1   func(*Env, json__Reader_1) (string, error)
-	Read2   func(*Env, json__Stream) (string, error)
+func json__EncodeMono_i398550328(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, string) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (string, error)
+	Direct0 func(*ergo__Env, json__text, string) json__text
+	Read0   func(*ergo__Env, http__queryReader) (string, error)
+	Read1   func(*ergo__Env, json__Reader_1) (string, error)
+	Read2   func(*ergo__Env, json__Stream) (string, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, string) (struct{}, error)
-		Dec     func(*Env, Reader) (string, error)
-		Direct0 func(*Env, json__text, string) json__text
-		Read0   func(*Env, http__queryReader) (string, error)
-		Read1   func(*Env, json__Reader_1) (string, error)
-		Read2   func(*Env, json__Stream) (string, error)
+		Enc     func(*ergo__Env, ergo__Writer, string) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (string, error)
+		Direct0 func(*ergo__Env, json__text, string) json__text
+		Read0   func(*ergo__Env, http__queryReader) (string, error)
+		Read1   func(*ergo__Env, json__Reader_1) (string, error)
+		Read2   func(*ergo__Env, json__Stream) (string, error)
 		Absent  func(string) bool
 		Empty   string
 	}
@@ -15670,20 +15670,20 @@ func json__EncodeMono_i398550328(env *Env, wT struct {
 	return v_3
 }
 
-func json__DecodeMono_i1506984564(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Planned) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Planned, error)
-	Direct0 func(*Env, json__text, code__Planned) json__text
-	Read0   func(*Env, http__queryReader) (code__Planned, error)
-	Read1   func(*Env, json__Reader_1) (code__Planned, error)
-	Read2   func(*Env, json__Stream) (code__Planned, error)
+func json__DecodeMono_i1506984564(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Planned, error)
+	Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Planned, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Planned, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Planned, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Planned) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Planned, error)
-		Direct0 func(*Env, json__text, code__Planned) json__text
-		Read0   func(*Env, http__queryReader) (code__Planned, error)
-		Read1   func(*Env, json__Reader_1) (code__Planned, error)
-		Read2   func(*Env, json__Stream) (code__Planned, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Planned, error)
+		Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Planned, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Planned, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Planned, error)
 		Absent  func(code__Planned) bool
 		Empty   code__Planned
 	}
@@ -15715,7 +15715,7 @@ func json__DecodeMono_i1506984564(env *Env, wT struct {
 	return v_3, nil
 }
 
-func code__HostFilesOf(env *Env, host fs__Host, root string) code__HostFiles {
+func code__HostFilesOf(env *ergo__Env, host fs__Host, root string) code__HostFiles {
 	env.task.Check()
 	t := host
 	t_1 := root
@@ -15729,18 +15729,18 @@ func code__HostFilesOf(env *Env, host fs__Host, root string) code__HostFiles {
 	return v_1
 }
 
-func fs__NewHost(env *Env) fs__Host {
+func fs__NewHost(env *ergo__Env) fs__Host {
 	return fs__Host{root: ""}
 }
 
 type code__HostFiles struct {
-	read     func(*Env, string) (string, error)
-	write    func(*Env, string, string) (struct{}, error)
-	exchange func(*Env, string, string) (struct{}, error)
-	remove   func(*Env, string) (struct{}, error)
-	exists   func(*Env, string) (bool, error)
-	lock     func(*Env) (struct{}, error)
-	unlock   func(*Env) (struct{}, error)
+	read     func(*ergo__Env, string) (string, error)
+	write    func(*ergo__Env, string, string) (struct{}, error)
+	exchange func(*ergo__Env, string, string) (struct{}, error)
+	remove   func(*ergo__Env, string) (struct{}, error)
+	exists   func(*ergo__Env, string) (bool, error)
+	lock     func(*ergo__Env) (struct{}, error)
+	unlock   func(*ergo__Env) (struct{}, error)
 }
 
 type code__Files interface {
@@ -15753,7 +15753,7 @@ type code__Files interface {
 	Unlock(*rt.Task) error
 }
 
-func (h code__HostFiles) Read(env *Env, path string) (string, error) {
+func (h code__HostFiles) Read(env *ergo__Env, path string) (string, error) {
 	env.task.Check()
 	v, err := h.read(env, path)
 	if err != nil {
@@ -15762,7 +15762,7 @@ func (h code__HostFiles) Read(env *Env, path string) (string, error) {
 	return v, nil
 }
 
-func (h code__HostFiles) Write(env *Env, path string, text_1 string) error {
+func (h code__HostFiles) Write(env *ergo__Env, path string, text_1 string) error {
 	env.task.Check()
 	_, err := h.write(env, path, text_1)
 	if err != nil {
@@ -15771,7 +15771,7 @@ func (h code__HostFiles) Write(env *Env, path string, text_1 string) error {
 	return nil
 }
 
-func (h code__HostFiles) Exchange(env *Env, a string, b string) error {
+func (h code__HostFiles) Exchange(env *ergo__Env, a string, b string) error {
 	env.task.Check()
 	_, err := h.exchange(env, a, b)
 	if err != nil {
@@ -15780,7 +15780,7 @@ func (h code__HostFiles) Exchange(env *Env, a string, b string) error {
 	return nil
 }
 
-func (h code__HostFiles) Remove(env *Env, path string) error {
+func (h code__HostFiles) Remove(env *ergo__Env, path string) error {
 	env.task.Check()
 	_, err := h.remove(env, path)
 	if err != nil {
@@ -15789,7 +15789,7 @@ func (h code__HostFiles) Remove(env *Env, path string) error {
 	return nil
 }
 
-func (h code__HostFiles) Exists(env *Env, path string) (bool, error) {
+func (h code__HostFiles) Exists(env *ergo__Env, path string) (bool, error) {
 	env.task.Check()
 	v, err := h.exists(env, path)
 	if err != nil {
@@ -15798,7 +15798,7 @@ func (h code__HostFiles) Exists(env *Env, path string) (bool, error) {
 	return v, nil
 }
 
-func (h code__HostFiles) Lock(env *Env) error {
+func (h code__HostFiles) Lock(env *ergo__Env) error {
 	env.task.Check()
 	_, err := h.lock(env)
 	if err != nil {
@@ -15807,7 +15807,7 @@ func (h code__HostFiles) Lock(env *Env) error {
 	return nil
 }
 
-func (h code__HostFiles) Unlock(env *Env) error {
+func (h code__HostFiles) Unlock(env *ergo__Env) error {
 	env.task.Check()
 	_, err := h.unlock(env)
 	if err != nil {
@@ -15846,7 +15846,7 @@ func code__Rewritten(what string, before []code__Source, after []code__Source) (
 			v_1 = strings__Slice_2(v_4, int(0), int(16))
 
 		}
-		v_6 := Append[code__FileRead](t, code__FileRead{File: t_1, Revision: v_1})
+		v_6 := ergo__Append[code__FileRead](t, code__FileRead{File: t_1, Revision: v_1})
 		reads = v_6
 		t_2 := (((key + "\n") + s.File) + " ")
 		var v_7 string
@@ -15896,7 +15896,7 @@ func code__Rewritten(what string, before []code__Source, after []code__Source) (
 				v_17 = strings__Slice_2(v_20, int(0), int(16))
 
 			}
-			v_22 := Append[code__FileChange](t_4, code__FileChange{File: t_5, Old: t_6, New: v_17, Text: t_3})
+			v_22 := ergo__Append[code__FileChange](t_4, code__FileChange{File: t_5, Old: t_6, New: v_17, Text: t_3})
 			files = v_22
 			t_7 := patch
 			v_23 := code__diff(s.File, s.Text, t_3)
@@ -15920,56 +15920,56 @@ func code__Rewritten(what string, before []code__Source, after []code__Source) (
 	return code__Planned{ID: v_24, Change: what, Reads: reads, Files: files, Patch: patch, Verdict: (code__Verdict{}).of0(code__Ready{Proof: (code__Proof{tag: 2})}), Impact: []code__ApiChange{}}, nil
 }
 
-func code__HostFilesIn(env *Env, host fs__Host, root string, state string) code__HostFiles {
+func code__HostFilesIn(env *ergo__Env, host fs__Host, root string, state string) code__HostFiles {
 	env.task.Check()
 	t := host
 	t_1 := root
 	t_2 := state
-	v := ergo.NewRef[Option[fs__FileLock]]((Option[fs__FileLock]{tag: 1}))
+	v := ergo.NewRef[ergo__Option[fs__FileLock]]((ergo__Option[fs__FileLock]{tag: 1}))
 	var d code__disk = code__disk{host: t, root: t_1, state: t_2, lock: v}
-	return code__HostFiles{read: func(env_1 *Env, path string) (string, error) {
+	return code__HostFiles{read: func(env_1 *ergo__Env, path string) (string, error) {
 		env_1.task.Check()
 		v_1, err := (d).readOn(env_1, path)
 		if err != nil {
 			return "", err
 		}
 		return v_1, nil
-	}, write: func(env_2 *Env, path_1 string, text_1 string) (struct{}, error) {
+	}, write: func(env_2 *ergo__Env, path_1 string, text_1 string) (struct{}, error) {
 		env_2.task.Check()
 		err_1 := (d).writeOn(env_2, path_1, text_1)
 		if err_1 != nil {
 			return struct{}{}, err_1
 		}
 		return struct{}{}, nil
-	}, exchange: func(env_3 *Env, a string, b string) (struct{}, error) {
+	}, exchange: func(env_3 *ergo__Env, a string, b string) (struct{}, error) {
 		env_3.task.Check()
 		err_2 := (d).exchangeOn(env_3, a, b)
 		if err_2 != nil {
 			return struct{}{}, err_2
 		}
 		return struct{}{}, nil
-	}, remove: func(env_4 *Env, path_2 string) (struct{}, error) {
+	}, remove: func(env_4 *ergo__Env, path_2 string) (struct{}, error) {
 		env_4.task.Check()
 		err_3 := (d).removeOn(env_4, path_2)
 		if err_3 != nil {
 			return struct{}{}, err_3
 		}
 		return struct{}{}, nil
-	}, exists: func(env_5 *Env, path_3 string) (bool, error) {
+	}, exists: func(env_5 *ergo__Env, path_3 string) (bool, error) {
 		env_5.task.Check()
 		v_2, err_4 := (d).existsOn(env_5, path_3)
 		if err_4 != nil {
 			return false, err_4
 		}
 		return v_2, nil
-	}, lock: func(env_6 *Env) (struct{}, error) {
+	}, lock: func(env_6 *ergo__Env) (struct{}, error) {
 		env_6.task.Check()
 		err_5 := (d).lockOn(env_6)
 		if err_5 != nil {
 			return struct{}{}, err_5
 		}
 		return struct{}{}, nil
-	}, unlock: func(env_7 *Env) (struct{}, error) {
+	}, unlock: func(env_7 *ergo__Env) (struct{}, error) {
 		env_7.task.Check()
 		err_6 := (d).unlockOn(env_7)
 		if err_6 != nil {
@@ -15984,7 +15984,7 @@ type code__Receipt struct {
 	Files []code__FileRead
 }
 
-func (a code__Applier) Apply(env *Env, id string) (code__Receipt, error) {
+func (a code__Applier) Apply(env *ergo__Env, id string) (code__Receipt, error) {
 	env.task.Check()
 	v, err := (a.store).lookup(env, id)
 	if err != nil {
@@ -16038,7 +16038,7 @@ func code__ApplierOf(files code__Files, store code__Store) code__Applier {
 	return code__Applier{files: files, store: store}
 }
 
-func code__StoreOf(env *Env, plans []code__Planned) code__Store {
+func code__StoreOf(env *ergo__Env, plans []code__Planned) code__Store {
 	env.task.Check()
 	v := code__NewStore(env)
 	for _, v_1 := range plans {
@@ -16093,7 +16093,7 @@ type code__Recovered struct {
 	Outcome string
 }
 
-func (a code__Applier) Recover(env *Env) (code__Recovered, error) {
+func (a code__Applier) Recover(env *ergo__Env) (code__Recovered, error) {
 	env.task.Check()
 	err := (a.files).Lock(env.task)
 	if err != nil {
@@ -16159,7 +16159,7 @@ func (t code__Tables) IndexOf() code__Index {
 					var def []int = []int{}
 					v_5, ok := m[v_3]
 					if ok {
-						v_6 := Some[[]int]{Value: v_5}
+						v_6 := ergo__Some[[]int]{Value: v_5}
 						v_4 = v_6.Value
 						goto inl
 					} else {
@@ -16169,10 +16169,10 @@ func (t code__Tables) IndexOf() code__Index {
 				}
 			inl:
 				_ = 0
-				v_7 := Append[int](slices.Clip(slices.Clone(v_4)), len(decls))
+				v_7 := ergo__Append[int](slices.Clip(slices.Clone(v_4)), len(decls))
 				t_1[t_2] = v_7
 			}
-			decls = Append[code__Decl](decls, d)
+			decls = ergo__Append[code__Decl](decls, d)
 		}
 	}
 	for _, v_9 := range t.Packages {
@@ -16188,7 +16188,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_1 []code__Site = []code__Site{}
 				v_12, ok_1 := m_1[k]
 				if ok_1 {
-					v_13 := Some[[]code__Site]{Value: v_12}
+					v_13 := ergo__Some[[]code__Site]{Value: v_12}
 					v_11 = v_13.Value
 					goto inl_1
 				} else {
@@ -16198,7 +16198,7 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_1:
 			_ = 0
-			v_14 := Append[code__Site](slices.Clip(slices.Clone(v_11)), site)
+			v_14 := ergo__Append[code__Site](slices.Clip(slices.Clone(v_11)), site)
 			t_3[t_4] = v_14
 			v_15 := code__positionOf(site.File, site.Line, site.Column)
 			v_16, ok_2 := at[v_15]
@@ -16223,7 +16223,7 @@ func (t code__Tables) IndexOf() code__Index {
 			var def_2 []code__Call = []code__Call{}
 			v_20, ok_3 := m_2[k_1]
 			if ok_3 {
-				v_21 := Some[[]code__Call]{Value: v_20}
+				v_21 := ergo__Some[[]code__Call]{Value: v_20}
 				v_19 = v_21.Value
 				goto inl_2
 			} else {
@@ -16233,7 +16233,7 @@ func (t code__Tables) IndexOf() code__Index {
 		}
 	inl_2:
 		_ = 0
-		v_22 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_19)), c)
+		v_22 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_19)), c)
 		t_5[t_6] = ergo__CloneSlice_7(v_22)
 		t_7 := callsIn
 		t_8 := c.To
@@ -16244,7 +16244,7 @@ func (t code__Tables) IndexOf() code__Index {
 			var def_3 []code__Call = []code__Call{}
 			v_24, ok_4 := m_3[k_2]
 			if ok_4 {
-				v_25 := Some[[]code__Call]{Value: v_24}
+				v_25 := ergo__Some[[]code__Call]{Value: v_24}
 				v_23 = v_25.Value
 				goto inl_3
 			} else {
@@ -16254,7 +16254,7 @@ func (t code__Tables) IndexOf() code__Index {
 		}
 	inl_3:
 		_ = 0
-		v_26 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_23)), c)
+		v_26 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_23)), c)
 		t_7[t_8] = ergo__CloneSlice_7(v_26)
 	}
 	var needers map[string][]string = map[string][]string{}
@@ -16272,7 +16272,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_4 []string = []string{}
 				v_30, ok_5 := m_4[k_3]
 				if ok_5 {
-					v_31 := Some[[]string]{Value: v_30}
+					v_31 := ergo__Some[[]string]{Value: v_30}
 					v_29 = v_31.Value
 					goto inl_4
 				} else {
@@ -16282,7 +16282,7 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_4:
 			_ = 0
-			v_32 := Append[string](slices.Clip(slices.Clone(v_29)), n.Of)
+			v_32 := ergo__Append[string](slices.Clip(slices.Clone(v_29)), n.Of)
 			t_9[t_10] = v_32
 		}
 		for _, v_33 := range p_2.Fails {
@@ -16295,7 +16295,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_5 []string = []string{}
 				v_35, ok_6 := m_5[k_4]
 				if ok_6 {
-					v_36 := Some[[]string]{Value: v_35}
+					v_36 := ergo__Some[[]string]{Value: v_35}
 					v_34 = v_36.Value
 					goto inl_5
 				} else {
@@ -16310,7 +16310,7 @@ func (t code__Tables) IndexOf() code__Index {
 			if !v_37 {
 				t_11 := needers
 				t_12 := f.Failure
-				t_11[t_12] = Append[string](have, f.Of)
+				t_11[t_12] = ergo__Append[string](have, f.Of)
 			}
 		}
 	}
@@ -16327,7 +16327,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_6 map[string][]code__Call = map[string][]code__Call{}
 				v_43, ok_7 := m_6[k_5]
 				if ok_7 {
-					v_44 := Some[map[string][]code__Call]{Value: v_43}
+					v_44 := ergo__Some[map[string][]code__Call]{Value: v_43}
 					v_42 = v_44.Value
 					goto inl_6
 				} else {
@@ -16347,7 +16347,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_7 []code__Call = []code__Call{}
 				v_46, ok_8 := m_7[k_6]
 				if ok_8 {
-					v_47 := Some[[]code__Call]{Value: v_46}
+					v_47 := ergo__Some[[]code__Call]{Value: v_46}
 					v_45 = v_47.Value
 					goto inl_7
 				} else {
@@ -16357,7 +16357,7 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_7:
 			_ = 0
-			v_48 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_45)), c_1)
+			v_48 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_45)), c_1)
 			t_13[t_14] = ergo__CloneSlice_7(v_48)
 			brings[k_5] = by
 		}
@@ -16370,7 +16370,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_8 map[string][]code__Call = map[string][]code__Call{}
 				v_51, ok_9 := m_8[k_7]
 				if ok_9 {
-					v_52 := Some[map[string][]code__Call]{Value: v_51}
+					v_52 := ergo__Some[map[string][]code__Call]{Value: v_51}
 					v_50 = v_52.Value
 					goto inl_8
 				} else {
@@ -16390,7 +16390,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_9 []code__Call = []code__Call{}
 				v_54, ok_10 := m_9[k_8]
 				if ok_10 {
-					v_55 := Some[[]code__Call]{Value: v_54}
+					v_55 := ergo__Some[[]code__Call]{Value: v_54}
 					v_53 = v_55.Value
 					goto inl_9
 				} else {
@@ -16400,7 +16400,7 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_9:
 			_ = 0
-			v_56 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_53)), c_1)
+			v_56 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_53)), c_1)
 			t_15[t_16] = ergo__CloneSlice_7(v_56)
 			brings[k_7] = by_1
 		}
@@ -16414,7 +16414,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_10 []code__Call = []code__Call{}
 				v_59, ok_11 := m_10[k_9]
 				if ok_11 {
-					v_60 := Some[[]code__Call]{Value: v_59}
+					v_60 := ergo__Some[[]code__Call]{Value: v_59}
 					v_58 = v_60.Value
 					goto inl_10
 				} else {
@@ -16424,7 +16424,7 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_10:
 			_ = 0
-			v_61 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_58)), c_1)
+			v_61 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_58)), c_1)
 			t_17[t_18] = ergo__CloneSlice_7(v_61)
 		}
 		for _, v_62 := range c_1.Caught {
@@ -16438,7 +16438,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_11 []code__Call = []code__Call{}
 				v_64, ok_12 := m_11[k_10]
 				if ok_12 {
-					v_65 := Some[[]code__Call]{Value: v_64}
+					v_65 := ergo__Some[[]code__Call]{Value: v_64}
 					v_63 = v_65.Value
 					goto inl_11
 				} else {
@@ -16448,7 +16448,7 @@ func (t code__Tables) IndexOf() code__Index {
 			}
 		inl_11:
 			_ = 0
-			v_66 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_63)), c_1)
+			v_66 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_63)), c_1)
 			t_19[t_20] = ergo__CloneSlice_7(v_66)
 		}
 		var providers []string = []string{}
@@ -16456,7 +16456,7 @@ func (t code__Tables) IndexOf() code__Index {
 			var b code__Binding = v_67
 			v_68 := code__has(providers, b.Provider)
 			if !v_68 {
-				providers = Append[string](providers, b.Provider)
+				providers = ergo__Append[string](providers, b.Provider)
 				t_21 := discharges
 				t_22 := b.Provider
 				var v_70 []code__Call
@@ -16466,7 +16466,7 @@ func (t code__Tables) IndexOf() code__Index {
 					var def_12 []code__Call = []code__Call{}
 					v_71, ok_13 := m_12[k_11]
 					if ok_13 {
-						v_72 := Some[[]code__Call]{Value: v_71}
+						v_72 := ergo__Some[[]code__Call]{Value: v_71}
 						v_70 = v_72.Value
 						goto inl_12
 					} else {
@@ -16476,7 +16476,7 @@ func (t code__Tables) IndexOf() code__Index {
 				}
 			inl_12:
 				_ = 0
-				v_73 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_70)), c_1)
+				v_73 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_70)), c_1)
 				t_21[t_22] = ergo__CloneSlice_7(v_73)
 			}
 		}
@@ -16494,7 +16494,7 @@ func (t code__Tables) IndexOf() code__Index {
 				var def_13 []string = []string{}
 				v_78, ok_14 := m_13[k_12]
 				if ok_14 {
-					v_79 := Some[[]string]{Value: v_78}
+					v_79 := ergo__Some[[]string]{Value: v_78}
 					v_77 = v_79.Value
 					goto inl_13
 				} else {
@@ -16509,7 +16509,7 @@ func (t code__Tables) IndexOf() code__Index {
 			if !v_80 {
 				t_23 := needers
 				t_24 := b_1.Provider
-				t_23[t_24] = Append[string](have_1, c_2.From)
+				t_23[t_24] = ergo__Append[string](have_1, c_2.From)
 			}
 		}
 	}
@@ -16602,7 +16602,7 @@ func (x code__Index) Symbols(q code__SymbolQuery) code__SymbolPage {
 	inl:
 		_ = 0
 		if v_1 {
-			fit = Append[code__Decl](fit, d)
+			fit = ergo__Append[code__Decl](fit, d)
 		}
 	}
 	var start int
@@ -16616,7 +16616,7 @@ func (x code__Index) Symbols(q code__SymbolQuery) code__SymbolPage {
 func (x code__Index) Symbol(a string) (code__Decl, error) {
 	v, ok := x.byHandle[a]
 	if ok {
-		i := Some[int]{Value: v}
+		i := ergo__Some[int]{Value: v}
 		return x.decls[i.Value], nil
 	} else {
 	}
@@ -16640,10 +16640,10 @@ inl:
 	if v_1 {
 		v_5, ok_1 := x.at[a]
 		if ok_1 {
-			h := Some[string]{Value: v_5}
+			h := ergo__Some[string]{Value: v_5}
 			v_6, ok_2 := x.byHandle[h.Value]
 			if ok_2 {
-				i_1 := Some[int]{Value: v_6}
+				i_1 := ergo__Some[int]{Value: v_6}
 				return x.decls[i_1.Value], nil
 			} else {
 			}
@@ -16657,7 +16657,7 @@ inl:
 		var def []int = []int{}
 		v_8, ok_3 := m[a]
 		if ok_3 {
-			v_9 := Some[[]int]{Value: v_8}
+			v_9 := ergo__Some[[]int]{Value: v_8}
 			v_7 = v_9.Value
 			goto inl_1
 		} else {
@@ -16675,7 +16675,7 @@ inl_1:
 		handles = ergo.Reserve(handles, len(v_7))
 		for _, v_10 := range v_7 {
 			var i_2 int = v_10
-			handles = Append[string](handles, x.decls[i_2].Handle)
+			handles = ergo__Append[string](handles, x.decls[i_2].Handle)
 		}
 		return *new(code__Decl), code__Ambiguous{Address: a, Candidates: handles}
 	}
@@ -16694,7 +16694,7 @@ func (x code__Index) References(q code__RefQuery) (code__SitePage, error) {
 		var def []code__Site = []code__Site{}
 		v_2, ok := m[k]
 		if ok {
-			v_3 := Some[[]code__Site]{Value: v_2}
+			v_3 := ergo__Some[[]code__Site]{Value: v_2}
 			v_1 = v_3.Value
 			goto inl
 		} else {
@@ -16711,7 +16711,7 @@ inl:
 			var site code__Site = v_4
 			v_5 := code__has(q.Kinds, site.Kind)
 			if v_5 {
-				fit = Append[code__Site](fit, site)
+				fit = ergo__Append[code__Site](fit, site)
 			}
 		}
 	}
@@ -16780,13 +16780,13 @@ past:
 	return v_11, nil
 }
 
-func (x code__Index) Api(env *Env, q code__ApiQuery) (code__ApiView, error) {
+func (x code__Index) Api(env *ergo__Env, q code__ApiQuery) (code__ApiView, error) {
 	env.task.Check()
 	v, err := (x.tables).apiOf(env, q)
 	return v, err
 }
 
-func (x code__Index) Reach(env *Env, q code__ReachQuery) (code__ReachPage, error) {
+func (x code__Index) Reach(env *ergo__Env, q code__ReachQuery) (code__ReachPage, error) {
 	var v string
 	var err error
 	{
@@ -16809,7 +16809,7 @@ func (x code__Index) Reach(env *Env, q code__ReachQuery) (code__ReachPage, error
 		var def string = "capability"
 		v_3, ok := m[s]
 		if ok {
-			v_4 := Some[string]{Value: v_3}
+			v_4 := ergo__Some[string]{Value: v_3}
 			v_2 = v_4.Value
 			goto inl
 		} else {
@@ -16826,7 +16826,7 @@ inl:
 		var def_1 []string = []string{}
 		v_6, ok_1 := m_1[s]
 		if ok_1 {
-			v_7 := Some[[]string]{Value: v_6}
+			v_7 := ergo__Some[[]string]{Value: v_6}
 			v_5 = v_7.Value
 			goto inl_1
 		} else {
@@ -16843,7 +16843,7 @@ inl_1:
 		var def_2 map[string][]code__Call = map[string][]code__Call{}
 		v_9, ok_2 := m_2[s]
 		if ok_2 {
-			v_10 := Some[map[string][]code__Call]{Value: v_9}
+			v_10 := ergo__Some[map[string][]code__Call]{Value: v_9}
 			v_8 = v_10.Value
 			goto inl_2
 		} else {
@@ -16860,7 +16860,7 @@ inl_2:
 		var def_3 []code__Call = []code__Call{}
 		v_12, ok_3 := m_3[s]
 		if ok_3 {
-			v_13 := Some[[]code__Call]{Value: v_12}
+			v_13 := ergo__Some[[]code__Call]{Value: v_12}
 			v_11 = v_13.Value
 			goto inl_3
 		} else {
@@ -16874,7 +16874,7 @@ inl_3:
 	return v_14, nil
 }
 
-func (x code__Index) MachineOf(env *Env, a string) (code__MachineView, error) {
+func (x code__Index) MachineOf(env *ergo__Env, a string) (code__MachineView, error) {
 	t := a
 	v, err := (x).Symbol(a)
 	if err != nil {
@@ -16901,12 +16901,12 @@ type code__Summary struct {
 }
 
 type code__SymbolQuery struct {
-	Name    Option[string]
-	Match   Option[string]
-	Kind    Option[string]
-	Package Option[string]
-	Offset  Option[int]
-	Limit   Option[int]
+	Name    ergo__Option[string]
+	Match   ergo__Option[string]
+	Kind    ergo__Option[string]
+	Package ergo__Option[string]
+	Offset  ergo__Option[int]
+	Limit   ergo__Option[int]
 }
 
 type code__SymbolPage struct {
@@ -16919,8 +16919,8 @@ type code__SymbolPage struct {
 type code__RefQuery struct {
 	Of     string
 	Kinds  []string
-	Offset Option[int]
-	Limit  Option[int]
+	Offset ergo__Option[int]
+	Limit  ergo__Option[int]
 }
 
 type code__SitePage struct {
@@ -16933,10 +16933,10 @@ type code__SitePage struct {
 
 type code__CallQuery struct {
 	Of        string
-	Direction Option[string]
-	Depth     Option[int]
-	Offset    Option[int]
-	Limit     Option[int]
+	Direction ergo__Option[string]
+	Depth     ergo__Option[int]
+	Offset    ergo__Option[int]
+	Limit     ergo__Option[int]
 }
 
 type code__CallPage struct {
@@ -16948,7 +16948,7 @@ type code__CallPage struct {
 }
 
 type code__ApiQuery struct {
-	Package Option[string]
+	Package ergo__Option[string]
 }
 
 type code__ApiView struct {
@@ -16959,8 +16959,8 @@ type code__ApiView struct {
 
 type code__ReachQuery struct {
 	Of     string
-	Offset Option[int]
-	Limit  Option[int]
+	Offset ergo__Option[int]
+	Limit  ergo__Option[int]
 }
 
 type code__ReachPage struct {
@@ -16992,20 +16992,20 @@ func strconv__Itoa(n int) string {
 	return r
 }
 
-func json__DecodeMono_i3127479063(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Tables) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Tables, error)
-	Direct0 func(*Env, json__text, code__Tables) json__text
-	Read0   func(*Env, http__queryReader) (code__Tables, error)
-	Read1   func(*Env, json__Reader_1) (code__Tables, error)
-	Read2   func(*Env, json__Stream) (code__Tables, error)
+func json__DecodeMono_i3127479063(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Tables) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Tables, error)
+	Direct0 func(*ergo__Env, json__text, code__Tables) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Tables, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Tables, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Tables, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Tables) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Tables, error)
-		Direct0 func(*Env, json__text, code__Tables) json__text
-		Read0   func(*Env, http__queryReader) (code__Tables, error)
-		Read1   func(*Env, json__Reader_1) (code__Tables, error)
-		Read2   func(*Env, json__Stream) (code__Tables, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Tables) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Tables, error)
+		Direct0 func(*ergo__Env, json__text, code__Tables) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Tables, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Tables, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Tables, error)
 		Absent  func(code__Tables) bool
 		Empty   code__Tables
 	}
@@ -17037,7 +17037,7 @@ func json__DecodeMono_i3127479063(env *Env, wT struct {
 	return v_3, nil
 }
 
-func ergo__textBadTables(v BadTables) string {
+func ergo__textergo__BadTables(v ergo__BadTables) string {
 	return "{" + "Out:" + ergo__textList_2(v.Out) + "}"
 }
 
@@ -17057,20 +17057,20 @@ func (e code__NoPackage) Error() string {
 	return "NoPackage" + ergo__textcode__NoPackage(e)
 }
 
-func json__EncodeMono_i3759981688(env *Env, wT struct {
-	Enc     func(*Env, Writer, []code__Contract) (struct{}, error)
-	Dec     func(*Env, Reader) ([]code__Contract, error)
-	Direct0 func(*Env, json__text, []code__Contract) json__text
-	Read0   func(*Env, http__queryReader) ([]code__Contract, error)
-	Read1   func(*Env, json__Reader_1) ([]code__Contract, error)
-	Read2   func(*Env, json__Stream) ([]code__Contract, error)
+func json__EncodeMono_i3759981688(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []code__Contract) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]code__Contract, error)
+	Direct0 func(*ergo__Env, json__text, []code__Contract) json__text
+	Read0   func(*ergo__Env, http__queryReader) ([]code__Contract, error)
+	Read1   func(*ergo__Env, json__Reader_1) ([]code__Contract, error)
+	Read2   func(*ergo__Env, json__Stream) ([]code__Contract, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, []code__Contract) (struct{}, error)
-		Dec     func(*Env, Reader) ([]code__Contract, error)
-		Direct0 func(*Env, json__text, []code__Contract) json__text
-		Read0   func(*Env, http__queryReader) ([]code__Contract, error)
-		Read1   func(*Env, json__Reader_1) ([]code__Contract, error)
-		Read2   func(*Env, json__Stream) ([]code__Contract, error)
+		Enc     func(*ergo__Env, ergo__Writer, []code__Contract) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]code__Contract, error)
+		Direct0 func(*ergo__Env, json__text, []code__Contract) json__text
+		Read0   func(*ergo__Env, http__queryReader) ([]code__Contract, error)
+		Read1   func(*ergo__Env, json__Reader_1) ([]code__Contract, error)
+		Read2   func(*ergo__Env, json__Stream) ([]code__Contract, error)
 		Absent  func([]code__Contract) bool
 		Empty   []code__Contract
 	}
@@ -17159,15 +17159,15 @@ func ergo__EqualContract(a, b code__Contract) bool {
 	return (a.Name == b.Name) && (a.Signature == b.Signature) && ergo__EqualSlice_28(a.TypeParameters, b.TypeParameters) && (a.Fails == b.Fails) && (a.Needs == b.Needs) && ergo__EqualSlice_28(a.Takes, b.Takes) && ergo__EqualSlice_27(a.TakesParameters, b.TakesParameters) && (a.TakesSelf == b.TakesSelf) && (a.TakesInferred == b.TakesInferred) && ergo__EqualSlice_28(a.Own, b.Own)
 }
 
-func ergo__EqualSome_2(a, b Some[code__Contract]) bool {
+func ergo__EqualSome_2(a, b ergo__Some[code__Contract]) bool {
 	return ergo__EqualContract(a.Value, b.Value)
 }
 
-func ergo__EqualOption_2(a, b Option[code__Contract]) bool {
+func ergo__EqualOption_2(a, b ergo__Option[code__Contract]) bool {
 	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_2(a.v0, b.v0))
 }
 
-func code__ApiDiff(env *Env, old []code__Contract, new_1 []code__Contract) []code__ApiChange {
+func code__ApiDiff(env *ergo__Env, old []code__Contract, new_1 []code__Contract) []code__ApiChange {
 	env.task.Check()
 	var before map[string]code__Contract = map[string]code__Contract{}
 	for _, v := range old {
@@ -17198,8 +17198,8 @@ func code__ApiDiff(env *Env, old []code__Contract, new_1 []code__Contract) []cod
 	for _, v_6 := range v_5 {
 		var n string = v_6
 		{
-			v_7 := Get[string, code__Contract](before, n)
-			v_8 := Get[string, code__Contract](after, n)
+			v_7 := ergo__Get[string, code__Contract](before, n)
+			v_8 := ergo__Get[string, code__Contract](after, n)
 			if ergo__EqualOption_2(v_7, v_8) {
 				goto next
 			}
@@ -17250,7 +17250,7 @@ func code__ApiDiff(env *Env, old []code__Contract, new_1 []code__Contract) []cod
 				}
 			end:
 			}
-			out = Append[code__ApiChange](out, code__ApiChange{Name: n, Old: v_7, New: v_8, BreaksResourceCallers: breaks})
+			out = ergo__Append[code__ApiChange](out, code__ApiChange{Name: n, Old: v_7, New: v_8, BreaksResourceCallers: breaks})
 		}
 	next:
 		env.task.Check()
@@ -17258,20 +17258,20 @@ func code__ApiDiff(env *Env, old []code__Contract, new_1 []code__Contract) []cod
 	return out
 }
 
-func json__EncodeMono_i2509919962(env *Env, wT struct {
-	Enc     func(*Env, Writer, []code__ApiChange) (struct{}, error)
-	Dec     func(*Env, Reader) ([]code__ApiChange, error)
-	Direct0 func(*Env, json__text, []code__ApiChange) json__text
-	Read0   func(*Env, http__queryReader) ([]code__ApiChange, error)
-	Read1   func(*Env, json__Reader_1) ([]code__ApiChange, error)
-	Read2   func(*Env, json__Stream) ([]code__ApiChange, error)
+func json__EncodeMono_i2509919962(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []code__ApiChange) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]code__ApiChange, error)
+	Direct0 func(*ergo__Env, json__text, []code__ApiChange) json__text
+	Read0   func(*ergo__Env, http__queryReader) ([]code__ApiChange, error)
+	Read1   func(*ergo__Env, json__Reader_1) ([]code__ApiChange, error)
+	Read2   func(*ergo__Env, json__Stream) ([]code__ApiChange, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, []code__ApiChange) (struct{}, error)
-		Dec     func(*Env, Reader) ([]code__ApiChange, error)
-		Direct0 func(*Env, json__text, []code__ApiChange) json__text
-		Read0   func(*Env, http__queryReader) ([]code__ApiChange, error)
-		Read1   func(*Env, json__Reader_1) ([]code__ApiChange, error)
-		Read2   func(*Env, json__Stream) ([]code__ApiChange, error)
+		Enc     func(*ergo__Env, ergo__Writer, []code__ApiChange) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]code__ApiChange, error)
+		Direct0 func(*ergo__Env, json__text, []code__ApiChange) json__text
+		Read0   func(*ergo__Env, http__queryReader) ([]code__ApiChange, error)
+		Read1   func(*ergo__Env, json__Reader_1) ([]code__ApiChange, error)
+		Read2   func(*ergo__Env, json__Stream) ([]code__ApiChange, error)
 		Absent  func([]code__ApiChange) bool
 		Empty   []code__ApiChange
 	}
@@ -17320,7 +17320,7 @@ func code__ApiDiffText(changes []code__ApiChange) string {
 	return b
 }
 
-func Append[T any](xs []T, x T) []T {
+func ergo__Append[T any](xs []T, x T) []T {
 	return ergo.Append(xs, x)
 }
 
@@ -17330,20 +17330,20 @@ type code__Pair struct {
 	Arms   []code__Place
 }
 
-func json__EncodeMono_i1520769254(env *Env, wT struct {
-	Enc     func(*Env, Writer, []code__MachineView) (struct{}, error)
-	Dec     func(*Env, Reader) ([]code__MachineView, error)
-	Direct0 func(*Env, json__text, []code__MachineView) json__text
-	Read0   func(*Env, http__queryReader) ([]code__MachineView, error)
-	Read1   func(*Env, json__Reader_1) ([]code__MachineView, error)
-	Read2   func(*Env, json__Stream) ([]code__MachineView, error)
+func json__EncodeMono_i1520769254(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []code__MachineView) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]code__MachineView, error)
+	Direct0 func(*ergo__Env, json__text, []code__MachineView) json__text
+	Read0   func(*ergo__Env, http__queryReader) ([]code__MachineView, error)
+	Read1   func(*ergo__Env, json__Reader_1) ([]code__MachineView, error)
+	Read2   func(*ergo__Env, json__Stream) ([]code__MachineView, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, []code__MachineView) (struct{}, error)
-		Dec     func(*Env, Reader) ([]code__MachineView, error)
-		Direct0 func(*Env, json__text, []code__MachineView) json__text
-		Read0   func(*Env, http__queryReader) ([]code__MachineView, error)
-		Read1   func(*Env, json__Reader_1) ([]code__MachineView, error)
-		Read2   func(*Env, json__Stream) ([]code__MachineView, error)
+		Enc     func(*ergo__Env, ergo__Writer, []code__MachineView) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]code__MachineView, error)
+		Direct0 func(*ergo__Env, json__text, []code__MachineView) json__text
+		Read0   func(*ergo__Env, http__queryReader) ([]code__MachineView, error)
+		Read1   func(*ergo__Env, json__Reader_1) ([]code__MachineView, error)
+		Read2   func(*ergo__Env, json__Stream) ([]code__MachineView, error)
 		Absent  func([]code__MachineView) bool
 		Empty   []code__MachineView
 	}
@@ -17358,10 +17358,10 @@ func json__EncodeMono_i1520769254(env *Env, wT struct {
 	return v_3
 }
 
-func (v code__MachineView) MachineText(env *Env) string {
+func (v code__MachineView) MachineText(env *ergo__Env) string {
 	env.task.Check()
 	var g code__MachineGraph = v.Graph
-	var list func(*Env, bool, []string) (string, error) = func(env_1 *Env, any_1 bool, vs []string) (string, error) {
+	var list func(*ergo__Env, bool, []string) (string, error) = func(env_1 *ergo__Env, any_1 bool, vs []string) (string, error) {
 		if any_1 {
 			return "*", nil
 		} else {
@@ -17417,7 +17417,7 @@ func (v code__MachineView) MachineText(env *Env) string {
 
 	}
 	v_15 := ergo.SlicesSortFunc[code__Timer](v_12, func(p code__Timer, p_1 code__Timer) int {
-		r, _ := func(env_2 *Env, x code__Timer, y code__Timer) (int, error) {
+		r, _ := func(env_2 *ergo__Env, x code__Timer, y code__Timer) (int, error) {
 			v_14 := strings__Compare(x.State, y.State)
 			return v_14, nil
 		}(env, p, p_1)
@@ -17439,7 +17439,7 @@ func (v code__MachineView) MachineText(env *Env) string {
 
 	}
 	v_21 := ergo.SlicesSortFunc[code__Place](v_18, func(p_2 code__Place, p_3 code__Place) int {
-		r_1, _ := func(env_3 *Env, x_1 code__Place, y_1 code__Place) (int, error) {
+		r_1, _ := func(env_3 *ergo__Env, x_1 code__Place, y_1 code__Place) (int, error) {
 			v_20 := strings__Compare(x_1.What, y_1.What)
 			return v_20, nil
 		}(env, p_2, p_3)
@@ -17460,7 +17460,7 @@ func (v code__MachineView) MachineText(env *Env) string {
 
 	}
 	v_27 := ergo.SlicesSortFunc[code__Place](v_24, func(p_4 code__Place, p_5 code__Place) int {
-		r_2, _ := func(env_4 *Env, x_2 code__Place, y_2 code__Place) (int, error) {
+		r_2, _ := func(env_4 *ergo__Env, x_2 code__Place, y_2 code__Place) (int, error) {
 			v_26 := strings__Compare(x_2.What, y_2.What)
 			return v_26, nil
 		}(env, p_4, p_5)
@@ -17487,7 +17487,7 @@ func (v code__MachineView) MachineText(env *Env) string {
 			var a_1 code__Place = v_32
 			t_17 := sites
 			v_33 := (a_1).placeText()
-			v_34 := Append[string](t_17, v_33)
+			v_34 := ergo__Append[string](t_17, v_33)
 			sites = v_34
 			env.task.Check()
 		}
@@ -17581,7 +17581,7 @@ func (t *json__text) floatBody(f float64) {
 	t.out = ergo.JSONAppendFloat(t.out, f)
 }
 
-func (t *json__text) finish(env *Env, hint int) string {
+func (t *json__text) finish(env *ergo__Env, hint int) string {
 	env.task.Check()
 	v := ergo__strings__FromBytesOwned(slices.Clone(t.out))
 	t.out = ergo.StringsGive(t.out, hint)
@@ -17592,7 +17592,7 @@ func (t json__text) bytes() []uint8 {
 	return t.out
 }
 
-func (t *json__text) drop(env *Env, hint int) {
+func (t *json__text) drop(env *ergo__Env, hint int) {
 	env.task.Check()
 	t.out = ergo.StringsGive(t.out, hint)
 }
@@ -17801,48 +17801,48 @@ func (t *json__text) EndObject() {
 	return
 }
 
-type WireNull struct {
+type ergo__WireNull struct {
 }
 
-type WireBool struct {
+type ergo__WireBool struct {
 }
 
-type WireNumber struct {
+type ergo__WireNumber struct {
 }
 
-type WireString struct {
+type ergo__WireString struct {
 }
 
-type WireList struct {
+type ergo__WireList struct {
 }
 
-type WireObject struct {
+type ergo__WireObject struct {
 }
 
-type WireEnd struct {
+type ergo__WireEnd struct {
 }
 
-type WireKind struct {
+type ergo__WireKind struct {
 	tag uint8
 }
 
-func (WireKind) of0(_ WireNull) WireKind   { return WireKind{tag: 0} }
-func (WireKind) of1(_ WireBool) WireKind   { return WireKind{tag: 1} }
-func (WireKind) of2(_ WireNumber) WireKind { return WireKind{tag: 2} }
-func (WireKind) of3(_ WireString) WireKind { return WireKind{tag: 3} }
-func (WireKind) of4(_ WireList) WireKind   { return WireKind{tag: 4} }
-func (WireKind) of5(_ WireObject) WireKind { return WireKind{tag: 5} }
-func (WireKind) of6(_ WireEnd) WireKind    { return WireKind{tag: 6} }
+func (ergo__WireKind) of0(_ ergo__WireNull) ergo__WireKind   { return ergo__WireKind{tag: 0} }
+func (ergo__WireKind) of1(_ ergo__WireBool) ergo__WireKind   { return ergo__WireKind{tag: 1} }
+func (ergo__WireKind) of2(_ ergo__WireNumber) ergo__WireKind { return ergo__WireKind{tag: 2} }
+func (ergo__WireKind) of3(_ ergo__WireString) ergo__WireKind { return ergo__WireKind{tag: 3} }
+func (ergo__WireKind) of4(_ ergo__WireList) ergo__WireKind   { return ergo__WireKind{tag: 4} }
+func (ergo__WireKind) of5(_ ergo__WireObject) ergo__WireKind { return ergo__WireKind{tag: 5} }
+func (ergo__WireKind) of6(_ ergo__WireEnd) ergo__WireKind    { return ergo__WireKind{tag: 6} }
 
-func (x WireKind) ErgoVariant() string {
+func (x ergo__WireKind) ErgoVariant() string {
 	return [...]string{"WireNull", "WireBool", "WireNumber", "WireString", "WireList", "WireObject", "WireEnd"}[x.tag]
 }
 
-func ergo__textWireMissingField(v WireMissingField) string {
+func ergo__textergo__WireMissingField(v ergo__WireMissingField) string {
 	return "{" + "Path:" + v.Path + " Field:" + v.Field + "}"
 }
 
-func ergo__textWireUnknownTag(v WireUnknownTag) string {
+func ergo__textergo__WireUnknownTag(v ergo__WireUnknownTag) string {
 	return "{" + "Path:" + v.Path + " Tag:" + v.Tag + "}"
 }
 
@@ -17851,7 +17851,7 @@ type http__queryGroup struct {
 	values []string
 }
 
-func (r http__queryReader) value(env *Env, want string) (string, error) {
+func (r http__queryReader) value(env *ergo__Env, want string) (string, error) {
 	env.task.Check()
 	v := (r.state).Get()
 	switch v {
@@ -17860,8 +17860,8 @@ func (r http__queryReader) value(env *Env, want string) (string, error) {
 		v_1 := (r.at).Get()
 		var g http__queryGroup = t[v_1]
 		if len(g.values) != int(1) {
-			(r.repeated).Set((Option[string]{}).of0(Some[string]{Value: g.name}))
-			return "", WireWrongKind{Path: g.name, Want: "one value"}
+			(r.repeated).Set((ergo__Option[string]{}).of0(ergo__Some[string]{Value: g.name}))
+			return "", ergo__WireWrongKind{Path: g.name, Want: "one value"}
 		}
 		(r.state).Set(int(1))
 		t_1 := r.at
@@ -17876,7 +17876,7 @@ func (r http__queryReader) value(env *Env, want string) (string, error) {
 		return t_2[v_4].values[v_3], nil
 	}
 	v_5 := (r).Path(env)
-	return "", WireWrongKind{Path: v_5, Want: want}
+	return "", ergo__WireWrongKind{Path: v_5, Want: want}
 }
 
 type json__scan struct {
@@ -17950,7 +17950,7 @@ type json__tok struct {
 	raw  bool
 }
 
-func (s *json__scan) peekAt(env *Env, k int) json__tok {
+func (s *json__scan) peekAt(env *ergo__Env, k int) json__tok {
 	for (s.nq - s.qi) <= k {
 		var v json__tok
 		{
@@ -18000,9 +18000,9 @@ type json__frame struct {
 	has  bool
 }
 
-func (s *json__scan) path(env *Env) string {
+func (s *json__scan) path(env *ergo__Env) string {
 	v := strings__NewBuilder()
-	t := (Range[int]{Start: int(0), End: s.nf})
+	t := (ergo__Range[int]{Start: int(0), End: s.nf})
 	for i := t.Start; i < t.End; i++ {
 		var k int = i
 		var f json__frame = s.frames[k]
@@ -18025,10 +18025,10 @@ func (s *json__scan) path(env *Env) string {
 	return v_4
 }
 
-func (r json__Stream) refill(env *Env) {
+func (r json__Stream) refill(env *ergo__Env) {
 	env.task.Check()
 	ergo.RefModifyInPlace[json__scan, bool](env.task, r.st, func(p_1 *json__scan) bool {
-		r_1, _ := func(env_1 *Env, p *json__scan) (bool, error) {
+		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (bool, error) {
 			env_1.task.Check()
 			(&(*p)).readChunk(env_1)
 			return true, nil
@@ -18037,7 +18037,7 @@ func (r json__Stream) refill(env *Env) {
 	}, func(v json__scan) json__scan { return ergo__Clonescan(v) }, true, false)
 }
 
-func (s *json__scan) tag(env *Env) string {
+func (s *json__scan) tag(env *ergo__Env) string {
 	(s).tagFirst()
 	var k int = int(0)
 	for {
@@ -18090,7 +18090,7 @@ func (b *strings__Builder) WriteString(s string) {
 	b.buf = ergo.StringsBuilderAppend(b.buf, s)
 }
 
-func (b strings__Builder) ergo__strings__StringOwned(env *Env) string {
+func (b strings__Builder) ergo__strings__StringOwned(env *ergo__Env) string {
 	v := ergo.StringsBuilderTextOwned(b.buf)
 	return v
 }
@@ -18101,19 +18101,19 @@ func ergo__CloneBuilder(v strings__Builder) strings__Builder {
 	return c
 }
 
-func (b strings__Builder) String(env *Env) string {
+func (b strings__Builder) String(env *ergo__Env) string {
 	return (ergo__CloneBuilder(b)).ergo__strings__StringOwned(env)
 }
 
-func (s *json__scan) pass(env *Env) {
+func (s *json__scan) pass(env *ergo__Env) {
 	v := (s).after(env, int(0))
-	t := (Range[int]{Start: int(0), End: v})
+	t := (ergo__Range[int]{Start: int(0), End: v})
 	for i := t.Start; i < t.End; i++ {
 		(s).advance()
 	}
 }
 
-func (s *json__scan) end(env *Env) {
+func (s *json__scan) end(env *ergo__Env) {
 	for {
 		var v bool
 		{
@@ -18178,7 +18178,7 @@ func json__smallInt(text_1 string) struct {
 		}{F0: int64(0), F1: false}
 	}
 	var n int64 = int64(0)
-	t := (Range[int]{Start: start, End: len(text_1)})
+	t := (ergo__Range[int]{Start: start, End: len(text_1)})
 	for i := t.Start; i < t.End; i++ {
 		var i_1 int = i
 		var c_1 uint8 = text_1[i_1]
@@ -18202,7 +18202,7 @@ func json__smallInt(text_1 string) struct {
 	}{F0: v_2, F1: true}
 }
 
-func ergo__textWireWrongKind(v WireWrongKind) string {
+func ergo__textergo__WireWrongKind(v ergo__WireWrongKind) string {
 	return "{" + "Path:" + v.Path + " Want:" + v.Want + "}"
 }
 
@@ -18216,7 +18216,7 @@ type code__Session struct {
 	store   code__Store
 }
 
-func code__planChange(env *Env, sources []code__Source, c code__Change, checker code__Checker) (code__Planned, error) {
+func code__planChange(env *ergo__Env, sources []code__Source, c code__Change, checker code__Checker) (code__Planned, error) {
 	env.task.Check()
 	v, err := code__checkWith(env, checker, sources)
 	if err != nil {
@@ -18253,7 +18253,7 @@ func code__planChange(env *Env, sources []code__Source, c code__Change, checker 
 			v_4 = strings__Slice_2(v_7, int(0), int(16))
 
 		}
-		v_9 := Append[code__FileRead](t, code__FileRead{File: t_1, Revision: v_4})
+		v_9 := ergo__Append[code__FileRead](t, code__FileRead{File: t_1, Revision: v_4})
 		reads = v_9
 		var t_2 string = v_1[i].Text
 		if t_2 != s.Text {
@@ -18287,7 +18287,7 @@ func code__planChange(env *Env, sources []code__Source, c code__Change, checker 
 				v_15 = strings__Slice_2(v_18, int(0), int(16))
 
 			}
-			v_20 := Append[code__FileChange](t_3, code__FileChange{File: t_4, Old: t_5, New: v_15, Text: t_2})
+			v_20 := ergo__Append[code__FileChange](t_3, code__FileChange{File: t_4, Old: t_5, New: v_15, Text: t_2})
 			files = v_20
 			t_6 := patch
 			v_21 := code__diff(s.File, s.Text, t_2)
@@ -18354,18 +18354,18 @@ func ergo__CloneSlice_16(v []code__Planned) []code__Planned {
 	return c
 }
 
-func (s code__Store) keep(env *Env, p code__Planned) {
+func (s code__Store) keep(env *ergo__Env, p code__Planned) {
 	env.task.Check()
 	ergo.RefUpdateOwned[[]code__Planned](env.task, s.plans, func(p_1 []code__Planned) []code__Planned {
-		r, _ := func(env_1 *Env, ps []code__Planned) ([]code__Planned, error) {
+		r, _ := func(env_1 *ergo__Env, ps []code__Planned) ([]code__Planned, error) {
 			var out []code__Planned = []code__Planned{}
 			for _, v := range ps {
 				var q code__Planned = v
 				if q.ID != p.ID {
-					out = Append[code__Planned](out, ergo__ClonePlanned(q))
+					out = ergo__Append[code__Planned](out, ergo__ClonePlanned(q))
 				}
 			}
-			out = Append[code__Planned](out, ergo__ClonePlanned(p))
+			out = ergo__Append[code__Planned](out, ergo__ClonePlanned(p))
 			if len(out) > code__MaxPlans {
 				var v_3 []code__Planned
 				{
@@ -18573,7 +18573,7 @@ func code__changeAt(s string) (struct {
 			_ = p_7
 			var step code__Change = p_7.F0
 			var more_3 string = p_7.F1
-			steps = Append[code__Change](steps, step)
+			steps = ergo__Append[code__Change](steps, step)
 			v_30 := strings__HasPrefix(more_3, "; ")
 			if v_30 {
 				v_25 = strings__TrimPrefix(more_3, "; ")
@@ -18652,12 +18652,12 @@ func code__diff(file string, old string, new_1 string) string {
 		tail_1 = (tail_1 + int(1))
 	}
 	var out string = ("--- a/" + file + "\n+++ b/" + file + "\n@@ -" + string(strconv.AppendInt(make([]byte, 0, 20), int64((head_1+int(1))), 10)) + "," + string(strconv.AppendInt(make([]byte, 0, 20), int64(((len(v)-head_1)-tail_1)), 10)) + " +" + string(strconv.AppendInt(make([]byte, 0, 20), int64((head_1+int(1))), 10)) + "," + string(strconv.AppendInt(make([]byte, 0, 20), int64(((len(v_1)-head_1)-tail_1)), 10)) + " @@\n")
-	t := (Range[int]{Start: head_1, End: (len(v) - tail_1)})
+	t := (ergo__Range[int]{Start: head_1, End: (len(v) - tail_1)})
 	for i := t.Start; i < t.End; i++ {
 		var i_1 int = i
 		out = (((out + "-") + v[i_1]) + "\n")
 	}
-	t_1 := (Range[int]{Start: head_1, End: (len(v_1) - tail_1)})
+	t_1 := (ergo__Range[int]{Start: head_1, End: (len(v_1) - tail_1)})
 	for i_2 := t_1.Start; i_2 < t_1.End; i_2++ {
 		var i_3 int = i_2
 		out = (((out + "+") + v_1[i_3]) + "\n")
@@ -18669,14 +18669,14 @@ type code__disk struct {
 	host  fs__Host
 	root  string
 	state string
-	lock  *ergo.Ref[Option[fs__FileLock]]
+	lock  *ergo.Ref[ergo__Option[fs__FileLock]]
 }
 
 type fs__FileLock struct {
 	fd int
 }
 
-func (h code__disk) readOn(env *Env, path string) (string, error) {
+func (h code__disk) readOn(env *ergo__Env, path string) (string, error) {
 	env.task.Check()
 	t := h.host
 	v := (h).onHost(path)
@@ -18702,7 +18702,7 @@ func (h code__disk) readOn(env *Env, path string) (string, error) {
 	return v_1, nil
 }
 
-func (h code__disk) writeOn(env *Env, path string, text_1 string) error {
+func (h code__disk) writeOn(env *ergo__Env, path string, text_1 string) error {
 	env.task.Check()
 	err := (h).folderOf(env, path)
 	if err != nil {
@@ -18733,7 +18733,7 @@ func (h code__disk) writeOn(env *Env, path string, text_1 string) error {
 	return nil
 }
 
-func (h code__disk) exchangeOn(env *Env, a string, b string) error {
+func (h code__disk) exchangeOn(env *ergo__Env, a string, b string) error {
 	env.task.Check()
 	err := (h).keepMode(env, a, b)
 	if err != nil {
@@ -18773,7 +18773,7 @@ func (h code__disk) exchangeOn(env *Env, a string, b string) error {
 	return nil
 }
 
-func (h code__disk) removeOn(env *Env, path string) error {
+func (h code__disk) removeOn(env *ergo__Env, path string) error {
 	env.task.Check()
 	t := h.host
 	v := (h).onHost(path)
@@ -18798,7 +18798,7 @@ func (h code__disk) removeOn(env *Env, path string) error {
 	return nil
 }
 
-func (h code__disk) existsOn(env *Env, path string) (bool, error) {
+func (h code__disk) existsOn(env *ergo__Env, path string) (bool, error) {
 	env.task.Check()
 	t := h.host
 	v := (h).onHost(path)
@@ -18825,7 +18825,7 @@ func (h code__disk) existsOn(env *Env, path string) (bool, error) {
 	return true, nil
 }
 
-func (h code__disk) lockOn(env *Env) error {
+func (h code__disk) lockOn(env *ergo__Env) error {
 	env.task.Check()
 	v := (h.lock).Get()
 	s := v
@@ -18864,7 +18864,7 @@ func (h code__disk) lockOn(env *Env) error {
 	switch s_1.tag {
 	case 0:
 		l := s_1.v0
-		(h.lock).Set((Option[fs__FileLock]{}).of0(Some[fs__FileLock]{Value: l.Value}))
+		(h.lock).Set((ergo__Option[fs__FileLock]{}).of0(ergo__Some[fs__FileLock]{Value: l.Value}))
 		return nil
 	case 1:
 		return code__Busy{}
@@ -18873,7 +18873,7 @@ func (h code__disk) lockOn(env *Env) error {
 	}
 }
 
-func (h code__disk) unlockOn(env *Env) error {
+func (h code__disk) unlockOn(env *ergo__Env) error {
 	env.task.Check()
 	v := (h.lock).Get()
 	s := v
@@ -18881,7 +18881,7 @@ func (h code__disk) unlockOn(env *Env) error {
 	case 0:
 		l := s.v0
 		(h.host).UnlockFile(env, l.Value)
-		(h.lock).Set((Option[fs__FileLock]{tag: 1}))
+		(h.lock).Set((ergo__Option[fs__FileLock]{tag: 1}))
 		return nil
 	case 1:
 	default:
@@ -18895,7 +18895,7 @@ type code__Applier struct {
 	store code__Store
 }
 
-func (s code__Store) lookup(env *Env, id string) (code__Planned, error) {
+func (s code__Store) lookup(env *ergo__Env, id string) (code__Planned, error) {
 	env.task.Check()
 	v := (s.plans).Get()
 	for _, v_1 := range v {
@@ -18908,7 +18908,7 @@ func (s code__Store) lookup(env *Env, id string) (code__Planned, error) {
 	return *new(code__Planned), code__NoPlan{ID: id}
 }
 
-func code__applyLocked(env *Env, files code__Files, p code__Planned) (code__Receipt, error) {
+func code__applyLocked(env *ergo__Env, files code__Files, p code__Planned) (code__Receipt, error) {
 	env.task.Check()
 	v, err := code__restoreLocked(env, files)
 	if err != nil {
@@ -18925,7 +18925,7 @@ func code__applyLocked(env *Env, files code__Files, p code__Planned) (code__Rece
 				switch caught := err_1.(type) {
 				case code__Missing:
 					_ = caught
-					stale = Append[string](stale, r.File)
+					stale = ergo__Append[string](stale, r.File)
 					goto next
 				case code__IOFailed:
 					e := caught
@@ -18951,7 +18951,7 @@ func code__applyLocked(env *Env, files code__Files, p code__Planned) (code__Rece
 
 			}
 			if v_5 != r.Revision {
-				stale = Append[string](stale, r.File)
+				stale = ergo__Append[string](stale, r.File)
 			}
 		}
 	next:
@@ -18964,7 +18964,7 @@ func code__applyLocked(env *Env, files code__Files, p code__Planned) (code__Rece
 	wrote = ergo.Reserve(wrote, len(p.Files))
 	for _, v_11 := range p.Files {
 		var f code__FileChange = v_11
-		wrote = Append[code__FileRead](wrote, code__FileRead{File: f.File, Revision: f.New})
+		wrote = ergo__Append[code__FileRead](wrote, code__FileRead{File: f.File, Revision: f.New})
 		env.task.Check()
 	}
 	if len(p.Files) == int(0) {
@@ -19047,7 +19047,7 @@ func code__applyLocked(env *Env, files code__Files, p code__Planned) (code__Rece
 	return code__Receipt{ID: p.ID, Files: wrote}, nil
 }
 
-func code__release(env *Env, files code__Files) {
+func code__release(env *ergo__Env, files code__Files) {
 	env.task.Check()
 	err := (files).Unlock(env.task)
 	if err != nil {
@@ -19068,7 +19068,7 @@ func code__release(env *Env, files code__Files) {
 	return
 }
 
-func code__restoreLocked(env *Env, files code__Files) (code__Recovered, error) {
+func code__restoreLocked(env *ergo__Env, files code__Files) (code__Recovered, error) {
 	env.task.Check()
 	v, err := (files).Exists(env.task, code__JournalPath)
 	if err != nil {
@@ -19108,7 +19108,7 @@ func code__restoreLocked(env *Env, files code__Files) (code__Recovered, error) {
 		}
 		return code__Recovered{Outcome: "forward"}, nil
 	}
-	t_2 := (Range[int]{Start: int(0), End: ((int(4) * len(v_2)) + int(4))})
+	t_2 := (ergo__Range[int]{Start: int(0), End: ((int(4) * len(v_2)) + int(4))})
 	for i := t_2.Start; i < t_2.End; i++ {
 		var busy bool = false
 		for _, v_8 := range v_2 {
@@ -19265,7 +19265,7 @@ func strings__TrimPrefix(s string, prefix string) string {
 func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
 	v, ok := m[k]
 	if ok {
-		v_1 := Some[V]{Value: v}
+		v_1 := ergo__Some[V]{Value: v}
 		return v_1.Value
 	} else {
 		return def
@@ -19283,7 +19283,7 @@ func (t code__Tables) edgesOf() []code__Call {
 		out = ergo.Reserve(out, len(p.Calls))
 		for _, v_1 := range p.Calls {
 			var c code__Call = v_1
-			out = Append[code__Call](out, ergo__CloneCall(c))
+			out = ergo__Append[code__Call](out, ergo__CloneCall(c))
 		}
 	}
 	return out
@@ -19307,7 +19307,7 @@ func (t code__Tables) summaryOf() code__Summary {
 	paths = ergo.Reserve(paths, len(t.Packages))
 	for _, v := range t.Packages {
 		var p code__Package = v
-		paths = Append[string](paths, p.Path)
+		paths = ergo__Append[string](paths, p.Path)
 		diagnostics = (diagnostics + p.Diagnostics)
 		symbols = (symbols + len(p.Decls))
 		sites = (sites + len(p.Sites))
@@ -19330,7 +19330,7 @@ func (t code__Tables) machinesOf() map[string]code__MachineGraph {
 	return out
 }
 
-func code__text(o Option[string]) string {
+func code__text(o ergo__Option[string]) string {
 	s := o
 	switch s.tag {
 	case 0:
@@ -19348,7 +19348,7 @@ func strings__Contains(s string, sub string) bool {
 	return r
 }
 
-func code__window(n int, offset Option[int], limit Option[int]) struct {
+func code__window(n int, offset ergo__Option[int], limit ergo__Option[int]) struct {
 	F0 int
 	F1 int
 	F2 int
@@ -19462,7 +19462,7 @@ func code__callsByStep(from map[string][]code__Call, start string, depth int, in
 	var seen map[string]bool = map[string]bool{}
 	seen[start] = true
 	var frontier []string = []string{start}
-	t := (Range[int]{Start: int(1), End: (depth + int(1))})
+	t := (ergo__Range[int]{Start: int(1), End: (depth + int(1))})
 	for i := t.Start; i < t.End; i++ {
 		var d int = i
 		var next []string = []string{}
@@ -19473,7 +19473,7 @@ func code__callsByStep(from map[string][]code__Call, start string, depth int, in
 				var def []code__Call = []code__Call{}
 				v_3, ok := from[h]
 				if ok {
-					v_4 := Some[[]code__Call]{Value: v_3}
+					v_4 := ergo__Some[[]code__Call]{Value: v_3}
 					v_2 = v_4.Value
 					goto inl
 				} else {
@@ -19486,7 +19486,7 @@ func code__callsByStep(from map[string][]code__Call, start string, depth int, in
 			out = ergo.Reserve(out, len(v_2))
 			for _, v_5 := range v_2 {
 				var c code__Call = v_5
-				out = Append[code__Hop](out, code__Hop{Depth: d, Call: ergo__CloneCall(c)})
+				out = ergo__Append[code__Hop](out, code__Hop{Depth: d, Call: ergo__CloneCall(c)})
 				var v_7 string
 				if inward_1 {
 					v_7 = c.From
@@ -19500,7 +19500,7 @@ func code__callsByStep(from map[string][]code__Call, start string, depth int, in
 					var def_1 bool = false
 					v_9, ok_1 := m[far]
 					if ok_1 {
-						v_10 := Some[bool]{Value: v_9}
+						v_10 := ergo__Some[bool]{Value: v_9}
 						v_8 = v_10.Value
 						goto inl_1
 					} else {
@@ -19512,7 +19512,7 @@ func code__callsByStep(from map[string][]code__Call, start string, depth int, in
 				_ = 0
 				if !v_8 {
 					seen[far] = true
-					next = Append[string](next, far)
+					next = ergo__Append[string](next, far)
 				}
 			}
 		}
@@ -19534,7 +19534,7 @@ func (q code__CallQuery) depthOf() int {
 	}
 }
 
-func (t code__Tables) apiOf(env *Env, q code__ApiQuery) (code__ApiView, error) {
+func (t code__Tables) apiOf(env *ergo__Env, q code__ApiQuery) (code__ApiView, error) {
 	env.task.Check()
 	var v string
 	s := q.Package
@@ -19554,7 +19554,7 @@ func (t code__Tables) apiOf(env *Env, q code__ApiQuery) (code__ApiView, error) {
 			t_1 := t.Revision
 			t_2 := p_1.Path
 			v_3 := ergo.SlicesSortFunc[code__Contract](p_1.Contracts, func(p_2 code__Contract, p_3 code__Contract) int {
-				r, _ := func(env_1 *Env, a code__Contract, b code__Contract) (int, error) {
+				r, _ := func(env_1 *ergo__Env, a code__Contract, b code__Contract) (int, error) {
 					v_2 := strings__Compare(a.Name, b.Name)
 					return v_2, nil
 				}(env, p_2, p_3)
@@ -19567,7 +19567,7 @@ func (t code__Tables) apiOf(env *Env, q code__ApiQuery) (code__ApiView, error) {
 	return *new(code__ApiView), code__NoPackage{Package: want}
 }
 
-func (q code__ReachQuery) subjectOf(env *Env, t code__Tables) (string, error) {
+func (q code__ReachQuery) subjectOf(env *ergo__Env, t code__Tables) (string, error) {
 	env.task.Check()
 	v, err := env.Reader.Symbol(env.task, q.Of)
 	if err != nil {
@@ -19620,7 +19620,7 @@ func (t code__Tables) reachPage(q code__ReachQuery, x string, kind string, funct
 		t_1 := reached
 		t_2 := f
 		v_2 := code__chainOf(out, f)
-		v_3 := Append[code__Reached](t_1, code__Reached{Function: t_2, Chain: ergo__CloneSlice_7(v_2)})
+		v_3 := ergo__Append[code__Reached](t_1, code__Reached{Function: t_2, Chain: ergo__CloneSlice_7(v_2)})
 		reached = v_3
 	}
 	t_3 := t.Revision
@@ -19631,14 +19631,14 @@ func (t code__Tables) reachPage(q code__ReachQuery, x string, kind string, funct
 func code__machineTarget(a string, d code__Decl, graphs map[string]code__MachineGraph) (code__MachineGraph, error) {
 	v, ok := graphs[d.Handle]
 	if ok {
-		g := Some[code__MachineGraph]{Value: v}
+		g := ergo__Some[code__MachineGraph]{Value: v}
 		return g.Value, nil
 	} else {
 		return *new(code__MachineGraph), code__NotMachine{Address: a, Kind: d.Kind}
 	}
 }
 
-func (g code__MachineGraph) reachableBySteps(env *Env) []code__Pair {
+func (g code__MachineGraph) reachableBySteps(env *ergo__Env) []code__Pair {
 	var reached map[string]bool = map[string]bool{}
 	var queue []string = []string{}
 	v := (g).targets((code__Transition{Decision: "Enter", To: g.Initial, At: (code__Place{What: "", File: "", Line: int(0)})}))
@@ -19650,7 +19650,7 @@ func (g code__MachineGraph) reachableBySteps(env *Env) []code__Pair {
 			var def bool = false
 			v_3, ok := m[s]
 			if ok {
-				v_4 := Some[bool]{Value: v_3}
+				v_4 := ergo__Some[bool]{Value: v_3}
 				v_2 = v_4.Value
 				goto inl
 			} else {
@@ -19662,7 +19662,7 @@ func (g code__MachineGraph) reachableBySteps(env *Env) []code__Pair {
 		_ = 0
 		if !v_2 {
 			reached[s] = true
-			queue = Append[string](queue, s)
+			queue = ergo__Append[string](queue, s)
 		}
 	}
 	var i int = int(0)
@@ -19685,7 +19685,7 @@ func (g code__MachineGraph) reachableBySteps(env *Env) []code__Pair {
 							var def_1 bool = false
 							v_13, ok_1 := m_1[x]
 							if ok_1 {
-								v_14 := Some[bool]{Value: v_13}
+								v_14 := ergo__Some[bool]{Value: v_13}
 								v_12 = v_14.Value
 								goto inl_1
 							} else {
@@ -19697,7 +19697,7 @@ func (g code__MachineGraph) reachableBySteps(env *Env) []code__Pair {
 						_ = 0
 						if !v_12 {
 							reached[x] = true
-							queue = Append[string](queue, x)
+							queue = ergo__Append[string](queue, x)
 						}
 					}
 				}
@@ -19727,22 +19727,22 @@ type ergoOrdered interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string
 }
 
-func slices__Sorted[T ergoOrdered](env *Env, s Seq[T]) []T {
+func slices__Sorted[T ergoOrdered](env *ergo__Env, s ergo__Seq[T]) []T {
 	env.task.Check()
 	v := slices__Collect[T](env, s)
 	v_1 := ergo.SlicesSortOwned[T](v)
 	return v_1
 }
 
-func slices__SortedMono_i398550328(env *Env, s Seq[string]) []string {
+func slices__SortedMono_i398550328(env *ergo__Env, s ergo__Seq[string]) []string {
 	env.task.Check()
 	v := slices__CollectMono_i398550328(env, s)
 	v_1 := ergo.SlicesSortOwned[string](v)
 	return v_1
 }
 
-func maps__Keys[K comparable, V any](m map[K]V) Seq[K] {
-	return Seq[K](func(env *Env, yield func(*Env, K) (bool, error)) (struct{}, error) {
+func maps__Keys[K comparable, V any](m map[K]V) ergo__Seq[K] {
+	return ergo__Seq[K](func(env *ergo__Env, yield func(*ergo__Env, K) (bool, error)) (struct{}, error) {
 		env.task.Check()
 		for k := range m {
 			var k_1 K = k
@@ -19757,8 +19757,8 @@ func maps__Keys[K comparable, V any](m map[K]V) Seq[K] {
 	})
 }
 
-func maps__KeysMono_i1784119160(m map[string]bool) Seq[string] {
-	return Seq[string](func(env *Env, yield func(*Env, string) (bool, error)) (struct{}, error) {
+func maps__KeysMono_i1784119160(m map[string]bool) ergo__Seq[string] {
+	return ergo__Seq[string](func(env *ergo__Env, yield func(*ergo__Env, string) (bool, error)) (struct{}, error) {
 		env.task.Check()
 		for k := range m {
 			var k_1 string = k
@@ -19773,11 +19773,11 @@ func maps__KeysMono_i1784119160(m map[string]bool) Seq[string] {
 	})
 }
 
-func Get[K comparable, V any](m map[K]V, k K) Option[V] {
+func ergo__Get[K comparable, V any](m map[K]V, k K) ergo__Option[V] {
 	if v, ok := m[k]; ok {
-		return (Option[V]{}).of0(Some[V]{Value: v})
+		return (ergo__Option[V]{}).of0(ergo__Some[V]{Value: v})
 	}
-	return (Option[V]{tag: 1})
+	return (ergo__Option[V]{tag: 1})
 }
 
 func slices__Contains[T comparable](xs []T, x T) bool {
@@ -19825,7 +19825,7 @@ func strings__Compare(a string, b string) int {
 }
 
 func json__plain(s string) bool {
-	t := (Range[int]{Start: int(0), End: len(s)})
+	t := (ergo__Range[int]{Start: int(0), End: len(s)})
 	for i := t.Start; i < t.End; i++ {
 		var i_1 int = i
 		var b uint8 = s[i_1]
@@ -19880,7 +19880,7 @@ func (s *json__scan) ws() {
 	}
 }
 
-func (s *json__scan) token(env *Env) json__tok {
+func (s *json__scan) token(env *ergo__Env) json__tok {
 	if s.bad {
 		return json__badTok
 	}
@@ -20049,12 +20049,12 @@ func (s *json__scan) push(t json__tok) {
 	if s.nq < len(s.q) {
 		s.q[s.nq] = t
 	} else {
-		s.q = Append[json__tok](s.q, t)
+		s.q = ergo__Append[json__tok](s.q, t)
 	}
 	s.nq = (s.nq + int(1))
 }
 
-type Range[T ergoOrdered] struct {
+type ergo__Range[T ergoOrdered] struct {
 	Start T
 	End   T
 }
@@ -20064,10 +20064,10 @@ func (b strings__Builder) Len() int {
 }
 
 func (b *strings__Builder) WriteByte_(c uint8) {
-	b.buf = Append[uint8](b.buf, c)
+	b.buf = ergo__Append[uint8](b.buf, c)
 }
 
-func (s *json__scan) readChunk(env *Env) {
+func (s *json__scan) readChunk(env *ergo__Env) {
 	env.task.Check()
 	var k json__rare = s.rare
 	if s.bad || k.eof {
@@ -20190,7 +20190,7 @@ func (s *json__scan) tagFirst() {
 	s.state = json__sAfter
 }
 
-func (s *json__scan) after(env *Env, k int) int {
+func (s *json__scan) after(env *ergo__Env, k int) int {
 	v := (s).peekAt(env, k)
 	if ((v.kind == json__kClose) || (v.kind == json__kDone)) || (v.kind == json__kBad) {
 		return k
@@ -20219,7 +20219,7 @@ func (s *json__scan) after(env *Env, k int) int {
 	}
 }
 
-func code__checkWith(env *Env, checker code__Checker, sources []code__Source) (code__Report, error) {
+func code__checkWith(env *ergo__Env, checker code__Checker, sources []code__Source) (code__Report, error) {
 	env.task.Check()
 	v, err := (checker).Check(env.task, sources)
 	if err != nil {
@@ -20235,7 +20235,7 @@ func code__checkWith(env *Env, checker code__Checker, sources []code__Source) (c
 	return v, nil
 }
 
-func code__changed(env *Env, sources []code__Source, report code__Report, c code__Change, checker code__Checker) ([]code__Source, error) {
+func code__changed(env *ergo__Env, sources []code__Source, report code__Report, c code__Change, checker code__Checker) ([]code__Source, error) {
 	env.task.Check()
 	switch v := c.(type) {
 	case code__Replace:
@@ -20300,7 +20300,7 @@ func code__changed(env *Env, sources []code__Source, report code__Report, c code
 		f := v
 		var cur []code__Source = slices.Clone(sources)
 		var seen []string = []string{}
-		t_1 := (Range[int]{Start: int(0), End: ergo.Let(code__MaxFixRounds)})
+		t_1 := (ergo__Range[int]{Start: int(0), End: ergo.Let(code__MaxFixRounds)})
 		for i := t_1.Start; i < t_1.End; i++ {
 			var round int = i
 			var v_13 code__Report
@@ -20319,7 +20319,7 @@ func code__changed(env *Env, sources []code__Source, report code__Report, c code
 			if v_16 {
 				return *new([]code__Source), code__BadChange{Reason: ("the fixes reach no fixed point: round " + string(strconv.AppendInt(make([]byte, 0, 20), int64(round), 10)) + " gives the sources of an earlier one")}
 			}
-			seen = Append[string](seen, v_15)
+			seen = ergo__Append[string](seen, v_15)
 			var edits []code__Edit = []code__Edit{}
 			for _, v_18 := range r_3.Diagnostics {
 				var d code__Diagnostic = v_18
@@ -20332,7 +20332,7 @@ func code__changed(env *Env, sources []code__Source, report code__Report, c code
 					edits = ergo.Reserve(edits, len(d.Fix))
 					for _, v_20 := range d.Fix {
 						var e code__Edit = v_20
-						edits = Append[code__Edit](edits, e)
+						edits = ergo__Append[code__Edit](edits, e)
 						env.task.Check()
 					}
 				}
@@ -20426,7 +20426,7 @@ func code__describe(c code__Change) string {
 			var step code__Change = v_10
 			t_2 := parts
 			v_11 := code__describe(step)
-			v_12 := Append[string](t_2, v_11)
+			v_12 := ergo__Append[string](t_2, v_11)
 			parts = v_12
 		}
 		v_13 := ergo.StringsJoin(parts, "; ")
@@ -20449,21 +20449,21 @@ func code__describe(c code__Change) string {
 	}
 }
 
-func (base code__Tables) impactOf(env *Env, after code__Tables, workspace []string) []code__ApiChange {
+func (base code__Tables) impactOf(env *ergo__Env, after code__Tables, workspace []string) []code__ApiChange {
 	env.task.Check()
 	var out []code__ApiChange = []code__ApiChange{}
 	var paths []string = []string{}
 	paths = ergo.Reserve(paths, len(base.Packages))
 	for _, v := range base.Packages {
 		var p code__Package = v
-		paths = Append[string](paths, p.Path)
+		paths = ergo__Append[string](paths, p.Path)
 		env.task.Check()
 	}
 	for _, v_2 := range after.Packages {
 		var p_1 code__Package = v_2
 		v_3 := code__has(paths, p_1.Path)
 		if !v_3 {
-			paths = Append[string](paths, p_1.Path)
+			paths = ergo__Append[string](paths, p_1.Path)
 		}
 		env.task.Check()
 	}
@@ -20482,7 +20482,7 @@ func (base code__Tables) impactOf(env *Env, after code__Tables, workspace []stri
 			out = ergo.Reserve(out, len(v_10))
 			for _, v_11 := range v_10 {
 				var c code__ApiChange = v_11
-				out = Append[code__ApiChange](out, code__ApiChange{Name: ((path + ".") + c.Name), Old: c.Old, New: c.New, BreaksResourceCallers: c.BreaksResourceCallers})
+				out = ergo__Append[code__ApiChange](out, code__ApiChange{Name: ((path + ".") + c.Name), Old: c.Old, New: c.New, BreaksResourceCallers: c.BreaksResourceCallers})
 				env.task.Check()
 			}
 		}
@@ -20511,7 +20511,7 @@ func (base code__Report) renameVerdict(after code__Report) code__Verdict {
 			var def int = int(0)
 			v_2, ok := m[k]
 			if ok {
-				v_3 := Some[int]{Value: v_2}
+				v_3 := ergo__Some[int]{Value: v_2}
 				v_1 = v_3.Value
 				goto inl
 			} else {
@@ -20533,7 +20533,7 @@ func (base code__Report) renameVerdict(after code__Report) code__Verdict {
 			var def_1 int = int(0)
 			v_6, ok_1 := m_1[k_1]
 			if ok_1 {
-				v_7 := Some[int]{Value: v_6}
+				v_7 := ergo__Some[int]{Value: v_6}
 				v_5 = v_7.Value
 				goto inl_1
 			} else {
@@ -20546,7 +20546,7 @@ func (base code__Report) renameVerdict(after code__Report) code__Verdict {
 		if v_5 > int(0) {
 			left[d_1.Code] = (v_5 - int(1))
 		} else {
-			added = Append[code__Diagnostic](added, ergo__CloneDiagnostic(d_1))
+			added = ergo__Append[code__Diagnostic](added, ergo__CloneDiagnostic(d_1))
 		}
 	}
 	if len(added) > int(0) {
@@ -20569,7 +20569,7 @@ func (base code__Report) verdictOf(after code__Report) code__Verdict {
 			var def int = int(0)
 			v_2, ok := m[k]
 			if ok {
-				v_3 := Some[int]{Value: v_2}
+				v_3 := ergo__Some[int]{Value: v_2}
 				v_1 = v_3.Value
 				goto inl
 			} else {
@@ -20591,7 +20591,7 @@ func (base code__Report) verdictOf(after code__Report) code__Verdict {
 			var def_1 int = int(0)
 			v_6, ok_1 := m_1[k_1]
 			if ok_1 {
-				v_7 := Some[int]{Value: v_6}
+				v_7 := ergo__Some[int]{Value: v_6}
 				v_5 = v_7.Value
 				goto inl_1
 			} else {
@@ -20604,7 +20604,7 @@ func (base code__Report) verdictOf(after code__Report) code__Verdict {
 		if v_5 > int(0) {
 			left[k_1] = (v_5 - int(1))
 		} else {
-			added = Append[code__Diagnostic](added, ergo__CloneDiagnostic(d_1))
+			added = ergo__Append[code__Diagnostic](added, ergo__CloneDiagnostic(d_1))
 		}
 	}
 	if len(added) > int(0) {
@@ -20710,7 +20710,7 @@ func strings__ReplaceAll(s string, old string, repl string) string {
 	return r
 }
 
-func (h fs__Host) ReadFile(env *Env, path string) (string, error) {
+func (h fs__Host) ReadFile(env *ergo__Env, path string) (string, error) {
 	env.task.Check()
 	v, err := (h).at(env, path)
 	if err != nil {
@@ -20748,7 +20748,7 @@ func code__ioFailed(path string, reason string) code__IOFailed {
 	return code__IOFailed{Reason: (path + ": " + reason)}
 }
 
-func (h code__disk) folderOf(env *Env, path string) error {
+func (h code__disk) folderOf(env *ergo__Env, path string) error {
 	env.task.Check()
 	v := (h).onHost(path)
 	v_1 := strings__LastIndex(v, "/")
@@ -20776,7 +20776,7 @@ func (h code__disk) folderOf(env *Env, path string) error {
 	return nil
 }
 
-func (h fs__Host) WriteFile(env *Env, path string, text string) error {
+func (h fs__Host) WriteFile(env *ergo__Env, path string, text string) error {
 	env.task.Check()
 	v, err := (h).at(env, path)
 	if err != nil {
@@ -20789,7 +20789,7 @@ func (h fs__Host) WriteFile(env *Env, path string, text string) error {
 	return nil
 }
 
-func (h code__disk) keepMode(env *Env, a string, b string) error {
+func (h code__disk) keepMode(env *ergo__Env, a string, b string) error {
 	env.task.Check()
 	t := h.host
 	v := (h).onHost(b)
@@ -20840,7 +20840,7 @@ func (h code__disk) keepMode(env *Env, a string, b string) error {
 	return nil
 }
 
-func (h fs__Host) Exchange(env *Env, a string, b string) error {
+func (h fs__Host) Exchange(env *ergo__Env, a string, b string) error {
 	env.task.Check()
 	v, err := (h).at(env, a)
 	if err != nil {
@@ -20858,7 +20858,7 @@ func (h fs__Host) Exchange(env *Env, a string, b string) error {
 	return nil
 }
 
-func (h fs__Host) Remove(env *Env, path string) error {
+func (h fs__Host) Remove(env *ergo__Env, path string) error {
 	env.task.Check()
 	v, err := (h).at(env, path)
 	if err != nil {
@@ -20871,7 +20871,7 @@ func (h fs__Host) Remove(env *Env, path string) error {
 	return nil
 }
 
-func (h fs__Host) Stat(env *Env, path string) (ergo.Info, error) {
+func (h fs__Host) Stat(env *ergo__Env, path string) (ergo.Info, error) {
 	env.task.Check()
 	v, err := (h).at(env, path)
 	if err != nil {
@@ -20886,23 +20886,23 @@ func (h fs__Host) Stat(env *Env, path string) (ergo.Info, error) {
 
 const code__LockPath string = ".ergo/apply.lock"
 
-func (h fs__Host) LockFile(env *Env, path string, wait time.Duration) (Option[fs__FileLock], error) {
+func (h fs__Host) LockFile(env *ergo__Env, path string, wait time.Duration) (ergo__Option[fs__FileLock], error) {
 	env.task.Check()
 	v, err := (h).at(env, path)
 	if err != nil {
-		return *new(Option[fs__FileLock]), err
+		return *new(ergo__Option[fs__FileLock]), err
 	}
 	v_1, err_1 := ergo.FSLockFile(v, wait)
 	if err_1 != nil {
-		return *new(Option[fs__FileLock]), err_1
+		return *new(ergo__Option[fs__FileLock]), err_1
 	}
 	if v_1 < int(0) {
-		return (Option[fs__FileLock]{tag: 1}), nil
+		return (ergo__Option[fs__FileLock]{tag: 1}), nil
 	}
-	return (Option[fs__FileLock]{}).of0(Some[fs__FileLock]{Value: fs__FileLock{fd: v_1}}), nil
+	return (ergo__Option[fs__FileLock]{}).of0(ergo__Some[fs__FileLock]{Value: fs__FileLock{fd: v_1}}), nil
 }
 
-func (_p fs__Host) UnlockFile(env *Env, l fs__FileLock) {
+func (_p fs__Host) UnlockFile(env *ergo__Env, l fs__FileLock) {
 	env.task.Check()
 	ergo.FSUnlockFile(l.fd)
 	return
@@ -20923,7 +20923,7 @@ func code__tempOf(path string) string {
 	return (path + ".ergo-apply~")
 }
 
-func code__exchanged(env *Env, files code__Files, a string, b string) error {
+func code__exchanged(env *ergo__Env, files code__Files, a string, b string) error {
 	env.task.Check()
 	err := (files).Exchange(env.task, a, b)
 	if err != nil {
@@ -20942,7 +20942,7 @@ func code__exchanged(env *Env, files code__Files, a string, b string) error {
 	return nil
 }
 
-func code__readOr(env *Env, files code__Files, path string) (string, error) {
+func code__readOr(env *ergo__Env, files code__Files, path string) (string, error) {
 	env.task.Check()
 	v, err := (files).Read(env.task, path)
 	if err != nil {
@@ -20975,7 +20975,7 @@ func code__journalEntries(text_1 string) []code__journalEntry {
 		var line string = v_1
 		v_2 := strings__Split(line, "\t")
 		if (i >= int(2)) && (len(v_2) == int(3)) {
-			out = Append[code__journalEntry](out, code__journalEntry{File: v_2[int(0)], Old: v_2[int(1)], New: v_2[int(2)]})
+			out = ergo__Append[code__journalEntry](out, code__journalEntry{File: v_2[int(0)], Old: v_2[int(1)], New: v_2[int(2)]})
 		}
 	}
 	return out
@@ -20991,7 +20991,7 @@ func (t code__Tables) complete() bool {
 	return true
 }
 
-func code__or(o Option[int], d int) int {
+func code__or(o ergo__Option[int], d int) int {
 	s := o
 	switch s.tag {
 	case 0:
@@ -21029,12 +21029,12 @@ func (t code__Tables) rowElemsOf() []code__Need {
 		out = ergo.Reserve(out, len(p.Needs))
 		for _, v_1 := range p.Needs {
 			var n code__Need = v_1
-			out = Append[code__Need](out, n)
+			out = ergo__Append[code__Need](out, n)
 		}
 		out = ergo.Reserve(out, len(p.Fails))
 		for _, v_3 := range p.Fails {
 			var f code__Failing = v_3
-			out = Append[code__Need](out, code__Need{Of: f.Of, Capability: f.Failure})
+			out = ergo__Append[code__Need](out, code__Need{Of: f.Of, Capability: f.Failure})
 		}
 	}
 	return out
@@ -21086,7 +21086,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 				var def []code__Call = []code__Call{}
 				v_2, ok := out[h]
 				if ok {
-					v_3 := Some[[]code__Call]{Value: v_2}
+					v_3 := ergo__Some[[]code__Call]{Value: v_2}
 					v_1 = v_3.Value
 					goto inl
 				} else {
@@ -21105,7 +21105,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 					var def_1 []code__Call = []code__Call{}
 					v_6, ok_1 := m[h]
 					if ok_1 {
-						v_7 := Some[[]code__Call]{Value: v_6}
+						v_7 := ergo__Some[[]code__Call]{Value: v_6}
 						v_5 = v_7.Value
 						goto inl_1
 					} else {
@@ -21115,14 +21115,14 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 				}
 			inl_1:
 				_ = 0
-				v_8 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_5)), c)
+				v_8 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_5)), c)
 				var v_9 []code__Call
 				{
 					var k string = c.To
 					var def_2 []code__Call = []code__Call{}
 					v_10, ok_2 := out[k]
 					if ok_2 {
-						v_11 := Some[[]code__Call]{Value: v_10}
+						v_11 := ergo__Some[[]code__Call]{Value: v_10}
 						v_9 = v_11.Value
 						goto inl_2
 					} else {
@@ -21142,7 +21142,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 					var def_3 bool = false
 					v_13, ok_3 := m_1[k_1]
 					if ok_3 {
-						v_14 := Some[bool]{Value: v_13}
+						v_14 := ergo__Some[bool]{Value: v_13}
 						v_12 = v_14.Value
 						goto inl_3
 					} else {
@@ -21155,7 +21155,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 				if !v_12 {
 					seen[c.To] = true
 					paths[c.To] = ergo__CloneSlice_7(v_8)
-					next = Append[string](next, c.To)
+					next = ergo__Append[string](next, c.To)
 					fresh = true
 				}
 			}
@@ -21166,7 +21166,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 					var def_4 []code__Call = []code__Call{}
 					v_17, ok_4 := m_2[h]
 					if ok_4 {
-						v_18 := Some[[]code__Call]{Value: v_17}
+						v_18 := ergo__Some[[]code__Call]{Value: v_17}
 						v_16 = v_18.Value
 						goto inl_4
 					} else {
@@ -21176,7 +21176,7 @@ func code__chainOf(out map[string][]code__Call, f string) []code__Call {
 				}
 			inl_4:
 				_ = 0
-				v_19 := Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_16)), v_1[int(0)])
+				v_19 := ergo__Append[code__Call](slices.Clip(ergo__CloneSlice_7(v_16)), v_1[int(0)])
 				back = ergo__CloneSlice_7(v_19)
 				found = true
 			}
@@ -21205,7 +21205,7 @@ func (g code__MachineGraph) targets(e code__Transition) []string {
 	return []string{}
 }
 
-func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []code__Arm {
+func (g code__MachineGraph) armsFor(env *ergo__Env, state string, signal string) []code__Arm {
 	var out []code__Arm = []code__Arm{}
 	for _, v := range g.Arms {
 		var a code__Arm = v
@@ -21229,7 +21229,7 @@ func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []cod
 				v_1 = b
 				goto inl
 			}
-			v_7, err := slices__IndexFuncMono_i4054113065(env, a.Alts, func(env_1 *Env, x code__Alt) (bool, error) {
+			v_7, err := slices__IndexFuncMono_i4054113065(env, a.Alts, func(env_1 *ergo__Env, x code__Alt) (bool, error) {
 				var v_4 bool
 				{
 					b_4 := x.AnyState
@@ -21256,14 +21256,14 @@ func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []cod
 	inl:
 		_ = 0
 		if v_1 {
-			out = Append[code__Arm](out, ergo__CloneArm(a))
+			out = ergo__Append[code__Arm](out, ergo__CloneArm(a))
 			var v_9 bool
 			{
 				if len(a.Alts) == int(0) {
 					v_9 = a.Partial
 					goto inl_2
 				}
-				v_13, err_1 := slices__IndexFuncMono_i4054113065(env, a.Alts, func(env_2 *Env, x_1 code__Alt) (bool, error) {
+				v_13, err_1 := slices__IndexFuncMono_i4054113065(env, a.Alts, func(env_2 *ergo__Env, x_1 code__Alt) (bool, error) {
 					var v_10 bool
 					{
 						b_7 := x_1.AnyState
@@ -21297,7 +21297,7 @@ func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []cod
 	return out
 }
 
-func (g code__MachineGraph) pairsOf(env *Env, reached map[string]bool) []code__Pair {
+func (g code__MachineGraph) pairsOf(env *ergo__Env, reached map[string]bool) []code__Pair {
 	var out []code__Pair = []code__Pair{}
 	for _, v := range g.States {
 		var s string = v
@@ -21306,7 +21306,7 @@ func (g code__MachineGraph) pairsOf(env *Env, reached map[string]bool) []code__P
 			var def bool = false
 			v_2, ok := reached[s]
 			if ok {
-				v_3 := Some[bool]{Value: v_2}
+				v_3 := ergo__Some[bool]{Value: v_2}
 				v_1 = v_3.Value
 				goto inl
 			} else {
@@ -21327,15 +21327,15 @@ func (g code__MachineGraph) pairsOf(env *Env, reached map[string]bool) []code__P
 			arms = ergo.Reserve(arms, len(v_5))
 			for _, v_6 := range v_5 {
 				var a code__Arm = v_6
-				arms = Append[code__Place](arms, a.At)
+				arms = ergo__Append[code__Place](arms, a.At)
 			}
-			out = Append[code__Pair](out, code__Pair{State: s, Signal: sg, Arms: arms})
+			out = ergo__Append[code__Pair](out, code__Pair{State: s, Signal: sg, Arms: arms})
 		}
 	}
 	return out
 }
 
-func ergo__EncodeSummary(env *Env, w Writer, v code__Summary) {
+func ergo__EncodeSummary(env *ergo__Env, w ergo__Writer, v code__Summary) {
 	w.BeginObject(env.task, 6)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -21352,7 +21352,7 @@ func ergo__EncodeSummary(env *Env, w Writer, v code__Summary) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeSummary(env *Env, r Reader) (code__Summary, error) {
+func ergo__DecodeSummary(env *ergo__Env, r ergo__Reader) (code__Summary, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Summary), err
 	}
@@ -21413,27 +21413,27 @@ func ergo__DecodeSummary(env *Env, r Reader) (code__Summary, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Summary), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__Summary), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Summary), WireMissingField{Path: r.Path(env.task), Field: "packages"}
+		return *new(code__Summary), ergo__WireMissingField{Path: r.Path(env.task), Field: "packages"}
 	}
 	if !seen_2 {
-		return *new(code__Summary), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+		return *new(code__Summary), ergo__WireMissingField{Path: r.Path(env.task), Field: "complete"}
 	}
 	if !seen_3 {
-		return *new(code__Summary), WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
+		return *new(code__Summary), ergo__WireMissingField{Path: r.Path(env.task), Field: "diagnostics"}
 	}
 	if !seen_4 {
-		return *new(code__Summary), WireMissingField{Path: r.Path(env.task), Field: "symbols"}
+		return *new(code__Summary), ergo__WireMissingField{Path: r.Path(env.task), Field: "symbols"}
 	}
 	if !seen_5 {
-		return *new(code__Summary), WireMissingField{Path: r.Path(env.task), Field: "sites"}
+		return *new(code__Summary), ergo__WireMissingField{Path: r.Path(env.task), Field: "sites"}
 	}
 	return out, nil
 }
 
-func ergo__WriteSummary(env *Env, wv json__text, v code__Summary) json__text {
+func ergo__WriteSummary(env *ergo__Env, wv json__text, v code__Summary) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -21455,7 +21455,7 @@ func ergo__WriteSummary(env *Env, wv json__text, v code__Summary) json__text {
 	return wv
 }
 
-func ergo__ReadSummary(env *Env, r http__queryReader) (code__Summary, error) {
+func ergo__ReadSummary(env *ergo__Env, r http__queryReader) (code__Summary, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Summary), err
 	}
@@ -21516,27 +21516,27 @@ func ergo__ReadSummary(env *Env, r http__queryReader) (code__Summary, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "packages"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
 	}
 	if !seen_2 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_3 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_4 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "symbols"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "symbols"}
 	}
 	if !seen_5 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSummary_1(env *Env, r json__Reader_1) (code__Summary, error) {
+func ergo__ReadSummary_1(env *ergo__Env, r json__Reader_1) (code__Summary, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Summary), err
 	}
@@ -21597,27 +21597,27 @@ func ergo__ReadSummary_1(env *Env, r json__Reader_1) (code__Summary, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "packages"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
 	}
 	if !seen_2 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_3 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_4 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "symbols"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "symbols"}
 	}
 	if !seen_5 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSummary_2(env *Env, r json__Stream) (code__Summary, error) {
+func ergo__ReadSummary_2(env *ergo__Env, r json__Stream) (code__Summary, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Summary), err
 	}
@@ -21678,27 +21678,27 @@ func ergo__ReadSummary_2(env *Env, r json__Stream) (code__Summary, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "packages"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
 	}
 	if !seen_2 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_3 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "diagnostics"}
 	}
 	if !seen_4 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "symbols"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "symbols"}
 	}
 	if !seen_5 {
-		return *new(code__Summary), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__Summary), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeSymbolPage(env *Env, w Writer, v code__SymbolPage) {
+func ergo__EncodeSymbolPage(env *ergo__Env, w ergo__Writer, v code__SymbolPage) {
 	w.BeginObject(env.task, 4)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -21711,7 +21711,7 @@ func ergo__EncodeSymbolPage(env *Env, w Writer, v code__SymbolPage) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeSymbolPage(env *Env, r Reader) (code__SymbolPage, error) {
+func ergo__DecodeSymbolPage(env *ergo__Env, r ergo__Reader) (code__SymbolPage, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__SymbolPage), err
 	}
@@ -21756,21 +21756,21 @@ func ergo__DecodeSymbolPage(env *Env, r Reader) (code__SymbolPage, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "decls"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "decls"}
 	}
 	if !seen_2 {
-		return *new(code__SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "total"}
 	}
 	if !seen_3 {
-		return *new(code__SymbolPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__WriteSymbolPage(env *Env, wv json__text, v code__SymbolPage) json__text {
+func ergo__WriteSymbolPage(env *ergo__Env, wv json__text, v code__SymbolPage) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -21788,7 +21788,7 @@ func ergo__WriteSymbolPage(env *Env, wv json__text, v code__SymbolPage) json__te
 	return wv
 }
 
-func ergo__ReadSymbolPage(env *Env, r http__queryReader) (code__SymbolPage, error) {
+func ergo__ReadSymbolPage(env *ergo__Env, r http__queryReader) (code__SymbolPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__SymbolPage), err
 	}
@@ -21833,21 +21833,21 @@ func ergo__ReadSymbolPage(env *Env, r http__queryReader) (code__SymbolPage, erro
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "decls"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "decls"}
 	}
 	if !seen_2 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_3 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSymbolPage_1(env *Env, r json__Reader_1) (code__SymbolPage, error) {
+func ergo__ReadSymbolPage_1(env *ergo__Env, r json__Reader_1) (code__SymbolPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__SymbolPage), err
 	}
@@ -21892,21 +21892,21 @@ func ergo__ReadSymbolPage_1(env *Env, r json__Reader_1) (code__SymbolPage, error
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "decls"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "decls"}
 	}
 	if !seen_2 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_3 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSymbolPage_2(env *Env, r json__Stream) (code__SymbolPage, error) {
+func ergo__ReadSymbolPage_2(env *ergo__Env, r json__Stream) (code__SymbolPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__SymbolPage), err
 	}
@@ -21951,21 +21951,21 @@ func ergo__ReadSymbolPage_2(env *Env, r json__Stream) (code__SymbolPage, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "decls"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "decls"}
 	}
 	if !seen_2 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_3 {
-		return *new(code__SymbolPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__SymbolPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeSitePage(env *Env, w Writer, v code__SitePage) {
+func ergo__EncodeSitePage(env *ergo__Env, w ergo__Writer, v code__SitePage) {
 	w.BeginObject(env.task, 5)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -21980,7 +21980,7 @@ func ergo__EncodeSitePage(env *Env, w Writer, v code__SitePage) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeSitePage(env *Env, r Reader) (code__SitePage, error) {
+func ergo__DecodeSitePage(env *ergo__Env, r ergo__Reader) (code__SitePage, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__SitePage), err
 	}
@@ -22033,24 +22033,24 @@ func ergo__DecodeSitePage(env *Env, r Reader) (code__SitePage, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__SitePage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SitePage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: r.Path(env.task), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__SitePage), WireMissingField{Path: r.Path(env.task), Field: "sites"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: r.Path(env.task), Field: "sites"}
 	}
 	if !seen_3 {
-		return *new(code__SitePage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: r.Path(env.task), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__SitePage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: r.Path(env.task), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__WriteSitePage(env *Env, wv json__text, v code__SitePage) json__text {
+func ergo__WriteSitePage(env *ergo__Env, wv json__text, v code__SitePage) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -22070,7 +22070,7 @@ func ergo__WriteSitePage(env *Env, wv json__text, v code__SitePage) json__text {
 	return wv
 }
 
-func ergo__ReadSitePage(env *Env, r http__queryReader) (code__SitePage, error) {
+func ergo__ReadSitePage(env *ergo__Env, r http__queryReader) (code__SitePage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__SitePage), err
 	}
@@ -22123,24 +22123,24 @@ func ergo__ReadSitePage(env *Env, r http__queryReader) (code__SitePage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	if !seen_3 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSitePage_1(env *Env, r json__Reader_1) (code__SitePage, error) {
+func ergo__ReadSitePage_1(env *ergo__Env, r json__Reader_1) (code__SitePage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__SitePage), err
 	}
@@ -22193,24 +22193,24 @@ func ergo__ReadSitePage_1(env *Env, r json__Reader_1) (code__SitePage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	if !seen_3 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSitePage_2(env *Env, r json__Stream) (code__SitePage, error) {
+func ergo__ReadSitePage_2(env *ergo__Env, r json__Stream) (code__SitePage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__SitePage), err
 	}
@@ -22263,24 +22263,24 @@ func ergo__ReadSitePage_2(env *Env, r json__Stream) (code__SitePage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "sites"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
 	}
 	if !seen_3 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__SitePage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__SitePage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeHop(env *Env, w Writer, v code__Hop) {
+func ergo__EncodeHop(env *ergo__Env, w ergo__Writer, v code__Hop) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "depth")
 	w.Int(env.task, int64(v.Depth))
@@ -22289,7 +22289,7 @@ func ergo__EncodeHop(env *Env, w Writer, v code__Hop) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_16(env *Env, w Writer, v []code__Hop) {
+func ergo__EncodeSlice_16(env *ergo__Env, w ergo__Writer, v []code__Hop) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeHop(env, w, e)
@@ -22297,7 +22297,7 @@ func ergo__EncodeSlice_16(env *Env, w Writer, v []code__Hop) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeCallPage(env *Env, w Writer, v code__CallPage) {
+func ergo__EncodeCallPage(env *ergo__Env, w ergo__Writer, v code__CallPage) {
 	w.BeginObject(env.task, 5)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -22312,7 +22312,7 @@ func ergo__EncodeCallPage(env *Env, w Writer, v code__CallPage) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeHop(env *Env, r Reader) (code__Hop, error) {
+func ergo__DecodeHop(env *ergo__Env, r ergo__Reader) (code__Hop, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Hop), err
 	}
@@ -22341,15 +22341,15 @@ func ergo__DecodeHop(env *Env, r Reader) (code__Hop, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Hop), WireMissingField{Path: r.Path(env.task), Field: "depth"}
+		return *new(code__Hop), ergo__WireMissingField{Path: r.Path(env.task), Field: "depth"}
 	}
 	if !seen_1 {
-		return *new(code__Hop), WireMissingField{Path: r.Path(env.task), Field: "call"}
+		return *new(code__Hop), ergo__WireMissingField{Path: r.Path(env.task), Field: "call"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_16(env *Env, r Reader) ([]code__Hop, error) {
+func ergo__DecodeSlice_16(env *ergo__Env, r ergo__Reader) ([]code__Hop, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Hop), err
 	}
@@ -22365,7 +22365,7 @@ func ergo__DecodeSlice_16(env *Env, r Reader) ([]code__Hop, error) {
 	return out, nil
 }
 
-func ergo__DecodeCallPage(env *Env, r Reader) (code__CallPage, error) {
+func ergo__DecodeCallPage(env *ergo__Env, r ergo__Reader) (code__CallPage, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__CallPage), err
 	}
@@ -22418,24 +22418,24 @@ func ergo__DecodeCallPage(env *Env, r Reader) (code__CallPage, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__CallPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__CallPage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__CallPage), WireMissingField{Path: r.Path(env.task), Field: "hops"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "hops"}
 	}
 	if !seen_3 {
-		return *new(code__CallPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__CallPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__WriteCall_entry(env *Env, wv json__text, v code__Call) json__text {
+func ergo__WriteCall_entry(env *ergo__Env, wv json__text, v code__Call) json__text {
 	w := &wv
 	(w).raw(string("{\"from\":"))
 	(w).stringBody(string(v.From))
@@ -22471,7 +22471,7 @@ func ergo__WriteCall_entry(env *Env, wv json__text, v code__Call) json__text {
 	return wv
 }
 
-func ergo__WriteHop(env *Env, wv json__text, v code__Hop) json__text {
+func ergo__WriteHop(env *ergo__Env, wv json__text, v code__Hop) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"depth\":"))
@@ -22484,7 +22484,7 @@ func ergo__WriteHop(env *Env, wv json__text, v code__Hop) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_16(env *Env, wv json__text, v []code__Hop) json__text {
+func ergo__WriteSlice_16(env *ergo__Env, wv json__text, v []code__Hop) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -22498,7 +22498,7 @@ func ergo__WriteSlice_16(env *Env, wv json__text, v []code__Hop) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_entry_16(env *Env, wv json__text, v []code__Hop) json__text {
+func ergo__WriteSlice_entry_16(env *ergo__Env, wv json__text, v []code__Hop) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -22511,7 +22511,7 @@ func ergo__WriteSlice_entry_16(env *Env, wv json__text, v []code__Hop) json__tex
 	return wv
 }
 
-func ergo__WriteCallPage(env *Env, wv json__text, v code__CallPage) json__text {
+func ergo__WriteCallPage(env *ergo__Env, wv json__text, v code__CallPage) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -22531,7 +22531,7 @@ func ergo__WriteCallPage(env *Env, wv json__text, v code__CallPage) json__text {
 	return wv
 }
 
-func ergo__ReadHop(env *Env, r http__queryReader) (code__Hop, error) {
+func ergo__ReadHop(env *ergo__Env, r http__queryReader) (code__Hop, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Hop), err
 	}
@@ -22560,15 +22560,15 @@ func ergo__ReadHop(env *Env, r http__queryReader) (code__Hop, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Hop), WireMissingField{Path: (r).Path(env), Field: "depth"}
+		return *new(code__Hop), ergo__WireMissingField{Path: (r).Path(env), Field: "depth"}
 	}
 	if !seen_1 {
-		return *new(code__Hop), WireMissingField{Path: (r).Path(env), Field: "call"}
+		return *new(code__Hop), ergo__WireMissingField{Path: (r).Path(env), Field: "call"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_16(env *Env, r http__queryReader) ([]code__Hop, error) {
+func ergo__ReadSlice_16(env *ergo__Env, r http__queryReader) ([]code__Hop, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Hop), err
 	}
@@ -22584,7 +22584,7 @@ func ergo__ReadSlice_16(env *Env, r http__queryReader) ([]code__Hop, error) {
 	return out, nil
 }
 
-func ergo__ReadCallPage(env *Env, r http__queryReader) (code__CallPage, error) {
+func ergo__ReadCallPage(env *ergo__Env, r http__queryReader) (code__CallPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__CallPage), err
 	}
@@ -22637,24 +22637,24 @@ func ergo__ReadCallPage(env *Env, r http__queryReader) (code__CallPage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "hops"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "hops"}
 	}
 	if !seen_3 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadHop_1(env *Env, r json__Reader_1) (code__Hop, error) {
+func ergo__ReadHop_1(env *ergo__Env, r json__Reader_1) (code__Hop, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Hop), err
 	}
@@ -22683,15 +22683,15 @@ func ergo__ReadHop_1(env *Env, r json__Reader_1) (code__Hop, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Hop), WireMissingField{Path: (r).Path(env), Field: "depth"}
+		return *new(code__Hop), ergo__WireMissingField{Path: (r).Path(env), Field: "depth"}
 	}
 	if !seen_1 {
-		return *new(code__Hop), WireMissingField{Path: (r).Path(env), Field: "call"}
+		return *new(code__Hop), ergo__WireMissingField{Path: (r).Path(env), Field: "call"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_51(env *Env, r json__Reader_1) ([]code__Hop, error) {
+func ergo__ReadSlice_51(env *ergo__Env, r json__Reader_1) ([]code__Hop, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Hop), err
 	}
@@ -22707,7 +22707,7 @@ func ergo__ReadSlice_51(env *Env, r json__Reader_1) ([]code__Hop, error) {
 	return out, nil
 }
 
-func ergo__ReadCallPage_1(env *Env, r json__Reader_1) (code__CallPage, error) {
+func ergo__ReadCallPage_1(env *ergo__Env, r json__Reader_1) (code__CallPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__CallPage), err
 	}
@@ -22760,24 +22760,24 @@ func ergo__ReadCallPage_1(env *Env, r json__Reader_1) (code__CallPage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "hops"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "hops"}
 	}
 	if !seen_3 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadHop_2(env *Env, r json__Stream) (code__Hop, error) {
+func ergo__ReadHop_2(env *ergo__Env, r json__Stream) (code__Hop, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Hop), err
 	}
@@ -22806,15 +22806,15 @@ func ergo__ReadHop_2(env *Env, r json__Stream) (code__Hop, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Hop), WireMissingField{Path: (r).Path(env), Field: "depth"}
+		return *new(code__Hop), ergo__WireMissingField{Path: (r).Path(env), Field: "depth"}
 	}
 	if !seen_1 {
-		return *new(code__Hop), WireMissingField{Path: (r).Path(env), Field: "call"}
+		return *new(code__Hop), ergo__WireMissingField{Path: (r).Path(env), Field: "call"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_86(env *Env, r json__Stream) ([]code__Hop, error) {
+func ergo__ReadSlice_86(env *ergo__Env, r json__Stream) ([]code__Hop, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Hop), err
 	}
@@ -22830,7 +22830,7 @@ func ergo__ReadSlice_86(env *Env, r json__Stream) ([]code__Hop, error) {
 	return out, nil
 }
 
-func ergo__ReadCallPage_2(env *Env, r json__Stream) (code__CallPage, error) {
+func ergo__ReadCallPage_2(env *ergo__Env, r json__Stream) (code__CallPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__CallPage), err
 	}
@@ -22883,24 +22883,24 @@ func ergo__ReadCallPage_2(env *Env, r json__Stream) (code__CallPage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "hops"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "hops"}
 	}
 	if !seen_3 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_4 {
-		return *new(code__CallPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__CallPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeApiView(env *Env, w Writer, v code__ApiView) {
+func ergo__EncodeApiView(env *ergo__Env, w ergo__Writer, v code__ApiView) {
 	w.BeginObject(env.task, 3)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -22911,7 +22911,7 @@ func ergo__EncodeApiView(env *Env, w Writer, v code__ApiView) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeApiView(env *Env, r Reader) (code__ApiView, error) {
+func ergo__DecodeApiView(env *ergo__Env, r ergo__Reader) (code__ApiView, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__ApiView), err
 	}
@@ -22948,18 +22948,18 @@ func ergo__DecodeApiView(env *Env, r Reader) (code__ApiView, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__ApiView), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ApiView), WireMissingField{Path: r.Path(env.task), Field: "package"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: r.Path(env.task), Field: "package"}
 	}
 	if !seen_2 {
-		return *new(code__ApiView), WireMissingField{Path: r.Path(env.task), Field: "functions"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: r.Path(env.task), Field: "functions"}
 	}
 	return out, nil
 }
 
-func ergo__WriteApiView(env *Env, wv json__text, v code__ApiView) json__text {
+func ergo__WriteApiView(env *ergo__Env, wv json__text, v code__ApiView) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -22974,7 +22974,7 @@ func ergo__WriteApiView(env *Env, wv json__text, v code__ApiView) json__text {
 	return wv
 }
 
-func ergo__ReadApiView(env *Env, r http__queryReader) (code__ApiView, error) {
+func ergo__ReadApiView(env *ergo__Env, r http__queryReader) (code__ApiView, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ApiView), err
 	}
@@ -23011,18 +23011,18 @@ func ergo__ReadApiView(env *Env, r http__queryReader) (code__ApiView, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_2 {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "functions"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "functions"}
 	}
 	return out, nil
 }
 
-func ergo__ReadApiView_1(env *Env, r json__Reader_1) (code__ApiView, error) {
+func ergo__ReadApiView_1(env *ergo__Env, r json__Reader_1) (code__ApiView, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ApiView), err
 	}
@@ -23059,18 +23059,18 @@ func ergo__ReadApiView_1(env *Env, r json__Reader_1) (code__ApiView, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_2 {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "functions"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "functions"}
 	}
 	return out, nil
 }
 
-func ergo__ReadApiView_2(env *Env, r json__Stream) (code__ApiView, error) {
+func ergo__ReadApiView_2(env *ergo__Env, r json__Stream) (code__ApiView, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ApiView), err
 	}
@@ -23107,18 +23107,18 @@ func ergo__ReadApiView_2(env *Env, r json__Stream) (code__ApiView, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_2 {
-		return *new(code__ApiView), WireMissingField{Path: (r).Path(env), Field: "functions"}
+		return *new(code__ApiView), ergo__WireMissingField{Path: (r).Path(env), Field: "functions"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeReached(env *Env, w Writer, v code__Reached) {
+func ergo__EncodeReached(env *ergo__Env, w ergo__Writer, v code__Reached) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "function")
 	w.String(env.task, string(v.Function))
@@ -23127,7 +23127,7 @@ func ergo__EncodeReached(env *Env, w Writer, v code__Reached) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_23(env *Env, w Writer, v []code__Reached) {
+func ergo__EncodeSlice_23(env *ergo__Env, w ergo__Writer, v []code__Reached) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeReached(env, w, e)
@@ -23135,7 +23135,7 @@ func ergo__EncodeSlice_23(env *Env, w Writer, v []code__Reached) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeReachPage(env *Env, w Writer, v code__ReachPage) {
+func ergo__EncodeReachPage(env *ergo__Env, w ergo__Writer, v code__ReachPage) {
 	w.BeginObject(env.task, 8)
 	w.Key(env.task, "revision")
 	w.String(env.task, string(v.Revision))
@@ -23156,7 +23156,7 @@ func ergo__EncodeReachPage(env *Env, w Writer, v code__ReachPage) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeReached(env *Env, r Reader) (code__Reached, error) {
+func ergo__DecodeReached(env *ergo__Env, r ergo__Reader) (code__Reached, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Reached), err
 	}
@@ -23185,15 +23185,15 @@ func ergo__DecodeReached(env *Env, r Reader) (code__Reached, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Reached), WireMissingField{Path: r.Path(env.task), Field: "function"}
+		return *new(code__Reached), ergo__WireMissingField{Path: r.Path(env.task), Field: "function"}
 	}
 	if !seen_1 {
-		return *new(code__Reached), WireMissingField{Path: r.Path(env.task), Field: "chain"}
+		return *new(code__Reached), ergo__WireMissingField{Path: r.Path(env.task), Field: "chain"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_23(env *Env, r Reader) ([]code__Reached, error) {
+func ergo__DecodeSlice_23(env *ergo__Env, r ergo__Reader) ([]code__Reached, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]code__Reached), err
 	}
@@ -23209,7 +23209,7 @@ func ergo__DecodeSlice_23(env *Env, r Reader) ([]code__Reached, error) {
 	return out, nil
 }
 
-func ergo__DecodeReachPage(env *Env, r Reader) (code__ReachPage, error) {
+func ergo__DecodeReachPage(env *ergo__Env, r ergo__Reader) (code__ReachPage, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__ReachPage), err
 	}
@@ -23285,33 +23285,33 @@ func ergo__DecodeReachPage(env *Env, r Reader) (code__ReachPage, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "revision"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "complete"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "of"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "of"}
 	}
 	if !seen_3 {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_4 {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "reached"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "reached"}
 	}
 	if !seen_5 {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "discharges"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "discharges"}
 	}
 	if !seen_6 {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "total"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "total"}
 	}
 	if !seen_7 {
-		return *new(code__ReachPage), WireMissingField{Path: r.Path(env.task), Field: "next"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: r.Path(env.task), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__WriteReached(env *Env, wv json__text, v code__Reached) json__text {
+func ergo__WriteReached(env *ergo__Env, wv json__text, v code__Reached) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"function\":"))
@@ -23324,7 +23324,7 @@ func ergo__WriteReached(env *Env, wv json__text, v code__Reached) json__text {
 	return wv
 }
 
-func ergo__WriteSlice_23(env *Env, wv json__text, v []code__Reached) json__text {
+func ergo__WriteSlice_23(env *ergo__Env, wv json__text, v []code__Reached) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -23338,7 +23338,7 @@ func ergo__WriteSlice_23(env *Env, wv json__text, v []code__Reached) json__text 
 	return wv
 }
 
-func ergo__WriteSlice_entry_23(env *Env, wv json__text, v []code__Reached) json__text {
+func ergo__WriteSlice_entry_23(env *ergo__Env, wv json__text, v []code__Reached) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -23351,7 +23351,7 @@ func ergo__WriteSlice_entry_23(env *Env, wv json__text, v []code__Reached) json_
 	return wv
 }
 
-func ergo__WriteReachPage(env *Env, wv json__text, v code__ReachPage) json__text {
+func ergo__WriteReachPage(env *ergo__Env, wv json__text, v code__ReachPage) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"revision\":"))
@@ -23379,7 +23379,7 @@ func ergo__WriteReachPage(env *Env, wv json__text, v code__ReachPage) json__text
 	return wv
 }
 
-func ergo__ReadReached(env *Env, r http__queryReader) (code__Reached, error) {
+func ergo__ReadReached(env *ergo__Env, r http__queryReader) (code__Reached, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Reached), err
 	}
@@ -23408,15 +23408,15 @@ func ergo__ReadReached(env *Env, r http__queryReader) (code__Reached, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Reached), WireMissingField{Path: (r).Path(env), Field: "function"}
+		return *new(code__Reached), ergo__WireMissingField{Path: (r).Path(env), Field: "function"}
 	}
 	if !seen_1 {
-		return *new(code__Reached), WireMissingField{Path: (r).Path(env), Field: "chain"}
+		return *new(code__Reached), ergo__WireMissingField{Path: (r).Path(env), Field: "chain"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_23(env *Env, r http__queryReader) ([]code__Reached, error) {
+func ergo__ReadSlice_23(env *ergo__Env, r http__queryReader) ([]code__Reached, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Reached), err
 	}
@@ -23432,7 +23432,7 @@ func ergo__ReadSlice_23(env *Env, r http__queryReader) ([]code__Reached, error) 
 	return out, nil
 }
 
-func ergo__ReadReachPage(env *Env, r http__queryReader) (code__ReachPage, error) {
+func ergo__ReadReachPage(env *ergo__Env, r http__queryReader) (code__ReachPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ReachPage), err
 	}
@@ -23508,33 +23508,33 @@ func ergo__ReadReachPage(env *Env, r http__queryReader) (code__ReachPage, error)
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_3 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_4 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "reached"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "reached"}
 	}
 	if !seen_5 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "discharges"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "discharges"}
 	}
 	if !seen_6 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_7 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadReached_1(env *Env, r json__Reader_1) (code__Reached, error) {
+func ergo__ReadReached_1(env *ergo__Env, r json__Reader_1) (code__Reached, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Reached), err
 	}
@@ -23563,15 +23563,15 @@ func ergo__ReadReached_1(env *Env, r json__Reader_1) (code__Reached, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Reached), WireMissingField{Path: (r).Path(env), Field: "function"}
+		return *new(code__Reached), ergo__WireMissingField{Path: (r).Path(env), Field: "function"}
 	}
 	if !seen_1 {
-		return *new(code__Reached), WireMissingField{Path: (r).Path(env), Field: "chain"}
+		return *new(code__Reached), ergo__WireMissingField{Path: (r).Path(env), Field: "chain"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_58(env *Env, r json__Reader_1) ([]code__Reached, error) {
+func ergo__ReadSlice_58(env *ergo__Env, r json__Reader_1) ([]code__Reached, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Reached), err
 	}
@@ -23587,7 +23587,7 @@ func ergo__ReadSlice_58(env *Env, r json__Reader_1) ([]code__Reached, error) {
 	return out, nil
 }
 
-func ergo__ReadReachPage_1(env *Env, r json__Reader_1) (code__ReachPage, error) {
+func ergo__ReadReachPage_1(env *ergo__Env, r json__Reader_1) (code__ReachPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ReachPage), err
 	}
@@ -23663,33 +23663,33 @@ func ergo__ReadReachPage_1(env *Env, r json__Reader_1) (code__ReachPage, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_3 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_4 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "reached"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "reached"}
 	}
 	if !seen_5 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "discharges"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "discharges"}
 	}
 	if !seen_6 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_7 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__ReadReached_2(env *Env, r json__Stream) (code__Reached, error) {
+func ergo__ReadReached_2(env *ergo__Env, r json__Stream) (code__Reached, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Reached), err
 	}
@@ -23718,15 +23718,15 @@ func ergo__ReadReached_2(env *Env, r json__Stream) (code__Reached, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Reached), WireMissingField{Path: (r).Path(env), Field: "function"}
+		return *new(code__Reached), ergo__WireMissingField{Path: (r).Path(env), Field: "function"}
 	}
 	if !seen_1 {
-		return *new(code__Reached), WireMissingField{Path: (r).Path(env), Field: "chain"}
+		return *new(code__Reached), ergo__WireMissingField{Path: (r).Path(env), Field: "chain"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_93(env *Env, r json__Stream) ([]code__Reached, error) {
+func ergo__ReadSlice_93(env *ergo__Env, r json__Stream) ([]code__Reached, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]code__Reached), err
 	}
@@ -23742,7 +23742,7 @@ func ergo__ReadSlice_93(env *Env, r json__Stream) ([]code__Reached, error) {
 	return out, nil
 }
 
-func ergo__ReadReachPage_2(env *Env, r json__Stream) (code__ReachPage, error) {
+func ergo__ReadReachPage_2(env *ergo__Env, r json__Stream) (code__ReachPage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__ReachPage), err
 	}
@@ -23818,40 +23818,40 @@ func ergo__ReadReachPage_2(env *Env, r json__Stream) (code__ReachPage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "revision"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "revision"}
 	}
 	if !seen_1 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "complete"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "complete"}
 	}
 	if !seen_2 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "of"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "of"}
 	}
 	if !seen_3 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_4 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "reached"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "reached"}
 	}
 	if !seen_5 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "discharges"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "discharges"}
 	}
 	if !seen_6 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "total"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "total"}
 	}
 	if !seen_7 {
-		return *new(code__ReachPage), WireMissingField{Path: (r).Path(env), Field: "next"}
+		return *new(code__ReachPage), ergo__WireMissingField{Path: (r).Path(env), Field: "next"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeNoSymbol(env *Env, w Writer, v code__NoSymbol) {
+func ergo__EncodeNoSymbol(env *ergo__Env, w ergo__Writer, v code__NoSymbol) {
 	w.BeginObject(env.task, 1)
 	w.Key(env.task, "address")
 	w.String(env.task, string(v.Address))
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeNoSymbol(env *Env, r Reader) (code__NoSymbol, error) {
+func ergo__DecodeNoSymbol(env *ergo__Env, r ergo__Reader) (code__NoSymbol, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__NoSymbol), err
 	}
@@ -23873,12 +23873,12 @@ func ergo__DecodeNoSymbol(env *Env, r Reader) (code__NoSymbol, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__NoSymbol), WireMissingField{Path: r.Path(env.task), Field: "address"}
+		return *new(code__NoSymbol), ergo__WireMissingField{Path: r.Path(env.task), Field: "address"}
 	}
 	return out, nil
 }
 
-func ergo__WriteNoSymbol(env *Env, wv json__text, v code__NoSymbol) json__text {
+func ergo__WriteNoSymbol(env *ergo__Env, wv json__text, v code__NoSymbol) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"address\":"))
@@ -23888,7 +23888,7 @@ func ergo__WriteNoSymbol(env *Env, wv json__text, v code__NoSymbol) json__text {
 	return wv
 }
 
-func ergo__ReadNoSymbol(env *Env, r http__queryReader) (code__NoSymbol, error) {
+func ergo__ReadNoSymbol(env *ergo__Env, r http__queryReader) (code__NoSymbol, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NoSymbol), err
 	}
@@ -23910,12 +23910,12 @@ func ergo__ReadNoSymbol(env *Env, r http__queryReader) (code__NoSymbol, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NoSymbol), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NoSymbol), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNoSymbol_1(env *Env, r json__Reader_1) (code__NoSymbol, error) {
+func ergo__ReadNoSymbol_1(env *ergo__Env, r json__Reader_1) (code__NoSymbol, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NoSymbol), err
 	}
@@ -23937,12 +23937,12 @@ func ergo__ReadNoSymbol_1(env *Env, r json__Reader_1) (code__NoSymbol, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NoSymbol), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NoSymbol), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNoSymbol_2(env *Env, r json__Stream) (code__NoSymbol, error) {
+func ergo__ReadNoSymbol_2(env *ergo__Env, r json__Stream) (code__NoSymbol, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NoSymbol), err
 	}
@@ -23964,12 +23964,12 @@ func ergo__ReadNoSymbol_2(env *Env, r json__Stream) (code__NoSymbol, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NoSymbol), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NoSymbol), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeAmbiguous(env *Env, w Writer, v code__Ambiguous) {
+func ergo__EncodeAmbiguous(env *ergo__Env, w ergo__Writer, v code__Ambiguous) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "address")
 	w.String(env.task, string(v.Address))
@@ -23978,7 +23978,7 @@ func ergo__EncodeAmbiguous(env *Env, w Writer, v code__Ambiguous) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeAmbiguous(env *Env, r Reader) (code__Ambiguous, error) {
+func ergo__DecodeAmbiguous(env *ergo__Env, r ergo__Reader) (code__Ambiguous, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__Ambiguous), err
 	}
@@ -24007,15 +24007,15 @@ func ergo__DecodeAmbiguous(env *Env, r Reader) (code__Ambiguous, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__Ambiguous), WireMissingField{Path: r.Path(env.task), Field: "address"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: r.Path(env.task), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__Ambiguous), WireMissingField{Path: r.Path(env.task), Field: "candidates"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: r.Path(env.task), Field: "candidates"}
 	}
 	return out, nil
 }
 
-func ergo__WriteAmbiguous(env *Env, wv json__text, v code__Ambiguous) json__text {
+func ergo__WriteAmbiguous(env *ergo__Env, wv json__text, v code__Ambiguous) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"address\":"))
@@ -24028,7 +24028,7 @@ func ergo__WriteAmbiguous(env *Env, wv json__text, v code__Ambiguous) json__text
 	return wv
 }
 
-func ergo__ReadAmbiguous(env *Env, r http__queryReader) (code__Ambiguous, error) {
+func ergo__ReadAmbiguous(env *ergo__Env, r http__queryReader) (code__Ambiguous, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Ambiguous), err
 	}
@@ -24057,15 +24057,15 @@ func ergo__ReadAmbiguous(env *Env, r http__queryReader) (code__Ambiguous, error)
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Ambiguous), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__Ambiguous), WireMissingField{Path: (r).Path(env), Field: "candidates"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: (r).Path(env), Field: "candidates"}
 	}
 	return out, nil
 }
 
-func ergo__ReadAmbiguous_1(env *Env, r json__Reader_1) (code__Ambiguous, error) {
+func ergo__ReadAmbiguous_1(env *ergo__Env, r json__Reader_1) (code__Ambiguous, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Ambiguous), err
 	}
@@ -24094,15 +24094,15 @@ func ergo__ReadAmbiguous_1(env *Env, r json__Reader_1) (code__Ambiguous, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Ambiguous), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__Ambiguous), WireMissingField{Path: (r).Path(env), Field: "candidates"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: (r).Path(env), Field: "candidates"}
 	}
 	return out, nil
 }
 
-func ergo__ReadAmbiguous_2(env *Env, r json__Stream) (code__Ambiguous, error) {
+func ergo__ReadAmbiguous_2(env *ergo__Env, r json__Stream) (code__Ambiguous, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__Ambiguous), err
 	}
@@ -24131,15 +24131,15 @@ func ergo__ReadAmbiguous_2(env *Env, r json__Stream) (code__Ambiguous, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__Ambiguous), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__Ambiguous), WireMissingField{Path: (r).Path(env), Field: "candidates"}
+		return *new(code__Ambiguous), ergo__WireMissingField{Path: (r).Path(env), Field: "candidates"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeNotCallable(env *Env, w Writer, v code__NotCallable) {
+func ergo__EncodeNotCallable(env *ergo__Env, w ergo__Writer, v code__NotCallable) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "address")
 	w.String(env.task, string(v.Address))
@@ -24148,7 +24148,7 @@ func ergo__EncodeNotCallable(env *Env, w Writer, v code__NotCallable) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeNotCallable(env *Env, r Reader) (code__NotCallable, error) {
+func ergo__DecodeNotCallable(env *ergo__Env, r ergo__Reader) (code__NotCallable, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__NotCallable), err
 	}
@@ -24178,15 +24178,15 @@ func ergo__DecodeNotCallable(env *Env, r Reader) (code__NotCallable, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__NotCallable), WireMissingField{Path: r.Path(env.task), Field: "address"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: r.Path(env.task), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotCallable), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	return out, nil
 }
 
-func ergo__WriteNotCallable(env *Env, wv json__text, v code__NotCallable) json__text {
+func ergo__WriteNotCallable(env *ergo__Env, wv json__text, v code__NotCallable) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"address\":"))
@@ -24198,7 +24198,7 @@ func ergo__WriteNotCallable(env *Env, wv json__text, v code__NotCallable) json__
 	return wv
 }
 
-func ergo__ReadNotCallable(env *Env, r http__queryReader) (code__NotCallable, error) {
+func ergo__ReadNotCallable(env *ergo__Env, r http__queryReader) (code__NotCallable, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NotCallable), err
 	}
@@ -24228,15 +24228,15 @@ func ergo__ReadNotCallable(env *Env, r http__queryReader) (code__NotCallable, er
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NotCallable), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotCallable), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNotCallable_1(env *Env, r json__Reader_1) (code__NotCallable, error) {
+func ergo__ReadNotCallable_1(env *ergo__Env, r json__Reader_1) (code__NotCallable, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NotCallable), err
 	}
@@ -24266,15 +24266,15 @@ func ergo__ReadNotCallable_1(env *Env, r json__Reader_1) (code__NotCallable, err
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NotCallable), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotCallable), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNotCallable_2(env *Env, r json__Stream) (code__NotCallable, error) {
+func ergo__ReadNotCallable_2(env *ergo__Env, r json__Stream) (code__NotCallable, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NotCallable), err
 	}
@@ -24304,22 +24304,22 @@ func ergo__ReadNotCallable_2(env *Env, r json__Stream) (code__NotCallable, error
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NotCallable), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotCallable), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__NotCallable), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeNoPackage(env *Env, w Writer, v code__NoPackage) {
+func ergo__EncodeNoPackage(env *ergo__Env, w ergo__Writer, v code__NoPackage) {
 	w.BeginObject(env.task, 1)
 	w.Key(env.task, "package")
 	w.String(env.task, string(v.Package))
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeNoPackage(env *Env, r Reader) (code__NoPackage, error) {
+func ergo__DecodeNoPackage(env *ergo__Env, r ergo__Reader) (code__NoPackage, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__NoPackage), err
 	}
@@ -24341,12 +24341,12 @@ func ergo__DecodeNoPackage(env *Env, r Reader) (code__NoPackage, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__NoPackage), WireMissingField{Path: r.Path(env.task), Field: "package"}
+		return *new(code__NoPackage), ergo__WireMissingField{Path: r.Path(env.task), Field: "package"}
 	}
 	return out, nil
 }
 
-func ergo__WriteNoPackage(env *Env, wv json__text, v code__NoPackage) json__text {
+func ergo__WriteNoPackage(env *ergo__Env, wv json__text, v code__NoPackage) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"package\":"))
@@ -24356,7 +24356,7 @@ func ergo__WriteNoPackage(env *Env, wv json__text, v code__NoPackage) json__text
 	return wv
 }
 
-func ergo__ReadNoPackage(env *Env, r http__queryReader) (code__NoPackage, error) {
+func ergo__ReadNoPackage(env *ergo__Env, r http__queryReader) (code__NoPackage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NoPackage), err
 	}
@@ -24378,12 +24378,12 @@ func ergo__ReadNoPackage(env *Env, r http__queryReader) (code__NoPackage, error)
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NoPackage), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__NoPackage), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNoPackage_1(env *Env, r json__Reader_1) (code__NoPackage, error) {
+func ergo__ReadNoPackage_1(env *ergo__Env, r json__Reader_1) (code__NoPackage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NoPackage), err
 	}
@@ -24405,12 +24405,12 @@ func ergo__ReadNoPackage_1(env *Env, r json__Reader_1) (code__NoPackage, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NoPackage), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__NoPackage), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNoPackage_2(env *Env, r json__Stream) (code__NoPackage, error) {
+func ergo__ReadNoPackage_2(env *ergo__Env, r json__Stream) (code__NoPackage, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NoPackage), err
 	}
@@ -24432,12 +24432,12 @@ func ergo__ReadNoPackage_2(env *Env, r json__Stream) (code__NoPackage, error) {
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NoPackage), WireMissingField{Path: (r).Path(env), Field: "package"}
+		return *new(code__NoPackage), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	return out, nil
 }
 
-func ergo__EncodeNotMachine(env *Env, w Writer, v code__NotMachine) {
+func ergo__EncodeNotMachine(env *ergo__Env, w ergo__Writer, v code__NotMachine) {
 	w.BeginObject(env.task, 2)
 	w.Key(env.task, "address")
 	w.String(env.task, string(v.Address))
@@ -24446,7 +24446,7 @@ func ergo__EncodeNotMachine(env *Env, w Writer, v code__NotMachine) {
 	w.EndObject(env.task)
 }
 
-func ergo__DecodeNotMachine(env *Env, r Reader) (code__NotMachine, error) {
+func ergo__DecodeNotMachine(env *ergo__Env, r ergo__Reader) (code__NotMachine, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(code__NotMachine), err
 	}
@@ -24476,15 +24476,15 @@ func ergo__DecodeNotMachine(env *Env, r Reader) (code__NotMachine, error) {
 	}
 	r.End(env.task)
 	if !seen {
-		return *new(code__NotMachine), WireMissingField{Path: r.Path(env.task), Field: "address"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: r.Path(env.task), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotMachine), WireMissingField{Path: r.Path(env.task), Field: "kind"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	return out, nil
 }
 
-func ergo__WriteNotMachine(env *Env, wv json__text, v code__NotMachine) json__text {
+func ergo__WriteNotMachine(env *ergo__Env, wv json__text, v code__NotMachine) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"address\":"))
@@ -24496,7 +24496,7 @@ func ergo__WriteNotMachine(env *Env, wv json__text, v code__NotMachine) json__te
 	return wv
 }
 
-func ergo__ReadNotMachine(env *Env, r http__queryReader) (code__NotMachine, error) {
+func ergo__ReadNotMachine(env *ergo__Env, r http__queryReader) (code__NotMachine, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NotMachine), err
 	}
@@ -24526,15 +24526,15 @@ func ergo__ReadNotMachine(env *Env, r http__queryReader) (code__NotMachine, erro
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NotMachine), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotMachine), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNotMachine_1(env *Env, r json__Reader_1) (code__NotMachine, error) {
+func ergo__ReadNotMachine_1(env *ergo__Env, r json__Reader_1) (code__NotMachine, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NotMachine), err
 	}
@@ -24564,15 +24564,15 @@ func ergo__ReadNotMachine_1(env *Env, r json__Reader_1) (code__NotMachine, error
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NotMachine), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotMachine), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	return out, nil
 }
 
-func ergo__ReadNotMachine_2(env *Env, r json__Stream) (code__NotMachine, error) {
+func ergo__ReadNotMachine_2(env *ergo__Env, r json__Stream) (code__NotMachine, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(code__NotMachine), err
 	}
@@ -24602,50 +24602,50 @@ func ergo__ReadNotMachine_2(env *Env, r json__Stream) (code__NotMachine, error) 
 	}
 	(r).End(env)
 	if !seen {
-		return *new(code__NotMachine), WireMissingField{Path: (r).Path(env), Field: "address"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: (r).Path(env), Field: "address"}
 	}
 	if !seen_1 {
-		return *new(code__NotMachine), WireMissingField{Path: (r).Path(env), Field: "kind"}
+		return *new(code__NotMachine), ergo__WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	return out, nil
 }
 
-type Seq[T any] func(*Env, func(*Env, T) (bool, error)) (struct{}, error)
+type ergo__Seq[T any] func(*ergo__Env, func(*ergo__Env, T) (bool, error)) (struct{}, error)
 
-func slices__Collect[T any](env *Env, s Seq[T]) []T {
+func slices__Collect[T any](env *ergo__Env, s ergo__Seq[T]) []T {
 	env.task.Check()
 	var out []T = []T{}
 	t := s
 	for v := range func(yield func(T) bool) {
-		_, _ = t(env, func(_ *Env, v T) (bool, error) {
+		_, _ = t(env, func(_ *ergo__Env, v T) (bool, error) {
 			return yield(v), nil
 		})
 	} {
 		var v_1 T = v
-		out = Append[T](out, v_1)
+		out = ergo__Append[T](out, v_1)
 		env.task.Check()
 	}
 	return out
 }
 
-func slices__CollectMono_i398550328(env *Env, s Seq[string]) []string {
+func slices__CollectMono_i398550328(env *ergo__Env, s ergo__Seq[string]) []string {
 	env.task.Check()
 	var out []string = []string{}
 	t := s
 	for v := range func(yield func(string) bool) {
-		_, _ = t(env, func(_ *Env, v string) (bool, error) {
+		_, _ = t(env, func(_ *ergo__Env, v string) (bool, error) {
 			return yield(v), nil
 		})
 	} {
 		var v_1 string = v
-		out = Append[string](out, v_1)
+		out = ergo__Append[string](out, v_1)
 		env.task.Check()
 	}
 	return out
 }
 
 type io__Source interface {
-	Read(*rt.Task) (Option[string], error)
+	Read(*rt.Task) (ergo__Option[string], error)
 }
 
 func json__space(c_1 uint8) bool {
@@ -24673,7 +24673,7 @@ func (s *json__scan) needMore(n int) bool {
 	return true
 }
 
-func (s *json__scan) value(env *Env) json__tok {
+func (s *json__scan) value(env *ergo__Env) json__tok {
 	var v bool
 	{
 		var n int = int(1)
@@ -24706,7 +24706,7 @@ inl:
 		if s.nc < len(s.ctx) {
 			s.ctx[s.nc] = (c_1 == uint8(91))
 		} else {
-			s.ctx = Append[bool](s.ctx, (c_1 == uint8(91)))
+			s.ctx = ergo__Append[bool](s.ctx, (c_1 == uint8(91)))
 		}
 		s.nc = (s.nc + int(1))
 		s.state = json__sFirst
@@ -24888,7 +24888,7 @@ func ergo__json__tabunhexFill(i int, a0 uint8) int {
 	return v
 }
 
-func (s *json__scan) str(env *Env) json__tok {
+func (s *json__scan) str(env *ergo__Env) json__tok {
 	s.i = (s.i + int(1))
 	s.mark = s.i
 	for {
@@ -24981,7 +24981,7 @@ func (s *json__scan) str(env *Env) json__tok {
 				(t_5).fail(v_14, "a short \\u escape")
 				return json__badTok
 			}
-			t_6 := (Range[int]{Start: int(1), End: int(5)})
+			t_6 := (ergo__Range[int]{Start: int(1), End: int(5)})
 			for i := t_6.Start; i < t_6.End; i++ {
 				var k int = i
 				a := s.buf[(s.i + k)]
@@ -25086,7 +25086,7 @@ func json__plainRun(b string, j int) int {
 	return k
 }
 
-func (report code__Report) extentAt(env *Env, a string) (code__Extent, error) {
+func (report code__Report) extentAt(env *ergo__Env, a string) (code__Extent, error) {
 	v, err := (report).declOf(env, a)
 	if err != nil {
 		return *new(code__Extent), err
@@ -25101,7 +25101,7 @@ func (report code__Report) extentAt(env *Env, a string) (code__Extent, error) {
 	return *new(code__Extent), code__BadChange{Reason: (v.Handle + " has no extent the check gave")}
 }
 
-func code__formatWith(env *Env, checker code__Checker, text_1 string) (string, error) {
+func code__formatWith(env *ergo__Env, checker code__Checker, text_1 string) (string, error) {
 	env.task.Check()
 	v, err := (checker).Format(env.task, text_1)
 	if err != nil {
@@ -25117,7 +25117,7 @@ func code__formatWith(env *Env, checker code__Checker, text_1 string) (string, e
 	return v, nil
 }
 
-func code__edited(env *Env, sources []code__Source, edits []code__Edit) ([]code__Source, error) {
+func code__edited(env *ergo__Env, sources []code__Source, edits []code__Edit) ([]code__Source, error) {
 	env.task.Check()
 	var out []code__Source = []code__Source{}
 	var done int = int(0)
@@ -25128,13 +25128,13 @@ func code__edited(env *Env, sources []code__Source, edits []code__Edit) ([]code_
 			for _, v_1 := range edits {
 				var e code__Edit = v_1
 				if e.File == s.File {
-					mine = Append[code__Edit](mine, e)
+					mine = ergo__Append[code__Edit](mine, e)
 				}
 				env.task.Check()
 			}
 			done = (done + len(mine))
 			if len(mine) == int(0) {
-				out = Append[code__Source](out, s)
+				out = ergo__Append[code__Source](out, s)
 				goto next
 			}
 			var unique []code__Edit = []code__Edit{}
@@ -25142,17 +25142,17 @@ func code__edited(env *Env, sources []code__Source, edits []code__Edit) ([]code_
 				var e_1 code__Edit = v_4
 				v_5 := slices__ContainsMono_i1133397926(unique, e_1)
 				if !v_5 {
-					unique = Append[code__Edit](unique, e_1)
+					unique = ergo__Append[code__Edit](unique, e_1)
 				}
 				env.task.Check()
 			}
 			v_7 := ergo.SlicesSortStableFunc[code__Edit](unique, func(p code__Edit, p_1 code__Edit) int {
-				r, _ := func(env_1 *Env, a code__Edit, b code__Edit) (int, error) {
+				r, _ := func(env_1 *ergo__Env, a code__Edit, b code__Edit) (int, error) {
 					return (a.Start - b.Start), nil
 				}(env, p, p_1)
 				return r
 			})
-			t := (Range[int]{Start: int(1), End: len(v_7)})
+			t := (ergo__Range[int]{Start: int(1), End: len(v_7)})
 			for i := t.Start; i < t.End; i++ {
 				var i_1 int = i
 				var a_1 code__Edit = v_7[(i_1 - int(1))]
@@ -25177,7 +25177,7 @@ func code__edited(env *Env, sources []code__Source, edits []code__Edit) ([]code_
 				k = (k - int(1))
 				env.task.Check()
 			}
-			out = Append[code__Source](out, code__Source{File: s.File, Text: text_1})
+			out = ergo__Append[code__Source](out, code__Source{File: s.File, Text: text_1})
 		}
 	next:
 		env.task.Check()
@@ -25240,7 +25240,7 @@ func code__revisionOf(sources []code__Source) string {
 	return v_1
 }
 
-func code__renamed(env *Env, sources []code__Source, base code__Report, r code__Rename, checker code__Checker) ([]code__Source, error) {
+func code__renamed(env *ergo__Env, sources []code__Source, base code__Report, r code__Rename, checker code__Checker) ([]code__Source, error) {
 	env.task.Check()
 	v, err := (base).declOf(env, r.Of)
 	if err != nil {
@@ -25296,7 +25296,7 @@ func code__renamed(env *Env, sources []code__Source, base code__Report, r code__
 		if v_8 != m_1.Handle {
 			v_15, ok := v_3[v_8]
 			if ok {
-				x := Some[code__Decl]{Value: v_15}
+				x := ergo__Some[code__Decl]{Value: v_15}
 				return *new([]code__Source), code__NameTaken{Handle: m_1.Handle, To: r.To, By: x.Value.Handle}
 			} else {
 			}
@@ -25330,7 +25330,7 @@ func code__renamed(env *Env, sources []code__Source, base code__Report, r code__
 				if b {
 					return *new([]code__Source), code__BadChange{Reason: ("the site " + s.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Line), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Column), 10)) + " does not hold " + v.Name)}
 				}
-				edits = Append[code__Edit](edits, code__Edit{File: s.File, Start: v_20, End: (v_20 + len(v.Name)), Text: r.To})
+				edits = ergo__Append[code__Edit](edits, code__Edit{File: s.File, Start: v_20, End: (v_20 + len(v.Name)), Text: r.To})
 				var key string = (s.File + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(s.Line), 10)))
 				t := shifts
 				t_1 := key
@@ -25340,7 +25340,7 @@ func code__renamed(env *Env, sources []code__Source, base code__Report, r code__
 					var def []int = []int{}
 					v_25, ok_2 := m_2[key]
 					if ok_2 {
-						v_26 := Some[[]int]{Value: v_25}
+						v_26 := ergo__Some[[]int]{Value: v_25}
 						v_24 = v_26.Value
 						goto inl_2
 					} else {
@@ -25350,7 +25350,7 @@ func code__renamed(env *Env, sources []code__Source, base code__Report, r code__
 				}
 			inl_2:
 				_ = 0
-				v_27 := Append[int](slices.Clip(slices.Clone(v_24)), s.Column)
+				v_27 := ergo__Append[int](slices.Clip(slices.Clone(v_24)), s.Column)
 				t[t_1] = v_27
 			} else {
 			}
@@ -25386,7 +25386,7 @@ func (t code__Tables) contractsIn(path string) []code__Contract {
 	return []code__Contract{}
 }
 
-func (h fs__Host) at(env *Env, path string) (string, error) {
+func (h fs__Host) at(env *ergo__Env, path string) (string, error) {
 	env.task.Check()
 	if h.root == "" {
 		return path, nil
@@ -25409,7 +25409,7 @@ func strings__LastIndex(s string, sub string) int {
 	return r
 }
 
-func (h fs__Host) MkdirAll(env *Env, path string) error {
+func (h fs__Host) MkdirAll(env *ergo__Env, path string) error {
 	env.task.Check()
 	v, err := (h).at(env, path)
 	if err != nil {
@@ -25467,7 +25467,7 @@ func ergo__fs__tabBitsFill(i int, a0 fs__Access) int {
 	return v
 }
 
-func (h fs__Host) Chmod(env *Env, path string, mode fs__Mode) error {
+func (h fs__Host) Chmod(env *ergo__Env, path string, mode fs__Mode) error {
 	env.task.Check()
 	v, err := (h).at(env, path)
 	if err != nil {
@@ -25521,7 +25521,7 @@ func ergo__textcode__NotMachine(v code__NotMachine) string {
 	return "{" + "Address:" + v.Address + " Kind:" + v.Kind + "}"
 }
 
-func slices__IndexFunc[T any](env *Env, xs []T, f func(*Env, T) (bool, error)) (int, error) {
+func slices__IndexFunc[T any](env *ergo__Env, xs []T, f func(*ergo__Env, T) (bool, error)) (int, error) {
 	env.task.Check()
 	for k, v := range xs {
 		var i int = k
@@ -25538,7 +25538,7 @@ func slices__IndexFunc[T any](env *Env, xs []T, f func(*Env, T) (bool, error)) (
 	return int(-1), nil
 }
 
-func slices__IndexFuncMono_i4054113065(env *Env, xs []code__Alt, f func(*Env, code__Alt) (bool, error)) (int, error) {
+func slices__IndexFuncMono_i4054113065(env *ergo__Env, xs []code__Alt, f func(*ergo__Env, code__Alt) (bool, error)) (int, error) {
 	env.task.Check()
 	for k, v := range xs {
 		var i int = k
@@ -25668,20 +25668,20 @@ func (e flag__UnknownCommand) Error() string {
 
 type flag__Failure = error
 
-func rpc__Encode[T any](env *Env, wT struct {
-	Enc     func(*Env, Writer, T) (struct{}, error)
-	Dec     func(*Env, Reader) (T, error)
-	Direct0 func(*Env, json__text, T) json__text
-	Read0   func(*Env, http__queryReader) (T, error)
-	Read1   func(*Env, json__Reader_1) (T, error)
-	Read2   func(*Env, json__Stream) (T, error)
+func rpc__Encode[T any](env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (T, error)
+	Direct0 func(*ergo__Env, json__text, T) json__text
+	Read0   func(*ergo__Env, http__queryReader) (T, error)
+	Read1   func(*ergo__Env, json__Reader_1) (T, error)
+	Read2   func(*ergo__Env, json__Stream) (T, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, T) (struct{}, error)
-		Dec     func(*Env, Reader) (T, error)
-		Direct0 func(*Env, json__text, T) json__text
-		Read0   func(*Env, http__queryReader) (T, error)
-		Read1   func(*Env, json__Reader_1) (T, error)
-		Read2   func(*Env, json__Stream) (T, error)
+		Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (T, error)
+		Direct0 func(*ergo__Env, json__text, T) json__text
+		Read0   func(*ergo__Env, http__queryReader) (T, error)
+		Read1   func(*ergo__Env, json__Reader_1) (T, error)
+		Read2   func(*ergo__Env, json__Stream) (T, error)
 		Absent  func(T) bool
 		Empty   T
 	}
@@ -25691,20 +25691,20 @@ func rpc__Encode[T any](env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i3933687382(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Summary) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Summary, error)
-	Direct0 func(*Env, json__text, code__Summary) json__text
-	Read0   func(*Env, http__queryReader) (code__Summary, error)
-	Read1   func(*Env, json__Reader_1) (code__Summary, error)
-	Read2   func(*Env, json__Stream) (code__Summary, error)
+func rpc__EncodeMono_i3933687382(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Summary) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Summary, error)
+	Direct0 func(*ergo__Env, json__text, code__Summary) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Summary, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Summary, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Summary, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Summary) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Summary, error)
-		Direct0 func(*Env, json__text, code__Summary) json__text
-		Read0   func(*Env, http__queryReader) (code__Summary, error)
-		Read1   func(*Env, json__Reader_1) (code__Summary, error)
-		Read2   func(*Env, json__Stream) (code__Summary, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Summary) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Summary, error)
+		Direct0 func(*ergo__Env, json__text, code__Summary) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Summary, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Summary, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Summary, error)
 		Absent  func(code__Summary) bool
 		Empty   code__Summary
 	}
@@ -25714,20 +25714,20 @@ func rpc__EncodeMono_i3933687382(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i4203489249(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__SymbolPage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__SymbolPage, error)
-	Direct0 func(*Env, json__text, code__SymbolPage) json__text
-	Read0   func(*Env, http__queryReader) (code__SymbolPage, error)
-	Read1   func(*Env, json__Reader_1) (code__SymbolPage, error)
-	Read2   func(*Env, json__Stream) (code__SymbolPage, error)
+func rpc__EncodeMono_i4203489249(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__SymbolPage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__SymbolPage, error)
+	Direct0 func(*ergo__Env, json__text, code__SymbolPage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__SymbolPage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__SymbolPage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__SymbolPage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__SymbolPage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__SymbolPage, error)
-		Direct0 func(*Env, json__text, code__SymbolPage) json__text
-		Read0   func(*Env, http__queryReader) (code__SymbolPage, error)
-		Read1   func(*Env, json__Reader_1) (code__SymbolPage, error)
-		Read2   func(*Env, json__Stream) (code__SymbolPage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__SymbolPage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__SymbolPage, error)
+		Direct0 func(*ergo__Env, json__text, code__SymbolPage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__SymbolPage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__SymbolPage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__SymbolPage, error)
 		Absent  func(code__SymbolPage) bool
 		Empty   code__SymbolPage
 	}
@@ -25737,20 +25737,20 @@ func rpc__EncodeMono_i4203489249(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i1952133442(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Decl) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Decl, error)
-	Direct0 func(*Env, json__text, code__Decl) json__text
-	Read0   func(*Env, http__queryReader) (code__Decl, error)
-	Read1   func(*Env, json__Reader_1) (code__Decl, error)
-	Read2   func(*Env, json__Stream) (code__Decl, error)
+func rpc__EncodeMono_i1952133442(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Decl) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Decl, error)
+	Direct0 func(*ergo__Env, json__text, code__Decl) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Decl, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Decl, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Decl, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Decl) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Decl, error)
-		Direct0 func(*Env, json__text, code__Decl) json__text
-		Read0   func(*Env, http__queryReader) (code__Decl, error)
-		Read1   func(*Env, json__Reader_1) (code__Decl, error)
-		Read2   func(*Env, json__Stream) (code__Decl, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Decl) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Decl, error)
+		Direct0 func(*ergo__Env, json__text, code__Decl) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Decl, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Decl, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Decl, error)
 		Absent  func(code__Decl) bool
 		Empty   code__Decl
 	}
@@ -25760,20 +25760,20 @@ func rpc__EncodeMono_i1952133442(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i1175879322(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__SitePage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__SitePage, error)
-	Direct0 func(*Env, json__text, code__SitePage) json__text
-	Read0   func(*Env, http__queryReader) (code__SitePage, error)
-	Read1   func(*Env, json__Reader_1) (code__SitePage, error)
-	Read2   func(*Env, json__Stream) (code__SitePage, error)
+func rpc__EncodeMono_i1175879322(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__SitePage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__SitePage, error)
+	Direct0 func(*ergo__Env, json__text, code__SitePage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__SitePage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__SitePage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__SitePage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__SitePage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__SitePage, error)
-		Direct0 func(*Env, json__text, code__SitePage) json__text
-		Read0   func(*Env, http__queryReader) (code__SitePage, error)
-		Read1   func(*Env, json__Reader_1) (code__SitePage, error)
-		Read2   func(*Env, json__Stream) (code__SitePage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__SitePage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__SitePage, error)
+		Direct0 func(*ergo__Env, json__text, code__SitePage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__SitePage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__SitePage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__SitePage, error)
 		Absent  func(code__SitePage) bool
 		Empty   code__SitePage
 	}
@@ -25783,20 +25783,20 @@ func rpc__EncodeMono_i1175879322(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i589566837(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__CallPage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__CallPage, error)
-	Direct0 func(*Env, json__text, code__CallPage) json__text
-	Read0   func(*Env, http__queryReader) (code__CallPage, error)
-	Read1   func(*Env, json__Reader_1) (code__CallPage, error)
-	Read2   func(*Env, json__Stream) (code__CallPage, error)
+func rpc__EncodeMono_i589566837(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__CallPage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__CallPage, error)
+	Direct0 func(*ergo__Env, json__text, code__CallPage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__CallPage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__CallPage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__CallPage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__CallPage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__CallPage, error)
-		Direct0 func(*Env, json__text, code__CallPage) json__text
-		Read0   func(*Env, http__queryReader) (code__CallPage, error)
-		Read1   func(*Env, json__Reader_1) (code__CallPage, error)
-		Read2   func(*Env, json__Stream) (code__CallPage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__CallPage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__CallPage, error)
+		Direct0 func(*ergo__Env, json__text, code__CallPage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__CallPage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__CallPage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__CallPage, error)
 		Absent  func(code__CallPage) bool
 		Empty   code__CallPage
 	}
@@ -25806,20 +25806,20 @@ func rpc__EncodeMono_i589566837(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i3093881487(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__ApiView) (struct{}, error)
-	Dec     func(*Env, Reader) (code__ApiView, error)
-	Direct0 func(*Env, json__text, code__ApiView) json__text
-	Read0   func(*Env, http__queryReader) (code__ApiView, error)
-	Read1   func(*Env, json__Reader_1) (code__ApiView, error)
-	Read2   func(*Env, json__Stream) (code__ApiView, error)
+func rpc__EncodeMono_i3093881487(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__ApiView) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__ApiView, error)
+	Direct0 func(*ergo__Env, json__text, code__ApiView) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__ApiView, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__ApiView, error)
+	Read2   func(*ergo__Env, json__Stream) (code__ApiView, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__ApiView) (struct{}, error)
-		Dec     func(*Env, Reader) (code__ApiView, error)
-		Direct0 func(*Env, json__text, code__ApiView) json__text
-		Read0   func(*Env, http__queryReader) (code__ApiView, error)
-		Read1   func(*Env, json__Reader_1) (code__ApiView, error)
-		Read2   func(*Env, json__Stream) (code__ApiView, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__ApiView) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__ApiView, error)
+		Direct0 func(*ergo__Env, json__text, code__ApiView) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__ApiView, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__ApiView, error)
+		Read2   func(*ergo__Env, json__Stream) (code__ApiView, error)
 		Absent  func(code__ApiView) bool
 		Empty   code__ApiView
 	}
@@ -25829,20 +25829,20 @@ func rpc__EncodeMono_i3093881487(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i1909667394(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__ReachPage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__ReachPage, error)
-	Direct0 func(*Env, json__text, code__ReachPage) json__text
-	Read0   func(*Env, http__queryReader) (code__ReachPage, error)
-	Read1   func(*Env, json__Reader_1) (code__ReachPage, error)
-	Read2   func(*Env, json__Stream) (code__ReachPage, error)
+func rpc__EncodeMono_i1909667394(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__ReachPage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__ReachPage, error)
+	Direct0 func(*ergo__Env, json__text, code__ReachPage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__ReachPage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__ReachPage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__ReachPage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__ReachPage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__ReachPage, error)
-		Direct0 func(*Env, json__text, code__ReachPage) json__text
-		Read0   func(*Env, http__queryReader) (code__ReachPage, error)
-		Read1   func(*Env, json__Reader_1) (code__ReachPage, error)
-		Read2   func(*Env, json__Stream) (code__ReachPage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__ReachPage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__ReachPage, error)
+		Direct0 func(*ergo__Env, json__text, code__ReachPage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__ReachPage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__ReachPage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__ReachPage, error)
 		Absent  func(code__ReachPage) bool
 		Empty   code__ReachPage
 	}
@@ -25852,20 +25852,20 @@ func rpc__EncodeMono_i1909667394(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i3049539590(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__MachineView) (struct{}, error)
-	Dec     func(*Env, Reader) (code__MachineView, error)
-	Direct0 func(*Env, json__text, code__MachineView) json__text
-	Read0   func(*Env, http__queryReader) (code__MachineView, error)
-	Read1   func(*Env, json__Reader_1) (code__MachineView, error)
-	Read2   func(*Env, json__Stream) (code__MachineView, error)
+func rpc__EncodeMono_i3049539590(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__MachineView) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__MachineView, error)
+	Direct0 func(*ergo__Env, json__text, code__MachineView) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__MachineView, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__MachineView, error)
+	Read2   func(*ergo__Env, json__Stream) (code__MachineView, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__MachineView) (struct{}, error)
-		Dec     func(*Env, Reader) (code__MachineView, error)
-		Direct0 func(*Env, json__text, code__MachineView) json__text
-		Read0   func(*Env, http__queryReader) (code__MachineView, error)
-		Read1   func(*Env, json__Reader_1) (code__MachineView, error)
-		Read2   func(*Env, json__Stream) (code__MachineView, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__MachineView) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__MachineView, error)
+		Direct0 func(*ergo__Env, json__text, code__MachineView) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__MachineView, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__MachineView, error)
+		Read2   func(*ergo__Env, json__Stream) (code__MachineView, error)
 		Absent  func(code__MachineView) bool
 		Empty   code__MachineView
 	}
@@ -25875,20 +25875,20 @@ func rpc__EncodeMono_i3049539590(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i1362702477(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NoSymbol) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NoSymbol, error)
-	Direct0 func(*Env, json__text, code__NoSymbol) json__text
-	Read0   func(*Env, http__queryReader) (code__NoSymbol, error)
-	Read1   func(*Env, json__Reader_1) (code__NoSymbol, error)
-	Read2   func(*Env, json__Stream) (code__NoSymbol, error)
+func rpc__EncodeMono_i1362702477(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NoSymbol) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NoSymbol, error)
+	Direct0 func(*ergo__Env, json__text, code__NoSymbol) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NoSymbol, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NoSymbol, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NoSymbol, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NoSymbol) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NoSymbol, error)
-		Direct0 func(*Env, json__text, code__NoSymbol) json__text
-		Read0   func(*Env, http__queryReader) (code__NoSymbol, error)
-		Read1   func(*Env, json__Reader_1) (code__NoSymbol, error)
-		Read2   func(*Env, json__Stream) (code__NoSymbol, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NoSymbol) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NoSymbol, error)
+		Direct0 func(*ergo__Env, json__text, code__NoSymbol) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NoSymbol, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NoSymbol, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NoSymbol, error)
 		Absent  func(code__NoSymbol) bool
 		Empty   code__NoSymbol
 	}
@@ -25898,20 +25898,20 @@ func rpc__EncodeMono_i1362702477(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i2857364534(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Ambiguous) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Ambiguous, error)
-	Direct0 func(*Env, json__text, code__Ambiguous) json__text
-	Read0   func(*Env, http__queryReader) (code__Ambiguous, error)
-	Read1   func(*Env, json__Reader_1) (code__Ambiguous, error)
-	Read2   func(*Env, json__Stream) (code__Ambiguous, error)
+func rpc__EncodeMono_i2857364534(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Ambiguous) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Ambiguous, error)
+	Direct0 func(*ergo__Env, json__text, code__Ambiguous) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Ambiguous, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Ambiguous, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Ambiguous, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Ambiguous) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Ambiguous, error)
-		Direct0 func(*Env, json__text, code__Ambiguous) json__text
-		Read0   func(*Env, http__queryReader) (code__Ambiguous, error)
-		Read1   func(*Env, json__Reader_1) (code__Ambiguous, error)
-		Read2   func(*Env, json__Stream) (code__Ambiguous, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Ambiguous) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Ambiguous, error)
+		Direct0 func(*ergo__Env, json__text, code__Ambiguous) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Ambiguous, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Ambiguous, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Ambiguous, error)
 		Absent  func(code__Ambiguous) bool
 		Empty   code__Ambiguous
 	}
@@ -25921,20 +25921,20 @@ func rpc__EncodeMono_i2857364534(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i579832483(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NotCallable) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NotCallable, error)
-	Direct0 func(*Env, json__text, code__NotCallable) json__text
-	Read0   func(*Env, http__queryReader) (code__NotCallable, error)
-	Read1   func(*Env, json__Reader_1) (code__NotCallable, error)
-	Read2   func(*Env, json__Stream) (code__NotCallable, error)
+func rpc__EncodeMono_i579832483(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NotCallable) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NotCallable, error)
+	Direct0 func(*ergo__Env, json__text, code__NotCallable) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NotCallable, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NotCallable, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NotCallable, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NotCallable) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NotCallable, error)
-		Direct0 func(*Env, json__text, code__NotCallable) json__text
-		Read0   func(*Env, http__queryReader) (code__NotCallable, error)
-		Read1   func(*Env, json__Reader_1) (code__NotCallable, error)
-		Read2   func(*Env, json__Stream) (code__NotCallable, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NotCallable) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NotCallable, error)
+		Direct0 func(*ergo__Env, json__text, code__NotCallable) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NotCallable, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NotCallable, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NotCallable, error)
 		Absent  func(code__NotCallable) bool
 		Empty   code__NotCallable
 	}
@@ -25944,20 +25944,20 @@ func rpc__EncodeMono_i579832483(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i845740567(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NoPackage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NoPackage, error)
-	Direct0 func(*Env, json__text, code__NoPackage) json__text
-	Read0   func(*Env, http__queryReader) (code__NoPackage, error)
-	Read1   func(*Env, json__Reader_1) (code__NoPackage, error)
-	Read2   func(*Env, json__Stream) (code__NoPackage, error)
+func rpc__EncodeMono_i845740567(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NoPackage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NoPackage, error)
+	Direct0 func(*ergo__Env, json__text, code__NoPackage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NoPackage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NoPackage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NoPackage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NoPackage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NoPackage, error)
-		Direct0 func(*Env, json__text, code__NoPackage) json__text
-		Read0   func(*Env, http__queryReader) (code__NoPackage, error)
-		Read1   func(*Env, json__Reader_1) (code__NoPackage, error)
-		Read2   func(*Env, json__Stream) (code__NoPackage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NoPackage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NoPackage, error)
+		Direct0 func(*ergo__Env, json__text, code__NoPackage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NoPackage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NoPackage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NoPackage, error)
 		Absent  func(code__NoPackage) bool
 		Empty   code__NoPackage
 	}
@@ -25967,20 +25967,20 @@ func rpc__EncodeMono_i845740567(env *Env, wT struct {
 	return v_1
 }
 
-func rpc__EncodeMono_i1966107540(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NotMachine) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NotMachine, error)
-	Direct0 func(*Env, json__text, code__NotMachine) json__text
-	Read0   func(*Env, http__queryReader) (code__NotMachine, error)
-	Read1   func(*Env, json__Reader_1) (code__NotMachine, error)
-	Read2   func(*Env, json__Stream) (code__NotMachine, error)
+func rpc__EncodeMono_i1966107540(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NotMachine) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NotMachine, error)
+	Direct0 func(*ergo__Env, json__text, code__NotMachine) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NotMachine, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NotMachine, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NotMachine, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NotMachine) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NotMachine, error)
-		Direct0 func(*Env, json__text, code__NotMachine) json__text
-		Read0   func(*Env, http__queryReader) (code__NotMachine, error)
-		Read1   func(*Env, json__Reader_1) (code__NotMachine, error)
-		Read2   func(*Env, json__Stream) (code__NotMachine, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NotMachine) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NotMachine, error)
+		Direct0 func(*ergo__Env, json__text, code__NotMachine) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NotMachine, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NotMachine, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NotMachine, error)
 		Absent  func(code__NotMachine) bool
 		Empty   code__NotMachine
 	}
@@ -26104,7 +26104,7 @@ func json__unhex(c_1 uint8) int {
 
 func (s *json__scan) hex4(j int) int {
 	var r int = int(0)
-	t := (Range[int]{Start: int(0), End: int(4)})
+	t := (ergo__Range[int]{Start: int(0), End: int(4)})
 	for i := t.Start; i < t.End; i++ {
 		var k int = i
 		a := s.buf[(j + k)]
@@ -26130,7 +26130,7 @@ func utf8__RuneText_1(r int32) string {
 	return v
 }
 
-func (report code__Report) declOf(env *Env, a string) (code__Decl, error) {
+func (report code__Report) declOf(env *ergo__Env, a string) (code__Decl, error) {
 	var v code__Decl
 	var err error
 	{
@@ -26185,7 +26185,7 @@ func code__isName(s string) bool {
 	if b {
 		return false
 	}
-	t_1 := (Range[int]{Start: int(1), End: len(s)})
+	t_1 := (ergo__Range[int]{Start: int(1), End: len(s)})
 	for i := t_1.Start; i < t_1.End; i++ {
 		var i_1 int = i
 		t_2 := (letters + "0123456789_")
@@ -26210,7 +26210,7 @@ func (report code__Report) declsByHandle() map[string]code__Decl {
 	return out
 }
 
-func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
+func (report code__Report) familyOf(env *ergo__Env, d code__Decl) []code__Decl {
 	v := (report).declsByHandle()
 	var ops []string = []string{}
 	if d.Kind == "operation" {
@@ -26249,7 +26249,7 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 					var top string = ((v_4 + ".") + name)
 					v_7, ok_1 := v[top]
 					if ok_1 {
-						x := Some[code__Decl]{Value: v_7}
+						x := ergo__Some[code__Decl]{Value: v_7}
 						if x.Value.Kind == "func" {
 							v_2 = top
 							goto inl
@@ -26270,7 +26270,7 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 					{
 						v_9, ok_2 := v[op]
 						if ok_2 {
-							v_10 := Some[code__Decl]{Value: v_9}
+							v_10 := ergo__Some[code__Decl]{Value: v_9}
 							v_8 = v_10.Value
 							goto inl_2
 						} else {
@@ -26288,7 +26288,7 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 					b_1 = (!v_11)
 				}
 				if b_1 {
-					ops = Append[string](ops, op)
+					ops = ergo__Append[string](ops, op)
 				}
 			}
 		}
@@ -26345,7 +26345,7 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 					var top_1 string = ((v_20 + ".") + name_1)
 					v_23, ok_4 := v[top_1]
 					if ok_4 {
-						x_1 := Some[code__Decl]{Value: v_23}
+						x_1 := ergo__Some[code__Decl]{Value: v_23}
 						if x_1.Value.Kind == "func" {
 							v_18 = top_1
 							goto inl_4
@@ -26360,7 +26360,7 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 				}
 			inl_4:
 				_ = 0
-				v_24 := Append[string](t_1, v_18)
+				v_24 := ergo__Append[string](t_1, v_18)
 				members = v_24
 			}
 		}
@@ -26368,13 +26368,13 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 			var h string = v_25
 			v_26, ok_5 := v[h]
 			if ok_5 {
-				x_2 := Some[code__Decl]{Value: v_26}
-				v_27, err := slices__IndexFuncMono_i1952133442(env, slices.Clone(out), func(env_1 *Env, y code__Decl) (bool, error) {
+				x_2 := ergo__Some[code__Decl]{Value: v_26}
+				v_27, err := slices__IndexFuncMono_i1952133442(env, slices.Clone(out), func(env_1 *ergo__Env, y code__Decl) (bool, error) {
 					return (y.Handle == h), nil
 				})
 				_ = err
 				if v_27 < int(0) {
-					out = Append[code__Decl](out, x_2.Value)
+					out = ergo__Append[code__Decl](out, x_2.Value)
 				}
 			} else {
 			}
@@ -26386,7 +26386,7 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 func code__offsetOf(sources []code__Source, file string, line int, column int) (int, error) {
 	v := code__textOf(sources, file)
 	var at int = int(0)
-	t := (Range[int]{Start: int(1), End: line})
+	t := (ergo__Range[int]{Start: int(1), End: line})
 	for i := t.Start; i < t.End; i++ {
 		v_1 := strings__Slice_2(v, at, len(v))
 		v_2 := strings__Index(v_1, "\n")
@@ -26408,7 +26408,7 @@ func code__textOf(sources []code__Source, file string) string {
 	return ""
 }
 
-func code__differing(env *Env, a []string, b []string) []string {
+func code__differing(env *ergo__Env, a []string, b []string) []string {
 	env.task.Check()
 	var count map[string]int = map[string]int{}
 	for _, v := range a {
@@ -26421,7 +26421,7 @@ func code__differing(env *Env, a []string, b []string) []string {
 			var def int = int(0)
 			v_2, ok := m[x]
 			if ok {
-				v_3 := Some[int]{Value: v_2}
+				v_3 := ergo__Some[int]{Value: v_2}
 				v_1 = v_3.Value
 				goto inl
 			} else {
@@ -26444,7 +26444,7 @@ func code__differing(env *Env, a []string, b []string) []string {
 			var def_1 int = int(0)
 			v_6, ok_1 := m_1[x_1]
 			if ok_1 {
-				v_7 := Some[int]{Value: v_6}
+				v_7 := ergo__Some[int]{Value: v_6}
 				v_5 = v_7.Value
 				goto inl_1
 			} else {
@@ -26468,7 +26468,7 @@ func code__differing(env *Env, a []string, b []string) []string {
 			var def_2 int = int(0)
 			v_12, ok_2 := m_2[x_2]
 			if ok_2 {
-				v_13 := Some[int]{Value: v_12}
+				v_13 := ergo__Some[int]{Value: v_12}
 				v_11 = v_13.Value
 				goto inl_2
 			} else {
@@ -26479,10 +26479,10 @@ func code__differing(env *Env, a []string, b []string) []string {
 	inl_2:
 		_ = 0
 		if (v_11 > int(0)) && (len(out) < int(8)) {
-			out = Append[string](out, ("- " + x_2))
+			out = ergo__Append[string](out, ("- " + x_2))
 		} else {
 			if (v_11 < int(0)) && (len(out) < int(8)) {
-				out = Append[string](out, ("+ " + x_2))
+				out = ergo__Append[string](out, ("+ " + x_2))
 			}
 		}
 		env.task.Check()
@@ -26490,12 +26490,12 @@ func code__differing(env *Env, a []string, b []string) []string {
 	return out
 }
 
-func (report code__Report) rowsOf(env *Env, moved map[string]string, to string, shifts map[string][]int, delta int) []string {
+func (report code__Report) rowsOf(env *ergo__Env, moved map[string]string, to string, shifts map[string][]int, delta int) []string {
 	env.task.Check()
-	var mapped func(*Env, string) (string, error) = func(env_1 *Env, h string) (string, error) {
+	var mapped func(*ergo__Env, string) (string, error) = func(env_1 *ergo__Env, h string) (string, error) {
 		v, ok := moved[h]
 		if ok {
-			n := Some[string]{Value: v}
+			n := ergo__Some[string]{Value: v}
 			return n.Value, nil
 		} else {
 		}
@@ -26511,7 +26511,7 @@ func (report code__Report) rowsOf(env *Env, moved map[string]string, to string, 
 		}
 		return h, nil
 	}
-	var shifted func(*Env, string, int, int) (int, error) = func(env_2 *Env, file string, line int, column int) (int, error) {
+	var shifted func(*ergo__Env, string, int, int) (int, error) = func(env_2 *ergo__Env, file string, line int, column int) (int, error) {
 		var c int = column
 		var v_5 []int
 		{
@@ -26519,7 +26519,7 @@ func (report code__Report) rowsOf(env *Env, moved map[string]string, to string, 
 			var def []int = []int{}
 			v_6, ok_1 := shifts[k_2]
 			if ok_1 {
-				v_7 := Some[[]int]{Value: v_6}
+				v_7 := ergo__Some[[]int]{Value: v_6}
 				v_5 = v_7.Value
 				goto inl
 			} else {
@@ -26543,8 +26543,8 @@ func (report code__Report) rowsOf(env *Env, moved map[string]string, to string, 
 		out = ergo.Reserve(out, len(p.Decls))
 		for _, v_10 := range p.Decls {
 			var d code__Decl = v_10
-			v_11 := Get[string, string](moved, d.Handle)
-			var renamedHere bool = (v_11 != (Option[string]{tag: 1}))
+			v_11 := ergo__Get[string, string](moved, d.Handle)
+			var renamedHere bool = (v_11 != (ergo__Option[string]{tag: 1}))
 			var v_12 string
 			if renamedHere {
 				v_12 = to
@@ -26590,7 +26590,7 @@ func (report code__Report) rowsOf(env *Env, moved map[string]string, to string, 
 			t_9 := d.Line
 			v_19, err_1 := shifted(env, d.File, d.Line, d.Column)
 			_ = err_1
-			v_20 := Append[string](t_2, ("decl " + t_3 + " " + t_4 + " " + t_5 + " " + t_6 + " " + strconv.FormatBool(t_7) + " " + t_8 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_9), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_19), 10))))
+			v_20 := ergo__Append[string](t_2, ("decl " + t_3 + " " + t_4 + " " + t_5 + " " + t_6 + " " + strconv.FormatBool(t_7) + " " + t_8 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_9), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(v_19), 10))))
 			out = v_20
 			env.task.Check()
 		}
@@ -26610,7 +26610,7 @@ func (report code__Report) rowsOf(env *Env, moved map[string]string, to string, 
 			t_16 := v_23
 			v_24, err_4 := mapped(env, s.In)
 			_ = err_4
-			v_25 := Append[string](t_10, ("site " + t_11 + " " + t_12 + " " + t_13 + " " + t_14 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_15), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_16), 10)) + " in " + v_24))
+			v_25 := ergo__Append[string](t_10, ("site " + t_11 + " " + t_12 + " " + t_13 + " " + t_14 + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_15), 10)) + ":" + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_16), 10)) + " in " + v_24))
 			out = v_25
 			env.task.Check()
 		}
@@ -26625,7 +26625,7 @@ func (report code__Report) rowsOf(env *Env, moved map[string]string, to string, 
 		t_18 := v_27
 		v_28, err_6 := mapped(env, b.By)
 		_ = err_6
-		v_29 := Append[string](t_17, ("bind " + t_18 + " " + v_28))
+		v_29 := ergo__Append[string](t_17, ("bind " + t_18 + " " + v_28))
 		out = v_29
 		env.task.Check()
 	}
@@ -26749,7 +26749,7 @@ type flag__Command[C any] struct {
 	Name     string
 	Usage    string
 	Set      flag__Set
-	Build    func(*Env, flag__Values) (C, error)
+	Build    func(*ergo__Env, flag__Values) (C, error)
 	Commands []flag__Command[C]
 }
 
@@ -26814,7 +26814,7 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 	}
 	v_5 = ergo.Reserve(v_5, len(s.Flags))
 	for range s.Flags {
-		v_5 = Append[flag__slot](v_5, ergo__Cloneslot(none))
+		v_5 = ergo__Append[flag__slot](v_5, ergo__Cloneslot(none))
 	}
 	var v_8 []string
 	{
@@ -26833,7 +26833,7 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 			b_1 = (!v_10)
 		}
 		if b_1 {
-			v_8 = Append[string](v_8, arg)
+			v_8 = ergo__Append[string](v_8, arg)
 			continue
 		}
 		if arg == "--" {
@@ -26909,7 +26909,7 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 		if v_26 == int(2) {
 			t := v_5
 			t_1 := v_21
-			t[t_1].all = Append[flag__item](v_5[v_21].all, v_22)
+			t[t_1].all = ergo__Append[flag__item](v_5[v_21].all, v_22)
 		}
 	}
 	for k, v_28 := range s.Flags {
@@ -26947,7 +26947,7 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 			u_1.text = v_8[next]
 			u.given = int(1)
 			u.last = u_1
-			v_34 := Append[flag__slot](t_2, u)
+			v_34 := ergo__Append[flag__slot](t_2, u)
 			v_31 = v_34
 			next += int(1)
 		case 1:
@@ -26958,14 +26958,14 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 				u_3.text = v_8[next]
 				u_2.given = int(1)
 				u_2.last = u_3
-				v_35 := Append[flag__slot](t_3, u_2)
+				v_35 := ergo__Append[flag__slot](t_3, u_2)
 				v_31 = v_35
 				next += int(1)
 			} else {
-				v_31 = Append[flag__slot](v_31, ergo__Cloneslot(none))
+				v_31 = ergo__Append[flag__slot](v_31, ergo__Cloneslot(none))
 			}
 		case 2:
-			v_31 = Append[flag__slot](v_31, ergo__Cloneslot(none))
+			v_31 = ergo__Append[flag__slot](v_31, ergo__Cloneslot(none))
 			var v_38 []string
 			{
 				var xs []string = v_8
@@ -26991,7 +26991,7 @@ type flag__Set struct {
 	Args  []flag__ArgSpec
 }
 
-func flag__ParseCommand[C any](env *Env, name string, usage string, commands []flag__Command[C], args []string) (C, error) {
+func flag__ParseCommand[C any](env *ergo__Env, name string, usage string, commands []flag__Command[C], args []string) (C, error) {
 	env.task.Check()
 	v, err := flag__parseLevel[C](env, name, usage, []string{}, commands, args)
 	if err != nil {
@@ -27000,7 +27000,7 @@ func flag__ParseCommand[C any](env *Env, name string, usage string, commands []f
 	return v, nil
 }
 
-func flag__ParseCommandMono_i93032418(env *Env, name string, usage string, commands []flag__Command[codetool_scodeapi__Request], args []string) (codetool_scodeapi__Request, error) {
+func flag__ParseCommandMono_i93032418(env *ergo__Env, name string, usage string, commands []flag__Command[codetool_scodeapi__Request], args []string) (codetool_scodeapi__Request, error) {
 	env.task.Check()
 	v, err := flag__parseLevelMono_i93032418(env, name, usage, []string{}, commands, args)
 	if err != nil {
@@ -27037,20 +27037,20 @@ func ergo__textflag__UnknownCommand(v flag__UnknownCommand) string {
 	return "{" + "Name:" + v.Name + " Known:" + ergo__textList_2(v.Known) + " Group:" + ergo__textList_2(v.Group) + "}"
 }
 
-func json__EncodeMono_i3933687382(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Summary) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Summary, error)
-	Direct0 func(*Env, json__text, code__Summary) json__text
-	Read0   func(*Env, http__queryReader) (code__Summary, error)
-	Read1   func(*Env, json__Reader_1) (code__Summary, error)
-	Read2   func(*Env, json__Stream) (code__Summary, error)
+func json__EncodeMono_i3933687382(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Summary) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Summary, error)
+	Direct0 func(*ergo__Env, json__text, code__Summary) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Summary, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Summary, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Summary, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Summary) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Summary, error)
-		Direct0 func(*Env, json__text, code__Summary) json__text
-		Read0   func(*Env, http__queryReader) (code__Summary, error)
-		Read1   func(*Env, json__Reader_1) (code__Summary, error)
-		Read2   func(*Env, json__Stream) (code__Summary, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Summary) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Summary, error)
+		Direct0 func(*ergo__Env, json__text, code__Summary) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Summary, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Summary, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Summary, error)
 		Absent  func(code__Summary) bool
 		Empty   code__Summary
 	}
@@ -27065,20 +27065,20 @@ func json__EncodeMono_i3933687382(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i4203489249(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__SymbolPage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__SymbolPage, error)
-	Direct0 func(*Env, json__text, code__SymbolPage) json__text
-	Read0   func(*Env, http__queryReader) (code__SymbolPage, error)
-	Read1   func(*Env, json__Reader_1) (code__SymbolPage, error)
-	Read2   func(*Env, json__Stream) (code__SymbolPage, error)
+func json__EncodeMono_i4203489249(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__SymbolPage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__SymbolPage, error)
+	Direct0 func(*ergo__Env, json__text, code__SymbolPage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__SymbolPage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__SymbolPage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__SymbolPage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__SymbolPage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__SymbolPage, error)
-		Direct0 func(*Env, json__text, code__SymbolPage) json__text
-		Read0   func(*Env, http__queryReader) (code__SymbolPage, error)
-		Read1   func(*Env, json__Reader_1) (code__SymbolPage, error)
-		Read2   func(*Env, json__Stream) (code__SymbolPage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__SymbolPage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__SymbolPage, error)
+		Direct0 func(*ergo__Env, json__text, code__SymbolPage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__SymbolPage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__SymbolPage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__SymbolPage, error)
 		Absent  func(code__SymbolPage) bool
 		Empty   code__SymbolPage
 	}
@@ -27093,20 +27093,20 @@ func json__EncodeMono_i4203489249(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i1952133442(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Decl) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Decl, error)
-	Direct0 func(*Env, json__text, code__Decl) json__text
-	Read0   func(*Env, http__queryReader) (code__Decl, error)
-	Read1   func(*Env, json__Reader_1) (code__Decl, error)
-	Read2   func(*Env, json__Stream) (code__Decl, error)
+func json__EncodeMono_i1952133442(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Decl) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Decl, error)
+	Direct0 func(*ergo__Env, json__text, code__Decl) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Decl, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Decl, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Decl, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Decl) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Decl, error)
-		Direct0 func(*Env, json__text, code__Decl) json__text
-		Read0   func(*Env, http__queryReader) (code__Decl, error)
-		Read1   func(*Env, json__Reader_1) (code__Decl, error)
-		Read2   func(*Env, json__Stream) (code__Decl, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Decl) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Decl, error)
+		Direct0 func(*ergo__Env, json__text, code__Decl) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Decl, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Decl, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Decl, error)
 		Absent  func(code__Decl) bool
 		Empty   code__Decl
 	}
@@ -27121,20 +27121,20 @@ func json__EncodeMono_i1952133442(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i1175879322(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__SitePage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__SitePage, error)
-	Direct0 func(*Env, json__text, code__SitePage) json__text
-	Read0   func(*Env, http__queryReader) (code__SitePage, error)
-	Read1   func(*Env, json__Reader_1) (code__SitePage, error)
-	Read2   func(*Env, json__Stream) (code__SitePage, error)
+func json__EncodeMono_i1175879322(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__SitePage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__SitePage, error)
+	Direct0 func(*ergo__Env, json__text, code__SitePage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__SitePage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__SitePage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__SitePage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__SitePage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__SitePage, error)
-		Direct0 func(*Env, json__text, code__SitePage) json__text
-		Read0   func(*Env, http__queryReader) (code__SitePage, error)
-		Read1   func(*Env, json__Reader_1) (code__SitePage, error)
-		Read2   func(*Env, json__Stream) (code__SitePage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__SitePage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__SitePage, error)
+		Direct0 func(*ergo__Env, json__text, code__SitePage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__SitePage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__SitePage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__SitePage, error)
 		Absent  func(code__SitePage) bool
 		Empty   code__SitePage
 	}
@@ -27149,20 +27149,20 @@ func json__EncodeMono_i1175879322(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i589566837(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__CallPage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__CallPage, error)
-	Direct0 func(*Env, json__text, code__CallPage) json__text
-	Read0   func(*Env, http__queryReader) (code__CallPage, error)
-	Read1   func(*Env, json__Reader_1) (code__CallPage, error)
-	Read2   func(*Env, json__Stream) (code__CallPage, error)
+func json__EncodeMono_i589566837(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__CallPage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__CallPage, error)
+	Direct0 func(*ergo__Env, json__text, code__CallPage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__CallPage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__CallPage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__CallPage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__CallPage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__CallPage, error)
-		Direct0 func(*Env, json__text, code__CallPage) json__text
-		Read0   func(*Env, http__queryReader) (code__CallPage, error)
-		Read1   func(*Env, json__Reader_1) (code__CallPage, error)
-		Read2   func(*Env, json__Stream) (code__CallPage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__CallPage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__CallPage, error)
+		Direct0 func(*ergo__Env, json__text, code__CallPage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__CallPage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__CallPage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__CallPage, error)
 		Absent  func(code__CallPage) bool
 		Empty   code__CallPage
 	}
@@ -27177,20 +27177,20 @@ func json__EncodeMono_i589566837(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i3093881487(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__ApiView) (struct{}, error)
-	Dec     func(*Env, Reader) (code__ApiView, error)
-	Direct0 func(*Env, json__text, code__ApiView) json__text
-	Read0   func(*Env, http__queryReader) (code__ApiView, error)
-	Read1   func(*Env, json__Reader_1) (code__ApiView, error)
-	Read2   func(*Env, json__Stream) (code__ApiView, error)
+func json__EncodeMono_i3093881487(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__ApiView) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__ApiView, error)
+	Direct0 func(*ergo__Env, json__text, code__ApiView) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__ApiView, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__ApiView, error)
+	Read2   func(*ergo__Env, json__Stream) (code__ApiView, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__ApiView) (struct{}, error)
-		Dec     func(*Env, Reader) (code__ApiView, error)
-		Direct0 func(*Env, json__text, code__ApiView) json__text
-		Read0   func(*Env, http__queryReader) (code__ApiView, error)
-		Read1   func(*Env, json__Reader_1) (code__ApiView, error)
-		Read2   func(*Env, json__Stream) (code__ApiView, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__ApiView) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__ApiView, error)
+		Direct0 func(*ergo__Env, json__text, code__ApiView) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__ApiView, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__ApiView, error)
+		Read2   func(*ergo__Env, json__Stream) (code__ApiView, error)
 		Absent  func(code__ApiView) bool
 		Empty   code__ApiView
 	}
@@ -27205,20 +27205,20 @@ func json__EncodeMono_i3093881487(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i1909667394(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__ReachPage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__ReachPage, error)
-	Direct0 func(*Env, json__text, code__ReachPage) json__text
-	Read0   func(*Env, http__queryReader) (code__ReachPage, error)
-	Read1   func(*Env, json__Reader_1) (code__ReachPage, error)
-	Read2   func(*Env, json__Stream) (code__ReachPage, error)
+func json__EncodeMono_i1909667394(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__ReachPage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__ReachPage, error)
+	Direct0 func(*ergo__Env, json__text, code__ReachPage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__ReachPage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__ReachPage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__ReachPage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__ReachPage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__ReachPage, error)
-		Direct0 func(*Env, json__text, code__ReachPage) json__text
-		Read0   func(*Env, http__queryReader) (code__ReachPage, error)
-		Read1   func(*Env, json__Reader_1) (code__ReachPage, error)
-		Read2   func(*Env, json__Stream) (code__ReachPage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__ReachPage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__ReachPage, error)
+		Direct0 func(*ergo__Env, json__text, code__ReachPage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__ReachPage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__ReachPage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__ReachPage, error)
 		Absent  func(code__ReachPage) bool
 		Empty   code__ReachPage
 	}
@@ -27233,20 +27233,20 @@ func json__EncodeMono_i1909667394(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i3049539590(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__MachineView) (struct{}, error)
-	Dec     func(*Env, Reader) (code__MachineView, error)
-	Direct0 func(*Env, json__text, code__MachineView) json__text
-	Read0   func(*Env, http__queryReader) (code__MachineView, error)
-	Read1   func(*Env, json__Reader_1) (code__MachineView, error)
-	Read2   func(*Env, json__Stream) (code__MachineView, error)
+func json__EncodeMono_i3049539590(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__MachineView) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__MachineView, error)
+	Direct0 func(*ergo__Env, json__text, code__MachineView) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__MachineView, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__MachineView, error)
+	Read2   func(*ergo__Env, json__Stream) (code__MachineView, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__MachineView) (struct{}, error)
-		Dec     func(*Env, Reader) (code__MachineView, error)
-		Direct0 func(*Env, json__text, code__MachineView) json__text
-		Read0   func(*Env, http__queryReader) (code__MachineView, error)
-		Read1   func(*Env, json__Reader_1) (code__MachineView, error)
-		Read2   func(*Env, json__Stream) (code__MachineView, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__MachineView) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__MachineView, error)
+		Direct0 func(*ergo__Env, json__text, code__MachineView) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__MachineView, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__MachineView, error)
+		Read2   func(*ergo__Env, json__Stream) (code__MachineView, error)
 		Absent  func(code__MachineView) bool
 		Empty   code__MachineView
 	}
@@ -27261,20 +27261,20 @@ func json__EncodeMono_i3049539590(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i1362702477(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NoSymbol) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NoSymbol, error)
-	Direct0 func(*Env, json__text, code__NoSymbol) json__text
-	Read0   func(*Env, http__queryReader) (code__NoSymbol, error)
-	Read1   func(*Env, json__Reader_1) (code__NoSymbol, error)
-	Read2   func(*Env, json__Stream) (code__NoSymbol, error)
+func json__EncodeMono_i1362702477(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NoSymbol) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NoSymbol, error)
+	Direct0 func(*ergo__Env, json__text, code__NoSymbol) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NoSymbol, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NoSymbol, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NoSymbol, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NoSymbol) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NoSymbol, error)
-		Direct0 func(*Env, json__text, code__NoSymbol) json__text
-		Read0   func(*Env, http__queryReader) (code__NoSymbol, error)
-		Read1   func(*Env, json__Reader_1) (code__NoSymbol, error)
-		Read2   func(*Env, json__Stream) (code__NoSymbol, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NoSymbol) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NoSymbol, error)
+		Direct0 func(*ergo__Env, json__text, code__NoSymbol) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NoSymbol, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NoSymbol, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NoSymbol, error)
 		Absent  func(code__NoSymbol) bool
 		Empty   code__NoSymbol
 	}
@@ -27289,20 +27289,20 @@ func json__EncodeMono_i1362702477(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i2857364534(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__Ambiguous) (struct{}, error)
-	Dec     func(*Env, Reader) (code__Ambiguous, error)
-	Direct0 func(*Env, json__text, code__Ambiguous) json__text
-	Read0   func(*Env, http__queryReader) (code__Ambiguous, error)
-	Read1   func(*Env, json__Reader_1) (code__Ambiguous, error)
-	Read2   func(*Env, json__Stream) (code__Ambiguous, error)
+func json__EncodeMono_i2857364534(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__Ambiguous) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__Ambiguous, error)
+	Direct0 func(*ergo__Env, json__text, code__Ambiguous) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__Ambiguous, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__Ambiguous, error)
+	Read2   func(*ergo__Env, json__Stream) (code__Ambiguous, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__Ambiguous) (struct{}, error)
-		Dec     func(*Env, Reader) (code__Ambiguous, error)
-		Direct0 func(*Env, json__text, code__Ambiguous) json__text
-		Read0   func(*Env, http__queryReader) (code__Ambiguous, error)
-		Read1   func(*Env, json__Reader_1) (code__Ambiguous, error)
-		Read2   func(*Env, json__Stream) (code__Ambiguous, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__Ambiguous) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__Ambiguous, error)
+		Direct0 func(*ergo__Env, json__text, code__Ambiguous) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__Ambiguous, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__Ambiguous, error)
+		Read2   func(*ergo__Env, json__Stream) (code__Ambiguous, error)
 		Absent  func(code__Ambiguous) bool
 		Empty   code__Ambiguous
 	}
@@ -27317,20 +27317,20 @@ func json__EncodeMono_i2857364534(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i579832483(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NotCallable) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NotCallable, error)
-	Direct0 func(*Env, json__text, code__NotCallable) json__text
-	Read0   func(*Env, http__queryReader) (code__NotCallable, error)
-	Read1   func(*Env, json__Reader_1) (code__NotCallable, error)
-	Read2   func(*Env, json__Stream) (code__NotCallable, error)
+func json__EncodeMono_i579832483(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NotCallable) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NotCallable, error)
+	Direct0 func(*ergo__Env, json__text, code__NotCallable) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NotCallable, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NotCallable, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NotCallable, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NotCallable) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NotCallable, error)
-		Direct0 func(*Env, json__text, code__NotCallable) json__text
-		Read0   func(*Env, http__queryReader) (code__NotCallable, error)
-		Read1   func(*Env, json__Reader_1) (code__NotCallable, error)
-		Read2   func(*Env, json__Stream) (code__NotCallable, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NotCallable) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NotCallable, error)
+		Direct0 func(*ergo__Env, json__text, code__NotCallable) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NotCallable, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NotCallable, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NotCallable, error)
 		Absent  func(code__NotCallable) bool
 		Empty   code__NotCallable
 	}
@@ -27345,20 +27345,20 @@ func json__EncodeMono_i579832483(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i845740567(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NoPackage) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NoPackage, error)
-	Direct0 func(*Env, json__text, code__NoPackage) json__text
-	Read0   func(*Env, http__queryReader) (code__NoPackage, error)
-	Read1   func(*Env, json__Reader_1) (code__NoPackage, error)
-	Read2   func(*Env, json__Stream) (code__NoPackage, error)
+func json__EncodeMono_i845740567(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NoPackage) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NoPackage, error)
+	Direct0 func(*ergo__Env, json__text, code__NoPackage) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NoPackage, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NoPackage, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NoPackage, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NoPackage) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NoPackage, error)
-		Direct0 func(*Env, json__text, code__NoPackage) json__text
-		Read0   func(*Env, http__queryReader) (code__NoPackage, error)
-		Read1   func(*Env, json__Reader_1) (code__NoPackage, error)
-		Read2   func(*Env, json__Stream) (code__NoPackage, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NoPackage) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NoPackage, error)
+		Direct0 func(*ergo__Env, json__text, code__NoPackage) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NoPackage, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NoPackage, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NoPackage, error)
 		Absent  func(code__NoPackage) bool
 		Empty   code__NoPackage
 	}
@@ -27373,20 +27373,20 @@ func json__EncodeMono_i845740567(env *Env, wT struct {
 	return v_3
 }
 
-func json__EncodeMono_i1966107540(env *Env, wT struct {
-	Enc     func(*Env, Writer, code__NotMachine) (struct{}, error)
-	Dec     func(*Env, Reader) (code__NotMachine, error)
-	Direct0 func(*Env, json__text, code__NotMachine) json__text
-	Read0   func(*Env, http__queryReader) (code__NotMachine, error)
-	Read1   func(*Env, json__Reader_1) (code__NotMachine, error)
-	Read2   func(*Env, json__Stream) (code__NotMachine, error)
+func json__EncodeMono_i1966107540(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, code__NotMachine) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (code__NotMachine, error)
+	Direct0 func(*ergo__Env, json__text, code__NotMachine) json__text
+	Read0   func(*ergo__Env, http__queryReader) (code__NotMachine, error)
+	Read1   func(*ergo__Env, json__Reader_1) (code__NotMachine, error)
+	Read2   func(*ergo__Env, json__Stream) (code__NotMachine, error)
 	Field   *struct {
-		Enc     func(*Env, Writer, code__NotMachine) (struct{}, error)
-		Dec     func(*Env, Reader) (code__NotMachine, error)
-		Direct0 func(*Env, json__text, code__NotMachine) json__text
-		Read0   func(*Env, http__queryReader) (code__NotMachine, error)
-		Read1   func(*Env, json__Reader_1) (code__NotMachine, error)
-		Read2   func(*Env, json__Stream) (code__NotMachine, error)
+		Enc     func(*ergo__Env, ergo__Writer, code__NotMachine) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (code__NotMachine, error)
+		Direct0 func(*ergo__Env, json__text, code__NotMachine) json__text
+		Read0   func(*ergo__Env, http__queryReader) (code__NotMachine, error)
+		Read1   func(*ergo__Env, json__Reader_1) (code__NotMachine, error)
+		Read2   func(*ergo__Env, json__Stream) (code__NotMachine, error)
 		Absent  func(code__NotMachine) bool
 		Empty   code__NotMachine
 	}
@@ -27422,7 +27422,7 @@ func (s *json__scan) digitRun() int {
 	}
 }
 
-func slices__IndexFuncMono_i1952133442(env *Env, xs []code__Decl, f func(*Env, code__Decl) (bool, error)) (int, error) {
+func slices__IndexFuncMono_i1952133442(env *ergo__Env, xs []code__Decl, f func(*ergo__Env, code__Decl) (bool, error)) (int, error) {
 	env.task.Check()
 	for k, v := range xs {
 		var i int = k
@@ -27439,8 +27439,8 @@ func slices__IndexFuncMono_i1952133442(env *Env, xs []code__Decl, f func(*Env, c
 	return int(-1), nil
 }
 
-func maps__KeysMono_i1571956745(m map[string]int) Seq[string] {
-	return Seq[string](func(env *Env, yield func(*Env, string) (bool, error)) (struct{}, error) {
+func maps__KeysMono_i1571956745(m map[string]int) ergo__Seq[string] {
+	return ergo__Seq[string](func(env *ergo__Env, yield func(*ergo__Env, string) (bool, error)) (struct{}, error) {
 		env.task.Check()
 		for k := range m {
 			var k_1 string = k
@@ -27564,7 +27564,7 @@ type flag__slot struct {
 	given int
 }
 
-func flag__doubled(flags []flag__Flag) Option[string] {
+func flag__doubled(flags []flag__Flag) ergo__Option[string] {
 	for k, v := range flags {
 		var i int = k
 		var f flag__Flag = v
@@ -27573,9 +27573,9 @@ func flag__doubled(flags []flag__Flag) Option[string] {
 		v_1 := flag__spellings(f)
 		name, alias = v_1.F0, v_1.F1
 		if (alias != "") && (alias == name) {
-			return (Option[string]{}).of0(Some[string]{Value: name})
+			return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: name})
 		}
-		t := (Range[int]{Start: int(0), End: i})
+		t := (ergo__Range[int]{Start: int(0), End: i})
 		for i_1 := t.Start; i_1 < t.End; i_1++ {
 			var j int = i_1
 			var gn string
@@ -27583,14 +27583,14 @@ func flag__doubled(flags []flag__Flag) Option[string] {
 			v_3 := flag__spellings(flags[j])
 			gn, ga = v_3.F0, v_3.F1
 			if (name == gn) || ((name == ga) && (ga != "")) {
-				return (Option[string]{}).of0(Some[string]{Value: name})
+				return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: name})
 			}
 			if (alias != "") && ((alias == gn) || (alias == ga)) {
-				return (Option[string]{}).of0(Some[string]{Value: alias})
+				return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: alias})
 			}
 		}
 	}
-	return (Option[string]{tag: 1})
+	return (ergo__Option[string]{tag: 1})
 }
 
 func flag__mayAskHelp(args []string) bool {
@@ -27904,43 +27904,43 @@ func flag__Int(name string, def int, usage string) flag__IntFlag {
 	return flag__IntFlag{name: name, def: def, usage: usage, required: false, alias: ""}
 }
 
-func (f flag__OptionalStringFlag) Get(v flag__Values) Option[string] {
+func (f flag__OptionalStringFlag) Get(v flag__Values) ergo__Option[string] {
 	t := v.slots
 	v_1 := flag__heldFlag(f, v)
 	var s flag__slot = t[v_1]
 	if s.given == int(0) {
-		return (Option[string]{tag: 1})
+		return (ergo__Option[string]{tag: 1})
 	}
-	return (Option[string]{}).of0(Some[string]{Value: s.last.text})
+	return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: s.last.text})
 }
 
-func (f flag__OptionalIntFlag) Get(v flag__Values) Option[int] {
+func (f flag__OptionalIntFlag) Get(v flag__Values) ergo__Option[int] {
 	t := v.slots
 	v_1 := flag__heldFlag(f, v)
 	var s flag__slot = t[v_1]
 	if s.given == int(0) {
-		return (Option[int]{tag: 1})
+		return (ergo__Option[int]{tag: 1})
 	}
-	return (Option[int]{}).of0(Some[int]{Value: s.last.n})
+	return (ergo__Option[int]{}).of0(ergo__Some[int]{Value: s.last.n})
 }
 
 func flag__Arg(name string, usage string) flag__ArgSpec {
 	return flag__ArgSpec{name: name, usage: usage, arity: (flag__arity{tag: 0})}
 }
 
-func (a flag__ArgSpec) Get(v flag__Values) Option[string] {
+func (a flag__ArgSpec) Get(v flag__Values) ergo__Option[string] {
 	for k, v_1 := range v.set.Args {
 		var i int = k
 		var spec flag__ArgSpec = v_1
 		if spec.name == a.name {
 			var s flag__slot = v.args[i]
 			if s.given == int(0) {
-				return (Option[string]{tag: 1})
+				return (ergo__Option[string]{tag: 1})
 			}
-			return (Option[string]{}).of0(Some[string]{Value: s.last.text})
+			return (ergo__Option[string]{}).of0(ergo__Some[string]{Value: s.last.text})
 		}
 	}
-	return (Option[string]{tag: 1})
+	return (ergo__Option[string]{tag: 1})
 }
 
 func flag__RequiredString(name string, usage string) flag__StringFlag {
@@ -27979,12 +27979,12 @@ func (f flag__RepeatedStringFlag) Get(v flag__Values) []string {
 	v_3 = ergo.Reserve(v_3, len(v_1))
 	for _, v_5 := range v_1 {
 		var x flag__item = v_5
-		v_3 = Append[string](v_3, x.text)
+		v_3 = ergo__Append[string](v_3, x.text)
 	}
 	return v_3
 }
 
-func flag__parseLevel[C any](env *Env, name string, usage string, groups []string, commands []flag__Command[C], args []string) (C, error) {
+func flag__parseLevel[C any](env *ergo__Env, name string, usage string, groups []string, commands []flag__Command[C], args []string) (C, error) {
 	env.task.Check()
 	var v string
 	if len(args) > int(0) {
@@ -28021,7 +28021,7 @@ func flag__parseLevel[C any](env *Env, name string, usage string, groups []strin
 				if len(c.Commands) > int(0) {
 					t := path
 					t_1 := c.Usage
-					v_6 := Append[string](slices.Clip(groups), c.Name)
+					v_6 := ergo__Append[string](slices.Clip(groups), c.Name)
 					v_7, err := flag__parseLevel[C](env, t, t_1, v_6, c.Commands, rest)
 					if err != nil {
 						return *new(C), err
@@ -28089,7 +28089,7 @@ func flag__parseLevel[C any](env *Env, name string, usage string, groups []strin
 	return *new(C), flag__UnknownCommand{Name: t_2, Known: v_18, Group: groups}
 }
 
-func flag__parseLevelMono_i93032418(env *Env, name string, usage string, groups []string, commands []flag__Command[codetool_scodeapi__Request], args []string) (codetool_scodeapi__Request, error) {
+func flag__parseLevelMono_i93032418(env *ergo__Env, name string, usage string, groups []string, commands []flag__Command[codetool_scodeapi__Request], args []string) (codetool_scodeapi__Request, error) {
 	env.task.Check()
 	var v string
 	if len(args) > int(0) {
@@ -28126,7 +28126,7 @@ func flag__parseLevelMono_i93032418(env *Env, name string, usage string, groups 
 				if len(c.Commands) > int(0) {
 					t := path
 					t_1 := c.Usage
-					v_6 := Append[string](slices.Clip(groups), c.Name)
+					v_6 := ergo__Append[string](slices.Clip(groups), c.Name)
 					v_7, err := flag__parseLevelMono_i93032418(env, t, t_1, v_6, c.Commands, rest)
 					if err != nil {
 						return *new(codetool_scodeapi__Request), err
@@ -28305,18 +28305,18 @@ func flag__Defaults(flags []flag__Flag) string {
 		if !found {
 			return out
 		}
-		var v_2 Option[flag__Flag]
+		var v_2 ergo__Option[flag__Flag]
 		_ = v_2
-		var kp Some[flag__Flag]
+		var kp ergo__Some[flag__Flag]
 		_ = kp
 		{
 			var name string = pick
 			v_3 := flag__spelled(flags, name)
 			if v_3 < int(0) {
-				_ = None{}
+				_ = ergo__None{}
 				goto kn_1
 			}
-			kp = Some[flag__Flag]{Value: flags[v_3]}
+			kp = ergo__Some[flag__Flag]{Value: flags[v_3]}
 			goto kn
 		}
 	kn:
@@ -28643,14 +28643,14 @@ func (f flag__StringFlag) held(v flag__Values) int {
 	return len(v_3)
 }
 
-func flag__ownLeaf[C any](commands []flag__Command[C]) Option[flag__Command[C]] {
+func flag__ownLeaf[C any](commands []flag__Command[C]) ergo__Option[flag__Command[C]] {
 	for _, v := range commands {
 		var c flag__Command[C] = v
 		if c.Name == "" {
-			return (Option[flag__Command[C]]{}).of0(Some[flag__Command[C]]{Value: c})
+			return (ergo__Option[flag__Command[C]]{}).of0(ergo__Some[flag__Command[C]]{Value: c})
 		}
 	}
-	return (Option[flag__Command[C]]{tag: 1})
+	return (ergo__Option[flag__Command[C]]{tag: 1})
 }
 
 func flag__CommandUsage[C any](name string, usage string, commands []flag__Command[C]) string {
@@ -28676,20 +28676,20 @@ func flag__commandNames[C any](commands []flag__Command[C]) []string {
 	for _, v := range commands {
 		var c flag__Command[C] = v
 		if c.Name != "" {
-			out = Append[string](out, c.Name)
+			out = ergo__Append[string](out, c.Name)
 		}
 	}
 	return out
 }
 
-func flag__ownLeafMono_i93032418(commands []flag__Command[codetool_scodeapi__Request]) Option[flag__Command[codetool_scodeapi__Request]] {
+func flag__ownLeafMono_i93032418(commands []flag__Command[codetool_scodeapi__Request]) ergo__Option[flag__Command[codetool_scodeapi__Request]] {
 	for _, v := range commands {
 		var c flag__Command[codetool_scodeapi__Request] = v
 		if c.Name == "" {
-			return (Option[flag__Command[codetool_scodeapi__Request]]{}).of0(Some[flag__Command[codetool_scodeapi__Request]]{Value: c})
+			return (ergo__Option[flag__Command[codetool_scodeapi__Request]]{}).of0(ergo__Some[flag__Command[codetool_scodeapi__Request]]{Value: c})
 		}
 	}
-	return (Option[flag__Command[codetool_scodeapi__Request]]{tag: 1})
+	return (ergo__Option[flag__Command[codetool_scodeapi__Request]]{tag: 1})
 }
 
 func flag__CommandUsageMono_i93032418(name string, usage string, commands []flag__Command[codetool_scodeapi__Request]) string {
@@ -28715,7 +28715,7 @@ func flag__commandNamesMono_i93032418(commands []flag__Command[codetool_scodeapi
 	for _, v := range commands {
 		var c flag__Command[codetool_scodeapi__Request] = v
 		if c.Name != "" {
-			out = Append[string](out, c.Name)
+			out = ergo__Append[string](out, c.Name)
 		}
 	}
 	return out
@@ -29176,7 +29176,7 @@ func flag__sameStrings(x []string, y []string) bool {
 	return true
 }
 
-type Ambient interface {
+type ergo__Ambient interface {
 	ambient(*rt.Task)
 }
 
@@ -29607,7 +29607,7 @@ func init() {
 }
 
 //line plan.ergo:18:1
-type GoChecker struct {
+type ergo__GoChecker struct {
 	/*line plan.ergo:18:1*/ rw go__io.ReadWriter
 	/*line plan.ergo:18:1*/
 }
@@ -29664,7 +29664,7 @@ type replyFailed struct {
 func (replyFailed) isreply() {}
 
 //line plan.ergo:27:1
-func (c GoChecker) Check(env *Env, sources []code__Source) (code__Report, error) {
+func (c ergo__GoChecker) Check(env *ergo__Env, sources []code__Source) (code__Report, error) {
 //line plan.ergo:27:1
 	env.task.Check()
 //line plan.ergo:28:2
@@ -29707,7 +29707,7 @@ func (c GoChecker) Check(env *Env, sources []code__Source) (code__Report, error)
 }
 
 //line plan.ergo:38:1
-func (c GoChecker) Format(env *Env, text string) (string, error) {
+func (c ergo__GoChecker) Format(env *ergo__Env, text string) (string, error) {
 //line plan.ergo:38:1
 	env.task.Check()
 //line plan.ergo:39:2
@@ -29750,35 +29750,35 @@ func (c GoChecker) Format(env *Env, text string) (string, error) {
 }
 
 //line plan.ergo:50:1
-func askGo(env *Env, rw go__io.ReadWriter, a ask) (reply, error) {
+func askGo(env *ergo__Env, rw go__io.ReadWriter, a ask) (reply, error) {
 //line plan.ergo:50:1
 	env.task.Check()
 //line plan.ergo:51:2
 //line plan.ergo:51:16
 	v_2 := json__EncodeMono_i443730450(env, struct {
-		/*line plan.ergo:51:16*/ Enc func(*Env, Writer, ask) (struct{}, error)
-		/*line plan.ergo:51:16*/ Dec func(*Env, Reader) (ask, error)
-		/*line plan.ergo:51:16*/ Direct0 func(*Env, json__text, ask) json__text
-		/*line plan.ergo:51:16*/ Read0 func(*Env, http__queryReader) (ask, error)
-		/*line plan.ergo:51:16*/ Read1 func(*Env, json__Reader_1) (ask, error)
-		/*line plan.ergo:51:16*/ Read2 func(*Env, json__Stream) (ask, error)
+		/*line plan.ergo:51:16*/ Enc func(*ergo__Env, ergo__Writer, ask) (struct{}, error)
+		/*line plan.ergo:51:16*/ Dec func(*ergo__Env, ergo__Reader) (ask, error)
+		/*line plan.ergo:51:16*/ Direct0 func(*ergo__Env, json__text, ask) json__text
+		/*line plan.ergo:51:16*/ Read0 func(*ergo__Env, http__queryReader) (ask, error)
+		/*line plan.ergo:51:16*/ Read1 func(*ergo__Env, json__Reader_1) (ask, error)
+		/*line plan.ergo:51:16*/ Read2 func(*ergo__Env, json__Stream) (ask, error)
 		/*line plan.ergo:51:16*/ Field *struct {
-			/*line plan.ergo:51:16*/ Enc func(*Env, Writer, ask) (struct{}, error)
-			/*line plan.ergo:51:16*/ Dec func(*Env, Reader) (ask, error)
-			/*line plan.ergo:51:16*/ Direct0 func(*Env, json__text, ask) json__text
-			/*line plan.ergo:51:16*/ Read0 func(*Env, http__queryReader) (ask, error)
-			/*line plan.ergo:51:16*/ Read1 func(*Env, json__Reader_1) (ask, error)
-			/*line plan.ergo:51:16*/ Read2 func(*Env, json__Stream) (ask, error)
+			/*line plan.ergo:51:16*/ Enc func(*ergo__Env, ergo__Writer, ask) (struct{}, error)
+			/*line plan.ergo:51:16*/ Dec func(*ergo__Env, ergo__Reader) (ask, error)
+			/*line plan.ergo:51:16*/ Direct0 func(*ergo__Env, json__text, ask) json__text
+			/*line plan.ergo:51:16*/ Read0 func(*ergo__Env, http__queryReader) (ask, error)
+			/*line plan.ergo:51:16*/ Read1 func(*ergo__Env, json__Reader_1) (ask, error)
+			/*line plan.ergo:51:16*/ Read2 func(*ergo__Env, json__Stream) (ask, error)
 			/*line plan.ergo:51:16*/ Absent func(ask) bool
 			/*line plan.ergo:51:16*/ Empty ask
 			/*line plan.ergo:51:16*/
 		}
 		/*line plan.ergo:51:16*/
-	}{Enc: func(e *Env, w Writer, v ask) (struct{}, error) {
+	}{Enc: func(e *ergo__Env, w ergo__Writer, v ask) (struct{}, error) {
 		/*line plan.ergo:51:16*/ ergo__Encodeask(e, w, v)
 		/*line plan.ergo:51:16*/ return struct{}{}, nil
 		/*line plan.ergo:51:16*/
-	}, Dec: func(e_1 *Env, r Reader) (ask, error) {
+	}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (ask, error) {
 		/*line plan.ergo:51:16*/ x, err := ergo__Decodeask(e_1, r)
 		/*line plan.ergo:51:16*/ if err != nil {
 			/*line plan.ergo:51:16*/ return *new(ask), err
@@ -29821,7 +29821,7 @@ func askGo(env *Env, rw go__io.ReadWriter, a ask) (reply, error) {
 	s := r_3
 	/*line plan.ergo:60:13*/ switch ergoNilTag(s) {
 	/*line plan.ergo:60:13*/ case 0:
-		/*line plan.ergo:60:13*/ b_1 := Some[*go__bytes.Buffer]{Value: s}
+		/*line plan.ergo:60:13*/ b_1 := ergo__Some[*go__bytes.Buffer]{Value: s}
 //line plan.ergo:62:3
 		r_4 := b_1.Value.String()
 		/*line plan.ergo:62:3*/ v_4 = r_4
@@ -29837,29 +29837,29 @@ func askGo(env *Env, rw go__io.ReadWriter, a ask) (reply, error) {
 	/*line plan.ergo:64:3*/ var text string = v_4
 //line plan.ergo:66:2
 	v_7, err_4 := json__DecodeMono_i697505319(env, struct {
-		/*line plan.ergo:66:2*/ Enc func(*Env, Writer, reply) (struct{}, error)
-		/*line plan.ergo:66:2*/ Dec func(*Env, Reader) (reply, error)
-		/*line plan.ergo:66:2*/ Direct0 func(*Env, json__text, reply) json__text
-		/*line plan.ergo:66:2*/ Read0 func(*Env, http__queryReader) (reply, error)
-		/*line plan.ergo:66:2*/ Read1 func(*Env, json__Reader_1) (reply, error)
-		/*line plan.ergo:66:2*/ Read2 func(*Env, json__Stream) (reply, error)
+		/*line plan.ergo:66:2*/ Enc func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
+		/*line plan.ergo:66:2*/ Dec func(*ergo__Env, ergo__Reader) (reply, error)
+		/*line plan.ergo:66:2*/ Direct0 func(*ergo__Env, json__text, reply) json__text
+		/*line plan.ergo:66:2*/ Read0 func(*ergo__Env, http__queryReader) (reply, error)
+		/*line plan.ergo:66:2*/ Read1 func(*ergo__Env, json__Reader_1) (reply, error)
+		/*line plan.ergo:66:2*/ Read2 func(*ergo__Env, json__Stream) (reply, error)
 		/*line plan.ergo:66:2*/ Field *struct {
-			/*line plan.ergo:66:2*/ Enc func(*Env, Writer, reply) (struct{}, error)
-			/*line plan.ergo:66:2*/ Dec func(*Env, Reader) (reply, error)
-			/*line plan.ergo:66:2*/ Direct0 func(*Env, json__text, reply) json__text
-			/*line plan.ergo:66:2*/ Read0 func(*Env, http__queryReader) (reply, error)
-			/*line plan.ergo:66:2*/ Read1 func(*Env, json__Reader_1) (reply, error)
-			/*line plan.ergo:66:2*/ Read2 func(*Env, json__Stream) (reply, error)
+			/*line plan.ergo:66:2*/ Enc func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
+			/*line plan.ergo:66:2*/ Dec func(*ergo__Env, ergo__Reader) (reply, error)
+			/*line plan.ergo:66:2*/ Direct0 func(*ergo__Env, json__text, reply) json__text
+			/*line plan.ergo:66:2*/ Read0 func(*ergo__Env, http__queryReader) (reply, error)
+			/*line plan.ergo:66:2*/ Read1 func(*ergo__Env, json__Reader_1) (reply, error)
+			/*line plan.ergo:66:2*/ Read2 func(*ergo__Env, json__Stream) (reply, error)
 			/*line plan.ergo:66:2*/ Absent func(reply) bool
 			/*line plan.ergo:66:2*/ Empty reply
 			/*line plan.ergo:66:2*/
 		}
 		/*line plan.ergo:66:2*/
-	}{Enc: func(e_3 *Env, w_1 Writer, v_5 reply) (struct{}, error) {
+	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_5 reply) (struct{}, error) {
 		/*line plan.ergo:66:2*/ ergo__Encodereply(e_3, w_1, v_5)
 		/*line plan.ergo:66:2*/ return struct{}{}, nil
 		/*line plan.ergo:66:2*/
-	}, Dec: func(e_4 *Env, r_5 Reader) (reply, error) {
+	}, Dec: func(e_4 *ergo__Env, r_5 ergo__Reader) (reply, error) {
 		/*line plan.ergo:66:2*/ x_1, err_3 := ergo__Decodereply(e_4, r_5)
 		/*line plan.ergo:66:2*/ if err_3 != nil {
 			/*line plan.ergo:66:2*/ return *new(reply), err_3
@@ -29877,12 +29877,12 @@ func askGo(env *Env, rw go__io.ReadWriter, a ask) (reply, error) {
 //line plan.ergo:68:3
 			return *new(reply), code__CheckFailed{Reason: ("the checker's answer is not JSON at " + string(strconv.AppendInt(make([]byte, 0, 20), int64(m.Offset), 10)) + ": " + m.Reason)}
 			/*line plan.ergo:68:3*/
-		case WireWrongKind:
+		case ergo__WireWrongKind:
 			/*line plan.ergo:68:3*/ w_2 := n
 //line plan.ergo:70:3
 			return *new(reply), code__CheckFailed{Reason: ("the checker's answer is not " + w_2.Want + " at " + w_2.Path)}
 			/*line plan.ergo:70:3*/
-		case WireMissingField:
+		case ergo__WireMissingField:
 			/*line plan.ergo:70:3*/ w_3 := n
 //line plan.ergo:72:3
 			return *new(reply), code__CheckFailed{Reason: ("the checker's answer has no " + w_3.Field + " at " + w_3.Path)}
@@ -29902,35 +29902,35 @@ func askGo(env *Env, rw go__io.ReadWriter, a ask) (reply, error) {
 }
 
 //line plan.ergo:84:1
-func Plan_1(env *Env, rw go__io.ReadWriter, sources string, change string, asJSON bool) []string {
+func ergo__Plan_1(env *ergo__Env, rw go__io.ReadWriter, sources string, change string, asJSON bool) []string {
 //line plan.ergo:84:1
 	env.task.Check()
 //line plan.ergo:85:2
 //line plan.ergo:85:13
 	v_2, err_1 := json__DecodeMono_i1727456663(env, struct {
-		/*line plan.ergo:85:13*/ Enc func(*Env, Writer, []code__Source) (struct{}, error)
-		/*line plan.ergo:85:13*/ Dec func(*Env, Reader) ([]code__Source, error)
-		/*line plan.ergo:85:13*/ Direct0 func(*Env, json__text, []code__Source) json__text
-		/*line plan.ergo:85:13*/ Read0 func(*Env, http__queryReader) ([]code__Source, error)
-		/*line plan.ergo:85:13*/ Read1 func(*Env, json__Reader_1) ([]code__Source, error)
-		/*line plan.ergo:85:13*/ Read2 func(*Env, json__Stream) ([]code__Source, error)
+		/*line plan.ergo:85:13*/ Enc func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+		/*line plan.ergo:85:13*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+		/*line plan.ergo:85:13*/ Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+		/*line plan.ergo:85:13*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Source, error)
+		/*line plan.ergo:85:13*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+		/*line plan.ergo:85:13*/ Read2 func(*ergo__Env, json__Stream) ([]code__Source, error)
 		/*line plan.ergo:85:13*/ Field *struct {
-			/*line plan.ergo:85:13*/ Enc func(*Env, Writer, []code__Source) (struct{}, error)
-			/*line plan.ergo:85:13*/ Dec func(*Env, Reader) ([]code__Source, error)
-			/*line plan.ergo:85:13*/ Direct0 func(*Env, json__text, []code__Source) json__text
-			/*line plan.ergo:85:13*/ Read0 func(*Env, http__queryReader) ([]code__Source, error)
-			/*line plan.ergo:85:13*/ Read1 func(*Env, json__Reader_1) ([]code__Source, error)
-			/*line plan.ergo:85:13*/ Read2 func(*Env, json__Stream) ([]code__Source, error)
+			/*line plan.ergo:85:13*/ Enc func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+			/*line plan.ergo:85:13*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+			/*line plan.ergo:85:13*/ Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+			/*line plan.ergo:85:13*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Source, error)
+			/*line plan.ergo:85:13*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+			/*line plan.ergo:85:13*/ Read2 func(*ergo__Env, json__Stream) ([]code__Source, error)
 			/*line plan.ergo:85:13*/ Absent func([]code__Source) bool
 			/*line plan.ergo:85:13*/ Empty []code__Source
 			/*line plan.ergo:85:13*/
 		}
 		/*line plan.ergo:85:13*/
-	}{Enc: func(e *Env, w Writer, v []code__Source) (struct{}, error) {
+	}{Enc: func(e *ergo__Env, w ergo__Writer, v []code__Source) (struct{}, error) {
 		/*line plan.ergo:85:13*/ ergo__EncodeSlice_25(e, w, v)
 		/*line plan.ergo:85:13*/ return struct{}{}, nil
 		/*line plan.ergo:85:13*/
-	}, Dec: func(e_1 *Env, r Reader) ([]code__Source, error) {
+	}, Dec: func(e_1 *ergo__Env, r ergo__Reader) ([]code__Source, error) {
 		/*line plan.ergo:85:13*/ x, err := ergo__DecodeSlice_25(e_1, r)
 		/*line plan.ergo:85:13*/ if err != nil {
 			/*line plan.ergo:85:13*/ return *new([]code__Source), err
@@ -29969,7 +29969,7 @@ func Plan_1(env *Env, rw go__io.ReadWriter, sources string, change string, asJSO
 		/*line plan.ergo:91:3*/
 	}
 //line plan.ergo:93:2
-	var checker code__Checker = &ergo__opsGoCheckerAsChecker{v: GoChecker{rw: rw}, env: env}
+	var checker code__Checker = &ergo__opsGoCheckerAsChecker{v: ergo__GoChecker{rw: rw}, env: env}
 //line plan.ergo:94:2
 	t := srcs
 	/*line plan.ergo:94:2*/ t_1 := checker
@@ -30037,29 +30037,29 @@ func Plan_1(env *Env, rw go__io.ReadWriter, sources string, change string, asJSO
 //line plan.ergo:108:2
 //line plan.ergo:108:13
 	v_15 := json__EncodeMono_i1506984564(env, struct {
-		/*line plan.ergo:108:13*/ Enc func(*Env, Writer, code__Planned) (struct{}, error)
-		/*line plan.ergo:108:13*/ Dec func(*Env, Reader) (code__Planned, error)
-		/*line plan.ergo:108:13*/ Direct0 func(*Env, json__text, code__Planned) json__text
-		/*line plan.ergo:108:13*/ Read0 func(*Env, http__queryReader) (code__Planned, error)
-		/*line plan.ergo:108:13*/ Read1 func(*Env, json__Reader_1) (code__Planned, error)
-		/*line plan.ergo:108:13*/ Read2 func(*Env, json__Stream) (code__Planned, error)
+		/*line plan.ergo:108:13*/ Enc func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+		/*line plan.ergo:108:13*/ Dec func(*ergo__Env, ergo__Reader) (code__Planned, error)
+		/*line plan.ergo:108:13*/ Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+		/*line plan.ergo:108:13*/ Read0 func(*ergo__Env, http__queryReader) (code__Planned, error)
+		/*line plan.ergo:108:13*/ Read1 func(*ergo__Env, json__Reader_1) (code__Planned, error)
+		/*line plan.ergo:108:13*/ Read2 func(*ergo__Env, json__Stream) (code__Planned, error)
 		/*line plan.ergo:108:13*/ Field *struct {
-			/*line plan.ergo:108:13*/ Enc func(*Env, Writer, code__Planned) (struct{}, error)
-			/*line plan.ergo:108:13*/ Dec func(*Env, Reader) (code__Planned, error)
-			/*line plan.ergo:108:13*/ Direct0 func(*Env, json__text, code__Planned) json__text
-			/*line plan.ergo:108:13*/ Read0 func(*Env, http__queryReader) (code__Planned, error)
-			/*line plan.ergo:108:13*/ Read1 func(*Env, json__Reader_1) (code__Planned, error)
-			/*line plan.ergo:108:13*/ Read2 func(*Env, json__Stream) (code__Planned, error)
+			/*line plan.ergo:108:13*/ Enc func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+			/*line plan.ergo:108:13*/ Dec func(*ergo__Env, ergo__Reader) (code__Planned, error)
+			/*line plan.ergo:108:13*/ Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+			/*line plan.ergo:108:13*/ Read0 func(*ergo__Env, http__queryReader) (code__Planned, error)
+			/*line plan.ergo:108:13*/ Read1 func(*ergo__Env, json__Reader_1) (code__Planned, error)
+			/*line plan.ergo:108:13*/ Read2 func(*ergo__Env, json__Stream) (code__Planned, error)
 			/*line plan.ergo:108:13*/ Absent func(code__Planned) bool
 			/*line plan.ergo:108:13*/ Empty code__Planned
 			/*line plan.ergo:108:13*/
 		}
 		/*line plan.ergo:108:13*/
-	}{Enc: func(e_3 *Env, w_1 Writer, v_13 code__Planned) (struct{}, error) {
+	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_13 code__Planned) (struct{}, error) {
 		/*line plan.ergo:108:13*/ ergo__EncodePlanned(e_3, w_1, v_13)
 		/*line plan.ergo:108:13*/ return struct{}{}, nil
 		/*line plan.ergo:108:13*/
-	}, Dec: func(e_4 *Env, r_2 Reader) (code__Planned, error) {
+	}, Dec: func(e_4 *ergo__Env, r_2 ergo__Reader) (code__Planned, error) {
 		/*line plan.ergo:108:13*/ x_2, err_4 := ergo__DecodePlanned(e_4, r_2)
 		/*line plan.ergo:108:13*/ if err_4 != nil {
 			/*line plan.ergo:108:13*/ return *new(code__Planned), err_4
@@ -30087,7 +30087,7 @@ func Plan_1(env *Env, rw go__io.ReadWriter, sources string, change string, asJSO
 }
 
 //line plan.ergo:113:1
-func changeOf(env *Env, text string) (code__Change, error) {
+func changeOf(env *ergo__Env, text string) (code__Change, error) {
 //line plan.ergo:113:1
 	env.task.Check()
 //line plan.ergo:114:2
@@ -30098,29 +30098,29 @@ func changeOf(env *Env, text string) (code__Change, error) {
 //line plan.ergo:115:3
 //line plan.ergo:115:10
 		v_3, err_1 := json__DecodeMono_i2181974622(env, struct {
-			/*line plan.ergo:115:10*/ Enc func(*Env, Writer, code__Change) (struct{}, error)
-			/*line plan.ergo:115:10*/ Dec func(*Env, Reader) (code__Change, error)
-			/*line plan.ergo:115:10*/ Direct0 func(*Env, json__text, code__Change) json__text
-			/*line plan.ergo:115:10*/ Read0 func(*Env, http__queryReader) (code__Change, error)
-			/*line plan.ergo:115:10*/ Read1 func(*Env, json__Reader_1) (code__Change, error)
-			/*line plan.ergo:115:10*/ Read2 func(*Env, json__Stream) (code__Change, error)
+			/*line plan.ergo:115:10*/ Enc func(*ergo__Env, ergo__Writer, code__Change) (struct{}, error)
+			/*line plan.ergo:115:10*/ Dec func(*ergo__Env, ergo__Reader) (code__Change, error)
+			/*line plan.ergo:115:10*/ Direct0 func(*ergo__Env, json__text, code__Change) json__text
+			/*line plan.ergo:115:10*/ Read0 func(*ergo__Env, http__queryReader) (code__Change, error)
+			/*line plan.ergo:115:10*/ Read1 func(*ergo__Env, json__Reader_1) (code__Change, error)
+			/*line plan.ergo:115:10*/ Read2 func(*ergo__Env, json__Stream) (code__Change, error)
 			/*line plan.ergo:115:10*/ Field *struct {
-				/*line plan.ergo:115:10*/ Enc func(*Env, Writer, code__Change) (struct{}, error)
-				/*line plan.ergo:115:10*/ Dec func(*Env, Reader) (code__Change, error)
-				/*line plan.ergo:115:10*/ Direct0 func(*Env, json__text, code__Change) json__text
-				/*line plan.ergo:115:10*/ Read0 func(*Env, http__queryReader) (code__Change, error)
-				/*line plan.ergo:115:10*/ Read1 func(*Env, json__Reader_1) (code__Change, error)
-				/*line plan.ergo:115:10*/ Read2 func(*Env, json__Stream) (code__Change, error)
+				/*line plan.ergo:115:10*/ Enc func(*ergo__Env, ergo__Writer, code__Change) (struct{}, error)
+				/*line plan.ergo:115:10*/ Dec func(*ergo__Env, ergo__Reader) (code__Change, error)
+				/*line plan.ergo:115:10*/ Direct0 func(*ergo__Env, json__text, code__Change) json__text
+				/*line plan.ergo:115:10*/ Read0 func(*ergo__Env, http__queryReader) (code__Change, error)
+				/*line plan.ergo:115:10*/ Read1 func(*ergo__Env, json__Reader_1) (code__Change, error)
+				/*line plan.ergo:115:10*/ Read2 func(*ergo__Env, json__Stream) (code__Change, error)
 				/*line plan.ergo:115:10*/ Absent func(code__Change) bool
 				/*line plan.ergo:115:10*/ Empty code__Change
 				/*line plan.ergo:115:10*/
 			}
 			/*line plan.ergo:115:10*/
-		}{Enc: func(e *Env, w Writer, v_1 code__Change) (struct{}, error) {
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_1 code__Change) (struct{}, error) {
 			/*line plan.ergo:115:10*/ ergo__EncodeChange(e, w, v_1)
 			/*line plan.ergo:115:10*/ return struct{}{}, nil
 			/*line plan.ergo:115:10*/
-		}, Dec: func(e_1 *Env, r Reader) (code__Change, error) {
+		}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (code__Change, error) {
 			/*line plan.ergo:115:10*/ x, err := ergo__DecodeChange(e_1, r)
 			/*line plan.ergo:115:10*/ if err != nil {
 				/*line plan.ergo:115:10*/ return *new(code__Change), err
@@ -30155,7 +30155,7 @@ func changeOf(env *Env, text string) (code__Change, error) {
 }
 
 //line plan.ergo:125:1
-func refusal(env *Env, asJSON bool, tag string, reason string) []string {
+func refusal(env *ergo__Env, asJSON bool, tag string, reason string) []string {
 //line plan.ergo:125:1
 	env.task.Check()
 //line plan.ergo:126:2
@@ -30165,29 +30165,29 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 //line plan.ergo:128:3
 //line plan.ergo:128:39
 		v_2 := json__EncodeMono_i398550328(env, struct {
-			/*line plan.ergo:128:39*/ Enc func(*Env, Writer, string) (struct{}, error)
-			/*line plan.ergo:128:39*/ Dec func(*Env, Reader) (string, error)
-			/*line plan.ergo:128:39*/ Direct0 func(*Env, json__text, string) json__text
-			/*line plan.ergo:128:39*/ Read0 func(*Env, http__queryReader) (string, error)
-			/*line plan.ergo:128:39*/ Read1 func(*Env, json__Reader_1) (string, error)
-			/*line plan.ergo:128:39*/ Read2 func(*Env, json__Stream) (string, error)
+			/*line plan.ergo:128:39*/ Enc func(*ergo__Env, ergo__Writer, string) (struct{}, error)
+			/*line plan.ergo:128:39*/ Dec func(*ergo__Env, ergo__Reader) (string, error)
+			/*line plan.ergo:128:39*/ Direct0 func(*ergo__Env, json__text, string) json__text
+			/*line plan.ergo:128:39*/ Read0 func(*ergo__Env, http__queryReader) (string, error)
+			/*line plan.ergo:128:39*/ Read1 func(*ergo__Env, json__Reader_1) (string, error)
+			/*line plan.ergo:128:39*/ Read2 func(*ergo__Env, json__Stream) (string, error)
 			/*line plan.ergo:128:39*/ Field *struct {
-				/*line plan.ergo:128:39*/ Enc func(*Env, Writer, string) (struct{}, error)
-				/*line plan.ergo:128:39*/ Dec func(*Env, Reader) (string, error)
-				/*line plan.ergo:128:39*/ Direct0 func(*Env, json__text, string) json__text
-				/*line plan.ergo:128:39*/ Read0 func(*Env, http__queryReader) (string, error)
-				/*line plan.ergo:128:39*/ Read1 func(*Env, json__Reader_1) (string, error)
-				/*line plan.ergo:128:39*/ Read2 func(*Env, json__Stream) (string, error)
+				/*line plan.ergo:128:39*/ Enc func(*ergo__Env, ergo__Writer, string) (struct{}, error)
+				/*line plan.ergo:128:39*/ Dec func(*ergo__Env, ergo__Reader) (string, error)
+				/*line plan.ergo:128:39*/ Direct0 func(*ergo__Env, json__text, string) json__text
+				/*line plan.ergo:128:39*/ Read0 func(*ergo__Env, http__queryReader) (string, error)
+				/*line plan.ergo:128:39*/ Read1 func(*ergo__Env, json__Reader_1) (string, error)
+				/*line plan.ergo:128:39*/ Read2 func(*ergo__Env, json__Stream) (string, error)
 				/*line plan.ergo:128:39*/ Absent func(string) bool
 				/*line plan.ergo:128:39*/ Empty string
 				/*line plan.ergo:128:39*/
 			}
 			/*line plan.ergo:128:39*/
-		}{Enc: func(e *Env, w Writer, v string) (struct{}, error) {
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v string) (struct{}, error) {
 			/*line plan.ergo:128:39*/ w.String(e.task, string(v))
 			/*line plan.ergo:128:39*/ return struct{}{}, nil
 			/*line plan.ergo:128:39*/
-		}, Dec: func(e_1 *Env, r Reader) (string, error) {
+		}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (string, error) {
 			/*line plan.ergo:128:39*/ raw, err := r.String(e_1.task)
 			/*line plan.ergo:128:39*/ if err != nil {
 				/*line plan.ergo:128:39*/ return *new(string), err
@@ -30196,14 +30196,14 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 			/*line plan.ergo:128:39*/ x := string(raw)
 			/*line plan.ergo:128:39*/ return x, nil
 			/*line plan.ergo:128:39*/
-		}, Direct0: func(e_2 *Env, bv json__text, v_1 string) json__text {
+		}, Direct0: func(e_2 *ergo__Env, bv json__text, v_1 string) json__text {
 			/*line plan.ergo:128:39*/ b := &bv
 			/*line plan.ergo:128:39*/ (b).sep()
 			/*line plan.ergo:128:39*/ (b).stringBody(string(v_1))
 			/*line plan.ergo:128:39*/ (b).setComma(bool(true))
 			/*line plan.ergo:128:39*/ return bv
 			/*line plan.ergo:128:39*/
-		}, Read0: func(e_3 *Env, r_1 http__queryReader) (string, error) {
+		}, Read0: func(e_3 *ergo__Env, r_1 http__queryReader) (string, error) {
 			/*line plan.ergo:128:39*/ raw_1, err_1 := (r_1).String(e_3)
 			/*line plan.ergo:128:39*/ if err_1 != nil {
 				/*line plan.ergo:128:39*/ return *new(string), err_1
@@ -30212,7 +30212,7 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 			/*line plan.ergo:128:39*/ x_1 := string(raw_1)
 			/*line plan.ergo:128:39*/ return x_1, nil
 			/*line plan.ergo:128:39*/
-		}, Read1: func(e_4 *Env, r_2 json__Reader_1) (string, error) {
+		}, Read1: func(e_4 *ergo__Env, r_2 json__Reader_1) (string, error) {
 			/*line plan.ergo:128:39*/ raw_2, err_2 := (r_2).String(e_4)
 			/*line plan.ergo:128:39*/ if err_2 != nil {
 				/*line plan.ergo:128:39*/ return *new(string), err_2
@@ -30221,7 +30221,7 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 			/*line plan.ergo:128:39*/ x_2 := string(raw_2)
 			/*line plan.ergo:128:39*/ return x_2, nil
 			/*line plan.ergo:128:39*/
-		}, Read2: func(e_5 *Env, r_3 json__Stream) (string, error) {
+		}, Read2: func(e_5 *ergo__Env, r_3 json__Stream) (string, error) {
 			/*line plan.ergo:128:39*/ raw_3, err_3 := (r_3).String(e_5)
 			/*line plan.ergo:128:39*/ if err_3 != nil {
 				/*line plan.ergo:128:39*/ return *new(string), err_3
@@ -30235,29 +30235,29 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 		t := (("{\"_tag\":" + v_2) + ",\"reason\":")
 //line plan.ergo:128:80
 		v_5 := json__EncodeMono_i398550328(env, struct {
-			/*line plan.ergo:128:80*/ Enc func(*Env, Writer, string) (struct{}, error)
-			/*line plan.ergo:128:80*/ Dec func(*Env, Reader) (string, error)
-			/*line plan.ergo:128:80*/ Direct0 func(*Env, json__text, string) json__text
-			/*line plan.ergo:128:80*/ Read0 func(*Env, http__queryReader) (string, error)
-			/*line plan.ergo:128:80*/ Read1 func(*Env, json__Reader_1) (string, error)
-			/*line plan.ergo:128:80*/ Read2 func(*Env, json__Stream) (string, error)
+			/*line plan.ergo:128:80*/ Enc func(*ergo__Env, ergo__Writer, string) (struct{}, error)
+			/*line plan.ergo:128:80*/ Dec func(*ergo__Env, ergo__Reader) (string, error)
+			/*line plan.ergo:128:80*/ Direct0 func(*ergo__Env, json__text, string) json__text
+			/*line plan.ergo:128:80*/ Read0 func(*ergo__Env, http__queryReader) (string, error)
+			/*line plan.ergo:128:80*/ Read1 func(*ergo__Env, json__Reader_1) (string, error)
+			/*line plan.ergo:128:80*/ Read2 func(*ergo__Env, json__Stream) (string, error)
 			/*line plan.ergo:128:80*/ Field *struct {
-				/*line plan.ergo:128:80*/ Enc func(*Env, Writer, string) (struct{}, error)
-				/*line plan.ergo:128:80*/ Dec func(*Env, Reader) (string, error)
-				/*line plan.ergo:128:80*/ Direct0 func(*Env, json__text, string) json__text
-				/*line plan.ergo:128:80*/ Read0 func(*Env, http__queryReader) (string, error)
-				/*line plan.ergo:128:80*/ Read1 func(*Env, json__Reader_1) (string, error)
-				/*line plan.ergo:128:80*/ Read2 func(*Env, json__Stream) (string, error)
+				/*line plan.ergo:128:80*/ Enc func(*ergo__Env, ergo__Writer, string) (struct{}, error)
+				/*line plan.ergo:128:80*/ Dec func(*ergo__Env, ergo__Reader) (string, error)
+				/*line plan.ergo:128:80*/ Direct0 func(*ergo__Env, json__text, string) json__text
+				/*line plan.ergo:128:80*/ Read0 func(*ergo__Env, http__queryReader) (string, error)
+				/*line plan.ergo:128:80*/ Read1 func(*ergo__Env, json__Reader_1) (string, error)
+				/*line plan.ergo:128:80*/ Read2 func(*ergo__Env, json__Stream) (string, error)
 				/*line plan.ergo:128:80*/ Absent func(string) bool
 				/*line plan.ergo:128:80*/ Empty string
 				/*line plan.ergo:128:80*/
 			}
 			/*line plan.ergo:128:80*/
-		}{Enc: func(e_6 *Env, w_1 Writer, v_3 string) (struct{}, error) {
+		}{Enc: func(e_6 *ergo__Env, w_1 ergo__Writer, v_3 string) (struct{}, error) {
 			/*line plan.ergo:128:80*/ w_1.String(e_6.task, string(v_3))
 			/*line plan.ergo:128:80*/ return struct{}{}, nil
 			/*line plan.ergo:128:80*/
-		}, Dec: func(e_7 *Env, r_4 Reader) (string, error) {
+		}, Dec: func(e_7 *ergo__Env, r_4 ergo__Reader) (string, error) {
 			/*line plan.ergo:128:80*/ raw_4, err_4 := r_4.String(e_7.task)
 			/*line plan.ergo:128:80*/ if err_4 != nil {
 				/*line plan.ergo:128:80*/ return *new(string), err_4
@@ -30266,14 +30266,14 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 			/*line plan.ergo:128:80*/ x_4 := string(raw_4)
 			/*line plan.ergo:128:80*/ return x_4, nil
 			/*line plan.ergo:128:80*/
-		}, Direct0: func(e_8 *Env, bv_1 json__text, v_4 string) json__text {
+		}, Direct0: func(e_8 *ergo__Env, bv_1 json__text, v_4 string) json__text {
 			/*line plan.ergo:128:80*/ b_1 := &bv_1
 			/*line plan.ergo:128:80*/ (b_1).sep()
 			/*line plan.ergo:128:80*/ (b_1).stringBody(string(v_4))
 			/*line plan.ergo:128:80*/ (b_1).setComma(bool(true))
 			/*line plan.ergo:128:80*/ return bv_1
 			/*line plan.ergo:128:80*/
-		}, Read0: func(e_9 *Env, r_5 http__queryReader) (string, error) {
+		}, Read0: func(e_9 *ergo__Env, r_5 http__queryReader) (string, error) {
 			/*line plan.ergo:128:80*/ raw_5, err_5 := (r_5).String(e_9)
 			/*line plan.ergo:128:80*/ if err_5 != nil {
 				/*line plan.ergo:128:80*/ return *new(string), err_5
@@ -30282,7 +30282,7 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 			/*line plan.ergo:128:80*/ x_5 := string(raw_5)
 			/*line plan.ergo:128:80*/ return x_5, nil
 			/*line plan.ergo:128:80*/
-		}, Read1: func(e_10 *Env, r_6 json__Reader_1) (string, error) {
+		}, Read1: func(e_10 *ergo__Env, r_6 json__Reader_1) (string, error) {
 			/*line plan.ergo:128:80*/ raw_6, err_6 := (r_6).String(e_10)
 			/*line plan.ergo:128:80*/ if err_6 != nil {
 				/*line plan.ergo:128:80*/ return *new(string), err_6
@@ -30291,7 +30291,7 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 			/*line plan.ergo:128:80*/ x_6 := string(raw_6)
 			/*line plan.ergo:128:80*/ return x_6, nil
 			/*line plan.ergo:128:80*/
-		}, Read2: func(e_11 *Env, r_7 json__Stream) (string, error) {
+		}, Read2: func(e_11 *ergo__Env, r_7 json__Stream) (string, error) {
 			/*line plan.ergo:128:80*/ raw_7, err_7 := (r_7).String(e_11)
 			/*line plan.ergo:128:80*/ if err_7 != nil {
 				/*line plan.ergo:128:80*/ return *new(string), err_7
@@ -30311,35 +30311,35 @@ func refusal(env *Env, asJSON bool, tag string, reason string) []string {
 }
 
 //line plan.ergo:137:1
-func Apply_1(env *Env, root string, plan string) []string {
+func ergo__Apply_1(env *ergo__Env, root string, plan string) []string {
 //line plan.ergo:137:1
 	env.task.Check()
 //line plan.ergo:138:2
 //line plan.ergo:138:10
 	v_2, err_1 := json__DecodeMono_i1506984564(env, struct {
-		/*line plan.ergo:138:10*/ Enc func(*Env, Writer, code__Planned) (struct{}, error)
-		/*line plan.ergo:138:10*/ Dec func(*Env, Reader) (code__Planned, error)
-		/*line plan.ergo:138:10*/ Direct0 func(*Env, json__text, code__Planned) json__text
-		/*line plan.ergo:138:10*/ Read0 func(*Env, http__queryReader) (code__Planned, error)
-		/*line plan.ergo:138:10*/ Read1 func(*Env, json__Reader_1) (code__Planned, error)
-		/*line plan.ergo:138:10*/ Read2 func(*Env, json__Stream) (code__Planned, error)
+		/*line plan.ergo:138:10*/ Enc func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+		/*line plan.ergo:138:10*/ Dec func(*ergo__Env, ergo__Reader) (code__Planned, error)
+		/*line plan.ergo:138:10*/ Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+		/*line plan.ergo:138:10*/ Read0 func(*ergo__Env, http__queryReader) (code__Planned, error)
+		/*line plan.ergo:138:10*/ Read1 func(*ergo__Env, json__Reader_1) (code__Planned, error)
+		/*line plan.ergo:138:10*/ Read2 func(*ergo__Env, json__Stream) (code__Planned, error)
 		/*line plan.ergo:138:10*/ Field *struct {
-			/*line plan.ergo:138:10*/ Enc func(*Env, Writer, code__Planned) (struct{}, error)
-			/*line plan.ergo:138:10*/ Dec func(*Env, Reader) (code__Planned, error)
-			/*line plan.ergo:138:10*/ Direct0 func(*Env, json__text, code__Planned) json__text
-			/*line plan.ergo:138:10*/ Read0 func(*Env, http__queryReader) (code__Planned, error)
-			/*line plan.ergo:138:10*/ Read1 func(*Env, json__Reader_1) (code__Planned, error)
-			/*line plan.ergo:138:10*/ Read2 func(*Env, json__Stream) (code__Planned, error)
+			/*line plan.ergo:138:10*/ Enc func(*ergo__Env, ergo__Writer, code__Planned) (struct{}, error)
+			/*line plan.ergo:138:10*/ Dec func(*ergo__Env, ergo__Reader) (code__Planned, error)
+			/*line plan.ergo:138:10*/ Direct0 func(*ergo__Env, json__text, code__Planned) json__text
+			/*line plan.ergo:138:10*/ Read0 func(*ergo__Env, http__queryReader) (code__Planned, error)
+			/*line plan.ergo:138:10*/ Read1 func(*ergo__Env, json__Reader_1) (code__Planned, error)
+			/*line plan.ergo:138:10*/ Read2 func(*ergo__Env, json__Stream) (code__Planned, error)
 			/*line plan.ergo:138:10*/ Absent func(code__Planned) bool
 			/*line plan.ergo:138:10*/ Empty code__Planned
 			/*line plan.ergo:138:10*/
 		}
 		/*line plan.ergo:138:10*/
-	}{Enc: func(e *Env, w Writer, v code__Planned) (struct{}, error) {
+	}{Enc: func(e *ergo__Env, w ergo__Writer, v code__Planned) (struct{}, error) {
 		/*line plan.ergo:138:10*/ ergo__EncodePlanned(e, w, v)
 		/*line plan.ergo:138:10*/ return struct{}{}, nil
 		/*line plan.ergo:138:10*/
-	}, Dec: func(e_1 *Env, r Reader) (code__Planned, error) {
+	}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (code__Planned, error) {
 		/*line plan.ergo:138:10*/ x, err := ergo__DecodePlanned(e_1, r)
 		/*line plan.ergo:138:10*/ if err != nil {
 			/*line plan.ergo:138:10*/ return *new(code__Planned), err
@@ -30372,7 +30372,7 @@ func Apply_1(env *Env, root string, plan string) []string {
 }
 
 //line plan.ergo:153:1
-func Rewrite_1(env *Env, root string, state string, before string, after string) []string {
+func ergo__Rewrite_1(env *ergo__Env, root string, state string, before string, after string) []string {
 //line plan.ergo:153:1
 	env.task.Check()
 //line plan.ergo:154:2
@@ -30380,29 +30380,29 @@ func Rewrite_1(env *Env, root string, state string, before string, after string)
 //line plan.ergo:155:2
 //line plan.ergo:155:10
 	v_2, err_1 := json__DecodeMono_i1727456663(env, struct {
-		/*line plan.ergo:155:10*/ Enc func(*Env, Writer, []code__Source) (struct{}, error)
-		/*line plan.ergo:155:10*/ Dec func(*Env, Reader) ([]code__Source, error)
-		/*line plan.ergo:155:10*/ Direct0 func(*Env, json__text, []code__Source) json__text
-		/*line plan.ergo:155:10*/ Read0 func(*Env, http__queryReader) ([]code__Source, error)
-		/*line plan.ergo:155:10*/ Read1 func(*Env, json__Reader_1) ([]code__Source, error)
-		/*line plan.ergo:155:10*/ Read2 func(*Env, json__Stream) ([]code__Source, error)
+		/*line plan.ergo:155:10*/ Enc func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+		/*line plan.ergo:155:10*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+		/*line plan.ergo:155:10*/ Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+		/*line plan.ergo:155:10*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Source, error)
+		/*line plan.ergo:155:10*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+		/*line plan.ergo:155:10*/ Read2 func(*ergo__Env, json__Stream) ([]code__Source, error)
 		/*line plan.ergo:155:10*/ Field *struct {
-			/*line plan.ergo:155:10*/ Enc func(*Env, Writer, []code__Source) (struct{}, error)
-			/*line plan.ergo:155:10*/ Dec func(*Env, Reader) ([]code__Source, error)
-			/*line plan.ergo:155:10*/ Direct0 func(*Env, json__text, []code__Source) json__text
-			/*line plan.ergo:155:10*/ Read0 func(*Env, http__queryReader) ([]code__Source, error)
-			/*line plan.ergo:155:10*/ Read1 func(*Env, json__Reader_1) ([]code__Source, error)
-			/*line plan.ergo:155:10*/ Read2 func(*Env, json__Stream) ([]code__Source, error)
+			/*line plan.ergo:155:10*/ Enc func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+			/*line plan.ergo:155:10*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+			/*line plan.ergo:155:10*/ Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+			/*line plan.ergo:155:10*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Source, error)
+			/*line plan.ergo:155:10*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+			/*line plan.ergo:155:10*/ Read2 func(*ergo__Env, json__Stream) ([]code__Source, error)
 			/*line plan.ergo:155:10*/ Absent func([]code__Source) bool
 			/*line plan.ergo:155:10*/ Empty []code__Source
 			/*line plan.ergo:155:10*/
 		}
 		/*line plan.ergo:155:10*/
-	}{Enc: func(e *Env, w Writer, v []code__Source) (struct{}, error) {
+	}{Enc: func(e *ergo__Env, w ergo__Writer, v []code__Source) (struct{}, error) {
 		/*line plan.ergo:155:10*/ ergo__EncodeSlice_25(e, w, v)
 		/*line plan.ergo:155:10*/ return struct{}{}, nil
 		/*line plan.ergo:155:10*/
-	}, Dec: func(e_1 *Env, r Reader) ([]code__Source, error) {
+	}, Dec: func(e_1 *ergo__Env, r ergo__Reader) ([]code__Source, error) {
 		/*line plan.ergo:155:10*/ x, err := ergo__DecodeSlice_25(e_1, r)
 		/*line plan.ergo:155:10*/ if err != nil {
 			/*line plan.ergo:155:10*/ return *new([]code__Source), err
@@ -30425,29 +30425,29 @@ func Rewrite_1(env *Env, root string, state string, before string, after string)
 //line plan.ergo:159:2
 //line plan.ergo:159:10
 	v_6, err_3 := json__DecodeMono_i1727456663(env, struct {
-		/*line plan.ergo:159:10*/ Enc func(*Env, Writer, []code__Source) (struct{}, error)
-		/*line plan.ergo:159:10*/ Dec func(*Env, Reader) ([]code__Source, error)
-		/*line plan.ergo:159:10*/ Direct0 func(*Env, json__text, []code__Source) json__text
-		/*line plan.ergo:159:10*/ Read0 func(*Env, http__queryReader) ([]code__Source, error)
-		/*line plan.ergo:159:10*/ Read1 func(*Env, json__Reader_1) ([]code__Source, error)
-		/*line plan.ergo:159:10*/ Read2 func(*Env, json__Stream) ([]code__Source, error)
+		/*line plan.ergo:159:10*/ Enc func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+		/*line plan.ergo:159:10*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+		/*line plan.ergo:159:10*/ Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+		/*line plan.ergo:159:10*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Source, error)
+		/*line plan.ergo:159:10*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+		/*line plan.ergo:159:10*/ Read2 func(*ergo__Env, json__Stream) ([]code__Source, error)
 		/*line plan.ergo:159:10*/ Field *struct {
-			/*line plan.ergo:159:10*/ Enc func(*Env, Writer, []code__Source) (struct{}, error)
-			/*line plan.ergo:159:10*/ Dec func(*Env, Reader) ([]code__Source, error)
-			/*line plan.ergo:159:10*/ Direct0 func(*Env, json__text, []code__Source) json__text
-			/*line plan.ergo:159:10*/ Read0 func(*Env, http__queryReader) ([]code__Source, error)
-			/*line plan.ergo:159:10*/ Read1 func(*Env, json__Reader_1) ([]code__Source, error)
-			/*line plan.ergo:159:10*/ Read2 func(*Env, json__Stream) ([]code__Source, error)
+			/*line plan.ergo:159:10*/ Enc func(*ergo__Env, ergo__Writer, []code__Source) (struct{}, error)
+			/*line plan.ergo:159:10*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Source, error)
+			/*line plan.ergo:159:10*/ Direct0 func(*ergo__Env, json__text, []code__Source) json__text
+			/*line plan.ergo:159:10*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Source, error)
+			/*line plan.ergo:159:10*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Source, error)
+			/*line plan.ergo:159:10*/ Read2 func(*ergo__Env, json__Stream) ([]code__Source, error)
 			/*line plan.ergo:159:10*/ Absent func([]code__Source) bool
 			/*line plan.ergo:159:10*/ Empty []code__Source
 			/*line plan.ergo:159:10*/
 		}
 		/*line plan.ergo:159:10*/
-	}{Enc: func(e_3 *Env, w_1 Writer, v_4 []code__Source) (struct{}, error) {
+	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_4 []code__Source) (struct{}, error) {
 		/*line plan.ergo:159:10*/ ergo__EncodeSlice_25(e_3, w_1, v_4)
 		/*line plan.ergo:159:10*/ return struct{}{}, nil
 		/*line plan.ergo:159:10*/
-	}, Dec: func(e_4 *Env, r_1 Reader) ([]code__Source, error) {
+	}, Dec: func(e_4 *ergo__Env, r_1 ergo__Reader) ([]code__Source, error) {
 		/*line plan.ergo:159:10*/ x_1, err_2 := ergo__DecodeSlice_25(e_4, r_1)
 		/*line plan.ergo:159:10*/ if err_2 != nil {
 			/*line plan.ergo:159:10*/ return *new([]code__Source), err_2
@@ -30498,7 +30498,7 @@ func Rewrite_1(env *Env, root string, state string, before string, after string)
 }
 
 //line plan.ergo:172:1
-func applied(env *Env, by string, files code__Files, p code__Planned) []string {
+func applied(env *ergo__Env, by string, files code__Files, p code__Planned) []string {
 //line plan.ergo:172:1
 	env.task.Check()
 //line plan.ergo:173:2
@@ -30574,7 +30574,7 @@ func applied(env *Env, by string, files code__Files, p code__Planned) []string {
 }
 
 //line plan.ergo:198:1
-func Recover_1(env *Env, root string) []string {
+func ergo__Recover_1(env *ergo__Env, root string) []string {
 //line plan.ergo:198:1
 	env.task.Check()
 //line plan.ergo:199:2
@@ -30621,7 +30621,7 @@ func Recover_1(env *Env, root string) []string {
 }
 
 //line tool.ergo:16:1
-func Run_1(env *Env, args []string, tables string) []string {
+func ergo__Run_1(env *ergo__Env, args []string, tables string) []string {
 //line tool.ergo:16:1
 	env.task.Check()
 //line tool.ergo:17:2
@@ -30630,7 +30630,7 @@ func Run_1(env *Env, args []string, tables string) []string {
 //line tool.ergo:17:2
 	if err != nil {
 		/*line tool.ergo:17:2*/ switch caught := err.(type) {
-		/*line tool.ergo:17:2*/ case BadTables:
+		/*line tool.ergo:17:2*/ case ergo__BadTables:
 			/*line tool.ergo:17:2*/ b := caught
 //line tool.ergo:19:3
 			return b.Out
@@ -30670,34 +30670,34 @@ func Run_1(env *Env, args []string, tables string) []string {
 }
 
 //line tool.ergo:29:1
-func tablesOf(env *Env, text string) (code__Tables, error) {
+func tablesOf(env *ergo__Env, text string) (code__Tables, error) {
 //line tool.ergo:29:1
 	env.task.Check()
 //line tool.ergo:30:2
 	v_2, err_1 := json__DecodeMono_i3127479063(env, struct {
-		/*line tool.ergo:30:2*/ Enc func(*Env, Writer, code__Tables) (struct{}, error)
-		/*line tool.ergo:30:2*/ Dec func(*Env, Reader) (code__Tables, error)
-		/*line tool.ergo:30:2*/ Direct0 func(*Env, json__text, code__Tables) json__text
-		/*line tool.ergo:30:2*/ Read0 func(*Env, http__queryReader) (code__Tables, error)
-		/*line tool.ergo:30:2*/ Read1 func(*Env, json__Reader_1) (code__Tables, error)
-		/*line tool.ergo:30:2*/ Read2 func(*Env, json__Stream) (code__Tables, error)
+		/*line tool.ergo:30:2*/ Enc func(*ergo__Env, ergo__Writer, code__Tables) (struct{}, error)
+		/*line tool.ergo:30:2*/ Dec func(*ergo__Env, ergo__Reader) (code__Tables, error)
+		/*line tool.ergo:30:2*/ Direct0 func(*ergo__Env, json__text, code__Tables) json__text
+		/*line tool.ergo:30:2*/ Read0 func(*ergo__Env, http__queryReader) (code__Tables, error)
+		/*line tool.ergo:30:2*/ Read1 func(*ergo__Env, json__Reader_1) (code__Tables, error)
+		/*line tool.ergo:30:2*/ Read2 func(*ergo__Env, json__Stream) (code__Tables, error)
 		/*line tool.ergo:30:2*/ Field *struct {
-			/*line tool.ergo:30:2*/ Enc func(*Env, Writer, code__Tables) (struct{}, error)
-			/*line tool.ergo:30:2*/ Dec func(*Env, Reader) (code__Tables, error)
-			/*line tool.ergo:30:2*/ Direct0 func(*Env, json__text, code__Tables) json__text
-			/*line tool.ergo:30:2*/ Read0 func(*Env, http__queryReader) (code__Tables, error)
-			/*line tool.ergo:30:2*/ Read1 func(*Env, json__Reader_1) (code__Tables, error)
-			/*line tool.ergo:30:2*/ Read2 func(*Env, json__Stream) (code__Tables, error)
+			/*line tool.ergo:30:2*/ Enc func(*ergo__Env, ergo__Writer, code__Tables) (struct{}, error)
+			/*line tool.ergo:30:2*/ Dec func(*ergo__Env, ergo__Reader) (code__Tables, error)
+			/*line tool.ergo:30:2*/ Direct0 func(*ergo__Env, json__text, code__Tables) json__text
+			/*line tool.ergo:30:2*/ Read0 func(*ergo__Env, http__queryReader) (code__Tables, error)
+			/*line tool.ergo:30:2*/ Read1 func(*ergo__Env, json__Reader_1) (code__Tables, error)
+			/*line tool.ergo:30:2*/ Read2 func(*ergo__Env, json__Stream) (code__Tables, error)
 			/*line tool.ergo:30:2*/ Absent func(code__Tables) bool
 			/*line tool.ergo:30:2*/ Empty code__Tables
 			/*line tool.ergo:30:2*/
 		}
 		/*line tool.ergo:30:2*/
-	}{Enc: func(e *Env, w Writer, v code__Tables) (struct{}, error) {
+	}{Enc: func(e *ergo__Env, w ergo__Writer, v code__Tables) (struct{}, error) {
 		/*line tool.ergo:30:2*/ ergo__EncodeTables(e, w, v)
 		/*line tool.ergo:30:2*/ return struct{}{}, nil
 		/*line tool.ergo:30:2*/
-	}, Dec: func(e_1 *Env, r Reader) (code__Tables, error) {
+	}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (code__Tables, error) {
 		/*line tool.ergo:30:2*/ x, err := ergo__DecodeTables(e_1, r)
 		/*line tool.ergo:30:2*/ if err != nil {
 			/*line tool.ergo:30:2*/ return *new(code__Tables), err
@@ -30713,11 +30713,11 @@ func tablesOf(env *Env, text string) (code__Tables, error) {
 			/*line tool.ergo:30:2*/ _ = n
 			/*line tool.ergo:30:2*/ m := n
 //line tool.ergo:32:3
-			return *new(code__Tables), BadTables{Out: []string{"1", "", ("ergo: the tables are not JSON at " + string(strconv.AppendInt(make([]byte, 0, 20), int64(m.Offset), 10)) + ": " + m.Reason + "\n")}}
+			return *new(code__Tables), ergo__BadTables{Out: []string{"1", "", ("ergo: the tables are not JSON at " + string(strconv.AppendInt(make([]byte, 0, 20), int64(m.Offset), 10)) + ": " + m.Reason + "\n")}}
 			/*line tool.ergo:32:3*/
 		default:
 //line tool.ergo:34:3
-			return *new(code__Tables), BadTables{Out: []string{"1", "", "ergo: the tables do not decode as code.Tables\n"}}
+			return *new(code__Tables), ergo__BadTables{Out: []string{"1", "", "ergo: the tables do not decode as code.Tables\n"}}
 			/*line tool.ergo:34:3*/
 		}
 		/*line tool.ergo:34:3*/
@@ -30730,19 +30730,19 @@ func tablesOf(env *Env, text string) (code__Tables, error) {
 }
 
 //line tool.ergo:39:1
-type BadTables struct {
+type ergo__BadTables struct {
 	/*line tool.ergo:39:1*/ Out []string
 	/*line tool.ergo:39:1*/
 }
 
 /*line tool.ergo:39:1*/
-func (e BadTables) Error() string {
-	/*line tool.ergo:39:1*/ return "BadTables" + ergo__textBadTables(e)
+func (e ergo__BadTables) Error() string {
+	/*line tool.ergo:39:1*/ return "BadTables" + ergo__textergo__BadTables(e)
 	/*line tool.ergo:39:1*/
 }
 
 //line tool.ergo:42:1
-func rootApi(env *Env, t code__Tables) []code__Contract {
+func rootApi(env *ergo__Env, t code__Tables) []code__Contract {
 //line tool.ergo:43:2
 	var v []code__Contract
 	/*line tool.ergo:43:2*/ {
@@ -30754,7 +30754,7 @@ func rootApi(env *Env, t code__Tables) []code__Contract {
 //line tool.ergo:44:3
 		(&env_1).task.Check()
 //line tool.ergo:44:11
-		v_2, err := (&env_1).Reader.Api((&env_1).task, code__ApiQuery{Package: (Option[string]{tag: 1})})
+		v_2, err := (&env_1).Reader.Api((&env_1).task, code__ApiQuery{Package: (ergo__Option[string]{tag: 1})})
 //line tool.ergo:44:3
 		if err != nil {
 			/*line tool.ergo:44:3*/ switch err.(type) {
@@ -30777,7 +30777,7 @@ func rootApi(env *Env, t code__Tables) []code__Contract {
 }
 
 //line tool.ergo:55:1
-func Api_1(env *Env, tables string, asJSON bool) []string {
+func ergo__Api_1(env *ergo__Env, tables string, asJSON bool) []string {
 //line tool.ergo:55:1
 	env.task.Check()
 //line tool.ergo:56:2
@@ -30786,7 +30786,7 @@ func Api_1(env *Env, tables string, asJSON bool) []string {
 //line tool.ergo:56:2
 	if err != nil {
 		/*line tool.ergo:56:2*/ switch caught := err.(type) {
-		/*line tool.ergo:56:2*/ case BadTables:
+		/*line tool.ergo:56:2*/ case ergo__BadTables:
 			/*line tool.ergo:56:2*/ b := caught
 //line tool.ergo:58:3
 			return b.Out
@@ -30808,29 +30808,29 @@ func Api_1(env *Env, tables string, asJSON bool) []string {
 	if asJSON {
 //line tool.ergo:61:28
 		v_5 := json__EncodeMono_i3759981688(env, struct {
-			/*line tool.ergo:61:28*/ Enc func(*Env, Writer, []code__Contract) (struct{}, error)
-			/*line tool.ergo:61:28*/ Dec func(*Env, Reader) ([]code__Contract, error)
-			/*line tool.ergo:61:28*/ Direct0 func(*Env, json__text, []code__Contract) json__text
-			/*line tool.ergo:61:28*/ Read0 func(*Env, http__queryReader) ([]code__Contract, error)
-			/*line tool.ergo:61:28*/ Read1 func(*Env, json__Reader_1) ([]code__Contract, error)
-			/*line tool.ergo:61:28*/ Read2 func(*Env, json__Stream) ([]code__Contract, error)
+			/*line tool.ergo:61:28*/ Enc func(*ergo__Env, ergo__Writer, []code__Contract) (struct{}, error)
+			/*line tool.ergo:61:28*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Contract, error)
+			/*line tool.ergo:61:28*/ Direct0 func(*ergo__Env, json__text, []code__Contract) json__text
+			/*line tool.ergo:61:28*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Contract, error)
+			/*line tool.ergo:61:28*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Contract, error)
+			/*line tool.ergo:61:28*/ Read2 func(*ergo__Env, json__Stream) ([]code__Contract, error)
 			/*line tool.ergo:61:28*/ Field *struct {
-				/*line tool.ergo:61:28*/ Enc func(*Env, Writer, []code__Contract) (struct{}, error)
-				/*line tool.ergo:61:28*/ Dec func(*Env, Reader) ([]code__Contract, error)
-				/*line tool.ergo:61:28*/ Direct0 func(*Env, json__text, []code__Contract) json__text
-				/*line tool.ergo:61:28*/ Read0 func(*Env, http__queryReader) ([]code__Contract, error)
-				/*line tool.ergo:61:28*/ Read1 func(*Env, json__Reader_1) ([]code__Contract, error)
-				/*line tool.ergo:61:28*/ Read2 func(*Env, json__Stream) ([]code__Contract, error)
+				/*line tool.ergo:61:28*/ Enc func(*ergo__Env, ergo__Writer, []code__Contract) (struct{}, error)
+				/*line tool.ergo:61:28*/ Dec func(*ergo__Env, ergo__Reader) ([]code__Contract, error)
+				/*line tool.ergo:61:28*/ Direct0 func(*ergo__Env, json__text, []code__Contract) json__text
+				/*line tool.ergo:61:28*/ Read0 func(*ergo__Env, http__queryReader) ([]code__Contract, error)
+				/*line tool.ergo:61:28*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__Contract, error)
+				/*line tool.ergo:61:28*/ Read2 func(*ergo__Env, json__Stream) ([]code__Contract, error)
 				/*line tool.ergo:61:28*/ Absent func([]code__Contract) bool
 				/*line tool.ergo:61:28*/ Empty []code__Contract
 				/*line tool.ergo:61:28*/
 			}
 			/*line tool.ergo:61:28*/
-		}{Enc: func(e *Env, w Writer, v_3 []code__Contract) (struct{}, error) {
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_3 []code__Contract) (struct{}, error) {
 			/*line tool.ergo:61:28*/ ergo__EncodeSlice_8(e, w, v_3)
 			/*line tool.ergo:61:28*/ return struct{}{}, nil
 			/*line tool.ergo:61:28*/
-		}, Dec: func(e_1 *Env, r Reader) ([]code__Contract, error) {
+		}, Dec: func(e_1 *ergo__Env, r ergo__Reader) ([]code__Contract, error) {
 			/*line tool.ergo:61:28*/ x, err_1 := ergo__DecodeSlice_8(e_1, r)
 			/*line tool.ergo:61:28*/ if err_1 != nil {
 				/*line tool.ergo:61:28*/ return *new([]code__Contract), err_1
@@ -30852,7 +30852,7 @@ func Api_1(env *Env, tables string, asJSON bool) []string {
 }
 
 //line tool.ergo:66:1
-func ApiDiff_1(env *Env, old string, new_1 string, asJSON bool) []string {
+func ergo__ApiDiff_1(env *ergo__Env, old string, new_1 string, asJSON bool) []string {
 //line tool.ergo:66:1
 	env.task.Check()
 //line tool.ergo:67:2
@@ -30861,7 +30861,7 @@ func ApiDiff_1(env *Env, old string, new_1 string, asJSON bool) []string {
 //line tool.ergo:67:2
 	if err != nil {
 		/*line tool.ergo:67:2*/ switch caught := err.(type) {
-		/*line tool.ergo:67:2*/ case BadTables:
+		/*line tool.ergo:67:2*/ case ergo__BadTables:
 			/*line tool.ergo:67:2*/ b := caught
 //line tool.ergo:69:3
 			return b.Out
@@ -30879,7 +30879,7 @@ func ApiDiff_1(env *Env, old string, new_1 string, asJSON bool) []string {
 //line tool.ergo:71:2
 	if err_1 != nil {
 		/*line tool.ergo:71:2*/ switch caught_1 := err_1.(type) {
-		/*line tool.ergo:71:2*/ case BadTables:
+		/*line tool.ergo:71:2*/ case ergo__BadTables:
 			/*line tool.ergo:71:2*/ x := caught_1
 //line tool.ergo:73:3
 			return x.Out
@@ -30908,29 +30908,29 @@ func ApiDiff_1(env *Env, old string, new_1 string, asJSON bool) []string {
 	if asJSON {
 //line tool.ergo:76:28
 		v_8 := json__EncodeMono_i2509919962(env, struct {
-			/*line tool.ergo:76:28*/ Enc func(*Env, Writer, []code__ApiChange) (struct{}, error)
-			/*line tool.ergo:76:28*/ Dec func(*Env, Reader) ([]code__ApiChange, error)
-			/*line tool.ergo:76:28*/ Direct0 func(*Env, json__text, []code__ApiChange) json__text
-			/*line tool.ergo:76:28*/ Read0 func(*Env, http__queryReader) ([]code__ApiChange, error)
-			/*line tool.ergo:76:28*/ Read1 func(*Env, json__Reader_1) ([]code__ApiChange, error)
-			/*line tool.ergo:76:28*/ Read2 func(*Env, json__Stream) ([]code__ApiChange, error)
+			/*line tool.ergo:76:28*/ Enc func(*ergo__Env, ergo__Writer, []code__ApiChange) (struct{}, error)
+			/*line tool.ergo:76:28*/ Dec func(*ergo__Env, ergo__Reader) ([]code__ApiChange, error)
+			/*line tool.ergo:76:28*/ Direct0 func(*ergo__Env, json__text, []code__ApiChange) json__text
+			/*line tool.ergo:76:28*/ Read0 func(*ergo__Env, http__queryReader) ([]code__ApiChange, error)
+			/*line tool.ergo:76:28*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__ApiChange, error)
+			/*line tool.ergo:76:28*/ Read2 func(*ergo__Env, json__Stream) ([]code__ApiChange, error)
 			/*line tool.ergo:76:28*/ Field *struct {
-				/*line tool.ergo:76:28*/ Enc func(*Env, Writer, []code__ApiChange) (struct{}, error)
-				/*line tool.ergo:76:28*/ Dec func(*Env, Reader) ([]code__ApiChange, error)
-				/*line tool.ergo:76:28*/ Direct0 func(*Env, json__text, []code__ApiChange) json__text
-				/*line tool.ergo:76:28*/ Read0 func(*Env, http__queryReader) ([]code__ApiChange, error)
-				/*line tool.ergo:76:28*/ Read1 func(*Env, json__Reader_1) ([]code__ApiChange, error)
-				/*line tool.ergo:76:28*/ Read2 func(*Env, json__Stream) ([]code__ApiChange, error)
+				/*line tool.ergo:76:28*/ Enc func(*ergo__Env, ergo__Writer, []code__ApiChange) (struct{}, error)
+				/*line tool.ergo:76:28*/ Dec func(*ergo__Env, ergo__Reader) ([]code__ApiChange, error)
+				/*line tool.ergo:76:28*/ Direct0 func(*ergo__Env, json__text, []code__ApiChange) json__text
+				/*line tool.ergo:76:28*/ Read0 func(*ergo__Env, http__queryReader) ([]code__ApiChange, error)
+				/*line tool.ergo:76:28*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__ApiChange, error)
+				/*line tool.ergo:76:28*/ Read2 func(*ergo__Env, json__Stream) ([]code__ApiChange, error)
 				/*line tool.ergo:76:28*/ Absent func([]code__ApiChange) bool
 				/*line tool.ergo:76:28*/ Empty []code__ApiChange
 				/*line tool.ergo:76:28*/
 			}
 			/*line tool.ergo:76:28*/
-		}{Enc: func(e *Env, w Writer, v_6 []code__ApiChange) (struct{}, error) {
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_6 []code__ApiChange) (struct{}, error) {
 			/*line tool.ergo:76:28*/ ergo__EncodeSlice_2(e, w, v_6)
 			/*line tool.ergo:76:28*/ return struct{}{}, nil
 			/*line tool.ergo:76:28*/
-		}, Dec: func(e_1 *Env, r Reader) ([]code__ApiChange, error) {
+		}, Dec: func(e_1 *ergo__Env, r ergo__Reader) ([]code__ApiChange, error) {
 			/*line tool.ergo:76:28*/ x_1, err_2 := ergo__DecodeSlice_2(e_1, r)
 			/*line tool.ergo:76:28*/ if err_2 != nil {
 				/*line tool.ergo:76:28*/ return *new([]code__ApiChange), err_2
@@ -30952,7 +30952,7 @@ func ApiDiff_1(env *Env, old string, new_1 string, asJSON bool) []string {
 }
 
 //line tool.ergo:82:1
-func Machines_1(env *Env, tables string, asJSON bool) []string {
+func ergo__Machines_1(env *ergo__Env, tables string, asJSON bool) []string {
 //line tool.ergo:82:1
 	env.task.Check()
 //line tool.ergo:83:2
@@ -30961,7 +30961,7 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 //line tool.ergo:83:2
 	if err != nil {
 		/*line tool.ergo:83:2*/ switch caught := err.(type) {
-		/*line tool.ergo:83:2*/ case BadTables:
+		/*line tool.ergo:83:2*/ case ergo__BadTables:
 			/*line tool.ergo:83:2*/ b := caught
 //line tool.ergo:85:3
 			return b.Out
@@ -31018,7 +31018,7 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 				/*line tool.ergo:97:6*/ var v_7 code__MachineView = v_4
 //line tool.ergo:100:4
 //line tool.ergo:100:4
-				views = /*line tool.ergo:100:12*/ Append[code__MachineView](views, ergo__CloneMachineView(v_7))
+				views = /*line tool.ergo:100:12*/ ergo__Append[code__MachineView](views, ergo__CloneMachineView(v_7))
 //line tool.ergo:93:3
 				env.task.Check()
 				/*line tool.ergo:93:3*/
@@ -31035,29 +31035,29 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 //line tool.ergo:104:3
 //line tool.ergo:104:24
 		v_11 := json__EncodeMono_i1520769254(env, struct {
-			/*line tool.ergo:104:24*/ Enc func(*Env, Writer, []code__MachineView) (struct{}, error)
-			/*line tool.ergo:104:24*/ Dec func(*Env, Reader) ([]code__MachineView, error)
-			/*line tool.ergo:104:24*/ Direct0 func(*Env, json__text, []code__MachineView) json__text
-			/*line tool.ergo:104:24*/ Read0 func(*Env, http__queryReader) ([]code__MachineView, error)
-			/*line tool.ergo:104:24*/ Read1 func(*Env, json__Reader_1) ([]code__MachineView, error)
-			/*line tool.ergo:104:24*/ Read2 func(*Env, json__Stream) ([]code__MachineView, error)
+			/*line tool.ergo:104:24*/ Enc func(*ergo__Env, ergo__Writer, []code__MachineView) (struct{}, error)
+			/*line tool.ergo:104:24*/ Dec func(*ergo__Env, ergo__Reader) ([]code__MachineView, error)
+			/*line tool.ergo:104:24*/ Direct0 func(*ergo__Env, json__text, []code__MachineView) json__text
+			/*line tool.ergo:104:24*/ Read0 func(*ergo__Env, http__queryReader) ([]code__MachineView, error)
+			/*line tool.ergo:104:24*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__MachineView, error)
+			/*line tool.ergo:104:24*/ Read2 func(*ergo__Env, json__Stream) ([]code__MachineView, error)
 			/*line tool.ergo:104:24*/ Field *struct {
-				/*line tool.ergo:104:24*/ Enc func(*Env, Writer, []code__MachineView) (struct{}, error)
-				/*line tool.ergo:104:24*/ Dec func(*Env, Reader) ([]code__MachineView, error)
-				/*line tool.ergo:104:24*/ Direct0 func(*Env, json__text, []code__MachineView) json__text
-				/*line tool.ergo:104:24*/ Read0 func(*Env, http__queryReader) ([]code__MachineView, error)
-				/*line tool.ergo:104:24*/ Read1 func(*Env, json__Reader_1) ([]code__MachineView, error)
-				/*line tool.ergo:104:24*/ Read2 func(*Env, json__Stream) ([]code__MachineView, error)
+				/*line tool.ergo:104:24*/ Enc func(*ergo__Env, ergo__Writer, []code__MachineView) (struct{}, error)
+				/*line tool.ergo:104:24*/ Dec func(*ergo__Env, ergo__Reader) ([]code__MachineView, error)
+				/*line tool.ergo:104:24*/ Direct0 func(*ergo__Env, json__text, []code__MachineView) json__text
+				/*line tool.ergo:104:24*/ Read0 func(*ergo__Env, http__queryReader) ([]code__MachineView, error)
+				/*line tool.ergo:104:24*/ Read1 func(*ergo__Env, json__Reader_1) ([]code__MachineView, error)
+				/*line tool.ergo:104:24*/ Read2 func(*ergo__Env, json__Stream) ([]code__MachineView, error)
 				/*line tool.ergo:104:24*/ Absent func([]code__MachineView) bool
 				/*line tool.ergo:104:24*/ Empty []code__MachineView
 				/*line tool.ergo:104:24*/
 			}
 			/*line tool.ergo:104:24*/
-		}{Enc: func(e *Env, w Writer, v_9 []code__MachineView) (struct{}, error) {
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_9 []code__MachineView) (struct{}, error) {
 			/*line tool.ergo:104:24*/ ergo__EncodeSlice_18(e, w, v_9)
 			/*line tool.ergo:104:24*/ return struct{}{}, nil
 			/*line tool.ergo:104:24*/
-		}, Dec: func(e_1 *Env, r Reader) ([]code__MachineView, error) {
+		}, Dec: func(e_1 *ergo__Env, r ergo__Reader) ([]code__MachineView, error) {
 			/*line tool.ergo:104:24*/ x, err_2 := ergo__DecodeSlice_18(e_1, r)
 			/*line tool.ergo:104:24*/ if err_2 != nil {
 				/*line tool.ergo:104:24*/ return *new([]code__MachineView), err_2
@@ -31100,35 +31100,35 @@ func Machines_1(env *Env, tables string, asJSON bool) []string {
 }
 
 //line plan.ergo:50:1
-func ergo__askGoSlot(env *Env, rw go__io.ReadWriter, a ask, s0 *replyReport, s1 *replyText, s2 *replyFailed) (uint8, error) {
+func ergo__askGoSlot(env *ergo__Env, rw go__io.ReadWriter, a ask, s0 *replyReport, s1 *replyText, s2 *replyFailed) (uint8, error) {
 //line plan.ergo:50:1
 	env.task.Check()
 //line plan.ergo:51:2
 //line plan.ergo:51:16
 	v_2 := json__EncodeMono_i443730450(env, struct {
-		/*line plan.ergo:51:16*/ Enc func(*Env, Writer, ask) (struct{}, error)
-		/*line plan.ergo:51:16*/ Dec func(*Env, Reader) (ask, error)
-		/*line plan.ergo:51:16*/ Direct0 func(*Env, json__text, ask) json__text
-		/*line plan.ergo:51:16*/ Read0 func(*Env, http__queryReader) (ask, error)
-		/*line plan.ergo:51:16*/ Read1 func(*Env, json__Reader_1) (ask, error)
-		/*line plan.ergo:51:16*/ Read2 func(*Env, json__Stream) (ask, error)
+		/*line plan.ergo:51:16*/ Enc func(*ergo__Env, ergo__Writer, ask) (struct{}, error)
+		/*line plan.ergo:51:16*/ Dec func(*ergo__Env, ergo__Reader) (ask, error)
+		/*line plan.ergo:51:16*/ Direct0 func(*ergo__Env, json__text, ask) json__text
+		/*line plan.ergo:51:16*/ Read0 func(*ergo__Env, http__queryReader) (ask, error)
+		/*line plan.ergo:51:16*/ Read1 func(*ergo__Env, json__Reader_1) (ask, error)
+		/*line plan.ergo:51:16*/ Read2 func(*ergo__Env, json__Stream) (ask, error)
 		/*line plan.ergo:51:16*/ Field *struct {
-			/*line plan.ergo:51:16*/ Enc func(*Env, Writer, ask) (struct{}, error)
-			/*line plan.ergo:51:16*/ Dec func(*Env, Reader) (ask, error)
-			/*line plan.ergo:51:16*/ Direct0 func(*Env, json__text, ask) json__text
-			/*line plan.ergo:51:16*/ Read0 func(*Env, http__queryReader) (ask, error)
-			/*line plan.ergo:51:16*/ Read1 func(*Env, json__Reader_1) (ask, error)
-			/*line plan.ergo:51:16*/ Read2 func(*Env, json__Stream) (ask, error)
+			/*line plan.ergo:51:16*/ Enc func(*ergo__Env, ergo__Writer, ask) (struct{}, error)
+			/*line plan.ergo:51:16*/ Dec func(*ergo__Env, ergo__Reader) (ask, error)
+			/*line plan.ergo:51:16*/ Direct0 func(*ergo__Env, json__text, ask) json__text
+			/*line plan.ergo:51:16*/ Read0 func(*ergo__Env, http__queryReader) (ask, error)
+			/*line plan.ergo:51:16*/ Read1 func(*ergo__Env, json__Reader_1) (ask, error)
+			/*line plan.ergo:51:16*/ Read2 func(*ergo__Env, json__Stream) (ask, error)
 			/*line plan.ergo:51:16*/ Absent func(ask) bool
 			/*line plan.ergo:51:16*/ Empty ask
 			/*line plan.ergo:51:16*/
 		}
 		/*line plan.ergo:51:16*/
-	}{Enc: func(e *Env, w Writer, v ask) (struct{}, error) {
+	}{Enc: func(e *ergo__Env, w ergo__Writer, v ask) (struct{}, error) {
 		/*line plan.ergo:51:16*/ ergo__Encodeask(e, w, v)
 		/*line plan.ergo:51:16*/ return struct{}{}, nil
 		/*line plan.ergo:51:16*/
-	}, Dec: func(e_1 *Env, r Reader) (ask, error) {
+	}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (ask, error) {
 		/*line plan.ergo:51:16*/ x, err := ergo__Decodeask(e_1, r)
 		/*line plan.ergo:51:16*/ if err != nil {
 			/*line plan.ergo:51:16*/ return *new(ask), err
@@ -31171,7 +31171,7 @@ func ergo__askGoSlot(env *Env, rw go__io.ReadWriter, a ask, s0 *replyReport, s1 
 	s := r_3
 	/*line plan.ergo:60:13*/ switch ergoNilTag(s) {
 	/*line plan.ergo:60:13*/ case 0:
-		/*line plan.ergo:60:13*/ b_1 := Some[*go__bytes.Buffer]{Value: s}
+		/*line plan.ergo:60:13*/ b_1 := ergo__Some[*go__bytes.Buffer]{Value: s}
 //line plan.ergo:62:3
 		r_4 := b_1.Value.String()
 		/*line plan.ergo:62:3*/ v_4 = r_4
@@ -31187,29 +31187,29 @@ func ergo__askGoSlot(env *Env, rw go__io.ReadWriter, a ask, s0 *replyReport, s1 
 	/*line plan.ergo:64:3*/ var text string = v_4
 //line plan.ergo:66:2
 	v_7, err_4 := json__DecodeMono_i697505319(env, struct {
-		/*line plan.ergo:66:2*/ Enc func(*Env, Writer, reply) (struct{}, error)
-		/*line plan.ergo:66:2*/ Dec func(*Env, Reader) (reply, error)
-		/*line plan.ergo:66:2*/ Direct0 func(*Env, json__text, reply) json__text
-		/*line plan.ergo:66:2*/ Read0 func(*Env, http__queryReader) (reply, error)
-		/*line plan.ergo:66:2*/ Read1 func(*Env, json__Reader_1) (reply, error)
-		/*line plan.ergo:66:2*/ Read2 func(*Env, json__Stream) (reply, error)
+		/*line plan.ergo:66:2*/ Enc func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
+		/*line plan.ergo:66:2*/ Dec func(*ergo__Env, ergo__Reader) (reply, error)
+		/*line plan.ergo:66:2*/ Direct0 func(*ergo__Env, json__text, reply) json__text
+		/*line plan.ergo:66:2*/ Read0 func(*ergo__Env, http__queryReader) (reply, error)
+		/*line plan.ergo:66:2*/ Read1 func(*ergo__Env, json__Reader_1) (reply, error)
+		/*line plan.ergo:66:2*/ Read2 func(*ergo__Env, json__Stream) (reply, error)
 		/*line plan.ergo:66:2*/ Field *struct {
-			/*line plan.ergo:66:2*/ Enc func(*Env, Writer, reply) (struct{}, error)
-			/*line plan.ergo:66:2*/ Dec func(*Env, Reader) (reply, error)
-			/*line plan.ergo:66:2*/ Direct0 func(*Env, json__text, reply) json__text
-			/*line plan.ergo:66:2*/ Read0 func(*Env, http__queryReader) (reply, error)
-			/*line plan.ergo:66:2*/ Read1 func(*Env, json__Reader_1) (reply, error)
-			/*line plan.ergo:66:2*/ Read2 func(*Env, json__Stream) (reply, error)
+			/*line plan.ergo:66:2*/ Enc func(*ergo__Env, ergo__Writer, reply) (struct{}, error)
+			/*line plan.ergo:66:2*/ Dec func(*ergo__Env, ergo__Reader) (reply, error)
+			/*line plan.ergo:66:2*/ Direct0 func(*ergo__Env, json__text, reply) json__text
+			/*line plan.ergo:66:2*/ Read0 func(*ergo__Env, http__queryReader) (reply, error)
+			/*line plan.ergo:66:2*/ Read1 func(*ergo__Env, json__Reader_1) (reply, error)
+			/*line plan.ergo:66:2*/ Read2 func(*ergo__Env, json__Stream) (reply, error)
 			/*line plan.ergo:66:2*/ Absent func(reply) bool
 			/*line plan.ergo:66:2*/ Empty reply
 			/*line plan.ergo:66:2*/
 		}
 		/*line plan.ergo:66:2*/
-	}{Enc: func(e_3 *Env, w_1 Writer, v_5 reply) (struct{}, error) {
+	}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_5 reply) (struct{}, error) {
 		/*line plan.ergo:66:2*/ ergo__Encodereply(e_3, w_1, v_5)
 		/*line plan.ergo:66:2*/ return struct{}{}, nil
 		/*line plan.ergo:66:2*/
-	}, Dec: func(e_4 *Env, r_5 Reader) (reply, error) {
+	}, Dec: func(e_4 *ergo__Env, r_5 ergo__Reader) (reply, error) {
 		/*line plan.ergo:66:2*/ x_1, err_3 := ergo__Decodereply(e_4, r_5)
 		/*line plan.ergo:66:2*/ if err_3 != nil {
 			/*line plan.ergo:66:2*/ return *new(reply), err_3
@@ -31227,12 +31227,12 @@ func ergo__askGoSlot(env *Env, rw go__io.ReadWriter, a ask, s0 *replyReport, s1 
 //line plan.ergo:68:3
 			return 0, code__CheckFailed{Reason: ("the checker's answer is not JSON at " + string(strconv.AppendInt(make([]byte, 0, 20), int64(m.Offset), 10)) + ": " + m.Reason)}
 			/*line plan.ergo:68:3*/
-		case WireWrongKind:
+		case ergo__WireWrongKind:
 			/*line plan.ergo:68:3*/ w_2 := n
 //line plan.ergo:70:3
 			return 0, code__CheckFailed{Reason: ("the checker's answer is not " + w_2.Want + " at " + w_2.Path)}
 			/*line plan.ergo:70:3*/
-		case WireMissingField:
+		case ergo__WireMissingField:
 			/*line plan.ergo:70:3*/ w_3 := n
 //line plan.ergo:72:3
 			return 0, code__CheckFailed{Reason: ("the checker's answer has no " + w_3.Field + " at " + w_3.Path)}
@@ -31266,7 +31266,7 @@ func ergo__askGoSlot(env *Env, rw go__io.ReadWriter, a ask, s0 *replyReport, s1 
 }
 
 //line plan.ergo:172:1
-func ergo__appliedHostFilesAsFiles(env *Env, by string, files *ergo__opsHostFilesAsFiles, p code__Planned) []string {
+func ergo__appliedHostFilesAsFiles(env *ergo__Env, by string, files *ergo__opsHostFilesAsFiles, p code__Planned) []string {
 //line plan.ergo:172:1
 	env.task.Check()
 //line plan.ergo:173:2
@@ -31342,11 +31342,11 @@ func ergo__appliedHostFilesAsFiles(env *Env, by string, files *ergo__opsHostFile
 }
 
 //line codecli/cli.ergo:571:1
-func codetool_scodecli__Run(env *Env, args []string, p codetool_scodecli__Policy) api__Output {
+func codetool_scodecli__Run(env *ergo__Env, args []string, p codetool_scodecli__Policy) api__Output {
 //line codecli/cli.ergo:571:1
 	env.task.Check()
 //line codecli/cli.ergo:572:2
-	v := codetool_scodecli__runOver(env, args, p, func(env_1 *Env, p_1 codetool_scodeapi__Request) (codetool_scodeapi__Outcome, error) {
+	v := codetool_scodecli__runOver(env, args, p, func(env_1 *ergo__Env, p_1 codetool_scodeapi__Request) (codetool_scodeapi__Outcome, error) {
 		/*line codecli/cli.ergo:572:2*/ return codetool_scodeapi__Call(env_1, p_1), nil
 		/*line codecli/cli.ergo:572:2*/
 	})
@@ -31357,17 +31357,17 @@ func codetool_scodecli__Run(env *Env, args []string, p codetool_scodecli__Policy
 //line codecli/cli.ergo:314:1
 func codetool_scodecli__Defaults() codetool_scodecli__Policy {
 //line codecli/cli.ergo:315:2
-	return codetool_scodecli__Policy{Code: func(env *Env, f codetool_scodeapi__Failure) (int, error) {
+	return codetool_scodecli__Policy{Code: func(env *ergo__Env, f codetool_scodeapi__Failure) (int, error) {
 //line codecli/cli.ergo:315:45
 		return int(1), nil
 		/*line codecli/cli.ergo:315:45*/
-	}, Text: func(env_1 *Env, r codetool_scodeapi__Reply) (Option[string], error) {
+	}, Text: func(env_1 *ergo__Env, r codetool_scodeapi__Reply) (ergo__Option[string], error) {
 //line codecli/cli.ergo:315:95
-		return (Option[string]{tag: 1}), nil
+		return (ergo__Option[string]{tag: 1}), nil
 		/*line codecli/cli.ergo:315:95*/
-	}, Confirm: func(env_2 *Env, r_1 codetool_scodeapi__Request) (Option[string], error) {
+	}, Confirm: func(env_2 *ergo__Env, r_1 codetool_scodeapi__Request) (ergo__Option[string], error) {
 //line codecli/cli.ergo:315:145
-		return (Option[string]{tag: 1}), nil
+		return (ergo__Option[string]{tag: 1}), nil
 		/*line codecli/cli.ergo:315:145*/
 	}}
 	/*line codecli/cli.ergo:315:145*/
@@ -31375,14 +31375,14 @@ func codetool_scodecli__Defaults() codetool_scodecli__Policy {
 
 //line codecli/cli.ergo:311:1
 type codetool_scodecli__Policy struct {
-	/*line codecli/cli.ergo:311:1*/ Code func(*Env, codetool_scodeapi__Failure) (int, error)
-	/*line codecli/cli.ergo:311:1*/ Text func(*Env, codetool_scodeapi__Reply) (Option[string], error)
-	/*line codecli/cli.ergo:311:1*/ Confirm func(*Env, codetool_scodeapi__Request) (Option[string], error)
+	/*line codecli/cli.ergo:311:1*/ Code func(*ergo__Env, codetool_scodeapi__Failure) (int, error)
+	/*line codecli/cli.ergo:311:1*/ Text func(*ergo__Env, codetool_scodeapi__Reply) (ergo__Option[string], error)
+	/*line codecli/cli.ergo:311:1*/ Confirm func(*ergo__Env, codetool_scodeapi__Request) (ergo__Option[string], error)
 	/*line codecli/cli.ergo:311:1*/
 }
 
 //line codecli/cli.ergo:550:1
-func codetool_scodecli__runOver(env *Env, args []string, p codetool_scodecli__Policy, answer_1 func(*Env, codetool_scodeapi__Request) (codetool_scodeapi__Outcome, error)) api__Output {
+func codetool_scodecli__runOver(env *ergo__Env, args []string, p codetool_scodecli__Policy, answer_1 func(*ergo__Env, codetool_scodeapi__Request) (codetool_scodeapi__Outcome, error)) api__Output {
 //line codecli/cli.ergo:550:1
 	env.task.Check()
 //line codecli/cli.ergo:551:2
@@ -31436,7 +31436,7 @@ func codetool_scodecli__runOver(env *Env, args []string, p codetool_scodecli__Po
 }
 
 //line codeapi/api.ergo:129:1
-func codetool_scodeapi__Call(env *Env, r codetool_scodeapi__Request) codetool_scodeapi__Outcome {
+func codetool_scodeapi__Call(env *ergo__Env, r codetool_scodeapi__Request) codetool_scodeapi__Outcome {
 //line codeapi/api.ergo:130:2
 	switch v := r.(type) {
 	/*line codeapi/api.ergo:130:2*/ case codetool_scodeapi__DescribeRequest:
@@ -31879,7 +31879,7 @@ type codetool_scodecli__asked struct {
 }
 
 //line codecli/cli.ergo:512:1
-func codetool_scodecli__frontOf(env *Env, args []string) codetool_scodecli__front {
+func codetool_scodecli__frontOf(env *ergo__Env, args []string) codetool_scodecli__front {
 //line codecli/cli.ergo:512:1
 	env.task.Check()
 //line codecli/cli.ergo:513:2
@@ -31909,7 +31909,7 @@ func codetool_scodecli__frontOf(env *Env, args []string) codetool_scodecli__fron
 				globals = false
 //line codecli/cli.ergo:524:4
 //line codecli/cli.ergo:524:4
-				rest = /*line codecli/cli.ergo:524:11*/ Append[string](rest, a)
+				rest = /*line codecli/cli.ergo:524:11*/ ergo__Append[string](rest, a)
 				/*line codecli/cli.ergo:524:4*/
 			}
 			/*line codecli/cli.ergo:524:4*/
@@ -31959,7 +31959,7 @@ func codetool_scodecli__needsYes(question string) api__Output {
 }
 
 //line codecli/cli.ergo:350:1
-func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool, p codetool_scodecli__Policy) api__Output {
+func codetool_scodecli__Show(env *ergo__Env, o codetool_scodeapi__Outcome, asJSON bool, p codetool_scodecli__Policy) api__Output {
 //line codecli/cli.ergo:350:1
 	env.task.Check()
 //line codecli/cli.ergo:351:2
@@ -31997,29 +31997,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:363:4
 //line codecli/cli.ergo:363:18
 			v_7 := rpc__EncodeMono_i3933687382(env, struct {
-				/*line codecli/cli.ergo:363:18*/ Enc func(*Env, Writer, code__Summary) (struct{}, error)
-				/*line codecli/cli.ergo:363:18*/ Dec func(*Env, Reader) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Direct0 func(*Env, json__text, code__Summary) json__text
-				/*line codecli/cli.ergo:363:18*/ Read0 func(*Env, http__queryReader) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Read1 func(*Env, json__Reader_1) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Read2 func(*Env, json__Stream) (code__Summary, error)
+				/*line codecli/cli.ergo:363:18*/ Enc func(*ergo__Env, ergo__Writer, code__Summary) (struct{}, error)
+				/*line codecli/cli.ergo:363:18*/ Dec func(*ergo__Env, ergo__Reader) (code__Summary, error)
+				/*line codecli/cli.ergo:363:18*/ Direct0 func(*ergo__Env, json__text, code__Summary) json__text
+				/*line codecli/cli.ergo:363:18*/ Read0 func(*ergo__Env, http__queryReader) (code__Summary, error)
+				/*line codecli/cli.ergo:363:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__Summary, error)
+				/*line codecli/cli.ergo:363:18*/ Read2 func(*ergo__Env, json__Stream) (code__Summary, error)
 				/*line codecli/cli.ergo:363:18*/ Field *struct {
-					/*line codecli/cli.ergo:363:18*/ Enc func(*Env, Writer, code__Summary) (struct{}, error)
-					/*line codecli/cli.ergo:363:18*/ Dec func(*Env, Reader) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Direct0 func(*Env, json__text, code__Summary) json__text
-					/*line codecli/cli.ergo:363:18*/ Read0 func(*Env, http__queryReader) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Read1 func(*Env, json__Reader_1) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Read2 func(*Env, json__Stream) (code__Summary, error)
+					/*line codecli/cli.ergo:363:18*/ Enc func(*ergo__Env, ergo__Writer, code__Summary) (struct{}, error)
+					/*line codecli/cli.ergo:363:18*/ Dec func(*ergo__Env, ergo__Reader) (code__Summary, error)
+					/*line codecli/cli.ergo:363:18*/ Direct0 func(*ergo__Env, json__text, code__Summary) json__text
+					/*line codecli/cli.ergo:363:18*/ Read0 func(*ergo__Env, http__queryReader) (code__Summary, error)
+					/*line codecli/cli.ergo:363:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__Summary, error)
+					/*line codecli/cli.ergo:363:18*/ Read2 func(*ergo__Env, json__Stream) (code__Summary, error)
 					/*line codecli/cli.ergo:363:18*/ Absent func(code__Summary) bool
 					/*line codecli/cli.ergo:363:18*/ Empty code__Summary
 					/*line codecli/cli.ergo:363:18*/
 				}
 				/*line codecli/cli.ergo:363:18*/
-			}{Enc: func(e *Env, w Writer, v_5 code__Summary) (struct{}, error) {
+			}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 code__Summary) (struct{}, error) {
 				/*line codecli/cli.ergo:363:18*/ ergo__EncodeSummary(e, w, v_5)
 				/*line codecli/cli.ergo:363:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:363:18*/
-			}, Dec: func(e_1 *Env, r Reader) (code__Summary, error) {
+			}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (code__Summary, error) {
 				/*line codecli/cli.ergo:363:18*/ x, err_1 := ergo__DecodeSummary(e_1, r)
 				/*line codecli/cli.ergo:363:18*/ if err_1 != nil {
 					/*line codecli/cli.ergo:363:18*/ return *new(code__Summary), err_1
@@ -32040,29 +32040,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:367:4
 //line codecli/cli.ergo:367:18
 			v_12 := rpc__EncodeMono_i4203489249(env, struct {
-				/*line codecli/cli.ergo:367:18*/ Enc func(*Env, Writer, code__SymbolPage) (struct{}, error)
-				/*line codecli/cli.ergo:367:18*/ Dec func(*Env, Reader) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Direct0 func(*Env, json__text, code__SymbolPage) json__text
-				/*line codecli/cli.ergo:367:18*/ Read0 func(*Env, http__queryReader) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Read1 func(*Env, json__Reader_1) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Read2 func(*Env, json__Stream) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:367:18*/ Enc func(*ergo__Env, ergo__Writer, code__SymbolPage) (struct{}, error)
+				/*line codecli/cli.ergo:367:18*/ Dec func(*ergo__Env, ergo__Reader) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:367:18*/ Direct0 func(*ergo__Env, json__text, code__SymbolPage) json__text
+				/*line codecli/cli.ergo:367:18*/ Read0 func(*ergo__Env, http__queryReader) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:367:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:367:18*/ Read2 func(*ergo__Env, json__Stream) (code__SymbolPage, error)
 				/*line codecli/cli.ergo:367:18*/ Field *struct {
-					/*line codecli/cli.ergo:367:18*/ Enc func(*Env, Writer, code__SymbolPage) (struct{}, error)
-					/*line codecli/cli.ergo:367:18*/ Dec func(*Env, Reader) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Direct0 func(*Env, json__text, code__SymbolPage) json__text
-					/*line codecli/cli.ergo:367:18*/ Read0 func(*Env, http__queryReader) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Read1 func(*Env, json__Reader_1) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Read2 func(*Env, json__Stream) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:367:18*/ Enc func(*ergo__Env, ergo__Writer, code__SymbolPage) (struct{}, error)
+					/*line codecli/cli.ergo:367:18*/ Dec func(*ergo__Env, ergo__Reader) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:367:18*/ Direct0 func(*ergo__Env, json__text, code__SymbolPage) json__text
+					/*line codecli/cli.ergo:367:18*/ Read0 func(*ergo__Env, http__queryReader) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:367:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:367:18*/ Read2 func(*ergo__Env, json__Stream) (code__SymbolPage, error)
 					/*line codecli/cli.ergo:367:18*/ Absent func(code__SymbolPage) bool
 					/*line codecli/cli.ergo:367:18*/ Empty code__SymbolPage
 					/*line codecli/cli.ergo:367:18*/
 				}
 				/*line codecli/cli.ergo:367:18*/
-			}{Enc: func(e_3 *Env, w_1 Writer, v_10 code__SymbolPage) (struct{}, error) {
+			}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_10 code__SymbolPage) (struct{}, error) {
 				/*line codecli/cli.ergo:367:18*/ ergo__EncodeSymbolPage(e_3, w_1, v_10)
 				/*line codecli/cli.ergo:367:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:367:18*/
-			}, Dec: func(e_4 *Env, r_1 Reader) (code__SymbolPage, error) {
+			}, Dec: func(e_4 *ergo__Env, r_1 ergo__Reader) (code__SymbolPage, error) {
 				/*line codecli/cli.ergo:367:18*/ x_1, err_2 := ergo__DecodeSymbolPage(e_4, r_1)
 				/*line codecli/cli.ergo:367:18*/ if err_2 != nil {
 					/*line codecli/cli.ergo:367:18*/ return *new(code__SymbolPage), err_2
@@ -32083,29 +32083,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:371:4
 //line codecli/cli.ergo:371:18
 			v_17 := rpc__EncodeMono_i1952133442(env, struct {
-				/*line codecli/cli.ergo:371:18*/ Enc func(*Env, Writer, code__Decl) (struct{}, error)
-				/*line codecli/cli.ergo:371:18*/ Dec func(*Env, Reader) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Direct0 func(*Env, json__text, code__Decl) json__text
-				/*line codecli/cli.ergo:371:18*/ Read0 func(*Env, http__queryReader) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Read1 func(*Env, json__Reader_1) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Read2 func(*Env, json__Stream) (code__Decl, error)
+				/*line codecli/cli.ergo:371:18*/ Enc func(*ergo__Env, ergo__Writer, code__Decl) (struct{}, error)
+				/*line codecli/cli.ergo:371:18*/ Dec func(*ergo__Env, ergo__Reader) (code__Decl, error)
+				/*line codecli/cli.ergo:371:18*/ Direct0 func(*ergo__Env, json__text, code__Decl) json__text
+				/*line codecli/cli.ergo:371:18*/ Read0 func(*ergo__Env, http__queryReader) (code__Decl, error)
+				/*line codecli/cli.ergo:371:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__Decl, error)
+				/*line codecli/cli.ergo:371:18*/ Read2 func(*ergo__Env, json__Stream) (code__Decl, error)
 				/*line codecli/cli.ergo:371:18*/ Field *struct {
-					/*line codecli/cli.ergo:371:18*/ Enc func(*Env, Writer, code__Decl) (struct{}, error)
-					/*line codecli/cli.ergo:371:18*/ Dec func(*Env, Reader) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Direct0 func(*Env, json__text, code__Decl) json__text
-					/*line codecli/cli.ergo:371:18*/ Read0 func(*Env, http__queryReader) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Read1 func(*Env, json__Reader_1) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Read2 func(*Env, json__Stream) (code__Decl, error)
+					/*line codecli/cli.ergo:371:18*/ Enc func(*ergo__Env, ergo__Writer, code__Decl) (struct{}, error)
+					/*line codecli/cli.ergo:371:18*/ Dec func(*ergo__Env, ergo__Reader) (code__Decl, error)
+					/*line codecli/cli.ergo:371:18*/ Direct0 func(*ergo__Env, json__text, code__Decl) json__text
+					/*line codecli/cli.ergo:371:18*/ Read0 func(*ergo__Env, http__queryReader) (code__Decl, error)
+					/*line codecli/cli.ergo:371:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__Decl, error)
+					/*line codecli/cli.ergo:371:18*/ Read2 func(*ergo__Env, json__Stream) (code__Decl, error)
 					/*line codecli/cli.ergo:371:18*/ Absent func(code__Decl) bool
 					/*line codecli/cli.ergo:371:18*/ Empty code__Decl
 					/*line codecli/cli.ergo:371:18*/
 				}
 				/*line codecli/cli.ergo:371:18*/
-			}{Enc: func(e_6 *Env, w_2 Writer, v_15 code__Decl) (struct{}, error) {
+			}{Enc: func(e_6 *ergo__Env, w_2 ergo__Writer, v_15 code__Decl) (struct{}, error) {
 				/*line codecli/cli.ergo:371:18*/ ergo__EncodeDecl(e_6, w_2, v_15)
 				/*line codecli/cli.ergo:371:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:371:18*/
-			}, Dec: func(e_7 *Env, r_2 Reader) (code__Decl, error) {
+			}, Dec: func(e_7 *ergo__Env, r_2 ergo__Reader) (code__Decl, error) {
 				/*line codecli/cli.ergo:371:18*/ x_2, err_3 := ergo__DecodeDecl(e_7, r_2)
 				/*line codecli/cli.ergo:371:18*/ if err_3 != nil {
 					/*line codecli/cli.ergo:371:18*/ return *new(code__Decl), err_3
@@ -32126,29 +32126,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:375:4
 //line codecli/cli.ergo:375:18
 			v_22 := rpc__EncodeMono_i1175879322(env, struct {
-				/*line codecli/cli.ergo:375:18*/ Enc func(*Env, Writer, code__SitePage) (struct{}, error)
-				/*line codecli/cli.ergo:375:18*/ Dec func(*Env, Reader) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Direct0 func(*Env, json__text, code__SitePage) json__text
-				/*line codecli/cli.ergo:375:18*/ Read0 func(*Env, http__queryReader) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Read1 func(*Env, json__Reader_1) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Read2 func(*Env, json__Stream) (code__SitePage, error)
+				/*line codecli/cli.ergo:375:18*/ Enc func(*ergo__Env, ergo__Writer, code__SitePage) (struct{}, error)
+				/*line codecli/cli.ergo:375:18*/ Dec func(*ergo__Env, ergo__Reader) (code__SitePage, error)
+				/*line codecli/cli.ergo:375:18*/ Direct0 func(*ergo__Env, json__text, code__SitePage) json__text
+				/*line codecli/cli.ergo:375:18*/ Read0 func(*ergo__Env, http__queryReader) (code__SitePage, error)
+				/*line codecli/cli.ergo:375:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__SitePage, error)
+				/*line codecli/cli.ergo:375:18*/ Read2 func(*ergo__Env, json__Stream) (code__SitePage, error)
 				/*line codecli/cli.ergo:375:18*/ Field *struct {
-					/*line codecli/cli.ergo:375:18*/ Enc func(*Env, Writer, code__SitePage) (struct{}, error)
-					/*line codecli/cli.ergo:375:18*/ Dec func(*Env, Reader) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Direct0 func(*Env, json__text, code__SitePage) json__text
-					/*line codecli/cli.ergo:375:18*/ Read0 func(*Env, http__queryReader) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Read1 func(*Env, json__Reader_1) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Read2 func(*Env, json__Stream) (code__SitePage, error)
+					/*line codecli/cli.ergo:375:18*/ Enc func(*ergo__Env, ergo__Writer, code__SitePage) (struct{}, error)
+					/*line codecli/cli.ergo:375:18*/ Dec func(*ergo__Env, ergo__Reader) (code__SitePage, error)
+					/*line codecli/cli.ergo:375:18*/ Direct0 func(*ergo__Env, json__text, code__SitePage) json__text
+					/*line codecli/cli.ergo:375:18*/ Read0 func(*ergo__Env, http__queryReader) (code__SitePage, error)
+					/*line codecli/cli.ergo:375:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__SitePage, error)
+					/*line codecli/cli.ergo:375:18*/ Read2 func(*ergo__Env, json__Stream) (code__SitePage, error)
 					/*line codecli/cli.ergo:375:18*/ Absent func(code__SitePage) bool
 					/*line codecli/cli.ergo:375:18*/ Empty code__SitePage
 					/*line codecli/cli.ergo:375:18*/
 				}
 				/*line codecli/cli.ergo:375:18*/
-			}{Enc: func(e_9 *Env, w_3 Writer, v_20 code__SitePage) (struct{}, error) {
+			}{Enc: func(e_9 *ergo__Env, w_3 ergo__Writer, v_20 code__SitePage) (struct{}, error) {
 				/*line codecli/cli.ergo:375:18*/ ergo__EncodeSitePage(e_9, w_3, v_20)
 				/*line codecli/cli.ergo:375:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:375:18*/
-			}, Dec: func(e_10 *Env, r_3 Reader) (code__SitePage, error) {
+			}, Dec: func(e_10 *ergo__Env, r_3 ergo__Reader) (code__SitePage, error) {
 				/*line codecli/cli.ergo:375:18*/ x_3, err_4 := ergo__DecodeSitePage(e_10, r_3)
 				/*line codecli/cli.ergo:375:18*/ if err_4 != nil {
 					/*line codecli/cli.ergo:375:18*/ return *new(code__SitePage), err_4
@@ -32169,29 +32169,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:379:4
 //line codecli/cli.ergo:379:18
 			v_27 := rpc__EncodeMono_i589566837(env, struct {
-				/*line codecli/cli.ergo:379:18*/ Enc func(*Env, Writer, code__CallPage) (struct{}, error)
-				/*line codecli/cli.ergo:379:18*/ Dec func(*Env, Reader) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Direct0 func(*Env, json__text, code__CallPage) json__text
-				/*line codecli/cli.ergo:379:18*/ Read0 func(*Env, http__queryReader) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Read1 func(*Env, json__Reader_1) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Read2 func(*Env, json__Stream) (code__CallPage, error)
+				/*line codecli/cli.ergo:379:18*/ Enc func(*ergo__Env, ergo__Writer, code__CallPage) (struct{}, error)
+				/*line codecli/cli.ergo:379:18*/ Dec func(*ergo__Env, ergo__Reader) (code__CallPage, error)
+				/*line codecli/cli.ergo:379:18*/ Direct0 func(*ergo__Env, json__text, code__CallPage) json__text
+				/*line codecli/cli.ergo:379:18*/ Read0 func(*ergo__Env, http__queryReader) (code__CallPage, error)
+				/*line codecli/cli.ergo:379:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__CallPage, error)
+				/*line codecli/cli.ergo:379:18*/ Read2 func(*ergo__Env, json__Stream) (code__CallPage, error)
 				/*line codecli/cli.ergo:379:18*/ Field *struct {
-					/*line codecli/cli.ergo:379:18*/ Enc func(*Env, Writer, code__CallPage) (struct{}, error)
-					/*line codecli/cli.ergo:379:18*/ Dec func(*Env, Reader) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Direct0 func(*Env, json__text, code__CallPage) json__text
-					/*line codecli/cli.ergo:379:18*/ Read0 func(*Env, http__queryReader) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Read1 func(*Env, json__Reader_1) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Read2 func(*Env, json__Stream) (code__CallPage, error)
+					/*line codecli/cli.ergo:379:18*/ Enc func(*ergo__Env, ergo__Writer, code__CallPage) (struct{}, error)
+					/*line codecli/cli.ergo:379:18*/ Dec func(*ergo__Env, ergo__Reader) (code__CallPage, error)
+					/*line codecli/cli.ergo:379:18*/ Direct0 func(*ergo__Env, json__text, code__CallPage) json__text
+					/*line codecli/cli.ergo:379:18*/ Read0 func(*ergo__Env, http__queryReader) (code__CallPage, error)
+					/*line codecli/cli.ergo:379:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__CallPage, error)
+					/*line codecli/cli.ergo:379:18*/ Read2 func(*ergo__Env, json__Stream) (code__CallPage, error)
 					/*line codecli/cli.ergo:379:18*/ Absent func(code__CallPage) bool
 					/*line codecli/cli.ergo:379:18*/ Empty code__CallPage
 					/*line codecli/cli.ergo:379:18*/
 				}
 				/*line codecli/cli.ergo:379:18*/
-			}{Enc: func(e_12 *Env, w_4 Writer, v_25 code__CallPage) (struct{}, error) {
+			}{Enc: func(e_12 *ergo__Env, w_4 ergo__Writer, v_25 code__CallPage) (struct{}, error) {
 				/*line codecli/cli.ergo:379:18*/ ergo__EncodeCallPage(e_12, w_4, v_25)
 				/*line codecli/cli.ergo:379:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:379:18*/
-			}, Dec: func(e_13 *Env, r_4 Reader) (code__CallPage, error) {
+			}, Dec: func(e_13 *ergo__Env, r_4 ergo__Reader) (code__CallPage, error) {
 				/*line codecli/cli.ergo:379:18*/ x_4, err_5 := ergo__DecodeCallPage(e_13, r_4)
 				/*line codecli/cli.ergo:379:18*/ if err_5 != nil {
 					/*line codecli/cli.ergo:379:18*/ return *new(code__CallPage), err_5
@@ -32212,29 +32212,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:383:4
 //line codecli/cli.ergo:383:18
 			v_32 := rpc__EncodeMono_i3093881487(env, struct {
-				/*line codecli/cli.ergo:383:18*/ Enc func(*Env, Writer, code__ApiView) (struct{}, error)
-				/*line codecli/cli.ergo:383:18*/ Dec func(*Env, Reader) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Direct0 func(*Env, json__text, code__ApiView) json__text
-				/*line codecli/cli.ergo:383:18*/ Read0 func(*Env, http__queryReader) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Read1 func(*Env, json__Reader_1) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Read2 func(*Env, json__Stream) (code__ApiView, error)
+				/*line codecli/cli.ergo:383:18*/ Enc func(*ergo__Env, ergo__Writer, code__ApiView) (struct{}, error)
+				/*line codecli/cli.ergo:383:18*/ Dec func(*ergo__Env, ergo__Reader) (code__ApiView, error)
+				/*line codecli/cli.ergo:383:18*/ Direct0 func(*ergo__Env, json__text, code__ApiView) json__text
+				/*line codecli/cli.ergo:383:18*/ Read0 func(*ergo__Env, http__queryReader) (code__ApiView, error)
+				/*line codecli/cli.ergo:383:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__ApiView, error)
+				/*line codecli/cli.ergo:383:18*/ Read2 func(*ergo__Env, json__Stream) (code__ApiView, error)
 				/*line codecli/cli.ergo:383:18*/ Field *struct {
-					/*line codecli/cli.ergo:383:18*/ Enc func(*Env, Writer, code__ApiView) (struct{}, error)
-					/*line codecli/cli.ergo:383:18*/ Dec func(*Env, Reader) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Direct0 func(*Env, json__text, code__ApiView) json__text
-					/*line codecli/cli.ergo:383:18*/ Read0 func(*Env, http__queryReader) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Read1 func(*Env, json__Reader_1) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Read2 func(*Env, json__Stream) (code__ApiView, error)
+					/*line codecli/cli.ergo:383:18*/ Enc func(*ergo__Env, ergo__Writer, code__ApiView) (struct{}, error)
+					/*line codecli/cli.ergo:383:18*/ Dec func(*ergo__Env, ergo__Reader) (code__ApiView, error)
+					/*line codecli/cli.ergo:383:18*/ Direct0 func(*ergo__Env, json__text, code__ApiView) json__text
+					/*line codecli/cli.ergo:383:18*/ Read0 func(*ergo__Env, http__queryReader) (code__ApiView, error)
+					/*line codecli/cli.ergo:383:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__ApiView, error)
+					/*line codecli/cli.ergo:383:18*/ Read2 func(*ergo__Env, json__Stream) (code__ApiView, error)
 					/*line codecli/cli.ergo:383:18*/ Absent func(code__ApiView) bool
 					/*line codecli/cli.ergo:383:18*/ Empty code__ApiView
 					/*line codecli/cli.ergo:383:18*/
 				}
 				/*line codecli/cli.ergo:383:18*/
-			}{Enc: func(e_15 *Env, w_5 Writer, v_30 code__ApiView) (struct{}, error) {
+			}{Enc: func(e_15 *ergo__Env, w_5 ergo__Writer, v_30 code__ApiView) (struct{}, error) {
 				/*line codecli/cli.ergo:383:18*/ ergo__EncodeApiView(e_15, w_5, v_30)
 				/*line codecli/cli.ergo:383:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:383:18*/
-			}, Dec: func(e_16 *Env, r_5 Reader) (code__ApiView, error) {
+			}, Dec: func(e_16 *ergo__Env, r_5 ergo__Reader) (code__ApiView, error) {
 				/*line codecli/cli.ergo:383:18*/ x_5, err_6 := ergo__DecodeApiView(e_16, r_5)
 				/*line codecli/cli.ergo:383:18*/ if err_6 != nil {
 					/*line codecli/cli.ergo:383:18*/ return *new(code__ApiView), err_6
@@ -32255,29 +32255,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:387:4
 //line codecli/cli.ergo:387:18
 			v_37 := rpc__EncodeMono_i1909667394(env, struct {
-				/*line codecli/cli.ergo:387:18*/ Enc func(*Env, Writer, code__ReachPage) (struct{}, error)
-				/*line codecli/cli.ergo:387:18*/ Dec func(*Env, Reader) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Direct0 func(*Env, json__text, code__ReachPage) json__text
-				/*line codecli/cli.ergo:387:18*/ Read0 func(*Env, http__queryReader) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Read1 func(*Env, json__Reader_1) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Read2 func(*Env, json__Stream) (code__ReachPage, error)
+				/*line codecli/cli.ergo:387:18*/ Enc func(*ergo__Env, ergo__Writer, code__ReachPage) (struct{}, error)
+				/*line codecli/cli.ergo:387:18*/ Dec func(*ergo__Env, ergo__Reader) (code__ReachPage, error)
+				/*line codecli/cli.ergo:387:18*/ Direct0 func(*ergo__Env, json__text, code__ReachPage) json__text
+				/*line codecli/cli.ergo:387:18*/ Read0 func(*ergo__Env, http__queryReader) (code__ReachPage, error)
+				/*line codecli/cli.ergo:387:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__ReachPage, error)
+				/*line codecli/cli.ergo:387:18*/ Read2 func(*ergo__Env, json__Stream) (code__ReachPage, error)
 				/*line codecli/cli.ergo:387:18*/ Field *struct {
-					/*line codecli/cli.ergo:387:18*/ Enc func(*Env, Writer, code__ReachPage) (struct{}, error)
-					/*line codecli/cli.ergo:387:18*/ Dec func(*Env, Reader) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Direct0 func(*Env, json__text, code__ReachPage) json__text
-					/*line codecli/cli.ergo:387:18*/ Read0 func(*Env, http__queryReader) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Read1 func(*Env, json__Reader_1) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Read2 func(*Env, json__Stream) (code__ReachPage, error)
+					/*line codecli/cli.ergo:387:18*/ Enc func(*ergo__Env, ergo__Writer, code__ReachPage) (struct{}, error)
+					/*line codecli/cli.ergo:387:18*/ Dec func(*ergo__Env, ergo__Reader) (code__ReachPage, error)
+					/*line codecli/cli.ergo:387:18*/ Direct0 func(*ergo__Env, json__text, code__ReachPage) json__text
+					/*line codecli/cli.ergo:387:18*/ Read0 func(*ergo__Env, http__queryReader) (code__ReachPage, error)
+					/*line codecli/cli.ergo:387:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__ReachPage, error)
+					/*line codecli/cli.ergo:387:18*/ Read2 func(*ergo__Env, json__Stream) (code__ReachPage, error)
 					/*line codecli/cli.ergo:387:18*/ Absent func(code__ReachPage) bool
 					/*line codecli/cli.ergo:387:18*/ Empty code__ReachPage
 					/*line codecli/cli.ergo:387:18*/
 				}
 				/*line codecli/cli.ergo:387:18*/
-			}{Enc: func(e_18 *Env, w_6 Writer, v_35 code__ReachPage) (struct{}, error) {
+			}{Enc: func(e_18 *ergo__Env, w_6 ergo__Writer, v_35 code__ReachPage) (struct{}, error) {
 				/*line codecli/cli.ergo:387:18*/ ergo__EncodeReachPage(e_18, w_6, v_35)
 				/*line codecli/cli.ergo:387:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:387:18*/
-			}, Dec: func(e_19 *Env, r_6 Reader) (code__ReachPage, error) {
+			}, Dec: func(e_19 *ergo__Env, r_6 ergo__Reader) (code__ReachPage, error) {
 				/*line codecli/cli.ergo:387:18*/ x_6, err_7 := ergo__DecodeReachPage(e_19, r_6)
 				/*line codecli/cli.ergo:387:18*/ if err_7 != nil {
 					/*line codecli/cli.ergo:387:18*/ return *new(code__ReachPage), err_7
@@ -32298,29 +32298,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 //line codecli/cli.ergo:391:4
 //line codecli/cli.ergo:391:18
 			v_42 := rpc__EncodeMono_i3049539590(env, struct {
-				/*line codecli/cli.ergo:391:18*/ Enc func(*Env, Writer, code__MachineView) (struct{}, error)
-				/*line codecli/cli.ergo:391:18*/ Dec func(*Env, Reader) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Direct0 func(*Env, json__text, code__MachineView) json__text
-				/*line codecli/cli.ergo:391:18*/ Read0 func(*Env, http__queryReader) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Read1 func(*Env, json__Reader_1) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Read2 func(*Env, json__Stream) (code__MachineView, error)
+				/*line codecli/cli.ergo:391:18*/ Enc func(*ergo__Env, ergo__Writer, code__MachineView) (struct{}, error)
+				/*line codecli/cli.ergo:391:18*/ Dec func(*ergo__Env, ergo__Reader) (code__MachineView, error)
+				/*line codecli/cli.ergo:391:18*/ Direct0 func(*ergo__Env, json__text, code__MachineView) json__text
+				/*line codecli/cli.ergo:391:18*/ Read0 func(*ergo__Env, http__queryReader) (code__MachineView, error)
+				/*line codecli/cli.ergo:391:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__MachineView, error)
+				/*line codecli/cli.ergo:391:18*/ Read2 func(*ergo__Env, json__Stream) (code__MachineView, error)
 				/*line codecli/cli.ergo:391:18*/ Field *struct {
-					/*line codecli/cli.ergo:391:18*/ Enc func(*Env, Writer, code__MachineView) (struct{}, error)
-					/*line codecli/cli.ergo:391:18*/ Dec func(*Env, Reader) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Direct0 func(*Env, json__text, code__MachineView) json__text
-					/*line codecli/cli.ergo:391:18*/ Read0 func(*Env, http__queryReader) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Read1 func(*Env, json__Reader_1) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Read2 func(*Env, json__Stream) (code__MachineView, error)
+					/*line codecli/cli.ergo:391:18*/ Enc func(*ergo__Env, ergo__Writer, code__MachineView) (struct{}, error)
+					/*line codecli/cli.ergo:391:18*/ Dec func(*ergo__Env, ergo__Reader) (code__MachineView, error)
+					/*line codecli/cli.ergo:391:18*/ Direct0 func(*ergo__Env, json__text, code__MachineView) json__text
+					/*line codecli/cli.ergo:391:18*/ Read0 func(*ergo__Env, http__queryReader) (code__MachineView, error)
+					/*line codecli/cli.ergo:391:18*/ Read1 func(*ergo__Env, json__Reader_1) (code__MachineView, error)
+					/*line codecli/cli.ergo:391:18*/ Read2 func(*ergo__Env, json__Stream) (code__MachineView, error)
 					/*line codecli/cli.ergo:391:18*/ Absent func(code__MachineView) bool
 					/*line codecli/cli.ergo:391:18*/ Empty code__MachineView
 					/*line codecli/cli.ergo:391:18*/
 				}
 				/*line codecli/cli.ergo:391:18*/
-			}{Enc: func(e_21 *Env, w_7 Writer, v_40 code__MachineView) (struct{}, error) {
+			}{Enc: func(e_21 *ergo__Env, w_7 ergo__Writer, v_40 code__MachineView) (struct{}, error) {
 				/*line codecli/cli.ergo:391:18*/ ergo__EncodeMachineView(e_21, w_7, v_40)
 				/*line codecli/cli.ergo:391:18*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:391:18*/
-			}, Dec: func(e_22 *Env, r_7 Reader) (code__MachineView, error) {
+			}, Dec: func(e_22 *ergo__Env, r_7 ergo__Reader) (code__MachineView, error) {
 				/*line codecli/cli.ergo:391:18*/ x_7, err_8 := ergo__DecodeMachineView(e_22, r_7)
 				/*line codecli/cli.ergo:391:18*/ if err_8 != nil {
 					/*line codecli/cli.ergo:391:18*/ return *new(code__MachineView), err_8
@@ -32355,29 +32355,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 			t := asJSON
 //line codecli/cli.ergo:398:42
 			v_48 := rpc__EncodeMono_i1362702477(env, struct {
-				/*line codecli/cli.ergo:398:42*/ Enc func(*Env, Writer, code__NoSymbol) (struct{}, error)
-				/*line codecli/cli.ergo:398:42*/ Dec func(*Env, Reader) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Direct0 func(*Env, json__text, code__NoSymbol) json__text
-				/*line codecli/cli.ergo:398:42*/ Read0 func(*Env, http__queryReader) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Read1 func(*Env, json__Reader_1) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Read2 func(*Env, json__Stream) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:398:42*/ Enc func(*ergo__Env, ergo__Writer, code__NoSymbol) (struct{}, error)
+				/*line codecli/cli.ergo:398:42*/ Dec func(*ergo__Env, ergo__Reader) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:398:42*/ Direct0 func(*ergo__Env, json__text, code__NoSymbol) json__text
+				/*line codecli/cli.ergo:398:42*/ Read0 func(*ergo__Env, http__queryReader) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:398:42*/ Read1 func(*ergo__Env, json__Reader_1) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:398:42*/ Read2 func(*ergo__Env, json__Stream) (code__NoSymbol, error)
 				/*line codecli/cli.ergo:398:42*/ Field *struct {
-					/*line codecli/cli.ergo:398:42*/ Enc func(*Env, Writer, code__NoSymbol) (struct{}, error)
-					/*line codecli/cli.ergo:398:42*/ Dec func(*Env, Reader) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Direct0 func(*Env, json__text, code__NoSymbol) json__text
-					/*line codecli/cli.ergo:398:42*/ Read0 func(*Env, http__queryReader) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Read1 func(*Env, json__Reader_1) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Read2 func(*Env, json__Stream) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:398:42*/ Enc func(*ergo__Env, ergo__Writer, code__NoSymbol) (struct{}, error)
+					/*line codecli/cli.ergo:398:42*/ Dec func(*ergo__Env, ergo__Reader) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:398:42*/ Direct0 func(*ergo__Env, json__text, code__NoSymbol) json__text
+					/*line codecli/cli.ergo:398:42*/ Read0 func(*ergo__Env, http__queryReader) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:398:42*/ Read1 func(*ergo__Env, json__Reader_1) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:398:42*/ Read2 func(*ergo__Env, json__Stream) (code__NoSymbol, error)
 					/*line codecli/cli.ergo:398:42*/ Absent func(code__NoSymbol) bool
 					/*line codecli/cli.ergo:398:42*/ Empty code__NoSymbol
 					/*line codecli/cli.ergo:398:42*/
 				}
 				/*line codecli/cli.ergo:398:42*/
-			}{Enc: func(e_24 *Env, w_8 Writer, v_46 code__NoSymbol) (struct{}, error) {
+			}{Enc: func(e_24 *ergo__Env, w_8 ergo__Writer, v_46 code__NoSymbol) (struct{}, error) {
 				/*line codecli/cli.ergo:398:42*/ ergo__EncodeNoSymbol(e_24, w_8, v_46)
 				/*line codecli/cli.ergo:398:42*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:398:42*/
-			}, Dec: func(e_25 *Env, r_8 Reader) (code__NoSymbol, error) {
+			}, Dec: func(e_25 *ergo__Env, r_8 ergo__Reader) (code__NoSymbol, error) {
 				/*line codecli/cli.ergo:398:42*/ x_8, err_10 := ergo__DecodeNoSymbol(e_25, r_8)
 				/*line codecli/cli.ergo:398:42*/ if err_10 != nil {
 					/*line codecli/cli.ergo:398:42*/ return *new(code__NoSymbol), err_10
@@ -32399,29 +32399,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 			t_1 := asJSON
 //line codecli/cli.ergo:400:43
 			v_53 := rpc__EncodeMono_i2857364534(env, struct {
-				/*line codecli/cli.ergo:400:43*/ Enc func(*Env, Writer, code__Ambiguous) (struct{}, error)
-				/*line codecli/cli.ergo:400:43*/ Dec func(*Env, Reader) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Direct0 func(*Env, json__text, code__Ambiguous) json__text
-				/*line codecli/cli.ergo:400:43*/ Read0 func(*Env, http__queryReader) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Read1 func(*Env, json__Reader_1) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Read2 func(*Env, json__Stream) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:400:43*/ Enc func(*ergo__Env, ergo__Writer, code__Ambiguous) (struct{}, error)
+				/*line codecli/cli.ergo:400:43*/ Dec func(*ergo__Env, ergo__Reader) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:400:43*/ Direct0 func(*ergo__Env, json__text, code__Ambiguous) json__text
+				/*line codecli/cli.ergo:400:43*/ Read0 func(*ergo__Env, http__queryReader) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:400:43*/ Read1 func(*ergo__Env, json__Reader_1) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:400:43*/ Read2 func(*ergo__Env, json__Stream) (code__Ambiguous, error)
 				/*line codecli/cli.ergo:400:43*/ Field *struct {
-					/*line codecli/cli.ergo:400:43*/ Enc func(*Env, Writer, code__Ambiguous) (struct{}, error)
-					/*line codecli/cli.ergo:400:43*/ Dec func(*Env, Reader) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Direct0 func(*Env, json__text, code__Ambiguous) json__text
-					/*line codecli/cli.ergo:400:43*/ Read0 func(*Env, http__queryReader) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Read1 func(*Env, json__Reader_1) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Read2 func(*Env, json__Stream) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:400:43*/ Enc func(*ergo__Env, ergo__Writer, code__Ambiguous) (struct{}, error)
+					/*line codecli/cli.ergo:400:43*/ Dec func(*ergo__Env, ergo__Reader) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:400:43*/ Direct0 func(*ergo__Env, json__text, code__Ambiguous) json__text
+					/*line codecli/cli.ergo:400:43*/ Read0 func(*ergo__Env, http__queryReader) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:400:43*/ Read1 func(*ergo__Env, json__Reader_1) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:400:43*/ Read2 func(*ergo__Env, json__Stream) (code__Ambiguous, error)
 					/*line codecli/cli.ergo:400:43*/ Absent func(code__Ambiguous) bool
 					/*line codecli/cli.ergo:400:43*/ Empty code__Ambiguous
 					/*line codecli/cli.ergo:400:43*/
 				}
 				/*line codecli/cli.ergo:400:43*/
-			}{Enc: func(e_27 *Env, w_9 Writer, v_51 code__Ambiguous) (struct{}, error) {
+			}{Enc: func(e_27 *ergo__Env, w_9 ergo__Writer, v_51 code__Ambiguous) (struct{}, error) {
 				/*line codecli/cli.ergo:400:43*/ ergo__EncodeAmbiguous(e_27, w_9, v_51)
 				/*line codecli/cli.ergo:400:43*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:400:43*/
-			}, Dec: func(e_28 *Env, r_9 Reader) (code__Ambiguous, error) {
+			}, Dec: func(e_28 *ergo__Env, r_9 ergo__Reader) (code__Ambiguous, error) {
 				/*line codecli/cli.ergo:400:43*/ x_9, err_11 := ergo__DecodeAmbiguous(e_28, r_9)
 				/*line codecli/cli.ergo:400:43*/ if err_11 != nil {
 					/*line codecli/cli.ergo:400:43*/ return *new(code__Ambiguous), err_11
@@ -32443,29 +32443,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 			t_2 := asJSON
 //line codecli/cli.ergo:402:45
 			v_58 := rpc__EncodeMono_i579832483(env, struct {
-				/*line codecli/cli.ergo:402:45*/ Enc func(*Env, Writer, code__NotCallable) (struct{}, error)
-				/*line codecli/cli.ergo:402:45*/ Dec func(*Env, Reader) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Direct0 func(*Env, json__text, code__NotCallable) json__text
-				/*line codecli/cli.ergo:402:45*/ Read0 func(*Env, http__queryReader) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Read1 func(*Env, json__Reader_1) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Read2 func(*Env, json__Stream) (code__NotCallable, error)
+				/*line codecli/cli.ergo:402:45*/ Enc func(*ergo__Env, ergo__Writer, code__NotCallable) (struct{}, error)
+				/*line codecli/cli.ergo:402:45*/ Dec func(*ergo__Env, ergo__Reader) (code__NotCallable, error)
+				/*line codecli/cli.ergo:402:45*/ Direct0 func(*ergo__Env, json__text, code__NotCallable) json__text
+				/*line codecli/cli.ergo:402:45*/ Read0 func(*ergo__Env, http__queryReader) (code__NotCallable, error)
+				/*line codecli/cli.ergo:402:45*/ Read1 func(*ergo__Env, json__Reader_1) (code__NotCallable, error)
+				/*line codecli/cli.ergo:402:45*/ Read2 func(*ergo__Env, json__Stream) (code__NotCallable, error)
 				/*line codecli/cli.ergo:402:45*/ Field *struct {
-					/*line codecli/cli.ergo:402:45*/ Enc func(*Env, Writer, code__NotCallable) (struct{}, error)
-					/*line codecli/cli.ergo:402:45*/ Dec func(*Env, Reader) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Direct0 func(*Env, json__text, code__NotCallable) json__text
-					/*line codecli/cli.ergo:402:45*/ Read0 func(*Env, http__queryReader) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Read1 func(*Env, json__Reader_1) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Read2 func(*Env, json__Stream) (code__NotCallable, error)
+					/*line codecli/cli.ergo:402:45*/ Enc func(*ergo__Env, ergo__Writer, code__NotCallable) (struct{}, error)
+					/*line codecli/cli.ergo:402:45*/ Dec func(*ergo__Env, ergo__Reader) (code__NotCallable, error)
+					/*line codecli/cli.ergo:402:45*/ Direct0 func(*ergo__Env, json__text, code__NotCallable) json__text
+					/*line codecli/cli.ergo:402:45*/ Read0 func(*ergo__Env, http__queryReader) (code__NotCallable, error)
+					/*line codecli/cli.ergo:402:45*/ Read1 func(*ergo__Env, json__Reader_1) (code__NotCallable, error)
+					/*line codecli/cli.ergo:402:45*/ Read2 func(*ergo__Env, json__Stream) (code__NotCallable, error)
 					/*line codecli/cli.ergo:402:45*/ Absent func(code__NotCallable) bool
 					/*line codecli/cli.ergo:402:45*/ Empty code__NotCallable
 					/*line codecli/cli.ergo:402:45*/
 				}
 				/*line codecli/cli.ergo:402:45*/
-			}{Enc: func(e_30 *Env, w_10 Writer, v_56 code__NotCallable) (struct{}, error) {
+			}{Enc: func(e_30 *ergo__Env, w_10 ergo__Writer, v_56 code__NotCallable) (struct{}, error) {
 				/*line codecli/cli.ergo:402:45*/ ergo__EncodeNotCallable(e_30, w_10, v_56)
 				/*line codecli/cli.ergo:402:45*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:402:45*/
-			}, Dec: func(e_31 *Env, r_10 Reader) (code__NotCallable, error) {
+			}, Dec: func(e_31 *ergo__Env, r_10 ergo__Reader) (code__NotCallable, error) {
 				/*line codecli/cli.ergo:402:45*/ x_10, err_12 := ergo__DecodeNotCallable(e_31, r_10)
 				/*line codecli/cli.ergo:402:45*/ if err_12 != nil {
 					/*line codecli/cli.ergo:402:45*/ return *new(code__NotCallable), err_12
@@ -32487,29 +32487,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 			t_3 := asJSON
 //line codecli/cli.ergo:404:43
 			v_63 := rpc__EncodeMono_i845740567(env, struct {
-				/*line codecli/cli.ergo:404:43*/ Enc func(*Env, Writer, code__NoPackage) (struct{}, error)
-				/*line codecli/cli.ergo:404:43*/ Dec func(*Env, Reader) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Direct0 func(*Env, json__text, code__NoPackage) json__text
-				/*line codecli/cli.ergo:404:43*/ Read0 func(*Env, http__queryReader) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Read1 func(*Env, json__Reader_1) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Read2 func(*Env, json__Stream) (code__NoPackage, error)
+				/*line codecli/cli.ergo:404:43*/ Enc func(*ergo__Env, ergo__Writer, code__NoPackage) (struct{}, error)
+				/*line codecli/cli.ergo:404:43*/ Dec func(*ergo__Env, ergo__Reader) (code__NoPackage, error)
+				/*line codecli/cli.ergo:404:43*/ Direct0 func(*ergo__Env, json__text, code__NoPackage) json__text
+				/*line codecli/cli.ergo:404:43*/ Read0 func(*ergo__Env, http__queryReader) (code__NoPackage, error)
+				/*line codecli/cli.ergo:404:43*/ Read1 func(*ergo__Env, json__Reader_1) (code__NoPackage, error)
+				/*line codecli/cli.ergo:404:43*/ Read2 func(*ergo__Env, json__Stream) (code__NoPackage, error)
 				/*line codecli/cli.ergo:404:43*/ Field *struct {
-					/*line codecli/cli.ergo:404:43*/ Enc func(*Env, Writer, code__NoPackage) (struct{}, error)
-					/*line codecli/cli.ergo:404:43*/ Dec func(*Env, Reader) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Direct0 func(*Env, json__text, code__NoPackage) json__text
-					/*line codecli/cli.ergo:404:43*/ Read0 func(*Env, http__queryReader) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Read1 func(*Env, json__Reader_1) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Read2 func(*Env, json__Stream) (code__NoPackage, error)
+					/*line codecli/cli.ergo:404:43*/ Enc func(*ergo__Env, ergo__Writer, code__NoPackage) (struct{}, error)
+					/*line codecli/cli.ergo:404:43*/ Dec func(*ergo__Env, ergo__Reader) (code__NoPackage, error)
+					/*line codecli/cli.ergo:404:43*/ Direct0 func(*ergo__Env, json__text, code__NoPackage) json__text
+					/*line codecli/cli.ergo:404:43*/ Read0 func(*ergo__Env, http__queryReader) (code__NoPackage, error)
+					/*line codecli/cli.ergo:404:43*/ Read1 func(*ergo__Env, json__Reader_1) (code__NoPackage, error)
+					/*line codecli/cli.ergo:404:43*/ Read2 func(*ergo__Env, json__Stream) (code__NoPackage, error)
 					/*line codecli/cli.ergo:404:43*/ Absent func(code__NoPackage) bool
 					/*line codecli/cli.ergo:404:43*/ Empty code__NoPackage
 					/*line codecli/cli.ergo:404:43*/
 				}
 				/*line codecli/cli.ergo:404:43*/
-			}{Enc: func(e_33 *Env, w_11 Writer, v_61 code__NoPackage) (struct{}, error) {
+			}{Enc: func(e_33 *ergo__Env, w_11 ergo__Writer, v_61 code__NoPackage) (struct{}, error) {
 				/*line codecli/cli.ergo:404:43*/ ergo__EncodeNoPackage(e_33, w_11, v_61)
 				/*line codecli/cli.ergo:404:43*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:404:43*/
-			}, Dec: func(e_34 *Env, r_11 Reader) (code__NoPackage, error) {
+			}, Dec: func(e_34 *ergo__Env, r_11 ergo__Reader) (code__NoPackage, error) {
 				/*line codecli/cli.ergo:404:43*/ x_11, err_13 := ergo__DecodeNoPackage(e_34, r_11)
 				/*line codecli/cli.ergo:404:43*/ if err_13 != nil {
 					/*line codecli/cli.ergo:404:43*/ return *new(code__NoPackage), err_13
@@ -32531,29 +32531,29 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 			t_4 := asJSON
 //line codecli/cli.ergo:406:44
 			v_68 := rpc__EncodeMono_i1966107540(env, struct {
-				/*line codecli/cli.ergo:406:44*/ Enc func(*Env, Writer, code__NotMachine) (struct{}, error)
-				/*line codecli/cli.ergo:406:44*/ Dec func(*Env, Reader) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Direct0 func(*Env, json__text, code__NotMachine) json__text
-				/*line codecli/cli.ergo:406:44*/ Read0 func(*Env, http__queryReader) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Read1 func(*Env, json__Reader_1) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Read2 func(*Env, json__Stream) (code__NotMachine, error)
+				/*line codecli/cli.ergo:406:44*/ Enc func(*ergo__Env, ergo__Writer, code__NotMachine) (struct{}, error)
+				/*line codecli/cli.ergo:406:44*/ Dec func(*ergo__Env, ergo__Reader) (code__NotMachine, error)
+				/*line codecli/cli.ergo:406:44*/ Direct0 func(*ergo__Env, json__text, code__NotMachine) json__text
+				/*line codecli/cli.ergo:406:44*/ Read0 func(*ergo__Env, http__queryReader) (code__NotMachine, error)
+				/*line codecli/cli.ergo:406:44*/ Read1 func(*ergo__Env, json__Reader_1) (code__NotMachine, error)
+				/*line codecli/cli.ergo:406:44*/ Read2 func(*ergo__Env, json__Stream) (code__NotMachine, error)
 				/*line codecli/cli.ergo:406:44*/ Field *struct {
-					/*line codecli/cli.ergo:406:44*/ Enc func(*Env, Writer, code__NotMachine) (struct{}, error)
-					/*line codecli/cli.ergo:406:44*/ Dec func(*Env, Reader) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Direct0 func(*Env, json__text, code__NotMachine) json__text
-					/*line codecli/cli.ergo:406:44*/ Read0 func(*Env, http__queryReader) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Read1 func(*Env, json__Reader_1) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Read2 func(*Env, json__Stream) (code__NotMachine, error)
+					/*line codecli/cli.ergo:406:44*/ Enc func(*ergo__Env, ergo__Writer, code__NotMachine) (struct{}, error)
+					/*line codecli/cli.ergo:406:44*/ Dec func(*ergo__Env, ergo__Reader) (code__NotMachine, error)
+					/*line codecli/cli.ergo:406:44*/ Direct0 func(*ergo__Env, json__text, code__NotMachine) json__text
+					/*line codecli/cli.ergo:406:44*/ Read0 func(*ergo__Env, http__queryReader) (code__NotMachine, error)
+					/*line codecli/cli.ergo:406:44*/ Read1 func(*ergo__Env, json__Reader_1) (code__NotMachine, error)
+					/*line codecli/cli.ergo:406:44*/ Read2 func(*ergo__Env, json__Stream) (code__NotMachine, error)
 					/*line codecli/cli.ergo:406:44*/ Absent func(code__NotMachine) bool
 					/*line codecli/cli.ergo:406:44*/ Empty code__NotMachine
 					/*line codecli/cli.ergo:406:44*/
 				}
 				/*line codecli/cli.ergo:406:44*/
-			}{Enc: func(e_36 *Env, w_12 Writer, v_66 code__NotMachine) (struct{}, error) {
+			}{Enc: func(e_36 *ergo__Env, w_12 ergo__Writer, v_66 code__NotMachine) (struct{}, error) {
 				/*line codecli/cli.ergo:406:44*/ ergo__EncodeNotMachine(e_36, w_12, v_66)
 				/*line codecli/cli.ergo:406:44*/ return struct{}{}, nil
 				/*line codecli/cli.ergo:406:44*/
-			}, Dec: func(e_37 *Env, r_12 Reader) (code__NotMachine, error) {
+			}, Dec: func(e_37 *ergo__Env, r_12 ergo__Reader) (code__NotMachine, error) {
 				/*line codecli/cli.ergo:406:44*/ x_12, err_14 := ergo__DecodeNotMachine(e_37, r_12)
 				/*line codecli/cli.ergo:406:44*/ if err_14 != nil {
 					/*line codecli/cli.ergo:406:44*/ return *new(code__NotMachine), err_14
@@ -32621,7 +32621,7 @@ func (u codetool_scodecli__front) as1() codetool_scodecli__ended {
 func (x codetool_scodecli__front) ErgoVariant() string { return [...]string{"asked", "ended"}[x.tag] }
 
 //line codecli/cli.ergo:139:1
-func codetool_scodecli__Parse(env *Env, args []string) (codetool_scodeapi__Request, error) {
+func codetool_scodecli__Parse(env *ergo__Env, args []string) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:139:1
 	env.task.Check()
 //line codecli/cli.ergo:140:2
@@ -32969,7 +32969,7 @@ func codetool_scodecli__answer(asJSON bool, plain string, encoded string) api__O
 }
 
 //line codecli/cli.ergo:338:1
-func codetool_scodecli__failed(env *Env, asJSON bool, tagged string, status int) api__Output {
+func codetool_scodecli__failed(env *ergo__Env, asJSON bool, tagged string, status int) api__Output {
 //line codecli/cli.ergo:338:1
 	env.task.Check()
 //line codecli/cli.ergo:339:2
@@ -33006,7 +33006,7 @@ func codetool_scodecli__commandDescribe() flag__Command[codetool_scodeapi__Reque
 	v_1 := v
 //line codecli/cli.ergo:34:2
 //line codecli/cli.ergo:35:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "describe", Usage: v_1, Set: flag__Set{Name: "describe", Usage: v_1, Flags: []flag__Flag{}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_2 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "describe", Usage: v_1, Set: flag__Set{Name: "describe", Usage: v_1, Flags: []flag__Flag{}, Args: []flag__ArgSpec{}}, Build: func(env *ergo__Env, v_2 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:36:3
 		return codetool_scodeapi__DescribeRequest{}, nil
 		/*line codecli/cli.ergo:36:3*/
@@ -33092,7 +33092,7 @@ func codetool_scodecli__commandSymbols() flag__Command[codetool_scodeapi__Reques
 	v_13 := v_12
 //line codecli/cli.ergo:49:2
 //line codecli/cli.ergo:50:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "symbols", Usage: v_13, Set: flag__Set{Name: "symbols", Usage: v_13, Flags: []flag__Flag{v, v_2, v_4, v_6, v_8, v_10}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_14 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "symbols", Usage: v_13, Set: flag__Set{Name: "symbols", Usage: v_13, Flags: []flag__Flag{v, v_2, v_4, v_6, v_8, v_10}, Args: []flag__ArgSpec{}}, Build: func(env *ergo__Env, v_14 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:51:3
 //line codecli/cli.ergo:51:52
 		v_15 := (v).Get(v_14)
@@ -33145,7 +33145,7 @@ func codetool_scodecli__commandSymbol() flag__Command[codetool_scodeapi__Request
 	v_2 := v_1
 //line codecli/cli.ergo:59:2
 //line codecli/cli.ergo:60:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "symbol", Usage: v_2, Set: flag__Set{Name: "symbol", Usage: v_2, Flags: []flag__Flag{}, Args: []flag__ArgSpec{v}}, Build: func(env *Env, v_3 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "symbol", Usage: v_2, Set: flag__Set{Name: "symbol", Usage: v_2, Flags: []flag__Flag{}, Args: []flag__ArgSpec{v}}, Build: func(env *ergo__Env, v_3 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:61:3
 //line codecli/cli.ergo:61:12
 		var v_4 string
@@ -33232,7 +33232,7 @@ func codetool_scodecli__commandReferences() flag__Command[codetool_scodeapi__Req
 	v_8 := v_7
 //line codecli/cli.ergo:73:2
 //line codecli/cli.ergo:74:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "references", Usage: v_8, Set: flag__Set{Name: "references", Usage: v_8, Flags: []flag__Flag{v, v_2, v_3, v_5}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_9 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "references", Usage: v_8, Set: flag__Set{Name: "references", Usage: v_8, Flags: []flag__Flag{v, v_2, v_3, v_5}, Args: []flag__ArgSpec{}}, Build: func(env *ergo__Env, v_9 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:75:3
 //line codecli/cli.ergo:75:50
 		v_10 := (v).Get(v_9)
@@ -33317,7 +33317,7 @@ func codetool_scodecli__commandCalls() flag__Command[codetool_scodeapi__Request]
 	v_10 := v_9
 //line codecli/cli.ergo:87:2
 //line codecli/cli.ergo:88:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "calls", Usage: v_10, Set: flag__Set{Name: "calls", Usage: v_10, Flags: []flag__Flag{v, v_1, v_3, v_5, v_7}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_11 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "calls", Usage: v_10, Set: flag__Set{Name: "calls", Usage: v_10, Flags: []flag__Flag{v, v_1, v_3, v_5, v_7}, Args: []flag__ArgSpec{}}, Build: func(env *ergo__Env, v_11 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:89:3
 //line codecli/cli.ergo:89:46
 		v_12 := (v).Get(v_11)
@@ -33372,7 +33372,7 @@ func codetool_scodecli__commandApi() flag__Command[codetool_scodeapi__Request] {
 	v_3 := v_2
 //line codecli/cli.ergo:97:2
 //line codecli/cli.ergo:98:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "api", Usage: v_3, Set: flag__Set{Name: "api", Usage: v_3, Flags: []flag__Flag{v}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_4 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "api", Usage: v_3, Set: flag__Set{Name: "api", Usage: v_3, Flags: []flag__Flag{v}, Args: []flag__ArgSpec{}}, Build: func(env *ergo__Env, v_4 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:99:3
 //line codecli/cli.ergo:99:48
 		v_5 := (v).Get(v_4)
@@ -33425,7 +33425,7 @@ func codetool_scodecli__commandReach() flag__Command[codetool_scodeapi__Request]
 	v_6 := v_5
 //line codecli/cli.ergo:109:2
 //line codecli/cli.ergo:110:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "reach", Usage: v_6, Set: flag__Set{Name: "reach", Usage: v_6, Flags: []flag__Flag{v, v_1, v_3}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_7 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "reach", Usage: v_6, Set: flag__Set{Name: "reach", Usage: v_6, Flags: []flag__Flag{v, v_1, v_3}, Args: []flag__ArgSpec{}}, Build: func(env *ergo__Env, v_7 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:111:3
 //line codecli/cli.ergo:111:47
 		v_8 := (v).Get(v_7)
@@ -33466,7 +33466,7 @@ func codetool_scodecli__commandMachineOf() flag__Command[codetool_scodeapi__Requ
 	v_2 := v_1
 //line codecli/cli.ergo:119:2
 //line codecli/cli.ergo:120:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "machine-of", Usage: v_2, Set: flag__Set{Name: "machine-of", Usage: v_2, Flags: []flag__Flag{}, Args: []flag__ArgSpec{v}}, Build: func(env *Env, v_3 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "machine-of", Usage: v_2, Set: flag__Set{Name: "machine-of", Usage: v_2, Flags: []flag__Flag{}, Args: []flag__ArgSpec{v}}, Build: func(env *ergo__Env, v_3 flag__Values) (codetool_scodeapi__Request, error) {
 //line codecli/cli.ergo:121:3
 //line codecli/cli.ergo:121:12
 		var v_4 string
@@ -33690,7 +33690,7 @@ func (x codetool_scodeapi__Op) ErgoVariant() string {
 // ergoInit runs the package-level lets in Go's initialization order,
 // inside the program's root task.
 /*line codeapi/api.ergo:17:104*/
-func ergoInit(env *Env) {
+func ergoInit(env *ergo__Env) {
 //line std/json/stream.ergo:397:5
 	{
 		/*line std/json/stream.ergo:397:5*/ json__badTok = json__tok{kind: json__kBad, text: "", raw: false}

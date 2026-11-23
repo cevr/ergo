@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -193,22 +191,14 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 		// library): every other package-scope name, a root or prelude
 		// declaration, a fixed name such as Env, is unexported, so a Go
 		// caller reaches nothing else and neither lowering's helpers are
-		// API (LIB-ON-IR). The program namer gives it, so a root name or a
-		// local of that spelling yields as to any package-scope name.
-		name = l.names.alloc(unexported(name))
+		// API (LIB-ON-IR). It takes rule 3's spelling, ergo__<name>
+		// (pkgnames.go), under "__", which no local holds: a lowered
+		// body's own env parameter shadowed a fixed Env made env.
+		name = l.names.alloc(HelperSpelling("", name))
 	}
 	l.pkgNames[key] = name
 	l.pkgOrder = append(l.pkgOrder, pkgEntry{key: key, base: base})
 	return name
-}
-
-// unexported is name with its first letter lower case, when it is upper.
-func unexported(name string) string {
-	r, n := utf8.DecodeRuneInString(name)
-	if !unicode.IsUpper(r) {
-		return name
-	}
-	return string(unicode.ToLower(r)) + name[n:]
 }
 
 // lowerer holds the lowering of one package.
