@@ -157,8 +157,22 @@ func TestCompilerCheckAgrees(t *testing.T) {
 		base = uint32(n)
 	}
 	var cases []agreeCase
-	// The corpus, one folder at a time (eachGoPackage).
+	// The corpus, one folder at a time (eachGoPackage), and the folders of
+	// testdata/agree: the smallest programs of gaps found elsewhere, each
+	// a package the Go checker accepts.
 	dirs := corpusDirs(t)
+	err := filepath.WalkDir(filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "agree"), func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".ergo") && dirs[len(dirs)-1] != filepath.Dir(p) {
+			dirs = append(dirs, filepath.Dir(p))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	corpus := make([]*agreeCase, len(dirs))
 	eachGoPackage(dirs, func(i int, pkg *check.Package) {
 		_, ext := goKinds(pkg)
