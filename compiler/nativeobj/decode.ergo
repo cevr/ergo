@@ -1,0 +1,549 @@
+// Independent decoders of what the producer wrote: the ar archive, the
+// export data and the object file are read back here with readers of
+// their own (they share only the byte reader of buf.ergo and the pin's
+// constants with the writers), and the machine code with a small x86
+// decoder of the forms amd64.ergo encodes. The metadata checks
+// (verify.ergo) compare what these decoders find with the checked input,
+// never with the writers' own records.
+
+import sha256
+import strings
+
+// Bad is bytes a decoder refuses.
+type Bad { Why string }
+
+func short(s Short) Bad { Bad{Why: "short read at \(s.At) wanting \(s.Want)"} }
+
+// ArMember is one archive member as read.
+type ArMember { Name string, Data string }
+
+func decimal(s string) int fails Bad {
+	let mut n = 0
+	let mut digits = 0
+	for i in 0..len(s) {
+		let c = int(s[i])
+		if c == 32 {
+			continue
+		}
+		if c < 48 || c > 57 {
+			return Bad{Why: "not a decimal size: \(s)"}
+		}
+		n = n*10 + (c - 48)
+		digits = digits + 1
+	}
+	if digits == 0 {
+		return Bad{Why: "empty size"}
+	}
+	n
+}
+
+func trimRight(s string) string {
+	let mut n = len(s)
+	for n > 0 && int(s[n-1]) == 32 {
+		n = n - 1
+	}
+	s[0:n]
+}
+
+// ReadAr reads the members of an ar archive.
+func ReadAr(data string) []ArMember fails Bad {
+	let magic = "!<arch>\n"
+	if len(data) < len(magic) || data[0:len(magic)] != magic {
+		return Bad{Why: "no ar magic"}
+	}
+	let mut at = len(magic)
+	let mut out = []ArMember{}
+	for at < len(data) {
+		if at+60 > len(data) {
+			return Bad{Why: "member header cut at \(at)"}
+		}
+		let h = data[at : at+60]
+		if h[58:60] != "`\n" {
+			return Bad{Why: "member header at \(at) has no terminator"}
+		}
+		let size = try decimal(h[48:58])
+		at = at + 60
+		if at+size > len(data) {
+			return Bad{Why: "member \(trimRight(h[0:16])) runs past the archive"}
+		}
+		out = out.Append(ArMember{Name: trimRight(h[0:16]), Data: data[at : at+size]})
+		at = at + size + size%2
+	}
+	out
+}
+
+// firstLine is s up to and with its first line end ("" when none).
+func firstLine(s string) string {
+	for i in 0..len(s) {
+		if int(s[i]) == 10 {
+			return s[0 : i+1]
+		}
+	}
+	""
+}
+
+// PkgDefParts is a __.PKGDEF member split: its header line and the export
+// data (from the version word to the fingerprint, inclusive).
+type PkgDefParts { Header string, Export string }
+
+// SplitPkgDef splits a __.PKGDEF member as the stock importer reads one:
+// header lines up to a blank line, "$$B\n", the 'u' format byte, the
+// export data, "\n$$\n".
+func SplitPkgDef(m string) PkgDefParts fails Bad {
+	let header = firstLine(m)
+	if header == "" {
+		return Bad{Why: "__.PKGDEF has no header line"}
+	}
+	// Header lines run up to the line that starts with "$$".
+	let mut at = len(header)
+	for at+2 <= len(m) && m[at:at+2] != "$$" {
+		let line = firstLine(m[at:len(m)])
+		if line == "" {
+			return Bad{Why: "__.PKGDEF has no export data marker"}
+		}
+		at = at + len(line)
+	}
+	let open = "$$B\nu"
+	if len(m) < at+len(open)+4 || m[at:at+len(open)] != open {
+		return Bad{Why: "__.PKGDEF has no unified export data after its header"}
+	}
+	let start = at + len(open)
+	let end = len(m) - 4
+	if m[end:len(m)] != "\n$$\n" {
+		return Bad{Why: "__.PKGDEF does not end with the export data marker"}
+	}
+	PkgDefParts{Header: header, Export: m[start:end]}
+}
+
+// ObjParts is a _go_.o member split: its header line and the object.
+type ObjParts { Header string, Object string }
+
+// SplitObj splits a _go_.o member as the linker does: the header line,
+// then everything after the first "\n!\n".
+func SplitObj(m string) ObjParts fails Bad {
+	let header = firstLine(m)
+	for i in len(header)-1..len(m)-2 {
+		if m[i:i+3] == "\n!\n" {
+			return ObjParts{Header: header, Object: m[i+3 : len(m)]}
+		}
+	}
+	Bad{Why: "_go_.o has no object after its header"}
+}
+
+// ExpObj is one exported object as the export data names it, with the
+// extension record a stock importer reads for a function.
+type ExpObj { Name string, Code int, SymIdx int, ABI int, HasExt bool }
+
+// ExportInfo is what a stock importer learns from export data.
+type ExportInfo { Version int, Path string, Fingerprint string, Digest string, Objs []ExpObj, HasInit bool }
+
+// elems locates the elements of export data.
+type elems { blob string, secEnd []int, elemEnd []int, dataAt int }
+
+func span(e elems, sec int, idx int) (int, int) fails Bad {
+	let base = if sec == 0 { 0 } else { e.secEnd[sec-1] }
+	if idx < 0 || base+idx >= e.secEnd[sec] {
+		return Bad{Why: "element \(idx) of section \(sec) out of range"}
+	}
+	let g = base + idx
+	let from = if g == 0 { 0 } else { e.elemEnd[g-1] }
+	(e.dataAt + from, e.dataAt + e.elemEnd[g])
+}
+
+// elemReader is one element's references and a reader over its data.
+type elemReader { refs []RefEntry, r Reader, end int }
+
+func open(e elems, sec int, idx int) elemReader fails Bad {
+	let (from, to) = try e.span(sec, idx)
+	let mut r = Reader{Data: e.blob[0:to], At: from}
+	let n = r.RUvarint() catch {
+	case Short as s:
+		return short(s)
+	}
+	let mut refs = []RefEntry{}
+	for _ in 0..n {
+		let s = r.RUvarint() catch {
+		case Short as x:
+			return short(x)
+		}
+		let i = r.RUvarint() catch {
+		case Short as x:
+			return short(x)
+		}
+		refs = refs.Append(RefEntry{Sec: s, Idx: i})
+	}
+	elemReader{refs: refs, r: r, end: to}
+}
+
+func ref(er mut elemReader, sec int) int fails Bad {
+	let k = er.r.RUvarint() catch {
+	case Short as s:
+		return short(s)
+	}
+	if k < 0 || k >= len(er.refs) || er.refs[k].Sec != sec {
+		return Bad{Why: "reference \(k) is not into section \(sec)"}
+	}
+	er.refs[k].Idx
+}
+
+func uv(er mut elemReader) int fails Bad {
+	er.r.RUvarint() catch {
+	case Short as s:
+		return short(s)
+	}
+}
+
+func sv(er mut elemReader) int fails Bad {
+	er.r.RVarint() catch {
+	case Short as s:
+		return short(s)
+	}
+}
+
+func flag(er mut elemReader) bool fails Bad {
+	let b = er.r.RByte() catch {
+	case Short as s:
+		return short(s)
+	}
+	if b > 1 {
+		return Bad{Why: "a bool byte of \(b)"}
+	}
+	b == 1
+}
+
+func str(e elems, idx int) string fails Bad {
+	let (from, to) = try e.span(SecString, idx)
+	e.blob[from:to]
+}
+
+// ReadExport decodes export data (version word to fingerprint).
+func ReadExport(blob string) ExportInfo fails Bad {
+	let mut r = NewReader(blob)
+	let version = r.R32() catch {
+	case Short as s:
+		return short(s)
+	}
+	if version >= 1 {
+		let flags = r.R32() catch {
+		case Short as s:
+			return short(s)
+		}
+		if flags != 0 {
+			return Bad{Why: "export flags \(flags): sync markers are not written by the pin's default"}
+		}
+	}
+	let mut secEnd = []int{}
+	for _ in 0..NumSections {
+		secEnd = secEnd.Append(r.R32() catch {
+		case Short as s:
+			return short(s)
+		})
+	}
+	let total = secEnd[NumSections-1]
+	let mut elemEnd = []int{}
+	for _ in 0..total {
+		elemEnd = elemEnd.Append(r.R32() catch {
+		case Short as s:
+			return short(s)
+		})
+	}
+	let dataAt = r.At
+	let size = if total == 0 { 0 } else { elemEnd[total-1] }
+	if dataAt+size+8 != len(blob) {
+		return Bad{Why: "export data of \(len(blob)) bytes holds \(dataAt + size) and an 8-byte fingerprint"}
+	}
+	let body = blob[0 : dataAt+size]
+	let fp = blob[dataAt+size : len(blob)]
+	let e = elems{blob: blob, secEnd: secEnd, elemEnd: elemEnd, dataAt: dataAt}
+	let mut pub = try e.open(SecMeta, 0)
+	let pkg = try pub.ref(SecPkg)
+	let mut pe = try e.open(SecPkg, pkg)
+	let path = try e.str(try pe.ref(SecString))
+	let n = try pub.uv()
+	let mut objs = []ExpObj{}
+	for _ in 0..n {
+		let o = try pub.ref(SecObj)
+		if try pub.uv() != 0 {
+			return Bad{Why: "a public root entry with derived type arguments"}
+		}
+		let mut nm = try e.open(SecName, o)
+		try nm.ref(SecPkg)
+		let name = try e.str(try nm.ref(SecString))
+		let code = try nm.uv()
+		let mut obj = ExpObj{Name: name, Code: code, SymIdx: -1, ABI: -1, HasExt: false}
+		if code == ObjFunc {
+			let mut x = try e.open(SecObjExt, o)
+			try x.sv()
+			let idx = try x.sv()
+			if idx < 0 {
+				// A linknamed function: its name and the std flag follow,
+				// and the importer refers to it by name.
+				objs = objs.Append(obj)
+				continue
+			}
+			let ext = try x.flag()
+			let abi = if ext { try x.uv() } else { -1 }
+			obj = ExpObj{Name: name, Code: code, SymIdx: idx, ABI: abi, HasExt: ext}
+		}
+		objs = objs.Append(obj)
+	}
+	let mut priv = try e.open(SecMeta, 1)
+	let hasInit = try priv.flag()
+	ExportInfo{Version: version, Path: path, Fingerprint: fp, Digest: sha256.Sum(body)[0:8], Objs: objs, HasInit: hasInit}
+}
+
+// DSym is a symbol of an object as read.
+type DSym { Name string, ABI int, Kind int, Flag int, Flag2 int, Size int, Align int }
+
+// DReloc is a relocation as read, its target resolved to a name ("" for
+// none) and, for the package's own symbols, the definition's index.
+type DReloc { Off int, Size int, Type int, Add int, Target string, Own int }
+
+// DAux is an aux symbol as read: its type and the definition it names.
+type DAux { Type int, Def int }
+
+// DObj is an object file as read.
+type DObj {
+	Fingerprint string,
+	Autolib     []Import,
+	Files       []string,
+	Defs        []DSym,
+	Refs        []DSym,
+	Relocs      [][]DReloc,
+	Aux         [][]DAux,
+	Data        []string,
+}
+
+func le(data string, at int, n int) int fails Bad {
+	if at < 0 || at+n > len(data) {
+		return Bad{Why: "object field at \(at) past the end"}
+	}
+	LE(data, at, n)
+}
+
+func sext(x int, bits int) int {
+	let top = 1 << (bits - 1)
+	if x&top != 0 { x - (top << 1) } else { x }
+}
+
+func strAt(data string, at int) string fails Bad {
+	let n = try le(data, at, 4)
+	let off = try le(data, at+4, 4)
+	if off+n > len(data) {
+		return Bad{Why: "string at \(off) of \(n) bytes past the end"}
+	}
+	data[off : off+n]
+}
+
+func symAt(data string, at int) DSym fails Bad {
+	DSym{Name: try strAt(data, at), ABI: try le(data, at+8, 2), Kind: try le(data, at+10, 1), Flag: try le(data, at+11, 1),
+		Flag2: try le(data, at+12, 1), Size: try le(data, at+13, 4), Align: try le(data, at+17, 4)}
+}
+
+// ReadObject decodes an object file.
+func ReadObject(data string) DObj fails Bad {
+	if len(data) < HeaderSize || data[0:8] != ObjMagic {
+		return Bad{Why: "no object magic"}
+	}
+	let fp = data[8:16]
+	let mut offs = []int{}
+	for i in 0..NBlk {
+		offs = offs.Append(try le(data, 20+4*i, 4))
+	}
+	for i in 1..NBlk {
+		if offs[i] < offs[i-1] || offs[i] > len(data) {
+			return Bad{Why: "block \(i) offset out of order"}
+		}
+	}
+	let mut autolib = []Import{}
+	let mut at = offs[0]
+	for at < offs[1] {
+		autolib = autolib.Append(Import{Path: try strAt(data, at), Name: "", Fingerprint: data[at+8 : at+16], HasInit: false})
+		at = at + 16
+	}
+	let mut files = []string{}
+	at = offs[2]
+	for at < offs[3] {
+		files = files.Append(try strAt(data, at))
+		at = at + 8
+	}
+	if offs[4] != offs[7] {
+		return Bad{Why: "hashed or non-package definitions"}
+	}
+	let mut defs = []DSym{}
+	at = offs[3]
+	for at < offs[4] {
+		defs = defs.Append(try symAt(data, at))
+		at = at + 21
+	}
+	let mut refs = []DSym{}
+	at = offs[7]
+	for at < offs[8] {
+		refs = refs.Append(try symAt(data, at))
+		at = at + 21
+	}
+	let n = len(defs)
+	let mut relocs = [][]DReloc{}
+	let mut auxs = [][]DAux{}
+	let mut datas = []string{}
+	for i in 0..n {
+		let r0 = try le(data, offs[11]+4*i, 4)
+		let r1 = try le(data, offs[11]+4*(i+1), 4)
+		let mut rs = []DReloc{}
+		for k in r0..r1 {
+			let p = offs[14] + 23*k
+			let pkg = try le(data, p+15, 4)
+			let idx = try le(data, p+19, 4)
+			let mut target = ""
+			let mut own = -1
+			if pkg == PkgIdxSelf {
+				if idx >= n {
+					return Bad{Why: "a relocation names definition \(idx) of \(n)"}
+				}
+				target = defs[idx].Name
+				own = idx
+			} else if pkg == PkgIdxNone {
+				if idx >= len(refs) {
+					return Bad{Why: "a relocation names reference \(idx) of \(len(refs))"}
+				}
+				target = refs[idx].Name
+			} else if pkg != 0 {
+				return Bad{Why: "a relocation into package index \(pkg)"}
+			}
+			rs = rs.Append(DReloc{Off: try le(data, p, 4), Size: try le(data, p+4, 1), Type: try le(data, p+5, 2), Add: try le(data, p+7, 8),
+				Target: target, Own: own})
+		}
+		relocs = relocs.Append(rs)
+		let a0 = try le(data, offs[12]+4*i, 4)
+		let a1 = try le(data, offs[12]+4*(i+1), 4)
+		let mut xs = []DAux{}
+		for k in a0..a1 {
+			let p = offs[15] + 9*k
+			if try le(data, p+1, 4) != PkgIdxSelf {
+				return Bad{Why: "an aux symbol outside the package"}
+			}
+			xs = xs.Append(DAux{Type: try le(data, p, 1), Def: try le(data, p+5, 4)})
+		}
+		auxs = auxs.Append(xs)
+		let d0 = try le(data, offs[13]+4*i, 4)
+		let d1 = try le(data, offs[13]+4*(i+1), 4)
+		if offs[16]+d1 > offs[17] {
+			return Bad{Why: "data of definition \(i) past its block"}
+		}
+		datas = datas.Append(data[offs[16]+d0 : offs[16]+d1])
+	}
+	DObj{Fingerprint: fp, Autolib: autolib, Files: files, Defs: defs, Refs: refs, Relocs: relocs, Aux: auxs, Data: datas}
+}
+
+// Ins is one decoded instruction: its PC and size, its opcode (two-byte
+// opcodes as 0x0F00 plus the second byte), the ModRM reg field (or the
+// opcode's register), the memory or register operand (Base; RIP-relative
+// when Rip), whether it is memory, its displacement and its immediate.
+type Ins { Pc int, Size int, Op int, R int, B int, Mem bool, Rip bool, Disp int, Imm int }
+
+// Disasm decodes code made of the forms amd64.ergo encodes.
+func Disasm(code string) []Ins fails Bad {
+	let mut out = []Ins{}
+	let mut pc = 0
+	for pc < len(code) {
+		let start = pc
+		let mut b = int(code[pc])
+		let mut rex = 0
+		if b >= 0x40 && b <= 0x4F {
+			rex = b
+			pc = pc + 1
+			b = try le(code, pc, 1)
+		}
+		pc = pc + 1
+		let mut op = b
+		if b == 0x0F {
+			op = 0x0F00 + try le(code, pc, 1)
+			pc = pc + 1
+		}
+		let modrm = op == 0x89 || op == 0x8B || op == 0x8D || op == 0x01 || op == 0x29 || op == 0x31 || op == 0x39 || op == 0x3B || op == 0x0FAF ||
+			op == 0x81 || op == 0x83 || op == 0xC7 || op == 0xFF
+		let mut ins = Ins{Pc: start, Size: 0, Op: op, R: 0, B: 0, Mem: false, Rip: false, Disp: 0, Imm: 0}
+		if modrm {
+			let m = try le(code, pc, 1)
+			pc = pc + 1
+			let mod = m >> 6
+			let reg = ((m >> 3) & 7) | (((rex >> 2) & 1) << 3)
+			let rm = (m & 7) | ((rex & 1) << 3)
+			ins = Ins{..ins, R: reg, B: rm}
+			if mod == 3 {
+				ins = Ins{..ins, Mem: false}
+			} else if mod == 0 && (m&7) == 5 {
+				ins = Ins{..ins, Mem: true, Rip: true, Disp: sext(try le(code, pc, 4), 32)}
+				pc = pc + 4
+			} else if mod == 2 {
+				if (m & 7) == 4 {
+					if try le(code, pc, 1) != 0x24 {
+						return Bad{Why: "a SIB byte other than [RSP] at \(start)"}
+					}
+					pc = pc + 1
+				}
+				ins = Ins{..ins, Mem: true, Disp: sext(try le(code, pc, 4), 32)}
+				pc = pc + 4
+			} else {
+				return Bad{Why: "addressing mode \(mod) at \(start)"}
+			}
+			if op == 0x81 || op == 0xC7 {
+				ins = Ins{..ins, Imm: sext(try le(code, pc, 4), 32)}
+				pc = pc + 4
+			} else if op == 0x83 {
+				ins = Ins{..ins, Imm: sext(try le(code, pc, 1), 8)}
+				pc = pc + 1
+			}
+		} else if op >= 0xB8 && op <= 0xBF {
+			ins = Ins{..ins, Op: 0xB8, R: (op & 7) | ((rex & 1) << 3), Imm: try le(code, pc, 8)}
+			pc = pc + 8
+		} else if op == 0xE8 || op == 0xE9 || (op >= 0x0F80 && op <= 0x0F8F) {
+			ins = Ins{..ins, Imm: sext(try le(code, pc, 4), 32)}
+			pc = pc + 4
+		} else if op != 0x55 && op != 0x5D && op != 0xC3 {
+			return Bad{Why: "opcode \(op) at \(start)"}
+		}
+		out = out.Append(Ins{..ins, Size: pc - start})
+	}
+	out
+}
+
+// Decoded is a whole archive as read: its members' header lines, its
+// export data and its object.
+type Decoded { Members []string, PkgHeader string, ObjHeader string, Export ExportInfo, Obj DObj }
+
+// Decode reads an archive the producer wrote.
+func Decode(ar string) Decoded fails Bad {
+	let ms = try ReadAr(ar)
+	let mut names = []string{}
+	for m in ms {
+		names = names.Append(m.Name)
+	}
+	if len(ms) != 2 || ms[0].Name != "__.PKGDEF" || ms[1].Name != "_go_.o" {
+		return Bad{Why: "members \(strings.Join(names, ",")), not __.PKGDEF then _go_.o"}
+	}
+	let pd = try SplitPkgDef(ms[0].Data)
+	let ob = try SplitObj(ms[1].Data)
+	Decoded{Members: names, PkgHeader: pd.Header, ObjHeader: ob.Header, Export: try ReadExport(pd.Export), Obj: try ReadObject(ob.Object)}
+}
+
+// ReadStockExport reads the export data of a stock archive's __.PKGDEF
+// (a dependency's), for its fingerprint and whether it has an init.
+func ReadStockExport(ar string) ExportInfo fails Bad {
+	for m in try ReadAr(ar) {
+		if m.Name == "__.PKGDEF" {
+			let pd = try SplitPkgDef(m.Data)
+			return try ReadExport(pd.Export)
+		}
+	}
+	Bad{Why: "no __.PKGDEF member"}
+}
+
+// StockHeader is the header line of a stock archive's first member.
+func StockHeader(ar string) string fails Bad {
+	let ms = try ReadAr(ar)
+	if len(ms) == 0 {
+		return Bad{Why: "an empty archive"}
+	}
+	firstLine(ms[0].Data)
+}

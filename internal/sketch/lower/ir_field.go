@@ -43,9 +43,8 @@ func (b *irBuilder) intoField(x syntax.Expr, e *irExpr, ft check.Type) *irExpr {
 // type t, as the Go field takes it, as the emitter's intoSlot (rowslot.go):
 // a field whose declared type is a type parameter bound to a Slot row of
 // the enclosing function (Failed[F]{Error: err} in actor.ExitOf) has that
-// Go type parameter as its Go type, while the row value is a Go error, so
-// the value is asserted to the parameter. A value that is not an error
-// keeps the source body (the emitter's any(…) has no IR form).
+// Go type parameter as its Go type. A value already typed as the slot
+// goes straight in; an erased row (Go error) is asserted to the slot.
 func (b *irBuilder) intoSlot(td *typeDecl, t check.Type, field string, x syntax.Expr, e *irExpr) *irExpr {
 	n, ok := t.(*check.Named)
 	if !ok || n.Orig == nil || td.named == nil {
@@ -77,10 +76,15 @@ func (b *irBuilder) intoSlot(td *typeDecl, t check.Type, field string, x syntax.
 			if cv, ok := b.l.info.Implicit[x]; ok && cv.Kind != 0 {
 				from = cv.To
 			}
-			if from == nil || b.goType(from, x) != "error" {
-				irNo("record field of a Slot row from a value that is not an error")
+			if from != nil {
+				switch b.goType(from, x) {
+				case name:
+					return e
+				case "error":
+					return &irExpr{K: "assert", Pos: e.Pos, T: name, X: e}
+				}
 			}
-			return &irExpr{K: "assert", Pos: e.Pos, T: name, X: e}
+			irNo("record field of a Slot row from a value that is not an error")
 		}
 	}
 	return e

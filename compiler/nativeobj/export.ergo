@@ -1,0 +1,268 @@
+import sha256
+
+// The unified export data of the pin (internal/pkgbits version 5, the
+// shape cmd/compile's noder linker writes into __.PKGDEF), without sync
+// markers (the stock default). Ten sections of elements; each element is
+// a table of references (section, index) followed by its data, in which
+// a reference is the table position. Strings are interned in the string
+// section. The stock compiler reads it twice, for types2 and for its
+// backend, so every record follows the reader of both exactly.
+//
+// The package exports its functions with Go types built from int,
+// pointers and func types. A function's extension record carries its
+// symbol index in the object (so a stock caller refers to it by index,
+// and the linker holds the two to one fingerprint), ABIInternal, an empty
+// escape note for each parameter (every pointer escapes: the producer
+// claims no escape facts it has not proved), and no inline body.
+
+// Sections (pkgbits.Section*).
+let SecString = 0
+let SecMeta = 1
+let SecPosBase = 2
+let SecPkg = 3
+let SecName = 4
+let SecType = 5
+let SecObj = 6
+let SecObjExt = 7
+let SecObjDict = 8
+let SecBody = 9
+let NumSections = 10
+
+// Codes (pkgbits.Type*, Obj*) and types2 basic kinds.
+let TypeBasic = 0
+let TypePointer = 2
+let TypeSignature = 7
+let ObjFunc = 3
+let BasicInt = 2
+
+// RefEntry is one reference of an element.
+type RefEntry { Sec int, Idx int }
+
+// Enc is an element being written.
+type Enc { refs []RefEntry, data Buf }
+
+func newEnc() Enc { Enc{refs: []RefEntry{}, data: NewBuf()} }
+
+// ExportW is the export data being written.
+type ExportW { elems [][]string, strs Map[string, int] }
+
+func newExportW() ExportW {
+	let mut e = [][]string{}
+	for _ in 0..NumSections {
+		e = e.Append([]string{})
+	}
+	ExportW{elems: e, strs: Map[string, int]{}}
+}
+
+func reserve(x mut ExportW, sec int) int {
+	let idx = len(x.elems[sec])
+	let mut s = x.elems[sec]
+	s = s.Append("")
+	x.elems[sec] = s
+	idx
+}
+
+func put(x mut ExportW, sec int, idx int, e Enc) {
+	let mut h = NewBuf()
+	h.Uvarint(len(e.refs))
+	for r in e.refs {
+		h.Uvarint(r.Sec)
+		h.Uvarint(r.Idx)
+	}
+	h.Raw(e.data.Bytes())
+	let mut s = x.elems[sec]
+	s[idx] = h.Bytes()
+	x.elems[sec] = s
+}
+
+func strIdx(x mut ExportW, s string) int {
+	match x.strs.Get(s) {
+	case Some as i:
+		return i.Value
+	case None:
+	}
+	let i = x.reserve(SecString)
+	let mut sec = x.elems[SecString]
+	sec[i] = s
+	x.elems[SecString] = sec
+	x.strs[s] = i
+	i
+}
+
+// Rel writes a reference to element idx of section sec.
+func Rel(e mut Enc, sec int, idx int) {
+	for i, r in e.refs {
+		if r.Sec == sec && r.Idx == idx {
+			e.data.Uvarint(i)
+			return
+		}
+	}
+	e.refs = e.refs.Append(RefEntry{Sec: sec, Idx: idx})
+	e.data.Uvarint(len(e.refs) - 1)
+}
+
+func Str(e mut Enc, x mut ExportW, s string) { e.Rel(SecString, x.strIdx(s)) }
+
+func Bool(e mut Enc, b bool) { e.data.U8(if b { 1 } else { 0 }) }
+
+func Len(e mut Enc, n int) { e.data.Uvarint(n) }
+
+func Int(e mut Enc, n int) { e.data.Varint(n) }
+
+func typ(e mut Enc, t int) {
+	e.Bool(false)
+	e.Rel(SecType, t)
+}
+
+// pos writes a known position in the package's one file.
+func pos(e mut Enc, line int, col int) {
+	e.Bool(true)
+	e.Rel(SecPosBase, 0)
+	e.Len(line)
+	e.Len(col)
+}
+
+func params(e mut Enc, x mut ExportW, ts []int) {
+	e.Len(len(ts))
+	for t in ts {
+		e.Bool(false)
+		e.Rel(SecPkg, 0)
+		e.Str(x, "")
+		e.typ(t)
+	}
+}
+
+func signature(e mut Enc, x mut ExportW, ps []int, rs []int) {
+	e.params(x, ps)
+	e.params(x, rs)
+	e.Bool(false)
+}
+
+// ExportBlob is the export data of p (what follows "$$B\nu"), with its
+// fingerprint at the end, and that fingerprint. symIdx is each exported
+// function's index in the object's definitions (its place in p.Funcs).
+func ExportBlob(p Package) (string, string) {
+	let mut x = newExportW()
+	let pub = x.reserve(SecMeta)
+	let priv = x.reserve(SecMeta)
+	// Packages: this one at 0, then each import.
+	let self = x.reserve(SecPkg)
+	let mut impIdx = []int{}
+	for imp in p.Imports {
+		let i = x.reserve(SecPkg)
+		let mut e = newEnc()
+		e.Str(&x, imp.Path)
+		e.Str(&x, imp.Name)
+		e.Len(0)
+		x.put(SecPkg, i, e)
+		impIdx = impIdx.Append(i)
+	}
+	let mut pe = newEnc()
+	pe.Str(&x, p.Path)
+	pe.Str(&x, p.Name)
+	pe.Len(len(impIdx))
+	for i in impIdx {
+		pe.Rel(SecPkg, i)
+	}
+	x.put(SecPkg, self, pe)
+	let base = x.reserve(SecPosBase)
+	let mut be = newEnc()
+	be.Str(&x, p.File)
+	be.Bool(true)
+	x.put(SecPosBase, base, be)
+	// Types: one element per type id, in order.
+	for _ in p.Types {
+		x.reserve(SecType)
+	}
+	for t, d in p.Types {
+		let mut e = newEnc()
+		if d.Kind == KInt {
+			e.Len(TypeBasic)
+			e.Len(BasicInt)
+		} else if d.Kind == KPtr {
+			e.Len(TypePointer)
+			e.typ(d.Elem)
+		} else {
+			e.Len(TypeSignature)
+			e.signature(&x, d.Params, d.Results)
+		}
+		x.put(SecType, t, e)
+	}
+	// Objects: the exported functions.
+	let mut objs = []int{}
+	for i, f in p.Funcs {
+		if !Exported(f.Name) {
+			continue
+		}
+		let o = x.reserve(SecObj)
+		x.reserve(SecObjExt)
+		x.reserve(SecName)
+		x.reserve(SecObjDict)
+		let mut w = newEnc()
+		w.pos(f.Line, f.Col)
+		w.Bool(false)
+		w.signature(&x, f.Params, f.Results)
+		w.pos(f.Line, f.Col)
+		x.put(SecObj, o, w)
+		let mut ext = newEnc()
+		ext.Int(0)
+		ext.Int(i)
+		ext.Bool(true)
+		ext.Len(ABIInternal)
+		for _ in f.Params {
+			ext.Str(&x, "")
+		}
+		ext.Bool(false)
+		x.put(SecObjExt, o, ext)
+		let mut name = newEnc()
+		name.Rel(SecPkg, self)
+		name.Str(&x, f.Name)
+		name.Len(ObjFunc)
+		x.put(SecName, o, name)
+		let mut dict = newEnc()
+		for _ in 0..8 {
+			dict.Len(0)
+		}
+		x.put(SecObjDict, o, dict)
+		objs = objs.Append(o)
+	}
+	let mut root = newEnc()
+	root.Rel(SecPkg, self)
+	root.Len(len(objs))
+	for o in objs {
+		root.Rel(SecObj, o)
+		root.Len(0)
+	}
+	x.put(SecMeta, pub, root)
+	let mut proot = newEnc()
+	proot.Bool(len(p.Inits) > 0)
+	proot.Len(0)
+	x.put(SecMeta, priv, proot)
+	let mut w = NewBuf()
+	w.U32(ExportVersion)
+	w.U32(0)
+	let mut sum = 0
+	for s in x.elems {
+		sum = sum + len(s)
+		w.U32(sum)
+	}
+	sum = 0
+	for s in x.elems {
+		for el in s {
+			sum = sum + len(el)
+			w.U32(sum)
+		}
+	}
+	for s in x.elems {
+		for el in s {
+			w.Raw(el)
+		}
+	}
+	let body = w.Bytes()
+	let fp = sha256.Sum(body)[0:8]
+	(body + fp, fp)
+}
+
+// PkgDef is the __.PKGDEF member: the object header, a blank line, then
+// the export data between "$$B\nu" and "\n$$\n".
+func PkgDef(header string, blob string) string { header + "\n" + "\n$$B\n" + "u" + blob + "\n$$\n" }

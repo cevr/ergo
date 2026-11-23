@@ -69,8 +69,8 @@ func HarnessWhy(files []syntax.Parsed, tname string, generic bool, hname string)
 	if len(harnessNeeds(hp, ft.Needs)) > 0 {
 		return "\(hname)'s needs row is not empty"
 	}
-	if !isRecord(files, harnessTypeName(hp, params[0]), []string{"Name", "Seed", "Site"}, []string{"string", "uint64", "string"}) {
-		return "its first parameter is not a record {Name string, Seed uint64, Site string} of this package"
+	if !isRecord(files, harnessTypeName(hp, params[0]), []string{"Name", "Seed", "Site", "Source"}, []string{"string", "uint64", "string", "string"}) {
+		return "its first parameter is not a record {Name string, Seed uint64, Site string, Source string} of this package"
 	}
 	let fname = if len(errs) == 1 { harnessTypeName(hp, errs[0]) } else { "" }
 	if !isRecord(files, fname, []string{"Message"}, []string{"string"}) {
