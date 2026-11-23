@@ -1,0 +1,8 @@
+# scripts/opcount: the run probe against its floor (testdata/floor: a
+# bare goroutine and a channel of one), so the ratio to the floor is
+# counted (PROCESS-RUN).
+unit run
+sizes 100000 1100000
+args bench run {n}
+control benchmarks/process/testdata/floor
+binary processbench

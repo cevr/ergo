@@ -732,7 +732,8 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
 	}
-	pre = append(pre, b.adaptOperands(body.Params, x, ops, args, 0, p)...) // ir_adapt.go
+	adapters, frame := b.adaptOperands(body.Params, x, ops, args, 0, p) // ir_adapt.go
+	pre = append(pre, adapters...)
 	// A generic function stands in Go text only as an instance, whose type
 	// arguments may be the body's own type parameters: the import is
 	// kept by a variable of the runtime's Site type, which is not generic.
@@ -780,7 +781,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
 	if name == "Go" && pkg == runtimeImport && x.Trailing != nil && targs != "" {
-		call = b.spawnWith(call, targs, mark, p) // ir_spawn.go: task.Go's block, its captures in the Task (GP-SPAWN2)
+		call = b.spawnWith(call, targs, mark, p, frame) // ir_spawn.go: task.Go's block, its captures in the Task (GP-SPAWN2)
 	}
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
@@ -1064,8 +1065,9 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	}
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
-	convOperands(vals, convs)                                                 // ir_operand.go
-	pre = append(pre, b.adaptOperands(body.Params, x, x.Args, vals, 1, p)...) // ir_adapt.go
+	convOperands(vals, convs)                                          // ir_operand.go
+	adapters, _ := b.adaptOperands(body.Params, x, x.Args, vals, 1, p) // ir_adapt.go
+	pre = append(pre, adapters...)
 	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	if goFallible(body) && !failsHere(c) {
 		e = b.dropErr(e) // ir_call.go: the row is empty here

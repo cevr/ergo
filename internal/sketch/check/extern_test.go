@@ -866,6 +866,7 @@ type Mine {} implements os.Process
 
 func Args(_ Mine) []string { []string{} }
 func Getenv(_ Mine, key string) Option[string] { None }
+func Environ(_ Mine) Map[string, string] { Map[string, string]{} }
 func Getwd(_ Mine) string fails os.NoWorkdir { "/work" }
 
 func use(p os.Process) { _ = p.Args() }
@@ -1023,6 +1024,8 @@ func main() {
 
 type Mine {} implements exec.Runner
 
+func Env(_ Mine) Map[string, string] { Map[string, string]{} }
+
 func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
 }
@@ -1164,7 +1167,6 @@ func main() {
 
 type Mine {} implements os.Self
 
-func Environ(_ Mine) []string { []string{} }
 func Pid(_ Mine) int { 1 }
 func HomeDir(_ Mine) string fails os.NoDir { "/home" }
 func CacheDir(_ Mine) string fails os.NoDir { "/home/.cache" }
@@ -2121,6 +2123,8 @@ func Args(e FakeEnv) []string { e.Argv }
 
 func Getenv(_ FakeEnv, key string) Option[string] { None }
 
+func Environ(_ FakeEnv) Map[string, string] { Map[string, string]{} }
+
 func Getwd(_ FakeEnv) string fails os.NoWorkdir { "/work" }
 `
 	cases := map[string]string{
@@ -2155,6 +2159,8 @@ func main() needs Ambient {
 		"exec-runner": `import exec
 
 type Fake { Ran Map[string, int] } implements exec.Runner
+
+func Env(_ Fake) Map[string, string] { Map[string, string]{} }
 
 func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	exec.Result{Status: 0, Stdout: c.Name, Stderr: ""}

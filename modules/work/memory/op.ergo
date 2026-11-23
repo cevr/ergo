@@ -554,10 +554,10 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			let name = pick(o.Name)
 			if !named(want, name) {
 				let path = work.Home(theBase, "") + "/" + work.FolderOf(name)
-				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: crashId(name), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
-				case work.Unkept:
-				}
 				let cut = small(o.At, 4)
+				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: if cut == 3 { name } else { "" }, Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: crashId(name), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+					case work.Unkept:
+				}
 				// The name's folder and staging folder are this crash's now.
 				let staging = work.StagingOf(work.Home(theBase, ""), crashId(name))
 				gone = slices.Filter(gone, func(p string) bool { p != path && p != staging })
@@ -574,7 +574,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				} else if cut == 3 {
 					// This work's new, killed after Place: its clone is whole and
 					// marked at its path, and an agent wrote in it.
-					let placed = cloneWithWork(w, path) && Write(w.trees, path, work.MarkerFile, crashId(name)+"\n")
+					let placed = cloneWithWork(w, path) && placeCrash(w, name, path)
 					want = want.Append(Expected{Name: name, State: "creating", Parent: theBase, Kept: false, Sure: true, Since: at, Path: path, Cloned: placed, Until: 0, Staged: if placed { 3 } else { 1 }})
 				} else {
 					// Killed before its clone (1) or inside Stage (2: its staging
@@ -1117,6 +1117,61 @@ law MadeCloneOutlivesItsMaker(text string) {
 	kept && slices.IndexFunc(all, func(r work.Workspace) bool { r.Name == "a" && r.Id == made.Id && work.StateName(r.State) == "active" }) >= 0 && w.lock.Holds() == 0
 }
 
+// LegacyMarkerDoesNotCertifyCheckout cuts the old in-place new after its
+// marker, after its branch ref, or after switching HEAD but before guarding
+// pushes. It also checks a complete clone and one already falsely activated.
+law LegacyMarkerDoesNotCertifyCheckout(text string) {
+	for cut in []int{0, 1, 2, 3, 4, 5, 6} {
+		let allowPush = cut == 5
+		let w = worldWith(true, Map[string, string]{}, if allowPush { "[work]\npush = \"origin\"\n" } else { "" }, "")
+		let t = w.tool
+		let name = "legacy"
+		let id = crashId(name)
+		let path = work.Home(theBase, "") + "/" + name
+		let head = try w.vcs.Head(theBase)
+		let complete = cut == 3 || allowPush
+		let falseActive = cut == 4
+		let state = if falseActive { work.Active } else { work.Creating }
+		try w.registry.Put(work.Workspace{Name: name, Id: id, Path: path, Parent: theBase, Branch: name, Cloner: "memory", State: state, Since: 1000, Base: head, Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0})
+		if !cloneWithWork(w, path) || !Write(w.trees, path, work.MarkerFile, id+"\n") || !Write(w.trees, path, "draft.txt", text) {
+			return false
+		}
+		if cut == 1 {
+			let _ = Write(w.trees, path, ".git/refs/heads/"+name, head)
+		}
+		if cut == 2 || complete {
+			try w.vcs.Start(path, name, head)
+		}
+		if cut == 6 {
+			// HEAD names the expected branch, but there is no such ref.
+			let _ = Write(w.trees, path, ".git/branch", name)
+		}
+		if cut == 3 || cut == 6 {
+			try w.vcs.GuardPushes(path)
+		}
+		if cut == 3 && !Commit(w.vcs, path, "new work after placement") {
+			return false
+		}
+		let before = Files(w.trees, path)
+		let o = work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: false}
+		let plain = try t.Doctor(o)
+		let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: some(id), Archive: false, Dry: false})
+		let afterGc = try records(t)
+		let repaired = try t.Doctor(work.DoctorOptions{..o, Repair: true})
+		let afterRepair = try records(t)
+		let expected = if complete { work.Active } else { state }
+		let reason = if cut == 2 { "push guard" } else { "expected branch" }
+		let namesMismatch = func(note string) bool { strings.Contains(note, path) && strings.Contains(note, reason) && strings.Contains(note, "preserve") }
+		if len(afterGc) != 1 || len(afterRepair) != 1 || afterGc[0].State != expected || afterRepair[0].State != expected || Files(w.trees, path) != before || w.lock.Holds() != 0 {
+			return false
+		}
+		if !complete && (slices.IndexFunc(plain.Notes, namesMismatch) < 0 || slices.IndexFunc(repaired.Notes, namesMismatch) < 0) {
+			return false
+		}
+	}
+	true
+}
+
 // ActivatedCloneIsRecordedAsMade: the record gc writes for a clone whose
 // maker died after its marker names what Activate's would: the cloner
 // that made it (so gc and rm discard it by that cloner, a btrfs
@@ -1302,6 +1357,22 @@ func cloneWithWork(w World, path string) bool {
 		return false
 	}
 	Write(w.trees, path, "draft.txt", "unsaved\n")
+}
+
+func placeCrash(w World, name string, path string) bool {
+	let head = w.vcs.Head(path) catch {
+	case work.VcsFailed:
+		return false
+	}
+	w.vcs.Start(path, name, head) catch {
+	case work.VcsFailed:
+		return false
+	}
+	w.vcs.GuardPushes(path) catch {
+	case work.VcsFailed:
+		return false
+	}
+	Write(w.trees, path, work.MarkerFile, crashId(name)+"\n")
 }
 
 // removed is the reference after rm of name at the second at: a leaf (no

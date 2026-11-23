@@ -1,6 +1,10 @@
 package irspike
 
-import "testing"
+import (
+	"testing"
+
+	"ergo.local/prototype/internal/sketch/lower"
+)
 
 // TestIRInstancesMatchSource is the seeded property over generic bodies
 // run at the program's types (FLIP F7 LY-FIX, GenerateInstances): each
@@ -17,12 +21,11 @@ import "testing"
 // the Go source"), or that a method's copy reads its environment where
 // its receiver is.
 //
-// flips converts Switch, whose after function gives a machines.Every
-// timer, to its Machine: its After is the IR's everyAfter (CENSUS-TAIL-2).
-//
-// Mutants: mono-ir-calls-stencil, mono-ir-copy-text, mono-ir-copy-method-order,
-// every-after-refused.
+// Mutants: mono-ir-calls-stencil, mono-ir-copy-text, mono-ir-copy-method-order.
 func TestIRInstancesMatchSource(t *testing.T) {
-	lyProperty(t, "TestIRInstancesMatchSource", GenerateInstances, []string{"FoldMono_i", "BoxCountMono_i", "BoxShowMono_i"},
-		"tally", "spans", "size", "sized", "flips", "RunSwitch", "stepOnceSwitch", "boxes", "FoldMono_i1", "BoxCountMono_i1", "BoxShowMono_i1")
+	// Copies are declarations in their own package. Match the instance
+	// the IR calls, not a particular number in the instance's name.
+	copies := []string{lower.PackageAlias("slices") + "__FoldMono_i", "BoxCountMono_i", "BoxShowMono_i"}
+	lyProperty(t, "TestIRInstancesMatchSource", GenerateInstances, copies,
+		append([]string{"tally", "spans", "size", "sized", lower.HelperSpelling("", "RunSwitch"), lower.HelperSpelling("", "stepOnceSwitch"), "boxes"}, copies...)...)
 }

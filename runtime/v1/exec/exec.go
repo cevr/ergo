@@ -86,9 +86,8 @@ type ExecResult struct {
 }
 
 // ExecRun is the body of exec.Host's Run on the caller's task t: it runs
-// name with args in dir ("" is the caller's working directory), with the
-// host process's environment and env's entries over it, and with stdin as
-// its standard input. A stop of t sends SIGTERM to the group and waits
+// name with args in dir ("" is the caller's working directory), with exactly
+// env and with stdin as its standard input. A stop of t sends SIGTERM to the group and waits
 // grace for the program's end before the SIGKILL; grace 0 sends SIGKILL at
 // once.
 //
@@ -113,7 +112,7 @@ func ExecRunIn(t *rt.Task, root string, name string, args []string, env map[stri
 // not "".
 func execRun(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration) (ExecResult, error) {
 	t.Check()
-	cmd, err := execCommand(name, args, env, dir, stdin)
+	cmd, err := ExecCommand(name, args, env, dir, stdin)
 	if err != nil {
 		return ExecResult{}, err
 	}
@@ -332,15 +331,30 @@ func execStatus(ps *os.ProcessState) int {
 	return ps.ExitCode()
 }
 
-// execCommand is the command of name with args for Run, Start and Spawn:
-// in dir ("" is the caller's working directory), with the host process's
-// environment and env's entries over it (a later entry wins, as in
-// os/exec; the keys go in order), and stdin as its standard input. It
-// fails NotFound for the empty name, which no program has, and Failed for
-// a dir that is not a directory. The caller sets SysProcAttr.
-func execCommand(name string, args []string, env map[string]string, dir string, stdin string) (*exec.Cmd, error) {
+// ExecCommand is the command of name with args for Run, Start and Spawn:
+// in dir ("" is the caller's working directory), with exactly env's
+// entries as its environment, in the order of their keys (std exec: the
+// environment is a value; nothing of this process's environment reaches
+// the program unless the caller put it in env), and stdin as its standard
+// input. A name with no slash is looked up on env's PATH, never on this
+// process's (ExecLookPath). It fails NotFound for the empty name, which no
+// program has, and for a name no directory of env's PATH holds. It fails
+// Failed for a bad directory or an invalid environment entry. The caller
+// sets SysProcAttr.
+//
+// It is exported for the runtime's own Go callers that start a child (a
+// task runner's child start): the contract above is theirs too, so a child
+// any of them starts sees exactly env and is found on env's PATH.
+func ExecCommand(name string, args []string, env map[string]string, dir string, stdin string) (*exec.Cmd, error) {
 	if name == "" {
 		return nil, ExecNotFound{Name: name}
+	}
+	keys := make([]string, 0, len(env))
+	for k, value := range env {
+		if k == "" || strings.ContainsAny(k, "=\x00") || strings.IndexByte(value, 0) >= 0 {
+			return nil, ExecFailed{Name: name, Reason: "invalid environment entry"}
+		}
+		keys = append(keys, k)
 	}
 	if dir != "" {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
@@ -351,22 +365,19 @@ func execCommand(name string, args []string, env map[string]string, dir string, 
 			return nil, ExecFailed{Name: name, Reason: "dir " + dir + ": " + reason}
 		}
 	}
-	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
-	if len(env) > 0 {
-		keys := make([]string, 0, len(env))
-		for k := range env {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		// cmd.Environ, not os.Environ: with a dir it sets PWD to the dir,
-		// as os/exec does for a command with no Env of its own, so a
-		// program that reads PWD (a shell's pwd) sees the dir it runs in,
-		// not this process's PWD.
-		cmd.Env = cmd.Environ()
-		for _, k := range keys {
-			cmd.Env = append(cmd.Env, k+"="+env[k])
-		}
+	path, err := ExecLookPath(name, env["PATH"])
+	if err != nil {
+		return nil, err
+	}
+	// A Cmd built by hand, not exec.Command, which would look name up on
+	// this process's PATH.
+	cmd := &exec.Cmd{Path: path, Args: append([]string{name}, args...), Dir: dir}
+	slices.Sort(keys)
+	// Never nil: os/exec gives a program with a nil Env this process's
+	// whole environment.
+	cmd.Env = make([]string, 0, len(keys))
+	for _, k := range keys {
+		cmd.Env = append(cmd.Env, k+"="+env[k])
 	}
 	if stdin != "" {
 		// An empty input is the null device, which reads end of file at
@@ -374,6 +385,40 @@ func execCommand(name string, args []string, env map[string]string, dir string, 
 		cmd.Stdin = strings.NewReader(stdin)
 	}
 	return cmd, nil
+}
+
+// ExecLookPath is the file that runs for name: name itself when it holds a
+// slash, else the first regular file named name that the process may
+// run in a directory of path, a list as PATH writes it (a colon between
+// two directories). A directory that is not absolute is passed over, as Go's
+// LookPath refuses a relative result (exec.ErrDot), so an empty entry or
+// "." never runs a file of the working directory. A name that holds no
+// slash and no such file is NotFound; one found only as a file the process
+// may not run is Denied.
+func ExecLookPath(name string, path string) (string, error) {
+	if strings.Contains(name, "/") {
+		return name, nil
+	}
+	denied := false
+	for _, dir := range strings.Split(path, ":") {
+		if !strings.HasPrefix(dir, "/") {
+			continue
+		}
+		file := dir + "/" + name
+		fi, err := os.Stat(file)
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		if syscall.Access(file, 0x1) != nil { // X_OK
+			denied = true
+			continue
+		}
+		return file, nil
+	}
+	if denied {
+		return "", ExecDenied{Name: name}
+	}
+	return "", ExecNotFound{Name: name}
 }
 
 // execErr is the std exec failure of a program name that did not start:

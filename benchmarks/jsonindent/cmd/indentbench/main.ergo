@@ -1,0 +1,41 @@
+// indentbench indents the same JSON document N times with two spaces.
+// The length and hash are taken once, from the last result, so the
+// instruction slope measures indentation, not input generation or hashing.
+//
+//	indentbench bench N
+
+import json
+import os
+import strconv
+
+let source = "[{\"id\":0,\"name\":\"first\",\"tags\":[\"a\",\"b\\\"c\"],\"m\":{}},{\"id\":1,\"name\":\"second\",\"tags\":[],\"m\":{\"ok\":true}}]\n"
+
+// fnv is the 64-bit FNV-1a hash of s.
+func fnv(s string) uint64 {
+	let mut h uint64 = 14695981039346656037
+	for i in 0..len(s) {
+		h = (h ^ uint64(s[i])) * 1099511628211
+	}
+	h
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 2 || args[0] != "bench" {
+			return os.Exit{Code: 2, Message: "usage: indentbench bench N"}
+		}
+		let n = strconv.Atoi(args[1]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "indentbench: N is not a count"}
+		}
+		let mut out = ""
+		for _ in 0..n {
+			out = json.Indent(source, "", "  ") catch {
+			case json.Malformed:
+				return os.Exit{Code: 1, Message: "indentbench: malformed"}
+			}
+		}
+		Console.Println("\(len(out)) \(fnv(out))")
+	}
+}

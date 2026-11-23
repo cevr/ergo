@@ -239,7 +239,7 @@ ok law Flags.Merge (proved: all 8 cases)
 ok law Store.PutCountsOne for Tally (100 cases)
 FAIL law Store.PutCountsOne for Stuck (case 1 of 100, seed 7, size 0: provider = Stuck{at: 0}, n = 0; shrunk from: provider = Stuck{at: 3}, n = -9): law refuted at main.ergo:4:2: the law is false
 	replay: ergo test main.ergo --law Store.PutCountsOne --seed 7
-skip law Box.Keeps: its parameter v has no generator: T is not a generatable type
+skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters
 ```
 
 A refuted law's replay is a line of its own, which reruns that law alone (`--law`, X1b); a test's replay stays in its `FAIL` line.
@@ -257,7 +257,7 @@ test ClonesFromHost {
 
 `ergo test` prints `skip ClonesFromHost: git is not on this host`, runs no more of the test's cases, and counts it as a skip: `PASS (1 tests, 1 skipped)`. `ergo check` reports the obligation `skipped` with the reason and the statement's line. The statement stands only in a test or law body, and its reason is a string literal that is not blank. `skip` is a contextual keyword, so a function or a local named `skip` is still legal ([runtime](spec/runtime.md#tests), Tests 4).
 
-A law that cannot run prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it; a provider with a constructor is always built by it. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. A skip line that the module's `expected-skips` file (beside `ergo.mod`) does not list fails `ergo test`, exit 1, in `examples/` and everywhere else ([runtime.md](spec/runtime.md), Tests 4). A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
+A law no case can feed is a check error (S108), not a skip: a law parameter with no generator, or a provider with no generator, no constructor and no named context of a package of its module that builds it ([types](spec/types.md), Laws 10). In a module it is judged over the module, so `ergo check ./...` or `ergo test ./...` from the module's root reports it, and a check of one package does not. A provider whose state is a std handle, such as a `sync.Ref`, has no generator; declare its constructor `func NewTally() Tally` (no rows) and each case builds the provider with it, or bind it in a named context of a test file, `let overMemory = context { Store: NewTally() }`; a provider with a constructor is always built by it. A law that cannot run for another reason (an operation type with a row parameter, say) prints a `skip` line with the reason, and the summary counts it: `PASS (2 tests, 1 skipped)`. The package of an operation type with no provider of its own prints `law Store.PutCountsOne runs where Store has a provider: none is in this package or its imports`. A skip line that the module's `expected-skips` file (beside `ergo.mod`) does not list fails `ergo test`, exit 1, in `examples/` and everywhere else ([runtime.md](spec/runtime.md), Tests 4). A law of a generic operation type is checked and not run yet. So a program need not restate a law as a property test.
 
 `ergo test DIR --receipt FILE` writes the run's law receipt to FILE: a JSON object with the schema version, the source, its revision, the seed, the target and one entry per law run, `proved` (a listed run, every value), `tested` with its case count, `refuted` with its counterexample, or `skipped` with the reason; a machine's reachability law has the search's report in place of a case count ([runtime](spec/runtime.md#tests), Tests 8). A drawn law that holds is tested, not proved. Without `--receipt` nothing is written.
 
@@ -301,7 +301,7 @@ The rules are the rules of `ergo test`, not a second test language:
 - a write that replaces the slice an active `for` ranges over (its place or a place on its path), a refined literal, a `testing.Script` (a derived provider whose field type is a runtime Go type; one whose field type is declared in Ergo runs, its `NewF` and `Call` as the test build calls them) or pointer provider, and a machine timer that is not positive (a machine declaration's value `X{}` converts to the prelude `Machine` or `InputMachine`, with its step, after and work functions, and a fold runs it);
 - a package initializer or a machine's initial value that cannot run: every obligation of the package is skipped, never run with invented values;
 - a machine state that holds a std type, whose key the test build may take from its runtime value;
-- a law with no binding in this package (`no binding of the law runs in this package`), and a parameter with no generator.
+- a law with no binding in this package (`no binding of the law runs in this package`). A law parameter with no generator never gets here: the checker refuses it (LAW-UNFED).
 
 A skip is not a pass. A package whose obligations are all skipped is listed in full, and its summary status is `skipped`.
 

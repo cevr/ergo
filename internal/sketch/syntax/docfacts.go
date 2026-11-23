@@ -16,7 +16,7 @@ import (
 // Generated reports a file that a tool wrote: a // comment that is the
 // whole line `// Code generated … DO NOT EDIT.` (Go's convention, go help
 // generate; Go's ast.IsGenerated) among the comments before the first
-// declaration, which `ergo bind go` and `ergo gen` put first. Such a
+// declaration, which `ergo bind go` puts first. Such a
 // comment after code, or one that only holds the words, is not the mark.
 func (f *File) Generated() bool {
 	for _, g := range f.Comments {

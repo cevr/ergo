@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -34,6 +35,7 @@ const (
 	kindOpen           kind = iota + 1 // reads a file or lists a directory, unless opened write-only
 	kindOpenat2                        // openat with its flags in a struct open_how
 	kindStat                           // consults a path's existence or metadata
+	kindWriteFD                        // changes a file already open on a descriptor (command only)
 	kindChdir                          // looks a directory up and makes it the working directory
 	kindSocket                         // looks up the AF_UNIX socket a struct sockaddr names
 	kindSocketMsg                      // kindSocket with the address in a struct msghdr
@@ -61,6 +63,7 @@ type call struct {
 	second                           bool
 	dirfd2, path2                    int
 	name                             string
+	write, write2                    writeRole
 }
 
 const (
@@ -171,8 +174,13 @@ func init() {
 		return
 	}
 	observed = true
+	_, target := os.LookupEnv(targetVariable)
+	os.Unsetenv(targetVariable)
 	defer syscall.Close(socket) // reached only if the tests run here, unobserved
 	if verdict, _ := receive(socket); verdict != "go" {
+		if target {
+			runTarget(socket)
+		}
 		return // the observer cannot take a descriptor from this process, and says why itself
 	}
 	// Only this thread takes the filter (see installFilter). runtime.main
@@ -181,9 +189,12 @@ func init() {
 	// template thread, which has no filter, not from this one.
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread() // reached only if the exec fails
-	listener, err := installFilter(filter())
+	listener, err := installFilter(filter(target))
 	if err != nil {
 		syscall.Write(socket, []byte(noFilter+err.Error()))
+		if target {
+			runTarget(socket)
+		}
 		return
 	}
 	if beforeHandover != nil {
@@ -198,9 +209,31 @@ func init() {
 		fmt.Fprintln(os.Stderr, "testinputs: the observer did not take the filter's listener: "+reply)
 		os.Exit(1)
 	}
+	if target {
+		runTarget(socket)
+	}
 	if executable, err := os.Executable(); err == nil {
 		syscall.Exec(executable, os.Args, append(os.Environ(), filteredVariable+"="+value))
 	}
+}
+
+// targetVariable makes the observed child execute its arguments instead
+// of restarting the test binary.
+const targetVariable = "ERGO_TESTINPUTS_TARGET"
+
+// runTarget replaces the launcher with the requested command. After a
+// successful handover, the same locked thread looks up the command and
+// executes it, so both operations are observed.
+func runTarget(socket int) {
+	syscall.Close(socket)
+	program, err := exec.LookPath(os.Args[0])
+	if err != nil && !errors.Is(err, exec.ErrDot) {
+		fmt.Fprintln(os.Stderr, "ergo task exec:", err)
+		os.Exit(127)
+	}
+	err = syscall.Exec(program, os.Args, os.Environ())
+	fmt.Fprintln(os.Stderr, "ergo task exec: run "+program+":", err)
+	os.Exit(126)
 }
 
 // The messages on the socket between the observer and its child. The
@@ -289,7 +322,7 @@ const (
 // newer than the table, which it cannot classify; fail io_uring_setup;
 // allow the rest. Every branch that loads an argument ends in a return, so
 // the number stays loaded for the comparisons after it.
-func filter() []sockFilter {
+func filter(target bool) []sockFilter {
 	program := []sockFilter{
 		{code: bpfLdAbs, k: offArc},
 		{code: bpfJeqK, jt: 1, k: auditArch},
@@ -303,6 +336,8 @@ func filter() []sockFilter {
 	}
 	for _, c := range calls {
 		switch {
+		case !target && c.kind == kindWriteFD:
+			continue // descriptor writes are not new inputs to the test log
 		case c.kind == kindRefused:
 			program = append(program,
 				sockFilter{code: bpfJeqK, jf: 1, k: c.nr},
@@ -388,12 +423,6 @@ func observe(root string) (int, *recorder, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_SEQPACKET|syscall.SOCK_CLOEXEC, 0)
-	if err != nil {
-		return 0, nil, err
-	}
-	parent, child := os.NewFile(uintptr(pair[0]), "testinputs"), os.NewFile(uintptr(pair[1]), "testinputs")
-	defer parent.Close()
 	command := exec.Command(executable, os.Args[1:]...)
 	command.Args[0] = os.Args[0]
 	identityFile := os.Getenv(IdentityVariable)
@@ -404,65 +433,90 @@ func observe(root string) (int, *recorder, error) {
 			command.Env = append(command.Env, kv)
 		}
 	}
-	command.Env = append(command.Env, listenerVariable+"="+strconv.Itoa(childSocket))
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
-	command.ExtraFiles = []*os.File{child}
-	// The test process dies with this one: cmd/go kills only the process it
-	// started when a test times out, and an orphan's filtered calls would
-	// fail once the listener closes. The death signal follows the thread
-	// that starts the child, so that thread stays locked until the child is
-	// reaped.
-	command.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	err = command.Start()
-	child.Close()
-	if err != nil {
-		return 0, nil, err
-	}
-	signals := make(chan os.Signal, 4)
-	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
-	defer signal.Stop(signals)
-	go func() {
-		// The tests run in the child: cmd/go's timeout (SIGQUIT) and
-		// interrupts go to it.
-		for sig := range signals {
-			command.Process.Signal(sig)
-		}
-	}()
 	o := newObserver(root)
-	o.child, o.executable = command.Process.Pid, executable
 	if identityFile != "" {
-		// Identity mode starts before the child takes its filter, so
-		// before the tests start.
 		if id, err := newIdentity(identityFile, o.rec); err != nil {
 			o.rec.refuse("identity mode: " + err.Error())
 		} else {
 			o.rec.ident = id
 		}
 	}
-	listener, err := takeListener(int(parent.Fd()), command.Process.Pid)
-	if err != nil {
-		o.rec.fail(err.Error())
-	} else {
-		o.serve(listener)
+	if err := o.run(command); err != nil {
+		o.rec.finishIdentity()
+		return 0, nil, err
 	}
-	err = command.Wait()
-	o.rec.stop()
 	o.rec.finishIdentity()
 	if !o.armed.Load() {
 		o.rec.refuse("the test process never reported its armed filter")
 	}
-	state := command.ProcessState
-	if state == nil {
-		o.rec.refuse(fmt.Sprintf("wait for the test process: %v", err))
-		return 1, o.rec, nil
+	if state := command.ProcessState; state != nil {
+		if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			fmt.Fprintf(os.Stderr, "testinputs: test process: %v\n", status.Signal())
+		}
 	}
-	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-		fmt.Fprintf(os.Stderr, "testinputs: test process: %v\n", status.Signal())
-		return 128 + int(status.Signal()), o.rec, nil
+	return childExit(command.ProcessState), o.rec, nil
+}
+
+// run owns the handover and waits for the child. An error means the child
+// did not start; after a start, the child's status and observation verdict
+// are separate.
+func (o *observer) run(command *exec.Cmd) error {
+	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_SEQPACKET|syscall.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return err
 	}
-	return state.ExitCode(), o.rec, nil
+	parent, child := os.NewFile(uintptr(pair[0]), "testinputs"), os.NewFile(uintptr(pair[1]), "testinputs")
+	defer parent.Close()
+	command.Env = append(command.Env, listenerVariable+"="+strconv.Itoa(childSocket))
+	command.ExtraFiles = []*os.File{child}
+	// The test process dies with this one: cmd/go kills only the process it
+	// started when a test times out, and an orphan's filtered calls would
+	// fail once the listener closes. The death signal follows the thread
+	// that starts the child, so that thread stays locked until the child is
+	// reaped.
+	command.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL, Setpgid: o.target}
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	err = command.Start()
+	child.Close()
+	if err != nil {
+		return err
+	}
+	signals := make(chan os.Signal, 4)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
+	defer signal.Stop(signals)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			select {
+			case sig := <-signals:
+				if o.target {
+					syscall.Kill(-command.Process.Pid, sig.(syscall.Signal))
+				} else {
+					command.Process.Signal(sig)
+				}
+			case <-done:
+				return
+			}
+		}
+	}()
+	o.child, o.executable = command.Process.Pid, command.Path
+	listener, err := takeListener(int(parent.Fd()), command.Process.Pid)
+	if err != nil {
+		o.sink.fail(err.Error())
+	} else {
+		o.serve(listener)
+	}
+	err = command.Wait()
+	o.sink.stop()
+	if err != nil {
+		if _, exit := err.(*exec.ExitError); !exit {
+			o.sink.refuse(fmt.Sprintf("wait for the child process: %v", err))
+		}
+	}
+	return nil
 }
 
 // takeListener takes the child's filter listener with pidfd_getfd (Linux
@@ -528,9 +582,12 @@ func takeDescriptor(pidfd, descriptor int) (int, error) {
 
 // An observer serves the listener's notifications.
 type observer struct {
+	sink  sink
 	rec   *recorder
 	dirs  linkedDirs
 	armed atomic.Bool
+	// A target's exec proves the locked launcher thread acquired the filter.
+	target bool
 
 	// The child's exec of the test binary from its init (see init) is not
 	// the test's: it is skipped once, from the child's main thread, where Go
@@ -541,7 +598,8 @@ type observer struct {
 }
 
 func newObserver(root string) *observer {
-	return &observer{rec: newRecorder(root), dirs: linkedDirs{aliases: map[string][]string{}}}
+	rec := newRecorder(root)
+	return &observer{sink: rec, rec: rec, dirs: linkedDirs{aliases: map[string][]string{}}}
 }
 
 // notification is struct seccomp_notif.
@@ -568,7 +626,9 @@ type response struct {
 // (Linux 6.6) the kernel switches between a notifying thread and a waiting
 // worker on one CPU, without a trip through the scheduler. The workers
 // outlive the test process, continuing the calls of processes it left
-// running until this process exits; what they record after stop is ignored.
+// running; what they record after stop is ignored. A target can be run
+// repeatedly in one process, so its listener closes on the last tracee's
+// exit (EPOLLHUP).
 func (o *observer) serve(listener int) {
 	// The flags go by value. Older kernels refuse them and wake through the
 	// scheduler.
@@ -577,30 +637,63 @@ func (o *observer) serve(listener int) {
 	// subset of the legacy compiler's tests, removed by the .ef migration: 2 workers
 	// 40-47 s, 4 35-42 s, 8 34-39 s, 16 36-64 s, 32 42-44 s, unobserved
 	// 25-33 s).
-	for range min(runtime.NumCPU(), 8) {
-		go func() {
+	serve := func(epoll int) {
+		if epoll >= 0 {
+			defer syscall.Close(listener)
+			defer syscall.Close(epoll)
+		} else {
 			runtime.LockOSThread()
-			buffer := make([]byte, pageSize)
-			for {
-				var n notification
-				if err := ioctl(listener, seccompIoctlNotifRecv, unsafe.Pointer(&n)); err != nil {
-					if err == syscall.EINTR || err == syscall.ENOENT {
-						continue // interrupted, or the caller died first
+		}
+		buffer := make([]byte, pageSize)
+		for {
+			if epoll >= 0 {
+				var events [1]syscall.EpollEvent
+				if _, err := syscall.EpollWait(epoll, events[:], -1); err != nil {
+					if err == syscall.EINTR {
+						continue
 					}
-					o.rec.fail(fmt.Sprintf("receive a notification: %v", err))
+					o.sink.fail(fmt.Sprintf("wait on the listener: %v", err))
 					return
 				}
-				o.handle(listener, &n, buffer)
-				r := response{id: n.id, flags: seccompNotifContinue}
-				err := ioctl(listener, seccompIoctlNotifSend, unsafe.Pointer(&r))
-				for err == syscall.EINTR {
-					err = ioctl(listener, seccompIoctlNotifSend, unsafe.Pointer(&r))
-				}
-				if err != nil && err != syscall.ENOENT {
-					o.rec.fail(fmt.Sprintf("continue a notified call: %v", err))
+				if events[0].Events&syscall.EPOLLHUP != 0 {
+					return
 				}
 			}
-		}()
+			var n notification
+			if err := ioctl(listener, seccompIoctlNotifRecv, unsafe.Pointer(&n)); err != nil {
+				if err == syscall.EINTR || err == syscall.ENOENT {
+					continue // interrupted, or the caller died first
+				}
+				o.sink.fail(fmt.Sprintf("receive a notification: %v", err))
+				return
+			}
+			o.handle(listener, &n, buffer)
+			r := response{id: n.id, flags: seccompNotifContinue}
+			err := ioctl(listener, seccompIoctlNotifSend, unsafe.Pointer(&r))
+			for err == syscall.EINTR {
+				err = ioctl(listener, seccompIoctlNotifSend, unsafe.Pointer(&r))
+			}
+			if err != nil && err != syscall.ENOENT {
+				o.sink.fail(fmt.Sprintf("continue a notified call: %v", err))
+			}
+		}
+	}
+	if o.target {
+		epoll, err := syscall.EpollCreate1(syscall.EPOLL_CLOEXEC)
+		if err == nil {
+			err = syscall.EpollCtl(epoll, syscall.EPOLL_CTL_ADD, listener, &syscall.EpollEvent{Events: syscall.EPOLLIN, Fd: int32(listener)})
+			if err == nil {
+				go serve(epoll)
+				return
+			}
+			syscall.Close(epoll)
+		}
+		o.sink.fail(fmt.Sprintf("monitor listener lifetime: %v", err))
+		go serve(-1) // still run the command (without reusable observations)
+		return
+	}
+	for range min(runtime.NumCPU(), 8) {
+		go serve(-1)
 	}
 }
 
@@ -612,29 +705,39 @@ func (o *observer) serve(listener int) {
 func (o *observer) handle(listener int, n *notification, buffer []byte) {
 	tid := int(n.pid)
 	if n.arch != auditArch || (checkX32SyscallBits && n.nr&x32SyscallBit != 0) {
-		o.rec.fail("a system call of another architecture or ABI")
+		o.sink.fail("a system call of another architecture or ABI")
 		return
 	}
 	c, found := callsByNumber[n.nr]
 	if !found {
 		if n.nr > highestKnownCall {
-			o.rec.fail(fmt.Sprintf("system call %d is newer than the observer's table", n.nr))
+			o.sink.fail(fmt.Sprintf("system call %d is newer than the observer's table", n.nr))
 		} else {
-			o.rec.fail(fmt.Sprintf("unexpected system call %d", n.nr))
+			o.sink.fail(fmt.Sprintf("unexpected system call %d", n.nr))
 		}
 		return
 	}
 	switch c.kind {
 	case kindUnobservable, kindNamespaceClone:
-		o.rec.fail(c.name)
+		o.sink.fail(c.name)
 		return
 	case kindSocket, kindSocketMsg, kindSocketMsgs:
 		o.socket(listener, n, c, buffer)
 		return
+	case kindWriteFD:
+		a := access{tid: tid}
+		path, ok, err := a.link("fd/" + strconv.Itoa(int(int32(n.args[0]))))
+		if err != nil && valid(listener, n.id) {
+			o.sink.fail(err.Error())
+		}
+		if ok {
+			o.sink.wrote(path, writePart)
+		}
+		return
 	case kindSeccomp:
 		// seccomp(SECCOMP_SET_MODE_FILTER, flags) with a new listener.
 		if n.args[0] == seccompModeFilter && n.args[1]&seccompFlagNewListener != 0 {
-			o.rec.fail("a process installed its own seccomp listener")
+			o.sink.fail("a process installed its own seccomp listener")
 		}
 		return
 	case kindClone3:
@@ -644,15 +747,15 @@ func (o *observer) handle(listener int, n *notification, buffer []byte) {
 			return // the kernel faults the call too
 		}
 		if *(*uint64)(unsafe.Pointer(&flags[0]))&namespaceFlags != 0 {
-			o.rec.fail("clone3 made a namespace")
+			o.sink.fail("clone3 made a namespace")
 		}
 		return
 	}
-	a := access{tid: tid, args: n.args, call: c, buffer: buffer}
+	a := access{tid: tid, args: n.args, call: c, buffer: buffer, target: o.target}
 	first, ok, err := a.path()
 	if err != nil {
 		if valid(listener, n.id) {
-			o.rec.fail(err.Error())
+			o.sink.fail(err.Error())
 		}
 		return
 	}
@@ -660,29 +763,38 @@ func (o *observer) handle(listener int, n *notification, buffer []byte) {
 		o.armed.Store(true)
 		return
 	}
-	if c.kind == kindExec && ok && tid == o.child && first.path == o.executable && o.refiltered.CompareAndSwap(false, true) {
-		return
-	}
-	read := true
-	switch c.kind {
-	case kindOpen:
-		read = int(n.args[c.flags])&syscall.O_ACCMODE != syscall.O_WRONLY
-	case kindOpenat2:
-		var how [8]byte // struct open_how begins with the u64 flags
-		if got, err := readMemory(tid, n.args[c.flags], how[:]); err == nil && got == 8 {
-			read = int(*(*uint64)(unsafe.Pointer(&how[0])))&syscall.O_ACCMODE != syscall.O_WRONLY
+	if c.kind == kindExec && ok && tid == o.child {
+		if o.target {
+			o.armed.Store(true)
+		} else if first.path == o.executable && o.refiltered.CompareAndSwap(false, true) {
+			return
 		}
+	}
+	read, lookup, write := true, false, writeNone
+	if c.kind == kindOpen || c.kind == kindOpenat2 {
+		flags := int(n.args[c.flags])
+		if c.kind == kindOpenat2 {
+			var how [8]byte // struct open_how begins with the u64 flags
+			if got, err := readMemory(tid, n.args[c.flags], how[:]); err == nil && got == 8 {
+				flags = int(*(*uint64)(unsafe.Pointer(&how[0])))
+			} else {
+				flags = syscall.O_RDONLY
+			}
+		}
+		read, write = openRole(flags)
+		const oPath = 0x200000 // O_PATH on amd64 and arm64
+		lookup = flags&oPath != 0
 	}
 	// The second path of rename and link is decoded even when the first names
 	// none: linkat(fd, "", newdirfd, newpath, AT_EMPTY_PATH) still looks the
 	// new path up.
 	var second []string
 	if c.second {
-		b := access{tid: tid, args: n.args, call: call{kind: kindStat, dirfd: c.dirfd2, path: c.path2}, buffer: buffer}
+		b := access{tid: tid, args: n.args, call: call{kind: kindStat, dirfd: c.dirfd2, path: c.path2}, buffer: buffer, target: o.target}
 		other, ok, err := b.path()
 		if err != nil {
 			if valid(listener, n.id) {
-				o.rec.fail(err.Error())
+				o.sink.fail(err.Error())
 			}
 			return
 		}
@@ -698,14 +810,28 @@ func (o *observer) handle(listener int, n *notification, buffer []byte) {
 	if c.kind == kindExec && ok {
 		names, err = a.environment(n.args[c.env])
 		if err != nil && valid(listener, n.id) {
-			o.rec.fail(err.Error())
+			o.sink.fail(err.Error())
 			return
 		}
 	}
 	switch c.kind {
 	case kindOpen, kindOpenat2:
+		if write == writeWhole {
+			for _, path := range paths {
+				o.sink.wrote(path, write)
+			}
+		}
 		for _, path := range paths {
-			o.rec.open(path, read)
+			if o.target && lookup {
+				o.sink.stat(path)
+			} else if !o.target || write != writeWhole {
+				o.sink.open(path, read)
+			}
+		}
+		if write == writePart {
+			for _, path := range paths {
+				o.sink.wrote(path, write)
+			}
 		}
 		if read { // a directory opens for reading only
 			for _, path := range paths {
@@ -713,12 +839,33 @@ func (o *observer) handle(listener int, n *notification, buffer []byte) {
 			}
 		}
 	case kindStat:
-		for _, path := range append(paths, second...) {
-			o.rec.stat(path)
+		if c.write != writeNone {
+			for _, path := range paths {
+				o.sink.wrote(path, c.write)
+			}
+		}
+		if c.write2 != writeNone {
+			write := c.write2
+			if c.name == "renameat2" && n.args[c.flags]&2 != 0 { // RENAME_EXCHANGE
+				write = writeMove
+			}
+			for _, path := range second {
+				o.sink.wrote(path, write)
+			}
+		}
+		if !o.target || c.write == writeNone {
+			for _, path := range paths {
+				o.sink.stat(path)
+			}
+		}
+		if !o.target || c.write2 == writeNone {
+			for _, path := range second {
+				o.sink.stat(path)
+			}
 		}
 	case kindChdir:
 		for _, path := range paths {
-			o.rec.stat(path)
+			o.sink.stat(path)
 		}
 		for _, path := range paths {
 			o.enter(path, false)
@@ -726,11 +873,27 @@ func (o *observer) handle(listener int, n *notification, buffer []byte) {
 	case kindExec:
 		for i, path := range paths {
 			if i == 0 {
-				o.rec.exec(path, names)
+				o.sink.exec(path, names)
 			} else {
-				o.rec.open(path, true)
+				o.sink.open(path, true)
 			}
 		}
+	}
+}
+
+func openRole(flags int) (bool, writeRole) {
+	const oTmpfile = 0x400000 // __O_TMPFILE on amd64 and arm64
+	mode := flags & syscall.O_ACCMODE
+	read := mode != syscall.O_WRONLY
+	switch {
+	case flags&oTmpfile != 0:
+		return read, writeNone
+	case flags&(syscall.O_CREAT|syscall.O_EXCL) == syscall.O_CREAT|syscall.O_EXCL, flags&syscall.O_TRUNC != 0:
+		return read, writeWhole
+	case mode != syscall.O_RDONLY, flags&syscall.O_CREAT != 0:
+		return read, writePart
+	default:
+		return read, writeNone
 	}
 }
 
@@ -772,7 +935,7 @@ func (o *observer) socket(listener int, n *notification, c call, buffer []byte) 
 		address, ok, err := messageAddress(tid, header)
 		if err != nil {
 			if valid(listener, n.id) {
-				o.rec.fail(err.Error())
+				o.sink.fail(err.Error())
 			}
 			return
 		}
@@ -784,6 +947,15 @@ func (o *observer) socket(listener int, n *notification, c call, buffer []byte) 
 	for _, address := range addresses {
 		name, err := socketPath(tid, address[0], address[1])
 		if err == nil && name == "" {
+			if o.target {
+				p, err := socketPeer(tid, address[0], address[1])
+				if err != nil && valid(listener, n.id) {
+					o.sink.fail(err.Error())
+				}
+				if p.family != 0 {
+					o.reportPeer(p, c, tid, int(n.args[0]))
+				}
+			}
 			continue
 		}
 		var l located
@@ -793,16 +965,57 @@ func (o *observer) socket(listener int, n *notification, c call, buffer []byte) 
 		}
 		if err != nil {
 			if valid(listener, n.id) {
-				o.rec.fail(err.Error())
+				o.sink.fail(err.Error())
 			}
 			return
 		}
 		if ok {
-			for _, path := range o.names(tid, l) {
-				o.rec.stat(path)
+			for i, path := range o.names(tid, l) {
+				if o.target && i == 0 {
+					o.reportPeer(peer{family: familyUnix, name: name, path: path}, c, tid, int(n.args[0]))
+				}
+				o.sink.stat(path)
 			}
 		}
 	}
+}
+
+func (o *observer) reportPeer(p peer, c call, tid, fd int) {
+	p.bind = c.name == "bind"
+	p.socket = identifySocket(tid, fd)
+	if p.bind && p.path != "" {
+		o.sink.wrote(p.path, writeWhole)
+	}
+	o.sink.peer(p)
+}
+
+// socketPeer decodes an abstract Unix address or an Internet address.
+// Malformed addresses that will fault in the kernel do not name a peer.
+func socketPeer(tid int, address, length uint64) (peer, error) {
+	if address == 0 || length <= 2 {
+		return peer{}, nil
+	}
+	var raw [sockaddrUnSize]byte
+	got, err := readMemory(tid, address, raw[:min(length, sockaddrUnSize)])
+	if err != nil {
+		if errors.Is(err, errFault) || errors.Is(err, syscall.ESRCH) {
+			return peer{}, nil
+		}
+		return peer{}, err
+	}
+	if got <= 2 {
+		return peer{}, nil
+	}
+	family := uint16(raw[0]) | uint16(raw[1])<<8
+	switch {
+	case family == familyUnix && raw[2] == 0:
+		return peer{family: familyUnix, name: "@" + string(raw[3:got])}, nil
+	case family == familyInet && got >= 8:
+		return peer{family: familyInet, port: int(raw[2])<<8 | int(raw[3]), addr: netip.AddrFrom4([4]byte(raw[4:8]))}, nil
+	case family == familyInet6 && got >= 24:
+		return peer{family: familyInet6, port: int(raw[2])<<8 | int(raw[3]), addr: netip.AddrFrom16([16]byte(raw[8:24]))}, nil
+	}
+	return peer{}, nil
 }
 
 // messageAddress reads the address and its length from a struct msghdr, or
@@ -870,6 +1083,7 @@ type access struct {
 	args   [6]uint64
 	call   call
 	buffer []byte
+	target bool
 }
 
 var errFault = errors.New("unreadable process memory")
@@ -887,7 +1101,12 @@ type located struct {
 // descriptor the kernel rejects too).
 func (a *access) path() (located, bool, error) {
 	c := a.call
-	name, err := a.prefix(a.args[c.path], 0)
+	var name string
+	var err error
+	fdTimes := a.target && c.name == "utimensat" && a.args[c.path] == 0
+	if !fdTimes {
+		name, err = a.prefix(a.args[c.path], 0)
+	}
 	if err != nil {
 		if errors.Is(err, errFault) || errors.Is(err, syscall.ESRCH) {
 			return located{}, false, nil
@@ -906,7 +1125,8 @@ func (a *access) path() (located, bool, error) {
 		}
 	}
 	if name == "" {
-		if c.kind != kindExec || c.atFlags == 0 || a.args[c.atFlags]&atEmptyPath == 0 || dirfd == atFdcwd {
+		namedFD := c.atFlags != 0 && a.args[c.atFlags]&atEmptyPath != 0 && (c.kind == kindExec || a.target && c.write != writeNone)
+		if !(namedFD || fdTimes) || dirfd == atFdcwd {
 			return located{}, false, nil // the descriptor's file was opened by path earlier
 		}
 		path, ok, err := a.link("fd/" + strconv.Itoa(dirfd))
@@ -1211,18 +1431,28 @@ func (o *observer) enter(path string, opened bool) {
 			return // still a magic link, which would resolve in this process
 		}
 	}
-	name, ok := o.rec.inside(clean(path))
+	var name, expected string
+	var ok bool
+	if o.target {
+		name, ok = normal(path)
+		expected = name
+	} else {
+		name, ok = o.rec.inside(clean(path))
+		if ok {
+			rest, _ := under(name, o.rec.logical)
+			expected = clean(o.rec.physical + rest)
+		}
+	}
 	if !ok {
 		return // a link outside the root is not an input cmd/go rechecks
 	}
-	rest, _ := under(name, o.rec.logical)
 	if opened {
 		if info, err := os.Stat(name); err != nil || !info.IsDir() {
 			return
 		}
 	}
 	physical, ok := physicalDir(name)
-	if !ok || physical == clean(o.rec.physical+rest) {
+	if !ok || physical == expected {
 		return // the call fails, or crosses no link inside the root
 	}
 	o.dirs.add(physical, name)
