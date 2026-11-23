@@ -93,6 +93,9 @@ type IRReport struct {
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`
+	// FlatWorkers counts the functions given a flat worker and wrapper
+	// (IR-FORMS IRF-2, ir_forms_flat.go).
+	FlatWorkers int `json:"-"`
 	// StoreFields counts the stored record literals written field by
 	// field (ir_forms_store.go).
 	StoreFields int `json:"-"`
@@ -458,6 +461,7 @@ func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff, unformatted bo
 	if err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
+	code = l.ir.flatEnd(l, code) // ir_forms_flat.go
 	// The last round's bodies alone: an earlier round's fallbacks were
 	// the conflicts it lowered again for (intmap.go).
 	if err := l.ir.refuseFallbacks(); err != nil { // ir_fallback.go
@@ -549,6 +553,10 @@ type irState struct {
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
 	fallbacks  []IRCensusFunc
+	// flat is each function's flat convention, nil for none, and
+	// flatType its struct's Go name (ir_forms_flat.go).
+	flat     map[*check.Func]*flatRes
+	flatType string
 	// opFuncs are the implementing functions of closed types' operations
 	// (ir_instance.go staticOpFunc), filled on first use.
 	opFuncs map[opFuncKey]*check.WitnessOp
@@ -746,6 +754,8 @@ type irBuilder struct {
 	// forms are the body's form sites (ir_forms_report.go), kept with its
 	// IR body.
 	forms []FormSite
+	// fills are the fill form's facts (ir_fill.go).
+	fills fillState
 	// amort is the counter of the quiet loop nest being built, nil
 	// outside one; pollSites are the polls of each loop being built,
 	// innermost last: its back edge's and its continues' (ir_poll.go).
@@ -876,6 +886,8 @@ type irBuilder struct {
 	// preset are the arguments of a component call evaluated once into a
 	// local, which the call in its group's body reads (ir_uigroup.go).
 	preset map[syntax.Expr]int
+	// flatRets are the forms of the body's returns (ir_forms_flat.go).
+	flatRets map[*irStmt]string
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -1046,6 +1058,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.part(func() { b.goType(b.result, f.Decl) })
 	}
 	b.ops = &irOpBody{f: f, env: b.env} // ir_forms_op.go
+	slots := b.next                     // the Go parameters' (ir_forms_flat.go)
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body)            // ir_fail.go
 	b.strVars = strBufVars(b.l.info, f.Decl.Body) // strbuf.go
@@ -1073,7 +1086,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if st.census != nil {
 		return false
 	}
-	b.ownDone(name) // ir_own.go
+	b.flatSplit(f, name, slots) // ir_forms_flat.go
+	b.ownDone(name)             // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.inlineCallee(b, fd, params) // ir_forms_inline.go
 	st.report.IR = append(st.report.IR, name)

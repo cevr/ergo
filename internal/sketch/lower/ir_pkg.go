@@ -486,7 +486,9 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		return &irExpr{K: "field", Pos: p, Name: td.fieldName[name], X: &irExpr{K: "local", Pos: p, I: r}}
 	}
 	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
-	ctr := b.loopBody(loop, s, s.Body) // ir_stmt.go
+	filled := b.fillLoop(s, lp, field("Start"), v, p) // ir_fill.go
+	ctr := b.loopBody(loop, s, s.Body)                // ir_stmt.go
+	filled()
 	// The Range's statements run first, once (rangeStmt).
 	loop.Pos = past(loop.Pos, pre) // ir_match.go
 	// The nest's counter follows the Range's definition (ir_poll.go).
