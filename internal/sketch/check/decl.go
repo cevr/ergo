@@ -554,7 +554,14 @@ func (c *checker) collect() {
 		if !ok || !isExported(tn.Name) {
 			continue
 		}
-		if id, ok := m.Step.(*syntax.Ident); ok {
+		// A name step's function (an instance's too, stepT[T]); a
+		// computed step's rows are its value's type, which the functions
+		// it composes spell.
+		x := unparen(m.Step)
+		if ix, ok := x.(*syntax.IndexExpr); ok {
+			x = unparen(ix.X)
+		}
+		if id, ok := x.(*syntax.Ident); ok {
 			if f, ok := c.pkg.Scope.names[id.Name].(*Func); ok {
 				c.guarded[f] = true
 			}

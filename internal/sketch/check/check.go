@@ -528,6 +528,9 @@ type checker struct {
 	funcs      []*Func // every package function and method, in source order
 	vars       []*pkgVar
 	machines   []*TypeName
+	// entryState is, per machine entry, whether it is being checked or
+	// done (machineentry.go).
+	entryState map[machineEntryKey]int
 	guarded    map[*Func]bool // steps of exported machines: rows written (export guard)
 
 	// The reach graph for context cycles (rows.md, Context 5).

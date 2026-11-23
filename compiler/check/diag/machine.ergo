@@ -1,0 +1,70 @@
+import compiler/syntax
+import dense
+
+// MachineTuples is S108 for each machine declaration whose state or signal
+// type is written as a tuple (MACHINE-EXPR; the Go checker's
+// checkMachine and tupleRecordHint, internal/sketch/check/entry.go and
+// machineentry.go): a machine's state and signal are a union or a record,
+// and the message names the record form, its fields A, B, … of the
+// tuple's types as written. The Go checker's rule refuses every type that
+// is no union and no record; this reads the tuple form only, which the
+// syntax decides.
+func MachineTuples(k []syntax.Parsed) []Diag {
+	let mut out = []Diag{}
+	for f, p in k {
+		if p.Failed {
+			continue
+		}
+		for d in topDecls(p) {
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TypeDecl as td:
+				match dense.Unpack(td.Spec) {
+				case Some[dense.ID[syntax.Node]] as sp:
+					match syntax.ViewOf(p.Tree, sp.Value) {
+					case syntax.MachineType as mt:
+						let name = textAt(p, td.Name)
+						let parts = []dense.ID[syntax.Node]{mt.State, mt.Signal}
+						for i, x in parts {
+							let part = if i == 0 { "state" } else { "signal" }
+							match tupleRefusal(p, x, name, part) {
+							case Some[string] as msg:
+								let at = syntax.NodePos(p, x)
+								out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: msg.Value})
+							case None:
+							}
+						}
+					case _:
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	}
+	out
+}
+
+// tupleRefusal is the message for the machine's state or signal type x
+// (part) when it is written as a tuple, None else.
+func tupleRefusal(p syntax.Parsed, x dense.ID[syntax.Node], owner string, part string) Option[string] {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.TupleExpr as te:
+		let letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		let mut types = ""
+		let mut fields = ""
+		for i in 0..syntax.Len(te.Elts) {
+			let e = syntax.Item(p.Tree, te.Elts, i)
+			let text = syntax.SourceOf(p)[syntax.NodePos(p, e):syntax.NodeEnd(p, e)]
+			if i > 0 {
+				types = types + ", "
+				fields = fields + ","
+			}
+			types = types + text
+			fields = fields + " " + letters[i % 26:i % 26 + 1] + " " + text
+		}
+		let upper = if part == "state" { "State" } else { "Signal" }
+		Some{"a machine's \(part) type must be a union or a record, not (\(types)); write a record, such as type \(owner)\(upper) {\(fields) } (runtime.md, Machines and actors 1)"}
+	case _:
+		None
+	}
+}

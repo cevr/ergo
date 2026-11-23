@@ -1,0 +1,13 @@
+// A tuple state stays refused (DECL-VALUES §7 Q2): the message names the
+// record form.
+type S = Off{} | On{}
+type E = Flip{}
+
+func pairStep(s (S, S), e E) Decision[(S, S), (S, S)] { Stay[(S, S)]{Next: s} }
+
+type Pair machine[(S, S), E] { // want S108
+	initial: (Off, Off),
+	step:    pairStep,
+}
+
+func main() {}

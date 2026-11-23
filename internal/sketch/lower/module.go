@@ -316,19 +316,25 @@ type lowerer struct {
 	// rows of ergo inspect facts that no Go pass reads.
 	foreign  []placedFact
 	contexts map[contextSet]string
-	adapters map[string]string        // operation-table adapters by source and target Go types
-	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
-	texts    map[pkgKey]bool          // generated text functions emitted
-	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
-	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
-	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
-	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
-	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
-	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
-	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
-	holds    map[*check.Named]holdState
-	typeKeys map[check.Type]string
+	adapters map[string]string // operation-table adapters by source and target Go types
+	scripts  map[string]bool   // Script structs emitted, by instance key (script.go)
+	texts    map[pkgKey]bool   // generated text functions emitted
+	defaults map[pkgKey]bool   // generated default functions emitted (types.go, Defaults)
+	equals   map[pkgKey]bool   // generated equality functions emitted (equal.go)
+	wires    map[pkgKey]bool   // generated codec functions emitted (wire.go)
+	clones   map[pkgKey]bool   // generated copy functions emitted (values.go)
+	goVars   map[pkgKey]bool   // getters of Go package variables emitted (ir_govar.go)
+	machines map[pkgKey]string // generated machine value functions emitted, to their Go result (ir_machine.go)
+	// machineOfDone marks each generic machine whose conversion function
+	// is written (machineentry.go).
+	machineOfDone map[*check.TypeName]bool
+	// entryCopies are the computed entries' copies, nil for an entry
+	// whose call is not known (entrycopy.go).
+	entryCopies map[pkgKey]*entryCopy
+	vals        *valueFacts              // the value rule's decisions (values.go)
+	sets        map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
+	holds       map[*check.Named]holdState
+	typeKeys    map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type

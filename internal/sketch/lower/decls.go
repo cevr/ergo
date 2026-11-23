@@ -656,7 +656,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 			l.errorMethod(b, td)
 		}
 	case kindMachine:
-		l.machinePlan(b, td)
+		l.machinePlan(b, td, tparams, names)
 	case kindAlias:
 		b.WriteString("type " + td.name + " = " + tc.goType(td.defined) + "\n\n")
 	}
