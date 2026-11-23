@@ -262,7 +262,7 @@ func session(lines []string, table Map[int, int]) ([]api.Step, int) fails domain
 				} else {
 					pipelinecli.Run(args, p)
 				}
-				let _ = pipeline.Settle(m) catch {
+				let _ = m.Settle() catch {
 				case pipeline.Unavailable:
 					return api.Output{..o, Err: "the pipeline does not run\n", Code: 1}
 				}
@@ -273,7 +273,6 @@ func session(lines []string, table Map[int, int]) ([]api.Step, int) fails domain
 				api.Output{..o, Out: out}
 			})
 		}
-		pipeline.Stop(m)
 		(steps, runners.Ran(runner))
 	}
 }

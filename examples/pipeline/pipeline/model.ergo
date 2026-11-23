@@ -2,28 +2,65 @@
 // Dispatch, event-sourced on a domain.Log by domain.Sourced (log.ergo).
 // Its operations send the command to the actor and read the receipt from
 // the ledger that the command committed; Board reads the board, a
-// follower of the log.
+// follower of the log. Code that needs a Pipeline while it goes on using
+// the Model borrows it: a with entry that names the Model lends it for
+// the block (resources.md, with lends).
 
 import actor
 import github.com/cevr/ergo/modules/domain
 import pipeline/board
 import pipeline/run
 import github.com/cevr/ergo/modules/domain/memory
+import testing
+import time
 
 // DeskActor is the running context.
 type DeskActor = actor.Actor[Ledger, Signal, Decision[Ledger, domain.Receipt], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
 
-// Model is the context as a Pipeline. Open makes one.
-type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline
+// Model is the context as a Pipeline. Open makes one. It is a resource
+// (resources.md R1): its actor runs until Close stops it, so one owner
+// holds it, a with that builds it or a frame, and releases it on every
+// path (q266). A with that names it lends it: the block uses it, and a
+// view or a tool made in the block holds it no longer than the block.
+type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline, Closer
 
 // Open runs the context over log: it starts in the desk that the stream
 // Stream folds to, and appends the entries of each step to the stream
 // before anyone sees the state. The runner and the clock are the
 // caller's.
 func Open(log domain.Log[Entry]) Model fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
+	let (m, _) = try opened(log)
+	m
+}
+
+// opened is Open, and the Model's actor beside it, a copy made while the
+// actor is still a local (resources.md R17), so CloseStopsTheActor can ask
+// it after the Model closed.
+func opened(log domain.Log[Entry]) (Model, DeskActor) fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
 	let s = Recovered(log)
 	let desk = try actor.StartDurable(Dispatch{}, 8, func(r domain.Receipt) {}, s.Recover, s.Save)
-	Model{desk: desk, log: log, board: NewProjection()}
+	(Model{desk: desk, log: log, board: NewProjection()}, desk)
+}
+
+// CloseStopsTheActor: the Model's release stops its actor, so no path
+// needs a manual Stop: once the Model closed, its actor takes no command.
+law CloseStopsTheActor(c SubmitRun) {
+	let s = testing.Script[Runner]{}
+	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { true })
+	with context { Scheduler: time.NewManual(0), Runner: s } {
+		let (m, desk) = opened(memory.New[Entry]()) catch {
+		case domain.Conflict, domain.Reused, domain.Unkept:
+			return false
+		}
+		m.Close()
+		let _ = desk.Ask(Ask{Env: Envelope{ID: c.ID, Run: c.Run, Command: run.Submit{Stages: 1}}}) catch {
+		case actor.Stopped:
+			return true
+		case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
+			return false
+		}
+		false
+	}
 }
 
 // send asks the desk to take env, and is the receipt of env's ID.
@@ -66,6 +103,26 @@ func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | 
 // the records it has not seen first.
 func Board(m Model) board.View { m.board.Follow(m.log) }
 
+func RunOf(m Model, id string) run.Run fails NoSuchRun {
+	match BookOf(m.desk.State().State).Runs.Get(id) {
+	case Some[run.Run] as r:
+		r.Value
+	case None:
+		NoSuchRun{Run: id}
+	}
+}
+
+// Settle waits until the runner runs no try: the context is idle, or a
+// failed try waits for its backoff. It is the desk's state then; it fails
+// Unavailable when the desk stopped with no such state committed.
+func Settle(m Model) Desk fails Unavailable {
+	let l = actor.WaitFor(m.desk, func(l Ledger) bool { !IsBusy(l.State) }) catch {
+	case actor.Stopped:
+		return Unavailable
+	}
+	l.State
+}
+
 // BoardFollowsTheLog: the board, a follower of the log, is the fold of
 // the desk's entries.
 law BoardFollowsTheLog(acts []Act, flaky []int) {
@@ -81,28 +138,10 @@ law BoardFollowsTheLog(acts []Act, flaky []int) {
 	}
 }
 
-func RunOf(m Model, id string) run.Run fails NoSuchRun {
-	match BookOf(m.desk.State().State).Runs.Get(id) {
-	case Some[run.Run] as r:
-		r.Value
-	case None:
-		NoSuchRun{Run: id}
-	}
-}
-
-// Settle waits until the runner runs no try: the context is idle, or a
-// failed try waits for its backoff. It is the desk's state then.
-func Settle(m Model) Desk fails Unavailable {
-	let l = actor.WaitFor(m.desk, func(l Ledger) bool { !IsBusy(l.State) }) catch {
-	case actor.Stopped:
-		return Unavailable
-	}
-	l.State
-}
-
-// Stop stops the context. (Model has no Close: it is a handle that a
-// context binds and the binary copies, not a resource one owner holds.)
-func Stop(m Model) {
+// Close stops the context's actor (q266: Close is Stop). Its owner's
+// release calls it on every path: the with that built it, or the frame
+// that holds it.
+func Close(m Model) {
 	m.desk.Stop() catch {
 	case _:
 	}
