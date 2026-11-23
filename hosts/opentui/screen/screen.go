@@ -213,8 +213,11 @@ type Screen struct {
 var ErrClosed = errors.New("screen: closed")
 
 func newScreen(cols, rows int, out io.Writer) (*Screen, error) {
+	if err := check(CallOpen, 0); err != nil {
+		return nil, fail(CallOpen, 0, err)
+	}
 	if err := ot.Open(); err != nil {
-		return nil, err
+		return nil, fail(CallOpen, 0, err)
 	}
 	s := &Screen{
 		owner: ot.NewOwner(), nodes: map[int]ot.Handle{}, kinds: map[int]int{}, parent: map[int]int{},
@@ -242,8 +245,9 @@ func newScreen(cols, rows int, out io.Writer) (*Screen, error) {
 	})
 	if err != nil {
 		s.owner.Close()
-		return nil, fmt.Errorf("screen: %w", err)
+		return nil, fail(CallOpen, 0, fmt.Errorf("screen: %w", err))
 	}
+	made(1)
 	return s, nil
 }
 
@@ -306,18 +310,33 @@ func (s *Screen) Present() error {
 	closed := s.done
 	s.mu.Unlock()
 	if closed {
-		return ErrClosed
+		return fail(CallFrame, 0, ErrClosed)
 	}
 	var err error
 	s.do(func() {
-		for _, c := range batch {
-			if err = s.apply(c); err != nil {
-				return
-			}
+		if err = s.applyAll(batch); err != nil {
+			return
 		}
-		err = s.frame()
+		if err = check(CallFrame, 0); err != nil {
+			return
+		}
+		err = wrap(CallFrame, 0, s.frame())
 	})
 	return err
+}
+
+// applyAll runs the batch's commands on the owner thread, each a Failure
+// of CallScene about its node.
+func (s *Screen) applyAll(batch []command) error {
+	for _, c := range batch {
+		if err := check(CallScene, c.node); err != nil {
+			return err
+		}
+		if err := s.apply(c); err != nil {
+			return fail(CallScene, c.node, err)
+		}
+	}
+	return nil
 }
 
 func color(c uint32) [4]uint16 {
@@ -623,10 +642,10 @@ func (s *Screen) frame() error {
 		case ot.OT_RENDER_PRESENTED, ot.OT_RENDER_PENDING:
 			return nil
 		case ot.OT_RENDER_FAILED:
-			return errors.New("screen: the frame failed (larger than the output queue, or encoding failed)")
+			return ErrFrameFailed
 		}
 	}
-	return errors.New("screen: the frame was skipped twice under output pressure")
+	return ErrFrameSkipped
 }
 
 // paint paints a frame (owner thread). When a Lister that fills the rows
@@ -698,7 +717,7 @@ func (s *Screen) flush() error {
 		s.calls++
 		t, err := ot.SessionReadOutput(s.ctx, s.session, s.chunk)
 		if err != nil {
-			return fmt.Errorf("screen: read output: %w", err)
+			return fail(CallOutput, 0, fmt.Errorf("screen: read output: %w", err))
 		}
 		if t.ByteCount == 0 {
 			return nil
@@ -710,10 +729,10 @@ func (s *Screen) flush() error {
 		}
 		s.calls++
 		if err := ot.SessionCompleteOutput(s.ctx, s.session, t, ok); err != nil {
-			return fmt.Errorf("screen: complete output: %w", err)
+			return fail(CallOutput, 0, fmt.Errorf("screen: complete output: %w", err))
 		}
 		if werr != nil {
-			return fmt.Errorf("screen: write: %w", werr)
+			return fail(CallOutput, 0, fmt.Errorf("screen: write: %w", werr))
 		}
 		s.mu.Lock()
 		s.written += int64(t.ByteCount)
@@ -841,6 +860,9 @@ func (s *Screen) BoxOf(n int) Rect {
 // n's box is inside its viewport (moving it the least); the next Present
 // paints it there.
 func (s *Screen) Reveal(n int) error {
+	if err := check(CallScroll, n); err != nil {
+		return err
+	}
 	var err error
 	s.do(func() {
 		h, ok := s.nodes[n]
@@ -858,7 +880,7 @@ func (s *Screen) Reveal(n int) error {
 			}
 		}
 	})
-	return err
+	return wrap(CallScroll, n, err)
 }
 
 // Shown reports whether the first cell of node n's box is on the screen
@@ -915,6 +937,9 @@ func (s *Screen) ScrollOf(n int) ScrollState {
 // ScrollTo scrolls node n to offset y (cells), inside its content; by
 // scrolls it by y from where it is. The next Present paints it there.
 func (s *Screen) ScrollTo(n, y int, by bool) error {
+	if err := check(CallScroll, n); err != nil {
+		return err
+	}
 	var err error
 	s.do(func() {
 		h, ok := s.nodes[n]
@@ -929,7 +954,7 @@ func (s *Screen) ScrollTo(n, y int, by bool) error {
 		s.calls++
 		_, err = ot.SceneScrollTo(s.ctx, h, 0, float64(y), flags)
 	})
-	return err
+	return wrap(CallScroll, n, err)
 }
 
 // HitTest is the number of the node painted last at column x, row y, 0
@@ -1051,13 +1076,16 @@ func (s *Screen) parse(b []byte, now uint64) []Input {
 // Resize makes the screen cols by rows cells; the next Present lays the
 // scene out again. An Input of kind Resize follows.
 func (s *Screen) Resize(cols, rows int) error {
+	if err := check(CallResize, 0); err != nil {
+		return err
+	}
 	var err error
 	s.do(func() {
 		s.calls++
 		err = ot.SessionResizeRenderer(s.ctx, s.session, uint32(cols), uint32(rows))
 	})
 	if err != nil {
-		return fmt.Errorf("screen: resize: %w", err)
+		return fail(CallResize, 0, fmt.Errorf("screen: resize: %w", err))
 	}
 	s.mu.Lock()
 	s.cols, s.rows = cols, rows
@@ -1122,7 +1150,7 @@ func (s *Screen) Next(ctx context.Context) (Input, error) {
 		select {
 		case <-s.wake:
 		case <-ctx.Done():
-			return Input{}, ctx.Err()
+			return Input{}, fail(CallInput, 0, ctx.Err())
 		}
 	}
 }
@@ -1161,6 +1189,8 @@ func (s *Screen) Quit() error {
 	if stop != nil {
 		stop()
 	}
+	// A failed check fails the Quit, which still frees all it would.
+	refused := check(CallQuit, 0)
 	var err error
 	s.do(func() {
 		if s.live {
@@ -1178,5 +1208,9 @@ func (s *Screen) Quit() error {
 		err = cerr
 	}
 	s.EndInput()
-	return err
+	made(-1)
+	if refused != nil {
+		return refused
+	}
+	return wrap(CallQuit, 0, err)
 }

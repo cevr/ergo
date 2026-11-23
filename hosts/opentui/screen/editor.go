@@ -304,15 +304,16 @@ func (s *Screen) Edit(n, op, col int, text string) (string, error) {
 	closed := s.done
 	s.mu.Unlock()
 	if closed {
-		return "", ErrClosed
+		return "", fail(CallEdit, n, ErrClosed)
 	}
 	var out string
 	var err error
 	s.do(func() {
-		for _, c := range batch {
-			if err = s.apply(c); err != nil {
-				return
-			}
+		if err = s.applyAll(batch); err != nil {
+			return
+		}
+		if err = check(CallEdit, n); err != nil {
+			return
 		}
 		e, ok := s.edits[n]
 		if !ok {
@@ -325,7 +326,7 @@ func (s *Screen) Edit(n, op, col int, text string) (string, error) {
 		}
 		out, err = s.text(e)
 	})
-	return out, err
+	return out, wrap(CallEdit, n, err)
 }
 
 // SetPlaceholder sets the dim text an empty Editor n shows.

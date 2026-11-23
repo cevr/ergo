@@ -16,6 +16,36 @@ extern go ergo.local/prototype/hosts/opentui/screen.Bold let Bold int
 // ergo:go const Box untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Box let Box int
 
+// ergo:go const CallEdit untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallEdit let CallEdit int
+
+// ergo:go const CallFrame untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallFrame let CallFrame int
+
+// ergo:go const CallInput untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallInput let CallInput int
+
+// ergo:go const CallNotify untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallNotify let CallNotify int
+
+// ergo:go const CallOpen untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallOpen let CallOpen int
+
+// ergo:go const CallOutput untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallOutput let CallOutput int
+
+// ergo:go const CallQuit untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallQuit let CallQuit int
+
+// ergo:go const CallResize untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallResize let CallResize int
+
+// ergo:go const CallScene untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallScene let CallScene int
+
+// ergo:go const CallScroll untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallScroll let CallScroll int
+
 // ergo:go type Cell struct
 extern go ergo.local/prototype/hosts/opentui/screen.Cell type Cell {
 	Text string,
@@ -23,6 +53,15 @@ extern go ergo.local/prototype/hosts/opentui/screen.Cell type Cell {
 	Bg   uint32,
 	Attr int,
 }
+
+// ergo:go type Check struct
+extern go ergo.local/prototype/hosts/opentui/screen.Check type Check {
+	Call int,
+	Node int,
+}
+
+// ergo:go func Checks() []Check
+extern go ergo.local/prototype/hosts/opentui/screen.Checks func Checks() []Check needs go.Foreign
 
 // ergo:go const Closed untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Closed let Closed int
@@ -87,6 +126,37 @@ extern go ergo.local/prototype/hosts/opentui/screen.Editor let Editor int
 // ergo:go var ErrClosed error
 extern go ergo.local/prototype/hosts/opentui/screen.ErrClosed let ErrClosed go.Error
 
+// ergo:go var ErrFrameFailed error
+extern go ergo.local/prototype/hosts/opentui/screen.ErrFrameFailed let ErrFrameFailed go.Error
+
+// ergo:go var ErrFrameSkipped error
+extern go ergo.local/prototype/hosts/opentui/screen.ErrFrameSkipped let ErrFrameSkipped go.Error
+
+// ergo:go var ErrUnsettled error
+extern go ergo.local/prototype/hosts/opentui/screen.ErrUnsettled let ErrUnsettled go.Error
+
+// ergo:go var ErrZeroSize error
+extern go ergo.local/prototype/hosts/opentui/screen.ErrZeroSize let ErrZeroSize go.Error
+
+// ergo:go func FailAt(at int, status int)
+extern go ergo.local/prototype/hosts/opentui/screen.FailAt func FailAt(at int, status int) needs go.Foreign
+
+// ergo:go type Failure struct
+extern go ergo.local/prototype/hosts/opentui/screen.Failure type Failure {
+	Call int,
+	Node int,
+	Err  go.Error,
+}
+
+// ergo:go func (*Failure).Error() string
+extern go ergo.local/prototype/hosts/opentui/screen.Failure.Error func (f *Failure) Error() string needs go.Foreign
+
+// ergo:go func (*Failure).Status() int
+extern go ergo.local/prototype/hosts/opentui/screen.Failure.Status func (f *Failure) Status() int needs go.Foreign
+
+// ergo:go func (*Failure).Unwrap() error
+extern go ergo.local/prototype/hosts/opentui/screen.Failure.Unwrap func (f *Failure) Unwrap() fails go.Error needs go.Foreign
+
 // ergo:go const Focus untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Focus let Focus int
 
@@ -133,6 +203,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Key let Key int
 
 // ergo:go const Lister untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Lister let Lister int
+
+// ergo:go func Live() int
+extern go ergo.local/prototype/hosts/opentui/screen.Live func Live() int needs go.Foreign
 
 // ergo:go const Margin untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Margin let Margin int

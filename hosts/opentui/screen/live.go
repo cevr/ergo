@@ -3,7 +3,6 @@
 package screen
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -21,7 +20,7 @@ import (
 func Open() (*Screen, error) {
 	cols, rows, err := termSize(os.Stdout)
 	if err != nil {
-		return nil, fmt.Errorf("screen: the terminal's size: %w", err)
+		return nil, fail(CallOpen, 0, fmt.Errorf("screen: the terminal's size: %w", err))
 	}
 	s, err := OpenOn(os.Stdin, os.Stdout, cols, rows)
 	if err != nil {
@@ -59,7 +58,11 @@ func OpenOn(in, out *os.File, cols, rows int) (*Screen, error) {
 		return nil, err
 	}
 	s.live, s.in = true, in
+	err = check(CallOpen, 0)
 	s.do(func() {
+		if err != nil {
+			return
+		}
 		s.calls++
 		err = ot.SessionSetupTerminal(s.ctx, s.session, ot.SessionTerminalOptions{
 			Flags:              ot.OT_TERMINAL_ALTERNATE_SCREEN | ot.OT_TERMINAL_MOUSE | ot.OT_TERMINAL_CLEAR_ON_CLOSE,
@@ -71,8 +74,10 @@ func OpenOn(in, out *os.File, cols, rows int) (*Screen, error) {
 	})
 	if err != nil {
 		s.live = false
-		s.Quit()
-		return nil, fmt.Errorf("screen: terminal setup: %w", err)
+		// ergo-lint: the setup's failure is the one to tell; Quit frees
+		// what newScreen made.
+		_ = s.Quit()
+		return nil, fail(CallOpen, 0, fmt.Errorf("screen: terminal setup: %w", err))
 	}
 	// One reader of the input: its bytes go to the parser on the owner
 	// thread; end of input closes.
@@ -138,7 +143,7 @@ func (s *Screen) pump(untilClosed bool) error {
 		s.calls++
 		r, err := ot.SessionPump(s.ctx, s.session, now, 64)
 		if err != nil {
-			return fmt.Errorf("screen: pump: %w", err)
+			return fail(CallOutput, 0, fmt.Errorf("screen: pump: %w", err))
 		}
 		if err := s.flush(); err != nil {
 			return err
@@ -159,7 +164,7 @@ func (s *Screen) pump(untilClosed bool) error {
 			return nil
 		}
 	}
-	return errors.New("screen: the session did not settle")
+	return fail(CallOutput, 0, ErrUnsettled)
 }
 
 // restore closes the session and writes the terminal's restoration
@@ -167,7 +172,7 @@ func (s *Screen) pump(untilClosed bool) error {
 func (s *Screen) restore() error {
 	s.calls++
 	if err := ot.SessionClose(s.ctx, s.session); err != nil {
-		return fmt.Errorf("screen: close: %w", err)
+		return fail(CallQuit, 0, fmt.Errorf("screen: close: %w", err))
 	}
 	return s.pump(true)
 }
@@ -180,7 +185,7 @@ func termSize(f *os.File) (int, int, error) {
 		return 0, 0, e
 	}
 	if ws.Col == 0 || ws.Row == 0 {
-		return 0, 0, errors.New("the terminal reports a size of zero")
+		return 0, 0, ErrZeroSize
 	}
 	return int(ws.Col), int(ws.Row), nil
 }
