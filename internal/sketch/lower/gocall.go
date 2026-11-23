@@ -8,7 +8,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Calls of import go (docs/spec/interop.md, Lowering; #202 Level 1). A call
+// Calls of import go (docs/spec/interop.md, Lowering; Level 1). A call
 // of a Go function, method or constant of a binding is a direct Go call of
 // it, with Go's import (aliased by the naming pass when its name clashes,
 // hostImportNames), no environment, no wrapper and no poll: a host call is

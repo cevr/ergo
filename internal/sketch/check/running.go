@@ -1,6 +1,6 @@
 package check
 
-// Tasks are resources (#197 L8 B3t; resources R1, runtime.md Tasks 3, G4).
+// Tasks are resources (L8 B3t; resources R1, runtime.md Tasks 3, G4).
 // The prelude's Task[T, E] and std tasks.Set[E] declare a Close()
 // operation, so each is a resource by the one rule of resource.go: it has
 // one owner, a hand-off moves it (a return, a field, a container, a queue,

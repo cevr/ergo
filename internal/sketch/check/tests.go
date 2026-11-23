@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -87,7 +88,7 @@ func (c *checker) collectTest(d *syntax.TestDecl, fi *fileInfo) {
 
 // claimTestName claims id's name for a test or a top-level law (kind) in
 // their one namespace (rule 1). A test report and a law report name the
-// declaration by its name alone (#162), so two of one name would be
+// declaration by its name alone, so two of one name would be
 // ambiguous: the second in source order is S108, and claimTestName reports
 // false. A member law is not in this namespace (its report names T.L).
 func (c *checker) claimTestName(id *syntax.Ident, kind string) bool {
@@ -148,7 +149,7 @@ func (c *checker) strayAsserts() {
 					c.tests.stray = map[*syntax.AssertStmt]bool{}
 				}
 				c.tests.stray[n] = true
-				c.errorf(n, CodeType, "assert stands only in a test or law body (196l)")
+				c.errorf(n, CodeType, "assert stands only in a test or law body")
 			}
 			return true
 		})
@@ -222,7 +223,7 @@ func (c *checker) checkTest(test *Test) {
 				typ = c.typExpr(field.Type, &typeCtx{param: true})
 				if !isInvalid(typ) {
 					if why := c.ungeneratable(typ); why != "" {
-						c.errorf(field.Type, CodeType, "a property parameter is generated, and %s cannot be: %s (196l)", typ, why)
+						c.errorf(field.Type, CodeType, "a property parameter is generated, and %s cannot be: %s", typ, why)
 						typ = invalid
 					}
 				}
@@ -359,6 +360,11 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 			}
 			return ""
 		case *Signature:
+			if NoopFunc(u) {
+				// func() with no rows has one behaviour, to return: its
+				// generator is that function (LAW-GEN-FUNC).
+				return ""
+			}
 			return t.String() + " is a function type"
 		case *Pointer:
 			return t.String() + " is a borrow"
@@ -403,8 +409,21 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 			return n.String() + " has no finite value: each of its values holds another"
 		}
 	}
+	for _, n := range order {
+		if k := c.tests.ranks.Rank(n, builder); k > GenRankLimit {
+			// Its least value is deeper than a generator draws (eval's
+			// generator bound), so a case could not end.
+			return fmt.Sprintf("%s has no value a generator reaches: its least value is %d levels deep, past %d", n, k, GenRankLimit)
+		}
+	}
 	return ""
 }
+
+// GenRankLimit is the deepest least value a generated type may have: the
+// checker refuses a property parameter or provider whose type ranks past
+// it (ValueRanks), so eval's generator, which steps to a lower rank at
+// each level past the plan's depth, never draws deeper.
+const GenRankLimit = 1024
 
 // builderName is b's function as a diagnostic about n names it: with n's
 // own qualifier when n's package declares it, so llm's text says

@@ -1,5 +1,4 @@
-// The preview's block, with the second comment aligned to the first, as
-// gofmt aligns trailing comments (the preview has it one column late).
+// Bindings: trailing comments align, as gofmt aligns them.
 func total(order Order, fee int64) int64 {
 	let Order{Total: base} = order // base cannot be reassigned
 	let mut sum = base + fee       // sum can

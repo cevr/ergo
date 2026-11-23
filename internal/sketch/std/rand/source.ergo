@@ -38,6 +38,9 @@ type PCG { src Stream } implements Random
 // Seeded is the PCG provider of seed.
 func Seeded(seed uint64) PCG { PCG{src: newStream(seed)} }
 
+// seeded is the context Random's laws run PCG under (types.md, Laws 10).
+let seeded = context { Random: Seeded(1) }
+
 // SeedReplays: two providers of one seed draw one stream, call for call.
 law SeedReplays(seed uint64, n int) {
 	let a = Seeded(seed)

@@ -102,7 +102,7 @@
       "file": "examples/weather/web/openmeteo.ergo",
       "from": "\t\tif len(rs.Value) == 0 {\n\t\t\treturn weather.NotFound{Zip: zip}\n\t\t}\n",
       "to": "\t\tif len(rs.Value) == 0 {\n\t\t\treturn weather.NotFound{Zip: \"\"}\n\t\t}\n",
-      "rule": "OpenMeteo keeps the Forecast contract: NotFound names the zip (property ContractHoldsOverTheFixture).",
+      "rule": "OpenMeteo keeps the Forecast contract: NotFound names the zip (law NotFoundNamesTheZip under web's overTheFixture).",
       "anchor": {"tests": ["examples:weather"]}, "killers": ["examples:weather"]
     },
     {

@@ -1,6 +1,9 @@
 {
   "about": "scripts/examples mutants of the ts leg (X-rpc1) and the examples runner's check/native agreement guard (EV6). The ts example killers run under -tags ts, which needs Bun and a warmed Bun cache: go run ./scripts/examples -tags ts limiter.",
   "mutants": [
+    {"name":"findings-stale-never","origin":"wf10 LAW-UNFED (878 r4)","file":"scripts/examples/findings.go","from":"\t\tif !f.fired {\n","to":"\t\tif false && !f.fired {\n","rule":"A finding no problem matched is a layout error: the expected findings empty themselves as the owed units land.","killers":["scripts/examples:TestFindingExcusesOnlyItsOwnAndGoesStale"]},
+    {"name":"findings-match-any-provider","origin":"wf10 LAW-UNFED (878 r4)","file":"scripts/examples/findings.go","from":"strings.Contains(rest, \" cannot run at \"+f.provider+\":\")","to":"strings.Contains(rest, \" cannot run at \")","rule":"A finding excuses only the law at its own provider.","killers":["scripts/examples:TestFindingExcusesOnlyItsOwnAndGoesStale"]},
+    {"name":"findings-match-any-package","origin":"wf10 LAW-UNFED (878 r4)","file":"scripts/examples/findings.go","from":"\tif f.example != example || f.pkg != label || f.code != code {\n","to":"\tif f.example != example || f.code != code {\n","rule":"A finding excuses only the law in its own package.","killers":["scripts/examples:TestFindingExcusesOnlyItsOwnAndGoesStale"]},
     {"name":"gs30-key-check-stores","origin":"wf10 GS30","file":"scripts/examples/main.go","from":"\t\tenv = append(slices.Clip(env), lawCacheOff)\n","to":"\t\t_ = lawCacheOff\n","rule":"Every check the runner makes, the key's included, runs with the law-verdict store off.","killers":["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"]},
     {"name":"gs30-check-leg-own","origin":"wf10 GS30","file":"scripts/examples/evaluation.go","from":"\to, err := r.tool(r.cfg.testTimeout, \"check\", target)\n","to":"\to, err := r.live.execute([]string{r.cfg.ergo, \"check\", target}, r.cfg.root, append(r.toolEnv[:len(r.toolEnv):len(r.toolEnv)], lawCacheOff), \"\", r.cfg.testTimeout, 0)\n","rule":"A missed program's check leg takes the key's check result; it does not check again.","killers":["scripts/examples:TestEarlyCutoffKeysWhatTheCompilerChanges"]},
     {"name":"gs27-coverage-unchecked","origin":"wf10 GS27","file":"scripts/examples/cache.go","from":"\t\t\t\twhy = coveredPackages(p, targets, lines)\n","to":"\t\t\t\t_ = coveredPackages(p, targets, lines)\n","rule":"A pattern's key holds only when it names every target, and no other package.","killers":["scripts/examples:TestPatternReachingAnotherPackageIsNotCached"]},
@@ -289,7 +292,7 @@
       "rule": "A line for a test upstream does not have is refused.",
       "killers": ["scripts/examples:TestOriginFollowsUpstream"]
     },
-    {"name":"ex-neutral-ports-unchecked","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\treturn programs, append(problems, checkPorts(root)...)\n","to":"\treturn programs, problems\n","rule":"A port's provenance under conformance/upstream/<source>/ports/<name>/ has its tests.txt checked, and names a program.","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
+    {"name":"ex-neutral-ports-unchecked","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\treturn programs, append(problems, checkPorts(root)...), notes\n","to":"\treturn programs, problems, notes\n","rule":"A port's provenance under conformance/upstream/<source>/ports/<name>/ has its tests.txt checked, and names a program.","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
     {"name":"ex-neutral-origin-admitted-single","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"main.ergo\"","to":"\t\tcase file == \"main.ergo\"","rule":"A program of one folder holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
     {"name":"ex-neutral-origin-admitted-module","origin":"wf10 EX-NEUTRAL","file":"scripts/examples/main.go","from":"\t\t\tproblem(originMoved, p.name)\n\t\tcase file == \"go.mod\"","to":"\t\tcase file == \"go.mod\"","rule":"A program of packages holds no origin: provenance lives under conformance/upstream, never in the example (owner, EX-NEUTRAL).","killers":["scripts/examples:TestPortProvenanceIsChecked"]},
     { "name": "gs1-key-ergo", "origin": "wf10 GS1", "file": "scripts/examples/cache.go", "from": "{{\"runner\", self}, {\"ergo\", cfg.ergo}}", "to": "{{\"runner\", self}}", "rule": "A program's cache key holds the compiler's bytes: another bin/ergo at the same path reruns it.", "killers": ["scripts/examples:TestCachedVerdictEqualsRerun"] },
@@ -339,8 +342,8 @@
       "name": "one-module-per-package",
       "origin": "wf10 TEST-one",
       "file": "scripts/examples/main.go",
-      "from": "if !(p.module && len(p.tests) > 1 && r.testModule(p)) {",
-      "to": "if !(false && p.module && len(p.tests) > 1 && r.testModule(p)) {",
+      "from": "if !(p.module && len(p.tests) > 1 && len(p.heavy) == 0 && r.testModule(p)) {",
+      "to": "if !(false && p.module && len(p.tests) > 1 && len(p.heavy) == 0 && r.testModule(p)) {",
       "rule": "The test leg of a program of packages is one ergo test DIR/..., one check of the module and one test binary, not one per package.",
       "killers": ["scripts/examples:TestModuleProgram"]
     },
@@ -357,10 +360,19 @@
       "name": "one-module-any-packages",
       "origin": "wf10 TEST-one",
       "file": "scripts/examples/main.go",
-      "from": "if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {",
-      "to": "if got := slices.Sorted(slices.Values(order)); false {",
+      "from": "if notRun, notOurs := packageDifference(order, want); len(notRun) > 0 || len(notOurs) > 0 {",
+      "to": "if notRun, notOurs := packageDifference(order, want); false && (len(notRun) > 0 || len(notOurs) > 0) {",
       "rule": "A run that tested other packages than the program's fails the program.",
       "killers": ["scripts/examples:TestModuleProgramRunsEveryPackage"]
+    },
+    {
+      "name": "module-run-with-full-tier",
+      "origin": "wf10 CTX-ROWS-2b r3",
+      "file": "scripts/examples/main.go",
+      "from": "len(p.tests) > 1 && len(p.heavy) == 0 && r.testModule(p)",
+      "to": "len(p.tests) > 1 && r.testModule(p)",
+      "rule": "A module with full-tier folders tests each fast package alone: one ergo test DIR/... would run the full-tier folders too.",
+      "killers": ["scripts/examples:TestModulesLeg"]
     },
     {
       "name": "one-module-check-per-package",
@@ -534,8 +546,8 @@
     {"name":"gs31b-json-lawcache-on","origin":"wf10 GS31b","file":"scripts/examples/main.go","from":"(args[0] == \"check\" || args[0] == \"test\" && slices.Contains(args, \"--json\"))","to":"args[0] == \"check\"","rule":"The key call checks with the law-verdict store off, as every check does.","killers":["scripts/examples:TestPatternKeyIsOneCall"]},
     {"name":"gs31a-hang-not-failed","origin":"wf10 GS31a","file":"internal/cases/exec.go","from":"\t\t\to.TimedOut = true\n","to":"\n","rule":"A case or leg that hangs past its safety net is stopped, fails, and the failure names the hang.","killers":["scripts/examples:TestCaseProcessGroupIsStopped"]},
     {"name":"gs31a-folders-unshared","origin":"wf10 GS31a","file":"scripts/examples/main.go","from":"\tp.checked = loadPackageFolders(p.dir, entries)\n","to":"\tp.checked = nil\n","rule":"A program of packages is read with one load of its package folders; the asset scan and the law rule share it.","killers":["scripts/examples:TestModuleProgramLoadsItsPackagesOnce"]},
-    {"name":"examples-layout-modules-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\treturn programs, modules, append(problems, moduleProblems...)\n","to":"\t_ = moduleProblems\n\treturn programs, modules, problems\n","rule":"A layout error of a module stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
-    {"name":"examples-layout-programs-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\tprograms, problems = loadExamples(root, record)\n","to":"\tprograms, _ = loadExamples(root, record)\n","rule":"A layout error of a program or a port stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-modules-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\tproblems = append(append(append(problems, programProblems...), moduleProblems...), expected.stale()...)\n","to":"\t_ = moduleProblems\n\tproblems = append(append(problems, programProblems...), expected.stale()...)\n","rule":"A layout error of a module stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
+    {"name":"examples-layout-programs-skipped","origin":"wf10 LAYOUT-RED","file":"scripts/examples/main.go","from":"\tproblems = append(append(append(problems, programProblems...), moduleProblems...), expected.stale()...)\n","to":"\t_ = programProblems\n\tproblems = append(append(problems, moduleProblems...), expected.stale()...)\n","rule":"A layout error of a program or a port stops the runner and fails the fast tier.","killers":["scripts/examples:TestRepoLayoutIsClean"]},
     {"name":"examples-layout-go-unclaimed","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/modules.go","from":"\t\tcase goModule == \"\" || !claimed[importPath]:\n","to":"\t\tcase goModule == \"\":\n","rule":"A module holds only the Go packages its own extern go declarations bind (interop.md, Trusted Go 3).","killers":["scripts/examples:TestRepoLayoutIsClean"]},
     {"name":"examples-layout-ledger-anywhere","origin":"wf10 LAYOUT-SIMD","file":"scripts/examples/main.go","from":"\t\tcase assets[filepath.Join(dir, name)] && entry.Type().IsRegular():\n","to":"\t\tcase (assets[filepath.Join(dir, name)] || name == \"ergo.laws\") && entry.Type().IsRegular():\n","rule":"A module's law ledger sits beside ergo.mod (facts.md 3), never in a package folder.","killers":["scripts/examples:TestRepoLayoutIsClean"]}
   ]

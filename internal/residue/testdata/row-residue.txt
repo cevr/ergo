@@ -18,6 +18,16 @@
 # prose that only reads like a row: a verb or a noun before a comma, not a list of capabilities
 # Exact diagnostic sentence: "and" starts prose, not a comma-separated capability row.
 internal/sketch/lower/entry_scheduler_test.go	main needs Scheduler, and the host provides only Console and Ambient
+# LAW-UNFED's diagnostic (types.md, Laws 10): "no package of module M provides X, so no case
+# runs it"; the comma ends the clause, and "so" starts prose
+docs/spec/types.md	provides Store, so no case runs it
+internal/sketch/check/stdunfed_test.go	provides Counter, so no case runs it
+internal/sketchfront/unfedmodule_test.go	provides Shape, so no case runs it
+# CTX-ROWS-2: "a written needs row, charged at each with": a noun, then a participle clause
+docs/spec/README.md	a written needs row, charged at each with
+docs/spec/status.json	a written needs row, charged at each with
+# contextneeds.go (CTX-ROWS-2): "no with site provides it, so it is not charged there": prose
+internal/sketch/check/contextneeds.go	no with site provides it, so it is not charged there
 # The Go team's golang.org/x/sync, copied unchanged (examples/admit's Go module): Go prose.
 examples/admit/testdata/sync/errgroup/errgroup.go	provides synchronization, error propagation
 NORTH_STAR.md	A build needs Node, Effect

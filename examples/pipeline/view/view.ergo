@@ -200,12 +200,12 @@ law HeldTryShowsRunningThenPassed(pick int) {
 	runner.Run.Hold()
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runner } {
-		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
+		let m, p = pipeline.Share(memory.New[pipeline.Entry]()) catch {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
 		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
-		let mut h = ui.NewTestHost(a, View(m), clock, 8) catch {
+		let mut h = ui.NewTestHost(a, View(p), clock, 8) catch {
 		case ui.BadPatch:
 			return false
 		}
@@ -215,7 +215,7 @@ law HeldTryShowsRunningThenPassed(pick int) {
 		}
 		let busy = shows(&h, "took c1 at 1") && shows(&h, "running: "+name) && !shows(&h, "passed: "+name)
 		runner.Run.Release(func(id string, stage int, attempt int) bool fails pipeline.Offline { true })
-		let _ = pipeline.Settle(m) catch {
+		let _ = m.Settle() catch {
 		case pipeline.Unavailable:
 			return false
 		}
@@ -225,7 +225,6 @@ law HeldTryShowsRunningThenPassed(pick int) {
 		}
 		let done = shows(&h, "passed: "+name) && !shows(&h, "running: "+name)
 		stop(a)
-		pipeline.Stop(m)
 		busy && done && testing.Unanswered() == ""
 	}
 }
@@ -242,8 +241,11 @@ func stop[S, E, D, F](a actor.Actor[S, E, D, F]) {
 
 // HeldAskShowsSendingThenReceipt: while the Api holds the screen's submit,
 // the screen shows it sending; once a Release answers it, the screen
-// shows the receipt, and the Api got the command the form says.
+// shows the receipt, and the Api got the command the form holds. The id
+// field is one line: it keeps id with its newlines dropped (ui.OneLine),
+// and that is the id the screen sends and shows.
 law HeldAskShowsSendingThenReceipt(id string, at int) {
+	let kept = ui.OneLine(ui.Editing{Text: id, Caret: len(id), Anchor: len(id)}, 1).Text
 	let api = testing.Script[pipeline.Pipeline]{}
 	api.Board.Answer(func() board.View { board.Empty })
 	api.Submit.Hold()
@@ -258,7 +260,7 @@ law HeldAskShowsSendingThenReceipt(id string, at int) {
 		case _:
 			return false
 		}
-		let sending = shows(&h, "sending submit \(id)")
+		let sending = shows(&h, "sending submit \(kept)")
 		api.Submit.Release(func(c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable {
 			pipeline.Receipt{Command: c.ID, Position: at}
 		})
@@ -266,8 +268,8 @@ law HeldAskShowsSendingThenReceipt(id string, at int) {
 		case _:
 			return false
 		}
-		let took = shows(&h, "took \(id) at \(at)")
-		let sent = api.Submit.Calls() == []pipeline.SubmitRun{pipeline.SubmitRun{ID: id, Run: "build", Stages: 2}}
+		let took = shows(&h, "took \(kept) at \(at)")
+		let sent = api.Submit.Calls() == []pipeline.SubmitRun{pipeline.SubmitRun{ID: kept, Run: "build", Stages: 2}}
 		let _ = api.Board.Calls()
 		stop(a)
 		sending && took && sent && testing.Unanswered() == ""

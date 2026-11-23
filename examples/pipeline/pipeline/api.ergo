@@ -9,30 +9,11 @@
 
 import pipeline/board
 import pipeline/run
-import github.com/cevr/ergo/modules/domain
-import github.com/cevr/ergo/modules/domain/memory
-import testing
-import time
 
 // SubmitRun asks for a new run Run of Stages stages. ID names the
 // command: a resend with the same ID is answered with the first receipt
 // and changes nothing.
 type SubmitRun { ID string, Run string, Stages int }
-
-// ModelTakesEachCommandOnce: Pipeline.DuplicateIsNoop holds for Model.
-law ModelTakesEachCommandOnce(c SubmitRun) {
-	let s = testing.Script[Runner]{}
-	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { true })
-	with context { Scheduler: time.NewManual(0), Runner: s } {
-		let m = Open(memory.New[Entry]()) catch {
-		case domain.Conflict, domain.Reused, domain.Unkept:
-			return false
-		}
-		let ok = with context { Pipeline: m } { DuplicateIsNoop(c) }
-		Stop(m)
-		ok
-	}
-}
 
 // CancelRun asks to stop the run Run.
 type CancelRun { ID string, Run string, Why string }

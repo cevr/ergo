@@ -2,33 +2,145 @@
 // Dispatch, event-sourced on a domain.Log by domain.Sourced (log.ergo).
 // Its operations send the command to the actor and read the receipt from
 // the ledger that the command committed; Board reads the board, a
-// follower of the log.
+// follower of the log. Model owns the actor; a Handle shares it and owns
+// nothing.
 
 import actor
 import github.com/cevr/ergo/modules/domain
 import pipeline/board
 import pipeline/run
 import github.com/cevr/ergo/modules/domain/memory
+import testing
+import time
 
 // DeskActor is the running context.
 type DeskActor = actor.Actor[Ledger, Signal, Decision[Ledger, domain.Receipt], run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun]
 
-// Model is the context as a Pipeline. Open makes one.
-type Model { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline
+// Model is the context as a Pipeline. Open makes one. It is a resource
+// (resources.md R1): its actor runs until Close stops it, so one owner
+// holds it, a with that builds it or a frame, and releases it on every
+// path (q266).
+type Model { h Handle } implements Pipeline, Closer
+
+// Handle is the context as a Pipeline that owns nothing: Share gives one
+// beside its Model, for a with or a value (a screen, the MCP tools) that
+// needs a Pipeline while the code that holds the Model goes on using it.
+// It is a copy of the Model's handles, made where they are still locals,
+// since a handle read from a Model is the Model's (resources.md R17, "A
+// declared root owns its handles"). Its operations are the Model's while
+// the Model is open; once it closed, its commands fail Unavailable and
+// its reads give the last state (HandleEndsWithItsOwner).
+type Handle { desk DeskActor, log domain.Log[Entry], board Projection } implements Pipeline
 
 // Open runs the context over log: it starts in the desk that the stream
 // Stream folds to, and appends the entries of each step to the stream
 // before anyone sees the state. The runner and the clock are the
 // caller's.
 func Open(log domain.Log[Entry]) Model fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
+	Model{h: try start(log)}
+}
+
+// Share is Open, and a Handle of the Model it opens.
+func Share(log domain.Log[Entry]) (Model, Handle) fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
+	let h = try start(log)
+	(Model{h: h}, h)
+}
+
+// start starts the desk over log.
+func start(log domain.Log[Entry]) Handle fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
 	let s = Recovered(log)
 	let desk = try actor.StartDurable(Dispatch{}, 8, func(r domain.Receipt) {}, s.Recover, s.Save)
-	Model{desk: desk, log: log, board: NewProjection()}
+	Handle{desk: desk, log: log, board: NewProjection()}
+}
+
+// HandleEndsWithItsOwner: through the Handle that Share gives, a command
+// is the Model's while the Model is open (a resend through the Model gets
+// the Handle's receipt, and both settle to one desk and read one board),
+// and once the Model closed each command fails Unavailable. The reads
+// (Board, RunOf, Settle) then give the last state: Pipeline's reads fail
+// no Unavailable, and Settle counts the state the desk committed before
+// it stopped (actor.WaitFor).
+law HandleEndsWithItsOwner(c SubmitRun) {
+	let s = testing.Script[Runner]{}
+	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { true })
+	with context { Scheduler: time.NewManual(0), Runner: s } { endsWithItsOwner(c) } catch {
+	case domain.Conflict, domain.Reused, domain.Unkept:
+		false
+	}
+}
+
+// endsWithItsOwner is HandleEndsWithItsOwner on a fresh memory log.
+func endsWithItsOwner(c SubmitRun) bool fails domain.Conflict | domain.Reused | domain.Unkept needs Runner | Scheduler {
+	let m, h = try Share(memory.New[Entry]())
+	let once = SubmitRun{..c, Stages: 1 + ((c.Stages%3)+3)%3}
+	let same = sameWhileOpen(m, h, once)
+	m.Close()
+	same && unavailable(h, once)
+}
+
+// sameWhileOpen submits once through h and again through m, and is
+// whether m took it once, and both settle to one desk and read one
+// board. A first submit that is refused (the run exists) compares the
+// reads only.
+func sameWhileOpen(m Model, h Handle, once SubmitRun) bool {
+	let first = h.Submit(once) catch {
+	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
+		return sameReads(m, h)
+	}
+	let again = m.Submit(once) catch {
+	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun, Unavailable:
+		return false
+	}
+	again == first && sameReads(m, h)
+}
+
+// sameReads is whether m and h settle to one desk and read one board.
+func sameReads(m Model, h Handle) bool {
+	let byHandle = h.Settle() catch {
+	case Unavailable:
+		return false
+	}
+	let byModel = m.Settle() catch {
+	case Unavailable:
+		return false
+	}
+	byHandle == byModel && h.Board() == m.Board()
+}
+
+// unavailable is whether each command through h fails Unavailable.
+func unavailable(h Handle, once SubmitRun) bool {
+	let _ = h.Submit(SubmitRun{..once, ID: once.ID + "+"}) catch {
+	case Unavailable:
+		return cancelUnavailable(h, once)
+	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
+		return false
+	}
+	false
+}
+
+func cancelUnavailable(h Handle, once SubmitRun) bool {
+	let _ = h.Cancel(CancelRun{ID: once.ID + "-", Run: once.Run, Why: "closed"}) catch {
+	case Unavailable:
+		return retryUnavailable(h, once)
+	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
+		return false
+	}
+	false
+}
+
+func retryUnavailable(h Handle, once SubmitRun) bool {
+	let _ = h.Retry(RetryRun{ID: once.ID + "*", Run: once.Run, Stage: 0}) catch {
+	case Unavailable:
+		return true
+	case run.WrongState, run.WrongStage, run.Closed, run.BadLength, NoSuchRun:
+		return false
+	}
+	false
 }
 
 // send asks the desk to take env, and is the receipt of env's ID.
-func send(m Model, env Envelope) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
-	let _ = m.desk.Ask(Ask{Env: env}) catch {
+func send(h Handle, env Envelope) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	let _ = h.desk.Ask(Ask{Env: env}) catch {
 	case actor.Stopped:
 		return Unavailable
 	case run.WrongState as e:
@@ -42,7 +154,7 @@ func send(m Model, env Envelope) Receipt fails run.WrongState | run.WrongStage |
 	case NoSuchRun as e:
 		return e
 	}
-	match domain.ReceiptOf(m.desk.State(), domain.CommandID(env.ID)) {
+	match domain.ReceiptOf(h.desk.State(), domain.CommandID(env.ID)) {
 	case Some[domain.Receipt] as r:
 		Receipt{Command: env.ID, Position: r.Value.Position}
 	case None:
@@ -50,21 +162,63 @@ func send(m Model, env Envelope) Receipt fails run.WrongState | run.WrongStage |
 	}
 }
 
-func Submit(m Model, c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
-	try send(m, Envelope{ID: c.ID, Run: c.Run, Command: run.Submit{Stages: c.Stages}})
+func Submit(h Handle, c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try send(h, Envelope{ID: c.ID, Run: c.Run, Command: run.Submit{Stages: c.Stages}})
 }
 
-func Cancel(m Model, c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
-	try send(m, Envelope{ID: c.ID, Run: c.Run, Command: run.Cancel{Why: c.Why}})
+func Cancel(h Handle, c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try send(h, Envelope{ID: c.ID, Run: c.Run, Command: run.Cancel{Why: c.Why}})
 }
 
-func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
-	try send(m, Envelope{ID: c.ID, Run: c.Run, Command: run.Retry{Stage: c.Stage}})
+func Retry(h Handle, c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try send(h, Envelope{ID: c.ID, Run: c.Run, Command: run.Retry{Stage: c.Stage}})
 }
 
 // Board is the board after every record of the log: its follower takes
 // the records it has not seen first.
-func Board(m Model) board.View { m.board.Follow(m.log) }
+func Board(h Handle) board.View { h.board.Follow(h.log) }
+
+func RunOf(h Handle, id string) run.Run fails NoSuchRun {
+	match BookOf(h.desk.State().State).Runs.Get(id) {
+	case Some[run.Run] as r:
+		r.Value
+	case None:
+		NoSuchRun{Run: id}
+	}
+}
+
+// Settle waits until the runner runs no try: the context is idle, or a
+// failed try waits for its backoff. It is the desk's state then; it fails
+// Unavailable when the desk stopped (the Model's Close) with no such
+// state committed.
+func Settle(h Handle) Desk fails Unavailable {
+	let l = actor.WaitFor(h.desk, func(l Ledger) bool { !IsBusy(l.State) }) catch {
+	case actor.Stopped:
+		return Unavailable
+	}
+	l.State
+}
+
+// The Model's operations are its Handle's.
+
+func Submit(m Model, c SubmitRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try m.h.Submit(c)
+}
+
+func Cancel(m Model, c CancelRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try m.h.Cancel(c)
+}
+
+func Retry(m Model, c RetryRun) Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun | Unavailable {
+	try m.h.Retry(c)
+}
+
+func Board(m Model) board.View { m.h.Board() }
+
+func RunOf(m Model, id string) run.Run fails NoSuchRun { try m.h.RunOf(id) }
+
+// Settle is Settle of the Model's Handle.
+func Settle(m Model) Desk fails Unavailable { try m.h.Settle() }
 
 // BoardFollowsTheLog: the board, a follower of the log, is the fold of
 // the desk's entries.
@@ -81,29 +235,11 @@ law BoardFollowsTheLog(acts []Act, flaky []int) {
 	}
 }
 
-func RunOf(m Model, id string) run.Run fails NoSuchRun {
-	match BookOf(m.desk.State().State).Runs.Get(id) {
-	case Some[run.Run] as r:
-		r.Value
-	case None:
-		NoSuchRun{Run: id}
-	}
-}
-
-// Settle waits until the runner runs no try: the context is idle, or a
-// failed try waits for its backoff. It is the desk's state then.
-func Settle(m Model) Desk fails Unavailable {
-	let l = actor.WaitFor(m.desk, func(l Ledger) bool { !IsBusy(l.State) }) catch {
-	case actor.Stopped:
-		return Unavailable
-	}
-	l.State
-}
-
-// Stop stops the context. (Model has no Close: it is a handle that a
-// context binds and the binary copies, not a resource one owner holds.)
-func Stop(m Model) {
-	m.desk.Stop() catch {
+// Close stops the context's actor (q266: Close is Stop). Its owner's
+// release calls it on every path: the with that built it, or the frame
+// that holds it.
+func Close(m Model) {
+	m.h.desk.Stop() catch {
 	case _:
 	}
 }

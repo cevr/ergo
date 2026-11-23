@@ -60,7 +60,7 @@ func main() fails Fault needs Console {
 // TestTaskGoAndTaskResults: a Task started, returned through a direct
 // call, a function value, a literal and a fallible return, waited for and
 // stopped, runs its block and its exit actions after the body, last
-// registered first (Rule 2). A returned Task is an owned value (#197 L8
+// registered first (Rule 2). A returned Task is an owned value (resource ownership L8
 // B3t): the caller registers it, so no destination frame is passed.
 func TestTaskGoAndTaskResults(t *testing.T) {
 	needsBuild(t)

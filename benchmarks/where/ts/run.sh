@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spike-where TS caller view (#116). For each option directory: tsc strict on
+# spike-where TS caller view. For each option directory: tsc strict on
 # the consumer, the negatives and the attacks (each file on its own, because
 # the attacks augment globals); node runs the consumer and the attacks; every
 # @ts-expect-error is opened to show the diagnostic it suppresses; `any` is

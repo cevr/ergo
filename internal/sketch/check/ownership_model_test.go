@@ -13,7 +13,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// TestOwnershipFlowModel (#197 L8 A2) is a model-based property of the
+// TestOwnershipFlowModel (L8 A2) is a model-based property of the
 // ownership flow pass (ownership.go). It generates function bodies over a
 // small grammar: acquire, a lend call, a move by let, an assignment (of a
 // new value or a local), Close, a call of a function with a written takes,

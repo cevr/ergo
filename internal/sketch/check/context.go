@@ -37,7 +37,18 @@ func (c *checker) with(x *syntax.CallExpr, hint Type) operand {
 		c.pushFrame(t, x, frames[0])
 	}
 	for _, a := range x.Args {
-		binds, known, context, value, installs := c.withArg(a)
+		// `with try W { … }`: the try marks the build's failures, which
+		// escape there (contextneeds.go, rule 3; owner q280).
+		arg, tried := a, (*syntax.TryExpr)(nil)
+		if tr, ok := unparen(a).(*syntax.TryExpr); ok {
+			arg, tried = tr.X, tr
+		}
+		binds, known, context, value, installs := c.withArg(arg)
+		if value == nil && installs == nil {
+			c.withBuildFails(arg, tried, context)
+		} else if tried != nil {
+			c.errorf(tried, CodeType, "try on a context whose build cannot fail: drop the try (rows.md, With 6)")
+		}
 		// unknown: discharge everything, so no cascade. A context binding
 		// discharges nothing: its block's row is the enclosing one's. A
 		// push past the with budget leaves the frame unknown too
@@ -236,6 +247,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 			c.fn.reach.contexts = append(c.fn.reach.contexts, w)
 		}
 		c.testAmbientWith(a, w)
+		c.chargeContextNeeds(a, w)
 		binds := c.contextBinds(w)
 		return binds, !w.unknown, w, nil, nil
 	case *syntax.SelectorExpr:
@@ -249,6 +261,7 @@ func (c *checker) withArg(arg syntax.Expr) (*capSet, bool, *Context, *ContextBin
 					// Its package's pass summarised it; a set keyed by
 					// capability names needs no conversion.
 					c.testAmbientWith(a, w)
+					c.chargeContextNeeds(a, w)
 					return w.binds, !w.unknown, w, nil, nil
 				}
 				c.errorf(a.Sel, CodeUnknown, "%s.%s is not an exported context of package %s", id.Name, a.Sel.Name, pn.Pkg.Path)
@@ -275,10 +288,10 @@ func (c *checker) contextLit(w *syntax.ContextLit) (binds *capSet, known bool, c
 func (c *checker) contextHeader(w *syntax.ContextLit) {
 	c.contextFails(w.Fails)
 	if w.Provides != nil {
-		c.errorf(w.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+		c.errorf(w.Provides, CodeOutside, "a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet")
 	}
 	if w.Needs != nil {
-		c.errorf(w.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+		c.errorf(w.Needs, CodeOutside, "a context's needs clause waits for context header checking (rows.md Context 8); it is not checked yet")
 	}
 }
 
@@ -324,6 +337,16 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 			}
 			if inner != nil {
 				c.testAmbientEmbed(e.Key, inner)
+				c.chargeContextNeeds(e.Key, inner)
+				switch fails := c.buildFails(inner); {
+				case fails.Empty():
+				case build != nil:
+					// Into the build that embeds it, which its own fails
+					// row bounds (contextneeds.go, rule 3).
+					c.escape(e.Key, fails)
+				default:
+					c.errorf(e.Key, CodeOutside, "an inline or a local context embeds context %s, which can fail with %s while it is built; that is CTX-ROWS-2c's: embed it in a named context whose header lists those failures, and with try that one", inner.Name, rowText(fails))
+				}
 			}
 			if inner != nil && c.silent == 0 {
 				w.Entries = append(w.Entries, &ContextEntry{Embedded: inner})
@@ -506,7 +529,7 @@ func (c *checker) checkEntryCycles(name string, d *contextDeps) {
 // contextEntry checks the provider of one `Cap = provider` or `replace Cap =
 // provider` entry: it must implement each capability by method-row
 // compatibility (S106); one value may serve several capabilities (README
-// Gap 28 and 34). A constructor entry is #37's (S109). The second-entry
+// Gap 28 and 34). A constructor entry is context construction's (S109). The second-entry
 // and replace rules are the body summary's (contextsum.go). It returns the
 // capabilities the entry names and its Info record: made, the one the context
 // pass made for a named context's entry, filled in here, or a new one.
@@ -525,10 +548,10 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 	if f := c.constructorFunc(e.Value); f != nil {
 		if isExtern(f) && !externValue(f) {
 			// A constructor entry is a function value; a call-only extern
-			// (P3; externValue) is refused as such, before and after #37.
+			// (P3; externValue) is refused as such, before and after context construction.
 			c.errorf(e.Value, CodeType, "%s", externCallOnlyText)
 		} else {
-			c.errorf(e.Value, CodeOutside, "a constructor entry is #37's (context constructors); write a provider value, not a function")
+			c.errorf(e.Value, CodeOutside, "a constructor entry waits for context construction; write a provider value, not a function")
 		}
 		return caps, entry
 	}
@@ -588,7 +611,7 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 }
 
 // isConstructor reports whether a provider expression names a function
-// without calling it (rows.md, Context 6: constructor entries, #37).
+// without calling it (rows.md, Context 6: constructor entries).
 func (c *checker) isConstructor(x syntax.Expr) bool {
 	return c.constructorFunc(x) != nil
 }
@@ -623,9 +646,10 @@ func (c *checker) contextEntryKey(k syntax.Expr) Type {
 	return t
 }
 
-// checkContexts checks the named contexts: their entries, in a closed build
-// context (README Gap 6: a named context requires nothing from the with site
-// and lets no failure escape).
+// checkContexts checks the named contexts: their entries, in a build whose
+// rows are the header's (contextneeds.go, rule 1): with no header, a
+// closed one that requires nothing from the with site and lets no failure
+// escape.
 func (c *checker) checkContexts() {
 	var contexts []*Context
 	for _, w := range c.pkg.Contexts {
@@ -637,22 +661,24 @@ func (c *checker) checkContexts() {
 	for _, w := range contexts {
 		c.cur = w.file
 		d := w.Decl
-		c.contextFails(d.Fails)
-		// The context header (#217) is checked by #196's second stage; until
-		// then it is refused, never read partly (rows.md, Context 8).
+		// The header's provides clause waits for context header checking;
+		// until then it is refused, never read partly (rows.md, Context 8).
 		if d.Provides != nil {
-			c.errorf(d.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+			c.errorf(d.Provides, CodeOutside, "a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet")
 		}
-		ambient := c.contextTestAmbient(w)
-		if d.Needs != nil && !ambient {
-			c.rowExpr(d.Needs.Names, KindUses, &typeCtx{params: map[string]*TypeParam{}})
-			c.errorf(d.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet, but for needs TestAmbient alone (rows.md, Test's ambient)")
-		}
+		c.readContextHeader(w)
 		t := &target{name: "context " + w.Name, declErrors: newRow(), declUses: newRow(), context: true}
-		if ambient {
-			// Its build may require the test's ambient, and nothing else
-			// from the with site (testambient.go, rule 1).
+		if d.Needs != nil {
+			// Its build may require what its header writes, from the with
+			// site or the test runner (contextneeds.go, rule 1;
+			// testambient.go, rule 1). A name the row refuses is reported
+			// here, once.
 			t.declUses = c.rowExpr(d.Needs.Names, KindUses, &typeCtx{params: map[string]*TypeParam{}})
+		}
+		if d.Fails != nil {
+			// Its build may fail with what its header writes (contextneeds.go,
+			// rule 1). A name the row refuses is reported here, once.
+			t.declErrors = c.rowExpr(d.Fails.Types, KindErrors, &typeCtx{params: map[string]*TypeParam{}})
 		}
 		// The context's providers may use what the context binds (Context 4).
 		t.internal = c.contextBinds(w)

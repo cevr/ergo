@@ -14,7 +14,7 @@ import (
 	"testing"
 )
 
-// The stage 5 cost receipt (runtime.md I1, #190). TestRuntime199CostModule
+// The stage 5 cost receipt (runtime.md I1). TestRuntime199CostModule
 // writes one Go module that holds the actual emitted workload and a
 // handwritten target-shape control, benchmarked in one process by
 // BenchmarkRuntime199Emitted and BenchmarkRuntime199Target. Each has three
@@ -261,7 +261,7 @@ func costWrite(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-// costTarget is the handwritten target shape (#190): what a Go programmer
+// costTarget is the handwritten target shape: what a Go programmer
 // writes for the same contract. The env carries the task and the provider;
 // the provider interface's operation takes the caller's task; the frame
 // polls before the capability call and at the end of each back-edge of the

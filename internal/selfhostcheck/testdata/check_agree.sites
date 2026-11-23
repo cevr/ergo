@@ -820,6 +820,7 @@ case flow seed 96
 case flow seed 97
 case flow seed 98
 case flow seed 99
+case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
 case internal/selfhostcheck/testdata/bind
@@ -1229,9 +1230,7 @@ case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
 case unused internal/sketch/std/dense/keys.ergo
 case unused internal/sketch/std/explore/search.ergo
-case unused internal/sketch/std/fstest/confined.ergo
 case unused internal/sketch/std/fstest/memory.ergo
-case unused internal/sketch/std/fstest/recorder.ergo
 case unused internal/sketch/std/fstest/tree.ergo
 case unused internal/sketch/std/gen/gen.ergo
 case unused internal/sketch/std/graph/graph.ergo
@@ -1250,12 +1249,10 @@ case unused internal/sketch/std/llm/llm.ergo
 case unused internal/sketch/std/llm/llm.ergo
 case unused internal/sketch/std/llm/llm.ergo
 case unused internal/sketch/std/llm/memory/scripted.ergo
-case unused internal/sketch/std/llm/recorded/recorded.ergo
 case unused internal/sketch/std/log/level.ergo
 case unused internal/sketch/std/maps/maps.ergo
 case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
-case unused internal/sketch/std/mcp/stdio/stdio.ergo
 case unused internal/sketch/std/pace/pace.ergo
 case unused internal/sketch/std/prompt/machines.ergo
 case unused internal/sketch/std/prompt/prompt.ergo
@@ -1336,7 +1333,7 @@ site S107 missing in internal/sketch/check/testdata/fixtures/negative/missing-re
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 13:1: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 7:1: S107 function add can reach the end of its body without returning a value (rows.md, Totality 3)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/argument-mismatch.ergo: argument-mismatch.ergo 4:27: S108 a string literal takes only a string type, not int64
-site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 25:18: S108 a property parameter is generated, and slices.Ascending[int] cannot be: slices.Ascending has an unexported field, so only package slices builds it; use slices.Ascend (196l)
+site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 25:18: S108 a property parameter is generated, and slices.Ascending[int] cannot be: slices.Ascending has an unexported field, so only package slices builds it; use slices.Ascend
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo: ascending-is-the-only-way-in.ergo 9:22: S108 the argument has type []int, which does not match slices.Ascending[T] (D6; type inference)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/borrow-in-field.ergo: borrow-in-field.ergo 1:12: S108 a borrow mut T is only a parameter or receiver type (types.md, Borrows 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/break-in-with-block.ergo: break-in-with-block.ergo 6:5: S108 break cannot leave a with block or a block argument (grammar.md, Statements 5)
@@ -1398,7 +1395,7 @@ site S108 missing in internal/sketch/check/testdata/v1/A1-literal-context.neg.er
 site S108 missing in internal/sketch/check/testdata/v1/A2-default-and-operands.neg.ergo: A2-default-and-operands.neg.ergo 4:10: S108 mismatched types int and float64; write 1.0 + 2.5
 site S108 missing in internal/sketch/check/testdata/v1/A2-default-and-operands.neg.ergo: A2-default-and-operands.neg.ergo 9:9: S108 mismatched types int32 and int64; write int64(a)
 site S108 missing in internal/sketch/check/testdata/v1/A3-typed-constants.neg.ergo: A3-typed-constants.neg.ergo 6:15: S108 Limit is int; write int8(Limit) or declare Limit int8
-site S108 missing in internal/sketch/check/testdata/v1/A4-literal-inference.neg.ergo: A4-literal-inference.neg.ergo 8:9: S108 cannot infer T; write the type arguments, e.g. Two[int](…): its literal arguments take int and int32 (D6; 196u rule 6)
+site S108 missing in internal/sketch/check/testdata/v1/A4-literal-inference.neg.ergo: A4-literal-inference.neg.ergo 8:9: S108 cannot infer T; write the type arguments, e.g. Two[int](…): its literal arguments take int and int32 (D6)
 site S108 missing in internal/sketch/check/testdata/v1/A5-overflow.neg.ergo: A5-overflow.neg.ergo 2:17: S108 the constant 300 overflows int8 (types.md, Basic types 2)
 site S108 missing in internal/sketch/check/testdata/v1/A5-overflow.neg.ergo: A5-overflow.neg.ergo 5:15: S108 the constant 200 overflows int8 (types.md, Basic types 2)
 site S108 missing in internal/sketch/check/testdata/v1/A6-shift.neg.ergo: A6-shift.neg.ergo 4:18: S108 the left operand of a shift is an integer, and float64 is expected here; write int(1) << n, then convert the result
@@ -1420,29 +1417,29 @@ site S108 missing in internal/sketch/check/testdata/v1/C5-one-catch.neg.ergo: C5
 site S108 missing in internal/sketch/check/testdata/v1/C5-one-catch.neg.ergo: C5-one-catch.neg.ergo 42:7: S108 this arm is unreachable: the case err: or case _ before it handles every failure (rows.md, Catch 2)
 site S108 missing in internal/sketch/check/testdata/v1/C6-break-in-match.neg.ergo: C6-break-in-match.neg.ergo 6:3: S108 break is not inside a for
 site S108 missing in internal/sketch/check/testdata/v1/C6-break-in-match.neg.ergo: C6-break-in-match.neg.ergo 8:3: S108 continue is not inside a for
-site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 10:2: S108 base cannot be reassigned; declare base with let mut (#196, 196v)
-site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 15:2: S108 the parameter n cannot be reassigned; copy it into a local: let mut n2 = n (#196, 196v)
-site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 20:2: S108 the package-level let Limit is immutable; Ergo has no mutable package state (#196, 196v)
-site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 6:5: S108 a package-level let cannot be mut: Ergo has no mutable package state; pass the value as a parameter, or keep it in a let mut local (#196, 196v)
-site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 14:6: S108 total is already a local of an enclosing scope in this function; choose another name (no shadowing, #196 196v rule 2)
-site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 17:17: S108 total is already a local of an enclosing scope in this function; choose another name (no shadowing, #196 196v rule 2)
-site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 6:7: S108 x is already a parameter of an enclosing scope in this function; choose another name (no shadowing, #196 196v rule 2)
+site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 10:2: S108 base cannot be reassigned; declare base with let mut
+site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 15:2: S108 the parameter n cannot be reassigned; copy it into a local: let mut n2 = n
+site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 20:2: S108 the package-level let Limit is immutable; Ergo has no mutable package state
+site S108 missing in internal/sketch/check/testdata/v1/D1-let-mut.neg.ergo: D1-let-mut.neg.ergo 6:5: S108 a package-level let cannot be mut: Ergo has no mutable package state; pass the value as a parameter, or keep it in a let mut local
+site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 14:6: S108 total is already a local of an enclosing scope in this function; choose another name (no shadowing)
+site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 17:17: S108 total is already a local of an enclosing scope in this function; choose another name (no shadowing)
+site S108 missing in internal/sketch/check/testdata/v1/D2-no-shadowing.neg.ergo: D2-no-shadowing.neg.ergo 6:7: S108 x is already a parameter of an enclosing scope in this function; choose another name (no shadowing)
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 15:6: S108 a for over Range[int] binds one name, the element: for x in …
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 18:11: S108 int is not iterable: count with for i in 0..n
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 26:11: S108 mismatched types int and int64; write int64(a)
-site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 38:3: S108 the binding y cannot be reassigned; copy it into a local: let mut y2 = y (#196, 196v)
+site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 38:3: S108 the binding y cannot be reassigned; copy it into a local: let mut y2 = y
 site S108 missing in internal/sketch/check/testdata/v1/D4-one-for.neg.ergo: D4-one-for.neg.ergo 8:9: S108 mismatched types string and int64
 site S108 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 29:7: S108 cannot use Tape as Orders in argument: Tape does not declare that it implements Orders: write implements Orders after Tape's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 33:2: S108 several functions are named Get; call it as x.Get(…)
-site S108 missing in internal/sketch/check/testdata/v1/D8-imports.neg.ergo: D8-imports.neg.ergo 3:8: S108 an import alias is only for a name clash; write import timeout (#196, fourth round, item 3)
-site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 6:2: S108 the parameter o is immutable, and so are its fields and elements; copy it into a local: let mut o2 = o (#196, 196v)
-site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 8:2: S108 ys is immutable, and so are its fields and elements; declare ys with let mut (#196, 196v)
+site S108 missing in internal/sketch/check/testdata/v1/D8-imports.neg.ergo: D8-imports.neg.ergo 3:8: S108 an import alias is only for a name clash; write import timeout
+site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 6:2: S108 the parameter o is immutable, and so are its fields and elements; copy it into a local: let mut o2 = o
+site S108 missing in internal/sketch/check/testdata/v1/D9-assign-root.neg.ergo: D9-assign-root.neg.ergo 8:2: S108 ys is immutable, and so are its fields and elements; declare ys with let mut
 site S108 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 16:2: S108 Card does not satisfy the constraint ordered of Max's T: Card is not in ordered's type set, ~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16, … (types.md, Generics 2)
 site S108 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 20:2: S108 operator > is not defined on T
 site S108 missing in internal/sketch/check/testdata/v1/E1-generics.neg.ergo: E1-generics.neg.ergo 23:38: S108 E is used as a type and as a capability row; a parameter has one kind (types.md, Generics 1)
 site S108 missing in internal/sketch/check/testdata/v1/E10-literal-params.neg.ergo: E10-literal-params.neg.ergo 4:20: S108 cannot infer the type of x; write func(x T)
 site S108 missing in internal/sketch/check/testdata/v1/E2-closed-world.neg.ergo: E2-closed-world.neg.ergo 19:2: S108 Store values cannot be compared with ==
-site S108 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 13:2: S108 assert stands only in a test or law body (196l)
+site S108 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 13:2: S108 assert stands only in a test or law body
 site S108 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 24:6: S108 test Typed is declared twice
 site S108 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 9:9: S108 assert takes a bool, not int
 site S108 missing in internal/sketch/check/testdata/v1/E5-laws.neg.ergo: E5-laws.neg.ergo 6:20: S108 a law's body ends in a bool, not string
@@ -1465,29 +1462,29 @@ site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 24:15: S108 p is a borrow (mut T), and this function literal or block may outlive the call that lent it or run on another task; an escaping frame never captures a borrow: copy what it needs into a let before it (types.md, Borrows 1)
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 34:15: S108 xs[0] and xs[0] are borrows of one place; a call takes no two overlapping borrows: pass one, or two places apart (types.md, Borrows 2)
 site S108 missing in internal/sketch/check/testdata/v1/L8-captures.neg.ergo: L8-captures.neg.ergo 35:15: S108 xs[i] and xs[j] may be borrows of one place, since i may equal j; guard the call with if i != j, with each index a constant or a let (types.md, Borrows 2)
-site S108 missing in unused examples/cells/grid/grid.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused examples/cells/host/sample.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused examples/downloads/fetch/file.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv (#196, fourth round, item 3)
-site S108 missing in unused examples/kvstore/memory/full.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused examples/limiter/limits/limits.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused examples/pipeline/retry/retry.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused examples/query-table/query/escape.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv (#196, fourth round, item 3)
-site S108 missing in unused examples/raytrace/geom/vec.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused examples/ssg/memory/files.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused examples/ssg/site/escape.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused examples/ssg/site/source.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused examples/timetable/timetable/line.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused examples/weather/weather/forecast.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv (#196, fourth round, item 3)
-site S108 missing in unused examples/wire-config/config/config.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused internal/sketch/std/codec/codec.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings (#196, fourth round, item 3)
-site S108 missing in unused internal/sketch/std/kv/kv.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import math (#196, fourth round, item 3)
-site S108 missing in unused internal/sketch/std/kv/memory/memory.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused internal/sketch/std/maps/maps.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps (#196, fourth round, item 3)
-site S108 missing in unused internal/sketch/std/proof/file/file.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices (#196, fourth round, item 3)
-site S108 missing in unused internal/sketch/std/session/session.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import cmp (#196, fourth round, item 3)
-site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-constructor-is-37.ergo: context-constructor-is-37.ergo 8:9: S109 a constructor entry is #37's (context constructors); write a provider value, not a function
-site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-exposure-hides-entry.ergo: context-exposure-hides-entry.ergo 7:19: S109 a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet
-site S109 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 15:10: S109 a value of type Card has no text form yet; interpolate one of its fields, or wait for derived text forms (#49)
+site S108 missing in unused examples/cells/grid/grid.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
+site S108 missing in unused examples/cells/host/sample.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
+site S108 missing in unused examples/downloads/fetch/file.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv
+site S108 missing in unused examples/kvstore/memory/full.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
+site S108 missing in unused examples/limiter/limits/limits.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
+site S108 missing in unused examples/pipeline/retry/retry.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
+site S108 missing in unused examples/query-table/query/escape.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv
+site S108 missing in unused examples/raytrace/geom/vec.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
+site S108 missing in unused examples/ssg/memory/files.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
+site S108 missing in unused examples/ssg/site/escape.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
+site S108 missing in unused examples/ssg/site/source.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
+site S108 missing in unused examples/timetable/timetable/line.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
+site S108 missing in unused examples/weather/weather/forecast.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strconv
+site S108 missing in unused examples/wire-config/config/config.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
+site S108 missing in unused internal/sketch/std/codec/codec.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import strings
+site S108 missing in unused internal/sketch/std/kv/kv.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import math
+site S108 missing in unused internal/sketch/std/kv/memory/memory.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
+site S108 missing in unused internal/sketch/std/maps/maps.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import maps
+site S108 missing in unused internal/sketch/std/proof/file/file.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import slices
+site S108 missing in unused internal/sketch/std/session/session.ergo: p.ergo 1:8: S108 an import alias is only for a name clash; write import cmp
+site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-constructor-is-37.ergo: context-constructor-is-37.ergo 8:9: S109 a constructor entry waits for context construction; write a provider value, not a function
+site S109 missing in internal/sketch/check/testdata/fixtures/negative/context-exposure-hides-entry.ergo: context-exposure-hides-entry.ergo 7:19: S109 a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet
+site S109 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 15:10: S109 a value of type Card has no text form yet; interpolate one of its fields, or wait for derived text forms
 site S109 missing in internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo: G9-extern-allowlist.neg.ergo 9:1: S109 extern go os/signal.Stop is not imported from Go: parameter 1: Ergo has no channels (196c); wrap the Go channel in a Go function of your module, or use std queue (the binding of os/signal refuses it)
 site S110 extra in internal/sketch/check/testdata/fixtures/negative/catch-alternatives-placeholder.ergo: catch-alternatives-placeholder.ergo 15:7: S110 the binding a is read nowhere in its arm; write _ in its place (rows.md, Totality 1)
 site S110 extra in internal/sketch/check/testdata/fixtures/negative/catch-rest-as-placeholder.ergo: catch-rest-as-placeholder.ergo 9:12: S110 the binding e is read nowhere in its arm; drop `as e` (rows.md, Totality 1)
@@ -1610,7 +1607,7 @@ site S110 missing in flow seed 99: p.ergo 132:4: S110 the result of keep is not 
 site S110 missing in flow seed 99: p.ergo 179:4: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 missing in flow seed 99: p.ergo 190:3: S110 the result of keep is not used, and the call does nothing else (its footprint is empty); bind it with let, or remove the call
 site S110 missing in internal/sketch/check/testdata/fixtures/negative/unused-expression.ergo: unused-expression.ergo 3:2: S110 this value is not used; an expression statement is a call, try, catch or with
-site S110 missing in internal/sketch/check/testdata/v1/D10-mut-reassigned.neg.ergo: D10-mut-reassigned.neg.ergo 4:10: S110 n is never reassigned; write let n (#196, 196v)
+site S110 missing in internal/sketch/check/testdata/v1/D10-mut-reassigned.neg.ergo: D10-mut-reassigned.neg.ergo 4:10: S110 n is never reassigned; write let n
 site S111 missing in internal/sketch/check/testdata/fixtures/negative/duplicate-context-entry.ergo: duplicate-context-entry.ergo 7:45: S111 Store has a second entry in this context, entry 2; the first is entry 1, and a context binds a capability once (rows.md, Context 1)
 site S113 missing in internal/sketch/check/testdata/fixtures/negative/main-called.ergo: main-called.ergo 1:17: S113 main is called only by the host (rows.md, Capability rows 4)
 site S113 missing in internal/sketch/check/testdata/fixtures/negative/main-parameter.ergo: main-parameter.ergo 1:10: S113 main takes no parameters; the runtime calls it (rows.md, Capability rows 4)

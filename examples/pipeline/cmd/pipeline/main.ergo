@@ -251,10 +251,10 @@ func session(lines []string, table Map[int, int]) ([]api.Step, int) fails domain
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runner } {
 		let log = memory.New[pipeline.Entry]()
-		let m = try pipeline.Open(log)
+		let m, h = try pipeline.Share(log)
 		let cursor = memory.NewCursor()
 		let p = script()
-		let steps = with context { pipeline.Pipeline: m } {
+		let steps = with context { pipeline.Pipeline: h } {
 			api.Session(lines, func(args []string) api.Output needs pipeline.Pipeline | Scheduler {
 				let o = if len(args) == 1 && args[0] == "wait" {
 					clock.Advance(1h)
@@ -262,7 +262,7 @@ func session(lines []string, table Map[int, int]) ([]api.Step, int) fails domain
 				} else {
 					pipelinecli.Run(args, p)
 				}
-				let _ = pipeline.Settle(m) catch {
+				let _ = h.Settle() catch {
 				case pipeline.Unavailable:
 					return api.Output{..o, Err: "the pipeline does not run\n", Code: 1}
 				}
@@ -273,7 +273,6 @@ func session(lines []string, table Map[int, int]) ([]api.Step, int) fails domain
 				api.Output{..o, Out: out}
 			})
 		}
-		pipeline.Stop(m)
 		(steps, runners.Ran(runner))
 	}
 }

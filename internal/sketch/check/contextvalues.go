@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Context values (rows.md, Context values; #237 stage 2, L5). The prelude
+// Context values (rows.md, Context values; stage 2, L5). The prelude
 // type Context[R] is a context as a value: the providers of the capability
 // row R, built where a context converts to it.
 //
@@ -87,6 +87,13 @@ func (c *checker) contextConversion(x syntax.Expr, want *Named, row *Row) (opera
 	at := unparen(x)
 	binds, known, w, _, _ := c.withArg(x)
 	if w == nil {
+		return bad(x), true
+	}
+	if fails := c.buildFails(w); !fails.Empty() {
+		// The conversion is the build (rows.md, Context values); a build
+		// that may fail there is CTX-ROWS-2c's: a value's maker has no
+		// failure path yet.
+		c.errorf(x, CodeOutside, "a Context value of context %s, which can fail with %s while it is built, is CTX-ROWS-2c's: with try %s builds it in a with", w.Name, rowText(fails), w.Name)
 		return bad(x), true
 	}
 	fact := &With{Contexts: []*Context{w}}

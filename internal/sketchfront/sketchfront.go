@@ -7,7 +7,7 @@
 //
 // Build lowers a checked program from the checker's own Package and Info
 // (internal/sketch/lower) into the content-addressed emission cache
-// (internal/sketch/build, #224) and links it with the go command; in test
+// (internal/sketch/build) and links it with the go command; in test
 // mode it lowers the test binary instead (lower.LowerTests), a distinct
 // module of the same checked program. There is no second checker: a program the checker accepts and the lowering cannot
 // lower yet is refused with a located S109 that names the stage owning the
@@ -232,7 +232,7 @@ func span(source string, lines []int, line, col int) report.Span {
 }
 
 // LanguageRevision is the fixed language revision every emission names: the
-// #196 v1 contract of 2026-10-28. There is no user edition selector.
+// The v1 language v1 contract of 2026-10-28. There is no user edition selector.
 const LanguageRevision = "ergo-v1-2026-10-28"
 
 // emitterRevision names the lowering that builds use: checked-tree lowering
@@ -778,7 +778,7 @@ func emittedDigest(mode build.Mode, runtime, files []lower.File) string {
 }
 
 // stdDependencies summarises the bundled standard library: the prelude and
-// every importable package. Until package summaries exist (196b, #7), each
+// every importable package. Until package summaries exist (196b), each
 // summary is the conservative digest of the package's whole source, for
 // its interface and its implementation alike.
 func stdDependencies() []build.Dependency {

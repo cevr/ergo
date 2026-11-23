@@ -59,7 +59,7 @@ type Named struct {
 
 	under   Type
 	def     Type             // origin only: the type a defined type `type N T` is defined over
-	methods map[string]*Func // origin only, keyed: method sets are linear (#122)
+	methods map[string]*Func // origin only, keyed: method sets are linear
 	// opFuncs, on an operation type's origin only, are the package
 	// functions whose first parameter is the operation type: x.f(…)
 	// reaches them after its operations (types.md, Methods 1; G-ex-e-2).
@@ -226,6 +226,14 @@ type Map struct{ Key, Elem Type }
 // Pointer is *T, a borrow: only a parameter or receiver type.
 type Pointer struct{ Elem Type }
 
+// NoopFunc reports func() with no rows and no type parameters: a pure
+// function of nothing to nothing, whose one behaviour is to return. Its
+// generator is that function (LAW-GEN-FUNC), so a record that holds one,
+// such as a provider's Wait, is generated.
+func NoopFunc(s *Signature) bool {
+	return len(s.TParams) == 0 && len(s.Params) == 0 && len(s.Results) == 0 && s.Errors.Empty() && s.Uses.Empty() && !s.Entry
+}
+
 // Signature is a function type: parameters, value results and two rows. A
 // declaration's signature also holds its type parameters, every one
 // declared in brackets (196g). NBracket counts the ones a written type
@@ -257,7 +265,7 @@ type Signature struct {
 	Entry bool
 	// Takes lists the parameters a written `takes` clause names, by index
 	// into Params, in the clause's order; TakesSelf is a bare `takes` of an
-	// operation: the value the operation is called on (#197 A1; resources
+	// operation: the value the operation is called on (resource ownership A1; resources
 	// R19). Function-type identity reads them in A3 (Gap 39).
 	Takes     []int
 	TakesSelf bool

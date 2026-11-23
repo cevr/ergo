@@ -869,7 +869,7 @@ func hostBase(path string) string {
 
 // taskDestArgs are the leading arguments of a call of a declared function
 // or a function value: the environment. A returned Task is an owned value
-// (#197 L8 B3t): the caller registers it where it receives it, so no
+// (L8 B3t): the caller registers it where it receives it, so no
 // destination frame is passed.
 func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, _ *check.Call, _ *check.Signature) []string {
 	return []string{fc.envExpr(x)}
@@ -1262,10 +1262,24 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if lit {
 		fc.l.localContext(w.Contexts[0], arg)
 		fc.buildProviders(w, "(&"+env+")", outer, ws)
-	} else if owning {
-		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
 	} else {
-		fc.line(build + "(&" + env + ")")
+		call := build + "(&" + env + ")"
+		if owning {
+			call = build + "(&" + env + ", " + outer + ", " + ws + ")"
+		}
+		if fallibleBuild(w) {
+			// with try W: the build's failure leaves the with before its
+			// block runs; the frame's scope ends the with's scope, which
+			// releases what the builder had built (rows.md, With 6).
+			err := fc.temp("err")
+			fc.line("if " + err + " := " + call + "; " + err + " != nil {")
+			fc.depth++
+			fc.fail(err)
+			fc.depth--
+			fc.line("}")
+		} else {
+			fc.line(call)
+		}
 	}
 	saved := fc.env
 	fc.env = "(&" + env + ")"
@@ -1363,9 +1377,17 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // context checks a named context declaration. Its builders are written at the
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
-		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
+	if w.Decl.Provides != nil {
+		refuse(w.Decl, "a context header with provides waits for context header checking")
 	}
+}
+
+// fallibleBuild reports a with whose named context's build may fail: its
+// builder returns the failure (emitContext), which the caller propagates
+// (check/contextneeds.go, rule 3). An embedded context's failures are in
+// the header row of the context that embeds it (rule 1).
+func fallibleBuild(w *check.With) bool {
+	return len(w.Contexts) > 0 && !w.Contexts[0].BuildFails().Empty()
 }
 
 // emitContext writes the builder name for the with w. A with that owns a
@@ -1394,9 +1416,15 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	} else {
 		l.recordDecl(w.Name, w.Decl)
 	}
-	// A builder has no loop and calls no capability (a named context is
-	// closed); its frame reads the context's footprint all the same.
-	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
+	// A builder has no loop. Its providers read what its header needs from
+	// env, the with site's copy, which holds the capabilities the checker
+	// charged there (check/contextneeds.go); its frame reads the context's
+	// footprint all the same.
+	// A context whose header writes a fails row returns its build's
+	// failure: an entry's try leaves the builder with it (fail), and the
+	// with that called it propagates it (check/contextneeds.go, rule 3).
+	fallible := !w.BuildFails().Empty()
+	fc.frame = newFrame(nil, fallible, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
 	params := fc.env + " *" + l.env()
@@ -1409,6 +1437,9 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	l.analyzeValues(w.Decl, l.info)
 	fc.buildProviders(with, fc.env, outer, ws)
 	decl := "func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n"
+	if fallible {
+		decl = "func " + name + "(" + params + ") error {\n" + fc.out.String() + "\treturn nil\n}\n\n"
+	}
 	if std {
 		l.gen.WriteString(decl)
 		return
@@ -1606,8 +1637,8 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	if l.runtimeNamed(to, site) {
 		// A std type is the runtime's concrete Go type (stage D3b), a sealed
-		// std protocol the checker refuses a conversion to (C28, #206).
-		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses (#206)", conv.To)
+		// std protocol the checker refuses a conversion to (C28).
+		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses", conv.To)
 	}
 	toDecl := l.typeDecl(to.Obj, site)
 	if toDecl.kind != kindOps {
@@ -1663,7 +1694,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		// A provider's requirements are met where a context builds it (rows.md,
 		// Context 4 and 6), never by the caller of its operation, so the
 		// adapter's environment holds the task alone. The checker refuses a
-		// table function that needs capabilities (S108, with #37), except
+		// table function that needs capabilities (S108, with context construction), except
 		// go.Foreign and Ambient, which the converting site holds (README
 		// Gap 17; HOST-ROW): no environment holds go.Foreign (module.go),
 		// and the converting frame's, which the adapter keeps, holds
@@ -1849,7 +1880,7 @@ func isString(t check.Type) bool {
 	return ok && b.Kind == check.String
 }
 
-// Call identities (#230). Every call of the program's source, to a function,
+// Call identities. Every call of the program's source, to a function,
 // an operation or a function value, keeps its Ergo identity: the source
 // declaration that makes it, what it calls and its position. The program
 // lists them in its call table, ergoCalls, and the Go line that makes the
