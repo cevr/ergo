@@ -12,7 +12,7 @@ import "testing"
 //
 // It builds Go because the queue's Pop runs only in the compiled program.
 //
-// Mutants: adapted-pop-tuple-refused (a tuple-valued Pop refused again,
+// Mutants: adapted-pop-tuple-refused (a Pop of a tuple refused again,
 // the gate before ADAPTED-RESULTS).
 func TestIRQueueTuplePopsMatchSource(t *testing.T) {
 	f7Property(t, "TestIRQueueTuplePopsMatchSource", GenerateQueueTuple, queueTupleFuncs...)
