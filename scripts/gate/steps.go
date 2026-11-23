@@ -810,7 +810,7 @@ func runnerInputs(root, runner string) (paths, exclude []string, err error) {
 	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", runner)
 	command.Dir = root
 	command.Env = stepEnvironment()
-	output, err := runOutput(command)
+	output, err := listOutput(command)
 	if err != nil {
 		return nil, nil, fmt.Errorf("go list -deps %s: %w", runner, err)
 	}
@@ -850,7 +850,7 @@ func runnerInputs(root, runner string) (paths, exclude []string, err error) {
 func goPackages(root string) ([]string, error) {
 	command := exec.Command("go", "list", "./...")
 	command.Dir = root
-	output, err := runOutput(command)
+	output, err := listOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("go list ./...: %w", err)
 	}
@@ -1031,7 +1031,7 @@ var slowPackages = []string{"./cmd/ergo", "./internal/experimental/irspike", "./
 func testedPackages(root string) ([]string, error) {
 	command := exec.Command("go", "list", "-f", "{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}", "./...")
 	command.Dir = root
-	output, err := runOutput(command)
+	output, err := listOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("go list ./...: %w", err)
 	}
