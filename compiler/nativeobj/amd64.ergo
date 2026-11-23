@@ -1,0 +1,384 @@
+// Machine code for linux/amd64: the few instruction forms the lowering
+// uses, each in one fixed encoding (memory operands always take a 32-bit
+// displacement, branches a 32-bit offset), so code size never depends on
+// a later decision. Asm also keeps, beside the bytes, every relocation and
+// the PC tables the runtime reads: SP adjustment, source line, stack-map
+// index and unsafe point, each as change points.
+
+// Reloc is one relocation of a function's code: Size bytes at Off are
+// patched by the linker with Sym (by name, with its ABI) plus Add, per
+// Type (RCall and RPcrel are relative to the end of the patched bytes).
+type Reloc { Off int, Size int, Type int, Add int, Sym string, ABI int }
+
+// PcVal says a table's value is V from Pc on.
+type PcVal { Pc int, V int }
+
+// Site is a call the code makes: the PC of the call instruction, the PC
+// after it (the return address), the stack-map index in force at it, and
+// whether it is a GC safe point (a call into Go code; the write barrier's
+// call into the runtime is not).
+type Site { Pc int, Ret int, Index int, Safe bool }
+
+// Asm is code being assembled for one function.
+type Asm {
+	Code   Buf,
+	Relocs []Reloc,
+	Sp     []PcVal,
+	Line   []PcVal,
+	Smi    []PcVal,
+	Unsafe []PcVal,
+	Sites  []Site,
+	sp     int,
+	line   int,
+	smi    int,
+	unsafe int,
+	labels Map[int, int],
+	fixups []PcVal,
+}
+
+// NewAsm is an empty function at line.
+func NewAsm(line int) Asm {
+	Asm{Code: NewBuf(), Relocs: []Reloc{}, Sp: []PcVal{}, Line: []PcVal{}, Smi: []PcVal{}, Unsafe: []PcVal{},
+		Sites: []Site{}, sp: 0, line: line, smi: -1, unsafe: UnsafeSafe, labels: Map[int, int]{}, fixups: []PcVal{}}
+}
+
+// Pc is the offset of the next instruction.
+func Pc(a Asm) int { a.Code.Size() }
+
+func note(t []PcVal, pc int, v int) []PcVal {
+	if len(t) > 0 && t[len(t)-1].V == v {
+		return t
+	}
+	if len(t) > 0 && t[len(t)-1].Pc == pc {
+		let mut u = t
+		u[len(u)-1] = PcVal{Pc: pc, V: v}
+		if len(u) > 1 && u[len(u)-2].V == v {
+			return u.Slice(0, len(u)-1)
+		}
+		return u
+	}
+	t.Append(PcVal{Pc: pc, V: v})
+}
+
+// begin records the tables' values in force at the instruction that
+// starts now.
+func begin(a mut Asm) {
+	let pc = a.Pc()
+	a.Sp = note(a.Sp, pc, a.sp)
+	a.Line = note(a.Line, pc, a.line)
+	a.Smi = note(a.Smi, pc, a.smi)
+	a.Unsafe = note(a.Unsafe, pc, a.unsafe)
+}
+
+// SetSp, SetLine, SetSmi and SetUnsafe change a table's value for the
+// instructions that follow.
+func SetSp(a mut Asm, v int) { a.sp = v }
+func SetLine(a mut Asm, v int) { a.line = v }
+func SetSmi(a mut Asm, v int) { a.smi = v }
+func SetUnsafe(a mut Asm, v int) { a.unsafe = v }
+func SpNow(a Asm) int { a.sp }
+
+func rex(a mut Asm, w bool, r int, x int, b int) {
+	let v = 64 | (if w { 8 } else { 0 }) | ((r >> 3) << 2) | ((x >> 3) << 1) | (b >> 3)
+	if v != 64 {
+		a.Code.U8(v)
+	}
+}
+
+func modrm(a mut Asm, mod int, reg int, rm int) { a.Code.U8((mod << 6) | ((reg & 7) << 3) | (rm & 7)) }
+
+// mem writes the ModRM, SIB and displacement of [base+disp].
+func mem(a mut Asm, reg int, base int, disp int) {
+	a.modrm(2, reg, base)
+	if base & 7 == 4 {
+		a.Code.U8(0x24)
+	}
+	a.Code.U32(disp)
+}
+
+// MovStore is MOVQ src, disp(base).
+func MovStore(a mut Asm, src int, base int, disp int) {
+	a.begin()
+	a.rex(true, src, 0, base)
+	a.Code.U8(0x89)
+	a.mem(src, base, disp)
+}
+
+// MovLoad is MOVQ disp(base), dst.
+func MovLoad(a mut Asm, dst int, base int, disp int) {
+	a.begin()
+	a.rex(true, dst, 0, base)
+	a.Code.U8(0x8B)
+	a.mem(dst, base, disp)
+}
+
+// Lea is LEAQ disp(base), dst.
+func Lea(a mut Asm, dst int, base int, disp int) {
+	a.begin()
+	a.rex(true, dst, 0, base)
+	a.Code.U8(0x8D)
+	a.mem(dst, base, disp)
+}
+
+// MovRR is MOVQ src, dst.
+func MovRR(a mut Asm, dst int, src int) {
+	a.begin()
+	a.rex(true, src, 0, dst)
+	a.Code.U8(0x89)
+	a.modrm(3, src, dst)
+}
+
+// Opcodes of the register-register ALU forms (op r/m64, r64).
+let OpAdd = 0x01
+let OpSub = 0x29
+let OpXor = 0x31
+let OpCmp = 0x39
+
+// Alu is dst = dst OP src (OpCmp sets the flags of dst-src only).
+func Alu(a mut Asm, op int, dst int, src int) {
+	a.begin()
+	a.rex(true, src, 0, dst)
+	a.Code.U8(op)
+	a.modrm(3, src, dst)
+}
+
+// Imul is IMULQ src, dst.
+func Imul(a mut Asm, dst int, src int) {
+	a.begin()
+	a.rex(true, dst, 0, src)
+	a.Code.U8(0x0F)
+	a.Code.U8(0xAF)
+	a.modrm(3, dst, src)
+}
+
+// Extensions of the 0x81 immediate group.
+let ExtAdd = 0
+let ExtSub = 5
+
+// AluImm is dst = dst OP imm32 (sign-extended).
+func AluImm(a mut Asm, ext int, dst int, imm int) {
+	a.begin()
+	a.rex(true, 0, 0, dst)
+	a.Code.U8(0x81)
+	a.modrm(3, ext, dst)
+	a.Code.U32(imm)
+}
+
+func fits32(v int) bool { v >= -2147483648 && v <= 2147483647 }
+
+// MovImm is MOVQ $v, dst.
+func MovImm(a mut Asm, dst int, v int) {
+	a.begin()
+	if fits32(v) {
+		a.rex(true, 0, 0, dst)
+		a.Code.U8(0xC7)
+		a.modrm(3, 0, dst)
+		a.Code.U32(v)
+	} else {
+		a.rex(true, 0, 0, dst)
+		a.Code.U8(0xB8 + (dst & 7))
+		a.Code.U64(v)
+	}
+}
+
+// PushBP and PopBP save and restore the caller's frame pointer; each
+// moves SP by 8, which the caller records with SetSp.
+func PushBP(a mut Asm) {
+	a.begin()
+	a.Code.U8(0x55)
+}
+
+func PopBP(a mut Asm) {
+	a.begin()
+	a.Code.U8(0x5D)
+}
+
+func Ret(a mut Asm) {
+	a.begin()
+	a.Code.U8(0xC3)
+}
+
+// CallSym is CALL sym(SB), a direct call the linker resolves (RCall).
+// The site's stack-map index is the one in force (SetSmi).
+func CallSym(a mut Asm, sym string, abi int, safe bool) {
+	a.begin()
+	let pc = a.Pc()
+	a.Code.U8(0xE8)
+	a.Relocs = a.Relocs.Append(Reloc{Off: pc + 1, Size: 4, Type: RCall, Add: 0, Sym: sym, ABI: abi})
+	a.Code.U32(0)
+	a.Sites = a.Sites.Append(Site{Pc: pc, Ret: a.Pc(), Index: a.smi, Safe: safe})
+}
+
+// CallReg is CALL reg, with the zero-size RCallInd mark the stock
+// compiler puts on an indirect call.
+func CallReg(a mut Asm, r int) {
+	a.begin()
+	let pc = a.Pc()
+	a.Relocs = a.Relocs.Append(Reloc{Off: pc, Size: 0, Type: RCallInd, Add: 0, Sym: "", ABI: 0})
+	a.rex(false, 0, 0, r)
+	a.Code.U8(0xFF)
+	a.modrm(3, 2, r)
+	a.Sites = a.Sites.Append(Site{Pc: pc, Ret: a.Pc(), Index: a.smi, Safe: true})
+}
+
+// Branch condition codes (the low nibble of 0F 8x).
+let JccEq = 0x4
+let JccNe = 0x5
+let JccBe = 0x6
+let JccLt = 0xC
+let JccGe = 0xD
+
+// Bind places label id at the next instruction.
+func Bind(a mut Asm, id int) { a.labels[id] = a.Pc() }
+
+// Jmp is JMP to label id.
+func Jmp(a mut Asm, id int) {
+	a.begin()
+	a.Code.U8(0xE9)
+	a.fixups = a.fixups.Append(PcVal{Pc: a.Pc(), V: id})
+	a.Code.U32(0)
+}
+
+// Jcc is a conditional jump to label id.
+func Jcc(a mut Asm, cc int, id int) {
+	a.begin()
+	a.Code.U8(0x0F)
+	a.Code.U8(0x80 + cc)
+	a.fixups = a.fixups.Append(PcVal{Pc: a.Pc(), V: id})
+	a.Code.U32(0)
+}
+
+// CmpSPGuard compares SP, or for a frame over StackSmall SP less the
+// excess (in R12), with g.stackguard0: CMPQ SP, 16(R14).
+func CmpSPGuard(a mut Asm, frame int) {
+	if frame <= StackSmall {
+		a.begin()
+		a.rex(true, RSP, 0, R14)
+		a.Code.U8(0x3B)
+		a.mem(RSP, R14, GStackguard0)
+		return
+	}
+	a.Lea(R12, RSP, -(frame - StackSmall))
+	a.begin()
+	a.rex(true, R12, 0, R14)
+	a.Code.U8(0x3B)
+	a.mem(R12, R14, GStackguard0)
+}
+
+// RipLoad is MOVQ sym(SB), dst (RPcrel).
+func RipLoad(a mut Asm, dst int, sym string) {
+	a.begin()
+	a.rex(true, dst, 0, 0)
+	a.Code.U8(0x8B)
+	a.modrm(0, dst, 5)
+	a.Relocs = a.Relocs.Append(Reloc{Off: a.Pc(), Size: 4, Type: RPcrel, Add: 0, Sym: sym, ABI: ABI0})
+	a.Code.U32(0)
+}
+
+// RipStore is MOVQ src, sym(SB) (RPcrel).
+func RipStore(a mut Asm, src int, sym string) {
+	a.begin()
+	a.rex(true, src, 0, 0)
+	a.Code.U8(0x89)
+	a.modrm(0, src, 5)
+	a.Relocs = a.Relocs.Append(Reloc{Off: a.Pc(), Size: 4, Type: RPcrel, Add: 0, Sym: sym, ABI: ABI0})
+	a.Code.U32(0)
+}
+
+// CmpFlagZero is CMPL sym(SB), $0: the 32-bit flag word at sym against
+// zero. The immediate byte follows the patched field, so the addend is -1.
+func CmpFlagZero(a mut Asm, sym string) {
+	a.begin()
+	a.Code.U8(0x83)
+	a.modrm(0, 7, 5)
+	a.Relocs = a.Relocs.Append(Reloc{Off: a.Pc(), Size: 4, Type: RPcrel, Add: -1, Sym: sym, ABI: ABI0})
+	a.Code.U32(0)
+	a.Code.U8(0)
+}
+
+// Undefined is a label a branch names but no Bind placed.
+type Undefined { Label int }
+
+// Finish patches the branches and returns the code.
+func Finish(a mut Asm) fails Undefined {
+	for f in a.fixups {
+		match a.labels.Get(f.V) {
+		case Some as to:
+			a.Code.Put32(f.Pc, to.Value-(f.Pc+4))
+		case None:
+			return Undefined{Label: f.V}
+		}
+	}
+}
+
+// EncodeTable is the pcvalue table of change points t over a function of
+// size bytes, as the runtime reads it: from the value -1, pairs of a
+// zig-zag value delta and a PC delta, then a 0.
+func EncodeTable(t []PcVal, size int) string {
+	let mut w = NewBuf()
+	let mut prev = -1
+	for i, pv in t {
+		w.Varint(pv.V - prev)
+		prev = pv.V
+		let next = if i+1 < len(t) { t[i+1].Pc } else { size }
+		w.Uvarint(next - pv.Pc)
+	}
+	if len(t) > 0 {
+		w.U8(0)
+	}
+	w.Bytes()
+}
+
+// DecodeTable reads a pcvalue table back into change points.
+func DecodeTable(data string) []PcVal fails Short {
+	let mut r = NewReader(data)
+	let mut out = []PcVal{}
+	let mut v = -1
+	let mut pc = 0
+	let mut first = true
+	for r.At < len(data) {
+		let d = try r.RVarint()
+		if d == 0 && !first {
+			return out
+		}
+		first = false
+		v = v + d
+		out = out.Append(PcVal{Pc: pc, V: v})
+		pc = pc + try r.RUvarint()
+	}
+	out
+}
+
+// ValueAt is the value of change points t at pc (-1 before the first).
+func ValueAt(t []PcVal, pc int) int {
+	let mut v = -1
+	for pv in t {
+		if pv.Pc > pc {
+			return v
+		}
+		v = pv.V
+	}
+	v
+}
+
+// TablesRoundTrip: EncodeTable and DecodeTable agree on any table of
+// change points whose values change at each point.
+law TablesRoundTrip(vals []int, gaps []int) {
+	let mut t = []PcVal{}
+	let mut pc = 0
+	let mut prev = -1
+	for i, v in vals {
+		let x = v % 100000
+		if x != prev {
+			t = t.Append(PcVal{Pc: pc, V: x})
+			prev = x
+			let g = if i < len(gaps) { gaps[i] } else { 1 }
+			pc = pc + (if g < 0 { -(g % 1000) } else { g % 1000 }) + 1
+		}
+	}
+	let back = DecodeTable(EncodeTable(t, pc + 1)) catch {
+	case Short:
+		return false
+	}
+	len(back) == len(t) && (len(t) == 0 || (back[len(back)-1].V == t[len(t)-1].V && back[len(back)-1].Pc == t[len(t)-1].Pc))
+}

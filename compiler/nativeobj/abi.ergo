@@ -1,0 +1,150 @@
+// The pin and the machine contract: which Go toolchain the archive is for,
+// and the linux/amd64 ABIInternal facts the emitted code and metadata rest
+// on (cmd/compile/abi-internal.md at go1.27.4). ABIInternal is not stable
+// across Go releases, so the producer serves exactly one pin and refuses
+// any other: a stock archive header that names another toolchain, another
+// GOOS/GOARCH or another experiment set is a Refused failure, never a mix.
+
+// Pin is the one toolchain this producer writes for.
+let PinGo = "go1.27.4"
+let PinGOOS = "linux"
+let PinGOARCH = "amd64"
+
+// ObjMagic opens every Go object file of the pin (goobj.Magic).
+let ObjMagic = "\x00go120ld"
+
+// ExportVersion is the unified export data version of the pin
+// (pkgbits.V5, noder's uirVersion).
+let ExportVersion = 5
+
+// Refused is a pin or target the producer does not serve.
+type Refused { Why string }
+
+// CheckHeader accepts the stock toolchain's object header line (the first
+// line of a stock archive member, "go object GOOS GOARCH VERSION X:EXP\n"
+// with any GOAMD64 setting) only for the pin. The archive copies the line
+// as it is, so the linker's exact comparison holds.
+func CheckHeader(line string) fails Refused {
+	let want = "go object " + PinGOOS + " " + PinGOARCH + " " + PinGo + " "
+	if len(line) < len(want) || line[0:len(want)] != want {
+		return Refused{Why: "object header \(line) is not the pin \(want)"}
+	}
+	if line[len(line)-1] != byte('\n') {
+		return Refused{Why: "object header has no line end"}
+	}
+	if !hasField(line, "X:") {
+		return Refused{Why: "object header names no experiment set"}
+	}
+}
+
+func hasField(s string, f string) bool {
+	for i in 0..len(s)-len(f)+1 {
+		if s[i:i+len(f)] == f {
+			return true
+		}
+	}
+	false
+}
+
+// Registers, by their x86 numbers.
+let RAX = 0
+let RCX = 1
+let RDX = 2
+let RBX = 3
+let RSP = 4
+let RBP = 5
+let RSI = 6
+let RDI = 7
+let R8 = 8
+let R9 = 9
+let R10 = 10
+let R11 = 11
+let R12 = 12
+let R13 = 13
+let R14 = 14
+let R15 = 15
+
+// IntRegs are ABIInternal's integer argument and result registers, in
+// order. R14 holds the current g, RDX a closure's context, X15 zero.
+let IntRegs = []int{RAX, RBX, RCX, RDI, RSI, R8, R9, R10, R11}
+
+// ABI numbers of symbols (obj.ABI0, obj.ABIInternal).
+let ABI0 = 0
+let ABIInternal = 1
+
+// StackSmall and StackBig are the pin's stack-check bounds
+// (internal/abi): a frame up to StackSmall compares SP with the guard; up
+// to StackBig it compares SP-(frame-StackSmall); larger is refused here.
+let StackSmall = 128
+let StackBig = 4096
+
+// GStackguard0 is the offset of g.stackguard0 from the g in R14.
+let GStackguard0 = 16
+
+// PCDATA and FUNCDATA table numbers (internal/abi symtab.go).
+let PcdataUnsafePoint = 0
+let PcdataStackMapIndex = 1
+let FuncdataArgsPointerMaps = 0
+let FuncdataLocalsPointerMaps = 1
+
+// Unsafe-point values.
+let UnsafeSafe = -1
+let UnsafeUnsafe = -2
+
+// Symbol kinds (objabi.SymKind) and relocation types (objabi.RelocType)
+// of the pin.
+let SText = 1
+let SRodata = 3
+let SNoptrdata = 5
+let SNoptrbss = 10
+let RAddr = 1
+let RCall = 7
+let RCallInd = 10
+let RPcrel = 14
+let RInitorder = 102
+
+// Runtime symbols the emitted code calls or reads, with their ABIs.
+let MorestackNoctxt = "runtime.morestack_noctxt"
+let WriteBarrierFlag = "runtime.writeBarrier"
+let GCWriteBarrier2 = "runtime.gcWriteBarrier2"
+
+// Frame is the layout of one function's frame. Size counts every byte
+// below the return address: the saved BP at the top, then the slots
+// (slot i at SlotOff(i) from SP), then the outgoing spill area at 0(SP)
+// for the parameters of the largest call. Size 0 is a frameless leaf.
+type Frame { Size int, Slots int, Out int }
+
+// FrameOf lays out a frame of slots words and an outgoing area of out
+// words.
+func FrameOf(slots int, out int) Frame {
+	if slots == 0 && out == 0 {
+		return Frame{Size: 0, Slots: 0, Out: 0}
+	}
+	Frame{Size: 8 + 8*slots + 8*out, Slots: slots, Out: out}
+}
+
+// SlotOff is slot i's offset from SP once the frame is set up: just below
+// the saved BP, downwards.
+func SlotOff(fr Frame, i int) int { fr.Size - 16 - 8*i }
+
+// SlotBit is the bit of slot i in the locals pointer bitmap. The runtime
+// reads the bitmap's Slots words up to varp, the saved BP's address, so
+// bit b is the word at varp-8*(Slots-b).
+func SlotBit(fr Frame, i int) int { fr.Slots - 1 - i }
+
+// SlotOfBit is SlotBit's inverse.
+func SlotOfBit(fr Frame, b int) int { fr.Slots - 1 - b }
+
+// SlotsAndBitsAgree: SlotBit and SlotOfBit invert each other, and a
+// slot's bit names the word at the slot's offset (varp is Size-8 above SP).
+law SlotsAndBitsAgree(n int, i int) {
+	let slots = if n < 0 { -(n % 50) + 1 } else { n % 50 + 1 }
+	let k = if i < 0 { -(i % slots) } else { i % slots }
+	let fr = FrameOf(slots, 2)
+	let b = SlotBit(fr, k)
+	b >= 0 && b < slots && SlotOfBit(fr, b) == k && (fr.Size - 8) - 8*(fr.Slots-b) == SlotOff(fr, k)
+}
+
+// ArgSpill is the offset, from SP at entry (SP at the return address), of
+// parameter i's spill word in the caller's outgoing area.
+func ArgSpill(i int) int { 8 + 8*i }

@@ -1,0 +1,186 @@
+// The checked input: one Ergo package as the producer receives it. It is
+// the fixture shape of the hand-off (NATIVE-TYPED-HANDOFF freezes the
+// shared wire; until then a small generator builds these records), not a
+// second compiler's IR: every value is one machine word, every function's
+// body is a list of ops over word slots, and Check (check.ergo) validates
+// it before any byte is written.
+
+// Kinds of a type in a package's type table.
+let KInt = 0
+let KPtr = 1
+let KFunc = 2
+
+// TypeDef is one Go-visible type: int, a pointer to type Elem, or a
+// function from Params to Results (type ids into the same table).
+type TypeDef { Kind int, Elem int, Params []int, Results []int }
+
+// Import is a foreign (stock Go) package the package refers to: its import
+// path, its package name, and the fingerprint its export data ends with
+// (8 raw bytes), which the object records so the linker can refuse a
+// stale dependency.
+type Import { Path string, Name string, Fingerprint string }
+
+// Global is a package variable of type int (it holds no pointer, so it
+// needs no GC type).
+type Global { Name string }
+
+// Arithmetic kinds of Arith.
+let AAdd = 0
+let ASub = 1
+let AMul = 2
+let AXor = 3
+
+// Conditions of JumpIf: A < B, A != B, A == B, A >= B (signed).
+let CLt = 0
+let CNe = 1
+let CEq = 2
+let CGe = 3
+
+// Op is one step of a function body. Slots are indexes into Func.Slots;
+// the first len(Params) slots hold the parameters on entry.
+type Const { Dst int, V int }
+type Arith { Dst int, Kind int, A int, B int }
+// Load reads the word at the address in slot Ptr.
+type Load { Dst int, Ptr int }
+// StorePtr writes the pointer in slot Val to the word at the address in
+// slot Ptr: a heap pointer publication, so it carries the write barrier.
+type StorePtr { Ptr int, Val int }
+// AddrOf is the address of slot Of in the function's own frame.
+type AddrOf { Dst int, Of int }
+type GetGlobal { Dst int, Global int }
+type SetGlobal { Global int, Src int }
+// Call calls the ABIInternal function Target ("import/path.Name"; a
+// function of this package by its own path) with the words of Args and
+// stores its results in Dsts.
+type Call { Dsts []int, Target string, Args []int }
+// CallClosure calls the Go func value in slot Fn.
+type CallClosure { Dsts []int, Fn int, Args []int }
+type Label { Id int }
+type Jump { To int }
+type JumpIf { Cond int, A int, B int, To int }
+type Return { Vals []int }
+
+type Op = Const | Arith | Load | StorePtr | AddrOf | GetGlobal | SetGlobal | Call | CallClosure | Label | Jump | JumpIf | Return
+
+// Func is one function: its name in the package, its parameter and result
+// type ids, the type id of every slot (parameters first), its ops and,
+// beside each op, the source line it came from. Line and Col place the
+// declaration. An init function has Name "init" and is listed in
+// Package.Inits.
+type Func {
+	Name    string,
+	Params  []int,
+	Results []int,
+	Slots   []int,
+	Ops     []Op,
+	Lines   []int,
+	Line    int,
+	Col     int,
+}
+
+// Package is the checked package: its import path and name, the Ergo
+// source file its positions name, its type table, the foreign packages it
+// imports, its variables, its functions, and which functions are its init
+// functions, in order.
+type Package {
+	Path    string,
+	Name    string,
+	File    string,
+	Types   []TypeDef,
+	Imports []Import,
+	Globals []Global,
+	Funcs   []Func,
+	Inits   []int,
+}
+
+// IsPointer says whether type id t is a pointer-shaped word: a pointer or
+// a func value (a closure pointer), so the GC must see it.
+func IsPointer(p Package, t int) bool { p.Types[t].Kind != KInt }
+
+// Exported says whether a Go name is exported.
+func Exported(name string) bool { len(name) > 0 && name[0] >= byte('A') && name[0] <= byte('Z') }
+
+// SymName is the linker symbol of function or variable name of p: the
+// path, a dot, the name; an init function is "init.N", N its place in
+// Inits.
+func SymName(p Package, name string) string { p.Path + "." + name }
+
+// FuncSym is the symbol of function i of p.
+func FuncSym(p Package, i int) string {
+	let f = p.Funcs[i]
+	if f.Name != "init" {
+		return SymName(p, f.Name)
+	}
+	for k, j in p.Inits {
+		if j == i {
+			return SymName(p, "init.\(k)")
+		}
+	}
+	SymName(p, "init")
+}
+
+// OpLiveUses is the slots op reads.
+func OpUses(op Op) []int {
+	match op {
+	case Const:
+		return []int{}
+	case Arith as a:
+		return []int{a.A, a.B}
+	case Load as l:
+		return []int{l.Ptr}
+	case StorePtr as s:
+		return []int{s.Ptr, s.Val}
+	case AddrOf:
+		return []int{}
+	case GetGlobal:
+		return []int{}
+	case SetGlobal as s:
+		return []int{s.Src}
+	case Call as c:
+		return c.Args
+	case CallClosure as c:
+		return []int{c.Fn}.Concat(c.Args)
+	case Label:
+		return []int{}
+	case Jump:
+		return []int{}
+	case JumpIf as j:
+		return []int{j.A, j.B}
+	case Return as r:
+		return r.Vals
+	}
+}
+
+// OpDefs is the slots op writes.
+func OpDefs(op Op) []int {
+	match op {
+	case Const as c:
+		return []int{c.Dst}
+	case Arith as a:
+		return []int{a.Dst}
+	case Load as l:
+		return []int{l.Dst}
+	case AddrOf as a:
+		return []int{a.Dst}
+	case GetGlobal as g:
+		return []int{g.Dst}
+	case Call as c:
+		return c.Dsts
+	case CallClosure as c:
+		return c.Dsts
+	case _:
+		return []int{}
+	}
+}
+
+// IsCall says whether op is a call that is a GC safe point.
+func IsCall(op Op) bool {
+	match op {
+	case Call:
+		return true
+	case CallClosure:
+		return true
+	case _:
+		return false
+	}
+}
