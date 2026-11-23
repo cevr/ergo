@@ -63,7 +63,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 					return frame(root, func(s *Scope) error {
 						h := s.Owner()
 						task := Owning(h, Go(s, "child", body), func(c *Task[int]) {
-							c.Close(s.current().s.Task())
+							c.Close(s.current().t)
 							for range c.Drain() {
 								released++
 							}
@@ -78,7 +78,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 								}
 							}
 						case waitFirst:
-							if _, err := task.Wait(s.s.Task()); err == nil {
+							if _, err := task.Wait(s.t); err == nil {
 								Hand(h, task)
 								delivered++
 							} else if _, ok := rt.Failure(err); !ok {
@@ -86,7 +86,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 							}
 						case waitStopped:
 							close(waiting)
-							_, _ = task.Wait(s.s.Task()) // raises the interruption
+							_, _ = task.Wait(s.t) // raises the interruption
 						}
 						return nil
 					})
