@@ -146,7 +146,8 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 	for k, g in p.Globals {
 		b.own[SymName(p, g.Name)] = nf + k
 	}
-	let hasInit = len(p.Inits) > 0
+	let inits = p.Inits
+	let hasInit = len(inits) > 0
 	let task = SymName(p, ".inittask")
 	if hasInit {
 		b.own[task] = nf + len(p.Globals)
@@ -161,7 +162,7 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 	}
 	if hasInit {
 		let mut rs = []ObjReloc{}
-		for k, fi in p.Inits {
+		for k, fi in inits {
 			rs = rs.Append(ObjReloc{Off: 8 + 8*k, Size: 8, Type: RAddr, Add: 0, Sym: SymRef{Pkg: PkgIdxSelf, Idx: fi}})
 		}
 		for imp in p.Imports {
@@ -169,7 +170,7 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 				rs = rs.Append(ObjReloc{Off: 0, Size: 0, Type: RInitorder, Add: 0, Sym: b.refTo(imp.Path + "..inittask", ABI0)})
 			}
 		}
-		let data = InitTask(len(p.Inits))
+		let data = InitTask(len(inits))
 		b.addDef(Def{Name: task, ABI: ABI0, Kind: SNoptrdata, Flag: 0, Flag2: 0, Size: len(data), Align: 8, Data: data, Relocs: rs, Aux: []ObjAux{}})
 	}
 	for i, lf in lowered {
