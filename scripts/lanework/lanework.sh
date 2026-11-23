@@ -32,8 +32,8 @@ MIN_FREE_GIB=${LANE_MIN_FREE_GIB:-10}
 # itself by age (a day's trim of entries unused for five days), never by
 # size: lanes kept 319 GB of distinct entries, all used within five days
 # (2026-11-22), so trim_gocache bounds it by size too.
-GOCACHE_SHARED=${LANE_GOCACHE:-/workspaces/.cache/ergo-gocache}
-GOCACHE_MAX_GIB=${LANE_GOCACHE_MAX_GIB:-40}
+SHARED_CACHE=${LANE_GOCACHE:-/workspaces/.cache/ergo-gocache}
+SHARED_CACHE_MAX_GIB=${LANE_GOCACHE_MAX_GIB:-40}
 
 fail() {
   printf 'lanework: %s\n' "$*" >&2
@@ -83,24 +83,24 @@ lane_of() {
 # source's workspace storage or the lane at $1 (when given), where a
 # clone or a snapshot would copy it.
 lane_gocache() {
-  case "$GOCACHE_SHARED" in
+  case "$SHARED_CACHE" in
     /*) ;;
-    *) fail "the shared Go cache is not an absolute path: '$GOCACHE_SHARED'" ;;
+    *) fail "the shared Go cache is not an absolute path: '$SHARED_CACHE'" ;;
   esac
-  case "$GOCACHE_SHARED/" in
-    */./* | */../* | *//*) fail "the shared Go cache has a . or .. or empty part: $GOCACHE_SHARED" ;;
+  case "$SHARED_CACHE/" in
+    */./* | */../* | *//*) fail "the shared Go cache has a . or .. or empty part: $SHARED_CACHE" ;;
   esac
   for inside in "$SRC" "${SRC%/*}/.work" "${SRC%/*}/.rifts" ${1:+"$1"}; do
-    case "$GOCACHE_SHARED/" in
-      "$inside"/*) fail "the shared Go cache $GOCACHE_SHARED is inside $inside, which a clone or a snapshot copies" ;;
+    case "$SHARED_CACHE/" in
+      "$inside"/*) fail "the shared Go cache $SHARED_CACHE is inside $inside, which a clone or a snapshot copies" ;;
     esac
   done
-  mkdir -p "$GOCACHE_SHARED"
-  printf '%s\n' "$GOCACHE_SHARED"
+  mkdir -p "$SHARED_CACHE"
+  printf '%s\n' "$SHARED_CACHE"
 }
 
 # trim_gocache bounds the shared cache at $1 by size, on the terms Go's
-# own trim deletes on. Over GOCACHE_MAX_GIB, it deletes the entries
+# own trim deletes on. Over SHARED_CACHE_MAX_GIB, it deletes the entries
 # unused the longest, in steps of last use from four days down to two
 # hours, until the cache is under the bound. Go marks an entry used at
 # most once an hour, so an entry that a running build looked up is never
@@ -108,7 +108,7 @@ lane_gocache() {
 # are deleted, and one trim runs at a time; a second one skips.
 trim_gocache() {
   case "$1" in /?*) ;; *) fail "trim of a cache that is not an absolute path: '$1'" ;; esac
-  limit_kib=$((GOCACHE_MAX_GIB * 1024 * 1024))
+  limit_kib=$((SHARED_CACHE_MAX_GIB * 1024 * 1024))
   (
     flock -n 8 || exit 0
     for minutes in 5760 2880 1440 720 360 120; do

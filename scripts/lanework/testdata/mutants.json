@@ -32,7 +32,7 @@
       "name": "lanework-cache-relative",
       "origin": "wf10 SHARED-GOCACHE",
       "file": "scripts/lanework/lanework.sh",
-      "from": "    *) fail \"the shared Go cache is not an absolute path: '$GOCACHE_SHARED'\" ;;\n",
+      "from": "    *) fail \"the shared Go cache is not an absolute path: '$SHARED_CACHE'\" ;;\n",
       "to": "",
       "rule": "The shared Go cache is an absolute path.",
       "killers": ["scripts/lanework:TestLaneRefusesACacheACloneCopies"]
