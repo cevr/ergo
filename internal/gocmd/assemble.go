@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,20 +21,18 @@ type File struct {
 	Data []byte
 }
 
-// Lowered is an Ergo package lowered for Go: its declaration file
-// (NAME.go, the Go declarations, IG11 facades and Go bodies), its IR file
-// (ergoir.json) and the assets its Go embeds.
-type Lowered struct {
-	Package ErgoPackage
-	Files   []File
-}
-
-// DeclFile is the name the declaration file has in the package's folder,
-// through the overlay.
+// DeclFile is the name the declaration file of an Ergo package (NAME.go
+// of the lowering: the Go declarations, IG11 facades and Go bodies) has in
+// the package's folder, through the overlay.
 const DeclFile = "ergo_gen.go"
 
 // IRFile is the lowering's IR file name (lower.IRFileName).
 const IRFile = "ergoir.json"
+
+// GenDir is the module folder of the Go packages the lowering adds, the
+// shared and std packages (lower.goPackagesDir): they reach the compile
+// through the overlay only.
+const GenDir = "_ergo"
 
 // runtimeModule is the module path of Ergo's runtime (lower.Runtime).
 const runtimeModule = "ergo.local/prototype"
@@ -45,23 +45,27 @@ type Plan struct {
 	ModDir string
 }
 
-// Assemble writes pkgs and the runtime module (runtime, the files of
+// Assemble writes files, the lowering of the module's Ergo packages pkgs
+// (lower.LowerGoPackages: paths relative to the module root), one tree for
+// each Go package, and the runtime module (runtime, the files of
 // lower.Runtime under ergo/) into cache, content-addressed, and returns
 // the command line of l that builds the module m with them.
 //
-//   - -overlay maps each package's DeclFile, and each asset, to its cached
-//     copy, merged with the user's overlay.
+//   - -overlay maps each Ergo package's DeclFile, each Go file of a package
+//     below GenDir, and each asset to its cached copy, merged with the
+//     user's overlay.
 //   - -modfile is a copy of go.mod (or the user's -modfile) with the runtime
 //     module required and replaced by its cached folder, and go.sum beside
 //     it, in a fresh folder under cache.
-//   - -gcflags gives each Ergo package -ergoir with its cached IR file after
-//     the user's flags for that package (PackageFlags), as the last value
-//     that matches it, so cmd/go gives the package exactly those.
+//   - -gcflags gives each Go package of the lowering -ergoir with its
+//     cached IR file after the user's flags for that package
+//     (PackageFlags), as the last value that matches it, so cmd/go gives
+//     the package exactly those.
 //
-// The IR file's folder is named by the lowering's digest, and the
-// declaration file holds the IR's digest (lower.irKeyed), so an edit of
-// a body changes what cmd/go keys the compile on.
-func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs []Lowered) (Plan, error) {
+// The IR file's folder is named by its package's files' digest, and the
+// Go file holds the IR's digest (lower.irKeyed), so an edit of a body
+// changes what cmd/go keys that package's compile on, and no other's.
+func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs []ErgoPackage, files []File) (Plan, error) {
 	var rt []File
 	for _, f := range runtime {
 		rel, ok := strings.CutPrefix(f.Path, "ergo/")
@@ -98,33 +102,62 @@ func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs [
 	for _, v := range l.GCFlags {
 		gcflags = append(gcflags, "-gcflags="+v)
 	}
+	gen := filepath.Join(m.Root, GenDir)
+	if _, err := os.Lstat(gen); err == nil {
+		return Plan{}, fmt.Errorf("%s exists; ergo writes the Go packages it adds there: remove or rename it", gen)
+	}
+	ergoAt := map[string]ErgoPackage{} // by module-relative folder, "." for the root
 	for _, p := range pkgs {
-		dir, err := writeTree(cache, "pkg", p.Files)
+		rel, err := filepath.Rel(m.Root, p.Dir)
+		if err != nil {
+			return Plan{}, err
+		}
+		ergoAt[path.Clean(filepath.ToSlash(rel))] = p
+	}
+	byDir := map[string][]File{}
+	for _, f := range files {
+		if f.Path == "go.mod" || f.Path == "go.sum" {
+			continue
+		}
+		d := packageDir(f.Path)
+		rel := f.Path
+		if d != "." {
+			rel = strings.TrimPrefix(f.Path, d+"/")
+		}
+		byDir[d] = append(byDir[d], File{Path: rel, Data: f.Data})
+	}
+	for _, d := range slices.Sorted(maps.Keys(byDir)) {
+		p, isErgo := ergoAt[d]
+		if !isErgo && d != GenDir && !strings.HasPrefix(d, GenDir+"/") {
+			return Plan{}, fmt.Errorf("gocmd: the lowering wrote the Go package %s, neither an Ergo package of the module nor below %s", d, GenDir)
+		}
+		pkg := Package{ImportPath: path.Join(m.Path, d), Dir: filepath.Join(m.Root, filepath.FromSlash(d))}
+		if isErgo {
+			pkg = p.Package
+		}
+		dir, err := writeTree(cache, "pkg", byDir[d])
 		if err != nil {
 			return Plan{}, err
 		}
 		ir := ""
-		for _, f := range p.Files {
-			switch {
-			case f.Path == IRFile:
+		for _, f := range byDir[d] {
+			if f.Path == IRFile {
 				ir = filepath.Join(dir, IRFile)
 				continue
-			case f.Path == "go.mod" || f.Path == "go.sum":
-				continue
 			}
-			target := filepath.Join(p.Package.Dir, filepath.FromSlash(f.Path))
-			if f.Path == p.Package.Name+".go" {
-				target = filepath.Join(p.Package.Dir, DeclFile)
+			target := filepath.Join(pkg.Dir, filepath.FromSlash(f.Path))
+			if isErgo && f.Path == p.Name+".go" {
+				target = filepath.Join(pkg.Dir, DeclFile)
 			}
 			if _, given := replace[target]; given {
-				return Plan{}, fmt.Errorf("-overlay names %s, which ergo writes for the Ergo package %s", target, p.Package.ImportPath)
+				return Plan{}, fmt.Errorf("-overlay names %s, which ergo writes for the Go package %s", target, pkg.ImportPath)
 			}
 			if _, err := os.Lstat(target); err == nil {
-				return Plan{}, fmt.Errorf("%s exists; ergo writes it for the Ergo package %s: remove or rename it", target, p.Package.ImportPath)
+				return Plan{}, fmt.Errorf("%s exists; ergo writes it for the Ergo package %s: remove or rename it", target, pkg.ImportPath)
 			}
 			replace[target] = filepath.Join(dir, filepath.FromSlash(f.Path))
 		}
-		user, err := l.PackageFlags(p.Package.Package, cwd)
+		user, err := l.PackageFlags(pkg, cwd)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -134,9 +167,9 @@ func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs [
 		}
 		joined, err := JoinQuoted(args)
 		if err != nil {
-			return Plan{}, fmt.Errorf("-gcflags for %s: %v", p.Package.ImportPath, err)
+			return Plan{}, fmt.Errorf("-gcflags for %s: %v", pkg.ImportPath, err)
 		}
-		gcflags = append(gcflags, "-gcflags="+p.Package.ImportPath+"="+joined)
+		gcflags = append(gcflags, "-gcflags="+pkg.ImportPath+"="+joined)
 	}
 	overlay, err := json.Marshal(struct{ Replace map[string]string }{replace})
 	if err != nil {
@@ -183,6 +216,34 @@ func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs [
 	args := []string{l.Verb, "-modfile=" + filepath.Join(modDir, "go.mod"), "-overlay=" + filepath.Join(ovDir, "overlay.json")}
 	args = append(args, gcflags...)
 	return Plan{Args: append(args, l.Args...), ModDir: modDir}, nil
+}
+
+// packageDir is the module-relative folder ("." for the root) of the Go
+// package a file of the lowering belongs to: its own folder, or for an
+// asset (assets/DIGEST/… beside the Go file that embeds it; lower's
+// packageEmbed) the folder that holds assets/.
+func packageDir(p string) string {
+	parts := strings.Split(p, "/")
+	for i := len(parts) - 3; i >= 0; i-- {
+		if parts[i] == "assets" && isAssetDigest(parts[i+1]) {
+			return path.Clean(path.Join(append([]string{"."}, parts[:i]...)...))
+		}
+	}
+	return path.Dir(p)
+}
+
+// isAssetDigest reports the folder name an asset snapshot's digest gives
+// its files (check's embed: assets/%x of 12 bytes).
+func isAssetDigest(s string) bool {
+	if len(s) != 24 {
+		return false
+	}
+	for _, c := range s {
+		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // requires reports whether go.mod text names the module path in a

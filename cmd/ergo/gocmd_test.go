@@ -38,6 +38,28 @@ func Sum(xs []int) int {
 	s
 }
 `
+	// goMixHalf imports lib (ERGO-GO-IMPORTS): its failure is lib's
+	// DivZero, and it embeds an asset of its own folder.
+	goMixHalf = `import example.com/mix/lib
+
+// Of is n / d through lib.Div.
+func Of(n int, d int) int fails lib.DivZero { lib.Div(n, d) }
+
+let note = embedded[string]("note.txt")
+
+// Note is half's embedded note.
+func Note() string { note }
+`
+	// goMixBoth imports lib and half: the diamond.
+	goMixBoth = `import example.com/mix/half
+import example.com/mix/lib
+
+// Sum is n / d through half, plus n + d through lib.
+func Sum(n int, d int) int fails lib.DivZero {
+	let q = half.Of(n, d)
+	q + lib.Add(n, d)
+}
+`
 	goMixCalc = `// Package calc is Go over the Ergo package lib.
 package calc
 
@@ -66,6 +88,8 @@ import (
 	"errors"
 	"testing"
 
+	"example.com/mix/both"
+	"example.com/mix/half"
 	"example.com/mix/lib"
 )
 
@@ -86,6 +110,37 @@ func TestRatioByZero(t *testing.T) {
 func TestTotal(t *testing.T) {
 	if got, err := Total(context.Background(), []int{1, 2, 3}, 4); err != nil || got != 10 {
 		t.Fatalf("Total = %d, %v", got, err)
+	}
+}
+
+// TestThroughTheImports: lib's DivZero is one Go type, whether Go reaches
+// it through half, through both (the diamond) or through lib.
+func TestThroughTheImports(t *testing.T) {
+	ctx := context.Background()
+	_, err := half.Of(ctx, 7, 0)
+	var viaHalf lib.DivZero
+	if !errors.As(err, &viaHalf) || viaHalf.Of != 7 {
+		t.Fatalf("half.Of(7, 0) error = %v, want lib.DivZero{Of: 7}", err)
+	}
+	_, err = both.Sum(ctx, 9, 0)
+	var viaBoth lib.DivZero
+	if !errors.As(err, &viaBoth) || viaBoth.Of != 9 {
+		t.Fatalf("both.Sum(9, 0) error = %v, want lib.DivZero{Of: 9}", err)
+	}
+	_, err = lib.Div(ctx, 3, 0)
+	var direct lib.DivZero
+	if !errors.As(err, &direct) {
+		t.Fatalf("lib.Div(3, 0) error = %v, want lib.DivZero", err)
+	}
+	direct, viaBoth = viaHalf, direct
+	if direct.Of != 7 || viaBoth.Of != 3 {
+		t.Fatalf("assigned across the paths: %v %v", direct, viaBoth)
+	}
+	if got, err := both.Sum(ctx, 8, 2); err != nil || got != 14 {
+		t.Fatalf("both.Sum(8, 2) = %d, %v, want 14", got, err)
+	}
+	if got, err := half.Note(ctx); err != nil || got != "a note\n" {
+		t.Fatalf("half.Note() = %q, %v, want the embedded note", got, err)
 	}
 }
 `
@@ -130,21 +185,25 @@ func treeFiles(t *testing.T, root string) map[string]string {
 	return out
 }
 
-// TestErgoGoBuildsAModuleWithAnErgoPackage is ERGO-GO's acceptance: in a Go
-// module whose package lib is Ergo, `ergo go test ./...` runs calc's Go
-// tests (an errors.As of lib's typed failure among them), `ergo go run`
-// runs the Go main, an edit of lib.ergo alone changes what the next run
-// computes (the IR digest: GO-DROPIN-PROBE step 10), a type error in
-// lib.ergo is reported at lib.ergo's line, and the module's own files are
-// unchanged. It builds Go because the question is whether cmd/go, given
-// ergo's -overlay, -gcflags=-ergoir and -modfile, builds, tests and runs
-// the module: only the go command answers it. The smoke runner bounds
-// every child.
+// TestErgoGoBuildsAModuleWithAnErgoPackage is the acceptance of ERGO-GO and
+// ERGO-GO-IMPORTS: in a Go module (no ergo.mod) whose packages lib, half
+// (which imports lib) and both (which imports lib and half) are Ergo,
+// `ergo go test ./...` runs calc's Go tests: an errors.As of lib's typed
+// failure, reached through lib, through half and through both, and the
+// values assigned across those paths (one Go type), and half's embedded
+// asset. `ergo go run` runs the Go main, an edit of lib.ergo alone changes
+// what the next run computes (the IR digest: GO-DROPIN-PROBE step 10), a
+// type error in lib.ergo is reported at lib.ergo's line, and the module's
+// own files are unchanged. It builds Go because the question is whether
+// cmd/go, given ergo's -overlay, -gcflags=-ergoir and -modfile, builds,
+// tests and runs the module: only the go command answers it. The smoke
+// runner bounds every child.
 //
 // Mutants: gocmd-no-ergoir (Assemble passes no -ergoir), gocmd-no-overlay
 // (the declaration file is not overlaid), gocmd-no-runtime (the go.mod
 // copy does not require the runtime), sketchfront-golib-relative-lines
-// (GoLibrary keeps the module-relative names).
+// (GoPackages keeps the module-relative names), gocmd-asset-by-folder
+// (an asset is placed by its own folder, not its package's).
 func TestErgoGoBuildsAModuleWithAnErgoPackage(t *testing.T) {
 	if testing.Short() {
 		t.Skip("ergo go builds and runs Go: the full tier")
@@ -153,6 +212,9 @@ func TestErgoGoBuildsAModuleWithAnErgoPackage(t *testing.T) {
 	root := physicalTempDir(t)
 	smokeWrite(t, root, "go.mod", goMixMod)
 	smokeWrite(t, root, "lib/lib.ergo", goMixLib)
+	smokeWrite(t, root, "half/half.ergo", goMixHalf)
+	smokeWrite(t, root, "half/note.txt", "a note\n")
+	smokeWrite(t, root, "both/both.ergo", goMixBoth)
 	smokeWrite(t, root, "calc/calc.go", goMixCalc)
 	smokeWrite(t, root, "calc/calc_test.go", goMixCalcTest)
 	smokeWrite(t, root, "cmd/app/main.go", goMixApp)

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 
 	"ergo.local/prototype/internal/gocmd"
+	"ergo.local/prototype/internal/receipt"
+	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketchfront"
@@ -59,20 +61,20 @@ func ergoGoCommand(args []string) error {
 	if err != nil {
 		return invalidInvocation(err)
 	}
-	var lowered []gocmd.Lowered
+	l, err := loadGoModule(m, pkgs)
+	if err != nil {
+		return err
+	}
+	if !l.result.Checked {
+		return refuseUnchecked(l, fileOptions{command: "go"})
+	}
+	names := map[string]string{}
 	for _, p := range pkgs {
-		l, err := load(p.Dir, "go")
-		if err != nil {
-			return err
-		}
-		if !l.result.Checked {
-			return refuseUnchecked(l, fileOptions{command: "go"})
-		}
-		files, err := sketchfront.GoLibrary(l.analysis, p.Name)
-		if err != nil {
-			return fmt.Errorf("ergo go: %s: %w", p.ImportPath, err)
-		}
-		lowered = append(lowered, gocmd.Lowered{Package: p, Files: goFiles(files)})
+		names[p.ImportPath] = p.Name
+	}
+	files, err := sketchfront.GoPackages(l.analysis, names)
+	if err != nil {
+		return fmt.Errorf("ergo go: %s: %w", m.Path, err)
 	}
 	root, err := build.DefaultRoot()
 	if err != nil {
@@ -86,12 +88,41 @@ func ergoGoCommand(args []string) error {
 	if err != nil {
 		return err
 	}
-	plan, err := gocmd.Assemble(filepath.Join(root, "gocmd"), m, line, cwd, goFiles(lower.Runtime()), lowered)
+	plan, err := gocmd.Assemble(filepath.Join(root, "gocmd"), m, line, cwd, goFiles(lower.Runtime()), pkgs, goFiles(files))
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(plan.ModDir)
 	return runGo(patched.Go, patched.Root, plan.Args)
+}
+
+// loadGoModule checks the Ergo packages pkgs of the Go module m together
+// (sketchfront.CheckGoModule), as load checks a package folder: one
+// lowering places each at its folder, so Go sees one copy of each.
+func loadGoModule(m gocmd.Module, pkgs []gocmd.ErgoPackage) (loaded, error) {
+	source, err := receipt.LocateSource(m.Root)
+	if err != nil {
+		return loaded{}, err
+	}
+	uri, err := report.FileURI(source.Admitted())
+	if err != nil {
+		return loaded{}, err
+	}
+	var dirs []string
+	for _, p := range pkgs {
+		dirs = append(dirs, p.Dir)
+	}
+	analysis, err := sketchfront.CheckGoModule(source.Admitted(), m.Path, dirs)
+	if err != nil {
+		return loaded{}, err
+	}
+	return loaded{
+		source:   source,
+		name:     filepath.Base(source.Admitted()),
+		snapshot: report.SourceSnapshot{URI: uri, Origin: "disk", Files: analysis.Files()},
+		analysis: analysis,
+		result:   analysis.Result(analysis.Text(), "go"),
+	}, nil
 }
 
 // goFiles are lowered files as gocmd's.
