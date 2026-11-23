@@ -161,11 +161,18 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	// testdata/agree: the smallest programs of gaps found elsewhere, each
 	// a package the Go checker accepts.
 	dirs := corpusDirs(t)
-	more, err := filepath.Glob(filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "agree", "*"))
+	err := filepath.WalkDir(filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "agree"), func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(p, ".ergo") && dirs[len(dirs)-1] != filepath.Dir(p) {
+			dirs = append(dirs, filepath.Dir(p))
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dirs = append(dirs, more...)
 	corpus := make([]*agreeCase, len(dirs))
 	eachGoPackage(dirs, func(i int, pkg *check.Package) {
 		_, ext := goKinds(pkg)
