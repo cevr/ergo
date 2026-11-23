@@ -16,7 +16,7 @@ import time
 func Parse(s Set, args []string) Values fails Help | Unknown | NeedsValue | Invalid | Missing | Extra {
 	validateFlags(s.Flags)
 	if mayAskHelp(args) && helpAsked(s, args) {
-		return Help{Text: Usage(s)}
+		return Help{Text: UsageText(s)}
 	}
 	let none = slot{given: 0, last: noItem(), all: []item{}}
 	let mut slots = slices.WithCapacity[slot](len(s.Flags))

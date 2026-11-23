@@ -195,20 +195,29 @@ func letBound(files []bind.File, ps bind.Parents, n dense.ID[store.PNode]) bool 
 	}
 }
 
+// Resources is each type name of the package of s and k that holds a
+// resource, its imported types read in deps (Held's deps: its importers
+// read a package's after the packages it imports).
+func Resources(s store.Store, k expr.Pkg, deps Map[string, Map[string, bool]]) Map[string, bool] {
+	let (infos, names) = typeInfos(k)
+	resourcesWith(s, k, infos, names, deps, true)
+}
+
 // NoneHeld is Unused's held for a caller with no typer: every let is
 // reported.
 func NoneHeld(_ dense.ID[store.PNode]) bool { false }
 
 // Held is Unused's held from the typer: whether the local declared at a
 // name node has a type that holds a resource (resources.go holdsResource,
-// a type parameter counted as plain data; resources).
-func Held(s store.Store, k expr.Pkg, t expr.Typer) func(dense.ID[store.PNode]) bool {
+// a type parameter counted as plain data; resources), an imported type's
+// read in deps, each package's Resources by its path.
+func Held(s store.Store, k expr.Pkg, t expr.Typer, deps Map[string, Map[string, bool]]) func(dense.ID[store.PNode]) bool {
 	let (infos, names) = typeInfos(k)
-	let res = resources(s, k, infos, names)
+	let res = resourcesWith(s, k, infos, names, deps, true)
 	func(n dense.ID[store.PNode]) bool {
 		match expr.DefType(t, n) {
 		case Some[dense.ID[store.TKey]] as ty:
-			holds(s, k, res, []bool{}, ty.Value)
+			holdsAcross(s, k, res, deps, ty.Value)
 		case None:
 			false
 		}
