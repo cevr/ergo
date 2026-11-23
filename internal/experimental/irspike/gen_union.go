@@ -145,7 +145,7 @@ func (g *ugen) program() string {
 	// an interface) into the flat Got: a type switch.
 	g.b.WriteString("type Lost = Shy | Over\n\n")
 	g.b.WriteString("func lost(i int) Lost {\n\tif i < 0 {\n\t\tShy{n: i}\n\t} else {\n\t\tOver{code: i}\n\t}\n}\n\n")
-	g.b.WriteString("func lift(l Lost) Got { l }\n\n")
+	g.b.WriteString("func widenLost(l Lost) Got { l }\n\n")
 	g.trees() // gen_tree.go
 	g.main()
 	return g.b.String()
@@ -165,7 +165,7 @@ func (g *ugen) main() {
 		x := g.n(9) - 2
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"mk %d \\(weight(mk(%d))) \\(name(mk(%d))) \\(weight(flip(mk(%d)))) \\(all(%d)) \\(pick(mk(%d), %d))\")\n", x, x, x, x, x, x, x)
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"classify %d \\(classify(%d)) \\(code(\"%s\"))\")\n", x, x, []string{"a", "b", "c", "d", ""}[g.n(5)])
-		fmt.Fprintf(&g.b, "\tConsole.Println(\"widen %d \\(weight(widen(ab(%d)))) \\(gotN(got(%d))) \\(gotN(lift(lost(%d))))\")\n", x, x, x, x)
+		fmt.Fprintf(&g.b, "\tConsole.Println(\"widen %d \\(weight(widen(ab(%d)))) \\(gotN(got(%d))) \\(gotN(widenLost(lost(%d))))\")\n", x, x, x, x)
 	}
 	for d := 0; d < 4; d++ {
 		fmt.Fprintf(&g.b, "\tConsole.Println(\"tree %d \\(sum(build(%d))) \\(depth(build(%d)))\")\n", d, d, d)
