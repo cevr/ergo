@@ -26,7 +26,7 @@ let set = flag.Set{Name: "ssg", Usage: "", Flags: []flag.Flag{outFlag, printFlag
 func run(args []string) fails os.Exit needs io.Stdout | fs.Files | fs.Writes {
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return
 	}
 	let root = match siteArg.Get(v) {

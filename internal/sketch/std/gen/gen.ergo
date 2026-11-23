@@ -1,0 +1,857 @@
+// Package gen is test data drawn from a tape (PROPERTY-TESTING P1): a
+// generator is any function that needs Draws, a property is a body that
+// draws and answers whether it holds, and Check runs it over seeded cases,
+// shrinks a failing case on its tape and reports the seed, the named
+// draws and a replay call (docs/spec/stdlib.md, Gen). It is plain Ergo: a
+// user library could be this package, with no rule of the compiler keyed
+// on it. Prior art: Hypothesis and Go rapid shrink the choice sequence,
+// not the value; Hegel draws inside the test body.
+
+import slices
+import strings
+import sync
+
+// Draws is the source a generator draws from. Draw is a draw in 0..n-1,
+// or any 64 bits for an n of 0, and a zero draw is the simplest: every
+// generator maps it to its simplest value, so lowering a draw simplifies
+// the value. CaseSize is the case's size, which bounds collections. Begin
+// and End mark a span of draws, which a shrink deletes whole (a list's
+// element); Show names a drawn value for the report.
+type Draws {
+	mut Draw(n uint64) uint64,
+	CaseSize() int,
+	mut Begin(label string),
+	mut End(),
+	mut Show(label string, text string),
+
+	// A test whose body draws runs as a property (Property).
+	test Property,
+
+	// DrawBelowBound: a draw of Draw(n) is below n, for each n above zero.
+	law DrawBelowBound(n uint64) {
+		let v = Draw(n)
+		n == uint64(0) || v < n
+	},
+}
+
+// Rejected is the failure of Assume: the case does not count.
+type Rejected {}
+
+// Tape is a case's draws and its size: a replay from it is the case.
+type Tape { Size int, Draws []uint64 }
+
+// Shown is one named draw: its label and its value's text.
+type Shown { Label string, Text string }
+
+// Case is a numbered case (from 1), its tape and the draws it named.
+type Case { Number int, Tape Tape, Shown []Shown }
+
+// Config is a run's seed, its cases, its replay budget for one shrink,
+// the draws one case may make (past them the case is cut and does not
+// count) and the rejected runs allowed before the run gives up.
+type Config { Seed uint64, Cases int, Shrinks int, MaxDraws int, MaxRejected int }
+
+// Defaults is ergo test's: seed 1, 100 cases, 500 replays a shrink.
+func Defaults() Config { Config{Seed: uint64(1), Cases: 100, Shrinks: 500, MaxDraws: 8192, MaxRejected: 1000} }
+
+// Outcome is what a run came to: Held, every case held; Refuted, case
+// Found failed and Shrunk is the smallest failing case the shrink found
+// with Shrinks replays; GaveUp, more runs were rejected than allowed
+// before the cases were met, which is no pass.
+type Outcome = Held{Cases int, Rejected int} | Refuted{Seed uint64, Of int, Found Case, Shrunk Case, Shrinks int} | GaveUp{Cases int, Rejected int}
+
+// Ran is one run of a body: whether it failed, was rejected or was cut at
+// its draw bound, the draws it read and the values it named.
+type Ran { Fails bool, Rejected bool, Overrun bool, Tape Tape, Shown []Shown, spans []span }
+
+// span is the draws a Begin and its End enclosed, in the order the spans
+// began, so an enclosing span comes before the spans inside it and a
+// shrink tries the larger deletion first. A span not yet ended has end -1.
+type span { start int, end int }
+
+// state is a source's: a splitmix64 state when recording, the tape when
+// replaying, and what the run read.
+type state {
+	mix       uint64,
+	size      int,
+	replaying bool,
+	replay    []uint64,
+	max       int,
+	used      []uint64,
+	overrun   bool,
+	spans     []span,
+	open      []int,
+	shown     []Shown,
+}
+
+// source is the Draws provider of one run. Its state is in a Ref, so the
+// copy a context binds and the one the runner reads are one.
+type source { st sync.Ref[state] } implements Draws
+
+// newSource is a recording source of seed 1 at size 0 (the provider the
+// laws of Draws run on).
+func newSource() source { recording(uint64(1), 0, 8192) }
+
+// recording draws case k of seed: size k/4, as ergo test's cases.
+func recording(seed uint64, k int, max int) source {
+	source{st: sync.NewRef[state](state{mix: splitmix(seed*golden + uint64(k)), size: k / 4, replaying: false, replay: []uint64{}, max: max, used: []uint64{}, overrun: false, spans: []span{}, open: []int{}, shown: []Shown{}})}
+}
+
+// replaying draws from t: past its end a draw is 0.
+func replaying(t Tape, max int) source {
+	source{st: sync.NewRef[state](state{mix: uint64(0), size: t.Size, replaying: true, replay: t.Draws, max: max, used: []uint64{}, overrun: false, spans: []span{}, open: []int{}, shown: []Shown{}})}
+}
+
+let golden uint64 = 0x9e3779b97f4a7c15
+let mixA uint64 = 0xbf58476d1ce4e5b9
+let mixB uint64 = 0x94d049bb133111eb
+
+// splitmix is splitmix64's output function.
+func splitmix(x uint64) uint64 {
+	let mut z = x
+	z = (z ^ (z >> uint64(30))) * mixA
+	z = (z ^ (z >> uint64(27))) * mixB
+	z ^ (z >> uint64(31))
+}
+
+// Draw records the draw below n: from the tape when replaying (a value
+// at or above n taken modulo n), else from the stream. Past the draw
+// bound every draw is 0 and the run is cut.
+func Draw(p source, n uint64) uint64 {
+	sync.Modify(p.st, func(s state) (uint64, state) {
+		let mut t = s
+		let pos = len(t.used)
+		let mut v = uint64(0)
+		if pos >= t.max {
+			t.overrun = true
+		} else {
+			if t.replaying {
+				if pos < len(t.replay) {
+					v = t.replay[pos]
+				}
+			} else {
+				t.mix = t.mix + golden
+				v = splitmix(t.mix)
+			}
+			if n > uint64(0) && v >= n {
+				v = v % n
+			}
+			t.used = t.used.Append(v)
+		}
+		(v, t)
+	})
+}
+
+// CaseSize is the run's size.
+func CaseSize(p source) int { sync.Modify(p.st, func(s state) (int, state) { (s.size, s) }) }
+
+// Begin opens a span at the next draw.
+func Begin(p source, label string) {
+	p.st.Update(func(s state) state {
+		let mut t = s
+		t.open = t.open.Append(len(t.spans))
+		t.spans = t.spans.Append(span{start: len(t.used), end: -1})
+		t
+	})
+}
+
+// End closes the innermost open span; an End with none open is ignored.
+func End(p source) {
+	p.st.Update(func(s state) state {
+		let mut t = s
+		let n = len(t.open)
+		if n > 0 {
+			let at = t.open[n-1]
+			t.open = t.open[0 : n-1]
+			t.spans[at] = span{start: t.spans[at].start, end: len(t.used)}
+		}
+		t
+	})
+}
+
+// Show keeps a named value for the report.
+func Show(p source, label string, text string) {
+	p.st.Update(func(s state) state {
+		let mut t = s
+		t.shown = t.shown.Append(Shown{Label: label, Text: text})
+		t
+	})
+}
+
+// Below is a draw in 0..n-1 (any 64 bits for 0); 0 is the simplest.
+func Below(n uint64) uint64 needs Draws { Draws.Draw(n) }
+
+// Size is the case's size: the bound collections grow with.
+func Size() int needs Draws { Draws.CaseSize() }
+
+// Bool is a drawn bool; false is the simplest.
+func Bool() bool needs Draws { Draws.Draw(uint64(2)) == uint64(1) }
+
+// IntIn is a drawn integer in lo..hi (lo when hi < lo). The simplest is
+// the value of the range nearest 0, and a smaller draw is a value no
+// farther from it: 0, 1, -1, 2, -2, … while both sides last, then on
+// along the longer side.
+func IntIn(lo int, hi int) int needs Draws {
+	if hi <= lo {
+		return lo
+	}
+	let o = if lo > 0 { lo } else if hi < 0 { hi } else { 0 }
+	let k = Draws.Draw(uint64(hi) - uint64(lo) + uint64(1))
+	ranked(o, uint64(hi)-uint64(o), uint64(o)-uint64(lo), k)
+}
+
+// ranked is the k-th value from o by distance, with up values above o
+// and down below it; at one distance the value above comes first.
+func ranked(o int, up uint64, down uint64, k uint64) int {
+	let m = if up < down { up } else { down }
+	let step = k/uint64(2) + k%uint64(2)
+	if step <= m {
+		if k == uint64(0) {
+			return o
+		}
+		if k%uint64(2) == uint64(1) {
+			return int(uint64(o) + step)
+		}
+		return int(uint64(o) - step)
+	}
+	let rest = k - m - m
+	if up > down {
+		return int(uint64(o) + m + rest)
+	}
+	int(uint64(o) - m - rest)
+}
+
+// OneOf is a drawn element of xs; the first is the simplest. An empty xs
+// is a defect.
+func OneOf[T](xs []T) T needs Draws { xs[int(Draws.Draw(uint64(len(xs))))] }
+
+// ListOf is a list of min to max elements drawn by g. Past min, each
+// element is preceded by a draw that ends the list at 0, so a list at
+// size n has about n elements past min. Each element, with its draw, is a
+// span: a shrink deletes an element whole.
+func ListOf[T](g func() T needs Draws, min int, max int) []T needs Draws {
+	let mut xs = []T{}
+	let stop = uint64(Draws.CaseSize() + 1)
+	for len(xs) < max {
+		Draws.Begin("")
+		if len(xs) >= min && Draws.Draw(stop) == uint64(0) {
+			Draws.End()
+			break
+		}
+		xs = xs.Append(g())
+		Draws.End()
+	}
+	xs
+}
+
+// Named is g's value, shown in the report as label = show(value).
+func Named[T](label string, show func(v T) string, g func() T needs Draws) T needs Draws {
+	Draws.Begin(label)
+	let v = g()
+	Draws.End()
+	Draws.Show(label, show(v))
+	v
+}
+
+// Assume rejects the case unless c holds: a rejected case does not count.
+func Assume(c bool) fails Rejected {
+	if !c {
+		return Rejected
+	}
+}
+
+// run runs body once on src.
+func run(src source, body func() bool fails Rejected needs Draws) Ran {
+	let holds = with context { Draws: src } { body() } catch {
+	case Rejected:
+		return ranOf(src, false, true)
+	}
+	ranOf(src, !holds, false)
+}
+
+func ranOf(src source, failed bool, rejected bool) Ran {
+	let s = src.st.Get()
+	Ran{Fails: failed && !s.overrun, Rejected: rejected, Overrun: s.overrun, Tape: Tape{Size: s.size, Draws: s.used}, Shown: s.shown, spans: s.spans}
+}
+
+// Replay is one run of body from t: the case t records.
+func Replay(t Tape, body func() bool fails Rejected needs Draws) Ran {
+	run(replaying(t, Defaults().MaxDraws), body)
+}
+
+// ReplayGivesTheSameDraws: a recorded case of seeds 1 to 4, replayed from
+// its tape, reads the same draws and shows the same values.
+law ReplayGivesTheSameDraws() {
+	let body = noneAtLeast(101)
+	let mut ok = true
+	for s in 1..5 {
+		let r = run(recording(uint64(s), 40, 8192), body)
+		let again = Replay(r.Tape, body)
+		ok = ok && len(r.Tape.Draws) > 0 && again.Tape == r.Tape && again.Shown == r.Shown && !again.Fails
+	}
+	ok
+}
+
+// ZeroIsSimplest: the empty tape gives each generator its simplest value:
+// the integer of the range nearest 0, false, the first element, a list of
+// min simplest elements.
+law ZeroIsSimplest() {
+	!Replay(Tape{Size: 5, Draws: []uint64{}}, func() bool fails Rejected needs Draws {
+		let a = IntIn(-5, 9) == 0 && IntIn(3, 9) == 3 && IntIn(-9, -2) == -2
+		let b = !Bool() && OneOf([]int{7, 8}) == 7 && Below(uint64(0)) == uint64(0)
+		let xs = ListOf(func() int needs Draws { IntIn(4, 6) }, 2, 5)
+		a && b && xs == []int{4, 4}
+	}).Fails
+}
+
+// IntInRanksByDistance: for small ranges, the draws 0, 1, 2, … give the
+// range's values in order of their distance from the value nearest 0,
+// the one above first at a tie, each value once.
+law IntInRanksByDistance(lo int8, width uint8) {
+	let l = int(lo)
+	let h = l + int(width%uint8(20))
+	let mut ok = true
+	let mut prev = -1
+	let mut seen = []int{}
+	let o = if l > 0 { l } else if h < 0 { h } else { 0 }
+	for k in 0..(h - l + 1) {
+		let v = Replay(Tape{Size: 0, Draws: []uint64{uint64(k)}}, func() bool fails Rejected needs Draws { IntIn(l, h) == ranked(o, uint64(h)-uint64(o), uint64(o)-uint64(l), uint64(k)) }).Fails
+		let x = ranked(o, uint64(h)-uint64(o), uint64(o)-uint64(l), uint64(k))
+		let d = if x > o { x - o } else { o - x }
+		ok = ok && !v && x >= l && x <= h && d >= prev && !slices.Contains(seen, x)
+		seen = seen.Append(x)
+		prev = d
+	}
+	ok
+}
+
+// Check runs body over cfg.Cases cases drawn from cfg.Seed. Case k (from
+// 1) has size (k-1)/4. A rejected or cut run draws another case; more
+// than cfg.MaxRejected of them give up. The first failing case is shrunk.
+func Check(cfg Config, body func() bool fails Rejected needs Draws) Outcome {
+	let mut held = 0
+	let mut rejected = 0
+	let mut k = 0
+	for held < cfg.Cases {
+		if rejected > cfg.MaxRejected {
+			return GaveUp{Cases: held, Rejected: rejected}
+		}
+		let r = run(recording(cfg.Seed, k, cfg.MaxDraws), body)
+		k = k + 1
+		if r.Rejected || r.Overrun {
+			rejected = rejected + 1
+			continue
+		}
+		if r.Fails {
+			let (t, tries) = Shrink(cfg, r.Tape, body)
+			let s = run(replaying(t, cfg.MaxDraws), body)
+			return Refuted{Seed: cfg.Seed, Of: cfg.Cases, Found: Case{Number: k, Tape: r.Tape, Shown: r.Shown}, Shrunk: Case{Number: k, Tape: s.Tape, Shown: s.Shown}, Shrinks: tries}
+		}
+		held = held + 1
+	}
+	Held{Cases: held, Rejected: rejected}
+}
+
+// RejectedIsNotACase: a body that rejects about half its runs still holds
+// for cfg.Cases counted cases, with the rejected runs counted apart; one
+// that rejects every run gives up and is no pass.
+law RejectedIsNotACase() {
+	let some = Check(lawConfig(uint64(1)), func() bool fails Rejected needs Draws {
+		try Assume(Bool())
+		true
+	})
+	let all = Check(Config{..lawConfig(uint64(1)), MaxRejected: 30}, func() bool fails Rejected needs Draws {
+		try Assume(false)
+		true
+	})
+	let counted = match some {
+	case Held as h:
+		h.Cases == 20 && h.Rejected > 0
+	case Refuted:
+		false
+	case GaveUp:
+		false
+	}
+	let gaveUp = match all {
+	case GaveUp as g:
+		g.Cases == 0 && g.Rejected == 31
+	case Held:
+		false
+	case Refuted:
+		false
+	}
+	counted && gaveUp && Report(all) != ""
+}
+
+// Shrink is the smallest failing tape it finds from t, a failing tape,
+// and the replays it made (at most cfg.Shrinks). A candidate is kept when
+// its run fails, is not rejected or cut, and reads a tape smaller in
+// shortlex order (shorter, else lower at the first difference) than the
+// best so far; shortlex is a well-order, so the shrink ends. The passes,
+// repeated until one keeps nothing: delete each span; delete a chunk of
+// 8, 4, 2 or 1 draws; set a chunk of 8, 4 or 2 to zero; lower each draw,
+// to zero, then by a binary search and by single decrements.
+func Shrink(cfg Config, t Tape, body func() bool fails Rejected needs Draws) (Tape, int) {
+	let first = run(replaying(t, cfg.MaxDraws), body)
+	let mut best = first.Tape
+	let mut spans = first.spans
+	let mut tries = 0
+	let mut improved = true
+	for improved && tries < cfg.Shrinks {
+		improved = false
+		let mut i = 0
+		for i < len(spans) && tries < cfg.Shrinks {
+			let sp = spans[i]
+			if sp.start < sp.end && sp.end <= len(best.Draws) {
+				tries = tries + 1
+				let r = run(replaying(Tape{Size: best.Size, Draws: cut(best.Draws, sp.start, sp.end)}, cfg.MaxDraws), body)
+				if kept(r, best) {
+					best = r.Tape
+					spans = r.spans
+					improved = true
+					continue
+				}
+			}
+			i = i + 1
+		}
+		for w in []int{8, 4, 2, 1} {
+			let mut j = 0
+			for j+w <= len(best.Draws) && tries < cfg.Shrinks {
+				tries = tries + 1
+				let r = run(replaying(Tape{Size: best.Size, Draws: cut(best.Draws, j, j+w)}, cfg.MaxDraws), body)
+				if kept(r, best) {
+					best = r.Tape
+					spans = r.spans
+					improved = true
+					continue
+				}
+				j = j + 1
+			}
+		}
+		for w in []int{8, 4, 2} {
+			let mut j = 0
+			for j+w <= len(best.Draws) && tries < cfg.Shrinks {
+				let c = zeroed(best.Draws, j, j+w)
+				if c != best.Draws {
+					tries = tries + 1
+					let r = run(replaying(Tape{Size: best.Size, Draws: c}, cfg.MaxDraws), body)
+					if kept(r, best) {
+						best = r.Tape
+						spans = r.spans
+						improved = true
+					}
+				}
+				j = j + 1
+			}
+		}
+		let mut d = 0
+		for d < len(best.Draws) && tries < cfg.Shrinks {
+			let v = best.Draws[d]
+			if v == uint64(0) {
+				d = d + 1
+				continue
+			}
+			tries = tries + 1
+			let r0 = run(replaying(Tape{Size: best.Size, Draws: setAt(best.Draws, d, uint64(0))}, cfg.MaxDraws), body)
+			if kept(r0, best) {
+				best = r0.Tape
+				spans = r0.spans
+				improved = true
+				d = d + 1
+				continue
+			}
+			// best.Draws[d] fails and lo does not: search the gap, then
+			// step down while a decrement still fails.
+			let mut lo = uint64(0)
+			for d < len(best.Draws) && best.Draws[d]-lo > uint64(2) && tries < cfg.Shrinks {
+				let mid = lo + (best.Draws[d]-lo)/uint64(2)
+				tries = tries + 1
+				let r = run(replaying(Tape{Size: best.Size, Draws: setAt(best.Draws, d, mid)}, cfg.MaxDraws), body)
+				if kept(r, best) {
+					best = r.Tape
+					spans = r.spans
+					improved = true
+				} else {
+					lo = mid
+				}
+			}
+			for d < len(best.Draws) && best.Draws[d] > uint64(0) && tries < cfg.Shrinks {
+				tries = tries + 1
+				let r = run(replaying(Tape{Size: best.Size, Draws: setAt(best.Draws, d, best.Draws[d]-uint64(1))}, cfg.MaxDraws), body)
+				if !kept(r, best) {
+					break
+				}
+				best = r.Tape
+				spans = r.spans
+				improved = true
+			}
+			d = d + 1
+		}
+	}
+	(best, tries)
+}
+
+// ShrunkStillFails: on seeds 1 to 4, the shrunk tape of a refuted list
+// property replays to a failure and is no larger in shortlex order than
+// the found one.
+law ShrunkStillFails() {
+	let mut ok = true
+	for s in 1..5 {
+		match Check(lawConfig(uint64(s)), noneAtLeast(30)) {
+		case Refuted as r:
+			ok = ok && Replay(r.Shrunk.Tape, noneAtLeast(30)).Fails && !shortlexLess(r.Found.Tape.Draws, r.Shrunk.Tape.Draws)
+		case Held:
+			ok = false
+		case GaveUp:
+			ok = false
+		}
+	}
+	ok
+}
+
+// ShrinkingEnds: with a budget far above the need, the shrink stops at a
+// fixpoint, before the budget (a count of replays, never a time).
+law ShrinkingEnds() {
+	let cfg = Config{..lawConfig(uint64(2)), Shrinks: 100000}
+	match Check(cfg, noneAtLeast(30)) {
+	case Refuted as r:
+		r.Shrinks < 100000
+	case Held:
+		false
+	case GaveUp:
+		false
+	}
+}
+
+// ShrinkIsLocallyMinimal: from the shrunk tape, deleting any one span and
+// lowering any one draw by one each give a run that is not a smaller
+// failure.
+law ShrinkIsLocallyMinimal() {
+	let body = noneAtLeast(30)
+	match Check(lawConfig(uint64(1)), body) {
+	case Refuted as r:
+		let t = r.Shrunk.Tape
+		let again = Replay(t, body)
+		let mut ok = again.Fails
+		for sp in again.spans {
+			ok = ok && !kept(Replay(Tape{Size: t.Size, Draws: cut(t.Draws, sp.start, sp.end)}, body), t)
+		}
+		for i in 0..len(t.Draws) {
+			if t.Draws[i] > uint64(0) {
+				ok = ok && !kept(Replay(Tape{Size: t.Size, Draws: setAt(t.Draws, i, t.Draws[i]-uint64(1))}, body), t)
+			}
+		}
+		ok
+	case Held:
+		false
+	case GaveUp:
+		false
+	}
+}
+
+// ShrinkReachesTheBoundary: for "n is below k", monotone in one drawn
+// integer, the shrunk n is the least failing value a search of every n
+// in 0..1000 finds.
+law ShrinkReachesTheBoundary() {
+	let mut ok = true
+	for k in []int{1, 7, 300} {
+		let mut least = -1
+		for v in 0..1001 {
+			if least < 0 && !(v < k) {
+				least = v
+			}
+		}
+		match Check(lawConfig(uint64(1)), below(k)) {
+		case Refuted as r:
+			ok = ok && len(r.Shrunk.Shown) == 1 && r.Shrunk.Shown[0].Text == "\(least)"
+		case Held:
+			ok = false
+		case GaveUp:
+			ok = false
+		}
+	}
+	ok
+}
+
+// SpanDeletesAnElement: "no element is 50 or more" shrinks to the list
+// of the one element 50: every other element is deleted whole.
+law SpanDeletesAnElement() {
+	let mut ok = true
+	for s in 1..4 {
+		match Check(lawConfig(uint64(s)), noneAtLeast(50)) {
+		case Refuted as r:
+			ok = ok && len(r.Shrunk.Shown) == 1 && r.Shrunk.Shown[0].Text == "[]int{50}"
+		case Held:
+			ok = false
+		case GaveUp:
+			ok = false
+		}
+	}
+	ok
+}
+
+// SpanDeletesARow: a case of two rows of twelve draws, the first without
+// a 9, shrinks under "no row holds a 9" to the second row alone in two
+// replays (the first deletes the named span, the whole value, which
+// passes): the span of a whole row, 13 draws with its stop draw, is the
+// next deletion tried, which no chunk of at most 8 draws is.
+law SpanDeletesARow() {
+	let mut a = []uint64{uint64(1)}
+	for i in 0..12 {
+		a = a.Append(uint64(1 + i%3))
+	}
+	a = a.Append(uint64(1))
+	for i in 0..11 {
+		a = a.Append(uint64(0 * i))
+	}
+	a = a.Append(uint64(9))
+	a = a.Append(uint64(0))
+	let found = Tape{Size: 2, Draws: a}
+	let (t, tries) = Shrink(Config{..lawConfig(uint64(1)), Shrinks: 2}, found, noNine())
+	let r = Replay(t, noNine())
+	Replay(found, noNine()).Fails && r.Fails && tries == 2 && len(t.Draws) == 14 && len(r.Shown) == 1 && strings.Count(r.Shown[0].Text, "[]int{") == 2
+}
+
+// kept reports whether run r is a shrink of best: it fails, counts, and
+// read a tape smaller in shortlex order.
+func kept(r Ran, best Tape) bool { r.Fails && !r.Rejected && !r.Overrun && shortlexLess(r.Tape.Draws, best.Draws) }
+
+// shortlexLess orders tapes by length, then by their first difference.
+func shortlexLess(a []uint64, b []uint64) bool {
+	if len(a) != len(b) {
+		return len(a) < len(b)
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	false
+}
+
+// cut is xs without its draws from i up to j.
+func cut(xs []uint64, i int, j int) []uint64 {
+	let mut out = []uint64{}
+	for k in 0..len(xs) {
+		if k < i || k >= j {
+			out = out.Append(xs[k])
+		}
+	}
+	out
+}
+
+// zeroed is xs with its draws from i up to j set to 0.
+func zeroed(xs []uint64, i int, j int) []uint64 {
+	let mut out = []uint64{}
+	for k in 0..len(xs) {
+		out = out.Append(if k >= i && k < j { uint64(0) } else { xs[k] })
+	}
+	out
+}
+
+// setAt is xs with draw i set to v.
+func setAt(xs []uint64, i int, v uint64) []uint64 {
+	let mut out = xs
+	out[i] = v
+	out
+}
+
+// Report is o as text: empty when it held, else the outcome with the
+// seed, each named draw of the shrunk case, the found case's when they
+// differ, and a replay call whose tape is the shrunk case.
+func Report(o Outcome) string {
+	match o {
+	case Held:
+		""
+	case GaveUp as g:
+		"gave up: \(g.Rejected) runs rejected, \(g.Cases) cases held"
+	case Refuted as r:
+		let mut lines = []string{"refuted (case \(r.Found.Number) of \(r.Of), seed \(r.Seed), size \(r.Found.Tape.Size); \(r.Shrinks) shrinks):"}
+		for s in r.Shrunk.Shown {
+			lines = lines.Append("\t\(s.Label) = \(s.Text)")
+		}
+		if r.Found.Tape.Draws != r.Shrunk.Tape.Draws {
+			lines = lines.Append("\tshrunk from: \(shownText(r.Found.Shown))")
+		}
+		lines = lines.Append("\treplay: \(ReplayText(r.Shrunk.Tape))")
+		strings.Join(lines, "\n")
+	}
+}
+
+// shownText is the named draws on one line.
+func shownText(xs []Shown) string {
+	let mut parts = []string{}
+	for s in xs {
+		parts = parts.Append("\(s.Label) = \(s.Text)")
+	}
+	if len(parts) == 0 {
+		return "no named draws"
+	}
+	strings.Join(parts, ", ")
+}
+
+// ReplayText is the call that replays tape t on the property's body.
+func ReplayText(t Tape) string {
+	let mut ds = []string{}
+	for d in t.Draws {
+		ds = ds.Append("\(d)")
+	}
+	"gen.Replay(gen.Tape{Size: \(t.Size), Draws: []uint64{\(strings.Join(ds, ", "))}}, body)"
+}
+
+// ReportNamesSeedDrawsReplay: a refuted run's report names the seed, the
+// shrunk named draw, the found one, and a replay call; the tape the call
+// names replays to a failure; a held run's report is empty.
+law ReportNamesSeedDrawsReplay() {
+	let o = Check(lawConfig(uint64(3)), below(7))
+	match o {
+	case Refuted as r:
+		let text = Report(o)
+		strings.Contains(text, "seed 3") && strings.Contains(text, "\tn = 7\n") && strings.Contains(text, "shrunk from: n = ") && strings.Contains(text, "\treplay: "+ReplayText(r.Shrunk.Tape)) && Replay(r.Shrunk.Tape, below(7)).Fails && Report(Check(lawConfig(uint64(3)), below(1001))) == ""
+	case Held:
+		false
+	case GaveUp:
+		false
+	}
+}
+
+// Run is a harnessed test's run (runtime.md, Tests: harnesses): the
+// test's name, the runner's --seed and the test's site, file:line.
+type Run { Name string, Seed uint64, Site string }
+
+// Failed is a harnessed test's failure: the failed assert, the report
+// and the command that replays it.
+type Failed { Message string }
+
+// Property is Draws' test harness: a test whose body draws runs as a
+// property. Its cases come from the run's seed mixed with the test's
+// name, so two tests of one body draw different cases; a failing case is
+// shrunk and reported with the assert that failed on it, its named draws
+// and the ergo test command that replays it.
+func Property(run Run, body func() fails Failed needs Draws) fails Failed {
+	let cfg = Config{..Defaults(), Seed: nameSeed(run.Seed, run.Name)}
+	let o = Check(cfg, func() bool fails Rejected needs Draws { holdsOn(body) })
+	let report = match o {
+	case Refuted as r:
+		let shown = Refuted{Seed: run.Seed, Of: r.Of, Found: r.Found, Shrunk: r.Shrunk, Shrinks: r.Shrinks}
+		"\(failureOf(r.Shrunk.Tape, cfg.MaxDraws, body))\n\(Report(shown))\n\tat \(run.Site)\n\treplay: ergo test --run \(run.Name) --seed \(run.Seed)"
+	case GaveUp:
+		Report(o)
+	case Held:
+		""
+	}
+	if report != "" {
+		return Failed{Message: report}
+	}
+}
+
+// holdsOn is whether body holds on the case being drawn.
+func holdsOn(body func() fails Failed needs Draws) bool needs Draws {
+	body() catch {
+	case Failed:
+		return false
+	}
+	true
+}
+
+// failureOf is the failure body reports on the case of tape t: the assert
+// that failed on it.
+func failureOf(t Tape, max int, body func() fails Failed needs Draws) string {
+	with context { Draws: replaying(t, max) } { body() } catch {
+	case Failed as f:
+		return f.Message
+	}
+	""
+}
+
+// nameSeed is seed mixed with name (FNV-1a of its bytes, then splitmix).
+func nameSeed(seed uint64, name string) uint64 {
+	let mut h = fnvOffset
+	for b in name.Bytes() {
+		h = (h ^ uint64(b)) * fnvPrime
+	}
+	splitmix(seed ^ h)
+}
+
+let fnvOffset uint64 = 0xcbf29ce484222325
+let fnvPrime uint64 = 0x100000001b3
+
+// PropertyReportsTheShrunkAssert: a body that fails for n of 7 or more
+// fails Property with the assert's text, the shrunk n = 7, the run's seed
+// and the replay command; one that holds does not fail; two names draw
+// two streams.
+law PropertyReportsTheShrunkAssert() {
+	let failing = func() fails Failed needs Draws {
+		if Named("n", func(v int) string { "\(v)" }, func() int needs Draws { IntIn(0, 1000) }) >= 7 {
+			return Failed{Message: "assert failed at x.ergo:3:2: n < 7"}
+		}
+	}
+	let run = Run{Name: "T", Seed: uint64(5), Site: "x.ergo:2"}
+	let text = messageOf(run, failing)
+	let held = messageOf(run, func() fails Failed needs Draws { let _ = IntIn(0, 9) }) == ""
+	held && strings.HasPrefix(text, "assert failed at x.ergo:3:2: n < 7\nrefuted (") && strings.Contains(text, "seed 5") && strings.Contains(text, "\tn = 7\n") && strings.Contains(text, "\tat x.ergo:2\n\treplay: ergo test --run T --seed 5") && nameSeed(uint64(5), "T") != nameSeed(uint64(5), "U")
+}
+
+// messageOf is the message Property fails with on body, or "".
+func messageOf(run Run, body func() fails Failed needs Draws) string {
+	Property(run, body) catch {
+	case Failed as f:
+		return f.Message
+	}
+	""
+}
+
+// lawConfig is the small run the laws use: 20 cases, 300 replays a
+// shrink, so a law stays within the evaluator's step budget.
+func lawConfig(seed uint64) Config { Config{..Defaults(), Seed: seed, Cases: 20, Shrinks: 300} }
+
+// below is the property "a named draw n of 0..1000 is below k".
+func below(k int) func() bool fails Rejected needs Draws {
+	func() bool fails Rejected needs Draws { Named("n", func(v int) string { "\(v)" }, func() int needs Draws { IntIn(0, 1000) }) < k }
+}
+
+// noneAtLeast is the property "no element of a drawn list of 0..100 is
+// k or more".
+func noneAtLeast(k int) func() bool fails Rejected needs Draws {
+	func() bool fails Rejected needs Draws {
+		let xs = Named("xs", showInts, func() []int needs Draws { ListOf(func() int needs Draws { IntIn(0, 100) }, 0, 10) })
+		let mut ok = true
+		for x in xs {
+			ok = ok && x < k
+		}
+		ok
+	}
+}
+
+// noNine is the property "no row of a drawn list of rows of twelve
+// elements of 0..9 holds a 9": a row and its stop draw are 13 draws.
+func noNine() func() bool fails Rejected needs Draws {
+	func() bool fails Rejected needs Draws {
+		let rows = Named("rows", showRows, func() [][]int needs Draws { ListOf(func() []int needs Draws { ListOf(func() int needs Draws { IntIn(0, 9) }, 12, 12) }, 0, 3) })
+		let mut ok = true
+		for r in rows {
+			for x in r {
+				ok = ok && x != 9
+			}
+		}
+		ok
+	}
+}
+
+// showRows is rows as an Ergo literal.
+func showRows(rows [][]int) string {
+	let mut parts = []string{}
+	for r in rows {
+		parts = parts.Append(showInts(r))
+	}
+	"[][]int{\(strings.Join(parts, ", "))}"
+}
+
+// showInts is xs as an Ergo literal.
+func showInts(xs []int) string {
+	let mut parts = []string{}
+	for x in xs {
+		parts = parts.Append("\(x)")
+	}
+	"[]int{\(strings.Join(parts, ", "))}"
+}
