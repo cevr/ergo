@@ -80,7 +80,7 @@ func indented(text string, prefix string, indent string) string {
 }
 
 // newline takes the output buffer so every append can use its spare room.
-func newline(out own []byte, prefix string, indent string, depth int) []byte {
+func newline(out []byte, prefix string, indent string, depth int) []byte {
 	let mut b = out
 	b = b.Append('\n')
 	b = b.AppendString(prefix)
