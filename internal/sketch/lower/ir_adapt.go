@@ -39,14 +39,84 @@ func trailing(x *syntax.CallExpr) int {
 	return 0
 }
 
+// givenFunc is a parameter of an adapter (task is set: adaptTaskFunc's
+// shape) that takes a plain Go function the std body gives the callback,
+// of the Ergo function type t with no result and an empty row: w is the value
+// the callback receives, a literal of t's uniform shape that calls it and
+// returns no failure; local and gt are the adapter's parameter (its
+// local and Go type).
+func (b *irBuilder) givenFunc(t check.Type, task bool, site syntax.Node, p irPos) (w *irExpr, local int, gt string) {
+	ps, ok := t.(*check.Signature)
+	if !task || !ok || len(ps.Results) != 0 || len(rowElems(ps.Errors)) != 0 || len(rowElems(ps.Uses)) != 0 {
+		irNo("std call that adapts a function the body gives a function")
+	}
+	var goParams []string
+	for _, q := range ps.Params {
+		goParams = append(goParams, b.goType(q.Type, site))
+	}
+	gt = "func(" + strings.Join(goParams, ", ") + ")"
+	local = b.temp("p", gt, p)
+	env := b.temp("env", b.envPointer(), p)
+	w = &irExpr{K: "func", Pos: p, T: b.goType(t, site), Params: []int{env}}
+	call := &irExpr{K: "vcall", Pos: p, X: &irExpr{K: "local", Pos: p, I: local}}
+	for _, gp := range goParams {
+		a := b.temp("a", gp, p)
+		w.Params = append(w.Params, a)
+		call.Args = append(call.Args, &irExpr{K: "local", Pos: p, I: a})
+	}
+	end := p
+	w.Body = b.unitReturns([]*irStmt{{K: "expr", Pos: p, X: call}}, end)
+	w.End = &end
+	return w, local, gt
+}
+
+// adaptSlice is the adapter of e, the IR of a slice of Ergo function
+// values (the operand at site), to a std body's slice of Go functions of
+// shape (tasks.Race's blocks), as the emitter's adaptFuncs writes it: a
+// new slice of e's length whose element i adapts e's element i
+// (adaptOperand), each bound where the call is made.
+func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr) {
+	x, ok := site.(syntax.Expr)
+	if !ok {
+		irNo("std call that adapts a slice of functions") // a trailing block is one function
+	}
+	t := b.l.info.Types[x]
+	if n, ok := t.(*check.Named); ok {
+		t = n.Underlying()
+	}
+	s, ok := t.(*check.Slice)
+	if !ok {
+		irNo("std call that adapts a slice of functions")
+	}
+	sig, ok := s.Elem.(*check.Signature)
+	if !ok {
+		irNo("std call that adapts a slice of functions")
+	}
+	fs := b.temp("fs", b.goType(t, site), p)
+	f := b.temp("f", b.goType(s.Elem, site), p)
+	i := b.temp("i", "int", p)
+	q.Func, q.Funcs = q.Funcs, nil // each element takes the slice's shape
+	bind, lit, _ := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, q, p)
+	out := b.temp("blocks", "[]"+lit.T, p)
+	mk := &irExpr{K: "builtin", Pos: p, Name: "make", T: "[]" + lit.T, Args: []*irExpr{{K: "len", Pos: p, X: &irExpr{K: "local", Pos: p, I: fs}}}}
+	body := append(bind, &irStmt{K: "store", Pos: p, X: &irExpr{K: "index", Pos: p, X: &irExpr{K: "local", Pos: p, I: out}, Y: &irExpr{K: "local", Pos: p, I: i}}, Y: lit})
+	return []*irStmt{
+		{K: "def", Pos: p, Local: fs, X: e},
+		{K: "def", Pos: p, Local: out, X: mk},
+		{K: "range", Pos: p, End: p, X: &irExpr{K: "local", Pos: p, I: fs}, Key: &i, Val: &f, Body: body},
+	}, &irExpr{K: "local", Pos: p, I: out}
+}
+
 // adaptOperand is the adapter of e, the IR of a function value of the
 // signature sig (the operand at site), to the Go parameter q of a std
-// body, the statements that bind e first, and the definition of the
-// child environment if the adapter makes one.
+// body. It returns the binding statements, the adapted value, and the
+// child environment definition for a single task callback. Each adapter
+// in a slice keeps its own child environment.
 func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr, *irStmt) {
 	shape := q.Func
 	if q.Funcs != nil {
-		irNo("std call that adapts a slice of functions")
+		pre, slice := b.adaptSlice(site, e, q, p)
+		return pre, slice, nil
 	}
 	if b.env < 0 {
 		irNo("std call that adapts a function from a pure function")
@@ -106,7 +176,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 		t := b.temp("t", tt, p)
 		params = append(params, tt)
 		lit.Params = append(lit.Params, t)
-		cp := b.temp("e", b.l.env(), p)
+		cp := b.temp("e", b.envValue(), p)
 		frame = &irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: env}}
 		lit.Body = append(lit.Body, frame,
 			&irStmt{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: cp}}, Y: &irExpr{K: "local", Pos: p, I: t}})
@@ -114,10 +184,18 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	}
 	call := &irExpr{K: "vcall", Pos: b.litCallPos(site, e, p), X: fv, Args: []*irExpr{env}}
 	for i, sp := range sig.Params {
-		if shape.Params[i].Func != nil {
-			irNo("std call that adapts a function the body gives a function")
-		}
 		gt := b.goType(sp.Type, site)
+		if shape.Params[i].Func != nil {
+			// A function the Go body gives the callback (the send of
+			// actor.StartMachine's work, MU4): a plain Go function,
+			// passed to the value in the uniform shape (the emitter's
+			// adaptTaskFunc wraps it the same way).
+			w, gl, gfn := b.givenFunc(sp.Type, task, site, p)
+			params = append(params, gfn)
+			lit.Params = append(lit.Params, gl)
+			call.Args = append(call.Args, w)
+			continue
+		}
 		local := b.temp("p", gt, p)
 		params = append(params, gt)
 		lit.Params = append(lit.Params, local)

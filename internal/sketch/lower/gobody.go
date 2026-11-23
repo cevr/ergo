@@ -85,6 +85,42 @@ func goBodyMakes(name string) bool {
 	return ok && returns > 0
 }
 
+// goBodySliceCapacity recognizes exactly return make([]T, 0, n), with
+// n the only parameter and []T the result. There is no other evaluation,
+// and []T in a value-argument position identifies the builtin, not a
+// function shadowing make. The selected runtime body, not its name,
+// authorizes the IR to spell the allocation directly.
+func goBodySliceCapacity(name string) bool {
+	fd := goBodies()[name]
+	if fd == nil || fd.Type.Params == nil || len(fd.Type.Params.List) != 1 ||
+		fd.Type.Results == nil || len(fd.Type.Results.List) != 1 || len(fd.Body.List) != 1 {
+		return false
+	}
+	p, r := fd.Type.Params.List[0], fd.Type.Results.List[0]
+	if len(p.Names) != 1 || len(r.Names) != 0 {
+		return false
+	}
+	ret, ok := fd.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(ret.Results) != 1 || !madeValue(ret.Results[0]) {
+		return false
+	}
+	call, ok := ret.Results[0].(*ast.CallExpr)
+	if !ok || len(call.Args) != 3 || call.Ellipsis.IsValid() {
+		return false
+	}
+	made, mok := call.Args[0].(*ast.ArrayType)
+	res, rok := r.Type.(*ast.ArrayType)
+	if !mok || !rok || made.Len != nil || res.Len != nil {
+		return false
+	}
+	a, aok := made.Elt.(*ast.Ident)
+	b, bok := res.Elt.(*ast.Ident)
+	n, nok := call.Args[2].(*ast.Ident)
+	z, zok := call.Args[1].(*ast.BasicLit)
+	return aok && bok && a.Name == b.Name && nok && n.Name == p.Names[0].Name &&
+		zok && z.Kind == token.INT && z.Value == "0"
+}
+
 // madeValue reports a Go expression whose value is new memory with no
 // part of anything else: make(…) or nil.
 func madeValue(x ast.Expr) bool {

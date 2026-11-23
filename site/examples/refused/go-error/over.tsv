@@ -1,0 +1,3 @@
+package	examples/admit
+file	semaphore/semaphore.ergo
+replace	45-48

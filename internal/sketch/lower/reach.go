@@ -205,15 +205,10 @@ func (r *reach) decoded(info *check.Info, t check.Type) {
 			walk(p.Base)
 			return
 		}
-		if n, ok := t.(*check.Named); ok && check.RefinementOf(t) != nil && n.Obj.Pkg != nil && r.l.isSourced(n.Obj.Pkg) {
-			// A refined type decodes through its derived ParseN
-			// (types.md, Refinements 4).
-			name := syntax.ParseName(n.Obj.Name)
-			for _, f := range r.l.canon.funcs(n.Obj.Pkg) {
-				if f.Name == name {
-					r.object(f)
-				}
-			}
+		if parse := check.RefinedParse(t); parse != nil {
+			// The same declaration the decoder calls. object queues it
+			// only if its declaration is in this reachability graph.
+			r.object(parse)
 			return
 		}
 		switch u := wireUnder(t).(type) {

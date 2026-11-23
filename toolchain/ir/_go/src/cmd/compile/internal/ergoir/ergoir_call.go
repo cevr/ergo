@@ -13,8 +13,12 @@ import (
 
 // ergoRangeTypes is the key and the element type of Go's range over a
 // value of type t: a slice's index and element, a map's key and value, a
-// string's byte offset and rune; nil and nil for any other type.
+// string's byte offset and rune; one integer of the bound's type for
+// an integer range; nil and nil for an unsupported type.
 func ergoRangeTypes(t types2.Type) (key, elem types2.Type) {
+	if ergoIsInteger(t) {
+		return t, nil
+	}
 	switch u := types2.CoreType(t).(type) {
 	case *types2.Slice:
 		return types2.Typ[types2.Int], u.Elem()

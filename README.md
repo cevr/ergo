@@ -1,36 +1,15 @@
 # Ergo
 
-Ergo reads like Go and compiles to plain Go. What Go leaves to convention, Ergo writes in the signature: every expected failure, every service a function needs, every cleanup, every task and every rule that must always hold. The compiler checks all of it, then erases it, so the Go it emits is the Go you would write by hand.
+**Failures handled. Services supplied. Laws tested. ∴ ship it.**
 
+What Go leaves to convention, Ergo checks. Ergo reads like Go and compiles to Go. Every failure, every service and every law is written in the signature; the compiler checks them, then erases them, so the program costs what the Go you would write by hand costs.
+
+## The compiler refuses the mistake
+
+<!-- quote site/examples/checked/lookup/lookup.ergo 19-31 -->
 ```go
-import timeout
-
-type NotFound { Name string }
-type Answer { Name string, Addr string }
-
-// An operation type: the service a caller must supply, with its contract.
-type Resolver {
-	Resolve(name string) Answer fails NotFound,
-
-	// A lookup that succeeds answers the name asked, with an address.
-	law Answered(name string) {
-		let answer = Resolve(name) catch {
-		case NotFound:
-			return true
-		}
-		Answered(answer, name)
-	},
-}
-
-// Answered reports whether answer is for name and has an address: the
-// law's check, which a provider's test calls.
-func Answered(answer Answer, name string) bool {
-	answer.Name == name && answer.Addr != ""
-}
-
-// A signature lists every expected failure and every service the caller must supply.
 func Lookup(name string) Answer fails NotFound | timeout.Expired needs Resolver | Scheduler {
-	timeout.After(2s) { Resolver.Resolve(name) } // the block runs as a child task; at 2s it is stopped
+	timeout.After(2s) { Resolver.Resolve(name) }
 }
 
 func Address(name string) string needs Resolver | Scheduler {
@@ -44,221 +23,150 @@ func Address(name string) string needs Resolver | Scheduler {
 }
 ```
 
-The binary binds the contract to providers in a context. Package `memory` holds two of them, `Static`, which answers, and `Empty`; the binary's context `Memory` binds `hosts.Resolver` to `Static`:
+Forget the timeout, or call a service the signature does not name, and the program does not build:
 
-```go
-import lookup/hosts
-import lookup/memory
-import time
-
-// This binary is the only place that chooses the providers. Memory binds
-// the static resolver and a time.Manual, so a test needs no host; main
-// replaces the Manual with the host's scheduler, which needs Ambient.
-let Memory = context { Scheduler: time.NewManual(0), hosts.Resolver: memory.Static }
-let Missing = context { Memory, replace hosts.Resolver: memory.Empty }
-
-func main() needs Console | Ambient {
-	let live = context { Memory, replace Scheduler: NewLiveScheduler() }
-	Console.Println(with live { hosts.Address("example.org") })
-}
-
-test ResolveAnswers {
-	let answer = try with Memory { hosts.Lookup("example.org") }
-	assert answer.Name == "example.org"
-}
-
-test NotFoundIsHandled {
-	assert with Missing { hosts.Address("example.org") } == "unknown"
-}
-```
-
-From the signature alone you know how `Lookup` can fail and what it needs. `Address` catches both failures, so its own signature has no `fails`. The law `Answered` states what every provider of `Resolver` must keep. The binary is the one place that chooses providers, and `Missing` keeps every provider of `Memory` and replaces one, so the tests swap providers without a mock framework. Only `main` holds `Ambient`, the authority to choose the host, so only `main` binds the host's scheduler. In Go, `try` becomes `if err != nil`, and the rows disappear. This program is [examples/lookup](examples/lookup/cmd/lookup/main.ergo): `ergo run` prints `192.0.2.1`, and `ergo test` runs both tests and the law `Answered` under each of the contexts `Memory` and `Missing` (laws under a context, L5).
-
-## Designed, not built yet
-
-The program below is the language as the owner designed it on 2026-11-03. It is a fragment, and it does not build yet: the `testing` package with its virtual clock, context constructors and resources are not built.
-
-```go
-import testing
-import timeout
-
-// A signature lists every expected failure and every service the caller must supply.
-func Fetch(url URL, size int64) Reply fails Refused | Busy | timeout.Expired needs Pool | Transport | Scheduler {
-	return timeout.After(2s) { // the block runs as a child task; at 2s it is stopped and drained
-		let conn = try Pool.Acquire(url.Host) // a resource: released on every exit, the timeout included
-		Transport.Send(conn, size)            // lends conn for the call
-	}
-}
-
-// A law lives in its operation type. It must hold for every Transport provider, and ergo test checks it like a fuzz target.
-type Transport {
-	Send(conn Conn, size int64) Reply fails Refused,
-	Unread(r Reply) int64,
-
-	law UnreadNeverExceedsSize(r Reply) { Unread(r) <= r.Size },
-}
-
-// A test with replaced providers and virtual time: no sleeps and no mock framework.
-let SlowWorld = context {
-	Pool:      MemoryPool{},
-	Transport: NewSlowTransport,       // a constructor: it answers after 5s on this context's Scheduler
-	Scheduler: testing.VirtualClock{}, // jumps to the next timer when every task waits
-}
-
-test SlowTransportTimesOut {
-	let r = with SlowWorld { Fetch(URL{Host: "example.org", Path: "/"}, 100) } catch {
-	case timeout.Expired:
-		Reply{Status: "timed-out", Size: 0} // reached at once, in virtual time
-	case Refused, Busy:
-		Reply{Status: "failed", Size: 0}
-	}
-	assert r.Status == "timed-out"
-}
-```
-
-From the signature alone you know how `Fetch` can fail and what it needs. The connection cannot leak. The timeout stops its block and waits for cleanup. The law holds for every transport provider, not only this one. The test swaps providers and the clock without a mock framework. In Go, `try` becomes `if err != nil`, and the rows disappear.
-
-## Tasks that cannot leak
-
-Every task belongs to a scope. The scope waits for its tasks, stops them on a timeout, and keeps every cause when several fail.
-
-```go
-func Addresses(names []string) []Answer fails NotFound | timeout.Expired needs Resolver | Scheduler {
-	return timeout.After(2s) {
-		tasks.Transform(names, 8, func(name string) Answer fails NotFound needs Resolver {
-			return Resolver.Resolve(name)
-		})
-	}
-}
-```
-
-At most 8 lookups run at once, and the results keep input order. The first failure stops the rest. A stop is never cut short by cleanup: releases run to the end.
-
-## Machines
-
-A state machine is a function from a state and a signal to a decision. The `match` must cover every pair, so a forgotten transition does not compile.
-
-```go
-type State = Closed | Open | HalfOpen
-type Signal = Failure | Success | Retry
-
-func step(s State, sig Signal) Decision[State, string] fails ProbeDown needs Probe {
-	match (s, sig) {
-	case (Closed, Failure):
-		return Enter{Open{sig.Endpoint}}
-	case (HalfOpen, Success):
-		return Enter{Closed{0}}
-	case (_, _):
-		return Ignore{}
-	}
-}
-
-type Breaker machine[State, Signal] {
-	initial: Closed{0},
-	step:    step,
-}
-```
-
-`ergo inspect machine` draws the graph from the cases. A machine also carries laws: a law about which states can follow which is proved on that graph, and a law about payloads is tested.
-
-## Laws
-
-A law says what must always hold. It lives in the type it constrains and applies to every provider of that type.
-
-```go
-type EntryCodec {
-	Encode(e Entry) string,
-	Decode(s string) Entry fails DecodeFailed,
-
-	law RoundTrip(e Entry) { try Decode(Encode(e)) == e },
-}
-
-type Store {
-	Find(id string) Entry fails NotFound,
-	Put(id string, e Entry),
-
-	law FindAfterPut(id string, e Entry) { Put(id, e); try Find(id) == e },
-}
-```
-
-`ergo test` runs each law with generated inputs and shrinks a failure to its smallest case. A passing law is reported as tested, never as proved. A refinement such as `type Port int where 1 <= it && it <= 65535` gives a type its law, its parser and its test generator in one line.
-
-## You can see what happened
-
-The compiler knows every task, every service call and every failure, so it names the trace events itself. The source has no span calls. These are recorded lines from a prototype run, with whole lines omitted ([full run](docs/previews/2026-10-27-traceability.md)). A 100 ms timeout interrupted a 2 s sleep, so the gateway call after it never ran:
-
-```text
-tasks
-  #1 latency.main (func) at timeout.sketch:81:1, exit: success
-    #2 latency.checkout/timeout.After#1 (timeout block) at timeout.sketch:39:17, exit: interrupted
-
-cause trace of the root exit (links recorded by the runtime; candidates are labelled)
-  task #1 latency.main (func, timeout.sketch:81:1) exited with success
-    handled timeout.Expired at timeout.sketch:75:2 in latency.report (task #1, seq 12)
-      caught the deadline of task #2 latency.checkout/timeout.After#1 (seq 6): the timeout block timeout.After(100ms) at timeout.sketch:39:17 in latency.checkout, row error[latency.GatewayDown | timeout.Expired]
-        call host.Scheduler.Sleep at timeout.sketch:32:2 was open when the deadline passed (call seq 5); it ended interrupted (call-exit seq 8)
-        cancel-request of task #2 (seq 7)
-        task #2 observed the stop in latency.roundTrip at timeout.sketch:32:2 (seq 9)
-        task #2 exited with interrupted (seq 10)
-```
-
-With tracing off, a program makes no extra allocations ([measured](runtime/rt/MEASURED.md#tracing-off-and-on-188)).
-
-## Built for agents
-
-An agent reads the same checked model as the compiler. A signature tells it what a call can fail with and what it needs, so it can change a function without reading the whole call graph. Every diagnostic has a code, a position and a rule:
-
+<!-- shows site/examples/refused/no-timeout site/examples/refused/no-resolver -->
 ```console
-$ ergo diagnostics fetch.ergo
-fetch.ergo:19:9: error S102: this call requires Transport, which is not in the capability row of function fetch and no with provides it; write: func fetch(id string) string fails EntryNotFound | TransportDown needs Entries | Transport
+$ ergo diagnostics lookup.ergo        # case timeout.Expired deleted
+lookup.ergo:24:28: error S103: this catch does not handle {timeout.Expired}; a catch without try handles every error of the row (rows.md, Catch 4)
+$ ergo diagnostics lookup.ergo        # needs Resolver deleted
+lookup.ergo:20:2: error S102: this call requires Resolver, which is not in the capability row of function Lookup and no with provides it; write: func Lookup(name string) Answer fails NotFound | timeout.Expired needs Scheduler | Resolver
 ```
 
-One formatter gives one layout, so edits make small, stable diffs. `ergo inspect` is designed to answer questions about a definition (its failures, its needs, its calls and a machine's graph) as JSON, and MCP will serve the same model.
+A `match` names every case, and a law runs on generated cases when the file is checked or tested:
 
-## Go is one import away
-
+<!-- quote site/examples/checked/readme/counter/counter.ergo -->
 ```go
-import go strconv
+type Op = Inc{} | Dec{} | Reset{}
 
-func parsePort(text string) int64 fails go.Error needs go.Foreign {
-	return strconv.ParseInt(text, 10, 64)
+// Step moves a count. Dec stops at zero.
+func Step(count int, op Op) int {
+	match op {
+	case Inc:
+		count + 1
+	case Dec:
+		if count > 0 { count - 1 } else { 0 }
+	case Reset:
+		0
+	}
+}
+
+// A count is 0 to 1000.
+type Count int where 0 <= it && it <= 1000
+
+// No step takes a count below zero.
+law NeverNegative(count Count, op Op) {
+	Step(int(count), op) >= 0
 }
 ```
 
-A Go `(T, error)` becomes `T fails go.Error`, and a Go panic becomes a defect. Every call into Go is charged to `go.Foreign`, so the signature says where foreign code runs. The emitted Go carries `//line` directives, so panics, pprof, delve and the race detector point at Ergo lines.
+<!-- shows site/examples/refused/no-reset site/examples/refuted/dec-below-zero -->
+```console
+$ ergo diagnostics counter.ergo       # case Reset deleted
+counter.ergo:5:2: error S103: this match is not total: no case handles Reset; name every variant or add case _ (rows.md, Totality 2)
+$ ergo test counter.ergo              # Dec written as count - 1
+ok law CountWhere (100 cases) (evaluated)
+FAIL law NeverNegative (case 23 of 100, seed 1, size 5: count = Count(0), op = Dec): law refuted at counter.ergo:20:2: the law is false (evaluated)
+	law declared at counter.ergo:19:1
+	replay: ergo test counter.ergo --law NeverNegative --seed 1
+FAIL (1 of 2 tests)
+```
 
-## Small on purpose
+A file's text is read in place, with no copy, and it cannot be read after the file is closed:
 
-Ergo keeps Go's spelling, runtime, garbage collector and single binaries. It removes what makes Go code hard to trust: there is no `nil` (absence is `Option[T]`), no `goto`, no `fallthrough`, no type assertion, no package-level mutable state and no `init`. A panic is a defect, kept apart from expected failures. A construct the compiler must know gets a keyword, and a dot is always a library.
+<!-- shows site/examples/refused/read-after-close -->
+```console
+$ ergo diagnostics lines.ergo         # file.Close() before the loop
+lines.ergo:9:18: error S108: text is a text of file, which was handed off at 7:2 (Close takes it): a text is a borrow of its Mapped, so a use of text is a use of file (types.md, Borrows 8); use text before file is handed off, or copy it with fs.Clone
+lines.ergo:10:6: error S108: text is a text of file, which was handed off at 7:2 (Close takes it): a text is a borrow of its Mapped, so a use of text is a use of file (types.md, Borrows 8); use text before file is handed off, or copy it with fs.Clone
+```
 
-## Status
+## At the cost of hand-written Go
 
-Ergo is a prototype. The opening program builds, runs and passes its tests. The sections after it show the designed language, and parts of them are not built. The parser and `ergo fmt` accept all of the designed language except refinements and laws inside machines, which were decided on 2026-11-03. `ergo check` checks a v1 program: one file, or a package folder of one or more files with the local packages it imports (a folder is a package, and `ergo.mod` marks the module root). It checks types, unions and `match`, error and needs rows, contexts, generics, tasks, machines, tests and laws. `ergo build`, `ergo run` and `ergo test` lower every construct that the checker accepts, except the few that the [support table](docs/spec/support.md) lists with their owners. `ergo test` runs tests and property tests ([testing](docs/testing.md)). When a source checks, `ergo check` also runs its tests and laws, machine laws included, in the checker's process with no Go build and no host effect (capabilities run through the providers a `with` binds), gives the same verdicts as `ergo test` for the same seed, and lists each one it skips (a task, a host provider, Go code it has no native for) with the reason ([check-time evaluation](docs/testing.md#check-time-evaluation); `examples/pure-eval`, `examples/router-model`). `ergo test` runs laws too: each top-level law, and each member law against every provider the package declares (law-run-1); a law of a generic operation type is checked and not run yet. A pure function compiles to a plain Go function with no hidden argument. The task runtime `runtime/rt` runs scopes, stops and traces. It keeps every defect, but not yet every typed failure: a child's failure that nobody waited for is dropped when its scope ends normally ([runtime](docs/spec/runtime.md)). Not built yet: the `tasks` package, resource tracking, virtual time, `import go`, laws inside machines, refinements, and `ergo inspect` (apart from `ergo inspect machine`) and MCP on the new front end.
+Instructions per unit of work, Ergo's against Go written by hand with the same algorithm, counted rather than timed, so the numbers hold on a loaded machine. Each row is reproduced by `go run ./scripts/opcount -control WORKLOAD`, and its receipt is in [site/receipts](site/receipts).
+
+<!-- receipts -->
+| Workload | What it does | Ergo ÷ hand Go | Held by |
+| --- | --- | --- | --- |
+| `station-stats` | min, mean and max per station over rows of `station;temperature` | **0.91** | `TestStationStatsCountsAsHandGo` (fails above 0.95) |
+| `lru` | a least-recently-used cache | **0.97** | `TestLRUCountsAsHandGo` (fails above 1.00) |
+
+## Go is the platform
+
+Ergo compiles to Go: Go's runtime, Go's garbage collector, one Go binary. A Go module stays a Go module: `go.mod` and `go.sum` sit beside `ergo.mod`, `ergo get` runs `go get`, and `import go` makes a Go package's exported declarations callable, its errors arriving as failures the signature must list. [admit](examples/admit) uses `golang.org/x/sync/semaphore`:
+
+<!-- quote examples/admit/semaphore/semaphore.ergo 8,44-49 -->
+```go
+import go golang.org/x/sync/semaphore
+…
+func Wait(g Gate, n int) fails jobs.Stopped needs go.Foreign {
+	g.w.Acquire(int64(n)) catch {
+	case go.Error:
+		return jobs.Stopped
+	}
+}
+```
+
+`ergo bind go golang.org/x/sync/semaphore` writes the binding the checker reads. Drop the `catch`, and Go's error is caught at build time:
+
+<!-- shows site/examples/refused/go-error -->
+```console
+$ ergo diagnostics semaphore
+semaphore/semaphore.ergo:45:2: error S101: {go.Error} escapes function Wait, whose error row {jobs.Stopped} does not list it; write: func Wait(g Gate, n int) fails jobs.Stopped | go.Error needs go.Foreign
+```
+
+## TypeScript reads Ergo types
+
+A TypeScript file imports an `.ergo` file. TypeScript 7.1's content mappers (7.1 is in beta) run `ergo tsmap`, which hands the compiler the checked contract as Effect schemas, in memory: no generated file in the tree. [limiter](examples/limiter) declares its contract once, in Ergo:
+
+<!-- quote examples/limiter/limits/limits.ergo 18,28-29,45 -->
+```go
+type BadCost { Cost int, Capacity int }
+…
+type Limiter {
+	Take(key string, cost int) Grant fails Limited | UnknownBucket | BadCost,
+…
+}
+```
+
+and its TypeScript gateway calls it through a stock Effect `RpcClient`:
+
+<!-- quote examples/limiter/ts/gateway.ts 11-13,47< -->
+```ts
+import { Limiter } from "../limits/limits.ergo"
+
+const makeClient = RpcClient.make(Limiter)
+…
+Effect.catchTag("BadCost", e => Effect.succeed(text(`a take costs 1 to ${e.capacity}, not ${e.cost}`, 400))),
+```
+
+Rename `Capacity` to `Max` in the Ergo file, and `tsc` fails at the TypeScript line:
+
+<!-- case examples/limiter/cases/tsc-drift -->
+```console
+$ tsc --runExternalCode -p ts
+ts/gateway.ts(47,84): error TS2339: Property 'capacity' does not exist on type 'BadCost'.
+ts/gateway.ts(60,84): error TS2339: Property 'capacity' does not exist on type 'BadCost'.
+```
+
+## Look at some examples
+
+- [station-stats](examples/station-stats): min, mean and max per station over a file of `station;temperature` rows, sized for a billion of them. Laws on `Merge` let the chunks be summed in any order; the file is mapped, never copied.
+- [limiter](examples/limiter): a rate limiter served over Effect RPC to a TypeScript gateway; its laws run against the memory provider and again through the wire.
+- [gointerop](examples/gointerop): `sum` and `check` print what `sha256sum` and `sha256sum -c` print, on Go's `crypto/sha256`.
+
+[All examples](examples/README.md): servers, CLIs, a TUI, GUIs and games.
+
+## Try it
+
+You need Go 1.27 and Git.
+
+```sh
+git clone --depth 1 https://github.com/cevr/ergo.git && cd ergo
+go build -o bin/ergo ./cmd/ergo
+./bin/ergo run examples/lookup/cmd/lookup   # prints: 192.0.2.1
+```
 
 ## Learn more
 
-- [Specification](docs/spec/README.md)
-- [North star](NORTH_STAR.md): the pillars and how ties are broken
-- [Prior art](PRIOR_ART.md): Go, Effect, Gleam, ReScript, Elixir, MoonBit and others
-- [Glossary](GLOSSARY.md)
-- Roadmap
-
-## Working in this repo
-
-Building ergo from source needs Go 1.27 or later and Git. The programs ergo builds need no Go install: each ergo pins one Go release, downloads it on first build, verifies it against Go's checksum database and caches it (`ergo version`; `ERGO_GO=system` builds with the go command on PATH instead; [Go toolchain](docs/tooling.md#go-toolchain)).
-
-```sh
-git clone https://github.com/cevr/ergo.git
-cd ergo
-CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo   # ergo needs no C; a static binary starts faster
-
-./bin/ergo run examples/lookup/cmd/lookup          # prints: 192.0.2.1
-./bin/ergo test examples/lookup/cmd/lookup         # prints: PASS (4 tests)
-./bin/ergo test examples/lookup/...                # tests each package, dependencies first
-./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
-./bin/ergo fmt --check examples/editions/sketch/main.ergo
-go run ./scripts/examples                          # builds and runs the example programs against their recorded cases
-./scripts/gate.sh                                  # the merge gate: formatting, vet, tests and CLI checks
-```
-
-A source is one `.ergo` file, with no manifest. The parser is in `internal/sketch/syntax`, the checker in `internal/sketch/check`, lowering in `internal/sketch/lower`, the task runtime in `runtime/rt` and the CLI in `cmd/ergo`.
+[Why Ergo](docs/why.md) · [Specification](docs/spec/README.md) · [Tooling](docs/tooling.md) · [Examples](examples/README.md) · [North star](NORTH_STAR.md) · [Prior art](PRIOR_ART.md) · [Glossary](GLOSSARY.md)

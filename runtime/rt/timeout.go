@@ -74,18 +74,20 @@ func AfterSpan[T any](t *Task, s Scheduler, d time.Duration, span string, body f
 		kept     T
 		returned bool
 	)
-	h = spawn(t, span, false, false, true, func(ct *Task) (T, error) {
+	h = &Handle[T]{}
+	done := make(chan struct{})
+	start(h, t, span, false, false, funcBody[T](func(ct *Task) (T, error) {
 		v, err := body(ct)
 		if err == nil {
 			kept, returned = v, true
 		}
 		return v, err
-	})
+	}), done)
 	stop := t.Done()
 	m := raceParked(t, h, timer, stop)
 	Block(t)
 	select {
-	case <-h.done:
+	case <-done:
 		Unblock(t)
 		m.unpark()
 		joined = true

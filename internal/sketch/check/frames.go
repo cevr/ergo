@@ -1,6 +1,10 @@
 package check
 
-import "ergo.local/prototype/internal/sketch/syntax"
+import (
+	"slices"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Frame-scope effects outside a function body (stage E2, C18).
 //
@@ -11,7 +15,9 @@ import "ergo.local/prototype/internal/sketch/syntax"
 // a function literal's body, a trailing block, a test block and a law body
 // each have one. A package let's value, a named context's entries and a type
 // declaration (a machine's initial value) run outside every function
-// body, so no frame scope is there to own what such a call makes.
+// body. A named context's owning acquisition can take a call's running
+// result directly; a temporary inside that call's operands still needs
+// a function frame.
 //
 // The invariant: no node that runs outside a function body (frameFree, by
 // inspectFrame's walk: a function literal's body, a trailing block other
@@ -19,7 +25,7 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //
 //  1. a call whose result holds a running task (Call.StartsTask: task.Go,
 //     tasks.NewSet, a function, a function value or an operation that
-//     returns a Task),
+//     returns a Task), unless the context directly acquires that result,
 //  2. scope.OnExit, which registers its block on the frame,
 //  3. a with that owns a provider with a Close, whose scope opens on the
 //     frame, or
@@ -66,12 +72,25 @@ func (c *checker) checkFrames() {
 			if !frameFree(d) {
 				continue
 			}
+			var acquired []*syntax.CallExpr
+			if ctx, ok := d.(*syntax.ContextDecl); ok {
+				for _, e := range ctx.Body.Entries {
+					if x, ok := unparen(e.Value).(*syntax.CallExpr); ok {
+						if call := info.Calls[x]; call != nil && call.StartsTask {
+							acquired = append(acquired, x)
+						}
+					}
+				}
+			}
 			inspectFrame(info, d, func(n syntax.Node, _ []*syntax.CallExpr) bool {
 				x, ok := n.(*syntax.CallExpr)
 				if !ok {
 					return true
 				}
 				if what := frameNeed(info, x); what != "" && !c.diagnosedIn(f, x) {
+					if slices.Contains(acquired, x) {
+						return true
+					}
 					c.errorf(x, CodeType, "%s needs the frame scope of a function body, and a package let, a context entry or a type declaration runs outside one; move it into a function", what)
 				}
 				return true

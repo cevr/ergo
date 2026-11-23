@@ -22,8 +22,9 @@ import (
 //     type-kinded arguments, so two instantiations whose substituted
 //     bodies are equal (the same Go types) share one function, and the
 //     count of copies is bounded by the distinct instances, never by the
-//     call sites. Row arguments are erased in Go, so they key nothing: the
-//     stenciled form shares one body across rows too.
+//     call sites. Row arguments are erased in Go, so they key nothing for
+//     functions. Member laws have closed checked inputs and keep semantic
+//     keys, including rows, independently of the receiver's Go type.
 //   - A method of a generic record is copied as a plain function that
 //     takes its receiver first; its call passes the receiver (its address
 //     for a *T method, as the method call does).
@@ -68,8 +69,8 @@ import (
 // nothing to instantiate.
 var genericLowering string
 
-// monoKey is one copy: the declaration it instantiates and its Go type
-// arguments.
+// monoKey is one copy: the declaration it instantiates and the keys of its
+// instance's arguments.
 type monoKey struct {
 	decl monoDecl
 	args string
@@ -369,9 +370,14 @@ func (l *lowerer) lawMonoFor(law *check.Law, own *check.Named, targs []check.Typ
 		if i >= len(targs) {
 			ice(law.Decl, "the law %s run at %d of its %d type arguments", law.Name, len(targs), len(own.TParams))
 		}
-		g := tc.goType(targs[i])
-		typeArgs[tp] = g
-		spelled = append(spelled, g)
+		if tp.Kind == check.KindType {
+			typeArgs[tp] = tc.goType(targs[i])
+		} else if _, ok := targs[i].(*check.RowArg); !ok {
+			ice(law.Decl, "the law %s has no closed row argument for %s", law.Name, tp.Name)
+		}
+		// Erasure leaves the same Go receiver type, but a law body
+		// may specialize on the closed row. Keep the instances apart.
+		spelled = append(spelled, l.semanticTypeKey(targs[i]))
 		if !mentionsTypeParam(targs[i]) {
 			bound[tp] = targs[i]
 		}
@@ -382,6 +388,18 @@ func (l *lowerer) lawMonoFor(law *check.Law, own *check.Named, targs []check.Typ
 		l.pending = append(l.pending, func() { l.lawDecl(law, sp) })
 	}
 	return sp
+}
+
+// The receiver of a member law has the operation type's Go parameters.
+// Error and capability rows have no place in its Go type.
+func lawGoParams(own *check.Named) []*check.TypeParam {
+	var out []*check.TypeParam
+	for _, tp := range own.TParams {
+		if tp.Kind == check.KindType {
+			out = append(out, tp)
+		}
+	}
+	return out
 }
 
 // monoName is the copy's name for the type arguments args (their Go
@@ -409,9 +427,14 @@ func (l *lowerer) lawCallee(law *check.Law, own *check.Named, targs []check.Type
 		return sp.name
 	}
 	tc := &typeCtx{l: l, site: law.Decl}
-	spelled := make([]string, len(targs))
-	for i, a := range targs {
-		spelled[i] = tc.goType(a)
+	var spelled []string
+	for i, tp := range own.TParams {
+		if tp.Kind == check.KindType {
+			spelled = append(spelled, tc.goType(targs[i]))
+		}
+	}
+	if len(spelled) == 0 {
+		return l.lawFunc(law)
 	}
 	return l.lawFunc(law) + "[" + strings.Join(spelled, ", ") + "]"
 }
