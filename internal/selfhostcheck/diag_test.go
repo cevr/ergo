@@ -349,7 +349,7 @@ func bindDump(t *testing.T, ctx context.Context) string {
 type unusedFile struct {
 	path         string // the file, relative to the repository root
 	src          string
-	partial      bool // the containing package has other files
+	partial      bool  // the containing package has other files
 	bodies       []int // the offset after each body's "{"
 	blocks       []int // the offset after each nested block's "{"
 	imports      []string
