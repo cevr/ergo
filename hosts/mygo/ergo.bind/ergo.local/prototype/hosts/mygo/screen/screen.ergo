@@ -49,6 +49,9 @@ extern go ergo.local/prototype/hosts/mygo/screen.Move let Move int
 // ergo:go func Open(title string, width float64, height float64) (*Window, error)
 extern go ergo.local/prototype/hosts/mygo/screen.Open func Open(title string, width float64, height float64) go.Ref[Window] fails go.Error needs go.Foreign
 
+// ergo:go func PangoCalls() (fast uint64, slow uint64)
+extern go ergo.local/prototype/hosts/mygo/screen.PangoCalls func PangoCalls() (uint64, uint64) needs go.Foreign
+
 // ergo:go const Resize untyped int
 extern go ergo.local/prototype/hosts/mygo/screen.Resize let Resize int
 
@@ -83,199 +86,200 @@ extern go ergo.local/prototype/hosts/mygo/screen.Up let Up int
 extern go ergo.local/prototype/hosts/mygo/screen.Window type Window {}
 
 // ergo:go func (*Window).Access(id int, parent int, role int, label string, value string, x float64, y float64, width float64, height float64, checked bool, focused bool)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Access func (w own *Window) Access(id int, parent int, role int, label string, value string, x float64, y float64, width float64, height float64, checked bool, focused bool) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Access func (w *Window) Access(id int, parent int, role int, label string, value string, x float64, y float64, width float64, height float64, checked bool, focused bool) needs go.Foreign
 
 // ergo:go func (*Window).AccessDescribe(description string, level int, current string, popup string)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessDescribe func (w own *Window) AccessDescribe(description string, level int, current string, popup string) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessDescribe func (w *Window) AccessDescribe(description string, level int, current string, popup string) needs go.Foreign
 
 // ergo:go func (*Window).AccessFocusable()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessFocusable func (w own *Window) AccessFocusable() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessFocusable func (w *Window) AccessFocusable() needs go.Foreign
 
 // ergo:go func (*Window).AccessRange(now float64, min float64, max float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRange func (w own *Window) AccessRange(now float64, min float64, max float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRange func (w *Window) AccessRange(now float64, min float64, max float64) needs go.Foreign
 
 // ergo:go func (*Window).AccessRelate(kind string, to int)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRelate func (w own *Window) AccessRelate(kind string, to int) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRelate func (w *Window) AccessRelate(kind string, to int) needs go.Foreign
 
 // ergo:go func (*Window).AccessRole(role string)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRole func (w own *Window) AccessRole(role string) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessRole func (w *Window) AccessRole(role string) needs go.Foreign
 
 // ergo:go func (*Window).AccessState(state string)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessState func (w own *Window) AccessState(state string) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessState func (w *Window) AccessState(state string) needs go.Foreign
 
 // ergo:go func (*Window).AccessText(id int) string
-extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessText func (w own *Window) AccessText(id int) string needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.AccessText func (w *Window) AccessText(id int) string needs go.Foreign
 
 // ergo:go func (*Window).Again(key int) bool
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Again func (w own *Window) Again(key int) bool needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Again func (w *Window) Again(key int) bool needs go.Foreign
 
 // ergo:go func (*Window).AttachContent(conn *surface.Conn)
 // ergo:refused Window.AttachContent: parameter 1: type Conn is refused: it is declared in an internal or vendored package
 
 // ergo:go func (*Window).Begin()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Begin func (w own *Window) Begin() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Begin func (w *Window) Begin() needs go.Foreign
 
 // ergo:go func (*Window).Border(x float64, y float64, width float64, height float64, radius float64, line float64, color uint32)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Border func (w own *Window) Border(x float64, y float64, width float64, height float64, radius float64, line float64, color uint32) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Border func (w *Window) Border(x float64, y float64, width float64, height float64, radius float64, line float64, color uint32) needs go.Foreign
 
 // ergo:go func (*Window).Box(x float64, y float64, width float64, height float64, tl float64, tr float64, br float64, bl float64, fill uint32, line float64, lineColor uint32)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Box func (w own *Window) Box(x float64, y float64, width float64, height float64, tl float64, tr float64, br float64, bl float64, fill uint32, line float64, lineColor uint32) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Box func (w *Window) Box(x float64, y float64, width float64, height float64, tl float64, tr float64, br float64, bl float64, fill uint32, line float64, lineColor uint32) needs go.Foreign
 
 // ergo:go func (*Window).Chord(name string, shift bool, ctrl bool, alt bool, meta bool)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Chord func (w own *Window) Chord(name string, shift bool, ctrl bool, alt bool, meta bool) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Chord func (w *Window) Chord(name string, shift bool, ctrl bool, alt bool, meta bool) needs go.Foreign
 
 // ergo:go func (*Window).Clip(x float64, y float64, width float64, height float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Clip func (w own *Window) Clip(x float64, y float64, width float64, height float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Clip func (w *Window) Clip(x float64, y float64, width float64, height float64) needs go.Foreign
 
 // ergo:go func (*Window).Closing()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Closing func (w own *Window) Closing() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Closing func (w *Window) Closing() needs go.Foreign
 
 // ergo:go func (*Window).Commit()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Commit func (w own *Window) Commit() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Commit func (w *Window) Commit() needs go.Foreign
 
 // ergo:go func (*Window).ComposeOver(from int, to int, text string)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.ComposeOver func (w own *Window) ComposeOver(from int, to int, text string) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.ComposeOver func (w *Window) ComposeOver(from int, to int, text string) needs go.Foreign
 
 // ergo:go func (*Window).Differs() string
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Differs func (w own *Window) Differs() string needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Differs func (w *Window) Differs() string needs go.Foreign
 
 // ergo:go func (*Window).Editing(value string, keyboard string, taken int, x float64, y float64, width float64, height float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Editing func (w own *Window) Editing(value string, keyboard string, taken int, x float64, y float64, width float64, height float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Editing func (w *Window) Editing(value string, keyboard string, taken int, x float64, y float64, width float64, height float64) needs go.Foreign
 
 // ergo:go func (*Window).EditingField() bool
-extern go ergo.local/prototype/hosts/mygo/screen.Window.EditingField func (w own *Window) EditingField() bool needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.EditingField func (w *Window) EditingField() bool needs go.Foreign
 
 // ergo:go func (*Window).EditingKeyboard() string
-extern go ergo.local/prototype/hosts/mygo/screen.Window.EditingKeyboard func (w own *Window) EditingKeyboard() string needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.EditingKeyboard func (w *Window) EditingKeyboard() string needs go.Foreign
 
 // ergo:go func (*Window).Fill(x float64, y float64, width float64, height float64, radius float64, color uint32)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Fill func (w own *Window) Fill(x float64, y float64, width float64, height float64, radius float64, color uint32) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Fill func (w *Window) Fill(x float64, y float64, width float64, height float64, radius float64, color uint32) needs go.Foreign
 
 // ergo:go func (*Window).Focused() int
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Focused func (w own *Window) Focused() int needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Focused func (w *Window) Focused() int needs go.Foreign
 
 // ergo:go func (*Window).Frames(on bool)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Frames func (w own *Window) Frames(on bool) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Frames func (w *Window) Frames(on bool) needs go.Foreign
 
 // ergo:go func (*Window).Hold()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Hold func (w own *Window) Hold() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Hold func (w *Window) Hold() needs go.Foreign
 
 // ergo:go func (*Window).Hover(x float64, y float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Hover func (w own *Window) Hover(x float64, y float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Hover func (w *Window) Hover(x float64, y float64) needs go.Foreign
 
 // ergo:go func (*Window).Image(src string, sx float64, sy float64, sw float64, sh float64, a float64, b float64, c float64, d float64, e float64, f float64, x float64, y float64, width float64, height float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Image func (w own *Window) Image(src string, sx float64, sy float64, sw float64, sh float64, a float64, b float64, c float64, d float64, e float64, f float64, x float64, y float64, width float64, height float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Image func (w *Window) Image(src string, sx float64, sy float64, sw float64, sh float64, a float64, b float64, c float64, d float64, e float64, f float64, x float64, y float64, width float64, height float64) needs go.Foreign
 
 // ergo:go func (*Window).Lift(x float64, y float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Lift func (w own *Window) Lift(x float64, y float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Lift func (w *Window) Lift(x float64, y float64) needs go.Foreign
 
 // ergo:go func (*Window).Line(x0 float64, y0 float64, x1 float64, y1 float64, width float64, color uint32)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Line func (w own *Window) Line(x0 float64, y0 float64, x1 float64, y1 float64, width float64, color uint32) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Line func (w *Window) Line(x0 float64, y0 float64, x1 float64, y1 float64, width float64, color uint32) needs go.Foreign
 
 // ergo:go func (*Window).LineHeight(size float64) float64
-extern go ergo.local/prototype/hosts/mygo/screen.Window.LineHeight func (w own *Window) LineHeight(size float64) float64 needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.LineHeight func (w *Window) LineHeight(size float64) float64 needs go.Foreign
 
 // ergo:go func (*Window).Mark(key int)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Mark func (w own *Window) Mark(key int) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Mark func (w *Window) Mark(key int) needs go.Foreign
 
 // ergo:go func (*Window).MasksDrawn() int
-extern go ergo.local/prototype/hosts/mygo/screen.Window.MasksDrawn func (w own *Window) MasksDrawn() int needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.MasksDrawn func (w *Window) MasksDrawn() int needs go.Foreign
 
 // ergo:go func (*Window).Next(ctx context.Context) (Input, error)
 // ergo:context
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Next func (w own *Window) Next() Input fails go.Error needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Next func (w *Window) Next() Input fails go.Error needs go.Foreign
 
 // ergo:go func (*Window).Now() int64
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Now func (w own *Window) Now() int64 needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Now func (w *Window) Now() int64 needs go.Foreign
 
 // ergo:go func (*Window).Opacity() float64
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Opacity func (w own *Window) Opacity() float64 needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Opacity func (w *Window) Opacity() float64 needs go.Foreign
 
 // ergo:go func (*Window).Painted() int
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Painted func (w own *Window) Painted() int needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Painted func (w *Window) Painted() int needs go.Foreign
 
 // ergo:go func (*Window).Pixel(x int, y int) uint32
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Pixel func (w own *Window) Pixel(x int, y int) uint32 needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Pixel func (w *Window) Pixel(x int, y int) uint32 needs go.Foreign
 
 // ergo:go func (*Window).Poll() (Input, bool)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Poll func (w own *Window) Poll() (Input, bool) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Poll func (w *Window) Poll() (Input, bool) needs go.Foreign
 
 // ergo:go func (*Window).Present()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Present func (w own *Window) Present() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Present func (w *Window) Present() needs go.Foreign
 
 // ergo:go func (*Window).Press(x float64, y float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Press func (w own *Window) Press(x float64, y float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Press func (w *Window) Press(x float64, y float64) needs go.Foreign
 
 // ergo:go func (*Window).PressKey(name string, shift bool)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.PressKey func (w own *Window) PressKey(name string, shift bool) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.PressKey func (w *Window) PressKey(name string, shift bool) needs go.Foreign
 
 // ergo:go func (*Window).Quit()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Quit func (w own *Window) Quit() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Quit func (w *Window) Quit() needs go.Foreign
 
 // ergo:go func (*Window).Release(x float64, y float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Release func (w own *Window) Release(x float64, y float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Release func (w *Window) Release(x float64, y float64) needs go.Foreign
 
 // ergo:go func (*Window).Render() bool
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Render func (w own *Window) Render() bool needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Render func (w *Window) Render() bool needs go.Foreign
 
 // ergo:go func (*Window).Run() error
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Run func (w own *Window) Run() fails go.Error needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Run func (w *Window) Run() fails go.Error needs go.Foreign
 
 // ergo:go func (*Window).Seal(key int)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Seal func (w own *Window) Seal(key int) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Seal func (w *Window) Seal(key int) needs go.Foreign
 
 // ergo:go func (*Window).SetClock(at int64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.SetClock func (w own *Window) SetClock(at int64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.SetClock func (w *Window) SetClock(at int64) needs go.Foreign
 
 // ergo:go func (*Window).SetOpacity(o float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.SetOpacity func (w own *Window) SetOpacity(o float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.SetOpacity func (w *Window) SetOpacity(o float64) needs go.Foreign
 
 // ergo:go func (*Window).Shadow(x float64, y float64, width float64, height float64, tl float64, tr float64, br float64, bl float64, dx float64, dy float64, blur float64, spread float64, color uint32, inset bool)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Shadow func (w own *Window) Shadow(x float64, y float64, width float64, height float64, tl float64, tr float64, br float64, bl float64, dx float64, dy float64, blur float64, spread float64, color uint32, inset bool) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Shadow func (w *Window) Shadow(x float64, y float64, width float64, height float64, tl float64, tr float64, br float64, bl float64, dx float64, dy float64, blur float64, spread float64, color uint32, inset bool) needs go.Foreign
 
 // ergo:go func (*Window).Size() (float64, float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Size func (w own *Window) Size() (float64, float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Size func (w *Window) Size() (float64, float64) needs go.Foreign
 
 // ergo:go func (*Window).Slanted() int
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Slanted func (w own *Window) Slanted() int needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Slanted func (w *Window) Slanted() int needs go.Foreign
+
 // ergo:go func (*Window).StrokeBegin(width float64, color uint32)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeBegin func (w own *Window) StrokeBegin(width float64, color uint32) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeBegin func (w *Window) StrokeBegin(width float64, color uint32) needs go.Foreign
 
 // ergo:go func (*Window).StrokeEnd()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeEnd func (w own *Window) StrokeEnd() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeEnd func (w *Window) StrokeEnd() needs go.Foreign
 
 // ergo:go func (*Window).StrokeTo(x float64, y float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeTo func (w own *Window) StrokeTo(x float64, y float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.StrokeTo func (w *Window) StrokeTo(x float64, y float64) needs go.Foreign
 
 // ergo:go func (*Window).Text(x float64, y float64, s string, size float64, color uint32)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Text func (w own *Window) Text(x float64, y float64, s string, size float64, color uint32) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Text func (w *Window) Text(x float64, y float64, s string, size float64, color uint32) needs go.Foreign
 
 // ergo:go func (*Window).TextSlanted(x float64, y float64, s string, size float64, color uint32)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.TextSlanted func (w own *Window) TextSlanted(x float64, y float64, s string, size float64, color uint32) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.TextSlanted func (w *Window) TextSlanted(x float64, y float64, s string, size float64, color uint32) needs go.Foreign
 
 // ergo:go func (*Window).TextWidth(s string, size float64) float64
-extern go ergo.local/prototype/hosts/mygo/screen.Window.TextWidth func (w own *Window) TextWidth(s string, size float64) float64 needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.TextWidth func (w *Window) TextWidth(s string, size float64) float64 needs go.Foreign
 
 // ergo:go func (*Window).Touch(x float64, y float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Touch func (w own *Window) Touch(x float64, y float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Touch func (w *Window) Touch(x float64, y float64) needs go.Foreign
 
 // ergo:go func (*Window).TouchMove(x float64, y float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.TouchMove func (w own *Window) TouchMove(x float64, y float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.TouchMove func (w *Window) TouchMove(x float64, y float64) needs go.Foreign
 
 // ergo:go func (*Window).Type(s string)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Type func (w own *Window) Type(s string) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Type func (w *Window) Type(s string) needs go.Foreign
 
 // ergo:go func (*Window).Unclip()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Unclip func (w own *Window) Unclip() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Unclip func (w *Window) Unclip() needs go.Foreign
 
 // ergo:go func (*Window).Wake()
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Wake func (w own *Window) Wake() needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Wake func (w *Window) Wake() needs go.Foreign
 
 // ergo:go func (*Window).Wheel(x float64, y float64, dx float64, dy float64)
-extern go ergo.local/prototype/hosts/mygo/screen.Window.Wheel func (w own *Window) Wheel(x float64, y float64, dx float64, dy float64) needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.Wheel func (w *Window) Wheel(x float64, y float64, dx float64, dy float64) needs go.Foreign
 
 // ergo:go func (*Window).WritePNG(path string) error
-extern go ergo.local/prototype/hosts/mygo/screen.Window.WritePNG func (w own *Window) WritePNG(path string) fails go.Error needs go.Foreign
+extern go ergo.local/prototype/hosts/mygo/screen.Window.WritePNG func (w *Window) WritePNG(path string) fails go.Error needs go.Foreign
 
 // ergo:go const Woken untyped int
 extern go ergo.local/prototype/hosts/mygo/screen.Woken let Woken int
