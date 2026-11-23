@@ -1,0 +1,158 @@
+// LookPath: where a program name is on the PATH (Go's exec.LookPath), as
+// a function over os.Process and fs.Files, so a test answers it from a
+// Process of its own and an fstest.Memory, and every provider has it.
+
+import filepath
+import fs
+import fstest
+import os
+import strings
+
+// LookPath is the path of the program name, as Run finds it. A name with
+// a "/" is that path, given back as written, when a file is there that
+// some class may execute; else Denied when something is there, NotFound
+// when nothing is. Any other name is looked for in each directory of
+// PATH in order ("" and other relative directories skipped: Go refuses a
+// program found there, exec.ErrDot), and the first runnable file there is
+// filepath.Join(dir, name). A file is runnable when it is not a directory
+// and one of its execute bits is set (Go asks the kernel, eaccess, which
+// also weighs who runs it). The empty name is NotFound.
+func LookPath(name string) string fails NotFound | Denied needs os.Process | fs.Files {
+	if name == "" {
+		return NotFound{Name: name}
+	}
+	if strings.Contains(name, "/") {
+		let info = fs.Files.Stat(name) catch {
+		case fs.NotFound:
+			return NotFound{Name: name}
+		case fs.Denied, fs.Failed:
+			return Denied{Name: name}
+		}
+		if !runnable(info) {
+			return Denied{Name: name}
+		}
+		return name
+	}
+	let path = match os.Process.Getenv("PATH") {
+	case Some[string] as p:
+		p.Value
+	case None:
+		""
+	}
+	for dir in strings.Split(path, ":") {
+		if !filepath.IsAbs(dir) {
+			continue
+		}
+		let candidate = filepath.Join([]string{dir, name})
+		let info = fs.Files.Stat(candidate) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if runnable(info) {
+			return candidate
+		}
+	}
+	NotFound{Name: name}
+}
+
+// runnable reports whether a file is a program: not a directory, and one
+// execute bit set.
+// The execute bits are 0o111, 73.
+func runnable(info fs.Info) bool { !info.Dir && (info.Perm & 73) != 0 }
+
+// pathOnly is the Process of LookPath's laws: PATH is path, and nothing
+// else is set.
+type pathOnly { path string } implements os.Process
+
+func Args(_ pathOnly) []string { []string{} }
+
+func Getenv(p pathOnly, key string) Option[string] {
+	if key == "PATH" {
+		return Some[string]{Value: p.path}
+	}
+	None
+}
+
+func Getwd(_ pathOnly) string fails os.NoWorkdir { "/" }
+
+// shelf is a Memory with a file at "/" + each path, mode 0o755 when its
+// pick is odd and fs.Shared() (0o644) when even; a path that cannot hold one is left
+// out.
+func shelf(paths []string, picks []int) fstest.Memory {
+	let m = fstest.NewMemory()
+	let mut i = 0
+	for p in paths {
+		let at = "/" + p
+		let pick = if i < len(picks) { picks[i] } else { 0 }
+		i = i + 1
+		let mode = if pick % 2 != 0 { fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute} } else { fs.Shared() }
+		m.MkdirAll(filepath.Dir(at)) catch {
+		case fs.Denied, fs.Failed:
+		}
+		m.WriteFileMode(at, "#!", mode) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+	}
+	m
+}
+
+// LookPathFindsTheFirst: on a PATH of absolute directories, LookPath
+// gives the first directory's runnable file of that name, and NotFound
+// exactly when no directory of PATH has one.
+law LookPathFindsTheFirst(paths []string, picks []int, dirs []string, name string) {
+	if name == "" || strings.Contains(name, "/") {
+		return true
+	}
+	let m = shelf(paths, picks)
+	let mut abs = []string{}
+	for d in dirs {
+		abs = abs.Append("/" + d)
+	}
+	let mut want = ""
+	for d in abs {
+		let candidate = filepath.Join([]string{d, name})
+		let info = m.Stat(candidate) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if !info.Dir && (info.Perm & 73) != 0 {
+			want = candidate
+			break
+		}
+	}
+	with context { os.Process: pathOnly{path: strings.Join(abs, ":")}, fs.Files: m } {
+		let got = LookPath(name) catch {
+		case NotFound as n:
+			return want == "" && n.Name == name
+		case Denied:
+			return false
+		}
+		got == want
+	}
+}
+
+// LookPathSkipsRelative: a directory of PATH that is not absolute is
+// never searched, so a name found only there is NotFound.
+law LookPathSkipsRelative(name string) {
+	if name == "" || strings.Contains(name, "/") || name == "." || name == ".." {
+		return true
+	}
+	let m = fstest.NewMemory()
+	m.MkdirAll("bin") catch {
+	case fs.Denied, fs.Failed:
+		return true
+	}
+	m.WriteFileMode("bin/" + name, "#!", fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute}) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return true
+	}
+	with context { os.Process: pathOnly{path: ":bin:."}, fs.Files: m } {
+		let _ = LookPath(name) catch {
+		case NotFound:
+			return true
+		case Denied:
+			return false
+		}
+		false
+	}
+}

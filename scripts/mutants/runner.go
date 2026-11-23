@@ -763,6 +763,11 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	o := outcome{seconds: time.Since(start).Seconds(), tail: out.String()}
 	o.reason = childReason(err, timedOut, e.cfg.Memory, watch.Stderr())
 	o.timeout = o.reason == "deadline" || o.reason == "fail" && out.saw(0)
+	if o.timeout {
+		// One reason whichever clock fired: the test's own -test.timeout
+		// and the runner's deadline race under load (MUTANTS-MODEL-TIMING).
+		o.reason = "timeout"
+	}
 	o.started = startLine == "" || out.saw(1)
 	if ctx.Err() != nil && o.reason != "" {
 		o.reason, o.timeout = "interrupted", false

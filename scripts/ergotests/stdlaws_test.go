@@ -45,3 +45,36 @@ func TestStdRedGuard(t *testing.T) {
 		}
 	}
 }
+
+// TestStdRedCreditsProviders: a member law of an operation type runs in
+// its providers' packages under its qualified name ("law w.Store.Kept for
+// Store" in w/memory), and that run counts for the declaring package's
+// law, "w Store.Kept"; a member law no provider ran is still not run, and
+// a provider's failure is the declaring law's failure
+// (LAW-RUNS-CREDIT-PROVIDERS). Mutant: nl-provider-run-uncredited.
+func TestStdRedCreditsProviders(t *testing.T) {
+	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, declared: map[string]string{"w Store.Kept": "w", "w Store.Unrun": "w", "w Store.Broken": "w"}}
+	for _, v := range []struct {
+		pkg, law string
+		status   eval.Status
+	}{
+		{"w/memory", "w.Store.Kept", eval.Passed},
+		{"w/file", "w.Store.Kept", eval.Passed},
+		{"w/file", "w.Store.Broken", eval.Refuted},
+	} {
+		key := run.key(v.pkg, v.law)
+		run.verdicts[key] = append(run.verdicts[key], v.status)
+		if v.status != eval.Passed {
+			run.failed[key] = string(v.status)
+		}
+	}
+	got := strings.Join(redProblems([]string{"w Store.Kept", "w Store.Unrun", "w Store.Broken"}, run, map[string]redLine{}), "\n")
+	for _, want := range []string{"w Store.Unrun is not run", "w Store.Broken is refuted"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the problems do not name %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Kept") || strings.Contains(got, "w/") {
+		t.Errorf("a law its providers ran is reported under the provider or as not run:\n%s", got)
+	}
+}

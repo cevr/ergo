@@ -14,7 +14,10 @@ import sync
 // checkout of the Vcs shares, as Git's objects are once fetched. A
 // .gitignore at the root names ignored paths, one a line (a path or a
 // folder).
-type Vcs { trees Cloner, store sync.Ref[Store] } implements work.Vcs
+//
+// calls counts the reads of a checkout, one for each call of the Vcs
+// (Calls): list -status's cost law counts them.
+type Vcs { trees Cloner, store sync.Ref[Store], calls sync.Ref[int] } implements work.Vcs
 
 // Store is the object store: each tree's files, each tree's content key,
 // and each commit.
@@ -28,6 +31,9 @@ type Store {
 	indexWrites int,
 	// stale is each checkout's count of index entries with a stale stat.
 	stale Map[string, int],
+	// times is each commit's committer time: the number of commits the
+	// store held when it was made.
+	times Map[string, int64],
 }
 
 // Node is a commit object: its tree and its parents.
@@ -38,7 +44,7 @@ type Node { Tree string, Parents []string }
 let Guard = "no-push:workspaces-never-push-origin"
 
 // VcsOver is the Vcs over the trees of c, with an empty object store.
-func VcsOver(c Cloner) Vcs { Vcs{trees: c, store: sync.NewRef(Store{trees: Map[string, Map[string, string]]{}, keys: Map[string, string]{}, commits: Map[string, Node]{}, next: 1, indexWrites: 0, stale: Map[string, int]{}})} }
+func VcsOver(c Cloner) Vcs { Vcs{trees: c, store: sync.NewRef(Store{trees: Map[string, Map[string, string]]{}, keys: Map[string, string]{}, commits: Map[string, Node]{}, next: 1, indexWrites: 0, stale: Map[string, int]{}, times: Map[string, int64]{}}), calls: sync.NewRef(0)} }
 
 // NewVcs is the laws' Vcs: a checkout at "." on branch main, committed
 // twice, with an uncommitted change, an untracked file and an ignored one.
@@ -564,6 +570,10 @@ func Configure(v Vcs, root string, key string, value string) fails work.VcsFaile
 
 func Setting(v Vcs, root string, key string) string fails work.VcsFailed { maps.GetOr(try checkout(v, root), ".git/config/"+key, "") }
 
+// OwnSetting is Setting: the model has no user's or system's file, so
+// every value is the checkout's own.
+func OwnSetting(v Vcs, root string, key string) string fails work.VcsFailed { try Setting(v, root, key) }
+
 // notesFolder holds a checkout's notes, one file per commit.
 let notesFolder = ".git/notes/work/"
 
@@ -634,7 +644,9 @@ func committed(v Vcs, prefix string, c Node) string {
 	let id = "\(prefix)\(s.next)"
 	let mut commits = s.commits
 	commits[id] = c
-	v.store.Set(Store{..s, commits: commits, next: s.next + 1})
+	let mut times = s.times
+	times[id] = int64(len(s.commits) + 1)
+	v.store.Set(Store{..s, commits: commits, next: s.next + 1, times: times})
 	id
 }
 
@@ -675,6 +687,7 @@ func indexOf(files Map[string, string]) Map[string, string] {
 
 // checkout is the files of the checkout at root.
 func checkout(v Vcs, root string) Map[string, string] fails work.VcsFailed {
+	v.calls.Update(func(n int) int { n + 1 })
 	if !v.trees.Has(root) {
 		return work.VcsFailed{Reason: "\(root): no checkout"}
 	}
@@ -725,7 +738,9 @@ func Commit(v Vcs, root string, commit string) bool {
 	let s = v.store.Get()
 	let mut commits = s.commits
 	commits[commit] = Node{Tree: tree, Parents: parents}
-	v.store.Set(Store{..s, commits: commits})
+	let mut times = s.times
+	times[commit] = int64(len(s.commits) + 1)
+	v.store.Set(Store{..s, commits: commits, times: times})
 	checkOut(v, root, working, working) catch {
 	case work.VcsFailed:
 		return false
@@ -776,4 +791,122 @@ law InitRefreshesTheIndex(n int) {
 		return false
 	}
 	left == 0
+}
+
+// Calls is the number of checkout reads the Vcs has made: one for each
+// call of it (a Merge or a Push reads two).
+func Calls(v Vcs) int { v.calls.Get() }
+
+// OriginHead names, in a memory checkout, the branch its origin's HEAD
+// points to (the memory checkout keeps no symbolic ref): a branch name.
+let OriginHead = ".git/origin-head"
+
+func TipOf(v Vcs, root string) work.Tip fails work.VcsFailed {
+	let files = try checkout(v, root)
+	let head = maps.GetOr(files, ".git/HEAD", "")
+	work.Tip{Commit: head, Branch: maps.GetOr(files, ".git/branch", ""), Time: maps.GetOr(v.store.Get().times, head, int64(0))}
+}
+
+// Default: the branch OriginHead names when the checkout has it, else its
+// own branch; no object folder (the store is every checkout's).
+func Default(v Vcs, parent string) work.Located fails work.VcsFailed {
+	let files = try checkout(v, parent)
+	let mut ref = ""
+	for name in []string{maps.GetOr(files, OriginHead, ""), maps.GetOr(files, ".git/branch", "")} {
+		if ref == "" && name != "" && files.Get(".git/refs/heads/"+name) != None {
+			ref = "refs/heads/" + name
+		}
+	}
+	work.Located{Ref: ref, Commit: if ref == "" { "" } else { maps.GetOr(files, ".git/"+ref, "") }, Objects: ""}
+}
+
+func Counts(v Vcs, root string, objects string, base string, head string) work.Apart fails work.VcsFailed {
+	let _ = try checkout(v, root)
+	let s = v.store.Get()
+	try commitIn(s, root, base)
+	try commitIn(s, root, head)
+	let ours = ancestors(s, head)
+	let theirs = ancestors(s, base)
+	work.Apart{Ahead: len(only(s, ours, theirs)), Behind: len(only(s, theirs, ours))}
+}
+
+func Unpicked(v Vcs, root string, objects string, base string, head string) int fails work.VcsFailed {
+	let _ = try checkout(v, root)
+	let s = v.store.Get()
+	try commitIn(s, root, base)
+	try commitIn(s, root, head)
+	let ours = ancestors(s, head)
+	let theirs = ancestors(s, base)
+	let mut landed = Map[string, bool]{}
+	for c in only(s, theirs, ours) {
+		landed[patchOf(s, c)] = true
+	}
+	len(slices.Filter(only(s, ours, theirs), func(c string) bool { landed.Get(patchOf(s, c)) == None }))
+}
+
+// commitIn fails unless the store has commit.
+func commitIn(s Store, root string, commit string) fails work.VcsFailed {
+	if s.commits.Get(commit) == None {
+		return work.VcsFailed{Reason: "\(root): no commit \(commit)"}
+	}
+}
+
+// only is the commits of a that b lacks, merges left out.
+func only(s Store, a []string, b []string) []string {
+	slices.Filter(a, func(c string) bool {
+		let merge = match s.commits.Get(c) {
+		case Some[Node] as n:
+			len(n.Value.Parents) > 1
+		case None:
+			false
+		}
+		!merge && !slices.Contains(b, c)
+	})
+}
+
+// patchOf is a commit's change against its first parent, as text: each
+// path whose text differs, with its text before and after (a quoted
+// "absent" for a path one side lacks), as Git's patch id compares.
+func patchOf(s Store, commit string) string {
+	match s.commits.Get(commit) {
+	case Some[Node] as n:
+		let after = maps.GetOr(s.trees, n.Value.Tree, Map[string, string]{})
+		let before = if len(n.Value.Parents) == 0 {
+			Map[string, string]{}
+		} else {
+			match s.commits.Get(n.Value.Parents[0]) {
+			case Some[Node] as p:
+				maps.GetOr(s.trees, p.Value.Tree, Map[string, string]{})
+			case None:
+				Map[string, string]{}
+			}
+		}
+		let mut paths = Map[string, bool]{}
+		for path in maps.Keys(before) {
+			paths[path] = true
+		}
+		for path in maps.Keys(after) {
+			paths[path] = true
+		}
+		let mut key = ""
+		for path in slices.Sorted(maps.Keys(paths)) {
+			let was = textOr(before, path)
+			let is = textOr(after, path)
+			if was != is {
+				key = key + strconv.Quote(path) + " " + was + " " + is + "\n"
+			}
+		}
+		key
+	case None:
+		commit
+	}
+}
+
+func textOr(files Map[string, string], path string) string {
+	match files.Get(path) {
+	case Some[string] as f:
+		strconv.Quote(f.Value)
+	case None:
+		"absent"
+	}
 }

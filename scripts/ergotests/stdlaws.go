@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -30,6 +31,39 @@ const stdRedFile = "scripts/ergotests/testdata/std-red.txt"
 type stdRun struct {
 	verdicts map[string][]eval.Status
 	failed   map[string]string
+	// native is each law's verdicts in its package's native run
+	// (runStdNative): true for ok, false for a skip or a failure.
+	native map[string][]bool
+	// declared is the declaring package of each member law, by "q T.L",
+	// q the last element of its path (memberLaws).
+	declared map[string]string
+}
+
+// memberLaws maps each member law of the ledger, "q T.L" with q the last
+// element of its package's path, to that package.
+func memberLaws(rows []lawledger.Row) map[string]string {
+	out := map[string]string{}
+	for _, r := range rows {
+		if strings.Contains(r.Law, ".") {
+			out[path.Base(r.Pkg)+" "+r.Law] = r.Pkg
+		}
+	}
+	return out
+}
+
+// key is the key a verdict of law, run in the package pkg, counts for. A
+// member law of an operation type another package declares runs in its
+// providers' packages under its qualified name, q.T.L ("law
+// workflow.Store.X for Store" in workflow/memory), and counts for the
+// declaring package's law, "workflow Store.X" (LAW-RUNS-CREDIT-PROVIDERS).
+// Every other law counts for pkg's.
+func (run stdRun) key(pkg, law string) string {
+	if q, member, ok := strings.Cut(law, "."); ok && strings.Contains(member, ".") {
+		if decl, ok := run.declared[q+" "+member]; ok {
+			return decl + " " + member
+		}
+	}
+	return pkg + " " + law
 }
 
 // redLine is a line of stdRedFile.
@@ -41,8 +75,13 @@ type redLine struct{ class, why, id string }
 // holds that each obligation passed and that every law the ledger gives
 // no Go runner ran there, unless stdRedFile lists it in the class it
 // fails in (NATIVE-LAWS: a law no tier ran fails by name).
-func runStd(w io.Writer, root string) int {
-	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}}
+func runStd(w io.Writer, root, ergo string) int {
+	rows, err := lawledger.Read()
+	if err != nil {
+		fmt.Fprintln(w, "FAIL the std law ledger:", err)
+		return 1
+	}
+	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, native: map[string][]bool{}, declared: memberLaws(rows)}
 	for _, pkg := range stdlib.Packages() {
 		dir := filepath.Join(root, filepath.FromSlash(stdRoot), filepath.FromSlash(pkg))
 		rep, err := evaluate(dir)
@@ -54,7 +93,7 @@ func runStd(w io.Writer, root string) int {
 		for _, r := range rep.Results {
 			key := pkg + " " + r.Name
 			if law, ok := lawOf(r.Name); ok {
-				key = pkg + " " + law
+				key = run.key(pkg, law)
 				run.verdicts[key] = append(run.verdicts[key], r.Status)
 			}
 			if holds(r, false) {
@@ -69,16 +108,14 @@ func runStd(w io.Writer, root string) int {
 			run.failed[key] = string(r.Status)
 		}
 	}
-	rows, err := lawledger.Read()
-	if err != nil {
-		fmt.Fprintln(w, "FAIL the std law ledger:", err)
-		return 1
-	}
 	var bare []string
 	for _, r := range rows {
 		if r.Runner == lawledger.NoRunner {
 			bare = append(bare, r.Key())
 		}
+	}
+	if code := runStdNative(w, root, ergo, bare, &run); code != 0 {
+		return code
 	}
 	listed, err := readStdRed(filepath.Join(root, filepath.FromSlash(stdRedFile)))
 	if err != nil {
@@ -130,8 +167,7 @@ func redProblems(bare []string, run stdRun, listed map[string]redLine) []string 
 		needs[key] = class
 	}
 	for _, key := range bare {
-		statuses := run.verdicts[key]
-		ran := len(statuses) > 0 && !slices.ContainsFunc(statuses, func(s eval.Status) bool { return s != eval.Passed })
+		ran := ranInPlace(run.verdicts[key]) || ranNatively(run.native[key])
 		if _, failed := needs[key]; !ran && !failed {
 			needs[key] = "not run"
 		}
@@ -152,6 +188,18 @@ func redProblems(bare []string, run stdRun, listed map[string]redLine) []string 
 		}
 	}
 	return out
+}
+
+// ranInPlace reports whether a law's in-place verdicts say it ran: some
+// verdict, and every one passed.
+func ranInPlace(statuses []eval.Status) bool {
+	return len(statuses) > 0 && !slices.ContainsFunc(statuses, func(s eval.Status) bool { return s != eval.Passed })
+}
+
+// ranNatively reports whether a law's native verdicts say it ran: some
+// verdict, and every one passed (a skip runs nothing).
+func ranNatively(passed []bool) bool {
+	return len(passed) > 0 && !slices.Contains(passed, false)
 }
 
 func sortedKeys[V any](m map[string]V) []string {
