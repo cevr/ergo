@@ -34,8 +34,8 @@ func rpcOver() pipelinerpc.Client needs pipeline.Pipeline {
 }
 
 let overModel = context fails domain.Conflict | domain.Reused | domain.Unkept {
-	Scheduler: time.NewManual(0),
-	pipeline.Runner: runners.New(Map[int, int]{}),
+	Scheduler:         time.NewManual(0),
+	pipeline.Runner:   runners.New(Map[int, int]{}),
 	pipeline.Pipeline: try pipeline.Open(memory.New[pipeline.Entry]()),
 }
 
