@@ -144,6 +144,7 @@ let bBool = 1
 let bString = 2
 let bInt = 3
 let bInt32 = 6
+let bUint64 = 12
 let bUintptr = 13
 let bFloat32 = 14
 let bFloat64 = 15

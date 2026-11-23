@@ -153,8 +153,15 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 	if c.Trailing == dense.NoID[syntax.Node]() && indexed && n == 1 && len(written) == 1 && isBuiltin(k, *t, fun, "decode") {
 		decodeCall(s, k, t, x, written[0])
 	}
-	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && n == 1 && isLen(k, *t, fun) {
-		return lenCall(s, k, t, syntax.Item(tr, c.Args, 0))
+	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && n == 1 {
+		let arg = syntax.Item(tr, c.Args, 0)
+		if isBuiltin(k, *t, fun, "len") {
+			return lenCall(s, k, t, arg)
+		}
+		if isBuiltin(k, *t, fun, "hash") {
+			expr(s, k, t, arg, Free)
+			return some(store.TBasic(s, bUint64))
+		}
 	}
 	// The callee: a function of the package, or of an import (pkg.F).
 	let callee = if syntax.KindOf(tr, fun) == syntax.KIdent {
@@ -223,21 +230,6 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 		return resultOf(*s, r)
 	}
 	generic(s, k, t, x, c, fun, written, f, None)
-}
-
-// isLen is whether fun names the builtin len: a name the package does not
-// declare, written len.
-func isLen(k Pkg, t Typer, fun dense.ID[syntax.Node]) bool {
-	if syntax.KindOf(tree(k, t.file), fun) != syntax.KIdent {
-		return false
-	}
-	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, fun)) {
-	case bind.Outside:
-		let p = k.Parsed[t.file]
-		syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, fun))) == "len"
-	case _:
-		false
-	}
 }
 
 // lenCall types len(a): an int, of a string, a slice, an array or a Map
@@ -452,10 +444,22 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	for p in params {
 		renamed = renamed.Append(store.TSubst(s, p, rename))
 	}
+	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], mine, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+	let frame = infer.Begin(&t.frame, f.Rows, base)
+	let all = len(written) == len(f.Rows)
+	let mut ok = n+m == len(params) && len(written) <= len(f.Rows)
+	if ok {
+		for i, w in written {
+			infer.Bind(&t.frame, frame, i, types.Resolve(s, env, w))
+		}
+	}
 	let mut ins = []infer.Arg{}
 	match recv {
 	case Some[dense.ID[store.TKey]] as rt:
-		ins = ins.Append(infer.Typed{T: rt.Value})
+		if ok {
+			ok = infer.Argument(s, &t.frame, k.Unions, frame, renamed[0], rt.Value, all)
+		}
+		ins = ins.Append(infer.Unknown)
 	case None:
 	}
 	for i in 0..n {
@@ -466,22 +470,33 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 				ins = ins.Append(infer.Literal{Default: d.Value})
 			case None:
 				ins = ins.Append(infer.Unknown)
+				ok = false
 			}
 			continue
 		}
-		match expr(s, k, t, a, Free) {
-		case Some[dense.ID[store.TKey]] as at:
-			ins = ins.Append(infer.Typed{T: at.Value})
-		case None:
-			ins = ins.Append(infer.Unknown)
+		let want = if ok {
+			match infer.Expected(s, t.frame, frame, renamed[i+m]) {
+			case Some{Value: p}:
+				Exactly{T: infer.Unmarked(*s, p)}
+			case None:
+				Free
+			}
+		} else {
+			Free
 		}
+		match expr(s, k, t, a, want) {
+		case Some[dense.ID[store.TKey]] as at:
+			if ok {
+				ok = infer.Argument(s, &t.frame, k.Unions, frame, renamed[i+m], at.Value, all)
+			}
+		case None:
+			ok = false
+		}
+		ins = ins.Append(infer.Unknown)
 	}
-	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], mine, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
-	let mut explicit = []dense.ID[store.TKey]{}
-	for w in written {
-		explicit = explicit.Append(types.Resolve(s, env, w))
-	}
-	let (inferred, unbound) = infer.InferAt(s, &t.frame, k.Unions, infer.Callee{Params: renamed, Rows: f.Rows, Base: base}, explicit, ins)
+	let mut unbound = -1
+	let inferred = if ok { infer.Finish(s, &t.frame, frame, renamed, ins, all, &unbound) } else { None }
+	infer.End(&t.frame, frame)
 	match inferred {
 	case Some[[]dense.ID[store.TKey]] as targs:
 		// An import's function is named by its selector's name.
