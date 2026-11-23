@@ -84,6 +84,9 @@ const (
 	resConcrete = iota // as plain data
 	resOwn             // as a resource when it is marked own
 	resAny             // as a resource
+	// resOwnPart counts only an own type parameter: a concrete resource
+	// is plain data to it (holdsOwnParam).
+	resOwnPart
 )
 
 // releasable reports whether t has a release (resources R1, R13): it
@@ -102,15 +105,32 @@ func (c *checker) releasable(t Type) bool {
 // crosses reports whether ownership means nothing for a value of type t.
 func (c *checker) crosses(t Type) bool { return !c.holdsResource(t) }
 
+// holdsOwnParam reports whether a value of type t holds a value of an own
+// type parameter, directly or through a part (a field, an element, a
+// variant, a type argument), whatever concrete resources it also holds:
+// the part a generic body cannot release (Gap 42).
+func (c *checker) holdsOwnParam(t Type) bool {
+	w := resWalk{c: c, mode: resOwnPart}
+	h, _ := w.visit(t)
+	return h
+}
+
 type resWalk struct {
 	c     *checker
 	mode  int
 	nodes map[int32]*taskNode
 	stack []int32
 	next  int
+	local map[int32]bool // resOwnPart's memo, one walk's
 }
 
 func (w *resWalk) memo() map[int32]bool {
+	if w.mode == resOwnPart {
+		if w.local == nil {
+			w.local = map[int32]bool{}
+		}
+		return w.local
+	}
 	if w.c.resMemo[w.mode] == nil {
 		w.c.resMemo[w.mode] = map[int32]bool{}
 	}
@@ -124,12 +144,15 @@ func (w *resWalk) visit(t Type) (bool, int) {
 	c.resSteps++
 	switch t := t.(type) {
 	case *TypeParam:
-		return w.mode == resAny || w.mode == resOwn && t.Own, noLow
+		return w.mode == resAny || (w.mode == resOwn || w.mode == resOwnPart) && t.Own, noLow
 	case *Named:
 		if t.foreign {
 			return false, noLow
 		}
 		if t.Obj != nil && t.Obj.Pkg != nil && t.Obj.Pkg.Host() {
+			if w.mode == resOwnPart {
+				return false, noLow
+			}
 			// A Go type is a resource when its method set has Close() or
 			// Close() error (IG9, hostres.go); its fields are Go's.
 			if c.hostClose(t) != nil {
@@ -195,6 +218,12 @@ func (w *resWalk) visit(t Type) (bool, int) {
 		switch {
 		case o.state != 2:
 			n.final = false
+		case w.mode == resOwnPart:
+			// Only the type arguments can bring an own type parameter in:
+			// the declared body's parameters stand for them.
+			for _, a := range t.TArgs {
+				edge(a)
+			}
 		case c.implementsCloser(t):
 			n.holds = true
 		default:
@@ -625,15 +654,13 @@ func (c *checker) checkOwnershipSites() {
 }
 
 // ownMarkSite is a type argument, arg, bound to the type parameter tp of
-// the generic declaration name at at. typ marks a generic type's own tp,
-// which an unmarked type parameter may not fill.
+// the generic declaration name at at.
 type ownMarkSite struct {
 	file *fileInfo
 	at   syntax.Node
 	name string
 	tp   *TypeParam
 	arg  Type
-	typ  bool
 }
 
 // recordOwnMark records each type argument of an instantiation for the
@@ -643,28 +670,10 @@ func (c *checker) recordOwnMark(name string, tparams []*TypeParam, targs []Type,
 		return
 	}
 	for i, tp := range tparams {
-		if i >= len(targs) || tp.Kind != KindType || tp.Own || targs[i] == nil || languageParam(tp) {
+		if i >= len(targs) || tp.Kind != KindType || tp.Own || targs[i] == nil {
 			continue
 		}
 		c.ownMarkSites = append(c.ownMarkSites, ownMarkSite{file: c.cur, at: at, name: name, tp: tp, arg: targs[i]})
-	}
-}
-
-// recordTypeMark records each own parameter of a generic type's instance
-// written in the type's own package, for the late check that the type's
-// mark is required of its functions (types.md, Generics 9): Box[T] with
-// Box's T own needs T own there. Another package's use is decided at its
-// calls, as any unmarked T is.
-func (c *checker) recordTypeMark(n *Named, targs []Type, at syntax.Node) {
-	if c.silent > 0 || at == nil || n.Obj == nil || n.Obj.Pkg != c.pkg {
-		return
-	}
-	name, tparams := n.Obj.Name, n.TParams
-	for i, tp := range tparams {
-		if i >= len(targs) || tp.Kind != KindType || !tp.Own || targs[i] == nil {
-			continue
-		}
-		c.ownMarkSites = append(c.ownMarkSites, ownMarkSite{file: c.cur, at: at, name: name, tp: tp, arg: targs[i], typ: true})
 	}
 }
 
@@ -675,10 +684,6 @@ func (c *checker) recordTypeMark(n *Named, targs []Type, at syntax.Node) {
 func (c *checker) checkOwnMarks() {
 	seen := map[ownershipKey]bool{}
 	for _, s := range c.ownMarkSites {
-		if s.typ {
-			c.checkTypeMark(s, seen)
-			continue
-		}
 		if containsInvalid(s.arg) || !c.mayHoldResource(s.arg) || seen[ownershipKey{s.at, s.tp}] {
 			continue
 		}
@@ -690,25 +695,3 @@ func (c *checker) checkOwnMarks() {
 		c.errorf(s.at, CodeType, "%s cannot take %s as its %s: %s is not marked own, so it binds plain data only; write [%s own] where %s declares it, which holds its body to a resource's rules (types.md, Generics 9)", s.name, s.arg, s.tp.Name, s.tp.Name, s.tp.Name, s.name)
 	}
 }
-
-// checkTypeMark refuses a generic type's own parameter filled by an
-// unmarked type parameter of the declaration that writes the instance: the
-// type's mark is required of its functions, so a value of Box[T] that may
-// hold a resource is read under a resource's rules (S108; Generics 9).
-func (c *checker) checkTypeMark(s ownMarkSite, seen map[ownershipKey]bool) {
-	q, ok := s.arg.(*TypeParam)
-	if !ok || q.Kind != KindType || q.Own || languageParam(q) || seen[ownershipKey{s.at, s.tp}] {
-		return
-	}
-	seen[ownershipKey{s.at, s.tp}] = true
-	if c.recordOwnLegacy(q) {
-		return // ergo fix writes the mark on q
-	}
-	c.cur = s.file
-	c.errorf(s.at, CodeType, "%s marks its %s own, so %s[%s] may hold a resource, and %s is not marked own; write [%s own] where %s is declared, which holds its uses to a resource's rules (types.md, Generics 9)", s.name, s.tp.Name, s.name, q.Name, q.Name, q.Name, q.Name)
-}
-
-// languageParam reports a type parameter of a language type, the
-// prelude's Option[T] and Some[T] and go.Ref[T]: it admits a resource with
-// no mark, as []T and Map[K, V] do (types.md, Generics 9).
-func languageParam(tp *TypeParam) bool { return tp.lang }
