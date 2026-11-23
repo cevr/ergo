@@ -14,9 +14,9 @@ actor ExitIsShared	TestStdActorLawsRun
 actor ExitRunsOncePerEntry	TestStdActorLawsRun
 actor ExitSeesLastState	TestStdActorLawsRun
 actor FailedIsExit	TestStdActorLawsRun
-actor FeedRunsEveryAdmitted	#162
 actor FeedStepsInOrder	TestStdActorLawsRun
 actor LookupFromOwnStep	#162
+actor OnEndRunsOnce	#162
 actor RegistryDropsTheEnded	#162
 actor RejectKeepsState	TestStdActorLawsRun
 actor RestartIsFresh	TestStdActorLawsRun

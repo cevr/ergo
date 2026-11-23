@@ -12,8 +12,6 @@
 // control: a goroutine with a channel and a switch on the state.
 
 import machines
-import queue
-import scope
 import tasks
 import time
 import sync
@@ -980,35 +978,56 @@ func source(xs []int) Seq[int] {
 	})
 }
 
-// FeedRunsEveryAdmitted: every source a Feed admitted runs, also when the
-// actor ends before its runner took the source: when Stop returns, each
-// of the n sources fed just before it has run.
-law FeedRunsEveryAdmitted(n int) {
+// OnEnd runs f once when a ends, after a's sources stopped and before its
+// end is published: before Stop, Drain or ExitOf of a returns, whatever
+// ended it (a Done, a failure, a defect, a Stop, a Drain). It runs masked
+// on a's runner, in the order the OnEnd calls came; a defect in f joins
+// a's exit. It fails Stopped once a's end has taken its actions; f then
+// never runs. A Registry removes an ended actor's entry with it.
+extern go ergo.local/prototype/runtime/v1.ActorOnEnd func OnEnd[S, E, D, F](a Actor[S, E, D, F], f own func()) fails Stopped
+
+// OnEndRunsOnce: each of the n actions added before the end runs exactly
+// once, in order, before Stop or Drain returns, whatever the signals did
+// (one may be a Done); an OnEnd after the end fails Stopped and never
+// runs.
+law OnEndRunsOnce(n int, signals []int, drain bool) {
 	with context { Scheduler: time.NewManual(0) } {
-		fedThenStopped(((n % 4) + 4) % 4 + 1)
+		endActions(((n % 4) + 4) % 4 + 1, signals, drain)
 	}
 }
 
-// fedThenStopped feeds n sources, each counting its run, to an actor and
-// stops it at once.
-func fedThenStopped(n int) bool needs Scheduler {
-	let a = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
-	let runs = sync.NewRef[int](0)
-	for _ in 0..n {
-		Feed(a, counted(runs)) catch {
+// endActions adds n actions to an actor that was sent signals, each
+// appending its number to a shared list, and ends it.
+func endActions(n int, signals []int, drain bool) bool needs Scheduler {
+	let a = sent(signals)
+	let ran = sync.NewRef[[]int]([]int{})
+	let mut added = 0
+	for i in 0..n {
+		let mut took = true
+		OnEnd(a, func() { ran.Update(func(xs []int) []int { xs.Append(i) }) }) catch {
 		case Stopped:
-			return false
+			took = false
+		}
+		if took {
+			added = added + 1
 		}
 	}
-	a.Stop()
-	runs.Get() == n
-}
-
-// counted is a Seq of no values that counts each run in runs.
-func counted(runs sync.Ref[int]) Seq[int] {
-	Seq[int](func(yield func(v int) bool) {
-		runs.Update(func(v int) int { v + 1 })
-	})
+	if drain {
+		a.Drain()
+	} else {
+		a.Stop()
+	}
+	let got = ran.Get()
+	let mut late = false
+	OnEnd(a, func() { ran.Update(func(xs []int) []int { xs.Append(-1) }) }) catch {
+	case Stopped:
+		late = true
+	}
+	let mut inOrder = len(got) == added
+	for i in 0..len(got) {
+		inOrder = inOrder && got[i] == i
+	}
+	inOrder && late && len(ran.Get()) == len(got)
 }
 
 // live is a State read that fails Stopped when a has ended before it was
@@ -1524,12 +1543,10 @@ func NewRegistry[K comparable, S, E, D, F]() Registry[K, S, E, D, F] {
 }
 
 // Register names a by k. It fails Taken while another live actor holds k,
-// and Stopped when a has ended or its Stop was requested (it then names
-// nothing). The entry is removed at a's end by the exit action of a source
-// of a (Feed's body; every admitted source runs, FeedRunsEveryAdmitted),
-// so a registry runs no task of its own; Lookup and Register never take an
-// ended actor's entry as live (Ended), whatever the order of the end and
-// the source's start.
+// and Stopped when a has ended (it then names nothing). The entry is
+// removed by an end action of a (OnEnd), so before Stop, Drain or ExitOf
+// of a returns, and a registry runs no task of its own; Lookup and
+// Register never take an ended actor's entry as live (Ended).
 func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[S, E, D, F]) fails Taken | Stopped {
 	let _ = Lookup(r, k)
 	let n = sync.Modify(r.next, func(v int) (int, int) { (v + 1, v + 1) })
@@ -1545,14 +1562,8 @@ func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[
 		return Taken
 	}
 	let entries = r.entries
-	feed(a, func(send func(e E)) {
-		scope.OnExit() {
-			entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
-		}
-		let hold = queue.New[int](1)
-		hold.Pop() catch {
-		case queue.Closed:
-		}
+	OnEnd(a, func() {
+		entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
 	}) catch {
 	case Stopped:
 		entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
@@ -1669,9 +1680,8 @@ func registryDrops(signals []int, k int) bool needs Scheduler {
 		return false
 	}
 	let back = named(r, k)
-	// b ends right after its Register, before its runner took the
-	// source that removes the entry: the entry is still removed by the
-	// end itself, not only hidden by Lookup (FeedRunsEveryAdmitted).
+	// b ends right after its Register: the entry is removed by the end
+	// itself (OnEnd), not only hidden by Lookup.
 	b.Stop()
 	found && taken && gone && back && !held(r, k)
 }
@@ -1680,7 +1690,7 @@ func registryDrops(signals []int, k int) bool needs Scheduler {
 // the actor removed, read without Lookup's own drop.
 func held(r Registry[int, int, int, Decision[int, int]], k int) bool {
 	match r.entries.Get().Get(k) {
-	case Some[registered[int, int, int, Decision[int, int]]]:
+	case Some[registered[int, int, Decision[int, int]]]:
 		true
 	case None:
 		false
