@@ -56,7 +56,7 @@ import example.com/mix/lib
 
 // Sum is n / d through half, plus n + d through lib.
 func Sum(n int, d int) int fails lib.DivZero {
-	let q = half.Of(n, d)
+	let q = try half.Of(n, d)
 	q + lib.Add(n, d)
 }
 `
