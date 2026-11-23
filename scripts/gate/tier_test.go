@@ -134,10 +134,8 @@ func fastPackageSteps(t *testing.T, root string) map[string][]*Step {
 }
 
 // Every fast-tier step that runs a package's go test is keyed by its
-// package and runs -short, the hermetic packages with CGO_ENABLED=0 as
-// their full-tier step builds them; the nested modules' steps are the full
-// tier's own; no full-tier test step is left, the hermetic one included
-// (it relinks its test binaries on every run to find Go's cached result),
+// package and runs -short; the nested modules' steps are the full tier's
+// own; no full-tier test step is left,
 // and neither is the build of every test binary, nor a need on it, nor a
 // closure sweep. Each package is keyed on its closure table entry, and no
 // host package has a step (classHeavy), nor a package whose every test
@@ -177,11 +175,7 @@ func TestFastStepsKeyEveryTestPackage(t *testing.T) {
 			if !slices.Equal(step.Package.Declared, table[step.Package.Dir]) {
 				t.Errorf("%s: declared %v; want its closure table entry %v", step.Name, step.Package.Declared, table[step.Package.Dir])
 			}
-			hermetic := strings.HasPrefix(step.Package.Dir, hermeticTestRoot)
-			if hermetic != slices.Equal(step.Env, hermeticEnvironment) {
-				t.Errorf("%s: environment %q; a hermetic package's step builds with %q, no other step does", step.Name, step.Env, hermeticEnvironment)
-			}
-		case step.Hermetic, step.Name == fullBuildStep:
+		case step.Name == fullBuildStep:
 			t.Errorf("%s: a full-tier test step is in the fast tier", step.Name)
 		case !runsGoTest(step):
 		default:
@@ -241,17 +235,17 @@ func TestTheClosureTableParses(t *testing.T) {
 // What a one-line edit reaches in the fast tier (gate-fast acceptance legs
 // 2 and 3, the deterministic part): a docs edit only the packages that read
 // every file; an edit of the checker's source the packages that build
-// on it and those two. The fast set of the checker edit is measured
-// against a pinned CPU budget: the recorded CPU of the reached packages'
-// fast steps (fastCPUFile), which bounds the wall from below at a CPU
-// budget, so a growing suite fails here before the wall time grows.
+// on it and those two. The checker edit's fast set is counted, not timed
+// (AGENTS.md Tests: a growth guard counts work): the Test functions the
+// reached packages' fast steps run (fastTestCount), held under
+// fastReachTestLimit, so a growing suite fails here before the wall grows.
 func TestFastTierReachOfAnEdit(t *testing.T) {
 	root := checkoutRoot(t)
 	packages, problem, err := testPackages(root)
 	if err != nil || problem != "" {
 		t.Fatalf("%v %s", err, problem)
 	}
-	fastCPU, err := readFastCPU(root)
+	durations, err := readDurations(root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,13 +253,12 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	for dir := range fastPackageSteps(t, root) {
 		stepped[dir] = true
 	}
-	// What a reached package costs in the fast tier: the recorded CPU of
-	// its fast steps. A package with no row cannot be budgeted. A host
-	// package has no fast step (classHeavy), and neither has a package
-	// whose every test builds Go (fullTierOnly: internal/selfhostcheck,
-	// internal/experimental/irspike) or is large (fastSteps), so no edit
-	// reaches them here.
-	reach := func(file string) (dirs []string, cpu float64) {
+	// What a reached package costs in the fast tier: the Test functions
+	// its fast steps run. A host package has no fast step (classHeavy),
+	// and neither has a package whose every test builds Go (fullTierOnly:
+	// internal/selfhostcheck, internal/experimental/irspike) or is large
+	// (fastSteps), so no edit reaches them here.
+	reach := func(file string) (dirs []string, tests int) {
 		for _, p := range packages {
 			if !p.closure.Covers(file) || !stepped[p.dir] {
 				continue
@@ -276,23 +269,62 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 				continue
 			}
 			dirs = append(dirs, p.dir)
-			recorded, ok := fastCPU[p.importPath]
-			if !ok {
-				t.Errorf("%s has no row in %s: run go run ./scripts/gate -record-durations -fast ./%s", p.dir, fastCPUFile, p.dir)
+			n, err := fastTestCount(root, p, durations[p.importPath])
+			if err != nil {
+				t.Fatal(err)
 			}
-			cpu += recorded
+			// A fast step that runs no test would link and start its
+			// binary for nothing: a package whose every test is large has
+			// no step (fastSteps; kills b17-fast-all-large-stepped).
+			if n == 0 {
+				t.Errorf("%s has a fast step that runs no Test function", p.dir)
+			}
+			tests += n
 		}
-		return dirs, cpu
+		return dirs, tests
 	}
-	docs, _ := reach("docs/tooling.md")
-	if want := []string{"internal/residue", "internal/testinputs/guard"}; !slices.Equal(docs, want) {
-		t.Errorf("a docs edit reaches %v; want %v", docs, want)
+	// Rules, not lists of packages: a pinned list went red with every new
+	// package (DEAD-SCRIPTS found it red on main d090c6ac1). A docs edit
+	// reaches exactly the stepped packages granted the whole checkout; a
+	// checker edit reaches those and the packages whose test binaries
+	// (or the programs they build) compile the checker or walk its
+	// directory, and no other.
+	grantsAll := func(p testPackage) bool {
+		return slices.Contains(p.closure.Declared, replay.Allowance{Path: ".", Grant: replay.GrantSubtree})
 	}
-	// The steps that are no package's and that the budget counts
-	// (fastCPUSteps). The examples step reruns after an edit of its own
-	// inputs (the runner's closure, examples/) or of the bin/ergo it runs,
-	// which builds cmd/ergo's closure; so an edit that cmd/ergo's tests
-	// reach, reaches it.
+	var wantDocs, wantCheck []string
+	for _, p := range packages {
+		if !stepped[p.dir] {
+			continue
+		}
+		if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(p.dir))); err != nil {
+			t.Fatal(err)
+		} else if only {
+			continue
+		}
+		if grantsAll(p) {
+			wantDocs = append(wantDocs, p.dir)
+		}
+		compilesCheck := slices.Contains(p.closure.Deps, "internal/sketch/check")
+		for _, program := range p.closure.Programs {
+			compilesCheck = compilesCheck || slices.Contains(program.Deps, "internal/sketch/check")
+		}
+		// A subtree grant over the checker's directory reads its sources
+		// too (scripts/bootstrap walks each compiler package, GS29).
+		walksCheck := slices.ContainsFunc(p.closure.Declared, func(a replay.Allowance) bool {
+			return a.Grant == replay.GrantSubtree && strings.HasPrefix("internal/sketch/check/", a.Path+"/")
+		})
+		if grantsAll(p) || compilesCheck || walksCheck {
+			wantCheck = append(wantCheck, p.dir)
+		}
+	}
+	if docs, _ := reach("docs/tooling.md"); !slices.Equal(docs, wantDocs) || !slices.Contains(docs, "internal/residue") {
+		t.Errorf("a docs edit reaches %v; want the packages granted the checkout %v, internal/residue among them", docs, wantDocs)
+	}
+	// The steps that are no package's (fastCPUSteps). The examples step
+	// reruns after an edit of its own inputs (the runner's closure,
+	// examples/) or of the bin/ergo it runs, which builds cmd/ergo's
+	// closure; so an edit that cmd/ergo's tests reach, reaches it.
 	examples, err := examplesStep(root)
 	if err != nil {
 		t.Fatal(err)
@@ -309,91 +341,75 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	installed := func(file string) bool {
 		return slices.ContainsFunc(examples.Inputs.Installed, func(dir string) bool { return strings.HasPrefix(file, dir+"/") })
 	}
-	reachSteps := func(file string) (names []string, cpu float64) {
+	reachSteps := func(file string) (names []string) {
 		if selected(file, examples.Inputs) || installed(file) || packages[cli].closure.Covers(file) {
 			names = append(names, examples.Name)
-			recorded, ok := fastCPU[examples.Name]
-			if !ok {
-				t.Errorf("%q has no row in %s: run go run ./scripts/gate -record-durations -fast %q", examples.Name, fastCPUFile, examples.Name)
-			}
-			cpu += recorded
 		}
-		return names, cpu
+		return names
 	}
-	if steps, _ := reachSteps("docs/tooling.md"); len(steps) != 0 {
+	if steps := reachSteps("docs/tooling.md"); len(steps) != 0 {
 		t.Errorf("a docs edit reaches the steps %q; want none", steps)
 	}
 	for _, file := range []string{"examples/pipeline/run/run.ergo", "modules/domain/log/log.ergo"} {
-		if steps, _ := reachSteps(file); !slices.Equal(steps, []string{examples.Name}) {
+		if steps := reachSteps(file); !slices.Equal(steps, []string{examples.Name}) {
 			t.Errorf("an edit of %s reaches the steps %q; want %q", file, steps, examples.Name)
 		}
+		// The step walks examples/ and modules/ itself (MK0), whatever
+		// cmd/ergo's closure covers (kills mk0-step-blind-to-modules).
+		if !installed(file) {
+			t.Errorf("the examples step does not walk %s itself (Installed %q)", file, examples.Inputs.Installed)
+		}
 	}
-	check, cpu := reach("internal/sketch/check/check.go")
-	checkSteps, stepsCPU := reachSteps("internal/sketch/check/check.go")
-	if !slices.Equal(checkSteps, []string{examples.Name}) {
+	check, tests := reach("internal/sketch/check/check.go")
+	if checkSteps := reachSteps("internal/sketch/check/check.go"); !slices.Equal(checkSteps, []string{examples.Name}) {
 		t.Errorf("a checker edit reaches the steps %q; want %q", checkSteps, examples.Name)
 	}
-	cpu += stepsCPU
-	// scripts/examples builds on the checker since d3-lawcheck-model
-	// (batch 9): its examples runner imports the checker. internal/gobind
-	// (IG1-IG3), internal/sketch/machinegraph (batch 13) and the check-time
-	// evaluator internal/sketch/eval (L7 EV1) import it too, and so does
-	// the fact-table builder internal/sketch/facts (SEMTOOLS SEM0).
-	// internal/sketch/api projects the checked public contracts (L8 C3).
-	// tsproj projects the same checked contracts to TS, and rpcgen to RPC
-	// (it has fast tests since batch 21). internal/selfhostcheck's tests
-	// build Go (fullTierOnly); internal/experimental/irspike has fast
-	// tests of the IR text since IRG6, and internal/sketch/fix (ergo fix,
-	// EXC1/EXM1) reads the checker's result; the
-	// direct build path's identity test lives in internal/sketchfront, so
-	// internal/sketch/build's tests import no part of the checker. The
-	// ledger anchor check lives in internal/residue (main's eb40167a3), so
-	// scripts/mutants is not reached. The combined batch 19+20+21 head adds
-	// the lint rules (internal/sketch/lint and the example rule package
-	// examples/lintpack/policy read the checker's result) and
-	// scripts/bootstrap, whose closure covers the checker's sources (GS29).
-	// internal/opcount's build through sketchfront lives in its own package
-	// (internal/opcount/hooked), so the checker does not reach opcount.
-	want := []string{"cmd/ergo", "examples/lintpack/policy", "internal/bindc", "internal/experimental/irspike", "internal/gobind", "internal/migrate196", "internal/residue", "internal/rpcgen", "internal/sketch/api", "internal/sketch/check", "internal/sketch/eval", "internal/sketch/facts", "internal/sketch/fix", "internal/sketch/lint", "internal/sketch/lower", "internal/sketch/machinegraph", "internal/sketch/stdlib", "internal/sketch/syntax", "internal/sketchfront", "internal/testinputs/guard", "internal/tsproj", "scripts/bootstrap", "scripts/examples"}
-	if !slices.Equal(check, want) {
-		t.Errorf("a checker edit reaches %v; want %v", check, want)
+	// cmd/ergo, the lowering and the examples runner build on the checker;
+	// a checker edit that no longer reaches them has lost its closure.
+	for _, dir := range []string{"cmd/ergo", "internal/sketch/check", "internal/sketch/lower", "scripts/examples"} {
+		if !slices.Contains(wantCheck, dir) {
+			t.Errorf("%s does not compile the checker by its closure (Deps): the reach rule lost it", dir)
+		}
 	}
-	t.Logf("the checker edit's fast set: %.1f CPU-s recorded (%.1f of it the steps %q), target %.0f, gap %.1f", cpu, stepsCPU, checkSteps, fastCPUTarget, cpu-fastCPUTarget)
-	if cpu > fastCPUTarget+fastCPUKnownGap {
-		t.Errorf("the checker edit's fast set is %.1f CPU-s; the target is %.0f and the known gap %.0f (gate-fast plan 3.4): a new excess is a defect to fix, not a gap to allow", cpu, fastCPUTarget, fastCPUKnownGap)
+	if !slices.Equal(check, wantCheck) {
+		t.Errorf("a checker edit reaches %v; want the packages that compile the checker or are granted the checkout %v", check, wantCheck)
 	}
-	// The gap only shrinks: once the recorded set is well under the
-	// target and the gap, the gap comes down to what the rows show.
-	if fastCPUKnownGap > 0 && cpu < (fastCPUTarget+fastCPUKnownGap)*(1-fastCPURatchet) {
-		t.Errorf("the checker edit's fast set is %.1f CPU-s, under the target %.0f and the known gap %.0f by more than %.0f%%: lower fastCPUKnownGap to %.0f", cpu, fastCPUTarget, fastCPUKnownGap, fastCPURatchet*100, math.Max(0, math.Ceil(cpu-fastCPUTarget)))
+	t.Logf("the checker edit's fast set: %d Test functions, limit %d", tests, fastReachTestLimit)
+	if tests > fastReachTestLimit {
+		t.Errorf("the checker edit's fast set runs %d Test functions, over fastReachTestLimit (%d): a new test that every checker edit reaches is a cost to cut (fullTierOnly, the size rule, a narrower closure), not a limit to raise", tests, fastReachTestLimit)
 	}
 }
 
-// fastCPUTarget is the CPU the checker edit's fast set must stay under to
-// finish in 60 s at a CPU budget of 4 (gate-fast plan 3.4). fastCPUKnownGap
-// was the measured excess at gate-tier's head (2026-11-06: 205.8 CPU-s,
-// gap 6), which fast-cpu (batch 9) removed: the lower shards run the
-// gate's one bin/ergo (cliTestPackages) instead of building cmd/ergo per
-// shard, TestContextReachProperty builds a fixed quarter of its programs
-// under -short, and the lower typed scans share one source importer.
-//
-// GATE-ex (2026-11-11) counted the examples step, which the budget had
-// left out, and re-recorded the rows (docs/tooling.md, "CPU budget"): the
-// set is now over the target again, and fastCPUKnownGap is that measured
-// excess. The test fails when the set grows past the target and the gap,
-// and when it falls more than fastCPURatchet under them, so the gap only
-// comes down. The follow-ups that close it are in docs/tooling.md.
-const (
-	fastCPUTarget   = 200.0
-	fastCPUKnownGap = 153.0 // 352.8, GS29, 2026-11-15; before: 479.8 at the examples step's 258.5, 2026-11-15: rpcgen's 1.1 left with fullTierOnly; facts (SEMTOOLS SEM0) joined at one seed under -short, which is its go test floor (1.0-1.7 recorded at one seed or none; the headroom was 0.9); irspike (2.7) and fix (2.3) joined at batch 20's integration (I20). The batch 19+20+21 combined head recorded 782.0 with the examples step at 560.7: that row was a cold run, every program built and tested. GS29 records it over a warm verdict cache, what a checker edit costs (early cutoff, GS8; one key call per program of packages, GS27): 115.8, the set 352.8 with the rows of lint, lintpack/policy and bootstrap (15.7), which had none
-	fastCPURatchet  = 0.10
-)
+// fastTestCount is the number of Test functions the fast tier runs of p
+// (rows, its recorded times): every one of a guard package (wholeOf), else
+// those the size rule leaves in the fast tier (fastSelection).
+func fastTestCount(root string, p testPackage, rows map[string]float64) (int, error) {
+	names, err := testNames(filepath.Join(root, filepath.FromSlash(p.dir)))
+	if err != nil {
+		return 0, err
+	}
+	if whole, err := wholeOf(root, p); err != nil {
+		return 0, err
+	} else if whole != "" {
+		return len(names), nil
+	}
+	fast, _ := fastSelection(names, rows)
+	return len(fast), nil
+}
+
+// fastReachTestLimit bounds the Test functions a checker edit's fast set
+// runs (TestFastTierReachOfAnEdit). It replaced a CPU-seconds target
+// (fastCPUTarget 200, with a known gap of 153 that only came down) in
+// GATE-REACH, 2026-11-22: a timed bound is no guard (AGENTS.md Tests). Its
+// value is the count at that head, 2063 at ddd817a1c, with a tenth of headroom.
+const fastReachTestLimit = 2270
 
 // Over the module's tests as go test lists them: each fast-tier package's
 // shards run every test that is not large exactly once and no large one,
 // so the fast selection and the full-only set are every test (gate-fast
-// acceptance leg 4). It builds every test binary, so the full tier runs
-// it.
+// acceptance leg 4); a package that runs whole (whole.go, its step's note
+// "whole: ...") runs every test once, the large ones too. It builds every
+// test binary, so the full tier runs it.
 func TestFastTierCoversEveryListedTest(t *testing.T) {
 	root := checkoutRoot(t)
 	durations, err := readDurations(root)
@@ -408,6 +424,7 @@ func TestFastTierCoversEveryListedTest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: go test -list: %v", dir, err)
 		}
+		whole := slices.ContainsFunc(steps, func(s *Step) bool { return strings.HasPrefix(s.Note, wholeNote) })
 		listed := 0
 		for _, name := range strings.Fields(string(output)) {
 			if !strings.HasPrefix(name, "Test") && !strings.HasPrefix(name, "Fuzz") && !strings.HasPrefix(name, "Example") {
@@ -421,11 +438,11 @@ func TestFastTierCoversEveryListedTest(t *testing.T) {
 				}
 			}
 			want := 1
-			if d, ok := durations[module+"/"+dir][name]; ok && d >= sizeCutoff {
+			if d, ok := durations[module+"/"+dir][name]; ok && d >= sizeCutoff && !whole {
 				want = 0
 			}
 			if runs != want {
-				t.Errorf("%s: %s runs in %d fast steps, want %d", dir, name, runs, want)
+				t.Errorf("%s: %s runs in %d fast steps, want %d (whole %t)", dir, name, runs, want, whole)
 			}
 		}
 		if listed == 0 {

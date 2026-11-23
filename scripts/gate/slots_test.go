@@ -160,9 +160,9 @@ func TestLongestStepTakesTheFirstFreedSlot(t *testing.T) {
 	}
 }
 
-// TestStepsWeighTheirRecordedTime: in the full tier every swept package
-// has rows in durations.json, every step that runs a package's tests has a
-// weight, each sharded test step weighs the recorded cost of its tests
+// TestStepsWeighTheirRecordedTime: in the full tier every step that runs a
+// package's tests has a weight, a package with no rows in durations.json
+// its tests counted (countedSeconds), each sharded test step weighs the recorded cost of its tests
 // (shardCosts), the other packages' step theirs, a closure sweep
 // sweepWeightFactor times its package's (a host package's the stated
 // default). Which step is heaviest follows from those records, and the
@@ -194,8 +194,17 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	}
 	module := modulePath(root)
 	lower := module + "/internal/sketch/lower"
+	// A package's weight: its rows' recorded seconds, or with no row its
+	// tests counted (countedSeconds), so no package needs a measured row.
 	total := func(pkg string) float64 {
-		return recordedSeconds(slices.Collect(maps.Keys(durations[pkg])), durations[pkg])
+		if rows, ok := durations[pkg]; ok {
+			return recordedSeconds(slices.Collect(maps.Keys(rows)), rows)
+		}
+		names, err := testNames(filepath.Join(root, strings.TrimPrefix(pkg, module+"/")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return countedSeconds(names)
 	}
 	index := map[string]int{}
 	for i, step := range steps {
@@ -204,13 +213,10 @@ func TestStepsWeighTheirRecordedTime(t *testing.T) {
 	shards := map[string]float64{}
 	for _, step := range steps {
 		if step.Sweep != "" {
-			// Each test package has one sweep step: its package needs
-			// rows, from which its test steps weigh; only a host
+			// Each test package has one sweep step, weighing its
+			// package's recorded or counted tests; only a host
 			// package's sweep, which skips its tests, weighs the stated
 			// default.
-			if _, ok := durations[module+"/"+step.Sweep]; !ok {
-				t.Errorf("%s has no row for %s: its steps weigh unrecordedWeight; run ./scripts/gate.sh -record-durations ./%s", durationsFile, step.Sweep, step.Sweep)
-			}
 			want := max(sweepWeightFactor*total(module+"/"+step.Sweep), sweepCosts[step.Sweep].Sweep)
 			if slices.Contains(hostTestPackages, step.Sweep) {
 				want = 0

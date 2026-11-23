@@ -94,6 +94,9 @@ func stepsFor(root, tier string) ([]*Step, error) {
 	switch tier {
 	case fastTier:
 		return fastSteps(root)
+	case guardsTier:
+		steps, err := fastSteps(root)
+		return guardSteps(steps), err
 	case roundTier:
 		steps, _, err := fastStepsSelected(root, "", nil, true)
 		return steps, err
@@ -113,6 +116,9 @@ type testPackage struct {
 	importPath string
 	dir        string
 	closure    *replay.Closure
+	// unread says the closure table could not be read: closure.Declared
+	// is then the whole checkout as a key, not a grant the table gives.
+	unread bool
 }
 
 // testPackages lists the module's test packages and the closure of each,
@@ -219,7 +225,7 @@ func testPackages(root string) ([]testPackage, string, error) {
 			}
 			c.Programs[a.Path] = closureOf(a.Path, append([]string{program.ImportPath}, program.Deps...))
 		}
-		packages = append(packages, testPackage{importPath: p.ImportPath, dir: dir, closure: c})
+		packages = append(packages, testPackage{importPath: p.ImportPath, dir: dir, closure: c, unread: problem != ""})
 	}
 	sort.Slice(packages, func(i, j int) bool { return packages[i].dir < packages[j].dir })
 	return packages, problem, nil
@@ -269,10 +275,7 @@ func fastShardArgs(groups [][]string, large []string) [][]string {
 // classFastSteps are the full tier's classFast steps, which the fast tier
 // keeps (stepClass); a step with no class fails. Every go test step of the
 // full tier is heavy: in the fast tier each test package gets a keyed
-// -short step instead (fastSteps). The hermetic step, kept, relinked both
-// test binaries to find Go's cached result on every run: about 20 s of a
-// 27 s docs-edit run (measured 2026-11-06, leg-docs-3.log). The full
-// tier's "go test build" links and starts every test binary of the module
+// -short step instead (fastSteps). The full tier's "go test build" links and starts every test binary of the module
 // before any test step: in the fast tier a package step builds only its
 // own test binary, and only when its key changed, so the step and the
 // needs on it are dropped. go vet still type-checks every package and its
@@ -419,6 +422,8 @@ type plan struct {
 	fast, large []string
 	measured    map[string]float64
 	chosen      *selection
+	// whole is why the package runs whole (wholeOf), or "".
+	whole string
 }
 
 // planOf is the plan of p's fast-tier step (relative is its directory in
@@ -438,11 +443,7 @@ func planOf(root string, p testPackage, relative string, measured map[string]flo
 	} else if only && !round {
 		return nil, nil
 	}
-	// A hermetic package builds as its full-tier step builds it.
 	var env, needs []string
-	if strings.HasPrefix(relative, hermeticTestRoot) {
-		env = hermeticEnvironment
-	}
 	// A package whose tests run the CLI runs the one this run built.
 	if slices.Contains(cliTestPackages, relative) {
 		env, needs = cliTestEnvironment, []string{buildCLIStep}
@@ -452,10 +453,16 @@ func planOf(root string, p testPackage, relative string, measured map[string]flo
 		return nil, err
 	}
 	fast, large := fastSelection(names, measured)
-	if round {
+	// A guard package runs whole: no size cut here, no selection after
+	// (whole.go).
+	whole, err := wholeOf(root, p)
+	if err != nil {
+		return nil, err
+	}
+	if round || whole != "" {
 		fast, large = names, nil
 	}
-	return &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured}, nil
+	return &plan{p: p, relative: relative, env: env, needs: needs, fast: fast, large: large, measured: measured, whole: whole}, nil
 }
 
 // fastStepsSelected is fastSteps, with the fast tests of each of
@@ -476,6 +483,9 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 	var importPaths []string
 	for _, p := range packages {
 		importPaths = append(importPaths, p.importPath)
+	}
+	if err := checkDurationRows(root, importPaths); err != nil {
+		return nil, nil, err
 	}
 	full, err := declareSteps(root, importPaths)
 	if err != nil {
@@ -512,7 +522,7 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 		var wg sync.WaitGroup
 		slots := make(chan struct{}, runtime.GOMAXPROCS(0))
 		for _, pl := range plans {
-			if !round && !slices.Contains(selectPackages, pl.relative) {
+			if pl.whole != "" || (!round && !slices.Contains(selectPackages, pl.relative)) {
 				continue
 			}
 			wg.Go(func() {
@@ -534,6 +544,9 @@ func fastStepsSelected(root, cacheDir string, choose selector, round bool) (step
 			suffix = roundTier
 		}
 		name := "go test " + pkg + " (" + suffix + ")"
+		if pl.whole != "" {
+			note = wholeNote + pl.whole
+		}
 		if pl.chosen != nil {
 			chosen := *pl.chosen
 			fast = slices.DeleteFunc(fast, func(name string) bool { return slices.Contains(chosen.skip, name) })
