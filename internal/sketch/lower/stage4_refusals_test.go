@@ -110,6 +110,44 @@ func main() needs Console {
 }
 `, "S108", "E1 is caught twice"},
 	},
+	ruleUnionFailure: {
+		{`type Lost { At int }
+type Torn { Why int }
+type Fault = Lost | Torn
+func pick(i int) Fault {
+	if i == 0 { return Lost{At: i} }
+	Torn{Why: i}
+}
+func via(i int) int fails Lost | Torn {
+	let f = pick(i)
+	if i == 0 { return f }
+	i
+}
+func main() needs Console { Console.Println("\(via(1) catch { case _: 0 })") }
+`, "S108", "cannot use Fault as int in return"},
+		{`type Lost { At int }
+type Torn { Why int }
+type Pend {}
+type Fault = Lost | Torn
+type Box[T, F] = Idle{} | Got{Value T} | Bad{Error F}
+func get[T, F](b Box[T, F]) T fails F | Pend {
+	match b {
+	case Idle: return Pend
+	case Got as g: return g.Value
+	case Bad as e: return e.Error
+	}
+}
+func faulty(i int) Box[int, Fault] { Bad[Fault]{Error: Lost{At: i}} }
+func fz(i int) int fails Fault {
+	if i < 0 { return Lost{At: i} }
+	i
+}
+func main() needs Console {
+	let a = get[int, Fault](faulty(1)) catch { case _: 0 }
+	Console.Println("\(a)")
+}
+`, "S108", "cannot use Box[int, Fault] as Box[int, Lost | Torn]"},
+	},
 	ruleGenericValue: {
 		{"func zero[T comparable]() int { 0 }\nfunc main() needs Console {\n\tlet f = zero\n\tConsole.Println(\"\\(f())\")\n}\n", "S108", "the generic function zero is only called or instantiated"},
 	},

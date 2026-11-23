@@ -1,0 +1,23 @@
+// A generic machine: its brackets scope over its state, signal and entries,
+// and its step is an instance of a package function (audit m_generic).
+import machines
+
+type Sw[T] = OffT{Seen []T} | OnT{Seen []T}
+type E = Flip{}
+
+func stepT[T](s Sw[T], e E) Decision[Sw[T], T] {
+	match s {
+	case OffT[T] as o:
+		Enter[Sw[T]]{Next: OnT[T]{Seen: o.Seen}}
+	case OnT[T] as o:
+		Enter[Sw[T]]{Next: OffT[T]{Seen: o.Seen}}
+	}
+}
+
+type Toggle[T] machine[Sw[T], E] { initial: OffT[T]{Seen: []T{}}, step: stepT[T] }
+
+func run() machines.Outcome[Sw[int], int] fails machines.Rejected {
+	try machines.Run(Toggle[int]{}, []E{Flip, Flip, Flip})
+}
+
+func main() {}

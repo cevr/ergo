@@ -115,6 +115,10 @@ type loopCtx struct {
 
 // funcCtx writes one Go function body.
 type funcCtx struct {
+	// entryLocals are, in a generic machine's conversion function, the
+	// locals that hold its computed entries, by Machine field
+	// (machineentry.go).
+	entryLocals map[string]string
 	// tupleInto is the tuple let whose arm tail is the call being lowered
 	// (tuplelet.go): an inlined body of that call writes its names.
 	tupleInto *tupleInto

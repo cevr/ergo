@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench thenhand N` makes N reads, a Map read whose value is read again as a key, through two nested hand matches
+# (ABSENCE r3); half the keys miss. The control is hand Go comma-ok:
+# the floor.
+unit read
+sizes 409600 2457600
+args bench thenhand {n}
+control benchmarks/absence/testdata/control
