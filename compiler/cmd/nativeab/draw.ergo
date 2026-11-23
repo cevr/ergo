@@ -206,10 +206,10 @@ func draw() Case needs Random {
 		}
 	}
 	Case{
-		Trace: Trace{Procs: rand.Shuffle(procs), Spans: rand.Shuffle(spans), Tree: tree},
-		Truth: Truth{Cells: cells, Rebuilt: rebuilt, Refusal: refusal},
+		Trace:    Trace{Procs: rand.Shuffle(procs), Spans: rand.Shuffle(spans), Tree: tree},
+		Truth:    Truth{Cells: cells, Rebuilt: rebuilt, Refusal: refusal},
 		Packages: pkgs,
-		Edit: kind + " p\(at)",
+		Edit:     kind + " p\(at)",
 	}
 }
 

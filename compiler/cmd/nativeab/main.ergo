@@ -90,7 +90,7 @@ func truth(c Case) string {
 func model(seed int, count int) int needs io.Stdout {
 	let mut bad = 0
 	for s in seed..seed+count {
-		let ok = recovers(s) && conserves(s) && chargesStages(s) && rebuildAgrees(s, s / 7, s / 3)
+		let ok = recovers(s) && conserves(s) && chargesStages(s) && rebuildAgrees(s, s/7, s/3)
 		if !ok {
 			bad = bad + 1
 			let c = Draw(s)
