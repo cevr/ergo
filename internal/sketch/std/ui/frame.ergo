@@ -45,8 +45,8 @@ type Frame[E] {
 	loads   []loadSpec[E],
 	nloads  int,
 	// seen holds the counts by slotKey, and seenWide those of the slots
-	// slotKey cannot pack (a TextKey row, an Id out of range).
-	seen    Map[int, tally],
+	// slotKey cannot pack (a TextKey row or a part out of range).
+	seen    Map[uint64, tally],
 	seenWide Map[slotOf, tally],
 	seenLog []slotOf,
 	nseen   int,
@@ -93,7 +93,7 @@ type Frame[E] {
 	ngroups   int,
 	nested    bool,
 	group     int,
-	groupSeen Map[int, tally],
+	groupSeen Map[uint64, tally],
 	groupWide Map[slotOf, tally],
 	groupRuns int,
 	sameSkips int,
@@ -1672,7 +1672,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[uint64, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[uint64, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
 }
 
 // IncrementalEqualsFresh: committing the frames of a run of states in
@@ -2187,8 +2187,8 @@ func record[E](f mut Frame[E], g groupRec[E]) int {
 // groupCount is how many group identities of s this pass took, which it
 // then moves by d (count, frame.ergo).
 func groupCount[E](f mut Frame[E], s slotOf, d int) int {
-	let k = slotKey(s)
-	if k >= 0 {
+	let (k, packed) = slotKey(s)
+	if packed {
 		let n = thisPass(f.groupSeen.Get(k), f.pass)
 		f.groupSeen[k] = tally{pass: f.pass, n: n + d}
 		return n
@@ -2615,7 +2615,7 @@ func begin[E](f mut Frame[E]) {
 	// more than the last pass took (rows that went) starts again.
 	f.pass = f.pass + 1
 	if len(f.seen)+len(f.seenWide) > 2*f.nseen+64 {
-		f.seen = Map[int, tally]{}
+		f.seen = Map[uint64, tally]{}
 		f.seenWide = Map[slotOf, tally]{}
 	}
 	// A map the last pass wrote starts again empty: deleting its keys one
@@ -2644,7 +2644,7 @@ func begin[E](f mut Frame[E]) {
 	f.nstops = 0
 	f.slow = None
 	if len(f.groupSeen)+len(f.groupWide) > 2*f.ngroups+64 {
-		f.groupSeen = Map[int, tally]{}
+		f.groupSeen = Map[uint64, tally]{}
 		f.groupWide = Map[slotOf, tally]{}
 	}
 	f.ngroups = 0
@@ -2686,8 +2686,8 @@ func see[E](f mut Frame[E], s slotOf) int {
 // count is how many identities of s this pass took, which it then moves
 // by d: one map lookup and one write, on the packed key when s packs.
 func count[E](f mut Frame[E], s slotOf, d int) int {
-	let k = slotKey(s)
-	if k >= 0 {
+	let (k, packed) = slotKey(s)
+	if packed {
 		let n = thisPass(f.seen.Get(k), f.pass)
 		f.seen[k] = tally{pass: f.pass, n: n + d}
 		return n
@@ -2710,31 +2710,24 @@ func thisPass(t Option[tally], pass int) int {
 	}
 }
 
-// slotKey packs s into one int, so the counts' map compares ints, not
-// two CallSites (types.md, Call sites 6): the parent spec + 1 in 16 bits,
-// the site's and the row's Ids in 15 bits each (0 for nowhere), and the
-// row's key in 16 (0 NoKey, IntKey v as v + 1). A slot with a part that
-// does not fit (a TextKey, an IntKey outside 0 to 65534, an Id of 32768 or
-// more, a written CallSite with Id 0 that is not nowhere) is -1: it counts
-// in the wide map, by its whole slotOf. Two sites with distinct Ids pack
-// apart; a written CallSite that sets an Id names the site of that Id.
-func slotKey(s slotOf) int {
+// slotKey's 64 bits hold the parent index + 1, the node and row sites,
+// and the row key (12 | 20 | 20 | 12). Sites use 7 bits for Pkg and 13
+// for Id, with 0 for nowhere. Anything outside these ranges, a text key
+// or a site with no compiler identity uses the exact slotOf map.
+func slotKey(s slotOf) (uint64, bool) {
 	let site = siteBits(s.b.site)
 	let each = siteBits(s.b.each)
 	let key = keyBits(s.b.key)
-	if site < 0 || each < 0 || key < 0 || s.parent+1 >= 65536 {
-		return -1
+	if (site | each | key) < 0 || s.parent < -1 || s.parent >= 4095 {
+		return (uint64(0), false)
 	}
-	(((s.parent+1)*32768+site)*32768+each)*65536 + key
+	((uint64(s.parent+1) << 52) | (uint64(site) << 32) | (uint64(each) << 12) | uint64(key), true)
 }
 
 // siteBits is c's part of a slotKey, -1 when it does not fit.
 func siteBits(c CallSite) int {
-	if c.Id > 0 {
-		if c.Id < 32768 {
-			return c.Id
-		}
-		return -1
+	if c.Id > 0 && c.Id < 8192 && c.Pkg > 0 && c.Pkg < 128 {
+		return (c.Pkg << 13) | c.Id
 	}
 	if c == nowhere {
 		return 0
@@ -2748,13 +2741,45 @@ func keyBits(k Key) int {
 	case NoKey:
 		0
 	case IntKey as x:
-		if x.Value >= 0 && x.Value < 65535 {
+		if x.Value >= 0 && x.Value < 4095 {
 			return x.Value + 1
 		}
 		-1
 	case TextKey:
 		-1
 	}
+}
+
+// SlotKeyKeepsSiteIdentity: a change to any site field changes the
+// packed key, and out-of-range fields cannot be packed.
+law SlotKeyKeepsSiteIdentity(seed int) {
+	let mut r = seeded(seed)
+	let hi = CallSite{File: "", Line: 0, Column: 0, Pkg: 127, Id: 8191}
+	let s = slotOf{parent: 4094, b: base{site: hi, each: hi, key: IntKey{Value: 4094}}}
+	let (top, fits) = slotKey(s)
+	if !fits {
+		return false
+	}
+	// Toggle the highest bit of each field to check for truncation.
+	let noPkgBit = CallSite{..hi, Pkg: 63}
+	let noIdBit = CallSite{..hi, Id: 4095}
+	for c in []CallSite{noPkgBit, noIdBit, nowhere, CallSite{..hi, Pkg: draw(&r, 126)+1, Id: draw(&r, 8190)+1}} {
+		let (node, nodeFits) = slotKey(slotOf{..s, b: base{..s.b, site: c}})
+		let (row, rowFits) = slotKey(slotOf{..s, b: base{..s.b, each: c}})
+		if !nodeFits || !rowFits || node == top || row == top || node == row {
+			return false
+		}
+	}
+	for c in []CallSite{CallSite{..hi, Pkg: 128}, CallSite{..hi, Id: 8192}, CallSite{..hi, Pkg: 0}, CallSite{..hi, Id: 0}, CallSite{..hi, Id: -1}} {
+		let (_, nodeFits) = slotKey(slotOf{..s, b: base{..s.b, site: c}})
+		let (_, rowFits) = slotKey(slotOf{..s, b: base{..s.b, each: c}})
+		if nodeFits || rowFits {
+			return false
+		}
+	}
+	let (_, parentFits) = slotKey(slotOf{..s, parent: 4095})
+	let (_, keyFits) = slotKey(slotOf{..s, b: base{..s.b, key: IntKey{Value: 4095}}})
+	!parentFits && !keyFits
 }
 
 // owner is the node of the last pass that the current parent spec was:

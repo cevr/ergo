@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -27,10 +26,10 @@ import (
 // An edit of one package moves only that package's Ids, and the package
 // numbers move only when the program gains or loses a package. The
 // lowered text of a package names its number, never writes it: each
-// package that passes a site has one package variable, ergoSitePkg_<name>
+// package that passes a site has one package variable, ergo__SitePkg_<name>
 // = n, which the split places in the shared package (pkgsplit.go,
 // sitePkgNames), so the text of every other package stays byte-equal
-// when a package is added, removed or edited (TestSitesStayInTheirPackage).
+// when another package's site numbering changes (TestSitesStayInTheirPackage).
 // The packages are numbered by their last path element, then their path,
 // then std before the program's, so a std package and its copy as a user
 // package (stdlib's TestStdCopyAgrees) take one number.
@@ -42,10 +41,11 @@ import (
 // compilation keeps a crate's ids local to it (DefIndex within a CrateNum)
 // for the same reason: an edit of one crate renumbers nothing in another.
 
-// siteKey is a call's position: its file's path, line and column.
+// siteKey is a position in one source file. A sourced file and an embedded
+// file can display the same path without becoming the same call position.
 type siteKey struct {
-	path         string
-	line, column int
+	file *syntax.File
+	at   syntax.Pos
 }
 
 // siteNum is the number a call position takes: its package's (an index
@@ -58,6 +58,7 @@ type siteNum struct{ pkg, id int }
 type sitePkg struct {
 	pkg   *check.Package
 	key   string
+	base  string
 	order string
 	used  bool
 }
@@ -76,69 +77,64 @@ func (l *lowerer) sitePackages() []sitePkg {
 			return
 		}
 		seen[p] = true
-		kind := "1"
-		if p.Std() {
-			kind = "0"
+		kind, base := "0", "ergoSitePkg_"
+		if l.isSourced(p) {
+			// The two source namespaces can contain the same import path.
+			// '__' cannot occur in pkgAlias's encoding of a path.
+			kind, base = "1", "ergoSitePkg_src__"
 		}
-		out = append(out, sitePkg{pkg: p, key: kind + ":" + p.Path, order: path.Base(p.Path) + "\x00" + p.Path + "\x00" + kind})
+		out = append(out, sitePkg{pkg: p, key: kind + ":" + p.Path, base: base + pkgAlias(p.Path), order: path.Base(p.Path) + "\x00" + p.Path + "\x00" + kind})
 	}
 	for _, s := range l.srcs {
 		add(s.pkg)
 	}
 	for _, p := range l.libraries() {
-		if p.Std() {
-			add(p)
-		}
+		add(p)
 	}
 	slices.SortFunc(out, func(a, b sitePkg) int { return strings.Compare(a.order, b.order) })
 	l.sitePkgs = out
 	return out
 }
 
-// sitePkgIndex is the index in sitePackages of p, -1 for none.
-func (l *lowerer) sitePkgIndex(p *check.Package) int {
-	return slices.IndexFunc(l.sitePackages(), func(s sitePkg) bool { return s.pkg == p })
-}
-
-// reserveSitePkgs reserves the variable of each package's number, base
-// ergoSitePkg_ and the package's last path element.
+// reserveSitePkgs names one variable per package, by the whole path:
+// adding a package of the same basename does not change either name.
 func (l *lowerer) reserveSitePkgs(add func(key pkgKey, sort, base string)) {
 	for _, s := range l.sitePackages() {
-		add(pkgKey{"site package", s.key}, "site package "+s.order, "ergoSitePkg_"+goIdentPart(path.Base(s.pkg.Path)))
+		add(pkgKey{"site package", s.key}, "site package "+s.order, s.base)
 	}
 }
 
-// goIdentPart is s with every byte that a Go identifier cannot hold as _.
-func goIdentPart(s string) string {
-	b := []byte(s)
-	for i, c := range b {
-		if !(c == '_' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9') {
-			b[i] = '_'
+// sitePkgNames names the generated bindings that belong to assembly, not to
+// any one of the packages that reads them.
+func (l *lowerer) sitePkgNames() map[string]bool {
+	names := make(map[string]bool)
+	for _, s := range l.sitePkgs {
+		if s.used {
+			names[l.pkgNames[pkgKey{"site package", s.key}]] = true
 		}
 	}
-	return string(b)
+	return names
 }
 
-// siteNumber is the Pkg and Id of the CallSite the call x passes.
-func (l *lowerer) siteNumber(x *syntax.CallExpr) siteNum {
+// callSite returns the displayed position and identity passed by call x.
+func (l *lowerer) callSite(x *syntax.CallExpr) (file string, line, column int, pkg string, id int) {
 	if l.siteIDs == nil {
 		l.siteIDs = l.numberSites()
 	}
-	path, line, column := l.locate(x, x.Pos())
-	n, ok := l.siteIDs[siteKey{path, line, column}]
+	var f *syntax.File
+	if i, ok := l.sourceOf(x); ok {
+		f, file = l.srcs[i].file, l.srcs[i].path
+	} else if sf, ok := l.stdFileOf(x); ok {
+		f, file = sf.file, sf.path
+	}
+	n, ok := l.siteIDs[siteKey{f, x.Pos()}]
 	if !ok {
 		ice(x, "a call site the numbering did not reach")
 	}
-	return n
-}
-
-// sitePkgName is the variable that holds the number of the package of the
-// call x's site, which the lowering then declares (sitePkgDecls).
-func (l *lowerer) sitePkgName(x *syntax.CallExpr) string {
-	i := l.siteNumber(x).pkg - 1
-	pkgs := l.sitePackages()
-	pkgs[i].used = true
-	return l.pkgName(pkgKey{"site package", pkgs[i].key}, "ergoSitePkg_"+goIdentPart(path.Base(pkgs[i].pkg.Path)))
+	line, column = f.Position(x.Pos())
+	s := &l.sitePkgs[n.pkg-1]
+	s.used = true
+	return file, line, column, l.pkgName(pkgKey{"site package", s.key}, s.base), n.id
 }
 
 // sitePkgDecls declares the number of each package a site of the
@@ -157,65 +153,43 @@ func (l *lowerer) sitePkgDecls() string {
 // program's sources and the std files it reaches, within its package.
 func (l *lowerer) numberSites() map[siteKey]siteNum {
 	pkgs := l.sitePackages()
-	keys := make([][]siteKey, len(pkgs))
-	seen := map[siteKey]bool{}
-	index := func(p *check.Package) int {
-		i := l.sitePkgIndex(p)
-		if i < 0 {
-			ice(nil, "a call site in a package the numbering does not hold")
-		}
-		return i
+	type siteFile struct {
+		path string
+		file *syntax.File
 	}
-	add := func(i int, k siteKey) {
-		if !seen[k] {
-			seen[k] = true
-			keys[i] = append(keys[i], k)
-		}
-	}
-	for _, s := range l.srcs {
-		i := index(s.pkg)
-		syntax.Inspect(s.file, func(n syntax.Node) bool {
-			if x, ok := n.(*syntax.CallExpr); ok {
-				path, line, column := l.locate(x, x.Pos())
-				add(i, siteKey{path, line, column})
+	var files []siteFile
+	var offsets []syntax.Pos
+	ids := make(map[siteKey]siteNum)
+	for i, p := range pkgs {
+		files = files[:0]
+		if l.isSourced(p.pkg) {
+			for _, s := range l.srcs {
+				if s.pkg == p.pkg {
+					files = append(files, siteFile{s.path, s.file})
+				}
 			}
-			return true
-		})
-	}
-	// The std files are walked here, once and only when a call passes a
-	// site: stdFileOf finds one node's file lazily.
-	for _, p := range l.libraries() {
-		if !p.Std() {
-			continue
-		}
-		i := index(p)
-		for _, f := range p.Files() {
-			path := "std/" + p.Path + "/" + f.Name
-			if p.Path == stdlib.PreludePath {
-				path = "std/" + f.Name
+		} else {
+			for _, f := range p.pkg.Files() {
+				files = append(files, siteFile{embeddedSourcePath(p.pkg, f.Name), f})
 			}
-			syntax.Inspect(f, func(n syntax.Node) bool {
+		}
+		slices.SortFunc(files, func(a, b siteFile) int { return strings.Compare(a.path, b.path) })
+		id := 0
+		for _, f := range files {
+			offsets = offsets[:0]
+			syntax.Inspect(f.file, func(n syntax.Node) bool {
 				if x, ok := n.(*syntax.CallExpr); ok {
-					line, column := f.Position(x.Pos())
-					add(i, siteKey{path, line, column})
+					offsets = append(offsets, x.Pos())
 				}
 				return true
 			})
-		}
-	}
-	ids := make(map[siteKey]siteNum, len(seen))
-	for i, ks := range keys {
-		slices.SortFunc(ks, func(a, b siteKey) int {
-			if a.path != b.path {
-				return strings.Compare(a.path, b.path)
+			// Within a file the offset orders positions by line and byte
+			// column. Chained calls can start at the same offset.
+			slices.Sort(offsets)
+			for _, at := range slices.Compact(offsets) {
+				id++
+				ids[siteKey{f.file, at}] = siteNum{pkg: i + 1, id: id}
 			}
-			if a.line != b.line {
-				return a.line - b.line
-			}
-			return a.column - b.column
-		})
-		for j, k := range ks {
-			ids[k] = siteNum{pkg: i + 1, id: j + 1}
 		}
 	}
 	return ids

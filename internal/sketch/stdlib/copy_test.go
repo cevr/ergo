@@ -120,9 +120,9 @@ func copyfixture__Sum(p Pair) int64	{ return p.Left }
 
 func copyfixture__FirstMono_i123(xs []int64) int64 { return xs[0] }
 
-var siteAt = Site{File: "std/copyfixture/fixture.ergo", Line: 4, Column: 2, Id: 7}
+var ergo__SitePkg_copyfixture = 1
 
-var siteWritten = Site{File: "std/copyfixture/fixture.ergo", Line: 5, Column: 2, Id: 0}
+var siteAt = Site{File: "std/copyfixture/fixture.ergo", Line: 4, Column: 2, Pkg: ergo__SitePkg_copyfixture, Id: 7}
 
 func init() {
 	ergo.RegisterTypeNames("main", "copy_t__Box", "Box", "copyfixture__Cell", "Cell")
@@ -140,12 +140,12 @@ func init() {
 		"same text":   {"return none }", "return none_1 }"},
 		// copy/P's alias in every joined name, and what follows from it:
 		// an instance's hash of its type arguments, the order of the
-		// registered type names, the Id of a site by path, the line a
+		// registered type names, the name of the site package, the line a
 		// longer name breaks.
 		"package prefix":  {"copyfixture__", "copy_scopyfixture__"},
 		"instance hash":   {"FirstMono_i123", "FirstMono_i456"},
 		"type-name order": {`"copy_t__Box", "Box", "copyfixture__Cell", "Cell"`, `"copyfixture__Cell", "Cell", "copy_t__Box", "Box"`},
-		"site id":         {"Column: 2, Id: 7}", "Column: 2, Id: 9}"},
+		"site package":    {"ergo__SitePkg_copyfixture", "ergo__SitePkg_src__copy_scopyfixture"},
 		"layout":          {"int64\t{ return p.Left }", "int64 {\n\treturn p.Left\n}"},
 	}
 	kept := map[string][2]string{
@@ -163,7 +163,8 @@ func init() {
 		// Only copy/P's own alias folds, and only into P's.
 		"other prefix":    {"copyfixture__Sum", "other__Sum"},
 		"type name pair":  {`"copyfixture__Cell", "Cell"`, `"copyfixture__Cell", "Box"`},
-		"written site id": {"Column: 2, Id: 0}", "Column: 2, Id: 7}"},
+		"site id":         {"Id: 7}", "Id: 9}"},
+		"package ordinal": {"ergo__SitePkg_copyfixture = 1", "ergo__SitePkg_copyfixture = 2"},
 	}
 	want := copyNormalise(base, copyFixturePath, false)
 	for kind, e := range folded {
@@ -172,6 +173,9 @@ func init() {
 		switch kind {
 		case "package prefix":
 			text = strings.ReplaceAll(base, e[0], e[1])
+			text = strings.Replace(text, `"std:copyfixture"`, `"copy/copyfixture"`, 1)
+		case "site package":
+			text, copied = strings.ReplaceAll(base, e[0], e[1]), true
 			text = strings.Replace(text, `"std:copyfixture"`, `"copy/copyfixture"`, 1)
 		case "order":
 			text += e[0]
@@ -786,13 +790,11 @@ func copyEvidence(t *testing.T, pair copyPair) lower.RewriteEvidence {
 //     copy's "calls copy/P.f" (the lowering names a callee by its
 //     package's path, std's and a user's alike);
 //   - positions and files written as text: the copy's root /ergo-copy/;
-//   - a compiler-passed CallSite's Id: it numbers the program's call
-//     positions in order of path (lower siteid.go), and the copy's path
-//     sorts elsewhere; the site's File, Line and Column, which fix it,
-//     are kept, and a written Id of 0 is kept;
 //   - a package's joined names (NAME-LOCAL rule 2): the copy's alias of
 //     copy/P is P's, in an identifier and in a Go type's name written as
-//     text, and so the order of a RegisterTypeNames call's pairs;
+//     text, the name of its call-site package binding, and so the order
+//     of a RegisterTypeNames call's pairs. The package ordinal and the
+//     site Ids are compared, not folded.
 //   - the suffix of a name the lowering made unique (copyCanonicalNames),
 //     in an identifier, and which of two declarations of the same text a
 //     body names; never in a variant's name, which is its Ergo name
@@ -811,9 +813,6 @@ func copyNormalise(text, path string, copied bool) string {
 		ns = strconv.Quote("copy/" + path)
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
-		if c, ok := n.(*ast.CompositeLit); ok {
-			copyFoldSiteID(c)
-		}
 		if b, ok := n.(*ast.BasicLit); ok && b.Kind == token.STRING {
 			if b.Value == ns {
 				b.Value = `"<namespace>"`
@@ -832,10 +831,16 @@ func copyNormalise(text, path string, copied bool) string {
 		// A package's joined names carry its path's alias (NAME-LOCAL
 		// rule 2): copy/P's are P's with the copy's alias.
 		from, to := lower.PackageAlias("copy/"+path)+"__", lower.PackageAlias(path)+"__"
+		fromSite := lower.HelperSpelling("", "SitePkg_src__"+lower.PackageAlias("copy/"+path))
+		toSite := lower.HelperSpelling("", "SitePkg_"+lower.PackageAlias(path))
 		ast.Inspect(f, func(n ast.Node) bool {
 			switch n := n.(type) {
 			case *ast.Ident:
-				n.Name = strings.ReplaceAll(n.Name, from, to)
+				if n.Name == fromSite {
+					n.Name = toSite
+				} else {
+					n.Name = strings.ReplaceAll(n.Name, from, to)
+				}
 			case *ast.BasicLit:
 				// A Go type's name written as text: a defect's message,
 				// a registered type name.
@@ -982,26 +987,6 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 		return true
 	})
-}
-
-// copyFoldSiteID writes the nonzero Id of a CallSite literal c (keyed
-// File, Line, Column and Id) as the mark siteId.
-func copyFoldSiteID(c *ast.CompositeLit) {
-	keys := map[string]*ast.KeyValueExpr{}
-	for _, e := range c.Elts {
-		if kv, ok := e.(*ast.KeyValueExpr); ok {
-			if id, ok := kv.Key.(*ast.Ident); ok {
-				keys[id.Name] = kv
-			}
-		}
-	}
-	id := keys["Id"]
-	if id == nil || keys["File"] == nil || keys["Line"] == nil || keys["Column"] == nil {
-		return
-	}
-	if b, ok := id.Value.(*ast.BasicLit); ok && b.Kind == token.INT && b.Value != "0" {
-		id.Value = ast.NewIdent("siteId")
-	}
 }
 
 // copySortTypeNames sorts the (Go name, Ergo name) pairs of a

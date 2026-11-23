@@ -37,11 +37,11 @@ type Tagger {
 type Plain {} implements Tagger
 
 func Tag(p Plain, note string, site CallSite) string {
-	"\(note) \(site.Line):\(site.Column)#\(site.Id)"
+	"\(note) \(site.Line):\(site.Column)#\(site.Pkg)/\(site.Id)"
 }
 
 func at(note string, site CallSite) string {
-	"\(note) \(site.Line):\(site.Column)#\(site.Id)"
+	"\(note) \(site.Line):\(site.Column)#\(site.Pkg)/\(site.Id)"
 }
 
 func fwd(note string, site CallSite) string {
@@ -57,11 +57,11 @@ func viaCap(note string) string needs Tagger {
 }
 
 func gen[T](x T, show func(v T) string, site CallSite) string {
-	"\(show(x)) \(site.Line):\(site.Column)#\(site.Id)"
+	"\(show(x)) \(site.Line):\(site.Column)#\(site.Pkg)/\(site.Id)"
 }
 
 func each(note string, f func() string, site CallSite) string {
-	"\(note)\(f()) \(site.Line):\(site.Column)#\(site.Id)"
+	"\(note)\(f()) \(site.Line):\(site.Column)#\(site.Pkg)/\(site.Id)"
 }
 
 func file(site CallSite) string {
@@ -170,7 +170,7 @@ func siteProgram(seed uint64, reached map[string]bool) (string, string) {
 		case "written":
 			var l, c int
 			fmt.Sscanf(call[strings.Index(call, "Line: "):], "Line: %d, Column: %d", &l, &c)
-			want.WriteString(fmt.Sprintf("%s %d:%d#0\n", note, l, c))
+			want.WriteString(fmt.Sprintf("%s %d:%d#0/0\n", note, l, c))
 		default:
 			want.WriteString(note + " " + at + "#?\n")
 		}
@@ -179,19 +179,19 @@ func siteProgram(seed uint64, reached map[string]bool) (string, string) {
 	// Every binding is used, whichever forms the seed drew.
 	b.WriteString("\tlet z = CallSite{File: \"\", Line: 0, Column: 0, Pkg: 0, Id: 0}\n")
 	b.WriteString("\tConsole.Println(\"\\(p.Tag(\"e\", z))|\\(t.Tag(\"e\", z))|\\(fv(\"e\", z))|\\(lit(\"e\", z))\")\n")
-	want.WriteString("e 0:0#0|e 0:0#0|e 0:0#0|e 0:0#0\n")
+	want.WriteString("e 0:0#0/0|e 0:0#0/0|e 0:0#0/0|e 0:0#0/0\n")
 	b.WriteString("}\n")
 	return b.String(), want.String()
 }
 
-// siteAt is a printed site, `line:column#id`.
-var siteAt = regexp.MustCompile(`(\d+):(\d+)#(\d+|\?)`)
+// siteAt is a printed site, `line:column#pkg/id`.
+var siteAt = regexp.MustCompile(`(\d+):(\d+)#(?:(\d+)/(\d+)|(\?))`)
 
 // siteIdsAgree compares the program's output with the model's, the Ids
-// apart, and checks the Ids (types.md, Call sites 6): a site the program
-// wrote prints the Id it wrote (the model's `#0`), and the compiler's
-// sites (`#?`) print an Id above 0 that is the same for one position and
-// distinct for distinct positions. It is "" when they agree.
+// apart, and checks the identity pair (types.md, Call sites 6): a site
+// the program wrote prints the pair it wrote, and the compiler's sites
+// (`#?`) have a package above 0, the same for this fixture's one package,
+// and a positive Id that identifies a unique position within it.
 func siteIdsAgree(out, want string) string {
 	strip := func(s string) string { return siteAt.ReplaceAllString(s, "$1:$2") }
 	if strip(out) != strip(want) {
@@ -199,17 +199,19 @@ func siteIdsAgree(out, want string) string {
 	}
 	got, model := siteAt.FindAllStringSubmatch(out, -1), siteAt.FindAllStringSubmatch(want, -1)
 	idOf, posOf := map[string]string{}, map[string]string{}
+	pkg := ""
 	for i, g := range got {
-		pos, id := g[1]+":"+g[2], g[3]
-		if model[i][3] != "?" {
-			if id != model[i][3] {
-				return fmt.Sprintf("the written site %s prints Id %s, not the Id it wrote, %s", pos, id, model[i][3])
+		pos, p, id := g[1]+":"+g[2], g[3], g[4]
+		if model[i][5] != "?" {
+			if p != model[i][3] || id != model[i][4] {
+				return fmt.Sprintf("the written site %s prints %s/%s, not the pair it wrote, %s/%s", pos, p, id, model[i][3], model[i][4])
 			}
 			continue
 		}
-		if id == "0" {
-			return fmt.Sprintf("the compiler's site %s has Id 0", pos)
+		if p == "" || p == "0" || id == "" || id == "0" || (pkg != "" && p != pkg) {
+			return fmt.Sprintf("the compiler's site %s has invalid package/local Id %s/%s, previous package %s", pos, p, id, pkg)
 		}
+		pkg = p
 		if p, ok := posOf[id]; ok && p != pos {
 			return fmt.Sprintf("the sites %s and %s share Id %s", p, pos, id)
 		}

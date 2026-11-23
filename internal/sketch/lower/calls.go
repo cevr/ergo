@@ -920,9 +920,9 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 // nothing writes, and its other fields constants, so it runs after the
 // written operands with no spill.
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
-	file, line, column := fc.l.locate(x, x.Pos())
+	file, line, column, pkg, id := fc.l.callSite(x)
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %s, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Pkg"], fc.l.sitePkgName(x), td.fieldName["Id"], fc.l.siteNumber(x).id)
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %s, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Pkg"], pkg, td.fieldName["Id"], id)
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's

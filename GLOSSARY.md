@@ -74,7 +74,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Try**: The keyword form `try e`, which yields `e`'s success value and escapes `e`'s failures.
 
-**Call site**: The prelude record `CallSite { File, Line, Column }`, a call's position in Ergo source. A call may leave out its callee's final `CallSite` parameter, and the compiler passes the call's own position; a call that writes it forwards the value. It gives positional identity to `ui` hooks and feeds traces. See [types](docs/spec/types.md#call-sites).
+**Call site**: The prelude record `CallSite { File, Line, Column, Pkg, Id }`, a call's position in Ergo source and its identity as a `(Pkg, Id)` pair. A call may leave out its callee's final `CallSite` parameter, and the compiler passes the call's own position; a call that writes it forwards the value. It gives positional identity to `ui` hooks and feeds traces. See [types](docs/spec/types.md#call-sites).
 
 **Catch**: The keyword form `e catch { case T: … }`, which handles named error types of a fallible expression. It covers typed failures only; interruption and defects pass through it.
 

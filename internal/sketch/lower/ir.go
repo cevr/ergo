@@ -357,7 +357,7 @@ func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach 
 	var out []File
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
-		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out, sh)
+		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), l.sitePkgNames(), &l.ir.out, sh)
 		if rep.err != nil {
 			return nil, IRReport{}, SplitReport{}, rep.err
 		}
