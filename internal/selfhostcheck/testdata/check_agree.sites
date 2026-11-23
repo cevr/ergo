@@ -181,6 +181,7 @@ case examples/gent/memory
 case examples/gent/screen
 case examples/gointerop/checksum
 case examples/gointerop/cmd/gointerop
+case examples/gointerop/cmd/uptime
 case examples/gointerop/index
 case examples/gointerop/sha256
 case examples/gointerop/stats
