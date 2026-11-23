@@ -45,7 +45,7 @@ type Frame[E] {
 	loads   []loadSpec[E],
 	nloads  int,
 	// seen holds the counts by slotKey, and seenWide those of the slots
-	// slotKey cannot pack (a TextKey row, an Id out of range).
+	// slotKey cannot pack (a TextKey row or a part out of range).
 	seen    Map[int, tally],
 	seenWide Map[slotOf, tally],
 	seenLog []slotOf,
@@ -1664,7 +1664,7 @@ type spec[E] {
 	focusAs int,
 }
 
-let nowhere = CallSite{File: "", Line: 0, Column: 0, Id: 0}
+let nowhere = CallSite{File: "", Line: 0, Column: 0, Pkg: 0, Id: 0}
 
 // Op is one change a host applies, in order. Before names the sibling the
 // node goes in front of; None puts it last. Define gives the host the
@@ -2189,15 +2189,16 @@ func record[E](f mut Frame[E], g groupRec[E]) int {
 
 // groupCount is how many group identities of s this pass took, which it
 // then moves by d (count, frame.ergo).
-func groupCount[E](f mut Frame[E], s slotOf, d int) int {
+func groupCount[E](f mut Frame[E], s mut slotOf, d int) int {
 	let k = slotKey(s)
 	if k >= 0 {
 		let n = thisPass(f.groupSeen.Get(k), f.pass)
 		f.groupSeen[k] = tally{pass: f.pass, n: n + d}
 		return n
 	}
-	let n = thisPass(f.groupWide.Get(s), f.pass)
-	f.groupWide[s] = tally{pass: f.pass, n: n + d}
+	let wide = slotOf{parent: s.parent, b: s.b}
+	let n = thisPass(f.groupWide.Get(wide), f.pass)
+	f.groupWide[wide] = tally{pass: f.pass, n: n + d}
 	n
 }
 
@@ -2206,8 +2207,8 @@ func groupCount[E](f mut Frame[E], s slotOf, d int) int {
 // the call is no group, so cells and matching see the same nodes under
 // either lowering.
 func groupIdent[E](f mut Frame[E], at CallSite) ident {
-	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
-	let n = groupCount(f, s, 1)
+	let mut s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
+	let n = groupCount(f, &s, 1)
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
@@ -2251,7 +2252,8 @@ func writeAgain[E](f mut Frame[E], i int) bool {
 		// Each top takes its count as it is checked (one lookup a top);
 		// a refusal gives back the counts taken.
 		let id = f.keptList[i].tops[k].id
-		if see(f, slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}) != id.n {
+		let mut counted = slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}
+		if see(f, &counted) != id.n {
 			unsee(f, k+1)
 			return false
 		}
@@ -2298,7 +2300,8 @@ func clearBefore[E](f mut Frame[E], p int, each CallSite) bool {
 func unsee[E](f mut Frame[E], n int) {
 	for _ in 0..n {
 		f.nseen = f.nseen - 1
-		count(f, f.seenLog[f.nseen], -1)
+		let mut counted = f.seenLog[f.nseen]
+		count(f, &counted, -1)
 	}
 }
 
@@ -2666,21 +2669,22 @@ func begin[E](f mut Frame[E]) {
 // identify is the identity of the next entry at site under the current
 // parent and row.
 func identify[E](f mut Frame[E], at CallSite) ident {
-	let s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
-	let n = see(f, s)
+	let mut s = slotOf{parent: f.parent, b: base{site: at, each: f.each, key: f.key}}
+	let n = see(f, &s)
 	ident{site: at, each: f.each, key: f.key, n: n}
 }
 
 // see takes the next count of s, logged so a cut gives it back.
-func see[E](f mut Frame[E], s slotOf) int {
+func see[E](f mut Frame[E], s mut slotOf) int {
 	if pendingUnder(f, s.parent) {
 		takePending(f, s.parent)
 	}
 	let n = count(f, s, 1)
+	let logged = slotOf{parent: s.parent, b: s.b}
 	if f.nseen < len(f.seenLog) {
-		f.seenLog[f.nseen] = s
+		f.seenLog[f.nseen] = logged
 	} else {
-		f.seenLog = f.seenLog.Append(s)
+		f.seenLog = f.seenLog.Append(logged)
 	}
 	f.nseen = f.nseen + 1
 	n
@@ -2688,15 +2692,16 @@ func see[E](f mut Frame[E], s slotOf) int {
 
 // count is how many identities of s this pass took, which it then moves
 // by d: one map lookup and one write, on the packed key when s packs.
-func count[E](f mut Frame[E], s slotOf, d int) int {
+func count[E](f mut Frame[E], s mut slotOf, d int) int {
 	let k = slotKey(s)
 	if k >= 0 {
 		let n = thisPass(f.seen.Get(k), f.pass)
 		f.seen[k] = tally{pass: f.pass, n: n + d}
 		return n
 	}
-	let n = thisPass(f.seenWide.Get(s), f.pass)
-	f.seenWide[s] = tally{pass: f.pass, n: n + d}
+	let wide = slotOf{parent: s.parent, b: s.b}
+	let n = thisPass(f.seenWide.Get(wide), f.pass)
+	f.seenWide[wide] = tally{pass: f.pass, n: n + d}
 	n
 }
 
@@ -2713,36 +2718,30 @@ func thisPass(t Option[tally], pass int) int {
 	}
 }
 
-// slotKey packs s into one int, so the counts' map compares ints, not
-// two CallSites (types.md, Call sites 6): the parent spec + 1 in 16 bits,
-// the site's and the row's Ids in 15 bits each (0 for nowhere), and the
-// row's key in 16 (0 NoKey, IntKey v as v + 1). A slot with a part that
-// does not fit (a TextKey, an IntKey outside 0 to 65534, an Id of 32768 or
-// more, a written CallSite with Id 0 that is not nowhere) is -1: it counts
-// in the wide map, by its whole slotOf. Two sites with distinct Ids pack
-// apart; a written CallSite that sets an Id names the site of that Id.
-func slotKey(s slotOf) int {
-	let site = siteBits(s.b.site)
-	let each = siteBits(s.b.each)
+// slotKey reads the existing slot in place: the packed path need not
+// copy the source strings or positions. Its 63 bits hold the parent
+// index + 1, the node and row sites, and the row key (11 | 20 | 20 | 12).
+// A site needs 7 bits for Pkg and 13 for Id; 0 is reserved for nowhere.
+// A negative result selects the exact slotOf map.
+func slotKey(s mut slotOf) int {
+	let np = s.b.site.Pkg
+	let ni = s.b.site.Id
+	let rp = s.b.each.Pkg
+	let ri = s.b.each.Id
+	let parent = s.parent + 1
 	let key = keyBits(s.b.key)
-	if site < 0 || each < 0 || key < 0 || s.parent+1 >= 65536 {
+	if (((np | rp) >> 7) | ((ni | ri) >> 13) | (parent >> 11) | (key >> 12)) != 0 {
 		return -1
 	}
-	(((s.parent+1)*32768+site)*32768+each)*65536 + key
-}
-
-// siteBits is c's part of a slotKey, -1 when it does not fit.
-func siteBits(c CallSite) int {
-	if c.Id > 0 {
-		if c.Id < 32768 {
-			return c.Id
-		}
+	// Each product fits after the bounds check. A zero field requires
+	// the whole site to be nowhere; other written sites stay exact.
+	if np*ni == 0 && s.b.site != nowhere {
 		return -1
 	}
-	if c == nowhere {
-		return 0
+	if rp*ri == 0 && s.b.each != nowhere {
+		return -1
 	}
-	-1
+	(parent << 52) | (np << 45) | (ni << 32) | (rp << 25) | (ri << 12) | key
 }
 
 // keyBits is k's part of a slotKey, -1 when it does not fit.
@@ -2751,13 +2750,47 @@ func keyBits(k Key) int {
 	case NoKey:
 		0
 	case IntKey as x:
-		if x.Value >= 0 && x.Value < 65535 {
+		if x.Value >= 0 && x.Value < 4095 {
 			return x.Value + 1
 		}
 		-1
 	case TextKey:
 		-1
 	}
+}
+
+// SlotKeyKeepsSiteIdentity: a change to any site field changes the
+// packed key, and out-of-range fields cannot be packed.
+law SlotKeyKeepsSiteIdentity(seed int) {
+	let mut r = seeded(seed)
+	let hi = CallSite{File: "", Line: 0, Column: 0, Pkg: 127, Id: 8191}
+	let mut s = slotOf{parent: 2046, b: base{site: hi, each: hi, key: IntKey{Value: 4094}}}
+	let top = slotKey(&s)
+	if top < 0 {
+		return false
+	}
+	// Toggle the highest bit of each field to check for truncation.
+	let noPkgBit = CallSite{..hi, Pkg: 63}
+	let noIdBit = CallSite{..hi, Id: 4095}
+	for c in []CallSite{noPkgBit, noIdBit, nowhere, CallSite{..hi, Pkg: draw(&r, 126)+1, Id: draw(&r, 8190)+1}} {
+		let mut nodeSlot = slotOf{..s, b: base{..s.b, site: c}}
+		let mut rowSlot = slotOf{..s, b: base{..s.b, each: c}}
+		let node = slotKey(&nodeSlot)
+		let row = slotKey(&rowSlot)
+		if node < 0 || row < 0 || node == top || row == top || node == row {
+			return false
+		}
+	}
+	for c in []CallSite{CallSite{..hi, Pkg: 128}, CallSite{..hi, Id: 8192}, CallSite{..hi, Pkg: 0}, CallSite{..hi, Id: 0}, CallSite{..hi, Id: -1}} {
+		let mut node = slotOf{..s, b: base{..s.b, site: c}}
+		let mut row = slotOf{..s, b: base{..s.b, each: c}}
+		if slotKey(&node) >= 0 || slotKey(&row) >= 0 {
+			return false
+		}
+	}
+	let mut badParent = slotOf{..s, parent: 2047}
+	let mut badKey = slotOf{..s, b: base{..s.b, key: IntKey{Value: 4095}}}
+	slotKey(&badParent) < 0 && slotKey(&badKey) < 0
 }
 
 // owner is the node of the last pass that the current parent spec was:

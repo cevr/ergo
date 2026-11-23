@@ -9,6 +9,7 @@ package lower
 // ir.go.
 
 import (
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -107,8 +108,15 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if captureLowering != "reference" && len(l.info.ValueCaptures[n]) > 0 {
 		irNo("function literal that copies what it captures")
 	}
-	if c := l.info.TaskCaptures[n]; c != nil && !taskLendsOnly(c) {
+	capture := l.info.TaskCaptures[n]
+	if capture != nil && !taskAdmits(capture) {
 		irNo("function literal that a task captures")
+	}
+	// A literal run once owns what it moves: a frame of its own whose
+	// captures register at its open (ir_taskmove.go; funcLitClosure).
+	var owns []*check.Var
+	if capture != nil && !capture.Repeated {
+		owns = capture.Vars
 	}
 	var params []*check.Var
 	var ids []*syntax.Ident
@@ -134,7 +142,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	// A literal that is a frame of its own (stage D3b, Rule 2: an owned
 	// parameter, a body that needs a frame) opens its scope first, and
 	// its Go results are named for the scope's End (frameSigType).
-	framed := l.bodyNeedsFrame(list) || l.ownsParams(params)
+	framed := l.bodyNeedsFrame(list) || l.ownsParams(params) || len(owns) > 0
 	if x != nil && b.fc.plainLits[x] {
 		if framed {
 			irNo("function literal that is a frame")
@@ -189,7 +197,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 			body = site.Trailing
 		}
 		errArg := &irExpr{K: "addr", Pos: p, X: &irExpr{K: "result", Pos: p, I: 1}}
-		lit.Body = append(lit.Body, b.openScopeOf(body, n, n, params, errArg, false)...) // ir_own.go
+		lit.Body = append(lit.Body, b.openScopeOf(body, n, n, append(slices.Clone(params), owns...), errArg, false)...) // ir_own.go
 	}
 	if frameFootprint(l.info, n).EntryPoll && inner.frame.polls {
 		lit.Body = append(lit.Body, b.poll(n))
@@ -203,26 +211,6 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 		lit.Body = b.unitReturns(lit.Body, e)
 	}
 	return lit
-}
-
-// taskLendsOnly reports a task's literal that moves no resource and only
-// borrows lets (R12, R27; check.TaskCapture): the emitter's taskSnapshot
-// then only rebinds each borrowed let to a sender local of the same value,
-// with no owner to hand at admission (captureCall), no root owner of a
-// repeated body (taskCaptureRoot) and no capture the literal's frame owns
-// (funcLitClosure). A let is never written, so the literal reading it is
-// that snapshot. A move, or a borrowed let mut, which the snapshot fixes
-// before later writes, stays the emitter's.
-func taskLendsOnly(c *check.TaskCapture) bool {
-	if len(c.Vars) > 0 {
-		return false
-	}
-	for _, v := range c.Borrowed {
-		if v.Mut() {
-			return false
-		}
-	}
-	return true
 }
 
 // unitReturns is the body of a literal with no value: each return gives

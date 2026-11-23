@@ -86,8 +86,18 @@ func TestComponentCallsLowerToGroup(t *testing.T) {
 			text = string(f.Data)
 		}
 	}
+	callees := GroupCallNamesForTest(u)
+	if len(callees) == 0 {
+		t.Fatal("no frame package of the program declares a lawed group")
+	}
+	names := make(map[string]bool, len(callees))
+	var quoted []string
+	for _, n := range callees {
+		names[n] = true
+		quoted = append(quoted, regexp.QuoteMeta(n))
+	}
 	for _, line := range recordCalls {
-		if !regexp.MustCompile(`:` + line + `:\d+\*/group(By)?\[`).MatchString(text) {
+		if !regexp.MustCompile(`:` + line + `:\d+\*/(` + strings.Join(quoted, "|") + `)\[`).MatchString(text) {
 			var near []string
 			for _, l := range strings.Split(text, "\n") {
 				if strings.Contains(l, ":"+line+":") {
@@ -112,29 +122,29 @@ func TestComponentCallsLowerToGroup(t *testing.T) {
 		if err := json.Unmarshal(f.Data, &v); err != nil {
 			t.Fatal(err)
 		}
-		groups += irGroupCalls(v)
+		groups += irGroupCalls(v, names)
 	}
 	if groups < len(groupedCalls) {
 		t.Errorf("the IR build calls group or groupBy %d times, want one for each of the %d component calls", groups, len(groupedCalls))
 	}
 }
 
-// irGroupCalls counts the calls of group and groupBy in a decoded IR file.
-func irGroupCalls(v any) int {
+// irGroupCalls counts calls to the named group functions in a decoded
+// IR file.
+func irGroupCalls(v any, names map[string]bool) int {
 	n := 0
 	switch v := v.(type) {
 	case map[string]any:
 		name, _ := v["name"].(string)
-		name = strings.TrimRightFunc(name, func(r rune) bool { return r == '_' || r >= '0' && r <= '9' })
-		if v["k"] == "call" && (name == "group" || name == "groupBy") {
+		if v["k"] == "call" && names[name] {
 			n++
 		}
 		for _, x := range v {
-			n += irGroupCalls(x)
+			n += irGroupCalls(x, names)
 		}
 	case []any:
 		for _, x := range v {
-			n += irGroupCalls(x)
+			n += irGroupCalls(x, names)
 		}
 	}
 	return n
