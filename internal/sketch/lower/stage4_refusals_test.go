@@ -37,7 +37,7 @@ var namesStage = regexp.MustCompile(`(?i)\bstage\b|\b(lower|check)-v[0-9]`)
 var deferral = regexp.MustCompile(`(?i)\buntil\b|\bnot yet\b`)
 
 // namesOpenOwner reports whether text names one of openOwners as whole
-// words.
+// words. The numeric lookalike #1970 does not name an owner.
 func namesOpenOwner(text string) bool {
 	for _, o := range openOwners {
 		if regexp.MustCompile(`(^|[^0-9A-Za-z])` + regexp.QuoteMeta(o) + `($|[^0-9A-Za-z])`).MatchString(text) {
