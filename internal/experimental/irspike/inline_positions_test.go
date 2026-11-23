@@ -16,7 +16,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// TestInlinePositionsOnly is the property behind the two inventory rows
+// TestInlinePositionsOnly is the property behind the position rows
 // the IR inliner keeps (std-privileges.txt, "positions only"):
 // irBuilder.inlineMark's read of whether the calling body writes line
 // directives, and irInliner.splice's read of whether the callee's package
@@ -27,8 +27,8 @@ import (
 // the two lowerings are equal once
 // inlineNormalise strips what positions alone write: line directives,
 // comments, the source map (ergoDecls, ergoCalls, ergoCallNames,
-// ergoInlines and their registration), the IR's positions, and the
-// numbering of inline copies' names.
+// ergoInlines and their registration), the IR's positions, and the marker
+// on inline copies' local names and labels that have no source site.
 //
 // The domain is GenerateInline's programs, whose loops inline fallible
 // helpers and leaves in user bodies and whose arena helper inlines a call
@@ -160,9 +160,9 @@ func inlineLowered(t *testing.T, path string, flip bool, reach *lower.IRReport) 
 }
 
 var (
-	// inlineNames are the inline copies' names and labels: inl<N> for a
-	// site of the table, inls<N> for one with none.
-	inlineNames = regexp.MustCompile(`inls?[0-9]+`)
+	// An inline copy's ordinal is local to its receiving function. The "s"
+	// marks a copy without an inline table entry, not a distinct ordinal.
+	inlineAnonPart = regexp.MustCompile(`^inls[0-9]+$`)
 	// inlineMapDecl opens a declaration of the source map.
 	inlineMapDecl = regexp.MustCompile(`^var ergo(Decls|Calls|CallNames|Inlines)[0-9_]* = `)
 	// inlineLineComment is a line directive inside a line.
@@ -179,7 +179,7 @@ func inlineNormalise(name, text string) string {
 		if err := json.Unmarshal([]byte(text), &v); err != nil {
 			return "unreadable IR: " + err.Error()
 		}
-		data, err := json.Marshal(inlineStrip(v))
+		data, err := json.Marshal(inlineStrip(v, ""))
 		if err != nil {
 			return "unwritable IR: " + err.Error()
 		}
@@ -206,34 +206,45 @@ func inlineNormalise(name, text string) string {
 		}
 		text = b.String()
 	}
-	seen := map[string]string{}
-	return inlineNames.ReplaceAllStringFunc(text, func(s string) string {
-		if c, ok := seen[s]; ok {
-			return c
-		}
-		c := fmt.Sprintf("inl#%d", len(seen))
-		seen[s] = c
-		return c
-	})
+	return text
 }
 
-// inlineStrip is v with the IR's position fields removed.
-func inlineStrip(v any) any {
+// inlineStrip removes position fields and normalizes only the anonymous
+// marker in local names and labels. The ordinal and label targets still
+// have to match; function names and string literals are not rewritten.
+func inlineStrip(v any, field string) any {
 	switch x := v.(type) {
 	case map[string]any:
 		for k := range x {
-			if inlinePositionKeys[k] {
+			switch {
+			case inlinePositionKeys[k]:
 				delete(x, k)
-				continue
+			case k == "label" || field == "locals" && k == "name":
+				if s, ok := x[k].(string); ok {
+					x[k] = inlineCopyName(s)
+				}
+			default:
+				x[k] = inlineStrip(x[k], k)
 			}
-			x[k] = inlineStrip(x[k])
 		}
 	case []any:
 		for i := range x {
-			x[i] = inlineStrip(x[i])
+			x[i] = inlineStrip(x[i], field)
 		}
 	}
 	return v
+}
+
+// inlineCopyName retains the ordinal in each inl suffix, including when a
+// copied label has more than one suffix.
+func inlineCopyName(s string) string {
+	parts := strings.Split(s, "_")
+	for i, part := range parts {
+		if inlineAnonPart.MatchString(part) {
+			parts[i] = "inl" + part[len("inls"):]
+		}
+	}
+	return strings.Join(parts, "_")
 }
 
 // inlineDiff shows the first differing line of a and b with two lines
