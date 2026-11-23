@@ -387,7 +387,7 @@ func FSOpenRoot(s *Scope, dir string) (*HostRoot, error) {
 	if s.ended {
 		panic("fs.OpenRoot: the acquiring frame has returned")
 	}
-	return rt.AcquireInto(s.s.Task(), func() (*HostRoot, error) {
+	return rt.AcquireInto(s.t, func() (*HostRoot, error) {
 		r, err := os.OpenRoot(dir)
 		if err != nil {
 			return nil, fsErr(dir, err)

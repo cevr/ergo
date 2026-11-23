@@ -51,7 +51,7 @@ func frameNoRow(t *rt.Task, body func(s *Scope)) {
 // owned value of the code at s, registered in the step that receives it
 // (Owning, R8), and its owner's end releases it with Close.
 func ownedGo[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
-	return Owning(s.Owner(), Go(s, span, body), func(c *Task[T]) { c.Close(s.current().s.Task()) })
+	return Owning(s.Owner(), Go(s, span, body), func(c *Task[T]) { c.Close(s.current().t) })
 }
 
 // ownedSet is tasks.NewSet as the lowering emits it: an owned value of the

@@ -63,7 +63,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 					return frame(root, func(s *Scope) error {
 						h := s.Owner()
 						task := Owning(h, Go(s, "child", body), func(c *Task[int]) {
-							c.Close(s.current().s.Task())
+							c.Close(s.current().t)
 							for range c.Drain() {
 								released++
 							}
