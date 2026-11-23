@@ -1,19 +1,14 @@
-// Indent is text, one JSON value, written with each element of a list and
-// each member of an object on its own line, as encoding/json's Indent
-// writes it (PORT-E-JSONINDENT): a new line begins with prefix and then
-// indent once per level of nesting, a member's name is followed by ": ",
-// an empty list or object stays [] or {}, and the white space between the
-// tokens of text is dropped. As in Go, the first line has no prefix, the
-// white space before the value is dropped and the white space after it is
-// kept. A text that breaks Open's rules (its depth limit included) fails
-// Malformed and gives no text.
+// Indent formats one JSON value with each element or member on its own
+// line. Each added line starts with prefix and one indent per nesting
+// level. Empty arrays and objects stay on one line. As in Go, Indent drops
+// leading whitespace, preserves trailing whitespace, and copies prefix and
+// indent verbatim. Text that breaks Open's rules fails Malformed.
 func Indent(text string, prefix string, indent string) string fails Malformed {
 	let _ = try Open(text, 0, 0)
 	indented(text, prefix, indent)
 }
 
-// EncodeIndent is v's JSON text indented, as Go's MarshalIndent writes it:
-// Indent of Encode's text, which is always one JSON value.
+// EncodeIndent applies Indent's layout to the JSON produced by Encode.
 func EncodeIndent[T wire](c Codec[T], v T, prefix string, indent string) string needs wired[T] {
 	indented(Encode(c, v), prefix, indent)
 }
@@ -23,7 +18,7 @@ func EncodeIndent[T wire](c Codec[T], v T, prefix string, indent string) string 
 // so an empty list or object stays on one line (Go's needIndent).
 func indented(text string, prefix string, indent string) string {
 	let mut out = []byte{}
-	out = out.Grow(len(text) + len(text) / 2)
+	out = out.Grow(2 * len(text))
 	let mut depth = 0
 	let mut open = false
 	let mut started = false
@@ -61,9 +56,11 @@ func indented(text string, prefix string, indent string) string {
 			open = true
 			out = out.Append(c)
 		} else if c == ',' {
-			out = newline(out.Append(c), prefix, indent, depth)
+			out = out.Append(c)
+			out = newline(out, prefix, indent, depth)
 		} else if c == ':' {
-			out = out.Append(c).Append(' ')
+			out = out.Append(c)
+			out = out.Append(' ')
 		} else if c == '}' || c == ']' {
 			if open {
 				open = false
@@ -82,9 +79,11 @@ func indented(text string, prefix string, indent string) string {
 	out.Text()
 }
 
-// newline is out with a new line, prefix and depth indents added.
-func newline(out []byte, prefix string, indent string, depth int) []byte {
-	let mut b = out.Append('\n').AppendString(prefix)
+// newline takes the output buffer so every append can use its spare room.
+func newline(out own []byte, prefix string, indent string, depth int) []byte {
+	let mut b = out
+	b = b.Append('\n')
+	b = b.AppendString(prefix)
 	for _ in 0..depth {
 		b = b.AppendString(indent)
 	}

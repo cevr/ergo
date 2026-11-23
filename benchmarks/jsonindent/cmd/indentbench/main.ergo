@@ -1,31 +1,14 @@
-// indentbench is PORT-E-JSONINDENT's speed receipt: json.Indent of a list
-// of N records, each with a number, a string, a list and an empty object,
-// indented by two spaces (go run ./scripts/opcount -control
-// benchmarks/jsonindent/indent). It prints the indented text's length and
-// its FNV-1a hash, which the hand Go twin, encoding/json's Indent over
-// the same text (../../testdata/control), prints too: the same output,
-// byte for byte.
+// indentbench indents the same JSON document N times with two spaces.
+// The length and hash are taken once, from the last result, so the
+// instruction slope measures indentation, not input generation or hashing.
 //
 //	indentbench bench N
 
 import json
 import os
 import strconv
-import strings
 
-// source is the compact text of n records.
-func source(n int) string {
-	let mut b = strings.NewBuilder()
-	b.WriteString("[")
-	for i in 0..n {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		b.WriteString("{\"id\":\(i),\"name\":\"n\(i)\",\"tags\":[\"a\",\"b\\\"c\"],\"m\":{}}")
-	}
-	b.WriteString("]")
-	b.String()
-}
+let source = "[{\"id\":0,\"name\":\"first\",\"tags\":[\"a\",\"b\\\"c\"],\"m\":{}},{\"id\":1,\"name\":\"second\",\"tags\":[],\"m\":{\"ok\":true}}]\n"
 
 // fnv is the 64-bit FNV-1a hash of s.
 func fnv(s string) uint64 {
@@ -46,9 +29,12 @@ func main() fails os.Exit needs Console | Ambient {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "indentbench: N is not a count"}
 		}
-		let out = json.Indent(source(n), "", "  ") catch {
-		case json.Malformed:
-			return os.Exit{Code: 1, Message: "indentbench: malformed"}
+		let mut out = ""
+		for _ in 0..n {
+			out = json.Indent(source, "", "  ") catch {
+			case json.Malformed:
+				return os.Exit{Code: 1, Message: "indentbench: malformed"}
+			}
 		}
 		Console.Println("\(len(out)) \(fnv(out))")
 	}

@@ -1,8 +1,6 @@
-# scripts/opcount: `indentbench bench N` indents a list of N records by
-# two spaces with json.Indent (PORT-E-JSONINDENT); the cost of one record
-# is the slope between the two sizes. The control is hand Go:
-# encoding/json's Indent over the same text.
-unit record
+# Indent the same JSON document N times. Only the last result is hashed.
+# The Go control indents the same text and produces the same owned string.
+unit document
 sizes 20000 120000
 args bench {n}
 control benchmarks/jsonindent/testdata/control

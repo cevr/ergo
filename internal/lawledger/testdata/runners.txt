@@ -390,6 +390,10 @@ json ElementsRoundTrip	TestJSONStreamAgrees
 json FastAgreesWithWriter	TestStdJSONLawsRun
 json FixesNameTheirText	TestStdJSONLooseLawsRun
 json HTMLEscaped	TestStdJSONLawsRun
+json IndentDecodesAsCompact	none
+json IndentIsFixpoint	none
+json IndentRefusesMalformed	none
+json IndentWritesGoForm	none
 json InvalidBytesEscaped	TestStdJSONLawsRun
 json LineSeparatorsEscaped	TestStdJSONLawsRun
 json NestedRoundTrips	TestJSONFieldsAgree

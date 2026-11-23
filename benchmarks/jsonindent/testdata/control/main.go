@@ -1,6 +1,5 @@
-// Command control is the hand Go twin of benchmarks/jsonindent: the same
-// compact text of N records, indented by encoding/json's Indent; it prints
-// what `indentbench bench N` prints, the output's length and FNV-1a hash.
+// Command control indents one JSON document N times with encoding/json.
+// It prints the last result's length and FNV-1a hash.
 package main
 
 import (
@@ -12,17 +11,13 @@ import (
 	"strconv"
 )
 
-func source(n int) []byte {
-	var b bytes.Buffer
-	b.WriteString("[")
-	for i := range n {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		fmt.Fprintf(&b, "{\"id\":%d,\"name\":\"n%d\",\"tags\":[\"a\",\"b\\\"c\"],\"m\":{}}", i, i)
-	}
-	b.WriteString("]")
-	return b.Bytes()
+const source = `[{"id":0,"name":"first","tags":["a","b\"c"],"m":{}},{"id":1,"name":"second","tags":[],"m":{"ok":true}}]` + "\n"
+
+// indent returns an independent string, like Ergo's json.Indent.
+func indent(data []byte) (string, error) {
+	var out bytes.Buffer
+	err := json.Indent(&out, data, "", "  ")
+	return out.String(), err
 }
 
 func main() {
@@ -34,11 +29,15 @@ func main() {
 	if err != nil {
 		os.Exit(2)
 	}
-	var out bytes.Buffer
-	if err := json.Indent(&out, source(n), "", "  "); err != nil {
-		os.Exit(1)
+	data := []byte(source)
+	var out string
+	for range n {
+		out, err = indent(data)
+		if err != nil {
+			os.Exit(1)
+		}
 	}
 	h := fnv.New64a()
-	h.Write(out.Bytes())
-	fmt.Println(out.Len(), h.Sum64())
+	h.Write([]byte(out))
+	fmt.Println(len(out), h.Sum64())
 }
