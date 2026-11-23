@@ -950,7 +950,9 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		l.intMapConflict(u) // intmap.go: the codec makes Go's map
 		out, k := scope.alloc("out"), scope.alloc("k")
 		begin("Object")
-		b.WriteString(out + " := " + goType + "{}\nfor " + tc.readOp(env, r, "More") + " {\n" + k + " := " + tc.readOp(env, r, "Key") + "\n")
+		// The key a Map keeps is a copy (json 2): a reader's Key may be a
+		// window of its input (runtime/v1 WireKeyKept).
+		b.WriteString(out + " := " + goType + "{}\nfor " + tc.readOp(env, r, "More") + " {\n" + k + " := " + l.rt() + ".WireKeyKept(" + tc.readOp(env, r, "Key") + ")\n")
 		e := scope.alloc("e")
 		b.WriteString(tc.wireDecode(u.Elem, env, r, e, zero, scope))
 		b.WriteString(out + "[" + tc.goType(u.Key) + "(" + k + ")] = " + e + "\n}\n" + tc.readOp(env, r, "End") + "\nreturn " + out + ", nil\n")
