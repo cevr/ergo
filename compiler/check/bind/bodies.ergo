@@ -793,13 +793,19 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 					match syntax.ViewOf(b.p.Tree, t) {
 					case syntax.FuncType as ft:
 						// An operation's parameters are declared, in a scope
-						// of their own with no body.
+						// of their own with no body. A generic operation's own
+						// type parameters (`Fold[A](…)`) scope its whole
+						// signature (types.md, Interface assignability,
+						// Generic operations).
+						let tm = mark(*b)
+						params(b, ft.TypeParams)
 						let pm = mark(*b)
 						params(b, dense.OptOf(ft.Params))
 						release(b, pm)
 						opt(b, ft.Results)
 						opt(b, ft.Needs)
 						opt(b, ft.Takes)
+						release(b, tm)
 					case _:
 						walk(b, t)
 					}

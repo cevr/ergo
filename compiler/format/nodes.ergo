@@ -420,6 +420,9 @@ func fieldList(p mut Printer, l dense.ID[syntax.Node], open string, close string
 // signature prints `(params) [Result] [fails …] [needs …] [takes …]`.
 func signature(p mut Printer, ft dense.ID[syntax.Node]) {
 	let x = syntax.FuncTypeOf(p.P.Tree, ft)
+	if some(x.TypeParams) {
+		p.fieldList(the(x.TypeParams), "[", "]") // an operation's own (GENERIC-OP)
+	}
 	p.fieldList(x.Params, "(", ")")
 	if some(x.Results) {
 		for f in p.ids(syntax.FieldListOf(p.P.Tree, the(x.Results)).List) {

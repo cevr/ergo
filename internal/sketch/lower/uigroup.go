@@ -357,6 +357,57 @@ func groupLawed(pkg *check.Package, g *check.Func) bool {
 	return false
 }
 
+// GroupFuncsForTest is the functions of pkg a component call goes through,
+// found as groupFrame and groupByOf find them: for each frame type of pkg,
+// its lawed group and groupBy. A test names the group calls it counts by
+// these, never by their spelling (STD HAS NO PRIVILEGES: std ui may call
+// its group writeGroup).
+func GroupFuncsForTest(pkg *check.Package) []*check.Func {
+	var out []*check.Func
+	seen := map[*check.Func]bool{}
+	add := func(g *check.Func) {
+		if g != nil && !seen[g] {
+			seen[g] = true
+			out = append(out, g)
+		}
+	}
+	for _, h := range pkg.Funcs {
+		if h.Sig == nil || len(h.Sig.Params) == 0 {
+			continue
+		}
+		p, ok := h.Sig.Params[0].Type.(*check.Pointer)
+		if !ok {
+			continue
+		}
+		n, ok := p.Elem.(*check.Named)
+		if !ok || n.Obj == nil || n.Obj.Pkg != pkg {
+			continue
+		}
+		frame := origin(n)
+		if groupShape(h, frame) && groupLawed(pkg, h) {
+			add(h)
+		}
+		add(groupByOf(frame))
+	}
+	return out
+}
+
+// GroupCallNamesForTest returns the names used for group calls in a unit's
+// lowered Go and IR. Use the same naming pass as the build, so package
+// qualifiers and collision suffixes come from the declarations, not from
+// a second mangler.
+func GroupCallNamesForTest(u Unit) []string {
+	l := newLowerer(u)
+	l.nameAll()
+	var names []string
+	for _, pkg := range l.libraries() {
+		for _, g := range GroupFuncsForTest(pkg) {
+			names = append(names, l.funcDecl(g).name)
+		}
+	}
+	return names
+}
+
 // groupShape reports g a group over the frame type frame (groupFrame).
 func groupShape(g *check.Func, frame *check.Named) bool {
 	if g.Decl == nil || g.Decl.Extern != nil || g.Sig == nil {

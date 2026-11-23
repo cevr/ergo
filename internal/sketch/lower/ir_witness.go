@@ -240,8 +240,9 @@ func (b *irBuilder) witnessGate() {
 // parameter whose witness the copy being built knows (fc.static, G4): the
 // emitter's witnessCall calls the same function, through the closure the
 // witness would hold, where it is written. Else c. A generic implementing
-// function (op.Inst), an extern, one with owned parameters or a call
-// through a pointer to the parameter keeps c, which witnessOpCall refuses.
+// function (op.Inst), an extern, one with owned parameters, or a call
+// through a pointer to the parameter of any but a mut operation whose
+// function takes the pointer, keeps c, which witnessOpCall refuses.
 // The function's fallibility is the operation's: the checker admits no
 // other implementation (types.md, Interface assignability 1).
 func (b *irBuilder) knownWitnessOp(c *check.Call) *check.Call {
@@ -250,11 +251,17 @@ func (b *irBuilder) knownWitnessOp(c *check.Call) *check.Call {
 	}
 	tp, ptr := paramSource(b.l.info.Types[c.Recv])
 	st := b.fc.static[tp]
-	if tp == nil || ptr || st == nil {
+	if tp == nil || st == nil {
 		return c
 	}
 	own := staticOp(st, c.Op.Name)
 	if own == nil || own.Func == nil || own.Inst != nil || len(own.Func.Sig.TParams) > 0 || own.Func.Pkg == nil || own.Func.Pkg.Info == nil {
+		return c
+	}
+	if ptr && !(c.Op.Sig.MutSelf && takesPointer(own.Func)) {
+		// Through a pointer to the parameter (s mut S, examples/vt): the
+		// call passes the pointer as it is, which only a mut operation's
+		// implementing function that takes the pointer receives.
 		return c
 	}
 	g := own.Func
@@ -263,6 +270,15 @@ func (b *irBuilder) knownWitnessOp(c *check.Call) *check.Call {
 		return c
 	}
 	return &check.Call{Kind: check.CallFunc, Func: g, Recv: c.Recv, Fails: c.Fails, Needs: c.Needs}
+}
+
+// takesPointer reports a function whose first parameter is a pointer.
+func takesPointer(f *check.Func) bool {
+	if len(f.Sig.Params) == 0 {
+		return false
+	}
+	_, ok := f.Sig.Params[0].Type.(*check.Pointer)
+	return ok
 }
 
 // witnessCopyIR selects G4: "" (on) or "off" (the reference: a copy for a

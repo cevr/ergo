@@ -119,7 +119,7 @@ Implements     = "implements" TypeName [ TypeArgs ] { "," TypeName [ TypeArgs ] 
 TypeParams     = "[" TypeParam { "," TypeParam } "]" .
 TypeParam      = identifier { "," identifier } [ "own" ] [ TypeName ] .
 Members        = "{" [ Member { "," Member } [ "," ] ] "}" .
-Member         = FieldDecl | ".." TypeName [ TypeArgs ] | [ "mut" ] identifier Signature | LawDecl .
+Member         = FieldDecl | ".." TypeName [ TypeArgs ] | [ "mut" ] identifier [ TypeParams ] Signature | LawDecl .
 FieldDecl      = identifier { "," identifier } Type [ string_lit ] .
 LawDecl        = "law" identifier [ TypeParams ] Params ( Block | [ "when" Expression ] Block "==" Block ) .
 UnionType      = [ "|" ] Variant { "|" Variant } .

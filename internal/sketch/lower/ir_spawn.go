@@ -246,8 +246,12 @@ func (s *spawnScan) expr(e *irExpr) {
 		if r := root(e.X); r != nil && s.outer(r.I) && !s.pointer(r.I) {
 			s.refused = true
 		}
-	case "result", "hole":
-		s.refused = true // a slot of the enclosing function
+	case "result":
+		// Result indices are local to the current literal. A move's
+		// framed block takes the address of its own named error result.
+		return
+	case "hole":
+		s.refused = true // a pattern operand, not a bound local
 		return
 	case "vcall":
 		s.indirect = s.indirect || e.X.K != "func"

@@ -1,0 +1,103 @@
+// Claims and operation signatures (S3-PROVIDES): each implements clause
+// of the package resolved at its claimant's own parameters, and each
+// operation of each operation type resolved at the type's parameters and
+// then the operation's own (types.md, Interface assignability 1 and 8).
+// They are resolved here, with the package's signatures, so that the
+// providing check (compiler/check/providing) reads types the store holds
+// and interns none after the bodies are typed.
+
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+
+// Claim is one implements clause: the file, the claimant's declaration,
+// the clause's type expression and its type, read at the claimant's
+// parameters (Param(i) is its i-th).
+type Claim { File int, Decl dense.ID[syntax.Node], At dense.ID[syntax.Node], T dense.ID[store.TKey] }
+
+// OpSig is one operation of an operation type: the file, the type's
+// declaration, the operation's name and its signature, read at the type's
+// parameters and then the operation's own.
+type OpSig { File int, Decl dense.ID[syntax.Node], Name string, Sig dense.ID[store.TKey] }
+
+// bracketList is the names of the bracket list l, in order.
+func bracketList(p syntax.Parsed, l dense.Opt[syntax.Node]) []string {
+	let mut out = []string{}
+	match dense.Unpack(l) {
+	case Some{Value: n}:
+		match syntax.ViewOf(p.Tree, n) {
+		case syntax.FieldList as fl:
+			for i in 0..syntax.Len(fl.List) {
+				match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, fl.List, i)) {
+				case syntax.Field as fd:
+					for j in 0..syntax.Len(fd.Names) {
+						out = out.Append(types.NameText(p, syntax.Item(p.Tree, fd.Names, j)))
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	case None:
+	}
+	out
+}
+
+// claimsOf is the package's claims and operation signatures.
+func claimsOf(s mut store.Store, parsed []syntax.Parsed, kinds types.Kinds, ext []types.Ext, foreign []types.Foreign, deps []types.Iface) ([]Claim, []OpSig) {
+	let mut claims = []Claim{}
+	let mut sigs = []OpSig{}
+	for file, p in parsed {
+		if p.Failed {
+			continue
+		}
+		match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as root:
+			for i in 0..syntax.Len(root.Decls) {
+				let d = syntax.Item(p.Tree, root.Decls, i)
+				match syntax.ViewOf(p.Tree, d) {
+				case syntax.TypeDecl as td:
+					let params = bracketList(p, td.TypeParams)
+					let env = types.NewEnv(*s, parsed, p, params, kinds, ext, foreign, deps)
+					for j in 0..syntax.Len(td.Implements) {
+						let x = syntax.Item(p.Tree, td.Implements, j)
+						claims = claims.Append(Claim{File: file, Decl: d, At: x, T: types.Resolve(s, env, x)})
+					}
+					match dense.Unpack(td.Spec) {
+					case Some{Value: sp}:
+						match syntax.ViewOf(p.Tree, sp) {
+						case syntax.InterfaceType as it:
+							for j in 0..syntax.Len(it.Members) {
+								match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+								case syntax.Field as fd:
+									match dense.Unpack(fd.Type) {
+									case Some{Value: ft}:
+										if fd.Dots < 0 && syntax.Len(fd.Names) == 1 && syntax.KindOf(p.Tree, ft) == syntax.KFuncType {
+											let mut all = []string{}
+											for o in params {
+												all = all.Append(o)
+											}
+											for o in bracketList(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams) {
+												all = all.Append(o)
+											}
+											let oenv = types.NewEnv(*s, parsed, p, all, kinds, ext, foreign, deps)
+											sigs = sigs.Append(OpSig{File: file, Decl: d, Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), Sig: types.Resolve(s, oenv, ft)})
+										}
+									case None:
+									}
+								case _:
+								}
+							}
+						case _:
+						}
+					case None:
+					}
+				case _:
+				}
+			}
+		case _:
+		}
+	}
+	(claims, sigs)
+}
