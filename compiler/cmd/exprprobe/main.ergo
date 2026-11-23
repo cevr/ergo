@@ -81,7 +81,7 @@ func run(args []string) fails os.Exit needs io.Stdout {
 		return
 	}
 	let t = if mode == "check-fused" { expr.CheckFused(&s, k) } else { expr.Check(&s, k) }
-	let bad = len(expr.Diags(t))
+	let bad = len(t.Diags)
 	if bad > 0 {
 		return os.Exit{Code: 1, Message: "rejected: \(bad) type errors"}
 	}

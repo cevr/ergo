@@ -24,7 +24,7 @@ func Begin(b feed.Board) Dash { Dash{Board: b} }
 func Step(d Dash, e Signal) Decision[Dash, []feed.Notice] fails queue.Closed needs feed.Sensors {
 	match e {
 	case Next:
-		let s = try feed.Frame(d.Board)
+		let s = try feed.NextFrame(d.Board)
 		if len(s.Notes) == 0 {
 			return Stay[Dash]{Next: Dash{Board: s.Board}}
 		}

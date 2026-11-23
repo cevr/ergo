@@ -687,7 +687,7 @@
       "rule": "ListenFailed's Reason is Go's net.Listen error text.",
       "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
-    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallHash:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash, check.CallTestSeed:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallHash, check.CallTestSeed:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
     {
       "name": "oracle-o23-preflight-go-extern",
       "origin": "wf10 ORACLE O23",
@@ -890,7 +890,7 @@
       "name": "oracle-o33-plain-skips-conversion",
       "origin": "wf10 ORACLE O33",
       "file": "internal/sketch/eval/facts.go",
-      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow || f.conv.Kind == check.ConvWiden)",
+      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvWiden)",
       "to": "\t\ttrue",
       "rule": "A value the checker converts where it is used (a provider into an operation type) is converted however its expression is dispatched.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
@@ -2197,6 +2197,8 @@
     {"name":"arity-send-moved","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/client.ergo","from":"header []Field, body string) Response fails SendFailed","to":"body string, header []Field) Response fails SendFailed","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind: a parameter moved under an unchanged native fails the fast tier.","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
     {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["lower:TestCellReaderAgrees"]},
     {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]},
+    {"name":"harness-seed-ignored","origin":"wf10 PROPERTY-TESTING P1b","file":"internal/sketch/eval/expr.go","from":"\t\treturn in.budget.Seed, nil","to":"\t\treturn uint64(1), nil","rule":"runtime.md Tests, harnesses 3: a harnessed test's run carries the run's --seed.","killers":["internal/sketch/eval:TestHarnessRunsTheBody"]},
+    {"name":"eval-returned-temp-released","origin":"wf10 lang EVAL-RETURNED-TEMPS (found by STOP-NESTED-WAIT)","file":"internal/sketch/eval/expr.go","from":"\t\tif fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","to":"\t\tif false && fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","rule":"resources R10, in the evaluator: a new value a return gives while its frame owns another (return outer.Wait()) leaves with the value; the frame's end does not release it.","killers":["lower:TestReturnedTempsAgree"]},
     {"name":"eval-end-actions-skipped","origin":"wf10 SUPERVISE-2 (NIH-108; not-run-crunch)","file":"internal/sketch/eval/runner.go","from":"\t\t_, ab := a.call(in, fr, f)\n\t\tin.mask(-1)","to":"\t\tvar ab *abrupt\n\t\tin.mask(-1)","rule":"runtime/v1 actor.go rule 14b at check time: an end action runs once before the end (law OnEndRunsOnce).","killers":["internal/sketch/std/actor:law:OnEndRunsOnce"],"anchor":{"tests":["internal/sketch/std/actor:law:OnEndRunsOnce"]}},
     {"name":"eval-ended-never","origin":"wf10 SUPERVISE-2 (NIH-108)","file":"internal/sketch/eval/runner.go","from":"\t\treturn actorOf(args[0]).ended, nil","to":"\t\treturn false, nil","rule":"stdlib.md Actors: Ended(a) is true once a has ended (law EndedAgreesWithExit).","killers":["internal/sketch/std/actor:law:EndedAgreesWithExit"],"anchor":{"tests":["internal/sketch/std/actor:law:EndedAgreesWithExit"]}}
   ]
