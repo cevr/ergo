@@ -49,7 +49,7 @@ func main() needs Console | Ambient | go.Foreign {
 		let faulted = strings.HasPrefix(lines[0], "fail ")
 		if faulted {
 			let f = strings.Fields(lines[0])
-			screen.FailAt(atoi(f[1]), atoi(f[2]))
+			screen.FailAt(atoi(f[1]), screen.AnyCall, atoi(f[2]))
 			lines = slices.Slice(lines, 1, len(lines))
 		}
 		let steps = slices.Slice(lines, 1, len(lines))

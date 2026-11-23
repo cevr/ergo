@@ -89,7 +89,7 @@ func TestScreenErrorsAreFailures(t *testing.T) {
 	if err, _ := failScript(); err != nil || len(Checks()) != 0 {
 		t.Fatalf("a screen with no fault tracing: error %v, trace %v", err, Checks())
 	}
-	FailAt(0, 0)
+	FailAt(0, AnyCall, 0)
 	err, _ := failScript()
 	checks := Checks()
 	if err != nil {
@@ -110,9 +110,9 @@ func TestScreenErrorsAreFailures(t *testing.T) {
 		r := rand.New(rand.NewPCG(uint64(sd), 0xfa11))
 		for at := 1; at <= len(checks); at++ {
 			st := statuses[r.IntN(len(statuses))]
-			FailAt(at, int(st))
+			FailAt(at, AnyCall, int(st))
 			err, said := failScript()
-			FailAt(0, 0)
+			FailAt(0, AnyCall, 0)
 			c := checks[at-1]
 			f, ok := err.(*Failure)
 			switch {

@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"unsafe"
+
+	"ergo.local/prototype/hosts/opentui/screen"
 )
 
 // ptyPair is a pseudo-terminal pair: the controlling side and the
@@ -74,22 +76,18 @@ type terminalRun struct {
 	err         error
 }
 
-// runOnTerminal runs bin AT STATUS with the terminal side of a fresh pair
-// as its standard input and output. Once it has entered the alternate
-// screen (its first frame) it is sent Ctrl+C; a run that fails before
-// that ends by itself. The terminal's mode after the run must be the mode
-// before it.
-func runOnTerminal(t *testing.T, bin string, at, status int, badResize bool) terminalRun {
+// runOnTerminal runs bin AT CALL STATUS with the terminal side of a fresh pair
+// as its standard input and output. Once the first frame is visible it
+// is sent Ctrl+C or a bad resize; a run that fails earlier ends by
+// itself. The terminal's mode after the run must be the mode before it.
+func runOnTerminal(t *testing.T, bin string, at, call, status int, badResize bool) terminalRun {
 	m, s := ptyPair(t)
 	before := termios(t, s)
 	var mu sync.Mutex
 	var out bytes.Buffer
 	ready := make(chan struct{})
-	marker := enterAlt
-	if badResize {
-		// The first frame is after Open installed its signal watcher.
-		marker = "count 0"
-	}
+	// The first frame is after Open installed its signal watcher.
+	const marker = "count 0"
 	readDone := make(chan struct{})
 	// read gets a value after each read of the controlling side.
 	read := make(chan struct{}, 1)
@@ -116,7 +114,7 @@ func runOnTerminal(t *testing.T, bin string, at, status int, badResize bool) ter
 		}
 	}()
 	var said bytes.Buffer
-	cmd := bounded(bin, fmt.Sprint(at), fmt.Sprint(status))
+	cmd := bounded(bin, fmt.Sprint(at), fmt.Sprint(call), fmt.Sprint(status))
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = s, s, &said
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
@@ -144,7 +142,7 @@ func runOnTerminal(t *testing.T, bin string, at, status int, badResize bool) ter
 		err = <-exited
 	}
 	if after := termios(t, s); after != before {
-		t.Errorf("failterm %d %d left the terminal's mode changed: %+v, was %+v", at, status, after, before)
+		t.Errorf("failterm %d %d %d left the terminal's mode changed: %+v, was %+v", at, call, status, after, before)
 	}
 	// What the run wrote is all in the pair's buffer once it exited; a
 	// write of our own marks its end.
@@ -172,8 +170,8 @@ func runOnTerminal(t *testing.T, bin string, at, status int, badResize bool) ter
 // TestRunTerminalRestoresAfterAFailure: tui.RunTerminal leaves the
 // terminal as it found it however the run ends. failterm runs counter's
 // app on a pseudo-terminal once with no failure (ended by Ctrl+C, which
-// counts the screen's checks), then once with each check failing with a
-// library status. Every run leaves the terminal's mode (termios) as it was
+// counts the screen's checks), then once with each startup check failing,
+// once for Next and once for Quit. Every run leaves termios as it was
 // before; every run that entered the alternate screen leaves it and shows
 // the cursor after its last entry; a failing run exits 1 and names the
 // call and node of the failing check and the status.
@@ -189,7 +187,7 @@ func TestRunTerminalRestoresAfterAFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	full := runOnTerminal(t, bin, 0, 0, false)
+	full := runOnTerminal(t, bin, 0, screen.AnyCall, 0, false)
 	lines := strings.Split(strings.TrimSpace(full.said), "\n")
 	if full.err != nil || lines[0] != "ended" || len(lines) < 3 {
 		t.Fatalf("failterm with no failure: %v\n%s", full.err, full.said)
@@ -209,28 +207,42 @@ func TestRunTerminalRestoresAfterAFailure(t *testing.T) {
 	if why := restored(full); why != "" {
 		t.Fatalf("with no failure: %s", why)
 	}
-	for at := 1; at <= len(checks); at++ {
-		st := failStatuses[at%len(failStatuses)]
-		r := runOnTerminal(t, bin, at, st, false)
-		var call, node int
-		fmt.Sscanf(strings.TrimPrefix(checks[at-1], "check "), "%d %d", &call, &node)
+	exercised := 0
+	check := func(at, only, call, node int) {
+		exercised++
+		st := failStatuses[exercised%len(failStatuses)]
+		r := runOnTerminal(t, bin, at, only, st, false)
 		want := fmt.Sprintf("failed %s %d %d", callNames[call], node, st)
 		got := strings.SplitN(strings.TrimSpace(r.said), "\n", 2)[0]
 		if got != want || !exitedOne(r.err) {
-			t.Errorf("check %d of %d (%s) failing with %d: said %q, want %q (exit %v)\n%s", at, len(checks), checks[at-1], st, got, want, r.err, r.said)
+			t.Errorf("check %d (selector %d) failing with %d: said %q, want %q (exit %v)\n%s", at, only, st, got, want, r.err, r.said)
 		}
 		if why := restored(r); why != "" {
-			t.Errorf("check %d failing: %s", at, why)
+			t.Errorf("check %d (selector %d) failing: %s", at, only, why)
 		}
 	}
-	r := runOnTerminal(t, bin, 0, 0, true)
+	for i, line := range checks {
+		var call, node int
+		if n, err := fmt.Sscanf(line, "check %d %d", &call, &node); n != 2 || err != nil {
+			t.Fatalf("invalid check trace: %q", line)
+		}
+		if call == screen.CallInput {
+			break
+		}
+		check(i+1, screen.AnyCall, call, node)
+	}
+	// Pty delivery can let Next consume more than one event before Ctrl+C.
+	// Select Input and Quit independently of that count.
+	check(1, screen.CallInput, screen.CallInput, 0)
+	check(1, screen.CallQuit, screen.CallQuit, 0)
+	r := runOnTerminal(t, bin, 0, screen.AnyCall, 0, true)
 	if got := strings.SplitN(r.said, "\n", 2)[0]; got != "failed resize 0 -" || !exitedOne(r.err) {
 		t.Errorf("an invalid live resize: said %q, exit %v", r.said, r.err)
 	}
 	if why := restored(r); why != "" {
 		t.Errorf("an invalid live resize: %s", why)
 	}
-	t.Logf("%d checks failed one by one, the terminal restored after each", len(checks))
+	t.Logf("%d injected failures and one refused resize, the terminal restored after each", exercised)
 }
 
 func exitedOne(err error) bool {

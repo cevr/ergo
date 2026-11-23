@@ -1,10 +1,10 @@
 // failterm runs counter-gui's app on the process's terminal with
 // tui.RunTerminal, as counter-tui does, with the screen's AT-th check
-// failing with the library status STATUS (screen.FailAt; AT 0 fails
-// none). TestRunTerminalRestoresAfterAFailure runs it on a
-// pseudo-terminal.
+// of CALL failing with the library status STATUS (screen.FailAt; AT 0
+// fails none, CALL -1 counts them all). TestRunTerminalRestoresAfterAFailure
+// runs it on a pseudo-terminal.
 //
-//	failterm AT STATUS
+//	failterm AT CALL STATUS
 //
 // On standard error it says how the run ended, "failed CALL NODE STATUS"
 // or "ended", then each check the screen passed ("check CALL NODE"), and
@@ -23,10 +23,10 @@ import ui
 
 func main() fails os.Exit needs Ambient | go.Foreign {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) != 2 {
-		return os.Exit{Code: 2, Message: "usage: failterm AT STATUS"}
+	if len(args) != 3 {
+		return os.Exit{Code: 2, Message: "usage: failterm AT CALL STATUS"}
 	}
-	screen.FailAt(number(args[0]), number(args[1]))
+	screen.FailAt(number(args[0]), number(args[1]), number(args[2]))
 	let ended = run()
 	let mut said = ended
 	for c in screen.Checks() {

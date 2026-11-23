@@ -10,6 +10,9 @@ extern go ergo.local/prototype/hosts/opentui/screen.Absolute let Absolute int
 // ergo:go const AlignItems untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.AlignItems let AlignItems int
 
+// ergo:go const AnyCall untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.AnyCall let AnyCall int
+
 // ergo:go const Bold int
 extern go ergo.local/prototype/hosts/opentui/screen.Bold let Bold int
 
@@ -165,8 +168,8 @@ extern go ergo.local/prototype/hosts/opentui/screen.ErrUnsettled let ErrUnsettle
 // ergo:go var ErrZeroSize error
 extern go ergo.local/prototype/hosts/opentui/screen.ErrZeroSize let ErrZeroSize go.Error
 
-// ergo:go func FailAt(at int, status int)
-extern go ergo.local/prototype/hosts/opentui/screen.FailAt func FailAt(at int, status int) needs go.Foreign
+// ergo:go func FailAt(at int, call int, status int)
+extern go ergo.local/prototype/hosts/opentui/screen.FailAt func FailAt(at int, call int, status int) needs go.Foreign
 
 // ergo:go type Failure struct
 extern go ergo.local/prototype/hosts/opentui/screen.Failure type Failure {

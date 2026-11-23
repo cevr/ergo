@@ -113,23 +113,29 @@ type Check struct {
 	Call, Node int
 }
 
+// AnyCall lets FailAt count every operation.
+const AnyCall = -1
+
 var faults struct {
 	sync.Mutex
 	enabled atomic.Bool
 	at      int
+	call    int
+	seen    int
 	status  int
 	checks  []Check
 	live    atomic.Int64
 }
 
-// FailAt starts a new count of checks (Checks is empty after it) and
-// makes the at-th check from here (counted from 1 over every screen) fail
-// with status (an ot.Status); at 0 fails none. Checks are not recorded in
-// programs that never call FailAt.
-func FailAt(at, status int) {
+// FailAt starts an empty trace. It refuses the at-th operation that
+// matches call (AnyCall counts them all) with status (an ot.Status).
+// Counting starts at 1; at 0 records without refusing any operation.
+// Programs that never call FailAt do not trace.
+func FailAt(at, call, status int) {
 	faults.Lock()
 	defer faults.Unlock()
-	faults.at, faults.status, faults.checks = at, status, nil
+	faults.at, faults.call, faults.status = at, call, status
+	faults.seen, faults.checks = 0, nil
 	faults.enabled.Store(true)
 }
 
@@ -155,7 +161,11 @@ func check(call, node int) error {
 	faults.Lock()
 	defer faults.Unlock()
 	faults.checks = append(faults.checks, Check{call, node})
-	if len(faults.checks) != faults.at {
+	if faults.call != AnyCall && call != faults.call {
+		return nil
+	}
+	faults.seen++
+	if faults.seen != faults.at {
 		return nil
 	}
 	return &Failure{Call: call, Node: node, Err: fmt.Errorf("screen: check %d: %w", faults.at, ot.Status(faults.status))}
