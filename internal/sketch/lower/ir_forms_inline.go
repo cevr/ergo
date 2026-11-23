@@ -79,6 +79,7 @@ package lower
 // JIT, a JavaScript engine), as the IR did before this pass.
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -173,6 +174,9 @@ type irInlSite struct {
 	result string
 	// anon is a call in a library body: its copy adds no inline site.
 	anon bool
+	// known is a call of a known variant, its callbacks known pure
+	// functions bound at the copy's head (KNOWN-FILTER-INLINE).
+	known bool
 	// failLeaf is a fallible leaf inlined for its failures' jumps
 	// (FAIL-INLINE): it pays wherever it is.
 	failLeaf bool
@@ -232,6 +236,11 @@ func (st *irState) inlineCallee(b *irBuilder, fd *funcDecl, params []*check.Var)
 			continue
 		}
 		body.params[l] = irTypeOrNone(func() string {
+			if b.fc.plain[v] {
+				// A known variant's callback is a plain Go function
+				// (ir_kcb.go plainSigType), not the declared signature.
+				return b.plainSigType(v.Type.(*check.Signature), fd.fn.Decl)
+			}
 			t := b.goType(v.Type, fd.fn.Decl)
 			if i == 0 && fd.method != nil && fd.ptr && !strings.HasPrefix(t, "*") {
 				t = "*" + t
@@ -240,6 +249,26 @@ func (st *irState) inlineCallee(b *irBuilder, fd *funcDecl, params []*check.Var)
 		})
 	}
 	st.inl.bodies[b.fn.Name] = body
+}
+
+// knownInline reports whether a call of f's known variant may be copied
+// at its site (KNOWN-FILTER-INLINE): a body within the inline budget that
+// opens no scope of its own (bodyNeedsFrame, as inlineRule refuses). A
+// variant takes no owned parameter and is never recursive (knownBody
+// refuses both: a call of itself is decided while it is deciding). Its
+// callbacks are known pure at the site and its other calls are those
+// knownBody admits, so nothing in the copy re-enters the frame; splice's
+// irInlinable then checks the built body's shape.
+func (l *lowerer) knownInline(f *check.Func) bool {
+	d := f.Decl
+	if d == nil || d.Body == nil || f.Pkg == nil || f.Pkg.Info == nil || inlineSize(d.Body) > inlineBudget {
+		return false
+	}
+	saved := l.info
+	l.info = f.Pkg.Info
+	frame := l.bodyNeedsFrame(d.Body.List)
+	l.info = saved
+	return !frame
 }
 
 // irTypeOrNone is f's type, or "" where the builder refuses it.
@@ -264,7 +293,20 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	}
 	st.inlState()
 	f := c.Func
-	if f == nil || x.Trailing != nil || c.StartsTask || fd.fallible && (b.dropsErr[e] || len(f.Sig.Results) != 1) || len(f.Sig.Results) > 1 || len(callbackParams(f)) > 0 {
+	// A call of the known variant (ir_kcb.go knownCall): its callbacks are
+	// known pure functions, built plain at the site, so its copy binds
+	// them as it binds any operand (KNOWN-FILTER-INLINE). A call of the
+	// function itself passes callbacks the copy cannot know.
+	// Its rows are empty at the site, so its Go error, nil, is dropped
+	// (dropErr): the copy's returns bind the value and a nil error.
+	known := fd.known != "" && e.Name == fd.known
+	if fd.known != "" {
+		irKnownTraced(e.Name, "mark: known="+strconv.FormatBool(known)+" fd.known="+fd.known)
+	}
+	if f == nil || x.Trailing != nil || c.StartsTask || fd.fallible && (b.dropsErr[e] && !known || len(f.Sig.Results) != 1) || len(f.Sig.Results) > 1 || len(callbackParams(f)) > 0 && !known {
+		if known {
+			irKnownTraced(e.Name, "mark: refused by the call's shape")
+		}
 		return e
 	}
 	// A call in a library body has no identity (calls.go identify): its
@@ -275,19 +317,32 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	// as a reference that inlines std unlike a user body is none).
 	anon := !b.fc.directives || inlinePositionsErased
 	if f.Pkg == nil || !x.Pos().IsValid() {
+		if known {
+			irKnownTraced(e.Name, "mark: refused: no package or call position")
+		}
 		return e
 	}
 	// A fallible callee Go would inline itself (a leaf) is the IR's to
 	// copy too: its failures then jump to the catch arm that takes them,
 	// with no error value (FAIL-INLINE, ir_forms_failjump.go).
 	failLeaf := false
-	if !b.l.inlineSlotBody(f) {
+	if known {
+		// The text path's rule (inlineRule) asks whether a literal can be
+		// substituted into the uniform body; the variant's callbacks are
+		// plain Go values of the instance's types, bound as operands.
+		if !b.l.knownInline(f) {
+			irKnownTraced(e.Name, "mark: refused by knownInline")
+			return e
+		}
+	} else if !b.l.inlineSlotBody(f) {
 		if !fd.fallible || irFailJumpLowering == "off" || !b.l.inlineWithin(f, -inlineBudget) {
 			return e
 		}
 		failLeaf = true
 	}
-	if fp := f.Pkg.Info.Footprints[f.Decl]; !fp.Empty() && !b.l.knownClosed(f) {
+	// The variant's footprint is its callbacks' rows, empty at a known
+	// site (knownBody admits no other effect).
+	if fp := f.Pkg.Info.Footprints[f.Decl]; !fp.Empty() && !b.l.knownClosed(f) && !known {
 		return e
 	}
 	var conc map[*check.TypeParam]bool
@@ -298,6 +353,9 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 			continue
 		}
 		if i >= len(c.TypeArgs) || tp.Kind != check.KindType && (!tp.Slot || irInlineSlotLowering == "off") {
+			if known {
+				irKnownTraced(e.Name, "mark: refused by type parameter "+tp.Name)
+			}
 			return e
 		}
 		if tp.Kind == check.KindType {
@@ -338,18 +396,33 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub, conc: conc, slotOf: slotOf,
 		size: inlineSize(f.Decl.Body), loop: b.loops > 0 || b.fc.hot,
 		leaf: goLeaf(f), fallible: fd.fallible, anon: anon, failLeaf: failLeaf,
-		slot: b.l.hasGoRow(f.Sig),
+		slot: b.l.hasGoRow(f.Sig), known: known,
 	}
 	if t := b.l.info.Types[x]; t != nil && len(f.Sig.Results) == 1 {
 		site.result = irTypeOrNone(func() string { return b.goType(t, x) })
 	}
 	st.inl.sites[e] = site
+	if known {
+		irKnownTraced(e.Name, "mark: marked")
+	}
 	return e
+}
+
+// irKnownTrace, when a test sets it, hears each decision the inliner makes
+// about a call of a known variant (KNOWN-FILTER-INLINE).
+var irKnownTrace func(name, why string)
+
+func irKnownTraced(name, why string) {
+	if irKnownTrace != nil {
+		irKnownTrace(name, why)
+	}
 }
 
 // pays is inline.go's pays for a site, on a loop path or not.
 func (s *irInlSite) pays(loop bool) bool {
-	if inlineCostLowering == "budget" || s.failLeaf {
+	// A known variant Go declines to inline costs a call and an indirect
+	// call of its callback per use; its copy costs neither.
+	if inlineCostLowering == "budget" || s.failLeaf || s.known {
 		return true
 	}
 	big := s.size > goSizeBudget
@@ -504,6 +577,14 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		return nil
 	}
 	site := in.st.inl.sites[s.X]
+	if site != nil && site.known && irKnownTrace != nil {
+		callee, frame := in.orig[site.key], in.st.inl.bodies[site.key]
+		why := fmt.Sprintf("splice: mode=%s fallible=%v pays=%v spent=%d size=%d callee=%v frame=%v", mode, site.fallible, site.pays(site.loop || p.loop), p.spent, site.size, callee != nil, frame != nil)
+		if callee != nil && frame != nil {
+			why += fmt.Sprintf(" frame.f=%v args=%d params=%v inlinable=%v localType=%q", frame.f == site.f, len(s.X.Args), frame.params, irInlinable(callee.Body, len(site.f.Sig.Results) == 1, site.fallible), in.localType(s.Local))
+		}
+		irKnownTrace(site.key, why)
+	}
 	if site != nil && !ret && site.fallible != (mode == "def2") {
 		return nil
 	}
@@ -608,6 +689,9 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	}
 	if ret {
 		in.st.report.InlinedReturns++
+	}
+	if site.known {
+		in.st.report.KnownInlined++
 	}
 	ren := map[int]int{}
 	for i, a := range args {
@@ -944,7 +1028,7 @@ func irInlinable(body []*irStmt, result, fallible bool) bool {
 			ok = false
 		case s.K == "ret" && !lit:
 			ret = true
-			if fallible && s.X != nil && (s.X.K == "call" || s.X.K == "mcall" || s.X.K == "pcall" || s.X.K == "vcall") && (!s.Pair || irInlineReturnLowering == "off") {
+			if fallible && s.X != nil && (s.X.K == "call" || s.X.K == "mcall" && !irUnionOf(s.X) || s.X.K == "pcall" || s.X.K == "vcall") && (!s.Pair || irInlineReturnLowering == "off") {
 				// return f(…): a pair or an error, by a type the IR does
 				// not spell; but a fallible Ergo call's value and error
 				// (Pair) bind at the site (irRets, INLINE-RETURN).
@@ -958,6 +1042,27 @@ func irInlinable(body []*irStmt, result, fallible bool) bool {
 		}
 	})
 	return ok && (ret || !result)
+}
+
+// irUnionOf reports e, a flat union's variant put in by its of method on
+// the union's zero value (variantForm, erased; pkgsplit.go spells it with
+// an X prefix across packages): one value, never a (value, error) pair,
+// so a fallible body's return of it binds the value and a nil error
+// (KNOWN-FILTER-INLINE: optFilter's `return s` and `None`).
+func irUnionOf(e *irExpr) bool {
+	if e.K != "mcall" || e.X == nil || e.X.K != "zero" {
+		return false
+	}
+	n := strings.TrimLeft(e.Name, "X")
+	if !strings.HasPrefix(n, "of") || len(n) == 2 {
+		return false
+	}
+	for _, c := range n[2:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // irReadOnly reports whether the body only reads its parameter slot i: no

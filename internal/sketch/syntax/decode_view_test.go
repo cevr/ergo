@@ -328,6 +328,7 @@ func (d *dumper) node(depth int, n Node) {
 			entry = x.EntryPos
 		}
 		d.line(depth, "FuncType %s Escaping=%d Entry=%d Func=%d", at, x.Escaping, entry, x.Func)
+		d.node(c, x.TypeParams)
 		d.node(c, x.Params)
 		d.node(c, x.Results)
 		d.node(c, x.Needs)

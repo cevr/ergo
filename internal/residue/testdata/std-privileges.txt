@@ -610,8 +610,6 @@ debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	runtime	"v1.BodyOf"	decid
 debt	internal/sketch/lower/release.go:funcCtx.providerRelease	flag	"HostClose"	funcCtx.providerRelease: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/rewritelaw.go:lowerer.rewriteFunc	flag	"isSourced"	lowerer.rewriteFunc: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sealedops.go:funcCtx.sealedMethod	built	"."	funcCtx.sealedMethod: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"Std()"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
-debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"stdlib.PreludePath"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
 debt	internal/sketch/lower/sources.go:lowerer.enter	flag	"isSourced"	lowerer.enter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.inStdPkg	flag	"stdLets"	lowerer.inStdPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.isSourced	flag	"sourced"	lowerer.isSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -619,7 +617,6 @@ debt	internal/sketch/lower/sources.go:lowerer.missingImport	flag	"isSourced"	low
 seam	internal/sketch/lower/sources.go:lowerer.missingImport	mark	"Std()"	a reached user package needs a unit; std ships in the compiler	-
 debt	internal/sketch/lower/sources.go:lowerer.sourcedLibs	flag	"isSourced"	lowerer.sourcedLibs: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	mark	"Std()"	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
-seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	mark	"stdlib.PreludePath"	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
 debt	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	flag	"isSourced"	lowerer.stdLetPkgs: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	mark	"Std()"	the std packages whose lets the program initializes	-
 seam	internal/sketch/lower/sources.go:shippedLedger	mark	"stdlib.Ledger"	std's law ledger ships with its sources: the ledger of the module the compiler ships	-

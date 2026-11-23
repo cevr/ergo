@@ -1,0 +1,42 @@
+// Generic operations (types.md, Interface assignability 8): an operation
+// with type parameters of its own, two providers, and functions over the
+// constraint-only operation type that infer and write its type argument.
+
+type GJust[T] { Value T }
+
+type GNothing {}
+
+type GMaybe[T] = GJust[T] | GNothing implements Foldable[T]
+
+type GPair[T] { A T, B T } implements Foldable[T]
+
+type Foldable[T] {
+	Fold[A](z A, f func(acc A, x T) A) A,
+}
+
+func Fold[T, A](m GMaybe[T], z A, f func(acc A, x T) A) A {
+	match m {
+	case GJust[T] as j:
+		f(z, j.Value)
+	case GNothing:
+		z
+	}
+}
+
+func Fold[T, A](p GPair[T], z A, f func(acc A, x T) A) A {
+	f(f(z, p.A), p.B)
+}
+
+func FoldSum[M Foldable[int]](m M) int {
+	m.Fold(0, func(acc int, x int) int { acc + x })
+}
+
+func FoldShow[M Foldable[int]](m M) string {
+	m.Fold[string]("", func(acc string, x int) string { acc + "<\(x)>" })
+}
+
+func foldBoth() string {
+	let j GMaybe[int] = GJust[int]{Value: 4}
+	let p = GPair[int]{A: 2, B: 3}
+	"\(FoldSum(j)) \(FoldSum(p)) \(FoldShow(j)) \(FoldShow(p))"
+}

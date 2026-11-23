@@ -465,8 +465,6 @@ var stdPrivilegesBaseline = []string{
 	`internal/sketch/lower/release.go:funcCtx.providerRelease flag "HostClose"`,
 	`internal/sketch/lower/rewritelaw.go:lowerer.rewriteFunc flag "isSourced"`,
 	`internal/sketch/lower/sealedops.go:funcCtx.sealedMethod built "."`,
-	`internal/sketch/lower/siteid.go:lowerer.numberSites mark "Std()"`,
-	`internal/sketch/lower/siteid.go:lowerer.numberSites mark "stdlib.PreludePath"`,
 	`internal/sketch/lower/sources.go:lowerer.enter flag "isSourced"`,
 	`internal/sketch/lower/sources.go:lowerer.inStdPkg flag "stdLets"`,
 	`internal/sketch/lower/sources.go:lowerer.isSourced flag "sourced"`,
