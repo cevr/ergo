@@ -33,7 +33,7 @@
       "to": "\tif false && in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
       "rule": "A symbolic run stops at a term in any position but a binding, an argument, a result, a part or a concatenation: a branch on a symbol proves nothing.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -44,7 +44,7 @@
       "to": "\t\t\tfor j := range parts {\n\t\t\t\tif prev, ok := parts[j].(string); ok {\n\t\t\t\t\tparts[j] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
       "rule": "The concatenation normal form joins adjacent constants only: concatenation is associative, not commutative.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -55,7 +55,7 @@
       "to": "\t\treturn ok && a.fn == bv.fn",
       "rule": "Two uninterpreted calls are one term only when their arguments are.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -65,7 +65,7 @@
       "from": "\t\t\treturn c.s, \"\", nil",
       "to": "\t\t\treturn &slot{v: c.s.v}, \"\", nil",
       "rule": "A write through a provider's cell is what every later read and the end state see.",
-      "killers": ["lower:TestSymbolicProofsSound"]
+      "killers": ["internal/sketch/lower:TestSymbolicProofsSound"]
     },
     {
       "name": "ps2-stop-proved",
@@ -75,7 +75,7 @@
       "to": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\tcontinue\n\t\t}",
       "rule": "A case whose run stops is not a case that holds: anything the run cannot decide is not proved.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -375,7 +375,7 @@
       "from": "\t\tsort.Slice(keys, func(i, j int) bool { return keys[i].(string) < keys[j].(string) })",
       "to": "\t\tsort.Slice(keys, func(i, j int) bool { return false && keys[i].(string) < keys[j].(string) })",
       "rule": "A Map encodes its keys in sorted order, so equal Maps have one wire form and one explore key (MODELCHECK risk 5).",
-      "killers": ["std:TestKeyEqualsEquality"]
+      "killers": ["internal/sketch/stdlib:TestKeyEqualsEquality"]
     },
     {
       "name": "machine-done-is-edge",
@@ -2200,11 +2200,11 @@
     {"name":"sq5-native-isspace-letter","origin":"wf10 SQ5 natives (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\"unicode.IsSpace\":   goRune(unicode.IsSpace),","to":"\"unicode.IsSpace\":   goRune(unicode.IsLetter),","rule":"The evaluator's unicode.IsSpace is Go's (ORACLE O20).","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
     {"name":"arity-serve-handler-short","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/http.ergo","from":"[]Field, string, bool, string) Response needs R)","to":"[]Field, string, bool) Response needs R)","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind, and calls a callback with the declared arity (EVAL-RAWPATH: serve called an 8-parameter handler with 9).","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
     {"name":"arity-send-moved","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/client.ergo","from":"header []Field, body string) Response fails SendFailed","to":"body string, header []Field) Response fails SendFailed","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind: a parameter moved under an unchanged native fails the fast tier.","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
-    {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["lower:TestCellReaderAgrees"]},
+    {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["internal/sketch/lower:TestCellReaderAgrees"]},
     {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]},
     {"name":"prelude-append-string-native","origin":"wf10 PRELUDE-EXTERNS-EVALUATED (NS lane)","file":"internal/sketch/eval/natives.go","from":"\tcheck.CollAppendString: \"strings.builderAppend\",\n","to":"","rule":"Every pure extern std calls (bs.AppendString, declared in the prelude) has an evaluator native, so a build-time fold that writes through a Builder runs (b25: std html's folds were refused).","killers":["internal/sketch/eval:TestEveryPureStdExternHasANative","internal/experimental/irspike:TestConstFoldCounts"]},
     {"name":"harness-seed-ignored","origin":"wf10 PROPERTY-TESTING P1b","file":"internal/sketch/eval/expr.go","from":"\t\treturn in.budget.Seed, nil","to":"\t\treturn uint64(1), nil","rule":"runtime.md Tests, harnesses 3: a harnessed test's run carries the run's --seed.","killers":["internal/sketch/eval:TestHarnessRunsTheBody"]},
-    {"name":"eval-returned-temp-released","origin":"wf10 lang EVAL-RETURNED-TEMPS (found by STOP-NESTED-WAIT)","file":"internal/sketch/eval/expr.go","from":"\t\tif fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","to":"\t\tif false && fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","rule":"resources R10, in the evaluator: a new value a return gives while its frame owns another (return outer.Wait()) leaves with the value; the frame's end does not release it.","killers":["lower:TestReturnedTempsAgree"]},
+    {"name":"eval-returned-temp-released","origin":"wf10 lang EVAL-RETURNED-TEMPS (found by STOP-NESTED-WAIT)","file":"internal/sketch/eval/expr.go","from":"\t\tif fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","to":"\t\tif false && fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","rule":"resources R10, in the evaluator: a new value a return gives while its frame owns another (return outer.Wait()) leaves with the value; the frame's end does not release it.","killers":["internal/sketch/lower:TestReturnedTempsAgree"]},
     {"name":"file-eval-size-missing","origin":"wf10/std/CAP-FILE","file":"internal/sketch/eval/nativespure.go","from":"\tcase \"Size\":\n\t\treturn int64(len(m.text)), nil\n","to":"","rule":"The evaluator gives fs.Mapped's Size on a Mapped of MapText (the check-time law run of a program providing fs/mapped.Maps); a missing case is an internal error.","killers":["internal/sketch/eval:TestMappedSizeEvaluates"]},
     {"name":"m1p2-native-sha512-is-sha1","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"return sum(sha512.New, str(a[0]))","to":"return sum(sha1.New, str(a[0]))","rule":"stdlib.md Std laws: sha512's Sum is 64 bytes (law SumIs64Bytes, run in place by ergotests -std).","killers":["internal/sketch/std/sha512:law:SumIs64Bytes"]},
     {"name":"m1p2-native-sub64-adds","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"d, b := bits.Sub64(u64(a[0]), u64(a[1]), u64(a[2]))","to":"d, b := bits.Add64(u64(a[0]), u64(a[1]), u64(a[2]))","rule":"stdlib.md Std laws: bits Sub64 undoes Add64 (law SubUndoesAdd64, run in place).","killers":["internal/sketch/std/bits:law:SubUndoesAdd64"]},
