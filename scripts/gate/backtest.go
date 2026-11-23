@@ -15,6 +15,7 @@ import (
 	"ergo.local/prototype/scripts/gate/replay"
 	"ergo.local/prototype/scripts/mutants/anchor"
 	"ergo.local/prototype/scripts/mutants/covfile"
+	"ergo.local/prototype/scripts/mutants/suitename"
 )
 
 // The coverage store's backtest (CS-ROUND): the round tier's selection,
@@ -53,7 +54,14 @@ func backtestLedgers(store covfile.Store, root, commit string, closures map[stri
 	}
 	var shares []float64
 	segments := map[string]*covfile.Coverage{}
-	for _, ledger := range strings.Split(files, "\n") {
+	paths := strings.Split(files, "\n")
+	names := suitename.WithTestDirs(func(dir string) bool {
+		return slices.ContainsFunc(paths, func(file string) bool {
+			return filepath.ToSlash(filepath.Dir(file)) == dir &&
+				(strings.HasSuffix(file, "_test.go") || strings.HasSuffix(file, ".ergo"))
+		})
+	})
+	for _, ledger := range paths {
 		if !strings.HasSuffix(ledger, "testdata/mutants.json") {
 			continue
 		}
@@ -87,13 +95,20 @@ func backtestLedgers(store covfile.Store, root, commit string, closures map[stri
 			change := []fileChange{{Path: row.File, Old: old, New: mutated, Was: true, Is: true}}
 			counted := false
 			for _, id := range row.Killers {
-				suite, test, ok := strings.Cut(id, ":")
-				if !ok {
-					continue
+				resolved, err := names.Resolve(id)
+				if err != nil {
+					return report, fmt.Errorf("%s: %s: %w", ledger, row.Name, err)
 				}
+				suite, test := suitename.Split(resolved)
 				i := slices.IndexFunc(entries, func(e covfile.Entry) bool {
-					return e.Suite == suite && e.Module == "" && e.Tags == "" && e.Package != ""
+					return e.Suite == suite && e.Module == "" && e.Tags == "" && e.Package == "./"+suite
 				})
+				if i < 0 {
+					// Historical indexes can still use the legacy name.
+					i = slices.IndexFunc(entries, func(e covfile.Entry) bool {
+						return e.Module == "" && e.Tags == "" && e.Package == "./"+suite
+					})
+				}
 				if i < 0 {
 					continue
 				}
@@ -111,7 +126,7 @@ func backtestLedgers(store covfile.Store, root, commit string, closures map[stri
 				}
 				names := []string{test}
 				for _, st := range seg.Tests {
-					if s, n, _ := strings.Cut(st.ID, ":"); s == suite && n != test {
+					if s, n := suitename.Split(st.ID); s == e.Suite && n != test {
 						names = append(names, n)
 					}
 				}

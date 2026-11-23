@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
+
+	"ergo.local/prototype/scripts/mutants/suitename"
 )
 
 // Ledger is a package's mutant ledger, testdata/mutants.json: the mutants
@@ -89,7 +93,7 @@ type Anchor struct {
 	Tests []string `json:"tests,omitempty"`
 }
 
-func readLedger(path string) (*Ledger, error) {
+func readLedger(root, path string, notes io.Writer) (*Ledger, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -110,6 +114,8 @@ func readLedger(path string) (*Ledger, error) {
 			return nil, fmt.Errorf("%s: command %q needs a name without a colon or a space, and words", path, name)
 		}
 	}
+	names := suitename.At(root)
+	legacy := map[string]string{}
 	seen := map[string]bool{}
 	for i, m := range l.Mutants {
 		switch {
@@ -122,12 +128,28 @@ func readLedger(path string) (*Ledger, error) {
 		case m.From == m.To:
 			return nil, fmt.Errorf("%s: mutant %q changes nothing", path, m.Name)
 		}
-		for _, k := range append(slices.Clone(m.Killers), anchorTests(m)...) {
-			if !strings.Contains(k, ":") {
-				return nil, fmt.Errorf("%s: mutant %q: test %q is not SUITE:NAME", path, m.Name, k)
+		for _, ids := range [][]string{m.Killers, anchorTests(m)} {
+			for i, id := range ids {
+				canonical, err := names.Resolve(id)
+				if err != nil {
+					return nil, fmt.Errorf("%s: mutant %q: %w", path, m.Name, err)
+				}
+				if canonical != id {
+					old, _ := splitID(id)
+					dir, _ := splitID(canonical)
+					legacy[old] = dir
+					ids[i] = canonical
+				}
 			}
 		}
 		seen[m.Name] = true
+	}
+	if notes != nil && len(legacy) > 0 {
+		changes := make([]string, 0, len(legacy))
+		for _, old := range slices.Sorted(maps.Keys(legacy)) {
+			changes = append(changes, old+" → "+legacy[old])
+		}
+		fmt.Fprintf(notes, "mutants: %s: legacy suite names (%s); run -canonical-killers -write\n", path, strings.Join(changes, ", "))
 	}
 	return &l, nil
 }
