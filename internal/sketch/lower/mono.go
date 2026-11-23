@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"hash/fnv"
 	"strconv"
 	"strings"
 
@@ -48,7 +49,8 @@ import (
 // as a value.
 //
 // The copy's name is its callee's reserved base (reserveMono, in the
-// naming pass) with "_i" and the instance's number: the namer never gives
+// naming pass) with "_i" and the instance's number, a function of its
+// type arguments alone (monoName): the namer never gives
 // a local or another package entity a name of that form (namer.taken), so
 // no name the pass did not reserve can capture one.
 //
@@ -332,10 +334,10 @@ func (l *lowerer) monoCopy(decl monoDecl, base string, spelled []string, site sy
 	}
 	if l.monos == nil {
 		l.monos = map[monoKey]*specCopy{}
-		l.monoCount = map[monoDecl]int{}
+		l.monoNames = map[string]bool{}
 	}
-	l.monoCount[decl]++
-	name := base + "_i" + strconv.Itoa(l.monoCount[decl])
+	name := monoName(base, key.args, l.monoNames)
+	l.monoNames[name] = true
 	if l.names.used[name] {
 		ice(site, "the copy name %s is a reserved package name", name)
 	}
@@ -380,6 +382,23 @@ func (l *lowerer) lawMonoFor(law *check.Law, own *check.Named, targs []check.Typ
 		l.pending = append(l.pending, func() { l.lawDecl(law, sp) })
 	}
 	return sp
+}
+
+// monoName is the copy's name for the type arguments args (their Go
+// spellings, joined): base, "_i" and a number that is a function of args
+// alone (FNV-1a), so a function's call of a copy is spelled the same
+// whichever other instances the program reaches first (NAME-LOCAL: a
+// count of copies in the order of first use renamed D's copy when G was
+// reached). On the rare clash with another instance's number of the same
+// base, the next free number is taken.
+func monoName(base, args string, taken map[string]bool) string {
+	h := fnv.New32a()
+	h.Write([]byte(args))
+	for n := uint64(h.Sum32()); ; n++ {
+		if name := base + "_i" + strconv.FormatUint(n, 10); !taken[name] {
+			return name
+		}
+	}
 }
 
 // lawCallee is the Go function a run of the law of a generic operation
