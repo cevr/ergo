@@ -855,6 +855,9 @@ case internal/sketch/check/testdata/fixtures/negative/interface-wider-row.ergo
 case internal/sketch/check/testdata/fixtures/negative/keyed-literal-nondefaultable.ergo
 case internal/sketch/check/testdata/fixtures/negative/literal-row-from-parameter-type.ergo
 case internal/sketch/check/testdata/fixtures/negative/local-and-binding-one-frame.ergo
+case internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-fails.ergo
+case internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-wrong-type.ergo
+case internal/sketch/check/testdata/fixtures/negative/machine-expr-tuple-state.ergo
 case internal/sketch/check/testdata/fixtures/negative/main-called.ergo
 case internal/sketch/check/testdata/fixtures/negative/main-parameter.ergo
 case internal/sketch/check/testdata/fixtures/negative/main-value-result.ergo
@@ -1305,6 +1308,7 @@ site S104 missing in internal/sketch/check/testdata/v1/E2-closed-world.neg.ergo:
 site S104 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 17:2: S104 unknown name Typed
 site S104 missing in internal/sketch/check/testdata/v1/E5-laws.neg.ergo: E5-laws.neg.ergo 7:23: S104 unknown name Missing
 site S104 missing in internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo: G9-extern-allowlist.neg.ergo 11:1: S104 extern go strings/x.F: no binding for Go package "strings/x"; run ergo bind go strings/x (docs/spec/interop.md)
+site S105 missing in internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-fails.ergo: machine-expr-computed-fails.ergo 15:16: S105 the failure {Down} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-argument.ergo: unhandled-argument.ergo 6:21: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-condition.ergo: unhandled-condition.ergo 6:5: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-define.ergo: unhandled-define.ergo 6:10: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
@@ -1349,6 +1353,7 @@ site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-missing-method.ergo: interface-missing-method.ergo 5:9: S108 cannot use Mem as Store in return: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-wider-row.ergo: interface-wider-row.ergo 8:9: S108 cannot use Mem as Store in return: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/keyed-literal-nondefaultable.ergo: keyed-literal-nondefaultable.ergo 10:10: S108 Box{…} does not set C: a record literal names every field; write C: …, or copy it from a value with Box{..v, …} (types.md, Zero values 2)
+site S108 missing in internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-wrong-type.ergo: machine-expr-computed-wrong-type.ergo 13:11: S108 the step of machine M must have the type func(S, E) Decision[S, O], with any error and capability rows; it has the type func(T, E) Decision[T, T] (runtime.md, Machines and actors 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/narrow-param-other.ergo: narrow-param-other.ergo 20:28: S108 cannot use func(Other) Fate as func(Boom) Fate in field Of: the parameters or results differ
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/narrow-param-other.ergo: narrow-param-other.ergo 21:28: S108 cannot use func(Boom) Other as func(Boom) Fate in field Of: the parameters or results differ
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/parameter-kind-conflict.ergo: parameter-kind-conflict.ergo 2:25: S108 E is used as a type and as a capability row; a parameter has one kind (types.md, Generics 1)
