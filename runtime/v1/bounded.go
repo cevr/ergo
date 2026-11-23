@@ -82,11 +82,14 @@ func FSMapBounded(path string, limit int) (*Mapped, error) {
 // FSSameAs is the body of fs.SameAs: whether the file at path, its links
 // followed (as fs.SameFile reads a path), is the file m was mapped from.
 // A Mapped that kept no identity (MapText, MapFile) is the same as no
-// file.
+// file. The path comes first: the reach of the host is the Stat of path,
+// whose authority is the fs.Host fs.SameAs takes; m is a value the call
+// only reads, so Mapped stays a value and no host provider (stdlib.md,
+// Host packages).
 //
 //ergo:host
 //ergo:wait none
-func FSSameAs(m *Mapped, path string) (bool, error) {
+func FSSameAs(path string, m *Mapped) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false, fsErr(path, err)

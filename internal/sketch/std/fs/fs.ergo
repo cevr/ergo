@@ -426,7 +426,7 @@ func MapBounded(h Host, path string, limit int) Mapped fails NotFound | Denied |
 // another file is renamed over path. A Mapped of MapFile or MapText is the
 // same as no file.
 func SameAs(h Host, m Mapped, path string) bool fails NotFound | Denied | Failed {
-	try hostSameAs(m, try at(h, path))
+	try hostSameAs(try at(h, path), m)
 }
 
 // MapText is a Mapped whose text is text, held in memory: a provider in
@@ -568,7 +568,7 @@ extern go ergo.local/prototype/runtime/v1.FSUnlockFile func hostUnlockFile(fd in
 extern go ergo.local/prototype/runtime/v1.FSReadFile func hostReadFile(path string) string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMapFile func hostMapFile(path string) Mapped fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSMapBounded func hostMapBounded(path string, limit int) Mapped fails NotFound | Denied | Failed | NotRegular | TooLarge
-extern go ergo.local/prototype/runtime/v1.FSSameAs func hostSameAs(m Mapped, path string) bool fails NotFound | Denied | Failed
+extern go ergo.local/prototype/runtime/v1.FSSameAs func hostSameAs(path string, m Mapped) bool fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSReadDir func hostReadDir(path string) []string fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSStat func hostStat(path string) Info fails NotFound | Denied | Failed
 extern go ergo.local/prototype/runtime/v1.FSLstat func hostLstat(path string) Info fails NotFound | Denied | Failed

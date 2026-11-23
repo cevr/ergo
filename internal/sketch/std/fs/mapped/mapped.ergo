@@ -33,47 +33,84 @@ type Maps {
 }
 
 // Host is the host's Maps: fs.Host's files, with fs.MapBounded and
-// fs.SameAs.
-type Host { h fs.Host } implements Maps
+// fs.SameAs. It holds the functions NewHost built over the fs.Host it was
+// given, as code.HostFiles does: building one takes an fs.Host, and using
+// one hands no fs.Host out, so its functions need no Ambient (stdlib.md,
+// Host packages; TestStdHostProvidersHaveAuthority).
+type Host {
+	readFile      func(path string) string fails fs.NotFound | fs.Denied | fs.Failed,
+	readDir       func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed,
+	stat          func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed,
+	lstat         func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed,
+	writeFile     func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed,
+	mkdirAll      func(path string) fails fs.Denied | fs.Failed,
+	writeFileMode func(path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed,
+	mkdirAllMode  func(path string, mode fs.Mode) fails fs.Denied | fs.Failed,
+	appendFile    func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed,
+	chmod         func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed,
+	rename        func(from string, to string) fails fs.NotFound | fs.Denied | fs.Failed,
+	remove        func(path string) fails fs.NotFound | fs.Denied | fs.Failed,
+	mkdir         func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists,
+	mapBounded    func(path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge,
+	sameAs        func(m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed,
+} implements Maps
 
 // NewHost is the Maps of the host file system h.
-func NewHost(h fs.Host) Host { Host{h: h} }
+func NewHost(h fs.Host) Host {
+	Host{
+		readFile: func(path string) string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadFile(h, path) },
+		readDir: func(path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadDir(h, path) },
+		stat: func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Stat(h, path) },
+		lstat: func(path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Lstat(h, path) },
+		writeFile: func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFile(h, path, text) },
+		mkdirAll: func(path string) fails fs.Denied | fs.Failed { try fs.MkdirAll(h, path) },
+		writeFileMode: func(path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFileMode(h, path, text, mode) },
+		mkdirAllMode: func(path string, mode fs.Mode) fails fs.Denied | fs.Failed { try fs.MkdirAllMode(h, path, mode) },
+		appendFile: func(path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.AppendFile(h, path, text) },
+		chmod: func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Chmod(h, path, mode) },
+		rename: func(from string, to string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Rename(h, from, to) },
+		remove: func(path string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Remove(h, path) },
+		mkdir: func(path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists { try fs.Mkdir(h, path, mode) },
+		mapBounded: func(path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { try fs.MapBounded(h, path, limit) },
+		sameAs: func(m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { try fs.SameAs(h, m, path) },
+	}
+}
 
 // NewTestHost is the Maps of the case's folder (fs.NewTestHost).
-func NewTestHost() Host needs TestAmbient { Host{h: fs.NewTestHost()} }
+func NewTestHost() Host needs TestAmbient { NewHost(fs.NewTestHost()) }
 
 // OnTestHost runs Maps's laws on the host, in a folder of the case's own.
 let OnTestHost = context needs TestAmbient { Maps: NewTestHost() }
 
-func ReadFile(h Host, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadFile(h.h, path) }
+func ReadFile(h Host, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try h.readFile(path) }
 
-func ReadDir(h Host, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try fs.ReadDir(h.h, path) }
+func ReadDir(h Host, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try h.readDir(path) }
 
-func Stat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Stat(h.h, path) }
+func Stat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try h.stat(path) }
 
-func Lstat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try fs.Lstat(h.h, path) }
+func Lstat(h Host, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try h.lstat(path) }
 
-func WriteFile(h Host, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFile(h.h, path, text) }
+func WriteFile(h Host, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try h.writeFile(path, text) }
 
-func MkdirAll(h Host, path string) fails fs.Denied | fs.Failed { try fs.MkdirAll(h.h, path) }
+func MkdirAll(h Host, path string) fails fs.Denied | fs.Failed { try h.mkdirAll(path) }
 
-func WriteFileMode(h Host, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.WriteFileMode(h.h, path, text, mode) }
+func WriteFileMode(h Host, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try h.writeFileMode(path, text, mode) }
 
-func MkdirAllMode(h Host, path string, mode fs.Mode) fails fs.Denied | fs.Failed { try fs.MkdirAllMode(h.h, path, mode) }
+func MkdirAllMode(h Host, path string, mode fs.Mode) fails fs.Denied | fs.Failed { try h.mkdirAllMode(path, mode) }
 
-func AppendFile(h Host, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.AppendFile(h.h, path, text) }
+func AppendFile(h Host, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed { try h.appendFile(path, text) }
 
-func Chmod(h Host, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Chmod(h.h, path, mode) }
+func Chmod(h Host, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try h.chmod(path, mode) }
 
-func Rename(h Host, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Rename(h.h, from, to) }
+func Rename(h Host, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed { try h.rename(from, to) }
 
-func Remove(h Host, path string) fails fs.NotFound | fs.Denied | fs.Failed { try fs.Remove(h.h, path) }
+func Remove(h Host, path string) fails fs.NotFound | fs.Denied | fs.Failed { try h.remove(path) }
 
-func Mkdir(h Host, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists { try fs.Mkdir(h.h, path, mode) }
+func Mkdir(h Host, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists { try h.mkdir(path, mode) }
 
-func MapBounded(h Host, path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { try fs.MapBounded(h.h, path, limit) }
+func MapBounded(h Host, path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { try h.mapBounded(path, limit) }
 
-func SameAs(h Host, m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { try fs.SameAs(h.h, m, path) }
+func SameAs(h Host, m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { try h.sameAs(m, path) }
 
 func boundedIsTheText(text string) bool needs Maps {
 	Maps.WriteFile("f", text) catch {
