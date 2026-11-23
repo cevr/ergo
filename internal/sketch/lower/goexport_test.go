@@ -182,7 +182,7 @@ func main() {
 // lib` writes (LowerIRLibrary, its text by irspike, LibraryModule), with
 // the same output (LIB-ON-IR). Mutants only the IR leg catches:
 // lib-ir-module-path (LibraryModule writes the program module's go.mod,
-// so the host's require of example.com/greet does not build) and
+// which the go.mod check names: a directory replace builds it anyway) and
 // lib-ir-lowered-not-text (name.go keeps the lowered Go, whose IR
 // functions have no body, so the stock go refuses it).
 //
@@ -258,6 +258,12 @@ func goCallsErgo(t *testing.T, mk func(u Unit, name string) []File) {
 		write("greet/"+f.Path, f.Data)
 		if f.Path == "greet.go" {
 			lib = string(f.Data)
+		}
+		// The module path is the library's (interop.md, A library): a
+		// directory replace does not check it, a Go program that requires
+		// the module from anywhere else does (mutant lib-ir-module-path).
+		if f.Path == "go.mod" && !strings.HasPrefix(string(f.Data), "module example.com/greet\n") {
+			t.Errorf("the library's go.mod does not declare example.com/greet:\n%s", f.Data)
 		}
 	}
 	if !strings.Contains(lib, "// Not exported to Go: Unwrap: parameter 1 has the type main.Pair.") {

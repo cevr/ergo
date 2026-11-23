@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/printer"
 	"go/token"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -176,6 +177,25 @@ func goAPI(t *testing.T, which string, files []lower.File, name string) []string
 					}
 				}
 			}
+		}
+	}
+	// Each import is used: Go refuses an unused one, as the patched
+	// compile did for a library with no entries and its context import
+	// (examples/counter; mutant lib-context-unused).
+	from := 0
+	for _, d := range f.Decls {
+		if g, ok := d.(*ast.GenDecl); ok && g.Tok == token.IMPORT {
+			from = fset.Position(g.End()).Offset
+		}
+	}
+	body := string(files[i].Data[from:])
+	for _, im := range f.Imports {
+		name := path.Base(strings.Trim(im.Path.Value, `"`))
+		if im.Name != nil {
+			name = im.Name.Name
+		}
+		if name != "_" && !strings.Contains(body, name+".") {
+			t.Errorf("%s imports %s and does not use it", which, im.Path.Value)
 		}
 	}
 	if len(outside) > 0 {
