@@ -2,7 +2,7 @@
   "mutants": [
     {
       "name": "gointerop-elapsed-reverses-instants",
-      "origin": "wf10 LAW-UNFED-BUILT-ONLY-PROVIDERS (q6)",
+      "origin": "wf10 LAW-UNFED-BUILT-ONLY-PROVIDERS (q6; not-run-crunch)",
       "file": "examples/gointerop/uptime/uptime.ergo",
       "from": "int64(later.Sub(earlier))",
       "to": "int64(earlier.Sub(later))",
