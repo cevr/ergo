@@ -60,7 +60,7 @@ func tupleRefusal(p syntax.Parsed, x dense.ID[syntax.Node], owner string, part s
 				fields = fields + ","
 			}
 			types = types + text
-			fields = fields + " " + letters[i % 26:i % 26 + 1] + " " + text
+			fields = fields + " " + letters[i%26:i%26+1] + " " + text
 		}
 		let upper = if part == "state" { "State" } else { "Signal" }
 		Some{"a machine's \(part) type must be a union or a record, not (\(types)); write a record, such as type \(owner)\(upper) {\(fields) } (runtime.md, Machines and actors 1)"}

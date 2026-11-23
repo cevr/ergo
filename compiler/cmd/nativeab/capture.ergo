@@ -102,7 +102,7 @@ func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner 
 		let pkg = flagOf(slices.Slice(args, 1, len(args)), "-p")
 		let n = perfCount(text)
 		let rec = if n.Why == "" { "proc \(id) \(tool) \(pkg) ? \(n.N)\n" } else { "unmeasured \(id) \(tool) \(pkg) \(n.Why)\n" }
-		fs.Writes.WriteFile(dir + "/" + id + ".proc", rec) catch {
+		fs.Writes.WriteFile(dir+"/"+id+".proc", rec) catch {
 		case fs.NotFound, fs.Denied, fs.Failed:
 			return os.Exit{Code: 1, Message: "nativeab wrap: cannot write \(dir)"}
 		}
@@ -123,7 +123,7 @@ func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner 
 func Origin(pkg string, mod string) string {
 	if mod != "" && pkg == "main" {
 		"ergo"
-	} else if mod != "" && (pkg == mod || strings.HasPrefix(pkg, mod + "/")) {
+	} else if mod != "" && (pkg == mod || strings.HasPrefix(pkg, mod+"/")) {
 		"ergo"
 	} else if strings.HasPrefix(pkg, "ergo.local/prototype/runtime") {
 		"rt"
@@ -137,7 +137,7 @@ func Origin(pkg string, mod string) string {
 // module's name, or any other Go package, is never charged to Ergo.
 law OriginNamesOnlyTheModule(name string) {
 	let leaf = if name == "" { "x" } else { strings.ReplaceAll(name, "/", "_") }
-	Origin("main", "subject") == "ergo" && Origin("subject", "subject") == "ergo" && Origin("subject/" + leaf, "subject") == "ergo" && Origin("subject" + leaf, "subject") == "go" && Origin("example.com/" + leaf, "subject") == "go" && Origin(leaf, "subject") != "ergo" || leaf == "subject" || leaf == "main"
+	Origin("main", "subject") == "ergo" && Origin("subject", "subject") == "ergo" && Origin("subject/"+leaf, "subject") == "ergo" && Origin("subject"+leaf, "subject") == "go" && Origin("example.com/"+leaf, "subject") == "go" && Origin(leaf, "subject") != "ergo" || leaf == "subject" || leaf == "main"
 }
 
 // moduleOf is the module path of the go.mod text.
@@ -229,7 +229,7 @@ func capture(args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writ
 	case fs.Denied, fs.Failed:
 		return os.Exit{Code: 1, Message: "nativeab capture: cannot make \(dir)"}
 	}
-	let c = exec.New(Perf, slices.Concat([]string{"stat", "-e", "instructions:u", "-x,", "-o", dir + "/tree.perf", "--", ergo, "build", "-work"}, build)).WithEnv(WrapDir, dir).WithEnv("GOFLAGS", "-toolexec=" + self)
+	let c = exec.New(Perf, slices.Concat([]string{"stat", "-e", "instructions:u", "-x,", "-o", dir + "/tree.perf", "--", ergo, "build", "-work"}, build)).WithEnv(WrapDir, dir).WithEnv("GOFLAGS", "-toolexec="+self)
 	let r = exec.Runner.Run(c) catch {
 	case exec.NotFound, exec.Denied, exec.Failed:
 		return runFailed(Perf)
