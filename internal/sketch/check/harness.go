@@ -324,12 +324,12 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 		l, col := f.Position(s.Assert)
 		text := f.Src[int(s.X.Pos()):min(int(s.X.End()), len(f.Src))]
 		var message syntax.Expr = cat(s.Assert, str(s.Assert, "assert failed at "), fileCall(s.Assert), str(s.Assert, fmt.Sprintf(":%d:%d: %s", l, col, text)))
-		cond := s.X
 		var spilled []syntax.Stmt
 		if b, _, _, shown := ShownCompare(c.pkg, c.pkg.Info, s.X); shown {
 			// The runner's shown assert (P1c part 1): each operand once,
 			// left to right, into a hidden local (a constant stays
 			// inline), and the failure's message shows them.
+			operands := [...]*syntax.Expr{&b.X, &b.Y}
 			ops := []syntax.Expr{b.X, b.Y}
 			spills++
 			n := strconv.Itoa(spills)
@@ -339,16 +339,21 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 				}
 				pos := ops[i].Pos()
 				spilled = append(spilled, &syntax.DeclStmt{Decl: &syntax.VarDecl{Var: pos, Mut: syntax.NoPos, Specs: []*syntax.VarSpec{{Names: []*syntax.Ident{{NamePos: pos, Name: name}}, Assign: pos, Values: []syntax.Expr{ops[i]}}}}})
-				ops[i] = &syntax.Ident{NamePos: pos, Name: name}
+				read := &syntax.Ident{NamePos: pos, Name: name}
+				// The comparison remains the source expression in Info.
+				// Anchor the read to the original operand, not to the
+				// length of the generated name. Parentheses are transparent
+				// to checking and lowering.
+				*operands[i] = &syntax.ParenExpr{Lparen: pos, X: read, Rparen: ops[i].End() - 1}
+				ops[i] = read
 			}
-			cond = &syntax.BinaryExpr{X: ops[0], OpPos: b.OpPos, Op: b.Op, Y: ops[1]}
 			shown := &syntax.CallExpr{Fun: &syntax.Ident{NamePos: s.Assert, Name: TestShownName}, Lparen: s.Assert, Args: ops, Rparen: s.X.End()}
 			message = &syntax.BinaryExpr{X: message, OpPos: s.Assert, Op: syntax.ADD, Y: shown}
 		}
 		fail := &syntax.CompositeLit{Type: qual(s.Assert, h.Fail.Obj.Name), Lbrace: s.Assert, DotDot: syntax.NoPos, Elts: []syntax.Expr{field(s.Assert, "Message", message)}, Rbrace: s.X.End()}
 		check := &syntax.IfStmt{
 			If:      s.Assert,
-			Cond:    &syntax.UnaryExpr{OpPos: s.Assert, Op: syntax.NOT, X: &syntax.ParenExpr{Lparen: s.Assert, X: cond, Rparen: s.X.End()}},
+			Cond:    &syntax.UnaryExpr{OpPos: s.Assert, Op: syntax.NOT, X: &syntax.ParenExpr{Lparen: s.Assert, X: s.X, Rparen: s.X.End()}},
 			Body:    &syntax.BlockStmt{Lbrace: s.Assert, List: []syntax.Stmt{&syntax.ReturnStmt{Return: s.Assert, Results: []syntax.Expr{fail}}}, Rbrace: s.X.End()},
 			ElsePos: syntax.NoPos,
 		}
