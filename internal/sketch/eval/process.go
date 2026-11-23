@@ -392,8 +392,8 @@ func registerProcess(t nativeTables) {
 	hostNative(t, "os.hostGetenv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.env[args[0].(string)], nil
 	})
-	t.reads["config.hostEnviron"] = "string"
-	hostNative(t, "config.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["os.hostEnviron"] = "string"
+	hostNative(t, "os.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		prefix := args[0].(string)
 		// Sorted by name: "A0=x" sorts before "A=y", but A before A0.
 		var names []string

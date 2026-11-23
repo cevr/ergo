@@ -7,6 +7,7 @@
 // and its directories under the folder.
 
 import filepath
+import go runtime
 import strings
 
 // NoDir is the failure of a directory Self cannot name: the variable it
@@ -149,7 +150,4 @@ type Platform { OS string, Arch string }
 // Current is the platform this program was built for. It is a fact of
 // the built program, not of the host it runs on, so it needs no
 // capability.
-func Current() Platform { Platform{OS: hostOS(), Arch: hostArch()} }
-
-extern go ergo.local/prototype/runtime/v1.OSPlatformOS func hostOS() string
-extern go ergo.local/prototype/runtime/v1.OSPlatformArch func hostArch() string
+func Current() Platform { Platform{OS: runtime.GOOS, Arch: runtime.GOARCH} }

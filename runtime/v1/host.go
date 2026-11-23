@@ -76,7 +76,7 @@ func OSHasEnv(key string) bool {
 //ergo:wait none
 func OSGetenv(key string) string { return os.Getenv(key) }
 
-// OSEnviron is the body of config.Host's Environ: each variable of the
+// OSEnviron is the body of os.Environ on the host (config.Environ reads it there): each variable of the
 // environment whose name starts with prefix, as "NAME=VALUE", sorted by
 // name, in a fresh slice. A variable set twice is given once, with the
 // value Go's os.Getenv reads.

@@ -3,7 +3,6 @@ package v1
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 )
 
 // The bodies of std os's Self on the host (os/self.ergo) and of
@@ -12,7 +11,8 @@ import (
 
 // NoDir is os.NoDir: a directory Self cannot name. It is a record of a v1
 // package, so the lowering binds os.NoDir to this Go type
-// (docs/spec/stdlib.md, Types 4).
+// (docs/spec/stdlib.md#v1-packages-task-scope-queue-and-slice, Types
+// item 4).
 type NoDir struct{ Message string }
 
 // Error is the failure's text: its Ergo name and fields, as the lowering
@@ -81,16 +81,3 @@ func OSExecutable() (string, error) {
 	}
 	return exe, nil
 }
-
-// OSPlatformOS is os.Current's OS: the GOOS the program was built for.
-//
-//ergo:host
-//ergo:wait none
-func OSPlatformOS() string { return runtime.GOOS }
-
-// OSPlatformArch is os.Current's Arch: the GOARCH the program was built
-// for.
-//
-//ergo:host
-//ergo:wait none
-func OSPlatformArch() string { return runtime.GOARCH }

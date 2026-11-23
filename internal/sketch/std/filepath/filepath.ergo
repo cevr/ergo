@@ -133,13 +133,19 @@ law AbsFromIsAbsolute(dir string, path string) {
 
 // BadPattern is the failure of Match on a malformed pattern, such as an
 // unclosed "[" (Go's filepath.ErrBadPattern).
-extern go ergo.local/prototype/runtime/v1.BadPattern type BadPattern { Pattern string }
+type BadPattern { Pattern string }
 
 // Match reports whether name matches the shell pattern pattern, as Go's
 // filepath.Match: "*" is any run of characters but "/", "?" one
 // character but "/", "[...]" a class, and "\\" escapes the next
 // character. Each element of name must match its element of pattern.
-extern go ergo.local/prototype/runtime/v1.FilepathMatch func Match(pattern string, name string) bool fails BadPattern
+// Go's Match fails only with ErrBadPattern.
+func Match(pattern string, name string) bool fails BadPattern {
+	filepath.Match(pattern, name) catch {
+	case go.Error:
+		return BadPattern{Pattern: pattern}
+	}
+}
 
 // MatchItself: a name with no pattern character matches itself.
 law MatchItself(name string) {
