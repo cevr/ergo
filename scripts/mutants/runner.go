@@ -616,6 +616,8 @@ type outcome struct {
 	// started is set when the child printed the start line it was run
 	// with (execStarted), or had none to print.
 	started bool
+	// log is the file holding the child's whole output when it failed.
+	log string
 }
 
 // timeoutPanic is how a go test binary says that its -test.timeout ran
@@ -698,6 +700,20 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	cmd.Env = append(slices.Clip(env), execTokenVariable+"="+token)
 	cmd.Stdout = out
 	cmd.Stderr = out
+	// The whole output goes to a file as well, kept when the child fails:
+	// the tail drops the middle, where a test's own error may stand
+	// (keepRed).
+	var full *os.File
+	if e.cfg.Work != "" {
+		if err := os.MkdirAll(filepath.Join(e.cfg.Work, "out"), 0o755); err == nil {
+			full, _ = os.Create(filepath.Join(e.cfg.Work, "out", token+".log"))
+		}
+	}
+	if full != nil {
+		defer full.Close()
+		w := io.MultiWriter(out, full)
+		cmd.Stdout, cmd.Stderr = w, w
+	}
 	// Read every byte before tail truncates the display. The shared writer
 	// keeps stdout and stderr ordered, as they were before the watcher.
 	watch := proclimit.Watch(cmd)
@@ -751,7 +767,48 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	if ctx.Err() != nil && o.reason != "" {
 		o.reason, o.timeout = "interrupted", false
 	}
+	if full != nil {
+		if o.reason == "" {
+			os.Remove(full.Name())
+		} else {
+			o.log = full.Name()
+		}
+	}
 	return o
+}
+
+// redVariable names the folder where keepRed puts the whole output of a
+// test that fails on the unmutated tree; the default is the user cache's
+// ergo-mutants/red.
+const redVariable = "ERGO_MUTANTS_RED"
+
+// keepRed copies the whole output of id's failing run on the unmutated
+// tree (o.log, in the work folder the run removes) to a file that stays,
+// and returns its path; "" when there is none. A red baseline judged
+// nothing, and its cause was lost with the tail's middle (OWN1's
+// TestValueRuleEveryBodyKind, SUPERVISE-2's TestStdActorLawsRun).
+func keepRed(id string, o outcome) string {
+	if o.log == "" {
+		return ""
+	}
+	dir := os.Getenv(redVariable)
+	if dir == "" {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(cache, "ergo-mutants", "red")
+	}
+	data, err := os.ReadFile(o.log)
+	if err != nil || os.MkdirAll(dir, 0o755) != nil {
+		return ""
+	}
+	name := strings.NewReplacer("/", "_", ":", "-", "[", "_", "]", "_").Replace(id)
+	path := filepath.Join(dir, time.Now().UTC().Format("20060102T150405")+"-"+name+".log")
+	if os.WriteFile(path, data, 0o644) != nil {
+		return ""
+	}
+	return path
 }
 
 // startLine is what a test binary run with -test.v prints when the
@@ -1212,7 +1269,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	}
 	if o = neverRan(o); o.reason != "" {
 		t.Failed = true
-		t.Detail = baseDetail(o)
+		t.Detail = baseDetail(t.ID, o)
 		e.logf("coverage: %s fails on the unmutated tree (%s): it kills nothing", t.ID, o.reason)
 	}
 	entries, err := os.ReadDir(dir)

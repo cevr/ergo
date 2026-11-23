@@ -29,8 +29,11 @@ type TypeName struct {
 	// (stage E3b, 196l). They are not part of the type's shape, so identity,
 	// satisfaction and the lowering never read them.
 	Laws []*Law
-	file *fileInfo
-	id   int
+	// Harness is the test harness an operation type declares (harness.go),
+	// or nil.
+	Harness *Harness
+	file    *fileInfo
+	id      int
 	// ctor is the type's constructor, which a generator builds its values
 	// with (tests.go rule 3); ctorState is 0 before its package's check
 	// plans it, 1 while it is planned and 2 once planned.
@@ -102,6 +105,9 @@ type Func struct {
 	// goExtern is a user extern's admitted adapter of its Go target's
 	// binding (extern.go, Level 2), once checkExterns admits it.
 	goExtern *GoExtern
+	// asWritten: the function's doc holds `// ergo:aswritten` and it is a
+	// pure identity of one parameter (aswritten.go).
+	asWritten bool
 }
 
 // Var is a variable: a parameter, a local or a package-level let.

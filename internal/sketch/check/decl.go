@@ -96,6 +96,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// rows are never inferred (D-E5).
 		c.checkExterns,
 		c.collectBodyErrorRows,
+		// After the error types: a named row is its row (namedrow.go).
+		c.knowRows,
 		c.checkSlotArgs,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict
@@ -105,10 +107,14 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
+		// After the bodies: the rows a marked function must leave empty
+		// are final (aswritten.go).
+		c.checkAsWritten,
 		c.checkProviderFields,
 		// A constructor's rows are inferred, so constructors are planned
 		// once bodies converge, before any generator is decided.
 		c.planConstructors,
+		c.planHarnesses,
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,
@@ -166,6 +172,10 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		pass()
 	}
 	c.publishErrorTypes()
+	// The named-row hook reads this checker (namedrow.go); the published
+	// table holds no function (the std snapshot exports it), and a
+	// package that imports this one reads its rows from its error types.
+	c.types.rowOf = nil
 	c.cur = nil
 	c.pkg.withSpent = c.withs.used + 1
 	return c.pkg
@@ -991,16 +1001,13 @@ func (c *checker) resolveNamed(n *Named) {
 	var later, checks []func()
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
-		// Option and Some are language types: their T admits a resource
-		// with no mark (types.md, Generics 9).
-		lang := c.pkg.Path == stdlib.PreludePath && (n.Obj.Name == "Option" || n.Obj.Name == "Some")
 		// Every parameter is declared before any constraint resolves, so a
 		// bound may name a later parameter or the type itself:
 		// type Ranked[T Ranked[T]] (types.md, Generics 2; CONSTRAINTS C2).
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, lang: lang, id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
 				c.noteOwner(tp, n.Obj.Name)
 				c.def(name, tp)
 				switch {
@@ -1964,7 +1971,6 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		targs[i] = t
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
-	c.recordTypeMark(n, targs, at)
 	inst := c.instantiate(n, targs)
 	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
 		return invalid

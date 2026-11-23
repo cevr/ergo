@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"hash/fnv"
 	"strconv"
 	"strings"
 
@@ -48,7 +49,8 @@ import (
 // as a value.
 //
 // The copy's name is its callee's reserved base (reserveMono, in the
-// naming pass) with "_i" and the instance's number: the namer never gives
+// naming pass) with "_i" and the instance's number, a function of its
+// type arguments alone (monoName): the namer never gives
 // a local or another package entity a name of that form (namer.taken), so
 // no name the pass did not reserve can capture one.
 //
@@ -148,11 +150,19 @@ func (l *lowerer) reserveLawMono(law *check.Law) {
 	l.names.monoBases[name] = true
 }
 
+// monoTaken reports whether this build lowers generic code to copies: the
+// admission function of the shortcut mono-instance (shortcuts.go). A call
+// (monoAt), a law of a generic operation type (lawMonoFor) and the test
+// entry's choice of which laws it declares itself (testEntry) each read it,
+// so the three agree on one decision.
+func (l *lowerer) monoTaken() bool {
+	return l.takes("mono-instance")
+}
+
 // monoAt is the copy that a use of f at the type arguments args goes to,
 // made and queued for emission at its first use; nil when the use takes
 // the generic function. x and c are the call, or nil for an instance used
-// as a value. It is the admission function of the shortcut mono-instance
-// (shortcuts.go).
+// as a value. It takes a copy only where monoTaken admits it.
 func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args []check.Type) *specCopy {
 	if c != nil {
 		if c.Kind != check.CallFunc || c.Func != f || c.Site != nil || c.StartsTask {
@@ -162,7 +172,7 @@ func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args
 			return nil // the owned body (values.go, V5)
 		}
 	}
-	if !fc.l.takes("mono-instance") {
+	if !fc.l.monoTaken() {
 		return nil
 	}
 	sp := fc.monoFor(f, args)
@@ -324,10 +334,10 @@ func (l *lowerer) monoCopy(decl monoDecl, base string, spelled []string, site sy
 	}
 	if l.monos == nil {
 		l.monos = map[monoKey]*specCopy{}
-		l.monoCount = map[monoDecl]int{}
+		l.monoNames = map[string]bool{}
 	}
-	l.monoCount[decl]++
-	name := base + "_i" + strconv.Itoa(l.monoCount[decl])
+	name := monoName(base, key.args, l.monoNames)
+	l.monoNames[name] = true
 	if l.names.used[name] {
 		ice(site, "the copy name %s is a reserved package name", name)
 	}
@@ -344,7 +354,7 @@ func (l *lowerer) monoCopy(decl monoDecl, base string, spelled []string, site sy
 // nil under the reference (genericLowering "stencil"), whose run calls
 // the generic law at targs.
 func (l *lowerer) lawMonoFor(law *check.Law, own *check.Named, targs []check.Type) *specCopy {
-	if !l.takes("mono-instance") {
+	if !l.monoTaken() {
 		return nil
 	}
 	base, ok := l.pkgNames[monoLaw{law}.base()]
@@ -372,6 +382,23 @@ func (l *lowerer) lawMonoFor(law *check.Law, own *check.Named, targs []check.Typ
 		l.pending = append(l.pending, func() { l.lawDecl(law, sp) })
 	}
 	return sp
+}
+
+// monoName is the copy's name for the type arguments args (their Go
+// spellings, joined): base, "_i" and a number that is a function of args
+// alone (FNV-1a), so a function's call of a copy is spelled the same
+// whichever other instances the program reaches first (NAME-LOCAL: a
+// count of copies in the order of first use renamed D's copy when G was
+// reached). On the rare clash with another instance's number of the same
+// base, the next free number is taken.
+func monoName(base, args string, taken map[string]bool) string {
+	h := fnv.New32a()
+	h.Write([]byte(args))
+	for n := uint64(h.Sum32()); ; n++ {
+		if name := base + "_i" + strconv.FormatUint(n, 10); !taken[name] {
+			return name
+		}
+	}
 }
 
 // lawCallee is the Go function a run of the law of a generic operation

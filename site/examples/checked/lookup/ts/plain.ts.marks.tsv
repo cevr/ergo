@@ -1,0 +1,21 @@
+line	col	end	class	text
+9	1	38	failure	export class NotFound extends Error {
+10	3	39	failure	constructor(readonly host: string) {
+11	5	29	failure	super(`no host ${host}`)
+12	3	4	failure	}
+13	1	2	failure	}
+15	1	28	service	export interface Resolver {
+16	3	10	service	resolve
+16	25	44	time	signal: AbortSignal
+17	1	2	service	}
+19	30	48	service	resolver: Resolver
+20	10	18	supply	resolver
+20	33	59	time	AbortSignal.timeout(2_000)
+23	31	49	service	resolver: Resolver
+24	3	8	handling	try {
+25	33	41	supply	resolver
+27	3	16	handling	} catch (e) {
+28	5	48	handling	if (e instanceof NotFound) return "unknown"
+29	5	83	handling	if (e instanceof DOMException && e.name === "TimeoutError") return "timed-out"
+30	5	12	handling	throw e
+31	3	4	handling	}

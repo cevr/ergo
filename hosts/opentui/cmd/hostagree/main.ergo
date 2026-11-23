@@ -62,6 +62,10 @@ func main() needs Console | Ambient | go.Foreign {
 			agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, steps)
 		case "spin":
 			agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, steps)
+		case "choice":
+			agree(choiceMachine(), choiceView, func(a choice, b choice) bool { a == b }, steps)
+		case "reading":
+			agree(readingMachine(), readingView, func(a reading, b reading) bool { a == b }, steps)
 		case _:
 			Console.Println("differ 0: no app \(lines[0])")
 		}

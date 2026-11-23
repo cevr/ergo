@@ -56,7 +56,7 @@ package lower
 //     call's own local, with no caught copy (ir_fail.go).
 //
 // Defects stay exact (runtime.md, Exit causes 6): the copy's positions
-// name the callee's file with the inline site's tag (path#ergo-inline-N),
+// name the callee's file with the inline site's tag (path#ergo-inline-K, K the site's key),
 // and the site joins the program's inline table (v1.RegisterInlines), as
 // the text path's //line directives tag them, so the report writes the
 // frames the calls would have had. A scope's open and close in the copy
@@ -149,7 +149,6 @@ func SetFailArgLoweringForTest(mode string) string {
 type irInline struct {
 	sites  map[*irExpr]*irInlSite
 	bodies map[string]*irInlBody
-	anon   int // the anon copies made, for unique names
 }
 
 // irInlSite is a marked call.
@@ -158,9 +157,14 @@ type irInlSite struct {
 	key         string // the callee's IR function name
 	src, offset int    // the call's identity in the call table
 	tsub        map[*check.TypeParam]string
-	size        int
-	loop        bool // on a loop path at its site
-	leaf        bool // a Go leaf with a boxed result (pays)
+	// conc holds the Slot rows the call binds to a struct (FAILJUMP-TYPED).
+	conc map[*check.TypeParam]bool
+	// slotOf maps a Slot row the call passes the caller's own Slot row
+	// to onto that row.
+	slotOf map[*check.TypeParam]*check.TypeParam
+	size   int
+	loop   bool // on a loop path at its site
+	leaf   bool // a Go leaf with a boxed result (pays)
 	// sourced is a callee in the program's sources; a std body's copy
 	// takes the site's position, as the text path writes it with no line
 	// directive of its own (inline.go closeInline).
@@ -280,6 +284,8 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	if fp := f.Pkg.Info.Footprints[f.Decl]; !fp.Empty() && !b.l.knownClosed(f) {
 		return e
 	}
+	var conc map[*check.TypeParam]bool
+	var slotOf map[*check.TypeParam]*check.TypeParam
 	tsub := map[*check.TypeParam]string{}
 	for i, tp := range f.Sig.TParams {
 		if !b.l.goParam(tp) {
@@ -300,6 +306,17 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 			return e
 		}
 		tsub[tp] = t
+		if irStructFailure(a) {
+			if conc == nil {
+				conc = map[*check.TypeParam]bool{}
+			}
+			conc[tp] = true
+		} else if otp := irSlotParam(a); otp != nil {
+			if slotOf == nil {
+				slotOf = map[*check.TypeParam]*check.TypeParam{}
+			}
+			slotOf[tp] = otp
+		}
 	}
 	// The body's name: a method's is its type's and its own; a
 	// monomorphic copy of a method is a plain function (ir.go body).
@@ -312,7 +329,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		src, _, _, _ = b.l.at(x, x.Pos())
 	}
 	site := &irInlSite{
-		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub,
+		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub, conc: conc, slotOf: slotOf,
 		size: inlineSize(f.Decl.Body), loop: b.loops > 0 || b.fc.hot,
 		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible, anon: anon, failLeaf: failLeaf,
 		slot: b.l.hasGoRow(f.Sig),
@@ -419,10 +436,11 @@ func (in *irInliner) newLocal(name, t string, p irPos) int {
 // inline site (plus one) it is in and that site's depth, whether a loop
 // runs it, the growth its path has taken, and whether it is cold.
 type irPath struct {
-	parent, depth int
-	loop, cold    bool
-	spent         int
-	lit           bool // in a function literal's body: its return is the literal's
+	parent     string // the inline site's key, "" for none (inline.go inlineSite)
+	depth      int
+	loop, cold bool
+	spent      int
+	lit        bool // in a function literal's body: its return is the literal's
 }
 
 // stmts inlines the marked whole-statement calls of list, on the path p
@@ -505,14 +523,18 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	if mode == "def2" && irInlineReturnLowering != "off" && in.localType(s.Local) == "" {
 		return nil // a returned pair's temporary takes the site's type (irRets)
 	}
-	n := len(in.l.inlineSites)
-	id, parent := strconv.Itoa(n), n+1 // the copy's names; the site its lines are in
+	// The copy's names count the function's own sites; its lines' tag is
+	// the site's key (inline.go inlineKey), a function of the site alone.
+	id := strconv.Itoa(in.count)
+	parent := p.parent
+	tag := inlineTag + "s" + id
 	if site.anon {
 		// No site of the table: its lines stay in the enclosing site.
-		id, parent = "s"+strconv.Itoa(in.st.inl.anon), p.parent
-		in.st.inl.anon++
+		id = "s" + id
+	} else {
+		parent = in.l.inlineKey(site.src, site.offset, p.parent)
+		tag = inlineTag + parent
 	}
-	tag := inlineTag + id
 	files := map[int]int{}
 	file := func(k int) int {
 		if j, ok := files[k]; ok {
@@ -564,10 +586,10 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		}
 		subst[i] = nil // bound below, once the copy's locals are known
 	}
-	if !site.anon {
-		in.l.inlineSites = append(in.l.inlineSites, inlineSite{src: site.src, offset: site.offset, parent: p.parent})
-	} else {
+	if site.anon {
 		in.st.report.StdInlined++
+	} else {
+		in.l.addInlineSite(inlineSite{src: site.src, offset: site.offset, key: parent, parent: p.parent})
 	}
 	if site.failLeaf {
 		in.st.report.FailLeaves++
@@ -604,7 +626,7 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 	for j, lc := range callee.Locals {
 		ren[np+j] = in.newLocal(lc.Name+"_inl"+id, irSubstTypes(lc.Type, frame.tps, site.tsub), at)
 	}
-	cp := &irCopy{in: in, id: id, ren: ren, subst: subst, file: file, tps: frame.tps, tsub: site.tsub}
+	cp := &irCopy{in: in, id: id, ren: ren, subst: subst, file: file, tps: frame.tps, tsub: site.tsub, conc: site.conc, slotOf: site.slotOf}
 	if !site.sourced {
 		call := s.X.Pos
 		cp.at = &call
@@ -1163,14 +1185,16 @@ func irExprWalk(e *irExpr, lit bool, f func(*irExpr, bool)) {
 // renamed (ren) or replaced by the operand (subst), its labels tagged with
 // the site, its files tagged, its type parameters replaced.
 type irCopy struct {
-	in    *irInliner
-	id    string
-	ren   map[int]int
-	subst map[int]*irExpr
-	file  func(int) int
-	tps   map[*check.TypeParam]string
-	tsub  map[*check.TypeParam]string
-	at    *irPos // every position of a std body's copy
+	in     *irInliner
+	id     string
+	ren    map[int]int
+	subst  map[int]*irExpr
+	file   func(int) int
+	tps    map[*check.TypeParam]string
+	tsub   map[*check.TypeParam]string
+	conc   map[*check.TypeParam]bool
+	slotOf map[*check.TypeParam]*check.TypeParam
+	at     *irPos // every position of a std body's copy
 }
 
 func (c *irCopy) local(i int) int {
@@ -1235,6 +1259,14 @@ func (in *irInliner) copier(cp *irCopy) *irTreeCopy {
 	c.stmt = func(s, n *irStmt) {
 		n.Pos, n.End, n.ElsePos, n.ElseEnd = cp.pos(s.Pos), cp.pos(s.End), cp.pos(s.ElsePos), cp.pos(s.ElseEnd)
 		n.Label = cp.label(s.Label)
+		// A failure's Go type, the site's; a Slot row's a struct where
+		// the call binds it to one (FAILJUMP-TYPED).
+		n.FailT, n.FailTP = irSubstTypes(s.FailT, cp.tps, cp.tsub), nil
+		if s.FailTP != nil && cp.conc[s.FailTP] && irFailTypedLowering != "off" {
+			n.FailT = cp.tsub[s.FailTP]
+		} else if s.FailTP != nil {
+			n.FailTP = cp.slotOf[s.FailTP] // the caller's own Slot row, bound by its copy
+		}
 	}
 	return c
 }
@@ -1248,8 +1280,17 @@ func (in *irInliner) cloneExpr(e, n *irExpr, cp *irCopy) {
 			// callee's type parameters, become the site's.
 			s := *site
 			s.tsub = map[*check.TypeParam]string{}
+			s.conc = map[*check.TypeParam]bool{}
 			for tp, a := range site.tsub {
 				s.tsub[tp] = irSubstTypes(a, cp.tps, cp.tsub)
+				// A Slot row passed on from the callee's own, which this
+				// copy binds to a struct, is one too (FAILJUMP-TYPED).
+				s.conc[tp] = site.conc[tp]
+				for otp, name := range cp.tps {
+					if name == a && cp.conc[otp] {
+						s.conc[tp] = true
+					}
+				}
 			}
 			s.result = irSubstTypes(site.result, cp.tps, cp.tsub)
 			site = &s
@@ -1382,7 +1423,7 @@ func (r *irRets) stmts(list []*irStmt, top bool) []*irStmt {
 			continue
 		}
 		if s.K == "fail" && r.mode == "def2" {
-			out = append(out, &irStmt{K: "set", Pos: s.Pos, Local: r.err, X: r.failValue(s.X)})
+			out = append(out, &irStmt{K: "set", Pos: s.Pos, Local: r.err, X: r.failValue(s.X), FailT: s.FailT, FailTP: s.FailTP})
 			if !top || i != len(list)-1 {
 				r.gotos++
 				out = append(out, &irStmt{K: "goto", Pos: s.Pos, Label: r.label})

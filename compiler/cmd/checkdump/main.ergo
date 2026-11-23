@@ -20,6 +20,7 @@
 
 import compiler/check/bind
 import compiler/check/diag
+import compiler/check/facts
 import compiler/check/load
 import compiler/check/rows
 import compiler/check/types
@@ -28,6 +29,7 @@ import fs
 import io
 import json
 import os
+import slices
 import strings
 
 func base(path string) string {
@@ -147,19 +149,48 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	}
 	let outside = load.Outside(units, std)
 	let p = load.LoadAll(units, outside, threads)
+	// Each loaded package's resources, by path, for the types its
+	// importers read (diag.Held). A package reads those of its imports,
+	// in any order, so the passes go on until no package's set grows (each
+	// only grows). Sizes go by package, not path: several roots share the
+	// path main, which nothing imports.
+	let mut deps = Map[string, Map[string, bool]]{}
+	let mut sizes = slices.Repeat([]int{0}, len(p.Loaded))
+	let mut grew = true
+	for grew {
+		grew = false
+		for i, e in p.Loaded {
+			let r = diag.Resources(e.S, e.K, deps)
+			grew = grew || len(r) != sizes[i]
+			sizes[i] = len(r)
+			if e.Path != "main" {
+				deps[e.Path] = r
+			}
+		}
+	}
 	let mut b = strings.NewBuilder()
 	for i in 0..len(p.Loaded) {
 		let at = p.Units[i]
 		let u = units[at]
 		let d = load.TypeAt(p, i)
-		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), diag.Held(d.S, d.K, d.T))
+		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), diag.Held(d.S, d.K, d.T, deps))
 		for g in diag.Flow(d.S, d.K, d.T, srcs[at]) {
 			ds = ds.Append(g)
 		}
 		for g in diag.OwnMarks(d.S, d.K, d.T) {
 			ds = ds.Append(g)
 		}
+		for g in diag.Harnesses(d.K) {
+			ds = ds.Append(g)
+		}
+		for g in diag.AsWritten(d.K.Parsed) {
+			ds = ds.Append(g)
+		}
 		for g in rows.Rows(d.S, d.K, d.T) {
+			ds = ds.Append(g)
+		}
+		let mut s = d.S
+		for g in facts.Diags(&s, d.K) {
 			ds = ds.Append(g)
 		}
 		let mut lines = []syntax.Lines{}
