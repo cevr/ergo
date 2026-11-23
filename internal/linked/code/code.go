@@ -25614,10 +25614,6 @@ func flag__Describe(f flag__Failure) string {
 	}
 }
 
-type flag__Failure interface{ isflag__Failure() }
-
-func (flag__Help) isflag__Failure() {}
-
 type flag__Unknown struct {
 	Name string
 }
@@ -25626,8 +25622,6 @@ func (e flag__Unknown) Error() string {
 	return "Unknown" + ergo__textflag__Unknown(e)
 }
 
-func (flag__Unknown) isflag__Failure() {}
-
 type flag__NeedsValue struct {
 	Name string
 }
@@ -25635,8 +25629,6 @@ type flag__NeedsValue struct {
 func (e flag__NeedsValue) Error() string {
 	return "NeedsValue" + ergo__textflag__NeedsValue(e)
 }
-
-func (flag__NeedsValue) isflag__Failure() {}
 
 type flag__Invalid struct {
 	Name   string
@@ -25648,8 +25640,6 @@ func (e flag__Invalid) Error() string {
 	return "Invalid" + ergo__textflag__Invalid(e)
 }
 
-func (flag__Invalid) isflag__Failure() {}
-
 type flag__Missing struct {
 	Name string
 }
@@ -25658,8 +25648,6 @@ func (e flag__Missing) Error() string {
 	return "Missing" + ergo__textflag__Missing(e)
 }
 
-func (flag__Missing) isflag__Failure() {}
-
 type flag__Extra struct {
 	Text string
 }
@@ -25667,8 +25655,6 @@ type flag__Extra struct {
 func (e flag__Extra) Error() string {
 	return "Extra" + ergo__textflag__Extra(e)
 }
-
-func (flag__Extra) isflag__Failure() {}
 
 type flag__UnknownCommand struct {
 	Name  string
@@ -25680,7 +25666,7 @@ func (e flag__UnknownCommand) Error() string {
 	return "UnknownCommand" + ergo__textflag__UnknownCommand(e)
 }
 
-func (flag__UnknownCommand) isflag__Failure() {}
+type flag__Failure = error
 
 func rpc__Encode[T any](env *Env, wT struct {
 	Enc     func(*Env, Writer, T) (struct{}, error)
@@ -26815,7 +26801,7 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 		b = v_2
 	}
 	if b {
-		v_3 := flag__Usage(s)
+		v_3 := (s).UsageText()
 		return *new(flag__Values), flag__Help{Text: v_3}
 	}
 	v_4 := flag__noItem()
@@ -27692,7 +27678,7 @@ func (s flag__Set) helpAsked(args []string) bool {
 	return false
 }
 
-func flag__Usage(s flag__Set) string {
+func (s flag__Set) UsageText() string {
 	var v string
 	if s.Name == "" {
 		v = "Usage:\n"
