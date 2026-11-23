@@ -12,15 +12,11 @@ type Handle[T any] struct {
 	// consumed, and the owner clears it upon consumption.
 	starter *Task
 	// waiter is nil until a caller other than the linked parent joins.
-	// finish replaces it with finishedWaiter, publishing the exit and
-	// releasing the reference to any waiter in one step.
+	// The parent's child-list lock serializes registration and finish.
 	waiter atomic.Pointer[Task]
 	value  T
 	err    error // canonical exit; written before the end is published
 }
-
-// The completion marker is not a runnable task and never retains a parent.
-var finishedWaiter Task
 
 // Go starts body as a child of s's task, on its own goroutine, owned by s.
 // The child starts interruptible, even when Go runs inside a masked region.
@@ -103,29 +99,26 @@ func (h *Handle[T]) run(b Body[T], done chan struct{}) {
 	h.value, h.err = Run(&h.task, b.Run)
 }
 
-// finish detaches the task and publishes the exit under its waiter's clock
-// lock, if any. A handed-off waiter can register until publication. If it
-// does so after our load, retry with its clock before publishing the end.
+// finish unlinks the task and publishes its exit by clearing the parent
+// link. The same parent lock serializes registration with this publication.
+// A clock observes the waiter become runnable and the exit become visible
+// in one step, under the waiter's clock lock.
 func (h *Handle[T]) finish(done chan struct{}) {
 	Point(&h.task, Op{OpEnd, &h.task})
-	p := h.task.detach()
-	var waiter *Task
-	var m *member
-	for {
-		registered := h.waiter.Load()
-		waiter = registered
-		if waiter == nil {
-			waiter = p
-		}
-		m = waiter.waking(h)
-		if h.waiter.CompareAndSwap(registered, &finishedWaiter) {
-			break
-		}
-		m.unlock()
+	p := h.task.lockParent(h.task.parent.Load())
+	h.task.unlink(p)
+	waiter := h.waiter.Load()
+	if waiter == nil {
+		waiter = p
+	} else {
+		h.waiter.Store(nil)
 	}
+	m := waiter.waking(h)
+	h.task.parent.Store(nil)
 	if done != nil {
 		close(done)
 	}
+	p.mu.Unlock()
 	m.unlock()
 	waiter.wake.unpark()
 	if own := h.task.member.Load(); own != nil {
@@ -135,7 +128,7 @@ func (h *Handle[T]) finish(done chan struct{}) {
 }
 
 // finished reports whether the task has finished.
-func (h *Handle[T]) finished() bool { return h.waiter.Load() == &finishedWaiter }
+func (h *Handle[T]) finished() bool { return h.task.parent.Load() == nil }
 
 // join waits, uninterruptibly, until the task has finished, parked on h
 // when w, the waiter, is in an auto clock's domain.
@@ -178,18 +171,27 @@ func (h *Handle[T]) Consumed() bool { return h.task.consumed }
 // that its starter consumes.
 func (h *Handle[T]) Wait() (T, error) { return h.WaitBy(h.starter) }
 
-// claim takes the handle and registers a waiter only if the task tree does
-// not already name it. A parent on its own goroutine cannot detach while
-// it is joining. A child can finish before registration; a failed CAS
-// leaves the completion marker intact.
+// claim takes the handle. A parent joining on its own goroutine cannot
+// itself detach while it is joining; the tree already names that waiter.
+// Only a different caller needs to register.
 func (h *Handle[T]) claim(w *Task) {
 	if h.task.consumed {
 		secondWaiter()
 	}
 	h.task.consumed = true
 	h.starter = nil
-	if h.task.parent.Load() != w {
-		h.waiter.CompareAndSwap(nil, w)
+	if p := h.task.parent.Load(); p != w && p != nil {
+		h.registerWaiter(p, w)
+	}
+}
+
+// registerWaiter either registers under the current parent's lock or finds the
+// exit already published. Thus finish sees the registration or the caller
+// sees a completed handle and does not park.
+func (h *Handle[T]) registerWaiter(p, w *Task) {
+	if p = h.task.lockParent(p); p != nil {
+		h.waiter.Store(w)
+		p.mu.Unlock()
 	}
 }
 

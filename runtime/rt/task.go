@@ -117,43 +117,48 @@ func (t *Task) init(parent *Task, span string, masked, shield bool) {
 	parent.mu.Unlock()
 }
 
-// detach unlinks a finished child and returns its former parent (Tasks, rule 1)
-// and drops its reference to the parent, so a finished task retains no
-// ancestors (G2, rule 3), and its context values, so a handle kept after the
-// task finished holds no context text (G1). A child of t that still runs
-// was handed out (a Task t's block returned, put in a field or a queue;
-// rule 11): t hands it to its parent first, so a stop of the parent still
-// reaches it (adopt). It runs on t's own goroutine, the only one that
-// touches values; a still-running child reads its own values, not t's.
-func (t *Task) detach() *Task {
-	t.values = nil
-	for {
-		p := t.parent.Load()
+// lockParent locks the current parent's child list. Adoption changes the
+// link under both parents' locks, so a parent read before locking can be stale.
+func (t *Task) lockParent(p *Task) *Task {
+	for p != nil {
 		p.mu.Lock()
-		// A parent that ended between the load and the lock handed t on to
-		// its own parent (adopt, under its lock): unlink from that one.
-		if t.parent.Load() != p {
-			p.mu.Unlock()
-			continue
-		}
-		prev, next := t.prev, t.next
-		if prev != nil {
-			prev.next = next
-			t.prev = nil
-		} else {
-			p.first = next
-		}
-		if next != nil {
-			next.prev = prev
-			t.next = nil
-		}
-		if t.stopped.parent() {
-			t.adopt(p)
+		current := t.parent.Load()
+		if current == p {
+			return p
 		}
 		p.mu.Unlock()
-		t.parent.Store(nil)
-		return p
+		p = current
 	}
+	return nil
+}
+
+// unlink removes t from p's list and hands on its children (Tasks, rule 1).
+// The caller holds p.mu and clears t.parent after all of the task's writes.
+// Only t's own goroutine uses its context values; a child has its own copy.
+func (t *Task) unlink(p *Task) {
+	t.values = nil
+	prev, next := t.prev, t.next
+	if prev != nil {
+		prev.next = next
+		t.prev = nil
+	} else {
+		p.first = next
+	}
+	if next != nil {
+		next.prev = prev
+		t.next = nil
+	}
+	if t.stopped.parent() {
+		t.adopt(p)
+	}
+}
+
+// detach drops the links of a finished child that does not have a Handle.
+func (t *Task) detach() {
+	p := t.lockParent(t.parent.Load())
+	t.unlink(p)
+	t.parent.Store(nil)
+	p.mu.Unlock()
 }
 
 // adopt hands t's running children to p, t's parent, whose lock the caller

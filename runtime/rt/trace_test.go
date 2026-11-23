@@ -49,7 +49,7 @@ func TestTraceOffAddsNoAllocs(t *testing.T) {
 // spill slice gave up for a pointer. The park word (park.go, PARK1) adds
 // a word to Task. The waiting slot (waiter.go, WAITOR-WORD) adds one more,
 // paid for by putting the handle's consumed flag in the task's first word
-// (Task.consumed) and publishing the end in its waiter word: Task is 144 B, in
+// (Task.consumed) and publishing the end in its parent link: Task is 144 B, in
 // the 144 B class as before, and Handle[struct{}] is 176 B, still in the
 // 176 B class.
 func TestTraceHookKeepsTaskSize(t *testing.T) {
