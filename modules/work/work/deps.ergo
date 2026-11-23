@@ -69,6 +69,7 @@ func install(t Tool, w Workspace, c Config) (Workspace, DepsRun) fails Unkept | 
 // last install (workrift deps).
 func Deps(t Tool, o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DepsFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let w = try chosen(t, o.Name)
 	let c = try config(t)
 	let (_, run) = try install(t, w, c)

@@ -84,7 +84,7 @@ func TestRefOwnElides(t *testing.T) {
 			t.Errorf("an owned call is not proved fresh:\n%s", firstLines(call, 40))
 		}
 	}
-	for _, fn := range []string{"writeOwned", "mkdirAllOwned", "moveOwned"} {
+	for _, fn := range []string{goHelperOf("fstest", "writeOwned"), goHelperOf("fstest", "mkdirAllOwned"), goHelperOf("fstest", "moveOwned")} {
 		if body := goFunc(t, code, fn); strings.Contains(body, "Clone") {
 			t.Errorf("%s copies the tree:\n%s", fn, body)
 		}

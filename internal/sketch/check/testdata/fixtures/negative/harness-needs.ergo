@@ -1,0 +1,21 @@
+// A harness runs inside a test, which holds no capability (check
+// harness.go, rule 1).
+type Coin {
+	Flip() bool,
+	test Toss, // want S108 "Toss's needs row is not empty"
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string }
+
+type always {} implements Coin
+
+func Flip(a always) bool { true }
+
+func Toss(run Run, body func() fails Failed needs Coin) fails Failed needs Coin {
+	body() catch {
+	case Failed as f:
+		return f
+	}
+}

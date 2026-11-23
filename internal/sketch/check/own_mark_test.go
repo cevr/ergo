@@ -7,15 +7,15 @@ import (
 
 // TestOwnMarkRows holds the text and position of the own mark's
 // declaration rules (types.md, Generics 9; MODES-5) that the generated
-// property (TestTakesInferenceModel) does not draw: a generic type's mark
-// required of its functions, a mark on a row, and an extern's mark against
+// property (TestTakesInferenceModel) does not draw: a generic union's mark
+// read from its declaration and asked of nothing else (GEN9-GENERAL), a
+// mark on a row, and an extern's mark against
 // runtime/v1's reviewed table (a program's extern is refused a type
 // parameter as well, so that row checks its own diagnostic among others;
 // std's reviewed marks are the admitted side).
 //
-// Mutants it kills that no other test does: the type's mark not required
-// of its functions (modes5-type-mark-unrequired), so a function of a
-// marked type ignores the mark; own admitted on a row
+// Mutants it kills that no other test does: an unmarked generic type's
+// instance admitted (gen9-unmarked-type-admitted); own admitted on a row
 // (modes5-own-row-admitted); an extern's mark admitted unreviewed
 // (modes5-own-extern-unreviewed).
 func TestOwnMarkRows(t *testing.T) {
@@ -26,18 +26,58 @@ func TestOwnMarkRows(t *testing.T) {
 		others    bool   // other diagnostics may stand beside it
 	}
 	rows := []row{
-		{"type mark required", `type Box[T own] { v T }
+		{"type mark asks nothing of its functions", `type Box[T own] { v T }
 
 func Peek[T](b Box[T]) int { 0 }
 
 func main() {}
-`, 3, 16, "Box marks its T own, so Box[T] may hold a resource, and T is not marked own; write [T own] where T is declared", false},
-		{"type mark written", `type Box[T own] { v T }
-
-func Peek[T own](b own Box[T]) Box[T] { b }
-
-func main() {}
 `, 0, 0, "", false},
+		{"marked user union admits a resource", `type File { fd int } implements Closer
+
+func Close(f File) {}
+
+type MySome[T own] { Value T }
+
+type MyNone {}
+
+type MyOpt[T own] = MySome[T] | MyNone
+
+func pass[T own](o own MyOpt[T]) MyOpt[T] { o }
+
+func take(o own MyOpt[File]) Option[File] {
+	match o {
+	case MySome{Value: v}:
+		Some{Value: v}
+	case MyNone:
+		None
+	}
+}
+
+func lendOpt(o Option[File]) {}
+
+func main() {
+	let o MyOpt[File] = MySome[File]{Value: File{fd: 1}}
+	let r = take(pass(o))
+	lendOpt(r)
+}
+`, 0, 0, "", false},
+		{"unmarked user union refuses a resource", `type File { fd int } implements Closer
+
+func Close(f File) {}
+
+type MySome[T] { Value T }
+
+type MyNone {}
+
+type MyOpt[T] = MySome[T] | MyNone
+
+func lendOpt(o MyOpt[File]) {}
+
+func main() {
+	let o MyOpt[File] = MyNone
+	lendOpt(o)
+}
+`, 14, 8, "MyOpt cannot take File as its T: T is not marked own", true},
 		{"own row", `type Bad {}
 
 func run[E own](f func() int fails E) int fails E { try f() }

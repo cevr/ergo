@@ -1,0 +1,16 @@
+// A generic operation type declares no harness (check harness.go, rule 1).
+type Coin[T] {
+	Flip() T,
+	test Toss, // want S108 "Coin is generic"
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string }
+
+func Toss(run Run, body func() fails Failed) fails Failed {
+	body() catch {
+	case Failed as f:
+		return f
+	}
+}

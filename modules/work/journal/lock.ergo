@@ -5,9 +5,13 @@ import sync
 // Lock is the journal's locks: a kernel file lock (fs.LockFile) per key
 // in the base's storage home, so two processes exclude each other and a
 // process that dies holds nothing. The mutation lock is the file .lock;
-// a reservation's is .lock-ID, which Release removes: only its maker
-// and gc (each under the mutation lock) open it, so no third opener can
-// lock the removed file.
+// a reservation's is .lock-ID, which Release removes. Its maker and
+// gc open it under the mutation lock; a settled command's delete of a
+// rolled-back reservation's tomb (work's buried) opens it with that lock
+// free, so it may lock a removed file beside a newer one. That is
+// harmless: a reservation has a tomb only once its maker is gone, and
+// two deletes of one tomb, each dropping the record only while it is
+// still there, end as one does.
 type Lock { host fs.Host, home string, wait duration, held sync.Ref[Map[string, fs.FileLock]] } implements work.Lock
 
 // NewLock is the locks of the storage home, waiting at most wait for the

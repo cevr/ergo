@@ -28,7 +28,7 @@ func clientOf(tool work.Tool) workapi.Client {
 // command failing) and a runner that counts.
 func Providers(c Cloner, sharing []work.Cloner, r work.Registry, v Vcs, disk fstest.Memory, clock time.Clock, failing string) work.Providers {
 	let lock = NewLock()
-	work.Providers{Cloners: sharing, Copier: Beside(c, false), Registry: r, Lock: lock, Hooks: Recording(lock, failing), Vcs: v, Files: disk, Writes: disk, Runner: NewRunner(), Clock: clock}
+	work.Providers{Cloners: sharing, Copier: Beside(c, false), Registry: r, Lock: lock, Hooks: Recording(lock, failing), Vcs: v, Files: MarkedOver(disk, c), Writes: MarkedOver(disk, c), Runner: NewRunner(), Clock: clock}
 }
 
 // MergeFileWritesTheMerge: merge-file leaves in ours the merge of
