@@ -87,6 +87,9 @@ type Vcs {
 	Start(root string, branch string, commit string) fails VcsFailed,
 	// GuardPushes stops every push from the checkout to each of its remotes.
 	GuardPushes(root string) fails VcsFailed,
+	// PushesGuarded reports whether every remote has only Work's refusing
+	// push URL. A checkout with no remotes has no pushes to guard.
+	PushesGuarded(root string) bool fails VcsFailed,
 	// Guarded is the remotes whose push URL is the guard GuardPushes
 	// writes (another push URL is not work's).
 	Guarded(root string) []string fails VcsFailed,
