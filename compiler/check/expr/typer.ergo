@@ -767,10 +767,11 @@ func letSpec(s mut store.Store, k Pkg, t mut Typer, spec dense.ID[syntax.Node]) 
 				let n = syntax.Len(v.Names)
 				if n == 1 {
 					def(k, t, syntax.Item(tr, v.Names, 0), ty.Value)
-				} else if store.KindOfType(*s, ty.Value) == store.KTuple && len(store.OperandsOf(*s, ty.Value)) == n {
+				} else if store.KindOfType(*s, infer.Unmarked(*s, ty.Value)) == store.KTuple && len(store.OperandsOf(*s, infer.Unmarked(*s, ty.Value))) == n {
 					// let a, b = f(): each name a result of the tuple
-					// (the Go checker's tuple assignment).
-					let parts = store.OperandsOf(*s, ty.Value)
+					// (the Go checker's tuple assignment), an owned
+					// result's too.
+					let parts = store.OperandsOf(*s, infer.Unmarked(*s, ty.Value))
 					for i in 0..n {
 						def(k, t, syntax.Item(tr, v.Names, i), parts[i])
 					}

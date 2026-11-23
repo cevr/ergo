@@ -1,0 +1,13 @@
+// A resource bound by a multi-name let and held only for its release at
+// scope end is not unused (rows.go reportUnused: holdsResource; resources
+// R42): r is not reported (S3-UNUSED-TUPLE-RESOURCE, found by lane MX2).
+type Res {} implements Closer
+
+func Close(r Res) {}
+
+func open() (Res, int) { (Res, 1) }
+
+func main() needs Console {
+	let r, n = open()
+	Console.Println("\(n)")
+}
