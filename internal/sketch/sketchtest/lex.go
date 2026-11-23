@@ -153,7 +153,7 @@ func (l *lexer) goToken(start int, inner bool) {
 }
 
 // normalize drops the tokens the formatter's decided normalisations remove
-// (#196, D4): the leading `|` of a union (a `|` right after `=`), and the
+// (D4): the leading `|` of a union (a `|` right after `=`), and the
 // parentheses around the one expression of a with or match header when
 // they hold no brace and no top-level comma.
 func normalize(ls []lexeme) []lexeme {

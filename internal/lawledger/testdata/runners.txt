@@ -1,4 +1,4 @@
-# Std laws that a Go test still runs: `pkg Law<TAB>Runner`, or #162 for a law with no Go runner.
+# Std laws that a Go test still runs: `pkg Law<TAB>Runner`, or none for a law with no Go runner.
 # The statement is the law in internal/sketch/std. This list only shrinks.
 actor Actor.LatestChangesStops	TestStdActorLawsRun
 actor Actor.StopIsFinal	TestStdActorLawsRun
@@ -279,7 +279,7 @@ flag BuildFailureReaches	TestFlagLaws
 flag DeclaredShortAndLongAgree	TestFlagTreeLaws
 flag DefaultWhenAbsent	TestFlagLaws
 flag DoubleDashEndsFlags	TestFlagLaws
-flag DoubledSpellingIsFound	#162
+flag DoubledSpellingIsFound	none
 flag EachCommandReaches	TestFlagLaws
 flag FlagCrossesPositional	TestFlagLaws
 flag HelpNamesEveryCommand	TestFlagTreeLaws
@@ -385,7 +385,7 @@ json RawIsValue	TestJSONRawAgrees
 json RawReadsOneValue	TestJSONRawAgrees
 json RawRoundTrips	TestJSONRawAgrees
 json RepairIsIdempotent	TestStdJSONLooseLawsRun
-json RepairIsOnePass	#162
+json RepairIsOnePass	none
 json RoundTrips	TestStdJSONLawsRun
 json StreamAgreesOnPieces	TestJSONStreamAgrees
 json StreamAgreesWithDecode	TestJSONStreamAgrees
@@ -395,17 +395,17 @@ json StreamSkipKeepsPlace	TestJSONStreamAgrees
 json StrictTextsAgree	TestStdJSONLooseLawsRun
 json StringBytesIsString	TestStdJSONLawsRun
 json StringBytesReadsString	TestStdJSONLawsRun
-json Text.PlainIsRaw	#162
-json Text.RawJoins	#162
-json Text.SepAfterSet	#162
-json Text.SetCommaLast	#162
-json Text.SetCommaSets	#162
-json Text.SetCommaSinks	#162
-json Text.SetCommaSinksBool	#162
-json Text.SetCommaSinksFloat	#162
-json Text.SetCommaSinksInt	#162
-json Text.SetCommaSinksString	#162
-json Text.SetCommaSinksUint	#162
+json Text.PlainIsRaw	none
+json Text.RawJoins	none
+json Text.SepAfterSet	none
+json Text.SetCommaLast	none
+json Text.SetCommaSets	none
+json Text.SetCommaSinks	none
+json Text.SetCommaSinksBool	none
+json Text.SetCommaSinksFloat	none
+json Text.SetCommaSinksInt	none
+json Text.SetCommaSinksString	none
+json Text.SetCommaSinksUint	none
 json TruncatedFails	TestStdJSONLawsRun
 json ValueRoundTrips	TestJSONValueAgrees
 json ValuesRoundTrip	TestJSONStreamAgrees
@@ -553,15 +553,15 @@ prelude GetAfterPut	TestCollLaws
 prelude Hashing.EqualIsReflexive	TestStdHashingLawsRun
 prelude Hashing.EqualIsSymmetric	TestStdHashingLawsRun
 prelude Hashing.EqualIsTransitive	TestStdHashingLawsRun
-prelude Hashing.EqualKeysHashEqual	#162
+prelude Hashing.EqualKeysHashEqual	none
 prelude Hashing.EqualKeysNormalEqual	TestStdHashingLawsRun
 prelude Hashing.NormalKeyIsEqual	TestStdHashingLawsRun
 prelude Random.Float64InUnit	TestRandLaws
 prelude Random.IntNInRange	TestRandLaws
 prelude SliceIsWindow	TestCollLaws
-prelude StructuralFloatKeysHashEqual	#162
-prelude StructuralIntKeysHashEqual	#162
-prelude StructuralStringKeysHashEqual	#162
+prelude StructuralFloatKeysHashEqual	none
+prelude StructuralIntKeysHashEqual	none
+prelude StructuralStringKeysHashEqual	none
 prelude TakeAtIsIndexAndRest	TestCollLaws
 prelude TakeIsGetAndDelete	TestCollLaws
 prelude Task.StopIsIdempotent	TestStdLawsRun
@@ -653,11 +653,11 @@ slices ConcatJoins	TestStdSlicesLawsRun
 slices ContainsIffIndex	TestStdSlicesLawsRun
 slices DedupeKeepsFirst	TestStdSlicesMoreLawsRun
 slices DeleteUndoesInsert	TestStdSlicesLawsRun
-slices FilterFuses	#162
+slices FilterFuses	none
 slices FilterIsIdempotent	TestStdSlicesLawsRun
 slices FilterKeepsTheAccepted	TestStdSlicesLawsRun
 slices FilterMapIsFilterThenMap	TestStdSlicesMoreLawsRun
-slices FilterThenTransform	#162
+slices FilterThenTransform	none
 slices FindAnyAllAgree	TestStdSlicesMoreLawsRun
 slices FlatMapIsConcatOfTransform	TestStdSlicesMoreLawsRun
 slices FoldSumMatchesLoop	TestStdSlicesLawsRun
@@ -680,9 +680,9 @@ slices SortOrders	TestStdSlicesLawsRun
 slices SortPermutes	TestStdSlicesLawsRun
 slices SortStableKeepsTies	TestStdSlicesLawsRun
 slices TransformComposes	TestStdSlicesLawsRun
-slices TransformFuses	#162
+slices TransformFuses	none
 slices TransformIdentity	TestStdSlicesLawsRun
-slices TransformThenFilter	#162
+slices TransformThenFilter	none
 slices ValuesStops	TestStdSlicesLawsRun
 slices WindowsSlide	TestStdSlicesMoreLawsRun
 slices ZipLen	TestStdSlicesMoreLawsRun
@@ -991,5 +991,5 @@ xml AttributesRoundTrip	TestStdXmlLawsRun
 xml ControlCharacterIsRejectedWhereItIs	TestStdXmlLawsRun
 xml OutputIsWellFormed	TestStdXmlLawsRun
 xml RoundTrips	TestStdXmlLawsRun
-xml Text.RawJoins	#162
+xml Text.RawJoins	none
 xml TruncationIsRejectedInsideTheText	TestStdXmlLawsRun

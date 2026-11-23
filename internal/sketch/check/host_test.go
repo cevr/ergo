@@ -31,7 +31,7 @@ func show(e Env) string { e.Get("HOME") }
 // operation calls it captures Ambient where it is built, as std's own
 // would: main checks with Console and Ambient alone, and without Ambient
 // the build site says what it needs. Red at base: Get's call of os.Getenv
-// needs go.Foreign there, and the provider's extra Ambient is refused (#37).
+// needs go.Foreign there, and the provider's extra Ambient is refused.
 //
 // Mutants it alone catches: ffi-host-row-not-written (ergo bind go writes
 // go.Foreign for a host row), ffi-capture-ambient-refused (a provider's

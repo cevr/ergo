@@ -30,7 +30,7 @@ const bindHelp = "usage: ergo bind go [-o DIR] PACKAGE...\n\n" +
 	"element>.ergo instead.\n\n" +
 	"Exit codes: 0 written; 1 go list or a binding failed; 2 invalid invocation.\n"
 
-// bindCommand is `ergo bind go [-o DIR] PACKAGE...` (#202; IG7).
+// bindCommand is `ergo bind go [-o DIR] PACKAGE...` (IG7).
 func bindCommand(args []string) error {
 	if len(args) == 0 || args[0] != "go" {
 		return usageError{message: "ergo bind binds Go packages: ergo bind go [-o DIR] PACKAGE..."}
