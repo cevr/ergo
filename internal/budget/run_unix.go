@@ -45,8 +45,9 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 	//   - A command that asked is capped at what it asked, and one with a
 	//     recorded peak at its reservation or the default, the larger: a run
 	//     past it is killed alone (KilledPastOwnPeak, NotKilledBelowDefault).
-	//     A command never measured is not (UnknownNotCapped): it runs, and
-	//     its peak is recorded for its next take.
+	//     A never-measured command has no learned cap (UnknownNotCapped).
+	//   - A ceiling limits the scope's cap, even without a learned cap or
+	//     memory accounting. It does not change the reservation.
 	// Elsewhere the peak is the largest process's (rusage), with no cap.
 	//
 	// The cores are the kernel's to hold too: the scope's CPUQuota is the
@@ -64,6 +65,12 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 		slice := sliceName(b.state)
 		props := []string{"CPUQuota=" + CPUQuota(b.config().Cores)}
 		scope := []string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "--slice=" + slice, "-p", "CPUQuota=" + CPUQuota(g.Width())}
+		if g.Memory() > 0 || g.capAt > 0 {
+			scope = append(scope, "-p", "OOMPolicy=continue")
+		}
+		if g.capAt > 0 {
+			scope = append(scope, "-p", "MemoryMax="+strconv.FormatInt(g.capAt, 10), "-p", "MemorySwapMax=0")
+		}
 		if g.Memory() > 0 {
 			pf, err := os.CreateTemp("", "ergo-budget-peak-")
 			if err != nil {
@@ -73,14 +80,12 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 			pf.Close()
 			defer os.Remove(peakFile)
 			props = append(props, "MemoryMax="+strconv.FormatInt(g.slice, 10), "MemorySwapMax=0")
-			scope = append(scope, "-p", "OOMPolicy=continue")
-			if g.capAt > 0 {
-				scope = append(scope, "-p", "MemoryMax="+strconv.FormatInt(g.capAt, 10), "-p", "MemorySwapMax=0")
-			}
 			scope = append(scope, "sh", "-c", peakScript, "sh", peakFile)
 		}
 		exec.Command("systemctl", append([]string{"--user", "set-property", "--runtime", slice}, props...)...).Run()
 		run = append(scope, argv...)
+	} else if !g.Lent() && req.Ceiling > 0 {
+		return 1, errors.New("budget: --ceiling requires a systemd user scope")
 	}
 	cmd := exec.Command(run[0], run[1:]...)
 	// The command's streams are files, so cmd.Wait returns when the command
@@ -139,7 +144,13 @@ func Run(ctx context.Context, b *Budget, req Request, argv []string, stdin io.Re
 		peak = maxRSS(cmd.ProcessState)
 		killed = code == 128+int(syscall.SIGKILL)
 	}
-	g.Finish(code, KeptPeak(g.capAt, code, killed, peak))
+	growthCap := g.capAt
+	if growthCap == req.Ceiling {
+		// A hard ceiling does not grow. Keep the observed peak, not a
+		// larger estimate meant to raise a learned cap on the next run.
+		growthCap = 0
+	}
+	g.Finish(code, KeptPeak(growthCap, code, killed, peak))
 	return code, nil
 }
 
