@@ -1,0 +1,22 @@
+import withlend/res
+
+func Local() int {
+	let m = res.Mem{N: 1}
+	let a = with context { res.Store: m } { res.Store.Get() + res.Peek(m) }
+	a + res.Peek(m)
+}
+
+func Param(m res.Mem) int {
+	with context { res.Store: m } { res.Store.Get() }
+}
+
+func Twice() int {
+	let m = res.Mem{N: 1}
+	let a = with context { res.Store: m } { res.Store.Get() }
+	let b = with context { res.Store: m } { res.Store.Get() }
+	a + b
+}
+
+law LendingKeepsTheOwner() {
+	Local() == 3 && Param(res.Mem{N: 4}) == 4 && Twice() == 2
+}

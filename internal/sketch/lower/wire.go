@@ -721,9 +721,16 @@ func (l *lowerer) wireEncodeBody(em wireEvents, tc *typeCtx, b *strings.Builder,
 		b.WriteString(em.close(true, task, w))
 	case *check.Map:
 		l.intMapConflict(u) // intmap.go: the codec reads Go's map
-		k := scope.alloc("k")
+		k, keys := scope.alloc("k"), scope.alloc("keys")
+		rt := l.pkgName(pkgKey{"import", runtimeImport}, "ergo")
 		b.WriteString(em.open(false, "len("+v+")", task, w))
-		b.WriteString("for _, " + k + " := range " + l.pkgName(pkgKey{"import", runtimeImport}, "ergo") + ".WireKeys(" + v + ") {\n")
+		// The keys are sorted in an array of this frame (WireKeysIn), as
+		// the IR's codec writer sorts them: a Map of up to WireKeyRoom keys
+		// allocates nothing. WireKeys' fresh slice was one allocation per
+		// Map written, 1000 of examples/cborpack's 1001 per encode
+		// (CBORPACK-ALLOC-BY-LOWERING).
+		b.WriteString("var " + keys + " [" + rt + ".WireKeyRoom]" + tc.goType(u.Key) + "\n")
+		b.WriteString("for _, " + k + " := range " + rt + ".WireKeysIn(&" + keys + ", " + v + ") {\n")
 		b.WriteString(em.mapKey(k, task, w) + tc.wireEncodeWith(em, u.Elem, env, w, v+"["+k+"]") + "\n}\n")
 		b.WriteString(em.close(false, task, w))
 	case *check.Tuple:

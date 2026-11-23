@@ -368,12 +368,18 @@ func localReplaces(text string) []string {
 	return out
 }
 
-// gitOutput is git's standard output for args, run in dir.
+// gitOutput is git's standard output for args, run in dir, without the
+// optional locks (a read never takes the index lock from a concurrent
+// writer). A failure names git's own message.
 func gitOutput(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && len(exit.Stderr) > 0 {
+			return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(exit.Stderr)))
+		}
 		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
 	}
 	return string(out), nil

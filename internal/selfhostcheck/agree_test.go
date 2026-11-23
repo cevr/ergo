@@ -30,6 +30,9 @@ const sitesVariable = "ERGO_AGREE_SITES"
 // ratchetCommand writes ratchetPath from a run of TestCompilerCheckAgrees.
 const ratchetCommand = "ERGO_WRITE_RATCHET=1 go test -count=1 -run '^TestCompilerCheckAgrees$' ./internal/selfhostcheck"
 
+// Match the run queue's width for the parallel side of the comparison.
+const checkdumpParallelThreads = 4
+
 // ratchetCount is a code's disagreements: Go lines the Ergo side lacks
 // and Ergo lines the Go side lacks.
 type ratchetCount struct {
@@ -131,8 +134,8 @@ func goCheckLines(ds []check.Diagnostic, names []string) []checkLine {
 //   - seeded programs: the unused perturbations of corpus files and the
 //     ownership-flow programs.
 //
-// checkdump runs at -threads 1 and at -threads 8; the two outputs must be
-// the same bytes (a hard failure, never ratcheted). The disagreements are
+// checkdump runs once serially and once in parallel; the two outputs
+// must be the same bytes (a hard failure, never ratcheted). The disagreements are
 // counted per code, a Go line the Ergo side lacks (missing) and an Ergo
 // line the Go side lacks (extra), and held against the ratchet file: a
 // site the file lacks fails, printed in full, and so does a case the file
@@ -249,9 +252,9 @@ func TestCompilerCheckAgrees(t *testing.T) {
 		t.Fatalf("ergo build ./cmd/checkdump: %v\n%s", err, o)
 	}
 	one := runDump(t, ctx, bin, "-std", stdDir(), "-threads", "1", "-corpus", m)
-	eight := runDump(t, ctx, bin, "-std", stdDir(), "-threads", "8", "-corpus", m)
-	if a, b := strings.Join(one, "\n"), strings.Join(eight, "\n"); a != b {
-		t.Fatalf("checkdump -threads 1 and -threads 8 differ:\n%s", firstDifference(one, eight))
+	parallel := runDump(t, ctx, bin, "-std", stdDir(), "-threads", strconv.Itoa(checkdumpParallelThreads), "-corpus", m)
+	if a, b := strings.Join(one, "\n"), strings.Join(parallel, "\n"); a != b {
+		t.Fatalf("checkdump -threads 1 and -threads %d differ:\n%s", checkdumpParallelThreads, firstDifference(one, parallel))
 	}
 	got := make([][]checkLine, len(cases))
 	at := -1
@@ -370,7 +373,7 @@ func firstDifference(a, b []string) string {
 			y = b[i]
 		}
 		if x != y {
-			return fmt.Sprintf("line %d:\n-threads 1: %s\n-threads 8: %s", i+1, x, y)
+			return fmt.Sprintf("line %d:\n-threads 1: %s\n-threads %d: %s", i+1, x, checkdumpParallelThreads, y)
 		}
 	}
 	return "(same lines)"

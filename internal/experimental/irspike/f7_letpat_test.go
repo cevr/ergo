@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
@@ -32,6 +33,17 @@ func f7Property(t *testing.T, name string, gen func(uint64) string, funcs ...str
 // (check reports what it finds wrong; nil checks nothing more).
 func f7PropertyWith(t *testing.T, name string, gen func(uint64) string, check func(lower.IRReport) string, funcs ...string) {
 	t.Helper()
+	f7Run(t, name, gen, check, false, funcs...)
+}
+
+// f7PropertyEval is f7Property with the evaluator as a third oracle.
+func f7PropertyEval(t *testing.T, name string, gen func(uint64) string, funcs ...string) {
+	t.Helper()
+	f7Run(t, name, gen, nil, true, funcs...)
+}
+
+func f7Run(t *testing.T, name string, gen func(uint64) string, check func(lower.IRReport) string, evaluator bool, funcs ...string) {
+	t.Helper()
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
@@ -44,12 +56,22 @@ func f7PropertyWith(t *testing.T, name string, gen func(uint64) string, check fu
 		}
 		u, err := Load(file)
 		if err != nil {
-			t.Fatalf("the program does not check: %v\n%s", err, text)
+			t.Fatalf("the program does not check: %v\n%s\n%s", err, replay, text)
 		}
 		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
 		a, b := run(t, sb), run(t, ib)
 		if a != b {
 			t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay, text)
+		}
+		if evaluator {
+			ev, err := eval.RunMain(u.Package, eval.DefaultBudget(), eval.Process{})
+			if err != nil {
+				t.Fatalf("the evaluator failed: %v\n%s\n%s", err, replay, text)
+			}
+			e := outcome{stdout: ev.Stdout, stderr: firstLine(ev.Stderr), exit: ev.Status}
+			if ev.Skipped != "" || ev.Incomplete != "" || e != a {
+				t.Fatalf("seed %d: the evaluator differs\nevaluator: %+v (skipped %q, incomplete %q)\nsource and IR: %+v\n%s\n%s", seed, e, ev.Skipped, ev.Incomplete, a, replay, text)
+			}
 		}
 		if check != nil {
 			if why := check(rep); why != "" {
@@ -62,7 +84,7 @@ func f7PropertyWith(t *testing.T, name string, gen func(uint64) string, check fu
 		}
 		for _, f := range funcs {
 			if !got[f] {
-				t.Errorf("seed %d: %s has no IR body (IR bodies: %v)\n%s", seed, f, rep.IR, text)
+				t.Errorf("seed %d: %s has no IR body (IR bodies: %v)\n%s\n%s", seed, f, rep.IR, replay, text)
 			}
 		}
 	}

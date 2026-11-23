@@ -45,7 +45,9 @@ func (b *irBuilder) knownCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl) s
 	if !b.fc.knownSite(x, c) {
 		return ""
 	}
-	return b.l.knownName(c.Func, fd)
+	name := b.l.knownName(c.Func, fd)
+	irKnownTraced(name, "call: built at the known variant")
+	return name
 }
 
 // plainCallee reports the call x of a callback parameter of the known
