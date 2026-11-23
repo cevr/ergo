@@ -79,6 +79,7 @@ package lower
 // JIT, a JavaScript engine), as the IR did before this pass.
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -296,7 +297,13 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	// Its rows are empty at the site, so its Go error, nil, is dropped
 	// (dropErr): the copy's returns bind the value and a nil error.
 	known := fd.known != "" && e.Name == fd.known
+	if fd.known != "" {
+		irKnownTraced(e.Name, "mark: known="+strconv.FormatBool(known)+" fd.known="+fd.known)
+	}
 	if f == nil || x.Trailing != nil || c.StartsTask || fd.fallible && (b.dropsErr[e] && !known || len(f.Sig.Results) != 1) || len(f.Sig.Results) > 1 || len(callbackParams(f)) > 0 && !known {
+		if known {
+			irKnownTraced(e.Name, "mark: refused by the call's shape")
+		}
 		return e
 	}
 	// A call in a library body has no identity (calls.go identify): its
@@ -305,6 +312,9 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	// the position of the call (IR-STDINL).
 	anon := !b.fc.directives
 	if f.Pkg == nil || !x.Pos().IsValid() || anon && (irStdInlLowering == "off" || b.l.isSourced(f.Pkg)) {
+		if known {
+			irKnownTraced(e.Name, "mark: refused: no identity (anon)")
+		}
 		return e
 	}
 	// A fallible callee Go would inline itself (a leaf) is the IR's to
@@ -316,6 +326,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		// substituted into the uniform body; the variant's callbacks are
 		// plain Go values of the instance's types, bound as operands.
 		if !b.l.knownInline(f) {
+			irKnownTraced(e.Name, "mark: refused by knownInline")
 			return e
 		}
 	} else if !b.l.inlineSlotBody(f) {
@@ -337,6 +348,9 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 			continue
 		}
 		if i >= len(c.TypeArgs) || tp.Kind != check.KindType && (!tp.Slot || irInlineSlotLowering == "off") {
+			if known {
+				irKnownTraced(e.Name, "mark: refused by type parameter "+tp.Name)
+			}
 			return e
 		}
 		if tp.Kind == check.KindType {
@@ -383,7 +397,20 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 		site.result = irTypeOrNone(func() string { return b.goType(t, x) })
 	}
 	st.inl.sites[e] = site
+	if known {
+		irKnownTraced(e.Name, "mark: marked")
+	}
 	return e
+}
+
+// irKnownTrace, when a test sets it, hears each decision the inliner makes
+// about a call of a known variant (KNOWN-FILTER-INLINE).
+var irKnownTrace func(name, why string)
+
+func irKnownTraced(name, why string) {
+	if irKnownTrace != nil {
+		irKnownTrace(name, why)
+	}
 }
 
 // pays is inline.go's pays for a site, on a loop path or not.
@@ -544,6 +571,25 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		return nil
 	}
 	site := in.st.inl.sites[s.X]
+	if site != nil && site.known && irKnownTrace != nil {
+		callee, frame := in.orig[site.key], in.st.inl.bodies[site.key]
+		why := fmt.Sprintf("splice: mode=%s fallible=%v pays=%v spent=%d size=%d callee=%v frame=%v", mode, site.fallible, site.pays(site.loop || p.loop), p.spent, site.size, callee != nil, frame != nil)
+		if callee != nil && frame != nil {
+			why += fmt.Sprintf(" frame.f=%v args=%d params=%v inlinable=%v localType=%q", frame.f == site.f, len(s.X.Args), frame.params, irInlinable(callee.Body, len(site.f.Sig.Results) == 1, site.fallible), in.localType(s.Local))
+			irWalk(callee.Body, false, func(st *irStmt, lit bool) {
+				x := ""
+				if st.X != nil {
+					x = st.X.K
+				}
+				why += fmt.Sprintf("\n    stmt %s lit=%v x=%s pair=%v", st.K, lit, x, st.Pair)
+			}, func(e *irExpr, lit bool) {
+				if e.K == "result" || e.K == "recover" {
+					why += "\n    expr " + e.K
+				}
+			})
+		}
+		irKnownTrace(site.key, why)
+	}
 	if site != nil && !ret && site.fallible != (mode == "def2") {
 		return nil
 	}

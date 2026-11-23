@@ -280,12 +280,15 @@ func TestKnownVariantInlined(t *testing.T) {
 		t.Fatalf("lowering failed: %v %v %v %v", o.err, o.diags, o.refused, o.panicked)
 	}
 	u := Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: knownLoopSrc}}}
+	var trace []string
+	irKnownTrace = func(name, why string) { trace = append(trace, name+": "+why) }
 	files, report, err := LowerIR(u)
+	irKnownTrace = nil
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.KnownInlined == 0 {
-		t.Error("IR: no call of a known variant is inlined")
+		t.Errorf("IR: no call of a known variant is inlined; the inliner's decisions:\n%s", strings.Join(trace, "\n"))
 	}
 	var ir struct {
 		Funcs []struct {
