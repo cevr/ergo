@@ -411,6 +411,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// takes (lawDecl), as a call on a value of the type does.
 			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{recv}, vals...), env, x, c, x)
 		}
+		if c.Kind == check.CallLawOp && fc.l.runtimeNamed(cap, x) {
+			// A law of an extern Go type (std rand.Stream, time.Timeline)
+			// calls the bound value's runtime method, with that body's
+			// hidden arguments and no task, as a call on a value does.
+			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{env + "." + fc.l.envField(cap)}, vals...), env, x, c, x)
+		}
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
 		vals = append([]string{taskOf(env)}, vals...)
@@ -871,7 +877,7 @@ func hostBase(path string) string {
 
 // taskDestArgs are the leading arguments of a call of a declared function
 // or a function value: the environment. A returned Task is an owned value
-// (#197 L8 B3t): the caller registers it where it receives it, so no
+// (L8 B3t): the caller registers it where it receives it, so no
 // destination frame is passed.
 func (fc *funcCtx) taskDestArgs(x *syntax.CallExpr, _ *check.Call, _ *check.Signature) []string {
 	return []string{fc.envExpr(x)}
@@ -1314,11 +1320,12 @@ func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node)
 	return fc.runtimeCall(name, body, "", recv, vals, "", nil, nil, site)
 }
 
-// ownsResources reports a with that acquires a provider with a checked
-// Close (With.Acquired, the checker's ownership fact).
+// ownsResources reports a with that opens a scope: one that acquires a
+// provider with a checked Close, which it releases or lends
+// (With.Acquired, the checker's ownership fact; Acquisition.Scoped).
 func ownsResources(w *check.With) bool {
 	for _, a := range w.Acquired {
-		if a.Releases() {
+		if a.Scoped() {
 			return true
 		}
 	}
@@ -1365,7 +1372,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
 	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
-		refuse(w.Decl, "a context header with provides or needs is checked by 196b")
+		refuse(w.Decl, "a context header with provides or needs waits for context header checking")
 	}
 }
 
@@ -1506,7 +1513,10 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 	if local {
 		fc.env = outer
 	}
-	if ws != "" {
+	if ws != "" && !a.Lent {
+		// A lent provider is a place: its value cannot fail, and the
+		// with registers no release for it (R11), so it is published
+		// in place like a plain one.
 		fc.withClose(a, target, outer, ws, e.Provider)
 	} else {
 		fc.publishProvider(a, target)
@@ -1604,8 +1614,8 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	if l.runtimeNamed(to, site) {
 		// A std type is the runtime's concrete Go type (stage D3b), a sealed
-		// std protocol the checker refuses a conversion to (C28, #206).
-		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses (#206)", conv.To)
+		// std protocol the checker refuses a conversion to (C28).
+		ice(site, "a value of the program converted to the sealed std type %s, which the checker refuses", conv.To)
 	}
 	toDecl := l.typeDecl(to.Obj, site)
 	if toDecl.kind != kindOps {
@@ -1661,7 +1671,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 		// A provider's requirements are met where a context builds it (rows.md,
 		// Context 4 and 6), never by the caller of its operation, so the
 		// adapter's environment holds the task alone. The checker refuses a
-		// table function that needs capabilities (S108, with #37), except
+		// table function that needs capabilities (S108, with context construction), except
 		// go.Foreign and Ambient, which the converting site holds (README
 		// Gap 17; HOST-ROW): no environment holds go.Foreign (module.go),
 		// and the converting frame's, which the adapter keeps, holds
@@ -1847,7 +1857,7 @@ func isString(t check.Type) bool {
 	return ok && b.Kind == check.String
 }
 
-// Call identities (#230). Every call of the program's source, to a function,
+// Call identities. Every call of the program's source, to a function,
 // an operation or a function value, keeps its Ergo identity: the source
 // declaration that makes it, what it calls and its position. The program
 // lists them in its call table, ergoCalls, and the Go line that makes the

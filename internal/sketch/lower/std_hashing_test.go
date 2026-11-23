@@ -9,9 +9,8 @@ import (
 // stdHashingLawsProbe restates the prelude's Hashing laws (CONSTRAINTS C5;
 // types.md, Maps) as Ergo property tests over the prelude's own provider,
 // Structural, at int, string and float64: the member laws through its
-// functions, and the laws that read a hash (EqualKeysHashEqual,
-// Structural*KeysHashEqual) through hash's lowering. A
-// where the law states (b K where Equal(a, b)) is the test's implication;
+// functions. This probe covers only the laws listed with this Go runner.
+// A where the law states (b K where Equal(a, b)) is the test's implication;
 // the test also ties b to a, and for float64 tries 0.0 and -0.0, which are
 // == and not identical.
 const stdHashingLawsProbe = `let si = Structural[int]
@@ -42,36 +41,16 @@ test PreludeHashingNormalKeyIsEqual(a int, s string) {
 test PreludeHashingEqualKeysNormalEqual(a int, b int) {
 	assert (!si.NormalForm() || !si.Equal(a, b) || si.NormalKey(a) == si.NormalKey(b)) && si.NormalKey(a) == si.NormalKey(a) && (!sf.NormalForm() || sf.NormalKey(0.0) == sf.NormalKey(negZero()))
 }
-
-test PreludeHashingEqualKeysHashEqual(a int, b int, s string) {
-	assert (!si.Equal(a, b) || si.Hash(a) == si.Hash(b)) && si.Hash(a) == si.Hash(a) && ss.Hash(s) == ss.Hash(s) && sf.Hash(0.0) == sf.Hash(negZero())
-}
-
-test PreludeStructuralFloatKeysHashEqual(f float64) {
-	assert (f != f || hash(f) == hash(f)) && hash(0.0) == hash(negZero())
-}
-
-test PreludeStructuralIntKeysHashEqual(a int, b int) {
-	assert (a != b || hash(a) == hash(b)) && hash(a) == hash(a)
-}
-
-test PreludeStructuralStringKeysHashEqual(s string, t string) {
-	assert (s != t || hash(s) == hash(t)) && hash(s) == hash(s)
-}
 `
 
 // stdHashingLawStatements is the statement of each law the probe restates,
 // by ledger key; lawledger.Run holds it equal to the ledger.
 var stdHashingLawStatements = map[string]string{
-	"prelude Hashing.EqualIsReflexive":      `EqualIsReflexive(a K) { Equal(a, a) }`,
-	"prelude Hashing.EqualIsSymmetric":      `EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) }`,
-	"prelude Hashing.EqualIsTransitive":     `EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) }`,
-	"prelude Hashing.NormalKeyIsEqual":      `NormalKeyIsEqual(a K) { !NormalForm() || Equal(a, NormalKey(a)) }`,
-	"prelude Hashing.EqualKeysNormalEqual":  `EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() || NormalKey(a) == NormalKey(b) }`,
-	"prelude Hashing.EqualKeysHashEqual":    `EqualKeysHashEqual(a K, b K where Equal(a, b)) { Hash(a) == Hash(b) }`,
-	"prelude StructuralFloatKeysHashEqual":  `StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }`,
-	"prelude StructuralIntKeysHashEqual":    `StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }`,
-	"prelude StructuralStringKeysHashEqual": `StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }`,
+	"prelude Hashing.EqualIsReflexive":     `EqualIsReflexive(a K) { Equal(a, a) }`,
+	"prelude Hashing.EqualIsSymmetric":     `EqualIsSymmetric(a K, b K) { Equal(a, b) == Equal(b, a) }`,
+	"prelude Hashing.EqualIsTransitive":    `EqualIsTransitive(a K, b K where Equal(a, b), c K where Equal(b, c)) { Equal(a, c) }`,
+	"prelude Hashing.NormalKeyIsEqual":     `NormalKeyIsEqual(a K) { !NormalForm() || Equal(a, NormalKey(a)) }`,
+	"prelude Hashing.EqualKeysNormalEqual": `EqualKeysNormalEqual(a K, b K where Equal(a, b)) { !NormalForm() || NormalKey(a) == NormalKey(b) }`,
 }
 
 // TestStdHashingLawsRun runs the Hashing probe's tests with --seed 1;

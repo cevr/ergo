@@ -137,7 +137,7 @@ func TestUntrackedEvidenceFails(t *testing.T) {
 // each by its test's subtest of the case's name (fu-conf-pending: the rows
 // std-align S1c and S1d added; batch 10: S3a's filepath case, and the
 // round-2 rows of S2a-S2c and S3c). The earlier compiler's evidence tests
-// were deleted with it (#205), so its cases stay pending.
+// were deleted with it, so its cases stay pending.
 var committedClaims = []string{
 	"./internal/sketch/lower TestExecRuns effect.child-process.kills-pipeline",
 	"./internal/sketch/lower TestFilepathRuns effect.path.join-posix",

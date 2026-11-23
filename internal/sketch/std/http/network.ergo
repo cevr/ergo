@@ -2,24 +2,41 @@
 // its policy. Both it and the fixed-origin Net stream a body to a sink
 // under one status rule (Accept, client.ergo).
 
+import config
 import fs
 type OriginPolicy = AnyOrigin{} | Origins{Values []string}
 type RedirectPolicy = NoRedirects{} | Follow{MaxHops int}
 extern go ergo.local/prototype/runtime/v1/http.HTTPOriginRefused type OriginRefused { Origin string }
 extern go ergo.local/prototype/runtime/v1/http.HTTPRedirectLimit type RedirectLimit { URL string, Limit int }
 
-// Credential is a header bound to one origin. Only ForOrigin builds it.
-type Credential { origin string, field Field }
+// Credential is a secret header bound to one origin. Only ForOrigin builds
+// it. Its value stays a Redacted until the transport writes the header, so
+// a Credential, and a URLRequest or a Client that holds one, has no text
+// form and no wire form: a provider wrapped around a Net or a Network (a
+// recorder, a logger) can forward it and never read it.
+type Credential { origin string, name string, value config.Redacted[string] }
 
-func ForOrigin(origin string, field Field) Credential fails InvalidClient {
+// ForOrigin is the header name: value, sent only to origin. The program
+// gives the secret as config.LoadSecret returns it and never reveals it.
+func ForOrigin(origin string, name string, value config.Redacted[string]) Credential fails InvalidClient {
+	Credential{origin: try originOf(origin), name: name, value: value}
+}
+
+// originOf is origin as the network policy reads it (scheme://host[:port],
+// normalized), or InvalidClient.
+func originOf(origin string) string fails InvalidClient {
 	let checked = checkNetwork([]string{origin}, Limits{MaxBodyBytes: 1, MaxHeaderBytes: 1, IdleTimeout: 1s, ReadHeaderTimeout: 1s, ReadBodyTimeout: 1s}) catch {
 	case InvalidLimits:
 		Unreachable("Origin uses positive limits")
 	case InvalidClient as e:
 		return e
 	}
-	Credential{origin: checked[0], field: field}
+	checked[0]
 }
+
+// revealed is c's header as the transport sends it: the one place a
+// credential's secret is revealed.
+func revealed(c Credential) Field { Field{Name: c.name, Value: c.value.Reveal()} }
 
 // URLRequest has one absolute http(s) URL. A marked credential is never a
 // public Header: the transport adds it only at its own origin, at every hop.
@@ -118,7 +135,7 @@ func SendURL(n Remote, r URLRequest) Response fails RequestFailed | OriginRefuse
 	let mut fields = []Field{}
 	for c in r.Credentials {
 		owners = owners.Append(c.origin)
-		fields = fields.Append(c.field)
+		fields = fields.Append(revealed(c))
 	}
 	try fetch(n.origins, n.anyOrigin, n.limits, n.hops, r.Method, r.URL, r.Header, owners, fields, r.Body) catch {
 	case SendFailed as f:
@@ -131,7 +148,7 @@ func SendURLInto(n Remote, r URLRequest, accept Accept, put func(part string) fa
 	let mut fields = []Field{}
 	for c in r.Credentials {
 		owners = owners.Append(c.origin)
-		fields = fields.Append(c.field)
+		fields = fields.Append(revealed(c))
 	}
 	try fetchInto(n.origins, n.anyOrigin, n.limits, n.hops, r.Method, r.URL, r.Header, owners, fields, r.Body, func(status int) bool { Accepts(accept, status) }, put) catch {
 	case SendFailed as f:
@@ -236,7 +253,7 @@ func owners(r URLRequest) []string {
 func credentials(r URLRequest) []Field {
 	let mut out = []Field{}
 	for c in r.Credentials {
-		out = out.Append(c.field)
+		out = out.Append(revealed(c))
 	}
 	out
 }

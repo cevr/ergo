@@ -47,7 +47,7 @@ type File struct {
 // go.mod and main.go: the runtime module's go.mod and the source of
 // runtime/v1 and of runtime/rt, which it imports, and of runtime/explore,
 // which a test build's reachability laws call (machinelaws.go). The lowered main runs
-// under v1.Main, whose defect report names Ergo call sites (#230).
+// under v1.Main, whose defect report names Ergo call sites.
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
 	// Every leaf of runtime/v1 is copied with it: a program imports only
@@ -241,6 +241,9 @@ type lowerer struct {
 
 	names *namer // the Go package scope: every package-scope name (pkgnames.go)
 	fixed *namer // its parent: the fixed generated names and the prelude's (pkgnames.go, rules 4 and 5)
+	// leafImports and leafNames are the runtime's leaves, by import path
+	// and by Go name: fixed names of rule 4 (pkgnames.go, reserveLeaves).
+	leafImports, leafNames map[string]bool
 	// pkgNamers number each non-root package's own declarations (pkgnames.go, rule 2).
 	pkgNamers map[*check.Package]*namer
 	pkgNames  map[pkgKey]string
@@ -313,19 +316,25 @@ type lowerer struct {
 	// rows of ergo inspect facts that no Go pass reads.
 	foreign  []placedFact
 	contexts map[contextSet]string
-	adapters map[string]string        // operation-table adapters by source and target Go types
-	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
-	texts    map[pkgKey]bool          // generated text functions emitted
-	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
-	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
-	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
-	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
-	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
-	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
-	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
-	holds    map[*check.Named]holdState
-	typeKeys map[check.Type]string
+	adapters map[string]string // operation-table adapters by source and target Go types
+	scripts  map[string]bool   // Script structs emitted, by instance key (script.go)
+	texts    map[pkgKey]bool   // generated text functions emitted
+	defaults map[pkgKey]bool   // generated default functions emitted (types.go, Defaults)
+	equals   map[pkgKey]bool   // generated equality functions emitted (equal.go)
+	wires    map[pkgKey]bool   // generated codec functions emitted (wire.go)
+	clones   map[pkgKey]bool   // generated copy functions emitted (values.go)
+	goVars   map[pkgKey]bool   // getters of Go package variables emitted (ir_govar.go)
+	machines map[pkgKey]string // generated machine value functions emitted, to their Go result (ir_machine.go)
+	// machineOfDone marks each generic machine whose conversion function
+	// is written (machineentry.go).
+	machineOfDone map[*check.TypeName]bool
+	// entryCopies are the computed entries' copies, nil for an entry
+	// whose call is not known (entrycopy.go).
+	entryCopies map[pkgKey]*entryCopy
+	vals        *valueFacts              // the value rule's decisions (values.go)
+	sets        map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
+	holds       map[*check.Named]holdState
+	typeKeys    map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
@@ -394,9 +403,9 @@ type lowerer struct {
 	builtinDone  map[string]bool      // the reference's builtin helpers written (builtinHelper)
 	patternsDone map[string]bool      // the pattern matchers written (refinematch.go)
 
-	calls    []callIdent // the call table (calls.go, #230)
+	calls    []callIdent // the call table (calls.go)
 	callSeen map[*syntax.CallExpr]bool
-	decls    []declIdent // the declaration table (calls.go, #230)
+	decls    []declIdent // the declaration table (calls.go)
 	declSeen map[syntax.Node]bool
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
@@ -531,7 +540,16 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 
 // lowererOf is the lowerer of the canonical unit c of the package pkg, whose
 // root unit requires the Go modules goModule.
+// loweringWork, when set, is called with "lowerer" for each lowerer made
+// and "body" for each function body lowered (emitBody), whatever entry
+// point made them: the package tests' probe log counts the work of each
+// test by it (split_test.go, probeLog). Nil outside the tests.
+var loweringWork func(kind string)
+
 func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testLowering) *lowerer {
+	if loweringWork != nil {
+		loweringWork("lowerer")
+	}
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
@@ -733,6 +751,10 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	if l.ir != nil {
 		l.ir.inlineBodies(l) // ir_forms_inline.go: before the call table, which writes the inline table
+		l.guard(func() { l.ir.flatEnd(l) })
+		if len(l.refusals) > 0 {
+			return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
+		}
 	}
 	table := l.callTable()   // before the imports: it may name the runtime package
 	table += l.lineageDecl() // likewise (handover.go)
@@ -917,7 +939,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		b.WriteString("\t" + rt + ".StdoutDirect()\n")
 	}
 	// main runs as the root task under v1.Main, which reports its exit:
-	// a typed failure, a defect with its Ergo call sites (#230), or an
+	// a typed failure, a defect with its Ergo call sites, or an
 	// interruption (runtime.md, Exit causes). The environment holds that
 	// task (stage D3b, Rule 1).
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", fields, func(env string) string {

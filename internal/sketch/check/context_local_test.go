@@ -124,7 +124,7 @@ func localRules() []localRule {
 		{"charge-each-with", "func f() string needs Store {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet a = with w { Store.Get() }\n\tlet b = with w { Store.Get() }\n\ta + b\n}\n\nfunc g() string {\n\tlet w = context { Store: Holder{v: read()} }\n\twith Stored {\n\t\tlet a = with w { Store.Get() }\n\t\t_ = a\n\t}\n\twith w { Store.Get() } // want S102\n}\n"},
 		{"charge-literal-row", "func f() int {\n\tlet w = context { Store: Holder{v: read()} }\n\tlet g = func() string needs Store {\n\t\twith w { Store.Get() }\n\t}\n\t_ = g\n\t1\n}\n\nfunc h() func() string {\n\tlet w = context { Store: Holder{v: read()} }\n\tfunc() string {\n\t\twith w { Store.Get() } // want S102\n\t}\n}\n"},
 
-		// The header and a constructor entry stay refused (#196 stage b, #37).
+		// The header and a constructor entry stay refused (stage b).
 		{"local-header", "func f() string {\n\tlet w = context provides Greeter { Greeter: Plain } // want S109\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
 		{"local-constructor", "func mk() Plain {\n\tPlain\n}\n\nfunc f() string {\n\tlet w = context { Greeter: mk } // want S109\n\twith w { Greeter.Greet(\"x\") }\n}\n"},
 	}
@@ -211,11 +211,6 @@ func judgeLocal(t *testing.T, src string) {
 	want, have := expected(src), got(diags)
 	if strings.Join(want, " ") != strings.Join(have, " ") {
 		t.Fatalf("want %v, got %v\n\t%s\n%s", want, have, describe(diags), numbered(src))
-	}
-	for _, d := range diags {
-		if strings.Contains(d.Message, "not checked yet") && strings.Contains(d.Message, "196x") {
-			t.Errorf("a 196x refusal is left: %s", d)
-		}
 	}
 	if len(diags) == 0 {
 		if gaps := check.InfoGaps(src); len(gaps) > 0 {

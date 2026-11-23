@@ -328,7 +328,22 @@ func genRunProgram(r *rand.Rand, k int, seen map[string]bool) machineProgram {
 		fmt.Fprintf(&b, "func start(x int, y int) St { S%d{n: x - y + %d} }\n\n", init.v, init.n)
 		initial = "start"
 	}
-	fmt.Fprintf(&b, "type M machine[St, Sig] {\n\tinitial: %s,\n\tstep:    step,\n%s}\n\n", initial, after)
+	// Each entry is written in one of the entry forms (MACHINE-EXPR): its
+	// function's name, or an expression that computes it (entryForm), drawn
+	// from a source of its own so the program's other draws stay the seed's.
+	fr := rand.New(rand.NewSource(int64(k)*7919 + 1))
+	stepSig := "func(s St, e Sig) Decision[St, int]" + row
+	stepExpr := entryForm(&b, fr, seen, "step", "step", stepSig, "s St, e Sig", "s, e", true)
+	if timed {
+		after = "\tafter:   " + entryForm(&b, fr, seen, "after", "timer", "func(s St) Option[Timeout[Sig]]", "s St", "s", false) + ",\n"
+	}
+	switch inputs {
+	case 1:
+		initial = entryForm(&b, fr, seen, "start", "start", "func(x int) St", "x int", "x", false)
+	case 2:
+		initial = entryForm(&b, fr, seen, "start", "start", "func(x int, y int) St", "x int, y int", "x, y", false)
+	}
+	fmt.Fprintf(&b, "type M machine[St, Sig] {\n\tinitial: %s,\n\tstep:    %s,\n%s}\n\n", initial, stepExpr, after)
 	b.WriteString("func show(s St) string {\n\tmatch s {\n")
 	for i := range ns {
 		fmt.Fprintf(&b, "\tcase S%d as a:\n\t\t\"S%d \\(a.n)\"\n", i, i)
@@ -512,6 +527,38 @@ func timed(m MT, trace []machines.Timed[Sig], end int) string CLOCKED {
 	return machineProgram{name: fmt.Sprintf("machinerun_%02d", k), src: src, want: want}
 }
 
+// entryForm writes the builders of one machine entry, named what, whose
+// function is fn of the type sig (params and args its literal's parameter
+// list and its call's arguments), and gives the entry's expression in a
+// form drawn from r (MACHINE-EXPR; runtime.md, Machines and actors 1): the
+// name fn; a call that gives the function back (via); a call that gives a
+// literal calling it (wrap, so the run calls a closure that calls fn); or
+// a call that picks it by a value (pick: an argument that is no function).
+// Every form runs the same function, so the reference fold is the same:
+// the property is that each expression form agrees with the named form.
+// fails marks the step's row, which the literal passes on with try.
+func entryForm(b *strings.Builder, r *rand.Rand, seen map[string]bool, what, fn, sig, params, args string, fails bool) string {
+	form := r.Intn(4)
+	seen[fmt.Sprintf("a %s written as %s", what, []string{"a name", "via", "wrap", "pick"}[form])] = true
+	call := fn + "(" + args + ")"
+	if fails {
+		call = "try " + call
+	}
+	result := strings.TrimSpace(sig[strings.Index(sig, ")")+1:])
+	switch form {
+	case 1:
+		fmt.Fprintf(b, "func via_%s(f own %s) %s { f }\n\n", what, sig, sig)
+		return "via_" + what + "(" + fn + ")"
+	case 2:
+		fmt.Fprintf(b, "func wrap_%s(f own %s) %s {\n\tfunc(%s) %s { %s }\n}\n\n", what, sig, sig, params, result, strings.Replace(call, fn+"(", "f(", 1))
+		return "wrap_" + what + "(" + fn + ")"
+	case 3:
+		fmt.Fprintf(b, "func pick_%s(first bool, f own %s, g own %s) %s {\n\tif first { f } else { g }\n}\n\n", what, sig, sig, sig)
+		return "pick_" + what + "(true, " + fn + ", " + fn + ")"
+	}
+	return fn
+}
+
 // TestMachineRunAgreesWithFold is the acceptance property: over generated
 // step tables, timers and signal lists, machines.Run, machines.From and
 // machines.Initial print what the reference fold computes, Emit outputs
@@ -560,7 +607,10 @@ func TestMachineRunAgreesWithFold(t *testing.T) {
 	ends := []string{"running", "finished", "rejected", "boom", "-", "emitted"}
 	cases := []string{"timer fired after a stay", "timer fired after a tell", "a stale timer came due", "signal at its timer's deadline", "timer just before a signal", "timer rejected",
 		"timer fired in an entry opened by first", "timer fired in an entry opened by enter", "timer fired in an entry opened by emit", "a timer of an entry a late signal opened fired",
-		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs", "a machine with a record state", "a machine with a record signal"}
+		"a machine with 0 inputs", "a machine with 1 inputs", "a machine with 2 inputs", "a machine with a record state", "a machine with a record signal",
+		"a step written as a name", "a step written as via", "a step written as wrap", "a step written as pick",
+		"a after written as a name", "a after written as via", "a after written as wrap", "a after written as pick",
+		"a start written as a name", "a start written as via", "a start written as wrap", "a start written as pick"}
 	missing := func() string {
 		seen["a timer of an entry a late signal opened fired"] = seen["timer fired in an entry opened by enter late"] || seen["timer fired in an entry opened by emit late"]
 		for _, k := range ends {

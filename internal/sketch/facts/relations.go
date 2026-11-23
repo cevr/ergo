@@ -154,7 +154,7 @@ func (b *builder) machines(files []File, encls map[syntax.Decl]uint32) {
 		if g == nil {
 			continue
 		}
-		m := MachineGraph{Sym: id, Initial: g.Initial, Unsure: g.Unsure}
+		m := MachineGraph{Sym: id, Initial: g.Initial, Unsure: g.Unsure, Computed: g.Computed}
 		for _, v := range g.States {
 			m.States = append(m.States, v.Name)
 		}

@@ -5,7 +5,7 @@ import "errors"
 // GoError is go.Error, the failure of a Go call whose last result is an
 // error (lane G, G4; decision O14; docs/spec/interop.md, Go errors). It
 // keeps Go's own error, so go.Is and go.As read its chain as errors.Is and
-// errors.As do (IG5, #202). Its one Ergo field, Text, is the error's
+// errors.As do (IG5). Its one Ergo field, Text, is the error's
 // Error(), computed when it is read (Text): a failure nobody prints costs
 // what hand Go's `return err` costs. The zero GoError is go.Error{} (Text
 // "").

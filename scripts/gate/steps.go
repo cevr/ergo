@@ -124,18 +124,6 @@ func hostSteps(root, pkg, relative string, measured map[string]float64) []*Step 
 	return steps
 }
 
-// hermeticTestRoot holds the gate's hermetic test packages: every package
-// below it that is not a host package. Their step is the gate's one
-// exception to uncached go tests (Step.Hermetic): they replay from Go's test
-// cache, so each must be hermetic (package scripts/gate/hermetic): it runs
-// no program but its own test binary, and its step builds it with
-// CGO_ENABLED=0, so it loads no shared library.
-// TestCachedGatePackagesAreHermetic checks every package of that step.
-const hermeticTestRoot = "scripts/gate/"
-
-// hermeticEnvironment is what a hermetic step adds to the environment.
-var hermeticEnvironment = []string{"CGO_ENABLED=0"}
-
 // goRuntimeEnvironment are variables every Go-built program reads at startup.
 // They change what a program prints without changing its bytes: GODEBUG=
 // inittrace=1 writes to standard error, GOTRACEBACK shapes a crash report. A
@@ -287,7 +275,24 @@ func gateSteps(root string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := checkDurationRows(root, packages); err != nil {
+		return nil, err
+	}
 	return declareSteps(root, packages)
+}
+
+// checkDurationRows fails when durations.json has a row for no package of
+// packages, the module's (staleDurationRows). A package with no row is no
+// failure: it weighs by its count of tests (countedSeconds).
+func checkDurationRows(root string, packages []string) error {
+	durations, err := readDurations(root)
+	if err != nil {
+		return err
+	}
+	if stale := staleDurationRows(durations, packages); len(stale) > 0 {
+		return fmt.Errorf("%s has rows for no package of the module: %s; remove them (./scripts/gate.sh -record-durations writes a package's row under its import path)", durationsFile, strings.Join(stale, ", "))
+	}
+	return nil
 }
 
 // declareSteps declares the gate's steps, testing the given Go packages. A
@@ -348,6 +353,11 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
+	// pkgDir is the directory of the module's package pkg (packageSeconds
+	// counts its tests when it has no row).
+	pkgDir := func(pkg string) string {
+		return filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(pkg, modulePath(root)+"/")))
+	}
 	cpu, err := readTestCPU(root)
 	if err != nil {
 		return nil, err
@@ -356,7 +366,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if err != nil {
 		return nil, err
 	}
-	rt := packageSeconds(durations[modulePath(root)+"/runtime/rt"])
+	rt := packageSeconds(durations[modulePath(root)+"/runtime/rt"], pkgDir(modulePath(root)+"/runtime/rt"))
 	add(&Step{Name: "explored scheduler", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(rt), "./runtime/rt"}, Weight: rt, Class: classHeavy})
 	// runtime/v1 and its rpc leaf in the explored build (explore_on.go,
 	// explore_laws.go, rpc explore_rpc_test.go):
@@ -364,19 +374,15 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	// scheduler; its waits go through the scheduler (runtime.md, Explored
 	// schedules). The tagged run has no row of its own, so the step weighs
 	// runtime/v1's record.
-	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"])
+	v1 := packageSeconds(durations[modulePath(root)+"/runtime/v1"], pkgDir(modulePath(root)+"/runtime/v1"))
 	add(&Step{Name: "explored runtime/v1", Argv: []string{"go", "test", "-tags", "ergoexplore", testTimeoutFor(v1), "./runtime/v1", "./runtime/v1/rpc"}, Weight: v1, Class: classHeavy})
-	var unsharded, hermetic []string
+	var unsharded []string
 	for _, pkg := range packages {
 		relative := strings.TrimPrefix(pkg, modulePath(root)+"/")
 		if slices.Contains(hostTestPackages, relative) {
 			for _, step := range hostSteps(root, pkg, relative, durations[pkg]) {
 				add(step)
 			}
-			continue
-		}
-		if strings.HasPrefix(relative, hermeticTestRoot) {
-			hermetic = append(hermetic, pkg)
 			continue
 		}
 		_, ok := durations[pkg]
@@ -417,7 +423,7 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 	others := 0.0
 	for _, pkg := range unsharded {
-		others += packageSeconds(durations[pkg])
+		others += packageSeconds(durations[pkg], pkgDir(pkg))
 	}
 	add(&Step{Name: "go test (other packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", "-json", testTimeoutFor(others)}, unsharded...), ToolEnv: testTools, Observe: true, Weight: others, Class: classHeavy})
 	add(&Step{Name: sizesStep, Needs: []string{"go test build"}, Argv: []string{"go", "run", sizesCommand}, Weight: sizesWeight, Class: classHeavy})
@@ -435,26 +441,17 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 			if tests, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*_test.go")); err != nil || len(tests) == 0 {
 				continue
 			}
-			sweep := sweepStep(dir, sweepWeight(durations, pkg, sweepCosts[dir]))
+			sweep := sweepStep(dir, sweepWeight(durations, pkg, pkgDir(pkg), sweepCosts[dir]))
 			sweep.Name = "closure sweep ./" + dir
 			sweep.Needs = []string{"go test build"}
 			add(sweep)
 		}
 	}
-	// The one step that keeps Go's test cache (Step.Hermetic); every other
-	// step runs its go tests uncached.
-	if len(hermetic) > 0 {
-		weight := 0.0
-		for _, pkg := range hermetic {
-			weight += packageSeconds(durations[pkg])
-		}
-		add(&Step{Name: "go test (hermetic gate packages)", Needs: []string{"go test build"}, Argv: append([]string{"go", "test", testTimeoutFor(weight)}, hermetic...), Env: hermeticEnvironment, Hermetic: true, Weight: weight, Class: classHeavy})
-	}
 	// prototypes/sketch9 is its own module, so ./... never reaches it, but its
 	// kernel mode links this checkout's runtime/rt. ERGO_REPO_ROOT gives its
 	// kernel tests that checkout explicitly: set, any problem with it (a
 	// missing directory, a go.mod Go refuses, another module) fails them, and
-	// they skip only when it is unset (#218). The tests build and run programs
+	// they skip only when it is unset. The tests build and run programs
 	// against that runtime through a go build subprocess, whose reads Go's test
 	// cache cannot see, so they run uncached; env sets the variable, which the
 	// filtered environment of a plain go test step would drop.
@@ -485,6 +482,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 		return nil, err
 	}
 	add(&Step{Name: "ergo fmt --check", Needs: []string{buildCLIStep}, Argv: append([]string{"./bin/ergo", "fmt", "--check"}, examples...), Class: classFast})
+	for _, step := range generatedSteps() {
+		add(step)
+	}
 
 	// The site's snippets (site/snippets): every checked snippet checks
 	// and is formatted, every planned one fails exactly as its markers say
@@ -509,6 +509,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	}
 
 	if step := compilerErgoTests(root); step != nil {
+		add(step)
+	}
+	if step := stdLawsInPlace(root); step != nil {
 		add(step)
 	}
 
@@ -558,15 +561,17 @@ func compilerErgoTests(root string) *Step {
 	return &Step{Name: "ergo tests compiler/...", Argv: []string{"go", "run", "./scripts/ergotests", "./compiler/..."}, Class: classHeavy}
 }
 
-// uncachedStep is the step as the merge tier runs it: without the hermetic
-// exception, so it runs with the gate's uncached default (stepEnvironment)
-// like every other step, and no go test it starts, at any depth, replays
-// Go's test cache. Its argv is the inner tier's. Go's build cache stays: it
-// is keyed by content, the toolchain included.
-func uncachedStep(step *Step) *Step {
-	uncached := *step
-	uncached.Hermetic = false
-	return &uncached
+// stdLawsInPlace is the step that runs every std package's laws and tests
+// on its own source, in-package, and holds that each std law no Go test
+// runs passed there or is listed as red (scripts/ergotests -std,
+// NATIVE-LAWS). Before it, no gate step ran a std law that has no Go
+// runner. About two minutes and 0.7 GB (2026-11-22), so the full tier
+// only. A checkout without the std sources has none.
+func stdLawsInPlace(root string) *Step {
+	if _, err := os.Stat(filepath.Join(root, "internal", "sketch", "std")); err != nil {
+		return nil
+	}
+	return &Step{Name: "std laws in place", Argv: []string{"go", "run", "./scripts/ergotests", "-std"}, Class: classHeavy}
 }
 
 // stagedBuild returns a command that builds a package's executable to a
@@ -585,6 +590,30 @@ func stagedBuild(root, out, pkg string) []string {
 	staging := filepath.Join(cache, "build", hex.EncodeToString(sum[:8]), filepath.Base(out))
 	// The script's $0 names it, not a shell.
 	return stagedBuildScript.command("stagedbuild", staging, out, pkg)
+}
+
+// generatedStep and generatedFreshStep check every checked-in generated
+// file against a fresh regeneration (docs/spec/build.md, Generators;
+// MONOREPO WT2a): ergo.work's gen lines and each member's ergo gen
+// packages, in the order their inputs give. In every tier the step takes
+// the task store's hits, so a lane whose edit reaches no generator's input
+// pays a lookup (about 0.4 G instructions, all hits), and a stale file
+// fails naming it. The full and merge tiers also run it with --fresh,
+// which trusts no hit (a landing never rests on vouched reads). Neither
+// has Inputs: ergo task is its own cache. They write only the --check
+// copy, under .git. TestLinkedGoIsFresh and TestStdSnapshotIsCurrent run
+// beside them until the step has been green on three landings.
+const (
+	generatedStep      = "generated files (ergo task gen --check)"
+	generatedFreshStep = "generated files, fresh (ergo task gen --check --fresh)"
+)
+
+// generatedSteps are the steps generatedStep and generatedFreshStep.
+func generatedSteps() []*Step {
+	return []*Step{
+		{Name: generatedStep, Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "task", "gen", "--check"}, Class: classFast},
+		{Name: generatedFreshStep, Needs: []string{buildCLIStep}, Argv: []string{"./bin/ergo", "task", "gen", "--check", "--fresh"}, Class: classHeavy},
+	}
 }
 
 // effectMappingStep checks the Effect behavior mapping and its evidence
@@ -781,7 +810,7 @@ func runnerInputs(root, runner string) (paths, exclude []string, err error) {
 	command := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.Dir}}\t{{join .EmbedFiles \"\\t\"}}{{end}}", runner)
 	command.Dir = root
 	command.Env = stepEnvironment()
-	output, err := runOutput(command)
+	output, err := listOutput(command)
 	if err != nil {
 		return nil, nil, fmt.Errorf("go list -deps %s: %w", runner, err)
 	}
@@ -821,7 +850,7 @@ func runnerInputs(root, runner string) (paths, exclude []string, err error) {
 func goPackages(root string) ([]string, error) {
 	command := exec.Command("go", "list", "./...")
 	command.Dir = root
-	output, err := runOutput(command)
+	output, err := listOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("go list ./...: %w", err)
 	}
@@ -898,13 +927,13 @@ func shardWeights(groups [][]string, measured map[string]float64) []float64 {
 	return weights
 }
 
-// recordedSeconds is the recorded time of the tests names, or 0 when their
-// package has no row (measured is nil), which the slot pool reads as
-// unrecordedWeight. A recorded total under minRecordedWeight counts as it,
+// recordedSeconds is the recorded time of the tests names, or, when their
+// package has no row (measured is nil), their counted weight
+// (countedSeconds). A recorded total under minRecordedWeight counts as it,
 // so a package of quick tests is not taken for one with no record.
 func recordedSeconds(names []string, measured map[string]float64) float64 {
 	if measured == nil {
-		return 0
+		return countedSeconds(names)
 	}
 	total := 0.0
 	for _, name := range names {
@@ -917,6 +946,35 @@ func recordedSeconds(names []string, measured map[string]float64) float64 {
 // of durations.json (writeDurations rounds to a hundredth of a second).
 const minRecordedWeight = 0.01
 
+// countedSeconds is the weight of tests that durations.json has no row for:
+// unrecordedTestSeconds for each, from the names the source declares. A new
+// package weighs by its count of tests, so it needs no measured row before
+// the gate can order it; its rows only sharpen the order (-record-durations).
+func countedSeconds(names []string) float64 {
+	return float64(len(names)) * unrecordedTestSeconds
+}
+
+// unrecordedTestSeconds is the expected seconds of one test with no row:
+// the mean of the recorded tests (2734 rows, 2.06 s, 2026-11-22). The
+// median is 0.06 s, but a step's weight is a sum, and the mean is what a
+// sum of unknown tests expects.
+const unrecordedTestSeconds = 2.0
+
+// staleDurationRows are the rows of durations.json that name no test
+// package of the module (packages, import paths): a package that was
+// moved or deleted, or a row written by hand under another key. Such a row
+// weighs nothing the gate runs, so it fails the gate instead of drifting.
+func staleDurationRows(durations map[string]map[string]float64, packages []string) []string {
+	var stale []string
+	for pkg := range durations {
+		if !slices.Contains(packages, pkg) {
+			stale = append(stale, pkg)
+		}
+	}
+	slices.Sort(stale)
+	return stale
+}
+
 // sweepWeightFactor is a closure sweep's expected time over its package's
 // recorded test time (Step.Weight): the sweep runs every test observed,
 // with a cold GOCACHE per run. internal/sketch/lower recorded 368 s and its
@@ -924,24 +982,35 @@ const minRecordedWeight = 0.01
 const sweepWeightFactor = 4
 
 // sweepWeight is the expected seconds of the closure sweep of the package
-// importPath, or 0 (unrecordedWeight) when durations.json has no row for
-// it. A host package's sweep weighs 0 too: the sweep does not run its tests
+// importPath, whose directory is dir (packageSeconds). A host package's sweep weighs 0 too: the sweep does not run its tests
 // (internal/closure's unsweepable: they start bwrap), so their recorded
 // time, hundreds of seconds for scripts/gate, does not predict the step. A
 // package whose sweep was recorded (sweepCostFile) weighs at least what it
 // took (GS23).
-func sweepWeight(durations map[string]map[string]float64, importPath string, recorded sweepCost) float64 {
+func sweepWeight(durations map[string]map[string]float64, importPath, dir string, recorded sweepCost) float64 {
 	for _, host := range hostTestPackages {
 		if strings.HasSuffix(importPath, "/"+host) {
 			return 0
 		}
 	}
-	return max(sweepWeightFactor*packageSeconds(durations[importPath]), recorded.Sweep)
+	return max(sweepWeightFactor*packageSeconds(durations[importPath], dir), recorded.Sweep)
 }
 
 // packageSeconds is the recorded time of every test of a package's rows
-// (recordedSeconds).
-func packageSeconds(measured map[string]float64) float64 {
+// (recordedSeconds), or, with no rows, the counted weight of the tests its
+// directory dir declares (countedSeconds; none when dir is "" or unread,
+// which the slot pool reads as unrecordedWeight).
+func packageSeconds(measured map[string]float64, dir string) float64 {
+	if measured == nil {
+		if dir == "" {
+			return 0
+		}
+		names, err := testNames(dir)
+		if err != nil {
+			return 0
+		}
+		return countedSeconds(names)
+	}
 	return recordedSeconds(slices.Collect(maps.Keys(measured)), measured)
 }
 
@@ -962,7 +1031,7 @@ var slowPackages = []string{"./cmd/ergo", "./internal/experimental/irspike", "./
 func testedPackages(root string) ([]string, error) {
 	command := exec.Command("go", "list", "-f", "{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}", "./...")
 	command.Dir = root
-	output, err := runOutput(command)
+	output, err := listOutput(command)
 	if err != nil {
 		return nil, fmt.Errorf("go list ./...: %w", err)
 	}

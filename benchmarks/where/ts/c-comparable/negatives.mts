@@ -6,7 +6,7 @@ import type { HashMap, File, UserId, Key } from './lib.mjs';
 sort3(three(makeUser("c", 3n), makeUser("a", 1n), makeUser("b", 2n)));
 // @ts-expect-error TS2345 N2 a function-keyed map
 const fnKeys = insert(empty<() => void, string>(), () => {}, "v");
-// @ts-expect-error TS2345 N3 a resource-handle key (File, #96)
+// @ts-expect-error TS2345 N3 a resource-handle key (File)
 const fileKeys = insert(empty<File, string>(), openFile("x"), "v");
 // @ts-expect-error TS2345 N4 a record with a callable field
 const callbackKeys = insert(empty<{ readonly id: bigint; readonly run: () => void }, string>(), { id: 1n, run: () => {} }, "v");

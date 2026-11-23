@@ -1,0 +1,11 @@
+// subject is the smallest program of two generated packages, measured by
+// nativeab's smoke (a build, then a private body edit of subject/lib).
+
+import io
+import subject/lib
+
+func main() needs Ambient {
+	with context { io.Stdout: io.NewHost() } {
+		io.Stdout.Println("\(lib.Scale(14))")
+	}
+}

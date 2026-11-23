@@ -168,7 +168,7 @@ var declared = map[string][]allowance{
 		},
 		[]allowance{{"docs/receipts/std-count.md", file, "TestStdStrengthsTable holds the counted: cells of the strengths table to the std count receipt's packages (std-better SB0)"}},
 		[]allowance{{"runtime/v1/csv/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf csv for the benchmark its table names"}},
-		[]allowance{{"runtime/v1/digest/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the hex, base64 and crc32 laws"}},
+		[]allowance{{"runtime/v1/digest/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf digest runs the SHA-256 streaming laws"}},
 		[]allowance{{"runtime/v1/exec/*_test.go", files, "TestStdLawLedger reads the test files of the runner packages (runnerPackages): the leaf exec runs the exec laws"}},
 		[]allowance{{"runtime/v1/http/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf http for the benchmark its table names"}},
 		[]allowance{{"runtime/v1/net/*_test.go", files, "TestStdStrengthsTable reads the test files of the leaf net for the benchmark its table names"}},
@@ -200,7 +200,6 @@ var declared = map[string][]allowance{
 		glob("internal/sketch/sketchtest/testdata/migrated/*.ergo", "the migrated examples parse (sketchtest.Repository)"),
 		[]allowance{
 			{"examples/editions/sketch/main.ergo", file, "the 2026 example program parses (sketchtest.Repository)"},
-			{"docs/previews/2026-10-28-without-go-syntax.md", file, "the decided syntax matches the preview it was decided from"},
 		},
 	),
 	"internal/hostsyntax": declare(

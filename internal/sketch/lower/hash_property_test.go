@@ -78,7 +78,7 @@ test V {
 	return b.String()
 }
 
-// TestHashThroughProviderAgrees is hash's property (#162; CONSTRAINTS C5;
+// TestHashThroughProviderAgrees is hash's property (CONSTRAINTS C5;
 // types.md, Maps): on each seed's keys, hash through a Hashing provider
 // gives equal keys one hash and a Map keyed through the provider counts
 // as the model does, at check time and in the test build lowered three

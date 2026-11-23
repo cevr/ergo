@@ -1,0 +1,8 @@
+# scripts/opcount: `mexpr bench computed N` runs machines.Run over N
+# signals on a machine whose step is computed (step: Both(left, right));
+# the cost of one signal is the slope between the two sizes (MACHINE-EXPR,
+# the speed rule). The control is the hand Go fold.
+unit signal
+sizes 400000 2400000
+args bench computed {n}
+control benchmarks/mexpr/testdata/control

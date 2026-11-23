@@ -34,7 +34,7 @@ func (fc *funcCtx) snapshot(n syntax.Node, build func() string) string {
 		return build()
 	}
 	if capture := fc.l.info.TaskCaptures[n]; capture != nil {
-		// Resource captures move by R12 (#197 L8 B3t); taskSnapshot binds
+		// Resource captures move by R12 (L8 B3t); taskSnapshot binds
 		// their one moved value, so the value rule does not copy them.
 		moved := map[*check.Var]bool{}
 		for _, v := range capture.Vars {

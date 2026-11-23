@@ -1,10 +1,10 @@
 // The mcp.Transport law on stdio's Transport, over a text in memory and a
-// Recorder (io.InOver, io.HostOver): no host is read or written, so the
+// Recorder (io.NewInput, io.NewRecorder): no host is read or written, so the
 // context needs no authority.
 
 import mcp
 import io
 
 let overText = context {
-	mcp.Transport: Transport{input: io.InOver("{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n"), out: io.HostOver(io.NewRecorder())},
+	mcp.Transport: Transport{input: io.NewInput("{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n"), out: io.NewRecorder()},
 }

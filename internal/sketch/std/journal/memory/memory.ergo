@@ -14,7 +14,7 @@ import queue
 // Journal is the memory journal of states S and signals E. Its values are
 // copies of one journal: each sees what any of them kept.
 type Journal[S, E] {
-	append   func(e E) fails journal.Failed,
+	append   func(e E, expected int) fails journal.Stale | journal.Failed,
 	snapshot func(s S),
 	load     func() journal.Log[S, E],
 } implements journal.Journal[S, E]
@@ -93,13 +93,13 @@ func crashing() (Journal[int, int], func(mode int), func() []int) {
 	let armed = sync.NewRef(0)
 	let all = sync.NewRef([]int{})
 	let j = Journal[int, int]{
-		append: func(e int) fails journal.Failed {
+		append: func(e int, expected int) fails journal.Stale | journal.Failed {
 			let mode = armed.Get()
 			armed.Set(0)
 			if mode == 1 {
 				return journal.Failed{Reason: "crash before the write"}
 			}
-			try inner.Append(e)
+			try inner.Append(e, expected)
 			all.Update(func(xs []int) []int { xs.Append(e) })
 			if mode == 2 {
 				return journal.Failed{Reason: "crash after the write"}
@@ -173,12 +173,42 @@ func recovers(j journal.Journal[int, int], arm func(mode int), all func() []int,
 func New[S, E]() Journal[S, E] {
 	let log = sync.NewRef(journal.Log[S, E]{Snapshot: None, Signals: []E{}})
 	Journal[S, E]{
-		append: func(e E) fails journal.Failed {
-			log.Update(func(l journal.Log[S, E]) journal.Log[S, E] { journal.Log[S, E]{Snapshot: l.Snapshot, Signals: l.Signals.Append(e)} })
+		append: func(e E, expected int) fails journal.Stale | journal.Failed {
+			let actual = sync.Modify(log, func(l journal.Log[S, E]) (int, journal.Log[S, E]) {
+				if len(l.Signals) != expected {
+					return (len(l.Signals), l)
+				}
+				(expected, journal.Log[S, E]{Snapshot: l.Snapshot, Signals: l.Signals.Append(e)})
+			})
+			if actual != expected {
+				return journal.Stale{Expected: expected, Actual: actual}
+			}
 		},
 		snapshot: func(s S) { log.Set(journal.Log[S, E]{Snapshot: Some[S]{Value: s}, Signals: []E{}}) },
 		load:     func() journal.Log[S, E] { log.Get() },
 	}
+}
+
+// StaleAppendKeepsNothing: after k appends, each under the count before
+// it, an append that expects another count than k is Stale with the
+// journal's count and keeps nothing, and one under k is kept.
+law StaleAppendKeepsNothing(k int, off int) {
+	let n = ((k % 8) + 8) % 8
+	let wrong = n + 1 + ((off%3)+3)%3
+	let j = New[int, int]()
+	for i in 0..n {
+		try j.Append(i, i)
+	}
+	let before = try j.Load()
+	try j.Append(-1, wrong) catch {
+	case journal.Stale as s:
+		if s != (journal.Stale{Expected: wrong, Actual: n}) || try j.Load() != before {
+			return false
+		}
+		try j.Append(n, n)
+		return len((try j.Load()).Signals) == n+1
+	}
+	false
 }
 
 // DroppedIsNotJournaled: a work's signal that its entry's end dropped is
@@ -274,10 +304,11 @@ func dropped(j journal.Journal[int, int]) bool needs Scheduler {
 	drops == 1 && state == 2 && back == 2 && len(log.Signals) == 2 && log.Signals[0] == 10 && log.Signals[1] == 11
 }
 
-// Append keeps e after the signals kept before it. A journal from New
-// never fails; the row is the contract's, and this package's laws build a
-// journal whose append fails, to crash an actor at a chosen save.
-func Append[S, E](j Journal[S, E], e E) fails journal.Failed { try j.append(e) }
+// Append keeps e after the expected signals kept before it, else it is
+// Stale. A journal from New fails nothing else; the row is the
+// contract's, and this package's laws build a journal whose append fails,
+// to crash an actor at a chosen save.
+func Append[S, E](j Journal[S, E], e E, expected int) fails journal.Stale | journal.Failed { try j.append(e, expected) }
 
 // Snapshot keeps s and drops the signals kept so far. It never fails
 // (the row is the contract's).

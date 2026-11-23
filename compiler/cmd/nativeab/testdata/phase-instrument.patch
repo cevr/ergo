@@ -1,0 +1,211 @@
+NATIVE-AB-MEASURE phase instrument: DATA, scratch-only, never a release hunk.
+For lane FORK to review and apply (patch -p1) to a SCRATCH copy of the
+pinned go1.27.4 root that already carries toolchain/ir/_go/gofiles.patch
+(the base of this diff is pristine + gofiles.patch). New file ergonab.go
+plus five one-line marks: LoadPackage start and after parse (noder.go),
+after checkFiles, after ergoStub and at writePkgStub's end, after
+readBodies (unified.go). The last stage ("gc") closes at base.Exit.
+
+Inert control (FORK runs it): with ERGO_NAB_SPANS unset, nabMark returns
+before any syscall or file; compile the same package with the same flags
+(no -buildid from the go command) by the scratch compile and by the
+unpatched patched root's compile: the archives must be byte-identical.
+With it set, the compile appends to that file lines
+  span SEQ STAGE COUNT | pkg PATH | refused REASON
+and nativeab's capture joins them to the process's own perf count.
+
+diff -ruN a/src/cmd/compile/internal/noder/ergonab.go b/src/cmd/compile/internal/noder/ergonab.go
+--- a/src/cmd/compile/internal/noder/ergonab.go
++++ b/src/cmd/compile/internal/noder/ergonab.go
+@@ -0,0 +1,143 @@
++// Copyright 2026 The Ergo Authors. NATIVE-AB-MEASURE scratch instrument:
++// never a release hunk (spec NATIVE-TOOLCHAIN, NATIVE-AB-MEASURE "Owns").
++
++package noder
++
++import (
++	"fmt"
++	"os"
++	"strconv"
++	"syscall"
++	"unsafe"
++
++	"cmd/compile/internal/base"
++)
++
++// nabSpans names the file a compile appends its stage spans to. Unset,
++// nabMark returns at once: no syscall, no file, no output change.
++const nabSpans = "ERGO_NAB_SPANS"
++
++var nab struct {
++	on    bool
++	fds   map[int]int // thread id -> counter fd
++	last  uint64
++	seq   int
++	lines []byte
++}
++
++// nabMark ends the stage that ran since the previous mark and charges it
++// the user-mode instructions every thread of the process ran meanwhile.
++// The first mark ("") opens the counters and starts the first stage.
++//
++// Counting: one PERF_COUNT_HW_INSTRUCTIONS counter (exclude_kernel,
++// exclude_hv, inherit) per thread that exists at the first mark, opened
++// on that thread's tid; inherit carries each to the threads it clones
++// later, and a read of a counter includes its inherited children. The
++// thread list is read again after opening until no thread is new, so a
++// thread cloned during the opening is not lost. A mark reads every
++// counter and charges the sum's growth: the parser's worker goroutines
++// run on whichever threads the scheduler gives them, and every
++// instruction of every thread is in exactly one counter and one
++// interval, so their work is neither lost nor charged twice. The stage
++// in flight at a mark is the one gc's main goroutine finished; background
++// work of other goroutines in that interval (the GC) is charged to it.
++// Instructions before the first mark and after the last are the
++// compile's unassigned rest, which the driver derives from the process
++// total; the instrument never estimates.
++func nabMark(stage string) {
++	if stage == "" {
++		path := os.Getenv(nabSpans)
++		if path == "" {
++			return
++		}
++		nab.on = true
++		nab.fds = map[int]int{}
++		for {
++			fresh := 0
++			ents, err := os.ReadDir("/proc/self/task")
++			if err != nil {
++				nabRefuse(path, err)
++				return
++			}
++			for _, e := range ents {
++				tid, err := strconv.Atoi(e.Name())
++				if err != nil {
++					continue
++				}
++				if _, ok := nab.fds[tid]; ok {
++					continue
++				}
++				fd, err := nabOpen(tid)
++				if err != nil {
++					nabRefuse(path, err)
++					return
++				}
++				nab.fds[tid] = fd
++				fresh++
++			}
++			if fresh == 0 {
++				break
++			}
++		}
++		nab.last = nabRead()
++		base.AtExit(func() {
++			nabMark("gc")
++			nab.lines = fmt.Appendf(nab.lines, "pkg %s\n", base.Ctxt.Pkgpath)
++			f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
++			if err == nil {
++				f.Write(nab.lines)
++				f.Close()
++			}
++		})
++		return
++	}
++	if !nab.on {
++		return
++	}
++	now := nabRead()
++	if !nab.on {
++		return
++	}
++	nab.lines = fmt.Appendf(nab.lines, "span %d %s %d\n", nab.seq, stage, now-nab.last)
++	nab.seq++
++	nab.last = now
++}
++
++// nabRefuse records that this compile was not measured: absent, never 0.
++func nabRefuse(path string, err error) {
++	nab.on = false
++	if f, e := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644); e == nil {
++		fmt.Fprintf(f, "refused %v\n", err)
++		f.Close()
++	}
++}
++
++func nabOpen(tid int) (int, error) {
++	var attr [128]byte
++	*(*uint32)(unsafe.Pointer(&attr[0])) = 0                   // PERF_TYPE_HARDWARE
++	*(*uint32)(unsafe.Pointer(&attr[4])) = uint32(len(attr))   // size
++	*(*uint64)(unsafe.Pointer(&attr[8])) = 1                   // PERF_COUNT_HW_INSTRUCTIONS
++	*(*uint64)(unsafe.Pointer(&attr[40])) = 1<<1 | 1<<5 | 1<<6 // inherit, exclude_kernel, exclude_hv
++	fd, _, errno := syscall.Syscall6(syscall.SYS_PERF_EVENT_OPEN, uintptr(unsafe.Pointer(&attr[0])), uintptr(tid), ^uintptr(0), ^uintptr(0), 8 /* PERF_FLAG_FD_CLOEXEC */, 0)
++	if errno != 0 {
++		return -1, errno
++	}
++	return int(fd), nil
++}
++
++// nabRead is the sum of every counter; a counter that cannot be read
++// ends the measurement (a "refused" line), never a smaller sum.
++func nabRead() uint64 {
++	var sum uint64
++	var buf [8]byte
++	for _, fd := range nab.fds {
++		n, err := syscall.Read(fd, buf[:])
++		if err != nil || n != 8 {
++			nab.lines = fmt.Appendf(nab.lines, "refused read %v %d\n", err, n)
++			nab.on = false
++			return 0
++		}
++		sum += *(*uint64)(unsafe.Pointer(&buf[0]))
++	}
++	return sum
++}
+diff -ruN a/src/cmd/compile/internal/noder/noder.go b/src/cmd/compile/internal/noder/noder.go
+--- a/src/cmd/compile/internal/noder/noder.go
++++ b/src/cmd/compile/internal/noder/noder.go
+@@ -25,6 +25,7 @@
+ )
+ 
+ func LoadPackage(filenames []string) {
++	nabMark("") // NATIVE-AB-MEASURE scratch instrument (ergonab.go)
+ 	base.Timer.Start("fe", "parse")
+ 
+ 	// Limit the number of simultaneously open files.
+@@ -72,6 +73,7 @@
+ 		lines += p.file.EOF.Line()
+ 	}
+ 	base.Timer.AddEvent(int64(lines), "lines")
++	nabMark("parse")
+ 
+ 	unified(m, noders)
+ }
+diff -ruN a/src/cmd/compile/internal/noder/unified.go b/src/cmd/compile/internal/noder/unified.go
+--- a/src/cmd/compile/internal/noder/unified.go
++++ b/src/cmd/compile/internal/noder/unified.go
+@@ -206,6 +206,7 @@
+ 	r.pkgInit(types.LocalPkg, target)
+ 
+ 	readBodies(target, false, nil)
++	nabMark("unified-read")
+ 
+ 	// Check that nothing snuck past typechecking.
+ 	for _, fn := range target.Funcs {
+@@ -320,7 +321,9 @@
+ // and returns the result.
+ func writePkgStub(m posMap, noders []*noder) string {
+ 	pkg, info, otherInfo := checkFiles(m, noders)
++	nabMark("check")
+ 	otherInfo = ergoStub(m, pkg, info, noders, otherInfo) // -ergoir (ergoir_flags.go)
++	nabMark("ergoir")
+ 
+ 	pw := newPkgWriter(m, pkg, info, otherInfo)
+ 
+@@ -364,6 +367,7 @@
+ 	// garbage collected.
+ 	freePackage(pkg)
+ 
++	nabMark("unified-write")
+ 	return sb.String()
+ }
+ 

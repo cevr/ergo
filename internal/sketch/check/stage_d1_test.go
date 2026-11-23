@@ -82,7 +82,7 @@ func TestLetMutReassignment(t *testing.T) {
 	})
 }
 
-// D-D1 and pointers (#222 decides them): a write through a pointer changes
+// D-D1 and pointers (decides them): a write through a pointer changes
 // the pointee, not the value its root names, so it needs no let mut; a
 // borrow, written `&x` or implicit in a call to a function whose first
 // parameter is *T, could change x, so x must be a let mut, which the
