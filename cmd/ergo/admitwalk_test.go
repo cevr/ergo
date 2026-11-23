@@ -11,6 +11,7 @@ import (
 
 	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/task"
 )
 
 // admitNames are the folder names the generated trees use: two package
@@ -105,7 +106,7 @@ func (t admitTree) write(tb *testing.T, root string) {
 // Workspace): for seeded trees holding ergo.bind, testdata, vendor and the
 // other refused names at several depths, ergo check's package discovery,
 // its member discovery, ergo fmt's folder walk, the task runner's member
-// walk and ergo gate's key each reach exactly the folders the model
+// walk and the gate task's key each reach exactly the folders the model
 // admits, the last two stopping at a nested member. The gate still hashes
 // the root's ergo.bind files, which import go reads. A failing seed
 // prints the tree and its replay command.
@@ -198,17 +199,18 @@ func TestDirWalksAgreeOnAdmittedFolders(t *testing.T) {
 		}
 		fail("task runner's member walk", got, own)
 
-		parts, err := gateTreeParts(root, "", map[string]bool{})
-		if err != nil {
+		var key task.Key
+		gate := gateWorkspace{root: root}
+		if err := gate.treeParts(root, "", map[string]bool{}, &key); err != nil {
 			t.Fatalf("seed %d: gate's key: %v", seed, err)
 		}
 		got = []string{"."}
 		var bindFiles, wantBind []string
-		for _, p := range parts {
-			if d, ok := strings.CutPrefix(p, "dir "); ok {
+		for _, p := range key.Parts {
+			if d, ok := strings.CutPrefix(p.Name, "folder "); ok {
 				got = append(got, d)
-			} else if f, ok := strings.CutPrefix(p, "file ergo.bind/"); ok && strings.HasSuffix(strings.Fields(f)[0], ".ergo") {
-				bindFiles = append(bindFiles, strings.Fields(f)[0])
+			} else if f, ok := strings.CutPrefix(p.Name, "ergo.bind/"); ok && strings.HasSuffix(f, ".ergo") {
+				bindFiles = append(bindFiles, f)
 			}
 		}
 		fail("gate's key", got, own)
