@@ -1,0 +1,19 @@
+type Op = Inc{} | Dec{} | Reset{}
+
+// Step moves a count. Dec stops at zero.
+func Step(count int, op Op) int {
+	match op { // want S103 "no case handles Reset"
+	case Inc:
+		count + 1
+	case Dec:
+		if count > 0 { count - 1 } else { 0 }
+	}
+}
+
+// A count is 0 to 1000.
+type Count int where 0 <= it && it <= 1000
+
+// No step takes a count below zero.
+law NeverNegative(count Count, op Op) {
+	Step(int(count), op) >= 0
+}

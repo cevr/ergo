@@ -203,11 +203,11 @@ func (fc *funcCtx) openFrame(errName string) {
 // receives drain before the with's providers close (resources.md, Context
 // ownership); v1.OnExit routes an exit action to the function's frame.
 func (fc *funcCtx) frameScope(site syntax.Node) string {
+	if fc.frame != nil && fc.frame.with != "" {
+		return fc.frame.with
+	}
 	if fc.frame == nil || fc.frame.scope == "" {
 		ice(site, "a call that needs a frame scope (task.Go, scope.OnExit or a call whose result holds a Task) outside a function body; the checker refuses one (S108, check/frames.go)")
-	}
-	if fc.frame.with != "" {
-		return fc.frame.with
 	}
 	return "&" + fc.frame.scope
 }

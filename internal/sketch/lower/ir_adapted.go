@@ -37,7 +37,7 @@ import (
 // whose runtime method returns (T, bool) and no error (boundOpCall): the
 // method's two results bound to locals, and the Option[T] the call's
 // value is, None unless ok.
-func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos) ([]*irStmt, *irExpr, bool) {
+func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos, recv *irExpr) ([]*irStmt, *irExpr, bool) {
 	t := b.l.info.Types[x]
 	if !isOptionType(t) || failsHere(c) { // gocall.go
 		irNo("std call with an adapted result")
@@ -70,7 +70,7 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 		}
 	}
 	hidden := b.hidden(body, x, c, p)
-	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	pre, vals := b.boundOpOperands(x, c, recv)
 	convOperands(vals, convs) // ir_operand.go
 	call := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
 	res := b.temp("opt", b.goType(t, x), p)
@@ -105,7 +105,7 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 // the literal makes a non-nil one the unreachable defect at the call
 // rather than a failure no checked program has. The emitter (stdResult)
 // returns it; a change that lets a yield fail fails here, loudly.
-func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos) ([]*irStmt, *irExpr, bool) {
+func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos, recv *irExpr) ([]*irStmt, *irExpr, bool) {
 	elem := b.seqElem(x, c, body)
 	goElem := b.recvTypeArgs(n, strings.TrimSuffix(strings.TrimPrefix(body.Results[0], "iter.Seq["), "]"))
 	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, nil, body.Package) {
@@ -125,8 +125,11 @@ func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 		}
 	}
 	ops := append([]syntax.Expr{c.Recv}, x.Args...)
-	pre, vals := b.operands(ops)
+	pre, vals := b.boundOpOperands(x, c, recv)
 	convOperands(vals, convs) // ir_operand.go
+	if recv != nil {
+		convs[0] = b.spelling(b.fc.lawReceiverType(n))
+	}
 	pre = append(pre, b.bindDeferred(x, ops, vals, convs, p)...)
 	lit := b.seqLit(x, c, elem, body, p, func(hidden []*irExpr) *irExpr {
 		return &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
