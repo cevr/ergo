@@ -193,12 +193,14 @@ type FuncDecl struct {
 	Derived *TypeDecl
 }
 
-// ContextDecl is `context Name [provides A | B] [needs C | D] { entries }`.
+// ContextDecl is `context Name [provides A | B] [fails E | F] [needs C | D] { entries }`.
 // Provides lists the capabilities the context exposes; the entries it builds
-// and does not list stay private to its build. Needs lists the capabilities
-// its providers require from the with site. Either clause may be nil.
+// and does not list stay private to its build. Fails is the failure row of
+// its build, a signature's error row (CTX-ROWS-1b). Needs lists the
+// capabilities its providers require from the with site. Any clause may be
+// nil.
 //
-// The decided spelling is `let Name = context [provides …] [needs …] { … }` at
+// The decided spelling is `let Name = context [provides …] [fails …] [needs …] { … }` at
 // package level (#196); Let is the position of `let`.
 type ContextDecl struct {
 	Doc      *CommentGroup
@@ -206,6 +208,7 @@ type ContextDecl struct {
 	Context  Pos
 	Name     *Ident
 	Provides *ProvidesClause
+	Fails    *ErrorRow
 	Needs    *NeedsClause
 	Body     *ContextBody
 }
@@ -648,11 +651,12 @@ type (
 		Rbrace Pos
 	}
 
-	// ContextLit is a context literal `context [provides …] [needs …] { … }`; either
-	// clause may be nil.
+	// ContextLit is a context literal `context [provides …] [fails …] [needs …] { … }`;
+	// any clause may be nil.
 	ContextLit struct {
 		Context  Pos
 		Provides *ProvidesClause
+		Fails    *ErrorRow
 		Needs    *NeedsClause
 		Body     *ContextBody
 	}
@@ -668,15 +672,18 @@ type (
 		Elt    Expr
 	}
 
-	// MapType is `Map[K, V]`: Map is the position of the name, Lbrack and
-	// Rbrack of its brackets (#196, eighth round: a prelude name cannot be
-	// redeclared, so the name always means the map type).
+	// MapType is `Map[K, V]` or `Map[K, V, H]`: Map is the position of
+	// the name, Lbrack and Rbrack of its brackets (#196, eighth round: a
+	// prelude name cannot be redeclared, so the name always means the map
+	// type). Hashing is the third type argument, the provider by which
+	// the Map finds its keys, or nil (CONSTRAINTS C5).
 	MapType struct {
-		Map    Pos
-		Lbrack Pos
-		Key    Expr
-		Value  Expr
-		Rbrack Pos
+		Map     Pos
+		Lbrack  Pos
+		Key     Expr
+		Value   Expr
+		Hashing Expr
+		Rbrack  Pos
 	}
 
 	// FuncType is a signature. Func is NoPos in a declaration or method.
@@ -715,8 +722,34 @@ type (
 		Includes []*Field
 		Methods  []*Field
 		Laws     []*LawDecl
-		Union    []Expr
-		Rbrace   Pos
+		// Harnesses are the members `test H` (runtime.md, Tests: harnesses):
+		// the function of this package a test whose body needs the type
+		// runs under. The checker admits one.
+		Harnesses []*Harness
+		// Terms is the type-set member `~int | ~int64` (types.md,
+		// Generics 2): one term per `|`-separated type. Nil when the
+		// operation type has no type set; it then constrains by its
+		// operations alone. A type with a type set is a constraint only.
+		Terms []*TypeTerm
+		Union []Expr
+		// Rbrace closes the braces; NoPos for a union.
+		Rbrace Pos
+	}
+
+	// Harness is the member `test H` of an operation type: Test is the
+	// position of `test`, Name the harness function's name.
+	Harness struct {
+		Doc  *CommentGroup
+		Test Pos
+		Name *Ident
+	}
+
+	// TypeTerm is one term of a type-set member: `~T` (Tilde set) admits
+	// every type whose underlying type is T, a bare `T` admits T alone,
+	// and the term `comparable` admits the comparable types.
+	TypeTerm struct {
+		Tilde Pos // NoPos for a bare term
+		Type  Expr
 	}
 
 	// ErrorRow is the failure row `fails A | B` of a signature: Error is the
@@ -867,6 +900,17 @@ func (x *FuncType) End() Pos {
 }
 func (x *StructType) Pos() Pos { return x.Fields.Pos() }
 func (x *StructType) End() Pos { return x.Fields.End() }
+func (x *TypeTerm) Pos() Pos {
+	if x.Tilde.IsValid() {
+		return x.Tilde
+	}
+	return x.Type.Pos()
+}
+func (x *TypeTerm) End() Pos { return x.Type.End() }
+
+func (x *Harness) Pos() Pos { return x.Test }
+func (x *Harness) End() Pos { return x.Name.End() }
+
 func (x *InterfaceType) Pos() Pos {
 	if x.Lbrace.IsValid() {
 		return x.Lbrace

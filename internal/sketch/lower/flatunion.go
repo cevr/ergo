@@ -53,9 +53,9 @@ import (
 //  2. Its variants are records that are not generic, and not all of them
 //     error types: a row value is a Go error, which ConvRow and catch test
 //     by type, and a union that names a row has every variant an error
-//     type, so this keeps it an interface. A union with only some error
-//     variants names no row and is flat (MSB3), and so is a generic one
-//     (genericShape, G6 of ADT-NOPRIV).
+//     type, so it is that row, Go's error (namedrow.go). A union with only
+//     some error variants names no row and is flat (MSB3), and so is a
+//     generic one (genericShape, G6 of ADT-NOPRIV).
 //  3. Its Go value does not hold itself: a variant field reaches the
 //     union again by value, through records, tuples, arrays, Options or
 //     other flat unions (Go refuses a recursive struct; the interface box
@@ -619,8 +619,9 @@ func (l *lowerer) flatShape(n *check.Named) *flatUnion {
 		fu.variants = append(fu.variants, vn)
 		fu.slot = append(fu.slot, len(st.Fields) > 0)
 	}
-	// A union whose every variant is an error type may name a row, a Go
-	// error that catch and ConvRow test by type: it stays an interface.
+	// A union whose every variant is an error type names a row, and it is
+	// that row: Go's error, which catch and ConvRow test by type
+	// (namedrow.go).
 	// A union of which only some variants are error types (router's Signal
 	// holds Unknown, the registry's failure) is no row (a row makes every
 	// variant an error type), and its error variants are records in its

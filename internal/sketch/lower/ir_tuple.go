@@ -133,6 +133,7 @@ func hostResults(f *check.Func) []check.Type {
 // that needs go.Foreign is an effect, which runs before its expression
 // (SP4).
 func (b *irBuilder) hostCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, bool) {
+	b.l.intMapCall(x, c.Recv, f, true)             // intmap.go: the Go boundary sees Go's map
 	if pre, v, ok := b.hostBound(x, c, f, p); ok { // ir_golib.go: the task's context, an Option result
 		return pre, v, false
 	}
@@ -171,6 +172,17 @@ func (b *irBuilder) tdef(call *irExpr, t *check.Tuple, x syntax.Node, p irPos) (
 		vals[i] = &irExpr{K: "local", Pos: p, I: l}
 	}
 	return []*irStmt{def}, b.tupleLit(t, vals, x, p)
+}
+
+// tupleErrBind binds call, a Go call whose results are t's elements and
+// then an error, to fresh locals and the error local e in one "tdef", and
+// defines a local of their tuple, which it returns: bind's form of a std
+// body returning (A, B, error) (task's TaskExit; EXTERN-MULTI-RESULT).
+func (b *irBuilder) tupleErrBind(call *irExpr, t *check.Tuple, e int, x syntax.Node, p irPos) ([]*irStmt, int) {
+	pre, lit := b.tdef(call, t, x, p)
+	pre[0].Ls = append(pre[0].Ls, e)
+	v := b.temp("v", b.tupleType(t, x), p)
+	return append(pre, &irStmt{K: "def", Pos: p, Local: v, X: lit}), v
 }
 
 // readsTdef reports whether e is the tuple of def, a tdef: its elements

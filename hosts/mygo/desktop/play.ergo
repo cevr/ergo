@@ -111,6 +111,22 @@ func BoxOf[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[layout.Box
 	}
 }
 
+// LaidOf is the box the kept tree lays the node labelled label out in:
+// where it sits before a Scroll lifts it or a track moves it.
+func LaidOf[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[layout.Box] {
+	match Find(d, label) {
+	case Some[ui.Id[E]] as id:
+		match d.lids.Get(id.Value) {
+		case Some[layout.Id] as l:
+			Some{Value: boxOf(&d.tree, l.Value)}
+		case None:
+			None
+		}
+	case None:
+		None
+	}
+}
+
 // at is the box of the node labelled label, where a step on it presses or
 // points, after the Scrolls around it are scrolled with the wheel until
 // its centre shows, as a person scrolls to a row below the fold.

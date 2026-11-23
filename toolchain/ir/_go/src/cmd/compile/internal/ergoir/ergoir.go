@@ -124,8 +124,15 @@ type ergoChecker struct {
 	bases  []*syntax.PosBase
 	sig    *types2.Signature
 	locals []*types2.Var
-	nerr   int
-	loops  []*syntax.ForStmt // the loops around the statement being decoded
+	// defined are the locals a body defines (name with def, a function
+	// literal's parameter or result); reads the first read of each body
+	// local, by index: a body local read and never defined is the IR
+	// builder's bug, reported as such (ergoReadBeforeDef), not left to
+	// gc's writer.
+	defined map[*types2.Var]bool
+	reads   map[int]ergoPos
+	nerr    int
+	loops   []*syntax.ForStmt // the loops around the statement being decoded
 	// loopLabels are the loops' labels ("" for none); labels the
 	// function's declared labels; gotos its gotos (ergoir_label.go).
 	loopLabels []string
@@ -135,6 +142,10 @@ type ergoChecker struct {
 	// tparams are the type parameters of the function being decoded, its
 	// receiver's then its own (F1): a type spelling names them first.
 	tparams []*types2.TypeParam
+	// rangeFunc reports a range over a func in the body being decoded,
+	// outside its function literals: rangefunc.Rewrite names a literal's
+	// results then (ergoir_closure.go).
+	rangeFunc bool
 	// tdef is the call a "tdef" binds, whose several results call
 	// admits (ergoir_tuple.go).
 	tdef *ergoExpr
@@ -232,6 +243,18 @@ func (c *ergoChecker) errorf(p ergoPos, format string, args ...any) {
 	base.ErrorfAt(c.m.makeXPos(pos), 0, format, args...)
 }
 
+// ergoReadBeforeDef reports each body local (index first and up) that the
+// body reads and never defines: gc's writer would otherwise assert on the
+// undeclared name with a dump that names no IR local.
+func (c *ergoChecker) ergoReadBeforeDef(fn string, first int) {
+	for i := first; i < len(c.locals); i++ {
+		p, read := c.reads[i]
+		if read && !c.defined[c.locals[i]] {
+			c.errorf(p, "ergoir: local %d (%s) read before any def in %s", i, c.locals[i].Name(), fn)
+		}
+	}
+}
+
 func (c *ergoChecker) function(fd *syntax.FuncDecl, fn *ergoFunc) {
 	obj := c.info.Defs[fd.Name].(*types2.Func)
 	c.sig = obj.Type().(*types2.Signature)
@@ -272,9 +295,12 @@ func (c *ergoChecker) function(fd *syntax.FuncDecl, fn *ergoFunc) {
 		c.locals = append(c.locals, types2.NewVar(c.pos(l.Pos), c.pkg, l.Name, t))
 	}
 	before := c.nerr
+	first := len(c.locals) - len(fn.Locals)
+	c.defined, c.reads = map[*types2.Var]bool{}, map[int]ergoPos{}
 	body := &syntax.BlockStmt{List: c.stmts(fn.Body), Rbrace: c.pos(fn.End)}
 	body.SetPos(c.pos(fn.Pos))
 	c.ergoLabelsDone() // ergoir_label.go
+	c.ergoReadBeforeDef(fn.Name, first)
 	if c.nerr != before {
 		return
 	}

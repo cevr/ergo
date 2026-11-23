@@ -90,8 +90,15 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 
 // ColumnsVersion is the layout of syntax.Columns this decoder reads, the
 // one this tree's compiler/syntax writes (its ColumnsVersion). 3: a law's
-// row gains TypeParams, its word 2 (adf427bfe), so it has 9 fixed words.
-const ColumnsVersion = 3
+// row gains TypeParams, its word 2 (adf427bfe), so it has 9 fixed words. 4:
+// a context declaration's and literal's rows gain Fails before Needs
+// (CTX-ROWS-1b), so they have 7 and 4. 5: the rows are 4's, and a failed
+// parse's text carries its fix as lines after the error's line, which is
+// 4's six fields byte for byte (failureOf; VET-CHECK-VAR), so both read
+// alike. 6: a test row's body is optional (the harness
+// member `test H` of an operation type has none), so its word holds the
+// id + 1.
+const ColumnsVersion = 6
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -99,7 +106,7 @@ const ColumnsVersion = 3
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 2
+const PreviousColumnsVersion = 5
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -129,28 +136,48 @@ func LinkedLayout() (uint32, error) {
 // words, comments, comment groups, failed.
 const colHeader = 7
 
-// failureOf is the *Error of dump.Failure's text, "code offset length line
-// column message".
+// failureOf is the *Error of dump.Failure's text. Its first line is
+// "code offset length line column message"; each further line is one edit
+// of the error's fix, "fix class offset length "text"", the text Go-quoted
+// (compiler/syntax/dump FixLines). Every edit names the same class.
 func failureOf(text string) error {
-	f := strings.SplitN(text, " ", 6)
+	lines := strings.Split(text, "\n")
+	f := strings.SplitN(lines[0], " ", 6)
 	if len(f) != 6 {
 		return fmt.Errorf("syntax: a failure the decoder cannot read: %q", text)
 	}
 	n := func(s string) int { v, _ := strconv.Atoi(s); return v }
-	return &Error{Code: f[0], Offset: n(f[1]), Length: n(f[2]), Line: n(f[3]), Column: n(f[4]), Message: f[5]}
+	e := &Error{Code: f[0], Offset: n(f[1]), Length: n(f[2]), Line: n(f[3]), Column: n(f[4]), Message: f[5]}
+	for _, line := range lines[1:] {
+		x := strings.SplitN(line, " ", 5)
+		bad := len(x) != 5 || x[0] != "fix" || x[1] != "exact" && x[1] != "suggested" || e.Fix != nil && e.Fix.Class != x[1]
+		var t string
+		if !bad {
+			var err error
+			t, err = strconv.Unquote(x[4])
+			bad = err != nil
+		}
+		if bad {
+			return fmt.Errorf("syntax: a failure's fix the decoder cannot read: %q", text)
+		}
+		if e.Fix == nil {
+			e.Fix = &Fix{Class: x[1]}
+		}
+		e.Fix.Edits = append(e.Fix.Edits, Edit{Offset: n(x[2]), Length: n(x[3]), Text: t})
+	}
+	return e
 }
 
 // rowDecoder reads the columns of one parse.
 type rowDecoder struct {
 	src string
+	// layout is the rows' layout, ColumnsVersion or PreviousColumnsVersion.
+	layout uint32
 	// The row columns: kind, token, a and b of each row.
 	rowKind, rowTok, rowA, rowB []uint32
 	extra                       []uint32
 	toks                        []token
 	groups                      []*CommentGroup
-	// layout is the rows' layout version (ColumnsVersion or the one
-	// before it).
-	layout uint32
 }
 
 // Decode builds the tree of src from cols, the words syntax.Columns packs
@@ -355,19 +382,25 @@ func (d *rowDecoder) node(r uint32) Node {
 			Body:       opt[*BlockStmt](d, d.fixed(r, 7, 6)),
 		}
 	case kContextDecl:
-		return &ContextDecl{Doc: d.doc(d.fixed(r, 6, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 6, 1)), Name: one[*Ident](d, d.fixed(r, 6, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, 6, 3)), Needs: opt[*NeedsClause](d, d.fixed(r, 6, 4)), Body: one[*ContextBody](d, d.fixed(r, 6, 5))}
+		// Layouts 5 and 6 put Fails at word 4 (layout 3, which had no such
+		// word, is no longer read).
+		return &ContextDecl{Doc: d.doc(d.fixed(r, 7, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 7, 1)), Name: one[*Ident](d, d.fixed(r, 7, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, 7, 3)), Fails: opt[*ErrorRow](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Body: one[*ContextBody](d, d.fixed(r, 7, 6))}
 	case kTestDecl:
-		return &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2)), Body: one[*BlockStmt](d, d.fixed(r, 4, 3))}
-	case kLawDecl:
-		// Layout 3 put TypeParams at word 2; layout 2 has no such word.
-		w, s := 9, 1
+		x := &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2))}
+		// Layout 6 made the body optional (the harness member `test H` has
+		// none), so its word holds the id + 1; layout 5 holds the id.
 		if d.layout == PreviousColumnsVersion {
-			w, s = 8, 0
+			x.Body = one[*BlockStmt](d, d.fixed(r, 4, 3))
+		} else {
+			x.Body = opt[*BlockStmt](d, d.fixed(r, 4, 3))
 		}
+		return x
+	case kLawDecl:
+		// Layouts 5 and 6 hold TypeParams at word 2 (layout 2, which had
+		// no such word, is no longer read).
+		w, s := 9, 1
 		l := &LawDecl{Doc: d.doc(d.fixed(r, w, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, w, 1)), Params: opt[*FieldList](d, d.fixed(r, w, 2+s)), Body: opt[*BlockStmt](d, d.fixed(r, w, 3+s)), Reach: opt[*LawReach](d, d.fixed(r, w, 4+s))}
-		if s == 1 {
-			l.TypeParams = opt[*FieldList](d, d.fixed(r, w, 2))
-		}
+		l.TypeParams = opt[*FieldList](d, d.fixed(r, w, 2))
 		switch d.fixed(r, w, 5+s) {
 		case 1:
 			l.Rewrite = &LawRewrite{When: d.opos(d.fixed(r, w, 6+s)), Eq: d.opos(d.fixed(r, w, 7+s))}
@@ -473,7 +506,8 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kCatchExpr:
 		return &CatchExpr{X: one[Expr](d, d.fixed(r, 2, 0)), Catch: d.pos(t), Lbrace: d.pos(t + 1), Arms: list[*CatchArm](d, r, 0, d.items(r, 2)), Rbrace: d.pos(d.fixed(r, 2, 1))}
 	case kContextLit:
-		return &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, 3, 0)), Needs: opt[*NeedsClause](d, d.fixed(r, 3, 1)), Body: one[*ContextBody](d, d.fixed(r, 3, 2))}
+		// Layouts 5 and 6 put Fails at word 1 (layout 3 is no longer read).
+		return &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, 4, 0)), Fails: opt[*ErrorRow](d, d.fixed(r, 4, 1)), Needs: opt[*NeedsClause](d, d.fixed(r, 4, 2)), Body: one[*ContextBody](d, d.fixed(r, 4, 3))}
 	case kArrayType:
 		x := &ArrayType{Lbrack: d.pos(t), Elt: one[Expr](d, a)}
 		if b != 0 {
@@ -481,7 +515,12 @@ func (d *rowDecoder) node(r uint32) Node {
 		}
 		return x
 	case kMapType:
-		return &MapType{Map: d.pos(d.tok(d.fixed(r, 2, 0))), Lbrack: d.pos(t), Key: one[Expr](d, d.item(r, 0)), Value: one[Expr](d, d.item(r, 1)), Rbrack: d.pos(d.fixed(r, 2, 1))}
+		x := &MapType{Map: d.pos(d.tok(d.fixed(r, 2, 0))), Lbrack: d.pos(t), Key: one[Expr](d, d.item(r, 0)), Value: one[Expr](d, d.item(r, 1)), Rbrack: d.pos(d.fixed(r, 2, 1))}
+		if d.items(r, 2) == 3 {
+			// `Map[K, V, H]`: the Hashing provider (CONSTRAINTS C5).
+			x.Hashing = one[Expr](d, d.item(r, 2))
+		}
+		return x
 	case kFuncType:
 		x := &FuncType{Escaping: d.opos(d.fixed(r, 7, 0)), EntryPos: d.zpos(d.fixed(r, 7, 1)), Func: d.opos(d.fixed(r, 7, 2)), Params: one[*FieldList](d, d.fixed(r, 7, 3)), Results: opt[*FieldList](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Takes: opt[*TakesClause](d, d.fixed(r, 7, 6))}
 		x.Entry = d.fixed(r, 7, 1) != 0
@@ -507,6 +546,15 @@ func (d *rowDecoder) node(r uint32) Node {
 				}
 			case *LawDecl:
 				x.Laws = append(x.Laws, m)
+			case *TestDecl:
+				// `test H`, the harness member (runtime.md, Tests: harnesses).
+				x.Harnesses = append(x.Harnesses, &Harness{Doc: m.Doc, Test: m.Test, Name: m.Name})
+			case *UnaryExpr:
+				// `~T`, a term of the type-set member (CONSTRAINTS C1).
+				x.Terms = append(x.Terms, &TypeTerm{Tilde: m.OpPos, Type: m.X})
+			case Expr:
+				// A bare term `T` of the type-set member.
+				x.Terms = append(x.Terms, &TypeTerm{Tilde: NoPos, Type: m})
 			}
 		}
 		return x

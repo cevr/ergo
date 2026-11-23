@@ -273,6 +273,22 @@ func typesPackage(dir string) *check.Package {
 	return a.Root().Package
 }
 
+// eachGoPackage calls f with the Go checker's package of each of dirs
+// that checks (typesPackage), one folder at a time and in order. Not on
+// workers: the Go checker checks one package at a time (check.Std). Its
+// std importer shares its packages between checks, and a check completes
+// their lazy parts (a host binding's declarations, the underlying type of
+// an instance a std package wrote) on first read, so two checks at once
+// race on them (go test -race; the crash "concurrent map writes" in
+// TestCompilerCheckAgrees).
+func eachGoPackage(dirs []string, f func(i int, pkg *check.Package)) {
+	for i, dir := range dirs {
+		if pkg := typesPackage(dir); pkg != nil {
+			f(i, pkg)
+		}
+	}
+}
+
 // fieldOf reads field name of the struct v points to.
 func fieldOf(v reflect.Value, name string) reflect.Value {
 	f := v.Elem().FieldByName(name)
@@ -312,9 +328,13 @@ func paramKinds(n *check.Named) string {
 // computes from the import's source (-std).
 func visible(pkg *check.Package, f func(qual, name string, tn *check.TypeName)) {
 	own, parent := scopeNames(pkg.Scope)
+	var prelude *check.Package
 	for s := parent; s != nil; {
 		ns, next := scopeNames(s)
 		for name, o := range ns {
+			if tn, ok := o.(*check.TypeName); ok && tn.Pkg != nil && tn.Pkg.Path == "prelude" {
+				prelude = tn.Pkg
+			}
 			if _, shadowed := own[name]; shadowed {
 				continue
 			}
@@ -323,6 +343,14 @@ func visible(pkg *check.Package, f func(qual, name string, tn *check.TypeName)) 
 			}
 		}
 		s = next
+	}
+	// The prelude's hashTable is in no scope, yet a Map with a provider is
+	// an instance of it (Map[K, V, H]; types.preludeQual).
+	if prelude != nil && pkg != prelude {
+		ns, _ := scopeNames(prelude.Scope)
+		if tn, ok := ns["hashTable"].(*check.TypeName); ok {
+			f("@prelude", "hashTable", tn)
+		}
 	}
 	seen := map[string]bool{}
 	for id, o := range pkg.Info.Uses {

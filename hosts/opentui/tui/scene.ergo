@@ -19,6 +19,8 @@ let buttonOff = uint32(0x4e4e4eff)
 
 // kindOf is the scene kind of n: a TEXT for what shows a text of its own,
 // an EDITOR for an Input, a scroll box for a Scroll, a BOX for the rest.
+// Every kind is named (OT-TOTAL), so a new ui node kind is a check error
+// here, not a quiet box.
 func kindOf[E](n ui.Node[E]) int {
 	match n {
 	case ui.TextNode, ui.CheckNode[E], ui.ToggleNode, ui.LiveNode:
@@ -29,9 +31,33 @@ func kindOf[E](n ui.Node[E]) int {
 		screen.Scroller
 	case ui.RowsNode:
 		screen.Lister
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.PressableNode[E], ui.AreaNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
 		screen.Box
+	case ui.TransitionNode:
+		// Degraded: a Transition's motion is not run; its body shows at rest.
+		screen.Box
+	case ui.ReadoutNode:
+		// A text: its reading, in its reserve's width (shownText).
+		screen.Text
 	}
+}
+
+// reserved is reading in the width of reserve, in cells (a glyph a cell):
+// cut where it is wider, padded with spaces where it is narrower, so a
+// readout's box is its reserve's whatever it reads and its siblings never
+// move (readout.ergo). Mutant OTRD-box-by-reading.
+func reserved(reading string, reserve string) string {
+	let w = utf8.RuneCount(reserve)
+	let mut out = ""
+	let mut n = 0
+	for r in runesOf(reading) {
+		if n == w {
+			break
+		}
+		out = out + r
+		n = n + 1
+	}
+	out + strings.Repeat(" ", w-n)
 }
 
 // textOf is the text a TEXT or an EDITOR node of n shows (an empty
@@ -48,7 +74,11 @@ func textOf[E](n ui.Node[E]) Option[string] {
 		Some{Value: x.Value}
 	case ui.LiveNode as x:
 		Some{Value: x.Text}
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.PressableNode[E], ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
+		// No text of their own: a Pressable's label is labelText's.
+		None
+	case ui.ReadoutNode:
+		// Its reading is the session's, not the node's: shownText.
 		None
 	}
 }
@@ -103,7 +133,21 @@ func layoutOf[E](n ui.Node[E]) laid {
 		s.Width = ui.Fixed{Value: x.Width}
 		s.Height = ui.Fixed{Value: x.Height}
 		laid{style: s, row: false}
-	case _:
+	case ui.SemanticNode[E] as x:
+		laid{style: x.Style, row: false}
+	case ui.ReadoutNode as x:
+		// Laid with its Style; its text (shownText) is its reserve's width.
+		laid{style: x.Style, row: false}
+	case ui.TrackNode as x:
+		// Laid with its Style. Degraded: its motion is not run yet, so the
+		// body shows with no offset and no fade (OT-TRACKS).
+		laid{style: x.Style, row: false}
+	case ui.LayerNode[E] as x:
+		// Degraded: a Layer is laid in flow with its Style; its Z, anchor,
+		// placement and scrim are not shown yet.
+		laid{style: x.Style, row: false}
+	case ui.CheckNode[E], ui.ToggleNode, ui.LiveNode, ui.RowsNode, ui.FieldsetNode, ui.TransitionNode:
+		// No Style of their own.
 		laid{style: ui.Plain(), row: false}
 	}
 }
@@ -220,14 +264,17 @@ func lookOf[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) look {
 		look{fg: if off { grey } else { white }, bg: 0, attr: if on { screen.Bold } else { 0 }}
 	case ui.InputNode:
 		look{fg: if off { grey } else { white }, bg: 0, attr: screen.Underline + (if on { screen.Bold } else { 0 })}
-	case ui.TextNode, ui.LiveNode:
+	case ui.TextNode, ui.LiveNode, ui.ReadoutNode:
+		// A Readout is a text on the terminal (kindOf).
 		match pressableAbove(d, id) {
 		case Some[ui.Id[E]] as p:
 			textOn(d, p.Value)
 		case None:
 			look{fg: white, bg: 0, attr: 0}
 		}
-	case _:
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.SemanticNode[E], ui.LayerNode[E], ui.TrackNode:
+		// The terminal's own colours: a container paints nothing of its own
+		// (a Style.Look is OT-LOOKS's).
 		look{fg: 0, bg: 0, attr: 0}
 	}
 }

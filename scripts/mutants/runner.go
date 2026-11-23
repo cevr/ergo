@@ -100,6 +100,9 @@ type Tool struct {
 	Name    string
 	Package string
 	Flags   []string
+	// Env is set over the runner's environment for the tool's build (the
+	// ergo tool's: ergobuild.Cgo).
+	Env []string
 }
 
 // Suite is a set of tests. A Go suite is a test package: its tests are the
@@ -326,6 +329,12 @@ func newEngine(cfg Config) (*engine, error) {
 	if inside(cfg.Work, cfg.Root) {
 		return nil, fmt.Errorf("work directory %s is inside the checkout %s", cfg.Work, cfg.Root)
 	}
+	// The copies are made under the work directory, each emptied first
+	// (copyTree) and restored by removing what the checkout lacks
+	// (restoreUnder): a checkout inside it could be one of them.
+	if inside(cfg.Root, cfg.Work) {
+		return nil, fmt.Errorf("the checkout %s is inside the work directory %s", cfg.Root, cfg.Work)
+	}
 	mod, err := os.ReadFile(filepath.Join(cfg.Root, "go.mod"))
 	if err != nil {
 		return nil, err
@@ -506,22 +515,59 @@ func commitCopy(dst string, files []treeFile) error {
 }
 
 // verifyCopy checks that every file a mutant touched in the copy at dst is
-// back to the checkout's bytes.
+// back to the checkout's bytes: a file a row edited, and every file under
+// a regenerate step's folder (for `go run ./scripts/linked`, the whole
+// tree). A symbolic link is compared by its target, as treeFile keeps it:
+// read through the link, every link under a regenerate folder "differed"
+// (conformance/upstream/foldkit-d21db423/CLAUDE.md -> AGENTS.md; IR1, PF).
+// Each changed file is named with its first differing line.
 func (e *engine) verifyCopy(dst string, touched map[string]bool) error {
 	var bad []string
 	for _, f := range e.files {
 		if !touched[f.path] {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dst, filepath.FromSlash(f.path)))
-		if err != nil || !bytes.Equal(data, f.data) {
-			bad = append(bad, f.path)
+		p := filepath.Join(dst, filepath.FromSlash(f.path))
+		var data []byte
+		var err error
+		if f.mode&fs.ModeSymlink != 0 {
+			var target string
+			target, err = os.Readlink(p)
+			data = []byte(target)
+		} else {
+			data, err = os.ReadFile(p)
 		}
+		if err == nil && bytes.Equal(data, f.data) {
+			continue
+		}
+		bad = append(bad, f.path+" ("+firstDiff(f.data, data, err)+")")
 	}
 	if len(bad) > 0 {
-		return fmt.Errorf("a mutant was not restored: %s in %s differs from the checkout", strings.Join(bad, ", "), dst)
+		return fmt.Errorf("a mutant was not restored in %s: %s", dst, strings.Join(bad, "; "))
 	}
 	return nil
+}
+
+// firstDiff is the first line where the copy's bytes (got, or its read
+// error) differ from the checkout's (want).
+func firstDiff(want, got []byte, err error) string {
+	if err != nil {
+		return "in the copy: " + err.Error()
+	}
+	w, g := strings.Split(string(want), "\n"), strings.Split(string(got), "\n")
+	for i := 0; i < max(len(w), len(g)); i++ {
+		var a, b string
+		if i < len(w) {
+			a = w[i]
+		}
+		if i < len(g) {
+			b = g[i]
+		}
+		if a != b || i >= len(w) || i >= len(g) {
+			return fmt.Sprintf("line %d: checkout %.120q, copy %.120q", i+1, a, b)
+		}
+	}
+	return "same lines, other bytes"
 }
 
 // env is the environment of every child: the runner's own, with the
@@ -570,6 +616,8 @@ type outcome struct {
 	// started is set when the child printed the start line it was run
 	// with (execStarted), or had none to print.
 	started bool
+	// log is the file holding the child's whole output when it failed.
+	log string
 }
 
 // timeoutPanic is how a go test binary says that its -test.timeout ran
@@ -652,6 +700,20 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	cmd.Env = append(slices.Clip(env), execTokenVariable+"="+token)
 	cmd.Stdout = out
 	cmd.Stderr = out
+	// The whole output goes to a file as well, kept when the child fails:
+	// the tail drops the middle, where a test's own error may stand
+	// (keepRed).
+	var full *os.File
+	if e.cfg.Work != "" {
+		if err := os.MkdirAll(filepath.Join(e.cfg.Work, "out"), 0o755); err == nil {
+			full, _ = os.Create(filepath.Join(e.cfg.Work, "out", token+".log"))
+		}
+	}
+	if full != nil {
+		defer full.Close()
+		w := io.MultiWriter(out, full)
+		cmd.Stdout, cmd.Stderr = w, w
+	}
 	// Read every byte before tail truncates the display. The shared writer
 	// keeps stdout and stderr ordered, as they were before the watcher.
 	watch := proclimit.Watch(cmd)
@@ -705,7 +767,48 @@ func (e *engine) execStarted(ctx context.Context, dir string, argv, env []string
 	if ctx.Err() != nil && o.reason != "" {
 		o.reason, o.timeout = "interrupted", false
 	}
+	if full != nil {
+		if o.reason == "" {
+			os.Remove(full.Name())
+		} else {
+			o.log = full.Name()
+		}
+	}
 	return o
+}
+
+// redVariable names the folder where keepRed puts the whole output of a
+// test that fails on the unmutated tree; the default is the user cache's
+// ergo-mutants/red.
+const redVariable = "ERGO_MUTANTS_RED"
+
+// keepRed copies the whole output of id's failing run on the unmutated
+// tree (o.log, in the work folder the run removes) to a file that stays,
+// and returns its path; "" when there is none. A red baseline judged
+// nothing, and its cause was lost with the tail's middle (OWN1's
+// TestValueRuleEveryBodyKind, SUPERVISE-2's TestStdActorLawsRun).
+func keepRed(id string, o outcome) string {
+	if o.log == "" {
+		return ""
+	}
+	dir := os.Getenv(redVariable)
+	if dir == "" {
+		cache, err := os.UserCacheDir()
+		if err != nil {
+			return ""
+		}
+		dir = filepath.Join(cache, "ergo-mutants", "red")
+	}
+	data, err := os.ReadFile(o.log)
+	if err != nil || os.MkdirAll(dir, 0o755) != nil {
+		return ""
+	}
+	name := strings.NewReplacer("/", "_", ":", "-", "[", "_", "]", "_").Replace(id)
+	path := filepath.Join(dir, time.Now().UTC().Format("20060102T150405")+"-"+name+".log")
+	if os.WriteFile(path, data, 0o644) != nil {
+		return ""
+	}
+	return path
 }
 
 // startLine is what a test binary run with -test.v prints when the
@@ -875,7 +978,7 @@ func (e *engine) buildTool(ctx context.Context, root, bin, name string, cover bo
 		argv = append(argv, "-cover", "-covermode="+coverMode, "-coverpkg="+strings.Join(append(slices.Clone(e.cfg.Cover), t.Package), ","))
 	}
 	argv = append(append(argv, t.Flags...), "-o", filepath.Join(bin, name), t.Package)
-	return e.exec(ctx, root, argv, e.env(), deadline), nil
+	return e.exec(ctx, root, argv, append(e.env(), t.Env...), deadline), nil
 }
 
 func (e *engine) buildSuite(ctx context.Context, root, bin string, s *Suite, cover bool, deadline time.Duration) outcome {
@@ -1023,9 +1126,16 @@ func (e *engine) measure(ctx context.Context, suites []Suite) (*coverage, error)
 				return nil, fmt.Errorf("build suite %s with coverage: %s\n%s", s.Name, o.reason, o.tail)
 			}
 			c.Builds[s.Name] = o.seconds
-			list, err := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".").Output()
+			// In the package's directory, as go test runs the binary: a
+			// test file's init may read testdata (lower's loose JSON
+			// cases), and from the root it panics before it lists.
+			lister := exec.Command(filepath.Join(bin, s.Name+".test"), "-test.list", ".")
+			lister.Dir = filepath.Join(root, filepath.FromSlash(s.Module), filepath.FromSlash(s.Package))
+			var stderr strings.Builder
+			lister.Stderr = &stderr
+			list, err := lister.Output()
 			if err != nil {
-				return nil, fmt.Errorf("list the tests of %s: %w", s.Name, err)
+				return nil, fmt.Errorf("list the tests of %s: %w\n%s", s.Name, err, firstLine(stderr.String()))
 			}
 			listed := strings.Fields(string(list))
 			for _, n := range listed {
@@ -1159,7 +1269,7 @@ func (e *engine) measureOne(ctx context.Context, root, bin string, t *covTest, i
 	}
 	if o = neverRan(o); o.reason != "" {
 		t.Failed = true
-		t.Detail = o.reason + ": " + lastLines(o.tail, 20)
+		t.Detail = baseDetail(t.ID, o)
 		e.logf("coverage: %s fails on the unmutated tree (%s): it kills nothing", t.ID, o.reason)
 	}
 	entries, err := os.ReadDir(dir)

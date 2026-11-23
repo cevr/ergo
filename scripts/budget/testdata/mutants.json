@@ -1,0 +1,50 @@
+{
+  "about": "scripts/budget/{light,heavy}.sh: the host's wrappers of `ergo budget`. Each mutant restores a way the run's own copies went wrong, and a test of this package kills it.",
+  "mutants": [
+    {
+      "name": "budget-light-crit-from-env",
+      "origin": "wf10 BUDGET-WRAP (2026-11-20 crit starvation)",
+      "file": "scripts/budget/light.sh",
+      "from": "class=lane\nif [ -n",
+      "to": "class=lane\n[ \"${LIGHT_CRIT:-0}\" = 1 ] && class=crit\nif [ -n",
+      "rule": "A light run is crit only when its workspace is in the crit file.",
+      "killers": ["scripts/budget:TestLightCritComesOnlyFromTheCritFile"]
+    },
+    {
+      "name": "budget-scratch-no-sweep",
+      "origin": "wf10 TMPDIR-PER-RUN (2026-11-20: killed runs left tens of GiB under /tmp)",
+      "file": "scripts/budget/scratch.sh",
+      "from": "    flock -n \"$l\" true 2>/dev/null && rm -rf \"${l%.lock}\" \"$l\"\n",
+      "to": "    :\n",
+      "rule": "A run's start removes every scratch folder whose lock no run holds: a killed run's.",
+      "killers": ["scripts/budget:TestRunsGetTheirOwnScratch"]
+    },
+    {
+      "name": "budget-heavy-crit-from-env",
+      "origin": "wf10 BUDGET-WRAP (2026-11-20 crit starvation)",
+      "file": "scripts/budget/heavy.sh",
+      "from": "  cls=lane\n",
+      "to": "  cls=lane\n  [ \"${HEAVY_CRIT:-0}\" = 1 ] && cls=crit\n",
+      "rule": "A heavy run is crit only when its workspace is in the crit file.",
+      "killers": ["scripts/budget:TestHeavyTakesItsDeclaredWidthInItsUnit"]
+    },
+    {
+      "name": "budget-heavy-width-uncapped",
+      "origin": "wf10 BUDGET-WRAP",
+      "file": "scripts/budget/heavy.sh",
+      "from": "*) [ \"$mine\" -gt \"$max\" ] && mine=$max ;;",
+      "to": "*) ;;",
+      "rule": "A heavy run's width is at most the budget's cores, so a run wider than the budget still runs.",
+      "killers": ["scripts/budget:TestHeavyTakesItsDeclaredWidthInItsUnit"]
+    },
+    {
+      "name": "budget-heavy-p-ignored",
+      "origin": "wf10 BUDGET-WRAP",
+      "file": "scripts/budget/heavy.sh",
+      "from": "        -p:*) c=$a ;;\n",
+      "to": "        -p:*) ;;\n",
+      "rule": "A heavy go test takes its -p as its width.",
+      "killers": ["scripts/budget:TestHeavyTakesItsDeclaredWidthInItsUnit"]
+    }
+  ]
+}

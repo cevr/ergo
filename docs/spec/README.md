@@ -7,7 +7,7 @@ This directory is the normative specification of the Go-shaped Ergo language: Ef
 ## Scope
 
 - **In scope.** Lexical rules and grammar, types, error and capability rows, resources, the runtime rules, the standard-library outline and the diagnostics of the core.
-- **Sources.** The design sketches of 2026-10-26, numbered 8, 9 and 10, their two independent reviews, and the merged prototype compiler in [`prototypes/sketch9`](../../prototypes/sketch9/README.md) with its [receipt](../../prototypes/sketch9/RECEIPT.md). The [language evolution preview](../previews/2026-10-27-go-sketch.md) shows the language as of this version.
+- **Sources.** The design sketches of 2026-10-26, numbered 8, 9 and 10, their two independent reviews, and the merged prototype compiler in [`prototypes/sketch9`](../../prototypes/sketch9/README.md) with its [receipt](../../prototypes/sketch9/RECEIPT.md).
 - **Out of scope.** The earlier `.ef` language, which [#205](https://github.com/cevr/ergo/issues/205) retired with its compiler ([retirement record](../receipts/retire-ef.md)). Its documents stay as design reference. [`docs/design.md`](../design.md) marks each section this specification supersedes.
 - **One language.** There are no editions and no manifest: every `.ergo` file is this language.
 - **Terms.** Every domain term is defined only in the [glossary](../../GLOSSARY.md). These files state rules and link to it.
@@ -118,61 +118,61 @@ The size of the language, counted from the parser and this specification by `scr
 | Planned words (specified, not built) | 3 | `given`, `gives`, `keeps` |
 | Productions (grammar.md) | 87 |  |
 | Signature clause kinds | 4 | `fails`, `needs`, `provides`, `takes` |
-| Diagnostic rule bullets (diagnostics.md) | 76 |  |
-| Spec words (docs/spec) | 372655 |  |
+| Diagnostic rule bullets (diagnostics.md) | 77 |  |
+| Spec words (docs/spec) | 324745 |  |
 
-Uses count tokens, so neither a comment nor a string, in the 1539 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
+Uses count tokens, so neither a comment nor a string, in the 1565 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
 
 | Form | Kind | Uses | Names | Previous | Note |
 | --- | --- | --- | --- | --- | --- |
-| `break` | keyword | 170 |  | 115 |  |
-| `case` | keyword | 20595 |  | 15307 |  |
-| `continue` | keyword | 553 |  | 420 |  |
-| `else` | keyword | 3267 |  | 2266 |  |
-| `for` | keyword | 5956 |  | 4388 |  |
-| `func` | keyword | 18304 |  | 14703 |  |
-| `if` | keyword | 11581 |  | 8339 |  |
-| `import` | keyword | 4239 |  | 3496 |  |
-| `return` | keyword | 10146 |  | 7668 |  |
-| `type` | keyword | 5305 |  | 4387 |  |
-| `try` | keyword | 4143 |  | 3236 |  |
-| `catch` | keyword | 3399 |  | 2527 |  |
-| `needs` | keyword | 5957 |  | 5533 |  |
+| `break` | keyword | 174 |  | 174 |  |
+| `case` | keyword | 21357 |  | 21350 |  |
+| `continue` | keyword | 578 |  | 578 |  |
+| `else` | keyword | 3484 |  | 3480 |  |
+| `for` | keyword | 6218 |  | 6218 |  |
+| `func` | keyword | 18817 |  | 18804 |  |
+| `if` | keyword | 12192 |  | 12185 |  |
+| `import` | keyword | 4351 |  | 4347 |  |
+| `return` | keyword | 10592 |  | 10584 |  |
+| `type` | keyword | 5426 |  | 5422 |  |
+| `try` | keyword | 4276 |  | 4275 |  |
+| `catch` | keyword | 3557 |  | 3550 |  |
+| `needs` | keyword | 5964 |  | 5977 |  |
 | `provides` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `context` | keyword | 673 |  | 526 |  |
-| `machine` | keyword | 106 |  | 94 |  |
-| `let` | keyword | 26847 |  | 20784 |  |
-| `mut` | keyword | 7876 |  | 4549 |  |
-| `in` | keyword | 5255 |  | 3862 |  |
-| `match` | keyword | 4788 |  | 3596 |  |
+| `context` | keyword | 714 |  | 714 |  |
+| `machine` | keyword | 106 |  | 106 |  |
+| `let` | keyword | 28063 |  | 28050 |  |
+| `mut` | keyword | 8291 |  | 8288 |  |
+| `in` | keyword | 5486 |  | 5486 |  |
+| `match` | keyword | 4982 |  | 4982 |  |
 | `escaping` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `fails` | keyword | 4451 |  | 3707 |  |
-| `test` | keyword | 605 |  | 595 |  |
-| `law` | keyword | 2042 |  | 1575 |  |
-| `assert` | keyword | 1704 |  | 1699 |  |
-| `extern` | keyword | 9730 |  | 9466 |  |
-| `with` | keyword | 681 |  | 537 |  |
+| `fails` | keyword | 4523 |  | 4518 |  |
+| `test` | keyword | 607 |  | 607 |  |
+| `law` | keyword | 2131 |  | 2128 |  |
+| `assert` | keyword | 1700 |  | 1700 |  |
+| `extern` | keyword | 9729 |  | 9724 |  |
+| `with` | keyword | 705 |  | 705 |  |
 | `takes` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `as` | keyword | 8134 |  | 6128 |  |
-| `after` | word | 21 | 427 | 19 |  |
-| `always` | word | 7 | 9 | 5 | for the owner: delete or teach |
+| `as` | keyword | 8432 |  | 8432 |  |
+| `after` | word | 21 | 466 | 21 |  |
+| `always` | word | 8 | 9 | 8 | for the owner: delete or teach |
 | `derive` | word | 2 | 0 | 2 | for the owner: delete or teach |
-| `entry` | word | 18 | 201 | 13 |  |
-| `exit` | word | 2 | 51 |  |  |
-| `implements` | word | 367 | 0 | 287 |  |
-| `initial` | word | 106 | 20 | 94 |  |
+| `entry` | word | 18 | 218 | 18 |  |
+| `exit` | word | 2 | 51 | 2 | for the owner: delete or teach |
+| `implements` | word | 376 | 0 | 376 |  |
+| `initial` | word | 106 | 20 | 106 |  |
 | `never` | word | 1 | 4 | 1 | for the owner: delete or teach |
-| `own` | word | 1464 | 46 | 3843 |  |
-| `path` | word | 14 | 1752 | 14 |  |
+| `own` | word | 1460 | 52 | 1460 |  |
+| `path` | word | 14 | 1843 | 14 |  |
 | `pure` | word | 3 | 6 | 3 | for the owner: delete or teach |
-| `reaches` | word | 7 | 16 | 7 | for the owner: delete or teach |
+| `reaches` | word | 7 | 19 | 7 | for the owner: delete or teach |
 | `replace` | word | 2 | 4 | 2 | for the owner: delete or teach |
-| `skip` | word | 0 | 70 |  |  |
-| `sometimes` | word | 7 | 0 | 5 | for the owner: delete or teach |
-| `step` | word | 106 | 215 | 94 |  |
+| `skip` | word | 0 | 70 | 0 | for the owner: delete or teach |
+| `sometimes` | word | 7 | 0 | 7 | for the owner: delete or teach |
+| `step` | word | 106 | 215 | 106 |  |
 | `when` | word | 0 | 17 | 0 | for the owner: delete or teach |
-| `where` | word | 89 | 42 | 88 |  |
-| `work` | word | 20 | 1851 | 16 |  |
+| `where` | word | 96 | 42 | 96 |  |
+| `work` | word | 20 | 1876 | 20 |  |
 | `given` | planned | 0 |  | 0 | specified, not built |
 | `gives` | planned | 0 |  | 0 | specified, not built |
 | `keeps` | planned | 0 |  | 0 | specified, not built |
@@ -211,7 +211,7 @@ The prototype's behaviour and the sketches leave the points below unstated or in
 14. **Resources behind interfaces.** Review 9 (M2) showed that converting a resource to an interface without `Close` loses release authority. *Recommendation:* adopted in [resources.md](resources.md#conversions): that conversion is an error.
 15. **Moves into aggregates.** The owner's rule lists four moves. Building a struct whose field is a resource also transfers ownership, as the `Postgres` example does. *Recommendation:* adopted in [resources.md](resources.md#moves) as a fifth move.
 16. **Reserved names of the prototype's output.** The prototype reserves Go's predeclared identifiers, `rt`, `time`, `fmt`, `init`, `Error`, `timeout`, `duration`, names with `__` and names ending in `_` (S109). *Recommendation:* these are prototype limits. The main compiler mangles generated names, so only the language's own reserved words stay reserved ([grammar.md](grammar.md#reserved-names)). *Status:* the checker reserves none of them, and universe names may be shadowed (#196).
-17. **Capabilities in provider methods.** The prototype rejects a `needs` clause on a method and a capability call inside a provider method (S109). *Recommendation:* a provider method may use the capabilities its constructor captured, as Effect's layers capture their dependencies. A method signature still cannot widen the capability's row. *Status:* a method may write a capability row and is charged at its call; such a method cannot implement a capability method (S106) or an interface method (S108), because its row is wider (#196). The captured form exists for go.Foreign (STD-NOPRIV NP4e): a provider whose operations need go.Foreign beyond the operation type's row becomes a value of the operation type, or a context entry, where it is built, and that site is charged go.Foreign, as any call of Go is ([types](types.md#capabilities) Capabilities 4). go.Foreign has no provider value, so nothing is stored. A type parameter's constraint captures nothing, and every other capability stays with #37.
+17. **Capabilities in provider methods.** The prototype rejects a `needs` clause on a method and a capability call inside a provider method (S109). *Recommendation:* a provider method may use the capabilities its constructor captured, as Effect's layers capture their dependencies. A method signature still cannot widen the capability's row. *Status:* a method may write a capability row and is charged at its call; such a method cannot implement a capability method (S106) or an interface method (S108), because its row is wider (#196). The captured form exists for go.Foreign (STD-NOPRIV NP4e): a provider whose operations need go.Foreign beyond the operation type's row becomes a value of the operation type, or a context entry, where it is built, and that site is charged go.Foreign, as any call of Go is ([types](types.md#capabilities) Capabilities 4). go.Foreign has no provider value, so nothing is stored. A law case of the test binary holds go.Foreign, so a law runs natively on such a provider (owner q277; [types](types.md#laws) Laws 10). A type parameter's constraint captures nothing, and every other capability stays with #37.
 18. **Diagnostic codes.** The prototype's codes (S001, S101 to S110) are not in the main compiler's EF registry ([#79](https://github.com/cevr/ergo/issues/79)). *Recommendation:* the main compiler gives each rule in [diagnostics.md](diagnostics.md) an EF code, and keeps the rule text and fixture links.
 19. **No fixture file for S107.** The missing-return rule is pinned only by a table test in `sketch/sketch_test.go`. *Closed:* the checker's fixture `missing-return` pins S107 (#196).
 20. **Codec discovery by name.** The sketches find a type's codec by the names `ParseX` and `Wire`, as Go finds `TestX`. A rule keyed on a name risks the special-cased-library pattern the owner rejected. *Recommendation:* state it as a general method-set convention with laws in [#49](https://github.com/cevr/ergo/issues/49), so that a userland codec family can use the same rule.

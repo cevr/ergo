@@ -24,8 +24,8 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	l := fc.l
 	b := st.newBuilder(fc, d)
 	defer st.finish(b, l.pkg.Path, name, d, false, &ok)
-	if needsFrame {
-		b.gate("body that needs a frame")
+	if needsFrame && !irFrame(fc) {
+		b.gate("body that needs a frame") // frameScopeLowering=off: the reference
 	}
 	// Go parameter order: the environment, then the parameters (testDecl).
 	b.env = b.next
@@ -39,11 +39,25 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(d, d.Pos()), End: b.pos(d, d.Body.Rbrace)}
 	b.names = b.tempNames(d.Body) // ir_fail.go
+	if needsFrame {
+		// The test's frame scope, before the entry poll, as a function's
+		// (the emitter's testDecl: openFrame, then entryPoll).
+		b.part(func() {
+			b.fn.Body = append(b.fn.Body, b.openScopeOf(d.Body, d, d.Name, params, b.frameErrArg(b.pos(d, d.Pos())), false)...)
+		}) // ir_own.go
+	}
 	if frameFootprint(l.info, d).EntryPoll && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(d))
 	}
 	b.fn.Body = append(b.fn.Body, b.bodyStmts(d.Body.List)...) // ir_fail.go
 	b.fn.Body = append(b.fn.Body, b.bodyEnd(b.fn.Body, b.fn.End)...)
+	if n := len(d.Body.List); needsFrame && n > 0 && !irListTerminates(b.fn.Body) {
+		// The emitter's test ends in a return at its last statement's
+		// line, where its exit actions run: a defect in one names that
+		// line, not the closing brace (runtime.md, Defects 3).
+		last := d.Body.List[n-1]
+		b.fn.Body = append(b.fn.Body, b.ret(nil, b.pos(last, last.Pos()))...)
+	}
 	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body), b.fn.Pos) // ir_end.go
 	if st.census != nil {
 		return false
@@ -56,20 +70,33 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 // lawBody gives the law, the Go function name, an IR body (lawDecl):
 // `func ergoLaw…(env, params…) (bool, error)`, each value it returns
 // checked where it is returned (lawResult). A law of a generic operation
-// type stays the emitter's.
+// type's copy (mono.go) also takes the provider under test after the
+// environment (lawOwn).
 func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame bool) (ok bool) {
 	l, d := fc.l, law.Decl
 	b := st.newBuilder(fc, d)
 	b.result, b.law = fc.frame.result, law
 	defer st.finish(b, law.Pkg.Path, name, d, law.Pkg.Std(), &ok)
-	if needsFrame {
-		b.gate("body that needs a frame")
-	}
-	if lawGenericOwner(law) != nil {
-		b.gate("law of a generic operation type")
+	if needsFrame && !irFrame(fc) {
+		b.gate("body that needs a frame") // frameScopeLowering=off: the reference
 	}
 	b.env = b.next
 	b.next++
+	if own := lawGenericOwner(law); own != nil {
+		if !fc.mono || b.l.runtimeType(own, d) != "" {
+			// The generic law itself (the reference, genericLowering
+			// "stencil") is a Go generic function, whose body the IR
+			// does not fill; a std operation type's call takes its
+			// runtime binding (the emitter's opCall).
+			b.gate("law of a generic operation type")
+		}
+		// A copy of a law of a generic operation type at one instance
+		// (mono.go lawMonoFor; lawDecl writes its header: the provider
+		// under test `own` after the environment); its operation calls
+		// call own (ir_call.go).
+		b.lawOwn = b.next
+		b.next++
+	}
 	for _, v := range law.Params {
 		if v.Name != "_" {
 			b.locals[v] = b.next
@@ -79,6 +106,14 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 	}
 	b.fn = &irFunc{Name: name, Pos: b.pos(d, d.Pos()), End: b.pos(d, d.Body.Rbrace)}
 	b.names = b.tempNames(d.Body) // ir_fail.go
+	if needsFrame {
+		// The law's frame scope, before the entry poll, as a function's
+		// (the emitter's lawDecl: openFrame, then entryPoll); its End
+		// takes the error result, the second of (bool, error).
+		b.part(func() {
+			b.fn.Body = append(b.fn.Body, b.openScopeOf(d.Body, d, d.Name, law.Params, b.frameErrArg(b.pos(d, d.Pos())), false)...)
+		}) // ir_own.go
+	}
 	if frameFootprint(l.info, d).EntryPoll && fc.frame.polls {
 		b.fn.Body = append(b.fn.Body, b.poll(d))
 	}
@@ -99,7 +134,8 @@ func (st *irState) lawBody(fc *funcCtx, law *check.Law, name string, needsFrame 
 // emitter's.
 func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 	last := out[len(out)-1]
-	if x == nil || last.K != "ret" || last.X == nil {
+	if x == nil || last.K != "ret" || last.X == nil || b.law.Admits != nil {
+		// An admission's false only skips its case (lawnear.go).
 		return out
 	}
 	if b.fallibleCall(x) != nil {

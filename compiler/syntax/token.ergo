@@ -114,6 +114,11 @@ let Struct = uint8(105)
 let Switch = uint8(106)
 let Var = uint8(107)
 
+// Tilde is `~`, the mark of a type-set term `~T` (types.md, Generics 2).
+// It follows the reserved words (108 ends them in the Go AST's numbering),
+// so no earlier token's number moves.
+let Tilde = uint8(109)
+
 // Tok is the row tag of tokens.
 type Tok {}
 

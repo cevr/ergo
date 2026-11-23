@@ -25,6 +25,7 @@ import (
 const sendMalformed = 3
 
 func registerNativeshttp(t nativeTables) {
+	t.reads["http.Listen"] = "string"
 	hostNative(t, "http.Listen", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		addr := args[0].(string)
 		// Only a literal or empty host is resolved without a lookup,
@@ -91,10 +92,13 @@ func registerNativeshttp(t nativeTables) {
 		}
 		return nil, fr.unsupported(at, "an http exchange: the simulated process has no network")
 	}
+	t.reads["http.fetch"] = "sliceV bool *record int64 string string sliceV sliceV sliceV string"
 	hostNative(t, "http.fetch", fetch)
+	t.reads["http.fetchInto"] = "sliceV bool *record int64 string string sliceV sliceV sliceV string func/1 func/1"
 	hostNative(t, "http.fetchInto", fetch)
 	// IntoFile runs the fetch with a file it fills; a fetch that fails
 	// before its first part leaves no file. A filled file is not run yet.
+	t.reads["http.IntoFile"] = "host:fs.HostRoot string func/1"
 	hostNative(t, "http.IntoFile", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if args[1].(string) == "" {
 			return nil, fr.unsupported(at, "an http.IntoFile of an empty path")

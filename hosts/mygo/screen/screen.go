@@ -14,12 +14,18 @@
 package screen
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/maphash"
+	"image"
+	"image/color"
+	_ "image/jpeg"
+	"image/png"
 	"math"
+	"os"
 	"reflect"
 	"slices"
 	"sync"
@@ -57,10 +63,18 @@ const (
 	Frame
 	// Woken: Wake was called; the program has work of its own queued.
 	Woken
+	// Edited: an input method committed an edit of the focused field,
+	// whose committed text is now Text (textclient.go, MB5).
+	Edited
 )
 
 // Input is one event of the window, in device-independent pixels from
-// the content's top left corner.
+// the content's top left corner. At is its time in nanoseconds since the
+// window opened, on a frame and on a pointer's Down, Move and Up (a
+// finger's scroll is about when it moved, MB4); Finger is whether a
+// finger on a touchscreen made a pointer input; Edit numbers an Edited
+// input, from 1. MyGo's surface at this
+// pin names no pointer id, so two fingers are not told apart here yet.
 type Input struct {
 	Kind                   int
 	X, Y, DX, DY           float64
@@ -68,6 +82,8 @@ type Input struct {
 	Shift, Ctrl, Alt, Meta bool
 	Width, Height          float64
 	At                     int64
+	Finger                 bool
+	Edit                   int
 }
 
 // The roles of Access.
@@ -113,16 +129,26 @@ type Window struct {
 	disc           [][2]float32
 	masks, lined   int
 	// vw and vh are the frame being built's size in device pixels.
-	vw, vh  float32
-	z       vec.Rasterizer
-	frames  bool
-	start   time.Time
+	vw, vh float32
+	z      vec.Rasterizer
+	frames bool
+	start  time.Time
+	// doc is the focused field's document as the input methods see it,
+	// and keyboard the keyboard the field asked for (textclient.go).
+	doc      document
+	keyboard string
+	// manual is the time a Headless window's clock reads once SetClock
+	// set it, -1 while it reads the wall clock.
+	manual  int64
 	width   float64
 	height  float64
 	painted int
 	// opacity multiplies the alpha of what is painted from now on
 	// (SetOpacity); 1 at Begin.
 	opacity float64
+	// slanted is the slanted runs of the list made since Begin (or
+	// Hold), those a kept part took again among them (Slanted).
+	slanted int
 
 	// The damage paint (Mark, Seal, Again): the parts of the list being
 	// made and of the shown one each key drew, the parts still open, and
@@ -151,6 +177,10 @@ type Window struct {
 	tmu            sync.Mutex
 	laid, lastLaid map[textKey]*text.Layout
 
+	// images are the images Image decoded, by source; nil for one it
+	// could not read.
+	images map[string]*scene.Image
+
 	// fake is the surface of a Headless window.
 	fake *fake.Surface
 	// app quits when a desktop window closes.
@@ -166,6 +196,8 @@ type glyphText struct {
 	color       scene.Color
 	clip        scene.Rect
 	transformed bool
+	// slant draws the run sheared, as an oblique face (TextSlanted).
+	slant bool
 }
 
 // seg is the part of a list one key drew: its ops, its lines of text and
@@ -190,7 +222,7 @@ type stroke struct {
 var maskSeed = maphash.MakeSeed()
 
 func newWindow(width, height float64) *Window {
-	w := &Window{wake: make(chan struct{}, 1), start: time.Now(), width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}, opacity: 1}
+	w := &Window{wake: make(chan struct{}, 1), start: time.Now(), manual: -1, width: width, height: height, sys: text.Shared(), segs: map[int]seg{}, prev: map[int]seg{}, opacity: 1}
 	fastPango(func() { w.sys.Metrics(text.Style{Size: 13}) })
 	return w
 }
@@ -272,7 +304,7 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 		on := w.frames
 		w.mu.Unlock()
 		if on {
-			w.push(Input{Kind: Frame, At: time.Since(w.start).Nanoseconds()})
+			w.push(Input{Kind: Frame, At: w.now()})
 		}
 	case platform.SurfaceRenew, platform.SurfaceLowMemory:
 		// The surface's native objects are new (a phone app back from the
@@ -291,7 +323,7 @@ func (w *Window) event(ev platform.SurfaceEvent) bool {
 			return false
 		}
 		kind := map[platform.SurfaceEventKind]int{platform.PointerDown: Down, platform.PointerMove: Move, platform.PointerUp: Up}[ev.Kind]
-		w.push(withMods(Input{Kind: kind, X: ev.X, Y: ev.Y}, ev.Mods))
+		w.push(withMods(Input{Kind: kind, X: ev.X, Y: ev.Y, At: w.now(), Finger: ev.Pointer == platform.PointerTouch}, ev.Mods))
 	case platform.PointerScroll:
 		w.push(withMods(Input{Kind: Scroll, X: ev.X, Y: ev.Y, DX: ev.DX, DY: ev.DY}, ev.Mods))
 	case platform.KeyPressed:
@@ -388,15 +420,19 @@ func chordName(k platform.Key) string {
 // push queues an input for Next and wakes it.
 func (w *Window) push(in Input) {
 	w.mu.Lock()
+	w.queue(in)
+	w.mu.Unlock()
+}
+
+// queue queues an input for Next and wakes it; w.mu is held.
+func (w *Window) queue(in Input) {
 	if w.closed {
-		w.mu.Unlock()
 		return
 	}
 	if in.Kind == Closed {
 		w.closed = true
 	}
 	w.inputs = append(w.inputs, in)
-	w.mu.Unlock()
 	select {
 	case w.wake <- struct{}{}:
 	default:
@@ -473,7 +509,8 @@ func (w *Window) Begin() {
 func (w *Window) begin() {
 	w.pending, w.glyphs, w.clips, w.access = w.pending[:0], w.glyphs[:0], 0, w.access[:0]
 	w.strokes, w.pts, w.inStroke = w.strokes[:0], w.pts[:0], false
-	w.focus, w.field = 0, platform.TextInputState{}
+	w.slanted = 0
+	w.focus, w.field, w.keyboard = 0, platform.TextInputState{}, ""
 	w.opacity = 1
 	clear(w.segs)
 	w.open = w.open[:0]
@@ -516,6 +553,9 @@ func (w *Window) Again(key int) bool {
 	for _, g := range w.texts[s.gl0:s.gl1] {
 		g.at += t.op0 - s.op0
 		w.glyphs = append(w.glyphs, g)
+		if g.slant {
+			w.slanted++
+		}
 	}
 	for _, k := range w.shownStrokes[s.st0:s.st1] {
 		k.at += t.op0 - s.op0
@@ -680,6 +720,51 @@ func (w *Window) MasksDrawn() int {
 	return w.masks
 }
 
+// Image draws the region sx, sy, sw, sh of the image at src (all of it
+// when sw or sh is 0) into the rectangle at x, y of width by height,
+// under the affine a, b, c, d, e, f (x' = a*x + c*y + e, y' = b*x + d*y +
+// f). The window decodes a PNG or JPEG file at src once and keeps it; an
+// image it cannot read draws nothing.
+func (w *Window) Image(src string, sx, sy, sw, sh, a, b, c, d, e, f, x, y, width, height float64) {
+	if width == 0 || height == 0 {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	img, ok := w.images[src]
+	if !ok {
+		img = decodeImage(src)
+		if w.images == nil {
+			w.images = map[string]*scene.Image{}
+		}
+		w.images[src] = img
+	}
+	if img == nil {
+		return
+	}
+	part := scene.Rect{X: float32(sx), Y: float32(sy), W: float32(sw), H: float32(sh)}
+	if sw == 0 || sh == 0 {
+		part = scene.Rect{W: float32(img.W), H: float32(img.H)}
+	}
+	m := scene.Matrix(float32(a), float32(b), float32(c), float32(d), float32(e), float32(f))
+	w.add(scene.Op{Kind: scene.OpImage, Rect: rect(x, y, width, height), Transform: m, Image: img, Src: part})
+}
+
+// decodeImage is the image of the file at path, nil when it cannot be
+// read or decoded.
+func decodeImage(path string) *scene.Image {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil
+	}
+	return scene.NewImage(img)
+}
+
 // add appends a painting op under the opacity in effect; w.mu is held.
 func (w *Window) add(o scene.Op) {
 	if w.opacity < 1 {
@@ -777,6 +862,30 @@ func (w *Window) Text(x, y float64, s string, size float64, color uint32) {
 	w.mu.Unlock()
 }
 
+// TextSlanted is Text drawn oblique: the window has one face, so an
+// italic run is that face sheared, its tops leaning right by slant of
+// their height above the baseline, as a renderer synthesizes an oblique
+// face for a family with no italic.
+func (w *Window) TextSlanted(x, y float64, s string, size float64, color uint32) {
+	w.mu.Lock()
+	w.glyphs = append(w.glyphs, glyphText{at: len(w.pending), x: float32(x), y: float32(y), s: s, size: float32(size), color: w.faded(rgba(color)), slant: true})
+	w.slanted++
+	w.mu.Unlock()
+}
+
+// Slanted is how many slanted runs the list made since Begin (or Hold)
+// holds: those TextSlanted added and those a kept part (Again) took
+// again.
+func (w *Window) Slanted() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.slanted
+}
+
+// slant is the shear of an oblique run: x moves by slant of the height
+// above the baseline (about 11 degrees, a common synthetic oblique).
+const slant = 0.2
+
 // Access adds a node of the accessibility tree: id names it from frame to
 // frame (1 or more), parent is the index of its parent among the nodes
 // added since Begin (-1 at the top).
@@ -801,11 +910,19 @@ func (w *Window) Access(id int, parent int, role int, label string, value string
 }
 
 // Editing tells the input methods that a text field has the keyboard:
-// its text, and its caret's box. Begin ends it.
-func (w *Window) Editing(value string, x, y, width, height float64) {
-	n := len([]rune(value))
+// its value, the keyboard it asks for (ui's Keyboard: "text", "email",
+// "number", "phone", "url" or "password"; MyGo's surface at this pin
+// takes no kind, so the window only keeps it), and its caret's box. The
+// input methods edit the window's document of the field (textclient.go),
+// which value reconciles once the program took the Edited inputs up to
+// number taken (0: none). Begin ends it.
+func (w *Window) Editing(value, keyboard string, taken int, x, y, width, height float64) {
 	w.mu.Lock()
-	w.field = platform.TextInputState{Active: true, Caret: platform.RectF{X: x, Y: y, W: width, H: height}, Text: value, Start: n, End: n}
+	w.keyboard = keyboard
+	w.reconcile(value, taken)
+	d := &w.doc
+	d.caret = platform.RectF{X: x, Y: y, W: width, H: height}
+	w.field = platform.TextInputState{Active: true, Caret: d.caret, Text: d.text, Start: runeIndex(d.text, d.sel.Range.Start), End: runeIndex(d.text, d.sel.Range.End), Client: textClient{w}}
 	w.mu.Unlock()
 }
 
@@ -827,6 +944,10 @@ func (w *Window) Present() {
 	w.painted++
 	w.turnLayouts()
 	field := w.field
+	if !field.Active {
+		// No field has the keyboard: its document is gone.
+		w.doc = document{}
+	}
 	w.publishAccess(false)
 	w.mu.Unlock()
 	if w.conn != nil {
@@ -1247,7 +1368,13 @@ func (w *Window) glyphLine(s *scene.Scene, t glyphText, scale float32) {
 		}
 	}
 	if end := int32(len(s.Glyphs)); end > start {
-		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: scene.Translation(0, 0)})
+		m := scene.Translation(0, 0)
+		if t.slant {
+			// x' = x - slant*(y - baseline): the baseline stays, a
+			// glyph's top leans right.
+			m = scene.Matrix(1, 0, -slant, 1, slant*baseline, 0)
+		}
+		s.Ops = append(s.Ops, scene.Op{Kind: scene.OpGlyphs, Start: start, End: end, Transform: m})
 	}
 }
 
@@ -1258,7 +1385,8 @@ func (w *Window) Painted() int {
 	return w.painted
 }
 
-// The input of a Headless window, as its fake surface sends it.
+// The input of a Headless window, as its fake surface sends it, or of a
+// window on a screen that desktop.Drive plays.
 
 // Press presses the primary button at x, y.
 func (w *Window) Press(x, y float64) {
@@ -1269,6 +1397,46 @@ func (w *Window) Press(x, y float64) {
 func (w *Window) Release(x, y float64) {
 	w.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: x, Y: y})
 }
+
+// Touch puts a finger down at x, y.
+func (w *Window) Touch(x, y float64) {
+	w.send(platform.SurfaceEvent{Kind: platform.PointerDown, X: x, Y: y, Pointer: platform.PointerTouch})
+}
+
+// TouchMove moves the finger to x, y.
+func (w *Window) TouchMove(x, y float64) {
+	w.send(platform.SurfaceEvent{Kind: platform.PointerMove, X: x, Y: y, Pointer: platform.PointerTouch})
+}
+
+// Lift lifts the finger at x, y.
+func (w *Window) Lift(x, y float64) {
+	w.send(platform.SurfaceEvent{Kind: platform.PointerUp, X: x, Y: y, Pointer: platform.PointerTouch})
+}
+
+// SetClock sets the time the window's inputs carry, in nanoseconds since
+// it opened, from now on: a test moves it as its script says, so a
+// finger's speed is the script's and not the machine's load.
+func (w *Window) SetClock(at int64) {
+	w.mu.Lock()
+	w.manual = at
+	w.mu.Unlock()
+}
+
+// now is the window's time: the manual clock once SetClock set it.
+func (w *Window) now() int64 {
+	w.mu.Lock()
+	m := w.manual
+	w.mu.Unlock()
+	if m >= 0 {
+		return m
+	}
+	return time.Since(w.start).Nanoseconds()
+}
+
+// Now is the window's time, in nanoseconds since it opened: the clock
+// its frames' At reads (a host runs its tracks on it, TRACKS), the manual
+// one once SetClock set it.
+func (w *Window) Now() int64 { return w.now() }
 
 // Hover moves the pointer to x, y.
 func (w *Window) Hover(x, y float64) {
@@ -1312,7 +1480,17 @@ func (w *Window) Chord(name string, shift, ctrl, alt, meta bool) {
 func (w *Window) send(ev platform.SurfaceEvent) {
 	if w.fake != nil {
 		w.fake.Send(ev)
+		return
 	}
+	// A window on a screen (desktop.Drive) takes the input as its surface
+	// would give it. An input event only queues an Input under w.mu, so
+	// any goroutine may send one; frames and resizes come only from the
+	// surface.
+	switch ev.Kind {
+	case platform.SurfaceFrame, platform.SurfaceRenew, platform.SurfaceLowMemory, platform.SurfaceResize:
+		return
+	}
+	w.event(ev)
 }
 
 // Render draws a Headless window's frame when one was asked for, and
@@ -1336,6 +1514,29 @@ func (w *Window) Pixel(x, y int) uint32 {
 	}
 	p := m.Pix[y*m.Stride+x*4:] // BGRA
 	return uint32(p[2])<<24 | uint32(p[1])<<16 | uint32(p[0])<<8 | uint32(p[3])
+}
+
+// WritePNG draws a Headless window's frame if one was asked for and
+// writes its last frame to path as a PNG of the window's size (TREE-JSON:
+// the screenshot beside the -tree lines).
+func (w *Window) WritePNG(path string) error {
+	if w.fake == nil {
+		return errors.New("screen: only a headless window writes a PNG")
+	}
+	w.Render()
+	img := image.NewNRGBA(image.Rect(0, 0, int(w.width), int(w.height)))
+	for y := range int(w.height) {
+		for x := range int(w.width) {
+			// The frame stays in the renderer's image, which Pixel reads (GPm).
+			c := w.Pixel(x, y)
+			img.SetNRGBA(x, y, color.NRGBA{R: uint8(c >> 24), G: uint8(c >> 16), B: uint8(c >> 8), A: uint8(c)})
+		}
+	}
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		return err
+	}
+	return os.WriteFile(path, b.Bytes(), 0o644)
 }
 
 // Focused is the id the last accessibility tree gave the focus, 0 for

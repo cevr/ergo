@@ -66,6 +66,8 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Target)
 	case *TestDecl:
 		walk(n.Name, n.Params, n.Body)
+	case *Harness:
+		walk(n.Name)
 	case *LawDecl:
 		walk(n.Name, n.TypeParams, n.Params, n.Body)
 		if n.Reach != nil {
@@ -91,7 +93,7 @@ func Inspect(n Node, f func(Node) bool) {
 			}
 		}
 	case *ContextDecl:
-		walk(n.Name, n.Provides, n.Needs, n.Body)
+		walk(n.Name, n.Provides, n.Fails, n.Needs, n.Body)
 	case *ContextBody:
 		for _, e := range n.Entries {
 			Inspect(e, f)
@@ -150,11 +152,14 @@ func Inspect(n Node, f func(Node) bool) {
 		exprs(n.Types)
 		stmts(n.Body)
 	case *ContextLit:
-		walk(n.Provides, n.Needs, n.Body)
+		walk(n.Provides, n.Fails, n.Needs, n.Body)
 	case *ArrayType:
 		walk(n.Elt)
 	case *MapType:
 		walk(n.Key, n.Value)
+		if n.Hashing != nil {
+			walk(n.Hashing)
+		}
 	case *FuncType:
 		walk(n.Params, n.Results, n.Needs, n.Takes)
 	case *StructType:
@@ -168,6 +173,12 @@ func Inspect(n Node, f func(Node) bool) {
 		}
 		for _, l := range n.Laws {
 			Inspect(l, f)
+		}
+		for _, h := range n.Harnesses {
+			Inspect(h, f)
+		}
+		for _, t := range n.Terms {
+			Inspect(t.Type, f)
 		}
 		exprs(n.Union)
 	case *ErrorRow:
@@ -234,6 +245,8 @@ func isNilNode(n Node) bool {
 		return n == nil
 	case *ProvidesClause:
 		return n == nil
+	case *ErrorRow:
+		return n == nil
 	case *BlockStmt:
 		return n == nil
 	case *FuncType:
@@ -247,6 +260,8 @@ func isNilNode(n Node) bool {
 	case *ExternSpec:
 		return n == nil
 	case *LawDecl:
+		return n == nil
+	case *Harness:
 		return n == nil
 	case *StructType:
 		return n == nil

@@ -17,16 +17,17 @@ import (
 // outcomes and its replay command. It builds Go for the reason
 // needsBuild gives.
 func TestIRTestsMatchSource(t *testing.T) {
-	testBuildsAgree(t, "TestIRTestsMatchSource", GenerateTests, "ergoTest", testBodies, "FAIL ", "ok ")
+	testBuildsAgree(t, "TestIRTestsMatchSource", GenerateTests, lower.HelperSpelling("", "ergoTest"), testBodies, "FAIL ", "ok ")
 }
 
 // TestIRLawsMatchSource is IRG6's agreement property for law bodies: for
 // generated programs of laws (GenerateLaws), the test builds of both
 // paths report the same held and refuted laws, with the same sites, and
-// exit the same. Every law gets an IR body in every seed. It builds Go
-// for the reason needsBuild gives.
+// exit the same. Every law gets an IR body in every seed, a generic
+// operation type's copies too (mutant g6-generic-law-refused). It builds
+// Go for the reason needsBuild gives.
 func TestIRLawsMatchSource(t *testing.T) {
-	testBuildsAgree(t, "TestIRLawsMatchSource", GenerateLaws, "ergoLaw", lawBodies, "FAIL law", "ok law")
+	testBuildsAgree(t, "TestIRLawsMatchSource", GenerateLaws, lower.HelperSpelling("", "ergoLaw"), lawBodies, "FAIL law", "ok law")
 }
 
 // testBuildsAgree runs the seeds of gen: each program's test build by

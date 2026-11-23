@@ -201,6 +201,10 @@ func builtinKind(b *Builtin) CallKind {
 		return CallDecode
 	case "embedded":
 		return CallEmbed
+	case "hash":
+		return CallHash
+	case TestSeedName:
+		return CallTestSeed
 	}
 	return CallLen
 }
@@ -498,6 +502,11 @@ func (c *checker) wireRow(t Type) *Row {
 		if p := c.wirePair(t); p != nil {
 			row = row.union(c.types, c.types.resolve(c.funcSig(p.Parse).Errors))
 			return
+		}
+		if f := c.wireReadFunc(t); f != nil {
+			// X's own read (types.md, Codecs 11): its row joins the
+			// decode's, and X's ordinary form below reads other readers.
+			row = row.union(c.types, c.types.resolve(c.funcSig(f).Errors))
 		}
 		switch u := under(t).(type) {
 		case *Struct:

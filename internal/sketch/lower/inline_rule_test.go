@@ -52,6 +52,9 @@ func apply(f func(x int) int, x int) int { f(x) }
 
 func say(s string) needs Console { Console.Println(s) }
 
+// ergo:aswritten
+func keep[T](v T) T { v }
+
 type Ops { h func(x int) int }
 
 func mixed(o Ops, f func(x int) int, x int) int { o.h(f(x)) }
@@ -71,6 +74,7 @@ func main() needs Console {
 	Console.Println("\(small(&b, 1, 0)) \(leaf(-2)) \(near(&b)) \(looped(&b)) \(rec(3)) \(asValue(func(x int) int { x * 2 }))")
 	Console.Println("\(apply(func(x int) int { x * 3 }, 2)) \(apply(f, 2)) \(big(&b))")
 	say("x")
+	Console.Println("\(keep(3))")
 	Console.Println("\(mixed(Ops{h: func(x int) int { x - 1 }}, func(x int) int { x + 5 }, 1))")
 }
 `
@@ -79,7 +83,7 @@ func main() needs Console {
 	// A call of a known variant (known.go, nameKnown) or of a monomorphic
 	// copy (mono.go) is a call too.
 	calls := func(name string) bool {
-		return regexp.MustCompile(`\b` + name + `(Known|Mono_i[0-9]+)?(_[0-9]+)?(\[[^\]]*\])?\(`).MatchString(body)
+		return regexp.MustCompile(`\b(?:` + goHelper(name+"Known") + `|` + name + `(?:Mono_i[0-9]+)?)(_[0-9]+)?(\[[^\]]*\])?\(`).MatchString(body)
 	}
 	for _, row := range []struct {
 		name, why string
@@ -92,6 +96,7 @@ func main() needs Console {
 		{"rec", "a recursive function stays a call", true},
 		{"asValue", "a callback parameter used other than as a callee stays a call", true},
 		{"say", "a body with a capability (a needs row) stays a call", true},
+		{"keep", "a function marked // ergo:aswritten stays a call (AW-ERGO; aw-inline-not-exempt)", true},
 		{"big", "a body over inlineBudget nodes stays a call", true},
 		{"mixed", "a body that calls a function value other than its callbacks keeps its entry poll: it stays a call", true},
 	} {

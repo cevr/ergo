@@ -144,6 +144,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if check.IsUnreachable(c) {
 		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
 	}
+	if check.IsInForce(c) {
+		// Written at each call, never called (ir_inforce.go).
+		return b.inForce(x, c, p)
+	}
 	// The call keeps its Ergo identity in the call table, as the Go text's
 	// identify records it (calls.go, #230): the IR's position of the call
 	// is the Go frame's line that a defect's report looks up.
@@ -157,6 +161,13 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.unreachableValue(x) // ir_defect.go
 	}
 	switch c.Kind {
+	case check.CallTestSeed:
+		// The run's --seed, for a harnessed test (check harness.go): the
+		// runtime reads it from the test binary's own arguments.
+		b.keepImport("var _ = " + b.l.rt() + ".TestSeed")
+		return nil, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSeed"}, false
+	case check.CallHash:
+		return b.hashCall(x, p) // ir_mapprovider.go
 	case check.CallLen:
 		if len(x.Args) != 1 {
 			irNo("len form")
@@ -235,6 +246,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if !fd.envFree && b.env < 0 {
 			irNo("call of an impure function from a pure one")
 		}
+		if pre, e, ok := b.sinkCall(x, c, f, fd, p); ok {
+			return pre, e, false // ir_sink.go: written in place, pure
+		}
 		// Before the operands: a known site's literals are built plain.
 		known := b.knownCall(x, c, fd) // ir_kcb.go
 		args := x.Args
@@ -246,14 +260,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if b.addrRecv(c) { // ir_place.go
 			pre, irArgs = b.recvAddrCall(c, x.Args)
 		} else {
-			pre, irArgs = b.operands(args)
-			for i := range irArgs {
-				if i < len(f.Sig.Params) {
-					irArgs[i] = b.argIntoRow(f.Sig.Params[i].Type, args[i], irArgs[i]) // ir_expr.go
-				}
-			}
+			pre, irArgs = b.operands(args) // a row parameter's operand goes in by implicit (ir_rowgap.go)
 		}
-		b.valueSource(x, c, args, irArgs) // ir_pkg.go
+		b.valueSource(x, c, args, irArgs)   // ir_pkg.go
+		b.l.intMapCall(x, c.Recv, f, false) // intmap.go: a generic signature's Map is Go's
 		if x.Trailing != nil {
 			irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
 		}
@@ -273,7 +283,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if wc := b.witnessCopy(x, c); wc != "" && known == "" { // ir_witness.go
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: wc, Args: irArgs}), !fd.envFree
 		}
-		if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
+		if known == "" && b.copyTakesNoWitness(x, c, fd) {
+			// A copy for an instance whose witnesses are known (mono.go
+			// monoWitnesses): its operations are its own.
+		} else if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
 			// After the environment, before the operands (witnessArgs).
 			at := 0
 			if !fd.envFree {
@@ -293,7 +306,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 					// before its receiver (callText).
 					irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 				}
-				return pre, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs}), !fd.envFree
+				// The copy's own IR body is the inliner's to copy, as
+				// the text path's OPT4a writes the instance's body at
+				// its call (lru's Churn: Cache.Get; IR-GETMATCH).
+				return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
 			}
 		}
 		if known != "" && fd.method != nil {
@@ -314,8 +330,19 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A generic function's call names its Go type arguments (the
 		// emitter's typeArgs), never left to Go's inference (ir_pkg.go).
 		if sp := b.copyCall(x, c); sp != "" {
-			// The copy for the known record: one instance (ir_known.go).
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.envFree
+			// The copy for the known record or provider: one instance
+			// (ir_known.go), a provider's adapter at its parameter.
+			env := 1
+			if fd.envFree {
+				env = 0
+			}
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env)}), !fd.envFree
+		}
+		if sp := b.instanceCopy(x, c); sp != "" {
+			// The copy for the instance (ir_instance.go): no type
+			// arguments; no inliner mark and no variant with no result,
+			// which name the generic function.
+			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
 		}
 		name := b.ownedCallName(x, f, fd.name)
 		if fd.pure && name == fd.name && x.Trailing == nil && c.Site == nil {
@@ -331,6 +358,8 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.conversion(x, c, p) // ir_pkg.go
 	case check.CallEncode, check.CallDecode:
 		return b.codecCall(x, c, p) // ir_codec.go
+	case check.CallPattern:
+		return b.patternCall(x, c, p) // refinematch.go
 	case check.CallProviderOp, check.CallLawOp:
 		switch {
 		case b.env < 0 || c.Op == nil:
@@ -360,6 +389,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		pre = append(pre, argPre...)
 		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
+		if c.Kind == check.CallLawOp && b.lawOwn > 0 {
+			// A law of a generic operation type calls the provider it
+			// takes, as a call on a value of the type does (calls.go).
+			own := &irExpr{K: "local", Pos: p, I: b.lawOwn}
+			return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: own, Args: args}), true
+		}
 		capField := b.knownOp(x, named, &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}) // ir_forms_op.go
 		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
 	case check.CallGoError:

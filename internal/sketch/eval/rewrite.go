@@ -18,6 +18,13 @@ const (
 // rewrite law: its label, its run's bounds, and the build's decision. The
 // deepest prefix a run reached is the test build's (ergo test's ok line,
 // the receipt's deepest).
+// NativeReason is the reason of a native obligation (Native): a law
+// binding whose provider p calls Go, which only the test binary's law case
+// builds (types.md, Laws 10; owner q277).
+func NativeReason(p string) string {
+	return p + "'s operations call Go, so only the test binary's law case builds it: ergo test runs this law natively (README Gap 17)"
+}
+
 func RewriteVerdict() string {
 	return "tested, not proved: ergo test runs a rewrite law over " + strconv.Itoa(RewriteCases) +
 		" cases, each from a prefix of 0 to " + strconv.Itoa(RewritePrefix-1) + " operations, plus " +

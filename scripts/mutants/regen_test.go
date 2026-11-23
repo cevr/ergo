@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,12 +21,15 @@ import (
 // Mutants (testdata/mutants.json): regen-output-kept, regen-new-file-kept,
 // regen-failure-ignored.
 func TestRegenerateWritesThenRestores(t *testing.T) {
-	root := t.TempDir()
+	// The copy is under the work directory, as workerPool makes it:
+	// restoreUnder removes files only there.
+	work := t.TempDir()
+	root := filepath.Join(work, "w0", "src")
 	files := map[string]string{"gen/in.txt": "mutated\n", "gen/out.txt": "original\n", "other/x.txt": "x\n"}
 	for name, text := range files {
 		writeFile(t, filepath.Join(root, name), text)
 	}
-	e := &engine{cfg: Config{CoverDeadline: time.Minute}}
+	e := &engine{cfg: Config{CoverDeadline: time.Minute, Work: work}}
 	for _, name := range []string{"gen/in.txt", "gen/out.txt", "other/x.txt"} {
 		data := files[name]
 		if name == "gen/in.txt" {
@@ -33,7 +37,21 @@ func TestRegenerateWritesThenRestores(t *testing.T) {
 		}
 		e.files = append(e.files, treeFile{path: name, mode: 0o644, data: []byte(data)})
 	}
+	// A link of the checkout under the step's folder (conformance/upstream's
+	// CLAUDE.md -> AGENTS.md) stays a link; the step's own new link goes.
+	if err := os.Symlink("out.txt", filepath.Join(root, "gen", "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	e.files = append(e.files, treeFile{path: "gen/link.txt", mode: fs.ModeSymlink | 0o777, data: []byte("out.txt")})
 	w := &worker{e: e, root: root, touched: map[string]bool{}}
+	defer func() {
+		if target, err := os.Readlink(filepath.Join(root, "gen", "link.txt")); err != nil || target != "out.txt" {
+			t.Errorf("after the row the checkout's link gen/link.txt is %q, %v; want it to name out.txt (regen-link-removed)", target, err)
+		}
+		if err := e.verifyCopy(root, w.touched); err != nil {
+			t.Errorf("verifyCopy after the restore: %v", err)
+		}
+	}()
 	read := func(name string) string {
 		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(name)))
 		if err != nil {

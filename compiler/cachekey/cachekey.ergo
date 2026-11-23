@@ -1,0 +1,139 @@
+// Package cachekey is the self-hosted driver's cache keys (capstone S5,
+// the pure part; CS4 action keys, the law-verdict and test-result
+// stores). Each key is a pure function of its parts. The host reads that
+// produce the parts (the go command's identity, file contents, the ledger,
+// the environment) belong to the caller. Ported from internal/sketch/build's
+// keyer and buildID and from internal/sketch/lawcache's Key, Framed,
+// Environ and TestResultKey, which stay the reference until the S5 swap.
+// models/warmstamp models the warm answer the action key serves.
+
+import base64
+import hex
+import sha256
+import slices
+import strings
+
+// Field is one named part of an action key.
+type Field { Name string, Value string }
+
+// Fields is the action key of fs, as a package's compile, link or plan
+// key is built: each field written "<len>:<name><len>:<value>", the whole
+// hashed with SHA-256, in hex.
+func Fields(fs []Field) string {
+	let mut b = []string{}
+	for f in fs {
+		b = b.Append("\(len(f.Name)):" + f.Name + "\(len(f.Value)):" + f.Value)
+	}
+	hex.Encode(sha256.Sum(strings.Join(b, "")))
+}
+
+// FieldsKeepTheirBounds: moving bytes from one field's value into its
+// name gives another key, because each part carries its length.
+law FieldsKeepTheirBounds(name string, value string) {
+	len(value) == 0 || Fields([]Field{Field{Name: name, Value: value}}) != Fields([]Field{Field{Name: name + strings.Slice(value, 0, 1), Value: strings.Slice(value, 1, len(value))}})
+}
+
+// BuildID spells an action key as a Go build ID of parts parts, each the
+// 20-character URL-safe base64 of the key's first 15 bytes, the form
+// cmd/go uses, so the ID has the length of Go's own. A key that is not
+// hex of at least 15 bytes has no build ID: "".
+func BuildID(key string, parts int) string {
+	let raw = hex.Decode(key) catch {
+	case hex.Malformed:
+		return ""
+	}
+	if len(raw) < 15 {
+		return ""
+	}
+	let part = base64.Encode(base64.URLEncoding, strings.Slice(raw, 0, 15))
+	let mut ids = []string{}
+	for _ in 0..parts {
+		ids = ids.Append(part)
+	}
+	strings.Join(ids, "/")
+}
+
+// LawVersion versions the law-verdict store's keys (lawcache.Version).
+let LawVersion = "ergo-lawcache/2"
+
+// LawKey is the key of a law verdict, or of a gate run, whose inputs are
+// parts: LawVersion, then each part, each written "<len>:<part>", hashed.
+func LawKey(parts []string) string {
+	let mut b = []string{}
+	b = b.Append("\(len(LawVersion)):" + LawVersion)
+	for p in parts {
+		b = b.Append("\(len(p)):" + p)
+	}
+	hex.Encode(sha256.Sum(strings.Join(b, "")))
+}
+
+// Framed is the hex SHA-256 of parts, each written "<len>:<part>\x00".
+func Framed(parts []string) string {
+	let mut b = []string{}
+	for p in parts {
+		b = b.Append("\(len(p)):" + p + "\x00")
+	}
+	hex.Encode(sha256.Sum(strings.Join(b, "")))
+}
+
+// Environ is the part of an environment (KEY=value entries) that can
+// change a build or a verdict: the GO*, CGO_* and ERGO_* entries, sorted,
+// leaving out skip (the variable naming where a stage report goes, which
+// changes no verdict).
+func Environ(environ []string, skip string) []string {
+	let mut env = []string{}
+	for kv in environ {
+		if strings.HasPrefix(kv, skip+"=") {
+			continue
+		}
+		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_") {
+			env = env.Append(kv)
+		}
+	}
+	slices.Sort(env)
+}
+
+// EnvironKeepsBuildVariables: what Environ keeps is sorted, every entry
+// names a Go, cgo or Ergo variable, and none is skip.
+law EnvironKeepsBuildVariables(environ []string, skip string) {
+	let env = Environ(environ, skip)
+	let mut ok = true
+	for i, kv in env {
+		if i > 0 && env[i-1] > kv {
+			ok = false
+		}
+		if strings.HasPrefix(kv, skip+"=") {
+			ok = false
+		}
+		if !(strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_")) {
+			ok = false
+		}
+	}
+	ok
+}
+
+// TestResult is the key of a stored `ergo test` result: the toolchain
+// identity id, the ledger part, the case limit, the arguments and the
+// environment (Environ of environ without skip), framed; "" when id is ""
+// (no go command, so no key).
+func TestResult(id string, ledger string, limit uint64, args []string, environ []string, skip string) string {
+	if id == "" {
+		return ""
+	}
+	let mut parts = []string{"ergo-test-result-1", id, ledger, "\(limit)", "\(len(args))"}
+	for a in args {
+		parts = parts.Append(a)
+	}
+	let env = Environ(environ, skip)
+	parts = parts.Append("\(len(env))")
+	for kv in env {
+		parts = parts.Append(kv)
+	}
+	Framed(parts)
+}
+
+// NoToolchainNoKey: without a toolchain identity there is no test-result
+// key, so no stored result is ever replayed for an unknown Go.
+law NoToolchainNoKey(ledger string, args []string) {
+	TestResult("", ledger, 0, args, []string{}, "") == ""
+}

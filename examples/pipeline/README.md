@@ -134,7 +134,7 @@ The mutants are in `testdata/mutants.json`.
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 ./bin/ergo build examples/pipeline/cmd/pipeline -o /tmp/pipeline
 /tmp/pipeline -fail 2:2 < examples/pipeline/cases/basic/stdin
 ./bin/ergo test examples/pipeline/pipeline      # and run, board, retry, notify, memory

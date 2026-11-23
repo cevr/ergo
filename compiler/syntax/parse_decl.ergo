@@ -302,17 +302,20 @@ func parseTypeParams(p mut parser) uint32 {
 	mkFieldList(&p.t, lm, someTok(open), someTok(closing))
 }
 
-// members is what parseMembers found: the braces, and how many operations
-// and laws the members (on the stack) are, and the first of them.
+// members is what parseMembers found: the braces, and how many operations,
+// laws and type-set terms the members (on the stack) are, and the first of
+// them.
 type members {
-	lbrace   int,
-	rbrace   int,
-	first    int,
-	either   int,
-	ops      int,
-	laws     int,
-	firstOp  uint32,
-	firstLaw uint32,
+	lbrace    int,
+	rbrace    int,
+	first     int,
+	either    int,
+	ops       int,
+	laws      int,
+	terms     int,
+	firstOp   uint32,
+	firstLaw  uint32,
+	firstTerm uint32,
 }
 
 let memberField = 0
@@ -346,7 +349,7 @@ func parseMembers(p mut parser) members {
 }
 
 func memberList(p mut parser, lbrace int) members {
-	let mut r = members{lbrace: lbrace, rbrace: 0, first: -1, either: 0, ops: 0, laws: 0, firstOp: noNode, firstLaw: noNode}
+	let mut r = members{lbrace: lbrace, rbrace: 0, first: -1, either: 0, ops: 0, laws: 0, terms: 0, firstOp: noNode, firstLaw: noNode, firstTerm: noNode}
 	for p.tk != RBrace {
 		let doc = leadComment(p)
 		let start = p.i
@@ -359,6 +362,34 @@ func memberList(p mut parser, lbrace int) members {
 				r.firstLaw = d
 			}
 			r.laws = r.laws + 1
+		} else if p.tk == Test {
+			// `test H`: the harness member of an operation type, the
+			// function of its package a test whose body needs the type
+			// runs under (runtime.md, Tests: harnesses). A test row with no
+			// parameters and no body; it counts as a law for the mix rule.
+			kind = memberLaw
+			let testTok = want(p, Test)
+			let name = parseIdent(p)
+			let d = mkTestDecl(&p.t, mark(p.t), doc, testTok, name, none, none)
+			pushW(&p.t, d)
+			if r.laws == 0 {
+				r.firstLaw = d
+			}
+			r.laws = r.laws + 1
+		} else if typeSetStarts(p) && !(r.first == memberField && bareOneTerm(p)) {
+			// `~int | ~int64`: the type-set member of an operation type
+			// (types.md, Generics 2). It counts as an operation for the mix
+			// rule: a record has no type set. After fields, a lone bare
+			// name is the embedding the field branch refuses (S001), not a
+			// one-term type set.
+			kind = memberOperation
+			if r.terms > 0 {
+				errorAt(p, pos(p), 1, "an operation type has one type-set member; join the terms with |")
+				return r
+			}
+			let tm = mark(p.t)
+			r.terms = parseTypeTerms(p)
+			r.firstTerm = p.t.stack[tm]
 		} else if p.tk == Ident && peek(p, 1) == LBrack && bracketsThenParen(p) {
 			errorAt(p, tpos(p, p.i+1), 1, "an operation has no type parameters; declare them on its type: `type Name[T] { … }`")
 			return r
@@ -420,6 +451,105 @@ func memberList(p mut parser, lbrace int) members {
 		}
 	}
 	r
+}
+
+// typeSetStarts reports whether the member at the current token is a
+// type-set member (grammar.md, Declarations 4): it starts with `~`, or it
+// is a type name (`T` or `pkg.T`) followed by `|`, by the end of the
+// braces, or by a comma and then a member that cannot continue a field
+// group `a, b T`. A field group goes on with a name and then a type, so
+// after `T,` the member `Label() string` (an operation with no
+// parameters, or one with a result) starts a new member, while
+// `Y (A, B)`, a tuple field, continues the group.
+func typeSetStarts(p mut parser) bool {
+	if p.tk == Tilde {
+		return true
+	}
+	if p.tk != Ident {
+		return false
+	}
+	let mut i = 1
+	if peek(p, 1) == Period && peek(p, 2) == Ident {
+		i = 3
+	}
+	let after = peek(p, i)
+	if after == Or || after == RBrace || after == Semicolon {
+		return true
+	}
+	if after != Comma {
+		return false
+	}
+	// `T, …`: a term when what follows cannot continue a name group.
+	let next = peek(p, i+1)
+	if next != Ident {
+		return next == Tilde || next == Law || next == DotDot || next == RBrace || next == Mut
+	}
+	if lit(p, p.i+i+1) == "own" && peek(p, i+2) == Ident && peek(p, i+3) == LParen {
+		return true // `own Close()`
+	}
+	if peek(p, i+2) != LParen {
+		return false // `a, b int`
+	}
+	// `T, Name(…)`: an operation unless the parentheses close with
+	// nothing after them that a result could start (a tuple field).
+	let mut depth = 0
+	let mut k = i + 2
+	for {
+		let tk = peek(p, k)
+		if tk == LParen || tk == LBrack {
+			depth = depth + 1
+		} else if tk == RParen || tk == RBrack {
+			depth = depth - 1
+			if depth == 0 {
+				if k == i+3 {
+					return true // `Name()`: a tuple has two or more elements
+				}
+				let close = peek(p, k+1)
+				return !(close == Comma || close == RBrace || close == Semicolon || close == String)
+			}
+		} else if tk == LBrace || tk == EOF || tk == Illegal {
+			return false
+		}
+		k = k + 1
+	}
+	false
+}
+
+// bareOneTerm reports a type-set member that is one bare type name, with
+// no `~` and no `|`.
+func bareOneTerm(p mut parser) bool {
+	if p.tk != Ident {
+		return false
+	}
+	let mut i = 1
+	if peek(p, 1) == Period && peek(p, 2) == Ident {
+		i = 3
+	}
+	peek(p, i) != Or
+}
+
+// parseTypeTerms parses `[~]T { | [~]T }`, the terms of a type-set member,
+// pushing one row per term: `~T` is a UnaryExpr of op `~` over T, a
+// bare term its type. The decoder gathers them into the operation type's
+// Terms. It is the number of terms.
+func parseTypeTerms(p mut parser) int {
+	let mut n = 0
+	for {
+		if p.tk == Tilde {
+			let tilde = p.i
+			next(p)
+			let ty = parseType(p, ctxMember)
+			pushW(&p.t, row(&p.t, KUnaryExpr, uint32(tilde), ty, none))
+		} else {
+			pushW(&p.t, parseType(p, ctxMember))
+		}
+		n = n + 1
+		if p.tk != Or {
+			return n
+		}
+		next(p)
+	}
+	n
 }
 
 // opAsField parses an operation `f (A, B)` as the field of the tuple type
@@ -539,13 +669,13 @@ func groupsName(k uint8) bool {
 }
 
 // parseMembersType parses the braced body of `type T { … }`: a record of
-// fields (StructType) or an operation type of operations and laws
-// (InterfaceType, its members one list: the includes, operations and laws
-// in their order).
+// fields (StructType) or an operation type of operations, laws and a type
+// set (InterfaceType, its members one list: the includes, operations, laws
+// and type-set terms in their order).
 func parseMembersType(p mut parser) uint32 {
 	let m = mark(p.t)
 	let r = parseMembers(p)
-	if r.ops > 0 || r.laws > 0 {
+	if r.ops > 0 || r.laws > 0 || r.terms > 0 {
 		return mkInterface(&p.t, m, someTok(r.lbrace), someTok(r.rbrace))
 	}
 	let fields = mkFieldList(&p.t, m, someTok(r.lbrace), someTok(r.rbrace))
@@ -614,8 +744,8 @@ func parseVariant(p mut parser) uint32 {
 	}
 	let mm = mark(p.t)
 	let r = parseMembers(p)
-	if r.ops > 0 || r.laws > 0 {
-		let at = if r.ops > 0 { r.firstOp } else { r.firstLaw }
+	if r.ops > 0 || r.laws > 0 || r.terms > 0 {
+		let at = if r.ops > 0 { r.firstOp } else if r.laws > 0 { r.firstLaw } else { r.firstTerm }
 		errorAt(p, nodePos(p, at), 1, "a variant holds fields only")
 	}
 	let fields = mkFieldList(&p.t, mm, someTok(r.lbrace), someTok(r.rbrace))
@@ -872,8 +1002,15 @@ func parseExternDecl(p mut parser, doc uint32) uint32 {
 		let rest = targetPath(text)
 		let mpath = targetPath(rest)
 		let mtype = targetName(rest)
-		if !p.failed && (mpath == "" || !isIdentifier(mtype) || !isIdentifier(name) || items(p.t, r, 2) != 1 || items(p.t, item(p.t, r, 0), 11) != 1) {
-			errorf(p, "an extern method has one named receiver and the target path.Type.Method")
+		// The target is path.Type.Method, or path.Func of a Go function
+		// that takes the receiver first (S2-FILE-B): its rest has no type
+		// element.
+		let mut ok = mpath != "" && isIdentifier(mtype) && isIdentifier(name)
+		if mpath == "" {
+			ok = path != "" && isIdentifier(name)
+		}
+		if !p.failed && (!ok || items(p.t, r, 2) != 1 || items(p.t, item(p.t, r, 0), 11) != 1) {
+			errorf(p, "an extern method has one named receiver and the target path.Type.Method, or path.Func of a Go function that takes the receiver first")
 		}
 	}
 	let fname = parseIdent(p)
@@ -900,7 +1037,7 @@ func parseTestDecl(p mut parser, doc uint32) uint32 {
 		expected(p, "expected \"{\", found ")
 	}
 	let body = parseBlock(p)
-	mkTestDecl(&p.t, mark(p.t), doc, testTok, name, params, body)
+	mkTestDecl(&p.t, mark(p.t), doc, testTok, name, params, some(body))
 }
 
 // parseLawDecl parses `law Name(params) { body }`, top-level (top) or a
@@ -1025,13 +1162,14 @@ func parseLetDecl(p mut parser, doc uint32, top bool) uint32 {
 			}
 			// The literal's parts move to the declaration, and its row goes.
 			let ctxTok = int(p.t.tok[int(w)])
-			let prov = fixed(p.t, w, 3, 0)
-			let nds = fixed(p.t, w, 3, 1)
-			let body = fixed(p.t, w, 3, 2)
+			let prov = fixed(p.t, w, 4, 0)
+			let fl = fixed(p.t, w, 4, 1)
+			let nds = fixed(p.t, w, 4, 2)
+			let body = fixed(p.t, w, 4, 3)
 			dropLast(&p.t)
 			let name = p.t.stack[pm]
 			cutStack(&p.t, pm)
-			return mkContextDecl(&p.t, pm, doc, letTok, ctxTok, name, prov, nds, body)
+			return mkContextDecl(&p.t, pm, doc, letTok, ctxTok, name, prov, fl, nds, body)
 		}
 		value = some(parseExpr(p))
 	}

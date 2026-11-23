@@ -14,8 +14,13 @@ import queue
 // change of place the program did not make (URLChanged: the user went
 // back, or to an address), or a state the actor committed that no event
 // of the loop's sent (Committed: a reply its work sent, a timer), which the
-// session's watcher posts, at most one at a time before the next pass.
-type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int}
+// session's watcher posts, at most one at a time before the next pass, or
+// a new text of a Readout the session showed (Published), which Publish
+// posts, at most one per readout before the host takes it. An Edit is a
+// text field's text with its caret and selection (Caret, Anchor), as a
+// host sends for each edit or move of the caret in it (OpenTUI gap 2); a
+// Type is an Edit with both at the end of the text.
+type Event[E] = Press{Id Id[E]} | Type{Id Id[E], Text string} | Edit{Id Id[E], Text string, Caret int, Anchor int} | Arrived{Epoch int, Signal E} | Point{Id Id[E], Pointer PointerEvent, Over Option[ZoneBox[E]]} | KeyDown{Press KeyPress} | Tick{At duration} | Scrolled{Id Id[E], Offset Length, Height Length} | URLChanged{URL URL} | Committed{} | Ended{Run int} | Published{Readout int}
 
 // PressGivesSignal: a press of a Pressable or a Check sends its On, a
 // text into an Input sends the Input's signal, and any other node sends
@@ -27,7 +32,7 @@ law PressGivesSignal(seed int) {
 	let mut f = NewFrame[int]()
 	let mut ok = true
 	for _ in 0..3 {
-		let _ = pass(&f, ps, genState(&r))
+		let _ = renderPass(&f, ps, genState(&r))
 		for k in Kids(&f, Root(&f)) {
 			ok = ok && signalsAgree(&f, k, false)
 		}
@@ -171,7 +176,9 @@ type Closed {}
 // holds the pointer).
 // law-exempt: a host's laws (the mirror of its patches is what it shows, a tap at a node's box sends that node's event, its pointer rules) need a running host and its screen; they run against each provider, not here.
 type Host[E] {
-	// Show applies one pass's changes.
+	// Show applies one pass's changes. After a Published it is given no
+	// change: the host paints again each node that reads the readout
+	// (ReadoutNode, Shown), with no layout.
 	Show(ops []Op[E]),
 	// Next waits for the next event, input or posted, in the order they
 	// came; it fails Closed when the host closed.
@@ -211,7 +218,7 @@ func Run[E comparable, S, D, F, R](h Host[E], a actor.Actor[S, E, D, F], view ow
 	for {
 		let ev = try h.Next()
 		let ops = try Step(&session, ev)
-		if len(ops) > 0 {
+		if len(ops) > 0 || isPublished(ev) {
 			h.Show(ops)
 		}
 		if Animating(&session.frame) != frames {
@@ -375,7 +382,7 @@ func Next(h dragHost) Event[int] fails Closed {
 	case None:
 		return Closed
 	}
-	Point{Id: id, Pointer: PointerEvent{Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
+	Point{Id: id, Pointer: PointerEvent{Pointer: MousePointer, Phase: phaseOf(code), X: 0.0, Y: 0.0, Zone: None}, Over: None}
 }
 
 // phaseOf is the pointer phase of a dragHost code.
@@ -392,3 +399,13 @@ func phaseOf(code int) Phase {
 func Post(_ dragHost, ev Event[int]) {}
 
 func Frames(_ dragHost, on bool) {}
+
+// isPublished is whether ev is a readout's new text.
+func isPublished[E](ev Event[E]) bool {
+	match ev {
+	case Published:
+		true
+	case _:
+		false
+	}
+}

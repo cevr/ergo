@@ -105,6 +105,14 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 		switch u := t.(type) {
 		case *check.Basic:
 			return u
+		case *check.TypeParam:
+			// In a copy for an instance (ir_instance.go) a type parameter
+			// is its type argument: `<` on int is the machine compare.
+			if !b.fc.mono || b.fc.bound[u] == nil {
+				return nil
+			}
+			t = b.fc.bound[u]
+			continue
 		case *check.Named:
 			if u.Obj.Decl == nil || len(u.TArgs) > 0 {
 				return nil
@@ -127,12 +135,18 @@ func (b *irBuilder) scalarBasic(t check.Type) *check.Basic {
 
 // implicit is e, the value of x, after the implicit conversion the checker
 // records at x (Info.Implicit), as the emitter's convert does.
+//
+// Around it, the row gaps (ir_rowgap.go): what x reads is read as x's type
+// holds it first, and the converted value goes into x's place last.
 func (b *irBuilder) implicit(x syntax.Expr, e *irExpr) *irExpr {
-	conv, ok := b.l.info.Implicit[x]
-	if !ok || e == nil || x == b.raw {
+	if e == nil || x == b.raw {
 		return e
 	}
-	return b.convert(conv, e, x)
+	e = b.rowRead(x, e)
+	if conv, ok := b.l.info.Implicit[x]; ok {
+		e = b.convert(conv, e, x)
+	}
+	return b.rowWrite(x, e)
 }
 
 // convert is e after the conversion conv, made at x (the emitter's

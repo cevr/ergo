@@ -134,7 +134,7 @@ func (fc *funcCtx) emits(x syntax.Expr) bool {
 			if _, ok := fc.l.info.Values[n]; ok {
 				return false
 			}
-			if fc.methodOf(n) != nil {
+			if fc.methodOf(n) != nil || fc.l.info.MethodValues[n] != nil {
 				found = true
 			}
 		case syntax.Expr:
@@ -237,9 +237,9 @@ func (fc *funcCtx) assigned(x syntax.Expr) string {
 func (fc *funcCtx) convertAt(x syntax.Expr, val string) string {
 	conv, ok := fc.l.info.Implicit[x]
 	if !ok {
-		return val
+		return fc.rowWrite(x, val) // rowgap.go
 	}
-	return fc.convert(conv, val, x)
+	return fc.rowWrite(x, fc.convert(conv, val, x)) // rowgap.go
 }
 
 // elemAt applies the implicit conversion of element i of x, a value that a
@@ -294,8 +294,6 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 			return b.String()
 		}
 		return val + ".(" + fc.goType(conv.To) + ")"
-	case check.ConvNarrow:
-		return fc.narrowFunc(conv, val, site)
 	case check.ConvWiden:
 		return fc.widen(conv, val, site)
 	case check.ConvMachine:
@@ -325,50 +323,23 @@ func (fc *funcCtx) widen(conv check.Conversion, val string, site syntax.Node) st
 	return fc.unionInto(conv.From, conv.To, val, site)
 }
 
-// narrowFunc is val, a function value of conv.From, as one of conv.To
-// (ConvNarrow, CK-FAILPARAM): a function of the uniform shape (funcType)
-// whose parameters that are a row value of one error type, a Go error,
-// are asserted to that type, the value's parameter, before val runs. val
-// is evaluated once, where the conversion is.
-func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Node) string {
-	from, ok := underlyingOf(conv.From).(*check.Signature)
-	to, ok2 := underlyingOf(conv.To).(*check.Signature)
-	if !ok || !ok2 || len(from.Params) != len(to.Params) {
-		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
-	}
-	f := fc.scope.alloc("f")
-	inner := fc.envClosure(callerEnv, "e", site, func(env string) (params []string, results, body string) {
-		args := []string{env}
-		for i, p := range to.Params {
-			name := fc.scope.alloc("p")
-			params = append(params, name+" "+fc.goType(p.Type))
-			arg := name
-			if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
-				if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
-					arg = name + ".(" + fc.goType(from.Params[i].Type) + ")"
-				}
-			}
-			args = append(args, arg)
-		}
-		var result check.Type
-		if len(to.Results) == 1 {
-			result = to.Results[0]
-		}
-		return params, fc.valueResults(result), strings.Repeat("\t", fc.depth+1) + "return " + f + "(" + strings.Join(args, ", ") + ")\n"
-	})
-	return "func(" + f + " " + fc.goType(conv.From) + ") " + fc.goType(conv.To) + " { return " + inner + " }(" + val + ")"
-}
-
 // expr lowers x; in a statement header, a composite literal value is
-// parenthesized (header.go).
+// parenthesized (header.go). A declaration's place that x reads is read as
+// x's type holds it (rowRead, rowgap.go).
 func (fc *funcCtx) expr(x syntax.Expr) operand {
 	if v, ok := fc.preset[x]; ok {
 		return operand{val: v} // evaluated once already (uigroup.go)
 	}
+	var o operand
 	if fc.l.info.TryCovers[x] != nil {
-		return fc.covered(x)
+		o = fc.covered(x)
+	} else {
+		o = fc.expr1(x)
 	}
-	return fc.expr1(x)
+	if o.val != "" {
+		o.val = fc.rowRead(x, o.val)
+	}
+	return o
 }
 
 // covered lowers x, the right operand that a try in operand position on
@@ -623,6 +594,9 @@ func (fc *funcCtx) selector(x *syntax.SelectorExpr) string {
 	}
 	if op := fc.methodOf(x); op != nil {
 		return fc.methodValue(x, op)
+	}
+	if f := fc.l.info.MethodValues[x]; f != nil {
+		return fc.methodValue196(x, f)
 	}
 	recv := fc.value(x.X)
 	if hostRecv(fc.typeOf(x.X)) {
@@ -1572,13 +1546,16 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	var arms []arm
 	bind := false
 	seen := map[string]bool{}
-	caseType := func(t check.Type, item syntax.Node) string {
-		goType := fc.goType(t)
-		if seen[goType] {
-			unreachable(item, ruleCaughtTwice, "a catch arm of the Go type %s, which an earlier arm takes", goType)
+	// A named row's arm lists its variants (namedrow.go).
+	caseTypes := func(t check.Type, item syntax.Node) []string {
+		gs := fc.l.caseGoTypes(t, fc.goType)
+		for _, goType := range gs {
+			if seen[goType] {
+				unreachable(item, ruleCaughtTwice, "a catch arm of the Go type %s, which an earlier arm takes", goType)
+			}
+			seen[goType] = true
 		}
-		seen[goType] = true
-		return goType
+		return gs
 	}
 	for _, a := range x.Arms {
 		ar := arm{body: a.Body}
@@ -1589,12 +1566,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 			}
 			switch p.Kind {
 			case check.PatTypeTest:
-				ar.types = append(ar.types, caseType(p.Type, te))
+				ar.types = append(ar.types, caseTypes(p.Type, te)...)
 			case check.PatAs:
 				if len(a.Types) != 1 || len(p.Elems) != 1 || p.Elems[0].Kind != check.PatTypeTest || p.Var == nil {
 					unreachable(te, ruleSimpleCatch, "an as pattern that is not one type test in an arm of its own")
 				}
-				ar.types = append(ar.types, caseType(p.Elems[0].Type, te))
+				ar.types = append(ar.types, caseTypes(p.Elems[0].Type, te)...)
 				ar.as, bind = p.Var, true
 			default:
 				unreachable(te, ruleSimpleCatch, "a catch pattern that is not a type test")

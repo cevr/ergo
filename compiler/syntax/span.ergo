@@ -197,7 +197,7 @@ func endOf(t Tree, k tokens, x uint32) int {
 		return tokPos(k, int(fixed(t, x, 2, 1))) + 1
 	}
 	if kd == KContextLit {
-		return endOf(t, k, fixed(t, x, 3, 2))
+		return endOf(t, k, fixed(t, x, 4, 3))
 	}
 	if kd == KVariantSpec {
 		return endOf(t, k, fixed(t, x, 3, 2))
@@ -291,10 +291,13 @@ func endOf(t Tree, k tokens, x uint32) int {
 		return if body != uint32(0) { endOf(t, k, body-uint32(1)) } else { endOf(t, k, fixed(t, x, 7, 5)) }
 	}
 	if kd == KContextDecl {
-		return endOf(t, k, fixed(t, x, 6, 5))
+		return endOf(t, k, fixed(t, x, 7, 6))
 	}
 	if kd == KTestDecl {
-		return endOf(t, k, fixed(t, x, 4, 3))
+		// A harness member `test H` of an operation type has no body: it
+		// ends at its name.
+		let body = fixed(t, x, 4, 3)
+		return if body != uint32(0) { endOf(t, k, body-uint32(1)) } else { endOf(t, k, fixed(t, x, 4, 1)) }
 	}
 	if kd == KLawDecl {
 		let r = fixed(t, x, 9, 5)

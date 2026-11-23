@@ -29,6 +29,37 @@ func Send[E comparable, S, D, F](d mut Driver[S, E, D, F], b string) fails ui.Cl
 	try Drain(d)
 }
 
+// found is the one node whose label is label, as ui.Play finds a TapOn's,
+// TypeInto's, PointOn's or ScrollOn's: none fails NoNode, more than one
+// Ambiguous with their count (std ui's found; mutant
+// OTMR-label-first-of-many).
+func found[S, E, D, F](d mut Driver[S, E, D, F], label string) ui.Id[E] fails ui.NoNode | ui.Ambiguous {
+	let ids = withLabel(d, d.root, label, []ui.Id[E]{})
+	if len(ids) == 0 {
+		return ui.NoNode{Label: label}
+	}
+	if len(ids) > 1 {
+		return ui.Ambiguous{At: "label \"\(label)\"", Count: len(ids)}
+	}
+	ids[0]
+}
+
+// withLabel is acc and the nodes under id whose label is label, in tree
+// order, each with none under it: a match inside a match is the same
+// target (a Pressable "go" around a Text "go" is one), as std ui's
+// withLabel takes the outer one.
+func withLabel[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string, acc []ui.Id[E]) []ui.Id[E] {
+	let mut out = acc
+	for k in kidsOf(d, id) {
+		if labelOf(nodeOf(d, k)) == (Some{Value: label}) {
+			out = out.Append(k)
+			continue
+		}
+		out = withLabel[S, E, D, F](d, k, label, out)
+	}
+	out
+}
+
 // Find is the first node of the tree, in tree order, whose label is
 // label (labelOf).
 func Find[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[ui.Id[E]] { findIn(d, d.root, label) }
@@ -49,7 +80,8 @@ func findIn[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label string) Opt
 
 // labelOf is the label a script names a node by, as ui.Find matches it:
 // a Pressable's, a Check's, a Toggle's, an Area's, a Canvas's or a
-// list's label, a Text's value, an Input's placeholder.
+// list's label, a Text's value, an Input's field label or else its
+// placeholder.
 func labelOf[E](n ui.Node[E]) Option[string] {
 	match n {
 	case ui.PressableNode[E] as x:
@@ -67,8 +99,11 @@ func labelOf[E](n ui.Node[E]) Option[string] {
 	case ui.TextNode as x:
 		Some{Value: x.Value}
 	case ui.InputNode as x:
-		Some{Value: x.Placeholder}
-	case _:
+		// its field label when it has one, else its placeholder, as
+		// ui.Find names a field (std ui's fieldName)
+		if x.Label != "" { Some{Value: x.Label} } else { Some{Value: x.Placeholder} }
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+		// No label: ui.Find names none of these either.
 		None
 	}
 }
@@ -105,7 +140,9 @@ func pointOn[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], label
 		try Send(d, Mouse(0, x, y, true))
 	case ui.Up:
 		try Send(d, Mouse(0, x, y, false))
-	case ui.Moved:
+	case ui.Moved, ui.Drag, ui.PointerEnter, ui.PointerLeave:
+		// A move: a drag while an Area holds the pointer (the composer
+		// tells Drag from Moved, not the host).
 		try Send(d, Mouse(if Captured(d) != None { 32 } else { 35 }, x, y, true))
 	case ui.Wheel as w:
 		let (code, by, unit) = if w.DY != 0 { (if w.DY > 0 { 65 } else { 64 }, w.DY, c.H) } else { (if w.DX > 0 { 67 } else { 66 }, w.DX, c.W) }
@@ -161,43 +198,24 @@ func typeInto[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], labe
 // history and send URLChanged, as ui.TestHost does. PointOn sends the
 // mouse bytes of its pointer event at the Area (pointOn); ScrollOn
 // scrolls the list to its offset (its height is the screen's, which the
-// list reports). AdvanceBy does nothing.
-func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
+// list reports). AdvanceBy moves the frames' time (Advance).
+func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for act in script {
 		match act {
 		case ui.TapOn as x:
-			match Find(d, x.Label) {
-			case Some[ui.Id[E]] as id:
-				try tapOn(d, id.Value, x.Label)
-			case None:
-				return ui.NoNode{Label: x.Label}
-			}
+			try tapOn(d, try found(d, x.Label), x.Label)
 		case ui.TypeInto as x:
-			match Find(d, x.Label) {
-			case Some[ui.Id[E]] as id:
-				try typeInto(d, id.Value, x.Label, x.Text)
-			case None:
-				return ui.NoNode{Label: x.Label}
-			}
+			try typeInto(d, try found(d, x.Label), x.Label, x.Text)
 		case ui.KeyIn as x:
 			try Send(d, Bytes(x.Press))
 		case ui.PointOn as x:
-			match Find(d, x.Label) {
-			case Some[ui.Id[E]] as id:
-				try pointOn(d, id.Value, x.Label, x.Pointer)
-			case None:
-				return ui.NoNode{Label: x.Label}
-			}
+			try pointOn(d, try found(d, x.Label), x.Label, x.Pointer)
 		case ui.ScrollOn as x:
-			match Find(d, x.Label) {
-			case Some[ui.Id[E]] as id:
-				try scrollOn(d, id.Value, x.Offset)
-			case None:
-				return ui.NoNode{Label: x.Label}
-			}
+			try scrollOn(d, try found(d, x.Label), x.Offset)
 		case ui.SettleAll:
 			try Settle(d)
-		case ui.AdvanceBy:
+		case ui.AdvanceBy as x:
+			try Advance(d, x.By)
 		case ui.ClickOn as x:
 			try tapOn(d, try located(d, x.At), "a located node")
 		case ui.FillIn as x:

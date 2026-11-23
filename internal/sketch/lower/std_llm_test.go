@@ -22,6 +22,7 @@ import llm/recorded
 import schedule
 import strings
 import sync
+import task
 import testing
 
 type streamed = gotTurn{Turn llm.Turn, Deltas []llm.Delta} | gotFailure{Failure llm.Failure, Deltas []llm.Delta} | sinkFailed{}
@@ -573,7 +574,7 @@ func lawFormatAgreesWithCodec(v askProbe) bool {
 
 func lawFormatKeepsTheRequest(system string, max int) bool {
 	let r = llm.Request{System: system, Messages: []llm.Message{llm.User{Text: "hi"}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: max}
-	let f = llm.Format(r, askProbeSchema())
+	let f = llm.WithSchema(r, askProbeSchema())
 	let text = jsonschema.TextOf(askProbeSchema())
 	let form = match f.Format {
 	case llm.JSON as j:
@@ -654,6 +655,72 @@ test MemoryAskIsParseOfTheReply(text string) { assert lawAskIsParseOfTheReply(te
 test MemoryLengthStopIsNotParsed(v askProbe) { assert lawLengthStopIsNotParsed(v) }
 
 test MemoryAskFailsAsTheModel(f llm.Failure) { assert lawAskFailsAsTheModel(f) }
+
+func heldTexts(texts []string) []llm.Delta {
+	let mut ds = []llm.Delta{}
+	for s in texts {
+		ds = ds.Append(llm.Text{Text: s})
+	}
+	ds
+}
+
+func heardTexts(h memory.Held) string {
+	let mut got = []string{}
+	let done = h.Stream(plain("q"), func(d llm.Delta) fails llm.SinkFailed {
+		match d {
+		case llm.Text as x:
+			got = got.Append(x.Text)
+		case llm.Reasoning, llm.CallStart, llm.CallArgs, llm.CallEnd:
+		}
+	}) catch {
+	case _:
+		return "!"
+	}
+	strings.Join(got, "") + "|" + done.Text
+}
+
+func isStep(got memory.HeldStep, want memory.HeldStep) bool { got == want }
+
+func releasedArriveInOrder(texts []string) bool {
+	let h = memory.Hold(memory.Says{Deltas: heldTexts(texts), Stop: llm.Ended, Usage: none()})
+	let t = task.Go() { heardTexts(h) }
+	let mut fine = true
+	for i in 0..len(texts) {
+		fine = fine && isStep(h.Next(), memory.Waits{At: i})
+		h.Release(1)
+		fine = fine && isStep(h.Next(), memory.Gave{At: i})
+	}
+	let joined = strings.Join(texts, "")
+	fine && t.Wait() == joined + "|" + joined
+}
+
+test MemoryReleasedArriveInOrder(texts []string) { assert releasedArriveInOrder(texts) }
+
+type heldHeard = heldTurn{deltas int, text string, turn string} | heldFailure{deltas int, text string, failure llm.Failure} | heldSink{}
+
+func heldHeardOf(m llm.Model, r llm.Request) heldHeard {
+	let mut ds = []llm.Delta{}
+	let t = m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {
+		ds = ds.Append(d)
+	}) catch {
+	case llm.SinkFailed:
+		return heldSink
+	case f:
+		let failure llm.Failure = f
+		return heldFailure{deltas: len(ds), text: llm.Fold(ds).Text, failure: failure}
+	}
+	heldTurn{deltas: len(ds), text: llm.Fold(ds).Text, turn: t.Text}
+}
+
+func openLetsAllThrough(first []string, tools []string, cut bool) bool {
+	let s = memory.NewScripted(first, tools, cut, []memory.Reply{})
+	let h = memory.Hold(s.Replies[0])
+	h.Open()
+	let r = plain("q")
+	heldHeardOf(h, r) == heldHeardOf(s, r)
+}
+
+test MemoryOpenLetsAllThrough(first []string, tools []string, cut bool) { assert openLetsAllThrough(first, tools, cut) }
 `
 
 // stdLLMLawStatements is the statement of each llm law, as the ledger
@@ -681,6 +748,8 @@ var stdLLMLawStatements = map[string]string{
 	"llm/memory AskIsParseOfTheReply":     `AskIsParseOfTheReply(text string) { let m = NewSequence([]Reply{ok(text, none())}) askOf(m, plain("q")) == parsing(text) && Asks(m) == 1 }`,
 	"llm/memory LengthStopIsNotParsed":    `LengthStopIsNotParsed(v asked) { let text = json.Encode(askedCodec(), v) let m = NewSequence([]Reply{Says{Deltas: []llm.Delta{llm.Text{Text: text}}, Stop: llm.Length, Usage: none()}}) match askOf(m, plain("q")).NoFit { case Some[llm.NoFit] as n: n.Value.Reply == text && n.Value.Path == "" case None: false } }`,
 	"llm/memory AskFailsAsTheModel":       `AskFailsAsTheModel(f llm.Failure) { let m = NewSequence([]Reply{Fails{Failure: f}}) askOf(m, plain("q")).Other == "failure" && Asks(m) == 1 }`,
+	"llm/memory OpenLetsAllThrough":       `OpenLetsAllThrough(first []string, tools []string, cut bool) { let s = NewScripted(first, tools, cut, []Reply{}) let h = Hold(s.Replies[0]) h.Open() let r = plain("q") heardOf(h, r) == heardOf(s, r) }`,
+	"llm/memory ReleasedArriveInOrder":    `ReleasedArriveInOrder(texts []string) { let h = Hold(Says{Deltas: heldTexts(texts), Stop: llm.Ended, Usage: none()}) let t = task.Go() { heardTexts(h) } let mut fine = true for i in 0..len(texts) { fine = fine && isStep(h.Next(), Waits{At: i}) h.Release(1) fine = fine && isStep(h.Next(), Gave{At: i}) } let joined = strings.Join(texts, "") fine && t.Wait() == joined + "|" + joined }`,
 	"llm/recorded ReplayIsTheRecording":   `ReplayIsTheRecording(replies []memory.Reply, drawn []int, recordBy []bool, replayBy []bool) { let picks = four(drawn) let rec = NewRecord(memory.NewSequence(replies)) let alone = memory.NewSequence(replies) let mut got = []seen{} for k, p in picks { let want = asked(alone, request(p), true) if asked(rec, request(p), !flag(recordBy, k)) != shown(want, !flag(recordBy, k)) { return false } got = got.Append(want) } let replay = NewReplay(Exchanges(rec)) let mut i = 0 for want in 0..3 { for k, p in picks { if (p%3+3)%3 != want { continue } let stream = !flag(replayBy, i) i = i + 1 if asked(replay, request(p), stream) != shown(got[k], stream) { return false } } } true }`,
 	"llm/recorded FileIsTheRecording":     `FileIsTheRecording(x Exchange) { let y = Exchange{Digest: "d", Deltas: []llm.Delta{}, End: Failed{Failure: llm.Overloaded}} let back = Read(Write([]Exchange{x, y})) catch { case _: return false } back == []Exchange{x, y} }`,
 	"llm/recorded DigestIsTheRequest":     `DigestIsTheRequest(a llm.Request, c llm.Request, part int) { let b = spliced(a, c, part) (Digest(a) == Digest(b)) == (a == b) }`,

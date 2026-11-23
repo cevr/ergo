@@ -206,6 +206,11 @@ func Program(seed uint64, reached map[string]bool) (src string, eligible []bool,
 			args = append(args, fmt.Sprintf("x%d", i))
 		}
 		call := fmt.Sprintf("g%d(%s)", j, strings.Join(args, ", "))
+		// A dropped call, first: on the IR a tabulated read's value is a
+		// local, which a Go expression statement cannot be (gocalls'
+		// `let _ = go.New(z)`); the call still fills its entry.
+		fmt.Fprintf(&m, "%slet _ = %s\n", ind, call)
+		g.reached["dropped call"] = true
 		for rep := range 2 {
 			if g.results[j] == "slice" {
 				// A caller writes the slice it was given: a table would
@@ -214,6 +219,17 @@ func Program(seed uint64, reached map[string]bool) (src string, eligible []bool,
 			} else {
 				fmt.Fprintf(&m, "%slet v%d = %s\n%sacc%d = (acc%d * 31 + %s) %% 1000003\n", ind, rep, call, ind, j, j, tabCode(g.results[j], fmt.Sprintf("v%d", rep)))
 			}
+		}
+		// The call as a record literal's field and inside an
+		// interpolation (the 20e3b4fbe fallout's shape: lzpack's
+		// os.Exit{Message: "…\(lz.Explain(e.Reason))"}).
+		switch g.results[j] {
+		case "int":
+			fmt.Fprintf(&m, "%slet w = R{e: V0x0, n: %s, s: \"<\\(%s)>\"}\n%sacc%d = (acc%d * 31 + w.n + len(w.s)) %% 1000003\n", ind, call, call, ind, j, j)
+			g.reached["call in a record literal and an interpolation"] = true
+		case "str":
+			fmt.Fprintf(&m, "%slet w = R{e: V0x0, n: 1, s: \"<\\(%s)>\"}\n%sacc%d = (acc%d * 31 + len(w.s)) %% 1000003\n", ind, call, ind, j, j)
+			g.reached["call in a record literal and an interpolation"] = true
 		}
 		for range ps {
 			ind = ind[1:]
@@ -226,7 +242,8 @@ func Program(seed uint64, reached map[string]bool) (src string, eligible []bool,
 		// A defect in a tabulated function leaves its entry empty: the
 		// call before fills another entry, the defect's call raises it.
 		s.WriteString("func boom(x E0) int {\n\tlet z = []int{1}\n\tmatch x {\n\tcase V0x0:\n\t\tz[3]\n\tcase _:\n\t\t1\n\t}\n}\n\n")
-		m.WriteString("\tConsole.Println(\"boom \\(boom(V0x1))\")\n\tConsole.Println(\"boom \\(boom(V0x0))\")\n")
+		// The defect's call is dropped: a dropped call keeps its defect.
+		m.WriteString("\tConsole.Println(\"boom \\(boom(V0x1))\")\n\tlet _ = boom(V0x0)\n")
 		reached["defect"] = true
 	}
 	m.WriteString("}\n")

@@ -128,6 +128,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.line(depth, "ContextDecl %s doc=%d Let=%d Context=%d", at, d.doc(x.Doc), x.Let, x.Context)
 		d.node(c, x.Name)
 		d.node(c, x.Provides)
+		d.node(c, x.Fails)
 		d.node(c, x.Needs)
 		d.node(c, x.Body)
 	case *TestDecl:
@@ -306,6 +307,7 @@ func (d *dumper) node(depth int, n Node) {
 	case *ContextLit:
 		d.line(depth, "ContextLit %s Context=%d", at, x.Context)
 		d.node(c, x.Provides)
+		d.node(c, x.Fails)
 		d.node(c, x.Needs)
 		d.node(c, x.Body)
 	case *ArrayType:
@@ -319,6 +321,7 @@ func (d *dumper) node(depth int, n Node) {
 		d.line(depth, "MapType %s Map=%d Lbrack=%d Rbrack=%d", at, x.Map, x.Lbrack, x.Rbrack)
 		d.node(c, x.Key)
 		d.node(c, x.Value)
+		d.node(c, x.Hashing)
 	case *FuncType:
 		entry := NoPos
 		if x.Entry {
@@ -338,6 +341,19 @@ func (d *dumper) node(depth int, n Node) {
 		d.list(c, exprs(x.Methods))
 		d.list(c, exprs(x.Laws))
 		d.list(c, exprs(x.Union))
+		d.line(c, "list %d", len(x.Terms))
+		for _, t := range x.Terms {
+			d.line(c+1, "TypeTerm %d %d Tilde=%d", t.Pos(), t.End(), t.Tilde)
+			d.node(c+2, t.Type)
+		}
+		// `test H`, the harness member: the view keeps its TestDecl row.
+		d.line(c, "list %d", len(x.Harnesses))
+		for _, h := range x.Harnesses {
+			d.line(c+1, "TestDecl %d %d doc=%d Test=%d", h.Pos(), h.End(), d.doc(h.Doc), h.Test)
+			d.node(c+2, h.Name)
+			d.line(c+2, "nil")
+			d.line(c+2, "nil")
+		}
 	case *ErrorRow:
 		d.line(depth, "ErrorRow %s Error=%d", at, x.Error)
 		d.list(c, exprs(x.Types))

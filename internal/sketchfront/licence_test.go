@@ -1,6 +1,7 @@
 package sketchfront
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +135,39 @@ func TestLicenceWriterKeepsCorpus(t *testing.T) {
 	const property = "\nlaw CutTwice(s string) { Cut(Cut(s)) == Cut(s) }\n"
 	if n, _ = write("law removed", cutEdited+property); n == 0 || strings.Contains(read(ledger), "CutIsId") || strings.Contains(read(cases), "CutIsId") {
 		t.Errorf("law removed: %d changed, ledger %q, ergo.cases %q; want both without the law", n, read(ledger), read(cases))
+	}
+}
+
+// TestSkippedLicenceFailsTheTest is AC10 (LICENCE-ADT; types.md Laws 14):
+// a rewrite law in scope whose licence run is skipped (here, no family of
+// pure functions over string) is never a verdict. The writer still writes
+// its skipped entry, and fails with the law, the reason and the fix. A
+// rerun runs it again, since a skipped entry is never current, and fails
+// again.
+//
+// Mutants: ladt-skip-reported (the writer returns no error on a skip),
+// ladt-skip-current (a current skipped entry is reused and passes).
+func TestSkippedLicenceFailsTheTest(t *testing.T) {
+	const src = "func Twice(f func(s string) string, s string) string { f(f(s)) }\n\nlaw TwiceUnfolds(f func(s string) string, s string) { Twice(f, s) } == { f(f(s)) }\n"
+	ledger := filepath.Join(t.TempDir(), lower.LedgerFile)
+	for _, step := range []string{"first run", "rerun"} {
+		var stderr strings.Builder
+		_, err := UpdateLedger(checked(t, src), BuildRequest{Source: "/ergo-test/licence.ergo", Ledger: ledger, Stderr: &stderr})
+		var skipped *LicenceSkippedError
+		if !errors.As(err, &skipped) || len(skipped.Skipped) != 1 {
+			t.Fatalf("%s: %v (stderr %q); want one skipped licence", step, err, stderr.String())
+		}
+		line := skipped.Skipped[0].Line()
+		for _, part := range []string{"FAIL licence law ", ".TwiceUnfolds: skipped: ", "no family of pure functions", "; state the law over functions whose parameters and result are int or bool"} {
+			if !strings.Contains(line, part) {
+				t.Errorf("%s: %q; want it to say %q", step, line, part)
+			}
+		}
+		if !strings.Contains(stderr.String(), "skipped") {
+			t.Errorf("%s: stderr %q; want the run's skipped line, so the licence ran again", step, stderr.String())
+		}
+	}
+	if data, err := os.ReadFile(ledger); err != nil || !strings.Contains(string(data), ".TwiceUnfolds skipped") {
+		t.Errorf("the ledger: %q, %v; want the skipped entry written", data, err)
 	}
 }

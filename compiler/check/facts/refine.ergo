@@ -1,0 +1,919 @@
+// Package facts is the self-hosted checker's refinement facts (types.md,
+// Refinements; the Go checker's refine.go): `type Port int where 1 <= it
+// && it <= 65535` refines a defined type by a predicate in a decidable
+// fragment, comparisons of the subject (it, or len(it) for a string or
+// slice base) with integer literals, joined by &&, || and !. The
+// predicate is normalised to the set of subject values that satisfy it,
+// sorted, disjoint, non-adjacent closed spans, which decide every
+// constant at check time, the zero value and the generator's draws.
+//
+// This first part is the normalisation (S3-FACTS slice 1); the
+// diagnostics of a where outside the fragment and of a constant outside
+// a refinement are its next part.
+
+import compiler/check/diag
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import strconv
+import strings
+
+// Num is a subject value: below every domain, a value as its sign and
+// magnitude (zero is never negative), or above every domain. Every
+// domain is inside int64's and uint64's ranges, so a literal past them
+// stands for any value past them: Below and Above saturate.
+type Num = Below{} | At{Neg bool, Mag uint64} | Above{}
+
+// maxNeg is the magnitude of int64's least value.
+let maxNeg uint64 = 9223372036854775808
+
+// maxMag is uint64's greatest value.
+let maxMag uint64 = 18446744073709551615
+
+// NumOf is the value of n.
+func NumOf(n int64) Num {
+	if n >= 0 {
+		At{Neg: false, Mag: uint64(n)}
+	} else if n == -9223372036854775807-1 {
+		At{Neg: true, Mag: maxNeg}
+	} else {
+		At{Neg: true, Mag: uint64(-n)}
+	}
+}
+
+// negated is -n, saturating.
+func negated(n Num) Num {
+	match n {
+	case Below:
+		Above
+	case Above:
+		Below
+	case At as a:
+		if a.Mag == 0 {
+			a
+		} else if !a.Neg && a.Mag > maxNeg {
+			Below
+		} else {
+			At{Neg: !a.Neg, Mag: a.Mag}
+		}
+	}
+}
+
+func rank(n Num) int {
+	match n {
+	case Below:
+		0
+	case At:
+		1
+	case Above:
+		2
+	}
+}
+
+// Compare is -1, 0 or 1 as a is less than, equal to or greater than b.
+func Compare(a Num, b Num) int {
+	match (a, b) {
+	case (At as x, At as y):
+		if x.Neg != y.Neg {
+			if x.Neg { -1 } else { 1 }
+		} else if x.Mag == y.Mag {
+			0
+		} else if (x.Mag < y.Mag) != x.Neg {
+			-1
+		} else {
+			1
+		}
+	case _:
+		let d = rank(a) - rank(b)
+		if d < 0 { -1 } else if d > 0 { 1 } else { 0 }
+	}
+}
+
+// Inc is n+1, saturating.
+func Inc(n Num) Num {
+	match n {
+	case Below:
+		Below
+	case Above:
+		Above
+	case At as a:
+		if a.Neg {
+			if a.Mag == 1 { At{Neg: false, Mag: 0} } else { At{Neg: true, Mag: a.Mag - 1} }
+		} else if a.Mag == maxMag {
+			Above
+		} else {
+			At{Neg: false, Mag: a.Mag + 1}
+		}
+	}
+}
+
+// Dec is n-1, saturating.
+func Dec(n Num) Num {
+	match n {
+	case Below:
+		Below
+	case Above:
+		Above
+	case At as a:
+		if !a.Neg {
+			if a.Mag == 0 { At{Neg: true, Mag: 1} } else { At{Neg: false, Mag: a.Mag - 1} }
+		} else if a.Mag == maxNeg {
+			Below
+		} else {
+			At{Neg: true, Mag: a.Mag + 1}
+		}
+	}
+}
+
+// IncThenDecIsIdentity: one step up and one down is the value, for a
+// value inside the domains (a saturated end stays where it is).
+law IncThenDecIsIdentity(n int64) {
+	Compare(Dec(Inc(NumOf(n))), NumOf(n)) == 0 && Compare(Inc(Dec(NumOf(n))), NumOf(n)) == 0
+}
+
+// CompareAgreesWithInt: Num orders as int64 does.
+law CompareAgreesWithInt(a int64, b int64) {
+	let want = if a < b { -1 } else if a > b { 1 } else { 0 }
+	Compare(NumOf(a), NumOf(b)) == want
+}
+
+// NumText is n in decimal; Below and Above, which no span holds, print
+// as -inf and +inf.
+func NumText(n Num) string {
+	match n {
+	case Below:
+		"-inf"
+	case Above:
+		"+inf"
+	case At as a:
+		if a.Neg { "-" + digits(a.Mag) } else { digits(a.Mag) }
+	}
+}
+
+func digits(m uint64) string {
+	if m == 0 {
+		return "0"
+	}
+	let mut buf = []byte{}
+	let mut v = m
+	for v > 0 {
+		buf = buf.Append(byte(uint64('0') + v%10))
+		v = v / 10
+	}
+	let mut out = strings.NewBuilder()
+	for i in 0..len(buf) {
+		out.WriteByte(buf[len(buf)-1-i])
+	}
+	out.String()
+}
+
+// Span is the closed span of subject values Lo to Hi.
+type Span { Lo Num, Hi Num }
+
+// Refinement is a refined type's predicate as its subject's values: Len
+// when the subject is len(it), a string's or slice's length, and the
+// spans that satisfy it, sorted, disjoint and not adjacent.
+type Refinement { Len bool, Spans []Span }
+
+// one is lo..hi, empty when lo is past hi.
+func one(lo Num, hi Num) []Span {
+	if Compare(lo, hi) > 0 { []Span{} } else { []Span{Span{Lo: lo, Hi: hi}} }
+}
+
+// Union is the spans of a or b, in normal form.
+func Union(a []Span, b []Span) []Span {
+	let mut all = []Span{}
+	for s in a {
+		all = all.Append(s)
+	}
+	for s in b {
+		all = all.Append(s)
+	}
+	// Insertion sort by Lo: the sets are small.
+	for i in 1..len(all) {
+		let mut j = i
+		for j > 0 && Compare(all[j].Lo, all[j-1].Lo) < 0 {
+			let t = all[j]
+			all[j] = all[j-1]
+			all[j-1] = t
+			j = j - 1
+		}
+	}
+	let mut out = []Span{}
+	for s in all {
+		let n = len(out)
+		if n > 0 && Compare(s.Lo, Inc(out[n-1].Hi)) <= 0 {
+			if Compare(s.Hi, out[n-1].Hi) > 0 {
+				out[n-1] = Span{Lo: out[n-1].Lo, Hi: s.Hi}
+			}
+			continue
+		}
+		out = out.Append(s)
+	}
+	out
+}
+
+// Complement is the values of dom that a does not hold.
+func Complement(a []Span, dom Span) []Span {
+	let mut out = []Span{}
+	let mut lo = dom.Lo
+	for s in a {
+		for x in one(lo, Dec(s.Lo)) {
+			out = out.Append(x)
+		}
+		lo = Inc(s.Hi)
+	}
+	for x in one(lo, dom.Hi) {
+		out = out.Append(x)
+	}
+	out
+}
+
+// Intersect is the values of dom that a and b both hold.
+func Intersect(a []Span, b []Span, dom Span) []Span {
+	Complement(Union(Complement(a, dom), Complement(b, dom)), dom)
+}
+
+// clip is lo..hi inside dom.
+func clip(lo Num, hi Num, dom Span) []Span {
+	let l = if Compare(lo, dom.Lo) < 0 { dom.Lo } else { lo }
+	let h = if Compare(hi, dom.Hi) > 0 { dom.Hi } else { hi }
+	one(l, h)
+}
+
+// holds is whether v is in one of a's spans.
+func holds(a []Span, v Num) bool {
+	for s in a {
+		if Compare(s.Lo, v) <= 0 && Compare(v, s.Hi) <= 0 {
+			return true
+		}
+	}
+	false
+}
+
+// sample is a few values of dom, its ends among them.
+func sample(dom Span) []Num {
+	[]Num{dom.Lo, Inc(dom.Lo), NumOf(-1), NumOf(0), NumOf(1), NumOf(7), Dec(dom.Hi), dom.Hi}
+}
+
+// SetOpsAreBoolean: Union, Intersect and Complement hold a value as or,
+// and and not do, for spans drawn inside the domain of int8.
+law SetOpsAreBoolean(a0 int8, a1 int8, b0 int8, b1 int8, v int8) {
+	let dom = Span{Lo: NumOf(-128), Hi: NumOf(127)}
+	let a = one(NumOf(int64(a0)), NumOf(int64(a1)))
+	let b = Union(one(NumOf(int64(b0)), NumOf(int64(b0))), one(NumOf(int64(b1)), NumOf(127)))
+	let x = NumOf(int64(v))
+	holds(Union(a, b), x) == (holds(a, x) || holds(b, x)) && holds(Intersect(a, b, dom), x) == (holds(a, x) && holds(b, x)) && holds(Complement(a, dom), x) == !holds(a, x)
+}
+
+// UnionIsNormal: a union's spans are sorted, disjoint and not adjacent.
+law UnionIsNormal(a0 int8, a1 int8, b0 int8, b1 int8, c int8) {
+	let u = Union(Union(one(NumOf(int64(a0)), NumOf(int64(a1))), one(NumOf(int64(b0)), NumOf(int64(b1)))), one(NumOf(int64(c)), NumOf(int64(c))))
+	for i in 1..len(u) {
+		if Compare(Inc(u[i-1].Hi), u[i].Lo) >= 0 {
+			return false
+		}
+	}
+	true
+}
+
+// domain is the range of a refinement's subject over the basic type of
+// ordinal ord, and whether the subject is len(it); None for a base no
+// refinement takes (the Go checker's refinementDomain).
+func domain(ord int) Option[(Span, bool)] {
+	let (lo, hi, isLen) = if ord == 3 || ord == 7 {
+		(NumOf(-9223372036854775807 - 1), NumOf(9223372036854775807), false)
+	} else if ord == 4 {
+		(NumOf(-128), NumOf(127), false)
+	} else if ord == 5 {
+		(NumOf(-32768), NumOf(32767), false)
+	} else if ord == 6 {
+		(NumOf(-2147483648), NumOf(2147483647), false)
+	} else if ord == 8 || ord == 12 || ord == 13 {
+		(NumOf(0), At{Neg: false, Mag: maxMag}, false)
+	} else if ord == 9 {
+		(NumOf(0), NumOf(255), false)
+	} else if ord == 10 {
+		(NumOf(0), NumOf(65535), false)
+	} else if ord == 11 {
+		(NumOf(0), NumOf(4294967295), false)
+	} else if ord == 2 {
+		(NumOf(0), NumOf(9223372036854775807), true)
+	} else {
+		return None
+	}
+	Some{Value: (Span{Lo: lo, Hi: hi}, isLen)}
+}
+
+let sliceDomain = Span{Lo: At{Neg: false, Mag: 0}, Hi: At{Neg: false, Mag: 9223372036854775807}}
+
+// Refined is one refined type declaration of a package: its file, its
+// name node, its refinement, None where the Go checker gives it none (a
+// where outside the fragment, an unsatisfiable one, a base no refinement
+// takes, type parameters, a base refined already), and the diagnostics
+// deciding it gave.
+type Refined { File int, Name dense.ID[syntax.Node], R Option[Refinement], Diags []diag.Diag }
+
+// Refinements is the refined type declarations of the package k, in file
+// and source order, each with its refinement.
+func Refinements(s mut store.Store, k expr.Pkg) []Refined {
+	let mut out = []Refined{}
+	let mut done = []string{}
+	for f in 0..len(k.Parsed) {
+		let p = k.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, syntax.Root(p.Tree)).Decls
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(p.Tree, d)
+			match dense.Unpack(td.Where) {
+			case Some{Value: where}:
+				let name = types.NameText(p, td.Name)
+				let w = whereOf{k: k, f: f, where: where, subject: "it", what: name, done: done}
+				let (r, ds) = refinementOf(s, w, td)
+				match r {
+				case Some:
+					done = done.Append(name)
+				case None:
+				}
+				out = out.Append(Refined{File: f, Name: td.Name, R: r, Diags: ds})
+			case None:
+			}
+		}
+	}
+	out
+}
+
+// whereOf is one where being decided: the package, its file, the where,
+// its subject (it, or a law parameter's name) and what it refines (the
+// type's or the parameter's name), and the names of the package's types
+// refined before it (the Go checker decides them in order, so a base
+// declared later is not refined yet).
+type whereOf { k expr.Pkg, f int, where dense.ID[syntax.Node], subject string, what string, done []string }
+
+// at is a diagnostic of the node x of w's file.
+func at(w whereOf, x dense.ID[syntax.Node], message string) diag.Diag {
+	let p = w.k.Parsed[w.f]
+	let from = syntax.NodePos(p, x)
+	diag.Diag{File: w.f, Offset: from, Length: syntax.NodeEnd(p, x) - from, Code: CodeType, Message: message}
+}
+
+// The code of the diagnostics this package reports (internal/sketch/check/codes.go).
+let CodeType = "S108"
+
+func refuse(w whereOf, message string) (Option[Refinement], []diag.Diag) {
+	(None, []diag.Diag{at(w, w.where, message)})
+}
+
+// refinementOf decides the where of the refined type declaration td.
+func refinementOf(s mut store.Store, w whereOf, td syntax.TypeDecl) (Option[Refinement], []diag.Diag) {
+	match dense.Unpack(td.TypeParams) {
+	case Some:
+		return refuse(w, "a refined type has no type parameters: refine an instance, type N Box[int] where … (types.md, Refinements 3)")
+	case None:
+	}
+	let base = match dense.Unpack(td.Spec) {
+	case Some{Value: sp}:
+		sp
+	case None:
+		return (None, []diag.Diag{})
+	}
+	let p = w.k.Parsed[w.f]
+	let kd = syntax.KindOf(p.Tree, base)
+	if kd == syntax.KStructType || kd == syntax.KInterfaceType || kd == syntax.KMachineType {
+		return refuse(w, "a where refines a defined type, type N T where … (types.md, Refinements 1)")
+	}
+	let env = types.NewEnv(*s, w.k.Parsed, p, []string{}, w.k.Kinds, w.k.Ext, w.k.Foreign, w.k.Ifaces)
+	decide(s, w, types.Resolve(s, env, base))
+}
+
+// decide decides w's where over the type t of its subject.
+func decide(s mut store.Store, w whereOf, t dense.ID[store.TKey]) (Option[Refinement], []diag.Diag) {
+	let p = w.k.Parsed[w.f]
+	// A message names the package's own types unqualified, as the Go
+	// checker's do.
+	let shown = types.Text(*s, types.Names{Params: []string{}, Foreign: w.k.Foreign, Pkg: "", Deps: w.k.Ifaces}, t)
+	let (dom, isLen) = match domainOf(s, w.k, t, 0) {
+	case Dom as d:
+		(d.Span, d.Len)
+	case Invalid:
+		return (None, []diag.Diag{})
+	case NoDomain:
+		return refuse(w, "a where refines an integer type (it) or a string or slice (len(it)); \(w.what) is over \(shown) (types.md, Refinements 3)")
+	}
+	if refinedBefore(*s, w.done, t) {
+		return refuse(w, "\(shown) is refined already; write one where that holds both predicates (types.md, Refinements 3)")
+	}
+	let r = refiner{p: p, subject: w.subject, isLen: isLen, dom: dom, allowed: allowedPattern(p, w.where)}
+	match patternDiags(w, r, *s, t, shown) {
+	case Some{Value: g}:
+		return (None, []diag.Diag{g})
+	case None:
+	}
+	match set(r, w.where) {
+	case Holds as h:
+		if len(h.Spans) == 0 {
+			refuse(w, "no value of \(shown) satisfies this where (types.md, Refinements 2)")
+		} else {
+			(Some{Value: Refinement{Len: isLen, Spans: h.Spans}}, []diag.Diag{})
+		}
+	case Outside as o:
+		(None, []diag.Diag{at(w, o.At, o.Message)})
+	}
+}
+
+// Domain is a refinement's subject range over a base type: its span and
+// whether the subject is len(it); NoDomain for a base no refinement
+// takes; Invalid for a base that does not resolve, which is reported
+// where it is written.
+type Domain = Dom{Span Span, Len bool} | NoDomain{} | Invalid{}
+
+// domainOf is the subject's domain over the type t: a basic type's, a
+// slice's length, or, for a defined type of the package, its base's (the
+// Go checker's refinementDomain over under(t)).
+func domainOf(s mut store.Store, k expr.Pkg, t dense.ID[store.TKey], depth int) Domain {
+	if depth > 8 {
+		return NoDomain
+	}
+	let kind = store.KindOfType(*s, t)
+	if kind == store.KBasic {
+		let ord = store.ArgOf(*s, t)
+		if ord == 0 {
+			return Invalid
+		}
+		return match domain(ord) {
+		case Some{Value: v}:
+			let (sp, isLen) = v
+			Dom{Span: sp, Len: isLen}
+		case None:
+			NoDomain
+		}
+	}
+	if kind == store.KSlice {
+		return Dom{Span: sliceDomain, Len: true}
+	}
+	if kind != store.KNamed {
+		return NoDomain
+	}
+	let name = store.TypeNameText(*s, store.ArgOf(*s, t))
+	for g in 0..len(k.Parsed) {
+		let q = k.Parsed[g]
+		if q.Failed {
+			continue
+		}
+		for d in types.Defined(q) {
+			if d.Name == name && len(d.Params) == 0 {
+				let env = types.NewEnv(*s, k.Parsed, q, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+				let b = types.Resolve(s, env, d.Base)
+				return domainOf(s, k, b, depth+1)
+			}
+		}
+	}
+	NoDomain
+}
+
+// refinedBefore is whether t is a type of the package that done names.
+func refinedBefore(s store.Store, done []string, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(s, t) != store.KNamed {
+		return false
+	}
+	let name = store.TypeNameText(s, store.ArgOf(s, t))
+	for d in done {
+		if d == name {
+			return true
+		}
+	}
+	false
+}
+
+// patternDiags is the first diagnostic of the where's pattern conjuncts:
+// a second one, one on a base that is no string, or one not of the shape
+// matches(it, `…`) (the Go checker's pattern and compileWherePattern;
+// the pattern's own syntax is checked when patterns are compiled here).
+func patternDiags(w whereOf, r refiner, s store.Store, t dense.ID[store.TKey], shown string) Option[diag.Diag] {
+	let p = r.p
+	let mut seen = false
+	for x in conjuncts(p, w.where) {
+		if !isMatchesCall(p, x) {
+			continue
+		}
+		if seen {
+			return Some{Value: at(w, x, "a where takes one pattern; join the two in one (types.md, Refinements 11)")}
+		}
+		seen = true
+		if !(store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 2) {
+			return Some{Value: at(w, x, "a pattern refines a string; \(shown) is not one (types.md, Refinements 11)")}
+		}
+		let shape = "a pattern is matches(\(w.subject), `…`): the subject and a string literal (types.md, Refinements 11)"
+		let c = syntax.CallExprOf(p.Tree, x)
+		if syntax.Len(c.Args) != 2 || isSome(c.Trailing) {
+			return Some{Value: at(w, x, shape)}
+		}
+		let a0 = syntax.Item(p.Tree, c.Args, 0)
+		if !identIs(p, unparen(p, a0), w.subject) {
+			return Some{Value: at(w, a0, shape)}
+		}
+		let a1 = syntax.Item(p.Tree, c.Args, 1)
+		let lit = unparen(p, a1)
+		if syntax.KindOf(p.Tree, lit) != syntax.KBasicLit || syntax.TokKind(p, syntax.BasicLitOf(p.Tree, lit).Tok) != syntax.String {
+			return Some{Value: at(w, a1, shape)}
+		}
+	}
+	None
+}
+
+// conjuncts are the operands of the top-level && chain of x.
+func conjuncts(p syntax.Parsed, x0 dense.ID[syntax.Node]) []dense.ID[syntax.Node] {
+	let x = unparen(p, x0)
+	if syntax.KindOf(p.Tree, x) == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, x)
+		if syntax.TokKind(p, b.Op) == syntax.Land {
+			let mut out = conjuncts(p, b.X)
+			for y in conjuncts(p, b.Y) {
+				out = out.Append(y)
+			}
+			return out
+		}
+	}
+	[]dense.ID[syntax.Node]{x}
+}
+
+// ParamWheres is the diagnostics of the wheres on parameters: a law's is
+// decided, its subject the parameter's name (laws.go checkLaw; done names
+// the package's refined types); one on a parameter of anything but a law
+// is refused (the Go checker's checkRefinements, Refinements 10).
+func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
+	let mut out = []diag.Diag{}
+	for f in 0..len(k.Parsed) {
+		let p = k.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let mut inLaw = Map[int, bool]{}
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let x = syntax.NodeAt(p.Tree, i)
+			if syntax.KindOf(p.Tree, x) != syntax.KLawDecl {
+				continue
+			}
+			match syntax.ViewOf(p.Tree, x) {
+			case syntax.LawDecl as l:
+				match dense.Unpack(l.Params) {
+				case Some{Value: ps}:
+					match syntax.ViewOf(p.Tree, ps) {
+					case syntax.FieldList as fl:
+						for j in 0..syntax.Len(fl.List) {
+							inLaw[dense.Index(syntax.Item(p.Tree, fl.List, j))] = true
+						}
+					case _:
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+		for i in 0..syntax.NumNodes(p.Tree) {
+			let x = syntax.NodeAt(p.Tree, i)
+			if syntax.KindOf(p.Tree, x) != syntax.KField {
+				continue
+			}
+			match syntax.ViewOf(p.Tree, x) {
+			case syntax.Field as fd:
+				match dense.Unpack(fd.Where) {
+				case Some{Value: wh}:
+					match inLaw.Get(dense.Index(x)) {
+					case Some[bool]:
+						let tx = match dense.Unpack(fd.Type) {
+						case Some{Value: v}:
+							v
+						case None:
+							continue
+						}
+						let env = types.NewEnv(*s, k.Parsed, p, []string{}, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+						let ty = types.Resolve(s, env, tx)
+						for j in 0..syntax.Len(fd.Names) {
+							let name = types.NameText(p, syntax.Item(p.Tree, fd.Names, j))
+							let (_, ds) = decide(s, whereOf{k: k, f: f, where: wh, subject: name, what: name, done: done}, ty)
+							for g in ds {
+								out = out.Append(g)
+							}
+						}
+					case None:
+						let from = syntax.NodePos(p, wh)
+						out = out.Append(diag.Diag{File: f, Offset: from, Length: syntax.NodeEnd(p, wh) - from, Code: CodeType, Message: "a where on a parameter stands only in a law; declare a refined type, type N T where … (types.md, Refinements 10)"})
+					}
+				case None:
+				}
+			case _:
+			}
+		}
+	}
+	out
+}
+
+// Diags is the refinement diagnostics of the package k. The prelude has
+// none: the Go checker checks it once and reads none of its diagnostics
+// (check.go prelude()), and its laws' relational wheres (b where a == b)
+// stand. This mirrors the Go checker only until unit PRELUDE-CHECKED
+// (lane SQ) checks the prelude and rewrites those laws; that tip deletes
+// this carve-out and its mutant row facts-prelude-diags-reported.
+func Diags(s mut store.Store, k expr.Pkg) []diag.Diag {
+	let mut out = []diag.Diag{}
+	if store.PathOf(*s) == "prelude" {
+		return out
+	}
+	let mut done = []string{}
+	for r in Refinements(s, k) {
+		for g in r.Diags {
+			out = out.Append(g)
+		}
+		match r.R {
+		case Some:
+			done = done.Append(types.NameText(k.Parsed[r.File], r.Name))
+		case None:
+		}
+	}
+	for g in ParamWheres(s, k, done) {
+		out = out.Append(g)
+	}
+	out
+}
+
+// refiner is what deciding one where reads: its file, its subject, whether
+// the subject is len(subject), the subject's domain and the where's one pattern
+// conjunct, which set admits as the whole domain.
+type refiner { p syntax.Parsed, subject string, isLen bool, dom Span, allowed dense.Opt[syntax.Node] }
+
+func unparen(p syntax.Parsed, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
+	let mut y = x
+	for syntax.KindOf(p.Tree, y) == syntax.KParenExpr {
+		y = syntax.ParenExprOf(p.Tree, y).X
+	}
+	y
+}
+
+func isSome(o dense.Opt[syntax.Node]) bool {
+	match dense.Unpack(o) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
+
+func identIs(p syntax.Parsed, x dense.ID[syntax.Node], name string) bool {
+	syntax.KindOf(p.Tree, x) == syntax.KIdent && types.NameText(p, x) == name
+}
+
+func isMatchesCall(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
+	syntax.KindOf(p.Tree, x) == syntax.KCallExpr && identIs(p, syntax.CallExprOf(p.Tree, x).Fun, "matches")
+}
+
+// allowedPattern is the first matches call among the top-level conjuncts
+// of where (the Go checker's pattern marks it; a second one, or one on a
+// base that is no string, refuses the where).
+func allowedPattern(p syntax.Parsed, where dense.ID[syntax.Node]) dense.Opt[syntax.Node] {
+	let x = unparen(p, where)
+	if syntax.KindOf(p.Tree, x) == syntax.KBinaryExpr {
+		let b = syntax.BinaryExprOf(p.Tree, x)
+		if syntax.TokKind(p, b.Op) == syntax.Land {
+			let l = allowedPattern(p, b.X)
+			return if isSome(l) { l } else { allowedPattern(p, b.Y) }
+		}
+	}
+	if isMatchesCall(p, x) { dense.OptOf(x) } else { dense.NoID[syntax.Node]() }
+}
+
+// Decided is a where decided: the subject values for which it holds, or
+// the first node outside the fragment and its message.
+type Decided = Holds{Spans []Span} | Outside{At dense.ID[syntax.Node], Message string}
+
+// outside is the refusal of x, the Go checker's whereOutside.
+func outside(r refiner, x dense.ID[syntax.Node]) Decided {
+	let shown = if r.isLen { "len(\(r.subject))" } else { r.subject }
+	Outside{At: x, Message: "a where is decidable: comparisons of \(shown) with integer literals, joined by &&, || and !; this is outside it (types.md, Refinements 2)"}
+}
+
+// set decides x.
+func set(r refiner, x dense.ID[syntax.Node]) Decided {
+	let tr = r.p.Tree
+	let kd = syntax.KindOf(tr, x)
+	if kd == syntax.KParenExpr {
+		return set(r, syntax.ParenExprOf(tr, x).X)
+	}
+	if identIs(r.p, x, "true") {
+		return Holds{Spans: []Span{r.dom}}
+	}
+	if identIs(r.p, x, "false") {
+		return Holds{Spans: []Span{}}
+	}
+	if isMatchesCall(r.p, x) {
+		let allowed = match dense.Unpack(r.allowed) {
+		case Some{Value: a}:
+			a == x
+		case None:
+			false
+		}
+		return if allowed { Holds{Spans: []Span{r.dom}} } else { Outside{At: x, Message: "a pattern stands as a conjunct of the where, P && matches(it, `…`), not under ! or || (types.md, Refinements 11)"} }
+	}
+	if kd == syntax.KUnaryExpr {
+		let u = syntax.UnaryExprOf(tr, x)
+		if syntax.TokKind(r.p, u.Op) != syntax.Not {
+			return outside(r, x)
+		}
+		return match set(r, u.X) {
+		case Holds as h:
+			Holds{Spans: Complement(h.Spans, r.dom)}
+		case Outside as o:
+			o
+		}
+	}
+	if kd != syntax.KBinaryExpr {
+		return outside(r, x)
+	}
+	let b = syntax.BinaryExprOf(tr, x)
+	let op = syntax.TokKind(r.p, b.Op)
+	if op == syntax.Land || op == syntax.Lor {
+		let a = match set(r, b.X) {
+		case Holds as h:
+			h.Spans
+		case Outside as o:
+			return o
+		}
+		let c = match set(r, b.Y) {
+		case Holds as h:
+			h.Spans
+		case Outside as o:
+			return o
+		}
+		return Holds{Spans: if op == syntax.Land { Intersect(a, c, r.dom) } else { Union(a, c) }}
+	}
+	if op == syntax.Eql || op == syntax.Neq || op == syntax.Lss || op == syntax.Leq || op == syntax.Gtr || op == syntax.Geq {
+		return compare(r, x, b, op)
+	}
+	outside(r, x)
+}
+
+// flipped is the comparison c OP it written as it OP' c.
+func flipped(op uint8) uint8 {
+	if op == syntax.Lss { syntax.Gtr } else if op == syntax.Leq { syntax.Geq } else if op == syntax.Gtr { syntax.Lss } else if op == syntax.Geq { syntax.Leq } else { op }
+}
+
+// compare decides the comparison x, b, of operator op0.
+func compare(r refiner, x dense.ID[syntax.Node], b syntax.BinaryExpr, op0 uint8) Decided {
+	let (op, lit) = if isSubject(r, b.X) {
+		(op0, b.Y)
+	} else if isSubject(r, b.Y) {
+		(flipped(op0), b.X)
+	} else {
+		return outside(r, x)
+	}
+	let v = match intLiteral(r.p, lit) {
+	case Some{Value: n}:
+		n
+	case None:
+		return outside(r, lit)
+	}
+	let dom = r.dom
+	Holds{Spans: if op == syntax.Eql {
+		Intersect(one(v, v), []Span{dom}, dom)
+	} else if op == syntax.Neq {
+		Complement(Intersect(one(v, v), []Span{dom}, dom), dom)
+	} else if op == syntax.Lss {
+		clip(dom.Lo, Dec(v), dom)
+	} else if op == syntax.Leq {
+		clip(dom.Lo, v, dom)
+	} else if op == syntax.Gtr {
+		clip(Inc(v), dom.Hi, dom)
+	} else {
+		clip(v, dom.Hi, dom)
+	}}
+}
+
+// isSubject is whether x is the subject: it, or len(it) for a length.
+func isSubject(r refiner, x0 dense.ID[syntax.Node]) bool {
+	let x = unparen(r.p, x0)
+	if !r.isLen {
+		return identIs(r.p, x, r.subject)
+	}
+	if syntax.KindOf(r.p.Tree, x) != syntax.KCallExpr {
+		return false
+	}
+	let c = syntax.CallExprOf(r.p.Tree, x)
+	if syntax.Len(c.Args) != 1 || isSome(c.Trailing) || !identIs(r.p, c.Fun, "len") {
+		return false
+	}
+	identIs(r.p, unparen(r.p, syntax.Item(r.p.Tree, c.Args, 0)), r.subject)
+}
+
+// intLiteral is the value of an integer literal with optional signs.
+func intLiteral(p syntax.Parsed, x0 dense.ID[syntax.Node]) Option[Num] {
+	let mut x = unparen(p, x0)
+	let mut neg = false
+	for syntax.KindOf(p.Tree, x) == syntax.KUnaryExpr {
+		let u = syntax.UnaryExprOf(p.Tree, x)
+		let op = syntax.TokKind(p, u.Op)
+		if op != syntax.Sub && op != syntax.Add {
+			break
+		}
+		if op == syntax.Sub {
+			neg = !neg
+		}
+		x = unparen(p, u.X)
+	}
+	if syntax.KindOf(p.Tree, x) != syntax.KBasicLit {
+		return None
+	}
+	let tok = syntax.BasicLitOf(p.Tree, x).Tok
+	if syntax.TokKind(p, tok) != syntax.Int {
+		return None
+	}
+	match ParseInt(syntax.TokText(p, tok)) {
+	case Some{Value: n}:
+		Some{Value: if neg { negated(n) } else { n }}
+	case None:
+		None
+	}
+}
+
+// ParseInt is the value of an integer literal's text, saturating past
+// uint64; None for a legacy octal (0 then a digit) or a malformed text.
+func ParseInt(text string) Option[Num] {
+	let mut base = uint64(10)
+	let mut i = 0
+	if len(text) >= 2 && text[0] == '0' {
+		let c = text[1]
+		if c == 'x' || c == 'X' {
+			base = 16
+			i = 2
+		} else if c == 'o' || c == 'O' {
+			base = 8
+			i = 2
+		} else if c == 'b' || c == 'B' {
+			base = 2
+			i = 2
+		} else {
+			return None
+		}
+	}
+	let mut mag = uint64(0)
+	let mut over = false
+	let mut seen = false
+	for i < len(text) {
+		let c = text[i]
+		i = i + 1
+		if c == '_' {
+			continue
+		}
+		let d = if c >= '0' && c <= '9' {
+			uint64(c - '0')
+		} else if c >= 'a' && c <= 'f' {
+			uint64(c-'a') + 10
+		} else if c >= 'A' && c <= 'F' {
+			uint64(c-'A') + 10
+		} else {
+			return None
+		}
+		if d >= base {
+			return None
+		}
+		seen = true
+		if !over && mag > (maxMag-d)/base {
+			over = true
+		}
+		if !over {
+			mag = mag*base + d
+		}
+	}
+	if !seen {
+		return None
+	}
+	Some{Value: if over { Above } else { At{Neg: false, Mag: mag} }}
+}
+
+// ParseIntReadsDecimal: a decimal literal reads as its value.
+law ParseIntReadsDecimal(n int64) {
+	let m = if n < 0 { -(n + 1) } else { n }
+	match ParseInt(strconv.FormatInt(m, 10)) {
+	case Some{Value: v}:
+		Compare(v, NumOf(m)) == 0
+	case None:
+		false
+	}
+}
+
+// Text is r's spans as "len|it LO..HI ...".
+func Text(r Refinement) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString(if r.Len { "len" } else { "it" })
+	for s in r.Spans {
+		b.WriteString(" " + NumText(s.Lo) + ".." + NumText(s.Hi))
+	}
+	b.String()
+}

@@ -81,18 +81,24 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"VarSpec.Values":           {guardValue, "func main() {\n\t$W\n\tlet v = @w\n\t_ = v\n}\n"},
 
 	// Types: a context names no type.
-	"ArrayType.Elt":        {guardType, "func f(xs []@w) {}\n"},
-	"CompositeLit.Type":    {guardType, "func main() {\n\t$W\n\t_ = @w{}\n}\n"},
-	"ContextEntry.Keys":    {guardType, "func main() {\n\t$W\n\t_ = with context { Greeter, @w: Plain } { Greeter.Greet(\"x\") }\n}\n"},
-	"ErrorRow.Types":       {guardType, "func f() fails @w {}\n"},
+	"ArrayType.Elt":     {guardType, "func f(xs []@w) {}\n"},
+	"CompositeLit.Type": {guardType, "func main() {\n\t$W\n\t_ = @w{}\n}\n"},
+	"ContextEntry.Keys": {guardType, "func main() {\n\t$W\n\t_ = with context { Greeter, @w: Plain } { Greeter.Greet(\"x\") }\n}\n"},
+	"ErrorRow.Types":    {guardType, "func f() fails @w {}\n"},
+	// A context header's fails row is an error row (CTX-ROWS-1b): a
+	// context's name there is its one diagnostic, as in a function's.
+	"ContextDecl.Fails":    {guardType, "let c = context fails @w { Greeter: Plain }\n"},
+	"ContextLit.Fails":     {guardType, "func main() {\n\t$W\n\t_ = with context fails @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
 	"Field.Type":           {guardType, "func f(x @w) {}\n"},
 	"FuncDecl.Type":        {guardType, "func f(x @w) {}\n"},
 	"FuncLit.Type":         {guardType, "func main() {\n\t$W\n\t_ = func(x @w) {}\n}\n"},
 	"InterfaceType.Union":  {guardType, "type A {}\ntype U = A | @w\n"},
+	"TypeTerm.Type":        {guardType, "type S { int | @w }\n"},
 	"MachineType.State":    {guardType, "type E = Ping\ntype Ping {}\ntype M machine[@w, E] { initial: 1, step: step }\nfunc step(s int, e E) Decision[int, int] { return Ignore }\n"},
 	"MachineType.Signal":   {guardType, "type S = Idle\ntype Idle {}\ntype M machine[S, @w] { initial: Idle, step: step }\nfunc step(s S, e int) Decision[S, int] { return Ignore }\n"},
 	"MapType.Key":          {guardType, "func f(m Map[@w, int]) {}\n"},
 	"MapType.Value":        {guardType, "func f(m Map[int, @w]) {}\n"},
+	"MapType.Hashing":      {guardType, "func f(m Map[int, int, @w]) {}\n"},
 	"NeedsClause.Names":    {guardType, "func f() needs @w {}\n"},
 	"ProvidesClause.Names": {guardType, "func main() {\n\t$W\n\t_ = with context provides @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
 	"StarExpr.X":           {guardType, "func f(p mut @w) {}\n"},

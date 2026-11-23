@@ -312,7 +312,12 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
 				continue
 			}
-			if _, named := check.GoTypeOf(n); !named && hasUnexportedField(st) {
+			// A provider, a record that declares an operation type
+			// (cmp.Natural and cmp.Reverse implement cmp.Order; CONSTRAINTS
+			// C3), is the program's declaration too: an Ergo value its
+			// package's functions operate on, never a runtime error value.
+			provider := n.Obj.Decl != nil && len(n.Obj.Decl.Implements) > 0
+			if _, named := check.GoTypeOf(n); !named && (hasUnexportedField(st) || provider) {
 				// A record with construction authority whose declaration
 				// names no Go type (slices.Ascending, SS5) is the program's
 				// declaration (lower runtimeType): only its package builds
@@ -387,14 +392,20 @@ func goConstraint(c check.Type) (string, bool) {
 	if c == nil {
 		return "any", true
 	}
+	if n, ok := c.(*check.Named); ok {
+		// The prelude's type set ordered (prelude.ergo) is runtime/v1's
+		// ordered, the terms of Go's cmp.Ordered.
+		if i, ok := n.Underlying().(*check.Interface); ok && i.Terms != nil && len(i.Methods) == 0 && n.Obj.Name == "ordered" && n.Obj.Pkg.Prelude() {
+			return "ordered", true
+		}
+		return "", false
+	}
 	i, ok := c.(*check.Interface)
 	switch {
 	case !ok || len(i.Methods) > 0:
 		return "", false
 	case i.Set == check.SetComparable:
 		return "comparable", true
-	case i.Set == check.SetOrdered:
-		return "ordered", true
 	case i.Set == check.SetAll:
 		return "any", true
 	}
@@ -1636,7 +1647,7 @@ extern go strings.ToUpper func up(s string) string
 func Get(_ Env) string { getenv("HOME") }
 
 extern go os.Getenv func getenv(k string) string
-`, "declare needs go.Foreign"},
+`, "declare needs Ambient"}, // a host row (interop.md, Purity and authority; HOST-ROW)
 		{"runtime extern", `type Disk {}
 
 func Read(_ Disk) string { hostRead("x") }

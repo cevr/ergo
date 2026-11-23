@@ -1,0 +1,10 @@
+# scripts/opcount: `rawbench bench N` reads an MCP tools/call request N
+# times into a record whose id and params are json.Raw (wf10 JSON-RAW),
+# and writes the record back; the cost of one request is the slope
+# between the two sizes. The control is hand Go: the same struct with
+# json.RawMessage fields, read by json.Unmarshal and written by
+# json.Marshal.
+unit request
+sizes 20000 120000
+args bench {n}
+control benchmarks/jsonraw/testdata/control

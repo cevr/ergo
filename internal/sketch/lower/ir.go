@@ -14,6 +14,7 @@ package lower
 // ir_stmt.go (statements), ir_expr.go (expressions), ir_call.go (calls).
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -57,9 +58,12 @@ type IRReport struct {
 	Folds FoldCounts `json:"folds"`
 	// CodecText counts the codec functions that keep their text body,
 	// by "name\treason": a cell writer the IR builder refused
-	// (ir_wire.go), an encoder on the reference Writer and a decoder,
-	// which no IR builder takes yet (the text emitter's). In memory only.
+	// (ir_wire.go), an encoder on the reference Writer and a decoder of
+	// a form no IR builder takes yet (the text emitter's). In memory only.
 	CodecText map[string]int `json:"-"`
+	// CodecRead names the decoders the IR builds (ir_wire_read.go). In
+	// memory only.
+	CodecRead []string `json:"-"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -109,6 +113,32 @@ type IRReport struct {
 	// in an inlined fallible body, bound at the site's value and error
 	// (INLINE-RETURN, ir_forms_inline.go irRets).
 	TailPairs int `json:"-"`
+	// FailLocalErrors and FailLocalValues count the failures of inlined
+	// fallible bodies that are a local or a parameter, set as the site's
+	// error: one of type error as it is (a try's error passed on), one of
+	// a failure type converted (INLINE-FAIL-LOCAL, ir_forms_inline.go
+	// irRets.failValue).
+	FailLocalErrors int `json:"-"`
+	FailLocalValues int `json:"-"`
+	// FailArgs counts the parameters used only as a failure that stand
+	// for their variant-literal argument in a copy, so the failure is
+	// built in place (INLINE-FAILARG, ir_forms_inline.go).
+	FailArgs int `json:"-"`
+	// FailThrough counts the failures built in place that a copy's try
+	// passes on as they are, not through its error local
+	// (INLINE-FAILARG, ir_forms_failjump.go failThrough).
+	FailThrough int `json:"-"`
+	// InlinedSlots counts the inlined calls of functions with a Slot row,
+	// bound at the call (INLINE-SLOT, rowslot.go).
+	InlinedSlots int `json:"-"`
+	// FailFields counts the failures of inlined fallible bodies that are
+	// a field of a local, set as the site's error (INLINE-SLOT,
+	// ir_forms_inline.go irFailField).
+	FailFields int `json:"-"`
+	// FailTyped counts the inlined failures read from a local or a field
+	// that jump to their arm by their struct type (FAILJUMP-TYPED,
+	// ir_forms_failjump.go).
+	FailTyped int `json:"-"`
 	// CatchTreeDefects counts the full catches with patterns whose tree's
 	// exit panics with the unreachable defect (FAIL-ELIDE-PAT, ir_fail.go).
 	CatchTreeDefects int `json:"-"`
@@ -142,10 +172,13 @@ type IRCensus struct {
 // IRCensusFunc is one lowered body. Reasons are distinct, in the order the
 // builder met them; none means the builder lowers it.
 type IRCensusFunc struct {
-	Pkg     string   `json:"pkg"`
-	Name    string   `json:"name"`
-	File    string   `json:"file,omitempty"` // the source file, for a sourced body
-	Std     bool     `json:"std,omitempty"`
+	Pkg  string `json:"pkg"`
+	Name string `json:"name"`
+	File string `json:"file,omitempty"` // the source file, for a sourced body
+	Std  bool   `json:"std,omitempty"`
+	// Codec marks a codec function that keeps its text body (codecText):
+	// no Ergo body, Name its Go name.
+	Codec   bool     `json:"codec,omitempty"`
 	Reasons []string `json:"reasons,omitempty"`
 }
 
@@ -257,6 +290,22 @@ func irKeyed(files []File) []File {
 		out[at].Data = slices.Concat(out[at].Data, []byte("\n// "+IRFileName+" sha256 "+hex.EncodeToString(sum[:])+"\n"))
 	}
 	return out
+}
+
+// irUnkeyed is data without the digest line irKeyed appended: the Go
+// text (IRGoText) holds the IR bodies and no IR file, so the line would
+// name a file the text does not have, and the linked packages' checked-in
+// text would change with every IR edit's digest.
+func irUnkeyed(data []byte) []byte {
+	const tail = len("\n// "+IRFileName+" sha256 ") + 2*sha256.Size + 1
+	if len(data) < tail {
+		return data
+	}
+	line := data[len(data)-tail:]
+	if !bytes.HasPrefix(line, []byte("\n// "+IRFileName+" sha256 ")) || line[tail-1] != '\n' {
+		return data
+	}
+	return data[:len(data)-tail]
 }
 
 // LowerIRSplit is LowerIR (LowerIRTests when tests is set) with the
@@ -500,6 +549,11 @@ type irState struct {
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
 	fallbacks  []IRCensusFunc
+	// opFuncs are the implementing functions of closed types' operations
+	// (ir_instance.go staticOpFunc), filled on first use.
+	opFuncs map[opFuncKey]*check.WitnessOp
+	// totals are the functions decided total so far (ir_sink.go).
+	totals map[*check.Func]bool
 }
 
 // restart empties st for a lowering that runs again from the start
@@ -573,6 +627,14 @@ type irStmt struct {
 	// Ls are a "tdef"'s locals, one per result of its Go call, in order:
 	// l0, l1, … := X (ir_tuple.go).
 	Ls []int `json:"ls,omitempty"`
+	// FailT is the Go type of a "fail"'s failure (or of the "set" of a
+	// copy's error that a fail became) when it is a struct, in memory
+	// only: a failure read from a local or a field then jumps to the arm
+	// of that type as one built in place does (FAILJUMP-TYPED,
+	// ir_forms_failjump.go). FailTP is the Slot row whose Go type the
+	// failure is, set by a copy that binds it to a struct.
+	FailT  string           `json:"-"`
+	FailTP *check.TypeParam `json:"-"`
 	// F is a "match" form's facts, in memory only (ir_forms.go).
 	F *irMatch `json:"-"`
 	// Was is the facts of the match form this switch was erased from, in
@@ -684,6 +746,11 @@ type irBuilder struct {
 	// forms are the body's form sites (ir_forms_report.go), kept with its
 	// IR body.
 	forms []FormSite
+	// amort is the counter of the quiet loop nest being built, nil
+	// outside one; pollSites are the polls of each loop being built,
+	// innermost last: its back edge's and its continues' (ir_poll.go).
+	amort     *pollAmort
+	pollSites [][]*irStmt
 	// tries counts the try expressions being built (ir_fail.go): inside
 	// one, a fallible call fails the frame too.
 	tries int
@@ -691,6 +758,12 @@ type irBuilder struct {
 	// (catch_plain.go; ir_fail.go catch): bind leaves it Go's error, not
 	// go.Error (GOERR-BOX).
 	rawErr *syntax.CallExpr
+	// tupleBind is the fallible call bind is binding, whose std body may
+	// return several values and an error (A, B, error); tupleBound is
+	// that body's Go call, which bind binds with its error (tupleErrBind;
+	// EXTERN-MULTI-RESULT).
+	tupleBind  *syntax.CallExpr
+	tupleBound *irExpr
 	// admitted are the unions admitted so far (ir_union.go): one that
 	// holds itself is admitted once.
 	admitted map[*check.TypeName]bool
@@ -731,6 +804,11 @@ type irBuilder struct {
 	// other body and inside a function literal: each value it returns is
 	// checked where it is returned.
 	law *check.Law
+	// lawOwn is the local of the provider under test that a law of a
+	// generic operation type takes after its environment (the emitter's
+	// lawDecl `own`), which its operation calls call; 0 in any other body
+	// (a law's environment is its local 0, so own is never 0).
+	lawOwn int
 	// keep is the depth of AsWritten call trees, kept as written
 	// (ir_rewrite.go). lawArgs are a law's parameters bound to the site's
 	// operands while a side is lowered; lawDepth counts the sides being

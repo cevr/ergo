@@ -94,7 +94,6 @@ func textModel(fallback string, ks []term.Key) string {
 		case term.Escape, term.Interrupt, term.EndOfInput:
 			return "cancel"
 		case _:
-			runes = runes
 		}
 	}
 	"none"
@@ -118,7 +117,6 @@ func pickModel(n int, ks []term.Key) string {
 		case term.Escape, term.Interrupt, term.EndOfInput:
 			return "cancel"
 		case _:
-			at = at
 		}
 	}
 	"none"
@@ -153,7 +151,6 @@ func markModel(n int, ks []term.Key) string {
 		case term.Escape, term.Interrupt, term.EndOfInput:
 			return "cancel"
 		case _:
-			at = at
 		}
 	}
 	"none"
@@ -308,11 +305,9 @@ test SelectStaysInRange(n int, codes []int) {
 			case Some[int] as a:
 				ok = ok && a.Value >= 0 && a.Value < len(options)
 			case None:
-				ok = ok
 			}
 			break
 		case _:
-			s = s
 		}
 		ok = ok && s.At >= 0 && (len(options) > 0 || s.At == 0) && (len(options) == 0 || s.At < len(options))
 	}
@@ -333,7 +328,6 @@ test SecretFramesHideTyping(codes []int) {
 			s = st.Next
 			assert prompt.TypingFrame(s) == prompt.TypingFrame(prompt.Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(s.Typed))})
 		case _:
-			s = s
 		}
 	}
 }
@@ -379,10 +373,10 @@ test ReturnAnswersTheDefault(yes bool, fallback string) {
 
 // promptLawStatements are the ledger statements of prompt's laws.
 var promptLawStatements = map[string]string{
-	"prompt SelectStaysInRange":      `SelectStaysInRange(n int, codes []int) { let mut options = []string{} for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) { options = options.Append("o" + strings.Repeat("i", i)) } let mut s = startPicking(Choice{Message: "pick", Options: options}) for code in codes { match PickingStep(s, KeyOf(code)) { case Stay[Picking] as st: s = st.Next case Done[Option[int]] as d: match d.Output { case Some[int] as a: return a.Value >= 0 && a.Value < len(options) case None: return true } case _: s = s } if s.At < 0 || (len(options) == 0 && s.At != 0) || (len(options) > 0 && s.At >= len(options)) { return false } } true }`,
+	"prompt SelectStaysInRange":      `SelectStaysInRange(n int, codes []int) { let mut options = []string{} for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) { options = options.Append("o" + strings.Repeat("i", i)) } let mut s = startPicking(Choice{Message: "pick", Options: options}) for code in codes { match PickingStep(s, KeyOf(code)) { case Stay[Picking] as st: s = st.Next case Done[Option[int]] as d: match d.Output { case Some[int] as a: return a.Value >= 0 && a.Value < len(options) case None: return true } case _: } if s.At < 0 || (len(options) == 0 && s.At != 0) || (len(options) > 0 && s.At >= len(options)) { return false } } true }`,
 	"prompt SecretFrameHidesText":    `SecretFrameHidesText(secret string, message string) { let ask = Text{Message: message, Default: "", Masked: true} TypingFrame(Typing{Ask: ask, Typed: secret}) == TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(secret))}) }`,
-	"prompt SecretFramesHideTyping":  `SecretFramesHideTyping(codes []int) { let ask = Text{Message: "secret", Default: "", Masked: true} let mut s = startTyping(ask) for code in codes { match TypingStep(s, KeyOf(code)) { case Stay[Typing] as st: s = st.Next if TypingFrame(s) != TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(s.Typed))}) { return false } case _: s = s } } true }`,
-	"prompt MarkedAnswerIsSorted":    `MarkedAnswerIsSorted(n int, codes []int) { let mut options = []string{} for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) { options = options.Append("o" + strings.Repeat("i", i)) } let mut s = startMarking(Choice{Message: "mark", Options: options}) for code in codes { match MarkingStep(s, KeyOf(code)) { case Stay[Marking] as st: s = st.Next case Done[Option[[]int]] as d: match d.Output { case Some[[]int] as a: let mut last = -1 for i in a.Value { if i <= last || i >= len(options) { return false } last = i } return true case None: return true } case _: s = s } } true }`,
+	"prompt SecretFramesHideTyping":  `SecretFramesHideTyping(codes []int) { let ask = Text{Message: "secret", Default: "", Masked: true} let mut s = startTyping(ask) for code in codes { match TypingStep(s, KeyOf(code)) { case Stay[Typing] as st: s = st.Next if TypingFrame(s) != TypingFrame(Typing{Ask: ask, Typed: strings.Repeat("x", utf8.RuneCount(s.Typed))}) { return false } case _: } } true }`,
+	"prompt MarkedAnswerIsSorted":    `MarkedAnswerIsSorted(n int, codes []int) { let mut options = []string{} for i in 0..(if n < 0 { -(n % 5) } else { n % 5 }) { options = options.Append("o" + strings.Repeat("i", i)) } let mut s = startMarking(Choice{Message: "mark", Options: options}) for code in codes { match MarkingStep(s, KeyOf(code)) { case Stay[Marking] as st: s = st.Next case Done[Option[[]int]] as d: match d.Output { case Some[[]int] as a: let mut last = -1 for i in a.Value { if i <= last || i >= len(options) { return false } last = i } return true case None: return true } case _: } } true }`,
 	"prompt ReturnAnswersTheDefault": `ReturnAnswersTheDefault(yes bool, fallback string) { let confirmed = match AskingStep(startAsking(Question{Message: "ok", Default: yes}), term.Return) { case Done[Option[bool]] as d: d.Output == Some[bool]{Value: yes} case _: false } let typed = match TypingStep(startTyping(Text{Message: "name", Default: fallback, Masked: false}), term.Return) { case Done[Option[string]] as d: d.Output == Some[string]{Value: fallback} case _: false } confirmed && typed }`,
 }
 

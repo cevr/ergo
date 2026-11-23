@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 	"ergo.local/prototype/internal/sketch/testplan"
 	"ergo.local/prototype/runtime/testgen"
@@ -37,7 +38,7 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 
 func qualifiedLaw(pkg *check.Package, law *check.Law) string {
 	n := lawName(law)
-	if law.Pkg != pkg {
+	if law.Pkg != pkg && law.Pkg.Path != stdlib.PreludePath { // a prelude law is named bare (check.Law.Title)
 		n = "law " + law.Pkg.Name + "." + strings.TrimPrefix(n, "law ")
 	}
 	return n
@@ -215,6 +216,10 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		out.Status, out.Reason = Skipped, p.Reason
 		return
 	}
+	if p.Native != "" {
+		out.Status, out.Reason = Native, NativeReason(p.Native)
+		return
+	}
 	in.casesBudget(p.Count)
 	opParams := map[*check.Var]check.Conversion{}
 	var own *check.Conversion
@@ -261,6 +266,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		// values are the generated ones, which the body cannot change: a
 		// write copies a store its slot does not own.
 		shows := make([]func() Argument, 0, len(p.Inputs))
+		drawn := make([]Value, len(p.Inputs))
 		for i, input := range p.Inputs {
 			var v Value
 			if p.Listed {
@@ -280,8 +286,11 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 					return Argument{Name: input.Name, Value: in.root.Qualified(ctor.Pkg, ctor.Name) + "(" + strings.Join(shown, ", ") + ")"}
 				})
 			} else {
-				v = in.generate(cf, r, input.Type, testplan.Depth, input.Where)
+				// The tie rule (testplan.Tie): an input may repeat an
+				// earlier value of its type, as the test build's does.
+				v = testplan.Tie(p, r, i, drawn, func() Value { return in.generate(cf, r, input.Type, testplan.Depth, input.Where) })
 			}
+			drawn[i] = v
 			switch {
 			case len(shows) > i:
 			case input.Provider != nil:
@@ -501,6 +510,10 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		return in.genRefined(fr, r, t, d, ref)
 	}
 	switch u := t.(type) {
+	case *check.TypeParam:
+		if in.atInt[u] {
+			return in.generate(fr, r, check.Typ[check.Int], d, nil)
+		}
 	case *check.Basic:
 		switch u.Kind {
 		case check.Bool:

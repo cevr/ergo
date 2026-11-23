@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -31,7 +30,9 @@ import (
 // inputs are unchanged is replayed, not computed:
 //
 //   - the module's verdict: the bytes of every file of the module (the
-//     folders discovery walks), the law ledger as the run left it, the
+//     folders discovery walks) and of every folder its go.mod replaces a
+//     module with, transitively (a workspace member it builds against),
+//     the law ledger as the run left it, the
 //     toolchain, the options and the GO*, CGO_* and ERGO_* environment. A
 //     hit replays every package's verdicts with no discovery, parse,
 //     check, build or process.
@@ -376,7 +377,7 @@ func generatedHeader(text string) (gateGen, bool) {
 		return gateGen{}, false
 	}
 	kind, ok = strings.CutSuffix(kind, "; DO NOT EDIT.")
-	if !ok || (kind != "rpc" && kind != "cli" && kind != "mcp") {
+	if !ok || (kind != "api" && kind != "rpc" && kind != "cli" && kind != "mcp") {
 		return gateGen{}, false
 	}
 	second, _, _ := strings.Cut(rest, "\n")
@@ -429,19 +430,25 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 	if !ok {
 		return ""
 	}
-	parts := []string{"gate module/1", root, warmOptions(opts), goCommand, tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS,
+	parts := []string{"gate module/2", root, warmOptions(opts), goCommand, tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS,
 		strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip)}
-	var env []string
-	for _, kv := range os.Environ() {
-		if strings.HasPrefix(kv, sketchfront.StageReportVariable+"=") {
-			continue
-		}
-		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_") {
-			env = append(env, kv)
-		}
+	parts = append(parts, lawcache.Environ(os.Environ(), sketchfront.StageReportVariable)...)
+	files, err := gateTreeFiles(root, ledger, map[string]bool{})
+	if err != nil {
+		return ""
 	}
-	slices.Sort(env)
-	parts = append(parts, env...)
+	return lawcache.Key(append(parts, files...)...)
+}
+
+// gateTreeFiles are the key parts of the files below root (the folders
+// discovery walks; skip, the law ledger, left out), then, for each folder
+// root's go.mod replaces a module with, its own parts, transitively: a
+// build reads the replacing folder's sources, so an edit there changes the
+// key of every module that reaches it (GATE-KEY-REACHES). seen holds the
+// folders already composed, so a cycle of replaces ends.
+func gateTreeFiles(root, skip string, seen map[string]bool) ([]string, error) {
+	seen[root] = true
+	var parts []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -466,7 +473,7 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 			parts = append(parts, "dir "+rel)
 			return nil
 		}
-		if path == ledger {
+		if path == skip {
 			return nil
 		}
 		data, err := os.ReadFile(path)
@@ -479,7 +486,22 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 		return nil
 	})
 	if err != nil {
-		return ""
+		return nil, err
 	}
-	return lawcache.Key(parts...)
+	targets, err := sketchfront.LocalReplaces(root)
+	if err != nil {
+		return nil, err
+	}
+	for _, target := range targets {
+		if seen[target] {
+			continue
+		}
+		sub, err := gateTreeFiles(target, "", seen)
+		if err != nil {
+			return nil, err
+		}
+		parts = append(parts, "replace "+target)
+		parts = append(parts, sub...)
+	}
+	return parts, nil
 }

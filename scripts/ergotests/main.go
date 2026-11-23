@@ -91,7 +91,7 @@ func runKiller(w io.Writer, patterns []string, name, ergo string) int {
 	code := runPickedThen(w, patterns, match, func(dir string, r eval.Result) bool {
 		// A std law ergo test cannot reach (a std folder does not check
 		// as a folder): undecided at check time, it is no killer.
-		if (r.Status == eval.Skipped || r.Status == eval.Incomplete) && !isStd(dir) {
+		if (r.Status == eval.Skipped || r.Status == eval.Incomplete || r.Status == eval.Native) && !isStd(dir) {
 			if !slices.Contains(undecided, dir) {
 				undecided = append(undecided, dir)
 			}

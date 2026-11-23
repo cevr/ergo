@@ -199,7 +199,7 @@ func MergeByPath(t Tool, c Config, path string, base string, ours string, theirs
 		}
 		match lineClass(line) {
 		case Some[classes.Class] as k:
-			try mergeWith(t, k.Value, line.Kind, path, base, ours, theirs)
+			try mergeWith(t, k.Value, line.Kind, line.By, path, base, ours, theirs)
 		case None:
 			try mergeLines(t, path, base, ours, theirs)
 		}
@@ -334,8 +334,15 @@ func mergeByUnits(t Tool, c Config, l LanguageLine, path string, base string, ou
 	FileMerged{Path: path, Class: l.Name, Regenerate: false}
 }
 
-// mergeWith merges the three files by the class c and writes ours.
-func mergeWith(t Tool, c classes.Class, name string, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
+// mergeWith merges the three files by the class c and writes ours. A
+// merge the class says must be made again (a derived file both sides
+// changed, a number both sides measured apart) is a conflict here: Git
+// runs merge-file as its driver and nothing regenerates after it, so a
+// clean answer would keep ours silently. The file keeps the class's
+// merge, which reads (ours whole for a derived file), and the conflict
+// names by, the command that makes it again ("" when no line names one).
+// A tree merge (MergeTree) regenerates instead.
+func mergeWith(t Tool, c classes.Class, name string, by string, path string, base string, ours string, theirs string) FileMerged fails MergeConflict | fs.NotFound | fs.Denied | fs.Failed {
 	let b = try t.files.ReadFile(base)
 	let a = try t.files.ReadFile(ours)
 	let other = try t.files.ReadFile(theirs)
@@ -348,7 +355,11 @@ func mergeWith(t Tool, c classes.Class, name string, path string, base string, o
 	if len(merged.Conflicts) > 0 {
 		return MergeConflict{Path: path, Class: name, Units: merged.Conflicts, Why: "both sides changed these units apart"}
 	}
-	FileMerged{Path: path, Class: name, Regenerate: merged.Regenerate}
+	if merged.Regenerate {
+		let then = if by == "" { "make it again" } else { "run \(by)" }
+		return MergeConflict{Path: path, Class: name, Units: []string{}, Why: "both sides changed \(path), a \(name) file: \(then), then git add"}
+	}
+	FileMerged{Path: path, Class: name, Regenerate: false}
 }
 
 // mergeLines is Git's line merge of the three files into ours.
@@ -696,21 +707,25 @@ law AttributesKeepOtherLines(n int, m int) {
 // attributes init writes) and `ergo-CLASS` for each class (the names a
 // repository's tracked .gitattributes gives its files), each sending
 // merge-file's answer to stderr so that git merge-tree's output stays
-// Git's; and rerere.enabled, so a resolution made once is used again.
-// Git uses a driver only when the checkout's own configuration names it:
-// every checkout work makes or fixes gets these lines.
+// Git's. Git uses a driver only when the checkout's own configuration
+// names it: every checkout work makes or fixes gets these lines. They
+// name drivers and nothing else: rerere.enabled, which replays a
+// resolution recorded once into every later merge, is the checkout
+// owner's to choose, and a driver fix leaves it as it was (memory's
+// RegisterDriversLeavesRerere; integrators merged whole groups with it
+// on, unaware, when M0 wrote it).
 func DriverSettings() [][]string {
 	let mut out = [][]string{[]string{"merge.work.name", "work merge-file (work.toml's [[class]] lines)"}, []string{"merge.work.driver", "work merge-file -path %P auto %O %A %B >&2"}}
 	for c in classes.ClassNames {
 		out = out.Append([]string{"merge.ergo-\(c).name", "work merge-file \(c)"})
 		out = out.Append([]string{"merge.ergo-\(c).driver", "work merge-file -path %P \(c) %O %A %B >&2"})
 	}
-	out.Append([]string{"rerere.enabled", "true"})
+	out
 }
 
 // DriversKey is the configuration key whose value is the digest of the
 // DriverSettings a checkout holds: a clone of a registered base has it
-// and writes nothing (one read, where the settings are thirteen writes,
+// and writes nothing (one read, where the settings are a write per line,
 // each a git process).
 let DriversKey = "work.drivers"
 

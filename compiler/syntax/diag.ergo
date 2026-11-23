@@ -14,7 +14,8 @@ let tokenNames = []string{
 	"try", "catch", "needs", "provides", "context", "machine", "let", "mut", "in", "match",
 	"escaping", "fails", "test", "law", "assert", "extern", "with", "takes", "as", "token(?)", "token(?)",
 	"chan", "const", "default", "defer", "fallthrough", "go", "goto", "interface", "map", "package",
-	"range", "select", "struct", "switch", "var",
+	"range", "select", "struct", "switch", "var", "token(?)",
+	"~",
 }
 
 // KeywordTableIsTheRule: keyword says what keywordRule says for every
@@ -360,6 +361,23 @@ func tokenHabit(k uint8) int {
 		return habitVariadic
 	}
 	-1
+}
+
+// localDeclMessage is the message of a Go local declaration (localDecl):
+// the habit's, then the let form it becomes, shown up to 48 bytes, and
+// why it is `let mut` or `let`. `count := 0` with a later `count = 1`
+// gives "…; here `let mut count = 0`, since count is reassigned".
+func localDeclMessage(h int, shown string, name string, reassigned bool) string {
+	let mut s = shown
+	if len(s) > 48 {
+		let mut n = 47
+		for n > 0 && (s[n]&0xC0) == 0x80 {
+			n = n - 1
+		}
+		s = s[:n] + "…"
+	}
+	let why = if reassigned { name + " is reassigned" } else { name + " is never reassigned" }
+	habitMessages[h] + "; here `" + s + "`, since " + why
 }
 
 // quote is s as Go's %q prints a string.

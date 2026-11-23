@@ -53,6 +53,7 @@ func (l *lowerer) nameAll() {
 	if l.lib != "" {
 		l.nameExports()
 	}
+	l.namePrelude() // pkgnames.go, rule 5: before the root's declarations
 	l.declareNames()
 	for _, p := range l.sourcedPkgs() {
 		for _, tn := range l.canon.types(p) {
@@ -91,9 +92,8 @@ func (l *lowerer) nameAll() {
 	l.pkgName(pkgKey{"init", nil}, "ergoInit")
 	l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph") // machine.go, graphAccessor
 	l.pkgName(pkgKey{"machine pair", nil}, "ergoMachinePair")
-	l.pkgName(pkgKey{"constraint", check.SetOrdered}, "ergoOrdered")
-	l.pkgName(pkgKey{"constraint", check.SetNumber}, "ergoNumber")
 	libs := l.libraries()
+	l.reserveTypeSets(append([]*check.Package{l.pkg}, libs...)) // ir_typeset.go
 	l.hostImportNames(append([]*check.Package{l.pkg}, libs...))
 	for _, p := range libs {
 		for _, tn := range l.canon.types(p) {
@@ -231,6 +231,9 @@ func (l *lowerer) nameAll() {
 				continue
 			}
 			generated = append(generated, entry{pkgKey{"adapter", key}, "adapter " + key, base})
+			if _, seen := l.adapterConvs[key]; !seen {
+				l.adapterConvs[key] = c
+			}
 			if c.Cell {
 				// The IR's cell of a direct writer (ir_codec_direct.go).
 				generated = append(generated, entry{pkgKey{"cell of", key}, "cell of " + key, "ergoCellOf" + base})
@@ -280,6 +283,7 @@ func (l *lowerer) nameAll() {
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}
+	l.reserveHash() // ir_mapprovider.go
 	if l.ir != nil {
 		l.reserveWitnessValues() // an IR lowering's witness variables (ir_witness.go)
 	}

@@ -124,11 +124,13 @@ type Frame[E] {
 	lookIds  Map[Looks, int],
 	lookSent int,
 	// UG3 (focus.ergo): hover is the node the pointer is over (Null:
-	// none), crossed the Leave and Enter signals the last event made,
+	// none), over the Areas that hold it, the innermost first (OT-PHASES:
+	// the crossings follow them), crossed the Leave and Enter signals the last event made,
 	// visible whether the focus came from a key, want this pass's Focus
 	// request and wanted the last one applied, openers the focus scopes
 	// the tree holds, roved each roving group's stop.
 	hover   arena.Ref[node[E]],
+	over    []arena.Ref[node[E]],
 	crossed []E,
 	visible bool,
 	want    Option[Key],
@@ -136,7 +138,317 @@ type Frame[E] {
 	openers []opener[E],
 	roved   Map[arena.Ref[node[E]], arena.Ref[node[E]]],
 	// paint is the scratch every canvas paints into (Canvas, paint.ergo).
-	paint Paint,
+	paint  Paint,
+	// readouts is the readouts the pass placed, the first nreadouts
+	// (ReadoutText, readout.ergo).
+	readouts  []Readout,
+	nreadouts int,
+}
+
+// LayersDismissFromTheTop (UG4): over drawn layers of drawn kinds, some
+// nested in the one before, some with a scrim, some dismissable, and
+// drawn Escapes and clicks on the flow's and the layers' Pressables, the
+// program sees the reference model's signals: Escape is the top
+// dismissable layer's dismiss signal, and the page's key function's only
+// when no layer is dismissable; a click outside the top dismissable layer
+// sends its dismiss signal first; a click on a node a scrim covers (outside
+// the top scrim layer) sends nothing else, and any other click its press;
+// a key's press of a node sends its press unless a scrim covers it.
+// The layers stack by kind, then in tree order.
+law LayersDismissFromTheTop(seed int, steps int) {
+	let mut r = seeded(seed)
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let n = draw(&r, 4) + 1
+		let mut kinds = []int{}
+		let mut scrims = []bool{}
+		let mut dismiss = []bool{}
+		let mut parents = []int{}
+		for i in 0..n {
+			kinds = kinds.Append(draw(&r, 4))
+			scrims = scrims.Append(draw(&r, 3) == 0)
+			dismiss = dismiss.Append(draw(&r, 4) != 0)
+			parents = parents.Append(if i > 0 && draw(&r, 2) == 0 { i - 1 } else { -1 })
+		}
+		let ks = kinds
+		let ss = scrims
+		let ds = dismiss
+		let ps = parents
+		let view = func(f mut Frame[int], s layerApp) { layerScreen(f, s, ks, ss, ds, ps) }
+		let all = (1 << n) - 1
+		let a = actor.StartMachine(Machine[layerApp, int, int]{Initial: layerApp{open: all, log: ""}, Step: layerStep, After: layerTimer, Work: layerWork, Exit: func(s layerApp) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut open = all
+		let mut log = ""
+		for _ in 0..(steps%16+16)%16+4 {
+			let topD = layerTop(open, kinds, parents, dismiss)
+			let topS = layerTop(open, kinds, parents, scrims)
+			let act = draw(&r, 4)
+			if act == 0 {
+				Play(&h, []Act{KeyIn{Press: KeyPress{Name: "Escape", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}}) catch {
+				case _:
+					return false
+				}
+				if topD >= 0 {
+					log = log + "\(10 + topD),"
+					open = open - (open & (1 << topD))
+				} else {
+					log = log + "900,"
+				}
+			} else {
+				// A click on a flow Pressable (-1) or a shown layer's.
+				let mut shown = []int{-1}
+				for i in 0..n {
+					if layerShown(open, parents, i) {
+						shown = shown.Append(i)
+					}
+				}
+				let at = shown[draw(&r, len(shown))]
+				let j = draw(&r, 3)
+				let label = if at < 0 { "f\(j)" } else { "l\(at)" }
+				let inside = func(l int) bool { at >= 0 && layerUnder(parents, l, at) }
+				if act == 3 {
+					// A key's press: no pointer, so no dismissal; a scrim
+					// stops it outside its layer.
+					let ids = Locate(&h, WithLabel{Label: label})
+					if len(ids) != 1 {
+						return false
+					}
+					Activate(&h, ids[0]) catch {
+					case _:
+						return false
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				} else {
+					Play(&h, []Act{TapOn{Label: label}}) catch {
+					case _:
+						return false
+					}
+					if topD >= 0 && (!inside(topD) || (topS >= 0 && !inside(topS))) {
+						log = log + "\(10 + topD),"
+						open = open - (open & (1 << topD))
+					}
+					if topS < 0 || inside(topS) {
+						log = log + if at < 0 { "\(100 + j)," } else { "\(200 + at)," }
+					}
+				}
+			}
+			if StateOf(&h).log != log || StateOf(&h).open != open {
+				return false
+			}
+			// The stack: by kind, then in tree order.
+			let ids = LayersOf(&h)
+			let mut k = 0
+			for z in 0..4 {
+				for i in 0..n {
+					if layerShown(open, parents, i) && kinds[i] == z {
+						if k >= len(ids) {
+							return false
+						}
+						let held = Locate(&h, WithLabel{Label: "l\(i)"})
+						if len(held) != 1 || !isUnderId(&h, ids[k], held[0]) {
+							return false
+						}
+						k = k + 1
+					}
+				}
+			}
+			if k != len(ids) {
+				return false
+			}
+		}
+		true
+	}
+}
+
+// layerApp is the layer law's state: the open layers (bit i for layer i)
+// and the signals seen. (a law's helper)
+type layerApp { open int, log string }
+
+// layerStep closes layer i on its dismiss signal 10+i, and logs every
+// signal. (a law's helper)
+func layerStep(s layerApp, e int) Decision[layerApp, int] {
+	let mut open = s.open
+	if e >= 10 && e < 20 {
+		open = open - (open & (1 << (e - 10)))
+	}
+	Enter[layerApp]{Next: layerApp{open: open, log: s.log + "\(e),"}}
+}
+
+func layerTimer(s layerApp) Option[Timeout[int]] {
+	None
+}
+
+func layerWork(s layerApp) Option[func(send func(e int))] {
+	None
+}
+
+// layerKind is kind k of four. (a law's helper)
+func layerKind(k int) Z {
+	if k == 0 { PopoverZ } else if k == 1 { ModalZ } else if k == 2 { ToastZ } else { TooltipZ }
+}
+
+// layerBody writes layer i while it is open: a Pressable "l<i>" sending
+// 200+i, then, under it, layer i+1 when that one's parent is i. (a law's
+// helper)
+func layerBody(f mut Frame[int], s layerApp, i int, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	if s.open&(1<<i) == 0 {
+		return
+	}
+	let d = if dismiss[i] { Some{Value: 10 + i} } else { None }
+	Layer(f, Layered[int]{Z: layerKind(kinds[i]), Anchor: Some{Value: ByInt(0)}, Place: Place{Side: SideBottom, Align: AlignStart, Gap: 0}, Scrim: scrims[i], Dismiss: d}, Plain()) {
+		Pressable(f, "l\(i)", 200+i) {
+			Text(f, "x")
+		}
+		if i+1 < len(kinds) && parents[i+1] == i {
+			layerBody(f, s, i+1, kinds, scrims, dismiss, parents)
+		}
+	}
+}
+
+// layerScreen is three Pressables "f0" to "f2" sending 100 to 102, in a
+// zone keyed 0, an OnKey sending 900 on Escape, and the open layers, each
+// top one keyed by its index, so a layer that closes leaves the next one's
+// nodes their identity. (a law's helper)
+func layerScreen(f mut Frame[int], s layerApp, kinds []int, scrims []bool, dismiss []bool, parents []int) {
+	OnKey(f, func(k KeyPress) Option[int] {
+		if k.Name == "Escape" { Some{Value: 900} } else { None }
+	})
+	Zone(f, ByInt(0), Plain()) {
+		for j in 0..3 {
+			Pressable(f, "f\(j)", 100+j) {
+				Text(f, "x")
+			}
+		}
+	}
+	let mut tops = []int{}
+	for i in 0..len(kinds) {
+		if parents[i] < 0 {
+			tops = tops.Append(i)
+		}
+	}
+	Each(f, tops, func(i int) Key { ByInt(i) }) func(i int) {
+		layerBody(f, s, i, kinds, scrims, dismiss, parents)
+	}
+}
+
+// layerShown is whether layer i is in the tree: it and every layer it is
+// under are open. (a law's helper)
+func layerShown(open int, parents []int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if open&(1<<k) == 0 {
+			return false
+		}
+		k = parents[k]
+	}
+	true
+}
+
+// layerTop is the top shown layer (by kind, then the later) that pick
+// holds of, -1 for none. (a law's helper)
+func layerTop(open int, kinds []int, parents []int, pick []bool) int {
+	let mut top = -1
+	for i in 0..len(kinds) {
+		if layerShown(open, parents, i) && pick[i] && (top < 0 || kinds[i] >= kinds[top]) {
+			top = i
+		}
+	}
+	top
+}
+
+// layerUnder is whether layer i is layer l or under it. (a law's helper)
+func layerUnder(parents []int, l int, i int) bool {
+	let mut k = i
+	for k >= 0 {
+		if k == l {
+			return true
+		}
+		k = parents[k]
+	}
+	false
+}
+
+// isUnderId is whether x is the node id's child. (a law's helper)
+func isUnderId[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E], x Id[E]) bool {
+	for k in KidsAt(h, id) {
+		if k == x {
+			return true
+		}
+	}
+	false
+}
+
+// ScrollCostsNoViewPass: over drawn lists (a count, a row height, a
+// header above them) and drawn wheel steps and resizes, a scroll whose
+// viewport shows the same rows (Visible) as the last runs no pass (the
+// step's Counts are none), and every scroll leaves the screen the header
+// and the list cut at its viewport, with the offset the host scrolled to:
+// what a pass would have written.
+law ScrollCostsNoViewPass(seed int, steps int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let mut r = seeded(seed)
+		let n = []int{0, 1, 20, 10000}[draw(&r, 4)]
+		let rh = float64(draw(&r, 30) + 10)
+		let view = func(f mut Frame[int], s int) {
+			Text(f, "head \(s)")
+			Rows(f, "list", n, Length(rh), func(i int) Key { ByInt(i) }) func(i int) {
+				Text(f, "row \(i)")
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let most = float64(n) * rh
+		let mut off = 0.0
+		let mut height = float64(draw(&r, 400) + 1)
+		let mut was = Visible(n, Length(rh), Viewport{Offset: 0, Height: 0})
+		for k in 0..(steps%40+40)%40+1 {
+			// The first step reports a height; then mostly wheel steps of
+			// under three rows, sometimes a resize.
+			if k > 0 && draw(&r, 8) == 0 {
+				height = float64(draw(&r, 400) + 1)
+			} else if k > 0 {
+				off = off + float64(draw(&r, int(6.0*rh)+1)) - 3.0*rh
+			}
+			if off < 0.0 {
+				off = 0.0
+			}
+			if off > most {
+				off = most
+			}
+			Play(&h, []Act{ScrollOn{Label: "list", Offset: Length(off), Height: Length(height)}}) catch {
+			case _:
+				return false
+			}
+			let now = Visible(n, Length(rh), Viewport{Offset: Length(off), Height: Length(height)})
+			if now == was && Counts(&h) != NoCounts() {
+				return false
+			}
+			let (first, last) = now
+			let mut rows = []Shape[int]{}
+			for i in first..last {
+				rows = rows.Append(Shape[int]{Node: TextNode{Value: "row \(i)", Style: Plain()}, Kids: []Shape[int]{}})
+			}
+			let want = []Shape[int]{
+				Shape[int]{Node: TextNode{Value: "head 0", Style: Plain()}, Kids: []Shape[int]{}},
+				Shape[int]{Node: RowsNode{Label: "list", Count: n, RowHeight: Length(rh), First: first, Offset: Length(off)}, Kids: rows},
+			}
+			if !SameShapes(Screen(&h), want) {
+				return false
+			}
+			was = now
+		}
+		true
+	}
 }
 
 // KeyedReorderKeepsRows (UC-REORDER): a component that shows keyed rows,
@@ -257,7 +569,7 @@ law PointerCrossesOnce(seed int) {
 					return false
 				}
 			} else {
-				Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
+				Play(&h, []Act{PointOn{Label: "a\(j)", Pointer: PointerEvent{Pointer: MousePointer, Phase: Moved, X: 2, Y: 2, Zone: None}}}) catch {
 				case _:
 					return false
 				}
@@ -1003,7 +1315,8 @@ func cursorKept(seed int, steps int, m time.Manual) bool needs Scheduler {
 
 // CaptureKeepsThePointer (H5g): over drawn pointer events on two Areas, a
 // Text outside them, a key that removes the first Area and a tap on a
-// Pressable (a press and a release, which lets go: FK12-g1), each event
+// Pressable or the Text (a press and a release on what it taps, which lets
+// go: FK12-g1), each event
 // goes where a model of capture says: to the Area that took the last Down
 // with no Up since, while the tree still holds it, else to the node
 // named. Each Area's signal names it and the phase, so the actor's state
@@ -1093,12 +1406,18 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				held = 0
 			}
 		} else if other == 1 {
-			// A tap is a press and a release: it lets go of the pointer.
-			Play(&h, []Act{TapOn{Label: "tap"}}) catch {
+			// A tap is a press and a release: it lets go of the pointer, and
+			// its Down and Up go to what it taps, not the Area that held the
+			// pointer. The opening's tap, after a Down on b, is on the Text,
+			// whose press sends nothing.
+			let onText = i == 5 || (i >= 9 && draw(&r, 2) == 0)
+			Play(&h, []Act{TapOn{Label: if onText { "top" } else { "tap" }}}) catch {
 			case _:
 				return false
 			}
-			state = 98
+			if !onText {
+				state = 98
+			}
 			held = 0
 		} else {
 			let phases = []Phase{Down, Moved, Up, Wheel{DX: 0.0, DY: 1.0}, Drag}
@@ -1113,7 +1432,7 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 			}
 			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
 			let id = foundId(&h, label)
-			PointAt(&h, id, PointerEvent{Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
+			PointAt(&h, id, PointerEvent{Pointer: MousePointer, Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
 			case _:
 				return false
 			}
@@ -1292,6 +1611,9 @@ type node[E] {
 	dirty   bool,
 	memo    arena.Ref[node[E]],
 	up      arena.Ref[node[E]],
+	// edit is the text, caret and anchor the last Type or Edit gave an
+	// Input; a pass shows them while the value is that text (edit.ergo).
+	edit    Option[Editing],
 	// focusAs is how the node takes part in the focus (focus.ergo).
 	focusAs int,
 }
@@ -1350,7 +1672,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
 }
 
 // IncrementalEqualsFresh: committing the frames of a run of states in
@@ -1367,13 +1689,13 @@ law IncrementalEqualsFresh(seed int, steps int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..(steps%8+8)%8+1 {
 		let s = genState(&r)
-		Apply(&m, pass(&f, ps, s)) catch {
+		Apply(&m, renderPass(&f, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
 		let mut fresh = NewFrame[int]()
 		let mut fm = NewMirror[int](Root(&fresh))
-		Apply(&fm, pass(&fresh, ps, s)) catch {
+		Apply(&fm, renderPass(&fresh, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
@@ -1549,8 +1871,8 @@ func digest(kids []prog, s []int, row int) int {
 // a read is drawn only under a pBound.
 func models(ps []prog, s []int, row int) []Shape[int] { outcomes(ps, s, row).shapes }
 
-// pass renders the programs ps at state s as one pass of f.
-func pass(f mut Frame[int], ps []prog, s []int) []Op[int] {
+// renderPass renders the programs ps at state s as one pass of f.
+func renderPass(f mut Frame[int], ps []prog, s []int) []Op[int] {
 	Render(f, func(g mut Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
@@ -1578,9 +1900,9 @@ law IdempotentCommit(seed int) {
 	let mut f = NewFrame[int]()
 	let s0 = genState(&r)
 	let s1 = genState(&r)
-	let _ = pass(&f, ps, s0)
-	let _ = pass(&f, ps, s1)
-	len(pass(&f, ps, s1)) == 0
+	let _ = renderPass(&f, ps, s0)
+	let _ = renderPass(&f, ps, s1)
+	len(renderPass(&f, ps, s1)) == 0
 }
 
 // KeyedMovesFewest: a permutation of one-node keyed rows shows the new
@@ -2066,10 +2388,10 @@ law GroupSkipsEqualArguments(seed int, steps int) {
 	true
 }
 
-// group writes body's nodes as one group (the compiler's form of a
+// writeGroup writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
 // pass's group when it is kept with arguments equal to args, else body's.
-func group[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
+func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -2112,7 +2434,7 @@ func grBody(f mut Frame[int], a grArgs) {
 // grGrouped writes grBody through group, as the compiler writes a
 // component call.
 func grGrouped(f mut Frame[int], a grArgs) {
-	group(f, a, func() { grBody(f, a) })
+	writeGroup(f, a, func() { grBody(f, a) })
 }
 
 // StateKeeps: across passes that reorder keyed rows, each cell holds the
@@ -2163,9 +2485,9 @@ func cellShape(keys []int, rows Map[int, row]) []Shape[int] {
 	let mut kids = []Shape[int]{}
 	for k in keys {
 		let r = rowOf(rows, k)
-		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false}))
+		kids = kids.Append(leaf(InputNode{Value: r.a, Placeholder: "a", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(r.a), Anchor: len(r.a)}))
 		kids = kids.Append(leaf(TextNode{Value: r.a, Style: Plain()}))
-		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false})}})
+		kids = kids.Append(Shape[int]{Node: RowNode{Style: Plain()}, Kids: []Shape[int]{leaf(InputNode{Value: r.b, Placeholder: "b", Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: len(r.b), Anchor: len(r.b)})}})
 		kids = kids.Append(leaf(ToggleNode{Label: "t", On: r.on}))
 		kids = kids.Append(Shape[int]{Node: PressableNode{Label: "send", On: k, Style: PressStyle()}, Kids: []Shape[int]{leaf(TextNode{Value: "send", Style: Plain()})}})
 	}
@@ -2224,7 +2546,7 @@ func cellsFollowModel(seed int, steps int, unmount bool) bool {
 			let k = keys[at]
 			let old = rowOf(rows, k)
 			let mut now = old
-			let mut done = Handled[int]{Signal: None, Changed: false}
+			let mut done = Handled[int]{Signal: None, Changed: false, Ops: []Op[int]{}}
 			match what {
 			case 1:
 				now.a = "s\(i % 3)"
@@ -2265,7 +2587,7 @@ law FreshMountInits(seed int, steps int) {
 }
 
 func fresh[E](n Node[E], id ident, onText Option[func(t string) E], onPoint Option[func(p PointerEvent) Option[E]], onKey Option[func(k KeyPress) Option[E]], off bool) node[E] {
-	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), focusAs: focusPlain}
+	node[E]{node: n, id: id, kids: []arena.Ref[node[E]]{}, parked: []arena.Ref[node[E]]{}, off: off, onText: onText, onPoint: onPoint, onKey: onKey, binds: None, cells: Map[ident, Cell]{}, loads: Map[ident, slot]{}, run: None, dirty: false, memo: arena.Null[node[E]](), up: arena.Null[node[E]](), edit: None, focusAs: focusPlain}
 }
 
 // Render writes view(s) as one pass of f and commits it: f's tree then
@@ -2335,6 +2657,7 @@ func begin[E](f mut Frame[E]) {
 	f.passes = f.passes + 1
 	f.moving = false
 	f.want = None
+	f.nreadouts = 0
 }
 
 // identify is the identity of the next entry at site under the current
@@ -2484,6 +2807,35 @@ func prior[E](f mut Frame[E], id ident) arena.Ref[node[E]] {
 	}
 }
 
+// caretIn is n with its caret and anchor when it is an Input (OpenTUI
+// gap 2): the ones the last Type or Edit gave the node prev, while its
+// value is the text they were given for, else both at the end of the
+// value; and at least one line.
+func caretIn[E](f mut Frame[E], prev arena.Ref[node[E]], n Node[E]) Node[E] {
+	match n {
+	case InputNode as x:
+		let mut out = x
+		out.Lines = if x.Lines < 1 { 1 } else { x.Lines }
+		out.Caret = len(x.Value)
+		out.Anchor = len(x.Value)
+		if arena.Has(f.nodes, prev) {
+			let mut held Option[Editing] = None
+			change(f, prev, func(m mut node[E]) { held = m.edit })
+			match held {
+			case Some[Editing] as e:
+				if e.Value.Text == x.Value {
+					out.Caret = e.Value.Caret
+					out.Anchor = e.Value.Anchor
+				}
+			case None:
+			}
+		}
+		out
+	case _:
+		n
+	}
+}
+
 // put writes one node under the current parent and returns its index.
 func put[E](f mut Frame[E], n Node[E], onText Option[func(t string) E], binds Option[cellAt], at CallSite) int {
 	let id = identify(f, at)
@@ -2492,7 +2844,7 @@ func put[E](f mut Frame[E], n Node[E], onText Option[func(t string) E], binds Op
 		prev = arena.Null[node[E]]()
 	}
 	let p = f.parent
-	let sp = spec[E]{node: n, id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1, focusAs: focusPlain}
+	let sp = spec[E]{node: caretIn(f, prev, n), id: id, parent: p, prev: prev, ref: arena.Null[node[E]](), onText: onText, onPoint: None, onKey: None, binds: binds, off: (p >= 0 && f.specs[p].off) || disables(n), memo: memoOf(f, p), same: None, skip: false, again: false, live: (p < 0 || f.specs[p].live) && arena.Has(f.nodes, prev) && !has(f.held, prev), first: -1, last: -1, next: -1, before: lastKid(f, p), nkids: 0, pending: false, block: -1, focusAs: focusPlain}
 	putSpec(f, sp)
 }
 
@@ -2693,6 +3045,12 @@ func Text[E](f mut Frame[E], value string, at CallSite) {
 	let _ = put(f, TextNode{Value: value, Style: Plain()}, None, None, at)
 }
 
+// TextStyled shows a string with a Style: its layout, and its look,
+// whose Ink draws the text (look.ergo).
+func TextStyled[E](f mut Frame[E], value string, style Style, at CallSite) {
+	let _ = put(f, TextNode{Value: value, Style: style}, None, None, at)
+}
+
 // Check shows a check box; a press sends on.
 func Check[E](f mut Frame[E], label string, checked bool, on E, at CallSite) {
 	let _ = put(f, CheckNode{Label: label, Checked: checked, On: on}, None, None, at)
@@ -2701,7 +3059,7 @@ func Check[E](f mut Frame[E], label string, checked bool, on E, at CallSite) {
 // Input shows a text field with value; a text the host takes in it sends
 // onText(text). The program owns the value (in its machine state).
 func Input[E](f mut Frame[E], value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
 }
 
 // FieldLabel is what a labelled Input says of itself (FK3-g5, FK5-g3), as
@@ -2716,7 +3074,22 @@ type FieldLabel { Text string, Description string, Invalid bool }
 // LabelledInput is an Input that says what it is (FieldLabel): a locator
 // finds it by its label (WithLabel) and a script names it by it.
 func LabelledInput[E](f mut Frame[E], label FieldLabel, value string, placeholder string, onText own func(t string) E, at CallSite) {
-	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid}, Some{Value: onText}, None, at)
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: PlainHints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+}
+
+// InputLines is an Input of lines lines (OpenTUI gap 2): a box that many
+// lines high whose text holds newlines (Enter types one), and whose
+// caret moves by line (Up, Down). Its caret and selection are the
+// model's, as every Input's are (edit.ergo).
+func InputLines[E](f mut Frame[E], value string, placeholder string, lines int, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: "", Description: "", Invalid: false, Hints: PlainHints, Lines: lines, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
+}
+
+// HintedInput is a LabelledInput that tells a phone's keyboard what it
+// takes (Hints, MB5): an email field asks for EmailKeys, a search field
+// for ReturnSearch.
+func HintedInput[E](f mut Frame[E], label FieldLabel, hints Hints, value string, placeholder string, onText own func(t string) E, at CallSite) {
+	let _ = put(f, InputNode{Value: value, Placeholder: placeholder, Label: label.Text, Description: label.Description, Invalid: label.Invalid, Hints: hints, Lines: 1, Caret: 0, Anchor: 0}, Some{Value: onText}, None, at)
 }
 
 // Each writes row(x) for each x of xs. The nodes a row writes take the
@@ -2868,7 +3241,7 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 	// parked children stay parked while a group under p stopped in this
 	// pass, and are dropped otherwise. An old child the pass did not write
 	// leaves the host's copy, and is parked or dropped by the same rule.
-	let park = stops(f, p)
+	let park = stoppedUnder(f, p)
 	let held = parkedOf(f, pr)
 	let mut heldAt = Map[arena.Ref[node[E]], int]{}
 	let mut back = []bool{}
@@ -3140,6 +3513,12 @@ func kindOf[E](n Node[E]) int {
 		15
 	case SemanticNode[E]:
 		16
+	case LayerNode[E]:
+		17
+	case TrackNode:
+		18
+	case ReadoutNode:
+		19
 	}
 }
 

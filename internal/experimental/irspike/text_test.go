@@ -2,6 +2,7 @@ package irspike
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"go/format"
 	"os/exec"
@@ -84,12 +85,16 @@ func textCheckOn(t *testing.T, target exampleTarget) {
 //     (struct{…}){…} (mutants gotext-signature-end, gotext-lit-paren);
 //   - seqloop (PORT-FORIN): a Seq loop ranges over a func with one
 //     variable, which the text spelled k, _ (mutant
-//     gotext-range-func-two-vars).
+//     gotext-range-func-two-vars);
+//   - seqreturn (REGEX-ICE): a return in a Seq loop of a function
+//     literal; rangefunc names the literal's results through its
+//     signature's scope, nil for a decoded literal: gc panicked
+//     (mutant ir-funclit-results-unnamed).
 //
 // It builds Go for the reason TestIRTextChecks does.
 func TestIRTextRepros(t *testing.T) {
 	src, ir := needsBuild(t)
-	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}, {"seqloop", "total"}} {
+	for _, r := range []struct{ name, fn string }{{"duplocals", "two"}, {"shadow", "shadow"}, {"pollend", "firstOf"}, {"negfloat", "near"}, {"scopes", "drive"}, {"printed", "split"}, {"seqloop", "total"}, {"seqreturn", "over"}} {
 		t.Run(r.name, func(t *testing.T) {
 			u, err := Load(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
@@ -105,6 +110,89 @@ func TestIRTextRepros(t *testing.T) {
 			textCheck(t, src, ir, r.name, files, rep)
 		})
 	}
+}
+
+// TestIRReadBeforeDefNamed is the decoder's repro beside TestIRTextRepros
+// (OPC's crash fix): duplocals's IR with two's first definition dropped,
+// as a builder bug would leave it, reads a local no statement defines.
+// The decoder names it ("ergoir: local N (NAME) read before any def in
+// two"); before, gc's writer asserted with a closure dump that named no
+// IR local (mutant ir-read-before-def-unchecked). It is a test of its
+// own, not a TestIRTextRepros row, because its IR is edited and must not
+// build.
+//
+// It builds Go because the error is the patched compile's.
+func TestIRReadBeforeDefNamed(t *testing.T) {
+	_, ir := needsBuild(t)
+	u, err := Load(filepath.Join("testdata", "duplocals.ergo"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, _, err := lower.LowerIRTests(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dropped := false
+	for i, f := range files {
+		if f.Path != lower.IRFileName {
+			continue
+		}
+		var doc map[string]any
+		if err := json.Unmarshal(f.Data, &doc); err != nil {
+			t.Fatal(err)
+		}
+		for _, fn := range doc["funcs"].([]any) {
+			fm := fn.(map[string]any)
+			if fm["name"] != "two" {
+				continue
+			}
+			dropped = dropFirstDef(fm)
+		}
+		if files[i].Data, err = json.Marshal(doc); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !dropped {
+		for _, f := range files {
+			if f.Path == lower.IRFileName {
+				t.Logf("%s", f.Data)
+			}
+		}
+		t.Fatal("two's IR has no def to drop")
+	}
+	mod := filepath.Join(t.TempDir(), "ir")
+	if err := writeModule(mod, files); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	_, err = Build(ir, IR, mod, filepath.Join(t.TempDir(), "ir.bin"), BuildOptions{Stderr: &out})
+	want := regexp.MustCompile(`ergoir: local \d+ \(\w+\) read before any def in two`)
+	if err == nil || !want.MatchString(out.String()) {
+		t.Fatalf("the build of a body that reads an undefined local: err %v, want an error matching %s:\n%s", err, want, out.String())
+	}
+}
+
+// dropFirstDef removes, from the decoded IR function or statement m, the
+// first statement (depth first, in any statement list) that defines a
+// local: a def, def2, tdef or var. It reports whether it removed one.
+func dropFirstDef(m map[string]any) bool {
+	for _, key := range []string{"body", "then", "else", "cases"} {
+		list, _ := m[key].([]any)
+		for j, s := range list {
+			sm, ok := s.(map[string]any)
+			if !ok {
+				continue
+			}
+			if k := sm["k"]; k == "def" || k == "def2" || k == "tdef" || k == "var" {
+				m[key] = append(list[:j:j], list[j+1:]...)
+				return true
+			}
+			if dropFirstDef(sm) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // textCheck checks the Go text of the IR bodies of one lowered module

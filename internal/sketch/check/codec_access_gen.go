@@ -48,6 +48,8 @@ type Codec_capNode = capNode
 
 type Codec_capSet = capSet
 
+type Codec_captured = captured
+
 type Codec_catchItem = catchItem
 
 type Codec_catchMatrix = catchMatrix
@@ -112,6 +114,8 @@ type Codec_fpCall = fpCall
 
 type Codec_fpNode = fpNode
 
+type Codec_fpTArg = fpTArg
+
 type Codec_frameMode = frameMode
 
 type Codec_frameState = frameState
@@ -129,6 +133,8 @@ type Codec_guardNode = guardNode
 type Codec_guardedUse = guardedUse
 
 type Codec_hand = hand
+
+type Codec_harnessUse = harnessUse
 
 type Codec_hostPkg = hostPkg
 
@@ -165,6 +171,8 @@ type Codec_litUse = litUse
 type Codec_localBinding = localBinding
 
 type Codec_lookupSteps = lookupSteps
+
+type Codec_mapSite = mapSite
 
 type Codec_matrixSolver = matrixSolver
 
@@ -440,10 +448,11 @@ type CodecFields_Func struct {
 	F_overloaded  *bool
 	F_size        *int
 	F_goExtern    **GoExtern
+	F_asWritten   *bool
 }
 
 func CodecFieldsOf_Func(v *Func) CodecFields_Func {
-	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_collOp: &v.collOp, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern}
+	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_collOp: &v.collOp, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern, F_asWritten: &v.asWritten}
 }
 
 type CodecFields_GoBindings struct {
@@ -454,15 +463,22 @@ func CodecFieldsOf_GoBindings(v *GoBindings) CodecFields_GoBindings {
 	return CodecFields_GoBindings{F_pkgs: &v.pkgs}
 }
 
+type CodecFields_Info struct {
+	F_etaMethodValues *map[*syntax.FuncLit]*syntax.SelectorExpr
+}
+
+func CodecFieldsOf_Info(v *Info) CodecFields_Info {
+	return CodecFields_Info{F_etaMethodValues: &v.etaMethodValues}
+}
+
 type CodecFields_Interface struct {
-	F_index    *map[string]*Method
 	F_byName   *[]*Method
 	F_obj      **TypeName
 	F_includes *[]*Named
 }
 
 func CodecFieldsOf_Interface(v *Interface) CodecFields_Interface {
-	return CodecFields_Interface{F_index: &v.index, F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
+	return CodecFields_Interface{F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
 }
 
 type CodecFields_Law struct {
@@ -509,11 +525,13 @@ func CodecFieldsOf_Named(v *Named) CodecFields_Named {
 }
 
 type CodecFields_Options struct {
-	F_placeLaws *bool
+	F_placeLaws     *bool
+	F_mapsRewritten *bool
+	F_shapesWritten *bool
 }
 
 func CodecFieldsOf_Options(v *Options) CodecFields_Options {
-	return CodecFields_Options{F_placeLaws: &v.placeLaws}
+	return CodecFields_Options{F_placeLaws: &v.placeLaws, F_mapsRewritten: &v.mapsRewritten, F_shapesWritten: &v.shapesWritten}
 }
 
 type CodecFields_Package struct {
@@ -581,14 +599,13 @@ func CodecFieldsOf_Scope(v *Scope) CodecFields_Scope {
 }
 
 type CodecFields_Struct struct {
-	F_index     *map[string]int
 	F_includes  *[]*include
 	F_expanding *bool
 	F_obj       **TypeName
 }
 
 func CodecFieldsOf_Struct(v *Struct) CodecFields_Struct {
-	return CodecFields_Struct{F_index: &v.index, F_includes: &v.includes, F_expanding: &v.expanding, F_obj: &v.obj}
+	return CodecFields_Struct{F_includes: &v.includes, F_expanding: &v.expanding, F_obj: &v.obj}
 }
 
 type CodecFields_Test struct {
@@ -613,13 +630,12 @@ func CodecFieldsOf_TypeName(v *TypeName) CodecFields_TypeName {
 }
 
 type CodecFields_TypeParam struct {
-	F_lang     *bool
 	F_conflict *bool
 	F_id       *int
 }
 
 func CodecFieldsOf_TypeParam(v *TypeParam) CodecFields_TypeParam {
-	return CodecFields_TypeParam{F_lang: &v.lang, F_conflict: &v.conflict, F_id: &v.id}
+	return CodecFields_TypeParam{F_conflict: &v.conflict, F_id: &v.id}
 }
 
 type CodecFields_ValueRanks struct {
@@ -814,6 +830,15 @@ func CodecFieldsOf_capSet(v *capSet) CodecFields_capSet {
 	return CodecFields_capSet{F_root: &v.root, F_size: &v.size, F_extra: &v.extra}
 }
 
+type CodecFields_captured struct {
+	F_foreign *bool
+	F_ambient *Type
+}
+
+func CodecFieldsOf_captured(v *captured) CodecFields_captured {
+	return CodecFields_captured{F_foreign: &v.foreign, F_ambient: &v.ambient}
+}
+
 type CodecFields_catchItem struct {
 	F_te           *syntax.Expr
 	F_skip         *bool
@@ -885,6 +910,8 @@ func CodecFieldsOf_cellSite(v *cellSite) CodecFields_cellSite {
 
 type CodecFields_checker struct {
 	F_opts              *Options
+	F_inConstraint      *int
+	F_deferBounds       *int
 	F_placeLaws         *bool
 	F_closeOp           *string
 	F_caught            **caughtCall
@@ -942,7 +969,6 @@ type CodecFields_checker struct {
 	F_resSteps          *int
 	F_ownSteps          *int
 	F_providing         *bool
-	F_capture           **bool
 	F_cellTypes         *map[*Named]bool
 	F_cellHolds         *map[int32]*Named
 	F_cellSites         *[]cellSite
@@ -1023,6 +1049,7 @@ type CodecFields_checker struct {
 	F_variants          *map[*syntax.VariantSpec]*TypeName
 	F_synthetic         *map[*syntax.Ident]bool
 	F_pkgPatterns       *map[*syntax.VarSpec]*pkgPattern
+	F_mapSites          *[]mapSite
 	F_mapInstances      *map[*syntax.MapType]*syntax.IndexExpr
 	F_refining          *bool
 	F_refusedWheres     *map[*fileInfo][][2]syntax.Pos
@@ -1031,7 +1058,7 @@ type CodecFields_checker struct {
 }
 
 func CodecFieldsOf_checker(v *checker) CodecFields_checker {
-	return CodecFields_checker{F_opts: &v.opts, F_placeLaws: &v.placeLaws, F_closeOp: &v.closeOp, F_caught: &v.caught, F_cover: &v.cover, F_pkg: &v.pkg, F_imp: &v.imp, F_ownGo: &v.ownGo, F_universe: &v.universe, F_files: &v.files, F_diags: &v.diags, F_seen: &v.seen, F_silent: &v.silent, F_shallow: &v.shallow, F_tests: &v.tests, F_relSeeds: &v.relSeeds, F_relHit: &v.relHit, F_wireNeeds: &v.wireNeeds, F_lateEdges: &v.lateEdges, F_wireEdges: &v.wireEdges, F_withNeeds: &v.withNeeds, F_withSeeds: &v.withSeeds, F_withHit: &v.withHit, F_refusedBinders: &v.refusedBinders, F_aliases: &v.aliases, F_writeTarget: &v.writeTarget, F_refusedMembers: &v.refusedMembers, F_inferredRefs: &v.inferredRefs, F_dupNames: &v.dupNames, F_pureArgs: &v.pureArgs, F_dropped: &v.dropped, F_raises: &v.raises, F_unassigned: &v.unassigned, F_lawPreds: &v.lawPreds, F_withSites: &v.withSites, F_contextValueSites: &v.contextValueSites, F_contextOwners: &v.contextOwners, F_cur: &v.cur, F_owners: &v.owners, F_origins: &v.origins, F_instance: &v.instance, F_inferInstances: &v.inferInstances, F_includesExpanded: &v.includesExpanded, F_declOps: &v.declOps, F_inferSubjects: &v.inferSubjects, F_settled: &v.settled, F_widened: &v.widened, F_refs: &v.refs, F_valueRefs: &v.valueRefs, F_group: &v.group, F_groupValue: &v.groupValue, F_lits: &v.lits, F_walkOps: &v.walkOps, F_resMemo: &v.resMemo, F_handleMemo: &v.handleMemo, F_resSteps: &v.resSteps, F_ownSteps: &v.ownSteps, F_providing: &v.providing, F_capture: &v.capture, F_cellTypes: &v.cellTypes, F_cellHolds: &v.cellHolds, F_cellSites: &v.cellSites, F_cellSteps: &v.cellSteps, F_cellBudget: &v.cellBudget, F_encodeLend: &v.encodeLend, F_typeNamedFuncs: &v.typeNamedFuncs, F_hostCall: &v.hostCall, F_resourceSites: &v.resourceSites, F_ownMarkSites: &v.ownMarkSites, F_ownershipSites: &v.ownershipSites, F_ownershipSeen: &v.ownershipSeen, F_takesSeen: &v.takesSeen, F_escapingSeen: &v.escapingSeen, F_ownSeen: &v.ownSeen, F_mapKeysSeen: &v.mapKeysSeen, F_typeNodes: &v.typeNodes, F_intoInvalid: &v.intoInvalid, F_contexts: &v.contexts, F_contextsDone: &v.contextsDone, F_withs: &v.withs, F_withRefused: &v.withRefused, F_contextComp: &v.contextComp, F_contextBodies: &v.contextBodies, F_contextEntries: &v.contextEntries, F_convergeChecks: &v.convergeChecks, F_grew: &v.grew, F_asNames: &v.asNames, F_literals: &v.literals, F_callee: &v.callee, F_calleeIndex: &v.calleeIndex, F_elidedLit: &v.elidedLit, F_selfRes: &v.selfRes, F_selfFinal: &v.selfFinal, F_kinds: &v.kinds, F_init: &v.init, F_totalitySteps: &v.totalitySteps, F_usefulSteps: &v.usefulSteps, F_totalityBudgets: &v.totalityBudgets, F_patternCosts: &v.patternCosts, F_bodyEdges: &v.bodyEdges, F_bodyNodes: &v.bodyNodes, F_selfChecks: &v.selfChecks, F_worklistSteps: &v.worklistSteps, F_workNodes: &v.workNodes, F_settleOnly: &v.settleOnly, F_frameGen: &v.frameGen, F_frameInv: &v.frameInv, F_frameRef: &v.frameRef, F_bodyGen: &v.bodyGen, F_curGen: &v.curGen, F_genSeq: &v.genSeq, F_guardTrace: &v.guardTrace, F_pinKept: &v.pinKept, F_rowsOpen: &v.rowsOpen, F_undiagSeq: &v.undiagSeq, F_stmtMark: &v.stmtMark, F_callMark: &v.callMark, F_use: &v.use, F_openRowSeq: &v.openRowSeq, F_useGens: &v.useGens, F_guardedRefs: &v.guardedRefs, F_variantOps: &v.variantOps, F_instancesMade: &v.instancesMade, F_inferOps: &v.inferOps, F_types: &v.types, F_vindex: &v.vindex, F_subjects: &v.subjects, F_mono: &v.mono, F_errorTypes: &v.errorTypes, F_owner: &v.owner, F_funcs: &v.funcs, F_vars: &v.vars, F_machines: &v.machines, F_guarded: &v.guarded, F_reach: &v.reach, F_providers: &v.providers, F_variants: &v.variants, F_synthetic: &v.synthetic, F_pkgPatterns: &v.pkgPatterns, F_mapInstances: &v.mapInstances, F_refining: &v.refining, F_refusedWheres: &v.refusedWheres, F_patternCalls: &v.patternCalls, F_fn: &v.fn}
+	return CodecFields_checker{F_opts: &v.opts, F_inConstraint: &v.inConstraint, F_deferBounds: &v.deferBounds, F_placeLaws: &v.placeLaws, F_closeOp: &v.closeOp, F_caught: &v.caught, F_cover: &v.cover, F_pkg: &v.pkg, F_imp: &v.imp, F_ownGo: &v.ownGo, F_universe: &v.universe, F_files: &v.files, F_diags: &v.diags, F_seen: &v.seen, F_silent: &v.silent, F_shallow: &v.shallow, F_tests: &v.tests, F_relSeeds: &v.relSeeds, F_relHit: &v.relHit, F_wireNeeds: &v.wireNeeds, F_lateEdges: &v.lateEdges, F_wireEdges: &v.wireEdges, F_withNeeds: &v.withNeeds, F_withSeeds: &v.withSeeds, F_withHit: &v.withHit, F_refusedBinders: &v.refusedBinders, F_aliases: &v.aliases, F_writeTarget: &v.writeTarget, F_refusedMembers: &v.refusedMembers, F_inferredRefs: &v.inferredRefs, F_dupNames: &v.dupNames, F_pureArgs: &v.pureArgs, F_dropped: &v.dropped, F_raises: &v.raises, F_unassigned: &v.unassigned, F_lawPreds: &v.lawPreds, F_withSites: &v.withSites, F_contextValueSites: &v.contextValueSites, F_contextOwners: &v.contextOwners, F_cur: &v.cur, F_owners: &v.owners, F_origins: &v.origins, F_instance: &v.instance, F_inferInstances: &v.inferInstances, F_includesExpanded: &v.includesExpanded, F_declOps: &v.declOps, F_inferSubjects: &v.inferSubjects, F_settled: &v.settled, F_widened: &v.widened, F_refs: &v.refs, F_valueRefs: &v.valueRefs, F_group: &v.group, F_groupValue: &v.groupValue, F_lits: &v.lits, F_walkOps: &v.walkOps, F_resMemo: &v.resMemo, F_handleMemo: &v.handleMemo, F_resSteps: &v.resSteps, F_ownSteps: &v.ownSteps, F_providing: &v.providing, F_cellTypes: &v.cellTypes, F_cellHolds: &v.cellHolds, F_cellSites: &v.cellSites, F_cellSteps: &v.cellSteps, F_cellBudget: &v.cellBudget, F_encodeLend: &v.encodeLend, F_typeNamedFuncs: &v.typeNamedFuncs, F_hostCall: &v.hostCall, F_resourceSites: &v.resourceSites, F_ownMarkSites: &v.ownMarkSites, F_ownershipSites: &v.ownershipSites, F_ownershipSeen: &v.ownershipSeen, F_takesSeen: &v.takesSeen, F_escapingSeen: &v.escapingSeen, F_ownSeen: &v.ownSeen, F_mapKeysSeen: &v.mapKeysSeen, F_typeNodes: &v.typeNodes, F_intoInvalid: &v.intoInvalid, F_contexts: &v.contexts, F_contextsDone: &v.contextsDone, F_withs: &v.withs, F_withRefused: &v.withRefused, F_contextComp: &v.contextComp, F_contextBodies: &v.contextBodies, F_contextEntries: &v.contextEntries, F_convergeChecks: &v.convergeChecks, F_grew: &v.grew, F_asNames: &v.asNames, F_literals: &v.literals, F_callee: &v.callee, F_calleeIndex: &v.calleeIndex, F_elidedLit: &v.elidedLit, F_selfRes: &v.selfRes, F_selfFinal: &v.selfFinal, F_kinds: &v.kinds, F_init: &v.init, F_totalitySteps: &v.totalitySteps, F_usefulSteps: &v.usefulSteps, F_totalityBudgets: &v.totalityBudgets, F_patternCosts: &v.patternCosts, F_bodyEdges: &v.bodyEdges, F_bodyNodes: &v.bodyNodes, F_selfChecks: &v.selfChecks, F_worklistSteps: &v.worklistSteps, F_workNodes: &v.workNodes, F_settleOnly: &v.settleOnly, F_frameGen: &v.frameGen, F_frameInv: &v.frameInv, F_frameRef: &v.frameRef, F_bodyGen: &v.bodyGen, F_curGen: &v.curGen, F_genSeq: &v.genSeq, F_guardTrace: &v.guardTrace, F_pinKept: &v.pinKept, F_rowsOpen: &v.rowsOpen, F_undiagSeq: &v.undiagSeq, F_stmtMark: &v.stmtMark, F_callMark: &v.callMark, F_use: &v.use, F_openRowSeq: &v.openRowSeq, F_useGens: &v.useGens, F_guardedRefs: &v.guardedRefs, F_variantOps: &v.variantOps, F_instancesMade: &v.instancesMade, F_inferOps: &v.inferOps, F_types: &v.types, F_vindex: &v.vindex, F_subjects: &v.subjects, F_mono: &v.mono, F_errorTypes: &v.errorTypes, F_owner: &v.owner, F_funcs: &v.funcs, F_vars: &v.vars, F_machines: &v.machines, F_guarded: &v.guarded, F_reach: &v.reach, F_providers: &v.providers, F_variants: &v.variants, F_synthetic: &v.synthetic, F_pkgPatterns: &v.pkgPatterns, F_mapSites: &v.mapSites, F_mapInstances: &v.mapInstances, F_refining: &v.refining, F_refusedWheres: &v.refusedWheres, F_patternCalls: &v.patternCalls, F_fn: &v.fn}
 }
 
 type CodecFields_colInfo struct {
@@ -1275,12 +1302,13 @@ func CodecFieldsOf_fpArg(v *fpArg) CodecFields_fpArg {
 }
 
 type CodecFields_fpCall struct {
-	F_to   **fpNode
-	F_args *[]*fpArg
+	F_to    **fpNode
+	F_args  *[]*fpArg
+	F_targs *[]*fpTArg
 }
 
 func CodecFieldsOf_fpCall(v *fpCall) CodecFields_fpCall {
-	return CodecFields_fpCall{F_to: &v.to, F_args: &v.args}
+	return CodecFields_fpCall{F_to: &v.to, F_args: &v.args, F_targs: &v.targs}
 }
 
 type CodecFields_fpNode struct {
@@ -1293,16 +1321,28 @@ type CodecFields_fpNode struct {
 	F_holes   *map[*Var]bool
 	F_calls   *[]fpCall
 	F_params  *[]*Var
+	F_tholes  *map[*TypeParam]bool
+	F_tparams *[]*TypeParam
 	F_index   *int
 	F_low     *int
 	F_onStack *bool
 	F_comp    **fpNode
 	F_final   *Footprint
 	F_cur     *map[*Var]bool
+	F_tcur    *map[*TypeParam]bool
 }
 
 func CodecFieldsOf_fpNode(v *fpNode) CodecFields_fpNode {
-	return CodecFields_fpNode{F_key: &v.key, F_caps: &v.caps, F_tasks: &v.tasks, F_opaque: &v.opaque, F_edges: &v.edges, F_walked: &v.walked, F_holes: &v.holes, F_calls: &v.calls, F_params: &v.params, F_index: &v.index, F_low: &v.low, F_onStack: &v.onStack, F_comp: &v.comp, F_final: &v.final, F_cur: &v.cur}
+	return CodecFields_fpNode{F_key: &v.key, F_caps: &v.caps, F_tasks: &v.tasks, F_opaque: &v.opaque, F_edges: &v.edges, F_walked: &v.walked, F_holes: &v.holes, F_calls: &v.calls, F_params: &v.params, F_tholes: &v.tholes, F_tparams: &v.tparams, F_index: &v.index, F_low: &v.low, F_onStack: &v.onStack, F_comp: &v.comp, F_final: &v.final, F_cur: &v.cur, F_tcur: &v.tcur}
+}
+
+type CodecFields_fpTArg struct {
+	F_node **fpNode
+	F_hole **TypeParam
+}
+
+func CodecFieldsOf_fpTArg(v *fpTArg) CodecFields_fpTArg {
+	return CodecFields_fpTArg{F_node: &v.node, F_hole: &v.hole}
 }
 
 type CodecFields_frameVerdict struct {
@@ -1385,6 +1425,15 @@ func CodecFieldsOf_hand(v *hand) CodecFields_hand {
 	return CodecFields_hand{F_at: &v.at, F_how: &v.how, F_lend: &v.lend, F_yieldRoot: &v.yieldRoot, F_failed: &v.failed, F_provider: &v.provider, F_root: &v.root, F_endLoans: &v.endLoans, F_endKept: &v.endKept, F_hostLend: &v.hostLend, F_ret: &v.ret}
 }
 
+type CodecFields_harnessUse struct {
+	F_h  **Harness
+	F_at *syntax.Node
+}
+
+func CodecFieldsOf_harnessUse(v *harnessUse) CodecFields_harnessUse {
+	return CodecFields_harnessUse{F_h: &v.h, F_at: &v.at}
+}
+
 type CodecFields_hostPkg struct {
 	F_set      **GoBindings
 	F_src      *string
@@ -1402,10 +1451,11 @@ type CodecFields_hostPkg struct {
 	F_vouched  *map[*Func][]vouch
 	F_writes   *map[*Func]int
 	F_effect   *map[*Func]bool
+	F_host     *map[*Func]bool
 }
 
 func CodecFieldsOf_hostPkg(v *hostPkg) CodecFields_hostPkg {
-	return CodecFields_hostPkg{F_set: &v.set, F_src: &v.src, F_c: &v.c, F_fi: &v.fi, F_loaded: &v.loaded, F_err: &v.err, F_vars: &v.vars, F_refused: &v.refused, F_recvPtr: &v.recvPtr, F_variadic: &v.variadic, F_context: &v.context, F_goLines: &v.goLines, F_reads: &v.reads, F_vouched: &v.vouched, F_writes: &v.writes, F_effect: &v.effect}
+	return CodecFields_hostPkg{F_set: &v.set, F_src: &v.src, F_c: &v.c, F_fi: &v.fi, F_loaded: &v.loaded, F_err: &v.err, F_vars: &v.vars, F_refused: &v.refused, F_recvPtr: &v.recvPtr, F_variadic: &v.variadic, F_context: &v.context, F_goLines: &v.goLines, F_reads: &v.reads, F_vouched: &v.vouched, F_writes: &v.writes, F_effect: &v.effect, F_host: &v.host}
 }
 
 type CodecFields_importAlias struct {
@@ -1576,6 +1626,14 @@ type CodecFields_lookupSteps struct {
 
 func CodecFieldsOf_lookupSteps(v *lookupSteps) CodecFields_lookupSteps {
 	return CodecFields_lookupSteps{F_steps: &v.steps, F_over: &v.over, F_ops: &v.ops}
+}
+
+type CodecFields_mapSite struct {
+	F_node *syntax.Node
+}
+
+func CodecFieldsOf_mapSite(v *mapSite) CodecFields_mapSite {
+	return CodecFields_mapSite{F_node: &v.node}
 }
 
 type CodecFields_matrixSolver struct {
@@ -1806,11 +1864,10 @@ type CodecFields_ownMarkSite struct {
 	F_name *string
 	F_tp   **TypeParam
 	F_arg  *Type
-	F_typ  *bool
 }
 
 func CodecFieldsOf_ownMarkSite(v *ownMarkSite) CodecFields_ownMarkSite {
-	return CodecFields_ownMarkSite{F_file: &v.file, F_at: &v.at, F_name: &v.name, F_tp: &v.tp, F_arg: &v.arg, F_typ: &v.typ}
+	return CodecFields_ownMarkSite{F_file: &v.file, F_at: &v.at, F_name: &v.name, F_tp: &v.tp, F_arg: &v.arg}
 }
 
 type CodecFields_ownScope struct {
@@ -1831,10 +1888,11 @@ type CodecFields_ownSlot struct {
 	F_maybe     *uint64
 	F_fieldAt   *syntax.Node
 	F_loans     *[]resourceLoan
+	F_paramFree *bool
 }
 
 func CodecFieldsOf_ownSlot(v *ownSlot) CodecFields_ownSlot {
-	return CodecFields_ownSlot{F_st: &v.st, F_at: &v.at, F_how: &v.how, F_callLoans: &v.callLoans, F_fields: &v.fields, F_maybe: &v.maybe, F_fieldAt: &v.fieldAt, F_loans: &v.loans}
+	return CodecFields_ownSlot{F_st: &v.st, F_at: &v.at, F_how: &v.how, F_callLoans: &v.callLoans, F_fields: &v.fields, F_maybe: &v.maybe, F_fieldAt: &v.fieldAt, F_loans: &v.loans, F_paramFree: &v.paramFree}
 }
 
 type CodecFields_ownState struct {
@@ -2236,10 +2294,11 @@ type CodecFields_resWalk struct {
 	F_nodes *map[int32]*taskNode
 	F_stack *[]int32
 	F_next  *int
+	F_local *map[int32]bool
 }
 
 func CodecFieldsOf_resWalk(v *resWalk) CodecFields_resWalk {
-	return CodecFields_resWalk{F_c: &v.c, F_mode: &v.mode, F_nodes: &v.nodes, F_stack: &v.stack, F_next: &v.next}
+	return CodecFields_resWalk{F_c: &v.c, F_mode: &v.mode, F_nodes: &v.nodes, F_stack: &v.stack, F_next: &v.next, F_local: &v.local}
 }
 
 type CodecFields_resolved struct {
@@ -2428,10 +2487,11 @@ type CodecFields_target struct {
 	F_pending     *[]pendingClause
 	F_missErrors  **Row
 	F_missUses    **Row
+	F_harness     **harnessUse
 }
 
 func CodecFieldsOf_target(v *target) CodecFields_target {
-	return CodecFields_target{F_name: &v.name, F_declErrors: &v.declErrors, F_declUses: &v.declUses, F_errors: &v.errors, F_uses: &v.uses, F_scope: &v.scope, F_results: &v.results, F_resultKnown: &v.resultKnown, F_isFunc: &v.isFunc, F_law: &v.law, F_main: &v.main, F_context: &v.context, F_internal: &v.internal, F_charged: &v.charged, F_tries: &v.tries, F_tried: &v.tried, F_decl: &v.decl, F_pending: &v.pending, F_missErrors: &v.missErrors, F_missUses: &v.missUses}
+	return CodecFields_target{F_name: &v.name, F_declErrors: &v.declErrors, F_declUses: &v.declUses, F_errors: &v.errors, F_uses: &v.uses, F_scope: &v.scope, F_results: &v.results, F_resultKnown: &v.resultKnown, F_isFunc: &v.isFunc, F_law: &v.law, F_main: &v.main, F_context: &v.context, F_internal: &v.internal, F_charged: &v.charged, F_tries: &v.tries, F_tried: &v.tried, F_decl: &v.decl, F_pending: &v.pending, F_missErrors: &v.missErrors, F_missUses: &v.missUses, F_harness: &v.harness}
 }
 
 type CodecFields_taskNode struct {
@@ -2513,6 +2573,7 @@ type CodecFields_typeTable struct {
 	F_empty        *int32
 	F_gen          *int32
 	F_b            **lookupSteps
+	F_rowOf        *func(*Named) *Row
 	F_lookupBuilds *int
 	F_sigBuilds    *int
 	F_sortCmps     *int
@@ -2520,7 +2581,7 @@ type CodecFields_typeTable struct {
 }
 
 func CodecFieldsOf_typeTable(v *typeTable) CodecFields_typeTable {
-	return CodecFields_typeTable{F_nodes: &v.nodes, F_sizes: &v.sizes, F_empty: &v.empty, F_gen: &v.gen, F_b: &v.b, F_lookupBuilds: &v.lookupBuilds, F_sigBuilds: &v.sigBuilds, F_sortCmps: &v.sortCmps, F_work: &v.work}
+	return CodecFields_typeTable{F_nodes: &v.nodes, F_sizes: &v.sizes, F_empty: &v.empty, F_gen: &v.gen, F_b: &v.b, F_rowOf: &v.rowOf, F_lookupBuilds: &v.lookupBuilds, F_sigBuilds: &v.sigBuilds, F_sortCmps: &v.sortCmps, F_work: &v.work}
 }
 
 type CodecFields_typeWalker struct {

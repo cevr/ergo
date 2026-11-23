@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -12,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 
 	"ergo.local/prototype/internal/experimental/irspike"
@@ -298,8 +300,8 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 		return fmt.Errorf("-go-text: %w", err)
 	}
 	// The spike's driver keys its own Go cache by the compile's content,
-	// beside the patched release.
-	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(filepath.Dir(action.Root), "gocache")}
+	// in the patched release's writable folder (the entry is read-only).
+	tc := irspike.Toolchain{GOROOT: action.Root, GOCACHE: filepath.Join(toolchain.PatchedWork(action.Root), "gocache")}
 	dir, err := filepath.Abs(opts.goText)
 	if err != nil {
 		return err
@@ -421,10 +423,12 @@ func cutLevel(spelled string) (platform, level string) {
 // levelSpelling is a CPU level Go accepts (internal/buildcfg goamd64 and
 // ParseGoarm64): v1 to v4 on amd64; v8.0 to v8.9 or v9.0 to v9.5 on arm64,
 // each with ,lse and ,crypto at most once.
-var levelSpelling = map[string]*regexp.Regexp{
-	"amd64": regexp.MustCompile(`^v[1-4]$`),
-	"arm64": regexp.MustCompile(`^v(8\.[0-9]|9\.[0-5])(,lse|,crypto)?(,lse|,crypto)?$`),
-}
+var levelSpelling = sync.OnceValue(func() map[string]*regexp.Regexp {
+	return map[string]*regexp.Regexp{
+		"amd64": regexp.MustCompile(`^v[1-4]$`),
+		"arm64": regexp.MustCompile(`^v(8\.[0-9]|9\.[0-5])(,lse|,crypto)?(,lse|,crypto)?$`),
+	}
+})
 
 // checkLevel refuses a level the platform's architecture has no such
 // level of, as an invalid invocation: Go would refuse it later, with a
@@ -433,7 +437,7 @@ func checkLevel(goarch, level string) error {
 	if level == "" {
 		return nil
 	}
-	re := levelSpelling[goarch]
+	re := levelSpelling()[goarch]
 	if re == nil {
 		return fmt.Errorf("--platform: %s has no CPU level; drop /%s", goarch, level)
 	}
@@ -580,7 +584,15 @@ func runEntryProcess(child *exec.Cmd, limit uint64, watch *proclimit.Watcher) er
 		return err
 	}
 	done := make(chan error, 1)
-	go func() { done <- child.Wait() }()
+	go func() {
+		if watch != nil {
+			// Its output is piped through the watcher: wait for every byte,
+			// with what it left behind ended (proclimit.Wait).
+			done <- proclimit.Wait(context.Background(), child)
+			return
+		}
+		done <- child.Wait()
+	}()
 	forwarded := map[syscall.Signal]bool{}
 	for {
 		select {

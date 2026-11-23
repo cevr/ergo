@@ -1,0 +1,114 @@
+// The warm answer's key and its folder digests (compile-speed CS2;
+// internal/sketchfront/warm.go, the reference until the S5 swap). A
+// request whose key has a manifest, and whose every input still has its
+// recorded hash, listing and kind, is answered from the store with no
+// parse, check or process. The design model is models/warmstamp: its warm
+// check (the decide step) answers only for the key of the bytes it read,
+// and its law AnswerIsFresh is why that key has to cover every input that
+// can change the answer: the parts, the compiler, the build environment
+// and the Go experiments.
+
+import hex
+import sha256
+import slices
+import strings
+
+// WarmSchema versions the warm key and its manifest.
+let WarmSchema = "ergo-warm-1"
+
+// WarmVariable set to "full" selects the reference path; it changes no
+// answer, so it is not part of the key.
+let WarmVariable = "ERGO_BUILD"
+
+// StageReportVariable names where a stage report goes; it changes no
+// answer, so it is not part of a key.
+let StageReportVariable = "ERGO_STAGE_REPORT"
+
+// WarmLocations are the GO*, CGO_* and ERGO_* variables that say where a
+// run keeps or reports things (caches, scratch, the store's own folder,
+// reports, the run budget's scheduling), not what it answers: a request
+// that differs only in one has the same key (GB-WARMENV). Every other
+// such variable, classified as an answer or unknown, is in the key.
+// internal/sketchfront's warmEnv names the same locations (its false
+// entries; TestWarmKeyAgreesWithErgo).
+let WarmLocations = []string{
+	"GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOENV",
+	"GOTELEMETRY", "GOTELEMETRYDIR", "GOMAXPROCS", "GOMEMLIMIT",
+	"ERGO_CACHE", StageReportVariable, WarmVariable, "ERGO_PARITY_LOG",
+	"ERGO_BUDGET", "ERGO_BUDGET_SCRATCH", "ERGO_BUDGET_CLASS", "ERGO_BUDGET_LANE",
+	"ERGO_BUDGET_GRANT", "ERGO_BUDGET_BIN", "ERGO_BUDGET_CRIT", "ERGO_BUDGET_QUIET",
+	"ERGO_GATE_CPUS", "ERGO_IRC",
+}
+
+// answerEnviron is Environ less every location (WarmLocations).
+func answerEnviron(environ []string) []string {
+	let mut out = []string{}
+	for kv in Environ(environ, StageReportVariable) {
+		let name = strings.Split(kv, "=")[0]
+		if !slices.Contains(WarmLocations, name) {
+			out = out.Append(kv)
+		}
+	}
+	out
+}
+
+// WarmKey is the key of a request: the parts the caller names (command,
+// folder, options, toolchain), the compiler's identity, the environment's
+// build variables that are not locations (answerEnviron) and the Go
+// experiments, framed. It is "" when the compiler has no identity,
+// or only one scoped to its process, which keys nothing another process
+// may trust.
+func WarmKey(compiler string, parts []string, environ []string, experiments []string) string {
+	if compiler == "" || strings.HasPrefix(compiler, "process:") {
+		return ""
+	}
+	let mut all = []string{WarmSchema, compiler, "\(len(parts))"}
+	for p in parts {
+		all = all.Append(p)
+	}
+	let env = answerEnviron(environ)
+	all = all.Append("\(len(env))")
+	for kv in env {
+		all = all.Append(kv)
+	}
+	all = all.Append("experiments " + strings.Join(experiments, ","))
+	Framed(all)
+}
+
+// WarmKeyCoversTheAnswer: a request that differs in a build variable, in
+// a variable no class names, or in its experiments has another key
+// (AnswerIsFresh needs it), and one that differs only in a location (where
+// its stage report goes, ERGO_BUILD, its scratch folder) or in a variable
+// that is no build variable has the same key.
+law WarmKeyCoversTheAnswer(parts []string, value string) {
+	let base = WarmKey("ergo 1", parts, []string{}, []string{})
+	let byEnv = base != WarmKey("ergo 1", parts, []string{"GOFLAGS=" + value}, []string{})
+	let byUnknown = base != WarmKey("ergo 1", parts, []string{"ERGO_UNCLASSIFIED=" + value}, []string{})
+	// An empty experiment name names no experiment (Go's list is joined).
+	let byExperiment = value == "" || base != WarmKey("ergo 1", parts, []string{}, []string{value})
+	let quiet = base == WarmKey("ergo 1", parts, []string{StageReportVariable + "=" + value, WarmVariable + "=" + value, "GOTMPDIR=" + value, "HOME=" + value}, []string{})
+	byEnv && byUnknown && byExperiment && quiet
+}
+
+// Entry is one name of a folder listing and its type bits (Go's
+// fs.FileMode Type, as a number).
+type Entry { Name string, Type int }
+
+// ListingDigest is the digest of a folder's listing: each entry written
+// "<len>:<name><type>", sorted, joined by NUL, hashed. A new, removed or
+// retyped entry changes it; the order the host lists them in does not.
+func ListingDigest(entries []Entry) string {
+	let mut names = []string{}
+	for e in entries {
+		names = names.Append("\(len(e.Name)):" + e.Name + "\(e.Type)")
+	}
+	hex.Encode(sha256.Sum(strings.Join(slices.Sort(names), "\x00")))
+}
+
+// ListingIgnoresOrder: a listing read in the other order has the same
+// digest.
+law ListingIgnoresOrder(a string, b string, t int) {
+	let one = Entry{Name: a, Type: t}
+	let two = Entry{Name: b, Type: 0}
+	ListingDigest([]Entry{one, two}) == ListingDigest([]Entry{two, one})
+}

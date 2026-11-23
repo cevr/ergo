@@ -43,6 +43,17 @@ func goNatives() map[string]native {
 	}
 }
 
+// goNativeReads is what each native of goNatives reads (nativeTables.reads).
+func goNativeReads() map[string]string {
+	return map[string]string{
+		"math.Log": "float64", "math.Exp": "float64",
+		"strings.TrimLeft": "string string", "strings.TrimRight": "string string",
+		"math.Float64frombits": "uint64", "math.Float32bits": "float32", "math.Float32frombits": "uint32",
+		"unicode.IsLetter": "int32", "unicode.IsDigit": "int32", "unicode.IsSpace": "int32",
+		"strconv.QuoteRune": "int32",
+	}
+}
+
 // Go's math for float64, which std/math/math.ergo binds through import go,
 // and strings.IndexByte, which std strings binds.
 func registerNativesgo(t nativeTables) {
@@ -50,10 +61,12 @@ func registerNativesgo(t nativeTables) {
 	goNatives := t.goLib
 	for name, f := range map[string]func(float64) float64{"Abs": math.Abs, "Ceil": math.Ceil, "Floor": math.Floor, "Round": math.Round, "Sqrt": math.Sqrt, "Trunc": math.Trunc,
 		"Sin": math.Sin, "Cos": math.Cos, "Tan": math.Tan, "Asin": math.Asin, "Acos": math.Acos, "Atan": math.Atan, "Cbrt": math.Cbrt, "Log2": math.Log2, "Log10": math.Log10} {
+		t.reads["math."+name] = "float64"
 		goNatives["math."+name] = goFloat(f)
 	}
 	// math.Float64bits, which std explore's key binds through import go
 	// (a float keyed by its bits; MODELCHECK E1).
+	t.reads["math.Float64bits"] = "float64"
 	goNatives["math.Float64bits"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.Float64bits(args[0].(float64)), in.charge(fr, at, 1)
 	}
@@ -62,19 +75,23 @@ func registerNativesgo(t nativeTables) {
 			return f(args[0].(float64), args[1].(float64)), in.charge(fr, at, 1)
 		}
 	}
+	t.reads["strings.IndexByte"] = "string uint8"
 	goNatives["strings.IndexByte"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		if ab := in.charge(fr, at, 1+readsOf["strings.IndexByte"](args)); ab != nil {
+		if ab := in.charge(fr, at, 1+readsOf()["strings.IndexByte"](args)); ab != nil {
 			return nil, ab
 		}
 		return int64(strings.IndexByte(args[0].(string), args[1].(uint8))), nil
 	}
 	// std sha256 and crc32 bind Go's digests on the bytes of a string
 	// (NP4f-5); std strings' Bytes gives them.
+	t.reads["crypto/sha256.Sum256"] = "sliceV"
 	goNatives["crypto/sha256.Sum256"] = goBytes(func(b []byte) Value {
 		d := sha256.Sum256(b)
 		return byteArray(d[:])
 	})
+	t.reads["hash/crc32.ChecksumIEEE"] = "sliceV"
 	goNatives["hash/crc32.ChecksumIEEE"] = goBytes(func(b []byte) Value { return crc32.ChecksumIEEE(b) })
+	t.reads["strings.stringsBytes"] = "string"
 	natives["strings.stringsBytes"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		s := args[0].(string)
 		if ab := in.build(fr, at, 1+int64(len(s)), int64(len(s)), 0); ab != nil {
@@ -98,6 +115,7 @@ func registerNativesgo(t nativeTables) {
 		}
 		return v.(bool), nil
 	}
+	t.reads["strings.TrimFunc"] = "string func/1"
 	goNatives["strings.TrimFunc"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		s := args[0].(string)
 		if ab := in.charge(fr, at, 1); ab != nil {
@@ -128,6 +146,7 @@ func registerNativesgo(t nativeTables) {
 		}
 		return s[start:end], nil
 	}
+	t.reads["strings.FieldsFunc"] = "string func/1"
 	goNatives["strings.FieldsFunc"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		s := args[0].(string)
 		if ab := in.charge(fr, at, 1); ab != nil {
@@ -168,24 +187,35 @@ func registerNativesgo(t nativeTables) {
 			return int64(f(args[0].(string), args[1].(string))), nil
 		}
 	}
+	t.reads["strings.IndexAny"] = "string string"
 	goNatives["strings.IndexAny"] = index(strings.IndexAny)
+	t.reads["strings.LastIndexAny"] = "string string"
 	goNatives["strings.LastIndexAny"] = index(strings.LastIndexAny)
+	t.reads["math.Pow"] = "float64 float64"
 	goNatives["math.Pow"] = two(math.Pow)
+	t.reads["math.Mod"] = "float64 float64"
 	goNatives["math.Mod"] = two(math.Mod)
+	t.reads["math.Atan2"] = "float64 float64"
 	goNatives["math.Atan2"] = two(math.Atan2)
+	t.reads["math.Hypot"] = "float64 float64"
 	goNatives["math.Hypot"] = two(math.Hypot)
+	t.reads["math.FMA"] = "float64 float64 float64"
 	goNatives["math.FMA"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.FMA(args[0].(float64), args[1].(float64), args[2].(float64)), in.charge(fr, at, 1)
 	}
+	t.reads["math.Inf"] = "int64"
 	goNatives["math.Inf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.Inf(int(args[0].(int64))), in.charge(fr, at, 1)
 	}
+	t.reads["math.NaN"] = ""
 	goNatives["math.NaN"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.NaN(), in.charge(fr, at, 1)
 	}
+	t.reads["math.IsNaN"] = "float64"
 	goNatives["math.IsNaN"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.IsNaN(args[0].(float64)), in.charge(fr, at, 1)
 	}
+	t.reads["math.IsInf"] = "float64 int64"
 	goNatives["math.IsInf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return math.IsInf(args[0].(float64), int(args[1].(int64))), in.charge(fr, at, 1)
 	}

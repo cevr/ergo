@@ -38,7 +38,13 @@ type TestHost[S, E, D, F] {
 	// ReplaceOn): before it, the history's one entry is the host's "/",
 	// which the first navigation replaces (FK9b).
 	opened bool,
+	// tracks is each TrackNode's motion, which the host runs on its
+	// clock with no pass (TRACKS).
+	tracks Map[Id[E], hostTrack],
 }
+
+// hostTrack is a TrackNode's key and its motion since its last target.
+type hostTrack { key Key, state TrackState }
 
 // NoNode is the failure of a script step whose label names no node on the
 // screen.
@@ -419,7 +425,7 @@ func inputFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				phase = Wheel{DX: 0.0, DY: float64(draw(&r, 9))}
 			case _:
 			}
-			let ev = PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+			let ev = PointerEvent{Pointer: MousePointer, Phase: phase, X: x, Y: y, Zone: None}
 			act = PointOn{Label: "pad", Pointer: ev}
 			sent = onPad(model, ev)
 		}
@@ -662,7 +668,16 @@ func hostOf[E comparable, S, D, F](s own Session[S, E, D, F], first []Op[E], pos
 	let mut session = s
 	let mut m = NewMirror[E](Root(&session.frame))
 	try Apply(&m, first)
-	TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, heldY: 0.0, said: []string{}, step: NoCounts(), opened: false}
+	let mut h = TestHost[S, E, D, F]{clock: clock, start: clock.Now(), period: 16ms, owed: duration(int64(0)), frames: 0, posted: posted, mirror: m, session: session, history: NewMemoryHistory(URL{Path: "/", Query: "", Fragment: ""}), captured: None, heldY: 0.0, said: []string{}, step: NoCounts(), opened: false, tracks: Map[Id[E], hostTrack]{}}
+	// The first patch's tracks rest on their targets.
+	for op in first {
+		match op {
+		case Insert[E] as x:
+			track(&h, x.Id, x.Node)
+		case _:
+		}
+	}
+	h
 }
 
 // apply steps one event and shows its patch. An input starts a step:
@@ -694,11 +709,57 @@ func show[S, E, D, F](h mut TestHost[S, E, D, F], ops []Op[E]) fails BadPatch {
 		match op {
 		case Insert[E] as x:
 			say(h, x.Node)
+			track(h, x.Id, x.Node)
 		case Set[E] as x:
 			say(h, x.Node)
+			track(h, x.Id, x.Node)
+		case Remove[E] as x:
+			h.tracks = h.tracks.Delete(x.Id)
 		case _:
 		}
 	}
+}
+
+// track runs a TrackNode the patch wrote: a new one rests on its target,
+// and a new target retargets the motion at the clock's time.
+func track[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E], n Node[E]) {
+	match n {
+	case TrackNode as x:
+		let now = h.clock.Now().Sub(h.start)
+		match h.tracks.Get(id) {
+		case Some[hostTrack] as t:
+			if t.Value.state.To != x.Target {
+				h.tracks[id] = hostTrack{key: x.Key, state: TrackRetarget(t.Value.state, x.Target, now)}
+			}
+		case None:
+			h.tracks[id] = hostTrack{key: x.Key, state: TrackStill(x.Target, x.Curve)}
+		}
+	case _:
+	}
+}
+
+// tracksMoving is whether a track is not yet at rest.
+func tracksMoving[S, E, D, F](h mut TestHost[S, E, D, F]) bool {
+	let now = h.clock.Now().Sub(h.start)
+	for _, t in h.tracks {
+		if !TrackDone(t.state, now) {
+			return true
+		}
+	}
+	false
+}
+
+// TrackedValue is the value the track keyed key shows now, as the host
+// paints it (None: no such track).
+func TrackedValue[S, E, D, F](h mut TestHost[S, E, D, F], key Key) Option[float64] {
+	let now = h.clock.Now().Sub(h.start)
+	for _, t in h.tracks {
+		if t.key == key {
+			let (v, _) = TrackAt(t.state, now)
+			return Some{Value: v}
+		}
+	}
+	None
 }
 
 // say logs the text of a live region the patch wrote, unless it is empty.
@@ -719,6 +780,8 @@ func isInput[E](ev Event[E]) bool {
 	case Press[E]:
 		true
 	case Type[E]:
+		true
+	case Edit[E]:
 		true
 	case Point[E]:
 		true
@@ -743,11 +806,22 @@ func Counts[S, E, D, F](h mut TestHost[S, E, D, F]) StepCounts { h.step }
 // Tap presses the node id. A tap is a pointer's press and release on it,
 // so it ends any capture (FK12-g1), as a window's click on a button does,
 // and the pointer stays over it (UG3): a Down and an Up at its top left
-// corner, then the press, as the desktop host sends them.
+// corner, then the press, as the desktop host sends them. Over a node a
+// layer's scrim covers, the click lands on the scrim: no press (UG4).
 func Tap[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E]) fails actor.Stopped | BadPatch {
+	try TapWith(h, id, MousePointer)
+}
+
+// TapWith is Tap by the pointer p: a finger's tap (Finger) presses as the
+// mouse's does but leaves the hover where it was (MB4).
+func TapWith[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p Pointer) fails actor.Stopped | BadPatch {
 	h.captured = None
-	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
+	if Shielded(&h.session.frame, id) {
+		try scrimClick(h)
+		return
+	}
+	try point(h, id, None, PointerEvent{Pointer: p, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: p, Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Press[E]{Id: id})
 }
 
@@ -755,11 +829,24 @@ func Tap[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E]) fails acto
 // pointer stays over it (UG3).
 func TypeText[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], text string) fails actor.Stopped | BadPatch {
 	// A click on the node first, as a window's typing into a field does:
-	// the pointer stays over it (UG3).
+	// the pointer stays over it (UG3), or lands on a scrim (UG4).
 	h.captured = None
-	try point(h, id, None, PointerEvent{Phase: Down, X: 0, Y: 0, Zone: None})
-	try point(h, id, None, PointerEvent{Phase: Up, X: 0, Y: 0, Zone: None})
+	if Shielded(&h.session.frame, id) {
+		try scrimClick(h)
+		return
+	}
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, id, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
 	try apply(h, Type[E]{Id: id, Text: text})
+}
+
+// EditText sends the field id an Edit (OpenTUI gap 2): its text with the
+// caret at caret and the selection's other end at anchor, as a host does
+// for each edit or move of the caret in a focused field. The field takes
+// the focus; no click goes first, since the caret moves with the
+// keyboard.
+func EditText[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], text string, caret int, anchor int) fails actor.Stopped | BadPatch {
+	try apply(h, Edit[E]{Id: id, Text: text, Caret: caret, Anchor: anchor})
 }
 
 // Pump takes every result a fetch has posted, without waiting.
@@ -855,20 +942,22 @@ func Redraw[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails BadPatch {
 // EdgeScrollRunsEachFrame).
 func Advance[E comparable, S, D, F](h mut TestHost[S, E, D, F], d duration) fails actor.Stopped | BadPatch {
 	let mut left = d
-	for (Animating(&h.session.frame) || edgeMoves(h)) && left >= h.period-h.owed {
+	// A moving track asks for frames too, as on a window: each is a Tick,
+	// which runs no pass unless the view animates (TrackCostsNoPass).
+	for (Animating(&h.session.frame) || edgeMoves(h) || tracksMoving(h)) && left >= h.period-h.owed {
 		let due = h.period - h.owed
 		h.clock.Advance(due)
 		left = left - due
 		h.owed = duration(int64(0))
 		try edgeFrame(h)
-		if Animating(&h.session.frame) {
+		if Animating(&h.session.frame) || tracksMoving(h) {
 			h.frames = h.frames + 1
 			try apply(h, Tick{At: h.clock.Now().Sub(h.start)})
 		}
 		try Pump(h)
 	}
 	h.clock.Advance(left)
-	if Animating(&h.session.frame) || edgeMoves(h) {
+	if Animating(&h.session.frame) || edgeMoves(h) || tracksMoving(h) {
 		h.owed = h.owed + left
 	} else {
 		h.owed = duration(int64(0))
@@ -959,7 +1048,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	case _:
 		return false
 	}
-	PointAt(&h, area[0], PointerEvent{Phase: Down, X: 1.0, Y: y, Zone: None}) catch {
+	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Down, X: 1.0, Y: y, Zone: None}) catch {
 	case _:
 		return false
 	}
@@ -984,7 +1073,7 @@ func edgeFrames(seed int, m time.Manual) bool needs Scheduler {
 	if listOffset(Screen(&h)) != want {
 		return false
 	}
-	PointAt(&h, area[0], PointerEvent{Phase: Up, X: 1.0, Y: y, Zone: None}) catch {
+	PointAt(&h, area[0], PointerEvent{Pointer: MousePointer, Phase: Up, X: 1.0, Y: y, Zone: None}) catch {
 	case _:
 		return false
 	}
@@ -1064,8 +1153,9 @@ func FrameEvery[S, E, D, F](h mut TestHost[S, E, D, F], period duration) {
 }
 
 // WantsFrames is whether the view asks for frames: whether its last pass
-// made an Animate (what Run tells a window through Host.Frames).
-func WantsFrames[S, E, D, F](h mut TestHost[S, E, D, F]) bool { Animating(&h.session.frame) }
+// made an Animate (what Run tells a window through Host.Frames), or a
+// track the host runs is still moving (TRACKS).
+func WantsFrames[S, E, D, F](h mut TestHost[S, E, D, F]) bool { Animating(&h.session.frame) || tracksMoving(h) }
 
 // Frames is the number of Ticks the host has sent.
 func Frames[S, E, D, F](h mut TestHost[S, E, D, F]) int { h.frames }
@@ -1078,6 +1168,25 @@ func Frames[S, E, D, F](h mut TestHost[S, E, D, F]) int { h.frames }
 func PointAt[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], p PointerEvent) fails actor.Stopped | BadPatch {
 	try point(h, id, None, p)
 }
+
+// scrimClick is a click on the window's background, a layer's scrim or
+// where no node is, as the desktop host makes it: the pointer leaves every
+// node and the focus every node (UG3), then a Down and an Up go to the
+// root, outside every layer, so the top layer with a dismiss signal sends
+// it (UG4).
+func scrimClick[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
+	let r = SessionRoot(&h.session)
+	try PointNowhere(h)
+	FocusSession(&h.session, None)
+	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Down, X: 0, Y: 0, Zone: None})
+	try point(h, r, None, PointerEvent{Pointer: MousePointer, Phase: Up, X: 0, Y: 0, Zone: None})
+}
+
+// KidsAt is the node id's children on the test host, in order (UG4).
+func KidsAt[S, E, D, F](h mut TestHost[S, E, D, F], id Id[E]) []Id[E] { Kids(&h.session.frame, id) }
+
+// LayersOf is the test host's layers, the bottom first (UG4).
+func LayersOf[S, E, D, F](h mut TestHost[S, E, D, F]) []Id[E] { Layers(&h.session.frame) }
 
 // PointOver sends a pointer event to the Area id over the zone zone, whose
 // box in the Area's box is box (the host's hit test of the topmost zone
@@ -1107,7 +1216,8 @@ func Announced[S, E, D, F](h mut TestHost[S, E, D, F]) []string { h.said }
 // pointer, if one does and the tree still holds it; a Down makes the
 // Area it goes to hold the pointer, and an Up lets go.
 func point[E comparable, S, D, F](h mut TestHost[S, E, D, F], id Id[E], over Option[ZoneBox[E]], p PointerEvent) fails actor.Stopped | BadPatch {
-	let mut to = id
+	// Over a node a scrim covers, the pointer is over the scrim (UG4).
+	let mut to = if Shielded(&h.session.frame, id) { SessionRoot(&h.session) } else { id }
 	match Captured(h) {
 	case Some[Id[E]] as c:
 		to = c.Value
@@ -1164,7 +1274,7 @@ func Now[S, E, D, F](h mut TestHost[S, E, D, F]) time.Time { h.clock.Now() }
 func FocusOf[S, E, D, F](h mut TestHost[S, E, D, F]) Option[Id[E]] { SessionFocus(&h.session) }
 
 // Screen is what the host shows, built only from the patches.
-func Screen[S, E, D, F](h mut TestHost[S, E, D, F]) []Shape[E] { MirrorShape(&h.mirror) }
+func Screen[S, E, D, F](h mut TestHost[S, E, D, F]) []Shape[E] { ShownShapesIn(&h.session, MirrorShape(&h.mirror)) }
 
 // LooksOf is the Looks the host holds for a node of its screen: its
 // LookId's in the host's table (look.ergo).
@@ -1173,16 +1283,17 @@ func LooksOf[S, E, D, F](h mut TestHost[S, E, D, F], n Node[E]) Looks { LooksIn(
 // PointNowhere moves the pointer off every node, as a pointer that
 // leaves the window does: a Moved to the root (UG3).
 func PointNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
-	try point(h, SessionRoot(&h.session), None, PointerEvent{Phase: Moved, X: 0, Y: 0, Zone: None})
+	try point(h, SessionRoot(&h.session), None, PointerEvent{Pointer: MousePointer, Phase: Moved, X: 0, Y: 0, Zone: None})
 }
 
 // ClickNowhere clicks where no node is, as a click on a window's
 // background does: the pointer leaves every node and the focus every
-// node (UG3). A click ends any hold, as any Down elsewhere does.
+// node (UG3), and its Down and Up go to the root, outside every layer, so
+// the top layer with a dismiss signal sends it (UG4). A click ends any
+// hold, as any Down elsewhere does.
 func ClickNowhere[E comparable, S, D, F](h mut TestHost[S, E, D, F]) fails actor.Stopped | BadPatch {
 	h.captured = None
-	try PointNowhere(h)
-	FocusSession(&h.session, None)
+	try scrimClick(h)
 }
 
 // Activate presses the node id from the keyboard, as Tab to it and Enter
@@ -1585,6 +1696,16 @@ func nodeText[E](n Node[E]) string {
 		if x.Invalid {
 			out = out + " invalid"
 		}
+		if x.Lines > 1 {
+			out = out + " lines \(x.Lines)"
+		}
+		// The caret and the selection, unless both are at the end.
+		if x.Caret != x.Anchor {
+			let (lo, hi) = Selected(EditingOf(x))
+			out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
+		} else if x.Caret != len(x.Value) {
+			out = out + " caret \(x.Caret)"
+		}
 		out
 	case FieldsetNode as x:
 		let mut out = "fieldset"
@@ -1599,10 +1720,39 @@ func nodeText[E](n Node[E]) string {
 		"zone \(keyText(x.Key))"
 	case LiveNode as x:
 		"live \"\(x.Text)\""
+	case ReadoutNode as x:
+		"readout \"\(x.Reserve)\""
 	case TransitionNode as x:
 		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
+	case TrackNode as x:
+		"track \(keyText(x.Key)) \(x.Target)"
 	case SemanticNode[E] as x:
 		"\(roleText(x.Access.Role)) \"\(x.Access.Name)\""
+	case LayerNode[E] as x:
+		let mut out = "layer \(zText(x.Z))"
+		match x.Anchor {
+		case Some[Key] as k:
+			out = out + " at \(keyText(k.Value))"
+		case None:
+		}
+		if x.Scrim {
+			out = out + " scrim"
+		}
+		out
+	}
+}
+
+// zText is a layer's kind as the screenshot names it.
+func zText(z Z) string {
+	match z {
+	case PopoverZ:
+		"popover"
+	case ModalZ:
+		"modal"
+	case ToastZ:
+		"toast"
+	case TooltipZ:
+		"tooltip"
 	}
 }
 

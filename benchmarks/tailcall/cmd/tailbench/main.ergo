@@ -56,9 +56,167 @@ func chain(n int) int {
 	t
 }
 
+// tryLet passes c0's failure on through a try (INLINE-FAIL-LOCAL: its
+// failure is a local of type error).
+func tryLet(x int) int fails Gone | Bad {
+	let v = try c0(x)
+	v + 1
+}
+
+func tryLets(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + (tryLet(i & 4095) catch {
+		case Gone as g:
+			g.At & 1
+		case Bad as b:
+			b.Why & 3
+		})
+	}
+	t
+}
+
+// orFail is a user's OrFail: its failure is its parameter f.
+func orFail[T, F](o Option[T], f F) T fails F {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		return f
+	}
+}
+
+func look(m Map[int, int], k int) int fails Gone {
+	let v = try orFail(m.Get(k), Gone{At: k})
+	v
+}
+
+func table() Map[int, int] {
+	let mut m = Map[int, int]{}
+	for i in 0..1024 {
+		m = m.Put(i * 2, i)
+	}
+	m
+}
+
+func orFails(n int) int {
+	let m = table()
+	let mut t = 0
+	for i in 0..n {
+		t = t + (look(m, i & 2047) catch {
+		case Gone as g:
+			g.At & 1
+		})
+	}
+	t
+}
+
+// Box's F is a Slot row of get: Box[int, Gone] reaches get as itself
+// (INLINE-SLOT copies get into the loop).
+type Box[T, F] = Idle{} | Got{Value T} | Bad2{Error F}
+
+func get[T, F](b Box[T, F]) T fails F | Bad {
+	match b {
+	case Idle:
+		return Bad{Why: 0}
+	case Got as g:
+		return g.Value
+	case Bad2 as e:
+		return e.Error
+	}
+}
+
+func boxOf(i int) Box[int, Gone] {
+	if i % 3 == 0 {
+		return Bad2[Gone]{Error: Gone{At: i}}
+	}
+	if i % 7 == 1 {
+		return Idle
+	}
+	Got[int]{Value: i}
+}
+
+func slotGets(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + (get(boxOf(i & 4095)) catch {
+		case Gone as g:
+			g.At & 1
+		case Bad as b:
+			b.Why & 3
+		})
+	}
+	t
+}
+
+// slotfield and slotlit (FAILJUMP-TYPED): get at one type, its failure
+// read from the field (getField) or built in place (getLit).
+func getField(b Box[int, Gone]) int fails Gone | Bad {
+	match b {
+	case Idle:
+		return Bad{Why: 0}
+	case Got as g:
+		return g.Value
+	case Bad2 as e:
+		return e.Error
+	}
+}
+
+func getLit(b Box[int, Gone]) int fails Gone | Bad {
+	match b {
+	case Idle:
+		return Bad{Why: 0}
+	case Got as g:
+		return g.Value
+	case Bad2 as e:
+		return Gone{At: e.Error.At}
+	}
+}
+
+func fieldGets(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + (getField(boxOf(i & 4095)) catch {
+		case Gone as g:
+			g.At & 1
+		case Bad as b:
+			b.Why & 3
+		})
+	}
+	t
+}
+
+func litGets(n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + (getLit(boxOf(i & 4095)) catch {
+		case Gone as g:
+			g.At & 1
+		case Bad as b:
+			b.Why & 3
+		})
+	}
+	t
+}
+
 func bench(kind string, n int) int {
+	if kind == "slotfield" {
+		return fieldGets(n)
+	}
+	if kind == "slotlit" {
+		return litGets(n)
+	}
 	if kind == "chain" {
 		return chain(n)
+	}
+	if kind == "slotget" {
+		return slotGets(n)
+	}
+	if kind == "trylet" {
+		return tryLets(n)
+	}
+	if kind == "orfail" {
+		return orFails(n)
 	}
 	0
 }

@@ -117,7 +117,7 @@ func fakeBuild(builds *atomic.Int32) func(source, overlay, out string) error {
 // (irt-patched-never-ready).
 func TestPatchBuildsOnceAndKeysOnThePatch(t *testing.T) {
 	var builds atomic.Int32
-	cache, source := t.TempDir(), fakeRelease(t, "go1.27.0")
+	cache, source := ircDir(t), fakeRelease(t, "go1.27.0")
 	c := PatchConfig{Cache: cache, Source: source, lock: plantedLock("go1.27.0", "B"), build: fakeBuild(&builds)}
 	first, err := Patch(c)
 	if err != nil {
@@ -170,7 +170,7 @@ func TestPatchBuildsOnceForTwoBuilds(t *testing.T) {
 	var builds atomic.Int32
 	entered, release := make(chan struct{}, 2), make(chan struct{})
 	inner := fakeBuild(&builds)
-	c := PatchConfig{Cache: t.TempDir(), Source: fakeRelease(t, "go1.27.0"), lock: plantedLock("go1.27.0", "B"),
+	c := PatchConfig{Cache: ircDir(t), Source: fakeRelease(t, "go1.27.0"), lock: plantedLock("go1.27.0", "B"),
 		build: func(source, overlay, out string) error {
 			entered <- struct{}{}
 			<-release
@@ -230,14 +230,45 @@ func TestGoModPinsTheRelease(t *testing.T) {
 // (irt-pin-unported).
 func TestPatchRefusesAnUnportedGo(t *testing.T) {
 	var builds atomic.Int32
-	_, err := Patch(PatchConfig{Cache: t.TempDir(), Source: fakeRelease(t, "go1.27.1"), build: fakeBuild(&builds)})
+	_, err := Patch(PatchConfig{Cache: ircDir(t), Source: fakeRelease(t, "go1.27.1"), build: fakeBuild(&builds)})
 	if err == nil || !strings.Contains(err.Error(), "Go go1.27.1 has no port") || !strings.Contains(err.Error(), Version) {
 		t.Errorf("an unported go1.27.1: %v; want the refusal that lists the ports", err)
+	}
+	// The refusal names how to get the port (tc-refusal-names-no-install).
+	if install := "go install golang.org/dl/" + Version + "@latest && " + Version + " download"; err == nil || !strings.Contains(err.Error(), install) {
+		t.Errorf("an unported go1.27.1: %v; want the install command %q", err, install)
 	}
 	if builds.Load() != 0 {
 		t.Errorf("an unported release built %d compiles", builds.Load())
 	}
 	if _, err := portOf(ir.Files, Version); err != nil {
 		t.Errorf("the pinned %s: %v", Version, err)
+	}
+}
+
+// TestSourceOfAsksForThePortedRelease: a go command on PATH (ERGO_GO=system,
+// as every test and every mutant child runs) is asked for its GOROOT in a
+// module whose go.mod names Version as its toolchain, so a go older than
+// the port switches to it, where the generated module's go line alone
+// ("go 1.27") switched a go1.26.5 to go1.27.0, which has no port (OWN1's
+// --native killers under scripts/mutants). A go.mod naming its own
+// toolchain keeps it. The fake go answers by the probe's go.mod, as go's
+// toolchain switch reads it. Mutant: the probe's go.mod is the generated
+// one unchanged (tc-probe-no-toolchain-line).
+func TestSourceOfAsksForThePortedRelease(t *testing.T) {
+	bin := t.TempDir()
+	fake := filepath.Join(bin, "go")
+	script := "#!/bin/sh\nif grep -qx 'toolchain " + Version + "' go.mod; then echo /ported; else echo /go-line-only; fi\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range []struct{ goMod, want string }{
+		{"module m\n\ngo 1.27\n", "/ported"},
+		{"module m\n\ngo 1.27\n\ntoolchain go1.27.9\n", "/go-line-only"},
+	} {
+		got, err := SourceOf(Toolchain{Mode: "path", Go: fake}, t.TempDir(), []byte(row.goMod))
+		if err != nil || got != row.want {
+			t.Errorf("SourceOf with go.mod %q: %q, %v; want %q", row.goMod, got, err, row.want)
+		}
 	}
 }
