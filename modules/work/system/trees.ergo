@@ -366,7 +366,7 @@ func SharedUsage(t Trees, who string, root string) work.Usage fails work.Unsuppo
 	try parseBtrfsDu(t, who, root, r)
 }
 
-// ParseBtrfsDu reads the table of `btrfs filesystem du -s --raw`: a head
+// parseBtrfsDu reads the table of `btrfs filesystem du -s --raw`: a head
 // line, then Total, Exclusive, Set shared and the file name.
 func parseBtrfsDu(t Trees, who string, root string, r exec.Result) work.Usage fails work.CloneFailed {
 	let lines = strings.Split(strings.TrimSpace(r.Stdout), "\n")
