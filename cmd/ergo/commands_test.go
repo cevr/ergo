@@ -13,7 +13,6 @@ import (
 func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 	seen := map[string]bool{}
 	help := generalHelp()
-	ticket := regexp.MustCompile(`^#[0-9]+$`)
 	for _, c := range commands {
 		if seen[c.name] {
 			t.Fatalf("%q is classified twice", c.name)
@@ -24,14 +23,14 @@ func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 		}
 		switch c.fate {
 		case available:
-			if c.run == nil || c.usage == "" || c.ticket != "" || c.reason != "" {
+			if c.run == nil || c.usage == "" || c.reason != "" {
 				t.Fatalf("available %q: %+v", c.name, c)
 			}
 			if !strings.Contains(help, "ergo "+c.usage+"\n") {
 				t.Fatalf("help does not list %q", c.usage)
 			}
 		case removed, dark:
-			if c.run != nil || c.help != "" || c.usage != "" || !ticket.MatchString(c.ticket) || (c.fate == dark) != (c.reason == "") {
+			if c.run != nil || c.help != "" || c.usage != "" || (c.fate == dark) != (c.reason == "") {
 				t.Fatalf("stub %q: %+v", c.name, c)
 			}
 			if regexp.MustCompile(`\b` + regexp.QuoteMeta(c.name) + `\b`).MatchString(help) {
@@ -59,7 +58,7 @@ func TestCommandTableClassifiesEveryWordOnce(t *testing.T) {
 
 // TestStubsAnswerBeforeReadingArguments drives every command that does not
 // run, under every argument shape: one line on stderr naming the command
-// and its ticket, nothing on stdout, exit 1.
+// and why, nothing on stdout, exit 1.
 func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 	binary := buildTestCLI(t)
 	dir := t.TempDir()
@@ -78,11 +77,11 @@ func TestStubsAnswerBeforeReadingArguments(t *testing.T) {
 	}
 	// Each stub is "ergo NAME: " and the text the spec gives the command.
 	want := map[string]string{
-		"edition":      "removed in v1; there is one language and no editions (#205)",
-		"lint receipt": "removed in v1; cost receipts return with rule packs (#203)",
-		"explain":      "removed in v1; semantic tooling returns on the new front end (#203)",
-		"lsp":          "unavailable until ported to the new front end (#203)",
-		"mcp":          "unavailable until ported to the new front end (#203)",
+		"edition":      "removed in v1; there is one language and no editions",
+		"lint receipt": "removed in v1; cost receipts return with rule packs",
+		"explain":      "removed in v1; semantic tooling returns on the new front end",
+		"lsp":          "unavailable until ported to the new front end",
+		"mcp":          "unavailable until ported to the new front end",
 	}
 	for name, text := range want {
 		row, _ := lookupCommand(strings.Fields(name))

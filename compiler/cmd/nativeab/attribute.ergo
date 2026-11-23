@@ -1,0 +1,246 @@
+// The stage attribution of one measured build (NATIVE-AB-MEASURE). A
+// build is a process tree: drivers (ergo, go), one compile per action
+// and the link. Each process reports the user-mode instructions it ran
+// alone (Self, its children not included); a compile also reports
+// counted intervals (Span), one per stage and thread, its parser workers
+// included. Attribute turns the records into cells, the instructions of
+// one stage of one package of one origin, so that:
+//   - every counted instruction lands in exactly one cell: the spans of a
+//     compile, its rest as "unassigned", a driver's or the link's Self
+//     under its tool;
+//   - the cells sum to the process tree's total (Tree, the count
+//     perf_event_open with inherit gives at the root);
+//   - a warm hit (a cached action) records no compile work;
+//   - a stage nobody measured has no cell: absent is not zero.
+// Any record that breaks one of those is refused, never repaired.
+
+import maps
+import slices
+import strings
+
+// Stages are a compile's stages, in order. Route A (generated Go into
+// stock gc) runs parse, check, the IR bodies' attachment (-ergoir) and the
+// unified write and read before the
+// rest of gc; route B hands gc a checked package (adapter encode/decode)
+// and so has no parse or check of Go text.
+let Stages = []string{"parse", "check", "ergoir", "unified-write", "unified-read", "adapter", "gc"}
+
+// Tools are the processes whose whole Self is one cell. "driver" is ergo
+// and whatever of the go command a capture cannot tell apart from it.
+let Tools = []string{"driver", "go", "link", "asm", "cgo"}
+
+// Proc is one process of a measured build. Pid and Gen name it (Gen tells
+// apart two processes the host gave the same pid); Parent is "" for the
+// root, else the parent's "pid/gen". Tool is "compile" or one of Tools.
+// Pkg and Origin ("ergo" for generated Go, "go" for an ordinary Go
+// package) name what a compile compiled. Cached is a warm hit: the
+// action's output came from the cache and no compile ran.
+type Proc { Pid int, Gen int, Parent string, Tool string, Pkg string, Origin string, Cached bool, Self int }
+
+// Span is one counted interval of a compile: Count instructions of thread
+// Worker (0 the main thread, then the parser workers) in Stage. Seq
+// numbers the spans of one process.
+type Span { Pid int, Gen int, Seq int, Worker int, Stage string, Count int }
+
+// Trace is the records of one build, in the order they arrived, and the
+// process tree's total.
+type Trace { Procs []Proc, Spans []Span, Tree int }
+
+// Refused is a trace Attribute will not account for. Why is one of
+// "duplicate", "incomplete", "tree-mismatch", "unknown-stage",
+// "warm-compile" and "overcharged".
+type Refused { Why string, At string }
+
+func procKey(pid int, gen int) string { "\(pid)/\(gen)" }
+
+func cellKey(origin string, pkg string, stage string) string { origin + "|" + pkg + "|" + stage }
+
+func got[K comparable](m Map[K, int], k K) int {
+	match m.Get(k) {
+	case Some as v:
+		v.Value
+	case None:
+		0
+	}
+}
+
+func has[V](m Map[string, V], k string) bool {
+	match m.Get(k) {
+	case Some:
+		true
+	case None:
+		false
+	}
+}
+
+// under is the Self of the direct children of the process k: what a
+// count with inherit at k adds to k's own (the tree command prints it).
+func under(t Trace, k string) int {
+	let mut n = 0
+	for p in t.Procs {
+		if p.Parent == k {
+			n = n + p.Self
+		}
+	}
+	n
+}
+
+// Attribute is the cells of t, keyed "origin|pkg|stage" (tools under
+// origin "tool" and package ""), or the reason it refuses t.
+func Attribute(t Trace) Map[string, int] fails Refused {
+	let mut procs = Map[string, Proc]{}
+	let mut total = 0
+	for p in t.Procs {
+		let k = procKey(p.Pid, p.Gen)
+		if has(procs, k) {
+			return Refused{Why: "duplicate", At: k}
+		}
+		procs[k] = p
+		total = total + p.Self
+	}
+	for p in t.Procs {
+		if p.Parent != "" && !has(procs, p.Parent) {
+			return Refused{Why: "incomplete", At: procKey(p.Pid, p.Gen)}
+		}
+	}
+	if total != t.Tree {
+		return Refused{Why: "tree-mismatch", At: "\(total) != \(t.Tree)"}
+	}
+	let mut seen = Map[string, bool]{}
+	let mut charged = Map[string, int]{}
+	let mut cells = Map[string, int]{}
+	for s in t.Spans {
+		let k = procKey(s.Pid, s.Gen)
+		let p = match procs.Get(k) {
+		case Some as x:
+			x.Value
+		case None:
+			return Refused{Why: "incomplete", At: k}
+		}
+		let sk = k + "#\(s.Seq)"
+		if has(seen, sk) {
+			return Refused{Why: "duplicate", At: sk}
+		}
+		seen[sk] = true
+		if p.Cached {
+			return Refused{Why: "warm-compile", At: sk}
+		}
+		if p.Tool != "compile" || !slices.Contains(Stages, s.Stage) {
+			return Refused{Why: "unknown-stage", At: sk + " " + s.Stage}
+		}
+		charged[k] = got(charged, k) + s.Count
+		let c = cellKey(p.Origin, p.Pkg, s.Stage)
+		cells[c] = got(cells, c) + s.Count
+	}
+	for p in t.Procs {
+		let k = procKey(p.Pid, p.Gen)
+		if p.Tool == "compile" {
+			if p.Cached {
+				if p.Self != 0 {
+					return Refused{Why: "warm-compile", At: k}
+				}
+			} else {
+				let rest = p.Self - got(charged, k)
+				if rest < 0 {
+					return Refused{Why: "overcharged", At: k}
+				}
+				let c = cellKey(p.Origin, p.Pkg, "unassigned")
+				cells[c] = got(cells, c) + rest
+			}
+		} else if slices.Contains(Tools, p.Tool) {
+			let c = cellKey("tool", "", p.Tool)
+			cells[c] = got(cells, c) + p.Self
+		} else {
+			return Refused{Why: "unknown-stage", At: k + " " + p.Tool}
+		}
+	}
+	cells
+}
+
+// Lines is cells written one "key count" line each, sorted: the form two
+// attributions are compared in and a receipt prints.
+func Lines(cells Map[string, int]) []string {
+	let mut out = []string{}
+	for k in slices.Sorted(maps.Keys(cells)) {
+		out = out.Append(k + " \(got(cells, k))")
+	}
+	slices.Sorted(slices.Values(out))
+}
+
+// Sum is the instructions of all cells.
+func Sum(cells Map[string, int]) int {
+	let mut n = 0
+	for k in slices.Sorted(maps.Keys(cells)) {
+		n = n + got(cells, k)
+	}
+	n
+}
+
+// StagesOf is the stages with a cell for origin and package pkg.
+func StagesOf(cells Map[string, int], origin string, pkg string) []string {
+	let mut out = []string{}
+	for k in slices.Sorted(maps.Keys(cells)) {
+		let parts = strings.Split(k, "|")
+		if len(parts) == 3 && parts[0] == origin && parts[1] == pkg {
+			out = out.Append(parts[2])
+		}
+	}
+	slices.Sorted(slices.Values(out))
+}
+
+// recovers (law AttributeRecoversTheTruth): on a drawn build (Draw: packages of both
+// origins and both routes, a cold build or one after a private, public or
+// dependency edit, parser workers, records in any order, reused pids and
+// at most one broken record), Attribute gives the cells the generator
+// knows, or refuses exactly the broken record's kind.
+func recovers(seed int) bool {
+	let c = Draw(seed)
+	let cells = Attribute(c.Trace) catch {
+	case Refused as r:
+		return r.Why == c.Truth.Refusal
+	}
+	c.Truth.Refusal == "" && slices.Equal(Lines(cells), Lines(c.Truth.Cells))
+}
+
+// conserves (law CellsConserveTheTree): the cells of a trace Attribute accepts sum to the
+// process tree's total, so no instruction is lost or charged twice.
+func conserves(seed int) bool {
+	let c = Draw(seed)
+	let cells = Attribute(c.Trace) catch {
+	case Refused:
+		return true
+	}
+	Sum(cells) == c.Trace.Tree
+}
+
+// chargesStages (law RoutesChargeTheirStages): in an accepted trace, a rebuilt route B
+// package has no parse or check cell, a rebuilt route A package and a
+// rebuilt ordinary Go package have both, and a warm hit has no cell.
+func chargesStages(seed int) bool {
+	let c = Draw(seed)
+	let cells = Attribute(c.Trace) catch {
+	case Refused:
+		return true
+	}
+	let mut ok = true
+	for p in c.Packages {
+		let st = StagesOf(cells, p.Origin, p.Name)
+		let text = slices.Contains(st, "parse") && slices.Contains(st, "check")
+		if !slices.Contains(c.Truth.Rebuilt, p.Name) {
+			ok = ok && len(st) == 0
+		} else if p.Route == "B" {
+			ok = ok && !slices.Contains(st, "parse") && !slices.Contains(st, "check") && slices.Contains(st, "adapter")
+		} else {
+			ok = ok && text
+		}
+	}
+	ok
+}
+
+// The laws over the drawn builds; verify runs the same checks over a
+// seed range and prints a failing seed's input and replay command.
+law AttributeRecoversTheTruth(seed int) { recovers(seed) }
+
+law CellsConserveTheTree(seed int) { conserves(seed) }
+
+law RoutesChargeTheirStages(seed int) { chargesStages(seed) }

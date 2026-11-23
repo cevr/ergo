@@ -12,7 +12,7 @@ import (
 )
 
 // The body of the std package actor (docs/spec/runtime.md, Machines and
-// actors 6, 7 and 11; #57): a machine run live, on one task of its own,
+// actors 6, 7 and 11; the actor library): a machine run live, on one task of its own,
 // with an inbox. The std package builds the helpers below from a prelude
 // Machine and calls MachineStart; the Go body never names the program's
 // Decision, Option or Machine types (they are the program's), so it holds

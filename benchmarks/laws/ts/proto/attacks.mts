@@ -1,4 +1,4 @@
-// Attacks on the laws prototype's evidence boundary (#125), covering the four
+// Attacks on the laws prototype's evidence boundary, covering the four
 // rules from spike-where round 3 plus the laundering route. Strict, no any.
 // Every type-level refusal is an @ts-expect-error naming its code (opened by
 // ../tools/open-negatives.cjs); every attack that type-checks must be refused

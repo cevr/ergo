@@ -10,7 +10,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Go imports (#202, docs/spec/interop.md). `import go net/url` reads the
+// Go imports (docs/spec/interop.md). `import go net/url` reads the
 // binding of net/url: an Ergo file of extern go declarations that ergo bind
 // go generated from go/types. The checker never runs a Go tool (plan §2,
 // option C): Go's standard library is embedded (gostd), and a module's own
@@ -576,7 +576,7 @@ func goForeign() Type {
 }
 
 // GoImportPathError checks path by Go's rule for an import path
-// (golang.org/x/mod/module.CheckImportPath, #202; small-fix #231): it
+// (golang.org/x/mod/module.CheckImportPath, small-fix the FuzzFormat fix): it
 // returns the reason path is not one, or "".
 func GoImportPathError(path string) string {
 	switch {

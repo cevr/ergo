@@ -37,7 +37,8 @@ type Exit struct {
 
 // Code is os.Code, an exit status, which os.ergo's declaration names as
 // its Go type (docs/spec/stdlib.md, The body contract). The refinement
-// (1..125) is the checker's; reportExit holds a Code outside it to 1.
+// (1..125 or 129..192) is the checker's; reportExit holds a Code outside
+// it to 1.
 type Code int
 
 // Error is the failure's text: its Ergo name and fields, as the lowering
@@ -75,7 +76,7 @@ func OSHasEnv(key string) bool {
 //ergo:wait none
 func OSGetenv(key string) string { return os.Getenv(key) }
 
-// OSEnviron is the body of config.Host's Environ: each variable of the
+// OSEnviron is the body of os.Environ on the host (config.Environ reads it there): each variable of the
 // environment whose name starts with prefix, as "NAME=VALUE", sorted by
 // name, in a fresh slice. A variable set twice is given once, with the
 // value Go's os.Getenv reads.
@@ -269,6 +270,11 @@ type Mapped struct {
 	text string
 	data []byte // the mapping; nil for a text in memory or an unmapped one
 	id   uint64 // the rt registration of data
+	// The file's identity and physical path, kept by MapBounded alone
+	// (bounded.go): known is false for MapFile and MapText.
+	phys     string
+	dev, ino uint64
+	known    bool
 }
 
 // Text is the mapped text.
@@ -380,8 +386,8 @@ func (e Escapes) Error() string { return "fs.Escapes{Path:" + e.Path + "}" }
 type HostRoot struct{ root *os.Root }
 
 // FSOpenRoot is the body of fs.OpenRoot. Acquisition and registration on
-// the caller's frame are one masked step. Until local resource tracking
-// (#197), the handle may be used only while this frame is alive.
+// the caller's frame are one masked step. Until local resource tracking,
+// the handle may be used only while this frame is alive.
 //
 //ergo:host
 //ergo:wait none

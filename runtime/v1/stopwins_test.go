@@ -12,7 +12,7 @@ import (
 	"ergo.local/prototype/runtime/rt"
 )
 
-// TestStopWinsReleaseModel checks Gap 47 at the task boundary (#197 L8
+// TestStopWinsReleaseModel checks Gap 47 at the task boundary (resource ownership L8
 // B4): a value the body returned is released exactly once, by the Wait
 // that delivered it or by the owner's release (Close, then Drain), also
 // when rt's stop-wins dropped it because a stop was pending when the body
@@ -129,7 +129,7 @@ const (
 )
 
 // testBoundaryReleases checks Gap 47 at the std boundaries that drop a
-// successful value (#197 L8 B4): tasks.Race (its losers), tasks.Transform
+// successful value (L8 B4): tasks.Race (its losers), tasks.Transform
 // (the finished results when another call fails) and timeout.After (a
 // value the deadline or a stop dropped). Seeded schedules of blocks; the
 // reference is the conservation law: the values the boundary gives and the

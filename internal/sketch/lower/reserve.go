@@ -172,7 +172,7 @@ func (fc *funcCtx) selfAppend(st syntax.Stmt) *check.Var {
 		return nil
 	}
 	c := fc.l.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || !preludeAppend(c.Func) {
+	if c == nil || c.Kind != check.CallFunc || !appendsSource(c.Func) {
 		return nil
 	}
 	src := c.Recv

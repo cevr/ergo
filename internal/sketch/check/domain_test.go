@@ -798,7 +798,7 @@ func F() { _ = Box[int, S]{1, S} }`},
 	// literal's default binds T (196u rule 6), and S satisfies I[int]; a
 	// string literal binds T to string, which S does not satisfy. T is
 	// comparable, not any, which the decided language does not spell
-	// before a constrained parameter (#196).
+	// before a constrained parameter.
 	{"dependent-constraint-call", "", `type I[T] { M(T) }
 type S {} implements I[int]
 func M(_ S, x int) {}
@@ -844,7 +844,7 @@ func TestKindAndConstraintDomain(t *testing.T) {
 
 // ---------------------------------------------------------------- D2/D5
 
-// The chains are written in the decided syntax (#196).
+// The chains are written in the decided syntax.
 func structChain(n int) string {
 	var b strings.Builder
 	for i := 0; i < n; i++ {
@@ -866,7 +866,7 @@ func genericChain(n int) string {
 
 // TestFiniteChains: deep finite type chains are legal at any depth, and
 // closing the chain is S108 once (round-2 M5: no depth cutoff). The
-// array chain is gone with fixed arrays (#196).
+// array chain is gone with fixed arrays.
 func TestFiniteChains(t *testing.T) {
 	for _, gen := range []struct {
 		name string
@@ -889,7 +889,7 @@ func TestFiniteChains(t *testing.T) {
 
 var valueCases = []struct{ name, want, src string }{
 	// Map keys compare by value. (The cases of interface keys, which
-	// compare by dynamic type, went with the any type, #196.)
+	// compare by dynamic type, went with the any type, the v1 language.)
 	{"int64-keys-equal", "S108", `func F() Map[int64, int] { return Map[int64, int]{1: 1, int64(1): 2} }`},
 	// Typed integer constants index when representable as int.
 	{"typed-index-int64", "", `func F(xs []int) int { return xs[int64(0)] }`},
@@ -1005,8 +1005,8 @@ func hasTypeParam(t check.Type) bool {
 // one block over the names x, y and the blank gives one S108 for each
 // declaration of a name already declared in the block, and no S110 follows
 // from it: each name is read once after the declarations (round-2 M9).
-// Round 2 covered the left sides of :=, which the decided language removed
-// (#196); a binding of several names is a tuple's (196t).
+// Round 2 covered the left sides of :=, which the decided language removed;
+// a binding of several names is a tuple's (196t).
 func TestLetTargetsDomain(t *testing.T) {
 	atoms := []string{"x", "y", "_"}
 	var lists [][]string

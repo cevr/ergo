@@ -126,35 +126,61 @@ func loadSettings(path string, format Format) Option[settings] needs Config {
 	Some{Value: v}
 }
 
-// Host is the host's Config provider: its environment and its files. Its
-// fields give this package the construction authority (S114), as os.Host's
-// does; it reads through os's and fs's own hosts, which own those bodies.
-type Host { env os.Host, files fs.Host } implements Config
+// Host is the host's Config provider: its environment and its files. It
+// holds the functions NewHost built over os's and fs's own hosts, which
+// own those bodies, as code.HostFiles does: building one needs Ambient,
+// and using one hands no os.Host or fs.Host out, so its functions need no
+// Ambient (stdlib.md, Host packages; TestStdHostProvidersHaveAuthority).
+// Its unexported fields give this package the construction authority.
+type Host {
+	lookup   func(name string) Option[string],
+	environ  func(prefix string) []Variable,
+	readFile func(path string) Option[string] fails Unreadable,
+} implements Config
 
 // NewHost is the host's Config provider. It needs Ambient: only code whose
 // row holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{env: os.NewHost(), files: fs.NewHost()} }
+func NewHost() Host needs Ambient {
+	let env = os.NewHost()
+	let files = fs.NewHost()
+	Host{
+		lookup: func(name string) Option[string] { os.Getenv(env, name) },
+		environ: func(prefix string) []Variable { environOf(os.Environ(env), prefix) },
+		readFile: func(path string) Option[string] fails Unreadable { try readFileOn(files, path) },
+	}
+}
 
 // Lookup is the host's variable name, as os.Getenv reads it.
-func Lookup(h Host, name string) Option[string] { os.Getenv(h.env, name) }
+func Lookup(h Host, name string) Option[string] { h.lookup(name) }
 
-// Environ is the host's variables that start with prefix, by name.
-func Environ(_ Host, prefix string) []Variable {
+// Environ is the host's variables that start with prefix, by name: the
+// variables of os.Environ, which owns the host's environment (one body
+// has one Ergo owner, TestStdBindsNoForeignBody).
+func Environ(h Host, prefix string) []Variable { h.environ(prefix) }
+
+// ReadFile is the host's file at path: None when nothing is there.
+func ReadFile(h Host, path string) Option[string] fails Unreadable { try h.readFile(path) }
+
+// environOf is the variables of vars, each NAME=VALUE, whose name starts
+// with prefix, in vars' order.
+func environOf(vars []string, prefix string) []Variable {
 	let mut out = []Variable{}
-	for kv in hostEnviron(prefix) {
+	for kv in vars {
 		match strings.Cut(kv, "=") {
 		case Some as halves:
-			out = out.Append(Variable{Name: halves.Value.Before, Text: halves.Value.After})
+			if strings.HasPrefix(halves.Value.Before, prefix) {
+				out = out.Append(Variable{Name: halves.Value.Before, Text: halves.Value.After})
+			}
 		case None:
-			Unreachable("config: OSEnviron gives NAME=VALUE")
+			Unreachable("config: os.Environ gives NAME=VALUE")
 		}
 	}
 	out
 }
 
-// ReadFile is the host's file at path: None when nothing is there.
-func ReadFile(h Host, path string) Option[string] fails Unreadable {
-	let text = fs.ReadFile(h.files, path) catch {
+// readFileOn is ReadFile on the host files.
+func readFileOn(files fs.Host, path string) Option[string] fails Unreadable {
+	let text = fs.ReadFile(files, path) catch {
 	case fs.NotFound:
 		return None
 	case fs.Denied:
@@ -164,8 +190,6 @@ func ReadFile(h Host, path string) Option[string] fails Unreadable {
 	}
 	Some{Value: text}
 }
-
-extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron(prefix string) []string
 
 // Memory is a Config provider for tests: Env is the environment and Files
 // the files by path. It reaches nothing of the host, and a file it has is

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spike-laws TS caller view (#125). For each directory: tsc strict on every
+# spike-laws TS caller view. For each directory: tsc strict on every
 # .mts (each file on its own, because one attack augments globals); node runs
 # the consumer and the attacks; every @ts-expect-error is opened to show the
 # diagnostic it suppresses, with the declared code; `any` is counted in the

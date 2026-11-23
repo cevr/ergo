@@ -780,6 +780,104 @@ func loadsOf[E](m Map[arena.Ref[node[E]], Map[ident, slot]], r arena.Ref[node[E]
 // which a host applies as a pass's (SCROLL-COST: a list's new offset).
 type Handled[E] { Signal Option[E], Changed bool, Ops []Op[E] }
 
+// pressTarget is the node a press on r acts on: r when it answers a press
+// (answersPress), else the nearest node above r that does, else r. A press
+// on a control's text presses the control, as a click on a button's text
+// does in a DOM and as the terminal's click does (OT, the press rule).
+func pressTarget[E](f mut Frame[E], r arena.Ref[node[E]]) arena.Ref[node[E]] {
+	if !arena.Has(f.nodes, r) || answersPress(nodeAt(f, r).node) {
+		return r
+	}
+	match above(f, r) {
+	case Some[[]arena.Ref[node[E]]] as up:
+		for u in up.Value {
+			if u != f.root && answersPress(nodeAt(f, u).node) {
+				return u
+			}
+		}
+	case None:
+	}
+	r
+}
+
+// answersPress is whether a press of n is n's own: a Pressable, a Check
+// and a Toggle, and a Semantic that sends a signal (a disabled one too,
+// which takes the press and sends nothing, as a disabled button does).
+func answersPress[E](n Node[E]) bool {
+	match n {
+	case PressableNode[E], CheckNode[E], ToggleNode:
+		true
+	case SemanticNode[E] as x:
+		match x.On {
+		case Some[E]:
+			true
+		case None:
+			false
+		}
+	case BoxNode, RowNode, ColumnNode, ScrollNode, TextNode, InputNode, AreaNode, CanvasNode, RowsNode, FieldsetNode, ZoneNode, LiveNode, TransitionNode, ReadoutNode, LayerNode[E], TrackNode:
+		false
+	}
+}
+
+// PressReachesItsControl (OT, the press rule): a press goes to the
+// nearest node at or above the pressed one that answers a press. Over a
+// control (a Pressable, or a Semantic button that sends) whose text sits
+// d levels down (d of 0 to 3), a click on the text sends the control's
+// signal; a Pressable inside it takes its own text's press; and a text
+// under no control sends nothing.
+law PressReachesItsControl(seed int) {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let d = (seed%4 + 4) % 4
+		let semantic = (seed/4%2+2)%2 == 1
+		let view = func(f mut Frame[int], s int) {
+			Column(f, Plain()) {
+				Text(f, "free")
+				if semantic {
+					Semantic(f, Named(Button, "outer"), Some{Value: 1}, Plain()) {
+						pressDepth(f, d, "a")
+						Pressable(f, "inner", 2) {
+							pressDepth(f, d, "b")
+						}
+					}
+				} else {
+					Pressable(f, "outer", 1) {
+						pressDepth(f, d, "a")
+						Pressable(f, "inner", 2) {
+							pressDepth(f, d, "b")
+						}
+					}
+				}
+			}
+		}
+		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: lastStep, After: lastTimer, Work: lastWork, Exit: func(s int) Option[func()] { None }}, 1, func(o int) {})
+		let mut h = NewTestHost(a, view, m, 4) catch {
+		case BadPatch:
+			return false
+		}
+		let mut got = []int{}
+		for text in []string{"free", "a", "b", "a"} {
+			Play(&h, []Act{ClickOn{At: WithText{Text: text}}, SettleAll}) catch {
+			case _:
+				return false
+			}
+			got = got.Append(StateOf(&h))
+		}
+		got == []int{0, 1, 2, 1}
+	}
+}
+
+// pressDepth is text d Columns down. (a law's helper)
+func pressDepth(f mut Frame[int], d int, text string) {
+	if d == 0 {
+		Text(f, text)
+	} else {
+		Column(f, Plain()) {
+			pressDepth(f, d-1, text)
+		}
+	}
+}
+
 // Handle applies a host event to f: a press sends a Pressable's or a
 // Check's signal, flips a Toggle and empties a Submit's draft; a text
 // sends an Input's signal or becomes a Field's draft; a fetch's result
@@ -789,6 +887,7 @@ type Handled[E] { Signal Option[E], Changed bool, Ops []Op[E] }
 // list's viewport (Scrolled) becomes its cell and sends nothing; when the
 // list shows the same rows at it (Visible), the kept list takes the new
 // offset with no pass (one Set), else the view renders again. A press
+// acts on the nearest control at or above its node (pressTarget). A press
 // or a text on a node under a disabled Fieldset does nothing. An event
 // on a node f no longer holds (it raced a commit) does nothing.
 func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
@@ -807,7 +906,8 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		// A press is a pointer's (or a key's) press and release: no move
 		// after it is a drag until the next Down (FK12-g1).
 		f.down = arena.Null[node[E]]()
-		let n = f.nodes.Get(p.Id.ref) catch {
+		let r = pressTarget(f, p.Id.ref)
+		let n = f.nodes.Get(r) catch {
 		case arena.Stale:
 			return out
 		}
@@ -816,7 +916,7 @@ func Handle[E](f mut Frame[E], event Event[E]) Handled[E] {
 		}
 		// A key's press (Enter on the focused node) keeps the focus look a
 		// key showed; a pointer's Down hid it already (UG3).
-		focusTo(f, p.Id.ref, f.visible && f.focus == p.Id.ref)
+		focusTo(f, r, f.visible && f.focus == r)
 		match n.node {
 		case PressableNode[E] as x:
 			out.Signal = Some{Value: x.On}

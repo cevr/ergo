@@ -114,6 +114,10 @@ type checkTree struct {
 	// once one cannot be kept.
 	kept     []treeKept
 	complete bool
+	// freshness memoizes the cutoff's input checks (checkcut.go).
+	freshness map[string]bool
+	// cutPuts are the cutoff's own Puts, which are no law verdict.
+	cutPuts int
 }
 
 type treeKept struct {
@@ -399,7 +403,7 @@ func (t *checkTree) keep() (why string) {
 		return "a package did not pass"
 	case len(t.kept) == 0:
 		return "no package"
-	case t.store.Puts() != t.puts:
+	case t.store.Puts()-t.cutPuts != t.puts:
 		return "the run stored verdicts"
 	}
 	inputs, ok := t.rec.Inputs()

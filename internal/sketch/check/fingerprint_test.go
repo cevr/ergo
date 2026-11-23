@@ -15,7 +15,7 @@ import (
 // The fingerprint property (CS5a; docs/spec/build.md, Interface
 // fingerprint). A three-package program, a ← b ← c, is edited one slot at
 // a time: a comment, a body, a signature, an export added or removed, a
-// row, an inferred row, a law, a refinement, a constraint, a file added or
+// row, a helper's row read through a value, a law, a refinement, a constraint, a file added or
 // removed, an import added. Each step checks the program from scratch, the
 // reference, and asks Reusable which packages the last check could have
 // stood for.
@@ -28,11 +28,12 @@ var fpSlots = map[string]int{
 	"extra":      2, // a's Extra is declared or not
 	"file":       2, // a's second file is there or not
 	"row":        2, // a's Get fails Gone, or Gone | Other
-	"helper":     3, // a's helper fails Gone, or Gone | Other in two bodies (an inferred row)
+	"helper":     3, // a's helper fails Gone, or Gone | Other in two bodies (its written row)
 	"law":        3, // the text of a's law Counter.Grows
 	"where":      3, // a's Small is 0..9, 0..99 or 0..5 (b's 7 breaks the last)
 	"constraint": 2, // a's Same takes comparable or ordered (b's Plus is no ordered)
 	"import":     2, // c imports a too, or not
+	"marker":     2, // a's Body has an `// ergo:` marker line above it, or not
 }
 
 // fpSources are the packages' files for the slot values s, by package.
@@ -57,7 +58,7 @@ func Get(n int) int fails ` + pick("row", "Gone", "Gone | Other") + ` {
 	n
 }
 
-func helper(n int) int {
+func helper(n int) int fails ` + pick("helper", "Gone", "Gone | Other", "Gone | Other") + ` {
 	if n < 0 {
 		return Gone{Why: "no"}
 	}
@@ -71,7 +72,7 @@ func refuse(n int) int fails Other {
 	n
 }
 
-// Step is helper, with the row the checker infers for it.
+// Step is helper, with its row.
 let Step = helper
 
 // Counter counts.
@@ -85,7 +86,7 @@ type Counter {
 func Same[T ` + pick("constraint", "comparable", "ordered") + `](x T, y T) bool { x == y }
 
 // Body is n times a constant.
-func Body(n int) int { n * ` + fmt.Sprint(2+s["body.a"]) + ` }
+` + pick("marker", "", "// ergo:effect none (vouched: a probe)\n") + `func Body(n int) int { n * ` + fmt.Sprint(2+s["body.a"]) + ` }
 
 // Sig is n.
 func Sig(n int) ` + pick("sig", "int { n }", "string { \"\\(n)\" }") + `
@@ -94,14 +95,14 @@ func Sig(n int) ` + pick("sig", "int { n }", "string { \"\\(n)\" }") + `
 import a
 
 // Plus counts by one.
-type Plus { By int }
+type Plus { By int } implements a.Counter
 
 // Next is n plus one.
 func Next(p Plus, n int) int { n + 1 }
 
-func get() int { try a.Get(1) }
+let get = a.Get
 
-func step() int { try a.Step(1) }
+let step = a.Step
 
 let small a.Small = 7
 
@@ -121,7 +122,7 @@ func Body(n int) int { a.Body(n) + ` + fmt.Sprint(s["body.b"]) + ` }
 	c := comment("c") + `
 import b
 ` + pick("import", "", "import a\n") + `
-func fetch() int { try b.Fetch(1) }
+let fetch = b.Fetch
 
 func body() int { b.Body(2) }
 
@@ -283,8 +284,9 @@ func lawText(l *Law) string {
 // two checks give one package the same implementation fingerprint exactly
 // when its import closure has the same sources. It kills cs-iface-omits-row,
 // cs-iface-omits-inferred-row, cs-iface-omits-law, cs-iface-omits-invariant,
-// cs-iface-omits-constraint, cs-iface-shallow, cs-eval-key-omits-dep-body
-// and cs-fingerprint-reads-position. A failing seed prints its edits.
+// cs-iface-omits-constraint, cs-iface-shallow, cs-eval-key-omits-dep-body,
+// cs-fingerprint-reads-position and ws0b-fingerprint-omits-markers (a
+// marker edit leaves no package reusable). A failing seed prints its edits.
 func TestIncrementalCheckDecides(t *testing.T) {
 	slots := make([]string, 0, len(fpSlots))
 	for k := range fpSlots {
@@ -295,6 +297,18 @@ func TestIncrementalCheckDecides(t *testing.T) {
 		r := rand.New(rand.NewPCG(seed, 5))
 		state := map[string]int{}
 		prev := fpRun(t, state)
+		// Every package of the first program checks clean: a package
+		// with a diagnostic is reusable by no edit, so a broken base
+		// proves nothing (as main's explicit rows left it).
+		for _, fp := range prev.fps {
+			if !fp.Clean() {
+				t.Fatalf("seed %d: %s of the first program does not check clean:\n%s", seed, fp.Path, prev.views[fp.Path])
+			}
+		}
+		// b's Plus runs a's law, so the law slot's edit reaches b.
+		if !strings.Contains(prev.views["b"], "\nlaw a.") {
+			t.Fatalf("seed %d: b runs no law of a.Counter:\n%s", seed, prev.views["b"])
+		}
 		var edits []string
 		for step := range 2*len(slots) + 24 {
 			// The first steps edit each slot from the first program and
@@ -335,6 +349,12 @@ func TestIncrementalCheckDecides(t *testing.T) {
 				}
 				if wantReused && !slices.Contains(reused, fp.Path) {
 					fail("after the %s edit, %s (clean before) is not reusable", slot, fp.Path)
+				}
+				// A binding's `// ergo:` marker decides the facts an
+				// importer's call gets (gobinding.go): its edit is in the
+				// interface, though no other comment is (CS5a's gap, WS0b).
+				if slot == "marker" && slices.Contains(reused, fp.Path) {
+					fail("after the marker edit, %s is reusable", fp.Path)
 				}
 				sameClosure := cur.closure[fp.Path] == prev.closure[fp.Path]
 				if sameImpl := fp.Implementation == was.Implementation; sameImpl != sameClosure {

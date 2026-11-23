@@ -180,6 +180,8 @@ type MachineGraph struct {
 	Work    []Place
 	Exit    []Place
 	Unsure  []string
+	// Computed are the computed entries (machinegraph.Graph.Computed).
+	Computed []string
 }
 
 // Arm is one arm of a machine's step. Alts holds each pattern of a case

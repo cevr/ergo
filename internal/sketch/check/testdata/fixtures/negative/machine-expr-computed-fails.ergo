@@ -1,0 +1,18 @@
+// A machine's entries are computed once, at start, in a closed context as a
+// package let's value is: an entry whose computation fails is refused.
+type Down {}
+type S = Off{} | On{}
+type E = Flip{}
+
+func step(s S, e E) Decision[S, S] { Stay[S]{Next: s} }
+
+func ready() bool fails Down { true }
+
+func keep(b bool, f own func(s S, e E) Decision[S, S]) func(s S, e E) Decision[S, S] { f }
+
+type M machine[S, E] {
+	initial: Off,
+	step:    keep(ready(), step), // want S105
+}
+
+func main() {}

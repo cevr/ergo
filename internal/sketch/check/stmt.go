@@ -61,9 +61,9 @@ func (c *checker) localNameRules(id *syntax.Ident) (refused bool) {
 			// also reported as unused (no cascade, D3).
 			prev.used = true
 			if prev.param {
-				c.errorf(id, CodeType, "%s is already a parameter of this function; choose another name (no shadowing, #196 196v rule 2)", id.Name)
+				c.errorf(id, CodeType, "%s is already a parameter of this function; choose another name (no shadowing)", id.Name)
 			} else {
-				c.errorf(id, CodeType, "%s is already declared in this block; choose another name (no shadowing, #196 196v rule 2)", id.Name)
+				c.errorf(id, CodeType, "%s is already declared in this block; choose another name (no shadowing)", id.Name)
 			}
 		default:
 			c.errorf(id, CodeType, "%s is already declared in this block", id.Name)

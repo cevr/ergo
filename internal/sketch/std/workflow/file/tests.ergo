@@ -1,0 +1,16 @@
+// The laws of workflow.Store run for the file store under this context,
+// over a disk in memory: each case opens a fresh log.
+
+import fstest
+import workflow
+
+let onMemoryDisk = context { workflow.Store: fresh() }
+
+// fresh is a file store over an empty disk in memory.
+func fresh() Store {
+	let disk = fstest.NewMemory()
+	Open(disk, disk, "runs.log") catch {
+	case workflow.Failed:
+		Unreachable("an empty disk in memory opens")
+	}
+}

@@ -74,7 +74,7 @@ func runFrame(root *rt.Task, body func(t *rt.Task, s *Scope) error) error {
 	return err
 }
 
-// TestTracedReleasesMatchUntraced (stage 3b carry, #230): the v1 frame
+// TestTracedReleasesMatchUntraced (stage 3b carry): the v1 frame
 // list's releases, exit actions and task drains, report through rt's tracer
 // with rt.Release. Each case runs untraced and traced: the exits are the
 // same, and the traced run raises one release event per release, nested
