@@ -1,0 +1,5 @@
+kind rpc
+generator ergo gen rpc
+subject domain-search/domains.Registry
+contract sha256:1545321e0e5a77479b2f08d1bffff2969d4da47d7663529486cde203c13468cd
+digest sha256:827b5ca8f565fccdca9e24e67159d5c9692f207aa555d0f4c5cd8f414a9288df

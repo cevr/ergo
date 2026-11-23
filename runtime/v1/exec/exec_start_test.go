@@ -706,7 +706,7 @@ done < %[3]s
 sleep 600
 `, trap, pidfile, ctl)
 		task := rt.Root("streams")
-		run, err := ExecStart(task, "sh", []string{"-c", script}, nil, "", "", grace, outKind, outFile, false, errKind, errFile, false)
+		run, err := ExecStart(task, "/bin/sh", []string{"-c", script}, nil, "", "", grace, outKind, outFile, false, errKind, errFile, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -812,7 +812,7 @@ func TestExecStartStopped(t *testing.T) {
 				t.Errorf("a stopped Start raised %v, want rt.Interrupted", q)
 			}
 		}()
-		_, _ = ExecStart(stopped, "true", nil, nil, "", "", 0, execToFile, made, false, execDiscard, "", false)
+		_, _ = ExecStart(stopped, "/usr/bin/true", nil, nil, "", "", 0, execToFile, made, false, execDiscard, "", false)
 	}()
 	if _, err := os.Stat(made); err == nil {
 		t.Errorf("a stopped Start made its file sink")
@@ -834,7 +834,7 @@ func TestExecRunGrace(t *testing.T) {
 	done := make(chan bool, 1)
 	go func() {
 		defer func() { done <- recover() == rt.Interrupted }()
-		_, _ = ExecRun(task, "sh", []string{"-c", script}, nil, "", "", time.Hour)
+		_, _ = ExecRun(task, "/bin/sh", []string{"-c", script}, nil, "", "", time.Hour)
 	}()
 	testwait.Until(t, func() bool { return len(readPids(t, pidfile)) > 0 })
 	task.Interrupt()
@@ -872,7 +872,7 @@ func TestStartFlushesStdoutFirst(t *testing.T) {
 	}()
 	task := rt.Root("exec flush test")
 	v1.IOPrint("a")
-	p, err := ExecStart(task, "sh", []string{"-c", "printf c"}, nil, "", "", 0, execInherit, "", false, execInherit, "", false)
+	p, err := ExecStart(task, "/bin/sh", []string{"-c", "printf c"}, nil, "", "", 0, execInherit, "", false, execInherit, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}

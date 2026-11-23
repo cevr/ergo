@@ -1,14 +1,9 @@
-// The process's facts about itself beyond Process: its whole environment,
-// its id, the user's directories and its own executable (Go's os.Environ,
-// Getpid, UserHomeDir, UserCacheDir, UserConfigDir and Executable). Self
-// is a capability apart from Process, so a program's own Process
-// provider keeps compiling; Host provides both. A test's Host
-// (NewTestHost) answers from the case's folder: its confined environment,
-// and its directories under the folder.
+// The process's facts about itself beyond Process: its id, the user's
+// directories and its own executable. Host provides both capabilities.
+// A test's Host answers with directories under the case's folder.
 
 import filepath
 import go runtime
-import strings
 
 // NoDir is the failure of a directory Self cannot name: the variable it
 // is read from is unset or not absolute. Message is the reason, as Go's.
@@ -16,9 +11,6 @@ extern go ergo.local/prototype/runtime/v1.NoDir type NoDir { Message string }
 
 // Self is the process's facts about itself.
 type Self {
-	// Environ is every variable of the environment, as NAME=VALUE, sorted
-	// by name, each name once.
-	Environ() []string,
 	// Pid is the process's id.
 	Pid() int,
 	// HomeDir is the user's home directory.
@@ -32,22 +24,6 @@ type Self {
 	ConfigDir() string fails NoDir,
 	// Executable is the path of the program's own executable.
 	Executable() string fails NoDir,
-
-	// EnvironIsSortedOnce: the names of Environ are sorted and each is
-	// there once, so a program that copies it into a child's environment
-	// sets no name twice.
-	law EnvironIsSortedOnce() {
-		let vars = Environ()
-		let mut last = ""
-		for i, kv in vars {
-			let name = nameOf(kv)
-			if i > 0 && name <= last {
-				return false
-			}
-			last = name
-		}
-		true
-	},
 
 	// PidIsPositive: a process's id is above zero.
 	law PidIsPositive() { Pid() > 0 },
@@ -73,33 +49,6 @@ type Self {
 		}
 		filepath.IsAbs(home) && filepath.IsAbs(cache) && filepath.IsAbs(config) && filepath.IsAbs(exe)
 	},
-}
-
-// nameOf is the NAME of a NAME=VALUE.
-func nameOf(kv string) string {
-	match strings.Cut(kv, "=") {
-	case Some as halves:
-		halves.Value.Before
-	case None:
-		kv
-	}
-}
-
-// Environ is the host's environment, or the test host's confined one.
-func Environ(h Host) []string {
-	if h.root == "" {
-		return hostEnviron("")
-	}
-	let mut out = []string{}
-	for name in []string{"HOME", "PATH", "PWD", "TMPDIR"} {
-		out = match confinedEnv(h, name) {
-		case Some[string] as v:
-			out.Append(name + "=" + v.Value)
-		case None:
-			out
-		}
-	}
-	out
 }
 
 // Pid is the process's id; a test's Host has the test process's.
@@ -135,7 +84,6 @@ func ConfigDir(h Host) string fails NoDir {
 // test's Host too, since a test that starts itself again runs it.
 func Executable(_ Host) string fails NoDir { try hostExecutable() }
 
-extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron(prefix string) []string
 extern go ergo.local/prototype/runtime/v1.OSPid func hostPid() int
 extern go ergo.local/prototype/runtime/v1.OSHomeDir func hostHomeDir() string fails NoDir
 extern go ergo.local/prototype/runtime/v1.OSCacheDir func hostCacheDir() string fails NoDir

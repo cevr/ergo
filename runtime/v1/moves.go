@@ -27,6 +27,9 @@ var movesOnly = sync.OnceValue(func() map[string]bool {
 		"TasksRace":      true, // the winner's result moves out; a loser's is released (Gap 47, B4)
 		"TasksTransform": true, // each result moves into the output once
 		"After":          true, // timeout.After: the body's result moves out
+		"TaskExit":       true, // task.ExitOf's wait: consumes the Task, leaves its value in it
+		"TaskValue":      true, // task.ExitOf's value: moves out once, the Task keeps none
+		"TaskReason":     true, // task.ExitOf's defect text: reads a string, moves nothing
 	}
 })
 

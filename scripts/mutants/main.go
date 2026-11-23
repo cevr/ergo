@@ -48,6 +48,7 @@ import (
 	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/scripts/mutants/suitename"
 )
 
 func main() {
@@ -93,6 +94,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.BoolVar(&checkApplyFlag, "check-apply", false, "judge nothing: print each selected row whose edit does not apply (ledger, row, owner, why, the commit that last changed its from in its file) and exit 1 if any")
 	var anchorDecls bool
 	flags.BoolVar(&anchorDecls, "anchor-decls", false, "judge nothing: give each row of every testdata/mutants.json below -root the declaration that holds its edit (decl, MN0), printing what it cannot anchor; with -write, rewrite the ledgers")
+	var canonicalKillers bool
+	flags.BoolVar(&canonicalKillers, "canonical-killers", false, "judge nothing: list legacy suite IDs in the ledgers below -root; with -write, rewrite them as directory IDs")
 	var alpha bool
 	var alphaOut, failLogs string
 	flags.BoolVar(&alpha, "alpha", false, "judge every killer of each row the packages' tests can kill (the kill matrix, testdata/kills.json) and print one row per test of the packages: class, seconds, unique and total kills, change coupling, failures, ranked as a deletion list (CS-ALPHA)")
@@ -128,6 +131,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		return migrateDecls(cfg.Root, sel, write, stdout, stderr)
 	}
+	if canonicalKillers {
+		return migrateKillerIDs(cfg.Root, write, stdout, stderr)
+	}
 	if flags.NArg() == 0 {
 		flags.Usage()
 		return 2
@@ -158,7 +164,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	var jobs []Job
 	for _, arg := range flags.Args() {
 		path := ledgerPath(cfg.Root, arg)
-		l, err := readLedger(path)
+		l, err := readLedger(cfg.Root, path, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "mutants: %v\n", err)
 			return 2
@@ -385,13 +391,13 @@ func ergoSuites() ([]string, []Tool, []Suite) {
 		{Name: "examples", Package: "./scripts/examples", Flags: []string{"-buildvcs=false"}},
 	}
 	suites := []Suite{
-		{Name: "check", Package: "./internal/sketch/check"},
+		{Name: suitename.Check, Package: "./" + suitename.Check},
 		// The lowering's tests run the CLI the runner built (main_test.go,
 		// cliVariable), not one each test process builds.
-		{Name: "lower", Package: "./internal/sketch/lower", Env: []string{"ERGO_TEST_CLI={bin:ergo}"}},
-		{Name: "std", Package: "./internal/sketch/stdlib"},
-		{Name: "api", Package: "./internal/sketch/api"},
-		{Name: "ergo", Package: "./cmd/ergo"},
+		{Name: suitename.Lower, Package: "./" + suitename.Lower, Env: []string{"ERGO_TEST_CLI={bin:ergo}"}},
+		{Name: suitename.Std, Package: "./" + suitename.Std},
+		{Name: suitename.API, Package: "./" + suitename.API},
+		{Name: suitename.Ergo, Package: "./" + suitename.Ergo},
 		// The case budget is off: a slow case under the runner's load is not
 		// a kill. The per-case timeout stays: a mutant that loops is one.
 		{Name: "examples", Command: []string{"{bin:examples}", "-root", "{root}", "-ergo", "{bin:ergo}", "-budget", "1h", "{test}"}, List: defaultExamples},
@@ -412,6 +418,13 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 	var cover []string
 	var tools []Tool
 	var suites []Suite
+	addSuite := func(s Suite) {
+		if i := slices.IndexFunc(suites, func(added Suite) bool { return added.Name == s.Name }); i >= 0 {
+			suites[i].Env = append(suites[i].Env, s.Env...)
+			return
+		}
+		suites = append(suites, s)
+	}
 	add := func(pkg string) {
 		// A package of a nested module is no package of the checkout's
 		// module: -coverpkg cannot name it.
@@ -432,13 +445,16 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			return nil, nil, nil, fmt.Errorf("ledger %s is outside the checkout %s", j.Path, root)
 		}
 		rel = filepath.ToSlash(rel)
-		if rel == "internal/sketch/check" || rel == "internal/sketch/lower" {
+		if rel == suitename.Check || rel == suitename.Lower {
 			if len(j.Ledger.Env) > 0 {
 				return nil, nil, nil, fmt.Errorf("ledger %s: env is for a package ledger's own suite; check and lower share the ergo suites", j.Path)
 			}
 			if tools == nil {
 				c, t, s := ergoSuites()
-				tools, suites = t, append(suites, s...)
+				tools = t
+				for _, suite := range s {
+					addSuite(suite)
+				}
 				for _, p := range c {
 					add(p)
 				}
@@ -467,7 +483,7 @@ func suitesFor(root string, jobs []Job) ([]string, []Tool, []Suite, error) {
 			if mod := nestedModule(absRoot, rel); mod != "" {
 				own.Module, own.Package = mod, "./"+strings.TrimPrefix(strings.TrimPrefix(rel, mod), "/")
 			}
-			suites = append(suites, own)
+			addSuite(own)
 		}
 	}
 	// A killer or anchor test in a suite no ledger brought is run too, and
@@ -620,7 +636,7 @@ func goFiles(root, dir string, tests bool) bool {
 }
 
 // namedSuite resolves the suite of a killer id that no ledger's scope
-// brought: a suite of ergoSuites by its name (lower, std, examples …),
+// brought: a suite of ergoSuites by its directory or command name,
 // with the tools it runs; or a package of the module by its directory,
 // DIR or DIR[TAGS] (built with -tags=TAGS).
 func namedSuite(root, name string) (Suite, []Tool, bool) {
@@ -766,7 +782,9 @@ func report(w io.Writer, jobs []Job, results []Result, cov *coverage) int {
 			if m.Gap != "" {
 				closed = append(closed, fmt.Sprintf("%s: killed by %s; the ledger says: %s", r.Name, r.Killer, m.Gap))
 			}
-			if len(m.Killers) > 0 && !slices.Contains(killerIDs(&Mutant{Killers: m.Killers}), r.Killer) {
+			known := killerIDs(&Mutant{Killers: m.Killers})
+			if len(known) > 0 && !slices.Contains(known, r.Killer) &&
+				!slices.ContainsFunc(r.Killers, func(id string) bool { return slices.Contains(known, id) }) {
 				moved = append(moved, fmt.Sprintf("%s: killed by %s, not by its known killers %s", r.Name, r.Killer, strings.Join(m.Killers, " ")))
 			}
 			if len(r.Killers) == 1 && len(r.Ran) == r.Covering {
@@ -841,10 +859,13 @@ func record(j Job, results []Result, cov *coverage, now time.Time) {
 			}
 			switch r.Status {
 			case Killed:
-				killers := slices.Clone(r.Killers)
+				killers := make([]string, 0, len(r.Killers))
+				for _, id := range r.Killers {
+					killers = append(killers, suitename.ForLedger(id))
+				}
 				for _, k := range m.Killers {
 					suite, name := splitID(k)
-					if cov.Lookup(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suite+":"+name) {
+					if cov.Lookup(suite+":"+name) != nil && !slices.Contains(killers, k) && !slices.Contains(killers, suitename.ForLedger(suite+":"+name)) {
 						killers = append(killers, k)
 					}
 				}

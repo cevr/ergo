@@ -1,0 +1,7 @@
+// The Process laws on the test's host provider, in place: `ergo test` of
+// this package runs them under the named context, as a module's laws run
+// (lower TestExecLaws runs it). The case's process has the folder as its
+// working directory and only HOME, TMPDIR, PWD and PATH set (rows.md,
+// Test's ambient).
+
+let onTestHost = context needs TestAmbient { Process: NewTestHost(), Self: NewTestHost() }

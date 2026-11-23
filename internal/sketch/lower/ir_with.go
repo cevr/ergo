@@ -135,7 +135,15 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 		out = append(out, b.publish(w, ptr, b.env, arg)...)
 	} else {
 		build := b.l.contextBuilder(w, arg)
-		out = append(out, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: build, Args: []*irExpr{{K: "local", Pos: p, I: ptr}}}})
+		call := &irExpr{K: "call", Pos: p, Name: build, Args: []*irExpr{{K: "local", Pos: p, I: ptr}}}
+		if fallibleBuild(w) {
+			// with try W: the builder returns the build's failure, which
+			// leaves the with before its block runs (the emitter's with).
+			e := b.temp("err", "error", p)
+			out = append(out, &irStmt{K: "def", Pos: p, Local: e, X: call}, b.propagate(e, p))
+		} else {
+			out = append(out, &irStmt{K: "expr", Pos: p, X: call})
+		}
 	}
 	saved := b.env
 	b.env = ptr

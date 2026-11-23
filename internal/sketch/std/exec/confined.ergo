@@ -8,9 +8,10 @@ import filepath
 // elsewhere or a path through a symbolic link that points out does not. A
 // file sink's path is relative to the folder and must lie in it. A command
 // that fails the check is refused with Denied naming the directory,
-// argument or path, and nothing runs. HOME and TMPDIR are the folder, and
-// GIT_CEILING_DIRECTORIES its parent, so git finds no repository above
-// it. On Linux the program then runs in the folder's sandbox (runtime/v1
+// argument or path, and nothing runs. The program's environment is the
+// Command's Env and three keys over it (TestHostKeys): HOME and TMPDIR are
+// the folder, and GIT_CEILING_DIRECTORIES its parent, so git finds no
+// repository above it. On Linux the program then runs in the folder's sandbox (runtime/v1
 // exec_sandbox_linux.go): new user and mount namespaces in which every
 // mount is read-only but the folder, and no capability, so the paths a
 // program computes for itself cannot write outside the folder either. A
@@ -22,7 +23,7 @@ import filepath
 // NewTestHost is the Runner of the case's folder. It needs the test's
 // ambient, which only the test runner provides, to a context that states
 // it: `context needs TestAmbient { exec.Runner: exec.NewTestHost() }`.
-func NewTestHost() Host needs TestAmbient { Host{root: TestFolder()} }
+func NewTestHost() Host needs TestAmbient { Host{root: TestFolder(), base: Map[string, string]{}} }
 
 extern go ergo.local/prototype/runtime/v1/exec.ExecConfine func confine(root string, dir string, args []string) string fails Denied
 
