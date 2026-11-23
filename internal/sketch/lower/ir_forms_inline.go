@@ -1026,7 +1026,7 @@ func irInlinable(body []*irStmt, result, fallible bool) bool {
 			ok = false
 		case s.K == "ret" && !lit:
 			ret = true
-			if fallible && s.X != nil && (s.X.K == "call" || s.X.K == "mcall" || s.X.K == "pcall" || s.X.K == "vcall") && (!s.Pair || irInlineReturnLowering == "off") {
+			if fallible && s.X != nil && (s.X.K == "call" || s.X.K == "mcall" && !irUnionOf(s.X) || s.X.K == "pcall" || s.X.K == "vcall") && (!s.Pair || irInlineReturnLowering == "off") {
 				// return f(…): a pair or an error, by a type the IR does
 				// not spell; but a fallible Ergo call's value and error
 				// (Pair) bind at the site (irRets, INLINE-RETURN).
@@ -1040,6 +1040,27 @@ func irInlinable(body []*irStmt, result, fallible bool) bool {
 		}
 	})
 	return ok && (ret || !result)
+}
+
+// irUnionOf reports e, a flat union's variant put in by its of method on
+// the union's zero value (variantForm, erased; pkgsplit.go spells it with
+// an X prefix across packages): one value, never a (value, error) pair,
+// so a fallible body's return of it binds the value and a nil error
+// (KNOWN-FILTER-INLINE: optFilter's `return s` and `None`).
+func irUnionOf(e *irExpr) bool {
+	if e.K != "mcall" || e.X == nil || e.X.K != "zero" {
+		return false
+	}
+	n := strings.TrimLeft(e.Name, "X")
+	if !strings.HasPrefix(n, "of") || len(n) == 2 {
+		return false
+	}
+	for _, c := range n[2:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // irReadOnly reports whether the body only reads its parameter slot i: no
