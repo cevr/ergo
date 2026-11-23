@@ -835,7 +835,9 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 		opt(b, ft.Needs)
 		opt(b, ft.Takes)
 	case syntax.ContextDecl as d:
+		// Its header's rows, fails too, name types: uses (CTX-ROWS-2).
 		opt(b, d.Provides)
+		opt(b, d.Fails)
 		opt(b, d.Needs)
 		walk(b, d.Body)
 	case syntax.CallExpr as e:
