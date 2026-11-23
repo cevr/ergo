@@ -1,6 +1,10 @@
 package lower
 
-import "go/constant"
+import (
+	"go/constant"
+
+	"ergo.local/prototype/internal/sketch/syntax"
+)
 
 // Compact source shapes avoid spending Go's inlining budget on a Range
 // record or a slice capacity wrapper that its SSA passes erase anyway.
@@ -18,6 +22,51 @@ func SetIRCompactGoForTest(mode string) (restore func()) {
 func (b *irBuilder) compactCountStart(e *irExpr) bool {
 	v := b.consts[e]
 	return irCompactGo != "off" && v != nil && v.Kind() == constant.Int && constant.Sign(v) == 0
+}
+
+// compactLoopBound removes the Range record for an already simple bound.
+// Computed bounds and local loop nests keep their explicit evaluation
+// shapes; changing them can lengthen a hot path in the containing frame.
+func (b *irBuilder) compactLoopBound(start, end *irExpr) bool {
+	return b.compactCountStart(start) && (end.K == "local" || end.K == "const") && b.compactFrame()
+}
+
+func (b *irBuilder) compactFrame() bool {
+	if b.compactNest == 0 {
+		b.compactNest = 1
+		fd, _ := b.decl.(*syntax.FuncDecl)
+		if fd == nil {
+			return true
+		}
+		// Stop at the first nested loop and do not count a nested
+		// function's own loops as part of this function.
+		syntax.Inspect(fd.Body, func(n syntax.Node) bool {
+			if b.compactNest == 2 {
+				return false
+			}
+			switch n.(type) {
+			case *syntax.FuncLit:
+				return false
+			case *syntax.ForStmt, *syntax.RangeStmt:
+				syntax.Inspect(n, func(child syntax.Node) bool {
+					if child == n {
+						return true
+					}
+					switch child.(type) {
+					case *syntax.FuncLit:
+						return false
+					case *syntax.ForStmt, *syntax.RangeStmt:
+						b.compactNest = 2
+						return false
+					}
+					return b.compactNest != 2
+				})
+				return false
+			}
+			return true
+		})
+	}
+	return b.compactNest != 2
 }
 
 // compactMakeSize admits a nonnegative constant or an expression whose

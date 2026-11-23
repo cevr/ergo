@@ -501,7 +501,7 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		// emitter's rangeValue); the operator elsewhere is G1's.
 		var parts []*irExpr
 		pre, parts = b.operands([]syntax.Expr{bx.X, bx.Y})
-		if bound(s.Value) && b.compactCountStart(parts[0]) && b.goType(lp.Elem, s) == "int" && b.loopIdiom(s, lp) == nil {
+		if bound(s.Value) && b.compactLoopBound(parts[0], parts[1]) && b.goType(lp.Elem, s) == "int" && b.loopIdiom(s, lp) == nil {
 			zero, end = parts[0], parts[1]
 		} else {
 			x = &irExpr{K: "lit", Pos: p, T: b.goType(n, s.X), Keys: []string{td.fieldName["Start"], td.fieldName["End"]}, Elems: parts}
@@ -745,7 +745,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// call writes it in place (bs = bs.AppendString(s)).
 	b.valueSource(x, c, ops, args)
 	if irCompactGo != "off" && body.Package == runtimeImport && len(args) == 1 &&
-		len(hidden) == 0 && x.Trailing == nil && goBodySliceCapacity(name) && b.compactMakeSize(args[0]) {
+		len(hidden) == 0 && x.Trailing == nil && goBodySliceCapacity(name) && b.compactMakeSize(args[0]) && b.compactFrame() {
 		zero := &irExpr{K: "const", Pos: p, T: "int", V: "0"}
 		return pre, &irExpr{K: "builtin", Pos: p, Name: "make", T: b.goType(b.l.info.Types[x], x),
 			Args: []*irExpr{zero, args[0]}}, false
