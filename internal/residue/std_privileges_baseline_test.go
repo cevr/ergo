@@ -186,7 +186,6 @@ var stdPrivilegesBaseline = []string{
 	`internal/sketch/check/snapshot/codec_gen.go:decoder.decV1_Hidden runtime "v1.Hidden"`,
 	`internal/sketch/check/tails.go:checker.yieldExpr flag "unreachableCall"`,
 	`internal/sketch/check/takes.go:checker.takesEffect flag "hostResourceParam"`,
-	`internal/sketch/check/testambient.go:checker.contextTestAmbient flag "isTestAmbient"`,
 	`internal/sketch/check/typeops.go:checker.assignability flag "goConfinedRef"`,
 	`internal/sketch/check/typeops.go:checker.assignability flag "hostLendArg"`,
 	`internal/sketch/check/typeops.go:checker.assignability flag "isHostNamed"`,
