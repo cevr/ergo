@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench userorfail N` makes N reads, a Map read through a user's own Option (MyOpt) and OrFail (myOrFail), written in the bench's package
+# (ABSENCE, PRELUDE-ORFAIL); half the keys miss. The control is hand Go
+# comma-ok with the error built on the miss only: the floor.
+unit read
+sizes 409600 2457600
+args bench userorfail {n}
+control benchmarks/absence/testdata/control

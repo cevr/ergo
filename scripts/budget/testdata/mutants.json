@@ -11,6 +11,26 @@
       "killers": ["scripts/budget:TestLightCritComesOnlyFromTheCritFile"]
     },
     {
+      "name": "budget-light-ceiling-ignored",
+      "origin": "wf10 BUDGET-LIGHT-PER-RUN-MEMORY-CAP",
+      "file": "scripts/budget/light.sh",
+      "from": "then set -- --ceiling \"${ERGO_BUDGET_CEILING:-}\" \"$@\"; fi",
+      "to": "then :; fi",
+      "rule": "Light runs pass the host's ceiling without asking for a reservation.",
+      "killers": ["scripts/budget:TestLightPassesTheHostCeiling"],
+      "anchor": {"tests": ["scripts/budget:TestLightPassesTheHostCeiling"]}
+    },
+    {
+      "name": "ceiling-flag-always-passed",
+      "origin": "wf10 BUDGET-LIGHT-PER-RUN-MEMORY-CAP rollout",
+      "file": "scripts/budget/light.sh",
+      "from": "if [ -n \"${ERGO_BUDGET_CEILING:-}\" ]; then set",
+      "to": "if true; then set",
+      "rule": "With no ceiling configured, light runs pass exactly the old argv so they still work with an older ergo binary.",
+      "killers": ["scripts/budget:TestLightPassesTheHostCeiling"],
+      "anchor": {"tests": ["scripts/budget:TestLightPassesTheHostCeiling"]}
+    },
+    {
       "name": "budget-scratch-no-sweep",
       "origin": "wf10 TMPDIR-PER-RUN (2026-11-20: killed runs left tens of GiB under /tmp)",
       "file": "scripts/budget/scratch.sh",

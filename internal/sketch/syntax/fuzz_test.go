@@ -13,7 +13,7 @@ import (
 // never panics, and every error is a located S001 (or the parser's S108
 // for a type that mixes fields and operations) whose line and column agree
 // with its byte offset. The corpus, the spec fences, the fixture tables
-// and the lookahead cases of #226 are the seeds; testdata/fuzz/FuzzParse
+// and the lookahead cases of the unterminated-string fix are the seeds; testdata/fuzz/FuzzParse
 // holds the FuzzCheck crashers as regressions.
 func FuzzParse(f *testing.F) {
 	positive, err := sketchtest.Positive()
@@ -62,7 +62,7 @@ func FuzzParse(f *testing.F) {
 }
 
 // lookaheadSeeds are sources that end in a lexical error after a parser
-// lookahead has started (#226). Their verdicts are compiler/syntax's
+// lookahead has started. Their verdicts are compiler/syntax's
 // tests in lexerror.ergo (TestCompilerSyntaxTestsPass); here they seed
 // the fuzzer.
 var lookaheadSeeds = []string{

@@ -114,7 +114,7 @@ func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string,
 	}
 	if x != nil && binding.wait != noWait && fc.l.info.Closes[x] != nil {
 		// A std Close is a release (R9). Today std declares no Close (the
-		// queue's half-close is End, #197 q53); a waiting one, such
+		// queue's half-close is End, resource ownership q53); a waiting one, such
 		// as Task.Close (L8 B3), needs a release route first.
 		ice(site, "the std Close binding %s waits, and no release route masks it", name)
 	}

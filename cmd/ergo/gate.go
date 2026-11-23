@@ -433,22 +433,29 @@ func gateTreeKey(root string, opts fileOptions, ledger string) string {
 	parts := []string{"gate module/2", root, warmOptions(opts), goCommand, tc.Root, tc.GOOS + "/" + tc.GOARCH, tc.GOFLAGS,
 		strings.Join(tc.Tags, ","), strconv.FormatBool(tc.GoBuild) + " " + strconv.FormatBool(tc.Strip)}
 	parts = append(parts, lawcache.Environ(os.Environ(), sketchfront.StageReportVariable)...)
-	files, err := gateTreeFiles(root, ledger, map[string]bool{})
+	tree, err := gateTreeParts(root, ledger, map[string]bool{})
 	if err != nil {
 		return ""
 	}
-	return lawcache.Key(append(parts, files...)...)
+	return lawcache.Key(append(parts, tree...)...)
 }
 
-// gateTreeFiles are the key parts of the files below root (the folders
-// discovery walks; skip, the law ledger, left out), then, for each folder
-// root's go.mod replaces a module with, its own parts, transitively: a
-// build reads the replacing folder's sources, so an edit there changes the
-// key of every module that reaches it (GATE-KEY-REACHES). seen holds the
-// folders already composed, so a cycle of replaces ends.
-func gateTreeFiles(root, skip string, seen map[string]bool) ([]string, error) {
+// gateTreeParts are the key's lines for the files below root: "dir REL"
+// for each folder DIR/... walks (sketchfront.AdmitFolder, no nested
+// module), and "file REL SHA256" for each file in one, but skip (the law
+// ledger). The root's ergo.bind is no package folder, but import go reads
+// its bindings, so its files are lines too, with no dir line. Then, for
+// each folder root's go.mod replaces a module with, its own lines,
+// transitively: a build reads the replacing folder's sources, so an edit
+// there changes the key of every module that reaches it
+// (GATE-KEY-REACHES). A replaced folder is walked as a root, so its own
+// name is not judged (one named vendor, or under testdata or
+// node_modules, is still in the key); below it the one rule holds. seen
+// holds the folders already composed, so a cycle of replaces ends.
+func gateTreeParts(root, skip string, seen map[string]bool) ([]string, error) {
 	seen[root] = true
 	var parts []string
+	bind := filepath.Join(root, sketchfront.BindFolder)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -457,20 +464,18 @@ func gateTreeFiles(root, skip string, seen map[string]bool) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		inBind := path == bind || strings.HasPrefix(path, bind+string(filepath.Separator))
 		if d.IsDir() {
-			if path == root {
+			if path == root || inBind {
 				return nil
 			}
-			// The folders discovery skips: hidden, underscored, testdata
-			// and nested modules.
-			name := d.Name()
-			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" {
+			if !sketchfront.AdmitFolder(d.Name()) {
 				return filepath.SkipDir
 			}
 			if _, err := os.Stat(filepath.Join(path, sketchfront.ModFile)); err == nil {
 				return filepath.SkipDir
 			}
-			parts = append(parts, "dir "+rel)
+			parts = append(parts, "dir "+filepath.ToSlash(rel))
 			return nil
 		}
 		if path == skip {
@@ -482,7 +487,7 @@ func gateTreeFiles(root, skip string, seen map[string]bool) ([]string, error) {
 		}
 		stage.Add(stage.BytesHashed, int64(len(data)))
 		sum := sha256.Sum256(data)
-		parts = append(parts, "file "+rel+" "+hex.EncodeToString(sum[:]))
+		parts = append(parts, "file "+filepath.ToSlash(rel)+" "+hex.EncodeToString(sum[:]))
 		return nil
 	})
 	if err != nil {
@@ -496,7 +501,7 @@ func gateTreeFiles(root, skip string, seen map[string]bool) ([]string, error) {
 		if seen[target] {
 			continue
 		}
-		sub, err := gateTreeFiles(target, "", seen)
+		sub, err := gateTreeParts(target, "", seen)
 		if err != nil {
 			return nil, err
 		}

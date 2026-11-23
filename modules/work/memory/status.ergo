@@ -1,0 +1,189 @@
+// The laws of list -status (work.ListWithin) on the memory world: what
+// it answers, what it costs and that it writes nothing.
+
+import json
+import maps
+import slices
+import github.com/cevr/ergo/modules/work/work
+
+// StatusIsTheReference: a lane of own commits, k of whose patches landed
+// on the base's main by cherry-pick while main moved m more, perhaps
+// merged into the lane since, perhaps with a change, an ignored file or a
+// detached HEAD, on a base that perhaps has no default branch: list
+// -status answers what the history was built to have. Ahead by patch is
+// the lane's commits less those landed; by ancestry, all of them; By is
+// patch exactly when the base has a default branch and the lane is ahead
+// within the bound (lowered here to 0..3, so both sides are reached).
+// Without a default branch the record's base is compared. Every choice
+// is a digit of one generated number (a case's arguments of one type come
+// alike, so separate ones would never mix).
+law StatusIsTheReference(shape int) {
+	let s0 = if shape < 0 { -(shape + 1) } else { shape }
+	let own = s0 % 4
+	let picked = (s0 / 4) % 4
+	let moves = (s0 / 16) % 3
+	let bound = (s0 / 48) % 4
+	let f = s0 / 192
+	let merged = f%2 == 1
+	let dirty = (f/2)%2 == 1
+	let ignoredOnly = (f/4)%2 == 1
+	let detached = (f/8)%2 == 1
+	let noDefault = (f/16)%2 == 1
+	let w = world(true)
+	let made = w.tool.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let kept = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let start = if len(kept) == 1 { kept[0].Base } else { "" }
+	let n = (own%4 + 4) % 4
+	let k = (picked%(n+1) + n + 1) % (n + 1)
+	let m = (moves%3 + 3) % 3
+	let b = (bound%4 + 4) % 4
+	let mut built = true
+	for i in 0..n {
+		built = built && Write(w.trees, made.Path, "f\(i).txt", "x\(i)\n") && Commit(w.vcs, made.Path, "l\(i)")
+	}
+	for i in 0..k {
+		built = built && Write(w.trees, theBase, "f\(i).txt", "x\(i)\n") && Commit(w.vcs, theBase, "p\(i)")
+	}
+	for i in 0..m {
+		built = built && Write(w.trees, theBase, "m\(i).txt", "y\(i)\n") && Commit(w.vcs, theBase, "m\(i)")
+	}
+	if merged {
+		let _ = Merge(w.vcs, made.Path, theBase, "main") catch {
+		case _:
+			return false
+		}
+	}
+	if dirty {
+		built = built && Write(w.trees, made.Path, "new.txt", "new\n")
+	}
+	if ignoredOnly {
+		built = built && Write(w.trees, made.Path, "dist/built.js", "built\n")
+	}
+	if detached {
+		built = built && Write(w.trees, made.Path, ".git/branch", "")
+	}
+	let main = maps.GetOr(Files(w.trees, theBase), ".git/refs/heads/main", "")
+	if noDefault {
+		built = built && Write(w.trees, theBase, ".git/branch", "")
+	}
+	let head = maps.GetOr(Files(w.trees, made.Path), ".git/HEAD", "")
+	let got = work.ListWithin(w.tool, work.ListOptions{Status: true}, b) catch {
+	case _:
+		return false
+	}
+	let s = match got[0].Status {
+	case json.Present[work.LaneStatus] as p:
+		p.Value
+	case json.Absent:
+		return false
+	}
+	let behind = if merged || noDefault { 0 } else { k + m }
+	let byPatch = !noDefault && n > 0 && n+behind <= b
+	// Without a default branch the record's base is compared: a merge
+	// brought main's k + m into the lane's history.
+	let ahead = if noDefault && merged { n + k + m } else if byPatch && !merged { n - k } else { n }
+	let want = work.LaneStatus{
+		Default:       if noDefault { "" } else { "refs/heads/main" },
+		DefaultCommit: if noDefault { start } else { main },
+		Ahead:         ahead,
+		Behind:        behind,
+		By:            if byPatch { work.ByPatch } else { work.ByAncestry },
+		Head:          head,
+		Branch:        if detached { "" } else { made.Branch },
+		LastCommit:    s.LastCommit,
+		Dirty:         dirty,
+		Error:         json.Absent,
+	}
+	built && start != "" && len(got) == 1 && s == want && s.LastCommit > 0
+}
+
+// PlainListIsUnchanged: a list without -status makes no Vcs call and is
+// the registry's records, none with a status.
+law PlainListIsUnchanged(count int) {
+	let w = world(true)
+	for i in 0..(count%3+3)%3+1 {
+		let _ = w.tool.New("p\(i)", fresh(false)) catch {
+		case _:
+			return false
+		}
+	}
+	let before = Calls(w.vcs)
+	let got = w.tool.List(work.ListOptions{Status: false}) catch {
+	case _:
+		return false
+	}
+	let calls = Calls(w.vcs) - before
+	let kept = w.registry.All() catch {
+	case _:
+		return false
+	}
+	let absent = slices.IndexFunc(got, func(l work.Listed) bool { l.Status != json.Absent }) < 0
+	calls == 0 && absent && work.Records(got) == kept
+}
+
+// ListStatusCostsAtMost: list -status reads each active workspace with at
+// most four Vcs calls and each distinct parent with two (here the base),
+// and a removed workspace with none; a removed one has no status.
+law ListStatusCostsAtMost(count int, removed int) {
+	let w = world(true)
+	let n = (count%3+3)%3 + 1
+	for i in 0..n {
+		let made = w.tool.New("c\(i)", fresh(false)) catch {
+		case _:
+			return false
+		}
+		let _ = Write(w.trees, made.Path, "f.txt", "f\(i)\n") && Commit(w.vcs, made.Path, "cost\(i)")
+	}
+	let gone = (removed%(n+1) + n + 1) % (n + 1)
+	for i in 0..gone {
+		let _ = w.tool.Rm("c\(i)", expecting(None)) catch {
+		case _:
+			return false
+		}
+	}
+	let before = Calls(w.vcs)
+	let got = w.tool.List(work.ListOptions{Status: true}) catch {
+	case _:
+		return false
+	}
+	let calls = Calls(w.vcs) - before
+	let active = slices.Filter(got, func(l work.Listed) bool { l.State == work.Active })
+	let statusOnActive = slices.IndexFunc(got, func(l work.Listed) bool { (l.State == work.Active) != (l.Status != json.Absent) }) < 0
+	calls <= 4*len(active)+2 && len(active) == n-gone && statusOnActive
+}
+
+// ListStatusWritesNothing: after list -status every file of the base and
+// of each workspace, their Git folders too, is as it was, and no index
+// was written.
+law ListStatusWritesNothing(count int, dirty bool) {
+	let w = world(true)
+	let mut paths = []string{theBase}
+	for i in 0..(count%3+3)%3+1 {
+		let made = w.tool.New("w\(i)", fresh(false)) catch {
+		case _:
+			return false
+		}
+		let _ = Write(w.trees, made.Path, "f.txt", "f\(i)\n") && Commit(w.vcs, made.Path, "wrote\(i)") && (!dirty || Write(w.trees, made.Path, "new.txt", "n\n"))
+		paths = paths.Append(made.Path)
+	}
+	let files = func() []Map[string, string] {
+		let mut out = []Map[string, string]{}
+		for p in paths {
+			out = out.Append(Files(w.trees, p))
+		}
+		out
+	}
+	let before = files()
+	let writes = IndexWrites(w.vcs)
+	let _ = w.tool.List(work.ListOptions{Status: true}) catch {
+	case _:
+		return false
+	}
+	files() == before && IndexWrites(w.vcs) == writes
+}

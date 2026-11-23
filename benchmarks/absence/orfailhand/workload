@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench orfailhand N` makes N reads, the same read through the hand match
+# (ABSENCE, PRELUDE-ORFAIL); half the keys miss. The control is hand Go
+# comma-ok with the error built on the miss only: the floor.
+unit read
+sizes 409600 2457600
+args bench orfailhand {n}
+control benchmarks/absence/testdata/control

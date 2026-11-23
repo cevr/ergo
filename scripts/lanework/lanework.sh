@@ -32,8 +32,8 @@ MIN_FREE_GIB=${LANE_MIN_FREE_GIB:-10}
 # itself by age (a day's trim of entries unused for five days), never by
 # size: lanes kept 319 GB of distinct entries, all used within five days
 # (2026-11-22), so trim_gocache bounds it by size too.
-GOCACHE_SHARED=${LANE_GOCACHE:-/workspaces/.cache/ergo-gocache}
-GOCACHE_MAX_GIB=${LANE_GOCACHE_MAX_GIB:-40}
+SHARED_CACHE=${LANE_GOCACHE:-/workspaces/.cache/ergo-gocache}
+SHARED_CACHE_MAX_GIB=${LANE_GOCACHE_MAX_GIB:-40}
 
 fail() {
   printf 'lanework: %s\n' "$*" >&2
@@ -83,24 +83,24 @@ lane_of() {
 # source's workspace storage or the lane at $1 (when given), where a
 # clone or a snapshot would copy it.
 lane_gocache() {
-  case "$GOCACHE_SHARED" in
+  case "$SHARED_CACHE" in
     /*) ;;
-    *) fail "the shared Go cache is not an absolute path: '$GOCACHE_SHARED'" ;;
+    *) fail "the shared Go cache is not an absolute path: '$SHARED_CACHE'" ;;
   esac
-  case "$GOCACHE_SHARED/" in
-    */./* | */../* | *//*) fail "the shared Go cache has a . or .. or empty part: $GOCACHE_SHARED" ;;
+  case "$SHARED_CACHE/" in
+    */./* | */../* | *//*) fail "the shared Go cache has a . or .. or empty part: $SHARED_CACHE" ;;
   esac
   for inside in "$SRC" "${SRC%/*}/.work" "${SRC%/*}/.rifts" ${1:+"$1"}; do
-    case "$GOCACHE_SHARED/" in
-      "$inside"/*) fail "the shared Go cache $GOCACHE_SHARED is inside $inside, which a clone or a snapshot copies" ;;
+    case "$SHARED_CACHE/" in
+      "$inside"/*) fail "the shared Go cache $SHARED_CACHE is inside $inside, which a clone or a snapshot copies" ;;
     esac
   done
-  mkdir -p "$GOCACHE_SHARED"
-  printf '%s\n' "$GOCACHE_SHARED"
+  mkdir -p "$SHARED_CACHE"
+  printf '%s\n' "$SHARED_CACHE"
 }
 
 # trim_gocache bounds the shared cache at $1 by size, on the terms Go's
-# own trim deletes on. Over GOCACHE_MAX_GIB, it deletes the entries
+# own trim deletes on. Over SHARED_CACHE_MAX_GIB, it deletes the entries
 # unused the longest, in steps of last use from four days down to two
 # hours, until the cache is under the bound. Go marks an entry used at
 # most once an hour, so an entry that a running build looked up is never
@@ -108,7 +108,7 @@ lane_gocache() {
 # are deleted, and one trim runs at a time; a second one skips.
 trim_gocache() {
   case "$1" in /?*) ;; *) fail "trim of a cache that is not an absolute path: '$1'" ;; esac
-  limit_kib=$((GOCACHE_MAX_GIB * 1024 * 1024))
+  limit_kib=$((SHARED_CACHE_MAX_GIB * 1024 * 1024))
   (
     flock -n 8 || exit 0
     for minutes in 5760 2880 1440 720 360 120; do
@@ -355,12 +355,19 @@ cmd_trial() {
 
 # drivers writes into the clone at [dir] (the working folder's by
 # default) each merge driver its .gitattributes names and its
-# configuration lacks, by the driver table in that file's header. The
-# gate refuses a lane without them (scripts/gate/drivers.go) and names
-# this command.
+# configuration lacks. work's own table is the source: `work doctor -here
+# -fix` registers its drivers in that clone (modules/work, DriverSettings;
+# TestDriverTableIsWorks holds the header's table to it). A driver it did
+# not write (no work on PATH, a work too old for -here, a driver of no
+# class of work's) is written by the driver table in the attributes'
+# header. The gate refuses a lane without them (scripts/gate/drivers.go)
+# and names this command.
 cmd_drivers() {
   dir=$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || fail "not a Git checkout: ${1:-$PWD}"
   [ -f "$dir/.gitattributes" ] || return 0
+  if command -v "$WORK" >/dev/null 2>&1; then
+    (cd "$dir" && "$WORK" doctor -here -fix >/dev/null 2>&1) && printf 'work doctor -here -fix in %s\n' "$dir" || true
+  fi
   for n in $(merge_drivers <"$dir/.gitattributes"); do
     git -C "$dir" config --get "merge.$n.driver" >/dev/null && continue
     for k in name driver; do

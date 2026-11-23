@@ -142,7 +142,7 @@ func madeValue(x ast.Expr) bool {
 // first argument is it (append(b, …), strconv.AppendInt(b, …)), so the
 // result is the operand with elements added at its end, as Go's append
 // gives. The value rule treats a call of one as the prelude's Append
-// (values.go, preludeAppend): in place on `x = f(x, …)`, else on its
+// (values.go, appendsSource): in place on `x = f(x, …)`, else on its
 // operand clipped. The body may write only past its operand's length.
 func goBodyAppends(name string) bool {
 	fd := goBodies()[name]
@@ -256,6 +256,52 @@ func sameExpr(a, b ast.Expr) bool {
 func appenderExtern(f *check.Func) bool {
 	name := check.BodyOf(f).Runtime
 	return name != "" && goBodyAppends(name)
+}
+
+// goBodyWritesMap reports whether the runtime/v1 function name is a Map
+// writer: its first parameter is a Map, its one result is that Map's type,
+// and every return gives the first parameter itself, so the result is the
+// operand with its entries written (`m[k] = v; return m`), as Go's delete
+// leaves its Map. The value rule treats a call of one as it treats Go's
+// delete (values.go, writesMapSource): in place on `m = f(m, …)` or a dead
+// m, else on a copy of m.
+func goBodyWritesMap(name string) bool {
+	fd := goBodies()[name]
+	if fd == nil || fd.Type.Params == nil || len(fd.Type.Params.List) == 0 || len(fd.Type.Params.List[0].Names) == 0 {
+		return false
+	}
+	first := fd.Type.Params.List[0]
+	if _, ok := first.Type.(*ast.MapType); !ok || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 || len(fd.Type.Results.List[0].Names) > 0 {
+		return false
+	}
+	if !sameExpr(fd.Type.Results.List[0].Type, first.Type) {
+		return false
+	}
+	m := first.Names[0].Name
+	returns := 0
+	ok := true
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.FuncLit:
+			ok = false
+		case *ast.ReturnStmt:
+			returns++
+			if len(x.Results) != 1 {
+				ok = false
+			} else if id, isID := x.Results[0].(*ast.Ident); !isID || id.Name != m {
+				ok = false
+			}
+		}
+		return ok
+	})
+	return ok && returns > 0
+}
+
+// mapWriterExtern reports an extern, of any package, bound to a runtime/v1
+// Map writer (goBodyWritesMap).
+func mapWriterExtern(f *check.Func) bool {
+	name := check.BodyOf(f).Runtime
+	return name != "" && goBodyWritesMap(name)
 }
 
 // pureV1 reports a std extern bound to a pure runtime/v1 body (stdlib.md,
