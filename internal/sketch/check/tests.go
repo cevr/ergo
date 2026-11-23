@@ -201,9 +201,8 @@ func (c *checker) checkTest(test *Test) {
 	frame.frame = true
 	// A test with no parameters may run under a harness (harness.go); a
 	// body the rewrite made binds its hidden names again.
-	rewritten := rewrittenHarness(d.Body)
-	if rewritten != "" {
-		c.bindHarnessNames(frame, rewritten)
+	if pkgPath, rewritten := rewrittenHarness(d.Body); rewritten {
+		c.bindHarnessNames(frame, pkgPath)
 	} else if d.Params == nil {
 		tg.harness = &harnessUse{}
 	}

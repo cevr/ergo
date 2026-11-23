@@ -1,0 +1,77 @@
+type Bad { Code int }
+type Lost { Why string }
+type Good[T] { Value T }
+type Failed[E] { Error E }
+type Outcome[T, E] = Good[T] | Failed[E]
+
+type Probe[T, E] { Read func() T fails E }
+
+func await[T, E](p Probe[T, E]) T fails E {
+	try p.Read()
+}
+
+// Like a task exit, a named fallible call returns an error in the host
+// ABI, but binding the whole failure gives it the caller's slot type.
+func observe[T, E](_ int, p Probe[T, E]) Outcome[T, E] {
+	let value = await(p) catch {
+	case err:
+		return Failed[E]{Error: err}
+	}
+	Good[T]{Value: value}
+}
+
+type Left { N int }
+type Right { N int, More Payload }
+type Payload = Left | Right
+type A { Item Left }
+type B { Item Right }
+type Input = A | B
+
+func joined(x Input) int {
+	match x {
+	case A{Item: item}, B{Item: item}:
+		match item {
+		case Left{N: n}: n
+		case Right{N: n}: -n
+		}
+	}
+}
+
+func single(n int) int fails Bad {
+	if n < 0 { return Bad{Code: n} }
+	n
+}
+
+func multiple(n int) int fails Bad | Lost {
+	if n < 0 { return Bad{Code: n} }
+	if n > 0 { return Lost{Why: "lost"} }
+	n
+}
+
+func readSingle(n int) int {
+	match observe(0, Probe[int, Bad]{Read: func() int fails Bad { single(n) }}) {
+	case Good[int]{Value: value}: value
+	case Failed[Bad] as failure: failure.Error.Code
+	}
+}
+
+func readMultiple(n int) string {
+	match observe(0, Probe[int, Bad | Lost]{Read: func() int fails Bad | Lost { multiple(n) }}) {
+	case Good[int]{Value: value}: "success \(value)"
+	case Failed[Bad | Lost]{Error: err}:
+		match err {
+		case Bad{Code: code}: "bad \(code)"
+		case Lost{Why: why}: why
+		}
+	}
+}
+
+func exercise(a int, b int, c int) needs Console {
+	Console.Println("single \(readSingle(a)) \(readSingle(b))")
+	Console.Println("multiple \(readMultiple(b)) \(readMultiple(0)) \(readMultiple(c))")
+	Console.Println("joined \(joined(A{Item: Left{N: a}})) \(joined(B{Item: Right{N: c, More: Left{N: 0}}}))")
+}
+
+func main() needs Console {
+	exercise(11, -12, 13)
+}

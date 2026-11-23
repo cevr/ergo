@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/hex"
 	"sort"
 	"strconv"
 	"strings"
@@ -47,8 +48,16 @@ import (
 func (l *lowerer) textKey(t check.Type, site syntax.Node) (pkgKey, string) {
 	switch u := t.(type) {
 	case *check.Named:
+		key := l.typeKey(u)
 		td := l.typeDecl(u.Obj, site)
-		return pkgKey{"text", "named " + l.typeKey(u)}, "text" + td.name
+		base := "text" + td.name
+		if strings.Contains(td.name, ".") {
+			// A Go selector is a type reference, not a declaration name.
+			// Encode the full key losslessly in a separate namespace:
+			// no unqualified type name begins with "__" (pkgnames.go).
+			base = "text__" + hex.EncodeToString([]byte(key))
+		}
+		return pkgKey{"text", "named " + key}, base
 	case *check.Slice:
 		return pkgKey{"text", "slice " + l.typeKey(t)}, "textList"
 	}

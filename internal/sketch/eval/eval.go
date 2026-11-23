@@ -42,6 +42,10 @@ type Budget struct {
 	Steps int64
 	Depth int
 	Seed  uint64
+	// Source is the path ergo test was given (a file or a package's
+	// folder), which a harnessed test's replay command names, as the
+	// native test binary's --source; "" names the test's file.
+	Source string
 	// States is the explorer's budget of states for a machine law's
 	// search, the test build's --states; 0 is its default, 1,000,000.
 	States int
