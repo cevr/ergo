@@ -59,8 +59,10 @@ func TestWithResourceLending(t *testing.T) {
 	}
 
 	t.Run("pipeline", func(t *testing.T) {
-		const example = "examples/pipeline"
-		dir := filepath.Join(smokeWorkspace(t, example, "modules/domain"), filepath.FromSlash(example))
+		dir, err := filepath.Abs("../../examples/pipeline")
+		if err != nil {
+			t.Fatal(err)
+		}
 		run := func(args ...string) string {
 			t.Helper()
 			out, stderr, code := runSmokeCLI(t, binary, dir, "", args...)
@@ -69,8 +71,8 @@ func TestWithResourceLending(t *testing.T) {
 			}
 			return string(out)
 		}
+		run("check", "./pipeline", "./cmd/pipeline", "./cmd/pipeline-mcp", "./cmd/pipeline-server", "./surfaces")
 		run("gen", "mcp", "--check", "pipeline.Pipeline")
-		run("check", "./cmd/pipeline", "./cmd/pipeline-mcp", "./cmd/pipeline-server", "./surfaces")
 		for _, tc := range []struct {
 			pkg  string
 			law  string
