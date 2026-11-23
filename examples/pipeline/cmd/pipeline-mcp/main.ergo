@@ -24,8 +24,9 @@ func main() fails os.Exit needs Ambient {
 		case domain.Unkept as u:
 			return os.Exit{Code: 1, Message: "pipeline-mcp: the log could not keep a record: \(u.Reason)"}
 		}
-		let server = mcp.Server{Name: "pipeline", Version: "0.1.0", Tools: pipelinemcp.Tools(m)}
-		let _ = mcp.Serve(server, stdio.New())
-		pipeline.Stop(m)
+		with context { pipeline.Pipeline: m } {
+			let server = mcp.Server{Name: "pipeline", Version: "0.1.0", Tools: pipelinemcp.Tools()}
+			let _ = mcp.Serve(server, stdio.New())
+		}
 	}
 }

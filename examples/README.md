@@ -105,7 +105,6 @@ The runner tests every package, as `go test ./...` does, whether or not it decla
 A law a program declares or provides that no context can run yet is an error, S108, for every program, ours too (types.md, Laws 10). Until the unit that feeds it lands, the program is red by record: `scripts/examples/expected-findings` holds one line for each such error (`EXAMPLE PACKAGE CODE LAW PROVIDER UNIT`), and the runner prints it as `red by record (owed UNIT): …` instead of a layout error, and prints `red by record: PROGRAM: cases not run (N cases) until UNIT land` on every run instead of running the program: a build refuses a program with any error, so none of its legs can run, and the count keeps the dark cases visible. Any other error is still a layout error, and so is a line the checker no longer reports, so the file empties itself as the units land. This is the ledger of owed units; a line names one of them:
 
 - **STD-TESTAMBIENT**: std's test constructors for `http.NewNet` and `fs.OpenRoot` under TestAmbient, so download's test context builds a `Remote`.
-- **PIPELINE-CLOSE**: pipeline's `Model implements Closer` (Close is Stop), a resource (resources.md R1, R22, R24), so a test context builds and closes a Model, and a Client over it, for each case.
 
 ## Record leg
 

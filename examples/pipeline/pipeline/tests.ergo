@@ -1,0 +1,20 @@
+// The test file of package pipeline binds Pipeline to a Model over a
+// fresh memory log, so its laws run against the Model the binaries build
+// (types.md, Laws 10). The context builds the Model and owns it: each law
+// case closes it when the case ends (resources.md R24), which stops its
+// actor.
+
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
+import time
+
+// passes is a Runner whose every try passes.
+type passes {} implements Runner
+
+func Run(p passes, id string, stage int, attempt int) bool fails Offline { true }
+
+let overMemory = context fails domain.Conflict | domain.Reused | domain.Unkept {
+	Scheduler: time.NewManual(0),
+	Runner: passes,
+	Pipeline: try Open(memory.New[Entry]()),
+}
