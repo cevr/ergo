@@ -174,19 +174,17 @@ func Environ(h Host, prefix string) []Variable { h.environ(prefix) }
 // ReadFile is the host's file at path: None when nothing is there.
 func ReadFile(h Host, path string) Option[string] fails Unreadable { try h.readFile(path) }
 
-// environOf is the variables of vars, each NAME=VALUE, whose name starts
-// with prefix, in vars' order.
-func environOf(vars []string, prefix string) []Variable {
-	let mut out = []Variable{}
-	for kv in vars {
-		match strings.Cut(kv, "=") {
-		case Some as halves:
-			if strings.HasPrefix(halves.Value.Before, prefix) {
-				out = out.Append(Variable{Name: halves.Value.Before, Text: halves.Value.After})
-			}
-		case None:
-			Unreachable("config: os.Environ gives NAME=VALUE")
+// environOf is every variable whose name starts with prefix, ordered by name.
+func environOf(env Map[string, string], prefix string) []Variable {
+	let mut names = []string{}
+	for name, _ in env {
+		if strings.HasPrefix(name, prefix) {
+			names = names.Append(name)
 		}
+	}
+	let mut out = []Variable{}
+	for name in slices.Sort(names) {
+		out = out.Append(Variable{Name: name, Text: maps.GetOr(env, name, "")})
 	}
 	out
 }
@@ -220,17 +218,7 @@ func Lookup(m Memory, name string) Option[string] { m.Env.Get(name) }
 
 // Environ is m's variables that start with prefix, by name.
 func Environ(m Memory, prefix string) []Variable {
-	let mut names = []string{}
-	for name, _ in m.Env {
-		if strings.HasPrefix(name, prefix) {
-			names = names.Append(name)
-		}
-	}
-	let mut out = []Variable{}
-	for name in slices.Sort(names) {
-		out = out.Append(Variable{Name: name, Text: maps.GetOr(m.Env, name, "")})
-	}
-	out
+	environOf(m.Env, prefix)
 }
 
 // ReadFile is m's file at path, or None.

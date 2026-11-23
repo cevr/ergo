@@ -36,10 +36,27 @@ extern go ergo.local/prototype/runtime/v1.NoWorkdir type NoWorkdir { Message str
 type Process {
 	Args() []string,
 	Getenv(key string) Option[string],
+	// Environ is the whole environment, each variable by its name. It is
+	// how a program passes this process's environment to one it runs:
+	// `exec.New(name, args).WithEnvFrom(os.Process.Environ())` (std exec:
+	// a program sees only the environment its Command holds).
+	Environ() Map[string, string],
 	Getwd() string fails NoWorkdir,
 
 	// GetenvIsStable: two reads of one key agree.
 	law GetenvIsStable(key string) { Getenv(key) == Getenv(key) },
+
+	// EnvironAgreesWithGetenv: each variable Environ gives is the one
+	// Getenv reads, and a key Getenv reads is in Environ.
+	law EnvironAgreesWithGetenv(key string) {
+		let env = Environ()
+		for k, v in env {
+			if Getenv(k) != (Some[string]{Value: v}) {
+				return false
+			}
+		}
+		Getenv(key) == env.Get(key)
+	},
 
 	// GetwdIsStable: with no change of directory between them, two reads
 	// of the working directory agree, in value and in failure. A process
@@ -102,6 +119,17 @@ func Getenv(h Host, key string) Option[string] {
 		None
 	}
 }
+
+// Environ is the host process's environment: each variable once, with
+// the value Getenv reads. A test's Host gives its four (confined.ergo).
+func Environ(h Host) Map[string, string] {
+	if h.root != "" {
+		return confinedEnviron(h)
+	}
+	hostEnviron()
+}
+
+extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron() Map[string, string]
 
 // Getwd is the host process's working directory, an absolute path (Go's
 // os.Getwd). It fails NoWorkdir when the host cannot name it.

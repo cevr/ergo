@@ -38,7 +38,7 @@ type ExecDetached struct {
 //ergo:wait caller
 func ExecSpawn(t *rt.Task, name string, args []string, env map[string]string, dir string, stdin string, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (ExecDetached, error) {
 	t.Check()
-	cmd, err := execCommand(name, args, env, dir, stdin)
+	cmd, err := ExecCommand(name, args, env, dir, stdin)
 	if err != nil {
 		return ExecDetached{}, err
 	}

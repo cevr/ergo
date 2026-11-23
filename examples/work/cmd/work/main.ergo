@@ -132,7 +132,8 @@ func main() fails os.Exit needs Ambient | Console {
 	}
 	let home = work.Home(base, work.StorageOf(files, base))
 	let data = if shared != "" { shared } else { filepath.Join([]string{home, ".data"}) }
-	let run = exec.NewHost()
+	// Git, clone tools and hooks run with the user's explicit environment.
+	let run = exec.NewHost().InheritEnv(process.Environ())
 	let resolve = func(name string) string {
 		with context { os.Process: process, fs.Files: files } {
 			exec.LookPath(name) catch {

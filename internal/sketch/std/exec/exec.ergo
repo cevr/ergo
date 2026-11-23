@@ -37,12 +37,21 @@ extern go ergo.local/prototype/runtime/v1/exec.ExecFailed type Failed { Name str
 // reports it.
 extern go ergo.local/prototype/runtime/v1/exec.ExecResult type Result { Status int, Stdout string, Stderr string }
 
-// Command is one program to run: the program Name (a name looked up on
-// the PATH, or a path), its arguments after the name, the environment
-// entries set over the host process's environment, the working directory
-// ("" is the caller's), the text its standard input reads, and the Grace
-// a stop gives it: SIGTERM to its process group, then SIGKILL when it has
-// not ended within Grace. A Grace of 0 sends SIGKILL at once.
+// Command is one program to run: the program Name (a path, or a name
+// looked up on the PATH of Env), its arguments after the name, its whole
+// environment Env, the working directory ("" is the caller's), the text
+// its standard input reads, and the Grace a stop gives it: SIGTERM to its
+// process group, then SIGKILL when it has not ended within Grace. A Grace
+// of 0 sends SIGKILL at once.
+//
+// The environment is a value: the program sees exactly Env, one entry per
+// key, and nothing of the environment of the process that runs it. A name
+// without a slash is looked up only in the absolute directories of
+// Env's PATH, so a Command with no PATH runs a path Name only. A program
+// that should see some of this process's environment gets it by name:
+// `c.WithEnvFrom(os.Process.Environ())`, or one entry through
+// os.Process.Getenv, so the os.Process capability is in the row of the
+// code that passes it on.
 type Command {
 	Name  string,
 	Args  []string,
@@ -53,8 +62,8 @@ type Command {
 }
 
 // New is the command that runs name with args, in the caller's working
-// directory, with the host process's environment, an empty standard input
-// and no grace.
+// directory, with an empty environment, an empty standard input and no
+// grace.
 func New(name string, args []string) Command {
 	Command{Name: name, Args: args, Env: Map[string, string]{}, Dir: "", Stdin: "", Grace: 0s}
 }
@@ -73,6 +82,31 @@ func WithEnv(c Command, key string, value string) Command {
 	}
 	env[key] = value
 	Command{..c, Env: env}
+}
+
+// WithEnvFrom is c with the entries of env that c does not set itself:
+// c's own entries win. It is how a program is given the environment of
+// the process that runs it: `c.WithEnvFrom(os.Process.Environ())`.
+func WithEnvFrom(c Command, env Map[string, string]) Command {
+	let mut out = Map[string, string]{}
+	for k, v in env {
+		out[k] = v
+	}
+	for k, v in c.Env {
+		out[k] = v
+	}
+	Command{..c, Env: out}
+}
+
+// WithEnvFromKeepsOwn: an entry c sets keeps its value, and a key only env
+// sets takes env's.
+law WithEnvFromKeepsOwn(key string, own string, inherited string, other string) {
+	let c = New("x", []string{}).WithEnv(key, own)
+	let mut env = Map[string, string]{}
+	env[key] = inherited
+	env[key + "_"] = other
+	let d = c.WithEnvFrom(env)
+	d.Env.Get(key) == Some[string]{Value: own} && d.Env.Get(key + "_") == Some[string]{Value: other} && len(d.Env) == 2
 }
 
 // WithDir is c run in the working directory dir.
@@ -250,6 +284,14 @@ type Runner {
 	// started. The caller owns the Running.
 	Start(c Command, s Streams) Running fails NotFound | Denied | Failed,
 
+	// Env is the environment this Runner lays under the Env of each
+	// Command it runs or starts: the program sees c.WithEnvFrom(Env()).Env
+	// and nothing else (EnvIsExact), and a name is looked up on that PATH
+	// (LookupUsesChildPath). It is empty for the host's Runner as NewHost
+	// makes it and for a Script; Host.InheritEnv adds to it, and a test's
+	// Host holds TestHostKeys.
+	Env() Map[string, string],
+
 	// StartAgreesWithRun: a started program whose streams go to the
 	// caller gives the lines and the status Run gives. The program is a
 	// drawn Shell, so on a host each case runs one.
@@ -330,6 +372,89 @@ type Runner {
 		}
 		true
 	},
+
+	// EnvIsExact: a program sees exactly its Command's Env over the Runner's
+	// Env(). The host rejects an empty key, "=" or NUL in a key, and NUL
+	// in a value as Failed before launch. The probe uses awk's ENVIRON
+	// with length-prefixed entries and LC_ALL=C so lengths count bytes.
+	// Its keys use portable names; values can contain arbitrary bytes
+	// except NUL, including line feeds. (Some awk implementations drop
+	// names that are not identifiers.)
+	law EnvIsExact(values []string) {
+		let probe = "BEGIN { for (k in ENVIRON) printf \"%d %d\\n%s%s\", length(k), length(ENVIRON[k]), k, ENVIRON[k] }"
+		// GNU awk supplies defaults for absent or empty AWKPATH and
+		// AWKLIBPATH. Set them explicitly so the probe adds no entries.
+		let mut c = New("/usr/bin/awk", []string{probe}).WithEnv("LC_ALL", "C").WithEnv("AWKPATH", ".").WithEnv("AWKLIBPATH", ".").WithEnv("V_LINE", "one\ntwo")
+		for i, v in values {
+			c = c.WithEnv("V" + strconv.Itoa(i), strings.ReplaceAll(v, "\x00", ""))
+		}
+		let r = Run(c) catch {
+		case NotFound, Denied, Failed:
+			return true
+		}
+		let mut want = []string{}
+		for key, value in c.WithEnvFrom(Env()).Env {
+			want = want.Append(key + "=" + value)
+		}
+		r.Status == 0 && envReportMatches(r.Stdout, want)
+	},
+
+	// LookupUsesChildPath: a name with no slash is looked up on the PATH
+	// the program sees, never on the PATH of the process that runs it:
+	// where neither the Command nor the Runner's Env names a PATH, sh is
+	// not found.
+	law LookupUsesChildPath() {
+		if Env().Get("PATH") != None {
+			return true
+		}
+		Run(New("sh", []string{"-c", "exit 0"})) catch {
+		case NotFound:
+			return true
+		case Denied, Failed:
+			return false
+		}
+		false
+	},
+}
+
+// TestHostKeys are the keys a test's Host (NewTestHost) sets in the
+// environment of each program it runs, over the Command's own and its
+// inherited ones (rows.md, Test's ambient): HOME and TMPDIR, the case's
+// folder, and GIT_CEILING_DIRECTORIES, its parent. They are in its Env().
+let TestHostKeys = []string{"GIT_CEILING_DIRECTORIES", "HOME", "TMPDIR"}
+
+// envReportMatches reads header lengths, then exactly those key and
+// value bytes. The child reports a map in no order, so compare sorted
+// entries and keep duplicates visible if a reporter emits them.
+func envReportMatches(report string, want []string) bool {
+	let mut rest = report
+	let mut got = []string{}
+	for _ in 0..len(report) {
+		if rest == "" {
+			break
+		}
+		let end = strings.IndexByte(rest, '\n')
+		let space = strings.IndexByte(rest, ' ')
+		if space <= 0 || end <= space {
+			return false
+		}
+		let keyLen = strconv.Atoi(rest[:space]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		let valLen = strconv.Atoi(rest[space + 1:end]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		let payload = rest[end + 1:]
+		if keyLen <= 0 || keyLen > len(payload) || valLen < 0 || valLen > len(payload) - keyLen {
+			return false
+		}
+		let value = payload[keyLen:keyLen + valLen]
+		got = got.Append(payload[:keyLen] + "=" + value)
+		rest = payload[keyLen + valLen:]
+	}
+	slices.Equal(slices.Sort(got), slices.Sort(want))
 }
 
 // Interleaves reports whether s is a and b merged, each one's bytes kept
@@ -423,9 +548,10 @@ type Shell { Writes []ShellWrite, Status int }
 // when Stderr, else to standard output.
 type ShellWrite { Text string, Stderr bool }
 
-// ShellCommand is sh as a Command: sh -c with a script of one printf per
-// write, each byte of its text written as an octal escape, so every byte,
-// NUL included, reaches the stream as it is.
+// ShellCommand is sh as a Command: /bin/sh -c with a script of one printf
+// per write (sh's own printf, so the Command needs no PATH), each byte of
+// its text written as an octal escape, so every byte, NUL included,
+// reaches the stream as it is.
 func ShellCommand(sh Shell) Command {
 	let mut script = ""
 	for w in sh.Writes {
@@ -437,7 +563,7 @@ func ShellCommand(sh Shell) Command {
 		script = script + "printf '" + format + "'" + (if w.Stderr { " >&2" } else { "" }) + "\n"
 	}
 	let status = (sh.Status % 256 + 256) % 256
-	New("sh", []string{"-c", script + "exit " + strconv.Itoa(status)})
+	New("/bin/sh", []string{"-c", script + "exit " + strconv.Itoa(status)})
 }
 
 // octal is the digit d, 0 to 7.
@@ -558,6 +684,10 @@ func Run(s Script, c Command) Result fails NotFound | Denied | Failed {
 	}
 }
 
+// Env is empty: a Script runs nothing, so it gives a program no
+// environment of its own (Runner.Env).
+func Env(_ Script) Map[string, string] { Map[string, string]{} }
+
 // Start is the Running of the Result recorded for c (Ended). It fails
 // NotFound when Results holds no Result for c, and Failed for a Stdout of
 // ToStdout, as the host's does.
@@ -655,22 +785,64 @@ law ScriptReplaysRecorded(name string, arg string, status int, out string) {
 // authority (types.md, Zero values 6): no other package writes exec.Host{},
 // its zero value or a record update of it. root is "" for the host's own
 // (NewHost), and the case's folder for a test's (NewTestHost,
-// confined.ergo).
-type Host { root string } implements Runner, Spawner
+// confined.ergo). base is the environment each Command it runs gets under
+// its own entries (InheritEnv): empty for NewHost and NewTestHost.
+type Host { root string, base Map[string, string] } implements Runner, Spawner
 
 // NewHost is the host's Runner. It needs Ambient: only code whose row
-// holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{root: ""} }
+// holds the authority to choose the host makes one. A program it runs
+// sees only its Command's Env; InheritEnv gives it more.
+func NewHost() Host needs Ambient { Host{root: "", base: Map[string, string]{}} }
+
+// InheritEnv is h with env laid under the Env of each Command it runs,
+// starts or spawns (WithEnvFrom: a Command's own entries win). It is how
+// the code that chooses the host passes environment on, once, where the
+// provider is chosen: `exec.NewHost().InheritEnv(os.Process.Environ())` for a
+// program that runs a user's commands, `exec.NewTestHost().InheritEnv(
+// exec.PathOf(os.Process.Environ()))` for a test that only needs PATH.
+func InheritEnv(h Host, env Map[string, string]) Host {
+	let mut base = Map[string, string]{}
+	for k, v in h.base {
+		base[k] = v
+	}
+	for k, v in env {
+		base[k] = v
+	}
+	Host{root: h.root, base: base}
+}
+
+// Env is the environment h lays under each Command (Runner.Env): its
+// base, and for a test's Host the three keys it sets over every program's
+// (TestHostKeys), which win.
+func Env(h Host) Map[string, string] {
+	if h.root == "" {
+		return h.base
+	}
+	testEnv(h.root, h.base)
+}
+
+// PathOf is the PATH entry of env alone (none when env has none): what a
+// Runner needs to find a program by its name.
+func PathOf(env Map[string, string]) Map[string, string] {
+	let mut out = Map[string, string]{}
+	match env.Get("PATH") {
+	case Some[string] as p:
+		out["PATH"] = p.Value
+	case None:
+	}
+	out
+}
 
 // Run runs c to its end on the host. The program starts in a process group
 // of its own; Run returns after it exits and is reaped, with all its
 // output. A stop of the calling task kills the group, waits for the reap
 // and ends the call.
 func Run(h Host, c Command) Result fails NotFound | Denied | Failed {
+	let cmd = c.WithEnvFrom(h.base)
 	if h.root != "" {
-		return try runConfined(h, c)
+		return try runConfined(h, cmd)
 	}
-	try hostRun(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace)
+	try hostRun(cmd.Name, cmd.Args, cmd.Env, cmd.Dir, cmd.Stdin, cmd.Grace)
 }
 
 extern go ergo.local/prototype/runtime/v1/exec.ExecRun func hostRun(name string, args []string, env Map[string, string], dir string, stdin string, grace duration) Result fails NotFound | Denied | Failed
@@ -679,10 +851,11 @@ extern go ergo.local/prototype/runtime/v1/exec.ExecRun func hostRun(name string,
 // standard output and standard error going to s's sinks. A file sink that
 // cannot be opened fails Failed and starts nothing.
 func Start(h Host, c Command, s Streams) Running fails NotFound | Denied | Failed {
+	let cmd = c.WithEnvFrom(h.base)
 	if h.root != "" {
-		return try startConfined(h, c, s)
+		return try startConfined(h, cmd, s)
 	}
-	try hostStart(c.Name, c.Args, c.Env, c.Dir, c.Stdin, c.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
+	try hostStart(cmd.Name, cmd.Args, cmd.Env, cmd.Dir, cmd.Stdin, cmd.Grace, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
 }
 
 // sinkKind is the runtime's number of a sink (runtime/v1/exec exec_start.go).
@@ -729,7 +902,8 @@ func Spawn(h Host, c Command, s Streams) Detached fails NotFound | Denied | Fail
 	if h.root != "" {
 		return Failed{Name: c.Name, Reason: "a test's host spawns no detached program"}
 	}
-	try hostSpawn(c.Name, c.Args, c.Env, c.Dir, c.Stdin, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
+	let cmd = c.WithEnvFrom(h.base)
+	try hostSpawn(cmd.Name, cmd.Args, cmd.Env, cmd.Dir, cmd.Stdin, sinkKind(s.Stdout), sinkPath(s.Stdout), sinkAppends(s.Stdout), sinkKind(s.Stderr), sinkPath(s.Stderr), sinkAppends(s.Stderr))
 }
 
 // Alive reports that d's program is running on the host: its pid names a

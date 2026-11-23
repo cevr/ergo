@@ -10,6 +10,20 @@
 // it: `context needs TestAmbient { os.Process: os.NewTestHost() }`.
 func NewTestHost() Host needs TestAmbient { Host{root: TestFolder()} }
 
+// confinedEnviron is the environment of a test's Host, h: the keys
+// confinedEnv gives.
+func confinedEnviron(h Host) Map[string, string] {
+	let mut env = Map[string, string]{}
+	for key in []string{"HOME", "PATH", "PWD", "TMPDIR"} {
+		match confinedEnv(h, key) {
+		case Some[string] as v:
+			env[key] = v.Value
+		case None:
+		}
+	}
+	env
+}
+
 // confinedEnv is the value of key for a test's Host, h.
 func confinedEnv(h Host, key string) Option[string] {
 	if key == "HOME" || key == "TMPDIR" || key == "PWD" {

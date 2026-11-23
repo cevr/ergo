@@ -18,12 +18,12 @@ Paths are relative to the driver's base folder. A path element that is empty, `.
 
 Each driver keeps a ledger, a file per object in its own folder, named by the kind and the hex of the id. The ledger holds the object's path or the program's pid, start time, props and port. `Read` and `Delete` get only the id, so they read the ledger. A program counts as running only when it is the same process, by pid and start time, so a reused pid is never taken for it.
 
-`main` binds the host's providers:
+`main` binds the host's providers. The programs it starts are the user's, so they get this process's whole environment, passed on by `InheritEnv` (std exec: a program sees only the environment it is given):
 
 ```
 let host = fs.NewHost()
 let checks = try local.NewHTTP(50, 100ms)
-let programs = local.ProgramsOn(host, host, exec.NewHost(), func(url string) bool { checks.Ready(url) }, base, base + "/.infra", 5s)
+let programs = local.ProgramsOn(host, host, exec.NewHost().InheritEnv(os.NewHost().Environ()), func(url string) bool { checks.Ready(url) }, base, base + "/.infra", 5s)
 ```
 
 A law or a test binds memory ones: `fstest.Memory`, `exec.Processes`, and `Up` or `Down`.

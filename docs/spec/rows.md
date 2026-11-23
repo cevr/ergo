@@ -171,7 +171,7 @@ Status: **implemented** (TH1; GLOSSARY "Test's ambient"; check/testambient.go, `
 
 ```go
 let onHost = context needs TestAmbient {
-	work.Cloner: copy.New(exec.NewTestHost()),
+	work.Cloner: copy.New(exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))),
 	fs.Files, fs.Writes: fs.NewTestHost(),
 }
 ```
