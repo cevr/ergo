@@ -176,6 +176,8 @@ type Package struct {
 	// (CheckTest, builders.go rule 2); nil for a package that is no test
 	// package. Set before the package is checked.
 	testOf *Package
+	// lawSelf is the package-owned instance cache for standalone law readings.
+	lawSelf *checker
 }
 
 // Std reports a std package: the prelude or a package of the embedded
@@ -816,10 +818,8 @@ func ProvidingFunc(t Type, name string) *Func {
 	return nil
 }
 
-// ConstraintOnly reports whether an operation type is a constraint only by
-// a generic operation (Interface.Generic): a function its operations
-// constrain is lowered only as copies, one per instance.
-func ConstraintOnly(t Type) bool { return genericOpOnly(t) }
+// ConstraintOnly reports whether an operation type only lowers by copies.
+func ConstraintOnly(t Type) bool { return copiesOnly(t) }
 
 // CallKind is what a call calls.
 type CallKind int
@@ -1268,7 +1268,8 @@ type Law struct {
 	TParams []*TypeParam
 	// Params are its parameters, in source order; a field with no name
 	// holds one "_".
-	Params []*Var
+	Params   []*Var
+	selfUses []*SelfType
 	// Fails is the inferred failure row of its body: a failure that
 	// escapes it refutes the law when ergo test runs it.
 	Fails *Row

@@ -26,23 +26,25 @@ let tInstance = 10
 // origin, so instances of two origins never share a list, even with no
 // arguments (two empty runs share a start, never a number).
 type Pool {
-	keys   dense.Interner[TKey],
-	open   dense.Col[TKey, bool],
-	origin dense.Side[TKey, XRef],
-	extra  []dense.ID[TKey],
-	lists  dense.Strings,
-	starts []uint32,
+	keys    dense.Interner[TKey],
+	open    dense.Col[TKey, bool],
+	origin  dense.Side[TKey, XRef],
+	extra   []dense.ID[TKey],
+	lists   dense.Strings,
+	starts  []uint32,
+	layouts dense.Side[TKey, []ClaimLayout],
 }
 
 // NewPool is a pool of no types.
 func NewPool() Pool {
 	Pool{
-		keys:   dense.NewInterner[TKey](),
-		open:   dense.NewCol[TKey, bool](),
-		origin: dense.NewSide[TKey, XRef](XRef{Import: uint32(0), Decl: uint32(0)}),
-		extra:  []dense.ID[TKey]{},
-		lists:  dense.NewStrings(),
-		starts: []uint32{},
+		keys:    dense.NewInterner[TKey](),
+		open:    dense.NewCol[TKey, bool](),
+		origin:  dense.NewSide[TKey, XRef](XRef{Import: uint32(0), Decl: uint32(0)}),
+		extra:   []dense.ID[TKey]{},
+		lists:   dense.NewStrings(),
+		starts:  []uint32{},
+		layouts: dense.NewSide[TKey, []ClaimLayout]([]ClaimLayout{}),
 	}
 }
 
@@ -93,6 +95,11 @@ func anyOpen(p Pool, ts []dense.ID[TKey]) bool {
 func composite(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "", ts)
 	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
+}
+
+func symbolic(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
+	let l = list(p, "", ts)
+	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, true)
 }
 
 // Basic is the basic type of ordinal n (int, string, …).
@@ -160,6 +167,43 @@ func Open(p Pool, t dense.ID[TKey]) bool { dense.Of(p.open, t) }
 // (a position past args stays). A closed type is itself, at once (Bun
 // T11: no walk for the common case).
 func Subst(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
+	substAt(p, t, args, dense.NoID[TKey](), dense.NoID[TKey](), []int{})
+}
+
+func replaceAt(p mut Pool, recv dense.ID[TKey], args []dense.ID[TKey], positions []int) dense.ID[TKey] {
+	if len(args) == 0 {
+		return recv
+	}
+	if len(positions) != len(args) {
+		return Basic(p, 0)
+	}
+	let mut ts = slices.Clone(Operands(*p, recv))
+	for i, at in positions {
+		if at < 0 || at >= len(ts) {
+			return Basic(p, 0)
+		}
+		ts[at] = args[i]
+	}
+	Instance(p, OriginOf(*p, recv), ts)
+}
+
+func reapply(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
+	let k = int(Key(*p, recv).k)
+	if k == tInstance && int(Key(*p, op).k) == tInstance {
+		let claimant = OriginOf(*p, recv)
+		let key = Instance(p, claimant, []dense.ID[TKey]{})
+		for lay in dense.SideOf(p.layouts, key) {
+			if lay.Op == OriginOf(*p, op) {
+				return replaceAt(p, recv, args, lay.Positions)
+			}
+		}
+	} else if k == tReapplied {
+		return reapply(p, operandAt(*p, recv, 0), operandAt(*p, recv, 1), args)
+	}
+	symbolic(p, tReapplied, []dense.ID[TKey]{recv, op}.Concat(args))
+}
+
+func substAt(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey], self dense.Opt[TKey], op dense.Opt[TKey], positions []int) dense.ID[TKey] {
 	if !Open(*p, t) {
 		return t
 	}
@@ -174,7 +218,34 @@ func Subst(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
 	let n = len(Operands(*p, t))
 	let mut ts = slices.WithCapacity[dense.ID[TKey]](n)
 	for i in 0..n {
-		ts = ts.Append(Subst(p, operandAt(*p, t, i), args))
+		ts = ts.Append(substAt(p, operandAt(*p, t, i), args, self, op, positions))
+	}
+	if kind == tSelf {
+		return match dense.Unpack(self) {
+		case Some{Value: recv}:
+			if len(ts) == 0 {
+				recv
+			} else {
+				match dense.Unpack(op) {
+				case Some{Value: role}:
+					let mut outer = slices.Clone(Operands(*p, role))
+					for i, slot in positions {
+						if slot < 0 || slot >= len(outer) || i >= len(ts) {
+							return Basic(p, 0)
+						}
+						outer[slot] = ts[i]
+					}
+					if int(Key(*p, recv).k) == tSelf { symbolic(p, tSelf, outer) } else { reapply(p, recv, role, outer) }
+				case None:
+					replaceAt(p, recv, ts, positions)
+				}
+			}
+		case None:
+			symbolic(p, tSelf, ts)
+		}
+	}
+	if kind == tReapplied {
+		return reapply(p, ts[0], ts[1], ts[2:len(ts)])
 	}
 	if kind == tRow {
 		// A row parameter bound to a row splices its elements in (the Go
@@ -224,6 +295,24 @@ law InstancesKeepTheirOrigins(i int, j int) {
 	let x = Instance(&p, a, []dense.ID[TKey]{})
 	let y = Instance(&p, b, []dense.ID[TKey]{})
 	(x == y) == (a == b) && OriginOf(p, x) == a && OriginOf(p, y) == b
+}
+
+// ImportedClaimKeepsItsFixedSlot checks that the importer applies a
+// layout belonging to another package, even when both arguments are equal.
+law ImportedClaimKeepsItsFixedSlot(first bool) {
+	let mut s = New("caller", []string{"role", "box"})
+	let claimant = XRef{Import: uint32(2), Decl: uint32(1)}
+	let role = XRef{Import: uint32(1), Decl: uint32(1)}
+	let slot = if first { 0 } else { 1 }
+	AddClaimLayout(&s, claimant, ClaimLayout{Op: role, Positions: []int{slot}})
+	let original = TBasic(&s, 3)
+	let replacement = TBasic(&s, 2)
+	let recv = TInstance(&s, claimant, []dense.ID[TKey]{original, original})
+	let bound = TInstance(&s, role, []dense.ID[TKey]{original})
+	let symbolicType = TReapplied(&s, TParam(&s, 0), bound, []dense.ID[TKey]{replacement})
+	let got = TSubst(&s, symbolicType, []dense.ID[TKey]{recv})
+	let want = TInstance(&s, claimant, if first { []dense.ID[TKey]{replacement, original} } else { []dense.ID[TKey]{original, replacement} })
+	got == want
 }
 
 // PoolInterns: two types of a pool are one id exactly when their
