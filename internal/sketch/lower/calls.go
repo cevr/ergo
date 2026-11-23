@@ -56,6 +56,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.wireCall(x, c)
 	case check.CallPattern:
 		return fc.patternCall(x, c) // refinematch.go
+	case check.CallHash:
+		return fc.hashCall(x) // ir_mapprovider.go
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -922,11 +924,13 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 
 // siteValue is the CallSite the call x passes for the final parameter it
 // leaves out (types.md, Call sites): where x starts, as a defect names it.
-// A constant, so it runs after the written operands with no spill.
+// Its Pkg is the package variable of the call's package (siteid.go), which
+// nothing writes, and its other fields constants, so it runs after the
+// written operands with no spill.
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
-	file, line, column := fc.l.locate(x, x.Pos())
+	file, line, column, pkg, id := fc.l.callSite(x)
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Id"], fc.l.siteID(x))
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %s, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Pkg"], pkg, td.fieldName["Id"], id)
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -1268,10 +1272,24 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if lit {
 		fc.l.localContext(w.Contexts[0], arg)
 		fc.buildProviders(w, "(&"+env+")", outer, ws)
-	} else if owning {
-		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
 	} else {
-		fc.line(build + "(&" + env + ")")
+		call := build + "(&" + env + ")"
+		if owning {
+			call = build + "(&" + env + ", " + outer + ", " + ws + ")"
+		}
+		if fallibleBuild(w) {
+			// with try W: the build's failure leaves the with before its
+			// block runs; the frame's scope ends the with's scope, which
+			// releases what the builder had built (rows.md, With 6).
+			err := fc.temp("err")
+			fc.line("if " + err + " := " + call + "; " + err + " != nil {")
+			fc.depth++
+			fc.fail(err)
+			fc.depth--
+			fc.line("}")
+		} else {
+			fc.line(call)
+		}
 	}
 	saved := fc.env
 	fc.env = "(&" + env + ")"
@@ -1369,9 +1387,17 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // context checks a named context declaration. Its builders are written at the
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
-		refuse(w.Decl, "a context header with provides or needs waits for context header checking")
+	if w.Decl.Provides != nil {
+		refuse(w.Decl, "a context header with provides waits for context header checking")
 	}
+}
+
+// fallibleBuild reports a with whose named context's build may fail: its
+// builder returns the failure (emitContext), which the caller propagates
+// (check/contextneeds.go, rule 3). An embedded context's failures are in
+// the header row of the context that embeds it (rule 1).
+func fallibleBuild(w *check.With) bool {
+	return len(w.Contexts) > 0 && !w.Contexts[0].BuildFails().Empty()
 }
 
 // emitContext writes the builder name for the with w. A with that owns a
@@ -1400,9 +1426,15 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	} else {
 		l.recordDecl(w.Name, w.Decl)
 	}
-	// A builder has no loop and calls no capability (a named context is
-	// closed); its frame reads the context's footprint all the same.
-	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
+	// A builder has no loop. Its providers read what its header needs from
+	// env, the with site's copy, which holds the capabilities the checker
+	// charged there (check/contextneeds.go); its frame reads the context's
+	// footprint all the same.
+	// A context whose header writes a fails row returns its build's
+	// failure: an entry's try leaves the builder with it (fail), and the
+	// with that called it propagates it (check/contextneeds.go, rule 3).
+	fallible := !w.BuildFails().Empty()
+	fc.frame = newFrame(nil, fallible, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
 	params := fc.env + " *" + l.env()
@@ -1410,11 +1442,17 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	if ownsResources(with) {
 		outer, ws = fc.scope.alloc("outer"), fc.scope.alloc("ws")
 		params += ", " + outer + " *" + l.env() + ", " + ws + " *" + l.rt() + ".Scope"
+		// A direct provider result can start a task. The callback that
+		// acquires it uses this scope and registers its release here.
+		fc.frame.with = ws
 	}
 	fc.entryPoll(l.info, w.Decl)
 	l.analyzeValues(w.Decl, l.info)
 	fc.buildProviders(with, fc.env, outer, ws)
 	decl := "func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n"
+	if fallible {
+		decl = "func " + name + "(" + params + ") error {\n" + fc.out.String() + "\treturn nil\n}\n\n"
+	}
 	if std {
 		l.gen.WriteString(decl)
 		return
@@ -1970,15 +2008,28 @@ type declIdent struct {
 // recordDecl adds the source declaration n, named name, to the
 // declaration table once.
 func (l *lowerer) recordDecl(name string, n syntax.Node) {
+	l.recordDeclAt(name, n, -1)
+}
+
+// recordDeclAt records n. A negative src resolves the source file lazily.
+func (l *lowerer) recordDeclAt(name string, n syntax.Node, src int) {
 	if l.declSeen[n] {
 		return
+	}
+	if src < 0 {
+		i, ok := l.sourceOf(n)
+		if !ok {
+			ice(n, "a location of a node that no source file holds")
+		}
+		src = i
 	}
 	if l.declSeen == nil {
 		l.declSeen = map[syntax.Node]bool{}
 	}
 	l.declSeen[n] = true
-	src, _, line, _ := l.at(n, n.Pos())
-	_, _, end, _ := l.at(n, n.End())
+	file := l.srcs[src].file
+	line, _ := file.Position(n.Pos())
+	end, _ := file.Position(n.End())
 	l.decls = append(l.decls, declIdent{src: src, offset: int(n.Pos()), name: name, line: line, end: end})
 }
 

@@ -95,3 +95,73 @@ func TestGenericLawLoweringsAgree(t *testing.T) {
 		}
 	}
 }
+
+// TestLawErrorRowInstances is the smallest repro of a member law skipped
+// despite providers that fix its error row. Two rows have the same Go
+// receiver shape; the law still has separate monomorphic instances.
+// It kills mono-law-merges-error-rows.
+func TestLawErrorRowInstances(t *testing.T) {
+	const src = `type A {}
+type B { Flag bool }
+type Probe[E] {
+	Raise() fails E,
+	law Raises(e E) {
+		Raise() catch {
+		case _:
+			return true
+		}
+		false
+	},
+}
+type AP {} implements Probe[A]
+func Raise(_ AP) fails A { return A }
+type BP {} implements Probe[B]
+func Raise(_ BP) fails B { return B{Flag: false} }
+let both = context { Probe[A]: AP, Probe[B]: BP }
+func main() {}
+`
+	f, err := syntax.Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.Check("main", []*syntax.File{f}, nil)
+	if len(ds) != 0 {
+		t.Fatalf("check: %v", ds)
+	}
+	r := pkg.LawRuns[len(pkg.LawRuns)-1]
+	if r.Law.Unrun != "" || len(r.Bindings) != 2 || len(r.Contexts) != 2 {
+		t.Fatalf("both instances must run, by declaration and under the same context: %+v; %s", r, r.Law.Unrun)
+	}
+	if r.Contexts[0].Title() == r.Contexts[1].Title() {
+		t.Fatal("the two context runs would share a verdict and cache key")
+	}
+	if r.Bindings[0][0].Params[0].String() == r.Bindings[1][0].Params[0].String() ||
+		r.Contexts[0].Params[0].String() == r.Contexts[1].Params[0].String() {
+		t.Fatal("the law's generated argument lost the concrete row")
+	}
+	var programs []*lowered
+	for _, mode := range []string{"mono", "stencil"} {
+		saved, hook := genericLowering, statsHook
+		genericLowering = ""
+		if mode == "stencil" {
+			genericLowering = "stencil"
+		}
+		var stats knownStats
+		statsHook = func(s knownStats) { stats = s }
+		files, err := LowerTests(Unit{Package: pkg, Files: []*syntax.File{f}, Sources: []Source{{Path: testSourcePath, Text: src}}})
+		genericLowering, statsHook = saved, hook
+		if err != nil {
+			t.Fatalf("%s: %v\n%s", mode, err, src)
+		}
+		if got := stats.Taken["mono-instance"]; mode == "mono" && got != 2 {
+			t.Fatalf("made %d copies; the two closed rows must not share a copy", got)
+		}
+		programs = append(programs, &lowered{name: "rowlaw_" + mode, files: files, src: src})
+		// Both closed capabilities must keep a distinct field even
+		// though both fields have exactly the same Go type.
+		if got := strings.Count(programs[len(programs)-1].mainGo(), "\n\tProbe_1 "); got != 1 {
+			t.Fatalf("%s: the two closed capabilities share an environment slot", mode)
+		}
+	}
+	typecheckGo(t, programs)
+}

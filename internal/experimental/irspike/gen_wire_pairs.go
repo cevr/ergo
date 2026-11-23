@@ -22,9 +22,10 @@ var pairSites = []string{"E.viaText", "E.viaCounter"}
 //     frame's buffer, StringBytes writes it);
 //   - Small and Wide, refined ints, written as their base.
 //
-// main reads each ParseX back, so every parser is declared in the Go of
-// a single-package program (a pair whose ParseX only a decoder names is
-// not emitted: a follow-up, red on main too).
+// main calls no ParseX: json.Encode's witness carries E's decoder, which
+// alone names each pair's parser, and the build must still declare it
+// (NIH-67: the decoder's parser is a reachability edge, reach.go
+// decoded).
 func GenerateWirePairs(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, seed^0x1f83d9abfb41bd6b))
 	n := func(k int) int { return r.IntN(k) }
@@ -51,10 +52,6 @@ func GenerateWirePairs(seed uint64) string {
 	b.WriteString("func viaText(e E, l Level) string {\n\tlet w = json.NewText()\n\tw.BeginList(2)\n\tencode(e, w)\n\tencode(l, w)\n\tw.EndList()\n\tw.Written()\n}\n\n")
 	b.WriteString("func viaCounter(e E, l Level) string {\n\tlet w = newCounter()\n\tencode(e, w)\n\tencode(l, w)\n\tw.Written()\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
-	fmt.Fprintf(&b, "\tlet back = ParseLevel(\"%s\") catch {\n\tcase _:\n\t\tDebug\n\t}\n\tConsole.Println(back.Wire())\n", []string{"debug", "info", "warn", "loud"}[n(4)])
-	b.WriteString("\tConsole.Println(\"\\(len(ParseTags([]string{\"z\"}).Wire()))\")\n")
-	fmt.Fprintf(&b, "\tlet s = ParseSmall(%d) catch {\n\tcase _:\n\t\t0\n\t}\n\tlet x = ParseWide(%d) catch {\n\tcase _:\n\t\t0\n\t}\n", n(120), n(2400)-1200)
-	b.WriteString("\tConsole.Println(\"\\(int(s)) \\(int64(x))\")\n")
 	for i := 0; i < 3; i++ {
 		e := fmt.Sprintf("E{L: %s, T: Tags{xs: []string{%s}}, At: %s, S: %d, W: %d, Ls: []Level{%s}, Ts: []time.Time{%s}}",
 			level(), list(tag), at(), n(100), n(2001)-1000, list(level), list(at))

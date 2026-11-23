@@ -102,6 +102,8 @@ type Codec_escWalk = escWalk
 
 type Codec_explicitArgs = explicitArgs
 
+type Codec_fedBinding = fedBinding
+
 type Codec_fileInfo = fileInfo
 
 type Codec_footprinter = footprinter
@@ -348,6 +350,8 @@ type Codec_typeWalker = typeWalker
 
 type Codec_unassignedLocal = unassignedLocal
 
+type Codec_unfedBinding = unfedBinding
+
 type Codec_universeState = universeState
 
 type Codec_useAt = useAt
@@ -452,11 +456,12 @@ type CodecFields_Func struct {
 	F_overloaded  *bool
 	F_size        *int
 	F_goExtern    **GoExtern
+	F_goCall      *bool
 	F_asWritten   *bool
 }
 
 func CodecFieldsOf_Func(v *Func) CodecFields_Func {
-	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_collOp: &v.collOp, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern, F_asWritten: &v.asWritten}
+	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_collOp: &v.collOp, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern, F_goCall: &v.goCall, F_asWritten: &v.asWritten}
 }
 
 type CodecFields_GoBindings struct {
@@ -627,10 +632,11 @@ type CodecFields_TypeName struct {
 	F_ctorState *uint8
 	F_newOp     **Builder
 	F_provides  *[]*Builder
+	F_goType    *bool
 }
 
 func CodecFieldsOf_TypeName(v *TypeName) CodecFields_TypeName {
-	return CodecFields_TypeName{F_file: &v.file, F_id: &v.id, F_ctor: &v.ctor, F_ctorState: &v.ctorState, F_newOp: &v.newOp, F_provides: &v.provides}
+	return CodecFields_TypeName{F_file: &v.file, F_id: &v.id, F_ctor: &v.ctor, F_ctorState: &v.ctorState, F_newOp: &v.newOp, F_provides: &v.provides, F_goType: &v.goType}
 }
 
 type CodecFields_TypeParam struct {
@@ -1258,6 +1264,15 @@ type CodecFields_explicitArgs struct {
 
 func CodecFieldsOf_explicitArgs(v *explicitArgs) CodecFields_explicitArgs {
 	return CodecFields_explicitArgs{F_targs: &v.targs}
+}
+
+type CodecFields_fedBinding struct {
+	F_law      **Law
+	F_provider *Type
+}
+
+func CodecFieldsOf_fedBinding(v *fedBinding) CodecFields_fedBinding {
+	return CodecFields_fedBinding{F_law: &v.law, F_provider: &v.provider}
 }
 
 type CodecFields_fileInfo struct {
@@ -2617,6 +2632,16 @@ type CodecFields_unassignedLocal struct {
 
 func CodecFieldsOf_unassignedLocal(v *unassignedLocal) CodecFields_unassignedLocal {
 	return CodecFields_unassignedLocal{F_v: &v.v, F_file: &v.file}
+}
+
+type CodecFields_unfedBinding struct {
+	F_law      **Law
+	F_provider **Named
+	F_diag     **Diagnostic
+}
+
+func CodecFieldsOf_unfedBinding(v *unfedBinding) CodecFields_unfedBinding {
+	return CodecFields_unfedBinding{F_law: &v.law, F_provider: &v.provider, F_diag: &v.diag}
 }
 
 type CodecFields_universeState struct {

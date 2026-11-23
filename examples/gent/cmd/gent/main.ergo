@@ -72,7 +72,7 @@ func run(args []string) fails os.Exit needs Ambient | io.Stdout | io.Stdin | fs.
 		case _:
 			return os.Exit{Code: 1, Message: "gent: cannot open the working directory"}
 		}
-		with context { agent.Model: model, agent.Tools: host.Workdir{Root: root}, exec.Runner: exec.NewHost() } {
+		with context { agent.Model: model, agent.Tools: host.Workdir{Root: root}, exec.Runner: exec.NewHost().InheritEnv(os.NewHost().Environ()) } {
 			try talk(v, limits, disk)
 		}
 		return

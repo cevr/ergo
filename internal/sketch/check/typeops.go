@@ -90,7 +90,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		}
 		return s
 	case *Interface:
-		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj}
+		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj, Generic: t.Generic}
 		if t.Terms != nil {
 			it.Terms = make([]*Term, len(t.Terms))
 			for i, term := range t.Terms {
@@ -153,6 +153,11 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 				s.TParams = append(s.TParams, tp)
 			}
 		}
+		if len(s.TParams) == len(t.TParams) {
+			// None bound, as a generic operation's own at an instance of
+			// its type: they stay written ones (GENERIC-OP).
+			s.NBracket = t.NBracket
+		}
 		return s
 	case *Tuple:
 		out := &Tuple{}
@@ -197,16 +202,20 @@ func (c *checker) identical(a, b Type) bool {
 // results, where an unknown row may be identical to another row
 // (mayBeIdentical).
 func (c *checker) sameShape(a, b *Signature) bool {
-	if len(a.Params) != len(b.Params) || len(a.Results) != len(b.Results) {
+	return c.sameSignatureShape(a.Params, b.Params, a.Results, b.Results)
+}
+
+func (c *checker) sameSignatureShape(a, b []*Var, ar, br []Type) bool {
+	if len(a) != len(b) || len(ar) != len(br) {
 		return false
 	}
-	for i := range a.Params {
-		if !c.mayBeIdentical(a.Params[i].Type, b.Params[i].Type) {
+	for i := range a {
+		if !c.mayBeIdentical(a[i].Type, b[i].Type) {
 			return false
 		}
 	}
-	for i := range a.Results {
-		if !c.mayBeIdentical(a.Results[i], b.Results[i]) {
+	for i := range ar {
+		if !c.mayBeIdentical(ar[i], br[i]) {
 			return false
 		}
 	}
@@ -709,6 +718,60 @@ func ownTypeParam(t *Named, f *Func) *TypeParam {
 	return nil
 }
 
+// ownTypeParams are the type parameters of f its first parameter's type
+// arguments do not bind from t, in declaration order.
+func ownTypeParams(t *Named, f *Func) []*TypeParam {
+	if f.Sig == nil {
+		return nil
+	}
+	bound := selfBinding(t, f)
+	var out []*TypeParam
+	for _, tp := range f.Sig.TParams {
+		if _, ok := bound[tp]; !ok {
+			out = append(out, tp)
+		}
+	}
+	return out
+}
+
+// opTypeName is the declared name of the operation type it, for a
+// diagnostic; "the operation type" for a literal one.
+func opTypeName(it *Interface) string {
+	if it.obj != nil {
+		return it.obj.Name
+	}
+	return "the operation type"
+}
+
+// substOrNil is subst of a constraint that may be absent.
+func (c *checker) substOrNil(t Type, m map[*TypeParam]Type) Type {
+	if t == nil {
+		return nil
+	}
+	return c.subst(t, m)
+}
+
+// sameConstraint reports whether two type parameters' constraints are
+// the same: both absent (any), or identical.
+func (c *checker) sameConstraint(a, b Type) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return c.identical(a, b)
+}
+
+// constraintText is a type parameter's constraint as a diagnostic
+// writes it: "unconstrained" for none, else its kind's word or the type.
+func constraintText(tp *TypeParam) string {
+	switch {
+	case tp.Kind != KindType:
+		return tp.Kind.String()
+	case tp.Constraint == nil:
+		return "unconstrained"
+	}
+	return tp.Constraint.String()
+}
+
 // selfBinding maps the type parameters of f that its first parameter's
 // type arguments name to t's type arguments, by position.
 func selfBinding(t Type, f *Func) map[*TypeParam]Type {
@@ -876,6 +939,9 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		}
 		return ""
 	}
+	// Native Go conversion uses the Go method set, not the shape an
+	// Ergo caller sees. Keep the binding's rows and lifetime checks.
+	native := isHostNamed(v) && it.obj != nil && it.obj.Pkg.Host()
 	for _, m := range it.Methods {
 		got, fn := c.methodOf(v, m.Name)
 		if got == nil {
@@ -898,12 +964,32 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if why := sealedBy(v, it, m, fn); why != "" {
 			return why
 		}
-		// An operation takes no type parameters, so a 196m function with
-		// type parameters beyond those its first parameter binds from v's
-		// type cannot satisfy one (round 6b1 ruling; round 6 review m1).
+		// A function's type parameters beyond those its first parameter
+		// binds from v's type match the operation's own, in order, in
+		// kind and in constraint; the rest of the signature is compared
+		// with them renamed to the operation's (types.md, Interface
+		// assignability, Generic operations; round 6b1 ruling for an
+		// operation with none).
 		if n, ok := v.(*Named); ok && fn != nil && fn.owner != nil {
-			if extra := ownTypeParam(n, fn); extra != nil {
-				return fmt.Sprintf("%s.%s has a type parameter of its own, %s; an operation takes none", v, m.Name, extra.Name)
+			extra := ownTypeParams(n, fn)
+			if len(extra) > 0 && len(m.Sig.TParams) == 0 {
+				return fmt.Sprintf("%s.%s has a type parameter of its own, %s; the operation takes none", v, m.Name, extra[0].Name)
+			}
+			if len(extra) != len(m.Sig.TParams) {
+				return fmt.Sprintf("%s.%s has %d type parameters beyond its first parameter's, and %s.%s has %d", n.Obj.Name, m.Name, len(extra), opTypeName(it), m.Name, len(m.Sig.TParams))
+			}
+			if len(extra) > 0 {
+				rename := make(map[*TypeParam]Type, len(extra))
+				for i, tp := range extra {
+					rename[tp] = m.Sig.TParams[i]
+				}
+				for i, tp := range extra {
+					want := m.Sig.TParams[i]
+					if tp.Kind != want.Kind || !c.sameConstraint(c.substOrNil(tp.Constraint, rename), want.Constraint) {
+						return fmt.Sprintf("%s.%s's type parameter %s is %s, and %s.%s's %s is %s", n.Obj.Name, m.Name, tp.Name, constraintText(tp), opTypeName(it), m.Name, want.Name, constraintText(want))
+					}
+				}
+				got = c.subst(got, rename).(*Signature)
 			}
 		}
 		if sigHasInvalid(got) {
@@ -911,11 +997,17 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 			// cascade (D3; stage D1 fuzz triage, fuzz-check-C-r4-f8314ece).
 			continue
 		}
-		if !c.sameShape(got, m.Sig) {
+		gr, wr := got.Results, m.Sig.Results
+		if native {
+			gr, wr = goMethodResults(got, fn), goMethodResults(m.Sig, nil)
+		}
+		if !c.sameSignatureShape(got.Params, m.Sig.Params, gr, wr) {
 			// The shape is the mismatch, so the message prints shapes: an
 			// inferred row may still be open here, and its text would
 			// depend on declaration order (D0; fuzz-check-C-r7rev-dbdbb39c).
-			return fmt.Sprintf("%s.%s has signature %s, want %s", v, m.Name, shapeOf(got), shapeOf(m.Sig))
+			have, want := shapeOf(got), shapeOf(m.Sig)
+			have.Results, want.Results = gr, wr
+			return fmt.Sprintf("%s.%s has signature %s, want %s", v, m.Name, have, want)
 		}
 		// An unknown row is checked by its known part (Row.unknown); an
 		// unknown method row (a refused entry, rowExpr) accepts any row, as

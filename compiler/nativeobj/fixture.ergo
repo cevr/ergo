@@ -1,0 +1,102 @@
+// The checked-input fixture: the one tiny Ergo package this unit's round
+// trip compiles, built as the hand-off would hand it over (the small
+// generator the spec names until NATIVE-TYPED-HANDOFF freezes the wire).
+// Its source, as Ergo, is
+//
+//	package tiny
+//	import dep
+//	let mut initRuns = 0
+//	let mut stop = 0
+//	func init()                         { initRuns = initRuns + dep.Inits() }
+//	func Diff(a int, b int) int         { a - b + K1 }
+//	func Twice(x int) int               { dep.Double(x) + K2 }
+//	func Apply(f func(int) int, x int) int { f(x) }
+//	func Hold(p *int, f func(int) int) int { let r = f(3); *p + r }
+//	func Anchor(f func(int) int, v int) int { let q = &v; let r = f(v); *q = r; v }
+//	func Publish(dst **int, q *int)     { *dst = q }
+//	func Spin() int                     { loops, xor-summing, until stop is set }
+//	func SpinStarted() int              { whether Spin entered the call-free loop }
+//	func Stop()                         { stop = 1 }
+//	func InitRuns() int                 { initRuns }
+//
+// with K1 and K2 drawn from the run's seed. Each function is there for one
+// contract: Diff a frame without calls whose two arguments may not trade
+// places, Twice a call into a stock dependency, Apply a Go closure call, Hold a heap pointer the GC must see across a
+// callback, Anchor a stack pointer the stack copier must move, Publish the
+// write barrier, Spin a loop only async preemption can stop, InitRuns an
+// init function that runs once.
+
+// The type ids of the fixture's table.
+let TInt = 0
+let TPtrInt = 1
+let TFunc = 2
+let TPtrPtrInt = 3
+
+// DepPath is the stock dependency's import path; TinyPath the package's.
+let DepPath = "ergo.local/nativeobj/dep"
+let TinyPath = "ergo.local/nativeobj/tiny"
+
+func fn(name string, params []int, results []int, slots []int, ops []Op, line int) Func {
+	let mut lines = []int{}
+	for i in 0..len(ops) {
+		lines = lines.Append(line + 1 + i)
+	}
+	Func{Name: name, Params: params, Results: results, Slots: slots, Ops: ops, Lines: lines, Line: line, Col: 1}
+}
+
+// Tiny is the fixture package for constants k1 and k2, importing the
+// stock dependency dep (its fingerprint and whether it has an init).
+func Tiny(k1 int, k2 int, dep Import) Package {
+	let ty = []TypeDef{
+		TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}},
+		TypeDef{Kind: KPtr, Elem: TInt, Params: []int{}, Results: []int{}},
+		TypeDef{Kind: KFunc, Elem: 0, Params: []int{TInt}, Results: []int{TInt}},
+		TypeDef{Kind: KPtr, Elem: TPtrInt, Params: []int{}, Results: []int{}},
+	}
+	let i = TInt
+	let funcs = []Func{
+		fn("init", []int{}, []int{}, []int{i, i},
+			[]Op{GetGlobal{Dst: 0, Global: 0}, Call{Dsts: []int{1}, Target: DepPath + ".Inits", Args: []int{}}, Arith{Dst: 0, Kind: AAdd, A: 0, B: 1}, SetGlobal{Global: 0, Src: 0}, Return{Vals: []int{}}}, 5),
+		fn("Diff", []int{i, i}, []int{i}, []int{i, i, i, i},
+			[]Op{Const{Dst: 3, V: k1}, Arith{Dst: 2, Kind: ASub, A: 0, B: 1}, Arith{Dst: 2, Kind: AAdd, A: 2, B: 3}, Return{Vals: []int{2}}}, 12),
+		fn("Twice", []int{i}, []int{i}, []int{i, i, i},
+			[]Op{Call{Dsts: []int{1}, Target: DepPath + ".Double", Args: []int{0}}, Const{Dst: 2, V: k2}, Arith{Dst: 1, Kind: AAdd, A: 1, B: 2}, Return{Vals: []int{1}}}, 18),
+		fn("Apply", []int{TFunc, i}, []int{i}, []int{TFunc, i, i},
+			[]Op{CallClosure{Dsts: []int{2}, Fn: 0, Args: []int{1}}, Return{Vals: []int{2}}}, 24),
+		fn("Hold", []int{TPtrInt, TFunc}, []int{i}, []int{TPtrInt, TFunc, i, i, i},
+			[]Op{Const{Dst: 2, V: 3}, CallClosure{Dsts: []int{3}, Fn: 1, Args: []int{2}}, Load{Dst: 4, Ptr: 0}, Arith{Dst: 4, Kind: AAdd, A: 4, B: 3}, Return{Vals: []int{4}}}, 28),
+		fn("Anchor", []int{TFunc, i}, []int{i}, []int{TFunc, i, TPtrInt, i},
+			[]Op{AddrOf{Dst: 2, Of: 1}, CallClosure{Dsts: []int{3}, Fn: 0, Args: []int{1}}, Store{Ptr: 2, Val: 3}, Return{Vals: []int{1}}}, 35),
+		fn("Publish", []int{TPtrPtrInt, TPtrInt}, []int{}, []int{TPtrPtrInt, TPtrInt},
+			[]Op{StorePtr{Ptr: 0, Val: 1}, Return{Vals: []int{}}}, 41),
+		fn("Spin", []int{}, []int{i}, []int{i, i, i, i, i},
+			[]Op{Const{Dst: 0, V: 0}, Const{Dst: 1, V: 0}, Const{Dst: 2, V: 1}, Const{Dst: 4, V: 0}, SetGlobal{Global: 2, Src: 2}, Label{Id: 0}, GetGlobal{Dst: 3, Global: 1},
+				JumpIf{Cond: CNe, A: 3, B: 1, To: 1}, Arith{Dst: 0, Kind: AXor, A: 0, B: 4}, Arith{Dst: 4, Kind: AAdd, A: 4, B: 2}, Jump{To: 0},
+				Label{Id: 1}, Return{Vals: []int{0}}}, 45),
+		fn("Stop", []int{}, []int{}, []int{i},
+			[]Op{Const{Dst: 0, V: 1}, SetGlobal{Global: 1, Src: 0}, Return{Vals: []int{}}}, 58),
+		fn("InitRuns", []int{}, []int{i}, []int{i},
+			[]Op{GetGlobal{Dst: 0, Global: 0}, Return{Vals: []int{0}}}, 62),
+		fn("SpinStarted", []int{}, []int{i}, []int{i},
+			[]Op{GetGlobal{Dst: 0, Global: 2}, Return{Vals: []int{0}}}, 68),
+	}
+	Package{Path: TinyPath, Name: "tiny", File: "tiny.ergo", Types: ty, Imports: []Import{dep}, Globals: []Global{Global{Name: "initRuns"}, Global{Name: "stop"}, Global{Name: "started"}},
+		Funcs: funcs, Inits: []int{0}}
+}
+
+// SampleDep is a dependency import for the checks that run without a
+// stock toolchain: any 8-byte fingerprint, with an init.
+func SampleDep() Import { Import{Path: DepPath, Name: "dep", Fingerprint: "\x01\x02\x03\x04\x05\x06\x07\x08", HasInit: true} }
+
+// SampleHeader is a header line of the pin's form, for the same checks.
+let SampleHeader = "go object linux amd64 go1.27.4 X:none\n"
+
+// FuncNamed is the index of p's function name (-1 when absent).
+func FuncNamed(p Package, name string) int {
+	for i, f in p.Funcs {
+		if f.Name == name {
+			return i
+		}
+	}
+	-1
+}

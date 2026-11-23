@@ -208,8 +208,11 @@ func (b *irBuilder) expr(x syntax.Expr) *irExpr {
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
-	b.plain(x)
 	p := b.pos(x, x.Pos())
+	if w := b.l.info.ContextValues[x]; w != nil {
+		return b.contextValue(x, w, p) // ir_contextvalue.go, before plain's stop
+	}
+	b.plain(x)
 	t, ok := b.l.info.Types[x]
 	if !ok {
 		irNo("expression without a type")
@@ -442,6 +445,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
+			if check.ScriptOf(tt) != nil {
+				return b.scriptLit(tt, x, lit) // ir_script.go: fields come from the derived instance
+			}
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
 			if td.goError {
 				return b.goErrorLit(x, t, p) // ir_golib.go

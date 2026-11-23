@@ -253,13 +253,10 @@ func (in *interp) ownMap(fr *frame, at syntax.Node, m mapV, tok *token) (mapV, *
 }
 
 // appendTo is xs with x at its end. own is the token of the slot that
-// hands xs over (x = x.Append(e)), nil otherwise.
+// hands xs over (x = x.Append(e)), nil otherwise. An active range is
+// another view with a fixed length: growing the store's tail cannot
+// change its elements, and appending into a shorter view copies first.
 func (in *interp) appendTo(fr *frame, at syntax.Node, xs sliceV, x Value, own *token) (Value, *abrupt) {
-	for _, r := range in.ranges {
-		if r.view.b == xs.b {
-			return nil, fr.unsupported(at, "an Append of an active slice range, whose backing capacity the Go target decides")
-		}
-	}
 	if ab := in.charge(fr, at, 1); ab != nil {
 		return nil, ab
 	}
@@ -292,11 +289,6 @@ func (in *interp) appendTo(fr *frame, at syntax.Node, xs sliceV, x Value, own *t
 // rules for one bulk append. xs's store grows in place only when no value
 // sees past xs's end; else the result has a store of its own.
 func (in *interp) appendAll(fr *frame, at syntax.Node, xs, ys sliceV) (Value, *abrupt) {
-	for _, r := range in.ranges {
-		if r.view.b == xs.b {
-			return nil, fr.unsupported(at, "an Append of an active slice range, whose backing capacity the Go target decides")
-		}
-	}
 	if ab := in.charge(fr, at, 1); ab != nil {
 		return nil, ab
 	}
@@ -370,6 +362,9 @@ func describeColl(v Value) (string, bool) {
 	case *funcRef:
 		return "the function " + v.fn.Name, true
 	case *nativeFunc:
+		if v == noopFunc {
+			return v.name, true // its literal: func() {}
+		}
 		return "the function " + v.name, true
 	case *machinePlan:
 		return v.tn.Name + "{}", true

@@ -590,6 +590,7 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 		return msg, CodeType
 	}
 	f.goExtern = &GoExtern{Adapter: adapter, Variadic: GoVariadic(bf), Context: GoContext(bf), Basic: adapter == AdaptSame && !GoContext(bf) && c.externBasicSig(w), Binding: bf}
+	f.goCall = true
 	return "", ""
 }
 

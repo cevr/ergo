@@ -5,7 +5,7 @@ import strings
 // drawn step of 0 to 9, from a drawn start of 0 to 9. A generator is a
 // plain function that needs gen.Draws.
 func sortedInts() []int needs gen.Draws {
-	let steps = gen.ListOf(func() int needs gen.Draws { gen.IntIn(0, 9) }, 0, 12)
+	let steps = gen.ListOf(0, 12, func() int needs gen.Draws { gen.IntIn(0, 9) })
 	let mut at = 0
 	let mut xs = []int{}
 	for s in steps {

@@ -32,9 +32,9 @@ func TestIRCopiesMatchSource(t *testing.T) {
 
 // lyProperty runs the programs gen draws at ERGO_IRSPIKE_SEEDS seeds from
 // ERGO_IRSPIKE_SEED under both lowerings: each prints the same, each
-// function of funcs has an IR body, and the IR build's Go text holds each
-// of texts (the forms the property must reach). Its callers state why
-// they build Go.
+// function of funcs has an IR body, and the IR calls each of texts.
+// A name in both lists can name a suffixed instance: its body is checked
+// under the full name from the call. Callers state why they build Go.
 func lyProperty(t *testing.T, name string, gen func(uint64) string, texts []string, funcs ...string) {
 	t.Helper()
 	src, ir := needsBuild(t)
@@ -60,17 +60,27 @@ func lyProperty(t *testing.T, name string, gen func(uint64) string, texts []stri
 		for _, f := range rep.IR {
 			got[f] = true
 		}
+		var calls map[string]bool
+		if len(texts) > 0 {
+			calls = lyIRCalls(t, filepath.Join(dir, "ir", lower.IRFileName))
+		}
 		for _, f := range funcs {
-			if !got[f] {
-				t.Errorf("seed %d: %s has no IR body (IR bodies: %v, fallback %v)\n%s", seed, f, rep.IR, rep.Fallback, text)
+			found := got[f]
+			if !found && calls[f] {
+				for _, body := range rep.IR {
+					if lyCallBase(body) == f && calls[body] {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				t.Errorf("seed %d: %s has no IR body (IR bodies: %v, fallback %v)\n%s\n%s", seed, f, rep.IR, rep.Fallback, replay, text)
 			}
 		}
-		if len(texts) > 0 {
-			calls := lyIRCalls(t, filepath.Join(dir, "ir", lower.IRFileName))
-			for _, s := range texts {
-				if !calls[s] {
-					t.Errorf("seed %d: the IR calls no %s (it calls %v)\n%s", seed, s, calls, text)
-				}
+		for _, s := range texts {
+			if !calls[s] {
+				t.Errorf("seed %d: the IR calls no %s (it calls %v)\n%s\n%s", seed, s, calls, replay, text)
 			}
 		}
 	}
@@ -107,9 +117,8 @@ func lyRun(t *testing.T, bin, replay, text string) outcome {
 	return o
 }
 
-// lyIRCalls are the callees of an IR file's calls: "name" for a call of a
-// package function (a prefix match keeps a uniqueness suffix), "pkg.Name"
-// for a Go package call.
+// lyIRCalls lists exact IR callees and their forms without a uniqueness
+// suffix, and "pkg.Name" and "Name" for Go package calls.
 func lyIRCalls(t *testing.T, file string) map[string]bool {
 	t.Helper()
 	data, err := os.ReadFile(file)
@@ -128,7 +137,8 @@ func lyIRCalls(t *testing.T, file string) map[string]bool {
 			name, _ := v["name"].(string)
 			switch v["k"] {
 			case "call":
-				out[strings.TrimRightFunc(name, func(r rune) bool { return r == '_' || r >= '0' && r <= '9' })] = true
+				out[name] = true
+				out[lyCallBase(name)] = true
 			case "pcall":
 				pkg, _ := v["t"].(string)
 				out[pkg+"."+name] = true
@@ -145,4 +155,8 @@ func lyIRCalls(t *testing.T, file string) map[string]bool {
 	}
 	walk(v)
 	return out
+}
+
+func lyCallBase(name string) string {
+	return strings.TrimRightFunc(name, func(r rune) bool { return r == '_' || r >= '0' && r <= '9' })
 }

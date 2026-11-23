@@ -456,7 +456,7 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 // calls FSReadFile, FSMkdirAll, FSWriteFile, FSRemove and FSRename), over
 // seeded cases. It is the ledger's runner for os.Process.GetenvIsStable,
 // GetwdIsStable (in a directory, and in one removed under the process)
-// and GetwdIsAbsolute, and os.Self's EnvironIsSortedOnce, PidIsPositive
+// and GetwdIsAbsolute, and os.Self's PidIsPositive
 // and DirsAreAbsolute over the Go bodies os.Host's Self calls;
 // it runs fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
 // fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves on the host's
@@ -538,20 +538,6 @@ func TestStdHostLawsHold(t *testing.T) {
 				t.Errorf("GetwdIsAbsolute: %q, %v", got, err)
 			}
 		}},
-		// The host's environment with a name set twice in os.Environ's
-		// order and one set to the empty string.
-		"os Self.EnvironIsSortedOnce": {Statement: `EnvironIsSortedOnce() { let vars = Environ() let mut last = "" for i, kv in vars { let name = nameOf(kv) if i > 0 && name <= last { return false } last = name } true }`, Check: func(t *testing.T) {
-			t.Setenv("ERGO_LAW_B", "2")
-			t.Setenv("ERGO_LAW_A", "")
-			vars := v1.OSEnviron("")
-			for i := 1; i < len(vars); i++ {
-				prev, _, _ := strings.Cut(vars[i-1], "=")
-				name, _, _ := strings.Cut(vars[i], "=")
-				if name <= prev {
-					t.Errorf("EnvironIsSortedOnce: %q after %q", name, prev)
-				}
-			}
-		}},
 		"os Self.PidIsPositive": {Statement: `PidIsPositive() { Pid() > 0 }`, Check: func(t *testing.T) {
 			if v1.OSPid() <= 0 {
 				t.Errorf("PidIsPositive: %d", v1.OSPid())
@@ -624,7 +610,7 @@ func TestStdHostLawsHold(t *testing.T) {
 		}},
 		// When a file is at from and none at to, and Rename(from, to)
 		// succeeds, a second Rename(from, to) fails NotFound.
-		"fs Writes.RenameMoves": {Statement: `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed: return false } false }`, Check: func(t *testing.T) {
+		"fs Writes.RenameMoves": {Statement: `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed, CrossDevice: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed, CrossDevice: return false } false }`, Check: func(t *testing.T) {
 			mv := filepath.Join(dir, "mv")
 			moved := 0
 			names := append([]string{"a", "b", "./a", "sub", "sub/a", "link", "a/", "d", "d/x"}, paths[6:]...)

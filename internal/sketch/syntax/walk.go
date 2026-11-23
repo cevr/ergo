@@ -161,7 +161,7 @@ func Inspect(n Node, f func(Node) bool) {
 			walk(n.Hashing)
 		}
 	case *FuncType:
-		walk(n.Params, n.Results, n.Needs, n.Takes)
+		walk(n.TypeParams, n.Params, n.Results, n.Needs, n.Takes)
 	case *StructType:
 		walk(n.Fields)
 	case *InterfaceType:

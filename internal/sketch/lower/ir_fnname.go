@@ -70,7 +70,7 @@ func (b *irBuilder) declaredLit(f *check.Func, sig *check.Signature, x syntax.No
 	if goVal != value {
 		irNo("function value whose result differs from its function's")
 	}
-	env := b.temp("env", "*"+b.l.env(), p)
+	env := b.temp("env", b.envPointer(), p)
 	lit := &irExpr{K: "func", Pos: p, T: b.sigType(sig, x), Params: []int{env}}
 	var args []*irExpr
 	if !fd.envFree {

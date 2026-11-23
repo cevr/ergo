@@ -16,7 +16,7 @@ import (
 // a Remove of a directory with entries, then the bits Perm gives each of
 // the 216 modes, owner first.
 const fsSafeProgram = "import fs\n" + `
-func run() fails fs.NotFound | fs.Denied | fs.Failed needs Console | fs.Files | fs.Writes {
+func run() fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice needs Console | fs.Files | fs.Writes {
 	try fs.Writes.MkdirAllMode("keys/sub", fs.PrivateDir())
 	try fs.Writes.WriteFileMode("keys/sub/key", "secret", fs.Private())
 	try fs.Writes.WriteFileMode("shared", "old", fs.Shared())
@@ -39,7 +39,7 @@ func run() fails fs.NotFound | fs.Denied | fs.Failed needs Console | fs.Files | 
 	fs.Writes.Rename("none", "x") catch {
 	case fs.NotFound as n:
 		Console.Println("NotFound \(n.Path)")
-	case fs.Denied, fs.Failed:
+	case fs.Denied, fs.Failed, fs.CrossDevice:
 		Console.Println("other")
 	}
 	fs.Writes.Remove("keys") catch {
@@ -63,7 +63,7 @@ func run() fails fs.NotFound | fs.Denied | fs.Failed needs Console | fs.Files | 
 func main() needs Console | Ambient {
 	with context { fs.Files: fs.NewHost(), fs.Writes: fs.NewHost() } {
 		run() catch {
-		case fs.NotFound, fs.Denied, fs.Failed:
+		case fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice:
 			Console.Println("failed")
 		}
 	}

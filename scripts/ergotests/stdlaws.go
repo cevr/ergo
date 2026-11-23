@@ -10,8 +10,10 @@ import (
 	"strings"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 // stdRedFile lists, from the module root, what does not pass on its own
@@ -38,6 +40,25 @@ type stdRun struct {
 	// declared is the declaring package of each member law, by "q T.L",
 	// q the last element of its path (memberLaws).
 	declared map[string]string
+	// unqualified maps member law report names available without an import
+	// to their declaring package. A root's own law still comes first.
+	unqualified map[string]string
+	// bindings is where the evaluator saw a concrete provider or context
+	// for each law, using the same key as verdicts.
+	bindings map[string][]string
+}
+
+// unqualifiedMembers indexes the checked names written bare in a foreign
+// test root, as the native runner names them.
+func unqualifiedMembers(pkg *check.Package, declared map[string]string) map[string]string {
+	out := map[string]string{}
+	for _, law := range pkg.Laws {
+		local := law.Title(pkg)
+		if strings.Contains(local, ".") && law.Title(nil) == local && declared[path.Base(pkg.Path)+" "+local] == pkg.Path {
+			out[local] = pkg.Path
+		}
+	}
+	return out
 }
 
 // memberLaws maps each member law of the ledger, "q T.L" with q the last
@@ -64,23 +85,32 @@ func (run stdRun) key(pkg, law string) string {
 			return decl + " " + member
 		}
 	}
-	// The prelude's names are unqualified, so a provider runs a prelude
-	// member law as T.L ("law Hashing.EqualKeysHashEqual for Key"): it
-	// counts for the prelude's when pkg declares no T.L of its own.
+	// A member law visible bare is reported as T.L in a provider
+	// package. Credit it only when pkg declares no T.L of its own.
 	if _, own := run.declared[path.Base(pkg)+" "+law]; !own && strings.Contains(law, ".") {
-		if decl, ok := run.declared[stdlib.PreludePath+" "+law]; ok {
+		if decl, ok := run.unqualified[law]; ok {
 			return decl + " " + law
 		}
 	}
 	return pkg + " " + law
 }
 
+func (run *stdRun) recordLaw(pkg, law string, r eval.Result) string {
+	key := run.key(pkg, law)
+	run.verdicts[key] = append(run.verdicts[key], r.Status)
+	// A provider or context adds a binding suffix to the verdict name.
+	// The bare declaration's placeholder skip has no such suffix.
+	if r.Name != "law "+law && !slices.Contains(run.bindings[key], pkg) {
+		run.bindings[key] = append(run.bindings[key], pkg)
+	}
+	return key
+}
+
 // redLine is a line of stdRedFile.
 type redLine struct{ class, why, id string }
 
-// runStd is -std: it runs the laws and tests of every std package
-// (stdlib.Packages: the prelude folder is none, and no folder that is not
-// a package) on its own source, in-package, prints each verdict, and
+// runStd is -std: it runs the planned packages' laws and tests on
+// their own source, in-package, prints each verdict, and
 // holds that each obligation passed and that every law the ledger gives
 // no Go runner ran there, unless stdRedFile lists it in the class it
 // fails in (NATIVE-LAWS: a law no tier ran fails by name).
@@ -90,8 +120,10 @@ func runStd(w io.Writer, root, ergo string) int {
 		fmt.Fprintln(w, "FAIL the std law ledger:", err)
 		return 1
 	}
-	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, native: map[string][]bool{}, nativeMissing: map[string]string{}, declared: memberLaws(rows)}
-	for _, pkg := range stdlib.Packages() {
+	declared := memberLaws(rows)
+	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, native: map[string][]bool{}, nativeMissing: map[string]string{}, declared: declared, unqualified: unqualifiedMembers(check.PreludePackage(), declared), bindings: map[string][]string{}}
+	inPlace, nativeOnly := sketchfront.StdTestPlan()
+	for _, pkg := range inPlace {
 		dir := filepath.Join(root, filepath.FromSlash(stdRoot), filepath.FromSlash(pkg))
 		rep, err := evaluate(dir)
 		if err != nil {
@@ -102,8 +134,7 @@ func runStd(w io.Writer, root, ergo string) int {
 		for _, r := range rep.Results {
 			key := pkg + " " + r.Name
 			if law, ok := lawOf(r.Name); ok {
-				key = run.key(pkg, law)
-				run.verdicts[key] = append(run.verdicts[key], r.Status)
+				key = run.recordLaw(pkg, law, r)
 			}
 			if holds(r, false) {
 				if r.Status == eval.Passed {
@@ -123,7 +154,7 @@ func runStd(w io.Writer, root, ergo string) int {
 			bare = append(bare, r.Key())
 		}
 	}
-	if code := runStdNative(w, root, ergo, bare, &run); code != 0 {
+	if code := runStdNative(w, root, ergo, nativeOnly, bare, &run); code != 0 {
 		return code
 	}
 	shipped, err := stdlib.TestReds()

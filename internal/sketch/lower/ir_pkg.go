@@ -409,6 +409,14 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	switch {
 	case c.Recv == nil || c.Op == nil:
 		irNo("operation call form")
+	case hostRecv(b.l.info.Types[c.Recv]):
+		// An operation of a Go interface (fmt.Stringer's String on a
+		// parameter of that type): Go's method on its receiver, as the
+		// emitter's goCall makes it (goImportCall, gocall.go goSig), never
+		// an Ergo operation with the task first (LIB-ON-IR: TestGoCallsErgo's
+		// Probe and Wait).
+		f, gc := goInterfaceMethod(b.l.info.Types[c.Recv], c)
+		return b.hostCall(x, gc, f, p) // ir_tuple.go
 	case b.env < 0:
 		irNo("operation call from a pure function")
 	case b.inPlaceSite(x):
@@ -429,7 +437,7 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		return b.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, x.Args...), n, p) // ir_refown.go
 	}
 	if b.l.runtimeType(n, x) != "" {
-		return b.boundOpCall(x, c, n, p)
+		return b.boundOpCall(x, c, n, p, nil)
 	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
 	if id, ok := unparen(c.Recv).(*syntax.Ident); ok && vals[0].K == "toiface" {
@@ -444,9 +452,30 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 	return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: args}), true // ir_call.go
 }
 
-// countLoop is the for-in s over a prelude Range[T] of an integer T, as
-// the emitter's rangeStmt writes it: the Range evaluated once into a
-// temporary r, then
+// goInterfaceMethod is the Go method of the operation call c on a value of
+// recv, a Go interface type of import go (or a go.Ref or borrow of one),
+// as a Go package function hostCall calls: the binding's method, its
+// signature the operation's (no receiver parameter), its target
+// PATH.TYPE.METHOD, a value receiver; and c as a call of it.
+func goInterfaceMethod(recv check.Type, c *check.Call) (*check.Func, *check.Call) {
+	n := hostNamed(recv)
+	target := n.Obj.Pkg.Path + "." + n.Obj.Name + "." + c.Op.Name
+	decl := &syntax.FuncDecl{
+		Extern: &syntax.ExternSpec{Target: &syntax.BasicLit{Value: target}},
+		Recv:   &syntax.FieldList{List: []*syntax.Field{{Type: &syntax.Ident{Name: n.Obj.Name}}}},
+		Name:   &syntax.Ident{Name: c.Op.Name},
+	}
+	f := &check.Func{Name: c.Op.Name, Pkg: n.Obj.Pkg, Decl: decl, Sig: c.Op.Sig}
+	gc := *c
+	gc.Kind, gc.Func = check.CallFunc, f
+	return f, &gc
+}
+
+// countLoop uses Go's integer range for a direct zero-based int range
+// with a binding, unless a guarded loop idiom needs the endpoints. An
+// ignored index keeps the old counted loop: the native bare range can
+// lengthen the hot path of a nested append loop.
+// Otherwise countLoop evaluates the Range once into a temporary r, then emits
 //
 //	for v := r.Start; v < r.End; v++ { body }
 //
@@ -466,17 +495,24 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	p := b.pos(s, s.Pos())
 	td := b.l.typeDecl(n.Obj, s.X)
 	var pre []*irStmt
-	var x *irExpr
+	var x, zero, end *irExpr
 	if bx, ok := unparen(s.X).(*syntax.BinaryExpr); ok && bx.Op.String() == ".." && len(td.fields) == 2 {
 		// a..b is Range{Start: a, End: b}, its operands in order (the
 		// emitter's rangeValue); the operator elsewhere is G1's.
 		var parts []*irExpr
 		pre, parts = b.operands([]syntax.Expr{bx.X, bx.Y})
-		x = &irExpr{K: "lit", Pos: p, T: b.goType(n, s.X), Keys: []string{td.fieldName["Start"], td.fieldName["End"]}, Elems: parts}
+		if bound(s.Value) && b.compactLoopBound(parts[0], parts[1]) && b.goType(lp.Elem, s) == "int" && b.loopIdiom(s, lp) == nil {
+			zero, end = parts[0], parts[1]
+		} else {
+			x = &irExpr{K: "lit", Pos: p, T: b.goType(n, s.X), Keys: []string{td.fieldName["Start"], td.fieldName["End"]}, Elems: parts}
+		}
 	} else {
 		pre, x = b.value(s.X)
 	}
-	r := b.temp("r", b.goType(n, s.X), p)
+	r := -1
+	if end == nil {
+		r = b.temp("r", b.goType(n, s.X), p)
+	}
 	var v int
 	if bound(s.Value) {
 		id, ok := s.Value.(*syntax.Ident)
@@ -490,6 +526,13 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		v = b.local(bv, id)
 	} else {
 		v = b.temp("i", b.goType(lp.Elem, s), p)
+	}
+	if end != nil {
+		loop := &irStmt{K: "range", Pos: past(p, pre), X: end, Key: &v, End: b.pos(s.Body, s.Body.Rbrace)}
+		filled := b.fillLoop(s, lp, zero, v, p)
+		ctr := b.loopBody(loop, s, s.Body)
+		filled()
+		return append(append(pre, ctr...), loop)
 	}
 	field := func(name string) *irExpr {
 		return &irExpr{K: "field", Pos: p, Name: td.fieldName[name], X: &irExpr{K: "local", Pos: p, I: r}}
@@ -628,7 +671,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 			return b.ownedSiteCall(x, c, b.fc.refSiteOf(x), p) // ir_ownlit.go
 		}
 		return b.ownedRefCall(x, c, b.fc.refSiteOf(x), ops, nil, p) // ir_refown.go
-	case defersCall(body) || commaOk(body):
+	case commaOk(body):
 		irNo("std call with an adapted result")
 	case len(body.Params) != len(ops)+trailing(x):
 		irNo("std call with another arity")
@@ -691,7 +734,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if failsHere(c) && !goFallible(body) || goFallible(body) && !failsHere(c) && isTuple {
 		irNo("fallible call with an empty row at its site")
 	}
-	if !isTuple && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
+	if !isTuple && !defersCall(body) && goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	hidden := b.hidden(body, x, c, p)
@@ -701,6 +744,12 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// appender's operand is clipped and a Map write's copied, unless the
 	// call writes it in place (bs = bs.AppendString(s)).
 	b.valueSource(x, c, ops, args)
+	if irCompactGo != "off" && body.Package == runtimeImport && len(args) == 1 &&
+		len(hidden) == 0 && x.Trailing == nil && goBodySliceCapacity(name) && b.compactMakeSize(args[0]) && b.compactFrame() {
+		zero := &irExpr{K: "const", Pos: p, T: "int", V: "0"}
+		return pre, &irExpr{K: "builtin", Pos: p, Name: "make", T: b.goType(b.l.info.Types[x], x),
+			Args: []*irExpr{zero, args[0]}}, false
+	}
 	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
@@ -714,6 +763,17 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// leaf's import path, which rtRef imports.
 	name = b.consumedForm(x, body, name)    // ir_own.go
 	name, isExit := b.exitsForm(body, name) // ir_exits.go: OnExit on a static exit form
+	moved, repeated := b.movedCaptures(x)   // ir_taskmove.go
+	handles := b.captureHandles(moved)
+	if repeated {
+		// A Set's repeated body lends what it moves: the member's root owns
+		// it, TasksGoOwned's prepare (the emitter's movingRootArg).
+		if name != "TasksGo" || len(args) != 2 || x.Trailing == nil {
+			irNo("function literal that a task captures")
+		}
+		name = "TasksGoOwned"
+		args = []*irExpr{args[0], b.captureRoot(x.Trailing, moved, p), args[1]}
+	}
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
@@ -734,12 +794,33 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if pkg == "" {
 		pkg = runtimeImport
 	}
+	if defersCall(body) {
+		if isExit || len(args) != len(ops) {
+			irNo("std call with an adapted result")
+		}
+		seqPre, seq, impure := b.stdSeqCall(x, c, body, subst, pkg, name, targs, ops, args, convs, p) // ir_adapted.go: Go's iter.Seq[T], a Seq
+		return append(pre, seqPre...), seq, impure
+	}
 	call := &irExpr{K: "pcall", Pos: p, T: pkg, Name: name, V: targs, Args: append(hidden, args...)}
 	if name == "Go" && pkg == runtimeImport && x.Trailing != nil && targs != "" {
 		call = b.spawnWith(call, targs, mark, p, frame) // ir_spawn.go: task.Go's block, its captures in the Task (GP-SPAWN2)
 	}
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
+	}
+	if len(handles) > 0 {
+		// The admission step hands the moved captures out of the sender's
+		// list, or releases them on a failed one (ir_taskmove.go).
+		if isTuple || isExit || goFallible(body) && !failsHere(c) {
+			irNo("function literal that a task captures")
+		}
+		value := goValue(body)
+		typ := ""
+		if value {
+			typ = b.goType(b.l.info.Types[x], x)
+		}
+		spre, v := b.settleCaptures(call, handles, goFallible(body), value, typ, p)
+		return append(pre, spre...), v, !body.Pure
 	}
 	if isTuple && goFallible(body) {
 		b.tupleBound = call // bind binds its results and its error (tupleErrBind)
@@ -897,46 +978,117 @@ func rtSpelling(s, rt string, subst map[string]string) string {
 }
 
 // hidden is the hidden arguments of the std body called at x, as the
-// emitter's hiddenArgs writes them, before the call's own: the caller's
-// task and Scheduler (fields of the environment), the reading package (a
-// string constant) and the call site (a runtime Site of a string
-// constant). A frame scope or a result release keeps the source body.
+// emitter's hiddenArgs writes them, before the call's own (hiddenArg,
+// hidden.go, reads each kind for both).
 func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p irPos) []*irExpr {
 	var out []*irExpr
 	for _, h := range body.Hidden {
 		if b.env < 0 {
 			irNo("std call with hidden arguments in a pure function")
 		}
-		env := &irExpr{K: "local", Pos: p, I: b.env}
-		switch h {
-		case v1.CallerTask:
-			out = append(out, &irExpr{K: "field", Pos: p, Name: envTask, X: env})
-		case v1.CallerScheduler:
-			// The body takes the runtime's Sleeper, which the program's
-			// Scheduler interface implements: Go text assigns it, the
-			// decoder takes the parameter's type only, so the IR asserts
-			// it (PORT-CALLS-2: http.Serve's HTTPServe). The checker binds
-			// the provider at the call, so the field is never nil.
-			sched := &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(c, x)), X: env}
-			out = append(out, &irExpr{K: "assert", Pos: p, T: b.spelling(b.l.rt() + ".Sleeper"), X: sched})
-		case v1.ReadingPackage:
-			if c.Func == nil || c.Func.Pkg == nil {
-				irNo("std call with hidden arguments: a context read without its package")
-			}
-			out = append(out, &irExpr{K: "const", Pos: p, T: "string", V: contextNamespace(c.Func.Pkg)})
-		case v1.CallSite:
-			src, line, column := b.l.locate(x, x.Pos())
-			site := fmt.Sprintf("%s calls %s at %s:%d:%d", b.fc.owner, b.fc.callee(x, c), src, line, column)
-			// rt.Site is a defined string type: Site("…") is a conversion
-			// of the constant (spelling keeps the import).
-			out = append(out, &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
-		case v1.Frame:
-			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
-		default:
-			irNo("std call with hidden argument %s", h)
-		}
+		out = append(out, hiddenArg[*irExpr](h, irHidden{b: b, body: body, x: x, c: c, p: p, env: &irExpr{K: "local", Pos: p, I: b.env}}))
 	}
 	return out
+}
+
+// irHidden is the IR of one hidden argument of the std call x
+// (hiddenKinds): the caller's task and Scheduler (fields of the
+// environment), the reading package (a string constant), the call site (a
+// runtime Site of a string constant), the frame, the machine's graph and
+// the result's release.
+type irHidden struct {
+	b    *irBuilder
+	body v1.Body
+	x    *syntax.CallExpr
+	c    *check.Call
+	p    irPos
+	env  *irExpr
+}
+
+func (h irHidden) callerTask() *irExpr {
+	return &irExpr{K: "field", Pos: h.p, Name: envTask, X: h.env}
+}
+
+// callerScheduler: the body takes the runtime's Sleeper, which the
+// program's Scheduler interface implements: Go text assigns it, the
+// decoder takes the parameter's type only, so the IR asserts it
+// (PORT-CALLS-2: http.Serve's HTTPServe). The checker binds the provider
+// at the call, so the field is never nil.
+func (h irHidden) callerScheduler() *irExpr {
+	b, p := h.b, h.p
+	sched := &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(h.c, h.x)), X: h.env}
+	return &irExpr{K: "assert", Pos: p, T: b.spelling(b.l.rt() + ".Sleeper"), X: sched}
+}
+
+func (h irHidden) readingPackage() *irExpr {
+	if h.c.Func == nil || h.c.Func.Pkg == nil {
+		irNo("std call with hidden arguments: a context read without its package")
+	}
+	return &irExpr{K: "const", Pos: h.p, T: "string", V: contextNamespace(h.c.Func.Pkg)}
+}
+
+// callSite: rt.Site is a defined string type, so Site("…") is a
+// conversion of the constant (spelling keeps the import).
+func (h irHidden) callSite() *irExpr {
+	b, x, p := h.b, h.x, h.p
+	src, line, column := b.l.locate(x, x.Pos())
+	site := fmt.Sprintf("%s calls %s at %s:%d:%d", b.fc.owner, b.fc.callee(x, h.c), src, line, column)
+	return &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}}
+}
+
+func (h irHidden) frame() *irExpr {
+	if h.b.inSeq {
+		irNo("std call with an adapted result") // a Seq outlives the frame (seqLit)
+	}
+	return h.b.frameArg(h.p) // ir_own.go (GP-FRAME)
+}
+
+func (h irHidden) graph() *irExpr { return h.b.graphArg(h.body, h.c, h.x, h.p) }
+
+func (h irHidden) resultRelease() *irExpr { return h.b.resultRelease(h.x, h.p) } // ir_own.go
+
+func (h irHidden) unknown(k v1.Hidden) *irExpr {
+	irNo("std call with hidden argument %s", k)
+	return nil
+}
+
+// graphArg is the hidden graph argument (v1.Graph, a v1.GraphOf) of the
+// call x of an actor's start, as the emitter's graphArg writes it: the
+// graph accessor of the machine whose states and signals are the call's
+// type arguments for the Go body's first two type parameters (body, the
+// contract hidden reads), matched by name. Go text passes the accessor's instance as a value; the IR has no
+// value of a generic function, so it passes a literal that calls it.
+func (b *irBuilder) graphArg(body v1.Body, c *check.Call, x *syntax.CallExpr, p irPos) *irExpr {
+	var state, signal string
+	if c != nil && c.Func != nil && len(body.TypeParams) >= 2 {
+		for i, tp := range c.Func.Sig.TParams {
+			if i >= len(c.TypeArgs) {
+				break
+			}
+			switch tp.Name {
+			case body.TypeParams[0].Name:
+				state = b.goType(c.TypeArgs[i], x)
+			case body.TypeParams[1].Name:
+				signal = b.goType(c.TypeArgs[i], x)
+			}
+		}
+	}
+	if state == "" || signal == "" {
+		irNo("std call with hidden argument graph") // the emitter's ice
+	}
+	l := b.l
+	l.actorStarted = true
+	targs := state + ", " + signal
+	var call *irExpr
+	if graphRegistry() {
+		call = &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "RegisteredGraph", V: targs}
+	} else {
+		l.graphsUsed = true
+		call = &irExpr{K: "call", Pos: p, Name: l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph"), T: targs}
+	}
+	end := p
+	lit := &irExpr{K: "func", Pos: p, T: "func() *" + b.spelling(l.rt()+".MachineGraph"), Body: []*irStmt{{K: "ret", Pos: p, X: call}}, End: &end}
+	return &irExpr{K: "conv", Pos: p, T: b.spelling(l.rt() + ".GraphOf"), X: lit} // the body's parameter type
 }
 
 // boundOpCall is the call x of the operation c.Op on a value of an
@@ -947,7 +1099,7 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 // the type's and the operation's names as check.OpBodyOf is), never std
 // membership: a trusted module's copy of std's type gets the same call
 // (TestStdOpCallCopyAgreesOnIR, internal/sketch/std).
-func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
+func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos, recv *irExpr) ([]*irStmt, *irExpr, bool) {
 	name := check.RuntimeTypeName(n) + "." + c.Op.Name
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
@@ -956,13 +1108,23 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	if err != nil || len(body.Params) != len(x.Args) {
 		irNo("std operation without its runtime method")
 	}
+	option := commaOk(body) && !goFallible(body) // Go's (T, bool): an Option (ir_adapted.go)
 	switch {
-	case defersCall(body) || commaOk(body):
+	case commaOk(body) && !option:
 		irNo("std call with an adapted result")
 	case b.l.info.Closes[x] != nil:
 		irNo("std Close")
 	}
-	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple {
+	if option {
+		return b.commaOkOpCall(x, c, n, body, p, recv)
+	}
+	if defersCall(body) {
+		return b.seqOpCall(x, c, n, body, p, recv) // Go's iter.Seq[T]: a Seq (ir_adapted.go)
+	}
+	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple && len(body.Results) != 1+btoi(goFallible(body)) {
+		// A tuple of the method's one result (Queue[(A, B)]'s Pop, Go's
+		// (T, error) at T the tuple's struct; ir_tuple.go) is that value;
+		// Go's several results, one per element, are adapted.
 		irNo("std call with an adapted result")
 	}
 	convs := map[int]string{} // by index of the receiver-first vals
@@ -992,7 +1154,7 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		resConv = b.goType(b.l.info.Types[x], x)
 	}
 	hidden := b.hidden(body, x, c, p)
-	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	pre, vals := b.boundOpOperands(x, c, recv)
 	convOperands(vals, convs)                                          // ir_operand.go
 	adapters, _ := b.adaptOperands(body.Params, x, x.Args, vals, 1, p) // ir_adapt.go
 	pre = append(pre, adapters...)
@@ -1006,11 +1168,30 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	return pre, e, !body.Pure
 }
 
+// The receiver of a bare law operation is supplied by the runner, not
+// written in the call. It is already a local or a field of the case env.
+func (b *irBuilder) boundOpOperands(x *syntax.CallExpr, c *check.Call, recv *irExpr) ([]*irStmt, []*irExpr) {
+	if recv == nil {
+		return b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	}
+	pre, vals := b.operands(x.Args)
+	return pre, append([]*irExpr{recv}, vals...)
+}
+
 // recvTypeArgs is the Go type s of a runtime method of n's Go type with
 // the method's type parameters (the receiver's: Ref[T]'s T) replaced by
 // n's Go type arguments, so sameGo compares the instance's types.
 func (b *irBuilder) recvTypeArgs(n *check.Named, s string) string {
 	args := typeArgs(n)
+	if n.Orig == nil && len(n.TParams) != 0 {
+		// A bare operation in a generic member law uses the formals
+		// of the receiver; the law copy's type context binds them.
+		for _, tp := range n.TParams {
+			if tp.Kind == check.KindType {
+				args = append(args, tp)
+			}
+		}
+	}
 	origin := n
 	if n.Orig != nil {
 		origin = n.Orig

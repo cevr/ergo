@@ -1,0 +1,7 @@
+# The checker's errors an example is red by record for until its owed unit
+# lands (findings.go; owner, wf10 q12). One line each:
+#   EXAMPLE PACKAGE CODE LAW PROVIDER UNIT
+# A line the checker no longer reports is a layout error: remove it.
+#
+# STD-TESTAMBIENT: std's test constructors for http.NewNet and fs.OpenRoot
+# under TestAmbient, so download's test context builds a Remote.

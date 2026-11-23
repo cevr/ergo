@@ -57,6 +57,31 @@ type irSplit struct {
 	// read another package's let with no value through (foreignDecls),
 	// by the let's name.
 	getters map[int]map[string]string
+	// fresh, when set (LowerGoPackages), spells each declaration
+	// foreignDecls writes anew, and local holds, by package, those
+	// spellings by the name each declares; unset, a declaration has the
+	// name it declares, which the one Go file keeps unique.
+	fresh func(name string) string
+	local map[int]map[string]string
+}
+
+// localName is the name package k declares name of another package by.
+func (s *irSplit) localName(k int, name string) string {
+	if n, ok := s.local[k][name]; ok {
+		return n
+	}
+	if s.fresh == nil {
+		return name
+	}
+	n := s.fresh(name)
+	if s.local == nil {
+		s.local = map[int]map[string]string{}
+	}
+	if s.local[k] == nil {
+		s.local[k] = map[string]string{}
+	}
+	s.local[k][name] = n
+	return n
 }
 
 // newIRSplit reads the references of ir's bodies; groupOf is the group
@@ -176,7 +201,7 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 					generic(k, name)
 					continue
 				}
-				extra[k].WriteString("\ntype " + name + " = " + qualified(k, name) + "\n")
+				extra[k].WriteString("\ntype " + s.localName(k, name) + " = " + qualified(k, name) + "\n")
 			case *ast.FuncDecl:
 				if n.Type.TypeParams != nil {
 					generic(k, name)
@@ -204,7 +229,7 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 				// directive above it, and a defect's report skips its
 				// frame (test-speed FT6: the harness calls the root
 				// through forwarders).
-				extra[k].WriteString("\n//line " + forwardFile + ":1\nfunc " + name + "(" + strings.Join(params, ", ") + ")" + results + " {\n\t" + ret + qualified(k, name) + "(" + strings.Join(args, ", ") + ")\n}\n")
+				extra[k].WriteString("\n//line " + forwardFile + ":1\nfunc " + s.localName(k, name) + "(" + strings.Join(params, ", ") + ")" + results + " {\n\t" + ret + qualified(k, name) + "(" + strings.Join(args, ", ") + ")\n}\n")
 			case *ast.ValueSpec:
 				// A package let of another package: Ergo has no mutable
 				// package state (mutPackageLet), and Go initializes an
@@ -235,7 +260,7 @@ func (s *irSplit) foreignDecls(defs splitDefs, taken map[string]bool, text func(
 					s.getters[k][name] = get
 					continue
 				}
-				extra[k].WriteString("\nvar " + name + " = " + qualified(k, name) + "\n")
+				extra[k].WriteString("\nvar " + s.localName(k, name) + " = " + qualified(k, name) + "\n")
 			default:
 				return "an IR body uses the variable " + name + " of another package"
 			}
@@ -285,10 +310,15 @@ func freshName(taken map[string]bool, prefix string) string {
 }
 
 // files are the IR files of the split module: each package's bodies,
-// renamed as the split renames, in the package's folder. The root always
-// has one, so a module built through IR names its root's file.
-func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *splitPlan) ([]File, int, error) {
-	byPkg := map[int][]irFunc{1: nil}
+// renamed as the split renames, in the package's folder: nameOf spells a
+// package-scope name in its own package, member a field or method name.
+// The root always has one, so a module built through IR names its root's
+// file; a split of Go packages writes no root (LowerGoPackages).
+func (s *irSplit) files(pkgOf func(i int) int, nameOf, member func(string) string, plan *splitPlan) ([]File, int, error) {
+	byPkg := map[int][]irFunc{}
+	if plan.pkgs[1].name != goPackagesRoot {
+		byPkg[1] = nil
+	}
 	for i := range s.ir.Funcs {
 		// Renamed in place: the split no longer falls back to the
 		// one-package IR once it writes the IR files, and an error here
@@ -297,25 +327,22 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 		// own work.
 		fn := &s.ir.Funcs[i]
 		p := pkgOf(i)
-		renamed := func(n *string) {
-			if r, ok := rename[*n]; ok {
-				*n = r
-			}
-		}
+		renamed := func(n *string) { *n = member(*n) }
 		own := func(n *string) {
-			// A name of another package keeps its spelling: its alias or
-			// forwarding function in p has it. A generic one is spelled
-			// PATH.Name. A name of no declaration of main.go (int, error)
-			// is no package-scope name.
+			// A name of another package is spelled as its alias or
+			// forwarding function in p is declared (localName). A
+			// generic one is spelled PATH.Name. A name of no declaration
+			// of main.go (int, error) is no package-scope name.
 			if q, ok := s.qual[p][*n]; ok {
 				*n = q
-			} else if _, declared := s.groupOf[*n]; declared && !s.uses[p][*n] {
-				renamed(n)
+			} else if _, declared := s.groupOf[*n]; declared && s.uses[p][*n] {
+				*n = s.localName(p, *n)
+			} else if declared {
+				*n = nameOf(*n)
 			}
 		}
 		recv, method, isMethod := strings.Cut(fn.Name, ".")
-		renamed(&recv)
-		fn.Name = recv
+		fn.Name = nameOf(recv)
 		if isMethod {
 			renamed(&method)
 			fn.Name += "." + method
@@ -343,13 +370,69 @@ func (s *irSplit) files(pkgOf func(i int) int, rename map[string]string, plan *s
 			withIR++
 		}
 		sort.Slice(funcs, func(a, b int) bool { return funcs[a].Name < funcs[b].Name })
-		data, err := json.Marshal(&irFile{V: s.ir.V, Files: s.ir.Files, Funcs: funcs})
+		data, err := marshalSplitIR(s.ir.V, s.ir.Files, funcs)
 		if err != nil {
 			return nil, 0, err
 		}
 		out = append(out, File{Path: path.Join(plan.pkgs[p].dir, IRFileName), Data: data})
 	}
 	return out, withIR, nil
+}
+
+// marshalSplitIR writes only the source files this Go package's bodies
+// refer to, numbered in first-use order within the package. An unrelated
+// package adding a file then neither changes this file's table nor
+// renumbers its positions. Collect edits before writing them and undo them
+// after encoding: IR bodies can share nodes, including across packages.
+func marshalSplitIR(v int, paths []string, funcs []irFunc) ([]byte, error) {
+	out := irFile{V: v, Funcs: funcs}
+	local := make([]int, len(paths))
+	type edit struct {
+		p        *irPos
+		from, to int
+	}
+	var edits []edit
+	add := func(p *irPos) {
+		if p == nil || *p == (irPos{}) || p[0] < 0 {
+			return
+		}
+		from := p[0]
+		if local[from] == 0 {
+			out.Files = append(out.Files, paths[from])
+			local[from] = len(out.Files)
+		}
+		if to := local[from] - 1; to != from {
+			edits = append(edits, edit{p, from, to})
+		}
+	}
+	for i := range funcs {
+		fn := &funcs[i]
+		add(&fn.Pos)
+		add(&fn.End)
+		for j := range fn.Locals {
+			add(&fn.Locals[j].Pos)
+		}
+		fn.visit(func(x *irExpr) {
+			add(&x.Pos)
+			add(x.End)
+		}, func(s *irStmt) {
+			add(&s.Pos)
+			add(&s.End)
+			add(&s.ElsePos)
+			add(&s.ElseEnd)
+			for _, c := range s.Cases {
+				add(&c.Pos)
+			}
+		})
+	}
+	for _, e := range edits {
+		e.p[0] = e.to
+	}
+	data, err := json.Marshal(&out)
+	for _, e := range edits {
+		e.p[0] = e.from
+	}
+	return data, err
 }
 
 // pcalls makes each call of a generic function of another package, which
@@ -384,6 +467,11 @@ func pcalls(fn *irFunc, qual map[string]string) error {
 
 // exprs calls f on every expression of fn's body, outer first.
 func (fn *irFunc) exprs(f func(*irExpr)) {
+	fn.visit(f, nil)
+}
+
+// visit walks the expressions and statements of a body, outer first.
+func (fn *irFunc) visit(f func(*irExpr), stmt func(*irStmt)) {
 	var expr func(x *irExpr)
 	var stmts func(list []*irStmt)
 	expr = func(x *irExpr) {
@@ -403,12 +491,18 @@ func (fn *irFunc) exprs(f func(*irExpr)) {
 	}
 	stmts = func(list []*irStmt) {
 		for _, s := range list {
+			if stmt != nil {
+				stmt(s)
+			}
 			expr(s.X)
 			expr(s.Y)
 			stmts(s.Then)
 			stmts(s.Else)
 			stmts(s.Body)
 			for _, c := range s.Cases {
+				for _, v := range c.Vals {
+					expr(v)
+				}
 				stmts(c.Body)
 			}
 		}

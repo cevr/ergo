@@ -26,6 +26,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 	}{
 		{"envTask", map[string]string{
 			"taskOf":                   "the only reader",
+			"irBuilder.everyAfter":     "the IR's After of a machine with an Every timer: MachineFiringNow and the clock's Now take the body's task, as funcCtx.everyTimers' taskOf (CENSUS-TAIL-2)",
 			"lowerer.envType":          "declares the field",
 			"funcCtx.operations":       "an operation table's Env literal for the caller's task",
 			"funcCtx.witnessMethod":    "a witness adapter's Env literal for the caller's task",
@@ -35,8 +36,9 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.pollAt":         "the experimental IR's interruption point (Check) at a given position, as funcCtx.poll's, as an IR node instead of taskOf's text (wf10 IR1; PORT-FORIN 11f4069ec moved it from poll)",
 			"irBuilder.callParts":      "the experimental IR's capability operation call, the caller's task first, as funcCtx.callText's, as an IR node (wf10 IR1)",
 			"irBuilder.opCall":         "the experimental IR's program operation call, the caller's task first, as funcCtx.programOpCall's (IRG4b r2)",
-			"irBuilder.hidden":         "the experimental IR's hidden CallerTask of a std operation call, as funcCtx.hiddenArgs's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
+			"irHidden.callerTask":      "the experimental IR's hidden CallerTask of a std operation call, as emitHidden.callerTask's for runtimeCall, whose checks the source path already ran on the same call (IRG4b r2)",
 			"irBuilder.adaptOperand":   "the IR's task block adapter: the Env copy's task is the body's task parameter, as childEnv's (ir_adapt.go, FLIP OPC-adapt)",
+			"irBuilder.resultRelease":  "the IR's hidden result release of a std call: the Env copy's task is the Releaser's task parameter, as resultRelease's childEnv (ir_own.go, HIDDEN-ARGS r2)",
 			"irBuilder.closeMasked":    "the IR's checked Close: v1.Release's hidden CallerTask (its body's facts read through runtimeBody), as closeBody's runtimeCall writes it (FLIP F7 FORK unit 4)",
 			"irBuilder.releaseFuncs":   "the IR's static-frame release: StaticBegin's hidden CallerTask, as closeStatic's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"irBuilder.hostCloseCall":  "the IR's release of a Go value: v1.Release's hidden CallerTask, as hostRelease's runtimeCall writes it (FLIP F7 FORK-GOCALL)",
@@ -46,7 +48,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.taskClose":      "the IR's release of a Task in a frame scope's list: Task.Close with its hidden CallerTask, the frame's (its body's facts read through runtimeBody), as providerRelease's runtimeCall writes it (GP-SPAWN)",
 		}},
 		{"taskOf", map[string]string{
-			"funcCtx.hiddenArgs":      "runtimeCall's hidden CallerTask argument",
+			"emitHidden.callerTask":   "runtimeCall's hidden CallerTask argument (hidden.go's hiddenArg)",
 			"funcCtx.programOpCall":   "a program-declared operation; it refuses every runtime type",
 			"funcCtx.callText":        "a capability operation through the Env's provider field",
 			"funcCtx.openFrame":       "the frame scope's parent task (NewScope)",
@@ -69,6 +71,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.cellEventsFrom":  "a cell writer's events, whose Writer calls on the task it rewrites into the provider's functions (LR3, wiretext.go)",
 		}},
 		{"memberName", map[string]string{
+			"irBuilder.intrinsicSome":   "the IR's Some of a prelude intrinsic's Map read (Get, Take), its one field by shape, as funcCtx.optionSome's (CENSUS-TAIL-2)",
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
 			"irBuilder.stdCloseCall":    "the IR's release of a std operation value: its runtime method with no hidden argument, as opCall's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"irBuilder.taskClose":       "the IR's release of a Task in a frame scope's list: Task.Close with its hidden CallerTask, the frame's (its body's facts read through runtimeBody), as providerRelease's runtimeCall writes it (GP-SPAWN)",
@@ -103,6 +106,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.boundOpCall":     "the IR's bound operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
+			"irBuilder.commaOkOpCall":   "the IR's bound operation method returning (T, bool), as runtimeCall's method head, and Some's payload field by its declaration (ADAPTED-RESULTS)",
+			"irBuilder.seqOpCall":       "the IR's bound operation method returning iter.Seq, called in the Seq on the iterating Env, as runtimeCall's deferred method head (ADAPTED-RESULTS)",
 			"irBuilder.getArm":          "the experimental IR's Value field of Some, bound in a comma-ok match on Get, as funcCtx.getArmsLower's (FLIP F7 lane B)",
 			"irBuilder.hostResult":      "the Value field of Some, for an Option of a Go pointer result, as funcCtx.optionSome's (FLIP F7 FORK-GOLIB)",
 			"irBuilder.nicheNarrow":     "the Value field of Some, written from an Option of a go.Ref in the pointer niche, as flatUnion.flatNarrow's (FLIP F7 FORK-GOLIB)",

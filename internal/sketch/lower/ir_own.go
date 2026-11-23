@@ -49,11 +49,14 @@ type irOwn struct {
 	// tbit is the slot of each owned temporary (Info.OwnedTemps, R43)
 	// registered so far (ownTemp): the statement's planned release finds
 	// it there (releaseAt).
-	tbit     map[syntax.Expr]int
-	deferred *irStmt       // the frame's deferred release, filled by ownDone
-	returned *syntax.Ident // the local a return hands off (returning)
-	site     syntax.Node
-	p        irPos
+	tbit                   map[syntax.Expr]int
+	deferred               *irStmt         // the frame's deferred release, filled by ownDone
+	returned               *syntax.Ident   // the local a return hands off (returning)
+	held                   []*syntax.Ident // operands whose owner stays live through the call
+	hasHeld                bool            // a call can leave the frame with no live slots
+	helperDecl, helperArgs string          // generic forms of the release and Free helpers
+	site                   syntax.Node
+	p                      irPos
 	// keys are the places of the body whose planned releases the builder
 	// has not reached yet (releaseAt, scoped); pending the owned locals
 	// bound and not yet registered (ownable, ownLet). Both end empty
@@ -117,6 +120,19 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 	}
 	p := b.pos(f.Decl, f.Decl.Pos())
 	o := &irOwn{kept: -1, bit: map[*check.Var]int{}, tbit: map[syntax.Expr]int{}, site: f.Decl, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
+	if b.fc.goGeneric {
+		// A slot can mention a type parameter of the body. Its named
+		// release helper has that same parameter, not a free Go type.
+		var decl, args []string
+		for _, tp := range f.Sig.TParams {
+			if name := b.fc.params[tp]; name != "" {
+				decl = append(decl, name+" "+b.l.constraint(tp, f.Decl))
+				args = append(args, name)
+			}
+		}
+		o.helperDecl = "[" + strings.Join(decl, ", ") + "]"
+		o.helperArgs = strings.Join(args, ", ")
+	}
 	b.ownBodyChecks(f.Decl.Body, o)
 	// The body's own scope ends at the frame's exit: its values are the
 	// deferred release's, in the same order (last registered first).
@@ -288,24 +304,34 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 		irNo("owned local") // a local bound twice
 	}
 	// The handle is defined where the local is: its scope is the local's.
-	h := b.temp("own", "*"+b.spelling(b.l.rt()+".Owned"), p)
-	o.handle[v] = h
-	here := ""
-	if n, ok := v.Type.(*check.Named); ok && len(n.TArgs) > 0 && b.startedHere(value) {
-		here = b.goType(n.TArgs[0], site) // v1.Task's T: the IR names a generic function with its type arguments
-	}
+	owner, h := b.listOwner(p)
+	o.handle[v] = owner.Local
+	here := b.listReleaseHere(v.Type, site, value)
 	rel := b.listRelease(d, v.Type, typ, p, here)
 	out := []*irStmt{
-		{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
-		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, &irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "local", Pos: p, I: i}, rel)},
+		owner,
+		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, h, &irExpr{K: "local", Pos: p, I: i}, rel)},
 	}
 	if b.l.writtenInPlace(v) {
 		// A local the code writes in place is released with its writes
 		// (v1.OwningAt; the emitter's ownAt).
 		at := b.listRelease(d, v.Type, typ, p, here)
-		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, &irExpr{K: "local", Pos: p, I: h}, b.addrOf(i, p), at)})
+		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, h, b.addrOf(i, p), at)})
 	}
 	return out
+}
+
+func (b *irBuilder) listOwner(p irPos) (*irStmt, *irExpr) {
+	h := b.temp("own", "*"+b.spelling(b.l.rt()+".Owned"), p)
+	return &irStmt{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
+		&irExpr{K: "local", Pos: p, I: h}
+}
+
+func (b *irBuilder) listReleaseHere(t check.Type, site syntax.Node, value syntax.Expr) string {
+	if n, ok := t.(*check.Named); ok && len(n.TArgs) > 0 && b.startedHere(value) {
+		return b.goType(n.TArgs[0], site) // v1.Task's T
+	}
+	return ""
 }
 
 // listRelease is the release of an owned value of type t, Go type typ: a
@@ -489,10 +515,28 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		lit := &irExpr{K: "func", Pos: p, T: "func()", Body: []*irStmt{{K: "expr", Pos: p, X: c}}, End: &end}
 		return &irStmt{K: "if", Pos: p, X: set(setOf(), k), End: p, Then: []*irStmt{{K: "expr", Pos: p, X: relCall("Part", lit)}}}
 	}
-	body := []*irStmt{
-		{K: "var", Pos: p, Local: rel},
-		{K: "set", Pos: p, Local: rel, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "StaticBegin", Args: []*irExpr{task, errArg, {K: "recover", Pos: p}}}},
+	var body []*irStmt
+	recovered := &irExpr{K: "recover", Pos: p}
+	if o.hasHeld {
+		// Successful admission commonly clears the last slot. If there is
+		// no incoming exit, no cleanup can fail and any kept value can
+		// leave as-is. Recover still runs in the deferred function itself.
+		got := h.temp("recovered", "any", p)
+		body = append(body, &irStmt{K: "def", Pos: p, Local: got, X: recovered})
+		recovered = local(got)
+		cond := &irExpr{K: "bin", Pos: p, Op: "&&",
+			X: &irExpr{K: "bin", Pos: p, Op: "==", X: deref(liveL), Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}},
+			Y: &irExpr{K: "bin", Pos: p, Op: "==", X: recovered, Y: &irExpr{K: "zero", Pos: p, T: "any"}}}
+		if errL >= 0 {
+			cond = &irExpr{K: "bin", Pos: p, Op: "&&", X: cond,
+				Y: &irExpr{K: "bin", Pos: p, Op: "==", X: deref(errL), Y: &irExpr{K: "zero", Pos: p, T: "error"}}}
+		}
+		body = append(body, &irStmt{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "ret", Pos: p}}})
 	}
+	body = append(body,
+		&irStmt{K: "var", Pos: p, Local: rel},
+		&irStmt{K: "set", Pos: p, Local: rel, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "StaticBegin", Args: []*irExpr{task, errArg, recovered}}},
+	)
 	for k := len(o.slots) - 1; k >= 0; k-- {
 		body = append(body, part(func() *irExpr { return deref(liveL) }, k))
 	}
@@ -511,7 +555,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 	b.st.out.Funcs = append(b.st.out.Funcs, *h.fn)
 	var t strings.Builder
 	t.WriteString("// " + helper + " is the deferred release of " + name + "'s static frame; its body is IR (FLIP F7, RELEASE-IR).\n")
-	t.WriteString("func " + helper + "(" + strings.Join(params, ", ") + ")\n\n")
+	t.WriteString("func " + helper + o.helperDecl + "(" + strings.Join(params, ", ") + ")" + irHeadEnd(o.helperDecl != "") + "\n\n")
 	// A slot released inside the body (slotRelease): its release alone,
 	// whose defect leaves at once (the emitter's staticRelease).
 	for _, s := range o.slots {
@@ -526,7 +570,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body; its body is IR (FLIP F7, RELEASE-IR).\n")
 		sn := newNamer(l.names) // the helper's own parameter (pkgnames.go)
 		sn.used[b.fc.envExpr(o.site)] = true
-		t.WriteString("func " + s.helper + "(" + b.fc.envExpr(o.site) + " *" + l.env() + ", " + sn.alloc("slot") + " *" + b.fc.goType(s.t) + ")\n\n")
+		t.WriteString("func " + s.helper + o.helperDecl + "(" + b.fc.envExpr(o.site) + " " + b.envPointer() + ", " + sn.alloc("slot") + " *" + b.fc.goType(s.t) + ")" + irHeadEnd(o.helperDecl != "") + "\n\n")
 	}
 	l.gen.WriteString(t.String())
 	return true
@@ -543,7 +587,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
 	if cl != nil && cl.Func == nil && cl.Op != nil {
-		return b.stdCloseCall(cl, s, slot, p)
+		return b.closeOpCall(cl, s, env, slot, p)
 	}
 	if cl != nil && cl.HostClose() {
 		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
@@ -576,7 +620,7 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 	// Close method takes them from its receiver.
 	var targs []string
 	if len(cl.Func.Sig.TParams) > 0 {
-		args := closeTypeArgs(cl, b.own.site)
+		args := closeTypeArgs(cl, b.slotSite(s))
 		for i, tp := range cl.Func.Sig.TParams {
 			if b.l.goParam(tp) {
 				targs = append(targs, b.spelling(b.fc.goArg(tp, args[i])))
@@ -586,14 +630,87 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 	return &irExpr{K: "call", Pos: p, Name: fd.name, T: strings.Join(targs, ", "), Args: []*irExpr{e, recv}}, true
 }
 
+// slotSite is the site a slot's release reads its package by: the static
+// frame's, or, outside one (a result release, resultRelease), the slot's
+// own.
+func (b *irBuilder) slotSite(s irSlot) syntax.Node {
+	if b.own != nil {
+		return b.own.site
+	}
+	return s.site
+}
+
+// resultRelease is the hidden release argument of the std call x
+// (v1.ResultRelease, a v1.Releaser of the call's value type): nil when the
+// value owns nothing (Info.ResultDrops), else a literal that releases a
+// value the call dropped on the task it is given, on a copy of the
+// caller's environment that holds that task, through the value's checked
+// Close, as the emitter's resultRelease writes it with providerRelease. A
+// generated release of the value's parts keeps the source body.
+func (b *irBuilder) resultRelease(x *syntax.CallExpr, p irPos) *irExpr {
+	t := b.l.info.Types[x]
+	if t == nil {
+		irNo("std call with hidden argument release")
+	}
+	vt := b.goType(t, x)
+	rel := b.spelling(b.l.rt() + ".Releaser[" + vt + "]")
+	d := b.l.info.ResultDrops[x]
+	if d == nil {
+		return &irExpr{K: "zero", Pos: p, T: rel} // a nil Releaser: the value holds no resource
+	}
+	if d.Glue() || d.Close == nil {
+		irNo("std call with hidden argument release") // the generated release (glueOn)
+	}
+	tt := b.spelling("*" + b.l.taskPkg() + ".Task")
+	task, v := b.temp("t", tt, p), b.temp("v", vt, p)
+	cp := b.temp("e", b.envValue(), p)
+	ep := b.temp("ep", b.envPointer(), p)
+	pv := b.temp("pv", "*"+vt, p)
+	call, ok := b.closeCall(irSlot{t: d.Type, d: d, site: x}, ep, pv, p)
+	if !ok {
+		irNo("std call with hidden argument release")
+	}
+	end := p
+	lit := &irExpr{K: "func", Pos: p, T: "func(" + tt + ", " + vt + ")", Params: []int{task, v}, End: &end, Body: []*irStmt{
+		// childEnv: e := *env; e.task = t; the release runs with &e.
+		{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: b.env}}},
+		{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: cp}}, Y: &irExpr{K: "local", Pos: p, I: task}},
+		{K: "def", Pos: p, Local: ep, X: b.addrOf(cp, p)},
+		{K: "def", Pos: p, Local: pv, X: b.addrOf(v, p)},
+		{K: "expr", Pos: p, X: call},
+	}}
+	return &irExpr{K: "conv", Pos: p, T: rel, X: lit} // the body's parameter type
+}
+
+// closeOpCall dispatches a Close on an operation type like opCall:
+// a program operation's Go interface takes the releasing task, and
+// runtime-bound operations keep their native method ABI.
+func (b *irBuilder) closeOpCall(cl *check.Close, s irSlot, env, slot int, p irPos) (*irExpr, bool) {
+	n, ok := cl.Receiver.(*check.Named)
+	if !ok {
+		return nil, false
+	}
+	site := b.slotSite(s)
+	if b.l.runtimeNamed(n, site) {
+		return b.stdCloseCall(cl, s, env, slot, p)
+	}
+	if b.l.typeDecl(n.Obj, site).kind != kindOps {
+		return nil, false
+	}
+	b.admitOps(n)
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: env}}
+	recv := &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}
+	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: recv, Args: []*irExpr{task}}, true
+}
+
 // stdCloseCall is the release of a value of a std operation type at slot
 // (fs.Mapped): its runtime method, as the emitter's opCall writes it
-// through runtimeCall, for a Close that takes nothing and returns nothing
-// (no hidden argument, no operand) on a Go pointer. Any other keeps the
+// through runtimeCall, for a Close on a Go pointer, with no argument but
+// the possible hidden caller task. Any other keeps the
 // Go-text release.
-func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (*irExpr, bool) {
+func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	n, ok := cl.Receiver.(*check.Named)
-	if !ok || !b.l.runtimeNamed(n, b.own.site) || !strings.HasPrefix(b.fc.goType(s.t), "*") {
+	if !ok || !b.l.runtimeNamed(n, b.slotSite(s)) || !strings.HasPrefix(b.fc.goType(s.t), "*") {
 		return nil, false
 	}
 	name := check.RuntimeTypeName(n) + "." + cl.Op.Name
@@ -601,10 +718,18 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (
 		return nil, false
 	}
 	body, err := runtimeBody(name)
-	if err != nil || len(body.Hidden) != 0 || len(body.Params) != 0 || len(body.Results) != 0 {
+	if err != nil || len(body.Params) != 0 || len(body.Results) != 0 {
 		return nil, false
 	}
-	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}, true
+	var args []*irExpr
+	switch {
+	case len(body.Hidden) == 0:
+	case len(body.Hidden) == 1 && body.Hidden[0] == v1.CallerTask:
+		args = []*irExpr{{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: env}}}
+	default:
+		return nil, false
+	}
+	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}, Args: args}, true
 }
 
 // ownBodyChecks stops a static frame this form does not build: an owned
@@ -790,9 +915,16 @@ func (b *irBuilder) slotRelease(k int, p irPos) *irStmt {
 	live := func() *irExpr { return &irExpr{K: "local", Pos: p, I: o.live} }
 	set := &irExpr{K: "bin", Pos: p, Op: "!=", X: &irExpr{K: "bin", Pos: p, Op: "&", X: live(), Y: b.bitConst(k, p)}, Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}}
 	return &irStmt{K: "if", Pos: p, X: set, End: p, Then: []*irStmt{
-		{K: "set", Pos: p, Local: o.live, X: &irExpr{K: "bin", Pos: p, Op: "&^", X: live(), Y: b.bitConst(k, p)}},
-		{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: s.helper, Args: []*irExpr{{K: "local", Pos: p, I: b.env}, b.addrOf(s.local, p)}}},
+		b.clearSlots(1<<uint(k), p),
+		{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: s.helper, T: o.helperArgs, Args: []*irExpr{{K: "local", Pos: p, I: b.env}, b.addrOf(s.local, p)}}},
 	}}
+}
+
+func (b *irBuilder) clearSlots(mask uint64, p irPos) *irStmt {
+	live := b.own.live
+	return &irStmt{K: "set", Pos: p, Local: live, X: &irExpr{K: "bin", Pos: p, Op: "&^",
+		X: &irExpr{K: "local", Pos: p, I: live},
+		Y: &irExpr{K: "const", Pos: p, T: "uint64", V: strconv.FormatUint(mask, 10)}}}
 }
 
 // ownVisited stops a static frame whose body left a planned release
@@ -847,16 +979,21 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node, value syntax.E
 	return []*irStmt{{K: "expr", Pos: p, X: call}}
 }
 
-// tempOwnable reports an owned temporary x (Info.OwnedTemps, R43) that
-// the static frame being built registers in a slot of its own (ownTemp):
-// one whose release is its type's own Close, that is no moved part of a
-// value being built (PartHands) and no lent arm result (ArmHeld, HeldIn).
-// The list form's temporaries, and these, keep their source body.
+// tempOwnable reports an owned temporary x whose release is its type's
+// own Close and that is neither a moved part nor a lent arm result.
+// A list frame can keep a non-failing call's returned value directly
+// (R10); temporaries that need a later releaseAt stay on the static path.
 func (b *irBuilder) tempOwnable(x syntax.Expr, o *irOwn) bool {
 	info := b.l.info
 	d := info.OwnedTemps[x]
-	if d == nil || o == nil || o.list || d.Glue() || d.Close == nil {
+	if d == nil || o == nil || d.Glue() || d.Close == nil {
 		return false
+	}
+	if o.list {
+		call, ok := x.(*syntax.CallExpr)
+		if !ok || !info.ReturnedTemps[x] || b.fallibleCall(call) != nil {
+			return false
+		}
 	}
 	return !info.PartHands[x] && !info.ArmHeld[x] && info.HeldIn[x] == nil
 }
@@ -881,6 +1018,15 @@ func (b *irBuilder) ownTemp(x syntax.Expr, e *irExpr) *irExpr {
 		irNo("owned temporary")
 	}
 	p := e.Pos
+	if o.list {
+		// No release point reads this handle: the value is kept on the
+		// same step that receives it, until the frame's exit is known.
+		typ := b.goType(t, x)
+		owner, h := b.listOwner(p)
+		b.runFirst([]*irStmt{owner})
+		rel := b.listRelease(b.l.info.OwnedTemps[x], t, typ, p, b.listReleaseHere(t, x, x))
+		return b.ownCall("Returned", typ, p, h, b.ownCall("Owning", typ, p, h, e, rel))
+	}
 	k, seen := o.tbit[x]
 	typ := b.goType(t, x)
 	if !seen {
@@ -891,7 +1037,11 @@ func (b *irBuilder) ownTemp(x syntax.Expr, e *irExpr) *irExpr {
 		o.tbit[x] = k
 		o.slots = append(o.slots, irSlot{local: b.temp("slot", typ, o.p), t: t, d: b.l.info.OwnedTemps[x], site: x})
 	}
-	return b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), e)
+	owned := b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), e)
+	if b.l.info.ReturnedTemps[x] {
+		return b.keepSlot(k, typ, owned)
+	}
+	return owned
 }
 
 // handoff is the read e of id, a use of an owned local: as it is, or at a
@@ -906,6 +1056,11 @@ func (b *irBuilder) handoff(id *syntax.Ident, e *irExpr) *irExpr {
 	if o == nil {
 		irNo("owned local")
 	}
+	for _, held := range o.held {
+		if id == held {
+			return e // the foreign call settles the owner only after returning
+		}
+	}
 	if o.list {
 		return b.listHand(o, v, id, e)
 	}
@@ -915,16 +1070,20 @@ func (b *irBuilder) handoff(id *syntax.Ident, e *irExpr) *irExpr {
 	}
 	p := e.Pos
 	typ := b.goType(v.Type, id)
-	if id == o.returned {
-		if o.kept < 0 {
-			o.kept = b.temp("kept", "uint64", o.p)
-		}
-		return b.ownCall("ReturnStatic", typ, p, b.addrOf(o.live, p), b.addrOf(o.kept, p), b.bitConst(k, p), e)
-	}
-	if b.l.info.ReturnedTemps[id] {
-		irNo("owned local") // an arm's tail of a returned if or match
+	if id == o.returned || b.l.info.ReturnedTemps[id] {
+		return b.keepSlot(k, typ, e)
 	}
 	return b.ownCall("HandStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), e)
+}
+
+// keepSlot holds a returned owner until all other releases have succeeded.
+func (b *irBuilder) keepSlot(k int, typ string, e *irExpr) *irExpr {
+	o := b.own
+	if o.kept < 0 {
+		o.kept = b.temp("kept", "uint64", o.p)
+	}
+	p := e.Pos
+	return b.ownCall("ReturnStatic", typ, p, b.addrOf(o.live, p), b.addrOf(o.kept, p), b.bitConst(k, p), e)
 }
 
 // listHand is the read e of id, a hand-off of the list form's owned local
@@ -1107,7 +1266,7 @@ func (b *irBuilder) ownDone(name string) {
 	hn := newNamer(l.names)
 	hn.used[env] = true
 	live, kept, rel := hn.alloc("live"), hn.alloc("kept"), hn.alloc("rel")
-	params := []string{env + " *" + l.env(), live + " *uint64"}
+	params := []string{env + " " + b.envPointer(), live + " *uint64"}
 	args := []*irExpr{{K: "local", Pos: o.p, I: b.env}, b.addrOf(o.live, o.p)}
 	if o.kept >= 0 {
 		params = append(params, kept+" *uint64")
@@ -1131,7 +1290,8 @@ func (b *irBuilder) ownDone(name string) {
 		params = append(params, slots[k]+" *"+fc.goType(s.t))
 		args = append(args, b.addrOf(s.local, o.p))
 	}
-	o.deferred.X = &irExpr{K: "call", Pos: o.p, Name: helper, Args: args}
+	o.deferred.X = &irExpr{K: "call", Pos: o.p, Name: helper, T: o.helperArgs, Args: args}
+	b.fn.release = helper
 	// The frame's locals are declared before the deferred call reads
 	// their addresses (Go's writer takes a local used before its
 	// declaration for a closure's free variable).
@@ -1156,7 +1316,7 @@ func (b *irBuilder) ownDone(name string) {
 	}
 	var t strings.Builder
 	t.WriteString("// " + helper + " is the deferred release of " + name + "'s static frame (IR, FLIP F7).\n")
-	t.WriteString("func " + helper + "(" + strings.Join(params, ", ") + ") {\n")
+	t.WriteString("func " + helper + o.helperDecl + "(" + strings.Join(params, ", ") + ") {\n")
 	t.WriteString("\t" + rel + " := " + fc.runtimeCall("StaticBegin", fc.ownBinding("StaticBegin", site), "", "", []string{errArg, "recover()"}, env, nil, nil, site) + "\n")
 	for k := len(o.slots) - 1; k >= 0; k-- {
 		t.WriteString(part(live, k))
@@ -1179,7 +1339,7 @@ func (b *irBuilder) ownDone(name string) {
 		sn.used[env] = true
 		slot := sn.alloc("slot")
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body (IR, FLIP F7).\n")
-		t.WriteString("func " + s.helper + "(" + env + " *" + l.env() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
+		t.WriteString("func " + s.helper + o.helperDecl + "(" + env + " " + b.envPointer() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
 		t.WriteString(fc.providerRelease(&check.Acquisition{Close: s.d.Close}, env, "(*"+slot+")", site) + "\n}\n\n")
 	}
 	l.gen.WriteString(t.String())

@@ -1,0 +1,301 @@
+// Lowering of one function to machine code and the metadata the runtime
+// reads for it. Every value lives in a frame slot; an op loads its
+// operands into scratch registers, computes, and stores its result. The
+// emitted frame follows the pin's amd64 layout (abi.ergo): the stack check
+// against g.stackguard0 with the morestack path at the end (register
+// arguments spilled to the caller's spill area around the call, the span
+// an unsafe point), PUSHQ BP / MOVQ SP, BP / SUBQ, and the mirror
+// epilogue. Stack map 0 is the entry's (pointer parameters in the spill
+// area, no locals); each call gets the next index, with the pointer slots
+// live across it (slots.ergo).
+
+// Lowered is one function's code and metadata.
+type Lowered {
+	Name    string,
+	Code    string,
+	Relocs  []Reloc,
+	Frame   Frame,
+	Args    int,
+	Line    int,
+	Pcsp    string,
+	Pcfile  string,
+	Pcline  string,
+	Unsafe  string,
+	Smi     string,
+	ArgMaps [][]bool,
+	Locals  [][]bool,
+	Sites   []Site,
+	Calls   []int,
+}
+
+// maxArgs is the largest number of argument words of any call in f: the
+// outgoing spill area the frame reserves.
+func maxArgs(f Func) int {
+	let mut n = 0
+	for op in f.Ops {
+		match op {
+		case Call as c:
+			if len(c.Args) > n {
+				n = len(c.Args)
+			}
+		case CallClosure as c:
+			if len(c.Args) > n {
+				n = len(c.Args)
+			}
+		case _:
+		}
+	}
+	n
+}
+
+// isLeaf says whether f makes no call.
+func isLeaf(f Func) bool {
+	for op in f.Ops {
+		if IsCall(op) {
+			return false
+		}
+	}
+	true
+}
+
+func cond(c int) int {
+	if c == CLt {
+		return JccLt
+	}
+	if c == CNe {
+		return JccNe
+	}
+	if c == CEq {
+		return JccEq
+	}
+	JccGe
+}
+
+// The labels the lowering adds: the entry, the morestack path, and one
+// per write barrier (below every Ergo label id, which is not negative).
+let entryLabel = -1
+let morestackLabel = -2
+
+func barrierLabel(i int) int { -10 - i }
+
+// ArgMap is the entry map of the arguments: one bit per parameter and
+// result word, set for a pointer parameter.
+func entryArgs(p Package, f Func) []bool {
+	let mut bits = []bool{}
+	for t in f.Params {
+		bits = bits.Append(IsPointer(p, t))
+	}
+	for _ in f.Results {
+		bits = bits.Append(false)
+	}
+	bits
+}
+
+func zeros(n int) []bool {
+	let mut bits = []bool{}
+	for _ in 0..n {
+		bits = bits.Append(false)
+	}
+	bits
+}
+
+// LowerFunc lowers function f of package p.
+func LowerFunc(p Package, f Func) Lowered fails Undefined {
+	let fr = FrameOf(len(f.Slots), maxArgs(f), isLeaf(f))
+	let after = LiveAfter(f)
+	let nargs = len(f.Params) + len(f.Results)
+	let mut argMaps = [][]bool{entryArgs(p, f)}
+	let mut locals = [][]bool{zeros(fr.Slots)}
+	let mut calls = []int{}
+	let mut a = NewAsm(f.Line)
+	a.Bind(entryLabel)
+	if fr.Size > 0 {
+		// The stack check and its branch are not preemptible, as the stock
+		// prologue's: a preemption there would be followed by a needless
+		// morestack.
+		a.SetUnsafe(UnsafeUnsafe)
+		a.CmpSPGuard(fr.Size)
+		a.Jcc(JccBe, morestackLabel)
+		a.SetUnsafe(UnsafeSafe)
+		a.PushBP()
+		a.SetSp(8)
+		a.MovRR(RBP, RSP)
+		a.AluImm(ExtSub, RSP, fr.Size-8)
+		a.SetSp(fr.Size)
+		for k in 0..len(f.Params) {
+			a.MovStore(IntRegs[k], RSP, SlotOff(fr, k))
+		}
+		let mut zeroed = false
+		for j in len(f.Params)..len(f.Slots) {
+			if IsPointer(p, f.Slots[j]) {
+				if !zeroed {
+					a.MovImm(RAX, 0)
+					zeroed = true
+				}
+				a.MovStore(RAX, RSP, SlotOff(fr, j))
+			}
+		}
+	}
+	for i, op in f.Ops {
+		a.SetLine(f.Lines[i])
+		match op {
+		case Const as c:
+			a.MovImm(RAX, c.V)
+			a.MovStore(RAX, RSP, SlotOff(fr, c.Dst))
+		case Arith as x:
+			a.MovLoad(RAX, RSP, SlotOff(fr, x.A))
+			a.MovLoad(RCX, RSP, SlotOff(fr, x.B))
+			if x.Kind == AAdd {
+				a.Alu(OpAdd, RAX, RCX)
+			} else if x.Kind == ASub {
+				a.Alu(OpSub, RAX, RCX)
+			} else if x.Kind == AXor {
+				a.Alu(OpXor, RAX, RCX)
+			} else {
+				a.Imul(RAX, RCX)
+			}
+			a.MovStore(RAX, RSP, SlotOff(fr, x.Dst))
+		case Load as l:
+			a.MovLoad(RAX, RSP, SlotOff(fr, l.Ptr))
+			a.MovLoad(RAX, RAX, 0)
+			a.MovStore(RAX, RSP, SlotOff(fr, l.Dst))
+		case StorePtr as s:
+			a.MovLoad(RDI, RSP, SlotOff(fr, s.Ptr))
+			a.MovLoad(RSI, RSP, SlotOff(fr, s.Val))
+			// From the flag test to the store, a preemption could let a GC
+			// phase change between the barrier decision and the write.
+			a.SetUnsafe(UnsafeUnsafe)
+			a.CmpFlagZero(WriteBarrierFlag)
+			a.Jcc(JccEq, barrierLabel(i))
+			a.CallSym(GCWriteBarrier2, ABIInternal, false)
+			a.MovStore(RSI, R11, 0)
+			a.MovLoad(R12, RDI, 0)
+			a.MovStore(R12, R11, 8)
+			a.Bind(barrierLabel(i))
+			a.MovStore(RSI, RDI, 0)
+			a.SetUnsafe(UnsafeSafe)
+		case Store as s:
+			a.MovLoad(RDI, RSP, SlotOff(fr, s.Ptr))
+			a.MovLoad(RSI, RSP, SlotOff(fr, s.Val))
+			a.MovStore(RSI, RDI, 0)
+		case AddrOf as x:
+			a.Lea(RAX, RSP, SlotOff(fr, x.Of))
+			a.MovStore(RAX, RSP, SlotOff(fr, x.Dst))
+		case GetGlobal as g:
+			a.RipLoad(RAX, SymName(p, p.Globals[g.Global].Name))
+			a.MovStore(RAX, RSP, SlotOff(fr, g.Dst))
+		case SetGlobal as g:
+			a.MovLoad(RAX, RSP, SlotOff(fr, g.Src))
+			a.RipStore(RAX, SymName(p, p.Globals[g.Global].Name))
+		case Call as c:
+			for k, s in c.Args {
+				a.MovLoad(IntRegs[k], RSP, SlotOff(fr, s))
+			}
+			a.SetSmi(len(locals))
+			a.CallSym(c.Target, ABIInternal, true)
+			for k, d in c.Dsts {
+				a.MovStore(IntRegs[k], RSP, SlotOff(fr, d))
+			}
+		case CallClosure as c:
+			for k, s in c.Args {
+				a.MovLoad(IntRegs[k], RSP, SlotOff(fr, s))
+			}
+			a.MovLoad(RDX, RSP, SlotOff(fr, c.Fn))
+			a.MovLoad(R12, RDX, 0)
+			a.SetSmi(len(locals))
+			a.CallReg(R12)
+			for k, d in c.Dsts {
+				a.MovStore(IntRegs[k], RSP, SlotOff(fr, d))
+			}
+		case Label as l:
+			a.Bind(l.Id)
+		case Jump as j:
+			a.Jmp(j.To)
+		case JumpIf as j:
+			a.MovLoad(RAX, RSP, SlotOff(fr, j.A))
+			a.MovLoad(RCX, RSP, SlotOff(fr, j.B))
+			a.Alu(OpCmp, RAX, RCX)
+			a.Jcc(cond(j.Cond), j.To)
+		case Return as r:
+			for k, s in r.Vals {
+				a.MovLoad(IntRegs[k], RSP, SlotOff(fr, s))
+			}
+			if fr.Size > 0 {
+				a.AluImm(ExtAdd, RSP, fr.Size-8)
+				a.SetSp(8)
+				a.PopBP()
+				a.SetSp(0)
+			}
+			a.Ret()
+			// Code after a return is reached by a branch, in the full frame.
+			a.SetSp(fr.Size)
+		}
+		if IsCall(op) {
+			calls = calls.Append(i)
+			let live = LiveAcross(p, f, after, i)
+			let mut bits = zeros(fr.Slots)
+			for s in live {
+				bits[SlotBit(fr, s)] = true
+			}
+			locals = locals.Append(bits)
+			argMaps = argMaps.Append(zeros(nargs))
+		}
+	}
+	if fr.Size > 0 {
+		a.SetLine(f.Line)
+		a.SetSp(0)
+		a.SetSmi(-1)
+		a.SetUnsafe(UnsafeUnsafe)
+		a.Bind(morestackLabel)
+		for k in 0..len(f.Params) {
+			a.MovStore(IntRegs[k], RSP, ArgSpill(k))
+		}
+		a.CallSym(MorestackNoctxt, ABI0, true)
+		// Reloading the arguments may be preempted, as the stock prologue's.
+		a.SetUnsafe(UnsafeSafe)
+		for k in 0..len(f.Params) {
+			a.MovLoad(IntRegs[k], RSP, ArgSpill(k))
+		}
+		a.Jmp(entryLabel)
+	}
+	try a.Finish()
+	let size = a.Code.Size()
+	Lowered{
+		Name:    f.Name,
+		Code:    a.Code.Bytes(),
+		Relocs:  a.Relocs,
+		Frame:   fr,
+		Args:    8 * nargs,
+		Line:    f.Line,
+		Pcsp:    EncodeTable(a.Sp, size),
+		Pcfile:  EncodeTable([]PcVal{PcVal{Pc: 0, V: 0}}, size),
+		Pcline:  EncodeTable(a.Line, size),
+		Unsafe:  EncodeTable(a.Unsafe, size),
+		Smi:     EncodeTable(a.Smi, size),
+		ArgMaps: argMaps,
+		Locals:  locals,
+		Sites:   a.Sites,
+		Calls:   calls,
+	}
+}
+
+// StackMap is the funcdata bytes of maps: their count, their bit count,
+// then each map's bits, (bits+7)/8 bytes each.
+func StackMap(maps [][]bool, nbit int) string {
+	let mut w = NewBuf()
+	w.U32(len(maps))
+	w.U32(nbit)
+	for m in maps {
+		for byteAt in 0..(nbit+7)/8 {
+			let mut x = 0
+			for b in 0..8 {
+				let i = byteAt*8 + b
+				if i < nbit && m[i] {
+					x = x | (1 << b)
+				}
+			}
+			w.U8(x)
+		}
+	}
+	w.Bytes()
+}

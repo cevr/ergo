@@ -349,18 +349,30 @@ var compilerIdentity = build.CompilerIdentity
 // program of one source text: the files of a Go module, runtime included,
 // that a Go program requires and replaces.
 func Library(a Analysis, source, module, name string) ([]lower.File, error) {
-	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
-		return nil, &BuildError{Diagnostics: a.Diagnostics}
-	}
-	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}, Root: filepath.Dir(source)}
-	if a.program != nil {
-		unit = a.program.unit()
+	unit, err := LibraryUnit(a, source)
+	if err != nil {
+		return nil, err
 	}
 	files, err := lower.LowerLibrary(unit, module, name)
 	if err != nil {
 		return nil, err
 	}
 	return append(files, lower.Runtime()...), nil
+}
+
+// LibraryUnit is the lowering unit of the checked program a as a library,
+// anchored at source for a program of one source text: the unit Library
+// lowers with the source emitter, and `ergo lib` with the IR
+// (lower.LowerIRLibrary; LIB-ON-IR).
+func LibraryUnit(a Analysis, source string) (lower.Unit, error) {
+	if len(a.Diagnostics) > 0 || (a.file == nil && a.program == nil) || a.pkg == nil {
+		return lower.Unit{}, &BuildError{Diagnostics: a.Diagnostics}
+	}
+	unit := lower.Unit{Package: a.pkg, Files: []*syntax.File{a.file}, Sources: []lower.Source{{Path: source, Text: a.source}}, Root: filepath.Dir(source)}
+	if a.program != nil {
+		unit = a.program.unit()
+	}
+	return unit, nil
 }
 
 // Build emits the checked analysis into the emission cache, or reuses its

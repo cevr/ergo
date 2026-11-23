@@ -19,7 +19,6 @@ docs/spec/README.md	9	SPEC-GRAMMAR-DIAG
 docs/spec/diagnostics.md	17	SPEC-GRAMMAR-DIAG
 docs/spec/grammar.md	24	SPEC-GRAMMAR-DIAG
 docs/spec/interop.md	2	SPEC-INTEROP-SMALL
-docs/spec/resources.md	1	SPEC-ROWS-RES
 docs/spec/rows.md	9	SPEC-ROWS-RES
 docs/spec/runtime.md	5	SPEC-RUNTIME
 docs/spec/status.json	8	SPEC rewrites (status paragraphs, by spec file)
@@ -112,7 +111,7 @@ internal/sketch/check/stage_d3a_test.go	1	ISSUE-TAGS (comments and test texts)
 internal/sketch/check/tails.go	1	ISSUE-TAGS (comments and test texts)
 internal/sketch/check/tests.go	1	ISSUE-TAGS (comments and test texts)
 internal/sketch/check/total.go	1	ISSUE-TAGS (comments and test texts)
-internal/sketch/check/typeops.go	6	ISSUE-TAGS (comments and test texts)
+internal/sketch/check/typeops.go	5	ISSUE-TAGS (comments and test texts)
 internal/sketch/check/types.go	6	ISSUE-TAGS (comments and test texts)
 internal/sketch/check/variantindex.go	1	ISSUE-TAGS (comments and test texts)
 internal/sketch/check/wire.go	1	ISSUE-TAGS (comments and test texts)

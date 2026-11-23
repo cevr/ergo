@@ -1,0 +1,31 @@
+import timeout
+
+type NotFound { Name string }
+type Answer { Name string, Addr string }
+
+type Resolver {
+	Resolve(name string) Answer fails NotFound,
+
+	// A lookup that succeeds answers the name asked, with an address.
+	law Answered(name string) {
+		let answer = Resolve(name) catch {
+		case NotFound:
+			return true
+		}
+		answer.Name == name && answer.Addr != ""
+	},
+}
+
+func Lookup(name string) Answer fails NotFound | timeout.Expired needs Scheduler {
+	timeout.After(2s) { Resolver.Resolve(name) } // want S102 "requires Resolver"
+}
+
+func Address(name string) string needs Resolver | Scheduler {
+	let answer = Lookup(name) catch {
+	case NotFound:
+		Answer{Name: name, Addr: "unknown"}
+	case timeout.Expired:
+		Answer{Name: name, Addr: "timed-out"}
+	}
+	answer.Addr
+}

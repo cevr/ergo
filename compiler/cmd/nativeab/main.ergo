@@ -18,6 +18,7 @@ import exec
 import fs
 import hex
 import io
+import maps
 import os
 import rand
 import slices
@@ -52,37 +53,71 @@ func flagText(args []string, name string, def string) string {
 	def
 }
 
-// describe is a drawn case as text: the failing input verify prints.
+// describe prints an Ergo expression that can be pasted into a fixture
+// in this package. Draw's string fields use only fixed labels and IDs.
 func describe(c Case) string {
 	let mut b = strings.NewBuilder()
-	b.WriteString("edit \(c.Edit)\n")
-	for p in c.Packages {
-		b.WriteString("package \(p.Name) \(p.Origin) route \(p.Route)\n")
-	}
-	b.WriteString("tree \(c.Trace.Tree)\n")
+	b.WriteString("Case{\n\tTrace: Trace{Tree: \(c.Trace.Tree), Procs: []Proc{\n")
 	for p in c.Trace.Procs {
-		b.WriteString("proc \(procKey(p.Pid, p.Gen)) parent \(p.Parent) \(p.Tool) \(p.Pkg) \(p.Origin) cached=\(p.Cached) self \(p.Self)\n")
+		b.WriteString("\t\tProc{Pid: \(p.Pid), Gen: \(p.Gen), Parent: \"\(p.Parent)\", Tool: \"\(p.Tool)\", Pkg: \"\(p.Pkg)\", Origin: \"\(p.Origin)\", Cached: \(p.Cached), Self: \(p.Self)},\n")
 	}
+	b.WriteString("\t}, Spans: []Span{\n")
 	for s in c.Trace.Spans {
-		b.WriteString("span \(procKey(s.Pid, s.Gen))#\(s.Seq) w\(s.Worker) \(s.Stage) \(s.Count)\n")
+		b.WriteString("\t\tSpan{Pid: \(s.Pid), Gen: \(s.Gen), Seq: \(s.Seq), Worker: \(s.Worker), Stage: \"\(s.Stage)\", Count: \(s.Count)},\n")
 	}
+	b.WriteString("\t}},\n\tTruth: Truth{Cells: Map[string, int]{\n")
+	for key in slices.Sorted(maps.Keys(c.Truth.Cells)) {
+		b.WriteString("\t\t\"\(key)\": \(got(c.Truth.Cells, key)),\n")
+	}
+	b.WriteString("\t}, Rebuilt: []string{")
+	for name in c.Truth.Rebuilt {
+		b.WriteString("\"\(name)\", ")
+	}
+	b.WriteString("}, Refusal: \"\(c.Truth.Refusal)\"},\n\tPackages: []Package{\n")
+	for p in c.Packages {
+		b.WriteString("\t\tPackage{Name: \"\(p.Name)\", Origin: \"\(p.Origin)\", Route: \"\(p.Route)\"},\n")
+	}
+	b.WriteString("\t},\n\tFaultTarget: \"\(c.FaultTarget)\",\n}")
 	b.String()
 }
 
-// observe is what Attribute gives for c, as text.
-func observe(c Case) string {
-	let cells = Attribute(c.Trace) catch {
-	case Refused as r:
-		return "refused \(r.Why) at \(r.At)"
-	}
-	strings.Join(Lines(cells), "\n")
+func reportFailure(seed int, source string, d Difference) needs io.Stdout {
+	io.Stdout.Println("FAIL seed \(seed)")
+	io.Stdout.Println("minimized Ergo source:\n" + source)
+	io.Stdout.Println("observed:\n" + d.Observed)
+	io.Stdout.Println("reference:\n" + d.Reference)
+	io.Stdout.Println("replay (from compiler/): ergo run ./cmd/nativeab -- verify --seed \(seed) --count 1")
 }
 
-func truth(c Case) string {
-	if c.Truth.Refusal != "" {
-		return "refused \(c.Truth.Refusal)"
+func reportTraceFailure(seed int, c Case) bool needs io.Stdout {
+	for check in []TraceCheck{TraceRecovery, TraceConservation, TraceStages} {
+		match traceDifference(c, check) {
+		case Some as original:
+			let small = minimise(c, func(candidate Case) bool { !traceAgrees(candidate, check) })
+			match traceDifference(small, check) {
+			case Some as d:
+				reportFailure(seed, describe(small), d.Value)
+			case None:
+				reportFailure(seed, describe(c), original.Value)
+			}
+			return true
+		case None:
+		}
 	}
-	strings.Join(Lines(c.Truth.Cells), "\n")
+	false
+}
+
+func reportCacheFailure(seed int) bool needs io.Stdout {
+	let c = drawCacheCase(seed, seed/7, seed/3)
+	if cacheAgrees(c) {
+		return false
+	}
+	let small = minimiseCache(c)
+	reportFailure(seed, "Rebuild(\(small.N), \"\(small.Kind)\", \(small.At))", Difference{
+		Observed:  "[" + strings.Join(Rebuild(small.N, small.Kind, small.At), ", ") + "]",
+		Reference: "[" + strings.Join(scratch(small.N, small.Kind, small.At), ", ") + "]",
+	})
+	true
 }
 
 // model runs the laws over the drawn builds and the cache model; it is
@@ -90,15 +125,8 @@ func truth(c Case) string {
 func model(seed int, count int) int needs io.Stdout {
 	let mut bad = 0
 	for s in seed..seed+count {
-		let ok = recovers(s) && conserves(s) && chargesStages(s) && rebuildAgrees(s, s/7, s/3)
-		if !ok {
+		if reportTraceFailure(s, Draw(s)) || reportCacheFailure(s) {
 			bad = bad + 1
-			let c = Draw(s)
-			io.Stdout.Println("FAIL seed \(s)")
-			io.Stdout.Println("input:\n" + describe(c))
-			io.Stdout.Println("attribute:\n" + observe(c))
-			io.Stdout.Println("reference:\n" + truth(c))
-			io.Stdout.Println("replay: ergo run ./cmd/nativeab -- verify --seed \(s) --count 1")
 		}
 	}
 	io.Stdout.Println("model: \(count - bad)/\(count) seeds from \(seed) agree (drawn builds: phase order, parser workers, packages of both origins and routes, cold/hit/private/public/dependency edits, duplicate, incomplete, lost and pid-reused records)")

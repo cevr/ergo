@@ -105,6 +105,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"body that needs a frame", "G2"},
 	{"owned local", "G2"},
 	{"owned temporary", "G2"},
+	{"held take *", "G2"},
 	{"statement that releases owned values", "G2"},
 	{"untried fallible call", "G2"},
 	{"fallible call with an empty row at its site", "G2"},
@@ -144,7 +145,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"op-assignment of a scalar-form local", "G3b"},
 	{"match with patterns", "G3b"}, // the flat lowering of a tree (flatPatternMatch)
 	{"match tree *", "G3b"},
-	{"match binding of another type", "G3b"},
 	{"shared arm binding that its first leaf does not make", "G3b"},
 	{"record pattern of an unnamed type", "G3b"},
 	{"interpolated value of type *", "G3b"},

@@ -46,12 +46,37 @@ import (
 	"ergo.local/prototype/internal/sketch/std/gostd"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketch/testplan"
 	sourcefile "ergo.local/prototype/internal/source"
 	"ergo.local/prototype/internal/stage"
 )
 
 // ModFile is the file that marks a module root (196b Q1).
 const ModFile = "ergo.mod"
+
+// The shipped prelude has no importable directory for the in-place
+// evaluator. Every other bundled test root can use the evaluator first.
+var shippedNativeOnly = testplan.NativeRoot{Path: stdlib.PreludePath, Required: true}
+
+// StdTestPlan supplies the bundled roots to the test driver, not its
+// verdict policy. The driver runs the native-only roots unconditionally.
+func StdTestPlan() (inPlace []string, nativeOnly []testplan.NativeRoot) {
+	return stdlib.Packages(), []testplan.NativeRoot{shippedNativeOnly}
+}
+
+// stdTestSource resolves the bundled source selected by a native test.
+// The prelude is a checked root even though no import may name it.
+func stdTestSource(importPath string) (*check.Package, map[string]string, testplan.NativeRoot, error) {
+	if importPath == shippedNativeOnly.Path {
+		return check.PreludePackage(), stdlib.Prelude(), shippedNativeOnly, nil
+	}
+	sources, ok := stdlib.Package(importPath)
+	if !ok {
+		return nil, nil, testplan.NativeRoot{}, fmt.Errorf("sketchfront: %s is no std package", importPath)
+	}
+	pkg, err := check.Std.Import(importPath)
+	return pkg, sources, testplan.NativeRoot{Path: importPath}, err
+}
 
 // FS is the file system the loader reads. Production reads the host's
 // (CheckDir); a test can list a directory's entries in another order.
@@ -200,6 +225,9 @@ type loader struct {
 	// the fingerprints of the packages checked or taken so far (CheckCache).
 	cache *CheckCache
 	fps   map[string]fingerprint.Package
+	// noMain checks every package by its import path: no package is the
+	// program's main (CheckGoModule: Go imports each).
+	noMain bool
 }
 
 // newLoader is a loader of the package folder dir, an absolute path, that
@@ -816,7 +844,7 @@ func (l *loader) checkAll() {
 	l.writeSegments(written, ds)
 	for i, p := range l.order {
 		if _, ok := l.segments[p]; !ok {
-			l.checkPackage(p, i == len(l.order)-1, ds)
+			l.checkPackage(p, i == len(l.order)-1 && !l.noMain, ds)
 		}
 		for _, d := range ds[p] {
 			l.diags = append(l.diags, report.Diagnostic{

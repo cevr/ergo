@@ -175,9 +175,10 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 
 // find is locate's location, or false for a node no file holds.
 func (l *lowerer) find(n syntax.Node, pos syntax.Pos) (path string, line, column int, ok bool) {
-	if _, ok := l.sourceOf(n); ok {
-		_, path, line, column = l.at(n, pos)
-		return path, line, column, true
+	if i, ok := l.sourceOf(n); ok {
+		sf := l.srcs[i]
+		line, column = sf.file.Position(pos)
+		return sf.path, line, column, true
 	}
 	sf, ok := l.stdFileOf(n)
 	if !ok || n == nil {
@@ -213,10 +214,7 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 					if bySpan && (d.Pos() > n.Pos() || n.End() > d.End()) || !holds(d, n) {
 						continue
 					}
-					sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
-					if p.Path == stdlib.PreludePath {
-						sf.path = "std/" + f.Name
-					}
+					sf := stdFile{file: f, path: embeddedSourcePath(p, f.Name)}
 					if l.stdSrc == nil {
 						l.stdSrc = map[syntax.Node]stdFile{}
 					}
@@ -232,6 +230,14 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 		}
 	}
 	return stdFile{}, false
+}
+
+// embeddedSourcePath is the displayed path of an embedded source file.
+func embeddedSourcePath(p *check.Package, name string) string {
+	if p.Prelude() {
+		return "std/" + name
+	}
+	return "std/" + p.Path + "/" + name
 }
 
 // holds reports whether the tree of root has the node n.
@@ -356,12 +362,12 @@ func (l *lowerer) eachStdLet(f func(stdLet)) {
 	}
 }
 
-// inStdPkg runs f guarded, with p's Info and stdLets set.
+// inStdPkg runs f guarded, with p's checked facts.
 func (l *lowerer) inStdPkg(p *check.Package, f func()) {
 	l.guard(func() {
-		saved, savedStd := l.info, l.stdLets
-		l.info, l.stdLets = p.Info, true
-		defer func() { l.info, l.stdLets = saved, savedStd }()
+		saved := l.info
+		l.info = p.Info
+		defer func() { l.info = saved }()
 		f()
 	})
 }

@@ -31,7 +31,7 @@ func TestTimeAsleepSeesBelow(t *testing.T) {
 			line.Wait(gt, time.Hour)
 			return true, nil
 		})
-		v, err := child.Wait()
+		v, err := child.Wait(ct)
 		inner.End(nil)
 		return v, err
 	})
@@ -52,7 +52,7 @@ func TestTimeAsleepSeesBelow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tk := range []*Task[bool]{direct, nested, waiting} {
-		if _, err := tk.Wait(); err != nil {
+		if _, err := tk.Wait(root); err != nil {
 			t.Fatal(err)
 		}
 	}

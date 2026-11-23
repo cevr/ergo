@@ -264,10 +264,9 @@ func execSandboxStart(cmd *exec.Cmd, root string) (*execChild, error) {
 			return nil, err
 		}
 	}
+	// The program's whole environment is cmd.Env (ExecCommand): nil is
+	// none, never this process's.
 	env := cmd.Env
-	if env == nil {
-		env = os.Environ()
-	}
 	pid, err := h.spawn(cmd.Path, dir, cmd.Args, env, files)
 	if err != nil {
 		child.closeStdin()

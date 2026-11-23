@@ -24,7 +24,15 @@
 //	                  and the bytes it wrote
 //
 // Output: "ok N" or "differ N: …" per step, then "end".
+//
+// A first line "fail AT STATUS" makes the screen's AT-th check fail with
+// the library status STATUS (screen.FailAt): the run stops at the
+// failure with a line "failed …". After the app, every such run prints
+// the checks the screen passed ("check CALL NODE", in order) and "live
+// N", the screens not quit (TestTuiFailuresAgree).
 
+import go ergo.local/prototype/hosts/opentui/screen
+import ergo.local/prototype/hosts/opentui/tui
 import io
 import slices
 import strings
@@ -37,37 +45,57 @@ func main() needs Console | Ambient | go.Foreign {
 			Console.Println("differ 0: no input")
 			return
 		}
-		let lines = strings.Split(strings.TrimSpace(text), "\n")
-		let steps = slices.Slice(lines, 1, len(lines))
-		match strings.TrimSpace(lines[0]) {
-		case "counter":
-			agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
-		case "shelf":
-			agree(shelfMachine(), shelfView, sameShelf, steps)
-		case "form":
-			agree(formMachine(), formView, func(a form, b form) bool { a == b }, steps)
-		case "load":
-			agree(loadMachine(), loadView, func(a chosen, b chosen) bool { a == b }, steps)
-		case "lock":
-			agree(lockMachine(), lockView, func(a lock, b lock) bool { a == b }, steps)
-		case "pad":
-			agree(padMachine(), padView, func(a pad, b pad) bool { a == b }, steps)
-		case "list":
-			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
-		case "sketch":
-			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
-		case "pane":
-			agree(paneMachine(), paneView, func(a pane, b pane) bool { a == b }, steps)
-		case "drag":
-			agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, steps)
-		case "spin":
-			agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, steps)
-		case "choice":
-			agree(choiceMachine(), choiceView, func(a choice, b choice) bool { a == b }, steps)
-		case "reading":
-			agree(readingMachine(), readingView, func(a reading, b reading) bool { a == b }, steps)
-		case _:
-			Console.Println("differ 0: no app \(lines[0])")
+		let mut lines = strings.Split(strings.TrimSpace(text), "\n")
+		let faulted = strings.HasPrefix(lines[0], "fail ")
+		if faulted {
+			let f = strings.Fields(lines[0])
+			screen.FailAt(atoi(f[1]), screen.AnyCall, atoi(f[2]))
+			lines = slices.Slice(lines, 1, len(lines))
 		}
+		let steps = slices.Slice(lines, 1, len(lines))
+		play(lines[0], steps) catch {
+		case tui.ScreenFailed as e:
+			Console.Println(failLine(e))
+		}
+		if faulted {
+			for c in screen.Checks() {
+				Console.Println("check \(c.Call) \(c.Node)")
+			}
+			Console.Println("live \(screen.Live())")
+		}
+	}
+}
+
+// play runs the app named app on steps.
+func play(app string, steps []string) fails tui.ScreenFailed needs Console | Scheduler | go.Foreign {
+	match strings.TrimSpace(app) {
+	case "counter":
+		try agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
+	case "shelf":
+		try agree(shelfMachine(), shelfView, sameShelf, steps)
+	case "form":
+		try agree(formMachine(), formView, func(a form, b form) bool { a == b }, steps)
+	case "load":
+		try agree(loadMachine(), loadView, func(a chosen, b chosen) bool { a == b }, steps)
+	case "lock":
+		try agree(lockMachine(), lockView, func(a lock, b lock) bool { a == b }, steps)
+	case "pad":
+		try agree(padMachine(), padView, func(a pad, b pad) bool { a == b }, steps)
+	case "list":
+		try agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
+	case "sketch":
+		try agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
+	case "pane":
+		try agree(paneMachine(), paneView, func(a pane, b pane) bool { a == b }, steps)
+	case "drag":
+		try agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, steps)
+	case "spin":
+		try agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, steps)
+	case "choice":
+		try agree(choiceMachine(), choiceView, func(a choice, b choice) bool { a == b }, steps)
+	case "reading":
+		try agree(readingMachine(), readingView, func(a reading, b reading) bool { a == b }, steps)
+	case _:
+		Console.Println("differ 0: no app \(app)")
 	}
 }

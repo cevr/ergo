@@ -431,8 +431,22 @@ func (in *interp) runTask(t *etask) {
 }
 
 // finish ends t, detaches it from its parent, and hands the baton to the
-// next task: once the obligation has ended, back to the root.
+// next task: once the obligation has ended, back to the root. A child of t
+// that still runs was handed out (a Task t's block returned, put in a field
+// or a queue): it goes to t's parent, stopped when that parent is, so a
+// stop of the parent still reaches it (runtime.md Tasks, rule 1; rt's
+// Task.adopt).
 func (in *interp) finish(t *etask) {
+	if p := t.parent; p != nil {
+		for _, k := range t.kids {
+			k.parent = p
+			p.kids = append(p.kids, k)
+			if p.stopped {
+				stopTree(k)
+			}
+		}
+	}
+	t.kids = nil
 	s := in.sched
 	t.state = done
 	for i, x := range s.tasks {

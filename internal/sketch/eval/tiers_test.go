@@ -62,6 +62,7 @@ func TestTiersAgree(t *testing.T) {
 			{"holds", holdsGen(seed)},
 			{"defect", holdsGen(seed) + "\ntest Boom(n int) {\n\tassert 10 / (n - n) == 0\n}\n\ntest After() {\n\tassert true\n}\n"},
 			{"budget", budgetGen(seed)},
+			{"harness", harnessGen(seed)},
 		} {
 			dir := filepath.Join(t.TempDir(), fmt.Sprintf("%s%d", prog.name, seed))
 			if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -81,7 +82,7 @@ func TestTiersAgree(t *testing.T) {
 				t.Fatalf("seed %d %s: %v\n%s", seed, prog.name, ds, prog.src)
 			}
 			b := eval.DefaultBudget()
-			b.Seed = seed
+			b.Seed, b.Source = seed, file
 			rep, err := eval.Run(pkg, b)
 			if err != nil {
 				t.Fatal(err)
@@ -130,13 +131,27 @@ func TestTiersAgree(t *testing.T) {
 				if strings.Contains(r.Message, ": left ") {
 					reached["shown"] = true
 				}
+				if prog.name == "harness" && r.Status == eval.Refuted {
+					// The one printability rule (check.ShownCompare): a
+					// comparison of the package's printable types shows its
+					// operands, one of another package's type does not.
+					shown := strings.Contains(r.Message, ": left ")
+					if shown != !strings.HasPrefix(r.Name, "Hidden") {
+						t.Fatalf("seed %d harness: %s shows its operands: %v\n%s\n%s\nreplay: ERGO_TIERS_SEED=%d go test -run '^TestTiersAgree$' ./internal/sketch/eval", seed, r.Name, shown, r.Message, prog.src, seed)
+					}
+					reached[fmt.Sprintf("harness shown %v", shown)] = true
+				}
+			}
+			if prog.name == "harness" {
+				replayHarness(t, ergo, seed, prog.src, native)
+				reached["harness replay"] = true
 			}
 		}
 	}
 	if first == last {
 		return
 	}
-	for _, k := range []string{"passed", "proved", "shrunk", "law", "shown", "summary exit 0", "summary exit 1", "evaluated", "native rerun"} {
+	for _, k := range []string{"passed", "proved", "shrunk", "law", "shown", "summary exit 0", "summary exit 1", "evaluated", "native rerun", "harness shown true", "harness shown false", "harness replay"} {
 		if !reached[k] {
 			t.Fatalf("the seeds never reached a %s verdict (reached %v)", k, reached)
 		}
@@ -245,6 +260,98 @@ func runErgoTest(t *testing.T, ergo, file string, seed uint64, extra ...string) 
 		t.Fatalf("ergo test %s: %v\n%s", file, err, stderr.String())
 	}
 	return stdout.String(), stderr.String(), code
+}
+
+// harnessGen is a program of harnessed tests (std gen's Property): each
+// draws, and all but Holds fail on a seeded bound. Show* compare values of
+// types the runner prints (int, a defined int, a record of the package, a
+// slice, a string of two lines); Hidden compares gen.Tape, a type of
+// another package, whose operands no report shows.
+func harnessGen(seed uint64) string {
+	r := rand.New(rand.NewPCG(seed, 0x4a12))
+	k, c, p, d, h := 1+r.IntN(150), 1+r.IntN(90), r.IntN(20), r.IntN(10), r.IntN(10)
+	return fmt.Sprintf(`import gen
+
+type Pair { A int, B bool }
+
+type Celsius int
+
+test ShowInt {
+	let n = gen.IntIn(0, 200)
+	assert n < %d
+}
+
+test ShowCelsius {
+	let t = Celsius(gen.IntIn(0, 100))
+	assert t < Celsius(%d)
+}
+
+test ShowPair {
+	let n = gen.IntIn(0, 20)
+	assert Pair{A: n, B: true} != Pair{A: %d, B: true}
+}
+
+test ShowList {
+	let xs = gen.ListOf(0, 6, func() int needs gen.Draws { gen.IntIn(0, 9) })
+	assert xs == []int{}
+}
+
+test ShowText {
+	let n = gen.IntIn(0, 9)
+	assert "line\n\(n)" != "line\n%d"
+}
+
+test Hidden {
+	let n = gen.IntIn(0, 9)
+	assert gen.Tape{Size: 0, Draws: []uint64{uint64(n)}} != gen.Tape{Size: 0, Draws: []uint64{uint64(%d)}}
+}
+
+test Holds {
+	let n = gen.IntIn(0, 9)
+	assert n >= 0
+}
+`, k, c, p, d, h)
+}
+
+// replayHarness runs, from another working directory, the replay command
+// each refuted harnessed test's report ends with (gen.Property's last
+// line): it is executable as printed, and reruns the same refutation, the
+// FAIL line the native run printed for that test. Mutant only it kills:
+// harness-replay-sourceless (check, testdata/mutants.json).
+func replayHarness(t *testing.T, ergo string, seed uint64, src, native string) {
+	t.Helper()
+	fails := map[string]string{}
+	var name string
+	for _, line := range strings.Split(native, "\n") {
+		if rest, ok := strings.CutPrefix(line, "FAIL "); ok && !strings.HasPrefix(rest, "(") {
+			name, _, _ = strings.Cut(rest, ":")
+			fails[name] = line
+			continue
+		}
+		cmdline, ok := strings.CutPrefix(line, "\treplay: ergo test ")
+		if !ok || fails[name] == "" {
+			continue
+		}
+		args := append([]string{"test"}, strings.Fields(cmdline)...)
+		var stdout, stderr bytes.Buffer
+		cmd := exec.Command(ergo, args...)
+		cmd.Dir, cmd.Stdout, cmd.Stderr = t.TempDir(), &stdout, &stderr
+		if err := proclimit.Run(cmd, proclimit.DefaultLimit); err != nil {
+			var exit *exec.ExitError
+			if !errors.As(err, &exit) {
+				t.Fatalf("ergo %s: %v", strings.Join(args, " "), err)
+			}
+		}
+		if !strings.Contains("\n"+stdout.String(), "\n"+fails[name]+"\n") {
+			t.Fatalf("seed %d harness: the replay of %s, run elsewhere, is not its refutation\nreplay: ergo %s\nwant: %s\ngot:\n%s%s\n%s\nreplay: ERGO_TIERS_SEED=%d go test -run '^TestTiersAgree$' ./internal/sketch/eval", seed, name, strings.Join(args, " "), fails[name], stdout.String(), stderr.String(), src, seed)
+		}
+		fails[name] = ""
+	}
+	for n, line := range fails {
+		if line != "" && !strings.HasPrefix(n, "law ") && !strings.Contains(line, "(evaluated)") {
+			t.Fatalf("seed %d harness: %s has no replay command\n%s", seed, n, native)
+		}
+	}
 }
 
 // holdsGen is a program whose tests and laws hold, with seeded bounds: an

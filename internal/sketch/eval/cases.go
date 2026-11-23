@@ -28,7 +28,7 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 	}
 	for i := range run.Contexts {
 		c := &run.Contexts[i]
-		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: c.Unrun, ctx: c})
+		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Title(), why: c.Unrun, ctx: c})
 	}
 	if len(out) == 0 {
 		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law), why: "no binding of the law runs in this package"})
@@ -160,6 +160,23 @@ func (in *interp) testCases(pkg *check.Package, t *check.Test, res Result) Resul
 	return in.cases(fr, t.Decl.Body, false, t.Params, p, res)
 }
 
+// AdmissionVerdict is why check time skips a law with a where over earlier
+// parameters (types.md, Laws 15): its admitted values come from the
+// near-variant search, which only the test binary runs, and a case drawn
+// without it would refute the law on values the where does not admit.
+const AdmissionVerdict = "a where over earlier parameters: ergo test runs it"
+
+// admits reports whether law has a where over earlier parameters
+// (check.Law.Admit).
+func admits(law *check.Law) bool {
+	for _, a := range law.Admit {
+		if a != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Result) {
 	defer func() {
 		if out.Status == Refuted {
@@ -172,6 +189,8 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 		why = law.Unrun
 	} else if law.Decl.Rewrite != nil && why == "" {
 		why = RewriteVerdict()
+	} else if why == "" && admits(law) {
+		why = AdmissionVerdict
 	}
 	if why != "" {
 		res.Status, res.Reason = Skipped, why
@@ -503,8 +522,11 @@ func (in *interp) listValue(fr *frame, v testplan.Value) Value {
 
 func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, ref *check.Refinement) Value {
 	mustCharge(in, fr, 1)
-	if d < -in.budget.Depth {
-		panic(fr.abrupt(ctlExhausted, fr.decl, nil, "generator depth bound reached"))
+	if d < -check.GenRankLimit {
+		// Past the plan's depth each step goes to a lower rank, and the
+		// checker refuses a type ranked past GenRankLimit, so a draw never
+		// gets here.
+		ice("generator depth past check.GenRankLimit at %s", t)
 	}
 	if ref != nil {
 		return in.genRefined(fr, r, t, d, ref)
@@ -567,6 +589,12 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 		return tuple{elems: xs}
 	case *check.Union:
 		return in.genVariant(fr, r, u.Variants, d)
+	case *check.Signature:
+		if check.NoopFunc(u) {
+			// func() with no rows: the one function that returns
+			// (LAW-GEN-FUNC); it draws nothing.
+			return noopFunc
+		}
 	case *check.Named:
 		if _, ops := u.Underlying().(*check.Interface); ops {
 			return in.genBuilt(fr, r, u, d)
@@ -596,6 +624,11 @@ func (in *interp) generate(fr *frame, r *testgen.Stream, t check.Type, d int, re
 	}
 	panic(fr.unsupported(fr.decl, "a generator for %s", t))
 }
+
+// noopFunc is the generated value of func() with no rows: it returns.
+var noopFunc = &nativeFunc{name: "func() {}", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
+	return unit{}, in.charge(fr, at, 1)
+}}
 
 // genBuilt is a value of the operation type n drawn as the Go build draws
 // it (lower/builders.go, genBuilt): its builder (check.Builder, a New<X>

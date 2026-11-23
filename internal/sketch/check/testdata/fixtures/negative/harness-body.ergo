@@ -8,7 +8,7 @@ type Other {
 	Ping() bool,
 }
 
-type Run { Name string, Seed uint64, Site string }
+type Run { Name string, Seed uint64, Site string, Source string }
 
 type Failed { Message string }
 

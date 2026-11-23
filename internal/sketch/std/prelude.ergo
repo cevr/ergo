@@ -643,10 +643,12 @@ type Range[T ordered] { Start T, End T }
 // CallSite is a position in Ergo source: File as a defect names it, Line
 // and Column from 1, Column in bytes. A call may leave out its callee's
 // final CallSite parameter, and the compiler passes the call's own site
-// (types.md, Call sites). Id is the number the compiler gives that
-// position, from 1, distinct for distinct positions of one program; a
-// CallSite the program writes carries the Id it writes, 0 by convention.
-type CallSite { File string, Line int, Column int, Id int }
+// (types.md, Call sites). Pkg is the number the compiler gives the call's
+// package among the program's packages, and Id the number it gives the
+// position within that package, both from 1: two distinct positions of
+// one program never share both. A CallSite the program writes carries the
+// Pkg and Id it writes, 0 by convention.
+type CallSite { File string, Line int, Column int, Pkg int, Id int }
 
 // Context is a context as a value: the providers of the capability row R,
 // built where a context converts to it (`let w Context[Store | Log] =
@@ -926,4 +928,23 @@ extern go ergo.local/prototype/runtime/v1.Task type Task[T own, E] {
 		Stop()
 		true
 	},
+}
+
+type taskLawFailed {}
+
+let liveTaskForLaws = context {
+	Task[int, taskLawFailed]: startLawTask(func() int fails taskLawFailed { parkTaskForLaw(func() {}) }),
+}
+
+// The prelude cannot import task. Bind the same runtime constructor
+// privately here to keep this law on its operation type.
+extern go ergo.local/prototype/runtime/v1.Go func startLawTask[T own, E, R](body own func() T fails E needs R) Task[T, E] needs R
+
+// Call an opaque function so the child loop is an interruption point,
+// with no clock needed and no way for the child to finish before Stop.
+func parkTaskForLaw(tick own func()) int {
+	for {
+		tick()
+	}
+	0
 }

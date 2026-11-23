@@ -21,7 +21,7 @@ import (
 func checkApply(root string, ledgers []string, sel func(string) bool, stdout, stderr io.Writer) int {
 	bad := 0
 	for _, path := range ledgers {
-		l, err := readLedger(path)
+		l, err := readLedger(root, path, stderr)
 		if err != nil {
 			fmt.Fprintf(stderr, "mutants: %v\n", err)
 			return 2

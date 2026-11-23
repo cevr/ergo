@@ -1,7 +1,7 @@
 {
   "about": "C3 public ownership API projection and diff. Killers run in process.",
   "mutants": [
-    {"name":"c3-implicit-take-marked-written","origin":"L8 C3 q70","file":"internal/sketch/api/api.go","from":"v.TakesInferred = len(takes) > 0 && f.Decl != nil && !syntax.WritesTakes(f.Decl.Type)","to":"v.TakesInferred = false && syntax.WritesTakes(f.Decl.Type)","rule":"The checker inserts Close's takes; the source did not write it.","killers":["api:TestOwnershipAPIModel"]},
-    {"name":"modes5-api-own-omitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/api/api.go","from":"\t\t\tif t.Own {\n\t\t\t\tv.Own = append(v.Own, t.Name)","to":"\t\t\tif false {\n\t\t\t\tv.Own = append(v.Own, t.Name)","rule":"ergo api lists a function's own type parameters (Generics 9).","killers":["api:TestOwnershipAPIModel"]}
+    {"name":"c3-implicit-take-marked-written","origin":"L8 C3 q70","file":"internal/sketch/api/api.go","from":"v.TakesInferred = len(takes) > 0 && f.Decl != nil && !syntax.WritesTakes(f.Decl.Type)","to":"v.TakesInferred = false && syntax.WritesTakes(f.Decl.Type)","rule":"The checker inserts Close's takes; the source did not write it.","killers":["internal/sketch/api:TestOwnershipAPIModel"]},
+    {"name":"modes5-api-own-omitted","origin":"wf10 MODES-5 (EXM2)","file":"internal/sketch/api/api.go","from":"\t\t\tif t.Own {\n\t\t\t\tv.Own = append(v.Own, t.Name)","to":"\t\t\tif false {\n\t\t\t\tv.Own = append(v.Own, t.Name)","rule":"ergo api lists a function's own type parameters (Generics 9).","killers":["internal/sketch/api:TestOwnershipAPIModel"]}
   ]
 }

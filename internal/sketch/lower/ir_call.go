@@ -3,6 +3,8 @@ package lower
 // IR builder: calls, operation calls and polls. See ir.go.
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -117,6 +119,14 @@ func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // call with effects.
 func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
 	c := b.l.info.Calls[x]
+	if ids := b.heldOperands(x, c); len(ids) != 0 {
+		return b.heldCall(x, c, stmt, ids)
+	}
+	return b.callPartsRaw(x, stmt)
+}
+
+func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
+	c := b.l.info.Calls[x]
 	if c == nil {
 		irNo("call without a Calls entry")
 	}
@@ -134,7 +144,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if c.StartsTask && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
-	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc {
+	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc && !(c.Kind == check.CallOp && c.Op != nil && len(c.Op.Sig.TParams) > 0) {
 		irNo("generic call kind %d", c.Kind)
 	}
 	if !stmt && b.l.info.Types[x] == nil {
@@ -166,6 +176,31 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// runtime reads it from the test binary's own arguments.
 		b.keepImport("var _ = " + b.l.rt() + ".TestSeed")
 		return nil, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSeed"}, false
+	case check.CallTestShown:
+		pre, e := b.shownCall(x, p) // ir_assert.go
+		return pre, e, false
+	case check.CallTestFile:
+		// The test's file as the runner names it (check harness.go): the
+		// file part of the call's siteText.
+		site := b.l.siteText(x)
+		for range 2 {
+			site = site[:strings.LastIndex(site, ":")]
+		}
+		return nil, &irExpr{K: "const", Pos: p, T: "string", V: site}, false
+	case check.CallTestReport:
+		// A harnessed test's failure (check harness.go): the harness's
+		// $Reported, which fails the test with the message as its report.
+		if b.l.tests == nil {
+			irNo("ergo·report outside a harnessed test")
+		}
+		pre, vals := b.operands(x.Args) // ir_fail.go
+		return pre, &irExpr{K: "call", Pos: p, Name: b.l.helper("Reported"), Args: vals}, false
+	case check.CallTestSource:
+		// The path a harnessed test's replay names (check harness.go):
+		// the binary's --source, or the test's file.
+		b.keepImport("var _ = " + b.l.rt() + ".TestSource")
+		pre, vals := b.operands(x.Args) // ir_fail.go
+		return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSource", Args: vals}, false
 	case check.CallHash:
 		return b.hashCall(x, p) // ir_mapprovider.go
 	case check.CallLen:
@@ -195,7 +230,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call without a function")
 		case check.GoBuiltin(f) != "":
 			return b.goBuiltinCall(x, c, f, p, stmt) // ir_builtin.go
-		case userExtern(f), f.Pkg != nil && f.Pkg.Host():
+		case f.CallsGo():
 			// A function of a Go package: an extern whose target is in
 			// Go's library, or one read from its binding (import go;
 			// gostd's runtime.NumCPU). The emitter calls its Go target
@@ -318,7 +353,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		} else if known != "" {
 			// The variant takes the function's type arguments (callText).
 			targs := b.typeArgs(c, x)
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs}), !fd.envFree
+			return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs})), !fd.envFree // ir_forms_inline.go (KNOWN-FILTER-INLINE)
 		}
 		if fd.method != nil {
 			return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
@@ -371,9 +406,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
 		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
-		if named != nil && b.l.runtimeNamed(named, x) {
-			irNo("law operation of an extern Go type") // calls.go writes its runtime call
-		}
 		if named == nil {
 			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 			if !ok {
@@ -389,9 +421,17 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if b.fc.frame.polls {
 			pre = append(pre, b.poll(x))
 		}
+		env := &irExpr{K: "local", Pos: p, I: b.env}
+		if c.Kind == check.CallLawOp && b.l.runtimeNamed(named, x) {
+			recv := &irExpr{K: "local", Pos: p, I: b.lawOwn}
+			if b.lawOwn == 0 {
+				recv = &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}
+			}
+			argPre, e, effect := b.boundOpCall(x, c, named, p, recv)
+			return append(pre, argPre...), e, effect
+		}
 		argPre, irArgs := b.operands(x.Args)
 		pre = append(pre, argPre...)
-		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		if c.Kind == check.CallLawOp && b.lawOwn > 0 {
 			// A law of a generic operation type calls the provider it

@@ -137,6 +137,15 @@ type Package struct {
 	// toolchain vouches for the packages it ships.
 	module  string
 	trusted bool
+	// unfed are the law bindings of this package that no case of its own
+	// feeds, left to its module (lawmodule.go, ReportUnfed), and fed the
+	// providers its named contexts run each law against. Only the
+	// package's own check writes them; a snapshot carries neither.
+	unfed []unfedBinding
+	fed   []fedBinding
+	// unprovided are its member laws, each with the error its module
+	// reports when no package of the module runs the law (ReportUnfed).
+	unprovided []unfedBinding
 	// goBodies are the bodies its externs bind in its module's own Go
 	// packages, by extern target (moduleDoor; docs/spec/interop.md,
 	// Trusted Go 3). Only the package's own check writes it.
@@ -741,7 +750,10 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 			}
 			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
-			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+			// A generic operation's function has its own type parameters
+			// beyond the receiver's: its instance is the call's, in a copy
+			// (GENERIC-OP), never the witness's.
+			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 && len(op.Sig.TParams) == 0 {
 				var why string
 				wo.Inst, why = build(f, receiverTypeArgs(targs[i], f))
 				if why != "" {
@@ -767,6 +779,47 @@ func receiverTypeArgs(self Type, f *Func) []Type {
 	}
 	return args
 }
+
+// ProviderTypeArgs are the type arguments of f, the function that provides
+// a generic operation for self, at a call of that operation with own, the
+// operation's type arguments (Call.TypeArgs): those self's type arguments
+// bind, then own in order for the rest (types.md, Interface assignability,
+// Generic operations). Nil when the counts do not match.
+func ProviderTypeArgs(self Type, f *Func, own []Type) []Type {
+	args := receiverTypeArgs(self, f)
+	k := 0
+	for i := range args {
+		if args[i] != nil {
+			continue
+		}
+		if k >= len(own) {
+			return nil
+		}
+		args[i] = own[k]
+		k++
+	}
+	if k != len(own) {
+		return nil
+	}
+	return args
+}
+
+// ProvidingFunc is the package function that provides the operation name
+// for the named type t (Methods 4), or nil.
+func ProvidingFunc(t Type, name string) *Func {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	if n, ok := t.(*Named); ok {
+		return n.method(name)
+	}
+	return nil
+}
+
+// ConstraintOnly reports whether an operation type is a constraint only by
+// a generic operation (Interface.Generic): a function its operations
+// constrain is lowered only as copies, one per instance.
+func ConstraintOnly(t Type) bool { return genericOpOnly(t) }
 
 // CallKind is what a call calls.
 type CallKind int
@@ -825,6 +878,25 @@ const (
 	// CallTestSeed is the run's --seed, a uint64, which only the rewrite of
 	// a harnessed test calls (harness.go, rule 3). Added in P1b.
 	CallTestSeed
+	// CallTestShown is ergo·shown(left, right): the runner's text of a
+	// failed comparison's operands (": left L, right R" and the line diff
+	// of two strings), which only the rewrite of a harnessed test's
+	// assert calls (harness.go, rule 3). Added in P1c.
+	CallTestShown
+	// CallTestSource is ergo·source(file): the path ergo test was given,
+	// the test binary's --source, or file when none is given, for a
+	// harnessed test's replay command; only the rewrite calls it
+	// (harness.go, rule 3). Added in P1c.
+	CallTestSource
+	// CallTestReport is ergo·report(message): the test fails with message
+	// as its whole report, as a failed assert ends it; only the rewrite of
+	// a harnessed test calls it, with its harness's failure (harness.go,
+	// rule 3). Added in P1c.
+	CallTestReport
+	// CallTestFile is ergo·file(): the base name of the file that holds
+	// the call, as the runner's reports name it; only the rewrite of a
+	// harnessed test calls it (harness.go, rule 3). Added in P1c.
+	CallTestFile
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount

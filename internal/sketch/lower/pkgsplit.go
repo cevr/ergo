@@ -156,7 +156,7 @@ func lowerSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, SplitRe
 	if !tests {
 		files = l.withRecord(u, files)
 	}
-	out, rep := splitFiles(u, files, l.stdOrigins(), l.harnessNames(), base, sh)
+	out, rep := splitFiles(u, files, l.stdOrigins(), l.harnessNames(), l.sitePkgNames(), base, sh)
 	return out, rep, nil
 }
 
@@ -200,12 +200,12 @@ func (l *lowerer) harnessNames() map[string]bool {
 }
 
 // splitFiles splits files, the lowering of u, by the std origins.
-func splitFiles(u Unit, files []File, origins map[string]*check.Package, harness map[string]bool, base string, sh *shardOpts) ([]File, SplitReport) {
+func splitFiles(u Unit, files []File, origins map[string]*check.Package, harness, sitePkgs map[string]bool, base string, sh *shardOpts) ([]File, SplitReport) {
 	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
 	if i < 0 {
 		return files, SplitReport{Packages: 1, Reason: "no main.go"}
 	}
-	out, rep := splitMain(u, files[i].Data, base, origins, harness, nil, sh)
+	out, rep := splitMain(u, files[i].Data, base, origins, harness, sitePkgs, nil, sh, nil)
 	if out == nil {
 		if rep.Packages == 0 {
 			rep.Packages = 1
@@ -265,6 +265,7 @@ type splitGroup struct {
 	harness bool  // a test build's test or law run: starts in main (FT6)
 	embed   bool
 	generic bool // a generic function or type: its users compile its instantiations
+	libInit bool // a Go func init of a split with lib: in the shared package unless its references place it
 	pkg     int
 	refs    []int
 }
@@ -286,6 +287,9 @@ func (p *splitPlan) start(groups []splitGroup) {
 			groups[g].pkg = groups[g].natural
 		default:
 			groups[g].pkg = 1
+			if groups[g].libInit {
+				groups[g].pkg = 0
+			}
 			var named []int
 			for _, v := range groups[g].refs {
 				if n := groups[v].natural; n >= 1 && !p.pkgs[n].std && !slices.Contains(named, n) {
@@ -341,7 +345,11 @@ func (p *splitPlan) place(groups []splitGroup) string {
 // each IR body counts as its function's references, and each package
 // gets the IR file of its functions (pkgsplit_ir.go). With sh, each big
 // package of the program is cut into shards after placement (pkgshard.go).
-func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, harness map[string]bool, ir *irFile, sh *shardOpts) ([]File, SplitReport) {
+// With lib, the split is LowerGoPackages': every Ergo package is a Go
+// package at its folder (splitLib), main.go is no package, a Go func init
+// and an embedded asset are placed as any generated declaration is, and
+// each package spells its Go-facing names as Ergo does.
+func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, harness, sitePkgs map[string]bool, ir *irFile, sh *shardOpts, lib *splitLib) ([]File, SplitReport) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
 	if err != nil {
@@ -350,11 +358,20 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	tf := fset.File(f.Pos())
 	off := func(p token.Pos) int { return tf.Offset(p) }
 
-	plan, ofSource, ofStd := splitPackages(u, origins, harness != nil)
+	plan, ofSource, ofStd := splitPackages(u, origins, harness != nil, lib)
 	scope := f.Scope
+	releases := map[string]string{}
+	if ir != nil {
+		for _, fn := range ir.Funcs {
+			if fn.release != "" {
+				owner, _, _ := strings.Cut(fn.Name, ".")
+				releases[fn.release] = owner
+			}
+		}
+	}
 
-	// Groups: each non-method declaration, then each method joins its
-	// receiver's group.
+	// Groups: each independent declaration, then each method joins its
+	// receiver's group and a deferred release joins its owner's.
 	var groups []splitGroup
 	groupOf := map[string]int{} // package-scope name to group
 	defOf := splitDefs{node: map[string]ast.Node{}, decl: map[string]int{}}
@@ -369,7 +386,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			firstDecl = i
 		}
 		fd, ok := d.(*ast.FuncDecl)
-		if ok && fd.Recv != nil {
+		if ok && (fd.Recv != nil || releases[fd.Name.Name] != "") {
 			continue
 		}
 		g := splitGroup{decls: []int{i}, natural: -1}
@@ -378,6 +395,11 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			switch name := d.Name.Name; {
 			case name == "main":
 				g.pin = true
+			case isGoInit(name) && lib != nil:
+				// No package is Go's main: an init goes where the
+				// declarations it registers are, else to the shared
+				// package, which every package imports (splitLib).
+				g.libInit = true
 			case isGoInit(name) && plan.root != 1:
 				// A test build's init registers the source tables of
 				// the program's code, so it joins the root package
@@ -404,7 +426,9 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 				before = off(f.Decls[i-1].End())
 			}
 			if d.Doc != nil && hasEmbed(d.Doc) || strings.Contains(string(src[before:off(d.Pos())]), "//go:embed") {
-				g.pin, g.embed = true, true
+				// With lib, the asset goes where its declaration goes
+				// (LowerGoPackages).
+				g.pin, g.embed = lib == nil, true
 			}
 			for _, s := range d.Specs {
 				switch s := s.(type) {
@@ -417,6 +441,9 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 						if n.Name != "_" {
 							groupOf[n.Name] = len(groups)
 							defOf.add(n.Name, s, i)
+							if sitePkgs[n.Name] {
+								g.natural = 0
+							}
 						}
 					}
 				}
@@ -430,7 +457,20 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	}
 	for i, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv == nil {
+		if !ok {
+			continue
+		}
+		if owner := releases[fd.Name.Name]; owner != "" && fd.Recv == nil {
+			g, ok := groupOf[owner]
+			if !ok {
+				return nil, SplitReport{Reason: "a deferred release's owner is not declared in main.go"}
+			}
+			declGroup[i], groupOf[fd.Name.Name] = g, g
+			groups[g].decls = append(groups[g].decls, i)
+			defOf.add(fd.Name.Name, fd, i)
+			continue
+		}
+		if fd.Recv == nil {
 			continue
 		}
 		g, ok := groupOf[recvBase(fd.Recv)]
@@ -462,7 +502,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 		for _, c := range f.Comments {
 			if at := off(c.Pos()); at >= segStart[i] && at < off(d.Pos()) && hasEmbed(c) {
-				groups[g].pin, groups[g].embed = true, true
+				groups[g].pin, groups[g].embed = lib == nil, true
 			}
 		}
 	}
@@ -491,6 +531,21 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	for name, p := range origins {
 		if g, ok := groupOf[name]; ok && groups[g].natural < 0 {
 			groups[g].natural = ofStd[p]
+		}
+	}
+	// A Go-facing name's package is its Ergo package's: a facade has no
+	// directive.
+	if lib != nil {
+		lib.index = map[*check.Package]int{}
+		for k, p := range plan.pkgs {
+			if p.ergo != nil && !p.std {
+				lib.index[p.ergo] = k
+			}
+		}
+		for name, ln := range lib.names {
+			if g, ok := groupOf[name]; ok {
+				groups[g].natural = lib.index[ln.pkg]
+			}
 		}
 	}
 	// Occurrences: references to package-scope names, and field and method
@@ -769,6 +824,15 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			cross[name] = true
 		}
 	}
+	if lib != nil {
+		// A Go-facing name placed outside its Ergo package is named there
+		// by an alias (libAliases): it crosses.
+		for name, ln := range lib.names {
+			if g, ok := groupOf[name]; ok && groups[g].pkg != lib.index[ln.pkg] {
+				cross[name] = true
+			}
+		}
+	}
 	rename := map[string]string{}
 	taken := maps.Clone(all)
 	for _, name := range slices.Sorted(maps.Keys(cross)) {
@@ -794,6 +858,56 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		plan.pkgs[k].alias = a
 	}
 
+	// With lib, the package-scope names each package spells otherwise
+	// (respell): each Go-facing name of a package placed there is its
+	// Ergo name, and another declaration of the package spelled as one
+	// is spelled anew. One placed elsewhere is named in its package by an
+	// alias (libAliases). A field or method name keeps rename's spelling.
+	respell := map[string]string{}
+	var libAliases [][2]string // the one Go file's name, its Ergo name
+	if lib != nil {
+		for k := range plan.pkgs {
+			if p := plan.pkgs[k]; p.ergo != nil && !p.std {
+				used[k] = true // Go imports it, also when nothing of it is placed there
+			}
+		}
+		want := map[int]map[string]string{}
+		for _, name := range slices.Sorted(maps.Keys(lib.names)) {
+			ln := lib.names[name]
+			g, ok := groupOf[name]
+			if !ok {
+				continue
+			}
+			k := lib.index[ln.pkg]
+			if want[k] == nil {
+				want[k] = map[string]string{}
+			}
+			want[k][ln.name] = name
+			if groups[g].pkg != k {
+				libAliases = append(libAliases, [2]string{name, ln.name})
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(groupOf)) {
+			spelled := cmp.Or(rename[name], name)
+			if n, clash := want[groups[groupOf[name]].pkg][spelled]; clash && n != name {
+				respell[name] = freshName(taken, "X"+spelled)
+			}
+		}
+		for _, name := range slices.Sorted(maps.Keys(lib.names)) {
+			ln := lib.names[name]
+			if g, ok := groupOf[name]; ok && groups[g].pkg == lib.index[ln.pkg] && ln.name != name {
+				respell[name] = ln.name
+			}
+		}
+	}
+	// nameOf is a package-scope name as its package spells it.
+	nameOf := func(name string) string {
+		if r, ok := respell[name]; ok {
+			return r
+		}
+		return cmp.Or(rename[name], name)
+	}
+
 	// Splices, by declaration.
 	type splice struct {
 		at, end int
@@ -807,8 +921,10 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	// spell is an occurrence's text in package from.
 	spell := func(o occ, from int) string {
 		name := o.id.Name
-		if r, ok := rename[name]; ok {
-			name = r
+		if o.field {
+			name = cmp.Or(rename[name], name)
+		} else {
+			name = nameOf(name)
 		}
 		if o.ref >= 0 && groups[o.ref].pkg != from {
 			to := groups[o.ref].pkg
@@ -866,17 +982,19 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		qualified := func(k int, name string) string {
 			to := groups[groupOf[name]].pkg
 			needs[k][to] = true
-			if r, ok := rename[name]; ok {
-				name = r
-			}
-			return plan.pkgs[to].alias + "." + name
+			return plan.pkgs[to].alias + "." + nameOf(name)
 		}
 		// goPath is a name of another package as an IR body of k spells
 		// it, by the other package's import path (foreignDecls' generic
 		// names); k imports that package blank, below.
 		goPath := func(k int, name string) string {
 			to := groups[groupOf[name]].pkg
-			return base + "/" + plan.pkgs[to].dir + "." + cmp.Or(rename[name], name)
+			return path.Join(base, plan.pkgs[to].dir) + "." + nameOf(name)
+		}
+		if lib != nil {
+			// A package's declaration of another package's name is
+			// unexported and its own: never one of its Go-facing names.
+			irs.fresh = func(name string) string { return freshName(taken, "ergoF"+name) }
 		}
 		if reason := irs.foreignDecls(defOf, taken, text, qualified, goPath, extra); reason != "" {
 			return nil, SplitReport{Reason: reason}
@@ -903,10 +1021,28 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 	}
 
+	// A Go-facing type placed outside its package is named there by an
+	// alias of its declaration, which the package sees (place only moves a
+	// declaration to a package that its package sees).
+	for _, a := range libAliases {
+		name, plain := a[0], a[1]
+		k := lib.index[lib.names[name].pkg]
+		if _, ok := defOf.node[name].(*ast.TypeSpec); !ok {
+			return nil, SplitReport{Reason: "the Go-facing function " + plain + " is placed outside its package"}
+		}
+		to := groups[groupOf[name]].pkg
+		needs[k][to] = true
+		extra[k].WriteString("\n// " + plain + " is the Ergo type " + plain + ".\ntype " + plain + " = " + plan.pkgs[to].alias + "." + nameOf(name) + "\n")
+	}
 	header := src[:off(f.Package)]
 	var outFiles []File
 	for k := range plan.pkgs {
 		if !used[k] {
+			continue
+		}
+		if lib != nil && k == 1 {
+			// The root holds what no package uses, and no package
+			// imports it (nothing sees it).
 			continue
 		}
 		var body bytes.Buffer
@@ -914,11 +1050,13 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		if importsUsed == nil {
 			importsUsed = map[string]bool{}
 		}
+		embeds := false
 		for i := range f.Decls {
 			g := declGroup[i]
 			if g < 0 || groups[g].pkg != k {
 				continue
 			}
+			embeds = embeds || groups[g].embed
 			for name := range usesImport[i] {
 				importsUsed[name] = true
 			}
@@ -945,15 +1083,23 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		var specs []string
 		for _, s := range f.Imports {
 			local := importLocal(s)
-			if importsUsed[local] || (k == 1 && (local == "_" || local == ".")) {
+			// A package that holds an embedded asset's declaration
+			// imports embed, as //go:embed requires.
+			embedImport := embeds && s.Path.Value == `"embed"`
+			if importsUsed[local] || embedImport || (k == 1 && (local == "_" || local == ".")) {
 				specs = append(specs, string(src[off(s.Pos()):off(s.End())]))
 			}
 		}
 		for _, to := range slices.Sorted(maps.Keys(needs[k])) {
-			specs = append(specs, plan.pkgs[to].alias+" "+strconv.Quote(base+"/"+plan.pkgs[to].dir))
+			specs = append(specs, plan.pkgs[to].alias+" "+strconv.Quote(path.Join(base, plan.pkgs[to].dir)))
 		}
 		for _, p := range slices.Sorted(maps.Keys(irImports[k])) {
 			specs = append(specs, "_ "+strconv.Quote(p))
+		}
+		if lib != nil && k != 0 && used[0] && !needs[k][0] && !plan.pkgs[k].std {
+			// The shared package's inits run whichever package Go
+			// imports.
+			specs = append(specs, "_ "+strconv.Quote(path.Join(base, plan.pkgs[0].dir)))
 		}
 		if len(specs) > 0 {
 			b.WriteString("import (\n\t" + strings.Join(specs, "\n\t") + "\n)\n")
@@ -961,15 +1107,18 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		b.Write(body.Bytes())
 		file := "main.go"
 		if k != 1 {
-			file = plan.pkgs[k].dir + "/" + plan.pkgs[k].name + ".go"
+			file = path.Join(plan.pkgs[k].dir, plan.pkgs[k].name+".go")
 		}
 		outFiles = append(outFiles, File{Path: file, Data: b.Bytes()})
 	}
 	rep := SplitReport{Packages: len(used), Pulled: pulled, Renamed: len(rename), Std: stdPkgs, Foreign: foreign, Shards: shards}
 	if irs != nil {
-		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, rename, plan)
+		files, withIR, err := irs.files(func(i int) int { return groups[irs.owner[i]].pkg }, nameOf, func(n string) string { return cmp.Or(rename[n], n) }, plan)
 		if err != nil {
 			return nil, SplitReport{Reason: err.Error(), err: err}
+		}
+		if lib != nil {
+			files = slices.DeleteFunc(files, func(f File) bool { return path.Dir(f.Path) == plan.pkgs[1].dir })
 		}
 		outFiles = append(outFiles, files...)
 		rep.IRPackages = withIR
@@ -982,9 +1131,17 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 
 // splitPackages is the plan's packages for u and the std packages of
 // origins, the package of each source path its //line directives name,
-// and the package of each std package.
-func splitPackages(u Unit, origins map[string]*check.Package, tests bool) (*splitPlan, map[string]int, map[*check.Package]int) {
+// and the package of each std package. With lib (LowerGoPackages) the
+// root is a package of no Ergo package, every Ergo package is its own at
+// its folder, and the shared and std packages are below goPackagesDir.
+func splitPackages(u Unit, origins map[string]*check.Package, tests bool, lib *splitLib) (*splitPlan, map[string]int, map[*check.Package]int) {
 	plan := &splitPlan{pkgs: []splitPkg{{dir: sharedDir, name: "ergoshared"}}, root: 1}
+	gen := "" // the folder of the packages the split adds
+	if lib != nil {
+		gen = goPackagesDir + "/"
+		plan.pkgs[0].dir = gen + sharedDir
+		plan.pkgs = append(plan.pkgs, splitPkg{dir: gen + "root", name: goPackagesRoot, sees: map[int]bool{}})
+	}
 	ofSource := map[string]int{}
 	units := []Unit{u}
 	imps := slices.Clone(u.Imports)
@@ -993,7 +1150,11 @@ func splitPackages(u Unit, origins map[string]*check.Package, tests bool) (*spli
 	index := map[*check.Package]int{}
 	for k, un := range units {
 		p := splitPkg{ergo: un.Package, name: "main", sees: map[int]bool{}}
-		if k > 0 {
+		switch {
+		case lib != nil:
+			d := lib.pkgs[un.Package]
+			p.dir, p.name = d.dir, d.name
+		case k > 0:
 			p.dir = splitDir + "/" + goPathOf(un.Package.Path)
 			p.name = goPackageName(un.Package.Path)
 		}
@@ -1044,7 +1205,7 @@ func splitPackages(u Unit, origins map[string]*check.Package, tests bool) (*spli
 	for _, p := range stds {
 		ofStd[p] = len(plan.pkgs)
 		index[p] = len(plan.pkgs)
-		plan.pkgs = append(plan.pkgs, splitPkg{ergo: p, dir: stdDir + "/" + goPathOf(p.Path), name: goPackageName(p.Path), sees: map[int]bool{}, std: true})
+		plan.pkgs = append(plan.pkgs, splitPkg{ergo: p, dir: gen + stdDir + "/" + goPathOf(p.Path), name: goPackageName(p.Path), sees: map[int]bool{}, std: true})
 	}
 	// Each package sees the packages it imports, transitively; a package
 	// of the program sees every std package, and the root every package.

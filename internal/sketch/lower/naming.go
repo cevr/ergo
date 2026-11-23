@@ -283,6 +283,9 @@ func (l *lowerer) nameAll() {
 	reservePatterns(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "pattern " + base + " " + key.obj.(string), base})
 	})
+	l.reserveSitePkgs(func(key pkgKey, sort, base string) { // siteid.go
+		generated = append(generated, entry{key, sort, base})
+	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}
@@ -475,6 +478,13 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		}
 	}
 	visit(l.pkg)
+	if l.goPackages {
+		// Go imports every package of the unit, reached from the root or
+		// not (LowerGoPackages).
+		for _, s := range l.srcs {
+			add(s.pkg)
+		}
+	}
 	if l.tests != nil {
 		// A test build's generators call functions no fact of the program
 		// names: an operation type's builder (fstest.NewMemory for an

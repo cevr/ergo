@@ -73,6 +73,8 @@ func Getenv(p pathOnly, key string) Option[string] {
 	None
 }
 
+func Environ(p pathOnly) Map[string, string] { Map[string, string]{"PATH": p.path} }
+
 func Getwd(_ pathOnly) string fails os.NoWorkdir { "/" }
 
 // shelf is a Memory with a file at "/" + each path, mode 0o755 when its

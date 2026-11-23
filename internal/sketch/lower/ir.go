@@ -116,6 +116,10 @@ type IRReport struct {
 	// copy's returns and failures are the caller's own (INLINE-RETURN,
 	// ir_forms_inline.go); Inlined counts them too.
 	InlinedReturns int `json:"-"`
+	// KnownInlined counts the inlined calls of known variants, whose
+	// callbacks are known pure functions bound at the copy's head
+	// (KNOWN-FILTER-INLINE, ir_forms_inline.go).
+	KnownInlined int `json:"-"`
 	// TailPairs counts the returns of a fallible call's value and error
 	// in an inlined fallible body, bound at the site's value and error
 	// (INLINE-RETURN, ir_forms_inline.go irRets).
@@ -364,7 +368,7 @@ func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach 
 	var out []File
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
-		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out, sh)
+		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), l.sitePkgNames(), &l.ir.out, sh, nil)
 		if rep.err != nil {
 			return nil, IRReport{}, SplitReport{}, rep.err
 		}
@@ -601,6 +605,10 @@ type irFunc struct {
 	End    irPos     `json:"end"`
 	Locals []irLocal `json:"locals,omitempty"`
 	Body   []*irStmt `json:"body"`
+	// release is the private function deferred directly by this body.
+	// Package splitting keeps it with the frame; a forwarder would
+	// put recover in the wrong function.
+	release string
 }
 
 type irLocal struct {
@@ -720,6 +728,21 @@ func (st *irState) newBuilder(fc *funcCtx, root syntax.Node) *irBuilder {
 	return &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1}
 }
 
+// envPointer is the Go type of an environment local, *Env: the function's
+// environment parameter, each literal's (every IR function value takes
+// one), a with's pointer. It is the IR builder's shared reader of the
+// lowerer's name for the type (TestRuntime199EnvTypeReaders), recorded at
+// the first read: a pure body that reads none imports no task package.
+func (b *irBuilder) envPointer() string {
+	if b.envType == "" {
+		b.envType = "*" + b.l.env()
+	}
+	return b.envType
+}
+
+// envValue is the type an environment local points to (Env): a copy's.
+func (b *irBuilder) envValue() string { return strings.TrimPrefix(b.envPointer(), "*") }
+
 // irBuilder builds one function's IR body.
 type irBuilder struct {
 	fc     *funcCtx
@@ -731,9 +754,13 @@ type irBuilder struct {
 	// their value, for unfoldAt (ir_unfold.go).
 	letInits map[*check.Var]syntax.Expr
 	next     int
-	slots    int                      // the Go parameter slots, witnesses too (ir_forms_inline.go)
-	env      int                      // the environment's local, or -1 in a pure function
-	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
+	slots    int  // the Go parameter slots, witnesses too (ir_forms_inline.go)
+	env      int  // the environment's local, or -1 in a pure function
+	inSeq    bool // building a deferred call's hidden arguments inside its Seq (seqLit, ir_adapted.go)
+	// envType is the Go type of an environment local (*Env), recorded by
+	// envPointer at its first read.
+	envType string
+	wits    map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
 	// raw is the operand whose implicit conversion is not applied: a
 	// direct reader passed as itself (directDecode, ir_codec_direct.go).
 	raw    syntax.Expr
@@ -742,6 +769,9 @@ type irBuilder struct {
 	reasons []string
 	// loops is the depth of loops around the statement being built.
 	loops int
+	// compactNest is the count/make source-shape admission's cached
+	// loop-nest check: 0 unknown, 1 no nest, 2 a nest.
+	compactNest uint8
 	// memos are the loops around the statement being built whose
 	// pre-headers take memoized calls, innermost last; memoSites counts
 	// the body's memoized calls (ir_memo.go).
@@ -939,6 +969,10 @@ func (b *irBuilder) part(f func()) {
 // name (a gate keeps it a Go body).
 func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
+	if fd.extern != "" {
+		// A prelude intrinsic: its body is the lowering's own (ir_intrinsic.go).
+		return st.intrinsicBody(fc, fd, params, len(gates) > 0)
+	}
 	var root syntax.Node
 	if f != nil && f.Decl != nil {
 		root = f.Decl
@@ -1137,19 +1171,6 @@ func (st *irState) fileOf(b *irBuilder, decl syntax.Node) string {
 		_, file, _, _ = b.l.at(decl, decl.Pos())
 	}
 	return file
-}
-
-// intrinsic records f, whose body is the lowerer's own Go text (an extern
-// body), in a census.
-func (st *irState) intrinsic(f *check.Func) {
-	if st.census == nil {
-		return
-	}
-	pkg := ""
-	if f.Pkg != nil {
-		pkg = f.Pkg.Path
-	}
-	st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
 }
 
 // pos is n's position as the IR spells it: its file in the program's

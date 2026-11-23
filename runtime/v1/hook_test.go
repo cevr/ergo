@@ -40,7 +40,7 @@ func TestUnreachedPointStopsTheRun(t *testing.T) {
 			return err == nil, nil
 		})
 		lines <- line
-		released, err := waiter.Wait()
+		released, err := waiter.Wait(ct)
 		inner.End(nil)
 		return released, err
 	})
@@ -53,7 +53,7 @@ func TestUnreachedPointStopsTheRun(t *testing.T) {
 	default:
 	}
 	q.End()
-	if released, err := arming.Wait(); err != nil || released {
+	if released, err := arming.Wait(root); err != nil || released {
 		t.Errorf("the waiter ended with %v, %v; want the queue ended", released, err)
 	}
 	sc.End(nil)

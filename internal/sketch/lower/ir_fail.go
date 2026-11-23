@@ -57,7 +57,10 @@ func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
 		return nil
 	}
 	c := b.l.info.Calls[call]
-	if c == nil || !failsHere(c) {
+	if c == nil || !failsHere(c) || b.plainCallee(call) {
+		// A known variant's callback, which the checker types with the
+		// callee's own row parameters, is called plain: it cannot fail
+		// (ir_kcb.go; KNOWN-VARIANT K1).
 		return nil
 	}
 	return call
@@ -355,10 +358,7 @@ func (b *irBuilder) bindCall(pre []*irStmt, x *irExpr, call *syntax.CallExpr) (_
 // (bind), never passed on raw (SP4).
 func (b *irBuilder) hostFails(x *syntax.CallExpr) bool {
 	c := b.l.info.Calls[x]
-	if c == nil || c.Kind != check.CallFunc || c.Func == nil || !c.Func.Sig.Fallible {
-		return false
-	}
-	return userExtern(c.Func) || c.Func.Pkg != nil && c.Func.Pkg.Host()
+	return c != nil && c.Kind == check.CallFunc && c.Func.CallsGo() && c.Func.Sig.Fallible
 }
 
 // bindMatch evaluates x, the match m whose arms' tails are fallible calls,
