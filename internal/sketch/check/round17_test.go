@@ -11,7 +11,7 @@ import (
 // (round 16 M1): map keys, elided nested literals, maps of structs and
 // structs as keys. The structs have a field named h0, which is a field
 // name, never a reference to the var h0. The decided language has no fixed
-// arrays and no anonymous structs (#196), so their two forms are gone.
+// arrays and no anonymous structs, so their two forms are gone.
 var keyedForms = []string{
 	"let m = Map[KT, int]{h%[1]d: 1}; return len(m)",
 	"let m = []Map[KT, int]{{h%[1]d: 1}}; return len(m)",
@@ -54,7 +54,7 @@ func keyedLiterals(seed uint64) string {
 // 16 m2).
 func TestClassGMessage(t *testing.T) {
 	for _, tc := range []struct{ src, at, want string }{
-		// Decided sources (#196): mark and keep are ordinary functions, and
+		// Decided sources: mark and keep are ordinary functions, and
 		// keep is generic, since there is no any type; each line moves
 		// up by the package clause.
 		{

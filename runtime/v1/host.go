@@ -386,8 +386,8 @@ func (e Escapes) Error() string { return "fs.Escapes{Path:" + e.Path + "}" }
 type HostRoot struct{ root *os.Root }
 
 // FSOpenRoot is the body of fs.OpenRoot. Acquisition and registration on
-// the caller's frame are one masked step. Until local resource tracking
-// (#197), the handle may be used only while this frame is alive.
+// the caller's frame are one masked step. Until local resource tracking,
+// the handle may be used only while this frame is alive.
 //
 //ergo:host
 //ergo:wait none

@@ -437,7 +437,7 @@ func main() fails Fault needs Console {
 	try fail()
 }
 `,
-		code: "S109", line: 1, column: 6, message: "the text of an error type with a field of type Map[string, int] waits for derived text forms (#49)",
+		code: "S109", line: 1, column: 6, message: "the text of an error type with a field of type Map[string, int] waits for derived text forms",
 	}}
 	// stage 2 round 3 m1 (r04) was a refusal of an error type whose field
 	// Error_ met its renamed field Error; since lower-v1 stage 4 (S4d) the

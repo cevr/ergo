@@ -218,7 +218,7 @@ func callbackParams(g *check.Func) []int {
 
 // plainSig reports a callback signature the plain Go type can carry: empty
 // rows, no type parameter and at most one result (a Task result needs no
-// hidden destination since #197 L8 B3t).
+// hidden destination since resource ownership L8 B3t).
 func plainSig(s *check.Signature) bool {
 	return s != nil && len(rowElems(s.Errors)) == 0 && len(rowElems(s.Uses)) == 0 && len(s.TParams) == 0 && len(s.Results) <= 1
 }

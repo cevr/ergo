@@ -8,7 +8,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Overlapping borrows (#197 C2; types.md, Borrows 2): the borrows one call
+// Overlapping borrows (C2; types.md, Borrows 2): the borrows one call
 // takes (each `&x`, the implicit borrow of a dot call whose function takes
 // *T, and a borrow passed on) name places that do not overlap. A place is a
 // root and a path of fields and indexes; two places overlap when they have

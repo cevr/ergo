@@ -193,7 +193,7 @@ func guarded[T any](t *rt.Task, body func(*rt.Task) (T, error)) (v T, err error)
 	return body(t)
 }
 
-// The program's source map (#230), which RegisterCalls sets once, before
+// The program's source map, which RegisterCalls sets once, before
 // main runs: registered, decls (each source declaration's name and lines)
 // and calls (the call table).
 var (
@@ -265,7 +265,7 @@ func registerCompact(declTable []struct {
 	registered, decls, calls, callNames = true, declTable, table, names
 }
 
-// RegisterCalls registers the program's source map (#230). decls has one
+// RegisterCalls registers the program's source map. decls has one
 // entry per source declaration (a function, a package-level let, a context):
 // its Ergo name, its .ergo file and its first and last lines. table has one
 // entry per call of the program's source: its Ergo function, what it calls
