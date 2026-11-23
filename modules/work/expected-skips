@@ -60,7 +60,9 @@ skip law work.Cloner.FreshCloneSharesItsBlocks for Watching: Watching is built o
 skip law work.Cloner.MoveMoves for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
 skip law work.Cloner.PlaceMoves for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
 skip law work.Cloner.DiscardDiscards for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
+skip law fs.Files.LstatDirIsStatDir for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
 skip law fs.Files.ReadIsRepeatable for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
+skip law fs.Writes.MkdirThenExists for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
 skip law fs.Writes.MkdirAllIsIdempotent for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
 skip law fs.Writes.RemoveThenNotFound for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
 skip law fs.Writes.RenameMoves for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses

@@ -306,6 +306,10 @@ func Stat(_ Mem, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed 
 	return fs.NotFound{Path: path}
 }
 
+func Lstat(_ Mem, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	return fs.NotFound{Path: path}
+}
+
 func main() needs Console {
 	with context { fs.Files: Mem{Docs: Map[string, string]{"a.md": "alpha"}} } { Console.Println(inner("a.md")) }
 }
