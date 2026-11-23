@@ -783,7 +783,9 @@ func entries(k expr.Pkg, decls Map[string, typeDecl]) []diag.Diag {
 				continue
 			}
 			let vk = syntax.KindOf(p.Tree, value)
-			let head = if vk == syntax.KIdent { textOf(p, value) } else if vk == syntax.KCompositeLit {
+			let head = if vk == syntax.KIdent {
+				textOf(p, value)
+			} else if vk == syntax.KCompositeLit {
 				match dense.Unpack(syntax.CompositeLitOf(p.Tree, value).Type) {
 				case Some{Value: t}:
 					if syntax.KindOf(p.Tree, t) == syntax.KIdent { textOf(p, t) } else { "" }
@@ -1156,7 +1158,7 @@ law MatchingProviderHasNoS106(reversed bool) {
 func providerSource(reversed bool) string {
 	let first = if reversed { "B" } else { "A" }
 	let second = if reversed { "A" } else { "B" }
-	"type Access[K, V] {\n\tKey(k K) K,\n\tValue(v V) V,\n}\n" +
+		"type Access[K, V] {\n\tKey(k K) K,\n\tValue(v V) V,\n}\n" +
 		"type Pair[A, B] {} implements Access[\(first), \(second)]\n" +
 		"func Key[A, B](_ Pair[A, B], k \(first)) \(first) { k }\n" +
 		"func Value[A, B](_ Pair[A, B], v \(second)) \(second) { v }\n"
