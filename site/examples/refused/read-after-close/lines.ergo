@@ -1,0 +1,15 @@
+import fs
+
+// Lines counts the lines of the file at path, read in place: no copy.
+func Lines(host fs.Host, path string) int fails fs.NotFound | fs.Denied | fs.Failed {
+	let file = try fs.MapFile(host, path)
+	let text = file.Text()
+	file.Close()
+	let mut n = 0
+	for i in 0..len(text) { // want S108 "handed off at 7:2"
+		if text[i] == '\n' { // want S108 "handed off at 7:2"
+			n += 1
+		}
+	}
+	n
+}

@@ -95,8 +95,7 @@ func (law *Law) Title(from *Package) string {
 //     construction authority of the package that owns it: a parameter
 //     with the law's package's, a provider with its own package's.
 //  8. A law that cannot run says why (Law.Unrun): a parameter with no
-//     generator or of a generic operation type, or an owner whose type
-//     has a row parameter or an operations-constrained type parameter;
+//     generator or of a generic operation type, for example;
 //     its own package reports it.
 //     A provider is built for each case as its package builds it: by its
 //     package's constructor New<P> when it declares one (LawProvider.Ctor;
@@ -468,16 +467,8 @@ func (c *checker) planLaw(law *Law) {
 				law.Unrun = "its owner " + law.Owner.Name + " is not an operation type"
 				return
 			}
-			// A law of a generic operation type runs at each provider's
-			// instance (rule 7): the provider fixes the type arguments.
-			for _, tp := range n.TParams {
-				if tp.Kind != KindType {
-					law.Unrun = "its operation type " + law.Owner.Name + " has the row parameter " + tp.Name + ", and a run binds only type parameters"
-					return
-				}
-				// A parameter that operations constrain takes the
-				// witness of its instance (LawProvider.Witnesses).
-			}
+			// A provider or named context fixes the instance, including
+			// its rows, before any case runs (rule 7).
 			own = n
 		}
 		slots = append([]LawSlot{{Param: -1, Type: own}}, slots...)
@@ -730,6 +721,9 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 		// The written instance is the slot (implements Codec[int]
 		// against a law of Codec[T]).
 		slot = c.declaredOps(p)[declared]
+		if !isCapability(slot) {
+			return LawProvider{}, false
+		}
 	case legacyRecord == nil:
 		// Only a type that declares the operation type provides it
 		// (Laws 10; Interface assignability 1).

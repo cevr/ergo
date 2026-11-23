@@ -18,9 +18,11 @@ type Task struct {
 	// stopped is the stop flag, set by Interrupt from any goroutine, and in
 	// the same word the flag that publishes stop (stopFlags).
 	stopped stopFlags
-	// shielded is fixed before t is linked: t was started while its owner was
-	// inside a masked region, so the owner's ambient stop does not cascade
-	// into it. The cascade reads only this field, never the owner's mask. It
+	// shielded is fixed before t is linked, and widened only when its parent
+	// ends and hands it on (adopt), under both parents' locks: t was started
+	// while its owner was inside a masked region, so the owner's ambient stop
+	// does not cascade into it. The cascade reads only this field, under the
+	// parent's lock, never the owner's mask. It
 	// sits beside stopped so that the two share one word.
 	shielded bool
 	// waker marks a task with an OnInterrupt wake in wakers, guarded by mu;
@@ -97,7 +99,8 @@ func (t *Task) init(parent *Task, span string, masked, shield bool) {
 		t.regions.push(protecting)
 	}
 	parent.mu.Lock()
-	if !t.shielded && parent.stopped.Load() {
+	flags := parent.stopped.v.Load()
+	if !t.shielded && flags&flagStopped != 0 {
 		if t.trace != nil {
 			t.traceTask(TraceCancelRequest, nil) // born stopped: the request precedes its start
 		}
@@ -108,30 +111,79 @@ func (t *Task) init(parent *Task, span string, masked, shield bool) {
 		t.next.prev = t
 	}
 	parent.first = t
+	if flags&flagParent == 0 {
+		parent.stopped.setParent()
+	}
 	parent.mu.Unlock()
 }
 
-// detach unlinks a finished child from its parent (runtime.md Tasks, rule 1)
-// and drops its reference to the parent, so a finished task retains no
-// ancestors (G2, rule 3), and its context values, so a handle kept after the
-// task finished holds no context text (G1). Every descendant has finished by
-// now, so no chain walk or child start can still read either. It runs on t's
-// own goroutine, the only one that touches values.
-func (t *Task) detach() {
+// lockParent locks the current parent's child list. Adoption changes the
+// link under both parents' locks, so a parent read before locking can be stale.
+func (t *Task) lockParent(p *Task) *Task {
+	for p != nil {
+		p.mu.Lock()
+		current := t.parent.Load()
+		if current == p {
+			return p
+		}
+		p.mu.Unlock()
+		p = current
+	}
+	return nil
+}
+
+// unlink removes t from p's list and hands on its children (Tasks, rule 1).
+// The caller holds p.mu and clears t.parent after all of the task's writes.
+// Only t's own goroutine uses its context values; a child has its own copy.
+func (t *Task) unlink(p *Task) {
 	t.values = nil
-	p := t.parent.Load()
-	p.mu.Lock()
-	if t.prev != nil {
-		t.prev.next = t.next
+	prev, next := t.prev, t.next
+	if prev != nil {
+		prev.next = next
+		t.prev = nil
 	} else {
-		p.first = t.next
+		p.first = next
 	}
-	if t.next != nil {
-		t.next.prev = t.prev
+	if next != nil {
+		next.prev = prev
+		t.next = nil
 	}
-	t.prev, t.next = nil, nil
-	p.mu.Unlock()
+	if t.stopped.parent() {
+		t.adopt(p)
+	}
+}
+
+// detach drops the links of a finished child that does not have a Handle.
+func (t *Task) detach() {
+	p := t.lockParent(t.parent.Load())
+	t.unlink(p)
 	t.parent.Store(nil)
+	p.mu.Unlock()
+}
+
+// adopt hands t's running children to p, t's parent, whose lock the caller
+// holds; locks are taken ancestor first, as Interrupt takes them. A child
+// keeps what p's stop did to it through t: it is shielded when t was (the
+// cascade reads shielded under the parent's lock, which is held), and it is
+// stopped now when p's stop already reached it.
+func (t *Task) adopt(p *Task) {
+	t.mu.Lock()
+	for c := t.first; c != nil; {
+		next := c.next
+		c.shielded = c.shielded || t.shielded
+		c.parent.Store(p)
+		c.prev, c.next = nil, p.first
+		if p.first != nil {
+			p.first.prev = c
+		}
+		p.first = c
+		if !c.shielded && p.stopped.Load() {
+			c.Interrupt()
+		}
+		c = next
+	}
+	t.first = nil
+	t.mu.Unlock()
 }
 
 // ID is the task's number, unique in the process.
@@ -169,9 +221,8 @@ func (t *Task) EnvMemo() any {
 // SetEnvMemo stores e as t's EnvMemo.
 func (t *Task) SetEnvMemo(e any) { envMemos[t.id%envMemoSlots].Store(&envMemo{env: e}) }
 
-// Parent is the task that started t while t runs, and nil for a root or a
-// finished task. It is a live link, not a record: a defect keeps its ancestry
-// as copied frames. Safe from any goroutine.
+// Parent is t's current parent in the task tree, nil for a root or detached
+// task. A defect keeps its ancestry as copied frames. Safe from any goroutine.
 func (t *Task) Parent() *Task { return t.parent.Load() }
 
 // ChainCutLine follows the last frame of a chain cut at its bound, so a
@@ -352,20 +403,28 @@ func (t *Task) makeStop() chan struct{} {
 	return t.stop
 }
 
-// stopFlags is one word of four flags: stopped (Load, set); made, which
-// publishes Task.stop to a read without the lock; ended (Handle.finish); and polled (WhenPolled). It is the size of the
-// atomic.Bool it replaced, so a Task keeps its size class
-// (TestTraceHookKeepsTaskSize).
+// stopFlags holds the stop request, whether the stop channel is ready,
+// whether the task has a poll hook, and whether it ever started a child.
 type stopFlags struct{ v atomic.Uint32 }
 
 const (
 	flagStopped uint32 = 1 << iota
 	flagMade
-	flagEnded
 	// flagPolled marks a task with a WhenPolled hook. Only the task's own
 	// goroutine sets or clears it.
 	flagPolled
+	// flagParent marks a task that has had a child linked below it (init),
+	// so detach looks for children to hand on only in a task that can have
+	// one: a leaf task ends without taking its own lock. adopt needs no
+	// mark: it moves a child of t to p, and t is p's child, so p has it.
+	flagParent
 )
+
+// setParent marks the task as one a child was linked below.
+func (f *stopFlags) setParent() { f.v.Or(flagParent) }
+
+// parent reports whether a child was ever linked below the task.
+func (f *stopFlags) parent() bool { return f.v.Load()&flagParent != 0 }
 
 // Load reports whether a stop was requested.
 func (f *stopFlags) Load() bool { return f.v.Load()&flagStopped != 0 }
@@ -376,13 +435,6 @@ func (f *stopFlags) set() { f.v.Or(flagStopped) }
 func (f *stopFlags) made() bool { return f.v.Load()&flagMade != 0 }
 
 func (f *stopFlags) setMade() { f.v.Or(flagMade) }
-
-// ended reports whether the task has ended (Handle.finish): its Handle's
-// value and err are final. The flag shares the word so the Handle keeps
-// its size class.
-func (f *stopFlags) ended() bool { return f.v.Load()&flagEnded != 0 }
-
-func (f *stopFlags) setEnded() { f.v.Or(flagEnded) }
 
 // waitFlush is the output the process holds back until a task waits:
 // runtime/v1's standard-output buffer (docs/spec/stdlib.md, io 11). Done

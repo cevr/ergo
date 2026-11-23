@@ -113,6 +113,6 @@ func AppendFile(m Marked, path string, text string) fails fs.NotFound | fs.Denie
 
 func Chmod(m Marked, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Chmod(path, mode) }
 
-func Rename(m Marked, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Rename(from, to) }
+func Rename(m Marked, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice { try m.disk.Rename(from, to) }
 
 func Remove(m Marked, path string) fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Remove(path) }
