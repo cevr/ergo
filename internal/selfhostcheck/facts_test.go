@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,6 +47,43 @@ func goRefinements(pkg *check.Package, unnamed string) []string {
 				text = strings.Join(parts, " ")
 			}
 			out = append(out, fmt.Sprintf("%s %d %s %s", name, td.Name.Pos(), td.Name.Name, text))
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// refineTemplates are the S108 messages of a refined type's declaration
+// that compiler/check/facts reports (refine.go checkRefinements,
+// refinement and refiner; refine_pattern.go pattern and
+// compileWherePattern, a pattern's own syntax and feasibility left out).
+var refineTemplates = []*regexp.Regexp{
+	regexp.MustCompile(`^a refined type has no type parameters: `),
+	regexp.MustCompile(`^a where refines a defined type, `),
+	regexp.MustCompile(`^a where refines an integer type \(it\) or a string or slice \(len\(it\)\); `),
+	regexp.MustCompile(` is refined already; write one where that holds both predicates `),
+	regexp.MustCompile(`^a where is decidable: comparisons of `),
+	regexp.MustCompile(`^a pattern stands as a conjunct of the where, `),
+	regexp.MustCompile(`^a where takes one pattern; `),
+	regexp.MustCompile(`^a pattern refines a string; `),
+	regexp.MustCompile(`^a pattern is matches\(`),
+	regexp.MustCompile(`^no value of .* satisfies this where `),
+	regexp.MustCompile(`^a where on a parameter stands only in a law; `),
+}
+
+// goRefineDiags is the Go checker's diagnostics of ds that
+// refineTemplates match, "FILE OFFSET LENGTH CODE MESSAGE", sorted.
+func goRefineDiags(file string, ds []check.Diagnostic) []string {
+	var out []string
+	for _, d := range ds {
+		if d.Code != check.CodeType {
+			continue
+		}
+		for _, re := range refineTemplates {
+			if re.MatchString(d.Message) {
+				out = append(out, fmt.Sprintf("%s %d %d %s %s", file, d.Offset, d.Length, d.Code, d.Message))
+				break
+			}
 		}
 	}
 	slices.Sort(out)
@@ -97,6 +135,7 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 		name, src string
 		seed      uint64
 		want      []string
+		wantDiags []string
 	}
 	tmp := t.TempDir()
 	var cases []rcase
@@ -120,7 +159,7 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 		cases = append(cases, rcase{name: rel(dir), want: goRefinements(pkg, "")})
 		corpus++
 	}
-	refused, given := 0, 0
+	refused, given, diagnosed := 0, 0, 0
 	for seed := base; seed < base+200; seed++ {
 		src := refinedProgram(seed)
 		pkg, ds := check.CheckSource(src)
@@ -128,6 +167,10 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 			t.Fatalf("seed %d: does not parse: %v\n%s", seed, ds, src)
 		}
 		want := goRefinements(pkg, "p.ergo")
+		wantDiags := goRefineDiags("p.ergo", ds)
+		if len(wantDiags) > 0 {
+			diagnosed++
+		}
 		for _, w := range want {
 			if strings.HasSuffix(w, " -") {
 				refused++
@@ -147,7 +190,7 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 		writeLines(t, e, ext)
 		writeLines(t, f, foreign)
 		manifest = append(manifest, strings.Join([]string{"main", e, f, file}, " "))
-		cases = append(cases, rcase{name: fmt.Sprintf("seed %d", seed), src: src, seed: seed, want: want})
+		cases = append(cases, rcase{name: fmt.Sprintf("seed %d", seed), src: src, seed: seed, want: want, wantDiags: wantDiags})
 	}
 	if corpus == 0 {
 		t.Fatal("no corpus folder declares a refined type")
@@ -155,9 +198,12 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 	if refused == 0 || given == 0 {
 		t.Fatalf("the Go checker refines %d and refuses %d drawn types: the draw reaches one side only", given, refused)
 	}
+	if diagnosed == 0 {
+		t.Fatal("no drawn package has a refinement diagnostic")
+	}
 	m := filepath.Join(tmp, "manifest")
 	writeLines(t, m, manifest)
-	got := make([][]string, len(cases))
+	got, gotDiags := make([][]string, len(cases)), make([][]string, len(cases))
 	at := -1
 	for _, l := range runDump(t, ctx, exprDump(t, ctx), "-std", stdDir(), "-corpus", m) {
 		switch {
@@ -165,6 +211,8 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 			at++
 		case at >= 0 && at < len(cases) && strings.HasPrefix(l, "R "):
 			got[at] = append(got[at], l[2:])
+		case at >= 0 && at < len(cases) && strings.HasPrefix(l, "Q "):
+			gotDiags[at] = append(gotDiags[at], l[2:])
 		}
 	}
 	if at != len(cases)-1 {
@@ -173,15 +221,16 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 	failed, lines := 0, 0
 	for i, c := range cases {
 		slices.Sort(got[i])
+		slices.Sort(gotDiags[i])
 		lines += len(c.want)
-		if strings.Join(c.want, "\n") == strings.Join(got[i], "\n") {
+		if strings.Join(c.want, "\n") == strings.Join(got[i], "\n") && (c.seed == 0 || strings.Join(c.wantDiags, "\n") == strings.Join(gotDiags[i], "\n")) {
 			continue
 		}
 		failed++
 		if failed > 5 {
 			continue
 		}
-		msg := fmt.Sprintf("%s: refinements differ\n--- go\n%s\n--- ergo\n%s", c.name, strings.Join(c.want, "\n"), strings.Join(got[i], "\n"))
+		msg := fmt.Sprintf("%s: refinements differ\n--- go\n%s\n%s\n--- ergo\n%s\n%s", c.name, strings.Join(c.want, "\n"), strings.Join(c.wantDiags, "\n"), strings.Join(got[i], "\n"), strings.Join(gotDiags[i], "\n"))
 		if c.seed != 0 {
 			msg += fmt.Sprintf("\n--- source\n%s\nreplay: %s=%d go test -count=1 -run '^TestCompilerRefinementsAgreeWithChecker$' ./internal/selfhostcheck (the first seed is the failing one)", c.src, seedVariable, c.seed)
 		}
@@ -190,7 +239,7 @@ func TestCompilerRefinementsAgreeWithChecker(t *testing.T) {
 	if failed > 0 {
 		t.Errorf("%d of %d packages differ", failed, len(cases))
 	}
-	t.Logf("%d corpus folders and %d seeds compared: %d refined types (%d drawn refined, %d drawn refused)", corpus, len(cases)-corpus, lines, given, refused)
+	t.Logf("%d corpus folders and %d seeds compared: %d refined types (%d drawn refined, %d drawn refused; %d drawn packages with a refinement diagnostic)", corpus, len(cases)-corpus, lines, given, refused, diagnosed)
 }
 
 // refinedProgram is a package of six refined types drawn from seed: each
@@ -208,7 +257,33 @@ func refinedProgram(seed uint64) string {
 		}
 		fmt.Fprintf(&b, "type R%d %s where %s\n\n", i, base, drawPredicate(r, subject, 3))
 	}
+	b.WriteString(oddRefinements[r.IntN(len(oddRefinements))])
 	return b.String()
+}
+
+// oddRefinements are declarations each refinement diagnostic needs
+// beside the drawn predicates: type parameters, a map, a base that is
+// no integer or string, a base refined before and after, patterns in and
+// out of shape, a where on a parameter in and out of a law. (A record
+// refined does not parse.)
+var oddRefinements = []string{
+	"type G[T] int where it > 0\n",
+	"type M Map[int, int] where len(it) > 0\n",
+	"type C int where it > 0 && it < it\n",
+	"type F float64 where it > 0\n",
+	"type P int where it > 0\n\ntype Q P where it < 9\n",
+	"type Q P where it < 9\n\ntype P int where it > 0\n",
+	"type P int where it > 9 && it < 3\n\ntype Q P where it < 9\n",
+	"type W string where len(it) > 0 && matches(it, `[a-z]+`)\n",
+	"type W string where len(it) > 0 || matches(it, `[a-z]+`)\n",
+	"type W string where matches(it, `[a-z]+`) && matches(it, `[0-9]+`)\n",
+	"type W int where matches(it, `[a-z]+`)\n",
+	"type W string where matches(it)\n",
+	"type W string where matches(x, `[a-z]+`)\n",
+	"type W string where matches(it, 3)\n",
+	"func f(x int where it > 0) int { x }\n",
+	"law L(x int where it > 0) { x > 0 }\n",
+	"type W []int where it > 0\n",
 }
 
 // drawLiteral is an integer literal: small, at an integer kind's edge or
