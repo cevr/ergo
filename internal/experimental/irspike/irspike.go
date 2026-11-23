@@ -112,7 +112,7 @@ func ErgoToolchains() (src, ir Toolchain, err error) {
 	}
 	cache := strings.TrimSpace(string(out))
 	return Toolchain{GOROOT: source, GOCACHE: cache},
-		Toolchain{GOROOT: patched.Root, GOCACHE: cache, Stock: true, IRFiles: filepath.Join(filepath.Dir(patched.Root), "ir")}, nil
+		Toolchain{GOROOT: patched.Root, GOCACHE: cache, Stock: true, IRFiles: filepath.Join(toolchain.PatchedWork(patched.Root), "ir")}, nil
 }
 
 // Load checks the program at path (a .ergo file or a package folder) and

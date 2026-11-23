@@ -224,6 +224,11 @@ func (l *lowerer) infoPkg() *check.Package {
 	return nil
 }
 
+// PackageAlias is rule 2's spelling of the import path in a joined name
+// (pkgAlias). A test that compares two programs that hold one package at
+// two paths (std's copy test) folds one alias into the other with it.
+func PackageAlias(path string) string { return pkgAlias(path) }
+
 // HostImportSpelling is rule 6's Go name of an import of the Go package
 // path. A test that reads a lowered call of a Go package spells it so.
 func HostImportSpelling(path string) string { return "go__" + pkgAlias(path) }
