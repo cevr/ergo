@@ -53,11 +53,11 @@ func RestartOn[T any](h *Handle[T], c *Carrier, parent *Task, span string, b Bod
 		h = &Handle[T]{}
 	}
 	Point(parent, Op{OpSpawn, parent})
-	h.owner = parent
+	h.starter = parent
 	h.task.init(parent, span, false, false)
 	schedSpawn(parent, &h.task)
 	if job == nil {
-		job = func() { h.run(b) }
+		job = func() { h.run(b, nil) }
 	}
 	Spread() // before the job reaches another goroutine (alone.go; I-FLIP: REF-ALONE x PARK's carrier)
 	c.run(h, job)

@@ -437,7 +437,7 @@ func (b *irBuilder) opCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStm
 		return b.ownedRefCall(x, c, s, append([]syntax.Expr{c.Recv}, x.Args...), n, p) // ir_refown.go
 	}
 	if b.l.runtimeType(n, x) != "" {
-		return b.boundOpCall(x, c, n, p)
+		return b.boundOpCall(x, c, n, p, nil)
 	}
 	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
 	if id, ok := unparen(c.Recv).(*syntax.Ident); ok && vals[0].K == "toiface" {
@@ -1009,7 +1009,7 @@ func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p ir
 // the type's and the operation's names as check.OpBodyOf is), never std
 // membership: a trusted module's copy of std's type gets the same call
 // (TestStdOpCallCopyAgreesOnIR, internal/sketch/std).
-func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos) ([]*irStmt, *irExpr, bool) {
+func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, p irPos, recv *irExpr) ([]*irStmt, *irExpr, bool) {
 	name := check.RuntimeTypeName(n) + "." + c.Op.Name
 	if _, bound := runtimeBindings()[name]; !bound {
 		irNo("std call with no runtime binding")
@@ -1026,10 +1026,10 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		irNo("std Close")
 	}
 	if option {
-		return b.commaOkOpCall(x, c, n, body, p)
+		return b.commaOkOpCall(x, c, n, body, p, recv)
 	}
 	if defersCall(body) {
-		return b.seqOpCall(x, c, n, body, p) // Go's iter.Seq[T]: a Seq (ir_adapted.go)
+		return b.seqOpCall(x, c, n, body, p, recv) // Go's iter.Seq[T]: a Seq (ir_adapted.go)
 	}
 	if _, tuple := b.l.info.Types[x].(*check.Tuple); tuple && len(body.Results) != 1+btoi(goFallible(body)) {
 		// A tuple of the method's one result (Queue[(A, B)]'s Pop, Go's
@@ -1064,7 +1064,7 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		resConv = b.goType(b.l.info.Types[x], x)
 	}
 	hidden := b.hidden(body, x, c, p)
-	pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	pre, vals := b.boundOpOperands(x, c, recv)
 	convOperands(vals, convs)                                          // ir_operand.go
 	adapters, _ := b.adaptOperands(body.Params, x, x.Args, vals, 1, p) // ir_adapt.go
 	pre = append(pre, adapters...)
@@ -1078,11 +1078,30 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	return pre, e, !body.Pure
 }
 
+// The receiver of a bare law operation is supplied by the runner, not
+// written in the call. It is already a local or a field of the case env.
+func (b *irBuilder) boundOpOperands(x *syntax.CallExpr, c *check.Call, recv *irExpr) ([]*irStmt, []*irExpr) {
+	if recv == nil {
+		return b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+	}
+	pre, vals := b.operands(x.Args)
+	return pre, append([]*irExpr{recv}, vals...)
+}
+
 // recvTypeArgs is the Go type s of a runtime method of n's Go type with
 // the method's type parameters (the receiver's: Ref[T]'s T) replaced by
 // n's Go type arguments, so sameGo compares the instance's types.
 func (b *irBuilder) recvTypeArgs(n *check.Named, s string) string {
 	args := typeArgs(n)
+	if n.Orig == nil && len(n.TParams) != 0 {
+		// A bare operation in a generic member law uses the formals
+		// of the receiver; the law copy's type context binds them.
+		for _, tp := range n.TParams {
+			if tp.Kind == check.KindType {
+				args = append(args, tp)
+			}
+		}
+	}
 	origin := n
 	if n.Orig != nil {
 		origin = n.Orig

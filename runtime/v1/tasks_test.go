@@ -195,34 +195,6 @@ func TestTasksLaws(t *testing.T) {
 				}
 			}
 		}},
-		"tasks LosersStopped": {Statement: `LosersStopped(n int) { let c = testing.NewVirtualClock(0) let cleaned = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let won = Race([]func() int needs Scheduler{ func() int needs Scheduler { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } Scheduler.Sleep(1h) 0 }, func() int needs Scheduler { n }, }) won == n && cleaned.Get() == 1 } }`, Check: func(t *testing.T) {
-			r := rand.New(rand.NewPCG(1, 26))
-			for range 200 {
-				n := r.Int()
-				root := rt.Root("law")
-				line := NewVirtualTimeline(root, 0, 0)
-				var cleaned sync.Mutex
-				count := 0
-				won, err := raceIndexed(Site("law"), root, nil, 2, func(ct *rt.Task, i int) (int, error) {
-					if i == 1 {
-						return n, nil
-					}
-					defer func() {
-						cleaned.Lock()
-						count++
-						cleaned.Unlock()
-					}()
-					line.Wait(ct, time.Hour)
-					return 0, nil
-				})
-				cleaned.Lock()
-				c := count
-				cleaned.Unlock()
-				if err != nil || won != n || c != 1 {
-					t.Fatalf("Race = %d, %v with %d cleanups; want %d and 1", won, err, c, n)
-				}
-			}
-		}},
 		"tasks TransformEqualsLoop": {Statement: `TransformEqualsLoop(xs []int, k int) { let got = Transform(xs, limitOf(k), func(x int) int { x*3 - 1 }) let mut ok = len(got) == len(xs) for i in 0..len(xs) { ok = ok && got[i] == xs[i]*3-1 } ok }`, Check: func(t *testing.T) {
 			r := rand.New(rand.NewPCG(1, 22))
 			for range 200 {

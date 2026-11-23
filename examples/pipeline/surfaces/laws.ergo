@@ -60,14 +60,15 @@ func requests(acts []int) []Request {
 
 // settled is out with a line when m has stopped.
 func settled(out []string, m pipeline.Model) []string {
-	let _ = pipeline.Settle(m) catch {
+	let _ = m.Settle() catch {
 	case pipeline.Unavailable:
 		return out.Append("the context stopped")
 	}
 	out
 }
 
-// onModel is the model's answers: each request on m.
+// onModel is the model's answers: each request on m, which the with
+// lends.
 func onModel(rs []Request, m pipeline.Model) []string {
 	let mut out = []string{}
 	with context { pipeline.Pipeline: m } {
@@ -83,18 +84,20 @@ func onModel(rs []Request, m pipeline.Model) []string {
 // screen settled. The reply of a command is the screen's notice, a board
 // is what a refresh loads, a run what "show" loads.
 func onScreen(rs []Request, m pipeline.Model, clock time.Manual) []string needs Scheduler {
-	let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
-	let mut h = ui.NewTestHost(a, view.View(m), clock, 8) catch {
-	case ui.BadPatch:
-		return []string{"the screen did not start"}
+	with context { pipeline.Pipeline: m } {
+		let a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})
+		let mut h = ui.NewTestHost(a, view.View, clock, 8) catch {
+		case ui.BadPatch:
+			return []string{"the screen did not start"}
+		}
+		let mut out = []string{}
+		for r in rs {
+			out = settled(out.Append(asked(&h, r)), m)
+		}
+		out = out.Append(asked(&h, pipelineapi.BoardRequest))
+		a.Stop()
+		out
 	}
-	let mut out = []string{}
-	for r in rs {
-		out = settled(out.Append(asked(&h, r)), m)
-	}
-	out = out.Append(asked(&h, pipelineapi.BoardRequest))
-	a.Stop()
-	out
 }
 
 // typing is the acts that fill the form's fields.
@@ -196,14 +199,12 @@ func answers(s Surface, rs []Request, failing int) []string fails domain.Conflic
 	let clock = time.NewManual(0)
 	with context { Scheduler: clock, pipeline.Runner: runners.New(table) } {
 		let m = try pipeline.Open(memory.New[pipeline.Entry]())
-		let out = match s {
+		match s {
 		case ThroughModel:
 			onModel(rs, m)
 		case ThroughScreen:
 			onScreen(rs, m, clock)
 		}
-		pipeline.Stop(m)
-		out
 	}
 }
 
@@ -224,27 +225,31 @@ law SurfacesAgree(acts []int, failing int) {
 	byScreen == byModel
 }
 
-// Through is the Api over the transport t to m: each call carried by t's
-// Wire to the hub's Call on m, and its outcome carried back. It binds m,
-// a program implementation, so it stands in this file of laws (lint
-// with-at-entry).
-func Through(t Transport, m pipeline.Model) pipelineapi.Client {
+// Through is the Api over the transport t to the Pipeline in force: each
+// call carried by t's Wire to the hub's Call on the providers held where
+// it was made, and its outcome carried back. It holds them no longer
+// than the with that made it.
+func Through(t Transport) pipelineapi.Client needs pipeline.Pipeline {
+	let held = InForce[pipeline.Pipeline]()
 	pipelineapi.NewClient(func(r Request) pipelineapi.Outcome {
-		match t {
-		case Line:
-			carried(pipelinecli.Wire, r, m)
-		case Tools:
-			carried(pipelinemcp.Wire, r, m)
-		case Wire:
-			carried(pipelinerpc.Wire, r, m)
+		with held {
+			match t {
+			case Line:
+				carried(pipelinecli.Wire, r)
+			case Tools:
+				carried(pipelinemcp.Wire, r)
+			case Wire:
+				carried(pipelinerpc.Wire, r)
+			}
 		}
 	})
 }
 
-// carried is r carried by w to the hub's Call on m.
-func carried(w api.Transport[Request, pipelineapi.Outcome], r Request, m pipeline.Model) pipelineapi.Outcome {
+// carried is r carried by w to the hub's Call on the Pipeline in force.
+func carried(w api.Transport[Request, pipelineapi.Outcome], r Request) pipelineapi.Outcome needs pipeline.Pipeline {
+	let held = InForce[pipeline.Pipeline]()
 	w.Carry(r, func(c Request) pipelineapi.Outcome {
-		with context { pipeline.Pipeline: m } { pipelineapi.Call(c) }
+		with held { pipelineapi.Call(c) }
 	})
 }
 
@@ -257,8 +262,9 @@ law TransportsTakeEachCommandOnce(c pipeline.SubmitRun, t Transport) {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
-		let ok = with context { pipeline.Pipeline: Through(t, m) } { pipeline.DuplicateIsNoop(c) }
-		pipeline.Stop(m)
-		ok
+		with context { pipeline.Pipeline: m } {
+			let client = Through(t)
+			with context { pipeline.Pipeline: client } { pipeline.DuplicateIsNoop(c) }
+		}
 	}
 }
