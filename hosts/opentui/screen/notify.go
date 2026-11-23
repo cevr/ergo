@@ -18,7 +18,7 @@ func (s *Screen) Notify(text string) error {
 	s.mu.Lock()
 	if s.done {
 		s.mu.Unlock()
-		return fail(CallNotify, 0, ErrClosed)
+		return fail(CallClosed, 0, ErrClosed)
 	}
 	s.mu.Unlock()
 	if err := check(CallNotify, 0); err != nil {

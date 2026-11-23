@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"ergo.local/prototype/hosts/opentui/ot"
 )
@@ -16,36 +17,33 @@ import (
 // Settle) has no failure: it panics only when the owner thread is gone,
 // which is after Quit, a defect of the caller.
 
-// The calls a Failure names.
+// The operations a Failure names. Text includes the editor's placeholder;
+// style includes focus and look; paint includes the canvas's pixels.
 const (
-	// CallOpen: Headless, Open or OpenOn (the context, the session, the
-	// renderer, the terminal's setup).
 	CallOpen = iota
-	// CallScene: a scene command of the batch (Create, Move, Destroy,
-	// SetText, SetStyle, SetLook, Focus, SetPlaceholder, SetPixels).
-	CallScene
-	// CallFrame: painting, laying out or committing the frame.
-	CallFrame
-	// CallOutput: reading the session's output or writing it to the
-	// terminal.
-	CallOutput
-	// CallScroll: Reveal or ScrollTo.
-	CallScroll
-	// CallEdit: Edit.
+	CallSetup
+	CallCreate
+	CallMove
+	CallSetText
+	CallSetStyle
+	CallDestroy
+	CallCommit
+	CallPaint
+	CallLayout
+	CallWrite
+	CallReveal
+	CallScrollTo
 	CallEdit
-	// CallNotify: Notify.
 	CallNotify
-	// CallResize: Resize.
 	CallResize
-	// CallInput: Next.
 	CallInput
-	// CallQuit: Quit.
 	CallQuit
+	CallClosed
 )
 
 // Failure is a screen call that failed.
 type Failure struct {
-	// Call is the call (CallOpen to CallQuit).
+	// Call is the operation (CallOpen to CallClosed).
 	Call int
 	// Node is the scene node the call was about, 0 for none.
 	Node int
@@ -117,19 +115,22 @@ type Check struct {
 
 var faults struct {
 	sync.Mutex
-	at     int
-	status int
-	checks []Check
-	live   int
+	enabled atomic.Bool
+	at      int
+	status  int
+	checks  []Check
+	live    atomic.Int64
 }
 
 // FailAt starts a new count of checks (Checks is empty after it) and
 // makes the at-th check from here (counted from 1 over every screen) fail
-// with the library status status (an ot.Status); at 0 fails none.
+// with status (an ot.Status); at 0 fails none. Checks are not recorded in
+// programs that never call FailAt.
 func FailAt(at, status int) {
 	faults.Lock()
 	defer faults.Unlock()
 	faults.at, faults.status, faults.checks = at, status, nil
+	faults.enabled.Store(true)
 }
 
 // Checks is every check this process's screens passed or failed, in
@@ -142,14 +143,15 @@ func Checks() []Check {
 
 // Live is how many screens this process made and has not quit.
 func Live() int {
-	faults.Lock()
-	defer faults.Unlock()
-	return faults.live
+	return int(faults.live.Load())
 }
 
 // check is the check of a step of call about node: the Failure FailAt
 // asked for, or nil.
 func check(call, node int) error {
+	if !faults.enabled.Load() {
+		return nil
+	}
 	faults.Lock()
 	defer faults.Unlock()
 	faults.checks = append(faults.checks, Check{call, node})
@@ -161,7 +163,5 @@ func check(call, node int) error {
 
 // made counts a screen made (by) 1 or quit (-1).
 func made(by int) {
-	faults.Lock()
-	faults.live += by
-	faults.Unlock()
+	faults.live.Add(int64(by))
 }

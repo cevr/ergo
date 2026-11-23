@@ -29,12 +29,21 @@ func Open() (*Screen, error) {
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	done := make(chan struct{})
+	watcherStopped := make(chan struct{})
 	go func() {
+		defer close(watcherStopped)
 		for {
 			select {
 			case <-winch:
-				if c, r, err := termSize(os.Stdout); err == nil {
-					_ = s.Resize(c, r)
+				c, r, err := termSize(os.Stdout)
+				if err != nil {
+					err = fail(CallResize, 0, fmt.Errorf("screen: the terminal's size: %w", err))
+				} else {
+					err = s.Resize(c, r)
+				}
+				if err != nil {
+					s.failInput(err)
+					return
 				}
 			case <-done:
 				return
@@ -45,6 +54,7 @@ func Open() (*Screen, error) {
 	s.stop = func() {
 		signal.Stop(winch)
 		close(done)
+		<-watcherStopped
 		readerStop()
 	}
 	return s, nil
@@ -58,7 +68,8 @@ func OpenOn(in, out *os.File, cols, rows int) (*Screen, error) {
 		return nil, err
 	}
 	s.live, s.in = true, in
-	err = check(CallOpen, 0)
+	err = check(CallSetup, 0)
+	setup := false
 	s.do(func() {
 		if err != nil {
 			return
@@ -69,15 +80,18 @@ func OpenOn(in, out *os.File, cols, rows int) (*Screen, error) {
 			KittyKeyboardFlags: ot.OT_KITTY_KEYBOARD_DISAMBIGUATE,
 		})
 		if err == nil {
+			setup = true
 			err = s.pump(false)
+		} else {
+			err = fail(CallSetup, 0, err)
 		}
 	})
 	if err != nil {
-		s.live = false
-		// ergo-lint: the setup's failure is the one to tell; Quit frees
-		// what newScreen made.
+		// A successful setup may already have written to the terminal.
+		// Restore it in that case, and free what newScreen made either way.
+		s.live = setup
 		_ = s.Quit()
-		return nil, fail(CallOpen, 0, fmt.Errorf("screen: terminal setup: %w", err))
+		return nil, fail(CallSetup, 0, fmt.Errorf("screen: terminal setup: %w", err))
 	}
 	// One reader of the input: its bytes go to the parser on the owner
 	// thread; end of input closes.
@@ -143,7 +157,7 @@ func (s *Screen) pump(untilClosed bool) error {
 		s.calls++
 		r, err := ot.SessionPump(s.ctx, s.session, now, 64)
 		if err != nil {
-			return fail(CallOutput, 0, fmt.Errorf("screen: pump: %w", err))
+			return fail(CallWrite, 0, fmt.Errorf("screen: pump: %w", err))
 		}
 		if err := s.flush(); err != nil {
 			return err
@@ -164,7 +178,7 @@ func (s *Screen) pump(untilClosed bool) error {
 			return nil
 		}
 	}
-	return fail(CallOutput, 0, ErrUnsettled)
+	return fail(CallWrite, 0, ErrUnsettled)
 }
 
 // restore closes the session and writes the terminal's restoration

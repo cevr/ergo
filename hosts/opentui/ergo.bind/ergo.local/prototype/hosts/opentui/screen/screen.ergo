@@ -16,14 +16,29 @@ extern go ergo.local/prototype/hosts/opentui/screen.Bold let Bold int
 // ergo:go const Box untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.Box let Box int
 
+// ergo:go const CallClosed untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallClosed let CallClosed int
+
+// ergo:go const CallCommit untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallCommit let CallCommit int
+
+// ergo:go const CallCreate untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallCreate let CallCreate int
+
+// ergo:go const CallDestroy untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallDestroy let CallDestroy int
+
 // ergo:go const CallEdit untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.CallEdit let CallEdit int
 
-// ergo:go const CallFrame untyped int
-extern go ergo.local/prototype/hosts/opentui/screen.CallFrame let CallFrame int
-
 // ergo:go const CallInput untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.CallInput let CallInput int
+
+// ergo:go const CallLayout untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallLayout let CallLayout int
+
+// ergo:go const CallMove untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallMove let CallMove int
 
 // ergo:go const CallNotify untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.CallNotify let CallNotify int
@@ -31,8 +46,8 @@ extern go ergo.local/prototype/hosts/opentui/screen.CallNotify let CallNotify in
 // ergo:go const CallOpen untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.CallOpen let CallOpen int
 
-// ergo:go const CallOutput untyped int
-extern go ergo.local/prototype/hosts/opentui/screen.CallOutput let CallOutput int
+// ergo:go const CallPaint untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallPaint let CallPaint int
 
 // ergo:go const CallQuit untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.CallQuit let CallQuit int
@@ -40,11 +55,23 @@ extern go ergo.local/prototype/hosts/opentui/screen.CallQuit let CallQuit int
 // ergo:go const CallResize untyped int
 extern go ergo.local/prototype/hosts/opentui/screen.CallResize let CallResize int
 
-// ergo:go const CallScene untyped int
-extern go ergo.local/prototype/hosts/opentui/screen.CallScene let CallScene int
+// ergo:go const CallReveal untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallReveal let CallReveal int
 
-// ergo:go const CallScroll untyped int
-extern go ergo.local/prototype/hosts/opentui/screen.CallScroll let CallScroll int
+// ergo:go const CallScrollTo untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallScrollTo let CallScrollTo int
+
+// ergo:go const CallSetStyle untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallSetStyle let CallSetStyle int
+
+// ergo:go const CallSetText untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallSetText let CallSetText int
+
+// ergo:go const CallSetup untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallSetup let CallSetup int
+
+// ergo:go const CallWrite untyped int
+extern go ergo.local/prototype/hosts/opentui/screen.CallWrite let CallWrite int
 
 // ergo:go type Cell struct
 extern go ergo.local/prototype/hosts/opentui/screen.Cell type Cell {

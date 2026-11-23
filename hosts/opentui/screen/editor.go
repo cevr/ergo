@@ -304,7 +304,7 @@ func (s *Screen) Edit(n, op, col int, text string) (string, error) {
 	closed := s.done
 	s.mu.Unlock()
 	if closed {
-		return "", fail(CallEdit, n, ErrClosed)
+		return "", fail(CallClosed, n, ErrClosed)
 	}
 	var out string
 	var err error

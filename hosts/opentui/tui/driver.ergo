@@ -84,12 +84,13 @@ type held[E] { node ui.Node[E], kids []ui.Id[E] }
 type look { fg uint32, bg uint32, attr int }
 
 // New shows view of a's state on s with the default options. room is how
-// many fetch results may wait for the driver to take them.
+// many fetch results may wait for the driver to take them. The first
+// frame can fail with ui.BadPatch or ScreenFailed.
 func New[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), room int) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	try NewWith(s, a, view, room, DefaultOptions())
 }
 
-// NewWith is New with the host's options.
+// NewWith is New with the host's options and the same failures.
 func NewWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), room int, o Options) Driver[S, E, D, F] fails ui.BadPatch | ScreenFailed needs go.Foreign {
 	let posted = queue.New[ui.Event[E]](room)
 	try start(s, a, view, posted, o, func(ev ui.Event[E]) {
@@ -454,7 +455,8 @@ func unnumber[S, E, D, F](d mut Driver[S, E, D, F], id ui.Id[E]) {
 // Feed takes one input of the screen: a key (routed by the focus), a
 // mouse press and release (a press of the node under them), a paste (the
 // focused field's text), a resize (laid out again). It fails ui.Closed at
-// the end of the input or on Ctrl+C.
+// the end of the input or on Ctrl+C, actor.Stopped for a stopped actor,
+// ui.BadPatch for a patch the driver cannot apply, or ScreenFailed.
 func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	if input.Kind == screen.Closed {
 		return ui.Closed
@@ -826,7 +828,8 @@ func takesInput[E](n ui.Node[E]) bool {
 	}
 }
 
-// Pump takes every fetch result posted so far, without waiting.
+// Pump takes every fetch result posted so far, without waiting. A step
+// can fail with actor.Stopped, ui.BadPatch, or ScreenFailed.
 func Pump[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
 		match d.posted.Poll() {
@@ -839,7 +842,7 @@ func Pump[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped |
 }
 
 // Settle waits until no fetch is in flight and every posted result is
-// taken, as ui.Settle does.
+// taken, as ui.Settle does. Applying a result has Pump's failures.
 func Settle[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for ui.InFlight(&d.session) > 0 || d.posted.Len() > 0 {
 		let ev = d.posted.Pop() catch {
@@ -919,12 +922,13 @@ func Number[S, E, D, F](d mut Driver[S, E, D, F], label string) Option[int] {
 
 // Run shows view of a's state on the live screen s until the input ends
 // or Ctrl+C, as ui.Run does on a ui.Host. A fetch's result reaches the
-// loop through the screen, which it wakes.
+// loop through the screen, which it wakes. A run can fail with
+// actor.Stopped, ui.BadPatch, or ScreenFailed.
 func Run[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S)) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	try RunWith(s, a, view, DefaultOptions())
 }
 
-// RunWith is Run with the host's options.
+// RunWith is Run with the host's options and the same failures.
 func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let fetched = queue.New[ui.Event[E]](64)
 	let posted = queue.New[ui.Event[E]](64)
@@ -960,7 +964,8 @@ func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 // mode (term.Raw), until the input ends or Ctrl+C. However it ends, the
 // screen quits (the alternate screen left, the cursor shown) and then the
 // terminal's mode is restored. A failure of the run wins over Quit's;
-// after a run that ended well, Quit's failure is the result.
+// after a run that ended well, Quit's failure is the result. RunTerminal
+// has Run's failures and term.NotTerminal when raw mode is unavailable.
 func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed | term.NotTerminal needs term.Terminal | go.Foreign {
 	try term.Raw() {
 		let s = try open()

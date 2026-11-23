@@ -3,6 +3,7 @@
 package screen
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand/v2"
@@ -44,8 +45,7 @@ func failScript() (err error, said []string) {
 	s.Create(2, Text)
 	s.Move(2, 1, 0)
 	s.SetText(2, "one two")
-	s.Create(3, Scroller)
-	s.SetStyle(3, Height, -1, 3)
+	s.Create(3, Lister)
 	s.Move(3, 1, 1)
 	for n := 4; n < 9; n++ {
 		s.Create(n, Text)
@@ -65,6 +65,11 @@ func failScript() (err error, said []string) {
 	step("Resize", func() error { return s.Resize(20, 7) })
 	s.Destroy(4)
 	step("Present", s.Present)
+	step("Next", func() error {
+		s.EndInput()
+		_, err := s.Next(context.Background())
+		return err
+	})
 	return err, said
 }
 
@@ -79,16 +84,26 @@ func failScript() (err error, said []string) {
 // are Failures too. A failing seed prints the check, the calls made and
 // -screen.seed=N.
 //
-// Mutants (testdata/mutants.json): OTF-call-wrong, OTF-chain-cut.
+// Mutants (testdata/mutants.json): OTF-chain-cut, OTF-trace-always-on.
 func TestScreenErrorsAreFailures(t *testing.T) {
+	if err, _ := failScript(); err != nil || len(Checks()) != 0 {
+		t.Fatalf("a screen with no fault tracing: error %v, trace %v", err, Checks())
+	}
 	FailAt(0, 0)
 	err, _ := failScript()
 	checks := Checks()
 	if err != nil {
 		t.Fatalf("the script fails with no check failed: %v", err)
 	}
-	if len(checks) < 20 {
-		t.Fatalf("the script passed %d checks: %v", len(checks), checks)
+	seen := map[int]bool{}
+	for _, c := range checks {
+		seen[c.Call] = true
+	}
+	// Setup is covered by the pty property; Closed is a Go-only cause.
+	for call := CallOpen; call <= CallQuit; call++ {
+		if call != CallSetup && !seen[call] {
+			t.Errorf("the script did not exercise call %d: %v", call, checks)
+		}
 	}
 	live := Live()
 	for _, sd := range seeds(t, 3) {
@@ -128,14 +143,14 @@ func TestScreenErrorsAreFailures(t *testing.T) {
 	}
 	// No node 1 scrolls: a failure of the screen's own, with no status.
 	err = s.ScrollTo(1, 1, false)
-	if f, ok := err.(*Failure); !ok || f.Call != CallScroll || f.Node != 1 || f.Status() != 0 {
+	if f, ok := err.(*Failure); !ok || f.Call != CallScrollTo || f.Node != 1 || f.Status() != 0 {
 		t.Errorf("ScrollTo of a node that does not scroll: %T %v", err, err)
 	}
 	if err := s.Quit(); err != nil {
 		t.Fatal(err)
 	}
 	for name, err := range map[string]error{"Present": s.Present(), "Notify": s.Notify("x")} {
-		if f, ok := err.(*Failure); !ok || !errors.Is(err, ErrClosed) {
+		if f, ok := err.(*Failure); !ok || f.Call != CallClosed || f.Status() != 0 || !errors.Is(err, ErrClosed) {
 			t.Errorf("%s on a closed screen: %T %v", name, f, err)
 		}
 	}

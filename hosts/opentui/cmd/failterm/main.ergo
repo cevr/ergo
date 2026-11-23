@@ -15,6 +15,7 @@ import ergo.local/prototype/examples/countergui/counter
 import ergo.local/prototype/examples/countergui/view
 import ergo.local/prototype/hosts/opentui/tui
 import go ergo.local/prototype/hosts/opentui/screen
+import io
 import os
 import strconv
 import term
@@ -31,7 +32,10 @@ func main() fails os.Exit needs Ambient | go.Foreign {
 	for c in screen.Checks() {
 		said = said + "\ncheck \(c.Call) \(c.Node)"
 	}
-	os.Exit{Code: if ended == "ended" { 0 } else { 1 }, Message: said}
+	if ended != "ended" {
+		return os.Exit{Code: 1, Message: said}
+	}
+	io.NewErrors().Eprintln(said)
 }
 
 // run runs the app on the terminal and is how it ended.

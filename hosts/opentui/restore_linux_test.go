@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,11 +36,18 @@ func ptyPair(t *testing.T) (*os.File, *os.File) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
-	ws := struct{ Row, Col, X, Y uint16 }{24, 80, 0, 0}
-	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, m.Fd(), syscall.TIOCSWINSZ, uintptr(unsafe.Pointer(&ws))); e != 0 {
-		t.Fatal("TIOCSWINSZ:", e)
+	if err := setWindow(m, 24, 80); err != nil {
+		t.Fatal(err)
 	}
 	return m, s
+}
+
+func setWindow(f *os.File, rows, cols uint16) error {
+	ws := struct{ Row, Col, X, Y uint16 }{rows, cols, 0, 0}
+	if _, _, e := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), syscall.TIOCSWINSZ, uintptr(unsafe.Pointer(&ws))); e != 0 {
+		return fmt.Errorf("TIOCSWINSZ: %w", e)
+	}
+	return nil
 }
 
 func termios(t *testing.T, f *os.File) syscall.Termios {
@@ -71,12 +79,17 @@ type terminalRun struct {
 // screen (its first frame) it is sent Ctrl+C; a run that fails before
 // that ends by itself. The terminal's mode after the run must be the mode
 // before it.
-func runOnTerminal(t *testing.T, bin string, at, status int) terminalRun {
+func runOnTerminal(t *testing.T, bin string, at, status int, badResize bool) terminalRun {
 	m, s := ptyPair(t)
 	before := termios(t, s)
 	var mu sync.Mutex
 	var out bytes.Buffer
-	entered := make(chan struct{})
+	ready := make(chan struct{})
+	marker := enterAlt
+	if badResize {
+		// The first frame is after Open installed its signal watcher.
+		marker = "count 0"
+	}
 	readDone := make(chan struct{})
 	// read gets a value after each read of the controlling side.
 	read := make(chan struct{}, 1)
@@ -88,9 +101,9 @@ func runOnTerminal(t *testing.T, bin string, at, status int) terminalRun {
 			n, err := m.Read(buf)
 			mu.Lock()
 			out.Write(buf[:n])
-			if !once && strings.Contains(out.String(), enterAlt) {
+			if !once && strings.Contains(out.String(), marker) {
 				once = true
-				close(entered)
+				close(ready)
 			}
 			mu.Unlock()
 			select {
@@ -109,14 +122,24 @@ func runOnTerminal(t *testing.T, bin string, at, status int) terminalRun {
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
+	defer cmd.Process.Kill()
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
 	var err error
 	select {
 	case err = <-exited:
-	case <-entered:
-		if _, werr := m.Write([]byte{3}); werr != nil {
-			t.Fatal(werr)
+	case <-ready:
+		if badResize {
+			if err := setWindow(m, 0, 0); err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Process.Signal(syscall.SIGWINCH); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			if _, werr := m.Write([]byte{3}); werr != nil {
+				t.Fatal(werr)
+			}
 		}
 		err = <-exited
 	}
@@ -160,13 +183,13 @@ func runOnTerminal(t *testing.T, bin string, at, status int) terminalRun {
 // no in-process check reaches them. Linux only: the pair is opened
 // through /dev/ptmx.
 //
-// Mutants (testdata/mutants.json): OTF-raw-left, OTF-quit-swallowed.
+// Mutants: OTF-raw-left, OTF-quit-swallowed, OTF-resize-as-input.
 func TestRunTerminalRestoresAfterAFailure(t *testing.T) {
 	bin, err := build("failterm", "./cmd/failterm")
 	if err != nil {
 		t.Fatal(err)
 	}
-	full := runOnTerminal(t, bin, 0, 0)
+	full := runOnTerminal(t, bin, 0, 0, false)
 	lines := strings.Split(strings.TrimSpace(full.said), "\n")
 	if full.err != nil || lines[0] != "ended" || len(lines) < 3 {
 		t.Fatalf("failterm with no failure: %v\n%s", full.err, full.said)
@@ -188,17 +211,29 @@ func TestRunTerminalRestoresAfterAFailure(t *testing.T) {
 	}
 	for at := 1; at <= len(checks); at++ {
 		st := failStatuses[at%len(failStatuses)]
-		r := runOnTerminal(t, bin, at, st)
+		r := runOnTerminal(t, bin, at, st, false)
 		var call, node int
 		fmt.Sscanf(strings.TrimPrefix(checks[at-1], "check "), "%d %d", &call, &node)
 		want := fmt.Sprintf("failed %s %d %d", callNames[call], node, st)
 		got := strings.SplitN(strings.TrimSpace(r.said), "\n", 2)[0]
-		if got != want || r.err == nil {
+		if got != want || !exitedOne(r.err) {
 			t.Errorf("check %d of %d (%s) failing with %d: said %q, want %q (exit %v)\n%s", at, len(checks), checks[at-1], st, got, want, r.err, r.said)
 		}
 		if why := restored(r); why != "" {
 			t.Errorf("check %d failing: %s", at, why)
 		}
 	}
+	r := runOnTerminal(t, bin, 0, 0, true)
+	if got := strings.SplitN(r.said, "\n", 2)[0]; got != "failed resize 0 -" || !exitedOne(r.err) {
+		t.Errorf("an invalid live resize: said %q, exit %v", r.said, r.err)
+	}
+	if why := restored(r); why != "" {
+		t.Errorf("an invalid live resize: %s", why)
+	}
 	t.Logf("%d checks failed one by one, the terminal restored after each", len(checks))
+}
+
+func exitedOne(err error) bool {
+	e, ok := err.(*exec.ExitError)
+	return ok && e.ExitCode() == 1
 }

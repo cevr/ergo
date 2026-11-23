@@ -8,13 +8,24 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/hosts/opentui/screen"
 )
 
 var failSeed = flag.Uint64("fail.seed", 0, "run TestTuiFailuresAgree on this seed only")
 
-// callNames are tui.CallName's names of screen's calls, by number
-// (screen.CallOpen to screen.CallQuit).
-var callNames = []string{"open", "scene", "frame", "output", "scroll", "edit", "notify", "resize", "input", "quit"}
+// callNames is the reference for tui.CallName, independent of the Ergo
+// mapping and keyed by the native operation the fault seam recorded.
+var callNames = [...]string{
+	screen.CallOpen: "open", screen.CallSetup: "setup",
+	screen.CallCreate: "create", screen.CallMove: "move",
+	screen.CallSetText: "set-text", screen.CallSetStyle: "set-style",
+	screen.CallDestroy: "destroy", screen.CallCommit: "commit",
+	screen.CallPaint: "paint", screen.CallLayout: "layout", screen.CallWrite: "write",
+	screen.CallReveal: "reveal", screen.CallScrollTo: "scroll-to",
+	screen.CallEdit: "edit", screen.CallNotify: "notify", screen.CallResize: "resize",
+	screen.CallInput: "input", screen.CallQuit: "quit", screen.CallClosed: "closed",
+}
 
 // failStatuses are library status codes (ot.Status) a check fails with.
 var failStatuses = []int{-1, -3, -5, -9, -11, -12, -15, -16, -26}
@@ -63,7 +74,7 @@ func playFailing(bin, script string, at, status int) (failRun, string, error) {
 // calls Go (go.Foreign): no in-process check runs it.
 //
 // Mutants (testdata/mutants.json): OTF-status-dropped, OTF-node-zero,
-// OTF-quit-skipped, OTF-quit-hides-body, OTF-quit-swallowed.
+// OTF-call-wrong, OTF-quit-skipped, OTF-quit-swallowed.
 func TestTuiFailuresAgree(t *testing.T) {
 	bin, err := build("hostagree", "./cmd/hostagree")
 	if err != nil {
@@ -88,6 +99,22 @@ func TestTuiFailuresAgree(t *testing.T) {
 		}
 		k := len(full.checks)
 		ats := []int{1, k, k + 1}
+		// Exercise one of each distinct operation on the first trace to
+		// separate the calls whose enclosing phase used to be the same.
+		if seed == seeds[0] {
+			seen := map[int]bool{screen.CallOpen: true, screen.CallQuit: true}
+			for i, check := range full.checks {
+				var call int
+				fmt.Sscan(check, &call)
+				if !seen[call] {
+					seen[call] = true
+					ats = append(ats, i+1)
+				}
+			}
+			if !seen[screen.CallMove] {
+				t.Fatal("the first script did not exercise moves separately from creates")
+			}
+		}
 		for range 3 {
 			ats = append(ats, 2+r.IntN(k-1))
 		}
@@ -133,8 +160,8 @@ func diverged(full, got failRun, at, status int) string {
 	// After the failure the screen quits (its Quit's check), unless no
 	// screen was made (open) or the failure was Quit's.
 	want := slices.Clone(full.checks[:at])
-	if callNames[call] != "open" && callNames[call] != "quit" {
-		want = append(want, fmt.Sprintf("%d 0", slices.Index(callNames, "quit")))
+	if call != screen.CallOpen && call != screen.CallQuit {
+		want = append(want, fmt.Sprintf("%d 0", screen.CallQuit))
 	}
 	for i := range max(len(want), len(got.checks)) {
 		if i >= len(want) || i >= len(got.checks) || want[i] != got.checks[i] {

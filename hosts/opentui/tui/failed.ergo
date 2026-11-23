@@ -21,7 +21,7 @@ import go ergo.local/prototype/hosts/opentui/screen
 import scope
 
 // Call is the screen call that failed.
-type Call = Opening{} | Scene{} | Frame{} | Output{} | Scrolling{} | Editing{} | Notifying{} | Resizing{} | Reading{} | Quitting{}
+type Call = Open{} | Setup{} | Create{} | Move{} | SetText{} | SetStyle{} | Destroy{} | Commit{} | Paint{} | Layout{} | Write{} | Reveal{} | ScrollTo{} | Edit{} | Notify{} | Resize{} | Input{} | Quit{} | Closed{}
 
 // ScreenFailed is a screen call that failed: Call, the scene node it was
 // about (0 for none), the library's status when the library refused it
@@ -44,34 +44,61 @@ func failed(e go.Error) ScreenFailed needs go.Foreign {
 // callOf is the Call of a screen.Failure's call number.
 func callOf(n int) Call {
 	if n == screen.CallOpen {
-		return Opening{}
+		return Open
 	}
-	if n == screen.CallScene {
-		return Scene{}
+	if n == screen.CallSetup {
+		return Setup
 	}
-	if n == screen.CallFrame {
-		return Frame{}
+	if n == screen.CallCreate {
+		return Create
 	}
-	if n == screen.CallOutput {
-		return Output{}
+	if n == screen.CallMove {
+		return Move
 	}
-	if n == screen.CallScroll {
-		return Scrolling{}
+	if n == screen.CallSetText {
+		return SetText
+	}
+	if n == screen.CallSetStyle {
+		return SetStyle
+	}
+	if n == screen.CallDestroy {
+		return Destroy
+	}
+	if n == screen.CallCommit {
+		return Commit
+	}
+	if n == screen.CallPaint {
+		return Paint
+	}
+	if n == screen.CallLayout {
+		return Layout
+	}
+	if n == screen.CallWrite {
+		return Write
+	}
+	if n == screen.CallReveal {
+		return Reveal
+	}
+	if n == screen.CallScrollTo {
+		return ScrollTo
 	}
 	if n == screen.CallEdit {
-		return Editing{}
+		return Edit
 	}
 	if n == screen.CallNotify {
-		return Notifying{}
+		return Notify
 	}
 	if n == screen.CallResize {
-		return Resizing{}
+		return Resize
 	}
 	if n == screen.CallInput {
-		return Reading{}
+		return Input
 	}
 	if n == screen.CallQuit {
-		return Quitting{}
+		return Quit
+	}
+	if n == screen.CallClosed {
+		return Closed
 	}
 	Unreachable("screen.Failure names no call \(n)")
 }
@@ -79,26 +106,44 @@ func callOf(n int) Call {
 // CallName is the name of a Call, as screen's doc names it.
 func CallName(c Call) string {
 	match c {
-	case Opening:
+	case Open:
 		"open"
-	case Scene:
-		"scene"
-	case Frame:
-		"frame"
-	case Output:
-		"output"
-	case Scrolling:
-		"scroll"
-	case Editing:
+	case Setup:
+		"setup"
+	case Create:
+		"create"
+	case Move:
+		"move"
+	case SetText:
+		"set-text"
+	case SetStyle:
+		"set-style"
+	case Destroy:
+		"destroy"
+	case Commit:
+		"commit"
+	case Paint:
+		"paint"
+	case Layout:
+		"layout"
+	case Write:
+		"write"
+	case Reveal:
+		"reveal"
+	case ScrollTo:
+		"scroll-to"
+	case Edit:
 		"edit"
-	case Notifying:
+	case Notify:
 		"notify"
-	case Resizing:
+	case Resize:
 		"resize"
-	case Reading:
+	case Input:
 		"input"
-	case Quitting:
+	case Quit:
 		"quit"
+	case Closed:
+		"closed"
 	}
 }
 
