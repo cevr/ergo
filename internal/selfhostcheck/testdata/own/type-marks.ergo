@@ -1,8 +1,8 @@
 // The type rules of [T own] (types.md, Generics 9): an unmarked type
 // parameter of a generic type binds plain data, as a function's does; a
-// generic type's own parameter, written in the type's package, needs an
-// own type parameter where an enclosing declaration's fills it; an own
-// type parameter is a resource to an unmarked one; a resource reached
+// generic type's own parameter asks nothing of an enclosing declaration's
+// parameter that fills it, whose own calls decide it (GEN9-GENERAL); an
+// own type parameter is a resource to an unmarked one; a resource reached
 // through a record, a union, a slice, a Map or Option is one.
 type Res { n int } implements Closer
 
@@ -26,13 +26,13 @@ type Union { a Cell[Either] } //want: own
 
 type Keyed { a Cell[Map[string, Option[Res]]] } //want: own
 
-type Pair[U] { b Box[U] } //want: own
+type Pair[U] { b Box[U] }
 
 type OwnPair[U own] { b Box[U], c Cell[int] }
 
 type Passed[U own] { c Cell[U] } //want: own
 
-func open[U](b own Box[U]) {} //want: own
+func open[U](b own Box[U]) {}
 
 func held[U own](b own Box[U]) {}
 

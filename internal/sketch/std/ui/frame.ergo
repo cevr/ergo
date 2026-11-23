@@ -1689,13 +1689,13 @@ law IncrementalEqualsFresh(seed int, steps int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..(steps%8+8)%8+1 {
 		let s = genState(&r)
-		Apply(&m, pass(&f, ps, s)) catch {
+		Apply(&m, renderPass(&f, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
 		let mut fresh = NewFrame[int]()
 		let mut fm = NewMirror[int](Root(&fresh))
-		Apply(&fm, pass(&fresh, ps, s)) catch {
+		Apply(&fm, renderPass(&fresh, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
@@ -1871,8 +1871,8 @@ func digest(kids []prog, s []int, row int) int {
 // a read is drawn only under a pBound.
 func models(ps []prog, s []int, row int) []Shape[int] { outcomes(ps, s, row).shapes }
 
-// pass renders the programs ps at state s as one pass of f.
-func pass(f mut Frame[int], ps []prog, s []int) []Op[int] {
+// renderPass renders the programs ps at state s as one pass of f.
+func renderPass(f mut Frame[int], ps []prog, s []int) []Op[int] {
 	Render(f, func(g mut Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
@@ -1900,9 +1900,9 @@ law IdempotentCommit(seed int) {
 	let mut f = NewFrame[int]()
 	let s0 = genState(&r)
 	let s1 = genState(&r)
-	let _ = pass(&f, ps, s0)
-	let _ = pass(&f, ps, s1)
-	len(pass(&f, ps, s1)) == 0
+	let _ = renderPass(&f, ps, s0)
+	let _ = renderPass(&f, ps, s1)
+	len(renderPass(&f, ps, s1)) == 0
 }
 
 // KeyedMovesFewest: a permutation of one-node keyed rows shows the new
@@ -2388,10 +2388,10 @@ law GroupSkipsEqualArguments(seed int, steps int) {
 	true
 }
 
-// group writes body's nodes as one group (the compiler's form of a
+// writeGroup writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
 // pass's group when it is kept with arguments equal to args, else body's.
-func group[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
+func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -2434,7 +2434,7 @@ func grBody(f mut Frame[int], a grArgs) {
 // grGrouped writes grBody through group, as the compiler writes a
 // component call.
 func grGrouped(f mut Frame[int], a grArgs) {
-	group(f, a, func() { grBody(f, a) })
+	writeGroup(f, a, func() { grBody(f, a) })
 }
 
 // StateKeeps: across passes that reorder keyed rows, each cell holds the
@@ -3241,7 +3241,7 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 	// parked children stay parked while a group under p stopped in this
 	// pass, and are dropped otherwise. An old child the pass did not write
 	// leaves the host's copy, and is parked or dropped by the same rule.
-	let park = stops(f, p)
+	let park = stoppedUnder(f, p)
 	let held = parkedOf(f, pr)
 	let mut heldAt = Map[arena.Ref[node[E]], int]{}
 	let mut back = []bool{}

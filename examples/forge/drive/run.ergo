@@ -44,8 +44,8 @@ func Clamp(n int, most int) duration {
 	time.Times(1ms, m)
 }
 
-// Text is the text of l.
-func Text(l Line) string { "\(Show(l.At)) \(l.Who): \(l.Text)" }
+// Shown is the text of l.
+func Shown(l Line) string { "\(Show(l.At)) \(l.Who): \(l.Text)" }
 
 // Due is the deadline that comes first: the forge's, the
 // light's, or none.

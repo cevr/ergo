@@ -198,6 +198,15 @@ func (c *checker) checkTest(test *Test) {
 	tg := &target{name: name, errors: newRow(), declUses: newRow(), resultKnown: true, isFunc: true}
 	frame := newScope(c.pkg.Scope)
 	frame.frame = true
+	// A test with no parameters may run under a harness (harness.go); a
+	// body the rewrite made binds its hidden names again.
+	rewritten := rewrittenHarness(d.Body)
+	if rewritten != "" {
+		c.bindHarnessNames(frame, rewritten)
+	} else if d.Params == nil {
+		tg.harness = &harnessUse{}
+	}
+	mark := len(c.diags)
 	fc := &funcCtx{t: tg, scope: frame, test: true}
 	prev := c.fn
 	c.fn = fc
@@ -242,6 +251,11 @@ func (c *checker) checkTest(test *Test) {
 	c.reportGoCopyWrites(d.Body)
 	c.reportUnused(fc)
 	c.reportNeverReassigned(fc)
+	if tg.harness != nil && tg.harness.h != nil && len(c.diags) == mark {
+		c.rewriteHarnessed(test, tg.harness.h)
+		c.fn = prev
+		c.checkTest(test)
+	}
 }
 
 // ungeneratable is why t is not a generatable type (rule 3), or "" when it
