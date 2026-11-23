@@ -32,10 +32,15 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"ergo.local/prototype/internal/sketch/build"
+	"ergo.local/prototype/internal/sketchfront"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 func main() {
@@ -284,7 +289,11 @@ func buildPrograms(ergo, scratch string, cs []Case) (string, string, error) {
 		return "", "", err
 	}
 	ergoBin := filepath.Join(binDir, "stdcount-ergo")
-	if err := goBuild(mod, ergoBin); err != nil {
+	release, err := patchedRelease()
+	if err != nil {
+		return "", "", err
+	}
+	if err := runBuild(moduleBuild(release, mod, ergoBin)); err != nil {
 		return "", "", err
 	}
 	if err := os.WriteFile(filepath.Join(goDir, "go.mod"), []byte("module stdcount\n\ngo 1.24\n"), 0o644); err != nil {
@@ -303,9 +312,49 @@ func buildPrograms(ergo, scratch string, cs []Case) (string, string, error) {
 	return ergoBin, goBin, nil
 }
 
+// patchedRelease is the release ergo build runs, with ergo's patched
+// compile, the only one that reads IR bodies: the go command ERGO_GO
+// selects and the pins of ergo's cache, as cmd/ergo's buildAction takes
+// them (scripts/opcount, patchedRelease).
+func patchedRelease() (toolchain.Patched, error) {
+	root, err := build.DefaultRoot()
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	selected, err := toolchain.Select(os.Getenv, root, os.Stderr)
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	pins, err := toolchain.PinSource(root, os.Getenv("ERGO_PIN_URL"), os.Stderr)
+	if err != nil {
+		return toolchain.Patched{}, err
+	}
+	return sketchfront.PinnedRelease(selected, root, &pins, os.Stderr)
+}
+
+// moduleBuild is ergo's go build action (build.Toolchain.Command) of the
+// emitted module copied to dir, with the patched release: each package
+// that has an IR file is compiled with its -ergoir, which stock Go refuses
+// ("missing function body"). -checklinkname=0 admits the exit hook's
+// linkname.
+func moduleBuild(release toolchain.Patched, dir, bin string) *exec.Cmd {
+	tc := build.HostToolchain()
+	tc.Go, tc.Root = release.Go, release.Root
+	tc.GOOS, tc.GOARCH = runtime.GOOS, runtime.GOARCH
+	tc.GOFLAGS = strings.TrimSpace(os.Getenv("GOFLAGS") + " -ldflags=-checklinkname=0")
+	tc.GoBuild = true
+	return tc.Command(build.Module{Dir: dir}, bin)
+}
+
 func goBuild(dir, out string) error {
 	cmd := exec.Command("go", "build", "-ldflags=-checklinkname=0", "-o", out, ".")
 	cmd.Dir = dir
+	return runBuild(cmd)
+}
+
+// runBuild runs a go build, its stderr in the error.
+func runBuild(cmd *exec.Cmd) error {
+	dir := cmd.Dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
