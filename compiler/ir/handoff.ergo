@@ -1,0 +1,159 @@
+// A checked-package handoff is the input shared by the two native
+// backends. It is neither the JSON body exchange nor a Go archive.
+//
+// V1: eight magic bytes, a little-endian u32 version, and a little-endian
+// u32 row count for each section below. Sections are contiguous in ordinal
+// order with no padding. A word section has its complete first column,
+// then its complete second column, and so on; every word is little-endian
+// u32. Text is just bytes. The file ends at the end of Text. Every typed row
+// reference on the wire is one-based; zero is absent only where specified.
+// Run starts and byte offsets are zero-based, including empty runs.
+//
+// The checked producer assigns rows deterministically. NameEnds interns
+// names in strictly ascending byte order, in a single text pool: a row
+// holds its exclusive end, the preceding end (or zero) is its start. Files
+// and imports are ordered by path, symbols by (import, name), bodies by
+// symbol, instances by (generic, argument types) and facts by (op, kind).
+// Init is semantic order, not symbol order. No dead space in line, slot,
+// op or operand runs; preserve order within each run. The digest is
+// SHA-256 of the exact complete image, not a source/body name.
+//
+// An instance's type arguments are in declaration order and its
+// dictionary symbol identifies the specialization, not a prebuilt
+// Go dictionary. The backend materializes the dictionary for its ABI.
+// Initializer symbols use qualified names beginning with "init.".
+// Field and interface member symbols use owner-qualified names so
+// equal member spellings in unrelated types have distinct identities.
+//
+// This version carries the checked subset below. Structural validity
+// is not a claim that a consumer supports a profile, that it can lower
+// every record, or that an optimization fact is proved. Imports must
+// be matched against actual archives, and an adapter must refuse an
+// unsupported operation/type/profile before emitting anything.
+
+import dense
+
+let HandoffMagic = "ERGOEIR\n"
+let HandoffVersion = uint32(1)
+let HandoffMaxBytes = 256 * 1024 * 1024
+
+// Column order and reference roles of every section. An import's foreign
+// export fingerprint is eight raw bytes (lo then hi). A source's revision
+// digest consists of eight consecutive words (32 raw SHA-256 bytes).
+// Profile is a canonical name of the full compiler flag tuple.
+let HPackage = 0    // path name, package name, GOOS, GOARCH, toolchain pin, profile; exactly one row
+let HNames = 1      // text exclusive end
+let HImports = 2    // path name, package name, hasInit (0/1), fingerprint lo, hi
+let HFiles = 3      // path name, byte size, first line, count, revision words 0..7
+let HLines = 4      // source line's starting byte offset
+let HSpans = 5      // file, start byte, end byte (half-open)
+let HTypes = 6      // kind, aux, first operand, count
+let HSymbols = 7    // import (0 local), name, kind, type, span (0 foreign)
+let HBodies = 8     // function symbol, first slot, count, first op, count
+let HSlots = 9      // type; body-local references, parameters first
+let HOps = 10       // opcode, span, first operand, count
+let HInstances = 11 // generic function symbol, specialized signature type, dictionary symbol, first operand, count
+let HFacts = 12     // op (package-wide), kind, subject slot, limit slot, proof op (package-wide)
+let HInit = 13      // init function symbol
+let HOperands = 14  // shared run pool: types, then ops, then instances in row order
+let HText = 15      // name bytes (count is bytes, not words)
+let HandoffSections = 16
+
+// HandoffWidth is the word width, except for byte-wide HText. A section
+// ordinal outside the frozen version has width zero.
+func HandoffWidth(section int) int {
+	match section {
+	case 0:
+		6
+	case 1, 4, 9, 13, 14, 15:
+		1
+	case 2, 7, 8, 11, 12:
+		5
+	case 3:
+		12
+	case 5:
+		3
+	case 6, 10:
+		4
+	case _:
+		0
+	}
+}
+
+// A phantom tag and a one-word reference for package-local ids. Dense ids
+// pass to the wire by adding one; never use a dense id from another owner.
+type HandoffRef[K] { raw uint32 }
+type HandoffSpan {}
+
+func HandoffID[K](id dense.ID[K]) HandoffRef[K] { HandoffRef[K]{raw: uint32(dense.Index(id)) + 1} }
+func HandoffWord[K](ref HandoffRef[K]) uint32   { ref.raw }
+
+// Type operand roles:
+// Basic(aux=scalar), Pointer(element), Signature(aux=parameter count,
+// params then results), Record(fields by symbol), Named(aux=own type symbol,
+// underlying), Parameter(aux=type or function symbol, constraint),
+// Generic(aux=underlying, type parameters), Applied(aux=generic type
+// symbol, arguments), Slice(element), Array(aux=length, element),
+// Map(key, value), Interface(methods by function symbol).
+let HTBasic = uint32(1)
+let HTPointer = uint32(2)
+let HTSignature = uint32(3)
+let HTRecord = uint32(4)
+let HTNamed = uint32(5)
+let HTParameter = uint32(6)
+let HTGeneric = uint32(7)
+let HTApplied = uint32(8)
+let HTSlice = uint32(9)
+let HTArray = uint32(10)
+let HTMap = uint32(11)
+let HTInterface = uint32(12)
+
+// Scalars 1..18 are bool, int, int8, int16, int32, int64, uint, uint8,
+// uint16, uint32, uint64, uintptr, float32, float64, complex64, complex128,
+// string and the empty-interface constraint (any).
+let HBasicInt = uint32(2)
+let HBasicAny = uint32(18)
+
+let HSFunc = uint32(1)
+let HSVar = uint32(2)
+let HSType = uint32(3)
+let HSField = uint32(4)
+let HSDictionary = uint32(5)
+let HSMethod = uint32(6) // a declaration in an interface, not a body
+
+// Op operand roles (s = body-local slot, b = body-local op branch target):
+// Const(dst s, low and high literal words), binary(dst s, lhs s, rhs s),
+// Load/Store/AddrOf/Convert(two s), global(load dst s then symbol;
+// store symbol then src s); calls(target symbol/slot/instance, result
+// count, result slots then arg slots); Jump(b), Branch(condition,
+// lhs s, rhs s, yes b, no b), Return(result slots). Store's destination
+// and value are typed slots, so a backend derives any required barrier.
+let HOConst = uint32(1)
+let HOAdd = uint32(2)
+let HOSub = uint32(3)
+let HOMul = uint32(4)
+let HOXor = uint32(5)
+let HOLoad = uint32(6)
+let HOStore = uint32(7)
+let HOAddrOf = uint32(8)
+let HOGetGlobal = uint32(9)
+let HOSetGlobal = uint32(10)
+let HOCall = uint32(11)
+let HOCallClosure = uint32(12)
+let HOJump = uint32(13)
+let HOBranch = uint32(14)
+let HOReturn = uint32(15)
+let HOCallInstance = uint32(16)
+let HOConvert = uint32(17)
+
+// Branch conditions, ordinal order: less-than, not-equal, equal,
+// greater-or-equal; the first and last use signed comparison.
+let HCLess = uint32(1)
+let HCNotEqual = uint32(2)
+let HCEqual = uint32(3)
+let HCAtLeast = uint32(4)
+
+// A bounds witness names two body-local slots and an earlier proof op.
+// An importer must prove domination and value/length correspondence
+// before using it. Merely decoding the fact licenses no optimization.
+let HFBounds = uint32(1)
