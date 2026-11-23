@@ -1,0 +1,23 @@
+// An operation type declares one harness (check harness.go).
+type Coin {
+	Flip() bool,
+	test Toss,
+	test Again, // want S108 "Coin declares a second test harness Again"
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string }
+
+type always {} implements Coin
+
+func Flip(a always) bool { true }
+
+func Toss(run Run, body func() fails Failed needs Coin) fails Failed {
+	with context { Coin: always } { body() } catch {
+	case Failed as f:
+		return Failed{Message: run.Name + ": " + f.Message}
+	}
+}
+
+func Again(run Run, body func() fails Failed needs Coin) fails Failed { Toss(run, body) }

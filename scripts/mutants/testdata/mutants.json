@@ -67,6 +67,7 @@
       "rule": "The default -work is removed at the end of its run.",
       "killers": ["scripts/mutants:TestDefaultWorkIsPrivate"]
     },
+    {"name":"mut-timeout-reason-by-clock","origin":"wf10 GATE2 MUTANTS-MODEL-TIMING (I22 g25zr seed2 under an IO stall; not-run-crunch)","file":"scripts/mutants/runner.go","decl":"engine.execStarted","from":"\tif o.timeout {\n\t\t// One reason whichever clock fired","to":"\tif false {\n\t\t// One reason whichever clock fired","rule":"A timeout has one reason, whichever clock fired: the verdict never depends on load.","killers":["scripts/mutants:TestTimeoutReasonIsOneEvent"]},
     {"name":"xpkg-named-killer-not-run","origin":"wf10 fu-mutants-xpkg","file":"scripts/mutants/judge.go","from":"\tvar named []string\n\tfor _, id := range killerIDs(m) {","to":"\tvar named []string\n\tfor _, id := range anchorTests(m) {","rule":"A ledger's named killer runs whether or not the coverage pass saw it reach the mutated lines: a test in another package kills through a program it builds.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
     {
       "name": "xpkg-select-ignored",

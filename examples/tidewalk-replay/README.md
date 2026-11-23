@@ -43,7 +43,7 @@ The program is a module of packages (`ergo.mod`: `module tidewalk`), in the Go l
 
 All of the above runs. `scripts/examples` runs `ergo test` on `memory/` and `walk/` and prints `ok tidewalk-replay: test memory` and `ok tidewalk-replay: test walk`. The compiler checks the laws and leaves them out of the build. `scripts/examples` refuses an operation type with no law in a package outside `cmd/`. These parts wait for other units:
 
-- Laws run as generated tests when #162 lands: then `NamedOnce` runs against every provider of `Library`, and the test in `memory` is no longer needed. Laws move into the machine type when machines carry laws.
+- Laws run as generated tests when laws and proofs lands: then `NamedOnce` runs against every provider of `Library`, and the test in `memory` is no longer needed. Laws move into the machine type when machines carry laws.
 - A runner from the actor library replaces the replay loop over `Step`.
 
 ## Case

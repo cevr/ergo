@@ -29,7 +29,7 @@ func TestUnjudgedFailsTheRun(t *testing.T) {
 	for _, c := range []struct{ status, detail, list string }{
 		{Unjudged, "s:TestRed fails on the unmutated tree", "NOT JUDGED"},
 		{Invalid, "does not compile: f.go:3:1: x", "row (invalid, origin o): does not compile"},
-		{Hung, "s:TestRed fail (a timeout, no kill): panic: test timed out", "HUNG"},
+		{Hung, "s:TestRed timeout (no kill): panic: test timed out", "HUNG"},
 	} {
 		m := &Mutant{Name: "row", Origin: "o", File: "f.go", Killers: []string{"s:TestRed"}}
 		jobs := []Job{{Path: "l.json", Ledger: &Ledger{Mutants: []*Mutant{m}}}}

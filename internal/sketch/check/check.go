@@ -757,7 +757,7 @@ var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
 // lent, comparable and the codec one, true,
-// false and len, the one built-in function (#196, fourth round, item 2;
+// false and len, the one built-in function (the v1 language, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).
 func universe() *Scope {
@@ -810,8 +810,9 @@ func universe() *Scope {
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
 		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
-		// A language type: its T admits a resource with no mark (Generics 9).
-		refT := &TypeParam{Name: "T", lang: true, id: newID()}
+		// Declared go.Ref[T own]: its T admits a resource by the mark, as a
+		// user type's does (types.md, Generics 9; GEN9-GENERAL).
+		refT := &TypeParam{Name: "T", Own: true, id: newID()}
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
