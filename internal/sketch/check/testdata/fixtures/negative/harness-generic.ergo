@@ -4,7 +4,7 @@ type Coin[T] {
 	test Toss, // want S108 "Coin is generic"
 }
 
-type Run { Name string, Seed uint64, Site string }
+type Run { Name string, Seed uint64, Site string, Source string }
 
 type Failed { Message string }
 

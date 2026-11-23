@@ -16,8 +16,9 @@ type Package { Name string, Origin string, Route string }
 // it compiled and the kind of the broken record ("" for none).
 type Truth { Cells Map[string, int], Rebuilt []string, Refusal string }
 
-// Case is one drawn build.
-type Case { Trace Trace, Truth Truth, Packages []Package, Edit string }
+// Case is one drawn build. FaultTarget is the process a deliberate bad
+// record refers to, if any. It cannot be removed when reducing the case.
+type Case { Trace Trace, Truth Truth, Packages []Package, FaultTarget string }
 
 // Edits are the builds a sequence holds: the first (cold), a warm one
 // with no edit, and one after a private (body) or a public (export) edit
@@ -74,10 +75,18 @@ func scratch(n int, kind string, at int) []string {
 // rebuildAgrees (law RebuildMatchesScratch): the cache compiles what the rule says, for every
 // chain length, edit kind and edited package.
 func rebuildAgrees(n int, kind int, at int) bool {
+	cacheAgrees(drawCacheCase(n, kind, at))
+}
+
+type CacheCase { N int, Kind string, At int }
+
+func drawCacheCase(n int, kind int, at int) CacheCase {
 	let m = 1 + mod(n, 6)
-	let k = Edits[mod(kind, len(Edits))]
-	let a = mod(at, m)
-	slices.Equal(Rebuild(m, k, a), scratch(m, k, a))
+	CacheCase{N: m, Kind: Edits[mod(kind, len(Edits))], At: mod(at, m)}
+}
+
+func cacheAgrees(c CacheCase) bool {
+	slices.Equal(Rebuild(c.N, c.Kind, c.At), scratch(c.N, c.Kind, c.At))
 }
 
 // mod is n modulo m in 0..m-1, for every n (no negation, so no overflow).
@@ -177,10 +186,13 @@ func draw() Case needs Random {
 	tree = tree + linkSelf
 	// at most one broken record
 	let mut refusal = ""
+	let mut faultTarget = ""
 	let fault = Random.IntN(8)
 	if fault == 0 && len(spans) > 0 {
-		spans = spans.Append(spans[Random.IntN(len(spans))])
+		let bad = spans[Random.IntN(len(spans))]
+		spans = spans.Append(bad)
 		refusal = "duplicate"
+		faultTarget = procKey(bad.Pid, bad.Gen)
 	} else if fault == 1 {
 		spans = spans.Append(Span{Pid: 9999, Gen: 1, Seq: 0, Worker: 0, Stage: "parse", Count: 1})
 		refusal = "incomplete"
@@ -192,6 +204,7 @@ func draw() Case needs Random {
 		let i = Random.IntN(len(spans))
 		spans[i] = Span{..spans[i], Count: spans[i].Count + 1000000}
 		refusal = "overcharged"
+		faultTarget = procKey(spans[i].Pid, spans[i].Gen)
 	} else if fault == 4 {
 		let mut warm = []Proc{}
 		for p in procs {
@@ -203,13 +216,14 @@ func draw() Case needs Random {
 			let w = warm[Random.IntN(len(warm))]
 			spans = spans.Append(Span{Pid: w.Pid, Gen: w.Gen, Seq: 0, Worker: 0, Stage: "parse", Count: 1})
 			refusal = "warm-compile"
+			faultTarget = procKey(w.Pid, w.Gen)
 		}
 	}
 	Case{
-		Trace:    Trace{Procs: rand.Shuffle(procs), Spans: rand.Shuffle(spans), Tree: tree},
-		Truth:    Truth{Cells: cells, Rebuilt: rebuilt, Refusal: refusal},
-		Packages: pkgs,
-		Edit:     kind + " p\(at)",
+		Trace:       Trace{Procs: rand.Shuffle(procs), Spans: rand.Shuffle(spans), Tree: tree},
+		Truth:       Truth{Cells: cells, Rebuilt: rebuilt, Refusal: refusal},
+		Packages:    pkgs,
+		FaultTarget: faultTarget,
 	}
 }
 

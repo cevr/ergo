@@ -4,7 +4,7 @@ type Coin {
 	test Toss, // want S108 "its failure row is not one record {Message string} of this package"
 }
 
-type Run { Name string, Seed uint64, Site string }
+type Run { Name string, Seed uint64, Site string, Source string }
 
 type Failed { Message string, Code int }
 

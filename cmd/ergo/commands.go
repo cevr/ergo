@@ -50,6 +50,7 @@ var commands = []cliCommand{
 	{name: "bind", usage: "bind go [-o DIR] PACKAGE...", help: bindHelp, run: bindCommand},
 	{name: "get", usage: "get MODULE[@VERSION]...", help: getHelp, run: getCommand},
 	{name: "lib", usage: "lib FILE|DIR -o DIR", help: libHelp, run: libCommand},
+	{name: "go", usage: "go VERB [ARGS...]", help: goHelp, run: ergoGoCommand},
 	{name: "gen", usage: "gen rpc|cli [--check] DIR.OPTYPE", help: genHelp, run: genCommand},
 	{name: "dev", usage: "dev [DIR] [--idle DURATION]", help: devHelp, run: devCommand},
 	{name: "task", usage: "task --list [--json] [DIR] | task gen [--check] [--fresh] [--jobs N] [NAME...] [DIR]", help: taskHelp, run: taskCommand},
