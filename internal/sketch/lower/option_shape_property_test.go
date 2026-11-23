@@ -51,7 +51,7 @@ type Holder { Name string, O Option[int], Xs []Option[int] }
 
 type Cell[T] { v Option[T] }
 
-func find[T](xs []T, i int) Option[T] {
+func optionShapeAtIndex[T](xs []T, i int) Option[T] {
 	if i < 0 || i >= len(xs) {
 		return None
 	}
@@ -141,7 +141,7 @@ func optionShapeProgram(seed uint64, reached map[string]bool) string {
 	opt := func() string {
 		switch r.IntN(3) {
 		case 0:
-			return fmt.Sprintf("find(xs, %d)", g.index())
+			return fmt.Sprintf("optionShapeAtIndex(xs, %d)", g.index())
 		case 1:
 			return fmt.Sprintf("pick(%s, %d)", g.boolean(), g.small())
 		}
@@ -161,7 +161,7 @@ func optionShapeProgram(seed uint64, reached map[string]bool) string {
 		n := k + 1
 		switch path {
 		case "find":
-			fmt.Fprintf(&b, "\tConsole.Println(show(find(xs, %d)))\n", g.index())
+			fmt.Fprintf(&b, "\tConsole.Println(show(optionShapeAtIndex(xs, %d)))\n", g.index())
 		case "or":
 			fmt.Fprintf(&b, "\tConsole.Println(\"\\(or(%s, -1))\")\n", opt())
 		case "same":
@@ -257,9 +257,9 @@ func optionShapeIR(t *testing.T, name, src string) (funcs map[string]string, bod
 // Option; maybeAtExtern the same shape on a user's union of Option's
 // shape, which an extern names by value (cmp.Or returns its first
 // argument that is not Go's zero value).
-const optionAtExtern = `extern go os.LookupEnv func lookupEnv(key string) Option[string] needs go.Foreign
+const optionAtExtern = `extern go os.LookupEnv func lookupEnv(key string) Option[string] needs Ambient
 
-func main() needs Console | go.Foreign {
+func main() needs Console | Ambient {
 	match lookupEnv("ERGO_OPTION_SHAPE_UNSET") {
 	case Some[string] as s:
 		Console.Println("set " + s.Value)
@@ -493,7 +493,7 @@ func TestOptionIsOneUnion(t *testing.T) {
 		replay := fmt.Sprintf("Replay: go test -run '^TestOptionIsOneUnion$' ./internal/sketch/lower -args -optionshape.seed=%d", seed)
 		optFuncs, optBodies, optProg := optionShapeIR(t, fmt.Sprintf("optshape%d", seed), src)
 		mayFuncs, _, mayProg := optionShapeIR(t, fmt.Sprintf("mayshape%d", seed), maybeOf(src))
-		for _, fn := range []string{"find", "pick", "must", "or", "show", "depth", "pair", "firstOver"} {
+		for _, fn := range []string{"optionShapeAtIndex", "pick", "must", "or", "show", "depth", "pair", "firstOver"} {
 			if !slices.Contains(optBodies, fn) {
 				t.Fatalf("seed %d: %s has no IR body, so its IR is not compared (IR bodies %v)\n%s", seed, fn, optBodies, replay)
 			}

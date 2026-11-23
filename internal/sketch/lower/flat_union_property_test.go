@@ -74,9 +74,9 @@ import codec
 import time
 import go gostrings strings
 
-extern go os.LookupEnv func lookupEnv(key string) Option[string] needs go.Foreign
+extern go os.LookupEnv func lookupEnv(key string) Option[string] needs Ambient
 
-func env(key string) string needs go.Foreign {
+func env(key string) string needs Ambient {
 	match lookupEnv(key) {
 	case Some[string]:
 		"set"
@@ -766,7 +766,7 @@ func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGe
 		g.line("\tConsole.Println(\"another variant\")")
 		g.line("}")
 	}
-	return optionPrelude + g.u.decls() + g.u.gen.decls() + "func main() fails Lost | BadU0 needs Console | go.Foreign {\n" + g.b.String() + "}\n", g.u
+	return optionPrelude + g.u.decls() + g.u.gen.decls() + "func main() fails Lost | BadU0 needs Console | go.Foreign | Ambient {\n" + g.b.String() + "}\n", g.u
 }
 
 // lowerOptionMode lowers src's run build, or its test build (test), with
