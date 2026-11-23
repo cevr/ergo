@@ -241,6 +241,9 @@ type lowerer struct {
 
 	names *namer // the Go package scope: every package-scope name (pkgnames.go)
 	fixed *namer // its parent: the fixed generated names and the prelude's (pkgnames.go, rules 4 and 5)
+	// leafImports and leafNames are the runtime's leaves, by import path
+	// and by Go name: fixed names of rule 4 (pkgnames.go, reserveLeaves).
+	leafImports, leafNames map[string]bool
 	// pkgNamers number each non-root package's own declarations (pkgnames.go, rule 2).
 	pkgNamers map[*check.Package]*namer
 	pkgNames  map[pkgKey]string

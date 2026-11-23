@@ -50,6 +50,7 @@ import (
 
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
+	l.reserveLeaves(v1.Leaves) // pkgnames.go, rule 4: before any declaration is named
 	if l.lib != "" {
 		l.nameExports()
 	}
