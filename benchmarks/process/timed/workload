@@ -1,0 +1,9 @@
+# scripts/opcount: `processbench bench timed N` runs N process.Run of a
+# small block under a time limit of an hour; the cost of one is the slope
+# between the two sizes (PROCESS-RUN), against hand Go (goroutine,
+# recover, context.WithTimeout).
+unit run
+sizes 100000 1100000
+args bench timed {n}
+control benchmarks/process/testdata/control
+binary processbench

@@ -39,7 +39,7 @@ type LawContext struct {
 // only such contexts here. It runs after the ownership pass, so the
 // acquisitions and Closes are known.
 func (c *checker) planLawContexts() {
-	c.lawProviderFixes()
+	defer c.reportUnfedProviders()
 	if len(c.pkg.Contexts) == 0 {
 		return
 	}
@@ -73,6 +73,14 @@ func (c *checker) planLawContexts() {
 			}
 			if len(under) == 0 {
 				continue
+			}
+			for _, lc := range under {
+				if lc.Unrun == "" {
+					e := lc.With.Entries[0]
+					if info := providerInfo(c.contextOwners.of[e]); info != nil && e.Provider != nil {
+						c.pkg.fed = append(c.pkg.fed, fedBinding{law: law, provider: info.Types[e.Provider]})
+					}
+				}
 			}
 			if i, ok := runs[law]; ok {
 				r := &c.pkg.LawRuns[i]
@@ -148,11 +156,31 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 	fact.Acquired = c.acquire(w, fact.Entries, c.contextOwners.of)
 	lc := LawContext{Context: w, With: fact, Params: params}
 	lc.Unrun = c.lawRelease(fact)
+	if c.readContextHeader(w); lc.Unrun == "" && !w.needs.Empty() {
+		// A case provides no capability from a with site
+		// (contextneeds.go): only TestAmbient, the runner's.
+		lc.Unrun = "context " + w.Name + " needs " + rowText(w.needs) + " from the with site that builds it, which a law case does not provide"
+	}
+	if lc.Unrun == "" && !w.fails.Empty() && law.Decl.Rewrite != nil {
+		// A case whose build fails is a failed case (FALLIBLE-CONTEXT,
+		// Design 4; lower's lawContextRun). A rewrite law compares two
+		// builds of the context, side by side, which have no failure path
+		// yet.
+		lc.Unrun = "context " + w.Name + " can fail with " + rowText(w.fails) + " while it is built, and a rewrite law's two builds of it have no failure path yet (CTX-ROWS-2c)"
+	}
 	if lc.Unrun == "" && params != nil {
 		// A non-generic law's parameters were judged when it was planned.
 		for i, p := range law.Params {
 			if why := c.ungeneratableFrom(params[i], law.Pkg); why != "" {
 				lc.Unrun = "its parameter " + p.Name + " has no generator at " + cap.String() + ": " + why
+				// The context binds the instance, and no case of the law
+				// can be fed under it (LAW-UNFED).
+				if w.file != nil && w.Decl != nil {
+					saved := c.cur
+					c.cur = w.file
+					c.errorf(w.Decl.Name, CodeType, "law %s cannot run under context %s: %s (types.md, Laws 10)", law.Title(c.pkg), w.Name, lc.Unrun)
+					c.cur = saved
+				}
 				break
 			}
 		}

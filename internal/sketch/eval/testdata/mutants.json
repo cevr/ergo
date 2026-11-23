@@ -33,7 +33,7 @@
       "to": "\tif false && in.sym != nil && !in.sym.ok[x] && symbolic(v) {",
       "rule": "A symbolic run stops at a term in any position but a binding, an argument, a result, a part or a concatenation: a branch on a symbol proves nothing.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -44,7 +44,7 @@
       "to": "\t\t\tfor j := range parts {\n\t\t\t\tif prev, ok := parts[j].(string); ok {\n\t\t\t\t\tparts[j] = prev + s\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t}",
       "rule": "The concatenation normal form joins adjacent constants only: concatenation is associative, not commutative.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -55,7 +55,7 @@
       "to": "\t\treturn ok && a.fn == bv.fn",
       "rule": "Two uninterpreted calls are one term only when their arguments are.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -65,7 +65,7 @@
       "from": "\t\t\treturn c.s, \"\", nil",
       "to": "\t\t\treturn &slot{v: c.s.v}, \"\", nil",
       "rule": "A write through a provider's cell is what every later read and the end state see.",
-      "killers": ["lower:TestSymbolicProofsSound"]
+      "killers": ["internal/sketch/lower:TestSymbolicProofsSound"]
     },
     {
       "name": "ps2-stop-proved",
@@ -75,7 +75,7 @@
       "to": "\t\tlres, lend, why := in.symSide(fr, p, state, law.Rewrite.Lhs, params)\n\t\tif why != \"\" {\n\t\t\tcontinue\n\t\t}",
       "rule": "A case whose run stops is not a case that holds: anything the run cannot decide is not proved.",
       "killers": [
-        "lower:TestSymbolicProofsSound"
+        "internal/sketch/lower:TestSymbolicProofsSound"
       ]
     },
     {
@@ -375,7 +375,7 @@
       "from": "\t\tsort.Slice(keys, func(i, j int) bool { return keys[i].(string) < keys[j].(string) })",
       "to": "\t\tsort.Slice(keys, func(i, j int) bool { return false && keys[i].(string) < keys[j].(string) })",
       "rule": "A Map encodes its keys in sorted order, so equal Maps have one wire form and one explore key (MODELCHECK risk 5).",
-      "killers": ["std:TestKeyEqualsEquality"]
+      "killers": ["internal/sketch/stdlib:TestKeyEqualsEquality"]
     },
     {
       "name": "machine-done-is-edge",
@@ -2114,6 +2114,9 @@
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
     },
+    {"name":"lgf-noop-func-not-drawn","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/eval/cases.go","from":"\t\t\treturn noopFunc\n","to":"","rule":"func() with no rows is generated as the one function that returns, so a provider holding one runs its laws.","anchor":{"tests":["internal/sketch/eval:TestCasePlansRun"]},"killers":["internal/sketch/eval:TestCasePlansRun"]},
+    {"name":"lgf-noop-preflight-refuses","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/eval/preflight.go","from":"\t\treturn \"\" // the one function that returns (cases.go, noopFunc)","to":"\t\treturn \"a generator for func()\"","rule":"The preflight admits what the generator draws: func() with no rows.","anchor":{"tests":["internal/sketch/eval:TestCasePlansRun"]},"killers":["internal/sketch/eval:TestCasePlansRun"]},
+    {"name":"lgf-noop-prints-as-name","origin":"wf10/law-gen-func/LAW-GEN-FUNC","file":"internal/sketch/eval/coll.go","from":"\t\t\treturn v.name, true // its literal: func() {}","to":"\t\t\treturn \"the function \" + v.name, true","rule":"The generated func() prints as its literal, func() {}, as the built test binary prints it.","anchor":{"tests":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},"killers":["internal/sketch/lower:TestCasePlansAgreeWithGo"]},
     {"name":"tpdiag-isletter-is-isdigit","origin":"wf10 TP-DIAG","file":"internal/sketch/eval/nativesgo.go","from":"\t\"unicode.IsLetter\":  goRune(unicode.IsLetter),","to":"\t\"unicode.IsLetter\":  goRune(unicode.IsDigit),","rule":"An import go function runs its own Go function.","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
     {"name":"evalbuilder-max-is-min","origin":"wf10 EVAL-BUILDER","file":"internal/sketch/eval/natives.go","from":"pure(\"cmp.Max\", func(a []Value) Value { return pick(a[0], a[1], true) })","to":"pure(\"cmp.Max\", func(a []Value) Value { return pick(a[0], a[1], false) })","rule":"cmp.Max is Go's builtin max.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
     {"name":"tbf-budget-one-case","origin":"wf10 TP-BUILT-FAST","file":"internal/sketch/eval/cases.go","from":"\tin.casesBudget(p.Count)\n","to":"\tin.casesBudget(1)\n","rule":"testing.md, Budgets: the step budget is each case's, so a test or law of n cases may spend n times it.","killers":["internal/sketchfront:TestCheckEvalRunnerModel"]},
@@ -2200,11 +2203,11 @@
     {"name":"sq5-native-isspace-letter","origin":"wf10 SQ5 natives (NS lane)","file":"internal/sketch/eval/nativesgo.go","from":"\"unicode.IsSpace\":   goRune(unicode.IsSpace),","to":"\"unicode.IsSpace\":   goRune(unicode.IsLetter),","rule":"The evaluator's unicode.IsSpace is Go's (ORACLE O20).","killers":["internal/sketch/eval:TestFuncNativesMatchGo"]},
     {"name":"arity-serve-handler-short","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/http.ergo","from":"[]Field, string, bool, string) Response needs R)","to":"[]Field, string, bool) Response needs R)","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind, and calls a callback with the declared arity (EVAL-RAWPATH: serve called an 8-parameter handler with 9).","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
     {"name":"arity-send-moved","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/client.ergo","from":"header []Field, body string) Response fails SendFailed","to":"body string, header []Field) Response fails SendFailed","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind: a parameter moved under an unchanged native fails the fast tier.","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
-    {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["lower:TestCellReaderAgrees"]},
+    {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["internal/sketch/lower:TestCellReaderAgrees"]},
     {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]},
     {"name":"prelude-append-string-native","origin":"wf10 PRELUDE-EXTERNS-EVALUATED (NS lane)","file":"internal/sketch/eval/natives.go","from":"\tcheck.CollAppendString: \"strings.builderAppend\",\n","to":"","rule":"Every pure extern std calls (bs.AppendString, declared in the prelude) has an evaluator native, so a build-time fold that writes through a Builder runs (b25: std html's folds were refused).","killers":["internal/sketch/eval:TestEveryPureStdExternHasANative","internal/experimental/irspike:TestConstFoldCounts"]},
     {"name":"harness-seed-ignored","origin":"wf10 PROPERTY-TESTING P1b","file":"internal/sketch/eval/expr.go","from":"\t\treturn in.budget.Seed, nil","to":"\t\treturn uint64(1), nil","rule":"runtime.md Tests, harnesses 3: a harnessed test's run carries the run's --seed.","killers":["internal/sketch/eval:TestHarnessRunsTheBody"]},
-    {"name":"eval-returned-temp-released","origin":"wf10 lang EVAL-RETURNED-TEMPS (found by STOP-NESTED-WAIT)","file":"internal/sketch/eval/expr.go","from":"\t\tif fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","to":"\t\tif false && fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","rule":"resources R10, in the evaluator: a new value a return gives while its frame owns another (return outer.Wait()) leaves with the value; the frame's end does not release it.","killers":["lower:TestReturnedTempsAgree"]},
+    {"name":"eval-returned-temp-released","origin":"wf10 lang EVAL-RETURNED-TEMPS (found by STOP-NESTED-WAIT)","file":"internal/sketch/eval/expr.go","from":"\t\tif fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","to":"\t\tif false && fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","rule":"resources R10, in the evaluator: a new value a return gives while its frame owns another (return outer.Wait()) leaves with the value; the frame's end does not release it.","killers":["internal/sketch/lower:TestReturnedTempsAgree"]},
     {"name":"file-eval-size-missing","origin":"wf10/std/CAP-FILE","file":"internal/sketch/eval/nativespure.go","from":"\tcase \"Size\":\n\t\treturn int64(len(m.text)), nil\n","to":"","rule":"The evaluator gives fs.Mapped's Size on a Mapped of MapText (the check-time law run of a program providing fs/mapped.Maps); a missing case is an internal error.","killers":["internal/sketch/eval:TestMappedSizeEvaluates"]},
     {"name":"m1p2-native-sha512-is-sha1","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"return sum(sha512.New, str(a[0]))","to":"return sum(sha1.New, str(a[0]))","rule":"stdlib.md Std laws: sha512's Sum is 64 bytes (law SumIs64Bytes, run in place by ergotests -std).","killers":["internal/sketch/std/sha512:law:SumIs64Bytes"]},
     {"name":"m1p2-native-sub64-adds","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"d, b := bits.Sub64(u64(a[0]), u64(a[1]), u64(a[2]))","to":"d, b := bits.Add64(u64(a[0]), u64(a[1]), u64(a[2]))","rule":"stdlib.md Std laws: bits Sub64 undoes Add64 (law SubUndoesAdd64, run in place).","killers":["internal/sketch/std/bits:law:SubUndoesAdd64"]},
@@ -2212,6 +2215,11 @@
     {"name":"m1p2-native-appenduint-base-ten","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"return strconv.FormatUint(u64(a[0]), int(a[1].(int64)))","to":"return strconv.FormatUint(u64(a[0]), 10)","rule":"stdlib.md Std laws: strconv's Append functions append the Format text in the base asked (law AppendsFormat, run in place).","killers":["internal/sketch/std/strconv:law:AppendsFormat"]},
     {"name":"m1p2-native-durationtext-halves","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/natives.go", "decl": "registerNatives","from":"return time.Duration(a[0].(int64)).String()","to":"return time.Duration(a[0].(int64) / 2).String()","rule":"stdlib.md Std laws: ParseDuration reads DurationText(d) back as d (law DurationTextRoundTrips, run in place).","killers":["internal/sketch/std/time:law:DurationTextRoundTrips"]},
     {"name":"m1p2-virtual-sleep-overshoots","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/tasks.go", "decl": "timelineV.opCall","from":"s := &sleeper{tl: l, at: l.deadline(d)}","to":"s := &sleeper{tl: l, at: l.deadline(d + 1)}","rule":"stdlib.md Std laws: a Sleep on a VirtualClock advances its clock by exactly d (law SleepAdvancesExactly, run in place).","killers":["internal/sketch/std/testing:law:SleepAdvancesExactly"]},
+    {"name":"eval-end-actions-skipped","origin":"wf10 SUPERVISE-2 (NIH-108; not-run-crunch)","file":"internal/sketch/eval/runner.go","from":"\t\t_, ab := a.call(in, fr, f)\n\t\tin.mask(-1)","to":"\t\tvar ab *abrupt\n\t\tin.mask(-1)","rule":"runtime/v1 actor.go rule 14b at check time: an end action runs once before the end (law OnEndRunsOnce).","killers":["internal/sketch/std/actor:law:OnEndRunsOnce"],"anchor":{"tests":["internal/sketch/std/actor:law:OnEndRunsOnce"]}},
+    {"name":"eval-ended-never","origin":"wf10 SUPERVISE-2 (NIH-108)","file":"internal/sketch/eval/runner.go","from":"\t\treturn actorOf(args[0]).ended, nil","to":"\t\treturn false, nil","rule":"stdlib.md Actors: Ended(a) is true once a has ended (law EndedAgreesWithExit).","killers":["internal/sketch/std/actor:law:EndedAgreesWithExit"],"anchor":{"tests":["internal/sketch/std/actor:law:EndedAgreesWithExit"]}},
+    {"name":"exitof-eval-reraises-defect","origin":"wf10/BEAM-RUNTIME/PROCESS-RUN","file":"internal/sketch/eval/tasks.go","decl":"taskV.exitOf","from":"v.why = t.exit.msg\n\t\treturn int64(2), nil","to":"return nil, t.exit","rule":"runtime.md Tasks 13 at check time: a defect task.ExitOf gives is contained (law DefectIsObservedOnce).","killers":["internal/sketch/std/task:law:DefectIsObservedOnce"]},
+    {"name":"run-drops-cleanup","origin":"wf10/BEAM-RUNTIME/PROCESS-RUN","file":"internal/sketch/eval/tasks.go","decl":"taskV.exitOf","from":"v.why = t.exit.msg\n\t\treturn int64(2), nil","to":"return int64(0), nil","rule":"stdlib.md Process 1: a block's defect is Crashed after its exit actions, never a value that drops the end (laws DefectIsCrashed, CleanupRunsBeforeReturn).","killers":["internal/sketch/std/process:law:Runner.DefectIsCrashed"]},
+    {"name":"exitof-returns-before-cleanup","origin":"wf10/BEAM-RUNTIME/PROCESS-RUN","file":"internal/sketch/eval/tasks.go","decl":"taskV.exitOf","from":"func() bool { return t.state == done }","to":"func() bool { return true }","rule":"runtime.md Tasks 13 at check time: ExitOf returns only after the task ended, its exit actions run (law ExitOfWaitsForCleanup).","killers":["internal/sketch/std/task:law:ExitOfWaitsForCleanup"]},
     {"name":"harness-shown-eval-text","origin":"wf10 PROPERTY-TESTING P1c","file":"internal/sketch/eval/assert.go","from":"\ttext := \": left \" + in.argument(fr, types[0], vals[0]) + \", right \" + in.argument(fr, types[1], vals[1])","to":"\ttext := \": left \" + in.argument(fr, types[0], vals[0])","rule":"P1c spec part 1: ergo·shown gives the runner's text, both operands.","killers":["internal/sketch/eval:TestHarnessRunsTheBody"]},
     {"name":"harness-source-budget-ignored","origin":"wf10 PROPERTY-TESTING P1c","file":"internal/sketch/eval/expr.go","from":"\t\tif in.budget.Source != \"\" {","to":"\t\tif false && in.budget.Source != \"\" {","rule":"NIH-378: the evaluator's harnessed replay names the source ergo test was given (Budget.Source), as the native binary's --source.","killers":["internal/sketch/eval:TestHarnessRunsTheBody"]},
     {"name":"eval-admission-law-run","origin":"wf10 HASH-LOWERS","file":"internal/sketch/eval/cases.go","from":"\t} else if why == \"\" && admits(law) {\n","to":"\t} else if false {\n","rule":"Check time skips a law with a where over earlier parameters; only the test binary's near-variant search draws its admitted values (types.md, Laws 15).","killers":["internal/sketch/eval:TestAdmissionLawsWaitForTheTestBinary"]}

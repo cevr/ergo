@@ -38,6 +38,9 @@ type stdRun struct {
 	// declared is the declaring package of each member law, by "q T.L",
 	// q the last element of its path (memberLaws).
 	declared map[string]string
+	// bindings is where the evaluator saw a concrete provider or context
+	// for each law, using the same key as verdicts.
+	bindings map[string][]string
 }
 
 // memberLaws maps each member law of the ledger, "q T.L" with q the last
@@ -75,6 +78,17 @@ func (run stdRun) key(pkg, law string) string {
 	return pkg + " " + law
 }
 
+func (run *stdRun) recordLaw(pkg, law string, r eval.Result) string {
+	key := run.key(pkg, law)
+	run.verdicts[key] = append(run.verdicts[key], r.Status)
+	// A provider or context adds a binding suffix to the verdict name.
+	// The bare declaration's placeholder skip has no such suffix.
+	if r.Name != "law "+law && !slices.Contains(run.bindings[key], pkg) {
+		run.bindings[key] = append(run.bindings[key], pkg)
+	}
+	return key
+}
+
 // redLine is a line of stdRedFile.
 type redLine struct{ class, why, id string }
 
@@ -90,7 +104,7 @@ func runStd(w io.Writer, root, ergo string) int {
 		fmt.Fprintln(w, "FAIL the std law ledger:", err)
 		return 1
 	}
-	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, native: map[string][]bool{}, nativeMissing: map[string]string{}, declared: memberLaws(rows)}
+	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, native: map[string][]bool{}, nativeMissing: map[string]string{}, declared: memberLaws(rows), bindings: map[string][]string{}}
 	for _, pkg := range stdlib.Packages() {
 		dir := filepath.Join(root, filepath.FromSlash(stdRoot), filepath.FromSlash(pkg))
 		rep, err := evaluate(dir)
@@ -102,8 +116,7 @@ func runStd(w io.Writer, root, ergo string) int {
 		for _, r := range rep.Results {
 			key := pkg + " " + r.Name
 			if law, ok := lawOf(r.Name); ok {
-				key = run.key(pkg, law)
-				run.verdicts[key] = append(run.verdicts[key], r.Status)
+				key = run.recordLaw(pkg, law, r)
 			}
 			if holds(r, false) {
 				if r.Status == eval.Passed {

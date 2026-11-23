@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"ergo.local/prototype/internal/genmark"
 )
 
 // stdSkip are standard-library packages with no binding: they build only
@@ -75,7 +77,9 @@ func FileName(path string) string {
 	return filepath.Join(filepath.FromSlash(path), lastElem(path)+".ergo")
 }
 
-// WriteAll writes each binding under root, by FileName.
+// WriteAll writes each binding under root, by FileName, and then root's
+// marker (genmark), whose digest covers every file under root, so the
+// formatter and the comment pass leave the tree to ergo bind go.
 func WriteAll(root string, files map[string]string) error {
 	for path, text := range files {
 		name := filepath.Join(root, FileName(path))
@@ -86,5 +90,5 @@ func WriteAll(root string, files map[string]string) error {
 			return err
 		}
 	}
-	return nil
+	return genmark.Stamp(root, genmark.Marker{Kind: "bind", Generator: "ergo bind go"})
 }

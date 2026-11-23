@@ -658,11 +658,8 @@ func rmOnce(t Tool, c Config, w Workspace, abandon bool, until int64) string fai
 // Collect is gc's first step, under the lock: the trashed workspaces of
 // this base old enough (or the one of id), and the reservations whose
 // maker is gone. It holds the lock of each such reservation until Purge.
-// A reservation whose maker is gone but whose clone carries its marker
-// was made: its maker stopped between Fill and Activate (a killed `work
-// new`), and an agent may already work in it. Collect activates it, as
-// Activate would have, and never deletes it. (Its hold settles this
-// work's reservations first; the rules below are for an older work's.)
+// hold settles marked checkouts; Collect never activates or deletes a
+// reservation over a checkout, including a mismatching legacy marker.
 func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept | Locked {
 	try hold(t)
 	let at = now(t)
@@ -686,18 +683,7 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 			case Unkept:
 				false
 			}
-			if taken && markerOf(t, w.Path) == w.Id && w.Id != "" {
-				// The clone was made and marked: its maker stopped before it
-				// wrote the activation, and the folder may already hold work.
-				// gc writes the activation instead of deleting it.
-				t.registry.Put(activation(t, w, at)) catch {
-				case Unkept as e:
-					unreserved(t, w)
-					t.lock.Release("")
-					return e
-				}
-				unreserved(t, w)
-			} else if taken && unmarkedClone(t, w) {
+			if taken && unmarkedClone(t, w) {
 				// (A reservation with a tomb is buried's, which drops the
 				// record only once the tomb is gone.)
 				// A folder cut off before its checkout holds no work; one

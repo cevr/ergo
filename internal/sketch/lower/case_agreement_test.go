@@ -24,7 +24,8 @@ import (
 // builder of another package, imported under an alias, so the qualifier
 // both runners print is the one the source spells, and its laws must be
 // refuted at their first case, so the arguments are compared at all.
-// Mutants: native-case-stream-wrong; eval's reseed-per-case,
+// Mutants: native-case-stream-wrong, lgf-lower-noop-not-drawn,
+// lgf-lower-noop-literal; eval's reseed-per-case, lgf-noop-prints-as-name,
 // provider-case-reused, eval-ctor-arg-unqualified and
 // eval-built-arg-unqualified.
 func TestCasePlansAgreeWithGo(t *testing.T) {

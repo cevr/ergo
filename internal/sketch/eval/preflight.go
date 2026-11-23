@@ -192,6 +192,11 @@ func (p *preflight) generator(fr *frame, t check.Type, provider *check.LawProvid
 		children = u.Types
 	case *check.Union:
 		children = u.Variants
+	case *check.Signature:
+		if !check.NoopFunc(u) {
+			return fmt.Sprintf("a generator for %s", t)
+		}
+		return "" // the one function that returns (cases.go, noopFunc)
 	case *check.Named:
 		if ctor := testplan.Constructor(u); ctor != nil {
 			return p.generator(fr, t, &check.LawProvider{Ctor: ctor}, map[check.Type]bool{})

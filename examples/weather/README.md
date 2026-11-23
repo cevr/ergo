@@ -41,9 +41,7 @@ The input text and the panel are a record, and `Loading`'s entry owns the fetch,
 
 - `Forecast.ReportIsForTheZip`, `Forecast.NotFoundNamesTheZip` (contract): a report is the weather at the zip asked, and a zip with no place is refused with that zip.
   - They run against `memory.Stations`.
-  - The `web` property `ContractHoldsOverTheFixture` runs them against `OpenMeteo` over the fixture network, because the law runner cannot build an `http.Network`.
-  - `memory.Slow` holds a function, which the runner cannot build either.
-  - `expected-skips` lists the four skips.
+  - They run against `OpenMeteo` under `web`'s test context `overTheFixture`, over the fixture network, because the law runner cannot build an `http.Network` (a law no case can feed is a check error).
 - `EditOnlyChangesTheDraft`: an edit in any state changes the draft and nothing else, and keeps the entry.
 - `ReadyShowsLatestAsk`: over generated edits, submits and answers, the lookup shows what a model with no machine says.
 - `BoundaryIsTheMatch` (package `screen`): for any drawn panel, the boundary's panel and the exhaustive match's write the same nodes.

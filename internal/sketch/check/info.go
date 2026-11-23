@@ -137,6 +137,15 @@ type Package struct {
 	// toolchain vouches for the packages it ships.
 	module  string
 	trusted bool
+	// unfed are the law bindings of this package that no case of its own
+	// feeds, left to its module (lawmodule.go, ReportUnfed), and fed the
+	// providers its named contexts run each law against. Only the
+	// package's own check writes them; a snapshot carries neither.
+	unfed []unfedBinding
+	fed   []fedBinding
+	// unprovided are its member laws, each with the error its module
+	// reports when no package of the module runs the law (ReportUnfed).
+	unprovided []unfedBinding
 	// goBodies are the bodies its externs bind in its module's own Go
 	// packages, by extern target (moduleDoor; docs/spec/interop.md,
 	// Trusted Go 3). Only the package's own check writes it.
