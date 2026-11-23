@@ -574,7 +574,7 @@ func lawFormatAgreesWithCodec(v askProbe) bool {
 
 func lawFormatKeepsTheRequest(system string, max int) bool {
 	let r = llm.Request{System: system, Messages: []llm.Message{llm.User{Text: "hi"}}, Tools: []llm.ToolSpec{}, Choice: llm.Auto, Format: llm.Prose, MaxTokens: max}
-	let f = llm.Format(r, askProbeSchema())
+	let f = llm.WithSchema(r, askProbeSchema())
 	let text = jsonschema.TextOf(askProbeSchema())
 	let form = match f.Format {
 	case llm.JSON as j:

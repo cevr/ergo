@@ -1,0 +1,13 @@
+// A harness names a function of the package (check harness.go, rule 1).
+type Coin {
+	Flip() bool,
+	test Toss, // want S108 "no function Toss is declared in this package"
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string }
+
+type always {} implements Coin
+
+func Flip(a always) bool { true }

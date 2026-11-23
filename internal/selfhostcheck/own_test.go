@@ -17,14 +17,13 @@ import (
 
 // ownTemplates are the S108 messages compiler/check/diag reports for the
 // own mark (MODES-OWN-CHECK; types.md, Generics 9; resource.go
-// checkOwnMarks and checkTypeMark): a resource, or an own type
-// parameter, bound to a type parameter with no mark, and a generic type's
-// own parameter filled by an unmarked one; and S112 for a map key type
+// checkOwnMarks): a resource, or an own type parameter, bound to a type
+// parameter with no mark, a function's or a generic type's (GEN9-GENERAL);
+// and S112 for a map key type
 // that may hold a resource, a resource or an own type parameter
 // (MODES-OWN-BODY; resources R40).
 var ownTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ cannot take .+ as its \S+: \S+ is not marked own, so it binds plain data only; `),
-	regexp.MustCompile(`^\S+ marks its \S+ own, so .+ may hold a resource, and \S+ is not marked own; `),
 	regexp.MustCompile(`^map key type .+ holds a resource, and a map key has no owner to release it \(resources R40\)`),
 }
 
@@ -61,8 +60,10 @@ type ownCase struct {
 // lines) are the Go checker's, text, position and order, over
 //   - testdata/own: MODES-5's accept probes tparam-unmarked (a resource
 //     bound to an unmarked T is S108 at the call) and tparam-own (checks
-//     clean), and the type rules (an unmarked T in a type argument, a
-//     generic type's own T filled by an unmarked one); each file's
+//     clean), the type rules (an unmarked T in a type argument; a
+//     generic type's own T filled by an unmarked one asks nothing) and
+//     user unions marked and unmarked, a function over one and an alias
+//     of one (unions.ergo, GEN9-GENERAL); each file's
 //     "//want: own" lines are the Go checker's, so a fixture that drifts
 //     from the rule fails too;
 //   - a seeded property: a program drawn from calls of a marked and an
