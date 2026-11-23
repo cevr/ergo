@@ -820,6 +820,7 @@ case flow seed 96
 case flow seed 97
 case flow seed 98
 case flow seed 99
+case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
 case internal/selfhostcheck/testdata/bind
@@ -1024,6 +1025,7 @@ case internal/sketch/std/net
 case internal/sketch/std/nettest
 case internal/sketch/std/os
 case internal/sketch/std/pace
+case internal/sketch/std/process
 case internal/sketch/std/prompt
 case internal/sketch/std/proof
 case internal/sketch/std/proof/file
@@ -1267,6 +1269,7 @@ case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
 case unused internal/sketch/std/mcp/stdio/stdio.ergo
 case unused internal/sketch/std/pace/pace.ergo
+case unused internal/sketch/std/process/process.ergo
 case unused internal/sketch/std/prompt/machines.ergo
 case unused internal/sketch/std/prompt/prompt.ergo
 case unused internal/sketch/std/proof/file/file.ergo

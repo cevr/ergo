@@ -59,8 +59,11 @@ func TestTopLevelLawsLeaveNoGo(t *testing.T) {
 			a3++
 		}
 	}
-	if a2 < 12 || a3 < 300 {
-		t.Fatalf("the law corpus holds %d A2 and %d A3 clean programs; want 12 and 300 or more", a2, a3)
+	// The domain is not degenerate, by check's rule for the same laws
+	// (TestTopLevelLawMatchesMember): a tenth of them are clean. A law over
+	// a function is not (LAW-UNFED), so the share is no count to pin.
+	if a2 < 12 || a3 < sketchtest.LawDomainSize/10 {
+		t.Fatalf("the law corpus holds %d A2 and %d A3 clean programs; want 12 and %d or more", a2, a3, sketchtest.LawDomainSize/10)
 	}
 	for _, p := range corpus {
 		t.Run(p.name, func(t *testing.T) {

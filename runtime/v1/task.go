@@ -414,6 +414,8 @@ type Task[T any] struct {
 	// follows it.
 	out   T
 	ended bool
+	// why is the text of the defect TaskExit observed, for TaskReason.
+	why string
 	// ent is the entry of the Task's first owner (selfOwned), released
 	// by rel; a later owner makes an entry of its own (PARK2).
 	ent entry
@@ -518,6 +520,43 @@ func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
 	return v, err
 }
 
+// GoWithFrame is GoWith for a block whose environment can outlive the
+// call that uses it. The generated block initializes the frame on the
+// child, just as it would initialize an ordinary local. Captures still
+// clear when the block ends, but the frame stays valid for anything
+// that took its address. The frame is in the Task's allocation, not a
+// separate heap object. A lowering helper: no Ergo declaration binds it.
+//
+//ergo:wait none
+func GoWithFrame[T, C, F any](s *Scope, span Site, c C, body func(*rt.Task, *C, *F) (T, error)) *Task[T] {
+	s = s.current()
+	if s.ended {
+		panic("task.Go: the frame that would own this task has returned (law R9)")
+	}
+	x := &taskWithFrame[T, C, F]{c: c, fn: body}
+	rt.Start(&x.t.h, s.s.Task(), string(span), x)
+	return &x.t
+}
+
+type taskWithFrame[T, C, F any] struct {
+	t     Task[T]
+	c     C
+	frame F
+	fn    func(*rt.Task, *C, *F) (T, error)
+}
+
+func (x *taskWithFrame[T, C, F]) Run(ct *rt.Task) (T, error) {
+	fn := x.fn
+	x.fn = nil
+	v, err := guarded(ct, func(ct *rt.Task) (T, error) { return fn(ct, &x.c, &x.frame) })
+	var zero C
+	x.c = zero
+	if err == nil {
+		x.t.out, x.t.ended = v, true
+	}
+	return v, err
+}
+
 // Wait waits for the task to end and consumes it. It returns the task's
 // value, or its typed failure when that failure is the task's whole exit
 // (law R6: a catch handles only a lone typed failure). Any other exit is
@@ -543,6 +582,80 @@ func (t *Task[T]) Wait(ct *rt.Task) (T, error) {
 	}
 	raise(err)
 	panic("unreachable")
+}
+
+// Exit kinds of TaskExit: the order of std task's Exit variants.
+const (
+	taskDone     = iota // the block returned its value
+	taskFailed          // the task's whole exit is one typed failure
+	taskDefected        // a defect ended it (with or without a typed failure)
+)
+
+// TaskExit is std task's exitOf(t): it waits for the task to end, as Wait
+// does, and gives how it ended (taskDone, taskFailed, taskDefected); for
+// a defect it keeps the text of its first defect, as the runtime's report
+// writes it after "panic: ", for TaskReason (defectReason, the helper ActorDefectReason
+// reads; Tasks 13). A lone typed failure is its returned error, which the
+// caller's catch takes. A defect is observed here: it is returned as a
+// value and never raised again, by this call or by the owner's release,
+// since the task is consumed. The task's exit actions and drains have run
+// before it returns, because rt writes the exit only after the task's
+// releases. A stop of the waiter is Wait's: the task is stopped and
+// drained, and the interruption, with the task's defects, is raised. So is
+// an exit that holds an interruption. A TaskExit after Wait, Stop or Close
+// is a defect. It consumes the task but does not deliver its value: the
+// value stays in the Task for TaskValue.
+//
+//ergo:wait caller
+func TaskExit[T any](ct *rt.Task, t *Task[T]) (int, error) {
+	_, err := t.h.WaitBy(ct)
+	if err == nil {
+		return taskDone, nil
+	}
+	if f, ok := rt.Failure(err); ok {
+		return taskFailed, f
+	}
+	if why := defectReason(err); why != "" && !interrupted(err) {
+		t.why = why
+		return taskDefected, nil
+	}
+	raise(err)
+	panic("unreachable")
+}
+
+// interrupted reports whether err holds an interruption.
+func interrupted(err error) bool {
+	if err == rt.Interrupted {
+		return true
+	}
+	c, ok := err.(*rt.Cause)
+	if !ok || c == nil {
+		return false
+	}
+	for _, r := range c.Reasons {
+		if r.Kind == rt.KindInterruption {
+			return true
+		}
+	}
+	return false
+}
+
+// TaskReason is std task's exitReason(t): the text of the defect TaskExit
+// gave as taskDefected (Tasks 13).
+//
+//ergo:wait none
+func TaskReason[T any](t *Task[T]) string { return t.why }
+
+// TaskValue is std task's exitValue(t): the value the block returned, read
+// after TaskExit gave taskDone. It takes the value: the Task's owner
+// drains nothing after it.
+//
+//ergo:wait none
+func TaskValue[T any](t *Task[T]) T {
+	v := t.out
+	var zero T
+	t.out, t.ended = zero, false
+	return v
 }
 
 // Stop interrupts the task and waits, uninterruptibly, until it has ended,

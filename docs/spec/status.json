@@ -366,7 +366,7 @@
     {
       "construct": "Named contexts `let W = context { … }` with provider literals",
       "status": "implemented",
-      "cell": "Checked: closed contexts (Gap 6), S111 for a repeated entry (Gap 28); runs",
+      "cell": "Checked: a written needs row, charged at each with (Gap 6; failures still closed), S111 for a repeated entry (Gap 28); runs",
       "section": "[rows](rows.md#context)",
       "witnesses": [
         "internal/sketch/check:TestContextInfo",
@@ -403,7 +403,7 @@
     {
       "construct": "Context header `provides A needs B`",
       "status": "partly implemented",
-      "cell": "Parsed and formatted; S109 naming context header checking (Gap 33)",
+      "cell": "Parsed and formatted; a named context's needs is checked (Gap 6); provides is S109 naming context header checking (Gap 33)",
       "section": "[rows](rows.md#context)",
       "witnesses": [
         "internal/sketch/lower:TestRefusedFamiliesHaveWitnesses"

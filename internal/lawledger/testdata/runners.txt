@@ -250,6 +250,8 @@ embed FS.ReadIsRepeatable	TestStdLawsRun
 exec InterleavesMatchesModel	TestExecLaws
 exec LookPathFindsTheFirst	TestExecLaws
 exec LookPathSkipsRelative	TestExecLaws
+exec Runner.EnvIsExact	none
+exec Runner.LookupUsesChildPath	none
 exec Runner.NotFoundNamesTheProgram	TestExecNotFoundNamesTheProgram
 exec Runner.ShellRunsAsWritten	TestExecLaws
 exec Runner.StartAgreesWithRun	TestExecLaws
@@ -258,6 +260,7 @@ exec ScriptReplaysRecorded	TestExecLaws
 exec Spawner.KillIsIdempotent	TestExecLaws
 exec Spawner.KilledIsNotAlive	TestExecLaws
 exec WaitForEndedGivesStatus	TestExecLaws
+exec WithEnvFromKeepsOwn	none
 exec WithEnvKeepsTheOriginal	TestExecLaws
 exec WithEnvOverrides	TestExecLaws
 explore AlwaysAgreesWithReference	TestStdExploreLawsRun
@@ -390,6 +393,10 @@ json ElementsRoundTrip	TestJSONStreamAgrees
 json FastAgreesWithWriter	TestStdJSONLawsRun
 json FixesNameTheirText	TestStdJSONLooseLawsRun
 json HTMLEscaped	TestStdJSONLawsRun
+json IndentDecodesAsCompact	none
+json IndentIsFixpoint	none
+json IndentRefusesMalformed	none
+json IndentWritesGoForm	none
 json InvalidBytesEscaped	TestStdJSONLawsRun
 json LineSeparatorsEscaped	TestStdJSONLawsRun
 json NestedRoundTrips	TestJSONFieldsAgree
@@ -548,11 +555,11 @@ net Network.DialAfterCloseFails	TestNetLaws
 net Network.ListenTakenFails	TestNetLaws
 net Network.WriteThenReadRoundTrips	TestNetLaws
 os CodeWhere	TestStdLawsRun
+os Process.EnvironAgreesWithGetenv	none
 os Process.GetenvIsStable	TestStdHostLawsHold
 os Process.GetwdIsAbsolute	TestStdHostLawsHold
 os Process.GetwdIsStable	TestStdHostLawsHold
 os Self.DirsAreAbsolute	TestStdHostLawsHold
-os Self.EnvironIsSortedOnce	TestStdHostLawsHold
 os Self.PidIsPositive	TestStdHostLawsHold
 pace CountingCountsEachEdge	TestStdLawsRun
 pace DefaultReachesNothing	TestStdLawsRun
@@ -584,6 +591,11 @@ prelude StructuralStringKeysHashEqual	none
 prelude TakeAtIsIndexAndRest	TestCollLaws
 prelude TakeIsGetAndDelete	TestCollLaws
 prelude Task.StopIsIdempotent	TestStdLawsRun
+process Runner.CleanupRunsBeforeReturn	TestStdProcessLaws
+process Runner.DefectIsCrashed	TestStdProcessLaws
+process Runner.ModelAgrees	TestStdProcessLaws
+process Runner.TimeIsExpired	TestStdProcessLaws
+process Runner.ValueOrFailurePasses	TestStdProcessLaws
 prompt MarkedAnswerIsSorted	TestPromptLaws
 prompt ReturnAnswersTheDefault	TestPromptLaws
 prompt SecretFrameHidesText	TestPromptLaws
@@ -773,8 +785,12 @@ sync ReleaseOnInterrupt	TestSyncLaws
 sync UpdateComposes	TestSyncLaws
 sync UpdateIsAtomic	TestSyncLaws
 sync WaitSeesTheValue	TestSyncLaws
+task DefectIsObservedOnce	TestStdLawsRun
+task ExitOfAnywhere	TestStdLawsRun
+task ExitOfWaitsForCleanup	TestStdLawsRun
 task SleepAdvancesNow	TestStdTimeLawsRun
 task StopIsIdempotent	TestStdLawsRun
+task StopOfWaiterStillInterrupts	TestStdLawsRun
 task WaitReturnsTheBlock	TestStdLawsRun
 tasks EarliestWins	TestTasksLaws
 tasks FailFastStopsTheRest	TestTasksLaws

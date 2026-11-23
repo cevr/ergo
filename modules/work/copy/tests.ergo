@@ -13,7 +13,7 @@ import github.com/cevr/ergo/modules/work/work
 let onHost = context needs TestAmbient {
 	work.Cloner:         New(system.TestTrees()),
 	fs.Files, fs.Writes: fs.NewTestHost(),
-	exec.Runner:         exec.NewTestHost(),
+	exec.Runner:         system.TestRunner(),
 	os.Process:          os.NewTestHost(),
 }
 

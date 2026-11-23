@@ -94,7 +94,6 @@ internal/sketch/check/round15_test.go	t6-2
 internal/sketch/check/widen_unknown_test.go	in-process
 internal/sketch/check/widen_unknown_test.go	t6-8-negate-if-typeops
 internal/sketch/lower/free_func_test.go	method-on-runtime-record
-internal/sketch/lower/law_run_test.go	lawfix-one-text
 internal/sketch/lower/law_run_test.go	relneeds-drop-as-close
 internal/sketch/lower/law_run_test.go	relneeds-parts-ignored
 internal/sketchfront/lawverdicts_test.go	check-time

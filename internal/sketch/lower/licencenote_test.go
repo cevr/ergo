@@ -11,8 +11,8 @@ import (
 // scope whose cases the test binary cannot draw (a function parameter) is
 // decided by its licence run, which ergo test runs as it writes the
 // ledger. The binary prints a note for it, never a skip line, so it is no
-// unexpected skip. A property law with the same gap is still a skip.
-// It checks the lowered Go's text in process: the line is a constant the
+// unexpected skip. A property law with the same gap is an error at check
+// time (LAW-UNFED; check's TestUnfedLawIsAnError). It checks the lowered Go's text in process: the line is a constant the
 // runner prints.
 //
 // Mutant: ladt-rewrite-skips (the note's branch removed, so the rewrite
@@ -21,8 +21,6 @@ func TestRewriteLawRunsAsLicence(t *testing.T) {
 	const src = `func Twice(f func(x int) int, x int) int { f(f(x)) }
 
 law TwiceUnfolds(f func(x int) int, x int) { Twice(f, x) } == { f(f(x)) }
-
-law TwiceIsTwice(f func(x int) int, x int) { Twice(f, x) == f(f(x)) }
 
 func main() {}
 `
@@ -38,9 +36,6 @@ func main() {}
 	}
 	if strings.Contains(got, `"skip law TwiceUnfolds:`) {
 		t.Errorf("the runner prints a skip line for the rewrite law TwiceUnfolds")
-	}
-	if !strings.Contains(got, `"skip law TwiceIsTwice:`) {
-		t.Errorf("the property law TwiceIsTwice is no longer a skip; the test lost its control")
 	}
 	// The summary counts the rewrite law neither as a run nor as a skip.
 	var r check.LawRun

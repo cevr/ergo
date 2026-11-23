@@ -41,7 +41,7 @@ func run(args []string) fails os.Exit needs fs.Files | exec.Runner | io.Stdout {
 }
 
 func main() fails os.Exit needs Ambient {
-	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), exec.Runner: exec.NewHost(), io.Stdout: io.NewHost() } {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), exec.Runner: exec.NewHost().InheritEnv(os.NewHost().Environ()), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}
 }

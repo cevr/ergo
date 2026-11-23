@@ -2321,6 +2321,12 @@ func (l *lowerer) genExpr(t check.Type, r, d string, scope *namer, site syntax.N
 		return tc.goType(u) + "{" + strings.Join(parts, ", ") + "}"
 	case *check.Named:
 		return l.genFunc(u, site) + "(" + r + ", " + d + ")"
+	case *check.Signature:
+		if check.NoopFunc(u) {
+			// func() with no rows: the one function that returns
+			// (LAW-GEN-FUNC), in the uniform function value shape.
+			return tc.funcType(u) + " { return struct{}{}, nil }"
+		}
 	case *check.Union:
 		// A row value (q47): a member, drawn as a union's variant is, in a
 		// function literal called at once.

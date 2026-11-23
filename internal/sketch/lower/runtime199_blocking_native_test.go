@@ -54,6 +54,11 @@ func TestRuntime199BlockingProperty(t *testing.T) {
 				t.Errorf("%s joins children and names no runtime/v1 law test", name)
 			}
 		default:
+			if name == "TaskExit" {
+				// TaskExit shares Wait's handle primitive; the distinct
+				// hidden-caller route is held by TestExitOfWaiterIsTheCaller.
+				continue
+			}
 			if hostWaitLaws[name] || actorWaitLaws[name] {
 				// A host wait parks on a host process, not on a runtime
 				// primitive the native barrier can hold; its stop, mask and
