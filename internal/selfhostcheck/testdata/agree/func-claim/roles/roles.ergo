@@ -1,0 +1,51 @@
+import functionclaims/foreign
+
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+}
+
+type Sized {
+	Size() int,
+}
+
+type Scored {
+	Score() int,
+}
+
+type Trimmed {
+	Trim() Self,
+}
+
+func Map[T, U](xs []T, f func(x T) U) []U implements Mappable[T] {
+	let mut out = []U{}
+	for x in xs {
+		out = out.Append(f(x))
+	}
+	out
+}
+
+func Size(f func(x int) int) int implements Sized {
+	f(0)
+}
+
+func Score(v foreign.Value) int implements Scored {
+	v.Score
+}
+
+extern go strings.TrimSpace func Trim(s string) string implements Trimmed
+
+func MapValue[T, U, M Mappable[T]](m M, f func(x T) U) M[U] {
+	m.Map(f)
+}
+
+func SizeOf[M Sized](m M) int {
+	m.Size()
+}
+
+func ScoreOf[M Scored](m M) int {
+	m.Score()
+}
+
+func TrimValue[M Trimmed](m M) M {
+	m.Trim()
+}

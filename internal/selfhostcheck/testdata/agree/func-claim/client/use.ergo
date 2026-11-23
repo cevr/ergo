@@ -1,0 +1,6 @@
+import functionclaims/foreign
+import functionclaims/roles
+
+func Check(xs []string, f func(x int) int, v foreign.Value) ([]int, int, int, string) {
+	(roles.MapValue(xs, func(s string) int { len(s) }), roles.SizeOf(f), roles.ScoreOf(v), roles.TrimValue(" centered "))
+}
