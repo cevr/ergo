@@ -142,10 +142,11 @@ func main() fails os.Exit needs Ambient | Console {
 		}
 	}
 	let trees = system.New(run, resolve)
+	let stamp = strings.TrimSpace(BuildStamp)
 	let p = work.Providers{
 		Cloners:  []work.Cloner{btrfs.New(trees), reflink.New(trees), clonefile.New(trees)},
 		Copier:   copy.New(trees),
-		Registry: journal.Open(files, files, work.RegistryFile(home)),
+		Registry: journal.Open(files, files, work.RegistryFile(home), stamp),
 		Lock:     journal.NewLock(files, home, 10s),
 		Hooks:    sh.NewHooks(run),
 		Vcs:      git.New(run),
@@ -154,6 +155,6 @@ func main() fails os.Exit needs Ambient | Console {
 		Runner:   run,
 		Clock:    try clockOf(process.Getenv("WORK_NOW")),
 	}
-	let tool = work.NewTool(base, home, data, p, cwd).WithVersion(strings.TrimSpace(BuildStamp))
+	let tool = work.NewTool(base, home, data, p, cwd).WithVersion(stamp)
 	try api.ExitAs("work", with context { work.Api: tool } { workcli.Run(jsonFirst(process.Args()), workcli.Defaults()) })
 }
