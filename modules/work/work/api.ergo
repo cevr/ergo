@@ -30,8 +30,14 @@ type CopyRefused { From string, Bytes int, Why string }
 
 // NotHeld is a workspace whose work is not in its parent: it has an
 // uncommitted or untracked change, or a commit no branch of the parent
-// holds. Remove it with --abandon.
-type NotHeld { Name string, Path string }
+// holds. Remove it with --abandon. It says which: Unheld is each local
+// branch and stash entry no branch of the parent and no remote holds (ref
+// and commit), Head the checkout's head when that is unheld too (else
+// ""), Dirty an uncommitted or untracked change; Branch is the record's
+// branch and Checkout the one checked out ("" when detached), which
+// differ when another branch was checked out in the workspace. Why says
+// it all in a sentence.
+type NotHeld { Name string, Path string, Branch string, Checkout string, Head string, Dirty bool, Unheld []Local, Why string }
 
 // Busy is a workspace in a state that refuses the command (a land runs).
 type Busy { Name string, State string }

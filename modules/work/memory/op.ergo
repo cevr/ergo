@@ -803,33 +803,44 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 // RmKeepsEveryBranch: rm of a clean workspace whose head its parent
 // holds refuses (NotHeld) while a branch only it has (kind 0) or a stash
 // entry (kind 1) would go with it; a branch a remote-tracking ref holds
-// is on the remote already (kind 2), and the workspace goes.
+// is on the remote already (kind 2), and the workspace goes. The refusal
+// names the ref and commit only the workspace has; with that branch
+// checked out in place of the record's (kind 3, as a lane that switched
+// branches), it names both branches too.
 law RmKeepsEveryBranch(kind int, text string) {
 	let w = world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
 	}
-	let k = small(kind, 3)
+	let k = small(kind, 4)
+	let mut side = ""
 	if k == 1 {
 		if !(Write(w.trees, a.Path, "stashed.txt", text) && Stash(w.vcs, a.Path)) {
 			return false
 		}
 	} else {
-		let c = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
-		if c == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", c)) {
+		side = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
+		if side == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", side)) || (k == 3 && !Write(w.trees, a.Path, ".git/branch", "side")) {
 			return false
 		}
 	}
 	let mut refused = false
+	let mut named = k == 2
 	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
-	case work.NotHeld:
+	case work.NotHeld as e:
 		refused = true
+		let one = len(e.Unheld) == 1 && strings.Contains(e.Why, e.Unheld[0].Ref+" at "+e.Unheld[0].Commit)
+		named = one && if k == 1 {
+			strings.HasPrefix(e.Unheld[0].Ref, "refs/stash/")
+		} else {
+			e.Unheld[0] == work.Local{Ref: "refs/heads/side", Commit: side} && (k != 3 || (e.Checkout == "side" && e.Branch == "a" && strings.Contains(e.Why, "it has side checked out, not its branch a")))
+		}
 		[]work.Removed{}
 	case _:
 		return false
 	}
-	refused == (k != 2)
+	refused == (k != 2) && named
 }
 
 // PinKeepsAWorkspace: gc -idle never takes a pinned workspace (it reports

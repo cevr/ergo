@@ -1666,6 +1666,30 @@
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
+      "name": "nh-unheld-unnamed", "origin": "wf10 WORK-NOTHELD-SAYS-WHICH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet unheld = try Unheld(w.Path, w.Parent, false)\n",
+      "to": "\tlet unheld = []Local{}\n",
+      "rule": "rm's NotHeld names each ref and commit only the workspace has (memory's RmKeepsEveryBranch).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "nh-checkout-unnamed", "origin": "wf10 WORK-NOTHELD-SAYS-WHICH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tif branch != \"\" && checkout != branch {\n",
+      "to": "\tif false {\n",
+      "rule": "rm's NotHeld says when another branch than the record's is checked out (memory's RmKeepsEveryBranch, kind 3).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "nh-dirty-unnamed", "origin": "wf10 WORK-NOTHELD-SAYS-WHICH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet dirty = !(try Vcs.Clean(w.Path))\n",
+      "to": "\tlet dirty = false\n",
+      "rule": "rm's NotHeld says the workspace has uncommitted or untracked changes (examples/work cases rm-dirty, rm-untracked-cached).",
+      "anchor": {"tests": ["examples:work"]}
+    },
+    {
       "name": "rd-gone-folder-asks-git", "origin": "wf10/semws WORK-REPAIR-DANGLING",
       "file": "modules/work/work/doctor.ergo",
       "from": "\t\tif livesAt(w) && !t.copier.Has(w.Path) {\n",
