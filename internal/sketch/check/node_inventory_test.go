@@ -155,6 +155,7 @@ var nodeTable = map[string]nodeEntry{
 	"CatchExpr": {"catch arm", ""}, "CatchArm": {"catch arm", ""}, "TryExpr": {"fails and needs", ""},
 	"ErrorRow": {"fails and needs", ""}, "NeedsClause": {"fails and needs", ""}, "TakesClause": {"fails and needs", ""},
 	"TypeDecl": {"record type", ""}, "StructType": {"record type", ""}, "InterfaceType": {"operation type", ""}, "TypeTerm": {"operation type", ""},
+	"Harness": {"operation type", ""},
 	"MapType": {"Map type", ""}, "FuncLit": {"function literal", ""}, "ExternSpec": {"extern", ""},
 	"InterpolatedString": {"interpolation", ""},
 	"MachineType":        {"machine", ""}, "MachineEntry": {"machine", ""},
