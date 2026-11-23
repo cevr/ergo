@@ -966,10 +966,14 @@ type funcCtx struct {
 	law      *Law // the law whose body this is (laws.go)
 	test     bool // a test's body, its function literals included (testambient.go)
 	reach    *reachNode
+	// tparams are a machine declaration's own type parameters, which
+	// scope over its entries (MACHINE-EXPR; checkMachine).
+	tparams []*TypeParam
 }
 
 // typeParams are the type parameters the body is generic in: a function's
-// own, or a law's type's (laws.go, rule 6). The type context of a body
+// own, a law's type's (laws.go, rule 6), or a machine declaration's for
+// its entries (MACHINE-EXPR). The type context of a body
 // (localTypeCtx) and a with operand's name (operandScope) both read them
 // here, so the two cannot disagree on what a body is generic in.
 func (fc *funcCtx) typeParams() []*TypeParam {
@@ -980,6 +984,8 @@ func (fc *funcCtx) typeParams() []*TypeParam {
 		return fc.fn.Sig.TParams
 	case fc.law != nil:
 		return fc.law.typeParams()
+	case fc.tparams != nil:
+		return fc.tparams
 	}
 	return nil
 }

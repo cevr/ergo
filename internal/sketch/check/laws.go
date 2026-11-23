@@ -236,7 +236,7 @@ func (c *checker) planMachineLaw(law *Law) {
 		return
 	}
 	m, ok := n.Underlying().(*MachineType)
-	spec, ok2 := law.Machine.Decl.Spec.(*syntax.MachineType)
+	_, ok2 := law.Machine.Decl.Spec.(*syntax.MachineType)
 	// An invariant law reads its state through its predicate, so a record
 	// state serves; a reachability law names variants of a union.
 	inv := law.Decl.Reach.Pred != nil
@@ -244,19 +244,15 @@ func (c *checker) planMachineLaw(law *Law) {
 		law.Unrun = "its machine is invalid"
 		return
 	}
-	// The step's checks (checkMachine) come later; a step that is not a
-	// function is refused there, and this law has nothing to run.
-	id, _ := spec.Step.(*syntax.Ident)
-	var step *Func
-	if id != nil {
-		step, _ = c.pkg.Scope.names[id.Name].(*Func)
-	}
-	if step == nil || step.Sig == nil || isExtern(step) {
+	// The step's checks (checkMachine) come later; a step that is
+	// refused there gives no entry, and this law has nothing to run.
+	step := c.machineEntry(law.Machine, entryStep)
+	if step == nil || step.Type == nil || !c.stepShape(step.Type, m.State, m.Signal) {
 		law.Unrun = "its machine is invalid"
 		return
 	}
-	if !c.types.resolve(step.Sig.Uses).known(c.types).Empty() {
-		law.Unrun = "its step " + step.Name + " needs a capability, and a law runs a step with none"
+	if !c.types.resolve(step.Type.Uses).known(c.types).Empty() {
+		law.Unrun = "its step " + entryLabel(step.Expr) + "needs a capability, and a law runs a step with none"
 		return
 	}
 	for _, part := range []struct {
@@ -268,15 +264,15 @@ func (c *checker) planMachineLaw(law *Law) {
 			return
 		}
 	}
-	if start := machineStart(c.pkg, spec); start != nil && start.Sig != nil {
-		for _, p := range start.Sig.Params {
+	if start := c.machineEntry(law.Machine, entryStart); start != nil && start.Type != nil {
+		for _, p := range start.Type.Params {
 			if why := c.ungeneratable(p.Type); why != "" {
 				law.Unrun = "its start's input " + p.Name + " has no generator: " + why
 				return
 			}
 		}
-		if !c.types.resolve(start.Sig.Uses).known(c.types).Empty() || start.Sig.Fallible {
-			law.Unrun = "its start " + start.Name + " has a row, and a law runs a start with none"
+		if !c.types.resolve(start.Type.Uses).known(c.types).Empty() || start.Type.Fallible {
+			law.Unrun = "its start " + entryLabel(start.Expr) + "has a row, and a law runs a start with none"
 		}
 	}
 }

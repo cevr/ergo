@@ -302,17 +302,22 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 		// A machine's value is a Machine of its plan's initial value and
 		// its step function (README Gap 46; machine.go). The plan value has
 		// zero size, so evaluating it for Initial costs nothing.
-		step := conv.Table["Step"]
+		if n, ok := conv.From.(*check.Named); ok && genericMachine(n) {
+			// A generic machine's conversion function (machineentry.go).
+			td := fc.l.typeDecl(n.Obj, site)
+			return fc.l.pkgName(machineOfKey(td.tn), "ergoMachineOf"+td.tn.Name) + "(" + fc.envExpr(site) + ", " + val + ")"
+		}
+		step := fc.entryOf(conv, "Step", site)
 		if step == nil {
 			ice(site, "a machine conversion with no step")
 		}
 		first := "Initial: " + val + ".Initial()"
-		if start := conv.Table["Start"]; start != nil {
-			// A machine with an input (V4): its start function's value. The
+		if start := fc.entryOf(conv, "Start", site); start != nil {
+			// A machine with an input (V4): its start entry's value. The
 			// plan value is not read; it has zero size and no effect.
 			first = "Start: " + fc.machineStart(start, site)
 		}
-		return fc.goType(conv.To) + "{" + first + ", Step: " + fc.funcValue(step, step.Sig, site, nil) + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + ", Exit: " + fc.machineExit(conv, site) + "}"
+		return fc.goType(conv.To) + "{" + first + ", Step: " + step.g + ", After: " + fc.machineAfter(conv, site) + ", Work: " + fc.machineWork(conv, site) + ", Exit: " + fc.machineExit(conv, site) + "}"
 	}
 	ice(site, "an unknown implicit conversion")
 	return ""

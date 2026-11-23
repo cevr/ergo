@@ -986,7 +986,7 @@ func ergoEncodeSlice_22(env *Env, w Writer_1, v []Place) {
 }
 
 func ergoEncodeMachineGraph(env *Env, w Writer_1, v MachineGraph) {
-	w.BeginObject(env.task, 10)
+	w.BeginObject(env.task, 11)
 	w.Key(env.task, "handle")
 	w.String(env.task, string(v.Handle))
 	w.Key(env.task, "name")
@@ -1007,6 +1007,8 @@ func ergoEncodeMachineGraph(env *Env, w Writer_1, v MachineGraph) {
 	ergoEncodeSlice_22(env, w, v.Exit)
 	w.Key(env.task, "unsure")
 	ergoEncodeSlice_34(env, w, v.Unsure)
+	w.Key(env.task, "computed")
+	ergoEncodeSlice_34(env, w, v.Computed)
 	w.EndObject(env.task)
 }
 
@@ -2284,7 +2286,7 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 		return *new(MachineGraph), err
 	}
 	var out MachineGraph
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
 	for r.More(env.task) {
 		switch r.Key(env.task) {
 		case "handle":
@@ -2360,6 +2362,13 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 			}
 			out.Unsure = f_9
 			seen_9 = true
+		case "computed":
+			f_10, err_11 := ergoDecodeSlice_34(env, r)
+			if err_11 != nil {
+				return *new(MachineGraph), err_11
+			}
+			out.Computed = f_10
+			seen_10 = true
 		default:
 			r.Skip(env.task)
 		}
@@ -2394,6 +2403,9 @@ func ergoDecodeMachineGraph(env *Env, r Reader_2) (MachineGraph, error) {
 	}
 	if !seen_9 {
 		return *new(MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "unsure"}
+	}
+	if !seen_10 {
+		return *new(MachineGraph), WireMissingField{Path: r.Path(env.task), Field: "computed"}
 	}
 	return out, nil
 }
@@ -3665,6 +3677,10 @@ func ergoWriteMachineGraph(env *Env, wv text_1, v MachineGraph) text_1 {
 	(w).raw(string("\"unsure\":"))
 	(w).setComma(bool(false))
 	*w = ergoWriteSlice_entry_34(env, *w, v.Unsure)
+	(w).sep()
+	(w).raw(string("\"computed\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_34(env, *w, v.Computed)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -5226,7 +5242,7 @@ func ergoReadMachineGraph(env *Env, r queryReader) (MachineGraph, error) {
 		return *new(MachineGraph), err
 	}
 	var out MachineGraph
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
 	for (r).More(env) {
 		switch (r).Key(env) {
 		case "handle":
@@ -5302,6 +5318,13 @@ func ergoReadMachineGraph(env *Env, r queryReader) (MachineGraph, error) {
 			}
 			out.Unsure = f_9
 			seen_9 = true
+		case "computed":
+			f_10, err_11 := ergoReadSlice_34(env, r)
+			if err_11 != nil {
+				return *new(MachineGraph), err_11
+			}
+			out.Computed = f_10
+			seen_10 = true
 		default:
 			(r).Skip(env)
 		}
@@ -5336,6 +5359,9 @@ func ergoReadMachineGraph(env *Env, r queryReader) (MachineGraph, error) {
 	}
 	if !seen_9 {
 		return *new(MachineGraph), WireMissingField{Path: (r).Path(env), Field: "unsure"}
+	}
+	if !seen_10 {
+		return *new(MachineGraph), WireMissingField{Path: (r).Path(env), Field: "computed"}
 	}
 	return out, nil
 }
@@ -7095,7 +7121,7 @@ func ergoReadMachineGraph_1(env *Env, r Reader_1) (MachineGraph, error) {
 		return *new(MachineGraph), err
 	}
 	var out MachineGraph
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
 	for (r).More(env) {
 		switch (r).Key(env) {
 		case "handle":
@@ -7171,6 +7197,13 @@ func ergoReadMachineGraph_1(env *Env, r Reader_1) (MachineGraph, error) {
 			}
 			out.Unsure = f_9
 			seen_9 = true
+		case "computed":
+			f_10, err_11 := ergoReadSlice_69(env, r)
+			if err_11 != nil {
+				return *new(MachineGraph), err_11
+			}
+			out.Computed = f_10
+			seen_10 = true
 		default:
 			(r).Skip(env)
 		}
@@ -7205,6 +7238,9 @@ func ergoReadMachineGraph_1(env *Env, r Reader_1) (MachineGraph, error) {
 	}
 	if !seen_9 {
 		return *new(MachineGraph), WireMissingField{Path: (r).Path(env), Field: "unsure"}
+	}
+	if !seen_10 {
+		return *new(MachineGraph), WireMissingField{Path: (r).Path(env), Field: "computed"}
 	}
 	return out, nil
 }
@@ -8964,7 +9000,7 @@ func ergoReadMachineGraph_2(env *Env, r Stream_1) (MachineGraph, error) {
 		return *new(MachineGraph), err
 	}
 	var out MachineGraph
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
 	for (r).More(env) {
 		switch (r).Key(env) {
 		case "handle":
@@ -9040,6 +9076,13 @@ func ergoReadMachineGraph_2(env *Env, r Stream_1) (MachineGraph, error) {
 			}
 			out.Unsure = f_9
 			seen_9 = true
+		case "computed":
+			f_10, err_11 := ergoReadSlice_104(env, r)
+			if err_11 != nil {
+				return *new(MachineGraph), err_11
+			}
+			out.Computed = f_10
+			seen_10 = true
 		default:
 			(r).Skip(env)
 		}
@@ -9074,6 +9117,9 @@ func ergoReadMachineGraph_2(env *Env, r Stream_1) (MachineGraph, error) {
 	}
 	if !seen_9 {
 		return *new(MachineGraph), WireMissingField{Path: (r).Path(env), Field: "unsure"}
+	}
+	if !seen_10 {
+		return *new(MachineGraph), WireMissingField{Path: (r).Path(env), Field: "computed"}
 	}
 	return out, nil
 }
@@ -13082,6 +13128,7 @@ func ergoCloneMachineGraph(v MachineGraph) MachineGraph {
 	c_1.Work = slices.Clone(v.Work)
 	c_1.Exit = slices.Clone(v.Exit)
 	c_1.Unsure = slices.Clone(v.Unsure)
+	c_1.Computed = slices.Clone(v.Computed)
 	return c_1
 }
 
@@ -13351,6 +13398,10 @@ func ergoWriteMachineGraph_entry(env *Env, wv text_1, v MachineGraph) text_1 {
 	(w).raw(string("\"unsure\":"))
 	(w).setComma(bool(false))
 	*w = ergoWriteSlice_entry_34(env, *w, v.Unsure)
+	(w).sep()
+	(w).raw(string("\"computed\":"))
+	(w).setComma(bool(false))
+	*w = ergoWriteSlice_entry_34(env, *w, v.Computed)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
@@ -14971,16 +15022,17 @@ type Failing struct {
 }
 
 type MachineGraph struct {
-	Handle  string
-	Name    string
-	States  []string
-	Signals []string
-	Initial string
-	Arms    []Arm
-	Timers  []Timer
-	Work    []Place
-	Exit    []Place
-	Unsure  []string
+	Handle   string
+	Name     string
+	States   []string
+	Signals  []string
+	Initial  string
+	Arms     []Arm
+	Timers   []Timer
+	Work     []Place
+	Exit     []Place
+	Unsure   []string
+	Computed []string
 }
 
 type Arm struct {
@@ -17477,26 +17529,31 @@ func (v MachineView) MachineText(env *Env) string {
 		b = (b + ("  unsure " + s + ": its timer, work or exit action is not a literal\n"))
 		env.task.Check()
 	}
-	for _, v_31 := range v.Reachable {
-		var p_6 Pair = v_31
+	for _, v_31 := range g.Computed {
+		var k string = v_31
+		b = (b + ("  no graph: computed " + k + "\n"))
+		env.task.Check()
+	}
+	for _, v_32 := range v.Reachable {
+		var p_6 Pair = v_32
 		var sites []string = []string{}
 		sites = ergo.Reserve(sites, len(p_6.Arms))
-		for _, v_32 := range p_6.Arms {
-			var a_1 Place = v_32
+		for _, v_33 := range p_6.Arms {
+			var a_1 Place = v_33
 			t_17 := sites
-			v_33 := (a_1).placeText()
-			v_34 := Append[string](t_17, v_33)
-			sites = v_34
+			v_34 := (a_1).placeText()
+			v_35 := Append[string](t_17, v_34)
+			sites = v_35
 			env.task.Check()
 		}
-		var v_35 string
+		var v_36 string
 		if len(sites) == int(0) {
-			v_35 = "no arm"
+			v_36 = "no arm"
 		} else {
-			v_36 := ergo.StringsJoin(sites, " or ")
-			v_35 = v_36
+			v_37 := ergo.StringsJoin(sites, " or ")
+			v_36 = v_37
 		}
-		var arms string = v_35
+		var arms string = v_36
 		b = (b + ("  reach (" + p_6.State + ", " + p_6.Signal + ") by " + arms + "\n"))
 		env.task.Check()
 	}

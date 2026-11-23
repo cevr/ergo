@@ -319,7 +319,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
 	}
-	if view, step := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
+	if view, step, stepSig := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
 		// A machine declaration's value is a Machine of its state, signal
 		// and step (README Gap 46), or an InputMachine when its initial is
 		// a function of an input (V4): ConvMachine.
@@ -334,24 +334,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			k := len(view.TArgs) - 4
 			o, f, r, w := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg), view.TArgs[k+3].(*RowArg)
 			if input {
-				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+				return assignment{}, fmt.Sprintf("its start takes %s and its step %sgives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 			}
-			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s, capability row %s and work row %s", step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+			return assignment{}, fmt.Sprintf("its step %sgives a Machine with output %s, error row %s, capability row %s and work row %s", entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 		}
-		table := map[string]*Func{"Step": step}
-		if input {
-			table["Start"] = machineStart(v.(*Named).Obj.Pkg, v.(*Named).Obj.Decl.Spec.(*syntax.MachineType))
+		conv, why := c.machineConversion(v.(*Named), t, step, stepSig, input)
+		if why != "" {
+			return assignment{}, why
 		}
-		if after := c.machineAfter(v); after != nil {
-			table["After"] = after // else every state has no timer
-		}
-		if work, _ := c.machineWork(v); work != nil {
-			table["Work"] = work // else every state has no work
-		}
-		if exit, _ := c.machineExit(v); exit != nil {
-			table["Exit"] = exit // else every state has no exit action
-		}
-		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
+		return assignment{clause: assignMachine, conv: conv}, ""
 	}
 	if IsGoAny(t) {
 		// Clause 8 (GB2): Go's own conversion to its empty interface.
