@@ -9,24 +9,44 @@ import filepath
 import github.com/cevr/ergo/modules/work/work
 import strconv
 import strings
+import sync
 
 // Trees runs the tree commands through a Runner.
-type Trees { run exec.Runner }
+type Trees { run exec.Runner, resolve func(name string) string }
 
 // New is the Trees of a Runner.
-func New(run exec.Runner) Trees { Trees{run: run} }
+func New(run exec.Runner, resolve own func(name string) string) Trees {
+	Trees{run: run, resolve: resolve}
+}
 
-// Run runs name with args and is its result; a command that could not
+// Invoke runs name with args and is its result; a command that could not
 // start is CloneFailed, named by who.
-func Run(t Trees, who string, name string, args []string) exec.Result fails work.CloneFailed {
+func Invoke(t Trees, who string, name string, args []string, path string) exec.Result fails work.CloneFailed {
 	t.run.Run(exec.New(name, args)) catch {
 	case exec.NotFound:
-		return work.CloneFailed{Cloner: who, Reason: "\(name) is not on PATH"}
+		return startFailure(t, who, name, path, "not found on PATH")
 	case exec.Denied:
-		return work.CloneFailed{Cloner: who, Reason: "\(name) may not run"}
+		return startFailure(t, who, name, path, "permission denied")
 	case exec.Failed as f:
-		return work.CloneFailed{Cloner: who, Reason: "\(name): \(f.Reason)"}
+		return startFailure(t, who, name, path, f.Reason)
 	}
+}
+
+func executable(t Trees, name string) string {
+	let path = t.resolve(name)
+	if path == "" { "\(name) (unresolved)" } else { "\(name) (resolved to \(strconv.Quote(path)))" }
+}
+
+func startFailure(t Trees, who string, name string, path string, why string) work.CloneFailed {
+	work.CloneFailed{Cloner: who, Reason: "\(executable(t, name)) for \(path): did not start: \(why)"}
+}
+
+func commandFailure(t Trees, who string, name string, path string, r exec.Result, detail string) work.CloneFailed {
+	let text = strings.TrimSpace(r.Stderr)
+	let out = if text != "" { text } else if strings.TrimSpace(r.Stdout) != "" { "no stderr; stdout: \(strings.TrimSpace(r.Stdout))" } else { "no output" }
+	let note = if detail == "" { "" } else { "; \(detail)" }
+	let status = if r.Status >= 129 && r.Status <= 192 { "\(r.Status) (signal \(r.Status - 128) if signaled)" } else { "\(r.Status)" }
+	work.CloneFailed{Cloner: who, Reason: "\(executable(t, name)) for \(path): exit status \(status): \(out)\(note)"}
 }
 
 // Has reports whether a folder, or a file (a leave_out entry, Rift's
@@ -37,7 +57,7 @@ func Has(t Trees, root string) bool { at(t, "-e", root) }
 func folder(t Trees, root string) bool { at(t, "-d", root) }
 
 func at(t Trees, flag string, root string) bool {
-	let r = Run(t, "system", "test", []string{flag, root}) catch {
+	let r = Invoke(t, "system", "test", []string{flag, root}, strconv.Quote(root)) catch {
 	case work.CloneFailed:
 		return false
 	}
@@ -50,7 +70,7 @@ func Prepare(t Trees, who string, from string, to string) fails work.Exists | wo
 	if !folder(t, from) {
 		return work.Missing{Path: from}
 	}
-	let r = try Run(t, who, "test", []string{"-e", to})
+	let r = try Invoke(t, who, "test", []string{"-e", to}, strconv.Quote(to))
 	if r.Status == 0 {
 		return work.Exists{Path: to}
 	}
@@ -59,9 +79,10 @@ func Prepare(t Trees, who string, from string, to string) fails work.Exists | wo
 
 // MakeParent makes the folder that holds path.
 func MakeParent(t Trees, who string, path string) fails work.CloneFailed {
-	let r = try Run(t, who, "mkdir", []string{"-p", filepath.Dir(path)})
+	let dir = filepath.Dir(path)
+	let r = try Invoke(t, who, "mkdir", []string{"-p", dir}, strconv.Quote(dir))
 	if r.Status != 0 {
-		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+		return commandFailure(t, who, "mkdir", strconv.Quote(dir), r, "")
 	}
 }
 
@@ -69,8 +90,8 @@ func MakeParent(t Trees, who string, path string) fails work.CloneFailed {
 // across file systems is NotSameVolume, a full file system NoSpace, an
 // existing target Exists, and an unsupported call Unsupported when the
 // error says so in one of unsupported's phrases; else CloneFailed.
-func Failure(who string, from string, to string, stderr string, unsupported []string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.CloneFailed {
-	let text = strings.TrimSpace(stderr)
+func Failure(t Trees, who string, name string, from string, to string, r exec.Result, unsupported []string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.CloneFailed {
+	let text = strings.TrimSpace(r.Stderr)
 	let lower = strings.ToLower(text)
 	if strings.Contains(lower, "cross-device") {
 		return work.NotSameVolume{From: from, To: to}
@@ -86,8 +107,11 @@ func Failure(who string, from string, to string, stderr string, unsupported []st
 	if strings.Contains(lower, "file exists") {
 		return work.Exists{Path: to}
 	}
-	return work.CloneFailed{Cloner: who, Reason: text}
+	return commandFailure(t, who, name, Between(from, to), r, "")
 }
+
+// Between names the source and destination in a command diagnostic.
+func Between(from string, to string) string { "\(strconv.Quote(from)) -> \(strconv.Quote(to))" }
 
 // FirstLine is the first line of a command's error and how many lines
 // follow it: cp names every file it could not clone, one a line, so the
@@ -105,7 +129,8 @@ func FirstLine(text string) string {
 // one line and a count (B5's repro).
 test UnsupportedSaysOneLine {
 	let mut e = ""
-	Failure("reflink", "/a", "/b", "cp: failed to clone '/b/x': Operation not supported\ncp: failed to clone '/b/y': Operation not supported\ncp: failed to clone '/b/z': Operation not supported\n", []string{"not supported"}) catch {
+	let r = exec.Result{Status: 1, Stdout: "", Stderr: "cp: failed to clone '/b/x': Operation not supported\ncp: failed to clone '/b/y': Operation not supported\ncp: failed to clone '/b/z': Operation not supported\n"}
+	Failure(New(exec.Script{Results: Map[string, exec.Result]{}}, func(name string) string { "/bin/" + name }), "reflink", "cp", "/a", "/b", r, []string{"not supported"}) catch {
 	case work.Unsupported as u:
 		e = u.Why
 	case _:
@@ -126,7 +151,7 @@ func FileSystemOf(t Trees, dir string) string {
 // Leave deletes what a failed clone left at to, so a failure leaves
 // nothing.
 func Leave(t Trees, to string) {
-	let _ = Run(t, "system", "rm", []string{"-rf", "--", to}) catch {
+	let _ = Invoke(t, "system", "rm", []string{"-rf", "--", to}, strconv.Quote(to)) catch {
 	case work.CloneFailed:
 		exec.Result{Status: 1, Stdout: "", Stderr: ""}
 	}
@@ -140,14 +165,14 @@ func Move(t Trees, who string, from string, to string) fails work.Exists | work.
 	if from == to {
 		return
 	}
-	let r = try Run(t, who, "test", []string{"-e", to})
+	let r = try Invoke(t, who, "test", []string{"-e", to}, strconv.Quote(to))
 	if r.Status == 0 {
 		return work.Exists{Path: to}
 	}
 	try MakeParent(t, who, to)
-	let moved = try Run(t, who, "mv", []string{"--", from, to})
+	let moved = try Invoke(t, who, "mv", []string{"--", from, to}, Between(from, to))
 	if moved.Status != 0 {
-		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(moved.Stderr)}
+		return commandFailure(t, who, "mv", Between(from, to), moved, "")
 	}
 }
 
@@ -164,19 +189,19 @@ let PlaceScript = "set -eu\ndev() { if [ \"$(uname)\" = Darwin ]; then stat -f %
 
 // Placeable makes staging and checks it is on home's device (PlaceableScript).
 func Placeable(t Trees, who string, staging string, home string) fails work.NotSameVolume | work.CloneFailed {
-	let r = try Run(t, who, "sh", []string{"-c", PlaceableScript, "work-placeable", staging, home})
+	let r = try Invoke(t, who, "sh", []string{"-c", PlaceableScript, "work-placeable", staging, home}, Between(staging, home))
 	if r.Status == 3 {
 		return work.NotSameVolume{From: staging, To: home}
 	}
 	if r.Status != 0 {
-		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+		return commandFailure(t, who, "sh", Between(staging, home), r, "work-placeable")
 	}
 }
 
 // Place renames from to to by one rename and syncs both folders
 // (PlaceScript); across devices it is NotSameVolume and nothing moves.
 func Place(t Trees, who string, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed {
-	let r = try Run(t, who, "sh", []string{"-c", PlaceScript, "work-place", from, to})
+	let r = try Invoke(t, who, "sh", []string{"-c", PlaceScript, "work-place", from, to}, Between(from, to))
 	if r.Status == 3 || (r.Status != 0 && strings.Contains(strings.ToLower(r.Stderr), "cross-device")) {
 		return work.NotSameVolume{From: from, To: to}
 	}
@@ -187,7 +212,7 @@ func Place(t Trees, who string, from string, to string) fails work.NotSameVolume
 		return work.Exists{Path: to}
 	}
 	if r.Status != 0 {
-		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+		return commandFailure(t, who, "sh", Between(from, to), r, "work-place")
 	}
 }
 
@@ -197,10 +222,132 @@ func Discard(t Trees, who string, root string) fails work.Missing | work.CloneFa
 	if !Has(t, root) {
 		return work.Missing{Path: root}
 	}
-	let r = try Run(t, who, "rm", []string{"-rf", "--", root})
-	if r.Status != 0 || Has(t, root) {
-		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	let path = strconv.Quote(root)
+	let args = []string{"-rf", "--", root}
+	let first = try Invoke(t, who, "rm", args, path)
+	if first.Status == 0 {
+		try discarded(t, who, root, first)
+		return
 	}
+	let failure = commandFailure(t, who, "rm", path, first, "")
+	// Keep the first diagnostic even if the fix could not start or
+	// the retry fails without any output.
+	let changed = try repairRemoval(t, who, root, failure)
+	if !changed {
+		return failure
+	}
+	let again = Invoke(t, who, "rm", args, path) catch {
+	case work.CloneFailed as e:
+		return work.CloneFailed{..failure, Reason: "\(failure.Reason); retry: \(e.Reason)"}
+	}
+	discarded(t, who, root, again) catch {
+	case work.CloneFailed as e:
+		return work.CloneFailed{..failure, Reason: "\(failure.Reason); retry: \(e.Reason)"}
+	}
+}
+
+// Walk with physical links (-P), pre-order: chmod of one directory runs
+// before descent into it. Only a directory missing owner rwx is changed.
+// The marker tells Discard whether it is worth retrying. Prefix a relative
+// operand with ./ so find cannot read it as an expression.
+let RepairRemovalScript = "set -eu\ncase \"$1\" in /*) root=$1;; *) root=./$1;; esac\nfind -P \"$root\" -xdev -type d ! -perm -0700 -exec chmod u+rwx -- '{}' ';' -print\n"
+
+func repairRemoval(t Trees, who string, root string, failure work.CloneFailed) bool fails work.CloneFailed {
+	let path = strconv.Quote(root)
+	let r = Invoke(t, who, "sh", []string{"-c", RepairRemovalScript, "work-discard-permissions", root}, path) catch {
+	case work.CloneFailed as e:
+		return work.CloneFailed{..failure, Reason: "\(failure.Reason); directory permission repair: \(e.Reason)"}
+	}
+	if r.Status != 0 || (r.Stdout == "" && strings.TrimSpace(r.Stderr) != "") {
+		let repair = commandFailure(t, who, "sh", path, r, "work-discard-permissions")
+		return work.CloneFailed{..failure, Reason: "\(failure.Reason); directory permission repair: \(repair.Reason)"}
+	}
+	r.Stdout != ""
+}
+
+// The first rm writes stderr; the second fails without it. Either would
+// be independently actionable, so the final diagnostic keeps both.
+type retryRunner { attempts sync.Ref[int] } implements exec.Runner
+
+func Run(p retryRunner, c exec.Command) exec.Result fails exec.NotFound {
+	match c.Name {
+	case "test":
+		exec.Result{Status: 0, Stdout: "", Stderr: ""}
+	case "rm":
+		let n = p.attempts.Get()
+		p.attempts.Set(n + 1)
+		if n == 0 { exec.Result{Status: 1, Stdout: "", Stderr: "Permission denied\n"} } else { exec.Result{Status: 7, Stdout: "", Stderr: ""} }
+	case "sh":
+		if c.Args != []string{"-c", RepairRemovalScript, "work-discard-permissions", "/old"} {
+			return exec.NotFound{Name: c.Name}
+		}
+		exec.Result{Status: 0, Stdout: "/old/dir\n", Stderr: ""}
+	case _:
+		return exec.NotFound{Name: c.Name}
+	}
+}
+
+func Start(p retryRunner, c exec.Command, streams exec.Streams) exec.Running fails exec.NotFound { exec.Ended(try p.Run(c), streams) }
+
+law RetryKeepsFirstStderr() {
+	let p = retryRunner{attempts: sync.NewRef(0)}
+	Discard(New(p, func(name string) string { "/bin/" + name }), "copy", "/old") catch {
+	case work.CloneFailed as f:
+		return p.attempts.Get() == 2 && strings.Contains(f.Reason, "exit status 1: Permission denied") && strings.Contains(f.Reason, "exit status 7: no output")
+	case work.Missing:
+		return false
+	}
+	false
+}
+
+law SuccessfulRmThatLeavesThePathIsAFailure() {
+	let root = "/old dir"
+	let run = exec.Script{Results: Map[string, exec.Result]{
+		exec.Key(exec.New("test", []string{"-e", root})): exec.Result{Status: 0, Stdout: "", Stderr: ""},
+		exec.Key(exec.New("rm", []string{"-rf", "--", root})): exec.Result{Status: 0, Stdout: "", Stderr: ""},
+	}}
+	Discard(New(run, func(name string) string { "/bin/" + name }), "copy", root) catch {
+	case work.CloneFailed as f:
+		return strings.Contains(f.Reason, "exit status 0: no output; rm reported success but \"/old dir\" still exists; rm resolved to \"/bin/rm\"")
+	case work.Missing:
+		return false
+	}
+	false
+}
+
+func discarded(t Trees, who string, root string, r exec.Result) fails work.CloneFailed {
+	let path = strconv.Quote(root)
+	if r.Status != 0 {
+		return commandFailure(t, who, "rm", path, r, "")
+	}
+	let exists = try Invoke(t, who, "test", []string{"-e", root}, path)
+	if exists.Status == 0 {
+		let resolved = t.resolve("rm")
+		let detail = "rm reported success but \(path) still exists; rm resolved to \(if resolved == "" { "an unknown path" } else { strconv.Quote(resolved) })"
+		return commandFailure(t, who, "rm", path, r, detail)
+	}
+	if exists.Status != 1 {
+		return commandFailure(t, who, "test", path, exists, "checking whether rm removed the path")
+	}
+}
+
+// DiscardNamesTheFailedCommand: a silent failed or killed helper still
+// names its command, status, and target; an error with stderr keeps it.
+law DiscardNamesTheFailedCommand(n int, silent bool) {
+	let root = "/test/old dir"
+	let status = if n % 2 == 0 { 1 } else { 137 }
+	let stderr = if silent { " \n" } else { "write denied\n" }
+	let run = exec.Script{Results: Map[string, exec.Result]{
+		exec.Key(exec.New("test", []string{"-e", root})): exec.Result{Status: 0, Stdout: "", Stderr: ""},
+		exec.Key(exec.New("rm", []string{"-rf", "--", root})): exec.Result{Status: status, Stdout: "", Stderr: stderr},
+	}}
+	Discard(New(run, func(name string) string { "/bin/" + name }), "copy", root) catch {
+	case work.CloneFailed as f:
+		return f.Cloner == "copy" && strings.Contains(f.Reason, "/bin/rm") && strings.Contains(f.Reason, root) && strings.Contains(f.Reason, "exit status \(status)") && strings.Contains(f.Reason, if silent { "no output" } else { "write denied" })
+	case work.Missing:
+		return false
+	}
+	false
 }
 
 // SharedUsage is the usage of root by btrfs filesystem du: its total, the
@@ -209,29 +356,29 @@ func SharedUsage(t Trees, who string, root string) work.Usage fails work.Unsuppo
 	if !Has(t, root) {
 		return work.Missing{Path: root}
 	}
-	let r = Run(t, who, "btrfs", []string{"filesystem", "du", "-s", "--raw", root}) catch {
+	let r = Invoke(t, who, "btrfs", []string{"filesystem", "du", "-s", "--raw", root}, strconv.Quote(root)) catch {
 	case work.CloneFailed as f:
 		return work.Unsupported{Cloner: who, Why: f.Reason}
 	}
 	if r.Status != 0 {
-		return work.Unsupported{Cloner: who, Why: strings.TrimSpace(r.Stderr)}
+		return work.Unsupported{Cloner: who, Why: FirstLine(commandFailure(t, who, "btrfs", strconv.Quote(root), r, "filesystem du").Reason)}
 	}
-	try ParseBtrfsDu(who, r.Stdout)
+	try parseBtrfsDu(t, who, root, r)
 }
 
 // ParseBtrfsDu reads the table of `btrfs filesystem du -s --raw`: a head
 // line, then Total, Exclusive, Set shared and the file name.
-func ParseBtrfsDu(who string, out string) work.Usage fails work.CloneFailed {
-	let lines = strings.Split(strings.TrimSpace(out), "\n")
+func parseBtrfsDu(t Trees, who string, root string, r exec.Result) work.Usage fails work.CloneFailed {
+	let lines = strings.Split(strings.TrimSpace(r.Stdout), "\n")
 	if len(lines) < 2 {
-		return work.CloneFailed{Cloner: who, Reason: "btrfs filesystem du printed no usage"}
+		return commandFailure(t, who, "btrfs", strconv.Quote(root), r, "filesystem du printed no usage")
 	}
 	let fields = strings.Fields(lines[1])
 	if len(fields) < 3 {
-		return work.CloneFailed{Cloner: who, Reason: "btrfs filesystem du: \(lines[1])"}
+		return commandFailure(t, who, "btrfs", strconv.Quote(root), r, "invalid filesystem du table")
 	}
-	let total = try count(who, fields[0])
-	let exclusive = try count(who, fields[1])
+	let total = try count(t, who, "btrfs", root, r, fields[0])
+	let exclusive = try count(t, who, "btrfs", root, r, fields[1])
 	work.Usage{Total: total, Exclusive: exclusive, Shared: total - exclusive}
 }
 
@@ -241,15 +388,15 @@ func CopyUsage(t Trees, who string, root string) work.Usage fails work.Unsupport
 	if !Has(t, root) {
 		return work.Missing{Path: root}
 	}
-	let r = try Run(t, who, "du", []string{"-sk", root})
+	let r = try Invoke(t, who, "du", []string{"-sk", root}, strconv.Quote(root))
 	if r.Status != 0 {
-		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+		return commandFailure(t, who, "du", strconv.Quote(root), r, "")
 	}
 	let fields = strings.Fields(r.Stdout)
 	if len(fields) == 0 {
-		return work.CloneFailed{Cloner: who, Reason: "du printed no usage"}
+		return commandFailure(t, who, "du", strconv.Quote(root), r, "printed no usage")
 	}
-	let bytes = try count(who, fields[0]) * 1024
+	let bytes = try count(t, who, "du", root, r, fields[0]) * 1024
 	work.Usage{Total: bytes, Exclusive: bytes, Shared: 0}
 }
 
@@ -259,12 +406,12 @@ func FreeOf(t Trees, who string, root string) int fails work.Unsupported | work.
 	if !Has(t, root) {
 		return work.Missing{Path: root}
 	}
-	let r = Run(t, who, "df", []string{"-Pk", "--", root}) catch {
+	let r = Invoke(t, who, "df", []string{"-Pk", "--", root}, strconv.Quote(root)) catch {
 	case work.CloneFailed as f:
 		return work.Unsupported{Cloner: who, Why: f.Reason}
 	}
 	if r.Status != 0 {
-		return work.Unsupported{Cloner: who, Why: FirstLine(strings.TrimSpace(r.Stderr))}
+		return work.Unsupported{Cloner: who, Why: FirstLine(commandFailure(t, who, "df", strconv.Quote(root), r, "").Reason)}
 	}
 	let lines = strings.Split(strings.TrimSpace(r.Stdout), "\n")
 	if len(lines) < 2 {
@@ -274,7 +421,7 @@ func FreeOf(t Trees, who string, root string) int fails work.Unsupported | work.
 	if len(fields) < 4 {
 		return work.Unsupported{Cloner: who, Why: "df: \(lines[len(lines)-1])"}
 	}
-	try count(who, fields[3]) * 1024
+	try count(t, who, "df", root, r, fields[3]) * 1024
 }
 
 // EntriesScript prints the number of entries under the folder $1, not
@@ -286,16 +433,16 @@ func EntriesOf(t Trees, who string, root string) int fails work.Missing | work.C
 	if !Has(t, root) {
 		return work.Missing{Path: root}
 	}
-	let r = try Run(t, who, "sh", []string{"-c", EntriesScript, "work-entries", root})
+	let r = try Invoke(t, who, "sh", []string{"-c", EntriesScript, "work-entries", root}, strconv.Quote(root))
 	if r.Status != 0 {
-		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+		return commandFailure(t, who, "sh", strconv.Quote(root), r, "work-entries")
 	}
-	try count(who, strings.TrimSpace(r.Stdout))
+	try count(t, who, "sh", root, r, strings.TrimSpace(r.Stdout))
 }
 
-func count(who string, text string) int fails work.CloneFailed {
+func count(t Trees, who string, name string, root string, r exec.Result, text string) int fails work.CloneFailed {
 	strconv.Atoi(text) catch {
 	case strconv.Malformed, strconv.OutOfRange:
-		return work.CloneFailed{Cloner: who, Reason: "\(text) is not a byte count"}
+		return commandFailure(t, who, name, strconv.Quote(root), r, "\(text) is not a count")
 	}
 }

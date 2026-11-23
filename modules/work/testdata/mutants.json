@@ -2,6 +2,70 @@
   "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0, WS9a, WG2, WG6a); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
   "mutants": [
     {
+      "name": "reason-dropped", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/system/trees.ergo",
+      "from": "Reason: \"\\(executable(t, name)) for \\(path): exit status \\(status): \\(out)\\(note)\"",
+      "to": "Reason: strings.TrimSpace(r.Stderr)",
+      "rule": "DiscardNamesTheFailedCommand requires status, command path, workspace path and stderr or no output in a helper failure.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "gc-stops-at-first", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tcase CloneFailed as e:\n\t\t\tfailed = failed.Append(DiscardFailure{Name: w.Name, Path: w.Path, Cause: e})\n\t\t\treleaseCreating(t, w)\n\t\t\tcontinue",
+      "to": "\t\tcase CloneFailed as e:\n\t\t\tfailed = failed.Append(DiscardFailure{Name: w.Name, Path: w.Path, Cause: e})\n\t\t\treleaseCreating(t, w)\n\t\t\tbreak",
+      "rule": "GcKeepsGoingAfterFailures needs both failed records reported, and the healthy tail record and tree purged.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "discard-keeps-readonly-dirs", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/system/trees.ergo",
+      "from": "let changed = try repairRemoval(t, who, root, failure)",
+      "to": "let changed = false",
+      "rule": "DiscardRepairsReadOnlyDirectories requires the copy cloner to delete nested non-writable directories without changing an outside target.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "discard-loses-first-stderr", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/system/trees.ergo",
+      "from": "discarded(t, who, root, again) catch {\n\tcase work.CloneFailed as e:\n\t\treturn work.CloneFailed{..failure, Reason: \"\\(failure.Reason); retry: \\(e.Reason)\"}",
+      "to": "discarded(t, who, root, again) catch {\n\tcase work.CloneFailed as e:\n\t\treturn e",
+      "rule": "RetryKeepsFirstStderr needs the original permission diagnostic even when the second rm is silent.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rm-success-no-postcheck", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/system/trees.ergo",
+      "from": "if exists.Status == 0 {",
+      "to": "if exists.Status == 0 { return }\n\tif exists.Status == 0 {",
+      "rule": "SuccessfulRmThatLeavesThePathIsAFailure checks that a zero exit cannot hide an undeleted tree.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "gc-dry-discards", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tif o.Dry {",
+      "to": "\tif o.Dry && false {",
+      "rule": "GcPreviewDoesNotDiscard requires a populated preview with the tree and registry still intact.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "gc-dry-flag-ignored", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/work/workcli/cli.ergo",
+      "from": "Dry: f4.Get(v)",
+      "to": "Dry: false",
+      "rule": "The gc-dry CLI case catches a parsed flag that does not reach the domain.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
+      "name": "work-version-drops-stamp", "origin": "WORK-GC-EMPTY-CLONEFAILED",
+      "file": "modules/work/work/api.ergo",
+      "from": "func Version(t Tool) string { t.version }",
+      "to": "func Version(t Tool) string { t.base }",
+      "rule": "The version CLI case requires a version answer outside a Work base, not the path or an unknown command.",
+      "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
+    },
+    {
       "name": "ws0-copy-picked-silently", "origin": "wf10/semws WS0",
       "file": "modules/work/work/api.ergo",
       "from": "\tif !copyAllowed {\n",
@@ -1324,8 +1388,8 @@
     {
       "name": "t1-btrfs-plain-copy", "origin": "wf10/semws verify r1 T1",
       "file": "modules/work/btrfs/btrfs.ergo",
-      "from": "system.Run(c.trees, \"btrfs\", \"btrfs\", []string{\"subvolume\", \"snapshot\", from, to})",
-      "to": "system.Run(c.trees, \"btrfs\", \"cp\", []string{\"-a\", \"--reflink=never\", \"--\", from, to})",
+      "from": "system.Invoke(c.trees, \"btrfs\", \"btrfs\", []string{\"subvolume\", \"snapshot\", from, to}, system.Between(from, to))",
+      "to": "system.Invoke(c.trees, \"btrfs\", \"cp\", []string{\"-a\", \"--reflink=never\", \"--\", from, to}, system.Between(from, to))",
       "rule": "btrfs snapshots a subvolume that shares every block: on btrfs a plain copy holds blocks of its own, elsewhere it is not Unsupported (btrfs's SnapshotsARealSubvolume).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },

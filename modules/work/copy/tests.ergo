@@ -10,7 +10,7 @@ import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
 let onHost = context needs TestAmbient {
-	work.Cloner:         New(exec.NewTestHost()),
+	work.Cloner:         New(system.TestTrees()),
 	fs.Files, fs.Writes: fs.NewTestHost(),
 	exec.Runner:         exec.NewTestHost(),
 }
@@ -29,6 +29,25 @@ test CloneCopiesATree {
 		assert !work.Cloner.Has("trees/one") && work.Cloner.Has("trash/one")
 		try work.Cloner.Discard("trash/one")
 		assert !work.Cloner.Has("trash/one")
+	}
+}
+
+// DiscardRepairsReadOnlyDirectories reproduces the failed host rm: the
+// kernel checks the directory mode on unlink, not the mode of its file.
+// A link in the discard tree must not change the outside directory.
+test DiscardRepairsReadOnlyDirectories {
+	with onHost {
+		let plant = "set -eu\nmkdir -p src/locked/nested outside\nprintf 'delete\\n' > src/locked/nested/file\nprintf 'preserve\\n' > outside/file\nln -s ../../outside src/locked/link\nchmod 500 src/locked src/locked/nested outside\n"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", plant})).Status == 0
+		try work.Cloner.Clone("src", "one")
+		try work.Cloner.Move("one", "trash/one")
+		try work.Cloner.Discard("trash/one")
+		assert !work.Cloner.Has("trash/one")
+		assert try fs.Files.ReadFile("outside/file") == "preserve\n"
+		let outside = try fs.Files.Stat("outside")
+		assert outside.Perm & 128 == 0
+		// Allow the case's own cleanup to delete the original and outside.
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "chmod u+w src/locked src/locked/nested outside"})).Status == 0
 	}
 }
 
