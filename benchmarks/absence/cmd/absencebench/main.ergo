@@ -1,0 +1,346 @@
+// absencebench is ABSENCE's receipt probe (PRELUDE-ORFAIL): a Map read
+// through the prelude's OrFail, and through an Option Map and Or, each
+// against the hand match, and all against hand Go comma-ok in
+// ../../testdata/control; a workload per kind in ../../KIND (go run
+// ./scripts/opcount -control -rounds 5 benchmarks/absence/KIND).
+//
+//	absencebench bench KIND N
+//
+// One unit is one read; half the keys miss. The results are summed, so a
+// read whose result went unread cannot be dropped.
+
+import os
+import strconv
+
+type miss { Key int }
+
+// optMap and optOr are the bodies a prelude Map and Or would have
+// (ABSENCE r2): ordinary generic functions, lowered as any.
+func optMap[T, U, E, R](o Option[T], f func(v T) U fails E needs R) Option[U] fails E needs R {
+	match o {
+	case Some[T] as s:
+		Some{Value: try f(s.Value)}
+	case None:
+		None
+	}
+}
+
+func optOr[T](o Option[T], d T) T {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		d
+	}
+}
+
+// optThen, optMapOr, optOrElse and optFilter are the bodies a prelude Then,
+// MapOr, OrElse and Filter would have (ABSENCE r3), written as optMap is.
+func optThen[T, U, E, R](o Option[T], f func(v T) Option[U] fails E needs R) Option[U] fails E needs R {
+	match o {
+	case Some[T] as s:
+		try f(s.Value)
+	case None:
+		None
+	}
+}
+
+func optMapOr[T, U, E, R](o Option[T], d U, f func(v T) U fails E needs R) U fails E needs R {
+	match o {
+	case Some[T] as s:
+		try f(s.Value)
+	case None:
+		d
+	}
+}
+
+func optOrElse[T, E, R](o Option[T], f func() T fails E needs R) T fails E needs R {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		try f()
+	}
+}
+
+func optFilter[T, E, R](o Option[T], p func(v T) bool fails E needs R) Option[T] fails E needs R {
+	match o {
+	case Some[T] as s:
+		if try p(s.Value) {
+			return s
+		}
+		None
+	case None:
+		None
+	}
+}
+
+// MyOpt and myOrFail are a user's own Option and OrFail, written in this
+// package: an error row parameter that is a value parameter's type lowers
+// the same for them as for the prelude's (types.md, Generics 6), so the
+// userorfail kind counts what orfail counts.
+type MyHas[T] { Value T }
+type MyNone {}
+type MyOpt[T] = MyHas[T] | MyNone
+
+func myGet(m Map[int, int], k int) MyOpt[int] {
+	match m.Get(k) {
+	case Some[int] as v:
+		MyHas{Value: v.Value}
+	case None:
+		MyNone
+	}
+}
+
+func myOrFail[T, F](o MyOpt[T], f F) T fails F {
+	match o {
+	case MyHas[T] as s:
+		s.Value
+	case MyNone:
+		f
+	}
+}
+
+func viaMyOrFail(m Map[int, int], k int) int fails miss { myOrFail(myGet(m, k), miss{Key: k}) }
+
+// viaOrFailLet and viaMyOrFailLet bind the call before returning it: the
+// IR inliner splices a call in a binding, not in a return (INLINE-SLOT
+// probe, kinds orfaillet and userorfaillet).
+func viaOrFailLet(m Map[int, int], k int) int fails miss {
+	let v = try m.Get(k).OrFail(miss{Key: k})
+	v
+}
+
+func viaMyOrFailLet(m Map[int, int], k int) int fails miss {
+	let v = try myOrFail(myGet(m, k), miss{Key: k})
+	v
+}
+
+func orFailsLet(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		let k = i & 2047
+		t = t + (viaOrFailLet(m, k) catch { case miss as e: e.Key & 1 })
+	}
+	t
+}
+
+func myOrFailsLet(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		let k = i & 2047
+		t = t + (viaMyOrFailLet(m, k) catch { case miss as e: e.Key & 1 })
+	}
+	t
+}
+
+func myOrFails(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		let k = i & 2047
+		t = t + (viaMyOrFail(m, k) catch { case miss as e: e.Key & 1 })
+	}
+	t
+}
+
+func table() Map[int, int] {
+	let mut m = Map[int, int]{}
+	for i in 0..1024 {
+		m = m.Put(i * 2, i)
+	}
+	m
+}
+
+func viaOrFail(m Map[int, int], k int) int fails miss { m.Get(k).OrFail(miss{Key: k}) }
+
+func viaMatch(m Map[int, int], k int) int fails miss {
+	match m.Get(k) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		miss{Key: k}
+	}
+}
+
+func orFails(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		let k = i & 2047
+		t = t + (viaOrFail(m, k) catch { case miss as e: e.Key & 1 })
+	}
+	t
+}
+
+func orFailsHand(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		let k = i & 2047
+		t = t + (viaMatch(m, k) catch { case miss as e: e.Key & 1 })
+	}
+	t
+}
+
+func maps(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + optOr(optMap(m.Get(i & 2047), func(v int) int { v * 2 + 1 }), 0)
+	}
+	t
+}
+
+func mapsHand(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + match m.Get(i & 2047) {
+		case Some[int] as v:
+			v.Value * 2 + 1
+		case None:
+			0
+		}
+	}
+	t
+}
+
+// thens reads m twice: the value read is the next key (Then); the hand
+// twin nests the matches.
+func thens(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + optOr(optThen(m.Get(i & 2047), func(v int) Option[int] { m.Get(v) }), 0)
+	}
+	t
+}
+
+func thensHand(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + match m.Get(i & 2047) {
+		case Some[int] as v:
+			match m.Get(v.Value) {
+			case Some[int] as w:
+				w.Value
+			case None:
+				0
+			}
+		case None:
+			0
+		}
+	}
+	t
+}
+
+func mapOrs(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + optMapOr(m.Get(i & 2047), 0, func(v int) int { v * 2 + 1 })
+	}
+	t
+}
+
+// orElses gives the key's low bit on a miss, from a closure that reads
+// the loop's key; the hand twin computes it in the None arm.
+func orElses(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		let k = i & 2047
+		t = t + optOrElse(m.Get(k), func() int { k & 1 })
+	}
+	t
+}
+
+func orElsesHand(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		let k = i & 2047
+		t = t + match m.Get(k) {
+		case Some[int] as v:
+			v.Value
+		case None:
+			k & 1
+		}
+	}
+	t
+}
+
+func filters(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + optOr(optFilter(m.Get(i & 2047), func(v int) bool { v & 1 == 0 }), 0)
+	}
+	t
+}
+
+func filtersHand(m Map[int, int], n int) int {
+	let mut t = 0
+	for i in 0..n {
+		t = t + match m.Get(i & 2047) {
+		case Some[int] as v:
+			if v.Value & 1 == 0 {
+				v.Value
+			} else {
+				0
+			}
+		case None:
+			0
+		}
+	}
+	t
+}
+
+func bench(kind string, n int) int {
+	let m = table()
+	if kind == "then" {
+		return thens(m, n)
+	}
+	if kind == "thenhand" {
+		return thensHand(m, n)
+	}
+	if kind == "mapor" {
+		return mapOrs(m, n)
+	}
+	if kind == "orelse" {
+		return orElses(m, n)
+	}
+	if kind == "orelsehand" {
+		return orElsesHand(m, n)
+	}
+	if kind == "filter" {
+		return filters(m, n)
+	}
+	if kind == "filterhand" {
+		return filtersHand(m, n)
+	}
+	if kind == "orfail" {
+		return orFails(m, n)
+	}
+	if kind == "orfailhand" {
+		return orFailsHand(m, n)
+	}
+	if kind == "userorfail" {
+		return myOrFails(m, n)
+	}
+	if kind == "orfaillet" {
+		return orFailsLet(m, n)
+	}
+	if kind == "userorfaillet" {
+		return myOrFailsLet(m, n)
+	}
+	if kind == "map" {
+		return maps(m, n)
+	}
+	mapsHand(m, n)
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: absencebench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "absencebench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

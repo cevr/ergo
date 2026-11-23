@@ -13,14 +13,17 @@ import filepath
 
 // Exit is the failure that ends main with status Code. When it is main's
 // only reason, the entry writes Message and a line feed to standard error,
-// verbatim, and exits with Code; Code must be in 1..125 (docs/spec/
-// runtime.md, Exit causes). It is a failure, not a call, so every scope's
+// verbatim (nothing when Message is empty), and exits with Code; Code is
+// in 1..125 or 129..192 (docs/spec/runtime.md, Exit causes). It is a failure, not a call, so every scope's
 // cleanup runs before the program ends.
 extern go ergo.local/prototype/runtime/v1.Exit type Exit { Code Code, Message string }
 
-// Code is a failure status: zero claims success, and 126 and above are
-// reserved by the shell. ParseCode checks a status computed at run time.
-extern go ergo.local/prototype/runtime/v1.Code type Code int where 1 <= it && it <= 125
+// Code is a failure status: 1..125 for a program's own failure, and
+// 129..192 for an end by a stop, 128 plus the signal's number, as a shell
+// reports it (signal.StatusOf: 130 for SIGINT, 143 for SIGTERM). Zero
+// claims success, and 126 to 128 are the shell's own (not executable, not
+// found, an invalid exit). ParseCode checks a status computed at run time.
+extern go ergo.local/prototype/runtime/v1.Code type Code int where (1 <= it && it <= 125) || (129 <= it && it <= 192)
 
 // NoWorkdir is the failure of Getwd when the host cannot name the
 // process's working directory: it was removed, or a directory above it
@@ -33,10 +36,27 @@ extern go ergo.local/prototype/runtime/v1.NoWorkdir type NoWorkdir { Message str
 type Process {
 	Args() []string,
 	Getenv(key string) Option[string],
+	// Environ is the whole environment, each variable by its name. It is
+	// how a program passes this process's environment to one it runs:
+	// `exec.New(name, args).WithEnvFrom(os.Process.Environ())` (std exec:
+	// a program sees only the environment its Command holds).
+	Environ() Map[string, string],
 	Getwd() string fails NoWorkdir,
 
 	// GetenvIsStable: two reads of one key agree.
 	law GetenvIsStable(key string) { Getenv(key) == Getenv(key) },
+
+	// EnvironAgreesWithGetenv: each variable Environ gives is the one
+	// Getenv reads, and a key Getenv reads is in Environ.
+	law EnvironAgreesWithGetenv(key string) {
+		let env = Environ()
+		for k, v in env {
+			if Getenv(k) != (Some[string]{Value: v}) {
+				return false
+			}
+		}
+		Getenv(key) == env.Get(key)
+	},
 
 	// GetwdIsStable: with no change of directory between them, two reads
 	// of the working directory agree, in value and in failure. A process
@@ -73,7 +93,7 @@ type Process {
 // writes os.Host{}, its zero value or a record update of it. root is ""
 // for the host's own (NewHost), and the case's folder for a test's
 // (NewTestHost, confined.ergo).
-type Host { root string } implements Process
+type Host { root string } implements Process, Self
 
 // NewHost is the host's Process provider. It needs Ambient: only code
 // whose row holds the authority to choose the host makes one.
@@ -99,6 +119,17 @@ func Getenv(h Host, key string) Option[string] {
 		None
 	}
 }
+
+// Environ is the host process's environment: each variable once, with
+// the value Getenv reads. A test's Host gives its four (confined.ergo).
+func Environ(h Host) Map[string, string] {
+	if h.root != "" {
+		return confinedEnviron(h)
+	}
+	hostEnviron()
+}
+
+extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron() Map[string, string]
 
 // Getwd is the host process's working directory, an absolute path (Go's
 // os.Getwd). It fails NoWorkdir when the host cannot name it.

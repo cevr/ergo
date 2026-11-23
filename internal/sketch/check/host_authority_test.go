@@ -157,7 +157,7 @@ let H = fs.NewHost() // want S102
 `, []string{needsAmbient("the initializer of H")}},
 		{"N9 a package-level named context", `
 let Live = context { fs.Files: fs.NewHost() } // want S102
-`, []string{"context Live requires Ambient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)"}},
+`, []string{"context Live requires Ambient while it is built, which its header's needs row does not list: write needs Ambient in its header (rows.md, Context 4)"}},
 		{"N10 zero value, record update and literal", `
 func Zero() string {
 	let h fs.Host // want S114
@@ -259,7 +259,7 @@ func Zero() {
 func Lit() LiveScheduler { LiveScheduler{} } // want S114
 `, []string{
 			needsAmbient("test Naps"),
-			"context Live requires Ambient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)",
+			"context Live requires Ambient while it is built, which its header's needs row does not list: write needs Ambient in its header (rows.md, Context 4)",
 			"let s of type LiveScheduler needs a value: its zero value builds a new value of prelude.LiveScheduler, and " + liveAuthority + " (types.md, Zero values 6)",
 			"a literal of LiveScheduler builds a new value: " + liveAuthority,
 		}},
@@ -303,6 +303,10 @@ func ReadDir(_ Mem, path string) []string fails fs.NotFound | fs.Denied | fs.Fai
 }
 
 func Stat(_ Mem, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	return fs.NotFound{Path: path}
+}
+
+func Lstat(_ Mem, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
 	return fs.NotFound{Path: path}
 }
 

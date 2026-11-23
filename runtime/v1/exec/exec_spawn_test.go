@@ -23,7 +23,7 @@ func TestExecSpawnStarter(t *testing.T) {
 	if os.Getenv("ERGO_SPAWN_STARTER") == "" {
 		t.Skip("the starter of TestExecSpawnOutlivesItsStarter")
 	}
-	d, err := ExecSpawn(rt.Root("spawn starter"), "sh", []string{"-c", `trap "" TERM; sleep 120`}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
+	d, err := ExecSpawn(rt.Root("spawn starter"), "/bin/sh", []string{"-c", `trap "" TERM; sleep 120`}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,8 +96,8 @@ func TestExecSpawnOutlivesItsStarter(t *testing.T) {
 // ToCaller sink taken as Discard).
 func TestExecSpawnRefusesToCaller(t *testing.T) {
 	task := rt.Root("spawn refuse")
-	_, err := ExecSpawn(task, "true", nil, nil, "", "", execToCaller, "", false, execDiscard, "", false)
-	want := ExecFailed{Name: "true", Reason: "stdout: a detached program has no caller to read it (ToCaller)"}
+	_, err := ExecSpawn(task, "/usr/bin/true", nil, nil, "", "", execToCaller, "", false, execDiscard, "", false)
+	want := ExecFailed{Name: "/usr/bin/true", Reason: "stdout: a detached program has no caller to read it (ToCaller)"}
 	if err != want {
 		t.Fatalf("ExecSpawn with a ToCaller sink failed %#v, want %#v", err, want)
 	}
@@ -117,7 +117,7 @@ func TestExecSpawnToStdout(t *testing.T) {
 	for k := range 200 {
 		fmt.Fprintf(&want, "o%d\ne%d\n", k, k)
 	}
-	d, err := ExecSpawn(task, "sh", []string{"-c", script}, nil, "", "", execToFile, out, false, execToStdout, "", false)
+	d, err := ExecSpawn(task, "/bin/sh", []string{"-c", script}, nil, "", "", execToFile, out, false, execToStdout, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,9 +130,9 @@ func TestExecSpawnToStdout(t *testing.T) {
 		}
 		return string(data) == want.String()
 	})
-	_, err = ExecSpawn(task, "true", nil, nil, "", "", execToStdout, "", false, execDiscard, "", false)
-	if err != execToItself("true") {
-		t.Fatalf("ExecSpawn with a standard output of ToStdout failed %#v, want %#v", err, execToItself("true"))
+	_, err = ExecSpawn(task, "/usr/bin/true", nil, nil, "", "", execToStdout, "", false, execDiscard, "", false)
+	if err != execToItself("/usr/bin/true") {
+		t.Fatalf("ExecSpawn with a standard output of ToStdout failed %#v, want %#v", err, execToItself("/usr/bin/true"))
 	}
 }
 
@@ -176,7 +176,7 @@ func TestExecSpawnStopped(t *testing.T) {
 				t.Errorf("a stopped Spawn raised %v, want rt.Interrupted", q)
 			}
 		}()
-		_, _ = ExecSpawn(stopped, "true", nil, nil, "", "", execToFile, made, false, execDiscard, "", false)
+		_, _ = ExecSpawn(stopped, "/usr/bin/true", nil, nil, "", "", execToFile, made, false, execDiscard, "", false)
 	}()
 	if _, err := os.Stat(made); err == nil {
 		t.Errorf("a stopped Spawn made its file sink")
@@ -197,7 +197,7 @@ func TestExecKillStopped(t *testing.T) {
 	if err := syscall.Mkfifo(ready, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "sh", []string{"-c", `trap "" TERM; echo ready > "$0"; sleep 120`, ready}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
+	d, err := ExecSpawn(rt.Root("kill stopped spawn"), "/bin/sh", []string{"-c", `trap "" TERM; echo ready > "$0"; sleep 120`, ready}, nil, "", "", execDiscard, "", false, execDiscard, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}

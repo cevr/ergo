@@ -303,6 +303,8 @@ type Mine {} implements fs.Files
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
+
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
 func use(f embed.FS) { _ = f.ReadDir(".") catch { case fs.NotFound, fs.Denied, fs.Failed: []string{} } }
 func main() {
 	use(Mine)
@@ -864,6 +866,7 @@ type Mine {} implements os.Process
 
 func Args(_ Mine) []string { []string{} }
 func Getenv(_ Mine, key string) Option[string] { None }
+func Environ(_ Mine) Map[string, string] { Map[string, string]{} }
 func Getwd(_ Mine) string fails os.NoWorkdir { "/work" }
 
 func use(p os.Process) { _ = p.Args() }
@@ -881,6 +884,10 @@ type Mine {} implements fs.Files
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
+}
+
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
 	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
 }
 
@@ -903,6 +910,7 @@ func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied 
 func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
 func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
 func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Mkdir(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {}
 
 func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
 
@@ -1016,6 +1024,8 @@ func main() {
 
 type Mine {} implements exec.Runner
 
+func Env(_ Mine) Map[string, string] { Map[string, string]{} }
+
 func Run(_ Mine, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
 }
@@ -1106,6 +1116,77 @@ func Stop(m own Mine) int { Close(m); 0 }
 func Close(_ Mine) {}
 
 func use(r exec.Running) { _ = r.Wait() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"sha256.Hasher": `import sha256
+
+type Mine {} implements Closer
+
+func Write(_ Mine, s string) {}
+func Digest(_ Mine) string { "" }
+func Clone(_ Mine) sha256.Hasher { sha256.New() }
+func Close(_ Mine) {}
+
+func use(h sha256.Hasher) { _ = h.Digest() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"fs/mapped.Maps": `import fs
+import fs/mapped
+
+type Mine {} implements mapped.Maps
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
+func WriteFileMode(_ Mine, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAllMode(_ Mine, path string, mode fs.Mode) fails fs.Denied | fs.Failed {}
+func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Mkdir(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {}
+func MapBounded(_ Mine, path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { fs.MapText("") }
+func SameAs(_ Mine, m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { false }
+
+func use(m mapped.Maps) { _ = m.SameAs }
+
+func main() {
+	use(Mine)
+}
+`,
+	"os.Self": `import os
+
+type Mine {} implements os.Self
+
+func Pid(_ Mine) int { 1 }
+func HomeDir(_ Mine) string fails os.NoDir { "/home" }
+func CacheDir(_ Mine) string fails os.NoDir { "/home/.cache" }
+func ConfigDir(_ Mine) string fails os.NoDir { "/home/.config" }
+func Executable(_ Mine) string fails os.NoDir { "/bin/mine" }
+
+func use(s os.Self) { _ = s.Pid() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"signal.Stops": `import signal
+
+type Mine {} implements signal.Stops
+
+func Next(_ Mine) signal.Stop { signal.Interrupt }
+func Poll(_ Mine) Option[signal.Stop] { None }
+
+func use(s signal.Stops) { _ = s.Poll() }
 
 func main() {
 	use(Mine)
@@ -1744,6 +1825,9 @@ var openStd = map[string]bool{
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,
+	"os.Self":           true,
+	"fs/mapped.Maps":    true, // open: a program may provide its own store of mapped files (CAP-FILE), as fs.Files and fs.Writes are open
+	"signal.Stops":      true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,
@@ -2039,6 +2123,8 @@ func Args(e FakeEnv) []string { e.Argv }
 
 func Getenv(_ FakeEnv, key string) Option[string] { None }
 
+func Environ(_ FakeEnv) Map[string, string] { Map[string, string]{} }
+
 func Getwd(_ FakeEnv) string fails os.NoWorkdir { "/work" }
 `
 	cases := map[string]string{
@@ -2073,6 +2159,8 @@ func main() needs Ambient {
 		"exec-runner": `import exec
 
 type Fake { Ran Map[string, int] } implements exec.Runner
+
+func Env(_ Fake) Map[string, string] { Map[string, string]{} }
 
 func Run(f Fake, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	exec.Result{Status: 0, Stdout: c.Name, Stderr: ""}

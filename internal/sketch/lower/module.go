@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 	"go/format"
+	"go/token"
 	"maps"
 	"path"
 	"slices"
@@ -185,6 +186,16 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 		unreachable(l.file, ruleNamingPass, "the package-scope name %s (%s) has no name from the naming pass", base, key.kind)
 	}
 	name := l.packageScopeName(key, base) // pkgnames.go
+	if l.lib != "" && key.kind != "export" && token.IsExported(name) {
+		// A library's Go API is its entries alone (interop.md, A
+		// library): every other package-scope name, a root or prelude
+		// declaration, a fixed name such as Env, is unexported, so a Go
+		// caller reaches nothing else and neither lowering's helpers are
+		// API (LIB-ON-IR). It takes rule 3's spelling, ergo__<name>
+		// (pkgnames.go), under "__", which no local holds: a lowered
+		// body's own env parameter shadowed a fixed Env made env.
+		name = l.names.alloc(HelperSpelling("", name))
+	}
 	l.pkgNames[key] = name
 	l.pkgOrder = append(l.pkgOrder, pkgEntry{key: key, base: base})
 	return name
@@ -236,11 +247,15 @@ type lowerer struct {
 	libsDone     bool
 	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
-	siteIDs      map[siteKey]int         // each call position's CallSite Id (siteid.go)
+	siteIDs      map[siteKey]siteNum     // each call position's CallSite Pkg and Id (siteid.go)
+	sitePkgs     []sitePkg               // the packages in the call-site numbering (siteid.go)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
 	names *namer // the Go package scope: every package-scope name (pkgnames.go)
 	fixed *namer // its parent: the fixed generated names and the prelude's (pkgnames.go, rules 4 and 5)
+	// leafImports and leafNames are the runtime's leaves, by import path
+	// and by Go name: fixed names of rule 4 (pkgnames.go, reserveLeaves).
+	leafImports, leafNames map[string]bool
 	// pkgNamers number each non-root package's own declarations (pkgnames.go, rule 2).
 	pkgNamers map[*check.Package]*namer
 	pkgNames  map[pkgKey]string
@@ -313,19 +328,26 @@ type lowerer struct {
 	// rows of ergo inspect facts that no Go pass reads.
 	foreign  []placedFact
 	contexts map[contextSet]string
-	adapters map[string]string        // operation-table adapters by source and target Go types
-	scripts  map[string]bool          // Script structs emitted, by instance key (script.go)
-	texts    map[pkgKey]bool          // generated text functions emitted
-	defaults map[pkgKey]bool          // generated default functions emitted (types.go, Defaults)
-	equals   map[pkgKey]bool          // generated equality functions emitted (equal.go)
-	wires    map[pkgKey]bool          // generated codec functions emitted (wire.go)
-	clones   map[pkgKey]bool          // generated copy functions emitted (values.go)
-	goVars   map[pkgKey]bool          // getters of Go package variables emitted (ir_govar.go)
-	machines map[pkgKey]string        // generated machine value functions emitted, to their Go result (ir_machine.go)
-	vals     *valueFacts              // the value rule's decisions (values.go)
-	sets     map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
-	holds    map[*check.Named]holdState
-	typeKeys map[check.Type]string
+	adapters map[string]string // operation-table adapters by source and target Go types
+	scripts  map[string]bool   // Script structs emitted, by instance key (script.go)
+	texts    map[pkgKey]bool   // generated text functions emitted
+	defaults map[pkgKey]bool   // generated default functions emitted (types.go, Defaults)
+	equals   map[pkgKey]bool   // generated equality functions emitted (equal.go)
+	wires    map[pkgKey]bool   // generated codec functions emitted (wire.go)
+	clones   map[pkgKey]bool   // generated copy functions emitted (values.go)
+	goVars   map[pkgKey]bool   // getters of Go package variables emitted (ir_govar.go)
+	machines map[pkgKey]string // generated machine value functions emitted, to their Go result (ir_machine.go)
+	// machineOfDone marks each generic machine whose conversion function
+	// is written (machineentry.go).
+	machineOfDone map[*check.TypeName]bool
+	// entryCopies are the computed entries' copies, nil for an entry
+	// whose call is not known (entrycopy.go).
+	entryCopies      map[pkgKey]*entryCopy
+	vals             *valueFacts              // the value rule's decisions (values.go)
+	sets             map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
+	holds            map[*check.Named]holdState
+	typeKeys         map[check.Type]string
+	semanticTypeKeys map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
@@ -379,6 +401,9 @@ type lowerer struct {
 
 	gen  strings.Builder // generated and library declarations, before any //line
 	user strings.Builder // the user package's declarations, with //line
+	// hashSeeded is whether gen holds the hash seed's declaration
+	// (hashSeed, ir_mapprovider.go).
+	hashSeeded bool
 
 	// pending holds library declarations met while lowering, emitted into
 	// gen until none is left.
@@ -475,6 +500,9 @@ type lowerer struct {
 	// program (library.go, IG11); libImports are its own imports.
 	lib        string
 	libImports []string
+	// goPackages is Unit.goPackages: lib is set, and every sourced
+	// package exports (exportsOf).
+	goPackages bool
 	// matchTest is the match tree's test hook (matchtree.go): it can force
 	// the flat lowering, the reference the match-tree property compares
 	// with, and it counts the column kinds the trees split on. Only a test
@@ -523,6 +551,10 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 		l.rewrite = newRewriter(u.Package, u.Rewrite)
 	}
 	l.raw = u.Raw
+	l.lib = u.lib
+	if u.goPackages {
+		l.lib, l.goPackages = goPackagesRoot, true
+	}
 	return l
 }
 
@@ -739,6 +771,10 @@ func (l *lowerer) program() ([]byte, error) {
 	}
 	if l.ir != nil {
 		l.ir.inlineBodies(l) // ir_forms_inline.go: before the call table, which writes the inline table
+		l.guard(func() { l.ir.flatEnd(l) })
+		if len(l.refusals) > 0 {
+			return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
+		}
 	}
 	table := l.callTable()   // before the imports: it may name the runtime package
 	table += l.lineageDecl() // likewise (handover.go)
@@ -792,6 +828,7 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(entryText)
 	l.envType(&out)
 	out.WriteString(l.gen.String())
+	out.WriteString(l.sitePkgDecls())
 	out.WriteString(graphs)
 	out.WriteString(table)
 	out.WriteString(l.user.String())

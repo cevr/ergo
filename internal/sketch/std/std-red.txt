@@ -1,0 +1,29 @@
+# What does not pass on its own source yet (go run ./scripts/ergotests -std,
+# the gate's step "std laws in place"), one line each,
+# "KEY<TAB>CLASS: why<TAB>REGISTER-ID":
+#   pkg Law   a std law with no Go runner (runner none) that no tier runs (class
+#             "not run"), or a law that fails on its own source;
+#   pkg Name  a test that fails there;
+#   pkg *     a package whose evaluation stops ("internal error", "error").
+#   pkg Law   a native prelude law that could not run on its own source
+#             (class "native skip", why is the exact verdict line).
+# A key that needs a line and has none is red; a listed key that passes, or
+# names nothing, is red until its line goes; a key that now fails in
+# another class than its line's is red. This list only shrinks.
+cmp *	internal error: eval: a bare value of int is not a record with no fields (Natural[int] as a value)	STDLAW-RED-CMP
+prelude Hashing.EqualIsReflexive	native skip: law Hashing.EqualIsReflexive runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+prelude Hashing.EqualIsSymmetric	native skip: law Hashing.EqualIsSymmetric runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+prelude Hashing.EqualIsTransitive	native skip: law Hashing.EqualIsTransitive runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+prelude Hashing.EqualKeysHashEqual	native skip: law Hashing.EqualKeysHashEqual runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+prelude Hashing.EqualKeysNormalEqual	native skip: law Hashing.EqualKeysNormalEqual runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+prelude Hashing.NormalKeyIsEqual	native skip: law Hashing.NormalKeyIsEqual runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+prelude Random.Float64InUnit	native skip: law Random.Float64InUnit runs where Random has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+prelude Random.IntNInRange	native skip: law Random.IntNInRange runs where Random has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
+proof/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
+rand *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
+session/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
+slices FilterFuses	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+slices FilterThenTransform	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+slices TransformFuses	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+slices TransformThenFilter	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
+uuid *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES

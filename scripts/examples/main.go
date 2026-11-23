@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/cases"
+	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
@@ -134,6 +135,9 @@ type program struct {
 	// tests the module's go leg runs.
 	goFiles    map[string][]string
 	goPackages []string
+	// findings keep a program's cases and the named packages' test legs
+	// red by record (findings.go).
+	findings []*finding
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -164,7 +168,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if cfg.lawless {
 		return reportLawless(cfg.root, stdout)
 	}
-	programs, modules, problems := loadLayout(cfg.root, cfg.record)
+	programs, modules, problems, notes := loadLayoutNotes(cfg.root, cfg.record)
+	for _, note := range notes {
+		fmt.Fprintln(stdout, note)
+	}
 	if len(problems) > 0 {
 		for _, problem := range problems {
 			fmt.Fprintln(stderr, problem)
@@ -278,7 +285,9 @@ func (r *runner) runOne(p *program, pr *programRun) {
 	defer close(pr.ended)
 	defer func() { pr.panicked = recover() }()
 	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install, toolEnv: r.toolEnv, cache: r.cache}
-	if p.library {
+	if len(p.findings) != 0 {
+		one.runRedByRecord(p)
+	} else if p.library {
 		one.runModule(p)
 	} else if r.cfg.record {
 		one.recordProgram(p)
@@ -386,23 +395,32 @@ const originMoved = "unexpected origin; a port's provenance lives in conformance
 // package folders' sources are absolute (packageAssetSources), and a
 // module's full-tier folders are compared with them.
 func loadLayout(root string, record bool) (programs, modules []*program, problems []string) {
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return nil, nil, []string{err.Error()}
-	}
-	programs, problems = loadExamples(root, record)
-	modules, moduleProblems := loadModules(root)
-	return programs, modules, append(problems, moduleProblems...)
+	programs, modules, problems, _ = loadLayoutNotes(root, record)
+	return programs, modules, problems
 }
 
-func loadExamples(root string, record bool) ([]*program, []string) {
+// loadLayoutNotes is loadLayout with the expected findings (findings.go)
+// it excused, as the lines that report them red by record.
+func loadLayoutNotes(root string, record bool) (programs, modules []*program, problems, notes []string) {
+	root, err := filepath.Abs(root)
+	if err != nil {
+		return nil, nil, []string{err.Error()}, nil
+	}
+	expected, problems := readFindings(root)
+	programs, programProblems, programNotes := loadExamples(root, record, expected)
+	modules, moduleProblems, moduleNotes := loadModules(root, expected)
+	problems = append(append(append(problems, programProblems...), moduleProblems...), expected.stale()...)
+	return programs, modules, problems, append(programNotes, moduleNotes...)
+}
+
+func loadExamples(root string, record bool, expected *findings) ([]*program, []string, []string) {
 	examples := filepath.Join(root, "examples")
 	entries, err := os.ReadDir(examples)
 	if err != nil {
-		return nil, []string{fmt.Sprintf("examples: %v", err)}
+		return nil, []string{fmt.Sprintf("examples: %v", err)}, nil
 	}
 	var programs []*program
-	var problems []string
+	var problems, notes []string
 	for _, entry := range entries {
 		name := entry.Name()
 		label := "examples/" + name
@@ -418,14 +436,20 @@ func loadExamples(root string, record bool) ([]*program, []string) {
 			continue
 		}
 		p, found := loadProgram(filepath.Join(examples, name), name, record)
+		var labelled []string
 		for _, problem := range found {
-			problems = append(problems, label+": "+problem)
+			labelled = append(labelled, label+": "+problem)
 		}
-		if len(found) == 0 {
+		// An expected finding (findings.go) is a note, not a layout
+		// error: the program loads, red by record.
+		labelled, excused, matched := expected.apply(labelled)
+		problems, notes = append(problems, labelled...), append(notes, excused...)
+		if len(labelled) == 0 {
+			p.findings = matched
 			programs = append(programs, p)
 		}
 	}
-	return programs, append(problems, checkPorts(root)...)
+	return programs, append(problems, checkPorts(root)...), notes
 }
 
 // checkPorts checks the provenance of every port: a folder
@@ -697,7 +721,7 @@ func (p *program) checkedDir(dir string) (sketchfront.Analysis, error) {
 
 // packageSources adds the .ergo files of the package folder dir, and of
 // the package folders under it, to the program's sources. A package
-// folder holds .ergo files and package folders only.
+// folder holds .ergo files, its generation marker if any, and package folders.
 func packageSources(p *program, dir, label string) []string {
 	return packageAssetSources(p, dir, label, map[string]bool{})
 }
@@ -732,6 +756,8 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 			problems = append(problems, packageAssetSources(p, filepath.Join(dir, name), label+"/"+name, assets)...)
 		case strings.HasSuffix(name, ".ergo") && entry.Type().IsRegular():
 			p.sources = append(p.sources, filepath.Join(dir, name))
+		case name == genmark.Name && entry.Type().IsRegular():
+			// genProgram reads the marker, including for stale output.
 		case assets[filepath.Join(dir, name)] && entry.Type().IsRegular():
 		case p.library && strings.HasSuffix(name, ".go") && entry.Type().IsRegular():
 			// A module's own Go (docs/spec/interop.md, Trusted Go 3):
@@ -744,7 +770,7 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 		case p.library && strings.HasSuffix(name, ".s"):
 			problems = append(problems, fmt.Sprintf("%s/%s is assembly; a module's own Go body is written in Go (docs/spec/interop.md, Trusted Go 3)", label, name))
 		default:
-			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders", label, name))
+			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files, an optional %s, and package folders", label, name, genmark.Name))
 		}
 	}
 	return problems
@@ -1115,12 +1141,22 @@ func (r *runner) testProgram(p *program) {
 	ledger := filepath.Join(p.dir, "ergo.laws")
 	kept, err := os.ReadFile(ledger)
 	tracked := err == nil
-	if !(p.module && len(p.tests) > 1 && r.testModule(p)) {
-		for _, target := range p.tests {
+	targets := p.tests
+	if r.cfg.fullTier {
+		targets = p.heavy
+	}
+	// A pattern would also test the full-tier folders or the packages
+	// with recorded checker errors; test the selected packages alone.
+	if !(p.module && len(targets) > 1 && len(p.heavy) == 0 && len(p.findings) == 0 && r.testModule(p)) {
+		for _, target := range targets {
+			rel := relTo(p.dir, target)
+			if slices.ContainsFunc(p.findings, func(f *finding) bool { return f.pkg == rel }) {
+				fmt.Fprintf(r.out, "red by record: %s: test %s not run\n", p.name, rel)
+				continue
+			}
 			leg := "test"
 			if p.module {
-				rel, _ := filepath.Rel(p.dir, target)
-				leg = "test " + filepath.ToSlash(rel)
+				leg = "test " + rel
 			}
 			r.testTarget(p, target, leg)
 		}
@@ -1137,6 +1173,32 @@ func (r *runner) testProgram(p *program) {
 		fmt.Fprintf(r.out, "FAIL %s: ledger: ergo test changed the checked-in ergo.laws (put back); run ergo test in %s and commit the file it writes\n", p.name, p.dir)
 	}
 	r.fail(p.name + ": ledger")
+}
+
+// packageDifference is the packages of want that ran does not hold, and
+// the packages of ran that want does not, each sorted.
+func packageDifference(ran, want []string) (notRun, notOurs []string) {
+	for _, w := range want {
+		if !slices.Contains(ran, w) {
+			notRun = append(notRun, w)
+		}
+	}
+	for _, g := range ran {
+		if !slices.Contains(want, g) {
+			notOurs = append(notOurs, g)
+		}
+	}
+	slices.Sort(notRun)
+	slices.Sort(notOurs)
+	return notRun, notOurs
+}
+
+// orNone is the names joined by spaces, or "none".
+func orNone(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, " ")
 }
 
 // testModule runs every package of the program of packages p in one `ergo
@@ -1185,8 +1247,8 @@ func (r *runner) testModule(p *program) bool {
 			r.testTarget(p, target, "test "+filepath.ToSlash(rel))
 		}
 	}()
-	if got := slices.Sorted(slices.Values(order)); !slices.Equal(got, slices.Sorted(slices.Values(want))) {
-		fmt.Fprintf(r.out, "FAIL %s: test: ergo test ran the packages %s; the program's packages are %s\n", p.name, strings.Join(got, " "), strings.Join(want, " "))
+	if notRun, notOurs := packageDifference(order, want); len(notRun) > 0 || len(notOurs) > 0 {
+		fmt.Fprintf(r.out, "FAIL %s: test: ergo test DIR/... did not run the program's packages %s, and ran packages that are not the program's: %s\n", p.name, orNone(notRun), orNone(notOurs))
 		r.fail(p.name + ": test")
 		return true
 	}

@@ -1064,6 +1064,14 @@ func (w *refWalker) expr(x syntax.Expr) {
 					w.expr(a)
 					continue
 				}
+				if tr, ok := unparen(a).(*syntax.TryExpr); ok {
+					// `with try W { … }`: the operand is W (context.go with).
+					for p, ok := a.(*syntax.ParenExpr); ok; p, ok = p.X.(*syntax.ParenExpr) {
+						w.visit(p)
+					}
+					w.visit(tr)
+					a = tr.X
+				}
 				if wid, ok := unparen(a).(*syntax.Ident); ok && (w.c.withNamedContext(wid.Name, w.operandScope(wid.Name)) != nil || !w.withValueName(wid.Name)) {
 					for p, ok := a.(*syntax.ParenExpr); ok; p, ok = p.X.(*syntax.ParenExpr) {
 						w.visit(p)

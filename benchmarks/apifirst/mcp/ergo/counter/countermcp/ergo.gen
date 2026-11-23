@@ -1,0 +1,5 @@
+kind mcp
+generator ergo gen mcp
+subject mcpbench/counter.Counter
+contract sha256:819a907d04c41f6c5a54126430323ff146f1e746e1c0176934fda7596c711726
+digest sha256:d45123ea13e36273a4e17482c879be278112b28bbdb77c4d3de7cc598430f0c4

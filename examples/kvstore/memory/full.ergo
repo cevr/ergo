@@ -47,12 +47,22 @@ func Chmod(f Full, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs
 }
 
 // Rename changes the memory: a rename takes no room.
-func Rename(f Full, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {
+func Rename(f Full, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice {
 	try f.disk.Rename(from, to)
 }
 
 // Remove changes the memory: a removal frees room.
 func Remove(f Full, path string) fails fs.NotFound | fs.Denied | fs.Failed { try f.disk.Remove(path) }
+
+// Mkdir fails: a new directory needs room. Something already at path
+// is Exists, as on the host, which checks the name before the room.
+func Mkdir(f Full, path string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {
+	let _ = f.disk.Lstat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return noSpace(path)
+	}
+	fs.Exists{Path: path}
+}
 
 // noSpace is the host's failure of a write to a full disk.
 func noSpace(path string) fs.Failed { fs.Failed{Path: path, Reason: "no space left on device"} }

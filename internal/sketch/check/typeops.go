@@ -90,7 +90,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		}
 		return s
 	case *Interface:
-		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj}
+		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj, Generic: t.Generic}
 		if t.Terms != nil {
 			it.Terms = make([]*Term, len(t.Terms))
 			for i, term := range t.Terms {
@@ -152,6 +152,11 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 			if _, bound := m[tp]; !bound {
 				s.TParams = append(s.TParams, tp)
 			}
+		}
+		if len(s.TParams) == len(t.TParams) {
+			// None bound, as a generic operation's own at an instance of
+			// its type: they stay written ones (GENERIC-OP).
+			s.NBracket = t.NBracket
 		}
 		return s
 	case *Tuple:
@@ -318,7 +323,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
 	}
-	if view, step := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
+	if view, step, stepSig := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
 		// A machine declaration's value is a Machine of its state, signal
 		// and step (README Gap 46), or an InputMachine when its initial is
 		// a function of an input (V4): ConvMachine.
@@ -333,24 +338,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			k := len(view.TArgs) - 4
 			o, f, r, w := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg), view.TArgs[k+3].(*RowArg)
 			if input {
-				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+				return assignment{}, fmt.Sprintf("its start takes %s and its step %sgives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 			}
-			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s, capability row %s and work row %s", step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+			return assignment{}, fmt.Sprintf("its step %sgives a Machine with output %s, error row %s, capability row %s and work row %s", entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 		}
-		table := map[string]*Func{"Step": step}
-		if input {
-			table["Start"] = machineStart(v.(*Named).Obj.Pkg, v.(*Named).Obj.Decl.Spec.(*syntax.MachineType))
+		conv, why := c.machineConversion(v.(*Named), t, step, stepSig, input)
+		if why != "" {
+			return assignment{}, why
 		}
-		if after := c.machineAfter(v); after != nil {
-			table["After"] = after // else every state has no timer
-		}
-		if work, _ := c.machineWork(v); work != nil {
-			table["Work"] = work // else every state has no work
-		}
-		if exit, _ := c.machineExit(v); exit != nil {
-			table["Exit"] = exit // else every state has no exit action
-		}
-		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
+		return assignment{clause: assignMachine, conv: conv}, ""
 	}
 	if IsGoAny(t) {
 		// Clause 8 (GB2): Go's own conversion to its empty interface.
@@ -718,6 +714,60 @@ func ownTypeParam(t *Named, f *Func) *TypeParam {
 	return nil
 }
 
+// ownTypeParams are the type parameters of f its first parameter's type
+// arguments do not bind from t, in declaration order.
+func ownTypeParams(t *Named, f *Func) []*TypeParam {
+	if f.Sig == nil {
+		return nil
+	}
+	bound := selfBinding(t, f)
+	var out []*TypeParam
+	for _, tp := range f.Sig.TParams {
+		if _, ok := bound[tp]; !ok {
+			out = append(out, tp)
+		}
+	}
+	return out
+}
+
+// opTypeName is the declared name of the operation type it, for a
+// diagnostic; "the operation type" for a literal one.
+func opTypeName(it *Interface) string {
+	if it.obj != nil {
+		return it.obj.Name
+	}
+	return "the operation type"
+}
+
+// substOrNil is subst of a constraint that may be absent.
+func (c *checker) substOrNil(t Type, m map[*TypeParam]Type) Type {
+	if t == nil {
+		return nil
+	}
+	return c.subst(t, m)
+}
+
+// sameConstraint reports whether two type parameters' constraints are
+// the same: both absent (any), or identical.
+func (c *checker) sameConstraint(a, b Type) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return c.identical(a, b)
+}
+
+// constraintText is a type parameter's constraint as a diagnostic
+// writes it: "unconstrained" for none, else its kind's word or the type.
+func constraintText(tp *TypeParam) string {
+	switch {
+	case tp.Kind != KindType:
+		return tp.Kind.String()
+	case tp.Constraint == nil:
+		return "unconstrained"
+	}
+	return tp.Constraint.String()
+}
+
 // selfBinding maps the type parameters of f that its first parameter's
 // type arguments name to t's type arguments, by position.
 func selfBinding(t Type, f *Func) map[*TypeParam]Type {
@@ -907,12 +957,32 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if why := sealedBy(v, it, m, fn); why != "" {
 			return why
 		}
-		// An operation takes no type parameters, so a 196m function with
-		// type parameters beyond those its first parameter binds from v's
-		// type cannot satisfy one (round 6b1 ruling; round 6 review m1).
+		// A function's type parameters beyond those its first parameter
+		// binds from v's type match the operation's own, in order, in
+		// kind and in constraint; the rest of the signature is compared
+		// with them renamed to the operation's (types.md, Interface
+		// assignability, Generic operations; round 6b1 ruling for an
+		// operation with none).
 		if n, ok := v.(*Named); ok && fn != nil && fn.owner != nil {
-			if extra := ownTypeParam(n, fn); extra != nil {
-				return fmt.Sprintf("%s.%s has a type parameter of its own, %s; an operation takes none", v, m.Name, extra.Name)
+			extra := ownTypeParams(n, fn)
+			if len(extra) > 0 && len(m.Sig.TParams) == 0 {
+				return fmt.Sprintf("%s.%s has a type parameter of its own, %s; the operation takes none", v, m.Name, extra[0].Name)
+			}
+			if len(extra) != len(m.Sig.TParams) {
+				return fmt.Sprintf("%s.%s has %d type parameters beyond its first parameter's, and %s.%s has %d", n.Obj.Name, m.Name, len(extra), opTypeName(it), m.Name, len(m.Sig.TParams))
+			}
+			if len(extra) > 0 {
+				rename := make(map[*TypeParam]Type, len(extra))
+				for i, tp := range extra {
+					rename[tp] = m.Sig.TParams[i]
+				}
+				for i, tp := range extra {
+					want := m.Sig.TParams[i]
+					if tp.Kind != want.Kind || !c.sameConstraint(c.substOrNil(tp.Constraint, rename), want.Constraint) {
+						return fmt.Sprintf("%s.%s's type parameter %s is %s, and %s.%s's %s is %s", n.Obj.Name, m.Name, tp.Name, constraintText(tp), opTypeName(it), m.Name, want.Name, constraintText(want))
+					}
+				}
+				got = c.subst(got, rename).(*Signature)
 			}
 		}
 		if sigHasInvalid(got) {

@@ -88,8 +88,8 @@ func TestLawRunB13(t *testing.T) {
 // operations change the provider's state. Under the value rule the state
 // lives in a sync.Ref, a std type that has no generator, so the providers
 // are built by their constructors, one for each case: Tally keeps the law,
-// Lossy breaks it, and Plain, with no constructor, is a skip that the
-// summary counts.
+// and Lossy breaks it. A provider with no constructor and no generator is
+// a check error (LAW-UNFED; check's TestUnfedLawIsAnError), no skip.
 const lawRunState = `import sync
 
 type Counter {
@@ -119,20 +119,13 @@ func Add(l Lossy, n int) { l.total.Set(n) }
 
 func Total(l Lossy) int { l.total.Get() }
 
-type Plain { total sync.Ref[int], hook func(int) int } implements Counter
-
-func Add(p Plain, n int) { p.total.Set(p.total.Get() + n) }
-
-func Total(p Plain) int { p.total.Get() }
-
 func main() needs Console {
 	Console.Println("\(NewTally().Total() + NewLossy(0).Total())")
 }
 `
 
 // TestLawRunState: F3's law runs against each provider its constructor
-// builds, a provider with no constructor and no generator is a skip line
-// with the reason, and the summary counts the skip.
+// builds.
 func TestLawRunState(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_state", lawRunState)}, true)
@@ -141,21 +134,18 @@ func TestLawRunState(t *testing.T) {
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_state"], "--seed", "7")
 	got := verdicts(stdout)
-	if code != 1 || len(got) != 4 {
+	if code != 1 || len(got) != 3 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
-	if got[1] != "ok law Counter.AddAdds for Tally (100 cases)" {
+	if got[0] != "ok law Counter.AddAdds for Tally (100 cases)" {
+		t.Errorf("line 1 is %q", got[0])
+	}
+	if !strings.HasPrefix(got[1], "FAIL law Counter.AddAdds for Lossy (case ") || !strings.Contains(got[1], "provider = NewLossy(") ||
+		!strings.HasSuffix(got[1], "law refuted at main.ergo:10:3: the law is false") {
 		t.Errorf("line 2 is %q", got[1])
 	}
-	if !strings.HasPrefix(got[2], "FAIL law Counter.AddAdds for Lossy (case ") || !strings.Contains(got[2], "provider = NewLossy(") ||
-		!strings.HasSuffix(got[2], "law refuted at main.ergo:10:3: the law is false") {
-		t.Errorf("line 3 is %q", got[2])
-	}
-	if want := "skip law Counter.AddAdds for Plain: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Counter: … }, and the law runs under it"; got[0] != want {
-		t.Errorf("line 1 is %q, want %q", got[0], want)
-	}
-	if got[3] != "FAIL (1 of 2 tests, 1 skipped)" {
-		t.Errorf("the summary is %q", got[3])
+	if got[2] != "FAIL (1 of 2 tests)" {
+		t.Errorf("the summary is %q", got[2])
 	}
 }
 
@@ -164,8 +154,7 @@ func TestLawRunState(t *testing.T) {
 // owns) declares the operation type
 // Store with a member law and a top-level law that takes a Store, and the
 // package that imports it provides Store. Last keeps GetAfterPut and
-// breaks PutKeepsOthers, Zero breaks both, and Plain, with no generator
-// and no constructor, is a skip.
+// breaks PutKeepsOthers, and Zero breaks both.
 const lawRunStore = `type Store {
 	Put(k int, v int),
 	Get(k int) int,
@@ -200,12 +189,6 @@ type Zero { n int } implements lawkv.Store
 func Put(z Zero, k int, v int) {}
 
 func Get(z Zero, k int) int { z.n }
-
-type Plain { v sync.Ref[int], hook func(int) int } implements lawkv.Store
-
-func Put(p Plain, k int, v int) { p.v.Set(v) }
-
-func Get(p Plain, k int) int { p.v.Get() }
 
 func main() needs Console {
 	let s lawkv.Store = NewLast()
@@ -245,21 +228,15 @@ func TestLawRunOtherPackage(t *testing.T) {
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_xpkg"], "--seed", "7")
 	got := verdicts(stdout)
-	if code != 1 || len(got) != 7 {
+	if code != 1 || len(got) != 5 {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
 	}
-	// A member law's fix is the context form; a law whose slot is a
-	// parameter runs under no context, so its fix is the constructor
-	// (mutant lawfix-one-text).
-	const plain = ": its values have no generator: func(int) int is a function type; "
 	want := []struct{ line, prefix, suffix string }{
-		{line: "skip law lawkv.Store.GetAfterPut for Plain" + plain + "bind one in a named context of a test file, let Name = context { lawkv.Store: … }, and the law runs under it"},
 		{line: "ok law lawkv.Store.GetAfterPut for Last (100 cases)"},
 		{prefix: "FAIL law lawkv.Store.GetAfterPut for Zero (case ", suffix: "law refuted at lib.ergo:6:3: the law is false"},
-		{line: "skip law lawkv.PutKeepsOthers with s = Plain" + plain + "a func NewPlain() Plain with no rows would build one for each case"},
 		{prefix: "FAIL law lawkv.PutKeepsOthers with s = Last (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
 		{prefix: "FAIL law lawkv.PutKeepsOthers with s = Zero (case ", suffix: "law refuted at lib.ergo:14:3: the law is false"},
-		{line: "FAIL (3 of 4 tests, 2 skipped)"},
+		{line: "FAIL (3 of 4 tests)"},
 	}
 	for i, w := range want {
 		switch {
@@ -269,8 +246,8 @@ func TestLawRunOtherPackage(t *testing.T) {
 			t.Errorf("line %d is %q, want %q … seed 7 … %q", i+1, got[i], w.prefix, w.suffix)
 		}
 	}
-	if !strings.Contains(got[4], "s = NewLast()") || !strings.Contains(got[2], "provider = Zero{n: ") {
-		t.Errorf("a failure does not show the provider's build:\n%s\n%s", got[2], got[4])
+	if !strings.Contains(got[2], "s = NewLast()") || !strings.Contains(got[1], "provider = Zero{n: ") {
+		t.Errorf("a failure does not show the provider's build:\n%s\n%s", got[1], got[2])
 	}
 	stdout, stderr, code = runExe(t, exes["lawrun_kv"])
 	wantKV := []string{
@@ -438,10 +415,11 @@ func main() {}
 // mutant lawrel-package-let) or a generic Close with witnesses
 // (Witnessed, mutant lawrel-witnessed). A provider with no generator that a
 // context which runs builds (Fn under Wired, Gn under Kept) runs there
-// and is no skip; one whose context does not run (Nd under Needy) stays
-// a skip; a provider that runs (Sq) runs beside its context (mutants
-// lawctx-covers-none, lawctx-covers-any-type,
-// lawctx-covers-unrun-context, lawctx-covers-runnable).
+// and is no skip; a provider that runs (Sq, Nd) runs beside its context
+// (mutants lawctx-covers-none, lawctx-covers-any-type,
+// lawctx-covers-runnable). A law no case can feed is a check error, not
+// a skip (LAW-UNFED; check's TestUnfedLawIsAnError holds those rows,
+// lawctx-covers-unrun-context among them).
 func TestLawRunSkips(t *testing.T) {
 	needsBuild(t)
 	src := `import sync
@@ -449,11 +427,6 @@ func TestLawRunSkips(t *testing.T) {
 type Shape {
 	Area() int,
 	law Positive() { Area() >= 0 },
-}
-
-type Box[T] {
-	Put(v T),
-	law Keeps(v T) { true },
 }
 
 type Runner[E] {
@@ -474,14 +447,6 @@ type Ranked[T Named] {
 type Fn { f func(int) int } implements Shape
 
 func Area(_ Fn) int { 1 }
-
-type Fns {} implements Box[func(int) int]
-
-func Put(_ Fns, v own func(int) int) {}
-
-func Apply(f func(int) int) int { f(1) }
-
-law Calls(f func(int) int) { Apply(f) == Apply(f) }
 
 type Res { n int } implements Shape, Closer
 
@@ -559,13 +524,13 @@ func Area(_ Gate) int { 1 }
 
 let Latched = context { Shape: Gate{latch: Latch{n: 1}} }
 
-type Nd { g func(int) int } implements Shape, Closer
+type Nd { n int } implements Shape, Closer
 
 func Area(_ Nd) int { 1 }
 
 func Close(_ Nd) needs Console {}
 
-let Needy = context { Shape: Nd{g: func(n int) int { n }} }
+let Needy = context { Shape: Nd{n: 1} }
 
 type Nm {} implements Named
 
@@ -595,9 +560,9 @@ func main() {}
 	}
 	stdout, stderr, code := runExe(t, exes["lawrun_skips"])
 	want := []string{
-		"skip law Shape.Positive for Nd: its values have no generator: func(int) int is a function type; bind one in a named context of a test file, let Name = context { Shape: … }, and the law runs under it",
 		"ok law Shape.Positive for Res (100 cases)",
 		"ok law Shape.Positive for Gate (100 cases)",
+		"ok law Shape.Positive for Nd (100 cases)",
 		"ok law Shape.Positive for Sq (100 cases)",
 		"ok law Shape.Positive under Held (proved: 1 case)",
 		"ok law Shape.Positive under Kept (proved: 1 case)",
@@ -608,15 +573,14 @@ func main() {}
 		"ok law Shape.Positive under Sized (proved: 1 case)",
 		"ok law Shape.Positive under Wired (proved: 1 case)",
 		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (resource ownership)",
-		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		// A law of an operation type whose parameter is bounded by
 		// operations runs at each provider's instance with its witness
 		// (CONSTRAINTS C2); Ranked has none here, so it names where it runs,
-		// which is no skip (types.md, Laws).
+		// which is no skip (types.md, Laws). Law Calls is gone: a law no
+		// case can feed is a check error (LAW-UNFED).
 		"law Ranked.Same runs where Ranked has a provider: none is in this package or its imports",
-		"skip law Calls: its parameter f has no generator: func(int) int is a function type",
-		"PASS (8 tests, 8 skipped)",
+		"PASS (9 tests, 5 skipped)",
 	}
 	if code != 0 || !slices.Equal(verdicts(stdout), want) {
 		t.Errorf("exit %d, stdout:\n%s\nwant:\n%s\nstderr:\n%s", code, stdout, strings.Join(want, "\n"), firstLines(stderr, 8))
@@ -627,12 +591,11 @@ func main() {}
 // constructor (fu7a, check/builders.go). Book holds an fs.Files and an
 // fs.Writes: AddReads holds only when both are one fresh disk per case.
 // Echo writes an io.Stdout and counts in a sync.Ref. Lossy forgets, so its
-// run fails with its seed. Stuck holds a queue.Queue, which has no
-// builder, so its run is a skip line with the reason.
+// run fails with its seed. A provider that holds a capability with no
+// builder (a queue.Queue) is a check error (LAW-UNFED), no skip.
 const lawRunCapabilities = `import fs
 import fstest
 import io
-import queue
 import sync
 
 type Notes {
@@ -664,12 +627,6 @@ type Lossy { files fs.Files, writes fs.Writes } implements Notes
 func Add(l Lossy, line string) {}
 
 func All(l Lossy) string { "" }
-
-type Stuck { q queue.Queue[int] } implements Notes
-
-func Add(s Stuck, line string) {}
-
-func All(s Stuck) string { "" }
 
 type Loud {
 	Shout(s string) int,
@@ -705,8 +662,7 @@ func main() {}
 // a law. Mutants it kills: one world for every case (Book fails at its
 // second case), a builder per field (Book's reads miss its writes), a host
 // provider as a builder (fs.NewHost and fstest.NewMemory are two builders,
-// so Book skips; or "echo:" reaches stdout), and a capability with no
-// builder that runs instead of its skip line.
+// so Book's law is refused at check time; or "echo:" reaches stdout).
 func TestLawRunCapabilities(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{lowerTestBuild(t, "lawrun_caps", lawRunCapabilities)}, true)
@@ -717,11 +673,10 @@ func TestLawRunCapabilities(t *testing.T) {
 	got := verdicts(stdout)
 	want := []struct{ line, prefix, suffix string }{
 		{line: "ok BookStartsEmpty"},
-		{line: "skip law Notes.AddReads for Stuck: its values have no generator: queue.Queue[int] is an operation type with no builder: neither queue nor queuetest, as this package sees them, declares a New<X> with no row whose X provides it; bind one in a named context of a test file, let Name = context { Notes: … }, and the law runs under it"},
 		{line: "ok law Notes.AddReads for Book (100 cases)"},
-		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:12:3: the law is false"},
+		{prefix: "FAIL law Notes.AddReads for Lossy (case 1 of 100, seed 7, size 0: provider = Lossy{files: fstest.NewMemory(), writes: fstest.NewMemory()}, line = ", suffix: "law refuted at main.ergo:11:3: the law is false"},
 		{line: "ok law Loud.CountsUp for Echo (100 cases)"},
-		{line: "FAIL (1 of 4 tests, 1 skipped)"},
+		{line: "FAIL (1 of 4 tests)"},
 	}
 	if code != 1 || len(got) != len(want) {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))
@@ -1097,6 +1052,8 @@ func ReadDir(f Drifty, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
+func Lstat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
 type DriftyDenied { reads sync.Ref[int] } implements fs.Files
 
 func NewDriftyDenied() DriftyDenied { DriftyDenied{reads: sync.NewRef[int](0)} }
@@ -1113,6 +1070,8 @@ func ReadFile(f DriftyDenied, path string) string fails fs.NotFound | fs.Denied 
 func ReadDir(f DriftyDenied, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(f DriftyDenied, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Lstat(f DriftyDenied, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 type DriftyFailed { reads sync.Ref[int] } implements fs.Files
 
@@ -1131,6 +1090,8 @@ func ReadDir(f DriftyFailed, path string) []string fails fs.NotFound | fs.Denied
 
 func Stat(f DriftyFailed, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
+func Lstat(f DriftyFailed, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
 type Flaky { reads sync.Ref[int] } implements fs.Files
 
 func NewFlaky() Flaky { Flaky{reads: sync.NewRef[int](0)} }
@@ -1147,6 +1108,8 @@ func ReadFile(f Flaky, path string) string fails fs.NotFound | fs.Denied | fs.Fa
 func ReadDir(f Flaky, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(f Flaky, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Lstat(f Flaky, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 type Shifty { reads sync.Ref[int] } implements fs.Files
 
@@ -1165,6 +1128,8 @@ func ReadDir(s Shifty, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(s Shifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
+func Lstat(s Shifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
 type Steady {} implements fs.Files
 
 func ReadFile(s Steady, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
@@ -1177,6 +1142,8 @@ func ReadFile(s Steady, path string) string fails fs.NotFound | fs.Denied | fs.F
 func ReadDir(s Steady, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(s Steady, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Lstat(s Steady, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func main() {}
 `
@@ -1202,7 +1169,14 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_files"], "--seed", "7")
-	got := verdicts(stdout)
+	// Each provider keeps fs.Files.LstatDirIsStatDir (its Lstat is its
+	// Stat), so only the lines of the law under test and the summary count.
+	var got []string
+	for _, line := range verdicts(stdout) {
+		if strings.Contains(line, "ReadIsRepeatable") || strings.HasPrefix(line, "FAIL (") {
+			got = append(got, line)
+		}
+	}
 	want := []string{
 		"FAIL law fs.Files.ReadIsRepeatable for Drifty (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for DriftyDenied (case ",
@@ -1210,7 +1184,7 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 		"FAIL law fs.Files.ReadIsRepeatable for Flaky (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Shifty (case ",
 		"ok law fs.Files.ReadIsRepeatable for Steady (",
-		"FAIL (5 of 6 tests)",
+		"FAIL (5 of ",
 	}
 	if code != 1 || len(got) != len(want) {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))

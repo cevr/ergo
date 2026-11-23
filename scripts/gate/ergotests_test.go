@@ -26,3 +26,22 @@ func TestCompilerErgoTestsStep(t *testing.T) {
 		t.Errorf("compiler/: step %+v; want go run ./scripts/ergotests ./compiler/...", step)
 	}
 }
+
+// TestStdLawsInPlaceStep: a checkout with the std sources runs every std
+// package's laws on its own source in the full tier (scripts/ergotests
+// -std, NATIVE-LAWS); one without them has no such step.
+//
+// Mutant (testdata/mutants.json): nl-gate-step-dropped.
+func TestStdLawsInPlaceStep(t *testing.T) {
+	root := t.TempDir()
+	if step := stdLawsInPlace(root); step != nil {
+		t.Errorf("no std sources: step %+v; want none", step)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "internal", "sketch", "std"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	step := stdLawsInPlace(root)
+	if step == nil || step.Class != classHeavy || !slices.Equal(step.Argv, []string{"go", "run", "./scripts/ergotests", "-std"}) {
+		t.Errorf("std sources: step %+v; want go run ./scripts/ergotests -std in the full tier", step)
+	}
+}

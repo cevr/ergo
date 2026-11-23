@@ -121,6 +121,52 @@ type Some[T own] { Value T }
 type None {}
 type Option[T own] = Some[T] | None
 
+// OrFail is o's value, or fails with f when o is None: the one call from
+// a miss as an Option to a miss as a failure, which carries what the
+// caller knows (`m.Get(k).OrFail(NotFound{Key: k})`). The other way is a
+// catch arm that names the miss and returns None (stdlib.md, Absence;
+// owner q259). A function on Option, so it is called as o.OrFail(f).
+func OrFail[T, F](o Option[T], f F) T fails F {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		f
+	}
+}
+
+// OrFailIsMatch: OrFail is Some's value, or fails with exactly the
+// failure given, on None.
+law OrFailIsMatch(o Option[int], n int) {
+	let v = orFailOf(o, n) catch {
+	case orFailMiss as m:
+		return o == None && m.N == n
+	}
+	o == Some{Value: v}
+}
+
+// CatchUndoesOrFail: a catch arm that names the miss and gives None
+// takes an Option through OrFail and back unchanged.
+law CatchUndoesOrFail(o Option[int]) {
+	orFailBack(o) == o
+}
+
+// orFailMiss is the laws' miss.
+type orFailMiss { N int }
+
+// orFailOf is o.OrFail with the laws' miss, in a function whose
+// signature names the failure.
+func orFailOf(o Option[int], n int) int fails orFailMiss { o.OrFail(orFailMiss{N: n}) }
+
+// orFailBack is o through OrFail and back by the catch arm.
+func orFailBack(o Option[int]) Option[int] {
+	let v = orFailOf(o, 0) catch {
+	case orFailMiss:
+		return None
+	}
+	Some{Value: v}
+}
+
 // Unsatisfied is the failure of a refined type's derived parse function,
 // ParsePort for `type Port int where 1 <= it && it <= 65535`: the value
 // does not pass the where. Type is the refined type's name and Where the
@@ -208,6 +254,10 @@ type Reader {
 	mut BeginObject() fails WireWrongKind,
 	mut Tag() string fails WireMissingField,
 	mut More() bool,
+	// Key reads the next member's key. It may be a window of the reader's
+	// input, valid until the next read: a decoder that keeps the key (a
+	// Map's, an Object's) copies it, and one that only compares it (a
+	// record's field) does not (json 2).
 	mut Key() string,
 	mut Skip(),
 	mut End(),
@@ -576,14 +626,14 @@ func Equal[K comparable, H Hashing[K], V comparable](m hashTable[K, H, V], o has
 // equal; 0.0 and -0.0 are == and must have one hash.
 law StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }
 
-// StructuralIntKeysHashEqual: Structural[int]'s equal keys hash equal.
-// Two ints are == only when identical, so the run reports a skip.
-law StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }
-
 // StructuralStringKeysHashEqual: Structural[string]'s equal keys hash
-// equal. Two strings are == only when identical, so the run reports a
-// skip.
-law StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }
+// equal even when they use separately allocated storage. The prefix makes
+// the strings nonempty even when the generator draws empty text.
+law StructuralStringKeysHashEqual(s string) {
+	let a = "key:\(s)"
+	let b = a.Bytes().Text()
+	a == b && hash(a) == hash(b)
+}
 
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`
@@ -593,10 +643,12 @@ type Range[T ordered] { Start T, End T }
 // CallSite is a position in Ergo source: File as a defect names it, Line
 // and Column from 1, Column in bytes. A call may leave out its callee's
 // final CallSite parameter, and the compiler passes the call's own site
-// (types.md, Call sites). Id is the number the compiler gives that
-// position, from 1, distinct for distinct positions of one program; a
-// CallSite the program writes carries the Id it writes, 0 by convention.
-type CallSite { File string, Line int, Column int, Id int }
+// (types.md, Call sites). Pkg is the number the compiler gives the call's
+// package among the program's packages, and Id the number it gives the
+// position within that package, both from 1: two distinct positions of
+// one program never share both. A CallSite the program writes carries the
+// Pkg and Id it writes, 0 by convention.
+type CallSite { File string, Line int, Column int, Pkg int, Id int }
 
 // Context is a context as a value: the providers of the capability row R,
 // built where a context converts to it (`let w Context[Store | Log] =
@@ -876,4 +928,23 @@ extern go ergo.local/prototype/runtime/v1.Task type Task[T own, E] {
 		Stop()
 		true
 	},
+}
+
+type taskLawFailed {}
+
+let liveTaskForLaws = context {
+	Task[int, taskLawFailed]: startLawTask(func() int fails taskLawFailed { parkTaskForLaw(func() {}) }),
+}
+
+// The prelude cannot import task. Bind the same runtime constructor
+// privately here to keep this law on its operation type.
+extern go ergo.local/prototype/runtime/v1.Go func startLawTask[T own, E, R](body own func() T fails E needs R) Task[T, E] needs R
+
+// Call an opaque function so the child loop is an interruption point,
+// with no clock needed and no way for the child to finish before Stop.
+func parkTaskForLaw(tick own func()) int {
+	for {
+		tick()
+	}
+	0
 }

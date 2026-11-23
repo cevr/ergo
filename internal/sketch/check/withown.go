@@ -17,8 +17,11 @@ import (
 //
 //  1. Acquisition. The entries of With.Entries are acquired, and each
 //     entry whose capability an acquired provider uses while it is built
-//     (ContextEntry.Uses), resolved through the with's context (Context.Provider).
-//     An entry of several capabilities is one acquisition. An overridden
+//     (ContextEntry.Uses), resolved through the with's context (Context.Provider),
+//     except that a replace entry's use of a capability it replaces is the
+//     entry the embedded context binds (Context.builtFrom), acquired before
+//     it with that capability in its Caps and, if owned, released after it.
+//     An entry of several capabilities is one acquisition. Any other overridden
 //     entry binds nothing Provider returns, and an entry nothing reaches
 //     is not visited, so neither is acquired. The order is the one the
 //     builder follows: each entry after the providers it uses, the first
@@ -33,10 +36,16 @@ import (
 //     provider), else the target's row must hold it. The pass runs after
 //     the rows converged, so it widens no row: a need that no outer with
 //     and no row holds is S102 at the with.
-//  4. Refusals, each located. A resource provider that names an existing
-//     value (a variable, a field, an element) is borrowed or reused: this
-//     bounded ownership owns only a value the provider makes (S109).
-//     Every checked Close releases: an operation of the provider's type, a
+//  4. Lends. A resource provider that names a place (a local, a
+//     parameter, a package let, or a field path of one) is lent to the
+//     with for its block (Acquisition.Lent; resources R11): the with
+//     releases nothing for it, and its owner cannot hand it off, close or
+//     replace it while the block runs (ownership.go). A lending with
+//     opens a scope as an owning one does, so the rules below that name
+//     an owning with hold for it too.
+//  5. Refusals, each located. A resource provider read through an element
+//     of a package let has no owner to give it to the with.
+//     An owned provider's checked Close releases: an operation of its type, a
 //     generic Close and a Close that takes a pointer to a provider that is
 //     a value included (C29). A generic Close whose type parameter is
 //     constrained by operations would pass witnesses that no fact
@@ -132,6 +141,12 @@ func (c *checker) withOwnership() {
 				c.errorf(s.x, CodeOutside, "this context's provider ownership cannot be proved without its defining package's facts; further ownership waits for resource ownership (resources.md, Context ownership)")
 				continue
 			}
+			if a.Lent {
+				// Its owner releases it (R11); the with opens a scope
+				// all the same (Context ownership 1).
+				owning = true
+				continue
+			}
 			if !a.Releases() {
 				continue
 			}
@@ -150,9 +165,9 @@ func (c *checker) withOwnership() {
 				continue
 			}
 			if name := packageRoot(info, a.Entry.Provider); name != "" && (owner.pkg != c.pkg || !refused[a.Entry]) {
-				// R11: a package let has no owner to give it to the with;
-				// a local moves into it (ownership.go), a made value is
-				// the with's own.
+				// R11: a package let named as the provider is lent; one
+				// read through an element (shared[0]) has no owner to give
+				// it to the with, which owns the values it builds.
 				var at syntax.Node = a.Entry.Provider
 				c.cur = owner.file
 				if owner.pkg != c.pkg {
@@ -168,6 +183,7 @@ func (c *checker) withOwnership() {
 			}
 		}
 		if owning {
+			c.cur = s.file
 			c.ownedBlock(s.x, w, taskHeld)
 		}
 	}
@@ -214,11 +230,16 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 	for _, e := range reached {
 		add(e)
 	}
+	under := map[*ContextEntry][]Type{} // the capabilities a replace builds each entry over for
 	for len(queue) > 0 {
 		e := queue[0]
 		queue = queue[1:]
 		for _, cap := range e.Uses {
-			add(w.Provider(cap))
+			p := w.builtFrom(e, owners[e], cap)
+			if p != nil && p != w.Provider(cap) {
+				under[p] = append(under[p], cap)
+			}
+			add(p)
 		}
 	}
 	// The context pass's entry order, not a walk of the embeddings: a with
@@ -239,7 +260,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 			}
 			ready := true
 			for _, cap := range e.Uses {
-				if p := w.Provider(cap); p != nil && p != e && !built[p] {
+				if p := w.builtFrom(e, owners[e], cap); p != nil && p != e && !built[p] {
 					ready = false
 					break
 				}
@@ -257,7 +278,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 		built[e] = true
 		a := &Acquisition{Entry: e}
 		for i, cap := range e.Caps {
-			if w.Provider(cap) == e {
+			if w.Provider(cap) == e || slices.ContainsFunc(under[e], func(t Type) bool { return sameCap(t, cap) }) {
 				a.Caps = append(a.Caps, i)
 			}
 		}
@@ -266,6 +287,9 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 			if d, _ := c.dropOf(info.Types[e.Provider]); d.Glue() {
 				a.Drop = d
 			}
+			// A provider that names a place is lent to the with, as an
+			// argument is (R11, R16); a new value is the with's own.
+			a.Lent = (a.Close != nil || a.Drop != nil) && placeVar(info, e.Provider)
 		}
 		list = append(list, a)
 	}
@@ -668,6 +692,26 @@ func (w *With) discharge(cap Type, e *ContextEntry) {
 // with), or "". Any other provider is made by it (a call's result is the
 // caller's, q62) or is a local, which the ownership pass moves into the
 // with.
+// placeVar reports a provider that names a place: a local, a parameter or
+// a package let (pkg.v too), or a field path of one. A type's name (an
+// empty record's value) and a call are new values.
+func placeVar(info *Info, x syntax.Expr) bool {
+	for {
+		switch e := unparen(x).(type) {
+		case *syntax.SelectorExpr:
+			if _, ok := info.Uses[e.Sel].(*Var); ok && info.Types[e.X] == nil {
+				return true // pkg.v, an imported package let
+			}
+			x = e.X
+		case *syntax.Ident:
+			_, ok := info.Uses[e].(*Var)
+			return ok
+		default:
+			return false
+		}
+	}
+}
+
 func packageRoot(info *Info, x syntax.Expr) string {
 	for {
 		switch e := unparen(x).(type) {
@@ -718,7 +762,7 @@ func (c *checker) ownedBlock(x *syntax.CallExpr, w *With, taskHeld map[*syntax.C
 	// an exit action; a provider built from a resource does not.
 	closed := map[*ContextEntry]bool{}
 	for _, a := range w.Acquired {
-		closed[a.Entry] = a.Releases()
+		closed[a.Entry] = a.Scoped() // a lent provider's with ends before an exit action runs
 		for _, cap := range a.Entry.Uses {
 			closed[a.Entry] = closed[a.Entry] || closed[w.Contexts[0].Provider(cap)]
 		}

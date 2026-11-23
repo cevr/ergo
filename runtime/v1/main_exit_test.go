@@ -45,7 +45,7 @@ func TestMainHelper(t *testing.T) {
 			return bad{"main"}
 		case "defect":
 			return frame(root, func(s *Scope) error {
-				_, err := ownedGo(s, "worker at w.ergo:7:3", func(*rt.Task) (int, error) { return explode(), nil }).Wait()
+				_, err := ownedGo(s, "worker at w.ergo:7:3", func(*rt.Task) (int, error) { return explode(), nil }).Wait(s.s.Task())
 				return err
 			})
 		case "interrupted":
@@ -69,6 +69,11 @@ var exitModes = map[string]Exit{
 	"exit3":     {Code: 3, Message: "  [NOT_FOUND] Unknown topic 'nope'  "},
 	"exit125":   {Code: 125, Message: "top"},
 	"exit126":   {Code: 126, Message: "shell's"},
+	"exit128":   {Code: 128, Message: "invalid"},
+	"exit130":   {Code: 130, Message: ""},
+	"exit143":   {Code: 143, Message: "terminated"},
+	"exit192":   {Code: 192, Message: "top stop"},
+	"exit193":   {Code: 193, Message: "past"},
 	"exitNeg1":  {Code: -1, Message: "negative"},
 	"exitEmpty": {Code: 4, Message: ""},
 	"exitLines": {Code: 5, Message: "first\nsecond"},
@@ -99,11 +104,20 @@ func TestMainExit(t *testing.T) {
 		{"exit2", 2, `^usage: two\n$`},
 		{"exit3", 3, `^  \[NOT_FOUND\] Unknown topic 'nope'  \n$`},
 		{"exit125", 125, `^top\n$`},
-		{"exitEmpty", 4, `^\n$`},
+		// An empty Message writes nothing (rule 1), as the Go driver
+		// passes a stopped program's status through with no text.
+		{"exitEmpty", 4, `^$`},
+		// 128 plus a signal's number (rule 2): what a shell reports for a
+		// program a stop ended, which signal.StatusOf gives.
+		{"exit130", 130, `^$`},
+		{"exit143", 143, `^terminated\n$`},
+		{"exit192", 192, `^top stop\n$`},
 		{"exitLines", 5, `^first\nsecond\n$`},
-		{"exit0", 1, `^zero\nerror: os\.Exit code 0 is outside 1\.\.125\n$`},
-		{"exit126", 1, `^shell's\nerror: os\.Exit code 126 is outside 1\.\.125\n$`},
-		{"exitNeg1", 1, `^negative\nerror: os\.Exit code -1 is outside 1\.\.125\n$`},
+		{"exit0", 1, `^zero\nerror: os\.Exit code 0 is outside 1\.\.125 and 129\.\.192\n$`},
+		{"exit126", 1, `^shell's\nerror: os\.Exit code 126 is outside 1\.\.125 and 129\.\.192\n$`},
+		{"exit128", 1, `^invalid\nerror: os\.Exit code 128 is outside 1\.\.125 and 129\.\.192\n$`},
+		{"exit193", 1, `^past\nerror: os\.Exit code 193 is outside 1\.\.125 and 129\.\.192\n$`},
+		{"exitNeg1", 1, `^negative\nerror: os\.Exit code -1 is outside 1\.\.125 and 129\.\.192\n$`},
 		// Rule 3: a defect beside os.Exit wins with status 2.
 		{"exitDefect", 2, `^error: os\.Exit\{Code:3 Message:\[NOT_FOUND\] gone\}\npanic: boom\n`},
 		// Rule 4: os.Exit beside another reason is written as its text,

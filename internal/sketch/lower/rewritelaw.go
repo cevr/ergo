@@ -141,7 +141,7 @@ func (l *lowerer) rewriteFunc(law *check.Law, name string, list []syntax.Stmt, r
 				fc.line("var " + k + " " + l.helper("explore") + ".Key")
 				fc.line(l.keyStmt(t, "(&"+k+")", v, law.Decl))
 				text = "string(" + k + ".Bytes())"
-			} else if l.printable(t, map[*check.Named]bool{}) {
+			} else if l.printable(t) {
 				text = l.litExpr(t, v, law.Decl)
 			} else {
 				fc.line("_ = " + v)
@@ -357,7 +357,7 @@ func (l *lowerer) rewriteCompare(b *strings.Builder, law *check.Law, label strin
 	w("\tfor _, " + s + " := range " + steps[1] + " { " + obs + " = append(" + obs + ", " + s + "(" + field + ")) }")
 	it := law.Owner.Type.(*check.Named).Underlying().(*check.Interface)
 	for _, m := range it.Methods {
-		if len(m.Sig.Params) == 0 && len(m.Sig.Results) == 1 && l.printable(m.Sig.Results[0], map[*check.Named]bool{}) {
+		if len(m.Sig.Params) == 0 && len(m.Sig.Results) == 1 && l.printable(m.Sig.Results[0]) {
 			pr := inner.alloc("p")
 			w("\t" + obs + " = append(" + obs + ", func(" + pr + " " + ops + ") string { " + l.rewriteObserve(m, pr, task, nil, law.Decl) + " }(" + field + "))")
 		}
@@ -393,7 +393,7 @@ func (l *lowerer) rewriteObserve(m *check.Method, pv, task string, args []string
 	if len(m.Sig.Results) == 1 {
 		result = m.Sig.Results[0]
 	}
-	shown := result != nil && l.printable(result, map[*check.Named]bool{})
+	shown := result != nil && l.printable(result)
 	switch {
 	case result != nil && fallible:
 		if shown {

@@ -206,6 +206,8 @@ func GuardPushes(v Vcs, root string) fails work.VcsFailed {
 	let _ = Write(v.trees, root, ".git/config/remote.origin.pushurl", Guard)
 }
 
+func PushesGuarded(v Vcs, root string) bool fails work.VcsFailed { len(try Guarded(v, root)) == 1 }
+
 // Guarded is origin when its push URL is Guard.
 func Guarded(v Vcs, root string) []string fails work.VcsFailed {
 	if (try checkout(v, root)).Get(".git/config/remote.origin.pushurl") == (Some[string]{Value: Guard}) { []string{"origin"} } else { []string{} }

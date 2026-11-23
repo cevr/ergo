@@ -528,6 +528,9 @@ type checker struct {
 	funcs      []*Func // every package function and method, in source order
 	vars       []*pkgVar
 	machines   []*TypeName
+	// entryState is, per machine entry, whether it is being checked or
+	// done (machineentry.go).
+	entryState map[machineEntryKey]int
 	guarded    map[*Func]bool // steps of exported machines: rows written (export guard)
 
 	// The reach graph for context cycles (rows.md, Context 5).
@@ -872,6 +875,7 @@ func prelude() preludeResult {
 		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
+		c.pkg.module = StdModule
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
@@ -908,6 +912,11 @@ func prelude() preludeResult {
 // PreludeDiagnostics returns the prelude's own diagnostics (none when the
 // embedded source is valid; a test pins it).
 func PreludeDiagnostics() []Diagnostic { return prelude().diags }
+
+// PreludePackage is the checked prelude, as every package sees it: the
+// root a test build of the prelude's own laws lowers (sketchfront.CheckStd,
+// NIH-75), since no import names it.
+func PreludePackage() *Package { return prelude().pkg }
 
 // stdImporter imports the embedded standard library, checking each package
 // once per process. A std package may import another (io imports strings),
@@ -1091,7 +1100,8 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
-	c.pkg.trusted = true // the toolchain vouches for what it ships
+	c.pkg.trusted = true     // the toolchain vouches for what it ships
+	c.pkg.module = StdModule // its laws are judged over std as one module (lawmodule.go)
 	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
@@ -1119,6 +1129,7 @@ func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
 	c.pkg.trusted = true
+	c.pkg.module = StdModule
 	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()

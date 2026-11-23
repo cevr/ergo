@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/constant"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -140,6 +141,13 @@ func (tc *typeCtx) goType(t check.Type) string {
 		// its error types.
 		// The value type of an error row (q47) is one too, the empty row's
 		// included: a field of it never holds a value.
+		// The value of a slot row alone is its Go type parameter, so a
+		// value parameter `f F` takes its argument unboxed (PRELUDE-ORFAIL).
+		if tp := check.SlotRow(t); tp != nil && tp.Slot {
+			if name, ok := tc.params[tp]; ok {
+				return name
+			}
+		}
 		if t.Row != nil || tc.l.isErrorValue(t, tc.l.bodyPkg(), tc.l.viewOf(tc.l.bodyPkg())) {
 			return "error"
 		}
@@ -387,8 +395,35 @@ func (l *lowerer) defaultKey(n *check.Named) pkgKey {
 // position identify a declared type without its file. It is memoized per
 // type object, so a key is built from its children's keys once.
 func (l *lowerer) typeKey(t check.Type) string {
-	if k, ok := l.typeKeys[t]; ok {
+	return l.keyType(t, false)
+}
+
+// semanticTypeKey keeps row identity where an erased Go shape does not
+// suffice: a capability selects an environment slot, and a law copy
+// retains the checked argument bindings for its body.
+func (l *lowerer) semanticTypeKey(t check.Type) string {
+	return l.keyType(t, true)
+}
+
+func (l *lowerer) keyType(t check.Type, semantic bool) string {
+	keys := l.typeKeys
+	if semantic {
+		if l.semanticTypeKeys == nil {
+			l.semanticTypeKeys = map[check.Type]string{}
+		}
+		keys = l.semanticTypeKeys
+	}
+	if k, ok := keys[t]; ok {
 		return k
+	}
+	key := func(t check.Type) string { return l.keyType(t, semantic) }
+	rowKey := func(r *check.Row) string {
+		var parts []string
+		for _, e := range rowElems(r) {
+			parts = append(parts, key(e))
+		}
+		slices.Sort(parts)
+		return "{" + strings.Join(slices.Compact(parts), ", ") + "}"
 	}
 	var k string
 	switch u := t.(type) {
@@ -400,64 +435,73 @@ func (l *lowerer) typeKey(t check.Type) string {
 			path = u.Obj.Pkg.Path
 		}
 		k = path + "." + u.Obj.Name + "@" + strconv.Itoa(int(u.Obj.Pos))
-		if args := typeArgs(u); len(args) > 0 {
+		args := typeArgs(u)
+		if semantic {
+			args = u.TArgs
+		}
+		if len(args) > 0 {
 			keys := make([]string, len(args))
 			for i, a := range args {
-				keys[i] = l.typeKey(a)
+				keys[i] = key(a)
 			}
 			k += "[" + strings.Join(keys, ", ") + "]"
 		}
 	case *check.TypeParam:
 		k = "$" + u.Name + "@" + strconv.Itoa(int(u.Pos)) + l.paramFile(u)
+	case *check.RowArg:
+		k = rowKey(u.Row)
 	case *check.Slice:
-		k = "[]" + l.typeKey(u.Elem)
+		k = "[]" + key(u.Elem)
 	case *check.Array:
-		k = "[" + arrayLen(u) + "]" + l.typeKey(u.Elem)
+		k = "[" + arrayLen(u) + "]" + key(u.Elem)
 	case *check.Map:
-		k = "map[" + l.typeKey(u.Key) + "]" + l.typeKey(u.Elem)
+		k = "map[" + key(u.Key) + "]" + key(u.Elem)
 	case *check.Pointer:
-		k = "*" + l.typeKey(u.Elem)
+		k = "*" + key(u.Elem)
 	case *check.Tuple:
 		keys := make([]string, len(u.Types))
 		for i, e := range u.Types {
-			keys[i] = l.typeKey(e)
+			keys[i] = key(e)
 		}
 		k = "(" + strings.Join(keys, ", ") + ")"
 	case *check.Signature:
 		keys := make([]string, len(u.Params))
 		for i, p := range u.Params {
-			keys[i] = l.typeKey(p.Type)
+			keys[i] = key(p.Type)
 		}
 		k = "func(" + strings.Join(keys, ", ") + ")"
 		for _, r := range u.Results {
-			k += " " + l.typeKey(r)
+			k += " " + key(r)
+		}
+		if semantic {
+			k += " fails " + rowKey(u.Errors) + " needs " + rowKey(u.Uses)
 		}
 	case *check.Struct:
 		keys := make([]string, len(u.Fields))
 		for i, f := range u.Fields {
-			keys[i] = f.Name + " " + l.typeKey(f.Type)
+			keys[i] = f.Name + " " + key(f.Type)
 		}
 		k = "struct{" + strings.Join(keys, "; ") + "}"
 	case *check.Union:
 		keys := make([]string, len(u.Variants))
 		for i, v := range u.Variants {
-			keys[i] = l.typeKey(v)
+			keys[i] = key(v)
 		}
 		k = "union{" + strings.Join(keys, " | ") + "}"
 	case *check.Interface:
 		keys := make([]string, len(u.Methods))
 		for i, m := range u.Methods {
-			keys[i] = m.Name + l.typeKey(m.Sig)
+			keys[i] = m.Name + key(m.Sig)
 		}
 		k = "interface/" + u.Set.String() + "{" + strings.Join(keys, "; ") + "}"
 	case *check.MachineType:
-		k = "machine[" + l.typeKey(u.State) + ", " + l.typeKey(u.Signal) + "]"
+		k = "machine[" + key(u.State) + ", " + key(u.Signal) + "]"
 	default:
 		// A row (RowVar, RowArg) and noValue have no Go type: goType and
 		// typeArgs leave them out, so no generated name is keyed by one.
 		k = "?" + t.String()
 	}
-	l.typeKeys[t] = k
+	keys[t] = k
 	return k
 }
 

@@ -37,17 +37,17 @@ const fullTierFile = "full-tier"
 
 // loadModules reads and checks the layout of every folder of modules/; no
 // folder is no module. Each problem names its folder.
-func loadModules(root string) ([]*program, []string) {
+func loadModules(root string, expected *findings) ([]*program, []string, []string) {
 	dir := filepath.Join(root, modulesDir)
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, []string{fmt.Sprintf("%s: %v", modulesDir, err)}
+		return nil, []string{fmt.Sprintf("%s: %v", modulesDir, err)}, nil
 	}
 	var modules []*program
-	var problems []string
+	var problems, notes []string
 	for _, entry := range entries {
 		label := modulesDir + "/" + entry.Name()
 		if !entry.IsDir() {
@@ -58,14 +58,18 @@ func loadModules(root string) ([]*program, []string) {
 			continue
 		}
 		p, found := loadModule(filepath.Join(dir, entry.Name()), entry.Name())
+		var labelled []string
 		for _, problem := range found {
-			problems = append(problems, label+": "+problem)
+			labelled = append(labelled, label+": "+problem)
 		}
-		if len(found) == 0 {
+		labelled, excused, matched := expected.apply(labelled) // findings.go
+		problems, notes = append(problems, labelled...), append(notes, excused...)
+		if len(labelled) == 0 {
+			p.findings = matched
 			modules = append(modules, p)
 		}
 	}
-	return modules, problems
+	return modules, problems, notes
 }
 
 // loadModule reads the layout of the module folder dir.

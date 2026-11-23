@@ -16,7 +16,8 @@ type Output { Out string, Err string, Code int }
 
 // ExitOf is the end of a command whose Output is o: nothing for status 0,
 // else the os.Exit of o's Code with o's Err as its message. A status
-// outside 1..125, which os.Exit cannot carry, is 1. An Output with no Err
+// that is not an os.Code (1..125, 129..192), which os.Exit cannot carry,
+// is 1. An Output with no Err
 // (a failure answered as JSON on standard output) says where the answer
 // went.
 func ExitOf(o Output) fails os.Exit {
@@ -117,10 +118,10 @@ law CompletionNamesEachCommand(words []string, shell Shell) {
 	!strings.Contains(text, "\nmore")
 }
 
-// ExitKeepsTheCode: a status of 0 ends with no failure, one of 1..125 is
-// the os.Exit of that code, and any other is 1.
+// ExitKeepsTheCode: a status of 0 ends with no failure, one of 1..125 or
+// 129..192 is the os.Exit of that code, and any other is 1.
 law ExitKeepsTheCode(o Output) {
-	let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 }
+	let want = if o.Code >= 1 && o.Code <= 125 || o.Code >= 129 && o.Code <= 192 { o.Code } else if o.Code == 0 { 0 } else { 1 }
 	ExitOf(o) catch {
 	case os.Exit as e:
 		return int(e.Code) == want && want != 0

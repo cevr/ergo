@@ -1,0 +1,270 @@
+// nativeab is the stage-by-stage receipt of a build's work (NATIVE-AB-
+// MEASURE): route A, today's (Ergo's generated Go parsed and checked by
+// gc), against route B (a checked package handed to gc), in user-mode
+// instructions counted per process and, with the phase instrument, per
+// compile stage; never wall time.
+//
+//	nativeab verify [--seed N] [--count K] [--data DIR]
+//	nativeab attribute FILE
+//	nativeab capture --ergo PATH --self PATH --out FILE [--label TEXT] -- BUILD-ARGS...
+//
+// verify checks Attribute against the drawn builds of seeds N..N+K-1
+// (draw.ergo) and then reads every capture in DIR (the route A smoke):
+// each must be accounted in full, its generated packages' compiles under
+// origin "ergo". A stage nobody measured prints "unmeasured" with what it
+// waits for; it is never 0. attribute prints a capture's cells.
+
+import exec
+import fs
+import hex
+import io
+import maps
+import os
+import rand
+import slices
+import strconv
+import strings
+
+// Waits are the rows verify prints for what it cannot measure yet.
+let WaitStages = "unmeasured: waits FORK applying testdata/phase-instrument.patch to a scratch root (NATIVE-TYPED-HANDOFF lane)"
+
+let WaitB = "unmeasured: waits NATIVE-TYPED-HANDOFF (-ergopkg ingress) supporting the workload"
+
+func usage() os.Exit { os.Exit{Code: 2, Message: "usage: nativeab verify [--seed N] [--count K] [--data DIR] | attribute FILE"} }
+
+func flagInt(args []string, name string, def int) int fails os.Exit {
+	for i in 0..len(args) {
+		if args[i] == name && i+1 < len(args) {
+			return strconv.Atoi(args[i+1]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return os.Exit{Code: 2, Message: "nativeab: \(name) \(args[i+1]) is not a number"}
+			}
+		}
+	}
+	def
+}
+
+func flagText(args []string, name string, def string) string {
+	for i in 0..len(args) {
+		if args[i] == name && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	def
+}
+
+// describe prints an Ergo expression that can be pasted into a fixture
+// in this package. Draw's string fields use only fixed labels and IDs.
+func describe(c Case) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("Case{\n\tTrace: Trace{Tree: \(c.Trace.Tree), Procs: []Proc{\n")
+	for p in c.Trace.Procs {
+		b.WriteString("\t\tProc{Pid: \(p.Pid), Gen: \(p.Gen), Parent: \"\(p.Parent)\", Tool: \"\(p.Tool)\", Pkg: \"\(p.Pkg)\", Origin: \"\(p.Origin)\", Cached: \(p.Cached), Self: \(p.Self)},\n")
+	}
+	b.WriteString("\t}, Spans: []Span{\n")
+	for s in c.Trace.Spans {
+		b.WriteString("\t\tSpan{Pid: \(s.Pid), Gen: \(s.Gen), Seq: \(s.Seq), Worker: \(s.Worker), Stage: \"\(s.Stage)\", Count: \(s.Count)},\n")
+	}
+	b.WriteString("\t}},\n\tTruth: Truth{Cells: Map[string, int]{\n")
+	for key in slices.Sorted(maps.Keys(c.Truth.Cells)) {
+		b.WriteString("\t\t\"\(key)\": \(got(c.Truth.Cells, key)),\n")
+	}
+	b.WriteString("\t}, Rebuilt: []string{")
+	for name in c.Truth.Rebuilt {
+		b.WriteString("\"\(name)\", ")
+	}
+	b.WriteString("}, Refusal: \"\(c.Truth.Refusal)\"},\n\tPackages: []Package{\n")
+	for p in c.Packages {
+		b.WriteString("\t\tPackage{Name: \"\(p.Name)\", Origin: \"\(p.Origin)\", Route: \"\(p.Route)\"},\n")
+	}
+	b.WriteString("\t},\n\tFaultTarget: \"\(c.FaultTarget)\",\n}")
+	b.String()
+}
+
+func reportFailure(seed int, source string, d Difference) needs io.Stdout {
+	io.Stdout.Println("FAIL seed \(seed)")
+	io.Stdout.Println("minimized Ergo source:\n" + source)
+	io.Stdout.Println("observed:\n" + d.Observed)
+	io.Stdout.Println("reference:\n" + d.Reference)
+	io.Stdout.Println("replay (from compiler/): ergo run ./cmd/nativeab -- verify --seed \(seed) --count 1")
+}
+
+func reportTraceFailure(seed int, c Case) bool needs io.Stdout {
+	for check in []TraceCheck{TraceRecovery, TraceConservation, TraceStages} {
+		match traceDifference(c, check) {
+		case Some as original:
+			let small = minimise(c, func(candidate Case) bool { !traceAgrees(candidate, check) })
+			match traceDifference(small, check) {
+			case Some as d:
+				reportFailure(seed, describe(small), d.Value)
+			case None:
+				reportFailure(seed, describe(c), original.Value)
+			}
+			return true
+		case None:
+		}
+	}
+	false
+}
+
+func reportCacheFailure(seed int) bool needs io.Stdout {
+	let c = drawCacheCase(seed, seed/7, seed/3)
+	if cacheAgrees(c) {
+		return false
+	}
+	let small = minimiseCache(c)
+	reportFailure(seed, "Rebuild(\(small.N), \"\(small.Kind)\", \(small.At))", Difference{
+		Observed:  "[" + strings.Join(Rebuild(small.N, small.Kind, small.At), ", ") + "]",
+		Reference: "[" + strings.Join(scratch(small.N, small.Kind, small.At), ", ") + "]",
+	})
+	true
+}
+
+// model runs the laws over the drawn builds and the cache model; it is
+// the number of failures, each printed with its replay command.
+func model(seed int, count int) int needs io.Stdout {
+	let mut bad = 0
+	for s in seed..seed+count {
+		if reportTraceFailure(s, Draw(s)) || reportCacheFailure(s) {
+			bad = bad + 1
+		}
+	}
+	io.Stdout.Println("model: \(count - bad)/\(count) seeds from \(seed) agree (drawn builds: phase order, parser workers, packages of both origins and routes, cold/hit/private/public/dependency edits, duplicate, incomplete, lost and pid-reused records)")
+	bad
+}
+
+// smoke checks one capture; it is its problems.
+func smoke(name string, text string) []string needs io.Stdout {
+	let c = Parse(text) catch {
+	case Malformed as m:
+		return []string{"\(name): line \(m.Line) unreadable: \(m.Text)"}
+	}
+	let cells = Attribute(c.Trace) catch {
+	case Refused as r:
+		return []string{"\(name): refused \(r.Why) at \(r.At)"}
+	}
+	let mut problems = []string{}
+	if Sum(cells) != c.Trace.Tree {
+		problems = problems.Append("\(name): cells \(Sum(cells)) != tree \(c.Trace.Tree)")
+	}
+	io.Stdout.Println("capture \(name): tree \(c.Trace.Tree) instructions:u")
+	for m in c.Meta {
+		io.Stdout.Println("  meta \(m)")
+	}
+	let mut generated = 0
+	for p in c.Trace.Procs {
+		if p.Tool == "compile" && p.Origin == "ergo" {
+			generated = generated + 1
+			let st = StagesOf(cells, p.Origin, p.Pkg)
+			if slices.Contains(st, "parse") && slices.Contains(st, "check") {
+				io.Stdout.Println("  A \(p.Pkg): parse and check measured")
+			} else if len(c.Trace.Spans) > 0 {
+				problems = problems.Append("\(name): route A package \(p.Pkg) has no parse or check cell")
+			} else {
+				io.Stdout.Println("  A \(p.Pkg) stages: \(WaitStages)")
+			}
+			io.Stdout.Println("  B \(p.Pkg): \(WaitB)")
+		}
+	}
+	// An edit rebuilds a generated package; any other build may be all
+	// hits, whose work is absent.
+	let edit = slices.Contains(c.Meta, "label private-edit-subject/lib")
+	if generated == 0 && edit {
+		problems = problems.Append("\(name): an edit of a generated package recorded no compile of it (origin ergo)")
+	} else if generated == 0 {
+		io.Stdout.Println("  no generated package compiled: every action a hit, no work recorded")
+	}
+	for u in c.Unmeasured {
+		io.Stdout.Println("  unmeasured \(u)")
+	}
+	for l in Lines(cells) {
+		io.Stdout.Println("  cell \(l)")
+	}
+	problems
+}
+
+func verify(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	let seed = try flagInt(args, "--seed", 17)
+	let count = try flagInt(args, "--count", 200)
+	let data = flagText(args, "--data", "cmd/nativeab/testdata/route-a")
+	let bad = model(seed, count)
+	let names = fs.Files.ReadDir(data) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		[]string{}
+	}
+	let mut problems = []string{}
+	let mut captures = 0
+	for n in names {
+		if strings.HasSuffix(n, ".trace") {
+			captures = captures + 1
+			let text = fs.Files.ReadFile(data + "/" + n) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				problems = problems.Append("\(n): unreadable")
+				continue
+			}
+			for p in smoke(n, text) {
+				problems = problems.Append(p)
+			}
+		}
+	}
+	if captures == 0 {
+		problems = problems.Append("no route A capture in \(data): no stage receipt of today's route to pair with B")
+	}
+	for p in problems {
+		io.Stdout.Println("FAIL \(p)")
+	}
+	if bad > 0 || len(problems) > 0 {
+		return os.Exit{Code: 1, Message: "nativeab verify: \(bad) model failures, \(len(problems)) capture problems"}
+	}
+	io.Stdout.Println("ok")
+}
+
+func attribute(args []string) fails os.Exit needs fs.Files | io.Stdout {
+	if len(args) != 1 {
+		return usage()
+	}
+	let text = fs.Files.ReadFile(args[0]) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "nativeab: cannot read \(args[0])"}
+	}
+	let c = Parse(text) catch {
+	case Malformed as m:
+		return os.Exit{Code: 1, Message: "nativeab: line \(m.Line): \(m.Text)"}
+	}
+	let cells = Attribute(c.Trace) catch {
+	case Refused as r:
+		return os.Exit{Code: 1, Message: "nativeab: refused \(r.Why) at \(r.At)"}
+	}
+	for l in Lines(cells) {
+		io.Stdout.Println(l)
+	}
+}
+
+func run(args []string, id string) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr | os.Process {
+	match os.Process.Getenv(WrapDir) {
+	case Some as d:
+		try wrap(d.Value, id, args)
+		return
+	case None:
+	}
+	if len(args) == 0 {
+		return usage()
+	}
+	let rest = slices.Slice(args, 1, len(args))
+	if args[0] == "verify" {
+		try verify(rest)
+	} else if args[0] == "attribute" {
+		try attribute(rest)
+	} else if args[0] == "capture" {
+		try capture(rest)
+	} else {
+		return usage()
+	}
+}
+
+func main() fails os.Exit needs Ambient {
+	let id = hex.Encode(rand.NewSecureHost().Bytes(8))
+	with context { os.Process: os.NewHost(), exec.Runner: exec.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
+		try run(os.Process.Args(), id)
+	}
+}

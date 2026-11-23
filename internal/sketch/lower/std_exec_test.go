@@ -41,6 +41,7 @@ func TestExecRuns(t *testing.T) {
 	}
 	runBehaviors(t, []behavior{
 		{name: "exec", src: strings.NewReplacer("STARTED", started, "PIDFILE", pidfile, "LATE", late).Replace(`import exec
+import os
 import task
 
 func show(c exec.Command) needs Console | exec.Runner {
@@ -75,7 +76,7 @@ func run() needs Console | exec.Runner {
 }
 
 func main() needs Console | Ambient {
-	with context { exec.Runner: exec.NewHost() } { run() }
+	with context { exec.Runner: exec.NewHost().InheritEnv(exec.PathOf(os.NewHost().Environ())) } { run() }
 	let mut results = Map[string, exec.Result]{}
 	let c = exec.New("git", []string{"status"})
 	results[exec.Key(c)] = exec.Result{Status: 1, Stdout: "recorded", Stderr: ""}
@@ -143,6 +144,7 @@ func TestExecStartRuns(t *testing.T) {
 	file := filepath.Join(dir, "out")
 	runBehaviors(t, []behavior{
 		{name: "execStart", src: strings.NewReplacer("FILE", file).Replace(`import exec
+import os
 
 func show(c exec.Command) needs Console | exec.Runner {
 	let r = exec.Runner.Start(c, exec.Streams{Stdout: exec.ToCaller, Stderr: exec.ToCaller}) catch {
@@ -244,7 +246,7 @@ func run() needs Console | exec.Runner {
 }
 
 func main() needs Console | Ambient {
-	with context { exec.Runner: exec.NewHost() } { run() }
+	with context { exec.Runner: exec.NewHost().InheritEnv(exec.PathOf(os.NewHost().Environ())) } { run() }
 	let mut results = Map[string, exec.Result]{}
 	let c = exec.New("git", []string{"status"})
 	results[exec.Key(c)] = exec.Result{Status: 1, Stdout: "a\nb", Stderr: "e\n"}
@@ -268,6 +270,7 @@ func main() needs Console | Ambient {
 		// Stop's TERM to the group also reaches the sleep, so `wait`
 		// returns and dash runs the trap.
 		{name: "postStopStatus", src: `import exec
+import os
 import timeout
 
 func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | Scheduler {
@@ -283,7 +286,7 @@ func stoppedStatus() int fails exec.NotFound | exec.Denied | exec.Failed needs e
 }
 
 func main() needs Ambient | Console {
-	let world = context { exec.Runner: exec.NewHost(), Scheduler: NewLiveScheduler() }
+	let world = context { exec.Runner: exec.NewHost().InheritEnv(exec.PathOf(os.NewHost().Environ())), Scheduler: NewLiveScheduler() }
 	let code = with world { stoppedStatus() } catch {
 	case _:
 		-1
@@ -315,6 +318,10 @@ func inGroup(pid, pgid string) bool {
 // a test of the same name (TestStdLawsRun's naming), and the Runner law
 // against a Script, the std's test provider.
 const execLawsProbe = `import exec
+import filepath
+import fs
+import fstest
+import os
 import strings
 import slices
 import time
@@ -360,6 +367,13 @@ test ExecRunnerStartMergedInterleavesRun(name string, out string, errs string, s
 // onHost runs the Runner laws as written on the test host, in the
 // case's folder: each case runs the Shell it draws.
 let onHost = context needs TestAmbient { exec.Runner: exec.NewTestHost() }
+
+// onHostWithPath is the test host given a PATH, as a test that runs
+// programs by name chooses it: EnvIsExact sees the inherited entry.
+let onHostWithPath = context needs TestAmbient { exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())) }
+
+// onProcess is the test host of os.Process: its Environ agrees with Getenv.
+let onProcess = context needs TestAmbient { os.Process: os.NewTestHost() }
 
 test ExecInterleavesMatchesModel(a string, b string, picks []bool, t string) {
 	let x = upTo5(a)
@@ -494,12 +508,98 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 	}
 	assert named
 }
+
+// probePath is the Process of the LookPath tests: PATH is path.
+type probePath { path string } implements os.Process
+
+func Args(_ probePath) []string { []string{} }
+
+func Getenv(p probePath, key string) Option[string] {
+	if key == "PATH" {
+		return Some[string]{Value: p.path}
+	}
+	None
+}
+
+func Environ(p probePath) Map[string, string] { Map[string, string]{"PATH": p.path} }
+
+func Getwd(_ probePath) string fails os.NoWorkdir { "/" }
+
+func probeRunnable() fs.Mode { fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute} }
+
+test ExecLookPathFindsTheFirst(paths []string, picks []int, dirs []string, name string) {
+	if name == "" || strings.Contains(name, "/") {
+		return
+	}
+	let m = fstest.NewMemory()
+	let mut i = 0
+	for p in paths {
+		let at = "/" + p
+		let pick = if i < len(picks) { picks[i] } else { 0 }
+		i = i + 1
+		let mode = if pick % 2 != 0 { probeRunnable() } else { fs.Shared() }
+		m.MkdirAll(filepath.Dir(at)) catch {
+		case fs.Denied, fs.Failed:
+		}
+		m.WriteFileMode(at, "#!", mode) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+	}
+	let mut abs = []string{}
+	for d in dirs {
+		abs = abs.Append("/" + d)
+	}
+	let mut want = ""
+	for d in abs {
+		let candidate = filepath.Join([]string{d, name})
+		let info = m.Stat(candidate) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if !info.Dir && (info.Perm & 73) != 0 {
+			want = candidate
+			break
+		}
+	}
+	with context { os.Process: probePath{path: strings.Join(abs, ":")}, fs.Files: m } {
+		let got = exec.LookPath(name) catch {
+		case exec.NotFound as n:
+			assert want == "" && n.Name == name
+			return
+		case exec.Denied:
+			assert false
+			return
+		}
+		assert got == want
+	}
+}
+
+test ExecLookPathSkipsRelative(name string) {
+	if name == "" || strings.Contains(name, "/") || name == "." || name == ".." {
+		return
+	}
+	let m = fstest.NewMemory()
+	try m.MkdirAll("bin")
+	try m.WriteFileMode("bin/" + name, "#!", probeRunnable())
+	with context { os.Process: probePath{path: ":bin:."}, fs.Files: m } {
+		let _ = exec.LookPath(name) catch {
+		case exec.NotFound:
+			return
+		case exec.Denied:
+			assert false
+			return
+		}
+		assert false
+	}
+}
 `
 
 // execLawStatements is the statement of each law the probe restates, the
 // law's source text as the ledger writes it, by ledger key; lawledger.Run
 // holds it equal to the ledger (fu-ledger-runner).
 var execLawStatements = map[string]string{
+	"exec LookPathFindsTheFirst":            `LookPathFindsTheFirst(paths []string, picks []int, dirs []string, name string) { if name == "" || strings.Contains(name, "/") { return true } let m = shelf(paths, picks) let mut abs = []string{} for d in dirs { abs = abs.Append("/" + d) } let mut want = "" for d in abs { let candidate = filepath.Join([]string{d, name}) let info = m.Stat(candidate) catch { case fs.NotFound, fs.Denied, fs.Failed: continue } if !info.Dir && (info.Perm & 73) != 0 { want = candidate break } } with context { os.Process: pathOnly{path: strings.Join(abs, ":")}, fs.Files: m } { let got = LookPath(name) catch { case NotFound as n: return want == "" && n.Name == name case Denied: return false } got == want } }`,
+	"exec LookPathSkipsRelative":            `LookPathSkipsRelative(name string) { if name == "" || strings.Contains(name, "/") || name == "." || name == ".." { return true } let m = fstest.NewMemory() m.MkdirAll("bin") catch { case fs.Denied, fs.Failed: return true } m.WriteFileMode("bin/" + name, "#!", fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute}) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } with context { os.Process: pathOnly{path: ":bin:."}, fs.Files: m } { let _ = LookPath(name) catch { case NotFound: return true case Denied: return false } false } }`,
 	"exec Runner.StartAgreesWithRun":        `StartAgreesWithRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
 	"exec Runner.ShellRunsAsWritten":        `ShellRunsAsWritten(sh Shell) { let r = Run(ShellCommand(sh)) catch { case NotFound, Denied, Failed: return true } let mut out = "" let mut errs = "" for w in sh.Writes { if w.Stderr { errs = errs + w.Text } else { out = out + w.Text } } r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status % 256 + 256) % 256 }`,
 	"exec Runner.StartMergedInterleavesRun": `StartMergedInterleavesRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch { case NotFound, Denied, Failed: return false } let mut got = "" for k in p.Chunks() { if k.Stderr { return false } got = got + k.Text } Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status }`,
@@ -517,10 +617,14 @@ var execLawStatements = map[string]string{
 // the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
 // is the probe's own test of the Script provider, not a ledger row. The
 // Runner laws also run as written on the test host (onHost), each case a
-// drawn Shell, and each of those runs must pass.
+// drawn Shell, and each of those runs must pass. The laws Runner.EnvIsExact
+// (onHost, onHostWithPath), Runner.LookupUsesChildPath (onHost) and
+// os.Process.EnvironAgreesWithGetenv (onProcess) run here as written, not
+// restated. Their native std run also uses named TestAmbient contexts;
+// this probe checks that another package can supply those contexts too.
 //
 // It builds Go because the laws run in the built test binary (ergo test),
-// the only place a law runs.
+// the only place a law runs; a host Runner's law runs a real program.
 func TestExecLaws(t *testing.T) {
 	needsBuild(t)
 	exes := tableExes(t, "execlaws")
@@ -531,8 +635,8 @@ func TestExecLaws(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the exec law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	for _, line := range []string{"ok ScriptNotFoundNamesTheProgram", "ok law exec.Runner.StartAgreesWithRun under onHost", "ok law exec.Runner.StartMergedInterleavesRun under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHost"} {
-		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( \(\d+ cases\))?$`).MatchString(stdout) {
+	for _, line := range []string{"ok ScriptNotFoundNamesTheProgram", "ok law exec.Runner.StartAgreesWithRun under onHost", "ok law exec.Runner.StartMergedInterleavesRun under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHost", "ok law exec.Runner.EnvIsExact under onHost", "ok law exec.Runner.EnvIsExact under onHostWithPath", "ok law exec.Runner.LookupUsesChildPath under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHostWithPath", "ok law os.Process.EnvironAgreesWithGetenv under onProcess"} {
+		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( \((\d+ cases?|proved: (all )?\d+ cases?)\))?$`).MatchString(stdout) {
 			t.Errorf("no line %q:\n%s", line, stdout)
 		}
 	}

@@ -81,6 +81,13 @@ func LocateSource(spelled string) (Location, error) {
 	return Location{spelled: spelled, admitted: admitted, resolved: resolved}, nil
 }
 
+// Unfiled is the Location of a source no file holds, such as a std
+// package the compiler ships (ergo test std:PKG): spelled as given,
+// admitted under the absolute name admitted, and with no Path to open.
+func Unfiled(spelled, admitted string) Location {
+	return Location{spelled: spelled, admitted: admitted}
+}
+
 // Path is the absolute resolved path a writer opens.
 func (l Location) Path() string { return l.resolved }
 

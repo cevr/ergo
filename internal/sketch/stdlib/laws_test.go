@@ -456,7 +456,8 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 // calls FSReadFile, FSMkdirAll, FSWriteFile, FSRemove and FSRename), over
 // seeded cases. It is the ledger's runner for os.Process.GetenvIsStable,
 // GetwdIsStable (in a directory, and in one removed under the process)
-// and GetwdIsAbsolute;
+// and GetwdIsAbsolute, and os.Self's PidIsPositive
+// and DirsAreAbsolute over the Go bodies os.Host's Self calls;
 // it runs fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
 // fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves on the host's
 // edge cases as plain subtests.
@@ -537,6 +538,29 @@ func TestStdHostLawsHold(t *testing.T) {
 				t.Errorf("GetwdIsAbsolute: %q, %v", got, err)
 			}
 		}},
+		"os Self.PidIsPositive": {Statement: `PidIsPositive() { Pid() > 0 }`, Check: func(t *testing.T) {
+			if v1.OSPid() <= 0 {
+				t.Errorf("PidIsPositive: %d", v1.OSPid())
+			}
+		}},
+		// With the host's variables, and with each directory's variable
+		// unset, relative and empty, so the NoDir paths run too.
+		"os Self.DirsAreAbsolute": {Statement: `DirsAreAbsolute() { let home = HomeDir() catch { case NoDir: "/" } let cache = CacheDir() catch { case NoDir: "/" } let config = ConfigDir() catch { case NoDir: "/" } let exe = Executable() catch { case NoDir: "/" } filepath.IsAbs(home) && filepath.IsAbs(cache) && filepath.IsAbs(config) && filepath.IsAbs(exe) }`, Check: func(t *testing.T) {
+			check := func(env string) {
+				for name, dir := range map[string]func() (string, error){"HomeDir": v1.OSHomeDir, "CacheDir": v1.OSCacheDir, "ConfigDir": v1.OSConfigDir, "Executable": v1.OSExecutable} {
+					if d, err := dir(); err == nil && !filepath.IsAbs(d) {
+						t.Errorf("DirsAreAbsolute (%s): %s is %q", env, name, d)
+					}
+				}
+			}
+			check("host")
+			for _, v := range []string{"", "relative/dir"} {
+				t.Setenv("XDG_CACHE_HOME", v)
+				t.Setenv("XDG_CONFIG_HOME", v)
+				t.Setenv("HOME", v)
+				check("HOME=" + v)
+			}
+		}},
 		// With no writer, two reads agree in value and in failure.
 		"fs Files.ReadIsRepeatable": {Statement: `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case NotFound as e: let _ = ReadFile(path) catch { case NotFound as again: return again == e case Denied, Failed: return false } return false case Denied as e: let _ = ReadFile(path) catch { case Denied as again: return again == e case NotFound, Failed: return false } return false case Failed as e: let _ = ReadFile(path) catch { case Failed as again: return again == e case NotFound, Denied: return false } return false } try ReadFile(path) == first }`, Check: func(t *testing.T) {
 			for _, p := range paths {
@@ -586,7 +610,7 @@ func TestStdHostLawsHold(t *testing.T) {
 		}},
 		// When a file is at from and none at to, and Rename(from, to)
 		// succeeds, a second Rename(from, to) fails NotFound.
-		"fs Writes.RenameMoves": {Statement: `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed: return false } false }`, Check: func(t *testing.T) {
+		"fs Writes.RenameMoves": {Statement: `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed, CrossDevice: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed, CrossDevice: return false } false }`, Check: func(t *testing.T) {
 			mv := filepath.Join(dir, "mv")
 			moved := 0
 			names := append([]string{"a", "b", "./a", "sub", "sub/a", "link", "a/", "d", "d/x"}, paths[6:]...)

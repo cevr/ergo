@@ -5,8 +5,17 @@
 // any host they held by their failure cases).
 
 import exec
+import os
 import strings
 import github.com/cevr/ergo/modules/work/work
+
+// TestTrees runs commands in the case's scratch folder.
+func TestTrees() Trees needs TestAmbient { New(TestRunner(), func(_ string) string { "" }) }
+
+// TestRunner passes only PATH so a test can find tools by name.
+func TestRunner() exec.Host needs TestAmbient {
+	exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))
+}
 
 // PlantScript makes the tree src in the working folder (a btrfs
 // subvolume when $1 is sub): a file of 1 MiB, larger than any inline

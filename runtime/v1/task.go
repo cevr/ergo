@@ -406,8 +406,6 @@ type Task[T any] struct {
 	h rt.Handle[T]
 	// body is the block the task runs, until it starts (taskBody.Run).
 	body func(*rt.Task) (T, error)
-	task *rt.Task // the task that started it
-	used bool     // Wait, Stop or Close ran
 	// out is the value the body returned, kept past rt's stop-wins, which
 	// zeroes it when a stop is pending at the boundary (Gap 47); ended says
 	// the body returned one. The child writes them before its handle
@@ -416,6 +414,8 @@ type Task[T any] struct {
 	// follows it.
 	out   T
 	ended bool
+	// why is the text of the defect TaskExit observed, for TaskReason.
+	why string
 	// ent is the entry of the Task's first owner (selfOwned), released
 	// by rel; a later owner makes an entry of its own (PARK2).
 	ent entry
@@ -462,8 +462,8 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	// The Task's owner releases it through its own entry, so rt registers
 	// the handle on no scope (rt.Start), and the Task itself is the body,
 	// so no closure carries it.
-	t := &Task[T]{task: s.s.Task(), body: body}
-	rt.Start(&t.h, t.task, string(span), (*taskBody[T])(t))
+	t := &Task[T]{body: body}
+	rt.Start(&t.h, s.s.Task(), string(span), (*taskBody[T])(t))
 	return t
 }
 
@@ -496,8 +496,7 @@ func GoWith[T, C any](s *Scope, span Site, c C, body func(*rt.Task, *C) (T, erro
 		panic("task.Go: the frame that would own this task has returned (law R9)")
 	}
 	x := &taskWith[T, C]{c: c, fn: body}
-	x.t.task = s.s.Task()
-	rt.Start(&x.t.h, x.t.task, string(span), x)
+	rt.Start(&x.t.h, s.s.Task(), string(span), x)
 	return &x.t
 }
 
@@ -521,6 +520,43 @@ func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
 	return v, err
 }
 
+// GoWithFrame is GoWith for a block whose environment can outlive the
+// call that uses it. The generated block initializes the frame on the
+// child, just as it would initialize an ordinary local. Captures still
+// clear when the block ends, but the frame stays valid for anything
+// that took its address. The frame is in the Task's allocation, not a
+// separate heap object. A lowering helper: no Ergo declaration binds it.
+//
+//ergo:wait none
+func GoWithFrame[T, C, F any](s *Scope, span Site, c C, body func(*rt.Task, *C, *F) (T, error)) *Task[T] {
+	s = s.current()
+	if s.ended {
+		panic("task.Go: the frame that would own this task has returned (law R9)")
+	}
+	x := &taskWithFrame[T, C, F]{c: c, fn: body}
+	rt.Start(&x.t.h, s.s.Task(), string(span), x)
+	return &x.t
+}
+
+type taskWithFrame[T, C, F any] struct {
+	t     Task[T]
+	c     C
+	frame F
+	fn    func(*rt.Task, *C, *F) (T, error)
+}
+
+func (x *taskWithFrame[T, C, F]) Run(ct *rt.Task) (T, error) {
+	fn := x.fn
+	x.fn = nil
+	v, err := guarded(ct, func(ct *rt.Task) (T, error) { return fn(ct, &x.c, &x.frame) })
+	var zero C
+	x.c = zero
+	if err == nil {
+		x.t.out, x.t.ended = v, true
+	}
+	return v, err
+}
+
 // Wait waits for the task to end and consumes it. It returns the task's
 // value, or its typed failure when that failure is the task's whole exit
 // (law R6: a catch handles only a lone typed failure). Any other exit is
@@ -529,15 +565,14 @@ func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
 // the waiter (I1): when the waiter is stopped first or while it waits, the
 // task is stopped and drained, and Wait raises the interruption with the
 // task's defects; it delivers neither the task's value nor its typed
-// failure (law R4). A Wait after Wait, Stop or Close is a defect.
+// failure (law R4). A Wait after Wait, Stop or Close is a defect. The
+// waiter is ct, the task that calls Wait: the Task's owner, which a
+// hand-off may have made another task than the one that started it
+// (runtime.md Tasks, rule 11; issue 236).
 //
-//ergo:wait handle
-func (t *Task[T]) Wait() (T, error) {
-	if t.used {
-		panic("task: Wait on a task that was already waited for, stopped or released")
-	}
-	t.used = true
-	v, err := t.h.Wait()
+//ergo:wait caller
+func (t *Task[T]) Wait(ct *rt.Task) (T, error) {
+	v, err := t.h.WaitBy(ct)
 	if err == nil {
 		return v, nil
 	}
@@ -549,19 +584,90 @@ func (t *Task[T]) Wait() (T, error) {
 	panic("unreachable")
 }
 
+// Exit kinds of TaskExit: the order of std task's Exit variants.
+const (
+	taskDone     = iota // the block returned its value
+	taskFailed          // the task's whole exit is one typed failure
+	taskDefected        // a defect ended it (with or without a typed failure)
+)
+
+// TaskExit is std task's exitOf(t): it waits for the task to end, as Wait
+// does, and gives how it ended (taskDone, taskFailed, taskDefected); for
+// a defect it keeps the text of its first defect, as the runtime's report
+// writes it after "panic: ", for TaskReason (defectReason, the helper ActorDefectReason
+// reads; Tasks 13). A lone typed failure is its returned error, which the
+// caller's catch takes. A defect is observed here: it is returned as a
+// value and never raised again, by this call or by the owner's release,
+// since the task is consumed. The task's exit actions and drains have run
+// before it returns, because rt writes the exit only after the task's
+// releases. A stop of the waiter is Wait's: the task is stopped and
+// drained, and the interruption, with the task's defects, is raised. So is
+// an exit that holds an interruption. A TaskExit after Wait, Stop or Close
+// is a defect. It consumes the task but does not deliver its value: the
+// value stays in the Task for TaskValue.
+//
+//ergo:wait caller
+func TaskExit[T any](ct *rt.Task, t *Task[T]) (int, error) {
+	_, err := t.h.WaitBy(ct)
+	if err == nil {
+		return taskDone, nil
+	}
+	if f, ok := rt.Failure(err); ok {
+		return taskFailed, f
+	}
+	if why := defectReason(err); why != "" && !interrupted(err) {
+		t.why = why
+		return taskDefected, nil
+	}
+	raise(err)
+	panic("unreachable")
+}
+
+// interrupted reports whether err holds an interruption.
+func interrupted(err error) bool {
+	if err == rt.Interrupted {
+		return true
+	}
+	c, ok := err.(*rt.Cause)
+	if !ok || c == nil {
+		return false
+	}
+	for _, r := range c.Reasons {
+		if r.Kind == rt.KindInterruption {
+			return true
+		}
+	}
+	return false
+}
+
+// TaskReason is std task's exitReason(t): the text of the defect TaskExit
+// gave as taskDefected (Tasks 13).
+//
+//ergo:wait none
+func TaskReason[T any](t *Task[T]) string { return t.why }
+
+// TaskValue is std task's exitValue(t): the value the block returned, read
+// after TaskExit gave taskDone. It takes the value: the Task's owner
+// drains nothing after it.
+//
+//ergo:wait none
+func TaskValue[T any](t *Task[T]) T {
+	v := t.out
+	var zero T
+	t.out, t.ended = zero, false
+	return v
+}
+
 // Stop interrupts the task and waits, uninterruptibly, until it has ended,
 // its exit actions included (law R5), and consumes it. The task's
 // interruption and an abandoned typed failure are the expected result of
 // the stop and are dropped (laws R3, R6); its defects are raised in the
-// caller. Stop on a consumed task does nothing.
+// caller. Stop on a consumed task does nothing. The waiter is ct, the task
+// that calls Stop (Wait).
 //
 //ergo:wait drain
-func (t *Task[T]) Stop() {
-	if t.used {
-		return
-	}
-	t.used = true
-	if err := t.h.Stop(); err != nil {
+func (t *Task[T]) Stop(ct *rt.Task) {
+	if err := t.h.StopBy(ct); err != nil {
 		raise(err)
 	}
 }
@@ -576,12 +682,11 @@ func (t *Task[T]) Stop() {
 //ergo:wait none
 //ergo:release caller
 func (t *Task[T]) Close(ct *rt.Task) {
-	if t.used {
+	if t.h.Consumed() {
 		return
 	}
-	t.used = true
 	Release(ct, func() {
-		if err := t.h.Stop(); err != nil {
+		if err := t.h.StopBy(ct); err != nil {
 			raise(err)
 		}
 	})
@@ -595,7 +700,7 @@ func (t *Task[T]) Close(ct *rt.Task) {
 // does.
 //
 //ergo:wait none
-func ReleaseTask[T any](t *Task[T]) { t.Close(t.task) }
+func ReleaseTask[T any](t *Task[T]) { t.Close(t.h.Starter()) }
 
 // Drain is the rest of the release of a Task whose value holds a resource
 // (L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the

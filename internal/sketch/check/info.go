@@ -137,6 +137,15 @@ type Package struct {
 	// toolchain vouches for the packages it ships.
 	module  string
 	trusted bool
+	// unfed are the law bindings of this package that no case of its own
+	// feeds, left to its module (lawmodule.go, ReportUnfed), and fed the
+	// providers its named contexts run each law against. Only the
+	// package's own check writes them; a snapshot carries neither.
+	unfed []unfedBinding
+	fed   []fedBinding
+	// unprovided are its member laws, each with the error its module
+	// reports when no package of the module runs the law (ReportUnfed).
+	unprovided []unfedBinding
 	// goBodies are the bodies its externs bind in its module's own Go
 	// packages, by extern target (moduleDoor; docs/spec/interop.md,
 	// Trusted Go 3). Only the package's own check writes it.
@@ -319,6 +328,11 @@ type Info struct {
 	// receiver; and an instantiation used as a value, Max[int], keyed by
 	// the *syntax.IndexExpr. Added in check-v1 stage E1 (additive).
 	Instances map[syntax.Expr]*Instance
+	// MachineEntries is each machine declaration's entries as the checker
+	// resolved them, keyed by the declaration (MACHINE-EXPR; runtime.md,
+	// Machines and actors 1): an entry that is refused, or not written, is
+	// nil.
+	MachineEntries map[*TypeName]*MachineEntries
 	// ReturnedValues is every expression a return or a function body's
 	// tail gives back whose type is an error type, true when the
 	// function's declared result makes it the success value and false
@@ -533,28 +547,29 @@ type Initializer struct {
 
 func newInfo() *Info {
 	return &Info{
-		Types:         map[syntax.Expr]Type{},
-		Values:        map[syntax.Expr]constant.Value{},
-		Defs:          map[*syntax.Ident]Object{},
-		Uses:          map[*syntax.Ident]Object{},
-		Calls:         map[*syntax.CallExpr]*Call{},
-		Closes:        map[syntax.Node]*Close{},
-		Implicit:      map[syntax.Expr]Conversion{},
-		Spreads:       map[*syntax.CompositeLit][]Spread{},
-		ImplicitElems: map[syntax.Expr][]Conversion{},
-		Patterns:      map[syntax.Expr]*Pattern{},
-		Matches:       map[syntax.Node]*Match{},
-		Tails:         map[syntax.Stmt]Type{},
-		Literals:      map[syntax.Node]*Signature{},
-		ValueCaptures: map[syntax.Node][]*Var{},
-		LocalFrames:   map[*syntax.FuncLit]bool{},
-		Relends:       map[*syntax.UnaryExpr]bool{},
-		Loops:         map[*syntax.RangeStmt]*Loop{},
-		Withs:         map[*syntax.CallExpr]*With{},
-		ContextValues: map[syntax.Expr]*With{},
-		Footprints:    map[syntax.Node]Footprint{},
-		Reads:         map[syntax.Node][]ReadSet{},
-		Instances:     map[syntax.Expr]*Instance{},
+		Types:          map[syntax.Expr]Type{},
+		Values:         map[syntax.Expr]constant.Value{},
+		Defs:           map[*syntax.Ident]Object{},
+		Uses:           map[*syntax.Ident]Object{},
+		Calls:          map[*syntax.CallExpr]*Call{},
+		Closes:         map[syntax.Node]*Close{},
+		Implicit:       map[syntax.Expr]Conversion{},
+		Spreads:        map[*syntax.CompositeLit][]Spread{},
+		ImplicitElems:  map[syntax.Expr][]Conversion{},
+		Patterns:       map[syntax.Expr]*Pattern{},
+		Matches:        map[syntax.Node]*Match{},
+		Tails:          map[syntax.Stmt]Type{},
+		Literals:       map[syntax.Node]*Signature{},
+		ValueCaptures:  map[syntax.Node][]*Var{},
+		LocalFrames:    map[*syntax.FuncLit]bool{},
+		Relends:        map[*syntax.UnaryExpr]bool{},
+		Loops:          map[*syntax.RangeStmt]*Loop{},
+		Withs:          map[*syntax.CallExpr]*With{},
+		ContextValues:  map[syntax.Expr]*With{},
+		Footprints:     map[syntax.Node]Footprint{},
+		Reads:          map[syntax.Node][]ReadSet{},
+		Instances:      map[syntax.Expr]*Instance{},
+		MachineEntries: map[*TypeName]*MachineEntries{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
 		TryCovers:      map[syntax.Expr]*syntax.TryExpr{},
@@ -579,6 +594,42 @@ func newInfo() *Info {
 		Takes:          map[*Func][]int{},
 	}
 }
+
+// MachineEntries are a machine declaration's entries (MACHINE-EXPR): each
+// is an expression of its Machine field's type, checked as a package let's
+// value is (no failure, no capability), in the scope of the declaration's
+// own type parameters. Start is the initial entry when it is a function of
+// an input (V4); an initial value has no entry here.
+type MachineEntries struct {
+	Start, Step, After, Work, Exit *MachineEntry
+	// Conv is the conversion of the declaration's own value, at its own
+	// type parameters, to its Machine (or InputMachine), or nil when an
+	// entry is refused: a generic machine's lowering builds its Machine
+	// once from it, in its type parameters.
+	Conv *Conversion
+}
+
+// MachineEntry is one entry of a machine declaration.
+//
+// A *name entry* names a declared function, Func, or an instance of a
+// generic one, Func with TypeArgs written in the declaration's type
+// parameters (step: stepT[T]): a call of the entry is a call of Func, and a
+// name step's graph is read from Func's body (runtime.md, Machines and
+// actors 15.1). Any other expression is a *computed entry* (Func is nil):
+// its value is computed once, as a package let's is, and a computed step
+// has no graph ("no graph: computed step").
+type MachineEntry struct {
+	Expr     syntax.Expr
+	Func     *Func
+	TypeArgs []Type
+	// Type is the entry's function type in the declaration's type
+	// parameters, rows included: a step's are the Machine's F and R
+	// (Machines and actors 8).
+	Type *Signature
+}
+
+// Computed reports a computed entry: one that names no function.
+func (e *MachineEntry) Computed() bool { return e != nil && e.Func == nil }
 
 // recordInstance records the instantiation of the generic function fn at
 // x with targs, one for each of fn's type parameters, and the witness of
@@ -699,7 +750,10 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 			}
 			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
-			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+			// A generic operation's function has its own type parameters
+			// beyond the receiver's: its instance is the call's, in a copy
+			// (GENERIC-OP), never the witness's.
+			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 && len(op.Sig.TParams) == 0 {
 				var why string
 				wo.Inst, why = build(f, receiverTypeArgs(targs[i], f))
 				if why != "" {
@@ -725,6 +779,47 @@ func receiverTypeArgs(self Type, f *Func) []Type {
 	}
 	return args
 }
+
+// ProviderTypeArgs are the type arguments of f, the function that provides
+// a generic operation for self, at a call of that operation with own, the
+// operation's type arguments (Call.TypeArgs): those self's type arguments
+// bind, then own in order for the rest (types.md, Interface assignability,
+// Generic operations). Nil when the counts do not match.
+func ProviderTypeArgs(self Type, f *Func, own []Type) []Type {
+	args := receiverTypeArgs(self, f)
+	k := 0
+	for i := range args {
+		if args[i] != nil {
+			continue
+		}
+		if k >= len(own) {
+			return nil
+		}
+		args[i] = own[k]
+		k++
+	}
+	if k != len(own) {
+		return nil
+	}
+	return args
+}
+
+// ProvidingFunc is the package function that provides the operation name
+// for the named type t (Methods 4), or nil.
+func ProvidingFunc(t Type, name string) *Func {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	if n, ok := t.(*Named); ok {
+		return n.method(name)
+	}
+	return nil
+}
+
+// ConstraintOnly reports whether an operation type is a constraint only by
+// a generic operation (Interface.Generic): a function its operations
+// constrain is lowered only as copies, one per instance.
+func ConstraintOnly(t Type) bool { return genericOpOnly(t) }
 
 // CallKind is what a call calls.
 type CallKind int
@@ -783,6 +878,25 @@ const (
 	// CallTestSeed is the run's --seed, a uint64, which only the rewrite of
 	// a harnessed test calls (harness.go, rule 3). Added in P1b.
 	CallTestSeed
+	// CallTestShown is ergo·shown(left, right): the runner's text of a
+	// failed comparison's operands (": left L, right R" and the line diff
+	// of two strings), which only the rewrite of a harnessed test's
+	// assert calls (harness.go, rule 3). Added in P1c.
+	CallTestShown
+	// CallTestSource is ergo·source(file): the path ergo test was given,
+	// the test binary's --source, or file when none is given, for a
+	// harnessed test's replay command; only the rewrite calls it
+	// (harness.go, rule 3). Added in P1c.
+	CallTestSource
+	// CallTestReport is ergo·report(message): the test fails with message
+	// as its whole report, as a failed assert ends it; only the rewrite of
+	// a harnessed test calls it, with its harness's failure (harness.go,
+	// rule 3). Added in P1c.
+	CallTestReport
+	// CallTestFile is ergo·file(): the base name of the file that holds
+	// the call, as the runner's reports name it; only the rewrite of a
+	// harnessed test calls it (harness.go, rule 3). Added in P1c.
+	CallTestFile
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -876,6 +990,12 @@ type Conversion struct {
 	// including the witnesses required by its constraints. The lowering
 	// consumes this fact rather than resolving the receiver again.
 	Instances map[string]*Instance
+	// Entries are a machine conversion's (ConvMachine) entries by their
+	// Machine field, Start, Step, After, Work and Exit, each with its type
+	// at From's type arguments (MACHINE-EXPR). A name entry is in Table too
+	// (and Instances, when it is an instance); a computed entry is only
+	// here, and the lowering and the evaluator call it through its value.
+	Entries map[string]*MachineEntry
 }
 
 // PatternKind is a pattern's form.
@@ -969,14 +1089,16 @@ type With struct {
 	// block too: a release runs in the environment outside the inner with,
 	// so this with discharges each one it binds (withOwnership).
 	Entries []*ContextEntry
-	// Acquired are the provider entries this with builds and owns, in
+	// Acquired are the provider entries this with builds, in
 	// their acquisition order (resources.md, Context ownership; withown.go):
 	// the entries of Entries, and each entry whose capability an acquired
 	// provider uses while it is built. Each entry is one acquisition,
 	// however many capabilities it binds. An overridden entry and an entry
 	// that nothing the block needs reaches are not acquired. Named, local and
 	// inline contexts use the same fact: a local context named by two withs
-	// is acquired, and released, once per with.
+	// is acquired, and released, once per with. The with owns each
+	// provider it builds from a new value; one that names a place is lent
+	// to it (Acquisition.Lent).
 	Acquired []*Acquisition
 	// Context is the context binding a with of a context value opens
 	// (runtime.md, G1), nil for a with of a context. Such a with has no Contexts
@@ -1017,7 +1139,9 @@ type ContextBinding struct {
 
 // Acquisition is one provider entry a with builds: the
 // entry, the indexes of the capabilities in Entry.Caps it still binds in
-// the with's context, and its provider's resolved Close (Info.Closes), nil
+// the with's context or that a later replace entry is built over (the
+// later entry's binding then overrides it in the environment), and its
+// provider's resolved Close (Info.Closes), nil
 // when the provider is not a resource. The with releases each resource
 // once, in reverse acquisition order, on every exit of its block.
 type Acquisition struct {
@@ -1029,10 +1153,23 @@ type Acquisition struct {
 	// it through Drop, which runs Close first; nil when Close alone is the
 	// release, or for a plain provider. Added in L8 B2 (additive).
 	Drop *Drop
+	// Lent marks a resource provider that names a place (a local, a
+	// parameter, a package let, or a field path of one): the with borrows
+	// it for its block, as an argument is borrowed (resources R11, R16),
+	// and its owner releases it. Close and Drop still name the provider's
+	// release, but the with runs neither. A lending with opens a scope as
+	// an owning one does (its tasks are drained at the block's end, and a
+	// held context made in it is dead after it). Added in WITH-LEND
+	// (additive).
+	Lent bool
 }
 
 // Releases reports an acquisition the with releases.
-func (a *Acquisition) Releases() bool { return a.Close != nil || a.Drop != nil }
+func (a *Acquisition) Releases() bool { return !a.Lent && (a.Close != nil || a.Drop != nil) }
+
+// Scoped reports an acquisition that makes its with open a scope: one the
+// with releases, or a resource it lends.
+func (a *Acquisition) Scoped() bool { return a.Releases() || a.Lent }
 
 // Override is a binding a replace overrode (Context.Overrides): Entry no
 // longer binds Cap, By does. The overridden entry is not built for that

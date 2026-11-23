@@ -231,9 +231,11 @@ func finish(t Tool) fails Unkept {
 // settle finishes or rolls back w, a reservation, under the lock, when
 // its maker is gone: only the kernel's lock of the reservation decides
 // that (makerGone; no pid, no time), so a live maker's reservation, this
-// process's own included, is never touched. A clone placed at its path
-// and marked with its id is made: it becomes Active, as Activate would
-// have written it. With no folder at its path, its staging folder (whole
+// process's own included, is never touched. A placed clone becomes
+// Active only when it carries its id and its checkout has the expected
+// branch and push guard. An older Work wrote the same marker before the
+// branch setup: keep an incomplete checkout intact for doctor to name.
+// With no folder at its path, its staging folder (whole
 // or cut short) is renamed to its tomb (TombOf) and the record kept:
 // settled deletes the tomb for good with the lock free, never by the
 // trash, and only then drops the record (buried). A record with neither
@@ -248,7 +250,7 @@ func settle(t Tool, w Workspace) fails Unkept {
 		return
 	}
 	if t.copier.Has(w.Path) {
-		if markerOf(t, w.Path) == w.Id {
+		if markerOf(t, w.Path) == w.Id && recoveryProblem(t, w) == "" {
 			t.registry.Put(activation(t, w, now(t))) catch {
 			case Unkept as e:
 				unreserved(t, w)
@@ -282,11 +284,49 @@ func settle(t Tool, w Workspace) fails Unkept {
 	unreserved(t, w)
 }
 
+// branchProblem verifies the exact local ref and the branch checked out,
+// not equality with the starting commit: the checkout can hold new work.
+func branchProblem(t Tool, w Workspace) string {
+	let why = "expected branch \(w.Branch) to have a local ref and be checked out"
+	let branch = t.vcs.Branch(w.Path) catch {
+	case VcsFailed as e:
+		return "\(why); \(e.Reason)"
+	}
+	if w.Branch == "" || branch != w.Branch {
+		return "\(why); found " + (if branch == "" { "detached HEAD or unreadable branch" } else { branch })
+	}
+	let ref = t.vcs.Ref(w.Path, "refs/heads/" + w.Branch) catch {
+	case VcsFailed as e:
+		return "\(why); \(e.Reason)"
+	}
+	let head = t.vcs.Head(w.Path) catch {
+	case VcsFailed as e:
+		return "\(why); \(e.Reason)"
+	}
+	if ref == "" || head != ref { why } else { "" }
+}
+
+func recoveryProblem(t Tool, w Workspace) string {
+	let why = branchProblem(t, w)
+	if why != "" {
+		return why
+	}
+	if allowsRemotePush(t) {
+		return ""
+	}
+	let guarded = t.vcs.PushesGuarded(w.Path) catch {
+	case VcsFailed as e:
+		return "cannot verify the push guard: \(e.Reason)"
+	}
+	if !guarded { "the push guard does not cover every remote" } else { "" }
+}
+
 // settled settles the reservations whose maker is gone before a command
 // that changes the registry decides anything: it takes the lock (and
 // gives it back) only when a reservation is there, so a command finds a
 // name a killed new held free, and its folder deleted or activated. A
-// registry that does not read is the command's to report.
+// mismatch is kept for doctor to report. A registry that does not read
+// is the command's to report.
 func settled(t Tool) fails Unkept | Locked {
 	let all = t.registry.All() catch {
 	case Unkept:

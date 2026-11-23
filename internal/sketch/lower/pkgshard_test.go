@@ -36,6 +36,8 @@ func typecheckModule(t *testing.T, base string, files []File) []string {
 type checkedPkg struct {
 	files []*ast.File
 	info  *types.Info
+	pkg   *types.Package
+	fset  *token.FileSet
 }
 
 // typecheckModuleInfo is typecheckModule with each package's files and
@@ -117,8 +119,8 @@ func typecheckModuleInfo(t *testing.T, base string, files []File) ([]string, map
 			p = base + "/" + dir
 		}
 		info := &types.Info{Instances: map[*ast.Ident]types.Instance{}, Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
-		checked[dir] = checkedPkg{byDir[dir], info}
 		pkg, _ := conf.Check(p, fset, byDir[dir], info)
+		checked[dir] = checkedPkg{byDir[dir], info, pkg, fset}
 		done[dir] = pkg
 		return pkg, nil
 	}

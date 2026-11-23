@@ -4,15 +4,17 @@
 
 import exec
 import fs
+import os
 import strings
 
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
 let onHost = context needs TestAmbient {
-	work.Cloner:         New(exec.NewTestHost()),
+	work.Cloner:         New(system.TestTrees()),
 	fs.Files, fs.Writes: fs.NewTestHost(),
-	exec.Runner:         exec.NewTestHost(),
+	exec.Runner:         system.TestRunner(),
+	os.Process:          os.NewTestHost(),
 }
 
 test CloneCopiesATree {
@@ -30,6 +32,70 @@ test CloneCopiesATree {
 		try work.Cloner.Discard("trash/one")
 		assert !work.Cloner.Has("trash/one")
 	}
+}
+
+// DiscardRepairsReadOnlyDirectories reproduces the failed host rm: the
+// kernel checks the directory mode on unlink, not the mode of its file.
+// A link in the discard tree must not change the outside directory.
+test DiscardRepairsReadOnlyDirectories {
+	with onHost {
+		let plant = "set -eu\nmkdir -p src/locked/nested outside\nprintf 'delete\\n' > src/locked/nested/file\nprintf 'preserve\\n' > outside/file\nln -s \"$(pwd -P)/outside\" src/locked/link\nchmod 500 src/locked src/locked/nested outside\n"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", plant})).Status == 0
+		try work.Cloner.Clone("src", "one")
+		try work.Cloner.Move("one", "trash/one")
+		try work.Cloner.Discard("trash/one")
+		assert !work.Cloner.Has("trash/one")
+		assert try fs.Files.ReadFile("outside/file") == "preserve\n"
+		let outside = try fs.Files.Stat("outside")
+		assert outside.Perm & 128 == 0
+		// Allow the case's own cleanup to delete the original and outside.
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "chmod u+w src/locked src/locked/nested outside"})).Status == 0
+	}
+}
+
+// RepairAcceptsBsdChmod: the helper's chmod operands must be a mode and
+// a single absolute path, with no GNU-only option separator.
+test RepairAcceptsBsdChmod {
+	with onHost {
+		try plantPermissionFixture()
+		let r = try permissionFixture("recover")
+		assert r.Status == 0 && r.Stdout == "repaired\n" && r.Stderr == ""
+		let folder = try fs.Files.Stat("recover/read only")
+		assert folder.Perm & 448 == 448
+	}
+}
+
+// RepairReturnsTheChmodFailure: even when a sibling chmod succeeds,
+// a failed chmod ends repair with that status and no retry marker.
+test RepairReturnsTheChmodFailure {
+	with onHost {
+		try plantPermissionFixture()
+		let r = try permissionFixture("mixed")
+		assert r.Status == 7 && r.Stdout == ""
+		assert strings.Contains(r.Stderr, "fixture chmod refused")
+		let folder = try fs.Files.Stat("mixed/refuse")
+		assert folder.Perm & 128 == 0
+		try fs.Writes.Chmod("mixed/refuse", fs.PrivateDir())
+	}
+}
+
+func plantPermissionFixture() fails fs.Denied | fs.Failed | fs.NotFound needs fs.Writes {
+	try fs.Writes.MkdirAll("bin")
+	try fs.Writes.MkdirAll("recover/read only")
+	try fs.Writes.MkdirAll("mixed/allow")
+	try fs.Writes.MkdirAll("mixed/refuse")
+	let readOnly = fs.Mode{Owner: fs.ReadExecute, Group: fs.NoAccess, Other: fs.NoAccess}
+	try fs.Writes.Chmod("recover/read only", readOnly)
+	try fs.Writes.Chmod("mixed/allow", readOnly)
+	try fs.Writes.Chmod("mixed/refuse", readOnly)
+	let chmod = "#!/bin/sh\nset -eu\nif [ \"$#\" -ne 2 ] || [ \"$1\" != u+rwx ]; then printf 'BSD-style chmod rejected its arguments\\n' >&2; exit 9; fi\ncase \"$2\" in /*/refuse) printf 'fixture chmod refused\\n' >&2; exit 7;; /*) exec /bin/chmod \"$@\";; *) printf 'chmod requires an absolute operand here\\n' >&2; exit 8;; esac\n"
+	try fs.Writes.WriteFileMode("bin/chmod", chmod, fs.PrivateDir())
+}
+
+func permissionFixture(path string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed | os.NoWorkdir needs exec.Runner | os.Process {
+	let dir = try os.Process.Getwd()
+	let c = exec.New("sh", []string{"-c", system.RepairRemovalScript, "work-discard-permissions", path})
+	try exec.Runner.Run(c.WithEnv("PATH", dir + "/bin:/usr/bin:/bin"))
 }
 
 // BaseScript makes base a checkout whose files hold every kind git's

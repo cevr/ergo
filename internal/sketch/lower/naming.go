@@ -50,6 +50,7 @@ import (
 
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
+	l.reserveLeaves(v1.Leaves) // pkgnames.go, rule 4: before any declaration is named
 	if l.lib != "" {
 		l.nameExports()
 	}
@@ -62,6 +63,7 @@ func (l *lowerer) nameAll() {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
 					l.pkgName(pkgKey{"machine graph", tn}, "ergoGraph"+tn.Name) // machine.go, machineGraph
 					l.reserveMachineValue(tn)                                   // ir_machine.go
+					l.reserveMachineEntries(tn)                                 // machineentry.go
 				}
 			}
 		}
@@ -103,7 +105,8 @@ func (l *lowerer) nameAll() {
 			if !l.isSourced(p) && tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
-					l.reserveMachineValue(tn) // ir_machine.go
+					l.reserveMachineValue(tn)   // ir_machine.go
+					l.reserveMachineEntries(tn) // machineentry.go
 				}
 			}
 		}
@@ -279,6 +282,9 @@ func (l *lowerer) nameAll() {
 	})
 	reservePatterns(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "pattern " + base + " " + key.obj.(string), base})
+	})
+	l.reserveSitePkgs(func(key pkgKey, sort, base string) { // siteid.go
+		generated = append(generated, entry{key, sort, base})
 	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
@@ -472,6 +478,13 @@ func (l *lowerer) libraryPackages() []*check.Package {
 		}
 	}
 	visit(l.pkg)
+	if l.goPackages {
+		// Go imports every package of the unit, reached from the root or
+		// not (LowerGoPackages).
+		for _, s := range l.srcs {
+			add(s.pkg)
+		}
+	}
 	if l.tests != nil {
 		// A test build's generators call functions no fact of the program
 		// names: an operation type's builder (fstest.NewMemory for an

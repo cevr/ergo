@@ -30,6 +30,9 @@ const sitesVariable = "ERGO_AGREE_SITES"
 // ratchetCommand writes ratchetPath from a run of TestCompilerCheckAgrees.
 const ratchetCommand = "ERGO_WRITE_RATCHET=1 go test -count=1 -run '^TestCompilerCheckAgrees$' ./internal/selfhostcheck"
 
+// Match the run queue's width for the parallel side of the comparison.
+const checkdumpParallelThreads = 4
+
 // ratchetCount is a code's disagreements: Go lines the Ergo side lacks
 // and Ergo lines the Go side lacks.
 type ratchetCount struct {
@@ -131,8 +134,8 @@ func goCheckLines(ds []check.Diagnostic, names []string) []checkLine {
 //   - seeded programs: the unused perturbations of corpus files and the
 //     ownership-flow programs.
 //
-// checkdump runs at -threads 1 and at -threads 8; the two outputs must be
-// the same bytes (a hard failure, never ratcheted). The disagreements are
+// checkdump runs once serially and once in parallel; the two outputs
+// must be the same bytes (a hard failure, never ratcheted). The disagreements are
 // counted per code, a Go line the Ergo side lacks (missing) and an Ergo
 // line the Go side lacks (extra), and held against the ratchet file: a
 // site the file lacks fails, printed in full, and so does a case the file
@@ -189,8 +192,8 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	// One source as a package of one file: the Go checker's diagnostics
 	// and its tables.
 	tmp := t.TempDir()
-	single := func(name, file, src string) bool {
-		pkg, ds := check.CheckSource(src)
+	single := func(name, file, src string, checkSource func(string) (*check.Package, []check.Diagnostic)) bool {
+		pkg, ds := checkSource(src)
 		if pkg == nil || (len(ds) > 0 && ds[0].Code == check.CodeSyntax) {
 			return false // the parser's, not the checker's
 		}
@@ -216,7 +219,7 @@ func TestCompilerCheckAgrees(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if single(rel(p), filepath.Base(p), string(src)) {
+			if single(rel(p), filepath.Base(p), string(src), check.CheckSource) {
 				fixtures++
 			}
 		}
@@ -224,12 +227,12 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	seeds := 0
 	pool := unusedPool(t)
 	for _, d := range unusedDraws(pool) {
-		if single(d.name, "p.ergo", d.src) {
+		if single(d.name, "p.ergo", d.src, d.check) {
 			seeds++
 		}
 	}
 	for seed := base; seed < base+300; seed++ {
-		if single(fmt.Sprintf("flow seed %d", seed), "p.ergo", flowProgram(seed)) {
+		if single(fmt.Sprintf("flow seed %d", seed), "p.ergo", flowProgram(seed), check.CheckSource) {
 			seeds++
 		}
 	}
@@ -249,9 +252,9 @@ func TestCompilerCheckAgrees(t *testing.T) {
 		t.Fatalf("ergo build ./cmd/checkdump: %v\n%s", err, o)
 	}
 	one := runDump(t, ctx, bin, "-std", stdDir(), "-threads", "1", "-corpus", m)
-	eight := runDump(t, ctx, bin, "-std", stdDir(), "-threads", "8", "-corpus", m)
-	if a, b := strings.Join(one, "\n"), strings.Join(eight, "\n"); a != b {
-		t.Fatalf("checkdump -threads 1 and -threads 8 differ:\n%s", firstDifference(one, eight))
+	parallel := runDump(t, ctx, bin, "-std", stdDir(), "-threads", strconv.Itoa(checkdumpParallelThreads), "-corpus", m)
+	if a, b := strings.Join(one, "\n"), strings.Join(parallel, "\n"); a != b {
+		t.Fatalf("checkdump -threads 1 and -threads %d differ:\n%s", checkdumpParallelThreads, firstDifference(one, parallel))
 	}
 	got := make([][]checkLine, len(cases))
 	at := -1
@@ -317,14 +320,11 @@ func TestCompilerCheckAgrees(t *testing.T) {
 		table = append(table, fmt.Sprintf("%s missing %d extra %d", code, counts[code].Missing, counts[code].Extra))
 	}
 	t.Logf("%d corpus folders, %d fixtures, %d seeds (%d cases); %d Go diagnostics; %d missing, %d extra (sites: %s):\n%s", folders, fixtures, seeds, len(cases), goLines, missing, extra, out, strings.Join(table, "\n"))
-	if os.Getenv("ERGO_WRITE_RATCHET") != "" {
-		if err := os.WriteFile(ratchetPath, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("wrote %s", ratchetPath)
-		return
-	}
+	write := os.Getenv("ERGO_WRITE_RATCHET") != ""
 	b, err := os.ReadFile(ratchetPath)
+	if write && os.IsNotExist(err) {
+		b, err = nil, nil // first generation has no previous cases
+	}
 	if err != nil {
 		t.Fatalf("no ratchet: %v (write it: %s)", err, ratchetCommand)
 	}
@@ -349,7 +349,14 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	sort.Strings(added)
 	sort.Strings(fewer)
 	if len(gone) > 0 {
-		t.Errorf("%d cases of the ratchet are no longer drawn (resolve each, then regenerate: %s):\n%s", len(gone), ratchetCommand, strings.Join(gone, "\n"))
+		t.Fatalf("%d cases of the ratchet are no longer drawn (resolve each, then regenerate: %s):\n%s", len(gone), ratchetCommand, strings.Join(gone, "\n"))
+	}
+	if write {
+		if err := os.WriteFile(ratchetPath, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s", ratchetPath)
+		return
 	}
 	if len(added) > 0 {
 		t.Errorf("%d sites the ratchet does not hold (diff %s against %s):\n%s", len(added), out, ratchetPath, strings.Join(added, "\n"))
@@ -370,7 +377,7 @@ func firstDifference(a, b []string) string {
 			y = b[i]
 		}
 		if x != y {
-			return fmt.Sprintf("line %d:\n-threads 1: %s\n-threads 8: %s", i+1, x, y)
+			return fmt.Sprintf("line %d:\n-threads 1: %s\n-threads %d: %s", i+1, x, checkdumpParallelThreads, y)
 		}
 	}
 	return "(same lines)"

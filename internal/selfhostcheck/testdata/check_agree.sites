@@ -820,6 +820,7 @@ case flow seed 96
 case flow seed 97
 case flow seed 98
 case flow seed 99
+case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
 case internal/selfhostcheck/testdata/bind
@@ -851,6 +852,8 @@ case internal/sketch/check/testdata/fixtures/negative/error-method-on-error-type
 case internal/sketch/check/testdata/fixtures/negative/error-row-non-struct.ergo
 case internal/sketch/check/testdata/fixtures/negative/export-guard-machine-step.ergo
 case internal/sketch/check/testdata/fixtures/negative/fallible-function-value.ergo
+case internal/sketch/check/testdata/fixtures/negative/generic-operation-provider.ergo
+case internal/sketch/check/testdata/fixtures/negative/generic-operation-value.ergo
 case internal/sketch/check/testdata/fixtures/negative/generic-row-parameter-instantiated.ergo
 case internal/sketch/check/testdata/fixtures/negative/harness-arity.ergo
 case internal/sketch/check/testdata/fixtures/negative/harness-body.ergo
@@ -869,6 +872,9 @@ case internal/sketch/check/testdata/fixtures/negative/interface-wider-row.ergo
 case internal/sketch/check/testdata/fixtures/negative/keyed-literal-nondefaultable.ergo
 case internal/sketch/check/testdata/fixtures/negative/literal-row-from-parameter-type.ergo
 case internal/sketch/check/testdata/fixtures/negative/local-and-binding-one-frame.ergo
+case internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-fails.ergo
+case internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-wrong-type.ergo
+case internal/sketch/check/testdata/fixtures/negative/machine-expr-tuple-state.ergo
 case internal/sketch/check/testdata/fixtures/negative/main-called.ergo
 case internal/sketch/check/testdata/fixtures/negative/main-parameter.ergo
 case internal/sketch/check/testdata/fixtures/negative/main-value-result.ergo
@@ -983,6 +989,8 @@ case internal/sketch/std/explore
 case internal/sketch/std/filepath
 case internal/sketch/std/flag
 case internal/sketch/std/fs
+case internal/sketch/std/fs
+case internal/sketch/std/fs/mapped
 case internal/sketch/std/fstest
 case internal/sketch/std/gen
 case internal/sketch/std/graph
@@ -1019,6 +1027,7 @@ case internal/sketch/std/net
 case internal/sketch/std/nettest
 case internal/sketch/std/os
 case internal/sketch/std/pace
+case internal/sketch/std/process
 case internal/sketch/std/prompt
 case internal/sketch/std/proof
 case internal/sketch/std/proof/file
@@ -1039,6 +1048,7 @@ case internal/sketch/std/set
 case internal/sketch/std/sha1
 case internal/sketch/std/sha256
 case internal/sketch/std/sha512
+case internal/sketch/std/signal
 case internal/sketch/std/slices
 case internal/sketch/std/sql
 case internal/sketch/std/sqltest
@@ -1066,6 +1076,9 @@ case internal/sketch/std/ui/layout
 case internal/sketch/std/url
 case internal/sketch/std/utf8
 case internal/sketch/std/uuid
+case internal/sketch/std/workflow
+case internal/sketch/std/workflow/file
+case internal/sketch/std/workflow/memory
 case internal/sketch/std/xml
 case unused examples/address-routes/files/tree.ergo
 case unused examples/address-routes/people/people.ergo
@@ -1216,6 +1229,7 @@ case unused examples/wire-config/config/config.ergo
 case unused examples/wtcache/settings/settings.ergo
 case unused internal/selfhostcheck/testdata/bind/a.ergo
 case unused internal/selfhostcheck/testdata/bind/elide.ergo
+case unused internal/selfhostcheck/testdata/bind/genop.ergo
 case unused internal/selfhostcheck/testdata/bind/lets.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
 case unused internal/sketch/std/ansi/ansi.ergo
@@ -1229,6 +1243,7 @@ case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
 case unused internal/sketch/std/dense/keys.ergo
 case unused internal/sketch/std/explore/search.ergo
+case unused internal/sketch/std/fs/mapped/mapped.ergo
 case unused internal/sketch/std/fstest/confined.ergo
 case unused internal/sketch/std/fstest/memory.ergo
 case unused internal/sketch/std/fstest/recorder.ergo
@@ -1257,6 +1272,7 @@ case unused internal/sketch/std/mcp/mcp.ergo
 case unused internal/sketch/std/mcp/memory/memory.ergo
 case unused internal/sketch/std/mcp/stdio/stdio.ergo
 case unused internal/sketch/std/pace/pace.ergo
+case unused internal/sketch/std/process/process.ergo
 case unused internal/sketch/std/prompt/machines.ergo
 case unused internal/sketch/std/prompt/prompt.ergo
 case unused internal/sketch/std/proof/file/file.ergo
@@ -1271,7 +1287,6 @@ case unused internal/sketch/std/session/file/file.ergo
 case unused internal/sketch/std/session/memory/memory.ergo
 case unused internal/sketch/std/session/session.ergo
 case unused internal/sketch/std/set/set.ergo
-case unused internal/sketch/std/sha256/sha256.ergo
 case unused internal/sketch/std/sql/sql.ergo
 case unused internal/sketch/std/sqltest/script.ergo
 case unused internal/sketch/std/stream/debounced.ergo
@@ -1280,11 +1295,12 @@ case unused internal/sketch/std/testing/stage.ergo
 case unused internal/sketch/std/text/span.ergo
 case unused internal/sketch/std/url/url.ergo
 case unused internal/sketch/std/uuid/uuid.ergo
+case unused internal/sketch/std/workflow/file/file.ergo
+case unused internal/sketch/std/workflow/memory/memory.ergo
+case unused internal/sketch/std/workflow/store.ergo
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 62:2: S101 {WireMissingField | WireUnknownTag} escapes function optional, whose error row {WireWrongKind | wired[T]} does not list it; write: func optional[T wire](r Reader) Option[T] fails wired[T] | WireMissingField | WireUnknownTag needs wired[T]
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/codec-rows.ergo: codec-rows.ergo 70:2: S101 {BadHost | Unsatisfied | WireMissingField | WireUnknownTag} escapes function usesNarrow, whose error row {WireWrongKind} does not list it; write: func usesNarrow(r Reader) []State fails WireWrongKind | BadHost | Unsatisfied | WireMissingField | WireUnknownTag
-site S101 missing in internal/sketch/check/testdata/fixtures/negative/error-as-value-exported.ergo: error-as-value-exported.ergo 6:9: S101 {Fault} escapes function Identity, whose error row {} does not list it; write: func Identity(v Fault) int fails Fault
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/generic-row-parameter-instantiated.ergo: generic-row-parameter-instantiated.ergo 7:2: S101 {Fault} escapes function Run, whose error row {} does not list it; write: func Run() fails Fault
-site S101 missing in internal/sketch/check/testdata/fixtures/negative/partial-catch-rest.ergo: partial-catch-rest.ergo 7:10: S101 {A} escapes function Run, whose error row {B} does not list it; write: func Run() string fails B | A
 site S101 missing in internal/sketch/check/testdata/fixtures/negative/timeout-is-a-library-function.ergo: timeout-is-a-library-function.ergo 4:9: S101 {timeout.Expired} escapes function Run, whose error row {} does not list it; write: func Run() string fails timeout.Expired needs Scheduler
 site S102 missing in internal/sketch/check/testdata/v1/Esub5-context-charge.neg.ergo: Esub5-context-charge.neg.ergo 21:7: S102 this expression requires Console, which is not in the capability row of function run and no with provides it; write: func run() string needs Console
 site S103 missing in internal/sketch/check/testdata/fixtures/negative/catch-not-total.ergo: catch-not-total.ergo 7:17: S103 this catch does not handle {B}; a catch without try handles every error of the row (rows.md, Catch 4)
@@ -1322,16 +1338,12 @@ site S104 missing in internal/sketch/check/testdata/v1/E2-closed-world.neg.ergo:
 site S104 missing in internal/sketch/check/testdata/v1/E4-tests.neg.ergo: E4-tests.neg.ergo 17:2: S104 unknown name Typed
 site S104 missing in internal/sketch/check/testdata/v1/E5-laws.neg.ergo: E5-laws.neg.ergo 7:23: S104 unknown name Missing
 site S104 missing in internal/sketch/check/testdata/v1/G9-extern-allowlist.neg.ergo: G9-extern-allowlist.neg.ergo 11:1: S104 extern go strings/x.F: no binding for Go package "strings/x"; run ergo bind go strings/x (docs/spec/interop.md)
+site S105 missing in internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-fails.ergo: machine-expr-computed-fails.ergo 15:16: S105 the failure {Down} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-argument.ergo: unhandled-argument.ergo 6:21: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-condition.ergo: unhandled-condition.ergo 6:5: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-define.ergo: unhandled-define.ergo 6:10: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/C4-rows.neg.ergo: C4-rows.neg.ergo 20:13: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 11:11: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
-site S106 missing in internal/sketch/check/testdata/fixtures/negative/provider-method-needs.ergo: provider-method-needs.ergo 8:32: S106 Mem cannot provide Store: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/fixtures/negative/provider-missing-method.ergo: provider-missing-method.ergo 5:32: S106 Mem cannot provide Store: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/fixtures/negative/provider-wider-row.ergo: provider-wider-row.ergo 8:32: S106 Mem cannot provide Store: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 25:10: S106 Tape cannot provide Orders: Tape does not declare that it implements Orders: write implements Orders after Tape's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/v1/E6-extern-contexts.neg.ergo: E6-extern-contexts.neg.ergo 19:11: S106 Mute cannot provide Greeter: Mute does not declare that it implements Greeter: write implements Greeter after Mute's body (types.md, Interface assignability 1) (rows.md, Context 2)
 site S107 missing in internal/sketch/check/testdata/fixtures/negative/missing-return.ergo: missing-return.ergo 1:50: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 13:1: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 7:1: S107 function add can reach the end of its body without returning a value (rows.md, Totality 3)
@@ -1366,6 +1378,7 @@ site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-missing-method.ergo: interface-missing-method.ergo 5:9: S108 cannot use Mem as Store in return: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/interface-wider-row.ergo: interface-wider-row.ergo 8:9: S108 cannot use Mem as Store in return: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/keyed-literal-nondefaultable.ergo: keyed-literal-nondefaultable.ergo 10:10: S108 Box{…} does not set C: a record literal names every field; write C: …, or copy it from a value with Box{..v, …} (types.md, Zero values 2)
+site S108 missing in internal/sketch/check/testdata/fixtures/negative/machine-expr-computed-wrong-type.ergo: machine-expr-computed-wrong-type.ergo 13:11: S108 the step of machine M must have the type func(S, E) Decision[S, O], with any error and capability rows; it has the type func(T, E) Decision[T, T] (runtime.md, Machines and actors 1)
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/narrow-param-other.ergo: narrow-param-other.ergo 20:28: S108 cannot use func(Other) Fate as func(Boom) Fate in field Of: the parameters or results differ
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/narrow-param-other.ergo: narrow-param-other.ergo 21:28: S108 cannot use func(Boom) Other as func(Boom) Fate in field Of: the parameters or results differ
 site S108 missing in internal/sketch/check/testdata/fixtures/negative/parameter-kind-conflict.ergo: parameter-kind-conflict.ergo 2:25: S108 E is used as a type and as a capability row; a parameter has one kind (types.md, Generics 1)

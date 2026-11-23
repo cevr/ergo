@@ -8,7 +8,7 @@ import strings
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost()), exec.Runner: exec.NewTestHost() }
+let onHost = context needs TestAmbient { work.Cloner: New(system.TestTrees()), exec.Runner: system.TestRunner() }
 
 // SnapshotsARealSubvolume: on btrfs, a snapshot of a subvolume holding
 // a planted tree is that tree and holds no block of its own; on any other

@@ -402,11 +402,12 @@ func (fp *footprinter) foreignEntry(n *fpNode, e *ContextEntry, p *Package) {
 }
 
 // overridden are the entries w's replaces override that w's builder does
-// not run: an entry runs while it still binds one of its capabilities.
+// not run: an entry runs while it still binds one of its capabilities, or
+// while the replace that overrides it is built over it (usesCap).
 func (fp *footprinter) overridden(w *Context) []*ContextEntry {
 	var out []*ContextEntry
 	for _, o := range w.Overrides {
-		if o.Entry != nil && len(runsIn(w, []*ContextEntry{o.Entry})) == 0 && !slices.Contains(out, o.Entry) {
+		if o.Entry != nil && len(runsIn(w, []*ContextEntry{o.Entry})) == 0 && !usesCap(o.By, o.Cap) && !slices.Contains(out, o.Entry) {
 			out = append(out, o.Entry)
 		}
 	}
@@ -634,7 +635,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			// memory-only call is.
 			n.opaque = true
 		}
-	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern, CallHash, CallTestSeed:
+	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern, CallHash, CallTestSeed, CallTestShown, CallTestSource, CallTestReport, CallTestFile:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:

@@ -610,6 +610,12 @@ func (l *lowerer) emitType(td *typeDecl) {
 			l.errorMethod(b, td)
 		}
 	case kindOps:
+		if it, ok := td.named.Underlying().(*check.Interface); ok && it.Generic {
+			// A constraint only by a generic operation has no Go type:
+			// its functions are copies, which call providers directly
+			// (types.md, Interface assignability 8).
+			break
+		}
 		b.WriteString("type " + td.name + tparams + " interface {\n")
 		for _, op := range td.ops {
 			b.WriteString("\t" + memberName(op.Name) + tc.methodSig(op.Sig) + "\n")
@@ -656,7 +662,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 			l.errorMethod(b, td)
 		}
 	case kindMachine:
-		l.machinePlan(b, td)
+		l.machinePlan(b, td, tparams, names)
 	case kindAlias:
 		b.WriteString("type " + td.name + " = " + tc.goType(td.defined) + "\n\n")
 	}
@@ -819,6 +825,15 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	return td, ptr
 }
 
+// intrinsicTakes reports the Map operation Take, whose intrinsic (below)
+// takes k out of its Map argument in place, where its runtime/v1 body,
+// the reference, copies every entry: the value rule hands it a copy of a
+// Map that stays live (values.go, takesMapSource). The fact belongs to
+// the intrinsic, which is Take's Go form, so it is read here, beside it.
+func intrinsicTakes(f *check.Func) bool {
+	return check.CollOpOf(f) == check.CollTake
+}
+
 // intrinsic is the Go body of an extern declaration this lowering
 // implements, a call into the runtime with the declaration's parameters, or
 // nil. Collection intrinsics bind to the prelude declaration and its exact
@@ -977,7 +992,7 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 	case fd.extern == "" && (f.Decl == nil || f.Decl.Body == nil):
 		unreachable(site, ruleFuncBody, "the function %s has no body and no extern target", f.Name)
 	}
-	if fd.library && !fd.emitted {
+	if fd.library && !fd.emitted && !copiesOnly(f) {
 		fd.emitted = true
 		l.pending = append(l.pending, func() { l.emitFuncBody(fd) })
 	}
@@ -986,11 +1001,29 @@ func (l *lowerer) useFunc(f *check.Func, site syntax.Node) *funcDecl {
 
 // emitFunc writes a user function once.
 func (l *lowerer) emitFunc(fd *funcDecl) {
-	if fd.emitted {
+	if fd.emitted || copiesOnly(fd.fn) {
 		return
 	}
 	fd.emitted = true
 	l.emitFuncBody(fd)
+}
+
+// copiesOnly reports a function a constraint-only operation type
+// constrains (check.ConstraintOnly; types.md, Interface assignability,
+// Generic operations): it is lowered only as plain copies, one per
+// instance (mono.go), in the run build and the test build alike, so its
+// generic form, which would need a witness no Go type can hold, is never
+// written.
+func copiesOnly(f *check.Func) bool {
+	if f == nil || f.Sig == nil {
+		return false
+	}
+	for _, tp := range f.Sig.TParams {
+		if tp.Kind == check.KindType && tp.Constraint != nil && check.ConstraintOnly(tp.Constraint) {
+			return true
+		}
+	}
+	return false
 }
 
 // emitFuncBody writes fd's Go declaration.
@@ -1305,6 +1338,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		// LowerIR and CensusIR only (ir.go): a body in the IR builder's
 		// subset leaves its Go declaration without a body, or with the
 		// placeholder a generic one needs (ir_placeholder.go).
+		if !known && sp == nil && !drop && !slot {
+			l.ir.keepFlatWrapper(fd, directive, parts, args)
+		}
 		var gates []string
 		for _, g := range []struct {
 			on     bool
@@ -1807,9 +1843,9 @@ type envCap struct{ field, goType string }
 
 // envField is the environment's field for a capability: one per type, so
 // each instance of a generic capability has its own (Store[Job] and
-// Store[Note]; types.md, Capabilities 7), keyed by typeKey.
+// Store[Note]; types.md, Capabilities 7), even if Go erases their difference.
 func (l *lowerer) envField(cap *check.Named) string {
-	key := l.typeKey(cap)
+	key := l.semanticTypeKey(cap)
 	if f, ok := l.envFields[key]; ok {
 		return f
 	}

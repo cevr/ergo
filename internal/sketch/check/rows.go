@@ -30,7 +30,7 @@ type target struct {
 	// literal inside the law has a target of its own, without it.
 	law     bool
 	main    bool
-	context bool // a named context's build: closed (README Gap 6)
+	context bool // a named context's build: its header writes declUses (contextneeds.go)
 	// internal is what a named context binds itself: its providers may use it
 	// (rows.md, Context 4); charged collects the internal capabilities the
 	// entry being checked uses, for the context's entry-cycle check (M14).
@@ -115,7 +115,7 @@ func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 	}
 	switch {
 	case t.context:
-		c.errorf(n, CodeMissingCap, "%s requires %s while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)", t.name, cap)
+		c.errorf(n, CodeMissingCap, "%s requires %s while it is built, which its header's needs row does not list: write needs %s in its header (rows.md, Context 4)", t.name, cap, cap)
 	default:
 		if what == "" {
 			what = describeCharge(n)
@@ -163,7 +163,7 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 	}
 	switch {
 	case t.context:
-		c.errorf(n, CodeUndeclared, "%s can fail with %s while it is built; a named context is closed: no failure escapes its build (README Gap 6)", t.name, rowText(extra))
+		c.errorf(n, CodeUndeclared, "%s can fail with %s while it is built, which its header's fails row does not list: write fails %s in its header, or catch it in the entry (rows.md, Context 4)", t.name, rowText(extra), extra.String())
 	default:
 		c.errorf(n, CodeUndeclared, "%s escapes %s, whose error row %s does not list it", rowText(extra), t.name, rowText(t.declErrors))
 	}
@@ -972,10 +972,14 @@ type funcCtx struct {
 	law      *Law // the law whose body this is (laws.go)
 	test     bool // a test's body, its function literals included (testambient.go)
 	reach    *reachNode
+	// tparams are a machine declaration's own type parameters, which
+	// scope over its entries (MACHINE-EXPR; checkMachine).
+	tparams []*TypeParam
 }
 
 // typeParams are the type parameters the body is generic in: a function's
-// own, or a law's type's (laws.go, rule 6). The type context of a body
+// own, a law's type's (laws.go, rule 6), or a machine declaration's for
+// its entries (MACHINE-EXPR). The type context of a body
 // (localTypeCtx) and a with operand's name (operandScope) both read them
 // here, so the two cannot disagree on what a body is generic in.
 func (fc *funcCtx) typeParams() []*TypeParam {
@@ -986,6 +990,8 @@ func (fc *funcCtx) typeParams() []*TypeParam {
 		return fc.fn.Sig.TParams
 	case fc.law != nil:
 		return fc.law.typeParams()
+	case fc.tparams != nil:
+		return fc.tparams
 	}
 	return nil
 }

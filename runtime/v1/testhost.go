@@ -138,6 +138,33 @@ func FSConfine(root string, path string) (string, error) {
 	return p, nil
 }
 
+// FSConfineLast is FSConfine for an operation on path itself, which Go
+// does not follow at the last element (Lstat, Remove, Rename, Readlink,
+// Symlink): the directory above path is resolved and confined, and path's
+// last element is joined to it as written, so a link there is the link and
+// not what it leads to. The folder itself is FSConfine's.
+//
+//ergo:host
+//ergo:wait none
+func FSConfineLast(root string, path string) (string, error) {
+	if path == "" {
+		return "", nil // the host's own failure of the empty path
+	}
+	p := path
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(root, p)
+	}
+	p = filepath.Clean(p)
+	if p == root || !strings.HasPrefix(p, strings.TrimSuffix(root, string(filepath.Separator))+string(filepath.Separator)) {
+		return FSConfine(root, path)
+	}
+	dir, ok := Confine(root, "", filepath.Dir(p))
+	if !ok {
+		return "", Denied{Path: path}
+	}
+	return filepath.Join(dir, filepath.Base(p)), nil
+}
+
 // TestSeed is the run's --seed, as the test binary's harness reads it
 // (lower/tests.go, $Seed): the value of --seed N or --seed=N among the
 // process's arguments, 1 when none is given or it is no decimal uint64
@@ -147,6 +174,28 @@ func FSConfine(root string, path string) (string, error) {
 func TestSeed() uint64 { return testSeed() }
 
 var testSeed = sync.OnceValue(func() uint64 { return seedOf(os.Args[1:]) })
+
+// TestSource is the source path a harnessed test's replay command names
+// (check harness.go, rule 3): the value of --source among the process's
+// arguments, the file or package folder ergo test was given, or file, the
+// test's own, when the binary runs alone (lower/tests.go, $Source).
+func TestSource(file string) string {
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		key, v, joined := strings.Cut(args[i], "=")
+		if !joined {
+			if i+1 == len(args) {
+				break
+			}
+			i++
+			v = args[i]
+		}
+		if key == "--source" {
+			return v
+		}
+	}
+	return file
+}
 
 func seedOf(args []string) uint64 {
 	for i := 0; i < len(args); i++ {

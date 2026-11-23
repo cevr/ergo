@@ -63,6 +63,9 @@ var ArgClauses = []ArgClause{
 	{"api.Transport.Carry", "answer", "escaping", "no Go body: a provider is Ergo the checker reads; answer is own, so a transport may keep it for a server it starts, as rpc's Loopback runs its handle on a task below the caller"},
 	{"csv.scan", "each", "non-escaping", "CSVScan calls each in a loop over Go's csv.Reader on the caller's goroutine, one record at a time, and keeps nothing"},
 	{"exec.waitFor", "p", "lent", "ExecWaitFor calls p's Wait on the caller's task, or through After on a child that After stops and joins on every exit before it returns; Wait waits on channels and finish runs once, so the child's Wait is sound while the caller owns p; it keeps nothing and never releases p"},
+	// fs: SameAs reads only the identity m kept when it was mapped.
+	{"fs.hostSameAs", "m", "lent", "FSSameAs reads m's kept device and inode (m.known, m.dev, m.ino) on the caller's goroutine to compare them with os.Stat's, and keeps nothing; it never unmaps m"},
+	{"mapped.Maps.SameAs", "m", "lent", "no Go body: Host's SameAs is fs.SameAs over its fs.Host, whose body FSSameAs only reads m's kept identity and keeps nothing; an implementation reads m before it returns and never releases it"},
 	// http: a streamed client body (httpStreamURL) is read by a goroutine
 	// of its own, which hands each part over an unbuffered channel to the
 	// caller's task, where accepts and put run; the goroutine is joined
@@ -80,6 +83,8 @@ var ArgClauses = []ArgClause{
 	{"http.fetchLocalInto", "handle", "non-escaping", "HTTPFetchLocalInto calls handle through httpLocalExchange on the caller's task, once per hop, before it returns; it keeps nothing"},
 	{"http.Net.SendInto", "put", "non-escaping", "an operation: its std providers are Ergo bodies the checker holds to the clause (Client.SendInto through sendInto, reviewed above; InMemory's Handler.SendInto); a user's provider is checked the same way"},
 	{"http.Network.SendURLInto", "put", "non-escaping", "an operation: its std provider Remote.SendURLInto is an Ergo body the checker holds to the clause, through fetchInto (reviewed above); a user's provider is checked the same way"},
+	// llm: Model is an operation type with no Go body anywhere in std.
+	{"llm.Model.Stream", "put", "non-escaping", "an operation: its std providers (llm/memory's Scripted, Sequence and Held, llm/recorded's Recorded, and the Retry, Fallback and Metered policies) are Ergo bodies the checker holds to the clause, each calling put on the caller's task, one delta at a time, before it returns the turn; a user's provider is checked the same way"},
 	// rpc: rpcCalls starts each Request's handle on a child task of its
 	// own, all at once, and the caller's task takes their ends.
 	{"rpc.exits", "handle", "escaping", "RPCExits runs handle on a child task per Request, many at once (rpcCalls), while the caller's task collects their ends"},
@@ -91,6 +96,9 @@ var ArgClauses = []ArgClause{
 	{"sync.Modify", "f", "non-escaping", "RefModify calls f once, under r's lock, on the caller's goroutine, and keeps nothing"},
 	{"sync.Ref.Update", "f", "non-escaping", "Ref.Update (and RefUpdateOwned) call f once, under the Ref's lock, on the caller's goroutine, and keep nothing"},
 	{"task.Go", "body", "escaping", "Go starts body on a task of its own that runs after Go returned, until Wait, Stop or Close"},
+	{"task.exitOf", "t", "lent", "TaskExit joins t on the caller's task (Task.exit: rt.Handle.Wait parks the caller on the handle) and marks t used, so a later Wait, Stop or exitOf panics; it writes the defect's text into t (why) for exitReason and keeps nothing; the value stays in t (out) for exitValue"},
+	{"task.exitReason", "t", "takes", "TaskReason reads the defect text TaskExit left in t (why), on the caller's goroutine, and keeps nothing; t was consumed by exitOf (used) and holds no value on the paths that call it (ExitOf calls it only when exitOf failed or gave 2), so its owner's release drains nothing after it, and the call is ExitOf's last use of t"},
+	{"task.exitValue", "t", "takes", "TaskValue moves the value out of t (out) and clears it, so the caller owns the value; t was consumed by exitOf (used), so its owner's release drains nothing after it, and the call is ExitOf's last use of t"},
 	{"tasks.Transform", "f", "escaping", "TasksTransform calls f on child tasks, up to limit of them at once (lang audit B, F1, probes race and race2); it waits for every call before it returns, but the calls run at the same time"},
 	{"tasks.Go", "set", "lent", "TasksGo adds a member to set under its lock and keeps set only in that member's task, which set's own Wait, Stop or Close drains (v1.DrainsLends) before set is released"},
 	{"tasks.Go", "body", "escaping", "TasksGo runs body as a member of set, on a task of its own, after Go returned"},
@@ -99,4 +107,6 @@ var ArgClauses = []ArgClause{
 	{"testing.At", "f", "escaping", "HookAt keeps f in the process's table of armed points after At returns, and the next task to reach Point(name) runs it on that task (RT-HOOK); a stall of the caller's domain while it is armed stops the run; only a test build calls it"},
 	{"time.timeAsleep", "t", "lent", "TimeAsleep reads t's task pointer to compare it with the clock's sleepers, under the clock's lock, on the caller's goroutine, and keeps nothing (FK4-g2-g1)"},
 	{"timeout.After", "f", "escaping", "After runs f on a child task (rt.AfterSpan); joining it orders the runs but does not make a caller-owned resource's task-affine operations safe on that child"},
+	{"workflow.Store.Commit", "c", "lent", "an operation of workflow.Store, whose providers are Ergo (workflow/memory, workflow/file), no Go body: Commit reads c's grant and keeps nothing, and the checker holds each provider to the clause"},
+	{"workflow.Store.Settle", "c", "takes", "an operation of workflow.Store, whose providers are Ergo, no Go body: Settle takes c, the one-shot token of a claim, so a second Settle of it does not check (DUR-W1); Claimed's Close does nothing, so a provider that drops it releases nothing"},
 }

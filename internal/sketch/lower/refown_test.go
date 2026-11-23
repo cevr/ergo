@@ -25,7 +25,7 @@ func FileWrites(n int) int {
 		}
 	}
 	m.Rename("d/f0", "d/g") catch {
-	case fs.NotFound, fs.Denied, fs.Failed:
+	case fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice:
 		return -1
 	}
 	m.Remove("d/g") catch {

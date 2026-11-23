@@ -1,0 +1,28 @@
+// Replace: this process becomes another program (Go's syscall.Exec), as
+// a driver hands its terminal to the program it built. It is a function
+// of Host only, as fs.Link is (G6): a Script or a test's Host runs no
+// process of its own to replace.
+
+// Replace makes this process the program c names, found on the effective
+// Command's PATH as Run finds it, with the same arguments, exact environment and working
+// directory. The process keeps its id, its standard streams and its
+// process group, so whoever waits for this process waits for the program,
+// and an interrupt at the terminal reaches the program, not a parent that
+// would have to pass it on. Standard output is flushed first; no scope's
+// exit action runs and no resource is released, as for a process a signal
+// ends, so a caller releases what it holds before. It returns only with a
+// failure, and then the process is as it was. A command with a standard
+// input text is Failed: the program reads this process's input. A test's
+// Host is Failed: the process is the test runner.
+func Replace(h Host, c Command) fails NotFound | Denied | Failed {
+	if h.root != "" {
+		return Failed{Name: c.Name, Reason: "a test's Host replaces no process"}
+	}
+	if c.Stdin != "" {
+		return Failed{Name: c.Name, Reason: "a replaced process reads this process's standard input"}
+	}
+	let cmd = c.WithEnvFrom(h.base)
+	try hostReplace(cmd.Name, cmd.Args, cmd.Env, cmd.Dir)
+}
+
+extern go ergo.local/prototype/runtime/v1/exec.ExecReplace func hostReplace(name string, args []string, env Map[string, string], dir string) fails NotFound | Denied | Failed

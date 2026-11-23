@@ -200,6 +200,9 @@ type loader struct {
 	// the fingerprints of the packages checked or taken so far (CheckCache).
 	cache *CheckCache
 	fps   map[string]fingerprint.Package
+	// noMain checks every package by its import path: no package is the
+	// program's main (CheckGoModule: Go imports each).
+	noMain bool
 }
 
 // newLoader is a loader of the package folder dir, an absolute path, that
@@ -816,7 +819,7 @@ func (l *loader) checkAll() {
 	l.writeSegments(written, ds)
 	for i, p := range l.order {
 		if _, ok := l.segments[p]; !ok {
-			l.checkPackage(p, i == len(l.order)-1, ds)
+			l.checkPackage(p, i == len(l.order)-1 && !l.noMain, ds)
 		}
 		for _, d := range ds[p] {
 			l.diags = append(l.diags, report.Diagnostic{

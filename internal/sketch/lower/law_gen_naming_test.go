@@ -15,12 +15,6 @@ type Count {
 	law NotNegative() { N() >= 0 },
 }
 
-type Lock {
-	Hold() bool,
-
-	law HoldIsStable() { Hold() == Hold() },
-}
-
 func Doubled(xs []int) []int { tasks.Transform(xs, 2, func(x int) int { 2 * x }) }
 `
 
@@ -30,10 +24,6 @@ import fs
 type Reader { files fs.Files } implements dom.Count
 
 func N(r Reader) int { 0 }
-
-type FileLock { host fs.Host } implements dom.Lock
-
-func Hold(l FileLock) bool { true }
 `
 
 // TestLawGenBuilderIsNamed is the smallest repro of LAW-GEN-NAMING (LD3's

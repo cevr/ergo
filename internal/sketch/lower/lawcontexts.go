@@ -27,7 +27,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 	fmtPkg := l.helper("fmt")
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, lc := range lr.Contexts {
-		label := "law " + l.lawTitle(law) + " under " + lc.Context.Name
+		label := "law " + l.lawTitle(law) + " under " + lc.Title()
 		if lc.Unrun != "" {
 			b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+lc.Unrun) + ")\n")
 			b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(lc.Unrun) + ")\n")
@@ -88,12 +88,21 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 			folder = testAmbientOpen(l, e, inner.alloc("dir"), ta) + "; "
 		}
 		build := l.contextBuilder(lc.With, law.Decl)
+		built := func(args string) string { return build + "(" + args + "); " }
+		if fallibleBuild(lc.With) {
+			// A case whose build fails is a failed case, never a skip or a
+			// refutation (FALLIBLE-CONTEXT Design 4): its error names the
+			// context, and the run prints the case and its replay line.
+			built = func(args string) string {
+				return "if " + err + " := " + build + "(" + args + "); " + err + " != nil { return " + fmtPkg + ".Errorf(" + strconv.Quote("law context "+lc.Context.Name+" could not be built: %v") + ", " + err + ") }; "
+			}
+		}
 		call := held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
 		if ownsResources(lc.With) {
-			head, open := l.lawCaseScope(inner, e, env, task, build, folder)
+			head, open := l.lawCaseScope(inner, e, env, task, built, folder)
 			return "return " + head + open + call + " }()"
 		}
-		return e + " := *" + env + "; " + folder + build + "(&" + e + "); " + call
+		return e + " := *" + env + "; " + folder + built("&"+e) + call
 	}
 	// The one rule (types.md, Laws 10): the context builds its provider,
 	// so a run's values are the law's parameters alone. A law with none
@@ -150,12 +159,14 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 // case's exit, so it fails the case ($Prop). e is the case's environment,
 // a copy of env; folder opens the case's folder in e (testAmbientOpen) or
 // is empty, and its removal, deferred first, runs after the releases;
-// build is the context's owning builder.
-func (l *lowerer) lawCaseScope(inner *namer, e, env, task, build, folder string) (head, open string) {
+// built is the call statement of the context's owning builder, given its
+// arguments (a failed build returns from the case, and fs releases what
+// it had built).
+func (l *lowerer) lawCaseScope(inner *namer, e, env, task string, built func(string) string, folder string) (head, open string) {
 	fs, ws, exit := inner.alloc("fs"), inner.alloc("ws"), inner.alloc("exit")
 	head = "func() (" + exit + " error) { "
 	open = e + " := *" + env + "; " + folder + fs + " := " + l.rt() + ".NewScope(" + task + "); defer " + fs + ".End(&" + exit + "); " +
-		ws + " := " + fs + ".OpenWith(); " + build + "(&" + e + ", " + env + ", " + ws + "); "
+		ws + " := " + fs + ".OpenWith(); " + built("&"+e+", "+env+", "+ws)
 	return head, open
 }
 

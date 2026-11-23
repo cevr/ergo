@@ -6,15 +6,19 @@
 // (modules/clientgen). SigV4 is AWS-CORE's provider of Signer.
 
 import http
+import maps
+import slices
 import strconv
 import strings
 import time
 import url
 import xml
 
-// Signer adds a request's credentials just before it is sent. Only a
-// signer reads a credential: a generated client builds its requests with
-// none, so no wrapper, log or recording of the network sees one.
+// Signer adds what is computed from a request just before it is sent (a
+// SigV4 signature, AWS-CORE). A static key is not a signer's: it is an
+// http.Credential the Net holds (std http ForOrigin), so a generated
+// client builds its requests with none and no wrapper, log or recording
+// of the requests it hands on sees one.
 type Signer {
 	Sign(r http.Request) http.Request,
 
@@ -221,19 +225,8 @@ func Prefixed(h []http.Field, prefix string) Map[string, string] {
 // PutPrefixed adds a header prefix+name for each entry of m, in the
 // order of the names.
 func PutPrefixed(h []http.Field, prefix string, m Map[string, string]) []http.Field {
-	let mut names = []string{}
-	for k, _ in m {
-		// Insertion in order: a map of metadata holds a few names.
-		let mut at = len(names)
-		for i, n in names {
-			if at == len(names) && k < n {
-				at = i
-			}
-		}
-		names = names[0:at].Append(k).Concat(names[at:len(names)])
-	}
 	let mut out = h
-	for k in names {
+	for k in slices.Sorted(maps.Keys(m)) {
 		match m.Get(k) {
 		case Some as v:
 			out = out.Append(http.Field{Name: prefix + k, Value: v.Value})

@@ -1,0 +1,11 @@
+// The test file of package mapped picks the files its law runs read: each
+// case of weather.Readings' laws builds onTestHost, Files over the test's
+// own folder, so Repeatable runs on the host's files as the binary's Files
+// does. The context is unexported, so only the test build's law runs read
+// it.
+
+import fs
+import station-stats/weather
+
+// onTestHost binds the readings to Files over the test's folder.
+let onTestHost = context needs TestAmbient { weather.Readings: New(fs.NewTestHost()) }

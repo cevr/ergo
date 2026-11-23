@@ -1,11 +1,11 @@
-// The run is a record {Name string, Seed uint64, Site string} (check
+// The run is a record {Name string, Seed uint64, Site string, Source string} (check
 // harness.go, rule 1).
 type Coin {
 	Flip() bool,
-	test Toss, // want S108 "its first parameter is not a record {Name string, Seed uint64, Site string} of this package"
+	test Toss, // want S108 "its first parameter is not a record {Name string, Seed uint64, Site string, Source string} of this package"
 }
 
-type Run { Name string, Seed int, Site string }
+type Run { Name string, Seed int, Site string, Source string }
 
 type Failed { Message string }
 

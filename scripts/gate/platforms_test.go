@@ -6,10 +6,19 @@ import (
 	"testing"
 )
 
-// ergoPlatforms are the configurations cmd/ergo must compile in: the gate's
-// own (hermeticConfigurations) and macOS on amd64, which the release ships
+// ergoPlatforms are the configurations cmd/ergo must compile in: the
+// platforms the gate runs on (Linux on amd64, the workbox; macOS on arm64),
+// Linux on arm64, where testinputs observes too, FreeBSD on amd64, which
+// builds the files for every other system (`!linux && !darwin`, such as
+// replay's stat_other.go), and macOS on amd64, which the release ships
 // though no gate runs there.
-var ergoPlatforms = append(append([]struct{ goos, goarch string }{}, hermeticConfigurations...), struct{ goos, goarch string }{"darwin", "amd64"})
+var ergoPlatforms = []struct{ goos, goarch string }{
+	{"linux", "amd64"},
+	{"linux", "arm64"},
+	{"darwin", "arm64"},
+	{"freebsd", "amd64"},
+	{"darwin", "amd64"},
+}
 
 // TestErgoCompilesOnEveryPlatform compiles cmd/ergo and every package it
 // imports in each of ergoPlatforms, with no link: a file built only off Linux

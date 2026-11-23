@@ -116,6 +116,27 @@ func (b *irBuilder) directOp(x *syntax.CallExpr, c *check.Call, tp *check.TypePa
 		return nil, nil, false, false
 	}
 	name := fd.name
+	if len(c.Op.Sig.TParams) > 0 {
+		// A generic operation (GENERIC-OP): the provider's copy at the
+		// receiver's type arguments and the call's own, closed here.
+		own := make([]check.Type, len(c.TypeArgs))
+		for i, t := range c.TypeArgs {
+			own[i] = b.fc.boundType(t)
+		}
+		targs := check.ProviderTypeArgs(arg, f, own)
+		if targs == nil {
+			return nil, nil, false, false
+		}
+		sp := b.fc.monoAt(nil, nil, f, targs)
+		if sp == nil {
+			return nil, nil, false, false
+		}
+		pre, vals := b.operands(append([]syntax.Expr{c.Recv}, x.Args...))
+		if !fd.pure {
+			vals = append([]*irExpr{{K: "local", Pos: p, I: b.env}}, vals...)
+		}
+		return pre, &irExpr{K: "call", Pos: p, Name: sp.name, Args: vals}, !fd.pure, true
+	}
 	if len(f.Sig.TParams) > 0 {
 		// A generic implementing function (cmp.Natural's Compare): its
 		// own copy for the instance, a plain function that takes the

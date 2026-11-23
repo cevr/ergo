@@ -554,7 +554,14 @@ func (c *checker) collect() {
 		if !ok || !isExported(tn.Name) {
 			continue
 		}
-		if id, ok := m.Step.(*syntax.Ident); ok {
+		// A name step's function (an instance's too, stepT[T]); a
+		// computed step's rows are its value's type, which the functions
+		// it composes spell.
+		x := unparen(m.Step)
+		if ix, ok := x.(*syntax.IndexExpr); ok {
+			x = unparen(ix.X)
+		}
+		if id, ok := x.(*syntax.Ident); ok {
 			if f, ok := c.pkg.Scope.names[id.Name].(*Func); ok {
 				c.guarded[f] = true
 			}
@@ -1193,6 +1200,55 @@ func (c *checker) structType(spec *syntax.StructType, ctx *typeCtx) *Struct {
 	return s
 }
 
+// opTypeParams declares an operation's own type parameters, `Fold[A](…)`
+// (types.md, Interface assignability, Generic operations), in a copy of
+// ctx's parameters, with the kinds and constraints a function's bracket
+// parameters have, and returns them; nil for an operation without any.
+func (c *checker) opTypeParams(ft *syntax.FuncType, ctx *typeCtx, owner string) []*TypeParam {
+	if ft.TypeParams == nil {
+		return nil
+	}
+	params := make(map[string]*TypeParam, len(ctx.params))
+	for k, v := range ctx.params {
+		params[k] = v
+	}
+	ctx.params = params
+	var tparams, unconstrained []*TypeParam
+	var cons []syntax.Expr
+	for _, field := range ft.TypeParams.List {
+		x := c.constraintExpr(field)
+		for _, name := range field.Names {
+			tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
+			c.noteOwner(tp, owner)
+			c.def(name, tp)
+			if _, dup := params[name.Name]; dup {
+				c.errorf(name, CodeType, "type parameter %s is declared twice", name.Name)
+			}
+			params[name.Name] = tp
+			tparams = append(tparams, tp)
+			cons = append(cons, x)
+			if x == nil {
+				unconstrained = append(unconstrained, tp)
+			}
+		}
+	}
+	c.deferBounds++
+	for i, tp := range tparams {
+		if cons[i] != nil {
+			tp.Constraint = c.constraint(cons[i], ctx)
+		}
+	}
+	c.deferBounds--
+	for i, tp := range tparams {
+		if cons[i] != nil {
+			c.constraintBounds(tp, cons[i])
+		}
+	}
+	c.kindBracketParams(ft, ctx, unconstrained)
+	c.ownRowParams(ft.TypeParams, tparams)
+	return tparams
+}
+
 // interfaceType resolves an operation type. Its laws are not part of the
 // type (Law): collect records them with the declaration that holds them,
 // the only place the decided parser builds an operation type (typExpr).
@@ -1220,7 +1276,12 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			// var A interface{A()} dereferencing it).
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
+		own := c.opTypeParams(ft, mctx, owner+"."+name.Name)
 		sig := c.signature(ft, mctx)
+		if len(own) > 0 {
+			sig.TParams, sig.NBracket = own, len(own)
+			it.Generic = true
+		}
 		if m.Own != nil {
 			sig.TakesSelf = true // own Close(): the operation keeps its receiver
 		}
@@ -1542,6 +1603,11 @@ func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 		// Go draws the same line: an interface with type terms is a
 		// constraint only (types.md, Generics 2).
 		c.errorf(x, CodeType, "%s has a type set, so it is a constraint only and no value has it as its type; write a type parameter: [T %s] (types.md, Generics 2)", t, t)
+		return invalid
+	}
+	if c.inConstraint == 0 && genericOpOnly(t) {
+		n := t.(*Named)
+		c.errorf(x, CodeType, "%s has a generic operation, so it is a constraint and has no values; write [M %s] (types.md, Interface assignability, Generic operations)", n.Obj.Name, t)
 		return invalid
 	}
 	return t
@@ -2050,7 +2116,7 @@ func (c *checker) slotArgs(orig *Named, targs []Type) []Type {
 
 // markSlotParams sets TypeParam.Slot on each error row parameter of sig
 // that stands alone as a type argument of a generic type in sig's
-// parameters or results, at any depth.
+// parameters or results, at any depth, or as a value parameter's type.
 func markSlotParams(sig *Signature) {
 	own := map[*TypeParam]bool{}
 	for _, tp := range sig.TParams {
@@ -2102,6 +2168,15 @@ func markSlotParams(sig *Signature) {
 		}
 	}
 	for _, p := range sig.Params {
+		// A value parameter whose type is the row parameter alone (`f F`)
+		// is a slot too: the argument keeps its own Go type, converted to
+		// error only where the function fails with it (rows.md, Error rows
+		// 8, Lowering; PRELUDE-ORFAIL).
+		if tp, ok := p.Type.(*TypeParam); ok && own[tp] {
+			tp.Slot = true
+		} else if tp := SlotRow(p.Type); tp != nil && own[tp] {
+			tp.Slot = true
+		}
 		walk(p.Type)
 	}
 	for _, r := range sig.Results {

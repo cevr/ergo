@@ -55,8 +55,8 @@ func LowerLibrary(u Unit, module, name string) ([]File, error) {
 	if !token.IsIdentifier(name) || name == "main" {
 		return nil, fmt.Errorf("lower: %q is not a Go package name for a library", name)
 	}
+	u.lib = name // the build lowerer's package (newBuildLowerer)
 	l := newLowerer(u)
-	l.lib = name
 	code, err := l.program()
 	if err != nil {
 		return nil, err
@@ -84,17 +84,24 @@ type export struct {
 }
 
 // exportsOf are the root package's exported functions with an Ergo body,
-// in source order, each with the reason it is not exported to Go, if any.
+// in source order, each with the reason it is not exported to Go, if any;
+// with goPackages, every sourced package's, package by package.
 func (l *lowerer) exportsOf() []export {
+	pkgs := []*check.Package{l.pkg}
+	if l.goPackages {
+		pkgs = l.sourcedPkgs()
+	}
 	var out []export
-	for _, f := range l.canon.funcs(l.pkg) {
-		if f.Decl == nil || f.Decl.Extern != nil || f.Decl.Body == nil {
-			continue
+	for _, p := range pkgs {
+		for _, f := range l.canon.funcs(p) {
+			if f.Decl == nil || f.Decl.Extern != nil || f.Decl.Body == nil {
+				continue
+			}
+			if r, _ := utf8.DecodeRuneInString(f.Name); !unicode.IsUpper(r) {
+				continue
+			}
+			out = append(out, export{fn: f, reason: exportReason(f)})
 		}
-		if r, _ := utf8.DecodeRuneInString(f.Name); !unicode.IsUpper(r) {
-			continue
-		}
-		out = append(out, export{fn: f, reason: exportReason(f)})
 	}
 	return out
 }
@@ -155,7 +162,10 @@ func hostProvides(cap check.Type) bool {
 func (l *lowerer) nameExports() {
 	for _, e := range l.exportsOf() {
 		if e.reason == "" {
-			if got := l.pkgName(pkgKey{"export", e.fn}, e.fn.Name); got != e.fn.Name {
+			// With goPackages two packages' exports may share a name in
+			// the one Go file: the split gives each its own name in its
+			// package (splitLib).
+			if got := l.pkgName(pkgKey{"export", e.fn}, e.fn.Name); got != e.fn.Name && !l.goPackages {
 				ice(e.fn.Decl.Name, "the exported Go function %s was named %s", e.fn.Name, got)
 			}
 		}
@@ -172,7 +182,15 @@ func (l *lowerer) nameExports() {
 func (l *lowerer) exports(b *strings.Builder) {
 	rt := l.rt()
 	ctx := l.pkgName(pkgKey{"import", "context"}, "context")
-	l.libImports = append(l.libImports, ctx+` "context"`)
+	for _, e := range l.exportsOf() {
+		if e.reason == "" {
+			// An entry takes a context.Context; a library with none (each
+			// export's signature is one Go cannot spell: examples/counter)
+			// imports no context, which Go refuses unused (LIB-ON-IR).
+			l.libImports = append(l.libImports, ctx+` "context"`)
+			break
+		}
+	}
 	host := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
 	runInits := l.initOnce(b)
 	var provided []string
@@ -182,7 +200,9 @@ func (l *lowerer) exports(b *strings.Builder) {
 			b.WriteString("// Not exported to Go: " + f.Name + ": " + e.reason + ".\n\n")
 			continue
 		}
-		fd := l.funcDecl(f)
+		// A use: a function of an imported package (goPackages) is
+		// emitted where it is used, and its facade is its only use.
+		fd := l.useFunc(f, f.Decl.Name)
 		tc := &typeCtx{l: l, params: map[*check.TypeParam]string{}, site: f.Decl.Name}
 		locals := newNamer(l.names)
 		ctxParam := locals.alloc("ctx")
@@ -207,7 +227,9 @@ func (l *lowerer) exports(b *strings.Builder) {
 			ice(f.Decl.Name, "the exported function %s needs %s, which exportReason admits", f.Name, cap)
 		})
 		b.WriteString("// " + f.Name + " calls the Ergo function " + f.Name + " for a Go caller (IG11): on the\n// calling goroutine, as a root task that ctx cancels (v1.Call).\n")
-		b.WriteString("func " + f.Name + "(" + strings.Join(params, ", ") + ") " + results + " {\n")
+		// The facade's name (nameExports): f.Name, unless goPackages
+		// named another package's export so first.
+		b.WriteString("func " + l.pkgName(pkgKey{"export", f}, f.Name) + "(" + strings.Join(params, ", ") + ") " + results + " {\n")
 		v := "v"
 		if result == nil {
 			v = "_"

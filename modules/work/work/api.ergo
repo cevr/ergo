@@ -3,6 +3,7 @@ import github.com/cevr/ergo/modules/work/classes
 import filepath
 import fs
 import hex
+import json
 import sha256
 import slices
 import strconv
@@ -156,11 +157,25 @@ type HasDescendants { Name string, Paths []string }
 // (a snapshot of every file that is not ignored, as a commit) in the
 // base at ArchiveRef, then removes it too: Rift's prune with its
 // archive, in the base's repository (a parent workspace may go next).
-type GcOptions { Older Option[string], Id Option[string], Idle Option[string], Archive bool }
+// -dry previews eligible paths without removing them. It does not run
+// -idle or -archive.
+type GcOptions { Older Option[string], Id Option[string], Idle Option[string], Archive bool, Dry bool }
 
 // Collected is what gc did: the names it purged, and each idle workspace
-// -idle found, removed or not.
-type Collected { Purged []string, Idle []Idle }
+// -idle found, removed or not. Preview is present only for -dry.
+type Collected { Purged []string, Idle []Idle, Preview json.Optional[[]PurgeCandidate] }
+
+type PurgeCandidate { Name string, Path string }
+
+type DiscardCause = Missing | CloneFailed
+
+type DiscardFailure { Name string, Path string, Cause DiscardCause }
+
+// GcFailed names both the successful purges and failed discards. A
+// failed discard stays registered for a retry.
+type GcFailed { Result Collected, Failures []DiscardFailure, Registry json.Optional[GcRegistryFailure] }
+
+type GcRegistryFailure = Unkept | Locked
 
 // Idle is a workspace -idle found: removed, or kept back with why
 // (Pinned, InUse, NotKept, or the name of the failure rm gave: NotHeld,
@@ -190,6 +205,8 @@ type Space { Name string, Path string, Usage Usage }
 // Api is `work` (and `ergo work`): the commands of one base. `ergo gen cli` makes its
 // command line (work/workcli).
 type Api {
+	// Version prints this executable's build commit and date.
+	Version() string,
 	// Init registers the base: it writes a starter work.toml when the base
 	// has none, the registry, the trust of the work.toml's commands (the
 	// user who inits allows them), refreshes the base's Git index, and adds
@@ -214,7 +231,8 @@ type Api {
 	// Gc deletes the trash of this base (never another's) and the
 	// workspaces whose clone never ended, and names each; -idle removes
 	// the idle workspaces whose work is held first, and reports the rest.
-	Gc(o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked,
+	// -dry lists eligible paths without deleting them (not with -idle or -archive).
+	Gc(o GcOptions) Collected fails NoBase | BadConfig | BadAge | BadRequest | NoWorkspace | Exists | Missing | CloneFailed | GcFailed | Unkept | VcsFailed | HookFailed | Locked,
 	// Pin keeps a workspace from gc -idle: a pinned one is never removed
 	// as idle. It is the workspace pinned.
 	Pin(name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked,
@@ -344,6 +362,7 @@ type Tool {
 	runner   exec.Runner,
 	clock    time.Clock,
 	here     string,
+	version  string,
 } implements Api
 
 // Providers are what the binary chose: the Cloners that share blocks,
@@ -366,8 +385,13 @@ type Providers {
 // user's data folder data (the list of bases), over the providers, run in
 // the folder here.
 func NewTool(base string, home string, data string, p Providers, here string) Tool {
-	Tool{base: base, home: home, data: data, lock: p.Lock, hooks: p.Hooks, cloners: p.Cloners, copier: p.Copier, registry: p.Registry, vcs: p.Vcs, files: p.Files, writes: p.Writes, runner: p.Runner, clock: p.Clock, here: here}
+	Tool{base: base, home: home, data: data, lock: p.Lock, hooks: p.Hooks, cloners: p.Cloners, copier: p.Copier, registry: p.Registry, vcs: p.Vcs, files: p.Files, writes: p.Writes, runner: p.Runner, clock: p.Clock, here: here, version: "work: unstamped development build"}
 }
+
+// WithVersion gives the Tool the build stamp supplied by its binary.
+func WithVersion(t Tool, version string) Tool { Tool{..t, version: version} }
+
+func Version(t Tool) string { t.version }
 
 // Home is the folder of a base's workspaces, by work.toml's storage
 // (relative to the base; "<base>" is the base's folder name): by default
@@ -628,13 +652,17 @@ func startIn(t Tool, by Cloner, path string, branch string, start string) fails 
 // says push = "origin". A work.toml that does not read guards: the
 // guard is the safe side, and the command that reads it next says why.
 func guarded(t Tool, path string) fails VcsFailed {
+	if !allowsRemotePush(t) {
+		try t.vcs.GuardPushes(path)
+	}
+}
+
+func allowsRemotePush(t Tool) bool {
 	let c = config(t) catch {
 	case BadConfig:
 		EmptyConfig()
 	}
-	if c.Push != "origin" {
-		try t.vcs.GuardPushes(path)
-	}
+	c.Push == "origin"
 }
 
 // idOf is a new workspace's id: a digest of the base, the name, the

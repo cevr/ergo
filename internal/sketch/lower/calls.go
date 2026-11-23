@@ -56,6 +56,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.wireCall(x, c)
 	case check.CallPattern:
 		return fc.patternCall(x, c) // refinematch.go
+	case check.CallHash:
+		return fc.hashCall(x) // ir_mapprovider.go
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -408,6 +410,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// A law of a generic operation type calls the provider it
 			// takes (lawDecl), as a call on a value of the type does.
 			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{recv}, vals...), env, x, c, x)
+		}
+		if c.Kind == check.CallLawOp && fc.l.runtimeNamed(cap, x) {
+			// A law of an extern Go type (std rand.Stream, time.Timeline)
+			// calls the bound value's runtime method, with that body's
+			// hidden arguments and no task, as a call on a value does.
+			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{env + "." + fc.l.envField(cap)}, vals...), env, x, c, x)
 		}
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
@@ -916,11 +924,13 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 
 // siteValue is the CallSite the call x passes for the final parameter it
 // leaves out (types.md, Call sites): where x starts, as a defect names it.
-// A constant, so it runs after the written operands with no spill.
+// Its Pkg is the package variable of the call's package (siteid.go), which
+// nothing writes, and its other fields constants, so it runs after the
+// written operands with no spill.
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
-	file, line, column := fc.l.locate(x, x.Pos())
+	file, line, column, pkg, id := fc.l.callSite(x)
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Id"], fc.l.siteID(x))
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %s, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Pkg"], pkg, td.fieldName["Id"], id)
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -1262,10 +1272,24 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if lit {
 		fc.l.localContext(w.Contexts[0], arg)
 		fc.buildProviders(w, "(&"+env+")", outer, ws)
-	} else if owning {
-		fc.line(build + "(&" + env + ", " + outer + ", " + ws + ")")
 	} else {
-		fc.line(build + "(&" + env + ")")
+		call := build + "(&" + env + ")"
+		if owning {
+			call = build + "(&" + env + ", " + outer + ", " + ws + ")"
+		}
+		if fallibleBuild(w) {
+			// with try W: the build's failure leaves the with before its
+			// block runs; the frame's scope ends the with's scope, which
+			// releases what the builder had built (rows.md, With 6).
+			err := fc.temp("err")
+			fc.line("if " + err + " := " + call + "; " + err + " != nil {")
+			fc.depth++
+			fc.fail(err)
+			fc.depth--
+			fc.line("}")
+		} else {
+			fc.line(call)
+		}
 	}
 	saved := fc.env
 	fc.env = "(&" + env + ")"
@@ -1312,11 +1336,12 @@ func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node)
 	return fc.runtimeCall(name, body, "", recv, vals, "", nil, nil, site)
 }
 
-// ownsResources reports a with that acquires a provider with a checked
-// Close (With.Acquired, the checker's ownership fact).
+// ownsResources reports a with that opens a scope: one that acquires a
+// provider with a checked Close, which it releases or lends
+// (With.Acquired, the checker's ownership fact; Acquisition.Scoped).
 func ownsResources(w *check.With) bool {
 	for _, a := range w.Acquired {
-		if a.Releases() {
+		if a.Scoped() {
 			return true
 		}
 	}
@@ -1362,9 +1387,17 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // context checks a named context declaration. Its builders are written at the
 // withs that use it.
 func (l *lowerer) context(w *check.Context, site syntax.Node) {
-	if w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {
-		refuse(w.Decl, "a context header with provides or needs waits for context header checking")
+	if w.Decl.Provides != nil {
+		refuse(w.Decl, "a context header with provides waits for context header checking")
 	}
+}
+
+// fallibleBuild reports a with whose named context's build may fail: its
+// builder returns the failure (emitContext), which the caller propagates
+// (check/contextneeds.go, rule 3). An embedded context's failures are in
+// the header row of the context that embeds it (rule 1).
+func fallibleBuild(w *check.With) bool {
+	return len(w.Contexts) > 0 && !w.Contexts[0].BuildFails().Empty()
 }
 
 // emitContext writes the builder name for the with w. A with that owns a
@@ -1393,9 +1426,15 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	} else {
 		l.recordDecl(w.Name, w.Decl)
 	}
-	// A builder has no loop and calls no capability (a named context is
-	// closed); its frame reads the context's footprint all the same.
-	fc.frame = newFrame(nil, false, framePolls(l.info, w.Decl))
+	// A builder has no loop. Its providers read what its header needs from
+	// env, the with site's copy, which holds the capabilities the checker
+	// charged there (check/contextneeds.go); its frame reads the context's
+	// footprint all the same.
+	// A context whose header writes a fails row returns its build's
+	// failure: an entry's try leaves the builder with it (fail), and the
+	// with that called it propagates it (check/contextneeds.go, rule 3).
+	fallible := !w.BuildFails().Empty()
+	fc.frame = newFrame(nil, fallible, framePolls(l.info, w.Decl))
 	fc.depth = 1
 	fc.env = fc.scope.alloc("env")
 	params := fc.env + " *" + l.env()
@@ -1403,11 +1442,17 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 	if ownsResources(with) {
 		outer, ws = fc.scope.alloc("outer"), fc.scope.alloc("ws")
 		params += ", " + outer + " *" + l.env() + ", " + ws + " *" + l.rt() + ".Scope"
+		// A direct provider result can start a task. The callback that
+		// acquires it uses this scope and registers its release here.
+		fc.frame.with = ws
 	}
 	fc.entryPoll(l.info, w.Decl)
 	l.analyzeValues(w.Decl, l.info)
 	fc.buildProviders(with, fc.env, outer, ws)
 	decl := "func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n"
+	if fallible {
+		decl = "func " + name + "(" + params + ") error {\n" + fc.out.String() + "\treturn nil\n}\n\n"
+	}
 	if std {
 		l.gen.WriteString(decl)
 		return
@@ -1504,7 +1549,10 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 	if local {
 		fc.env = outer
 	}
-	if ws != "" {
+	if ws != "" && !a.Lent {
+		// A lent provider is a place: its value cannot fail, and the
+		// with registers no release for it (R11), so it is published
+		// in place like a plain one.
 		fc.withClose(a, target, outer, ws, e.Provider)
 	} else {
 		fc.publishProvider(a, target)

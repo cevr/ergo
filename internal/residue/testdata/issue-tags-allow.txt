@@ -19,7 +19,6 @@ docs/spec/README.md	9	SPEC-GRAMMAR-DIAG
 docs/spec/diagnostics.md	17	SPEC-GRAMMAR-DIAG
 docs/spec/grammar.md	24	SPEC-GRAMMAR-DIAG
 docs/spec/interop.md	2	SPEC-INTEROP-SMALL
-docs/spec/resources.md	1	SPEC-ROWS-RES
 docs/spec/rows.md	9	SPEC-ROWS-RES
 docs/spec/runtime.md	5	SPEC-RUNTIME
 docs/spec/status.json	8	SPEC rewrites (status paragraphs, by spec file)

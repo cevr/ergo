@@ -1,0 +1,230 @@
+// Drawn builds: the reference the attribution is checked against. Draw
+// builds the truth first (which packages a build compiles, each stage's
+// work, each process's rest) and only then writes the records a build
+// would leave: parser workers' spans, records in any order, pids the host
+// reused, at most one broken record. Attribute sees only the records.
+
+import rand
+import slices
+
+// Package is one package of a drawn build: Route "A" (generated Go
+// through stock gc), "B" (a checked package handed to gc) or "go" (an
+// ordinary Go package, origin "go").
+type Package { Name string, Origin string, Route string }
+
+// Truth is what the generator knows of a build: the cells, the packages
+// it compiled and the kind of the broken record ("" for none).
+type Truth { Cells Map[string, int], Rebuilt []string, Refusal string }
+
+// Case is one drawn build. FaultTarget is the process a deliberate bad
+// record refers to, if any. It cannot be removed when reducing the case.
+type Case { Trace Trace, Truth Truth, Packages []Package, FaultTarget string }
+
+// Edits are the builds a sequence holds: the first (cold), a warm one
+// with no edit, and one after a private (body) or a public (export) edit
+// of one package. A dependency edit is an edit of an ordinary Go package.
+let Edits = []string{"cold", "none", "private", "public"}
+
+// keys is each package's action key in an import chain (package i
+// imports i-1): its own body and export versions and its import's
+// export version.
+func keys(priv []int, pub []int) []string {
+	let mut out = []string{}
+	for i in 0..len(priv) {
+		let dep = if i == 0 { "-" } else { "\(pub[i-1])" }
+		out = out.Append("\(priv[i]):\(pub[i]):\(dep)")
+	}
+	out
+}
+
+// Rebuild is the packages a build compiles after edit kind of package at
+// in a chain of n, by the cache: a package whose action key changed.
+func Rebuild(n int, kind string, at int) []string {
+	let mut priv = slices.Repeat([]int{0}, n)
+	let mut pub = slices.Repeat([]int{0}, n)
+	let before = keys(priv, pub)
+	if kind == "private" {
+		priv[at] = 1
+	} else if kind == "public" {
+		pub[at] = 1
+	}
+	let after = keys(priv, pub)
+	let mut out = []string{}
+	for i in 0..n {
+		if kind == "cold" || before[i] != after[i] {
+			out = out.Append("p\(i)")
+		}
+	}
+	out
+}
+
+// scratch is Rebuild's answer from the rule, with no cache: a cold build
+// compiles all, a warm one none, a private edit its package, a public
+// edit its package and its direct importer.
+func scratch(n int, kind string, at int) []string {
+	let mut out = []string{}
+	for i in 0..n {
+		let yes = kind == "cold" || kind == "private" && i == at || kind == "public" && (i == at || i == at+1)
+		if yes {
+			out = out.Append("p\(i)")
+		}
+	}
+	out
+}
+
+// rebuildAgrees (law RebuildMatchesScratch): the cache compiles what the rule says, for every
+// chain length, edit kind and edited package.
+func rebuildAgrees(n int, kind int, at int) bool {
+	cacheAgrees(drawCacheCase(n, kind, at))
+}
+
+type CacheCase { N int, Kind string, At int }
+
+func drawCacheCase(n int, kind int, at int) CacheCase {
+	let m = 1 + mod(n, 6)
+	CacheCase{N: m, Kind: Edits[mod(kind, len(Edits))], At: mod(at, m)}
+}
+
+func cacheAgrees(c CacheCase) bool {
+	slices.Equal(Rebuild(c.N, c.Kind, c.At), scratch(c.N, c.Kind, c.At))
+}
+
+// mod is n modulo m in 0..m-1, for every n (no negation, so no overflow).
+func mod(n int, m int) int { ((n % m) + m) % m }
+
+// stagesOf is the stages a route's compile runs.
+func stagesOf(route string) []string {
+	if route == "B" {
+		[]string{"adapter", "unified-read", "gc"}
+	} else {
+		[]string{"parse", "check", "ergoir", "unified-write", "unified-read", "gc"}
+	}
+}
+
+// Draw is the build of seed.
+func Draw(seed int) Case {
+	with context { Random: rand.Seeded(uint64(seed)) } { draw() }
+}
+
+func draw() Case needs Random {
+	let n = 1 + Random.IntN(4)
+	let mut pkgs = []Package{}
+	for i in 0..n {
+		let r = Random.IntN(3)
+		let p = if r == 0 {
+			Package{Name: "p\(i)", Origin: "ergo", Route: "A"}
+		} else if r == 1 {
+			Package{Name: "p\(i)", Origin: "ergo", Route: "B"}
+		} else {
+			Package{Name: "p\(i)", Origin: "go", Route: "go"}
+		}
+		pkgs = pkgs.Append(p)
+	}
+	let kind = Edits[Random.IntN(len(Edits))]
+	let at = Random.IntN(n)
+	let rebuilt = Rebuild(n, kind, at)
+	let mut gens = Map[int, int]{}
+	let mut procs = []Proc{}
+	let mut spans = []Span{}
+	let mut cells = Map[string, int]{}
+	let mut tree = 0
+	// the drivers: ergo (driver) at the root, go under it
+	let rootPid = 100 + Random.IntN(6)
+	let rootGen = got(gens, rootPid) + 1
+	gens[rootPid] = rootGen
+	let root = procKey(rootPid, rootGen)
+	let ergoSelf = 1 + Random.IntN(500)
+	procs = procs.Append(Proc{Pid: rootPid, Gen: rootGen, Parent: "", Tool: "driver", Pkg: "", Origin: "tool", Cached: false, Self: ergoSelf})
+	cells[cellKey("tool", "", "driver")] = ergoSelf
+	tree = tree + ergoSelf
+	let goPid = 100 + Random.IntN(6)
+	let goGen = got(gens, goPid) + 1
+	gens[goPid] = goGen
+	let goKey = procKey(goPid, goGen)
+	let goSelf = 1 + Random.IntN(500)
+	procs = procs.Append(Proc{Pid: goPid, Gen: goGen, Parent: root, Tool: "go", Pkg: "", Origin: "tool", Cached: false, Self: goSelf})
+	cells[cellKey("tool", "", "go")] = goSelf
+	tree = tree + goSelf
+	// one compile action per package, a warm hit for each it does not compile
+	for p in pkgs {
+		let pid = 100 + Random.IntN(6)
+		let gen = got(gens, pid) + 1
+		gens[pid] = gen
+		if !slices.Contains(rebuilt, p.Name) {
+			procs = procs.Append(Proc{Pid: pid, Gen: gen, Parent: goKey, Tool: "compile", Pkg: p.Name, Origin: p.Origin, Cached: true, Self: 0})
+		} else {
+			let mut self = 0
+			let mut seq = 0
+			for st in stagesOf(p.Route) {
+				let count = 1 + Random.IntN(1000)
+				let workers = if st == "parse" { 1 + Random.IntN(3) } else { 1 }
+				let mut left = count
+				for w in 0..workers {
+					let part = if w == workers-1 { left } else { Random.IntN(left + 1) }
+					left = left - part
+					spans = spans.Append(Span{Pid: pid, Gen: gen, Seq: seq, Worker: w, Stage: st, Count: part})
+					seq = seq + 1
+				}
+				let c = cellKey(p.Origin, p.Name, st)
+				cells[c] = got(cells, c) + count
+				self = self + count
+			}
+			let rest = Random.IntN(50)
+			let u = cellKey(p.Origin, p.Name, "unassigned")
+			cells[u] = got(cells, u) + rest
+			self = self + rest
+			procs = procs.Append(Proc{Pid: pid, Gen: gen, Parent: goKey, Tool: "compile", Pkg: p.Name, Origin: p.Origin, Cached: false, Self: self})
+			tree = tree + self
+		}
+	}
+	let linkPid = 100 + Random.IntN(6)
+	let linkGen = got(gens, linkPid) + 1
+	gens[linkPid] = linkGen
+	let linkSelf = 1 + Random.IntN(500)
+	procs = procs.Append(Proc{Pid: linkPid, Gen: linkGen, Parent: goKey, Tool: "link", Pkg: "", Origin: "tool", Cached: false, Self: linkSelf})
+	cells[cellKey("tool", "", "link")] = linkSelf
+	tree = tree + linkSelf
+	// at most one broken record
+	let mut refusal = ""
+	let mut faultTarget = ""
+	let fault = Random.IntN(8)
+	if fault == 0 && len(spans) > 0 {
+		let bad = spans[Random.IntN(len(spans))]
+		spans = spans.Append(bad)
+		refusal = "duplicate"
+		faultTarget = procKey(bad.Pid, bad.Gen)
+	} else if fault == 1 {
+		spans = spans.Append(Span{Pid: 9999, Gen: 1, Seq: 0, Worker: 0, Stage: "parse", Count: 1})
+		refusal = "incomplete"
+	} else if fault == 2 {
+		// the link's record lost: its instructions are in the tree's total only
+		procs = slices.Slice(procs, 0, len(procs)-1)
+		refusal = "tree-mismatch"
+	} else if fault == 3 && len(spans) > 0 {
+		let i = Random.IntN(len(spans))
+		spans[i] = Span{..spans[i], Count: spans[i].Count + 1000000}
+		refusal = "overcharged"
+		faultTarget = procKey(spans[i].Pid, spans[i].Gen)
+	} else if fault == 4 {
+		let mut warm = []Proc{}
+		for p in procs {
+			if p.Cached {
+				warm = warm.Append(p)
+			}
+		}
+		if len(warm) > 0 {
+			let w = warm[Random.IntN(len(warm))]
+			spans = spans.Append(Span{Pid: w.Pid, Gen: w.Gen, Seq: 0, Worker: 0, Stage: "parse", Count: 1})
+			refusal = "warm-compile"
+			faultTarget = procKey(w.Pid, w.Gen)
+		}
+	}
+	Case{
+		Trace:       Trace{Procs: rand.Shuffle(procs), Spans: rand.Shuffle(spans), Tree: tree},
+		Truth:       Truth{Cells: cells, Rebuilt: rebuilt, Refusal: refusal},
+		Packages:    pkgs,
+		FaultTarget: faultTarget,
+	}
+}
+
+law RebuildMatchesScratch(n int, kind int, at int) { rebuildAgrees(n, kind, at) }

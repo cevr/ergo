@@ -1,4 +1,5 @@
 import fs
+import json
 import slices
 import strings
 import time
@@ -355,10 +356,16 @@ func markerOf(t Tool, path string) string {
 	strings.TrimSpace(text)
 }
 
-func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked {
+func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | BadRequest | NoWorkspace | Exists | Missing | CloneFailed | GcFailed | Unkept | VcsFailed | HookFailed | Locked {
 	try initialized(t)
-	try settled(t)
 	let older = try age(o.Older)
+	if o.Dry {
+		if o.Idle != None || o.Archive {
+			return BadRequest{Path: "", Why: "gc -dry cannot be combined with -idle or -archive"}
+		}
+		return Collected{Purged: []string{}, Idle: []Idle{}, Preview: json.Present[[]PurgeCandidate]{Value: try previewGc(t, o.Id, older)}}
+	}
+	try settled(t)
 	let idle = match o.Idle {
 	case Some[string]:
 		try Idled(t, try age(o.Idle), o.Archive)
@@ -366,10 +373,121 @@ func Gc(t Tool, o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWor
 		[]Idle{}
 	}
 	let due = try Collect(t, o.Id, older)
+	let mut removed = []Workspace{}
+	let mut failed = []DiscardFailure{}
 	for w in due {
-		try t.DiscardOf(w)
+		t.DiscardOf(w) catch {
+		case Missing as e:
+			failed = failed.Append(DiscardFailure{Name: w.Name, Path: w.Path, Cause: e})
+			releaseCreating(t, w)
+			continue
+		case CloneFailed as e:
+			failed = failed.Append(DiscardFailure{Name: w.Name, Path: w.Path, Cause: e})
+			releaseCreating(t, w)
+			continue
+		}
+		removed = removed.Append(w)
 	}
-	Collected{Purged: try Purge(t, due), Idle: idle}
+	let purged = Purge(t, removed) catch {
+	case Unkept as e:
+		for w in removed { releaseCreating(t, w) }
+		if len(failed) == 0 { return e }
+		return GcFailed{Result: Collected{Purged: []string{}, Idle: idle, Preview: json.Absent}, Failures: failed, Registry: json.Present[GcRegistryFailure]{Value: e}}
+	case Locked as e:
+		for w in removed { releaseCreating(t, w) }
+		if len(failed) == 0 { return e }
+		return GcFailed{Result: Collected{Purged: []string{}, Idle: idle, Preview: json.Absent}, Failures: failed, Registry: json.Present[GcRegistryFailure]{Value: e}}
+	}
+	let result = Collected{Purged: purged, Idle: idle, Preview: json.Absent}
+	if len(failed) > 0 {
+		return GcFailed{Result: result, Failures: failed, Registry: json.Absent}
+	}
+	result
+}
+
+func releaseCreating(t Tool, w Workspace) {
+	match w.State {
+	case Creating:
+		unreserved(t, w)
+	case _:
+	}
+}
+
+func picksId(w Workspace, id Option[string]) bool {
+	match id {
+	case Some[string] as i:
+		w.Id == i.Value
+	case None:
+		true
+	}
+}
+
+func trashDue(w Workspace, id Option[string], older duration, at int64) bool {
+	picksId(w, id) && (id != None || time.Times(1s, int(at-w.Since)) >= older) && at >= w.Until && InTrash(w.Path)
+}
+
+func unmarkedClone(t Tool, w Workspace) bool {
+	strings.HasPrefix(w.Path, t.home+"/") && !t.copier.Has(w.Path+"/.git") && !t.copier.Has(TombOf(t.home, w.Id))
+}
+
+// previewGc takes only the locks needed to read a consistent snapshot
+// and recognize dead makers. It deliberately does not call hold, which
+// would finish interrupted writes and move workspace directories.
+func previewGc(t Tool, id Option[string], older duration) []PurgeCandidate fails Unkept | Locked {
+	if !try t.lock.Hold("") {
+		return Locked{Path: RegistryFile(t.home)}
+	}
+	let all = t.registry.All() catch {
+	case Unkept as e:
+		t.lock.Release("")
+		return e
+	}
+	let at = now(t)
+	let mut out = []PurgeCandidate{}
+	for w in all {
+		match w.State {
+		case Trashed:
+			if trashDue(w, id, older, at) {
+				if w.Moving != "" && t.copier.Has(w.Moving) && t.copier.Has(w.Path) {
+					t.lock.Release("")
+					return Unkept{Reason: "\(w.Path) is taken: the move of \(w.Moving) to the trash did not end"}
+				}
+				out = out.Append(PurgeCandidate{Name: w.Name, Path: w.Path})
+			}
+		case Creating:
+			let taken = makerGone(t, w) catch {
+			case Unkept:
+				false
+			}
+			if taken {
+				let path = previewCreating(t, w, id)
+				unreserved(t, w)
+				if path != "" {
+					out = out.Append(PurgeCandidate{Name: w.Name, Path: path})
+				}
+			}
+		case Active, Landing, Landed, Abandoned:
+		}
+	}
+	t.lock.Release("")
+	out
+}
+
+func previewCreating(t Tool, w Workspace, id Option[string]) string {
+	if w.Id != "" {
+		let tomb = TombOf(t.home, w.Id)
+		if t.copier.Has(tomb) {
+			return tomb
+		}
+		let staging = StagingOf(t.home, w.Id)
+		if !t.copier.Has(w.Path) && t.copier.Has(staging) {
+			return staging
+		}
+		if markerOf(t, w.Path) == w.Id {
+			return ""
+		}
+	}
+	if picksId(w, id) && unmarkedClone(t, w) && t.copier.Has(w.Path) { w.Path } else { "" }
 }
 
 // age is the duration of a gc flag, 0s when absent.
@@ -540,11 +658,8 @@ func rmOnce(t Tool, c Config, w Workspace, abandon bool, until int64) string fai
 // Collect is gc's first step, under the lock: the trashed workspaces of
 // this base old enough (or the one of id), and the reservations whose
 // maker is gone. It holds the lock of each such reservation until Purge.
-// A reservation whose maker is gone but whose clone carries its marker
-// was made: its maker stopped between Fill and Activate (a killed `work
-// new`), and an agent may already work in it. Collect activates it, as
-// Activate would have, and never deletes it. (Its hold settles this
-// work's reservations first; the rules below are for an older work's.)
+// hold settles marked checkouts; Collect never activates or deletes a
+// reservation over a checkout, including a mismatching legacy marker.
 func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept | Locked {
 	try hold(t)
 	let at = now(t)
@@ -555,19 +670,12 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 	}
 	let mut due = []Workspace{}
 	for w in all {
-		let one = match id {
-		case Some[string] as i:
-			w.Id == i.Value
-		case None:
-			true
-		}
-		if !one {
+		if !picksId(w, id) {
 			continue
 		}
 		match w.State {
 		case Trashed:
-			let old = id != None || time.Times(1s, int(at-w.Since)) >= older
-			if old && at >= w.Until && w.Moving == "" && InTrash(w.Path) {
+			if w.Moving == "" && trashDue(w, id, older, at) {
 				due = due.Append(w)
 			}
 		case Creating:
@@ -575,18 +683,7 @@ func Collect(t Tool, id Option[string], older duration) []Workspace fails Unkept
 			case Unkept:
 				false
 			}
-			if taken && markerOf(t, w.Path) == w.Id && w.Id != "" {
-				// The clone was made and marked: its maker stopped before it
-				// wrote the activation, and the folder may already hold work.
-				// gc writes the activation instead of deleting it.
-				t.registry.Put(activation(t, w, at)) catch {
-				case Unkept as e:
-					unreserved(t, w)
-					t.lock.Release("")
-					return e
-				}
-				unreserved(t, w)
-			} else if taken && strings.HasPrefix(w.Path, t.home+"/") && !t.copier.Has(w.Path+"/.git") && !t.copier.Has(TombOf(t.home, w.Id)) {
+			if taken && unmarkedClone(t, w) {
 				// (A reservation with a tomb is buried's, which drops the
 				// record only once the tomb is gone.)
 				// A folder cut off before its checkout holds no work; one
