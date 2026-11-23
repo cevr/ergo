@@ -528,10 +528,17 @@ var execLawStatements = map[string]string{
 // the row's statement, and that each passed. ScriptNotFoundNamesTheProgram
 // is the probe's own test of the Script provider, not a ledger row. The
 // Runner laws also run as written on the test host (onHost), each case a
-// drawn Shell, and each of those runs must pass.
+// drawn Shell, and each of those runs must pass. The laws Runner.EnvIsExact
+// (onHost, onHostWithPath), Runner.LookupUsesChildPath (onHost) and
+// os.Process.EnvironAgreesWithGetenv (onProcess) run here as written, not
+// restated: their ledger runner is none, and the std laws in place step
+// cannot run them, as check-time evaluation does not run TestAmbient
+// (scripts/ergotests/testdata/std-red.txt). This probe is their only
+// runner until ergo test runs std in place (STD-EXEC-LAWS-NATIVE, after
+// NATIVE-LAWS-2), when these contexts go.
 //
 // It builds Go because the laws run in the built test binary (ergo test),
-// the only place a law runs.
+// the only place a law runs; a host Runner's law runs a real program.
 func TestExecLaws(t *testing.T) {
 	needsBuild(t)
 	exes := tableExes(t, "execlaws")
@@ -543,7 +550,7 @@ func TestExecLaws(t *testing.T) {
 		t.Errorf("the exec law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
 	for _, line := range []string{"ok ScriptNotFoundNamesTheProgram", "ok law exec.Runner.StartAgreesWithRun under onHost", "ok law exec.Runner.StartMergedInterleavesRun under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHost", "ok law exec.Runner.EnvIsExact under onHost", "ok law exec.Runner.EnvIsExact under onHostWithPath", "ok law exec.Runner.LookupUsesChildPath under onHost", "ok law exec.Runner.ShellRunsAsWritten under onHostWithPath", "ok law os.Process.EnvironAgreesWithGetenv under onProcess"} {
-		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( \(\d+ cases\))?$`).MatchString(stdout) {
+		if !regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(line) + `( \((\d+ cases?|proved: (all )?\d+ cases?)\))?$`).MatchString(stdout) {
 			t.Errorf("no line %q:\n%s", line, stdout)
 		}
 	}
