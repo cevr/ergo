@@ -63,6 +63,14 @@ func (run stdRun) key(pkg, law string) string {
 			return decl + " " + member
 		}
 	}
+	// The prelude's names are unqualified, so a provider runs a prelude
+	// member law as T.L ("law Hashing.EqualKeysHashEqual for Key"): it
+	// counts for the prelude's when pkg declares no T.L of its own.
+	if _, own := run.declared[path.Base(pkg)+" "+law]; !own && strings.Contains(law, ".") {
+		if decl, ok := run.declared[stdlib.PreludePath+" "+law]; ok {
+			return decl + " " + law
+		}
+	}
 	return pkg + " " + law
 }
 
