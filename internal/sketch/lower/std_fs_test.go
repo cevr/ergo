@@ -94,6 +94,14 @@ func Stat(m Files, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Faile
 	let text = try ReadFile(m, path)
 	fs.Info{Name: path, Size: len(text), Dir: false, Perm: 0}
 }
+
+func Lstat(m Files, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	if path == "." {
+		return fs.Info{Name: ".", Size: 0, Dir: true, Perm: 0}
+	}
+	let text = try ReadFile(m, path)
+	fs.Info{Name: path, Size: len(text), Dir: false, Perm: 0}
+}
 `
 
 // TestFSFilesMemory: fs.Files has no private operation, so a program's own provider in a package of

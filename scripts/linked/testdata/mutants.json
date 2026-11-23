@@ -8,25 +8,42 @@
       "from": "\tcase stage1 || !behind && len(held) == 0:\n",
       "to": "\tcase stage1 || !behind:\n",
       "rule": "New syntax on the same node layout (a line the linked parser refuses) takes two stages under -bootstrap, and a plain run is refused with the instruction.",
-      "killers": ["scripts/linked:TestNewSyntaxOnTheSameLayoutTakesTwoStages"]
+      "killers": [
+        "scripts/linked:TestNewSyntaxOnTheSameLayoutTakesTwoStages"
+      ]
     },
     {
-      "name": "linked-choose-ignores-refusals",
-      "origin": "wf10 LINKED-BOOTSTRAP-2",
-      "file": "scripts/linked/main.go",
-      "from": "\t\tif best < 0 || p.refused < ps[best].refused {\n",
-      "to": "\t\tif best < 0 {\n",
-      "rule": "Stage 1 regenerates with the candidate linked parser that refuses the fewest lines: a merge's side that carries the new syntax, not one whose hold-back takes a declaration std needs.",
-      "killers": ["scripts/linked:TestStageOneTakesTheParserThatReadsTheTree"]
+      "name": "linked-walk-first-parent",
+      "origin": "wf10 LINKED-BOOTSTRAP-3",
+      "file": "scripts/linked/walk.go",
+      "from": "\"log\", \"--full-history\", \"--format=%h\"}",
+      "to": "\"log\", \"--format=%h\"}",
+      "rule": "Stage 1's walk reaches a syntax port's parser behind a merge that kept the other side's linked compiler (I-FLIP s10: three merges back).",
+      "killers": [
+        "scripts/linked:TestStageOneWalksToTheParserThatReadsTheTree"
+      ]
     },
     {
-      "name": "linked-choose-unreadable-layout",
-      "origin": "wf10 LINKED-BOOTSTRAP-2",
-      "file": "scripts/linked/main.go",
-      "from": "\t\tif p.refused < 0 || p.layout != syntax.ColumnsVersion && p.layout != syntax.PreviousColumnsVersion {\n",
-      "to": "\t\tif p.refused < 0 {\n",
-      "rule": "Stage 1 never regenerates with a linked parser whose layout the decoder does not read.",
-      "killers": ["scripts/linked:TestStageOneTakesTheParserThatReadsTheTree"]
+      "name": "linked-walk-silent-fallback",
+      "origin": "wf10 LINKED-BOOTSTRAP-3",
+      "file": "scripts/linked/walk.go",
+      "from": "\tif !filtered && disk.readable() && len(disk.lines) > 0 {\n",
+      "to": "\tif disk.readable() && len(disk.lines) > 0 {\n",
+      "rule": "A walk whose commits hold the refused line and find no parser that reads the tree fails naming each one tried; stage 1 holds lines back only when no commit holds the line.",
+      "killers": [
+        "scripts/linked:TestOwnSyntaxIsHeldBackNamed"
+      ]
+    },
+    {
+      "name": "linked-final-check-removed",
+      "origin": "wf10 LINKED-BOOTSTRAP-3",
+      "file": "scripts/linked/walk.go",
+      "from": "\tif p.clean() && p.layout == syntax.ColumnsVersion {\n",
+      "to": "\tif true {\n",
+      "rule": "The bootstrap's last stage ends with a parser that refuses nothing in the tree: held-back lines are a stage-1 state, never a result.",
+      "killers": [
+        "scripts/linked:TestOwnSyntaxIsHeldBackNamed"
+      ]
     }
   ]
 }

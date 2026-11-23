@@ -192,7 +192,7 @@ func TestFieldVisibility(t *testing.T) {
 }
 
 // TestConstructibleFact: check.Constructible is the authority predicate
-// refine, generators (#162) and codecs (#49) read (docs/decisions.md
+// refine, generators and codecs read (docs/decisions.md
 // 2026-11-03 (a)).
 func TestConstructibleFact(t *testing.T) {
 	lib := checkedLib(t)

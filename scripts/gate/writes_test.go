@@ -13,8 +13,8 @@ import (
 )
 
 // TestNoTierRunsASweepBesideAWriter enumerates the steps of each tier that
-// sweeps (the full tier, and the merge tier's uncached run of the full
-// tier's steps; the fast tier sweeps nothing, TestClosureSweepTier) and fails if a step that writes the checkout can run while a
+// sweeps (the full tier, whose steps the merge tier's uncached run runs as
+// they are; the fast tier sweeps nothing, TestClosureSweepTier) and fails if a step that writes the checkout can run while a
 // closure sweep runs: every sweep starts only after every writer has ended.
 // The CLI's build writes bin/ergo, so it declares bin/ (batch-9 try4: the
 // merge tier's sweeps of internal/bindc, internal/sketchfront and
@@ -28,11 +28,7 @@ func TestNoTierRunsASweepBesideAWriter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var merge []*Step
-	for _, step := range full {
-		merge = append(merge, uncachedStep(step))
-	}
-	for tier, steps := range map[string][]*Step{fullTier: full, mergeTierName: merge} {
+	for tier, steps := range map[string][]*Step{fullTier: full} {
 		index := map[string]int{}
 		for i, step := range steps {
 			index[step.Name] = i

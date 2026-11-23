@@ -6,8 +6,9 @@
 import mcp
 import io
 
-// Transport is standard input and output.
-type Transport { input io.In, out io.Host } implements mcp.Transport
+// Transport is a standard input and output: the process's (New), or a
+// test's io.Input and io.Recorder.
+type Transport { input io.Stdin, out io.Stdout } implements mcp.Transport
 
 // New is the process's standard input and output.
 func New() Transport needs Ambient { Transport{input: io.NewStdin(), out: io.NewHost()} }

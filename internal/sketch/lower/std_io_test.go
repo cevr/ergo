@@ -225,42 +225,6 @@ test IoInputLinesStops(s string, t string) {
 	}
 }
 
-test IoHostOverKeeps(a string, b string) {
-	let r = io.NewRecorder()
-	let h = io.HostOver(r)
-	h.Print(a)
-	h.Println(b)
-	h.Print(a)
-	assert r.Text() == a + b + "\n" + a
-	assert !h.IsTerminal()
-}
-
-test IoInOverGoesOn(s string, k int, t string) {
-	for text in []string{s, s + "\n" + t, "\n" + s + "\r\n\n" + t + "\n", "", "\n"} {
-		let src = io.InOver(text)
-		let want = if k < 0 { -(k % 4) } else { k % 4 }
-		let mut taken = 0
-		let mut rest = text
-		if want > 0 {
-			for line in src.Lines() {
-				assert strings.HasPrefix(rest, line)
-				rest = strings.Slice(rest, len(line), len(rest))
-				if strings.HasPrefix(rest, "\n") {
-					rest = strings.Slice(rest, 1, len(rest))
-				}
-				taken = taken + 1
-				if taken == want {
-					break
-				}
-			}
-		}
-		assert try src.ReadAll() == rest
-		assert try src.ReadAll() == ""
-		assert try src.Read() == None
-		assert !src.IsTerminal()
-	}
-}
-
 test IoInputReadAll(s string) {
 	assert try io.Input{Text: s}.ReadAll() == s
 }
@@ -339,8 +303,6 @@ test IoChunksJoinToInput(text string, cuts []int, size int) {
 		"io ChunksJoinToInput": `ChunksJoinToInput(text string, cuts []int, size int) { let mut kept = []int{} for c in cuts { if c > 0 && c < len(text) && (len(kept) == 0 || c > kept[len(kept)-1]) { kept = kept.Append(c) } } let mut joined = "" let mut ends = []int{} let m = CutAt(text, cuts) for { match try m.Read() { case Some[string] as c: if c.Value == "" { return false } joined = joined + c.Value ends = ends.Append(len(joined)) case None: break } } let again = try m.Read() let mut want = kept if len(text) > 0 { want = want.Append(len(text)) } let n = if size < 0 { -(size % 9) + 1 } else { size%9 + 1 } let mut sized = "" let mut pieces = 0 let chunked = Chunked(text, n) for { match try chunked.Read() { case Some[string] as c: if c.Value == "" || len(c.Value) > n || (len(c.Value) < n && len(sized)+len(c.Value) != len(text)) { return false } sized = sized + c.Value pieces = pieces + 1 case None: break } } joined == text && again == None && slices.Equal(ends, want) && sized == text && pieces == (len(text)+n-1)/n }`,
 		"io InputLinesStops":   `InputLinesStops(s string) { let lines = Input{Text: s}.Lines() let mut n = 0 lines(func(line string) bool { n = n + 1 true }) for k in 1..n+2 { let mut calls = 0 lines(func(line string) bool { calls = calls + 1 calls < k }) if calls != (if k < n { k } else { n }) { return false } } true }`,
 		"io LinesSplitInput":   `LinesSplitInput(s string) { let mut joined = "" let mut first = true let input = Input{Text: s} for line in input.Lines() { if !first { joined = joined + "\n" } joined = joined + line first = false } if strings.HasSuffix(s, "\n") { joined = joined + "\n" } joined == s }`,
-		"io HostOverKeeps":     `HostOverKeeps(a string, b string) { let r = NewRecorder() let h = HostOver(r) h.Print(a) h.Println(b) h.Print(a) r.Text() == a+b+"\n"+a && !h.IsTerminal() }`,
-		"io InOverGoesOn":      `InOverGoesOn(s string, k int) { let src = InOver(s) let want = if k < 0 { -(k % 4) } else { k % 4 } let mut taken = 0 let mut rest = s if want > 0 { for line in src.Lines() { if !strings.HasPrefix(rest, line) { return false } rest = rest[len(line):] if strings.HasPrefix(rest, "\n") { rest = rest[1:] } taken = taken + 1 if taken == want { break } } } let all = try src.ReadAll() let again = try src.ReadAll() let after = try src.Read() all == rest && again == "" && after == None && !src.IsTerminal() }`,
 		"io PrintsConcatenate": `PrintsConcatenate(a string, b string) { let r = NewRecorder() r.Print(a) r.Eprint(b) r.Print(b) r.Text() == a+b+b }`,
 	}, func(key string) string {
 		return "Io" + strings.TrimPrefix(key, "io ")

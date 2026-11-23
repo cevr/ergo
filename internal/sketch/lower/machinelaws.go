@@ -62,8 +62,8 @@ func (l *lowerer) reachTypes(law *check.Law) []check.Type {
 	m := law.Machine.Type.(*check.Named).Underlying().(*check.MachineType)
 	types := []check.Type{m.State, m.Signal}
 	td := l.typeDecl(law.Machine, law.Decl)
-	if td.machine != nil && td.machine.start != nil {
-		for _, p := range td.machine.start.Sig.Params {
+	if td.machine != nil && td.machine.entries.Start != nil {
+		for _, p := range td.machine.entries.Start.Type.Params {
 			types = append(types, p.Type)
 		}
 	}
@@ -98,15 +98,17 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 	mq, _ := l.importAs("machines")
 	machineText := l.ergoType(law.Machine.Type) + "{}"
 	machines := "nil"
-	if md.start == nil {
+	if md.entries.Start == nil {
 		starts = "[]" + state + "{" + td.name + "{}.Initial()}"
 		machines = "[]string{" + strconv.Quote(machineText) + "}"
 	} else {
 		// The inputs are listed by the rule of every law's run (Listed
 		// laws): each value of each input, every combination once.
-		sfd := l.useFunc(md.start, site)
+		startCall := func(args []string) string {
+			return l.entryValueCall(law.Machine, "Start", md.entries.Start, env, args, state, site)
+		}
 		var types []check.Type
-		for _, p := range md.start.Sig.Params {
+		for _, p := range md.entries.Start.Type.Params {
 			types = append(types, p.Type)
 		}
 		if lists, _, listed := l.enumRun(types, site); listed {
@@ -123,7 +125,7 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 			calls := make([]string, len(combos))
 			texts := make([]string, len(combos))
 			for i, c := range combos {
-				calls[i] = sfd.callText(sfd.envLead(env), c)
+				calls[i] = startCall(c)
 				parts := []string{strconv.Quote(mq + ".Start(" + machineText)}
 				for j, v := range c {
 					parts = append(parts, "\", \"", l.litExpr(types[j], v, site))
@@ -134,10 +136,10 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 			machines = "[]string{" + strings.Join(texts, ", ") + "}"
 		} else {
 			var gens []string
-			for _, p := range md.start.Sig.Params {
+			for _, p := range md.entries.Start.Type.Params {
 				gens = append(gens, l.genExpr(p.Type, r, d, inner, site))
 			}
-			start = "func(" + r + " " + rand + ", " + d + " int) " + state + " { return " + sfd.callText(sfd.envLead(env), gens) + " }"
+			start = "func(" + r + " " + rand + ", " + d + " int) " + state + " { return " + startCall(gens) + " }"
 		}
 	}
 	signals := "nil"
@@ -148,19 +150,18 @@ func (l *lowerer) reachRuns(b *strings.Builder, law *check.Law, scope *namer, en
 
 	// The step as an edge: the next state, and false when the step ends
 	// the run (Done).
-	fd := l.useFunc(md.step, site)
-	call := fd.callText(fd.envLead(env), []string{s, e})
+	call, stepFails := l.entryCall(law.Machine, "Step", md.entries.Step, env, []string{s, e}, site)
 	var step strings.Builder
 	step.WriteString("func(" + s + " " + state + ", " + e + " " + signal + ") (" + state + ", bool) {\n")
 	dv := inner.alloc("dv")
-	if fd.fallible {
+	if stepFails {
 		fe := inner.alloc("fe")
 		step.WriteString("\t\t\t" + dv + ", " + fe + " := " + call + "\n")
 		step.WriteString("\t\t\tif " + fe + " != nil {\n\t\t\t\treturn " + s + ", true\n\t\t\t}\n")
 	} else {
 		step.WriteString("\t\t\t" + dv + " := " + call + "\n")
 	}
-	decision, ok := md.step.Sig.Results[0].(*check.Named)
+	decision, ok := md.entries.Step.Type.Results[0].(*check.Named)
 	if !ok {
 		ice(site, "the step of machine %s returns no Decision", law.Machine.Name)
 	}

@@ -8,14 +8,15 @@ import (
 	"io"
 )
 
-// Request is a take: its width in cores, its class, its lane, its memory
-// and its command's key.
+// Request is a take: its width in cores, class, lane, memory, optional
+// ceiling and command's key.
 type Request struct {
-	Width  int
-	Crit   bool
-	Lane   string
-	Memory int64
-	Key    string
+	Width   int
+	Crit    bool
+	Lane    string
+	Memory  int64
+	Ceiling int64
+	Key     string
 }
 
 // Budget is unsupported where there is no flock.

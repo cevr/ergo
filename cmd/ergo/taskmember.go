@@ -76,7 +76,7 @@ func memberGens(root, dir string, nested map[string]bool, elsewhere *[]Elsewhere
 		if !d.IsDir() {
 			return nil
 		}
-		if rel != dir && (nested[rel] || !admitTaskFolder(d.Name())) {
+		if rel != dir && (nested[rel] || !sketchfront.AdmitFolder(d.Name())) {
 			return filepath.SkipDir
 		}
 		entries, err := os.ReadDir(p)
@@ -144,14 +144,6 @@ func ownedElsewhere(r *task.Runner, nodes []task.Node, pkgs []Elsewhere) (map[st
 		}
 	}
 	return owner, nil
-}
-
-// admitTaskFolder is source admission's rule for a folder name
-// (docs/spec/build.md, Workspace): no hidden, underscored, testdata,
-// node_modules or vendor folder holds a member's packages.
-func admitTaskFolder(name string) bool {
-	return !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_") &&
-		name != "testdata" && name != "node_modules" && name != "vendor"
 }
 
 // memberNodes are the derived nodes of the workspace at root: one per

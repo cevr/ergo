@@ -213,10 +213,14 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 		return false, nil
 	}
 	failed := false
+	var sources map[string]bool
+	if tree != nil {
+		sources = loadSources(loads)
+	}
 	for i, l := range loads {
 		one := opts
 		one.file = packages[i].Dir
-		stop, fail := packageOutcome(packages[i].Path, checkShared(one, l, tree))
+		stop, fail := packageOutcome(packages[i].Path, checkShared(one, l, tree, sources))
 		if stop != nil {
 			return true, stop
 		}
@@ -230,8 +234,21 @@ func sharedCheckCommand(opts fileOptions) (shared bool, err error) {
 }
 
 // checkShared is checkLoaded of one package of a shared load, keeping
-// its answer in tree.
-func checkShared(opts fileOptions, l loaded, tree *checkTree) error {
+// its answer in tree. Its evaluation is taken from the cutoff's store
+// when nothing it observes changed (checkcut.go); sources are the load's
+// source files and package folders.
+func checkShared(opts fileOptions, l loaded, tree *checkTree, sources map[string]bool) error {
+	if out, ok := tree.replay(l.analysis); ok {
+		if _, err := os.Stdout.Write(out); err != nil {
+			return err
+		}
+		tree.add(l.analysis, out, nil)
+		return nil
+	}
+	if treeRerun != nil {
+		treeRerun(l.analysis.Root().Path)
+	}
+	puts := tree.storePuts()
 	out, exit, err := checkEnvelope(opts, l, tree.fsys())
 	if err != nil {
 		return err
@@ -240,6 +257,7 @@ func checkShared(opts fileOptions, l loaded, tree *checkTree) error {
 		return err
 	}
 	tree.add(l.analysis, out, exit)
+	tree.keepCut(l.analysis, sources, out, exit, puts)
 	return exit
 }
 

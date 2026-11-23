@@ -488,14 +488,13 @@ func (recordingEnclosure) close() error                      { return nil }
 
 // TestEnclosedRunWrapsEveryStep: a run with an enclosure runs every step
 // through it, whatever the step's shape: independent or needing another,
-// hermetic, with tool digests, a go test.
+// with tool digests, a go test.
 func TestEnclosedRunWrapsEveryStep(t *testing.T) {
 	root := fixture(t)
 	log := filepath.Join(t.TempDir(), "log")
 	steps := []*Step{
 		{Name: "plain", Argv: []string{"true"}},
 		{Name: "needs", Needs: []string{"plain"}, Argv: []string{"true"}},
-		{Name: "hermetic", Hermetic: true, Argv: []string{"true"}},
 		{Name: "tools", ToolEnv: []string{"sh"}, Argv: []string{"true"}},
 		{Name: "go test", Argv: []string{"go", "version"}},
 		{Name: "keyed", Inputs: &Inputs{Paths: []string{"src/"}}, Argv: []string{"true"}},
@@ -844,7 +843,7 @@ func TestMergeTierInputContractRegression(t *testing.T) {
 	t.Setenv("GOMODCACHE", t.TempDir())
 	t.Setenv("GOTOOLCHAIN", "local")
 	root, steps := sandboxFixture(t, []sandboxRow{{name: "tool-modcache", launcher: verifierR6Launcher, args: []string{"modcache"}}}, "")
-	if problems := cacheProblems(&gate{root: root}, "example.com/sandboxed", steps[0]); len(problems) != 0 {
+	if problems := cacheProblems(&gate{root: root}, steps[0]); len(problems) != 0 {
 		t.Fatal(problems)
 	}
 	if problems := hygieneProblems(steps[0], reviewedScripts); len(problems) != 0 {

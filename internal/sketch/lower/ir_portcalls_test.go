@@ -75,7 +75,7 @@ func handle(r http.Request) http.Response {
 
 func main() fails os.Exit needs Ambient {
 	with context { io.Stdout: io.NewHost(), Scheduler: NewLiveScheduler() } {
-		let _ = http.NewClient("http://127.0.0.1:1", limits) catch {
+		let _ = http.NewClient("http://127.0.0.1:1", limits, []http.Credential{}) catch {
 		case http.InvalidClient, http.InvalidLimits:
 			return os.Exit{Code: 2, Message: "client"}
 		}
