@@ -2,10 +2,10 @@ import strconv
 import strings
 import time
 
-// Usage is the help of s: "Usage of NAME:" (or "Usage:" with no name),
+// UsageText is the help of s: "Usage of NAME:" (or "Usage:" with no name),
 // s.Usage on its own line when it is not empty, the flags in Defaults'
 // layout, and then the positional arguments in declaration order.
-func Usage(s Set) string {
+func UsageText(s Set) string {
 	let mut out = if s.Name == "" { "Usage:\n" } else { "Usage of " + s.Name + ":\n" }
 	if s.Usage != "" {
 		out = out + s.Usage + "\n"
