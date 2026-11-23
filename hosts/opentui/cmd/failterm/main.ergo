@@ -1,0 +1,67 @@
+// failterm runs counter-gui's app on the process's terminal with
+// tui.RunTerminal, as counter-tui does, with the screen's AT-th check
+// failing with the library status STATUS (screen.FailAt; AT 0 fails
+// none). TestRunTerminalRestoresAfterAFailure runs it on a
+// pseudo-terminal.
+//
+//	failterm AT STATUS
+//
+// On standard error it says how the run ended, "failed CALL NODE STATUS"
+// or "ended", then each check the screen passed ("check CALL NODE"), and
+// exits 1 after a failure.
+
+import actor
+import ergo.local/prototype/examples/countergui/counter
+import ergo.local/prototype/examples/countergui/view
+import ergo.local/prototype/hosts/opentui/tui
+import go ergo.local/prototype/hosts/opentui/screen
+import os
+import strconv
+import term
+import ui
+
+func main() fails os.Exit needs Ambient | go.Foreign {
+	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
+	if len(args) != 2 {
+		return os.Exit{Code: 2, Message: "usage: failterm AT STATUS"}
+	}
+	screen.FailAt(number(args[0]), number(args[1]))
+	let ended = run()
+	let mut said = ended
+	for c in screen.Checks() {
+		said = said + "\ncheck \(c.Call) \(c.Node)"
+	}
+	os.Exit{Code: if ended == "ended" { 0 } else { 1 }, Message: said}
+}
+
+// run runs the app on the terminal and is how it ended.
+func run() string needs Ambient | go.Foreign {
+	with context { Scheduler: NewLiveScheduler(), term.Terminal: term.NewHost() } {
+		let a = actor.StartMachine(counter.Counter{}, 8, func(c counter.Count) {})
+		tui.RunTerminal(a, view.View, tui.DefaultOptions()) catch {
+		case actor.Stopped:
+			return "stopped"
+		case term.NotTerminal:
+			return "no terminal"
+		case ui.BadPatch as b:
+			return "bad patch \(b.Why)"
+		case tui.ScreenFailed as e:
+			let st = match e.Status {
+			case Some[int] as s:
+				"\(s.Value)"
+			case None:
+				"-"
+			}
+			return "failed \(tui.CallName(e.Call)) \(e.Node) \(st)"
+		}
+	}
+	"ended"
+}
+
+func number(s string) int {
+	strconv.Atoi(s) catch {
+	// ergo-lint-disable-next-line silent-catch -- a number that is none fails no check
+	case strconv.Malformed, strconv.OutOfRange:
+		0
+	}
+}

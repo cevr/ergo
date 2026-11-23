@@ -13,18 +13,30 @@ import utf8
 // which ends the run (TestTuiFailuresAgree).
 type result = Done{} | Missing{Label string} | Broke{Why string} | Failed{Failure tui.ScreenFailed}
 
-// failLine is the line hostagree prints for a screen failure.
-func failLine(e tui.ScreenFailed) string { "failed \(e.Why)" }
+// failLine is the line hostagree prints for a screen failure: the call,
+// the node, the library's status ("-" for none) and the message.
+func failLine(e tui.ScreenFailed) string {
+	let st = match e.Status {
+	case Some[int] as s:
+		"\(s.Value)"
+	case None:
+		"-"
+	}
+	"failed \(tui.CallName(e.Call)) \(e.Node) \(st) \(e.Why)"
+}
 
 // agree plays steps on both hosts and prints whether they agree after
 // each. The screen is 60 by 40 cells (480 by 640 DIPs, the window of
-// hosts/mygo's hostagree).
-func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) needs Console | Scheduler | go.Foreign {
-	let s = screen.Headless(60, 40) catch {
-	case go.Error as e:
-		Console.Println("differ 0: no screen: \(e.Text)")
-		return
-	}
+// hosts/mygo's hostagree). A screen failure ends the run; the screen is
+// quit however it ends (tui.Headless).
+func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) fails tui.ScreenFailed needs Console | Scheduler | go.Foreign {
+	try tui.Headless(60, 40, func(s go.Ref[screen.Screen]) fails tui.ScreenFailed needs Console | Scheduler | go.Foreign {
+		try agreeOn(s, m, view, same, steps)
+	})
+}
+
+// agreeOn is agree on the screen s.
+func agreeOn[E comparable, S](s go.Ref[screen.Screen], m Machine[S, E, int], view own func(f mut ui.Frame[E], s S), same func(a S, b S) bool, steps []string) fails tui.ScreenFailed needs Console | Scheduler | go.Foreign {
 	let ta = actor.StartMachine(m, 1, func(o int) {})
 	let da = actor.StartMachine(m, 1, func(o int) {})
 	let mut h = ui.NewTestHost(ta, view, time.NewManual(0), 16) catch {
@@ -37,8 +49,7 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E
 		Console.Println("differ 0: driver: \(b.Why)")
 		return
 	case tui.ScreenFailed as e:
-		Console.Println(failLine(e))
-		return
+		return e
 	}
 	match compare(&h, &d, s, same) {
 	case Some[string] as why:
@@ -75,8 +86,7 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E
 		}
 		match b {
 		case Failed as f:
-			Console.Println(failLine(f.Failure))
-			return
+			return f.Failure
 		case _:
 		}
 		if a != b {
@@ -89,10 +99,6 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E
 		case None:
 			Console.Println("ok \(n)")
 		}
-	}
-	s.Quit() catch {
-	// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
-	case go.Error:
 	}
 	Console.Println("end")
 }

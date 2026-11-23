@@ -20,7 +20,6 @@
 import actor
 import go ergo.local/prototype/hosts/opentui/screen
 import queue
-import scope
 import task
 import term
 import ui
@@ -960,17 +959,14 @@ func RunWith[E comparable, S, D, F](s go.Ref[screen.Screen], a actor.Actor[S, E,
 // RunTerminal shows view of a's state on the process's terminal, in raw
 // mode (term.Raw), until the input ends or Ctrl+C. However it ends, the
 // screen quits (the alternate screen left, the cursor shown) and then the
-// terminal's mode is restored.
+// terminal's mode is restored. A failure of the run wins over Quit's;
+// after a run that ended well, Quit's failure is the result.
 func RunTerminal[E comparable, S, D, F](a actor.Actor[S, E, D, F], view own func(f mut ui.Frame[E], st S), o Options) fails actor.Stopped | ui.BadPatch | ScreenFailed | term.NotTerminal needs term.Terminal | go.Foreign {
 	try term.Raw() {
 		let s = try open()
-		scope.OnExit() {
-			s.Quit() catch {
-			// ergo-lint-disable-next-line silent-catch -- the terminal is going away; Quit restores it as far as it can, and nothing is left to tell
-			case go.Error:
-			}
+		try quitting(s) {
+			try RunWith(s, a, view, o)
 		}
-		try RunWith(s, a, view, o)
 	}
 }
 

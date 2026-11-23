@@ -1,19 +1,144 @@
-// The driver's one failure of the screen: Go's open error stops at the
-// few calls below, so every exported row is closed (docs/spec/interop.md,
-// Two levels 3).
+// The driver's failure algebra. Go's open error stops at the few calls
+// below (docs/spec/interop.md, Two levels 3), so every exported row is
+// closed:
+//
+//   - ScreenFailed: the screen (the OpenTUI library or the terminal)
+//     refused a call. It names the call and the node, keeps the library's
+//     status, and keeps the Go error itself in Cause, so go.Is and go.As
+//     reach its chain (screen.ErrClosed, an ot.Status, an os.PathError).
+//   - ui.BadPatch: the view wrote a patch the driver cannot apply.
+//   - actor.Stopped: the app's actor stopped.
+//   - ui.Closed: the input ended (Feed, Send, Drain, Play).
+//   - ui.NoNode, ui.Ambiguous, ui.Mismatch: a scripted step found no
+//     node, several nodes, or another value (Play).
+//   - term.NotTerminal: standard input is no terminal (RunTerminal).
+//
+// The screen is quit on every exit of Headless and RunTerminal. When
+// the body failed, its failure is the one told; when it ended well,
+// Quit's own failure is.
 
 import go ergo.local/prototype/hosts/opentui/screen
+import scope
 
-// ScreenFailed is a screen call that failed: the terminal could not be
-// opened or set up, the library refused a scene command or a frame, or
-// writing to the terminal failed. Why is the screen's message.
-type ScreenFailed { Why string }
+// Call is the screen call that failed.
+type Call = Opening{} | Scene{} | Frame{} | Output{} | Scrolling{} | Editing{} | Notifying{} | Resizing{} | Reading{} | Quitting{}
+
+// ScreenFailed is a screen call that failed: Call, the scene node it was
+// about (0 for none), the library's status when the library refused it
+// (None when the failure is Go's own: a write to the terminal, a closed
+// screen), the screen's message, and the Go error.
+type ScreenFailed { Call Call, Node int, Status Option[int], Why string, Cause go.Error }
+
+// failed is the ScreenFailed of a screen call's error. Every error the
+// screen returns is a screen.Failure (TestScreenErrorsAreFailures).
+func failed(e go.Error) ScreenFailed needs go.Foreign {
+	match go.As[go.Ref[screen.Failure]](e) {
+	case Some[go.Ref[screen.Failure]] as f:
+		let st = f.Value.Status()
+		ScreenFailed{Call: callOf(f.Value.Call), Node: f.Value.Node, Status: if st == 0 { None } else { Some{Value: st} }, Why: e.Text, Cause: e}
+	case None:
+		Unreachable("screen returned an error that is no screen.Failure: \(e.Text)")
+	}
+}
+
+// callOf is the Call of a screen.Failure's call number.
+func callOf(n int) Call {
+	if n == screen.CallOpen {
+		return Opening{}
+	}
+	if n == screen.CallScene {
+		return Scene{}
+	}
+	if n == screen.CallFrame {
+		return Frame{}
+	}
+	if n == screen.CallOutput {
+		return Output{}
+	}
+	if n == screen.CallScroll {
+		return Scrolling{}
+	}
+	if n == screen.CallEdit {
+		return Editing{}
+	}
+	if n == screen.CallNotify {
+		return Notifying{}
+	}
+	if n == screen.CallResize {
+		return Resizing{}
+	}
+	if n == screen.CallInput {
+		return Reading{}
+	}
+	if n == screen.CallQuit {
+		return Quitting{}
+	}
+	Unreachable("screen.Failure names no call \(n)")
+}
+
+// CallName is the name of a Call, as screen's doc names it.
+func CallName(c Call) string {
+	match c {
+	case Opening:
+		"open"
+	case Scene:
+		"scene"
+	case Frame:
+		"frame"
+	case Output:
+		"output"
+	case Scrolling:
+		"scroll"
+	case Editing:
+		"edit"
+	case Notifying:
+		"notify"
+	case Resizing:
+		"resize"
+	case Reading:
+		"input"
+	case Quitting:
+		"quit"
+	}
+}
+
+// Headless runs body on a headless screen of cols by rows cells and
+// quits the screen however body ends. Body's failure wins over Quit's;
+// after a body that ended well, Quit's failure is the result.
+func Headless[T, E, R](cols int, rows int, body func(s go.Ref[screen.Screen]) T fails E needs R) T fails E | ScreenFailed needs R | go.Foreign {
+	let s = screen.Headless(cols, rows) catch {
+	case go.Error as e:
+		return failed(e)
+	}
+	try quitting(s) {
+		try body(s)
+	}
+}
+
+// quitting runs body and quits s however body ends: body's failure wins
+// over Quit's; after a body that ended well, Quit's failure is the
+// result. A second Quit does nothing, so the exit's Quit after the one
+// that told its failure does nothing.
+func quitting[T, E, R](s go.Ref[screen.Screen], body func() T fails E needs R) T fails E | ScreenFailed needs R | go.Foreign {
+	scope.OnExit() {
+		s.Quit() catch {
+		// ergo-lint-disable-next-line silent-catch -- body failed, and its failure is the one told; Quit frees what it can
+		case go.Error:
+		}
+	}
+	let out = try body()
+	s.Quit() catch {
+	case go.Error as e:
+		return failed(e)
+	}
+	out
+}
 
 // open is screen.Open: the process's terminal as a live screen.
 func open() go.Ref[screen.Screen] fails ScreenFailed needs go.Foreign {
 	screen.Open() catch {
 	case go.Error as e:
-		return ScreenFailed{Why: e.Text}
+		return failed(e)
 	}
 }
 
@@ -21,7 +146,7 @@ func open() go.Ref[screen.Screen] fails ScreenFailed needs go.Foreign {
 func present(s go.Ref[screen.Screen]) fails ScreenFailed needs go.Foreign {
 	s.Present() catch {
 	case go.Error as e:
-		return ScreenFailed{Why: e.Text}
+		return failed(e)
 	}
 }
 
@@ -29,7 +154,7 @@ func present(s go.Ref[screen.Screen]) fails ScreenFailed needs go.Foreign {
 func reveal(s go.Ref[screen.Screen], n int) fails ScreenFailed needs go.Foreign {
 	s.Reveal(n) catch {
 	case go.Error as e:
-		return ScreenFailed{Why: e.Text}
+		return failed(e)
 	}
 }
 
@@ -37,7 +162,7 @@ func reveal(s go.Ref[screen.Screen], n int) fails ScreenFailed needs go.Foreign 
 func scrollTo(s go.Ref[screen.Screen], n int, y int, by bool) fails ScreenFailed needs go.Foreign {
 	s.ScrollTo(n, y, by) catch {
 	case go.Error as e:
-		return ScreenFailed{Why: e.Text}
+		return failed(e)
 	}
 }
 
@@ -45,7 +170,7 @@ func scrollTo(s go.Ref[screen.Screen], n int, y int, by bool) fails ScreenFailed
 func edit(s go.Ref[screen.Screen], n int, op int, col int, text string) string fails ScreenFailed needs go.Foreign {
 	s.Edit(n, op, col, text) catch {
 	case go.Error as e:
-		return ScreenFailed{Why: e.Text}
+		return failed(e)
 	}
 }
 
@@ -53,6 +178,14 @@ func edit(s go.Ref[screen.Screen], n int, op int, col int, text string) string f
 func next(s go.Ref[screen.Screen]) screen.Input fails ScreenFailed needs go.Foreign {
 	s.Next() catch {
 	case go.Error as e:
-		return ScreenFailed{Why: e.Text}
+		return failed(e)
+	}
+}
+
+// notify says text on the terminal's notification channel.
+func notify(s go.Ref[screen.Screen], text string) fails ScreenFailed needs go.Foreign {
+	s.Notify(text) catch {
+	case go.Error as e:
+		return failed(e)
 	}
 }
