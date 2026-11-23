@@ -273,6 +273,12 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// A fast step that runs no test would link and start its
+			// binary for nothing: a package whose every test is large has
+			// no step (fastSteps; kills b17-fast-all-large-stepped).
+			if n == 0 {
+				t.Errorf("%s has a fast step that runs no Test function", p.dir)
+			}
 			tests += n
 		}
 		return dirs, tests
@@ -347,6 +353,11 @@ func TestFastTierReachOfAnEdit(t *testing.T) {
 	for _, file := range []string{"examples/pipeline/run/run.ergo", "modules/domain/log/log.ergo"} {
 		if steps := reachSteps(file); !slices.Equal(steps, []string{examples.Name}) {
 			t.Errorf("an edit of %s reaches the steps %q; want %q", file, steps, examples.Name)
+		}
+		// The step walks examples/ and modules/ itself (MK0), whatever
+		// cmd/ergo's closure covers (kills mk0-step-blind-to-modules).
+		if !installed(file) {
+			t.Errorf("the examples step does not walk %s itself (Installed %q)", file, examples.Inputs.Installed)
 		}
 	}
 	check, tests := reach("internal/sketch/check/check.go")
