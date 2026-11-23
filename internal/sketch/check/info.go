@@ -1382,8 +1382,9 @@ type LawProvider struct {
 	// at the provider's instance (lawWitnesses), in order.
 	Witnesses []Witness
 
-	// noGenerator marks an Unrun that says the values have no generator;
-	// lawRuns adds the fix the law's shape admits (lawProviderFix).
+	// noGenerator marks a missing input to a generated case: a provider
+	// it cannot build honestly, or a parameter with no generator.
+	// reportUnfedProviders records the binding for LAW-UNFED.
 	noGenerator bool
 }
 
