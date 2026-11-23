@@ -1,0 +1,164 @@
+// Indent is text, one JSON value, written with each element of a list and
+// each member of an object on its own line, as encoding/json's Indent
+// writes it (PORT-E-JSONINDENT): a new line begins with prefix and then
+// indent once per level of nesting, a member's name is followed by ": ",
+// an empty list or object stays [] or {}, and the white space between the
+// tokens of text is dropped. As in Go, the first line has no prefix, the
+// white space before the value is dropped and the white space after it is
+// kept. A text that breaks Open's rules (its depth limit included) fails
+// Malformed and gives no text.
+func Indent(text string, prefix string, indent string) string fails Malformed {
+	let _ = try Open(text, 0, 0)
+	indented(text, prefix, indent)
+}
+
+// EncodeIndent is v's JSON text indented, as Go's MarshalIndent writes it:
+// Indent of Encode's text, which is always one JSON value.
+func EncodeIndent[T wire](c Codec[T], v T, prefix string, indent string) string needs wired[T] {
+	indented(Encode(c, v), prefix, indent)
+}
+
+// indented is Indent of a text Open accepts. A string is copied as it is;
+// outside strings, a { or [ delays its new line until its first element,
+// so an empty list or object stays on one line (Go's needIndent).
+func indented(text string, prefix string, indent string) string {
+	let mut out = []byte{}
+	out = out.Grow(len(text) + len(text) / 2)
+	let mut depth = 0
+	let mut open = false
+	let mut started = false
+	let mut inString = false
+	let mut escaped = false
+	for i in 0..len(text) {
+		let c = text[i]
+		if inString {
+			out = out.Append(c)
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			// Kept only after the value: a valid text has one value, so
+			// white space at depth 0 once it began, outside a pending
+			// list or object, follows it.
+			if started && depth == 0 && !open {
+				out = out.Append(c)
+			}
+			continue
+		}
+		started = true
+		if open && c != '}' && c != ']' {
+			open = false
+			depth = depth + 1
+			out = newline(out, prefix, indent, depth)
+		}
+		if c == '{' || c == '[' {
+			open = true
+			out = out.Append(c)
+		} else if c == ',' {
+			out = newline(out.Append(c), prefix, indent, depth)
+		} else if c == ':' {
+			out = out.Append(c).Append(' ')
+		} else if c == '}' || c == ']' {
+			if open {
+				open = false
+			} else {
+				depth = depth - 1
+				out = newline(out, prefix, indent, depth)
+			}
+			out = out.Append(c)
+		} else {
+			if c == '"' {
+				inString = true
+			}
+			out = out.Append(c)
+		}
+	}
+	out.Text()
+}
+
+// newline is out with a new line, prefix and depth indents added.
+func newline(out []byte, prefix string, indent string, depth int) []byte {
+	let mut b = out.Append('\n').AppendString(prefix)
+	for _ in 0..depth {
+		b = b.AppendString(indent)
+	}
+	b
+}
+
+// IndentWritesGoForm: the indented text is encoding/json's Indent's,
+// byte for byte, on a text with every token kind, nesting, empty lists
+// and objects, escapes in strings and white space around the value.
+law IndentWritesGoForm() {
+	let text = " {\"a\" : [1, {}, [], \"x\\\"]\"], \"b\":{\"c\":null,\"d\":true}, \"e\":-1.5e3}\n"
+	let want = "{\n>  \"a\": [\n>    1,\n>    {},\n>    [],\n>    \"x\\\"]\"\n>  ],\n>  \"b\": {\n>    \"c\": null,\n>    \"d\": true\n>  },\n>  \"e\": -1.5e3\n>}\n"
+	let got = Indent(text, ">", "  ") catch {
+	case Malformed:
+		return false
+	}
+	got == want
+}
+
+// IndentDecodesAsCompact: the indented text of an encoding decodes as the
+// compact encoding does, for any white space prefix and indent, and
+// EncodeIndent is Indent of Encode.
+law IndentDecodesAsCompact(v fleet, prefix int, width int) {
+	let compact = Encode(codec(), v)
+	let p = blanks(prefix)
+	let ind = blanks(width)
+	let text = Indent(compact, p, ind) catch {
+	case Malformed:
+		return false
+	}
+	let a = Decode(codec(), text) catch {
+	case _:
+		return false
+	}
+	let b = Decode(codec(), compact) catch {
+	case _:
+		return false
+	}
+	Encode(codec(), a) == Encode(codec(), b) && EncodeIndent(codec(), v, p, ind) == text
+}
+
+// IndentIsFixpoint: indenting an indented text, with the same prefix and
+// indent, gives it back: the white space Indent writes is the white space
+// it drops.
+law IndentIsFixpoint(v fleet, prefix int, width int) {
+	let p = blanks(prefix)
+	let ind = blanks(width)
+	let once = EncodeIndent(codec(), v, p, ind)
+	let twice = Indent(once, p, ind) catch {
+	case Malformed:
+		return false
+	}
+	twice == once
+}
+
+// IndentRefusesMalformed: an encoding cut short is no value, and Indent
+// fails Malformed on it as Decode does.
+law IndentRefusesMalformed(v fleet, cut int) {
+	let text = Encode(codec(), v)
+	let short = text[:nat(cut) % len(text)]
+	let _ = Indent(short, "", "  ") catch {
+	case Malformed:
+		return true
+	}
+	false
+}
+
+// blanks is white space drawn from n: up to three spaces or tabs.
+func blanks(n int) string {
+	let k = nat(n)
+	let mut s = ""
+	for i in 0..k % 4 {
+		let blank = if (k / 4 + i) % 2 == 0 { " " } else { "\t" }
+		s = s + blank
+	}
+	s
+}
