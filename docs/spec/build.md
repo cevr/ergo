@@ -93,7 +93,7 @@ compiler, the output deleted or replaced, a blob trimmed, two builds at once)
 against `ERGO_BUILD=full`: equal exits, check output and executable bytes
 after every step, and the least work the model allows.
 
-## Warm answer by tokens: `ergo check DIR/...`
+## Warm answer by tokens, `ergo check DIR/...`
 
 `ergo check DIR/...` with one shared load of its module keeps its answer by
 what a check reads, not by bytes (MONOREPO WS0; `cmd/ergo/checktree.go`).
@@ -127,18 +127,38 @@ manifest.
    package of a required
    module, an answer that does not print again as it printed, and a run that
    stored a verdict (its next run prints that verdict "cached").
-5. **All or nothing.** The request hits when its manifest holds and every
-   printed package's key finds its answer; any miss runs the shared load for
-   every package. Each package's answer is kept under its own key, so a
-   partial replay (WS0b) changes the lookup, not the store.
-   `ERGO_BUILD=full` and `ERGO_LAWCACHE=off` take the normal path.
+5. **All or nothing, then the cutoff.** The request hits with no load when
+   its manifest holds and every printed package's key finds its answer.
+   Otherwise the shared load checks every package again, and each package's
+   evaluation is taken from the store when nothing it can observe changed
+   (MONOREPO WS0b, `cmd/ergo/checkcut.go`). That means four things are
+   unchanged:
+   - its source fingerprint: tokens, `// ergo:` markers, the path it is
+     checked as, and the environment;
+   - its folder;
+   - the export fingerprint of each local import (item 2 of [the
+     fingerprints](#interface-fingerprint));
+   - the inputs that are not sources, by bytes.
+
+   When its answer holds an obligation, the implementation fingerprint of
+   each import must be unchanged too, because evaluation runs imported
+   bodies. So a comment edit evaluates nothing again. A body edit evaluates
+   again the edited package and every package above it that holds an
+   obligation. A package that reaches no edited package is taken as it
+   was. A package whose check now has a diagnostic is evaluated. An answer
+   is kept for the cutoff by the rules of 4, from an evaluation that stored
+   no law verdict. Which imported packages an evaluation entered (its read
+   set) is WS0c. `ERGO_BUILD=full` and `ERGO_LAWCACHE=off` take the normal
+   path.
 
 `TestCheckTreeAnswersByTokens` (`cmd/ergo`) runs seeded modules and edit
 scripts (none, layout, a comment, a body, a signature, a new file, a test, an
-imported package outside a sub-folder request): the answer equals the normal
-path's after every edit, and no file is parsed and no obligation evaluated
-exactly when nothing the request reaches changed in its tokens, comments or
-comments' line breaks.
+imported package outside a sub-folder request). After every edit it checks:
+- the answer equals the normal path's;
+- no file is parsed and no obligation evaluated exactly when nothing the
+  request reaches changed in its tokens, comments or comments' line breaks;
+- the packages the cutoff evaluates are exactly those the rule above names,
+  by the fingerprints of a reference load.
 
 ## Pin archives
 
@@ -221,15 +241,18 @@ reuse waits on references by name (CS5b).
 1. **Source fingerprint.** A hash of the package's import path, the path it
    is checked as (`main` for the root), its environment, and each file's
    name and token text (`syntax.TokenText`: kinds and literals, no comment,
-   no space, no position), in name order. The environment is the module
-   name, the platform, `go.mod` and `go.sum`, the module bindings the check
-   read and the assets the package embeds. A comment or layout edit changes
-   no fingerprint. A file that does not parse leaves the source fingerprint
+   no space, no position) with its `// ergo:` markers (`syntax.MarkerText`,
+   from the parse: a binding's markers decide the facts its functions
+   carry), in name order. The environment is the module name, the
+   platform, `go.mod` and `go.sum`, the module bindings the check read and
+   the assets the package embeds. Any other comment edit, or a layout edit,
+   changes no fingerprint. A file that does not parse leaves the source fingerprint
    empty, and an empty fingerprint equals none.
 2. **Export fingerprint** (`Fingerprint.Interface`). A hash of what an importer can see. It covers
-   each file's token text with two kinds of span cut out: the body of each
+   each file's token text and markers with two kinds of span cut out of the
+   text: the body of each
    function that is not generic, and the body of each test. It also covers
-   the rows the checker inferred from those bodies, the package lets a body
+   the package lets a body
    assigns, the cell conversions the package makes, and the export
    fingerprint of each import. What stays covers every declaration's
    signature with its written rows, every type definition with its `where`,
