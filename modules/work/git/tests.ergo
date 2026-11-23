@@ -198,11 +198,16 @@ test LocalsRemotesAndGuards {
 		let to = "refs/work/archive/a/1/heads/side"
 		try work.Vcs.Push(".", try os.Process.Getwd()+"/archive.git", []work.Pushed{work.Pushed{From: side, To: to, Force: false}})
 		assert try work.Vcs.Ref("archive.git", to) == side
+		assert try work.Vcs.PushesGuarded("archive.git")
+		assert !try work.Vcs.PushesGuarded(".")
 		try work.Vcs.GuardPushes(".")
+		assert try work.Vcs.PushesGuarded(".")
 		for remote in []string{"origin", "fork"} {
 			let url = try exec.Runner.Run(exec.New("git", []string{"config", "remote.\(remote).pushurl"})).Stdout
 			assert url == Guard+"\n"
 		}
+		assert try exec.Runner.Run(exec.New("git", []string{"config", "--add", "remote.origin.pushurl", "/nonexistent/loop-probe-extra"})).Status == 0
+		assert !try work.Vcs.PushesGuarded(".")
 		// doctor -unguard (the Mac's fork): Unguard drops work's guard
 		// and keeps a push URL the owner set.
 		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git remote add mine /nonexistent/loop-probe-z && git config remote.mine.pushurl /nonexistent/loop-probe-own"})).Status == 0

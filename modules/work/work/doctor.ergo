@@ -34,8 +34,8 @@ type Report {
 // name a driver its configuration lacks; -here narrows the merge
 // drivers' notes, and -fix, to the one checkout doctor runs in (the base
 // or a workspace), so a lane's own gate fixes its clone and no other;
-// -repair activates each record left Creating over a whole clone by a
-// maker that is gone (Repairable).
+// -repair activates a whole checkout left Creating by a maker that is
+// gone. It reports, but does not change, a checkout whose setup disagrees.
 type DoctorOptions { Rift bool, Registry Option[string], Unguard bool, Fix bool, Here bool, Repair bool }
 
 // mountOf is the file system type and options of the mount that holds
@@ -161,6 +161,12 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 			}
 			guarded = guarded.Append(w.Path)
 		}
+		if w.State == Active && w.Cloner != "adopted" && w.Branch != "" && w.Id != "" && (!o.Here || len(holding([]string{w.Path}, t.here)) > 0) && markerOf(t, w.Path) == w.Id {
+			let why = branchProblem(t, w)
+			if why != "" {
+				notes = notes.Append(recoveryNote(w, why))
+			}
+		}
 	}
 	if len(guarded) > 0 {
 		notes = notes.Append(if o.Unguard { "dropped the push guard of \(len(guarded)) adopted workspaces" } else { "\(len(guarded)) adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard" })
@@ -209,37 +215,15 @@ func StrayNote(path string) string {
 	"\(path) is a staging folder no workspace record holds (a work of another version, or a registry edited by hand, left it): work deletes none; once no work runs on this home, check it and delete it by hand"
 }
 
-// Repairable reports whether w is a record left Creating over a whole
-// clone: its folder holds a checkout whose head resolves, with no marker
-// or its own (another id's marker is another workspace's clone). Whether
-// its maker is gone is the lock's to tell (makerGone).
-func Repairable(t Tool, w Workspace) bool {
-	match w.State {
-	case Creating:
-		if !t.copier.Has(w.Path + "/.git") {
-			return false
-		}
-		let marker = markerOf(t, w.Path)
-		if marker != "" && marker != w.Id {
-			return false
-		}
-		let head = t.vcs.Head(w.Path) catch {
-		case VcsFailed:
-			return false
-		}
-		head != ""
-	case Active, Landing, Landed, Abandoned, Trashed:
-		false
-	}
+func recoveryNote(w Workspace, why string) string {
+	"\(w.Name) is \(StateName(w.State)) at \(w.Path): \(why); preserve the checkout and verify its setup before using it"
 }
 
 // repairNotes are doctor's notes on the records left Creating over a
 // whole clone by a maker that is gone (a `work new` killed after its
-// clone): gc and rm keep them, and nobody else activates one without a
-// marker. With repair each is recorded Active under the lock, as gc
-// activates a marked one (activation); no file is written. The answer
-// names each. With here, only the record whose folder holds the folder
-// doctor runs in is looked at.
+// clone). An incomplete checkout is named and kept; otherwise -repair
+// activates an unmarked checkout under the lock. Marked activation goes
+// through settle. With here, only the containing workspace is checked.
 func repairNotes(t Tool, repair bool, here bool) []string fails Unkept | Locked {
 	if repair {
 		try hold(t)
@@ -257,7 +241,11 @@ func repairNotes(t Tool, repair bool, here bool) []string fails Unkept | Locked 
 		if here && len(holding([]string{w.Path}, t.here)) == 0 {
 			continue
 		}
-		if !Repairable(t, w) {
+		if w.State != Creating || !t.copier.Has(w.Path + "/.git") {
+			continue
+		}
+		let marker = markerOf(t, w.Path)
+		if marker != "" && marker != w.Id {
 			continue
 		}
 		let gone = makerGone(t, w) catch {
@@ -265,6 +253,31 @@ func repairNotes(t Tool, repair bool, here bool) []string fails Unkept | Locked 
 			false
 		}
 		if !gone {
+			continue
+		}
+		if marker != "" || w.Branch != "" {
+			let why = recoveryProblem(t, w)
+			if why != "" {
+				notes = notes.Append(recoveryNote(w, why))
+				unreserved(t, w)
+				continue
+			}
+		} else {
+			// The oldest unmarked records have no branch to compare.
+			let head = t.vcs.Head(w.Path) catch {
+			case VcsFailed:
+				""
+			}
+			if head == "" {
+				unreserved(t, w)
+				continue
+			}
+		}
+		if marker != "" {
+			// settle is the only marked activation path, even if the maker
+			// died after this command's hold checked the reservation.
+			notes = notes.Append("\(w.Name) is creating over a prepared checkout; the next writing command will check it again")
+			unreserved(t, w)
 			continue
 		}
 		if repair {

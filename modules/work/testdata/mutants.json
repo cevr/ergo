@@ -2,6 +2,46 @@
   "about": "module work's mutants (SEMWS WS0, WS1, WS5a-early, WG0, WS9a, WG2, WG6a); each is judged by the module's tests and laws (scripts/examples -modules work) or by the cases of the binary that binds it (scripts/examples work), not by a compiler test. The law, test or case that kills each is named in its rule.",
   "mutants": [
     {
+      "name": "settle-marker-alone", "origin": "WORK-SETTLE-LEGACY-MARKER",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "if markerOf(t, w.Path) == w.Id && recoveryProblem(t, w) == \"\" {",
+      "to": "if markerOf(t, w.Path) == w.Id {",
+      "rule": "LegacyMarkerDoesNotCertifyCheckout preserves an older clone still on main with no intended branch ref.",
+      "anchor": {"tests": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]}, "killers": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]
+    },
+    {
+      "name": "settle-ignores-missing-branch-ref", "origin": "WORK-SETTLE-LEGACY-MARKER",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "if ref == \"\" || head != ref { why } else { \"\" }",
+      "to": "if ref != \"\" && head != ref { why } else { \"\" }",
+      "rule": "LegacyMarkerDoesNotCertifyCheckout includes a symbolic HEAD with no intended branch ref.",
+      "anchor": {"tests": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]}, "killers": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]
+    },
+    {
+      "name": "settle-skips-push-guard", "origin": "WORK-SETTLE-LEGACY-MARKER",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "if !guarded { \"the push guard does not cover every remote\" } else { \"\" }",
+      "to": "if guarded && false { \"the push guard does not cover every remote\" } else { \"\" }",
+      "rule": "LegacyMarkerDoesNotCertifyCheckout refuses an unguarded checkout already on the correct branch unless policy permits remote pushes.",
+      "anchor": {"tests": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]}, "killers": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]
+    },
+    {
+      "name": "doctor-hides-active-branch-mismatch", "origin": "WORK-SETTLE-LEGACY-MARKER",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "if w.State == Active && w.Cloner != \"adopted\" && w.Branch",
+      "to": "if w.State == Creating && w.Cloner != \"adopted\" && w.Branch",
+      "rule": "LegacyMarkerDoesNotCertifyCheckout requires doctor to name a clone an older settlement already recorded Active despite a branch mismatch.",
+      "anchor": {"tests": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]}, "killers": ["modules/work/memory:law:LegacyMarkerDoesNotCertifyCheckout"]
+    },
+    {
+      "name": "push-guard-allows-extra-url", "origin": "WORK-SETTLE-LEGACY-MARKER",
+      "file": "modules/work/git/git.ergo",
+      "from": "urls.Status != 0 || exec.Split(urls.Stdout) != []string{Guard}",
+      "to": "urls.Status != 0 || !slices.Contains(exec.Split(urls.Stdout), Guard)",
+      "rule": "LocalsRemotesAndGuards rejects a remote that has both Work's push guard and a live push URL.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
       "name": "reason-dropped", "origin": "WORK-GC-EMPTY-CLONEFAILED",
       "file": "modules/work/system/trees.ergo",
       "from": "Reason: \"\\(executable(t, name)) for \\(path): exit status \\(status): \\(out)\\(note)\"",
@@ -1484,8 +1524,8 @@
     {
       "name": "b4-no-push-guard", "origin": "wf10/semws verify r1 B4",
       "file": "modules/work/work/api.ergo",
-      "from": "\tif c.Push != \"origin\" {\n\t\ttry t.vcs.GuardPushes(path)\n",
-      "to": "\tif c.Push != \"origin\" && false {\n\t\ttry t.vcs.GuardPushes(path)\n",
+      "from": "\tif !allowsRemotePush(t) {\n\t\ttry t.vcs.GuardPushes(path)\n",
+      "to": "\tif !allowsRemotePush(t) && false {\n\t\ttry t.vcs.GuardPushes(path)\n",
       "rule": "Every workspace, made or adopted, pushes nowhere unless work.toml says push = \"origin\" (the adopt case; memory's laws).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
     },
@@ -2044,8 +2084,8 @@
     {
       "name": "wcr-repair-activates-nothing", "origin": "wf10/semws WORK-CREATING (c)",
       "file": "modules/work/work/doctor.ergo",
-      "from": "\t\thead != \"\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
-      "to": "\t\thead == \"never\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "from": "\t\t\tif head == \"\" {\n\t\t\t\tunreserved(t, w)\n\t\t\t\tcontinue",
+      "to": "\t\t\tif head != \"never\" {\n\t\t\t\tunreserved(t, w)\n\t\t\t\tcontinue",
       "rule": "doctor -repair activates a record left Creating over a whole clone whose maker is gone, and names it (memory's ToolAgreesWithTheReference, CrashOp Cloned then RepairOp).",
       "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
     },
@@ -2132,8 +2172,8 @@
     {
       "name": "ns-activate-unmarked", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
       "file": "modules/work/work/hooks.ergo",
-      "from": "\t\tif markerOf(t, w.Path) == w.Id {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
-      "to": "\t\tif true {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
+      "from": "\t\tif markerOf(t, w.Path) == w.Id && recoveryProblem(t, w) == \"\" {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
+      "to": "\t\tif w.Branch == \"\" || recoveryProblem(t, w) == \"\" {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
       "rule": "settle activates only a placed clone that carries its id; an older work's unmarked folder keeps gc's and doctor's rules (ToolAgreesWithTheReference, CrashOp at 0).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
