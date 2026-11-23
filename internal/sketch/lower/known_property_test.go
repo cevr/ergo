@@ -47,6 +47,139 @@ var knownPaths = []string{
 	"write-inner", "write-elem", "write-nested", "write-replace",
 	"update-ok", "update-missing", "each-pure", "each-capture", "each-opaque-let", "each-opaque-lit",
 	"fwd-ok", "fwd-missing", "fwd2", "fold-pure", "fold-opaque", "closed", "via", "via2", "at2", "keep", "print",
+	"opt-map", "opt-filter", "opt-then", "opt-or", "opt-orelse",
+}
+
+// knownOptPrelude holds absencebench's Option combinators, each
+// row-polymorphic in its callback (KNOWN-VARIANT K1). The generated loop
+// functions (optLoop) call them with known pure literals off main, on the
+// IR, where the inliner copies the variants (KNOWN-FILTER-INLINE).
+const knownOptPrelude = `
+func optMap[T, U, E, R](o Option[T], f func(v T) U fails E needs R) Option[U] fails E needs R {
+	match o {
+	case Some[T] as s:
+		Some{Value: try f(s.Value)}
+	case None:
+		None
+	}
+}
+
+func optFilter[T, E, R](o Option[T], p func(v T) bool fails E needs R) Option[T] fails E needs R {
+	match o {
+	case Some[T] as s:
+		if try p(s.Value) {
+			return s
+		}
+		None
+	case None:
+		None
+	}
+}
+
+func optThen[T, U, E, R](o Option[T], f func(v T) Option[U] fails E needs R) Option[U] fails E needs R {
+	match o {
+	case Some[T] as s:
+		try f(s.Value)
+	case None:
+		None
+	}
+}
+
+func optOrElse[T, E, R](o Option[T], f func() T fails E needs R) T fails E needs R {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		try f()
+	}
+}
+
+func optOr[T](o Option[T], d T) T {
+	match o {
+	case Some[T] as s:
+		s.Value
+	case None:
+		d
+	}
+}
+`
+
+// optLoop writes a function name(m, n) that sums, over i in 0..n, a chain
+// of one to three combinators on m.Get(i & 15) ended by optOr or optOrElse,
+// and returns the function's text and the model of its result for the
+// map main builds (even keys 0..14, each valued 3·k).
+func (g *knownGen) optLoop(name string, n int) (decl string, want int) {
+	type opt struct {
+		ok bool
+		v  int
+	}
+	get := func(k int) opt {
+		k &= 15
+		if k%2 == 0 {
+			return opt{true, 3 * k}
+		}
+		return opt{}
+	}
+	expr := "m.Get(i & 15)"
+	var steps []func(o opt, i int) opt
+	for range g.r.IntN(3) + 1 {
+		c := g.small()
+		switch g.r.IntN(3) {
+		case 0:
+			expr = fmt.Sprintf("optMap(%s, func(v int) int { v + %d })", expr, c)
+			steps = append(steps, func(o opt, _ int) opt {
+				if o.ok {
+					o.v += c
+				}
+				return o
+			})
+			g.reached["opt-map"] = true
+		case 1:
+			mask := c%3 + 1
+			expr = fmt.Sprintf("optFilter(%s, func(v int) bool { v & %d == 0 })", expr, mask)
+			steps = append(steps, func(o opt, _ int) opt {
+				if o.ok && o.v&mask != 0 {
+					return opt{}
+				}
+				return o
+			})
+			g.reached["opt-filter"] = true
+		default:
+			expr = fmt.Sprintf("optThen(%s, func(v int) Option[int] { m.Get((v + %d) & 15) })", expr, c)
+			steps = append(steps, func(o opt, _ int) opt {
+				if !o.ok {
+					return o
+				}
+				return get(o.v + c)
+			})
+			g.reached["opt-then"] = true
+		}
+	}
+	d := g.small()
+	orElse := g.r.IntN(2) == 0
+	if orElse {
+		expr = fmt.Sprintf("optOrElse(%s, func() int { i & %d })", expr, d)
+		g.reached["opt-orelse"] = true
+	} else {
+		expr = fmt.Sprintf("optOr(%s, %d)", expr, d)
+		g.reached["opt-or"] = true
+	}
+	for i := range n {
+		o := get(i)
+		for _, s := range steps {
+			o = s(o, i)
+		}
+		switch {
+		case o.ok:
+			want += o.v
+		case orElse:
+			want += i & d
+		default:
+			want += d
+		}
+	}
+	decl = fmt.Sprintf("func %s(m Map[int, int], n int) int {\n\tlet mut t = 0\n\tfor i in 0..n {\n\t\tt = t + %s\n\t}\n\tt\n}\n", name, expr)
+	return decl, want
 }
 
 const knownPrelude = `import queue
@@ -503,6 +636,20 @@ func knownProgram(seed uint64, reached map[string]bool) (src, want string) {
 	}
 	g.line("Console.Println(\"\\(dbi(bi)) \\(dbs(bs)) \\(dp(p))\")")
 	g.out("%d %d %d", g.bi.digest(), g.bs.digest(), kds(g.pa)*5+g.pb.digest())
+	// Option chains in loops off main (optLoop).
+	g.line("let mut am = Map[int, int]{}")
+	g.line("for k in 0..8 {")
+	g.line("\tam = am.Put(k * 2, k * 6)")
+	g.line("}")
+	var decls strings.Builder
+	for j := range 3 {
+		name := fmt.Sprintf("absent%d", j)
+		n := 20 + g.r.IntN(30)
+		decl, want := g.optLoop(name, n)
+		decls.WriteString(decl)
+		g.line(fmt.Sprintf("Console.Println(\"\\(%s(am, %d))\")", name, n))
+		g.out("%d", want)
+	}
 	// Two tasks loop forever through spin; the stop ends each at its
 	// loop's point: one with a known pure literal, one with an opaque
 	// function value.
@@ -525,7 +672,7 @@ func knownProgram(seed uint64, reached map[string]bool) (src, want string) {
 		g.line(fmt.Sprintf("Console.Println(\"stopped %d\")", i))
 		g.out("stopped %d", i)
 	}
-	return knownPrelude + "func main() needs Console {\n" + g.b.String() + "}\n", g.want.String()
+	return knownPrelude + knownOptPrelude + decls.String() + "func main() needs Console {\n" + g.b.String() + "}\n", g.want.String()
 }
 
 // lowerKnownMode lowers src under the new lowering, or under the reference
