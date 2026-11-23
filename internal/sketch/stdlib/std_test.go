@@ -307,6 +307,12 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 				}
 				continue
 			}
+			if _, union := n.Underlying().(*check.Union); union {
+				// A union (task.Exit) is the program's declaration, as
+				// Option is (Types 5): no Go body names it, and each of
+				// its variants is a record of the package, checked below.
+				continue
+			}
 			st, ok := n.Underlying().(*check.Struct)
 			if !ok {
 				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
@@ -317,12 +323,16 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 			// C3), is the program's declaration too: an Ergo value its
 			// package's functions operate on, never a runtime error value.
 			provider := n.Obj.Decl != nil && len(n.Obj.Decl.Implements) > 0
-			if _, named := check.GoTypeOf(n); !named && (hasUnexportedField(st) || provider) {
+			// A record that no extern of its package returns or fails with
+			// (task.Done, a variant of the Exit that task.ExitOf's Ergo
+			// body builds) is the program's declaration too: no Go body can
+			// make one, so no catch arm or match waits for a runtime value.
+			if _, named := check.GoTypeOf(n); !named && (hasUnexportedField(st) || provider || !externMakes(pkg, tn)) {
 				// A record with construction authority whose declaration
 				// names no Go type (slices.Ascending, SS5) is the program's
 				// declaration (lower runtimeType): only its package builds
 				// it, so it is never an error value of the runtime.
-				if _, err := v1.StructFields(tn.Name); err == nil {
+				if _, err := v1.StructFieldsOf(tn.Name, len(n.TParams)); err == nil {
 					t.Errorf("%s.%s names no Go type, and v1 declares a struct of its name", path, tn.Name)
 				}
 				continue
@@ -581,6 +591,39 @@ func isExportedName(name string) bool {
 
 // hasUnexportedField reports a record with a field that only its package
 // names, so only its package builds it (construction authority).
+// externMakes reports whether an extern of pkg returns tn or fails with
+// it, directly or as a type argument or union variant: a Go body can then
+// make a value of it, which must be the Go type its declaration names.
+func externMakes(pkg *check.Package, tn *check.TypeName) bool {
+	var names func(check.Type) bool
+	names = func(ty check.Type) bool {
+		switch ty := ty.(type) {
+		case *check.Named:
+			if ty.Obj == tn {
+				return true
+			}
+			if slices.ContainsFunc(ty.TArgs, names) {
+				return true
+			}
+			if u, ok := ty.Underlying().(*check.Union); ok && ty.Obj.Pkg == pkg {
+				return slices.ContainsFunc(u.Variants, names)
+			}
+		case *check.Union:
+			return slices.ContainsFunc(ty.Variants, names)
+		}
+		return false
+	}
+	for _, f := range pkg.Funcs {
+		if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil {
+			continue
+		}
+		if slices.ContainsFunc(f.Sig.Results, names) || slices.ContainsFunc(f.Sig.Errors.Elems(), names) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasUnexportedField(st *check.Struct) bool {
 	for _, f := range st.Fields {
 		if !isExportedName(f.Name) {

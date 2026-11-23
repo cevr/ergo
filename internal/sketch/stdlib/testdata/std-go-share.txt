@@ -266,6 +266,9 @@ sync	Modify	provider
 sync	NewRef	provider
 sync	Ref	type
 task	Go	provider
+task	exitOf	provider
+task	exitReason	provider
+task	exitValue	provider
 tasks	Closed	type
 tasks	Go	provider
 tasks	Race	provider

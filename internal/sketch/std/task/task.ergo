@@ -70,23 +70,23 @@ law DefectIsObservedOnce(n int) {
 	match ExitOf(t) {
 	case Defected as d:
 		k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)")
-	case Failed[Odd] as f:
+	case Failed[odd] as f:
 		k == 1 && f.Error.N == n
 	case Done[int] as v:
 		k == 2 && v.Value == n
 	}
 }
 
-// Odd is the typed failure DefectIsObservedOnce's block fails with.
-type Odd { N int }
+// odd is the typed failure DefectIsObservedOnce's block fails with.
+type odd { N int }
 
-// ended is n for k 2, the failure Odd for k 1, and a defect for k 0.
-func ended(k int, n int) int fails Odd {
+// ended is n for k 2, the failure odd for k 1, and a defect for k 0.
+func ended(k int, n int) int fails odd {
 	if k == 0 {
 		Unreachable("crash \(n)")
 	}
 	if k == 1 {
-		return Odd{N: n}
+		return odd{N: n}
 	}
 	n
 }

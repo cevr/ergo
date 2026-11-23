@@ -41,7 +41,7 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 // may hold. It only falls: a move lowers its class's ceiling to the count
 // it leaves.
 var stdGoShareCeiling = map[string]int{
-	"provider":    79, // I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written), -1 again by AW-ERGO (// ergo:aswritten, an Ergo body); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet
+	"provider":    82, // PROCESS-RUN: +3 task.exitOf, exitReason, exitValue (rt primitives: the join of a task's handle and its exit kind; PROC-REVERT-TASKEXIT makes them one when EXTERN-MULTI-RESULT lands); I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written), -1 again by AW-ERGO (// ergo:aswritten, an Ergo body); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet
 	"host":        35, // I22: +14 batch-22 externs; NET1: +2 net.hostDial, net.hostListen
 	"library":     77, // I22: +14 batch-22 externs (I22-B22CLASS rows)
 	"language":    3,  // I22: +2 batch-22 externs
