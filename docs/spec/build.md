@@ -527,7 +527,9 @@ it reaches.
   each member, in the workspace's order (each member after the members
   it reaches); `gen --check` and the generator steps run once over the
   workspace (Generators). A step two tasks plan runs once and is
-  reported for each. `ergo task --list [--json]` prints each task's plan.
+  reported for each. If a task fails, the steps that wait on it do not
+  run and report which prerequisite blocked them. `ergo task --list
+  [--json]` prints each task's plan.
 - **Keys.** Each built-in step states what it reads (`gate.go`):
   `check`, `lint` and `test` at a member read every file of the member
   and of every folder its `go.mod` replaces a module with, transitively;
@@ -538,9 +540,8 @@ it reaches.
   files. A step whose key holds a pass that the runner kept (the
   law-verdict store, under `internal/task`'s identity) replays it and
   does not run; a failed or flaky verdict is never kept. A verdict is kept
-  under the key as the step's run left the tree, so a step that writes a
-  file it reads (`test` writes the law ledger, which `check` and `lint`
-  read) misses once more after the write, and then holds. `gen --check`
+  under the key as the run left the tree when only the law ledger moved
+  (`test` writes it, `check` and `lint` read it). `gen --check`
   keeps no verdict of its own: the generators' store replays each
   generator whose inputs hold. Each miss names the first input that moved
   (`--why` prints it), never none.

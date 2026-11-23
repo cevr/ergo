@@ -35,6 +35,8 @@ type Step struct {
 	Run func(ctx context.Context) (pass bool, log []byte, err error)
 	// Retry: a failure runs once more, and a pass then is flaky (tests).
 	Retry bool
+	// After names earlier indexes in the plan whose steps must pass.
+	After []int
 }
 
 // ID names the step in the store, apart from the task it was planned
@@ -85,6 +87,8 @@ type StepResult struct {
 	// Contradicted: --fresh ran a step whose kept pass the fresh run does
 	// not repeat.
 	Contradicted bool `json:"contradicted,omitempty"`
+	// BlockedBy names the prerequisite that kept a step from running.
+	BlockedBy string `json:"blockedBy,omitempty"`
 }
 
 // VerdictMode is how Verdicts runs.
@@ -208,6 +212,12 @@ func (r *Runner) Verdicts(ctx context.Context, steps []Step, mode VerdictMode) (
 	var kept []keptPass
 	done := map[string]StepResult{}
 	for _, s := range steps {
+		if why := blockedStep(rep.Steps, s.After, mode.Fresh); why != "" {
+			rep.Steps = append(rep.Steps, StepResult{
+				Task: s.Task, Step: s.Verb, Member: s.Member, Class: s.Class, Verdict: Fail, BlockedBy: why,
+			})
+			continue
+		}
 		if prev, ok := done[s.ID()]; ok {
 			prev.Task = s.Task
 			prev.Ms = 0
@@ -244,6 +254,16 @@ func (r *Runner) Verdicts(ctx context.Context, steps []Step, mode VerdictMode) (
 		r.Store.Put(r.verdictLastKey(k.step), encodeParts(now))
 	}
 	return rep, nil
+}
+
+func blockedStep(results []StepResult, indexes []int, fresh bool) string {
+	for _, i := range indexes {
+		r := results[i]
+		if r.Verdict == Fail || r.Contradicted || fresh && r.Verdict == Flaky {
+			return fmt.Sprintf("after %s: %s at %s did not pass", r.Task, r.Step, r.Member)
+		}
+	}
+	return ""
 }
 
 // keptPass is a pass a run kept, and the key it was kept under.

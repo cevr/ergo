@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"ergo.local/prototype/internal/sketch/build"
@@ -24,6 +25,8 @@ type planned struct {
 	member int
 	// env are the variables the task's env lines name.
 	env []string
+	// after are earlier plan indexes that must pass before this step.
+	after []int
 }
 
 // taskPlan is the steps of task name in the order they run: first each
@@ -34,43 +37,55 @@ type planned struct {
 // first time it is reached.
 func taskPlan(work sketchfront.WorkDecl, name string, order []int) ([]planned, error) {
 	var out []planned
-	seen := map[string]bool{}
-	var expand func(name string) error
-	expand = func(name string) error {
-		if seen[name] {
-			return nil
+	done := map[string][]int{}
+	var expand func(name string, inherited []int) ([]int, error)
+	expand = func(name string, inherited []int) ([]int, error) {
+		if indexes, ok := done[name]; ok {
+			return indexes, nil
 		}
-		seen[name] = true
+		var t sketchfront.WorkTask
 		if name == sketchfront.GenTask {
-			out = append(out, planned{task: name, step: sketchfront.WorkStep{Words: []string{"gen"}, Task: sketchfront.GenTask}, member: -1})
-			return nil
-		}
-		t, ok := work.Task(name)
-		if !ok {
-			return fmt.Errorf("no task %s: %s names %s", name, sketchfront.WorkFile, taskNames(work))
-		}
-		for _, a := range t.After {
-			if err := expand(a); err != nil {
-				return err
+			t.Steps = []sketchfront.WorkStep{{Words: []string{"gen"}, Verb: "gen"}}
+		} else {
+			var ok bool
+			if t, ok = work.Task(name); !ok {
+				return nil, fmt.Errorf("no task %s: %s names %s", name, sketchfront.WorkFile, taskNames(work))
 			}
+		}
+		after := slices.Clone(inherited)
+		for _, a := range t.After {
+			require, err := expand(a, inherited)
+			if err != nil {
+				return nil, err
+			}
+			after = append(after, require...)
+		}
+		results := slices.Clone(after)
+		add := func(step sketchfront.WorkStep, member int) {
+			results = append(results, len(out))
+			out = append(out, planned{task: name, step: step, member: member, env: t.Env, after: after})
 		}
 		for _, s := range t.Steps {
 			switch {
 			case s.Task != "":
-				if err := expand(s.Task); err != nil {
-					return err
+				indexes, err := expand(s.Task, after)
+				if err != nil {
+					return nil, err
 				}
+				results = append(results, indexes...)
 			case s.Gen != "", s.Verb == "gen":
-				out = append(out, planned{task: name, step: s, member: -1, env: t.Env})
+				add(s, -1)
 			default:
 				for _, i := range order {
-					out = append(out, planned{task: name, step: s, member: i, env: t.Env})
+					add(s, i)
 				}
 			}
 		}
-		return nil
+		done[name] = results
+		return results, nil
 	}
-	return out, expand(name)
+	_, err := expand(name, nil)
+	return out, err
 }
 
 // taskNames are the tasks work declares, for an error.
@@ -89,6 +104,8 @@ type taskRun struct {
 	ws     sketchfront.Workspace
 	gate   *gateWorkspace
 	runner *task.Runner
+	fresh  bool
+	orphan []Elsewhere
 	// genNodes makes the generator nodes for names (all when empty), in a
 	// child environment with the task's env lines.
 	genNodes func(names, env []string) ([]task.Node, error)
@@ -104,7 +121,7 @@ func (r *taskRun) steps(plan []planned) []task.Step {
 		if p.member >= 0 {
 			member = r.ws.Members[p.member].Rel
 		}
-		s := task.Step{Task: p.task, Verb: verb, Member: member, Class: task.Derived}
+		s := task.Step{Task: p.task, Verb: verb, Member: member, Class: task.Derived, After: p.after}
 		if len(p.env) > 0 {
 			s.Verb += " (env " + strings.Join(p.env, " ") + ")"
 		}
@@ -136,7 +153,7 @@ func (r *taskRun) steps(plan []planned) []task.Step {
 			// A generator step: gen --check over every generator, a gen
 			// line's, or the generators, writing. Its own store replays
 			// each generator whose inputs hold.
-			check := p.step.Verb == "gen"
+			check := p.step.Verb == "gen" && p.task != sketchfront.GenTask
 			var names []string
 			if p.step.Gen != "" {
 				names = []string{p.step.Gen}
@@ -166,16 +183,27 @@ func (r *taskRun) steps(plan []planned) []task.Step {
 				var log bytes.Buffer
 				gr := *r.runner
 				gr.Out = &log
-				rep, err := gr.Gen(ctx, nodes, task.Mode{Check: check})
+				rep, err := gr.Gen(ctx, nodes, task.Mode{Check: check, Fresh: r.fresh})
 				if err != nil {
 					fmt.Fprintln(&log, err)
 					r.gate.first[id] = err.Error()
+					return false, log.Bytes(), nil
+				}
+				if len(rep.Contradicted) > 0 {
+					r.gate.first[id] = "fresh generation contradicted the kept outputs of " + strings.Join(rep.Contradicted, ", ")
 					return false, log.Bytes(), nil
 				}
 				if len(rep.Stale) > 0 {
 					r.gate.first[id] = "stale: " + strings.Join(rep.Stale, ", ") + "; run ergo task gen"
 					fmt.Fprintln(&log, r.gate.first[id])
 					return false, log.Bytes(), nil
+				}
+				if len(names) == 0 {
+					if _, err := ownedElsewhere(&gr, nodes, r.orphan); err != nil {
+						r.gate.first[id] = err.Error()
+						fmt.Fprintln(&log, err)
+						return false, log.Bytes(), nil
+					}
 				}
 				return true, log.Bytes(), nil
 			}
@@ -233,6 +261,8 @@ func reportTask(w io.Writer, name string, rep task.VerdictReport, first map[stri
 			continue
 		}
 		switch {
+		case s.BlockedBy != "":
+			fmt.Fprintf(w, "FAIL %s %s: %s\n", s.Step, s.Member, s.BlockedBy)
 		case s.Contradicted:
 			fmt.Fprintf(w, "FAIL %s %s: a kept pass that a fresh run fails (its key misses an input): %s\n", s.Step, s.Member, first[id])
 		case s.Verdict == task.Fail:

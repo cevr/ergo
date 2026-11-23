@@ -464,7 +464,7 @@ func runTask(ctx context.Context, name string, args []string, f taskFlags, stdou
 	if err != nil {
 		return exitStatusError{code: 2, message: "ergo task: " + err.Error()}
 	}
-	members, _, err := memberNodes(root)
+	members, orphan, err := memberNodes(root)
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
 	}
@@ -481,7 +481,7 @@ func runTask(ctx context.Context, name string, args []string, f taskFlags, stdou
 	runner := &task.Runner{Root: root, Store: taskStore(), Out: io.Discard, Logs: logs, Flaky: flaky,
 		// test writes the law ledgers check and lint read.
 		RunWrites: func(part string) bool { return part == "law ledger" || path.Base(part) == lower.LedgerFile }}
-	tr := &taskRun{root: root, work: work, ws: ws, gate: gate, runner: runner,
+	tr := &taskRun{root: root, work: work, ws: ws, gate: gate, runner: runner, fresh: f.fresh, orphan: orphan,
 		genNodes: func(names, env []string) ([]task.Node, error) {
 			return taskNodes(work.Gens, members, names, task.StatedEnv(env, budgetEnv))
 		}}

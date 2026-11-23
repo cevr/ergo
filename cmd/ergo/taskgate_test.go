@@ -87,7 +87,8 @@ func runTaskJSON(t *testing.T, args ...string) taskResult {
 // before.
 //
 // It kills task-fmt-key-omits-bytes, task-fmt-key-parses-graph,
-// task-gen-check-not-check and ledger-library-resolves-toolchain.
+// task-gen-check-not-check, task-gen-ignores-fresh and
+// ledger-library-resolves-toolchain.
 func TestTaskGateReplaysWhatHolds(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("ERGO_CACHE", "")
@@ -142,6 +143,12 @@ func TestTaskGateReplaysWhatHolds(t *testing.T) {
 			t.Errorf("second run: %s at %s %s (%s), want a replay", s.Step, s.Member, s.Replay, s.Why)
 		}
 	}
+	fresh := runTaskJSON(t, "gate", "--fresh", mod)
+	gen, _ := fresh.verdict("gen --check", ".")
+	log, err := os.ReadFile(gen.Log)
+	if fresh.failed || err != nil || !strings.Contains(string(log), "ran (--fresh)") {
+		t.Errorf("fresh gate must regenerate even when the generator can replay: %+v, log %q, error %v", gen, log, err)
+	}
 
 	// A file no package reads: the module key misses, fmt's does not.
 	smokeWrite(t, mod, "NOTES.md", "notes\n")
@@ -186,8 +193,9 @@ func TestTaskGateReplaysWhatHolds(t *testing.T) {
 
 // TestTaskPlanOrder: a task's plan runs the tasks of its after lines
 // first, a step naming a task in its place, each task once, and a
-// built-in step at each member in the workspace's order. It kills
-// task-after-ignored and task-step-task-ignored.
+// built-in step at each member in the workspace's order. A failed
+// prerequisite keeps both nested-task and local steps from running.
+// It kills task-after-ignored, task-step-task-ignored and task-after-runs-on-failure.
 func TestTaskPlanOrder(t *testing.T) {
 	root := t.TempDir()
 	smokeWrite(t, root, sketchfront.WorkFile, "version 3\ntask lints lint\ntask ci gate\ntask ci check\nafter ci lints\ntask gate test\n")
@@ -206,6 +214,19 @@ func TestTaskPlanOrder(t *testing.T) {
 	want := "lints:lint@2 lints:lint@0 lints:lint@1 gate:test@2 gate:test@0 gate:test@1 ci:check@2 ci:check@0 ci:check@1"
 	if strings.Join(got, " ") != want {
 		t.Errorf("ci's plan is\n%s\nwant\n%s", strings.Join(got, " "), want)
+	}
+	t.Setenv("ERGO_CACHE", t.TempDir())
+	smokeWrite(t, root, sketchfront.WorkFile, "version 3\ntask prep fmt --check\nafter ci prep\ntask ci validate\ntask validate check\ntask ci lint\n")
+	smokeWrite(t, root, "ergo.mod", "module task-order\n")
+	smokeWrite(t, root, "p/p.ergo", "func V()  int { 1 }\n")
+	gotRun := runTaskJSON(t, "ci", root)
+	if len(gotRun.steps) != 3 || !gotRun.failed || gotRun.steps[0].Verdict != task.Fail {
+		t.Fatalf("failed prerequisite: %+v", gotRun.steps)
+	}
+	for _, s := range gotRun.steps[1:] {
+		if s.BlockedBy == "" || s.Replay != "" || s.Log != "" {
+			t.Errorf("%s: a failed prerequisite must prevent execution: %+v", s.Step, s)
+		}
 	}
 }
 
