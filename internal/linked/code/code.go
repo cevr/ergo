@@ -20858,7 +20858,7 @@ func (h Host) Exchange(env *Env, a string, b string) error {
 
 func (h Host) Remove(env *Env, path_1 string) error {
 	env.task.Check()
-	v, err := (h).at(env, path_1)
+	v, err := (h).atLast(env, path_1)
 	if err != nil {
 		return err
 	}
@@ -25515,6 +25515,18 @@ func (h Host) Chmod(env *Env, path_1 string, mode Mode) error {
 	return nil
 }
 
+func (h Host) atLast(env *Env, path_1 string) (string, error) {
+	env.task.Check()
+	if h.root == "" {
+		return path_1, nil
+	}
+	v, err := ergo.FSConfineLast(h.root, path_1)
+	if err != nil {
+		return "", err
+	}
+	return v, nil
+}
+
 func textNotMachine(v NotMachine) string {
 	return "{" + "Address:" + v.Address + " Kind:" + v.Kind + "}"
 }
@@ -26753,7 +26765,7 @@ func Bits(a Access) int {
 	case 5:
 		return int(7)
 	default:
-		panic("ergo: defect: no case of the match at std/fs/fs.ergo:67:2 matched")
+		panic("ergo: defect: no case of the match at std/fs/fs.ergo:79:2 matched")
 	}
 }
 
