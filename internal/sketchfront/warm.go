@@ -16,6 +16,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/stage"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The warm answer (compile-speed plan CS2; docs/spec/build.md, Warm
@@ -74,6 +75,10 @@ var warmEnv = map[string]bool{
 	"ERGO_BUDGET": false, "ERGO_BUDGET_SCRATCH": false, "ERGO_BUDGET_CLASS": false, "ERGO_BUDGET_LANE": false,
 	"ERGO_BUDGET_GRANT": false, "ERGO_BUDGET_BIN": false, "ERGO_BUDGET_CRIT": false, "ERGO_BUDGET_QUIET": false,
 	"ERGO_GATE_CPUS": false,
+	// The IR compiler's shared root (toolchain.IRCVariable): its entries'
+	// keys hold every input of the compile, so where they are kept
+	// changes no answer.
+	toolchain.IRCVariable: false,
 }
 
 // warmEnvName is the name of an environment entry the warm key may hold:

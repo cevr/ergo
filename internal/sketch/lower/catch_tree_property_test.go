@@ -565,6 +565,25 @@ func catchForeignRun(id string, f func() string) {
 }
 `
 
+// catchGoHead is the emitted Go's header line of the function name,
+// through its opening brace, and whether its first parameter is the
+// environment: a function that needs none takes none (the lowering
+// decides, so the probe reads it rather than spelling it).
+func catchGoHead(t *testing.T, src, name string) (string, bool) {
+	t.Helper()
+	start := "\nfunc " + name + "("
+	if n := strings.Count(src, start); n != 1 {
+		t.Fatalf("the foreign probe finds %q %d times in the emitted Go", start[1:], n)
+	}
+	at := strings.Index(src, start) + 1
+	end := strings.Index(src[at:], " {\n")
+	if end < 0 || strings.Contains(src[at:at+end], "\n") {
+		t.Fatalf("the foreign probe finds no body of %s in the emitted Go", name)
+	}
+	head := src[at : at+end+len(" {\n")]
+	return head, strings.HasPrefix(head, "func "+name+"(env *Env")
+}
+
 // catchForeignPatch adds the foreign probe to the emitted main.go src:
 // each generated gate fails with catchForeignErr while the probe
 // runs, and after the Ergo main the probe calls each catch.
@@ -582,17 +601,17 @@ func catchForeignPatch(t *testing.T, src string, catches []*cCatch) string {
 	for _, c := range catches {
 		if !raised[c.group.prefix] {
 			raised[c.group.prefix] = true
-			head := fmt.Sprintf("func %sgate(env *Env, n int) (int, error) {\n", c.group.prefix)
-			if strings.Count(src, head) != 1 {
-				t.Fatalf("the foreign probe finds %q %d times in the emitted Go", head, strings.Count(src, head))
-			}
+			head, _ := catchGoHead(t, src, c.group.prefix+"gate")
 			src = strings.Replace(src, head, head+"\tif catchForeignOn {\n\t\treturn 0, catchForeignErr\n\t}\n", 1)
 		}
 		arg := c.u.union.variants[0].name + "{}"
+		if _, env := catchGoHead(t, src, c.id); env {
+			arg = "env, " + arg
+		}
 		if c.partial {
-			fmt.Fprintf(&calls, "\tcatchForeignRun(%q, func() string {\n\t\tv, err := %s(env, %s, false)\n\t\tif err != nil {\n\t\t\treturn \"error same=\" + catchStrconv.FormatBool(err == catchForeignErr) + \" text=\" + err.Error()\n\t\t}\n\t\treturn \"value \" + v\n\t})\n", c.id, c.id, arg)
+			fmt.Fprintf(&calls, "\tcatchForeignRun(%q, func() string {\n\t\tv, err := %s(%s, false)\n\t\tif err != nil {\n\t\t\treturn \"error same=\" + catchStrconv.FormatBool(err == catchForeignErr) + \" text=\" + err.Error()\n\t\t}\n\t\treturn \"value \" + v\n\t})\n", c.id, c.id, arg)
 		} else {
-			fmt.Fprintf(&calls, "\tcatchForeignRun(%q, func() string { return \"value \" + %s(env, %s, false) })\n", c.id, c.id, arg)
+			fmt.Fprintf(&calls, "\tcatchForeignRun(%q, func() string { return \"value \" + %s(%s, false) })\n", c.id, c.id, arg)
 		}
 	}
 	entry := "\t\tmain_1(env)\n"

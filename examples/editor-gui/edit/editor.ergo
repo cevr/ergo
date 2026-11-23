@@ -186,12 +186,12 @@ func editing(d Doc, sig Signal) Decision[State, Output] {
 		if len(d.Undo) == 0 {
 			return Reject
 		}
-		Stay[State]{Next: Editing{D: Undo(d)}}
+		Stay[State]{Next: Editing{D: Undone(d)}}
 	case RedoIt:
 		if len(d.Redo) == 0 {
 			return Reject
 		}
-		Stay[State]{Next: Editing{D: Redo(d)}}
+		Stay[State]{Next: Editing{D: Redone(d)}}
 	case Save:
 		Emit[State, Output]{Next: Editing{D: d}, Output: Write{Text: Text(d)}}
 	case Saved:

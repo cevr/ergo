@@ -5,8 +5,7 @@ package lower
 // x's implicit conversion, then the value goes into its place. The
 // adapters are the emitter's: a record into Go's error ("toiface"), a
 // record out of it ("assert"), and a function wrapped in a literal that
-// asserts or converts its parameters and calls it (rowFunc), which also
-// lowers ConvNarrow (narrowFunc's).
+// asserts or converts its parameters and calls it (rowFunc).
 
 import (
 	"strings"
@@ -56,25 +55,6 @@ func (b *irBuilder) rowRead(x syntax.Expr, e *irExpr) *irExpr {
 		return b.rowFunc(er, s, b.sigType(er, x), b.sigType(s, x), nil, e, x)
 	}
 	return e
-}
-
-// narrowValue is e, a function value of conv.From, as one of conv.To
-// (ConvNarrow), as the emitter's narrowFunc.
-func (b *irBuilder) narrowValue(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
-	from, ok := underlyingOf(conv.From).(*check.Signature)
-	to, ok2 := underlyingOf(conv.To).(*check.Signature)
-	if !ok || !ok2 || len(from.Params) != len(to.Params) {
-		irNo("narrowing conversion of another type")
-	}
-	var asserts []int
-	for i, p := range to.Params {
-		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
-			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
-				asserts = append(asserts, i)
-			}
-		}
-	}
-	return b.rowFunc(from, to, b.goType(conv.From, x), b.goType(conv.To, x), asserts, e, x)
 }
 
 // rowFunc is e, a function value of from (Go type fromGo), as one of to

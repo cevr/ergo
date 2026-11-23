@@ -277,7 +277,7 @@ func requiredMask(k uint8) int {
 		return 4 | 64
 	}
 	if k == KTestDecl {
-		return 2 | 8
+		return 2
 	}
 	if k == KLawDecl {
 		return 2
@@ -323,7 +323,7 @@ func optionalMask(k uint8) int {
 		return 8 | 16 | 32
 	}
 	if k == KTestDecl {
-		return 4
+		return 4 | 8
 	}
 	if k == KLawDecl {
 		return 4 | 8 | 16 | 32
