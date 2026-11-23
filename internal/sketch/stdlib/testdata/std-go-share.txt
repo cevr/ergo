@@ -265,7 +265,12 @@ strings	Join	library	LF2 (FK2): a []string argument to import go is cloned befor
 sync	Modify	provider
 sync	NewRef	provider
 sync	Ref	type
+task	Alarm	type
 task	Go	provider
+task	StopAfter	provider
+task	exitOf	provider
+task	exitReason	provider
+task	exitValue	provider
 tasks	Closed	type
 tasks	Go	provider
 tasks	Race	provider

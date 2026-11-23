@@ -536,11 +536,7 @@ func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
 //
 //ergo:wait handle
 func (t *Task[T]) Wait() (T, error) {
-	if t.used {
-		panic("task: Wait on a task that was already waited for, stopped or released")
-	}
-	t.used = true
-	v, err := t.h.Wait()
+	v, err := t.join("Wait")
 	if err == nil {
 		return v, nil
 	}
@@ -550,6 +546,18 @@ func (t *Task[T]) Wait() (T, error) {
 	}
 	raise(err)
 	panic("unreachable")
+}
+
+// join is the one wait of Wait and TaskExit: it consumes the task (op,
+// the caller's name, is in the defect of a second wait) and waits for its
+// end on rt's handle, which parks the waiter in its clock's domain
+// (rt.Handle.Wait), and gives the handle's value and raw exit.
+func (t *Task[T]) join(op string) (T, error) {
+	if t.used {
+		panic("task: " + op + " on a task that was already waited for, stopped or released")
+	}
+	t.used = true
+	return t.h.Wait()
 }
 
 // Exit kinds of TaskExit: the order of std task's Exit variants.
@@ -582,11 +590,7 @@ const (
 //
 //ergo:wait handle
 func TaskExit[T any](ct *rt.Task, t *Task[T]) (int, error) {
-	if t.used {
-		panic("task: ExitOf on a task that was already waited for, stopped or released")
-	}
-	t.used = true
-	_, err := t.h.Wait()
+	_, err := t.join("ExitOf")
 	if err == nil {
 		return taskDone, nil
 	}
