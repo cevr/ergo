@@ -166,10 +166,6 @@ type irInlSite struct {
 	size   int
 	loop   bool // on a loop path at its site
 	leaf   bool // a Go leaf with a boxed result (pays)
-	// sourced is a callee in the program's sources; a std body's copy
-	// takes the site's position, as the text path writes it with no line
-	// directive of its own (inline.go closeInline).
-	sourced bool
 	// fallible is a callee with a failure row that fails at the site: its
 	// call binds a value and an error (def2).
 	fallible bool
@@ -188,13 +184,21 @@ type irInlSite struct {
 	slot bool
 }
 
-// irStdInlLowering is "off" for the reference: a call in a library body
-// is left to Go's inliner (IR-STDINL).
-var irStdInlLowering string
+// inlinePositionsErased sets inlining's two source-presence reads to
+// their no-source answer everywhere: every body is one with no directives
+// (its inlines have no site of the table) and every callee's copy takes
+// the site's position. A std body has that answer already, as its nodes
+// have no source file. It serves the property that the reads decide
+// positions only (irspike's TestInlinePositionsOnly): erased, the lowered
+// Go differs in line directives, the source map and inline names alone.
+var inlinePositionsErased bool
 
-// IRStdInlOn reports that calls in library bodies are inlined (the
-// property's reach check).
-func IRStdInlOn() bool { return irStdInlLowering != "off" }
+// EraseInlinePositions sets inlinePositionsErased for that property and
+// returns its restore. Not for concurrent use.
+func EraseInlinePositions() (restore func()) {
+	inlinePositionsErased = true
+	return func() { inlinePositionsErased = false }
+}
 
 // irInlBody is a built body's frame: its parameter slots, each with its
 // Go type ("" when unknown: the slot is only ever passed a local), and
@@ -307,12 +311,14 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	}
 	// A call in a library body has no identity (calls.go identify): its
 	// copy is no inline site of the table, as the text path's site0 adds
-	// none, and the callee must be a library body too, whose copy takes
-	// the position of the call (IR-STDINL).
-	anon := !b.fc.directives
-	if f.Pkg == nil || !x.Pos().IsValid() || anon && (irStdInlLowering == "off" || b.l.isSourced(f.Pkg)) {
+	// none (IR-STDINL). Its callee is admitted by its shape alone, as in
+	// any body: source presence decides positions, never the copy (std
+	// has no privileges; its reference switch went with STD-SPEED-BY-SHAPE,
+	// as a reference that inlines std unlike a user body is none).
+	anon := !b.fc.directives || inlinePositionsErased
+	if f.Pkg == nil || !x.Pos().IsValid() {
 		if known {
-			irKnownTraced(e.Name, "mark: refused: no identity (anon)")
+			irKnownTraced(e.Name, "mark: refused: no package or call position")
 		}
 		return e
 	}
@@ -389,7 +395,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	site := &irInlSite{
 		f: f, key: key, src: src, offset: int(x.Pos()), tsub: tsub, conc: conc, slotOf: slotOf,
 		size: inlineSize(f.Decl.Body), loop: b.loops > 0 || b.fc.hot,
-		leaf: goLeaf(f), sourced: b.l.isSourced(f.Pkg), fallible: fd.fallible, anon: anon, failLeaf: failLeaf,
+		leaf: goLeaf(f), fallible: fd.fallible, anon: anon, failLeaf: failLeaf,
 		slot: b.l.hasGoRow(f.Sig), known: known,
 	}
 	if t := b.l.info.Types[x]; t != nil && len(f.Sig.Results) == 1 {
@@ -711,7 +717,10 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		ren[np+j] = in.newLocal(lc.Name+"_inl"+id, irSubstTypes(lc.Type, frame.tps, site.tsub), at)
 	}
 	cp := &irCopy{in: in, id: id, ren: ren, subst: subst, file: file, tps: frame.tps, tsub: site.tsub, conc: site.conc, slotOf: site.slotOf}
-	if !site.sourced {
+	// A callee with no source in the unit writes no line directive of its
+	// own: its copy takes the site's position, as the text path's does
+	// (inline.go closeInline). Positions only.
+	if !in.l.isSourced(site.f.Pkg) || inlinePositionsErased {
 		call := s.X.Pos
 		cp.at = &call
 	}

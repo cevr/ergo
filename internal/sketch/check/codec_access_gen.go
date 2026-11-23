@@ -456,11 +456,12 @@ type CodecFields_Func struct {
 	F_overloaded  *bool
 	F_size        *int
 	F_goExtern    **GoExtern
+	F_goCall      *bool
 	F_asWritten   *bool
 }
 
 func CodecFieldsOf_Func(v *Func) CodecFields_Func {
-	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_collOp: &v.collOp, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern, F_asWritten: &v.asWritten}
+	return CodecFields_Func{F_file: &v.file, F_state: &v.state, F_inferErrors: &v.inferErrors, F_inferUses: &v.inferUses, F_errVar: &v.errVar, F_useVar: &v.useVar, F_called: &v.called, F_owner: &v.owner, F_selfArgs: &v.selfArgs, F_opOwner: &v.opOwner, F_collOp: &v.collOp, F_same: &v.same, F_overloaded: &v.overloaded, F_size: &v.size, F_goExtern: &v.goExtern, F_goCall: &v.goCall, F_asWritten: &v.asWritten}
 }
 
 type CodecFields_GoBindings struct {
@@ -631,10 +632,11 @@ type CodecFields_TypeName struct {
 	F_ctorState *uint8
 	F_newOp     **Builder
 	F_provides  *[]*Builder
+	F_goType    *bool
 }
 
 func CodecFieldsOf_TypeName(v *TypeName) CodecFields_TypeName {
-	return CodecFields_TypeName{F_file: &v.file, F_id: &v.id, F_ctor: &v.ctor, F_ctorState: &v.ctorState, F_newOp: &v.newOp, F_provides: &v.provides}
+	return CodecFields_TypeName{F_file: &v.file, F_id: &v.id, F_ctor: &v.ctor, F_ctorState: &v.ctorState, F_newOp: &v.newOp, F_provides: &v.provides, F_goType: &v.goType}
 }
 
 type CodecFields_TypeParam struct {

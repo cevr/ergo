@@ -1,6 +1,7 @@
 package lower
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/scanner"
 	"go/token"
@@ -8,6 +9,57 @@ import (
 	"strings"
 	"testing"
 )
+
+// TestIRSplitKeepsDeferredReleaseLocal reproduces a generic cleanup that
+// the splitter used to put with the resource's type, rather than with
+// the function that defers it. Forwarding recover is not equivalent.
+func TestIRSplitKeepsDeferredReleaseLocal(t *testing.T) {
+	u := splitProgram{
+		root: `import sample/owner
+import sample/resource
+func main() needs Console { owner.Discard(0, resource.New(7)) }
+`,
+		libs: []pkgSource{
+			{"sample/resource", `type Resource[T] { Value T } implements Closer
+func Close[T](_ Resource[T]) needs Console { Console.Println("released") }
+func New[T](v T) Resource[T] { Resource[T]{Value: v} }
+`},
+			{"sample/owner", `import sample/resource
+func Discard[T](_ int, r own resource.Resource[T]) needs Console {}
+`},
+		},
+	}.check(t)
+	files, _, split, err := LowerIRSplit(u, false)
+	if err != nil || split.Reason != "" {
+		t.Fatalf("split: %v (%+v)", err, split)
+	}
+	for _, f := range files {
+		if f.Path != path.Join(splitDir, "sample/owner", IRFileName) {
+			continue
+		}
+		var ir irFile
+		if err := json.Unmarshal(f.Data, &ir); err != nil {
+			t.Fatal(err)
+		}
+		for _, fn := range ir.Funcs {
+			if !strings.HasSuffix(fn.Name, "Discard") {
+				continue
+			}
+			for _, s := range fn.Body {
+				if s.K != "defer" || s.X == nil || s.X.K != "call" {
+					continue
+				}
+				for _, helper := range ir.Funcs {
+					if helper.Name == s.X.Name {
+						return
+					}
+				}
+			}
+		}
+		t.Fatalf("Discard does not defer an IR helper in its own package:\n%s", f.Data)
+	}
+	t.Fatalf("missing owner IR package: %+v", split)
+}
 
 // TestSplitTextKeepsPositions is the property of SPLIT-AST: the IR split's
 // Go files, cut from the lowering's own text (no go/format), name every

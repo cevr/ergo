@@ -8,6 +8,7 @@ import (
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/sketch/testplan"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -22,23 +23,21 @@ const stdTargetPrefix = "std:"
 func isStdTarget(target string) bool { return strings.HasPrefix(target, stdTargetPrefix) }
 
 // stdSkipsExit judges native std skips against the shipped list, not any
-// expected-skips file from the checkout. A provider-less prelude law has
-// no verdict either and must be accounted for. Other std packages can
-// simply import a contract without supplying one of its providers.
-func stdSkipsExit(stdout []byte, pkg string) error {
+// expected-skips file from the checkout.
+func stdSkipsExit(stdout []byte, root testplan.NativeRoot) error {
 	listed, err := stdlib.TestReds()
 	if err != nil {
 		return err
 	}
-	unexpected := unlistedStdSkips(stdout, pkg, listed)
+	unexpected := unlistedStdSkips(stdout, root, listed)
 	if len(unexpected) == 0 {
 		return nil
 	}
 	return exitStatusError{code: 1, message: fmt.Sprintf("FAIL: %d unexpected skips in std:%s; see %s\n    %s",
-		len(unexpected), pkg, stdlib.TestRedPath, strings.Join(unexpected, "\n    "))}
+		len(unexpected), root.Path, stdlib.TestRedPath, strings.Join(unexpected, "\n    "))}
 }
 
-func unlistedStdSkips(stdout []byte, pkg string, listed map[string]stdlib.TestRed) []string {
+func unlistedStdSkips(stdout []byte, root testplan.NativeRoot, listed map[string]stdlib.TestRed) []string {
 	var unexpected []string
 	for line := range strings.SplitSeq(string(stdout), "\n") {
 		line = strings.TrimSpace(line)
@@ -46,8 +45,8 @@ func unlistedStdSkips(stdout []byte, pkg string, listed map[string]stdlib.TestRe
 			continue
 		}
 		name, missing := stdlib.NativeMissingLaw(line)
-		if missing && (pkg == stdlib.PreludePath || strings.HasPrefix(line, "skip ")) {
-			red := listed[pkg+" "+name]
+		if missing && (root.Required || strings.HasPrefix(line, "skip ")) {
+			red := listed[root.Path+" "+name]
 			if red.Class == stdlib.NativeSkipClass && red.Why == line {
 				continue
 			}
@@ -83,7 +82,7 @@ func stdTestPackage(opts fileOptions) error {
 // package's files under it.
 func loadStd(spelled, target string) (loaded, error) {
 	importPath := strings.TrimPrefix(spelled, stdTargetPrefix)
-	analysis, err := sketchfront.CheckStd(importPath)
+	analysis, plan, err := sketchfront.CheckStd(importPath)
 	if err != nil {
 		return loaded{}, fmt.Errorf("%s: %w", spelled, err)
 	}
@@ -98,5 +97,6 @@ func loadStd(spelled, target string) (loaded, error) {
 		snapshot: report.SourceSnapshot{URI: uri, Origin: "std", Files: analysis.Files()},
 		analysis: analysis,
 		result:   analysis.Result(analysis.Text(), target),
+		stdTest:  plan,
 	}, nil
 }
