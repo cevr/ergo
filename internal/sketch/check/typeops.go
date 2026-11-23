@@ -318,7 +318,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
 	}
-	if view, step := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
+	if view, step, stepSig := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
 		// A machine declaration's value is a Machine of its state, signal
 		// and step (README Gap 46), or an InputMachine when its initial is
 		// a function of an input (V4): ConvMachine.
@@ -333,24 +333,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			k := len(view.TArgs) - 4
 			o, f, r, w := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg), view.TArgs[k+3].(*RowArg)
 			if input {
-				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+				return assignment{}, fmt.Sprintf("its start takes %s and its step %sgives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 			}
-			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s, capability row %s and work row %s", step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+			return assignment{}, fmt.Sprintf("its step %sgives a Machine with output %s, error row %s, capability row %s and work row %s", entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 		}
-		table := map[string]*Func{"Step": step}
-		if input {
-			table["Start"] = machineStart(v.(*Named).Obj.Pkg, v.(*Named).Obj.Decl.Spec.(*syntax.MachineType))
+		conv, why := c.machineConversion(v.(*Named), t, step, stepSig, input)
+		if why != "" {
+			return assignment{}, why
 		}
-		if after := c.machineAfter(v); after != nil {
-			table["After"] = after // else every state has no timer
-		}
-		if work, _ := c.machineWork(v); work != nil {
-			table["Work"] = work // else every state has no work
-		}
-		if exit, _ := c.machineExit(v); exit != nil {
-			table["Exit"] = exit // else every state has no exit action
-		}
-		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
+		return assignment{clause: assignMachine, conv: conv}, ""
 	}
 	if IsGoAny(t) {
 		// Clause 8 (GB2): Go's own conversion to its empty interface.
@@ -835,7 +826,7 @@ func ergoOperations(v Type) bool {
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
-// the check is linear in the method count (#122).
+// the check is linear in the method count.
 func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 	return c.implementsCapturing(v, it, checkReceiver, nil)
 }
@@ -845,7 +836,7 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 // admitted, and *capture is set when v implements it with such a method:
 // the site that builds the provider holds go.Foreign for it, as a provider
 // built by a constructor captures what its constructor needed (README Gap
-// 17; #37 for every other capability). go.Foreign has no provider value
+// 17; context construction for every other capability). go.Foreign has no provider value
 // (rows.md, Entry 4), so the operation's Go call needs nothing at run time
 // that the build site did not have.
 func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *captured) string {
@@ -935,7 +926,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			extra := gu.minus(c.types, m.Sig.Uses)
 			if capture == nil || !held.add(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)", v, m.Name, rowText(extra))
 			}
 		}
 		if why := c.releaseWider(v, m); why != "" {

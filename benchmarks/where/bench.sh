@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spike-where (#116) benchmarks: checker time at N constrained call sites,
+# spike-where benchmarks: checker time at N constrained call sites,
 # Go binary size and stencil counts against SH1's GC-shape sharing, and
 # JavaScript output size, for where-clause dispatch (style b) against an
 # explicit ordering argument (style a).

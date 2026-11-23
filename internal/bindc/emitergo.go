@@ -21,7 +21,7 @@ import (
 //   - one record per C struct the typed layer takes or returns by value,
 //     with CamelCase fields, no autofill fields, and arrays as []T;
 //   - handles and scalar typedefs named through the import (opaque
-//     nominal, #202 Level 1);
+//     nominal, Go interop Level 1);
 //   - one `extern go <path>.<GoName> func <GoName>(...) R fails ...` per
 //     typed function without a callback, and a `// not bound: <name>
 //     (<reason>)` line per raw-only one and per one that takes a callback

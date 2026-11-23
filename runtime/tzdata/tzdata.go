@@ -59,16 +59,25 @@ func read() db {
 	line() // the source digest
 	at := len(zones) - len(s)
 	for at < len(zones) {
-		n := int(zones[at])<<8 | int(zones[at+1]) // big-endian, by hand: encoding/binary is an init root (TestCoreHasNoInitRoots)
+		n := be16(zones, at)
 		name := zones[at+2 : at+2+n]
 		at += 2 + n
-		size := int(zones[at])<<24 | int(zones[at+1])<<16 | int(zones[at+2])<<8 | int(zones[at+3])
+		size := be32(zones, at)
 		at += 4
 		d.names = append(d.names, name)
 		d.at[name] = entry{at: at, n: size}
 		at += size
 	}
 	return d
+}
+
+// be16 and be32 read the big-endian unsigned integer of 2 and 4 bytes at
+// at, by hand: encoding/binary is an init root, which no package every
+// zone reader links may import (TestCoreHasNoInitRoots).
+func be16(s string, at int) int { return int(s[at])<<8 | int(s[at+1]) }
+
+func be32(s string, at int) int {
+	return int(s[at])<<24 | int(s[at+1])<<16 | int(s[at+2])<<8 | int(s[at+3])
 }
 
 // Release is the IANA release of the copy, such as "2026c".

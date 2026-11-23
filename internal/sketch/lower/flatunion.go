@@ -970,7 +970,7 @@ func (l *lowerer) nicheAdmitted(opt *check.TypeName) bool {
 			walk(c.Type)
 		}
 		for _, in := range info.Instances {
-			if preludeAppend(in.Func) || preludeMapWrite(in.Func) {
+			if appendsSource(in.Func) || writesMapSource(in.Func) {
 				// Their Go bodies hold a T only as an element (runtime/v1
 				// Append, Put, Delete), never in an Option.
 				continue

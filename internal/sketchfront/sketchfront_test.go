@@ -212,8 +212,8 @@ func TestSketchBuildRefusesWhatTheLoweringCannotLower(t *testing.T) {
 		t.Fatalf("build gave %v, want a BuildError", err)
 	}
 	d := refusal.Diagnostics[0]
-	if d.Code != "S109" || !strings.Contains(d.Message, "(#49)") || d.Span.Line != 1 || d.Span.Column != 6 {
-		t.Fatalf("refusal %+v, want an S109 at 1:6 naming its owner #49", d)
+	if d.Code != "S109" || !strings.Contains(d.Message, "derived text forms") || d.Span.Line != 1 || d.Span.Column != 6 {
+		t.Fatalf("refusal %+v, want an S109 at 1:6 naming its owner, derived text forms", d)
 	}
 	if _, statErr := os.Stat(output); statErr == nil {
 		t.Fatal("a refused build wrote its output")
@@ -343,7 +343,7 @@ func sameFiles(a, b map[string]fileState) bool {
 // module; an unchanged build reuses it without rewriting a file; an edit
 // and a rename (same bytes at another admitted path) each publish another
 // module whose //line directives name their own path, and the executable
-// follows the edit. Spec D7, #224.
+// follows the edit. Spec D7, the cached build.
 func TestBuildCachesTheEmittedModule(t *testing.T) {
 	cache := filepath.Join(t.TempDir(), "ergo")
 	dir := t.TempDir()

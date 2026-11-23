@@ -475,7 +475,7 @@ func imports(pkg *check.Package, e *fileEdit, fileOf map[syntax.Decl]*syntax.Fil
 		if !ok {
 			continue
 		}
-		// The decided parser builds one spec per import (#196): the
+		// The decided parser builds one spec per import: the
 		// declaration goes, with its doc comment.
 		if gone[id.Specs[0]] {
 			e.cuts = append(e.cuts, lineSpan(f.Src, declSpan(f, d)))

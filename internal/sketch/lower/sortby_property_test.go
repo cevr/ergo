@@ -10,7 +10,7 @@ import (
 )
 
 // The seeded property of std slices.SortBy over a cmp.Order provider
-// (CONSTRAINTS C3, #211). Each seed writes one program: a record
+// (CONSTRAINTS C3). Each seed writes one program: a record
 // R { A int, B string, C int } with small value ranges, so ties are
 // common; two providers, each a generated order (a list of R's fields,
 // each forward or reversed, chained with cmp.Then), one with a field that

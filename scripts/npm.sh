@@ -23,7 +23,11 @@ for plat in linux/amd64:linux-x64 linux/arm64:linux-arm64 darwin/arm64:darwin-ar
 	target=${plat%%:*}
 	dir=$npm/$name-${plat#*:}
 	mkdir -p "$dir/bin"
-	(cd "$root/$program" && CGO_ENABLED=0 "$ergo" build "./cmd/$name" --platform "$target" -o "$dir/bin/$name")
+	if [ "$name" = work ]; then
+		CGO_ENABLED=0 ERGO="$ergo" sh "$root/scripts/build-work.sh" "$dir/bin/$name" --platform "$target"
+	else
+		(cd "$root/$program" && CGO_ENABLED=0 "$ergo" build "./cmd/$name" --platform "$target" -o "$dir/bin/$name")
+	fi
 	chmod 755 "$dir/bin/$name"
 done
 if [ "$launcher" = shared ]; then

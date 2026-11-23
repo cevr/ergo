@@ -1,6 +1,6 @@
 package v1
 
-// ShrinkTape shrinks the tape of a refuted case (L10, #162): the draws its
+// ShrinkTape shrinks the tape of a refuted case (L10): the draws its
 // generators made, in order. fails replays the case from a candidate tape
 // (past its end a tape gives 0) and reports whether it is still refuted.
 // Every candidate a pass makes is smaller in shortlex order (shorter, else

@@ -13,7 +13,7 @@ import (
 )
 
 // TestDropGlueModel is the model-based run test of the generated release
-// (#197 L8 B2; resources R3, R37, R39, Gap 36): a value whose type holds
+// (L8 B2; resources R3, R37, R39, Gap 36): a value whose type holds
 // resources in its parts is released part by part when its owner's scope
 // ends. Each seed generates a few types over a resource Res (records,
 // some with a written Close of their own, slices, Maps, Option, a tuple, a
@@ -450,7 +450,7 @@ func dgSource(g *dgGen, body string) string {
 	return imports + dgPrelude + g.decls.String() + "func main() needs Console {\n" + body + "\tConsole.Println(\"end\")\n}\n"
 }
 
-// queueCase is a program that owns a queue of values of type t (#197 L8
+// queueCase is a program that owns a queue of values of type t (resource ownership L8
 // B3; Q7, R13): each value is pushed (Push takes it); some seeds end the
 // queue and push once more, and that failed Push releases its value at
 // once; the queue's release ends admission and releases the values left,

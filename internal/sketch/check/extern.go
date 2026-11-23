@@ -410,7 +410,7 @@ func goBasic(t Type) string {
 // code, or "", before its binding is read (externAdapter). The Ergo
 // runtime and Go's unsafe are S108 whatever the signature. A path whose
 // first element has a dot is a module outside Go's standard library (Go's
-// own rule for module paths) and keeps its #202 text: IG7 binds module
+// own rule for module paths) and keeps its Go interop text: IG7 binds module
 // packages through import go; a Level 2 adapter of one is a follow-up.
 func externTargetRefusal(f *Func) (string, string) {
 	path, _ := f.Decl.Extern.Split()
@@ -419,7 +419,7 @@ func externTargetRefusal(f *Func) (string, string) {
 	}
 	first, _, _ := strings.Cut(path, "/")
 	if strings.Contains(first, ".") {
-		return fmt.Sprintf("the Go package %s of the extern %s is #202's (Go imports); it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
+		return fmt.Sprintf("the Go package %s of the extern %s waits for Go interop; it is not checked yet: a user extern binds a function of Go's standard library only", path, f.Name), CodeOutside
 	}
 	return "", ""
 }
@@ -460,7 +460,7 @@ func PureGoPackage(path string) bool {
 
 // GoAdapter is how a user extern's written signature adapts the Level 1
 // signature that its Go target's binding gives (docs/spec/interop.md,
-// Level 2 adapters; #9). The checker verifies the relation from the
+// Level 2 adapters; Go and TypeScript bindings). The checker verifies the relation from the
 // binding and runs no Go tool.
 type GoAdapter int
 
@@ -568,7 +568,7 @@ func (c *checker) externAdapter(f *Func) (string, string) {
 			return fmt.Sprintf("extern go %s: the parameter %s is %s; Go's is %s (Level 1: %s)", target, paramName(p, i), p.Type, level1.Params[i].Type, level1), CodeType
 		}
 		if _, ok := p.Type.(*Signature); ok && !c.externCallback(p.Type) {
-			return fmt.Sprintf("the callback parameter %s of the extern %s is #202's (Go imports; IG6): a user extern takes callbacks over basic types with no rows", paramName(p, i), f.Name), CodeOutside
+			return fmt.Sprintf("the callback parameter %s of the extern %s waits for Go interop (IG6): a user extern takes callbacks over basic types with no rows", paramName(p, i), f.Name), CodeOutside
 		}
 	}
 	foreign := goForeignRow(level1.Uses)
@@ -627,7 +627,7 @@ func (c *checker) externResults(g, w *Signature, target string) (GoAdapter, stri
 // the written parameters of the extern f give its type parameters. A Go
 // generic function may copy a value of its type parameter, so a type
 // argument that holds a resource is refused, as for a generic extern that
-// runtime/v1 does not list as moving (resources R44; #197 L8 A3, B3t).
+// runtime/v1 does not list as moving (resources R44; L8 A3, B3t).
 func (c *checker) externInstance(f *Func, g *Signature) (*Signature, string) {
 	m := map[*TypeParam]Type{}
 	for i := range g.Params {
@@ -796,7 +796,7 @@ func IsGoForeign(n *Named) bool {
 // function value with the caller's environment (lower, hostCallback), so
 // the callback polls its caller's task. A callback with a needs or fails
 // row would run a capability or a failure through Go code that cannot
-// carry it, so it stays #202's.
+// carry it, so it stays Go interop's.
 func (c *checker) externCallback(t Type) bool {
 	s, ok := t.(*Signature)
 	if !ok || len(s.TParams) > 0 || len(s.Results) > 1 {

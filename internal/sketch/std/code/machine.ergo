@@ -48,8 +48,9 @@ type Timer { State string, Signal string, At Place }
 // MachineGraph is one machine declaration's graph: its handle and name,
 // its states and signals in declaration order, the initial state ("*"
 // when the source does not fix it), the arms in match order, the timers,
-// the work and the exit actions by state in the states' order, and the
-// states whose timer, work or exit action the reading cannot decide.
+// the work and the exit actions by state in the states' order, the
+// states whose timer, work or exit action the reading cannot decide, and
+// the computed entries (step, after, work, exit), which have no graph.
 type MachineGraph {
 	Handle  string,
 	Name    string,
@@ -59,8 +60,9 @@ type MachineGraph {
 	Arms    []Arm,
 	Timers  []Timer,
 	Work    []Place,
-	Exit    []Place,
-	Unsure  []string,
+	Exit     []Place,
+	Unsure   []string,
+	Computed []string,
 }
 
 // Pair is a (state, signal) pair a run can step, with the arms that may
@@ -246,7 +248,7 @@ func placeText(p Place) string { "\(p.File):\(p.Line)" }
 // MachineText draws a machine view as `ergo inspect machine` prints it,
 // one fact per line: the machine, its states and signals, each arm with
 // its edges, the timers, the work and the exit actions by state in state
-// name order, the unsure states, then each reachable pair with the arms that may step it.
+// name order, the unsure states, the computed entries, then each reachable pair with the arms that may step it.
 func MachineText(v MachineView) string {
 	let g = v.Graph
 	let list = func(any bool, vs []string) string { if any { "*" } else { strings.Join(vs, "|") } }
@@ -276,6 +278,9 @@ func MachineText(v MachineView) string {
 	}
 	for s in g.Unsure {
 		b = b + "  unsure \(s): its timer, work or exit action is not a literal\n"
+	}
+	for k in g.Computed {
+		b = b + "  no graph: computed \(k)\n"
 	}
 	for p in v.Reachable {
 		let mut sites = []string{}

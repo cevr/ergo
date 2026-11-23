@@ -312,7 +312,7 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 			return e
 		}
 		tsub[tp] = t
-		if irStructFailure(a) {
+		if irStructFailure(a, x) {
 			if conc == nil {
 				conc = map[*check.TypeParam]bool{}
 			}

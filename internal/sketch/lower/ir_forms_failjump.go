@@ -76,9 +76,9 @@ func SetFailTypedLoweringForTest(mode string) string {
 
 // failType is a failure's Go type when it is a struct (FailT), or the
 // Slot row whose Go type it is (FailTP), which a copy binding the row to
-// a struct turns into FailT (copier). Anything else (an error, a union's
-// interface, a row of two) is neither: its dynamic type is not its static
-// one, so it keeps the type switch.
+// a struct turns into FailT (copier). Anything else (an error, a row of
+// two) is neither: its dynamic type is not its static one, so it keeps
+// the type switch.
 func (b *irBuilder) failType(x syntax.Expr) (string, *check.TypeParam) {
 	if irFailTypedLowering == "off" || irFailJumpLowering == "off" {
 		return "", nil
@@ -90,7 +90,7 @@ func (b *irBuilder) failType(x syntax.Expr) (string, *check.TypeParam) {
 	if tp, ok := t.(*check.TypeParam); ok && tp.Slot && tp.Kind == check.KindErrors {
 		return "", tp
 	}
-	if !irStructFailure(t) {
+	if !irStructFailure(t, x) {
 		return "", nil
 	}
 	return irTypeOrNone(func() string { return b.goType(t, x) }), nil
@@ -98,8 +98,9 @@ func (b *irBuilder) failType(x syntax.Expr) (string, *check.TypeParam) {
 
 // irStructFailure reports a failure type, or a Slot row's type argument
 // of one member, that is a struct: a variant, whose Go value in an error
-// has exactly that dynamic type.
-func irStructFailure(t check.Type) bool {
+// has exactly that dynamic type. A union's value is never a failure nor
+// a Slot row's one member (ruleUnionFailure): at x, an internal error.
+func irStructFailure(t check.Type, x syntax.Node) bool {
 	var r *check.Row
 	switch x := t.(type) {
 	case *check.Union:
@@ -118,8 +119,13 @@ func irStructFailure(t check.Type) bool {
 	if !ok {
 		return false
 	}
-	_, ok = n.Underlying().(*check.Struct)
-	return ok
+	switch n.Underlying().(type) {
+	case *check.Struct:
+		return true
+	case *check.Union:
+		unreachable(x, ruleUnionFailure, "a failure of the union type %s, whose Go value is an interface", n.Obj.Name)
+	}
+	return false
 }
 
 // irSlotParam is the error row parameter a Slot row's type argument is
@@ -239,8 +245,8 @@ func (in *irInliner) failJump(body, l []*irStmt, i int) ([]*irStmt, bool) {
 					ok = false
 					return
 				}
-				// The one arm of that type; a failure two arms could
-				// take keeps the switch.
+				// The one arm of that type: the checker refuses a type
+				// caught twice (ruleCaughtTwice).
 				var arm *irCase
 				n := 0
 				for _, c := range sw.Cases {
@@ -253,7 +259,10 @@ func (in *irInliner) failJump(body, l []*irStmt, i int) ([]*irStmt, bool) {
 						arm = c
 					}
 				}
-				if arm == nil || n != 1 || used[arm] || !irArmMovable(arm, e) {
+				if n > 1 {
+					unreachable(nil, ruleCaughtTwice, "an inlined failure of the Go type %s that %d catch arms take", t, n)
+				}
+				if arm == nil || used[arm] || !irArmMovable(arm, e) {
 					ok = false
 					return
 				}

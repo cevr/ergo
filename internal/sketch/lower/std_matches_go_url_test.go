@@ -15,7 +15,7 @@ import (
 // through a network of the same origins under roomy limits so a small
 // generated MaxBodyBytes does not fail the reply.
 const stdGoURLDecls = `func clientText(origin string, limits http.Limits) string needs Ambient {
-	let _ = http.NewClient(origin, limits) catch {
+	let _ = http.NewClient(origin, limits, []http.Credential{}) catch {
 	case http.InvalidClient as e:
 		return "client " + strconv.Quote(e.Origin) + " " + strconv.Quote(e.Reason)
 	case http.InvalidLimits:
