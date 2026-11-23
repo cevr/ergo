@@ -7,8 +7,8 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Stage E2, C18 (frames.go): no call that needs a frame scope runs outside
-// a function body. Three tests close the rule's domain:
+// Stage E2, C18 (frames.go): a call that needs a frame scope runs in a
+// function body or produces a named context's owned provider. The checks:
 //
 //   - frameGaps, the output invariant, runs inside infoGaps, so every
 //     accepted program of TestInfoComplete, FuzzCheck and the differential
@@ -22,9 +22,26 @@ import (
 //   - TestFrameNeedMatrix crosses every frame need with every root.
 
 // frameGaps reports each call in info that needs a frame scope and runs
-// outside every function body.
+// outside every function body, other than the context's acquisition.
 func frameGaps(file *syntax.File, info *Info) []string {
 	var gaps []string
+	owned := map[syntax.Node]bool{}
+	for _, d := range file.Decls {
+		if w, ok := d.(*syntax.ContextDecl); ok {
+			for _, entry := range w.Body.Entries {
+				for x := entry.Value; x != nil; {
+					if p, ok := x.(*syntax.ParenExpr); ok {
+						x = p.X
+						continue
+					}
+					if call, ok := x.(*syntax.CallExpr); ok && info.Calls[call] != nil && info.Calls[call].StartsTask {
+						owned[x] = true
+					}
+					break
+				}
+			}
+		}
+	}
 	needs := func(x *syntax.CallExpr) string {
 		if call := info.Calls[x]; call != nil {
 			if call.StartsTask {
@@ -58,7 +75,7 @@ func frameGaps(file *syntax.File, info *Info) []string {
 				walk(m, true)
 				return false
 			case *syntax.CallExpr:
-				if !inside {
+				if !inside && !owned[m] {
 					if what := needs(m); what != "" {
 						gaps = append(gaps, what+" outside a function body")
 					}
@@ -184,5 +201,21 @@ func TestFrameNeedMatrix(t *testing.T) {
 		if len(diags) != 0 {
 			t.Errorf("%s: want a clean check; got %v\n%s", fc.name, diags, fc.src)
 		}
+	}
+}
+
+// TestContextAcquiresRunningResult catches law-context-unowned-operand:
+// the context owns the direct result, not a running operand needed to
+// compute it outside a function frame.
+func TestContextAcquiresRunningResult(t *testing.T) {
+	src := "import task\n" + frameHead + `func move(t own Task[int, Fault]) Task[int, Fault] { t }
+let direct = context { Task[int, Fault]: start() }
+let nested = context { Task[int, Fault]: move(start()) }
+`
+	_, diags := checkFor(src)
+	if len(diags) != 1 || diags[0].Code != CodeType ||
+		diags[0].Line != strings.Count(src, "\n") ||
+		!strings.Contains(diags[0].Message, "needs the frame scope of a function body") {
+		t.Fatalf("want only the unowned nested start refused; got %v", diags)
 	}
 }

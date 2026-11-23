@@ -394,7 +394,12 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 	// A run that passed with a skip its module does not expect fails: a
 	// law that ergo test did not run is not a pass (runtime.md, Tests 4).
 	// It writes no ledger and is not kept.
-	if err := skipsExit(printed.Bytes(), opts.file); err != nil {
+	if l.stdTest.Path != "" {
+		err = stdSkipsExit(printed.Bytes(), l.stdTest)
+	} else {
+		err = skipsExit(printed.Bytes(), opts.file)
+	}
+	if err != nil {
 		return err
 	}
 	if opts.law != "" || opts.skipLaw != "" || opts.run != "" || opts.explore {

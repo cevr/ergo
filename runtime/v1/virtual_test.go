@@ -253,7 +253,7 @@ func virtualRun(prog [][]vop) map[vkey]vstamp {
 					for range 3 {
 						runtime.Gosched()
 					}
-					h.Stop()
+					h.Stop(ct)
 					ls.End(nil)
 				}
 			}
@@ -261,7 +261,7 @@ func virtualRun(prog [][]vop) map[vkey]vstamp {
 		})
 	}
 	for i, h := range tasks {
-		if _, err := h.Wait(); err != nil {
+		if _, err := h.Wait(root); err != nil {
 			panic(err)
 		}
 		stamp(-1, i, false)

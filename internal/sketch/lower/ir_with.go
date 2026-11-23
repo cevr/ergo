@@ -102,7 +102,7 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	case w.Value != nil:
 		irNo("with of a context owner")
 	case w.Installs != nil:
-		irNo("with of a context value")
+		return b.installWith(x, i, w, arg, ret, to) // ir_contextvalue.go
 	case len(w.Contexts) == 0:
 		irNo("with form")
 	case ownsResources(w):
@@ -116,7 +116,7 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	}
 	lit := w.Contexts[0].Lit != nil // an inline or a local context
 	p := b.pos(arg, arg.Pos())
-	env := b.l.env()
+	env := b.envValue()
 	// env2 := *env; envP := &env2: the copy the block runs against (the
 	// emitter's `env2 := *env` and `(&env2)`); a named context's builder
 	// builds its providers into it, an inline or a local context's are
@@ -145,15 +145,21 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 			out = append(out, &irStmt{K: "expr", Pos: p, X: call})
 		}
 	}
+	return append(out, b.withRest(x, i, w, ptr, ret, to)...)
+}
+
+// withRest is what operand i of the with x holds, against the environment
+// ptr points at: the next operand, or the block.
+func (b *irBuilder) withRest(x *syntax.CallExpr, i int, w *check.With, ptr int, ret bool, to *yieldTo) []*irStmt {
 	saved := b.env
 	b.env = ptr
 	defer func() { b.env = saved }()
 	if w.Next != nil {
-		return append(out, b.withOperand(x, i+1, w.Next, ret, to)...)
+		return b.withOperand(x, i+1, w.Next, ret, to)
 	}
 	// The block's scope releases what it owns at its end (the emitter's
 	// scoped; PORT-CALLS-2: a Listener and a Task let in main's with).
-	return append(out, b.scoped(x.Trailing, b.tailTo(x.Trailing.List, ret && to == nil, to), b.pos(x.Trailing, x.Trailing.Rbrace))...) // ir_own.go
+	return b.scoped(x.Trailing, b.tailTo(x.Trailing.List, ret && to == nil, to), b.pos(x.Trailing, x.Trailing.Rbrace)) // ir_own.go
 }
 
 // opsConv is e, the value of x, through the operations conversion conv:
@@ -231,7 +237,7 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 	p := e.Pos
 	lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
 	if !sealed {
-		env := &irExpr{K: "zero", Pos: p, T: "*" + l.env()}
+		env := &irExpr{K: "zero", Pos: p, T: b.envPointer()}
 		if b.env >= 0 {
 			env = &irExpr{K: "local", Pos: p, I: b.env}
 		}
@@ -262,15 +268,39 @@ func (b *irBuilder) publish(w *check.With, ptr, outer int, site syntax.Node) []*
 		}
 	}
 	lexical(w.Contexts[0])
+	// The package of each entry, by the context that holds it (the
+	// emitter's owners).
+	pkgs := map[*check.ContextEntry]*check.Package{}
+	var owners func(*check.Context)
+	owners = func(c *check.Context) {
+		for _, e := range c.Entries {
+			if _, ok := pkgs[e]; ok {
+				continue
+			}
+			pkgs[e] = c.Package()
+			if e.Embedded != nil {
+				owners(e.Embedded)
+			}
+		}
+	}
+	owners(w.Contexts[0])
 	var out []*irStmt
 	for _, a := range w.Acquired {
 		e := a.Entry
+		// An entry of an embedded named context is built against the
+		// environment being built (the emitter's buildProvider, not
+		// local); one of another package's context reads that package's
+		// facts, which the builder does not switch to.
+		src := outer
 		if !local[e] {
-			irNo("with of a context that embeds a named one")
+			if pk := pkgs[e]; pk == nil || pk.Info != b.l.info {
+				irNo("with of a context that embeds a named one")
+			}
+			src = ptr
 		}
 		p := b.pos(e.Provider, e.Provider.Pos())
 		saved := b.env
-		b.env = outer
+		b.env = src
 		pre, val := b.value(e.Provider)
 		b.env = saved
 		out = append(out, pre...)
@@ -309,7 +339,7 @@ func (b *irBuilder) publish(w *check.With, ptr, outer int, site syntax.Node) []*
 					v = &irExpr{K: "toiface", Pos: p, T: b.goType(capT, e.Provider), X: val}
 				}
 			case conv.Kind == check.ConvOperations:
-				b.env = outer
+				b.env = src
 				v = b.opsConv(conv, val, e.Provider)
 				b.env = saved
 			default:

@@ -24,7 +24,7 @@ func (b *irBuilder) sigHead(s *check.Signature, site syntax.Node) (head, value s
 	if len(s.Results) > 1 {
 		irNo("function type with several results")
 	}
-	parts := []string{"*" + b.l.env()}
+	parts := []string{b.envPointer()}
 	for _, p := range s.Params {
 		parts = append(parts, b.goType(p.Type, site))
 	}
@@ -179,7 +179,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	// The literal's body is a frame of its own: no loop of the maker's
 	// memoizes a call of it (ir_memo.go).
 	b.memos = nil
-	envLocal := b.temp("env", "*"+l.env(), p)
+	envLocal := b.temp("env", b.envPointer(), p)
 	lit := &irExpr{K: "func", Pos: p, T: typ, Params: []int{envLocal}}
 	for i, v := range params {
 		lit.Params = append(lit.Params, b.litParam(v, ids[i], sig.Params[i].Type, n, p))

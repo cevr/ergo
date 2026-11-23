@@ -394,7 +394,8 @@ func (c *checker) checkMachine(tn *TypeName) {
 	if spec.Initial == nil || spec.Step == nil {
 		c.errorf(tn.Decl.Name, CodeType, "machine %s declares both initial and step (runtime.md, Machines and actors 1)", tn.Name)
 	}
-	if start := c.machineEntry(tn, entryStart); start != nil {
+	start := c.machineEntry(tn, entryStart)
+	if start != nil {
 		c.checkMachineStart(tn, start, state, valid)
 	}
 	if spec.Step == nil {
@@ -411,7 +412,7 @@ func (c *checker) checkMachine(tn *TypeName) {
 		c.checkMachineExit(tn, state)
 	}
 	if view, step, sig := c.machineValue(n); view != nil {
-		if conv, why := c.machineConversion(n, view, step, sig, !isPreludeMachine(view)); why == "" {
+		if conv, why := c.machineConversion(n, view, step, sig, start != nil); why == "" {
 			c.pkg.Info.MachineEntries[tn].Conv = &conv
 		}
 	}

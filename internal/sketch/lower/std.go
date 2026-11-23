@@ -203,11 +203,11 @@ func (fc *funcCtx) openFrame(errName string) {
 // receives drain before the with's providers close (resources.md, Context
 // ownership); v1.OnExit routes an exit action to the function's frame.
 func (fc *funcCtx) frameScope(site syntax.Node) string {
+	if fc.frame != nil && fc.frame.with != "" {
+		return fc.frame.with
+	}
 	if fc.frame == nil || fc.frame.scope == "" {
 		ice(site, "a call that needs a frame scope (task.Go, scope.OnExit or a call whose result holds a Task) outside a function body; the checker refuses one (S108, check/frames.go)")
-	}
-	if fc.frame.with != "" {
-		return fc.frame.with
 	}
 	return "&" + fc.frame.scope
 }
@@ -615,36 +615,65 @@ func goValue(body v1.Body) bool {
 func (fc *funcCtx) hiddenArgs(list []v1.Hidden, x *syntax.CallExpr, c *check.Call, env string, site syntax.Node) []string {
 	var out []string
 	for _, h := range list {
-		if x == nil && h != v1.CallerTask {
-			ice(site, "a method value of a std operation that takes the hidden argument %s", h)
-		}
-		switch h {
-		case v1.Frame:
-			out = append(out, fc.frameScope(x))
-		case v1.CallSite:
-			src, line, column := fc.l.locate(x, x.Pos())
-			out = append(out, fc.l.rt()+".Site("+fmt.Sprintf("%q", fmt.Sprintf("%s calls %s at %s:%d:%d", fc.owner, fc.callee(x, c), src, line, column))+")")
-		case v1.CallerTask:
-			out = append(out, taskOf(env))
-		case v1.CallerScheduler:
-			// The caller's Scheduler provider (Q-S4-7): the environment's
-			// field for the prelude's Scheduler, which the called
-			// signature needs, so the checker has bound it at the call.
-			out = append(out, env+"."+fc.l.envField(schedulerCap(c, site)))
-		case v1.Graph:
-			out = append(out, fc.graphArg(c, site))
-		case v1.ReadingPackage:
-			if c == nil || c.Func == nil || c.Func.Pkg == nil {
-				ice(site, "a context read without its declaring package")
-			}
-			out = append(out, strconv.Quote(contextNamespace(c.Func.Pkg)))
-		case v1.ResultRelease:
-			out = append(out, fc.resultRelease(x, site))
-		default:
-			ice(x, "the hidden argument %s of a std body", h)
-		}
+		out = append(out, hiddenArg[string](h, emitHidden{fc: fc, h: h, x: x, c: c, env: env, site: site})) // hidden.go
 	}
 	return out
+}
+
+// emitHidden is the emitter's Go text of one hidden argument h of the std
+// call x (hiddenKinds). Only the caller's task is passed to a method
+// value of a std operation (x nil).
+type emitHidden struct {
+	fc   *funcCtx
+	h    v1.Hidden
+	x    *syntax.CallExpr
+	c    *check.Call
+	env  string
+	site syntax.Node
+}
+
+// call is the check of a kind a method value cannot take.
+func (e emitHidden) call() {
+	if e.x == nil {
+		ice(e.site, "a method value of a std operation that takes the hidden argument %s", e.h)
+	}
+}
+
+func (e emitHidden) frame() string { e.call(); return e.fc.frameScope(e.x) }
+
+func (e emitHidden) callSite() string {
+	e.call()
+	fc := e.fc
+	src, line, column := fc.l.locate(e.x, e.x.Pos())
+	return fc.l.rt() + ".Site(" + fmt.Sprintf("%q", fmt.Sprintf("%s calls %s at %s:%d:%d", fc.owner, fc.callee(e.x, e.c), src, line, column)) + ")"
+}
+
+func (e emitHidden) callerTask() string { return taskOf(e.env) }
+
+// callerScheduler is the caller's Scheduler provider (Q-S4-7): the
+// environment's field for the prelude's Scheduler, which the called
+// signature needs, so the checker has bound it at the call.
+func (e emitHidden) callerScheduler() string {
+	e.call()
+	return e.env + "." + e.fc.l.envField(schedulerCap(e.c, e.site))
+}
+
+func (e emitHidden) graph() string { e.call(); return e.fc.graphArg(e.c, e.site) }
+
+func (e emitHidden) readingPackage() string {
+	e.call()
+	if e.c == nil || e.c.Func == nil || e.c.Func.Pkg == nil {
+		ice(e.site, "a context read without its declaring package")
+	}
+	return strconv.Quote(contextNamespace(e.c.Func.Pkg))
+}
+
+func (e emitHidden) resultRelease() string { e.call(); return e.fc.resultRelease(e.x, e.site) }
+
+func (e emitHidden) unknown(h v1.Hidden) string {
+	e.call()
+	ice(e.x, "the hidden argument %s of a std body", h)
+	return ""
 }
 
 // graphArg is the hidden graph argument of the call c of an actor's start

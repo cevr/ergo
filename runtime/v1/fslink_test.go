@@ -14,8 +14,8 @@ import (
 // the same bytes is another file (g6-samefile-by-name: a second name of
 // one file is the same file, a byte-equal copy is not); a file at to is
 // Failed and stays; and a link onto another file system is CrossDevice
-// (g6-crossdevice-failed) when the host has one beside the temporary
-// directory.
+// (g6-crossdevice-failed), as a Rename there is (u3-rename-exdev-unmapped),
+// when the host has one beside the temporary directory.
 func TestFSLinkIsOneFile(t *testing.T) {
 	dir := t.TempDir()
 	at := func(n string) string { return filepath.Join(dir, n) }
@@ -70,5 +70,15 @@ func TestFSLinkIsOneFile(t *testing.T) {
 	var x CrossDevice
 	if err := FSLink(at("entry"), filepath.Join(other, "out")); !errors.As(err, &x) || x.From != at("entry") {
 		t.Errorf("Link onto another file system is %v, want CrossDevice", err)
+	}
+	// FS-RENAME-CROSSDEVICE: a Rename there is CrossDevice too, and moves
+	// nothing (u3-rename-exdev-unmapped). Go's os.Rename never copies, so
+	// the case needs a second file system, which no Ergo law under the
+	// test host's folder reaches.
+	if err := FSRename(at("entry"), filepath.Join(other, "moved")); !errors.As(err, &x) || x.From != at("entry") {
+		t.Errorf("Rename onto another file system is %v, want CrossDevice", err)
+	}
+	if _, err := os.Stat(at("entry")); err != nil {
+		t.Errorf("a CrossDevice Rename moved entry: %v", err)
 	}
 }

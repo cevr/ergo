@@ -344,11 +344,12 @@ type lowerer struct {
 	machineOfDone map[*check.TypeName]bool
 	// entryCopies are the computed entries' copies, nil for an entry
 	// whose call is not known (entrycopy.go).
-	entryCopies map[pkgKey]*entryCopy
-	vals        *valueFacts              // the value rule's decisions (values.go)
-	sets        map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
-	holds       map[*check.Named]holdState
-	typeKeys    map[check.Type]string
+	entryCopies      map[pkgKey]*entryCopy
+	vals             *valueFacts              // the value rule's decisions (values.go)
+	sets             map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
+	holds            map[*check.Named]holdState
+	typeKeys         map[check.Type]string
+	semanticTypeKeys map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type
@@ -471,10 +472,8 @@ type lowerer struct {
 	instances map[*check.TypeName][]check.Type
 
 	// stdInits are the reached std packages with lets (stdLetPkgs),
-	// computed once; stdLets is set while their lets are named and lowered
-	// (wf10 defects D3).
+	// computed once.
 	stdInits *[]*check.Package
-	stdLets  bool
 	// stdLetOf is the std let declaration and its package for each
 	// variable of one, from the naming pass; stdLetQueued holds the
 	// declarations a lowered body has reached, which alone are lowered

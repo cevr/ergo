@@ -126,12 +126,15 @@ func newDomain(t *Task, start time.Time) *Virtual {
 // join makes t, a new child of parent, a member of parent's domain.
 func (t *Task) join(parent *Task) {
 	if m := parent.member.Load(); m != nil {
-		d := m.d
-		d.mu.Lock()
-		d.live++
-		d.mu.Unlock()
-		t.member.Store(&member{d: d})
+		t.joinDomain(m.d)
 	}
+}
+
+func (t *Task) joinDomain(d *domain) {
+	d.mu.Lock()
+	d.live++
+	d.mu.Unlock()
+	t.member.Store(&member{d: d})
 }
 
 // leave takes a finished member out of its domain; the members left may
@@ -205,6 +208,10 @@ func (w *Task) waking(src any) *member {
 	if m == nil {
 		return nil
 	}
+	return m.waking(src)
+}
+
+func (m *member) waking(src any) *member {
 	m.d.mu.Lock()
 	if m.parked && waitEndsOn(m, src) {
 		m.release()

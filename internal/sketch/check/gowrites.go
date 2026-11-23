@@ -82,3 +82,22 @@ func GoWrites(f *Func) (int, bool) {
 	i, ok := h.writes[f]
 	return i, ok
 }
+
+// goMethodResults is the result list of a bound method for native Go
+// method-set comparison. The binding packs Go's results into one Ergo
+// tuple and prepends the written slice for direct calls, but that slice
+// is not a result in Go. Interface methods have no writes fact.
+func goMethodResults(sig *Signature, fn *Func) []Type {
+	results := sig.Results
+	if len(results) == 1 {
+		if tuple, ok := results[0].(*Tuple); ok {
+			results = tuple.Types
+		}
+	}
+	if fn != nil && len(results) > 0 {
+		if _, writes := GoWrites(fn); writes {
+			results = results[1:]
+		}
+	}
+	return results
+}

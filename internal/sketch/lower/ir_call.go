@@ -119,6 +119,14 @@ func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // call with effects.
 func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
 	c := b.l.info.Calls[x]
+	if ids := b.heldOperands(x, c); len(ids) != 0 {
+		return b.heldCall(x, c, stmt, ids)
+	}
+	return b.callPartsRaw(x, stmt)
+}
+
+func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
+	c := b.l.info.Calls[x]
 	if c == nil {
 		irNo("call without a Calls entry")
 	}
@@ -222,7 +230,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call without a function")
 		case check.GoBuiltin(f) != "":
 			return b.goBuiltinCall(x, c, f, p, stmt) // ir_builtin.go
-		case userExtern(f), f.Pkg != nil && f.Pkg.Host():
+		case f.CallsGo():
 			// A function of a Go package: an extern whose target is in
 			// Go's library, or one read from its binding (import go;
 			// gostd's runtime.NumCPU). The emitter calls its Go target
@@ -398,9 +406,6 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
 		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
-		if named != nil && b.l.runtimeNamed(named, x) {
-			irNo("law operation of an extern Go type") // calls.go writes its runtime call
-		}
 		if named == nil {
 			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 			if !ok {
@@ -416,9 +421,17 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		if b.fc.frame.polls {
 			pre = append(pre, b.poll(x))
 		}
+		env := &irExpr{K: "local", Pos: p, I: b.env}
+		if c.Kind == check.CallLawOp && b.l.runtimeNamed(named, x) {
+			recv := &irExpr{K: "local", Pos: p, I: b.lawOwn}
+			if b.lawOwn == 0 {
+				recv = &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}
+			}
+			argPre, e, effect := b.boundOpCall(x, c, named, p, recv)
+			return append(pre, argPre...), e, effect
+		}
 		argPre, irArgs := b.operands(x.Args)
 		pre = append(pre, argPre...)
-		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
 		if c.Kind == check.CallLawOp && b.lawOwn > 0 {
 			// A law of a generic operation type calls the provider it

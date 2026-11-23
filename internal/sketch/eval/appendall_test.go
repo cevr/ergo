@@ -15,11 +15,13 @@ import (
 // changes, though appendAll grows a store in place when no view sees past
 // xs's end. Each seed makes views over shared stores, some ending at their
 // store's end, some before it, some with room to spare, and appends views
-// of the same or another store (xs to itself too); the reference model
+// of the same or another store (xs to itself too). Each append runs with
+// the source view also held by an active range; the reference model
 // keeps every view as a Go copy. A failing seed prints the step and both
 // element lists, and the replay command. Mutants only it kills
 // (testdata/mutants.json): oracle-o36-append-all-grows-shared,
-// oracle-o36-append-all-drops-xs, oracle-o36-append-all-drops-ys.
+// oracle-o36-append-all-drops-xs, oracle-o36-append-all-drops-ys,
+// append-all-refuses-shared-range.
 func TestAppendAllKeepsValues(t *testing.T) {
 	n := 300
 	if testing.Short() {
@@ -71,9 +73,12 @@ func TestAppendAllKeepsValues(t *testing.T) {
 			}
 			i, j := r.IntN(len(views)), r.IntN(len(views))
 			in.steps, in.bytes = 0, 0
+			active := views[i]
+			in.ranges = []*sliceRange{{view: &active}}
 			got, ab := in.appendAll(fr, fr.decl, views[i], views[j])
+			in.ranges = nil
 			if ab != nil {
-				t.Fatalf("seed %d step %d: %s", seed, step, ab.msg)
+				t.Fatalf("seed %d step %d: %s\nreplay: ERGO_EVAL_APPENDALL_SEED=%d go test -run TestAppendAllKeepsValues ./internal/sketch/eval", seed, step, ab.msg, seed)
 			}
 			want := append(slices.Clone(model[i]), model[j]...)
 			out := got.(sliceV)

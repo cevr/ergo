@@ -23,6 +23,7 @@ import (
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketch/lower"
+	"ergo.local/prototype/internal/sketch/testplan"
 	"ergo.local/prototype/internal/sketchfront"
 	sourcefile "ergo.local/prototype/internal/source"
 	"ergo.local/prototype/internal/stage"
@@ -564,6 +565,7 @@ type loaded struct {
 	snapshot report.SourceSnapshot
 	analysis sketchfront.Analysis
 	result   *report.Result
+	stdTest  testplan.NativeRoot // zero for a module's own test run
 }
 
 // load admits a source path once and checks it. The spelling is located

@@ -929,3 +929,22 @@ extern go ergo.local/prototype/runtime/v1.Task type Task[T own, E] {
 		true
 	},
 }
+
+type taskLawFailed {}
+
+let liveTaskForLaws = context {
+	Task[int, taskLawFailed]: startLawTask(func() int fails taskLawFailed { parkTaskForLaw(func() {}) }),
+}
+
+// The prelude cannot import task. Bind the same runtime constructor
+// privately here to keep this law on its operation type.
+extern go ergo.local/prototype/runtime/v1.Go func startLawTask[T own, E, R](body own func() T fails E needs R) Task[T, E] needs R
+
+// Call an opaque function so the child loop is an interruption point,
+// with no clock needed and no way for the child to finish before Stop.
+func parkTaskForLaw(tick own func()) int {
+	for {
+		tick()
+	}
+	0
+}

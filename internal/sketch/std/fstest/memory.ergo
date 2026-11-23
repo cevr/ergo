@@ -48,9 +48,11 @@ import slices
 import strings
 import sync
 
-// Memory is an fs.Files and fs.Writes provider over a tree in memory. Its field is
-// unexported, so NewMemory is its one constructor.
-type Memory { tree sync.Ref[Map[string, entry]] } implements fs.Files, fs.Writes
+// Memory is an fs.Files and fs.Writes provider over a tree in memory. Its
+// fields are unexported, so NewMemory and NewVolumes are its constructors.
+// mounts are the cleaned paths of the directories that are file systems of
+// their own (NewVolumes): a Rename between two is CrossDevice.
+type Memory { tree sync.Ref[Map[string, entry]], mounts []string } implements fs.Files, fs.Writes
 
 // entry is one file or directory of a Memory: a file's text is Text and
 // then the texts appended since the file was last read or written (More,
@@ -75,7 +77,42 @@ func NewMemory() Memory {
 	let mut t = Map[string, entry]{}
 	t["."] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
 	t["/"] = entry{Dir: true, Text: "", More: NoParts, Perm: fs.Perm(fs.SharedDir())}
-	Memory{tree: sync.NewRef[Map[string, entry]](t)}
+	Memory{tree: sync.NewRef[Map[string, entry]](t), mounts: []string{}}
+}
+
+// NewVolumes is a Memory whose directories at mounts, made with their
+// parents, are each a file system of its own, as a disk mounted there is
+// on a host: a path is on the volume of the longest mount it is at or
+// below, else on the volume of the roots. A Rename from one volume to
+// another fails fs.CrossDevice and moves nothing; a mount point itself
+// belongs to its own volume. A root or an empty path in mounts is no
+// mount.
+func NewVolumes(mounts []string) Memory {
+	let m = NewMemory()
+	let mut kept = []string{}
+	for p in mounts {
+		let c = filepath.Clean(p)
+		if p != "" && !isRoot(c) {
+			m.MkdirAll(c) catch {
+			case fs.Denied, fs.Failed:
+				continue
+			}
+			kept = kept.Append(c)
+		}
+	}
+	Memory{tree: m.tree, mounts: kept}
+}
+
+// volumeOf is the mount the cleaned path c is on: the longest of mounts at
+// or above c, or "" for the volume of the roots.
+func volumeOf(mounts []string, c string) string {
+	let mut best = ""
+	for v in mounts {
+		if (c == v || strings.HasPrefix(c, v+"/")) && len(v) > len(best) {
+			best = v
+		}
+	}
+	best
 }
 
 // ReadFile is the text of the file at path.
@@ -247,17 +284,64 @@ func Remove(m Memory, path string) fails fs.NotFound | fs.Denied | fs.Failed {
 // directory at to is Failed "file exists"; a directory onto a file is
 // Failed "not a directory"; a directory into itself is Failed "invalid
 // argument"; a missing name is NotFound of from, or of to when from is
-// there; any other failure names from.
-func Rename(m Memory, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {
+// there; any other failure names from. A move that the host would make
+// between two volumes (NewVolumes) is CrossDevice instead, and moves
+// nothing.
+func Rename(m Memory, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed | fs.CrossDevice {
+	let apart = volumeOf(m.mounts, filepath.Clean(from)) != volumeOf(m.mounts, filepath.Clean(to))
 	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
 		let o = renaming(t, from, to)
 		match o {
 		case Missing, Broken:
 			(o, t)
 		case Changed:
-			(o, move(t, filepath.Clean(from), filepath.Clean(to)))
+			if apart {
+				(o, t)
+			} else {
+				(o, move(t, filepath.Clean(from), filepath.Clean(to)))
+			}
 		}
 	}))
+	if apart {
+		return fs.CrossDevice{From: from, To: to}
+	}
+}
+
+// VolumesAreCrossDevice: in a Memory with a volume at "v", a Rename of a
+// file into it fails CrossDevice and leaves the file where it was, and a
+// Rename inside the volume moves it.
+law VolumesAreCrossDevice(text string) { volumesAreCrossDevice(text) }
+
+func volumesAreCrossDevice(text string) bool {
+	let m = NewVolumes([]string{"v"})
+	m.WriteFile("f", text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let mut crossed = false
+	m.Rename("f", "v/f") catch {
+	case fs.CrossDevice:
+		crossed = true
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	let kept = m.ReadFile("f") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	m.WriteFile("v/g", text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	m.Rename("v/g", "v/h") catch {
+	case fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice:
+		return false
+	}
+	let moved = m.ReadFile("v/h") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	crossed && kept == text && moved == text
 }
 
 // CopiesShare: a copy of a Memory is the same tree, so a write

@@ -59,7 +59,7 @@ func goImportCall(c *check.Call, typeOf func(syntax.Expr) check.Type) bool {
 	}
 	switch c.Kind {
 	case check.CallFunc:
-		return c.Func != nil && c.Func.Pkg.Host()
+		return c.Func.CallsGo() && check.GoExternOf(c.Func) == nil
 	case check.CallOp:
 		return c.Recv != nil && c.Op != nil && hostRecv(typeOf(c.Recv))
 	}
@@ -111,7 +111,7 @@ func hostRecv(t check.Type) bool {
 		t = p.Elem
 	}
 	n, ok := t.(*check.Named)
-	return ok && n.Obj.Pkg.Host()
+	return ok && n.Obj.BindsGoType()
 }
 
 // goSig is the signature of the Go call c, its Go text's head (pkg.F, or

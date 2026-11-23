@@ -168,7 +168,7 @@ func checkRunKey(pkg *check.Package, law *check.Law, insts []RewriteInstance, po
 			parts = append(parts, "binding", BindingLabel(pkg, law, b), bindingUnrun(b), TargetDigest(pkg, law, b))
 		}
 		for _, lc := range r.Contexts {
-			parts = append(parts, "context", lc.Context.Name, lc.Unrun, ContextDigest(pkg, law, lc))
+			parts = append(parts, "context", lc.Title(), lc.Unrun, ContextDigest(pkg, law, lc))
 		}
 	}
 	if !found {
