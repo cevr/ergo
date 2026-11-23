@@ -442,6 +442,9 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			}
 			lit.Elems = b.mapLit(x) // ir_pkg.go
 		case *check.Named:
+			if check.ScriptOf(tt) != nil {
+				return b.scriptLit(tt, x, lit) // ir_script.go: fields come from the derived instance
+			}
 			td := b.l.typeDecl(tt.Obj, x) // queued by goType, as above
 			if td.goError {
 				return b.goErrorLit(x, t, p) // ir_golib.go
