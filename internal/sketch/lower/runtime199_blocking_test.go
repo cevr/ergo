@@ -105,6 +105,8 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"irBuilder.callParts":       "the experimental IR's capability operation method, as funcCtx.callText's (wf10 IR1)",
 			"irBuilder.opCall":          "the experimental IR's program operation method, as funcCtx.programOpCall's (IRG4b r2)",
 			"irBuilder.boundOpCall":     "the IR's bound operation method on a runtime type, as runtimeCall's method head (IRG4b r2)",
+			"irBuilder.commaOkOpCall":   "the IR's bound operation method returning (T, bool), as runtimeCall's method head, and Some's payload field by its declaration (ADAPTED-RESULTS)",
+			"irBuilder.seqOpCall":       "the IR's bound operation method returning iter.Seq, called in the Seq on the iterating Env, as runtimeCall's deferred method head (ADAPTED-RESULTS)",
 			"irBuilder.getArm":          "the experimental IR's Value field of Some, bound in a comma-ok match on Get, as funcCtx.getArmsLower's (FLIP F7 lane B)",
 			"irBuilder.hostResult":      "the Value field of Some, for an Option of a Go pointer result, as funcCtx.optionSome's (FLIP F7 FORK-GOLIB)",
 			"irBuilder.nicheNarrow":     "the Value field of Some, written from an Option of a go.Ref in the pointer niche, as flatUnion.flatNarrow's (FLIP F7 FORK-GOLIB)",

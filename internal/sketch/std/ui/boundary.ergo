@@ -404,7 +404,8 @@ func cut[E](f mut Frame[E], m mark) {
 	f.ngroups = m.ngroups
 	giveBack(f, m.nspecs)
 	for i in m.nseen..f.nseen {
-		count(f, f.seenLog[i], -1)
+		let mut counted = f.seenLog[i]
+		count(f, &counted, -1)
 	}
 	f.nseen = m.nseen
 	f.ncells = m.ncells

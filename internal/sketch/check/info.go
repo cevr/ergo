@@ -741,7 +741,10 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 			}
 			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
-			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+			// A generic operation's function has its own type parameters
+			// beyond the receiver's: its instance is the call's, in a copy
+			// (GENERIC-OP), never the witness's.
+			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 && len(op.Sig.TParams) == 0 {
 				var why string
 				wo.Inst, why = build(f, receiverTypeArgs(targs[i], f))
 				if why != "" {
@@ -767,6 +770,47 @@ func receiverTypeArgs(self Type, f *Func) []Type {
 	}
 	return args
 }
+
+// ProviderTypeArgs are the type arguments of f, the function that provides
+// a generic operation for self, at a call of that operation with own, the
+// operation's type arguments (Call.TypeArgs): those self's type arguments
+// bind, then own in order for the rest (types.md, Interface assignability,
+// Generic operations). Nil when the counts do not match.
+func ProviderTypeArgs(self Type, f *Func, own []Type) []Type {
+	args := receiverTypeArgs(self, f)
+	k := 0
+	for i := range args {
+		if args[i] != nil {
+			continue
+		}
+		if k >= len(own) {
+			return nil
+		}
+		args[i] = own[k]
+		k++
+	}
+	if k != len(own) {
+		return nil
+	}
+	return args
+}
+
+// ProvidingFunc is the package function that provides the operation name
+// for the named type t (Methods 4), or nil.
+func ProvidingFunc(t Type, name string) *Func {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	if n, ok := t.(*Named); ok {
+		return n.method(name)
+	}
+	return nil
+}
+
+// ConstraintOnly reports whether an operation type is a constraint only by
+// a generic operation (Interface.Generic): a function its operations
+// constrain is lowered only as copies, one per instance.
+func ConstraintOnly(t Type) bool { return genericOpOnly(t) }
 
 // CallKind is what a call calls.
 type CallKind int
@@ -1017,14 +1061,16 @@ type With struct {
 	// block too: a release runs in the environment outside the inner with,
 	// so this with discharges each one it binds (withOwnership).
 	Entries []*ContextEntry
-	// Acquired are the provider entries this with builds and owns, in
+	// Acquired are the provider entries this with builds, in
 	// their acquisition order (resources.md, Context ownership; withown.go):
 	// the entries of Entries, and each entry whose capability an acquired
 	// provider uses while it is built. Each entry is one acquisition,
 	// however many capabilities it binds. An overridden entry and an entry
 	// that nothing the block needs reaches are not acquired. Named, local and
 	// inline contexts use the same fact: a local context named by two withs
-	// is acquired, and released, once per with.
+	// is acquired, and released, once per with. The with owns each
+	// provider it builds from a new value; one that names a place is lent
+	// to it (Acquisition.Lent).
 	Acquired []*Acquisition
 	// Context is the context binding a with of a context value opens
 	// (runtime.md, G1), nil for a with of a context. Such a with has no Contexts
@@ -1079,10 +1125,23 @@ type Acquisition struct {
 	// it through Drop, which runs Close first; nil when Close alone is the
 	// release, or for a plain provider. Added in L8 B2 (additive).
 	Drop *Drop
+	// Lent marks a resource provider that names a place (a local, a
+	// parameter, a package let, or a field path of one): the with borrows
+	// it for its block, as an argument is borrowed (resources R11, R16),
+	// and its owner releases it. Close and Drop still name the provider's
+	// release, but the with runs neither. A lending with opens a scope as
+	// an owning one does (its tasks are drained at the block's end, and a
+	// held context made in it is dead after it). Added in WITH-LEND
+	// (additive).
+	Lent bool
 }
 
 // Releases reports an acquisition the with releases.
-func (a *Acquisition) Releases() bool { return a.Close != nil || a.Drop != nil }
+func (a *Acquisition) Releases() bool { return !a.Lent && (a.Close != nil || a.Drop != nil) }
+
+// Scoped reports an acquisition that makes its with open a scope: one the
+// with releases, or a resource it lends.
+func (a *Acquisition) Scoped() bool { return a.Releases() || a.Lent }
 
 // Override is a binding a replace overrode (Context.Overrides): Entry no
 // longer binds Cap, By does. The overridden entry is not built for that

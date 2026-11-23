@@ -288,24 +288,34 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 		irNo("owned local") // a local bound twice
 	}
 	// The handle is defined where the local is: its scope is the local's.
-	h := b.temp("own", "*"+b.spelling(b.l.rt()+".Owned"), p)
-	o.handle[v] = h
-	here := ""
-	if n, ok := v.Type.(*check.Named); ok && len(n.TArgs) > 0 && b.startedHere(value) {
-		here = b.goType(n.TArgs[0], site) // v1.Task's T: the IR names a generic function with its type arguments
-	}
+	owner, h := b.listOwner(p)
+	o.handle[v] = owner.Local
+	here := b.listReleaseHere(v.Type, site, value)
 	rel := b.listRelease(d, v.Type, typ, p, here)
 	out := []*irStmt{
-		{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
-		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, &irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "local", Pos: p, I: i}, rel)},
+		owner,
+		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, h, &irExpr{K: "local", Pos: p, I: i}, rel)},
 	}
 	if b.l.writtenInPlace(v) {
 		// A local the code writes in place is released with its writes
 		// (v1.OwningAt; the emitter's ownAt).
 		at := b.listRelease(d, v.Type, typ, p, here)
-		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, &irExpr{K: "local", Pos: p, I: h}, b.addrOf(i, p), at)})
+		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, h, b.addrOf(i, p), at)})
 	}
 	return out
+}
+
+func (b *irBuilder) listOwner(p irPos) (*irStmt, *irExpr) {
+	h := b.temp("own", "*"+b.spelling(b.l.rt()+".Owned"), p)
+	return &irStmt{K: "def", Pos: p, Local: h, X: &irExpr{K: "mcall", Pos: p, Name: "Owner", X: b.frameArg(p)}},
+		&irExpr{K: "local", Pos: p, I: h}
+}
+
+func (b *irBuilder) listReleaseHere(t check.Type, site syntax.Node, value syntax.Expr) string {
+	if n, ok := t.(*check.Named); ok && len(n.TArgs) > 0 && b.startedHere(value) {
+		return b.goType(n.TArgs[0], site) // v1.Task's T
+	}
+	return ""
 }
 
 // listRelease is the release of an owned value of type t, Go type typ: a
@@ -543,7 +553,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
 	if cl != nil && cl.Func == nil && cl.Op != nil {
-		return b.stdCloseCall(cl, s, slot, p)
+		return b.closeOpCall(cl, s, env, slot, p)
 	}
 	if cl != nil && cl.HostClose() {
 		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
@@ -584,6 +594,27 @@ func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) 
 		}
 	}
 	return &irExpr{K: "call", Pos: p, Name: fd.name, T: strings.Join(targs, ", "), Args: []*irExpr{e, recv}}, true
+}
+
+// closeOpCall dispatches a Close on an operation type like opCall:
+// a program operation's Go interface takes the releasing task, and
+// runtime-bound operations keep their native method ABI.
+func (b *irBuilder) closeOpCall(cl *check.Close, s irSlot, env, slot int, p irPos) (*irExpr, bool) {
+	n, ok := cl.Receiver.(*check.Named)
+	if !ok {
+		return nil, false
+	}
+	site := b.own.site
+	if b.l.runtimeNamed(n, site) {
+		return b.stdCloseCall(cl, s, slot, p)
+	}
+	if b.l.typeDecl(n.Obj, site).kind != kindOps {
+		return nil, false
+	}
+	b.admitOps(n)
+	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: env}}
+	recv := &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}
+	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: recv, Args: []*irExpr{task}}, true
 }
 
 // stdCloseCall is the release of a value of a std operation type at slot
@@ -847,16 +878,21 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node, value syntax.E
 	return []*irStmt{{K: "expr", Pos: p, X: call}}
 }
 
-// tempOwnable reports an owned temporary x (Info.OwnedTemps, R43) that
-// the static frame being built registers in a slot of its own (ownTemp):
-// one whose release is its type's own Close, that is no moved part of a
-// value being built (PartHands) and no lent arm result (ArmHeld, HeldIn).
-// The list form's temporaries, and these, keep their source body.
+// tempOwnable reports an owned temporary x whose release is its type's
+// own Close and that is neither a moved part nor a lent arm result.
+// A list frame can keep a non-failing call's returned value directly
+// (R10); temporaries that need a later releaseAt stay on the static path.
 func (b *irBuilder) tempOwnable(x syntax.Expr, o *irOwn) bool {
 	info := b.l.info
 	d := info.OwnedTemps[x]
-	if d == nil || o == nil || o.list || d.Glue() || d.Close == nil {
+	if d == nil || o == nil || d.Glue() || d.Close == nil {
 		return false
+	}
+	if o.list {
+		call, ok := x.(*syntax.CallExpr)
+		if !ok || !info.ReturnedTemps[x] || b.fallibleCall(call) != nil {
+			return false
+		}
 	}
 	return !info.PartHands[x] && !info.ArmHeld[x] && info.HeldIn[x] == nil
 }
@@ -881,6 +917,15 @@ func (b *irBuilder) ownTemp(x syntax.Expr, e *irExpr) *irExpr {
 		irNo("owned temporary")
 	}
 	p := e.Pos
+	if o.list {
+		// No release point reads this handle: the value is kept on the
+		// same step that receives it, until the frame's exit is known.
+		typ := b.goType(t, x)
+		owner, h := b.listOwner(p)
+		b.runFirst([]*irStmt{owner})
+		rel := b.listRelease(b.l.info.OwnedTemps[x], t, typ, p, b.listReleaseHere(t, x, x))
+		return b.ownCall("Returned", typ, p, h, b.ownCall("Owning", typ, p, h, e, rel))
+	}
 	k, seen := o.tbit[x]
 	typ := b.goType(t, x)
 	if !seen {

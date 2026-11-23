@@ -922,11 +922,13 @@ func (fc *funcCtx) callArgsAddr(list []syntax.Expr, call *syntax.CallExpr, addr 
 
 // siteValue is the CallSite the call x passes for the final parameter it
 // leaves out (types.md, Call sites): where x starts, as a defect names it.
-// A constant, so it runs after the written operands with no spill.
+// Its Pkg is the package variable of the call's package (siteid.go), which
+// nothing writes, and its other fields constants, so it runs after the
+// written operands with no spill.
 func (fc *funcCtx) siteValue(x *syntax.CallExpr, site *check.Named) string {
-	file, line, column := fc.l.locate(x, x.Pos())
+	file, line, column, pkg, id := fc.l.callSite(x)
 	td := fc.l.typeDecl(site.Obj, x)
-	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Id"], fc.l.siteID(x))
+	return fmt.Sprintf("%s{%s: %q, %s: %d, %s: %d, %s: %s, %s: %d}", fc.goType(site), td.fieldName["File"], file, td.fieldName["Line"], line, td.fieldName["Column"], column, td.fieldName["Pkg"], pkg, td.fieldName["Id"], id)
 }
 
 // typeArgs writes a generic call's type-kinded arguments, from the call's
@@ -1318,11 +1320,12 @@ func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node)
 	return fc.runtimeCall(name, body, "", recv, vals, "", nil, nil, site)
 }
 
-// ownsResources reports a with that acquires a provider with a checked
-// Close (With.Acquired, the checker's ownership fact).
+// ownsResources reports a with that opens a scope: one that acquires a
+// provider with a checked Close, which it releases or lends
+// (With.Acquired, the checker's ownership fact; Acquisition.Scoped).
 func ownsResources(w *check.With) bool {
 	for _, a := range w.Acquired {
-		if a.Releases() {
+		if a.Scoped() {
 			return true
 		}
 	}
@@ -1510,7 +1513,10 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 	if local {
 		fc.env = outer
 	}
-	if ws != "" {
+	if ws != "" && !a.Lent {
+		// A lent provider is a place: its value cannot fail, and the
+		// with registers no release for it (R11), so it is published
+		// in place like a plain one.
 		fc.withClose(a, target, outer, ws, e.Provider)
 	} else {
 		fc.publishProvider(a, target)

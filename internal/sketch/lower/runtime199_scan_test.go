@@ -207,6 +207,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"funcCtx.contextValue":     "the zero Env a Context value's providers build into where no environment is bound: a variable, no closure (its closure is envClosure's)",
 		"typeCtx.funcType":         "a function type, which has no body",
 		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
+		"lowerer.machineOfFunc":    "a generic machine converter's declared header: func ergoMachineOfX[T any](env *Env, ...)",
 		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
 		"irBuilder.envPointer":     "the IR builder's one reader: the Go type of an environment local, *Env (the function's parameter, a literal's, a with's pointer), recorded at its first read; the IR's readers take it from there (ir.go, IR-ENV-SLOT-TYPE)",
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
