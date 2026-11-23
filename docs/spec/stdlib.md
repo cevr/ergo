@@ -2671,12 +2671,12 @@ func main() needs Ambient {
 | `type Stderr { Eprint(text string), Eprintln(line string), IsTerminal() bool }` | Standard error. |
 | `type Stdin { ReadAll() string fails ReadFailed, Lines() Seq[string], IsTerminal() bool }` | Standard input. |
 | `type ReadFailed { Reason string }` | The failure of a read. |
-| `type Host { live hostOnly, kept Option[Recorder] }`; `func NewHost() Host needs Ambient`; `func HostOver(r Recorder) Host` | The host's `Stdout` provider. `HostOver` is a `Host` whose writes go to `r`, never to standard output, and which is not a terminal: it reaches no host, so it has no row, as `NewRecorder`. A type that holds an `io.Host` is built with it in a test. |
-| `type In { live hostOnly, given Option[Memory] }`; `func NewStdin() In needs Ambient`; `func InOver(text string) In` | The host's `Stdin` provider. `InOver` is an `In` that reads `text`, never standard input, from one place, so a read goes on where the one before stopped, as the host's do; it is not a terminal and has no row, as `NewInput`. |
+| `type Host { live hostOnly }`; `func NewHost() Host needs Ambient` | The host's `Stdout` provider. |
+| `type In { live hostOnly }`; `func NewStdin() In needs Ambient` | The host's `Stdin` provider. |
 | `type Errors { live hostOnly }`; `func NewErrors() Errors needs Ambient` | The host's `Stderr` provider. |
 | `type Recorder`; `func NewRecorder() Recorder`; `Print`, `Println`, `Eprint`, `Eprintln`, `IsTerminal` (false), `Text() string` | A `Stdout` and `Stderr` provider for tests that keeps what is written to both, in order. |
 | `type Input { Text string }`; `func NewInput(text string) Input`; `ReadAll`, `Lines`, `IsTerminal` (false) | A `Stdin` provider for tests. `NewInput` is `Stdin`'s builder: a generated record that holds a `Stdin` reads an `Input` ([runtime.md](runtime.md), Tests 6, Capabilities). |
-| `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)`, `law HostOverKeeps(a string, b string)`, `law InOverGoesOn(s string, k int)` | The laws of the recording providers ([Std laws](#std-laws)). |
+| `law PrintsConcatenate(a string, b string)`, `law LinesSplitInput(s string)` | The laws of the recording providers ([Std laws](#std-laws)). |
 | `type Source { Read() Option[string] fails ReadFailed }` | An input in chunks, in order (rule 10). |
 | `let DefaultChunk = 65536` | The chunk size when a size is not positive. |
 | `type Memory`; `func CutAt(text string, cuts []int) Memory`; `func Chunked(text string, size int) Memory`; `Read` | A `Source` over a text in memory: cut at offsets, or into chunks of one size. |

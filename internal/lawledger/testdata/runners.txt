@@ -345,8 +345,6 @@ http SuccessUsesRoute	TestStdHTTPLawsRun
 http WriteAfterStreamFails	TestStdHTTPLawsRun
 http WriteThenRead	TestStdHTTPLawsRun
 io ChunksJoinToInput	TestIOLaws
-io HostOverKeeps	TestIOLaws
-io InOverGoesOn	TestIOLaws
 io InputLinesStops	TestIOLaws
 io LinesSplitInput	TestIOLaws
 io PrintsConcatenate	TestIOLaws
