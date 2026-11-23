@@ -108,6 +108,10 @@ func lawSchedule(k int, limit int, timed bool) schedule.Schedule {
 // lawClock counts clock reads, but not sleeps or the law's own readings.
 type lawClock { clock testing.VirtualClock, reads sync.Ref[int] } implements time.Clock
 
+func newLawClock() lawClock {
+	lawClock{clock: testing.NewVirtualClock(0), reads: sync.NewRef[int](0)}
+}
+
 func Now(c lawClock) time.Time {
 	c.reads.Update(func(n int) int { n + 1 })
 	c.clock.Now()
@@ -143,11 +147,11 @@ law RetryFollowsDecide(failing int, work int, k int, limit int, timed bool) {
 			}
 		}
 	}
-	let c = testing.NewVirtualClock(0)
+	let p = newLawClock()
+	let c = p.clock
 	let calls = sync.NewRef[int](0)
-	let reads = sync.NewRef[int](0)
 	let start = c.Now()
-	with context { Scheduler: c, time.Clock: lawClock{clock: c, reads: reads} } {
+	with context { Scheduler: c, time.Clock: p } {
 		let got = Retry(s, func() int fails lawFailed needs Scheduler {
 			Scheduler.Sleep(w)
 			let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
@@ -160,7 +164,7 @@ law RetryFollowsDecide(failing int, work int, k int, limit int, timed bool) {
 			0 - f.Run
 		}
 		let wantReads = if timed { decisions + 1 } else { 0 }
-		got == want && calls.Get() == runs && c.Elapsed(start) == at && reads.Get() == wantReads
+		got == want && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads
 	}
 }
 
@@ -183,17 +187,17 @@ law RepeatFollowsDecide(work int, k int, limit int, timed bool) {
 			more = false
 		}
 	}
-	let c = testing.NewVirtualClock(0)
+	let p = newLawClock()
+	let c = p.clock
 	let calls = sync.NewRef[int](0)
-	let reads = sync.NewRef[int](0)
 	let start = c.Now()
-	with context { Scheduler: c, time.Clock: lawClock{clock: c, reads: reads} } {
+	with context { Scheduler: c, time.Clock: p } {
 		let got = Repeat(s, func() int needs Scheduler {
 			Scheduler.Sleep(w)
 			sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
 		})
 		let wantReads = if timed { runs + 1 } else { 0 }
-		got == runs && calls.Get() == runs && c.Elapsed(start) == at && reads.Get() == wantReads
+		got == runs && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads
 	}
 }
 
