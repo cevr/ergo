@@ -8,12 +8,13 @@
 import exec
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
+import strconv
 
 // Cloner snapshots subvolumes through the btrfs command.
 type Cloner { trees system.Trees } implements work.Cloner
 
-// New is the Cloner over a Runner.
-func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
+// New is the Cloner over the host tree operations.
+func New(trees system.Trees) Cloner { Cloner{trees: trees} }
 
 // unsupported are the btrfs errors that mean "not here": the source is
 // not a subvolume, or not on btrfs.
@@ -28,13 +29,13 @@ func KeepsInodes(_ Cloner) bool { true }
 
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "btrfs", from, to)
-	let r = system.Run(c.trees, "btrfs", "btrfs", []string{"subvolume", "snapshot", from, to}) catch {
+	let r = system.Invoke(c.trees, "btrfs", "btrfs", []string{"subvolume", "snapshot", from, to}, system.Between(from, to)) catch {
 	case work.CloneFailed as f:
 		return work.Unsupported{Cloner: "btrfs", Why: f.Reason}
 	}
 	if r.Status != 0 {
 		system.Leave(c.trees, to)
-		try system.Failure("btrfs", from, to, r.Stderr, unsupported)
+		try system.Failure(c.trees, "btrfs", "btrfs", from, to, r, unsupported)
 	}
 }
 
@@ -56,7 +57,7 @@ func Discard(c Cloner, root string) fails work.Missing | work.CloneFailed {
 	if !system.Has(c.trees, root) {
 		return work.Missing{Path: root}
 	}
-	let r = system.Run(c.trees, "btrfs", "btrfs", []string{"subvolume", "delete", "--", root}) catch {
+	let r = system.Invoke(c.trees, "btrfs", "btrfs", []string{"subvolume", "delete", "--", root}, strconv.Quote(root)) catch {
 	case work.CloneFailed:
 		exec.Result{Status: 1, Stdout: "", Stderr: ""}
 	}

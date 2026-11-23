@@ -217,17 +217,20 @@ func TestInForceContextsAgree(t *testing.T) {
 }
 
 // TestInForceAfterWithEnds is the defect of a held context installed after
-// the owning with in force at its hold has ended (rows.md, Context values,
-// InForce): Conn has a Close, so the with owns it and closes it at its
-// end, and the second call would read a closed provider. The first call,
-// inside the with, runs.
+// the with in force at its hold has ended (rows.md, Context values,
+// InForce). Conn has a Close, so a with of it opens a scope. In the owning
+// program the with builds the Conn and closes it at its end, so the second
+// call would read a closed provider. In the lending program the with lends
+// a local Conn (resources R11): the Conn closes once, at the end of main,
+// and the second call is the defect all the same, since the held value
+// borrows the with that ended. The first call, inside the with, runs.
 //
 // It builds Go because the defect is raised when the program runs; the
-// checker cannot see a held value outlive its with (Ergo has no
-// lifetimes).
+// checker cannot see a held value outlive its with when a callee hides it
+// in a result (Ergo has no lifetimes).
 func TestInForceAfterWithEnds(t *testing.T) {
 	needsBuild(t)
-	o := mustLower(t, "inforcedefect", `type Store { Get() string }
+	const decls = `type Store { Get() string }
 
 type Conn { n int } implements Store, Closer
 
@@ -246,7 +249,8 @@ func hold[R](f own func() string needs R) Held[R] needs R {
 func call[R](h Held[R]) string {
 	with h.Ctx { h.Run() }
 }
-
+`
+	owning := mustLower(t, "inforcedefect", decls+`
 func main() needs Console {
 	let h = with context { Store: open(1) } {
 		Console.Println(call(hold() { Store.Get() }))
@@ -255,12 +259,26 @@ func main() needs Console {
 	Console.Println(call(h))
 }
 `)
-	exes := buildAll(t, []*lowered{o}, true)
-	if exes == nil {
-		t.Fatal("the program does not build")
+	lending := mustLower(t, "inforcelent", decls+`
+func main() needs Console {
+	let c = open(1)
+	let h = with context { Store: c } {
+		Console.Println(call(hold() { Store.Get() }))
+		hold() { Store.Get() }
 	}
-	out, stderr, code := runExe(t, exes[o.name])
+	Console.Println(call(h))
+}
+`)
+	exes := buildAll(t, []*lowered{owning, lending}, true)
+	if exes == nil {
+		t.Fatal("the programs do not build")
+	}
+	out, stderr, code := runExe(t, exes[owning.name])
 	if out != "conn 1\nclosed 1\n" || code == 0 || !strings.Contains(stderr, "a held context was used after its with ended") {
-		t.Errorf("exit %d\nstdout:\n%s\nstderr:\n%s", code, out, firstLines(stderr, 8))
+		t.Errorf("owning: exit %d\nstdout:\n%s\nstderr:\n%s", code, out, firstLines(stderr, 8))
+	}
+	out, stderr, code = runExe(t, exes[lending.name])
+	if !strings.HasPrefix(out, "conn 1\n") || strings.Count(out, "conn 1") != 1 || strings.Count(out, "closed 1") != 1 || code == 0 || !strings.Contains(stderr, "a held context was used after its with ended") {
+		t.Errorf("lending: the second call must be the defect and the Conn closed once, by its owner\nexit %d\nstdout:\n%s\nstderr:\n%s", code, out, firstLines(stderr, 8))
 	}
 }

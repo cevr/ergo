@@ -16,10 +16,9 @@ import (
 	"ergo.local/prototype/scripts/gate/replay"
 )
 
-// The gate reuses results at three layers: Go's test cache inside a go test
-// step (only in the hermetic exception, Step.Hermetic: every other step runs
-// its go tests with -count=1 in GOFLAGS), a step's receipt (Inputs) and the
-// whole-gate record. Each layer must key every input the result read, or an
+// The gate reuses results at two layers, a step's receipt (Inputs) and the
+// whole-gate record; Go's test cache inside a go test step is not one, since
+// every step runs its go tests with -count=1 in GOFLAGS. Each layer must key every input the result read, or an
 // incremental gate replays a pass that a fresh run fails.
 // TestGateCacheParityModel runs the gate on a small checkout, with real Go
 // test caching and the real mapping validator, and compares it after each
@@ -222,33 +221,20 @@ const (
 )
 
 // parityConfig selects the steps: the gate's own, or a negative control
-// that restores one of the two reuses this unit removed.
+// that restores the mapping receipt this unit removed.
 type parityConfig struct {
 	name string
-	// cachedControls puts the provenance step in the hermetic exception
-	// (Step.Hermetic), which is not hermetic, and drops its own -count=1, so
-	// Go's test cache may replay its controls.
-	cachedControls bool
 	// mappingReceipt gives the mapping step its old Inputs.
 	mappingReceipt bool
 }
 
 // design says whether c is the gate's own declaration.
-func (c parityConfig) design() bool { return !c.cachedControls && !c.mappingReceipt }
+func (c parityConfig) design() bool { return !c.mappingReceipt }
 
 func (c parityConfig) steps(t *testing.T, root string, epoch int) []*Step {
 	t.Helper()
 	env := []string{fmt.Sprintf("%s=%d", parityEpoch, epoch)}
 	provenance := &Step{Name: parityProvenance, Argv: provenanceAnalyzer(root), Env: env}
-	if c.cachedControls {
-		script := provenance.Argv[2]
-		if !strings.Contains(script, "go test -C tools/provenance -count=1 ") {
-			t.Fatalf("the provenance script has no uncached controls to restore the cache of: %q", script)
-		}
-		provenance.Argv = slices.Clone(provenance.Argv)
-		provenance.Argv[2] = strings.Replace(script, "go test -C tools/provenance -count=1 ", "go test -C tools/provenance ", 1)
-		provenance.Hermetic = true
-	}
 	mapping := effectMappingStep()
 	if mapping.Name != parityMapping {
 		t.Fatalf("the mapping step is %q", mapping.Name)
@@ -267,12 +253,6 @@ type parityModel struct {
 	// source is the syntax source's version, tracked the evidence file's
 	// index entry.
 	source, tracked bool
-	// controls is a cached pass of the provenance controls, which only the
-	// control that puts them in the hermetic exception makes. cmd/go keys it
-	// on nothing the source changes: the source is outside their module.
-	// internal/probe, which reads the source through a child, runs with the
-	// uncached default, so Go's test cache holds no pass of it.
-	controls bool
 	// receipt is a mapping receipt; its key holds file contents, not the
 	// index.
 	receipt bool
@@ -316,13 +296,7 @@ func (m *parityModel) gate() parityRun {
 		return parityRun{replayed: true, verdicts: map[string]replay.Verdict{parityProvenance: replay.Pass, parityObserved: replay.Pass, parityMapping: replay.Pass}}
 	}
 	run := parityRun{verdicts: map[string]replay.Verdict{}, hits: map[string]bool{}}
-	switch {
-	case m.config.cachedControls && m.controls:
-		run.verdicts[parityProvenance], run.hits[parityProvenance] = replay.Pass, true
-	default:
-		run.verdicts[parityProvenance] = verdictOf(m.source)
-		m.controls = m.controls || m.config.cachedControls && m.source
-	}
+	run.verdicts[parityProvenance] = verdictOf(m.source)
 	run.verdicts[parityObserved] = verdictOf(m.source)
 	switch {
 	case m.config.mappingReceipt && m.receipt:
@@ -367,7 +341,7 @@ func (m *parityModel) merge() (*parityRun, []string, int) {
 }
 
 func (m *parityModel) sweep() {
-	m.controls, m.receipt = false, false
+	m.receipt = false
 	m.records = map[[2]bool]bool{}
 }
 
@@ -544,12 +518,11 @@ const paritySeed = 10
 //     the verdict a fresh run gives: no step passes from any layer while its
 //     fresh run fails. A fixed prefix takes every action; a seeded tail
 //     follows.
-//   - Two negative controls restore what this unit removed: cached provenance
-//     controls (the step in the hermetic exception, without its own
-//     -count=1), and the mapping step's old receipt. The
-//     model predicts their stale passes, and each must occur from a real
-//     cache hit (cmd/go's "(cached)", the gate's "ok, cached"), so the
-//     fixture can see the failure the design refuses.
+//   - A negative control restores what this unit removed, the mapping
+//     step's old receipt. The model predicts its stale passes, and each must
+//     occur from a real cache hit (the gate's "ok, cached"), so the fixture
+//     can see the failure the design refuses. No go test step replays Go's
+//     test cache (cmd/go's "(cached)"), in the design or the control.
 //   - In the mapping control a stale whole record is recorded, the merge
 //     tier withdraws it, and the next gate must run its steps rather than
 //     replay that record.
@@ -577,7 +550,6 @@ func TestGateCacheParityModel(t *testing.T) {
 		stale, withdrawn int
 	}{
 		{parityConfig{name: "design"}, design, 0, 0},
-		{parityConfig{name: "cached provenance controls", cachedControls: true}, []string{"gate", "editSource", "gate", "fresh", "restore", "gate", "editIndex", "gate"}, 2, 0},
 		{parityConfig{name: "mapping receipt", mappingReceipt: true}, []string{"gate", "editIndex", "gate", "fresh", "gate", "fresh", "sweep", "gate", "restore", "gate"}, 2, 2},
 	} {
 		h := newParityHarness(t, run.config)
