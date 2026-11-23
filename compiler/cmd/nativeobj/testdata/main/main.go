@@ -7,6 +7,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"weak"
 
@@ -41,14 +42,35 @@ func grow(n int) int {
 
 type holder struct{ p *int }
 
-func main() {
-	runtime.GOMAXPROCS(2)
+func callbackFrame(wantFile string) {
+	var pcs [16]uintptr
+	n := runtime.Callers(2, pcs[:])
+	frames := runtime.CallersFrames(pcs[:n])
+	for {
+		f, more := frames.Next()
+		if f.Function == "ergo.local/nativeobj/tiny.Apply" {
+			if filepath.Base(f.File) == wantFile && f.Line > 0 {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "callback frame: got %s:%d, want %s with a source line\n", f.File, f.Line, wantFile)
+			os.Exit(1)
+		}
+		if !more {
+			fmt.Fprintln(os.Stderr, "callback frame: tiny.Apply is missing")
+			os.Exit(1)
+		}
+	}
+}
 
+func memoryChecks(callbackFile string) {
 	fmt.Println("diff", tiny.Diff(7, 3), tiny.Diff(-5, 11))
 	fmt.Println("twice", tiny.Twice(21), tiny.Twice(-4))
 
 	k := 10
-	fmt.Println("apply", tiny.Apply(func(x int) int { return x*3 + k }, 4))
+	fmt.Println("apply", tiny.Apply(func(x int) int {
+		callbackFrame(callbackFile)
+		return x*3 + k
+	}, 4))
 
 	// Only Hold's frame holds the int while the callback collects: an
 	// unmarked slot lets the collector free it and clear the weak pointer.
@@ -86,25 +108,45 @@ func main() {
 	<-done
 	runtime.GC()
 	fmt.Println("publish", *h.p, sum)
+}
 
+func preemption() {
 	// Spin has no call: only an asynchronous preemption lets the
-	// collector stop the world while it runs. If none can, GC never
-	// returns and the runner's deadline names the hang.
+	// collector stop the world while it runs. Wait for an event inside
+	// Spin, not an announcement that its caller is about to enter it.
 	res := make(chan int)
-	started := make(chan bool)
-	go func() {
-		started <- true
-		res <- tiny.Spin()
-	}()
-	<-started
-	for i := 0; i < 50; i++ {
-		runtime.GC()
+	go func() { res <- tiny.Spin() }()
+	for tiny.SpinStarted() == 0 {
+		runtime.Gosched()
 	}
+	runtime.GC()
 	tiny.Stop()
 	<-res
 	fmt.Println("spin stopped")
+}
 
-	fmt.Println("init", tiny.InitRuns(), dep.Inits())
+func main() {
+	runtime.GOMAXPROCS(2)
+	if len(os.Args) != 3 {
+		fmt.Fprintln(os.Stderr, "want fixture phase and callback source")
+		os.Exit(2)
+	}
+	switch os.Args[1] {
+	case "memory":
+		memoryChecks(os.Args[2])
+	case "preempt":
+		preemption()
+	default:
+		fmt.Fprintln(os.Stderr, "unknown fixture phase", os.Args[1])
+		os.Exit(2)
+	}
+	// Tiny's init increments only by the dependency's count as it was
+	// during init, so an early run yields zero and a repeated run two.
+	tinyCount, depCount := tiny.InitRuns(), dep.Inits()
+	if tinyCount != 1 || depCount != 1 {
+		fmt.Fprintf(os.Stderr, "init counts: tiny=%d dep=%d; want 1 and 1\n", tinyCount, depCount)
+		os.Exit(1)
+	}
+	fmt.Println("init", tinyCount, depCount)
 	fmt.Println("round trip complete")
-	os.Exit(0)
 }

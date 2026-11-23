@@ -18,9 +18,10 @@ const (
 var (
 	initRuns int
 	stop     atomic.Int64
+	started  atomic.Int64
 )
 
-func init() { initRuns++ }
+func init() { initRuns += dep.Inits() }
 
 func Diff(a int, b int) int { return a - b + K1 }
 
@@ -42,8 +43,10 @@ func Anchor(f func(int) int, v int) int {
 
 func Publish(dst **int, q *int) { *dst = q }
 
+//go:noinline
 func Spin() int {
 	acc, i := 0, 0
+	started.Store(1)
 	for stop.Load() == 0 {
 		acc ^= i
 		i++
@@ -52,5 +55,7 @@ func Spin() int {
 }
 
 func Stop() { stop.Store(1) }
+
+func SpinStarted() int { return int(started.Load()) }
 
 func InitRuns() int { return initRuns }

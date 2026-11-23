@@ -7,7 +7,7 @@
 //	import dep
 //	let mut initRuns = 0
 //	let mut stop = 0
-//	func init()                         { initRuns = initRuns + 1 }
+//	func init()                         { initRuns = initRuns + dep.Inits() }
 //	func Diff(a int, b int) int         { a - b + K1 }
 //	func Twice(x int) int               { dep.Double(x) + K2 }
 //	func Apply(f func(int) int, x int) int { f(x) }
@@ -15,6 +15,7 @@
 //	func Anchor(f func(int) int, v int) int { let q = &v; let r = f(v); *q = r; v }
 //	func Publish(dst **int, q *int)     { *dst = q }
 //	func Spin() int                     { loops, xor-summing, until stop is set }
+//	func SpinStarted() int              { whether Spin entered the call-free loop }
 //	func Stop()                         { stop = 1 }
 //	func InitRuns() int                 { initRuns }
 //
@@ -55,7 +56,7 @@ func Tiny(k1 int, k2 int, dep Import) Package {
 	let i = TInt
 	let funcs = []Func{
 		fn("init", []int{}, []int{}, []int{i, i},
-			[]Op{GetGlobal{Dst: 0, Global: 0}, Const{Dst: 1, V: 1}, Arith{Dst: 0, Kind: AAdd, A: 0, B: 1}, SetGlobal{Global: 0, Src: 0}, Return{Vals: []int{}}}, 5),
+			[]Op{GetGlobal{Dst: 0, Global: 0}, Call{Dsts: []int{1}, Target: DepPath + ".Inits", Args: []int{}}, Arith{Dst: 0, Kind: AAdd, A: 0, B: 1}, SetGlobal{Global: 0, Src: 0}, Return{Vals: []int{}}}, 5),
 		fn("Diff", []int{i, i}, []int{i}, []int{i, i, i, i},
 			[]Op{Const{Dst: 3, V: k1}, Arith{Dst: 2, Kind: ASub, A: 0, B: 1}, Arith{Dst: 2, Kind: AAdd, A: 2, B: 3}, Return{Vals: []int{2}}}, 12),
 		fn("Twice", []int{i}, []int{i}, []int{i, i, i},
@@ -69,15 +70,17 @@ func Tiny(k1 int, k2 int, dep Import) Package {
 		fn("Publish", []int{TPtrPtrInt, TPtrInt}, []int{}, []int{TPtrPtrInt, TPtrInt},
 			[]Op{StorePtr{Ptr: 0, Val: 1}, Return{Vals: []int{}}}, 41),
 		fn("Spin", []int{}, []int{i}, []int{i, i, i, i, i},
-			[]Op{Const{Dst: 0, V: 0}, Const{Dst: 1, V: 0}, Const{Dst: 2, V: 1}, Const{Dst: 4, V: 0}, Label{Id: 0}, GetGlobal{Dst: 3, Global: 1},
+			[]Op{Const{Dst: 0, V: 0}, Const{Dst: 1, V: 0}, Const{Dst: 2, V: 1}, Const{Dst: 4, V: 0}, SetGlobal{Global: 2, Src: 2}, Label{Id: 0}, GetGlobal{Dst: 3, Global: 1},
 				JumpIf{Cond: CNe, A: 3, B: 1, To: 1}, Arith{Dst: 0, Kind: AXor, A: 0, B: 4}, Arith{Dst: 4, Kind: AAdd, A: 4, B: 2}, Jump{To: 0},
 				Label{Id: 1}, Return{Vals: []int{0}}}, 45),
 		fn("Stop", []int{}, []int{}, []int{i},
 			[]Op{Const{Dst: 0, V: 1}, SetGlobal{Global: 1, Src: 0}, Return{Vals: []int{}}}, 58),
 		fn("InitRuns", []int{}, []int{i}, []int{i},
 			[]Op{GetGlobal{Dst: 0, Global: 0}, Return{Vals: []int{0}}}, 62),
+		fn("SpinStarted", []int{}, []int{i}, []int{i},
+			[]Op{GetGlobal{Dst: 0, Global: 2}, Return{Vals: []int{0}}}, 68),
 	}
-	Package{Path: TinyPath, Name: "tiny", File: "tiny.ergo", Types: ty, Imports: []Import{dep}, Globals: []Global{Global{Name: "initRuns"}, Global{Name: "stop"}},
+	Package{Path: TinyPath, Name: "tiny", File: "tiny.ergo", Types: ty, Imports: []Import{dep}, Globals: []Global{Global{Name: "initRuns"}, Global{Name: "stop"}, Global{Name: "started"}},
 		Funcs: funcs, Inits: []int{0}}
 }
 
