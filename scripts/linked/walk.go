@@ -146,7 +146,7 @@ func history(root string, disk []byte, line refusal) ([]candidate, error) {
 	if exec.Command("git", "--no-optional-locks", "-C", root, "rev-parse", "-q", "--verify", "MERGE_HEAD").Run() == nil {
 		revs = append(revs, "MERGE_HEAD")
 	}
-	out, err := exec.Command("git", append(append([]string{"--no-optional-locks", "-C", root, "log", "--full-history", "--format=%h"}, revs...), "--", compilerFile)...).Output()
+	out, err := exec.Command("git", append([]string{"--no-optional-locks", "-C", root, "log", "--full-history", "--format=%h"}, append(revs, "--", compilerFile)...)...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log -- %s: %w", compilerFile, err)
 	}
