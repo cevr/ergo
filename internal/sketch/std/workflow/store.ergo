@@ -415,7 +415,10 @@ type Store {
 		let due = now.Add(1s)
 		let _ = try Commit(Claimed{grant: g}, 1, []Event{TimerSet{Name: "t", Due: due}}, Some[time.Time]{Value: due})
 		let l = try Load(run, 0)
-		l.Events == []Event{begun(wall(now)), TimerSet{Name: "t", Due: wall(due)}} && dueOf(l.Wake) == Some[time.Time]{Value: wall(due)} && wall(now).Equal(now) && wall(due).Equal(due)
+		// The written times as Unix gives them: no monotonic reading.
+		let first = time.Unix(now.UnixSeconds(), now.Nanosecond())
+		let next = time.Unix(due.UnixSeconds(), due.Nanosecond())
+		l.Events == []Event{begun(first), TimerSet{Name: "t", Due: next}} && dueOf(l.Wake) == Some[time.Time]{Value: next} && first.Equal(now) && next.Equal(due)
 	},
 }
 
@@ -446,30 +449,13 @@ func wallEvent(e Event) Event {
 	}
 }
 
-// wallOp is op with its times as a store keeps them.
-func wallOp(op Op) Op {
-	match op {
-	case Creating as c:
-		Creating{Run: c.Run, First: wallEvent(c.First), Now: wall(c.Now)}
-	case Admitting as a:
-		Admitting{Run: a.Run, Key: a.Key, Signal: a.Signal, Value: a.Value, Now: wall(a.Now)}
-	case Claiming as c:
-		Claiming{Now: wall(c.Now), Lease: c.Lease}
-	case Committing as c:
-		let mut events = []Event{}
-		for e in c.Events {
-			events = events.Append(wallEvent(e))
-		}
-		let next = match c.Next {
-		case Some{Value: t}:
-			Some[time.Time]{Value: wall(t)}
-		case None:
-			None
-		}
-		Committing{Grant: c.Grant, Expected: c.Expected, Events: events, Next: next}
-	case _:
-		op
+// wallEvents is events with their times as a store keeps them.
+func wallEvents(events []Event) []Event {
+	let mut out = []Event{}
+	for e in events {
+		out = out.Append(wallEvent(e))
 	}
+	out
 }
 
 // at is a time of the laws: sec seconds into the epoch, kept small.
@@ -598,17 +584,17 @@ func ended(events []Event) bool {
 // Apply runs op on s: the outcome, the state after it, and whether the
 // state changed (a claim that found no wake, a duplicate or refused
 // signal, a refused commit or settle (Behind, Unfenced), and a give-back
-// of a claim that is no longer the run's change nothing). Its times lose
-// their monotonic reading first (wall).
-func Apply(s State, given Op) (Outcome, State, bool) {
+// of a claim that is no longer the run's change nothing). The times it keeps
+// have no monotonic reading (wall).
+func Apply(s State, op Op) (Outcome, State, bool) {
 	let mut st = s
-	let op = wallOp(given)
 	match op {
 	case Creating as c:
 		if st.runs.Get(c.Run) != None {
 			return (Created{New: false}, st, false)
 		}
-		st.runs[c.Run] = run{events: []Event{c.First}, keys: Map[string, bool]{}, wake: Some[Wake]{Value: Wake{Due: c.Now, Rev: 1}}, rev: 1, epoch: 0, held: false, until: c.Now}
+		let now = wall(c.Now)
+		st.runs[c.Run] = run{events: []Event{wallEvent(c.First)}, keys: Map[string, bool]{}, wake: Some[Wake]{Value: Wake{Due: now, Rev: 1}}, rev: 1, epoch: 0, held: false, until: now}
 		(Created{New: true}, st, true)
 	case Admitting as a:
 		let r = match st.runs.Get(a.Run) {
@@ -623,20 +609,22 @@ func Apply(s State, given Op) (Outcome, State, bool) {
 		if ended(r.events) {
 			return (Admitted{As: RunEnded}, st, false)
 		}
+		let now = wall(a.Now)
 		let due = match r.wake {
 		case Some{Value: w}:
-			if w.Due.Before(a.Now) { w.Due } else { a.Now }
+			if w.Due.Before(now) { w.Due } else { now }
 		case None:
-			a.Now
+			now
 		}
 		let mut keys = r.keys
 		keys[a.Key] = true
 		st.runs[a.Run] = run{..r, events: r.events.Append(SignalIn{Signal: a.Signal, Value: a.Value}), keys: keys, wake: Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
 		(Admitted{As: Kept{At: cursorOf(len(r.events))}}, st, true)
 	case Claiming as c:
+		let now = wall(c.Now)
 		let mut best Option[RunID] = None
 		for id, r in st.runs {
-			if claimable(r, c.Now) && earlier(st, id, best) {
+			if claimable(r, now) && earlier(st, id, best) {
 				best = Some[RunID]{Value: id}
 			}
 		}
@@ -648,7 +636,7 @@ func Apply(s State, given Op) (Outcome, State, bool) {
 			case None:
 				Unreachable("the best run is in the store")
 			}
-			let until = wall(c.Now.Add(c.Lease))
+			let until = wall(now.Add(c.Lease))
 			let g = Grant{Run: id, Rev: revOf(r.wake), Epoch: r.epoch + 1, Until: until}
 			st.runs[id] = run{..r, epoch: r.epoch + 1, held: true, until: until}
 			(Granted{Grant: Some[Grant]{Value: g}}, st, true)
@@ -668,10 +656,10 @@ func Apply(s State, given Op) (Outcome, State, bool) {
 		if len(r.events) != int(c.Expected) {
 			return (Behind{Expected: c.Expected, Actual: cursorOf(len(r.events))}, st, false)
 		}
-		let events = r.events.Concat(c.Events)
+		let events = r.events.Concat(wallEvents(c.Events))
 		let next = match c.Next {
 		case Some{Value: due}:
-			run{..r, events: events, wake: Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
+			run{..r, events: events, wake: Some[Wake]{Value: Wake{Due: wall(due), Rev: r.rev + 1}}, rev: r.rev + 1}
 		case None:
 			run{..r, events: events}
 		}
