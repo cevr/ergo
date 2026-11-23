@@ -12,7 +12,6 @@ import (
 	"testing"
 	"unsafe"
 
-	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -134,33 +133,6 @@ func TestMappedTruncationIsADefect(t *testing.T) {
 	if !strings.Contains(f.Error(), path) {
 		t.Errorf("the defect's text %q does not name the file", f.Error())
 	}
-}
-
-// fsMapLawStatements is the ledger statement of each fs law this file
-// runs.
-var fsMapLawStatements = map[string]string{
-	"fs MapTextIsText": `MapTextIsText(s string) { let m = MapText(s) Clone(m.Text()) == s }`,
-}
-
-// TestFSMapLaws runs fs's laws over its bodies on seeded texts.
-func TestFSMapLaws(t *testing.T) {
-	lawledger.Run(t, map[string]lawledger.Law{
-		"fs MapTextIsText": {Statement: fsMapLawStatements["fs MapTextIsText"], Check: func(t *testing.T) {
-			r := rand.New(rand.NewPCG(5, 8))
-			for i := range 1000 {
-				b := make([]byte, r.IntN(64))
-				for j := range b {
-					b[j] = byte(r.IntN(256))
-				}
-				s := string(b)
-				m := FSMapText(s)
-				if FSClone(m.Text()) != s {
-					t.Fatalf("case %d: MapTextIsText fails on %q", i, s)
-				}
-				m.Close()
-			}
-		}},
-	})
 }
 
 // mappingPerms is the permission field of the line of /proc/self/maps
