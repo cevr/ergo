@@ -2057,7 +2057,7 @@ func (c *checker) slotArgs(orig *Named, targs []Type) []Type {
 
 // markSlotParams sets TypeParam.Slot on each error row parameter of sig
 // that stands alone as a type argument of a generic type in sig's
-// parameters or results, at any depth.
+// parameters or results, at any depth, or as a value parameter's type.
 func markSlotParams(sig *Signature) {
 	own := map[*TypeParam]bool{}
 	for _, tp := range sig.TParams {
@@ -2109,6 +2109,15 @@ func markSlotParams(sig *Signature) {
 		}
 	}
 	for _, p := range sig.Params {
+		// A value parameter whose type is the row parameter alone (`f F`)
+		// is a slot too: the argument keeps its own Go type, converted to
+		// error only where the function fails with it (rows.md, Error rows
+		// 8, Lowering; PRELUDE-ORFAIL).
+		if tp, ok := p.Type.(*TypeParam); ok && own[tp] {
+			tp.Slot = true
+		} else if tp := SlotRow(p.Type); tp != nil && own[tp] {
+			tp.Slot = true
+		}
 		walk(p.Type)
 	}
 	for _, r := range sig.Results {
