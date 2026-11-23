@@ -228,6 +228,15 @@ func patternNarrowType(p *Pattern, t Type) Type {
 	return t
 }
 
+// paramFreeVariant reports a subject of type t, which holds a value of an
+// own type parameter, narrowed by its pattern to a variant v that holds
+// none, directly or through a part (an Option[T], a record with a T
+// field): the matched value's release needs no release of T (types.md,
+// Generics 9; GEN9-GAP42 D).
+func (w *ownWalk) paramFreeVariant(t, v Type) bool {
+	return t != nil && v != nil && !w.c.identical(t, v) && w.c.holdsOwnParam(t) && !w.c.holdsOwnParam(v)
+}
+
 // subjectOwner distinguishes a whole owned subject from a projection or
 // incoming lend. A freshly produced value is already a statement temp.
 func (w *ownWalk) subjectOwner(x syntax.Expr) (int, bool) {
@@ -274,6 +283,9 @@ func (w *ownWalk) patternClauses(s *syntax.TypeSwitchStmt, subjects []syntax.Exp
 				}
 			}
 			resources := w.resourceParts(chosen)
+			if owned && w.st.reached && len(resources) == 0 && len(cl.List) == 1 && w.paramFreeVariant(w.info.Types[subject], partType) {
+				w.st.slots[si].paramFree = true
+			}
 			local := ownLocal{}
 			loans := mergeLoans(w.valueLoans(subject), w.patternTypeLoans(partType, chosen))
 			if len(resources) > 0 && owned && w.st.reached {

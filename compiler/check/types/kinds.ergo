@@ -337,7 +337,7 @@ func walk(st mut solve, w walker, x dense.ID[syntax.Node], k int) {
 					case None:
 					}
 				}
-			} else if mk != syntax.KLawDecl && mk != syntax.KVariantSpec {
+			} else if mk != syntax.KLawDecl && mk != syntax.KTestDecl && mk != syntax.KVariantSpec {
 				walk(st, w, m, kindType)
 			}
 		}

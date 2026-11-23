@@ -1,0 +1,8 @@
+# scripts/opcount: NR1's receipt (NAMED-ROWS): `namedrowbench bench spelled
+# N` makes N calls that fail the same six error types, the row spelled, and
+# catches each by its type; the cost of one call is the slope between the
+# two sizes. The control is the named kind's: Go writes both one way.
+unit call
+sizes 409600 2457600
+args bench spelled {n}
+control benchmarks/namedrow/testdata/control
