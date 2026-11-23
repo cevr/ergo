@@ -10,7 +10,7 @@ import (
 // native slice allocation. Neither may replace a different start or
 // turn the runtime defect of a negative capacity into a compiler error.
 //
-// Mutants: ir-compact-keep-count, ir-compact-ignore-start,
+// Mutants: ir-compact-keep-count, ir-compact-ignore-start, ir-compact-blank-range,
 // ir-compact-keep-make-call, ir-compact-negative-constant.
 func TestIRCompactSliceLoopForm(t *testing.T) {
 	const src = `
@@ -19,6 +19,7 @@ func work(n int) int {
 	let mut total = len(xs)
 	for i in 0..n { total = total + i }
 	for i in 1..n { total = total + i }
+	for _ in 0..n { total = total + 1 }
 	total + len(MakeSlice[int](0))
 }
 func negative() int { len(MakeSlice[int](-1)) }
@@ -75,8 +76,8 @@ func main() needs Console {
 			}
 		}
 	}
-	if ranges != 1 || counts != 1 || makes != 2 || defects != 1 {
-		t.Fatalf("native range=%d count=%d native make=%d negative runtime call=%d; want 1, 1, 2, 1\n%s",
+	if ranges != 1 || counts != 2 || makes != 2 || defects != 1 {
+		t.Fatalf("native range=%d count=%d native make=%d negative runtime call=%d; want 1, 2, 2, 1\n%s",
 			ranges, counts, makes, defects, src)
 	}
 	typecheckGo(t, []*lowered{{name: "compact_slice_loop", src: src, files: files}})

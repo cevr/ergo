@@ -471,9 +471,11 @@ func goInterfaceMethod(recv check.Type, c *check.Call) (*check.Func, *check.Call
 	return f, &gc
 }
 
-// countLoop uses Go's integer range for a direct zero-based int range,
-// unless a guarded loop idiom needs the endpoints. Otherwise it evaluates
-// the Range once into a temporary r, then emits
+// countLoop uses Go's integer range for a direct zero-based int range
+// with a binding, unless a guarded loop idiom needs the endpoints. An
+// ignored index keeps the old counted loop: the native bare range can
+// lengthen the hot path of a nested append loop.
+// Otherwise countLoop evaluates the Range once into a temporary r, then emits
 //
 //	for v := r.Start; v < r.End; v++ { body }
 //
@@ -499,7 +501,7 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		// emitter's rangeValue); the operator elsewhere is G1's.
 		var parts []*irExpr
 		pre, parts = b.operands([]syntax.Expr{bx.X, bx.Y})
-		if b.compactCountStart(parts[0]) && b.goType(lp.Elem, s) == "int" && b.loopIdiom(s, lp) == nil {
+		if bound(s.Value) && b.compactCountStart(parts[0]) && b.goType(lp.Elem, s) == "int" && b.loopIdiom(s, lp) == nil {
 			zero, end = parts[0], parts[1]
 		} else {
 			x = &irExpr{K: "lit", Pos: p, T: b.goType(n, s.X), Keys: []string{td.fieldName["Start"], td.fieldName["End"]}, Elems: parts}
@@ -526,11 +528,8 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		v = b.temp("i", b.goType(lp.Elem, s), p)
 	}
 	if end != nil {
-		loop := &irStmt{K: "range", Pos: past(p, pre), X: end, End: b.pos(s.Body, s.Body.Rbrace)}
+		loop := &irStmt{K: "range", Pos: past(p, pre), X: end, Key: &v, End: b.pos(s.Body, s.Body.Rbrace)}
 		filled := b.fillLoop(s, lp, zero, v, p)
-		if bound(s.Value) || b.fills.site != nil {
-			loop.Key = &v
-		}
 		ctr := b.loopBody(loop, s, s.Body)
 		filled()
 		return append(append(pre, ctr...), loop)
