@@ -500,6 +500,7 @@ var bodyTable = []bodyRow{
 	{"Shadow", bodyFact{refusal: "runtime/v1: Shadow reaches host state (os.Stderr) but is not marked //ergo:host"}},
 	{"ShrinkTape", bodyFact{body: Body{Params: []Param{{Type: "[]uint64"}, {Type: "func([]uint64) bool", Func: &Body{Params: []Param{{Type: "[]uint64"}}, Results: []string{"bool"}}}, {Type: "int"}}, Results: []string{"[]uint64", "int"}, Package: Path}}},
 	{"Sleep", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "time.Duration"}}, Wait: "caller", BridgeTarget: "ergo.local/prototype/runtime/rt.Sleep", BridgeProvider: "LiveScheduler", Package: Path}}},
+	{"SliceOfLen", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "int"}}, Results: []string{"[]T"}, Pure: true, Wait: "none", Package: Path}}},
 	{"SlicesClone", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}}, Results: []string{"[]T"}, Pure: true, Wait: "none", Package: Path}}},
 	{"SlicesConcat", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"[]T"}, Pure: true, Owned: "SlicesConcatOwned", Wait: "none", Package: Path}}},
 	{"SlicesConcatOwned", bodyFact{body: Body{TypeParams: []TypeParam{{Name: "T", Constraint: "any"}}, Params: []Param{{Type: "[]T"}, {Type: "[]T"}}, Results: []string{"[]T"}, Wait: "none", Check: "SlicesConcatPoison", Package: Path}}},
