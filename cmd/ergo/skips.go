@@ -50,6 +50,9 @@ func unexpectedSkips(stdout []byte, skips string) []string {
 // skipsExit is the exit of a test run that passed: 1, naming each, when it
 // printed a skip the module's expected-skips does not list.
 func skipsExit(stdout []byte, path string) error {
+	if isStdTarget(path) {
+		return stdSkipsExit(stdout, strings.TrimPrefix(path, stdTargetPrefix))
+	}
 	skips := unexpectedSkips(stdout, skipsPath(path))
 	if len(skips) == 0 {
 		return nil
