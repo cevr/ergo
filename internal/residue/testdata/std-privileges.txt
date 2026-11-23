@@ -96,7 +96,7 @@ debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_hand	flag	"hostLend
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_typeCtx	flag	"binding"	CodecFieldsOf_typeCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isTestAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-language	internal/sketch/check/contextneeds.go:checker.readContextHeader	flag	"isTestAmbient"	TestAmbient in a named context's needs row, the test runner's	-
+language	internal/sketch/check/contextneeds.go:checker.readContextHeader	flag	"isTestAmbient"	TestAmbient, the test runner's, in a named context's needs row	-
 language	internal/sketch/check/contextvalues.go:contextRow	mark	"stdlib.PreludePath"	Context, the predeclared row value	-
 language	internal/sketch/check/contextvalues.go:contextRow	name	"Context"	Context, the predeclared row value	-
 debt	internal/sketch/check/decl.go:checker.funcSig	mark	"Host()"	checker.funcSig: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
