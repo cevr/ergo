@@ -355,12 +355,19 @@ cmd_trial() {
 
 # drivers writes into the clone at [dir] (the working folder's by
 # default) each merge driver its .gitattributes names and its
-# configuration lacks, by the driver table in that file's header. The
-# gate refuses a lane without them (scripts/gate/drivers.go) and names
-# this command.
+# configuration lacks. work's own table is the source: `work doctor -here
+# -fix` registers its drivers in that clone (modules/work, DriverSettings;
+# TestDriverTableIsWorks holds the header's table to it). A driver it did
+# not write (no work on PATH, a work too old for -here, a driver of no
+# class of work's) is written by the driver table in the attributes'
+# header. The gate refuses a lane without them (scripts/gate/drivers.go)
+# and names this command.
 cmd_drivers() {
   dir=$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null) || fail "not a Git checkout: ${1:-$PWD}"
   [ -f "$dir/.gitattributes" ] || return 0
+  if command -v "$WORK" >/dev/null 2>&1; then
+    (cd "$dir" && "$WORK" doctor -here -fix >/dev/null 2>&1) && printf 'work doctor -here -fix in %s\n' "$dir" || true
+  fi
   for n in $(merge_drivers <"$dir/.gitattributes"); do
     git -C "$dir" config --get "merge.$n.driver" >/dev/null && continue
     for k in name driver; do
