@@ -313,6 +313,13 @@ func (fc *funcCtx) typeTest(want check.Type, val string, t check.Type, tests *[]
 	if !fc.isInterface(t) || fc.goType(want) == fc.goType(t) {
 		return val
 	}
+	if fc.l.namedRow(want) {
+		// A named row is Go's error, which every error is: the test is
+		// of its variants (namedrow.go), and the value narrows to it as
+		// an error.
+		*tests = append(*tests, fc.subUnionTests(want, t, val, fc.site))
+		return fc.unionInto(t, want, val, fc.site)
+	}
 	*tests = append(*tests, fc.l.isHelper()+"["+fc.goType(want)+"]("+val+")")
 	return val + ".(" + fc.goType(want) + ")"
 }

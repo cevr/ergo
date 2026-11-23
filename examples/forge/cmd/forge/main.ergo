@@ -34,7 +34,7 @@ func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
 	let set = Set()
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return None
 	}
 	let o = Options{Brief: Brief.Get(v), Stock: Stock.Get(v)}
@@ -68,7 +68,7 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stdin | forge.Assayer
 	let end, lines = drive.Run(drive.Fresh(Rack(o.Stock)), items)
 	if !o.Brief {
 		for l in lines {
-			io.Stdout.Println(drive.Text(l))
+			io.Stdout.Println(drive.Shown(l))
 		}
 	}
 	io.Stdout.Println(drive.Summary(end))
@@ -93,7 +93,7 @@ test ScriptedRun {
 test RefusalsExit {
 	assert session([]string{"-stock", "-1"}, "") == "exit 2: forge: a stock of -1 is less than none"
 	assert session([]string{}, "1s ore\n") == "exit 2: forge: line 1: ore takes 1 word after it: 1s ore"
-	assert session([]string{"-h"}, "") == flag.Usage(Set())
+	assert session([]string{"-h"}, "") == flag.UsageText(Set())
 }
 
 test BriefPrintsTheTally {
