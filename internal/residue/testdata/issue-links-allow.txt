@@ -4,7 +4,6 @@
 # only shrinks.
 docs/conformance.md	TOOLING
 docs/decisions.md	PRINCIPLES
-docs/previews/2026-10-28-without-go-syntax.md	PREVIEW-TEST
 docs/receipts/	RECEIPTS
 docs/research/	DEL-RESEARCH
 docs/specs/custom-lint.md	SPECS-CITED

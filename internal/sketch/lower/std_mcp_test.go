@@ -17,7 +17,7 @@ import (
 // place a tool that ran and failed is answered (mutant
 // ap2-tool-error-as-rpc-error). mcp/stdio's Transport keeps
 // StopsWhenAsked under its own named context, overText (stdio's
-// Transport over io.InOver and io.HostOver), which TestStdMCPLawsRun
+// Transport over io.NewInput and io.NewRecorder), which TestStdMCPLawsRun
 // runs with ergo test (stdioStopsWhenAsked).
 const stdMCPLawsProbe = `import json
 import mcp
@@ -264,7 +264,7 @@ func TestStdMCPLawsRun(t *testing.T) {
 
 // stdioStopsWhenAsked runs `ergo test` on std mcp/stdio, where the named
 // context overText feeds mcp.Transport.StopsWhenAsked with stdio's
-// Transport over io.InOver and io.HostOver: the law that stdio's
+// Transport over io.NewInput and io.NewRecorder: the law that stdio's
 // Transport keeps, run under std's own context as a module's laws run,
 // not restated by the probe (LAW-UNFED: a fed law stays fed). Mutant
 // mcp-stdio-messages-ignore-stop.
