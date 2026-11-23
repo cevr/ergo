@@ -996,6 +996,7 @@ workflow Store.OneClaimPerWake	#162
 workflow Store.SettleLeavesNewerWake	#162
 workflow Store.SettledGiveBackChangesNothing	#162
 workflow Store.StaleCommitChangesNothing	#162
+workflow Store.TimeReadBackIsWritten	#162
 workflow Store.UnsettledClaimComesBack	#162
 workflow/file EveryCutIsAllOrNothing	#162
 workflow/file FileIsMemory	#162

@@ -396,6 +396,27 @@ type Store {
 		try GiveBack(g)
 		try Load(run, 0) == before && before.Wake == None && try Claim(now, 1s) == None
 	},
+
+	// TimeReadBackIsWritten: a time read back from the store is the time
+	// written, with no monotonic reading (a clock's reading has one, and
+	// a store keeps wall time): the first event's time, a committed
+	// event's time and the next wake's.
+	law TimeReadBackIsWritten(run RunID, sec int64, ns int64) {
+		let m = time.NewManual(((sec % 1000000) + 1000000) % 1000000)
+		m.Advance(duration(((ns % 1000000000) + 1000000000) % 1000000000))
+		let now = m.Now()
+		let _ = try Create(run, begun(now), now)
+		let g = match try Claim(now, 1s) {
+		case Some{Value: x}:
+			x
+		case None:
+			return false
+		}
+		let due = now.Add(1s)
+		let _ = try Commit(Claimed{grant: g}, 1, []Event{TimerSet{Name: "t", Due: due}}, Some[time.Time]{Value: due})
+		let l = try Load(run, 0)
+		l.Events == []Event{begun(wall(now)), TimerSet{Name: "t", Due: wall(due)}} && dueOf(l.Wake) == Some[time.Time]{Value: wall(due)} && wall(now).Equal(now) && wall(due).Equal(due)
+	},
 }
 
 // dueIs is whether w is a wake due at t.
@@ -581,7 +602,8 @@ func ended(events []Event) bool {
 // their monotonic reading first (wall).
 func Apply(s State, given Op) (Outcome, State, bool) {
 	let mut st = s
-	match wallOp(given) {
+	let op = wallOp(given)
+	match op {
 	case Creating as c:
 		if st.runs.Get(c.Run) != None {
 			return (Created{New: false}, st, false)
