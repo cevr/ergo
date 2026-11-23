@@ -108,7 +108,7 @@ func (c *checker) crosses(t Type) bool { return !c.holdsResource(t) }
 // holdsOwnParam reports whether a value of type t holds a value of an own
 // type parameter, directly or through a part (a field, an element, a
 // variant, a type argument), whatever concrete resources it also holds:
-// the part a generic body cannot release (#197 Gap 42).
+// the part a generic body cannot release (Gap 42).
 func (c *checker) holdsOwnParam(t Type) bool {
 	w := resWalk{c: c, mode: resOwnPart}
 	h, _ := w.visit(t)

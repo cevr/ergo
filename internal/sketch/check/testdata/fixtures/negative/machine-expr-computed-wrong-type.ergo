@@ -1,0 +1,16 @@
+// A computed step is checked against the Machine's Step field: a step of
+// another state is refused at the entry.
+type S = Off{} | On{}
+type T = Up{} | Down{}
+type E = Flip{}
+
+func stepT(s T, e E) Decision[T, T] { Stay[T]{Next: s} }
+
+func id(f own func(s T, e E) Decision[T, T]) func(s T, e E) Decision[T, T] { f }
+
+type M machine[S, E] {
+	initial: Off,
+	step:    id(stepT), // want S108
+}
+
+func main() {}

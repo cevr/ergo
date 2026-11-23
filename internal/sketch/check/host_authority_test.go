@@ -43,10 +43,10 @@ func readWith(h fs.Host) string {
 const (
 	fsAuthority = "fs.Host has an unexported field, so only package fs builds it; use fs.NewTestHost or fs.NewHost"
 	osAuthority = "os.Host has an unexported field, so only package os builds it; use os.NewTestHost or os.NewHost"
-	// io's In and Host are sealed by the same rule; InOver and HostOver
-	// build them with no row (STD-IO-IN).
-	ioInAuthority   = "io.In has an unexported field, so only package io builds it; use io.NewStdin or io.InOver"
-	ioHostAuthority = "io.Host has an unexported field, so only package io builds it; use io.NewHost or io.HostOver"
+	// io's In and Host are sealed by the same rule: only NewStdin and
+	// NewHost, which need Ambient, build them.
+	ioInAuthority   = "io.In has an unexported field, so only package io builds it; use io.NewStdin"
+	ioHostAuthority = "io.Host has an unexported field, so only package io builds it; use io.NewHost"
 	// The prelude's constructor is in scope with no package name.
 	liveAuthority = "prelude.LiveScheduler has an unexported field, so only package prelude builds it; use NewLiveScheduler"
 	// ambientEntryText is the S106 of a context entry for Ambient
@@ -173,12 +173,10 @@ func Lit() fs.Host { fs.Host{} } // want S114
 			"root is not an exported field of fs.Host (grammar.md, Visibility 2)",
 			"a literal of fs.Host builds a new value: " + fsAuthority,
 		}},
-		{"N12 io's In and Host are sealed; InOver and HostOver need no row", `
+		{"N12 io's In and Host are sealed", `
 func LitIn() io.In { io.In{} } // want S114
 
 func LitHost() io.Host { io.Host{} } // want S114
-
-func Over() bool { echo(io.HostOver(io.NewRecorder()), io.InOver("a")) }
 `, []string{
 			"a literal of io.In builds a new value: " + ioInAuthority,
 			"a literal of io.Host builds a new value: " + ioHostAuthority,
@@ -305,6 +303,10 @@ func ReadDir(_ Mem, path string) []string fails fs.NotFound | fs.Denied | fs.Fai
 }
 
 func Stat(_ Mem, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	return fs.NotFound{Path: path}
+}
+
+func Lstat(_ Mem, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
 	return fs.NotFound{Path: path}
 }
 

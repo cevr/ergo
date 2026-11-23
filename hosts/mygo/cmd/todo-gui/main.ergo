@@ -8,7 +8,8 @@
 //	todo-gui -headless -script f [-tree] [-png p]  play the JSON act list in f (ui.ParseActs);
 //				-tree prints the screen after it, a JSON line a node (ui.TreeLine),
 //				and -png writes its picture to p
-//	todo-gui -headless < s   play the script s through the window's input
+//	todo-gui -headless [-tree] < s  play the script s through the window's input
+//				(-tree: then the screen, as with -script)
 //	todo-gui -headless -drive ADDR  play the lines one connection to ADDR sends
 //	ERGO_DRIVE=ADDR todo-gui open the window and play, first, the lines one
 //				connection to ADDR sends (on a phone: the property
@@ -150,7 +151,7 @@ func headless(args []string) fails os.Exit needs Ambient | go.Foreign {
 	case script.BadLine as b:
 		return os.Exit{Code: 2, Message: "todo-gui: line \(b.Line) is no step: \(b.Text)"}
 	}
-	try play(steps, false, "")
+	try play(steps, tree, "")
 }
 
 // play plays acts through a window with no screen and prints the state

@@ -114,6 +114,12 @@ type Graph struct {
 	Work   map[string]Site
 	Exit   map[string]Site
 	Unsure []string
+	// Computed lists the entries, in declaration order (step, after, work,
+	// exit), that are computed (MACHINE-EXPR): an expression that names no
+	// function, whose value a run computes, so the source shows no graph
+	// of it ("no graph: computed step"). A computed step gives no arm, a
+	// computed after no timer, and so on.
+	Computed []string
 }
 
 // Locate gives the file and line of pos in the file that holds the
@@ -152,10 +158,11 @@ func Of(pkg *check.Package, tn *check.TypeName, spec *syntax.MachineType, at Loc
 		Timers: map[string]Timer{}, Work: map[string]Site{}, Exit: map[string]Site{}}
 	r.g = g
 	g.Initial = r.initial(spec.Initial)
-	if step := r.fn(spec.Step); step != nil {
+	r.entries = pkg.Info.MachineEntries[tn]
+	if step := r.fn(r.entries.Step, "step"); step != nil {
 		g.Arms = r.arms(step)
 	}
-	if after := r.fn(spec.After); after != nil {
+	if after := r.fn(r.entries.After, "after"); after != nil {
 		r.perState(after, func(state string, v syntax.Expr, decl syntax.Node) {
 			sig, some := r.some(v, "Signal")
 			if some {
@@ -163,14 +170,14 @@ func Of(pkg *check.Package, tn *check.TypeName, spec *syntax.MachineType, at Loc
 			}
 		})
 	}
-	if work := r.fn(spec.Work); work != nil {
+	if work := r.fn(r.entries.Work, "work"); work != nil {
 		r.perState(work, func(state string, v syntax.Expr, decl syntax.Node) {
 			if _, some := r.some(v, ""); some {
 				g.Work[state] = at(decl, v.Pos())
 			}
 		})
 	}
-	if exit := r.fn(spec.Exit); exit != nil {
+	if exit := r.fn(r.entries.Exit, "exit"); exit != nil {
 		r.perState(exit, func(state string, v syntax.Expr, decl syntax.Node) {
 			if _, some := r.some(v, ""); some {
 				g.Exit[state] = at(decl, v.Pos())
@@ -224,18 +231,28 @@ type reader struct {
 	g    *Graph
 	// seen guards the helpers read through against recursion.
 	seen map[*check.Func]bool
+	// entries are the declaration's checked entries (MACHINE-EXPR).
+	entries *check.MachineEntries
 }
 
-// fn is the package function an entry names, nil for none.
-func (r *reader) fn(x syntax.Expr) *check.Func {
-	id, ok := x.(*syntax.Ident)
-	if !ok {
+// fn is the function the entry e names (a generic one's body, for an
+// instance: its graph is in the declaration's type parameters), nil for
+// none; a computed entry, named what, is listed in Computed.
+func (r *reader) fn(e *check.MachineEntry, what string) *check.Func {
+	if e == nil {
 		return nil
 	}
-	f, ok := r.info.Uses[id].(*check.Func)
-	if !ok || f.Decl == nil || f.Decl.Body == nil {
+	if e.Computed() {
+		r.g.Computed = append(r.g.Computed, what)
 		return nil
 	}
+	f := e.Func
+	if f.Decl == nil || f.Decl.Body == nil || f.Pkg == nil || f.Pkg.Info == nil {
+		return nil
+	}
+	// A function of another package (step: pkg.f) is read with its own
+	// package's facts; its sites are where Locate finds them.
+	r.pkg, r.info = f.Pkg, f.Pkg.Info
 	return f
 }
 

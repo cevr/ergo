@@ -409,6 +409,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// takes (lawDecl), as a call on a value of the type does.
 			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{recv}, vals...), env, x, c, x)
 		}
+		if c.Kind == check.CallLawOp && fc.l.runtimeNamed(cap, x) {
+			// A law of an extern Go type (std rand.Stream, time.Timeline)
+			// calls the bound value's runtime method, with that body's
+			// hidden arguments and no task, as a call on a value does.
+			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{env + "." + fc.l.envField(cap)}, vals...), env, x, c, x)
+		}
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
 		vals = append([]string{taskOf(env)}, vals...)

@@ -128,7 +128,7 @@ func TestDurableStepIsPure(t *testing.T) {
 			// A body of two statements is not seen through.
 			name: "value", step: pureStep, helpers: "\nfunc counter() Machine[State, Signal, int] {\n\tlet m = Counter{}\n\tm\n}\n",
 			call: "journal.Start(counter(), j, 2, 1, func(o int) {})",
-			want: "journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)",
+			want: "journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{} whose step names a function, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {

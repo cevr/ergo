@@ -28,6 +28,7 @@
       "rule": "binsize BS7b: an arm of several tuple patterns takes a pair one of them takes (ArmOf, Reachable).",
       "killers": ["internal/sketch/machinegraph:TestGraphMatchesTheModel"]
     },
-    {"name":"g1-graph-no-exit","origin":"wf10 FK9-g1c","file":"internal/sketch/machinegraph/graph.go","from":"\t\t\t\tg.Exit[state] = at(decl, v.Pos())\n","to":"\t\t\t\t_ = at(decl, v.Pos())\n","rule":"runtime.md Machines and actors 15 (inspection): the graph lists each state's exit action.","anchor":{"tests":["internal/sketch/machinegraph:TestGraphMatchesTheModel"]},"killers":["internal/sketch/machinegraph:TestGraphMatchesTheModel"]}
+    {"name":"g1-graph-no-exit","origin":"wf10 FK9-g1c","file":"internal/sketch/machinegraph/graph.go","from":"\t\t\t\tg.Exit[state] = at(decl, v.Pos())\n","to":"\t\t\t\t_ = at(decl, v.Pos())\n","rule":"runtime.md Machines and actors 15 (inspection): the graph lists each state's exit action.","anchor":{"tests":["internal/sketch/machinegraph:TestGraphMatchesTheModel"]},"killers":["internal/sketch/machinegraph:TestGraphMatchesTheModel"]},
+    {"name":"mexpr-graph-computed","origin":"wf10 MACHINE-EXPR","file":"internal/sketch/machinegraph/graph.go","from":"\tif e.Computed() {\n\t\tr.g.Computed = append(r.g.Computed, what)\n\t\treturn nil\n\t}\n","to":"\tif e.Computed() {\n\t\treturn nil\n\t}\n","rule":"A computed entry has no graph, and the graph lists it (Computed), so ergo inspect machine says \"no graph: computed step\".","killers":["internal/sketch/machinegraph:TestGraphMatchesTheModel"]}
   ]
 }

@@ -303,6 +303,8 @@ type Mine {} implements fs.Files
 func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
 func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
 func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
+
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.Info{Name: path, Size: 0, Dir: false, Perm: 292} }
 func use(f embed.FS) { _ = f.ReadDir(".") catch { case fs.NotFound, fs.Denied, fs.Failed: []string{} } }
 func main() {
 	use(Mine)
@@ -884,6 +886,10 @@ func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed
 	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
 }
 
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	fs.Info{Name: path, Size: 0, Dir: false, Perm: 0}
+}
+
 func use(f fs.Files) { _ = f.ReadFile("a") catch { case fs.NotFound, fs.Denied, fs.Failed: "" } }
 
 func main() {
@@ -903,6 +909,7 @@ func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied 
 func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
 func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
 func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Mkdir(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {}
 
 func use(w fs.Writes) { w.MkdirAll("a") catch { case fs.Denied, fs.Failed: } }
 
@@ -1106,6 +1113,78 @@ func Stop(m own Mine) int { Close(m); 0 }
 func Close(_ Mine) {}
 
 func use(r exec.Running) { _ = r.Wait() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"sha256.Hasher": `import sha256
+
+type Mine {} implements Closer
+
+func Write(_ Mine, s string) {}
+func Digest(_ Mine) string { "" }
+func Clone(_ Mine) sha256.Hasher { sha256.New() }
+func Close(_ Mine) {}
+
+func use(h sha256.Hasher) { _ = h.Digest() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"fs/mapped.Maps": `import fs
+import fs/mapped
+
+type Mine {} implements mapped.Maps
+
+func ReadFile(_ Mine, path string) string fails fs.NotFound | fs.Denied | fs.Failed { "" }
+func ReadDir(_ Mine, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { []string{} }
+func Stat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+func Lstat(_ Mine, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+func WriteFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAll(_ Mine, path string) fails fs.Denied | fs.Failed {}
+func WriteFileMode(_ Mine, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func MkdirAllMode(_ Mine, path string, mode fs.Mode) fails fs.Denied | fs.Failed {}
+func AppendFile(_ Mine, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Chmod(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Rename(_ Mine, from string, to string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Remove(_ Mine, path string) fails fs.NotFound | fs.Denied | fs.Failed {}
+func Mkdir(_ Mine, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {}
+func MapBounded(_ Mine, path string, limit int) fs.Mapped fails fs.NotFound | fs.Denied | fs.Failed | fs.NotRegular | fs.TooLarge { fs.MapText("") }
+func SameAs(_ Mine, m fs.Mapped, path string) bool fails fs.NotFound | fs.Denied | fs.Failed { false }
+
+func use(m mapped.Maps) { _ = m.SameAs }
+
+func main() {
+	use(Mine)
+}
+`,
+	"os.Self": `import os
+
+type Mine {} implements os.Self
+
+func Environ(_ Mine) []string { []string{} }
+func Pid(_ Mine) int { 1 }
+func HomeDir(_ Mine) string fails os.NoDir { "/home" }
+func CacheDir(_ Mine) string fails os.NoDir { "/home/.cache" }
+func ConfigDir(_ Mine) string fails os.NoDir { "/home/.config" }
+func Executable(_ Mine) string fails os.NoDir { "/bin/mine" }
+
+func use(s os.Self) { _ = s.Pid() }
+
+func main() {
+	use(Mine)
+}
+`,
+	"signal.Stops": `import signal
+
+type Mine {} implements signal.Stops
+
+func Next(_ Mine) signal.Stop { signal.Interrupt }
+func Poll(_ Mine) Option[signal.Stop] { None }
+
+func use(s signal.Stops) { _ = s.Poll() }
 
 func main() {
 	use(Mine)
@@ -1637,6 +1716,80 @@ func main() {
 	use(Mine)
 }
 `,
+	// std mcp (MCP0): a transport is a program's provider, as mcp/memory's and mcp/stdio's are std's.
+	"mcp.Transport": `import mcp
+
+type Mine {} implements mcp.Transport
+
+func Messages(_ Mine) Seq[string] { func(yield func(m string) bool) {} }
+func Send(_ Mine, message string) {}
+
+func use(_ mcp.Transport) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// std sql: a database's provider is a module's (sqltest.Script is std's, for tests).
+	"sql.DB": `import sql
+
+type Mine {} implements sql.DB
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func Begin(_ Mine) sql.Conn fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { return sql.Closed{Message: "x"} }
+
+func use(_ sql.DB) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"sql.Conn": `import sql
+
+type Mine {} implements sql.Conn
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func Commit(_ Mine) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {}
+func Rollback(_ Mine) {}
+func Savepoint(_ Mine, name string) fails sql.Timeout | sql.Closed | sql.Other {}
+func Release(_ Mine, name string) fails sql.Timeout | sql.Closed | sql.Other {}
+func RollbackTo(_ Mine, name string) fails sql.Timeout | sql.Closed | sql.Other {}
+
+func use(_ sql.Conn) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"sql.Dialect": `import sql
+
+type Mine {} implements sql.Dialect
+
+func Classify(_ Mine, e sql.HostError) sql.Failure { sql.Other{Code: e.Code, Message: e.Message} }
+
+func use(_ sql.Dialect) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// Only Transaction binds Tx: a program's Tx would fake a transaction boundary.
+	"sql.Tx": `import sql
+
+type Mine {}
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func bound(_ Mine) {}
+
+func use(_ sql.Tx) {}
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1652,6 +1805,7 @@ var unexportedStd = map[string]string{
 	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
 	"xml.Text":            "raw is an unexported operation of xml.Text, so only a type of package xml implements it",
 	"explore.Hasher":      "size is an unexported operation of explore.Hasher, so only a type of package explore implements it",
+	"sql.Tx":              "bound is an unexported operation of sql.Tx, so only a type of package sql implements it",
 }
 
 // openStd records the operation types that did not use the old implicit
@@ -1669,6 +1823,9 @@ var openStd = map[string]bool{
 	"prelude.Writer":    true,
 	"prelude.Reader":    true,
 	"os.Process":        true,
+	"os.Self":           true,
+	"fs/mapped.Maps":    true, // open: a program may provide its own store of mapped files (CAP-FILE), as fs.Files and fs.Writes are open
+	"signal.Stops":      true,
 	"fs.Files":          true,
 	"fs.Writes":         true,
 	"fs.Root":           true,
@@ -1716,6 +1873,10 @@ var openStd = map[string]bool{
 	"session.Store":     true, // open: std's own providers are other packages (session/memory.Store, session/file), and a database's is a module's
 	"testing.Allocs":    true,
 	"llm.Model":         true,
+	"mcp.Transport":     true, // open: std's own providers are other packages (mcp/memory, mcp/stdio), and a socket's is a module's
+	"sql.DB":            true, // open: a database's provider is a module's; std has sqltest.Script for tests
+	"sql.Conn":          true, // open: as sql.DB's
+	"sql.Dialect":       true, // open: a database's failure codes are its module's (std has sql.Standard)
 	// The layout's text measure, which a host provides with its fonts.
 }
 
@@ -1834,6 +1995,16 @@ func use(t Task[int, Fault]) { t.Stop() }
 func main() {
 	use(Mine) // want S109
 }
+`,
+		// A program's Tx would fake a transaction boundary: only
+		// Transaction binds it (std sql, Operation types 1).
+		"sql-tx-faked": `import sql
+
+type Mine {} implements sql.Tx // want S106
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func bound(_ Mine) {}
 `,
 		// Controls: a value of the std type itself converts nothing, and
 		// the prelude's Console takes a program provider.

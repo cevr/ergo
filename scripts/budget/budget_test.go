@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -53,7 +54,7 @@ func (h host) run(t *testing.T, script, ws string, extra []string, argv ...strin
 	// The caller's own width (a test under `ergo budget` has GOMAXPROCS
 	// set) is not the run's.
 	for _, kv := range os.Environ() {
-		if k, _, _ := strings.Cut(kv, "="); k != "GOMAXPROCS" && k != "HEAVY_CORES" && k != "ERGO_GATE_CPUS" && k != "HEAVY_HELD" {
+		if k, _, _ := strings.Cut(kv, "="); k != "GOMAXPROCS" && k != "HEAVY_CORES" && k != "ERGO_GATE_CPUS" && k != "HEAVY_HELD" && k != "ERGO_BUDGET_CEILING" {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
@@ -101,6 +102,26 @@ func TestLightCritComesOnlyFromTheCritFile(t *testing.T) {
 	}
 	if got := h.run(t, "light.sh", "ws-lane", []string{"LIGHT_CRIT=1"}, "true"); flag(got, "class") != "lane" {
 		t.Errorf("a run of ws-lane with LIGHT_CRIT=1: %q, want class lane", got)
+	}
+}
+
+// TestLightPassesTheHostCeiling checks the wrapper's argv with and without
+// a ceiling, so the new wrapper still works with an old ergo binary until
+// the host sets the variable. Mutants: budget-light-ceiling-ignored and
+// ceiling-flag-always-passed.
+func TestLightPassesTheHostCeiling(t *testing.T) {
+	h := newHost(t)
+	prefix := []string{"budget", "--config", h.conf, "--width", "4", "--class", "lane", "--lane", "ws-lane"}
+	payload := []string{"--", "nice", "-n", "19", "true"}
+	for _, c := range []struct{ env, args []string }{
+		{nil, nil},
+		{[]string{"ERGO_BUDGET_CEILING="}, nil},
+		{[]string{"ERGO_BUDGET_CEILING=3G"}, []string{"--ceiling", "3G"}},
+	} {
+		want := slices.Concat(prefix, c.args, payload)
+		if got := h.run(t, "light.sh", "ws-lane", c.env, "true"); !slices.Equal(got, want) {
+			t.Errorf("environment %q: argv %q; want %q", c.env, got, want)
+		}
 	}
 }
 
