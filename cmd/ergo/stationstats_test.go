@@ -272,7 +272,7 @@ func stationStatsReference(text []byte) string {
 	type stats struct{ min, max, sum, count int }
 	all := map[string]*stats{}
 	fail := func(at int, why string) string {
-		return fmt.Sprintf("stdout:\n\nstderr:\nonebrc: malformed line at byte %d: %s\n\nstatus 1\n", at, why)
+		return fmt.Sprintf("stdout:\n\nstderr:\nstation-stats: malformed line at byte %d: %s\n\nstatus 1\n", at, why)
 	}
 	for at := 0; at < len(text); {
 		rest := text[at:]
@@ -306,7 +306,7 @@ func stationStatsReference(text []byte) string {
 		at += end + 1
 	}
 	if len(all) > 10000 {
-		return "stdout:\n\nstderr:\nonebrc: more than 10000 stations\n\nstatus 1\n"
+		return "stdout:\n\nstderr:\nstation-stats: more than 10000 stations\n\nstatus 1\n"
 	}
 	names := make([]string, 0, len(all))
 	for name := range all {
