@@ -93,6 +93,12 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	}
 	if f.owned != nil {
 		in.register(fr, x, v, f.owned, x) // a temporary its statement owns (R43)
+		if fr.info.ReturnedTemps[x] {
+			// A new value a return gives: the frame keeps it until its
+			// exit is known and it leaves with the value (R10,
+			// v1.Returned), as a returned owned local does (handoff).
+			fr.keep(x)
+		}
 	}
 	// A variant, a sub-union's value (ConvWiden) or a row value goes into its union unchanged: the value
 	// keeps its record type; so does a function narrowed to a row value's
