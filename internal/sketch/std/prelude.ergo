@@ -576,14 +576,14 @@ func Equal[K comparable, H Hashing[K], V comparable](m hashTable[K, H, V], o has
 // equal; 0.0 and -0.0 are == and must have one hash.
 law StructuralFloatKeysHashEqual(a float64, b float64 where a == b) { hash(a) == hash(b) }
 
-// StructuralIntKeysHashEqual: Structural[int]'s equal keys hash equal.
-// Two ints are == only when identical, so the run reports a skip.
-law StructuralIntKeysHashEqual(a int, b int where a == b) { hash(a) == hash(b) }
-
 // StructuralStringKeysHashEqual: Structural[string]'s equal keys hash
-// equal. Two strings are == only when identical, so the run reports a
-// skip.
-law StructuralStringKeysHashEqual(a string, b string where a == b) { hash(a) == hash(b) }
+// equal even when they use separately allocated storage. The prefix makes
+// the strings nonempty even when the generator draws empty text.
+law StructuralStringKeysHashEqual(s string) {
+	let a = "key:\(s)"
+	let b = a.Bytes().Text()
+	a == b && hash(a) == hash(b)
+}
 
 // Range is the integers from Start up to End, End excluded: `a..b` builds
 // one, and `for i in r` counts through it (#196, one for). A for and `..`

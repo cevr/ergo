@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -24,7 +22,7 @@ import (
 // only shrinks: a listed key that passes or names nothing, and one that
 // now fails in another class, fails the run until its line goes or is
 // rewritten, so no line hides a second bug.
-const stdRedFile = "scripts/ergotests/testdata/std-red.txt"
+const stdRedFile = stdlib.TestRedPath
 
 // stdRun is what -std saw: each law's verdicts (by "pkg Law"; one per
 // provider or state it runs for) and the class of each key that failed.
@@ -34,6 +32,9 @@ type stdRun struct {
 	// native is each law's verdicts in its package's native run
 	// (runStdNative): true for ok, false for a skip or a failure.
 	native map[string][]bool
+	// nativeMissing records a skip on the prelude's own source, not
+	// a verdict of the same law in another package with a provider.
+	nativeMissing map[string]string
 	// declared is the declaring package of each member law, by "q T.L",
 	// q the last element of its path (memberLaws).
 	declared map[string]string
@@ -89,7 +90,7 @@ func runStd(w io.Writer, root, ergo string) int {
 		fmt.Fprintln(w, "FAIL the std law ledger:", err)
 		return 1
 	}
-	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, native: map[string][]bool{}, declared: memberLaws(rows)}
+	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, native: map[string][]bool{}, nativeMissing: map[string]string{}, declared: memberLaws(rows)}
 	for _, pkg := range stdlib.Packages() {
 		dir := filepath.Join(root, filepath.FromSlash(stdRoot), filepath.FromSlash(pkg))
 		rep, err := evaluate(dir)
@@ -125,10 +126,14 @@ func runStd(w io.Writer, root, ergo string) int {
 	if code := runStdNative(w, root, ergo, bare, &run); code != 0 {
 		return code
 	}
-	listed, err := readStdRed(filepath.Join(root, filepath.FromSlash(stdRedFile)))
+	shipped, err := stdlib.TestReds()
 	if err != nil {
 		fmt.Fprintln(w, "FAIL", err)
 		return 1
+	}
+	listed := make(map[string]redLine, len(shipped))
+	for key, row := range shipped {
+		listed[key] = redLine{row.Class, row.Why, row.ID}
 	}
 	problems := redProblems(bare, run, listed)
 	for _, p := range problems {
@@ -174,6 +179,11 @@ func redProblems(bare []string, run stdRun, listed map[string]redLine) []string 
 	for key, class := range run.failed {
 		needs[key] = class
 	}
+	for key := range run.nativeMissing {
+		if needs[key] == "" {
+			needs[key] = stdlib.NativeSkipClass
+		}
+	}
 	for _, key := range bare {
 		ran := ranInPlace(run.verdicts[key]) || ranNatively(run.native[key])
 		if _, failed := needs[key]; !ran && !failed {
@@ -188,6 +198,8 @@ func redProblems(bare []string, run stdRun, listed map[string]redLine) []string 
 			out = append(out, fmt.Sprintf("%s is %s on its own source: make it pass, or list it in %s as \"%s\\t%s: why\\tREGISTER-ID\"", key, needs[key], stdRedFile, key, needs[key]))
 		case line.class != needs[key]:
 			out = append(out, fmt.Sprintf("%s is %s on its own source, and %s lists it as %s: a new failure, not the listed one; fix it, or rewrite the line with its register id", key, needs[key], stdRedFile, line.class))
+		case line.class == stdlib.NativeSkipClass && line.why != run.nativeMissing[key]:
+			out = append(out, fmt.Sprintf("%s skipped for a different reason: %s", key, run.nativeMissing[key]))
 		}
 	}
 	for _, key := range sortedKeys(listed) {
@@ -217,36 +229,4 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// readStdRed reads stdRedFile; # starts a comment line.
-func readStdRed(path string) (map[string]redLine, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	out := map[string]redLine{}
-	scan := bufio.NewScanner(f)
-	for n := 1; scan.Scan(); n++ {
-		text := scan.Text()
-		if strings.TrimSpace(text) == "" || strings.HasPrefix(text, "#") {
-			continue
-		}
-		cells := strings.Split(text, "\t")
-		var line redLine
-		var ok bool
-		if len(cells) == 3 {
-			line.id = strings.TrimSpace(cells[2])
-			line.class, line.why, ok = strings.Cut(cells[1], ": ")
-		}
-		if !ok || len(strings.Fields(cells[0])) < 2 || line.class == "" || strings.TrimSpace(line.why) == "" || line.id == "" {
-			return nil, fmt.Errorf("%s:%d: want \"pkg Name<TAB>CLASS: why<TAB>REGISTER-ID\", got %q", stdRedFile, n, text)
-		}
-		if _, dup := out[cells[0]]; dup {
-			return nil, fmt.Errorf("%s:%d: %s is listed twice", stdRedFile, n, cells[0])
-		}
-		out[cells[0]] = line
-	}
-	return out, scan.Err()
 }

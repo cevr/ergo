@@ -716,11 +716,7 @@ func (l *lowerer) funcDecl(f *check.Func) *funcDecl {
 	if fd := l.funcs[f]; fd != nil {
 		return fd
 	}
-	// An extern is emitted where it is used, as a library function is:
-	// the root's declarations loop lowers no bodiless declaration, and a
-	// root of the prelude (ergo test std:prelude, NIH-75) uses its own
-	// intrinsics (m.Put, m.Get), which only emission on use writes.
-	fd := &funcDecl{fn: f, library: f.Pkg != l.pkg || f.Decl != nil && f.Decl.Extern != nil}
+	fd := &funcDecl{fn: f, library: f.Pkg != l.pkg}
 	l.funcs[f] = fd
 	fd.fallible = len(rowElems(f.Sig.Errors)) > 0
 	fd.pure = l.isPure(f) || l.pureIntrinsic(f)
