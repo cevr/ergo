@@ -27,7 +27,7 @@ import (
 //  2. the generated package entities: the runtime, time and strconv imports, the
 //     environment type, the host's Console adapter, the pattern test
 //     helper, the call and declaration tables with their entry types
-//     (calls.go, #230), the package initializer (decls.go, initFunc), the
+//     (calls.go), the package initializer (decls.go, initFunc), the
 //     machine graph accessor and its pair type (machine.go, graphAccessor), the
 //     type-set interfaces of ordered and number (decls.go, constraint) and
 //     the imports of the Go packages that user externs target, in path
@@ -50,6 +50,7 @@ import (
 
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
+	l.reserveLeaves(v1.Leaves) // pkgnames.go, rule 4: before any declaration is named
 	if l.lib != "" {
 		l.nameExports()
 	}
@@ -62,6 +63,7 @@ func (l *lowerer) nameAll() {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
 					l.pkgName(pkgKey{"machine graph", tn}, "ergoGraph"+tn.Name) // machine.go, machineGraph
 					l.reserveMachineValue(tn)                                   // ir_machine.go
+					l.reserveMachineEntries(tn)                                 // machineentry.go
 				}
 			}
 		}
@@ -103,7 +105,8 @@ func (l *lowerer) nameAll() {
 			if !l.isSourced(p) && tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
-					l.reserveMachineValue(tn) // ir_machine.go
+					l.reserveMachineValue(tn)   // ir_machine.go
+					l.reserveMachineEntries(tn) // machineentry.go
 				}
 			}
 		}

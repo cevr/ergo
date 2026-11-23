@@ -149,7 +149,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.inForce(x, c, p)
 	}
 	// The call keeps its Ergo identity in the call table, as the Go text's
-	// identify records it (calls.go, #230): the IR's position of the call
+	// identify records it (calls.go): the IR's position of the call
 	// is the Go frame's line that a defect's report looks up.
 	switch c.Kind {
 	case check.CallFunc, check.CallOp, check.CallProviderOp, check.CallLawOp, check.CallFuncValue:
@@ -370,6 +370,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
 		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
+		if named != nil && b.l.runtimeNamed(named, x) {
+			irNo("law operation of an extern Go type") // calls.go writes its runtime call
+		}
 		if named == nil {
 			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 			if !ok {

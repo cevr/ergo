@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// spike-where (#116) benchmark program generator.
+// spike-where benchmark program generator.
 //
 //   node gen.mjs --style a|b --sites N --types K [--layout distinct|shared]
 //

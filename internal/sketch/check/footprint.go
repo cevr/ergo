@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Footprints (rows.md, Footprints; #199 stage 1). A frame's footprint is
+// Footprints (rows.md, Footprints; stage 1). A frame's footprint is
 // what its body exercises when it runs: each capability operation it calls,
 // under its own with too, each task it starts, and each call whose callee's
 // footprint is unknown. It is not the capability row: a with discharges a
@@ -293,7 +293,7 @@ func (fp *footprinter) node(key any) *fpNode {
 // and one edge per embedded context, as the context summary shares its
 // embedded sets (rows.md, Context 5; contextsum.go), so a chain of n
 // contexts costs O(n) edges, not the O(n²) of an edge per binding of each
-// context (#229, C38). A context whose bindings are unknown is opaque.
+// context (C38). A context whose bindings are unknown is opaque.
 func (fp *footprinter) context(w *Context) *fpNode {
 	n := fp.node(w.Decl)
 	if n.walked {
@@ -402,11 +402,12 @@ func (fp *footprinter) foreignEntry(n *fpNode, e *ContextEntry, p *Package) {
 }
 
 // overridden are the entries w's replaces override that w's builder does
-// not run: an entry runs while it still binds one of its capabilities.
+// not run: an entry runs while it still binds one of its capabilities, or
+// while the replace that overrides it is built over it (usesCap).
 func (fp *footprinter) overridden(w *Context) []*ContextEntry {
 	var out []*ContextEntry
 	for _, o := range w.Overrides {
-		if o.Entry != nil && len(runsIn(w, []*ContextEntry{o.Entry})) == 0 && !slices.Contains(out, o.Entry) {
+		if o.Entry != nil && len(runsIn(w, []*ContextEntry{o.Entry})) == 0 && !usesCap(o.By, o.Cap) && !slices.Contains(out, o.Entry) {
 			out = append(out, o.Entry)
 		}
 	}
@@ -690,7 +691,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 		}
 		n.opaque = true
 	case CallLawOp, CallEncode, CallDecode:
-		// A law's operation has no body until #162 picks an implementation;
+		// A law's operation has no body until laws and proofs picks an implementation;
 		// encode and decode call the operations of a Writer or Reader value.
 		n.opaque = true
 	case CallWith:

@@ -1,0 +1,158 @@
+import json
+
+// ListOptions is list's: with Status, each Active workspace's committed
+// work against its parent's default branch (LaneStatus), read by Git;
+// without, the registry alone, and no Git call.
+type ListOptions { Status bool }
+
+// Listed is a workspace as list answers it: the record's fields and,
+// with -status, its LaneStatus (absent from the JSON otherwise, so a
+// plain list is the records as they were).
+type Listed {
+	Name   string,
+	Id     string,
+	Path   string,
+	Parent string,
+	Branch string,
+	Cloner string,
+	State  State,
+	Since  int64,
+	Base   string,
+	Latest string,
+	Deps   string,
+	Token  string,
+	Moving string,
+	Pinned bool,
+	Until  int64,
+	Status json.Optional[LaneStatus],
+}
+
+// LaneStatus is a workspace's committed work against Default, its
+// parent's default branch as a full ref ("" when the parent has none:
+// then DefaultCommit is the record's base and By is ancestry), at
+// DefaultCommit: Ahead commits HEAD has that it lacks (non-merge; By
+// "patch" leaves out each whose patch it has, By "ancestry" counts by
+// reachability alone), Behind the reverse (by reachability), HEAD's
+// commit, branch ("" when detached) and committer time (Unix seconds),
+// and whether the workspace has a change (Clean's rule). Error is why the
+// counts are zero, absent when they were read.
+type LaneStatus {
+	Default       string,
+	DefaultCommit string,
+	Ahead         int,
+	Behind        int,
+	By            string,
+	Head          string,
+	Branch        string,
+	LastCommit    int64,
+	Dirty         bool,
+	Error         json.Optional[Unread],
+}
+
+// Unread is why a LaneStatus has no counts: the workspace's folder is
+// gone, its HEAD has no commit, the parent has no default branch and the
+// record no base, or a Git call failed (its reason).
+type Unread = FolderGone{} | NoCommit{} | NoDefault{} | GitFailed{Reason string}
+
+// PatchBound is the most commits (Ahead + Behind) list -status compares
+// by patch: past it, Ahead is by ancestry, so a lane far from its
+// parent's branch costs one count, not a diff of every commit.
+let PatchBound = 256
+
+// ByPatch and ByAncestry are LaneStatus.By's values.
+let ByPatch = "patch"
+
+let ByAncestry = "ancestry"
+
+func List(t Tool, o ListOptions) []Listed fails NoBase | Unkept { try ListWithin(t, o, PatchBound) }
+
+// ListWithin is List with bound in place of PatchBound (the laws lower
+// it, so a law reaches both sides). Each parent's default branch is read
+// once, however many workspaces it has.
+func ListWithin(t Tool, o ListOptions, bound int) []Listed fails NoBase | Unkept {
+	try initialized(t)
+	let all = try t.registry.All()
+	let mut parents = Map[string, Parentage]{}
+	if o.Status {
+		for w in all {
+			if w.State == Active && parents.Get(w.Parent) == None {
+				parents[w.Parent] = parentage(t, w.Parent)
+			}
+		}
+	}
+	let mut out = []Listed{}
+	for w in all {
+		let status json.Optional[LaneStatus] = match parents.Get(w.Parent) {
+		case Some[Parentage] as p:
+			if w.State == Active { json.Present[LaneStatus]{Value: laneStatus(t, w, p.Value, bound)} } else { json.Absent }
+		case None:
+			json.Absent
+		}
+		out = out.Append(Listed{Name: w.Name, Id: w.Id, Path: w.Path, Parent: w.Parent, Branch: w.Branch, Cloner: w.Cloner, State: w.State, Since: w.Since, Base: w.Base, Latest: w.Latest, Deps: w.Deps, Token: w.Token, Moving: w.Moving, Pinned: w.Pinned, Until: w.Until, Status: status})
+	}
+	out
+}
+
+// Parentage is a parent's default branch, or why it could not be read.
+type Parentage { At Located, Why string }
+
+func parentage(t Tool, parent string) Parentage {
+	let at = t.vcs.Default(parent) catch {
+	case VcsFailed as e:
+		return Parentage{At: Located{Ref: "", Commit: "", Objects: ""}, Why: e.Reason}
+	}
+	Parentage{At: at, Why: ""}
+}
+
+// laneStatus reads one Active workspace: at most TipOf, Clean, Counts
+// and Unpicked, each a read.
+func laneStatus(t Tool, w Workspace, p Parentage, bound int) LaneStatus {
+	let empty = LaneStatus{Default: p.At.Ref, DefaultCommit: p.At.Commit, Ahead: 0, Behind: 0, By: ByAncestry, Head: "", Branch: "", LastCommit: 0, Dirty: false, Error: json.Absent}
+	if !t.copier.Has(w.Path) {
+		return LaneStatus{..empty, Error: unread(FolderGone)}
+	}
+	if p.Why != "" {
+		return LaneStatus{..empty, Error: unread(GitFailed{Reason: p.Why})}
+	}
+	let tip = t.vcs.TipOf(w.Path) catch {
+	case VcsFailed as e:
+		return LaneStatus{..empty, Error: unread(GitFailed{Reason: e.Reason})}
+	}
+	let clean = t.vcs.Clean(w.Path) catch {
+	case VcsFailed as e:
+		return LaneStatus{..empty, Head: tip.Commit, Branch: tip.Branch, LastCommit: tip.Time, Error: unread(GitFailed{Reason: e.Reason})}
+	}
+	let read = LaneStatus{..empty, Head: tip.Commit, Branch: tip.Branch, LastCommit: tip.Time, Dirty: !clean}
+	if tip.Commit == "" {
+		return LaneStatus{..read, Error: unread(NoCommit)}
+	}
+	// A parent with no default branch: the record's base, by ancestry.
+	let base = if p.At.Ref != "" { p.At.Commit } else { w.Base }
+	if base == "" {
+		return LaneStatus{..read, Error: unread(NoDefault)}
+	}
+	let apart = t.vcs.Counts(w.Path, p.At.Objects, base, tip.Commit) catch {
+	case VcsFailed as e:
+		return LaneStatus{..read, DefaultCommit: base, Error: unread(GitFailed{Reason: e.Reason})}
+	}
+	let counted = LaneStatus{..read, DefaultCommit: base, Ahead: apart.Ahead, Behind: apart.Behind}
+	if p.At.Ref == "" || apart.Ahead == 0 || apart.Ahead+apart.Behind > bound {
+		return counted
+	}
+	let ahead = t.vcs.Unpicked(w.Path, p.At.Objects, base, tip.Commit) catch {
+	case VcsFailed as e:
+		return LaneStatus{..counted, Error: unread(GitFailed{Reason: e.Reason})}
+	}
+	LaneStatus{..counted, Ahead: ahead, By: ByPatch}
+}
+
+func unread(u Unread) json.Optional[Unread] { json.Present[Unread]{Value: u} }
+
+// Records is a list's workspaces as the registry keeps them.
+func Records(ls []Listed) []Workspace {
+	let mut out = []Workspace{}
+	for l in ls {
+		out = out.Append(Workspace{Name: l.Name, Id: l.Id, Path: l.Path, Parent: l.Parent, Branch: l.Branch, Cloner: l.Cloner, State: l.State, Since: l.Since, Base: l.Base, Latest: l.Latest, Deps: l.Deps, Token: l.Token, Moving: l.Moving, Pinned: l.Pinned, Until: l.Until})
+	}
+	out
+}

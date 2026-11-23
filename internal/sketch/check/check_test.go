@@ -99,6 +99,9 @@ var negativeSpans = map[string][2]string{
 	"context-exposure-hides-entry":       {"S109", "provides Account"},
 	"context-literal-outside-with":       {"S108", "context { Store: Mem }"},
 	"aswritten-not-identity":             {"S108", "Twice"},
+	"machine-expr-tuple-state":           {"S108", "(S, S)"},
+	"machine-expr-computed-wrong-type":   {"S108", "id(stepT)"},
+	"machine-expr-computed-fails":        {"S105", "ready()"},
 }
 
 // TestNegativeSpans: each negative fixture's one diagnostic has the pinned
@@ -174,7 +177,7 @@ func TestRegistry(t *testing.T) {
 // corpus returns every source the checker's tests and the fuzz seeds use:
 // the fixture mirror, the acceptance rule fixtures copied into testdata/v1,
 // the prototype's fixtures and the parser's corpus, as translated into the
-// decided syntax (#196; the frozen old .sketch copies no longer parse).
+// decided syntax (the frozen old .sketch copies no longer parse).
 func corpus(t testing.TB) map[string]string {
 	out := map[string]string{}
 	for _, pattern := range []string{

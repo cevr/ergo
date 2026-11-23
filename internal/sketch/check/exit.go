@@ -1,9 +1,5 @@
 package check
 
-import (
-	"ergo.local/prototype/internal/sketch/syntax"
-)
-
 // The exit actions of a machine's states (FK9-g1; runtime.md, Machines and
 // actors 12a). A machine declaration's `exit: x` entry names a package
 // function x(s S) Option[func() needs R]: Some is the action the runner
@@ -18,54 +14,19 @@ import (
 // the context at the transition; gen_statem's terminate and Akka Typed's
 // PostStop, which run at a stop too.
 
-// checkMachineExit checks a machine's `exit: x` entry: x names a package
-// function from the state to Option[func() needs R], with no type
-// parameters and no rows of its own. It returns x, or nil when the entry is
-// refused.
-func (c *checker) checkMachineExit(tn *TypeName, x syntax.Expr, state Type) *Func {
-	want := "func(" + state.String() + ") Option[func() needs R]"
-	id, ok := x.(*syntax.Ident)
-	if !ok {
-		c.errorf(x, CodeType, "a machine's exit names a function of this package of the type %s (runtime.md, Machines and actors 12a)", want)
-		return nil
+// checkMachineExit checks a machine's exit entry: a function from the
+// state to Option[func() needs R], with no rows of its own and no error row
+// in the action, R being the action's capability row, charged to the
+// machine (runtime.md, Machines and actors 12a).
+func (c *checker) checkMachineExit(tn *TypeName, state Type) {
+	e := c.machineEntry(tn, entryExit)
+	if e == nil {
+		return
 	}
-	f, ok := c.pkg.Scope.names[id.Name].(*Func)
-	if !ok {
-		if c.pkg.Scope.names[id.Name] == nil {
-			c.errorf(id, CodeUnknown, "unknown function %s", id.Name)
-		} else {
-			c.errorf(id, CodeType, "%s is not a function; a machine's exit names a function (runtime.md, Machines and actors 12a)", id.Name)
-		}
-		return nil
+	if c.machineExitRow(e.Type, state) == nil {
+		want := "func(" + state.String() + ") Option[func() needs R]"
+		c.errorf(e.Expr, CodeType, "the exit %sof machine %s must have the type %s, with no error or capability row of its own and no error row in the action: R is the action's capability row, charged to the machine (runtime.md, Machines and actors 12a)", entryLabel(e.Expr), tn.Name, want)
 	}
-	f.called = true
-	c.pkg.Info.Uses[id] = f
-	if isExtern(f) && !externValue(f) {
-		// A call-only extern is refused (P3), as for work.
-		c.errorf(id, CodeType, "%s", externCallOnlyText)
-		return nil
-	}
-	if f.Sig == nil {
-		return nil
-	}
-	if c.machineExitRow(f.Sig, state) == nil {
-		c.errorf(id, CodeType, "the exit %s of machine %s must have the type %s, with no error or capability row of its own and no error row in the action: R is the action's capability row, charged to the machine (runtime.md, Machines and actors 12a)", id.Name, tn.Name, want)
-		return nil
-	}
-	// Its own rows: the value must be assignable to the same function type
-	// with empty rows; an inferred row is solved later, so assignment
-	// checks it (rows.md, Error rows), as for work.
-	wantSig := &Signature{Params: f.Sig.Params, Results: f.Sig.Results, Errors: newRow(), Uses: newRow()}
-	t := &target{name: "the exit of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
-	prev := c.fn
-	c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
-	op := c.valueExpr(x, wantSig)
-	ok = c.assign(&op, wantSig, "machine "+tn.Name+"'s exit")
-	c.fn = prev
-	if !ok {
-		return nil
-	}
-	return f
 }
 
 // machineExitRow is the action's capability row R when sig is func(S)
@@ -93,30 +54,22 @@ func (c *checker) machineExitRow(sig *Signature, state Type) *Row {
 	return act.Uses
 }
 
-// machineExit is the exit function of the machine declaration t and its
-// action's capability row, or nil when it has none or it is refused
-// (checkMachineExit reports that).
-func (c *checker) machineExit(t Type) (*Func, *Row) {
-	n, ok := t.(*Named)
-	if !ok || n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
+// machineExit is the exit entry of the machine type t and its action's
+// capability row, at t's type arguments, or nils when it has none or it is
+// refused (checkMachineExit reports that).
+func (c *checker) machineExit(t Type) (*MachineEntry, *Row) {
+	n, tn, m := machineDeclOf(t)
+	if n == nil {
 		return nil, nil
 	}
-	m, ok := n.Underlying().(*MachineType)
-	spec, ok2 := n.Obj.Decl.Spec.(*syntax.MachineType)
-	if !ok || !ok2 {
+	e := c.machineEntry(tn, entryExit)
+	sig := c.entrySig(n, e)
+	if sig == nil {
 		return nil, nil
 	}
-	id, ok := spec.Exit.(*syntax.Ident)
-	if !ok {
-		return nil, nil
-	}
-	f, ok := n.Obj.Pkg.Scope.names[id.Name].(*Func)
-	if !ok || f.Sig == nil || isExtern(f) {
-		return nil, nil
-	}
-	r := c.machineExitRow(f.Sig, m.State)
+	r := c.machineExitRow(sig, m.State)
 	if r == nil {
 		return nil, nil
 	}
-	return f, r
+	return e, r
 }

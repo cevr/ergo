@@ -27,7 +27,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `CatchArm` | the `CatchArm` syntax node | Checked; runs |  |
 | `CatchExpr` | the `CatchExpr` syntax node | Checked; runs |  |
 | `CompositeLit` | the `CompositeLit` syntax node | Checked; runs |  |
-| `CompositeLit:indexedSlice` | the `indexedSlice` form of the `CompositeLit` node | Checked; build refused (S109) | [#196](https://github.com/cevr/ergo/issues/196) |
+| `CompositeLit:indexedSlice` | the `indexedSlice` form of the `CompositeLit` node | Checked; build refused (S109) | the slice-key rule |
 | `ContextBody` | the `ContextBody` syntax node | Checked; runs |  |
 | `ContextDecl` | the `ContextDecl` syntax node | Checked; runs |  |
 | `ContextEntry` | the `ContextEntry` syntax node | Checked; runs |  |
@@ -68,7 +68,7 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 | `TryExpr` | the `TryExpr` syntax node | Checked; runs |  |
 | `TupleExpr` | the `TupleExpr` syntax node | Checked; runs |  |
 | `TypeDecl` | the `TypeDecl` syntax node | Checked; runs |  |
-| `TypeDecl:errorText` | the `errorText` form of the `TypeDecl` node | Checked; build refused (S109) | [#49](https://github.com/cevr/ergo/issues/49) |
+| `TypeDecl:errorText` | the `errorText` form of the `TypeDecl` node | Checked; build refused (S109) | derived text forms |
 | `TypeGuard` | the `TypeGuard` syntax node | Checked; runs |  |
 | `TypeSwitchStmt` | the `TypeSwitchStmt` syntax node | Checked; runs |  |
 | `UnaryExpr` | the `UnaryExpr` syntax node | Checked; runs |  |
@@ -117,10 +117,10 @@ A construct that the checker refuses never reaches the build. Its diagnostic is 
 
 A refusal names one of these owners.
 
-- [196b](https://github.com/cevr/ergo/issues/196): the context header, `provides` and `needs` on a context.
-- [#197](https://github.com/cevr/ergo/issues/197): further resource ownership.
-- [#199](https://github.com/cevr/ergo/issues/199): the runtime.
-- [#57](https://github.com/cevr/ergo/issues/57): the actor library and its machine runner.
-- [#162](https://github.com/cevr/ergo/issues/162): running the laws that do not run yet: an imported operation type's against this package's providers, and a generic operation type's against a generic provider (L4 runs it at each non-generic provider's instance).
-- [#49](https://github.com/cevr/ergo/issues/49): derived text forms.
-- [#196](https://github.com/cevr/ergo/issues/196): the syntax that the checker admits and no rule defines yet.
+- context header checking: the context header, `provides` and `needs` on a context.
+- resource ownership: further resource ownership.
+- runtime semantics: the runtime.
+- the actor library: the actor library and its machine runner.
+- laws and proofs: running the laws that do not run yet: an imported operation type's against this package's providers, and a generic operation type's against a generic provider (L4 runs it at each non-generic provider's instance).
+- derived text forms: the text form of a type that has none yet.
+- the slice-key rule: what a computed, negative or repeated key of an indexed slice literal does.

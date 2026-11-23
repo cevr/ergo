@@ -21,7 +21,8 @@ type treeEntry struct {
 // TestHeadlessScriptIsData is TREE-JSON's agent loop: counter-gui's window
 // binary plays a seeded script written as a JSON act list (-script, read
 // by ui.ParseActs) and prints the same lines as the script on standard
-// input, then, with -tree, the screen as JSON lines: every button the view
+// input (and, with -tree, the same lines as that script on standard input
+// with -tree), then, with -tree, the screen as JSON lines: every button the view
 // draws, by role and name, each with a box the window laid out (nonempty,
 // and no two buttons in one place); and, with -png, the window's picture,
 // the window's size, with the inc button drawn where its box is (its
@@ -64,6 +65,11 @@ func TestHeadlessScriptIsData(t *testing.T) {
 		}
 		if !strings.HasPrefix(got, want) {
 			t.Fatalf("seed %d: the JSON script plays otherwise than the same script on stdin: %s", seed, firstDiff(want, got))
+		}
+		// -tree after a script on stdin (the reference of the phone's
+		// accessibility tree, phone_access_test.go) prints the same lines.
+		if stdin, err := play(b.desktop, script, "-headless", "-tree"); err != nil || stdin != got {
+			t.Fatalf("seed %d: -tree after the script on stdin (%v) and after -script differ: %s", seed, err, firstDiff(got, stdin))
 		}
 		buttons := map[string][]float64{}
 		for _, line := range strings.Split(strings.TrimSpace(strings.TrimPrefix(got, want)), "\n") {

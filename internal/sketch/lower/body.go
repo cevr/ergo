@@ -115,6 +115,10 @@ type loopCtx struct {
 
 // funcCtx writes one Go function body.
 type funcCtx struct {
+	// entryLocals are, in a generic machine's conversion function, the
+	// locals that hold its computed entries, by Machine field
+	// (machineentry.go).
+	entryLocals map[string]string
 	// tupleInto is the tuple let whose arm tail is the call being lowered
 	// (tuplelet.go): an inlined body of that call writes its names.
 	tupleInto *tupleInto
@@ -158,8 +162,8 @@ type funcCtx struct {
 	// lowered places (failJump, inline.go): a catch's or a try's operand.
 	failJump syntax.Expr
 	// owner is the Ergo name of the source declaration being lowered (a
-	// function, a package let, a context), the Func of its call identities
-	// (#230); a function literal inherits it.
+	// function, a package let, a context), the Func of its call identities;
+	// a function literal inherits it.
 	owner string
 	// lastPos is the position of the last //line directive written.
 	lastPos syntax.Pos

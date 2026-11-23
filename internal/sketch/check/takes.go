@@ -8,7 +8,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Takes inference and copy sites (#197 L8 A3; plan 1.1, 1.3; resources
+// Takes inference and copy sites (resource ownership L8 A3; plan 1.1, 1.3; resources
 // R17, R19, R44, Gap 35, Gap 39).
 //
 // Every function writes its takes clause (q137, EX3): a hand-off of a
@@ -140,7 +140,7 @@ func writesTakes(f *Func) bool {
 // body, which owns no frame entry, and for f with an Ergo body that is
 // generic in each value it takes and only forwards those values to such a
 // call, its whole body (B2, PRIM-4): a generic body has no release of a
-// value of its type parameter (#197 Gap 42), so the forwarded value would
+// value of its type parameter (Gap 42), so the forwarded value would
 // otherwise have no owner while the inner call runs. A forwarder runs
 // nothing after the inner call, so on every path the value is the inner
 // call's or the caller's, never both. It reads declarations, never a

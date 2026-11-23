@@ -40,15 +40,37 @@ type contextDAG struct {
 	entries []contextEntry
 	order   []int // the entries' order in the context's source
 	base    int   // a capability an embedded context also binds and W replaces, -1 none
-	uses    []int // the capabilities the with's block uses
-	inner   int   // the capability a nested with rebinds, -1 none
-	child   int   // the capability a child task uses, -1 none
+	// wraps: W's replace of base uses base while it is built, so it is
+	// built over Base's provider, which the with acquires before it and
+	// releases after it (rows.md, Context 7). Base's provider then uses a
+	// second capability of Base, Cx, so its build has a footprint.
+	wraps bool
+	uses  []int // the capabilities the with's block uses
+	inner int   // the capability a nested with rebinds, -1 none
+	child int   // the capability a child task uses, -1 none
 }
 
 func (d *contextDAG) typ(e int) string { return fmt.Sprintf("T%d_%d", d.k, e) }
 func (d *contextDAG) baseTyp() string  { return fmt.Sprintf("T%d_b", d.k) }
 func (d *contextDAG) innerTyp() string { return fmt.Sprintf("T%d_v", d.k) }
 func (d *contextDAG) cap(c int) string { return fmt.Sprintf("C%d_%d", d.k, c) }
+func (d *contextDAG) xCap() string     { return fmt.Sprintf("C%d_x", d.k) }
+func (d *contextDAG) xTyp() string     { return fmt.Sprintf("T%d_x", d.k) }
+
+// built is the type of the provider e's use of capability c is built
+// from: Base's for the replace that wraps it, else c's binder's.
+func (d *contextDAG) built(e, c int) string {
+	if d.wraps && c == d.base && e == d.binder(c) {
+		return d.baseTyp()
+	}
+	return d.typ(d.binder(c))
+}
+
+// wrapped reports a with whose acquisitions include Base's provider: W's
+// replace wraps it and is reached.
+func (d *contextDAG) wrapped() bool {
+	return d.wraps && d.reached()[d.binder(d.base)]
+}
 
 // binder is the entry that binds capability c.
 func (d *contextDAG) binder(c int) int {
@@ -120,6 +142,13 @@ func genContextDAG(r *rand.Rand, k int) *contextDAG {
 				break
 			}
 		}
+	}
+	if d.base >= 0 && k%2 == 1 {
+		// No draw of r, so the other shapes stay as they were.
+		d.wraps = true
+		en := &d.entries[d.binder(d.base)]
+		en.deps = append(en.deps, d.base)
+		slices.Sort(en.deps)
 	}
 	if r.IntN(2) == 0 {
 		d.inner = d.uses[r.IntN(len(d.uses))]
@@ -194,7 +223,15 @@ func (d *contextDAG) decls(fail, slow map[string]bool) string {
 		}
 		entries = append(entries, head+strings.Join(keys, ", ")+": "+provider)
 	}
-	if d.base >= 0 {
+	switch {
+	case d.wraps:
+		typ(d.baseTyp(), true, d.base)
+		x, xt := d.xCap(), d.xTyp()
+		fmt.Fprintf(&b, "type %s { Name() string }\ntype %s {} implements %s\nfunc Name(_ %s) string { %q }\n", x, xt, x, xt, xt)
+		fmt.Fprintf(&b, "func mkb%d() %s needs %s {\n\tlet _ = %s.Name()\n\t%s\n}\n", d.k, d.baseTyp(), x, x, d.baseTyp())
+		fmt.Fprintf(&b, "let Base%d = context { %s: %s, %s: mkb%d() }\n", d.k, x, xt, d.cap(d.base), d.k)
+		entries = append(entries, fmt.Sprintf("Base%d", d.k))
+	case d.base >= 0:
 		typ(d.baseTyp(), true, d.base)
 		fmt.Fprintf(&b, "let Base%d = context { %s: %s }\n", d.k, d.cap(d.base), d.baseTyp())
 		entries = append(entries, fmt.Sprintf("Base%d", d.k))
@@ -409,8 +446,23 @@ func checkFact(t *testing.T, d *contextDAG, fact []acquired) {
 			t.Errorf("W%d: %s acquired twice", d.k, a.typ)
 		}
 		pos[a.typ] = i
-		if a.typ == d.baseTyp() {
+		if a.typ == d.baseTyp() && !d.wrapped() {
 			t.Errorf("W%d: the overridden provider %s is acquired", d.k, a.typ)
+		}
+	}
+	if d.wrapped() {
+		// Base's provider is a private node of W's build: acquired with the
+		// capability its wrapper sees, after what it uses itself.
+		i, ok := pos[d.baseTyp()]
+		switch {
+		case !ok:
+			t.Errorf("W%d: the wrapped provider %s is not acquired", d.k, d.baseTyp())
+		case !sameSet(fact[i].caps, []string{d.cap(d.base)}) || !fact[i].res:
+			t.Errorf("W%d: %s binds %v closes %v, model [%s] true", d.k, d.baseTyp(), fact[i].caps, fact[i].res, d.cap(d.base))
+		default:
+			if j, ok := pos[d.xTyp()]; !ok || j >= i {
+				t.Errorf("W%d: %s is built before %s, whose capability it uses", d.k, d.baseTyp(), d.xTyp())
+			}
 		}
 	}
 	for e, en := range d.entries {
@@ -430,8 +482,8 @@ func checkFact(t *testing.T, d *contextDAG, fact []acquired) {
 			t.Errorf("W%d: %s binds %v closes %v, model %v %v", d.k, a.typ, a.caps, a.res, caps, en.res)
 		}
 		for _, c := range en.deps {
-			if j := pos[d.typ(d.binder(c))]; j >= i {
-				t.Errorf("W%d: %s is built before %s, whose capability it uses", d.k, d.typ(e), d.typ(d.binder(c)))
+			if j, ok := pos[d.built(e, c)]; !ok || j >= i {
+				t.Errorf("W%d: %s is built before %s, whose capability it uses", d.k, d.typ(e), d.built(e, c))
 			}
 		}
 	}
@@ -471,9 +523,11 @@ func expect(t *testing.T, o *lowered, d *contextDAG, exit string, slow map[strin
 	fact := contextFact(t, o, d.fn(exit), fmt.Sprintf("W%d", d.k))
 	checkFact(t, d, fact)
 	bound := func(c int) string {
-		for _, a := range fact {
-			if slices.Contains(a.caps, d.cap(c)) {
-				return a.typ
+		// The last acquisition that binds c: a wrapped provider binds it
+		// only until its wrapper is built.
+		for i := len(fact) - 1; i >= 0; i-- {
+			if slices.Contains(fact[i].caps, d.cap(c)) {
+				return fact[i].typ
 			}
 		}
 		t.Fatalf("W%d: no acquisition binds %s", d.k, d.cap(c))
@@ -525,11 +579,12 @@ func TestRuntime199ContextBuildProperty(t *testing.T) {
 			shapes["dependency"] = shapes["dependency"] || reached[e] && len(en.deps) > 0
 			shapes["unreached resource"] = shapes["unreached resource"] || !reached[e] && en.res
 		}
-		shapes["overridden"] = shapes["overridden"] || d.base >= 0
+		shapes["overridden"] = shapes["overridden"] || d.base >= 0 && !d.wraps
+		shapes["wrapped"] = shapes["wrapped"] || d.wrapped()
 		shapes["nested"] = shapes["nested"] || d.inner >= 0
 		shapes["child"] = shapes["child"] || d.child >= 0
 	}
-	for _, s := range []string{"shared", "dependency", "unreached resource", "overridden", "nested", "child"} {
+	for _, s := range []string{"shared", "dependency", "unreached resource", "overridden", "wrapped", "nested", "child"} {
 		if !shapes[s] {
 			t.Fatalf("the generator reaches no %s entry", s)
 		}

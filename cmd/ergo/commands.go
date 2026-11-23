@@ -14,11 +14,10 @@ type fate int
 const (
 	// available commands run on the one front end.
 	available fate = iota
-	// removed commands were removed in v1; their ticket restores them on
-	// the new front end.
+	// removed commands were removed in v1.
 	removed
-	// dark commands are unavailable until their ticket ports them to the
-	// new front end.
+	// dark commands are unavailable until they are ported to the new
+	// front end.
 	dark
 )
 
@@ -33,14 +32,8 @@ type cliCommand struct {
 	help string
 	// reason follows "removed in v1;".
 	reason string
-	ticket string
 	run    func(args []string) error
 }
-
-const (
-	ticketTooling  = "#203"
-	ticketEditions = "#205"
-)
 
 const toolingReason = "semantic tooling returns on the new front end"
 
@@ -68,17 +61,17 @@ var commands = []cliCommand{
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "conform", usage: conformUsage, help: conformHelp, run: conformCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},
-	{name: "edition", fate: removed, reason: "there is one language and no editions", ticket: ticketEditions},
+	{name: "edition", fate: removed, reason: "there is one language and no editions"},
 	{name: "lint", usage: "lint FILE|DIR [--preset P]... [--lint-config FILE] [--rules MANIFEST]... [--strict] [--json] [--target go]", help: lintHelp, run: lintCommand},
 	{name: "lint rules", usage: "lint rules [--preset P]... [--lint-config FILE] [--rules MANIFEST]...", help: lintRulesHelp, run: lintRulesCommand},
 	{name: "lint test", usage: "lint test PATH... [--update] (--lint-config FILE | --rules MANIFEST...)", help: lintTestHelp, run: lintTestCommand},
-	{name: "lint receipt", fate: removed, reason: "cost receipts return with rule packs", ticket: ticketTooling},
-	{name: "query", fate: removed, reason: toolingReason, ticket: ticketTooling},
-	{name: "type", fate: removed, reason: toolingReason, ticket: ticketTooling},
+	{name: "lint receipt", fate: removed, reason: "cost receipts return with rule packs"},
+	{name: "query", fate: removed, reason: toolingReason},
+	{name: "type", fate: removed, reason: toolingReason},
 	{name: "inspect", usage: "inspect FILE|DIR [--target go] | inspect machine FILE|DIR [--json] | inspect deps DIR [--json] | inspect facts FILE|DIR [--json] | inspect forms FILE|DIR [--json] | inspect rewrites FILE|DIR [--json]", help: inspectHelp, run: inspectCommand},
-	{name: "explain", fate: removed, reason: toolingReason, ticket: ticketTooling},
-	{name: "lsp", fate: dark, ticket: ticketTooling},
-	{name: "mcp", fate: dark, ticket: ticketTooling},
+	{name: "explain", fate: removed, reason: toolingReason},
+	{name: "lsp", fate: dark},
+	{name: "mcp", fate: dark},
 }
 
 // lookupCommand finds the row of args: a word and its subcommand first,
@@ -103,9 +96,9 @@ func lookupCommand(args []string) (cliCommand, bool) {
 func (c cliCommand) stubMessage() string {
 	switch c.fate {
 	case removed:
-		return fmt.Sprintf("ergo %s: removed in v1; %s (%s)", c.name, c.reason, c.ticket)
+		return fmt.Sprintf("ergo %s: removed in v1; %s", c.name, c.reason)
 	case dark:
-		return fmt.Sprintf("ergo %s: unavailable until ported to the new front end (%s)", c.name, c.ticket)
+		return fmt.Sprintf("ergo %s: unavailable until ported to the new front end", c.name)
 	}
 	return ""
 }
