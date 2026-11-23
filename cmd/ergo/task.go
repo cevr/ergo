@@ -19,7 +19,7 @@ import (
 	"ergo.local/prototype/internal/task"
 )
 
-const taskHelp = `usage: ergo task --list [--json] [DIR]
+const taskHelp = `usage: ergo task --list [--affected BASE [--why]] [--json] [DIR]
        ergo task gen [--check] [--fresh] [--jobs N] [NAME...] [DIR]
 
 ergo task runs the generators of the workspace at DIR (default .) in the
@@ -32,6 +32,12 @@ a gen line, derived for a member's).
 
   --list    print the generators, the edges their last runs give
             (A before B: A writes a file B reads) and the order
+  --affected BASE
+            with --list: print instead the generators whose key over
+            their last run differs between the commit BASE (read from
+            Git, no checkout) and the working tree, or whose outputs
+            differ, and those that run after them; --why says each one's
+            first input that moved. Run at the repository's top folder.
   --check   write nothing: a generator that misses runs in a copy of the
             tree, and the run fails, naming the files, when the copy's
             generated files differ from DIR's
@@ -58,6 +64,8 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 	check := fs.Bool("check", false, "")
 	fresh := fs.Bool("fresh", false, "")
 	jobs := fs.Int("jobs", 4, "")
+	affected := fs.String("affected", "", "")
+	why := fs.Bool("why", false, "")
 	var rest []string
 	for len(args) > 0 {
 		if err := fs.Parse(args); err != nil {
@@ -69,12 +77,15 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 			args = args[1:]
 		}
 	}
+	if (*affected != "" || *why) && !*list {
+		return usageError{message: "task: --affected and --why go with --list"}
+	}
 	if *list {
 		if *check || *fresh {
 			return usageError{message: "task: --list runs nothing; it takes no --check or --fresh"}
 		}
 		if len(rest) > 1 {
-			return usageError{message: "usage: ergo task --list [--json] [DIR]"}
+			return usageError{message: "usage: ergo task --list [--affected BASE [--why]] [--json] [DIR]"}
 		}
 	} else if len(rest) == 0 || rest[0] != "gen" {
 		return usageError{message: "usage: ergo task gen [--check] [--fresh] [NAME...] [DIR] | ergo task --list [--json] [DIR]"}
@@ -121,6 +132,30 @@ func taskMain(ctx context.Context, args []string, stdout io.Writer) error {
 		return exitStatusError{code: 1, message: "ergo task: " + err.Error()}
 	}
 	r := &task.Runner{Root: root, Store: taskStore(), Out: stdout}
+	if *list && *affected != "" {
+		base, err := readGitBase(root, *affected)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo task --affected: " + err.Error()}
+		}
+		got, err := r.Affected(nodes, base)
+		if err != nil {
+			return exitStatusError{code: 1, message: "ergo task --affected: " + err.Error()}
+		}
+		if *asJSON {
+			if got == nil {
+				got = []task.Affect{}
+			}
+			return json.NewEncoder(stdout).Encode(got)
+		}
+		for _, a := range got {
+			if *why {
+				fmt.Fprintf(stdout, "%s: %s\n", a.Name, a.Why)
+			} else {
+				fmt.Fprintln(stdout, a.Name)
+			}
+		}
+		return nil
+	}
 	if *list {
 		g, err := r.Graph(nodes)
 		if err != nil {

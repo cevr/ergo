@@ -114,7 +114,7 @@ func LowerGoPackages(u Unit, module string, names map[string]string) ([]File, IR
 		return nil, IRReport{}, fmt.Errorf("lower: the lowering of the Go packages wrote no Go file")
 	}
 	lib.names = l.libNames()
-	out, rep := splitMain(u, files[i].Data, module, origins, nil, &l.ir.out, nil, lib)
+	out, rep := splitMain(u, files[i].Data, module, origins, nil, l.sitePkgNames(), &l.ir.out, nil, lib)
 	if rep.err != nil {
 		return nil, IRReport{}, rep.err
 	}

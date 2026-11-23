@@ -111,6 +111,10 @@ type Unit struct {
 	// import, as a Go package that Go imports (LowerGoPackages): no entry,
 	// and each package's exported functions behind facades.
 	goPackages bool
+	// lib is the Go package name of a library lowering (LowerIRLibrary),
+	// "" for a program: the build lowerer writes that package, with each
+	// exported function's Go entry, in place of main (lowerer.lib).
+	lib string
 }
 
 // coverMarksAll lowers every unit with CoverMarks. Only this package's

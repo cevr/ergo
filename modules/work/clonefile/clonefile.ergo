@@ -5,15 +5,14 @@
 //
 // Go control: Rift's clonefile path on darwin.
 
-import exec
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
 // Cloner clones through cp -c.
 type Cloner { trees system.Trees } implements work.Cloner
 
-// New is the Cloner over a Runner.
-func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
+// New is the Cloner over the host tree operations.
+func New(trees system.Trees) Cloner { Cloner{trees: trees} }
 
 // unsupported are the errors of a cp with no -c, and of clonefile off
 // APFS.
@@ -29,10 +28,10 @@ func KeepsInodes(_ Cloner) bool { false }
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "clonefile", from, to)
 	try OnAPFS(system.FileSystemOf(c.trees, from), from)
-	let r = try system.Run(c.trees, "clonefile", "cp", []string{"-c", "-pPR", from, to})
+	let r = try system.Invoke(c.trees, "clonefile", "cp", []string{"-c", "-pPR", from, to}, system.Between(from, to))
 	if r.Status != 0 {
 		system.Leave(c.trees, to)
-		try system.Failure("clonefile", from, to, r.Stderr, unsupported)
+		try system.Failure(c.trees, "clonefile", "cp", from, to, r, unsupported)
 	}
 }
 

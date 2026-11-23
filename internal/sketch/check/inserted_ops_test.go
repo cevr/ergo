@@ -451,7 +451,7 @@ func insReceiver(r *rand.Rand, name string) insSite {
 func insCallSite(r *rand.Rand, name string) insSite {
 	return insSite{rule: "call-site", name: name,
 		implicit: fmt.Sprintf("func %s(n int) int {\n\tat(n)\n}\n", name),
-		written:  fmt.Sprintf("func %s(n int) int {\n\tat(n, CallSite{File: \"main.ergo\", Line: @LINE, Column: 2, Id: 0})\n}\n", name)}
+		written:  fmt.Sprintf("func %s(n int) int {\n\tat(n, CallSite{File: \"main.ergo\", Line: @LINE, Column: 2, Pkg: 0, Id: 0})\n}\n", name)}
 }
 
 // insZeroValues are the types a let with no value may take, with the

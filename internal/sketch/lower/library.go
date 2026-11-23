@@ -55,8 +55,8 @@ func LowerLibrary(u Unit, module, name string) ([]File, error) {
 	if !token.IsIdentifier(name) || name == "main" {
 		return nil, fmt.Errorf("lower: %q is not a Go package name for a library", name)
 	}
+	u.lib = name // the build lowerer's package (newBuildLowerer)
 	l := newLowerer(u)
-	l.lib = name
 	code, err := l.program()
 	if err != nil {
 		return nil, err
@@ -182,7 +182,15 @@ func (l *lowerer) nameExports() {
 func (l *lowerer) exports(b *strings.Builder) {
 	rt := l.rt()
 	ctx := l.pkgName(pkgKey{"import", "context"}, "context")
-	l.libImports = append(l.libImports, ctx+` "context"`)
+	for _, e := range l.exportsOf() {
+		if e.reason == "" {
+			// An entry takes a context.Context; a library with none (each
+			// export's signature is one Go cannot spell: examples/counter)
+			// imports no context, which Go refuses unused (LIB-ON-IR).
+			l.libImports = append(l.libImports, ctx+` "context"`)
+			break
+		}
+	}
 	host := l.pkgName(pkgKey{"host", "Console"}, "hostConsole")
 	runInits := l.initOnce(b)
 	var provided []string

@@ -116,6 +116,10 @@ type IRReport struct {
 	// copy's returns and failures are the caller's own (INLINE-RETURN,
 	// ir_forms_inline.go); Inlined counts them too.
 	InlinedReturns int `json:"-"`
+	// KnownInlined counts the inlined calls of known variants, whose
+	// callbacks are known pure functions bound at the copy's head
+	// (KNOWN-FILTER-INLINE, ir_forms_inline.go).
+	KnownInlined int `json:"-"`
 	// TailPairs counts the returns of a fallible call's value and error
 	// in an inlined fallible body, bound at the site's value and error
 	// (INLINE-RETURN, ir_forms_inline.go irRets).
@@ -364,7 +368,7 @@ func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach 
 	var out []File
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
-		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out, sh, nil)
+		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), l.sitePkgNames(), &l.ir.out, sh, nil)
 		if rep.err != nil {
 			return nil, IRReport{}, SplitReport{}, rep.err
 		}
@@ -733,6 +737,7 @@ type irBuilder struct {
 	next     int
 	slots    int                      // the Go parameter slots, witnesses too (ir_forms_inline.go)
 	env      int                      // the environment's local, or -1 in a pure function
+	inSeq    bool                     // building a deferred call's hidden arguments inside its Seq (seqLit, ir_adapted.go)
 	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
 	// raw is the operand whose implicit conversion is not applied: a
 	// direct reader passed as itself (directDecode, ir_codec_direct.go).
