@@ -139,11 +139,11 @@ func SlotOfBit(fr Frame, b int) int { fr.Slots - 1 - b }
 // SlotsAndBitsAgree: SlotBit and SlotOfBit invert each other, and a
 // slot's bit names the word at the slot's offset (varp is Size-8 above SP).
 law SlotsAndBitsAgree(n int, i int) {
-	let slots = if n < 0 { -(n % 50) + 1 } else { n % 50 + 1 }
+	let slots = if n < 0 { -(n % 50) + 1 } else { n%50 + 1 }
 	let k = if i < 0 { -(i % slots) } else { i % slots }
 	let fr = FrameOf(slots, 2, false)
 	let b = SlotBit(fr, k)
-	b >= 0 && b < slots && SlotOfBit(fr, b) == k && (fr.Size - 8) - 8*(fr.Slots-b) == SlotOff(fr, k)
+	b >= 0 && b < slots && SlotOfBit(fr, b) == k && (fr.Size-8)-8*(fr.Slots-b) == SlotOff(fr, k)
 }
 
 // ArgSpill is the offset, from SP at entry (SP at the return address), of

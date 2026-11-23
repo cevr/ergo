@@ -72,11 +72,11 @@ func begin(a mut Asm) {
 
 // SetSp, SetLine, SetSmi and SetUnsafe change a table's value for the
 // instructions that follow.
-func SetSp(a mut Asm, v int) { a.sp = v }
-func SetLine(a mut Asm, v int) { a.line = v }
-func SetSmi(a mut Asm, v int) { a.smi = v }
+func SetSp(a mut Asm, v int)     { a.sp = v }
+func SetLine(a mut Asm, v int)   { a.line = v }
+func SetSmi(a mut Asm, v int)    { a.smi = v }
 func SetUnsafe(a mut Asm, v int) { a.unsafe = v }
-func SpNow(a Asm) int { a.sp }
+func SpNow(a Asm) int            { a.sp }
 
 func rex(a mut Asm, w bool, r int, x int, b int) {
 	let v = 64 | (if w { 8 } else { 0 }) | ((r >> 3) << 2) | ((x >> 3) << 1) | (b >> 3)
@@ -90,7 +90,7 @@ func modrm(a mut Asm, mod int, reg int, rm int) { a.Code.U8((mod << 6) | ((reg &
 // mem writes the ModRM, SIB and displacement of [base+disp].
 func mem(a mut Asm, reg int, base int, disp int) {
 	a.modrm(2, reg, base)
-	if base & 7 == 4 {
+	if base&7 == 4 {
 		a.Code.U8(0x24)
 	}
 	a.Code.U32(disp)
@@ -376,7 +376,7 @@ law TablesRoundTrip(vals []int, gaps []int) {
 			pc = pc + (if g < 0 { -(g % 1000) } else { g % 1000 }) + 1
 		}
 	}
-	let back = DecodeTable(EncodeTable(t, pc + 1)) catch {
+	let back = DecodeTable(EncodeTable(t, pc+1)) catch {
 	case Short:
 		return false
 	}

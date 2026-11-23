@@ -76,7 +76,7 @@ func read(path string) string fails os.Exit needs fs.Files {
 type Stock { Root string }
 
 func command(s Stock, args []string) exec.Command {
-	exec.New(s.Root + "/bin/go", args).WithEnv("GOROOT", s.Root).WithEnv("GOTOOLCHAIN", "local")
+	exec.New(s.Root+"/bin/go", args).WithEnv("GOROOT", s.Root).WithEnv("GOTOOLCHAIN", "local")
 }
 
 func goTool(s Stock, args []string) exec.Command { s.command([]string{"tool"}.Concat(args)) }
@@ -85,19 +85,19 @@ func goTool(s Stock, args []string) exec.Command { s.command([]string{"tool"}.Co
 // and different for neighbouring seeds.
 func constants(seed int) (int, int) {
 	let s = if seed < 0 { -(seed % 1000000007) } else { seed % 1000000007 }
-	let k1 = (s * 7919 + 17) % 1000003 - 500000
-	let k2 = (s * 104729 + 31) % 999983 - 400000
+	let k1 = (s*7919+17)%1000003 - 500000
+	let k2 = (s*104729+31)%999983 - 400000
 	(if k1 == 0 { 1 } else { k1 }, if k2 == 0 { -1 } else { k2 })
 }
 
 // program compiles main against the archive tinyA and links it.
 func program(stock Stock, dir string, std string, depA string, tinyA string, name string) string fails os.Exit needs exec.Runner | fs.Writes {
 	let cfg = dir + "/" + name + ".importcfg"
-	try write(cfg, std + "packagefile " + nativeobj.DepPath + "=" + depA + "\npackagefile " + nativeobj.TinyPath + "=" + tinyA + "\n")
+	try write(cfg, std+"packagefile "+nativeobj.DepPath+"="+depA+"\npackagefile "+nativeobj.TinyPath+"="+tinyA+"\n")
 	let obj = dir + "/" + name + ".a"
-	try run(stock.goTool([]string{"compile", "-p", "main", "-importcfg", cfg, "-pack", "-o", obj, dir + "/main.go"}), "stock compile of main against " + name)
+	try run(stock.goTool([]string{"compile", "-p", "main", "-importcfg", cfg, "-pack", "-o", obj, dir + "/main.go"}), "stock compile of main against "+name)
 	let bin = dir + "/" + name
-	try run(stock.goTool([]string{"link", "-importcfg", cfg, "-o", bin, obj}), "stock link of " + name)
+	try run(stock.goTool([]string{"link", "-importcfg", cfg, "-o", bin, obj}), "stock link of "+name)
 	bin
 }
 
@@ -146,7 +146,7 @@ test ChildExitWithoutReportFails {
 	let complete = "init 1 1\nround trip complete\n"
 	let script = exec.Script{Results: Map[string, exec.Result]{
 		exec.Key(childCommand("incomplete", MemoryChecks, "tiny.ergo")): exec.Result{Status: 0, Stdout: partial, Stderr: ""},
-		exec.Key(childCommand("complete", Preemption, "tiny.ergo")): exec.Result{Status: 0, Stdout: complete, Stderr: ""},
+		exec.Key(childCommand("complete", Preemption, "tiny.ergo")):     exec.Result{Status: 0, Stdout: complete, Stderr: ""},
 	}}
 	with context { exec.Runner: script } {
 		let got = execute("incomplete", MemoryChecks, "tiny.ergo") catch {
@@ -167,10 +167,10 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 	let (k1, k2) = constants(seed)
 	io.Stdout.Println("seed \(seed): K1 \(k1) K2 \(k2), work \(dir)")
 	let std = try run(stock.command([]string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "fmt", "os", "path/filepath", "runtime", "weak", "sync/atomic"}), "stock go list -export")
-	try write(dir + "/std.importcfg", std)
-	try write(dir + "/dep.go", depGo)
-	try write(dir + "/main.go", mainGo)
-	try write(dir + "/tinyref.go", strings.ReplaceAll(strings.ReplaceAll(refGo, "K1 = 1111111", "K1 = \(k1)"), "K2 = 2222222", "K2 = \(k2)"))
+	try write(dir+"/std.importcfg", std)
+	try write(dir+"/dep.go", depGo)
+	try write(dir+"/main.go", mainGo)
+	try write(dir+"/tinyref.go", strings.ReplaceAll(strings.ReplaceAll(refGo, "K1 = 1111111", "K1 = \(k1)"), "K2 = 2222222", "K2 = \(k2)"))
 	// The stock dependency, and from its archive the pin's header line,
 	// its fingerprint and whether it has an init.
 	let depA = dir + "/dep.a"
@@ -205,7 +205,7 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 	io.Stdout.Println("metadata: members, fingerprints, exports and ABI registers, safe points, live slots, barriers, relocations, inittask: all hold")
 	// The stock reference under the same import path.
 	let refA = dir + "/tinyref.a"
-	try write(dir + "/ref.importcfg", std + "packagefile " + nativeobj.DepPath + "=" + depA + "\n")
+	try write(dir+"/ref.importcfg", std+"packagefile "+nativeobj.DepPath+"="+depA+"\n")
 	try run(stock.goTool([]string{"compile", "-p", nativeobj.TinyPath, "-importcfg", dir + "/ref.importcfg", "-pack", "-o", refA, dir + "/tinyref.go"}), "stock compile of the reference")
 	let ours = try program(stock, dir, std, depA, tinyA, "ergo")
 	let theirs = try program(stock, dir, std, depA, refA, "stock")

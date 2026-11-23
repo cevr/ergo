@@ -40,7 +40,7 @@ let FlagPkgInit = 8
 
 // HeaderSize is the size of the object header: magic, fingerprint,
 // flags and the block offsets.
-let HeaderSize = 8 + 8 + 4 + 4 * 19
+let HeaderSize = 8 + 8 + 4 + 4*19
 
 // SymRef names a symbol: a package index and an index in it.
 type SymRef { Pkg int, Idx int }
@@ -206,7 +206,7 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 		}
 		for imp in p.Imports {
 			if imp.HasInit {
-				rs = rs.Append(ObjReloc{Off: 0, Size: 0, Type: RInitorder, Add: 0, Sym: b.refTo(imp.Path + "..inittask", ABI0)})
+				rs = rs.Append(ObjReloc{Off: 0, Size: 0, Type: RInitorder, Add: 0, Sym: b.refTo(imp.Path+"..inittask", ABI0)})
 			}
 		}
 		let data = InitTask(len(inits))
@@ -219,7 +219,7 @@ func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
 			rs = rs.Append(ObjReloc{Off: r.Off, Size: r.Size, Type: r.Type, Add: r.Add, Sym: target})
 		}
 		let info = b.addDef(dataDef(7, 0, FuncInfo(lf)))
-		let args = b.addDef(dataDef(SRodata, 4, StackMap(lf.ArgMaps, len(p.Funcs[i].Params) + len(p.Funcs[i].Results))))
+		let args = b.addDef(dataDef(SRodata, 4, StackMap(lf.ArgMaps, len(p.Funcs[i].Params)+len(p.Funcs[i].Results))))
 		let locals = b.addDef(dataDef(SRodata, 4, StackMap(lf.Locals, lf.Frame.Slots)))
 		let pcsp = b.addDef(dataDef(SRodata, 1, lf.Pcsp))
 		let pcfile = b.addDef(dataDef(SRodata, 1, lf.Pcfile))
@@ -384,7 +384,7 @@ func WriteObject(o Object) string {
 	offs[BlkRefName] = w.Size()
 	offs[BlkEnd] = w.Size()
 	for i, x in offs {
-		w.Put32(8 + 8 + 4 + 4*i, x)
+		w.Put32(8+8+4+4*i, x)
 	}
 	w.Bytes()
 }

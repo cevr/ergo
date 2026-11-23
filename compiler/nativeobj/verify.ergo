@@ -40,14 +40,19 @@ func readMaps(data string) (int, [][]bool) fails Bad {
 		let mut bits = []bool{}
 		for b in 0..nbit {
 			let x = int(data[8+m*per+b/8])
-			bits = bits.Append((x >> (b % 8)) & 1 == 1)
+			bits = bits.Append((x>>(b%8))&1 == 1)
 		}
 		maps = maps.Append(bits)
 	}
 	(nbit, maps)
 }
 
-func table(data string) []PcVal fails Bad { DecodeTable(data) catch { case Short as s: return short(s) } }
+func table(data string) []PcVal fails Bad {
+	DecodeTable(data) catch {
+	case Short as s:
+		return short(s)
+	}
+}
 
 // ViewOf reads definition j of d's object as a function.
 func ViewOf(d Decoded, j int) FuncView fails Bad {
@@ -78,7 +83,7 @@ func ViewOf(d Decoded, j int) FuncView fails Bad {
 	let (lbits, lmaps) = try readMaps(fds[FuncdataLocalsPointerMaps])
 	FuncView{Name: o.Defs[j].Name, Code: o.Data[j], Ins: try Disasm(o.Data[j]), Relocs: o.Relocs[j], Args: try le(info, 0, 4), Line: try le(info, 12, 4),
 		ArgMaps: amaps, ArgBits: abits, Locals: lmaps, LocBits: lbits, Sp: try table(sp), Unsafe: try table(pcd[PcdataUnsafePoint]),
-		Smi: try table(pcd[PcdataStackMapIndex]), NPcdata: len(pcd), NFuncdat: len(fds)}
+		Smi:     try table(pcd[PcdataStackMapIndex]), NPcdata: len(pcd), NFuncdat: len(fds)}
 }
 
 // symOf is the linker name the checked input gives function i: the
@@ -304,9 +309,12 @@ func abiOf(p Package, f Func, v FuncView) []string {
 				return out.Append("\(f.Name): more calls in the code than in the input")
 			}
 			let (args, dsts, closure) = match f.Ops[calls[m]] {
-			case Call as c: (c.Args, c.Dsts, -1)
-			case CallClosure as c: (c.Args, c.Dsts, c.Fn)
-			case _: ([]int{}, []int{}, -1)
+			case Call as c:
+				(c.Args, c.Dsts, -1)
+			case CallClosure as c:
+				(c.Args, c.Dsts, c.Fn)
+			case _:
+				([]int{}, []int{}, -1)
 			}
 			let pre = if closure >= 0 { 2 } else { 0 }
 			if closure >= 0 && (q < 2 || !isMov(ins[q-2], 0x8B, RDX, RSP, slotDisp(size, closure)) || !isMov(ins[q-1], 0x8B, R12, RDX, 0) || x.B != R12) {
@@ -446,7 +454,7 @@ func CheckLiveSlots(p Package, d Decoded) []string {
 			let want = if m == 0 { []int{} } else { ModelAcross(p, f, calls[m-1]) }
 			for j in 0..len(f.Slots) {
 				// Slot j's word is at varp-8*(nbit-b): b = nbit - (varp-off)/8.
-				let b = v.LocBits - (size - 8 - slotDisp(size, j)) / 8
+				let b = v.LocBits - (size-8-slotDisp(size, j))/8
 				if b < 0 || b >= len(v.Locals[m]) {
 					out = out.Append("\(f.Name): slot \(j) has no bit")
 				} else if v.Locals[m][b] != has(want, j) {
@@ -505,8 +513,10 @@ func CheckBarriers(p Package, d Decoded) []string {
 			let jeq = ins[q-1]
 			let ok = cmp.Op == 0x83 && cmp.R == 7 && cmp.Rip && cmp.Imm == 0
 			let flag = match relocAt(v.Relocs, cmp.Pc+2) {
-			case Some as r: r.Value.Target == WriteBarrierFlag && r.Value.Type == RPcrel && r.Value.Add == -1
-			case None: false
+			case Some as r:
+				r.Value.Target == WriteBarrierFlag && r.Value.Type == RPcrel && r.Value.Add == -1
+			case None:
+				false
 			}
 			let store = ins[q+4]
 			let lands = jeq.Op == 0x0F84 && jeq.Pc+jeq.Size+jeq.Imm == store.Pc
@@ -623,7 +633,7 @@ func CheckRelocs(p Package, d Decoded) []string {
 func CheckInitTask(p Package, d Decoded) []string {
 	let mut out = []string{}
 	let o = d.Obj
-	let t = defNamed(o, p.Path + "..inittask")
+	let t = defNamed(o, p.Path+"..inittask")
 	if len(p.Inits) == 0 {
 		if t >= 0 {
 			out = out.Append("an inittask without init functions")
@@ -638,7 +648,7 @@ func CheckInitTask(p Package, d Decoded) []string {
 	}
 	let data = o.Data[t]
 	if o.Defs[t].Kind != SNoptrdata || len(data) != 8+8*len(p.Inits) {
-		out = out.Append("inittask is not a no-pointer data symbol of \(8+8*len(p.Inits)) bytes")
+		out = out.Append("inittask is not a no-pointer data symbol of \(8 + 8*len(p.Inits)) bytes")
 		return out
 	}
 	let nfns = LE(data, 4, 4)
@@ -677,7 +687,7 @@ func CheckInitTask(p Package, d Decoded) []string {
 		out = out.Append("inittask orders \(strings.Join(orders, ",")) before it, not \(strings.Join(wantOrders, ","))")
 	}
 	for j, s in o.Defs {
-		if s.Flag2 & FlagPkgInit != 0 && !has(targets, j) {
+		if s.Flag2&FlagPkgInit != 0 && !has(targets, j) {
 			out = out.Append("\(s.Name) is flagged as a package init outside the inittask")
 		}
 	}
@@ -696,7 +706,7 @@ func Verify(p Package, header string, ar string) []string {
 
 // sample builds the fixture for drawn constants and decodes its archive.
 func sample(k1 int, k2 int) (Package, Decoded) fails Bad {
-	let p = Tiny(k1 % 1000000, k2 % 1000000, SampleDep())
+	let p = Tiny(k1%1000000, k2%1000000, SampleDep())
 	let b = Archive(p, SampleHeader) catch {
 	case Refused as r:
 		return Bad{Why: r.Why}
@@ -709,41 +719,65 @@ func sample(k1 int, k2 int) (Package, Decoded) fails Bad {
 }
 
 law ArchiveMembers(k1 int, k2 int) {
-	let (_, d) = sample(k1, k2) catch { case Bad: return false }
+	let (_, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckMembers(d, SampleHeader)) == 0
 }
 
 law FingerprintsAgree(k1 int, k2 int) {
-	let (p, d) = sample(k1, k2) catch { case Bad: return false }
+	let (p, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckFingerprints(p, d)) == 0
 }
 
 law ArgsInABIRegisters(k1 int, k2 int) {
-	let (p, d) = sample(k1, k2) catch { case Bad: return false }
+	let (p, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckExports(p, d)) == 0
 }
 
 law SafePointsIndexed(k1 int, k2 int) {
-	let (p, d) = sample(k1, k2) catch { case Bad: return false }
+	let (p, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckSafePoints(p, d)) == 0
 }
 
 law LiveSlotsMarked(k1 int, k2 int) {
-	let (p, d) = sample(k1, k2) catch { case Bad: return false }
+	let (p, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckLiveSlots(p, d)) == 0
 }
 
 law PointerStoresBarriered(k1 int, k2 int) {
-	let (p, d) = sample(k1, k2) catch { case Bad: return false }
+	let (p, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckBarriers(p, d)) == 0
 }
 
 law RelocsNameTargets(k1 int, k2 int) {
-	let (p, d) = sample(k1, k2) catch { case Bad: return false }
+	let (p, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckRelocs(p, d)) == 0
 }
 
 law InitTaskOnce(k1 int, k2 int) {
-	let (p, d) = sample(k1, k2) catch { case Bad: return false }
+	let (p, d) = sample(k1, k2) catch {
+	case Bad:
+		return false
+	}
 	len(CheckInitTask(p, d)) == 0
 }

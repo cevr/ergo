@@ -67,7 +67,7 @@ func ReadAr(data string) []ArMember fails Bad {
 			return Bad{Why: "member \(trimRight(h[0:16])) runs past the archive"}
 		}
 		out = out.Append(ArMember{Name: trimRight(h[0:16]), Data: data[at : at+size]})
-		at = at + size + size % 2
+		at = at + size + size%2
 	}
 	out
 }
@@ -156,30 +156,55 @@ type elemReader { refs []RefEntry, r Reader, end int }
 func open(e elems, sec int, idx int) elemReader fails Bad {
 	let (from, to) = try e.span(sec, idx)
 	let mut r = Reader{Data: e.blob[0:to], At: from}
-	let n = r.RUvarint() catch { case Short as s: return short(s) }
+	let n = r.RUvarint() catch {
+	case Short as s:
+		return short(s)
+	}
 	let mut refs = []RefEntry{}
 	for _ in 0..n {
-		let s = r.RUvarint() catch { case Short as x: return short(x) }
-		let i = r.RUvarint() catch { case Short as x: return short(x) }
+		let s = r.RUvarint() catch {
+		case Short as x:
+			return short(x)
+		}
+		let i = r.RUvarint() catch {
+		case Short as x:
+			return short(x)
+		}
 		refs = refs.Append(RefEntry{Sec: s, Idx: i})
 	}
 	elemReader{refs: refs, r: r, end: to}
 }
 
 func ref(er mut elemReader, sec int) int fails Bad {
-	let k = er.r.RUvarint() catch { case Short as s: return short(s) }
+	let k = er.r.RUvarint() catch {
+	case Short as s:
+		return short(s)
+	}
 	if k < 0 || k >= len(er.refs) || er.refs[k].Sec != sec {
 		return Bad{Why: "reference \(k) is not into section \(sec)"}
 	}
 	er.refs[k].Idx
 }
 
-func uv(er mut elemReader) int fails Bad { er.r.RUvarint() catch { case Short as s: return short(s) } }
+func uv(er mut elemReader) int fails Bad {
+	er.r.RUvarint() catch {
+	case Short as s:
+		return short(s)
+	}
+}
 
-func sv(er mut elemReader) int fails Bad { er.r.RVarint() catch { case Short as s: return short(s) } }
+func sv(er mut elemReader) int fails Bad {
+	er.r.RVarint() catch {
+	case Short as s:
+		return short(s)
+	}
+}
 
 func flag(er mut elemReader) bool fails Bad {
-	let b = er.r.RByte() catch { case Short as s: return short(s) }
+	let b = er.r.RByte() catch {
+	case Short as s:
+		return short(s)
+	}
 	if b > 1 {
 		return Bad{Why: "a bool byte of \(b)"}
 	}
@@ -194,26 +219,38 @@ func str(e elems, idx int) string fails Bad {
 // ReadExport decodes export data (version word to fingerprint).
 func ReadExport(blob string) ExportInfo fails Bad {
 	let mut r = NewReader(blob)
-	let version = r.R32() catch { case Short as s: return short(s) }
+	let version = r.R32() catch {
+	case Short as s:
+		return short(s)
+	}
 	if version >= 1 {
-		let flags = r.R32() catch { case Short as s: return short(s) }
+		let flags = r.R32() catch {
+		case Short as s:
+			return short(s)
+		}
 		if flags != 0 {
 			return Bad{Why: "export flags \(flags): sync markers are not written by the pin's default"}
 		}
 	}
 	let mut secEnd = []int{}
 	for _ in 0..NumSections {
-		secEnd = secEnd.Append(r.R32() catch { case Short as s: return short(s) })
+		secEnd = secEnd.Append(r.R32() catch {
+		case Short as s:
+			return short(s)
+		})
 	}
 	let total = secEnd[NumSections-1]
 	let mut elemEnd = []int{}
 	for _ in 0..total {
-		elemEnd = elemEnd.Append(r.R32() catch { case Short as s: return short(s) })
+		elemEnd = elemEnd.Append(r.R32() catch {
+		case Short as s:
+			return short(s)
+		})
 	}
 	let dataAt = r.At
 	let size = if total == 0 { 0 } else { elemEnd[total-1] }
 	if dataAt+size+8 != len(blob) {
-		return Bad{Why: "export data of \(len(blob)) bytes holds \(dataAt+size) and an 8-byte fingerprint"}
+		return Bad{Why: "export data of \(len(blob)) bytes holds \(dataAt + size) and an 8-byte fingerprint"}
 	}
 	let body = blob[0 : dataAt+size]
 	let fp = blob[dataAt+size : len(blob)]
@@ -286,7 +323,7 @@ func le(data string, at int, n int) int fails Bad {
 
 func sext(x int, bits int) int {
 	let top = 1 << (bits - 1)
-	if x & top != 0 { x - (top << 1) } else { x }
+	if x&top != 0 { x - (top << 1) } else { x }
 }
 
 func strAt(data string, at int) string fails Bad {
@@ -435,7 +472,7 @@ func Disasm(code string) []Ins fails Bad {
 			ins = Ins{..ins, R: reg, B: rm}
 			if mod == 3 {
 				ins = Ins{..ins, Mem: false}
-			} else if mod == 0 && (m & 7) == 5 {
+			} else if mod == 0 && (m&7) == 5 {
 				ins = Ins{..ins, Mem: true, Rip: true, Disp: sext(try le(code, pc, 4), 32)}
 				pc = pc + 4
 			} else if mod == 2 {

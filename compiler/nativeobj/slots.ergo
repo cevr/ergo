@@ -207,7 +207,7 @@ func drawnOp(kind int, i int, a int, b int, l int) Op {
 	if kind == 7 {
 		return CallClosure{Dsts: []int{}, Fn: b, Args: []int{a}}
 	}
-	if i % 2 == 0 {
+	if i%2 == 0 {
 		return StorePtr{Ptr: a, Val: b}
 	}
 	Return{Vals: []int{a}}
@@ -218,12 +218,12 @@ func drawnOp(kind int, i int, a int, b int, l int) Op {
 // branches over the same slots come up.
 func drawn(codes []int) (Package, Func) {
 	let p = Package{Path: "p", Name: "p", File: "p.ergo",
-		Types: []TypeDef{TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}}, TypeDef{Kind: KPtr, Elem: 0, Params: []int{}, Results: []int{}}},
+		Types:   []TypeDef{TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}}, TypeDef{Kind: KPtr, Elem: 0, Params: []int{}, Results: []int{}}},
 		Imports: []Import{}, Globals: []Global{}, Funcs: []Func{}, Inits: []int{}}
 	let k = 6
 	let mut slots = []int{}
 	for j in 0..k {
-		slots = slots.Append(if j % 2 == 0 { 1 } else { 0 })
+		slots = slots.Append(if j%2 == 0 { 1 } else { 0 })
 	}
 	let mut ops = []Op{}
 	for i, c0 in codes {
@@ -231,7 +231,7 @@ func drawn(codes []int) (Package, Func) {
 		let a = c % k
 		let b = (c / 7) % k
 		let l = (c / 11) % 4
-		ops = ops.Append(drawnOp(c % 9, i, a, b, l))
+		ops = ops.Append(drawnOp(c%9, i, a, b, l))
 	}
 	let mut lines = []int{}
 	for _ in ops {
