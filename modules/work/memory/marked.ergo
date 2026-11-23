@@ -2,6 +2,7 @@ import filepath
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/work
+import slices
 import strings
 
 // Marked is the memory disk with each tree's marker (work.MarkerFile)
@@ -36,7 +37,34 @@ func ReadFile(m Marked, path string) string fails fs.NotFound | fs.Denied | fs.F
 	}
 }
 
-func ReadDir(m Marked, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.ReadDir(path) }
+// ReadDir is the disk's names in path and the name of each tree whose root
+// is a child of path, as a host's folder lists the checkouts in it.
+func ReadDir(m Marked, path string) []string fails fs.NotFound | fs.Denied | fs.Failed {
+	let mut trees = []string{}
+	for root in Roots(m.trees) {
+		if filepath.Dir(root) == path {
+			trees = trees.Append(filepath.Base(root))
+		}
+	}
+	let names = m.disk.ReadDir(path) catch {
+	case fs.NotFound as e:
+		if len(trees) == 0 {
+			return e
+		}
+		[]string{}
+	case fs.Denied as e:
+		return e
+	case fs.Failed as e:
+		return e
+	}
+	let mut out = names
+	for n in trees {
+		if !slices.Contains(out, n) {
+			out = out.Append(n)
+		}
+	}
+	out
+}
 
 func Stat(m Marked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Stat(path) }
 

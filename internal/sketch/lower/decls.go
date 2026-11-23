@@ -1006,6 +1006,9 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false)
 func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	slot := fd.emitSlot
 	l.bodies++
+	if loweringWork != nil {
+		loweringWork("body")
+	}
 	f := fd.fn
 	l.readsOf(f)
 	b := &l.user

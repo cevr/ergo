@@ -274,7 +274,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		"rpc.call",
 		"signal.hostNumber", "signal.hostUnwatch", "signal.hostWatch",
 		"sql.hostBegin", "sql.hostCommit", "sql.hostExec", "sql.hostOpen", "sql.hostQuery", "sql.hostRollback", "sql.hostTxExec", "sql.hostTxQuery",
-		"term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostReadKey", "term.hostSize",
+		"term.hostDrop", "term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostPeek", "term.hostSize",
 		"time.hostMono", "time.hostNow",
 	}
 	if !slices.Equal(hosts, want) {

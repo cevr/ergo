@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"go/constant"
+	"strings"
 	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -34,6 +35,12 @@ type Const struct {
 	Elems []Const
 	Hole  int
 }
+
+// NoNative reports whether why, a refusal of FoldValue, is a call of a Go
+// function the evaluator has no native of ("a Go function (name), even a
+// pure one"). A std change that leaves an extern without its native turns
+// folds off this way, so the fold counts it apart (lower FoldCounts).
+func NoNative(why string) bool { return strings.Contains(why, "), even a pure one") }
 
 // FoldValue computes the expression x of the declaration decl of pkg at
 // build time (CF1): x reads no local, a package let it reads is computed

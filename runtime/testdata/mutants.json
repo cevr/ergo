@@ -132,6 +132,8 @@
         ]
       }
     },
-    {"name":"tzdata-imports-binary","origin":"wf10 TZDATA-NOINIT","file":"runtime/tzdata/tzdata.go","from":"\t_ \"embed\"\n\t\"strings\"\n","to":"\t_ \"embed\"\n\t_ \"encoding/binary\"\n\t\"strings\"\n","rule":"runtime/tzdata, which every program that reads a zone links, imports no package with an init root: it reads its big-endian lengths by hand.","killers":["runtime:TestCoreHasNoInitRoots"],"anchor":{"tests":["runtime:TestCoreHasNoInitRoots"]}}
+    {"name":"tzdata-imports-binary","origin":"wf10 TZDATA-NOINIT","file":"runtime/tzdata/tzdata.go","from":"\t_ \"embed\"\n\t\"strings\"\n","to":"\t_ \"embed\"\n\t_ \"encoding/binary\"\n\t\"strings\"\n","rule":"runtime/tzdata, which every program that reads a zone links, imports no package with an init root: it reads its big-endian lengths by hand.","killers":["runtime:TestCoreHasNoInitRoots"],"anchor":{"tests":["runtime:TestCoreHasNoInitRoots"]}},
+    {"name":"tzdata-be16-little-endian","origin":"wf10 TZDATA-DECODE-PROPERTY","file":"runtime/tzdata/tzdata.go","from":"func be16(s string, at int) int { return int(s[at])<<8 | int(s[at+1]) }","to":"func be16(s string, at int) int { return int(s[at]) | int(s[at+1])<<8 }","rule":"The zone copy's name lengths are big-endian uint16, as encoding/binary.BigEndian reads them.","killers":["runtime/tzdata:TestBigEndianByHand"],"anchor":{"tests":["runtime/tzdata:TestBigEndianByHand"]}},
+    {"name":"tzdata-be32-drops-high-byte","origin":"wf10 TZDATA-DECODE-PROPERTY","file":"runtime/tzdata/tzdata.go","from":"\treturn int(s[at])<<24 | int(s[at+1])<<16 | int(s[at+2])<<8 | int(s[at+3])\n","to":"\treturn int(s[at+1])<<16 | int(s[at+2])<<8 | int(s[at+3])\n","rule":"The zone copy's zone sizes are big-endian uint32 over all four bytes.","killers":["runtime/tzdata:TestBigEndianByHand"],"anchor":{"tests":["runtime/tzdata:TestBigEndianByHand"]}}
   ]
 }

@@ -1666,6 +1666,62 @@
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
+      "name": "st-stray-unnamed", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tif !o.Here {\n\t\tnotes = slices.Concat(notes, try strayNotes(t))\n",
+      "to": "\tif false {\n\t\tnotes = slices.Concat(notes, try strayNotes(t))\n",
+      "rule": "doctor names a staging folder no record holds and deletes none (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "st-stray-names-held", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif slices.IndexFunc(all, func(w Workspace) bool { w.Id != \"\" && w.Id == id }) >= 0 {\n",
+      "to": "\t\tif id == \"\" && len(all) < 0 {\n",
+      "rule": "a live maker's staging folder is its record's, not a stray (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "st-tomb-is-stray", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tlet id = strings.TrimSuffix(name, \".gone\")\n",
+      "to": "\t\tlet id = name\n",
+      "rule": "the tomb of a rolled-back reservation whose record is kept is that record's, not a stray (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "rd-gone-folder-asks-git", "origin": "wf10/semws WORK-REPAIR-DANGLING",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif livesAt(w) && !t.copier.Has(w.Path) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A record whose folder was deleted outside work does not stop doctor: it is named with the commands that drop it, and -repair still runs (memory's DoctorPassesAGoneFolder).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "rd-gone-preremove-runs", "origin": "wf10/semws WORK-REPAIR-DANGLING",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif !t.copier.Has(w.Path) {\n\t\t\treturn env\n",
+      "to": "\t\tif false {\n\t\t\treturn env\n",
+      "rule": "rm of a record whose folder is gone runs no preremove hook in the missing folder, so the record can be dropped (memory's RmDropsAGoneFolder).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "rd-here-repairs-all", "origin": "wf10/semws WORK-REPAIR-DANGLING",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif here && len(holding([]string{w.Path}, t.here)) == 0 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "doctor -here -repair activates only the reservation whose folder holds the folder it runs in (memory's DoctorHereRepairsOnlyItsOwn).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "dt-old-rerere-unnamed", "origin": "wf10/semws DRIVER-TABLE-ONE-SOURCE",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif here && try t.vcs.OwnSetting(root, \"rerere.enabled\") == \"true\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "doctor -here names a checkout's own rerere.enabled=true with the command that unsets it, and changes nothing (memory's DoctorHereNamesAnOldRerere).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
       "name": "hmd-here-checks-all", "origin": "wf10/semws HUB-MERGE-DRIVERS",
       "file": "modules/work/work/doctor.ergo",
       "from": "\tlet roots = if here { holding(all, t.here) } else { all }\n",

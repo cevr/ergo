@@ -298,11 +298,13 @@ tasks	Transform	provider
 tasks	newSet	provider
 term	NotTerminal	type
 term	Window	type
+term	hostDrop	host
 term	hostEnterNoEcho	host
 term	hostEnterRaw	host
 term	hostLeave	host
-term	hostReadKey	host
+term	hostPeek	host
 term	hostSize	host
+term	peeked	type
 testing	At	provider
 testing	Op	type
 testing	Point	provider
