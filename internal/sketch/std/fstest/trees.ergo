@@ -1,44 +1,10 @@
-// Memory's Lstat and Mkdir, and the laws of fs's tree functions (Walk,
-// RemoveAll, MkdirTemp, Scratch) over a Memory: each builds its tree from
-// the generated paths, so a law reads no disk.
+// The laws of fs's tree functions (Walk, RemoveAll, MkdirTemp, Scratch)
+// over a Memory: each builds its tree from the generated paths, so a law
+// reads no disk.
 
 import filepath
 import fs
 import strings
-import sync
-
-// Lstat is Stat: Memory has no symbolic links.
-func Lstat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
-	try m.Stat(path)
-}
-
-// Mkdir makes the one directory path with exactly mode when nothing is
-// there, and fails fs.Exists when something is.
-func Mkdir(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {
-	let perm = fs.Perm(mode)
-	let made = sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
-		let mut u = t
-		match find(t, path) {
-		case NoParent:
-			(Missing{Path: path}, u)
-		case UnderFile:
-			(Broken{Path: path, Reason: "not a directory"}, u)
-		case Taken:
-			(Broken{Path: path, Reason: "file exists"}, u)
-		case Free:
-			u[filepath.Clean(path)] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
-			(Changed, u)
-		}
-	})
-	match made {
-	case Broken as b:
-		if b.Reason == "file exists" {
-			return fs.Exists{Path: path}
-		}
-	case Changed, Missing:
-	}
-	try raise(made)
-}
 
 // grown is a new Memory with a file "x" at each of paths that can hold
 // one, its directories made first; a path that cannot is left out.
