@@ -26,6 +26,22 @@
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
     {
+      "name": "chmod-gnu-only-flags", "origin": "WORK-GC-EMPTY-CLONEFAILED Darwin replay",
+      "file": "modules/work/system/trees.ergo",
+      "from": "if chmod u+rwx \\\"$1\\\" >&2;",
+      "to": "if chmod u+rwx -- \\\"$1\\\" >&2;",
+      "rule": "RepairAcceptsBsdChmod gets an absolute operand and no GNU-only option separator, even when Work is given a relative path.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "chmod-exit-lost", "origin": "WORK-GC-EMPTY-CLONEFAILED Darwin replay",
+      "file": "modules/work/system/trees.ergo",
+      "from": "then exit \\\"$status\\\"; fi",
+      "to": "then :; fi",
+      "rule": "RepairReturnsTheChmodFailure must fail with chmod's status, and never supply the retry marker after even one refusal.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
       "name": "discard-loses-first-stderr", "origin": "WORK-GC-EMPTY-CLONEFAILED",
       "file": "modules/work/system/trees.ergo",
       "from": "discarded(t, who, root, again) catch {\n\tcase work.CloneFailed as e:\n\t\treturn work.CloneFailed{..failure, Reason: \"\\(failure.Reason); retry: \\(e.Reason)\"}",

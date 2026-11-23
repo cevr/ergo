@@ -51,6 +51,50 @@ test DiscardRepairsReadOnlyDirectories {
 	}
 }
 
+// RepairAcceptsBsdChmod: the helper's chmod operands must be a mode and
+// a single absolute path, with no GNU-only option separator.
+test RepairAcceptsBsdChmod {
+	with onHost {
+		try plantPermissionFixture()
+		let r = try permissionFixture("recover")
+		assert r.Status == 0 && r.Stdout == "repaired\n" && r.Stderr == ""
+		let folder = try fs.Files.Stat("recover/read only")
+		assert folder.Perm & 448 == 448
+	}
+}
+
+// RepairReturnsTheChmodFailure: even when a sibling chmod succeeds,
+// a failed chmod ends repair with that status and no retry marker.
+test RepairReturnsTheChmodFailure {
+	with onHost {
+		try plantPermissionFixture()
+		let r = try permissionFixture("mixed")
+		assert r.Status == 7 && r.Stdout == ""
+		assert strings.Contains(r.Stderr, "fixture chmod refused")
+		let folder = try fs.Files.Stat("mixed/refuse")
+		assert folder.Perm & 128 == 0
+		try fs.Writes.Chmod("mixed/refuse", fs.PrivateDir())
+	}
+}
+
+func plantPermissionFixture() fails fs.Denied | fs.Failed | fs.NotFound needs fs.Writes {
+	try fs.Writes.MkdirAll("bin")
+	try fs.Writes.MkdirAll("recover/read only")
+	try fs.Writes.MkdirAll("mixed/allow")
+	try fs.Writes.MkdirAll("mixed/refuse")
+	let readOnly = fs.Mode{Owner: fs.ReadExecute, Group: fs.NoAccess, Other: fs.NoAccess}
+	try fs.Writes.Chmod("recover/read only", readOnly)
+	try fs.Writes.Chmod("mixed/allow", readOnly)
+	try fs.Writes.Chmod("mixed/refuse", readOnly)
+	let chmod = "#!/bin/sh\nset -eu\nif [ \"$#\" -ne 2 ] || [ \"$1\" != u+rwx ]; then printf 'BSD-style chmod rejected its arguments\\n' >&2; exit 9; fi\ncase \"$2\" in /*/refuse) printf 'fixture chmod refused\\n' >&2; exit 7;; /*) exec /bin/chmod \"$@\";; *) printf 'chmod requires an absolute operand here\\n' >&2; exit 8;; esac\n"
+	try fs.Writes.WriteFileMode("bin/chmod", chmod, fs.PrivateDir())
+}
+
+func permissionFixture(path string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | TestAmbient {
+	let c = exec.New("sh", []string{"-c", system.RepairRemovalScript, "work-discard-permissions", path})
+	try exec.Runner.Run(c.WithEnv("PATH", TestFolder() + "/bin:/usr/bin:/bin"))
+}
+
 // BaseScript makes base a checkout whose files hold every kind git's
 // status tells apart: a committed file, an executable script, a symbolic
 // link, a change not staged, a staged new file, an untracked file and an

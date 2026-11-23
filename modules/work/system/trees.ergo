@@ -246,11 +246,12 @@ func Discard(t Trees, who string, root string) fails work.Missing | work.CloneFa
 	}
 }
 
-// Walk with physical links (-P), pre-order: chmod of one directory runs
-// before descent into it. Only a directory missing owner rwx is changed.
-// The marker tells Discard whether it is worth retrying. Prefix a relative
-// operand with ./ so find cannot read it as an expression.
-let RepairRemovalScript = "set -eu\ncase \"$1\" in /*) root=$1;; *) root=./$1;; esac\nfind -P \"$root\" -xdev -type d ! -perm -0700 -exec chmod u+rwx -- '{}' ';' -print\n"
+// Walk pre-order without following links or descending into other file
+// systems. chmod gets an absolute operand: BSD chmod does not accept
+// an option separator after its mode. find -exec with ';' does not
+// propagate the command's status; collect those statuses explicitly.
+// Only a repair with no failed chmod can ask Discard to retry rm.
+let RepairRemovalScript = "set -efu\ncase \"$1\" in /*) root=$1;; *) root=\"$(pwd -P)/$1\";; esac\nstatuses=$(find -P \"$root\" -xdev -type d ! -perm -0700 -exec sh -c 'if chmod u+rwx \"$1\" >&2; then printf \"0\\n\"; else printf \"%s\\n\" \"$?\"; fi' work-chmod '{}' ';') || exit \"$?\"\nfor status in $statuses; do\n  if [ \"$status\" -ne 0 ]; then exit \"$status\"; fi\ndone\nif [ -n \"$statuses\" ]; then printf 'repaired\\n'; fi\n"
 
 func repairRemoval(t Trees, who string, root string, failure work.CloneFailed) bool fails work.CloneFailed {
 	let path = strconv.Quote(root)
@@ -258,11 +259,11 @@ func repairRemoval(t Trees, who string, root string, failure work.CloneFailed) b
 	case work.CloneFailed as e:
 		return work.CloneFailed{..failure, Reason: "\(failure.Reason); directory permission repair: \(e.Reason)"}
 	}
-	if r.Status != 0 || (r.Stdout == "" && strings.TrimSpace(r.Stderr) != "") {
+	if r.Status != 0 {
 		let repair = commandFailure(t, who, "sh", path, r, "work-discard-permissions")
 		return work.CloneFailed{..failure, Reason: "\(failure.Reason); directory permission repair: \(repair.Reason)"}
 	}
-	r.Stdout != ""
+	r.Stdout == "repaired\n"
 }
 
 // The first rm writes stderr; the second fails without it. Either would
@@ -281,7 +282,7 @@ func Run(p retryRunner, c exec.Command) exec.Result fails exec.NotFound {
 		if c.Args != []string{"-c", RepairRemovalScript, "work-discard-permissions", "/old"} {
 			return exec.NotFound{Name: c.Name}
 		}
-		exec.Result{Status: 0, Stdout: "/old/dir\n", Stderr: ""}
+		exec.Result{Status: 0, Stdout: "repaired\n", Stderr: ""}
 	case _:
 		return exec.NotFound{Name: c.Name}
 	}
