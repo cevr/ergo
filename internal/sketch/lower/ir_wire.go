@@ -93,8 +93,8 @@ type wireGen struct {
 }
 
 // wireKeysLowering selects how a codec writer orders a Map's keys: ""
-// (WireKeysIn, in an array of the frame) or "heap" (the reference:
-// WireKeys, a fresh slice per Map, as the text form does).
+// (WireKeysIn, in an array of the frame, as the text form does too) or
+// "heap" (the reference: WireKeys, a fresh slice per Map).
 var wireKeysLowering string
 
 // wireCell builds the IR body of the cell codec function name of t,
