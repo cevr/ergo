@@ -1044,23 +1044,17 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	f := fd.fn
 	l.readsOf(f)
-	b := &l.user
-	directives := l.isSourced(f.Pkg)
-	// A sourced package's body is lowered within its file, reading its
-	// package's Info (sources.go).
-	defer l.leave(l.enter(f.Decl.Name, f.Pkg))
-	if !directives {
-		b = &l.gen
-		// A library body with Ergo source (std log and trace) reads the
-		// facts of its own package's Info: every fact of the lowering is
-		// keyed by syntax node, and its nodes are its package's. A library
-		// body is emitted from the pending queue, never inside another
-		// body, so the swap covers exactly this body.
-		if f.Pkg.Info != nil && f.Pkg.Info != l.info {
-			saved := l.info
-			l.info = f.Pkg.Info
-			defer func() { l.info = saved }()
-		}
+	// Only an admitted file gives the body directives and table entries.
+	// Its checked facts always come from the declaring package.
+	src, directives := l.sourceOf(f.Decl)
+	defer l.leave(l.state())
+	b := &l.gen
+	if directives {
+		b = &l.user
+		l.setCur(src)
+	}
+	if f.Pkg.Info != nil {
+		l.info = f.Pkg.Info
 	}
 	// The locals of a function's own body yield to its package's names
 	// alone (pkgnames.go, plainScope); a copy's body (sp, known) to every
@@ -1081,7 +1075,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		fc.owner = fd.method.tn.Name + "." + f.Name
 	}
 	if directives {
-		l.recordDecl(fc.owner, f.Decl)
+		l.recordDeclAt(fc.owner, f.Decl, src)
 	}
 	if n := nativeOf(f); n != nil {
 		l.emitNative(b, fd.name, n, f) // pattern.go
