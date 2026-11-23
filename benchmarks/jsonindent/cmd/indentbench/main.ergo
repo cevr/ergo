@@ -22,10 +22,10 @@ func fnv(s string) uint64 {
 func main() fails os.Exit needs Console | Ambient {
 	with context { os.Process: os.NewHost() } {
 		let args = os.Process.Args()
-		if len(args) != 3 || args[1] != "bench" {
+		if len(args) != 2 || args[0] != "bench" {
 			return os.Exit{Code: 2, Message: "usage: indentbench bench N"}
 		}
-		let n = strconv.Atoi(args[2]) catch {
+		let n = strconv.Atoi(args[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "indentbench: N is not a count"}
 		}
