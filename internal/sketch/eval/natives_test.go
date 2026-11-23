@@ -41,8 +41,11 @@ import (
 // evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last,
 // eval-time-format-is-gos, eval-time-parse-is-gos,
 // eval-time-expanded-year-unpadded,
-// eval-sortfunc-equal-on-greater, eval-repeat-drops-one, and
-// ST4's st4-* rows but st4-native-missing (nativespure.go).
+// eval-sortfunc-equal-on-greater, eval-repeat-drops-one,
+// ST4's st4-* rows but st4-native-missing (nativespure.go), and the
+// runtime/v1 bodies' rows whose laws run in place on these natives
+// (ergotests -std): sconv-to*, d2-bits-*, nappend-*, fs-clone-short
+// (runtime/v1) and d3-sha* (runtime/v1/digest).
 // The tests read the natives through loadedNatives, which builds them.
 
 // byteSliceV is b as the evaluator holds a []byte: a slice of uint8s.
@@ -417,7 +420,7 @@ func pureCases(g nativeGen, s, u string, d, m int64, f float64, ints, ints2 []in
 	if g.r.IntN(3) == 0 {
 		ub = ua // Div64 of hi == y overflows
 	}
-	edge := []float64{0, math.Copysign(0, -1), -0.5, -1, 127.9, 128, -128.9, -129, 255.5, 256, 32767.5, 65536, 2147483647.5, 4294967296, 0x1p63, -0x1p63, 0x1p64, 1e300, math.NaN(), math.Inf(1), math.Inf(-1)}[g.r.IntN(21)]
+	edge := []float64{0, math.Copysign(0, -1), -0.5, -1, 127.9, 128, -128.9, -129, 255.5, 256, 32767.5, 32768, -32769, 65536, 2147483647.5, 2147483648, -2147483649, 4294967296, 0x1p63, -0x1p63, 0x1p64, 1e300, math.NaN(), math.Inf(1), math.Inf(-1)}[g.r.IntN(25)]
 	hexText := hex.EncodeToString([]byte(s))
 	b64 := base64.StdEncoding.EncodeToString([]byte(s))
 	b64url := base64.URLEncoding.EncodeToString([]byte(u))

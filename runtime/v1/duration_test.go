@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"ergo.local/prototype/internal/lawledger"
 )
 
 // durationText is a text that may or may not be a duration: a sign or
@@ -82,20 +80,6 @@ func intAny(r *rand.Rand) int {
 	return int(r.Uint64())
 }
 
-// saturated is d * n over the integers, clamped to the range of a
-// duration: Times' meaning, which the duration laws run on (std's Times
-// is an Ergo body, held to the same reference by lower's TestStdMatchesGo).
-func saturated(d time.Duration, n int) time.Duration {
-	p := new(big.Int).Mul(big.NewInt(int64(d)), big.NewInt(int64(n)))
-	switch {
-	case p.Cmp(big.NewInt(math.MaxInt64)) > 0:
-		return math.MaxInt64
-	case p.Cmp(big.NewInt(math.MinInt64)) < 0:
-		return math.MinInt64
-	}
-	return time.Duration(p.Int64())
-}
-
 // TestStdDurationMatchesGo (std-duration): ParseDuration gives Go's
 // time.ParseDuration's duration, or its message in a ParseError with the
 // text as Value, on 10,000 seeded texts, valid and not; DurationText is
@@ -162,69 +146,6 @@ func TestStdDurationDefects(t *testing.T) {
 			f()
 		}()
 	}
-}
-
-// durationLaws are the duration laws, each over a seeded case;
-// durationLawStatements are their ledger statements.
-var durationLaws = map[string]func(r *rand.Rand) (bool, any){
-	"time DurationTextRoundTrips": func(r *rand.Rand) (bool, any) {
-		d := durationAny(r)
-		back, err := TimeParseDuration(TimeDurationText(d))
-		return err == nil && back == d, d
-	},
-	"time DivideInvertsTimes": func(r *rand.Rand) (bool, any) {
-		d, n := durationAny(r), intAny(r)
-		small := TimeDivide(d, 1000000)
-		k := n % 1000
-		return k == 0 || TimeDivide(saturated(small, k), k) == small, []any{d, n}
-	},
-	"time TimesKeepsTheSign": func(r *rand.Rand) (bool, any) {
-		d, n := durationAny(r), intAny(r)
-		p := saturated(d, n)
-		if d == 0 || n == 0 {
-			return p == 0, []any{d, n}
-		}
-		return (p > 0) == ((d > 0) == (n > 0)), []any{d, n}
-	},
-	"time CountIsWholeUnits": func(r *rand.Rand) (bool, any) {
-		d, unit := durationAny(r), durationAny(r)
-		if d < 0 || unit <= 0 {
-			return true, []any{d, unit}
-		}
-		c := TimeCount(d, unit)
-		return saturated(unit, c) <= d && d-saturated(unit, c) < unit, []any{d, unit}
-	},
-	"time DurationISORoundTrips": func(r *rand.Rand) (bool, any) {
-		d := durationAny(r)
-		back, err := TimeParseDurationISO(TimeDurationISO(d))
-		return err == nil && back == d, d
-	},
-}
-
-var durationLawStatements = map[string]string{
-	"time DurationTextRoundTrips": `DurationTextRoundTrips(d duration) { try ParseDuration(DurationText(d)) } == { d }`,
-	"time DivideInvertsTimes":     `DivideInvertsTimes(d duration, n int) { let small = Divide(d, 1000000) let k = n % 1000 if k == 0 { return true } Divide(Times(small, k), k) == small }`,
-	"time TimesKeepsTheSign":      `TimesKeepsTheSign(d duration, n int) { let p = Times(d, n) if d == 0ns || n == 0 { return p == 0ns } (p > 0ns) == ((d > 0ns) == (n > 0)) }`,
-	"time CountIsWholeUnits":      `CountIsWholeUnits(d duration, unit duration) { if d < 0ns || unit <= 0ns { return true } let c = Count(d, unit) Times(unit, c) <= d && d-Times(unit, c) < unit }`,
-	"time DurationISORoundTrips":  `DurationISORoundTrips(d duration) { try ParseDurationISO(DurationISO(d)) == d }`,
-}
-
-// TestStdDurationLaws runs the duration laws over the Go bodies, each on
-// 10,000 seeded cases; it is their ledger runner.
-func TestStdDurationLaws(t *testing.T) {
-	laws := map[string]lawledger.Law{}
-	for name, holds := range durationLaws {
-		laws[name] = lawledger.Law{Statement: durationLawStatements[name], Check: func(t *testing.T) {
-			r := rand.New(rand.NewPCG(4, uint64(len(name))))
-			for i := range 10_000 {
-				if ok, c := holds(r); !ok {
-					t.Errorf("%s fails on case %d: %#v", name, i, c)
-					break
-				}
-			}
-		}}
-	}
-	lawledger.Run(t, laws)
 }
 
 // BenchmarkDuration: each duration body against the Go it stands for.
