@@ -569,7 +569,7 @@ func (w *valueWalk) walk(n syntax.Node, loops []syntax.Node) {
 		if c := w.info.Calls[n]; c != nil && goImportCall(c, w.typeOf) {
 			w.goReads = append(w.goReads, n)
 		}
-		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func) || preludeMapTake(c.Func)) {
+		if c := w.info.Calls[n]; c != nil && c.Kind == check.CallFunc && (appendsSource(c.Func) || writesMapSource(c.Func) || takesMapSource(c.Func)) {
 			w.calls = append(w.calls, n)
 		} else if c != nil && c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil {
 			w.ergo = append(w.ergo, n)
@@ -752,29 +752,43 @@ func pathRoot(x syntax.Expr) *syntax.Ident {
 	}
 }
 
-// preludeAppend reports the slice operation Append (check.CollOpOf) or an
-// extern that binds Go's append (check/builtin.go): a call that may write
-// past its source's length, so its source is clipped where it is not new
-// or dead (V3).
-func preludeAppend(f *check.Func) bool {
-	return check.GoBuiltin(f) == "append" || check.CollOpOf(f) == check.CollAppend || appenderExtern(f)
+// The value rule reads how a call treats its first operand's storage from
+// the callee's Go form, never from which operation the callee is (RU6;
+// internal/residue, TestValueRuleReadsNoOperation): the prelude's Append,
+// Put, Delete and Take are users of the rule, as a user's extern of Go's
+// append is. Three forms write their source:
+//
+//   - appendsSource: Go's builtin append, or a runtime/v1 appender
+//     (gobody.go, goBodyAppends: the prelude's Append, slices.Concat);
+//   - writesMapSource: Go's builtin delete (the prelude's Delete binds it),
+//     or a runtime/v1 body that writes its Map operand and returns it
+//     (goBodyWritesMap: the prelude's Put);
+//   - takesMapSource: an intrinsic that takes an entry out of its Map
+//     operand in place (decls.go, intrinsicTakes: the prelude's Take).
+//
+// Prior art: Swift's copy-on-write collections decide a write in place by
+// the buffer's uniqueness at run time, for every mutating method alike;
+// Koka's and Lean's Perceus reuse decides it by the reference count, for
+// any constructor; neither keys the decision on the operation's name.
+
+// appendsSource reports a call that may write past its source's length, so
+// its source is clipped where it is not new or dead (V3).
+func appendsSource(f *check.Func) bool {
+	return check.GoBuiltin(f) == "append" || appenderExtern(f)
 }
 
-// preludeMapWrite reports the Map operation Delete or Put
-// (check.CollOpOf), or an extern that binds Go's delete (check/builtin.go):
-// a call that writes its Map source when it may (V3), and writes a copy of
-// it otherwise.
-func preludeMapWrite(f *check.Func) bool {
-	op := check.CollOpOf(f)
-	return check.GoBuiltin(f) == "delete" || op == check.CollDelete || op == check.CollPut
+// writesMapSource reports a call that writes its Map source when it may
+// (V3), and writes a copy of it otherwise.
+func writesMapSource(f *check.Func) bool {
+	return check.GoBuiltin(f) == "delete" || mapWriterExtern(f)
 }
 
-// preludeMapTake reports the Map operation Take (check.CollOpOf): a call
-// that takes its Map source apart, in place when it may (V3), and from a
-// copy otherwise, as Delete does (PRIM-3). Its result is the taken value
-// and the rest, so it heads no chain (writeCall).
-func preludeMapTake(f *check.Func) bool {
-	return check.CollOpOf(f) == check.CollTake
+// takesMapSource reports a call that takes its Map source apart, in place
+// when it may (V3), and from a copy otherwise, as a Map write does
+// (PRIM-3). Its result is the taken value and the rest, so it heads no
+// chain (writeCall).
+func takesMapSource(f *check.Func) bool {
+	return intrinsicTakes(f)
 }
 
 func (w *valueWalk) typeOf(x syntax.Expr) check.Type {
@@ -1046,7 +1060,7 @@ func (w *valueWalk) decide() {
 						w.freshen(call, whyChain)
 						break
 					}
-					if c := w.info.Calls[call]; c != nil && preludeAppend(c.Func) {
+					if c := w.info.Calls[call]; c != nil && appendsSource(c.Func) {
 						args := call.Args
 						if c.Recv == nil && len(args) > 0 {
 							args = args[1:]
@@ -1093,7 +1107,7 @@ func (w *valueWalk) decide() {
 		// is unshared, as Append's element is (V9).
 		for _, call := range w.calls {
 			c := w.info.Calls[call]
-			if ops := callOperands(call, c); preludeMapWrite(c.Func) && len(ops) == 3 && w.l.entryWritten(w.typeOf(ops[0])) {
+			if ops := callOperands(call, c); writesMapSource(c.Func) && len(ops) == 3 && w.l.entryWritten(w.typeOf(ops[0])) {
 				w.freshen(ops[2], whyPut)
 			}
 		}
@@ -1252,7 +1266,7 @@ func takeOf(spec *syntax.VarSpec) (*syntax.CallExpr, bool) {
 // isTake reports call as a call of the Map operation Take.
 func (w *valueWalk) isTake(call *syntax.CallExpr) bool {
 	c := w.info.Calls[call]
-	return c != nil && c.Kind == check.CallFunc && preludeMapTake(c.Func)
+	return c != nil && c.Kind == check.CallFunc && takesMapSource(c.Func)
 }
 
 // writeCall reports x, unparenthesized, as a call of the prelude's Append,
@@ -1263,7 +1277,7 @@ func (w *valueWalk) writeCall(x syntax.Expr) (*syntax.CallExpr, bool) {
 		return nil, false
 	}
 	c := w.info.Calls[call]
-	return call, c != nil && c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func))
+	return call, c != nil && c.Kind == check.CallFunc && (appendsSource(c.Func) || writesMapSource(c.Func))
 }
 
 // chainOf is call and the calls of Append,
@@ -2421,7 +2435,7 @@ func (w *valueWalk) classify(vv *vvar, o *vocc) {
 			case entryRule() && w.matchedGet(p):
 				o.call, o.entry = p, true
 			}
-		case c.Kind == check.CallFunc && (preludeAppend(c.Func) || preludeMapWrite(c.Func) || preludeMapTake(c.Func)):
+		case c.Kind == check.CallFunc && (appendsSource(c.Func) || writesMapSource(c.Func) || takesMapSource(c.Func)):
 			// A bulk append's ys is read like its source: its elements
 			// are copied into the result (SL2).
 			if (w.recvOf(p) == child || check.AppendSpreads(c.Func)) && !w.l.holdsValue(elemOf(t)) {
@@ -2545,7 +2559,7 @@ func (w *valueWalk) windowRead(x *syntax.CallExpr) *syntax.CallExpr {
 		return nil
 	}
 	ergo := c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil
-	if !(ergo && w.l.isPure(c.Func)) && !(pureStdBody(c.Func) && !c.Func.Pkg.Host() && !preludeAppend(c.Func) && !preludeMapWrite(c.Func)) {
+	if !(ergo && w.l.isPure(c.Func)) && !(pureStdBody(c.Func) && !c.Func.Pkg.Host() && !appendsSource(c.Func) && !writesMapSource(c.Func)) {
 		return nil
 	}
 	if j := operandIndex(call, c, child); j < 0 || ergo && w.l.ownedAt(c.Func, j) {
@@ -2996,7 +3010,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 			return len(x.Args) == 1 && w.fresh(x.Args[0])
 		case check.CallFunc:
 			switch {
-			case preludeMapTake(c.Func):
+			case takesMapSource(c.Func):
 				// Its rest (PRIM-3): the source's own storage when the
 				// Take is in place, which the pattern hands back to the
 				// source's root, else a copy of the source.
@@ -3004,7 +3018,7 @@ func (w *valueWalk) fresh(e syntax.Expr) bool {
 					return w.takeRebound(x) || w.fresh(w.recvOf(x))
 				}
 				return !w.l.holdsValue(elemOf(w.typeOf(w.recvOf(x))))
-			case preludeAppend(c.Func) || preludeMapWrite(c.Func):
+			case appendsSource(c.Func) || writesMapSource(c.Func):
 				if w.vf.lineage[x] {
 					// A one-extender site may extend its result in place
 					// later (handover.go): never fresh, unless the analysis
@@ -3606,9 +3620,9 @@ func (fc *funcCtx) valueSource(x *syntax.CallExpr, c *check.Call, vals []string)
 		return vals
 	}
 	switch {
-	case preludeAppend(c.Func):
+	case appendsSource(c.Func):
 		vals[0] = fc.l.goPkg("slices") + ".Clip(" + vals[0] + ")"
-	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
+	case writesMapSource(c.Func) || takesMapSource(c.Func):
 		vals[0] = fc.reportCopy(x, fc.l.goPkg("maps")+".Clone("+vals[0]+")", whyMapWrite)
 	case len(vals) == 2:
 		if t := copyElemSource(fc.l, x, c, fc.typeOf); t != nil {

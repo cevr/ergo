@@ -158,6 +158,10 @@ var specCitation = regexp.MustCompile(`\b([a-z]+)\.md, ([A-Z][A-Za-z' -]*?) (\d+
 
 var specItemLine = regexp.MustCompile(`^(\d+)\. `)
 
+// specRuleID matches the rule id a heading starts with ("G2. Fork-tree
+// defects"): a citation names the section by its words.
+var specRuleID = regexp.MustCompile(`^[a-z]+\d+[a-z]?\. `)
+
 // specItems maps each heading of a spec text, lower-cased, to the numbers
 // of the items under it, its subsections' included.
 func specItems(text string) map[string]map[string]bool {
@@ -182,6 +186,7 @@ func specItems(text string) map[string]map[string]bool {
 				stack = stack[:len(stack)-1]
 			}
 			title := strings.ToLower(strings.NewReplacer("`", "", "*", "").Replace(strings.TrimSpace(line[level:])))
+			title = specRuleID.ReplaceAllString(title, "")
 			stack = append(stack, heading{level, title})
 			continue
 		}
@@ -346,7 +351,7 @@ func TestSpecCitationRules(t *testing.T) {
 	specs := map[string]string{
 		"zrows": "# Rows\n\n## Capability rows\n\n1. One.\n2. Two.\n\n" +
 			"## Zero values and definite initialisation\n\n1. Zero.\n\n```\n7. not an item\n```\n\n" +
-			"## Totality\n\n### Tail results\n\n3. Tail.\n",
+			"## Totality\n\n### Tail results\n\n3. Tail.\n\n## G2. Fork-tree defects\n\n4. Report.\n",
 	}
 	for _, c := range []struct {
 		source string
@@ -361,6 +366,7 @@ func TestSpecCitationRules(t *testing.T) {
 		{"// (zrows.md, Totality 3)", 0, "an item of a subsection"},
 		{"// (zrows.md, Capability rows rule 1)", 0, "a trailing rule"},
 		{"// (zrows.md, Entry 4)", 1, "no such section"},
+		{"// (zrows.md, Fork-tree defects 4)", 0, "a heading after its rule id"},
 		{"// (notes.md, Entry 4)", 0, "not a spec file"},
 	} {
 		if got := danglingCitations(map[string]string{"a.go": c.source}, specs); len(got) != c.dangle {

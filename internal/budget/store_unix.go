@@ -46,13 +46,15 @@ const GrantEnv = "ERGO_BUDGET_GRANT"
 
 // Request is a take: its width in cores, its class, the lane it is for
 // (in the log), the memory it asks for (0: its command's reservation is
-// learnt) and its command's key, under which its peaks are kept.
+// learnt), an optional hard ceiling on the run's cap (0: none), and the
+// command's key, under which its peaks are kept.
 type Request struct {
-	Width  int
-	Crit   bool
-	Lane   string
-	Memory int64
-	Key    string
+	Width   int
+	Crit    bool
+	Lane    string
+	Memory  int64
+	Ceiling int64
+	Key     string
 }
 
 // Budget is the host's budget, as its Config names it. Every decision
@@ -158,7 +160,7 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 		return nil, err
 	}
 	g := &Grant{b: b, id: id, width: req.Width, slice: cfg.Memory, key: req.Key, lane: req.Lane, crit: req.Crit, file: f}
-	e := Entry{ID: id, Pid: os.Getpid(), Width: req.Width, Crit: req.Crit, Lane: req.Lane, Key: req.Key, Asked: req.Memory}
+	e := Entry{ID: id, Pid: os.Getpid(), Width: req.Width, Crit: req.Crit, Lane: req.Lane, Key: req.Key, Asked: req.Memory, Ceiling: req.Ceiling}
 	b.logf("queue %s %d", req.Lane, os.Getpid())
 	woke := make(chan struct{}, 1)
 	defer watchConfig(cfg.Path, woke)()
@@ -192,7 +194,9 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 	}
 	// The charge and the cap are those the waiter was admitted with
 	// (Reserve), read from the peaks at its admission.
-	g.memory, g.capAt = held.Memory, held.Cap
+	// Keep the request's ceiling even if an older budget process admitted
+	// this waiter and did not understand that field during a rolling upgrade.
+	g.memory, g.capAt = held.Memory, capAtCeiling(held.Cap, req.Ceiling)
 	b.logf("take %s %s %d %d", req.Lane, class(req.Crit, req.Width), os.Getpid(), g.memory)
 	return g, nil
 }
@@ -307,9 +311,9 @@ func (b *Budget) Status(out io.Writer) error {
 		fmt.Fprintf(out, "%s %s %s %s", verb, e.ID, e.Lane, class(e.Crit, e.Width))
 		if r.Memory > 0 {
 			fmt.Fprintf(out, " charge %s", Size(e.Memory))
-			if e.Cap > 0 {
-				fmt.Fprintf(out, " cap %s", Size(e.Cap))
-			}
+		}
+		if e.Cap > 0 {
+			fmt.Fprintf(out, " cap %s", Size(e.Cap))
 		}
 		if e.Passed > 0 {
 			fmt.Fprintf(out, " passed %d", e.Passed)

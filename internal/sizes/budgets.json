@@ -113,7 +113,7 @@
               ]
             },
             {
-              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "owner": "agent debugging tools, defect positions: the source map's registration finds the source directory by runtime.Caller",
               "bytes": 597,
               "symbols": [
                 "ergo.local/prototype/runtime/v1.registerCompact +485",
@@ -274,7 +274,7 @@
               ]
             },
             {
-              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "owner": "agent debugging tools, defect positions: the source map's registration finds the source directory by runtime.Caller",
               "bytes": 597,
               "symbols": [
                 "ergo.local/prototype/runtime/v1.registerCompact +485",
@@ -438,7 +438,7 @@
               ]
             },
             {
-              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "owner": "agent debugging tools, defect positions: the source map's registration finds the source directory by runtime.Caller",
               "bytes": 597,
               "symbols": [
                 "ergo.local/prototype/runtime/v1.registerCompact +485",
@@ -555,7 +555,7 @@
               ]
             },
             {
-              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "owner": "agent debugging tools, defect positions: the source map's registration finds the source directory by runtime.Caller",
               "bytes": 597,
               "symbols": [
                 "ergo.local/prototype/runtime/v1.registerCompact +485",
@@ -695,7 +695,7 @@
               ]
             },
             {
-              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "owner": "agent debugging tools, defect positions: the source map's registration finds the source directory by runtime.Caller",
               "bytes": 215,
               "symbols": [
                 "ergo.local/prototype/runtime/v1.registerCompact +485",
@@ -845,7 +845,7 @@
               ]
             },
             {
-              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "owner": "agent debugging tools, defect positions: the source map's registration finds the source directory by runtime.Caller",
               "bytes": 215,
               "symbols": [
                 "ergo.local/prototype/runtime/v1.registerCompact +485",
@@ -990,7 +990,7 @@
               ]
             },
             {
-              "owner": "#230 defect positions: the source map's registration finds the source directory by runtime.Caller",
+              "owner": "agent debugging tools, defect positions: the source map's registration finds the source directory by runtime.Caller",
               "bytes": 597,
               "symbols": [
                 "ergo.local/prototype/runtime/v1.registerCompact +485",

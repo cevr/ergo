@@ -74,7 +74,7 @@ func Open(columns []board.Column, clock time.Manual) Host fails Unread needs Sch
 	case ui.BadPatch:
 		return Unread{Why: "the first screen's patch is refused"}
 	}
-	Host{view: view, app: app, asked: asked, Made: 0, X: 0.0, Y: 0.0, said: "", acted: ui.Stats{Signals: 0, Written: 0, Rows: 0, Skipped: 0, Stopped: 0, Committed: 0, Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}}
+	Host{view: view, app: app, asked: asked, Made: 0, X: 0.0, Y: 0.0, said: "", acted: ui.Stats{Signals: 0, Written: 0, Rows: 0, Skipped: 0, Stopped: 0, Committed: 0, Inserted: 0, Moved: 0, Removed: 0, Set: 0, Lowered: 0, Painted: 0, Fetches: 0, Cancels: 0}}
 }
 
 // Close stops the program.

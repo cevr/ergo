@@ -41,4 +41,4 @@ go run ./scripts/examples csvreport
 - A test-only `locked` provider in `files/tests.ergo` wraps an `fstest.Memory`, which never fails Denied.
 - A provider cannot need a capability its contract does not write (rows.md, Context 2), so `files.Load` reads every named file up front, into a `memory.Shelf` that the contract's operations then read.
 
-Closed since ex-e: G-ex-e-10 (std `csv`), G-ex-e-11 (`strings.PadLeft`/`PadRight`, `strings.Compare`; `Hundredths` still builds two decimals by hand, which is exact on hundredths), G-ex-f-12 (`fstest.Memory`), G-ex-d-5 (`==` on slices), G-ex-d-4 (generated strings hold the format's bytes), G-ex-b-16 (`let key = if …`), #162 (laws run).
+Closed since ex-e: G-ex-e-10 (std `csv`), G-ex-e-11 (`strings.PadLeft`/`PadRight`, `strings.Compare`; `Hundredths` still builds two decimals by hand, which is exact on hundredths), G-ex-f-12 (`fstest.Memory`), G-ex-d-5 (`==` on slices), G-ex-d-4 (generated strings hold the format's bytes), G-ex-b-16 (`let key = if …`), laws and proofs (laws run).

@@ -20,6 +20,8 @@ import actor
 //     again among them (group.ergo); Stopped, the groups (Boundary) that stopped;
 //   - compose: Committed, the nodes the pass committed;
 //   - patch: Inserted, Moved, Removed and Set, the patch's ops by kind;
+//     Lowered, the nodes its Inserts and Sets carry, each lowered once
+//     (host.ergo), so a node no op carries is never lowered;
 //   - paint: Painted, the paint ops of the canvases the patch writes;
 //   - loads: Fetches and Cancels, the pass's jobs.
 // Layout is the host's (H2L): a host reports its own.
@@ -34,6 +36,7 @@ type Stats {
 	Moved     int,
 	Removed   int,
 	Set       int,
+	Lowered   int,
 	Painted   int,
 	Fetches   int,
 	Cancels   int,
@@ -46,7 +49,9 @@ type Stats {
 // the nodes the view wrote, the stopped group's text among them, and the
 // rows run (the view); the nodes committed (the compose); the patch's ops
 // by kind and its paint ops, as counted from the patch (the patch and the
-// paint); a fetch and a cancel when the key changed (the loads); and the
+// paint); one lowering for each node an Insert or a Set carries, and none
+// for a node no op carries (the lowering); a fetch and a cancel when the
+// key changed (the loads); and the
 // stopped group's call site once when it stopped.
 law StatsCountEveryPhase(seed int, steps int) {
 	let m = time.NewManual(0)
@@ -177,7 +182,7 @@ func statsFollow(seed int, steps int) bool needs Scheduler {
 		let changed = if st.key != prev.key { 1 } else { 0 }
 		let canvas = if st.canvas { 1 } else { 0 }
 		let (ins, mov, rem, set, paint) = opCounts(ops)
-		let want = Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Painted: paint, Fetches: changed, Cancels: changed}
+		let want = Stats{Signals: 1, Written: 6 + canvas + st.texts + shown + stopped, Rows: shown, Skipped: 0, Stopped: stopped, Committed: 6 + canvas + st.texts + shown, Inserted: ins, Moved: mov, Removed: rem, Set: set, Lowered: ins + set, Painted: paint, Fetches: changed, Cancels: changed}
 		let got = SessionStats(&session)
 		if got != want || len(StoppedAt(&session)) != stopped {
 			return false
@@ -207,7 +212,7 @@ func committed[E](f mut Frame[E]) int {
 
 // PassStats is the last pass of f, Signals 0.
 func PassStats[E](f mut Frame[E]) Stats {
-	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips + f.keptSames, Stopped: f.nstops, Committed: committed(f), Inserted: 0, Moved: 0, Removed: 0, Set: 0, Painted: 0, Fetches: 0, Cancels: 0}
+	let mut s = Stats{Signals: 0, Written: f.written, Rows: f.rowRuns, Skipped: f.skips + f.keptSames, Stopped: f.nstops, Committed: committed(f), Inserted: 0, Moved: 0, Removed: 0, Set: 0, Lowered: f.lowered, Painted: 0, Fetches: 0, Cancels: 0}
 	for op in f.ops {
 		match op {
 		case Insert[E] as x:
@@ -664,7 +669,7 @@ func slowCount(c Counter, s Stats) int {
 law SlowNamesItsCounter(seed int) {
 	let mut r = seeded(seed)
 	let n = func() int { draw(&r, 9) }
-	let s = Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Painted: n(), Fetches: n(), Cancels: n()}
+	let s = Stats{Signals: n(), Written: n(), Rows: n(), Skipped: n(), Stopped: n(), Committed: n(), Inserted: n(), Moved: n(), Removed: n(), Set: n(), Lowered: n(), Painted: n(), Fetches: n(), Cancels: n()}
 	let b = Budget{Signals: n(), Written: n(), Committed: n(), Ops: n() * 3, Painted: n(), Fetches: n()}
 	let all = []Counter{SignalsCounter, WrittenCounter, CommittedCounter, OpsCounter, PaintedCounter, FetchesCounter}
 	let names = []string{"Signals", "Written", "Committed", "Ops", "Painted", "Fetches"}

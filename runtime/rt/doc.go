@@ -56,7 +56,7 @@
 //   - An exit crosses code with no error row only inside the package's own
 //     transport; any other panic value, a *Cause included, is a defect.
 //   - Tracing is off unless a root is made with [TracedRoot]; every task below
-//     it inherits the [Tracer]. The runtime raises the task events of #124's
+//     it inherits the [Tracer]. The runtime raises the task events of the runtime laws'
 //     vocabulary (start, body-exit, cancel-request, observe, deadline,
 //     release, panic) keyed by the task's span, and emitted code raises call,
 //     call-exit, interrupt, construct and handler events at its own sites

@@ -13,7 +13,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// law-run-1 (#162; types.md, Laws 10): ergo test runs every top-level law
+// law-run-1 (types.md, Laws 10): ergo test runs every top-level law
 // over generated values of its parameters, and every member law against
 // each provider of its operation type that the package declares, with a
 // generated value of the provider. Inside a member law the operation type is
@@ -607,7 +607,7 @@ func main() {}
 		"skip law Shape.Positive under Pinned: its provider names the package let pinned, which a case's release would close for every later case",
 		"ok law Shape.Positive under Sized (proved: 1 case)",
 		"ok law Shape.Positive under Wired (proved: 1 case)",
-		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)",
+		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (resource ownership)",
 		"skip law Box.Keeps for Fns: its parameter v has no generator at Box[func(int) int]: func(int) int is a function type",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		// A law of an operation type whose parameter is bounded by
@@ -1097,6 +1097,8 @@ func ReadDir(f Drifty, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
+func Lstat(f Drifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
 type DriftyDenied { reads sync.Ref[int] } implements fs.Files
 
 func NewDriftyDenied() DriftyDenied { DriftyDenied{reads: sync.NewRef[int](0)} }
@@ -1113,6 +1115,8 @@ func ReadFile(f DriftyDenied, path string) string fails fs.NotFound | fs.Denied 
 func ReadDir(f DriftyDenied, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(f DriftyDenied, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Lstat(f DriftyDenied, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 type DriftyFailed { reads sync.Ref[int] } implements fs.Files
 
@@ -1131,6 +1135,8 @@ func ReadDir(f DriftyFailed, path string) []string fails fs.NotFound | fs.Denied
 
 func Stat(f DriftyFailed, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
+func Lstat(f DriftyFailed, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
 type Flaky { reads sync.Ref[int] } implements fs.Files
 
 func NewFlaky() Flaky { Flaky{reads: sync.NewRef[int](0)} }
@@ -1147,6 +1153,8 @@ func ReadFile(f Flaky, path string) string fails fs.NotFound | fs.Denied | fs.Fa
 func ReadDir(f Flaky, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(f Flaky, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Lstat(f Flaky, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 type Shifty { reads sync.Ref[int] } implements fs.Files
 
@@ -1165,6 +1173,8 @@ func ReadDir(s Shifty, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(s Shifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
+func Lstat(s Shifty, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
 type Steady {} implements fs.Files
 
 func ReadFile(s Steady, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
@@ -1177,6 +1187,8 @@ func ReadFile(s Steady, path string) string fails fs.NotFound | fs.Denied | fs.F
 func ReadDir(s Steady, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func Stat(s Steady, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
+
+func Lstat(s Steady, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { fs.NotFound{Path: path} }
 
 func main() {}
 `
@@ -1202,7 +1214,14 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 		return
 	}
 	stdout, stderr, code := runExeArgs(t, exes["lawrun_files"], "--seed", "7")
-	got := verdicts(stdout)
+	// Each provider keeps fs.Files.LstatDirIsStatDir (its Lstat is its
+	// Stat), so only the lines of the law under test and the summary count.
+	var got []string
+	for _, line := range verdicts(stdout) {
+		if strings.Contains(line, "ReadIsRepeatable") || strings.HasPrefix(line, "FAIL (") {
+			got = append(got, line)
+		}
+	}
 	want := []string{
 		"FAIL law fs.Files.ReadIsRepeatable for Drifty (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for DriftyDenied (case ",
@@ -1210,7 +1229,7 @@ func TestLawRunReadIsRepeatable(t *testing.T) {
 		"FAIL law fs.Files.ReadIsRepeatable for Flaky (case ",
 		"FAIL law fs.Files.ReadIsRepeatable for Shifty (case ",
 		"ok law fs.Files.ReadIsRepeatable for Steady (",
-		"FAIL (5 of 6 tests)",
+		"FAIL (5 of ",
 	}
 	if code != 1 || len(got) != len(want) {
 		t.Fatalf("exit %d, stdout:\n%s\nstderr:\n%s", code, stdout, firstLines(stderr, 8))

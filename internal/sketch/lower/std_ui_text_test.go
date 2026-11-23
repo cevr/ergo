@@ -620,9 +620,10 @@ func sent(o Option[int]) int {
 	}
 }
 
-func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
+func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool, ctl int) bool {
 	let mut ok = true
 	let mut under = off
+	let mut below = ctl
 	let pressed = sent(ui.Handle(f, ui.Press[int]{Id: id}).Signal)
 	let typed = sent(ui.Handle(f, ui.Type[int]{Id: id, Text: "abc"}).Signal)
 	match ui.NodeOf(f, id) {
@@ -630,24 +631,38 @@ func signalsAgree(f mut ui.Frame[int], id ui.Id[int], off bool) bool {
 		match n.Value {
 		case ui.FieldsetNode as d:
 			under = off || d.Disabled
-			ok = pressed == -1 && typed == -1
+			ok = pressed == ctl && typed == -1
 		case ui.PressableNode[int] as p:
-			ok = pressed == p.On && typed == -1
+			below = if off { -1 } else { p.On }
+			ok = pressed == below && typed == -1
 		case ui.CheckNode[int] as c:
-			ok = pressed == c.On && typed == -1
+			below = if off { -1 } else { c.On }
+			ok = pressed == below && typed == -1
+		case ui.ToggleNode:
+			below = -1
+			ok = pressed == -1 && typed == -1
+		case ui.SemanticNode[int] as x:
+			match x.On {
+			case Some[int] as o:
+				below = if off || x.Access.Disabled { -1 } else { o.Value }
+				ok = pressed == below && typed == -1
+			case None:
+				ok = pressed == ctl && typed == -1
+			}
 		case ui.InputNode as i:
-			ok = i.Value == "v\(typed - 3)" && pressed == -1
+			if off {
+				ok = pressed == ctl && typed == -1
+			} else {
+				ok = pressed == ctl && i.Value == "v\(typed - 3)"
+			}
 		case _:
-			ok = pressed == -1 && typed == -1
-		}
-		if off {
-			ok = pressed == -1 && typed == -1
+			ok = pressed == ctl && typed == -1
 		}
 	case None:
 		return false
 	}
 	for k in ui.Kids(f, id) {
-		ok = ok && signalsAgree(f, k, under)
+		ok = ok && signalsAgree(f, k, under, below)
 	}
 	ok
 }

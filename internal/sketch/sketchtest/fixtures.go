@@ -3,7 +3,7 @@ package sketchtest
 import "strings"
 
 // GrammarFixture is a positive input named after the production of
-// docs/spec/grammar.md it exercises (#196, D7: every production has one).
+// docs/spec/grammar.md it exercises (D7: every production has one).
 type GrammarFixture struct{ Name, Src string }
 
 // GrammarFixtures are decided forms of docs/spec/grammar.md, one or more per
@@ -28,9 +28,10 @@ var GrammarFixtures = []GrammarFixture{
 	{"TypeName", "func f(a Order, b time.Duration, c go.Error) {}\n"},
 	{"TypeArgs", "func f(r Result[Order, string], xs []Pair[int64, bool]) {}\n"},
 	{"SliceType", "func f(xs [][]byte) []string {\n\t[]string{}\n}\n"},
-	{"TypeArg", "func f(w Context[Store | Log], t Task[int, NotFound | Declined]) {}\n"},
+	{"TypeArgs", "func f(w Context[Store | Log], t Task[int, NotFound | Declined]) {}\n"},
 	{"ArrayType", "type Grid { cells [81]int }\n\nfunc f(xs [2][3]byte) [2]string {\n\tlet a [4]int = [4]int{}\n\t[2]string{\"a\", \"b\"}\n}\n"},
-	{"PointerType", "func bump(p mut Counter) {\n\tp.N += 1\n}\n"},
+	{"MutType", "func bump(p mut Counter) {\n\tp.N += 1\n}\n"},
+	{"GoPointerType", "extern go strings.NewReader func NewReader(s string) *Reader\n\nextern go strings.Reader.Reset func (r own *Reader) Reset(s string)\n"},
 	{"CapName", "func f() needs Store[Job] | Log {\n\twith context { Store[Job], Tally[Job]: b } {\n\t\tStore[Job].Put(j)\n\t}\n}\n"},
 	{"FuncType", "func apply(f func(int64) int64 fails E needs Clock | Console, g own func()) {}\n"},
 	{"FuncDecl", "func Fee(o Order, rate int64) int64 {\n\to.Total * rate / 100\n}\n"},
@@ -41,7 +42,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"Param", "func f(_ Store, id string) {}\n"},
 	{"FailsClause", "func f() fails NotFound | Unavailable | retry.Exhausted[E] {}\n"},
 	{"NeedsClause", "func f() needs Clock | go.Foreign {}\n"},
-	{"TakesClause", "func Keep(f own File, g own File) Pair fails Full needs Clock {}\n\ntype Task[T] {\n\town Wait() T,\n\tPush(v own T) fails Closed,\n\tStop(),\n}\n\nfunc apply(h func(f own File), n int64) {}\n"},
+	{"Param", "func Keep(f own File, g own File) Pair fails Full needs Clock {}\n\ntype Task[T] {\n\town Wait() T,\n\tPush(v own T) fails Closed,\n\tStop(),\n}\n\nfunc apply(h func(f own File), n int64) {}\n"},
 	{"Implements", "type Mem { rows Map[int, Row] } implements domain.Store, Closer\n\ntype Pair[T] = Left[T]{V T} | Right[T]{V T} implements Sized\n\ntype Port int where it > 0 implements Text\n\ntype Conn {\n\t..Closer,\n\tNumber() int,\n}\n"},
 	{"LetDecl", "let Names = []string{\"ada\"}\n\nfunc f(order Order) int64 {\n\tlet x = 1\n\tlet mut y int64 = 2\n\tlet q, r = DivMod(7, 2)\n\tlet (n, d) = DivMod(9, 4)\n\tlet Order{Total: t} = order\n\ty += x + q + r + n + d + t\n\ty\n}\n"},
 	{"ExpressionList", "func f() {\n\tuse(1, 2, 3)\n\twith A, B { run() }\n}\n"},
@@ -80,7 +81,7 @@ var GrammarFixtures = []GrammarFixture{
 	{"PatternCore", "func f(x Value) string {\n\tmatch x {\n\tcase Pending:\n\t\t\"p\"\n\tcase result.Ok[int64]{v}:\n\t\t\"ok\"\n\tcase (Box{1}):\n\t\t\"one\"\n\tcase other:\n\t\t\"other\"\n\t}\n}\n"},
 	{"AltPattern", "func f(s Step, e Signal) Step {\n\tmatch (s, e) {\n\tcase (Plan | Supplies, Cancel):\n\t\tDone\n\tcase (Done, _), (_, Next | Cancel):\n\t\ts\n\t}\n}\n"},
 	{"FieldPattern", "func f(o Order) int64 {\n\tlet Order{Total: t, Lines: ls} = o\n\tlet Some{v} = lookup()\n\tt + v + len(ls)\n}\n"},
-	// Lexical additions (#196, D1.3, D1.7).
+	// Lexical additions (D1.3, D1.7).
 	{"interpolation", "func greet(name string, n int64) string {\n\t\"hello \\(name), \\(n + 1) tries, \\(label(\"x \\(name)\")) \\\\(not interpolated)\"\n}\n"},
 	{"comments", "// Package doc.\n\n// F does nothing.\nfunc F() {} // trailing\n\n/* block */\nfunc G() {\n\tlet x = 1 // x\n\tuse(x)    // used\n}\n"},
 }
@@ -140,7 +141,7 @@ var MalformedTable = []Malformed{
 	{Name: "label", Src: "func f(xs []int64) {\nouter:\n\tfor x in xs {\n\t\tbreak outer\n\t}\n}\n", Lines: []int{2}, Habit: "L:"},
 	{Name: "goto", Src: "func f() {\n\tgoto done\n}\n", Lines: []int{2}, Habit: "goto"},
 	{Name: "fallthrough", Src: "func f(x int64) {\n\tmatch x {\n\tcase 1:\n\t\tfallthrough\n\t}\n}\n", Lines: []int{4}, Habit: "fallthrough"},
-	// Old Ergo-only spellings: the plain S001 (#217).
+	// Old Ergo-only spellings: the plain S001.
 	{Name: "error-row", Src: "func f() (Order, error[NotFound]) {\n\tOrder{}\n}\n", Lines: []int{1}},
 	{Name: "error-row-only", Src: "func f() error[NotFound] {}\n", Lines: []int{1}},
 	{Name: "wire-decl", Src: "wire Live {\n\tClock = Fixed{}\n}\n", Lines: []int{1}},
@@ -174,7 +175,7 @@ var MalformedTable = []Malformed{
 	{Name: "header-positional-paren", Src: "func f(p Point) {\n\tif p == Point{(a + 1) * 2, -b.c(d, e)} {\n\t\tuse(1)\n\t}\n}\n", Lines: []int{2}},
 	{Name: "header-positional-one-call", Src: "func f(b Box) {\n\tif b == Box{one()} {\n\t\tuse(1)\n\t}\n}\n", Lines: []int{2}},
 	{Name: "uses", Src: "func f() uses Clock {}\n", Lines: []int{1}},
-	// Decided-grammar rules (#196, D1).
+	// Decided-grammar rules (D1).
 	{Name: "mixed-members", Src: "type Card { Number string, Valid() bool }\n", Code: "S108", Lines: []int{1}},
 	{Name: "law-among-fields", Src: "type Card {\n\tNumber string,\n\tlaw L() { true },\n}\n", Code: "S108", Lines: []int{3}},
 	{Name: "embedded-member", Src: "type Account { Balance int64, Base }\n", Lines: []int{1}},

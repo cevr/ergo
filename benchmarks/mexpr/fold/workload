@@ -1,0 +1,7 @@
+# scripts/opcount: `mexpr bench fold N` folds machines.Next over N signals
+# by hand, with no machine; the cost of one signal is the slope between
+# the two sizes (MACHINE-EXPR). The control is the hand Go fold.
+unit signal
+sizes 400000 2400000
+args bench fold {n}
+control benchmarks/mexpr/testdata/control

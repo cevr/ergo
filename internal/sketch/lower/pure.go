@@ -28,7 +28,10 @@ import (
 //     (runtime.md, I1);
 //   - its body converts no value of the program into a Go interface
 //     (goAdapterAt): the adapter's callbacks run on the converting task
-//     (gointerface.go); and
+//     (gointerface.go), and no value of a generic machine into its
+//     Machine (genericMachineAt): its conversion function computes the
+//     machine's initial value and entries on the environment
+//     (machineentry.go); and
 //   - every call in its body, outside the bodies of function literals
 //     (each a frame of its own that takes its caller's environment as its
 //     parameter), is a built-in operation (len, a conversion), a call of a
@@ -211,6 +214,10 @@ func pureCalls(info *check.Info, n syntax.Node) ([]*check.Func, bool) {
 		}
 		if x, isExpr := n.(syntax.Expr); isExpr && goAdapterAt(info, x) {
 			ok = false // its adapter runs on this frame's task (gointerface.go)
+			return false
+		}
+		if x, isExpr := n.(syntax.Expr); isExpr && genericMachineAt(info, x) {
+			ok = false // its conversion function takes the environment (machineentry.go)
 			return false
 		}
 		switch n := n.(type) {

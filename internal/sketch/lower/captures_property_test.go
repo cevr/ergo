@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// The capture rule's seeded property (#197 C2; types.md, Function values
+// The capture rule's seeded property (resource ownership C2; types.md, Function values
 // 2 and 3; owner q60: "escaping let mut capture allowed only when no write
 // follows"). Each seed writes a main over three let mut ints. Its
 // statements write them; capture them in escaping literals appended to a

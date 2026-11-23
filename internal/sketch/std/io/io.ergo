@@ -73,152 +73,42 @@ type Stdin {
 }
 
 // Host is the host's Stdout provider. Its field gives this package the
-// construction authority (types.md, Zero values 6). A Host over a
-// Recorder (HostOver) writes to a Recorder instead of standard output: kept is
-// that Recorder, and None for the host's own.
-type Host { live hostOnly, kept Option[Recorder] } implements Stdout
+// construction authority (types.md, Zero values 6).
+type Host { live hostOnly } implements Stdout
 
-// hostOnly is the zero-size type of the host providers' authority field.
+// hostOnly is the zero-size type of Host's field, so Host stays zero size.
 type hostOnly {}
 
 // NewHost is the host's provider of Stdout. It needs Ambient: only code
 // whose row holds the authority to choose the host makes one.
-func NewHost() Host needs Ambient { Host{live: hostOnly, kept: None} }
-
-// HostOver is a Host over r: its writes go to r, in order, never to
-// standard output, so a test reads them with r.Text(). It reaches no host,
-// so it needs no authority, as NewRecorder does. A type that holds an
-// io.Host, as std mcp/stdio's Transport does, is built with it in a
-// test: `Transport{input: io.InOver(text), out: io.HostOver(r)}`.
-func HostOver(r Recorder) Host { Host{live: hostOnly, kept: Some[Recorder]{Value: r}} }
-
-// HostOverKeeps: what a HostOver writes is what its Recorder holds, in
-// order, and a HostOver is not a terminal.
-law HostOverKeeps(a string, b string) {
-	let r = NewRecorder()
-	let h = HostOver(r)
-	h.Print(a)
-	h.Println(b)
-	h.Print(a)
-	r.Text() == a+b+"\n"+a && !h.IsTerminal()
-}
+func NewHost() Host needs Ambient { Host{live: hostOnly} }
 
 // In is the host's Stdin provider. It is a type of its own, not Host,
 // because each stream answers IsTerminal for itself: `prog < file` has a
-// terminal on standard output and a file on standard input. An In over a
-// text (InOver) reads a text instead: given is that text as a Memory,
-// and None for the host's own.
-type In { live hostOnly, given Option[Memory] } implements Stdin, Source
+// terminal on standard output and a file on standard input.
+type In { live hostOnly } implements Stdin, Source
 
 // NewStdin is the host's provider of Stdin. It needs Ambient.
-func NewStdin() In needs Ambient { In{live: hostOnly, given: None} }
+func NewStdin() In needs Ambient { In{live: hostOnly} }
 
-// InOver is an In over text: it reads text, never standard input.
-// Its reads go on where the one before stopped, as the host's do (each
-// read takes from one place, a Memory's): a ReadAll after a break out of
-// Lines is the rest after the line the break took. It is never a terminal.
-// It reaches no host, so it needs no authority, as NewInput does; an Input
-// is a Stdin, and an In is what a type that holds io.In takes (HostOver).
-func InOver(text string) In { In{live: hostOnly, given: Some[Memory]{Value: Chunked(text, 0)}} }
-
-// InOverGoesOn: an InOver's reads take its text in order from one
-// place. The first k%4 lines Lines gives, each with the line feed after
-// it, then what ReadAll gives, are the text; after it a ReadAll is "" and
-// a Read is None, and an InOver is not a terminal.
-law InOverGoesOn(s string, k int) {
-	let src = InOver(s)
-	let want = if k < 0 { -(k % 4) } else { k % 4 }
-	let mut taken = 0
-	let mut rest = s
-	if want > 0 {
-		for line in src.Lines() {
-			if !strings.HasPrefix(rest, line) {
-				return false
-			}
-			rest = rest[len(line):]
-			if strings.HasPrefix(rest, "\n") {
-				rest = rest[1:]
-			}
-			taken = taken + 1
-			if taken == want {
-				break
-			}
-		}
-	}
-	let all = try src.ReadAll()
-	let again = try src.ReadAll()
-	let after = try src.Read()
-	all == rest && again == "" && after == None && !src.IsTerminal()
-}
-
-// Print writes text to standard output, or to a HostOver's Recorder.
-func Print(h Host, text string) {
-	match h.kept {
-	case Some[Recorder] as r:
-		r.Value.Print(text)
-	case None:
-		hostPrint(text)
-	}
-}
+// Print writes text to standard output.
+func Print(_ Host, text string) { hostPrint(text) }
 
 // Println writes line and a line feed to standard output, in one write.
-func Println(h Host, line string) { h.Print(line + "\n") }
+func Println(_ Host, line string) { hostPrint(line + "\n") }
 
-// IsTerminal reports whether standard output is a terminal. A HostOver
-// is not one.
-func IsTerminal(h Host) bool {
-	match h.kept {
-	case Some[Recorder]:
-		false
-	case None:
-		hostIsTerminal()
-	}
-}
+// IsTerminal reports whether standard output is a terminal.
+func IsTerminal(_ Host) bool { hostIsTerminal() }
 
-// ReadAll is the rest of standard input, or of an InOver's text.
-func ReadAll(src In) string fails ReadFailed {
-	match src.given {
-	case Some[Memory] as m:
-		takeRest(m.Value)
-	case None:
-		try hostReadAll()
-	}
-}
+// ReadAll is the rest of standard input.
+func ReadAll(_ In) string fails ReadFailed { try hostReadAll() }
 
-// Lines is the rest of standard input, or of an InOver's text, one line at
-// a time.
-// seq-exempt: it reads the host's standard input, which a law cannot generate or read twice; TestIOStdinRest (lower) holds a break on the host, InOverGoesOn a break on a test In, and Input's Lines carries the stop law (InputLinesStops).
-func Lines(src In) Seq[string] {
-	match src.given {
-	case Some[Memory] as m:
-		let mem = m.Value
-		Seq[string](func(yield func(v string) bool) {
-			for _ in 0..len(mem.text)+1 {
-				match takeLine(mem) {
-				case Some[string] as line:
-					if !yield(line.Value) {
-						return
-					}
-				case None:
-					return
-				}
-			}
-		})
-	case None:
-		hostLines()
-	}
-}
+// Lines is the rest of standard input, one line at a time.
+// seq-exempt: it reads the host's standard input, which a law cannot generate or read twice; TestIOStdinRest (lower) holds a break on the host, and Input's Lines carries the stop law (InputLinesStops).
+func Lines(_ In) Seq[string] { hostLines() }
 
-// IsTerminal reports whether standard input is a terminal. An InOver is
-// not one.
-func IsTerminal(src In) bool {
-	match src.given {
-	case Some[Memory]:
-		false
-	case None:
-		hostStdinIsTerminal()
-	}
-}
+// IsTerminal reports whether standard input is a terminal.
+func IsTerminal(_ In) bool { hostStdinIsTerminal() }
 
 // Errors is the host's Stderr provider. It has no Print, so it is not a
 // Stdout provider, and Host has no Eprint, so it is not a Stderr provider.
