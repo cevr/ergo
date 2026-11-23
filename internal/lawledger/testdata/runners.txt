@@ -311,6 +311,7 @@ fs Files.LstatDirIsStatDir	TestFSMemoryAgreesWithHost
 fs Files.ReadIsRepeatable	TestFSMemoryAgreesWithHost
 fs MapTextIsText	none
 fs Root.LeavingEscapes	TestFSRootTreeAgreesWithHost
+fs Writes.CrossDeviceMovesNothing	TestFSMemoryAgreesWithHost
 fs Writes.MkdirAllIsIdempotent	TestFSMemoryAgreesWithHost
 fs Writes.MkdirThenExists	TestFSMemoryAgreesWithHost
 fs Writes.RemoveThenNotFound	TestFSMemoryAgreesWithHost
@@ -329,6 +330,7 @@ fstest ModeIsKept	TestFSMemoryAgreesWithHost
 fstest RemoveAllTouchesOnlyPath	TestStdLawsRun
 fstest ScratchIsRemoved	TestStdLawsRun
 fstest WalkVisitsEachOnce	TestStdLawsRun
+fstest VolumesAreCrossDevice	TestFSMemoryAgreesWithHost
 graph ChainIsAPath	TestStdGraphLawsRun
 graph EveryCycleIsAClosedPath	TestStdGraphLawsRun
 graph FanSumsToEdges	TestStdGraphLawsRun
