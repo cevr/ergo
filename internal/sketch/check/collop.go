@@ -1,5 +1,6 @@
 package check
 
+import "sync"
 import "ergo.local/prototype/internal/sketch/syntax"
 
 // The operations of the built-in slice and Map types (PRIM, owner
@@ -55,7 +56,9 @@ const (
 
 // collMakers are the language's functions of its file that no receiver
 // reaches, called by name like len (PRIM-4).
-var collMakers = map[string]CollOp{"MakeSlice": CollMakeSlice}
+var collMakers = sync.OnceValue(func() map[string]CollOp {
+	return map[string]CollOp{"MakeSlice": CollMakeSlice}
+})
 
 // collOn is the kind of receiver an operation is on: exactly an unnamed
 // slice []T, a Map, the basic string, an unnamed []byte, or a rune (D-D8).
@@ -72,27 +75,29 @@ const (
 
 // collOps are the operations by the type they are on (D-D8: reached only
 // by the dot form on exactly an unnamed slice or Map) and their name.
-var collOps = map[collKey]CollOp{
-	{name: "Append"}:                    CollAppend,
-	{name: "Get", on: onMap}:            CollGet,
-	{name: "Put", on: onMap}:            CollPut,
-	{name: "Delete", on: onMap}:         CollDelete,
-	{name: "Take", on: onMap}:           CollTake,
-	{name: "TakeAt"}:                    CollTakeAt,
-	{name: "Slice"}:                     CollSlice,
-	{name: "Clone", on: onMap}:          CollClone,
-	{name: "Clone"}:                     CollSliceClone,
-	{name: "Concat"}:                    CollConcat,
-	{name: "Repeat"}:                    CollRepeat,
-	{name: "Slice", on: onString}:       CollSubstring,
-	{name: "Bytes", on: onString}:       CollBytes,
-	{name: "AppendString", on: onBytes}: CollAppendString,
-	{name: "AppendBytes", on: onBytes}:  CollAppendBytes,
-	{name: "AppendFrom", on: onBytes}:   CollAppendFrom,
-	{name: "Grow", on: onBytes}:         CollGrow,
-	{name: "Text", on: onBytes}:         CollText,
-	{name: "RuneText", on: onRune}:      CollRuneText,
-}
+var collOps = sync.OnceValue(func() map[collKey]CollOp {
+	return map[collKey]CollOp{
+		{name: "Append"}:                    CollAppend,
+		{name: "Get", on: onMap}:            CollGet,
+		{name: "Put", on: onMap}:            CollPut,
+		{name: "Delete", on: onMap}:         CollDelete,
+		{name: "Take", on: onMap}:           CollTake,
+		{name: "TakeAt"}:                    CollTakeAt,
+		{name: "Slice"}:                     CollSlice,
+		{name: "Clone", on: onMap}:          CollClone,
+		{name: "Clone"}:                     CollSliceClone,
+		{name: "Concat"}:                    CollConcat,
+		{name: "Repeat"}:                    CollRepeat,
+		{name: "Slice", on: onString}:       CollSubstring,
+		{name: "Bytes", on: onString}:       CollBytes,
+		{name: "AppendString", on: onBytes}: CollAppendString,
+		{name: "AppendBytes", on: onBytes}:  CollAppendBytes,
+		{name: "AppendFrom", on: onBytes}:   CollAppendFrom,
+		{name: "Grow", on: onBytes}:         CollGrow,
+		{name: "Text", on: onBytes}:         CollText,
+		{name: "RuneText", on: onRune}:      CollRuneText,
+	}
+})
 
 // CollOpOf is the operation of the built-in slice or Map type that f
 // declares, or CollNone for every other function.
@@ -105,7 +110,7 @@ func CollOpOf(f *Func) CollOp {
 
 // String is the operation's dot-form name.
 func (op CollOp) String() string {
-	for k, o := range collOps {
+	for k, o := range collOps() {
 		if o == op {
 			return k.name
 		}

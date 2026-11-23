@@ -31,8 +31,12 @@ type Report {
 // Rift's own); -unguard drops the push guard an older adopt or
 // adopt-rift wrote into an adopted workspace's remotes; -fix registers
 // work's merge drivers (DriverSettings) in each checkout whose attributes
-// name a driver its configuration lacks.
-type DoctorOptions { Rift bool, Registry Option[string], Unguard bool, Fix bool }
+// name a driver its configuration lacks; -here narrows the merge
+// drivers' notes, and -fix, to the one checkout doctor runs in (the base
+// or a workspace), so a lane's own gate fixes its clone and no other;
+// -repair activates each record left Creating over a whole clone by a
+// maker that is gone (Repairable).
+type DoctorOptions { Rift bool, Registry Option[string], Unguard bool, Fix bool, Here bool, Repair bool }
 
 // mountOf is the file system type and options of the mount that holds
 // path, from /proc/mounts (the longest mount point that is a prefix); on
@@ -105,8 +109,11 @@ test MacMountsNameAPFS {
 }
 
 // Doctor reports on the base.
-func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread {
+func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread | Locked {
 	try initialized(t)
+	if o.Repair {
+		try settled(t)
+	}
 	let c = try config(t)
 	let mut names = []string{}
 	for cl in t.cloners {
@@ -123,7 +130,7 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	let oneCall = kind == "btrfs" && strings.Contains(","+opts+",", ",user_subvol_rm_allowed,")
 	let stale = try t.vcs.StatDirty(t.base)
 	let ok = trusted(t, c)
-	let mut notes = []string{}
+	let mut notes = []string{TrashNote(c)}
 	if kind == "btrfs" && !oneCall {
 		notes = notes.Append("a purge deletes each file: mount \(kind) with user_subvol_rm_allowed to make it one call")
 	}
@@ -152,7 +159,8 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	if len(guarded) > 0 {
 		notes = notes.Append(if o.Unguard { "dropped the push guard of \(len(guarded)) adopted workspaces" } else { "\(len(guarded)) adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard" })
 	}
-	notes = slices.Concat(notes, try driverNotes(t, o.Fix))
+	notes = slices.Concat(notes, try driverNotes(t, o.Fix, o.Here))
+	notes = slices.Concat(notes, try repairNotes(t, o.Repair))
 	let rift = if o.Rift { try RiftLeft(t, RiftOptions{Registry: o.Registry}) } else { []string{} }
 	if len(rift) > 0 {
 		notes = notes.Append("\(len(rift)) Rift copies of the base are no workspace: run work adopt-rift")
@@ -160,18 +168,97 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes, Rift: rift}
 }
 
+// Repairable reports whether w is a record left Creating over a whole
+// clone: its folder holds a checkout whose head resolves, with no marker
+// or its own (another id's marker is another workspace's clone). Whether
+// its maker is gone is the lock's to tell (makerGone).
+func Repairable(t Tool, w Workspace) bool {
+	match w.State {
+	case Creating:
+		if !t.copier.Has(w.Path + "/.git") {
+			return false
+		}
+		let marker = markerOf(t, w.Path)
+		if marker != "" && marker != w.Id {
+			return false
+		}
+		let head = t.vcs.Head(w.Path) catch {
+		case VcsFailed:
+			return false
+		}
+		head != ""
+	case Active, Landing, Landed, Abandoned, Trashed:
+		false
+	}
+}
+
+// repairNotes are doctor's notes on the records left Creating over a
+// whole clone by a maker that is gone (a `work new` killed after its
+// clone): gc and rm keep them, and nobody else activates one without a
+// marker. With repair each is recorded Active under the lock, as gc
+// activates a marked one (activation); no file is written. The answer
+// names each.
+func repairNotes(t Tool, repair bool) []string fails Unkept | Locked {
+	if repair {
+		try hold(t)
+	}
+	let all = t.registry.All() catch {
+	case Unkept as e:
+		if repair {
+			t.lock.Release("")
+		}
+		return e
+	}
+	let at = now(t)
+	let mut notes = []string{}
+	for w in all {
+		if !Repairable(t, w) {
+			continue
+		}
+		let gone = makerGone(t, w) catch {
+		case Unkept:
+			false
+		}
+		if !gone {
+			continue
+		}
+		if repair {
+			t.registry.Put(activation(t, w, at)) catch {
+			case Unkept as e:
+				unreserved(t, w)
+				t.lock.Release("")
+				return e
+			}
+			notes = notes.Append("activated \(w.Name): its clone is whole and its maker is gone")
+		} else {
+			notes = notes.Append("\(w.Name) is creating over a whole clone whose maker is gone: run work doctor -repair")
+		}
+		unreserved(t, w)
+	}
+	if repair {
+		t.lock.Release("")
+	}
+	notes
+}
+
 // driverNotes are doctor's notes on the merge drivers of the base and of
 // each active workspace: a checkout whose attributes name a driver its
 // configuration lacks merges those files as text (with fix, its drivers
 // are registered and the note says so), and a merge line that takes no
-// file of the base merges nothing.
-func driverNotes(t Tool, fix bool) []string fails Unkept | VcsFailed {
-	let mut roots = []string{t.base}
+// file of the base merges nothing. With here, only the checkout that
+// holds the folder doctor runs in is checked and fixed.
+func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed {
+	let mut all = []string{t.base}
 	for w in try t.registry.All() {
 		if w.State == Active {
-			roots = roots.Append(w.Path)
+			all = all.Append(w.Path)
 		}
 	}
+	let roots = if here { holding(all, t.here) } else { all }
+	if here && len(roots) == 0 {
+		return []string{"\(t.here) is in no checkout of the base \(t.base): doctor -here checks the one it runs in"}
+	}
+	let again = if here { "work doctor -here -fix" } else { "work doctor -fix" }
 	let mut notes = []string{}
 	for root in roots {
 		let names = Unregistered(t, root) catch {
@@ -193,8 +280,11 @@ func driverNotes(t Tool, fix bool) []string fails Unkept | VcsFailed {
 			}
 			notes = notes.Append(if len(left) == 0 { "registered the merge drivers of \(root)" } else { "\(root) still lacks the merge drivers \(strings.Join(left, ", ")): work registers only its own" })
 		} else {
-			notes = notes.Append("\(root): its attributes name merge drivers its Git config lacks (\(strings.Join(names, ", "))), so Git merges those files as text: run work doctor -fix")
+			notes = notes.Append("\(root): its attributes name merge drivers its Git config lacks (\(strings.Join(names, ", "))), so Git merges those files as text: run \(again)")
 		}
+	}
+	if !slices.Contains(roots, t.base) {
+		return notes
 	}
 	let unmatched = Unmatched(t, t.base) catch {
 	case fs.Denied, fs.Failed:
@@ -206,6 +296,19 @@ func driverNotes(t Tool, fix bool) []string fails Unkept | VcsFailed {
 		notes = notes.Append("the merge line \(p) takes no file of the base")
 	}
 	notes
+}
+
+// holding is the checkout of roots that holds the folder dir, the
+// deepest when one holds another (a storage inside the base), as a list
+// of one; none holds it, the empty list.
+func holding(roots []string, dir string) []string {
+	let mut best = ""
+	for r in roots {
+		if (dir == r || strings.HasPrefix(dir, r+"/")) && len(r) > len(best) {
+			best = r
+		}
+	}
+	if best == "" { []string{} } else { []string{best} }
 }
 
 // Refresh refreshes the stat data of the base's Git index (git

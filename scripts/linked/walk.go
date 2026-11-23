@@ -143,24 +143,24 @@ func finish(p probed) error {
 // not read, so it names no refusal).
 func history(root string, disk []byte, line refusal) ([]candidate, error) {
 	revs := []string{"HEAD"}
-	if exec.Command("git", "-C", root, "rev-parse", "-q", "--verify", "MERGE_HEAD").Run() == nil {
+	if exec.Command("git", "--no-optional-locks", "-C", root, "rev-parse", "-q", "--verify", "MERGE_HEAD").Run() == nil {
 		revs = append(revs, "MERGE_HEAD")
 	}
-	out, err := exec.Command("git", append(append([]string{"-C", root, "log", "--full-history", "--format=%h"}, revs...), "--", compilerFile)...).Output()
+	out, err := exec.Command("git", append(append([]string{"--no-optional-locks", "-C", root, "log", "--full-history", "--format=%h"}, revs...), "--", compilerFile)...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("git log -- %s: %w", compilerFile, err)
 	}
 	seen := [][]byte{disk}
 	var cands []candidate
 	for _, h := range strings.Fields(string(out)) {
-		src, err := exec.Command("git", "-C", root, "show", h+":"+compilerFile).Output()
+		src, err := exec.Command("git", "--no-optional-locks", "-C", root, "show", h+":"+compilerFile).Output()
 		if err != nil || slices.ContainsFunc(seen, func(b []byte) bool { return bytes.Equal(b, src) }) {
 			continue
 		}
 		seen = append(seen, src)
 		holds := true
 		if line.path != "" {
-			file, err := exec.Command("git", "-C", root, "show", h+":"+line.path).Output()
+			file, err := exec.Command("git", "--no-optional-locks", "-C", root, "show", h+":"+line.path).Output()
 			holds = err == nil && holdsLine(string(file), line.text)
 		}
 		cands = append(cands, candidate{commit: h, src: src, holds: holds})
@@ -232,8 +232,8 @@ func twoStages(root string) error {
 		return err
 	}
 	diskFrom := "worktree"
-	if head, err := exec.Command("git", "-C", root, "show", "HEAD:"+compilerFile).Output(); err == nil && bytes.Equal(head, disk) {
-		if h, err := exec.Command("git", "-C", root, "log", "-1", "--format=%h", "--", compilerFile).Output(); err == nil {
+	if head, err := exec.Command("git", "--no-optional-locks", "-C", root, "show", "HEAD:"+compilerFile).Output(); err == nil && bytes.Equal(head, disk) {
+		if h, err := exec.Command("git", "--no-optional-locks", "-C", root, "log", "-1", "--format=%h", "--", compilerFile).Output(); err == nil {
 			diskFrom = strings.TrimSpace(string(h))
 		}
 	}

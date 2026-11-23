@@ -13,8 +13,10 @@ type Exists { Path string }
 // Missing is a source folder that is not there.
 type Missing { Path string }
 
-// NoSpace is a clone the file system had no room for.
-type NoSpace { Path string }
+// NoSpace is a clone the file system had no room for: the bytes it
+// needs and the bytes free where it goes, each -1 when not measured (a
+// sharing Cloner's own refusal; only a plain copy is measured first).
+type NoSpace { Path string, Need int, Free int }
 
 // CloneFailed is any other failure of the call that clones, moves,
 // discards or measures a tree, with the tool's own words.
@@ -44,8 +46,24 @@ type Cloner {
 	Move(from string, to string) fails Exists | Missing | CloneFailed,
 	// Discard deletes the tree at root.
 	Discard(root string) fails Missing | CloneFailed,
+	// Placeable makes the folder staging when it is missing, and is
+	// NotSameVolume when it is on another file system (or btrfs
+	// subvolume) than the folder home: a tree staged in it could not be
+	// placed in home by one rename. The folders decide, not a tree in
+	// them (a btrfs snapshot's root has a device of its own).
+	Placeable(staging string, home string) fails NotSameVolume | CloneFailed,
+	// Place moves the tree at from to to by one rename, never a copy
+	// (across file systems it is NotSameVolume and nothing moves), and
+	// makes the rename durable: both folders are synced before it ends.
+	Place(from string, to string) fails NotSameVolume | Exists | Missing | CloneFailed,
 	// Usage is the bytes the tree at root takes.
 	Usage(root string) Usage fails Unsupported | Missing | CloneFailed,
+	// Free is the bytes free on the file system of the folder at root;
+	// Unsupported where the host cannot tell.
+	Free(root string) int fails Unsupported | Missing | CloneFailed,
+	// Entries is the number of files, folders and links under root, root
+	// not counted.
+	Entries(root string) int fails Missing | CloneFailed,
 
 	// CloneMakesTheTree: a clone that succeeds leaves a tree at its target.
 	law CloneMakesTheTree(from string, to string) {
@@ -111,6 +129,17 @@ type Cloner {
 			return true
 		}
 		Has(to) && (from == to || !Has(from))
+	},
+
+	// PlaceMoves: a place that succeeds leaves the tree at its target
+	// only; one that fails leaves the source as it was.
+	law PlaceMoves(from string, to string) {
+		let had = Has(from)
+		Place(from, to) catch {
+		case NotSameVolume, Exists, Missing, CloneFailed:
+			return Has(from) == had
+		}
+		Has(to) && from != to && !Has(from)
 	},
 
 	// DiscardDiscards: a discard that succeeds leaves no tree.

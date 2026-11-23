@@ -23,7 +23,10 @@ import (
 // folding positions and the copy's import path, and both are IR bodies.
 // So an operation call reaches the runtime method by the type's
 // declaration, as the lowering's ir_pkg.go boundOpCall reads it, never by
-// std membership or a std name (STD HAS NO PRIVILEGES).
+// std membership or a std name (STD HAS NO PRIVILEGES). Each case runs
+// again with the copy's type renamed (Ref to RenamedRef), so the body is
+// found by the Go type the extern binds, not the Ergo name
+// (check.RuntimeTypeName; LOWER-EXTERN-METHOD-NAME).
 //
 // ERGO_STD_COPY_SEED=<n> runs only seed n. A failing seed prints the
 // program, both first differing lines and the replay command.
@@ -34,6 +37,16 @@ func TestStdOpCallCopyAgreesOnIR(t *testing.T) {
 	}
 	for _, c := range opCallCases {
 		pair := checkCopy(t, c.path)
+		if c.rename != "" {
+			// The copy's operation type renamed, its extern binding kept:
+			// the body is found by the binding's Go name, never the Ergo
+			// one (check.RuntimeTypeName; LOWER-EXTERN-METHOD-NAME,
+			// mutant extern-opname-ergo-name).
+			from := regexp.MustCompile(`(^|[^.\w])` + c.rename + `\b`)
+			pair = checkCopyEdited(t, c.path, func(_, text string) string {
+				return from.ReplaceAllString(text, "${1}Renamed"+c.rename)
+			})
+		}
 		if len(pair.diags) > 0 {
 			t.Fatalf("the copy of %s does not check: %v", c.path, pair.diags)
 		}
@@ -71,6 +84,9 @@ type opCallCase struct {
 	path  string
 	setup string
 	calls []string
+	// rename, when set, is the operation type the copy renames (its
+	// Ergo name then differs from the Go type its extern binds).
+	rename string
 }
 
 var opCallCases = []opCallCase{
@@ -92,6 +108,14 @@ var opCallCases = []opCallCase{
 			"\tv.End()\n",
 		},
 	},
+}
+
+// The cases again, each copy's operation type renamed (opCallCase.rename).
+func init() {
+	for _, c := range opCallCases[:2] {
+		c.rename = map[string]string{"sync": "Ref", "queue": "Queue"}[c.path]
+		opCallCases = append(opCallCases, c)
+	}
 }
 
 // opCallProgram is a main of c's package that makes v and calls its

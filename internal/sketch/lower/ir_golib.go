@@ -52,9 +52,18 @@ func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	if check.GoVariadic(f) {
 		spread = "..."
 	}
-	if recv != nil {
+	if recv != nil && !f.Decl.Extern.FuncTarget() {
 		_, _, m := f.Decl.Extern.SplitMethod()
 		return pre, &irExpr{K: "mcall", Pos: p, Name: m, Op: spread, X: recv, Args: args}
+	}
+	if recv != nil {
+		// A method whose target is a Go function (S2-FILE-B): the
+		// receiver is its first argument, after a hidden context.
+		at := 0
+		if ctx {
+			at = 1
+		}
+		args = append(append(append([]*irExpr{}, args[:at]...), recv), args[at:]...)
 	}
 	path, goName := f.Decl.Extern.Split()
 	b.keepImport("var _ = " + b.l.hostPkg(path, x) + "." + goName)
@@ -356,7 +365,17 @@ func (b *irBuilder) hostBind(call *syntax.CallExpr) (pre []*irStmt, v, e int, ok
 	}
 	if v >= 0 {
 		vpre, val := b.hostResult(hostTargetName(f), results[0], v, e, call, p)
-		pre, v = append(pre, vpre...), val.I
+		pre = append(pre, vpre...)
+		if val.K == "local" {
+			v = val.I
+		} else {
+			// A copied result (goResultCopy: a slice of Go records,
+			// hostfs.ReadDir's []Entry) is an expression; bind it, so the
+			// caller reads a local, never local 0 (the env).
+			c := b.temp("v", b.rawGoType(results[0], call), p)
+			pre = append(pre, &irStmt{K: "def", Pos: p, Local: c, X: val})
+			v = c
+		}
 	}
 	if tuple != nil {
 		vals := make([]*irExpr, len(rs))
@@ -569,7 +588,7 @@ func (b *irBuilder) monoName(f *check.Func) string {
 	}
 	at := reflect.ValueOf(b.fc.params).Pointer()
 	for key, sp := range b.l.monos {
-		if key.f == f && sp.typeArgs != nil && reflect.ValueOf(sp.typeArgs).Pointer() == at {
+		if key.decl == monoDecl(monoFunc{f}) && sp.typeArgs != nil && reflect.ValueOf(sp.typeArgs).Pointer() == at {
 			return sp.name
 		}
 	}

@@ -300,7 +300,7 @@ func pointAt(h mut Host, b kanban.Board, x float64, y float64, phase ui.Phase) f
 	if len(areas) == 0 {
 		return Unread{Why: "the screen has no board"}
 	}
-	let p = ui.PointerEvent{Phase: phase, X: x, Y: y, Zone: None}
+	let p = ui.PointerEvent{Pointer: ui.MousePointer, Phase: phase, X: x, Y: y, Zone: None}
 	match Box(b, x, y) {
 	case Some[Hit] as hit:
 		let zones = ui.Locate(&h.view, ui.WithZone{Key: ui.ByText(hit.Value.Key)})

@@ -16,7 +16,11 @@
 // host, one flock per entry, so a crash frees its share by the kernel.
 package budget
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+	"strings"
+)
 
 // Entry is a runner in the budget: a waiter or a holder.
 type Entry struct {
@@ -28,11 +32,15 @@ type Entry struct {
 	Ticket int64  `json:"ticket"`
 	Lane   string `json:"lane,omitempty"`
 	// Key is the entry's command (Request.Key) and Asked its --memory:
-	// what Reserve reads, at each decision, to charge a waiter. Capped
-	// says the holder runs capped at Memory (Reservation).
-	Key    string `json:"key,omitempty"`
-	Asked  int64  `json:"asked,omitempty"`
-	Capped bool   `json:"capped,omitempty"`
+	// what Reserve reads, at each decision, to charge a waiter. Cap is
+	// the memory the holder runs capped at, 0 for none (Reservation).
+	Key   string `json:"key,omitempty"`
+	Asked int64  `json:"asked,omitempty"`
+	Cap   int64  `json:"cap,omitempty"`
+	// Passed counts the later waiters that took past this one while it
+	// was the next waiter and did not fit (BUDGET-BACKFILL; at most
+	// Rules.Backfill).
+	Passed int `json:"passed,omitempty"`
 }
 
 // State is the budget's state: who holds cores, who waits and in what
@@ -49,6 +57,9 @@ type Rules struct {
 	Cores  int
 	Memory int64
 	Share  int
+	// Backfill is how many later waiters may take past one next waiter
+	// that does not fit (cores.ergo MaxPass); 0 for none.
+	Backfill int
 	// Peak answers the peak recorded for a command now, and Default the
 	// charge of a command never measured. With Peak set, the hand-on
 	// charges the next waiter from them before it checks the fit, so a
@@ -141,26 +152,102 @@ func (s *State) Remove(r Rules, id string) []string {
 }
 
 // Admit is the hand-on: it moves the next waiter to the holders while it
-// fits, and returns the IDs it moved. A next waiter that does not fit
-// stops it (head of line), so a narrow or small waiter never passes a
-// wide or large older one (InOrder; the model's mutant Backfill passes
-// it). It runs after every change.
+// fits, and returns the IDs it moved. When the next waiter (the head) does
+// not fit, the oldest later waiter that fits in cores and memory takes
+// past it (a pass), at most r.Backfill times for one head; then the head
+// stops the hand-on until it fits (cores.ergo: NoIdleBehindBlockedHead,
+// HeadWithinBound; its mutants NoBackfill, the rule before
+// BUDGET-BACKFILL, and Backfill, with no bound). Each waiter is charged
+// from its command's peak as it is considered, not at its join. It runs
+// after every change.
 func (s *State) Admit(r Rules) []string {
 	var moved []string
 	for {
-		i := s.Next(r)
-		if i != -1 && r.Peak != nil && r.Memory > 0 {
-			w := &s.Waiters[i]
-			w.Memory, w.Capped = Reservation(r, w.Asked, r.Peak(w.Key), r.Default)
-		}
-		if i == -1 || !s.Fits(r, s.Waiters[i]) {
+		h := s.Next(r)
+		if h == -1 {
 			return moved
 		}
-		e := s.Waiters[i]
-		s.Waiters = slices.Delete(s.Waiters, i, i+1)
+		s.charge(r, h)
+		take := h
+		if !s.Fits(r, s.Waiters[h]) {
+			if s.Waiters[h].Passed >= r.Backfill {
+				return moved
+			}
+			take = s.oldestFitting(r, h)
+			if take == -1 {
+				return moved
+			}
+			s.Waiters[h].Passed++
+		}
+		e := s.Waiters[take]
+		e.Passed = 0
+		s.Waiters = slices.Delete(s.Waiters, take, take+1)
 		s.Holders = append(s.Holders, e)
 		moved = append(moved, e.ID)
 	}
+}
+
+// Why says why the next waiter waits (`ergo budget status`): what it
+// needs that is not free, the lane share when it puts crit first, and its
+// passes against the bound. It is "" when no one waits.
+func (s *State) Why(r Rules) string {
+	h := s.Next(r)
+	if h == -1 {
+		return ""
+	}
+	w := s.Waiters[h]
+	var why []string
+	if free := r.Cores - s.Used(); w.Width > free {
+		why = append(why, fmt.Sprintf("needs %d cores, %d free", w.Width, free))
+	}
+	if r.Memory > 0 {
+		if free := r.Memory - s.MemoryUsed(); w.Memory > free {
+			why = append(why, fmt.Sprintf("memory: needs %s, %s free", Size(w.Memory), Size(free)))
+		}
+	}
+	if len(why) == 0 {
+		why = append(why, "fits: it takes at the next decision")
+	}
+	if w.Crit && s.laneUsed() >= r.Share && oldest(s.Waiters, false) != -1 {
+		why = append(why, fmt.Sprintf("lane share used (%d of %d cores): crit is served first", s.laneUsed(), r.Share))
+	}
+	pass := fmt.Sprintf("passed %d of %d", w.Passed, r.Backfill)
+	if w.Passed >= r.Backfill {
+		pass += ": no more passes, it waits for holders to end"
+	}
+	return fmt.Sprintf("head %s: %s; %s", w.ID, strings.Join(why, "; "), pass)
+}
+
+// Size prints bytes as G or M with one decimal, as budget.conf writes them.
+func Size(n int64) string {
+	if n >= 1<<30 || n <= -1<<30 {
+		return fmt.Sprintf("%.1fG", float64(n)/(1<<30))
+	}
+	return fmt.Sprintf("%.1fM", float64(n)/(1<<20))
+}
+
+// charge sets waiter i's reservation and cap from its command's peak now.
+func (s *State) charge(r Rules, i int) {
+	if r.Peak != nil && r.Memory > 0 {
+		w := &s.Waiters[i]
+		w.Memory, w.Cap = Reservation(r, w.Asked, r.Peak(w.Key), r.Default)
+	}
+}
+
+// oldestFitting is the waiter other than h with the lowest ticket that
+// fits, charged as it would be admitted; -1 for none.
+func (s *State) oldestFitting(r Rules, h int) int {
+	best := -1
+	for i := range s.Waiters {
+		if i == h || best != -1 && s.Waiters[i].Ticket > s.Waiters[best].Ticket {
+			continue
+		}
+		s.charge(r, i)
+		if s.Fits(r, s.Waiters[i]) {
+			best = i
+		}
+	}
+	return best
 }
 
 // Holds reports whether id holds cores.
@@ -168,27 +255,34 @@ func (s *State) Holds(id string) bool {
 	return slices.ContainsFunc(s.Holders, func(e Entry) bool { return e.ID == id })
 }
 
-// Reservation is the memory a take is charged, and whether its command is
-// capped at it (mem.ergo). A take that asks is charged and capped at what
-// it asks. A command with a recorded peak (the largest it reached; the
-// model's mutant LastPeak keeps the last) is charged and capped at that
-// peak and a quarter more, so a run is killed only past its own peak. A
-// command never measured is charged the default and not capped on its
-// own: it runs, its peak is recorded, and only the budget's slice can
-// kill it (the model's mutant CapUnknown caps it at the default, which
-// killed a 20G command twice before it fitted). A charge is never more
-// than the whole budget, which no take could then fit.
-func Reservation(r Rules, asked, peak, dflt int64) (res int64, capped bool) {
+// Reservation is the memory a take is charged, and the memory its command
+// is capped at, 0 for none (mem.ergo).
+//   - A take that asks is charged and capped at what it asks.
+//   - A command with a recorded peak (the largest it reached; the model's
+//     mutant LastPeak keeps the last) is charged that peak and a quarter
+//     more, so a run is killed only past its own peak. Its cap is never
+//     below the default (the model's mutant CapAtPeak): a short run's low
+//     peak lowers the charge, never the kill (2026-11-20, a run that failed
+//     fast, exit 0, at 1.1G capped its full rerun at 1.4G, which the cap
+//     killed in its compile).
+//   - A command never measured is charged the default and not capped on
+//     its own: it runs, its peak is recorded, and only the budget's slice
+//     can kill it (the model's mutant CapUnknown caps it at the default,
+//     which killed a 20G command twice before it fitted).
+//
+// Neither is ever more than the whole budget, which no take could fit.
+func Reservation(r Rules, asked, peak, dflt int64) (res, capAt int64) {
 	switch {
 	case asked > 0:
-		res, capped = asked, true
+		res, capAt = asked, asked
 	case peak > 0:
-		res, capped = peak+peak/4, true
+		res = peak + peak/4
+		capAt = max(res, dflt)
 	default:
 		res = dflt
 	}
-	if r.Memory > 0 && res > r.Memory {
-		res = r.Memory
+	if r.Memory > 0 {
+		res, capAt = min(res, r.Memory), min(capAt, r.Memory)
 	}
-	return res, capped
+	return res, capAt
 }

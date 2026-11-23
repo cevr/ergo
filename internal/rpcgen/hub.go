@@ -234,7 +234,9 @@ var hubFixed = []string{"Request", "Op", "Reply", "Failure", "Outcome", "Done", 
 // hubLocals are the names a Client function uses beside the operation's
 // parameters (the only place they are in scope): a parameter of one of
 // these names would shadow it.
-var hubLocals = map[string]bool{"client": true, "done": true, "rejected": true, "reply": true, "failure": true}
+var hubLocals = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"client": true, "done": true, "rejected": true, "reply": true, "failure": true}
+})
 
 // checkNames refuses a contract whose names the hub cannot declare: an
 // operation, a variant or a failure that is one of the hub's declarations
@@ -257,7 +259,7 @@ func (g *hubGen) checkNames(ops []Op) {
 		claim(ReplyName(op.Name), "the Reply of "+op.Name)
 		claim(OpName(op.Name), "the Op of "+op.Name)
 		for _, p := range op.Params {
-			if hubLocals[p.Name] {
+			if hubLocals()[p.Name] {
 				g.fail("%s.%s: the parameter name %s is one the hub uses for a local; rename it", g.op, op.Name, p.Name)
 			}
 			for _, name := range g.imports {

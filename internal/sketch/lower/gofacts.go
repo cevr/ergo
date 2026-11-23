@@ -119,11 +119,16 @@ func (w *valueWalk) readsWhy(a syntax.Expr) string {
 		return "not a binding or a field of one"
 	}
 	for x := unparen(a); x != syntax.Expr(id); {
-		sel, ok := x.(*syntax.SelectorExpr)
-		if !ok {
+		switch s := x.(type) {
+		case *syntax.SelectorExpr:
+			x = unparen(s.X)
+		case *syntax.SliceExpr:
+			// A slice of one (`b[:n]`, S2-COPY): Go reads part of the
+			// same array, and the test build compares that part.
+			x = unparen(s.X)
+		default:
 			return "not a binding or a field of one"
 		}
-		x = unparen(sel.X)
 	}
 	v, ok := w.info.Uses[id].(*check.Var)
 	if !ok {

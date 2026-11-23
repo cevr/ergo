@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -135,7 +136,7 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 	default:
 		return nil, b.expr(x) // expr converts
 	}
-	e = b.valueCopy(unparen(x), e) // ir_copy.go
+	e = b.ownTemp(unparen(x), b.valueCopy(unparen(x), e)) // ir_copy.go // ir_own.go: a temporary its statement owns (R43)
 	if _, ok := b.l.info.Implicit[x]; !ok {
 		x = unparen(x)
 	}
@@ -143,11 +144,12 @@ func (b *irBuilder) valueOf(x syntax.Expr) ([]*irStmt, *irExpr) {
 }
 
 // plain stops x if the emitter does more than compute it: an owned
-// temporary or a context value. The value rule's copy is built
+// temporary the frame does not register (ownTemp registers the rest,
+// ir_own.go) or a context value. The value rule's copy is built
 // (valueCopy, ir_copy.go); an implicit conversion is the caller's
 // (implicit, ir_union.go).
 func (b *irBuilder) plain(x syntax.Expr) {
-	if b.l.info.OwnedTemps[x] != nil {
+	if b.l.info.OwnedTemps[x] != nil && !b.tempOwnable(x, b.own) {
 		irNo("owned temporary")
 	}
 	if b.l.info.ContextValues[x] != nil {
@@ -156,16 +158,18 @@ func (b *irBuilder) plain(x syntax.Expr) {
 }
 
 // irOps are the binary operators of the IR: Go's, on the basic types.
-var irOps = map[string]bool{
-	"+": true, "-": true, "*": true, "/": true, "%": true,
-	"&": true, "|": true, "^": true, "&^": true, "<<": true, ">>": true,
-	"==": true, "!=": true, "<": true, "<=": true, ">": true, ">=": true,
-	"&&": true, "||": true,
-}
+var irOps = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"+": true, "-": true, "*": true, "/": true, "%": true,
+		"&": true, "|": true, "^": true, "&^": true, "<<": true, ">>": true,
+		"==": true, "!=": true, "<": true, "<=": true, ">": true, ">=": true,
+		"&&": true, "||": true,
+	}
+})
 
 // operator admits op on operands of type t (its left operand's).
 func (b *irBuilder) operator(op string, t check.Type, site syntax.Node) {
-	if !irOps[op] {
+	if !irOps()[op] {
 		irNo("operator %s", op)
 	}
 	if b.scalarBasic(t) == nil && !orderedParam(op, t) { // ir_union.go: a named scalar's too
@@ -200,7 +204,7 @@ func (b *irBuilder) expr(x syntax.Expr) *irExpr {
 	if i, ok := b.preset[x]; ok {
 		return &irExpr{K: "local", Pos: b.pos(x, x.Pos()), I: i} // evaluated once already (ir_uigroup.go)
 	}
-	return b.implicit(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x)))) // ir_constfold.go // ir_copy.go
+	return b.implicit(x, b.ownTemp(x, b.valueCopy(x, b.foldConst(x, b.exprOf(x))))) // ir_constfold.go // ir_copy.go // ir_own.go
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
@@ -234,9 +238,13 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if i, built := b.strBufs[o]; built {
 				return b.strCall("StrGet", i, p) // strbuf.go
 			}
-			if b.scalars[o] != nil {
-				// Its gather writes statements: a value (ir_scalar.go).
-				irNo("scalar-form local inside an expression")
+			if sc := b.scalars[o]; sc != nil {
+				// Its gather writes statements (ir_scalar.go): they run
+				// before the expression that holds the read, in order, as
+				// a call's do (ir_order.go), as the emitter's gather does.
+				pre, e := b.gather(sc, x, p)
+				b.runFirst(pre)
+				return e
 			}
 			if val, ok := b.l.constVals[o]; ok && b.l.consts[o] {
 				// A package let lowered as a Go constant (constLet): its
@@ -595,12 +603,15 @@ func (b *irBuilder) listElems(x *syntax.CompositeLit, elem check.Type) []*irExpr
 }
 
 // omittedFields gives the record literal lit of td (the record s) each
-// field its elements do not set, the emitter's fieldDefaults: a field
-// whose default is Go's zero value gets that zero (the IR toolchain wants
-// every field keyed once), and a Map field is an empty Go map. The checker writes such a literal for a
-// Map with a provider, Map[K, V, H]{} (check/mapprovider.go); a program's
-// literal sets every field. Any other default that holds a Map (built by a
-// function) keeps the emitter's body.
+// field its elements do not set, the emitter's fieldDefaults: its default
+// (defaultOf, ir_letpat.go): Go's zero value (the IR toolchain wants
+// every field keyed once), an empty Map (an int-keyed Map's empty
+// table), or a record of its fields' defaults. The checker writes such a
+// literal for a Map with a provider, Map[K, V, H]{} (check/mapprovider.go),
+// and a script's recorder, recorder[Screen]{}; a program's literal sets
+// every field. Any other default that holds a Map (a tuple or an array,
+// which the emitter builds by a function or a loop) keeps the emitter's
+// body.
 func (b *irBuilder) omittedFields(lit *irExpr, td *typeDecl, s *check.Struct, set []string, x *syntax.CompositeLit, p irPos) {
 	for _, f := range s.Fields {
 		if slices.Contains(set, f.Name) {
@@ -610,16 +621,11 @@ func (b *irBuilder) omittedFields(lit *irExpr, td *typeDecl, s *check.Struct, se
 		if !ok {
 			irNo("record literal without a field of its record")
 		}
-		// The IR lists every field once (the toolchain's "lit"): a Map
-		// field is an empty map, every other omitted field its zero.
-		e := &irExpr{K: "zero", Pos: p, T: b.goType(f.Type, x)}
-		if b.l.holdsMap(f.Type) {
-			if _, ok := f.Type.(*check.Map); !ok {
-				irNo("record literal without a field whose default holds a Map")
-			}
-			e = &irExpr{K: "lit", Pos: p, T: e.T}
+		// The IR lists every field once (the toolchain's "lit").
+		if !b.defaultable(f.Type, x) {
+			irNo("record literal without a field whose default holds a Map")
 		}
 		lit.Keys = append(lit.Keys, name)
-		lit.Elems = append(lit.Elems, e)
+		lit.Elems = append(lit.Elems, b.defaultOf(f.Type, x, p))
 	}
 }

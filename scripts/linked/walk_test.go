@@ -25,7 +25,7 @@ func newRepo(t *testing.T) *gitRepo {
 
 func (r *gitRepo) git(args ...string) string {
 	r.t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-C", r.root}, args...)...)
+	cmd := exec.Command("git", append([]string{"--no-optional-locks", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "-C", r.root}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		r.t.Fatalf("git %v: %v\n%s", args, err, out)

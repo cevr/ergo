@@ -1,0 +1,411 @@
+// A screen as data (TREE-JSON, RUNE §6): each node a locator finds by its
+// role, in tree order, with its role, name, states and box, one JSON object
+// a line, so an agent reads a headless run without Go code. A host gives
+// the boxes (TestHost has none; the desktop host has its layout's).
+
+import json
+import strings
+
+// TreeEntry is one node of a screen as data: its role (RoleName), its
+// accessible name, its states (StatesOf) and its box (None: the host has
+// no box for it).
+type TreeEntry { Role string, Name string, States []string, Box Option[Rect] }
+
+// TreeOf is the nodes of m that are not Generic, in tree order, each with
+// its box in boxes.
+func TreeOf[E](m mut Mirror[E], boxes Map[Id[E], Rect]) []TreeEntry {
+	let mut out = []TreeEntry{}
+	match entryOf(m, m.root) {
+	case Some[mirrored[E]] as r:
+		for id in childIds(m, r.Value) {
+			out = treeFrom[E](m, id, boxes, out)
+		}
+	case None:
+	}
+	out
+}
+
+func treeFrom[E](m mut Mirror[E], id Id[E], boxes Map[Id[E], Rect], acc []TreeEntry) []TreeEntry {
+	let mut out = acc
+	let a = AccessOf(m, id)
+	match a.Role {
+	case Generic:
+	case _:
+		out = out.Append(TreeEntry{Role: RoleName(a.Role), Name: a.Name, States: StatesOf(a), Box: boxes.Get(id)})
+	}
+	match entryOf(m, id) {
+	case Some[mirrored[E]] as e:
+		for k in childIds(m, e.Value) {
+			out = treeFrom[E](m, k, boxes, out)
+		}
+	case None:
+	}
+	out
+}
+
+// TreeAgreesWithLocate: over drawn screens (the generator of
+// LocatorAgreesWithAccessTree), TreeOf is the screen's nodes that are not
+// Generic, in tree order, each the node WithRole finds there with its role,
+// name and states as AccessOf reads them (disabled, invalid, checked or
+// unchecked, value=V as the model's access has them), and the box the host
+// gave that node; TreeLine writes each as a JSON object of those fields.
+law TreeAgreesWithLocate(seed int) {
+	let mut r = seeded(seed)
+	let ps = genRoot(&r)
+	let mut f = NewFrame[int]()
+	let mut m = NewMirror[int](Root(&f))
+	for _ in 0..3 {
+		let s = genState(&r)
+		let ops = Render(&f, func(g mut Frame[int], st []int) {
+			for p in ps {
+				render(g, p, st, 0) catch {
+				case Missing:
+					Unreachable("ui laws: a read is drawn only under a boundary")
+				case Pending:
+					Unreachable("ui laws: a read is drawn only under a boundary")
+				}
+			}
+			extras(g, st[0])
+		}, s)
+		Apply(&m, ops) catch {
+		case BadPatch:
+			return false
+		}
+		let mut shapes = models(ps, s, 0)
+		for x in extraShapes(s[0]) {
+			shapes = shapes.Append(x)
+		}
+		let mut want = []seen{}
+		for x in accessModel(shapes, false, "") {
+			match x.a.Role {
+			case Generic:
+			case _:
+				want = want.Append(x)
+			}
+		}
+		// The host's boxes: each node a role finds, the k-th of its role at
+		// x = k, y = the role's name's length.
+		let mut boxes = Map[Id[int], Rect]{}
+		let mut ids = []Id[int]{}
+		let mut taken = Map[string, int]{}
+		for x in want {
+			let role = RoleName(x.a.Role)
+			let k = match taken.Get(role) {
+			case Some[int] as n:
+				n.Value
+			case None:
+				0
+			}
+			taken[role] = k + 1
+			let found = LocateIn(&m, WithRole{Role: x.a.Role, Name: ""})
+			if k >= len(found) {
+				return false
+			}
+			ids = ids.Append(found[k])
+			boxes[found[k]] = Rect{X: Length(float64(k)), Y: Length(float64(len(role))), W: 1, H: 1}
+		}
+		let tree = TreeOf(&m, boxes)
+		if len(tree) != len(want) {
+			return false
+		}
+		for i, e in tree {
+			let a = AccessOf(&m, ids[i])
+			if e.Role != RoleName(want[i].a.Role) || e.Name != a.Name || a != want[i].a || strings.Join(e.States, ",") != strings.Join(StatesOf(a), ",") {
+				return false
+			}
+			// The states the model screen's access has, as ARIA names them.
+			let states = "," + strings.Join(e.States, ",") + ","
+			let checked = match a.Checked {
+			case Some[bool] as c:
+				if c.Value { ",checked," } else { ",unchecked," }
+			case None:
+				""
+			}
+			let value = match a.Value {
+			case Some[string] as v:
+				",value=\(v.Value),"
+			case None:
+				""
+			}
+			if strings.Contains(states, ",disabled,") != a.Disabled || strings.Contains(states, ",invalid,") != a.Invalid || checked != "" && !strings.Contains(states, checked) || checked == "" && (strings.Contains(states, ",checked,") || strings.Contains(states, ",unchecked,")) || value != "" && !strings.Contains(states, value) {
+				return false
+			}
+			match (e.Box, boxes.Get(ids[i])) {
+			case (Some[Rect] as b, Some[Rect] as w):
+				if b.Value != w.Value {
+					return false
+				}
+			case _:
+				return false
+			}
+			let line = TreeLine(e)
+			if !strings.HasPrefix(line, "{\"role\":\"\(e.Role)\",\"name\":") || !strings.Contains(line, ",\"states\":[") || !strings.Contains(line, ",\"box\":[") {
+				return false
+			}
+		}
+	}
+	true
+}
+
+// StatesOf is what a's node is, as ARIA's states name it: "disabled",
+// "checked" or "unchecked", "selected", "expanded" or "collapsed",
+// "pressed", "invalid", "busy", "modal", and "value=V" for a value.
+func StatesOf(a Access) []string {
+	let mut out = []string{}
+	if a.Disabled {
+		out = out.Append("disabled")
+	}
+	match a.Checked {
+	case Some[bool] as c:
+		out = out.Append(if c.Value { "checked" } else { "unchecked" })
+	case None:
+	}
+	match a.Selected {
+	case Some[bool] as s:
+		if s.Value {
+			out = out.Append("selected")
+		}
+	case None:
+	}
+	match a.Expanded {
+	case Some[bool] as x:
+		out = out.Append(if x.Value { "expanded" } else { "collapsed" })
+	case None:
+	}
+	match a.Pressed {
+	case Some[bool] as p:
+		if p.Value {
+			out = out.Append("pressed")
+		}
+	case None:
+	}
+	if a.Invalid {
+		out = out.Append("invalid")
+	}
+	if a.Busy {
+		out = out.Append("busy")
+	}
+	if a.Modal {
+		out = out.Append("modal")
+	}
+	match a.Value {
+	case Some[string] as v:
+		out = out.Append("value=\(v.Value)")
+	case None:
+	}
+	out
+}
+
+// TreeLine is e as one JSON object: {"role":…,"name":…,"states":[…]} and,
+// with a box, "box":[x,y,w,h].
+func TreeLine(e TreeEntry) string {
+	let t = json.NewText()
+	let n = match e.Box {
+	case Some[Rect]:
+		4
+	case None:
+		3
+	}
+	t.BeginObject(n)
+	t.Key("role")
+	t.String(e.Role)
+	t.Key("name")
+	t.String(e.Name)
+	t.Key("states")
+	t.BeginList(len(e.States))
+	for s in e.States {
+		t.String(s)
+	}
+	t.EndList()
+	match e.Box {
+	case Some[Rect] as b:
+		t.Key("box")
+		t.BeginList(4)
+		t.Float(float64(b.Value.X))
+		t.Float(float64(b.Value.Y))
+		t.Float(float64(b.Value.W))
+		t.Float(float64(b.Value.H))
+		t.EndList()
+	case None:
+	}
+	t.EndObject()
+	t.Written()
+}
+
+// BadScript is a script that is not a JSON list of acts: Why says where.
+type BadScript { Why string }
+
+// ParseActs reads a script as a JSON list of acts, each an object of one
+// member: {"tap": LABEL}, {"type": [LABEL, TEXT]}, {"key": NAME},
+// {"settle": true}, {"advance": MILLISECONDS} or
+// {"scroll": [LABEL, OFFSET, HEIGHT]}.
+func ParseActs(text string) []Act fails BadScript {
+	let r = json.Open(text, 0, 0) catch {
+	case json.Malformed:
+		return BadScript{Why: "not JSON"}
+	}
+	let mut out = []Act{}
+	r.BeginList() catch {
+	case WireWrongKind:
+		return BadScript{Why: "not a list"}
+	}
+	for r.More() {
+		let act = parseAct(r) catch {
+		case WireWrongKind as w:
+			return BadScript{Why: "act \(len(out) + 1): \(w.Path) is not \(w.Want)"}
+		case BadScript as b:
+			return BadScript{Why: "act \(len(out) + 1): \(b.Why)"}
+		}
+		out = out.Append(act)
+	}
+	r.End()
+	out
+}
+
+// parseAct reads one act's object.
+func parseAct(r json.Reader) Act fails WireWrongKind | BadScript {
+	try r.BeginObject()
+	if !r.More() {
+		return BadScript{Why: "an empty object"}
+	}
+	let verb = r.Key()
+	let act = if verb == "tap" {
+		TapOn{Label: try r.String()}
+	} else if verb == "type" {
+		try r.BeginList()
+		try item(r, verb)
+		let label = try r.String()
+		try item(r, verb)
+		let text = try r.String()
+		try ended(r, verb)
+		TypeInto{Label: label, Text: text}
+	} else if verb == "key" {
+		KeyIn{Press: KeyPress{Name: try r.String(), Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
+	} else if verb == "settle" {
+		r.Skip()
+		SettleAll
+	} else if verb == "advance" {
+		AdvanceBy{By: duration((try r.Int()) * int64(1000000))}
+	} else if verb == "scroll" {
+		try r.BeginList()
+		try item(r, verb)
+		let label = try r.String()
+		try item(r, verb)
+		let offset = try r.Float()
+		try item(r, verb)
+		let height = try r.Float()
+		try ended(r, verb)
+		ScrollOn{Label: label, Offset: Length(offset), Height: Length(height)}
+	} else {
+		return BadScript{Why: "no act \"\(verb)\""}
+	}
+	if r.More() {
+		return BadScript{Why: "more than one member"}
+	}
+	r.End()
+	act
+}
+
+// item steps to the next value of an act's list, which must have one.
+func item(r json.Reader, verb string) fails BadScript {
+	if !r.More() {
+		return BadScript{Why: "too few values for \"\(verb)\""}
+	}
+}
+
+// ended closes an act's list, which must have no value left.
+func ended(r json.Reader, verb string) fails BadScript {
+	if r.More() {
+		return BadScript{Why: "too many values for \"\(verb)\""}
+	}
+	r.End()
+}
+
+// ActsReadAsWritten: a drawn list of acts (taps, typing, keys, settles,
+// advances in milliseconds and scrolls, with labels that need escaping)
+// written as the JSON act list ParseActs documents reads back as the
+// same acts, in order.
+law ActsReadAsWritten(seed int) {
+	let mut r = seeded(seed)
+	let labels = []string{"inc", "by 5", "say \"hi\"", "a\\b", "名前", ""}
+	let mut want = []string{}
+	let t = json.NewText()
+	let n = draw(&r, 8)
+	t.BeginList(n)
+	for _ in 0..n {
+		let label = labels[draw(&r, len(labels))]
+		let k = draw(&r, 6)
+		t.BeginObject(1)
+		if k == 0 {
+			t.Key("tap")
+			t.String(label)
+			want = want.Append(actWhole(TapOn{Label: label}))
+		} else if k == 1 {
+			let text = labels[draw(&r, len(labels))]
+			t.Key("type")
+			t.BeginList(2)
+			t.String(label)
+			t.String(text)
+			t.EndList()
+			want = want.Append(actWhole(TypeInto{Label: label, Text: text}))
+		} else if k == 2 {
+			t.Key("key")
+			t.String(label)
+			want = want.Append(actWhole(KeyIn{Press: KeyPress{Name: label, Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}))
+		} else if k == 3 {
+			t.Key("settle")
+			t.Bool(true)
+			want = want.Append(actWhole(SettleAll))
+		} else if k == 4 {
+			let ms = draw(&r, 5000)
+			t.Key("advance")
+			t.Int(int64(ms))
+			want = want.Append(actWhole(AdvanceBy{By: duration(int64(ms) * int64(1000000))}))
+		} else {
+			let offset = float64(draw(&r, 400)) / 4.0
+			let height = float64(draw(&r, 400) + 1)
+			t.Key("scroll")
+			t.BeginList(3)
+			t.String(label)
+			t.Float(offset)
+			t.Float(height)
+			t.EndList()
+			want = want.Append(actWhole(ScrollOn{Label: label, Offset: Length(offset), Height: Length(height)}))
+		}
+		t.EndObject()
+	}
+	t.EndList()
+	let got = ParseActs(t.Written()) catch {
+	case BadScript:
+		return false
+	}
+	if len(got) != len(want) {
+		return false
+	}
+	for i, a in got {
+		if actWhole(a) != want[i] {
+			return false
+		}
+	}
+	true
+}
+
+// actWhole is an act a script can hold, written out whole.
+func actWhole(a Act) string {
+	match a {
+	case TapOn as x:
+		"tap \(x.Label)"
+	case TypeInto as x:
+		"type \(x.Label)|\(x.Text)"
+	case KeyIn as x:
+		"key \(x.Press.Name) \(x.Press.Mods.Shift) \(x.Press.Mods.Ctrl) \(x.Press.Mods.Alt) \(x.Press.Mods.Meta)"
+	case SettleAll:
+		"settle"
+	case AdvanceBy as x:
+		"advance \(int64(x.By))"
+	case ScrollOn as x:
+		"scroll \(x.Label) \(float64(x.Offset)) \(float64(x.Height))"
+	case _:
+		"other"
+	}
+}

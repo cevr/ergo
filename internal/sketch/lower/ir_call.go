@@ -144,6 +144,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if check.IsUnreachable(c) {
 		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
 	}
+	if check.IsInForce(c) {
+		// Written at each call, never called (ir_inforce.go).
+		return b.inForce(x, c, p)
+	}
 	// The call keeps its Ergo identity in the call table, as the Go text's
 	// identify records it (calls.go, #230): the IR's position of the call
 	// is the Go frame's line that a defect's report looks up.
@@ -335,7 +339,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// which name the generic function.
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
 		}
-		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
+		name := b.ownedCallName(x, f, fd.name)
+		if fd.pure && name == fd.name && x.Trailing == nil && c.Site == nil {
+			// The function's table, as the emitter's call reads it (ir_tab.go).
+			if tpre, v := b.tabCall(x, c, irArgs, p); v != nil {
+				return append(pre, tpre...), v, false
+			}
+		}
+		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: name, T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:
@@ -373,6 +384,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		pre = append(pre, argPre...)
 		env := &irExpr{K: "local", Pos: p, I: b.env}
 		args := append([]*irExpr{{K: "field", Pos: p, Name: envTask, X: env}}, irArgs...)
+		if c.Kind == check.CallLawOp && b.lawOwn > 0 {
+			// A law of a generic operation type calls the provider it
+			// takes, as a call on a value of the type does (calls.go).
+			own := &irExpr{K: "local", Pos: p, I: b.lawOwn}
+			return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: own, Args: args}), true
+		}
 		capField := b.knownOp(x, named, &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}) // ir_forms_op.go
 		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
 	case check.CallGoError:

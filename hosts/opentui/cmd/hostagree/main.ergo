@@ -5,7 +5,7 @@
 // TestTuiHostAgreesWithTestHost writes the scripts.
 //
 // Standard input: the app's name on the first line (counter, shelf, form,
-// load, lock, pad or list), then one step a line:
+// load, lock, pad, list, sketch, spin, drag or pane), then one step a line:
 //
 //	tap LABEL         a mouse press and release on the node labelled LABEL
 //	type LABEL TEXT   set the field's text (TAB between LABEL and TEXT)
@@ -19,7 +19,9 @@
 //	focus K           Tab K times, then press the focused node with Enter
 //	                  (a field gets "z" typed); TestHost presses the same node
 //	settle            settle the loads
-//	cost STEP         STEP, then "cost N": the library calls it made
+//	frames N          move the time N frames of 16ms (Ticks while the view animates)
+//	cost STEP         STEP, then "cost N bytes M": the library calls it made
+//	                  and the bytes it wrote
 //
 // Output: "ok N" or "differ N: …" per step, then "end".
 
@@ -52,6 +54,18 @@ func main() needs Console | Ambient | go.Foreign {
 			agree(padMachine(), padView, func(a pad, b pad) bool { a == b }, steps)
 		case "list":
 			agree(rowsMachine(), rowsView, func(a rowsApp, b rowsApp) bool { a == b }, steps)
+		case "sketch":
+			agree(sketchMachine(), sketchView, func(a sketch, b sketch) bool { a == b }, steps)
+		case "pane":
+			agree(paneMachine(), paneView, func(a pane, b pane) bool { a == b }, steps)
+		case "drag":
+			agree(dragMachine(), dragView, func(a drag, b drag) bool { a == b }, steps)
+		case "spin":
+			agree(spinMachine(), spinView, func(a spin, b spin) bool { a == b }, steps)
+		case "choice":
+			agree(choiceMachine(), choiceView, func(a choice, b choice) bool { a == b }, steps)
+		case "reading":
+			agree(readingMachine(), readingView, func(a reading, b reading) bool { a == b }, steps)
 		case _:
 			Console.Println("differ 0: no app \(lines[0])")
 		}

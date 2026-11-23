@@ -11,6 +11,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -55,7 +56,9 @@ const LedgerFile = "ergo.laws"
 const LawRunVersion = "ergo-laws/2"
 
 // ledgerVerdicts are the verdicts a line may hold.
-var ledgerVerdicts = map[string]bool{"proved": true, "validated": true, "tested": true, "skipped": true, "refuted": true}
+var ledgerVerdicts = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{"proved": true, "validated": true, "tested": true, "skipped": true, "refuted": true}
+})
 
 // LedgerEntry is one line of a ledger. The run's text (its cases, its
 // symbols) is not part of it: one run takes the instances of the binary
@@ -169,7 +172,7 @@ func parseEntry(line string) (LedgerEntry, bool) {
 	var rest string
 	if fact, ok := strings.CutPrefix(line, "fact "); ok {
 		words := strings.Fields(fact)
-		i := slices.IndexFunc(words, func(w string) bool { return ledgerVerdicts[w] })
+		i := slices.IndexFunc(words, func(w string) bool { return ledgerVerdicts()[w] })
 		if i < 3 || words[0] != "go" {
 			return LedgerEntry{}, false
 		}
@@ -206,7 +209,7 @@ func parseEntry(line string) (LedgerEntry, bool) {
 	}
 	// The tail: <verdict> [by <run>] [with <keys>] h1:<digest>.
 	words := strings.Split(rest, " ")
-	if len(words) < 2 || !ledgerVerdicts[words[0]] {
+	if len(words) < 2 || !ledgerVerdicts()[words[0]] {
 		return LedgerEntry{}, false
 	}
 	e.Verdict, words = words[0], words[1:]
@@ -318,7 +321,14 @@ func instanceText(in RewriteInstance) string {
 // (foreignkey.go): with is their shown forms, the line's with field, and
 // build the build configuration they depend on, the line's under field.
 func LawDigest(law *check.Law, prov *check.Named, conv check.Conversion, ctor *check.Func, inst string, keys ForeignKeys) (digest, with, build string) {
+	return lawDigest(nil, law, prov, conv, ctor, inst, keys)
+}
+
+// lawDigest is LawDigest with each declaration keyed by its package's
+// name in names: the digest of a ledger read or written under names.
+func lawDigest(names LedgerNames, law *check.Law, prov *check.Named, conv check.Conversion, ctor *check.Func, inst string, keys ForeignKeys) (digest, with, build string) {
 	d := newDigester()
+	d.names = names
 	d.typ(law.Owner)
 	d.typ(prov.Obj)
 	roots := tableFuncs(conv)
@@ -425,7 +435,7 @@ func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []strin
 	case law.Machine != nil:
 		d.typ(law.Machine)
 	case law.Pkg != nil && law.Decl != nil:
-		d.decl("law "+law.Pkg.Path+"."+law.Name, law.Pkg, law.Decl)
+		d.decl("law "+d.names.Of(law.Pkg)+"."+law.Name, law.Pkg, law.Decl)
 	}
 	var slots []string
 	for k, p := range binding {
@@ -515,7 +525,7 @@ func (d *digester) context(c *check.Context) {
 	// A law runs only under a named context (planLawContexts), which has
 	// its declaration; an embedded one is named too.
 	if p := c.Package(); p != nil && c.Decl != nil {
-		d.decl("context "+p.Path+"."+c.Name, p, c.Decl)
+		d.decl("context "+d.names.Of(p)+"."+c.Name, p, c.Decl)
 	} else {
 		d.decls["context "+c.Name] = true
 	}
@@ -620,7 +630,7 @@ func (t RunTarget) DigestWith(pkg *check.Package, keys ForeignKeys) string {
 // TestDigestWith is TestDigest with the foreign keys DigestWith takes.
 func TestDigestWith(pkg *check.Package, t *check.Test, keys ForeignKeys) string {
 	d := newDigester()
-	d.decl("test "+pkg.Path+"."+t.Name, pkg, t.Decl)
+	d.decl("test "+d.names.Of(pkg)+"."+t.Name, pkg, t.Decl)
 	return d.withForeign(d.sum(pkg, nil), keys)
 }
 
@@ -719,6 +729,11 @@ func tableFuncs(conv check.Conversion) []*check.Func {
 type digester struct {
 	seen  map[any]bool
 	decls map[string]bool
+	// names are the module-wide names of the packages a declaration is
+	// keyed by (LedgerNames.Of), the names the ledger keys its entries
+	// by: a copy of a package read under its original's names digests
+	// as the original does (TestStdCopyAgrees).
+	names LedgerNames
 	// lets are the package lets of the packages indexed, by their
 	// variable, each with its declaration.
 	lets    map[*check.Var]letDecl
@@ -769,7 +784,7 @@ func (t RunTarget) Inputs(pkg *check.Package) (string, []Input) {
 func TestInputs(pkg *check.Package, test *check.Test) (string, []Input) {
 	d := newDigester()
 	if test != nil && test.Decl != nil && pkg != nil {
-		d.decl("test "+pkg.Path+"."+test.Name, pkg, test.Decl)
+		d.decl("test "+d.names.Of(pkg)+"."+test.Name, pkg, test.Decl)
 	}
 	return d.sum(pkg, nil), d.inputs
 }
@@ -823,7 +838,7 @@ func (d *digester) fn(f *check.Func) {
 		d.decls["func "+f.Name] = true
 		return
 	}
-	d.decl("func "+f.Pkg.Path+"."+f.Name, f.Pkg, f.Decl)
+	d.decl("func "+d.names.Of(f.Pkg)+"."+f.Name, f.Pkg, f.Decl)
 }
 
 func (d *digester) typ(t *check.TypeName) {
@@ -835,7 +850,7 @@ func (d *digester) typ(t *check.TypeName) {
 		d.decls["type "+t.Name] = true
 		return
 	}
-	d.decl("type "+t.Pkg.Path+"."+t.Name, t.Pkg, t.Decl)
+	d.decl("type "+d.names.Of(t.Pkg)+"."+t.Name, t.Pkg, t.Decl)
 }
 
 // let adds the declaration of v when it is a package let of a package the
@@ -846,7 +861,7 @@ func (d *digester) let(v *check.Var) {
 		return
 	}
 	d.seen[l.decl] = true
-	d.decl("let "+l.pkg.Path+"."+v.Name, l.pkg, l.decl)
+	d.decl("let "+d.names.Of(l.pkg)+"."+v.Name, l.pkg, l.decl)
 }
 
 // decl adds the declaration n of p under key and walks it.
@@ -1129,7 +1144,7 @@ func (e *LedgerEvidence) digest(key string, law *check.Law, prov *check.Named, i
 		return d[0], d[1], d[2]
 	}
 	r := e.rule(law, prov)
-	d, with, build := LawDigest(law, prov, r.conv, r.ctor, inst, e.keys)
+	d, with, build := lawDigest(e.names, law, prov, r.conv, r.ctor, inst, e.keys)
 	e.digests[key] = [3]string{d, with, build}
 	return d, with, build
 }
@@ -1283,7 +1298,7 @@ func LedgerEntries(u Unit, names LedgerNames, ev RewriteEvidence, keys ForeignKe
 				by = ""
 			}
 			for _, inst := range insts {
-				d, with, build := LawDigest(r.law, prov, r.conv, r.ctor, inst, keys)
+				d, with, build := lawDigest(names, r.law, prov, r.conv, r.ctor, inst, keys)
 				out = append(out, LedgerEntry{Law: names.law(r.law), Provider: names.provider(prov), Instance: inst, Build: build, Verdict: verdict, By: by, With: with, Digest: d})
 			}
 		}

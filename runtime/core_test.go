@@ -2,6 +2,7 @@ package runtimefiles
 
 import (
 	"go/ast"
+	"go/build/constraint"
 	"go/parser"
 	"go/token"
 	"strconv"
@@ -37,28 +38,96 @@ var coreAllowed = map[string]string{
 	"runtime/rt/run.go runtime/debug":      "SetPanicOnFault: a task that starts while a mapping is live",
 }
 
-// TestCoreHasNoInitRoots: the core packages declare no init function and
-// import no package of coreRefused. The Go linker keeps the init task of
-// every imported package and every function an init reaches, whether or
-// not the program calls into the package, so either would add its code to
-// every Ergo program (binsize BS1).
+// shippedTags are the build tags of the programs `ergo build` makes: it
+// sets ergogotrace for --go-trace (cmd/ergo build.go) and no other. The
+// explored build's ergoexplore is ergo test's, not a shipped program's,
+// so it is not held to this floor.
+var shippedTags = map[string]bool{"ergogotrace": true}
+
+// shipped reports whether a file's //go:build line holds in some build
+// `ergo build` makes: each shipped tag on or off, every other ergo tag
+// off, and each Go tag (an OS, an architecture, race) either way.
+func shipped(t *testing.T, name string, data []byte) bool {
+	file, err := parser.ParseFile(token.NewFileSet(), name, data, parser.PackageClauseOnly|parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expr constraint.Expr
+	for _, group := range file.Comments {
+		if group.Pos() > file.Package {
+			break
+		}
+		for _, c := range group.List {
+			if constraint.IsGoBuild(c.Text) {
+				if expr, err = constraint.Parse(c.Text); err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+			}
+		}
+	}
+	if expr == nil {
+		return true
+	}
+	var free []string
+	expr.Eval(func(tag string) bool {
+		if !strings.HasPrefix(tag, "ergo") || shippedTags[tag] {
+			free = append(free, tag)
+		}
+		return false
+	})
+	for set := 0; set < 1<<len(free); set++ {
+		on := map[string]bool{}
+		for i, tag := range free {
+			on[tag] = set&(1<<i) != 0
+		}
+		if expr.Eval(func(tag string) bool { return on[tag] }) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestCoreHasNoInitRoots: no package a shipped program links whatever it
+// calls declares an init function or imports a package of coreRefused.
+// Those packages are computed, not listed: the core packages and every
+// runtime package they import, file by file, under each build tag set
+// `ergo build` uses (shipped), so a --go-trace build's runtime/obs is held
+// too. The Go linker keeps the init task of every imported package and
+// every function an init reaches, whether or not the program calls into
+// the package, so either would add its code to every Ergo program
+// (binsize BS1).
 // Mutants: bs1-core-imports-crypto (runtime/v1 imports crypto/sha256),
-// bs1-core-init (runtime/v1 declares an init function), and the BS8 leaf
+// bs1-core-init (runtime/v1 declares an init function), the BS8 leaf
 // boundaries bs8-core-imports-net (runtime/v1 imports net/http, as the
 // http and rpc bodies did) and bs8-core-imports-log (log/slog, as the
-// redacted bodies did).
+// redacted bodies did), and obs-imports-fmt (runtime/obs, which only a
+// --go-trace build links, imports fmt).
 func TestCoreHasNoInitRoots(t *testing.T) {
-	for _, path := range corePackages {
-		for _, name := range packages[path].files {
+	seen := map[string]bool{}
+	queue := append([]string(nil), corePackages...)
+	for len(queue) > 0 {
+		path := queue[0]
+		queue = queue[1:]
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		if _, ok := packages()[path]; !ok {
+			t.Fatalf("%s is imported by a shipped program but is no runtime package of embed.go", path)
+		}
+		for _, name := range packages()[path].files {
 			if !strings.HasSuffix(name, ".go") {
 				// An assembly file (exchange_darwin.s) imports nothing
 				// and declares no Go init; its symbols are reached only
-				// from the Go file that names them.
+				// from the Go file that names them. zones.bin is data.
 				continue
 			}
 			data, err := sources.ReadFile(strings.TrimPrefix(path, "runtime/") + "/" + name)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if !shipped(t, name, data) {
+				continue
 			}
 			file, err := parser.ParseFile(token.NewFileSet(), name, data, parser.SkipObjectResolution)
 			if err != nil {
@@ -66,6 +135,10 @@ func TestCoreHasNoInitRoots(t *testing.T) {
 			}
 			for _, spec := range file.Imports {
 				imported, _ := strconv.Unquote(spec.Path.Value)
+				if rel, ok := strings.CutPrefix(imported, Module+"/"); ok {
+					queue = append(queue, rel)
+					continue
+				}
 				for _, refused := range coreRefused {
 					if strings.HasPrefix(imported, refused) && coreAllowed[path+"/"+name+" "+imported] == "" {
 						t.Errorf("%s/%s imports %s: a body that needs it belongs in a leaf of runtime/v1", path, name, imported)

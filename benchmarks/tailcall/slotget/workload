@@ -1,0 +1,8 @@
+# scripts/opcount: `tailbench bench slotget N` makes N reads of a generic
+# Box[int, Gone] through get[T, F], whose F is a Slot row (INLINE-SLOT),
+# caught in the loop. The control is hand Go: a tagged struct read by a
+# switch, the failure returned as an error and type-switched.
+unit read
+sizes 409600 2457600
+args bench slotget {n}
+control benchmarks/tailcall/testdata/control

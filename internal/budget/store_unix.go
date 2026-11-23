@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -84,7 +86,9 @@ func (b *Budget) config() Config {
 	return b.cfg
 }
 
-func (c Config) rules() Rules { return Rules{Cores: c.Cores, Memory: c.Memory, Share: c.Share} }
+func (c Config) rules() Rules {
+	return Rules{Cores: c.Cores, Memory: c.Memory, Share: c.Share, Backfill: c.Backfill}
+}
 
 // Grant is a take's cores and memory, held until Release.
 type Grant struct {
@@ -92,7 +96,7 @@ type Grant struct {
 	id     string
 	width  int
 	memory int64
-	capped bool  // the command is capped at memory (Reservation)
+	capAt  int64 // the memory the command is capped at, 0 for none (Reservation)
 	slice  int64 // the budget in memory, the cap of all commands together
 	key    string
 	lane   string
@@ -188,7 +192,7 @@ func (b *Budget) Take(ctx context.Context, req Request) (*Grant, error) {
 	}
 	// The charge and the cap are those the waiter was admitted with
 	// (Reserve), read from the peaks at its admission.
-	g.memory, g.capped = held.Memory, held.Capped
+	g.memory, g.capAt = held.Memory, held.Cap
 	b.logf("take %s %s %d %d", req.Lane, class(req.Crit, req.Width), os.Getpid(), g.memory)
 	return g, nil
 }
@@ -277,6 +281,53 @@ func (b *Budget) decide(id string, change func(*State, Rules)) (*Entry, []string
 		}
 	}
 	return nil, others, nil
+}
+
+// Status writes the budget as the last decision left it, read only: the
+// rules, each holder and each waiter (by ticket) with its width, charge
+// and cap, and why the next waiter waits (State.Why). It takes no lock and
+// changes nothing; a dead entry shows until the next decision prunes it.
+func (b *Budget) Status(out io.Writer) error {
+	var s State
+	if data, err := os.ReadFile(filepath.Join(b.state, "state.json")); err == nil {
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	cfg := b.config()
+	r := cfg.rules()
+	fmt.Fprintf(out, "budget %s: cores %d of %d held", cfg.Path, s.Used(), r.Cores)
+	if r.Memory > 0 {
+		fmt.Fprintf(out, ", memory %s of %s", Size(s.MemoryUsed()), Size(r.Memory))
+	}
+	fmt.Fprintf(out, ", share %d, backfill %d; %d holders, %d waiters\n", r.Share, r.Backfill, len(s.Holders), len(s.Waiters))
+	line := func(verb string, e Entry) {
+		fmt.Fprintf(out, "%s %s %s %s", verb, e.ID, e.Lane, class(e.Crit, e.Width))
+		if r.Memory > 0 {
+			fmt.Fprintf(out, " charge %s", Size(e.Memory))
+			if e.Cap > 0 {
+				fmt.Fprintf(out, " cap %s", Size(e.Cap))
+			}
+		}
+		if e.Passed > 0 {
+			fmt.Fprintf(out, " passed %d", e.Passed)
+		}
+		fmt.Fprintln(out)
+	}
+	for _, e := range s.Holders {
+		line("hold", e)
+	}
+	waiters := slices.Clone(s.Waiters)
+	slices.SortFunc(waiters, func(a, b Entry) int { return int(a.Ticket - b.Ticket) })
+	for _, e := range waiters {
+		line("wait", e)
+	}
+	if why := s.Why(r); why != "" {
+		fmt.Fprintln(out, why)
+	}
+	return nil
 }
 
 func writeJSON(path string, v any) error {

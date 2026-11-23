@@ -22,7 +22,9 @@ import (
 // with no value returning a call's failure refused again),
 // g6-frame-lit-refused (a literal that is a frame refused again) and
 // g6-lit-result-names-dropped (the decoder drops a literal's result
-// names, so its frame's End has no error result to write).
+// names, so its frame's End has no error result to write), and
+// ir-funclit-blank-result-not-renamed (a frame literal's `_` result not
+// renamed for a return inside a Seq loop: seqFramed's build fails).
 func TestIRClosuresMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 6)

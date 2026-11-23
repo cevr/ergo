@@ -131,6 +131,10 @@ func Refined(p syntax.Parsed) []RefinedType {
 	out
 }
 
+// ParseName is the name of the type name's parse function: a refinement's
+// derived one, a by-name wire pair's (syntax/refine.go ParseName).
+func ParseName(name string) string { parseName(name) }
+
 // parseName is the name of the parse function a refinement of the type
 // name derives: ParsePort for Port, parsePort for port.
 func parseName(name string) string {

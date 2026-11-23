@@ -18,7 +18,7 @@ type NoDeps {}
 type DepsFailed { Command string, Status int, Stderr string }
 
 // DepsRun is what the deps step of new or sync did.
-type DepsRun = Installed | Unchanged | NoDeps | Untrusted | DepsFailed
+type DepsRun = DepsDone | Untrusted | DepsFailed
 
 // DepsDone is what work deps did when it did not fail.
 type DepsDone = Installed | Unchanged | NoDeps
@@ -69,6 +69,7 @@ func install(t Tool, w Workspace, c Config) (Workspace, DepsRun) fails Unkept | 
 // last install (workrift deps).
 func Deps(t Tool, o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace | BadConfig | Unkept | Untrusted | DepsFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let w = try chosen(t, o.Name)
 	let c = try config(t)
 	let (_, run) = try install(t, w, c)
@@ -77,11 +78,7 @@ func Deps(t Tool, o DepsOptions) DepsDone fails NoBase | NotHere | NoWorkspace |
 		u
 	case DepsFailed as f:
 		f
-	case Installed as i:
+	case DepsDone as i:
 		i
-	case Unchanged as u:
-		u
-	case NoDeps as n:
-		n
 	}
 }

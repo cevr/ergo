@@ -302,7 +302,7 @@ func (fc *funcCtx) stdCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr
 // opBody is the runtime/v1 method of the operation name of the std type n,
 // which takes params Ergo arguments.
 func opBody(n *check.Named, name string, params int, site syntax.Node) v1.Body {
-	body, err := runtimeBody(n.Obj.Name + "." + name)
+	body, err := runtimeBody(check.RuntimeTypeName(n) + "." + name)
 	if err != nil {
 		ice(site, "the std operation %s.%s has no runtime/v1 method: %v", n.Obj.Name, name, err)
 	}
@@ -438,7 +438,7 @@ func (fc *funcCtx) opCall(t check.Type, op *check.Method, result check.Type, val
 			}
 		}
 		text := fc.stdResult(body, result, env, site, func(env string) string {
-			return fc.runtimeCall(n.Obj.Name+"."+op.Name, body, "", vals[0], vals[1:], env, x, c, site)
+			return fc.runtimeCall(check.RuntimeTypeName(n)+"."+op.Name, body, "", vals[0], vals[1:], env, x, c, site)
 		})
 		// The Go form decides: Wait on a Task[T] whose T is no value returns
 		// struct{}, which the caller discards (goValue).
@@ -504,6 +504,18 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 		}
 		ind := strings.Repeat("\t", fc.depth)
 		return "func() " + fc.goType(tuple) + " {\n" + ind + "\t" + strings.Join(vals, ", ") + " := " + call(env) + "\n" + ind + "\treturn " + fc.goType(tuple) + "{" + strings.Join(vals, ", ") + "}\n" + ind + "}()"
+	}
+	if tuple, ok := result.(*check.Tuple); ok && goFallible(body) && len(body.Results) == len(tuple.Types)+1 {
+		// (A, B, error) is the tuple and the failure (task's TaskExit;
+		// EXTERN-MULTI-RESULT): Go's several values become the one tuple,
+		// beside the error, as a single fallible result is (T, error).
+		var vals []string
+		for range tuple.Types {
+			vals = append(vals, fc.temp("part"))
+		}
+		err := fc.scope.alloc("err")
+		ind := strings.Repeat("\t", fc.depth)
+		return "func() (" + fc.goType(tuple) + ", error) {\n" + ind + "\t" + strings.Join(append(vals, err), ", ") + " := " + call(env) + "\n" + ind + "\treturn " + fc.goType(tuple) + "{" + strings.Join(vals, ", ") + "}, " + err + "\n" + ind + "}()"
 	}
 	if commaOk(body) {
 		// Go's comma-ok (T, bool) is the prelude's Option[T] (stdlib.md,

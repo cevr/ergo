@@ -160,6 +160,20 @@ func fixCommand(args []string) error {
 			fmt.Fprint(out, impl.Text())
 		}
 	}
+	// A sub-union re-listed and rebuilt arm by arm becomes the union
+	// listed and widened (DECL-VALUES §6 unit 2; types.md, Unions 1),
+	// kept per package only when its check verdict is unchanged.
+	flat, err := fix.RunUnionFlat(fix.Options{Paths: paths, Write: write})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if text := flat.Text(); text != "" {
+		out := os.Stdout
+		if asJSON {
+			out = os.Stderr // stdout holds only the JSON
+		}
+		fmt.Fprint(out, text)
+	}
 	// The law pass (LAWLOC); --check skips it while S115 is off.
 	if !check {
 		text, err := fixLaws(lawPaths, stdRoot, write)
@@ -225,6 +239,8 @@ func fixCommand(args []string) error {
 		return exitStatusError{code: 1, message: "fix: diagnostics remain", handled: true}
 	case check && (len(rep.Changed) > 0 || len(impl.Written) > 0):
 		return exitStatusError{code: 1, message: "fix: signatures would change", handled: true}
+	case check && len(flat.Changes) > 0:
+		return exitStatusError{code: 1, message: "fix: unions would be listed", handled: true}
 	case check && len(rep.Linted) > 0:
 		return exitStatusError{code: 1, message: "fix: lint fixes would apply", handled: true}
 	}
@@ -376,6 +392,14 @@ func respell(roots []string, stdRoot string, write, goLits, asJSON bool) (stdWri
 	if asJSON {
 		out = os.Stderr // stdout holds only the JSON
 	}
+	// The parser's own fixes first (VET-CHECK-VAR): a Go local
+	// declaration becomes let or let mut, applied and parsed again until
+	// no error carries a fix, so the passes after it read Ergo.
+	lets, err := fix.RunLets(fix.Options{Paths: roots, Write: write})
+	if err != nil {
+		return false, err
+	}
+	fmt.Fprint(out, lets.Text())
 	modes, err := fix.RunModes(fix.Options{Paths: roots, Write: write, Go: goLits})
 	if err != nil {
 		return false, err
@@ -393,7 +417,7 @@ func respell(roots []string, stdRoot string, write, goLits, asJSON bool) (stdWri
 	if err != nil {
 		return false, nil
 	}
-	for _, files := range []map[string]string{modes.Files, muts.Files} {
+	for _, files := range []map[string]string{lets.Files, modes.Files, muts.Files} {
 		for file := range files {
 			if abs, err := filepath.Abs(file); err == nil && strings.HasPrefix(abs, std+string(filepath.Separator)) {
 				return true, nil

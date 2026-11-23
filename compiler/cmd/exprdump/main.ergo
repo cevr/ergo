@@ -122,7 +122,8 @@ func writeOutside(b mut strings.Builder, u load.Unit, d load.Typed, prefix strin
 
 // writeRefinements prints each refined type declaration's refinement
 // (compiler/check/facts), "FILE OFFSET NAME it|len LO..HI…" after prefix,
-// or "FILE OFFSET NAME -" where it has none; OFFSET is the name's.
+// or "FILE OFFSET NAME -" where it has none; OFFSET is the name's. Then the
+// refinement diagnostics, "Q FILE OFFSET LENGTH CODE MESSAGE".
 func writeRefinements(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
 	let mut s = d.S
 	for r in facts.Refinements(&s, d.K) {
@@ -134,6 +135,10 @@ func writeRefinements(b mut strings.Builder, u load.Unit, d load.Typed, prefix s
 			"-"
 		}
 		b.WriteString("\(prefix)\(u.Files[r.File].Name) \(syntax.NodePos(p, r.Name)) \(types.NameText(p, r.Name)) \(text)\n")
+	}
+	let mut t = d.S
+	for g in facts.Diags(&t, d.K) {
+		b.WriteString("Q \(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
 	}
 }
 
@@ -189,8 +194,7 @@ func writeFlow(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) 
 // "FILE OFFSET LENGTH CODE MESSAGE" after prefix, in the Go checker's
 // order (S3-ROWS).
 func writeRows(b mut strings.Builder, u load.Unit, d load.Typed, prefix string) {
-	let mut s = d.S
-	for g in rows.Rows(&s, d.K, d.T) {
+	for g in rows.Rows(d.S, d.K, d.T) {
 		b.WriteString("\(prefix)\(u.Files[g.File].Name) \(g.Offset) \(g.Length) \(g.Code) \(g.Message)\n")
 	}
 }
@@ -382,9 +386,11 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		// FILE...": its import path (a checked root's @pkg path is main),
 		// its tables and files. Each package's lines are "E …" (types),
 		// "C …" (calls), "D …" (diagnostics), "O …" (own marks), "U …"
-		// (untyped calls by cause, writeCauses), "W …" (the ownership
+		// (untyped calls by cause, writeCauses), "S …" (S101 and S102, the
+		// row pass, compiler/check/rows), "W …" (the ownership
 		// flow), "L …" (package lets), "X …" (values outside the run) and
-		// "R …" (refined types, compiler/check/facts) after its "@pkg I"
+		// "R …" and "Q …" (refined types and their diagnostics,
+		// compiler/check/facts) after its "@pkg I"
 		// line.
 		let mut units = []load.Unit{}
 		for line in strings.Split(try read(argv[1]), "\n") {
@@ -408,7 +414,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			writeOwn(&b, u, d, "O ")
 			writeCauses(&b, u, d, "U ")
 			try writeFlow(&b, u, d, "W ")
-			writeRows(&b, u, d, "R ")
+			writeRows(&b, u, d, "S ")
 			writeLets(&b, u, d, "L ")
 			writeOutside(&b, u, d, "X ")
 			writeRefinements(&b, u, d, "R ")

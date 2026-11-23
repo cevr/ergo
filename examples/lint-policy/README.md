@@ -30,7 +30,7 @@ A configured name that declares nothing fails the rule (`configured function "ma
 ## Run it
 
 ```sh
-go build -o bin/ergo ./cmd/ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo
 mkdir -p /tmp/pack/bin
 bin/ergo build examples/lint-policy/cmd/lint-policy -o /tmp/pack/bin/lint-policy
 /tmp/pack/bin/lint-policy manifest > /tmp/pack/policy.json

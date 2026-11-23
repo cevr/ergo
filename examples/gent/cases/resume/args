@@ -1,0 +1,7 @@
+--script
+world.json
+--allow-shell
+--session
+session.log
+-p
+go on
