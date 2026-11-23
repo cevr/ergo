@@ -7,6 +7,7 @@ import (
 
 	"ergo.local/prototype/internal/receipt"
 	"ergo.local/prototype/internal/report"
+	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketchfront"
 )
 
@@ -19,6 +20,44 @@ const stdTargetPrefix = "std:"
 
 // isStdTarget reports whether target spells a std package (stdTargetPrefix).
 func isStdTarget(target string) bool { return strings.HasPrefix(target, stdTargetPrefix) }
+
+// stdSkipsExit judges native std skips against the shipped list, not any
+// expected-skips file from the checkout. A provider-less prelude law has
+// no verdict either and must be accounted for. Other std packages can
+// simply import a contract without supplying one of its providers.
+func stdSkipsExit(stdout []byte, pkg string) error {
+	listed, err := stdlib.TestReds()
+	if err != nil {
+		return err
+	}
+	unexpected := unlistedStdSkips(stdout, pkg, listed)
+	if len(unexpected) == 0 {
+		return nil
+	}
+	return exitStatusError{code: 1, message: fmt.Sprintf("FAIL: %d unexpected skips in std:%s; see %s\n    %s",
+		len(unexpected), pkg, stdlib.TestRedPath, strings.Join(unexpected, "\n    "))}
+}
+
+func unlistedStdSkips(stdout []byte, pkg string, listed map[string]stdlib.TestRed) []string {
+	var unexpected []string
+	for line := range strings.SplitSeq(string(stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, ": --skip-law") {
+			continue
+		}
+		name, missing := stdlib.NativeMissingLaw(line)
+		if missing && (pkg == stdlib.PreludePath || strings.HasPrefix(line, "skip ")) {
+			red := listed[pkg+" "+name]
+			if red.Class == stdlib.NativeSkipClass && red.Why == line {
+				continue
+			}
+		} else if !strings.HasPrefix(line, "skip ") {
+			continue
+		}
+		unexpected = append(unexpected, line)
+	}
+	return unexpected
+}
 
 // stdTestPackage is `ergo test std:PKG`. The run is always native and
 // never cached: std's verdicts are the compiler's own, so no evaluated
