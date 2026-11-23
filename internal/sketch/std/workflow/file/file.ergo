@@ -1,0 +1,719 @@
+// Package file is a workflow.Store kept in a file of the host, so its runs
+// outlive the process (the DURABLE plan, unit W1). The file is a log of
+// the operations that changed the store, one line each, appended before
+// any caller sees the outcome: Open replays them with workflow.Apply, a
+// pure function of the state and the operation, so the replay reaches the
+// state the store had. An operation that changed nothing is not kept.
+//
+// A commit is one line: its events and its next wake are one append, so
+// a crash keeps all of it or none (CommitIsAllOrNothing). A crash inside
+// an append can leave a part of the last line: Open drops it and writes
+// the log back without it. A whole line that is not an operation is a
+// broken log, and Open fails naming it.
+//
+// The lines are tab-separated fields, each text quoted by strconv.Quote
+// and each time two fields, its seconds and nanoseconds:
+// `create RUN SEC NSEC EVENT`, `admit RUN KEY SIGNAL VALUE SEC NSEC`,
+// `claim SEC NSEC LEASE`, `commit GRANT EXPECTED NEXT N EVENT…`,
+// `settle GRANT` and `back GRANT`, where a GRANT is `RUN REV EPOCH SEC
+// NSEC`, NEXT is `-` or a time, and an EVENT is its kind and its fields.
+//
+// One task at a time changes the store: each operation takes the store's
+// lock (a queue.Queue of one slot), applies the operation to the state,
+// and appends its line. A failed append leaves the state ahead of the
+// log, so the store refuses every later operation with Failed until it is
+// opened again from its log. One process opens the file at a time.
+//
+// Effect: effect/workflow's engine over a MessageStorage the program
+// picks. Go control: an append-only log of the operations, replayed at
+// start.
+
+import fs
+import fstest
+import queue
+import strconv
+import strings
+import sync
+import time
+import workflow/memory
+import workflow
+
+// Store is the file store. Open makes one.
+type Store {
+	path   string,
+	files  fs.Files,
+	writes fs.Writes,
+	state  sync.Ref[workflow.State],
+	broken sync.Ref[bool],
+	cut    sync.Ref[int],
+	lock   queue.Queue[int],
+} implements workflow.Store
+
+// Open is the store of the log at path, read with files and written with
+// writes: an empty store when there is no file there yet. It fails when
+// the log cannot be read, when a whole line of it is not an operation,
+// and when it cannot drop a cut last line.
+func Open(files fs.Files, writes fs.Writes, path string) Store fails workflow.Failed {
+	try Crashing(files, writes, path, -1)
+}
+
+// Crashing is the store of Open whose appends crash after cut bytes in
+// all: the append that reaches the cut writes the bytes before it and
+// fails, as a process that dies inside that write, and the store is
+// broken. A cut below zero never comes. It is the crash point of the laws:
+// a cut at each byte of each logical write.
+func Crashing(files fs.Files, writes fs.Writes, path string, cut int) Store fails workflow.Failed {
+	let text = files.ReadFile(path) catch {
+	case fs.NotFound:
+		""
+	case fs.Denied:
+		return workflow.Failed{Reason: "\(path): permission denied"}
+	case fs.Failed as f:
+		return workflow.Failed{Reason: "\(path): \(f.Reason)"}
+	}
+	let mut s = workflow.Empty()
+	let mut n = 0
+	let mut whole = 0
+	for raw in strings.Lines(text) {
+		if !strings.HasSuffix(raw, "\n") {
+			break
+		}
+		n = n + 1
+		let op = try opOf(path, n, strings.TrimSuffix(raw, "\n"))
+		let (_, next, _) = workflow.Apply(s, op)
+		s = next
+		whole = whole + len(raw)
+	}
+	if whole < len(text) {
+		writes.WriteFile(path, strings.Slice(text, 0, whole)) catch {
+		case fs.NotFound:
+			return workflow.Failed{Reason: "\(path): no such directory"}
+		case fs.Denied:
+			return workflow.Failed{Reason: "\(path): permission denied"}
+		case fs.Failed as f:
+			return workflow.Failed{Reason: "\(path): \(f.Reason)"}
+		}
+	}
+	Store{path: path, files: files, writes: writes, state: sync.NewRef(s), broken: sync.NewRef(false), cut: sync.NewRef(cut), lock: queue.New[int](1)}
+}
+
+// apply runs op under the lock: it applies op to the state, and appends
+// op's line when the state changed.
+func apply(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
+	s.lock.Push(0) catch {
+	case queue.Closed:
+		Unreachable("the lock is never closed")
+	}
+	let o = step(s, op) catch {
+	case workflow.Failed as f:
+		unlock(s)
+		return f
+	}
+	unlock(s)
+	o
+}
+
+// unlock lets the next operation run.
+func unlock(s Store) {
+	let _ = s.lock.Pop() catch {
+	case queue.Closed:
+		Unreachable("the lock is never closed")
+	}
+}
+
+// step is apply's work, under the lock.
+func step(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
+	if s.broken.Get() {
+		return workflow.Failed{Reason: "\(s.path): a write failed; open the store again"}
+	}
+	let (o, changed) = sync.Modify(s.state, func(st workflow.State) ((workflow.Outcome, bool), workflow.State) {
+		let (o, next, changed) = workflow.Apply(st, op)
+		((o, changed), next)
+	})
+	if changed {
+		try write(s, lineOf(op))
+	}
+	o
+}
+
+// write appends line, or the part of it before the cut and fails.
+func write(s Store, line string) fails workflow.Failed {
+	let left = s.cut.Get()
+	let part = if left >= 0 && left < len(line) { strings.Slice(line, 0, left) } else { line }
+	if left >= 0 {
+		s.cut.Set(if left < len(line) { 0 } else { left - len(line) })
+	}
+	if len(part) > 0 {
+		s.writes.AppendFile(s.path, part) catch {
+		case fs.NotFound:
+			s.broken.Set(true)
+			return workflow.Failed{Reason: "\(s.path): no such directory"}
+		case fs.Denied:
+			s.broken.Set(true)
+			return workflow.Failed{Reason: "\(s.path): permission denied"}
+		case fs.Failed as f:
+			s.broken.Set(true)
+			return workflow.Failed{Reason: "\(s.path): \(f.Reason)"}
+		}
+	}
+	if len(part) < len(line) {
+		s.broken.Set(true)
+		return workflow.Failed{Reason: "\(s.path): crashed after \(len(part)) bytes of a write"}
+	}
+}
+
+// Create starts run.
+func Create(s Store, run workflow.RunID, first workflow.Event, now time.Time) bool fails workflow.Failed {
+	match try apply(s, workflow.Creating{Run: run, First: first, Now: now}) {
+	case workflow.Created as c:
+		c.New
+	case _:
+		Unreachable("a create is Created")
+	}
+}
+
+// Admit keeps a signal for run.
+func Admit(s Store, run workflow.RunID, key string, signal string, value string, now time.Time) workflow.Admission fails workflow.Failed {
+	match try apply(s, workflow.Admitting{Run: run, Key: key, Signal: signal, Value: value, Now: now}) {
+	case workflow.Admitted as a:
+		a.As
+	case _:
+		Unreachable("an admit is Admitted")
+	}
+}
+
+// Load is run's events from from.
+func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fails workflow.Failed {
+	if s.broken.Get() {
+		return workflow.Failed{Reason: "\(s.path): a write failed; open the store again"}
+	}
+	sync.Modify(s.state, func(st workflow.State) (workflow.Loaded, workflow.State) { (workflow.LoadOf(st, run, from), st) })
+}
+
+// Claim leases the earliest due wake.
+func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails workflow.Failed {
+	match try apply(s, workflow.Claiming{Now: now, Lease: lease}) {
+	case workflow.Granted as g:
+		g.Grant
+	case _:
+		Unreachable("a claim is Granted")
+	}
+}
+
+// Commit records events and the next wake under c, in one line.
+func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
+	match try apply(s, workflow.Committing{Grant: workflow.GrantOf(c), Expected: expected, Events: events, Next: next}) {
+	case workflow.Committed as k:
+		k.Next
+	case workflow.Behind as b:
+		workflow.Conflict{Expected: b.Expected, Actual: b.Actual}
+	case workflow.Unfenced as u:
+		workflow.Fenced{Run: u.Run}
+	case _:
+		Unreachable("a commit is Committed, Behind or Unfenced")
+	}
+}
+
+// Settle ends c.
+func Settle(s Store, c own workflow.Claimed) fails workflow.Fenced | workflow.Failed {
+	match try apply(s, workflow.Settling{Grant: workflow.GrantOf(c)}) {
+	case workflow.Unfenced as u:
+		return workflow.Fenced{Run: u.Run}
+	case _:
+	}
+}
+
+// GiveBack gives back the lease of g.
+func GiveBack(s Store, g workflow.Grant) fails workflow.Failed {
+	let _ = try apply(s, workflow.GivingBack{Grant: g})
+}
+
+// Close does nothing: each write is in the file once it returns.
+func Close(_ Store) {}
+
+// EveryCutIsAllOrNothing: a crash at any byte of any write of a create,
+// a work that commits events and a next wake and settles, and an admit,
+// leaves a log whose store, opened again, loads as the memory store did
+// after a whole prefix of those operations: a commit's events never
+// without its wake, and no part of a line.
+law EveryCutIsAllOrNothing(texts []string, cut int) {
+	let now = time.Unix(100, 0)
+	let events = eventsOf(lengths(texts), now)
+	let want workflow.Store = memory.NewStore()
+	let mut seen = []workflow.Loaded{try want.Load(runOf(0), 0)}
+	for i in 0..3 {
+		try operation(want, i, events, now)
+		seen = seen.Append(try want.Load(runOf(0), 0))
+	}
+	let disk = fstest.NewMemory()
+	let crashing workflow.Store = try Crashing(disk, disk, "runs.log", mod(cut, 2000))
+	for i in 0..3 {
+		operation(crashing, i, events, now) catch {
+		case workflow.Failed:
+			break
+		}
+	}
+	let back workflow.Store = try Open(disk, disk, "runs.log")
+	let got = try back.Load(runOf(0), 0)
+	for l in seen {
+		if l == got {
+			return true
+		}
+	}
+	false
+}
+
+// lengths is the length of each text: the picks of eventsOf.
+func lengths(texts []string) []int {
+	let mut out = []int{}
+	for t in texts {
+		out = out.Append(len(t))
+	}
+	out
+}
+
+// operation is the i-th operation of EveryCutIsAllOrNothing on s.
+func operation(s workflow.Store, i int, events []workflow.Event, now time.Time) fails workflow.Failed {
+	match i {
+	case 0:
+		let _ = try s.Create(runOf(0), workflow.Started{Payload: "p", Version: "1", At: now}, now)
+	case 1:
+		let _ = try workflow.Work(s, now, 1s, func(c own workflow.Claimed) fails workflow.Failed {
+			let _ = try s.Commit(c, 1, events, Some[time.Time]{Value: now.Add(1s)}) catch {
+			case workflow.Conflict, workflow.Fenced:
+				Unreachable("the run's one claim commits at its cursor")
+			}
+			try s.Settle(c) catch {
+			case workflow.Fenced:
+				Unreachable("the run's one claim settles")
+			}
+		})
+	case _:
+		let _ = try s.Admit(runOf(0), "k", "go", "v", now)
+	}
+}
+
+// stop is the failure a FileIsMemory block ends with when its step says.
+type stop {}
+
+// script is one step of a FileIsMemory script: wait Wait milliseconds,
+// then create a run, admit a signal, claim a wake and leave it (a worker
+// that dies), work a claim (load, commit Events under the cursor moved by
+// Delta, then settle, fail or return), or open the file store again.
+type script =
+	| create{Run int, Wait int}
+	| admit{Run int, Key int, Wait int}
+	| grab{Lease int, Wait int}
+	| work{Lease int, Wait int, Events []int, Delta int, End int}
+	| reopen{}
+
+// FileIsMemory: a file store answers a generated script of creates,
+// admits, claims, works and reopens as a memory store does, outcome by
+// outcome and load by load, its events of every kind written and read
+// back; and so does the store a reopen gives after a crash cut its last
+// append (torn, a part of a line with no line feed), also after one more
+// admit and a reopen.
+law FileIsMemory(steps []script, torn string) {
+	let disk = fstest.NewMemory()
+	let want workflow.Store = memory.NewStore()
+	let mut got workflow.Store = try Open(disk, disk, "runs.log")
+	let mut now = time.Unix(0, 0)
+	for st in steps {
+		match st {
+		case create as c:
+			now = now.Add(time.Times(1ms, mod(c.Wait, 20)))
+			let e = workflow.Started{Payload: "p\t\(c.Run)\n", Version: "1", At: now}
+			if try want.Create(runOf(c.Run), e, now) != try got.Create(runOf(c.Run), e, now) {
+				return false
+			}
+		case admit as a:
+			now = now.Add(time.Times(1ms, mod(a.Wait, 20)))
+			let key = "k\(mod(a.Key, 3))"
+			if try want.Admit(runOf(a.Run), key, "go", "v\"\(a.Key)", now) != try got.Admit(runOf(a.Run), key, "go", "v\"\(a.Key)", now) {
+				return false
+			}
+		case grab as g:
+			now = now.Add(time.Times(1ms, mod(g.Wait, 20)))
+			let lease = time.Times(1ms, 1+mod(g.Lease, 30))
+			if try want.Claim(now, lease) != try got.Claim(now, lease) {
+				return false
+			}
+		case work as w:
+			now = now.Add(time.Times(1ms, mod(w.Wait, 20)))
+			let lease = time.Times(1ms, 1+mod(w.Lease, 30))
+			let events = eventsOf(w.Events, now)
+			if try worked(want, now, lease, events, w.Delta, w.End) != try worked(got, now, lease, events, w.Delta, w.End) {
+				return false
+			}
+		case reopen:
+			got = try Open(disk, disk, "runs.log")
+		}
+		if !try same(want, got) {
+			return false
+		}
+	}
+	try disk.AppendFile("runs.log", "admit\t"+strings.ReplaceAll(torn, "\n", ""))
+	let back workflow.Store = try Open(disk, disk, "runs.log")
+	if !try same(want, back) {
+		return false
+	}
+	let _ = try back.Admit(runOf(0), torn, "late", torn, now)
+	let _ = try want.Admit(runOf(0), torn, "late", torn, now)
+	let again workflow.Store = try Open(disk, disk, "runs.log")
+	try same(want, again)
+}
+
+// mod is n mod m, from 0.
+func mod(n int, m int) int { ((n % m) + m) % m }
+
+// runOf is one of the three runs of a script.
+func runOf(n int) workflow.RunID {
+	match mod(n, 3) {
+	case 0:
+		"r0"
+	case 1:
+		"r1"
+	case _:
+		"r\t2"
+	}
+}
+
+// eventsOf is an event of each kind by each pick, with text a codec must
+// quote.
+func eventsOf(picks []int, now time.Time) []workflow.Event {
+	let mut out = []workflow.Event{}
+	for i, k in picks {
+		let t = "t\t\"\n\(k)"
+		let e workflow.Event = match mod(k, 14) {
+		case 0:
+			workflow.Started{Payload: t, Version: "v", At: now}
+		case 1:
+			workflow.StepAsked{Op: "op", N: i, Digest: "d", Input: t}
+		case 2:
+			workflow.StepDone{Op: "op", N: i, Result: t}
+		case 3:
+			workflow.StepFailed{Op: "op", N: i, Failure: t}
+		case 4:
+			workflow.StepAgain{Op: "op", N: i, Attempt: k, Due: now.Add(1s)}
+		case 5:
+			workflow.TimerSet{Name: t, Due: now.Add(2s)}
+		case 6:
+			workflow.TimerDue{Name: t}
+		case 7:
+			workflow.SignalIn{Signal: "go", Value: t}
+		case 8:
+			workflow.WaitTimedOut{Signal: t}
+		case 9:
+			workflow.UndoAsked{Op: t, N: i}
+		case 10:
+			workflow.UndoDone{Op: t, N: i}
+		case 11:
+			workflow.UndoFailed{Op: "op", N: i, Reason: t}
+		case 12:
+			workflow.CancelAsked
+		case _:
+			workflow.Ended{Outcome: t}
+		}
+		out = out.Append(e)
+	}
+	out
+}
+
+// same is whether a and b load the same for each run of a script.
+func same(a workflow.Store, b workflow.Store) bool fails workflow.Failed {
+	for n in 0..3 {
+		if try a.Load(runOf(n), 0) != try b.Load(runOf(n), 0) {
+			return false
+		}
+	}
+	true
+}
+
+// worked is what Work on s gave: whether it claimed, the grant, the load
+// and the commit (its cursor, or minus one minus the actual cursor of a
+// Conflict, or -1000 for Fenced), the block ending by end mod 3: settle,
+// fail, or return.
+func worked(s workflow.Store, now time.Time, lease duration, events []workflow.Event, delta int, end int) []int fails workflow.Failed {
+	let seen = sync.NewRef([]int{})
+	let claimed = try workflow.Work(s, now, lease, func(c own workflow.Claimed) fails stop | workflow.Failed {
+		let g = workflow.GrantOf(c)
+		let l = try s.Load(g.Run, 0)
+		let moved = int(l.Next) + mod(delta, 3) - 1
+		let expected = workflow.ParseCursor(moved) catch {
+		case Unsatisfied:
+			0
+		}
+		let mut k = 0
+		let at = try s.Commit(c, expected, events, Some[time.Time]{Value: now.Add(5ms)}) catch {
+		case workflow.Conflict as x:
+			k = -1 - int(x.Actual)
+			0
+		case workflow.Fenced:
+			k = -1000
+			0
+		}
+		if k == 0 {
+			k = int(at)
+		}
+		seen.Set([]int{g.Rev, g.Epoch, int(time.Milliseconds(g.Until)), int(l.Next), len(l.Events), k})
+		match mod(end, 3) {
+		case 0:
+			try s.Settle(c) catch {
+			case workflow.Fenced:
+				seen.Update(func(xs []int) []int { xs.Append(-1) })
+			}
+		case 1:
+			return stop
+		case _:
+		}
+	}) catch {
+	case stop:
+		true
+	}
+	seen.Get().Append(if claimed { 1 } else { 0 })
+}
+
+// timeText is the two fields of t.
+func timeText(t time.Time) string { "\(time.UnixSeconds(t))\t\(time.Nanosecond(t))" }
+
+// q is a quoted field.
+func q(s string) string { strconv.Quote(s) }
+
+// grantText is the fields of g.
+func grantText(g workflow.Grant) string { q(string(g.Run)) + "\t\(g.Rev)\t\(g.Epoch)\t" + timeText(g.Until) }
+
+// lineOf is the log line of op, with its line feed.
+func lineOf(op workflow.Op) string {
+	match op {
+	case workflow.Creating as c:
+		"create\t" + q(string(c.Run)) + "\t" + timeText(c.Now) + "\t" + eventText(c.First) + "\n"
+	case workflow.Admitting as a:
+		"admit\t" + q(string(a.Run)) + "\t" + q(a.Key) + "\t" + q(a.Signal) + "\t" + q(a.Value) + "\t" + timeText(a.Now) + "\n"
+	case workflow.Claiming as c:
+		"claim\t" + timeText(c.Now) + "\t\(int64(c.Lease))\n"
+	case workflow.Committing as c:
+		let next = match c.Next {
+		case Some{Value: t}:
+			timeText(t)
+		case None:
+			"-"
+		}
+		let mut line = "commit\t" + grantText(c.Grant) + "\t\(int(c.Expected))\t" + next + "\t\(len(c.Events))"
+		for e in c.Events {
+			line = line + "\t" + eventText(e)
+		}
+		line + "\n"
+	case workflow.Settling as e:
+		"settle\t" + grantText(e.Grant) + "\n"
+	case workflow.GivingBack as b:
+		"back\t" + grantText(b.Grant) + "\n"
+	}
+}
+
+// eventText is the fields of e: its kind, then its fields in order.
+func eventText(e workflow.Event) string {
+	match e {
+	case workflow.Started as x:
+		"started\t" + q(x.Payload) + "\t" + q(x.Version) + "\t" + timeText(x.At)
+	case workflow.StepAsked as x:
+		"asked\t" + q(x.Op) + "\t\(x.N)\t" + q(x.Digest) + "\t" + q(x.Input)
+	case workflow.StepDone as x:
+		"done\t" + q(x.Op) + "\t\(x.N)\t" + q(x.Result)
+	case workflow.StepFailed as x:
+		"failed\t" + q(x.Op) + "\t\(x.N)\t" + q(x.Failure)
+	case workflow.StepAgain as x:
+		"again\t" + q(x.Op) + "\t\(x.N)\t\(x.Attempt)\t" + timeText(x.Due)
+	case workflow.TimerSet as x:
+		"timer\t" + q(x.Name) + "\t" + timeText(x.Due)
+	case workflow.TimerDue as x:
+		"due\t" + q(x.Name)
+	case workflow.SignalIn as x:
+		"signal\t" + q(x.Signal) + "\t" + q(x.Value)
+	case workflow.WaitTimedOut as x:
+		"timedout\t" + q(x.Signal)
+	case workflow.UndoAsked as x:
+		"undo\t" + q(x.Op) + "\t\(x.N)"
+	case workflow.UndoDone as x:
+		"undone\t" + q(x.Op) + "\t\(x.N)"
+	case workflow.UndoFailed as x:
+		"undofailed\t" + q(x.Op) + "\t\(x.N)\t" + q(x.Reason)
+	case workflow.CancelAsked:
+		"cancel"
+	case workflow.Ended as x:
+		"ended\t" + q(x.Outcome)
+	}
+}
+
+// fields reads the fields of one line.
+type fields { f []string, at int, bad workflow.Failed }
+
+// text is the next field, unquoted.
+func text(r mut fields) string fails workflow.Failed {
+	if r.at >= len(r.f) {
+		return r.bad
+	}
+	let s = strconv.Unquote(r.f[r.at]) catch {
+	case strconv.Malformed:
+		return r.bad
+	}
+	r.at = r.at + 1
+	s
+}
+
+// number is the next field, a decimal.
+func number(r mut fields) int64 fails workflow.Failed {
+	if r.at >= len(r.f) {
+		return r.bad
+	}
+	let n = strconv.ParseInt(r.f[r.at], 10, 64) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return r.bad
+	}
+	r.at = r.at + 1
+	n
+}
+
+// count is the next field, an int.
+func count(r mut fields) int fails workflow.Failed { int(try number(r)) }
+
+// instant is the next two fields, a time.
+func instant(r mut fields) time.Time fails workflow.Failed {
+	let sec = try number(r)
+	time.Unix(sec, try number(r))
+}
+
+// runID is the next field, a run's id.
+func runID(r mut fields) workflow.RunID fails workflow.Failed {
+	let s = try text(r)
+	workflow.ParseRunID(s) catch {
+	case Unsatisfied:
+		return r.bad
+	}
+}
+
+// cursor is the next field, a cursor.
+func cursor(r mut fields) workflow.Cursor fails workflow.Failed {
+	let n = try count(r)
+	workflow.ParseCursor(n) catch {
+	case Unsatisfied:
+		return r.bad
+	}
+}
+
+// kind is the next field as it is.
+func kind(r mut fields) string fails workflow.Failed {
+	if r.at >= len(r.f) {
+		return r.bad
+	}
+	let k = r.f[r.at]
+	r.at = r.at + 1
+	k
+}
+
+// grant is the next five fields, a grant.
+func grant(r mut fields) workflow.Grant fails workflow.Failed {
+	let run = try runID(r)
+	let rev = try count(r)
+	let epoch = try count(r)
+	workflow.Grant{Run: run, Rev: rev, Epoch: epoch, Until: try instant(r)}
+}
+
+// event is the next event's fields.
+func event(r mut fields) workflow.Event fails workflow.Failed {
+	match try kind(r) {
+	case "started":
+		let p = try text(r)
+		let v = try text(r)
+		workflow.Started{Payload: p, Version: v, At: try instant(r)}
+	case "asked":
+		let o = try text(r)
+		let n = try count(r)
+		let d = try text(r)
+		workflow.StepAsked{Op: o, N: n, Digest: d, Input: try text(r)}
+	case "done":
+		let o = try text(r)
+		let n = try count(r)
+		workflow.StepDone{Op: o, N: n, Result: try text(r)}
+	case "failed":
+		let o = try text(r)
+		let n = try count(r)
+		workflow.StepFailed{Op: o, N: n, Failure: try text(r)}
+	case "again":
+		let o = try text(r)
+		let n = try count(r)
+		let a = try count(r)
+		workflow.StepAgain{Op: o, N: n, Attempt: a, Due: try instant(r)}
+	case "timer":
+		let name = try text(r)
+		workflow.TimerSet{Name: name, Due: try instant(r)}
+	case "due":
+		workflow.TimerDue{Name: try text(r)}
+	case "signal":
+		let s = try text(r)
+		workflow.SignalIn{Signal: s, Value: try text(r)}
+	case "timedout":
+		workflow.WaitTimedOut{Signal: try text(r)}
+	case "undo":
+		let o = try text(r)
+		workflow.UndoAsked{Op: o, N: try count(r)}
+	case "undone":
+		let o = try text(r)
+		workflow.UndoDone{Op: o, N: try count(r)}
+	case "undofailed":
+		let o = try text(r)
+		let n = try count(r)
+		workflow.UndoFailed{Op: o, N: n, Reason: try text(r)}
+	case "cancel":
+		workflow.CancelAsked
+	case "ended":
+		workflow.Ended{Outcome: try text(r)}
+	case _:
+		r.bad
+	}
+}
+
+// opOf is the operation of line, the n-th of the log at path.
+func opOf(path string, n int, line string) workflow.Op fails workflow.Failed {
+	let bad = workflow.Failed{Reason: "\(path):\(n): not an operation"}
+	let mut r = fields{f: strings.Split(line, "\t"), at: 0, bad: bad}
+	let op workflow.Op = match try kind(&r) {
+	case "create":
+		let run = try runID(&r)
+		let now = try instant(&r)
+		workflow.Creating{Run: run, First: try event(&r), Now: now}
+	case "admit":
+		let run = try runID(&r)
+		let key = try text(&r)
+		let signal = try text(&r)
+		let value = try text(&r)
+		workflow.Admitting{Run: run, Key: key, Signal: signal, Value: value, Now: try instant(&r)}
+	case "claim":
+		let now = try instant(&r)
+		workflow.Claiming{Now: now, Lease: duration(try number(&r))}
+	case "commit":
+		let g = try grant(&r)
+		let expected = try cursor(&r)
+		let next = if r.at < len(r.f) && r.f[r.at] == "-" {
+			r.at = r.at + 1
+			None
+		} else {
+			Some[time.Time]{Value: try instant(&r)}
+		}
+		let k = try count(&r)
+		let mut events = []workflow.Event{}
+		for _ in 0..k {
+			events = events.Append(try event(&r))
+		}
+		workflow.Committing{Grant: g, Expected: expected, Events: events, Next: next}
+	case "settle":
+		workflow.Settling{Grant: try grant(&r)}
+	case "back":
+		workflow.GivingBack{Grant: try grant(&r)}
+	case _:
+		return bad
+	}
+	if r.at != len(r.f) {
+		return bad
+	}
+	op
+}
