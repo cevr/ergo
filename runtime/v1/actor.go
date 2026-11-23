@@ -97,7 +97,10 @@ import (
 //     order; a work that started children waits for their stop before it
 //     ends, so no task ends before its children.
 //  14. Feeds (MU10): Feed admits a source as a feedStart envelope, so a
-//     Feed on an ended actor fails ActorStopped and its source never runs.
+//     Feed on an ended actor fails ActorStopped and its source never runs;
+//     a source Feed admitted always runs, also when the actor ended before
+//     the runner took its feedStart: finish starts it, then stops it with
+//     the others, so its exit actions run before the end is published.
 //     The runner starts the source as a child task of its own (startFeed):
 //     it lives as long as the actor, not as its caller, and its sends are
 //     a sender's (rule 2: in the source's order, untagged, admitted as a
@@ -1466,6 +1469,24 @@ func (a *Actor[S, E, D]) finish(exit error) {
 	}
 	a.timers.Close() // no entry arms a timer again
 
+	// A source Feed admitted whose feedStart is still queued starts now
+	// (rule 14): every admitted source runs, and is stopped with the
+	// others below, so its exit actions run before the end is published.
+	// Admission is closed, so the queue holds exactly the admitted ones.
+	for n := a.inbox.Len(); n > 0; n-- {
+		env, ok := a.inbox.Poll()
+		if !ok {
+			break
+		}
+		switch env.kind {
+		case feedStart:
+			a.startFeed(a.task, env.epoch)
+		case workDefect:
+			exit = join(exit, env.err)
+		default:
+			a.release(&env)
+		}
+	}
 	// The sources last (rule 14): admission is closed, so each one's next
 	// send raises; the stop interrupts one that waits.
 	for _, f := range a.feeds {
@@ -1843,6 +1864,17 @@ func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 		return f
 	}
 	return nil
+}
+
+// ActorEnded is std actor's Ended(a): whether a has ended, so that
+// ActorExitKind would not wait. Once true it stays true. It never waits,
+// so an actor's own step may ask it of itself.
+//
+//ergo:wait none
+func ActorEnded[S, E, D any](a *Actor[S, E, D]) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ended
 }
 
 // ActorHasLatest is std actor's hasLatest(a): whether a has stepped a

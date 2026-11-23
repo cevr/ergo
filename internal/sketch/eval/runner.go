@@ -171,6 +171,11 @@ func registerRunner(t nativeTables) {
 	natives["actor.hasLatest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).hasLatest, nil
 	}
+	// Ended is ActorEnded: whether the actor has ended; it never waits.
+	t.reads["actor.Ended"] = "host:actor.Actor"
+	natives["actor.Ended"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return actorOf(args[0]).ended, nil
+	}
 	t.reads["actor.latest"] = "host:actor.Actor"
 	natives["actor.latest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).latest, nil
@@ -870,6 +875,24 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 		return ab
 	}
 	a.note(ab)
+	// A source Feed admitted whose envelope is still queued starts now, and
+	// stops with the others below (runtime/v1 actor.go rule 14): every
+	// admitted source runs, so its exit actions run before the end.
+	for {
+		v, ok := a.inbox.take()
+		if !ok {
+			break
+		}
+		env := v.(*envelope)
+		switch env.kind {
+		case envFeed:
+			a.startFeed(in, fr, env.run)
+		case envWorkDefect:
+			a.note(env.err)
+		default:
+			a.release(env)
+		}
+	}
 	for _, t := range a.feeds {
 		ab := a.stopTask(in, fr, t)
 		if stops(ab) {
