@@ -68,6 +68,9 @@ func ReadDir(m Marked, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(m Marked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Stat(path) }
 
+// Lstat is the disk's: the memory disk has no links, so it is its Stat.
+func Lstat(m Marked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try m.disk.Lstat(path) }
+
 func WriteFile(m Marked, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
 	match markedTree(m, path) {
 	case Some[string] as root:
@@ -91,6 +94,13 @@ func folderOf(m Marked, path string) fails fs.Denied | fs.Failed {
 }
 
 func MkdirAll(m Marked, path string) fails fs.Denied | fs.Failed { try m.disk.MkdirAll(path) }
+
+// Mkdir is the disk's, with the folder above path made when path is in
+// a tree, as WriteFile does.
+func Mkdir(m Marked, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {
+	try folderOf(m, path)
+	try m.disk.Mkdir(path, mode)
+}
 
 func WriteFileMode(m Marked, path string, text string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
 	try folderOf(m, path)

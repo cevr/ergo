@@ -290,6 +290,7 @@ debt	internal/sketch/eval/foldvalue.go:interp.indexLets	mark	"Host()"	interp.ind
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/netip.ParseAddr"	goFuncs: a fact about Go's net/netip.ParseAddr (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/url.Parse"	goFuncs: a fact about Go's net/url.Parse (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/url.ParseQuery"	goFuncs: a fact about Go's net/url.ParseQuery (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"path/filepath.Match"	goFuncs: a fact about Go's path/filepath.Match (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	CAP-FS2
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"strconv.FormatUint"	goFuncs: a fact about Go's strconv.FormatUint (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"strconv.ParseUint"	goFuncs: a fact about Go's strconv.ParseUint (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goTypes	table	"net/netip.Addr"	goTypes: a fact about Go's net/netip.Addr (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP

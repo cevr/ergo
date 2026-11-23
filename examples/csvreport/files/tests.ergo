@@ -20,6 +20,8 @@ func ReadDir(l locked, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(l locked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try l.disk.Stat(path) }
 
+func Lstat(l locked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { try l.disk.Stat(path) }
+
 // outcome is the shelf's read of name, as "text: T", "missing" or
 // "unreadable: R".
 func outcome(s memory.Shelf, name string) string {

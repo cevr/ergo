@@ -986,6 +986,8 @@ case internal/sketch/std/explore
 case internal/sketch/std/filepath
 case internal/sketch/std/flag
 case internal/sketch/std/fs
+case internal/sketch/std/fs
+case internal/sketch/std/fs/mapped
 case internal/sketch/std/fstest
 case internal/sketch/std/gen
 case internal/sketch/std/graph
@@ -1042,6 +1044,7 @@ case internal/sketch/std/set
 case internal/sketch/std/sha1
 case internal/sketch/std/sha256
 case internal/sketch/std/sha512
+case internal/sketch/std/signal
 case internal/sketch/std/slices
 case internal/sketch/std/sql
 case internal/sketch/std/sqltest
@@ -1232,6 +1235,7 @@ case unused internal/sketch/std/cron/expr.ergo
 case unused internal/sketch/std/decimal/u128.ergo
 case unused internal/sketch/std/dense/keys.ergo
 case unused internal/sketch/std/explore/search.ergo
+case unused internal/sketch/std/fs/mapped/mapped.ergo
 case unused internal/sketch/std/fstest/confined.ergo
 case unused internal/sketch/std/fstest/memory.ergo
 case unused internal/sketch/std/fstest/recorder.ergo
@@ -1274,7 +1278,6 @@ case unused internal/sketch/std/session/file/file.ergo
 case unused internal/sketch/std/session/memory/memory.ergo
 case unused internal/sketch/std/session/session.ergo
 case unused internal/sketch/std/set/set.ergo
-case unused internal/sketch/std/sha256/sha256.ergo
 case unused internal/sketch/std/sql/sql.ergo
 case unused internal/sketch/std/sqltest/script.ergo
 case unused internal/sketch/std/stream/debounced.ergo

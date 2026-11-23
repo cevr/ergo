@@ -17,8 +17,11 @@ import (
 //
 //  1. Acquisition. The entries of With.Entries are acquired, and each
 //     entry whose capability an acquired provider uses while it is built
-//     (ContextEntry.Uses), resolved through the with's context (Context.Provider).
-//     An entry of several capabilities is one acquisition. An overridden
+//     (ContextEntry.Uses), resolved through the with's context (Context.Provider),
+//     except that a replace entry's use of a capability it replaces is the
+//     entry the embedded context binds (Context.builtFrom), acquired before
+//     it with that capability in its Caps and released after it.
+//     An entry of several capabilities is one acquisition. Any other overridden
 //     entry binds nothing Provider returns, and an entry nothing reaches
 //     is not visited, so neither is acquired. The order is the one the
 //     builder follows: each entry after the providers it uses, the first
@@ -214,11 +217,16 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 	for _, e := range reached {
 		add(e)
 	}
+	under := map[*ContextEntry][]Type{} // the capabilities a replace builds each entry over for
 	for len(queue) > 0 {
 		e := queue[0]
 		queue = queue[1:]
 		for _, cap := range e.Uses {
-			add(w.Provider(cap))
+			p := w.builtFrom(e, owners[e], cap)
+			if p != nil && p != w.Provider(cap) {
+				under[p] = append(under[p], cap)
+			}
+			add(p)
 		}
 	}
 	// The context pass's entry order, not a walk of the embeddings: a with
@@ -239,7 +247,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 			}
 			ready := true
 			for _, cap := range e.Uses {
-				if p := w.Provider(cap); p != nil && p != e && !built[p] {
+				if p := w.builtFrom(e, owners[e], cap); p != nil && p != e && !built[p] {
 					ready = false
 					break
 				}
@@ -257,7 +265,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 		built[e] = true
 		a := &Acquisition{Entry: e}
 		for i, cap := range e.Caps {
-			if w.Provider(cap) == e {
+			if w.Provider(cap) == e || slices.ContainsFunc(under[e], func(t Type) bool { return sameCap(t, cap) }) {
 				a.Caps = append(a.Caps, i)
 			}
 		}
