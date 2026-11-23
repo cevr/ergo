@@ -13,10 +13,10 @@ scratch_root=${ERGO_BUDGET_SCRATCH:-${TMPDIR:-/tmp}/ergo-budget}
 scratch_remove() {
   case "$1" in "$scratch_root"/?*) ;; *) return 0 ;; esac
   case "${1#"$scratch_root"/}" in . | .. | */*) return 0 ;; esac
-  case "$1" in /*) ;; *) set -- "$(pwd -P)/$1" ;; esac
+  case "$1" in /*) ;; *) set -- "./$1" ;; esac
   # Walk in pre-order so chmod can open a directory for the walk itself.
-  # Never follow links. The absolute operand needs no -- after the mode
-  # (which BSD chmod does not accept).
+  # Never follow links. The / or ./ prefix keeps operands from looking
+  # like flags; BSD chmod does not accept -- after its mode.
   find -P "$1" -xdev -type d ! -perm -0700 -exec chmod u+rwx '{}' ';' >/dev/null 2>&1 || :
   # Keep the lock file if the tree still needs a later sweep. Report only
   # the final failure; cleanup never changes the wrapper's command status.

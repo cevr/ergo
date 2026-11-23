@@ -57,7 +57,12 @@ func (h host) command(t *testing.T, script, ws string, extra []string, argv ...s
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	cmd.Env = append(cmd.Env, "TMPDIR="+filepath.Join(h.dir, "tmp"), "ERGO_BUDGET_SCRATCH=", "ERGO_BUDGET="+h.conf, "ERGO_BUDGET_CRIT="+h.crit, "ERGO_BUDGET_BIN="+h.bin, "FAKE_ARGS="+h.args, "HEAVY_DIR="+filepath.Join(h.dir, "heavy"))
+	cmd.Env = append(cmd.Env,
+		"TMPDIR="+filepath.Join(h.dir, "tmp"), "ERGO_BUDGET_SCRATCH=",
+		"ERGO_BUDGET="+h.conf, "ERGO_BUDGET_CRIT="+h.crit, "ERGO_BUDGET_BIN="+h.bin, "FAKE_ARGS="+h.args,
+		"HEAVY_DIR="+filepath.Join(h.dir, "heavy"),
+		"GOCACHE=", // The fake ergo builds nothing; heavy.sh need not seed or copy the host cache.
+	)
 	cmd.Env = append(cmd.Env, extra...)
 	return cmd
 }
