@@ -34,6 +34,5 @@ slices FilterFuses	not run: skipped at check time: a law with type parameters of
 slices FilterThenTransform	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
 slices TransformFuses	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
 slices TransformThenFilter	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
-time FormatParseRoundTrip	refuted: the law is false	STDLAW-RED-TIME
 uuid *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
 xml Text.RawJoins	not run: skipped at check time: a rewrite law is tested by ergo test, not proved	STDLAW-162-NOWHERE
