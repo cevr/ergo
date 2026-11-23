@@ -1,0 +1,5 @@
+kind cli
+generator ergo gen cli
+subject github.com/cevr/ergo/modules/work/work.Api
+contract sha256:de53fb5cb161a2d6f77841b1415295d37eddabaa9a873bff0029b8b3cb207d89
+digest sha256:561b5a621d10df7e2cc57448bcae56aa359834355a277a324593a1dce723ec2f

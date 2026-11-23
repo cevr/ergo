@@ -37168,27 +37168,27 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "Api", File: "tool.ergo", Line: 55, End: 62},
 	{Name: "ApiDiff", File: "tool.ergo", Line: 66, End: 77},
 	{Name: "Machines", File: "tool.ergo", Line: 82, End: 111},
-	{Name: "Doc", File: "codeapi/api.ergo", Line: 75, End: 94},
-	{Name: "Call", File: "codeapi/api.ergo", Line: 129, End: 188},
-	{Name: "Commands", File: "codecli/cli.ergo", Line: 27, End: 29},
-	{Name: "commandDescribe", File: "codecli/cli.ergo", Line: 33, End: 38},
-	{Name: "commandSymbols", File: "codecli/cli.ergo", Line: 42, End: 53},
-	{Name: "commandSymbol", File: "codecli/cli.ergo", Line: 57, End: 64},
-	{Name: "commandReferences", File: "codecli/cli.ergo", Line: 68, End: 77},
-	{Name: "commandCalls", File: "codecli/cli.ergo", Line: 81, End: 91},
-	{Name: "commandApi", File: "codecli/cli.ergo", Line: 95, End: 101},
-	{Name: "commandReach", File: "codecli/cli.ergo", Line: 105, End: 113},
-	{Name: "commandMachineOf", File: "codecli/cli.ergo", Line: 117, End: 124},
-	{Name: "Parse", File: "codecli/cli.ergo", Line: 139, End: 177},
-	{Name: "Defaults", File: "codecli/cli.ergo", Line: 314, End: 316},
-	{Name: "answer", File: "codecli/cli.ergo", Line: 319, End: 325},
-	{Name: "line", File: "codecli/cli.ergo", Line: 328, End: 333},
-	{Name: "failed", File: "codecli/cli.ergo", Line: 338, End: 344},
-	{Name: "Show", File: "codecli/cli.ergo", Line: 350, End: 409},
-	{Name: "frontOf", File: "codecli/cli.ergo", Line: 512, End: 534},
-	{Name: "needsYes", File: "codecli/cli.ergo", Line: 537, End: 539},
-	{Name: "runOver", File: "codecli/cli.ergo", Line: 550, End: 564},
-	{Name: "Run", File: "codecli/cli.ergo", Line: 571, End: 573},
+	{Name: "Doc", File: "codeapi/api.ergo", Line: 68, End: 87},
+	{Name: "Call", File: "codeapi/api.ergo", Line: 121, End: 180},
+	{Name: "Commands", File: "codecli/cli.ergo", Line: 20, End: 22},
+	{Name: "commandDescribe", File: "codecli/cli.ergo", Line: 24, End: 29},
+	{Name: "commandSymbols", File: "codecli/cli.ergo", Line: 31, End: 42},
+	{Name: "commandSymbol", File: "codecli/cli.ergo", Line: 44, End: 51},
+	{Name: "commandReferences", File: "codecli/cli.ergo", Line: 53, End: 62},
+	{Name: "commandCalls", File: "codecli/cli.ergo", Line: 64, End: 74},
+	{Name: "commandApi", File: "codecli/cli.ergo", Line: 76, End: 82},
+	{Name: "commandReach", File: "codecli/cli.ergo", Line: 84, End: 92},
+	{Name: "commandMachineOf", File: "codecli/cli.ergo", Line: 94, End: 101},
+	{Name: "Parse", File: "codecli/cli.ergo", Line: 115, End: 153},
+	{Name: "Defaults", File: "codecli/cli.ergo", Line: 290, End: 292},
+	{Name: "answer", File: "codecli/cli.ergo", Line: 294, End: 300},
+	{Name: "line", File: "codecli/cli.ergo", Line: 302, End: 307},
+	{Name: "failed", File: "codecli/cli.ergo", Line: 309, End: 315},
+	{Name: "Show", File: "codecli/cli.ergo", Line: 321, End: 380},
+	{Name: "frontOf", File: "codecli/cli.ergo", Line: 480, End: 502},
+	{Name: "needsYes", File: "codecli/cli.ergo", Line: 504, End: 506},
+	{Name: "runOver", File: "codecli/cli.ergo", Line: 512, End: 526},
+	{Name: "Run", File: "codecli/cli.ergo", Line: 533, End: 535},
 }
 
 // ergoInlines lists the program's inlined calls: each one's tag key, call
@@ -37198,31 +37198,31 @@ var ergoInlines = [...]struct {
 	Call   int
 	Parent string
 }{
-	{Key: "codecli/cli.ergo@107.11", Call: 125, Parent: ""},
-	{Key: "codecli/cli.ergo@108.11", Call: 126, Parent: ""},
-	{Key: "codecli/cli.ergo@121.12", Call: 133, Parent: ""},
-	{Key: "codecli/cli.ergo@144.68", Call: 137, Parent: ""},
-	{Key: "codecli/cli.ergo@148.67", Call: 141, Parent: ""},
-	{Key: "codecli/cli.ergo@152.66", Call: 145, Parent: ""},
-	{Key: "codecli/cli.ergo@156.70", Call: 149, Parent: ""},
-	{Key: "codecli/cli.ergo@160.65", Call: 153, Parent: ""},
-	{Key: "codecli/cli.ergo@164.63", Call: 157, Parent: ""},
-	{Key: "codecli/cli.ergo@168.65", Call: 161, Parent: ""},
-	{Key: "codecli/cli.ergo@172.70", Call: 165, Parent: ""},
-	{Key: "codecli/cli.ergo@43.11", Call: 84, Parent: ""},
-	{Key: "codecli/cli.ergo@44.11", Call: 85, Parent: ""},
-	{Key: "codecli/cli.ergo@45.11", Call: 86, Parent: ""},
-	{Key: "codecli/cli.ergo@46.11", Call: 87, Parent: ""},
-	{Key: "codecli/cli.ergo@47.11", Call: 88, Parent: ""},
-	{Key: "codecli/cli.ergo@48.11", Call: 89, Parent: ""},
-	{Key: "codecli/cli.ergo@61.12", Call: 99, Parent: ""},
-	{Key: "codecli/cli.ergo@71.11", Call: 103, Parent: ""},
-	{Key: "codecli/cli.ergo@72.11", Call: 104, Parent: ""},
-	{Key: "codecli/cli.ergo@83.11", Call: 111, Parent: ""},
-	{Key: "codecli/cli.ergo@84.11", Call: 112, Parent: ""},
-	{Key: "codecli/cli.ergo@85.11", Call: 113, Parent: ""},
-	{Key: "codecli/cli.ergo@86.11", Call: 114, Parent: ""},
-	{Key: "codecli/cli.ergo@96.11", Call: 121, Parent: ""},
+	{Key: "codecli/cli.ergo@120.68", Call: 137, Parent: ""},
+	{Key: "codecli/cli.ergo@124.67", Call: 141, Parent: ""},
+	{Key: "codecli/cli.ergo@128.66", Call: 145, Parent: ""},
+	{Key: "codecli/cli.ergo@132.70", Call: 149, Parent: ""},
+	{Key: "codecli/cli.ergo@136.65", Call: 153, Parent: ""},
+	{Key: "codecli/cli.ergo@140.63", Call: 157, Parent: ""},
+	{Key: "codecli/cli.ergo@144.65", Call: 161, Parent: ""},
+	{Key: "codecli/cli.ergo@148.70", Call: 165, Parent: ""},
+	{Key: "codecli/cli.ergo@32.11", Call: 84, Parent: ""},
+	{Key: "codecli/cli.ergo@33.11", Call: 85, Parent: ""},
+	{Key: "codecli/cli.ergo@34.11", Call: 86, Parent: ""},
+	{Key: "codecli/cli.ergo@35.11", Call: 87, Parent: ""},
+	{Key: "codecli/cli.ergo@36.11", Call: 88, Parent: ""},
+	{Key: "codecli/cli.ergo@37.11", Call: 89, Parent: ""},
+	{Key: "codecli/cli.ergo@48.12", Call: 99, Parent: ""},
+	{Key: "codecli/cli.ergo@56.11", Call: 103, Parent: ""},
+	{Key: "codecli/cli.ergo@57.11", Call: 104, Parent: ""},
+	{Key: "codecli/cli.ergo@66.11", Call: 111, Parent: ""},
+	{Key: "codecli/cli.ergo@67.11", Call: 112, Parent: ""},
+	{Key: "codecli/cli.ergo@68.11", Call: 113, Parent: ""},
+	{Key: "codecli/cli.ergo@69.11", Call: 114, Parent: ""},
+	{Key: "codecli/cli.ergo@77.11", Call: 121, Parent: ""},
+	{Key: "codecli/cli.ergo@86.11", Call: 125, Parent: ""},
+	{Key: "codecli/cli.ergo@87.11", Call: 126, Parent: ""},
+	{Key: "codecli/cli.ergo@98.12", Call: 133, Parent: ""},
 }
 
 // ergoCall is the Ergo identity of one lowered call (#230).
@@ -37296,153 +37296,153 @@ var ergoCalls = [...]ergoCall{
 	{Func: 45, Callee: 47, File: 33, Line: 100, Column: 12},
 	{Func: 45, Callee: 4, File: 33, Line: 104, Column: 24},
 	{Func: 45, Callee: 48, File: 33, Line: 108, Column: 11},
-	{Func: 49, Callee: 50, File: 51, Line: 132, Column: 11},
-	{Func: 49, Callee: 52, File: 51, Line: 135, Column: 11},
-	{Func: 49, Callee: 53, File: 51, Line: 138, Column: 11},
-	{Func: 49, Callee: 54, File: 51, Line: 146, Column: 11},
-	{Func: 49, Callee: 55, File: 51, Line: 154, Column: 11},
-	{Func: 49, Callee: 39, File: 51, Line: 164, Column: 11},
-	{Func: 49, Callee: 56, File: 51, Line: 170, Column: 11},
-	{Func: 49, Callee: 46, File: 51, Line: 178, Column: 11},
-	{Func: 57, Callee: 58, File: 59, Line: 28, Column: 26},
-	{Func: 57, Callee: 60, File: 59, Line: 28, Column: 45},
-	{Func: 57, Callee: 61, File: 59, Line: 28, Column: 63},
-	{Func: 57, Callee: 62, File: 59, Line: 28, Column: 80},
-	{Func: 57, Callee: 63, File: 59, Line: 28, Column: 101},
-	{Func: 57, Callee: 64, File: 59, Line: 28, Column: 117},
-	{Func: 57, Callee: 65, File: 59, Line: 28, Column: 131},
-	{Func: 57, Callee: 66, File: 59, Line: 28, Column: 147},
-	{Func: 67, Callee: 68, File: 59, Line: 34, Column: 14},
-	{Func: 69, Callee: 70, File: 59, Line: 43, Column: 11},
-	{Func: 69, Callee: 70, File: 59, Line: 44, Column: 11},
-	{Func: 69, Callee: 70, File: 59, Line: 45, Column: 11},
-	{Func: 69, Callee: 70, File: 59, Line: 46, Column: 11},
-	{Func: 69, Callee: 71, File: 59, Line: 47, Column: 11},
-	{Func: 69, Callee: 71, File: 59, Line: 48, Column: 11},
-	{Func: 69, Callee: 68, File: 59, Line: 49, Column: 14},
-	{Func: 69, Callee: 72, File: 59, Line: 51, Column: 52},
-	{Func: 69, Callee: 72, File: 59, Line: 51, Column: 70},
-	{Func: 69, Callee: 72, File: 59, Line: 51, Column: 87},
-	{Func: 69, Callee: 72, File: 59, Line: 51, Column: 107},
-	{Func: 69, Callee: 73, File: 59, Line: 51, Column: 126},
-	{Func: 69, Callee: 73, File: 59, Line: 51, Column: 144},
-	{Func: 74, Callee: 75, File: 59, Line: 58, Column: 11},
-	{Func: 74, Callee: 68, File: 59, Line: 59, Column: 14},
-	{Func: 74, Callee: 76, File: 59, Line: 61, Column: 12},
-	{Func: 77, Callee: 78, File: 59, Line: 69, Column: 11},
-	{Func: 77, Callee: 79, File: 59, Line: 70, Column: 11},
-	{Func: 77, Callee: 80, File: 59, Line: 70, Column: 11},
-	{Func: 77, Callee: 71, File: 59, Line: 71, Column: 11},
-	{Func: 77, Callee: 71, File: 59, Line: 72, Column: 11},
-	{Func: 77, Callee: 68, File: 59, Line: 73, Column: 14},
-	{Func: 77, Callee: 81, File: 59, Line: 75, Column: 50},
-	{Func: 77, Callee: 82, File: 59, Line: 75, Column: 68},
-	{Func: 77, Callee: 73, File: 59, Line: 75, Column: 87},
-	{Func: 77, Callee: 73, File: 59, Line: 75, Column: 105},
-	{Func: 83, Callee: 78, File: 59, Line: 82, Column: 11},
-	{Func: 83, Callee: 70, File: 59, Line: 83, Column: 11},
-	{Func: 83, Callee: 71, File: 59, Line: 84, Column: 11},
-	{Func: 83, Callee: 71, File: 59, Line: 85, Column: 11},
-	{Func: 83, Callee: 71, File: 59, Line: 86, Column: 11},
-	{Func: 83, Callee: 68, File: 59, Line: 87, Column: 14},
-	{Func: 83, Callee: 81, File: 59, Line: 89, Column: 46},
-	{Func: 83, Callee: 72, File: 59, Line: 89, Column: 68},
-	{Func: 83, Callee: 73, File: 59, Line: 89, Column: 86},
-	{Func: 83, Callee: 73, File: 59, Line: 89, Column: 105},
-	{Func: 83, Callee: 73, File: 59, Line: 89, Column: 123},
-	{Func: 84, Callee: 70, File: 59, Line: 96, Column: 11},
-	{Func: 84, Callee: 68, File: 59, Line: 97, Column: 14},
-	{Func: 84, Callee: 72, File: 59, Line: 99, Column: 48},
-	{Func: 85, Callee: 78, File: 59, Line: 106, Column: 11},
-	{Func: 85, Callee: 71, File: 59, Line: 107, Column: 11},
-	{Func: 85, Callee: 71, File: 59, Line: 108, Column: 11},
-	{Func: 85, Callee: 68, File: 59, Line: 109, Column: 14},
-	{Func: 85, Callee: 81, File: 59, Line: 111, Column: 47},
-	{Func: 85, Callee: 73, File: 59, Line: 111, Column: 66},
-	{Func: 85, Callee: 73, File: 59, Line: 111, Column: 84},
-	{Func: 86, Callee: 75, File: 59, Line: 118, Column: 11},
-	{Func: 86, Callee: 68, File: 59, Line: 119, Column: 14},
-	{Func: 86, Callee: 76, File: 59, Line: 121, Column: 12},
-	{Func: 87, Callee: 88, File: 59, Line: 128, Column: 8},
-	{Func: 89, Callee: 58, File: 59, Line: 143, Column: 11},
+	{Func: 49, Callee: 50, File: 51, Line: 124, Column: 11},
+	{Func: 49, Callee: 52, File: 51, Line: 127, Column: 11},
+	{Func: 49, Callee: 53, File: 51, Line: 130, Column: 11},
+	{Func: 49, Callee: 54, File: 51, Line: 138, Column: 11},
+	{Func: 49, Callee: 55, File: 51, Line: 146, Column: 11},
+	{Func: 49, Callee: 39, File: 51, Line: 156, Column: 11},
+	{Func: 49, Callee: 56, File: 51, Line: 162, Column: 11},
+	{Func: 49, Callee: 46, File: 51, Line: 170, Column: 11},
+	{Func: 57, Callee: 58, File: 59, Line: 21, Column: 26},
+	{Func: 57, Callee: 60, File: 59, Line: 21, Column: 45},
+	{Func: 57, Callee: 61, File: 59, Line: 21, Column: 63},
+	{Func: 57, Callee: 62, File: 59, Line: 21, Column: 80},
+	{Func: 57, Callee: 63, File: 59, Line: 21, Column: 101},
+	{Func: 57, Callee: 64, File: 59, Line: 21, Column: 117},
+	{Func: 57, Callee: 65, File: 59, Line: 21, Column: 131},
+	{Func: 57, Callee: 66, File: 59, Line: 21, Column: 147},
+	{Func: 67, Callee: 68, File: 59, Line: 25, Column: 14},
+	{Func: 69, Callee: 70, File: 59, Line: 32, Column: 11},
+	{Func: 69, Callee: 70, File: 59, Line: 33, Column: 11},
+	{Func: 69, Callee: 70, File: 59, Line: 34, Column: 11},
+	{Func: 69, Callee: 70, File: 59, Line: 35, Column: 11},
+	{Func: 69, Callee: 71, File: 59, Line: 36, Column: 11},
+	{Func: 69, Callee: 71, File: 59, Line: 37, Column: 11},
+	{Func: 69, Callee: 68, File: 59, Line: 38, Column: 14},
+	{Func: 69, Callee: 72, File: 59, Line: 40, Column: 52},
+	{Func: 69, Callee: 72, File: 59, Line: 40, Column: 70},
+	{Func: 69, Callee: 72, File: 59, Line: 40, Column: 87},
+	{Func: 69, Callee: 72, File: 59, Line: 40, Column: 107},
+	{Func: 69, Callee: 73, File: 59, Line: 40, Column: 126},
+	{Func: 69, Callee: 73, File: 59, Line: 40, Column: 144},
+	{Func: 74, Callee: 75, File: 59, Line: 45, Column: 11},
+	{Func: 74, Callee: 68, File: 59, Line: 46, Column: 14},
+	{Func: 74, Callee: 76, File: 59, Line: 48, Column: 12},
+	{Func: 77, Callee: 78, File: 59, Line: 54, Column: 11},
+	{Func: 77, Callee: 79, File: 59, Line: 55, Column: 11},
+	{Func: 77, Callee: 80, File: 59, Line: 55, Column: 11},
+	{Func: 77, Callee: 71, File: 59, Line: 56, Column: 11},
+	{Func: 77, Callee: 71, File: 59, Line: 57, Column: 11},
+	{Func: 77, Callee: 68, File: 59, Line: 58, Column: 14},
+	{Func: 77, Callee: 81, File: 59, Line: 60, Column: 50},
+	{Func: 77, Callee: 82, File: 59, Line: 60, Column: 68},
+	{Func: 77, Callee: 73, File: 59, Line: 60, Column: 87},
+	{Func: 77, Callee: 73, File: 59, Line: 60, Column: 105},
+	{Func: 83, Callee: 78, File: 59, Line: 65, Column: 11},
+	{Func: 83, Callee: 70, File: 59, Line: 66, Column: 11},
+	{Func: 83, Callee: 71, File: 59, Line: 67, Column: 11},
+	{Func: 83, Callee: 71, File: 59, Line: 68, Column: 11},
+	{Func: 83, Callee: 71, File: 59, Line: 69, Column: 11},
+	{Func: 83, Callee: 68, File: 59, Line: 70, Column: 14},
+	{Func: 83, Callee: 81, File: 59, Line: 72, Column: 46},
+	{Func: 83, Callee: 72, File: 59, Line: 72, Column: 68},
+	{Func: 83, Callee: 73, File: 59, Line: 72, Column: 86},
+	{Func: 83, Callee: 73, File: 59, Line: 72, Column: 105},
+	{Func: 83, Callee: 73, File: 59, Line: 72, Column: 123},
+	{Func: 84, Callee: 70, File: 59, Line: 77, Column: 11},
+	{Func: 84, Callee: 68, File: 59, Line: 78, Column: 14},
+	{Func: 84, Callee: 72, File: 59, Line: 80, Column: 48},
+	{Func: 85, Callee: 78, File: 59, Line: 85, Column: 11},
+	{Func: 85, Callee: 71, File: 59, Line: 86, Column: 11},
+	{Func: 85, Callee: 71, File: 59, Line: 87, Column: 11},
+	{Func: 85, Callee: 68, File: 59, Line: 88, Column: 14},
+	{Func: 85, Callee: 81, File: 59, Line: 90, Column: 47},
+	{Func: 85, Callee: 73, File: 59, Line: 90, Column: 66},
+	{Func: 85, Callee: 73, File: 59, Line: 90, Column: 84},
+	{Func: 86, Callee: 75, File: 59, Line: 95, Column: 11},
+	{Func: 86, Callee: 68, File: 59, Line: 96, Column: 14},
+	{Func: 86, Callee: 76, File: 59, Line: 98, Column: 12},
+	{Func: 87, Callee: 88, File: 59, Line: 104, Column: 8},
+	{Func: 89, Callee: 58, File: 59, Line: 119, Column: 11},
+	{Func: 89, Callee: 90, File: 59, Line: 120, Column: 15},
+	{Func: 89, Callee: 91, File: 59, Line: 120, Column: 68},
+	{Func: 89, Callee: 92, File: 59, Line: 121, Column: 7},
+	{Func: 89, Callee: 60, File: 59, Line: 123, Column: 11},
+	{Func: 89, Callee: 90, File: 59, Line: 124, Column: 15},
+	{Func: 89, Callee: 91, File: 59, Line: 124, Column: 67},
+	{Func: 89, Callee: 92, File: 59, Line: 125, Column: 7},
+	{Func: 89, Callee: 61, File: 59, Line: 127, Column: 11},
+	{Func: 89, Callee: 90, File: 59, Line: 128, Column: 15},
+	{Func: 89, Callee: 91, File: 59, Line: 128, Column: 66},
+	{Func: 89, Callee: 92, File: 59, Line: 129, Column: 7},
+	{Func: 89, Callee: 62, File: 59, Line: 131, Column: 11},
+	{Func: 89, Callee: 90, File: 59, Line: 132, Column: 15},
+	{Func: 89, Callee: 91, File: 59, Line: 132, Column: 70},
+	{Func: 89, Callee: 92, File: 59, Line: 133, Column: 7},
+	{Func: 89, Callee: 63, File: 59, Line: 135, Column: 11},
+	{Func: 89, Callee: 90, File: 59, Line: 136, Column: 15},
+	{Func: 89, Callee: 91, File: 59, Line: 136, Column: 65},
+	{Func: 89, Callee: 92, File: 59, Line: 137, Column: 7},
+	{Func: 89, Callee: 64, File: 59, Line: 139, Column: 11},
+	{Func: 89, Callee: 90, File: 59, Line: 140, Column: 15},
+	{Func: 89, Callee: 91, File: 59, Line: 140, Column: 63},
+	{Func: 89, Callee: 92, File: 59, Line: 141, Column: 7},
+	{Func: 89, Callee: 65, File: 59, Line: 143, Column: 11},
 	{Func: 89, Callee: 90, File: 59, Line: 144, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 144, Column: 68},
+	{Func: 89, Callee: 91, File: 59, Line: 144, Column: 65},
 	{Func: 89, Callee: 92, File: 59, Line: 145, Column: 7},
-	{Func: 89, Callee: 60, File: 59, Line: 147, Column: 11},
+	{Func: 89, Callee: 66, File: 59, Line: 147, Column: 11},
 	{Func: 89, Callee: 90, File: 59, Line: 148, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 148, Column: 67},
+	{Func: 89, Callee: 91, File: 59, Line: 148, Column: 70},
 	{Func: 89, Callee: 92, File: 59, Line: 149, Column: 7},
-	{Func: 89, Callee: 61, File: 59, Line: 151, Column: 11},
-	{Func: 89, Callee: 90, File: 59, Line: 152, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 152, Column: 66},
-	{Func: 89, Callee: 92, File: 59, Line: 153, Column: 7},
-	{Func: 89, Callee: 62, File: 59, Line: 155, Column: 11},
-	{Func: 89, Callee: 90, File: 59, Line: 156, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 156, Column: 70},
-	{Func: 89, Callee: 92, File: 59, Line: 157, Column: 7},
-	{Func: 89, Callee: 63, File: 59, Line: 159, Column: 11},
-	{Func: 89, Callee: 90, File: 59, Line: 160, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 160, Column: 65},
-	{Func: 89, Callee: 92, File: 59, Line: 161, Column: 7},
-	{Func: 89, Callee: 64, File: 59, Line: 163, Column: 11},
-	{Func: 89, Callee: 90, File: 59, Line: 164, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 164, Column: 63},
-	{Func: 89, Callee: 92, File: 59, Line: 165, Column: 7},
-	{Func: 89, Callee: 65, File: 59, Line: 167, Column: 11},
-	{Func: 89, Callee: 90, File: 59, Line: 168, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 168, Column: 65},
-	{Func: 89, Callee: 92, File: 59, Line: 169, Column: 7},
-	{Func: 89, Callee: 66, File: 59, Line: 171, Column: 11},
-	{Func: 89, Callee: 90, File: 59, Line: 172, Column: 15},
-	{Func: 89, Callee: 91, File: 59, Line: 172, Column: 70},
-	{Func: 89, Callee: 92, File: 59, Line: 173, Column: 7},
-	{Func: 89, Callee: 93, File: 59, Line: 175, Column: 7},
-	{Func: 89, Callee: 94, File: 59, Line: 175, Column: 66},
-	{Func: 95, Callee: 96, File: 59, Line: 323, Column: 15},
-	{Func: 97, Callee: 98, File: 59, Line: 342, Column: 24},
-	{Func: 99, Callee: 100, File: 59, Line: 354, Column: 10},
-	{Func: 99, Callee: 96, File: 59, Line: 356, Column: 24},
-	{Func: 99, Callee: 101, File: 59, Line: 363, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 364, Column: 4},
-	{Func: 99, Callee: 101, File: 59, Line: 367, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 368, Column: 4},
-	{Func: 99, Callee: 101, File: 59, Line: 371, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 372, Column: 4},
-	{Func: 99, Callee: 101, File: 59, Line: 375, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 376, Column: 4},
-	{Func: 99, Callee: 101, File: 59, Line: 379, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 380, Column: 4},
-	{Func: 99, Callee: 101, File: 59, Line: 383, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 384, Column: 4},
-	{Func: 99, Callee: 101, File: 59, Line: 387, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 388, Column: 4},
-	{Func: 99, Callee: 101, File: 59, Line: 391, Column: 18},
-	{Func: 99, Callee: 102, File: 59, Line: 392, Column: 4},
-	{Func: 99, Callee: 103, File: 59, Line: 395, Column: 16},
-	{Func: 99, Callee: 104, File: 59, Line: 398, Column: 4},
-	{Func: 99, Callee: 105, File: 59, Line: 398, Column: 19},
-	{Func: 99, Callee: 101, File: 59, Line: 398, Column: 42},
-	{Func: 99, Callee: 104, File: 59, Line: 400, Column: 4},
-	{Func: 99, Callee: 105, File: 59, Line: 400, Column: 19},
-	{Func: 99, Callee: 101, File: 59, Line: 400, Column: 43},
-	{Func: 99, Callee: 104, File: 59, Line: 402, Column: 4},
-	{Func: 99, Callee: 105, File: 59, Line: 402, Column: 19},
-	{Func: 99, Callee: 101, File: 59, Line: 402, Column: 45},
-	{Func: 99, Callee: 104, File: 59, Line: 404, Column: 4},
-	{Func: 99, Callee: 105, File: 59, Line: 404, Column: 19},
-	{Func: 99, Callee: 101, File: 59, Line: 404, Column: 43},
-	{Func: 99, Callee: 104, File: 59, Line: 406, Column: 4},
-	{Func: 99, Callee: 105, File: 59, Line: 406, Column: 19},
-	{Func: 99, Callee: 101, File: 59, Line: 406, Column: 44},
-	{Func: 106, Callee: 107, File: 59, Line: 524, Column: 11},
-	{Func: 106, Callee: 108, File: 59, Line: 527, Column: 10},
-	{Func: 106, Callee: 109, File: 59, Line: 531, Column: 40},
-	{Func: 110, Callee: 111, File: 59, Line: 551, Column: 8},
-	{Func: 110, Callee: 112, File: 59, Line: 556, Column: 10},
-	{Func: 110, Callee: 113, File: 59, Line: 558, Column: 12},
-	{Func: 110, Callee: 114, File: 59, Line: 562, Column: 3},
-	{Func: 110, Callee: 95, File: 59, Line: 562, Column: 8},
-	{Func: 31, Callee: 115, File: 59, Line: 572, Column: 2},
+	{Func: 89, Callee: 93, File: 59, Line: 151, Column: 7},
+	{Func: 89, Callee: 94, File: 59, Line: 151, Column: 66},
+	{Func: 95, Callee: 96, File: 59, Line: 298, Column: 15},
+	{Func: 97, Callee: 98, File: 59, Line: 313, Column: 24},
+	{Func: 99, Callee: 100, File: 59, Line: 325, Column: 10},
+	{Func: 99, Callee: 96, File: 59, Line: 327, Column: 24},
+	{Func: 99, Callee: 101, File: 59, Line: 334, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 335, Column: 4},
+	{Func: 99, Callee: 101, File: 59, Line: 338, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 339, Column: 4},
+	{Func: 99, Callee: 101, File: 59, Line: 342, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 343, Column: 4},
+	{Func: 99, Callee: 101, File: 59, Line: 346, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 347, Column: 4},
+	{Func: 99, Callee: 101, File: 59, Line: 350, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 351, Column: 4},
+	{Func: 99, Callee: 101, File: 59, Line: 354, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 355, Column: 4},
+	{Func: 99, Callee: 101, File: 59, Line: 358, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 359, Column: 4},
+	{Func: 99, Callee: 101, File: 59, Line: 362, Column: 18},
+	{Func: 99, Callee: 102, File: 59, Line: 363, Column: 4},
+	{Func: 99, Callee: 103, File: 59, Line: 366, Column: 16},
+	{Func: 99, Callee: 104, File: 59, Line: 369, Column: 4},
+	{Func: 99, Callee: 105, File: 59, Line: 369, Column: 19},
+	{Func: 99, Callee: 101, File: 59, Line: 369, Column: 42},
+	{Func: 99, Callee: 104, File: 59, Line: 371, Column: 4},
+	{Func: 99, Callee: 105, File: 59, Line: 371, Column: 19},
+	{Func: 99, Callee: 101, File: 59, Line: 371, Column: 43},
+	{Func: 99, Callee: 104, File: 59, Line: 373, Column: 4},
+	{Func: 99, Callee: 105, File: 59, Line: 373, Column: 19},
+	{Func: 99, Callee: 101, File: 59, Line: 373, Column: 45},
+	{Func: 99, Callee: 104, File: 59, Line: 375, Column: 4},
+	{Func: 99, Callee: 105, File: 59, Line: 375, Column: 19},
+	{Func: 99, Callee: 101, File: 59, Line: 375, Column: 43},
+	{Func: 99, Callee: 104, File: 59, Line: 377, Column: 4},
+	{Func: 99, Callee: 105, File: 59, Line: 377, Column: 19},
+	{Func: 99, Callee: 101, File: 59, Line: 377, Column: 44},
+	{Func: 106, Callee: 107, File: 59, Line: 492, Column: 11},
+	{Func: 106, Callee: 108, File: 59, Line: 495, Column: 10},
+	{Func: 106, Callee: 109, File: 59, Line: 499, Column: 40},
+	{Func: 110, Callee: 111, File: 59, Line: 513, Column: 8},
+	{Func: 110, Callee: 112, File: 59, Line: 518, Column: 10},
+	{Func: 110, Callee: 113, File: 59, Line: 520, Column: 12},
+	{Func: 110, Callee: 114, File: 59, Line: 524, Column: 3},
+	{Func: 110, Callee: 95, File: 59, Line: 524, Column: 8},
+	{Func: 31, Callee: 115, File: 59, Line: 534, Column: 2},
 }
 
 var ergoCallNames = [...]string{
@@ -39404,2407 +39404,2407 @@ func ergo__appliedHostFilesAsFiles(env *Env, by string, files *ergo__opsHostFile
 	/*line plan.ergo:193:2*/
 }
 
-//line codecli/cli.ergo:571:1
+//line codecli/cli.ergo:533:1
 func codetool_scodecli__Run(env *Env, args []string, p codetool_scodecli__Policy) api__Output {
-//line codecli/cli.ergo:571:1
+//line codecli/cli.ergo:533:1
 	env.task.Check()
-//line codecli/cli.ergo:572:2
+//line codecli/cli.ergo:534:2
 	v := codetool_scodecli__runOver(env, args, p, func(env_1 *Env, p_1 codetool_scodeapi__Request) (codetool_scodeapi__Outcome, error) {
-		/*line codecli/cli.ergo:572:2*/ return codetool_scodeapi__Call(env_1, p_1), nil
-		/*line codecli/cli.ergo:572:2*/
+		/*line codecli/cli.ergo:534:2*/ return codetool_scodeapi__Call(env_1, p_1), nil
+		/*line codecli/cli.ergo:534:2*/
 	})
-	/*line codecli/cli.ergo:572:2*/ return v
-	/*line codecli/cli.ergo:572:2*/
+	/*line codecli/cli.ergo:534:2*/ return v
+	/*line codecli/cli.ergo:534:2*/
 }
 
-//line codecli/cli.ergo:314:1
+//line codecli/cli.ergo:290:1
 func codetool_scodecli__Defaults() codetool_scodecli__Policy {
-//line codecli/cli.ergo:315:2
+//line codecli/cli.ergo:291:2
 	return codetool_scodecli__Policy{Code: func(env *Env, f codetool_scodeapi__Failure) (int, error) {
-//line codecli/cli.ergo:315:45
+//line codecli/cli.ergo:291:45
 		return int(1), nil
-		/*line codecli/cli.ergo:315:45*/
+		/*line codecli/cli.ergo:291:45*/
 	}, Text: func(env_1 *Env, r codetool_scodeapi__Reply) (Option[string], error) {
-//line codecli/cli.ergo:315:95
+//line codecli/cli.ergo:291:95
 		return (Option[string]{tag: 1}), nil
-		/*line codecli/cli.ergo:315:95*/
+		/*line codecli/cli.ergo:291:95*/
 	}, Confirm: func(env_2 *Env, r_1 codetool_scodeapi__Request) (Option[string], error) {
-//line codecli/cli.ergo:315:145
+//line codecli/cli.ergo:291:145
 		return (Option[string]{tag: 1}), nil
-		/*line codecli/cli.ergo:315:145*/
+		/*line codecli/cli.ergo:291:145*/
 	}}
-	/*line codecli/cli.ergo:315:145*/
+	/*line codecli/cli.ergo:291:145*/
 }
 
-//line codecli/cli.ergo:311:1
+//line codecli/cli.ergo:287:1
 type codetool_scodecli__Policy struct {
-	/*line codecli/cli.ergo:311:1*/ Code func(*Env, codetool_scodeapi__Failure) (int, error)
-	/*line codecli/cli.ergo:311:1*/ Text func(*Env, codetool_scodeapi__Reply) (Option[string], error)
-	/*line codecli/cli.ergo:311:1*/ Confirm func(*Env, codetool_scodeapi__Request) (Option[string], error)
-	/*line codecli/cli.ergo:311:1*/
+	/*line codecli/cli.ergo:287:1*/ Code func(*Env, codetool_scodeapi__Failure) (int, error)
+	/*line codecli/cli.ergo:287:1*/ Text func(*Env, codetool_scodeapi__Reply) (Option[string], error)
+	/*line codecli/cli.ergo:287:1*/ Confirm func(*Env, codetool_scodeapi__Request) (Option[string], error)
+	/*line codecli/cli.ergo:287:1*/
 }
 
-//line codecli/cli.ergo:550:1
+//line codecli/cli.ergo:512:1
 func codetool_scodecli__runOver(env *Env, args []string, p codetool_scodecli__Policy, answer_1 func(*Env, codetool_scodeapi__Request) (codetool_scodeapi__Outcome, error)) api__Output {
-//line codecli/cli.ergo:550:1
+//line codecli/cli.ergo:512:1
 	env.task.Check()
-//line codecli/cli.ergo:551:2
-//line codecli/cli.ergo:551:8
+//line codecli/cli.ergo:513:2
+//line codecli/cli.ergo:513:8
 	v := codetool_scodecli__frontOf(env, args)
-//line codecli/cli.ergo:551:2
+//line codecli/cli.ergo:513:2
 	s := v
-	/*line codecli/cli.ergo:551:2*/ switch s.tag {
-	/*line codecli/cli.ergo:551:2*/ case 1:
-		/*line codecli/cli.ergo:551:2*/ e := s.as1()
-//line codecli/cli.ergo:553:3
+	/*line codecli/cli.ergo:513:2*/ switch s.tag {
+	/*line codecli/cli.ergo:513:2*/ case 1:
+		/*line codecli/cli.ergo:513:2*/ e := s.as1()
+//line codecli/cli.ergo:515:3
 		return e.O
-		/*line codecli/cli.ergo:553:3*/
+		/*line codecli/cli.ergo:515:3*/
 	case 0:
-		/*line codecli/cli.ergo:553:3*/ a := s.as0()
-//line codecli/cli.ergo:555:3
+		/*line codecli/cli.ergo:515:3*/ a := s.as0()
+//line codecli/cli.ergo:517:3
 		if !a.Yes {
-//line codecli/cli.ergo:556:4
-//line codecli/cli.ergo:556:10
+//line codecli/cli.ergo:518:4
+//line codecli/cli.ergo:518:10
 			v_1, err := p.Confirm(env, a.R)
-			/*line codecli/cli.ergo:556:10*/ _ = err
-//line codecli/cli.ergo:556:4
+			/*line codecli/cli.ergo:518:10*/ _ = err
+//line codecli/cli.ergo:518:4
 			s_1 := v_1
-			/*line codecli/cli.ergo:556:4*/ switch s_1.tag {
-			/*line codecli/cli.ergo:556:4*/ case 0:
-				/*line codecli/cli.ergo:556:4*/ q := s_1.v0
-//line codecli/cli.ergo:558:5
-//line codecli/cli.ergo:558:12
+			/*line codecli/cli.ergo:518:4*/ switch s_1.tag {
+			/*line codecli/cli.ergo:518:4*/ case 0:
+				/*line codecli/cli.ergo:518:4*/ q := s_1.v0
+//line codecli/cli.ergo:520:5
+//line codecli/cli.ergo:520:12
 				v_2 := codetool_scodecli__needsYes(q.Value)
-//line codecli/cli.ergo:558:5
+//line codecli/cli.ergo:520:5
 				return v_2
-				/*line codecli/cli.ergo:558:5*/
+				/*line codecli/cli.ergo:520:5*/
 			case 1:
-				/*line codecli/cli.ergo:558:5*/
+				/*line codecli/cli.ergo:520:5*/
 			}
-			/*line codecli/cli.ergo:558:5*/
+			/*line codecli/cli.ergo:520:5*/
 		}
-//line codecli/cli.ergo:562:3
-//line codecli/cli.ergo:562:8
+//line codecli/cli.ergo:524:3
+//line codecli/cli.ergo:524:8
 		v_3, err_1 := answer_1(env, a.R)
-		/*line codecli/cli.ergo:562:8*/ _ = err_1
-//line codecli/cli.ergo:562:3
+		/*line codecli/cli.ergo:524:8*/ _ = err_1
+//line codecli/cli.ergo:524:3
 		v_4 := codetool_scodecli__Show(env, v_3, a.JSON, p)
-		/*line codecli/cli.ergo:562:3*/ return v_4
-		/*line codecli/cli.ergo:562:3*/
+		/*line codecli/cli.ergo:524:3*/ return v_4
+		/*line codecli/cli.ergo:524:3*/
 	default:
-		/*line codecli/cli.ergo:562:3*/ panic("ergo: defect: no case of the match at 551:2 matched")
-		/*line codecli/cli.ergo:562:3*/
+		/*line codecli/cli.ergo:524:3*/ panic("ergo: defect: no case of the match at 513:2 matched")
+		/*line codecli/cli.ergo:524:3*/
 	}
-	/*line codecli/cli.ergo:562:3*/
+	/*line codecli/cli.ergo:524:3*/
 }
 
-//line codeapi/api.ergo:129:1
+//line codeapi/api.ergo:121:1
 func codetool_scodeapi__Call(env *Env, r codetool_scodeapi__Request) codetool_scodeapi__Outcome {
-//line codeapi/api.ergo:130:2
+//line codeapi/api.ergo:122:2
 	switch v := r.(type) {
-	/*line codeapi/api.ergo:130:2*/ case codetool_scodeapi__DescribeRequest:
-		/*line codeapi/api.ergo:130:2*/ _ = v
-//line codeapi/api.ergo:132:3
+	/*line codeapi/api.ergo:122:2*/ case codetool_scodeapi__DescribeRequest:
+		/*line codeapi/api.ergo:122:2*/ _ = v
+//line codeapi/api.ergo:124:3
 		env.task.Check()
-//line codeapi/api.ergo:132:11
+//line codeapi/api.ergo:124:11
 		v_1 := env.Reader.Describe(env.task)
-//line codeapi/api.ergo:132:3
-//line codeapi/api.ergo:133:3
+//line codeapi/api.ergo:124:3
+//line codeapi/api.ergo:125:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__DescribeReply{Value: v_1}}
-		/*line codeapi/api.ergo:133:3*/
+		/*line codeapi/api.ergo:125:3*/
 	case codetool_scodeapi__SymbolsRequest:
-		/*line codeapi/api.ergo:133:3*/ x := v
-//line codeapi/api.ergo:135:3
+		/*line codeapi/api.ergo:125:3*/ x := v
+//line codeapi/api.ergo:127:3
 		env.task.Check()
-//line codeapi/api.ergo:135:11
+//line codeapi/api.ergo:127:11
 		v_2 := env.Reader.Symbols(env.task, x.Q)
-//line codeapi/api.ergo:135:3
-//line codeapi/api.ergo:136:3
+//line codeapi/api.ergo:127:3
+//line codeapi/api.ergo:128:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__SymbolsReply{Value: v_2}}
-		/*line codeapi/api.ergo:136:3*/
+		/*line codeapi/api.ergo:128:3*/
 	case codetool_scodeapi__SymbolRequest:
-		/*line codeapi/api.ergo:136:3*/ x_1 := v
+		/*line codeapi/api.ergo:128:3*/ x_1 := v
+//line codeapi/api.ergo:130:3
+		env.task.Check()
+//line codeapi/api.ergo:130:11
+		v_3, err := env.Reader.Symbol(env.task, x_1.A)
+//line codeapi/api.ergo:130:3
+		if err != nil {
+			/*line codeapi/api.ergo:130:3*/ switch caught := err.(type) {
+			/*line codeapi/api.ergo:130:3*/ case code__NoSymbol:
+				/*line codeapi/api.ergo:130:3*/ e := caught
+//line codeapi/api.ergo:132:4
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e}}
+				/*line codeapi/api.ergo:132:4*/
+			case code__Ambiguous:
+				/*line codeapi/api.ergo:132:4*/ e_1 := caught
+//line codeapi/api.ergo:134:4
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_1}}
+				/*line codeapi/api.ergo:134:4*/
+			default:
+				/*line codeapi/api.ergo:134:4*/ _ = caught
+				/*line codeapi/api.ergo:134:4*/ panic(err)
+				/*line codeapi/api.ergo:134:4*/
+			}
+			/*line codeapi/api.ergo:134:4*/
+		}
+//line codeapi/api.ergo:136:3
+		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__SymbolReply{Value: v_3}}
+		/*line codeapi/api.ergo:136:3*/
+	case codetool_scodeapi__ReferencesRequest:
+		/*line codeapi/api.ergo:136:3*/ x_2 := v
 //line codeapi/api.ergo:138:3
 		env.task.Check()
 //line codeapi/api.ergo:138:11
-		v_3, err := env.Reader.Symbol(env.task, x_1.A)
+		v_4, err_1 := env.Reader.References(env.task, x_2.Q)
 //line codeapi/api.ergo:138:3
-		if err != nil {
-			/*line codeapi/api.ergo:138:3*/ switch caught := err.(type) {
+		if err_1 != nil {
+			/*line codeapi/api.ergo:138:3*/ switch caught_1 := err_1.(type) {
 			/*line codeapi/api.ergo:138:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:138:3*/ e := caught
+				/*line codeapi/api.ergo:138:3*/ e_2 := caught_1
 //line codeapi/api.ergo:140:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e}}
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_2}}
 				/*line codeapi/api.ergo:140:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:140:4*/ e_1 := caught
+				/*line codeapi/api.ergo:140:4*/ e_3 := caught_1
 //line codeapi/api.ergo:142:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_1}}
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_3}}
 				/*line codeapi/api.ergo:142:4*/
 			default:
-				/*line codeapi/api.ergo:142:4*/ _ = caught
-				/*line codeapi/api.ergo:142:4*/ panic(err)
+				/*line codeapi/api.ergo:142:4*/ _ = caught_1
+				/*line codeapi/api.ergo:142:4*/ panic(err_1)
 				/*line codeapi/api.ergo:142:4*/
 			}
 			/*line codeapi/api.ergo:142:4*/
 		}
 //line codeapi/api.ergo:144:3
-		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__SymbolReply{Value: v_3}}
+		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ReferencesReply{Value: v_4}}
 		/*line codeapi/api.ergo:144:3*/
-	case codetool_scodeapi__ReferencesRequest:
-		/*line codeapi/api.ergo:144:3*/ x_2 := v
+	case codetool_scodeapi__CallsRequest:
+		/*line codeapi/api.ergo:144:3*/ x_3 := v
 //line codeapi/api.ergo:146:3
 		env.task.Check()
 //line codeapi/api.ergo:146:11
-		v_4, err_1 := env.Reader.References(env.task, x_2.Q)
+		v_5, err_2 := env.Reader.Calls(env.task, x_3.Q)
 //line codeapi/api.ergo:146:3
-		if err_1 != nil {
-			/*line codeapi/api.ergo:146:3*/ switch caught_1 := err_1.(type) {
+		if err_2 != nil {
+			/*line codeapi/api.ergo:146:3*/ switch caught_2 := err_2.(type) {
 			/*line codeapi/api.ergo:146:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:146:3*/ e_2 := caught_1
+				/*line codeapi/api.ergo:146:3*/ e_4 := caught_2
 //line codeapi/api.ergo:148:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_2}}
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_4}}
 				/*line codeapi/api.ergo:148:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:148:4*/ e_3 := caught_1
+				/*line codeapi/api.ergo:148:4*/ e_5 := caught_2
 //line codeapi/api.ergo:150:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_3}}
-				/*line codeapi/api.ergo:150:4*/
-			default:
-				/*line codeapi/api.ergo:150:4*/ _ = caught_1
-				/*line codeapi/api.ergo:150:4*/ panic(err_1)
-				/*line codeapi/api.ergo:150:4*/
-			}
-			/*line codeapi/api.ergo:150:4*/
-		}
-//line codeapi/api.ergo:152:3
-		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ReferencesReply{Value: v_4}}
-		/*line codeapi/api.ergo:152:3*/
-	case codetool_scodeapi__CallsRequest:
-		/*line codeapi/api.ergo:152:3*/ x_3 := v
-//line codeapi/api.ergo:154:3
-		env.task.Check()
-//line codeapi/api.ergo:154:11
-		v_5, err_2 := env.Reader.Calls(env.task, x_3.Q)
-//line codeapi/api.ergo:154:3
-		if err_2 != nil {
-			/*line codeapi/api.ergo:154:3*/ switch caught_2 := err_2.(type) {
-			/*line codeapi/api.ergo:154:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:154:3*/ e_4 := caught_2
-//line codeapi/api.ergo:156:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_4}}
-				/*line codeapi/api.ergo:156:4*/
-			case code__Ambiguous:
-				/*line codeapi/api.ergo:156:4*/ e_5 := caught_2
-//line codeapi/api.ergo:158:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_5}}
-				/*line codeapi/api.ergo:158:4*/
+				/*line codeapi/api.ergo:150:4*/
 			case code__NotCallable:
-				/*line codeapi/api.ergo:158:4*/ e_6 := caught_2
-//line codeapi/api.ergo:160:4
+				/*line codeapi/api.ergo:150:4*/ e_6 := caught_2
+//line codeapi/api.ergo:152:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NotCallable{E: e_6}}
-				/*line codeapi/api.ergo:160:4*/
+				/*line codeapi/api.ergo:152:4*/
 			default:
-				/*line codeapi/api.ergo:160:4*/ _ = caught_2
-				/*line codeapi/api.ergo:160:4*/ panic(err_2)
-				/*line codeapi/api.ergo:160:4*/
+				/*line codeapi/api.ergo:152:4*/ _ = caught_2
+				/*line codeapi/api.ergo:152:4*/ panic(err_2)
+				/*line codeapi/api.ergo:152:4*/
 			}
-			/*line codeapi/api.ergo:160:4*/
+			/*line codeapi/api.ergo:152:4*/
 		}
-//line codeapi/api.ergo:162:3
+//line codeapi/api.ergo:154:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__CallsReply{Value: v_5}}
-		/*line codeapi/api.ergo:162:3*/
+		/*line codeapi/api.ergo:154:3*/
 	case codetool_scodeapi__ApiRequest:
-		/*line codeapi/api.ergo:162:3*/ x_4 := v
-//line codeapi/api.ergo:164:3
+		/*line codeapi/api.ergo:154:3*/ x_4 := v
+//line codeapi/api.ergo:156:3
 		env.task.Check()
-//line codeapi/api.ergo:164:11
+//line codeapi/api.ergo:156:11
 		v_6, err_3 := env.Reader.Api(env.task, x_4.Q)
-//line codeapi/api.ergo:164:3
+//line codeapi/api.ergo:156:3
 		if err_3 != nil {
-			/*line codeapi/api.ergo:164:3*/ switch caught_3 := err_3.(type) {
-			/*line codeapi/api.ergo:164:3*/ case code__NoPackage:
-				/*line codeapi/api.ergo:164:3*/ e_7 := caught_3
-//line codeapi/api.ergo:166:4
+			/*line codeapi/api.ergo:156:3*/ switch caught_3 := err_3.(type) {
+			/*line codeapi/api.ergo:156:3*/ case code__NoPackage:
+				/*line codeapi/api.ergo:156:3*/ e_7 := caught_3
+//line codeapi/api.ergo:158:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoPackage{E: e_7}}
+				/*line codeapi/api.ergo:158:4*/
+			default:
+				/*line codeapi/api.ergo:158:4*/ _ = caught_3
+				/*line codeapi/api.ergo:158:4*/ panic(err_3)
+				/*line codeapi/api.ergo:158:4*/
+			}
+			/*line codeapi/api.ergo:158:4*/
+		}
+//line codeapi/api.ergo:160:3
+		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ApiReply{Value: v_6}}
+		/*line codeapi/api.ergo:160:3*/
+	case codetool_scodeapi__ReachRequest:
+		/*line codeapi/api.ergo:160:3*/ x_5 := v
+//line codeapi/api.ergo:162:3
+		env.task.Check()
+//line codeapi/api.ergo:162:11
+		v_7, err_4 := env.Reader.Reach(env.task, x_5.Q)
+//line codeapi/api.ergo:162:3
+		if err_4 != nil {
+			/*line codeapi/api.ergo:162:3*/ switch caught_4 := err_4.(type) {
+			/*line codeapi/api.ergo:162:3*/ case code__NoSymbol:
+				/*line codeapi/api.ergo:162:3*/ e_8 := caught_4
+//line codeapi/api.ergo:164:4
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_8}}
+				/*line codeapi/api.ergo:164:4*/
+			case code__Ambiguous:
+				/*line codeapi/api.ergo:164:4*/ e_9 := caught_4
+//line codeapi/api.ergo:166:4
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_9}}
 				/*line codeapi/api.ergo:166:4*/
 			default:
-				/*line codeapi/api.ergo:166:4*/ _ = caught_3
-				/*line codeapi/api.ergo:166:4*/ panic(err_3)
+				/*line codeapi/api.ergo:166:4*/ _ = caught_4
+				/*line codeapi/api.ergo:166:4*/ panic(err_4)
 				/*line codeapi/api.ergo:166:4*/
 			}
 			/*line codeapi/api.ergo:166:4*/
 		}
 //line codeapi/api.ergo:168:3
-		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ApiReply{Value: v_6}}
+		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ReachReply{Value: v_7}}
 		/*line codeapi/api.ergo:168:3*/
-	case codetool_scodeapi__ReachRequest:
-		/*line codeapi/api.ergo:168:3*/ x_5 := v
+	case codetool_scodeapi__MachineOfRequest:
+		/*line codeapi/api.ergo:168:3*/ x_6 := v
 //line codeapi/api.ergo:170:3
 		env.task.Check()
 //line codeapi/api.ergo:170:11
-		v_7, err_4 := env.Reader.Reach(env.task, x_5.Q)
+		v_8, err_5 := env.Reader.MachineOf(env.task, x_6.A)
 //line codeapi/api.ergo:170:3
-		if err_4 != nil {
-			/*line codeapi/api.ergo:170:3*/ switch caught_4 := err_4.(type) {
+		if err_5 != nil {
+			/*line codeapi/api.ergo:170:3*/ switch caught_5 := err_5.(type) {
 			/*line codeapi/api.ergo:170:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:170:3*/ e_8 := caught_4
+				/*line codeapi/api.ergo:170:3*/ e_10 := caught_5
 //line codeapi/api.ergo:172:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_8}}
+				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_10}}
 				/*line codeapi/api.ergo:172:4*/
 			case code__Ambiguous:
-				/*line codeapi/api.ergo:172:4*/ e_9 := caught_4
+				/*line codeapi/api.ergo:172:4*/ e_11 := caught_5
 //line codeapi/api.ergo:174:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_9}}
-				/*line codeapi/api.ergo:174:4*/
-			default:
-				/*line codeapi/api.ergo:174:4*/ _ = caught_4
-				/*line codeapi/api.ergo:174:4*/ panic(err_4)
-				/*line codeapi/api.ergo:174:4*/
-			}
-			/*line codeapi/api.ergo:174:4*/
-		}
-//line codeapi/api.ergo:176:3
-		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__ReachReply{Value: v_7}}
-		/*line codeapi/api.ergo:176:3*/
-	case codetool_scodeapi__MachineOfRequest:
-		/*line codeapi/api.ergo:176:3*/ x_6 := v
-//line codeapi/api.ergo:178:3
-		env.task.Check()
-//line codeapi/api.ergo:178:11
-		v_8, err_5 := env.Reader.MachineOf(env.task, x_6.A)
-//line codeapi/api.ergo:178:3
-		if err_5 != nil {
-			/*line codeapi/api.ergo:178:3*/ switch caught_5 := err_5.(type) {
-			/*line codeapi/api.ergo:178:3*/ case code__NoSymbol:
-				/*line codeapi/api.ergo:178:3*/ e_10 := caught_5
-//line codeapi/api.ergo:180:4
-				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NoSymbol{E: e_10}}
-				/*line codeapi/api.ergo:180:4*/
-			case code__Ambiguous:
-				/*line codeapi/api.ergo:180:4*/ e_11 := caught_5
-//line codeapi/api.ergo:182:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__Ambiguous{E: e_11}}
-				/*line codeapi/api.ergo:182:4*/
+				/*line codeapi/api.ergo:174:4*/
 			case code__NotMachine:
-				/*line codeapi/api.ergo:182:4*/ e_12 := caught_5
-//line codeapi/api.ergo:184:4
+				/*line codeapi/api.ergo:174:4*/ e_12 := caught_5
+//line codeapi/api.ergo:176:4
 				return codetool_scodeapi__Rejected{Failure: codetool_scodeapi__NotMachine{E: e_12}}
-				/*line codeapi/api.ergo:184:4*/
+				/*line codeapi/api.ergo:176:4*/
 			default:
-				/*line codeapi/api.ergo:184:4*/ _ = caught_5
-				/*line codeapi/api.ergo:184:4*/ panic(err_5)
-				/*line codeapi/api.ergo:184:4*/
+				/*line codeapi/api.ergo:176:4*/ _ = caught_5
+				/*line codeapi/api.ergo:176:4*/ panic(err_5)
+				/*line codeapi/api.ergo:176:4*/
 			}
-			/*line codeapi/api.ergo:184:4*/
+			/*line codeapi/api.ergo:176:4*/
 		}
-//line codeapi/api.ergo:186:3
+//line codeapi/api.ergo:178:3
 		return codetool_scodeapi__Done_1{Reply: codetool_scodeapi__MachineOfReply{Value: v_8}}
-		/*line codeapi/api.ergo:186:3*/
+		/*line codeapi/api.ergo:178:3*/
 	default:
-		/*line codeapi/api.ergo:186:3*/ _ = v
-		/*line codeapi/api.ergo:186:3*/ panic("ergo: defect: no case of the match at 130:2 matched")
-		/*line codeapi/api.ergo:186:3*/
+		/*line codeapi/api.ergo:178:3*/ _ = v
+		/*line codeapi/api.ergo:178:3*/ panic("ergo: defect: no case of the match at 122:2 matched")
+		/*line codeapi/api.ergo:178:3*/
 	}
-	/*line codeapi/api.ergo:186:3*/
+	/*line codeapi/api.ergo:178:3*/
 }
 
-//line codeapi/api.ergo:14:1
+//line codeapi/api.ergo:7:1
 type codetool_scodeapi__Request interface{ iscodetool_scodeapi__Request() }
 
-//line codeapi/api.ergo:14:16
+//line codeapi/api.ergo:7:16
 type codetool_scodeapi__DescribeRequest struct {
-	/*line codeapi/api.ergo:14:16*/
+	/*line codeapi/api.ergo:7:16*/
 }
 
-/*line codeapi/api.ergo:14:16*/
+/*line codeapi/api.ergo:7:16*/
 func (codetool_scodeapi__DescribeRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:14:36
+//line codeapi/api.ergo:7:36
 type codetool_scodeapi__SymbolsRequest struct {
-	/*line codeapi/api.ergo:14:36*/ Q code__SymbolQuery
-	/*line codeapi/api.ergo:14:36*/
+	/*line codeapi/api.ergo:7:36*/ Q code__SymbolQuery
+	/*line codeapi/api.ergo:7:36*/
 }
 
-/*line codeapi/api.ergo:14:36*/
+/*line codeapi/api.ergo:7:36*/
 func (codetool_scodeapi__SymbolsRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:14:73
+//line codeapi/api.ergo:7:73
 type codetool_scodeapi__SymbolRequest struct {
-	/*line codeapi/api.ergo:14:73*/ A string
-	/*line codeapi/api.ergo:14:73*/
+	/*line codeapi/api.ergo:7:73*/ A string
+	/*line codeapi/api.ergo:7:73*/
 }
 
-/*line codeapi/api.ergo:14:73*/
+/*line codeapi/api.ergo:7:73*/
 func (codetool_scodeapi__SymbolRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:14:99
+//line codeapi/api.ergo:7:99
 type codetool_scodeapi__ReferencesRequest struct {
-	/*line codeapi/api.ergo:14:99*/ Q code__RefQuery
-	/*line codeapi/api.ergo:14:99*/
+	/*line codeapi/api.ergo:7:99*/ Q code__RefQuery
+	/*line codeapi/api.ergo:7:99*/
 }
 
-/*line codeapi/api.ergo:14:99*/
+/*line codeapi/api.ergo:7:99*/
 func (codetool_scodeapi__ReferencesRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:14:136
+//line codeapi/api.ergo:7:136
 type codetool_scodeapi__CallsRequest struct {
-	/*line codeapi/api.ergo:14:136*/ Q code__CallQuery
-	/*line codeapi/api.ergo:14:136*/
+	/*line codeapi/api.ergo:7:136*/ Q code__CallQuery
+	/*line codeapi/api.ergo:7:136*/
 }
 
-/*line codeapi/api.ergo:14:136*/
+/*line codeapi/api.ergo:7:136*/
 func (codetool_scodeapi__CallsRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:14:169
+//line codeapi/api.ergo:7:169
 type codetool_scodeapi__ApiRequest struct {
-	/*line codeapi/api.ergo:14:169*/ Q code__ApiQuery
-	/*line codeapi/api.ergo:14:169*/
+	/*line codeapi/api.ergo:7:169*/ Q code__ApiQuery
+	/*line codeapi/api.ergo:7:169*/
 }
 
-/*line codeapi/api.ergo:14:169*/
+/*line codeapi/api.ergo:7:169*/
 func (codetool_scodeapi__ApiRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:14:199
+//line codeapi/api.ergo:7:199
 type codetool_scodeapi__ReachRequest struct {
-	/*line codeapi/api.ergo:14:199*/ Q code__ReachQuery
-	/*line codeapi/api.ergo:14:199*/
+	/*line codeapi/api.ergo:7:199*/ Q code__ReachQuery
+	/*line codeapi/api.ergo:7:199*/
 }
 
-/*line codeapi/api.ergo:14:199*/
+/*line codeapi/api.ergo:7:199*/
 func (codetool_scodeapi__ReachRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:14:233
+//line codeapi/api.ergo:7:233
 type codetool_scodeapi__MachineOfRequest struct {
-	/*line codeapi/api.ergo:14:233*/ A string
-	/*line codeapi/api.ergo:14:233*/
+	/*line codeapi/api.ergo:7:233*/ A string
+	/*line codeapi/api.ergo:7:233*/
 }
 
-/*line codeapi/api.ergo:14:233*/
+/*line codeapi/api.ergo:7:233*/
 func (codetool_scodeapi__MachineOfRequest) iscodetool_scodeapi__Request() {}
 
-//line codeapi/api.ergo:28:1
+//line codeapi/api.ergo:21:1
 type codetool_scodeapi__Outcome interface{ iscodetool_scodeapi__Outcome() }
 
-//line codeapi/api.ergo:28:16
+//line codeapi/api.ergo:21:16
 type codetool_scodeapi__Done_1 struct {
-	/*line codeapi/api.ergo:28:16*/ Reply codetool_scodeapi__Reply
-	/*line codeapi/api.ergo:28:16*/
+	/*line codeapi/api.ergo:21:16*/ Reply codetool_scodeapi__Reply
+	/*line codeapi/api.ergo:21:16*/
 }
 
-/*line codeapi/api.ergo:28:16*/
+/*line codeapi/api.ergo:21:16*/
 func (codetool_scodeapi__Done_1) iscodetool_scodeapi__Outcome() {}
 
-//line codeapi/api.ergo:28:36
+//line codeapi/api.ergo:21:36
 type codetool_scodeapi__Rejected struct {
-	/*line codeapi/api.ergo:28:36*/ Failure codetool_scodeapi__Failure
-	/*line codeapi/api.ergo:28:36*/
+	/*line codeapi/api.ergo:21:36*/ Failure codetool_scodeapi__Failure
+	/*line codeapi/api.ergo:21:36*/
 }
 
-/*line codeapi/api.ergo:28:36*/
+/*line codeapi/api.ergo:21:36*/
 func (codetool_scodeapi__Rejected) iscodetool_scodeapi__Outcome() {}
 
-//line codeapi/api.ergo:24:1
+//line codeapi/api.ergo:17:1
 type codetool_scodeapi__Failure interface{ iscodetool_scodeapi__Failure() }
 
-//line codeapi/api.ergo:24:16
+//line codeapi/api.ergo:17:16
 type codetool_scodeapi__NoSymbol struct {
-	/*line codeapi/api.ergo:24:16*/ E code__NoSymbol
-	/*line codeapi/api.ergo:24:16*/
+	/*line codeapi/api.ergo:17:16*/ E code__NoSymbol
+	/*line codeapi/api.ergo:17:16*/
 }
 
-/*line codeapi/api.ergo:24:16*/
+/*line codeapi/api.ergo:17:16*/
 func (codetool_scodeapi__NoSymbol) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:24:44
+//line codeapi/api.ergo:17:44
 type codetool_scodeapi__Ambiguous struct {
-	/*line codeapi/api.ergo:24:44*/ E code__Ambiguous
-	/*line codeapi/api.ergo:24:44*/
+	/*line codeapi/api.ergo:17:44*/ E code__Ambiguous
+	/*line codeapi/api.ergo:17:44*/
 }
 
-/*line codeapi/api.ergo:24:44*/
+/*line codeapi/api.ergo:17:44*/
 func (codetool_scodeapi__Ambiguous) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:24:74
+//line codeapi/api.ergo:17:74
 type codetool_scodeapi__NotCallable struct {
-	/*line codeapi/api.ergo:24:74*/ E code__NotCallable
-	/*line codeapi/api.ergo:24:74*/
+	/*line codeapi/api.ergo:17:74*/ E code__NotCallable
+	/*line codeapi/api.ergo:17:74*/
 }
 
-/*line codeapi/api.ergo:24:74*/
+/*line codeapi/api.ergo:17:74*/
 func (codetool_scodeapi__NotCallable) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:24:108
+//line codeapi/api.ergo:17:108
 type codetool_scodeapi__NoPackage struct {
-	/*line codeapi/api.ergo:24:108*/ E code__NoPackage
-	/*line codeapi/api.ergo:24:108*/
+	/*line codeapi/api.ergo:17:108*/ E code__NoPackage
+	/*line codeapi/api.ergo:17:108*/
 }
 
-/*line codeapi/api.ergo:24:108*/
+/*line codeapi/api.ergo:17:108*/
 func (codetool_scodeapi__NoPackage) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:24:138
+//line codeapi/api.ergo:17:138
 type codetool_scodeapi__NotMachine struct {
-	/*line codeapi/api.ergo:24:138*/ E code__NotMachine
-	/*line codeapi/api.ergo:24:138*/
+	/*line codeapi/api.ergo:17:138*/ E code__NotMachine
+	/*line codeapi/api.ergo:17:138*/
 }
 
-/*line codeapi/api.ergo:24:138*/
+/*line codeapi/api.ergo:17:138*/
 func (codetool_scodeapi__NotMachine) iscodetool_scodeapi__Failure() {}
 
-//line codeapi/api.ergo:20:1
+//line codeapi/api.ergo:13:1
 type codetool_scodeapi__Reply interface{ iscodetool_scodeapi__Reply() }
 
-//line codeapi/api.ergo:20:14
+//line codeapi/api.ergo:13:14
 type codetool_scodeapi__DescribeReply struct {
-	/*line codeapi/api.ergo:20:14*/ Value code__Summary
-	/*line codeapi/api.ergo:20:14*/
+	/*line codeapi/api.ergo:13:14*/ Value code__Summary
+	/*line codeapi/api.ergo:13:14*/
 }
 
-/*line codeapi/api.ergo:20:14*/
+/*line codeapi/api.ergo:13:14*/
 func (codetool_scodeapi__DescribeReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:20:50
+//line codeapi/api.ergo:13:50
 type codetool_scodeapi__SymbolsReply struct {
-	/*line codeapi/api.ergo:20:50*/ Value code__SymbolPage
-	/*line codeapi/api.ergo:20:50*/
+	/*line codeapi/api.ergo:13:50*/ Value code__SymbolPage
+	/*line codeapi/api.ergo:13:50*/
 }
 
-/*line codeapi/api.ergo:20:50*/
+/*line codeapi/api.ergo:13:50*/
 func (codetool_scodeapi__SymbolsReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:20:88
+//line codeapi/api.ergo:13:88
 type codetool_scodeapi__SymbolReply struct {
-	/*line codeapi/api.ergo:20:88*/ Value code__Decl
-	/*line codeapi/api.ergo:20:88*/
+	/*line codeapi/api.ergo:13:88*/ Value code__Decl
+	/*line codeapi/api.ergo:13:88*/
 }
 
-/*line codeapi/api.ergo:20:88*/
+/*line codeapi/api.ergo:13:88*/
 func (codetool_scodeapi__SymbolReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:20:119
+//line codeapi/api.ergo:13:119
 type codetool_scodeapi__ReferencesReply struct {
-	/*line codeapi/api.ergo:20:119*/ Value code__SitePage
-	/*line codeapi/api.ergo:20:119*/
+	/*line codeapi/api.ergo:13:119*/ Value code__SitePage
+	/*line codeapi/api.ergo:13:119*/
 }
 
-/*line codeapi/api.ergo:20:119*/
+/*line codeapi/api.ergo:13:119*/
 func (codetool_scodeapi__ReferencesReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:20:158
+//line codeapi/api.ergo:13:158
 type codetool_scodeapi__CallsReply struct {
-	/*line codeapi/api.ergo:20:158*/ Value code__CallPage
-	/*line codeapi/api.ergo:20:158*/
+	/*line codeapi/api.ergo:13:158*/ Value code__CallPage
+	/*line codeapi/api.ergo:13:158*/
 }
 
-/*line codeapi/api.ergo:20:158*/
+/*line codeapi/api.ergo:13:158*/
 func (codetool_scodeapi__CallsReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:20:192
+//line codeapi/api.ergo:13:192
 type codetool_scodeapi__ApiReply struct {
-	/*line codeapi/api.ergo:20:192*/ Value code__ApiView
-	/*line codeapi/api.ergo:20:192*/
+	/*line codeapi/api.ergo:13:192*/ Value code__ApiView
+	/*line codeapi/api.ergo:13:192*/
 }
 
-/*line codeapi/api.ergo:20:192*/
+/*line codeapi/api.ergo:13:192*/
 func (codetool_scodeapi__ApiReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:20:223
+//line codeapi/api.ergo:13:223
 type codetool_scodeapi__ReachReply struct {
-	/*line codeapi/api.ergo:20:223*/ Value code__ReachPage
-	/*line codeapi/api.ergo:20:223*/
+	/*line codeapi/api.ergo:13:223*/ Value code__ReachPage
+	/*line codeapi/api.ergo:13:223*/
 }
 
-/*line codeapi/api.ergo:20:223*/
+/*line codeapi/api.ergo:13:223*/
 func (codetool_scodeapi__ReachReply) iscodetool_scodeapi__Reply() {}
 
-//line codeapi/api.ergo:20:258
+//line codeapi/api.ergo:13:258
 type codetool_scodeapi__MachineOfReply struct {
-	/*line codeapi/api.ergo:20:258*/ Value code__MachineView
-	/*line codeapi/api.ergo:20:258*/
+	/*line codeapi/api.ergo:13:258*/ Value code__MachineView
+	/*line codeapi/api.ergo:13:258*/
 }
 
-/*line codeapi/api.ergo:20:258*/
+/*line codeapi/api.ergo:13:258*/
 func (codetool_scodeapi__MachineOfReply) iscodetool_scodeapi__Reply() {}
 
-//line codecli/cli.ergo:510:54
+//line codecli/cli.ergo:478:54
 type codetool_scodecli__ended struct {
-	/*line codecli/cli.ergo:510:54*/ O api__Output
-	/*line codecli/cli.ergo:510:54*/
+	/*line codecli/cli.ergo:478:54*/ O api__Output
+	/*line codecli/cli.ergo:478:54*/
 }
 
-//line codecli/cli.ergo:510:14
+//line codecli/cli.ergo:478:14
 type codetool_scodecli__asked struct {
-	/*line codecli/cli.ergo:510:14*/ R codetool_scodeapi__Request
-	/*line codecli/cli.ergo:510:14*/ JSON bool
-	/*line codecli/cli.ergo:510:14*/ Yes bool
-	/*line codecli/cli.ergo:510:14*/
+	/*line codecli/cli.ergo:478:14*/ R codetool_scodeapi__Request
+	/*line codecli/cli.ergo:478:14*/ JSON bool
+	/*line codecli/cli.ergo:478:14*/ Yes bool
+	/*line codecli/cli.ergo:478:14*/
 }
 
-//line codecli/cli.ergo:512:1
+//line codecli/cli.ergo:480:1
 func codetool_scodecli__frontOf(env *Env, args []string) codetool_scodecli__front {
-//line codecli/cli.ergo:512:1
+//line codecli/cli.ergo:480:1
 	env.task.Check()
-//line codecli/cli.ergo:513:2
+//line codecli/cli.ergo:481:2
 	var asJSON bool = false
-//line codecli/cli.ergo:514:2
+//line codecli/cli.ergo:482:2
 	var yes bool = false
-//line codecli/cli.ergo:515:2
+//line codecli/cli.ergo:483:2
 	var globals bool = true
-//line codecli/cli.ergo:516:2
+//line codecli/cli.ergo:484:2
 	var rest []string = []string{}
-//line codecli/cli.ergo:517:2
+//line codecli/cli.ergo:485:2
 	for _, v := range args {
-		/*line codecli/cli.ergo:517:2*/ var a string = v
-//line codecli/cli.ergo:518:3
+		/*line codecli/cli.ergo:485:2*/ var a string = v
+//line codecli/cli.ergo:486:3
 		if globals && ((a == "--json") || (a == "-json")) {
-//line codecli/cli.ergo:519:4
+//line codecli/cli.ergo:487:4
 			asJSON = true
-			/*line codecli/cli.ergo:519:4*/
+			/*line codecli/cli.ergo:487:4*/
 		} else {
-//line codecli/cli.ergo:520:10
+//line codecli/cli.ergo:488:10
 			if globals && ((a == "--yes") || (a == "-yes")) {
-//line codecli/cli.ergo:521:4
+//line codecli/cli.ergo:489:4
 				yes = true
-				/*line codecli/cli.ergo:521:4*/
+				/*line codecli/cli.ergo:489:4*/
 			} else {
-//line codecli/cli.ergo:523:4
+//line codecli/cli.ergo:491:4
 				globals = false
-//line codecli/cli.ergo:524:4
-//line codecli/cli.ergo:524:4
-				rest = /*line codecli/cli.ergo:524:11*/ Append[string](rest, a)
-				/*line codecli/cli.ergo:524:4*/
+//line codecli/cli.ergo:492:4
+//line codecli/cli.ergo:492:4
+				rest = /*line codecli/cli.ergo:492:11*/ Append[string](rest, a)
+				/*line codecli/cli.ergo:492:4*/
 			}
-			/*line codecli/cli.ergo:524:4*/
+			/*line codecli/cli.ergo:492:4*/
 		}
-//line codecli/cli.ergo:517:2
+//line codecli/cli.ergo:485:2
 		env.task.Check()
-		/*line codecli/cli.ergo:517:2*/
+		/*line codecli/cli.ergo:485:2*/
 	}
-//line codecli/cli.ergo:527:2
-//line codecli/cli.ergo:527:10
+//line codecli/cli.ergo:495:2
+//line codecli/cli.ergo:495:10
 	v_2, err := codetool_scodecli__Parse(env, rest)
-//line codecli/cli.ergo:527:2
+//line codecli/cli.ergo:495:2
 	var v_3 codetool_scodeapi__Request
-	/*line codecli/cli.ergo:527:2*/ if err != nil {
-		/*line codecli/cli.ergo:527:2*/ switch n := err.(type) {
-		/*line codecli/cli.ergo:527:2*/ case flag__Help:
-			/*line codecli/cli.ergo:527:2*/ _ = n
-			/*line codecli/cli.ergo:527:2*/ h := n
-//line codecli/cli.ergo:529:3
+	/*line codecli/cli.ergo:495:2*/ if err != nil {
+		/*line codecli/cli.ergo:495:2*/ switch n := err.(type) {
+		/*line codecli/cli.ergo:495:2*/ case flag__Help:
+			/*line codecli/cli.ergo:495:2*/ _ = n
+			/*line codecli/cli.ergo:495:2*/ h := n
+//line codecli/cli.ergo:497:3
 			return (codetool_scodecli__front{}).of1(codetool_scodecli__ended{O: api__Output{Out: h.Text, Err: "", Code: int(0)}})
-			/*line codecli/cli.ergo:529:3*/
+			/*line codecli/cli.ergo:497:3*/
 		default:
-			/*line codecli/cli.ergo:529:3*/ err_1 := err
-//line codecli/cli.ergo:531:3
-//line codecli/cli.ergo:531:40
+			/*line codecli/cli.ergo:497:3*/ err_1 := err
+//line codecli/cli.ergo:499:3
+//line codecli/cli.ergo:499:40
 			v_4 := flag__Describe(err_1.(flag__Failure))
-//line codecli/cli.ergo:531:3
+//line codecli/cli.ergo:499:3
 			return (codetool_scodecli__front{}).of1(codetool_scodecli__ended{O: api__Output{Out: "", Err: (v_4 + "\n"), Code: int(2)}})
-			/*line codecli/cli.ergo:531:3*/
+			/*line codecli/cli.ergo:499:3*/
 		}
-		/*line codecli/cli.ergo:531:3*/
+		/*line codecli/cli.ergo:499:3*/
 	} else {
-		/*line codecli/cli.ergo:531:3*/ v_3 = v_2
-		/*line codecli/cli.ergo:531:3*/
+		/*line codecli/cli.ergo:499:3*/ v_3 = v_2
+		/*line codecli/cli.ergo:499:3*/
 	}
-	/*line codecli/cli.ergo:531:3*/ var r codetool_scodeapi__Request = v_3
-//line codecli/cli.ergo:533:2
+	/*line codecli/cli.ergo:499:3*/ var r codetool_scodeapi__Request = v_3
+//line codecli/cli.ergo:501:2
 	return (codetool_scodecli__front{}).of0(codetool_scodecli__asked{R: r, JSON: asJSON, Yes: yes})
-	/*line codecli/cli.ergo:533:2*/
+	/*line codecli/cli.ergo:501:2*/
 }
 
-//line codecli/cli.ergo:537:1
+//line codecli/cli.ergo:504:1
 func codetool_scodecli__needsYes(question string) api__Output {
-//line codecli/cli.ergo:538:2
+//line codecli/cli.ergo:505:2
 	return api__Output{Out: "", Err: (question + " (no terminal to ask on: pass --yes to answer yes)\n"), Code: int(2)}
-	/*line codecli/cli.ergo:538:2*/
+	/*line codecli/cli.ergo:505:2*/
 }
 
-//line codecli/cli.ergo:350:1
+//line codecli/cli.ergo:321:1
 func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool, p codetool_scodecli__Policy) api__Output {
-//line codecli/cli.ergo:350:1
+//line codecli/cli.ergo:321:1
 	env.task.Check()
-//line codecli/cli.ergo:351:2
+//line codecli/cli.ergo:322:2
 	switch v := o.(type) {
-	/*line codecli/cli.ergo:351:2*/ case codetool_scodeapi__Done_1:
-		/*line codecli/cli.ergo:351:2*/ done := v
-//line codecli/cli.ergo:353:3
+	/*line codecli/cli.ergo:322:2*/ case codetool_scodeapi__Done_1:
+		/*line codecli/cli.ergo:322:2*/ done := v
+//line codecli/cli.ergo:324:3
 		if !asJSON {
-//line codecli/cli.ergo:354:4
-//line codecli/cli.ergo:354:10
+//line codecli/cli.ergo:325:4
+//line codecli/cli.ergo:325:10
 			v_1, err := p.Text(env, done.Reply)
-			/*line codecli/cli.ergo:354:10*/ _ = err
-//line codecli/cli.ergo:354:4
+			/*line codecli/cli.ergo:325:10*/ _ = err
+//line codecli/cli.ergo:325:4
 			s := v_1
-			/*line codecli/cli.ergo:354:4*/ switch s.tag {
-			/*line codecli/cli.ergo:354:4*/ case 0:
-				/*line codecli/cli.ergo:354:4*/ s_1 := s.v0
-//line codecli/cli.ergo:356:5
-//line codecli/cli.ergo:356:24
+			/*line codecli/cli.ergo:325:4*/ switch s.tag {
+			/*line codecli/cli.ergo:325:4*/ case 0:
+				/*line codecli/cli.ergo:325:4*/ s_1 := s.v0
+//line codecli/cli.ergo:327:5
+//line codecli/cli.ergo:327:24
 				v_2 := codetool_scodecli__line(s_1.Value)
-//line codecli/cli.ergo:356:5
+//line codecli/cli.ergo:327:5
 				return api__Output{Out: v_2, Err: "", Code: int(0)}
-				/*line codecli/cli.ergo:356:5*/
+				/*line codecli/cli.ergo:327:5*/
 			case 1:
-				/*line codecli/cli.ergo:356:5*/
+				/*line codecli/cli.ergo:327:5*/
 			}
-			/*line codecli/cli.ergo:356:5*/
+			/*line codecli/cli.ergo:327:5*/
 		}
-//line codecli/cli.ergo:360:3
+//line codecli/cli.ergo:331:3
 		switch v_3 := done.Reply.(type) {
-		/*line codecli/cli.ergo:360:3*/ case codetool_scodeapi__DescribeReply:
-			/*line codecli/cli.ergo:360:3*/ reply := v_3
-//line codecli/cli.ergo:362:4
+		/*line codecli/cli.ergo:331:3*/ case codetool_scodeapi__DescribeReply:
+			/*line codecli/cli.ergo:331:3*/ reply := v_3
+//line codecli/cli.ergo:333:4
 			var v_4 code__Summary = reply.Value
-//line codecli/cli.ergo:363:4
-//line codecli/cli.ergo:363:18
+//line codecli/cli.ergo:334:4
+//line codecli/cli.ergo:334:18
 			v_7 := rpc__EncodeMono_i3933687382(env, struct {
-				/*line codecli/cli.ergo:363:18*/ Enc func(*Env, Writer, code__Summary) (struct{}, error)
-				/*line codecli/cli.ergo:363:18*/ Dec func(*Env, Reader) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Direct0 func(*Env, json__text, code__Summary) json__text
-				/*line codecli/cli.ergo:363:18*/ Read0 func(*Env, codec__Replay) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Read1 func(*Env, config__reader) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Read2 func(*Env, http__queryReader) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Read3 func(*Env, json__Reader_1) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Read4 func(*Env, json__Stream) (code__Summary, error)
-				/*line codecli/cli.ergo:363:18*/ Field *struct {
-					/*line codecli/cli.ergo:363:18*/ Enc func(*Env, Writer, code__Summary) (struct{}, error)
-					/*line codecli/cli.ergo:363:18*/ Dec func(*Env, Reader) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Direct0 func(*Env, json__text, code__Summary) json__text
-					/*line codecli/cli.ergo:363:18*/ Read0 func(*Env, codec__Replay) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Read1 func(*Env, config__reader) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Read2 func(*Env, http__queryReader) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Read3 func(*Env, json__Reader_1) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Read4 func(*Env, json__Stream) (code__Summary, error)
-					/*line codecli/cli.ergo:363:18*/ Absent func(code__Summary) bool
-					/*line codecli/cli.ergo:363:18*/ Empty code__Summary
-					/*line codecli/cli.ergo:363:18*/
+				/*line codecli/cli.ergo:334:18*/ Enc func(*Env, Writer, code__Summary) (struct{}, error)
+				/*line codecli/cli.ergo:334:18*/ Dec func(*Env, Reader) (code__Summary, error)
+				/*line codecli/cli.ergo:334:18*/ Direct0 func(*Env, json__text, code__Summary) json__text
+				/*line codecli/cli.ergo:334:18*/ Read0 func(*Env, codec__Replay) (code__Summary, error)
+				/*line codecli/cli.ergo:334:18*/ Read1 func(*Env, config__reader) (code__Summary, error)
+				/*line codecli/cli.ergo:334:18*/ Read2 func(*Env, http__queryReader) (code__Summary, error)
+				/*line codecli/cli.ergo:334:18*/ Read3 func(*Env, json__Reader_1) (code__Summary, error)
+				/*line codecli/cli.ergo:334:18*/ Read4 func(*Env, json__Stream) (code__Summary, error)
+				/*line codecli/cli.ergo:334:18*/ Field *struct {
+					/*line codecli/cli.ergo:334:18*/ Enc func(*Env, Writer, code__Summary) (struct{}, error)
+					/*line codecli/cli.ergo:334:18*/ Dec func(*Env, Reader) (code__Summary, error)
+					/*line codecli/cli.ergo:334:18*/ Direct0 func(*Env, json__text, code__Summary) json__text
+					/*line codecli/cli.ergo:334:18*/ Read0 func(*Env, codec__Replay) (code__Summary, error)
+					/*line codecli/cli.ergo:334:18*/ Read1 func(*Env, config__reader) (code__Summary, error)
+					/*line codecli/cli.ergo:334:18*/ Read2 func(*Env, http__queryReader) (code__Summary, error)
+					/*line codecli/cli.ergo:334:18*/ Read3 func(*Env, json__Reader_1) (code__Summary, error)
+					/*line codecli/cli.ergo:334:18*/ Read4 func(*Env, json__Stream) (code__Summary, error)
+					/*line codecli/cli.ergo:334:18*/ Absent func(code__Summary) bool
+					/*line codecli/cli.ergo:334:18*/ Empty code__Summary
+					/*line codecli/cli.ergo:334:18*/
 				}
-				/*line codecli/cli.ergo:363:18*/
+				/*line codecli/cli.ergo:334:18*/
 			}{Enc: func(e *Env, w Writer, v_5 code__Summary) (struct{}, error) {
-				/*line codecli/cli.ergo:363:18*/ ergo__EncodeSummary(e, w, v_5)
-				/*line codecli/cli.ergo:363:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:363:18*/
+				/*line codecli/cli.ergo:334:18*/ ergo__EncodeSummary(e, w, v_5)
+				/*line codecli/cli.ergo:334:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:334:18*/
 			}, Dec: func(e_1 *Env, r Reader) (code__Summary, error) {
-				/*line codecli/cli.ergo:363:18*/ x, err_1 := ergo__DecodeSummary(e_1, r)
-				/*line codecli/cli.ergo:363:18*/ if err_1 != nil {
-					/*line codecli/cli.ergo:363:18*/ return *new(code__Summary), err_1
-					/*line codecli/cli.ergo:363:18*/
+				/*line codecli/cli.ergo:334:18*/ x, err_1 := ergo__DecodeSummary(e_1, r)
+				/*line codecli/cli.ergo:334:18*/ if err_1 != nil {
+					/*line codecli/cli.ergo:334:18*/ return *new(code__Summary), err_1
+					/*line codecli/cli.ergo:334:18*/
 				}
-				/*line codecli/cli.ergo:363:18*/ return x, nil
-				/*line codecli/cli.ergo:363:18*/
+				/*line codecli/cli.ergo:334:18*/ return x, nil
+				/*line codecli/cli.ergo:334:18*/
 			}, Direct0: ergo__WriteSummary, Read0: ergo__ReadSummary, Read1: ergo__ReadSummary_1, Read2: ergo__ReadSummary_2, Read3: ergo__ReadSummary_3, Read4: ergo__ReadSummary_4, Field: nil}, v_4)
-//line codecli/cli.ergo:363:4
-//line codecli/cli.ergo:364:4
+//line codecli/cli.ergo:334:4
+//line codecli/cli.ergo:335:4
 			v_8 := codetool_scodecli__answer(asJSON, v_7, v_7)
-			/*line codecli/cli.ergo:364:4*/ return v_8
-			/*line codecli/cli.ergo:364:4*/
+			/*line codecli/cli.ergo:335:4*/ return v_8
+			/*line codecli/cli.ergo:335:4*/
 		case codetool_scodeapi__SymbolsReply:
-			/*line codecli/cli.ergo:364:4*/ reply_1 := v_3
-//line codecli/cli.ergo:366:4
+			/*line codecli/cli.ergo:335:4*/ reply_1 := v_3
+//line codecli/cli.ergo:337:4
 			var v_9 code__SymbolPage = reply_1.Value
-//line codecli/cli.ergo:367:4
-//line codecli/cli.ergo:367:18
+//line codecli/cli.ergo:338:4
+//line codecli/cli.ergo:338:18
 			v_12 := rpc__EncodeMono_i4203489249(env, struct {
-				/*line codecli/cli.ergo:367:18*/ Enc func(*Env, Writer, code__SymbolPage) (struct{}, error)
-				/*line codecli/cli.ergo:367:18*/ Dec func(*Env, Reader) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Direct0 func(*Env, json__text, code__SymbolPage) json__text
-				/*line codecli/cli.ergo:367:18*/ Read0 func(*Env, codec__Replay) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Read1 func(*Env, config__reader) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Read2 func(*Env, http__queryReader) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Read3 func(*Env, json__Reader_1) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Read4 func(*Env, json__Stream) (code__SymbolPage, error)
-				/*line codecli/cli.ergo:367:18*/ Field *struct {
-					/*line codecli/cli.ergo:367:18*/ Enc func(*Env, Writer, code__SymbolPage) (struct{}, error)
-					/*line codecli/cli.ergo:367:18*/ Dec func(*Env, Reader) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Direct0 func(*Env, json__text, code__SymbolPage) json__text
-					/*line codecli/cli.ergo:367:18*/ Read0 func(*Env, codec__Replay) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Read1 func(*Env, config__reader) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Read2 func(*Env, http__queryReader) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Read3 func(*Env, json__Reader_1) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Read4 func(*Env, json__Stream) (code__SymbolPage, error)
-					/*line codecli/cli.ergo:367:18*/ Absent func(code__SymbolPage) bool
-					/*line codecli/cli.ergo:367:18*/ Empty code__SymbolPage
-					/*line codecli/cli.ergo:367:18*/
+				/*line codecli/cli.ergo:338:18*/ Enc func(*Env, Writer, code__SymbolPage) (struct{}, error)
+				/*line codecli/cli.ergo:338:18*/ Dec func(*Env, Reader) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:338:18*/ Direct0 func(*Env, json__text, code__SymbolPage) json__text
+				/*line codecli/cli.ergo:338:18*/ Read0 func(*Env, codec__Replay) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:338:18*/ Read1 func(*Env, config__reader) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:338:18*/ Read2 func(*Env, http__queryReader) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:338:18*/ Read3 func(*Env, json__Reader_1) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:338:18*/ Read4 func(*Env, json__Stream) (code__SymbolPage, error)
+				/*line codecli/cli.ergo:338:18*/ Field *struct {
+					/*line codecli/cli.ergo:338:18*/ Enc func(*Env, Writer, code__SymbolPage) (struct{}, error)
+					/*line codecli/cli.ergo:338:18*/ Dec func(*Env, Reader) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:338:18*/ Direct0 func(*Env, json__text, code__SymbolPage) json__text
+					/*line codecli/cli.ergo:338:18*/ Read0 func(*Env, codec__Replay) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:338:18*/ Read1 func(*Env, config__reader) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:338:18*/ Read2 func(*Env, http__queryReader) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:338:18*/ Read3 func(*Env, json__Reader_1) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:338:18*/ Read4 func(*Env, json__Stream) (code__SymbolPage, error)
+					/*line codecli/cli.ergo:338:18*/ Absent func(code__SymbolPage) bool
+					/*line codecli/cli.ergo:338:18*/ Empty code__SymbolPage
+					/*line codecli/cli.ergo:338:18*/
 				}
-				/*line codecli/cli.ergo:367:18*/
+				/*line codecli/cli.ergo:338:18*/
 			}{Enc: func(e_3 *Env, w_1 Writer, v_10 code__SymbolPage) (struct{}, error) {
-				/*line codecli/cli.ergo:367:18*/ ergo__EncodeSymbolPage(e_3, w_1, v_10)
-				/*line codecli/cli.ergo:367:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:367:18*/
+				/*line codecli/cli.ergo:338:18*/ ergo__EncodeSymbolPage(e_3, w_1, v_10)
+				/*line codecli/cli.ergo:338:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:338:18*/
 			}, Dec: func(e_4 *Env, r_1 Reader) (code__SymbolPage, error) {
-				/*line codecli/cli.ergo:367:18*/ x_1, err_2 := ergo__DecodeSymbolPage(e_4, r_1)
-				/*line codecli/cli.ergo:367:18*/ if err_2 != nil {
-					/*line codecli/cli.ergo:367:18*/ return *new(code__SymbolPage), err_2
-					/*line codecli/cli.ergo:367:18*/
+				/*line codecli/cli.ergo:338:18*/ x_1, err_2 := ergo__DecodeSymbolPage(e_4, r_1)
+				/*line codecli/cli.ergo:338:18*/ if err_2 != nil {
+					/*line codecli/cli.ergo:338:18*/ return *new(code__SymbolPage), err_2
+					/*line codecli/cli.ergo:338:18*/
 				}
-				/*line codecli/cli.ergo:367:18*/ return x_1, nil
-				/*line codecli/cli.ergo:367:18*/
+				/*line codecli/cli.ergo:338:18*/ return x_1, nil
+				/*line codecli/cli.ergo:338:18*/
 			}, Direct0: ergo__WriteSymbolPage, Read0: ergo__ReadSymbolPage, Read1: ergo__ReadSymbolPage_1, Read2: ergo__ReadSymbolPage_2, Read3: ergo__ReadSymbolPage_3, Read4: ergo__ReadSymbolPage_4, Field: nil}, v_9)
-//line codecli/cli.ergo:367:4
-//line codecli/cli.ergo:368:4
+//line codecli/cli.ergo:338:4
+//line codecli/cli.ergo:339:4
 			v_13 := codetool_scodecli__answer(asJSON, v_12, v_12)
-			/*line codecli/cli.ergo:368:4*/ return v_13
-			/*line codecli/cli.ergo:368:4*/
+			/*line codecli/cli.ergo:339:4*/ return v_13
+			/*line codecli/cli.ergo:339:4*/
 		case codetool_scodeapi__SymbolReply:
-			/*line codecli/cli.ergo:368:4*/ reply_2 := v_3
-//line codecli/cli.ergo:370:4
+			/*line codecli/cli.ergo:339:4*/ reply_2 := v_3
+//line codecli/cli.ergo:341:4
 			var v_14 code__Decl = reply_2.Value
-//line codecli/cli.ergo:371:4
-//line codecli/cli.ergo:371:18
+//line codecli/cli.ergo:342:4
+//line codecli/cli.ergo:342:18
 			v_17 := rpc__EncodeMono_i1952133442(env, struct {
-				/*line codecli/cli.ergo:371:18*/ Enc func(*Env, Writer, code__Decl) (struct{}, error)
-				/*line codecli/cli.ergo:371:18*/ Dec func(*Env, Reader) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Direct0 func(*Env, json__text, code__Decl) json__text
-				/*line codecli/cli.ergo:371:18*/ Read0 func(*Env, codec__Replay) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Read1 func(*Env, config__reader) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Read2 func(*Env, http__queryReader) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Read3 func(*Env, json__Reader_1) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Read4 func(*Env, json__Stream) (code__Decl, error)
-				/*line codecli/cli.ergo:371:18*/ Field *struct {
-					/*line codecli/cli.ergo:371:18*/ Enc func(*Env, Writer, code__Decl) (struct{}, error)
-					/*line codecli/cli.ergo:371:18*/ Dec func(*Env, Reader) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Direct0 func(*Env, json__text, code__Decl) json__text
-					/*line codecli/cli.ergo:371:18*/ Read0 func(*Env, codec__Replay) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Read1 func(*Env, config__reader) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Read2 func(*Env, http__queryReader) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Read3 func(*Env, json__Reader_1) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Read4 func(*Env, json__Stream) (code__Decl, error)
-					/*line codecli/cli.ergo:371:18*/ Absent func(code__Decl) bool
-					/*line codecli/cli.ergo:371:18*/ Empty code__Decl
-					/*line codecli/cli.ergo:371:18*/
+				/*line codecli/cli.ergo:342:18*/ Enc func(*Env, Writer, code__Decl) (struct{}, error)
+				/*line codecli/cli.ergo:342:18*/ Dec func(*Env, Reader) (code__Decl, error)
+				/*line codecli/cli.ergo:342:18*/ Direct0 func(*Env, json__text, code__Decl) json__text
+				/*line codecli/cli.ergo:342:18*/ Read0 func(*Env, codec__Replay) (code__Decl, error)
+				/*line codecli/cli.ergo:342:18*/ Read1 func(*Env, config__reader) (code__Decl, error)
+				/*line codecli/cli.ergo:342:18*/ Read2 func(*Env, http__queryReader) (code__Decl, error)
+				/*line codecli/cli.ergo:342:18*/ Read3 func(*Env, json__Reader_1) (code__Decl, error)
+				/*line codecli/cli.ergo:342:18*/ Read4 func(*Env, json__Stream) (code__Decl, error)
+				/*line codecli/cli.ergo:342:18*/ Field *struct {
+					/*line codecli/cli.ergo:342:18*/ Enc func(*Env, Writer, code__Decl) (struct{}, error)
+					/*line codecli/cli.ergo:342:18*/ Dec func(*Env, Reader) (code__Decl, error)
+					/*line codecli/cli.ergo:342:18*/ Direct0 func(*Env, json__text, code__Decl) json__text
+					/*line codecli/cli.ergo:342:18*/ Read0 func(*Env, codec__Replay) (code__Decl, error)
+					/*line codecli/cli.ergo:342:18*/ Read1 func(*Env, config__reader) (code__Decl, error)
+					/*line codecli/cli.ergo:342:18*/ Read2 func(*Env, http__queryReader) (code__Decl, error)
+					/*line codecli/cli.ergo:342:18*/ Read3 func(*Env, json__Reader_1) (code__Decl, error)
+					/*line codecli/cli.ergo:342:18*/ Read4 func(*Env, json__Stream) (code__Decl, error)
+					/*line codecli/cli.ergo:342:18*/ Absent func(code__Decl) bool
+					/*line codecli/cli.ergo:342:18*/ Empty code__Decl
+					/*line codecli/cli.ergo:342:18*/
 				}
-				/*line codecli/cli.ergo:371:18*/
+				/*line codecli/cli.ergo:342:18*/
 			}{Enc: func(e_6 *Env, w_2 Writer, v_15 code__Decl) (struct{}, error) {
-				/*line codecli/cli.ergo:371:18*/ ergo__EncodeDecl(e_6, w_2, v_15)
-				/*line codecli/cli.ergo:371:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:371:18*/
+				/*line codecli/cli.ergo:342:18*/ ergo__EncodeDecl(e_6, w_2, v_15)
+				/*line codecli/cli.ergo:342:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:342:18*/
 			}, Dec: func(e_7 *Env, r_2 Reader) (code__Decl, error) {
-				/*line codecli/cli.ergo:371:18*/ x_2, err_3 := ergo__DecodeDecl(e_7, r_2)
-				/*line codecli/cli.ergo:371:18*/ if err_3 != nil {
-					/*line codecli/cli.ergo:371:18*/ return *new(code__Decl), err_3
-					/*line codecli/cli.ergo:371:18*/
+				/*line codecli/cli.ergo:342:18*/ x_2, err_3 := ergo__DecodeDecl(e_7, r_2)
+				/*line codecli/cli.ergo:342:18*/ if err_3 != nil {
+					/*line codecli/cli.ergo:342:18*/ return *new(code__Decl), err_3
+					/*line codecli/cli.ergo:342:18*/
 				}
-				/*line codecli/cli.ergo:371:18*/ return x_2, nil
-				/*line codecli/cli.ergo:371:18*/
+				/*line codecli/cli.ergo:342:18*/ return x_2, nil
+				/*line codecli/cli.ergo:342:18*/
 			}, Direct0: ergo__WriteDecl, Read0: ergo__ReadDecl, Read1: ergo__ReadDecl_1, Read2: ergo__ReadDecl_2, Read3: ergo__ReadDecl_3, Read4: ergo__ReadDecl_4, Field: nil}, v_14)
-//line codecli/cli.ergo:371:4
-//line codecli/cli.ergo:372:4
+//line codecli/cli.ergo:342:4
+//line codecli/cli.ergo:343:4
 			v_18 := codetool_scodecli__answer(asJSON, v_17, v_17)
-			/*line codecli/cli.ergo:372:4*/ return v_18
-			/*line codecli/cli.ergo:372:4*/
+			/*line codecli/cli.ergo:343:4*/ return v_18
+			/*line codecli/cli.ergo:343:4*/
 		case codetool_scodeapi__ReferencesReply:
-			/*line codecli/cli.ergo:372:4*/ reply_3 := v_3
-//line codecli/cli.ergo:374:4
+			/*line codecli/cli.ergo:343:4*/ reply_3 := v_3
+//line codecli/cli.ergo:345:4
 			var v_19 code__SitePage = reply_3.Value
-//line codecli/cli.ergo:375:4
-//line codecli/cli.ergo:375:18
+//line codecli/cli.ergo:346:4
+//line codecli/cli.ergo:346:18
 			v_22 := rpc__EncodeMono_i1175879322(env, struct {
-				/*line codecli/cli.ergo:375:18*/ Enc func(*Env, Writer, code__SitePage) (struct{}, error)
-				/*line codecli/cli.ergo:375:18*/ Dec func(*Env, Reader) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Direct0 func(*Env, json__text, code__SitePage) json__text
-				/*line codecli/cli.ergo:375:18*/ Read0 func(*Env, codec__Replay) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Read1 func(*Env, config__reader) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Read2 func(*Env, http__queryReader) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Read3 func(*Env, json__Reader_1) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Read4 func(*Env, json__Stream) (code__SitePage, error)
-				/*line codecli/cli.ergo:375:18*/ Field *struct {
-					/*line codecli/cli.ergo:375:18*/ Enc func(*Env, Writer, code__SitePage) (struct{}, error)
-					/*line codecli/cli.ergo:375:18*/ Dec func(*Env, Reader) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Direct0 func(*Env, json__text, code__SitePage) json__text
-					/*line codecli/cli.ergo:375:18*/ Read0 func(*Env, codec__Replay) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Read1 func(*Env, config__reader) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Read2 func(*Env, http__queryReader) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Read3 func(*Env, json__Reader_1) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Read4 func(*Env, json__Stream) (code__SitePage, error)
-					/*line codecli/cli.ergo:375:18*/ Absent func(code__SitePage) bool
-					/*line codecli/cli.ergo:375:18*/ Empty code__SitePage
-					/*line codecli/cli.ergo:375:18*/
+				/*line codecli/cli.ergo:346:18*/ Enc func(*Env, Writer, code__SitePage) (struct{}, error)
+				/*line codecli/cli.ergo:346:18*/ Dec func(*Env, Reader) (code__SitePage, error)
+				/*line codecli/cli.ergo:346:18*/ Direct0 func(*Env, json__text, code__SitePage) json__text
+				/*line codecli/cli.ergo:346:18*/ Read0 func(*Env, codec__Replay) (code__SitePage, error)
+				/*line codecli/cli.ergo:346:18*/ Read1 func(*Env, config__reader) (code__SitePage, error)
+				/*line codecli/cli.ergo:346:18*/ Read2 func(*Env, http__queryReader) (code__SitePage, error)
+				/*line codecli/cli.ergo:346:18*/ Read3 func(*Env, json__Reader_1) (code__SitePage, error)
+				/*line codecli/cli.ergo:346:18*/ Read4 func(*Env, json__Stream) (code__SitePage, error)
+				/*line codecli/cli.ergo:346:18*/ Field *struct {
+					/*line codecli/cli.ergo:346:18*/ Enc func(*Env, Writer, code__SitePage) (struct{}, error)
+					/*line codecli/cli.ergo:346:18*/ Dec func(*Env, Reader) (code__SitePage, error)
+					/*line codecli/cli.ergo:346:18*/ Direct0 func(*Env, json__text, code__SitePage) json__text
+					/*line codecli/cli.ergo:346:18*/ Read0 func(*Env, codec__Replay) (code__SitePage, error)
+					/*line codecli/cli.ergo:346:18*/ Read1 func(*Env, config__reader) (code__SitePage, error)
+					/*line codecli/cli.ergo:346:18*/ Read2 func(*Env, http__queryReader) (code__SitePage, error)
+					/*line codecli/cli.ergo:346:18*/ Read3 func(*Env, json__Reader_1) (code__SitePage, error)
+					/*line codecli/cli.ergo:346:18*/ Read4 func(*Env, json__Stream) (code__SitePage, error)
+					/*line codecli/cli.ergo:346:18*/ Absent func(code__SitePage) bool
+					/*line codecli/cli.ergo:346:18*/ Empty code__SitePage
+					/*line codecli/cli.ergo:346:18*/
 				}
-				/*line codecli/cli.ergo:375:18*/
+				/*line codecli/cli.ergo:346:18*/
 			}{Enc: func(e_9 *Env, w_3 Writer, v_20 code__SitePage) (struct{}, error) {
-				/*line codecli/cli.ergo:375:18*/ ergo__EncodeSitePage(e_9, w_3, v_20)
-				/*line codecli/cli.ergo:375:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:375:18*/
+				/*line codecli/cli.ergo:346:18*/ ergo__EncodeSitePage(e_9, w_3, v_20)
+				/*line codecli/cli.ergo:346:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:346:18*/
 			}, Dec: func(e_10 *Env, r_3 Reader) (code__SitePage, error) {
-				/*line codecli/cli.ergo:375:18*/ x_3, err_4 := ergo__DecodeSitePage(e_10, r_3)
-				/*line codecli/cli.ergo:375:18*/ if err_4 != nil {
-					/*line codecli/cli.ergo:375:18*/ return *new(code__SitePage), err_4
-					/*line codecli/cli.ergo:375:18*/
+				/*line codecli/cli.ergo:346:18*/ x_3, err_4 := ergo__DecodeSitePage(e_10, r_3)
+				/*line codecli/cli.ergo:346:18*/ if err_4 != nil {
+					/*line codecli/cli.ergo:346:18*/ return *new(code__SitePage), err_4
+					/*line codecli/cli.ergo:346:18*/
 				}
-				/*line codecli/cli.ergo:375:18*/ return x_3, nil
-				/*line codecli/cli.ergo:375:18*/
+				/*line codecli/cli.ergo:346:18*/ return x_3, nil
+				/*line codecli/cli.ergo:346:18*/
 			}, Direct0: ergo__WriteSitePage, Read0: ergo__ReadSitePage, Read1: ergo__ReadSitePage_1, Read2: ergo__ReadSitePage_2, Read3: ergo__ReadSitePage_3, Read4: ergo__ReadSitePage_4, Field: nil}, v_19)
-//line codecli/cli.ergo:375:4
-//line codecli/cli.ergo:376:4
+//line codecli/cli.ergo:346:4
+//line codecli/cli.ergo:347:4
 			v_23 := codetool_scodecli__answer(asJSON, v_22, v_22)
-			/*line codecli/cli.ergo:376:4*/ return v_23
-			/*line codecli/cli.ergo:376:4*/
+			/*line codecli/cli.ergo:347:4*/ return v_23
+			/*line codecli/cli.ergo:347:4*/
 		case codetool_scodeapi__CallsReply:
-			/*line codecli/cli.ergo:376:4*/ reply_4 := v_3
-//line codecli/cli.ergo:378:4
+			/*line codecli/cli.ergo:347:4*/ reply_4 := v_3
+//line codecli/cli.ergo:349:4
 			var v_24 code__CallPage = reply_4.Value
-//line codecli/cli.ergo:379:4
-//line codecli/cli.ergo:379:18
+//line codecli/cli.ergo:350:4
+//line codecli/cli.ergo:350:18
 			v_27 := rpc__EncodeMono_i589566837(env, struct {
-				/*line codecli/cli.ergo:379:18*/ Enc func(*Env, Writer, code__CallPage) (struct{}, error)
-				/*line codecli/cli.ergo:379:18*/ Dec func(*Env, Reader) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Direct0 func(*Env, json__text, code__CallPage) json__text
-				/*line codecli/cli.ergo:379:18*/ Read0 func(*Env, codec__Replay) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Read1 func(*Env, config__reader) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Read2 func(*Env, http__queryReader) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Read3 func(*Env, json__Reader_1) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Read4 func(*Env, json__Stream) (code__CallPage, error)
-				/*line codecli/cli.ergo:379:18*/ Field *struct {
-					/*line codecli/cli.ergo:379:18*/ Enc func(*Env, Writer, code__CallPage) (struct{}, error)
-					/*line codecli/cli.ergo:379:18*/ Dec func(*Env, Reader) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Direct0 func(*Env, json__text, code__CallPage) json__text
-					/*line codecli/cli.ergo:379:18*/ Read0 func(*Env, codec__Replay) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Read1 func(*Env, config__reader) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Read2 func(*Env, http__queryReader) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Read3 func(*Env, json__Reader_1) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Read4 func(*Env, json__Stream) (code__CallPage, error)
-					/*line codecli/cli.ergo:379:18*/ Absent func(code__CallPage) bool
-					/*line codecli/cli.ergo:379:18*/ Empty code__CallPage
-					/*line codecli/cli.ergo:379:18*/
+				/*line codecli/cli.ergo:350:18*/ Enc func(*Env, Writer, code__CallPage) (struct{}, error)
+				/*line codecli/cli.ergo:350:18*/ Dec func(*Env, Reader) (code__CallPage, error)
+				/*line codecli/cli.ergo:350:18*/ Direct0 func(*Env, json__text, code__CallPage) json__text
+				/*line codecli/cli.ergo:350:18*/ Read0 func(*Env, codec__Replay) (code__CallPage, error)
+				/*line codecli/cli.ergo:350:18*/ Read1 func(*Env, config__reader) (code__CallPage, error)
+				/*line codecli/cli.ergo:350:18*/ Read2 func(*Env, http__queryReader) (code__CallPage, error)
+				/*line codecli/cli.ergo:350:18*/ Read3 func(*Env, json__Reader_1) (code__CallPage, error)
+				/*line codecli/cli.ergo:350:18*/ Read4 func(*Env, json__Stream) (code__CallPage, error)
+				/*line codecli/cli.ergo:350:18*/ Field *struct {
+					/*line codecli/cli.ergo:350:18*/ Enc func(*Env, Writer, code__CallPage) (struct{}, error)
+					/*line codecli/cli.ergo:350:18*/ Dec func(*Env, Reader) (code__CallPage, error)
+					/*line codecli/cli.ergo:350:18*/ Direct0 func(*Env, json__text, code__CallPage) json__text
+					/*line codecli/cli.ergo:350:18*/ Read0 func(*Env, codec__Replay) (code__CallPage, error)
+					/*line codecli/cli.ergo:350:18*/ Read1 func(*Env, config__reader) (code__CallPage, error)
+					/*line codecli/cli.ergo:350:18*/ Read2 func(*Env, http__queryReader) (code__CallPage, error)
+					/*line codecli/cli.ergo:350:18*/ Read3 func(*Env, json__Reader_1) (code__CallPage, error)
+					/*line codecli/cli.ergo:350:18*/ Read4 func(*Env, json__Stream) (code__CallPage, error)
+					/*line codecli/cli.ergo:350:18*/ Absent func(code__CallPage) bool
+					/*line codecli/cli.ergo:350:18*/ Empty code__CallPage
+					/*line codecli/cli.ergo:350:18*/
 				}
-				/*line codecli/cli.ergo:379:18*/
+				/*line codecli/cli.ergo:350:18*/
 			}{Enc: func(e_12 *Env, w_4 Writer, v_25 code__CallPage) (struct{}, error) {
-				/*line codecli/cli.ergo:379:18*/ ergo__EncodeCallPage(e_12, w_4, v_25)
-				/*line codecli/cli.ergo:379:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:379:18*/
+				/*line codecli/cli.ergo:350:18*/ ergo__EncodeCallPage(e_12, w_4, v_25)
+				/*line codecli/cli.ergo:350:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:350:18*/
 			}, Dec: func(e_13 *Env, r_4 Reader) (code__CallPage, error) {
-				/*line codecli/cli.ergo:379:18*/ x_4, err_5 := ergo__DecodeCallPage(e_13, r_4)
-				/*line codecli/cli.ergo:379:18*/ if err_5 != nil {
-					/*line codecli/cli.ergo:379:18*/ return *new(code__CallPage), err_5
-					/*line codecli/cli.ergo:379:18*/
+				/*line codecli/cli.ergo:350:18*/ x_4, err_5 := ergo__DecodeCallPage(e_13, r_4)
+				/*line codecli/cli.ergo:350:18*/ if err_5 != nil {
+					/*line codecli/cli.ergo:350:18*/ return *new(code__CallPage), err_5
+					/*line codecli/cli.ergo:350:18*/
 				}
-				/*line codecli/cli.ergo:379:18*/ return x_4, nil
-				/*line codecli/cli.ergo:379:18*/
+				/*line codecli/cli.ergo:350:18*/ return x_4, nil
+				/*line codecli/cli.ergo:350:18*/
 			}, Direct0: ergo__WriteCallPage, Read0: ergo__ReadCallPage, Read1: ergo__ReadCallPage_1, Read2: ergo__ReadCallPage_2, Read3: ergo__ReadCallPage_3, Read4: ergo__ReadCallPage_4, Field: nil}, v_24)
-//line codecli/cli.ergo:379:4
-//line codecli/cli.ergo:380:4
+//line codecli/cli.ergo:350:4
+//line codecli/cli.ergo:351:4
 			v_28 := codetool_scodecli__answer(asJSON, v_27, v_27)
-			/*line codecli/cli.ergo:380:4*/ return v_28
-			/*line codecli/cli.ergo:380:4*/
+			/*line codecli/cli.ergo:351:4*/ return v_28
+			/*line codecli/cli.ergo:351:4*/
 		case codetool_scodeapi__ApiReply:
-			/*line codecli/cli.ergo:380:4*/ reply_5 := v_3
-//line codecli/cli.ergo:382:4
+			/*line codecli/cli.ergo:351:4*/ reply_5 := v_3
+//line codecli/cli.ergo:353:4
 			var v_29 code__ApiView = reply_5.Value
-//line codecli/cli.ergo:383:4
-//line codecli/cli.ergo:383:18
+//line codecli/cli.ergo:354:4
+//line codecli/cli.ergo:354:18
 			v_32 := rpc__EncodeMono_i3093881487(env, struct {
-				/*line codecli/cli.ergo:383:18*/ Enc func(*Env, Writer, code__ApiView) (struct{}, error)
-				/*line codecli/cli.ergo:383:18*/ Dec func(*Env, Reader) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Direct0 func(*Env, json__text, code__ApiView) json__text
-				/*line codecli/cli.ergo:383:18*/ Read0 func(*Env, codec__Replay) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Read1 func(*Env, config__reader) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Read2 func(*Env, http__queryReader) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Read3 func(*Env, json__Reader_1) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Read4 func(*Env, json__Stream) (code__ApiView, error)
-				/*line codecli/cli.ergo:383:18*/ Field *struct {
-					/*line codecli/cli.ergo:383:18*/ Enc func(*Env, Writer, code__ApiView) (struct{}, error)
-					/*line codecli/cli.ergo:383:18*/ Dec func(*Env, Reader) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Direct0 func(*Env, json__text, code__ApiView) json__text
-					/*line codecli/cli.ergo:383:18*/ Read0 func(*Env, codec__Replay) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Read1 func(*Env, config__reader) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Read2 func(*Env, http__queryReader) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Read3 func(*Env, json__Reader_1) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Read4 func(*Env, json__Stream) (code__ApiView, error)
-					/*line codecli/cli.ergo:383:18*/ Absent func(code__ApiView) bool
-					/*line codecli/cli.ergo:383:18*/ Empty code__ApiView
-					/*line codecli/cli.ergo:383:18*/
+				/*line codecli/cli.ergo:354:18*/ Enc func(*Env, Writer, code__ApiView) (struct{}, error)
+				/*line codecli/cli.ergo:354:18*/ Dec func(*Env, Reader) (code__ApiView, error)
+				/*line codecli/cli.ergo:354:18*/ Direct0 func(*Env, json__text, code__ApiView) json__text
+				/*line codecli/cli.ergo:354:18*/ Read0 func(*Env, codec__Replay) (code__ApiView, error)
+				/*line codecli/cli.ergo:354:18*/ Read1 func(*Env, config__reader) (code__ApiView, error)
+				/*line codecli/cli.ergo:354:18*/ Read2 func(*Env, http__queryReader) (code__ApiView, error)
+				/*line codecli/cli.ergo:354:18*/ Read3 func(*Env, json__Reader_1) (code__ApiView, error)
+				/*line codecli/cli.ergo:354:18*/ Read4 func(*Env, json__Stream) (code__ApiView, error)
+				/*line codecli/cli.ergo:354:18*/ Field *struct {
+					/*line codecli/cli.ergo:354:18*/ Enc func(*Env, Writer, code__ApiView) (struct{}, error)
+					/*line codecli/cli.ergo:354:18*/ Dec func(*Env, Reader) (code__ApiView, error)
+					/*line codecli/cli.ergo:354:18*/ Direct0 func(*Env, json__text, code__ApiView) json__text
+					/*line codecli/cli.ergo:354:18*/ Read0 func(*Env, codec__Replay) (code__ApiView, error)
+					/*line codecli/cli.ergo:354:18*/ Read1 func(*Env, config__reader) (code__ApiView, error)
+					/*line codecli/cli.ergo:354:18*/ Read2 func(*Env, http__queryReader) (code__ApiView, error)
+					/*line codecli/cli.ergo:354:18*/ Read3 func(*Env, json__Reader_1) (code__ApiView, error)
+					/*line codecli/cli.ergo:354:18*/ Read4 func(*Env, json__Stream) (code__ApiView, error)
+					/*line codecli/cli.ergo:354:18*/ Absent func(code__ApiView) bool
+					/*line codecli/cli.ergo:354:18*/ Empty code__ApiView
+					/*line codecli/cli.ergo:354:18*/
 				}
-				/*line codecli/cli.ergo:383:18*/
+				/*line codecli/cli.ergo:354:18*/
 			}{Enc: func(e_15 *Env, w_5 Writer, v_30 code__ApiView) (struct{}, error) {
-				/*line codecli/cli.ergo:383:18*/ ergo__EncodeApiView(e_15, w_5, v_30)
-				/*line codecli/cli.ergo:383:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:383:18*/
+				/*line codecli/cli.ergo:354:18*/ ergo__EncodeApiView(e_15, w_5, v_30)
+				/*line codecli/cli.ergo:354:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:354:18*/
 			}, Dec: func(e_16 *Env, r_5 Reader) (code__ApiView, error) {
-				/*line codecli/cli.ergo:383:18*/ x_5, err_6 := ergo__DecodeApiView(e_16, r_5)
-				/*line codecli/cli.ergo:383:18*/ if err_6 != nil {
-					/*line codecli/cli.ergo:383:18*/ return *new(code__ApiView), err_6
-					/*line codecli/cli.ergo:383:18*/
+				/*line codecli/cli.ergo:354:18*/ x_5, err_6 := ergo__DecodeApiView(e_16, r_5)
+				/*line codecli/cli.ergo:354:18*/ if err_6 != nil {
+					/*line codecli/cli.ergo:354:18*/ return *new(code__ApiView), err_6
+					/*line codecli/cli.ergo:354:18*/
 				}
-				/*line codecli/cli.ergo:383:18*/ return x_5, nil
-				/*line codecli/cli.ergo:383:18*/
+				/*line codecli/cli.ergo:354:18*/ return x_5, nil
+				/*line codecli/cli.ergo:354:18*/
 			}, Direct0: ergo__WriteApiView, Read0: ergo__ReadApiView, Read1: ergo__ReadApiView_1, Read2: ergo__ReadApiView_2, Read3: ergo__ReadApiView_3, Read4: ergo__ReadApiView_4, Field: nil}, v_29)
-//line codecli/cli.ergo:383:4
-//line codecli/cli.ergo:384:4
+//line codecli/cli.ergo:354:4
+//line codecli/cli.ergo:355:4
 			v_33 := codetool_scodecli__answer(asJSON, v_32, v_32)
-			/*line codecli/cli.ergo:384:4*/ return v_33
-			/*line codecli/cli.ergo:384:4*/
+			/*line codecli/cli.ergo:355:4*/ return v_33
+			/*line codecli/cli.ergo:355:4*/
 		case codetool_scodeapi__ReachReply:
-			/*line codecli/cli.ergo:384:4*/ reply_6 := v_3
-//line codecli/cli.ergo:386:4
+			/*line codecli/cli.ergo:355:4*/ reply_6 := v_3
+//line codecli/cli.ergo:357:4
 			var v_34 code__ReachPage = reply_6.Value
-//line codecli/cli.ergo:387:4
-//line codecli/cli.ergo:387:18
+//line codecli/cli.ergo:358:4
+//line codecli/cli.ergo:358:18
 			v_37 := rpc__EncodeMono_i1909667394(env, struct {
-				/*line codecli/cli.ergo:387:18*/ Enc func(*Env, Writer, code__ReachPage) (struct{}, error)
-				/*line codecli/cli.ergo:387:18*/ Dec func(*Env, Reader) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Direct0 func(*Env, json__text, code__ReachPage) json__text
-				/*line codecli/cli.ergo:387:18*/ Read0 func(*Env, codec__Replay) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Read1 func(*Env, config__reader) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Read2 func(*Env, http__queryReader) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Read3 func(*Env, json__Reader_1) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Read4 func(*Env, json__Stream) (code__ReachPage, error)
-				/*line codecli/cli.ergo:387:18*/ Field *struct {
-					/*line codecli/cli.ergo:387:18*/ Enc func(*Env, Writer, code__ReachPage) (struct{}, error)
-					/*line codecli/cli.ergo:387:18*/ Dec func(*Env, Reader) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Direct0 func(*Env, json__text, code__ReachPage) json__text
-					/*line codecli/cli.ergo:387:18*/ Read0 func(*Env, codec__Replay) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Read1 func(*Env, config__reader) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Read2 func(*Env, http__queryReader) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Read3 func(*Env, json__Reader_1) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Read4 func(*Env, json__Stream) (code__ReachPage, error)
-					/*line codecli/cli.ergo:387:18*/ Absent func(code__ReachPage) bool
-					/*line codecli/cli.ergo:387:18*/ Empty code__ReachPage
-					/*line codecli/cli.ergo:387:18*/
+				/*line codecli/cli.ergo:358:18*/ Enc func(*Env, Writer, code__ReachPage) (struct{}, error)
+				/*line codecli/cli.ergo:358:18*/ Dec func(*Env, Reader) (code__ReachPage, error)
+				/*line codecli/cli.ergo:358:18*/ Direct0 func(*Env, json__text, code__ReachPage) json__text
+				/*line codecli/cli.ergo:358:18*/ Read0 func(*Env, codec__Replay) (code__ReachPage, error)
+				/*line codecli/cli.ergo:358:18*/ Read1 func(*Env, config__reader) (code__ReachPage, error)
+				/*line codecli/cli.ergo:358:18*/ Read2 func(*Env, http__queryReader) (code__ReachPage, error)
+				/*line codecli/cli.ergo:358:18*/ Read3 func(*Env, json__Reader_1) (code__ReachPage, error)
+				/*line codecli/cli.ergo:358:18*/ Read4 func(*Env, json__Stream) (code__ReachPage, error)
+				/*line codecli/cli.ergo:358:18*/ Field *struct {
+					/*line codecli/cli.ergo:358:18*/ Enc func(*Env, Writer, code__ReachPage) (struct{}, error)
+					/*line codecli/cli.ergo:358:18*/ Dec func(*Env, Reader) (code__ReachPage, error)
+					/*line codecli/cli.ergo:358:18*/ Direct0 func(*Env, json__text, code__ReachPage) json__text
+					/*line codecli/cli.ergo:358:18*/ Read0 func(*Env, codec__Replay) (code__ReachPage, error)
+					/*line codecli/cli.ergo:358:18*/ Read1 func(*Env, config__reader) (code__ReachPage, error)
+					/*line codecli/cli.ergo:358:18*/ Read2 func(*Env, http__queryReader) (code__ReachPage, error)
+					/*line codecli/cli.ergo:358:18*/ Read3 func(*Env, json__Reader_1) (code__ReachPage, error)
+					/*line codecli/cli.ergo:358:18*/ Read4 func(*Env, json__Stream) (code__ReachPage, error)
+					/*line codecli/cli.ergo:358:18*/ Absent func(code__ReachPage) bool
+					/*line codecli/cli.ergo:358:18*/ Empty code__ReachPage
+					/*line codecli/cli.ergo:358:18*/
 				}
-				/*line codecli/cli.ergo:387:18*/
+				/*line codecli/cli.ergo:358:18*/
 			}{Enc: func(e_18 *Env, w_6 Writer, v_35 code__ReachPage) (struct{}, error) {
-				/*line codecli/cli.ergo:387:18*/ ergo__EncodeReachPage(e_18, w_6, v_35)
-				/*line codecli/cli.ergo:387:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:387:18*/
+				/*line codecli/cli.ergo:358:18*/ ergo__EncodeReachPage(e_18, w_6, v_35)
+				/*line codecli/cli.ergo:358:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:358:18*/
 			}, Dec: func(e_19 *Env, r_6 Reader) (code__ReachPage, error) {
-				/*line codecli/cli.ergo:387:18*/ x_6, err_7 := ergo__DecodeReachPage(e_19, r_6)
-				/*line codecli/cli.ergo:387:18*/ if err_7 != nil {
-					/*line codecli/cli.ergo:387:18*/ return *new(code__ReachPage), err_7
-					/*line codecli/cli.ergo:387:18*/
+				/*line codecli/cli.ergo:358:18*/ x_6, err_7 := ergo__DecodeReachPage(e_19, r_6)
+				/*line codecli/cli.ergo:358:18*/ if err_7 != nil {
+					/*line codecli/cli.ergo:358:18*/ return *new(code__ReachPage), err_7
+					/*line codecli/cli.ergo:358:18*/
 				}
-				/*line codecli/cli.ergo:387:18*/ return x_6, nil
-				/*line codecli/cli.ergo:387:18*/
+				/*line codecli/cli.ergo:358:18*/ return x_6, nil
+				/*line codecli/cli.ergo:358:18*/
 			}, Direct0: ergo__WriteReachPage, Read0: ergo__ReadReachPage, Read1: ergo__ReadReachPage_1, Read2: ergo__ReadReachPage_2, Read3: ergo__ReadReachPage_3, Read4: ergo__ReadReachPage_4, Field: nil}, v_34)
-//line codecli/cli.ergo:387:4
-//line codecli/cli.ergo:388:4
+//line codecli/cli.ergo:358:4
+//line codecli/cli.ergo:359:4
 			v_38 := codetool_scodecli__answer(asJSON, v_37, v_37)
-			/*line codecli/cli.ergo:388:4*/ return v_38
-			/*line codecli/cli.ergo:388:4*/
+			/*line codecli/cli.ergo:359:4*/ return v_38
+			/*line codecli/cli.ergo:359:4*/
 		case codetool_scodeapi__MachineOfReply:
-			/*line codecli/cli.ergo:388:4*/ reply_7 := v_3
-//line codecli/cli.ergo:390:4
+			/*line codecli/cli.ergo:359:4*/ reply_7 := v_3
+//line codecli/cli.ergo:361:4
 			var v_39 code__MachineView = reply_7.Value
-//line codecli/cli.ergo:391:4
-//line codecli/cli.ergo:391:18
+//line codecli/cli.ergo:362:4
+//line codecli/cli.ergo:362:18
 			v_42 := rpc__EncodeMono_i3049539590(env, struct {
-				/*line codecli/cli.ergo:391:18*/ Enc func(*Env, Writer, code__MachineView) (struct{}, error)
-				/*line codecli/cli.ergo:391:18*/ Dec func(*Env, Reader) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Direct0 func(*Env, json__text, code__MachineView) json__text
-				/*line codecli/cli.ergo:391:18*/ Read0 func(*Env, codec__Replay) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Read1 func(*Env, config__reader) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Read2 func(*Env, http__queryReader) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Read3 func(*Env, json__Reader_1) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Read4 func(*Env, json__Stream) (code__MachineView, error)
-				/*line codecli/cli.ergo:391:18*/ Field *struct {
-					/*line codecli/cli.ergo:391:18*/ Enc func(*Env, Writer, code__MachineView) (struct{}, error)
-					/*line codecli/cli.ergo:391:18*/ Dec func(*Env, Reader) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Direct0 func(*Env, json__text, code__MachineView) json__text
-					/*line codecli/cli.ergo:391:18*/ Read0 func(*Env, codec__Replay) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Read1 func(*Env, config__reader) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Read2 func(*Env, http__queryReader) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Read3 func(*Env, json__Reader_1) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Read4 func(*Env, json__Stream) (code__MachineView, error)
-					/*line codecli/cli.ergo:391:18*/ Absent func(code__MachineView) bool
-					/*line codecli/cli.ergo:391:18*/ Empty code__MachineView
-					/*line codecli/cli.ergo:391:18*/
+				/*line codecli/cli.ergo:362:18*/ Enc func(*Env, Writer, code__MachineView) (struct{}, error)
+				/*line codecli/cli.ergo:362:18*/ Dec func(*Env, Reader) (code__MachineView, error)
+				/*line codecli/cli.ergo:362:18*/ Direct0 func(*Env, json__text, code__MachineView) json__text
+				/*line codecli/cli.ergo:362:18*/ Read0 func(*Env, codec__Replay) (code__MachineView, error)
+				/*line codecli/cli.ergo:362:18*/ Read1 func(*Env, config__reader) (code__MachineView, error)
+				/*line codecli/cli.ergo:362:18*/ Read2 func(*Env, http__queryReader) (code__MachineView, error)
+				/*line codecli/cli.ergo:362:18*/ Read3 func(*Env, json__Reader_1) (code__MachineView, error)
+				/*line codecli/cli.ergo:362:18*/ Read4 func(*Env, json__Stream) (code__MachineView, error)
+				/*line codecli/cli.ergo:362:18*/ Field *struct {
+					/*line codecli/cli.ergo:362:18*/ Enc func(*Env, Writer, code__MachineView) (struct{}, error)
+					/*line codecli/cli.ergo:362:18*/ Dec func(*Env, Reader) (code__MachineView, error)
+					/*line codecli/cli.ergo:362:18*/ Direct0 func(*Env, json__text, code__MachineView) json__text
+					/*line codecli/cli.ergo:362:18*/ Read0 func(*Env, codec__Replay) (code__MachineView, error)
+					/*line codecli/cli.ergo:362:18*/ Read1 func(*Env, config__reader) (code__MachineView, error)
+					/*line codecli/cli.ergo:362:18*/ Read2 func(*Env, http__queryReader) (code__MachineView, error)
+					/*line codecli/cli.ergo:362:18*/ Read3 func(*Env, json__Reader_1) (code__MachineView, error)
+					/*line codecli/cli.ergo:362:18*/ Read4 func(*Env, json__Stream) (code__MachineView, error)
+					/*line codecli/cli.ergo:362:18*/ Absent func(code__MachineView) bool
+					/*line codecli/cli.ergo:362:18*/ Empty code__MachineView
+					/*line codecli/cli.ergo:362:18*/
 				}
-				/*line codecli/cli.ergo:391:18*/
+				/*line codecli/cli.ergo:362:18*/
 			}{Enc: func(e_21 *Env, w_7 Writer, v_40 code__MachineView) (struct{}, error) {
-				/*line codecli/cli.ergo:391:18*/ ergo__EncodeMachineView(e_21, w_7, v_40)
-				/*line codecli/cli.ergo:391:18*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:391:18*/
+				/*line codecli/cli.ergo:362:18*/ ergo__EncodeMachineView(e_21, w_7, v_40)
+				/*line codecli/cli.ergo:362:18*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:362:18*/
 			}, Dec: func(e_22 *Env, r_7 Reader) (code__MachineView, error) {
-				/*line codecli/cli.ergo:391:18*/ x_7, err_8 := ergo__DecodeMachineView(e_22, r_7)
-				/*line codecli/cli.ergo:391:18*/ if err_8 != nil {
-					/*line codecli/cli.ergo:391:18*/ return *new(code__MachineView), err_8
-					/*line codecli/cli.ergo:391:18*/
+				/*line codecli/cli.ergo:362:18*/ x_7, err_8 := ergo__DecodeMachineView(e_22, r_7)
+				/*line codecli/cli.ergo:362:18*/ if err_8 != nil {
+					/*line codecli/cli.ergo:362:18*/ return *new(code__MachineView), err_8
+					/*line codecli/cli.ergo:362:18*/
 				}
-				/*line codecli/cli.ergo:391:18*/ return x_7, nil
-				/*line codecli/cli.ergo:391:18*/
+				/*line codecli/cli.ergo:362:18*/ return x_7, nil
+				/*line codecli/cli.ergo:362:18*/
 			}, Direct0: ergo__WriteMachineView, Read0: ergo__ReadMachineView, Read1: ergo__ReadMachineView_1, Read2: ergo__ReadMachineView_2, Read3: ergo__ReadMachineView_3, Read4: ergo__ReadMachineView_4, Field: nil}, v_39)
-//line codecli/cli.ergo:391:4
-//line codecli/cli.ergo:392:4
+//line codecli/cli.ergo:362:4
+//line codecli/cli.ergo:363:4
 			v_43 := codetool_scodecli__answer(asJSON, v_42, v_42)
-			/*line codecli/cli.ergo:392:4*/ return v_43
-			/*line codecli/cli.ergo:392:4*/
+			/*line codecli/cli.ergo:363:4*/ return v_43
+			/*line codecli/cli.ergo:363:4*/
 		default:
-			/*line codecli/cli.ergo:392:4*/ _ = v_3
-			/*line codecli/cli.ergo:392:4*/ panic("ergo: defect: no case of the match at 360:3 matched")
-			/*line codecli/cli.ergo:392:4*/
+			/*line codecli/cli.ergo:363:4*/ _ = v_3
+			/*line codecli/cli.ergo:363:4*/ panic("ergo: defect: no case of the match at 331:3 matched")
+			/*line codecli/cli.ergo:363:4*/
 		}
-		/*line codecli/cli.ergo:392:4*/
+		/*line codecli/cli.ergo:363:4*/
 	case codetool_scodeapi__Rejected:
-		/*line codecli/cli.ergo:392:4*/ rejected := v
-//line codecli/cli.ergo:395:3
-//line codecli/cli.ergo:395:16
+		/*line codecli/cli.ergo:363:4*/ rejected := v
+//line codecli/cli.ergo:366:3
+//line codecli/cli.ergo:366:16
 		v_44, err_9 := p.Code(env, rejected.Failure)
-		/*line codecli/cli.ergo:395:16*/ _ = err_9
-//line codecli/cli.ergo:395:3
-//line codecli/cli.ergo:396:3
+		/*line codecli/cli.ergo:366:16*/ _ = err_9
+//line codecli/cli.ergo:366:3
+//line codecli/cli.ergo:367:3
 		switch v_45 := rejected.Failure.(type) {
-		/*line codecli/cli.ergo:396:3*/ case codetool_scodeapi__NoSymbol:
-			/*line codecli/cli.ergo:396:3*/ failure := v_45
-//line codecli/cli.ergo:398:4
+		/*line codecli/cli.ergo:367:3*/ case codetool_scodeapi__NoSymbol:
+			/*line codecli/cli.ergo:367:3*/ failure := v_45
+//line codecli/cli.ergo:369:4
 			t := asJSON
-//line codecli/cli.ergo:398:42
+//line codecli/cli.ergo:369:42
 			v_48 := rpc__EncodeMono_i1362702477(env, struct {
-				/*line codecli/cli.ergo:398:42*/ Enc func(*Env, Writer, code__NoSymbol) (struct{}, error)
-				/*line codecli/cli.ergo:398:42*/ Dec func(*Env, Reader) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Direct0 func(*Env, json__text, code__NoSymbol) json__text
-				/*line codecli/cli.ergo:398:42*/ Read0 func(*Env, codec__Replay) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Read1 func(*Env, config__reader) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Read2 func(*Env, http__queryReader) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Read3 func(*Env, json__Reader_1) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Read4 func(*Env, json__Stream) (code__NoSymbol, error)
-				/*line codecli/cli.ergo:398:42*/ Field *struct {
-					/*line codecli/cli.ergo:398:42*/ Enc func(*Env, Writer, code__NoSymbol) (struct{}, error)
-					/*line codecli/cli.ergo:398:42*/ Dec func(*Env, Reader) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Direct0 func(*Env, json__text, code__NoSymbol) json__text
-					/*line codecli/cli.ergo:398:42*/ Read0 func(*Env, codec__Replay) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Read1 func(*Env, config__reader) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Read2 func(*Env, http__queryReader) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Read3 func(*Env, json__Reader_1) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Read4 func(*Env, json__Stream) (code__NoSymbol, error)
-					/*line codecli/cli.ergo:398:42*/ Absent func(code__NoSymbol) bool
-					/*line codecli/cli.ergo:398:42*/ Empty code__NoSymbol
-					/*line codecli/cli.ergo:398:42*/
+				/*line codecli/cli.ergo:369:42*/ Enc func(*Env, Writer, code__NoSymbol) (struct{}, error)
+				/*line codecli/cli.ergo:369:42*/ Dec func(*Env, Reader) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:369:42*/ Direct0 func(*Env, json__text, code__NoSymbol) json__text
+				/*line codecli/cli.ergo:369:42*/ Read0 func(*Env, codec__Replay) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:369:42*/ Read1 func(*Env, config__reader) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:369:42*/ Read2 func(*Env, http__queryReader) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:369:42*/ Read3 func(*Env, json__Reader_1) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:369:42*/ Read4 func(*Env, json__Stream) (code__NoSymbol, error)
+				/*line codecli/cli.ergo:369:42*/ Field *struct {
+					/*line codecli/cli.ergo:369:42*/ Enc func(*Env, Writer, code__NoSymbol) (struct{}, error)
+					/*line codecli/cli.ergo:369:42*/ Dec func(*Env, Reader) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:369:42*/ Direct0 func(*Env, json__text, code__NoSymbol) json__text
+					/*line codecli/cli.ergo:369:42*/ Read0 func(*Env, codec__Replay) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:369:42*/ Read1 func(*Env, config__reader) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:369:42*/ Read2 func(*Env, http__queryReader) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:369:42*/ Read3 func(*Env, json__Reader_1) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:369:42*/ Read4 func(*Env, json__Stream) (code__NoSymbol, error)
+					/*line codecli/cli.ergo:369:42*/ Absent func(code__NoSymbol) bool
+					/*line codecli/cli.ergo:369:42*/ Empty code__NoSymbol
+					/*line codecli/cli.ergo:369:42*/
 				}
-				/*line codecli/cli.ergo:398:42*/
+				/*line codecli/cli.ergo:369:42*/
 			}{Enc: func(e_24 *Env, w_8 Writer, v_46 code__NoSymbol) (struct{}, error) {
-				/*line codecli/cli.ergo:398:42*/ ergo__EncodeNoSymbol(e_24, w_8, v_46)
-				/*line codecli/cli.ergo:398:42*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:398:42*/
+				/*line codecli/cli.ergo:369:42*/ ergo__EncodeNoSymbol(e_24, w_8, v_46)
+				/*line codecli/cli.ergo:369:42*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:369:42*/
 			}, Dec: func(e_25 *Env, r_8 Reader) (code__NoSymbol, error) {
-				/*line codecli/cli.ergo:398:42*/ x_8, err_10 := ergo__DecodeNoSymbol(e_25, r_8)
-				/*line codecli/cli.ergo:398:42*/ if err_10 != nil {
-					/*line codecli/cli.ergo:398:42*/ return *new(code__NoSymbol), err_10
-					/*line codecli/cli.ergo:398:42*/
+				/*line codecli/cli.ergo:369:42*/ x_8, err_10 := ergo__DecodeNoSymbol(e_25, r_8)
+				/*line codecli/cli.ergo:369:42*/ if err_10 != nil {
+					/*line codecli/cli.ergo:369:42*/ return *new(code__NoSymbol), err_10
+					/*line codecli/cli.ergo:369:42*/
 				}
-				/*line codecli/cli.ergo:398:42*/ return x_8, nil
-				/*line codecli/cli.ergo:398:42*/
+				/*line codecli/cli.ergo:369:42*/ return x_8, nil
+				/*line codecli/cli.ergo:369:42*/
 			}, Direct0: ergo__WriteNoSymbol, Read0: ergo__ReadNoSymbol, Read1: ergo__ReadNoSymbol_1, Read2: ergo__ReadNoSymbol_2, Read3: ergo__ReadNoSymbol_3, Read4: ergo__ReadNoSymbol_4, Field: nil}, failure.E)
-//line codecli/cli.ergo:398:4
-//line codecli/cli.ergo:398:19
+//line codecli/cli.ergo:369:4
+//line codecli/cli.ergo:369:19
 			v_49 := ergorpc.RPCTagged("NoSymbol", v_48)
-//line codecli/cli.ergo:398:4
+//line codecli/cli.ergo:369:4
 			v_50 := codetool_scodecli__failed(env, t, v_49, v_44)
-			/*line codecli/cli.ergo:398:4*/ return v_50
-			/*line codecli/cli.ergo:398:4*/
+			/*line codecli/cli.ergo:369:4*/ return v_50
+			/*line codecli/cli.ergo:369:4*/
 		case codetool_scodeapi__Ambiguous:
-			/*line codecli/cli.ergo:398:4*/ failure_1 := v_45
-//line codecli/cli.ergo:400:4
+			/*line codecli/cli.ergo:369:4*/ failure_1 := v_45
+//line codecli/cli.ergo:371:4
 			t_1 := asJSON
-//line codecli/cli.ergo:400:43
+//line codecli/cli.ergo:371:43
 			v_53 := rpc__EncodeMono_i2857364534(env, struct {
-				/*line codecli/cli.ergo:400:43*/ Enc func(*Env, Writer, code__Ambiguous) (struct{}, error)
-				/*line codecli/cli.ergo:400:43*/ Dec func(*Env, Reader) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Direct0 func(*Env, json__text, code__Ambiguous) json__text
-				/*line codecli/cli.ergo:400:43*/ Read0 func(*Env, codec__Replay) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Read1 func(*Env, config__reader) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Read2 func(*Env, http__queryReader) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Read3 func(*Env, json__Reader_1) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Read4 func(*Env, json__Stream) (code__Ambiguous, error)
-				/*line codecli/cli.ergo:400:43*/ Field *struct {
-					/*line codecli/cli.ergo:400:43*/ Enc func(*Env, Writer, code__Ambiguous) (struct{}, error)
-					/*line codecli/cli.ergo:400:43*/ Dec func(*Env, Reader) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Direct0 func(*Env, json__text, code__Ambiguous) json__text
-					/*line codecli/cli.ergo:400:43*/ Read0 func(*Env, codec__Replay) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Read1 func(*Env, config__reader) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Read2 func(*Env, http__queryReader) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Read3 func(*Env, json__Reader_1) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Read4 func(*Env, json__Stream) (code__Ambiguous, error)
-					/*line codecli/cli.ergo:400:43*/ Absent func(code__Ambiguous) bool
-					/*line codecli/cli.ergo:400:43*/ Empty code__Ambiguous
-					/*line codecli/cli.ergo:400:43*/
+				/*line codecli/cli.ergo:371:43*/ Enc func(*Env, Writer, code__Ambiguous) (struct{}, error)
+				/*line codecli/cli.ergo:371:43*/ Dec func(*Env, Reader) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:371:43*/ Direct0 func(*Env, json__text, code__Ambiguous) json__text
+				/*line codecli/cli.ergo:371:43*/ Read0 func(*Env, codec__Replay) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:371:43*/ Read1 func(*Env, config__reader) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:371:43*/ Read2 func(*Env, http__queryReader) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:371:43*/ Read3 func(*Env, json__Reader_1) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:371:43*/ Read4 func(*Env, json__Stream) (code__Ambiguous, error)
+				/*line codecli/cli.ergo:371:43*/ Field *struct {
+					/*line codecli/cli.ergo:371:43*/ Enc func(*Env, Writer, code__Ambiguous) (struct{}, error)
+					/*line codecli/cli.ergo:371:43*/ Dec func(*Env, Reader) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:371:43*/ Direct0 func(*Env, json__text, code__Ambiguous) json__text
+					/*line codecli/cli.ergo:371:43*/ Read0 func(*Env, codec__Replay) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:371:43*/ Read1 func(*Env, config__reader) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:371:43*/ Read2 func(*Env, http__queryReader) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:371:43*/ Read3 func(*Env, json__Reader_1) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:371:43*/ Read4 func(*Env, json__Stream) (code__Ambiguous, error)
+					/*line codecli/cli.ergo:371:43*/ Absent func(code__Ambiguous) bool
+					/*line codecli/cli.ergo:371:43*/ Empty code__Ambiguous
+					/*line codecli/cli.ergo:371:43*/
 				}
-				/*line codecli/cli.ergo:400:43*/
+				/*line codecli/cli.ergo:371:43*/
 			}{Enc: func(e_27 *Env, w_9 Writer, v_51 code__Ambiguous) (struct{}, error) {
-				/*line codecli/cli.ergo:400:43*/ ergo__EncodeAmbiguous(e_27, w_9, v_51)
-				/*line codecli/cli.ergo:400:43*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:400:43*/
+				/*line codecli/cli.ergo:371:43*/ ergo__EncodeAmbiguous(e_27, w_9, v_51)
+				/*line codecli/cli.ergo:371:43*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:371:43*/
 			}, Dec: func(e_28 *Env, r_9 Reader) (code__Ambiguous, error) {
-				/*line codecli/cli.ergo:400:43*/ x_9, err_11 := ergo__DecodeAmbiguous(e_28, r_9)
-				/*line codecli/cli.ergo:400:43*/ if err_11 != nil {
-					/*line codecli/cli.ergo:400:43*/ return *new(code__Ambiguous), err_11
-					/*line codecli/cli.ergo:400:43*/
+				/*line codecli/cli.ergo:371:43*/ x_9, err_11 := ergo__DecodeAmbiguous(e_28, r_9)
+				/*line codecli/cli.ergo:371:43*/ if err_11 != nil {
+					/*line codecli/cli.ergo:371:43*/ return *new(code__Ambiguous), err_11
+					/*line codecli/cli.ergo:371:43*/
 				}
-				/*line codecli/cli.ergo:400:43*/ return x_9, nil
-				/*line codecli/cli.ergo:400:43*/
+				/*line codecli/cli.ergo:371:43*/ return x_9, nil
+				/*line codecli/cli.ergo:371:43*/
 			}, Direct0: ergo__WriteAmbiguous, Read0: ergo__ReadAmbiguous, Read1: ergo__ReadAmbiguous_1, Read2: ergo__ReadAmbiguous_2, Read3: ergo__ReadAmbiguous_3, Read4: ergo__ReadAmbiguous_4, Field: nil}, failure_1.E)
-//line codecli/cli.ergo:400:4
-//line codecli/cli.ergo:400:19
+//line codecli/cli.ergo:371:4
+//line codecli/cli.ergo:371:19
 			v_54 := ergorpc.RPCTagged("Ambiguous", v_53)
-//line codecli/cli.ergo:400:4
+//line codecli/cli.ergo:371:4
 			v_55 := codetool_scodecli__failed(env, t_1, v_54, v_44)
-			/*line codecli/cli.ergo:400:4*/ return v_55
-			/*line codecli/cli.ergo:400:4*/
+			/*line codecli/cli.ergo:371:4*/ return v_55
+			/*line codecli/cli.ergo:371:4*/
 		case codetool_scodeapi__NotCallable:
-			/*line codecli/cli.ergo:400:4*/ failure_2 := v_45
-//line codecli/cli.ergo:402:4
+			/*line codecli/cli.ergo:371:4*/ failure_2 := v_45
+//line codecli/cli.ergo:373:4
 			t_2 := asJSON
-//line codecli/cli.ergo:402:45
+//line codecli/cli.ergo:373:45
 			v_58 := rpc__EncodeMono_i579832483(env, struct {
-				/*line codecli/cli.ergo:402:45*/ Enc func(*Env, Writer, code__NotCallable) (struct{}, error)
-				/*line codecli/cli.ergo:402:45*/ Dec func(*Env, Reader) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Direct0 func(*Env, json__text, code__NotCallable) json__text
-				/*line codecli/cli.ergo:402:45*/ Read0 func(*Env, codec__Replay) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Read1 func(*Env, config__reader) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Read2 func(*Env, http__queryReader) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Read3 func(*Env, json__Reader_1) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Read4 func(*Env, json__Stream) (code__NotCallable, error)
-				/*line codecli/cli.ergo:402:45*/ Field *struct {
-					/*line codecli/cli.ergo:402:45*/ Enc func(*Env, Writer, code__NotCallable) (struct{}, error)
-					/*line codecli/cli.ergo:402:45*/ Dec func(*Env, Reader) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Direct0 func(*Env, json__text, code__NotCallable) json__text
-					/*line codecli/cli.ergo:402:45*/ Read0 func(*Env, codec__Replay) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Read1 func(*Env, config__reader) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Read2 func(*Env, http__queryReader) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Read3 func(*Env, json__Reader_1) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Read4 func(*Env, json__Stream) (code__NotCallable, error)
-					/*line codecli/cli.ergo:402:45*/ Absent func(code__NotCallable) bool
-					/*line codecli/cli.ergo:402:45*/ Empty code__NotCallable
-					/*line codecli/cli.ergo:402:45*/
+				/*line codecli/cli.ergo:373:45*/ Enc func(*Env, Writer, code__NotCallable) (struct{}, error)
+				/*line codecli/cli.ergo:373:45*/ Dec func(*Env, Reader) (code__NotCallable, error)
+				/*line codecli/cli.ergo:373:45*/ Direct0 func(*Env, json__text, code__NotCallable) json__text
+				/*line codecli/cli.ergo:373:45*/ Read0 func(*Env, codec__Replay) (code__NotCallable, error)
+				/*line codecli/cli.ergo:373:45*/ Read1 func(*Env, config__reader) (code__NotCallable, error)
+				/*line codecli/cli.ergo:373:45*/ Read2 func(*Env, http__queryReader) (code__NotCallable, error)
+				/*line codecli/cli.ergo:373:45*/ Read3 func(*Env, json__Reader_1) (code__NotCallable, error)
+				/*line codecli/cli.ergo:373:45*/ Read4 func(*Env, json__Stream) (code__NotCallable, error)
+				/*line codecli/cli.ergo:373:45*/ Field *struct {
+					/*line codecli/cli.ergo:373:45*/ Enc func(*Env, Writer, code__NotCallable) (struct{}, error)
+					/*line codecli/cli.ergo:373:45*/ Dec func(*Env, Reader) (code__NotCallable, error)
+					/*line codecli/cli.ergo:373:45*/ Direct0 func(*Env, json__text, code__NotCallable) json__text
+					/*line codecli/cli.ergo:373:45*/ Read0 func(*Env, codec__Replay) (code__NotCallable, error)
+					/*line codecli/cli.ergo:373:45*/ Read1 func(*Env, config__reader) (code__NotCallable, error)
+					/*line codecli/cli.ergo:373:45*/ Read2 func(*Env, http__queryReader) (code__NotCallable, error)
+					/*line codecli/cli.ergo:373:45*/ Read3 func(*Env, json__Reader_1) (code__NotCallable, error)
+					/*line codecli/cli.ergo:373:45*/ Read4 func(*Env, json__Stream) (code__NotCallable, error)
+					/*line codecli/cli.ergo:373:45*/ Absent func(code__NotCallable) bool
+					/*line codecli/cli.ergo:373:45*/ Empty code__NotCallable
+					/*line codecli/cli.ergo:373:45*/
 				}
-				/*line codecli/cli.ergo:402:45*/
+				/*line codecli/cli.ergo:373:45*/
 			}{Enc: func(e_30 *Env, w_10 Writer, v_56 code__NotCallable) (struct{}, error) {
-				/*line codecli/cli.ergo:402:45*/ ergo__EncodeNotCallable(e_30, w_10, v_56)
-				/*line codecli/cli.ergo:402:45*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:402:45*/
+				/*line codecli/cli.ergo:373:45*/ ergo__EncodeNotCallable(e_30, w_10, v_56)
+				/*line codecli/cli.ergo:373:45*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:373:45*/
 			}, Dec: func(e_31 *Env, r_10 Reader) (code__NotCallable, error) {
-				/*line codecli/cli.ergo:402:45*/ x_10, err_12 := ergo__DecodeNotCallable(e_31, r_10)
-				/*line codecli/cli.ergo:402:45*/ if err_12 != nil {
-					/*line codecli/cli.ergo:402:45*/ return *new(code__NotCallable), err_12
-					/*line codecli/cli.ergo:402:45*/
+				/*line codecli/cli.ergo:373:45*/ x_10, err_12 := ergo__DecodeNotCallable(e_31, r_10)
+				/*line codecli/cli.ergo:373:45*/ if err_12 != nil {
+					/*line codecli/cli.ergo:373:45*/ return *new(code__NotCallable), err_12
+					/*line codecli/cli.ergo:373:45*/
 				}
-				/*line codecli/cli.ergo:402:45*/ return x_10, nil
-				/*line codecli/cli.ergo:402:45*/
+				/*line codecli/cli.ergo:373:45*/ return x_10, nil
+				/*line codecli/cli.ergo:373:45*/
 			}, Direct0: ergo__WriteNotCallable, Read0: ergo__ReadNotCallable, Read1: ergo__ReadNotCallable_1, Read2: ergo__ReadNotCallable_2, Read3: ergo__ReadNotCallable_3, Read4: ergo__ReadNotCallable_4, Field: nil}, failure_2.E)
-//line codecli/cli.ergo:402:4
-//line codecli/cli.ergo:402:19
+//line codecli/cli.ergo:373:4
+//line codecli/cli.ergo:373:19
 			v_59 := ergorpc.RPCTagged("NotCallable", v_58)
-//line codecli/cli.ergo:402:4
+//line codecli/cli.ergo:373:4
 			v_60 := codetool_scodecli__failed(env, t_2, v_59, v_44)
-			/*line codecli/cli.ergo:402:4*/ return v_60
-			/*line codecli/cli.ergo:402:4*/
+			/*line codecli/cli.ergo:373:4*/ return v_60
+			/*line codecli/cli.ergo:373:4*/
 		case codetool_scodeapi__NoPackage:
-			/*line codecli/cli.ergo:402:4*/ failure_3 := v_45
-//line codecli/cli.ergo:404:4
+			/*line codecli/cli.ergo:373:4*/ failure_3 := v_45
+//line codecli/cli.ergo:375:4
 			t_3 := asJSON
-//line codecli/cli.ergo:404:43
+//line codecli/cli.ergo:375:43
 			v_63 := rpc__EncodeMono_i845740567(env, struct {
-				/*line codecli/cli.ergo:404:43*/ Enc func(*Env, Writer, code__NoPackage) (struct{}, error)
-				/*line codecli/cli.ergo:404:43*/ Dec func(*Env, Reader) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Direct0 func(*Env, json__text, code__NoPackage) json__text
-				/*line codecli/cli.ergo:404:43*/ Read0 func(*Env, codec__Replay) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Read1 func(*Env, config__reader) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Read2 func(*Env, http__queryReader) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Read3 func(*Env, json__Reader_1) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Read4 func(*Env, json__Stream) (code__NoPackage, error)
-				/*line codecli/cli.ergo:404:43*/ Field *struct {
-					/*line codecli/cli.ergo:404:43*/ Enc func(*Env, Writer, code__NoPackage) (struct{}, error)
-					/*line codecli/cli.ergo:404:43*/ Dec func(*Env, Reader) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Direct0 func(*Env, json__text, code__NoPackage) json__text
-					/*line codecli/cli.ergo:404:43*/ Read0 func(*Env, codec__Replay) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Read1 func(*Env, config__reader) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Read2 func(*Env, http__queryReader) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Read3 func(*Env, json__Reader_1) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Read4 func(*Env, json__Stream) (code__NoPackage, error)
-					/*line codecli/cli.ergo:404:43*/ Absent func(code__NoPackage) bool
-					/*line codecli/cli.ergo:404:43*/ Empty code__NoPackage
-					/*line codecli/cli.ergo:404:43*/
+				/*line codecli/cli.ergo:375:43*/ Enc func(*Env, Writer, code__NoPackage) (struct{}, error)
+				/*line codecli/cli.ergo:375:43*/ Dec func(*Env, Reader) (code__NoPackage, error)
+				/*line codecli/cli.ergo:375:43*/ Direct0 func(*Env, json__text, code__NoPackage) json__text
+				/*line codecli/cli.ergo:375:43*/ Read0 func(*Env, codec__Replay) (code__NoPackage, error)
+				/*line codecli/cli.ergo:375:43*/ Read1 func(*Env, config__reader) (code__NoPackage, error)
+				/*line codecli/cli.ergo:375:43*/ Read2 func(*Env, http__queryReader) (code__NoPackage, error)
+				/*line codecli/cli.ergo:375:43*/ Read3 func(*Env, json__Reader_1) (code__NoPackage, error)
+				/*line codecli/cli.ergo:375:43*/ Read4 func(*Env, json__Stream) (code__NoPackage, error)
+				/*line codecli/cli.ergo:375:43*/ Field *struct {
+					/*line codecli/cli.ergo:375:43*/ Enc func(*Env, Writer, code__NoPackage) (struct{}, error)
+					/*line codecli/cli.ergo:375:43*/ Dec func(*Env, Reader) (code__NoPackage, error)
+					/*line codecli/cli.ergo:375:43*/ Direct0 func(*Env, json__text, code__NoPackage) json__text
+					/*line codecli/cli.ergo:375:43*/ Read0 func(*Env, codec__Replay) (code__NoPackage, error)
+					/*line codecli/cli.ergo:375:43*/ Read1 func(*Env, config__reader) (code__NoPackage, error)
+					/*line codecli/cli.ergo:375:43*/ Read2 func(*Env, http__queryReader) (code__NoPackage, error)
+					/*line codecli/cli.ergo:375:43*/ Read3 func(*Env, json__Reader_1) (code__NoPackage, error)
+					/*line codecli/cli.ergo:375:43*/ Read4 func(*Env, json__Stream) (code__NoPackage, error)
+					/*line codecli/cli.ergo:375:43*/ Absent func(code__NoPackage) bool
+					/*line codecli/cli.ergo:375:43*/ Empty code__NoPackage
+					/*line codecli/cli.ergo:375:43*/
 				}
-				/*line codecli/cli.ergo:404:43*/
+				/*line codecli/cli.ergo:375:43*/
 			}{Enc: func(e_33 *Env, w_11 Writer, v_61 code__NoPackage) (struct{}, error) {
-				/*line codecli/cli.ergo:404:43*/ ergo__EncodeNoPackage(e_33, w_11, v_61)
-				/*line codecli/cli.ergo:404:43*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:404:43*/
+				/*line codecli/cli.ergo:375:43*/ ergo__EncodeNoPackage(e_33, w_11, v_61)
+				/*line codecli/cli.ergo:375:43*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:375:43*/
 			}, Dec: func(e_34 *Env, r_11 Reader) (code__NoPackage, error) {
-				/*line codecli/cli.ergo:404:43*/ x_11, err_13 := ergo__DecodeNoPackage(e_34, r_11)
-				/*line codecli/cli.ergo:404:43*/ if err_13 != nil {
-					/*line codecli/cli.ergo:404:43*/ return *new(code__NoPackage), err_13
-					/*line codecli/cli.ergo:404:43*/
+				/*line codecli/cli.ergo:375:43*/ x_11, err_13 := ergo__DecodeNoPackage(e_34, r_11)
+				/*line codecli/cli.ergo:375:43*/ if err_13 != nil {
+					/*line codecli/cli.ergo:375:43*/ return *new(code__NoPackage), err_13
+					/*line codecli/cli.ergo:375:43*/
 				}
-				/*line codecli/cli.ergo:404:43*/ return x_11, nil
-				/*line codecli/cli.ergo:404:43*/
+				/*line codecli/cli.ergo:375:43*/ return x_11, nil
+				/*line codecli/cli.ergo:375:43*/
 			}, Direct0: ergo__WriteNoPackage, Read0: ergo__ReadNoPackage, Read1: ergo__ReadNoPackage_1, Read2: ergo__ReadNoPackage_2, Read3: ergo__ReadNoPackage_3, Read4: ergo__ReadNoPackage_4, Field: nil}, failure_3.E)
-//line codecli/cli.ergo:404:4
-//line codecli/cli.ergo:404:19
+//line codecli/cli.ergo:375:4
+//line codecli/cli.ergo:375:19
 			v_64 := ergorpc.RPCTagged("NoPackage", v_63)
-//line codecli/cli.ergo:404:4
+//line codecli/cli.ergo:375:4
 			v_65 := codetool_scodecli__failed(env, t_3, v_64, v_44)
-			/*line codecli/cli.ergo:404:4*/ return v_65
-			/*line codecli/cli.ergo:404:4*/
+			/*line codecli/cli.ergo:375:4*/ return v_65
+			/*line codecli/cli.ergo:375:4*/
 		case codetool_scodeapi__NotMachine:
-			/*line codecli/cli.ergo:404:4*/ failure_4 := v_45
-//line codecli/cli.ergo:406:4
+			/*line codecli/cli.ergo:375:4*/ failure_4 := v_45
+//line codecli/cli.ergo:377:4
 			t_4 := asJSON
-//line codecli/cli.ergo:406:44
+//line codecli/cli.ergo:377:44
 			v_68 := rpc__EncodeMono_i1966107540(env, struct {
-				/*line codecli/cli.ergo:406:44*/ Enc func(*Env, Writer, code__NotMachine) (struct{}, error)
-				/*line codecli/cli.ergo:406:44*/ Dec func(*Env, Reader) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Direct0 func(*Env, json__text, code__NotMachine) json__text
-				/*line codecli/cli.ergo:406:44*/ Read0 func(*Env, codec__Replay) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Read1 func(*Env, config__reader) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Read2 func(*Env, http__queryReader) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Read3 func(*Env, json__Reader_1) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Read4 func(*Env, json__Stream) (code__NotMachine, error)
-				/*line codecli/cli.ergo:406:44*/ Field *struct {
-					/*line codecli/cli.ergo:406:44*/ Enc func(*Env, Writer, code__NotMachine) (struct{}, error)
-					/*line codecli/cli.ergo:406:44*/ Dec func(*Env, Reader) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Direct0 func(*Env, json__text, code__NotMachine) json__text
-					/*line codecli/cli.ergo:406:44*/ Read0 func(*Env, codec__Replay) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Read1 func(*Env, config__reader) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Read2 func(*Env, http__queryReader) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Read3 func(*Env, json__Reader_1) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Read4 func(*Env, json__Stream) (code__NotMachine, error)
-					/*line codecli/cli.ergo:406:44*/ Absent func(code__NotMachine) bool
-					/*line codecli/cli.ergo:406:44*/ Empty code__NotMachine
-					/*line codecli/cli.ergo:406:44*/
+				/*line codecli/cli.ergo:377:44*/ Enc func(*Env, Writer, code__NotMachine) (struct{}, error)
+				/*line codecli/cli.ergo:377:44*/ Dec func(*Env, Reader) (code__NotMachine, error)
+				/*line codecli/cli.ergo:377:44*/ Direct0 func(*Env, json__text, code__NotMachine) json__text
+				/*line codecli/cli.ergo:377:44*/ Read0 func(*Env, codec__Replay) (code__NotMachine, error)
+				/*line codecli/cli.ergo:377:44*/ Read1 func(*Env, config__reader) (code__NotMachine, error)
+				/*line codecli/cli.ergo:377:44*/ Read2 func(*Env, http__queryReader) (code__NotMachine, error)
+				/*line codecli/cli.ergo:377:44*/ Read3 func(*Env, json__Reader_1) (code__NotMachine, error)
+				/*line codecli/cli.ergo:377:44*/ Read4 func(*Env, json__Stream) (code__NotMachine, error)
+				/*line codecli/cli.ergo:377:44*/ Field *struct {
+					/*line codecli/cli.ergo:377:44*/ Enc func(*Env, Writer, code__NotMachine) (struct{}, error)
+					/*line codecli/cli.ergo:377:44*/ Dec func(*Env, Reader) (code__NotMachine, error)
+					/*line codecli/cli.ergo:377:44*/ Direct0 func(*Env, json__text, code__NotMachine) json__text
+					/*line codecli/cli.ergo:377:44*/ Read0 func(*Env, codec__Replay) (code__NotMachine, error)
+					/*line codecli/cli.ergo:377:44*/ Read1 func(*Env, config__reader) (code__NotMachine, error)
+					/*line codecli/cli.ergo:377:44*/ Read2 func(*Env, http__queryReader) (code__NotMachine, error)
+					/*line codecli/cli.ergo:377:44*/ Read3 func(*Env, json__Reader_1) (code__NotMachine, error)
+					/*line codecli/cli.ergo:377:44*/ Read4 func(*Env, json__Stream) (code__NotMachine, error)
+					/*line codecli/cli.ergo:377:44*/ Absent func(code__NotMachine) bool
+					/*line codecli/cli.ergo:377:44*/ Empty code__NotMachine
+					/*line codecli/cli.ergo:377:44*/
 				}
-				/*line codecli/cli.ergo:406:44*/
+				/*line codecli/cli.ergo:377:44*/
 			}{Enc: func(e_36 *Env, w_12 Writer, v_66 code__NotMachine) (struct{}, error) {
-				/*line codecli/cli.ergo:406:44*/ ergo__EncodeNotMachine(e_36, w_12, v_66)
-				/*line codecli/cli.ergo:406:44*/ return struct{}{}, nil
-				/*line codecli/cli.ergo:406:44*/
+				/*line codecli/cli.ergo:377:44*/ ergo__EncodeNotMachine(e_36, w_12, v_66)
+				/*line codecli/cli.ergo:377:44*/ return struct{}{}, nil
+				/*line codecli/cli.ergo:377:44*/
 			}, Dec: func(e_37 *Env, r_12 Reader) (code__NotMachine, error) {
-				/*line codecli/cli.ergo:406:44*/ x_12, err_14 := ergo__DecodeNotMachine(e_37, r_12)
-				/*line codecli/cli.ergo:406:44*/ if err_14 != nil {
-					/*line codecli/cli.ergo:406:44*/ return *new(code__NotMachine), err_14
-					/*line codecli/cli.ergo:406:44*/
+				/*line codecli/cli.ergo:377:44*/ x_12, err_14 := ergo__DecodeNotMachine(e_37, r_12)
+				/*line codecli/cli.ergo:377:44*/ if err_14 != nil {
+					/*line codecli/cli.ergo:377:44*/ return *new(code__NotMachine), err_14
+					/*line codecli/cli.ergo:377:44*/
 				}
-				/*line codecli/cli.ergo:406:44*/ return x_12, nil
-				/*line codecli/cli.ergo:406:44*/
+				/*line codecli/cli.ergo:377:44*/ return x_12, nil
+				/*line codecli/cli.ergo:377:44*/
 			}, Direct0: ergo__WriteNotMachine, Read0: ergo__ReadNotMachine, Read1: ergo__ReadNotMachine_1, Read2: ergo__ReadNotMachine_2, Read3: ergo__ReadNotMachine_3, Read4: ergo__ReadNotMachine_4, Field: nil}, failure_4.E)
-//line codecli/cli.ergo:406:4
-//line codecli/cli.ergo:406:19
+//line codecli/cli.ergo:377:4
+//line codecli/cli.ergo:377:19
 			v_69 := ergorpc.RPCTagged("NotMachine", v_68)
-//line codecli/cli.ergo:406:4
+//line codecli/cli.ergo:377:4
 			v_70 := codetool_scodecli__failed(env, t_4, v_69, v_44)
-			/*line codecli/cli.ergo:406:4*/ return v_70
-			/*line codecli/cli.ergo:406:4*/
+			/*line codecli/cli.ergo:377:4*/ return v_70
+			/*line codecli/cli.ergo:377:4*/
 		default:
-			/*line codecli/cli.ergo:406:4*/ _ = v_45
-			/*line codecli/cli.ergo:406:4*/ panic("ergo: defect: no case of the match at 396:3 matched")
-			/*line codecli/cli.ergo:406:4*/
+			/*line codecli/cli.ergo:377:4*/ _ = v_45
+			/*line codecli/cli.ergo:377:4*/ panic("ergo: defect: no case of the match at 367:3 matched")
+			/*line codecli/cli.ergo:377:4*/
 		}
-		/*line codecli/cli.ergo:406:4*/
+		/*line codecli/cli.ergo:377:4*/
 	default:
-		/*line codecli/cli.ergo:406:4*/ _ = v
-		/*line codecli/cli.ergo:406:4*/ panic("ergo: defect: no case of the match at 351:2 matched")
-		/*line codecli/cli.ergo:406:4*/
+		/*line codecli/cli.ergo:377:4*/ _ = v
+		/*line codecli/cli.ergo:377:4*/ panic("ergo: defect: no case of the match at 322:2 matched")
+		/*line codecli/cli.ergo:377:4*/
 	}
-	/*line codecli/cli.ergo:406:4*/
+	/*line codecli/cli.ergo:377:4*/
 }
 
-//line codecli/cli.ergo:510:1
+//line codecli/cli.ergo:478:1
 type codetool_scodecli__front struct {
-	/*line codecli/cli.ergo:510:1*/ tag uint8
-	/*line codecli/cli.ergo:510:1*/ p0 codetool_scodeapi__Request
-	/*line codecli/cli.ergo:510:1*/ p1 bool
-	/*line codecli/cli.ergo:510:1*/ p2 bool
-	/*line codecli/cli.ergo:510:1*/ p3 api__Output
-	/*line codecli/cli.ergo:510:1*/
+	/*line codecli/cli.ergo:478:1*/ tag uint8
+	/*line codecli/cli.ergo:478:1*/ p0 codetool_scodeapi__Request
+	/*line codecli/cli.ergo:478:1*/ p1 bool
+	/*line codecli/cli.ergo:478:1*/ p2 bool
+	/*line codecli/cli.ergo:478:1*/ p3 api__Output
+	/*line codecli/cli.ergo:478:1*/
 }
 
-/*line codecli/cli.ergo:510:1*/
+/*line codecli/cli.ergo:478:1*/
 func (codetool_scodecli__front) of0(v codetool_scodecli__asked) codetool_scodecli__front {
-	/*line codecli/cli.ergo:510:1*/ return codetool_scodecli__front{tag: 0, p0: v.R, p1: v.JSON, p2: v.Yes}
-	/*line codecli/cli.ergo:510:1*/
+	/*line codecli/cli.ergo:478:1*/ return codetool_scodecli__front{tag: 0, p0: v.R, p1: v.JSON, p2: v.Yes}
+	/*line codecli/cli.ergo:478:1*/
 }
 
-/*line codecli/cli.ergo:510:1*/
+/*line codecli/cli.ergo:478:1*/
 func (u codetool_scodecli__front) as0() codetool_scodecli__asked {
-	/*line codecli/cli.ergo:510:1*/ return codetool_scodecli__asked{R: u.p0, JSON: u.p1, Yes: u.p2}
-	/*line codecli/cli.ergo:510:1*/
+	/*line codecli/cli.ergo:478:1*/ return codetool_scodecli__asked{R: u.p0, JSON: u.p1, Yes: u.p2}
+	/*line codecli/cli.ergo:478:1*/
 }
 
-/*line codecli/cli.ergo:510:1*/
+/*line codecli/cli.ergo:478:1*/
 func (codetool_scodecli__front) of1(v codetool_scodecli__ended) codetool_scodecli__front {
-	/*line codecli/cli.ergo:510:1*/ return codetool_scodecli__front{tag: 1, p3: v.O}
-	/*line codecli/cli.ergo:510:1*/
+	/*line codecli/cli.ergo:478:1*/ return codetool_scodecli__front{tag: 1, p3: v.O}
+	/*line codecli/cli.ergo:478:1*/
 }
 
-/*line codecli/cli.ergo:510:1*/
+/*line codecli/cli.ergo:478:1*/
 func (u codetool_scodecli__front) as1() codetool_scodecli__ended {
-	/*line codecli/cli.ergo:510:1*/ return codetool_scodecli__ended{O: u.p3}
-	/*line codecli/cli.ergo:510:1*/
+	/*line codecli/cli.ergo:478:1*/ return codetool_scodecli__ended{O: u.p3}
+	/*line codecli/cli.ergo:478:1*/
 }
 
-/*line codecli/cli.ergo:510:1*/
+/*line codecli/cli.ergo:478:1*/
 func (x codetool_scodecli__front) ErgoVariant() string { return [...]string{"asked", "ended"}[x.tag] }
 
-//line codecli/cli.ergo:139:1
+//line codecli/cli.ergo:115:1
 func codetool_scodecli__Parse(env *Env, args []string) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:139:1
+//line codecli/cli.ergo:115:1
 	env.task.Check()
-//line codecli/cli.ergo:140:2
+//line codecli/cli.ergo:116:2
 	var v string
-//line codecli/cli.ergo:140:14
+//line codecli/cli.ergo:116:14
 	if len(args) > int(0) {
-//line codecli/cli.ergo:140:33
-		v = /*line codecli/cli.ergo:140:33*/ args[int(0)]
-		/*line codecli/cli.ergo:140:33*/
+//line codecli/cli.ergo:116:33
+		v = /*line codecli/cli.ergo:116:33*/ args[int(0)]
+		/*line codecli/cli.ergo:116:33*/
 	} else {
-//line codecli/cli.ergo:140:50
+//line codecli/cli.ergo:116:50
 		v = ""
-		/*line codecli/cli.ergo:140:50*/
+		/*line codecli/cli.ergo:116:50*/
 	}
-	/*line codecli/cli.ergo:140:50*/ var first string = v
-//line codecli/cli.ergo:141:2
+	/*line codecli/cli.ergo:116:50*/ var first string = v
+//line codecli/cli.ergo:117:2
 	switch first {
-	/*line codecli/cli.ergo:141:2*/ case "describe":
+	/*line codecli/cli.ergo:117:2*/ case "describe":
+//line codecli/cli.ergo:119:3
+//line codecli/cli.ergo:119:11
+		v_1 := codetool_scodecli__commandDescribe()
+//line codecli/cli.ergo:119:3
+//line codecli/cli.ergo:120:3
+		u := v_1.Set
+		/*line codecli/cli.ergo:120:3*/ u.Name = "code describe"
+		/*line codecli/cli.ergo:120:3*/ t := u
+//line codecli/cli.ergo:120:68
+		var v_2 []string
+		/*line codecli/cli.ergo:120:68*/ {
+			/*line codecli/cli.ergo:120:68*/ var i int = int(1)
+			/*line codecli/cli.ergo:120:68*/ var j int = len(args)
+			/*line codecli/cli.ergo:120:68*/ v_2 = ergo.SlicesSlice[string](args, i, j)
+
+			/*line codecli/cli.ergo:120:68*/
+		}
+//line codecli/cli.ergo:120:15
+		v_4, err := (t).Parse(v_2)
+//line codecli/cli.ergo:120:68
+		if err != nil {
+			/*line codecli/cli.ergo:120:68*/ return *new(codetool_scodeapi__Request), err
+			/*line codecli/cli.ergo:120:68*/
+		}
+//line codecli/cli.ergo:121:3
+//line codecli/cli.ergo:121:7
+		v_5, err_1 := v_1.Build(env, v_4)
+//line codecli/cli.ergo:121:3
+		if err_1 != nil {
+			/*line codecli/cli.ergo:121:3*/ return *new(codetool_scodeapi__Request), err_1
+			/*line codecli/cli.ergo:121:3*/
+		}
+		/*line codecli/cli.ergo:121:3*/ return v_5, nil
+		/*line codecli/cli.ergo:121:3*/
+	case "symbols":
+//line codecli/cli.ergo:123:3
+//line codecli/cli.ergo:123:11
+		v_6 := codetool_scodecli__commandSymbols()
+//line codecli/cli.ergo:123:3
+//line codecli/cli.ergo:124:3
+		u_1 := v_6.Set
+		/*line codecli/cli.ergo:124:3*/ u_1.Name = "code symbols"
+		/*line codecli/cli.ergo:124:3*/ t_1 := u_1
+//line codecli/cli.ergo:124:67
+		var v_7 []string
+		/*line codecli/cli.ergo:124:67*/ {
+			/*line codecli/cli.ergo:124:67*/ var i_1 int = int(1)
+			/*line codecli/cli.ergo:124:67*/ var j_1 int = len(args)
+			/*line codecli/cli.ergo:124:67*/ v_7 = ergo.SlicesSlice[string](args, i_1, j_1)
+
+			/*line codecli/cli.ergo:124:67*/
+		}
+//line codecli/cli.ergo:124:15
+		v_9, err_2 := (t_1).Parse(v_7)
+//line codecli/cli.ergo:124:67
+		if err_2 != nil {
+			/*line codecli/cli.ergo:124:67*/ return *new(codetool_scodeapi__Request), err_2
+			/*line codecli/cli.ergo:124:67*/
+		}
+//line codecli/cli.ergo:125:3
+//line codecli/cli.ergo:125:7
+		v_10, err_3 := v_6.Build(env, v_9)
+//line codecli/cli.ergo:125:3
+		if err_3 != nil {
+			/*line codecli/cli.ergo:125:3*/ return *new(codetool_scodeapi__Request), err_3
+			/*line codecli/cli.ergo:125:3*/
+		}
+		/*line codecli/cli.ergo:125:3*/ return v_10, nil
+		/*line codecli/cli.ergo:125:3*/
+	case "symbol":
+//line codecli/cli.ergo:127:3
+//line codecli/cli.ergo:127:11
+		v_11 := codetool_scodecli__commandSymbol()
+//line codecli/cli.ergo:127:3
+//line codecli/cli.ergo:128:3
+		u_2 := v_11.Set
+		/*line codecli/cli.ergo:128:3*/ u_2.Name = "code symbol"
+		/*line codecli/cli.ergo:128:3*/ t_2 := u_2
+//line codecli/cli.ergo:128:66
+		var v_12 []string
+		/*line codecli/cli.ergo:128:66*/ {
+			/*line codecli/cli.ergo:128:66*/ var i_2 int = int(1)
+			/*line codecli/cli.ergo:128:66*/ var j_2 int = len(args)
+			/*line codecli/cli.ergo:128:66*/ v_12 = ergo.SlicesSlice[string](args, i_2, j_2)
+
+			/*line codecli/cli.ergo:128:66*/
+		}
+//line codecli/cli.ergo:128:15
+		v_14, err_4 := (t_2).Parse(v_12)
+//line codecli/cli.ergo:128:66
+		if err_4 != nil {
+			/*line codecli/cli.ergo:128:66*/ return *new(codetool_scodeapi__Request), err_4
+			/*line codecli/cli.ergo:128:66*/
+		}
+//line codecli/cli.ergo:129:3
+//line codecli/cli.ergo:129:7
+		v_15, err_5 := v_11.Build(env, v_14)
+//line codecli/cli.ergo:129:3
+		if err_5 != nil {
+			/*line codecli/cli.ergo:129:3*/ return *new(codetool_scodeapi__Request), err_5
+			/*line codecli/cli.ergo:129:3*/
+		}
+		/*line codecli/cli.ergo:129:3*/ return v_15, nil
+		/*line codecli/cli.ergo:129:3*/
+	case "references":
+//line codecli/cli.ergo:131:3
+//line codecli/cli.ergo:131:11
+		v_16 := codetool_scodecli__commandReferences()
+//line codecli/cli.ergo:131:3
+//line codecli/cli.ergo:132:3
+		u_3 := v_16.Set
+		/*line codecli/cli.ergo:132:3*/ u_3.Name = "code references"
+		/*line codecli/cli.ergo:132:3*/ t_3 := u_3
+//line codecli/cli.ergo:132:70
+		var v_17 []string
+		/*line codecli/cli.ergo:132:70*/ {
+			/*line codecli/cli.ergo:132:70*/ var i_3 int = int(1)
+			/*line codecli/cli.ergo:132:70*/ var j_3 int = len(args)
+			/*line codecli/cli.ergo:132:70*/ v_17 = ergo.SlicesSlice[string](args, i_3, j_3)
+
+			/*line codecli/cli.ergo:132:70*/
+		}
+//line codecli/cli.ergo:132:15
+		v_19, err_6 := (t_3).Parse(v_17)
+//line codecli/cli.ergo:132:70
+		if err_6 != nil {
+			/*line codecli/cli.ergo:132:70*/ return *new(codetool_scodeapi__Request), err_6
+			/*line codecli/cli.ergo:132:70*/
+		}
+//line codecli/cli.ergo:133:3
+//line codecli/cli.ergo:133:7
+		v_20, err_7 := v_16.Build(env, v_19)
+//line codecli/cli.ergo:133:3
+		if err_7 != nil {
+			/*line codecli/cli.ergo:133:3*/ return *new(codetool_scodeapi__Request), err_7
+			/*line codecli/cli.ergo:133:3*/
+		}
+		/*line codecli/cli.ergo:133:3*/ return v_20, nil
+		/*line codecli/cli.ergo:133:3*/
+	case "calls":
+//line codecli/cli.ergo:135:3
+//line codecli/cli.ergo:135:11
+		v_21 := codetool_scodecli__commandCalls()
+//line codecli/cli.ergo:135:3
+//line codecli/cli.ergo:136:3
+		u_4 := v_21.Set
+		/*line codecli/cli.ergo:136:3*/ u_4.Name = "code calls"
+		/*line codecli/cli.ergo:136:3*/ t_4 := u_4
+//line codecli/cli.ergo:136:65
+		var v_22 []string
+		/*line codecli/cli.ergo:136:65*/ {
+			/*line codecli/cli.ergo:136:65*/ var i_4 int = int(1)
+			/*line codecli/cli.ergo:136:65*/ var j_4 int = len(args)
+			/*line codecli/cli.ergo:136:65*/ v_22 = ergo.SlicesSlice[string](args, i_4, j_4)
+
+			/*line codecli/cli.ergo:136:65*/
+		}
+//line codecli/cli.ergo:136:15
+		v_24, err_8 := (t_4).Parse(v_22)
+//line codecli/cli.ergo:136:65
+		if err_8 != nil {
+			/*line codecli/cli.ergo:136:65*/ return *new(codetool_scodeapi__Request), err_8
+			/*line codecli/cli.ergo:136:65*/
+		}
+//line codecli/cli.ergo:137:3
+//line codecli/cli.ergo:137:7
+		v_25, err_9 := v_21.Build(env, v_24)
+//line codecli/cli.ergo:137:3
+		if err_9 != nil {
+			/*line codecli/cli.ergo:137:3*/ return *new(codetool_scodeapi__Request), err_9
+			/*line codecli/cli.ergo:137:3*/
+		}
+		/*line codecli/cli.ergo:137:3*/ return v_25, nil
+		/*line codecli/cli.ergo:137:3*/
+	case "api":
+//line codecli/cli.ergo:139:3
+//line codecli/cli.ergo:139:11
+		v_26 := codetool_scodecli__commandApi()
+//line codecli/cli.ergo:139:3
+//line codecli/cli.ergo:140:3
+		u_5 := v_26.Set
+		/*line codecli/cli.ergo:140:3*/ u_5.Name = "code api"
+		/*line codecli/cli.ergo:140:3*/ t_5 := u_5
+//line codecli/cli.ergo:140:63
+		var v_27 []string
+		/*line codecli/cli.ergo:140:63*/ {
+			/*line codecli/cli.ergo:140:63*/ var i_5 int = int(1)
+			/*line codecli/cli.ergo:140:63*/ var j_5 int = len(args)
+			/*line codecli/cli.ergo:140:63*/ v_27 = ergo.SlicesSlice[string](args, i_5, j_5)
+
+			/*line codecli/cli.ergo:140:63*/
+		}
+//line codecli/cli.ergo:140:15
+		v_29, err_10 := (t_5).Parse(v_27)
+//line codecli/cli.ergo:140:63
+		if err_10 != nil {
+			/*line codecli/cli.ergo:140:63*/ return *new(codetool_scodeapi__Request), err_10
+			/*line codecli/cli.ergo:140:63*/
+		}
+//line codecli/cli.ergo:141:3
+//line codecli/cli.ergo:141:7
+		v_30, err_11 := v_26.Build(env, v_29)
+//line codecli/cli.ergo:141:3
+		if err_11 != nil {
+			/*line codecli/cli.ergo:141:3*/ return *new(codetool_scodeapi__Request), err_11
+			/*line codecli/cli.ergo:141:3*/
+		}
+		/*line codecli/cli.ergo:141:3*/ return v_30, nil
+		/*line codecli/cli.ergo:141:3*/
+	case "reach":
 //line codecli/cli.ergo:143:3
 //line codecli/cli.ergo:143:11
-		v_1 := codetool_scodecli__commandDescribe()
+		v_31 := codetool_scodecli__commandReach()
 //line codecli/cli.ergo:143:3
 //line codecli/cli.ergo:144:3
-		u := v_1.Set
-		/*line codecli/cli.ergo:144:3*/ u.Name = "code describe"
-		/*line codecli/cli.ergo:144:3*/ t := u
-//line codecli/cli.ergo:144:68
-		var v_2 []string
-		/*line codecli/cli.ergo:144:68*/ {
-			/*line codecli/cli.ergo:144:68*/ var i int = int(1)
-			/*line codecli/cli.ergo:144:68*/ var j int = len(args)
-			/*line codecli/cli.ergo:144:68*/ v_2 = ergo.SlicesSlice[string](args, i, j)
+		u_6 := v_31.Set
+		/*line codecli/cli.ergo:144:3*/ u_6.Name = "code reach"
+		/*line codecli/cli.ergo:144:3*/ t_6 := u_6
+//line codecli/cli.ergo:144:65
+		var v_32 []string
+		/*line codecli/cli.ergo:144:65*/ {
+			/*line codecli/cli.ergo:144:65*/ var i_6 int = int(1)
+			/*line codecli/cli.ergo:144:65*/ var j_6 int = len(args)
+			/*line codecli/cli.ergo:144:65*/ v_32 = ergo.SlicesSlice[string](args, i_6, j_6)
 
-			/*line codecli/cli.ergo:144:68*/
+			/*line codecli/cli.ergo:144:65*/
 		}
 //line codecli/cli.ergo:144:15
-		v_4, err := (t).Parse(v_2)
-//line codecli/cli.ergo:144:68
-		if err != nil {
-			/*line codecli/cli.ergo:144:68*/ return *new(codetool_scodeapi__Request), err
-			/*line codecli/cli.ergo:144:68*/
+		v_34, err_12 := (t_6).Parse(v_32)
+//line codecli/cli.ergo:144:65
+		if err_12 != nil {
+			/*line codecli/cli.ergo:144:65*/ return *new(codetool_scodeapi__Request), err_12
+			/*line codecli/cli.ergo:144:65*/
 		}
 //line codecli/cli.ergo:145:3
 //line codecli/cli.ergo:145:7
-		v_5, err_1 := v_1.Build(env, v_4)
+		v_35, err_13 := v_31.Build(env, v_34)
 //line codecli/cli.ergo:145:3
-		if err_1 != nil {
-			/*line codecli/cli.ergo:145:3*/ return *new(codetool_scodeapi__Request), err_1
+		if err_13 != nil {
+			/*line codecli/cli.ergo:145:3*/ return *new(codetool_scodeapi__Request), err_13
 			/*line codecli/cli.ergo:145:3*/
 		}
-		/*line codecli/cli.ergo:145:3*/ return v_5, nil
+		/*line codecli/cli.ergo:145:3*/ return v_35, nil
 		/*line codecli/cli.ergo:145:3*/
-	case "symbols":
+	case "machine-of":
 //line codecli/cli.ergo:147:3
 //line codecli/cli.ergo:147:11
-		v_6 := codetool_scodecli__commandSymbols()
+		v_36 := codetool_scodecli__commandMachineOf()
 //line codecli/cli.ergo:147:3
 //line codecli/cli.ergo:148:3
-		u_1 := v_6.Set
-		/*line codecli/cli.ergo:148:3*/ u_1.Name = "code symbols"
-		/*line codecli/cli.ergo:148:3*/ t_1 := u_1
-//line codecli/cli.ergo:148:67
-		var v_7 []string
-		/*line codecli/cli.ergo:148:67*/ {
-			/*line codecli/cli.ergo:148:67*/ var i_1 int = int(1)
-			/*line codecli/cli.ergo:148:67*/ var j_1 int = len(args)
-			/*line codecli/cli.ergo:148:67*/ v_7 = ergo.SlicesSlice[string](args, i_1, j_1)
+		u_7 := v_36.Set
+		/*line codecli/cli.ergo:148:3*/ u_7.Name = "code machine-of"
+		/*line codecli/cli.ergo:148:3*/ t_7 := u_7
+//line codecli/cli.ergo:148:70
+		var v_37 []string
+		/*line codecli/cli.ergo:148:70*/ {
+			/*line codecli/cli.ergo:148:70*/ var i_7 int = int(1)
+			/*line codecli/cli.ergo:148:70*/ var j_7 int = len(args)
+			/*line codecli/cli.ergo:148:70*/ v_37 = ergo.SlicesSlice[string](args, i_7, j_7)
 
-			/*line codecli/cli.ergo:148:67*/
+			/*line codecli/cli.ergo:148:70*/
 		}
 //line codecli/cli.ergo:148:15
-		v_9, err_2 := (t_1).Parse(v_7)
-//line codecli/cli.ergo:148:67
-		if err_2 != nil {
-			/*line codecli/cli.ergo:148:67*/ return *new(codetool_scodeapi__Request), err_2
-			/*line codecli/cli.ergo:148:67*/
+		v_39, err_14 := (t_7).Parse(v_37)
+//line codecli/cli.ergo:148:70
+		if err_14 != nil {
+			/*line codecli/cli.ergo:148:70*/ return *new(codetool_scodeapi__Request), err_14
+			/*line codecli/cli.ergo:148:70*/
 		}
 //line codecli/cli.ergo:149:3
 //line codecli/cli.ergo:149:7
-		v_10, err_3 := v_6.Build(env, v_9)
+		v_40, err_15 := v_36.Build(env, v_39)
 //line codecli/cli.ergo:149:3
-		if err_3 != nil {
-			/*line codecli/cli.ergo:149:3*/ return *new(codetool_scodeapi__Request), err_3
+		if err_15 != nil {
+			/*line codecli/cli.ergo:149:3*/ return *new(codetool_scodeapi__Request), err_15
 			/*line codecli/cli.ergo:149:3*/
 		}
-		/*line codecli/cli.ergo:149:3*/ return v_10, nil
+		/*line codecli/cli.ergo:149:3*/ return v_40, nil
 		/*line codecli/cli.ergo:149:3*/
-	case "symbol":
-//line codecli/cli.ergo:151:3
-//line codecli/cli.ergo:151:11
-		v_11 := codetool_scodecli__commandSymbol()
-//line codecli/cli.ergo:151:3
-//line codecli/cli.ergo:152:3
-		u_2 := v_11.Set
-		/*line codecli/cli.ergo:152:3*/ u_2.Name = "code symbol"
-		/*line codecli/cli.ergo:152:3*/ t_2 := u_2
-//line codecli/cli.ergo:152:66
-		var v_12 []string
-		/*line codecli/cli.ergo:152:66*/ {
-			/*line codecli/cli.ergo:152:66*/ var i_2 int = int(1)
-			/*line codecli/cli.ergo:152:66*/ var j_2 int = len(args)
-			/*line codecli/cli.ergo:152:66*/ v_12 = ergo.SlicesSlice[string](args, i_2, j_2)
-
-			/*line codecli/cli.ergo:152:66*/
-		}
-//line codecli/cli.ergo:152:15
-		v_14, err_4 := (t_2).Parse(v_12)
-//line codecli/cli.ergo:152:66
-		if err_4 != nil {
-			/*line codecli/cli.ergo:152:66*/ return *new(codetool_scodeapi__Request), err_4
-			/*line codecli/cli.ergo:152:66*/
-		}
-//line codecli/cli.ergo:153:3
-//line codecli/cli.ergo:153:7
-		v_15, err_5 := v_11.Build(env, v_14)
-//line codecli/cli.ergo:153:3
-		if err_5 != nil {
-			/*line codecli/cli.ergo:153:3*/ return *new(codetool_scodeapi__Request), err_5
-			/*line codecli/cli.ergo:153:3*/
-		}
-		/*line codecli/cli.ergo:153:3*/ return v_15, nil
-		/*line codecli/cli.ergo:153:3*/
-	case "references":
-//line codecli/cli.ergo:155:3
-//line codecli/cli.ergo:155:11
-		v_16 := codetool_scodecli__commandReferences()
-//line codecli/cli.ergo:155:3
-//line codecli/cli.ergo:156:3
-		u_3 := v_16.Set
-		/*line codecli/cli.ergo:156:3*/ u_3.Name = "code references"
-		/*line codecli/cli.ergo:156:3*/ t_3 := u_3
-//line codecli/cli.ergo:156:70
-		var v_17 []string
-		/*line codecli/cli.ergo:156:70*/ {
-			/*line codecli/cli.ergo:156:70*/ var i_3 int = int(1)
-			/*line codecli/cli.ergo:156:70*/ var j_3 int = len(args)
-			/*line codecli/cli.ergo:156:70*/ v_17 = ergo.SlicesSlice[string](args, i_3, j_3)
-
-			/*line codecli/cli.ergo:156:70*/
-		}
-//line codecli/cli.ergo:156:15
-		v_19, err_6 := (t_3).Parse(v_17)
-//line codecli/cli.ergo:156:70
-		if err_6 != nil {
-			/*line codecli/cli.ergo:156:70*/ return *new(codetool_scodeapi__Request), err_6
-			/*line codecli/cli.ergo:156:70*/
-		}
-//line codecli/cli.ergo:157:3
-//line codecli/cli.ergo:157:7
-		v_20, err_7 := v_16.Build(env, v_19)
-//line codecli/cli.ergo:157:3
-		if err_7 != nil {
-			/*line codecli/cli.ergo:157:3*/ return *new(codetool_scodeapi__Request), err_7
-			/*line codecli/cli.ergo:157:3*/
-		}
-		/*line codecli/cli.ergo:157:3*/ return v_20, nil
-		/*line codecli/cli.ergo:157:3*/
-	case "calls":
-//line codecli/cli.ergo:159:3
-//line codecli/cli.ergo:159:11
-		v_21 := codetool_scodecli__commandCalls()
-//line codecli/cli.ergo:159:3
-//line codecli/cli.ergo:160:3
-		u_4 := v_21.Set
-		/*line codecli/cli.ergo:160:3*/ u_4.Name = "code calls"
-		/*line codecli/cli.ergo:160:3*/ t_4 := u_4
-//line codecli/cli.ergo:160:65
-		var v_22 []string
-		/*line codecli/cli.ergo:160:65*/ {
-			/*line codecli/cli.ergo:160:65*/ var i_4 int = int(1)
-			/*line codecli/cli.ergo:160:65*/ var j_4 int = len(args)
-			/*line codecli/cli.ergo:160:65*/ v_22 = ergo.SlicesSlice[string](args, i_4, j_4)
-
-			/*line codecli/cli.ergo:160:65*/
-		}
-//line codecli/cli.ergo:160:15
-		v_24, err_8 := (t_4).Parse(v_22)
-//line codecli/cli.ergo:160:65
-		if err_8 != nil {
-			/*line codecli/cli.ergo:160:65*/ return *new(codetool_scodeapi__Request), err_8
-			/*line codecli/cli.ergo:160:65*/
-		}
-//line codecli/cli.ergo:161:3
-//line codecli/cli.ergo:161:7
-		v_25, err_9 := v_21.Build(env, v_24)
-//line codecli/cli.ergo:161:3
-		if err_9 != nil {
-			/*line codecli/cli.ergo:161:3*/ return *new(codetool_scodeapi__Request), err_9
-			/*line codecli/cli.ergo:161:3*/
-		}
-		/*line codecli/cli.ergo:161:3*/ return v_25, nil
-		/*line codecli/cli.ergo:161:3*/
-	case "api":
-//line codecli/cli.ergo:163:3
-//line codecli/cli.ergo:163:11
-		v_26 := codetool_scodecli__commandApi()
-//line codecli/cli.ergo:163:3
-//line codecli/cli.ergo:164:3
-		u_5 := v_26.Set
-		/*line codecli/cli.ergo:164:3*/ u_5.Name = "code api"
-		/*line codecli/cli.ergo:164:3*/ t_5 := u_5
-//line codecli/cli.ergo:164:63
-		var v_27 []string
-		/*line codecli/cli.ergo:164:63*/ {
-			/*line codecli/cli.ergo:164:63*/ var i_5 int = int(1)
-			/*line codecli/cli.ergo:164:63*/ var j_5 int = len(args)
-			/*line codecli/cli.ergo:164:63*/ v_27 = ergo.SlicesSlice[string](args, i_5, j_5)
-
-			/*line codecli/cli.ergo:164:63*/
-		}
-//line codecli/cli.ergo:164:15
-		v_29, err_10 := (t_5).Parse(v_27)
-//line codecli/cli.ergo:164:63
-		if err_10 != nil {
-			/*line codecli/cli.ergo:164:63*/ return *new(codetool_scodeapi__Request), err_10
-			/*line codecli/cli.ergo:164:63*/
-		}
-//line codecli/cli.ergo:165:3
-//line codecli/cli.ergo:165:7
-		v_30, err_11 := v_26.Build(env, v_29)
-//line codecli/cli.ergo:165:3
-		if err_11 != nil {
-			/*line codecli/cli.ergo:165:3*/ return *new(codetool_scodeapi__Request), err_11
-			/*line codecli/cli.ergo:165:3*/
-		}
-		/*line codecli/cli.ergo:165:3*/ return v_30, nil
-		/*line codecli/cli.ergo:165:3*/
-	case "reach":
-//line codecli/cli.ergo:167:3
-//line codecli/cli.ergo:167:11
-		v_31 := codetool_scodecli__commandReach()
-//line codecli/cli.ergo:167:3
-//line codecli/cli.ergo:168:3
-		u_6 := v_31.Set
-		/*line codecli/cli.ergo:168:3*/ u_6.Name = "code reach"
-		/*line codecli/cli.ergo:168:3*/ t_6 := u_6
-//line codecli/cli.ergo:168:65
-		var v_32 []string
-		/*line codecli/cli.ergo:168:65*/ {
-			/*line codecli/cli.ergo:168:65*/ var i_6 int = int(1)
-			/*line codecli/cli.ergo:168:65*/ var j_6 int = len(args)
-			/*line codecli/cli.ergo:168:65*/ v_32 = ergo.SlicesSlice[string](args, i_6, j_6)
-
-			/*line codecli/cli.ergo:168:65*/
-		}
-//line codecli/cli.ergo:168:15
-		v_34, err_12 := (t_6).Parse(v_32)
-//line codecli/cli.ergo:168:65
-		if err_12 != nil {
-			/*line codecli/cli.ergo:168:65*/ return *new(codetool_scodeapi__Request), err_12
-			/*line codecli/cli.ergo:168:65*/
-		}
-//line codecli/cli.ergo:169:3
-//line codecli/cli.ergo:169:7
-		v_35, err_13 := v_31.Build(env, v_34)
-//line codecli/cli.ergo:169:3
-		if err_13 != nil {
-			/*line codecli/cli.ergo:169:3*/ return *new(codetool_scodeapi__Request), err_13
-			/*line codecli/cli.ergo:169:3*/
-		}
-		/*line codecli/cli.ergo:169:3*/ return v_35, nil
-		/*line codecli/cli.ergo:169:3*/
-	case "machine-of":
-//line codecli/cli.ergo:171:3
-//line codecli/cli.ergo:171:11
-		v_36 := codetool_scodecli__commandMachineOf()
-//line codecli/cli.ergo:171:3
-//line codecli/cli.ergo:172:3
-		u_7 := v_36.Set
-		/*line codecli/cli.ergo:172:3*/ u_7.Name = "code machine-of"
-		/*line codecli/cli.ergo:172:3*/ t_7 := u_7
-//line codecli/cli.ergo:172:70
-		var v_37 []string
-		/*line codecli/cli.ergo:172:70*/ {
-			/*line codecli/cli.ergo:172:70*/ var i_7 int = int(1)
-			/*line codecli/cli.ergo:172:70*/ var j_7 int = len(args)
-			/*line codecli/cli.ergo:172:70*/ v_37 = ergo.SlicesSlice[string](args, i_7, j_7)
-
-			/*line codecli/cli.ergo:172:70*/
-		}
-//line codecli/cli.ergo:172:15
-		v_39, err_14 := (t_7).Parse(v_37)
-//line codecli/cli.ergo:172:70
-		if err_14 != nil {
-			/*line codecli/cli.ergo:172:70*/ return *new(codetool_scodeapi__Request), err_14
-			/*line codecli/cli.ergo:172:70*/
-		}
-//line codecli/cli.ergo:173:3
-//line codecli/cli.ergo:173:7
-		v_40, err_15 := v_36.Build(env, v_39)
-//line codecli/cli.ergo:173:3
-		if err_15 != nil {
-			/*line codecli/cli.ergo:173:3*/ return *new(codetool_scodeapi__Request), err_15
-			/*line codecli/cli.ergo:173:3*/
-		}
-		/*line codecli/cli.ergo:173:3*/ return v_40, nil
-		/*line codecli/cli.ergo:173:3*/
 	default:
-//line codecli/cli.ergo:175:3
-//line codecli/cli.ergo:175:66
+//line codecli/cli.ergo:151:3
+//line codecli/cli.ergo:151:66
 		v_41 := codetool_scodecli__Commands()
-//line codecli/cli.ergo:175:3
-//line codecli/cli.ergo:175:7
+//line codecli/cli.ergo:151:3
+//line codecli/cli.ergo:151:7
 		v_42, err_16 := flag__ParseCommandMono_i93032418(env, "code", "code.Reader on a command line", v_41, args)
-//line codecli/cli.ergo:175:3
+//line codecli/cli.ergo:151:3
 		if err_16 != nil {
-			/*line codecli/cli.ergo:175:3*/ return *new(codetool_scodeapi__Request), err_16
-			/*line codecli/cli.ergo:175:3*/
+			/*line codecli/cli.ergo:151:3*/ return *new(codetool_scodeapi__Request), err_16
+			/*line codecli/cli.ergo:151:3*/
 		}
-		/*line codecli/cli.ergo:175:3*/ return v_42, nil
-		/*line codecli/cli.ergo:175:3*/
+		/*line codecli/cli.ergo:151:3*/ return v_42, nil
+		/*line codecli/cli.ergo:151:3*/
 	}
-	/*line codecli/cli.ergo:175:3*/
+	/*line codecli/cli.ergo:151:3*/
 }
 
-//line codecli/cli.ergo:328:1
+//line codecli/cli.ergo:302:1
 func codetool_scodecli__line(s string) string {
-//line codecli/cli.ergo:329:2
+//line codecli/cli.ergo:303:2
 	if s == "" {
-//line codecli/cli.ergo:330:3
+//line codecli/cli.ergo:304:3
 		return ""
-		/*line codecli/cli.ergo:330:3*/
+		/*line codecli/cli.ergo:304:3*/
 	}
-//line codecli/cli.ergo:332:2
+//line codecli/cli.ergo:306:2
 	return (s + "\n")
-	/*line codecli/cli.ergo:332:2*/
+	/*line codecli/cli.ergo:306:2*/
 }
 
-//line codecli/cli.ergo:319:1
+//line codecli/cli.ergo:294:1
 func codetool_scodecli__answer(asJSON bool, plain string, encoded string) api__Output {
-//line codecli/cli.ergo:320:2
+//line codecli/cli.ergo:295:2
 	if asJSON {
-//line codecli/cli.ergo:321:3
+//line codecli/cli.ergo:296:3
 		return api__Output{Out: (encoded + "\n"), Err: "", Code: int(0)}
-		/*line codecli/cli.ergo:321:3*/
+		/*line codecli/cli.ergo:296:3*/
 	} else {
-//line codecli/cli.ergo:323:3
-//line codecli/cli.ergo:323:15
+//line codecli/cli.ergo:298:3
+//line codecli/cli.ergo:298:15
 		v := codetool_scodecli__line(plain)
-//line codecli/cli.ergo:323:3
+//line codecli/cli.ergo:298:3
 		return api__Output{Out: v, Err: "", Code: int(0)}
-		/*line codecli/cli.ergo:323:3*/
+		/*line codecli/cli.ergo:298:3*/
 	}
-	/*line codecli/cli.ergo:323:3*/
+	/*line codecli/cli.ergo:298:3*/
 }
 
-//line codecli/cli.ergo:338:1
+//line codecli/cli.ergo:309:1
 func codetool_scodecli__failed(env *Env, asJSON bool, tagged string, status int) api__Output {
-//line codecli/cli.ergo:338:1
+//line codecli/cli.ergo:309:1
 	env.task.Check()
-//line codecli/cli.ergo:339:2
+//line codecli/cli.ergo:310:2
 	if asJSON {
-//line codecli/cli.ergo:340:3
+//line codecli/cli.ergo:311:3
 		return api__Output{Out: (tagged + "\n"), Err: "", Code: status}
-		/*line codecli/cli.ergo:340:3*/
+		/*line codecli/cli.ergo:311:3*/
 	} else {
-//line codecli/cli.ergo:342:3
-//line codecli/cli.ergo:342:24
+//line codecli/cli.ergo:313:3
+//line codecli/cli.ergo:313:24
 		v := ergorpc.RPCTagOf(tagged)
-//line codecli/cli.ergo:342:3
+//line codecli/cli.ergo:313:3
 		return api__Output{Out: "", Err: (((v + ": ") + tagged) + "\n"), Code: status}
-		/*line codecli/cli.ergo:342:3*/
+		/*line codecli/cli.ergo:313:3*/
 	}
-	/*line codecli/cli.ergo:342:3*/
+	/*line codecli/cli.ergo:313:3*/
 }
 
-//line codecli/cli.ergo:33:1
+//line codecli/cli.ergo:24:1
 func codetool_scodecli__commandDescribe() flag__Command[codetool_scodeapi__Request] {
-//line codecli/cli.ergo:34:2
+//line codecli/cli.ergo:25:2
 	a := (codetool_scodeapi__Op{tag: 0})
-	/*line codecli/cli.ergo:34:2*/ i := 0
-	/*line codecli/cli.ergo:34:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:34:2*/ var v string
-	/*line codecli/cli.ergo:34:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:34:2*/ v = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:34:2*/
+	/*line codecli/cli.ergo:25:2*/ i := 0
+	/*line codecli/cli.ergo:25:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:25:2*/ var v string
+	/*line codecli/cli.ergo:25:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:25:2*/ v = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:25:2*/
 	} else {
-		/*line codecli/cli.ergo:34:2*/ v = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:34:2*/
+		/*line codecli/cli.ergo:25:2*/ v = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:25:2*/
 	}
-//line codecli/cli.ergo:34:14
+//line codecli/cli.ergo:25:14
 	v_1 := v
-//line codecli/cli.ergo:34:2
-//line codecli/cli.ergo:35:2
+//line codecli/cli.ergo:25:2
+//line codecli/cli.ergo:26:2
 	return flag__Command[codetool_scodeapi__Request]{Name: "describe", Usage: v_1, Set: flag__Set{Name: "describe", Usage: v_1, Flags: []flag__Flag{}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_2 flag__Values) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:36:3
+//line codecli/cli.ergo:27:3
 		return codetool_scodeapi__DescribeRequest{}, nil
-		/*line codecli/cli.ergo:36:3*/
+		/*line codecli/cli.ergo:27:3*/
 	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
-	/*line codecli/cli.ergo:36:3*/
+	/*line codecli/cli.ergo:27:3*/
 }
 
-//line codecli/cli.ergo:42:1
+//line codecli/cli.ergo:31:1
 func codetool_scodecli__commandSymbols() flag__Command[codetool_scodeapi__Request] {
-//line codecli/cli.ergo:43:2
-//line codecli/cli.ergo:43:11
+//line codecli/cli.ergo:32:2
+//line codecli/cli.ergo:32:11
 	var v flag__OptionalStringFlag
-	/*line codecli/cli.ergo:43:11*/ {
-		/*line codecli/cli.ergo:43:11*/ var name string = "name"
-		/*line codecli/cli.ergo:43:11*/ var usage string = "q.Name (Option[string])"
-		/*line codecli/cli.ergo:43:11*/ v_1 := flag__String(name, "", usage)
-		/*line codecli/cli.ergo:43:11*/ v = flag__OptionalStringFlag{base: v_1}
-		/*line codecli/cli.ergo:43:11*/
+	/*line codecli/cli.ergo:32:11*/ {
+		/*line codecli/cli.ergo:32:11*/ var name string = "name"
+		/*line codecli/cli.ergo:32:11*/ var usage string = "q.Name (Option[string])"
+		/*line codecli/cli.ergo:32:11*/ v_1 := flag__String(name, "", usage)
+		/*line codecli/cli.ergo:32:11*/ v = flag__OptionalStringFlag{base: v_1}
+		/*line codecli/cli.ergo:32:11*/
 	}
-//line codecli/cli.ergo:44:2
-//line codecli/cli.ergo:44:11
+//line codecli/cli.ergo:33:2
+//line codecli/cli.ergo:33:11
 	var v_2 flag__OptionalStringFlag
-	/*line codecli/cli.ergo:44:11*/ {
-		/*line codecli/cli.ergo:44:11*/ var name_1 string = "match"
-		/*line codecli/cli.ergo:44:11*/ var usage_1 string = "q.Match (Option[string])"
-		/*line codecli/cli.ergo:44:11*/ v_3 := flag__String(name_1, "", usage_1)
-		/*line codecli/cli.ergo:44:11*/ v_2 = flag__OptionalStringFlag{base: v_3}
-		/*line codecli/cli.ergo:44:11*/
+	/*line codecli/cli.ergo:33:11*/ {
+		/*line codecli/cli.ergo:33:11*/ var name_1 string = "match"
+		/*line codecli/cli.ergo:33:11*/ var usage_1 string = "q.Match (Option[string])"
+		/*line codecli/cli.ergo:33:11*/ v_3 := flag__String(name_1, "", usage_1)
+		/*line codecli/cli.ergo:33:11*/ v_2 = flag__OptionalStringFlag{base: v_3}
+		/*line codecli/cli.ergo:33:11*/
 	}
+//line codecli/cli.ergo:34:2
+//line codecli/cli.ergo:34:11
+	var v_4 flag__OptionalStringFlag
+	/*line codecli/cli.ergo:34:11*/ {
+		/*line codecli/cli.ergo:34:11*/ var name_2 string = "kind"
+		/*line codecli/cli.ergo:34:11*/ var usage_2 string = "q.Kind (Option[string])"
+		/*line codecli/cli.ergo:34:11*/ v_5 := flag__String(name_2, "", usage_2)
+		/*line codecli/cli.ergo:34:11*/ v_4 = flag__OptionalStringFlag{base: v_5}
+		/*line codecli/cli.ergo:34:11*/
+	}
+//line codecli/cli.ergo:35:2
+//line codecli/cli.ergo:35:11
+	var v_6 flag__OptionalStringFlag
+	/*line codecli/cli.ergo:35:11*/ {
+		/*line codecli/cli.ergo:35:11*/ var name_3 string = "package"
+		/*line codecli/cli.ergo:35:11*/ var usage_3 string = "q.Package (Option[string])"
+		/*line codecli/cli.ergo:35:11*/ v_7 := flag__String(name_3, "", usage_3)
+		/*line codecli/cli.ergo:35:11*/ v_6 = flag__OptionalStringFlag{base: v_7}
+		/*line codecli/cli.ergo:35:11*/
+	}
+//line codecli/cli.ergo:36:2
+//line codecli/cli.ergo:36:11
+	var v_8 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:36:11*/ {
+		/*line codecli/cli.ergo:36:11*/ var name_4 string = "offset"
+		/*line codecli/cli.ergo:36:11*/ var usage_4 string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:36:11*/ v_9 := flag__Int(name_4, int(0), usage_4)
+		/*line codecli/cli.ergo:36:11*/ v_8 = flag__OptionalIntFlag{base: v_9}
+		/*line codecli/cli.ergo:36:11*/
+	}
+//line codecli/cli.ergo:37:2
+//line codecli/cli.ergo:37:11
+	var v_10 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:37:11*/ {
+		/*line codecli/cli.ergo:37:11*/ var name_5 string = "limit"
+		/*line codecli/cli.ergo:37:11*/ var usage_5 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:37:11*/ v_11 := flag__Int(name_5, int(0), usage_5)
+		/*line codecli/cli.ergo:37:11*/ v_10 = flag__OptionalIntFlag{base: v_11}
+		/*line codecli/cli.ergo:37:11*/
+	}
+//line codecli/cli.ergo:38:2
+	a := (codetool_scodeapi__Op{tag: 1})
+	/*line codecli/cli.ergo:38:2*/ i := 0
+	/*line codecli/cli.ergo:38:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:38:2*/ var v_12 string
+	/*line codecli/cli.ergo:38:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:38:2*/ v_12 = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:38:2*/
+	} else {
+		/*line codecli/cli.ergo:38:2*/ v_12 = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:38:2*/
+	}
+//line codecli/cli.ergo:38:14
+	v_13 := v_12
+//line codecli/cli.ergo:38:2
+//line codecli/cli.ergo:39:2
+	return flag__Command[codetool_scodeapi__Request]{Name: "symbols", Usage: v_13, Set: flag__Set{Name: "symbols", Usage: v_13, Flags: []flag__Flag{v, v_2, v_4, v_6, v_8, v_10}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_14 flag__Values) (codetool_scodeapi__Request, error) {
+//line codecli/cli.ergo:40:3
+//line codecli/cli.ergo:40:52
+		v_15 := (v).Get(v_14)
+//line codecli/cli.ergo:40:3
+		t := v_15
+//line codecli/cli.ergo:40:70
+		v_16 := (v_2).Get(v_14)
+//line codecli/cli.ergo:40:3
+		t_1 := v_16
+//line codecli/cli.ergo:40:87
+		v_17 := (v_4).Get(v_14)
+//line codecli/cli.ergo:40:3
+		t_2 := v_17
+//line codecli/cli.ergo:40:107
+		v_18 := (v_6).Get(v_14)
+//line codecli/cli.ergo:40:3
+		t_3 := v_18
+//line codecli/cli.ergo:40:126
+		v_19 := (v_8).Get(v_14)
+//line codecli/cli.ergo:40:3
+		t_4 := v_19
+//line codecli/cli.ergo:40:144
+		v_20 := (v_10).Get(v_14)
+//line codecli/cli.ergo:40:3
+		return codetool_scodeapi__SymbolsRequest{Q: code__SymbolQuery{Name: t, Match: t_1, Kind: t_2, Package: t_3, Offset: t_4, Limit: v_20}}, nil
+		/*line codecli/cli.ergo:40:3*/
+	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
+	/*line codecli/cli.ergo:40:3*/
+}
+
+//line codecli/cli.ergo:44:1
+func codetool_scodecli__commandSymbol() flag__Command[codetool_scodeapi__Request] {
 //line codecli/cli.ergo:45:2
 //line codecli/cli.ergo:45:11
-	var v_4 flag__OptionalStringFlag
-	/*line codecli/cli.ergo:45:11*/ {
-		/*line codecli/cli.ergo:45:11*/ var name_2 string = "kind"
-		/*line codecli/cli.ergo:45:11*/ var usage_2 string = "q.Kind (Option[string])"
-		/*line codecli/cli.ergo:45:11*/ v_5 := flag__String(name_2, "", usage_2)
-		/*line codecli/cli.ergo:45:11*/ v_4 = flag__OptionalStringFlag{base: v_5}
-		/*line codecli/cli.ergo:45:11*/
-	}
-//line codecli/cli.ergo:46:2
-//line codecli/cli.ergo:46:11
-	var v_6 flag__OptionalStringFlag
-	/*line codecli/cli.ergo:46:11*/ {
-		/*line codecli/cli.ergo:46:11*/ var name_3 string = "package"
-		/*line codecli/cli.ergo:46:11*/ var usage_3 string = "q.Package (Option[string])"
-		/*line codecli/cli.ergo:46:11*/ v_7 := flag__String(name_3, "", usage_3)
-		/*line codecli/cli.ergo:46:11*/ v_6 = flag__OptionalStringFlag{base: v_7}
-		/*line codecli/cli.ergo:46:11*/
-	}
-//line codecli/cli.ergo:47:2
-//line codecli/cli.ergo:47:11
-	var v_8 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:47:11*/ {
-		/*line codecli/cli.ergo:47:11*/ var name_4 string = "offset"
-		/*line codecli/cli.ergo:47:11*/ var usage_4 string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:47:11*/ v_9 := flag__Int(name_4, int(0), usage_4)
-		/*line codecli/cli.ergo:47:11*/ v_8 = flag__OptionalIntFlag{base: v_9}
-		/*line codecli/cli.ergo:47:11*/
-	}
-//line codecli/cli.ergo:48:2
-//line codecli/cli.ergo:48:11
-	var v_10 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:48:11*/ {
-		/*line codecli/cli.ergo:48:11*/ var name_5 string = "limit"
-		/*line codecli/cli.ergo:48:11*/ var usage_5 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:48:11*/ v_11 := flag__Int(name_5, int(0), usage_5)
-		/*line codecli/cli.ergo:48:11*/ v_10 = flag__OptionalIntFlag{base: v_11}
-		/*line codecli/cli.ergo:48:11*/
-	}
-//line codecli/cli.ergo:49:2
-	a := (codetool_scodeapi__Op{tag: 1})
-	/*line codecli/cli.ergo:49:2*/ i := 0
-	/*line codecli/cli.ergo:49:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:49:2*/ var v_12 string
-	/*line codecli/cli.ergo:49:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:49:2*/ v_12 = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:49:2*/
-	} else {
-		/*line codecli/cli.ergo:49:2*/ v_12 = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:49:2*/
-	}
-//line codecli/cli.ergo:49:14
-	v_13 := v_12
-//line codecli/cli.ergo:49:2
-//line codecli/cli.ergo:50:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "symbols", Usage: v_13, Set: flag__Set{Name: "symbols", Usage: v_13, Flags: []flag__Flag{v, v_2, v_4, v_6, v_8, v_10}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_14 flag__Values) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:51:3
-//line codecli/cli.ergo:51:52
-		v_15 := (v).Get(v_14)
-//line codecli/cli.ergo:51:3
-		t := v_15
-//line codecli/cli.ergo:51:70
-		v_16 := (v_2).Get(v_14)
-//line codecli/cli.ergo:51:3
-		t_1 := v_16
-//line codecli/cli.ergo:51:87
-		v_17 := (v_4).Get(v_14)
-//line codecli/cli.ergo:51:3
-		t_2 := v_17
-//line codecli/cli.ergo:51:107
-		v_18 := (v_6).Get(v_14)
-//line codecli/cli.ergo:51:3
-		t_3 := v_18
-//line codecli/cli.ergo:51:126
-		v_19 := (v_8).Get(v_14)
-//line codecli/cli.ergo:51:3
-		t_4 := v_19
-//line codecli/cli.ergo:51:144
-		v_20 := (v_10).Get(v_14)
-//line codecli/cli.ergo:51:3
-		return codetool_scodeapi__SymbolsRequest{Q: code__SymbolQuery{Name: t, Match: t_1, Kind: t_2, Package: t_3, Offset: t_4, Limit: v_20}}, nil
-		/*line codecli/cli.ergo:51:3*/
-	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
-	/*line codecli/cli.ergo:51:3*/
-}
-
-//line codecli/cli.ergo:57:1
-func codetool_scodecli__commandSymbol() flag__Command[codetool_scodeapi__Request] {
-//line codecli/cli.ergo:58:2
-//line codecli/cli.ergo:58:11
 	v := flag__Arg("a", "a (string)")
-//line codecli/cli.ergo:58:2
-//line codecli/cli.ergo:59:2
+//line codecli/cli.ergo:45:2
+//line codecli/cli.ergo:46:2
 	a := (codetool_scodeapi__Op{tag: 2})
-	/*line codecli/cli.ergo:59:2*/ i := 0
-	/*line codecli/cli.ergo:59:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:59:2*/ var v_1 string
-	/*line codecli/cli.ergo:59:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:59:2*/ v_1 = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:59:2*/
+	/*line codecli/cli.ergo:46:2*/ i := 0
+	/*line codecli/cli.ergo:46:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:46:2*/ var v_1 string
+	/*line codecli/cli.ergo:46:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:46:2*/ v_1 = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:46:2*/
 	} else {
-		/*line codecli/cli.ergo:59:2*/ v_1 = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:59:2*/
+		/*line codecli/cli.ergo:46:2*/ v_1 = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:46:2*/
 	}
-//line codecli/cli.ergo:59:14
+//line codecli/cli.ergo:46:14
 	v_2 := v_1
-//line codecli/cli.ergo:59:2
-//line codecli/cli.ergo:60:2
+//line codecli/cli.ergo:46:2
+//line codecli/cli.ergo:47:2
 	return flag__Command[codetool_scodeapi__Request]{Name: "symbol", Usage: v_2, Set: flag__Set{Name: "symbol", Usage: v_2, Flags: []flag__Flag{}, Args: []flag__ArgSpec{v}}, Build: func(env *Env, v_3 flag__Values) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:61:3
-//line codecli/cli.ergo:61:12
+//line codecli/cli.ergo:48:3
+//line codecli/cli.ergo:48:12
 		var v_4 string
-		/*line codecli/cli.ergo:61:12*/ {
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:8
+		/*line codecli/cli.ergo:48:12*/ {
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:8
 			v_5 := (v).Get(v_3)
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2
 			s := v_5
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2*/ switch s.tag {
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2*/ case 0:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2*/ s_1 := s.v0
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:130:3
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ switch s.tag {
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ case 0:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:104:2*/ s_1 := s.v0
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:106:3
 				v_4 = s_1.Value
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:130:3*/ goto inl
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:130:3*/
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:106:3*/ goto inl
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:106:3*/
 			case 1:
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3
 				v_4 = ""
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3*/ goto inl
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3*/
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/ goto inl
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/
 			default:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3*/ panic("ergo: defect: no case of the match at 128:2 matched")
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3*/
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/ panic("ergo: defect: no case of the match at 104:2 matched")
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/
 			}
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3*/
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/
 		}
-		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3*/ inl:
-		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:132:3*/ _ = 0
-//line codecli/cli.ergo:61:12
-//line codecli/cli.ergo:62:3
+		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/ inl:
+		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@48.12:108:3*/ _ = 0
+//line codecli/cli.ergo:48:12
+//line codecli/cli.ergo:49:3
 		return codetool_scodeapi__SymbolRequest{A: v_4}, nil
-		/*line codecli/cli.ergo:62:3*/
+		/*line codecli/cli.ergo:49:3*/
 	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
-	/*line codecli/cli.ergo:62:3*/
+	/*line codecli/cli.ergo:49:3*/
 }
 
-//line codecli/cli.ergo:68:1
+//line codecli/cli.ergo:53:1
 func codetool_scodecli__commandReferences() flag__Command[codetool_scodeapi__Request] {
+//line codecli/cli.ergo:54:2
+//line codecli/cli.ergo:54:11
+	v := flag__RequiredString("of", "q.Of (string)")
+//line codecli/cli.ergo:54:2
+//line codecli/cli.ergo:55:2
+//line codecli/cli.ergo:55:11
+	v_1 := flag__String("kinds", "", "q.Kinds ([]string)")
+//line codecli/cli.ergo:55:2
+//line codecli/cli.ergo:55:11
+	v_2 := (v_1).Repeated()
+//line codecli/cli.ergo:55:2
+//line codecli/cli.ergo:56:2
+//line codecli/cli.ergo:56:11
+	var v_3 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:56:11*/ {
+		/*line codecli/cli.ergo:56:11*/ var name string = "offset"
+		/*line codecli/cli.ergo:56:11*/ var usage string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:56:11*/ v_4 := flag__Int(name, int(0), usage)
+		/*line codecli/cli.ergo:56:11*/ v_3 = flag__OptionalIntFlag{base: v_4}
+		/*line codecli/cli.ergo:56:11*/
+	}
+//line codecli/cli.ergo:57:2
+//line codecli/cli.ergo:57:11
+	var v_5 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:57:11*/ {
+		/*line codecli/cli.ergo:57:11*/ var name_1 string = "limit"
+		/*line codecli/cli.ergo:57:11*/ var usage_1 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:57:11*/ v_6 := flag__Int(name_1, int(0), usage_1)
+		/*line codecli/cli.ergo:57:11*/ v_5 = flag__OptionalIntFlag{base: v_6}
+		/*line codecli/cli.ergo:57:11*/
+	}
+//line codecli/cli.ergo:58:2
+	a := (codetool_scodeapi__Op{tag: 3})
+	/*line codecli/cli.ergo:58:2*/ i := 0
+	/*line codecli/cli.ergo:58:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:58:2*/ var v_7 string
+	/*line codecli/cli.ergo:58:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:58:2*/ v_7 = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:58:2*/
+	} else {
+		/*line codecli/cli.ergo:58:2*/ v_7 = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:58:2*/
+	}
+//line codecli/cli.ergo:58:14
+	v_8 := v_7
+//line codecli/cli.ergo:58:2
+//line codecli/cli.ergo:59:2
+	return flag__Command[codetool_scodeapi__Request]{Name: "references", Usage: v_8, Set: flag__Set{Name: "references", Usage: v_8, Flags: []flag__Flag{v, v_2, v_3, v_5}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_9 flag__Values) (codetool_scodeapi__Request, error) {
+//line codecli/cli.ergo:60:3
+//line codecli/cli.ergo:60:50
+		v_10 := (v).Get(v_9)
+//line codecli/cli.ergo:60:3
+		t := v_10
+//line codecli/cli.ergo:60:68
+		v_11 := (v_2).Get(v_9)
+//line codecli/cli.ergo:60:3
+		t_1 := v_11
+//line codecli/cli.ergo:60:87
+		v_12 := (v_3).Get(v_9)
+//line codecli/cli.ergo:60:3
+		t_2 := v_12
+//line codecli/cli.ergo:60:105
+		v_13 := (v_5).Get(v_9)
+//line codecli/cli.ergo:60:3
+		return codetool_scodeapi__ReferencesRequest{Q: code__RefQuery{Of: t, Kinds: t_1, Offset: t_2, Limit: v_13}}, nil
+		/*line codecli/cli.ergo:60:3*/
+	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
+	/*line codecli/cli.ergo:60:3*/
+}
+
+//line codecli/cli.ergo:64:1
+func codetool_scodecli__commandCalls() flag__Command[codetool_scodeapi__Request] {
+//line codecli/cli.ergo:65:2
+//line codecli/cli.ergo:65:11
+	v := flag__RequiredString("of", "q.Of (string)")
+//line codecli/cli.ergo:65:2
+//line codecli/cli.ergo:66:2
+//line codecli/cli.ergo:66:11
+	var v_1 flag__OptionalStringFlag
+	/*line codecli/cli.ergo:66:11*/ {
+		/*line codecli/cli.ergo:66:11*/ var name string = "direction"
+		/*line codecli/cli.ergo:66:11*/ var usage string = "q.Direction (Option[string])"
+		/*line codecli/cli.ergo:66:11*/ v_2 := flag__String(name, "", usage)
+		/*line codecli/cli.ergo:66:11*/ v_1 = flag__OptionalStringFlag{base: v_2}
+		/*line codecli/cli.ergo:66:11*/
+	}
+//line codecli/cli.ergo:67:2
+//line codecli/cli.ergo:67:11
+	var v_3 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:67:11*/ {
+		/*line codecli/cli.ergo:67:11*/ var name_1 string = "depth"
+		/*line codecli/cli.ergo:67:11*/ var usage_1 string = "q.Depth (Option[int])"
+		/*line codecli/cli.ergo:67:11*/ v_4 := flag__Int(name_1, int(0), usage_1)
+		/*line codecli/cli.ergo:67:11*/ v_3 = flag__OptionalIntFlag{base: v_4}
+		/*line codecli/cli.ergo:67:11*/
+	}
+//line codecli/cli.ergo:68:2
+//line codecli/cli.ergo:68:11
+	var v_5 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:68:11*/ {
+		/*line codecli/cli.ergo:68:11*/ var name_2 string = "offset"
+		/*line codecli/cli.ergo:68:11*/ var usage_2 string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:68:11*/ v_6 := flag__Int(name_2, int(0), usage_2)
+		/*line codecli/cli.ergo:68:11*/ v_5 = flag__OptionalIntFlag{base: v_6}
+		/*line codecli/cli.ergo:68:11*/
+	}
 //line codecli/cli.ergo:69:2
 //line codecli/cli.ergo:69:11
-	v := flag__RequiredString("of", "q.Of (string)")
-//line codecli/cli.ergo:69:2
+	var v_7 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:69:11*/ {
+		/*line codecli/cli.ergo:69:11*/ var name_3 string = "limit"
+		/*line codecli/cli.ergo:69:11*/ var usage_3 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:69:11*/ v_8 := flag__Int(name_3, int(0), usage_3)
+		/*line codecli/cli.ergo:69:11*/ v_7 = flag__OptionalIntFlag{base: v_8}
+		/*line codecli/cli.ergo:69:11*/
+	}
 //line codecli/cli.ergo:70:2
-//line codecli/cli.ergo:70:11
-	v_1 := flag__String("kinds", "", "q.Kinds ([]string)")
-//line codecli/cli.ergo:70:2
-//line codecli/cli.ergo:70:11
-	v_2 := (v_1).Repeated()
+	a := (codetool_scodeapi__Op{tag: 4})
+	/*line codecli/cli.ergo:70:2*/ i := 0
+	/*line codecli/cli.ergo:70:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:70:2*/ var v_9 string
+	/*line codecli/cli.ergo:70:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:70:2*/ v_9 = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:70:2*/
+	} else {
+		/*line codecli/cli.ergo:70:2*/ v_9 = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:70:2*/
+	}
+//line codecli/cli.ergo:70:14
+	v_10 := v_9
 //line codecli/cli.ergo:70:2
 //line codecli/cli.ergo:71:2
-//line codecli/cli.ergo:71:11
-	var v_3 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:71:11*/ {
-		/*line codecli/cli.ergo:71:11*/ var name string = "offset"
-		/*line codecli/cli.ergo:71:11*/ var usage string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:71:11*/ v_4 := flag__Int(name, int(0), usage)
-		/*line codecli/cli.ergo:71:11*/ v_3 = flag__OptionalIntFlag{base: v_4}
-		/*line codecli/cli.ergo:71:11*/
-	}
-//line codecli/cli.ergo:72:2
-//line codecli/cli.ergo:72:11
-	var v_5 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:72:11*/ {
-		/*line codecli/cli.ergo:72:11*/ var name_1 string = "limit"
-		/*line codecli/cli.ergo:72:11*/ var usage_1 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:72:11*/ v_6 := flag__Int(name_1, int(0), usage_1)
-		/*line codecli/cli.ergo:72:11*/ v_5 = flag__OptionalIntFlag{base: v_6}
-		/*line codecli/cli.ergo:72:11*/
-	}
-//line codecli/cli.ergo:73:2
-	a := (codetool_scodeapi__Op{tag: 3})
-	/*line codecli/cli.ergo:73:2*/ i := 0
-	/*line codecli/cli.ergo:73:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:73:2*/ var v_7 string
-	/*line codecli/cli.ergo:73:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:73:2*/ v_7 = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:73:2*/
-	} else {
-		/*line codecli/cli.ergo:73:2*/ v_7 = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:73:2*/
-	}
-//line codecli/cli.ergo:73:14
-	v_8 := v_7
-//line codecli/cli.ergo:73:2
-//line codecli/cli.ergo:74:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "references", Usage: v_8, Set: flag__Set{Name: "references", Usage: v_8, Flags: []flag__Flag{v, v_2, v_3, v_5}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_9 flag__Values) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:75:3
-//line codecli/cli.ergo:75:50
-		v_10 := (v).Get(v_9)
-//line codecli/cli.ergo:75:3
-		t := v_10
-//line codecli/cli.ergo:75:68
-		v_11 := (v_2).Get(v_9)
-//line codecli/cli.ergo:75:3
-		t_1 := v_11
-//line codecli/cli.ergo:75:87
-		v_12 := (v_3).Get(v_9)
-//line codecli/cli.ergo:75:3
-		t_2 := v_12
-//line codecli/cli.ergo:75:105
-		v_13 := (v_5).Get(v_9)
-//line codecli/cli.ergo:75:3
-		return codetool_scodeapi__ReferencesRequest{Q: code__RefQuery{Of: t, Kinds: t_1, Offset: t_2, Limit: v_13}}, nil
-		/*line codecli/cli.ergo:75:3*/
+	return flag__Command[codetool_scodeapi__Request]{Name: "calls", Usage: v_10, Set: flag__Set{Name: "calls", Usage: v_10, Flags: []flag__Flag{v, v_1, v_3, v_5, v_7}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_11 flag__Values) (codetool_scodeapi__Request, error) {
+//line codecli/cli.ergo:72:3
+//line codecli/cli.ergo:72:46
+		v_12 := (v).Get(v_11)
+//line codecli/cli.ergo:72:3
+		t := v_12
+//line codecli/cli.ergo:72:68
+		v_13 := (v_1).Get(v_11)
+//line codecli/cli.ergo:72:3
+		t_1 := v_13
+//line codecli/cli.ergo:72:86
+		v_14 := (v_3).Get(v_11)
+//line codecli/cli.ergo:72:3
+		t_2 := v_14
+//line codecli/cli.ergo:72:105
+		v_15 := (v_5).Get(v_11)
+//line codecli/cli.ergo:72:3
+		t_3 := v_15
+//line codecli/cli.ergo:72:123
+		v_16 := (v_7).Get(v_11)
+//line codecli/cli.ergo:72:3
+		return codetool_scodeapi__CallsRequest{Q: code__CallQuery{Of: t, Direction: t_1, Depth: t_2, Offset: t_3, Limit: v_16}}, nil
+		/*line codecli/cli.ergo:72:3*/
 	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
-	/*line codecli/cli.ergo:75:3*/
+	/*line codecli/cli.ergo:72:3*/
 }
 
-//line codecli/cli.ergo:81:1
-func codetool_scodecli__commandCalls() flag__Command[codetool_scodeapi__Request] {
-//line codecli/cli.ergo:82:2
-//line codecli/cli.ergo:82:11
-	v := flag__RequiredString("of", "q.Of (string)")
-//line codecli/cli.ergo:82:2
-//line codecli/cli.ergo:83:2
-//line codecli/cli.ergo:83:11
-	var v_1 flag__OptionalStringFlag
-	/*line codecli/cli.ergo:83:11*/ {
-		/*line codecli/cli.ergo:83:11*/ var name string = "direction"
-		/*line codecli/cli.ergo:83:11*/ var usage string = "q.Direction (Option[string])"
-		/*line codecli/cli.ergo:83:11*/ v_2 := flag__String(name, "", usage)
-		/*line codecli/cli.ergo:83:11*/ v_1 = flag__OptionalStringFlag{base: v_2}
-		/*line codecli/cli.ergo:83:11*/
+//line codecli/cli.ergo:76:1
+func codetool_scodecli__commandApi() flag__Command[codetool_scodeapi__Request] {
+//line codecli/cli.ergo:77:2
+//line codecli/cli.ergo:77:11
+	var v flag__OptionalStringFlag
+	/*line codecli/cli.ergo:77:11*/ {
+		/*line codecli/cli.ergo:77:11*/ var name string = "package"
+		/*line codecli/cli.ergo:77:11*/ var usage string = "q.Package (Option[string])"
+		/*line codecli/cli.ergo:77:11*/ v_1 := flag__String(name, "", usage)
+		/*line codecli/cli.ergo:77:11*/ v = flag__OptionalStringFlag{base: v_1}
+		/*line codecli/cli.ergo:77:11*/
 	}
-//line codecli/cli.ergo:84:2
-//line codecli/cli.ergo:84:11
-	var v_3 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:84:11*/ {
-		/*line codecli/cli.ergo:84:11*/ var name_1 string = "depth"
-		/*line codecli/cli.ergo:84:11*/ var usage_1 string = "q.Depth (Option[int])"
-		/*line codecli/cli.ergo:84:11*/ v_4 := flag__Int(name_1, int(0), usage_1)
-		/*line codecli/cli.ergo:84:11*/ v_3 = flag__OptionalIntFlag{base: v_4}
-		/*line codecli/cli.ergo:84:11*/
+//line codecli/cli.ergo:78:2
+	a := (codetool_scodeapi__Op{tag: 5})
+	/*line codecli/cli.ergo:78:2*/ i := 0
+	/*line codecli/cli.ergo:78:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:78:2*/ var v_2 string
+	/*line codecli/cli.ergo:78:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:78:2*/ v_2 = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:78:2*/
+	} else {
+		/*line codecli/cli.ergo:78:2*/ v_2 = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:78:2*/
 	}
+//line codecli/cli.ergo:78:14
+	v_3 := v_2
+//line codecli/cli.ergo:78:2
+//line codecli/cli.ergo:79:2
+	return flag__Command[codetool_scodeapi__Request]{Name: "api", Usage: v_3, Set: flag__Set{Name: "api", Usage: v_3, Flags: []flag__Flag{v}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_4 flag__Values) (codetool_scodeapi__Request, error) {
+//line codecli/cli.ergo:80:3
+//line codecli/cli.ergo:80:48
+		v_5 := (v).Get(v_4)
+//line codecli/cli.ergo:80:3
+		return codetool_scodeapi__ApiRequest{Q: code__ApiQuery{Package: v_5}}, nil
+		/*line codecli/cli.ergo:80:3*/
+	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
+	/*line codecli/cli.ergo:80:3*/
+}
+
+//line codecli/cli.ergo:84:1
+func codetool_scodecli__commandReach() flag__Command[codetool_scodeapi__Request] {
 //line codecli/cli.ergo:85:2
 //line codecli/cli.ergo:85:11
-	var v_5 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:85:11*/ {
-		/*line codecli/cli.ergo:85:11*/ var name_2 string = "offset"
-		/*line codecli/cli.ergo:85:11*/ var usage_2 string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:85:11*/ v_6 := flag__Int(name_2, int(0), usage_2)
-		/*line codecli/cli.ergo:85:11*/ v_5 = flag__OptionalIntFlag{base: v_6}
-		/*line codecli/cli.ergo:85:11*/
-	}
+	v := flag__RequiredString("of", "q.Of (string)")
+//line codecli/cli.ergo:85:2
 //line codecli/cli.ergo:86:2
 //line codecli/cli.ergo:86:11
-	var v_7 flag__OptionalIntFlag
+	var v_1 flag__OptionalIntFlag
 	/*line codecli/cli.ergo:86:11*/ {
-		/*line codecli/cli.ergo:86:11*/ var name_3 string = "limit"
-		/*line codecli/cli.ergo:86:11*/ var usage_3 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:86:11*/ v_8 := flag__Int(name_3, int(0), usage_3)
-		/*line codecli/cli.ergo:86:11*/ v_7 = flag__OptionalIntFlag{base: v_8}
+		/*line codecli/cli.ergo:86:11*/ var name string = "offset"
+		/*line codecli/cli.ergo:86:11*/ var usage string = "q.Offset (Option[int])"
+		/*line codecli/cli.ergo:86:11*/ v_2 := flag__Int(name, int(0), usage)
+		/*line codecli/cli.ergo:86:11*/ v_1 = flag__OptionalIntFlag{base: v_2}
 		/*line codecli/cli.ergo:86:11*/
 	}
 //line codecli/cli.ergo:87:2
-	a := (codetool_scodeapi__Op{tag: 4})
-	/*line codecli/cli.ergo:87:2*/ i := 0
-	/*line codecli/cli.ergo:87:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:87:2*/ var v_9 string
-	/*line codecli/cli.ergo:87:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:87:2*/ v_9 = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:87:2*/
-	} else {
-		/*line codecli/cli.ergo:87:2*/ v_9 = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:87:2*/
+//line codecli/cli.ergo:87:11
+	var v_3 flag__OptionalIntFlag
+	/*line codecli/cli.ergo:87:11*/ {
+		/*line codecli/cli.ergo:87:11*/ var name_1 string = "limit"
+		/*line codecli/cli.ergo:87:11*/ var usage_1 string = "q.Limit (Option[int])"
+		/*line codecli/cli.ergo:87:11*/ v_4 := flag__Int(name_1, int(0), usage_1)
+		/*line codecli/cli.ergo:87:11*/ v_3 = flag__OptionalIntFlag{base: v_4}
+		/*line codecli/cli.ergo:87:11*/
 	}
-//line codecli/cli.ergo:87:14
-	v_10 := v_9
-//line codecli/cli.ergo:87:2
 //line codecli/cli.ergo:88:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "calls", Usage: v_10, Set: flag__Set{Name: "calls", Usage: v_10, Flags: []flag__Flag{v, v_1, v_3, v_5, v_7}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_11 flag__Values) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:89:3
-//line codecli/cli.ergo:89:46
-		v_12 := (v).Get(v_11)
-//line codecli/cli.ergo:89:3
-		t := v_12
-//line codecli/cli.ergo:89:68
-		v_13 := (v_1).Get(v_11)
-//line codecli/cli.ergo:89:3
-		t_1 := v_13
-//line codecli/cli.ergo:89:86
-		v_14 := (v_3).Get(v_11)
-//line codecli/cli.ergo:89:3
-		t_2 := v_14
-//line codecli/cli.ergo:89:105
-		v_15 := (v_5).Get(v_11)
-//line codecli/cli.ergo:89:3
-		t_3 := v_15
-//line codecli/cli.ergo:89:123
-		v_16 := (v_7).Get(v_11)
-//line codecli/cli.ergo:89:3
-		return codetool_scodeapi__CallsRequest{Q: code__CallQuery{Of: t, Direction: t_1, Depth: t_2, Offset: t_3, Limit: v_16}}, nil
-		/*line codecli/cli.ergo:89:3*/
+	a := (codetool_scodeapi__Op{tag: 6})
+	/*line codecli/cli.ergo:88:2*/ i := 0
+	/*line codecli/cli.ergo:88:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:88:2*/ var v_5 string
+	/*line codecli/cli.ergo:88:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:88:2*/ v_5 = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:88:2*/
+	} else {
+		/*line codecli/cli.ergo:88:2*/ v_5 = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:88:2*/
+	}
+//line codecli/cli.ergo:88:14
+	v_6 := v_5
+//line codecli/cli.ergo:88:2
+//line codecli/cli.ergo:89:2
+	return flag__Command[codetool_scodeapi__Request]{Name: "reach", Usage: v_6, Set: flag__Set{Name: "reach", Usage: v_6, Flags: []flag__Flag{v, v_1, v_3}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_7 flag__Values) (codetool_scodeapi__Request, error) {
+//line codecli/cli.ergo:90:3
+//line codecli/cli.ergo:90:47
+		v_8 := (v).Get(v_7)
+//line codecli/cli.ergo:90:3
+		t := v_8
+//line codecli/cli.ergo:90:66
+		v_9 := (v_1).Get(v_7)
+//line codecli/cli.ergo:90:3
+		t_1 := v_9
+//line codecli/cli.ergo:90:84
+		v_10 := (v_3).Get(v_7)
+//line codecli/cli.ergo:90:3
+		return codetool_scodeapi__ReachRequest{Q: code__ReachQuery{Of: t, Offset: t_1, Limit: v_10}}, nil
+		/*line codecli/cli.ergo:90:3*/
 	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
-	/*line codecli/cli.ergo:89:3*/
+	/*line codecli/cli.ergo:90:3*/
 }
 
-//line codecli/cli.ergo:95:1
-func codetool_scodecli__commandApi() flag__Command[codetool_scodeapi__Request] {
+//line codecli/cli.ergo:94:1
+func codetool_scodecli__commandMachineOf() flag__Command[codetool_scodeapi__Request] {
+//line codecli/cli.ergo:95:2
+//line codecli/cli.ergo:95:11
+	v := flag__Arg("a", "a (string)")
+//line codecli/cli.ergo:95:2
 //line codecli/cli.ergo:96:2
-//line codecli/cli.ergo:96:11
-	var v flag__OptionalStringFlag
-	/*line codecli/cli.ergo:96:11*/ {
-		/*line codecli/cli.ergo:96:11*/ var name string = "package"
-		/*line codecli/cli.ergo:96:11*/ var usage string = "q.Package (Option[string])"
-		/*line codecli/cli.ergo:96:11*/ v_1 := flag__String(name, "", usage)
-		/*line codecli/cli.ergo:96:11*/ v = flag__OptionalStringFlag{base: v_1}
-		/*line codecli/cli.ergo:96:11*/
-	}
-//line codecli/cli.ergo:97:2
-	a := (codetool_scodeapi__Op{tag: 5})
-	/*line codecli/cli.ergo:97:2*/ i := 0
-	/*line codecli/cli.ergo:97:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:97:2*/ var v_2 string
-	/*line codecli/cli.ergo:97:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:97:2*/ v_2 = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:97:2*/
+	a := (codetool_scodeapi__Op{tag: 7})
+	/*line codecli/cli.ergo:96:2*/ i := 0
+	/*line codecli/cli.ergo:96:2*/ i = i*8 + int(a.tag)
+	/*line codecli/cli.ergo:96:2*/ var v_1 string
+	/*line codecli/cli.ergo:96:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
+		/*line codecli/cli.ergo:96:2*/ v_1 = ergo__codetool_scodeapi__tabDocV[i]
+		/*line codecli/cli.ergo:96:2*/
 	} else {
-		/*line codecli/cli.ergo:97:2*/ v_2 = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:97:2*/
+		/*line codecli/cli.ergo:96:2*/ v_1 = ergo__codetool_scodeapi__tabDocFill(i, a)
+		/*line codecli/cli.ergo:96:2*/
 	}
-//line codecli/cli.ergo:97:14
-	v_3 := v_2
+//line codecli/cli.ergo:96:14
+	v_2 := v_1
+//line codecli/cli.ergo:96:2
 //line codecli/cli.ergo:97:2
-//line codecli/cli.ergo:98:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "api", Usage: v_3, Set: flag__Set{Name: "api", Usage: v_3, Flags: []flag__Flag{v}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_4 flag__Values) (codetool_scodeapi__Request, error) {
+	return flag__Command[codetool_scodeapi__Request]{Name: "machine-of", Usage: v_2, Set: flag__Set{Name: "machine-of", Usage: v_2, Flags: []flag__Flag{}, Args: []flag__ArgSpec{v}}, Build: func(env *Env, v_3 flag__Values) (codetool_scodeapi__Request, error) {
+//line codecli/cli.ergo:98:3
+//line codecli/cli.ergo:98:12
+		var v_4 string
+		/*line codecli/cli.ergo:98:12*/ {
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:8
+			v_5 := (v).Get(v_3)
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2
+			s := v_5
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ switch s.tag {
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ case 0:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:104:2*/ s_1 := s.v0
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:106:3
+				v_4 = s_1.Value
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:106:3*/ goto inl
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:106:3*/
+			case 1:
+//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3
+				v_4 = ""
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/ goto inl
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/
+			default:
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/ panic("ergo: defect: no case of the match at 104:2 matched")
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/
+			}
+			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/
+		}
+		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/ inl:
+		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@98.12:108:3*/ _ = 0
+//line codecli/cli.ergo:98:12
 //line codecli/cli.ergo:99:3
-//line codecli/cli.ergo:99:48
-		v_5 := (v).Get(v_4)
-//line codecli/cli.ergo:99:3
-		return codetool_scodeapi__ApiRequest{Q: code__ApiQuery{Package: v_5}}, nil
+		return codetool_scodeapi__MachineOfRequest{A: v_4}, nil
 		/*line codecli/cli.ergo:99:3*/
 	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
 	/*line codecli/cli.ergo:99:3*/
 }
 
-//line codecli/cli.ergo:105:1
-func codetool_scodecli__commandReach() flag__Command[codetool_scodeapi__Request] {
-//line codecli/cli.ergo:106:2
-//line codecli/cli.ergo:106:11
-	v := flag__RequiredString("of", "q.Of (string)")
-//line codecli/cli.ergo:106:2
-//line codecli/cli.ergo:107:2
-//line codecli/cli.ergo:107:11
-	var v_1 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:107:11*/ {
-		/*line codecli/cli.ergo:107:11*/ var name string = "offset"
-		/*line codecli/cli.ergo:107:11*/ var usage string = "q.Offset (Option[int])"
-		/*line codecli/cli.ergo:107:11*/ v_2 := flag__Int(name, int(0), usage)
-		/*line codecli/cli.ergo:107:11*/ v_1 = flag__OptionalIntFlag{base: v_2}
-		/*line codecli/cli.ergo:107:11*/
-	}
-//line codecli/cli.ergo:108:2
-//line codecli/cli.ergo:108:11
-	var v_3 flag__OptionalIntFlag
-	/*line codecli/cli.ergo:108:11*/ {
-		/*line codecli/cli.ergo:108:11*/ var name_1 string = "limit"
-		/*line codecli/cli.ergo:108:11*/ var usage_1 string = "q.Limit (Option[int])"
-		/*line codecli/cli.ergo:108:11*/ v_4 := flag__Int(name_1, int(0), usage_1)
-		/*line codecli/cli.ergo:108:11*/ v_3 = flag__OptionalIntFlag{base: v_4}
-		/*line codecli/cli.ergo:108:11*/
-	}
-//line codecli/cli.ergo:109:2
-	a := (codetool_scodeapi__Op{tag: 6})
-	/*line codecli/cli.ergo:109:2*/ i := 0
-	/*line codecli/cli.ergo:109:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:109:2*/ var v_5 string
-	/*line codecli/cli.ergo:109:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:109:2*/ v_5 = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:109:2*/
-	} else {
-		/*line codecli/cli.ergo:109:2*/ v_5 = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:109:2*/
-	}
-//line codecli/cli.ergo:109:14
-	v_6 := v_5
-//line codecli/cli.ergo:109:2
-//line codecli/cli.ergo:110:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "reach", Usage: v_6, Set: flag__Set{Name: "reach", Usage: v_6, Flags: []flag__Flag{v, v_1, v_3}, Args: []flag__ArgSpec{}}, Build: func(env *Env, v_7 flag__Values) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:111:3
-//line codecli/cli.ergo:111:47
-		v_8 := (v).Get(v_7)
-//line codecli/cli.ergo:111:3
-		t := v_8
-//line codecli/cli.ergo:111:66
-		v_9 := (v_1).Get(v_7)
-//line codecli/cli.ergo:111:3
-		t_1 := v_9
-//line codecli/cli.ergo:111:84
-		v_10 := (v_3).Get(v_7)
-//line codecli/cli.ergo:111:3
-		return codetool_scodeapi__ReachRequest{Q: code__ReachQuery{Of: t, Offset: t_1, Limit: v_10}}, nil
-		/*line codecli/cli.ergo:111:3*/
-	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
-	/*line codecli/cli.ergo:111:3*/
-}
-
-//line codecli/cli.ergo:117:1
-func codetool_scodecli__commandMachineOf() flag__Command[codetool_scodeapi__Request] {
-//line codecli/cli.ergo:118:2
-//line codecli/cli.ergo:118:11
-	v := flag__Arg("a", "a (string)")
-//line codecli/cli.ergo:118:2
-//line codecli/cli.ergo:119:2
-	a := (codetool_scodeapi__Op{tag: 7})
-	/*line codecli/cli.ergo:119:2*/ i := 0
-	/*line codecli/cli.ergo:119:2*/ i = i*8 + int(a.tag)
-	/*line codecli/cli.ergo:119:2*/ var v_1 string
-	/*line codecli/cli.ergo:119:2*/ if ergo__codetool_scodeapi__tabDocK[i].Ready() {
-		/*line codecli/cli.ergo:119:2*/ v_1 = ergo__codetool_scodeapi__tabDocV[i]
-		/*line codecli/cli.ergo:119:2*/
-	} else {
-		/*line codecli/cli.ergo:119:2*/ v_1 = ergo__codetool_scodeapi__tabDocFill(i, a)
-		/*line codecli/cli.ergo:119:2*/
-	}
-//line codecli/cli.ergo:119:14
-	v_2 := v_1
-//line codecli/cli.ergo:119:2
-//line codecli/cli.ergo:120:2
-	return flag__Command[codetool_scodeapi__Request]{Name: "machine-of", Usage: v_2, Set: flag__Set{Name: "machine-of", Usage: v_2, Flags: []flag__Flag{}, Args: []flag__ArgSpec{v}}, Build: func(env *Env, v_3 flag__Values) (codetool_scodeapi__Request, error) {
-//line codecli/cli.ergo:121:3
-//line codecli/cli.ergo:121:12
-		var v_4 string
-		/*line codecli/cli.ergo:121:12*/ {
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:8
-			v_5 := (v).Get(v_3)
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2
-			s := v_5
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2*/ switch s.tag {
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2*/ case 0:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2*/ s_1 := s.v0
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:130:3
-				v_4 = s_1.Value
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:130:3*/ goto inl
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:130:3*/
-			case 1:
-//line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3
-				v_4 = ""
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3*/ goto inl
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3*/
-			default:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3*/ panic("ergo: defect: no case of the match at 128:2 matched")
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3*/
-			}
-			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3*/
-		}
-		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3*/ inl:
-		/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:132:3*/ _ = 0
-//line codecli/cli.ergo:121:12
-//line codecli/cli.ergo:122:3
-		return codetool_scodeapi__MachineOfRequest{A: v_4}, nil
-		/*line codecli/cli.ergo:122:3*/
-	}, Commands: []flag__Command[codetool_scodeapi__Request]{}}
-	/*line codecli/cli.ergo:122:3*/
-}
-
-//line codecli/cli.ergo:27:1
+//line codecli/cli.ergo:20:1
 func codetool_scodecli__Commands() []flag__Command[codetool_scodeapi__Request] {
-//line codecli/cli.ergo:28:2
-//line codecli/cli.ergo:28:26
+//line codecli/cli.ergo:21:2
+//line codecli/cli.ergo:21:26
 	v := codetool_scodecli__commandDescribe()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	t := v
-//line codecli/cli.ergo:28:45
+//line codecli/cli.ergo:21:45
 	v_1 := codetool_scodecli__commandSymbols()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	t_1 := v_1
-//line codecli/cli.ergo:28:63
+//line codecli/cli.ergo:21:63
 	v_2 := codetool_scodecli__commandSymbol()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	t_2 := v_2
-//line codecli/cli.ergo:28:80
+//line codecli/cli.ergo:21:80
 	v_3 := codetool_scodecli__commandReferences()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	t_3 := v_3
-//line codecli/cli.ergo:28:101
+//line codecli/cli.ergo:21:101
 	v_4 := codetool_scodecli__commandCalls()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	t_4 := v_4
-//line codecli/cli.ergo:28:117
+//line codecli/cli.ergo:21:117
 	v_5 := codetool_scodecli__commandApi()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	t_5 := v_5
-//line codecli/cli.ergo:28:131
+//line codecli/cli.ergo:21:131
 	v_6 := codetool_scodecli__commandReach()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	t_6 := v_6
-//line codecli/cli.ergo:28:147
+//line codecli/cli.ergo:21:147
 	v_7 := codetool_scodecli__commandMachineOf()
-//line codecli/cli.ergo:28:2
+//line codecli/cli.ergo:21:2
 	return []flag__Command[codetool_scodeapi__Request]{t, t_1, t_2, t_3, t_4, t_5, t_6, v_7}
-	/*line codecli/cli.ergo:28:2*/
+	/*line codecli/cli.ergo:21:2*/
 }
 
-//line codeapi/api.ergo:75:1
+//line codeapi/api.ergo:68:1
 func codetool_scodeapi__Doc(op codetool_scodeapi__Op) string {
-//line codeapi/api.ergo:76:2
+//line codeapi/api.ergo:69:2
 	s := op
-	/*line codeapi/api.ergo:76:2*/ switch s.tag {
-	/*line codeapi/api.ergo:76:2*/ case 0:
-//line codeapi/api.ergo:78:3
+	/*line codeapi/api.ergo:69:2*/ switch s.tag {
+	/*line codeapi/api.ergo:69:2*/ case 0:
+//line codeapi/api.ergo:71:3
 		return "Describe is the revision and the extent of the tables."
-		/*line codeapi/api.ergo:78:3*/
+		/*line codeapi/api.ergo:71:3*/
 	case 1:
-//line codeapi/api.ergo:80:3
+//line codeapi/api.ergo:73:3
 		return "Symbols is a page of the declarations q asks for."
-		/*line codeapi/api.ergo:80:3*/
+		/*line codeapi/api.ergo:73:3*/
 	case 2:
-//line codeapi/api.ergo:82:3
+//line codeapi/api.ergo:75:3
 		return "Symbol is the declaration at the address a."
-		/*line codeapi/api.ergo:82:3*/
+		/*line codeapi/api.ergo:75:3*/
 	case 3:
-//line codeapi/api.ergo:84:3
+//line codeapi/api.ergo:77:3
 		return "References is a page of the sites of the declaration at q.Of."
-		/*line codeapi/api.ergo:84:3*/
+		/*line codeapi/api.ergo:77:3*/
 	case 4:
-//line codeapi/api.ergo:86:3
+//line codeapi/api.ergo:79:3
 		return "Calls is a page of the calls out of the declaration at q.Of, or into it, to a depth."
-		/*line codeapi/api.ergo:86:3*/
+		/*line codeapi/api.ergo:79:3*/
 	case 5:
-//line codeapi/api.ergo:88:3
+//line codeapi/api.ergo:81:3
 		return "Api is the contracts of a package's exported functions."
-		/*line codeapi/api.ergo:88:3*/
+		/*line codeapi/api.ergo:81:3*/
 	case 6:
-//line codeapi/api.ergo:90:3
+//line codeapi/api.ergo:83:3
 		return "Reach is a page of the functions whose row holds a capability, each with a chain of calls that brings it, and where withs discharge it."
-		/*line codeapi/api.ergo:90:3*/
+		/*line codeapi/api.ergo:83:3*/
 	case 7:
-//line codeapi/api.ergo:92:3
+//line codeapi/api.ergo:85:3
 		return "MachineOf is the graph of the machine declaration at a, and the pairs a run of it can step."
-		/*line codeapi/api.ergo:92:3*/
+		/*line codeapi/api.ergo:85:3*/
 	default:
-		/*line codeapi/api.ergo:92:3*/ panic("ergo: defect: no case of the match at 76:2 matched")
-		/*line codeapi/api.ergo:92:3*/
+		/*line codeapi/api.ergo:85:3*/ panic("ergo: defect: no case of the match at 69:2 matched")
+		/*line codeapi/api.ergo:85:3*/
 	}
-	/*line codeapi/api.ergo:92:3*/
+	/*line codeapi/api.ergo:85:3*/
 }
 
-//line codeapi/api.ergo:17:11
+//line codeapi/api.ergo:10:11
 type codetool_scodeapi__DescribeOp struct {
-	/*line codeapi/api.ergo:17:11*/
+	/*line codeapi/api.ergo:10:11*/
 }
 
-//line codeapi/api.ergo:17:1
-//line codeapi/api.ergo:17:26
+//line codeapi/api.ergo:10:1
+//line codeapi/api.ergo:10:26
 type codetool_scodeapi__SymbolsOp struct {
-	/*line codeapi/api.ergo:17:26*/
+	/*line codeapi/api.ergo:10:26*/
 }
 
-//line codeapi/api.ergo:17:40
+//line codeapi/api.ergo:10:40
 type codetool_scodeapi__SymbolOp struct {
-	/*line codeapi/api.ergo:17:40*/
+	/*line codeapi/api.ergo:10:40*/
 }
 
-//line codeapi/api.ergo:17:53
+//line codeapi/api.ergo:10:53
 type codetool_scodeapi__ReferencesOp struct {
-	/*line codeapi/api.ergo:17:53*/
+	/*line codeapi/api.ergo:10:53*/
 }
 
-//line codeapi/api.ergo:17:70
+//line codeapi/api.ergo:10:70
 type codetool_scodeapi__CallsOp struct {
-	/*line codeapi/api.ergo:17:70*/
+	/*line codeapi/api.ergo:10:70*/
 }
 
-//line codeapi/api.ergo:17:82
+//line codeapi/api.ergo:10:82
 type codetool_scodeapi__ApiOp struct {
-	/*line codeapi/api.ergo:17:82*/
+	/*line codeapi/api.ergo:10:82*/
 }
 
-//line codeapi/api.ergo:17:92
+//line codeapi/api.ergo:10:92
 type codetool_scodeapi__ReachOp struct {
-	/*line codeapi/api.ergo:17:92*/
+	/*line codeapi/api.ergo:10:92*/
 }
 
-//line codeapi/api.ergo:17:104
+//line codeapi/api.ergo:10:104
 type codetool_scodeapi__MachineOfOp struct {
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 type codetool_scodeapi__Op struct {
-	/*line codeapi/api.ergo:17:104*/ tag uint8
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ tag uint8
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of0(_ codetool_scodeapi__DescribeOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 0}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 0}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of1(_ codetool_scodeapi__SymbolsOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 1}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 1}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of2(_ codetool_scodeapi__SymbolOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 2}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 2}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of3(_ codetool_scodeapi__ReferencesOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 3}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 3}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of4(_ codetool_scodeapi__CallsOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 4}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 4}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of5(_ codetool_scodeapi__ApiOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 5}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 5}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of6(_ codetool_scodeapi__ReachOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 6}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 6}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (codetool_scodeapi__Op) of7(_ codetool_scodeapi__MachineOfOp) codetool_scodeapi__Op {
-	/*line codeapi/api.ergo:17:104*/ return codetool_scodeapi__Op{tag: 7}
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return codetool_scodeapi__Op{tag: 7}
+	/*line codeapi/api.ergo:10:104*/
 }
 
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func (x codetool_scodeapi__Op) ErgoVariant() string {
-	/*line codeapi/api.ergo:17:104*/ return [...]string{"DescribeOp", "SymbolsOp", "SymbolOp", "ReferencesOp", "CallsOp", "ApiOp", "ReachOp", "MachineOfOp"}[x.tag]
-	/*line codeapi/api.ergo:17:104*/
+	/*line codeapi/api.ergo:10:104*/ return [...]string{"DescribeOp", "SymbolsOp", "SymbolOp", "ReferencesOp", "CallsOp", "ApiOp", "ReachOp", "MachineOfOp"}[x.tag]
+	/*line codeapi/api.ergo:10:104*/
 }
 
 // ergoInit runs the package-level lets in Go's initialization order,
 // inside the program's root task.
-/*line codeapi/api.ergo:17:104*/
+/*line codeapi/api.ergo:10:104*/
 func ergoInit(env *Env) {
 //line std/json/stream.ergo:397:5
 	{
