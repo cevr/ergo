@@ -64,7 +64,7 @@ The program is a module of packages (`ergo.mod`: `module idletimer`), in the Go 
 
 ## Limits found
 
-- **No live runner (MU3, #57).** The program runs the pure fold over the whole script, so it is a replay, not a live screen.
+- **No live runner (MU3).** The program runs the pure fold over the whole script, so it is a replay, not a live screen.
 - **No observation of a running machine (M50).** `RunTimed` gives only the last state and the outputs. To show a timeline, `script.Run` replays each prefix of the trace (`Upto`). That costs time quadratic in the length of the script. A timer's event is shown at the time of the signal it follows, so the resolution is one tick.
 - **No state-owned work and no ticker (M45).** The screen clock's one-second tick is a signal that `WithTicks` adds to the trace. A live program would need a task that sleeps.
 - **No outside source (M49).** Touches come from the script, not from an input stream that feeds the machine.

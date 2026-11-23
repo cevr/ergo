@@ -1,12 +1,10 @@
 package lower
 
 import (
-	"slices"
 	"strings"
 	"unicode"
 
 	"ergo.local/prototype/internal/sketch/check"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // Package-scope names (NAME-LOCAL; the rule S4's per-package builder
@@ -47,31 +45,41 @@ import (
 // and qualify a cross-module name by the module; OCaml's flambda names a
 // symbol by its compilation unit (Unit__name), the spelling rule 2 joins.
 
-// fixedPkgNames are the fixed generated names (rule 4).
-func fixedPkgNames() map[string]bool {
-	m := map[string]bool{
-		"ergo": true, "rt": true, "time": true, "embed": true, "strconv": true, "maps": true, "slices": true,
-		"Env": true, "hostConsole": true, "ergoIs": true, "ergoNilTag": true, "ergoCall": true, "ergoCalls": true,
-		"ergoCallNames": true, "ergoDecl": true, "ergoDecls": true, "ergoInlines": true, "ergoInit": true,
-		"ergoMachineGraph": true, "ergoMachinePair": true, "ergoOrdered": true, "ergoNumber": true,
-	}
-	for _, leaf := range v1.Leaves {
-		m[leafName(runtimeImport+"/"+leaf)] = true
-	}
-	return m
+// fixedPkgNames are the fixed generated names (rule 4), besides the
+// runtime's leaves (reserveLeaves).
+var fixedPkgNames = map[string]bool{
+	"ergo": true, "rt": true, "time": true, "embed": true, "strconv": true, "maps": true, "slices": true,
+	"Env": true, "hostConsole": true, "ergoIs": true, "ergoNilTag": true, "ergoCall": true, "ergoCalls": true,
+	"ergoCallNames": true, "ergoDecl": true, "ergoDecls": true, "ergoInlines": true, "ergoInit": true,
+	"ergoMachineGraph": true, "ergoMachinePair": true, "ergoOrdered": true, "ergoNumber": true,
 }
+
+// reserveLeaves makes the runtime's leaves, the packages of leaves (the
+// naming pass passes v1.Leaves), fixed names of rule 4: each leaf's
+// import is spelled leafName, before any declaration is named.
+func (l *lowerer) reserveLeaves(leaves []string) {
+	l.leafImports, l.leafNames = map[string]bool{}, map[string]bool{}
+	for _, leaf := range leaves {
+		pkg := runtimeImport + "/" + leaf
+		l.leafImports[pkg] = true
+		l.leafNames[leafName(pkg)] = true
+		l.fixed.used[leafName(pkg)] = true
+	}
+}
+
+// fixedName reports a fixed generated name (rule 4).
+func (l *lowerer) fixedName(base string) bool { return fixedPkgNames[base] || l.leafNames[base] }
 
 // fixedImport reports the import path of a fixed name (rule 4): the
 // runtime, its leaves, its task package, and the Go packages lowered
 // code names itself.
-func fixedImport(path any) bool {
+func (l *lowerer) fixedImport(path any) bool {
 	p, _ := path.(string)
 	switch p {
 	case runtimeImport, taskImport, "time", "embed", "strconv", "maps", "slices":
 		return true
 	}
-	leaf, ok := strings.CutPrefix(p, runtimeImport+"/")
-	return ok && slices.Contains(v1.Leaves, leaf)
+	return l.leafImports[p]
 }
 
 // fixedKinds are the kinds of the keys rule 4 names.
@@ -88,7 +96,7 @@ var declKinds = map[string]bool{"func": true, "type": true, "let": true, "mono":
 // and the program namer below it every package-scope name.
 func newPkgNamers() (fixed, program *namer) {
 	fixed = newNamer(nil)
-	for name := range fixedPkgNames() {
+	for name := range fixedPkgNames {
 		fixed.used[name] = true
 	}
 	return fixed, newNamer(fixed)
@@ -97,7 +105,7 @@ func newPkgNamers() (fixed, program *namer) {
 // packageScopeName is the Go name of the package-scope entity key, whose
 // preferred spelling is base.
 func (l *lowerer) packageScopeName(key pkgKey, base string) string {
-	if key.kind == "import" && fixedImport(key.obj) || key.kind != "import" && fixedKinds[key.kind] && fixedPkgNames()[base] {
+	if key.kind == "import" && l.fixedImport(key.obj) || key.kind != "import" && fixedKinds[key.kind] && l.fixedName(base) {
 		return base // rule 4
 	}
 	if key.kind == "import" {

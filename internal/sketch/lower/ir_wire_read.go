@@ -1,15 +1,17 @@
 package lower
 
 // IR builder: a codec decoder function on the prelude's Reader
-// (PORT-WIRE-READERS R1). The text emitter writes it (wireDecodeBody); on
-// the IR path the same function is built here as an IR body, statement for
-// statement, in the forms R1 takes: a basic value, a record whose fields
-// are neither omittable nor typed by a type parameter, a list and a map.
-// Each read is the Reader interface's operation, the task first, as readOp
-// writes it; a failure returns as wireDecodeBody's `return zero, err`
-// does, the same value at the same read. Any other form, a direct reader
-// (R2) or a type that holds type parameters keeps its text body and its
-// census reason "codec reader: <form>" (wireReadForm).
+// (PORT-WIRE-READERS R1) or on a direct reader (wirereader.go; R2a). The
+// text emitter writes it (wireDecodeBody); on the IR path the same
+// function is built here as an IR body, statement for statement, in the
+// forms R1 takes: a basic value, a record whose fields are neither
+// omittable nor typed by a type parameter, a list and a map. Each read is
+// the reader's operation as readOp writes it: the Reader interface's
+// method, the task first, or the direct reader type's own function, the
+// reader first; a failure returns as wireDecodeBody's `return zero, err`
+// does, the same value at the same read. Any other form, or a type that
+// holds type parameters, keeps its text body and its census reason
+// "codec reader: <form>" (wireReadForm).
 //
 // The text form stays selectable as a test oracle only: wireReadLowering
 // "text" keeps every decoder's text, and goes with the text path.
@@ -40,7 +42,7 @@ func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, 
 		st.codecText(name, "codec reader: own read")
 		return false
 	}
-	if form := l.wireReadForm(t); wireReadLowering == "text" || tc.readVia != 0 || !wireReadForms(form) {
+	if form := l.wireReadForm(t); wireReadLowering == "text" || !wireReadForms(form) {
 		st.codecText(name, "codec reader: "+form)
 		return false
 	}
@@ -87,8 +89,15 @@ type wireReader struct {
 
 func (d *wireReader) local(i int) *irExpr { return &irExpr{K: "local", Pos: d.p, I: i} }
 
-// op is the Reader operation name on r, the task first (readOp).
+// op is the Reader operation name on r (readOp): on the Reader interface
+// its method, the task first; on a direct reader (R2a) the call of the
+// reader type's own function for the operation, r first, as
+// wireCallFunc writes it.
 func (d *wireReader) op(name string, args ...*irExpr) *irExpr {
+	if d.tc.readVia > 0 {
+		f := d.b.l.directReaders[d.tc.readVia-1].conv.Table[name]
+		return d.b.machineCall(f, 0, append([]*irExpr{d.local(1)}, args...), d.p, d.site)
+	}
 	task := &irExpr{K: "field", Pos: d.p, Name: envTask, X: d.local(0)}
 	return &irExpr{K: "mcall", Pos: d.p, Name: name, X: d.local(1), Args: append([]*irExpr{task}, args...)}
 }
@@ -167,7 +176,7 @@ func (d *wireReader) value(t check.Type) ([]*irStmt, *irExpr) {
 	if _, param := t.(*check.TypeParam); param || len(freeTypeParams(t)) > 0 {
 		irNo("codec reader: generic")
 	}
-	name := l.wireFunc("decode", t, d.site)
+	name := l.wireFunc(d.tc.decodeDir(), t, d.site)
 	pre, v := d.checked(&irExpr{K: "call", Pos: d.p, Name: name, Args: []*irExpr{d.local(0), d.local(1)}}, b.goType(t, d.site))
 	return pre, d.local(v)
 }
@@ -198,7 +207,9 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 		out := b.temp("out", gt, d.p)
 		k := b.temp("k", "string", d.p)
 		pre := append(begin("Object"), &irStmt{K: "def", Pos: d.p, Local: out, X: &irExpr{K: "lit", Pos: d.p, T: gt}})
-		body := []*irStmt{{K: "def", Pos: d.p, Local: k, X: d.op("Key")}}
+		// The key a Map keeps is a copy (json 2; wireDecodeBody's Map).
+		kept := &irExpr{K: "pcall", Pos: d.p, T: runtimeImport, Name: "WireKeyKept", Args: []*irExpr{d.op("Key")}}
+		body := []*irStmt{{K: "def", Pos: d.p, Local: k, X: kept}}
 		vpre, e := d.value(u.Elem)
 		body = append(body, vpre...)
 		key := &irExpr{K: "conv", Pos: d.p, T: b.goType(u.Key, d.site), X: d.local(k)}

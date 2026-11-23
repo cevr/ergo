@@ -6,7 +6,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Types by member shape (#196, fifth round; spec D-B1): fields make a
+// Types by member shape (fifth round; spec D-B1): fields make a
 // record, operations make an operation type, `=` makes a union and
 // `type N T` a defined type. An inline variant `Name{…}` of a union
 // declares a record in the package scope, usable as a type anywhere in the

@@ -12,7 +12,7 @@ import (
 )
 
 // TestOwnershipRunModel is the model-based run test of the release
-// lowering (#197 L8 B1; resources R5-R10, R21, R41, R43; plan section 3,
+// lowering (resource ownership L8 B1; resources R5-R10, R21, R41, R43; plan section 3,
 // the single-task part of the Quint machine ownership.qnt). It generates
 // admitted bodies over: an acquisition (open, or give, whose callee
 // returns its owned local, R10), a lend, a move by let, an explicit Close,

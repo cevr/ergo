@@ -20,7 +20,7 @@ import (
 //     S108 at the type argument (scriptWhy). The record of calls keeps
 //     each argument past the call, so an operation that takes a function,
 //     a borrow (scriptWhy) or a value that holds a resource (scriptKept) is
-//     S108 there too: one rule for every parameter a call only lends (#197
+//     S108 there too: one rule for every parameter a call only lends (resource ownership
 //     L8 C4; q39). A generic record's Script field names a concrete
 //     capability (Capabilities 7), so an instantiation adds no Script.
 //  2. Fields. The instance's record has one field per operation of S, in

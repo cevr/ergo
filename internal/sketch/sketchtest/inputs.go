@@ -78,7 +78,7 @@ func Repository() ([]Input, error) {
 var fenceStart = regexp.MustCompile("^```go\\s*$")
 
 // SpecFences returns every ```go fence of docs/spec/*.md, split into chunks
-// at blank lines outside brackets (#196, D8). A chunk that starts with
+// at blank lines outside brackets (D8). A chunk that starts with
 // import, type, func, let, test or extern is a file; any other is the body
 // of `func snippet()`.
 func SpecFences() ([]Input, error) {

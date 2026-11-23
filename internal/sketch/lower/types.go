@@ -140,6 +140,13 @@ func (tc *typeCtx) goType(t check.Type) string {
 		// its error types.
 		// The value type of an error row (q47) is one too, the empty row's
 		// included: a field of it never holds a value.
+		// The value of a slot row alone is its Go type parameter, so a
+		// value parameter `f F` takes its argument unboxed (PRELUDE-ORFAIL).
+		if tp := check.SlotRow(t); tp != nil && tp.Slot {
+			if name, ok := tc.params[tp]; ok {
+				return name
+			}
+		}
 		if t.Row != nil || tc.l.isErrorValue(t, tc.l.bodyPkg(), tc.l.viewOf(tc.l.bodyPkg())) {
 			return "error"
 		}

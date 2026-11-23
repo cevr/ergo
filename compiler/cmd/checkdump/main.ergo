@@ -186,6 +186,9 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		for g in diag.AsWritten(d.K.Parsed) {
 			ds = ds.Append(g)
 		}
+		for g in diag.MachineTuples(d.K.Parsed) {
+			ds = ds.Append(g)
+		}
 		for g in rows.Rows(d.S, d.K, d.T) {
 			ds = ds.Append(g)
 		}

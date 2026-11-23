@@ -206,7 +206,7 @@ type collKey struct {
 	on   collOn
 }
 
-// Info records the checker's results for the lowering (#197, #50).
+// Info records the checker's results for the lowering.
 type Info struct {
 	// Carries is the sorted Go import paths that the package of main
 	// carries into the binary for their initialization: an import go of a
@@ -237,7 +237,7 @@ type Info struct {
 	// reference, an operation selector or a call. An entry proves a method
 	// with no operands or results and an empty failure row (R2). A field
 	// called Close and an unrelated function or method have no entry.
-	// Added by #199 stage 3a; general resource ownership remains #197's.
+	// Added by runtime semantics stage 3a; general resource ownership remains resource ownership's.
 	Closes map[syntax.Node]*Close
 	// Implicit is every implicit conversion at an assignment site, keyed
 	// by the assigned expression. The checker's one assignability relation
@@ -296,7 +296,7 @@ type Info struct {
 	// and otherwise in declaration order. The lowering runs them in this
 	// order inside the program's root task (stage C round 2 review m1).
 	InitOrder []*Initializer
-	// Footprints is every frame's footprint (rows.md, Footprints; #199
+	// Footprints is every frame's footprint (rows.md, Footprints; runtime semantics
 	// stage 1): each function with a body (*syntax.FuncDecl), function
 	// literal (*syntax.FuncLit), trailing block of a call other than with
 	// (*syntax.BlockStmt; a with block runs in its enclosing frame), named
@@ -305,7 +305,7 @@ type Info struct {
 	// (*syntax.LawDecl, OwnerLaw's, so no build reads it; stage E3b). The
 	// lowering places interruption points only in a frame whose footprint
 	// is not Empty (runtime.md, I1) and never derives a footprint again.
-	// Added for #199 stage 1 (additive).
+	// Added for runtime semantics stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
 	// Reads is, for each function of the package with a body, keyed by
 	// its *syntax.FuncDecl, what the body reads of each parameter, one
@@ -319,6 +319,11 @@ type Info struct {
 	// receiver; and an instantiation used as a value, Max[int], keyed by
 	// the *syntax.IndexExpr. Added in check-v1 stage E1 (additive).
 	Instances map[syntax.Expr]*Instance
+	// MachineEntries is each machine declaration's entries as the checker
+	// resolved them, keyed by the declaration (MACHINE-EXPR; runtime.md,
+	// Machines and actors 1): an entry that is refused, or not written, is
+	// nil.
+	MachineEntries map[*TypeName]*MachineEntries
 	// ReturnedValues is every expression a return or a function body's
 	// tail gives back whose type is an error type, true when the
 	// function's declared result makes it the success value and false
@@ -332,7 +337,7 @@ type Info struct {
 	// mapped to the leftmost such try. Every fallible value evaluated in
 	// Y propagates, as under the try itself (cover.go).
 	TryCovers map[syntax.Expr]*syntax.TryExpr
-	// Releases is the release plan of the ownership pass (#197 L8 A2;
+	// Releases is the release plan of the ownership pass (resource ownership L8 A2;
 	// resources R5, R10, R21, R41, R43; ownership.go): what is still owned,
 	// in release order (last acquired first), where control leaves a place.
 	// Keys: a scope (*syntax.BlockStmt, *syntax.CaseClause,
@@ -352,7 +357,7 @@ type Info struct {
 	// the frame holds at run time (presence bits, the scope list).
 	TryReleases map[*syntax.TryExpr][]Release
 	// OwnedVars and OwnedTemps are the values the ownership pass gives an
-	// owner (#197 L8 B1): each owned local and taken parameter, and each
+	// owner (L8 B1): each owned local and taken parameter, and each
 	// temporary a statement owns (R43), with the release the lowering
 	// registers for it: the call of its type's checked Close, or the
 	// generated release of its parts (Drop, L8 B2). The lowering registers
@@ -442,7 +447,7 @@ type Info struct {
 	// arm, then registers its disjoint bindings in written order (R39).
 	PatternOwners map[*syntax.CaseClause]PatternOwners
 	// Takes is the inferred takes clause of each unexported function with
-	// a body and no written clause (#197 L8 A3; takes.go): the indexes into
+	// a body and no written clause (L8 A3; takes.go): the indexes into
 	// its signature's Params that it takes, ascending. A written clause is
 	// in Signature.Takes; a function that takes nothing has no key. Added
 	// in L8 A3 (additive).
@@ -533,28 +538,29 @@ type Initializer struct {
 
 func newInfo() *Info {
 	return &Info{
-		Types:         map[syntax.Expr]Type{},
-		Values:        map[syntax.Expr]constant.Value{},
-		Defs:          map[*syntax.Ident]Object{},
-		Uses:          map[*syntax.Ident]Object{},
-		Calls:         map[*syntax.CallExpr]*Call{},
-		Closes:        map[syntax.Node]*Close{},
-		Implicit:      map[syntax.Expr]Conversion{},
-		Spreads:       map[*syntax.CompositeLit][]Spread{},
-		ImplicitElems: map[syntax.Expr][]Conversion{},
-		Patterns:      map[syntax.Expr]*Pattern{},
-		Matches:       map[syntax.Node]*Match{},
-		Tails:         map[syntax.Stmt]Type{},
-		Literals:      map[syntax.Node]*Signature{},
-		ValueCaptures: map[syntax.Node][]*Var{},
-		LocalFrames:   map[*syntax.FuncLit]bool{},
-		Relends:       map[*syntax.UnaryExpr]bool{},
-		Loops:         map[*syntax.RangeStmt]*Loop{},
-		Withs:         map[*syntax.CallExpr]*With{},
-		ContextValues: map[syntax.Expr]*With{},
-		Footprints:    map[syntax.Node]Footprint{},
-		Reads:         map[syntax.Node][]ReadSet{},
-		Instances:     map[syntax.Expr]*Instance{},
+		Types:          map[syntax.Expr]Type{},
+		Values:         map[syntax.Expr]constant.Value{},
+		Defs:           map[*syntax.Ident]Object{},
+		Uses:           map[*syntax.Ident]Object{},
+		Calls:          map[*syntax.CallExpr]*Call{},
+		Closes:         map[syntax.Node]*Close{},
+		Implicit:       map[syntax.Expr]Conversion{},
+		Spreads:        map[*syntax.CompositeLit][]Spread{},
+		ImplicitElems:  map[syntax.Expr][]Conversion{},
+		Patterns:       map[syntax.Expr]*Pattern{},
+		Matches:        map[syntax.Node]*Match{},
+		Tails:          map[syntax.Stmt]Type{},
+		Literals:       map[syntax.Node]*Signature{},
+		ValueCaptures:  map[syntax.Node][]*Var{},
+		LocalFrames:    map[*syntax.FuncLit]bool{},
+		Relends:        map[*syntax.UnaryExpr]bool{},
+		Loops:          map[*syntax.RangeStmt]*Loop{},
+		Withs:          map[*syntax.CallExpr]*With{},
+		ContextValues:  map[syntax.Expr]*With{},
+		Footprints:     map[syntax.Node]Footprint{},
+		Reads:          map[syntax.Node][]ReadSet{},
+		Instances:      map[syntax.Expr]*Instance{},
+		MachineEntries: map[*TypeName]*MachineEntries{},
 
 		ReturnedValues: map[syntax.Expr]bool{},
 		TryCovers:      map[syntax.Expr]*syntax.TryExpr{},
@@ -579,6 +585,42 @@ func newInfo() *Info {
 		Takes:          map[*Func][]int{},
 	}
 }
+
+// MachineEntries are a machine declaration's entries (MACHINE-EXPR): each
+// is an expression of its Machine field's type, checked as a package let's
+// value is (no failure, no capability), in the scope of the declaration's
+// own type parameters. Start is the initial entry when it is a function of
+// an input (V4); an initial value has no entry here.
+type MachineEntries struct {
+	Start, Step, After, Work, Exit *MachineEntry
+	// Conv is the conversion of the declaration's own value, at its own
+	// type parameters, to its Machine (or InputMachine), or nil when an
+	// entry is refused: a generic machine's lowering builds its Machine
+	// once from it, in its type parameters.
+	Conv *Conversion
+}
+
+// MachineEntry is one entry of a machine declaration.
+//
+// A *name entry* names a declared function, Func, or an instance of a
+// generic one, Func with TypeArgs written in the declaration's type
+// parameters (step: stepT[T]): a call of the entry is a call of Func, and a
+// name step's graph is read from Func's body (runtime.md, Machines and
+// actors 15.1). Any other expression is a *computed entry* (Func is nil):
+// its value is computed once, as a package let's is, and a computed step
+// has no graph ("no graph: computed step").
+type MachineEntry struct {
+	Expr     syntax.Expr
+	Func     *Func
+	TypeArgs []Type
+	// Type is the entry's function type in the declaration's type
+	// parameters, rows included: a step's are the Machine's F and R
+	// (Machines and actors 8).
+	Type *Signature
+}
+
+// Computed reports a computed entry: one that names no function.
+func (e *MachineEntry) Computed() bool { return e != nil && e.Func == nil }
 
 // recordInstance records the instantiation of the generic function fn at
 // x with targs, one for each of fn's type parameters, and the witness of
@@ -757,7 +799,7 @@ const (
 	// the law around it, by its bare name (196l, spec D-E4): no receiver, no
 	// charge (Needs is empty), and Fails is the operation's failure row,
 	// which joins the law's. It stands only in a law body, which neither
-	// build lowers: laws are checked, not run (#162). Added in check-v1
+	// build lowers: laws are checked, not run. Added in check-v1
 	// stage E3b (additive).
 	CallLawOp
 	// CallGoError is go.Is or go.As (Name "go.Is" or "go.As"); Type is
@@ -815,7 +857,7 @@ type Call struct {
 	// tails pass through (rows.md, With 6).
 	Fails, Needs *Row
 	// StartsTask reports a call whose result holds a running task the
-	// caller then owns, a Task or a tasks.Set (running.go; #197 L8 B3t):
+	// caller then owns, a Task or a tasks.Set (running.go; L8 B3t):
 	// task.Go, tasks.NewSet, or a function, function value or operation
 	// that returns one. The caller needs a frame scope (frames.go), and
 	// its footprint starts a task.
@@ -876,6 +918,12 @@ type Conversion struct {
 	// including the witnesses required by its constraints. The lowering
 	// consumes this fact rather than resolving the receiver again.
 	Instances map[string]*Instance
+	// Entries are a machine conversion's (ConvMachine) entries by their
+	// Machine field, Start, Step, After, Work and Exit, each with its type
+	// at From's type arguments (MACHINE-EXPR). A name entry is in Table too
+	// (and Instances, when it is an instance); a computed entry is only
+	// here, and the lowering and the evaluator call it through its value.
+	Entries map[string]*MachineEntry
 }
 
 // PatternKind is a pattern's form.
@@ -1019,7 +1067,9 @@ type ContextBinding struct {
 
 // Acquisition is one provider entry a with builds: the
 // entry, the indexes of the capabilities in Entry.Caps it still binds in
-// the with's context, and its provider's resolved Close (Info.Closes), nil
+// the with's context or that a later replace entry is built over (the
+// later entry's binding then overrides it in the environment), and its
+// provider's resolved Close (Info.Closes), nil
 // when the provider is not a resource. The with releases each resource
 // once, in reverse acquisition order, on every exit of its block.
 type Acquisition struct {
@@ -1390,7 +1440,7 @@ func (c *checker) recordWith(x *syntax.CallExpr, frames []*withFrame) {
 	c.pkg.Info.Withs[x] = withs[0]
 	c.callInfo(x).Kind = CallWith
 	// Operand i's environment is the scope around its frame, a persistent
-	// version shared, never copied (chargeRelease; #229).
+	// version shared, never copied (chargeRelease).
 	for i := len(frames) - 1; i >= 0; i-- {
 		c.withSites = append(c.withSites, withSite{x: x, operand: i, w: withs[i], file: c.cur, t: c.fn.t, outer: frames[i].outer})
 	}

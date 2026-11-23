@@ -1,0 +1,9 @@
+# scripts/opcount: `readerbench bench value N` reads a Map of four
+# numbers N times as a json.Value by json.Decode (JSON-CURSOR-ALLOC): each
+# member's key and each Num's digits are the Value's own copies (stdlib.md
+# json 2). The control is hand Go: encoding/json into any, numbers as
+# json.Number.
+unit read
+sizes 20000 120000
+args bench value {n}
+control benchmarks/wirereaders/testdata/control

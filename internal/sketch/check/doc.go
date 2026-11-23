@@ -1,4 +1,4 @@
-// Package check is the checker of the language (#196). It takes the
+// Package check is the checker of the language. It takes the
 // parsed files of one package (internal/sketch/syntax) and an Importer, and
 // returns the checked package (scopes, objects, the type of every checked
 // expression, the declared or inferred rows of every function and literal)

@@ -2,7 +2,7 @@
 // go command line of every native build. A path is resolved once, as the
 // file system walks it, and every step of a command uses that one value.
 // The application receipt and its measurements were removed with
-// `ergo build --receipt` (#205); v1 item 5 brings back what they measured.
+// `ergo build --receipt`; v1 item 5 brings back what they measured.
 package receipt
 
 import (
@@ -79,6 +79,13 @@ func LocateSource(spelled string) (Location, error) {
 		return Location{}, fmt.Errorf("%s: %w", spelled, err)
 	}
 	return Location{spelled: spelled, admitted: admitted, resolved: resolved}, nil
+}
+
+// Unfiled is the Location of a source no file holds, such as a std
+// package the compiler ships (ergo test std:PKG): spelled as given,
+// admitted under the absolute name admitted, and with no Path to open.
+func Unfiled(spelled, admitted string) Location {
+	return Location{spelled: spelled, admitted: admitted}
 }
 
 // Path is the absolute resolved path a writer opens.

@@ -1,0 +1,48 @@
+// A returned or tail value of an error type is a failure, not the success
+// value, when the function's one result is not that type (stmt.go
+// returnedErrorRow): it escapes at the value.
+
+type NotFound {}
+
+type Bad {}
+
+type Item { name string }
+
+func find(name string) string fails NotFound {
+	if name == "" {
+		return NotFound
+	}
+	name
+}
+
+func listed(name string) string fails NotFound | Bad {
+	if name == "" {
+		return Bad
+	}
+	name
+}
+
+func tail(name string) int {
+	if name == "" {
+		return 0
+	}
+	Bad //want: rows
+}
+
+func item(name string) Item fails NotFound {
+	if name == "" {
+		return Bad //want: rows
+	}
+	Item{name: name}
+}
+
+func itself() Bad {
+	Bad
+}
+
+func names(n int) []string {
+	if n == 0 {
+		return NotFound //want: rows
+	}
+	[]string{"a"}
+}

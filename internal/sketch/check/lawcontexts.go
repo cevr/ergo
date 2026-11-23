@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Laws under a context (types.md, Laws 10; L5, #237 stage 3). A member law
+// Laws under a context (types.md, Laws 10; L5, stage 3). A member law
 // of an operation type T also runs once for each named context of this
 // package that binds T: each case builds the context, as a with of it
 // does, and runs the law against the provider the context binds, so the
@@ -204,7 +204,7 @@ func (c *checker) lawRelease(fact *With) string {
 			continue
 		}
 		if closeWitnessed(a.Close) != "" {
-			return "its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)"
+			return "its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (resource ownership)"
 		}
 		if needs := c.providerNeeds(a); len(needs) > 0 {
 			return "its provider's release needs " + needs[0].cap.String() + "; a law case has no capability to release it with"
