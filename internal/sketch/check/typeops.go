@@ -290,8 +290,7 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //     union whose variants it all holds: ConvWiden;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
-//     Go shape, spec D5); where t's parameter is a row value of one error
-//     type and v's is that type, ConvNarrow (narrowsRowParams);
+//     Go shape, spec D5);
 //  6. a machine declaration's value into the prelude Machine instance of
 //     its state, signal and step: ConvMachine (README Gap 46). It is tried
 //     after clause 2, since neither side is an operation type, a union or
@@ -534,12 +533,8 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// Only the runner makes an entry's send (Signature.Entry).
 		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
 	}
-	var conv Conversion
 	if !c.sameShape(vs, ts) {
-		if !c.narrowsRowParams(vs, ts) {
-			return assignment{}, "the parameters or results differ"
-		}
-		conv = Conversion{Kind: ConvNarrow, From: v, To: t}
+		return assignment{}, "the parameters or results differ"
 	}
 	if c.takesEffect(vs, nil) != c.takesEffect(ts, nil) {
 		// Gap 39: a caller of t gives up exactly what t's clause names.
@@ -555,38 +550,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if vu := vs.Uses.known(c.types); !ts.Uses.unknown(c.types) && !vu.subsetOf(c.types, ts.Uses) {
 		return assignment{}, fmt.Sprintf("its capability row %s is wider than %s", rowText(vu), rowText(ts.Uses))
 	}
-	return assignment{clause: assignSignature, conv: conv}, ""
-}
-
-// narrowsRowParams reports whether a function value of v may go in where t
-// is expected because each parameter of t that is not v's is a row value of
-// exactly one error type M, and v's parameter is M (CK-FAILPARAM; types.md,
-// Assignability 5): such a row value only ever holds an M, so the value
-// narrows it and calls v (ConvNarrow). Classed[Boom] with `type Classed[E]
-// { Of func(e E) Fate }`, whose E is an error row, has Of of a row value of
-// Boom, and `func(e Boom) Fate { … }` is that field's value. Results stay
-// identical, and so do generic signatures.
-func (c *checker) narrowsRowParams(v, t *Signature) bool {
-	if len(v.TParams) > 0 || len(t.TParams) > 0 || len(v.Params) != len(t.Params) || len(v.Results) != len(t.Results) {
-		return false
-	}
-	narrowed := false
-	for i := range v.Params {
-		vp, tp := v.Params[i].Type, t.Params[i].Type
-		if c.mayBeIdentical(vp, tp) {
-			continue
-		}
-		if m := c.oneMember(tp); m == nil || !c.identical(m, vp) {
-			return false
-		}
-		narrowed = true
-	}
-	for i := range v.Results {
-		if !c.mayBeIdentical(v.Results[i], t.Results[i]) {
-			return false
-		}
-	}
-	return narrowed
+	return assignment{clause: assignSignature}, ""
 }
 
 // hasName reports a type with a name for assignability (go/types hasName):
