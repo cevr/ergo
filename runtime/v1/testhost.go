@@ -3,7 +3,9 @@ package v1
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 )
 
 // The test's ambient (docs/spec/rows.md, Test's ambient; runtime.md, Tests 11).
@@ -134,4 +136,34 @@ func FSConfine(root string, path string) (string, error) {
 		return "", Denied{Path: path}
 	}
 	return p, nil
+}
+
+// TestSeed is the run's --seed, as the test binary's harness reads it
+// (lower/tests.go, $Seed): the value of --seed N or --seed=N among the
+// process's arguments, 1 when none is given or it is no decimal uint64
+// (the harness has already refused that run). A harnessed test's rewrite
+// calls it for its run's seed (check harness.go, rule 3), so the harness
+// needs no generated Go of its own.
+func TestSeed() uint64 { return testSeed() }
+
+var testSeed = sync.OnceValue(func() uint64 { return seedOf(os.Args[1:]) })
+
+func seedOf(args []string) uint64 {
+	for i := 0; i < len(args); i++ {
+		key, v, joined := strings.Cut(args[i], "=")
+		if !joined {
+			if i+1 == len(args) {
+				break
+			}
+			i++
+			v = args[i]
+		}
+		if key == "--seed" {
+			if n, err := strconv.ParseUint(v, 10, 64); err == nil {
+				return n
+			}
+			return 1
+		}
+	}
+	return 1
 }

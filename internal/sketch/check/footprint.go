@@ -635,7 +635,7 @@ func (fp *footprinter) call(n *fpNode, x *syntax.CallExpr, c *Call) {
 			// memory-only call is.
 			n.opaque = true
 		}
-	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern, CallHash:
+	case CallConversion, CallLen, CallPrelude, CallEmbed, CallPattern, CallHash, CallTestSeed:
 		// These calls add no footprint of their own. CallPrelude is
 		// retained compatibility metadata, never produced by the checker.
 	case CallProviderOp:

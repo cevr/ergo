@@ -1,0 +1,24 @@
+// The body needs the declaring capability (check harness.go, rule 1).
+type Coin {
+	Flip() bool,
+	test Toss, // want S108 "its second parameter is not func() fails Failed needs Coin"
+}
+
+type Other {
+	Ping() bool,
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string }
+
+type pong {} implements Other
+
+func Ping(p pong) bool { true }
+
+func Toss(run Run, body func() fails Failed needs Other) fails Failed {
+	with context { Other: pong } { body() } catch {
+	case Failed as f:
+		return f
+	}
+}

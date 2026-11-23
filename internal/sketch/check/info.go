@@ -780,6 +780,9 @@ const (
 	// of a comparable type, generated from its declared type as == is
 	// (types.md, Maps; CONSTRAINTS C5).
 	CallHash
+	// CallTestSeed is the run's --seed, a uint64, which only the rewrite of
+	// a harnessed test calls (harness.go, rule 3). Added in P1b.
+	CallTestSeed
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount
@@ -853,12 +856,6 @@ const (
 	// Machine[S, E, O, F, R, W] (README Gap 46): Table["Step"] is the
 	// machine's step function.
 	ConvMachine
-	// ConvNarrow puts a function value into a function type whose
-	// parameters it takes, except that where the type's parameter is a row
-	// value of one error type the value's parameter is that type
-	// (narrowsRowParams): the type's function narrows each such row value to
-	// its one type and calls the value.
-	ConvNarrow
 	// ConvWiden puts a value of a declared union into a declared union
 	// that holds each of its variants (types.md, Assignability 4;
 	// DECL-VALUES Design B (b)): the value is the same variant.
