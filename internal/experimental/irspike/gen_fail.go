@@ -370,7 +370,10 @@ func (g *fgen) tail() {
 	switch {
 	case len(cs) > 0 && g.n(3) == 0:
 		c := cs[g.n(len(cs))]
-		if slices.Equal(c.row, f.row) && g.n(2) == 0 {
+		// An untried call of a callee with one failure type in a function
+		// with the same row always: the flat convention's wrapper is
+		// called only from such a return (IR-FORMS IRF-2).
+		if slices.Equal(c.row, f.row) && (len(f.row) == 1 || g.n(2) == 0) {
 			fmt.Fprintf(&g.b, "\t%s\n", g.args(c)) // untried: its value and error pass on
 			return
 		}
@@ -387,6 +390,12 @@ func (g *fgen) main() {
 	// default returns the failure, never the defect (FAIL-ELIDE). Fixed
 	// text, no draw: the seeds' other parts are unchanged.
 	g.b.WriteString("\t\tlet rp = passOn(1) catch {\n\t\tcase E1:\n\t\t\t-5\n\t\tcase E2 as x:\n\t\t\tConsole.Println(\"passOn E2 \\(x.Why)\")\n\t\t\t0\n\t\t}\n\t\tlet rq = passOn(2) catch {\n\t\tcase E1:\n\t\t\t-5\n\t\tcase E2:\n\t\t\t-6\n\t\t}\n\t\tConsole.Println(\"passOn \\(rp + rq)\")\n")
+	// Then gate, a flat function (one record type in its row), through a
+	// function value: its wrapper, which must fail with its worker's
+	// failure, and give its worker's value (IR-FORMS IRF-2). The argument
+	// is the loop's, so no build-time fold computes the call. Fixed text,
+	// no draw: the seeds' other parts are unchanged.
+	g.b.WriteString(gateCalls)
 	funcs := g.funcs
 	if g.order {
 		// GenerateOrder's forced function runs first: an earlier
@@ -420,8 +429,24 @@ func (g *fgen) main() {
 			continue
 		}
 		fmt.Fprintf(&g.b, "\t\tlet r%s = %s catch {\n%s\t\t}\n\t\tConsole.Println(\"%s \\(r%s)\")\n", f.name, call, strings.Join(arms, ""), f.name, f.name)
+		if len(f.row) == 1 && len(f.needs) == 0 {
+			// The same call through a function value: the flat
+			// convention's wrapper, its failure included (IR-FORMS IRF-2).
+			fmt.Fprintf(&g.b, "\t\tlet h%s = %s\n\t\tlet q%s = h%s(%s) catch {\n%s\t\t}\n\t\tConsole.Println(\"%s by value \\(q%s)\")\n", f.name, f.name, f.name, f.name, strings.Join(as, ", "), strings.Join(arms, ""), f.name, f.name)
+		}
 	}
 	g.b.WriteString("\t}\n}\n\n")
 	g.b.WriteString("func both(n int) int fails E1 | E2 {\n\tif n == 0 {\n\t\treturn E1{Code: 0}\n\t}\n\tif n == 1 {\n\t\treturn E2{Why: \"passed on\"}\n\t}\n\tn\n}\n\n")
 	g.b.WriteString("func passOn(n int) int fails E1 | E2 {\n\tlet v = try both(n) catch {\n\tcase E1:\n\t\t-1\n\t}\n\tv + 1\n}\n")
+	g.b.WriteString("\nfunc gate(n int) int fails E1 {\n\tif n % 2 == 0 {\n\t\treturn E1{Code: n}\n\t}\n\tn + 7\n}\n")
 }
+
+// gateCalls are main's calls of gate, directly (a catch that reads its
+// worker's failure) and through a function value (its wrapper): at k = 0
+// with 0, which fails (gateFailed), and at k = 1 with 3, which gives 10.
+const gateCalls = "\t\tfor k in 0..2 {\n\t\t\tlet dg = gate(k * 3) catch {\n\t\t\tcase E1 as x:\n\t\t\t\tConsole.Println(\"gate direct E1 \\(x.Code)\")\n\t\t\t\t0\n\t\t\t}\n\t\t\tConsole.Println(\"gate direct \\(dg)\")\n\t\t\tlet hg = gate\n\t\t\tlet qg = hg(k * 3) catch {\n\t\t\tcase E1 as x:\n\t\t\t\tConsole.Println(\"gate E1 \\(x.Code)\")\n\t\t\t\t0\n\t\t\t}\n\t\t\tConsole.Println(\"gate by value \\(qg)\")\n\t\t}\n"
+
+// gateFailed is the line main prints when gate's wrapper failed with its
+// worker's failure (gateCalls): a run without it did not reach the wrapper's
+// failure, a generator error.
+const gateFailed = "gate E1 0\n"

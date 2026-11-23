@@ -1,0 +1,32 @@
+// A generic machine over a generic union, and a machine whose step is
+// computed by a call: the step fails and needs a capability, and those rows
+// are the Machine's F and R (b_compose's machine half; runtime.md, Machines
+// and actors 8).
+type Broken = Lost{} | Garbled{Why string}
+
+type Wait[T] = Idle{} | Holding{Last T}
+type Tick = Pull{}
+
+type Feed {
+	Next() int fails Broken,
+}
+
+func pull[T](conv own func(n int) T) func(s Wait[T], e Tick) Decision[Wait[T], T] fails Broken needs Feed {
+	func(s Wait[T], e Tick) Decision[Wait[T], T] fails Broken needs Feed {
+		let v = conv(try Feed.Next())
+		Emit[Wait[T], T]{Next: Holding[T]{Last: v}, Output: v}
+	}
+}
+
+func itself(n int) int { n }
+
+func keep[T](s Wait[T], e Tick) Decision[Wait[T], T] { Stay[Wait[T]]{Next: s} }
+
+type Keeper[T] machine[Wait[T], Tick] { initial: Idle, step: keep[T] }
+type IntPuller machine[Wait[int], Tick] { initial: Idle, step: pull(itself) }
+
+func asMachine() Machine[Wait[int], Tick, int, Broken, Feed] { IntPuller{} }
+
+func kept() Machine[Wait[string], Tick, string] { Keeper[string]{} }
+
+func main() {}

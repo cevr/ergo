@@ -11,6 +11,9 @@ import (
 // 10): the module-wide ergo.laws beside the nearest ergo.mod at or above the program's
 // folder (the file's folder for a file), else in that folder.
 func ledgerPath(path string) string {
+	if isStdTarget(path) {
+		return "" // std's ledger is compiled in; no file holds it
+	}
 	dir := path
 	if !isPackageFolder(path) {
 		dir = filepath.Dir(path)
