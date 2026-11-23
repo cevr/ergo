@@ -104,7 +104,7 @@ func program(stock Stock, dir string, std string, depA string, tinyA string, nam
 let completion = "\nround trip complete\n"
 let hangSeconds = "30"
 
-type RuntimePhase = MemoryChecks | Preemption
+type RuntimePhase = MemoryChecks{} | Preemption{}
 
 func childCommand(bin string, phase RuntimePhase, callbackFile string) exec.Command {
 	let (mode, debug) = match phase {
