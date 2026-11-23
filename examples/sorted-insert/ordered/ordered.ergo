@@ -1,0 +1,29 @@
+// Package ordered keeps a list of integers in ascending order.
+
+// Insert is xs, ascending, with x in its place: before the first element
+// that is larger, so equal elements keep the order they came in.
+func Insert(xs []int, x int) []int {
+	let mut out = []int{}
+	let mut placed = false
+	for y in xs {
+		if !placed && x < y {
+			out = out.Append(x)
+			placed = true
+		}
+		out = out.Append(y)
+	}
+	if !placed {
+		out = out.Append(x)
+	}
+	out
+}
+
+// IsSorted reports whether xs is ascending.
+func IsSorted(xs []int) bool {
+	for i in 1..len(xs) {
+		if xs[i] < xs[i-1] {
+			return false
+		}
+	}
+	true
+}
