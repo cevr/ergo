@@ -3,8 +3,10 @@ package irspike
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
@@ -32,6 +34,18 @@ func f7Property(t *testing.T, name string, gen func(uint64) string, funcs ...str
 // (check reports what it finds wrong; nil checks nothing more).
 func f7PropertyWith(t *testing.T, name string, gen func(uint64) string, check func(lower.IRReport) string, funcs ...string) {
 	t.Helper()
+	f7Run(t, name, gen, check, false, funcs...)
+}
+
+// f7PropertyEval is f7Property in which the evaluator also prints the
+// same and exits the same as both lowerings.
+func f7PropertyEval(t *testing.T, name string, gen func(uint64) string, funcs ...string) {
+	t.Helper()
+	f7Run(t, name, gen, nil, true, funcs...)
+}
+
+func f7Run(t *testing.T, name string, gen func(uint64) string, check func(lower.IRReport) string, evaluator bool, funcs ...string) {
+	t.Helper()
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
@@ -50,6 +64,20 @@ func f7PropertyWith(t *testing.T, name string, gen func(uint64) string, check fu
 		a, b := run(t, sb), run(t, ib)
 		if a != b {
 			t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay, text)
+		}
+		if evaluator {
+			ev, err := eval.RunMain(u.Package, eval.DefaultBudget(), eval.Process{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The evaluator stops before it writes the text of a failure
+			// that leaves main (its exit status is then the run's 1).
+			if strings.HasPrefix(ev.Skipped, "the text of a failure that leaves main") {
+				ev.Skipped, ev.Status = "", 1
+			}
+			if ev.Skipped != "" || ev.Incomplete != "" || ev.Stdout != a.stdout || ev.Status != a.exit {
+				t.Fatalf("seed %d: the evaluator differs\nevaluator: %q exit %d (skipped %q, incomplete %q)\nsource:    %q exit %d\n%s\n%s", seed, ev.Stdout, ev.Status, ev.Skipped, ev.Incomplete, a.stdout, a.exit, replay, text)
+			}
 		}
 		if check != nil {
 			if why := check(rep); why != "" {

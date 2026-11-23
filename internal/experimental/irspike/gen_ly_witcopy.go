@@ -25,7 +25,11 @@ var witcopyGenerics = []string{"scaledK", "areaK", "chainK"}
 //   - bumpK is called at a *Box, a witness whose functions take the
 //     pointer: its copy's receiver is a pointer already, never its
 //     address (examples/vt's Screen), and Note writes through it, which
-//     main prints.
+//     main prints;
+//   - tallyK and twiceK take t mut T, called at a Tally variable, so T is
+//     Tally and t a pointer to it (examples/vt's s mut S): Counter's mut
+//     operations, whose functions take the pointer, are direct calls that
+//     pass it on, and twiceK passes t to tallyK's copy (copy to copy).
 //
 // main prints every function at drawn operands for both types, so an
 // operation of the other type, a failure lost or a value misread changes
@@ -51,12 +55,18 @@ func GenerateWitnessCopy(seed uint64) string {
 	fmt.Fprintf(&b, "func Scale(x mut Box, k int) int fails Neg {\n\tif k > %d {\n\t\tNeg{At: x.B}\n\t} else {\n\t\tx.B + k\n\t}\n}\n\n", n(6))
 	b.WriteString("func Note(x mut Box, k int) {\n\tx.B = x.B * 2 + k\n}\n\n")
 	b.WriteString("func bumpK[T Shape](t mut T, k int) int {\n\tt.Note(k)\n\tlet z = t.Scale(k) catch {\n\tcase Neg as e:\n\t\te.At - 9\n\t}\n\tt.Note(z)\n\tt.Area() * 100 + z\n}\n\n")
+	b.WriteString("type Counter {\n\tmut Bump(k int),\n\tmut Get() int,\n}\n\ntype Tally { N int } implements Counter\n\n")
+	fmt.Fprintf(&b, "func Bump(t mut Tally, k int) {\n\tt.N = t.N * %d + k\n}\n\n", 2+n(3))
+	fmt.Fprintf(&b, "func Get(t mut Tally) int {\n\tt.N - %d\n}\n\n", n(5))
+	b.WriteString("func tallyK[T Counter](t mut T, k int) int {\n\tt.Bump(k)\n\tt.Bump(t.Get())\n\tt.Get() * 3\n}\n\n")
+	b.WriteString("func twiceK[T Counter](t mut T, k int) int {\n\ttallyK(t, k) + tallyK(t, k + 1) * 10\n}\n\n")
 	b.WriteString("func main() needs Console {\n")
 	for i := 0; i < 4; i++ {
 		rect := fmt.Sprintf("Rect{W: %d, H: %d}", n(7), n(7)-2)
 		sq := fmt.Sprintf("Sq{S: %d}", n(9)-3)
 		k := n(10) - 3
 		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(chainK(%s, %d)) \\(chainK(%s, %d)) \\(areaK([]Sq{%s, %s}))\")\n", i, rect, k, sq, k+1, sq, sq)
+		fmt.Fprintf(&b, "\tlet mut tl%d = Tally{N: %d}\n\tlet t%d = twiceK(tl%d, %d)\n\tConsole.Println(\"tally %d: \\(t%d) \\(tallyK(tl%d, %d)) \\(tl%d.N)\")\n", i, n(7)-3, i, i, k, i, i, i, k+2, i)
 		fmt.Fprintf(&b, "\tlet mut bx%d = Box{B: %d}\n\tlet v%d = bumpK(&bx%d, %d)\n\tConsole.Println(\"box %d: \\(v%d) \\(bx%d.B)\")\n", i, n(9)-4, i, i, k, i, i, i)
 	}
 	b.WriteString("}\n")
