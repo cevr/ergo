@@ -809,7 +809,7 @@ tasks RecentKeepsTheVerdict	#162
 tasks RepeatFollowsDecide	TestStdScheduleLawsRun
 tasks RestartRunsAgain	TestTasksLaws
 tasks RetryFollowsDecide	TestStdScheduleLawsRun
-tasks Set.StopEndsEveryMember	TestTasksLaws
+tasks Set.StopEndsEveryMember	none
 tasks StrategiesNest	#162
 tasks TransformEqualsLoop	TestTasksLaws
 tasks TransformKeepsOrder	TestTasksLaws

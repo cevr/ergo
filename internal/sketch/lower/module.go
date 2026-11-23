@@ -342,11 +342,12 @@ type lowerer struct {
 	machineOfDone map[*check.TypeName]bool
 	// entryCopies are the computed entries' copies, nil for an entry
 	// whose call is not known (entrycopy.go).
-	entryCopies map[pkgKey]*entryCopy
-	vals        *valueFacts              // the value rule's decisions (values.go)
-	sets        map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
-	holds       map[*check.Named]holdState
-	typeKeys    map[check.Type]string
+	entryCopies      map[pkgKey]*entryCopy
+	vals             *valueFacts              // the value rule's decisions (values.go)
+	sets             map[*check.TypeName]bool // type-set constraint interfaces emitted (ir_typeset.go)
+	holds            map[*check.Named]holdState
+	typeKeys         map[check.Type]string
+	semanticTypeKeys map[check.Type]string
 	// directWriters are the sealed std types whose values encode writes
 	// on directly (wiredirect.go), in typeKey order.
 	directWriters []check.Type

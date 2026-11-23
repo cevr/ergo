@@ -164,11 +164,11 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 	// so a yield that returns false at its k-th call (k of 1 or more) is
 	// called once.
 	law LatestChangesStops(k int) {
-		if k < 1 {
-			return true
-		}
 		Stop() catch {
 		case _:
+		}
+		if k < 1 {
+			return true
 		}
 		let mut calls = 0
 		let s = LatestChanges()
@@ -178,6 +178,22 @@ extern go ergo.local/prototype/runtime/v1.Actor type Actor[S, E, D, F] {
 		})
 		calls == 1
 	},
+}
+
+type actorLawFailed {}
+
+let liveActorForLaws = context {
+	Scheduler: time.NewManual(0),
+	Actor[int, int, Decision[int, int], actorLawFailed]: actorForLaw(),
+}
+
+func actorForLaw() Actor[int, int, Decision[int, int], actorLawFailed] needs Scheduler {
+	let m = Machine[int, int, int, actorLawFailed]{Initial: 0, Step: tallyStepForLaw, After: untimed, Work: unworked, Exit: unexited}
+	StartMachine(m, 1, func(o int) {})
+}
+
+func tallyStepForLaw(s int, e int) Decision[int, int] fails actorLawFailed {
+	tallyStep(s, e)
 }
 
 // start is the Go body: the machine's first state, the state of each
