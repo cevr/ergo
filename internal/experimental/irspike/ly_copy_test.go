@@ -32,9 +32,9 @@ func TestIRCopiesMatchSource(t *testing.T) {
 
 // lyProperty runs the programs gen draws at ERGO_IRSPIKE_SEEDS seeds from
 // ERGO_IRSPIKE_SEED under both lowerings: each prints the same, each
-// function of funcs has an IR body, and the IR build's Go text holds each
-// of texts (the forms the property must reach). Its callers state why
-// they build Go.
+// function of funcs has an IR body, and the IR calls each of texts.
+// A name in both lists can name a suffixed instance: its body is checked
+// under the full name from the call. Callers state why they build Go.
 func lyProperty(t *testing.T, name string, gen func(uint64) string, texts []string, funcs ...string) {
 	t.Helper()
 	src, ir := needsBuild(t)
@@ -60,17 +60,22 @@ func lyProperty(t *testing.T, name string, gen func(uint64) string, texts []stri
 		for _, f := range rep.IR {
 			got[f] = true
 		}
+		var calls map[string][]string
+		if len(texts) > 0 {
+			calls = lyIRCalls(t, filepath.Join(dir, "ir", lower.IRFileName))
+		}
 		for _, f := range funcs {
-			if !got[f] {
-				t.Errorf("seed %d: %s has no IR body (IR bodies: %v, fallback %v)\n%s", seed, f, rep.IR, rep.Fallback, text)
+			found := got[f]
+			for _, callee := range calls[f] {
+				found = found || got[callee]
+			}
+			if !found {
+				t.Errorf("seed %d: %s has no IR body (IR bodies: %v, fallback %v)\n%s\n%s", seed, f, rep.IR, rep.Fallback, replay, text)
 			}
 		}
-		if len(texts) > 0 {
-			calls := lyIRCalls(t, filepath.Join(dir, "ir", lower.IRFileName))
-			for _, s := range texts {
-				if !calls[s] {
-					t.Errorf("seed %d: the IR calls no %s (it calls %v)\n%s", seed, s, calls, text)
-				}
+		for _, s := range texts {
+			if len(calls[s]) == 0 {
+				t.Errorf("seed %d: the IR calls no %s (it calls %v)\n%s\n%s", seed, s, calls, replay, text)
 			}
 		}
 	}
@@ -107,10 +112,10 @@ func lyRun(t *testing.T, bin, replay, text string) outcome {
 	return o
 }
 
-// lyIRCalls are the callees of an IR file's calls: "name" for a call of a
-// package function (a prefix match keeps a uniqueness suffix), "pkg.Name"
-// for a Go package call.
-func lyIRCalls(t *testing.T, file string) map[string]bool {
+// lyIRCalls groups full names of IR callees by the spelling a property
+// expects: omit the uniqueness suffix from a package function, or use
+// "pkg.Name" (or "Name" for a runtime leaf) for a Go package call.
+func lyIRCalls(t *testing.T, file string) map[string][]string {
 	t.Helper()
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -120,7 +125,7 @@ func lyIRCalls(t *testing.T, file string) map[string]bool {
 	if err := json.Unmarshal(data, &v); err != nil {
 		t.Fatal(err)
 	}
-	out := map[string]bool{}
+	out := map[string][]string{}
 	var walk func(any)
 	walk = func(v any) {
 		switch v := v.(type) {
@@ -128,11 +133,13 @@ func lyIRCalls(t *testing.T, file string) map[string]bool {
 			name, _ := v["name"].(string)
 			switch v["k"] {
 			case "call":
-				out[strings.TrimRightFunc(name, func(r rune) bool { return r == '_' || r >= '0' && r <= '9' })] = true
+				base := strings.TrimRightFunc(name, func(r rune) bool { return r == '_' || r >= '0' && r <= '9' })
+				out[base] = append(out[base], name)
 			case "pcall":
 				pkg, _ := v["t"].(string)
-				out[pkg+"."+name] = true
-				out[name] = true // a runtime/v1 body, by its name alone
+				qualified := pkg + "." + name
+				out[qualified] = append(out[qualified], qualified)
+				out[name] = append(out[name], qualified) // a runtime/v1 body, by its name alone
 			}
 			for _, x := range v {
 				walk(x)
