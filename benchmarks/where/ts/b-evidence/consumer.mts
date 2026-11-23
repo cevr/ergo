@@ -1,4 +1,4 @@
-// #125 input evidence, not acceptance (note §2.10): a TypeScript caller under
+// The laws spike input evidence, not acceptance (note §2.10): a TypeScript caller under
 // the outward evidence boundary rule. attacks-expected-fail.mts records the
 // routes this projection does not stop.
 import { User, three, sortUsers, checkSortedUsers, sort, sortTwice, smallest } from './lib.mjs';

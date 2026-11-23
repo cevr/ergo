@@ -13,7 +13,7 @@ import (
 //  1. A named context whose header is exactly `needs TestAmbient` may
 //     require it while it is built; it stays closed to every other
 //     capability (README Gap 6). Any other header row is still S109 for
-//     #196 stage b, as a provides clause and an inline or a local
+//     The v1 language stage b, as a provides clause and an inline or a local
 //     context's header are.
 //  2. No context entry binds TestAmbient (S106), as none binds
 //     Ambient: its one provider is the runner.

@@ -12,7 +12,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// TestResourceTypeModel (#197 L8 A1) is a seeded property of mode
+// TestResourceTypeModel (L8 A1) is a seeded property of mode
 // crossing (resource.go; plan 1.2): it generates declaration graphs (records,
 // empty records, defined basic types and unions, each with a Close of one
 // shape or none, crossed with how it declares the release: Closer in its

@@ -1,5 +1,5 @@
 // The board's one test is a run of the machine; ergo test runs the laws
-// of laws.ergo itself (#162).
+// of laws.ergo itself.
 
 import machines
 import strings

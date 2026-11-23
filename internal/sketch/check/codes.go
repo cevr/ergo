@@ -2,8 +2,8 @@ package check
 
 // Code is a registered diagnostic code of the language's S namespace
 // (docs/spec/diagnostics.md). A test keeps this table, the codes the parser
-// and the checker emit, and the rows of diagnostics.md in step (#79's
-// mechanism for the S namespace; #79 later joins it with the EF registry).
+// and the checker emit, and the rows of diagnostics.md in step (the diagnostic-code registry's
+// mechanism for the S namespace; the diagnostic-code registry later joins it with the EF registry).
 //
 // Prior art: rustc_error_codes keeps one registered table that a tidy check
 // compares with the emitted codes; TypeScript's diagnosticMessages.json.

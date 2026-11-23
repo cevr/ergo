@@ -51,7 +51,7 @@ func describe(diags []check.Diagnostic) string {
 // TestParity checks the prototype's fixtures: each keeps its `// want` code
 // (or stays clean), except the overrides the designed rules change (spec
 // D11, mirrored in testdata/parity.overrides). It reads their decided
-// translations in the shared corpus ../testdata (#196; the frozen
+// translations in the shared corpus ../testdata (the v1 language; the frozen
 // prototypes/sketch9 copies no longer parse).
 func TestParity(t *testing.T) {
 	base := filepath.Join("..", "testdata")

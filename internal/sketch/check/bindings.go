@@ -2,7 +2,7 @@ package check
 
 import "ergo.local/prototype/internal/sketch/syntax"
 
-// Bindings (check-v1 stage D1; #196, 196v amended and the eighth round):
+// Bindings (check-v1 stage D1; 196v amended and the eighth round):
 //
 //   - D-D1: `=` and `op=` reassign only a `let mut` local, directly or
 //     through fields and indexes (Q2); every other binder is immutable; a
@@ -141,7 +141,7 @@ func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 		}
 		switch prev := prev.(type) {
 		case *capBinding:
-			c.errorf(id, CodeType, "%s is in this function's capability row, so an inner binder cannot reuse the name; choose another name (no shadowing, #196 196v rule 2)", name)
+			c.errorf(id, CodeType, "%s is in this function's capability row, so an inner binder cannot reuse the name; choose another name (no shadowing)", name)
 		case *Var:
 			prev.used = true
 			if prev.group != nil {
@@ -151,9 +151,9 @@ func (c *checker) shadowed(id *syntax.Ident, sc *Scope) bool {
 			if prev.param {
 				what = "a parameter"
 			}
-			c.errorf(id, CodeType, "%s is already %s of an enclosing scope in this function; choose another name (no shadowing, #196 196v rule 2)", name, what)
+			c.errorf(id, CodeType, "%s is already %s of an enclosing scope in this function; choose another name (no shadowing)", name, what)
 		default:
-			c.errorf(id, CodeType, "%s is already bound in an enclosing scope of this function; choose another name (no shadowing, #196 196v rule 2)", name)
+			c.errorf(id, CodeType, "%s is already bound in an enclosing scope of this function; choose another name (no shadowing)", name)
 		}
 		return true
 	}
@@ -239,18 +239,18 @@ func (c *checker) lookupPast(name string) Object { return c.lookupWith(name, sco
 // would have no type. The name binds with the invalid type, so its uses
 // add nothing (D3).
 func (c *checker) untypedLet(id *syntax.Ident) {
-	c.errorf(id, CodeType, "let %s needs a type or a value: write let %s T or let %s = e (#196, 196v)", id.Name, id.Name, id.Name)
+	c.errorf(id, CodeType, "let %s needs a type or a value: write let %s T or let %s = e", id.Name, id.Name, id.Name)
 }
 
 // mutPackageLet reports a package-level `let mut` at its `mut` (D-D1).
 func (c *checker) mutPackageLet(d *syntax.VarDecl) {
-	c.errorIn(d, d.Mut, d.Mut+3, CodeType, "a package-level let cannot be mut: Ergo has no mutable package state; pass the value as a parameter, or keep it in a let mut local (#196, 196v)")
+	c.errorIn(d, d.Mut, d.Mut+3, CodeType, "a package-level let cannot be mut: Ergo has no mutable package state; pass the value as a parameter, or keep it in a let mut local")
 }
 
 // mutPattern reports `let mut` over a pattern at its `mut` (D-D1): a
 // pattern's bindings are immutable.
 func (c *checker) mutPattern(d *syntax.VarDecl) {
-	c.errorIn(d, d.Mut, d.Mut+3, CodeType, "let mut binds names, and a pattern's bindings are immutable: write let mut v = e, then destructure v with let or match (#196, 196v)")
+	c.errorIn(d, d.Mut, d.Mut+3, CodeType, "let mut binds names, and a pattern's bindings are immutable: write let mut v = e, then destructure v with let or match")
 }
 
 // packageRoot returns "P.V" when x, through parentheses, fields and
@@ -288,7 +288,7 @@ const (
 // rooted at, through parentheses, fields and indexes (rootName). A target
 // that goes through a pointer is rootPointer: a write through a pointer
 // changes the pointee, not the value the root names, and taking that
-// pointer was the borrow the rule checks (D-D1; pointers are #222's). A
+// pointer was the borrow the rule checks (D-D1; pointers are the value-semantics spike's). A
 // target rooted at any other expression is rootOther (Q2). It reads the
 // types typing recorded, so the caller types x first; a pass that records
 // no types (a silent one) walks to the identifier and reports nothing.
@@ -365,7 +365,7 @@ func (c *checker) checkRoot(at syntax.Node, x syntax.Expr, borrow string) {
 		// `xs()[0] = 5`, `[]int{1, 2}[0] = 3`: the write is lost or
 		// changes a value no let mut names (Q2). A borrow of a literal
 		// (`&R{N: 1}`) allocates, and typing judges a borrow's operand.
-		c.errorf(at, CodeType, "an assignment target is rooted at a let mut local, directly or through fields and indexes; this one is rooted at %s (#196, 196v)", rootText(x))
+		c.errorf(at, CodeType, "an assignment target is rooted at a let mut local, directly or through fields and indexes; this one is rooted at %s", rootText(x))
 		return
 	}
 	if id == nil || id.Name == "_" {
@@ -382,7 +382,7 @@ func (c *checker) checkRoot(at syntax.Node, x syntax.Expr, borrow string) {
 	if v.pkg {
 		// A package-level let's type may not be resolved yet; it is
 		// immutable whatever its type.
-		c.errorf(at, CodeType, "the package-level let %s is immutable; Ergo has no mutable package state (#196, 196v)", id.Name)
+		c.errorf(at, CodeType, "the package-level let %s is immutable; Ergo has no mutable package state", id.Name)
 		return
 	}
 	if v.Type == nil || isInvalid(v.Type) {
@@ -400,11 +400,11 @@ func (c *checker) checkRoot(at syntax.Node, x syntax.Expr, borrow string) {
 	}
 	switch {
 	case v.param:
-		c.errorf(at, CodeType, "the parameter %s %s; copy it into a local: let mut %s = %s (#196, 196v)", id.Name, how, renamed(id.Name), id.Name)
+		c.errorf(at, CodeType, "the parameter %s %s; copy it into a local: let mut %s = %s", id.Name, how, renamed(id.Name), id.Name)
 	case v.let:
-		c.errorf(at, CodeType, "%s %s; declare %s with let mut (#196, 196v)", id.Name, how, id.Name)
+		c.errorf(at, CodeType, "%s %s; declare %s with let mut", id.Name, how, id.Name)
 	default:
-		c.errorf(at, CodeType, "the binding %s %s; copy it into a local: let mut %s = %s (#196, 196v)", id.Name, how, renamed(id.Name), id.Name)
+		c.errorf(at, CodeType, "the binding %s %s; copy it into a local: let mut %s = %s", id.Name, how, renamed(id.Name), id.Name)
 	}
 }
 
@@ -464,6 +464,6 @@ func (c *checker) reportUnassigned(dropRoots map[*Var]bool) {
 			continue
 		}
 		c.cur = u.file
-		c.errorf(u.v.id, CodeUnused, "%s is never reassigned; write let %s (#196, 196v)", u.v.Name, u.v.Name)
+		c.errorf(u.v.id, CodeUnused, "%s is never reassigned; write let %s", u.v.Name, u.v.Name)
 	}
 }

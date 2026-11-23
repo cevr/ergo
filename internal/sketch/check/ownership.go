@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Ownership flow (#197 L8 A2; resources R4, R5, R10, R15-R17, R19-R21,
+// Ownership flow (resource ownership L8 A2; resources R4, R5, R10, R15-R17, R19-R21,
 // R41-R43). A value whose type holds a resource (resource.go) has one
 // owner. One forward pass per frame over the structured control flow
 // decides, for each owned local, taken parameter and temporary, whether
@@ -1526,7 +1526,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		if op, generic := w.resourceMethod(x); op != nil {
 			// The same for any other operation of a resource (Task.Wait,
-			// Task.Stop; #197 L8 B3t): the function value would own its
+			// Task.Stop; resource ownership L8 B3t): the function value would own its
 			// receiver, or hold a lend of it past its release. A queue's
 			// Values is one: f() of f = q.Values would be a Seq of owned
 			// values that no for-in over q.Values() releases (R35). In a

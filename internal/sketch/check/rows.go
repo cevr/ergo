@@ -18,7 +18,7 @@ type target struct {
 	declErrors, declUses *Row
 	errors, uses         *Row // what escapes or is charged (inferred rows)
 	// scope is what the with frames around the body being checked bind
-	// (withScope): a charge reads it once, whatever their number (#229).
+	// (withScope): a charge reads it once, whatever their number.
 	scope withScope
 	// results are the value results a return gives; resultKnown is false
 	// for a block whose result is its last expression's type.

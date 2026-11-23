@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Resource types and mode crossing (#197 L8 A1; resources.md R1, R22,
+// Resource types and mode crossing (resource ownership L8 A1; resources.md R1, R22,
 // R34, R40; plan 1.2). Ownership is a mode, not a type mark: the
 // ownership rules apply only to a value whose type holds a resource, and
 // every other type crosses (OxCaml's mode crossing). One property decides
@@ -108,7 +108,7 @@ func (c *checker) crosses(t Type) bool { return !c.holdsResource(t) }
 // holdsOwnParam reports whether a value of type t holds a value of an own
 // type parameter, directly or through a part (a field, an element, a
 // variant, a type argument), whatever concrete resources it also holds:
-// the part a generic body cannot release (#197 Gap 42).
+// the part a generic body cannot release (Gap 42).
 func (c *checker) holdsOwnParam(t Type) bool {
 	w := resWalk{c: c, mode: resOwnPart}
 	h, _ := w.visit(t)
