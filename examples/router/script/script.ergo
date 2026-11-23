@@ -11,6 +11,7 @@ import queue
 import router/route
 import strconv
 import strings
+import sync
 import tasks
 
 // BadLine is a line the script cannot read.
@@ -127,10 +128,20 @@ func Recover(j journal.Journal[route.Router, route.Signal]) route.Router fails j
 // recovers then, never in the crashed one's memory. sink gets the
 // questions.
 func Open(j journal.Journal[route.Router, route.Signal], sink own func(o route.Output)) actor.Actor[route.Router, route.Signal, Decision[route.Router, route.Output]] fails journal.Failed needs route.Registry | Scheduler {
+	// kept is how many signals j holds: the recover sets it, each save
+	// appends under it (a Ref: the hooks outlive Open).
+	let kept = sync.NewRef(0)
 	try actor.SuperviseDurable(route.Routing{}, 8, sink, tasks.Restart{Limit: Budget}, func() Option[route.Router] fails journal.Failed {
+		kept.Set(len((try j.Load()).Signals))
 		Some[route.Router]{Value: try Recover(j)}
 	}, func(prev route.Router, next route.Router, sig route.Signal) fails journal.Failed {
-		try j.Append(sig)
+		j.Append(sig, kept.Get()) catch {
+		case journal.Stale as s:
+			return journal.Failed{Reason: "another router kept signals: \(s.Expected) expected, \(s.Actual) kept"}
+		case journal.Failed as f:
+			return f
+		}
+		kept.Update(func(n int) int { n + 1 })
 	})
 }
 

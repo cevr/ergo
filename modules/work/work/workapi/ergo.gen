@@ -1,5 +1,5 @@
 kind api
 generator ergo gen api
 subject github.com/cevr/ergo/modules/work/work.Api
-contract sha256:de53fb5cb161a2d6f77841b1415295d37eddabaa9a873bff0029b8b3cb207d89
-digest sha256:504c41eedaaaffc41854e35e0c8e65ff190bbdd0f9fffd756a9c25a61fe5719d
+contract sha256:718b078ff86883bf0f29216d1a570cb1a5dce467ffeff1be40f2cdf3b74e17fa
+digest sha256:b85dbcb77505cba0bda259b6ac6fa43f3124475e65bab86482cb572cb1f2583e

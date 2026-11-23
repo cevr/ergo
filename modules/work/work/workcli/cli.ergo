@@ -19,7 +19,14 @@ type Output = api.Output
 
 // Commands are the commands of work.Api, one per operation, in its order.
 func Commands() []flag.Command[Request] {
-	[]flag.Command[Request]{commandInit(), commandNew(), commandAdopt(), commandAdoptRift(), commandList(), commandRm(), commandGc(), commandPin(), commandUnpin(), commandDu(), commandReady(), commandRecord(), commandSync(), commandEnv(), commandMergeFile(), commandMergeFolders(), commandDerive(), commandDeps(), commandTrust(), commandDoctor(), commandPluginTest(), commandRefresh(), commandClone(), commandBases(), commandForgetBase(), commandPruneBases(), commandShellInit(), commandImportRift()}
+	[]flag.Command[Request]{commandVersion(), commandInit(), commandNew(), commandAdopt(), commandAdoptRift(), commandList(), commandRm(), commandGc(), commandPin(), commandUnpin(), commandDu(), commandReady(), commandRecord(), commandSync(), commandEnv(), commandMergeFile(), commandMergeFolders(), commandDerive(), commandDeps(), commandTrust(), commandDoctor(), commandPluginTest(), commandRefresh(), commandClone(), commandBases(), commandForgetBase(), commandPruneBases(), commandShellInit(), commandImportRift()}
+}
+
+func commandVersion() flag.Command[Request] {
+	let usage = workapi.Doc(workapi.VersionOp)
+	flag.Command[Request]{Name: "version", Usage: usage, Set: flag.Set{Name: "version", Usage: usage, Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		workapi.VersionRequest
+	}, Commands: []flag.Command[Request]{}}
 }
 
 func commandInit() flag.Command[Request] {
@@ -86,9 +93,10 @@ func commandGc() flag.Command[Request] {
 	let f1 = flag.OptionalString("id", "o.Id (Option[string])")
 	let f2 = flag.OptionalString("idle", "o.Idle (Option[string])")
 	let f3 = flag.Bool("archive", false, "o.Archive (bool)")
+	let f4 = flag.Bool("dry", false, "o.Dry (bool)")
 	let usage = workapi.Doc(workapi.GcOp)
-	flag.Command[Request]{Name: "gc", Usage: usage, Set: flag.Set{Name: "gc", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		workapi.GcRequest{O: work.GcOptions{Older: f0.Get(v), Id: f1.Get(v), Idle: f2.Get(v), Archive: f3.Get(v)}}
+	flag.Command[Request]{Name: "gc", Usage: usage, Set: flag.Set{Name: "gc", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		workapi.GcRequest{O: work.GcOptions{Older: f0.Get(v), Id: f1.Get(v), Idle: f2.Get(v), Archive: f3.Get(v), Dry: f4.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -302,6 +310,10 @@ func argText(a flag.ArgSpec, v flag.Values) string {
 func Parse(args []string) Request fails flag.Failure {
 	let first = if len(args) > 0 { args[0] } else { "" }
 	match first {
+	case "version":
+		let c = commandVersion()
+		let v = try flag.Parse(flag.Set{..c.Set, Name: "work version"}, slices.Slice(args, 1, len(args)))
+		try c.Build(v)
 	case "init":
 		let c = commandInit()
 		let v = try flag.Parse(flag.Set{..c.Set, Name: "work init"}, slices.Slice(args, 1, len(args)))
@@ -423,6 +435,8 @@ func Parse(args []string) Request fails flag.Failure {
 // each flag as -name=value, then "--" and the positional arguments.
 func Print(r Request) []string {
 	match r {
+	case workapi.VersionRequest:
+		[]string{"version"}
 	case workapi.InitRequest:
 		[]string{"init"}
 	case workapi.NewRequest as x:
@@ -503,6 +517,7 @@ func Print(r Request) []string {
 		case None:
 		}
 		out = out.Append("-archive=\(x.O.Archive)")
+		out = out.Append("-dry=\(x.O.Dry)")
 		out
 	case workapi.PinRequest as x:
 		let mut out = []string{"pin"}
@@ -717,6 +732,9 @@ func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
 			}
 		}
 		match done.Reply {
+		case workapi.VersionReply as reply:
+			let v = reply.Value
+			answer(asJSON, "\(v)", rpc.Encode(v))
 		case workapi.InitReply as reply:
 			let v = reply.Value
 			answer(asJSON, "\(v)", rpc.Encode(v))
@@ -828,16 +846,22 @@ func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
 	case workapi.Rejected as rejected:
 		let status = p.Code(rejected.Failure)
 		match rejected.Failure {
-		case workapi.BadConfig as failure:
-			failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(failure.E)), status)
 		case workapi.Unkept as failure:
 			failed(asJSON, rpc.Tagged("Unkept", rpc.Encode(failure.E)), status)
+		case workapi.BadConfig as failure:
+			failed(asJSON, rpc.Tagged("BadConfig", rpc.Encode(failure.E)), status)
 		case workapi.Denied as failure:
 			failed(asJSON, rpc.Tagged("Denied", rpc.Encode(failure.E)), status)
 		case workapi.Failed as failure:
 			failed(asJSON, rpc.Tagged("Failed", rpc.Encode(failure.E)), status)
 		case workapi.HookFailed as failure:
 			failed(asJSON, rpc.Tagged("HookFailed", rpc.Encode(failure.E)), status)
+		case workapi.Missing as failure:
+			failed(asJSON, rpc.Tagged("Missing", rpc.Encode(failure.E)), status)
+		case workapi.CloneFailed as failure:
+			failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(failure.E)), status)
+		case workapi.Locked as failure:
+			failed(asJSON, rpc.Tagged("Locked", rpc.Encode(failure.E)), status)
 		case workapi.NoBase as failure:
 			failed(asJSON, rpc.Tagged("NoBase", rpc.Encode(failure.E)), status)
 		case workapi.BadName as failure:
@@ -858,16 +882,10 @@ func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
 			failed(asJSON, rpc.Tagged("Unsupported", rpc.Encode(failure.E)), status)
 		case workapi.Exists as failure:
 			failed(asJSON, rpc.Tagged("Exists", rpc.Encode(failure.E)), status)
-		case workapi.Missing as failure:
-			failed(asJSON, rpc.Tagged("Missing", rpc.Encode(failure.E)), status)
 		case workapi.NoSpace as failure:
 			failed(asJSON, rpc.Tagged("NoSpace", rpc.Encode(failure.E)), status)
-		case workapi.CloneFailed as failure:
-			failed(asJSON, rpc.Tagged("CloneFailed", rpc.Encode(failure.E)), status)
 		case workapi.VcsFailed as failure:
 			failed(asJSON, rpc.Tagged("VcsFailed", rpc.Encode(failure.E)), status)
-		case workapi.Locked as failure:
-			failed(asJSON, rpc.Tagged("Locked", rpc.Encode(failure.E)), status)
 		case workapi.Busy as failure:
 			failed(asJSON, rpc.Tagged("Busy", rpc.Encode(failure.E)), status)
 		case workapi.RiftUnread as failure:
@@ -880,6 +898,10 @@ func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
 			failed(asJSON, rpc.Tagged("HasDescendants", rpc.Encode(failure.E)), status)
 		case workapi.BadAge as failure:
 			failed(asJSON, rpc.Tagged("BadAge", rpc.Encode(failure.E)), status)
+		case workapi.BadRequest as failure:
+			failed(asJSON, rpc.Tagged("BadRequest", rpc.Encode(failure.E)), status)
+		case workapi.GcFailed as failure:
+			failed(asJSON, rpc.Tagged("GcFailed", rpc.Encode(failure.E)), status)
 		case workapi.NotHere as failure:
 			failed(asJSON, rpc.Tagged("NotHere", rpc.Encode(failure.E)), status)
 		case workapi.Detached as failure:
@@ -888,8 +910,6 @@ func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
 			failed(asJSON, rpc.Tagged("NotFastForward", rpc.Encode(failure.E)), status)
 		case workapi.Moved as failure:
 			failed(asJSON, rpc.Tagged("Moved", rpc.Encode(failure.E)), status)
-		case workapi.BadRequest as failure:
-			failed(asJSON, rpc.Tagged("BadRequest", rpc.Encode(failure.E)), status)
 		case workapi.NoRecord as failure:
 			failed(asJSON, rpc.Tagged("NoRecord", rpc.Encode(failure.E)), status)
 		case workapi.BadRecord as failure:
@@ -923,6 +943,12 @@ func Read(r Request, out Output) workapi.Outcome {
 	let text = strings.TrimSuffix(out.Out, "\n")
 	if out.Code == 0 {
 		match r {
+		case workapi.VersionRequest:
+			let v = rpc.Decode[string]("value", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered Version with a value it cannot read: " + t.Reason)
+			}
+			workapi.Done{Reply: workapi.VersionReply{Value: v}}
 		case workapi.InitRequest:
 			let v = rpc.Decode[string]("value", text) catch {
 			case rpc.Transport as t:
@@ -1094,18 +1120,18 @@ func Read(r Request, out Output) workapi.Outcome {
 		}
 	} else if out.Code == 1 {
 		match rpc.TagOf(text) {
-		case "BadConfig":
-			let e = rpc.Decode[work.BadConfig]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.BadConfig{E: e}}
 		case "Unkept":
 			let e = rpc.Decode[work.Unkept]("failure", text) catch {
 			case rpc.Transport as t:
 				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
 			}
 			workapi.Rejected{Failure: workapi.Unkept{E: e}}
+		case "BadConfig":
+			let e = rpc.Decode[work.BadConfig]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.BadConfig{E: e}}
 		case "Denied":
 			let e = rpc.Decode[fs.Denied]("failure", text) catch {
 			case rpc.Transport as t:
@@ -1124,6 +1150,24 @@ func Read(r Request, out Output) workapi.Outcome {
 				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
 			}
 			workapi.Rejected{Failure: workapi.HookFailed{E: e}}
+		case "Missing":
+			let e = rpc.Decode[work.Missing]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Missing{E: e}}
+		case "CloneFailed":
+			let e = rpc.Decode[work.CloneFailed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
+		case "Locked":
+			let e = rpc.Decode[work.Locked]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.Locked{E: e}}
 		case "NoBase":
 			let e = rpc.Decode[work.NoBase]("failure", text) catch {
 			case rpc.Transport as t:
@@ -1184,36 +1228,18 @@ func Read(r Request, out Output) workapi.Outcome {
 				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
 			}
 			workapi.Rejected{Failure: workapi.Exists{E: e}}
-		case "Missing":
-			let e = rpc.Decode[work.Missing]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.Missing{E: e}}
 		case "NoSpace":
 			let e = rpc.Decode[work.NoSpace]("failure", text) catch {
 			case rpc.Transport as t:
 				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
 			}
 			workapi.Rejected{Failure: workapi.NoSpace{E: e}}
-		case "CloneFailed":
-			let e = rpc.Decode[work.CloneFailed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
 		case "VcsFailed":
 			let e = rpc.Decode[work.VcsFailed]("failure", text) catch {
 			case rpc.Transport as t:
 				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
 			}
 			workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
-		case "Locked":
-			let e = rpc.Decode[work.Locked]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.Locked{E: e}}
 		case "Busy":
 			let e = rpc.Decode[work.Busy]("failure", text) catch {
 			case rpc.Transport as t:
@@ -1250,6 +1276,18 @@ func Read(r Request, out Output) workapi.Outcome {
 				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
 			}
 			workapi.Rejected{Failure: workapi.BadAge{E: e}}
+		case "BadRequest":
+			let e = rpc.Decode[work.BadRequest]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.BadRequest{E: e}}
+		case "GcFailed":
+			let e = rpc.Decode[work.GcFailed]("failure", text) catch {
+			case rpc.Transport as t:
+				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+			}
+			workapi.Rejected{Failure: workapi.GcFailed{E: e}}
 		case "NotHere":
 			let e = rpc.Decode[work.NotHere]("failure", text) catch {
 			case rpc.Transport as t:
@@ -1274,12 +1312,6 @@ func Read(r Request, out Output) workapi.Outcome {
 				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
 			}
 			workapi.Rejected{Failure: workapi.Moved{E: e}}
-		case "BadRequest":
-			let e = rpc.Decode[work.BadRequest]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.BadRequest{E: e}}
 		case "NoRecord":
 			let e = rpc.Decode[work.NoRecord]("failure", text) catch {
 			case rpc.Transport as t:
@@ -1445,7 +1477,7 @@ func RunOnTerminal(args []string, p Policy) Output needs work.Api | term.Termina
 
 // Completion is the script that completes work's commands in shell.
 func Completion(shell api.Shell) string {
-	api.Completion("work", shell, []api.Entry{api.Entry{Name: workapi.Name(workapi.InitOp), Doc: workapi.Doc(workapi.InitOp)}, api.Entry{Name: workapi.Name(workapi.NewOp), Doc: workapi.Doc(workapi.NewOp)}, api.Entry{Name: workapi.Name(workapi.AdoptOp), Doc: workapi.Doc(workapi.AdoptOp)}, api.Entry{Name: workapi.Name(workapi.AdoptRiftOp), Doc: workapi.Doc(workapi.AdoptRiftOp)}, api.Entry{Name: workapi.Name(workapi.ListOp), Doc: workapi.Doc(workapi.ListOp)}, api.Entry{Name: workapi.Name(workapi.RmOp), Doc: workapi.Doc(workapi.RmOp)}, api.Entry{Name: workapi.Name(workapi.GcOp), Doc: workapi.Doc(workapi.GcOp)}, api.Entry{Name: workapi.Name(workapi.PinOp), Doc: workapi.Doc(workapi.PinOp)}, api.Entry{Name: workapi.Name(workapi.UnpinOp), Doc: workapi.Doc(workapi.UnpinOp)}, api.Entry{Name: workapi.Name(workapi.DuOp), Doc: workapi.Doc(workapi.DuOp)}, api.Entry{Name: workapi.Name(workapi.ReadyOp), Doc: workapi.Doc(workapi.ReadyOp)}, api.Entry{Name: workapi.Name(workapi.RecordOp), Doc: workapi.Doc(workapi.RecordOp)}, api.Entry{Name: workapi.Name(workapi.SyncOp), Doc: workapi.Doc(workapi.SyncOp)}, api.Entry{Name: workapi.Name(workapi.EnvOp), Doc: workapi.Doc(workapi.EnvOp)}, api.Entry{Name: workapi.Name(workapi.MergeFileOp), Doc: workapi.Doc(workapi.MergeFileOp)}, api.Entry{Name: workapi.Name(workapi.MergeFoldersOp), Doc: workapi.Doc(workapi.MergeFoldersOp)}, api.Entry{Name: workapi.Name(workapi.DeriveOp), Doc: workapi.Doc(workapi.DeriveOp)}, api.Entry{Name: workapi.Name(workapi.DepsOp), Doc: workapi.Doc(workapi.DepsOp)}, api.Entry{Name: workapi.Name(workapi.TrustOp), Doc: workapi.Doc(workapi.TrustOp)}, api.Entry{Name: workapi.Name(workapi.DoctorOp), Doc: workapi.Doc(workapi.DoctorOp)}, api.Entry{Name: workapi.Name(workapi.PluginTestOp), Doc: workapi.Doc(workapi.PluginTestOp)}, api.Entry{Name: workapi.Name(workapi.RefreshOp), Doc: workapi.Doc(workapi.RefreshOp)}, api.Entry{Name: workapi.Name(workapi.CloneOp), Doc: workapi.Doc(workapi.CloneOp)}, api.Entry{Name: workapi.Name(workapi.BasesOp), Doc: workapi.Doc(workapi.BasesOp)}, api.Entry{Name: workapi.Name(workapi.ForgetBaseOp), Doc: workapi.Doc(workapi.ForgetBaseOp)}, api.Entry{Name: workapi.Name(workapi.PruneBasesOp), Doc: workapi.Doc(workapi.PruneBasesOp)}, api.Entry{Name: workapi.Name(workapi.ShellInitOp), Doc: workapi.Doc(workapi.ShellInitOp)}, api.Entry{Name: workapi.Name(workapi.ImportRiftOp), Doc: workapi.Doc(workapi.ImportRiftOp)}})
+	api.Completion("work", shell, []api.Entry{api.Entry{Name: workapi.Name(workapi.VersionOp), Doc: workapi.Doc(workapi.VersionOp)}, api.Entry{Name: workapi.Name(workapi.InitOp), Doc: workapi.Doc(workapi.InitOp)}, api.Entry{Name: workapi.Name(workapi.NewOp), Doc: workapi.Doc(workapi.NewOp)}, api.Entry{Name: workapi.Name(workapi.AdoptOp), Doc: workapi.Doc(workapi.AdoptOp)}, api.Entry{Name: workapi.Name(workapi.AdoptRiftOp), Doc: workapi.Doc(workapi.AdoptRiftOp)}, api.Entry{Name: workapi.Name(workapi.ListOp), Doc: workapi.Doc(workapi.ListOp)}, api.Entry{Name: workapi.Name(workapi.RmOp), Doc: workapi.Doc(workapi.RmOp)}, api.Entry{Name: workapi.Name(workapi.GcOp), Doc: workapi.Doc(workapi.GcOp)}, api.Entry{Name: workapi.Name(workapi.PinOp), Doc: workapi.Doc(workapi.PinOp)}, api.Entry{Name: workapi.Name(workapi.UnpinOp), Doc: workapi.Doc(workapi.UnpinOp)}, api.Entry{Name: workapi.Name(workapi.DuOp), Doc: workapi.Doc(workapi.DuOp)}, api.Entry{Name: workapi.Name(workapi.ReadyOp), Doc: workapi.Doc(workapi.ReadyOp)}, api.Entry{Name: workapi.Name(workapi.RecordOp), Doc: workapi.Doc(workapi.RecordOp)}, api.Entry{Name: workapi.Name(workapi.SyncOp), Doc: workapi.Doc(workapi.SyncOp)}, api.Entry{Name: workapi.Name(workapi.EnvOp), Doc: workapi.Doc(workapi.EnvOp)}, api.Entry{Name: workapi.Name(workapi.MergeFileOp), Doc: workapi.Doc(workapi.MergeFileOp)}, api.Entry{Name: workapi.Name(workapi.MergeFoldersOp), Doc: workapi.Doc(workapi.MergeFoldersOp)}, api.Entry{Name: workapi.Name(workapi.DeriveOp), Doc: workapi.Doc(workapi.DeriveOp)}, api.Entry{Name: workapi.Name(workapi.DepsOp), Doc: workapi.Doc(workapi.DepsOp)}, api.Entry{Name: workapi.Name(workapi.TrustOp), Doc: workapi.Doc(workapi.TrustOp)}, api.Entry{Name: workapi.Name(workapi.DoctorOp), Doc: workapi.Doc(workapi.DoctorOp)}, api.Entry{Name: workapi.Name(workapi.PluginTestOp), Doc: workapi.Doc(workapi.PluginTestOp)}, api.Entry{Name: workapi.Name(workapi.RefreshOp), Doc: workapi.Doc(workapi.RefreshOp)}, api.Entry{Name: workapi.Name(workapi.CloneOp), Doc: workapi.Doc(workapi.CloneOp)}, api.Entry{Name: workapi.Name(workapi.BasesOp), Doc: workapi.Doc(workapi.BasesOp)}, api.Entry{Name: workapi.Name(workapi.ForgetBaseOp), Doc: workapi.Doc(workapi.ForgetBaseOp)}, api.Entry{Name: workapi.Name(workapi.PruneBasesOp), Doc: workapi.Doc(workapi.PruneBasesOp)}, api.Entry{Name: workapi.Name(workapi.ShellInitOp), Doc: workapi.Doc(workapi.ShellInitOp)}, api.Entry{Name: workapi.Name(workapi.ImportRiftOp), Doc: workapi.Doc(workapi.ImportRiftOp)}})
 }
 
 func carry(c Request, answer func(c Request) workapi.Outcome) workapi.Outcome {
