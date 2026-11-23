@@ -352,9 +352,18 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 
 	plan, ofSource, ofStd := splitPackages(u, origins, harness != nil)
 	scope := f.Scope
+	releases := map[string]string{}
+	if ir != nil {
+		for _, fn := range ir.Funcs {
+			if fn.release != "" {
+				owner, _, _ := strings.Cut(fn.Name, ".")
+				releases[fn.release] = owner
+			}
+		}
+	}
 
-	// Groups: each non-method declaration, then each method joins its
-	// receiver's group.
+	// Groups: each independent declaration, then each method joins its
+	// receiver's group and a deferred release joins its owner's.
 	var groups []splitGroup
 	groupOf := map[string]int{} // package-scope name to group
 	defOf := splitDefs{node: map[string]ast.Node{}, decl: map[string]int{}}
@@ -369,7 +378,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 			firstDecl = i
 		}
 		fd, ok := d.(*ast.FuncDecl)
-		if ok && fd.Recv != nil {
+		if ok && (fd.Recv != nil || releases[fd.Name.Name] != "") {
 			continue
 		}
 		g := splitGroup{decls: []int{i}, natural: -1}
@@ -433,7 +442,20 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 	}
 	for i, d := range f.Decls {
 		fd, ok := d.(*ast.FuncDecl)
-		if !ok || fd.Recv == nil {
+		if !ok {
+			continue
+		}
+		if owner := releases[fd.Name.Name]; owner != "" && fd.Recv == nil {
+			g, ok := groupOf[owner]
+			if !ok {
+				return nil, SplitReport{Reason: "a deferred release's owner is not declared in main.go"}
+			}
+			declGroup[i], groupOf[fd.Name.Name] = g, g
+			groups[g].decls = append(groups[g].decls, i)
+			defOf.add(fd.Name.Name, fd, i)
+			continue
+		}
+		if fd.Recv == nil {
 			continue
 		}
 		g, ok := groupOf[recvBase(fd.Recv)]

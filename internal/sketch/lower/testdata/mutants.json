@@ -5,6 +5,7 @@
     "native-prelude-string-hash": ["go", "run", "./cmd/ergo", "test", "std:prelude", "--law", "StructuralStringKeysHashEqual"]
   },
   "mutants": [
+    {"name":"split-moves-deferred-release-to-foreign-package","origin":"wf10 IR-OWNED-PARAMETER-SLOT (not-run-crunch)","file":"internal/sketch/lower/pkgsplit.go","from":"releases[fn.release] = owner","to":"_ = owner","rule":"A deferred release stays in its owner's Go package so no forwarding function changes the identity of recover or qualifies the generic defer.","killers":["internal/sketch/lower:TestIRSplitKeepsDeferredReleaseLocal"]},
     {"name":"genop-dynamic-witness","origin":"wf10 GENERIC-OP","file":"internal/sketch/lower/decls.go","from":"\t\tif it, ok := td.named.Underlying().(*check.Interface); ok && it.Generic {","to":"\t\tif it, ok := td.named.Underlying().(*check.Interface); ok && it.Generic && false {","rule":"types.md Interface assignability 8: a constraint-only operation type has no Go type; its functions lower as copies only","killers":["internal/sketch/lower:TestGenericOperations"]},
     {"name":"genop-tparams-substituted","origin":"wf10 GENERIC-OP","file":"internal/sketch/check/info.go","from":"\t\targs[i] = own[k]\n\t\tk++","to":"\t\targs[i] = self\n\t\tk++","rule":"types.md Interface assignability 8: a generic operation call goes to the provider's copy at the call's own type arguments, not the receiver's","killers":["internal/sketch/lower:TestGenericOperations"]},
     {"name":"ir-map-op-calls-undeclared-helper","origin":"wf10 NIH-75","file":"internal/sketch/lower/ir_call.go","from":"\t\tswitch check.CollOpOf(f) {\n\t\tcase check.CollGet, check.CollPut, check.CollTake:\n\t\t\treturn b.mapOp(x, c, p, stmt)\n\t\t}","to":"","rule":"A native prelude build lowers Map primitives on IR; it never references a Go helper omitted from the root's declarations.","killers":["command:native-prelude"]},
@@ -2977,8 +2978,8 @@
       "name": "b16a-static-hoists-context-environment",
       "origin": "batch 16a integration",
       "file": "internal/sketch/lower/static.go",
-      "from": "c.Kind == check.CallWith || takesHeld(c)",
-      "to": "takesHeld(c)",
+      "from": "c.Kind == check.CallWith || !ir && takesHeld(c)",
+      "to": "!ir && takesHeld(c)",
       "rule": "A static cleanup defer cannot reference a with's block-local environment; retain the scope lowering.",
       "killers": ["internal/sketch/lower:TestRuntime199MaskProperty", "internal/sketch/lower:TestSetRuns"]
     },

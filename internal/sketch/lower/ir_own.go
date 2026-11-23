@@ -1239,6 +1239,7 @@ func (b *irBuilder) ownDone(name string) {
 		args = append(args, b.addrOf(s.local, o.p))
 	}
 	o.deferred.X = &irExpr{K: "call", Pos: o.p, Name: helper, T: o.helperArgs, Args: args}
+	b.fn.release = helper
 	// The frame's locals are declared before the deferred call reads
 	// their addresses (Go's writer takes a local used before its
 	// declaration for a closure's free variable).

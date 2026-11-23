@@ -605,6 +605,10 @@ type irFunc struct {
 	End    irPos     `json:"end"`
 	Locals []irLocal `json:"locals,omitempty"`
 	Body   []*irStmt `json:"body"`
+	// release is the private function deferred directly by this body.
+	// Package splitting keeps it with the frame; a forwarder would
+	// put recover in the wrong function.
+	release string
 }
 
 type irLocal struct {
