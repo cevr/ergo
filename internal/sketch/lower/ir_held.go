@@ -53,9 +53,9 @@ func (b *irBuilder) heldCall(x *syntax.CallExpr, c *check.Call, stmt bool, ids [
 	}
 	first := len(o.held)
 	o.held = append(o.held, ids...)
+	defer func() { o.held = o.held[:first] }()
 	o.hasHeld = true
 	pre, call, _ := b.callPartsRaw(x, stmt)
-	o.held = o.held[:first]
 	if call == nil {
 		irNo("held take without a call")
 	}

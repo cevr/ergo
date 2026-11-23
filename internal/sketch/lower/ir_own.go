@@ -49,13 +49,14 @@ type irOwn struct {
 	// tbit is the slot of each owned temporary (Info.OwnedTemps, R43)
 	// registered so far (ownTemp): the statement's planned release finds
 	// it there (releaseAt).
-	tbit     map[syntax.Expr]int
-	deferred *irStmt         // the frame's deferred release, filled by ownDone
-	returned *syntax.Ident   // the local a return hands off (returning)
-	held     []*syntax.Ident // operands whose owner stays live through the call
-	hasHeld  bool            // a call can leave the frame with no live slots
-	site     syntax.Node
-	p        irPos
+	tbit                   map[syntax.Expr]int
+	deferred               *irStmt         // the frame's deferred release, filled by ownDone
+	returned               *syntax.Ident   // the local a return hands off (returning)
+	held                   []*syntax.Ident // operands whose owner stays live through the call
+	hasHeld                bool            // a call can leave the frame with no live slots
+	helperDecl, helperArgs string          // generic forms of the release and Free helpers
+	site                   syntax.Node
+	p                      irPos
 	// keys are the places of the body whose planned releases the builder
 	// has not reached yet (releaseAt, scoped); pending the owned locals
 	// bound and not yet registered (ownable, ownLet). Both end empty
@@ -119,6 +120,19 @@ func (b *irBuilder) openOwn(f *check.Func, params []*check.Var) []*irStmt {
 	}
 	p := b.pos(f.Decl, f.Decl.Pos())
 	o := &irOwn{kept: -1, bit: map[*check.Var]int{}, tbit: map[syntax.Expr]int{}, site: f.Decl, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
+	if b.fc.goGeneric {
+		// A slot can mention a type parameter of the body. Its named
+		// release helper has that same parameter, not a free Go type.
+		var decl, args []string
+		for _, tp := range f.Sig.TParams {
+			if name := b.fc.params[tp]; name != "" {
+				decl = append(decl, name+" "+b.l.constraint(tp, f.Decl))
+				args = append(args, name)
+			}
+		}
+		o.helperDecl = "[" + strings.Join(decl, ", ") + "]"
+		o.helperArgs = strings.Join(args, ", ")
+	}
 	b.ownBodyChecks(f.Decl.Body, o)
 	// The body's own scope ends at the frame's exit: its values are the
 	// deferred release's, in the same order (last registered first).
@@ -541,7 +555,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 	b.st.out.Funcs = append(b.st.out.Funcs, *h.fn)
 	var t strings.Builder
 	t.WriteString("// " + helper + " is the deferred release of " + name + "'s static frame; its body is IR (FLIP F7, RELEASE-IR).\n")
-	t.WriteString("func " + helper + "(" + strings.Join(params, ", ") + ")\n\n")
+	t.WriteString("func " + helper + o.helperDecl + "(" + strings.Join(params, ", ") + ")" + irHeadEnd(o.helperDecl != "") + "\n\n")
 	// A slot released inside the body (slotRelease): its release alone,
 	// whose defect leaves at once (the emitter's staticRelease).
 	for _, s := range o.slots {
@@ -556,7 +570,7 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body; its body is IR (FLIP F7, RELEASE-IR).\n")
 		sn := newNamer(l.names) // the helper's own parameter (pkgnames.go)
 		sn.used[b.fc.envExpr(o.site)] = true
-		t.WriteString("func " + s.helper + "(" + b.fc.envExpr(o.site) + " *" + l.env() + ", " + sn.alloc("slot") + " *" + b.fc.goType(s.t) + ")\n\n")
+		t.WriteString("func " + s.helper + o.helperDecl + "(" + b.fc.envExpr(o.site) + " *" + l.env() + ", " + sn.alloc("slot") + " *" + b.fc.goType(s.t) + ")" + irHeadEnd(o.helperDecl != "") + "\n\n")
 	}
 	l.gen.WriteString(t.String())
 	return true
@@ -850,7 +864,7 @@ func (b *irBuilder) slotRelease(k int, p irPos) *irStmt {
 	set := &irExpr{K: "bin", Pos: p, Op: "!=", X: &irExpr{K: "bin", Pos: p, Op: "&", X: live(), Y: b.bitConst(k, p)}, Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}}
 	return &irStmt{K: "if", Pos: p, X: set, End: p, Then: []*irStmt{
 		b.clearSlots(1<<uint(k), p),
-		{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: s.helper, Args: []*irExpr{{K: "local", Pos: p, I: b.env}, b.addrOf(s.local, p)}}},
+		{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: s.helper, T: o.helperArgs, Args: []*irExpr{{K: "local", Pos: p, I: b.env}, b.addrOf(s.local, p)}}},
 	}}
 }
 
@@ -1224,7 +1238,7 @@ func (b *irBuilder) ownDone(name string) {
 		params = append(params, slots[k]+" *"+fc.goType(s.t))
 		args = append(args, b.addrOf(s.local, o.p))
 	}
-	o.deferred.X = &irExpr{K: "call", Pos: o.p, Name: helper, Args: args}
+	o.deferred.X = &irExpr{K: "call", Pos: o.p, Name: helper, T: o.helperArgs, Args: args}
 	// The frame's locals are declared before the deferred call reads
 	// their addresses (Go's writer takes a local used before its
 	// declaration for a closure's free variable).
@@ -1249,7 +1263,7 @@ func (b *irBuilder) ownDone(name string) {
 	}
 	var t strings.Builder
 	t.WriteString("// " + helper + " is the deferred release of " + name + "'s static frame (IR, FLIP F7).\n")
-	t.WriteString("func " + helper + "(" + strings.Join(params, ", ") + ") {\n")
+	t.WriteString("func " + helper + o.helperDecl + "(" + strings.Join(params, ", ") + ") {\n")
 	t.WriteString("\t" + rel + " := " + fc.runtimeCall("StaticBegin", fc.ownBinding("StaticBegin", site), "", "", []string{errArg, "recover()"}, env, nil, nil, site) + "\n")
 	for k := len(o.slots) - 1; k >= 0; k-- {
 		t.WriteString(part(live, k))
@@ -1272,7 +1286,7 @@ func (b *irBuilder) ownDone(name string) {
 		sn.used[env] = true
 		slot := sn.alloc("slot")
 		t.WriteString("// " + s.helper + " releases one value of " + name + "'s static frame inside its body (IR, FLIP F7).\n")
-		t.WriteString("func " + s.helper + "(" + env + " *" + l.env() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
+		t.WriteString("func " + s.helper + o.helperDecl + "(" + env + " *" + l.env() + ", " + slot + " *" + fc.goType(s.t) + ") {\n\t")
 		t.WriteString(fc.providerRelease(&check.Acquisition{Close: s.d.Close}, env, "(*"+slot+")", site) + "\n}\n\n")
 	}
 	l.gen.WriteString(t.String())

@@ -32,8 +32,8 @@ func TestIRHeldParameterSlotAgrees(t *testing.T) {
 		prev := lower.SetReleaseLoweringForTest(mode)
 		rep, err := Emit(u, IR, mod)
 		lower.SetReleaseLoweringForTest(prev)
-		if err != nil || !slices.Contains(rep.IR, "submit") {
-			t.Fatalf("mode %q: submit did not lower to IR: %v, fallback %v\n%s", mode, err, rep.Fallback, heldParameterSource)
+		if err != nil || !slices.Contains(rep.IR, "submit") || !slices.Contains(rep.IR, "submitBare") {
+			t.Fatalf("mode %q: submit or submitBare did not lower to IR: %v, fallback %v\n%s", mode, err, rep.Fallback, heldParameterSource)
 		}
 		data, err := os.ReadFile(filepath.Join(mod, lower.IRFileName))
 		if err != nil {
@@ -64,9 +64,9 @@ func TestIRHeldParameterSlotAgrees(t *testing.T) {
 
 const heldParameterSource = `import queue
 
-type Tracked { ID int, Seen queue.Queue[int], Crash bool } implements Closer
+type Tracked[T] { Tag T, ID int, Seen queue.Queue[int], Crash bool } implements Closer
 
-func Close(r Tracked) {
+func Close[T](r Tracked[T]) {
 	r.Seen.Push(r.ID) catch {
 	case queue.Closed:
 		Unreachable("closed release recorder")
@@ -76,16 +76,16 @@ func Close(r Tracked) {
 	}
 }
 
-func makeResult(seen queue.Queue[int], id int) Tracked {
-	Tracked{ID: id, Seen: seen, Crash: false}
+func makeResult[T](seen queue.Queue[int], id int, tag T) Tracked[T] {
+	Tracked[T]{Tag: tag, ID: id, Seen: seen, Crash: false}
 }
 
-func submit(q queue.Queue[Tracked], item own Tracked, guard own Tracked, id int) Tracked fails queue.Closed {
+func submit[T](q queue.Queue[Tracked[T]], item own Tracked[T], guard own Tracked[T], id int) Tracked[T] fails queue.Closed {
 	try q.Push(item)
-	makeResult(guard.Seen, id)
+	makeResult(guard.Seen, id, guard.Tag)
 }
 
-func submitBare(q queue.Queue[Tracked], item own Tracked, crash bool) fails queue.Closed {
+func submitBare[T](q queue.Queue[Tracked[T]], item own Tracked[T], crash bool) fails queue.Closed {
 	try q.Push(item)
 	if crash {
 		Unreachable("after admission")
@@ -94,13 +94,13 @@ func submitBare(q queue.Queue[Tracked], item own Tracked, crash bool) fails queu
 
 func main() fails queue.Closed {
 	let seen = queue.New[int](4)
-	let q = queue.New[Tracked](2)
-	let result = try submit(q, makeResult(seen, 1), makeResult(seen, 2), 3)
-	if result.ID != 3 {
+	let q = queue.New[Tracked[int]](2)
+	let result = try submit(q, makeResult(seen, 1, 0), makeResult(seen, 2, 17), 3)
+	if result.ID != 3 || result.Tag != 17 {
 		Unreachable("wrong result")
 	}
 	result.Close()
-	try submitBare(q, makeResult(seen, 4), false)
+	try submitBare(q, makeResult(seen, 4, 0), false)
 }
 `
 
@@ -132,11 +132,11 @@ func init() {
 		runCase(kind, a, b, c)
 	}
 	for _, crash := range []bool{false, true} {
-		q := ergo.New[Tracked](1)
+		q := ergo.New[Tracked[int]](1)
 		seen := ergo.New[int](1)
 		root := rt.Root("empty after handoff")
 		_, err := rt.Run(root, func(task *rt.Task) (struct{}, error) {
-			return struct{}{}, submitBare(&Env{task: task}, q, Tracked{ID: 1, Seen: seen}, crash)
+			return struct{}{}, submitBare(&Env{task: task}, q, Tracked[int]{ID: 1, Seen: seen}, crash)
 		})
 		v, ok := q.Poll()
 		if !ok || v.ID != 1 || seen.Len() != 0 || (err != nil) != crash {
@@ -149,15 +149,15 @@ func init() {
 func runCase(kind string, a, b, c int) {
 	seen := ergo.New[int](8)
 	root := rt.Root("held-parameter")
-	q := ergo.New[Tracked](1)
+	q := ergo.New[Tracked[int]](1)
 	if kind == "rejected" { q.End() }
-	if kind == "stopped" { q = ergo.New[Tracked](0) }
+	if kind == "stopped" { q = ergo.New[Tracked[int]](0) }
 	if kind == "provider defect" { q = nil }
-	invoke := func(task *rt.Task) (Tracked, error) {
-		return submit(&Env{task: task}, q, Tracked{ID: a, Seen: seen},
-			Tracked{ID: b, Seen: seen, Crash: kind == "cleanup defect"}, c)
+	invoke := func(task *rt.Task) (Tracked[int], error) {
+		return submit(&Env{task: task}, q, Tracked[int]{ID: a, Seen: seen},
+			Tracked[int]{Tag: b, ID: b, Seen: seen, Crash: kind == "cleanup defect"}, c)
 	}
-	var v Tracked
+	var v Tracked[int]
 	var err error
 	if kind == "stopped" {
 		idle := rt.NewAuto(root, time.Unix(0,0))
@@ -210,7 +210,7 @@ func runCase(kind string, a, b, c int) {
 		if ok { item.Close(&Env{task: root}) }
 	}
 	if kind == "accepted" {
-		if v.ID != c { panic("wrong owned result") }
+		if v.ID != c || v.Tag != b { panic("wrong owned result") }
 		v.Close(&Env{task: root})
 	} else if v.ID != 0 {
 		panic("an unsuccessful call returned an owned value")
