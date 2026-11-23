@@ -68,8 +68,8 @@ func TestMainImportsOnlyTheRuntimeLeavesItCalls(t *testing.T) {
 	// (reach), so a leaf only it would name is not imported: a std type's
 	// operation call there is classified without naming the type (the bug
 	// of examples/calc, whose ast.Samples alone drew from rand.Seeded).
-	gen := checkPackage(t, "gen", []pkgSource{{"/ergo-test/gen/gen.ergo", "import rand\n\nfunc Name() string { \"gen\" }\n\nfunc Samples(seed int) int {\n\twith context { Random: rand.Seeded(uint64(seed)) } {\n\t\tRandom.IntN(6)\n\t}\n}\n"}}, nil)
-	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/main/main.ergo", "import gen\n\nfunc main() needs Console {\n\tConsole.Println(gen.Name())\n}\n"}}, pkgImporter{"gen": gen.Package})
-	main.Imports = []Unit{gen}
+	dice := checkPackage(t, "dice", []pkgSource{{"/ergo-test/dice/dice.ergo", "import rand\n\nfunc Name() string { \"dice\" }\n\nfunc Samples(seed int) int {\n\twith context { Random: rand.Seeded(uint64(seed)) } {\n\t\tRandom.IntN(6)\n\t}\n}\n"}}, nil)
+	main := checkPackage(t, "main", []pkgSource{{"/ergo-test/main/main.ergo", "import dice\n\nfunc main() needs Console {\n\tConsole.Println(dice.Name())\n}\n"}}, pkgImporter{"dice": dice.Package})
+	main.Imports = []Unit{dice}
 	check("unreached rand", mustLowerUnit(t, "unreached rand", main, false), nil)
 }

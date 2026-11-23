@@ -2,7 +2,7 @@
 // harnesses; the Go checker's harness.go planHarness): an operation type
 // D declares one harness `test H`, a function of the package of the shape
 // func H(run R, body func() fails F needs D) fails F, with R a record
-// {Name string, Seed uint64, Site string} and F a record {Message
+// {Name string, Seed uint64, Site string, Source string} and F a record {Message
 // string} of the package. This part reads the declarations as written;
 // the Go checker reads their types, which agree on every written shape.
 // A test body that runs under the harness is the rows' (S3-ROWS), which
@@ -56,7 +56,7 @@ func harnessMembers(k expr.Pkg, p syntax.Parsed, f int, td syntax.TypeDecl, it d
 			"\(tname) declares a second test harness \(hname); an operation type has one"
 		} else {
 			let why = types.HarnessWhy(k.Parsed, tname, isSome(dense.Unpack(td.TypeParams)), hname)
-			if why == "" { "" } else { "test harness \(hname) of \(tname) must have the shape func \(hname)(run R, body func() fails F needs \(tname)) fails F, with R a record {Name string, Seed uint64, Site string} and F a record {Message string}, both of this package; \(why)" }
+			if why == "" { "" } else { "test harness \(hname) of \(tname) must have the shape func \(hname)(run R, body func() fails F needs \(tname)) fails F, with R a record {Name string, Seed uint64, Site string, Source string} and F a record {Message string}, both of this package; \(why)" }
 		}
 		n = n + 1
 		if msg != "" {
