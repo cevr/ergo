@@ -198,7 +198,7 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	}
 	ledger := &Ledger{Mutants: []*Mutant{
 		{Name: "a", Killers: []string{"runtime/v1[ergoexplore]:TestA", "runtime/v1:TestB", "internal/sketchfront:TestF"}},
-		{Name: "b", Killers: []string{"lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
+		{Name: "b", Killers: []string{"internal/sketch/lower:TestL", "runtime/v1:TestOwn (a note)"}, Anchor: &Anchor{Tests: []string{"runtime/v1[ergoexplore]:TestC"}}},
 		{Name: "c", Killers: []string{"internal/closure:TestOther"}},
 	}}
 	path := ledgerPath(root, filepath.Join(root, "runtime", "v1"))
@@ -220,7 +220,7 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 		{"runtime/v1", "./runtime/v1", "", []string{"TestB", "TestOwn"}, []string{"TestB", "TestOwn"}},
 		{"runtime/v1[ergoexplore]", "./runtime/v1", "ergoexplore", []string{"TestA", "TestC"}, []string{"TestA", "TestC"}},
 		{"internal/sketchfront", "./internal/sketchfront", "", []string{"TestF"}, []string{"TestF"}},
-		{"lower", "./internal/sketch/lower", "", []string{"TestL"}, []string{"TestL"}},
+		{"internal/sketch/lower", "./internal/sketch/lower", "", []string{"TestL"}, []string{"TestL"}},
 	}
 	same := len(have) == len(want)
 	for i := 0; same && i < len(want); i++ {
@@ -234,8 +234,8 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	}
 	// A selected row whose killers are all in another suite builds
 	// nothing of the ledger's own package.
-	elsewhere := &Ledger{Mutants: []*Mutant{{Name: "own", Killers: []string{"runtime/v1:TestOwn"}}, {Name: "away", Killers: []string{"lower:TestL"}}}}
-	if _, _, away, err := suitesFor(root, []Job{{Path: path, Ledger: elsewhere, Select: regexp.MustCompile("^away$")}}); err != nil || len(away) != 1 || away[0].Name != "lower" {
+	elsewhere := &Ledger{Mutants: []*Mutant{{Name: "own", Killers: []string{"runtime/v1:TestOwn"}}, {Name: "away", Killers: []string{"internal/sketch/lower:TestL"}}}}
+	if _, _, away, err := suitesFor(root, []Job{{Path: path, Ledger: elsewhere, Select: regexp.MustCompile("^away$")}}); err != nil || len(away) != 1 || away[0].Name != "internal/sketch/lower" {
 		t.Errorf("-run away: suites %+v, err %v; want lower alone", away, err)
 	}
 	// A family a selection names is measured as its parts.
@@ -247,7 +247,7 @@ func TestKillerInAnotherSuiteIsRun(t *testing.T) {
 	if _, _, all, err := suitesFor(root, []Job{{Path: path, Ledger: elsewhere}}); err != nil || len(all) != 2 || all[0].Name != "runtime/v1" || all[0].Only != nil {
 		t.Errorf("no selection: suites %+v, err %v; want runtime/v1 with every test, and lower", all, err)
 	}
-	for _, id := range []string{"v1:TestA", "runtime/v1:TestNone", "lower:TestNone", "examples:nowhere", "runtime/v1[ergoexplore:TestA"} {
+	for _, id := range []string{"v1:TestA", "runtime/v1:TestNone", "internal/sketch/lower:TestNone", "examples:nowhere", "runtime/v1[ergoexplore:TestA"} {
 		bad := &Ledger{Mutants: []*Mutant{{Name: "d", Killers: []string{"runtime/v1:TestB", id}}}}
 		if _, _, _, err := suitesFor(root, []Job{{Path: path, Ledger: bad}}); err == nil || !strings.Contains(err.Error(), id) {
 			t.Errorf("killer %q: error %v, want one that names it", id, err)
@@ -274,7 +274,7 @@ func TestLedgerEnvReachesItsOwnSuite(t *testing.T) {
 		}
 	}
 	env := []string{"ERGO_TS_TEST=1"}
-	own := &Ledger{Env: env, Mutants: []*Mutant{{Name: "a", Killers: []string{"lower:TestL"}}}}
+	own := &Ledger{Env: env, Mutants: []*Mutant{{Name: "a", Killers: []string{"internal/sketch/lower:TestL"}}}}
 	_, _, suites, err := suitesFor(root, []Job{{Path: ledgerPath(root, filepath.Join(root, "internal", "tsproj")), Ledger: own}})
 	if err != nil {
 		t.Fatal(err)
