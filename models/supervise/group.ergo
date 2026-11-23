@@ -1,0 +1,390 @@
+// The group model: a supervisor of three members under a restart strategy
+// (tasks.OneForOne, tasks.AllForOne, tasks.RestForOne) and an intensity
+// window (tasks.Intensity: at most Max restarts in any Period), the design
+// of tasks.Supervise. Members are in start order M0, M1, M2. A member
+// runs, crashes (its exit is queued, tagged with its incarnation) or
+// finishes (a normal end: it is never restarted). The supervisor takes the
+// queued exits one at a time (React):
+//
+//   - an exit of an incarnation that a restart already replaced is stale and
+//     is dropped;
+//   - else, when the window holds fewer than Max restarts in the Period up to
+//     now, the supervisor restarts the members the strategy names (the
+//     crashed one; all; it and the ones started after it), except finished
+//     ones: it stops the running ones among them other than the crashed
+//     one, last started first, then starts each of them, in start order, as
+//     a new incarnation;
+//   - else it gives up: it stops every running member, last started first,
+//     and ends.
+//
+// Tick moves the clock by one unit. The supervisor keeps only the restart
+// instants still in the window (tasks.Recent), so the state stays small.
+// The scope: Max 2 restarts in a Period of 2 units, the clock up to 4.
+// "Proved" means proved in this scope.
+//
+// Each invariant is judged at the step that could break it, and a broken
+// one is kept in Bad (safe is Bad == ""):
+//   - Window: no Period holds more than Max restarts;
+//   - GaveUpFull: a give up comes only with Max restarts in the window;
+//   - Order: a restart stops exactly the running members the strategy
+//     names other than the crashed one, last started first, then starts
+//     exactly the named members that had not finished, in start order;
+//   - NoStale: no restart answers a stale exit.
+//
+// Mutants, each a machine whose law Breaks must find a shortest run to a
+// state that is not safe:
+//   - WindowCountsForever: the window counts every restart since the start;
+//   - AllForOneSkipsSibling: AllForOne leaves the last other member running;
+//   - RestForOneRestartsEarlier: RestForOne restarts the member started
+//     just before the crashed one too;
+//   - StaleExitRestarts: a stale exit is answered as a fresh one;
+//   - StartsReversed: a restart starts its members last first.
+//
+// Witnesses (sometimes laws), so the invariants are not vacuous: a
+// restart after an earlier one left the window; a give up; an AllForOne
+// restart whose sibling's stale exit is dropped.
+
+// Member is a member, in start order.
+type Member = M0{} | M1{} | M2{}
+
+func index(m Member) int {
+	match m {
+	case M0:
+		0
+	case M1:
+		1
+	case M2:
+		2
+	}
+}
+
+// Ex is a queued exit: the member and its incarnation.
+type Ex { M int, Inc int }
+
+// The member states.
+let Running = 0
+let Crashed = 1
+let Finished = 2
+
+// The strategies.
+let OneForOne = 0
+let AllForOne = 1
+let RestForOne = 2
+
+type Group {
+	Strat  int,
+	Mutant int,
+	Inc    []int,
+	State  []int,
+	Exits  []Ex,
+	Now    int,
+	// Recent is the restart instants in the window; Total counts every
+	// restart, and only WindowCountsForever keeps it (0 in the design).
+	Recent []int,
+	Total  int,
+	Ended  bool,
+	Bad    string,
+	// Witness marks: an instant left the window; a restart came after
+	// that; an AllForOne supervisor dropped a stale exit.
+	Left     bool,
+	Slid     bool,
+	DropSeen bool,
+}
+
+// GAct is the group's actions.
+type GAct = Fail{M Member} | Finish{M Member} | React{} | Tick{}
+
+// The scope.
+let Max = 2
+let Period = 2
+let MaxNow = 4
+let Members = 3
+
+// The mutants.
+let GNone = 0
+let WindowCountsForeverMutant = 1
+let AllForOneSkipsSiblingMutant = 2
+let RestForOneRestartsEarlierMutant = 3
+let StaleExitRestartsMutant = 4
+let StartsReversedMutant = 5
+
+func group(strat int, mutant int) Group {
+	Group{
+		Strat:    strat,
+		Mutant:   mutant,
+		Inc:      []int{0, 0, 0},
+		State:    []int{Running, Running, Running},
+		Exits:    []Ex{},
+		Now:      0,
+		Recent:   []int{},
+		Total:    0,
+		Ended:    false,
+		Bad:      "",
+		Left:     false,
+		Slid:     false,
+		DropSeen: false,
+	}
+}
+
+// named is the strategy's rule: whether a crash of f restarts j.
+func named(strat int, f int, j int) bool {
+	if strat == OneForOne {
+		return j == f
+	}
+	if strat == AllForOne {
+		return true
+	}
+	j >= f
+}
+
+// chosen is named as the design (or a mutant) applies it.
+func chosen(g Group, f int, j int) bool {
+	if g.Mutant == AllForOneSkipsSiblingMutant && g.Strat == AllForOne {
+		let last = if f == Members-1 { Members - 2 } else { Members - 1 }
+		if j == last {
+			return false
+		}
+	}
+	if g.Mutant == RestForOneRestartsEarlierMutant && g.Strat == RestForOne && j == f-1 {
+		return true
+	}
+	named(g.Strat, f, j)
+}
+
+// inWindow keeps the instants of times in the Period up to now.
+func inWindow(times []int, now int) []int {
+	let mut out = []int{}
+	for t in times {
+		if t > now-Period && t <= now {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+func set(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		out = out.Append(if j == i { v } else { x })
+	}
+	out
+}
+
+func rest(q []Ex) []Ex {
+	let mut out = []Ex{}
+	for i, x in q {
+		if i > 0 {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func sameInts(a []int, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, x in a {
+		if x != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+func firstBad(g Group, why string) string {
+	if g.Bad != "" { g.Bad } else { why }
+}
+
+// wantLog is the log Order wants for a crash of f from the states before:
+// stops (-(j+1)) last started first, then starts (j+1) in start order.
+func wantLog(strat int, f int, before []int) []int {
+	let mut log = []int{}
+	for k in 0..Members {
+		let j = Members - 1 - k
+		if j != f && named(strat, f, j) && before[j] == Running {
+			log = log.Append(0 - (j + 1))
+		}
+	}
+	for j in 0..Members {
+		if named(strat, f, j) && before[j] != Finished {
+			log = log.Append(j + 1)
+		}
+	}
+	log
+}
+
+// restart restarts the members chosen for a crash of f, and judges Window,
+// Order and NoStale.
+func restart(g Group, f int, stale bool) Group {
+	let before = g.State
+	let mut st = g.State
+	let mut inc = g.Inc
+	let mut log = []int{}
+	for k in 0..Members {
+		let j = Members - 1 - k
+		if j != f && chosen(g, f, j) && st[j] == Running {
+			log = log.Append(0 - (j + 1))
+		}
+	}
+	for k in 0..Members {
+		let j = if g.Mutant == StartsReversedMutant { Members - 1 - k } else { k }
+		if chosen(g, f, j) && before[j] != Finished {
+			st = set(st, j, Running)
+			inc = set(inc, j, inc[j]+1)
+			log = log.Append(j + 1)
+		}
+	}
+	let recent = g.Recent.Append(g.Now)
+	let mut bad = g.Bad
+	if len(inWindow(recent, g.Now)) > Max {
+		bad = firstBad(g, "Window")
+	} else if !sameInts(log, wantLog(g.Strat, f, before)) {
+		bad = firstBad(g, "Order")
+	} else if stale {
+		bad = firstBad(g, "NoStale")
+	}
+	Group{..g,
+		State:  st,
+		Inc:    inc,
+		Recent: recent,
+		Total:  if g.Mutant == WindowCountsForeverMutant { g.Total + 1 } else { 0 },
+		Bad:    bad,
+		Slid:   g.Slid || g.Left,
+	}
+}
+
+// giveUp stops every running member, last started first, ends, and judges
+// GaveUpFull.
+func giveUp(g Group) Group {
+	let mut st = g.State
+	for k in 0..Members {
+		let j = Members - 1 - k
+		if st[j] == Running {
+			st = set(st, j, Finished)
+		}
+	}
+	let full = len(inWindow(g.Recent, g.Now)) >= Max
+	Group{..g, State: st, Ended: true, Bad: if full { g.Bad } else { firstBad(g, "GaveUpFull") }}
+}
+
+func react(g Group) Option[Group] {
+	if g.Ended || len(g.Exits) == 0 {
+		return None
+	}
+	let e = g.Exits[0]
+	let h = Group{..g, Exits: rest(g.Exits)}
+	let stale = e.Inc != h.Inc[e.M]
+	if stale && h.Mutant != StaleExitRestartsMutant {
+		return Some[Group]{Value: Group{..h, DropSeen: h.DropSeen || h.Strat == AllForOne}}
+	}
+	let counted = if h.Mutant == WindowCountsForeverMutant { h.Total } else { len(inWindow(h.Recent, h.Now)) }
+	if counted < Max {
+		return Some[Group]{Value: restart(h, e.M, stale)}
+	}
+	Some[Group]{Value: giveUp(h)}
+}
+
+func gnext(g Group, a GAct) Option[Group] {
+	match a {
+	case Fail as c:
+		let i = index(c.M)
+		if g.Ended || g.State[i] != Running {
+			return None
+		}
+		Some[Group]{Value: Group{..g, State: set(g.State, i, Crashed), Exits: g.Exits.Append(Ex{M: i, Inc: g.Inc[i]})}}
+	case Finish as f:
+		let i = index(f.M)
+		if g.Ended || g.State[i] != Running {
+			return None
+		}
+		Some[Group]{Value: Group{..g, State: set(g.State, i, Finished)}}
+	case React:
+		react(g)
+	case Tick:
+		if g.Now >= MaxNow {
+			return None
+		}
+		let kept = inWindow(g.Recent, g.Now+1)
+		Some[Group]{Value: Group{..g, Now: g.Now + 1, Recent: kept, Left: g.Left || len(kept) < len(g.Recent)}}
+	}
+}
+
+func safe(g Group) bool { g.Bad == "" }
+
+func unsafe(g Group) bool { g.Bad != "" }
+
+func slid(g Group) bool { g.Slid }
+
+func gaveUp(g Group) bool { g.Ended }
+
+func droppedStale(g Group) bool { g.DropSeen }
+
+func gstep(g Group, a GAct) Decision[Group, string] {
+	match gnext(g, a) {
+	case None:
+		Ignore
+	case Some[Group] as n:
+		Enter[Group]{Next: n.Value}
+	}
+}
+
+// The design keeps every invariant under each strategy.
+type GroupOneForOne machine[Group, GAct] {
+	initial: group(OneForOne, GNone),
+	step:    gstep,
+
+	law Safe always safe,
+	law Slides sometimes slid,
+	law GivesUp sometimes gaveUp,
+}
+
+type GroupAllForOne machine[Group, GAct] {
+	initial: group(AllForOne, GNone),
+	step:    gstep,
+
+	law Safe always safe,
+	law DropsStale sometimes droppedStale,
+}
+
+type GroupRestForOne machine[Group, GAct] {
+	initial: group(RestForOne, GNone),
+	step:    gstep,
+
+	law Safe always safe,
+}
+
+type WindowCountsForever machine[Group, GAct] {
+	initial: group(OneForOne, WindowCountsForeverMutant),
+	step:    gstep,
+
+	law Breaks sometimes unsafe,
+}
+
+type AllForOneSkipsSibling machine[Group, GAct] {
+	initial: group(AllForOne, AllForOneSkipsSiblingMutant),
+	step:    gstep,
+
+	law Breaks sometimes unsafe,
+}
+
+type RestForOneRestartsEarlier machine[Group, GAct] {
+	initial: group(RestForOne, RestForOneRestartsEarlierMutant),
+	step:    gstep,
+
+	law Breaks sometimes unsafe,
+}
+
+type StaleExitRestarts machine[Group, GAct] {
+	initial: group(AllForOne, StaleExitRestartsMutant),
+	step:    gstep,
+
+	law Breaks sometimes unsafe,
+}
+
+type StartsReversed machine[Group, GAct] {
+	initial: group(AllForOne, StartsReversedMutant),
+	step:    gstep,
+
+	law Breaks sometimes unsafe,
+}
