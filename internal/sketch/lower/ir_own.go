@@ -929,19 +929,16 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node, value syntax.E
 
 // tempOwnable reports an owned temporary x whose release is its type's
 // own Close and that is neither a moved part nor a lent arm result.
-// A list frame can keep a non-failing call's returned value directly
-// (R10); temporaries that need a later releaseAt stay on the static path.
+// Both frames can keep a returned value directly (R10). Other list
+// temporaries would need a handle for releaseAt, which it does not track.
 func (b *irBuilder) tempOwnable(x syntax.Expr, o *irOwn) bool {
 	info := b.l.info
 	d := info.OwnedTemps[x]
 	if d == nil || o == nil || d.Glue() || d.Close == nil {
 		return false
 	}
-	if o.list {
-		call, ok := x.(*syntax.CallExpr)
-		if !ok || !info.ReturnedTemps[x] || b.fallibleCall(call) != nil {
-			return false
-		}
+	if o.list && !info.ReturnedTemps[x] {
+		return false
 	}
 	return !info.PartHands[x] && !info.ArmHeld[x] && info.HeldIn[x] == nil
 }
