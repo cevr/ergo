@@ -19,12 +19,10 @@ import (
 // Stage 4 (S4d): every stop of the lowering says what it is.
 
 // openOwners are the owners a refusal may name: units and stages that are
-// open after lower-v1. 196b checks the context header; #197 owns further resource ownership (and the checker's S109
-// for a generic Close whose type parameter has operations, Q-S4-8); #199
-// the runtime; #57 the actor library and its machine runner; #162 runs
-// laws; #49 owns derived text forms; #196 decides the syntax that the
-// checker admits and no rule defines yet (an indexed slice literal).
-var openOwners = []string{"196b", "#197", "#199", "#57", "#162", "#49", "#196"}
+// open after lower-v1, each named by what it builds (ownerText,
+// support_table_test.go). Resource ownership also owns the checker's S109
+// for a generic Close whose type parameter has operations (Q-S4-8).
+var openOwners = []string{"context header checking", "resource ownership", "runtime semantics", "the actor library", "laws and proofs", "derived text forms", "the slice-key rule"}
 
 // closedOwner matches a text that names a stage or unit that has closed:
 // lower-v1 itself, a check-v1 stage, or "after check-v1".
@@ -38,8 +36,8 @@ var namesStage = regexp.MustCompile(`(?i)\bstage\b|\b(lower|check)-v[0-9]`)
 // deferral matches a text that waits for later work ("until …", "not yet").
 var deferral = regexp.MustCompile(`(?i)\buntil\b|\bnot yet\b`)
 
-// namesOpenOwner reports whether text names one of openOwners as a whole
-// word, so #1970 is not #197.
+// namesOpenOwner reports whether text names one of openOwners as whole
+// words. The numeric lookalike #1970 does not name an owner.
 func namesOpenOwner(text string) bool {
 	for _, o := range openOwners {
 		if regexp.MustCompile(`(^|[^0-9A-Za-z])` + regexp.QuoteMeta(o) + `($|[^0-9A-Za-z])`).MatchString(text) {
@@ -283,7 +281,7 @@ func TestRefusalsNameOpenOwners(t *testing.T) {
 		}
 		// An unreachable site waits for no later stage (unreachable.go), so
 		// its rule names no stage and no owner, open or closed (ledger
-		// mutants existing-53 "… until #196 stage b" and existing-52
+		// mutants existing-53 "… until the v1 language stage b" and existing-52
 		// "… (196b lowers packages)").
 		if closedOwner.MatchString(text) || namesStage.MatchString(text) || namesOpenOwner(text) || deferral.MatchString(text) {
 			t.Errorf("the rule %s names a stage or an owner, or waits for one: %q", name, text)
@@ -337,7 +335,7 @@ func TestUnreachableRulesRefuse(t *testing.T) {
 
 // TestGenericCloseWithWitnessesNamesOwner keeps Q-S4-8 in view: a generic
 // Close whose type parameter has operations stays refused by the checker,
-// S109 naming #197, an open owner.
+// S109 naming resource ownership, an open owner.
 func TestGenericCloseWithWitnessesNamesOwner(t *testing.T) {
 	src := `type A { Use() }
 type Named { Name() string }
@@ -350,8 +348,8 @@ let W = context { A: G[N]{Value: N} }
 func main() { with W { A.Use() } }
 `
 	o := lowerSource("close-witnessed", src, true)
-	if len(o.diags) != 1 || o.diags[0].Code != "S109" || !strings.Contains(o.diags[0].Message, "#197") || !namesOpenOwner(o.diags[0].Message) {
-		t.Fatalf("diagnostics %v; want one S109 naming #197", o.diags)
+	if len(o.diags) != 1 || o.diags[0].Code != "S109" || !strings.Contains(o.diags[0].Message, "resource ownership") || !namesOpenOwner(o.diags[0].Message) {
+		t.Fatalf("diagnostics %v; want one S109 naming resource ownership", o.diags)
 	}
 }
 

@@ -63,7 +63,7 @@ var i1CallRules = map[check.CallKind][]i1CallRule{
 	check.CallPrelude: {{name: "retired", behavior: "pure", retired: true}},
 	check.CallLawOp: {{name: "law-operation", behavior: "opaque",
 		src:          "type Codec {\n\tEncode(n int) int,\n\n\tlaw Stable(n int) { Encode(n) == Encode(n) },\n}",
-		neverLowered: "laws are not run (#162)"}},
+		neverLowered: "laws are not run"}},
 }
 
 // A Seq is an implicit call of a function value, not a CallKind. Keep it

@@ -17,18 +17,18 @@ var updateSupport = flag.Bool("update-support", false, "rewrite docs/spec/suppor
 // ownerText says what each open owner that a refusal may name builds
 // (openOwners, stage4_refusals_test.go).
 var ownerText = map[string]string{
-	"196b": "the context header, `provides` and `needs` on a context",
-	"#197": "further resource ownership",
-	"#199": "the runtime",
-	"#57":  "the actor library and its machine runner",
-	"#162": "running the laws that do not run yet: an imported operation type's against this package's providers, and a generic operation type's against a generic provider (L4 runs it at each non-generic provider's instance)",
-	"#49":  "derived text forms",
-	"#196": "the syntax that the checker admits and no rule defines yet",
+	"context header checking": "the context header, `provides` and `needs` on a context",
+	"resource ownership":      "further resource ownership",
+	"runtime semantics":       "the runtime",
+	"the actor library":       "the actor library and its machine runner",
+	"laws and proofs":         "running the laws that do not run yet: an imported operation type's against this package's providers, and a generic operation type's against a generic provider (L4 runs it at each non-generic provider's instance)",
+	"derived text forms":      "the text form of a type that has none yet",
+	"the slice-key rule":      "what a computed, negative or repeated key of an indexed slice literal does",
 }
 
 // omittedFamilies are implemented families that no build contains: the
 // checker checks them, and the lowering leaves them out whole. None is
-// today: a law, the last, runs in the test build (#162 law-run-1).
+// today: a law, the last, runs in the test build (law-run-1).
 var omittedFamilies = map[string]string{}
 
 // The status labels of support.md (D-S5-8).
@@ -85,26 +85,13 @@ func supportTable() string {
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].family < rows[j].family })
 	for _, r := range rows {
-		owner := r.owner
-		if owner != "" {
-			owner = ownerLink(owner)
-		}
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", r.family, familyText(r.family), r.status, owner)
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n", r.family, familyText(r.family), r.status, r.owner)
 	}
 	b.WriteString("\n## Open owners\n\nA refusal names one of these owners.\n\n")
 	for _, o := range openOwners {
-		fmt.Fprintf(&b, "- %s: %s.\n", ownerLink(o), ownerText[o])
+		fmt.Fprintf(&b, "- %s: %s.\n", o, ownerText[o])
 	}
 	return b.String()
-}
-
-// ownerLink is an owner as a Markdown link to its issue. 196b is a part of
-// #196.
-func ownerLink(o string) string {
-	if strings.HasPrefix(o, "#") {
-		return "[" + o + "](https://github.com/cevr/ergo/issues/" + o[1:] + ")"
-	}
-	return "[" + o + "](https://github.com/cevr/ergo/issues/196)"
 }
 
 // TestSupportTableIsCurrent (lower-v1 stage 5, D-S5-7): docs/spec/support.md

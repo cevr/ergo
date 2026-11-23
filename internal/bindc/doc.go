@@ -1,4 +1,4 @@
-// Package bindc is the core of `ergo bind c` (#202): it reads a C header
+// Package bindc is the core of `ergo bind c`: it reads a C header
 // and a binding contract and builds a binding model, from which later
 // stages emit a Go package over purego, Ergo signatures and a
 // classification report.
