@@ -21,7 +21,7 @@ import (
 //
 // Rules, each one held by TestSetModel against a reference model:
 //
-//  1. Owner. A Set is a resource (#197 L8 B3t; resources R1): it has one
+//  1. Owner. A Set is a resource (L8 B3t; resources R1): it has one
 //     owner, as any owned value, and its owner's end releases it (Close,
 //     which is Stop), last registered first with the owner's other
 //     entries; a return or a move into a field or a container moves it.
@@ -364,7 +364,7 @@ func (set *Set) Stop(t *rt.Task) {
 }
 
 // Close is tasks.Set's Close(), the release of a Set its owner holds
-// (#197 L8 B3t): masked on t, the owner task, it is Stop: admission closes,
+// (L8 B3t): masked on t, the owner task, it is Stop: admission closes,
 // every member is stopped and joined, typed failures are dropped and the
 // defects not raised yet are raised for the releasing scope.
 //

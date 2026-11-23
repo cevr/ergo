@@ -30,7 +30,7 @@ func main() fails os.Exit needs Ambient {
 		case http.ListenFailed:
 			return os.Exit{Code: 1, Message: "no listener"}
 		}
-		let client = http.NewClient("http://"+l.Addr(), limits) catch {
+		let client = http.NewClient("http://"+l.Addr(), limits, []http.Credential{}) catch {
 		case http.InvalidLimits, http.InvalidClient:
 			return os.Exit{Code: 1, Message: "no client"}
 		}

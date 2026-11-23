@@ -71,6 +71,9 @@ type interp struct {
 	// initials are the machines' initial values, computed once after
 	// every let (machine.go initMachines).
 	initials map[*check.TypeName]Value
+	// entries are the machines' computed entries, and a generic machine's
+	// initial values, computed once per instance (machineentry.go).
+	entries map[entryKey]Value
 	// sym is the state of a symbolic run (symbolic.go), nil otherwise.
 	sym *symRun
 	// mapOrder is the order this run visits a Map's keys in, and

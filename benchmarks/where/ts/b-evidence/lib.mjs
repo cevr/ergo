@@ -1,4 +1,4 @@
-// #125 input evidence, not acceptance. Runtime for the outward evidence
+// The laws spike input evidence, not acceptance. Runtime for the outward evidence
 // boundary projection. Evidence is erased: a SortedBy value is the carried
 // Three itself. Form (i) reads User.compare through the shared, unfrozen
 // companion and checkSortedUsers returns the caller's own object; both are

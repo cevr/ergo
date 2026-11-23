@@ -8,7 +8,7 @@ import (
 
 // wireReaderSites are GenerateWireReaders's functions with an IR body in
 // every seed: take and cut decode on the prelude's Reader interface.
-var wireReaderSites = []string{"take", "cut"}
+var wireReaderSites = []string{"take", "cut", "direct"}
 
 // wireReaderDecls are the types GenerateWireReaders decodes and the
 // functions that decode and print them: records of basics (narrow
@@ -54,6 +54,23 @@ func read(text string) string {
 		return "malformed"
 	}
 	take(r)
+}
+
+// direct decodes on json's Reader itself, a direct reader (R2a): Ev's
+// decoder function and the ones it calls read by json.Reader's own
+// functions, and print what take prints.
+func direct(text string) string {
+	let r = json.Open(text, 0, 0) catch {
+	case _:
+		return "malformed"
+	}
+	let e = decode[Ev](r) catch {
+	case WireWrongKind as w:
+		return "kind \(w.Path) \(w.Want)"
+	case WireMissingField as m:
+		return "missing \(m.Path) \(m.Field)"
+	}
+	show(e)
 }
 
 // cut decodes text, encodes the value to events and decodes the first k
@@ -165,6 +182,7 @@ func GenerateWireReaders(seed uint64) string {
 	for _, c := range cases {
 		t := text(c[0], c[1])
 		fmt.Fprintf(&b, "\tConsole.Println(read(\"%s\"))\n", t)
+		fmt.Fprintf(&b, "\tConsole.Println(direct(\"%s\"))\n", t)
 		for j := 0; j < 3; j++ {
 			fmt.Fprintf(&b, "\tConsole.Println(cut(\"%s\", %d))\n", t, n(60))
 		}

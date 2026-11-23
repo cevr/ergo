@@ -35,14 +35,17 @@ func same(a Option[int], b Option[int]) bool {
 
 func filled(pre []int, snapAt int) journal.Journal[int, int] {
 	let j journal.Journal[int, int] = memory.New[int, int]()
+	let mut n = 0
 	for i, x in pre {
-		j.Append(x) catch {
-		case journal.Failed:
+		j.Append(x, n) catch {
+		case journal.Stale, journal.Failed:
 		}
+		n = n + 1
 		if i == snapAt {
 			j.Snapshot(x) catch {
 			case journal.Failed:
 			}
+			n = 0
 		}
 	}
 	j
@@ -53,8 +56,8 @@ func appendAddsOne(j journal.Journal[int, int], e int) bool {
 	case journal.Failed:
 		return true
 	}
-	j.Append(e) catch {
-	case journal.Failed:
+	j.Append(e, len(before.Signals)) catch {
+	case journal.Stale, journal.Failed:
 		return true
 	}
 	let after = j.Load() catch {
@@ -156,12 +159,12 @@ func within(want []int, all []int) bool {
 // cannot write it (types.md, Function values 3).
 type Crashing {
 	inner  memory.Journal[int, int],
-	append func(e int) fails journal.Failed,
+	append func(e int, expected int) fails journal.Stale | journal.Failed,
 	arm    func(mode int),
 	all    func() []int,
 } implements journal.Journal[int, int]
 
-func Append(c Crashing, e int) fails journal.Failed { try c.append(e) }
+func Append(c Crashing, e int, expected int) fails journal.Stale | journal.Failed { try c.append(e, expected) }
 
 func Snapshot(c Crashing, s int) fails journal.Failed { try c.inner.Snapshot(s) }
 
@@ -173,12 +176,12 @@ func crashing() Crashing {
 	let all = sync.NewRef([]int{})
 	Crashing{
 		inner: inner,
-		append: func(e int) fails journal.Failed {
+		append: func(e int, expected int) fails journal.Stale | journal.Failed {
 			let mode = sync.Modify(armed, func(v int) (int, int) { (v, 0) })
 			if mode == 1 {
 				return journal.Failed{Reason: "crash before the write"}
 			}
-			try inner.Append(e)
+			try inner.Append(e, expected)
 			all.Update(func(xs []int) []int { xs.Append(e) })
 			if mode == 2 {
 				return journal.Failed{Reason: "crash after the write"}
@@ -331,7 +334,7 @@ test MemoryDroppedIsNotJournaled() { assert DroppedIsNotJournaled() }
 // ledger writes it.
 var journalLawStatements = map[string]string{
 	"journal Codec.RoundTrips":             `RoundTrips(v T) { let text = Encode(v) let back = Decode(text) catch { case Failed: return false } Encode(back) == text }`,
-	"journal Journal.AppendAddsOne":        `AppendAddsOne(e E) { let before = Load() catch { case Failed: return true } Append(e) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == len(before.Signals)+1 && same(after.Snapshot, before.Snapshot) }`,
+	"journal Journal.AppendAddsOne":        `AppendAddsOne(e E) { let before = Load() catch { case Failed: return true } Append(e, len(before.Signals)) catch { case Stale, Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == len(before.Signals)+1 && same(after.Snapshot, before.Snapshot) }`,
 	"journal Journal.SnapshotDropsSignals": `SnapshotDropsSignals(s S) { Snapshot(s) catch { case Failed: return true } let after = Load() catch { case Failed: return false } len(after.Signals) == 0 && same(after.Snapshot, Some[S]{Value: s}) }`,
 	"journal/memory DroppedIsNotJournaled": `DroppedIsNotJournaled() { with context { Scheduler: time.NewManual(0) } { dropped(New[int, int]()) } }`,
 	"journal/memory RecoveryIsTheFold":     `RecoveryIsTheFold(ops []int, every int) { with context { Scheduler: time.NewManual(0) } { let (j, arm, all) = crashing() recovers(j, arm, all, ops, every) } }`,

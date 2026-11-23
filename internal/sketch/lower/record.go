@@ -56,6 +56,11 @@ var recordLowering string
 type knownRec struct {
 	tn     *check.TypeName
 	fields map[string]*check.Func
+	// entries are the machine's entries a field call calls directly that
+	// fields cannot name (MACHINE-EXPR): a computed entry whose call is
+	// known, through its copy (entrycopy.go), and an instance of a generic
+	// function (step: stepT[int]), through its plain copy (mono.go).
+	entries map[string]*check.MachineEntry
 }
 
 // specKey is one copy: a function and the record it is copied for, or
@@ -235,11 +240,34 @@ func (fc *funcCtx) knownRecord(x syntax.Expr) *knownRec {
 	if !ok {
 		return nil
 	}
-	step := conv.Table["Step"]
-	if step == nil {
-		return nil
+	if step := conv.Table["Step"]; step != nil && len(step.Sig.TParams) == 0 {
+		return &knownRec{tn: named.Obj, fields: map[string]*check.Func{"Step": step}}
 	}
-	return &knownRec{tn: named.Obj, fields: map[string]*check.Func{"Step": step}}
+	if e := conv.Entries["Step"]; !genericMachine(named) && knownEntry(fc.l, named.Obj, e) {
+		return &knownRec{tn: named.Obj, fields: map[string]*check.Func{}, entries: map[string]*check.MachineEntry{"Step": e}}
+	}
+	return nil
+}
+
+// knownEntry reports whether a field call of a known record calls the
+// entry e of the machine tn, which has no type parameters, directly: a
+// computed entry with a copy, or an instance with no witness whose type
+// arguments name no type parameter.
+func knownEntry(l *lowerer, tn *check.TypeName, e *check.MachineEntry) bool {
+	switch {
+	case e == nil:
+		return false
+	case e.Computed():
+		return l.entryCopyOf(tn, "Step", e) != nil
+	case len(e.TypeArgs) == 0 || len(witnessParams(e.Func.Sig)) > 0:
+		return false
+	}
+	for _, t := range e.TypeArgs {
+		if mentionsTypeParam(t) {
+			return false
+		}
+	}
+	return true
 }
 
 // specAt is the copy the call x of c goes to, made and queued for emission
@@ -403,6 +431,16 @@ func (fc *funcCtx) recordCallText(x *syntax.CallExpr, c *check.Call, sig *check.
 		return "", false, false, false
 	}
 	field := sel.Sel.Name
+	if e := fc.recs[v].entries[field]; e != nil && !c.StartsTask {
+		// A computed entry's copy, or an instance's plain copy
+		// (entryCall), called directly.
+		env := fc.env
+		if env == "" && (e.Computed() || !fc.l.useFunc(e.Func, x).envFree) {
+			return "", false, false, false
+		}
+		text, fallible := fc.l.entryCall(fc.recs[v].tn, field, e, env, fc.callArgs(x.Args, x), x)
+		return text, len(sig.Results) > 0, fallible, true
+	}
 	g := fc.recs[v].fields[field]
 	if g == nil || len(g.Sig.TParams) > 0 || len(witnessParams(g.Sig)) > 0 || g.Pkg == nil || g.Pkg.Info == nil {
 		return "", false, false, false

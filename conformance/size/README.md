@@ -2,7 +2,7 @@
 
 Raw measurement records for the [small executable contract](../../docs/specs/binary-reachability.md). Every number here is a raw measurement. None is a performance claim or a size budget.
 
-[#205](https://github.com/cevr/ergo/issues/205) removed the earlier `.ef` language, and with it the size fixtures, the size matrix and `ergo build --receipt` ([retirement record](../../docs/receipts/retire-ef.md)). Nothing in this directory runs now. The fixtures return in the decided syntax with v1 item 5, which measures build size and time again.
+The .ef migration removed the earlier `.ef` language, and with it the size fixtures, the size matrix and `ergo build --receipt` ([retirement record](../../docs/receipts/retire-ef.md)). Nothing in this directory runs now. The fixtures return in the decided syntax with v1 item 5, which measures build size and time again.
 
 | Path | Contents |
 | --- | --- |

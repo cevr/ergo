@@ -27,19 +27,25 @@ import (
 // (natives.go) to the runtime/v1 body the built program calls, on
 // generated inputs: texts with multi-byte and invalid UTF-8, empty
 // separators, negative and huge counts, every strconv base and bit size,
-// NaN and -0 in sorts, and the seeded rand stream draw for draw. The
-// natives are written from Go's standard library and the std's spec, never
-// by calling runtime/v1, so this is two implementations agreeing, value
-// for value, failure for failure (record and text) and defect for defect
-// (Go's panic text). A failing seed prints the native, the arguments and
-// both results, and the replay command.
+// NaN and -0 in sorts, instants past the years 0 to 9999, and the seeded
+// rand stream draw for draw. The natives are written from Go's standard
+// library and the std's spec, never by calling runtime/v1, so this is two
+// implementations agreeing, value for value, failure for failure (record
+// and text) and defect for defect (Go's panic text). A failing seed prints
+// the native, the arguments and both results, and the replay command.
 //
 // Mutants only it kills (testdata/mutants.json): oracle-o1-native-pad-bytes,
 // oracle-o1-native-parse-range, oracle-o1-native-times-wraps,
 // oracle-o1-native-intn-modulo, oracle-o1-native-splitn-count,
 // oracle-o1-native-split-empty-sep, evbuilder-appendfrom-whole-run,
-// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last, and
-// ST4's st4-* rows but st4-native-missing (nativespure.go).
+// evbuilder-appendfrom-end-start, evbuilder-appendbytes-drops-last,
+// eval-time-format-is-gos, eval-time-parse-is-gos,
+// eval-time-expanded-year-unpadded,
+// eval-sortfunc-equal-on-greater, eval-repeat-drops-one,
+// ST4's st4-* rows but st4-native-missing (nativespure.go), and the
+// runtime/v1 bodies' rows whose laws run in place on these natives
+// (ergotests -std): sconv-to*, d2-bits-*, nappend-*, fs-clone-short
+// (runtime/v1) and d3-sha* (runtime/v1/digest).
 // The tests read the natives through loadedNatives, which builds them.
 
 // byteSliceV is b as the evaluator holds a []byte: a slice of uint8s.
@@ -297,7 +303,16 @@ func nativeCases(g nativeGen) []nativeCase {
 	layouts := []string{time.RFC3339, time.RFC3339Nano, time.DateTime, time.DateOnly, time.Kitchen, time.RFC1123Z, time.RFC1123, "Jan 2 15:04", "02/01/2006 15:04:05.000"}
 	lay := layouts[g.r.IntN(len(layouts))]
 	sec, nsec := g.r.Int64N(1<<34)-(1<<33), g.r.Int64N(1e9)
-	text := time.Unix(sec, nsec).UTC().Format(layouts[g.r.IntN(len(layouts))])
+	// Sometimes an instant at or past the years 0 to 9999, which std
+	// writes in ISO 8601's expanded year (time.Format), or any int64.
+	switch g.r.IntN(4) {
+	case 0:
+		bound := []int64{-62167219200, 253402300800}[g.r.IntN(2)]
+		sec = bound + g.r.Int64N(5) - 2
+	case 1:
+		sec = int64(g.r.Uint64())
+	}
+	text := v1.TimeFormat(sec, nsec, layouts[g.r.IntN(len(layouts))])
 	if g.r.IntN(4) == 0 {
 		text = text[:g.r.IntN(len(text)+1)]
 	}
@@ -384,6 +399,10 @@ func nativeCases(g nativeGen) []nativeCase {
 		{name: "slices.SortStableFunc", args: []Value{li(ints), byMod3}, v1: func() any {
 			return v1.SlicesSortStableFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
 		}},
+		{name: "slices.SortFunc", args: []Value{li(ints), byMod3}, v1: func() any {
+			return v1.SlicesSortFunc(ints, func(a, b int64) int { return cmp.Compare(mod3(a), mod3(b)) })
+		}},
+		{name: "slices.Repeat", args: []Value{li(ints), int64(i)}, anyDefect: true, v1: func() any { return v1.SlicesRepeat(ints, i) }},
 		{name: "machines.notPositive", args: []Value{d, m}, v1: func() any { v1.MachineTimerNotPositiveAt(durationOf(d), durationOf(m)); return nil }},
 	}, pureCases(g, s, u, d, m, f, ints, ints2, x, sec, nsec, lay)...)
 }
@@ -401,7 +420,7 @@ func pureCases(g nativeGen, s, u string, d, m int64, f float64, ints, ints2 []in
 	if g.r.IntN(3) == 0 {
 		ub = ua // Div64 of hi == y overflows
 	}
-	edge := []float64{0, math.Copysign(0, -1), -0.5, -1, 127.9, 128, -128.9, -129, 255.5, 256, 32767.5, 65536, 2147483647.5, 4294967296, 0x1p63, -0x1p63, 0x1p64, 1e300, math.NaN(), math.Inf(1), math.Inf(-1)}[g.r.IntN(21)]
+	edge := []float64{0, math.Copysign(0, -1), -0.5, -1, 127.9, 128, -128.9, -129, 255.5, 256, 32767.5, 32768, -32769, 65536, 2147483647.5, 2147483648, -2147483649, 4294967296, 0x1p63, -0x1p63, 0x1p64, 1e300, math.NaN(), math.Inf(1), math.Inf(-1)}[g.r.IntN(25)]
 	hexText := hex.EncodeToString([]byte(s))
 	b64 := base64.StdEncoding.EncodeToString([]byte(s))
 	b64url := base64.URLEncoding.EncodeToString([]byte(u))

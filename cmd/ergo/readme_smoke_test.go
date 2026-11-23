@@ -28,7 +28,7 @@ import (
 //     CommonMark renders;
 //   - every go block that elides nothing parses and is canonical under
 //     the parser and formatter, and uses no form the specification
-//     removed: `uses` (#217), `nil` (types.md) or a prefix catch
+//     removed: `uses`, `nil` (types.md) or a prefix catch
 //     (rows.md); nor a Close in `scope.OnExit`;
 //   - every code block but the commands of "Try it" has a marker comment
 //     above it, which GitHub does not render:
@@ -208,7 +208,7 @@ func readmeBlockProblem(source string) error {
 		case "nil":
 			refused = append(refused, fmt.Sprintf("line %d: Ergo has no nil (docs/spec/types.md)", line))
 		case "uses":
-			refused = append(refused, fmt.Sprintf("line %d: `uses` was replaced by `needs` and `provides` (#217)", line))
+			refused = append(refused, fmt.Sprintf("line %d: `uses` was replaced by `needs` and `provides`", line))
 		}
 		return true
 	})

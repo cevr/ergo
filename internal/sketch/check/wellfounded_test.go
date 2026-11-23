@@ -22,7 +22,7 @@ type Held { M Model }
 test Holds(h Held) { assert true }
 `
 	ds := checkDiagList(t, src)
-	want := "6:14 S108 a property parameter is generated, and Held cannot be: Model has no finite value: its builder NewMetered takes an argument that has none, as a builder that needs its own type does (196l)"
+	want := "6:14 S108 a property parameter is generated, and Held cannot be: Model has no finite value: its builder NewMetered takes an argument that has none, as a builder that needs its own type does"
 	if len(ds) != 1 {
 		t.Fatalf("got %d diagnostics %v, want\n%s", len(ds), ds, want)
 	}

@@ -1,0 +1,8 @@
+# scripts/opcount: `mexpr bench named N` runs machines.Run over N signals
+# on the same product written by hand as a named step; the cost of one
+# signal is the slope between the two sizes (MACHINE-EXPR). The control is
+# the hand Go fold.
+unit signal
+sizes 400000 2400000
+args bench named {n}
+control benchmarks/mexpr/testdata/control
