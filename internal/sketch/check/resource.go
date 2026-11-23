@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Resource types and mode crossing (#197 L8 A1; resources.md R1, R22,
+// Resource types and mode crossing (resource ownership L8 A1; resources.md R1, R22,
 // R34, R40; plan 1.2). Ownership is a mode, not a type mark: the
 // ownership rules apply only to a value whose type holds a resource, and
 // every other type crosses (OxCaml's mode crossing). One property decides

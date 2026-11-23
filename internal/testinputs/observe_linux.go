@@ -574,7 +574,7 @@ func (o *observer) serve(listener int) {
 	// scheduler.
 	syscall.Syscall(syscall.SYS_IOCTL, uintptr(listener), seccompIoctlNotifSetFlags, seccompNotifSyncWakeUp)
 	// Eight workers measured fastest on the 16-CPU workbox (2026-10-11, a
-	// subset of the legacy compiler's tests, removed by #205: 2 workers
+	// subset of the legacy compiler's tests, removed by the .ef migration: 2 workers
 	// 40-47 s, 4 35-42 s, 8 34-39 s, 16 36-64 s, 32 42-44 s, unobserved
 	// 25-33 s).
 	for range min(runtime.NumCPU(), 8) {

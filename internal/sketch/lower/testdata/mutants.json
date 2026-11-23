@@ -1055,7 +1055,7 @@
       "name": "existing-48-stale-refusal",
       "origin": "lower-v1/receipts/s4/mutants-s4d.json",
       "file": "internal/sketch/lower/text.go",
-      "from": "waits for derived text forms (#49)\", t)",
+      "from": "waits for derived text forms\", t)",
       "to": "is lowered in lower-v1 stage 4\", t)",
       "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
       "killers": [
@@ -1066,8 +1066,8 @@
       "name": "existing-49-refusal-names-no-owner",
       "origin": "lower-v1/receipts/s4/mutants-s4d.json",
       "file": "internal/sketch/lower/text.go",
-      "from": "waits for derived text forms (#49)\", t)",
-      "to": "waits for derived text forms\", t)",
+      "from": "waits for derived text forms\", t)",
+      "to": "waits\", t)",
       "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
       "killers": [
         "lower:TestRefusalsBeforeGo",
@@ -1225,7 +1225,7 @@
       "name": "existing-58-v-refusal-as-entry-error",
       "origin": "lower-v1/verify-s4d/mutants-extra.json",
       "file": "internal/sketch/lower/text.go",
-      "from": "refuse(site, \"the text of an error type with a field of type %s waits for derived text forms (#49)\", t)",
+      "from": "refuse(site, \"the text of an error type with a field of type %s waits for derived text forms\", t)",
       "to": "entryError(site, \"main: the text of an error type with a field of type %s\", t)",
       "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
       "killers": [
@@ -6637,7 +6637,7 @@
     {"name":"lsd-other-platform-dropped","origin":"wf10 LEDGER-SUPERSEDE","file":"internal/sketch/lower/ledgersupersede.go","from":"if oldPlat == \"\" || oldPlat == plat || freshPlat == \"\" {","to":"if oldPlat == \"\" || oldPlat == plat || freshPlat == \"\" || true {","rule":"ledgersupersede.go (LEDGER-SUPERSEDE): the writer drops an entry only no build of the run's experiment set looks up; another platform's entry stays while the fresh one names this platform.","killers":["lower:TestLedgerDropsSuperseded"]},
     {"name":"lsd-untyped-unsaid","origin":"wf10 LEDGER-SUPERSEDE","file":"internal/sketch/lower/gostd.go","from":"\ts := hostStd()\n\tif s.ctx.GOROOT == \"\" {","to":"\ts := hostStd()\n\tif true {\n\t\treturn \"\"\n\t}\n\tif s.ctx.GOROOT == \"\" {","rule":"gostd.go (LEDGER-SUPERSEDE): a stale or missing note says when Go's standard library is read untyped.","killers":["lower:TestStaleNoteNamesUntypedStd"]},
     {"name":"group-lawed-never","origin":"wf10 UC GROUP-OFF","file":"internal/sketch/lower/uigroup.go","from":"\tif pkg.Info == nil || g.Decl == nil {\n\t\treturn false\n\t}\n\tseen := map[*syntax.FuncDecl]bool{}","to":"\tif true || pkg.Info == nil || g.Decl == nil {\n\t\treturn false\n\t}\n\tseen := map[*syntax.FuncDecl]bool{}","rule":"std ui's group is lawed (GroupSkipsEqualArguments reaches it), so a component call lowers to a group call under both builds","killers":["lower:TestComponentCallsLowerToGroup"]},
-    {"name":"ctxn-lower-refuses","origin":"wf10 CTX-ROWS-1","file":"internal/sketch/lower/calls.go","from":"\tif w.Decl.Provides != nil {\n\t\trefuse(w.Decl, \"a context header with provides is checked by 196b\")","to":"\tif w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {\n\t\trefuse(w.Decl, \"a context header with provides is checked by 196b\")","rule":"rows.md Context 4: a named context with a needs header lowers; its builder reads the with site's environment.","anchor":{"tests":["lower:TestContextNeedsRowLowers"]},"killers":["lower:TestContextNeedsRowLowers"]},
+    {"name":"ctxn-lower-refuses","origin":"wf10 CTX-ROWS-1","file":"internal/sketch/lower/calls.go","from":"\tif w.Decl.Provides != nil {\n\t\trefuse(w.Decl, \"a context header with provides waits for context header checking\")","to":"\tif w.Decl.Provides != nil || w.Decl.Needs != nil && w.TestAmbient == nil {\n\t\trefuse(w.Decl, \"a context header with provides waits for context header checking\")","rule":"rows.md Context 4: a named context with a needs header lowers; its builder reads the with site's environment.","anchor":{"tests":["lower:TestContextNeedsRowLowers"]},"killers":["lower:TestContextNeedsRowLowers"]},
     {"name":"keep-host-instance-at-param","origin":"wf10 GR bookmarks (layout-red work list 6)","file":"internal/sketch/lower/ir_pkg.go","from":"\t\t\t\tb.keepImport(\"var _ \" + b.typeParamsAt(s, \"int\"))\n","to":"\t\t\t\tb.keepImport(\"var _ \" + s)\n","rule":"a host instance over a generic body's type parameter (config's *Redacted[T]) keeps its import at int, so main.go names no type parameter at its top level (bookmarks: undefined: T)","killers":["examples:bookmarks"]},
     {"name":"law-ir-values-unanalyzed","origin":"wf10 OWN1 KMEANS-LAW","file":"internal/sketch/lower/tests.go","from":"\tl.analyzeValues(d, l.info)\n\t// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset\n\t// leaves its Go declaration without a body (ir_assert.go).\n\tif l.ir != nil && l.ir.lawBody(","to":"\t// LowerIR and CensusIR only (ir.go): a body in the IR builder's subset\n\t// leaves its Go declaration without a body (ir_assert.go).\n\tif l.ir != nil && l.ir.lawBody(","rule":"A law body's values are analyzed before either path lowers it; newBuilder refuses an IR body built before (KMEANS-LAW).","killers":["lower:TestValueRuleEveryBodyKind"]},
     {"name":"ir-builder-unasserted","origin":"wf10 OWN1 KMEANS-LAW","file":"internal/sketch/lower/ir.go","from":"\tif root != nil && !isNilNode(root) {\n\t\tif _, ok := fc.l.valueFacts().roots[root]; !ok {","to":"\tif false && root != nil && !isNilNode(root) {\n\t\tif _, ok := fc.l.valueFacts().roots[root]; !ok {","rule":"newBuilder stops the lowering at an IR body whose root the value rule has not analyzed (KMEANS-LAW).","killers":["lower:TestNewBuilderRefusesUnanalyzed"]},

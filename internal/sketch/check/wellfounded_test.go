@@ -25,7 +25,7 @@ func TestGeneratorRankLimitIsAnError(t *testing.T) {
 	ds := checkDiagList(t, b.String())
 	// R_i's least value is i+1 levels deep, so R(n-1) is the first by name
 	// past the limit.
-	want := fmt.Sprintf("%d:13 S108 a property parameter is generated, and R%d cannot be: R%d has no value a generator reaches: its least value is %d levels deep, past %d (196l)", n+2, n, n-1, n, check.GenRankLimit)
+	want := fmt.Sprintf("%d:13 S108 a property parameter is generated, and R%d cannot be: R%d has no value a generator reaches: its least value is %d levels deep, past %d", n+2, n, n-1, n, check.GenRankLimit)
 	if len(ds) != 1 {
 		t.Fatalf("got %d diagnostics %v, want\n%s", len(ds), ds, want)
 	}
@@ -52,7 +52,7 @@ type Held { M Model }
 test Holds(h Held) { assert true }
 `
 	ds := checkDiagList(t, src)
-	want := "6:14 S108 a property parameter is generated, and Held cannot be: Model has no finite value: its builder NewMetered takes an argument that has none, as a builder that needs its own type does (196l)"
+	want := "6:14 S108 a property parameter is generated, and Held cannot be: Model has no finite value: its builder NewMetered takes an argument that has none, as a builder that needs its own type does"
 	if len(ds) != 1 {
 		t.Fatalf("got %d diagnostics %v, want\n%s", len(ds), ds, want)
 	}

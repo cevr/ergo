@@ -13,7 +13,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// law-run-1 (#162; types.md, Laws 10): ergo test runs every top-level law
+// law-run-1 (types.md, Laws 10): ergo test runs every top-level law
 // over generated values of its parameters, and every member law against
 // each provider of its operation type that the package declares, with a
 // generated value of the provider. Inside a member law the operation type is
@@ -572,7 +572,7 @@ func main() {}
 		"skip law Shape.Positive under Pinned: its provider names the package let pinned, which a case's release would close for every later case",
 		"ok law Shape.Positive under Sized (proved: 1 case)",
 		"ok law Shape.Positive under Wired (proved: 1 case)",
-		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (#197)",
+		"skip law Shape.Positive under Witnessed: its provider's generic Close takes witnesses for a type parameter constrained by operations, and a case has no instance to pass (resource ownership)",
 		"skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters",
 		// A law of an operation type whose parameter is bounded by
 		// operations runs at each provider's instance with its witness

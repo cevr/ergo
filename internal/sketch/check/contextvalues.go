@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Context values (rows.md, Context values; #237 stage 2, L5). The prelude
+// Context values (rows.md, Context values; stage 2, L5). The prelude
 // type Context[R] is a context as a value: the providers of the capability
 // row R, built where a context converts to it.
 //

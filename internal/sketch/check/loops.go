@@ -5,7 +5,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// One for (check-v1 stage D2; #196 fourth round, D-D4):
+// One for (check-v1 stage D2; fourth round, D-D4):
 //
 //   - `for x in e` binds the element and `for i, x in e` the position and
 //     the element. The domains are a slice (position int), a Map (one

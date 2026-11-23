@@ -7,7 +7,7 @@ The sections are:
 - **Constructs, contracts and laws**: how constructs are admitted, and the vocabulary of laws and evidence.
 - **Runtime and providers**: tasks, interruption, exits and lawful providers.
 - **Domain modeling**: aggregates, deciders, views, policies, sagas, stories and scenes, and the terms of infrastructure as code.
-- **Earlier `.ef` language**: terms of the retired language that [#205](https://github.com/cevr/ergo/issues/205) removed with its compiler. They stay as design reference.
+- **Earlier `.ef` language**: terms of the retired language that the .ef migration removed with its compiler. They stay as design reference.
 - **Tooling and testing**.
 
 An entry defines a term and carries no status; a construct's status is in [docs/spec/status.json](docs/spec/status.json).
@@ -52,7 +52,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Error row**: The set of error types a function may fail with, written `fails A | B` after the result type. Order and repetition carry no meaning.
 
-**Capability row**: The set of capabilities a caller must supply, written `needs A | B` after a signature, the same union spelling as the error row (196n). Also called the `needs` row or requirement row. Before 2026-10-27 it was spelled `uses` ([#217](https://github.com/cevr/ergo/issues/217)); `uses` is now an ordinary identifier.
+**Capability row**: The set of capabilities a caller must supply, written `needs A | B` after a signature, the same union spelling as the error row (196n). Also called the `needs` row or requirement row. Before 2026-10-27 it was spelled `uses`; `uses` is now an ordinary identifier.
 
 **Row**: An error row or a capability row. Rows are checked and then erased from the emitted Go.
 
@@ -148,7 +148,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Resource**: A value whose type implements the prelude's `Closer` (its clause names it, or an operation type that includes it), an operation type that includes `Closer` or has an operation that takes a resource, or a record, union, tuple, slice, `Map` or `Option` that holds one (resources R1, R34). A task is owned by its frame; an actor handle is a shared handle, not a resource. Its owner scope releases it. See [resources](docs/spec/resources.md).
 
-**Own type parameter**: A type parameter its declaration marks `own`, `[T own]`: it may bind a resource, and the body is held to a resource's rules for its values. An unmarked type parameter binds plain data only. Replaces the copy site of #197 L8 A3 (MODES-5). See [types](docs/spec/types.md) Generics 9.
+**Own type parameter**: A type parameter its declaration marks `own`, `[T own]`: it may bind a resource, and the body is held to a resource's rules for its values. An unmarked type parameter binds plain data only. Replaces the copy site of resource ownership L8 A3 (MODES-5). See [types](docs/spec/types.md) Generics 9.
 
 **Crossing type**: A type that holds no resource, so the ownership rules mean nothing for its values: they copy freely. Plain data and shared handles cross; a generic type crosses with its arguments (`Stack[int]` crosses, `Stack[File]` does not). The term is OxCaml's mode crossing. See [resources](docs/spec/resources.md) R1.
 
@@ -254,25 +254,25 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Body contract**: The written facts and the calling convention of a Go body that an `extern go` declaration binds: whether it is pure, moves or keeps its arguments, waits, releases, or reads the context, and which hidden arguments it takes. Any module's extern reads the same contract. Each fact and its home are listed in [stdlib.md, The body contract](docs/spec/stdlib.md#the-body-contract).
 
-**Library intrinsic**: A target implementation the compiler substitutes for an ordinary declared library signature. The signature, together with any declared contract written only in the inferred contract vocabulary, is the only source of diagnostics, checked types, rows and ownership, provided that the declared contract is consumed by the same path as an inferred one and no checker, emitter or reachability branch is keyed on the item's identity beyond backend selection (amended for [#130](https://github.com/cevr/ergo/issues/130)). The intrinsic may add backend facts such as retained runtime modules. The implementation of a syntax construct is part of that construct, not a library intrinsic.
+**Library intrinsic**: A target implementation the compiler substitutes for an ordinary declared library signature. The signature, together with any declared contract written only in the inferred contract vocabulary, is the only source of diagnostics, checked types, rows and ownership, provided that the declared contract is consumed by the same path as an inferred one and no checker, emitter or reachability branch is keyed on the item's identity beyond backend selection (amended for declared contracts). The intrinsic may add backend facts such as retained runtime modules. The implementation of a syntax construct is part of that construct, not a library intrinsic.
 
-**Declared contract** ([#130](https://github.com/cevr/ergo/issues/130)): A library primitive's statement of what its body does with its parameters, written only in the vocabulary that inference produces, for a primitive that has no reference body to infer from. It is consumed exactly as an inferred contract is, so it grants no meaning that inference could not.
+**Declared contract**: A library primitive's statement of what its body does with its parameters, written only in the vocabulary that inference produces, for a primitive that has no reference body to infer from. It is consumed exactly as an inferred contract is, so it grants no meaning that inference could not.
 
-**Recipe-parameter contract** ([#130](https://github.com/cevr/ergo/issues/130)): The inferred summary of what a function's body does with each function-typed parameter: calls it, hands it to a task, stores it or replays it. A caller substitutes its actual argument. In the Go-shaped language it carries the non-escaping, concurrent and replayable facts and travels in the interface summary. Superseded as an inferred summary (decision, 2026-11-12, [explicit local signatures](docs/decisions.md#owner-direction-2026-11-12)): when it is built, each fact is a written clause or a written parameter prefix, never inferred from the body.
+**Recipe-parameter contract**: The inferred summary of what a function's body does with each function-typed parameter: calls it, hands it to a task, stores it or replays it. A caller substitutes its actual argument. In the Go-shaped language it carries the non-escaping, concurrent and replayable facts and travels in the interface summary. Superseded as an inferred summary (decision, 2026-11-12, [explicit local signatures](docs/decisions.md#owner-direction-2026-11-12)): when it is built, each fact is a written clause or a written parameter prefix, never inferred from the body.
 
 **Language protocol**: A nominal row label whose charging or discharge a construct's own checking rule defines, such as `go.Foreign` for calls through `import go`, or `sync.Tx` inside `sync.Atomically`. It is predeclared. An ordinary capability, whose label enters a row only through declared operations or requirements, is not a language protocol.
 
-**Constraint** ([#141](https://github.com/cevr/ergo/issues/141), CONSTRAINTS; was "Where clause"): A requirement on a generic type parameter, written in bound position: `[T C]`. It is an operation type, whose operations the type argument must have by a declared `implements` clause, and whose **type set** it must be in, or the predeclared `comparable`. One mechanism serves std and users alike: the prelude's `ordered` and `number` are ordinary type-set declarations. A bound may name its own parameter, or its own type: `type Ranked[T Ranked[T]]`.
+**Constraint** (CONSTRAINTS; was "Where clause"): A requirement on a generic type parameter, written in bound position: `[T C]`. It is an operation type, whose operations the type argument must have by a declared `implements` clause, and whose **type set** it must be in, or the predeclared `comparable`. One mechanism serves std and users alike: the prelude's `ordered` and `number` are ordinary type-set declarations. A bound may name its own parameter, or its own type: `type Ranked[T Ranked[T]]`.
 
 **Type set** (CONSTRAINTS C1): The member of an operation type that lists types by terms joined by `|`: `~int | ~int64`. A `~T` term admits every type defined over `T`; a bare `T` admits `T` alone; the term `comparable` admits the comparable types. An operation type with a type set is a constraint only, never the type of a value. A body may apply to a `T` under it the operators that every type of the set has (Go's rule).
 
-**Order** (#211, CONSTRAINTS C3): std's `cmp.Order[T]`, an operation type with `Compare(a T, b T) int` and the laws `Reflexive`, `Antisymmetric` and `Transitive`. An order is a provider value that a call names (`slices.SortBy(xs, ByPriority)`), so a type may have many orders and a program may order a type it does not own (`cmp.Natural[int]`). Not a type's own method: nothing is looked up.
+**Order** (CONSTRAINTS C3): std's `cmp.Order[T]`, an operation type with `Compare(a T, b T) int` and the laws `Reflexive`, `Antisymmetric` and `Transitive`. An order is a provider value that a call names (`slices.SortBy(xs, ByPriority)`), so a type may have many orders and a program may order a type it does not own (`cmp.Natural[int]`). Not a type's own method: nothing is looked up.
 
-**Owner package** ([#141](https://github.com/cevr/ergo/issues/141); was "Owner module"): The package that declares a type. Methods are declared only there, as in Go, so a constraint on a type has one answer: the owner's method. A function type, a row or a resource handle without such a method satisfies no method constraint.
+**Owner package** (was "Owner module"): The package that declares a type. Methods are declared only there, as in Go, so a constraint on a type has one answer: the owner's method. A function type, a row or a resource handle without such a method satisfies no method constraint.
 
-**Method argument** ([#141](https://github.com/cevr/ergo/issues/141)): The operations the compiler passes for a satisfied constraint in the lowered code: a witness, a struct with one function per operation, the same functions a caller could pass by hand, as Go generics carry them in their dictionaries. Where the instance is known, a copy of the callee for it calls the operations directly and takes no witness (types.md, Generics 5).
+**Method argument**: The operations the compiler passes for a satisfied constraint in the lowered code: a witness, a struct with one function per operation, the same functions a caller could pass by hand, as Go generics carry them in their dictionaries. Where the instance is known, a copy of the callee for it calls the operations directly and takes no witness (types.md, Generics 5).
 
-**Law**: A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine, the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra ([#125](https://github.com/cevr/ergo/issues/125)).
+**Law**: A named behavioral obligation that types cannot state, written as `law X(…) { … }`, with a body that ends in a `bool` expression, and checked like a fuzz target. Its placement sets what it is quantified over: at top level, beside `test`, its parameters; in an operation type, its parameters and every provider of the type; in a machine, the step graph. A type with laws and no operations is S108 (law-top). A refuted law refuses the build. Laws are one general construct with many clients: codecs, providers, schedules, machines and composition algebra.
 
 **Hashing provider**: A provider of the prelude's operation type `Hashing[K]` (`Hash` and `Equal`, with four laws), named as a Map's third type argument: `Map[K, V, H]` finds its keys through `H`. `Structural[K]` is the provider of `==` and `hash`, and `Map[K, V]` is `Map[K, V, Structural[K]]`. See [types](docs/spec/types.md#maps), Maps.
 
@@ -296,15 +296,15 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Construction check** (patterns): The compiler's check that a deterministic matcher follows the canonical tagged NFA of a pattern on every reachable state, every byte and the end of input, with the same ordered capture events. Only this check selects a faster matcher; a law never does. See [patterns](docs/spec/patterns.md#lowering).
 
-**Contract** ([#170](https://github.com/cevr/ergo/issues/170)): An operation type used as a constraint together with the laws stated in it. A type satisfies the contract when it declares that it implements the operation type and the laws hold for it: `ergo test` runs each law for each implementing type (types.md, Laws 10). `cmp.Order` is one.
+**Contract**: An operation type used as a constraint together with the laws stated in it. A type satisfies the contract when it declares that it implements the operation type and the laws hold for it: `ergo test` runs each law for each implementing type (types.md, Laws 10). `cmp.Order` is one.
 
-**Provider protocol** ([#170](https://github.com/cevr/ergo/issues/170)): A capability together with its provider laws. A provider is admitted for the capability by passing them, whatever its implementation.
+**Provider protocol**: A capability together with its provider laws. A provider is admitted for the capability by passing them, whatever its implementation.
 
-**Satisfaction** ([#170](https://github.com/cevr/ergo/issues/170)): The relation between one type or provider and one contract or provider protocol, with each law's evidence status: tested, refuted, trusted or unresolved.
+**Satisfaction**: The relation between one type or provider and one contract or provider protocol, with each law's evidence status: tested, refuted, trusted or unresolved.
 
-**Admission** ([#170](https://github.com/cevr/ergo/issues/170)): The build's decision to accept a satisfaction. A refuted law refuses the build; a trusted law needs a written reason; an unresolved law is allowed with a visible note unless evidence rests on it.
+**Admission**: The build's decision to accept a satisfaction. A refuted law refuses the build; a trusted law needs a written reason; an unresolved law is allowed with a visible note unless evidence rests on it.
 
-**Evidence kind** ([#170](https://github.com/cevr/ergo/issues/170)): A nominal wrapper type, such as `SortedBy[S, compare]`, whose values carry the proof that a law-backed check has run on the carrier. Only the checking function mints it.
+**Evidence kind**: A nominal wrapper type, such as `SortedBy[S, compare]`, whose values carry the proof that a law-backed check has run on the carrier. Only the checking function mints it.
 
 **Law subject** (LAWLOC; owner, 2026-11-15): A declaration of a law's own package that the law is about: one its parameters or its body name, or one a law helper it calls names (a function, a type and its operations, variants and fields, a package `let`, a context). A law helper, an unexported function, type, `let` or context that only laws, tests and other helpers use, is not a subject. A top-level law stands in a file that declares one of its subjects (S115); a member or machine law's subject is the type that declares it. `ergo fix` moves a misplaced law beside its main subject, the one its name names ([types](docs/spec/types.md#laws), Laws 15).
 
@@ -344,7 +344,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Lawful runtime contract**: The host operations and laws an effect runtime provider must satisfy, with each obligation's evidence classified as nominally checked, trusted decision, tested law, refuted or unresolved/unavailable.
 
-**Host-driven program** (direction; owner direction 2026-11-02, [#202](https://github.com/cevr/ergo/issues/202) and [#240](https://github.com/cevr/ergo/issues/240)): A program whose control loop a host owns, such as a game engine, a GUI window or a TUI screen that calls it each frame or event on the host's thread through a declared entry signature, while its capabilities stay separate services provided by a context rather than one platform owning them all.
+**Host-driven program** (direction; owner direction 2026-11-02): A program whose control loop a host owns, such as a game engine, a GUI window or a TUI screen that calls it each frame or event on the host's thread through a declared entry signature, while its capabilities stay separate services provided by a context rather than one platform owning them all.
 
 **Frame (ui)**: std `ui.Frame[E]`, the composer a view writes into: a view is `func(f *ui.Frame[E], s S)`, an explicit borrow and not a capability. The frame holds the retained tree, its view-local cells and its loads; `ui.Render` runs one pass and reconciles what it wrote into a patch (`[]ui.Op[E]`). `E` is the program's signal type.
 
@@ -396,7 +396,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Source revision**: The SHA-256 digest of a source file, the revision that qualifies its definition IDs. A trace header carries it once, and a trace query refuses a trace whose revision differs from the file.
 
-**Trace event**: One record of a run. It has an occurrence ID, a kind from the runtime-law vocabulary (#124) or the three additions `call`, `call-exit` and `interrupt`, a task and its parent, a definition ID and a source site, and it may carry an occurrence link. Its serialized form names failures and defects by type and never carries argument or result values.
+**Trace event**: One record of a run. It has an occurrence ID, a kind from the runtime-law vocabulary or the three additions `call`, `call-exit` and `interrupt`, a task and its parent, a definition ID and a source site, and it may carry an occurrence link. Its serialized form names failures and defects by type and never carries argument or result values.
 
 **Occurrence ID**: The number the runtime gives a trace event when it raises it, unique within one traced task tree and taken from one counter, so an event that happens before another has the smaller ID. A capability call's occurrence ID joins its `call` and `call-exit` events.
 
@@ -404,7 +404,7 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Point event**: A trace event that emitted code raises at its own source site: a capability `call` and its `call-exit` with the outcome (ok, a failure, a defect or interrupted), an `interrupt` at an interruption point, a context `construct` or a catch `handler`. The runtime raises the other kinds for a task, keyed by the task's definition ID.
 
-**Trace evidence**: The answer of a trace query (`sketchc trace`, later `ergo trace` and MCP `code.trace`): the `trace-evidence-1` envelope with the fields of the review evidence schema (#156), then the tasks, the capability calls with their spans, the resolved events and the cause trace. The query validates the trace before it answers and refuses a malformed one with the reason.
+**Trace evidence**: The answer of a trace query (`sketchc trace`, later `ergo trace` and MCP `code.trace`): the `trace-evidence-1` envelope with the fields of the review evidence schema, then the tasks, the capability calls with their spans, the resolved events and the cause trace. The query validates the trace before it answers and refuses a malformed one with the reason.
 
 ## Domain modeling
 
@@ -472,7 +472,7 @@ The building blocks of domain-driven design, as Ergo writes them. [docs/domain.m
 
 ## Earlier `.ef` language
 
-These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. [#205](https://github.com/cevr/ergo/issues/205) removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
+These terms describe the retired `.ef` language, with its `effect fn`, `run`, `raises` and `service` forms. The .ef migration removed its compiler ([retirement record](docs/receipts/retire-ef.md)); its runtime, `runtime/ergo`, was removed in batch 14. The terms stay as design reference. The Go-shaped language replaces it; where a term has a counterpart above, the entry says so.
 
 **Record**: A nominal data type with declared fields. Construction checks every required field and its type. Counterpart: struct.
 
