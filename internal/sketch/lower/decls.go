@@ -819,6 +819,15 @@ func (l *lowerer) methodReceiver(f *check.Func) (*typeDecl, bool) {
 	return td, ptr
 }
 
+// intrinsicTakes reports the Map operation Take, whose intrinsic (below)
+// takes k out of its Map argument in place, where its runtime/v1 body,
+// the reference, copies every entry: the value rule hands it a copy of a
+// Map that stays live (values.go, takesMapSource). The fact belongs to
+// the intrinsic, which is Take's Go form, so it is read here, beside it.
+func intrinsicTakes(f *check.Func) bool {
+	return check.CollOpOf(f) == check.CollTake
+}
+
 // intrinsic is the Go body of an extern declaration this lowering
 // implements, a call into the runtime with the declaration's parameters, or
 // nil. Collection intrinsics bind to the prelude declaration and its exact
