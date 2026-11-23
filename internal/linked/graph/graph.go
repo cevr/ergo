@@ -3702,7 +3702,7 @@ func (r codegraph__Rows) Why(a int, b int) ergo__Option[[]codegraph__Step] {
 	s := v_1
 	switch s.tag {
 	case 0:
-		p := s.v0
+		p := s.as0()
 		var out []codegraph__Step = []codegraph__Step{}
 		t := (ergo__Range[int]{Start: int(1), End: len(p.Value)})
 		out = ergo.Reserve(out, max(int(t.End-t.Start), 0))
@@ -4206,11 +4206,15 @@ func ergo__Get[K comparable, V any](m map[K]V, k K) ergo__Option[V] {
 
 type ergo__Option[T any] struct {
 	tag uint8
-	v0  ergo__Some[T]
+	p0  T
 }
 
-func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] { return ergo__Option[T]{tag: 0, v0: v} }
-func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T]    { return ergo__Option[T]{tag: 1} }
+func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] {
+	return ergo__Option[T]{tag: 0, p0: v.Value}
+}
+func (u ergo__Option[T]) as0() ergo__Some[T]             { return ergo__Some[T]{Value: u.p0} }
+func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T] { return ergo__Option[T]{tag: 1} }
+
 func (x ergo__Option[T]) ErgoVariant() string {
 	return [...]func() string{ergo.VariantOf[ergo__Some[T]], ergo.VariantOf[ergo__None]}[x.tag]()
 }
@@ -5046,7 +5050,7 @@ func (g graph__Graph) Chains(min_1 int) [][]int {
 	s := v_1
 	switch s.tag {
 	case 0:
-		o := s.v0
+		o := s.as0()
 		v = o.Value
 	case 1:
 		return [][]int{}
@@ -5441,7 +5445,7 @@ func (g graph__Graph) closedPath(c []int) []int {
 		s := v_3
 		switch s.tag {
 		case 0:
-			p := s.v0
+			p := s.as0()
 			if (len(best) == int(0)) || ((len(p.Value) + int(1)) < len(best)) {
 				var v_4 []int
 				{
@@ -5738,7 +5742,7 @@ func (s *json__scan) readChunk(env *ergo__Env) {
 	s_1 := v
 	switch s_1.tag {
 	case 0:
-		c_1 := s_1.v0
+		c_1 := s_1.as0()
 		k.total = (k.total + len(c_1.Value))
 		var v_1 int
 		if s.mark >= int(0) {
@@ -7483,7 +7487,7 @@ func why(env *ergo__Env, r codegraph__Rows, o ergo__Options, a string, b string)
 	s := v_2
 	/*line tool.ergo:265:2*/ switch s.tag {
 	/*line tool.ergo:265:2*/ case 0:
-		/*line tool.ergo:265:2*/ w := s.v0
+		/*line tool.ergo:265:2*/ w := s.as0()
 //line tool.ergo:267:3
 //line tool.ergo:267:15
 		v_3 := stepsOut(r, w.Value)
