@@ -20,6 +20,7 @@
 
 import compiler/check/bind
 import compiler/check/diag
+import compiler/check/facts
 import compiler/check/load
 import compiler/check/rows
 import compiler/check/types
@@ -166,6 +167,10 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			ds = ds.Append(g)
 		}
 		for g in rows.Rows(d.S, d.K, d.T) {
+			ds = ds.Append(g)
+		}
+		let mut s = d.S
+		for g in facts.Diags(&s, d.K) {
 			ds = ds.Append(g)
 		}
 		let mut lines = []syntax.Lines{}
