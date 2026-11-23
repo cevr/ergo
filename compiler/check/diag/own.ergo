@@ -238,23 +238,18 @@ func holder(res Map[string, bool], name string) bool {
 	}
 }
 
-// language is whether the foreign origin o is a language type whose
-// parameter admits a resource with no mark: the prelude's Option and Some,
-// and go.Ref (resource.go languageParam).
+// language is whether the foreign origin o is a generic type whose
+// declaration marks its parameter own: the prelude's Option[T own] and
+// Some[T own], and go.Ref, declared with its T marked (GEN9-GENERAL). The
+// foreign facts do not carry a type's marks yet, so these three are read
+// by name; another package's marked type is not read (Follow-up: a mark
+// column in the foreign facts).
 func language(k expr.Pkg, o store.XRef) bool {
 	if int(o.Import) != store.ForeignBit || int(o.Decl) >= len(k.Foreign) {
 		return false
 	}
 	let f = k.Foreign[int(o.Decl)]
 	(f.Path == "prelude" && (f.Name == "Option" || f.Name == "Some")) || (f.Qual == "go" && f.Name == "Ref")
-}
-
-// languageType is whether g, a generic type of the package s, is a
-// language type whose parameter admits a resource with no mark: Option and
-// Some in the prelude itself, as language reads them from an importer
-// (decl.go's lang; builtin.ergo's Take returns Option[V] of an own V).
-func languageType(s store.Store, g string) bool {
-	store.PathOf(s) == "prelude" && (g == "Option" || g == "Some")
 }
 
 // resources is each type name of the package that holds a resource: one
@@ -382,25 +377,16 @@ func typeMarks(s store.Store, k expr.Pkg, res Map[string, bool], p syntax.Parsed
 			}
 			let a = syntax.Item(p.Tree, ix.Indices, j)
 			let tp = gi.params[j]
-			if !gi.own[j] {
-				if languageType(s, g) {
-					continue
-				}
-				let text = typeText(p, a)
-				if text != "" && synHolds(s, k, res, p, infos, encl, a) {
-					out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: "\(g) cannot take \(text) as its \(tp): \(tp) is not marked own, so it binds plain data only; write [\(tp) own] where \(g) declares it, which holds its body to a resource's rules (types.md, Generics 9)"})
-				}
+			if gi.own[j] {
+				// A marked parameter admits a resource, and asks nothing
+				// of the declaration whose parameter fills it
+				// (GEN9-GENERAL).
 				continue
 			}
-			if syntax.KindOf(p.Tree, a) != syntax.KIdent {
-				continue
+			let text = typeText(p, a)
+			if text != "" && synHolds(s, k, res, p, infos, encl, a) {
+				out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: "\(g) cannot take \(text) as its \(tp): \(tp) is not marked own, so it binds plain data only; write [\(tp) own] where \(g) declares it, which holds its body to a resource's rules (types.md, Generics 9)"})
 			}
-			let q = textAt(p, a)
-			let qi = slices.Index(encl.params, q)
-			if qi < 0 || (qi < len(encl.own) && encl.own[qi]) {
-				continue
-			}
-			out = out.Append(Diag{File: f, Offset: at, Length: syntax.NodeEnd(p, x) - at, Code: CodeType, Message: "\(g) marks its \(tp) own, so \(g)[\(q)] may hold a resource, and \(q) is not marked own; write [\(q) own] where \(q) is declared, which holds its uses to a resource's rules (types.md, Generics 9)"})
 		}
 	}
 	out
