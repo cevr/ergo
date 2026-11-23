@@ -365,6 +365,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
 		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
+		if named != nil && b.l.runtimeNamed(named, x) {
+			irNo("law operation of an extern Go type") // calls.go writes its runtime call
+		}
 		if named == nil {
 			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 			if !ok {
