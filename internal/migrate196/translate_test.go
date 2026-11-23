@@ -128,7 +128,7 @@ func pinnedVerdicts(t *testing.T) map[string]string {
 	return out
 }
 
-// TestTranslateMeaningKept (#196, D7; lower-v1 stage 5, D-S5-4): every
+// TestTranslateMeaningKept (D7; lower-v1 stage 5, D-S5-4): every
 // frozen old input that parsed at base translates, with notes exactly when
 // it is hand-finished, and the checker's verdict on each translation with
 // no notes is the one pinned in testdata/translated-verdicts.tsv. The pins

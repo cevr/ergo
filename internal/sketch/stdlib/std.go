@@ -2,7 +2,7 @@
 // standard-library root (docs/spec/stdlib.md). The sources are ordinary
 // Ergo code: internal/sketch/check checks them with the same rules as user
 // packages, so no library item is a compiler branch (owner, 2026-10-12;
-// GLOSSARY, special-cased library). #206 adds packages here without checker
+// GLOSSARY, special-cased library). The standard library adds packages here without checker
 // changes.
 //
 // Prior art: MoonBit and OCaml ship their standard library as source that

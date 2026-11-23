@@ -1,9 +1,9 @@
-// #125 INPUT EVIDENCE, NOT ACCEPTANCE (note §2.10). Review 3's attacks on this
+// The laws spike INPUT EVIDENCE, NOT ACCEPTANCE (note §2.10). Review 3's attacks on this
 // fixture, recorded as expected failures. Strict, no casts, no any: every line
 // type-checks. Each case hands the trusting consumer `smallest` a value that is
 // not sorted under User.compare, and `smallest` returns a user that is not the
 // smallest. The outward boundary rule (forms i and ii) does not stop any of
-// them; each needs one of the other requirements handed to #125:
+// them; each needs one of the other requirements handed to the laws spike:
 //   2 inward admission  R1, R2, R3, X2  host-originated evidence is never trusted
 //   2 or 3, as recorded A1, A2          they hand the mutated value back to the
 //                                       exported `smallest`, so an entry re-check
@@ -121,6 +121,6 @@ record("R10 canonical, companion patch, re-establishment", "c", () => {
   return evidence ? { got: smallest(evidence).name, truth: trueMin(evidence) } : { got: "refused", truth: "refused" };
 });
 
-console.log("expected-fail: " + reproduced + " reproduced, " + stale + " not reproduced (#125 input; not acceptance)");
+console.log("expected-fail: " + reproduced + " reproduced, " + stale + " not reproduced (input; not acceptance)");
 // No @types/node here: an uncaught throw is how this file exits non-zero.
 if (stale > 0) throw new Error(stale + " expected-fail case(s) no longer reproduce; update the record and note §2.10");

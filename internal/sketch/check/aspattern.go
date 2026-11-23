@@ -2,7 +2,7 @@ package check
 
 import "ergo.local/prototype/internal/sketch/syntax"
 
-// The `as` patterns of #196 (ninth round) in a catch arm: `case T as e:`
+// The `as` patterns of the v1 language (ninth round) in a catch arm: `case T as e:`
 // matches T and binds the caught error, with T's type, to e. It replaces
 // the old catch binding `catch e { … }`. A match's patterns, `as` included
 // at any depth, are match.go's; a catch's arms are stage C's (196r), which

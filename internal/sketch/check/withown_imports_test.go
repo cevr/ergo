@@ -67,8 +67,8 @@ func Get() Conn { ` + result + ` }
 					// A call's result is its caller's (L8 A4): no call fact
 					// is needed; a provider with no type is unprovable.
 					if missing == "type" {
-						if len(ds) != 1 || ds[0].Code != "S109" || ds[0].Line != line || ds[0].Column != 12 || !strings.Contains(ds[0].Message, "#197") {
-							t.Fatalf("diagnostics %v, want one S109 naming #197 at the importing with", ds)
+						if len(ds) != 1 || ds[0].Code != "S109" || ds[0].Line != line || ds[0].Column != 12 || !strings.Contains(ds[0].Message, "resource ownership") {
+							t.Fatalf("diagnostics %v, want one S109 naming resource ownership at the importing with", ds)
 						}
 						return
 					}

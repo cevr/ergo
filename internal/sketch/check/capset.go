@@ -10,7 +10,7 @@ import (
 // A capSet is a persistent set of capabilities, keyed by their qualified
 // names (package path, then name): a treap whose priorities hash the
 // names, so its shape depends on the names alone, never on the order in
-// which the checker met the types (#196 round 19 M2). Adding an element
+// which the checker met the types (round 19 M2). Adding an element
 // copies one path and leaves every earlier version intact, so a context's
 // binding summary shares the largest of its parts instead of copying it
 // (round 18). Each node keeps its height, so the cost of a lookup is known
@@ -28,7 +28,7 @@ import (
 // stops when the package's budget would be passed (D16 as amended in
 // round 18; contextsum.go). Only the with scopes while a body is checked
 // (withScope, and the membership test has, find), which charge the body's
-// own budget like Row.has and cost O(log n) per charge (#229; withScope
+// own budget like Row.has and cost O(log n) per charge (bounded body type-table work; withScope
 // states the cost of a frame, TestWithSiteWorkLinear counts it), and the
 // lowering's lookups (Context.Provider)
 // are not context-summary work and are not metered.
@@ -286,7 +286,7 @@ func withStep(n int) {
 }
 
 // A withScope is what the with frames of a target bind while its body is
-// checked (#229): a persistent map from each capability to the innermost
+// checked: a persistent map from each capability to the innermost
 // frame that binds it, and the innermost unknown frame. A charge reads it
 // once, O(log n) of the capabilities in scope, whatever the number of
 // frames: `with A1, …, An` makes n frames from one source line, so a walk
@@ -313,7 +313,7 @@ func withStep(n int) {
 // capability to frame cannot do in less than m steps, and a walk of the
 // frames per charge costs O(n) per charge instead. That is a batch
 // reachability question again (contextsum.go: no known linear algorithm),
-// so the pushes are repeatable work under a budget (D16; #229 done-when
+// so the pushes are repeatable work under a budget (D16; bounded body type-table work done-when
 // 1): each step of a union, a split or an exposed shared node is charged
 // to the package's with meter (withBudget) before it runs, and a push
 // that does not fit leaves the scope as it was and reports false; its

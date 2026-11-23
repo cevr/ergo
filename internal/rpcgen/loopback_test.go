@@ -968,7 +968,7 @@ func (p *program) contract(i int) *contract {
 	}
 	c.union = u
 	// A failure's fields are basics, slices and Options of them: an error
-	// type with a Map or a record field has no derived text yet (#49), so
+	// type with a Map or a record field has no derived text yet, so
 	// it does not lower.
 	for k := 0; k < 3; k++ {
 		fs := p.fieldsOf(c, p.r.IntN(3))

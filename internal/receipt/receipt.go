@@ -2,7 +2,7 @@
 // go command line of every native build. A path is resolved once, as the
 // file system walks it, and every step of a command uses that one value.
 // The application receipt and its measurements were removed with
-// `ergo build --receipt` (#205); v1 item 5 brings back what they measured.
+// `ergo build --receipt`; v1 item 5 brings back what they measured.
 package receipt
 
 import (
