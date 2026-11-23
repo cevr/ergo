@@ -105,4 +105,6 @@ var ArgClauses = []ArgClause{
 	{"testing.At", "f", "escaping", "HookAt keeps f in the process's table of armed points after At returns, and the next task to reach Point(name) runs it on that task (RT-HOOK); a stall of the caller's domain while it is armed stops the run; only a test build calls it"},
 	{"time.timeAsleep", "t", "lent", "TimeAsleep reads t's task pointer to compare it with the clock's sleepers, under the clock's lock, on the caller's goroutine, and keeps nothing (FK4-g2-g1)"},
 	{"timeout.After", "f", "escaping", "After runs f on a child task (rt.AfterSpan); joining it orders the runs but does not make a caller-owned resource's task-affine operations safe on that child"},
+	{"workflow.Store.Commit", "c", "lent", "an operation of workflow.Store, whose providers are Ergo (workflow/memory, workflow/file), no Go body: Commit reads c's grant and keeps nothing, and the checker holds each provider to the clause"},
+	{"workflow.Store.Settle", "c", "takes", "an operation of workflow.Store, whose providers are Ergo, no Go body: Settle takes c, the one-shot token of a claim, so a second Settle of it does not check (DUR-W1); Claimed's Close does nothing, so a provider that drops it releases nothing"},
 }

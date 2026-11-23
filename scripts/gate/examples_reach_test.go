@@ -74,6 +74,23 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 	if len(files) < 20 {
 		t.Fatalf("%d files under examples/; want every program's", len(files))
 	}
+	// Whether a reader's every test builds Go, decided once per reader:
+	// fullTierOnly parses the package's test files, and deciding it per
+	// file parsed internal/sketch/lower's tests once for each of the 5070
+	// files under examples/ (GATE-PKG-TIMEOUT: the test took 1590 s of the
+	// package's 4826 s at c12).
+	fullOnly := map[string]bool{}
+	isFullOnly := func(dir string) bool {
+		only, seen := fullOnly[dir]
+		if !seen {
+			var err error
+			if only, err = fullTierOnly(filepath.Join(root, filepath.FromSlash(dir))); err != nil {
+				t.Fatal(err)
+			}
+			fullOnly[dir] = only
+		}
+		return only
+	}
 	reached := map[string]bool{}
 	for _, file := range files {
 		// A table entry of the whole tree (internal/residue, the guard,
@@ -104,9 +121,7 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 		for _, dir := range readers {
 			// A package whose every test builds Go has no fast step
 			// (fullTierOnly: internal/selfhostcheck); the full tier runs it.
-			if only, err := fullTierOnly(filepath.Join(root, filepath.FromSlash(dir))); err != nil {
-				t.Fatal(err)
-			} else if only {
+			if isFullOnly(dir) {
 				continue
 			}
 			at := slices.IndexFunc(packages, func(p testPackage) bool { return p.dir == dir })
@@ -130,6 +145,7 @@ func TestFastTierReachOfAnExampleEdit(t *testing.T) {
 			t.Errorf("%s: the examples step's installed inputs %v do not cover it", file, examplesStep.Inputs.Installed)
 		}
 	}
+	t.Logf("%d files under examples/; fullTierOnly decided once for each of %d readers", len(files), len(fullOnly))
 	for _, dir := range append(slices.Clone(exampleReaders), "internal/sketchfront", "internal/sketch/check") {
 		if !reached[dir] {
 			t.Errorf("no file under examples/ reaches %s; reached %v", dir, reached)

@@ -1,7 +1,7 @@
 // A resource converted to an operation type with Close moves into the
-// interface value (R23), and a with owns a resource provider of an inline
-// context its block names (the with owns it); a package let has no owner
-// to hand off.
+// interface value (R23), and a with that names a resource provider lends
+// it for its block, so the block cannot close it; an element of a package
+// let has no owner to lend.
 
 type Res { id int } implements Closer, Closes, Store
 
@@ -19,24 +19,24 @@ func lend(r Res) {}
 
 func lendCloser(c Closes) {}
 
-let shared = Res{id: 0}
-
 func converted() {
 	let a = open(1)
 	lendCloser(a)
 	lend(a) //want: flow
 }
 
-func provided() {
-	let a = open(1)
-	with context { Store: a } {
+let sharedList = []Res{Res{id: 0}}
+
+func elementProvider() {
+	with context { Store: sharedList[0] } { //want: flow
 		let _ = Store.Get()
 	}
-	lend(a) //want: flow
 }
 
-func sharedProvider() {
-	with context { Store: shared } { //want: flow
+func closedWhileLent() {
+	let a = open(1)
+	with context { Store: a } {
+		a.Close() //want: flow
 		let _ = Store.Get()
 	}
 }

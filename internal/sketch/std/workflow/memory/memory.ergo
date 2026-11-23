@@ -1,0 +1,234 @@
+// Package memory is a workflow.Store that keeps its runs in the process's
+// memory (the DURABLE plan, unit W1). Each operation is one atomic
+// workflow.Apply on a sync.Ref, so two workers that claim at once each get
+// another wake, and a commit is one step or none. Its runs end with the
+// process; workflow/file keeps them in a log.
+//
+// Effect: effect/workflow's in-memory WorkflowEngine layer. Go control: a
+// map of runs under a mutex.
+
+import queue
+import scope
+import sync
+import task
+import tasks
+import time
+import workflow
+
+// Store is the memory store. NewStore makes one.
+type Store { state sync.Ref[workflow.State] } implements workflow.Store
+
+// NewStore is a store with no run.
+func NewStore() Store { Store{state: sync.NewRef(workflow.Empty())} }
+
+// apply runs op as one step of the Ref.
+func apply(s Store, op workflow.Op) workflow.Outcome {
+	sync.Modify(s.state, func(st workflow.State) (workflow.Outcome, workflow.State) {
+		let (o, next, _) = workflow.Apply(st, op)
+		(o, next)
+	})
+}
+
+// Create starts run.
+func Create(s Store, run workflow.RunID, first workflow.Event, now time.Time) bool fails workflow.Failed {
+	match apply(s, workflow.Creating{Run: run, First: first, Now: now}) {
+	case workflow.Created as c:
+		c.New
+	case _:
+		Unreachable("a create is Created")
+	}
+}
+
+// Admit keeps a signal for run.
+func Admit(s Store, run workflow.RunID, key string, signal string, value string, now time.Time) workflow.Admission fails workflow.Failed {
+	match apply(s, workflow.Admitting{Run: run, Key: key, Signal: signal, Value: value, Now: now}) {
+	case workflow.Admitted as a:
+		a.As
+	case _:
+		Unreachable("an admit is Admitted")
+	}
+}
+
+// Load is run's events from from.
+func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fails workflow.Failed {
+	sync.Modify(s.state, func(st workflow.State) (workflow.Loaded, workflow.State) { (workflow.LoadOf(st, run, from), st) })
+}
+
+// Claim leases the earliest due wake.
+func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails workflow.Failed {
+	match apply(s, workflow.Claiming{Now: now, Lease: lease}) {
+	case workflow.Granted as g:
+		g.Grant
+	case _:
+		Unreachable("a claim is Granted")
+	}
+}
+
+// Commit records events and the next wake under c.
+func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
+	match apply(s, workflow.Committing{Grant: workflow.GrantOf(c), Expected: expected, Events: events, Next: next}) {
+	case workflow.Committed as k:
+		k.Next
+	case workflow.Behind as b:
+		workflow.Conflict{Expected: b.Expected, Actual: b.Actual}
+	case workflow.Unfenced as u:
+		workflow.Fenced{Run: u.Run}
+	case _:
+		Unreachable("a commit is Committed, Behind or Unfenced")
+	}
+}
+
+// Settle ends c.
+func Settle(s Store, c own workflow.Claimed) fails workflow.Fenced | workflow.Failed {
+	match apply(s, workflow.Settling{Grant: workflow.GrantOf(c)}) {
+	case workflow.Unfenced as u:
+		return workflow.Fenced{Run: u.Run}
+	case _:
+	}
+}
+
+// GiveBack gives back the lease of g.
+func GiveBack(s Store, g workflow.Grant) fails workflow.Failed {
+	let _ = apply(s, workflow.GivingBack{Grant: g})
+}
+
+// Close does nothing: the runs end with the process.
+func Close(_ Store) {}
+
+// Stuck is the failure of a block of UnsettledScopeGivesBackNow.
+type Stuck {}
+
+// exits is one exit of UnsettledScopeGivesBackNow's block, by how: a
+// return (0), a typed failure (1), a stop of its task (2), a defect (3), a
+// return after a settle (4).
+type exits {
+	s      workflow.Store,
+	now    time.Time,
+	how    int,
+	held   queue.Queue[workflow.Grant],
+	inside queue.Queue[bool],
+}
+
+// block is the block Work lends the claim to: it puts the grant in
+// held, registers an exit action that puts in inside whether the claim
+// is still held when it runs (a claim at now finds nothing), and ends by
+// e.how. The stop waits on the Manual no one advances.
+func block(e exits, c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed needs Scheduler {
+	scope.OnExit() {
+		let free = e.s.Claim(e.now, 1h) catch {
+		case workflow.Failed:
+			None
+		}
+		e.inside.Push(free == None) catch {
+		case queue.Closed:
+		}
+	}
+	e.held.Push(workflow.GrantOf(c)) catch {
+	case queue.Closed:
+	}
+	match e.how {
+	case 1:
+		return Stuck
+	case 2:
+		Scheduler.Sleep(1h)
+	case 3:
+		Unreachable("the block defects")
+	case 4:
+		try e.s.Settle(c)
+	case _:
+	}
+}
+
+// worked runs Work over block once, ending by e.how; it is false when
+// Work claimed nothing. A stop ends the task once the block holds the
+// claim; a defect is contained by a Set that restarts its member once,
+// the second run doing nothing.
+func worked(e exits) bool fails workflow.Failed needs Scheduler {
+	match e.how {
+	case 2:
+		let t = task.Go() {
+			workflow.Work(e.s, e.now, 1h, func(c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed { try block(e, c) }) catch {
+			case Stuck, workflow.Fenced, workflow.Failed:
+				false
+			}
+		}
+		// The block holds the claim once it put its grant in held.
+		let g = e.held.Pop() catch {
+		case queue.Closed:
+			return false
+		}
+		t.Stop()
+		e.held.Push(g) catch {
+		case queue.Closed:
+		}
+		true
+	case 3:
+		let runs = sync.NewRef(0)
+		let set = tasks.NewSet[workflow.Failed](tasks.Restart{Limit: 1})
+		tasks.Go(set) {
+			runs.Update(func(n int) int { n + 1 })
+			if runs.Get() == 1 {
+				let _ = try workflow.Work(e.s, e.now, 1h, func(c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed { try block(e, c) }) catch {
+				case Stuck, workflow.Fenced:
+					false
+				}
+			}
+		} catch {
+		case tasks.Closed:
+			return false
+		}
+		try set.Wait()
+		runs.Get() == 2
+	case _:
+		try workflow.Work(e.s, e.now, 1h, func(c own workflow.Claimed) fails Stuck | workflow.Fenced | workflow.Failed { try block(e, c) }) catch {
+		case Stuck:
+			true
+		case workflow.Fenced:
+			false
+		}
+	}
+}
+
+// UnsettledScopeGivesBackNow: when workflow.Work ends and its block did
+// not settle the claim, on a return (exit 0), a typed failure (1), a stop
+// of its task (2) or a defect (3), the store gives the claim back at
+// once: on a time.Manual that no one advances, the wake is claimed again
+// at the same time, before any of the lease passed, under a higher epoch.
+// A block that settled (4) leaves no wake to claim. The give-back runs
+// after the block's own exit actions: one the block registered finds the
+// claim still held.
+law UnsettledScopeGivesBackNow(exit int, sec int64) {
+	let how = ((exit % 5) + 5) % 5
+	let m = time.NewManual(((sec % 1000000) + 1000000) % 1000000)
+	let now = m.Now()
+	let s workflow.Store = NewStore()
+	let run = workflow.RunID("run")
+	let _ = try s.Create(run, workflow.Started{Payload: "p", Version: "1", At: now}, now)
+	let e = exits{s: s, now: now, how: how, held: queue.New[workflow.Grant](1), inside: queue.New[bool](1)}
+	let did = with context { Scheduler: m } {
+		worked(e) catch {
+		case workflow.Failed:
+			false
+		}
+	}
+	if !did {
+		return false
+	}
+	let first = e.held.Pop() catch {
+	case queue.Closed:
+		return false
+	}
+	let still = e.inside.Pop() catch {
+	case queue.Closed:
+		return false
+	}
+	if !still {
+		return false
+	}
+	match try e.s.Claim(now, 1h) {
+	case Some{Value: again}:
+		how != 4 && again.Epoch > first.Epoch && again.Rev == first.Rev
+	case None:
+		how == 4
+	}
+}
