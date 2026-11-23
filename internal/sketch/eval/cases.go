@@ -28,7 +28,7 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 	}
 	for i := range run.Contexts {
 		c := &run.Contexts[i]
-		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Context.Name, why: c.Unrun, ctx: c})
+		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Title(), why: c.Unrun, ctx: c})
 	}
 	if len(out) == 0 {
 		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law), why: "no binding of the law runs in this package"})

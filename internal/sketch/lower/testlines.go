@@ -61,7 +61,7 @@ func TestLinesOf(u Unit) TestLines {
 				out.Plain = false
 				continue
 			}
-			add("law " + law.Title(pkg) + " under " + lc.Context.Name)
+			add("law " + law.Title(pkg) + " under " + lc.Title())
 		}
 	}
 	return out

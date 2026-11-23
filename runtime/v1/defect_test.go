@@ -96,10 +96,10 @@ func forkDefect(root *rt.Task, o observe) error {
 			defer late.End()
 			switch o {
 			case byWait:
-				_, err := c.Wait()
+				_, err := c.Wait(s.s.Task())
 				return err
 			case byStop:
-				c.Stop()
+				c.Stop(s.s.Task())
 			}
 			return nil // byDrain: the frame's end drains c
 		})
@@ -155,7 +155,7 @@ func TestDefectReportFramesEndAtTheTaskBody(t *testing.T) {
 	err := runMain(func(t *rt.Task) error {
 		return frame(t, func(s *Scope) error {
 			c := ownedGo(s, "task.Go at f.ergo:1:1", func(ct *rt.Task) (int, error) { return boom(), nil })
-			_, err := c.Wait()
+			_, err := c.Wait(s.s.Task())
 			return err
 		})
 	})
@@ -236,7 +236,7 @@ func TestDefectKeptWhenTypedFailureDropped(t *testing.T) {
 						return err
 					}
 					if o == byStop {
-						c.Stop()
+						c.Stop(s.s.Task())
 					}
 					return nil
 				})
@@ -284,7 +284,7 @@ func TestDefectAncestryBounded(t *testing.T) {
 		}
 		return frameValue(ct, func(s *Scope) (int, error) {
 			c := ownedGo(s, Site(fmt.Sprintf("task.Go at f.ergo:%d:1", n+1)), func(ct *rt.Task) (int, error) { return fork(ct, n+1) })
-			return c.Wait()
+			return c.Wait(s.s.Task())
 		})
 	}
 	err := runMain(func(root *rt.Task) error {

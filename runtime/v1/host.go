@@ -745,7 +745,8 @@ func FSChmod(path string, perm int) error {
 
 // FSRename is the body of fs.Host's Rename: os.Rename. The host says only
 // that a name is missing, not which: NotFound names from when nothing is
-// at from, and to otherwise (a missing directory on the way to to). Every
+// at from, and to otherwise (a missing directory on the way to to). A move
+// between two file systems (EXDEV) is CrossDevice, as FSLink's. Every
 // other failure names from.
 //
 //ergo:host
@@ -755,6 +756,8 @@ func FSRename(from string, to string) error {
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, syscall.EXDEV):
+		return CrossDevice{From: from, To: to}
 	case errors.Is(err, fs.ErrNotExist):
 		if _, lerr := os.Lstat(from); lerr == nil {
 			return NotFound{Path: to}

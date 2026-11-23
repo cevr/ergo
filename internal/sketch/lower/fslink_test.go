@@ -45,6 +45,8 @@ func place(l Linker, entry string, out string) fails NotSameVolume | LinkFailed 
 		return LinkFailed{Path: e.Path, Why: "denied"}
 	case fs.Failed as e:
 		return LinkFailed{Path: e.Path, Why: e.Reason}
+	case fs.CrossDevice as e:
+		return NotSameVolume{From: e.From, To: e.To}
 	}
 }
 

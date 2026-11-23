@@ -1,28 +1,34 @@
-// Keyed is a test signer that holds a credential: it adds it as an
-// Authorization header and keeps each request it was given, so the laws
-// below can read what the Api built before signing. It stands where
-// AWS-CORE's SigV4 signer will, with the same contract: the credential is
-// a Redacted value and only Sign reads it.
+// How a credential travels. A static key (an API key, a bearer token) is
+// an http.Credential the Net holds (std http's ForOrigin, as config's
+// LoadSecret gives it): the Api never sees it and no request it builds
+// carries it, so a recording of the requests the Api hands to its Net
+// (CASSETTE's Record) holds no key. A Signer stays for what a key cannot
+// be: a header computed from each request (SigV4, AWS-CORE).
+//
+// Seen is a test signer: it marks each request it was given and keeps
+// it, so the laws below can read what the Api built and check that every
+// request the net gets went through the signer.
 
 import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
 import config
 import http
+import strconv
 import strings
 import sync
 
-type Keyed { key config.Redacted[string], seen sync.Ref[[]http.Request] } implements aws.Signer
+type Seen { seen sync.Ref[[]http.Request] } implements aws.Signer
 
-// NewKeyed is a signer of key that has seen no request.
-func NewKeyed(key config.Redacted[string]) Keyed { Keyed{key: key, seen: sync.NewRef[[]http.Request]([]http.Request{})} }
+// NewSeen is a signer that has seen no request.
+func NewSeen() Seen { Seen{seen: sync.NewRef[[]http.Request]([]http.Request{})} }
 
-func Sign(k Keyed, r http.Request) http.Request {
-	k.seen.Update(func(rs []http.Request) []http.Request { rs.Append(r) })
-	http.Request{..r, Header: r.Header.Append(http.Field{Name: "Authorization", Value: "Bearer " + k.key.Reveal()})}
+func Sign(s Seen, r http.Request) http.Request {
+	s.seen.Update(func(rs []http.Request) []http.Request { rs.Append(r) })
+	http.Request{..r, Header: r.Header.Append(http.Field{Name: "X-Signed", Value: "1"})}
 }
 
-// Seen is every request k was given, in order.
-func Seen(k Keyed) []http.Request { k.seen.Get() }
+// Requests is every request s was given, in order.
+func Requests(s Seen) []http.Request { s.seen.Get() }
 
 // textOf is every byte of a request: its line, query, headers and body.
 func textOf(r http.Request) string {
@@ -68,37 +74,45 @@ func call(api s3.Api, n int, key string) {
 	}
 }
 
-// KeyOnlyInTheSigner: no request the Api builds holds a byte of its
-// signer's credential before the signer gets it, and the signed request
-// that reaches the net does (so a recording of the requests the Api
-// builds, CASSETTE's Record, holds no key with no rules).
-law KeyOnlyInTheSigner(secret string, steps []int) {
-	let key = "k3y-" + secret + "-AKIA"
-	let signer = NewKeyed(config.NewRedacted(key))
-	let sent = sync.NewRef[[]string]([]string{})
-	let back = NewMemory()
-	let serve = Handler(back)
-	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming {
-		sent.Update(func(xs []string) []string { xs.Append(textOf(r)) })
+let origin = "http://s3.test"
+
+// KeyOnlyInTheNet: a key bound to the Net as an http.Credential reaches
+// the server on every request and is in none of the requests the Api
+// builds or its signer hands on, the requests a recording of the Api's
+// traffic holds; and each request the server gets went through the
+// signer once.
+law KeyOnlyInTheNet(secret string, steps []int) {
+	let key = "Bearer k3y-" + secret + "-AKIA"
+	let c = http.ForOrigin(origin, "Authorization", config.NewRedacted(key)) catch {
+	case http.InvalidClient:
+		return false
+	}
+	let got = sync.NewRef[[]http.Request]([]http.Request{})
+	let serve = Handler(NewMemory())
+	let net = http.InMemoryAt(origin, []http.Credential{c}, func(r http.Request) http.Response needs http.Streaming {
+		got.Update(func(rs []http.Request) []http.Request { rs.Append(r) })
 		serve(r)
-	})
-	let api = s3.New(net, signer)
+	}) catch {
+	case http.InvalidClient:
+		return false
+	}
+	let signer = NewSeen()
 	for i, n in steps {
 		if i < 6 {
-			call(api, n, keyOf(n))
+			call(s3.New(net, signer), n, keyOf(n))
 		}
 	}
-	for r in signer.Seen() {
+	for r in signer.Requests() {
 		if strings.Contains(textOf(r), key) {
 			return false
 		}
 	}
-	for t in sent.Get() {
-		if !strings.Contains(t, "Bearer "+key) {
+	for r in got.Get() {
+		if !holds(r, "Authorization", key) || !holds(r, "X-Signed", "1") {
 			return false
 		}
 	}
-	len(sent.Get()) == len(signer.Seen())
+	len(got.Get()) == len(signer.Requests())
 }
 
 // SlashesStayInThePath: a key's "/" is sent as a path separator, each
@@ -107,9 +121,82 @@ law KeyOnlyInTheSigner(secret string, steps []int) {
 // sent, and S3's consoles list a key's segments as folders.
 law SlashesStayInThePath(n int) {
 	let key = keyOf(n)
-	let signer = NewKeyed(config.NewRedacted("k"))
+	let signer = NewSeen()
 	let api = s3.New(http.InMemory(Handler(NewMemory())), signer)
 	call(api, n, key)
-	let r = signer.Seen()[0]
+	let r = signer.Requests()[0]
 	strings.Count(r.RawPath, "/") == 2+strings.Count(key, "/") && r.Path == "/bk/"+key
 }
+
+func holds(r http.Request, name string, value string) bool {
+	match http.Header(r.Header, name) {
+	case Some as v:
+		v.Value == value
+	case None:
+		false
+	}
+}
+
+// Derived is a test signer whose header is computed from the request and
+// a secret, as SigV4's is: Authorization carries a digest of the secret,
+// the method and the path. It stands until std http holds a computed
+// credential the Net applies as it writes a request
+// (HTTP-SIGNED-CREDENTIAL), when aws.Signer goes away.
+type Derived { secret config.Redacted[string] } implements aws.Signer
+
+func Sign(d Derived, r http.Request) http.Request {
+	let mut h uint64 = 14695981039346656037
+	let text = d.secret.Reveal() + "\n" + r.Method + "\n" + r.RawPath
+	for i in 0..len(text) {
+		h = (h ^ uint64(text[i])) * 1099511628211
+	}
+	http.Request{..r, Header: r.Header.Append(http.Field{Name: "Authorization", Value: "TEST4-HMAC " + strconv.AppendUint([]byte{}, h, 16).Text()})}
+}
+
+// Recorded keeps each request before its inner signer signs it: where a
+// recording of a client's traffic sits (CASSETTE's Record over the Api)
+// until signing moves into the Net.
+type Recorded { inner aws.Signer, log sync.Ref[[]http.Request] } implements aws.Signer
+
+func Sign(r Recorded, q http.Request) http.Request {
+	r.log.Update(func(rs []http.Request) []http.Request { rs.Append(q) })
+	r.inner.Sign(q)
+}
+
+// RecordingSitsAboveTheSigner: a recording placed over the signer holds
+// no Authorization value and no byte of the secret, while every request
+// the server gets carries the signature the signer derived.
+law RecordingSitsAboveTheSigner(secret string, steps []int) {
+	let key = "s3cr3t-" + secret
+	let rec = Recorded{inner: Derived{secret: config.NewRedacted(key)}, log: sync.NewRef[[]http.Request]([]http.Request{})}
+	let got = sync.NewRef[[]http.Request]([]http.Request{})
+	let serve = Handler(NewMemory())
+	let net = http.InMemory(func(r http.Request) http.Response needs http.Streaming {
+		got.Update(func(rs []http.Request) []http.Request { rs.Append(r) })
+		serve(r)
+	})
+	for i, n in steps {
+		if i < 6 {
+			call(s3.New(net, rec), n, keyOf(n))
+		}
+	}
+	for r in rec.log.Get() {
+		if strings.Contains(textOf(r), key) || strings.Contains(textOf(r), "Authorization") {
+			return false
+		}
+	}
+	for r in got.Get() {
+		match http.Header(r.Header, "Authorization") {
+		case Some as v:
+			if !strings.HasPrefix(v.Value, "TEST4-HMAC ") {
+				return false
+			}
+		case None:
+			return false
+		}
+	}
+	len(got.Get()) == len(rec.log.Get())
+}
+
+// The signer Signer's law runs under: a Recorded over Unsigned.
+let lawRecorded = context { aws.Signer: Recorded{inner: aws.Unsigned, log: sync.NewRef[[]http.Request]([]http.Request{})} }
