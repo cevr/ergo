@@ -1,9 +1,0 @@
-// The test file of package memory binds the hub's Client over a fresh
-// memory world's Tool to the Api (overHub), so the Api's laws hold through
-// the hub too, as overTool (api.ergo) runs them on the Tool itself
-// (types.md, Laws 10: a law no case can feed is a check error, and a
-// context of any package of the module feeds it).
-
-import github.com/cevr/ergo/modules/work/work
-
-let overHub = context { work.Api: viaHub(world(true).tool) }

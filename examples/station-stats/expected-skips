@@ -1,0 +1,6 @@
+# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
+# mapped.Files holds an fs.Host, which only fs.NewHost builds (with the
+# Ambient capability), so no generator builds one: Repeatable runs on
+# memory.Texts, and the host's files are checked by the cases and by
+# cmd/ergo TestStationStatsAgrees.
+skip law weather.Readings.Repeatable for Files: Files is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses

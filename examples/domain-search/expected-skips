@@ -1,0 +1,12 @@
+# ergo test cannot build the generated RPC Client of domains.Registry: a
+# Client needs a Conn to a served registry. Package loopback runs the same
+# laws through the wire, against the client of a sample registry served
+# in process.
+# ergo test cannot build the hub's Client (its send is a function value,
+# which has no generator). The hub's law ClientIsCall holds that a Client
+# whose send is Call answers as the bound provider does, and each
+# transport's law Agrees holds its Wire to Call (AF0, AF1).
+skip law domains.Registry.PageIsSliceOfWhole for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses
+skip law domains.Registry.SameAnswerTwice for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses
+skip law domains.Registry.FeaturedFirst for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses
+skip law domains.Registry.AtMostLimit for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses

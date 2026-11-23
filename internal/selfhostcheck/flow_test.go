@@ -20,10 +20,11 @@ import (
 // R20, R21, R42, R43; ownership.go): a use after a hand-off or a maybe
 // hand-off, a hand-off from a block passed to a call, a lent parameter
 // handed off, a lend and a hand-off in one call, a dropped or `_` resource,
-// a replace from a block, a package let handed off or named by a with's
-// resource provider, a for-in's lent element, an element or a field
-// handed off, a field taken in place (used again, or its record used
-// whole) and a yielded root;
+// a replace from a block, a package let handed off or read through an
+// element by a with's resource provider, a local taken while a with lends
+// it, a held context leaving a scoped with's block, a for-in's lent
+// element, an element or a field handed off, a field taken in place (used
+// again, or its record used whole) and a yielded root;
 // and each of those on a value of a type parameter marked own, which
 // names the mark, and such a value dropped at the end of its scope
 // (MODES-OWN-BODY; takes.go ownSite).
@@ -38,6 +39,8 @@ var flowTemplates = []*regexp.Regexp{
 	regexp.MustCompile(`^\S+ belongs to the enclosing function; .+ cannot replace it \(resources R4\)`),
 	regexp.MustCompile(`^\S+ is a package let, which has no owner to hand it off`),
 	regexp.MustCompile(`^this resource provider names the package let \S+, which has no owner to hand it to the with`),
+	regexp.MustCompile(`^\S+ is lent to the with at \d+:\d+ until its block ends, so it cannot be handed off, closed or replaced inside the block \(resources R11, R28\)`),
+	regexp.MustCompile(`^.+ holds a context made inside the with at \d+:\d+, which owns or lends a resource provider and ends with its block, so it cannot leave the block \(.*\) \(rows\.md, Context values, InForce\)`),
 	regexp.MustCompile(`^the yielded resource is rooted `),
 	regexp.MustCompile(`^a field of \S+ was taken at \d+:\d+, so \S+ cannot be used whole \(resources R39, Gap 38\)`),
 	regexp.MustCompile(`^\S+ was taken in place \(on this path or another\) and cannot be (used after that|taken again)`),
@@ -321,10 +324,10 @@ const (
 	fForIn      // for eN in L { keep(eN) } or { lend(eN) }: lent elements
 	fHeldNew    // let hN Held = Y
 	fMatchHeld  // match H { case Res as vN: keep(vN) or lend(vN); case Empty: }
-	fWithMove   // with context { Store: Y } { … }: Y moves into the with
+	fWithMove   // with context { Store: Y } { … }: Y is lent to the with for its block
 	fConvert    // lendCloser(Y): a conversion to an operation type moves
 	fLitLend    // lendBox(Box{r: Y, n: 0}): a lent literal moves its parts
-	fWithShared // with context { Store: shared } { … }: a package let
+	fWithShared // with context { Store: shared } { … }: a package let, lent
 	fQueueNew   // let uN = newQueue()
 	fQueueLoop  // for eN in U.Values() { … }: owned elements (Q7)
 	fTail

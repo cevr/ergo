@@ -6,7 +6,7 @@ import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
-import github.com/cevr/ergo/modules/work/work/workapi
+import json
 import maps
 import slices
 import strings
@@ -55,15 +55,6 @@ let theBase = "/w/base"
 // World is a Tool over memory providers and the handles the driver uses.
 type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk Marked, hooks Hooks, lock Lock, runner Runner, p work.Providers }
 
-// viaHub is the hub client of inner (workapi.Client): each Request is a
-// Call with inner bound, so the Api's laws hold for it exactly when they
-// hold for inner and Call answers as inner does.
-func viaHub(inner work.Api) workapi.Client {
-	workapi.NewClient(func(r workapi.Request) workapi.Outcome {
-		with context { work.Api: inner } { workapi.Call(r) }
-	})
-}
-
 // records is the plain list of t's workspaces, as the registry keeps
 // them.
 func records(t work.Tool) []work.Workspace fails work.NoBase | work.Unkept { work.Records(try t.List(work.ListOptions{Status: false})) }
@@ -95,7 +86,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -126,7 +117,7 @@ law RemovingSparesTheReplacement() {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -189,7 +180,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -233,7 +224,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 		return false
 	}
 	if replaced {
-		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -607,7 +598,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			case None:
 				false
 			}
-			let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false}) catch {
+			let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false, Dry: false}) catch {
 			case _:
 				return false
 			}
@@ -650,9 +641,9 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 		case GcOp as o:
 			let older = small(o.Older, 7200)
 			let idle = if o.Idle > 0 { Some[string]{Value: "\(small(o.Idle, 7200))s"} } else { None }
-			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None, Archive: false}) catch {
+			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None, Archive: false, Dry: false}) catch {
 			case _:
-				work.Collected{Purged: []string{}, Idle: []work.Idle{}}
+				work.Collected{Purged: []string{}, Idle: []work.Idle{}, Preview: json.Absent}
 			}
 			if o.Idle > 0 {
 				let found = idled(want, int64(small(o.Idle, 7200)), at)
@@ -712,7 +703,7 @@ law UseKeepsAWorkspace(sync bool) {
 			return false
 		}
 	}
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -743,7 +734,7 @@ law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 	let _ = Write(w.trees, b.Path, "draft.txt", text)
 	let files = Working(Files(w.trees, b.Path))
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -788,7 +779,7 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 		return false
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -803,7 +794,7 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 		return !gone && out.Idle[0].Why == "NotHeld"
 	}
 	w.clock.Advance(time.Times(1s, 2*int(work.IdleTrash)))
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -878,7 +869,7 @@ law PinKeepsAWorkspace(unpin bool) {
 		}
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -898,7 +889,7 @@ law InUseKeepsAWorkspace(why string) {
 	}
 	w.runner.Use(a.Path, why)
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -916,13 +907,13 @@ law IdleTrashWaitsADay(wait int) {
 		return false
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let first = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let first = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
 	let s = small(wait, 2*work.IdleTrash)
 	w.clock.Advance(time.Times(1s, s))
-	let later = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let later = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -964,7 +955,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 	let mut trash = "unread"
 	if viaGc {
 		w.clock.Advance(time.Times(1s, 7200))
-		let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+		let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -1114,7 +1105,7 @@ law MadeCloneOutlivesItsMaker(text string) {
 	}
 	Die(maker)
 	let _ = Write(w.trees, made.Path, "draft.txt", text)
-	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -1160,7 +1151,7 @@ law ActivatedCloneIsRecordedAsMade(lock string) {
 	case _:
 		return false
 	}
-	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -1462,7 +1453,7 @@ law RmThenNewTakesTheName(name int) {
 		return false
 	}
 	let trash = slices.IndexFunc(listed, func(r work.Workspace) bool { r.Name == work.TrashedName(n, first.Id) && r.Id == first.Id && work.StateName(r.State) == "trashed" }) >= 0
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -1529,7 +1520,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 		}
 		trashes = trashes.Append(r.Path)
 	}
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}

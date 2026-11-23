@@ -1,0 +1,15 @@
+# ergo test cannot build the generated RPC Client of jobs.Jobs: a
+# Client needs a Conn to a served job server. The page case calls the
+# contract over RPC instead, and loopback/'s law runs call it through the
+# wire (under the context overMemory of loopback/tests.ergo).
+# ergo test cannot build the hub's Client (its send is a function value,
+# which has no generator). The hub's law ClientIsCall holds that a Client
+# whose send is Call answers as the bound provider does, and each
+# transport's law Agrees holds its Wire to Call (AF0, AF1).
+skip law jobs.Jobs.CancelOfTerminalFails for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses
+skip law jobs.Jobs.ProgressMonotone for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses
+skip law jobs.Jobs.RejectsWhatCannotRun for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses
+# The in-memory provider is built explicitly under the loopback law context.
+skip law jobs.Jobs.CancelOfTerminalFails for Memory: Memory is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses
+skip law jobs.Jobs.ProgressMonotone for Memory: Memory is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses
+skip law jobs.Jobs.RejectsWhatCannotRun for Memory: Memory is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses

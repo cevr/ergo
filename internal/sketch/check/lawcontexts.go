@@ -219,6 +219,15 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 // could pass (S109).
 func (c *checker) lawRelease(fact *With) string {
 	for _, a := range fact.Acquired {
+		if a.Lent {
+			// A named context's lent provider is a package let: every
+			// case would share one value, so no case starts fresh.
+			if info := providerInfo(c.contextOwners.of[a.Entry]); info != nil && packageRoot(info, a.Entry.Provider) != "" {
+				name := packageRoot(info, a.Entry.Provider)
+				return "its provider names the package let " + name + ", which every case would share"
+			}
+			continue
+		}
 		if !a.Releases() {
 			continue
 		}

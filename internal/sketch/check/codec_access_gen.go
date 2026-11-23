@@ -102,8 +102,6 @@ type Codec_escWalk = escWalk
 
 type Codec_explicitArgs = explicitArgs
 
-type Codec_fedBinding = fedBinding
-
 type Codec_fileInfo = fileInfo
 
 type Codec_footprinter = footprinter
@@ -135,6 +133,8 @@ type Codec_guardedUse = guardedUse
 type Codec_hand = hand
 
 type Codec_harnessUse = harnessUse
+
+type Codec_heldWalk = heldWalk
 
 type Codec_hostPkg = hostPkg
 
@@ -348,8 +348,6 @@ type Codec_typeWalker = typeWalker
 
 type Codec_unassignedLocal = unassignedLocal
 
-type Codec_unfedBinding = unfedBinding
-
 type Codec_universeState = universeState
 
 type Codec_useAt = useAt
@@ -379,6 +377,8 @@ type Codec_wireFault = wireFault
 type Codec_wireNeed = wireNeed
 
 type Codec_withFrame = withFrame
+
+type Codec_withLend = withLend
 
 type Codec_withNeedKey = withNeedKey
 
@@ -1260,15 +1260,6 @@ func CodecFieldsOf_explicitArgs(v *explicitArgs) CodecFields_explicitArgs {
 	return CodecFields_explicitArgs{F_targs: &v.targs}
 }
 
-type CodecFields_fedBinding struct {
-	F_law      **Law
-	F_provider *Type
-}
-
-func CodecFieldsOf_fedBinding(v *fedBinding) CodecFields_fedBinding {
-	return CodecFields_fedBinding{F_law: &v.law, F_provider: &v.provider}
-}
-
 type CodecFields_fileInfo struct {
 	F_syntax  **syntax.File
 	F_index   *int
@@ -1436,6 +1427,16 @@ type CodecFields_harnessUse struct {
 
 func CodecFieldsOf_harnessUse(v *harnessUse) CodecFields_harnessUse {
 	return CodecFields_harnessUse{F_h: &v.h, F_at: &v.at}
+}
+
+type CodecFields_heldWalk struct {
+	F_c    **checker
+	F_with **syntax.CallExpr
+	F_held *map[*Var]bool
+}
+
+func CodecFieldsOf_heldWalk(v *heldWalk) CodecFields_heldWalk {
+	return CodecFields_heldWalk{F_c: &v.c, F_with: &v.with, F_held: &v.held}
 }
 
 type CodecFields_hostPkg struct {
@@ -1937,6 +1938,7 @@ type CodecFields_ownWalk struct {
 	F_c         **checker
 	F_info      **Info
 	F_st        *ownState
+	F_withLends *[]withLend
 	F_fresh     *syntax.Expr
 	F_vars      *[]ownLocal
 	F_slot      *map[*Var]int
@@ -1964,7 +1966,7 @@ type CodecFields_ownWalk struct {
 }
 
 func CodecFieldsOf_ownWalk(v *ownWalk) CodecFields_ownWalk {
-	return CodecFields_ownWalk{F_c: &v.c, F_info: &v.info, F_st: &v.st, F_fresh: &v.fresh, F_vars: &v.vars, F_slot: &v.slot, F_depth: &v.depth, F_writeBack: &v.writeBack, F_first: &v.first, F_name: &v.name, F_nested: &v.nested, F_scopes: &v.scopes, F_loops: &v.loops, F_catches: &v.catches, F_loopMemo: &v.loopMemo, F_diags: &v.diags, F_tail: &v.tail, F_onFailure: &v.onFailure, F_infer: &v.infer, F_fn: &v.fn, F_top: &v.top, F_promote: &v.promote, F_borrow: &v.borrow, F_textRoots: &v.textRoots, F_lending: &v.lending, F_lendFrame: &v.lendFrame, F_ranged: &v.ranged}
+	return CodecFields_ownWalk{F_c: &v.c, F_info: &v.info, F_st: &v.st, F_withLends: &v.withLends, F_fresh: &v.fresh, F_vars: &v.vars, F_slot: &v.slot, F_depth: &v.depth, F_writeBack: &v.writeBack, F_first: &v.first, F_name: &v.name, F_nested: &v.nested, F_scopes: &v.scopes, F_loops: &v.loops, F_catches: &v.catches, F_loopMemo: &v.loopMemo, F_diags: &v.diags, F_tail: &v.tail, F_onFailure: &v.onFailure, F_infer: &v.infer, F_fn: &v.fn, F_top: &v.top, F_promote: &v.promote, F_borrow: &v.borrow, F_textRoots: &v.textRoots, F_lending: &v.lending, F_lendFrame: &v.lendFrame, F_ranged: &v.ranged}
 }
 
 type CodecFields_ownershipKey struct {
@@ -2617,16 +2619,6 @@ func CodecFieldsOf_unassignedLocal(v *unassignedLocal) CodecFields_unassignedLoc
 	return CodecFields_unassignedLocal{F_v: &v.v, F_file: &v.file}
 }
 
-type CodecFields_unfedBinding struct {
-	F_law      **Law
-	F_provider **Named
-	F_diag     **Diagnostic
-}
-
-func CodecFieldsOf_unfedBinding(v *unfedBinding) CodecFields_unfedBinding {
-	return CodecFields_unfedBinding{F_law: &v.law, F_provider: &v.provider, F_diag: &v.diag}
-}
-
 type CodecFields_universeState struct {
 	F_scope     **Scope
 	F_errorName **TypeName
@@ -2774,6 +2766,15 @@ type CodecFields_withFrame struct {
 
 func CodecFieldsOf_withFrame(v *withFrame) CodecFields_withFrame {
 	return CodecFields_withFrame{F_context: &v.context, F_value: &v.value, F_installs: &v.installs, F_with: &v.with, F_binds: &v.binds, F_unknown: &v.unknown, F_outer: &v.outer, F_depth: &v.depth, F_at: &v.at, F_caps: &v.caps, F_entries: &v.entries}
+}
+
+type CodecFields_withLend struct {
+	F_v    **Var
+	F_with **syntax.CallExpr
+}
+
+func CodecFieldsOf_withLend(v *withLend) CodecFields_withLend {
+	return CodecFields_withLend{F_v: &v.v, F_with: &v.with}
 }
 
 type CodecFields_withNeedKey struct {

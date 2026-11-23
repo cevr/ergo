@@ -1,5 +1,12 @@
 package stdlib_test
 
+// The gate runs this package whole in every tier (scripts/gate/whole.go):
+// its tests hold every std source to the std rules (go-share classes, host
+// authority, extern clauses, seq stop laws), which an edit of std, of the
+// lowering or of docs can break.
+//
+//gate:whole every std source is held to the std rules here; its Go-building tests skip under -short
+
 import (
 	"fmt"
 	"slices"
