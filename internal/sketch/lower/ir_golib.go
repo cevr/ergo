@@ -296,7 +296,7 @@ func (b *irBuilder) ctxPoll(x syntax.Node) []*irStmt {
 // or nil.
 func (b *irBuilder) hostCallOf(call *syntax.CallExpr) *check.Func {
 	c := b.l.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg == nil || !c.Func.Pkg.Host() || check.GoBuiltin(c.Func) != "" || userExtern(c.Func) {
+	if c == nil || c.Kind != check.CallFunc || !c.Func.CallsGo() || check.GoExternOf(c.Func) != nil || check.GoBuiltin(c.Func) != "" {
 		return nil
 	}
 	return c.Func

@@ -41,8 +41,10 @@ type Body struct {
 	// Inert: the body reads its hidden arguments but acts on nothing
 	// outside the value it makes (v1.Inert), so a durable step may call it.
 	Inert bool
-	// Hidden are the body's hidden parameters, in their order.
-	Hidden []v1.Hidden
+	// ReleasesResult reports a hidden release parameter that drops the
+	// result at the boundary. The lowerer's body shape owns the rest of
+	// the hidden parameters.
+	ReleasesResult bool
 	// Value: the body takes no hidden argument, no type parameter and no
 	// function, and its result is no deferred Seq, so the extern may be a
 	// function value (externValue; G1, P3).
@@ -77,14 +79,15 @@ func BodyOf(f *Func) Body {
 			// A module's own body: its shape and policy, call-only. Its
 			// purity is not read yet (a follow-up of NP4d): no call of it
 			// is pure.
-			return Body{Known: true, Host: body.Host, Hidden: body.Hidden}
+			return Body{Known: true, Host: body.Host, ReleasesResult: slices.Contains(body.Hidden, v1.ResultRelease)}
 		}
 		return Body{}
 	}
 	b := Body{Runtime: name, MovesOnly: v1.MovesOnly(name), Inert: v1.Inert(name)}
 	if body, err := v1.BodyIn(path, name); err == nil {
 		b.Known = true
-		b.Pure, b.Host, b.Hidden = body.Pure, body.Host, body.Hidden
+		b.Pure, b.Host = body.Pure, body.Host
+		b.ReleasesResult = slices.Contains(body.Hidden, v1.ResultRelease)
 		b.FrameRelease = body.Release == "frame"
 		b.Value = valueBody(body)
 	}
@@ -128,12 +131,7 @@ func valueBody(body v1.Body) bool {
 // ResultRelease (v1.Releaser; L8 B4, Gap 47): it releases a successful
 // result it drops, so its call records the result's Drop.
 func releasesResult(f *Func) bool {
-	for _, h := range BodyOf(f).Hidden {
-		if h == v1.ResultRelease {
-			return true
-		}
-	}
-	return false
+	return BodyOf(f).ReleasesResult
 }
 
 // OpBody is the body contract of an operation of a named type whose

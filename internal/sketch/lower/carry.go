@@ -60,8 +60,10 @@ const useBytes = 128
 
 // msb3Lowering "off" is the reference of MSB3: a machine's signal keeps
 // the bounds (stateFlat), a union with a variant that is an error type is
-// an interface (flatunion.go's flatShape), and so is every std union, as
-// before MSB3. Set by a test or by a build with
+// an interface (flatunion.go's flatShape), as before MSB3. It reads the
+// same packages as the rule (unionPkgs): a std union takes its user
+// copy's form in every mode (STD-SPEED-BY-SHAPE). Set by a test or by a
+// build with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.msb3Lowering=off.
 var msb3Lowering string
 

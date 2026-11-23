@@ -191,18 +191,19 @@ type Screen struct {
 	// the parser's last timeout, or 0.
 	inputClock, deadline uint64
 
-	mu      sync.Mutex
-	batch   []command
-	inputs  []Input
-	wake    chan struct{}
-	closed  bool
-	cols    int
-	rows    int
-	calls   int64
-	written int64
-	done    bool
-	in      *os.File
-	stop    func()
+	mu       sync.Mutex
+	batch    []command
+	inputs   []Input
+	inputErr error
+	wake     chan struct{}
+	closed   bool
+	cols     int
+	rows     int
+	calls    int64
+	written  int64
+	done     bool
+	in       *os.File
+	stop     func()
 	// ticker sends the frames while the view animates (frames.go).
 	ticker *ticking
 	// said is each text Notify said (notify.go).
@@ -213,8 +214,11 @@ type Screen struct {
 var ErrClosed = errors.New("screen: closed")
 
 func newScreen(cols, rows int, out io.Writer) (*Screen, error) {
+	if err := check(CallOpen, 0); err != nil {
+		return nil, fail(CallOpen, 0, err)
+	}
 	if err := ot.Open(); err != nil {
-		return nil, err
+		return nil, fail(CallOpen, 0, err)
 	}
 	s := &Screen{
 		owner: ot.NewOwner(), nodes: map[int]ot.Handle{}, kinds: map[int]int{}, parent: map[int]int{},
@@ -240,10 +244,21 @@ func newScreen(cols, rows int, out io.Writer) (*Screen, error) {
 		s.calls++
 		s.root, err = ot.SceneCreateNode(s.ctx, s.session, ot.OT_SCENE_ROOT, 1)
 	})
+	if err != nil && s.ctx != nil {
+		// A refused open still owns any partial native allocation. This
+		// cleanup cannot replace the error that prevented opening.
+		s.do(func() {
+			if s.session != (ot.Handle{}) {
+				_ = ot.SessionDestroy(s.ctx, s.session)
+			}
+			_ = ot.ContextDestroy(s.ctx)
+		})
+	}
 	if err != nil {
 		s.owner.Close()
-		return nil, fmt.Errorf("screen: %w", err)
+		return nil, fail(CallOpen, 0, fmt.Errorf("screen: %w", err))
 	}
+	made(1)
 	return s, nil
 }
 
@@ -306,18 +321,53 @@ func (s *Screen) Present() error {
 	closed := s.done
 	s.mu.Unlock()
 	if closed {
-		return ErrClosed
+		return fail(CallClosed, 0, ErrClosed)
 	}
 	var err error
 	s.do(func() {
-		for _, c := range batch {
-			if err = s.apply(c); err != nil {
-				return
-			}
+		if err = s.applyAll(batch); err != nil {
+			return
 		}
 		err = s.frame()
 	})
 	return err
+}
+
+// applyAll runs the batch on the owner thread. Each refusal names the
+// command and node rather than Present, which only moves the batch.
+func (s *Screen) applyAll(batch []command) error {
+	for _, c := range batch {
+		call := c.call()
+		// Destroy checks each child separately, where its node is known.
+		if call != CallDestroy {
+			if err := check(call, c.node); err != nil {
+				return err
+			}
+		}
+		if err := s.apply(c); err != nil {
+			return fail(call, c.node, err)
+		}
+	}
+	return nil
+}
+
+func (c command) call() int {
+	switch c.op {
+	case opCreate:
+		return CallCreate
+	case opMove:
+		return CallMove
+	case opText, opPlaceholder:
+		return CallSetText
+	case opStyle, opLook, opFocus:
+		return CallSetStyle
+	case opDestroy:
+		return CallDestroy
+	case opPixels:
+		return CallPaint
+	default:
+		panic("screen: unknown scene command")
+	}
 }
 
 func color(c uint32) [4]uint16 {
@@ -485,6 +535,9 @@ func (s *Screen) destroy(n int) error {
 			return err
 		}
 	}
+	if err := check(CallDestroy, n); err != nil {
+		return err
+	}
 	delete(s.children, n)
 	delete(s.pictures, n)
 	if in, ok := s.inner[n]; ok {
@@ -492,7 +545,7 @@ func (s *Screen) destroy(n int) error {
 		delete(s.fills, n)
 		s.calls++
 		if err := ot.SceneDestroyNode(s.ctx, in); err != nil {
-			return fmt.Errorf("screen: Destroy %d: content: %w", n, err)
+			return fail(CallDestroy, n, fmt.Errorf("screen: Destroy %d: content: %w", n, err))
 		}
 	}
 	h := s.nodes[n]
@@ -504,9 +557,9 @@ func (s *Screen) destroy(n int) error {
 	}
 	s.calls++
 	if err := ot.SceneDestroyNode(s.ctx, h); err != nil {
-		return fmt.Errorf("screen: Destroy %d: %w", n, err)
+		return fail(CallDestroy, n, fmt.Errorf("screen: Destroy %d: %w", n, err))
 	}
-	return s.dropEditor(n)
+	return wrap(CallDestroy, n, s.dropEditor(n))
 }
 
 // placement is the OpenTUI value of a placement: 0 start, 1 centre, 2
@@ -609,12 +662,22 @@ func (s *Screen) frame() error {
 		if err != nil {
 			return err
 		}
-		s.calls++
-		st, err := ot.SceneFrameCommit(s.ctx, s.session, req, 0)
+		var st uint32
+		err = check(CallCommit, 0)
+		if err == nil {
+			s.calls++
+			st, err = ot.SceneFrameCommit(s.ctx, s.session, req, 0)
+			if err != nil {
+				err = fail(CallCommit, 0, fmt.Errorf("screen: commit: %w", err))
+			}
+		}
 		if err != nil {
 			s.calls++
 			_ = ot.SceneFrameCancel(s.ctx, s.session, req.FrameId)
-			return fmt.Errorf("screen: commit: %w", err)
+			return err
+		}
+		if err := check(CallWrite, 0); err != nil {
+			return err
 		}
 		if err := s.flush(); err != nil {
 			return err
@@ -623,10 +686,10 @@ func (s *Screen) frame() error {
 		case ot.OT_RENDER_PRESENTED, ot.OT_RENDER_PENDING:
 			return nil
 		case ot.OT_RENDER_FAILED:
-			return errors.New("screen: the frame failed (larger than the output queue, or encoding failed)")
+			return fail(CallCommit, 0, ErrFrameFailed)
 		}
 	}
-	return errors.New("screen: the frame was skipped twice under output pressure")
+	return fail(CallCommit, 0, ErrFrameSkipped)
 }
 
 // paint paints a frame (owner thread). When a Lister that fills the rows
@@ -635,10 +698,13 @@ func (s *Screen) frame() error {
 // right; one more paint at most for each list that fills.
 func (s *Screen) paint() (ot.SceneFrameRequest, error) {
 	for tries := 0; ; tries++ {
+		if err := check(CallPaint, 0); err != nil {
+			return ot.SceneFrameRequest{}, err
+		}
 		s.calls++
 		req, err := ot.ScenePaint(s.ctx, s.session, [4]uint16{0, 0, 0, 0}, 1, 0)
 		if err != nil {
-			return req, fmt.Errorf("screen: paint: %w", err)
+			return req, fail(CallPaint, 0, fmt.Errorf("screen: paint: %w", err))
 		}
 		changed, err := s.fill()
 		// A list placed by another that fills settles in as many paints
@@ -674,10 +740,13 @@ func (s *Screen) fill() (bool, error) {
 	rows := s.rows
 	s.mu.Unlock()
 	for n, was := range s.fills {
+		if err := check(CallLayout, n); err != nil {
+			return false, err
+		}
 		s.calls++
 		l, err := ot.SceneGetLayout(s.ctx, s.nodes[n], ot.OT_LAYOUT_PAINT)
 		if err != nil {
-			return false, fmt.Errorf("screen: layout of %d: %w", n, err)
+			return false, fail(CallLayout, n, fmt.Errorf("screen: layout of %d: %w", n, err))
 		}
 		want := max(rows-int(math.Round(l.ScreenY)), 1)
 		if want == was {
@@ -686,7 +755,7 @@ func (s *Screen) fill() (bool, error) {
 		s.fills[n], changed = want, true
 		s.calls++
 		if err := ot.SceneSetStyle(s.ctx, s.nodes[n], ot.OT_STYLE_DIMENSION, ot.OT_STYLE_VALUE_HEIGHT, ot.OT_EDGE_NONE, ot.OT_UNIT_POINT, float32(want), 0); err != nil {
-			return false, fmt.Errorf("screen: fill %d: %w", n, err)
+			return false, fail(CallSetStyle, n, fmt.Errorf("screen: fill %d: %w", n, err))
 		}
 	}
 	return changed, nil
@@ -698,7 +767,7 @@ func (s *Screen) flush() error {
 		s.calls++
 		t, err := ot.SessionReadOutput(s.ctx, s.session, s.chunk)
 		if err != nil {
-			return fmt.Errorf("screen: read output: %w", err)
+			return fail(CallWrite, 0, fmt.Errorf("screen: read output: %w", err))
 		}
 		if t.ByteCount == 0 {
 			return nil
@@ -710,10 +779,10 @@ func (s *Screen) flush() error {
 		}
 		s.calls++
 		if err := ot.SessionCompleteOutput(s.ctx, s.session, t, ok); err != nil {
-			return fmt.Errorf("screen: complete output: %w", err)
+			return fail(CallWrite, 0, fmt.Errorf("screen: complete output: %w", err))
 		}
 		if werr != nil {
-			return fmt.Errorf("screen: write: %w", werr)
+			return fail(CallWrite, 0, fmt.Errorf("screen: write: %w", werr))
 		}
 		s.mu.Lock()
 		s.written += int64(t.ByteCount)
@@ -841,6 +910,12 @@ func (s *Screen) BoxOf(n int) Rect {
 // n's box is inside its viewport (moving it the least); the next Present
 // paints it there.
 func (s *Screen) Reveal(n int) error {
+	if s.isDone() {
+		return fail(CallClosed, n, ErrClosed)
+	}
+	if err := check(CallReveal, n); err != nil {
+		return err
+	}
 	var err error
 	s.do(func() {
 		h, ok := s.nodes[n]
@@ -858,7 +933,7 @@ func (s *Screen) Reveal(n int) error {
 			}
 		}
 	})
-	return err
+	return wrap(CallReveal, n, err)
 }
 
 // Shown reports whether the first cell of node n's box is on the screen
@@ -915,6 +990,12 @@ func (s *Screen) ScrollOf(n int) ScrollState {
 // ScrollTo scrolls node n to offset y (cells), inside its content; by
 // scrolls it by y from where it is. The next Present paints it there.
 func (s *Screen) ScrollTo(n, y int, by bool) error {
+	if s.isDone() {
+		return fail(CallClosed, n, ErrClosed)
+	}
+	if err := check(CallScrollTo, n); err != nil {
+		return err
+	}
 	var err error
 	s.do(func() {
 		h, ok := s.nodes[n]
@@ -929,7 +1010,7 @@ func (s *Screen) ScrollTo(n, y int, by bool) error {
 		s.calls++
 		_, err = ot.SceneScrollTo(s.ctx, h, 0, float64(y), flags)
 	})
-	return err
+	return wrap(CallScrollTo, n, err)
 }
 
 // HitTest is the number of the node painted last at column x, row y, 0
@@ -1051,13 +1132,19 @@ func (s *Screen) parse(b []byte, now uint64) []Input {
 // Resize makes the screen cols by rows cells; the next Present lays the
 // scene out again. An Input of kind Resize follows.
 func (s *Screen) Resize(cols, rows int) error {
+	if s.isDone() {
+		return fail(CallClosed, 0, ErrClosed)
+	}
+	if err := check(CallResize, 0); err != nil {
+		return err
+	}
 	var err error
 	s.do(func() {
 		s.calls++
 		err = ot.SessionResizeRenderer(s.ctx, s.session, uint32(cols), uint32(rows))
 	})
 	if err != nil {
-		return fmt.Errorf("screen: resize: %w", err)
+		return fail(CallResize, 0, fmt.Errorf("screen: resize: %w", err))
 	}
 	s.mu.Lock()
 	s.cols, s.rows = cols, rows
@@ -1070,6 +1157,11 @@ func (s *Screen) Resize(cols, rows int) error {
 func (s *Screen) Poll() (Input, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.poll()
+}
+
+// poll takes the next input with s.mu held.
+func (s *Screen) poll() (Input, bool) {
 	if len(s.inputs) == 0 {
 		if s.closed {
 			return Input{Kind: Closed}, true
@@ -1114,16 +1206,44 @@ func (s *Screen) Lines() int {
 }
 
 // Next waits for the next Input. After the input ends it returns Closed.
+// A refused terminal resize is returned before any further input.
 func (s *Screen) Next(ctx context.Context) (Input, error) {
+	if err := check(CallInput, 0); err != nil {
+		return Input{}, err
+	}
 	for {
-		if in, ok := s.Poll(); ok {
+		s.mu.Lock()
+		if err := s.inputErr; err != nil {
+			s.mu.Unlock()
+			return Input{}, err
+		}
+		in, ok := s.poll()
+		s.mu.Unlock()
+		if ok {
 			return in, nil
 		}
 		select {
 		case <-s.wake:
 		case <-ctx.Done():
-			return Input{}, ctx.Err()
+			return Input{}, fail(CallInput, 0, ctx.Err())
 		}
+	}
+}
+
+// failInput wakes Next when the resize watcher cannot keep the live
+// renderer in step with the terminal. Once quitting starts there is no
+// further input to deliver.
+func (s *Screen) failInput(err error) {
+	s.mu.Lock()
+	if s.done {
+		s.mu.Unlock()
+		return
+	}
+	s.inputErr = err
+	s.mu.Unlock()
+	select {
+	case s.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -1161,6 +1281,8 @@ func (s *Screen) Quit() error {
 	if stop != nil {
 		stop()
 	}
+	// A failed check fails the Quit, which still frees all it would.
+	refused := check(CallQuit, 0)
 	var err error
 	s.do(func() {
 		if s.live {
@@ -1178,5 +1300,9 @@ func (s *Screen) Quit() error {
 		err = cerr
 	}
 	s.EndInput()
-	return err
+	made(-1)
+	if refused != nil {
+		return refused
+	}
+	return wrap(CallQuit, 0, err)
 }

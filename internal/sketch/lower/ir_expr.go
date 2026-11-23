@@ -208,8 +208,11 @@ func (b *irBuilder) expr(x syntax.Expr) *irExpr {
 }
 
 func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
-	b.plain(x)
 	p := b.pos(x, x.Pos())
+	if w := b.l.info.ContextValues[x]; w != nil {
+		return b.contextValue(x, w, p) // ir_contextvalue.go, before plain's stop
+	}
+	b.plain(x)
 	t, ok := b.l.info.Types[x]
 	if !ok {
 		irNo("expression without a type")

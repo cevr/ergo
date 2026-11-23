@@ -289,16 +289,20 @@ func (c *checker) identical(a, b Type) bool {
 // results, where an unknown row may be identical to another row
 // (mayBeIdentical).
 func (c *checker) sameShape(a, b *Signature) bool {
-	if len(a.Params) != len(b.Params) || len(a.Results) != len(b.Results) {
+	return c.sameSignatureShape(a.Params, b.Params, a.Results, b.Results)
+}
+
+func (c *checker) sameSignatureShape(a, b []*Var, ar, br []Type) bool {
+	if len(a) != len(b) || len(ar) != len(br) {
 		return false
 	}
-	for i := range a.Params {
-		if !c.mayBeIdentical(a.Params[i].Type, b.Params[i].Type) {
+	for i := range a {
+		if !c.mayBeIdentical(a[i].Type, b[i].Type) {
 			return false
 		}
 	}
-	for i := range a.Results {
-		if !c.mayBeIdentical(a.Results[i], b.Results[i]) {
+	for i := range ar {
+		if !c.mayBeIdentical(ar[i], br[i]) {
 			return false
 		}
 	}
@@ -1029,6 +1033,9 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		}
 		return ""
 	}
+	// Native Go conversion uses the Go method set, not the shape an
+	// Ergo caller sees. Keep the binding's rows and lifetime checks.
+	native := isHostNamed(v) && it.obj != nil && it.obj.Pkg.Host()
 	var self selfReader
 	if len(it.selfUses) > 0 {
 		if n, ok := v.(*Named); ok && asInterface(n) == nil {
@@ -1104,11 +1111,17 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 			// cascade (D3; stage D1 fuzz triage, fuzz-check-C-r4-f8314ece).
 			continue
 		}
-		if !c.sameShape(got, m.Sig) {
+		gr, wr := got.Results, m.Sig.Results
+		if native {
+			gr, wr = goMethodResults(got, fn), goMethodResults(m.Sig, nil)
+		}
+		if !c.sameSignatureShape(got.Params, m.Sig.Params, gr, wr) {
 			// The shape is the mismatch, so the message prints shapes: an
 			// inferred row may still be open here, and its text would
 			// depend on declaration order (D0; fuzz-check-C-r7rev-dbdbb39c).
-			return fmt.Sprintf("%s.%s has signature %s, want %s", v, m.Name, shapeOf(got), shapeOf(m.Sig))
+			have, want := shapeOf(got), shapeOf(m.Sig)
+			have.Results, want.Results = gr, wr
+			return fmt.Sprintf("%s.%s has signature %s, want %s", v, m.Name, have, want)
 		}
 		// An unknown row is checked by its known part (Row.unknown); an
 		// unknown method row (a refused entry, rowExpr) accepts any row, as

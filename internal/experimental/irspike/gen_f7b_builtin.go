@@ -8,12 +8,13 @@ import (
 
 // builtinFuncs are GenerateBuiltin's functions: each gets an IR body in
 // every seed (B-BUILTINS, "call of a Go builtin").
-var builtinFuncs = []string{"kit", "words", "keep"}
+var builtinFuncs = []string{"kit", "words", "keep", "width"}
 
 // GenerateBuiltin is a program of calls of externs that bind Go's builtins
 // (check/builtin.go): append of one element and of a string's bytes, cap,
 // copy and clear through a borrow, min and max, and the prelude's Delete
-// at its value form, whose Map stays live after. main prints every result,
+// at its value form, whose Map stays live after; and width, arithmetic on
+// Go's uintptr through conversions. main prints every result,
 // so a builtin written wrong, an operand in the wrong order, a borrow
 // written to a copy or a live Map deleted from in place changes the
 // output.
@@ -31,11 +32,14 @@ func GenerateBuiltin(seed uint64) string {
 	fmt.Fprintf(&b, "func kit(n int, a int, b int) int {\n\tlet mut xs = []int{}\n\tfor i in 0..n {\n\t\txs = push(xs, i * a + %d)\n\t}\n\tlet mut ys = []int{0, 0, 0}\n\tlet k = copyInto(&ys, xs)\n\tlet c = capOf(ys)\n\tlet s = ys[0] + ys[1] * 10 + ys[2] * 100\n\twipe(&xs)\n\tlet mut z = 0\n\tfor x in xs {\n\t\tz += x\n\t}\n\tleast(a, b) * 100000 + s * 100 + k * 10 + c + z\n}\n\n", g.n(5))
 	b.WriteString("func words(s string, t string) int {\n\tlet out = appendString(appendString([]byte{}, s), t)\n\tlen(out) * 100 + len(most(s, t))\n}\n\n")
 	b.WriteString("func keep(n int, k int) int {\n\tlet mut m = Map[int, int]{}\n\tfor i in 0..n {\n\t\tm = m.Put(i, i)\n\t}\n\tlet d = m.Delete(k)\n\tlen(m) * 100 + len(d)\n}\n\n")
+	// width: Go's uintptr, converted to and from (CENSUS-TAIL-2: std math.ToUintptr).
+	fmt.Fprintf(&b, "func width(n int) int {\n\tlet p = uintptr(n) + uintptr(%d)\n\tint(p %% uintptr(7)) * 10 + int(p >> uintptr(1))\n}\n\n", 1+g.n(9))
 	words := []string{`"ox"`, `"bee"`, `"crane"`, `""`}
 	b.WriteString("func main() needs Console {\n")
 	fmt.Fprintf(&b, "\tConsole.Println(\"\\(kit(%d, %d, %d)) \\(kit(%d, %d, %d))\")\n", g.n(6), 1+g.n(4), g.n(6), g.n(6), 1+g.n(4), g.n(6))
 	fmt.Fprintf(&b, "\tConsole.Println(\"\\(words(%s, %s)) \\(words(%s, %s))\")\n", words[g.n(4)], words[g.n(4)], words[g.n(4)], words[g.n(4)])
 	fmt.Fprintf(&b, "\tConsole.Println(\"\\(keep(%d, %d)) \\(keep(%d, %d))\")\n", g.n(6), g.n(6), g.n(6), g.n(6))
+	fmt.Fprintf(&b, "\tConsole.Println(\"\\(width(%d)) \\(width(%d))\")\n", g.n(50), g.n(50))
 	b.WriteString("}\n")
 	return b.String()
 }

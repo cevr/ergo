@@ -109,8 +109,8 @@ func (b *irBuilder) captureRoot(n syntax.Node, vars []*check.Var, p irPos) *irEx
 	tt := b.spelling("*" + b.l.taskPkg() + ".Task")
 	st := b.spelling(b.l.rt() + ".Scope")
 	t := b.temp("t", tt, p)
-	cp := b.temp("e", b.l.env(), p)
-	ep := b.temp("rootEnv", "*"+b.l.env(), p)
+	cp := b.temp("e", b.envValue(), p)
+	ep := b.temp("rootEnv", b.envPointer(), p)
 	root := b.temp("root", st, p)
 	end := p
 	lit := &irExpr{K: "func", Pos: p, T: "func(" + tt + ") *" + st, Params: []int{t}, End: &end}
