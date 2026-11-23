@@ -307,7 +307,7 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 	owner, h := b.listOwner(p)
 	o.handle[v] = owner.Local
 	here := b.listReleaseHere(v.Type, site, value)
-	rel := b.listRelease(d, v.Type, typ, p, here)
+	rel := b.listRelease(d, v.Type, typ, site, p, here)
 	out := []*irStmt{
 		owner,
 		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, h, &irExpr{K: "local", Pos: p, I: i}, rel)},
@@ -315,7 +315,7 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 	if b.l.writtenInPlace(v) {
 		// A local the code writes in place is released with its writes
 		// (v1.OwningAt; the emitter's ownAt).
-		at := b.listRelease(d, v.Type, typ, p, here)
+		at := b.listRelease(d, v.Type, typ, site, p, here)
 		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, h, b.addrOf(i, p), at)})
 	}
 	return out
@@ -342,7 +342,7 @@ func (b *irBuilder) listReleaseHere(t check.Type, site syntax.Node, value syntax
 // is v1.ReleaseTask[here], Close on the
 // task that started it, which is the frame's, so the literal captures
 // nothing and Go allocates no closure for it (PARK2's release closure).
-func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, p irPos, here string) *irExpr {
+func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, site syntax.Node, p irPos, here string) *irExpr {
 	owned := b.temp("owned", typ, p)
 	end := p
 	lit := &irExpr{K: "func", Pos: p, T: "func(" + typ + ")", Params: []int{owned}, End: &end}
@@ -355,7 +355,7 @@ func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, p irPos
 	}
 	// closeCall reads the value through a pointer local (a static slot's).
 	ptr := b.temp("ptr", "*"+typ, p)
-	c, ok := b.closeCall(irSlot{t: t, d: d}, b.env, ptr, p)
+	c, ok := b.closeCall(irSlot{t: t, d: d, site: site}, b.env, ptr, p)
 	if !ok {
 		irNo("owned local")
 	}
@@ -586,11 +586,13 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 // call: a std or extern function (the checker refuses it, C26).
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
+	// A Go interface method is an operation in the checker but uses
+	// the Go ABI, not the task-taking Ergo interface ABI.
+	if cl.HostClose() {
+		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
+	}
 	if cl != nil && cl.Func == nil && cl.Op != nil {
 		return b.closeOpCall(cl, s, env, slot, p)
-	}
-	if cl != nil && cl.HostClose() {
-		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
 	}
 	if cl == nil || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
 		return nil, false
@@ -1024,7 +1026,7 @@ func (b *irBuilder) ownTemp(x syntax.Expr, e *irExpr) *irExpr {
 		typ := b.goType(t, x)
 		owner, h := b.listOwner(p)
 		b.runFirst([]*irStmt{owner})
-		rel := b.listRelease(b.l.info.OwnedTemps[x], t, typ, p, b.listReleaseHere(t, x, x))
+		rel := b.listRelease(b.l.info.OwnedTemps[x], t, typ, x, p, b.listReleaseHere(t, x, x))
 		return b.ownCall("Returned", typ, p, h, b.ownCall("Owning", typ, p, h, e, rel))
 	}
 	k, seen := o.tbit[x]
