@@ -45,12 +45,12 @@ grep -q '^CapEff:[[:space:]]*0*$' /proc/self/status || echo capable`
 			t.Errorf("%s: the program could not write in the folder: %v", how, err)
 		}
 	}
-	res, err := ExecRunIn(task, root, "sh", []string{"-c", script, "sh", "run"}, nil, root, "", 0)
+	res, err := ExecRunIn(task, root, "/bin/sh", []string{"-c", script, "sh", "run"}, nil, root, "", 0)
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	check("run", res.Stdout)
-	running, err := ExecStartIn(task, root, "sh", []string{"-c", script, "sh", "start"}, nil, root, "", 0, execDiscard, "", false, execDiscard, "", false)
+	running, err := ExecStartIn(task, root, "/bin/sh", []string{"-c", script, "sh", "start"}, nil, root, "", 0, execDiscard, "", false, execDiscard, "", false)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}

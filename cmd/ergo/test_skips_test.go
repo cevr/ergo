@@ -9,21 +9,22 @@ import (
 	"testing"
 )
 
-// skipModule writes a module whose package prints law TwiceId's skip (its
-// parameter is a function, which no generator draws) and, when listed,
-// an expected-skips file naming that line.
+// skipModule writes a module whose package prints law Runner.Runs's skip
+// (its operation type has a row parameter, which a run does not bind) and,
+// when listed, an expected-skips file naming that line. A law no case can
+// feed is a check error, not a skip (LAW-UNFED), so it cannot serve here.
 func skipModule(t *testing.T, listed bool) (dir string) {
 	t.Helper()
 	root := t.TempDir()
 	smokeWrite(t, root, "ergo.mod", "module skips\n")
-	smokeWrite(t, root, "lib/lib.ergo", "func twice(f func(int) int, n int) int { f(f(n)) }\n\nlaw TwiceId(f func(int) int, n int) { twice(f, n) == f(f(n)) }\n\ntest Plain {\n\tassert twice(func(n int) int { n }, 3) == 3\n}\n")
+	smokeWrite(t, root, "lib/lib.ergo", "func twice(f func(int) int, n int) int { f(f(n)) }\n\ntype Runner[E] {\n\tRun() fails E,\n\tlaw Runs() { true },\n}\n\ntest Plain {\n\tassert twice(func(n int) int { n }, 3) == 3\n}\n")
 	if listed {
-		smokeWrite(t, root, expectedSkipsFile, "# no generator draws a function\n"+twiceSkip+"\n")
+		smokeWrite(t, root, expectedSkipsFile, "# a run binds no row parameter\n"+twiceSkip+"\n")
 	}
 	return filepath.Join(root, "lib")
 }
 
-const twiceSkip = "skip law TwiceId: its parameter f has no generator: func(int) int is a function type"
+const twiceSkip = "skip law Runner.Runs: its operation type Runner has the row parameter E, and a run binds only type parameters"
 
 func unexpectedSkipExit(t *testing.T, err error) {
 	t.Helper()

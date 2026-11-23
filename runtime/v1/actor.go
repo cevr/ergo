@@ -97,7 +97,9 @@ import (
 //     order; a work that started children waits for their stop before it
 //     ends, so no task ends before its children.
 //  14. Feeds (MU10): Feed admits a source as a feedStart envelope, so a
-//     Feed on an ended actor fails ActorStopped and its source never runs.
+//     Feed on an ended actor fails ActorStopped and its source never runs
+//     (nor does a source still queued when the actor ends: it began
+//     nothing, so it has nothing to release).
 //     The runner starts the source as a child task of its own (startFeed):
 //     it lives as long as the actor, not as its caller, and its sends are
 //     a sender's (rule 2: in the source's order, untagged, admitted as a
@@ -107,6 +109,9 @@ import (
 //     runs after the actor's end, and the actor's stop interrupts a
 //     source that waits. A source that ends ends only its feed; a defect
 //     of a source ends the actor, as a work's defect does (rule 10).
+//     14b. End actions: OnEnd adds an action that finish runs once,
+//     masked, after the sources stop and before the end is published;
+//     one added after finish takes the actions fails ActorStopped.
 //  15. Hosts (mu-host; actor_host.go, the model models/host): NewHost in a
 //     step (on the runner's task) keeps the host for the entry the step's
 //     decision opens (Enter, Emit) or keeps (Stay); any other decision, a
@@ -203,6 +208,11 @@ type Actor[S, E, D any] struct {
 	// each state a Changes loop is given (ActorShown).
 	version int
 	ended   bool
+	// onEnd are the actions ActorOnEnd added, run by finish in order
+	// (rule 14b); endTaken is set when finish took them, so a later
+	// OnEnd fails Stopped instead of being lost.
+	onEnd    []func(*rt.Task)
+	endTaken bool
 	// doneWait are the waitDone callers parked in a clock's domain.
 	doneWait []*rt.Task
 	exit     error // the runner's exit, read after done closes
@@ -1474,6 +1484,20 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.feeds = nil
+	// The end actions (rule 14b), masked, in the order OnEnd added them:
+	// each runs once, before the end is published; a defect in one joins
+	// the exit.
+	a.mu.Lock()
+	acts := a.onEnd
+	a.onEnd, a.endTaken = nil, true
+	a.mu.Unlock()
+	for _, f := range acts {
+		var c rt.Cause
+		release(a.task, &c, func() { f(a.task) }, nil)
+		if err := c.Err(); err != nil {
+			exit = join(exit, err)
+		}
+	}
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
@@ -1842,6 +1866,34 @@ func ActorFailure[S, E, D any](a *Actor[S, E, D]) error {
 	if f, ok := rt.Failure(a.exit); ok {
 		return f
 	}
+	return nil
+}
+
+// ActorEnded is std actor's Ended(a): whether a has ended, so that
+// ActorExitKind would not wait. Once true it stays true. It never waits,
+// so an actor's own step may ask it of itself.
+//
+//ergo:wait none
+func ActorEnded[S, E, D any](a *Actor[S, E, D]) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ended
+}
+
+// ActorOnEnd is std actor's OnEnd(a, f) (rule 14b): f runs once, masked,
+// on a's runner when a ends, after its sources stopped and before the end
+// is published, so before Stop, Drain or ExitOf of a returns. It fails
+// ActorStopped when a's end has already taken its actions; f then never
+// runs.
+//
+//ergo:wait none
+func ActorOnEnd[S, E, D any](a *Actor[S, E, D], f func(*rt.Task)) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.endTaken {
+		return ActorStopped{}
+	}
+	a.onEnd = append(a.onEnd, f)
 	return nil
 }
 

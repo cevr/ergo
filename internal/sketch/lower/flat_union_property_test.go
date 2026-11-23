@@ -74,9 +74,9 @@ import codec
 import time
 import go gostrings strings
 
-extern go os.LookupEnv func lookupEnv(key string) Option[string] needs go.Foreign
+extern go os.LookupEnv func lookupEnv(key string) Option[string] needs Ambient
 
-func env(key string) string needs go.Foreign {
+func env(key string) string needs Ambient {
 	match lookupEnv(key) {
 	case Some[string]:
 		"set"
@@ -766,7 +766,7 @@ func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGe
 		g.line("\tConsole.Println(\"another variant\")")
 		g.line("}")
 	}
-	return optionPrelude + g.u.decls() + g.u.gen.decls() + "func main() fails Lost | BadU0 needs Console | go.Foreign {\n" + g.b.String() + "}\n", g.u
+	return optionPrelude + g.u.decls() + g.u.gen.decls() + "func main() fails Lost | BadU0 needs Console | go.Foreign | Ambient {\n" + g.b.String() + "}\n", g.u
 }
 
 // lowerOptionMode lowers src's run build, or its test build (test), with
@@ -776,11 +776,15 @@ func optionProgram(seed uint64, reached map[string]bool) (src string, u *unionGe
 // (matchLowering "flat"). It returns the lowering's counts.
 func lowerOptionMode(t *testing.T, name, src string, test bool, mode string, noTree bool) (*lowered, knownStats) {
 	t.Helper()
-	savedUnion, savedHook, savedMatch, savedBound, savedSlot := unionLowering, statsHook, matchLowering, unionBound, slotLowering
+	savedUnion, savedHook, savedMatch, savedBound, savedSlot, savedOption := unionLowering, statsHook, matchLowering, unionBound, slotLowering, optionLowering
 	defer func() {
-		unionLowering, statsHook, matchLowering, unionBound, slotLowering = savedUnion, savedHook, savedMatch, savedBound, savedSlot
+		unionLowering, statsHook, matchLowering, unionBound, slotLowering, optionLowering = savedUnion, savedHook, savedMatch, savedBound, savedSlot, savedOption
 	}()
 	unionLowering = mode
+	if mode == "own" {
+		// OPTION-SHAPE's reference: Option's own form, a slot per variant.
+		unionLowering, optionLowering = "", "own"
+	}
 	if mode == "interface" {
 		// The reference returns every union result in its box (slot.go).
 		slotLowering = "off"
@@ -813,9 +817,9 @@ func TestFlatUnionsAgree(t *testing.T) {
 	}
 	reached := map[string]bool{}
 	type pair struct {
-		seed                  uint64
-		src                   string
-		flat, slots, reg, ref string
+		seed                       uint64
+		src                        string
+		flat, slots, reg, own, ref string
 	}
 	var pairs []pair
 	var programs []*lowered
@@ -826,12 +830,12 @@ func TestFlatUnionsAgree(t *testing.T) {
 		replay := fmt.Sprintf("Replay: go test -run '^TestFlatUnionsAgree$' ./internal/sketch/lower -args -flat.seed=%d", seed)
 		for _, test := range []bool{false, true} {
 			p := pair{seed: seed, src: src}
-			for _, mode := range []string{"", "slots", "register", "interface"} {
+			for _, mode := range []string{"", "slots", "register", "own", "interface"} {
 				name := fmt.Sprintf("flat%d", seed)
 				if test {
 					name += "test"
 				}
-				name += map[string]string{"": "", "slots": "slots", "register": "reg", "interface": "ref"}[mode]
+				name += map[string]string{"": "", "slots": "slots", "register": "reg", "own": "own", "interface": "ref"}[mode]
 				// Seed 6 (the niche on) lowers its flat programs with no match
 				// tree, so the tag tests are reached as well as the switches.
 				noTree := seed%6 == 0 && mode != "interface"
@@ -858,7 +862,7 @@ func TestFlatUnionsAgree(t *testing.T) {
 				slotStats += len(got)
 				// MSB1: the forms of the generic union G, the prelude's
 				// Decision and the enum state MS.
-				for _, bad := range u.gen.genericForms(prog.mainGo(), mode) {
+				for _, bad := range u.gen.genericForms(prog.mainGo(), strings.TrimSuffix(mode, "own")) {
 					t.Errorf("%s: %s\n%s", name, bad, replay)
 				}
 				switch mode {
@@ -871,6 +875,8 @@ func TestFlatUnionsAgree(t *testing.T) {
 				case "register":
 					p.reg = name
 					regStats = addStats(regStats, s)
+				case "own":
+					p.own = name
 				default:
 					p.flat = name
 					flatStats = addStats(flatStats, s)
@@ -885,6 +891,13 @@ func TestFlatUnionsAgree(t *testing.T) {
 				// says (shared slots, a slot per variant or an
 				// interface: size, fields, recursion); "slots" never
 				// shares.
+				// OPTION-SHAPE: Option is the general rule's shared form, and
+				// its own form of a slot per variant under the reference.
+				if want := map[string]string{"": "shared 1", "register": "shared 1", "own": "slots"}[mode]; want != "" {
+					if got := genericForm(prog.mainGo(), "type Option[T any] "); got != want {
+						t.Errorf("%s: Option is %s, want %s\n%s", name, got, want, replay)
+					}
+				}
 				share := mode != "slots"
 				register := mode == "register"
 				for i := range u.unions {
@@ -902,7 +915,7 @@ func TestFlatUnionsAgree(t *testing.T) {
 	}
 	for _, p := range pairs {
 		rout, rerr, rcode := runExe(t, exes[p.ref])
-		for _, name := range []string{p.flat, p.slots, p.reg} {
+		for _, name := range []string{p.flat, p.slots, p.reg, p.own} {
 			out, errOut, code := runExe(t, exes[name])
 			if out != rout || errOut != rerr || code != rcode {
 				t.Errorf("seed %d, %s: the flat unions and the reference differ\nReplay: go test -run '^TestFlatUnionsAgree$' ./internal/sketch/lower -args -flat.seed=%d\n%s\n--- %s (exit %d)\n%s%s\n--- reference (exit %d)\n%s%s", p.seed, name, p.seed, p.src, name, code, out, errOut, rcode, rout, rerr)

@@ -14,14 +14,22 @@ import (
 // diagKeys are a program's diagnostics as (code, message, line offset
 // within the law): a line before the law is "pre" at its absolute line,
 // identical in both placements since the helpers are a common prefix.
-func diagKeys(diags []check.Diagnostic, lawLine int) []string {
+// An unfed diagnostic uses L at top level and T.L as a member (types.md,
+// Laws 10). Only the expected title becomes <law> in the key, so a
+// member diagnostic that wrongly names bare L still differs.
+func diagKeys(diags []check.Diagnostic, lawLine int, title string) []string {
 	var out []string
+	unfedPrefix := "law " + title + " cannot run: "
 	for _, d := range diags {
 		where := fmt.Sprintf("law+%d", d.Line-lawLine)
 		if d.Line < lawLine {
 			where = fmt.Sprintf("pre %d", d.Line)
 		}
-		out = append(out, fmt.Sprintf("%s %s: %s", where, d.Code, d.Message))
+		message := d.Message
+		if reason, ok := strings.CutPrefix(message, unfedPrefix); ok {
+			message = "law <law> cannot run: " + reason
+		}
+		out = append(out, fmt.Sprintf("%s %s: %s", where, d.Code, message))
 	}
 	sort.Strings(out)
 	return out
@@ -117,7 +125,7 @@ func TestTopLevelLawMatchesMember(t *testing.T) {
 		topPkg, topDiags := check.CheckSource(top)
 		memPkg, memDiags := check.CheckSource(mem)
 		law := "law L(" + l.Params + ") {\n" + strings.Join(l.Body, "\n") + "\n}"
-		tk, mk := diagKeys(topDiags, topLine), diagKeys(memDiags, memLine)
+		tk, mk := diagKeys(topDiags, topLine, "L"), diagKeys(memDiags, memLine, "T.L")
 		if strings.Join(tk, "\n") != strings.Join(mk, "\n") {
 			t.Fatalf("program %d: the placements differ\ntop-level:\n\t%s\nmember:\n\t%s\n%s", i, strings.Join(tk, "\n\t"), strings.Join(mk, "\n\t"), law)
 		}

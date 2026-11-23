@@ -28,20 +28,20 @@ import time
 extern go ergo.local/prototype/runtime/v1.TasksRace func Race[T own, E, R](blocks []func() T fails E needs R) T fails E needs R
 
 // Retry runs block until it gives a value or s stops (Effect retry): after
-// the n-th run fails, s decides by n and the time since the first run
-// began on the context's time.Clock; Continue sleeps its delay on the
-// context's Scheduler and runs block again, and Stop fails with that run's
-// failure. A defect or a stop of the task ends Retry at once. s does not
+// the n-th run fails, s decides by n and, if timed, the time since the
+// first run began on the context's time.Clock. Continue sleeps its delay
+// on the context's Scheduler and runs block again; Stop fails with that
+// run's failure. A defect or a stop of the task ends Retry at once. s does not
 // read the failure: a failure that must not be retried is caught in block
 // and given as a value of block's result.
 func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
-	let start = time.Clock.Now()
+	let start = startOf(s)
 	let mut runs = 0
 	for {
 		runs = runs + 1
 		let v = block() catch {
 		case err:
-			match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+			match schedule.Decide(s, runs, since(start)) {
 			case schedule.Continue as c:
 				Scheduler.Sleep(c.After)
 				continue
@@ -54,16 +54,16 @@ func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails
 }
 
 // Repeat runs block, and again while s continues (Effect repeat): after
-// the n-th run gives a value, s decides by n and the time since the first
-// run began; Continue sleeps its delay, and Stop gives the last value. A
-// failure of block is Repeat's at once.
+// the n-th run gives a value, s decides by n and, if timed, the time since
+// the first run began. Continue sleeps its delay; Stop gives the last
+// value. A failure of block is Repeat's at once.
 func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
-	let start = time.Clock.Now()
+	let start = startOf(s)
 	let mut runs = 0
 	for {
 		runs = runs + 1
 		let v = try block()
-		match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+		match schedule.Decide(s, runs, since(start)) {
 		case schedule.Continue as c:
 			Scheduler.Sleep(c.After)
 		case schedule.Stop:
@@ -72,26 +72,64 @@ func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fail
 	}
 }
 
+// startOf reads the clock before the first run only if s uses elapsed time.
+func startOf(s schedule.Schedule) Option[time.Time] needs time.Clock {
+	if schedule.Timed(s) {
+		Some[time.Time]{Value: time.Clock.Now()}
+	} else {
+		None
+	}
+}
+
+// since reads elapsed time only when startOf captured a start.
+func since(start Option[time.Time]) duration needs time.Clock {
+	match start {
+	case Some[time.Time] as t:
+		time.Since(t.Value)
+	case None:
+		0s
+	}
+}
+
 // lawFailed is the failure of the retry laws' block: the run that failed.
 type lawFailed { Run int }
 
-// lawSchedule is an exponential backoff from 10ms, at most 1 to 6
-// retries, up to a limit of 1ms to 5s, drawn from k and limit.
-func lawSchedule(k int, limit int) schedule.Schedule {
+// lawSchedule draws a bounded backoff, with an elapsed limit only when timed.
+func lawSchedule(k int, limit int, timed bool) schedule.Schedule {
 	let retries = schedule.Recurs(1 + (k%6+6)%6)
-	let l = duration(int64(1+(limit%5000+5000)%5000) * 1000000)
-	schedule.Exponential(10ms, 2.0, 1s).And(retries).UpTo(l)
+	let s = schedule.Exponential(10ms, 2.0, 1s).And(retries)
+	if timed {
+		let l = duration(int64(1+(limit%500+500)%500) * 1000000)
+		return s.UpTo(l)
+	}
+	s
 }
+
+// lawClock counts clock reads, but not sleeps or the law's own readings.
+type lawClock { clock testing.VirtualClock, reads sync.Ref[int] } implements time.Clock
+
+func newLawClock() lawClock {
+	lawClock{clock: testing.NewVirtualClock(0), reads: sync.NewRef[int](0)}
+}
+
+func Now(c lawClock) time.Time {
+	c.reads.Update(func(n int) int { n + 1 })
+	c.clock.Now()
+}
+
+func Elapsed(c lawClock, start time.Time) duration { c.Now().Sub(start) }
 
 // RetryFollowsDecide: on a VirtualClock, Retry runs block as often as
 // Decide says, sleeps the delays it gives, and ends with the run the fold
 // of Decide ends with: the first run that does not fail, or the failure
-// of the run after which Decide stops. Each run takes w.
-law RetryFollowsDecide(failing int, work int, k int, limit int) {
-	let s = lawSchedule(k, limit)
-	let w = duration(int64((work%300+300)%300) * 1000000)
+// of the run after which Decide stops. Only a timed schedule reads the
+// clock, once at the start and once per decision.
+law RetryFollowsDecide(failing int, work int, k int, limit int, timed bool) {
+	let s = lawSchedule(k, limit, timed)
+	let w = duration(int64(1+(work%300+300)%300) * 1000000)
 	let n = (failing%10 + 10) % 10
 	let mut runs = 0
+	let mut decisions = 0
 	let mut at = 0s
 	let mut want = 0
 	for want == 0 {
@@ -100,6 +138,7 @@ law RetryFollowsDecide(failing int, work int, k int, limit int) {
 		if runs > n {
 			want = runs
 		} else {
+			decisions = decisions + 1
 			match schedule.Decide(s, runs, at) {
 			case schedule.Continue as c:
 				at = at + c.After
@@ -108,10 +147,11 @@ law RetryFollowsDecide(failing int, work int, k int, limit int) {
 			}
 		}
 	}
-	let c = testing.NewVirtualClock(0)
+	let p = newLawClock()
+	let c = p.clock
 	let calls = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
-		let start = time.Clock.Now()
+	let start = c.Now()
+	with context { Scheduler: c, time.Clock: p } {
 		let got = Retry(s, func() int fails lawFailed needs Scheduler {
 			Scheduler.Sleep(w)
 			let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
@@ -123,16 +163,17 @@ law RetryFollowsDecide(failing int, work int, k int, limit int) {
 		case lawFailed as f:
 			0 - f.Run
 		}
-		got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+		let wantReads = if timed { decisions + 1 } else { 0 }
+		got == want && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads
 	}
 }
 
 // RepeatFollowsDecide: on a VirtualClock, Repeat runs block until Decide
-// stops, sleeps the delays it gives, and gives the last run's value. Each
-// run takes w.
-law RepeatFollowsDecide(work int, k int, limit int) {
-	let s = lawSchedule(k, limit)
-	let w = duration(int64((work%300+300)%300) * 1000000)
+// stops, sleeps the delays it gives, and gives the last run's value. Only
+// a timed schedule reads the clock, once at the start and once per decision.
+law RepeatFollowsDecide(work int, k int, limit int, timed bool) {
+	let s = lawSchedule(k, limit, timed)
+	let w = duration(int64(1+(work%300+300)%300) * 1000000)
 	let mut runs = 0
 	let mut at = 0s
 	let mut more = true
@@ -146,15 +187,17 @@ law RepeatFollowsDecide(work int, k int, limit int) {
 			more = false
 		}
 	}
-	let c = testing.NewVirtualClock(0)
+	let p = newLawClock()
+	let c = p.clock
 	let calls = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
-		let start = time.Clock.Now()
+	let start = c.Now()
+	with context { Scheduler: c, time.Clock: p } {
 		let got = Repeat(s, func() int needs Scheduler {
 			Scheduler.Sleep(w)
 			sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
 		})
-		got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+		let wantReads = if timed { runs + 1 } else { 0 }
+		got == runs && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads
 	}
 }
 
@@ -197,6 +240,224 @@ type Restart {
 // Policy is what a member's failure or defect does to its Set. A member
 // stopped by its Set or by its owner has no failure under any policy.
 type Policy = FailFast | LogFailures | Restart
+
+// Restart strategies of a group (Erlang/OTP's one_for_one, one_for_all and
+// rest_for_one; the model models/supervise, group.ergo). A group's members
+// are numbered in start order.
+
+// OneForOne restarts only the member that crashed.
+type OneForOne {}
+
+// AllForOne restarts every member when one crashes: members that depend
+// on each other start again together.
+type AllForOne {}
+
+// RestForOne restarts the member that crashed and every member started
+// after it: a later member may depend on an earlier one, never the
+// reverse.
+type RestForOne {}
+
+// Strategy is which members a crash restarts.
+type Strategy = OneForOne | AllForOne | RestForOne
+
+// Restarted is whether a crash of member failed restarts member j, both
+// numbered in start order.
+func Restarted(s Strategy, failed int, j int) bool {
+	match s {
+	case OneForOne:
+		j == failed
+	case AllForOne:
+		true
+	case RestForOne:
+		j >= failed
+	}
+}
+
+// strategyOf is one of the three strategies, drawn from k.
+func strategyOf(k int) Strategy {
+	let i = (k%3 + 3) % 3
+	if i == 0 {
+		return OneForOne
+	}
+	if i == 1 {
+		return AllForOne
+	}
+	RestForOne
+}
+
+// StrategiesNest: each strategy restarts the member that crashed; what
+// OneForOne restarts, RestForOne restarts, and what RestForOne restarts,
+// AllForOne restarts; AllForOne restarts every member, and RestForOne
+// never one started before the crashed one.
+law StrategiesNest(failed int, j int) {
+	let f = (failed%8 + 8) % 8
+	let m = (j%8 + 8) % 8
+	let one = Restarted(OneForOne, f, m)
+	let rest = Restarted(RestForOne, f, m)
+	let all = Restarted(AllForOne, f, m)
+	Restarted(OneForOne, f, f) && Restarted(RestForOne, f, f) && (!one || rest) && (!rest || all) && all && (m >= f || !rest)
+}
+
+// Intensity is a restart budget over time (OTP's intensity and period):
+// at most Max restarts in any Period. A Period of zero or less holds no
+// restart, so Max applies to nothing and every restart is allowed only
+// when Max is above zero.
+type Intensity {
+	Max int,
+	Period duration,
+}
+
+// Allows is whether a restart at now keeps at most i.Max restarts in the
+// Period that ends at now, given the instants of the earlier restarts.
+// Instants are durations since the group began; one in the Period is
+// after now - Period and at or before now.
+func Allows(i Intensity, past []duration, now duration) bool {
+	let mut n = 0
+	for t in past {
+		if t > now-i.Period && t <= now {
+			n = n + 1
+		}
+	}
+	n < i.Max
+}
+
+// Recent is past without the instants that have left the Period ending at
+// now: what a supervisor keeps, so it holds at most Max instants however
+// long it runs.
+func Recent(i Intensity, past []duration, now duration) []duration {
+	let mut out = []duration{}
+	for t in past {
+		if t > now-i.Period && t <= now {
+			out = out.Append(t)
+		}
+	}
+	out
+}
+
+// intensityOf is a budget of 1 to 4 restarts in 1 to 10 seconds, drawn
+// from k and p.
+func intensityOf(k int, p int) Intensity {
+	Intensity{Max: 1 + (k%4+4)%4, Period: duration(int64(1+(p%10+10)%10) * 1000000000)}
+}
+
+// instantsOf is gaps as instants: each one 0 to 3 seconds after the one
+// before, from the start.
+func instantsOf(gaps []int) []duration {
+	let mut at = 0s
+	let mut out = []duration{}
+	for g in gaps {
+		at = at + duration(int64((g%4+4)%4)*1000000000)
+		out = out.Append(at)
+	}
+	out
+}
+
+// WindowForgets: a restart is allowed again once a whole Period has passed
+// since the last restart, however many came before; and refused while Max
+// of them are in the Period, as when Max restarts came at one instant.
+law WindowForgets(gaps []int, k int, p int) {
+	let i = intensityOf(k, p)
+	let past = instantsOf(gaps)
+	let last = if len(past) == 0 { 0s } else { past[len(past)-1] }
+	let mut burst = []duration{}
+	for _ in 0..i.Max {
+		burst = burst.Append(last)
+	}
+	Allows(i, past, last+i.Period) && !Allows(i, burst, last)
+}
+
+// RecentKeepsTheVerdict: Recent drops only instants Allows does not
+// count, now and at every later instant, and a group that restarts only
+// when Allows says so keeps at most Max of them.
+law RecentKeepsTheVerdict(gaps []int, k int, p int, later int) {
+	let i = intensityOf(k, p)
+	let past = instantsOf(gaps)
+	let now = if len(past) == 0 { 0s } else { past[len(past)-1] }
+	let then = now + duration(int64((later%5+5)%5)*1000000000)
+	let mut kept = []duration{}
+	for t in past {
+		if Allows(i, kept, t) {
+			kept = Recent(i, kept.Append(t), t)
+		}
+	}
+	let r = Recent(i, past, now)
+	Allows(i, r, now) == Allows(i, past, now) && Allows(i, Recent(i, past, now), then) == Allows(i, past, then) && len(kept) <= i.Max
+}
+
+// Supervision is how a group answers a member's crash: which members
+// restart (Strategy), how many restarts it allows in a time (Intensity),
+// and how long it waits before each (Backoff, decided with the restarts
+// still in the window as its runs, so a quiet Period resets the backoff).
+type Supervision {
+	Strategy Strategy,
+	Intensity Intensity,
+	Backoff schedule.Schedule,
+}
+
+// RestartAfter is Decide's answer: restart after Wait.
+type RestartAfter { Wait duration }
+
+// GiveUp is Decide's answer: stop every member and end; the Intensity is
+// spent, or Backoff stopped.
+type GiveUp {}
+
+// Verdict is Decide's answer to a crash.
+type Verdict = RestartAfter | GiveUp
+
+// Decide answers a crash at now, given the instants of the restarts before
+// it: GiveUp when the Intensity does not allow one more; else Backoff's
+// decision after as many runs as the restarts in the window plus one, at
+// the time since the first of them (0 for none): RestartAfter its delay,
+// or GiveUp when it stops.
+func Decide(s Supervision, past []duration, now duration) Verdict {
+	let mut n = 0
+	let mut first = now
+	for t in past {
+		if t > now-s.Intensity.Period && t <= now {
+			if n == 0 {
+				first = t
+			}
+			n = n + 1
+		}
+	}
+	if n >= s.Intensity.Max {
+		return GiveUp
+	}
+	match schedule.Decide(s.Backoff, n+1, now-first) {
+	case schedule.Continue as c:
+		RestartAfter{Wait: c.After}
+	case schedule.Stop:
+		GiveUp
+	}
+}
+
+// DecideWaitsTheBackoff: when the Intensity allows a restart, Decide
+// waits what Backoff gives for the restarts in the window: an exponential
+// backoff from 1s doubles with each restart in the window and starts at
+// 1s again after a quiet Period.
+law DecideWaitsTheBackoff(gaps []int, k int, p int) {
+	let i = intensityOf(k, p)
+	let s = Supervision{Strategy: OneForOne, Intensity: i, Backoff: schedule.Exponential(1s, 2.0, 1h)}
+	let past = instantsOf(gaps)
+	let now = if len(past) == 0 { 0s } else { past[len(past)-1] }
+	let n = len(Recent(i, past, now))
+	let mut want = 1s
+	for _ in 0..n {
+		want = duration(int64(want) * 2)
+	}
+	let quiet = match Decide(s, past, now+i.Period) {
+	case RestartAfter as r:
+		r.Wait == 1s
+	case GiveUp:
+		false
+	}
+	match Decide(s, past, now) {
+	case RestartAfter as r:
+		quiet && Allows(i, past, now) && r.Wait == want
+	case GiveUp:
+		quiet && !Allows(i, past, now)
+	}
+}
 
 // Set owns any number of tasks, each started by Go and dropped when it
 // ends (docs/spec/runtime.md, G4). The frame that made it owns it, as a

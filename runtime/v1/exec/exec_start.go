@@ -482,7 +482,7 @@ func ExecStartIn(t *rt.Task, root string, name string, args []string, env map[st
 // root is not "".
 func execStart(t *rt.Task, root string, name string, args []string, env map[string]string, dir string, stdin string, grace time.Duration, outKind int, outPath string, outAppend bool, errKind int, errPath string, errAppend bool) (*Running, error) {
 	t.Check()
-	cmd, err := execCommand(name, args, env, dir, stdin)
+	cmd, err := ExecCommand(name, args, env, dir, stdin)
 	if err != nil {
 		return nil, err
 	}

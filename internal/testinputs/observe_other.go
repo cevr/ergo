@@ -21,6 +21,9 @@ func observe(string) (int, *recorder, error) {
 	return 0, nil, errors.New("no observation on " + runtime.GOOS + "/" + runtime.GOARCH)
 }
 
+// Exec cannot observe here.
+func Exec(ExecSpec) (ExecResult, error) { return ExecResult{}, ErrNoObserver }
+
 // Without observation the recorder never runs; these answers keep it from
 // remembering anything.
 

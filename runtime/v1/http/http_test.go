@@ -771,3 +771,50 @@ func TestHTTPDisconnectAndDefects(t *testing.T) {
 		t.Fatalf("lost cause: %v", cause)
 	}
 }
+
+// A handler that returns an invalid buffered status causes WriteHeader to
+// panic. Unlike a panic in the handler body, this used to be recovered by
+// the transport and lost to the owner of the request.
+func TestHTTPBufferedResponseDefect(t *testing.T) {
+	l, server := startHTTP(t, func(*rt.Task, *Exchange, string, string, string, []HTTPField, []HTTPField, string, bool, string) HTTPResponse {
+		return HTTPResponse{Status: 42}
+	})
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://"+l.Addr()+"/", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := httpClient(t).Do(req)
+	if resp != nil {
+		resp.Body.Close()
+		t.Fatalf("invalid buffered status became a response: %s", resp.Status)
+	}
+	if err == nil || ctx.Err() != nil {
+		t.Fatalf("want the transport to close the connection, got %v (context: %v)", err, ctx.Err())
+	}
+
+	// Stop also joins a server that lost the defect, so that regression
+	// fails here without waiting for a test timeout.
+	server.used = true
+	exit := server.h.Stop()
+	var cause rt.Cause
+	cause.Add(exit)
+	defects := 0
+	for _, reason := range cause.Reasons {
+		if reason.Kind != rt.KindDefect {
+			continue
+		}
+		defects++
+		p, ok := reason.Value.(*v1.Panic)
+		if !ok || p.Value != "invalid WriteHeader code 42" || !strings.Contains(string(p.Stack), "httpWriteAnswer") {
+			t.Fatalf("want the recorded WriteHeader panic with its original stack, got %#v", reason.Value)
+		}
+		if len(reason.Chain) == 0 || reason.Chain[0].Span != "http test request" {
+			t.Fatalf("want a defect of the request task, got %v", reason.Chain)
+		}
+	}
+	if defects != 1 {
+		t.Fatalf("want one buffered response defect from Serve, got %d: %v", defects, exit)
+	}
+}

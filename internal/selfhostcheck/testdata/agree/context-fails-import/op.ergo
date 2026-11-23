@@ -1,0 +1,18 @@
+// An import that a file reads only in a named context's failure row
+// (tests.ergo) is read: the package actor is not unused there
+// (S3-CONTEXT-ROW-USES, found by lane MX2).
+import actor
+
+type Op {
+	Get() int,
+
+	law Positive() { positive() },
+}
+
+func positive() bool needs Op { Op.Get() > 0 }
+
+type T {} implements Op
+
+func Get(t T) int { 1 }
+
+func Make() T fails actor.Stopped { T }

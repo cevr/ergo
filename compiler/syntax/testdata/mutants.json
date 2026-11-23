@@ -312,7 +312,7 @@
       "to": "\tif (path == \"\" && !isGoBuiltin(name) && p.i < 0) || !isIdentifier(name) {",
       "rule": "An extern target with no import path names a Go builtin.",
       "killers": [
-        "check:TestBuiltinBindingShapes"
+        "internal/sketch/check:TestBuiltinBindingShapes"
       ]
     },
     {
@@ -357,7 +357,7 @@
       "to": "\t\tif p.tk == Or && p.i < 0 {\n\t\t\terrorf(p, \"the alternatives of a case",
       "rule": "A | at the top of a case is S001 naming the comma form (FK7a).",
       "killers": [
-        "check:TestOrPatternMessages"
+        "internal/sketch/check:TestOrPatternMessages"
       ]
     },
     {
@@ -368,7 +368,7 @@
       "to": "\tif !p.orAllowed && p.i < 0 {\n",
       "rule": "Alternatives stand only in a case's patterns: a let or for pattern is one shape (FK7a).",
       "killers": [
-        "check:TestOrPatternMessages"
+        "internal/sketch/check:TestOrPatternMessages"
       ]
     },
     {
@@ -379,7 +379,7 @@
       "to": "\t\tif has && total > maxAlternatives*1000 {",
       "rule": "A case expands to at most 64 patterns (FK7a).",
       "killers": [
-        "check:TestOrPatternMessages"
+        "internal/sketch/check:TestOrPatternMessages"
       ]
     },
     {
@@ -423,7 +423,7 @@
       "to": "\t\tif mark(p.t)-fm != 1 && p.i < 0 {\n\t\t\terrorNode(p, k, \"a wire key names one field",
       "rule": "One explicit key belongs to one field, never a field group.",
       "killers": [
-        "check:TestWireKeyDiagnostics"
+        "internal/sketch/check:TestWireKeyDiagnostics"
       ]
     },
     {
@@ -584,11 +584,11 @@
       "rule": "grammar.md Declarations 6: each machine entry is set once; exit is set twice is S001.",
       "anchor": {
         "tests": [
-          "check:TestMachineExitDiagnostics"
+          "internal/sketch/check:TestMachineExitDiagnostics"
         ]
       },
       "killers": [
-        "check:TestMachineExitDiagnostics"
+        "internal/sketch/check:TestMachineExitDiagnostics"
       ]
     },
     {
@@ -599,7 +599,7 @@
       "to": "\tif false {\n\t\terrorAt(p, tpos(p, int(when)-1), 4,",
       "rule": "A top-level rewrite law takes no when.",
       "killers": [
-        "check:TestFunctionRewriteRows"
+        "internal/sketch/check:TestFunctionRewriteRows"
       ]
     },
     {
@@ -610,7 +610,7 @@
       "to": "uint32(1)",
       "rule": "types.md Laws 14: a top-level rewrite law is marked 2, so the Go tree reads it as an Equation, not a member's Rewrite.",
       "killers": [
-        "check:TestFunctionRewriteRows"
+        "internal/sketch/check:TestFunctionRewriteRows"
       ]
     },
     {
@@ -621,7 +621,7 @@
       "to": "\tif Len(l) >= 0 {",
       "rule": "A top-level rewrite law has one expression on each side.",
       "killers": [
-        "check:TestFunctionRewriteRows"
+        "internal/sketch/check:TestFunctionRewriteRows"
       ]
     },
     {
