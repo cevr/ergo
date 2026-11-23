@@ -40,6 +40,7 @@ import "embed"
 //go:embed kv/*.ergo kv/memory/*.ergo kv/file/*.ergo
 //go:embed jobs/*.ergo jobs/memory/*.ergo jobs/file/*.ergo
 //go:embed session/*.ergo session/memory/*.ergo session/file/*.ergo
+//go:embed workflow/*.ergo workflow/memory/*.ergo workflow/file/*.ergo
 //go:embed totp/*.ergo proof/*.ergo proof/memory/*.ergo proof/file/*.ergo
 //go:embed actor/*.ergo
 //go:embed journal/*.ergo journal/memory/*.ergo journal/file/*.ergo
@@ -64,3 +65,8 @@ var Sources embed.FS
 //
 //go:embed ergo.laws
 var LedgerText string
+
+// TestRedText is the shipped standard-library test red list.
+//
+//go:embed std-red.txt
+var TestRedText string

@@ -4,12 +4,11 @@
 // below clones a real subvolume.
 
 import exec
-import os
 import strings
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs TestAmbient { work.Cloner: New(exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))), exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())) }
+let onHost = context needs TestAmbient { work.Cloner: New(system.TestTrees()), exec.Runner: system.TestRunner() }
 
 // SnapshotsARealSubvolume: on btrfs, a snapshot of a subvolume holding
 // a planted tree is that tree and holds no block of its own; on any other

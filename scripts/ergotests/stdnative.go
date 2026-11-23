@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"ergo.local/prototype/internal/sketch/stdlib"
 )
 
 // nativeLine is a test binary's verdict line for a law: `ok law L …`,
@@ -28,16 +30,15 @@ const nativeFail = "native fail"
 // native verdicts join the run's: such a law ran when every native
 // verdict passed. ergo is the ergo binary; "" builds ./cmd/ergo.
 func runStdNative(w io.Writer, root, ergo string, bare []string, run *stdRun) int {
-	var pkgs []string
+	// The prelude has no in-place evaluator leg: always account for its
+	// native verdicts, even when no entry in the runner file is bare.
+	pkgs := []string{stdlib.PreludePath}
 	for _, key := range bare {
 		pkg, _, _ := strings.Cut(key, " ")
 		if ranInPlace(run.verdicts[key]) || run.failed[key] != "" || run.failed[pkg+" *"] != "" || slices.Contains(pkgs, pkg) {
 			continue
 		}
 		pkgs = append(pkgs, pkg)
-	}
-	if len(pkgs) == 0 {
-		return 0
 	}
 	tmp, err := os.MkdirTemp("", "ergotests-std-")
 	if err != nil {
@@ -67,6 +68,9 @@ func runStdNative(w io.Writer, root, ergo string, bare []string, run *stdRun) in
 		err := cmd.Run()
 		seen := nativeVerdicts(pkg, out.Bytes(), run)
 		switch {
+		case err != nil && pkg == stdlib.PreludePath:
+			fmt.Fprintf(w, "FAIL ergo test std:%s: %v\n%s", pkg, err, out.Bytes())
+			return 1
 		case err != nil && seen == 0:
 			// The package did not build or run: every law it was to
 			// decide is unrun, and the output says why.
@@ -87,7 +91,13 @@ func nativeVerdicts(pkg string, out []byte, run *stdRun) int {
 	scan := bufio.NewScanner(bytes.NewReader(out))
 	scan.Buffer(nil, 1<<20)
 	for scan.Scan() {
-		m := nativeLine.FindStringSubmatch(scan.Text())
+		line := scan.Text()
+		if pkg == stdlib.PreludePath {
+			if law, ok := stdlib.NativeMissingLaw(line); ok {
+				run.nativeMissing[pkg+" "+law] = line
+			}
+		}
+		m := nativeLine.FindStringSubmatch(line)
 		if m == nil {
 			continue
 		}

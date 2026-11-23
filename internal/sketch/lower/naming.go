@@ -50,6 +50,7 @@ import (
 
 // nameAll is the naming pass.
 func (l *lowerer) nameAll() {
+	l.reserveLeaves(v1.Leaves) // pkgnames.go, rule 4: before any declaration is named
 	if l.lib != "" {
 		l.nameExports()
 	}
@@ -62,6 +63,7 @@ func (l *lowerer) nameAll() {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
 					l.pkgName(pkgKey{"machine graph", tn}, "ergoGraph"+tn.Name) // machine.go, machineGraph
 					l.reserveMachineValue(tn)                                   // ir_machine.go
+					l.reserveMachineEntries(tn)                                 // machineentry.go
 				}
 			}
 		}
@@ -103,7 +105,8 @@ func (l *lowerer) nameAll() {
 			if !l.isSourced(p) && tn.Decl != nil {
 				if _, ok := tn.Decl.Spec.(*syntax.MachineType); ok {
 					l.pkgName(pkgKey{"machine initial", tn}, "ergoInitial"+tn.Name)
-					l.reserveMachineValue(tn) // ir_machine.go
+					l.reserveMachineValue(tn)   // ir_machine.go
+					l.reserveMachineEntries(tn) // machineentry.go
 				}
 			}
 		}

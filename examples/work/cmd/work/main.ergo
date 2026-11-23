@@ -36,12 +36,16 @@ import github.com/cevr/ergo/modules/work/git
 import github.com/cevr/ergo/modules/work/journal
 import github.com/cevr/ergo/modules/work/reflink
 import github.com/cevr/ergo/modules/work/sh
+import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workcli
 import os
 import slices
 import strconv
+import strings
 import time
+
+let BuildStamp = embedded[string]("version.txt")
 
 // baseOf is the base of the working folder cwd, as the head says; a
 // folder with a .git that a registered base's registry holds as a
@@ -128,12 +132,20 @@ func main() fails os.Exit needs Ambient | Console {
 	}
 	let home = work.Home(base, work.StorageOf(files, base))
 	let data = if shared != "" { shared } else { filepath.Join([]string{home, ".data"}) }
-	// git, the clone tools and the hooks run as the user: with the user's
-	// whole environment (identity, signing, credentials, PATH).
+	// Git, clone tools and hooks run with the user's explicit environment.
 	let run = exec.NewHost().InheritEnv(process.Environ())
+	let resolve = func(name string) string {
+		with context { os.Process: process, fs.Files: files } {
+			exec.LookPath(name) catch {
+			case exec.NotFound, exec.Denied:
+				""
+			}
+		}
+	}
+	let trees = system.New(run, resolve)
 	let p = work.Providers{
-		Cloners:  []work.Cloner{btrfs.New(run), reflink.New(run), clonefile.New(run)},
-		Copier:   copy.New(run),
+		Cloners:  []work.Cloner{btrfs.New(trees), reflink.New(trees), clonefile.New(trees)},
+		Copier:   copy.New(trees),
 		Registry: journal.Open(files, files, work.RegistryFile(home)),
 		Lock:     journal.NewLock(files, home, 10s),
 		Hooks:    sh.NewHooks(run),
@@ -143,6 +155,6 @@ func main() fails os.Exit needs Ambient | Console {
 		Runner:   run,
 		Clock:    try clockOf(process.Getenv("WORK_NOW")),
 	}
-	let tool = work.NewTool(base, home, data, p, cwd)
+	let tool = work.NewTool(base, home, data, p, cwd).WithVersion(strings.TrimSpace(BuildStamp))
 	try api.ExitAs("work", with context { work.Api: tool } { workcli.Run(jsonFirst(process.Args()), workcli.Defaults()) })
 }

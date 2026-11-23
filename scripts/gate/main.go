@@ -23,9 +23,8 @@
 // tests run git, ps, shells, the go command and gates in systemd scopes, is a
 // host package (hostTestPackages): its step runs with -count=1, so Go's test
 // cache never replays it, with its parallel tests bounded by hostTestParallel.
-// The packages below it are hermetic: each runs no program
-// but its own test binary and builds with CGO_ENABLED=0 (package
-// scripts/gate/hermetic checks them), so they replay.
+// The packages below it run as every other package does: uncached, under
+// -count=1 (uncachedTestFlag), with no exception.
 //
 // Above the steps sits the whole-gate replay (package replay, wholegate.go).
 // One key covers every input of every step: the gate executable, the
@@ -131,23 +130,15 @@ type Step struct {
 	// ERGO_TOOL_VERSIONS; a test that reads it keys Go's test cache on it.
 	ToolEnv []string
 	// Env sets variables ("NAME=value") for the step, over the environment
-	// the gate gives it; a hermetic Go test step sets CGO_ENABLED=0.
+	// the gate gives it.
 	Env []string
 	// GoStore gives the step's test processes the run's test Go store
 	// (goStore, testGoStoreVariable).
 	GoStore bool
-	// Hermetic marks the go test step of the hermetic gate packages (below
-	// hermeticTestRoot), the one exception to the gate's default: every other
-	// step runs with -count=1 added to GOFLAGS (stepEnvironment), so no go
-	// test it starts replays Go's test cache. A hermetic step keeps the
-	// caller's GOFLAGS, so Go may replay its tests.
-	// TestCachedGatePackagesAreHermetic checks each of its packages.
-	Hermetic bool
 	// Observe, set on a test step that runs its tests uncached (a fast-tier
 	// step, a full-tier package step), says it runs go test -json: the gate
 	// keeps its tests' times for the size rule (observeStep, testSeconds)
-	// and prints plain go test's text. The hermetic step replays Go's test
-	// cache, whose times are not a run's, and observes nothing.
+	// and prints plain go test's text.
 	Observe bool
 	// Package, set on a fast-tier test step, is the closure of the test
 	// package it runs: the step replays its last pass while its package
@@ -276,6 +267,9 @@ type gate struct {
 	started  time.Time
 	root     string
 	cacheDir string
+	// reds are the run's red lines (reds.go): each failed step's output,
+	// by line, recorded under the checkout's tree and tier.
+	reds redSet
 	// spoolDir holds the steps' output spools (outputSpoolDir).
 	spoolDir string
 	noCache  bool
@@ -409,6 +403,8 @@ func main() {
 	replayReds := flag.String("reds", "", "with -replay-affected: the reds file")
 	backtest := flag.Bool("backtest", false, "backtest the round tier over the coverage store and the ledgers at the store's commit nearest to HEAD, replay it from there to HEAD, and exit (the full tier's step \"coverage store backtest\")")
 	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
+	newReds := flag.String("new-reds", "", "BASE: after the run, compare its failures by line with the record of BASE's tree in this tier (reds.go): print each NEW and FIXED line and exit 1 on a new one, 0 when every red line is BASE's; 2 when BASE has no record")
+	flag.BoolVar(&guardsOnly, "guards", false, "the fast tier's guard packages only (whole.go: granted the checkout or declared //gate:whole), run whole: a landing's check when it runs no tier")
 	parts := flag.Int("parts", 0, "N with one package directory: print the N go test selections that deal its tests into fixed parts by the counted work in "+testWorkFile+", one line each, and exit (parts.go)")
 	recordWorkProbe := flag.String("record-work", "", "PROBE with one package directory: rewrite the package's rows of "+testWorkFile+" from the probe log of a -short run (ERGO_SPLIT_PROBE), and exit")
 	flag.Parse()
@@ -463,6 +459,12 @@ func main() {
 	tier := tierFor(*full, *noCache, *merge, *recordDurations)
 	if *affected {
 		tier, roundBase = roundTier, flag.Arg(0)
+	}
+	if guardsOnly {
+		if tier != fastTier {
+			fatal(errors.New("-guards is the fast tier's guard steps: it takes no other tier"))
+		}
+		tier = guardsTier
 	}
 	// Before any process starts, so a stop finds every one (stop.go).
 	stopOnSignals()
@@ -578,9 +580,16 @@ func main() {
 		g.whole = &wholeGate{mechanism: mechanismFact(scope, probed, scopeNote), identity: state}
 	}
 	if *merge {
+		if *newReds != "" {
+			fatal(errors.New("-new-reds goes with the fast, round or full tier: the merge tier compares its own runs"))
+		}
 		exitGate(g.mergeTier(os.Stdout))
 	}
-	exitGate(g.run(os.Stdout))
+	code := g.run(os.Stdout)
+	if *newReds != "" && code != 2 {
+		code = reportReds(os.Stdout, g.root, g.cacheDir, *newReds, g.tier, g.reds)
+	}
+	exitGate(code)
 }
 
 // setUp opens the gate's limiter, then finds the checkout and, when
@@ -638,12 +647,15 @@ func setUpTier(scope, scopeNote, tier string, beforeSteps func(*gate)) (*gate, e
 	if beforeSteps != nil {
 		beforeSteps(g)
 	}
-	if tier == fastTier {
+	if tier == fastTier || tier == guardsTier {
 		// The fast tier selects the compiler's tests against the coverage
 		// record of its cache (selectTests, gate-speed GS4).
 		g.steps, g.dropped, err = fastStepsSelected(g.root, g.cacheDir, func(p testPackage, env, names []string) selection {
 			return selectTests(g.root, g.cacheDir, p, env, names)
 		}, false)
+		if err == nil && tier == guardsTier {
+			g.steps = guardSteps(g.steps)
+		}
 	} else if tier == roundTier {
 		// The round tier selects every package's tests against the
 		// coverage store's segment at the base (affected.go, CS-ROUND).
@@ -747,10 +759,9 @@ func (g *gate) mergeTier(out io.Writer) int {
 		}
 		defer g.limit.close()
 	}
-	var uncached []*Step
-	for _, step := range g.steps {
-		uncached = append(uncached, uncachedStep(step))
-	}
+	// Every step already runs uncached (stepEnvironment); the merge tier's
+	// run is the inner tier's steps.
+	uncached := slices.Clone(g.steps)
 	// The go test steps record their runs, and the sweeps read them
 	// (closurerecord.go).
 	uncached = recordForSweep(g.root, uncached)
@@ -904,6 +915,7 @@ func cacheDirectory() string {
 func (g *gate) run(out io.Writer) int {
 	started := time.Now()
 	g.started = started
+	g.reds = redSet{}
 	// The gate prints every step's output to out. A file in memory there
 	// would charge that output to the gate, so the gate refuses it before
 	// any step runs.
@@ -1171,7 +1183,19 @@ func (g *gate) run(out io.Writer) int {
 			}
 		}
 		objects[i] = object
-		if err := r.print(destination); err != nil {
+		var red *redStep
+		switch r.outcome {
+		case failed:
+			red = redsOf(g.reds, step.Name)
+			destination = io.MultiWriter(destination, red)
+		case blocked:
+			g.reds[redKey(stepFamily(step.Name), "", "not run")]++
+		}
+		err := r.print(destination)
+		if red != nil {
+			red.Close()
+		}
+		if err != nil {
 			fmt.Fprintf(out, "gate: %s: print output: %v\n", step.Name, err)
 			if !slices.Contains(failures, step.Name) {
 				failures = append(failures, step.Name)
@@ -1211,6 +1235,13 @@ func (g *gate) run(out io.Writer) int {
 		fmt.Fprintf(out, "gate: %s: %v\n", sweepCostFile, err)
 	} else if len(dirs) > 0 {
 		fmt.Fprintf(out, "gate: rewrote the rows of %s in %s from this run; commit them\n", strings.Join(dirs, ", "), sweepCostFile)
+	}
+	// A clean checkout's red lines are the record a later -new-reds
+	// against this tree reads (reds.go); a dirty one's are no tree's.
+	if g.whole != nil && g.whole.identity.clean {
+		if err := writeReds(g.cacheDir, g.whole.identity.tree, g.tier, g.root, g.reds); err != nil {
+			fmt.Fprintf(out, "gate: record the red lines: %v\n", err)
+		}
 	}
 	elapsed := time.Since(started).Seconds()
 	if len(failures) > 0 {
@@ -1534,7 +1565,7 @@ func keyedEnvironment() []string {
 }
 
 // uncachedTestFlag is what the gate adds to the caller's GOFLAGS for every
-// step but a hermetic one (Step.Hermetic). Go's test cache replays a result
+// step. Go's test cache replays a result
 // only when every test flag is cacheable, and -count is not, so no go test
 // that a step starts replays a result: one in the step's argv, one a shell
 // script runs, one a program runs (go run, go test -exec, -toolexec,
@@ -1545,8 +1576,8 @@ func keyedEnvironment() []string {
 // policy test refuses both by name.
 const uncachedTestFlag = "-count=1"
 
-// stepEnvironment is the environment every step runs with, a hermetic one
-// excepted (stepEnvironmentFor), and every tool query: keyedEnvironment with
+// stepEnvironment is the environment every step runs with, and every tool
+// query: keyedEnvironment with
 // uncachedTestFlag after the caller's GOFLAGS. It is added, not set, so the
 // caller's flags still apply, and it comes last, so it wins over a -count
 // the caller gives. The flag follows from the gate's code, which the
@@ -1610,14 +1641,9 @@ func emptyStepTempDir(name string) error {
 }
 
 // stepEnvironmentFor is the environment of one step, before its own
-// variables: stepEnvironment, or keyedEnvironment for a hermetic step (the
-// one exception to the uncached default), with the step's TMPDIR.
+// variables: stepEnvironment, with the step's TMPDIR.
 func stepEnvironmentFor(root string, step *Step) []string {
-	environment := stepEnvironment()
-	if step.Hermetic {
-		environment = keyedEnvironment()
-	}
-	return setEnvironmentVariable(environment, "TMPDIR", stepTempDir(root, step.Name))
+	return setEnvironmentVariable(stepEnvironment(), "TMPDIR", stepTempDir(root, step.Name))
 }
 
 // stepCommandEnvironment is the environment a step's command runs with,

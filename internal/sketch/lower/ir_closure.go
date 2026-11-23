@@ -305,6 +305,13 @@ func (b *irBuilder) valueCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*ir
 	if c.Recv != nil {
 		irNo("call of a function value with a receiver")
 	}
+	if name := b.knownDirect(x); name != "" {
+		// A computed field of a known record in its copy: its entry's
+		// copy, called directly (entrycopy.go), its pair as the value's.
+		pre, vals := b.operands(x.Args)
+		args := append([]*irExpr{{K: "local", Pos: p, I: b.env}}, vals...)
+		return pre, &irExpr{K: "call", Pos: p, Name: name, Args: args}
+	}
 	pre, vals := b.operands(append([]syntax.Expr{x.Fun}, x.Args...))
 	args := append([]*irExpr{{K: "local", Pos: p, I: b.env}}, vals[1:]...)
 	return pre, &irExpr{K: "vcall", Pos: p, X: vals[0], Args: args}
