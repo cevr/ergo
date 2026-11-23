@@ -547,11 +547,21 @@ func (x base64__Encoding) ErgoVariant() string {
 	return [...]string{"StdEncoding", "URLEncoding"}[x.tag]
 }
 
+// ergoOrdered is the type set of ordered.
+type ergoOrdered interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string
+}
+
+type ergo__Range[T ergoOrdered] struct {
+	Start T
+	End   T
+}
+
 func strings__HasPrefix(s string, prefix string) bool {
 	/*line std/strings/strings.ergo:19:47*/ return go__strings.HasPrefix(s, prefix)
 }
 
-//line compiler.go:506
+//line compiler.go:516
 
 type dense__ID[K any] struct {
 	n uint32
@@ -561,7 +571,7 @@ func strconv__Itoa(n int) string {
 	/*line std/strconv/strconv.ergo:22:26*/ return strconv.Itoa(n)
 }
 
-//line compiler.go:512
+//line compiler.go:522
 
 // ergo__compiler_ssyntax__tabopLenV are opLen's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabopLenK [256]ergo.MemoFlag
@@ -581,7 +591,7 @@ func strconv__Quote(s string) string {
 	/*line std/strconv/strconv.ergo:80:30*/ return strconv.Quote(s)
 }
 
-//line compiler.go:528
+//line compiler.go:538
 
 type dense__Col[K any, V any] struct {
 	xs []V
@@ -605,13 +615,13 @@ func slices__WithCapacity[T any](n int) []T {
 	/*line std/slices/slices.ergo:28:38*/ return make([]T, 0, n)
 }
 
-//line compiler.go:548
+//line compiler.go:558
 
 func slices__WithCapacityMono_i848563180(n int) []uint32 {
 	/*line std/slices/slices.ergo:28:38*/ return make([]uint32, 0, n)
 }
 
-//line compiler.go:550
+//line compiler.go:560
 
 func ergo__textcompiler_sformat__SyntaxFailure(v compiler_sformat__SyntaxFailure) string {
 	return "{" + "Code:" + v.Code + " Message:" + v.Message + " Offset:" + ergo.TextInt(int64(v.Offset)) + " Length:" + ergo.TextInt(int64(v.Length)) + " Line:" + ergo.TextInt(int64(v.Line)) + " Column:" + ergo.TextInt(int64(v.Column)) + "}"
@@ -637,7 +647,7 @@ func (b strings__Builder) Len() int {
 	/*line std/strings/builder.ergo:38:26*/ return len(b.buf)
 }
 
-//line compiler.go:572
+//line compiler.go:582
 
 func ergo__textcompiler_sir__Malformed(v compiler_sir__Malformed) string {
 	return "{" + "At:" + ergo.TextInt(int64(v.At)) + " Why:" + v.Why + "}"
@@ -647,23 +657,13 @@ func strconv__FormatInt(n int64, base int) string {
 	/*line std/strconv/strconv.ergo:27:43*/ return strconv.FormatInt(n, base)
 }
 
-//line compiler.go:578
+//line compiler.go:588
 
 func (b *strings__Builder) WriteByte_(c uint8) {
 	/*line std/strings/builder.ergo:17:40*/ b.buf = append(b.buf, c)
 }
 
-//line compiler.go:580
-
-// ergoOrdered is the type set of ordered.
-type ergoOrdered interface {
-	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string
-}
-
-type ergo__Range[T ergoOrdered] struct {
-	Start T
-	End   T
-}
+//line compiler.go:590
 
 func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
 	/*line std/maps/maps.ergo:20:1*/ v_1, ok := m[k]
@@ -12941,8 +12941,9 @@ func compiler_scachekey__BuildID(key string, parts int) string {
 	/*line cachekey/cachekey.ergo:48:12*/ {
 	}
 	/*line cachekey/cachekey.ergo:49:1*/ ids := ergo.SliceOfLen[string](parts - 0)
-	/*line cachekey/cachekey.ergo:50:1*/ for i := range parts {
-		/*line cachekey/cachekey.ergo:51:2*/ ids[i-0] = part
+	/*line cachekey/cachekey.ergo:50:1*/ r := ergo__Range[int]{Start: 0, End: parts}
+	/*line cachekey/cachekey.ergo:50:1*/ for i := r.Start; i < r.End; i++ {
+		/*line cachekey/cachekey.ergo:51:2*/ ids[i-r.Start] = part
 	}
 	/*line cachekey/cachekey.ergo:53:1*/ return ergo.StringsJoin(ids, "/")
 }
@@ -20910,16 +20911,18 @@ func (l *compiler_sformat__Layout) build(env *ergo__Env, c compiler_sformat__Gri
 	/*line format/align.ergo:97:1*/ (&out).Grow(size)
 	/*line format/align.ergo:98:1*/ r_1 := ergo__Range[int]{Start: first, End: len(l.LineIndent)}
 	/*line format/align.ergo:98:1*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
-		/*line format/align.ergo:99:2*/ for range l.LineIndent[i_1] {
+		/*line format/align.ergo:99:2*/ r_2 := ergo__Range[int]{Start: 0, End: l.LineIndent[i_1]}
+		/*line format/align.ergo:99:2*/ for i_2 := r_2.Start; i_2 < r_2.End; i_2++ {
 			/*line format/align.ergo:100:3*/ (&out).WriteByte_(uint8(9))
 		}
 		/*line format/align.ergo:102:2*/ a := l.LineFirst[i_1]
 		/*line format/align.ergo:103:2*/ b := a + l.LineN[i_1]
-		/*line format/align.ergo:104:2*/ r_2 := ergo__Range[int]{Start: a, End: b}
-		/*line format/align.ergo:104:2*/ for k := r_2.Start; k < r_2.End; k++ {
+		/*line format/align.ergo:104:2*/ r_3 := ergo__Range[int]{Start: a, End: b}
+		/*line format/align.ergo:104:2*/ for k := r_3.Start; k < r_3.End; k++ {
 			/*line format/align.ergo:105:3*/ (&out).WriteString(strings__Slice_2(c_Text, l.CellA[k], l.CellB[k]))
 			/*line format/align.ergo:106:3*/ if k < b-1 {
-				/*line format/align.ergo:107:4*/ for range c_Pad[k] - c_Width[k] {
+				/*line format/align.ergo:107:4*/ r_4 := ergo__Range[int]{Start: 0, End: c_Pad[k] - c_Width[k]}
+				/*line format/align.ergo:107:4*/ for i_3 := r_4.Start; i_3 < r_4.End; i_3++ {
 					/*line format/align.ergo:108:5*/ (&out).WriteByte_(uint8(32))
 				}
 			}
