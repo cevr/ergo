@@ -10,7 +10,8 @@ import (
 )
 
 // TestIRDigestInItsPackage: every IR file of a lowering, split
-// (LowerIRSplit) or one package (LowerIR, LowerIRTests), has its sha256 in
+// (LowerIRSplit), one package (LowerIR, LowerIRTests) or a library
+// (LowerIRLibrary: `ergo go` builds it at a stable path), has its sha256 in
 // a Go file of its own package (irKeyed). go build keys a compile on the
 // Go files and the -ergoir flag, which names the IR file by a path
 // relative to the module (build.Toolchain.Command), the same in every
@@ -18,7 +19,9 @@ import (
 // the stale compile. It runs on genSplitProgram's programs and checks in
 // process.
 //
-// Mutant: ir-keyed-none (irKeyed writes no digest).
+// Mutants: ir-keyed-none (irKeyed writes no digest); lib-ir-keyed-none
+// (LowerIRLibrary returns its files without irKeyed: GO-DROPIN-PROBE
+// step 10, an IR edited at the same path built the old body).
 func TestIRDigestInItsPackage(t *testing.T) {
 	for seed := uint64(1); seed <= 3; seed++ {
 		u := genSplitProgram(seed).check(t)
@@ -27,6 +30,7 @@ func TestIRDigestInItsPackage(t *testing.T) {
 			"split tests": func() ([]File, error) { f, _, _, err := LowerIRSplit(u, true); return f, err },
 			"one":         func() ([]File, error) { f, _, err := LowerIR(u); return f, err },
 			"one tests":   func() ([]File, error) { f, _, err := LowerIRTests(u); return f, err },
+			"library":     func() ([]File, error) { f, _, err := LowerIRLibrary(u, "lib"); return f, err },
 		}
 		for name, lower := range lowerings {
 			files, err := lower()

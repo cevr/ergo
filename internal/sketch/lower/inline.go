@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/token"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -242,7 +243,7 @@ type inlineRet struct {
 // it (its index plus one, 0 for none).
 type inlineSite struct {
 	src, offset int
-	parent      int
+	key, parent string
 }
 
 // litSub is a pure literal written where an inlined body calls its
@@ -920,15 +921,42 @@ func (fc *funcCtx) inlineArgs(list []syntax.Expr, call *syntax.CallExpr, addr bo
 // site0 records the identity of the inlined call x, writes its directive,
 // and returns its inline site (plus one) for the lines of its body; 0 when
 // the code fc writes has no directives.
-func (fc *funcCtx) site0(x *syntax.CallExpr, c *check.Call) int {
+func (fc *funcCtx) site0(x *syntax.CallExpr, c *check.Call) string {
 	if !fc.directives || !x.Pos().IsValid() {
 		return fc.inl
 	}
 	fc.l.recordCall(x, fc.owner, fc.callee(x, c))
 	fc.at(x)
 	src, _, _, _ := fc.l.at(x, x.Pos())
-	fc.l.inlineSites = append(fc.l.inlineSites, inlineSite{src: src, offset: int(x.Pos()), parent: fc.inl})
-	return len(fc.l.inlineSites)
+	key := fc.l.inlineKey(src, int(x.Pos()), fc.inl)
+	fc.l.addInlineSite(inlineSite{src: src, offset: int(x.Pos()), key: key, parent: fc.inl})
+	return key
+}
+
+// inlineKey is the key of the inline site of the call at offset of source
+// src inside the site parent ("" for none) (rule 7 of
+// pkgnames.go): the call's path, line and column after its parent's key,
+// a function of the site alone, so the tags of a function's lines do not
+// depend on what else the program inlines. A site a second copy of the
+// same body inlines again has the same key and one table entry.
+func (l *lowerer) inlineKey(src, offset int, parent string) string {
+	line, col := l.srcs[src].file.Position(syntax.Pos(offset))
+	key := l.srcs[src].path + "@" + strconv.Itoa(line) + "." + strconv.Itoa(col)
+	if parent != "" {
+		key = parent + ">" + key
+	}
+	return key
+}
+
+// addInlineSite adds s to the program's inline table, once per key.
+func (l *lowerer) addInlineSite(s inlineSite) {
+	if l.inlineKeys == nil {
+		l.inlineKeys = map[string]bool{}
+	}
+	if !l.inlineKeys[s.key] {
+		l.inlineKeys[s.key] = true
+		l.inlineSites = append(l.inlineSites, s)
+	}
 }
 
 // closeInline writes an inlined body: its block, then its label when a
@@ -1153,10 +1181,10 @@ func (fc *funcCtx) writeDir(d string) {
 
 // tagPath is path with the inline site tag of the code fc writes.
 func (fc *funcCtx) tagPath(path string) string {
-	if fc.inl == 0 {
+	if fc.inl == "" {
 		return path
 	}
-	return path + inlineTag + strconv.Itoa(fc.inl-1)
+	return path + inlineTag + fc.inl
 }
 
 // inlineTable is the Go declaration of the program's inline sites and the
@@ -1170,10 +1198,12 @@ func (l *lowerer) inlineTable(entryOf func(src, offset int) int) (decl, register
 	}
 	name := l.pkgName(pkgKey{"inlines", nil}, "ergoInlines")
 	var b strings.Builder
-	b.WriteString("// " + name + " lists the program's inlined calls: each one's call table\n// entry and the inlined call around it, or -1 (runtime.md, Exit causes 6).\n")
-	b.WriteString("var " + name + " = [...]struct{ Call, Parent int }{\n")
-	for _, s := range l.inlineSites {
-		b.WriteString("\t{Call: " + strconv.Itoa(entryOf(s.src, s.offset)) + ", Parent: " + strconv.Itoa(s.parent-1) + "},\n")
+	b.WriteString("// " + name + " lists the program's inlined calls: each one's tag key, call\n// table entry and the inlined call around it, or \"\" (runtime.md, Exit causes 6).\n")
+	b.WriteString("var " + name + " = [...]struct {\n\tKey    string\n\tCall   int\n\tParent string\n}{\n")
+	sites := slices.Clone(l.inlineSites)
+	slices.SortFunc(sites, func(a, b inlineSite) int { return strings.Compare(a.key, b.key) })
+	for _, s := range sites {
+		b.WriteString("\t{Key: " + strconv.Quote(s.key) + ", Call: " + strconv.Itoa(entryOf(s.src, s.offset)) + ", Parent: " + strconv.Quote(s.parent) + "},\n")
 	}
 	b.WriteString("}\n\n")
 	return b.String(), "\t" + l.rt() + ".RegisterInlines(" + name + "[:])\n"

@@ -270,6 +270,10 @@ func importedRec(s store.Store, k Pkg, ty dense.ID[store.TKey]) (string, string,
 	}
 }
 
+// ImportedRec is importedRec for the passes after typing (diag's
+// resources of an imported type).
+func ImportedRec(s store.Store, k Pkg, ty dense.ID[store.TKey]) (string, string, []dense.ID[store.TKey]) { importedRec(s, k, ty) }
+
 // outsideRec is whether ty is a type of an import k holds only as its
 // interface (a package outside the run, whose fields it cannot read).
 func outsideRec(s store.Store, k Pkg, ty dense.ID[store.TKey]) bool {

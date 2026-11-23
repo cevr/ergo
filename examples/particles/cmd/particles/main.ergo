@@ -45,7 +45,7 @@ func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
 	let set = Set()
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return None
 	}
 	Some[Options]{Value: Options{Seed: Seed.Get(v), Count: Count.Get(v), Width: Width.Get(v), Height: Height.Get(v), Loss: Loss.Get(v), Frames: Frames.Get(v), Keys: Keys.Get(v), Live: Live.Get(v)}}
@@ -132,5 +132,5 @@ test RefusalsExit {
 	assert session([]string{"-width", "2"}) == "exit 2: particles: a box of 2x8 is outside 3..200 on a side"
 	assert session([]string{"-n", "200", "-width", "4", "-height", "4"}) == "exit 2: particles: 200 particles do not fit in 16 cells"
 	assert session([]string{"-loss", "-1"}) == "exit 2: particles: a loss of -1 would add speed"
-	assert session([]string{"-h"}) == flag.Usage(Set())+"help"
+	assert session([]string{"-h"}) == flag.UsageText(Set())+"help"
 }

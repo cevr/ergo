@@ -90,7 +90,6 @@ debt	internal/sketch/check/check.go:stdImporter.load	mark	".trusted"	stdImporter
 seam	internal/sketch/check/check.go:stdImporter.load	mark	"stdlib.Package"	loads an embedded std package and marks it std	-
 seam	internal/sketch/check/check.go:stdImporter.testOf	mark	"stdlib.Package"	finds the std package a std test package tests	-
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_Package	mark	".trusted"	CodecFieldsOf_Package: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_TypeParam	flag	"lang"	CodecFieldsOf_TypeParam: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_checker	flag	"hostCall"	CodecFieldsOf_checker: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_hand	flag	"hostLend"	CodecFieldsOf_hand: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_typeCtx	flag	"binding"	CodecFieldsOf_typeCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -102,9 +101,6 @@ debt	internal/sketch/check/decl.go:checker.funcSig	mark	"Host()"	checker.funcSig
 seam	internal/sketch/check/decl.go:checker.importSpec	mark	"stdlib.Package"	a std path always names std (no shadowing)	-
 debt	internal/sketch/check/decl.go:checker.interfaceType	mark	"Host()"	checker.interfaceType: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/decl.go:checker.resolveNamed	flag	"emptyUnion"	checker.resolveNamed: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-language	internal/sketch/check/decl.go:checker.resolveNamed	mark	"stdlib.PreludePath"	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
-language	internal/sketch/check/decl.go:checker.resolveNamed	name	"Option"	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
-language	internal/sketch/check/decl.go:checker.resolveNamed	name	"Some"	Option and Some, language types whose T admits a resource with no own mark (types.md, Generics 9)	-
 seam	internal/sketch/check/decl.go:checker.run	mark	".std"	the second check of a package keeps its std mark	-
 debt	internal/sketch/check/decl.go:checker.run	mark	".trusted"	checker.run: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/decl.go:checker.structType	mark	"Host()"	checker.structType: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -249,10 +245,7 @@ debt	internal/sketch/check/ownership.go:ownWalk.convertedAt	flag	"hostLend"	ownW
 debt	internal/sketch/check/ownership.go:ownWalk.pkgLetMove	flag	"isHostPkgName"	ownWalk.pkgLetMove: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/releaseneeds.go:checker.releaseWider	name	"Close"	Close, the release operation	-
 debt	internal/sketch/check/resource.go:checker.checkResourceTypes	mark	"Host()"	checker.checkResourceTypes: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/resource.go:checker.checkTypeMark	flag	"languageParam"	checker.checkTypeMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/resource.go:checker.recordConversion	flag	"hostLendArg"	checker.recordConversion: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/resource.go:checker.recordOwnMark	flag	"languageParam"	checker.recordOwnMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/resource.go:languageParam	flag	"lang"	languageParam: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/resource.go:resWalk.visit	mark	"Host()"	resWalk.visit: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/snapshot/codec_gen.go:decoder.decT222	runtime	"v1.Hidden"	decoder.decT222: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/snapshot/codec_gen.go:decoder.decV1_Hidden	runtime	"v1.Hidden"	decoder.decV1_Hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
