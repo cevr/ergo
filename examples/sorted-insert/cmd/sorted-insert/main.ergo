@@ -1,0 +1,38 @@
+// sorted-insert inserts its arguments, one by one, into an ascending list
+// and prints the list after each insert:
+//
+//	sorted-insert N...
+
+import os
+import sortedinsert/ordered
+import strconv
+import strings
+
+// Usage is the text of a usage failure.
+let Usage = "usage: sorted-insert N..."
+
+// Parse is the integers of args.
+func Parse(args []string) []int fails os.Exit {
+	let mut ns = []int{}
+	for a in args {
+		let n = strconv.Atoi(a) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: Usage}
+		}
+		ns = ns.Append(n)
+	}
+	ns
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let ns = try Parse(os.NewHost().Args())
+	let mut xs = []int{}
+	for n in ns {
+		xs = ordered.Insert(xs, n)
+		let mut parts = []string{}
+		for x in xs {
+			parts = parts.Append("\(x)")
+		}
+		Console.Println(strings.Join(parts, " "))
+	}
+}
