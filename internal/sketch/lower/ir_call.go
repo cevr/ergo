@@ -119,6 +119,14 @@ func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // call with effects.
 func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
 	c := b.l.info.Calls[x]
+	if ids := b.heldOperands(x, c); len(ids) != 0 {
+		return b.heldCall(x, c, stmt, ids)
+	}
+	return b.callPartsRaw(x, stmt)
+}
+
+func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
+	c := b.l.info.Calls[x]
 	if c == nil {
 		irNo("call without a Calls entry")
 	}

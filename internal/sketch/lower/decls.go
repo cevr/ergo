@@ -1298,9 +1298,6 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	frameErr := ""
 	needsFrame := l.bodyNeedsFrame(f.Decl.Body.List) || l.ownsParams(params)
 	fc.frame.plain = needsFrame && !l.bodyNeedsScope(f.Decl.Body.List)
-	if fc.frame.plain && sp == nil && l.staticPlan(params, f.Decl.Body.List) {
-		fc.frame.static = &staticFrame{}
-	}
 	results := ""
 	switch {
 	case needsFrame && fd.fallible:
@@ -1329,6 +1326,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
 	if l.ir != nil {
+		if fc.frame.plain && sp == nil && l.staticPlan(params, f.Decl.Body.List, true) {
+			fc.frame.static = &staticFrame{}
+		}
 		// LowerIR and CensusIR only (ir.go): a body in the IR builder's
 		// subset leaves its Go declaration without a body, or with the
 		// placeholder a generic one needs (ir_placeholder.go).
@@ -1354,6 +1354,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			}
 			return
 		}
+	}
+	fc.frame.static = nil
+	if fc.frame.plain && sp == nil && l.staticPlan(params, f.Decl.Body.List, false) {
+		fc.frame.static = &staticFrame{}
 	}
 	closeRecv := ""
 	if len(paramNames) > 0 {

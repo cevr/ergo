@@ -105,6 +105,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"body that needs a frame", "G2"},
 	{"owned local", "G2"},
 	{"owned temporary", "G2"},
+	{"held take *", "G2"},
 	{"statement that releases owned values", "G2"},
 	{"untried fallible call", "G2"},
 	{"fallible call with an empty row at its site", "G2"},
