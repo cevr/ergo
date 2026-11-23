@@ -293,8 +293,10 @@ func (b *irBuilder) inlineMark(x *syntax.CallExpr, c *check.Call, fd *funcDecl, 
 	// known pure functions, built plain at the site, so its copy binds
 	// them as it binds any operand (KNOWN-FILTER-INLINE). A call of the
 	// function itself passes callbacks the copy cannot know.
+	// Its rows are empty at the site, so its Go error, nil, is dropped
+	// (dropErr): the copy's returns bind the value and a nil error.
 	known := fd.known != "" && e.Name == fd.known
-	if f == nil || x.Trailing != nil || c.StartsTask || fd.fallible && (b.dropsErr[e] || len(f.Sig.Results) != 1) || len(f.Sig.Results) > 1 || len(callbackParams(f)) > 0 && !known {
+	if f == nil || x.Trailing != nil || c.StartsTask || fd.fallible && (b.dropsErr[e] && !known || len(f.Sig.Results) != 1) || len(f.Sig.Results) > 1 || len(callbackParams(f)) > 0 && !known {
 		return e
 	}
 	// A call in a library body has no identity (calls.go identify): its
