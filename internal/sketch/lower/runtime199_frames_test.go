@@ -64,7 +64,7 @@ var i1FrameKinds = []i1FrameKind{
 	{name: "test", goClass: "decl", testBuild: true, sites: map[string]int{"testDecl": 1}, program: func(_, _, _ string, body string) string {
 		return "test Subject {\n" + i1Discard(body) + "}\n"
 	}},
-	// A law body is a frame of the test build only (#162 law-run-1): the
+	// A law body is a frame of the test build only (law-run-1): the
 	// test build runs it, the run build emits none. Its parameter's type
 	// Case is its subject (S115).
 	{name: "top-law", goClass: "decl", testBuild: true, sites: map[string]int{"lawFrame": 1}, program: func(_, _, _ string, body string) string {
@@ -270,7 +270,7 @@ func TestRuntime199FrameClassCoverage(t *testing.T) {
 						continue
 					}
 					var bodies []*ast.BlockStmt
-					if frame.name == "context" && fd.Name.Name == "buildDeep" {
+					if frame.name == "context" && fd.Name.Name == goHelper("buildDeep") {
 						bodies = append(bodies, fd.Body)
 					}
 					if frame.name == "initializer" && fd.Name.Name == "ergoInit" {

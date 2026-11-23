@@ -88,7 +88,7 @@ func TestEveryHabitHasAFixture(t *testing.T) {
 	}
 }
 
-// TestUsesIsAnIdentifier (#217): `uses` is not a keyword and has no
+// TestUsesIsAnIdentifier: `uses` is not a keyword and has no
 // compatibility path, so the old spelling of a needs clause gets the plain
 // S001 any stray identifier gets, never a dedicated hint.
 func TestUsesIsAnIdentifier(t *testing.T) {
@@ -122,6 +122,20 @@ func TestKeywordsAreNotNames(t *testing.T) {
 			if word == "mut" && strings.HasPrefix(src, "func f(") {
 				// `mut int64` is an unnamed parameter in the write-in-place
 				// mode (MODES-1): mut is still no name there.
+				continue
+			}
+			if word == "test" && strings.HasPrefix(src, "type T { ") {
+				// `test int64` is the harness member of an operation type
+				// (grammar.md, Declarations 11): it names a function, and
+				// test is no name there either.
+				f, err := Parse(src)
+				if err != nil || len(f.Decls) != 1 {
+					t.Errorf("%q: %v", src, err)
+				} else if td, _ := f.Decls[0].(*TypeDecl); td == nil {
+					t.Errorf("%q declares no type", src)
+				} else if it, ok := td.Spec.(*InterfaceType); !ok || len(it.Harnesses) != 1 {
+					t.Errorf("%q is no operation type with one harness", src)
+				}
 				continue
 			}
 			if _, err := Parse(src); err == nil {

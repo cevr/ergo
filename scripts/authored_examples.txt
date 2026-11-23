@@ -7,6 +7,7 @@ internal/sketch/sketchtest/testdata/migrated/machine-breaker.ergo
 internal/sketch/sketchtest/testdata/migrated/main.ergo
 models/children/children.ergo
 models/durable/durable.ergo
+models/workflow/workflow.ergo
 models/free/free.ergo
 models/host/host.ergo
 models/region/region.ergo

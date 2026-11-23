@@ -269,7 +269,7 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		"os.hostArgs", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "prelude.Sleep", "prelude.hostAlarms",
 		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rand.secureBytes", "rpc.call",
 		"sql.hostBegin", "sql.hostCommit", "sql.hostExec", "sql.hostOpen", "sql.hostQuery", "sql.hostRollback", "sql.hostTxExec", "sql.hostTxQuery",
-		"term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostReadKey", "term.hostSize", "time.hostMono", "time.hostNow"}
+		"term.hostDrop", "term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostPeek", "term.hostSize", "time.hostMono", "time.hostNow"}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("host externs %v, want %v", hosts, want)
 	}

@@ -96,6 +96,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// rows are never inferred (D-E5).
 		c.checkExterns,
 		c.collectBodyErrorRows,
+		// After the error types: a named row is its row (namedrow.go).
+		c.knowRows,
 		c.checkSlotArgs,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict
@@ -112,6 +114,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// A constructor's rows are inferred, so constructors are planned
 		// once bodies converge, before any generator is decided.
 		c.planConstructors,
+		c.planHarnesses,
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,
@@ -169,6 +172,10 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		pass()
 	}
 	c.publishErrorTypes()
+	// The named-row hook reads this checker (namedrow.go); the published
+	// table holds no function (the std snapshot exports it), and a
+	// package that imports this one reads its rows from its error types.
+	c.types.rowOf = nil
 	c.cur = nil
 	c.pkg.withSpent = c.withs.used + 1
 	return c.pkg
@@ -380,8 +387,8 @@ func (c *checker) collect() {
 			if syntax.IsBindingDecl(d) && !runtimeTypeDecl(d) {
 				// A host type, const or method comes only from a binding
 				// that ergo bind go writes (docs/spec/interop.md); the
-				// checker reads bindings with #202's import checking.
-				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) is #202's (Go imports); ergo bind go writes it, and it is not checked yet")
+				// checker reads bindings with Go interop's import checking.
+				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) waits for Go interop; ergo bind go writes it, and it is not checked yet")
 				continue
 			}
 			switch d := d.(type) {
@@ -635,7 +642,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	if spec.Kind == syntax.ImportGo {
 		// Go's rule for an import path, before any name is read from it
-		// (#202 comment, small-fix #231).
+		// (comment, small-fix the FuzzFormat fix).
 		if why := GoImportPathError(path); why != "" {
 			c.errorf(spec.Path, CodeType, "malformed Go import path %q: %s", path, why)
 			c.bindBrokenImport(fi, spec, path)
@@ -644,7 +651,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	// A keyword cannot be the name an import binds, so a path whose last
 	// element is one needs an alias (grammar.md, Declarations rule 1; 196w).
-	// The message recognises Go's `import "context"` habit (#220).
+	// The message recognises Go's `import "context"` habit.
 	if def := importDefault(spec, path); spec.Name == nil && syntax.IsKeyword(def) {
 		fix := "import " + def + "pkg " + path
 		if spec.Kind == syntax.ImportGo {
@@ -787,7 +794,7 @@ func (c *checker) checkImportAliases() {
 			}
 		}
 		if !clash {
-			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s (#196, fourth round, item 3)", a.path)
+			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s", a.path)
 			if pn, ok := a.file.scope.names[importBinds(a.spec)].(*PkgName); ok {
 				pn.used = true // The refused alias must not also be unused.
 			}
@@ -994,16 +1001,13 @@ func (c *checker) resolveNamed(n *Named) {
 	var later, checks []func()
 	if d.TypeParams != nil {
 		kinds, conflicts := c.bracketKinds(n.Obj)
-		// Option and Some are language types: their T admits a resource
-		// with no mark (types.md, Generics 9).
-		lang := c.pkg.Path == stdlib.PreludePath && (n.Obj.Name == "Option" || n.Obj.Name == "Some")
 		// Every parameter is declared before any constraint resolves, so a
 		// bound may name a later parameter or the type itself:
 		// type Ranked[T Ranked[T]] (types.md, Generics 2; CONSTRAINTS C2).
 		for _, field := range d.TypeParams.List {
 			cons := c.constraintExpr(field)
 			for _, name := range field.Names {
-				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, lang: lang, id: newID()}
+				tp := &TypeParam{Name: name.Name, Pos: name.Pos(), Own: field.Own != nil, id: newID()}
 				c.noteOwner(tp, n.Obj.Name)
 				c.def(name, tp)
 				switch {
@@ -1433,7 +1437,7 @@ type typeCtx struct {
 
 // litParams carries a function literal's expected function type into its
 // signature: a parameter written without a type takes the expected
-// parameter's type (D-E1, #214). With none it is S108, once per literal.
+// parameter's type (D-E1). With none it is S108, once per literal.
 type litParams struct {
 	expected *Signature // the expected function type, or nil
 	untyped  bool       // a parameter is written without a type
@@ -1967,7 +1971,6 @@ func (c *checker) instantiateExprs(n *Named, args []syntax.Expr, at syntax.Node,
 		targs[i] = t
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, at)
-	c.recordTypeMark(n, targs, at)
 	inst := c.instantiate(n, targs)
 	if len(args) > 0 && !c.scriptWritten(inst, args[0]) {
 		return invalid
@@ -2509,7 +2512,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 				pt := t
 				if field.Type == nil {
 					// A function literal's parameter written without a
-					// type (D-E1, #214).
+					// type (D-E1).
 					pt = c.untypedParam(name, len(sig.Params), ctx.lit)
 				}
 				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), id: name, param: true})

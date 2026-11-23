@@ -185,7 +185,7 @@ func fusedShape(m int) bool {
 	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
 	let t = Check(&s, k)
 	let f = CheckFused(&s, k)
-	len(f.Entries) == 0 && Typed(f) == len(t.Entries) && Typed(t) == len(t.Entries) && len(f.Insts) == len(t.Insts) && len(Diags(f)) == len(Diags(t)) && Steps(f) == Steps(t)
+	len(f.Entries) == 0 && Typed(f) == len(t.Entries) && Typed(t) == len(t.Entries) && len(f.Insts) == len(t.Insts) && len(f.Diags) == len(t.Diags) && Steps(f) == Steps(t)
 }
 
 // CheckFused types every function body of k as Check does, with no Entries
@@ -1000,8 +1000,6 @@ func misfits(s mut store.Store, k Pkg, file int, x dense.ID[syntax.Node], want d
 	}
 }
 
-// Diags is the type errors the typer found, in the order it found them.
-func Diags(t Typer) []Diag { t.Diags }
 
 func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[t.file].Tree

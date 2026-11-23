@@ -4,7 +4,7 @@ package eval
 // ($Prop's 500), so both tiers stop at the same tape (TESTSPEED FT1).
 const shrinkBudget = 500
 
-// shrinkTape is the native runner's shrinker (L10, #162), the evaluator's
+// shrinkTape is the native runner's shrinker (L10), the evaluator's
 // own implementation of its rule: tape is the draws of a refuted case,
 // fails replays a candidate and reports whether it is still refuted the
 // same way. Each candidate is smaller in shortlex order, and one is kept

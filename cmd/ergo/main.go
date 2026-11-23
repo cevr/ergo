@@ -119,8 +119,8 @@ func printProjectionJSON(v any) error {
 	return json.NewEncoder(os.Stdout).Encode(v)
 }
 
-// sourceExtension is the extension of every source file (#221). Every
-// other extension, the retired .ef included, gets the same refusal (#217:
+// sourceExtension is the extension of every source file. Every
+// other extension, the retired .ef included, gets the same refusal (the needs and provides rename:
 // no rename hint and no special case for an old spelling).
 const sourceExtension = ".ergo"
 

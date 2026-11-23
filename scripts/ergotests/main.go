@@ -234,7 +234,7 @@ const stdRoot = "internal/sketch/std"
 // evaluate checks the package in dir and runs its obligations at check
 // time. A std package (under stdRoot) is checked as std, in-package: the
 // standard library this binary embeds, so its laws may call the
-// package's private functions and its trusted Go (STD-LAW-RUN, #162);
+// package's private functions and its trusted Go (STD-LAW-RUN);
 // checked as a folder it has diagnostics of its own (S108). The mutant
 // runner builds this binary in the mutated copy, so it embeds the mutant.
 // Any other package is checked as `ergo check` checks a folder.

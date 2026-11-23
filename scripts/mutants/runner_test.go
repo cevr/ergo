@@ -557,7 +557,7 @@ func checkModel(t *testing.T, seed uint64, all bool) {
 		// Its only covering test blocks until its -test.timeout: no kill,
 		// and a hung row (GT-BOUND).
 		{&Mutant{Name: "spins", File: "two/f.go", From: "func Spin() int { return 3 }", To: "func Spin() int { return 4 }"},
-			expect{status: Hung, covering: []string{"two:TestSpin"}, detail: "two:TestSpin fail (a timeout, no kill)"}},
+			expect{status: Hung, covering: []string{"two:TestSpin"}, detail: "two:TestSpin timeout (no kill)"}},
 		{&Mutant{Name: "plain-only", File: "two/f.go", From: "func Plain() int { return 7 }", To: "func Plain() int { return 8 }"}, m.model("two.Plain", false)},
 		// The row names the family; its named pass runs both parts, and
 		// TestFamPart1 fails (GT-FAMILY). With -all the coverage pass runs

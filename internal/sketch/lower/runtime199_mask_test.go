@@ -25,7 +25,7 @@ import (
 // Queue.End; a Virtual clock replaces the live clock of NewLiveScheduler.
 // No settling sleep is needed.
 // taskReleaseLaws are the caller-release bindings of a running task's
-// release (#197 L8 B3t): Close masks on the caller and stops and drains the
+// release (L8 B3t): Close masks on the caller and stops and drains the
 // task, as Stop does. They release no checked Close body, so this property
 // does not drive them; the runtime/v1 tests named here are their mask, stop
 // and drain laws.
@@ -119,12 +119,12 @@ func closeDispatch(t *testing.T) map[string]bool {
 			// value of Close is refused (resources R33: a function value owns
 			// no resource; check TestCloseMethodValueRefused).
 			paths["value"] = true
-		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed, check.CallPattern:
+		case check.CallConversion, check.CallLen, check.CallWith, check.CallPrelude, check.CallGoError, check.CallEncode, check.CallDecode, check.CallEmbed, check.CallPattern, check.CallTestSeed:
 			// A conversion, len, a pattern (FKre), go.Is and go.As, encode and decode (L11)
 			// and a with block call no Close; a prelude dot call is a
 			// CallFunc since check-v1 stage D3a.
 		case check.CallLawOp:
-			// Never lowered: laws are not run (#162). A law's operation
+			// Never lowered: laws are not run. A law's operation
 			// call has no receiver and carries no Close fact (check
 			// close.go).
 		default:

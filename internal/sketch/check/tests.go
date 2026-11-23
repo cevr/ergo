@@ -87,7 +87,7 @@ func (c *checker) collectTest(d *syntax.TestDecl, fi *fileInfo) {
 
 // claimTestName claims id's name for a test or a top-level law (kind) in
 // their one namespace (rule 1). A test report and a law report name the
-// declaration by its name alone (#162), so two of one name would be
+// declaration by its name alone, so two of one name would be
 // ambiguous: the second in source order is S108, and claimTestName reports
 // false. A member law is not in this namespace (its report names T.L).
 func (c *checker) claimTestName(id *syntax.Ident, kind string) bool {
@@ -148,7 +148,7 @@ func (c *checker) strayAsserts() {
 					c.tests.stray = map[*syntax.AssertStmt]bool{}
 				}
 				c.tests.stray[n] = true
-				c.errorf(n, CodeType, "assert stands only in a test or law body (196l)")
+				c.errorf(n, CodeType, "assert stands only in a test or law body")
 			}
 			return true
 		})
@@ -198,6 +198,15 @@ func (c *checker) checkTest(test *Test) {
 	tg := &target{name: name, errors: newRow(), declUses: newRow(), resultKnown: true, isFunc: true}
 	frame := newScope(c.pkg.Scope)
 	frame.frame = true
+	// A test with no parameters may run under a harness (harness.go); a
+	// body the rewrite made binds its hidden names again.
+	rewritten := rewrittenHarness(d.Body)
+	if rewritten != "" {
+		c.bindHarnessNames(frame, rewritten)
+	} else if d.Params == nil {
+		tg.harness = &harnessUse{}
+	}
+	mark := len(c.diags)
 	fc := &funcCtx{t: tg, scope: frame, test: true}
 	prev := c.fn
 	c.fn = fc
@@ -213,7 +222,7 @@ func (c *checker) checkTest(test *Test) {
 				typ = c.typExpr(field.Type, &typeCtx{param: true})
 				if !isInvalid(typ) {
 					if why := c.ungeneratable(typ); why != "" {
-						c.errorf(field.Type, CodeType, "a property parameter is generated, and %s cannot be: %s (196l)", typ, why)
+						c.errorf(field.Type, CodeType, "a property parameter is generated, and %s cannot be: %s", typ, why)
 						typ = invalid
 					}
 				}
@@ -242,6 +251,11 @@ func (c *checker) checkTest(test *Test) {
 	c.reportGoCopyWrites(d.Body)
 	c.reportUnused(fc)
 	c.reportNeverReassigned(fc)
+	if tg.harness != nil && tg.harness.h != nil && len(c.diags) == mark {
+		c.rewriteHarnessed(test, tg.harness.h)
+		c.fn = prev
+		c.checkTest(test)
+	}
 }
 
 // ungeneratable is why t is not a generatable type (rule 3), or "" when it

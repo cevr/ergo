@@ -193,7 +193,7 @@ func guarded[T any](t *rt.Task, body func(*rt.Task) (T, error)) (v T, err error)
 	return body(t)
 }
 
-// The program's source map (#230), which RegisterCalls sets once, before
+// The program's source map, which RegisterCalls sets once, before
 // main runs: registered, decls (each source declaration's name and lines)
 // and calls (the call table).
 var (
@@ -265,7 +265,7 @@ func registerCompact(declTable []struct {
 	registered, decls, calls, callNames = true, declTable, table, names
 }
 
-// RegisterCalls registers the program's source map (#230). decls has one
+// RegisterCalls registers the program's source map. decls has one
 // entry per source declaration (a function, a package-level let, a context):
 // its Ergo name, its .ergo file and its first and last lines. table has one
 // entry per call of the program's source: its Ergo function, what it calls
@@ -297,11 +297,18 @@ func RegisterCalls(declTable []struct {
 	registerCompact(declTable, names, compact)
 }
 
-// inlines are the program's inlined calls (RegisterInlines).
-var inlines []struct{ Call, Parent int }
+// inlines are the program's inlined calls by key (RegisterInlines): each
+// one's call table entry and the key of the inlined call around it, ""
+// for none.
+var inlines map[string]*inlineCall
+
+type inlineCall struct {
+	call   int
+	parent string
+}
 
 // inlineTag marks a source path of a frame with the inlined call whose
-// body holds the frame's line: path#ergo-inline-N, N an index of inlines.
+// body holds the frame's line: path#ergo-inline-K, K a key of inlines.
 const inlineTag = "#ergo-inline-"
 
 // RegisterInlines registers the calls the lowering wrote at their site
@@ -310,8 +317,19 @@ const inlineTag = "#ergo-inline-"
 // name their file with inlineTag, so the defect report writes the frames
 // those calls would have had: after a frame in an inlined body, each
 // inlined call around it, innermost first (Exit causes 6).
-func RegisterInlines(table []struct{ Call, Parent int }) {
-	inlines = table
+//
+// A key is a function of its call's site alone (the lowering's
+// inlineKey), so a function's lines do not depend on what else the
+// program inlines.
+func RegisterInlines(table []struct {
+	Key    string
+	Call   int
+	Parent string
+}) {
+	inlines = make(map[string]*inlineCall, len(table))
+	for _, e := range table {
+		inlines[e.Key] = &inlineCall{call: e.Call, parent: e.Parent}
+	}
 }
 
 // taskEntry starts the traceback line of guarded, the boundary of every
@@ -350,8 +368,9 @@ func ergoStack(stack []byte) []string {
 		// elided is Go's count of frames it left out here, past its
 		// traceback limit (no file then).
 		elided string
-		// inl is the inlined call (plus one) whose body holds the line.
-		inl int
+		// inl is the key of the inlined call whose body holds the line,
+		// "" for none.
+		inl string
 	}
 	files := map[string]bool{}
 	for _, d := range decls {
@@ -416,10 +435,10 @@ func ergoStack(stack []byte) []string {
 		if i < 0 {
 			continue
 		}
-		file, inl := loc[:i], 0
+		file, inl := loc[:i], ""
 		if j := strings.LastIndex(file, inlineTag); j >= 0 {
-			if k, err := strconv.Atoi(file[j+len(inlineTag):]); err == nil && k >= 0 && k < len(inlines) {
-				file, inl = file[:j], k+1
+			if k := file[j+len(inlineTag):]; inlines[k] != nil {
+				file, inl = file[:j], k
 			}
 		}
 		if !files[file] {
@@ -467,8 +486,8 @@ func ergoStack(stack []byte) []string {
 	// same Go frame, so a function literal around it that calls it at the
 	// outermost one's position is no repeat (add).
 	chain := func(f site) {
-		for s := f.inl; s > 0 && s <= len(inlines); s = inlines[s-1].Parent + 1 {
-			if k := inlines[s-1].Call; k >= 0 && k < len(calls) {
+		for s := f.inl; s != "" && inlines[s] != nil; s = inlines[s].parent {
+			if k := inlines[s].call; k >= 0 && k < len(calls) {
 				c := calls[k]
 				add(callNames[c.Func]+" calls "+callNames[c.Callee]+" at "+callNames[c.File]+":"+strconv.Itoa(int(c.Line))+":"+strconv.Itoa(int(c.Column)), f.fn)
 			}
@@ -479,8 +498,8 @@ func ergoStack(stack []byte) []string {
 	// around f's line, else the declaration that holds the line.
 	callee := func(f site) string {
 		name := owner(f)
-		for s := f.inl; s > 0 && s <= len(inlines); s = inlines[s-1].Parent + 1 {
-			if k := inlines[s-1].Call; k >= 0 && k < len(calls) {
+		for s := f.inl; s != "" && inlines[s] != nil; s = inlines[s].parent {
+			if k := inlines[s].call; k >= 0 && k < len(calls) {
 				name = callNames[calls[k].Func]
 			}
 		}

@@ -11,7 +11,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// Go calls Ergo (IG11; docs/spec/interop.md, Go calls Ergo; #31's host-driven
+// Go calls Ergo (IG11; docs/spec/interop.md, Go calls Ergo; calling Ergo from Go's host-driven
 // programs). LowerLibrary lowers a package as a Go library package instead
 // of a program: no Go main, and each exported function of the root package
 // whose signature Go can spell becomes an exported Go function of the same
