@@ -1,0 +1,76 @@
+// writerbench holds the counted probe of the encoders on the prelude's
+// Writer interface (W1), with a hand Go twin in ../../testdata/control;
+// the workloads are ../../record and ../../list
+// (go run ./scripts/opcount -control -rounds 5 benchmarks/wirewriters/record).
+//
+//	writerbench bench KIND N
+//
+// KIND record: a record written N times; KIND list: a list of four
+// records written N times. Each write encodes by put, whose writer is the
+// Writer interface, so the encoder that runs is the interface one
+// (ergoEncode*), not a direct one. The writer, sizer, has no state: each
+// event is a call that does nothing, so what is counted is the encoder,
+// its dispatch and the conversion of the sizer to a Writer at each write
+// (WRITER-IFACE-8X). One unit is one write.
+
+import os
+import strconv
+
+type box { Label string, Count int, Tags []string, Weight float64 }
+
+let one = box{Label: "crate", Count: 12, Tags: []string{"wood", "heavy"}, Weight: 30.5}
+
+let four = []box{one, one, one, one}
+
+// sizer has no state: each event is a call that does nothing.
+type sizer { id int } implements Writer
+
+func Null(s sizer)                  {}
+func Number(s sizer, text string)   {}
+func Bool(s sizer, b bool)          {}
+func Int(s sizer, n int64)          {}
+func Uint(s sizer, n uint64)        {}
+func Float(s sizer, f float64)      {}
+func String(s sizer, x string)      {}
+func StringBytes(s sizer, b []byte) {}
+func BeginList(s sizer, n int)      {}
+func EndList(s sizer)               {}
+func BeginObject(s sizer, n int)    {}
+func Tag(s sizer, name string)      {}
+func Key(s sizer, k string)         {}
+func EndObject(s sizer)             {}
+
+func putBox(w Writer, b box) {
+	encode(b, w)
+}
+
+func putList(w Writer, bs []box) {
+	encode(bs, w)
+}
+
+// bench writes n times and is n.
+func bench(kind string, n int) int {
+	let s = sizer{id: 1}
+	for _ in 0..n {
+		if kind == "list" {
+			putList(s, four)
+		} else {
+			putBox(s, one)
+		}
+	}
+	n
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	with context { os.Process: os.NewHost() } {
+		let args = os.Process.Args()
+		if len(args) != 3 {
+			return os.Exit{Code: 2, Message: "usage: writerbench bench KIND N"}
+		}
+		let n = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return os.Exit{Code: 2, Message: "writerbench: N is not a count"}
+		}
+		Console.Println("\(bench(args[1], n))")
+	}
+}

@@ -254,6 +254,10 @@ type Reader {
 	mut BeginObject() fails WireWrongKind,
 	mut Tag() string fails WireMissingField,
 	mut More() bool,
+	// Key reads the next member's key. It may be a window of the reader's
+	// input, valid until the next read: a decoder that keeps the key (a
+	// Map's, an Object's) copies it, and one that only compares it (a
+	// record's field) does not (json 2).
 	mut Key() string,
 	mut Skip(),
 	mut End(),

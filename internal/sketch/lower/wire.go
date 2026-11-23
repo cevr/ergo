@@ -608,14 +608,12 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 				l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
 			}
 		}
-		if !cell && l.ir != nil {
-			// No IR builder takes an encoder on the reference Writer, or
-			// on a direct writer that is no cell, yet.
-			why := "codec writer on the reference Writer"
-			if via >= 0 {
-				why = "codec writer on a direct writer that is no cell"
-			}
-			l.ir.codecText(name, why)
+		if !cell && l.ir != nil && l.ir.wireWrite(l, name, t, em, scope, site) {
+			// The IR builds the body (ir_wire.go, W1): the Go
+			// declaration has none. A form the IR refuses keeps its
+			// text, counted by its reason.
+			l.gen.WriteString(strings.TrimSuffix(head(name), " {\n") + "\n\n")
+			return name
 		}
 		l.gen.WriteString(head(name) + text + "}\n\n")
 		if cell && cf.pending {
