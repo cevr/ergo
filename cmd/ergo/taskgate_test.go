@@ -345,8 +345,9 @@ func taskReach(deps [][]int) []map[int]bool {
 	return reach
 }
 
-// treeFiles are the files below root by content, .git left out.
-func treeFiles(t *testing.T, root string) map[string]string {
+// snapshotTaskInputs records the workspace's files by slash-relative
+// path. Git's own writes are not workspace edits.
+func snapshotTaskInputs(t *testing.T, root string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -438,7 +439,7 @@ func TestTaskGateAgreesWithRunningEverything(t *testing.T) {
 		for _, s := range runTaskJSON(t, "gate", root).steps {
 			ok[s.Step+"@"+s.Member] = s.Verdict == task.Pass
 		}
-		snap := treeFiles(t, root)
+		snap := snapshotTaskInputs(t, root)
 		gitIn(t, root, "add", "-A")
 		gitIn(t, root, "commit", "-q", "-m", "base")
 		var script []string
@@ -462,7 +463,7 @@ func TestTaskGateAgreesWithRunningEverything(t *testing.T) {
 			}
 			script = append(script, fmt.Sprintf("%s w%d", kind, k))
 			writeTaskWorkspace(t, root, ed, deps)
-			now := treeFiles(t, root)
+			now := snapshotTaskInputs(t, root)
 			var changed []string
 			for p, c := range now {
 				if snap[p] != c {
@@ -534,7 +535,7 @@ func TestTaskGateAgreesWithRunningEverything(t *testing.T) {
 				}
 				ok[id] = s.Verdict == task.Pass
 			}
-			snap = treeFiles(t, root)
+			snap = snapshotTaskInputs(t, root)
 			gitIn(t, root, "add", "-A")
 			gitIn(t, root, "commit", "-q", "--allow-empty", "-m", "edit")
 		}
