@@ -1000,7 +1000,6 @@ func misfits(s mut store.Store, k Pkg, file int, x dense.ID[syntax.Node], want d
 	}
 }
 
-
 func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[t.file].Tree
 	// The common kinds first: a name, a call or a selector is no constant.
