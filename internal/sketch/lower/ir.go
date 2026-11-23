@@ -920,7 +920,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	f := fd.fn
 	if fd.extern != "" {
 		// A prelude intrinsic: its body is the lowering's own (ir_intrinsic.go).
-		return st.intrinsicBody(fc, fd, params, len(gates) > 0, f.Pkg.Std())
+		return st.intrinsicBody(fc, fd, params, len(gates) > 0)
 	}
 	var root syntax.Node
 	if f != nil && f.Decl != nil {

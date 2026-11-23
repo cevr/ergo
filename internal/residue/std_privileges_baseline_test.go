@@ -360,7 +360,7 @@ var stdPrivilegesBaseline = []string{
 	`internal/sketch/lower/inline.go:funcCtx.site0 flag "directives"`,
 	`internal/sketch/lower/inplace.go:lowerer.writtenInPlace flag "isSourced"`,
 	`internal/sketch/lower/ir.go:irState.body mark "Std()"`,
-	`internal/sketch/lower/ir.go:irState.intrinsic mark "Std()"`,
+	`internal/sketch/lower/ir_intrinsic.go:irState.intrinsicBody mark "Std()"`,
 	`internal/sketch/lower/ir.go:irState.reachAll mark "Std()"`,
 	`internal/sketch/lower/ir_adapt.go:irBuilder.adaptOperand runtime "v1.CallerTask"`,
 	`internal/sketch/lower/ir_assert.go:irState.lawBody mark "Std()"`,
