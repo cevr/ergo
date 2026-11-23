@@ -82,8 +82,9 @@ type S3 {
 	},
 }
 
-// Api is S3 over net: each request is built with no credential and given to
-// signer just before it is sent, so only the signer reads one.
+// Api is S3 over net: each request is built with no credential. A static key
+// is the net's (an http.Credential), and a signature computed from the
+// request is the signer's, added just before the request is sent.
 type Api { net http.Net, signer aws.Signer } implements S3
 
 // New is the client that sends over net and signs with signer.

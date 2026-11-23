@@ -83,6 +83,8 @@ var ArgClauses = []ArgClause{
 	{"http.fetchLocalInto", "handle", "non-escaping", "HTTPFetchLocalInto calls handle through httpLocalExchange on the caller's task, once per hop, before it returns; it keeps nothing"},
 	{"http.Net.SendInto", "put", "non-escaping", "an operation: its std providers are Ergo bodies the checker holds to the clause (Client.SendInto through sendInto, reviewed above; InMemory's Handler.SendInto); a user's provider is checked the same way"},
 	{"http.Network.SendURLInto", "put", "non-escaping", "an operation: its std provider Remote.SendURLInto is an Ergo body the checker holds to the clause, through fetchInto (reviewed above); a user's provider is checked the same way"},
+	// llm: Model is an operation type with no Go body anywhere in std.
+	{"llm.Model.Stream", "put", "non-escaping", "an operation: its std providers (llm/memory's Scripted, Sequence and Held, llm/recorded's Recorded, and the Retry, Fallback and Metered policies) are Ergo bodies the checker holds to the clause, each calling put on the caller's task, one delta at a time, before it returns the turn; a user's provider is checked the same way"},
 	// rpc: rpcCalls starts each Request's handle on a child task of its
 	// own, all at once, and the caller's task takes their ends.
 	{"rpc.exits", "handle", "escaping", "RPCExits runs handle on a child task per Request, many at once (rpcCalls), while the caller's task collects their ends"},
