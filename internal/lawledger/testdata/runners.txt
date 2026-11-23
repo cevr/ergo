@@ -932,6 +932,7 @@ ui PostedOrderKeepsTheCounts	TestUIHostModel
 ui PresenceKeepsTheList	TestUIHostModel
 ui PressGivesSignal	TestUITreeModel
 ui PressIsOnePass	TestUIHostModel
+ui PressReachesItsControl	TestUIHostModel
 ui QueryRoundTrips	TestUIHostModel
 ui ReachPicksTheNearest	TestUIHostModel
 ui RelationsNameHeldNodes	TestUIHostModel
