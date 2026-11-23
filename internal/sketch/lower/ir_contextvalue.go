@@ -44,7 +44,10 @@ func (b *irBuilder) contextValue(x syntax.Expr, w *check.With, p irPos) *irExpr 
 		}
 		pre = append(pre, b.publish(w, ptr, outer, x)...) // ir_with.go
 	} else {
-		if !b.l.declaredContext(w.Contexts[0]) {
+		// A named context has a declaration, whichever package holds it;
+		// its builder is emitted with it (contextBuilder). The IR asks
+		// nothing about where it is declared (no std membership).
+		if w.Contexts[0].Decl == nil {
 			irNo("context value of an undeclared context")
 		}
 		build := b.l.contextBuilder(w, x)

@@ -477,7 +477,7 @@ debt	internal/sketch/lower/inline.go:funcCtx.inlineLit	flag	"iface"	funcCtx.inli
 debt	internal/sketch/lower/inline.go:funcCtx.site0	flag	"directives"	funcCtx.site0: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/inplace.go:lowerer.writtenInPlace	flag	"isSourced"	lowerer.writtenInPlace: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir.go:irState.body	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/ir.go:irState.intrinsic	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
+debt	internal/sketch/lower/ir_intrinsic.go:irState.intrinsicBody	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/ir.go:irState.reachAll	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/ir_adapt.go:irBuilder.adaptOperand	runtime	"v1.CallerTask"	irBuilder.adaptOperand: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	mark	"Std()"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
