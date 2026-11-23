@@ -221,14 +221,19 @@ func (p *irPrinter) stmt(s *irStmt, depth int) {
 	case "range":
 		hx := p.header(s.X, false)
 		x := hx.s
-		overFunc := false
+		single := false
 		if hx.t != nil {
-			_, overFunc = hx.t.Underlying().(*types.Signature)
+			switch t := hx.t.Underlying().(type) {
+			case *types.Signature:
+				single = true
+			case *types.Basic:
+				single = t.Info()&types.IsInteger != 0
+			}
 		}
 		head := "for "
-		if s.Key != nil && s.Val == nil && overFunc {
-			// One variable: Go allows no second one over a func (a Seq
-			// loop, ir_seq.go). Over any other domain the decoder binds
+		if s.Key != nil && s.Val == nil && single {
+			// One variable: Go allows no second one over a func or an
+			// integer. Over any other domain the decoder binds
 			// the value to _, so the text spells k, _ too: Go's tree of
 			// for k := range x has no value at all, and the two trees
 			// would differ (vt's Keys).

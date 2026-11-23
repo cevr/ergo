@@ -72,55 +72,52 @@ func main() needs Console | Ambient | go.Foreign {
 			Console.Println("differ 0: no input")
 			return
 		}
-		let s = screen.Headless(40, 10) catch {
-		case go.Error as e:
-			Console.Println("differ 0: no screen: \(e.Text)")
-			return
-		}
-		let ta = actor.StartMachine(liveMachine(), 1, func(o int) {})
-		let da = actor.StartMachine(liveMachine(), 1, func(o int) {})
-		let mut h = ui.NewTestHost(ta, liveView, time.NewManual(0), 16) catch {
-		case ui.BadPatch as b:
-			Console.Println("differ 0: test host: \(b.Why)")
-			return
-		}
-		let mut d = tui.New(s, da, liveView, 16) catch {
-		case ui.BadPatch as b:
-			Console.Println("differ 0: driver: \(b.Why)")
-			return
-		case tui.ScreenFailed as e:
-			Console.Println("differ 0: driver: \(e.Why)")
-			return
-		}
-		match differs(tui.Said(&d), ui.Announced(&h)) {
-		case Some[string] as why:
-			Console.Println("differ 0: \(why.Value)")
-		case None:
-			Console.Println("ok 0")
-		}
-		for i, line in strings.Split(strings.TrimSpace(text), "\n") {
-			let n = i + 1
-			let label = strings.TrimPrefix(line, "tap ")
-			ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
-			case ui.NoNode, ui.Ambiguous, ui.Mismatch, actor.Stopped, ui.BadPatch:
-				Console.Println("differ \(n): \(line): the test host failed")
-				continue
+		tui.Headless(40, 10, func(s go.Ref[screen.Screen]) needs Console | Scheduler | go.Foreign {
+			let ta = actor.StartMachine(liveMachine(), 1, func(o int) {})
+			let da = actor.StartMachine(liveMachine(), 1, func(o int) {})
+			let mut h = ui.NewTestHost(ta, liveView, time.NewManual(0), 16) catch {
+			case ui.BadPatch as b:
+				Console.Println("differ 0: test host: \(b.Why)")
+				return
 			}
-			tui.Play(&d, []ui.Act{ui.TapOn{Label: label}}) catch {
-			case ui.NoNode, ui.Ambiguous, ui.Mismatch, ui.Closed, actor.Stopped, ui.BadPatch, tui.ScreenFailed:
-				Console.Println("differ \(n): \(line): the terminal failed")
-				continue
+			let mut d = tui.New(s, da, liveView, 16) catch {
+			case ui.BadPatch as b:
+				Console.Println("differ 0: driver: \(b.Why)")
+				return
+			case tui.ScreenFailed as e:
+				Console.Println("differ 0: driver: \(e.Why)")
+				return
 			}
 			match differs(tui.Said(&d), ui.Announced(&h)) {
 			case Some[string] as why:
-				Console.Println("differ \(n): \(line): \(why.Value)")
+				Console.Println("differ 0: \(why.Value)")
 			case None:
-				Console.Println("ok \(n)")
+				Console.Println("ok 0")
 			}
-		}
-		s.Quit() catch {
-		// ergo-lint-disable-next-line silent-catch -- the run is over; nothing is left to tell
-		case go.Error:
+			for i, line in strings.Split(strings.TrimSpace(text), "\n") {
+				let n = i + 1
+				let label = strings.TrimPrefix(line, "tap ")
+				ui.Play(&h, []ui.Act{ui.TapOn{Label: label}}) catch {
+				case ui.NoNode, ui.Ambiguous, ui.Mismatch, actor.Stopped, ui.BadPatch:
+					Console.Println("differ \(n): \(line): the test host failed")
+					continue
+				}
+				tui.Play(&d, []ui.Act{ui.TapOn{Label: label}}) catch {
+				case ui.NoNode, ui.Ambiguous, ui.Mismatch, ui.Closed, actor.Stopped, ui.BadPatch, tui.ScreenFailed:
+					Console.Println("differ \(n): \(line): the terminal failed")
+					continue
+				}
+				match differs(tui.Said(&d), ui.Announced(&h)) {
+				case Some[string] as why:
+					Console.Println("differ \(n): \(line): \(why.Value)")
+				case None:
+					Console.Println("ok \(n)")
+				}
+			}
+		}) catch {
+		case tui.ScreenFailed as e:
+			Console.Println("differ 0: the screen: \(e.Why)")
+			return
 		}
 		Console.Println("end")
 	}

@@ -8,6 +8,12 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
+// mapKeyIRBodies is the body coverage required by both the in-process
+// check and the execution comparison for mapkey.ergo.
+func mapKeyIRBodies() []string {
+	return []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", lower.HelperSpelling("", "scaledOwned"), "Box.moved", "Outer.bumped"}
+}
+
 // TestIRStoreIndexesHaveBodies checks in process that a store whose
 // index runs statements has an IR body (FLIP F7 PORT-TEMP,
 // testdata/mapkey.ergo): a Map entry under a fallible call in a binary
@@ -38,7 +44,7 @@ func TestIRStoreIndexesHaveBodies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", lower.HelperSpelling("", "scaledOwned"), "Box.moved", "Outer.bumped"} {
+	for _, f := range mapKeyIRBodies() {
 		if !slices.Contains(rep.IR, f) {
 			t.Errorf("%s has no IR body (IR bodies: %v; fallbacks: %v)", f, rep.IR, rep.Fallback)
 		}

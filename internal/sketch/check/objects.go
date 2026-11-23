@@ -45,6 +45,10 @@ type TypeName struct {
 	provides []*Builder
 	// Refine is the refinement of a refined defined type (refine.go), or nil.
 	Refine *Refinement
+	// goType marks a declaration with Go's representation and method ABI,
+	// as read from a binding. A runtime-backed Ergo type still has Ergo's
+	// operation ABI.
+	goType bool
 	// Provider is the resolved plan of a derived provider (script.go), or
 	// nil.
 	Provider *ProviderTypes
@@ -62,6 +66,10 @@ type ProviderTypes struct {
 // result T, no error or capability row and parameters its package
 // generates. nil when the package declares none.
 func (o *TypeName) Constructor() *Func { return o.ctor }
+
+// BindsGoType reports whether the declaration uses Go's type and method
+// ABI rather than Ergo's.
+func (o *TypeName) BindsGoType() bool { return o != nil && o.goType }
 
 // Func is a package function, extern included.
 type Func struct {
@@ -105,10 +113,17 @@ type Func struct {
 	// goExtern is a user extern's admitted adapter of its Go target's
 	// binding (extern.go, Level 2), once checkExterns admits it.
 	goExtern *GoExtern
+	// goCall marks the Go calling convention of a binding or admitted
+	// user extern, including a raw Go error for a fallible signature.
+	goCall bool
 	// asWritten: the function's doc holds `// ergo:aswritten` and it is a
 	// pure identity of one parameter (aswritten.go).
 	asWritten bool
 }
+
+// CallsGo reports a declaration whose call uses Go's ABI, not Ergo's
+// (including the ABI of an Ergo body bound to the runtime).
+func (f *Func) CallsGo() bool { return f != nil && f.goCall }
 
 // Var is a variable: a parameter, a local or a package-level let.
 type Var struct {

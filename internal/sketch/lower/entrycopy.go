@@ -209,7 +209,8 @@ func (l *lowerer) writeEntryCopy(cp *entryCopy) {
 	defer func() { l.info = saved }()
 	sig := info.Literals[cp.lit]
 	scope := newNamer(l.names)
-	fc := newFuncCtx(l, scope, l.isSourced(f.Pkg))
+	_, hasLocation := l.sourceOf(cp.lit)
+	fc := newFuncCtx(l, scope, hasLocation)
 	fc.site = cp.lit
 	fc.owner = f.Name
 	for tp, t := range cp.targs {

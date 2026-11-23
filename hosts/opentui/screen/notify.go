@@ -18,8 +18,13 @@ func (s *Screen) Notify(text string) error {
 	s.mu.Lock()
 	if s.done {
 		s.mu.Unlock()
-		return ErrClosed
+		return fail(CallClosed, 0, ErrClosed)
 	}
+	s.mu.Unlock()
+	if err := check(CallNotify, 0); err != nil {
+		return err
+	}
+	s.mu.Lock()
 	s.said = append(s.said, text)
 	live := s.live
 	s.mu.Unlock()
@@ -35,7 +40,7 @@ func (s *Screen) Notify(text string) error {
 		}
 		err = s.flush()
 	})
-	return err
+	return wrap(CallNotify, 0, err)
 }
 
 // reply hands a terminal's reply to the setup's capability queries to the
