@@ -236,7 +236,8 @@ type lowerer struct {
 	libsDone     bool
 	goPkgs       []*check.Package        // the Go packages the program reaches (import go; libraryPackages)
 	stdSrc       map[syntax.Node]stdFile // the std nodes locate placed, and their files (stdFileOf)
-	siteIDs      map[siteKey]int         // each call position's CallSite Id (siteid.go)
+	siteIDs      map[siteKey]siteNum     // each call position's CallSite Pkg and Id (siteid.go)
+	sitePkgs     []sitePkg               // the packages in the call-site numbering (siteid.go)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
 	names *namer // the Go package scope: every package-scope name (pkgnames.go)
@@ -783,6 +784,7 @@ func (l *lowerer) program() ([]byte, error) {
 	out.WriteString(entryText)
 	l.envType(&out)
 	out.WriteString(l.gen.String())
+	out.WriteString(l.sitePkgDecls())
 	out.WriteString(graphs)
 	out.WriteString(table)
 	out.WriteString(l.user.String())

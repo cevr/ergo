@@ -1661,7 +1661,7 @@ type spec[E] {
 	focusAs int,
 }
 
-let nowhere = CallSite{File: "", Line: 0, Column: 0, Id: 0}
+let nowhere = CallSite{File: "", Line: 0, Column: 0, Pkg: 0, Id: 0}
 
 // Op is one change a host applies, in order. Before names the sibling the
 // node goes in front of; None puts it last. Define gives the host the

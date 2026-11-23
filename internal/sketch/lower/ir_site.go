@@ -20,11 +20,12 @@ func (b *irBuilder) siteValue(x *syntax.CallExpr, site *check.Named, p irPos) *i
 	file, line, column := b.l.locate(x, x.Pos())
 	td := b.l.typeDecl(site.Obj, x)
 	return &irExpr{K: "lit", Pos: p, T: b.goType(site, x),
-		Keys: []string{td.fieldName["File"], td.fieldName["Line"], td.fieldName["Column"], td.fieldName["Id"]},
+		Keys: []string{td.fieldName["File"], td.fieldName["Line"], td.fieldName["Column"], td.fieldName["Pkg"], td.fieldName["Id"]},
 		Elems: []*irExpr{
 			{K: "const", Pos: p, T: "string", V: file},
 			{K: "const", Pos: p, T: "int", V: strconv.Itoa(line)},
 			{K: "const", Pos: p, T: "int", V: strconv.Itoa(column)},
-			{K: "const", Pos: p, T: "int", V: strconv.Itoa(b.l.siteID(x))},
+			{K: "global", Pos: p, Name: b.l.sitePkgName(x)},
+			{K: "const", Pos: p, T: "int", V: strconv.Itoa(b.l.siteNumber(x).id)},
 		}}
 }

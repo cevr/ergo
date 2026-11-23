@@ -145,7 +145,7 @@ func siteProgram(seed uint64, reached map[string]bool) (string, string) {
 		case "inner":
 			call = fmt.Sprintf("inner(%q)", note)
 		case "written":
-			call = fmt.Sprintf("at(%q, CallSite{File: \"w\", Line: %d, Column: %d, Id: 0})", note, 100+i, 1+r.IntN(9))
+			call = fmt.Sprintf("at(%q, CallSite{File: \"w\", Line: %d, Column: %d, Pkg: 0, Id: 0})", note, 100+i, 1+r.IntN(9))
 		case "provider":
 			emit(indent+"with context { Tagger: Plain } {", "")
 			text := indent + "\tConsole.Println(" + pad + fmt.Sprintf("Tagger.Tag(%q)", note) + ")"
@@ -177,7 +177,7 @@ func siteProgram(seed uint64, reached map[string]bool) (string, string) {
 		emit(indent+"Console.Println("+v+")", "")
 	}
 	// Every binding is used, whichever forms the seed drew.
-	b.WriteString("\tlet z = CallSite{File: \"\", Line: 0, Column: 0, Id: 0}\n")
+	b.WriteString("\tlet z = CallSite{File: \"\", Line: 0, Column: 0, Pkg: 0, Id: 0}\n")
 	b.WriteString("\tConsole.Println(\"\\(p.Tag(\"e\", z))|\\(t.Tag(\"e\", z))|\\(fv(\"e\", z))|\\(lit(\"e\", z))\")\n")
 	want.WriteString("e 0:0#0|e 0:0#0|e 0:0#0|e 0:0#0\n")
 	b.WriteString("}\n")

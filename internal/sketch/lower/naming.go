@@ -280,6 +280,9 @@ func (l *lowerer) nameAll() {
 	reservePatterns(append([]*check.Package{l.pkg}, libs...), func(key pkgKey, base string) {
 		generated = append(generated, entry{key, "pattern " + base + " " + key.obj.(string), base})
 	})
+	l.reserveSitePkgs(func(key pkgKey, sort, base string) { // siteid.go
+		generated = append(generated, entry{key, sort, base})
+	})
 	for _, e := range sortGenerated(generated) {
 		l.pkgName(e.key, e.base)
 	}
