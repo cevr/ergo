@@ -19,6 +19,8 @@ func ReadDir(b Broken, path string) []string fails fs.NotFound | fs.Denied | fs.
 
 func Stat(b Broken, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
 
+func Lstat(b Broken, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
 func WriteFile(b Broken, path string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
 
 func WriteFileMode(b Broken, path string, _ string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed {
@@ -36,6 +38,8 @@ func Chmod(b Broken, path string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.
 func Rename(b Broken, from string, _ string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(from) }
 
 func Remove(b Broken, path string) fails fs.NotFound | fs.Denied | fs.Failed { b.at(path) }
+
+func Mkdir(b Broken, path string, _ fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists { b.at(path) }
 
 // at is b's failure at path.
 func at(b Broken, path string) fs.Failed { fs.Failed{Path: path, Reason: b.reason} }

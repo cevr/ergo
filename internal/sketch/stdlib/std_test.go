@@ -24,7 +24,7 @@ const v1Path = "ergo.local/prototype/runtime/v1"
 // that no Ergo operation binds, each with the reason. A body that binds no
 // declaration and is not listed here fails TestEachExternHasItsGoBody.
 var unbound = map[string]string{
-	// None since #197 L8 B3t: a returned Task is an owned value, and no
+	// None since resource ownership L8 B3t: a returned Task is an owned value, and no
 	// Move body is left.
 }
 
@@ -122,7 +122,7 @@ func main() fails queue.Closed {
 }
 
 // TestContextPackagesSurface: trace exports the two declarations of G1
-// and nothing else (the rest is #206; log's logging API is stdlib.md
+// and nothing else (the rest is the standard library; log's logging API is stdlib.md
 // log); trace's and log's values bind through
 // with by the context-binding protocol and their reads check in a program
 // with no capability.
@@ -670,7 +670,7 @@ func TestStdHostProvidersHaveAuthority(t *testing.T) {
 	// built, and only Dial's reaches the host (rpc.Loopback's runs in
 	// process). Dial's authority is TestStdExternCallersHoldAuthority's:
 	// Dial without Ambient fails it (measured, R3b).
-	if want := []string{"config.Host", "exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Remote", "io.Errors", "io.Host", "io.In", "net.Host", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "sql.Host", "sql.hostTx", "sql.pool", "term.Host", "time.Host"}; !slices.Equal(found, want) {
+	if want := []string{"exec.Host", "fs.Host", "host.Local", "host.Zones", "http.Client", "http.Remote", "io.Errors", "io.Host", "io.In", "net.Host", "os.Host", "prelude.LiveScheduler", "rand.Host", "rand.SecureHost", "signal.Watched", "sql.Host", "sql.hostTx", "sql.pool", "term.Host", "time.Host"}; !slices.Equal(found, want) {
 		t.Errorf("host providers %v, want %v: a new one follows the rule, and this list names it", found, want)
 	}
 	for name, unit := range unguardedHosts {

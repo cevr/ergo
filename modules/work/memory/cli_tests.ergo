@@ -13,7 +13,7 @@ test CopyRefusedSaysTheBytes {
 	let o = with context { work.Api: w.tool } { workcli.Run([]string{"new", "a"}, workcli.Defaults()) }
 	assert o.Code == 1
 	assert o.Err == "CopyRefused: {\"_tag\":\"CopyRefused\",\"from\":\"/w/base\",\"bytes\":597,\"why\":\"memory: this disk has no copy-on-write clone\"}\n"
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		assert false
 		return

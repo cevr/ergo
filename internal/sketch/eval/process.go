@@ -219,11 +219,13 @@ func runMainOrdered(pkg *check.Package, main *check.Func, b Budget, p Process, o
 			return out, false, nil
 		}
 		code, msg := r.fields[fieldIndex(r.t, "Code")].(int64), r.fields[fieldIndex(r.t, "Message")].(string)
-		h.stderr.WriteString(msg + "\n")
-		if code >= 1 && code <= 125 {
+		if msg != "" {
+			h.stderr.WriteString(msg + "\n")
+		}
+		if code >= 1 && code <= 125 || code >= 129 && code <= 192 {
 			out.Status = int(code)
 		} else {
-			fmt.Fprintf(&h.stderr, "error: os.Exit code %d is outside 1..125\n", code)
+			fmt.Fprintf(&h.stderr, "error: os.Exit code %d is outside 1..125 and 129..192\n", code)
 			out.Status = 1
 		}
 	case ctlDefect, ctlAssert:
@@ -390,8 +392,8 @@ func registerProcess(t nativeTables) {
 	hostNative(t, "os.hostGetenv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.env[args[0].(string)], nil
 	})
-	t.reads["config.hostEnviron"] = "string"
-	hostNative(t, "config.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["os.hostEnviron"] = "string"
+	hostNative(t, "os.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		prefix := args[0].(string)
 		// Sorted by name: "A0=x" sorts before "A=y", but A before A0.
 		var names []string

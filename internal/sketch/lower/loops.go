@@ -157,7 +157,7 @@ func (fc *funcCtx) collectIdiom(xs *syntax.Ident, rhs syntax.Expr, iv *check.Var
 		return nil
 	}
 	c := fc.l.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || !preludeAppend(c.Func) || c.StartsTask || failsHere(c) {
+	if c == nil || c.Kind != check.CallFunc || !appendsSource(c.Func) || c.StartsTask || failsHere(c) {
 		return nil
 	}
 	list := call.Args
