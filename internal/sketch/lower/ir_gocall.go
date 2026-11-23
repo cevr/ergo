@@ -94,7 +94,7 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			t = n.Underlying()
 		}
 		sig, _ := t.(*check.Signature)
-		bind, e := b.adaptOperand(sig, x.Args[i], args[i], v1.Param{Func: shape}, p)
+		bind, e, _ := b.adaptOperand(sig, x.Args[i], args[i], v1.Param{Func: shape}, p)
 		pre, args[i] = append(pre, bind...), e
 	}
 	return pre, recv, args
