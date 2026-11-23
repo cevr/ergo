@@ -1,0 +1,11 @@
+import imported/res
+
+func main() needs Console {
+	let a = res.One()
+	let b, n = res.Two()
+	let c, m = res.Fails(n) catch {
+	case res.Bad:
+		return
+	}
+	Console.Println("\(n) \(m)")
+}

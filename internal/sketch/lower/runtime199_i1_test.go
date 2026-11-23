@@ -297,7 +297,7 @@ func i1Lower(t *testing.T, c i1Case) *lowered {
 func i1UserDecls(decls []ast.Decl) []ast.Decl {
 	harness := map[string]bool{}
 	for _, h := range testHelpers {
-		harness[h.base] = true
+		harness[HelperSpelling("", h.base)] = true
 	}
 	var out []ast.Decl
 	for _, d := range decls {

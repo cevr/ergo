@@ -595,7 +595,7 @@ test FlagHelpNamesEveryFlag(names []string) {
 			flags = flags.Append(flag.String(name, "", "u"))
 		}
 	}
-	let help = flag.Usage(flag.Set{Name: "law", Usage: "", Flags: flags, Args: []flag.ArgSpec{}})
+	let help = flag.UsageText(flag.Set{Name: "law", Usage: "", Flags: flags, Args: []flag.ArgSpec{}})
 	for name in names {
 		assert strings.Contains(help, "\n  -" + name + " string\n")
 	}

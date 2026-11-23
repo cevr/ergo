@@ -886,7 +886,6 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 		}
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, x)
-	c.recordTypeMark(n, targs, x)
 	return c.instantiate(n, targs)
 }
 

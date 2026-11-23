@@ -288,8 +288,8 @@ func TestInlinePays(t *testing.T) {
 		// since Go inlines it. once's copy calls step; From's inlines it.
 		// Of the functions with a Go body of their own, only coldTo is
 		// off every loop path.
-		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, "onceM:step": 1, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 1, "spread": 1, "huge": 1}},
-		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, "onceM:step": 0, "FromM:step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 0, "spread": 1, "huge": 1}},
+		{"", map[string]int{"first": 0, "widest": 3, "classify": 1, "tiny": 2, "outer": 0, "apply1": 0, goHelper("onceM") + ":step": 1, goHelper("FromM") + ":step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 1, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 1, "spread": 1, "huge": 1}},
+		{"budget", map[string]int{"first": 0, "widest": 0, "classify": 0, "tiny": 0, "outer": 0, "apply1": 0, goHelper("onceM") + ":step": 0, goHelper("FromM") + ":step": 0, "sumTo:widest": 0, "deeper:widest": 0, "down:widest": 0, "coldTo:widest": 0, "pickAt:widest": 0, "Picker.At:widest": 0, "spanOf:widest": 0, "Picker.Once:widest": 0, "spread": 1, "huge": 1}},
 	} {
 		saved, savedHot := inlineCostLowering, hotLowering
 		if mode.rule == "direct" {
