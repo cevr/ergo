@@ -37,7 +37,7 @@ var builtinRules = []*Rule{
 	derivedField, optionFollowsVariant, takeOneByLaw, independentWaits,
 	constantRestated, repeatedCase,
 	fileCycle, layer, domainImportsImplementation, hiddenDependency,
-	narrationComment, commentedCode,
+	narrationComment, commentedCode, noComments,
 	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
 	addedClone, scatteredEdit,
 	selfAssignment, signDecided, wireKeyQuote,

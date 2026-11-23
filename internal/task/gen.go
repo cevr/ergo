@@ -365,6 +365,15 @@ func (r *Runner) run(ctx context.Context, n Node, env, root string, h *hasher) (
 // first pass runs each node at most once and the second runs none).
 func (r *Runner) Gen(ctx context.Context, nodes []Node, mode Mode) (Report, error) {
 	rep := Report{Ran: map[string]int{}, Hits: map[string]int{}}
+	if r.Store == nil {
+		// No store kept across runs (ERGO_LAWCACHE=off): the run still
+		// needs its own passes' last runs, or every lookup misses, no
+		// pass settles and the bound reports a restless cycle. A store
+		// for this run alone makes it a fresh run: each generator runs,
+		// then the next pass hits. The runner keeps it, so what the
+		// caller asks after the run (LastOutputs) is this run's.
+		r.Store = lawcache.Memory(StoreIdentity)
+	}
 	envs := make([]string, len(nodes))
 	for i, n := range nodes {
 		env, err := n.Env(ctx)

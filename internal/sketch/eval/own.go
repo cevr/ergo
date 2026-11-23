@@ -5,7 +5,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Owned values (ORACLE O3; resources.md R5-R10, R21, R39, R41, R43; #197
+// Owned values (ORACLE O3; resources.md R5-R10, R21, R39, R41, R43; resource ownership
 // L8 B1, B2). The checker gives each owned local, taken parameter and
 // temporary its release (Info.OwnedVars, Info.OwnedTemps) and records the
 // plan of where each is released (Info.Releases), each hand-off

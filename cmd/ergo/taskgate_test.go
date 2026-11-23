@@ -86,8 +86,8 @@ func runTaskJSON(t *testing.T, args ...string) taskResult {
 // --check, and a file out of format fails fmt --check, though both passed
 // before.
 //
-// It kills task-module-key-omits-tree, task-fmt-key-omits-bytes,
-// task-gen-check-not-check and ledger-library-resolves-toolchain.
+// It kills task-fmt-key-omits-bytes, task-gen-check-not-check and
+// ledger-library-resolves-toolchain.
 func TestTaskGateReplaysWhatHolds(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("ERGO_CACHE", "")
@@ -353,7 +353,7 @@ func gitIn(t *testing.T, dir string, args ...string) {
 //     last run left it) selects exactly the steps whose inputs hold a
 //     changed path: a superset of the steps whose key moved.
 //
-// It kills task-module-key-reach-dropped, task-affected-by-member,
+// It kills gate-module-key-omits-tree, task-module-key-reach-dropped, task-affected-by-member,
 // task-why-dropped and the runner's verdict-failure-kept over real steps.
 func TestTaskGateAgreesWithRunningEverything(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {

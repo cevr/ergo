@@ -13,11 +13,15 @@ const (
 	ruleOneResult = `the parser's S001 at a second result or a second returned value (a function has at most one result type, which may be a tuple; grammar.md, Declarations 7)`
 	// ruleLetNames: a let of several names takes apart one tuple of as many
 	// elements (196t).
-	ruleLetNames = `the checker's S108 "N names for M values" (a let of several names takes apart one tuple of as many elements, 196t)`
+	ruleLetNames = `the checker's S108 "N names for M values" (a let of several names takes apart one tuple of as many elements)`
 	// ruleCoveredCase: a case that earlier cases cover never runs.
 	ruleCoveredCase = `the checker's S108 "this case is already covered by the earlier case … (unreachable)" (D-B4)`
 	// ruleCaughtTwice: a catch handles each failure type once.
 	ruleCaughtTwice = `the checker's S108 "… is caught twice" (rows.md, Catch 2)`
+	// ruleUnionFailure: a failure is a variant, never a union's value; a
+	// union in an error row stands for its members, so a Slot row bound to
+	// one is a row of several (the Slot is error).
+	ruleUnionFailure = `the checker's S108 "cannot use U as T in return" at a union's value returned in a fallible function, and "cannot use Box[…, U] as Box[…, A | B]" at a union passed for an error row parameter (rows.md: a row lists variants)`
 	// ruleGenericValue: a generic function value is an explicit instance.
 	ruleGenericValue = `the checker's S108 "the generic function F is only called or instantiated" (D-E1)`
 	// ruleVariantRecord: a union's variants are records of its package.

@@ -1,0 +1,1359 @@
+{
+  "ergo.local/prototype/internal/sketch/lower": {
+    "TestAcceptedNodesLowerFamilies": {
+      "body": 3282,
+      "lower": 18,
+      "lower-lib": 1503,
+      "lowerer": 383,
+      "typed-source": 138
+    },
+    "TestAcquire": {},
+    "TestAdmitLevelTable": {},
+    "TestAnchorLinesAgree": {},
+    "TestArgumentTextRoundTrips": {},
+    "TestArrayIndexInPlaceAgrees": {},
+    "TestArrayValuesAgree": {},
+    "TestAsDispatchPackage": {},
+    "TestAscendingIsTheOnlyWayIn": {
+      "body": 8,
+      "lower": 8,
+      "lowerer": 1
+    },
+    "TestAssertLiteralsReadBack": {},
+    "TestAssertShowsValues": {},
+    "TestAssumptionsAgree": {
+      "body": 846,
+      "lowerer": 147,
+      "typecheck": 1811
+    },
+    "TestBareRecordThroughAlias": {
+      "body": 4,
+      "lowerer": 2
+    },
+    "TestBareUnionDecodeSwitchesOnFlatWireKind": {
+      "body": 56,
+      "lower": 1,
+      "lowerer": 2,
+      "typecheck": 78
+    },
+    "TestBlocking": {},
+    "TestBodyDisagreementsAlign": {},
+    "TestBodyEditKeepsTheHarness": {
+      "body": 210,
+      "lowerer": 6
+    },
+    "TestBodyLawFindsADifference": {},
+    "TestBoundsFactsAgree": {},
+    "TestBoundsFactsAgreeOnIR": {
+      "body": 230,
+      "lower": 12,
+      "lowerer": 24
+    },
+    "TestBoundsFactsSound": {
+      "body": 104,
+      "lower": 8,
+      "lowerer": 8,
+      "typecheck": 136
+    },
+    "TestBuildsOmitLaws": {
+      "body": 107,
+      "lower": 30,
+      "lowerer": 45
+    },
+    "TestBuiltinsAgree": {},
+    "TestCacheAgrees": {},
+    "TestCallSitesAgree": {},
+    "TestCallbackTunnelModel": {},
+    "TestCaptureLoweringAgrees": {},
+    "TestCaptureRuleModel": {
+      "body": 8753,
+      "lower": 4206,
+      "lowerer": 2186
+    },
+    "TestCaseOutcomeProperty": {},
+    "TestCasePlansAgreeWithGo": {},
+    "TestCatchContract": {},
+    "TestCatchCostModule": {},
+    "TestCatchTreeAgrees": {},
+    "TestCatchTreeShape": {
+      "body": 6,
+      "lower": 2,
+      "lowerer": 2
+    },
+    "TestCatchWiredRowLowers": {
+      "body": 60,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 88
+    },
+    "TestCellEvidenceFollowsTheDeclaringModule": {
+      "body": 1488,
+      "lowerer": 72
+    },
+    "TestCellReaderAgrees": {},
+    "TestCellWriterAgrees": {},
+    "TestChainSkipsLineage": {
+      "body": 4,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestChainSwitchAgrees": {},
+    "TestChainSwitchForms": {
+      "body": 72,
+      "lower": 16,
+      "lowerer": 24,
+      "typecheck": 112
+    },
+    "TestCheckCorpusBuildsDomain": {},
+    "TestCheckCorpusBuildsPart0": {},
+    "TestCheckCorpusBuildsPart1": {},
+    "TestCheckCorpusBuildsPart10": {},
+    "TestCheckCorpusBuildsPart11": {},
+    "TestCheckCorpusBuildsPart2": {},
+    "TestCheckCorpusBuildsPart3": {},
+    "TestCheckCorpusBuildsPart4": {},
+    "TestCheckCorpusBuildsPart5": {},
+    "TestCheckCorpusBuildsPart6": {},
+    "TestCheckCorpusBuildsPart7": {},
+    "TestCheckCorpusBuildsPart8": {},
+    "TestCheckCorpusBuildsPart9": {},
+    "TestCheckIsCanonical": {},
+    "TestCheckRefusesTwoFilesOfOneName": {},
+    "TestCheckedImpliesLoweredPart0": {},
+    "TestCheckedImpliesLoweredPart1": {},
+    "TestCheckedImpliesLoweredPart10": {},
+    "TestCheckedImpliesLoweredPart11": {},
+    "TestCheckedImpliesLoweredPart12": {},
+    "TestCheckedImpliesLoweredPart13": {},
+    "TestCheckedImpliesLoweredPart14": {},
+    "TestCheckedImpliesLoweredPart15": {},
+    "TestCheckedImpliesLoweredPart16": {},
+    "TestCheckedImpliesLoweredPart17": {},
+    "TestCheckedImpliesLoweredPart18": {},
+    "TestCheckedImpliesLoweredPart19": {},
+    "TestCheckedImpliesLoweredPart2": {},
+    "TestCheckedImpliesLoweredPart3": {},
+    "TestCheckedImpliesLoweredPart4": {},
+    "TestCheckedImpliesLoweredPart5": {},
+    "TestCheckedImpliesLoweredPart6": {},
+    "TestCheckedImpliesLoweredPart7": {},
+    "TestCheckedImpliesLoweredPart8": {},
+    "TestCheckedImpliesLoweredPart9": {},
+    "TestCloseFormsRelease": {},
+    "TestCloseGenericFunctionRelease": {},
+    "TestCloseOverriddenNotRun": {},
+    "TestClosePaths": {},
+    "TestClosureTakesEveryMethodOfACalledName": {},
+    "TestClosureTypesStd": {},
+    "TestColdHeadsWriteGrowthOnce": {
+      "body": 706,
+      "lower": 16,
+      "lowerer": 16,
+      "typecheck": 445
+    },
+    "TestCollectionsAgree": {},
+    "TestCompareChainIsASwitch": {
+      "body": 2,
+      "lowerer": 1,
+      "typecheck": 65
+    },
+    "TestComponentCallsLowerToGroup": {
+      "body": 510,
+      "lowerer": 3
+    },
+    "TestConstFoldPlaces": {
+      "body": 202,
+      "lower": 6,
+      "lowerer": 6,
+      "typecheck": 244
+    },
+    "TestConstLetsFoldOnTheScannerPath": {
+      "body": 4,
+      "lowerer": 1,
+      "typecheck": 67
+    },
+    "TestConstLetsStayValues": {
+      "body": 7,
+      "lowerer": 1,
+      "typecheck": 70
+    },
+    "TestConstructionModel": {},
+    "TestContext": {},
+    "TestContextAcquisitionsAcrossFiles": {},
+    "TestContextReachProperty": {},
+    "TestContextValuesAgree": {},
+    "TestConvertedReleaseRuns": {},
+    "TestCopyCountsMatchModel": {
+      "body": 1444,
+      "lower": 4,
+      "lowerer": 4
+    },
+    "TestCopyReportIsWhole": {
+      "body": 1444,
+      "lowerer": 4
+    },
+    "TestCopyRuleAgrees": {},
+    "TestCorpusCompilesWithGc": {},
+    "TestCorpusGcRunsWhenSelected": {},
+    "TestCostContract": {},
+    "TestCount": {},
+    "TestCutAgrees": {},
+    "TestCutKeepsUniqueness": {
+      "body": 132,
+      "lower": 6,
+      "lowerer": 12
+    },
+    "TestDeadline": {},
+    "TestDecodeOnADirectReaderCallsItsFunctions": {
+      "body": 75,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 126
+    },
+    "TestDefaultWorkIsLinear": {
+      "body": 4,
+      "lowerer": 4
+    },
+    "TestDefectReportNamesErgoCallSites": {},
+    "TestDefects": {},
+    "TestDenseFlatTableRegrowsOnce": {},
+    "TestDenseLowersFlat": {
+      "body": 9,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestDensePutGrowsLinearly": {},
+    "TestDenseStringsCounts": {},
+    "TestDispatchAgreesWithSeparate": {},
+    "TestDispatcherMain": {},
+    "TestDropGlueModel": {},
+    "TestE3Sweep": {},
+    "TestE4CheckerRefusesFirst": {
+      "lower": 5
+    },
+    "TestE4HostUnsafeIce": {},
+    "TestEncodeOnADirectWriterCallsItsMethods": {
+      "body": 218,
+      "lower": 2,
+      "lowerer": 2,
+      "typecheck": 373
+    },
+    "TestEntryKeepsStdoutDirect": {
+      "body": 3,
+      "lower": 2,
+      "lowerer": 3
+    },
+    "TestEnvLoweringsAgree": {},
+    "TestEnvMemo": {},
+    "TestEnvMemoAllocs": {},
+    "TestEnvMemoRuns": {},
+    "TestEnvParamFollowsReads": {
+      "body": 932,
+      "lower": 48,
+      "lowerer": 96,
+      "typecheck": 1378
+    },
+    "TestEqualStructuralAgrees": {},
+    "TestErgoCLIProbe": {},
+    "TestErgoCLIUsesTheGivenBinary": {},
+    "TestErgoRunAssignability": {},
+    "TestErgoRunComparability": {},
+    "TestErgoRunConversionAgreesWithLet": {},
+    "TestErgoRunDefaultMapIsWritable": {},
+    "TestErgoRunDefinedCollectionLiterals": {},
+    "TestErgoRunDefinedErrorTypes": {},
+    "TestErgoRunDefinedTuple": {},
+    "TestErgoRunDiscardedWith": {},
+    "TestErgoRunE1ConversionWitness": {},
+    "TestErgoRunE1ForwardedPointerWitness": {},
+    "TestErgoRunE1GenericDomain": {},
+    "TestErgoRunE1Witnesses": {},
+    "TestErgoRunE4Externs": {},
+    "TestErgoRunE5Contexts": {},
+    "TestErgoRunFunctionTails": {},
+    "TestErgoRunGenericContextKey": {},
+    "TestErgoRunGenericImplementingFunction": {},
+    "TestErgoRunLocalShadowProperty": {},
+    "TestErgoRunMachineWork": {},
+    "TestErgoRunMethodValues": {},
+    "TestErgoRunNamedRows": {},
+    "TestErgoRunOneCatch": {},
+    "TestErgoRunOperationsConversionDomain": {},
+    "TestErgoRunOperators": {},
+    "TestErgoRunPackageDestructuring": {},
+    "TestErgoRunPackageTypeHidesPreludeType": {},
+    "TestErgoRunPatterns": {},
+    "TestErgoRunQueueOperations": {},
+    "TestErgoRunReturnInWith": {},
+    "TestErgoRunReturnInWithModel": {},
+    "TestErgoRunReviewCRefusals": {},
+    "TestErgoRunSeq": {},
+    "TestErgoRunSliceWithCapacity": {},
+    "TestErgoRunStructuralEquality": {},
+    "TestErgoRunTracesMachineArms": {},
+    "TestErgoRunUnionOfOneGenericRecord": {},
+    "TestErgoRunUnreachable": {},
+    "TestErgoRunWholeTry": {},
+    "TestErrorFieldNamesStayDistinct": {},
+    "TestErrorTextInstancesAcrossPackages": {},
+    "TestErrorValueRuleTable": {},
+    "TestEvalAgreesWithGo": {},
+    "TestEvaluationOrder": {},
+    "TestEveryGoBoundFunctionLowers": {
+      "body": 8726,
+      "lower-lib": 17894,
+      "lowerer": 8602,
+      "typecheck": 34992
+    },
+    "TestExecLaws": {},
+    "TestExecRuns": {},
+    "TestExecStartRuns": {},
+    "TestExitActionTask": {},
+    "TestExitActions": {},
+    "TestExternErrorRowRuns": {},
+    "TestExternValuesRun": {},
+    "TestFSFilesMemory": {},
+    "TestFSMemoryAgreesWithHost": {},
+    "TestFSRootTreeAgreesWithHost": {},
+    "TestFSSafeRuns": {},
+    "TestFSWritesRuns": {},
+    "TestFailureRaisedByImporter": {
+      "body": 204,
+      "lowerer": 12,
+      "typecheck": 264
+    },
+    "TestFallbackOffRefuses": {
+      "body": 16,
+      "lowerer": 4
+    },
+    "TestFanOutGrowsLinearly": {},
+    "TestFastTierGuard": {},
+    "TestFastTierGuardProbe": {
+      "body": 1,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestFileHandlesNeedOnlyAmbient": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 7
+    },
+    "TestFileMethodsNeedOnlyAmbient": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 7
+    },
+    "TestFileStatNeedsOnlyAmbient": {
+      "body": 4,
+      "lower": 1,
+      "lowerer": 2,
+      "typecheck": 7
+    },
+    "TestFilepathRuns": {},
+    "TestFlagForeignHandle": {},
+    "TestFlagLaws": {},
+    "TestFlagMatchesGo": {},
+    "TestFlagTreeLaws": {},
+    "TestFlagTreesAgree": {},
+    "TestFlatRunAllocs": {},
+    "TestFlatTableTakesRoomOnce": {},
+    "TestFlatUnionsAgree": {},
+    "TestFloatConversionInlines": {},
+    "TestFloatConversionIsPortable": {
+      "body": 156,
+      "lower-lib": 6,
+      "lowerer": 6
+    },
+    "TestFloatLiteralTinyLowers": {
+      "body": 1,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 4
+    },
+    "TestFloatLiteralsLowerExactly": {
+      "body": 1,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 4
+    },
+    "TestFloatProductsRound": {
+      "body": 60,
+      "lower-lib": 4,
+      "lowerer": 4
+    },
+    "TestForeignKeysNameTheirBuild": {},
+    "TestFormsAgree": {},
+    "TestFreedStorage": {},
+    "TestFreshResultsActOnlyValidated": {
+      "body": 6,
+      "lowerer": 3
+    },
+    "TestFuncLawEvidenceKeysReachedBodies": {},
+    "TestFusionAtSites": {
+      "body": 47,
+      "lowerer": 3
+    },
+    "TestGeneratedOrderIsTotal": {},
+    "TestGeneratorsReachEveryClass": {},
+    "TestGenericCapabilitiesAgree": {},
+    "TestGenericCloseWithWitnessesNamesOwner": {
+      "lower": 1
+    },
+    "TestGenericKeys": {},
+    "TestGenericLawLoweringsAgree": {},
+    "TestGenericLoweringsAgree": {},
+    "TestGetMatchAgrees": {},
+    "TestGetMatchCopiesTheValueNotTheMap": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestGetMatchElementCopyAgrees": {},
+    "TestGoBackedLawsRunNatively": {},
+    "TestGoCallsErgo": {},
+    "TestGoCallsTakeIRBodies": {
+      "body": 44,
+      "lowerer": 16,
+      "typecheck": 119
+    },
+    "TestGoCopyKeepsValues": {},
+    "TestGoErrorChainsAgree": {},
+    "TestGoGetsEntryCopies": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestGoMethodReceiverBorrows": {},
+    "TestGoNew": {
+      "body": 5,
+      "lower-lib": 14,
+      "lowerer": 5,
+      "typecheck": 20
+    },
+    "TestGoSeqCrossesTheBoundary": {},
+    "TestGraphLoweringsTraceAlike": {},
+    "TestHTTPHandlerRows": {
+      "body": 14,
+      "lower-lib": 1,
+      "lowerer": 1,
+      "typecheck": 37
+    },
+    "TestHTTPHasNoTestProviderDependency": {},
+    "TestHTTPNetworkRuns": {},
+    "TestHandedCallbackEndsAlone": {
+      "body": 22,
+      "lower": 1,
+      "lowerer": 2
+    },
+    "TestHandoverAgrees": {},
+    "TestHardlinkLinkerOnStd": {
+      "body": 9,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 16
+    },
+    "TestHeaderLiteralAgrees": {},
+    "TestHooksStayOutOfRunBuilds": {
+      "body": 5,
+      "lower": 1,
+      "lowerer": 2
+    },
+    "TestHostAuthorityRuns": {},
+    "TestHostCallbackEnvironmentIsItsOwn": {},
+    "TestHostCallbackKeepsItsEnvironment": {},
+    "TestHostCopyElisionAgrees": {},
+    "TestHostFSProgramRuns": {},
+    "TestHostResourceRun": {},
+    "TestHostResourceVerdicts": {
+      "body": 192,
+      "lower": 183,
+      "lowerer": 64
+    },
+    "TestHostViewAgrees": {
+      "body": 100,
+      "lowerer": 20,
+      "typecheck": 308
+    },
+    "TestHostresBindingIsCurrent": {},
+    "TestIOLaws": {},
+    "TestIORecorderBehavesAsBefore": {},
+    "TestIOStdinRest": {},
+    "TestIOStreamsAreDistinct": {
+      "body": 10,
+      "lower": 3,
+      "lowerer": 1
+    },
+    "TestIRBodiesArePlaced": {},
+    "TestIRDefaultsMatchEmitter": {},
+    "TestIRDigestInItsPackage": {
+      "body": 204,
+      "lowerer": 12
+    },
+    "TestIRFloatProductsRound": {
+      "body": 7,
+      "lowerer": 1
+    },
+    "TestIRPlacedNamesTheNode": {},
+    "TestIRWindowWritesFromItsCalls": {
+      "body": 19,
+      "lowerer": 1
+    },
+    "TestIRWithOfTestAmbientOpensTheFolder": {
+      "body": 7,
+      "lowerer": 1
+    },
+    "TestImportGoDefects": {},
+    "TestImportGoHeaderWriteReachesGo": {},
+    "TestImportGoRuns": {},
+    "TestImportedOperationTypes": {},
+    "TestInForceAfterWithEnds": {},
+    "TestInForceContextsAgree": {},
+    "TestInForceRunsOnTheIR": {},
+    "TestInForceTakesTheIR": {
+      "body": 118,
+      "lower": 6,
+      "lowerer": 12
+    },
+    "TestIncludedOperationsLower": {
+      "body": 4,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 10
+    },
+    "TestIncludedRecordFlattens": {},
+    "TestInlineAgrees": {},
+    "TestInlineGrowth": {
+      "body": 14,
+      "lower": 2,
+      "lowerer": 2
+    },
+    "TestInlinePays": {
+      "body": 109,
+      "lower": 4,
+      "lowerer": 4
+    },
+    "TestInlineRule": {
+      "body": 19,
+      "lower": 2,
+      "lowerer": 2
+    },
+    "TestInlinedCallEndsAnArm": {
+      "body": 3,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestInputLinesMatchesModel": {},
+    "TestIntegerShrinksReachBoundary": {},
+    "TestInterpolationText": {},
+    "TestInvoicesAgree": {},
+    "TestJSONCommaTestsCounted": {},
+    "TestJSONFieldsAgree": {},
+    "TestJSONRawAgrees": {},
+    "TestJSONStreamAgrees": {},
+    "TestJSONValueAgrees": {},
+    "TestJoinsTakeNoCopy": {
+      "body": 4,
+      "lowerer": 2,
+      "typecheck": 71
+    },
+    "TestJournalFileRecovers": {},
+    "TestKeyEqualsEquality": {},
+    "TestKnownCallbacksAgree": {},
+    "TestKnownConstructorsAgree": {},
+    "TestKnownProvidersAgree": {},
+    "TestKnownWitnessesAgree": {},
+    "TestLargeTestsAreSplit": {},
+    "TestLawBodyAppendsInPlace": {
+      "body": 1,
+      "lowerer": 1
+    },
+    "TestLawBodyCopies": {
+      "body": 2,
+      "lowerer": 1
+    },
+    "TestLawContextStartsEachCaseFresh": {},
+    "TestLawFactsStayOut": {},
+    "TestLawGenBuilderIsNamed": {
+      "body": 20,
+      "lowerer": 1
+    },
+    "TestLawRunB13": {},
+    "TestLawRunCapabilities": {},
+    "TestLawRunDefinedBool": {},
+    "TestLawRunFindsTheBrokenProvider": {},
+    "TestLawRunGenericListed": {},
+    "TestLawRunLeastPackage": {},
+    "TestLawRunNoParams": {},
+    "TestLawRunOtherPackage": {},
+    "TestLawRunReadIsRepeatable": {},
+    "TestLawRunSkips": {},
+    "TestLawRunState": {},
+    "TestLawRunsAgreeOnEveryPath": {
+      "body": 1974,
+      "lowerer": 48
+    },
+    "TestLawUnderAContextTakesTheOneRule": {},
+    "TestLayoutsAgree": {},
+    "TestLedgerDropsSuperseded": {},
+    "TestLevel2AdaptersRun": {},
+    "TestLevel2NonNilDefect": {},
+    "TestLinkedRuntimeHoldsEveryImport": {
+      "body": 101,
+      "lower": 153,
+      "lowerer": 46
+    },
+    "TestLinknameWidens": {},
+    "TestLiteralLetsAreStaticData": {
+      "body": 24,
+      "lower": 12,
+      "lowerer": 12,
+      "typecheck": 60
+    },
+    "TestLocalContextLowersInPlace": {
+      "body": 14,
+      "lower": 2,
+      "lowerer": 2
+    },
+    "TestLoopIdiomsAgree": {},
+    "TestLowerPackages": {},
+    "TestLoweringIsAFunctionOfInput": {
+      "body": 1344,
+      "lowerer": 128
+    },
+    "TestLoweringIsCanonical": {},
+    "TestLoweringIsTheSameInAnyDirectory": {
+      "body": 8,
+      "lowerer": 2
+    },
+    "TestMachineAfterRefusals": {
+      "lower": 3
+    },
+    "TestMachineFlatRunAgrees": {},
+    "TestMachineFlatRunAllocates": {},
+    "TestMachineFlatRunMutants": {},
+    "TestMachineLawRuns": {},
+    "TestMachineLawTables": {},
+    "TestMachinePlanStepReadsItsEnvironment": {},
+    "TestMachinePlanValues": {},
+    "TestMachineRunAgreesWithFold": {},
+    "TestMachineRunChargesTheStepRows": {
+      "lower": 1
+    },
+    "TestMachineStepAllocates": {},
+    "TestMachineStepDefectFrames": {},
+    "TestMachineTimerNotPositive": {},
+    "TestMachineValueConverts": {
+      "lower": 1
+    },
+    "TestMainImportsOnlyTheRuntimeLeavesItCalls": {
+      "body": 44,
+      "lower": 6,
+      "lowerer": 7,
+      "typecheck": 107
+    },
+    "TestMatchContract": {},
+    "TestMatchCostModule": {},
+    "TestMatchTreeAgrees": {},
+    "TestMatchTreeShape": {
+      "body": 11,
+      "lower": 5,
+      "lowerer": 5
+    },
+    "TestMethodValueRuns": {},
+    "TestMethodValueTakesTheIR": {
+      "body": 5,
+      "lowerer": 1
+    },
+    "TestNamedTailsSettle": {
+      "body": 7,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestNamedTailsSettleAcrossPackages": {
+      "body": 7,
+      "lowerer": 1
+    },
+    "TestNamingWorkIsLinear": {
+      "body": 4,
+      "lowerer": 2
+    },
+    "TestNarrowedFunctionTypeChecks": {
+      "body": 3,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 8
+    },
+    "TestNeedsBuildComesFirst": {},
+    "TestNetLaws": {},
+    "TestNeverLowers": {
+      "body": 26,
+      "lowerer": 2,
+      "typecheck": 82
+    },
+    "TestNewBuilderRefusesUnanalyzed": {},
+    "TestNextAgrees": {},
+    "TestNoValueTypeArgumentsLower": {},
+    "TestOSPathRowsNeedOnlyAmbient": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 7
+    },
+    "TestOSProcessRuns": {},
+    "TestOperationAdapterCallsGo": {
+      "body": 4,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 9
+    },
+    "TestOptionRefPatternLowers": {
+      "body": 1,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 5
+    },
+    "TestOwnReadAdapterIsEmitted": {
+      "body": 39,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 91
+    },
+    "TestOwnedCallsSayHandedOver": {
+      "body": 4,
+      "lowerer": 1
+    },
+    "TestOwnedSiteAloneFollowsFootprint": {
+      "body": 22,
+      "lower": 1,
+      "lowerer": 2
+    },
+    "TestOwnershipGrammarRun": {},
+    "TestOwnershipRunModel": {},
+    "TestPartsCopyNothing": {
+      "body": 18,
+      "lowerer": 1
+    },
+    "TestPatternLoweringAgrees": {},
+    "TestPatternMatchersAgree": {},
+    "TestPlainCatchAgrees": {},
+    "TestPlainCatchInlines": {},
+    "TestPollNoneAllocatesNothing": {},
+    "TestPortCallsTakeIRBodies": {
+      "body": 151,
+      "lowerer": 8
+    },
+    "TestPresenceWrappersGenerate": {},
+    "TestProbeNamesItsTest": {},
+    "TestProgramTablesAgreeWithSeparate": {},
+    "TestProgramTablesCheck": {
+      "body": 11547,
+      "lower": 17,
+      "lowerer": 89
+    },
+    "TestProgramTablesNameTheirTests": {},
+    "TestPromptLaws": {},
+    "TestPropertySeed": {},
+    "TestProtocolParamsDecideTheMatch": {
+      "body": 4,
+      "lower": 2,
+      "lowerer": 2
+    },
+    "TestProvedRunsModel": {},
+    "TestProviderCellsAgree": {},
+    "TestProviderErgoFieldAnswers": {},
+    "TestProviderErgoFieldTypechecks": {
+      "body": 15,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 28
+    },
+    "TestProviderPutTouchesFewSlots": {},
+    "TestProviderTableCopiesAreDirect": {
+      "body": 64,
+      "lower": 1,
+      "lowerer": 3,
+      "typecheck": 30
+    },
+    "TestPureGoCallCopiesALiveLet": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestPureMethodsMeetNoHostProtocolByAccident": {},
+    "TestPurePreludeAgrees": {},
+    "TestPurePreludeEmits": {},
+    "TestPureStdCallsKeepFunctionsPure": {},
+    "TestPurityAcrossPackages": {},
+    "TestPutBytes": {},
+    "TestPutGrowsLinearly": {},
+    "TestQueuePollLaws": {},
+    "TestQueuePollNoneAllocatesNothing": {},
+    "TestQueuePollRuns": {},
+    "TestRaceRuns": {},
+    "TestRandEffectCases": {},
+    "TestRandRuns": {},
+    "TestReachLibraryExportsReached": {
+      "body": 1129,
+      "lower": 49,
+      "lower-test": 11,
+      "lowerer": 69,
+      "typecheck": 6
+    },
+    "TestReachLowersNoUnreachableDeclaration": {
+      "body": 505,
+      "lowerer": 120,
+      "typecheck": 372
+    },
+    "TestReadOnlyUsesAgree": {},
+    "TestReadOnlyUsesCopyNothing": {
+      "body": 436,
+      "lower": 4,
+      "lowerer": 4
+    },
+    "TestReadsCallTakesNoCopy": {
+      "body": 8,
+      "lowerer": 2,
+      "typecheck": 75
+    },
+    "TestRecordUpdateAllocs": {
+      "body": 7,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestRecordUpdateAllocsDriver": {},
+    "TestRecordUpdateRuns": {},
+    "TestRedactedNeverPrints": {},
+    "TestRedactedRefusedAtCheck": {},
+    "TestRefOwnElides": {
+      "body": 70,
+      "lower": 2,
+      "lowerer": 2
+    },
+    "TestRefinedParseLowersAsFailure": {},
+    "TestRefusalsBeforeGo": {
+      "body": 2,
+      "lower": 8,
+      "lowerer": 1
+    },
+    "TestRefusalsNameOpenOwners": {},
+    "TestRefusedFamiliesHaveWitnesses": {
+      "body": 22569,
+      "lower": 50,
+      "lower-lib": 16526,
+      "lower-test": 10,
+      "lowerer": 2658
+    },
+    "TestRefutedLawSitesAgree": {},
+    "TestReleaseNeedsRun": {},
+    "TestRelendLowers": {
+      "body": 4,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 8
+    },
+    "TestRenameTailTailCheckAgrees": {},
+    "TestReraiseWiredRow": {
+      "body": 30,
+      "lowerer": 1,
+      "typecheck": 147
+    },
+    "TestReserveAgrees": {},
+    "TestResolveAllocsDriver": {},
+    "TestRestartKeepsIntMapChoice": {},
+    "TestRetainedForeignArguments": {
+      "body": 12,
+      "lower-lib": 42,
+      "lowerer": 9
+    },
+    "TestReturnMoveAgrees": {},
+    "TestReturnMoveCounts": {
+      "body": 1261,
+      "lower": 60,
+      "lower-test": 8,
+      "lowerer": 76
+    },
+    "TestReturnedTaskEnvironment": {},
+    "TestReviewRegressions": {},
+    "TestRewriteAgrees": {},
+    "TestRewriteAtTakesOneDecision": {
+      "body": 348,
+      "lowerer": 12
+    },
+    "TestRewriteDeepFalseLaw": {},
+    "TestRewriteEmptyWindow": {
+      "body": 5,
+      "lowerer": 1,
+      "typecheck": 9
+    },
+    "TestRewriteLawRunsAsLicence": {
+      "body": 2,
+      "lowerer": 1
+    },
+    "TestRewriteLawVerdicts": {},
+    "TestRewriteWorkBound": {
+      "body": 1117,
+      "lower": 57,
+      "lower-test": 3,
+      "lowerer": 68
+    },
+    "TestRoundsEmitWhatOneRoundEmits": {
+      "body": 48,
+      "lowerer": 24
+    },
+    "TestRowArgumentsBuildOnBothPaths": {},
+    "TestRowGapsAgree": {
+      "body": 240,
+      "lower": 6,
+      "lowerer": 12,
+      "typecheck": 150
+    },
+    "TestRowGapsRunOnTheIR": {},
+    "TestRowParamBindsFromTypeArg": {
+      "body": 1575,
+      "lower": 90,
+      "lower-test": 10,
+      "lowerer": 107,
+      "typecheck": 698
+    },
+    "TestRowParamBindsFromTypeArgRuns": {},
+    "TestRowParamPurityFollowsBody": {
+      "body": 95,
+      "lower": 6,
+      "lowerer": 6,
+      "typecheck": 149
+    },
+    "TestRowValueFieldsAgree": {},
+    "TestRowsAndDefects": {},
+    "TestRunImportedContext": {},
+    "TestRunProgramBoundsAGrowingProgram": {},
+    "TestRuntime199AcquireFlow": {},
+    "TestRuntime199AcquireOwner": {},
+    "TestRuntime199AcquireProperty": {},
+    "TestRuntime199BlockingOwner": {},
+    "TestRuntime199BlockingProperty": {},
+    "TestRuntime199ContextBuildProperty": {},
+    "TestRuntime199ContextValueOwner": {
+      "body": 1107,
+      "lower": 48,
+      "lower-test": 12,
+      "lowerer": 67,
+      "typed-source": 105
+    },
+    "TestRuntime199ContextValueProperty": {},
+    "TestRuntime199CostModule": {},
+    "TestRuntime199DefectOwner": {},
+    "TestRuntime199DefectProperty": {},
+    "TestRuntime199DefectRecovery": {
+      "typed-source": 135
+    },
+    "TestRuntime199EnvClosureBinding": {
+      "lowerer": 7
+    },
+    "TestRuntime199EnvTypeReaders": {
+      "typed-source": 250
+    },
+    "TestRuntime199ExternClose": {
+      "body": 3,
+      "lower": 1,
+      "lowerer": 2
+    },
+    "TestRuntime199FrameClassCoverage": {
+      "body": 1258,
+      "lower": 56,
+      "lower-test": 12,
+      "lowerer": 74
+    },
+    "TestRuntime199FrameValues": {
+      "typed-source": 250
+    },
+    "TestRuntime199I1Live": {},
+    "TestRuntime199I1Primitives": {},
+    "TestRuntime199I1PropertyDomain": {},
+    "TestRuntime199I1PropertyPart0": {},
+    "TestRuntime199I1PropertyPart1": {},
+    "TestRuntime199I1PropertyPart10": {},
+    "TestRuntime199I1PropertyPart11": {},
+    "TestRuntime199I1PropertyPart12": {},
+    "TestRuntime199I1PropertyPart13": {},
+    "TestRuntime199I1PropertyPart14": {},
+    "TestRuntime199I1PropertyPart15": {},
+    "TestRuntime199I1PropertyPart16": {},
+    "TestRuntime199I1PropertyPart17": {},
+    "TestRuntime199I1PropertyPart18": {},
+    "TestRuntime199I1PropertyPart19": {},
+    "TestRuntime199I1PropertyPart2": {},
+    "TestRuntime199I1PropertyPart20": {},
+    "TestRuntime199I1PropertyPart21": {},
+    "TestRuntime199I1PropertyPart22": {},
+    "TestRuntime199I1PropertyPart23": {},
+    "TestRuntime199I1PropertyPart3": {},
+    "TestRuntime199I1PropertyPart4": {},
+    "TestRuntime199I1PropertyPart5": {},
+    "TestRuntime199I1PropertyPart6": {},
+    "TestRuntime199I1PropertyPart7": {},
+    "TestRuntime199I1PropertyPart8": {},
+    "TestRuntime199I1PropertyPart9": {},
+    "TestRuntime199MaskProperty": {},
+    "TestRuntime199NoWaitBindings": {
+      "body": 1093,
+      "lower": 54,
+      "lower-test": 6,
+      "lowerer": 64,
+      "typed-source": 102
+    },
+    "TestRuntime199TaskReaders": {
+      "typed-source": 250
+    },
+    "TestRuntimeFilesHoldRT": {},
+    "TestRuntimeRecordFunctionIsFree": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 6
+    },
+    "TestSQLLaws": {},
+    "TestSQLTxOnlyInsideTransaction": {},
+    "TestSameReportOnMisreportedBounds": {},
+    "TestScalarLocalsAgree": {},
+    "TestScheduleAgreesWithModel": {},
+    "TestSchedulerEntryNeedsExplicitProvider": {
+      "body": 5,
+      "lower": 2,
+      "lowerer": 2,
+      "typecheck": 10
+    },
+    "TestScriptHeldCallFailsTheTest": {},
+    "TestScriptNoAnswer": {},
+    "TestSealedStdConvertsToItsOperationTypes": {
+      "body": 220,
+      "lower-lib": 2327,
+      "lowerer": 100,
+      "typecheck": 109
+    },
+    "TestSetRuns": {},
+    "TestShardCutFollowsCost": {},
+    "TestShardsLocalUnderInsert": {
+      "body": 824,
+      "lowerer": 16
+    },
+    "TestShardsTypecheck": {
+      "body": 792,
+      "lowerer": 30
+    },
+    "TestSkipEndsTheRun": {},
+    "TestSlideReleasesTheEvicted": {},
+    "TestSortByAgrees": {},
+    "TestSourceAnchorsReachTheGoBinary": {},
+    "TestSplitHarness": {},
+    "TestSplitLoweringAgrees": {},
+    "TestSplitTextKeepsPositions": {
+      "body": 324,
+      "lowerer": 20
+    },
+    "TestSplitsCoverTheirDomain": {},
+    "TestSpreadBaseBeforeValues": {},
+    "TestSpreadMatchesModel": {},
+    "TestStaleNoteNamesUntypedStd": {},
+    "TestStaticReleaseAgrees": {},
+    "TestStdActorLawsRun": {},
+    "TestStdAnsiLawsRun": {},
+    "TestStdArenaLawsRun": {},
+    "TestStdArenaReleasesStorage": {},
+    "TestStdAscendingMatchesGo": {},
+    "TestStdBenchJudgeMatchesReference": {},
+    "TestStdBenchLawsRun": {},
+    "TestStdBenchMatchesReference": {},
+    "TestStdBodyErrorIsAnICE": {},
+    "TestStdBuildLawsRun": {},
+    "TestStdCSVLawsRun": {},
+    "TestStdCacheLawsRun": {},
+    "TestStdCallbackClausesAdmit": {
+      "body": 153,
+      "lower": 33,
+      "lowerer": 18
+    },
+    "TestStdCallbackClausesRace": {},
+    "TestStdCivilFormatMatchesGo": {},
+    "TestStdCivilLawsRun": {},
+    "TestStdCivilMatchesModel": {},
+    "TestStdCodeLawsRun": {},
+    "TestStdCodecLawsRun": {},
+    "TestStdConfigLawsRun": {},
+    "TestStdCronLawsRun": {},
+    "TestStdDecimalLawsRun": {},
+    "TestStdDecimalMatchesRat": {},
+    "TestStdDenseLawsRun": {},
+    "TestStdDigestRuns": {},
+    "TestStdDurationRuns": {},
+    "TestStdEvidenceAdmitsOnlyProvedCurrent": {},
+    "TestStdExternsHaveBodies": {},
+    "TestStdGapNamedContext": {},
+    "TestStdGapOpsConversion": {},
+    "TestStdGapParseGuard": {},
+    "TestStdGapPrelude": {},
+    "TestStdGapProperty": {},
+    "TestStdGapRealStd": {},
+    "TestStdGenericLetsCompile": {
+      "body": 3,
+      "lowerer": 1,
+      "typecheck": 6
+    },
+    "TestStdGraphLawsRun": {},
+    "TestStdHTMLLawsRun": {},
+    "TestStdHTTPLawsRun": {},
+    "TestStdHashingLawsRun": {},
+    "TestStdJSONLawsRun": {},
+    "TestStdJSONLooseLawsRun": {},
+    "TestStdJSONSchemaLawsRun": {},
+    "TestStdJobsLawsRun": {},
+    "TestStdJournalLawsRun": {},
+    "TestStdKeyedLawsRun": {},
+    "TestStdKvLawsRun": {},
+    "TestStdLLMLawsRun": {},
+    "TestStdLawsAddNoGo": {
+      "body": 52,
+      "lower": 4,
+      "lowerer": 4,
+      "typecheck": 92
+    },
+    "TestStdLawsRun": {},
+    "TestStdLayoutLawsRun": {},
+    "TestStdLintLawsRun": {},
+    "TestStdLocateNamesItsOwnFile": {
+      "body": 3,
+      "lowerer": 1
+    },
+    "TestStdLogLawsRun": {},
+    "TestStdLogMatchesSlog": {},
+    "TestStdMCPLawsRun": {},
+    "TestStdMachinesLawsRun": {},
+    "TestStdMapsMoreLawsRun": {},
+    "TestStdMatchBodiesLowerInAnyProgram": {
+      "body": 20074,
+      "lowerer": 1028
+    },
+    "TestStdMatchesGo": {},
+    "TestStdOperationThroughDefinedTypeOrPointerRefused": {
+      "lower-lib": 3
+    },
+    "TestStdPackageLet": {
+      "body": 4,
+      "lowerer": 2,
+      "typecheck": 13
+    },
+    "TestStdProofLawsRun": {},
+    "TestStdPubsubLawsRun": {},
+    "TestStdRandLawsRun": {},
+    "TestStdRatelimitLawsRun": {},
+    "TestStdRecordsKeyedByPackage": {},
+    "TestStdRunesRuns": {},
+    "TestStdScheduleLawsRun": {},
+    "TestStdSemverLaws": {},
+    "TestStdSessionLawsRun": {},
+    "TestStdSetLawsRun": {},
+    "TestStdSlicesEffectCases": {},
+    "TestStdSlicesLawsRun": {},
+    "TestStdSlicesMoreLawsRun": {},
+    "TestStdSlicesMoreRuns": {},
+    "TestStdSlicesRuns": {},
+    "TestStdStreamLawsRun": {},
+    "TestStdTextLawsRun": {},
+    "TestStdTextRuns": {},
+    "TestStdTextRuns2": {},
+    "TestStdTimeLawsRun": {},
+    "TestStdTzIanaLawsRun": {},
+    "TestStdTzLawsRun": {},
+    "TestStdTzMatchesGo": {},
+    "TestStdTzMatchesGoAll0": {},
+    "TestStdTzMatchesGoAll1": {},
+    "TestStdTzMatchesGoAll2": {},
+    "TestStdTzMatchesGoAll3": {},
+    "TestStdTzMatchesGoAll4": {},
+    "TestStdTzMatchesGoAll5": {},
+    "TestStdTzMatchesGoAll6": {},
+    "TestStdTzMatchesGoAll7": {},
+    "TestStdTzResolveAllocs": {},
+    "TestStdURLLawsRun": {},
+    "TestStdURLMatchesGo": {},
+    "TestStdUnionsAreFlat": {
+      "body": 20,
+      "lower": 2,
+      "lowerer": 2,
+      "typecheck": 70
+    },
+    "TestStdXmlLawsRun": {},
+    "TestStdXmlRowsRun": {},
+    "TestStdinStopRuns": {},
+    "TestStepAllocs": {},
+    "TestStrconvAppendersWriteInPlace": {
+      "body": 4,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestStreamOperationsRunAlone": {
+      "body": 237,
+      "lower": 1,
+      "lowerer": 2
+    },
+    "TestStringsCounts": {},
+    "TestStructuralEqualityRefusals": {
+      "lower": 3
+    },
+    "TestSubUnionsAgree": {},
+    "TestSupportTableIsCurrent": {},
+    "TestSymbolicProofsSound": {
+      "body": 352,
+      "lowerer": 1
+    },
+    "TestSyncLaws": {},
+    "TestTOMLDecode": {},
+    "TestTabulatedAgree": {},
+    "TestTaskGoAndTaskResults": {},
+    "TestTaskOwnershipRunModel": {},
+    "TestTermLaws": {},
+    "TestTermModesRestore": {},
+    "TestTestBuildCallsCopies": {
+      "body": 7,
+      "lowerer": 2
+    },
+    "TestTestBuildHasEveryTest": {
+      "body": 35,
+      "lowerer": 13
+    },
+    "TestTestBuildsTakeNoShortcut": {
+      "body": 182,
+      "lowerer": 52
+    },
+    "TestTestCountsItsAllocations": {
+      "body": 6,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestTestRunnerModelPart0": {},
+    "TestTestRunnerModelPart1": {},
+    "TestTestRunnerModelPart2": {},
+    "TestTestRunnerModelPart3": {},
+    "TestTimeCivilMatchesGo": {},
+    "TestTimeEffectCases": {},
+    "TestTimeRuns": {},
+    "TestTimeoutAfterLowers": {},
+    "TestTimeoutDeadlineIsTheProgramScheduler": {},
+    "TestTopLevelLawsLeaveNoGo": {
+      "body": 11425,
+      "lower": 864,
+      "lowerer": 1296
+    },
+    "TestTracedVariantsHaveTheirErgoNames": {
+      "body": 19,
+      "lowerer": 1,
+      "typecheck": 43
+    },
+    "TestTransformRuns": {},
+    "TestTrustedRootBindsRuntime": {
+      "body": 1,
+      "lowerer": 1,
+      "typecheck": 5
+    },
+    "TestTryCatchEvalAgrees": {
+      "body": 930,
+      "lower": 30,
+      "lowerer": 30,
+      "typecheck": 1110
+    },
+    "TestTryCoversToTheRight": {
+      "body": 623,
+      "lower": 40,
+      "lowerer": 40,
+      "typecheck": 823
+    },
+    "TestTryCoversToTheRightBuilt": {},
+    "TestTupleLetsAgree": {},
+    "TestTupleResultIsNotCarried": {
+      "body": 2,
+      "lower": 1,
+      "lowerer": 1,
+      "typecheck": 6
+    },
+    "TestTwins": {},
+    "TestTypeNameLiteral": {},
+    "TestTypecheckAgreesWithGc": {},
+    "TestUIForgottenBoundary": {},
+    "TestUIHostModel": {},
+    "TestUILoadModel": {},
+    "TestUIPassGrowsLinearly": {},
+    "TestUISkipAgrees": {},
+    "TestUITextModel": {},
+    "TestUITreeModel": {},
+    "TestUIViewNeeds": {},
+    "TestUnfoldAtSites": {
+      "body": 36,
+      "lowerer": 3
+    },
+    "TestUnfoldFoldsAComputedArgument": {
+      "body": 20,
+      "lowerer": 1
+    },
+    "TestUnitValidate": {},
+    "TestUnreachableLowersToPanic": {
+      "body": 3,
+      "lower": 1,
+      "lowerer": 1
+    },
+    "TestUnreachableRulesRefuse": {},
+    "TestValidatePathRefusesWhatADirectiveCannotName": {},
+    "TestValueRuleAgrees": {},
+    "TestValueRuleElides": {
+      "body": 197,
+      "lower": 3,
+      "lowerer": 3
+    },
+    "TestValueRuleEveryBodyKind": {},
+    "TestValueRuleMutants": {},
+    "TestValueRuleProbes": {},
+    "TestValueRuleRace": {},
+    "TestValuesIntoGoAny": {
+      "body": 220,
+      "lower-lib": 107,
+      "lowerer": 114,
+      "typecheck": 293
+    },
+    "TestValuesIntoGoInterfaces": {
+      "body": 331,
+      "lower-lib": 301,
+      "lowerer": 133,
+      "typecheck": 350
+    },
+    "TestVerifyR1ContextPositions": {},
+    "TestVerifyR1Diamond": {},
+    "TestVerifyR1GenericNames": {},
+    "TestVerifyR1ImportedRefusal": {
+      "body": 3,
+      "lowerer": 1
+    },
+    "TestVerifyR1InitDAGs": {
+      "body": 738,
+      "lowerer": 64
+    },
+    "TestVerifyR3ErasedRows": {},
+    "TestVerifyR8EqualTextIdentity": {},
+    "TestViewFaultIsDefect": {},
+    "TestVirtualClockRuns": {},
+    "TestVouchedReadsActOnlyValidated": {
+      "body": 26,
+      "lowerer": 13
+    },
+    "TestWireFormsAgree": {},
+    "TestWorkIsAnOrdinaryRecord": {
+      "body": 168,
+      "lower": 6,
+      "lowerer": 6
+    },
+    "TestZoneDataCarried": {
+      "body": 1,
+      "lower": 1,
+      "lowerer": 1
+    }
+  }
+}

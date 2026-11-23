@@ -29,8 +29,8 @@ import (
 //     return anywhere, so the blocks read here are exactly the blocks
 //     CommonMark renders;
 //   - every go block parses and is canonical under the 2026 parser and
-//     formatter, and uses no form the specification removed: `uses`
-//     (#217), `nil` (types.md) or a prefix catch (rows.md); nor a Close
+//     formatter, and uses no form the specification removed: `uses`,
+//     `nil` (types.md) or a prefix catch (rows.md); nor a Close
 //     in `scope.OnExit`, which the README never shows because resources
 //     release themselves (resources.md, `scope.OnExit`);
 //   - the quoted S102 line is what `ergo diagnostics` prints for
@@ -39,7 +39,7 @@ import (
 //     prints the output its comment names; a `test` command's comment
 //     names the runner's summary, its last line.
 //
-// TODO(#196): once the 2026 checker lands, also type-check each block
+// TODO: once the 2026 checker lands, also type-check each block
 // against declarations of the names it leaves undeclared, so a block that
 // drops a failure from a row fails here too.
 
@@ -193,7 +193,7 @@ func readmeBlockProblem(source string) error {
 		case "nil":
 			refused = append(refused, fmt.Sprintf("line %d: Ergo has no nil (docs/spec/types.md)", line))
 		case "uses":
-			refused = append(refused, fmt.Sprintf("line %d: `uses` was replaced by `needs` and `provides` (#217)", line))
+			refused = append(refused, fmt.Sprintf("line %d: `uses` was replaced by `needs` and `provides`", line))
 		}
 		return true
 	})

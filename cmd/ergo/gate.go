@@ -198,6 +198,7 @@ func (w *gateWorkspace) treeParts(dir, skip string, seen map[string]bool, key *t
 	if inside {
 		key.Paths = append(key.Paths, base)
 	}
+	bind := filepath.Join(dir, sketchfront.BindFolder)
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -207,13 +208,12 @@ func (w *gateWorkspace) treeParts(dir, skip string, seen map[string]bool, key *t
 			return err
 		}
 		if d.IsDir() {
-			if p == dir {
+			inBind := p == bind || strings.HasPrefix(p, bind+string(filepath.Separator))
+			if p == dir || inBind {
 				return nil
 			}
-			// The folders discovery skips: hidden, underscored, testdata
-			// and nested modules.
-			n := d.Name()
-			if strings.HasPrefix(n, ".") || strings.HasPrefix(n, "_") || n == "testdata" {
+			// The root's bindings are inputs, but not package folders.
+			if !sketchfront.AdmitFolder(d.Name()) {
 				return filepath.SkipDir
 			}
 			if _, err := os.Stat(filepath.Join(p, sketchfront.ModFile)); err == nil {

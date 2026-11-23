@@ -387,8 +387,8 @@ func (c *checker) collect() {
 			if syntax.IsBindingDecl(d) && !runtimeTypeDecl(d) {
 				// A host type, const or method comes only from a binding
 				// that ergo bind go writes (docs/spec/interop.md); the
-				// checker reads bindings with #202's import checking.
-				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) is #202's (Go imports); ergo bind go writes it, and it is not checked yet")
+				// checker reads bindings with Go interop's import checking.
+				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) waits for Go interop; ergo bind go writes it, and it is not checked yet")
 				continue
 			}
 			switch d := d.(type) {
@@ -554,7 +554,14 @@ func (c *checker) collect() {
 		if !ok || !isExported(tn.Name) {
 			continue
 		}
-		if id, ok := m.Step.(*syntax.Ident); ok {
+		// A name step's function (an instance's too, stepT[T]); a
+		// computed step's rows are its value's type, which the functions
+		// it composes spell.
+		x := unparen(m.Step)
+		if ix, ok := x.(*syntax.IndexExpr); ok {
+			x = unparen(ix.X)
+		}
+		if id, ok := x.(*syntax.Ident); ok {
 			if f, ok := c.pkg.Scope.names[id.Name].(*Func); ok {
 				c.guarded[f] = true
 			}
@@ -642,7 +649,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	if spec.Kind == syntax.ImportGo {
 		// Go's rule for an import path, before any name is read from it
-		// (#202 comment, small-fix #231).
+		// (comment, small-fix the FuzzFormat fix).
 		if why := GoImportPathError(path); why != "" {
 			c.errorf(spec.Path, CodeType, "malformed Go import path %q: %s", path, why)
 			c.bindBrokenImport(fi, spec, path)
@@ -651,7 +658,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	// A keyword cannot be the name an import binds, so a path whose last
 	// element is one needs an alias (grammar.md, Declarations rule 1; 196w).
-	// The message recognises Go's `import "context"` habit (#220).
+	// The message recognises Go's `import "context"` habit.
 	if def := importDefault(spec, path); spec.Name == nil && syntax.IsKeyword(def) {
 		fix := "import " + def + "pkg " + path
 		if spec.Kind == syntax.ImportGo {
@@ -794,7 +801,7 @@ func (c *checker) checkImportAliases() {
 			}
 		}
 		if !clash {
-			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s (#196, fourth round, item 3)", a.path)
+			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s", a.path)
 			if pn, ok := a.file.scope.names[importBinds(a.spec)].(*PkgName); ok {
 				pn.used = true // The refused alias must not also be unused.
 			}
@@ -1437,7 +1444,7 @@ type typeCtx struct {
 
 // litParams carries a function literal's expected function type into its
 // signature: a parameter written without a type takes the expected
-// parameter's type (D-E1, #214). With none it is S108, once per literal.
+// parameter's type (D-E1). With none it is S108, once per literal.
 type litParams struct {
 	expected *Signature // the expected function type, or nil
 	untyped  bool       // a parameter is written without a type
@@ -2050,7 +2057,7 @@ func (c *checker) slotArgs(orig *Named, targs []Type) []Type {
 
 // markSlotParams sets TypeParam.Slot on each error row parameter of sig
 // that stands alone as a type argument of a generic type in sig's
-// parameters or results, at any depth.
+// parameters or results, at any depth, or as a value parameter's type.
 func markSlotParams(sig *Signature) {
 	own := map[*TypeParam]bool{}
 	for _, tp := range sig.TParams {
@@ -2102,6 +2109,15 @@ func markSlotParams(sig *Signature) {
 		}
 	}
 	for _, p := range sig.Params {
+		// A value parameter whose type is the row parameter alone (`f F`)
+		// is a slot too: the argument keeps its own Go type, converted to
+		// error only where the function fails with it (rows.md, Error rows
+		// 8, Lowering; PRELUDE-ORFAIL).
+		if tp, ok := p.Type.(*TypeParam); ok && own[tp] {
+			tp.Slot = true
+		} else if tp := SlotRow(p.Type); tp != nil && own[tp] {
+			tp.Slot = true
+		}
 		walk(p.Type)
 	}
 	for _, r := range sig.Results {
@@ -2512,7 +2528,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 				pt := t
 				if field.Type == nil {
 					// A function literal's parameter written without a
-					// type (D-E1, #214).
+					// type (D-E1).
 					pt = c.untypedParam(name, len(sig.Params), ctx.lit)
 				}
 				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), id: name, param: true})

@@ -2,17 +2,23 @@
 // durable actor recovers after the process ends. The file is text, one
 // line per entry: `s "…"` for the snapshot (the first line, when there is
 // one) and `e "…"` for each signal after it, each value the Go-quoted text
-// its codec gives. Each Append and Snapshot writes the whole file through
-// fs.WriteFile, which writes a new file and renames it over the old one:
-// a crash leaves the old journal or the new one, never a part. Snapshots
-// keep the file short, since they drop the signals before them.
+// its codec gives. Each Append adds its one line at the end of the file
+// with fs.AppendFile; a crash inside it can leave a part of that line,
+// which Open drops and writes the file back without. A Snapshot writes the
+// whole file through fs.WriteFile, which writes a new file and renames it
+// over the old one: a crash leaves the old journal or the new one, never a
+// part. Snapshots keep the file short, since they drop the signals before
+// them.
 //
 // Effect: effect-machine's cluster journal (an append per accepted event)
-// over a store the program picks. Go control: os.WriteFile of a temporary
-// file and os.Rename, the atomic replace of one file.
+// over a store the program picks. Go control: an O_APPEND write of one
+// line per entry; os.WriteFile of a temporary file and os.Rename, the
+// atomic replace of one file, for a snapshot.
 
 import fs
+import fstest
 import journal
+import journal/memory
 import strconv
 import strings
 import sync
@@ -20,17 +26,23 @@ import sync
 // Journal is the file journal of states S and signals E. Its values are
 // copies of one journal; one process writes the file at a time.
 type Journal[S, E] {
-	append   func(e E) fails journal.Failed,
+	append   func(e E, expected int) fails journal.Stale | journal.Failed,
 	snapshot func(s S) fails journal.Failed,
 	load     func() journal.Log[S, E],
 } implements journal.Journal[S, E]
 
-// Open is the journal of the file at path, read with host: an empty one
-// when there is no file there yet. states and signals turn the values
-// into text and back. It fails when the file cannot be read or holds a
-// line that is not an entry, or a value its codec cannot decode.
+// Open is the journal of the file at path, read and written with host: an
+// empty one when there is no file there yet. states and signals turn the
+// values into text and back. It fails when the file cannot be read or
+// holds a whole line that is not an entry, or a value its codec cannot
+// decode, and when it cannot drop a cut last line.
 func Open[S, E](host fs.Host, path string, states journal.Codec[S], signals journal.Codec[E]) Journal[S, E] fails journal.Failed {
-	let text = host.ReadFile(path) catch {
+	try open(host, host, path, states, signals)
+}
+
+// open is Open over files and writes.
+func open[S, E](files fs.Files, writes fs.Writes, path string, states journal.Codec[S], signals journal.Codec[E]) Journal[S, E] fails journal.Failed {
+	let text = files.ReadFile(path) catch {
 	case fs.NotFound:
 		""
 	case fs.Denied:
@@ -38,33 +50,42 @@ func Open[S, E](host fs.Host, path string, states journal.Codec[S], signals jour
 	case fs.Failed as f:
 		return journal.Failed{Reason: "\(path): \(f.Reason)"}
 	}
-	let log = try parse(text, states, signals)
-	// The three functions share the file's text and the log it holds,
-	// which outlive Open: a Ref each, since a let mut they captured would
-	// be a copy (types.md, Function values 3).
-	let written = sync.NewRef(text)
+	let (log, whole) = try parse(text, states, signals)
+	if whole < len(text) {
+		try write(writes, path, strings.Slice(text, 0, whole))
+	}
+	// The functions share the log, which outlives Open: a Ref, since a let
+	// mut they captured would be a copy (types.md, Function values 3).
 	let kept = sync.NewRef(log)
 	Journal[S, E]{
-		append: func(e E) fails journal.Failed {
-			let next = written.Get() + "e " + strconv.Quote(signals.Encode(e)) + "\n"
-			try write(host, path, next)
-			written.Set(next)
+		append: func(e E, expected int) fails journal.Stale | journal.Failed {
+			let actual = len(kept.Get().Signals)
+			if actual != expected {
+				return journal.Stale{Expected: expected, Actual: actual}
+			}
+			writes.AppendFile(path, "e "+strconv.Quote(signals.Encode(e))+"\n") catch {
+			case fs.NotFound:
+				return journal.Failed{Reason: "\(path): no such directory"}
+			case fs.Denied:
+				return journal.Failed{Reason: "\(path): permission denied"}
+			case fs.Failed as f:
+				return journal.Failed{Reason: "\(path): \(f.Reason)"}
+			}
 			kept.Update(func(l journal.Log[S, E]) journal.Log[S, E] {
 				journal.Log[S, E]{Snapshot: l.Snapshot, Signals: l.Signals.Append(e)}
 			})
 		},
 		snapshot: func(s S) fails journal.Failed {
-			let next = "s " + strconv.Quote(states.Encode(s)) + "\n"
-			try write(host, path, next)
-			written.Set(next)
+			try write(writes, path, "s "+strconv.Quote(states.Encode(s))+"\n")
 			kept.Set(journal.Log[S, E]{Snapshot: Some[S]{Value: s}, Signals: []E{}})
 		},
 		load: func() journal.Log[S, E] { kept.Get() },
 	}
 }
 
-// Append writes e after the signals kept before it.
-func Append[S, E](j Journal[S, E], e E) fails journal.Failed { try j.append(e) }
+// Append writes e as one line after the expected signals kept before it,
+// else it is Stale.
+func Append[S, E](j Journal[S, E], e E, expected int) fails journal.Stale | journal.Failed { try j.append(e, expected) }
 
 // Snapshot writes the file anew with s as its only entry.
 func Snapshot[S, E](j Journal[S, E], s S) fails journal.Failed { try j.snapshot(s) }
@@ -75,8 +96,8 @@ func Snapshot[S, E](j Journal[S, E], s S) fails journal.Failed { try j.snapshot(
 func Load[S, E](j Journal[S, E]) journal.Log[S, E] fails journal.Failed { j.load() }
 
 // write makes the file at path hold text.
-func write(host fs.Host, path string, text string) fails journal.Failed {
-	host.WriteFile(path, text) catch {
+func write(writes fs.Writes, path string, text string) fails journal.Failed {
+	writes.WriteFile(path, text) catch {
 	case fs.NotFound:
 		return journal.Failed{Reason: "\(path): no such directory"}
 	case fs.Denied:
@@ -86,13 +107,19 @@ func write(host fs.Host, path string, text string) fails journal.Failed {
 	}
 }
 
-// parse reads the entries of a journal file.
-func parse[S, E](text string, states journal.Codec[S], signals journal.Codec[E]) journal.Log[S, E] fails journal.Failed {
+// parse reads the entries of a journal file, and the length of its whole
+// lines: a last line with no line feed is a cut append, and is not read.
+func parse[S, E](text string, states journal.Codec[S], signals journal.Codec[E]) (journal.Log[S, E], int) fails journal.Failed {
 	let mut snap Option[S] = None
 	let mut kept = []E{}
 	let mut n = 0
+	let mut whole = 0
 	for raw in strings.Lines(text) {
+		if !strings.HasSuffix(raw, "\n") {
+			break
+		}
 		n = n + 1
+		whole = whole + len(raw)
 		let line = strings.TrimSuffix(raw, "\n")
 		if len(line) < 2 {
 			return journal.Failed{Reason: "line \(n) is not an entry"}
@@ -109,5 +136,64 @@ func parse[S, E](text string, states journal.Codec[S], signals journal.Codec[E])
 			return journal.Failed{Reason: "line \(n) is not an entry"}
 		}
 	}
-	journal.Log[S, E]{Snapshot: snap, Signals: kept}
+	(journal.Log[S, E]{Snapshot: snap, Signals: kept}, whole)
+}
+
+// texts is the codec of values that are text: each is its own text.
+type texts {} implements journal.Codec[string]
+
+// Encode is v.
+func Encode(_ texts, v string) string { v }
+
+// Decode is text.
+func Decode(_ texts, text string) string fails journal.Failed { text }
+
+// FileIsMemory: a file journal over a disk in memory keeps what a memory
+// journal keeps for a generated script of appends, each under the count
+// it loaded or one off (Stale, kept by neither), and snapshots; and so
+// does the journal a reopen gives after a crash cut its last append
+// (torn, a part of a line with no line feed), also after one more append.
+law FileIsMemory(ops []int, torn string) {
+	let disk = fstest.NewMemory()
+	let want = memory.New[string, string]()
+	let mut got = try open(disk, disk, "j.log", texts, texts)
+	for i, op in ops {
+		let n = len((try want.Load()).Signals)
+		let v = "v\t\"\n\(i)"
+		match ((op % 7) + 7) % 7 {
+		case 0:
+			try want.Snapshot(v)
+			try got.Snapshot(v)
+		case 1:
+			got = try open(disk, disk, "j.log", texts, texts)
+		case _:
+			let off = if op%5 == 0 { 1 } else { 0 }
+			if stale(want, v, n+off) != stale(got, v, n+off) {
+				return false
+			}
+		}
+		if try want.Load() != try got.Load() {
+			return false
+		}
+	}
+	try disk.AppendFile("j.log", "e "+strings.ReplaceAll(torn, "\n", ""))
+	let back = try open(disk, disk, "j.log", texts, texts)
+	if try back.Load() != try want.Load() {
+		return false
+	}
+	let n = len((try want.Load()).Signals)
+	let _ = stale(want, torn, n)
+	let _ = stale(back, torn, n)
+	let again = try open(disk, disk, "j.log", texts, texts)
+	try again.Load() == try want.Load()
+}
+
+// stale is whether j's Append of v under expected was Stale (a failure
+// counts as stale too, and neither journal here fails).
+func stale(j journal.Journal[string, string], v string, expected int) bool {
+	j.Append(v, expected) catch {
+	case journal.Stale, journal.Failed:
+		return true
+	}
+	false
 }

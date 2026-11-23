@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench orfail N` makes N reads, a Map read through the prelude's OrFail, its miss caught
+# (ABSENCE, PRELUDE-ORFAIL); half the keys miss. The control is hand Go
+# comma-ok with the error built on the miss only: the floor.
+unit read
+sizes 409600 2457600
+args bench orfail {n}
+control benchmarks/absence/testdata/control
