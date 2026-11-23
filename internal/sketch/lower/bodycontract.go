@@ -38,7 +38,7 @@ func bodyCatalog() map[string]runtimeBinding {
 // waitKinds are the lowering's names of the wait kinds v1.WaitKinds() lists.
 var waitKinds = sync.OnceValue(func() map[string]waitTask {
 	return map[string]waitTask{
-		"none": noWait, "caller": callerWait, "handle": handleWait, "drain": drainWait, "child": childWait,
+		"none": noWait, "caller": callerWait, "drain": drainWait, "child": childWait,
 		"member": memberTask, "parent": parentTask, "settle": settleWait, "end": endWait,
 	}
 })

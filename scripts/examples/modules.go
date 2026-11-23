@@ -62,10 +62,10 @@ func loadModules(root string, expected *findings) ([]*program, []string, []strin
 		for _, problem := range found {
 			labelled = append(labelled, label+": "+problem)
 		}
-		labelled, excused, owed := expected.applyOwed(labelled) // findings.go
+		labelled, excused, matched := expected.apply(labelled) // findings.go
 		problems, notes = append(problems, labelled...), append(notes, excused...)
 		if len(labelled) == 0 {
-			p.owed = owed
+			p.findings = matched
 			modules = append(modules, p)
 		}
 	}

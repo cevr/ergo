@@ -46,7 +46,7 @@ func TestTestCountsItsAllocations(t *testing.T) {
 	if at < 0 {
 		t.Fatalf("no lowered test StepAllocatesNothing:\n%s", text)
 	}
-	if body := text[at:]; !strings.Contains(body, ".Allocs.PerRun(") || !strings.Contains(body, ".OpenTestDirectory()") {
+	if body := text[at:]; !strings.Contains(body, ".Allocs.PerRun(") || !strings.Contains(body, ".TestFolderOpen()") {
 		t.Errorf("the test does not open its folder and count through testing.Allocs:\n%s", body)
 	}
 	if !strings.Contains(text, ".AllocsPerRun(") {

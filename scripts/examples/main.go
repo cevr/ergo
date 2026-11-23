@@ -135,9 +135,9 @@ type program struct {
 	// tests the module's go leg runs.
 	goFiles    map[string][]string
 	goPackages []string
-	// owed are the units of the expected findings (findings.go) the
-	// program is red by record for; it is not run while any remain.
-	owed []string
+	// findings keep a program's cases and the named packages' test legs
+	// red by record (findings.go).
+	findings []*finding
 }
 
 func (p *program) tagged(tag string) bool { return slices.Contains(p.tags, tag) }
@@ -199,17 +199,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
-	selected = slices.DeleteFunc(selected, func(p *program) bool {
-		if len(p.owed) == 0 {
-			return false
-		}
-		// Red by record (findings.go): its check fails until the owed
-		// units land, and a build refuses a program with any diagnostic
-		// (sketchfront.emission), so no leg of it can run. Each run prints
-		// how many cases are dark.
-		fmt.Fprintf(stdout, "red by record: %s: cases not run (%d cases) until %s land\n", p.name, len(p.cases), strings.Join(p.owed, ", "))
-		return true
-	})
 	if len(selected) == 0 {
 		fmt.Fprintf(stdout, "examples: no program selected (-tags %s); nothing to run\n", strings.Join(cfg.tags, ","))
 		return 0
@@ -296,7 +285,9 @@ func (r *runner) runOne(p *program, pr *programRun) {
 	defer close(pr.ended)
 	defer func() { pr.panicked = recover() }()
 	one := &runner{cfg: r.cfg, out: &pr.out, scratch: r.scratch, live: r.live, install: r.install, toolEnv: r.toolEnv, cache: r.cache}
-	if p.library {
+	if len(p.findings) != 0 {
+		one.runRedByRecord(p)
+	} else if p.library {
 		one.runModule(p)
 	} else if r.cfg.record {
 		one.recordProgram(p)
@@ -451,10 +442,10 @@ func loadExamples(root string, record bool, expected *findings) ([]*program, []s
 		}
 		// An expected finding (findings.go) is a note, not a layout
 		// error: the program loads, red by record.
-		labelled, excused, owed := expected.applyOwed(labelled)
+		labelled, excused, matched := expected.apply(labelled)
 		problems, notes = append(problems, labelled...), append(notes, excused...)
 		if len(labelled) == 0 {
-			p.owed = owed
+			p.findings = matched
 			programs = append(programs, p)
 		}
 	}
@@ -1150,14 +1141,22 @@ func (r *runner) testProgram(p *program) {
 	ledger := filepath.Join(p.dir, "ergo.laws")
 	kept, err := os.ReadFile(ledger)
 	tracked := err == nil
-	// A module with full-tier folders tests each package alone: `ergo test
-	// DIR/...` would run those folders too, which only the full tier runs.
-	if !(p.module && len(p.tests) > 1 && len(p.heavy) == 0 && r.testModule(p)) {
-		for _, target := range p.tests {
+	targets := p.tests
+	if r.cfg.fullTier {
+		targets = p.heavy
+	}
+	// A pattern would also test the full-tier folders or the packages
+	// with recorded checker errors; test the selected packages alone.
+	if !(p.module && len(targets) > 1 && len(p.heavy) == 0 && len(p.findings) == 0 && r.testModule(p)) {
+		for _, target := range targets {
+			rel := relTo(p.dir, target)
+			if slices.ContainsFunc(p.findings, func(f *finding) bool { return f.pkg == rel }) {
+				fmt.Fprintf(r.out, "red by record: %s: test %s not run\n", p.name, rel)
+				continue
+			}
 			leg := "test"
 			if p.module {
-				rel, _ := filepath.Rel(p.dir, target)
-				leg = "test " + filepath.ToSlash(rel)
+				leg = "test " + rel
 			}
 			r.testTarget(p, target, leg)
 		}
