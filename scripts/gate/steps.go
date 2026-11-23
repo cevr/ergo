@@ -511,6 +511,9 @@ func declareSteps(root string, packages []string) ([]*Step, error) {
 	if step := compilerErgoTests(root); step != nil {
 		add(step)
 	}
+	if step := stdLawsInPlace(root); step != nil {
+		add(step)
+	}
 
 	return steps, nil
 }
@@ -556,6 +559,19 @@ func compilerErgoTests(root string) *Step {
 		return nil
 	}
 	return &Step{Name: "ergo tests compiler/...", Argv: []string{"go", "run", "./scripts/ergotests", "./compiler/..."}, Class: classHeavy}
+}
+
+// stdLawsInPlace is the step that runs every std package's laws and tests
+// on its own source, in-package, and holds that each std law no Go test
+// runs passed there or is listed as red (scripts/ergotests -std,
+// NATIVE-LAWS). Before it, no gate step ran a std law that has no Go
+// runner. About two minutes and 0.7 GB (2026-11-22), so the full tier
+// only. A checkout without the std sources has none.
+func stdLawsInPlace(root string) *Step {
+	if _, err := os.Stat(filepath.Join(root, "internal", "sketch", "std")); err != nil {
+		return nil
+	}
+	return &Step{Name: "std laws in place", Argv: []string{"go", "run", "./scripts/ergotests", "-std"}, Class: classHeavy}
 }
 
 // uncachedStep is the step as the merge tier runs it: without the hermetic
