@@ -71,7 +71,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}, {"mapkey", []string{"keyed", "indexed", "slotted", "both", "Grid.gridded", "stepped", "added", "scaledOwned", "Box.moved", "Outer.bumped"}}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}, {"mapkey", mapKeyIRBodies()}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
