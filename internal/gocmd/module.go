@@ -45,11 +45,15 @@ func FindModule(dir string) (Module, bool, error) {
 }
 
 // modulePath is go.mod's module path (golang.org/x/mod's ModulePath).
-func modulePath(mod []byte) string {
+func modulePath(mod []byte) string { return directive(mod, "module") }
+
+// directive is the argument of go.mod's first directive verb (module,
+// go), or "".
+func directive(mod []byte, verb string) string {
 	sc := bufio.NewScanner(bytes.NewReader(mod))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
-		rest, ok := strings.CutPrefix(line, "module")
+		rest, ok := strings.CutPrefix(line, verb)
 		if !ok || rest == "" || (rest[0] != ' ' && rest[0] != '\t' && rest[0] != '"') {
 			continue
 		}

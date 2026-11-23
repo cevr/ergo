@@ -30,8 +30,9 @@ const DeclFile = "ergo_gen.go"
 const IRFile = "ergoir.json"
 
 // GenDir is the module folder of the Go packages the lowering adds, the
-// shared and std packages (lower.goPackagesDir): they reach the compile
-// through the overlay only.
+// shared and std packages (lower.goPackagesDir). Each is a module of its
+// own at its cached tree, required and replaced in the go.mod copy, so
+// nothing of it is in the module's folder.
 const GenDir = "_ergo"
 
 // runtimeModule is the module path of Ergo's runtime (lower.Runtime).
@@ -51,12 +52,13 @@ type Plan struct {
 // lower.Runtime under ergo/) into cache, content-addressed, and returns
 // the command line of l that builds the module m with them.
 //
-//   - -overlay maps each Ergo package's DeclFile, each Go file of a package
-//     below GenDir, and each asset to its cached copy, merged with the
-//     user's overlay.
+//   - -overlay maps each Ergo package's DeclFile and each asset to its
+//     cached copy, merged with the user's overlay.
 //   - -modfile is a copy of go.mod (or the user's -modfile) with the runtime
-//     module required and replaced by its cached folder, and go.sum beside
-//     it, in a fresh folder under cache.
+//     module, and each package below GenDir as a module of its own (its
+//     tree with a go.mod of go.mod's go version), required and replaced by
+//     its cached folder, and go.sum beside it, in a fresh folder under
+//     cache.
 //   - -gcflags gives each Go package of the lowering -ergoir with its
 //     cached IR file after the user's flags for that package
 //     (PackageFlags), as the last value that matches it, so cmd/go gives
@@ -114,6 +116,30 @@ func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs [
 		}
 		ergoAt[path.Clean(filepath.ToSlash(rel))] = p
 	}
+	mod, sum := m.GoMod, filepath.Join(m.Root, "go.sum")
+	if l.Modfile != "" {
+		path := l.Modfile
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(cwd, path)
+		}
+		if mod, err = os.ReadFile(path); err != nil {
+			return Plan{}, fmt.Errorf("-modfile: %v", err)
+		}
+		sum = strings.TrimSuffix(path, ".mod") + ".sum"
+	}
+	if requires(mod, runtimeModule) {
+		return Plan{}, fmt.Errorf("go.mod names %s, Ergo's runtime, which ergo go supplies itself: remove its require and replace lines", runtimeModule)
+	}
+	// A package below GenDir is a module of its own, at its cached
+	// tree: cmd/go runs vet (and its facts pass over every dependency) in
+	// the package's folder, which an overlay cannot supply.
+	goLine := directive(mod, "go")
+	for _, f := range rt {
+		if goLine == "" && f.Path == "go.mod" {
+			goLine = directive(f.Data, "go")
+		}
+	}
+	var genMods []string // require and replace pairs: path, folder
 	byDir := map[string][]File{}
 	for _, f := range files {
 		if f.Path == "go.mod" || f.Path == "go.sum" {
@@ -131,19 +157,32 @@ func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs [
 		if !isErgo && d != GenDir && !strings.HasPrefix(d, GenDir+"/") {
 			return Plan{}, fmt.Errorf("gocmd: the lowering wrote the Go package %s, neither an Ergo package of the module nor below %s", d, GenDir)
 		}
-		pkg := Package{ImportPath: path.Join(m.Path, d), Dir: filepath.Join(m.Root, filepath.FromSlash(d))}
-		if isErgo {
-			pkg = p.Package
+		tree := byDir[d]
+		pkg := p.Package
+		if !isErgo {
+			pkg.ImportPath = path.Join(m.Path, d)
+			gomod := "module " + pkg.ImportPath + "\n"
+			if goLine != "" {
+				gomod += "\ngo " + goLine + "\n"
+			}
+			tree = append(slices.Clone(tree), File{Path: "go.mod", Data: []byte(gomod)})
 		}
-		dir, err := writeTree(cache, "pkg", byDir[d])
+		dir, err := writeTree(cache, "pkg", tree)
 		if err != nil {
 			return Plan{}, err
+		}
+		if !isErgo {
+			pkg.Dir = dir
+			genMods = append(genMods, pkg.ImportPath, dir)
 		}
 		ir := ""
 		for _, f := range byDir[d] {
 			if f.Path == IRFile {
 				ir = filepath.Join(dir, IRFile)
 				continue
+			}
+			if !isErgo {
+				continue // read in its module's folder
 			}
 			target := filepath.Join(pkg.Dir, filepath.FromSlash(f.Path))
 			if isErgo && f.Path == p.Name+".go" {
@@ -179,25 +218,17 @@ func Assemble(cache string, m Module, l Line, cwd string, runtime []File, pkgs [
 	if err != nil {
 		return Plan{}, err
 	}
-	mod, sum := m.GoMod, filepath.Join(m.Root, "go.sum")
-	if l.Modfile != "" {
-		path := l.Modfile
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(cwd, path)
-		}
-		if mod, err = os.ReadFile(path); err != nil {
-			return Plan{}, fmt.Errorf("-modfile: %v", err)
-		}
-		sum = strings.TrimSuffix(path, ".mod") + ".sum"
-	}
-	if requires(mod, runtimeModule) {
-		return Plan{}, fmt.Errorf("go.mod names %s, Ergo's runtime, which ergo go supplies itself: remove its require and replace lines", runtimeModule)
-	}
 	modDir, err := os.MkdirTemp(cache, "mod-")
 	if err != nil {
 		return Plan{}, err
 	}
 	mod = append(slices.Clone(mod), []byte(fmt.Sprintf("\n// Added by ergo go: Ergo's runtime.\nrequire %s v0.0.0\n\nreplace %s => %s\n", runtimeModule, runtimeModule, rtDir))...)
+	if len(genMods) > 0 {
+		mod = append(mod, "\n// Added by ergo go: the Go packages the lowering adds.\n"...)
+		for i := 0; i < len(genMods); i += 2 {
+			mod = append(mod, fmt.Sprintf("require %s v0.0.0\nreplace %s => %s\n", genMods[i], genMods[i], genMods[i+1])...)
+		}
+	}
 	err = os.WriteFile(filepath.Join(modDir, "go.mod"), mod, 0o644)
 	if err == nil {
 		var data []byte
