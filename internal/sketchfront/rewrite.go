@@ -141,9 +141,15 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		return 0, err
 	}
 	before := cases.format()
-	fresh, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases, req.Toolchain)
+	fresh, skipped, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases, req.Toolchain)
 	if err != nil {
 		return 0, err
+	}
+	// A skipped licence fails the test once the ledger is written
+	// (AC10): the entry records it, and the error names the fix.
+	var skip error
+	if len(skipped) > 0 {
+		skip = &LicenceSkippedError{Skipped: skipped}
 	}
 	if HasMain(unit.Package) {
 		// RewriteChecks runs nothing when neither the root nor an import
@@ -190,9 +196,12 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		}
 	}
 	if changed == 0 {
-		return 0, nil
+		return 0, skip
 	}
-	return changed, writeFileAtomic(req.Ledger, []byte(lower.FormatLedger(next)))
+	if err := writeFileAtomic(req.Ledger, []byte(lower.FormatLedger(next))); err != nil {
+		return 0, err
+	}
+	return changed, skip
 }
 
 // ledgerSource answers whether the module's sources still declare a
@@ -326,10 +335,15 @@ func FreshStdLedger(req BuildRequest, host []gofacts.Entry) (string, error) {
 			return "", err
 		}
 		// A top-level rewrite law's licence run is the evaluator's, so
-		// it needs no Go tool (licenceEntries).
-		lic, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys(), req.Stderr, nil, build.Toolchain{})
+		// it needs no Go tool (licenceEntries): a std Go body runs by its
+		// evaluator native. Std holds no skipped licence, as a module's
+		// test does not (AC10), so a skip fails the fresh ledger.
+		lic, skipped, err := licenceEntries(pkg, nil, nil, lower.ShippedForeignKeys(), req.Stderr, nil, build.Toolchain{})
 		if err != nil {
 			return "", fmt.Errorf("std %s: %w", path, err)
+		}
+		if len(skipped) > 0 {
+			return "", fmt.Errorf("std %s: %w", path, &LicenceSkippedError{Skipped: skipped})
 		}
 		for _, e := range lic {
 			entries[e.Key()] = e

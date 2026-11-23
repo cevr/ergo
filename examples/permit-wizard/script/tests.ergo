@@ -1,0 +1,50 @@
+import actor
+import permitwizard/desk
+import permitwizard/screen
+import time
+import ui
+
+// tourToFiling is cases/tour's script up to its `stats` line: the walk
+// from an overnight trip to a filed permit.
+let tourToFiling = []string{
+	"click Continue", "click Continue", "click Back", "click Back",
+	"check Day trip", "click Continue", "click Back",
+	"click Cancel permit", "click File permit · $25.00", "click Start a permit again", "click Continue",
+	"click Review permit", "check Leader: Ana Rivera", "click Review permit",
+	"code  ranger10 ", "click Apply", "code BOGUS", "click Apply", "code WINTER2", "code winter20", "click Apply",
+	"click File permit · $20.00", "check Accept the park rules", "click File permit · $20.00",
+}
+
+// TourWorkIsBounded is the tour's work guard (STATS-GUARD): the filing
+// click's pass makes the tour's ops (3 insert, 12 remove, 3 set) running
+// at most 27 nodes and 4 component groups and visiting at most 9, as
+// measured at main 500a4577d. The tour's golden prints only the ops;
+// these counters move with the lowering and std ui, so the bounds may
+// only fall: lower them when a change lowers the work.
+test TourWorkIsBounded {
+	let clock = time.NewManual(0)
+	with context { Scheduler: clock } {
+		let script = Read(tourToFiling) catch {
+		case Bad:
+			assert false
+			return
+		}
+		let clerk = actor.StartMachine(desk.Inspector{}, 16, func(n Never) {})
+		let mut h = ui.NewTestHost(clerk, screen.Screen, clock, 16) catch {
+		case _:
+			assert false
+			return
+		}
+		for x in script {
+			let _ = step(&h, x) catch {
+			case _:
+				assert false
+				return
+			}
+		}
+		let c = ui.Counts(&h)
+		clerk.Stop()
+		assert c.Inserted == 3 && c.Removed == 12 && c.Set == 3
+		assert c.Ran <= 27 && c.GroupsRan <= 4 && c.Visits <= 9
+	}
+}

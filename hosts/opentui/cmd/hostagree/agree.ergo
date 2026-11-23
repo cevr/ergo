@@ -2,6 +2,7 @@ import actor
 import go ergo.local/prototype/hosts/opentui/screen
 import ergo.local/prototype/hosts/opentui/tui
 import strconv
+import slices
 import strings
 import time
 import ui
@@ -113,8 +114,9 @@ func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Dri
 	case None:
 	}
 	follow(h, d, tui.Screen(d))
-	if !ui.SameShapes(ui.Screen(h), tui.Screen(d)) {
-		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Screen(d), ""))"}
+	// A Readout shows as the Text of its reading on both (ui.ShownIn).
+	if !ui.SameShapes(ui.Screen(h), tui.Shown(d)) {
+		return Some{Value: "trees differ:\n\(ui.Screenshot(h))terminal:\n\(shot(tui.Shown(d), ""))"}
 	}
 	if !same(ui.StateOf(h), tui.StateOf(d)) {
 		return Some{Value: "states differ"}
@@ -145,7 +147,53 @@ func compare[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Dri
 		return why
 	case None:
 	}
+	match read(d, rows) {
+	case Some[string] as why:
+		return why
+	case None:
+	}
 	shown(d, s, tui.Screen(d), rows)
+}
+
+// read is why a Readout's row does not show its reading, None when each
+// does (OT-READOUT): the box is the reserve's width, one row, and the
+// screen's row there holds the reading cut or padded to that width
+// (readout.ergo: a reading never moves its siblings; a wider one is
+// clipped to the box).
+func read[E comparable, S, D, F](d mut tui.Driver[S, E, D, F], rows []string) Option[string] needs go.Foreign {
+	for r in tui.Readouts(d) {
+		let w = utf8.RuneCount(r.Reserve)
+		let b = r.Box
+		if b.Width != w {
+			return Some{Value: "the readout of reserve \"\(r.Reserve)\" is \(b.Width) cells wide, not its reserve's \(w)"}
+		}
+		let mut want = []string{}
+		for c in runes(r.Reading) {
+			if len(want) < w {
+				want = want.Append(c)
+			}
+		}
+		for len(want) < w {
+			want = want.Append(" ")
+		}
+		let row = if b.Y >= 0 && b.Y < len(rows) { runes(rows[b.Y]) } else { []string{} }
+		if b.X < 0 || b.X+w > len(row) || strings.Join(slices.Slice(row, b.X, b.X+w), "") != strings.Join(want, "") {
+			return Some{Value: "the readout reading \"\(r.Reading)\" (reserve \"\(r.Reserve)\") at \(b.X),\(b.Y) shows row \"\(if b.Y >= 0 && b.Y < len(rows) { rows[b.Y] } else { "" })\""}
+		}
+	}
+	None
+}
+
+// runes is the text of each rune of s.
+func runes(s string) []string {
+	let mut out = []string{}
+	let mut at = 0
+	for at < len(s) {
+		let r = utf8.DecodeRuneInString(strings.Slice(s, at, len(s)))
+		out = out.Append(strings.Slice(s, at, at+r.Size))
+		at = at + r.Size
+	}
+	out
 }
 
 // kept is why a list does not show the offset its pass chose, None when
@@ -209,25 +257,20 @@ func degraded[E](shapes []ui.Shape[E]) Option[string] {
 		let why Option[string] = match sh.Node {
 		case ui.TransitionNode:
 			Some{Value: "gap OT-TOTAL: a Transition, whose motion the terminal does not run (its body shows at rest)"}
-		case ui.ReadoutNode:
-			Some{Value: "gap OT-READOUT: a Readout, whose published text the terminal does not show (its box keeps its place)"}
 		case ui.LayerNode[E]:
 			Some{Value: "gap OT-TOTAL: a Layer, which the terminal lays in flow (no Z, anchor, placement or scrim)"}
 		case ui.TrackNode:
 			Some{Value: "gap OT-TRACKS: a Track, whose motion the terminal does not run (no offset, no fade)"}
-		case ui.SemanticNode[E]:
-			if ui.Focusable(sh.Node) {
-				Some{Value: "gap OT-SEMANTIC: a Semantic that sends a signal, which the terminal neither focuses nor presses"}
-			} else {
-				None
-			}
 		case ui.CanvasNode as x:
 			if hasImage(x.Paint) {
 				Some{Value: "gap OT-IMAGE: a canvas image, which the terminal does not paint"}
 			} else {
 				None
 			}
-		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode:
+		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.PressableNode[E], ui.CheckNode[E], ui.InputNode, ui.ToggleNode, ui.AreaNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.SemanticNode[E], ui.ReadoutNode:
+			// Shown as TestHost shows them: a Semantic that sends is focused
+			// and pressed (OT-SEMANTIC), a Readout shows its reading in its
+			// reserve's box (OT-READOUT, held by read).
 			None
 		}
 		match why {
@@ -531,6 +574,14 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 		(found(h, f[0]), landed(d, f[0], b, if to < 0 { 0 } else { to }))
 	case "settle":
 		both(h, d, ui.SettleAll)
+	case "click":
+		// A radio by its role and name: a Semantic has no label to tap.
+		both(h, d, ui.ClickOn{At: ui.WithRole{Role: ui.Radio, Name: rest}})
+	case "publish":
+		// A new reading of the reading app's readout, from outside any
+		// pass ("-" for the empty text); each host takes its Published.
+		ui.Publish(dial, if rest == "-" { "" } else { rest })
+		both(h, d, ui.SettleAll)
 	case "frames":
 		let (a, b) = both(h, d, ui.AdvanceBy{By: duration(int64(atoi(rest)) * int64(16ms))})
 		match edged(d, ui.Screen(h)) {
@@ -651,8 +702,10 @@ func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string]
 		case ui.PressableNode[E], ui.CheckNode[E], ui.ToggleNode, ui.InputNode:
 			out = out.Append(labelOfNode(sh.Node))
 		case ui.SemanticNode[E]:
-			// ui.Focusable takes a Semantic that sends; the terminal does
-			// not yet, and degraded fails the step loudly (OT-SEMANTIC).
+			// ui.Focusable: a Semantic that sends and is not disabled.
+			if ui.Focusable(sh.Node) {
+				out = out.Append(labelOfNode(sh.Node))
+			}
 		case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		}
 		out = focusOrder[E](sh.Kids, out)
@@ -664,6 +717,16 @@ func focusOrder[E](shapes []ui.Shape[E], into []Option[string]) []Option[string]
 // the first with n's label. An Id is the host's (an arena's place), so a
 // row a list wrote in other passes on the two hosts has another Id.
 func twin[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], n ui.Node[E], id ui.Id[E]) ui.Id[E] {
+	match n {
+	case ui.SemanticNode[E] as x:
+		// A Semantic has no label: its role and name find it.
+		let ids = ui.Locate(h, ui.WithRole{Role: x.Access.Role, Name: x.Access.Name})
+		if len(ids) > 0 {
+			return ids[0]
+		}
+		return id
+	case _:
+	}
 	match labelOfNode(n) {
 	case Some[string] as l:
 		match ui.Find(h, l.Value) {
@@ -688,7 +751,10 @@ func labelOfNode[E](n ui.Node[E]) Option[string] {
 		Some{Value: x.Label}
 	case ui.InputNode as x:
 		Some{Value: x.Placeholder}
-	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.SemanticNode[E], ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
+	case ui.SemanticNode[E] as x:
+		// its accessible name, which twin finds it by
+		Some{Value: x.Access.Name}
+	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.AreaNode, ui.CanvasNode, ui.RowsNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
 		None
 	}
 }

@@ -145,6 +145,14 @@
       "to": "fee + Off(g.Allowance, fee)",
       "rule": "The file button's fee is the fee less the allowance, as upstream's Place order total (case scenes).",
       "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
+    },
+    {
+      "name": "stats-guard-groups-never", "origin": "wf10 STATS-GUARD",
+      "file": "internal/sketch/lower/uigroup.go",
+      "from": "\tif uiSkipOff || rewriteLowering == \"reference\" || fc.inGroup == x ||",
+      "to": "\tif true || uiSkipOff || rewriteLowering == \"reference\" || fc.inGroup == x ||",
+      "rule": "The tour's filing pass keeps its components whose arguments are equal: with no component a group it runs more nodes for the same ops, which the golden's counters caught and TourWorkIsBounded (script/tests.ergo) now does.",
+      "anchor": {"tests": ["examples:permit-wizard"]}, "killers": ["examples:permit-wizard"]
     }
   ]
 }

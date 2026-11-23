@@ -46,6 +46,16 @@ type Cloner {
 	Move(from string, to string) fails Exists | Missing | CloneFailed,
 	// Discard deletes the tree at root.
 	Discard(root string) fails Missing | CloneFailed,
+	// Placeable makes the folder staging when it is missing, and is
+	// NotSameVolume when it is on another file system (or btrfs
+	// subvolume) than the folder home: a tree staged in it could not be
+	// placed in home by one rename. The folders decide, not a tree in
+	// them (a btrfs snapshot's root has a device of its own).
+	Placeable(staging string, home string) fails NotSameVolume | CloneFailed,
+	// Place moves the tree at from to to by one rename, never a copy
+	// (across file systems it is NotSameVolume and nothing moves), and
+	// makes the rename durable: both folders are synced before it ends.
+	Place(from string, to string) fails NotSameVolume | Exists | Missing | CloneFailed,
 	// Usage is the bytes the tree at root takes.
 	Usage(root string) Usage fails Unsupported | Missing | CloneFailed,
 	// Free is the bytes free on the file system of the folder at root;
@@ -119,6 +129,17 @@ type Cloner {
 			return true
 		}
 		Has(to) && (from == to || !Has(from))
+	},
+
+	// PlaceMoves: a place that succeeds leaves the tree at its target
+	// only; one that fails leaves the source as it was.
+	law PlaceMoves(from string, to string) {
+		let had = Has(from)
+		Place(from, to) catch {
+		case NotSameVolume, Exists, Missing, CloneFailed:
+			return Has(from) == had
+		}
+		Has(to) && from != to && !Has(from)
 	},
 
 	// DiscardDiscards: a discard that succeeds leaves no tree.
