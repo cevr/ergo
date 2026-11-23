@@ -107,6 +107,10 @@ type Unit struct {
 	// lowering that keeps any body on the text path is refused with a
 	// FallbackRefused naming each (ir_fallback.go; F8's precondition).
 	NoFallback bool
+	// goPackages lowers every package of the unit, the root and each
+	// import, as a Go package that Go imports (LowerGoPackages): no entry,
+	// and each package's exported functions behind facades.
+	goPackages bool
 }
 
 // coverMarksAll lowers every unit with CoverMarks. Only this package's
