@@ -956,49 +956,117 @@ func rtSpelling(s, rt string, subst map[string]string) string {
 }
 
 // hidden is the hidden arguments of the std body called at x, as the
-// emitter's hiddenArgs writes them, before the call's own: the caller's
-// task and Scheduler (fields of the environment), the reading package (a
-// string constant) and the call site (a runtime Site of a string
-// constant). A frame scope or a result release keeps the source body.
+// emitter's hiddenArgs writes them, before the call's own (hiddenArg,
+// hidden.go, reads each kind for both).
 func (b *irBuilder) hidden(body v1.Body, x *syntax.CallExpr, c *check.Call, p irPos) []*irExpr {
 	var out []*irExpr
 	for _, h := range body.Hidden {
 		if b.env < 0 {
 			irNo("std call with hidden arguments in a pure function")
 		}
-		env := &irExpr{K: "local", Pos: p, I: b.env}
-		switch h {
-		case v1.CallerTask:
-			out = append(out, &irExpr{K: "field", Pos: p, Name: envTask, X: env})
-		case v1.CallerScheduler:
-			// The body takes the runtime's Sleeper, which the program's
-			// Scheduler interface implements: Go text assigns it, the
-			// decoder takes the parameter's type only, so the IR asserts
-			// it (PORT-CALLS-2: http.Serve's HTTPServe). The checker binds
-			// the provider at the call, so the field is never nil.
-			sched := &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(c, x)), X: env}
-			out = append(out, &irExpr{K: "assert", Pos: p, T: b.spelling(b.l.rt() + ".Sleeper"), X: sched})
-		case v1.ReadingPackage:
-			if c.Func == nil || c.Func.Pkg == nil {
-				irNo("std call with hidden arguments: a context read without its package")
-			}
-			out = append(out, &irExpr{K: "const", Pos: p, T: "string", V: contextNamespace(c.Func.Pkg)})
-		case v1.CallSite:
-			src, line, column := b.l.locate(x, x.Pos())
-			site := fmt.Sprintf("%s calls %s at %s:%d:%d", b.fc.owner, b.fc.callee(x, c), src, line, column)
-			// rt.Site is a defined string type: Site("…") is a conversion
-			// of the constant (spelling keeps the import).
-			out = append(out, &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}})
-		case v1.Frame:
-			if b.inSeq {
-				irNo("std call with an adapted result") // a Seq outlives the frame (seqLit)
-			}
-			out = append(out, b.frameArg(p)) // ir_own.go (GP-FRAME)
-		default:
-			irNo("std call with hidden argument %s", h)
-		}
+		out = append(out, hiddenArg[*irExpr](h, irHidden{b: b, body: body, x: x, c: c, p: p, env: &irExpr{K: "local", Pos: p, I: b.env}}))
 	}
 	return out
+}
+
+// irHidden is the IR of one hidden argument of the std call x
+// (hiddenKinds): the caller's task and Scheduler (fields of the
+// environment), the reading package (a string constant), the call site (a
+// runtime Site of a string constant), the frame, the machine's graph and
+// the result's release.
+type irHidden struct {
+	b    *irBuilder
+	body v1.Body
+	x    *syntax.CallExpr
+	c    *check.Call
+	p    irPos
+	env  *irExpr
+}
+
+func (h irHidden) callerTask() *irExpr {
+	return &irExpr{K: "field", Pos: h.p, Name: envTask, X: h.env}
+}
+
+// callerScheduler: the body takes the runtime's Sleeper, which the
+// program's Scheduler interface implements: Go text assigns it, the
+// decoder takes the parameter's type only, so the IR asserts it
+// (PORT-CALLS-2: http.Serve's HTTPServe). The checker binds the provider
+// at the call, so the field is never nil.
+func (h irHidden) callerScheduler() *irExpr {
+	b, p := h.b, h.p
+	sched := &irExpr{K: "field", Pos: p, Name: b.l.envField(schedulerCap(h.c, h.x)), X: h.env}
+	return &irExpr{K: "assert", Pos: p, T: b.spelling(b.l.rt() + ".Sleeper"), X: sched}
+}
+
+func (h irHidden) readingPackage() *irExpr {
+	if h.c.Func == nil || h.c.Func.Pkg == nil {
+		irNo("std call with hidden arguments: a context read without its package")
+	}
+	return &irExpr{K: "const", Pos: h.p, T: "string", V: contextNamespace(h.c.Func.Pkg)}
+}
+
+// callSite: rt.Site is a defined string type, so Site("…") is a
+// conversion of the constant (spelling keeps the import).
+func (h irHidden) callSite() *irExpr {
+	b, x, p := h.b, h.x, h.p
+	src, line, column := b.l.locate(x, x.Pos())
+	site := fmt.Sprintf("%s calls %s at %s:%d:%d", b.fc.owner, b.fc.callee(x, h.c), src, line, column)
+	return &irExpr{K: "conv", Pos: p, T: b.spelling(b.l.rt() + ".Site"), X: &irExpr{K: "const", Pos: p, T: "string", V: site}}
+}
+
+func (h irHidden) frame() *irExpr {
+	if h.b.inSeq {
+		irNo("std call with an adapted result") // a Seq outlives the frame (seqLit)
+	}
+	return h.b.frameArg(h.p) // ir_own.go (GP-FRAME)
+}
+
+func (h irHidden) graph() *irExpr { return h.b.graphArg(h.body, h.c, h.x, h.p) }
+
+func (h irHidden) resultRelease() *irExpr { return h.b.resultRelease(h.x, h.p) } // ir_own.go
+
+func (h irHidden) unknown(k v1.Hidden) *irExpr {
+	irNo("std call with hidden argument %s", k)
+	return nil
+}
+
+// graphArg is the hidden graph argument (v1.Graph, a v1.GraphOf) of the
+// call x of an actor's start, as the emitter's graphArg writes it: the
+// graph accessor of the machine whose states and signals are the call's
+// type arguments for the Go body's first two type parameters (body, the
+// contract hidden reads), matched by name. Go text passes the accessor's instance as a value; the IR has no
+// value of a generic function, so it passes a literal that calls it.
+func (b *irBuilder) graphArg(body v1.Body, c *check.Call, x *syntax.CallExpr, p irPos) *irExpr {
+	var state, signal string
+	if c != nil && c.Func != nil && len(body.TypeParams) >= 2 {
+		for i, tp := range c.Func.Sig.TParams {
+			if i >= len(c.TypeArgs) {
+				break
+			}
+			switch tp.Name {
+			case body.TypeParams[0].Name:
+				state = b.goType(c.TypeArgs[i], x)
+			case body.TypeParams[1].Name:
+				signal = b.goType(c.TypeArgs[i], x)
+			}
+		}
+	}
+	if state == "" || signal == "" {
+		irNo("std call with hidden argument graph") // the emitter's ice
+	}
+	l := b.l
+	l.actorStarted = true
+	targs := state + ", " + signal
+	var call *irExpr
+	if graphRegistry() {
+		call = &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "RegisteredGraph", V: targs}
+	} else {
+		l.graphsUsed = true
+		call = &irExpr{K: "call", Pos: p, Name: l.pkgName(pkgKey{"machine graphs", nil}, "ergoMachineGraph"), T: targs}
+	}
+	end := p
+	lit := &irExpr{K: "func", Pos: p, T: "func() *" + b.spelling(l.rt()+".MachineGraph"), Body: []*irStmt{{K: "ret", Pos: p, X: call}}, End: &end}
+	return &irExpr{K: "conv", Pos: p, T: b.spelling(l.rt() + ".GraphOf"), X: lit} // the body's parameter type
 }
 
 // boundOpCall is the call x of the operation c.Op on a value of an

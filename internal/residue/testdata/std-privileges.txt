@@ -482,6 +482,13 @@ debt	internal/sketch/lower/handover.go:lowerer.checkedOwnedForm	runtime	"v1.Body
 debt	internal/sketch/lower/handover.go:lowerer.freshAll	mark	"Host()"	lowerer.freshAll: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/handover.go:valueWalk.fieldPath	mark	"Host()"	valueWalk.fieldPath: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/handover.go:valueWalk.freshCall	mark	"Host()"	valueWalk.freshCall: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.CallSite"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
+debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.CallerScheduler"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
+debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.CallerTask"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
+debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.Frame"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
+debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.Graph"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
+debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.ReadingPackage"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
+debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.ResultRelease"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
 debt	internal/sketch/lower/inforce.go:lowerer.held	flag	"IsInForce"	lowerer.held: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/inline.go:funcCtx.closeInline	flag	"directives"	funcCtx.closeInline: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/inline.go:funcCtx.closeInline	flag	"iface"	funcCtx.closeInline: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -545,11 +552,6 @@ debt	internal/sketch/lower/ir_own.go:irBuilder.closeMasked	runtime	"v1.CallerTas
 debt	internal/sketch/lower/ir_own.go:irBuilder.startsOnFrame	mark	"Host()"	irBuilder.startsOnFrame: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_own.go:irBuilder.startsOnFrame	runtime	"v1.Frame"	irBuilder.startsOnFrame: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_own.go:irBuilder.taskClose	runtime	"v1.CallerTask"	irBuilder.taskClose: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.CallSite"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.CallerScheduler"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.CallerTask"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.Frame"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_pkg.go:irBuilder.hidden	runtime	"v1.ReadingPackage"	irBuilder.hidden: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_pkg.go:irBuilder.stdCall	runtime	"v1.PackageOf"	irBuilder.stdCall: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_rewrite.go:irBuilder.canary	runtime	"v1.PackageOf"	irBuilder.canary: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_rewrite.go:irBuilder.lawSide	flag	"directives"	irBuilder.lawSide: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -628,13 +630,6 @@ debt	internal/sketch/lower/std.go:funcCtx.adaptFunc	runtime	"v1.CallerTask"	func
 debt	internal/sketch/lower/std.go:funcCtx.adaptFuncs	runtime	"v1.CallerTask"	funcCtx.adaptFuncs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/std.go:funcCtx.adaptTaskFunc	runtime	"v1.CallerTask"	funcCtx.adaptTaskFunc: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/std.go:funcCtx.graphArg	runtime	"v1.BodyOf"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.CallSite"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.CallerScheduler"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.CallerTask"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.Frame"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.Graph"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.ReadingPackage"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/std.go:funcCtx.hiddenArgs	runtime	"v1.ResultRelease"	funcCtx.hiddenArgs: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/std.go:funcCtx.opCall	built	"."	funcCtx.opCall: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/std.go:funcCtx.stdResult	runtime	"v1.Frame"	funcCtx.stdResult: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/std.go:lowerer.needsFrame	mark	"Host()"	lowerer.needsFrame: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP

@@ -724,6 +724,21 @@ func (st *irState) newBuilder(fc *funcCtx, root syntax.Node) *irBuilder {
 	return &irBuilder{fc: fc, l: fc.l, st: st, locals: map[*check.Var]int{}, env: -1}
 }
 
+// envPointer is the Go type of an environment local, *Env: the function's
+// environment parameter, each literal's (every IR function value takes
+// one), a with's pointer. It is the IR builder's shared reader of the
+// lowerer's name for the type (TestRuntime199EnvTypeReaders), recorded at
+// the first read: a pure body that reads none imports no task package.
+func (b *irBuilder) envPointer() string {
+	if b.envType == "" {
+		b.envType = "*" + b.l.env()
+	}
+	return b.envType
+}
+
+// envValue is the type an environment local points to (Env): a copy's.
+func (b *irBuilder) envValue() string { return strings.TrimPrefix(b.envPointer(), "*") }
+
 // irBuilder builds one function's IR body.
 type irBuilder struct {
 	fc     *funcCtx
@@ -735,10 +750,13 @@ type irBuilder struct {
 	// their value, for unfoldAt (ir_unfold.go).
 	letInits map[*check.Var]syntax.Expr
 	next     int
-	slots    int                      // the Go parameter slots, witnesses too (ir_forms_inline.go)
-	env      int                      // the environment's local, or -1 in a pure function
-	inSeq    bool                     // building a deferred call's hidden arguments inside its Seq (seqLit, ir_adapted.go)
-	wits     map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
+	slots    int  // the Go parameter slots, witnesses too (ir_forms_inline.go)
+	env      int  // the environment's local, or -1 in a pure function
+	inSeq    bool // building a deferred call's hidden arguments inside its Seq (seqLit, ir_adapted.go)
+	// envType is the Go type of an environment local (*Env), recorded by
+	// envPointer at its first read.
+	envType string
+	wits    map[*check.TypeParam]int // each witness parameter's local (ir_witness.go)
 	// raw is the operand whose implicit conversion is not applied: a
 	// direct reader passed as itself (directDecode, ir_codec_direct.go).
 	raw    syntax.Expr
