@@ -3,160 +3,160 @@
 package graph
 
 import (
-	context "context"
+	go__context "context"
 	rt "ergo.local/prototype/runtime/rt"
 	ergo "ergo.local/prototype/runtime/v1"
 	slices "slices"
 	strconv "strconv"
-	strings "strings"
-	sync "sync"
+	go__strings "strings"
+	go__sync "sync"
 )
 
-// ergoInitOnce runs the package-level lets once, in the task of the first call.
-var ergoInitOnce sync.Once
+// ergo__InitOnce runs the package-level lets once, in the task of the first call.
+var ergo__InitOnce go__sync.Once
 
-// ergoInitFailed is the panic that ended the package-level lets, nil when
-// they ran to the end. ergoInitOnce writes it before any reader runs.
-var ergoInitFailed any
+// ergo__InitFailed is the panic that ended the package-level lets, nil when
+// they ran to the end. ergo__InitOnce writes it before any reader runs.
+var ergo__InitFailed any
 
-// ergoInitRun runs the package-level lets in the first call, and raises the
+// ergo__InitRun runs the package-level lets in the first call, and raises the
 // panic that ended them again in every later call.
-func ergoInitRun(env *env) {
-	ergoInitOnce.Do(func() {
+func ergo__InitRun(env *Env) {
+	ergo__InitOnce.Do(func() {
 		defer func() {
 			if p := recover(); p != nil {
-				ergoInitFailed = p
+				ergo__InitFailed = p
 				panic(p)
 			}
 		}()
 		ergoInit(env)
 	})
-	if p := ergoInitFailed; p != nil {
+	if p := ergo__InitFailed; p != nil {
 		panic(p)
 	}
 }
 
 // Run calls the Ergo function Run for a Go caller (IG11): on the
 // calling goroutine, as a root task that ctx cancels (v1.Call).
-func Run(ctx context.Context, p0 []string, p1 string, p2 string) ([]string, error) {
+func Run(ctx go__context.Context, p0 []string, p1 string, p2 string) ([]string, error) {
 	v, err := ergo.Call(ctx, "Run", func(t *rt.Task) ([]string, error) {
-		env_1 := &env{task: t}
-		ergoInitRun(env_1)
-		return run(env_1, p0, p1, p2), nil
+		env := &Env{task: t}
+		ergo__InitRun(env)
+		return Run_1(env, p0, p1, p2), nil
 	})
 	return append([]string(nil), v...), err
 }
 
 // RunColumns calls the Ergo function RunColumns for a Go caller (IG11): on the
 // calling goroutine, as a root task that ctx cancels (v1.Call).
-func RunColumns(ctx context.Context, p0 []string, p1 []string, p2 []int) ([]string, error) {
+func RunColumns(ctx go__context.Context, p0 []string, p1 []string, p2 []int) ([]string, error) {
 	v, err := ergo.Call(ctx, "RunColumns", func(t *rt.Task) ([]string, error) {
-		env_1 := &env{task: t}
-		ergoInitRun(env_1)
-		return runColumns(env_1, p0, p1, p2), nil
+		env := &Env{task: t}
+		ergo__InitRun(env)
+		return RunColumns_1(env, p0, p1, p2), nil
 	})
 	return append([]string(nil), v...), err
 }
 
-type env struct {
+type Env struct {
 	task *rt.Task
 }
 
-func ergoEncodeSlice_14(env_1 *env, w writer, v []string) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_14(env *Env, w Writer, v []string) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		w.String(env_1.task, string(e))
+		w.String(env.task, string(e))
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoEncodeCycleOut(env_1 *env, w writer, v cycleOut) {
-	w.BeginObject(env_1.task, 2)
-	w.Key(env_1.task, "nodes")
-	ergoEncodeSlice_14(env_1, w, v.Nodes)
-	w.Key(env_1.task, "path")
-	ergoEncodeSlice_14(env_1, w, v.Path)
-	w.EndObject(env_1.task)
+func ergo__EncodeCycleOut(env *Env, w Writer, v CycleOut) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "nodes")
+	ergo__EncodeSlice_14(env, w, v.Nodes)
+	w.Key(env.task, "path")
+	ergo__EncodeSlice_14(env, w, v.Path)
+	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_9(env_1 *env, w writer, v []cycleOut) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_9(env *Env, w Writer, v []CycleOut) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeCycleOut(env_1, w, e)
+		ergo__EncodeCycleOut(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoDecodeSlice_14(env_1 *env, r reader_1) ([]string, error) {
-	if err := r.BeginList(env_1.task); err != nil {
+func ergo__DecodeSlice_14(env *Env, r Reader) ([]string, error) {
+	if err := r.BeginList(env.task); err != nil {
 		return *new([]string), err
 	}
 	out := []string{}
-	for r.More(env_1.task) {
-		raw_2, err_1 := r.String(env_1.task)
+	for r.More(env.task) {
+		raw, err_1 := r.String(env.task)
 		if err_1 != nil {
 			return *new([]string), err_1
 		}
-		e := string(raw_2)
+		e := string(raw)
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoDecodeCycleOut(env_1 *env, r reader_1) (cycleOut, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(cycleOut), err
+func ergo__DecodeCycleOut(env *Env, r Reader) (CycleOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(CycleOut), err
 	}
-	var out cycleOut
+	var out CycleOut
 	var seen, seen_1 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "nodes":
-			f, err_1 := ergoDecodeSlice_14(env_1, r)
+			f, err_1 := ergo__DecodeSlice_14(env, r)
 			if err_1 != nil {
-				return *new(cycleOut), err_1
+				return *new(CycleOut), err_1
 			}
 			out.Nodes = f
 			seen = true
 		case "path":
-			f_1, err_2 := ergoDecodeSlice_14(env_1, r)
+			f_1, err_2 := ergo__DecodeSlice_14(env, r)
 			if err_2 != nil {
-				return *new(cycleOut), err_2
+				return *new(CycleOut), err_2
 			}
 			out.Path = f_1
 			seen_1 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(cycleOut), wireMissingField{Path: r.Path(env_1.task), Field: "nodes"}
+		return *new(CycleOut), WireMissingField{Path: r.Path(env.task), Field: "nodes"}
 	}
 	if !seen_1 {
-		return *new(cycleOut), wireMissingField{Path: r.Path(env_1.task), Field: "path"}
+		return *new(CycleOut), WireMissingField{Path: r.Path(env.task), Field: "path"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_9(env_1 *env, r reader_1) ([]cycleOut, error) {
-	if err := r.BeginList(env_1.task); err != nil {
-		return *new([]cycleOut), err
+func ergo__DecodeSlice_9(env *Env, r Reader) ([]CycleOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]CycleOut), err
 	}
-	out := []cycleOut{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeCycleOut(env_1, r)
+	out := []CycleOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeCycleOut(env, r)
 		if err_1 != nil {
-			return *new([]cycleOut), err_1
+			return *new([]CycleOut), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoWriteSlice_14(env_1 *env, wv text_3, v []string) text_3 {
+func ergo__WriteSlice_14(env *Env, wv json__text, v []string) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -172,7 +172,7 @@ func ergoWriteSlice_14(env_1 *env, wv text_3, v []string) text_3 {
 	return wv
 }
 
-func ergoWriteSlice_entry_14(env_1 *env, wv text_3, v []string) text_3 {
+func ergo__WriteSlice_entry_14(env *Env, wv json__text, v []string) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -187,258 +187,258 @@ func ergoWriteSlice_entry_14(env_1 *env, wv text_3, v []string) text_3 {
 	return wv
 }
 
-func ergoWriteCycleOut(env_1 *env, wv text_3, v cycleOut) text_3 {
+func ergo__WriteCycleOut(env *Env, wv json__text, v CycleOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"nodes\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_14(env_1, *w, v.Nodes)
+	*w = ergo__WriteSlice_entry_14(env, *w, v.Nodes)
 	(w).sep()
 	(w).raw(string("\"path\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_14(env_1, *w, v.Path)
+	*w = ergo__WriteSlice_entry_14(env, *w, v.Path)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_9(env_1 *env, wv text_3, v []cycleOut) text_3 {
+func ergo__WriteSlice_9(env *Env, wv json__text, v []CycleOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteCycleOut(env_1, *w, e)
+		*w = ergo__WriteCycleOut(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoReadSlice_14(env_1 *env, r reader) ([]string, error) {
-	if err := (r).BeginList(env_1); err != nil {
+func ergo__ReadSlice_14(env *Env, r json__Reader_1) ([]string, error) {
+	if err := (r).BeginList(env); err != nil {
 		return *new([]string), err
 	}
 	out := []string{}
-	for (r).More(env_1) {
-		raw_2, err_1 := (r).String(env_1)
+	for (r).More(env) {
+		raw, err_1 := (r).String(env)
 		if err_1 != nil {
 			return *new([]string), err_1
 		}
-		e := string(raw_2)
+		e := string(raw)
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadCycleOut(env_1 *env, r reader) (cycleOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(cycleOut), err
+func ergo__ReadCycleOut(env *Env, r json__Reader_1) (CycleOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(CycleOut), err
 	}
-	var out cycleOut
+	var out CycleOut
 	var seen, seen_1 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "nodes":
-			f, err_1 := ergoReadSlice_14(env_1, r)
+			f, err_1 := ergo__ReadSlice_14(env, r)
 			if err_1 != nil {
-				return *new(cycleOut), err_1
+				return *new(CycleOut), err_1
 			}
 			out.Nodes = f
 			seen = true
 		case "path":
-			f_1, err_2 := ergoReadSlice_14(env_1, r)
+			f_1, err_2 := ergo__ReadSlice_14(env, r)
 			if err_2 != nil {
-				return *new(cycleOut), err_2
+				return *new(CycleOut), err_2
 			}
 			out.Path = f_1
 			seen_1 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(cycleOut), wireMissingField{Path: (r).Path(env_1), Field: "nodes"}
+		return *new(CycleOut), WireMissingField{Path: (r).Path(env), Field: "nodes"}
 	}
 	if !seen_1 {
-		return *new(cycleOut), wireMissingField{Path: (r).Path(env_1), Field: "path"}
+		return *new(CycleOut), WireMissingField{Path: (r).Path(env), Field: "path"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_9(env_1 *env, r reader) ([]cycleOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]cycleOut), err
+func ergo__ReadSlice_9(env *Env, r json__Reader_1) ([]CycleOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]CycleOut), err
 	}
-	out := []cycleOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadCycleOut(env_1, r)
+	out := []CycleOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadCycleOut(env, r)
 		if err_1 != nil {
-			return *new([]cycleOut), err_1
+			return *new([]CycleOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadSlice_29(env_1 *env, r stream) ([]string, error) {
-	if err := (r).BeginList(env_1); err != nil {
+func ergo__ReadSlice_29(env *Env, r json__Stream) ([]string, error) {
+	if err := (r).BeginList(env); err != nil {
 		return *new([]string), err
 	}
 	out := []string{}
-	for (r).More(env_1) {
-		raw_2, err_1 := (r).String(env_1)
+	for (r).More(env) {
+		raw, err_1 := (r).String(env)
 		if err_1 != nil {
 			return *new([]string), err_1
 		}
-		e := string(raw_2)
+		e := string(raw)
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadCycleOut_1(env_1 *env, r stream) (cycleOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(cycleOut), err
+func ergo__ReadCycleOut_1(env *Env, r json__Stream) (CycleOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(CycleOut), err
 	}
-	var out cycleOut
+	var out CycleOut
 	var seen, seen_1 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "nodes":
-			f, err_1 := ergoReadSlice_29(env_1, r)
+			f, err_1 := ergo__ReadSlice_29(env, r)
 			if err_1 != nil {
-				return *new(cycleOut), err_1
+				return *new(CycleOut), err_1
 			}
 			out.Nodes = f
 			seen = true
 		case "path":
-			f_1, err_2 := ergoReadSlice_29(env_1, r)
+			f_1, err_2 := ergo__ReadSlice_29(env, r)
 			if err_2 != nil {
-				return *new(cycleOut), err_2
+				return *new(CycleOut), err_2
 			}
 			out.Path = f_1
 			seen_1 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(cycleOut), wireMissingField{Path: (r).Path(env_1), Field: "nodes"}
+		return *new(CycleOut), WireMissingField{Path: (r).Path(env), Field: "nodes"}
 	}
 	if !seen_1 {
-		return *new(cycleOut), wireMissingField{Path: (r).Path(env_1), Field: "path"}
+		return *new(CycleOut), WireMissingField{Path: (r).Path(env), Field: "path"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_24(env_1 *env, r stream) ([]cycleOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]cycleOut), err
+func ergo__ReadSlice_24(env *Env, r json__Stream) ([]CycleOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]CycleOut), err
 	}
-	out := []cycleOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadCycleOut_1(env_1, r)
+	out := []CycleOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadCycleOut_1(env, r)
 		if err_1 != nil {
-			return *new([]cycleOut), err_1
+			return *new([]CycleOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoEncodeStepOut(env_1 *env, w writer, v stepOut) {
-	w.BeginObject(env_1.task, 3)
-	w.Key(env_1.task, "kind")
-	w.String(env_1.task, string(v.Kind))
-	w.Key(env_1.task, "from")
-	w.String(env_1.task, string(v.From))
-	w.Key(env_1.task, "to")
-	w.String(env_1.task, string(v.To))
-	w.EndObject(env_1.task)
+func ergo__EncodeStepOut(env *Env, w Writer, v StepOut) {
+	w.BeginObject(env.task, 3)
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
+	w.Key(env.task, "from")
+	w.String(env.task, string(v.From))
+	w.Key(env.task, "to")
+	w.String(env.task, string(v.To))
+	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_13(env_1 *env, w writer, v []stepOut) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_13(env *Env, w Writer, v []StepOut) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeStepOut(env_1, w, e)
+		ergo__EncodeStepOut(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoDecodeStepOut(env_1 *env, r reader_1) (stepOut, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(stepOut), err
+func ergo__DecodeStepOut(env *Env, r Reader) (StepOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(StepOut), err
 	}
-	var out stepOut
+	var out StepOut
 	var seen, seen_1, seen_2 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "kind":
-			raw_2, err_1 := r.String(env_1.task)
+			raw, err_1 := r.String(env.task)
 			if err_1 != nil {
-				return *new(stepOut), err_1
+				return *new(StepOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Kind = f
 			seen = true
 		case "from":
-			raw_3, err_2 := r.String(env_1.task)
+			raw_1, err_2 := r.String(env.task)
 			if err_2 != nil {
-				return *new(stepOut), err_2
+				return *new(StepOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.From = f_1
 			seen_1 = true
 		case "to":
-			raw_4, err_3 := r.String(env_1.task)
+			raw_2, err_3 := r.String(env.task)
 			if err_3 != nil {
-				return *new(stepOut), err_3
+				return *new(StepOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.To = f_2
 			seen_2 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(stepOut), wireMissingField{Path: r.Path(env_1.task), Field: "kind"}
+		return *new(StepOut), WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_1 {
-		return *new(stepOut), wireMissingField{Path: r.Path(env_1.task), Field: "from"}
+		return *new(StepOut), WireMissingField{Path: r.Path(env.task), Field: "from"}
 	}
 	if !seen_2 {
-		return *new(stepOut), wireMissingField{Path: r.Path(env_1.task), Field: "to"}
+		return *new(StepOut), WireMissingField{Path: r.Path(env.task), Field: "to"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_13(env_1 *env, r reader_1) ([]stepOut, error) {
-	if err := r.BeginList(env_1.task); err != nil {
-		return *new([]stepOut), err
+func ergo__DecodeSlice_13(env *Env, r Reader) ([]StepOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]StepOut), err
 	}
-	out := []stepOut{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeStepOut(env_1, r)
+	out := []StepOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeStepOut(env, r)
 		if err_1 != nil {
-			return *new([]stepOut), err_1
+			return *new([]StepOut), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoWriteStepOut(env_1 *env, wv text_3, v stepOut) text_3 {
+func ergo__WriteStepOut(env *Env, wv json__text, v StepOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"kind\":"))
@@ -452,235 +452,235 @@ func ergoWriteStepOut(env_1 *env, wv text_3, v stepOut) text_3 {
 	return wv
 }
 
-func ergoWriteSlice_13(env_1 *env, wv text_3, v []stepOut) text_3 {
+func ergo__WriteSlice_13(env *Env, wv json__text, v []StepOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteStepOut(env_1, *w, e)
+		*w = ergo__WriteStepOut(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoReadStepOut(env_1 *env, r reader) (stepOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(stepOut), err
+func ergo__ReadStepOut(env *Env, r json__Reader_1) (StepOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(StepOut), err
 	}
-	var out stepOut
+	var out StepOut
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "kind":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(stepOut), err_1
+				return *new(StepOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Kind = f
 			seen = true
 		case "from":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(stepOut), err_2
+				return *new(StepOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.From = f_1
 			seen_1 = true
 		case "to":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(stepOut), err_3
+				return *new(StepOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.To = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(stepOut), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(StepOut), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_1 {
-		return *new(stepOut), wireMissingField{Path: (r).Path(env_1), Field: "from"}
+		return *new(StepOut), WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_2 {
-		return *new(stepOut), wireMissingField{Path: (r).Path(env_1), Field: "to"}
+		return *new(StepOut), WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_13(env_1 *env, r reader) ([]stepOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]stepOut), err
+func ergo__ReadSlice_13(env *Env, r json__Reader_1) ([]StepOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]StepOut), err
 	}
-	out := []stepOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadStepOut(env_1, r)
+	out := []StepOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadStepOut(env, r)
 		if err_1 != nil {
-			return *new([]stepOut), err_1
+			return *new([]StepOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadStepOut_1(env_1 *env, r stream) (stepOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(stepOut), err
+func ergo__ReadStepOut_1(env *Env, r json__Stream) (StepOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(StepOut), err
 	}
-	var out stepOut
+	var out StepOut
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "kind":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(stepOut), err_1
+				return *new(StepOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Kind = f
 			seen = true
 		case "from":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(stepOut), err_2
+				return *new(StepOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.From = f_1
 			seen_1 = true
 		case "to":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(stepOut), err_3
+				return *new(StepOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.To = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(stepOut), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(StepOut), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_1 {
-		return *new(stepOut), wireMissingField{Path: (r).Path(env_1), Field: "from"}
+		return *new(StepOut), WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_2 {
-		return *new(stepOut), wireMissingField{Path: (r).Path(env_1), Field: "to"}
+		return *new(StepOut), WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_28(env_1 *env, r stream) ([]stepOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]stepOut), err
+func ergo__ReadSlice_28(env *Env, r json__Stream) ([]StepOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]StepOut), err
 	}
-	out := []stepOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadStepOut_1(env_1, r)
+	out := []StepOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadStepOut_1(env, r)
 		if err_1 != nil {
-			return *new([]stepOut), err_1
+			return *new([]StepOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoEncodeReachedOut(env_1 *env, w writer, v reachedOut) {
-	w.BeginObject(env_1.task, 3)
-	w.Key(env_1.task, "node")
-	w.String(env_1.task, string(v.Node))
-	w.Key(env_1.task, "kind")
-	w.String(env_1.task, string(v.Kind))
-	w.Key(env_1.task, "by")
-	w.String(env_1.task, string(v.By))
-	w.EndObject(env_1.task)
+func ergo__EncodeReachedOut(env *Env, w Writer, v ReachedOut) {
+	w.BeginObject(env.task, 3)
+	w.Key(env.task, "node")
+	w.String(env.task, string(v.Node))
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
+	w.Key(env.task, "by")
+	w.String(env.task, string(v.By))
+	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_12(env_1 *env, w writer, v []reachedOut) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_12(env *Env, w Writer, v []ReachedOut) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeReachedOut(env_1, w, e)
+		ergo__EncodeReachedOut(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoDecodeReachedOut(env_1 *env, r reader_1) (reachedOut, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(reachedOut), err
+func ergo__DecodeReachedOut(env *Env, r Reader) (ReachedOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ReachedOut), err
 	}
-	var out reachedOut
+	var out ReachedOut
 	var seen, seen_1, seen_2 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "node":
-			raw_2, err_1 := r.String(env_1.task)
+			raw, err_1 := r.String(env.task)
 			if err_1 != nil {
-				return *new(reachedOut), err_1
+				return *new(ReachedOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Node = f
 			seen = true
 		case "kind":
-			raw_3, err_2 := r.String(env_1.task)
+			raw_1, err_2 := r.String(env.task)
 			if err_2 != nil {
-				return *new(reachedOut), err_2
+				return *new(ReachedOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.Kind = f_1
 			seen_1 = true
 		case "by":
-			raw_4, err_3 := r.String(env_1.task)
+			raw_2, err_3 := r.String(env.task)
 			if err_3 != nil {
-				return *new(reachedOut), err_3
+				return *new(ReachedOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.By = f_2
 			seen_2 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(reachedOut), wireMissingField{Path: r.Path(env_1.task), Field: "node"}
+		return *new(ReachedOut), WireMissingField{Path: r.Path(env.task), Field: "node"}
 	}
 	if !seen_1 {
-		return *new(reachedOut), wireMissingField{Path: r.Path(env_1.task), Field: "kind"}
+		return *new(ReachedOut), WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(reachedOut), wireMissingField{Path: r.Path(env_1.task), Field: "by"}
+		return *new(ReachedOut), WireMissingField{Path: r.Path(env.task), Field: "by"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_12(env_1 *env, r reader_1) ([]reachedOut, error) {
-	if err := r.BeginList(env_1.task); err != nil {
-		return *new([]reachedOut), err
+func ergo__DecodeSlice_12(env *Env, r Reader) ([]ReachedOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ReachedOut), err
 	}
-	out := []reachedOut{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeReachedOut(env_1, r)
+	out := []ReachedOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeReachedOut(env, r)
 		if err_1 != nil {
-			return *new([]reachedOut), err_1
+			return *new([]ReachedOut), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoWriteReachedOut(env_1 *env, wv text_3, v reachedOut) text_3 {
+func ergo__WriteReachedOut(env *Env, wv json__text, v ReachedOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"node\":"))
@@ -694,261 +694,261 @@ func ergoWriteReachedOut(env_1 *env, wv text_3, v reachedOut) text_3 {
 	return wv
 }
 
-func ergoWriteSlice_12(env_1 *env, wv text_3, v []reachedOut) text_3 {
+func ergo__WriteSlice_12(env *Env, wv json__text, v []ReachedOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteReachedOut(env_1, *w, e)
+		*w = ergo__WriteReachedOut(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoReadReachedOut(env_1 *env, r reader) (reachedOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(reachedOut), err
+func ergo__ReadReachedOut(env *Env, r json__Reader_1) (ReachedOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ReachedOut), err
 	}
-	var out reachedOut
+	var out ReachedOut
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "node":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(reachedOut), err_1
+				return *new(ReachedOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Node = f
 			seen = true
 		case "kind":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(reachedOut), err_2
+				return *new(ReachedOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.Kind = f_1
 			seen_1 = true
 		case "by":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(reachedOut), err_3
+				return *new(ReachedOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.By = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(reachedOut), wireMissingField{Path: (r).Path(env_1), Field: "node"}
+		return *new(ReachedOut), WireMissingField{Path: (r).Path(env), Field: "node"}
 	}
 	if !seen_1 {
-		return *new(reachedOut), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(ReachedOut), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(reachedOut), wireMissingField{Path: (r).Path(env_1), Field: "by"}
+		return *new(ReachedOut), WireMissingField{Path: (r).Path(env), Field: "by"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_12(env_1 *env, r reader) ([]reachedOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]reachedOut), err
+func ergo__ReadSlice_12(env *Env, r json__Reader_1) ([]ReachedOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ReachedOut), err
 	}
-	out := []reachedOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadReachedOut(env_1, r)
+	out := []ReachedOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadReachedOut(env, r)
 		if err_1 != nil {
-			return *new([]reachedOut), err_1
+			return *new([]ReachedOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadReachedOut_1(env_1 *env, r stream) (reachedOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(reachedOut), err
+func ergo__ReadReachedOut_1(env *Env, r json__Stream) (ReachedOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ReachedOut), err
 	}
-	var out reachedOut
+	var out ReachedOut
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "node":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(reachedOut), err_1
+				return *new(ReachedOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Node = f
 			seen = true
 		case "kind":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(reachedOut), err_2
+				return *new(ReachedOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.Kind = f_1
 			seen_1 = true
 		case "by":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(reachedOut), err_3
+				return *new(ReachedOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.By = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(reachedOut), wireMissingField{Path: (r).Path(env_1), Field: "node"}
+		return *new(ReachedOut), WireMissingField{Path: (r).Path(env), Field: "node"}
 	}
 	if !seen_1 {
-		return *new(reachedOut), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(ReachedOut), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(reachedOut), wireMissingField{Path: (r).Path(env_1), Field: "by"}
+		return *new(ReachedOut), WireMissingField{Path: (r).Path(env), Field: "by"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_27(env_1 *env, r stream) ([]reachedOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]reachedOut), err
+func ergo__ReadSlice_27(env *Env, r json__Stream) ([]ReachedOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ReachedOut), err
 	}
-	out := []reachedOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadReachedOut_1(env_1, r)
+	out := []ReachedOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadReachedOut_1(env, r)
 		if err_1 != nil {
-			return *new([]reachedOut), err_1
+			return *new([]ReachedOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoEncodeHiddenOut(env_1 *env, w writer, v hiddenOut) {
-	w.BeginObject(env_1.task, 5)
-	w.Key(env_1.task, "from")
-	w.String(env_1.task, string(v.From))
-	w.Key(env_1.task, "to")
-	w.String(env_1.task, string(v.To))
-	w.Key(env_1.task, "package")
-	w.String(env_1.task, string(v.Package))
-	w.Key(env_1.task, "via")
-	w.String(env_1.task, string(v.Via))
-	w.Key(env_1.task, "how")
-	w.String(env_1.task, string(v.How))
-	w.EndObject(env_1.task)
+func ergo__EncodeHiddenOut(env *Env, w Writer, v HiddenOut) {
+	w.BeginObject(env.task, 5)
+	w.Key(env.task, "from")
+	w.String(env.task, string(v.From))
+	w.Key(env.task, "to")
+	w.String(env.task, string(v.To))
+	w.Key(env.task, "package")
+	w.String(env.task, string(v.Package))
+	w.Key(env.task, "via")
+	w.String(env.task, string(v.Via))
+	w.Key(env.task, "how")
+	w.String(env.task, string(v.How))
+	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_11(env_1 *env, w writer, v []hiddenOut) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_11(env *Env, w Writer, v []HiddenOut) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeHiddenOut(env_1, w, e)
+		ergo__EncodeHiddenOut(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoDecodeHiddenOut(env_1 *env, r reader_1) (hiddenOut, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(hiddenOut), err
+func ergo__DecodeHiddenOut(env *Env, r Reader) (HiddenOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(HiddenOut), err
 	}
-	var out hiddenOut
+	var out HiddenOut
 	var seen, seen_1, seen_2, seen_3, seen_4 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "from":
-			raw_2, err_1 := r.String(env_1.task)
+			raw, err_1 := r.String(env.task)
 			if err_1 != nil {
-				return *new(hiddenOut), err_1
+				return *new(HiddenOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.From = f
 			seen = true
 		case "to":
-			raw_3, err_2 := r.String(env_1.task)
+			raw_1, err_2 := r.String(env.task)
 			if err_2 != nil {
-				return *new(hiddenOut), err_2
+				return *new(HiddenOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.To = f_1
 			seen_1 = true
 		case "package":
-			raw_4, err_3 := r.String(env_1.task)
+			raw_2, err_3 := r.String(env.task)
 			if err_3 != nil {
-				return *new(hiddenOut), err_3
+				return *new(HiddenOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.Package = f_2
 			seen_2 = true
 		case "via":
-			raw_5, err_4 := r.String(env_1.task)
+			raw_3, err_4 := r.String(env.task)
 			if err_4 != nil {
-				return *new(hiddenOut), err_4
+				return *new(HiddenOut), err_4
 			}
-			f_3 := string(raw_5)
+			f_3 := string(raw_3)
 			out.Via = f_3
 			seen_3 = true
 		case "how":
-			raw_6, err_5 := r.String(env_1.task)
+			raw_4, err_5 := r.String(env.task)
 			if err_5 != nil {
-				return *new(hiddenOut), err_5
+				return *new(HiddenOut), err_5
 			}
-			f_4 := string(raw_6)
+			f_4 := string(raw_4)
 			out.How = f_4
 			seen_4 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(hiddenOut), wireMissingField{Path: r.Path(env_1.task), Field: "from"}
+		return *new(HiddenOut), WireMissingField{Path: r.Path(env.task), Field: "from"}
 	}
 	if !seen_1 {
-		return *new(hiddenOut), wireMissingField{Path: r.Path(env_1.task), Field: "to"}
+		return *new(HiddenOut), WireMissingField{Path: r.Path(env.task), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(hiddenOut), wireMissingField{Path: r.Path(env_1.task), Field: "package"}
+		return *new(HiddenOut), WireMissingField{Path: r.Path(env.task), Field: "package"}
 	}
 	if !seen_3 {
-		return *new(hiddenOut), wireMissingField{Path: r.Path(env_1.task), Field: "via"}
+		return *new(HiddenOut), WireMissingField{Path: r.Path(env.task), Field: "via"}
 	}
 	if !seen_4 {
-		return *new(hiddenOut), wireMissingField{Path: r.Path(env_1.task), Field: "how"}
+		return *new(HiddenOut), WireMissingField{Path: r.Path(env.task), Field: "how"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_11(env_1 *env, r reader_1) ([]hiddenOut, error) {
-	if err := r.BeginList(env_1.task); err != nil {
-		return *new([]hiddenOut), err
+func ergo__DecodeSlice_11(env *Env, r Reader) ([]HiddenOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]HiddenOut), err
 	}
-	out := []hiddenOut{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeHiddenOut(env_1, r)
+	out := []HiddenOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeHiddenOut(env, r)
 		if err_1 != nil {
-			return *new([]hiddenOut), err_1
+			return *new([]HiddenOut), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoWriteHiddenOut(env_1 *env, wv text_3, v hiddenOut) text_3 {
+func ergo__WriteHiddenOut(env *Env, wv json__text, v HiddenOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"from\":"))
@@ -966,349 +966,349 @@ func ergoWriteHiddenOut(env_1 *env, wv text_3, v hiddenOut) text_3 {
 	return wv
 }
 
-func ergoWriteSlice_11(env_1 *env, wv text_3, v []hiddenOut) text_3 {
+func ergo__WriteSlice_11(env *Env, wv json__text, v []HiddenOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteHiddenOut(env_1, *w, e)
+		*w = ergo__WriteHiddenOut(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoReadHiddenOut(env_1 *env, r reader) (hiddenOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(hiddenOut), err
+func ergo__ReadHiddenOut(env *Env, r json__Reader_1) (HiddenOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(HiddenOut), err
 	}
-	var out hiddenOut
+	var out HiddenOut
 	var seen, seen_1, seen_2, seen_3, seen_4 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "from":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(hiddenOut), err_1
+				return *new(HiddenOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.From = f
 			seen = true
 		case "to":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(hiddenOut), err_2
+				return *new(HiddenOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.To = f_1
 			seen_1 = true
 		case "package":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(hiddenOut), err_3
+				return *new(HiddenOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.Package = f_2
 			seen_2 = true
 		case "via":
-			raw_5, err_4 := (r).String(env_1)
+			raw_3, err_4 := (r).String(env)
 			if err_4 != nil {
-				return *new(hiddenOut), err_4
+				return *new(HiddenOut), err_4
 			}
-			f_3 := string(raw_5)
+			f_3 := string(raw_3)
 			out.Via = f_3
 			seen_3 = true
 		case "how":
-			raw_6, err_5 := (r).String(env_1)
+			raw_4, err_5 := (r).String(env)
 			if err_5 != nil {
-				return *new(hiddenOut), err_5
+				return *new(HiddenOut), err_5
 			}
-			f_4 := string(raw_6)
+			f_4 := string(raw_4)
 			out.How = f_4
 			seen_4 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "from"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_1 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "to"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "package"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_3 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "via"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "via"}
 	}
 	if !seen_4 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "how"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "how"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_11(env_1 *env, r reader) ([]hiddenOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]hiddenOut), err
+func ergo__ReadSlice_11(env *Env, r json__Reader_1) ([]HiddenOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]HiddenOut), err
 	}
-	out := []hiddenOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadHiddenOut(env_1, r)
+	out := []HiddenOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadHiddenOut(env, r)
 		if err_1 != nil {
-			return *new([]hiddenOut), err_1
+			return *new([]HiddenOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadHiddenOut_1(env_1 *env, r stream) (hiddenOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(hiddenOut), err
+func ergo__ReadHiddenOut_1(env *Env, r json__Stream) (HiddenOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(HiddenOut), err
 	}
-	var out hiddenOut
+	var out HiddenOut
 	var seen, seen_1, seen_2, seen_3, seen_4 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "from":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(hiddenOut), err_1
+				return *new(HiddenOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.From = f
 			seen = true
 		case "to":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(hiddenOut), err_2
+				return *new(HiddenOut), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.To = f_1
 			seen_1 = true
 		case "package":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(hiddenOut), err_3
+				return *new(HiddenOut), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.Package = f_2
 			seen_2 = true
 		case "via":
-			raw_5, err_4 := (r).String(env_1)
+			raw_3, err_4 := (r).String(env)
 			if err_4 != nil {
-				return *new(hiddenOut), err_4
+				return *new(HiddenOut), err_4
 			}
-			f_3 := string(raw_5)
+			f_3 := string(raw_3)
 			out.Via = f_3
 			seen_3 = true
 		case "how":
-			raw_6, err_5 := (r).String(env_1)
+			raw_4, err_5 := (r).String(env)
 			if err_5 != nil {
-				return *new(hiddenOut), err_5
+				return *new(HiddenOut), err_5
 			}
-			f_4 := string(raw_6)
+			f_4 := string(raw_4)
 			out.How = f_4
 			seen_4 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "from"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_1 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "to"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_2 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "package"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "package"}
 	}
 	if !seen_3 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "via"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "via"}
 	}
 	if !seen_4 {
-		return *new(hiddenOut), wireMissingField{Path: (r).Path(env_1), Field: "how"}
+		return *new(HiddenOut), WireMissingField{Path: (r).Path(env), Field: "how"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_26(env_1 *env, r stream) ([]hiddenOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]hiddenOut), err
+func ergo__ReadSlice_26(env *Env, r json__Stream) ([]HiddenOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]HiddenOut), err
 	}
-	out := []hiddenOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadHiddenOut_1(env_1, r)
+	out := []HiddenOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadHiddenOut_1(env, r)
 		if err_1 != nil {
-			return *new([]hiddenOut), err_1
+			return *new([]HiddenOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoEncodeSlice_1(env_1 *env, w writer, v [][]string) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_1(env *Env, w Writer, v [][]string) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeSlice_14(env_1, w, e)
+		ergo__EncodeSlice_14(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoDecodeSlice_1(env_1 *env, r reader_1) ([][]string, error) {
-	if err := r.BeginList(env_1.task); err != nil {
+func ergo__DecodeSlice_1(env *Env, r Reader) ([][]string, error) {
+	if err := r.BeginList(env.task); err != nil {
 		return *new([][]string), err
 	}
 	out := [][]string{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeSlice_14(env_1, r)
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeSlice_14(env, r)
 		if err_1 != nil {
 			return *new([][]string), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoWriteSlice_1(env_1 *env, wv text_3, v [][]string) text_3 {
+func ergo__WriteSlice_1(env *Env, wv json__text, v [][]string) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteSlice_14(env_1, *w, e)
+		*w = ergo__WriteSlice_14(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoReadSlice_1(env_1 *env, r reader) ([][]string, error) {
-	if err := (r).BeginList(env_1); err != nil {
+func ergo__ReadSlice_1(env *Env, r json__Reader_1) ([][]string, error) {
+	if err := (r).BeginList(env); err != nil {
 		return *new([][]string), err
 	}
 	out := [][]string{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadSlice_14(env_1, r)
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSlice_14(env, r)
 		if err_1 != nil {
 			return *new([][]string), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadSlice_16(env_1 *env, r stream) ([][]string, error) {
-	if err := (r).BeginList(env_1); err != nil {
+func ergo__ReadSlice_16(env *Env, r json__Stream) ([][]string, error) {
+	if err := (r).BeginList(env); err != nil {
 		return *new([][]string), err
 	}
 	out := [][]string{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadSlice_29(env_1, r)
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSlice_29(env, r)
 		if err_1 != nil {
 			return *new([][]string), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoEncodeFanOut(env_1 *env, w writer, v fanOut) {
-	w.BeginObject(env_1.task, 3)
-	w.Key(env_1.task, "node")
-	w.String(env_1.task, string(v.Node))
-	w.Key(env_1.task, "in")
-	w.Int(env_1.task, int64(v.In))
-	w.Key(env_1.task, "out")
-	w.Int(env_1.task, int64(v.Out))
-	w.EndObject(env_1.task)
+func ergo__EncodeFanOut(env *Env, w Writer, v FanOut) {
+	w.BeginObject(env.task, 3)
+	w.Key(env.task, "node")
+	w.String(env.task, string(v.Node))
+	w.Key(env.task, "in")
+	w.Int(env.task, int64(v.In))
+	w.Key(env.task, "out")
+	w.Int(env.task, int64(v.Out))
+	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_10(env_1 *env, w writer, v []fanOut) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_10(env *Env, w Writer, v []FanOut) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeFanOut(env_1, w, e)
+		ergo__EncodeFanOut(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoDecodeFanOut(env_1 *env, r reader_1) (fanOut, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(fanOut), err
+func ergo__DecodeFanOut(env *Env, r Reader) (FanOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(FanOut), err
 	}
-	var out fanOut
+	var out FanOut
 	var seen, seen_1, seen_2 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "node":
-			raw_2, err_1 := r.String(env_1.task)
+			raw, err_1 := r.String(env.task)
 			if err_1 != nil {
-				return *new(fanOut), err_1
+				return *new(FanOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Node = f
 			seen = true
 		case "in":
-			raw_3, err_2 := r.Int(env_1.task)
+			raw_1, err_2 := r.Int(env.task)
 			if err_2 != nil {
-				return *new(fanOut), err_2
+				return *new(FanOut), err_2
 			}
-			f_1 := int(raw_3)
+			f_1 := int(raw_1)
 			out.In = f_1
 			seen_1 = true
 		case "out":
-			raw_4, err_3 := r.Int(env_1.task)
+			raw_2, err_3 := r.Int(env.task)
 			if err_3 != nil {
-				return *new(fanOut), err_3
+				return *new(FanOut), err_3
 			}
-			f_2 := int(raw_4)
+			f_2 := int(raw_2)
 			out.Out = f_2
 			seen_2 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(fanOut), wireMissingField{Path: r.Path(env_1.task), Field: "node"}
+		return *new(FanOut), WireMissingField{Path: r.Path(env.task), Field: "node"}
 	}
 	if !seen_1 {
-		return *new(fanOut), wireMissingField{Path: r.Path(env_1.task), Field: "in"}
+		return *new(FanOut), WireMissingField{Path: r.Path(env.task), Field: "in"}
 	}
 	if !seen_2 {
-		return *new(fanOut), wireMissingField{Path: r.Path(env_1.task), Field: "out"}
+		return *new(FanOut), WireMissingField{Path: r.Path(env.task), Field: "out"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_10(env_1 *env, r reader_1) ([]fanOut, error) {
-	if err := r.BeginList(env_1.task); err != nil {
-		return *new([]fanOut), err
+func ergo__DecodeSlice_10(env *Env, r Reader) ([]FanOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]FanOut), err
 	}
-	out := []fanOut{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeFanOut(env_1, r)
+	out := []FanOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeFanOut(env, r)
 		if err_1 != nil {
-			return *new([]fanOut), err_1
+			return *new([]FanOut), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoWriteFanOut(env_1 *env, wv text_3, v fanOut) text_3 {
+func ergo__WriteFanOut(env *Env, wv json__text, v FanOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"node\":"))
@@ -1322,552 +1322,552 @@ func ergoWriteFanOut(env_1 *env, wv text_3, v fanOut) text_3 {
 	return wv
 }
 
-func ergoWriteSlice_10(env_1 *env, wv text_3, v []fanOut) text_3 {
+func ergo__WriteSlice_10(env *Env, wv json__text, v []FanOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteFanOut(env_1, *w, e)
+		*w = ergo__WriteFanOut(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoReadFanOut(env_1 *env, r reader) (fanOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(fanOut), err
+func ergo__ReadFanOut(env *Env, r json__Reader_1) (FanOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(FanOut), err
 	}
-	var out fanOut
+	var out FanOut
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "node":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(fanOut), err_1
+				return *new(FanOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Node = f
 			seen = true
 		case "in":
-			raw_3, err_2 := (r).Int(env_1)
+			raw_1, err_2 := (r).Int(env)
 			if err_2 != nil {
-				return *new(fanOut), err_2
+				return *new(FanOut), err_2
 			}
-			f_1 := int(raw_3)
+			f_1 := int(raw_1)
 			out.In = f_1
 			seen_1 = true
 		case "out":
-			raw_4, err_3 := (r).Int(env_1)
+			raw_2, err_3 := (r).Int(env)
 			if err_3 != nil {
-				return *new(fanOut), err_3
+				return *new(FanOut), err_3
 			}
-			f_2 := int(raw_4)
+			f_2 := int(raw_2)
 			out.Out = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(fanOut), wireMissingField{Path: (r).Path(env_1), Field: "node"}
+		return *new(FanOut), WireMissingField{Path: (r).Path(env), Field: "node"}
 	}
 	if !seen_1 {
-		return *new(fanOut), wireMissingField{Path: (r).Path(env_1), Field: "in"}
+		return *new(FanOut), WireMissingField{Path: (r).Path(env), Field: "in"}
 	}
 	if !seen_2 {
-		return *new(fanOut), wireMissingField{Path: (r).Path(env_1), Field: "out"}
+		return *new(FanOut), WireMissingField{Path: (r).Path(env), Field: "out"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_10(env_1 *env, r reader) ([]fanOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]fanOut), err
+func ergo__ReadSlice_10(env *Env, r json__Reader_1) ([]FanOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]FanOut), err
 	}
-	out := []fanOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadFanOut(env_1, r)
+	out := []FanOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFanOut(env, r)
 		if err_1 != nil {
-			return *new([]fanOut), err_1
+			return *new([]FanOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadFanOut_1(env_1 *env, r stream) (fanOut, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(fanOut), err
+func ergo__ReadFanOut_1(env *Env, r json__Stream) (FanOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(FanOut), err
 	}
-	var out fanOut
+	var out FanOut
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "node":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(fanOut), err_1
+				return *new(FanOut), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Node = f
 			seen = true
 		case "in":
-			raw_3, err_2 := (r).Int(env_1)
+			raw_1, err_2 := (r).Int(env)
 			if err_2 != nil {
-				return *new(fanOut), err_2
+				return *new(FanOut), err_2
 			}
-			f_1 := int(raw_3)
+			f_1 := int(raw_1)
 			out.In = f_1
 			seen_1 = true
 		case "out":
-			raw_4, err_3 := (r).Int(env_1)
+			raw_2, err_3 := (r).Int(env)
 			if err_3 != nil {
-				return *new(fanOut), err_3
+				return *new(FanOut), err_3
 			}
-			f_2 := int(raw_4)
+			f_2 := int(raw_2)
 			out.Out = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(fanOut), wireMissingField{Path: (r).Path(env_1), Field: "node"}
+		return *new(FanOut), WireMissingField{Path: (r).Path(env), Field: "node"}
 	}
 	if !seen_1 {
-		return *new(fanOut), wireMissingField{Path: (r).Path(env_1), Field: "in"}
+		return *new(FanOut), WireMissingField{Path: (r).Path(env), Field: "in"}
 	}
 	if !seen_2 {
-		return *new(fanOut), wireMissingField{Path: (r).Path(env_1), Field: "out"}
+		return *new(FanOut), WireMissingField{Path: (r).Path(env), Field: "out"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_25(env_1 *env, r stream) ([]fanOut, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]fanOut), err
+func ergo__ReadSlice_25(env *Env, r json__Stream) ([]FanOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]FanOut), err
 	}
-	out := []fanOut{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadFanOut_1(env_1, r)
+	out := []FanOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFanOut_1(env, r)
 		if err_1 != nil {
-			return *new([]fanOut), err_1
+			return *new([]FanOut), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-type rows struct {
-	Nodes   []nodeRow
-	Edges   []edgeRow
+type codegraph__Rows struct {
+	Nodes   []codegraph__NodeRow
+	Edges   []codegraph__EdgeRow
 	Version int
 }
 
-func ergoEncodeNodeRow(env_1 *env, w writer, v nodeRow) {
-	w.BeginObject(env_1.task, 11)
-	w.Key(env_1.task, "id")
-	w.Int(env_1.task, int64(v.Id))
-	w.Key(env_1.task, "kind")
-	w.String(env_1.task, string(v.Kind))
-	w.Key(env_1.task, "sub")
-	w.String(env_1.task, string(v.Sub))
-	w.Key(env_1.task, "parent")
-	w.Int(env_1.task, int64(v.Parent))
-	w.Key(env_1.task, "name")
-	w.String(env_1.task, string(v.Name))
-	w.Key(env_1.task, "digest")
-	w.String(env_1.task, string(v.Digest))
-	w.Key(env_1.task, "subject")
-	w.Int(env_1.task, int64(v.Subject))
-	w.Key(env_1.task, "file")
-	w.Int(env_1.task, int64(v.File))
-	w.Key(env_1.task, "offset")
-	w.Int(env_1.task, int64(v.Offset))
-	w.Key(env_1.task, "line")
-	w.Int(env_1.task, int64(v.Line))
-	w.Key(env_1.task, "column")
-	w.Int(env_1.task, int64(v.Column))
-	w.EndObject(env_1.task)
+func ergo__EncodeNodeRow(env *Env, w Writer, v codegraph__NodeRow) {
+	w.BeginObject(env.task, 11)
+	w.Key(env.task, "id")
+	w.Int(env.task, int64(v.Id))
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
+	w.Key(env.task, "sub")
+	w.String(env.task, string(v.Sub))
+	w.Key(env.task, "parent")
+	w.Int(env.task, int64(v.Parent))
+	w.Key(env.task, "name")
+	w.String(env.task, string(v.Name))
+	w.Key(env.task, "digest")
+	w.String(env.task, string(v.Digest))
+	w.Key(env.task, "subject")
+	w.Int(env.task, int64(v.Subject))
+	w.Key(env.task, "file")
+	w.Int(env.task, int64(v.File))
+	w.Key(env.task, "offset")
+	w.Int(env.task, int64(v.Offset))
+	w.Key(env.task, "line")
+	w.Int(env.task, int64(v.Line))
+	w.Key(env.task, "column")
+	w.Int(env.task, int64(v.Column))
+	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_3(env_1 *env, w writer, v []nodeRow) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_3(env *Env, w Writer, v []codegraph__NodeRow) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeNodeRow(env_1, w, e)
+		ergo__EncodeNodeRow(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoEncodeEdgeRow(env_1 *env, w writer, v edgeRow) {
-	w.BeginObject(env_1.task, 8)
-	w.Key(env_1.task, "kind")
-	w.String(env_1.task, string(v.Kind))
-	w.Key(env_1.task, "how")
-	w.String(env_1.task, string(v.How))
-	w.Key(env_1.task, "from")
-	w.Int(env_1.task, int64(v.From))
-	w.Key(env_1.task, "to")
-	w.Int(env_1.task, int64(v.To))
-	w.Key(env_1.task, "file")
-	w.Int(env_1.task, int64(v.File))
-	w.Key(env_1.task, "offset")
-	w.Int(env_1.task, int64(v.Offset))
-	w.Key(env_1.task, "line")
-	w.Int(env_1.task, int64(v.Line))
-	w.Key(env_1.task, "column")
-	w.Int(env_1.task, int64(v.Column))
-	w.EndObject(env_1.task)
+func ergo__EncodeEdgeRow(env *Env, w Writer, v codegraph__EdgeRow) {
+	w.BeginObject(env.task, 8)
+	w.Key(env.task, "kind")
+	w.String(env.task, string(v.Kind))
+	w.Key(env.task, "how")
+	w.String(env.task, string(v.How))
+	w.Key(env.task, "from")
+	w.Int(env.task, int64(v.From))
+	w.Key(env.task, "to")
+	w.Int(env.task, int64(v.To))
+	w.Key(env.task, "file")
+	w.Int(env.task, int64(v.File))
+	w.Key(env.task, "offset")
+	w.Int(env.task, int64(v.Offset))
+	w.Key(env.task, "line")
+	w.Int(env.task, int64(v.Line))
+	w.Key(env.task, "column")
+	w.Int(env.task, int64(v.Column))
+	w.EndObject(env.task)
 }
 
-func ergoEncodeSlice_2(env_1 *env, w writer, v []edgeRow) {
-	w.BeginList(env_1.task, len(v))
+func ergo__EncodeSlice_2(env *Env, w Writer, v []codegraph__EdgeRow) {
+	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergoEncodeEdgeRow(env_1, w, e)
+		ergo__EncodeEdgeRow(env, w, e)
 	}
-	w.EndList(env_1.task)
+	w.EndList(env.task)
 }
 
-func ergoEncodeRows(env_1 *env, w writer, v rows) {
-	w.BeginObject(env_1.task, 3)
-	w.Key(env_1.task, "version")
-	w.Int(env_1.task, int64(v.Version))
-	w.Key(env_1.task, "nodes")
-	ergoEncodeSlice_3(env_1, w, v.Nodes)
-	w.Key(env_1.task, "edges")
-	ergoEncodeSlice_2(env_1, w, v.Edges)
-	w.EndObject(env_1.task)
+func ergo__EncodeRows(env *Env, w Writer, v codegraph__Rows) {
+	w.BeginObject(env.task, 3)
+	w.Key(env.task, "version")
+	w.Int(env.task, int64(v.Version))
+	w.Key(env.task, "nodes")
+	ergo__EncodeSlice_3(env, w, v.Nodes)
+	w.Key(env.task, "edges")
+	ergo__EncodeSlice_2(env, w, v.Edges)
+	w.EndObject(env.task)
 }
 
-func ergoDecodeNodeRow(env_1 *env, r reader_1) (nodeRow, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(nodeRow), err
+func ergo__DecodeNodeRow(env *Env, r Reader) (codegraph__NodeRow, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__NodeRow), err
 	}
-	var out nodeRow
+	var out codegraph__NodeRow
 	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "id":
-			raw_2, err_1 := r.Int(env_1.task)
+			raw, err_1 := r.Int(env.task)
 			if err_1 != nil {
-				return *new(nodeRow), err_1
+				return *new(codegraph__NodeRow), err_1
 			}
-			f := int(raw_2)
+			f := int(raw)
 			out.Id = f
 			seen = true
 		case "kind":
-			raw_3, err_2 := r.String(env_1.task)
+			raw_1, err_2 := r.String(env.task)
 			if err_2 != nil {
-				return *new(nodeRow), err_2
+				return *new(codegraph__NodeRow), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.Kind = f_1
 			seen_1 = true
 		case "sub":
-			raw_4, err_3 := r.String(env_1.task)
+			raw_2, err_3 := r.String(env.task)
 			if err_3 != nil {
-				return *new(nodeRow), err_3
+				return *new(codegraph__NodeRow), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.Sub = f_2
 			seen_2 = true
 		case "parent":
-			raw_5, err_4 := r.Int(env_1.task)
+			raw_3, err_4 := r.Int(env.task)
 			if err_4 != nil {
-				return *new(nodeRow), err_4
+				return *new(codegraph__NodeRow), err_4
 			}
-			f_3 := int(raw_5)
+			f_3 := int(raw_3)
 			out.Parent = f_3
 			seen_3 = true
 		case "name":
-			raw_6, err_5 := r.String(env_1.task)
+			raw_4, err_5 := r.String(env.task)
 			if err_5 != nil {
-				return *new(nodeRow), err_5
+				return *new(codegraph__NodeRow), err_5
 			}
-			f_4 := string(raw_6)
+			f_4 := string(raw_4)
 			out.Name = f_4
 			seen_4 = true
 		case "digest":
-			raw_7, err_6 := r.String(env_1.task)
+			raw_5, err_6 := r.String(env.task)
 			if err_6 != nil {
-				return *new(nodeRow), err_6
+				return *new(codegraph__NodeRow), err_6
 			}
-			f_5 := string(raw_7)
+			f_5 := string(raw_5)
 			out.Digest = f_5
 			seen_5 = true
 		case "subject":
-			raw_8, err_7 := r.Int(env_1.task)
+			raw_6, err_7 := r.Int(env.task)
 			if err_7 != nil {
-				return *new(nodeRow), err_7
+				return *new(codegraph__NodeRow), err_7
 			}
-			f_6 := int(raw_8)
+			f_6 := int(raw_6)
 			out.Subject = f_6
 			seen_6 = true
 		case "file":
-			raw_9, err_8 := r.Int(env_1.task)
+			raw_7, err_8 := r.Int(env.task)
 			if err_8 != nil {
-				return *new(nodeRow), err_8
+				return *new(codegraph__NodeRow), err_8
 			}
-			f_7 := int(raw_9)
+			f_7 := int(raw_7)
 			out.File = f_7
 			seen_7 = true
 		case "offset":
-			raw_10, err_9 := r.Int(env_1.task)
+			raw_8, err_9 := r.Int(env.task)
 			if err_9 != nil {
-				return *new(nodeRow), err_9
+				return *new(codegraph__NodeRow), err_9
 			}
-			f_8 := int(raw_10)
+			f_8 := int(raw_8)
 			out.Offset = f_8
 			seen_8 = true
 		case "line":
-			raw_11, err_10 := r.Int(env_1.task)
+			raw_9, err_10 := r.Int(env.task)
 			if err_10 != nil {
-				return *new(nodeRow), err_10
+				return *new(codegraph__NodeRow), err_10
 			}
-			f_9 := int(raw_11)
+			f_9 := int(raw_9)
 			out.Line = f_9
 			seen_9 = true
 		case "column":
-			raw_12, err_11 := r.Int(env_1.task)
+			raw_10, err_11 := r.Int(env.task)
 			if err_11 != nil {
-				return *new(nodeRow), err_11
+				return *new(codegraph__NodeRow), err_11
 			}
-			f_10 := int(raw_12)
+			f_10 := int(raw_10)
 			out.Column = f_10
 			seen_10 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "id"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "id"}
 	}
 	if !seen_1 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "kind"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "sub"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "sub"}
 	}
 	if !seen_3 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "parent"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "parent"}
 	}
 	if !seen_4 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "name"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "name"}
 	}
 	if !seen_5 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "digest"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "digest"}
 	}
 	if !seen_6 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "subject"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "subject"}
 	}
 	if !seen_7 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "file"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_8 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "offset"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "offset"}
 	}
 	if !seen_9 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "line"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "line"}
 	}
 	if !seen_10 {
-		return *new(nodeRow), wireMissingField{Path: r.Path(env_1.task), Field: "column"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: r.Path(env.task), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_3(env_1 *env, r reader_1) ([]nodeRow, error) {
-	if err := r.BeginList(env_1.task); err != nil {
-		return *new([]nodeRow), err
+func ergo__DecodeSlice_3(env *Env, r Reader) ([]codegraph__NodeRow, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]codegraph__NodeRow), err
 	}
-	out := []nodeRow{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeNodeRow(env_1, r)
+	out := []codegraph__NodeRow{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeNodeRow(env, r)
 		if err_1 != nil {
-			return *new([]nodeRow), err_1
+			return *new([]codegraph__NodeRow), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoDecodeEdgeRow(env_1 *env, r reader_1) (edgeRow, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(edgeRow), err
+func ergo__DecodeEdgeRow(env *Env, r Reader) (codegraph__EdgeRow, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__EdgeRow), err
 	}
-	var out edgeRow
+	var out codegraph__EdgeRow
 	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "kind":
-			raw_2, err_1 := r.String(env_1.task)
+			raw, err_1 := r.String(env.task)
 			if err_1 != nil {
-				return *new(edgeRow), err_1
+				return *new(codegraph__EdgeRow), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Kind = f
 			seen = true
 		case "how":
-			raw_3, err_2 := r.String(env_1.task)
+			raw_1, err_2 := r.String(env.task)
 			if err_2 != nil {
-				return *new(edgeRow), err_2
+				return *new(codegraph__EdgeRow), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.How = f_1
 			seen_1 = true
 		case "from":
-			raw_4, err_3 := r.Int(env_1.task)
+			raw_2, err_3 := r.Int(env.task)
 			if err_3 != nil {
-				return *new(edgeRow), err_3
+				return *new(codegraph__EdgeRow), err_3
 			}
-			f_2 := int(raw_4)
+			f_2 := int(raw_2)
 			out.From = f_2
 			seen_2 = true
 		case "to":
-			raw_5, err_4 := r.Int(env_1.task)
+			raw_3, err_4 := r.Int(env.task)
 			if err_4 != nil {
-				return *new(edgeRow), err_4
+				return *new(codegraph__EdgeRow), err_4
 			}
-			f_3 := int(raw_5)
+			f_3 := int(raw_3)
 			out.To = f_3
 			seen_3 = true
 		case "file":
-			raw_6, err_5 := r.Int(env_1.task)
+			raw_4, err_5 := r.Int(env.task)
 			if err_5 != nil {
-				return *new(edgeRow), err_5
+				return *new(codegraph__EdgeRow), err_5
 			}
-			f_4 := int(raw_6)
+			f_4 := int(raw_4)
 			out.File = f_4
 			seen_4 = true
 		case "offset":
-			raw_7, err_6 := r.Int(env_1.task)
+			raw_5, err_6 := r.Int(env.task)
 			if err_6 != nil {
-				return *new(edgeRow), err_6
+				return *new(codegraph__EdgeRow), err_6
 			}
-			f_5 := int(raw_7)
+			f_5 := int(raw_5)
 			out.Offset = f_5
 			seen_5 = true
 		case "line":
-			raw_8, err_7 := r.Int(env_1.task)
+			raw_6, err_7 := r.Int(env.task)
 			if err_7 != nil {
-				return *new(edgeRow), err_7
+				return *new(codegraph__EdgeRow), err_7
 			}
-			f_6 := int(raw_8)
+			f_6 := int(raw_6)
 			out.Line = f_6
 			seen_6 = true
 		case "column":
-			raw_9, err_8 := r.Int(env_1.task)
+			raw_7, err_8 := r.Int(env.task)
 			if err_8 != nil {
-				return *new(edgeRow), err_8
+				return *new(codegraph__EdgeRow), err_8
 			}
-			f_7 := int(raw_9)
+			f_7 := int(raw_7)
 			out.Column = f_7
 			seen_7 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "kind"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "kind"}
 	}
 	if !seen_1 {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "how"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "how"}
 	}
 	if !seen_2 {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "from"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "from"}
 	}
 	if !seen_3 {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "to"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "to"}
 	}
 	if !seen_4 {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "file"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_5 {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "offset"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "offset"}
 	}
 	if !seen_6 {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "line"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "line"}
 	}
 	if !seen_7 {
-		return *new(edgeRow), wireMissingField{Path: r.Path(env_1.task), Field: "column"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: r.Path(env.task), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergoDecodeSlice_2(env_1 *env, r reader_1) ([]edgeRow, error) {
-	if err := r.BeginList(env_1.task); err != nil {
-		return *new([]edgeRow), err
+func ergo__DecodeSlice_2(env *Env, r Reader) ([]codegraph__EdgeRow, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]codegraph__EdgeRow), err
 	}
-	out := []edgeRow{}
-	for r.More(env_1.task) {
-		e, err_1 := ergoDecodeEdgeRow(env_1, r)
+	out := []codegraph__EdgeRow{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeEdgeRow(env, r)
 		if err_1 != nil {
-			return *new([]edgeRow), err_1
+			return *new([]codegraph__EdgeRow), err_1
 		}
 		out = append(out, e)
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	return out, nil
 }
 
-func ergoDecodeRows(env_1 *env, r reader_1) (rows, error) {
-	if err := r.BeginObject(env_1.task); err != nil {
-		return *new(rows), err
+func ergo__DecodeRows(env *Env, r Reader) (codegraph__Rows, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__Rows), err
 	}
-	var out rows
+	var out codegraph__Rows
 	var seen, seen_1, seen_2 bool
-	for r.More(env_1.task) {
-		switch r.Key(env_1.task) {
+	for r.More(env.task) {
+		switch r.Key(env.task) {
 		case "version":
-			raw_2, err_1 := r.Int(env_1.task)
+			raw, err_1 := r.Int(env.task)
 			if err_1 != nil {
-				return *new(rows), err_1
+				return *new(codegraph__Rows), err_1
 			}
-			f := int(raw_2)
+			f := int(raw)
 			out.Version = f
 			seen = true
 		case "nodes":
-			f_1, err_2 := ergoDecodeSlice_3(env_1, r)
+			f_1, err_2 := ergo__DecodeSlice_3(env, r)
 			if err_2 != nil {
-				return *new(rows), err_2
+				return *new(codegraph__Rows), err_2
 			}
 			out.Nodes = f_1
 			seen_1 = true
 		case "edges":
-			f_2, err_3 := ergoDecodeSlice_2(env_1, r)
+			f_2, err_3 := ergo__DecodeSlice_2(env, r)
 			if err_3 != nil {
-				return *new(rows), err_3
+				return *new(codegraph__Rows), err_3
 			}
 			out.Edges = f_2
 			seen_2 = true
 		default:
-			r.Skip(env_1.task)
+			r.Skip(env.task)
 		}
 	}
-	r.End(env_1.task)
+	r.End(env.task)
 	if !seen {
-		return *new(rows), wireMissingField{Path: r.Path(env_1.task), Field: "version"}
+		return *new(codegraph__Rows), WireMissingField{Path: r.Path(env.task), Field: "version"}
 	}
 	if !seen_1 {
-		return *new(rows), wireMissingField{Path: r.Path(env_1.task), Field: "nodes"}
+		return *new(codegraph__Rows), WireMissingField{Path: r.Path(env.task), Field: "nodes"}
 	}
 	if !seen_2 {
-		return *new(rows), wireMissingField{Path: r.Path(env_1.task), Field: "edges"}
+		return *new(codegraph__Rows), WireMissingField{Path: r.Path(env.task), Field: "edges"}
 	}
 	return out, nil
 }
 
-func ergoWriteNodeRow(env_1 *env, wv text_3, v nodeRow) text_3 {
+func ergo__WriteNodeRow(env *Env, wv json__text, v codegraph__NodeRow) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"id\":"))
@@ -1897,21 +1897,21 @@ func ergoWriteNodeRow(env_1 *env, wv text_3, v nodeRow) text_3 {
 	return wv
 }
 
-func ergoWriteSlice_3(env_1 *env, wv text_3, v []nodeRow) text_3 {
+func ergo__WriteSlice_3(env *Env, wv json__text, v []codegraph__NodeRow) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteNodeRow(env_1, *w, e)
+		*w = ergo__WriteNodeRow(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteEdgeRow(env_1 *env, wv text_3, v edgeRow) text_3 {
+func ergo__WriteEdgeRow(env *Env, wv json__text, v codegraph__EdgeRow) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"kind\":"))
@@ -1935,774 +1935,774 @@ func ergoWriteEdgeRow(env_1 *env, wv text_3, v edgeRow) text_3 {
 	return wv
 }
 
-func ergoWriteSlice_2(env_1 *env, wv text_3, v []edgeRow) text_3 {
+func ergo__WriteSlice_2(env *Env, wv json__text, v []codegraph__EdgeRow) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteEdgeRow(env_1, *w, e)
+		*w = ergo__WriteEdgeRow(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_entry_3(env_1 *env, wv text_3, v []nodeRow) text_3 {
+func ergo__WriteSlice_entry_3(env *Env, wv json__text, v []codegraph__NodeRow) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteNodeRow(env_1, *w, e)
+		*w = ergo__WriteNodeRow(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteSlice_entry_2(env_1 *env, wv text_3, v []edgeRow) text_3 {
+func ergo__WriteSlice_entry_2(env *Env, wv json__text, v []codegraph__EdgeRow) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergoWriteEdgeRow(env_1, *w, e)
+		*w = ergo__WriteEdgeRow(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoWriteRows(env_1 *env, wv text_3, v rows) text_3 {
+func ergo__WriteRows(env *Env, wv json__text, v codegraph__Rows) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"version\":"))
 	(w).intBody(int64(v.Version))
 	(w).raw(string(",\"nodes\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_3(env_1, *w, v.Nodes)
+	*w = ergo__WriteSlice_entry_3(env, *w, v.Nodes)
 	(w).sep()
 	(w).raw(string("\"edges\":"))
 	(w).setComma(bool(false))
-	*w = ergoWriteSlice_entry_2(env_1, *w, v.Edges)
+	*w = ergo__WriteSlice_entry_2(env, *w, v.Edges)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergoReadNodeRow(env_1 *env, r reader) (nodeRow, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(nodeRow), err
+func ergo__ReadNodeRow(env *Env, r json__Reader_1) (codegraph__NodeRow, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__NodeRow), err
 	}
-	var out nodeRow
+	var out codegraph__NodeRow
 	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "id":
-			raw_2, err_1 := (r).Int(env_1)
+			raw, err_1 := (r).Int(env)
 			if err_1 != nil {
-				return *new(nodeRow), err_1
+				return *new(codegraph__NodeRow), err_1
 			}
-			f := int(raw_2)
+			f := int(raw)
 			out.Id = f
 			seen = true
 		case "kind":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(nodeRow), err_2
+				return *new(codegraph__NodeRow), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.Kind = f_1
 			seen_1 = true
 		case "sub":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(nodeRow), err_3
+				return *new(codegraph__NodeRow), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.Sub = f_2
 			seen_2 = true
 		case "parent":
-			raw_5, err_4 := (r).Int(env_1)
+			raw_3, err_4 := (r).Int(env)
 			if err_4 != nil {
-				return *new(nodeRow), err_4
+				return *new(codegraph__NodeRow), err_4
 			}
-			f_3 := int(raw_5)
+			f_3 := int(raw_3)
 			out.Parent = f_3
 			seen_3 = true
 		case "name":
-			raw_6, err_5 := (r).String(env_1)
+			raw_4, err_5 := (r).String(env)
 			if err_5 != nil {
-				return *new(nodeRow), err_5
+				return *new(codegraph__NodeRow), err_5
 			}
-			f_4 := string(raw_6)
+			f_4 := string(raw_4)
 			out.Name = f_4
 			seen_4 = true
 		case "digest":
-			raw_7, err_6 := (r).String(env_1)
+			raw_5, err_6 := (r).String(env)
 			if err_6 != nil {
-				return *new(nodeRow), err_6
+				return *new(codegraph__NodeRow), err_6
 			}
-			f_5 := string(raw_7)
+			f_5 := string(raw_5)
 			out.Digest = f_5
 			seen_5 = true
 		case "subject":
-			raw_8, err_7 := (r).Int(env_1)
+			raw_6, err_7 := (r).Int(env)
 			if err_7 != nil {
-				return *new(nodeRow), err_7
+				return *new(codegraph__NodeRow), err_7
 			}
-			f_6 := int(raw_8)
+			f_6 := int(raw_6)
 			out.Subject = f_6
 			seen_6 = true
 		case "file":
-			raw_9, err_8 := (r).Int(env_1)
+			raw_7, err_8 := (r).Int(env)
 			if err_8 != nil {
-				return *new(nodeRow), err_8
+				return *new(codegraph__NodeRow), err_8
 			}
-			f_7 := int(raw_9)
+			f_7 := int(raw_7)
 			out.File = f_7
 			seen_7 = true
 		case "offset":
-			raw_10, err_9 := (r).Int(env_1)
+			raw_8, err_9 := (r).Int(env)
 			if err_9 != nil {
-				return *new(nodeRow), err_9
+				return *new(codegraph__NodeRow), err_9
 			}
-			f_8 := int(raw_10)
+			f_8 := int(raw_8)
 			out.Offset = f_8
 			seen_8 = true
 		case "line":
-			raw_11, err_10 := (r).Int(env_1)
+			raw_9, err_10 := (r).Int(env)
 			if err_10 != nil {
-				return *new(nodeRow), err_10
+				return *new(codegraph__NodeRow), err_10
 			}
-			f_9 := int(raw_11)
+			f_9 := int(raw_9)
 			out.Line = f_9
 			seen_9 = true
 		case "column":
-			raw_12, err_11 := (r).Int(env_1)
+			raw_10, err_11 := (r).Int(env)
 			if err_11 != nil {
-				return *new(nodeRow), err_11
+				return *new(codegraph__NodeRow), err_11
 			}
-			f_10 := int(raw_12)
+			f_10 := int(raw_10)
 			out.Column = f_10
 			seen_10 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "id"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "id"}
 	}
 	if !seen_1 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "sub"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "sub"}
 	}
 	if !seen_3 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "parent"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "parent"}
 	}
 	if !seen_4 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "name"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_5 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "digest"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "digest"}
 	}
 	if !seen_6 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "subject"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "subject"}
 	}
 	if !seen_7 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "file"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_8 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "offset"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "offset"}
 	}
 	if !seen_9 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "line"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_10 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "column"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_3(env_1 *env, r reader) ([]nodeRow, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]nodeRow), err
+func ergo__ReadSlice_3(env *Env, r json__Reader_1) ([]codegraph__NodeRow, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__NodeRow), err
 	}
-	out := []nodeRow{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadNodeRow(env_1, r)
+	out := []codegraph__NodeRow{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadNodeRow(env, r)
 		if err_1 != nil {
-			return *new([]nodeRow), err_1
+			return *new([]codegraph__NodeRow), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadEdgeRow(env_1 *env, r reader) (edgeRow, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(edgeRow), err
+func ergo__ReadEdgeRow(env *Env, r json__Reader_1) (codegraph__EdgeRow, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__EdgeRow), err
 	}
-	var out edgeRow
+	var out codegraph__EdgeRow
 	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "kind":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(edgeRow), err_1
+				return *new(codegraph__EdgeRow), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Kind = f
 			seen = true
 		case "how":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(edgeRow), err_2
+				return *new(codegraph__EdgeRow), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.How = f_1
 			seen_1 = true
 		case "from":
-			raw_4, err_3 := (r).Int(env_1)
+			raw_2, err_3 := (r).Int(env)
 			if err_3 != nil {
-				return *new(edgeRow), err_3
+				return *new(codegraph__EdgeRow), err_3
 			}
-			f_2 := int(raw_4)
+			f_2 := int(raw_2)
 			out.From = f_2
 			seen_2 = true
 		case "to":
-			raw_5, err_4 := (r).Int(env_1)
+			raw_3, err_4 := (r).Int(env)
 			if err_4 != nil {
-				return *new(edgeRow), err_4
+				return *new(codegraph__EdgeRow), err_4
 			}
-			f_3 := int(raw_5)
+			f_3 := int(raw_3)
 			out.To = f_3
 			seen_3 = true
 		case "file":
-			raw_6, err_5 := (r).Int(env_1)
+			raw_4, err_5 := (r).Int(env)
 			if err_5 != nil {
-				return *new(edgeRow), err_5
+				return *new(codegraph__EdgeRow), err_5
 			}
-			f_4 := int(raw_6)
+			f_4 := int(raw_4)
 			out.File = f_4
 			seen_4 = true
 		case "offset":
-			raw_7, err_6 := (r).Int(env_1)
+			raw_5, err_6 := (r).Int(env)
 			if err_6 != nil {
-				return *new(edgeRow), err_6
+				return *new(codegraph__EdgeRow), err_6
 			}
-			f_5 := int(raw_7)
+			f_5 := int(raw_5)
 			out.Offset = f_5
 			seen_5 = true
 		case "line":
-			raw_8, err_7 := (r).Int(env_1)
+			raw_6, err_7 := (r).Int(env)
 			if err_7 != nil {
-				return *new(edgeRow), err_7
+				return *new(codegraph__EdgeRow), err_7
 			}
-			f_6 := int(raw_8)
+			f_6 := int(raw_6)
 			out.Line = f_6
 			seen_6 = true
 		case "column":
-			raw_9, err_8 := (r).Int(env_1)
+			raw_7, err_8 := (r).Int(env)
 			if err_8 != nil {
-				return *new(edgeRow), err_8
+				return *new(codegraph__EdgeRow), err_8
 			}
-			f_7 := int(raw_9)
+			f_7 := int(raw_7)
 			out.Column = f_7
 			seen_7 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_1 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "how"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "how"}
 	}
 	if !seen_2 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "from"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_3 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "to"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_4 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "file"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_5 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "offset"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "offset"}
 	}
 	if !seen_6 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "line"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_7 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "column"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_2(env_1 *env, r reader) ([]edgeRow, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]edgeRow), err
+func ergo__ReadSlice_2(env *Env, r json__Reader_1) ([]codegraph__EdgeRow, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__EdgeRow), err
 	}
-	out := []edgeRow{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadEdgeRow(env_1, r)
+	out := []codegraph__EdgeRow{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEdgeRow(env, r)
 		if err_1 != nil {
-			return *new([]edgeRow), err_1
+			return *new([]codegraph__EdgeRow), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadRows(env_1 *env, r reader) (rows, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(rows), err
+func ergo__ReadRows(env *Env, r json__Reader_1) (codegraph__Rows, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__Rows), err
 	}
-	var out rows
+	var out codegraph__Rows
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "version":
-			raw_2, err_1 := (r).Int(env_1)
+			raw, err_1 := (r).Int(env)
 			if err_1 != nil {
-				return *new(rows), err_1
+				return *new(codegraph__Rows), err_1
 			}
-			f := int(raw_2)
+			f := int(raw)
 			out.Version = f
 			seen = true
 		case "nodes":
-			f_1, err_2 := ergoReadSlice_3(env_1, r)
+			f_1, err_2 := ergo__ReadSlice_3(env, r)
 			if err_2 != nil {
-				return *new(rows), err_2
+				return *new(codegraph__Rows), err_2
 			}
 			out.Nodes = f_1
 			seen_1 = true
 		case "edges":
-			f_2, err_3 := ergoReadSlice_2(env_1, r)
+			f_2, err_3 := ergo__ReadSlice_2(env, r)
 			if err_3 != nil {
-				return *new(rows), err_3
+				return *new(codegraph__Rows), err_3
 			}
 			out.Edges = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(rows), wireMissingField{Path: (r).Path(env_1), Field: "version"}
+		return *new(codegraph__Rows), WireMissingField{Path: (r).Path(env), Field: "version"}
 	}
 	if !seen_1 {
-		return *new(rows), wireMissingField{Path: (r).Path(env_1), Field: "nodes"}
+		return *new(codegraph__Rows), WireMissingField{Path: (r).Path(env), Field: "nodes"}
 	}
 	if !seen_2 {
-		return *new(rows), wireMissingField{Path: (r).Path(env_1), Field: "edges"}
+		return *new(codegraph__Rows), WireMissingField{Path: (r).Path(env), Field: "edges"}
 	}
 	return out, nil
 }
 
-func ergoReadNodeRow_1(env_1 *env, r stream) (nodeRow, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(nodeRow), err
+func ergo__ReadNodeRow_1(env *Env, r json__Stream) (codegraph__NodeRow, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__NodeRow), err
 	}
-	var out nodeRow
+	var out codegraph__NodeRow
 	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "id":
-			raw_2, err_1 := (r).Int(env_1)
+			raw, err_1 := (r).Int(env)
 			if err_1 != nil {
-				return *new(nodeRow), err_1
+				return *new(codegraph__NodeRow), err_1
 			}
-			f := int(raw_2)
+			f := int(raw)
 			out.Id = f
 			seen = true
 		case "kind":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(nodeRow), err_2
+				return *new(codegraph__NodeRow), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.Kind = f_1
 			seen_1 = true
 		case "sub":
-			raw_4, err_3 := (r).String(env_1)
+			raw_2, err_3 := (r).String(env)
 			if err_3 != nil {
-				return *new(nodeRow), err_3
+				return *new(codegraph__NodeRow), err_3
 			}
-			f_2 := string(raw_4)
+			f_2 := string(raw_2)
 			out.Sub = f_2
 			seen_2 = true
 		case "parent":
-			raw_5, err_4 := (r).Int(env_1)
+			raw_3, err_4 := (r).Int(env)
 			if err_4 != nil {
-				return *new(nodeRow), err_4
+				return *new(codegraph__NodeRow), err_4
 			}
-			f_3 := int(raw_5)
+			f_3 := int(raw_3)
 			out.Parent = f_3
 			seen_3 = true
 		case "name":
-			raw_6, err_5 := (r).String(env_1)
+			raw_4, err_5 := (r).String(env)
 			if err_5 != nil {
-				return *new(nodeRow), err_5
+				return *new(codegraph__NodeRow), err_5
 			}
-			f_4 := string(raw_6)
+			f_4 := string(raw_4)
 			out.Name = f_4
 			seen_4 = true
 		case "digest":
-			raw_7, err_6 := (r).String(env_1)
+			raw_5, err_6 := (r).String(env)
 			if err_6 != nil {
-				return *new(nodeRow), err_6
+				return *new(codegraph__NodeRow), err_6
 			}
-			f_5 := string(raw_7)
+			f_5 := string(raw_5)
 			out.Digest = f_5
 			seen_5 = true
 		case "subject":
-			raw_8, err_7 := (r).Int(env_1)
+			raw_6, err_7 := (r).Int(env)
 			if err_7 != nil {
-				return *new(nodeRow), err_7
+				return *new(codegraph__NodeRow), err_7
 			}
-			f_6 := int(raw_8)
+			f_6 := int(raw_6)
 			out.Subject = f_6
 			seen_6 = true
 		case "file":
-			raw_9, err_8 := (r).Int(env_1)
+			raw_7, err_8 := (r).Int(env)
 			if err_8 != nil {
-				return *new(nodeRow), err_8
+				return *new(codegraph__NodeRow), err_8
 			}
-			f_7 := int(raw_9)
+			f_7 := int(raw_7)
 			out.File = f_7
 			seen_7 = true
 		case "offset":
-			raw_10, err_9 := (r).Int(env_1)
+			raw_8, err_9 := (r).Int(env)
 			if err_9 != nil {
-				return *new(nodeRow), err_9
+				return *new(codegraph__NodeRow), err_9
 			}
-			f_8 := int(raw_10)
+			f_8 := int(raw_8)
 			out.Offset = f_8
 			seen_8 = true
 		case "line":
-			raw_11, err_10 := (r).Int(env_1)
+			raw_9, err_10 := (r).Int(env)
 			if err_10 != nil {
-				return *new(nodeRow), err_10
+				return *new(codegraph__NodeRow), err_10
 			}
-			f_9 := int(raw_11)
+			f_9 := int(raw_9)
 			out.Line = f_9
 			seen_9 = true
 		case "column":
-			raw_12, err_11 := (r).Int(env_1)
+			raw_10, err_11 := (r).Int(env)
 			if err_11 != nil {
-				return *new(nodeRow), err_11
+				return *new(codegraph__NodeRow), err_11
 			}
-			f_10 := int(raw_12)
+			f_10 := int(raw_10)
 			out.Column = f_10
 			seen_10 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "id"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "id"}
 	}
 	if !seen_1 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_2 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "sub"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "sub"}
 	}
 	if !seen_3 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "parent"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "parent"}
 	}
 	if !seen_4 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "name"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "name"}
 	}
 	if !seen_5 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "digest"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "digest"}
 	}
 	if !seen_6 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "subject"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "subject"}
 	}
 	if !seen_7 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "file"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_8 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "offset"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "offset"}
 	}
 	if !seen_9 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "line"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_10 {
-		return *new(nodeRow), wireMissingField{Path: (r).Path(env_1), Field: "column"}
+		return *new(codegraph__NodeRow), WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_18(env_1 *env, r stream) ([]nodeRow, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]nodeRow), err
+func ergo__ReadSlice_18(env *Env, r json__Stream) ([]codegraph__NodeRow, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__NodeRow), err
 	}
-	out := []nodeRow{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadNodeRow_1(env_1, r)
+	out := []codegraph__NodeRow{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadNodeRow_1(env, r)
 		if err_1 != nil {
-			return *new([]nodeRow), err_1
+			return *new([]codegraph__NodeRow), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadEdgeRow_1(env_1 *env, r stream) (edgeRow, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(edgeRow), err
+func ergo__ReadEdgeRow_1(env *Env, r json__Stream) (codegraph__EdgeRow, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__EdgeRow), err
 	}
-	var out edgeRow
+	var out codegraph__EdgeRow
 	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "kind":
-			raw_2, err_1 := (r).String(env_1)
+			raw, err_1 := (r).String(env)
 			if err_1 != nil {
-				return *new(edgeRow), err_1
+				return *new(codegraph__EdgeRow), err_1
 			}
-			f := string(raw_2)
+			f := string(raw)
 			out.Kind = f
 			seen = true
 		case "how":
-			raw_3, err_2 := (r).String(env_1)
+			raw_1, err_2 := (r).String(env)
 			if err_2 != nil {
-				return *new(edgeRow), err_2
+				return *new(codegraph__EdgeRow), err_2
 			}
-			f_1 := string(raw_3)
+			f_1 := string(raw_1)
 			out.How = f_1
 			seen_1 = true
 		case "from":
-			raw_4, err_3 := (r).Int(env_1)
+			raw_2, err_3 := (r).Int(env)
 			if err_3 != nil {
-				return *new(edgeRow), err_3
+				return *new(codegraph__EdgeRow), err_3
 			}
-			f_2 := int(raw_4)
+			f_2 := int(raw_2)
 			out.From = f_2
 			seen_2 = true
 		case "to":
-			raw_5, err_4 := (r).Int(env_1)
+			raw_3, err_4 := (r).Int(env)
 			if err_4 != nil {
-				return *new(edgeRow), err_4
+				return *new(codegraph__EdgeRow), err_4
 			}
-			f_3 := int(raw_5)
+			f_3 := int(raw_3)
 			out.To = f_3
 			seen_3 = true
 		case "file":
-			raw_6, err_5 := (r).Int(env_1)
+			raw_4, err_5 := (r).Int(env)
 			if err_5 != nil {
-				return *new(edgeRow), err_5
+				return *new(codegraph__EdgeRow), err_5
 			}
-			f_4 := int(raw_6)
+			f_4 := int(raw_4)
 			out.File = f_4
 			seen_4 = true
 		case "offset":
-			raw_7, err_6 := (r).Int(env_1)
+			raw_5, err_6 := (r).Int(env)
 			if err_6 != nil {
-				return *new(edgeRow), err_6
+				return *new(codegraph__EdgeRow), err_6
 			}
-			f_5 := int(raw_7)
+			f_5 := int(raw_5)
 			out.Offset = f_5
 			seen_5 = true
 		case "line":
-			raw_8, err_7 := (r).Int(env_1)
+			raw_6, err_7 := (r).Int(env)
 			if err_7 != nil {
-				return *new(edgeRow), err_7
+				return *new(codegraph__EdgeRow), err_7
 			}
-			f_6 := int(raw_8)
+			f_6 := int(raw_6)
 			out.Line = f_6
 			seen_6 = true
 		case "column":
-			raw_9, err_8 := (r).Int(env_1)
+			raw_7, err_8 := (r).Int(env)
 			if err_8 != nil {
-				return *new(edgeRow), err_8
+				return *new(codegraph__EdgeRow), err_8
 			}
-			f_7 := int(raw_9)
+			f_7 := int(raw_7)
 			out.Column = f_7
 			seen_7 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "kind"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "kind"}
 	}
 	if !seen_1 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "how"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "how"}
 	}
 	if !seen_2 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "from"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "from"}
 	}
 	if !seen_3 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "to"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "to"}
 	}
 	if !seen_4 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "file"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_5 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "offset"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "offset"}
 	}
 	if !seen_6 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "line"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "line"}
 	}
 	if !seen_7 {
-		return *new(edgeRow), wireMissingField{Path: (r).Path(env_1), Field: "column"}
+		return *new(codegraph__EdgeRow), WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergoReadSlice_17(env_1 *env, r stream) ([]edgeRow, error) {
-	if err := (r).BeginList(env_1); err != nil {
-		return *new([]edgeRow), err
+func ergo__ReadSlice_17(env *Env, r json__Stream) ([]codegraph__EdgeRow, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__EdgeRow), err
 	}
-	out := []edgeRow{}
-	for (r).More(env_1) {
-		e, err_1 := ergoReadEdgeRow_1(env_1, r)
+	out := []codegraph__EdgeRow{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEdgeRow_1(env, r)
 		if err_1 != nil {
-			return *new([]edgeRow), err_1
+			return *new([]codegraph__EdgeRow), err_1
 		}
 		out = append(out, e)
 	}
-	(r).End(env_1)
+	(r).End(env)
 	return out, nil
 }
 
-func ergoReadRows_1(env_1 *env, r stream) (rows, error) {
-	if err := (r).BeginObject(env_1); err != nil {
-		return *new(rows), err
+func ergo__ReadRows_1(env *Env, r json__Stream) (codegraph__Rows, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__Rows), err
 	}
-	var out rows
+	var out codegraph__Rows
 	var seen, seen_1, seen_2 bool
-	for (r).More(env_1) {
-		switch (r).Key(env_1) {
+	for (r).More(env) {
+		switch (r).Key(env) {
 		case "version":
-			raw_2, err_1 := (r).Int(env_1)
+			raw, err_1 := (r).Int(env)
 			if err_1 != nil {
-				return *new(rows), err_1
+				return *new(codegraph__Rows), err_1
 			}
-			f := int(raw_2)
+			f := int(raw)
 			out.Version = f
 			seen = true
 		case "nodes":
-			f_1, err_2 := ergoReadSlice_18(env_1, r)
+			f_1, err_2 := ergo__ReadSlice_18(env, r)
 			if err_2 != nil {
-				return *new(rows), err_2
+				return *new(codegraph__Rows), err_2
 			}
 			out.Nodes = f_1
 			seen_1 = true
 		case "edges":
-			f_2, err_3 := ergoReadSlice_17(env_1, r)
+			f_2, err_3 := ergo__ReadSlice_17(env, r)
 			if err_3 != nil {
-				return *new(rows), err_3
+				return *new(codegraph__Rows), err_3
 			}
 			out.Edges = f_2
 			seen_2 = true
 		default:
-			(r).Skip(env_1)
+			(r).Skip(env)
 		}
 	}
-	(r).End(env_1)
+	(r).End(env)
 	if !seen {
-		return *new(rows), wireMissingField{Path: (r).Path(env_1), Field: "version"}
+		return *new(codegraph__Rows), WireMissingField{Path: (r).Path(env), Field: "version"}
 	}
 	if !seen_1 {
-		return *new(rows), wireMissingField{Path: (r).Path(env_1), Field: "nodes"}
+		return *new(codegraph__Rows), WireMissingField{Path: (r).Path(env), Field: "nodes"}
 	}
 	if !seen_2 {
-		return *new(rows), wireMissingField{Path: (r).Path(env_1), Field: "edges"}
+		return *new(codegraph__Rows), WireMissingField{Path: (r).Path(env), Field: "edges"}
 	}
 	return out, nil
 }
 
-func decode(env_1 *env, text_5 string) (rows, error) {
-	env_1.task.Check()
-	v_2, err_1 := decodeMono_i1(env_1, struct {
-		Enc     func(*env, writer, rows) (struct{}, error)
-		Dec     func(*env, reader_1) (rows, error)
-		Direct0 func(*env, text_3, rows) text_3
-		Read0   func(*env, reader) (rows, error)
-		Read1   func(*env, stream) (rows, error)
+func codegraph__Decode(env *Env, text string) (codegraph__Rows, error) {
+	env.task.Check()
+	v_2, err_1 := json__DecodeMono_i3426309363(env, struct {
+		Enc     func(*Env, Writer, codegraph__Rows) (struct{}, error)
+		Dec     func(*Env, Reader) (codegraph__Rows, error)
+		Direct0 func(*Env, json__text, codegraph__Rows) json__text
+		Read0   func(*Env, json__Reader_1) (codegraph__Rows, error)
+		Read1   func(*Env, json__Stream) (codegraph__Rows, error)
 		Field   *struct {
-			Enc     func(*env, writer, rows) (struct{}, error)
-			Dec     func(*env, reader_1) (rows, error)
-			Direct0 func(*env, text_3, rows) text_3
-			Read0   func(*env, reader) (rows, error)
-			Read1   func(*env, stream) (rows, error)
-			Absent  func(rows) bool
-			Empty   rows
+			Enc     func(*Env, Writer, codegraph__Rows) (struct{}, error)
+			Dec     func(*Env, Reader) (codegraph__Rows, error)
+			Direct0 func(*Env, json__text, codegraph__Rows) json__text
+			Read0   func(*Env, json__Reader_1) (codegraph__Rows, error)
+			Read1   func(*Env, json__Stream) (codegraph__Rows, error)
+			Absent  func(codegraph__Rows) bool
+			Empty   codegraph__Rows
 		}
-	}{Enc: func(e *env, w writer, v rows) (struct{}, error) {
-		ergoEncodeRows(e, w, v)
+	}{Enc: func(e *Env, w Writer, v codegraph__Rows) (struct{}, error) {
+		ergo__EncodeRows(e, w, v)
 		return struct{}{}, nil
-	}, Dec: func(e_1 *env, r reader_1) (rows, error) {
-		x, err := ergoDecodeRows(e_1, r)
+	}, Dec: func(e_1 *Env, r Reader) (codegraph__Rows, error) {
+		x, err := ergo__DecodeRows(e_1, r)
 		if err != nil {
-			return *new(rows), err
+			return *new(codegraph__Rows), err
 		}
 		return x, nil
-	}, Direct0: ergoWriteRows, Read0: ergoReadRows, Read1: ergoReadRows_1, Field: nil}, codec[rows]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, text_5)
-	var v_3 rows
+	}, Direct0: ergo__WriteRows, Read0: ergo__ReadRows, Read1: ergo__ReadRows_1, Field: nil}, json__Codec[codegraph__Rows]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, text)
+	var v_3 codegraph__Rows
 	if err_1 != nil {
 		switch n := err_1.(type) {
 		case ergo.JSONMalformed:
 			_ = n
 			m := n
-			return *new(rows), badRows{Reason: ("not JSON at " + string(strconv.AppendInt(make([]byte, 0, 20), int64(m.Offset), 10)) + ": " + m.Reason)}
+			return *new(codegraph__Rows), codegraph__BadRows{Reason: ("not JSON at " + string(strconv.AppendInt(make([]byte, 0, 20), int64(m.Offset), 10)) + ": " + m.Reason)}
 		default:
-			return *new(rows), badRows{Reason: "the JSON is not the graph rows"}
+			return *new(codegraph__Rows), codegraph__BadRows{Reason: "the JSON is not the graph rows"}
 		}
 	} else {
 		v_3 = v_2
 	}
-	var r_1 rows = v_3
+	var r_1 codegraph__Rows = v_3
 	if r_1.Version != int(1) {
-		return *new(rows), badRows{Reason: ("rows of version " + string(strconv.AppendInt(make([]byte, 0, 20), int64(r_1.Version), 10)) + "; this reader reads version 1")}
+		return *new(codegraph__Rows), codegraph__BadRows{Reason: ("rows of version " + string(strconv.AppendInt(make([]byte, 0, 20), int64(r_1.Version), 10)) + "; this reader reads version 1")}
 	}
 	for k, v_4 := range r_1.Nodes {
 		var i int = k
-		var n_1 nodeRow = v_4
+		var n_1 codegraph__NodeRow = v_4
 		if ((n_1.Id != i) || (n_1.Parent >= len(r_1.Nodes))) || (n_1.Subject >= len(r_1.Nodes)) {
-			return *new(rows), badRows{Reason: ("node " + string(strconv.AppendInt(make([]byte, 0, 20), int64(i), 10)) + " names a node outside the rows")}
+			return *new(codegraph__Rows), codegraph__BadRows{Reason: ("node " + string(strconv.AppendInt(make([]byte, 0, 20), int64(i), 10)) + " names a node outside the rows")}
 		}
-		env_1.task.Check()
+		env.task.Check()
 	}
 	for _, v_5 := range r_1.Edges {
-		var e_3 edgeRow = v_5
+		var e_3 codegraph__EdgeRow = v_5
 		if (((e_3.From < int(0)) || (e_3.To < int(0))) || (e_3.From >= len(r_1.Nodes))) || (e_3.To >= len(r_1.Nodes)) {
-			return *new(rows), badRows{Reason: "an edge names a node outside the rows"}
+			return *new(codegraph__Rows), codegraph__BadRows{Reason: "an edge names a node outside the rows"}
 		}
-		env_1.task.Check()
+		env.task.Check()
 	}
 	return r_1, nil
 }
 
-type badRows struct {
+type codegraph__BadRows struct {
 	Reason string
 }
 
-func (e badRows) Error() string {
-	return "BadRows" + textbadRows(e)
+func (e codegraph__BadRows) Error() string {
+	return "BadRows" + ergo__textcodegraph__BadRows(e)
 }
 
-type nodeRow struct {
+type codegraph__NodeRow struct {
 	Kind    string
 	Sub     string
 	Name    string
@@ -2716,7 +2716,7 @@ type nodeRow struct {
 	Column  int
 }
 
-type edgeRow struct {
+type codegraph__EdgeRow struct {
 	Kind   string
 	How    string
 	From   int
@@ -2732,25 +2732,25 @@ type ergoOrdered interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string
 }
 
-type range_1[T ergoOrdered] struct {
+type Range[T ergoOrdered] struct {
 	Start T
 	End   T
 }
 
-func append_1[T any](xs []T, x T) []T {
+func Append[T any](xs []T, x T) []T {
 	return ergo.Append(xs, x)
 }
 
-func (old rows) Changed(new_2 rows) []int {
+func (old codegraph__Rows) Changed(new_1 codegraph__Rows) []int {
 	var before map[string]bool = map[string]bool{}
 	for k, v := range old.Nodes {
 		var i int = k
-		var n nodeRow = v
+		var n codegraph__NodeRow = v
 		if (n.Kind == "decl") && (n.Digest != "") {
 			t := before
 			var v_1 string
 			{
-				var n_1 nodeRow = old.Nodes[i]
+				var n_1 codegraph__NodeRow = old.Nodes[i]
 				if n_1.Kind != "decl" {
 					v_1 = n_1.Name
 					goto inl
@@ -2770,66 +2770,68 @@ func (old rows) Changed(new_2 rows) []int {
 		}
 	}
 	var out []int = []int{}
-	for k_1, v_3 := range new_2.Nodes {
+	for k_1, v_3 := range new_1.Nodes {
 		var i_1 int = k_1
-		var n_2 nodeRow = v_3
+		var n_2 codegraph__NodeRow = v_3
 		b := ((n_2.Kind == "decl") && (n_2.Digest != ""))
 		if b {
 			t_1 := before
 			var v_4 string
 			{
-				var n_3 nodeRow = new_2.Nodes[i_1]
+				var n_3 codegraph__NodeRow = new_1.Nodes[i_1]
 				if n_3.Kind != "decl" {
 					v_4 = n_3.Name
 					goto inl_1
 				}
-				v_5 := (new_2).packageOf(i_1)
+				v_5 := (new_1).packageOf(i_1)
 				if v_5 < int(0) {
 					v_4 = n_3.Name
 					goto inl_1
 				} else {
-					v_4 = (new_2.Nodes[v_5].Name + "." + n_3.Name)
+					v_4 = (new_1.Nodes[v_5].Name + "." + n_3.Name)
 					goto inl_1
 				}
 			}
 		inl_1:
 			_ = 0
-			v_6 := get[string, bool](t_1, (v_4 + " " + n_2.Digest))
-			b = (v_6 == (option[bool]{}).of1((none{})))
+			v_6 := Get[string, bool](t_1, (v_4 + " " + n_2.Digest))
+			b = (v_6 == (Option[bool]{}).of1((None{})))
 		}
 		if b {
-			out = append_1[int](out, i_1)
+			out = Append[int](out, i_1)
 		}
 	}
 	return out
 }
 
-type packages struct {
+type codegraph__Packages struct {
 }
 
-type files struct {
+type codegraph__Files struct {
 }
 
-type decls struct {
+type codegraph__Decls struct {
 }
 
-type level struct {
+type codegraph__Level struct {
 	tag uint8
 }
 
-func (level) of0(_ packages) level { return level{tag: 0} }
-func (level) of1(_ files) level    { return level{tag: 1} }
-func (level) of2(_ decls) level    { return level{tag: 2} }
+func (codegraph__Level) of0(_ codegraph__Packages) codegraph__Level { return codegraph__Level{tag: 0} }
+func (codegraph__Level) of1(_ codegraph__Files) codegraph__Level    { return codegraph__Level{tag: 1} }
+func (codegraph__Level) of2(_ codegraph__Decls) codegraph__Level    { return codegraph__Level{tag: 2} }
 
-func (x level) ErgoVariant() string { return [...]string{"Packages", "Files", "Decls"}[x.tag] }
+func (x codegraph__Level) ErgoVariant() string {
+	return [...]string{"Packages", "Files", "Decls"}[x.tag]
+}
 
-func hasPrefix(s string, prefix string) bool {
-	r := strings.HasPrefix(s, prefix)
+func strings__HasPrefix(s string, prefix string) bool {
+	r := go__strings.HasPrefix(s, prefix)
 	return r
 }
 
-func (r rows) NameOf(id int) string {
-	var n nodeRow = r.Nodes[id]
+func (r codegraph__Rows) NameOf(id int) string {
+	var n codegraph__NodeRow = r.Nodes[id]
 	if n.Kind != "decl" {
 		return n.Name
 	}
@@ -2841,7 +2843,7 @@ func (r rows) NameOf(id int) string {
 	}
 }
 
-func (r rows) packageOf(id int) int {
+func (r codegraph__Rows) packageOf(id int) int {
 	var n int = id
 	for n >= int(0) {
 		if r.Nodes[n].Kind == "package" {
@@ -2852,230 +2854,230 @@ func (r rows) packageOf(id int) int {
 	return int(-1)
 }
 
-func (r rows) Cycles(level_1 level, tests bool) []cycle {
-	v := (r).LevelOf(level_1, tests)
-	var out []cycle = []cycle{}
+func (r codegraph__Rows) Cycles(level codegraph__Level, tests bool) []codegraph__Cycle {
+	v := (r).LevelOf(level, tests)
+	var out []codegraph__Cycle = []codegraph__Cycle{}
 	v_1 := (v.Graph).Cycles()
 	out = ergo.Reserve(out, len(v_1))
 	for _, v_2 := range v_1 {
-		var c_1 cycle_1 = v_2
+		var c graph__Cycle = v_2
 		t := out
-		v_3 := (v).rowIds(c_1.Nodes)
+		v_3 := (v).rowIds(c.Nodes)
 		t_1 := v_3
-		v_4 := (v).rowIds(c_1.Path)
-		v_5 := append_1[cycle](t, cycle{Nodes: t_1, Path: v_4})
+		v_4 := (v).rowIds(c.Path)
+		v_5 := Append[codegraph__Cycle](t, codegraph__Cycle{Nodes: t_1, Path: v_4})
 		out = v_5
 	}
 	return out
 }
 
-type cycle struct {
+type codegraph__Cycle struct {
 	Nodes []int
 	Path  []int
 }
 
-// opstextAsText provides json.Text through the functions of json.text (an operations conversion).
-type opstextAsText struct {
-	v   text_3
-	env *env
+// ergo__opstextAsText provides json.Text through the functions of json.text (an operations conversion).
+type ergo__opstextAsText struct {
+	v   json__text
+	env *Env
 }
 
-func (a *opstextAsText) Written(_ *rt.Task) string {
+func (a *ergo__opstextAsText) Written(_ *rt.Task) string {
 	return (&a.v).Written()
 }
 
-func (a *opstextAsText) raw(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) raw(_ *rt.Task, p string) {
 	(&a.v).raw(p)
 }
 
-func (a *opstextAsText) sep(_ *rt.Task) {
+func (a *ergo__opstextAsText) sep(_ *rt.Task) {
 	(&a.v).sep()
 }
 
-func (a *opstextAsText) commaDue(_ *rt.Task) bool {
+func (a *ergo__opstextAsText) commaDue(_ *rt.Task) bool {
 	return (&a.v).commaDue()
 }
 
-func (a *opstextAsText) setComma(_ *rt.Task, p bool) {
+func (a *ergo__opstextAsText) setComma(_ *rt.Task, p bool) {
 	(&a.v).setComma(p)
 }
 
-func (a *opstextAsText) quote(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) quote(_ *rt.Task, p string) {
 	(&a.v).quote(p)
 }
 
-func (a *opstextAsText) plainBody(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) plainBody(_ *rt.Task, p string) {
 	(&a.v).plainBody(p)
 }
 
-func (a *opstextAsText) stringBody(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) stringBody(_ *rt.Task, p string) {
 	(&a.v).stringBody(p)
 }
 
-func (a *opstextAsText) bytesBody(_ *rt.Task, p []uint8) {
+func (a *ergo__opstextAsText) bytesBody(_ *rt.Task, p []uint8) {
 	(&a.v).bytesBody(p)
 }
 
-func (a *opstextAsText) intBody(_ *rt.Task, p int64) {
+func (a *ergo__opstextAsText) intBody(_ *rt.Task, p int64) {
 	(&a.v).intBody(p)
 }
 
-func (a *opstextAsText) uintBody(_ *rt.Task, p uint64) {
+func (a *ergo__opstextAsText) uintBody(_ *rt.Task, p uint64) {
 	(&a.v).uintBody(p)
 }
 
-func (a *opstextAsText) boolBody(_ *rt.Task, p bool) {
+func (a *ergo__opstextAsText) boolBody(_ *rt.Task, p bool) {
 	(&a.v).boolBody(p)
 }
 
-func (a *opstextAsText) floatBody(_ *rt.Task, p float64) {
+func (a *ergo__opstextAsText) floatBody(_ *rt.Task, p float64) {
 	(&a.v).floatBody(p)
 }
 
-func (a *opstextAsText) finish(t *rt.Task, p int) string {
+func (a *ergo__opstextAsText) finish(t *rt.Task, p int) string {
 	e := a.env
 	if e == nil || e.task != t {
-		c_1 := env{task: t}
+		c := Env{task: t}
 		if e != nil {
-			c_1 = *e
-			c_1.task = t
+			c = *e
+			c.task = t
 		}
-		e = &c_1
+		e = &c
 	}
 	return (&a.v).finish(e, p)
 }
 
-func (a *opstextAsText) bytes(_ *rt.Task) []uint8 {
+func (a *ergo__opstextAsText) bytes(_ *rt.Task) []uint8 {
 	return (a.v).bytes()
 }
 
-func (a *opstextAsText) drop(t *rt.Task, p int) {
+func (a *ergo__opstextAsText) drop(t *rt.Task, p int) {
 	e := a.env
 	if e == nil || e.task != t {
-		c_1 := env{task: t}
+		c := Env{task: t}
 		if e != nil {
-			c_1 = *e
-			c_1.task = t
+			c = *e
+			c.task = t
 		}
-		e = &c_1
+		e = &c
 	}
 	(&a.v).drop(e, p)
 }
 
-func (a *opstextAsText) Null(_ *rt.Task) {
+func (a *ergo__opstextAsText) Null(_ *rt.Task) {
 	(&a.v).Null()
 }
 
-func (a *opstextAsText) Number(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) Number(_ *rt.Task, p string) {
 	(&a.v).Number(p)
 }
 
-func (a *opstextAsText) Bool(_ *rt.Task, p bool) {
+func (a *ergo__opstextAsText) Bool(_ *rt.Task, p bool) {
 	(&a.v).Bool(p)
 }
 
-func (a *opstextAsText) Int(_ *rt.Task, p int64) {
+func (a *ergo__opstextAsText) Int(_ *rt.Task, p int64) {
 	(&a.v).Int(p)
 }
 
-func (a *opstextAsText) Uint(_ *rt.Task, p uint64) {
+func (a *ergo__opstextAsText) Uint(_ *rt.Task, p uint64) {
 	(&a.v).Uint(p)
 }
 
-func (a *opstextAsText) Float(_ *rt.Task, p float64) {
+func (a *ergo__opstextAsText) Float(_ *rt.Task, p float64) {
 	(&a.v).Float(p)
 }
 
-func (a *opstextAsText) String(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) String(_ *rt.Task, p string) {
 	(&a.v).String_(p)
 }
 
-func (a *opstextAsText) StringBytes(_ *rt.Task, p []uint8) {
+func (a *ergo__opstextAsText) StringBytes(_ *rt.Task, p []uint8) {
 	(&a.v).StringBytes(p)
 }
 
-func (a *opstextAsText) BeginList(_ *rt.Task, p int) {
+func (a *ergo__opstextAsText) BeginList(_ *rt.Task, p int) {
 	(&a.v).BeginList(p)
 }
 
-func (a *opstextAsText) EndList(_ *rt.Task) {
+func (a *ergo__opstextAsText) EndList(_ *rt.Task) {
 	(&a.v).EndList()
 }
 
-func (a *opstextAsText) BeginObject(_ *rt.Task, p int) {
+func (a *ergo__opstextAsText) BeginObject(_ *rt.Task, p int) {
 	(&a.v).BeginObject(p)
 }
 
-func (a *opstextAsText) Tag(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) Tag(_ *rt.Task, p string) {
 	(&a.v).Tag(p)
 }
 
-func (a *opstextAsText) Key(_ *rt.Task, p string) {
+func (a *ergo__opstextAsText) Key(_ *rt.Task, p string) {
 	(&a.v).Key(p)
 }
 
-func (a *opstextAsText) EndObject(_ *rt.Task) {
+func (a *ergo__opstextAsText) EndObject(_ *rt.Task) {
 	(&a.v).EndObject()
 }
 
-func encode[T any](env_1 *env, wT struct {
-	Enc     func(*env, writer, T) (struct{}, error)
-	Dec     func(*env, reader_1) (T, error)
-	Direct0 func(*env, text_3, T) text_3
-	Read0   func(*env, reader) (T, error)
-	Read1   func(*env, stream) (T, error)
+func json__Encode[T any](env *Env, wT struct {
+	Enc     func(*Env, Writer, T) (struct{}, error)
+	Dec     func(*Env, Reader) (T, error)
+	Direct0 func(*Env, json__text, T) json__text
+	Read0   func(*Env, json__Reader_1) (T, error)
+	Read1   func(*Env, json__Stream) (T, error)
 	Field   *struct {
-		Enc     func(*env, writer, T) (struct{}, error)
-		Dec     func(*env, reader_1) (T, error)
-		Direct0 func(*env, text_3, T) text_3
-		Read0   func(*env, reader) (T, error)
-		Read1   func(*env, stream) (T, error)
+		Enc     func(*Env, Writer, T) (struct{}, error)
+		Dec     func(*Env, Reader) (T, error)
+		Direct0 func(*Env, json__text, T) json__text
+		Read0   func(*Env, json__Reader_1) (T, error)
+		Read1   func(*Env, json__Stream) (T, error)
 		Absent  func(T) bool
 		Empty   T
 	}
-}, c_1 codec[T], v T) string {
-	env_1.task.Check()
-	v_1 := ergo.StringsHint[text_3, T]()
+}, c_1 json__Codec[T], v T) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, T]()
 	v_2 := ergo.StringsBorrow(v_1)
-	t := &opstextAsText{v: text_3{comma: false, html: false, out: v_2}, env: env_1}
-	env_1.task.Check()
-	*&t.v = wT.Direct0(env_1, *&t.v, v)
-	v_3 := (&t.v).finish(env_1, v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
 	return v_3
 }
 
-func encodeMono_i1(env_1 *env, wT struct {
-	Enc     func(*env, writer, []cycleOut) (struct{}, error)
-	Dec     func(*env, reader_1) ([]cycleOut, error)
-	Direct0 func(*env, text_3, []cycleOut) text_3
-	Read0   func(*env, reader) ([]cycleOut, error)
-	Read1   func(*env, stream) ([]cycleOut, error)
+func json__EncodeMono_i1166486571(env *Env, wT struct {
+	Enc     func(*Env, Writer, []CycleOut) (struct{}, error)
+	Dec     func(*Env, Reader) ([]CycleOut, error)
+	Direct0 func(*Env, json__text, []CycleOut) json__text
+	Read0   func(*Env, json__Reader_1) ([]CycleOut, error)
+	Read1   func(*Env, json__Stream) ([]CycleOut, error)
 	Field   *struct {
-		Enc     func(*env, writer, []cycleOut) (struct{}, error)
-		Dec     func(*env, reader_1) ([]cycleOut, error)
-		Direct0 func(*env, text_3, []cycleOut) text_3
-		Read0   func(*env, reader) ([]cycleOut, error)
-		Read1   func(*env, stream) ([]cycleOut, error)
-		Absent  func([]cycleOut) bool
-		Empty   []cycleOut
+		Enc     func(*Env, Writer, []CycleOut) (struct{}, error)
+		Dec     func(*Env, Reader) ([]CycleOut, error)
+		Direct0 func(*Env, json__text, []CycleOut) json__text
+		Read0   func(*Env, json__Reader_1) ([]CycleOut, error)
+		Read1   func(*Env, json__Stream) ([]CycleOut, error)
+		Absent  func([]CycleOut) bool
+		Empty   []CycleOut
 	}
-}, c_1 codec[[]cycleOut], v []cycleOut) string {
-	env_1.task.Check()
-	v_1 := ergo.StringsHint[text_3, []cycleOut]()
+}, c json__Codec[[]CycleOut], v []CycleOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []CycleOut]()
 	v_2 := ergo.StringsBorrow(v_1)
-	t := &opstextAsText{v: text_3{comma: false, html: false, out: v_2}, env: env_1}
-	env_1.task.Check()
-	*&t.v = wT.Direct0(env_1, *&t.v, v)
-	v_3 := (&t.v).finish(env_1, v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
 	return v_3
 }
 
-type codec[T any] struct {
+type json__Codec[T any] struct {
 	MaxBytes int
 	MaxDepth int
 }
 
-type writer interface {
+type Writer interface {
 	Null(*rt.Task)
 	Number(*rt.Task, string)
 	Bool(*rt.Task, bool)
@@ -3092,9 +3094,9 @@ type writer interface {
 	EndObject(*rt.Task)
 }
 
-type reader_1 interface {
+type Reader interface {
 	TakeNull(*rt.Task) bool
-	Peek(*rt.Task) wireKind
+	Peek(*rt.Task) WireKind
 	Number(*rt.Task) (string, error)
 	Path(*rt.Task) string
 	Bool(*rt.Task) (bool, error)
@@ -3112,138 +3114,138 @@ type reader_1 interface {
 	End(*rt.Task)
 }
 
-type wireMissingField struct {
+type WireMissingField struct {
 	Path  string
 	Field string
 }
 
-func (e wireMissingField) Error() string {
-	return "WireMissingField" + textwireMissingField(e)
+func (e WireMissingField) Error() string {
+	return "WireMissingField" + ergo__textWireMissingField(e)
 }
 
-type text_3 struct {
+type json__text struct {
 	out   []uint8
 	comma bool
 	html  bool
 }
 
-func (t *text_3) sep() {
+func (t *json__text) sep() {
 	if t.comma {
 		(t).raw(",")
 		return
 	}
 }
 
-func (t *text_3) raw(s string) {
+func (t *json__text) raw(s string) {
 	t.out = append(t.out, s...)
 }
 
-func (t *text_3) setComma(due bool) {
+func (t *json__text) setComma(due bool) {
 	t.comma = due
 }
 
-func (t *text_3) stringBody(s string) {
+func (t *json__text) stringBody(s string) {
 	t.out = ergo.JSONAppendQuoted(t.out, s, t.html)
 }
 
-type reader struct {
+type json__Reader_1 struct {
 	c *ergo.Cursor
 }
 
-func (r reader) BeginList(env_1 *env) error {
-	env_1.task.Check()
+func (r json__Reader_1) BeginList(env *Env) error {
+	env.task.Check()
 	v := (r.c).BeginList()
 	if !v {
 		v_1 := (r.c).Path()
-		return wireWrongKind{Path: v_1, Want: "an array"}
+		return WireWrongKind{Path: v_1, Want: "an array"}
 	}
 	return nil
 }
 
-func (r reader) More(env_1 *env) bool {
-	env_1.task.Check()
+func (r json__Reader_1) More(env *Env) bool {
+	env.task.Check()
 	v := (r.c).More()
 	return v
 }
 
-func (r reader) BeginObject(env_1 *env) error {
-	env_1.task.Check()
+func (r json__Reader_1) BeginObject(env *Env) error {
+	env.task.Check()
 	v := (r.c).BeginObject()
 	if !v {
 		v_1 := (r.c).Path()
-		return wireWrongKind{Path: v_1, Want: "an object"}
+		return WireWrongKind{Path: v_1, Want: "an object"}
 	}
 	return nil
 }
 
-func (r reader) Key(env_1 *env) string {
-	env_1.task.Check()
+func (r json__Reader_1) Key(env *Env) string {
+	env.task.Check()
 	v := (r.c).Key()
 	return v
 }
 
-func (r reader) String(env_1 *env) (string, error) {
-	env_1.task.Check()
+func (r json__Reader_1) String(env *Env) (string, error) {
+	env.task.Check()
 	v := (r.c).String()
 	v_1 := (r.c).Wrong()
 	if v_1 {
 		v_2 := (r.c).Path()
-		return "", wireWrongKind{Path: v_2, Want: "a string"}
+		return "", WireWrongKind{Path: v_2, Want: "a string"}
 	}
 	return v, nil
 }
 
-func (r reader) End(env_1 *env) {
-	env_1.task.Check()
+func (r json__Reader_1) End(env *Env) {
+	env.task.Check()
 	(r.c).End()
 	return
 }
 
-func (r reader) Skip(env_1 *env) {
-	env_1.task.Check()
+func (r json__Reader_1) Skip(env *Env) {
+	env.task.Check()
 	(r.c).Skip()
 	return
 }
 
-func (r reader) Path(env_1 *env) string {
-	env_1.task.Check()
+func (r json__Reader_1) Path(env *Env) string {
+	env.task.Check()
 	v := (r.c).Path()
 	return v
 }
 
-type stream struct {
-	st *ergo.Ref[scan]
+type json__Stream struct {
+	st *ergo.Ref[json__scan]
 }
 
-func ergoClonescan(v scan) scan {
-	c_1 := v
-	c_1.ctx = slices.Clone(v.ctx)
-	c_1.q = slices.Clone(v.q)
-	c_1.frames = slices.Clone(v.frames)
-	return c_1
+func ergo__Clonescan(v json__scan) json__scan {
+	c := v
+	c.ctx = slices.Clone(v.ctx)
+	c.q = slices.Clone(v.q)
+	c.frames = slices.Clone(v.frames)
+	return c
 }
 
-func (r stream) BeginList(env_1 *env) error {
-	env_1.task.Check()
+func (r json__Stream) BeginList(env *Env) error {
+	env.task.Check()
 	for {
-		v_10 := ergo.RefModifyInPlace[scan, got[bool]](env_1.task, r.st, func(p_1 *scan) got[bool] {
-			r_1, _ := func(env_2 *env, p *scan) (got[bool], error) {
+		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				var v_1 bool
 				{
-					var s *scan = (&(*p))
+					var s *json__scan = (&(*p))
 					var list bool = true
 					(s).enter()
 					var v_2 int
 					if list {
-						v_2 = kList
+						v_2 = json__kList
 					} else {
-						v_2 = kObject
+						v_2 = json__kObject
 					}
 					var want int = v_2
-					var v_3 tok
+					var v_3 json__tok
 					{
-						v_3 = (s).peekAt(env_2, int(0))
+						v_3 = (s).peekAt(env_1, int(0))
 
 					}
 					if v_3.kind != want {
@@ -3251,20 +3253,20 @@ func (r stream) BeginList(env_1 *env) error {
 						goto inl
 					}
 					(s).advance()
-					var f frame = frame{list: list, n: int(0), key: "", has: false}
+					var f json__frame = json__frame{list: list, n: int(0), key: "", has: false}
 					if s.nf < len(s.frames) {
 						s.frames[s.nf] = f
 					} else {
-						s.frames = append_1[frame](s.frames, f)
+						s.frames = Append[json__frame](s.frames, f)
 					}
 					s.nf = (s.nf + int(1))
 					v_1 = true
 				}
 			inl:
 				_ = 0
-				var v_6 got[bool]
+				var v_6 json__got[bool]
 				{
-					var s_1 *scan = (&(*p))
+					var s_1 *json__scan = (&(*p))
 
 					{
 						if s_1.starved {
@@ -3275,16 +3277,16 @@ func (r stream) BeginList(env_1 *env) error {
 							}
 							s_1.wrong = v.wrong
 							s_1.starved = false
-							v_6 = got[bool]{v: v_1, wrong: false, path: "", starved: true}
+							v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
 							goto inl_3
 						}
-						v_6 = got[bool]{v: v_1, wrong: false, path: "", starved: false}
+						v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
 					}
 				inl_3:
 					_ = 0
 					if (!v_6.starved) && (!v_1) {
-						v_8 := (s_1).path(env_2)
-						v_6 = got[bool]{v: false, wrong: true, path: v_8, starved: false}
+						v_8 := (s_1).path(env_1)
+						v_6 = json__got[bool]{v: false, wrong: true, path: v_8, starved: false}
 						goto inl_2
 					}
 
@@ -3292,41 +3294,41 @@ func (r stream) BeginList(env_1 *env) error {
 			inl_2:
 				_ = 0
 				return v_6, nil
-			}(env_1, p_1)
+			}(env, p_1)
 			return r_1
-		}, func(v_9 scan) scan { return ergoClonescan(v_9) }, true, true)
+		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
 		if v_10.wrong {
-			return wireWrongKind{Path: v_10.path, Want: "an array"}
+			return WireWrongKind{Path: v_10.path, Want: "an array"}
 		}
 		if !v_10.starved {
 			return nil
 		}
-		(r).refill(env_1)
+		(r).refill(env)
 	}
 }
 
-func (r stream) More(env_1 *env) bool {
-	env_1.task.Check()
+func (r json__Stream) More(env *Env) bool {
+	env.task.Check()
 	for {
-		v_6 := ergo.RefModifyInPlace[scan, got[bool]](env_1.task, r.st, func(p_1 *scan) got[bool] {
-			r_1, _ := func(env_2 *env, p *scan) (got[bool], error) {
+		v_6 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				var v_1 bool
 				{
-					var s *scan = (&(*p))
-					var v_2 tok
+					var s *json__scan = (&(*p))
+					var v_2 json__tok
 					{
-						v_2 = (s).peekAt(env_2, int(0))
+						v_2 = (s).peekAt(env_1, int(0))
 
 					}
-					if ((v_2.kind == kClose) || (v_2.kind == kDone)) || (v_2.kind == kBad) {
+					if ((v_2.kind == json__kClose) || (v_2.kind == json__kDone)) || (v_2.kind == json__kBad) {
 						v_1 = false
 						goto inl
 					}
 					var n int = s.nf
-					if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_2.kind == kKey) {
+					if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_2.kind == json__kKey) {
 						(s).advance()
-						var f frame = s.frames[(n - int(1))]
+						var f json__frame = s.frames[(n - int(1))]
 						f.key = v_2.text
 						f.has = true
 						s.frames[(n - int(1))] = f
@@ -3335,9 +3337,9 @@ func (r stream) More(env_1 *env) bool {
 				}
 			inl:
 				_ = 0
-				var v_4 got[bool]
+				var v_4 json__got[bool]
 				{
-					var s_1 *scan = (&(*p))
+					var s_1 *json__scan = (&(*p))
 					if s_1.starved {
 						s_1.qi = v.qi
 						s_1.nf = v.nf
@@ -3346,45 +3348,45 @@ func (r stream) More(env_1 *env) bool {
 						}
 						s_1.wrong = v.wrong
 						s_1.starved = false
-						v_4 = got[bool]{v: v_1, wrong: false, path: "", starved: true}
+						v_4 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
 						goto inl_2
 					}
-					v_4 = got[bool]{v: v_1, wrong: false, path: "", starved: false}
+					v_4 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
 				}
 			inl_2:
 				_ = 0
 				return v_4, nil
-			}(env_1, p_1)
+			}(env, p_1)
 			return r_1
-		}, func(v_5 scan) scan { return ergoClonescan(v_5) }, true, true)
+		}, func(v_5 json__scan) json__scan { return ergo__Clonescan(v_5) }, true, true)
 		if !v_6.starved {
 			return v_6.v
 		}
-		(r).refill(env_1)
+		(r).refill(env)
 	}
 }
 
-func (r stream) BeginObject(env_1 *env) error {
-	env_1.task.Check()
+func (r json__Stream) BeginObject(env *Env) error {
+	env.task.Check()
 	for {
-		v_10 := ergo.RefModifyInPlace[scan, got[bool]](env_1.task, r.st, func(p_1 *scan) got[bool] {
-			r_1, _ := func(env_2 *env, p *scan) (got[bool], error) {
+		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				var v_1 bool
 				{
-					var s *scan = (&(*p))
+					var s *json__scan = (&(*p))
 					var list bool = false
 					(s).enter()
 					var v_2 int
 					if list {
-						v_2 = kList
+						v_2 = json__kList
 					} else {
-						v_2 = kObject
+						v_2 = json__kObject
 					}
 					var want int = v_2
-					var v_3 tok
+					var v_3 json__tok
 					{
-						v_3 = (s).peekAt(env_2, int(0))
+						v_3 = (s).peekAt(env_1, int(0))
 
 					}
 					if v_3.kind != want {
@@ -3392,20 +3394,20 @@ func (r stream) BeginObject(env_1 *env) error {
 						goto inl
 					}
 					(s).advance()
-					var f frame = frame{list: list, n: int(0), key: "", has: false}
+					var f json__frame = json__frame{list: list, n: int(0), key: "", has: false}
 					if s.nf < len(s.frames) {
 						s.frames[s.nf] = f
 					} else {
-						s.frames = append_1[frame](s.frames, f)
+						s.frames = Append[json__frame](s.frames, f)
 					}
 					s.nf = (s.nf + int(1))
 					v_1 = true
 				}
 			inl:
 				_ = 0
-				var v_6 got[bool]
+				var v_6 json__got[bool]
 				{
-					var s_1 *scan = (&(*p))
+					var s_1 *json__scan = (&(*p))
 
 					{
 						if s_1.starved {
@@ -3416,16 +3418,16 @@ func (r stream) BeginObject(env_1 *env) error {
 							}
 							s_1.wrong = v.wrong
 							s_1.starved = false
-							v_6 = got[bool]{v: v_1, wrong: false, path: "", starved: true}
+							v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
 							goto inl_3
 						}
-						v_6 = got[bool]{v: v_1, wrong: false, path: "", starved: false}
+						v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
 					}
 				inl_3:
 					_ = 0
 					if (!v_6.starved) && (!v_1) {
-						v_8 := (s_1).path(env_2)
-						v_6 = got[bool]{v: false, wrong: true, path: v_8, starved: false}
+						v_8 := (s_1).path(env_1)
+						v_6 = json__got[bool]{v: false, wrong: true, path: v_8, starved: false}
 						goto inl_2
 					}
 
@@ -3433,49 +3435,49 @@ func (r stream) BeginObject(env_1 *env) error {
 			inl_2:
 				_ = 0
 				return v_6, nil
-			}(env_1, p_1)
+			}(env, p_1)
 			return r_1
-		}, func(v_9 scan) scan { return ergoClonescan(v_9) }, true, true)
+		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
 		if v_10.wrong {
-			return wireWrongKind{Path: v_10.path, Want: "an object"}
+			return WireWrongKind{Path: v_10.path, Want: "an object"}
 		}
 		if !v_10.starved {
 			return nil
 		}
-		(r).refill(env_1)
+		(r).refill(env)
 	}
 }
 
-func (r stream) Key(env_1 *env) string {
-	env_1.task.Check()
-	v_2 := ergo.RefModifyInPlace[scan, string](env_1.task, r.st, func(p_1 *scan) string {
-		r_1, _ := func(env_2 *env, p *scan) (string, error) {
+func (r json__Stream) Key(env *Env) string {
+	env.task.Check()
+	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
+		r_1, _ := func(env_1 *Env, p *json__scan) (string, error) {
 			v := (&(*p)).key()
 			return v, nil
-		}(env_1, p_1)
+		}(env, p_1)
 		return r_1
-	}, func(v_1 scan) scan { return ergoClonescan(v_1) }, true, true)
+	}, func(v_1 json__scan) json__scan { return ergo__Clonescan(v_1) }, true, true)
 	return v_2
 }
 
-func (r stream) String(env_1 *env) (string, error) {
-	env_1.task.Check()
+func (r json__Stream) String(env *Env) (string, error) {
+	env.task.Check()
 	for {
-		v_12 := ergo.RefModifyInPlace[scan, got[string]](env_1.task, r.st, func(p_1 *scan) got[string] {
-			r_1, _ := func(env_2 *env, p *scan) (got[string], error) {
+		v_12 := ergo.RefModifyInPlace[json__scan, json__got[string]](env.task, r.st, func(p_1 *json__scan) json__got[string] {
+			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[string], error) {
 				v := (&(*p)).opening()
 				var v_1 string
 				{
-					var s *scan = (&(*p))
-					var v_2 tok
+					var s *json__scan = (&(*p))
+					var v_2 json__tok
 					{
 						(s).enter()
 
 						{
-							v_2 = (s).peekAt(env_2, int(0))
+							v_2 = (s).peekAt(env_1, int(0))
 
 						}
-						s.wrong = (v_2.kind != kString)
+						s.wrong = (v_2.kind != json__kString)
 						if !s.wrong {
 							(s).advance()
 						}
@@ -3488,11 +3490,11 @@ func (r stream) String(env_1 *env) (string, error) {
 						if v_2.raw {
 							var v_5 string
 							{
-								var text_5 string = v_2.text
-								v_6 := newBuilder()
-								(&v_6).Grow(len(text_5))
-								(&v_6).WriteString(text_5)
-								v_5 = (v_6).stringOwned(env_2)
+								var text_1 string = v_2.text
+								v_6 := strings__NewBuilder()
+								(&v_6).Grow(len(text_1))
+								(&v_6).WriteString(text_1)
+								v_5 = (v_6).ergo__strings__StringOwned(env_1)
 
 							}
 							v_1 = v_5
@@ -3505,9 +3507,9 @@ func (r stream) String(env_1 *env) (string, error) {
 				}
 			inl:
 				_ = 0
-				var v_8 got[string]
+				var v_8 json__got[string]
 				{
-					var s_1 *scan = (&(*p))
+					var s_1 *json__scan = (&(*p))
 
 					{
 						if s_1.starved {
@@ -3518,17 +3520,17 @@ func (r stream) String(env_1 *env) (string, error) {
 							}
 							s_1.wrong = v.wrong
 							s_1.starved = false
-							v_8 = got[string]{v: v_1, wrong: false, path: "", starved: true}
+							v_8 = json__got[string]{v: v_1, wrong: false, path: "", starved: true}
 							goto inl_5
 						}
-						v_8 = got[string]{v: v_1, wrong: false, path: "", starved: false}
+						v_8 = json__got[string]{v: v_1, wrong: false, path: "", starved: false}
 					}
 				inl_5:
 					_ = 0
 					if (!v_8.starved) && s_1.wrong {
 						t := v_1
-						v_10 := (s_1).path(env_2)
-						v_8 = got[string]{v: t, wrong: true, path: v_10, starved: false}
+						v_10 := (s_1).path(env_1)
+						v_8 = json__got[string]{v: t, wrong: true, path: v_10, starved: false}
 						goto inl_4
 					}
 
@@ -3536,29 +3538,29 @@ func (r stream) String(env_1 *env) (string, error) {
 			inl_4:
 				_ = 0
 				return v_8, nil
-			}(env_1, p_1)
+			}(env, p_1)
 			return r_1
-		}, func(v_11 scan) scan { return ergoClonescan(v_11) }, true, true)
+		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
 		if v_12.wrong {
-			return "", wireWrongKind{Path: v_12.path, Want: "a string"}
+			return "", WireWrongKind{Path: v_12.path, Want: "a string"}
 		}
 		if !v_12.starved {
 			return v_12.v, nil
 		}
-		(r).refill(env_1)
+		(r).refill(env)
 	}
 }
 
-func (r stream) End(env_1 *env) {
-	env_1.task.Check()
+func (r json__Stream) End(env *Env) {
+	env.task.Check()
 	for {
-		v_3 := ergo.RefModifyInPlace[scan, got[bool]](env_1.task, r.st, func(p_1 *scan) got[bool] {
-			r_1, _ := func(env_2 *env, p *scan) (got[bool], error) {
+		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
-				(&(*p)).end(env_2)
-				var v_1 got[bool]
+				(&(*p)).end(env_1)
+				var v_1 json__got[bool]
 				{
-					var s *scan = (&(*p))
+					var s *json__scan = (&(*p))
 					var x bool = true
 					if s.starved {
 						s.qi = v.qi
@@ -3568,38 +3570,38 @@ func (r stream) End(env_1 *env) {
 						}
 						s.wrong = v.wrong
 						s.starved = false
-						v_1 = got[bool]{v: x, wrong: false, path: "", starved: true}
+						v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: true}
 						goto inl
 					}
-					v_1 = got[bool]{v: x, wrong: false, path: "", starved: false}
+					v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: false}
 				}
 			inl:
 				_ = 0
 				return v_1, nil
-			}(env_1, p_1)
+			}(env, p_1)
 			return r_1
-		}, func(v_2 scan) scan { return ergoClonescan(v_2) }, true, true)
+		}, func(v_2 json__scan) json__scan { return ergo__Clonescan(v_2) }, true, true)
 		if !v_3.starved {
 			return
 		}
-		(r).refill(env_1)
+		(r).refill(env)
 	}
 }
 
-func (r stream) Skip(env_1 *env) {
-	env_1.task.Check()
+func (r json__Stream) Skip(env *Env) {
+	env.task.Check()
 	for {
-		v_3 := ergo.RefModifyInPlace[scan, got[bool]](env_1.task, r.st, func(p_1 *scan) got[bool] {
-			r_1, _ := func(env_2 *env, p *scan) (got[bool], error) {
+		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[bool], error) {
 				v := (&(*p)).opening()
 				{
-					var s *scan = (&(*p))
+					var s *json__scan = (&(*p))
 					(s).enter()
-					(s).pass(env_2)
+					(s).pass(env_1)
 				}
-				var v_1 got[bool]
+				var v_1 json__got[bool]
 				{
-					var s_1 *scan = (&(*p))
+					var s_1 *json__scan = (&(*p))
 					var x bool = true
 					if s_1.starved {
 						s_1.qi = v.qi
@@ -3609,47 +3611,47 @@ func (r stream) Skip(env_1 *env) {
 						}
 						s_1.wrong = v.wrong
 						s_1.starved = false
-						v_1 = got[bool]{v: x, wrong: false, path: "", starved: true}
+						v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: true}
 						goto inl_1
 					}
-					v_1 = got[bool]{v: x, wrong: false, path: "", starved: false}
+					v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: false}
 				}
 			inl_1:
 				_ = 0
 				return v_1, nil
-			}(env_1, p_1)
+			}(env, p_1)
 			return r_1
-		}, func(v_2 scan) scan { return ergoClonescan(v_2) }, true, true)
+		}, func(v_2 json__scan) json__scan { return ergo__Clonescan(v_2) }, true, true)
 		if !v_3.starved {
 			return
 		}
-		(r).refill(env_1)
+		(r).refill(env)
 	}
 }
 
-func (r stream) Path(env_1 *env) string {
-	env_1.task.Check()
-	v_2 := ergo.RefModifyInPlace[scan, string](env_1.task, r.st, func(p_1 *scan) string {
-		r_1, _ := func(env_2 *env, p *scan) (string, error) {
-			v := (&(*p)).path(env_2)
+func (r json__Stream) Path(env *Env) string {
+	env.task.Check()
+	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
+		r_1, _ := func(env_1 *Env, p *json__scan) (string, error) {
+			v := (&(*p)).path(env_1)
 			return v, nil
-		}(env_1, p_1)
+		}(env, p_1)
 		return r_1
-	}, func(v_1 scan) scan { return ergoClonescan(v_1) }, true, true)
+	}, func(v_1 json__scan) json__scan { return ergo__Clonescan(v_1) }, true, true)
 	return v_2
 }
 
-type step struct {
+type codegraph__Step struct {
 	Kind string
 	From int
 	To   int
 }
 
-func textmissing(v missing) string {
-	return "{" + "Out:" + textList(v.Out) + "}"
+func ergo__textMissing(v Missing) string {
+	return "{" + "Out:" + ergo__textList(v.Out) + "}"
 }
 
-func textList(v []string) string {
+func ergo__textList(v []string) string {
 	texts := make([]string, len(v))
 	for i, e := range v {
 		texts[i] = e
@@ -3657,14 +3659,14 @@ func textList(v []string) string {
 	return ergo.TextList(texts)
 }
 
-func (r rows) Find(name string) []int {
+func (r codegraph__Rows) Find(name string) []int {
 	var out []int = []int{}
-	t := (range_1[int]{Start: int(0), End: len(r.Nodes)})
+	t := (Range[int]{Start: int(0), End: len(r.Nodes)})
 	for i := t.Start; i < t.End; i++ {
 		var i_1 int = i
 		var v_1 string
 		{
-			var n nodeRow = r.Nodes[i_1]
+			var n codegraph__NodeRow = r.Nodes[i_1]
 			if n.Kind != "decl" {
 				v_1 = n.Name
 				goto inl
@@ -3681,85 +3683,85 @@ func (r rows) Find(name string) []int {
 	inl:
 		_ = 0
 		if v_1 == name {
-			out = append_1[int](out, i_1)
+			out = Append[int](out, i_1)
 		}
 	}
 	return out
 }
 
-type some[T any] struct {
+type Some[T any] struct {
 	Value T
 }
 
-type none struct {
+type None struct {
 }
 
-func (r rows) Why(a int, b int) option[[]step] {
+func (r codegraph__Rows) Why(a int, b int) Option[[]codegraph__Step] {
 	v := (r).dependsOf()
 	v_1 := (v.Graph).Path(a, b)
 	s := v_1
 	switch s.tag {
 	case 0:
 		p := s.v0
-		var out []step = []step{}
-		t := (range_1[int]{Start: int(1), End: len(p.Value)})
+		var out []codegraph__Step = []codegraph__Step{}
+		t := (Range[int]{Start: int(1), End: len(p.Value)})
 		out = ergo.Reserve(out, max(int(t.End-t.Start), 0))
 		for i := t.Start; i < t.End; i++ {
 			var i_1 int = i
 			t_1 := out
 			v_3 := (v).stepOf(p.Value[(i_1-int(1))], p.Value[i_1])
-			v_4 := append_1[step](t_1, v_3)
+			v_4 := Append[codegraph__Step](t_1, v_3)
 			out = v_4
 		}
-		return (option[[]step]{}).of0(some[[]step]{Value: out})
+		return (Option[[]codegraph__Step]{}).of0(Some[[]codegraph__Step]{Value: out})
 	case 1:
-		return (option[[]step]{tag: 1})
+		return (Option[[]codegraph__Step]{tag: 1})
 	default:
 		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:433:2 matched")
 	}
 }
 
-func encodeMono_i2(env_1 *env, wT struct {
-	Enc     func(*env, writer, []stepOut) (struct{}, error)
-	Dec     func(*env, reader_1) ([]stepOut, error)
-	Direct0 func(*env, text_3, []stepOut) text_3
-	Read0   func(*env, reader) ([]stepOut, error)
-	Read1   func(*env, stream) ([]stepOut, error)
+func json__EncodeMono_i3861161921(env *Env, wT struct {
+	Enc     func(*Env, Writer, []StepOut) (struct{}, error)
+	Dec     func(*Env, Reader) ([]StepOut, error)
+	Direct0 func(*Env, json__text, []StepOut) json__text
+	Read0   func(*Env, json__Reader_1) ([]StepOut, error)
+	Read1   func(*Env, json__Stream) ([]StepOut, error)
 	Field   *struct {
-		Enc     func(*env, writer, []stepOut) (struct{}, error)
-		Dec     func(*env, reader_1) ([]stepOut, error)
-		Direct0 func(*env, text_3, []stepOut) text_3
-		Read0   func(*env, reader) ([]stepOut, error)
-		Read1   func(*env, stream) ([]stepOut, error)
-		Absent  func([]stepOut) bool
-		Empty   []stepOut
+		Enc     func(*Env, Writer, []StepOut) (struct{}, error)
+		Dec     func(*Env, Reader) ([]StepOut, error)
+		Direct0 func(*Env, json__text, []StepOut) json__text
+		Read0   func(*Env, json__Reader_1) ([]StepOut, error)
+		Read1   func(*Env, json__Stream) ([]StepOut, error)
+		Absent  func([]StepOut) bool
+		Empty   []StepOut
 	}
-}, c_1 codec[[]stepOut], v []stepOut) string {
-	env_1.task.Check()
-	v_1 := ergo.StringsHint[text_3, []stepOut]()
+}, c json__Codec[[]StepOut], v []StepOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []StepOut]()
 	v_2 := ergo.StringsBorrow(v_1)
-	t := &opstextAsText{v: text_3{comma: false, html: false, out: v_2}, env: env_1}
-	env_1.task.Check()
-	*&t.v = wT.Direct0(env_1, *&t.v, v)
-	v_3 := (&t.v).finish(env_1, v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
 	return v_3
 }
 
-func (r rows) Affected(changed_1 []int) []reached {
+func (r codegraph__Rows) Affected(changed []int) []codegraph__Reached {
 	v := (r).dependsOf()
 	v_1 := (v.Graph).Reverse()
 	var seen []bool = []bool{}
-	t := (range_1[int]{Start: int(0), End: len(r.Nodes)})
+	t := (Range[int]{Start: int(0), End: len(r.Nodes)})
 	seen = ergo.Reserve(seen, max(int(t.End-t.Start), 0))
 	for i := t.Start; i < t.End; i++ {
-		seen = append_1[bool](seen, false)
+		seen = Append[bool](seen, false)
 	}
-	var out []reached = []reached{}
-	for _, v_3 := range changed_1 {
-		var c_1 int = v_3
-		if ((c_1 >= int(0)) && (c_1 < len(r.Nodes))) && (!seen[c_1]) {
-			seen[c_1] = true
-			out = append_1[reached](out, reached{Node: c_1, By: step{Kind: "", From: c_1, To: c_1}})
+	var out []codegraph__Reached = []codegraph__Reached{}
+	for _, v_3 := range changed {
+		var c int = v_3
+		if ((c >= int(0)) && (c < len(r.Nodes))) && (!seen[c]) {
+			seen[c] = true
+			out = Append[codegraph__Reached](out, codegraph__Reached{Node: c, By: codegraph__Step{Kind: "", From: c, To: c}})
 		}
 	}
 	var head int = int(0)
@@ -3774,7 +3776,7 @@ func (r rows) Affected(changed_1 []int) []reached {
 				t_1 := out
 				t_2 := m
 				v_7 := (v).stepOf(m, n)
-				v_8 := append_1[reached](t_1, reached{Node: t_2, By: v_7})
+				v_8 := Append[codegraph__Reached](t_1, codegraph__Reached{Node: t_2, By: v_7})
 				out = v_8
 			}
 		}
@@ -3782,43 +3784,43 @@ func (r rows) Affected(changed_1 []int) []reached {
 	return out
 }
 
-type reached struct {
-	By   step
+type codegraph__Reached struct {
+	By   codegraph__Step
 	Node int
 }
 
-func encodeMono_i3(env_1 *env, wT struct {
-	Enc     func(*env, writer, []reachedOut) (struct{}, error)
-	Dec     func(*env, reader_1) ([]reachedOut, error)
-	Direct0 func(*env, text_3, []reachedOut) text_3
-	Read0   func(*env, reader) ([]reachedOut, error)
-	Read1   func(*env, stream) ([]reachedOut, error)
+func json__EncodeMono_i4101663027(env *Env, wT struct {
+	Enc     func(*Env, Writer, []ReachedOut) (struct{}, error)
+	Dec     func(*Env, Reader) ([]ReachedOut, error)
+	Direct0 func(*Env, json__text, []ReachedOut) json__text
+	Read0   func(*Env, json__Reader_1) ([]ReachedOut, error)
+	Read1   func(*Env, json__Stream) ([]ReachedOut, error)
 	Field   *struct {
-		Enc     func(*env, writer, []reachedOut) (struct{}, error)
-		Dec     func(*env, reader_1) ([]reachedOut, error)
-		Direct0 func(*env, text_3, []reachedOut) text_3
-		Read0   func(*env, reader) ([]reachedOut, error)
-		Read1   func(*env, stream) ([]reachedOut, error)
-		Absent  func([]reachedOut) bool
-		Empty   []reachedOut
+		Enc     func(*Env, Writer, []ReachedOut) (struct{}, error)
+		Dec     func(*Env, Reader) ([]ReachedOut, error)
+		Direct0 func(*Env, json__text, []ReachedOut) json__text
+		Read0   func(*Env, json__Reader_1) ([]ReachedOut, error)
+		Read1   func(*Env, json__Stream) ([]ReachedOut, error)
+		Absent  func([]ReachedOut) bool
+		Empty   []ReachedOut
 	}
-}, c_1 codec[[]reachedOut], v []reachedOut) string {
-	env_1.task.Check()
-	v_1 := ergo.StringsHint[text_3, []reachedOut]()
+}, c json__Codec[[]ReachedOut], v []ReachedOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ReachedOut]()
 	v_2 := ergo.StringsBorrow(v_1)
-	t := &opstextAsText{v: text_3{comma: false, html: false, out: v_2}, env: env_1}
-	env_1.task.Check()
-	*&t.v = wT.Direct0(env_1, *&t.v, v)
-	v_3 := (&t.v).finish(env_1, v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
 	return v_3
 }
 
-func (r rows) Hidden() []hiddenUse {
+func (r codegraph__Rows) Hidden() []codegraph__HiddenUse {
 	var imported map[int]bool = map[int]bool{}
 	var width int = len(r.Nodes)
 	var reexport map[int]int = map[int]int{}
 	for _, v := range r.Edges {
-		var e edgeRow = v
+		var e codegraph__EdgeRow = v
 		if e.Kind == "imports" {
 			t := imported
 			v_1 := (r).packageOf(e.From)
@@ -3828,9 +3830,9 @@ func (r rows) Hidden() []hiddenUse {
 			reexport[e.From] = e.To
 		}
 	}
-	var out []hiddenUse = []hiddenUse{}
+	var out []codegraph__HiddenUse = []codegraph__HiddenUse{}
 	for _, v_2 := range r.Edges {
-		var e_1 edgeRow = v_2
+		var e_1 codegraph__EdgeRow = v_2
 		if e_1.Kind != "uses" {
 			continue
 		}
@@ -3838,23 +3840,23 @@ func (r rows) Hidden() []hiddenUse {
 		v_4 := (r).packageOf(e_1.To)
 		b := (((v_3 >= int(0)) && (v_4 >= int(0))) && (v_3 != v_4))
 		if b {
-			v_5 := get[int, bool](imported, ((v_3 * width) + v_4))
-			b = (v_5 == (option[bool]{}).of1((none{})))
+			v_5 := Get[int, bool](imported, ((v_3 * width) + v_4))
+			b = (v_5 == (Option[bool]{}).of1((None{})))
 		}
 		if b {
-			out = append_1[hiddenUse](out, hiddenUse{From: e_1.From, To: e_1.To, Package: v_4, Via: int(-1), How: e_1.How})
+			out = Append[codegraph__HiddenUse](out, codegraph__HiddenUse{From: e_1.From, To: e_1.To, Package: v_4, Via: int(-1), How: e_1.How})
 		}
-		v_7, ok_1 := reexport[e_1.To]
-		if ok_1 {
-			t_1 := some[int]{Value: v_7}
+		v_7, ok := reexport[e_1.To]
+		if ok {
+			t_1 := Some[int]{Value: v_7}
 			v_8 := (r).packageOf(t_1.Value)
 			b_1 := (((v_3 >= int(0)) && (v_8 >= int(0))) && (v_3 != v_8))
 			if b_1 {
-				v_9 := get[int, bool](imported, ((v_3 * width) + v_8))
-				b_1 = (v_9 == (option[bool]{}).of1((none{})))
+				v_9 := Get[int, bool](imported, ((v_3 * width) + v_8))
+				b_1 = (v_9 == (Option[bool]{}).of1((None{})))
 			}
 			if b_1 {
-				out = append_1[hiddenUse](out, hiddenUse{From: e_1.From, To: t_1.Value, Package: v_8, Via: e_1.To, How: e_1.How})
+				out = Append[codegraph__HiddenUse](out, codegraph__HiddenUse{From: e_1.From, To: t_1.Value, Package: v_8, Via: e_1.To, How: e_1.How})
 			}
 		} else {
 		}
@@ -3862,7 +3864,7 @@ func (r rows) Hidden() []hiddenUse {
 	return out
 }
 
-type hiddenUse struct {
+type codegraph__HiddenUse struct {
 	How     string
 	From    int
 	To      int
@@ -3870,151 +3872,151 @@ type hiddenUse struct {
 	Via     int
 }
 
-func encodeMono_i4(env_1 *env, wT struct {
-	Enc     func(*env, writer, []hiddenOut) (struct{}, error)
-	Dec     func(*env, reader_1) ([]hiddenOut, error)
-	Direct0 func(*env, text_3, []hiddenOut) text_3
-	Read0   func(*env, reader) ([]hiddenOut, error)
-	Read1   func(*env, stream) ([]hiddenOut, error)
+func json__EncodeMono_i4207365747(env *Env, wT struct {
+	Enc     func(*Env, Writer, []HiddenOut) (struct{}, error)
+	Dec     func(*Env, Reader) ([]HiddenOut, error)
+	Direct0 func(*Env, json__text, []HiddenOut) json__text
+	Read0   func(*Env, json__Reader_1) ([]HiddenOut, error)
+	Read1   func(*Env, json__Stream) ([]HiddenOut, error)
 	Field   *struct {
-		Enc     func(*env, writer, []hiddenOut) (struct{}, error)
-		Dec     func(*env, reader_1) ([]hiddenOut, error)
-		Direct0 func(*env, text_3, []hiddenOut) text_3
-		Read0   func(*env, reader) ([]hiddenOut, error)
-		Read1   func(*env, stream) ([]hiddenOut, error)
-		Absent  func([]hiddenOut) bool
-		Empty   []hiddenOut
+		Enc     func(*Env, Writer, []HiddenOut) (struct{}, error)
+		Dec     func(*Env, Reader) ([]HiddenOut, error)
+		Direct0 func(*Env, json__text, []HiddenOut) json__text
+		Read0   func(*Env, json__Reader_1) ([]HiddenOut, error)
+		Read1   func(*Env, json__Stream) ([]HiddenOut, error)
+		Absent  func([]HiddenOut) bool
+		Empty   []HiddenOut
 	}
-}, c_1 codec[[]hiddenOut], v []hiddenOut) string {
-	env_1.task.Check()
-	v_1 := ergo.StringsHint[text_3, []hiddenOut]()
+}, c json__Codec[[]HiddenOut], v []HiddenOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []HiddenOut]()
 	v_2 := ergo.StringsBorrow(v_1)
-	t := &opstextAsText{v: text_3{comma: false, html: false, out: v_2}, env: env_1}
-	env_1.task.Check()
-	*&t.v = wT.Direct0(env_1, *&t.v, v)
-	v_3 := (&t.v).finish(env_1, v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
 	return v_3
 }
 
-func (r rows) Chains(min_3 int) [][]int {
-	v := (r).LevelOf((level{tag: 0}), true)
+func (r codegraph__Rows) Chains(min_1 int) [][]int {
+	v := (r).LevelOf((codegraph__Level{tag: 0}), true)
 	var out [][]int = [][]int{}
-	v_1 := (v.Graph).Chains(min_3)
+	v_1 := (v.Graph).Chains(min_1)
 	out = ergo.Reserve(out, len(v_1))
 	for _, v_2 := range v_1 {
-		var c_1 []int = v_2
+		var c []int = v_2
 		t := out
-		v_3 := (v).rowIds(c_1)
-		v_4 := append_1[[]int](t, v_3)
+		v_3 := (v).rowIds(c)
+		v_4 := Append[[]int](t, v_3)
 		out = v_4
 	}
 	return out
 }
 
-func encodeMono_i5(env_1 *env, wT struct {
-	Enc     func(*env, writer, [][]string) (struct{}, error)
-	Dec     func(*env, reader_1) ([][]string, error)
-	Direct0 func(*env, text_3, [][]string) text_3
-	Read0   func(*env, reader) ([][]string, error)
-	Read1   func(*env, stream) ([][]string, error)
+func json__EncodeMono_i2956508152(env *Env, wT struct {
+	Enc     func(*Env, Writer, [][]string) (struct{}, error)
+	Dec     func(*Env, Reader) ([][]string, error)
+	Direct0 func(*Env, json__text, [][]string) json__text
+	Read0   func(*Env, json__Reader_1) ([][]string, error)
+	Read1   func(*Env, json__Stream) ([][]string, error)
 	Field   *struct {
-		Enc     func(*env, writer, [][]string) (struct{}, error)
-		Dec     func(*env, reader_1) ([][]string, error)
-		Direct0 func(*env, text_3, [][]string) text_3
-		Read0   func(*env, reader) ([][]string, error)
-		Read1   func(*env, stream) ([][]string, error)
+		Enc     func(*Env, Writer, [][]string) (struct{}, error)
+		Dec     func(*Env, Reader) ([][]string, error)
+		Direct0 func(*Env, json__text, [][]string) json__text
+		Read0   func(*Env, json__Reader_1) ([][]string, error)
+		Read1   func(*Env, json__Stream) ([][]string, error)
 		Absent  func([][]string) bool
 		Empty   [][]string
 	}
-}, c_1 codec[[][]string], v [][]string) string {
-	env_1.task.Check()
-	v_1 := ergo.StringsHint[text_3, [][]string]()
+}, c json__Codec[[][]string], v [][]string) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, [][]string]()
 	v_2 := ergo.StringsBorrow(v_1)
-	t := &opstextAsText{v: text_3{comma: false, html: false, out: v_2}, env: env_1}
-	env_1.task.Check()
-	*&t.v = wT.Direct0(env_1, *&t.v, v)
-	v_3 := (&t.v).finish(env_1, v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
 	return v_3
 }
 
-func (r rows) Fan(level_1 level, tests bool) []fanRow {
-	v := (r).LevelOf(level_1, tests)
+func (r codegraph__Rows) Fan(level codegraph__Level, tests bool) []codegraph__FanRow {
+	v := (r).LevelOf(level, tests)
 	v_1 := (v.Graph).FanOf()
-	var out []fanRow = []fanRow{}
+	var out []codegraph__FanRow = []codegraph__FanRow{}
 	out = ergo.Reserve(out, len(v.Nodes))
 	for k, v_2 := range v.Nodes {
 		var i int = k
 		var n int = v_2
-		out = append_1[fanRow](out, fanRow{Node: n, In: v_1.In[i], Out: v_1.Out[i]})
+		out = Append[codegraph__FanRow](out, codegraph__FanRow{Node: n, In: v_1.In[i], Out: v_1.Out[i]})
 	}
 	return out
 }
 
-type fanRow struct {
+type codegraph__FanRow struct {
 	Node int
 	In   int
 	Out  int
 }
 
-func encodeMono_i6(env_1 *env, wT struct {
-	Enc     func(*env, writer, []fanOut) (struct{}, error)
-	Dec     func(*env, reader_1) ([]fanOut, error)
-	Direct0 func(*env, text_3, []fanOut) text_3
-	Read0   func(*env, reader) ([]fanOut, error)
-	Read1   func(*env, stream) ([]fanOut, error)
+func json__EncodeMono_i1457589478(env *Env, wT struct {
+	Enc     func(*Env, Writer, []FanOut) (struct{}, error)
+	Dec     func(*Env, Reader) ([]FanOut, error)
+	Direct0 func(*Env, json__text, []FanOut) json__text
+	Read0   func(*Env, json__Reader_1) ([]FanOut, error)
+	Read1   func(*Env, json__Stream) ([]FanOut, error)
 	Field   *struct {
-		Enc     func(*env, writer, []fanOut) (struct{}, error)
-		Dec     func(*env, reader_1) ([]fanOut, error)
-		Direct0 func(*env, text_3, []fanOut) text_3
-		Read0   func(*env, reader) ([]fanOut, error)
-		Read1   func(*env, stream) ([]fanOut, error)
-		Absent  func([]fanOut) bool
-		Empty   []fanOut
+		Enc     func(*Env, Writer, []FanOut) (struct{}, error)
+		Dec     func(*Env, Reader) ([]FanOut, error)
+		Direct0 func(*Env, json__text, []FanOut) json__text
+		Read0   func(*Env, json__Reader_1) ([]FanOut, error)
+		Read1   func(*Env, json__Stream) ([]FanOut, error)
+		Absent  func([]FanOut) bool
+		Empty   []FanOut
 	}
-}, c_1 codec[[]fanOut], v []fanOut) string {
-	env_1.task.Check()
-	v_1 := ergo.StringsHint[text_3, []fanOut]()
+}, c json__Codec[[]FanOut], v []FanOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []FanOut]()
 	v_2 := ergo.StringsBorrow(v_1)
-	t := &opstextAsText{v: text_3{comma: false, html: false, out: v_2}, env: env_1}
-	env_1.task.Check()
-	*&t.v = wT.Direct0(env_1, *&t.v, v)
-	v_3 := (&t.v).finish(env_1, v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
 	return v_3
 }
 
-func (t *text_3) intBody(n int64) {
+func (t *json__text) intBody(n int64) {
 	t.out = ergo.JSONAppendInt(t.out, n)
 }
 
-func (r reader) Int(env_1 *env) (int64, error) {
-	env_1.task.Check()
+func (r json__Reader_1) Int(env *Env) (int64, error) {
+	env.task.Check()
 	v := (r.c).Int()
 	v_1 := (r.c).Wrong()
 	if v_1 {
 		v_2 := (r.c).Path()
-		return 0, wireWrongKind{Path: v_2, Want: "an integer"}
+		return 0, WireWrongKind{Path: v_2, Want: "an integer"}
 	}
 	return v, nil
 }
 
-func (r stream) Int(env_1 *env) (int64, error) {
-	env_1.task.Check()
+func (r json__Stream) Int(env *Env) (int64, error) {
+	env.task.Check()
 	for {
-		v_12 := ergo.RefModifyInPlace[scan, got[int64]](env_1.task, r.st, func(p_1 *scan) got[int64] {
-			r_1, _ := func(env_2 *env, p *scan) (got[int64], error) {
+		v_12 := ergo.RefModifyInPlace[json__scan, json__got[int64]](env.task, r.st, func(p_1 *json__scan) json__got[int64] {
+			r_1, _ := func(env_1 *Env, p *json__scan) (json__got[int64], error) {
 				v := (&(*p)).opening()
 				var v_1 int64
 				{
-					var s *scan = (&(*p))
-					var v_2 tok
+					var s *json__scan = (&(*p))
+					var v_2 json__tok
 					{
 						(s).enter()
 
 						{
-							v_2 = (s).peekAt(env_2, int(0))
+							v_2 = (s).peekAt(env_1, int(0))
 
 						}
-						s.wrong = (v_2.kind != kNumber)
+						s.wrong = (v_2.kind != json__kNumber)
 						if !s.wrong {
 							(s).advance()
 						}
@@ -4025,10 +4027,10 @@ func (r stream) Int(env_1 *env) (int64, error) {
 						goto inl
 					}
 					var small int64
-					var ok_1 bool
-					v_5 := smallInt(v_2.text)
-					small, ok_1 = v_5.F0, v_5.F1
-					if ok_1 {
+					var ok bool
+					v_5 := json__smallInt(v_2.text)
+					small, ok = v_5.F0, v_5.F1
+					if ok {
 						v_1 = small
 						goto inl
 					}
@@ -4044,9 +4046,9 @@ func (r stream) Int(env_1 *env) (int64, error) {
 				}
 			inl:
 				_ = 0
-				var v_8 got[int64]
+				var v_8 json__got[int64]
 				{
-					var s_1 *scan = (&(*p))
+					var s_1 *json__scan = (&(*p))
 
 					{
 						if s_1.starved {
@@ -4057,17 +4059,17 @@ func (r stream) Int(env_1 *env) (int64, error) {
 							}
 							s_1.wrong = v.wrong
 							s_1.starved = false
-							v_8 = got[int64]{v: v_1, wrong: false, path: "", starved: true}
+							v_8 = json__got[int64]{v: v_1, wrong: false, path: "", starved: true}
 							goto inl_4
 						}
-						v_8 = got[int64]{v: v_1, wrong: false, path: "", starved: false}
+						v_8 = json__got[int64]{v: v_1, wrong: false, path: "", starved: false}
 					}
 				inl_4:
 					_ = 0
 					if (!v_8.starved) && s_1.wrong {
 						t := v_1
-						v_10 := (s_1).path(env_2)
-						v_8 = got[int64]{v: t, wrong: true, path: v_10, starved: false}
+						v_10 := (s_1).path(env_1)
+						v_8 = json__got[int64]{v: t, wrong: true, path: v_10, starved: false}
 						goto inl_3
 					}
 
@@ -4075,60 +4077,60 @@ func (r stream) Int(env_1 *env) (int64, error) {
 			inl_3:
 				_ = 0
 				return v_8, nil
-			}(env_1, p_1)
+			}(env, p_1)
 			return r_1
-		}, func(v_11 scan) scan { return ergoClonescan(v_11) }, true, true)
+		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
 		if v_12.wrong {
-			return 0, wireWrongKind{Path: v_12.path, Want: "an integer"}
+			return 0, WireWrongKind{Path: v_12.path, Want: "an integer"}
 		}
 		if !v_12.starved {
 			return v_12.v, nil
 		}
-		(r).refill(env_1)
+		(r).refill(env)
 	}
 }
 
-func (r rows) Up(layers_1 []string) []step {
-	v := (r).LevelOf((level{tag: 0}), true)
-	var out []step = []step{}
+func (r codegraph__Rows) Up(layers []string) []codegraph__Step {
+	v := (r).LevelOf((codegraph__Level{tag: 0}), true)
+	var out []codegraph__Step = []codegraph__Step{}
 	v_1 := (v.Graph).Edges()
 	for _, v_2 := range v_1 {
-		var e edge = v_2
+		var e graph__Edge = v_2
 		var a int = v.Nodes[e.From]
 		var b int = v.Nodes[e.To]
-		v_3 := layerOf(layers_1, r.Nodes[a].Name)
-		v_4 := layerOf(layers_1, r.Nodes[b].Name)
+		v_3 := codegraph__layerOf(layers, r.Nodes[a].Name)
+		v_4 := codegraph__layerOf(layers, r.Nodes[b].Name)
 		if ((v_3 >= int(0)) && (v_4 >= int(0))) && (v_4 < v_3) {
-			out = append_1[step](out, step{Kind: "imports", From: a, To: b})
+			out = Append[codegraph__Step](out, codegraph__Step{Kind: "imports", From: a, To: b})
 		}
 	}
 	return out
 }
 
-func decode_1[T any](env_1 *env, wT struct {
-	Enc     func(*env, writer, T) (struct{}, error)
-	Dec     func(*env, reader_1) (T, error)
-	Direct0 func(*env, text_3, T) text_3
-	Read0   func(*env, reader) (T, error)
-	Read1   func(*env, stream) (T, error)
+func json__Decode[T any](env *Env, wT struct {
+	Enc     func(*Env, Writer, T) (struct{}, error)
+	Dec     func(*Env, Reader) (T, error)
+	Direct0 func(*Env, json__text, T) json__text
+	Read0   func(*Env, json__Reader_1) (T, error)
+	Read1   func(*Env, json__Stream) (T, error)
 	Field   *struct {
-		Enc     func(*env, writer, T) (struct{}, error)
-		Dec     func(*env, reader_1) (T, error)
-		Direct0 func(*env, text_3, T) text_3
-		Read0   func(*env, reader) (T, error)
-		Read1   func(*env, stream) (T, error)
+		Enc     func(*Env, Writer, T) (struct{}, error)
+		Dec     func(*Env, Reader) (T, error)
+		Direct0 func(*Env, json__text, T) json__text
+		Read0   func(*Env, json__Reader_1) (T, error)
+		Read1   func(*Env, json__Stream) (T, error)
 		Absent  func(T) bool
 		Empty   T
 	}
-}, c_1 codec[T], text_5 string) (T, error) {
-	env_1.task.Check()
-	v, err := ergo.JSONOpenChecked(text_5, c_1.MaxBytes, c_1.MaxDepth)
+}, c_1 json__Codec[T], text_1 string) (T, error) {
+	env.task.Check()
+	v, err := ergo.JSONOpenChecked(text_1, c_1.MaxBytes, c_1.MaxDepth)
 	if err != nil {
 		return *new(T), err
 	}
-	var r reader = reader{c: v}
-	env_1.task.Check()
-	v_1, err_1 := wT.Read0(env_1, r)
+	var r json__Reader_1 = json__Reader_1{c: v}
+	env.task.Check()
+	v_1, err_1 := wT.Read0(env, r)
 	var v_2 T
 	if err_1 != nil {
 		err_2 := err_1
@@ -4148,79 +4150,79 @@ func decode_1[T any](env_1 *env, wT struct {
 	return v_3, nil
 }
 
-func decodeMono_i1(env_1 *env, wT struct {
-	Enc     func(*env, writer, rows) (struct{}, error)
-	Dec     func(*env, reader_1) (rows, error)
-	Direct0 func(*env, text_3, rows) text_3
-	Read0   func(*env, reader) (rows, error)
-	Read1   func(*env, stream) (rows, error)
+func json__DecodeMono_i3426309363(env *Env, wT struct {
+	Enc     func(*Env, Writer, codegraph__Rows) (struct{}, error)
+	Dec     func(*Env, Reader) (codegraph__Rows, error)
+	Direct0 func(*Env, json__text, codegraph__Rows) json__text
+	Read0   func(*Env, json__Reader_1) (codegraph__Rows, error)
+	Read1   func(*Env, json__Stream) (codegraph__Rows, error)
 	Field   *struct {
-		Enc     func(*env, writer, rows) (struct{}, error)
-		Dec     func(*env, reader_1) (rows, error)
-		Direct0 func(*env, text_3, rows) text_3
-		Read0   func(*env, reader) (rows, error)
-		Read1   func(*env, stream) (rows, error)
-		Absent  func(rows) bool
-		Empty   rows
+		Enc     func(*Env, Writer, codegraph__Rows) (struct{}, error)
+		Dec     func(*Env, Reader) (codegraph__Rows, error)
+		Direct0 func(*Env, json__text, codegraph__Rows) json__text
+		Read0   func(*Env, json__Reader_1) (codegraph__Rows, error)
+		Read1   func(*Env, json__Stream) (codegraph__Rows, error)
+		Absent  func(codegraph__Rows) bool
+		Empty   codegraph__Rows
 	}
-}, c_1 codec[rows], text_5 string) (rows, error) {
-	env_1.task.Check()
-	v, err := ergo.JSONOpenChecked(text_5, c_1.MaxBytes, c_1.MaxDepth)
+}, c json__Codec[codegraph__Rows], text string) (codegraph__Rows, error) {
+	env.task.Check()
+	v, err := ergo.JSONOpenChecked(text, c.MaxBytes, c.MaxDepth)
 	if err != nil {
-		return *new(rows), err
+		return *new(codegraph__Rows), err
 	}
-	var r reader = reader{c: v}
-	env_1.task.Check()
-	v_1, err_1 := wT.Read0(env_1, r)
-	var v_2 rows
+	var r json__Reader_1 = json__Reader_1{c: v}
+	env.task.Check()
+	v_1, err_1 := wT.Read0(env, r)
+	var v_2 codegraph__Rows
 	if err_1 != nil {
 		err_2 := err_1
 		err_3 := ergo.JSONSettle(r.c)
 		if err_3 != nil {
-			return *new(rows), err_3
+			return *new(codegraph__Rows), err_3
 		}
-		return *new(rows), err_2
+		return *new(codegraph__Rows), err_2
 	} else {
 		v_2 = v_1
 	}
-	var v_3 rows = v_2
+	var v_3 codegraph__Rows = v_2
 	err_4 := ergo.JSONSettle(r.c)
 	if err_4 != nil {
-		return *new(rows), err_4
+		return *new(codegraph__Rows), err_4
 	}
 	return v_3, nil
 }
 
-func textbadRows(v badRows) string {
+func ergo__textcodegraph__BadRows(v codegraph__BadRows) string {
 	return "{" + "Reason:" + v.Reason + "}"
 }
 
-func get[K comparable, V any](m map[K]V, k K) option[V] {
+func Get[K comparable, V any](m map[K]V, k K) Option[V] {
 	if v, ok_1 := m[k]; ok_1 {
-		return (option[V]{}).of0(some[V]{Value: v})
+		return (Option[V]{}).of0(Some[V]{Value: v})
 	}
-	return (option[V]{tag: 1})
+	return (Option[V]{tag: 1})
 }
 
-type option[T any] struct {
+type Option[T any] struct {
 	tag uint8
-	v0  some[T]
+	v0  Some[T]
 }
 
-func (option[T]) of0(v some[T]) option[T] { return option[T]{tag: 0, v0: v} }
-func (option[T]) of1(_ none) option[T]    { return option[T]{tag: 1} }
-func (x option[T]) ErgoVariant() string {
-	return [...]func() string{ergo.VariantOf[some[T]], ergo.VariantOf[none]}[x.tag]()
+func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
+func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
+func (x Option[T]) ErgoVariant() string {
+	return [...]func() string{ergo.VariantOf[Some[T]], ergo.VariantOf[None]}[x.tag]()
 }
 
-type levelGraph struct {
-	Graph graph
+type codegraph__LevelGraph struct {
+	Graph graph__Graph
 	Nodes []int
 }
 
-func (r rows) LevelOf(level_1 level, tests bool) levelGraph {
+func (r codegraph__Rows) LevelOf(level codegraph__Level, tests bool) codegraph__LevelGraph {
 	var v string
-	s := level_1
+	s := level
 	switch s.tag {
 	case 0:
 		v = "package"
@@ -4231,37 +4233,37 @@ func (r rows) LevelOf(level_1 level, tests bool) levelGraph {
 	default:
 		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:191:13 matched")
 	}
-	var kind_1 string = v
-	var index_2 []int = []int{}
+	var kind string = v
+	var index []int = []int{}
 	var nodes []int = []int{}
 	for k, v_1 := range r.Nodes {
 		var i int = k
-		var n nodeRow = v_1
+		var n codegraph__NodeRow = v_1
 		var top bool = ((n.Kind == "decl") && ((n.Parent < int(0)) || (r.Nodes[n.Parent].Kind != "decl")))
-		if (n.Kind == kind_1) && ((kind_1 != "decl") || top) {
-			index_2 = append_1[int](index_2, len(nodes))
-			nodes = append_1[int](nodes, i)
+		if (n.Kind == kind) && ((kind != "decl") || top) {
+			index = Append[int](index, len(nodes))
+			nodes = Append[int](nodes, i)
 		} else {
-			index_2 = append_1[int](index_2, int(-1))
+			index = Append[int](index, int(-1))
 		}
 	}
 	var seen map[int]bool = map[int]bool{}
-	var edges_1 []edge = []edge{}
+	var edges []graph__Edge = []graph__Edge{}
 	for _, v_5 := range r.Edges {
-		var e edgeRow = v_5
+		var e codegraph__EdgeRow = v_5
 		var a int
 		var b int
-		v_6 := (r).levelPair(level_1, e)
+		v_6 := (r).levelPair(level, e)
 		a, b = v_6.F0, v_6.F1
-		b_1 := (((a < int(0)) || (b < int(0))) || ((a == b) && (kind_1 != "decl")))
+		b_1 := (((a < int(0)) || (b < int(0))) || ((a == b) && (kind != "decl")))
 		if !b_1 {
-			v_7 := get[int, bool](seen, ((a * len(r.Nodes)) + b))
-			b_1 = (v_7 != (option[bool]{}).of1((none{})))
+			v_7 := Get[int, bool](seen, ((a * len(r.Nodes)) + b))
+			b_1 = (v_7 != (Option[bool]{}).of1((None{})))
 		}
 		if b_1 {
 			continue
 		}
-		b_2 := ((kind_1 == "package") && (!tests))
+		b_2 := ((kind == "package") && (!tests))
 		if b_2 {
 			v_8 := (r).testOnly(a, b)
 			b_2 = v_8
@@ -4270,52 +4272,52 @@ func (r rows) LevelOf(level_1 level, tests bool) levelGraph {
 			continue
 		}
 		seen[((a * len(r.Nodes)) + b)] = true
-		edges_1 = append_1[edge](edges_1, edge{From: index_2[a], To: index_2[b]})
+		edges = Append[graph__Edge](edges, graph__Edge{From: index[a], To: index[b]})
 	}
-	v_10 := of(len(nodes), edges_1)
-	return levelGraph{Graph: v_10, Nodes: nodes}
+	v_10 := graph__Of(len(nodes), edges)
+	return codegraph__LevelGraph{Graph: v_10, Nodes: nodes}
 }
 
-func (g graph) Cycles() []cycle_1 {
-	var out []cycle_1 = []cycle_1{}
+func (g graph__Graph) Cycles() []graph__Cycle {
+	var out []graph__Cycle = []graph__Cycle{}
 	v := (g).Components()
 	for _, v_1 := range v {
-		var c_1 []int = v_1
-		var first int = c_1[int(0)]
-		b := (len(c_1) == int(1))
+		var c []int = v_1
+		var first int = c[int(0)]
+		b := (len(c) == int(1))
 		if b {
 			v_2 := (g).Succ(first)
-			v_3 := containsMono_i1(v_2, first)
+			v_3 := slices__ContainsMono_i2515107422(v_2, first)
 			b = (!v_3)
 		}
 		if b {
 			continue
 		}
 		t := out
-		t_1 := slices.Clone(c_1)
-		v_4 := (g).closedPath(c_1)
-		v_5 := append_1[cycle_1](t, cycle_1{Nodes: t_1, Path: v_4})
+		t_1 := slices.Clone(c)
+		v_4 := (g).closedPath(c)
+		v_5 := Append[graph__Cycle](t, graph__Cycle{Nodes: t_1, Path: v_4})
 		out = v_5
 	}
 	return out
 }
 
-type cycle_1 struct {
+type graph__Cycle struct {
 	Nodes []int
 	Path  []int
 }
 
-func (lg levelGraph) rowIds(ids []int) []int {
+func (lg codegraph__LevelGraph) rowIds(ids []int) []int {
 	var out []int = []int{}
 	out = ergo.Reserve(out, len(ids))
 	for _, v := range ids {
 		var i int = v
-		out = append_1[int](out, lg.Nodes[i])
+		out = Append[int](out, lg.Nodes[i])
 	}
 	return out
 }
 
-type text_2 interface {
+type json__Text_1 interface {
 	Written(*rt.Task) string
 	raw(*rt.Task, string)
 	sep(*rt.Task)
@@ -4348,17 +4350,17 @@ type text_2 interface {
 	EndObject(*rt.Task)
 }
 
-func (t *text_3) Written() string {
+func (t *json__text) Written() string {
 	v := ergo.StringsBuilderText(t.out)
 	return v
 }
 
-func (t *text_3) commaDue() bool {
+func (t *json__text) commaDue() bool {
 	return t.comma
 }
 
-func (t *text_3) quote(s string) {
-	v := plain(s)
+func (t *json__text) quote(s string) {
+	v := json__plain(s)
 	if v {
 		(t).plainBody(s)
 		return
@@ -4368,46 +4370,46 @@ func (t *text_3) quote(s string) {
 	}
 }
 
-func (t *text_3) plainBody(s string) {
+func (t *json__text) plainBody(s string) {
 	v := append(t.out, "\""...)
 	v_1 := append(v, s...)
 	v_2 := append(v_1, "\""...)
 	t.out = v_2
 }
 
-func (t *text_3) bytesBody(b []uint8) {
+func (t *json__text) bytesBody(b []uint8) {
 	t.out = ergo.JSONAppendQuotedBytes(t.out, b, t.html)
 }
 
-func (t *text_3) uintBody(n uint64) {
+func (t *json__text) uintBody(n uint64) {
 	t.out = ergo.JSONAppendUint(t.out, n)
 }
 
-func (t *text_3) boolBody(b bool) {
+func (t *json__text) boolBody(b bool) {
 	t.out = ergo.JSONAppendBool(t.out, b)
 }
 
-func (t *text_3) floatBody(f float64) {
+func (t *json__text) floatBody(f float64) {
 	t.out = ergo.JSONAppendFloat(t.out, f)
 }
 
-func (t *text_3) finish(env_1 *env, hint_1 int) string {
-	env_1.task.Check()
-	v := fromBytesOwned(slices.Clone(t.out))
-	t.out = ergo.StringsGive(t.out, hint_1)
+func (t *json__text) finish(env *Env, hint int) string {
+	env.task.Check()
+	v := ergo__strings__FromBytesOwned(slices.Clone(t.out))
+	t.out = ergo.StringsGive(t.out, hint)
 	return v
 }
 
-func (t text_3) bytes() []uint8 {
+func (t json__text) bytes() []uint8 {
 	return t.out
 }
 
-func (t *text_3) drop(env_1 *env, hint_1 int) {
-	env_1.task.Check()
-	t.out = ergo.StringsGive(t.out, hint_1)
+func (t *json__text) drop(env *Env, hint int) {
+	env.task.Check()
+	t.out = ergo.StringsGive(t.out, hint)
 }
 
-func (t *text_3) Null() {
+func (t *json__text) Null() {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4421,7 +4423,7 @@ inl:
 	return
 }
 
-func (t *text_3) Number(text_5 string) {
+func (t *json__text) Number(text_1 string) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4430,12 +4432,12 @@ func (t *text_3) Number(text_5 string) {
 	}
 inl:
 	_ = 0
-	(t).raw(text_5)
+	(t).raw(text_1)
 	(t).setComma(true)
 	return
 }
 
-func (t *text_3) Bool(b bool) {
+func (t *json__text) Bool(b bool) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4449,7 +4451,7 @@ inl:
 	return
 }
 
-func (t *text_3) Int(n int64) {
+func (t *json__text) Int(n int64) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4463,7 +4465,7 @@ inl:
 	return
 }
 
-func (t *text_3) Uint(n uint64) {
+func (t *json__text) Uint(n uint64) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4477,7 +4479,7 @@ inl:
 	return
 }
 
-func (t *text_3) Float(f float64) {
+func (t *json__text) Float(f float64) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4491,7 +4493,7 @@ inl:
 	return
 }
 
-func (t *text_3) String_(s string) {
+func (t *json__text) String_(s string) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4505,7 +4507,7 @@ inl:
 	return
 }
 
-func (t *text_3) StringBytes(b []uint8) {
+func (t *json__text) StringBytes(b []uint8) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4519,7 +4521,7 @@ inl:
 	return
 }
 
-func (t *text_3) BeginList(n int) {
+func (t *json__text) BeginList(n int) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4533,13 +4535,13 @@ inl:
 	return
 }
 
-func (t *text_3) EndList() {
+func (t *json__text) EndList() {
 	(t).raw("]")
 	(t).setComma(true)
 	return
 }
 
-func (t *text_3) BeginObject(n int) {
+func (t *json__text) BeginObject(n int) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4553,7 +4555,7 @@ inl:
 	return
 }
 
-func (t *text_3) Tag(name string) {
+func (t *json__text) Tag(name string) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4564,7 +4566,7 @@ inl:
 	_ = 0
 	(t).raw("\"_tag\":")
 	{
-		v := plain(name)
+		v := json__plain(name)
 		if v {
 			(t).plainBody(name)
 			goto inl_1
@@ -4579,7 +4581,7 @@ inl_1:
 	return
 }
 
-func (t *text_3) Key(k string) {
+func (t *json__text) Key(k string) {
 	{
 		if t.comma {
 			(t).raw(",")
@@ -4589,7 +4591,7 @@ func (t *text_3) Key(k string) {
 inl:
 	_ = 0
 	{
-		v := plain(k)
+		v := json__plain(k)
 		if v {
 			(t).plainBody(k)
 			goto inl_1
@@ -4605,68 +4607,68 @@ inl_1:
 	return
 }
 
-func (t *text_3) EndObject() {
+func (t *json__text) EndObject() {
 	(t).raw("}")
 	(t).setComma(true)
 	return
 }
 
-type wireNull struct {
+type WireNull struct {
 }
 
-type wireBool struct {
+type WireBool struct {
 }
 
-type wireNumber struct {
+type WireNumber struct {
 }
 
-type wireString struct {
+type WireString struct {
 }
 
-type wireList struct {
+type WireList struct {
 }
 
-type wireObject struct {
+type WireObject struct {
 }
 
-type wireEnd struct {
+type WireEnd struct {
 }
 
-type wireKind struct {
+type WireKind struct {
 	tag uint8
 }
 
-func (wireKind) of0(_ wireNull) wireKind   { return wireKind{tag: 0} }
-func (wireKind) of1(_ wireBool) wireKind   { return wireKind{tag: 1} }
-func (wireKind) of2(_ wireNumber) wireKind { return wireKind{tag: 2} }
-func (wireKind) of3(_ wireString) wireKind { return wireKind{tag: 3} }
-func (wireKind) of4(_ wireList) wireKind   { return wireKind{tag: 4} }
-func (wireKind) of5(_ wireObject) wireKind { return wireKind{tag: 5} }
-func (wireKind) of6(_ wireEnd) wireKind    { return wireKind{tag: 6} }
+func (WireKind) of0(_ WireNull) WireKind   { return WireKind{tag: 0} }
+func (WireKind) of1(_ WireBool) WireKind   { return WireKind{tag: 1} }
+func (WireKind) of2(_ WireNumber) WireKind { return WireKind{tag: 2} }
+func (WireKind) of3(_ WireString) WireKind { return WireKind{tag: 3} }
+func (WireKind) of4(_ WireList) WireKind   { return WireKind{tag: 4} }
+func (WireKind) of5(_ WireObject) WireKind { return WireKind{tag: 5} }
+func (WireKind) of6(_ WireEnd) WireKind    { return WireKind{tag: 6} }
 
-func (x wireKind) ErgoVariant() string {
+func (x WireKind) ErgoVariant() string {
 	return [...]string{"WireNull", "WireBool", "WireNumber", "WireString", "WireList", "WireObject", "WireEnd"}[x.tag]
 }
 
-func textwireMissingField(v wireMissingField) string {
+func ergo__textWireMissingField(v WireMissingField) string {
 	return "{" + "Path:" + v.Path + " Field:" + v.Field + "}"
 }
 
-type wireWrongKind struct {
+type WireWrongKind struct {
 	Path string
 	Want string
 }
 
-func (e wireWrongKind) Error() string {
-	return "WireWrongKind" + textwireWrongKind(e)
+func (e WireWrongKind) Error() string {
+	return "WireWrongKind" + ergo__textWireWrongKind(e)
 }
 
-type scan struct {
+type json__scan struct {
 	buf      string
 	ctx      []bool
-	q        []tok
-	frames   []frame
-	rare     rare
+	q        []json__tok
+	frames   []json__frame
+	rare     json__rare
 	i        int
 	mark     int
 	maxDepth int
@@ -4681,39 +4683,39 @@ type scan struct {
 	starved  bool
 }
 
-type got[R any] struct {
+type json__got[R any] struct {
 	v       R
 	path    string
 	wrong   bool
 	starved bool
 }
 
-type place_1 struct {
-	top   frame
+type json__place struct {
+	top   json__frame
 	qi    int
 	nf    int
 	wrong bool
 }
 
-func (s *scan) opening() place_1 {
+func (s *json__scan) opening() json__place {
 	if s.qi >= s.nq {
 		s.nq = int(0)
 		s.qi = int(0)
 	}
-	var v frame
+	var v json__frame
 	if s.nf > int(0) {
 		v = s.frames[(s.nf - int(1))]
 	} else {
-		v = frame{list: false, n: int(0), key: "", has: false}
+		v = json__frame{list: false, n: int(0), key: "", has: false}
 	}
-	var top frame = v
-	return place_1{qi: s.qi, nf: s.nf, top: top, wrong: s.wrong}
+	var top json__frame = v
+	return json__place{qi: s.qi, nf: s.nf, top: top, wrong: s.wrong}
 }
 
-func (s *scan) enter() {
+func (s *json__scan) enter() {
 	var n int = s.nf
 	if n > int(0) {
-		var f frame = s.frames[(n - int(1))]
+		var f json__frame = s.frames[(n - int(1))]
 		if f.list {
 			f.n = (f.n + int(1))
 		}
@@ -4722,41 +4724,41 @@ func (s *scan) enter() {
 	}
 }
 
-const kList int = int(4)
+const json__kList int = int(4)
 
-const kObject int = int(5)
+const json__kObject int = int(5)
 
-type tok struct {
+type json__tok struct {
 	text string
 	kind int
 	raw  bool
 }
 
-func (s *scan) peekAt(env_1 *env, k int) tok {
+func (s *json__scan) peekAt(env *Env, k int) json__tok {
 	for (s.nq - s.qi) <= k {
-		var v tok
+		var v json__tok
 		{
 			if s.starved {
-				v = badTok
+				v = json__badTok
 				goto inl
 			}
-			if (!s.bad) && (s.state != sEnd) {
+			if (!s.bad) && (s.state != json__sEnd) {
 				(s).ws()
 				if s.starved {
-					v = badTok
+					v = json__badTok
 					goto inl
 				}
 			}
 			var i int = s.i
 			var state_1 int = s.state
 			var nc int = s.nc
-			v = (s).token(env_1)
+			v = (s).token(env)
 			if s.starved {
 				s.i = i
 				s.state = state_1
 				s.nc = nc
 				s.mark = int(-1)
-				v = badTok
+				v = json__badTok
 				goto inl
 			}
 
@@ -4771,29 +4773,29 @@ func (s *scan) peekAt(env_1 *env, k int) tok {
 	return s.q[(s.qi + k)]
 }
 
-func (s *scan) advance() {
+func (s *json__scan) advance() {
 	s.qi = (s.qi + int(1))
 }
 
-type frame struct {
+type json__frame struct {
 	key  string
 	n    int
 	list bool
 	has  bool
 }
 
-func (s *scan) path(env_1 *env) string {
-	v := newBuilder()
-	t := (range_1[int]{Start: int(0), End: s.nf})
+func (s *json__scan) path(env *Env) string {
+	v := strings__NewBuilder()
+	t := (Range[int]{Start: int(0), End: s.nf})
 	for i := t.Start; i < t.End; i++ {
 		var k int = i
-		var f frame = s.frames[k]
+		var f json__frame = s.frames[k]
 		if !f.has {
 			break
 		}
 		if f.list {
 			t_1 := &v
-			v_2 := itoa((f.n - int(1)))
+			v_2 := strconv__Itoa((f.n - int(1)))
 			(t_1).WriteString((("[" + v_2) + "]"))
 			continue
 		}
@@ -4803,31 +4805,31 @@ func (s *scan) path(env_1 *env) string {
 		}
 		(&v).WriteString(f.key)
 	}
-	v_4 := (v).stringOwned(env_1)
+	v_4 := (v).ergo__strings__StringOwned(env)
 	return v_4
 }
 
-func (r stream) refill(env_1 *env) {
-	env_1.task.Check()
-	ergo.RefModifyInPlace[scan, bool](env_1.task, r.st, func(p_1 *scan) bool {
-		r_1, _ := func(env_2 *env, p *scan) (bool, error) {
-			env_2.task.Check()
-			(&(*p)).readChunk(env_2)
+func (r json__Stream) refill(env *Env) {
+	env.task.Check()
+	ergo.RefModifyInPlace[json__scan, bool](env.task, r.st, func(p_1 *json__scan) bool {
+		r_1, _ := func(env_1 *Env, p *json__scan) (bool, error) {
+			env_1.task.Check()
+			(&(*p)).readChunk(env_1)
 			return true, nil
-		}(env_1, p_1)
+		}(env, p_1)
 		return r_1
-	}, func(v scan) scan { return ergoClonescan(v) }, true, false)
+	}, func(v json__scan) json__scan { return ergo__Clonescan(v) }, true, false)
 }
 
-const kClose int = int(6)
+const json__kClose int = int(6)
 
-const kDone int = int(8)
+const json__kDone int = int(8)
 
-const kBad int = int(9)
+const json__kBad int = int(9)
 
-const kKey int = int(7)
+const json__kKey int = int(7)
 
-func (s *scan) key() string {
+func (s *json__scan) key() string {
 	var n int = s.nf
 	if n > int(0) {
 		return s.frames[(n - int(1))].key
@@ -4836,56 +4838,56 @@ func (s *scan) key() string {
 	}
 }
 
-const kString int = int(3)
+const json__kString int = int(3)
 
-type builder struct {
+type strings__Builder struct {
 	buf []uint8
 }
 
-func newBuilder() builder {
-	return builder{buf: []uint8{}}
+func strings__NewBuilder() strings__Builder {
+	return strings__Builder{buf: []uint8{}}
 }
 
-func (b *builder) Grow(n int) {
+func (b *strings__Builder) Grow(n int) {
 	b.buf = ergo.StringsBuilderGrow(b.buf, n)
 }
 
-func (b *builder) WriteString(s string) {
+func (b *strings__Builder) WriteString(s string) {
 	b.buf = ergo.StringsBuilderAppend(b.buf, s)
 }
 
-func (b builder) stringOwned(env_1 *env) string {
+func (b strings__Builder) ergo__strings__StringOwned(env *Env) string {
 	v := ergo.StringsBuilderTextOwned(b.buf)
 	return v
 }
 
-func ergoCloneBuilder(v builder) builder {
-	c_1 := v
-	c_1.buf = slices.Clone(v.buf)
-	return c_1
+func ergo__CloneBuilder(v strings__Builder) strings__Builder {
+	c := v
+	c.buf = slices.Clone(v.buf)
+	return c
 }
 
-func (b builder) String(env_1 *env) string {
-	return (ergoCloneBuilder(b)).stringOwned(env_1)
+func (b strings__Builder) String(env *Env) string {
+	return (ergo__CloneBuilder(b)).ergo__strings__StringOwned(env)
 }
 
-func (s *scan) end(env_1 *env) {
+func (s *json__scan) end(env *Env) {
 	for {
 		var v bool
 		{
-			var v_1 tok
+			var v_1 json__tok
 			{
-				v_1 = (s).peekAt(env_1, int(0))
+				v_1 = (s).peekAt(env, int(0))
 
 			}
-			if ((v_1.kind == kClose) || (v_1.kind == kDone)) || (v_1.kind == kBad) {
+			if ((v_1.kind == json__kClose) || (v_1.kind == json__kDone)) || (v_1.kind == json__kBad) {
 				v = false
 				goto inl
 			}
 			var n int = s.nf
-			if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_1.kind == kKey) {
+			if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_1.kind == json__kKey) {
 				(s).advance()
-				var f frame = s.frames[(n - int(1))]
+				var f json__frame = s.frames[(n - int(1))]
 				f.key = v_1.text
 				f.has = true
 				s.frames[(n - int(1))] = f
@@ -4897,14 +4899,14 @@ func (s *scan) end(env_1 *env) {
 		if !(v) {
 			break
 		}
-		(s).pass(env_1)
+		(s).pass(env)
 	}
-	var v_3 tok
+	var v_3 json__tok
 	{
-		v_3 = (s).peekAt(env_1, int(0))
+		v_3 = (s).peekAt(env, int(0))
 
 	}
-	if v_3.kind == kClose {
+	if v_3.kind == json__kClose {
 		(s).advance()
 	}
 	if s.nf > int(0) {
@@ -4912,80 +4914,80 @@ func (s *scan) end(env_1 *env) {
 	}
 }
 
-func (s *scan) pass(env_1 *env) {
-	v := (s).after(env_1, int(0))
-	t := (range_1[int]{Start: int(0), End: v})
+func (s *json__scan) pass(env *Env) {
+	v := (s).after(env, int(0))
+	t := (Range[int]{Start: int(0), End: v})
 	for i := t.Start; i < t.End; i++ {
 		(s).advance()
 	}
 }
 
-type depends struct {
-	Graph graph
-	Steps []step
+type codegraph__depends struct {
+	Graph graph__Graph
+	Steps []codegraph__Step
 }
 
-func (r rows) dependsOf() depends {
-	var steps []step = []step{}
+func (r codegraph__Rows) dependsOf() codegraph__depends {
+	var steps []codegraph__Step = []codegraph__Step{}
 	for _, v := range r.Edges {
-		var e edgeRow = v
+		var e codegraph__EdgeRow = v
 		if e.Kind != "contains" {
-			steps = append_1[step](steps, step{Kind: e.Kind, From: e.From, To: e.To})
+			steps = Append[codegraph__Step](steps, codegraph__Step{Kind: e.Kind, From: e.From, To: e.To})
 		}
 	}
 	for k, v_2 := range r.Nodes {
 		var i int = k
-		var n nodeRow = v_2
+		var n codegraph__NodeRow = v_2
 		if ((n.Kind == "decl") && (n.Parent >= int(0))) && (r.Nodes[n.Parent].Kind == "decl") {
-			steps = append_1[step](steps, step{Kind: "part", From: i, To: n.Parent})
+			steps = Append[codegraph__Step](steps, codegraph__Step{Kind: "part", From: i, To: n.Parent})
 		}
 	}
-	var edges_1 []edge = []edge{}
-	edges_1 = ergo.Reserve(edges_1, len(steps))
+	var edges []graph__Edge = []graph__Edge{}
+	edges = ergo.Reserve(edges, len(steps))
 	for _, v_4 := range steps {
-		var s step = v_4
-		edges_1 = append_1[edge](edges_1, edge{From: s.From, To: s.To})
+		var s codegraph__Step = v_4
+		edges = Append[graph__Edge](edges, graph__Edge{From: s.From, To: s.To})
 	}
-	v_6 := of(len(r.Nodes), edges_1)
-	var bySource [][]step = [][]step{}
-	t := (range_1[int]{Start: int(0), End: len(r.Nodes)})
+	v_6 := graph__Of(len(r.Nodes), edges)
+	var bySource [][]codegraph__Step = [][]codegraph__Step{}
+	t := (Range[int]{Start: int(0), End: len(r.Nodes)})
 	bySource = ergo.Reserve(bySource, max(int(t.End-t.Start), 0))
 	for i_1 := t.Start; i_1 < t.End; i_1++ {
-		bySource = append_1[[]step](bySource, []step{})
+		bySource = Append[[]codegraph__Step](bySource, []codegraph__Step{})
 	}
 	for _, v_8 := range steps {
-		var s_1 step = v_8
+		var s_1 codegraph__Step = v_8
 		t_1 := bySource
 		t_2 := s_1.From
-		t_1[t_2] = append_1[step](bySource[s_1.From], s_1)
+		t_1[t_2] = Append[codegraph__Step](bySource[s_1.From], s_1)
 	}
-	var inOrder []step = []step{}
+	var inOrder []codegraph__Step = []codegraph__Step{}
 	for _, v_10 := range bySource {
-		var l []step = v_10
-		var v_11 []step
+		var l []codegraph__Step = v_10
+		var v_11 []codegraph__Step
 		{
-			var a []step = inOrder
-			v_11 = ergo.SlicesConcatOwned[step](a, l)
+			var a []codegraph__Step = inOrder
+			v_11 = ergo.SlicesConcatOwned[codegraph__Step](a, l)
 
 		}
 		inOrder = v_11
 	}
-	return depends{Graph: v_6, Steps: inOrder}
+	return codegraph__depends{Graph: v_6, Steps: inOrder}
 }
 
-func (g graph) Path(a int, b int) option[[]int] {
+func (g graph__Graph) Path(a int, b int) Option[[]int] {
 	if (((a < int(0)) || (a >= g.Size)) || (b < int(0))) || (b >= g.Size) {
-		return (option[[]int]{tag: 1})
+		return (Option[[]int]{tag: 1})
 	}
 	if a == b {
-		return (option[[]int]{}).of0(some[[]int]{Value: []int{a}})
+		return (Option[[]int]{}).of0(Some[[]int]{Value: []int{a}})
 	}
-	v := filled(g.Size, int(-1))
+	v := graph__filled(g.Size, int(-1))
 	v[a] = a
-	var queue_1 []int = []int{a}
+	var queue []int = []int{a}
 	var head int = int(0)
-	for head < len(queue_1) {
-		var n int = queue_1[head]
+	for head < len(queue) {
+		var n int = queue[head]
 		head = (head + int(1))
 		v_1 := (g).Succ(n)
 		for _, v_2 := range v_1 {
@@ -4993,52 +4995,52 @@ func (g graph) Path(a int, b int) option[[]int] {
 			if v[m] < int(0) {
 				v[m] = n
 				if m == b {
-					v_3 := walkBack(v, a, b)
-					return (option[[]int]{}).of0(some[[]int]{Value: v_3})
+					v_3 := graph__walkBack(v, a, b)
+					return (Option[[]int]{}).of0(Some[[]int]{Value: v_3})
 				}
-				queue_1 = append_1[int](queue_1, m)
+				queue = Append[int](queue, m)
 			}
 		}
 	}
-	return (option[[]int]{tag: 1})
+	return (Option[[]int]{tag: 1})
 }
 
-func (d depends) stepOf(a int, b int) step {
+func (d codegraph__depends) stepOf(a int, b int) codegraph__Step {
 	for _, v := range d.Steps {
-		var s step = v
+		var s codegraph__Step = v
 		if (s.From == a) && (s.To == b) {
 			return s
 		}
 	}
-	return step{Kind: "", From: a, To: b}
+	return codegraph__Step{Kind: "", From: a, To: b}
 }
 
-type graph struct {
+type graph__Graph struct {
 	Starts  []int
 	Targets []int
 	Size    int
 }
 
-func (g graph) Reverse() graph {
-	var rev []edge = []edge{}
+func (g graph__Graph) Reverse() graph__Graph {
+	var rev []graph__Edge = []graph__Edge{}
 	v := (g).Edges()
 	rev = ergo.Reserve(rev, len(v))
 	for _, v_1 := range v {
-		var e edge = v_1
-		rev = append_1[edge](rev, edge{From: e.To, To: e.From})
+		var e graph__Edge = v_1
+		rev = Append[graph__Edge](rev, graph__Edge{From: e.To, To: e.From})
 	}
-	v_3 := of(g.Size, rev)
+	v_3 := graph__Of(g.Size, rev)
 	return v_3
 }
 
-func (g graph) Succ(n int) []int {
+func (g graph__Graph) Succ(n int) []int {
 	if (n < int(0)) || (n >= g.Size) {
 		return []int{}
 	}
 	return g.Targets[g.Starts[n]:g.Starts[(n+int(1))]]
 }
 
-func (g graph) Chains(min_3 int) [][]int {
+func (g graph__Graph) Chains(min_1 int) [][]int {
 	var v []int
 	v_1 := (g).Order()
 	s := v_1
@@ -5051,12 +5053,12 @@ func (g graph) Chains(min_3 int) [][]int {
 	default:
 		panic("ergo: defect: no case of the match at std/graph/graph.ergo:449:14 matched")
 	}
-	var order_2 []int = v
-	v_2 := filled(g.Size, int(1))
-	v_3 := filled(g.Size, int(-1))
-	var i int = (len(order_2) - int(1))
+	var order []int = v
+	v_2 := graph__filled(g.Size, int(1))
+	v_3 := graph__filled(g.Size, int(-1))
+	var i int = (len(order) - int(1))
 	for i >= int(0) {
-		var n int = order_2[i]
+		var n int = order[i]
 		i = (i - int(1))
 		v_4 := (g).Succ(n)
 		for _, v_5 := range v_4 {
@@ -5067,71 +5069,71 @@ func (g graph) Chains(min_3 int) [][]int {
 			}
 		}
 	}
-	v_6 := filled(g.Size, int(0))
+	v_6 := graph__filled(g.Size, int(0))
 	v_7 := (g).Edges()
 	for _, v_8 := range v_7 {
-		var e edge = v_8
+		var e graph__Edge = v_8
 		v_6[e.To] = (v_6[e.To] + int(1))
 	}
 	var out [][]int = [][]int{}
-	t := (range_1[int]{Start: int(0), End: g.Size})
+	t := (Range[int]{Start: int(0), End: g.Size})
 	for i_1 := t.Start; i_1 < t.End; i_1++ {
 		var s_1 int = i_1
-		if (v_6[s_1] != int(0)) || (v_2[s_1] < min_3) {
+		if (v_6[s_1] != int(0)) || (v_2[s_1] < min_1) {
 			continue
 		}
 		var chain []int = []int{s_1}
 		var n_1 int = s_1
 		for v_3[n_1] >= int(0) {
 			n_1 = v_3[n_1]
-			chain = append_1[int](chain, n_1)
+			chain = Append[int](chain, n_1)
 		}
-		out = append_1[[]int](out, chain)
+		out = Append[[]int](out, chain)
 	}
 	return out
 }
 
-type fan_2 struct {
+type graph__Fan struct {
 	In  []int
 	Out []int
 }
 
-func (g graph) FanOf() fan_2 {
-	v := filled(g.Size, int(0))
-	v_1 := filled(g.Size, int(0))
+func (g graph__Graph) FanOf() graph__Fan {
+	v := graph__filled(g.Size, int(0))
+	v_1 := graph__filled(g.Size, int(0))
 	v_2 := (g).Edges()
 	for _, v_3 := range v_2 {
-		var e edge = v_3
+		var e graph__Edge = v_3
 		v[e.To] = (v[e.To] + int(1))
 		v_1[e.From] = (v_1[e.From] + int(1))
 	}
-	return fan_2{In: v, Out: v_1}
+	return graph__Fan{In: v, Out: v_1}
 }
 
-const kNumber int = int(2)
+const json__kNumber int = int(2)
 
-func smallInt(text_5 string) struct {
+func json__smallInt(text_1 string) struct {
 	F0 int64
 	F1 bool
 } {
 	var v int
-	if (len(text_5) > int(0)) && (text_5[int(0)] == uint8(45)) {
+	if (len(text_1) > int(0)) && (text_1[int(0)] == uint8(45)) {
 		v = int(1)
 	} else {
 		v = int(0)
 	}
 	var start int = v
-	if (len(text_5) == start) || ((len(text_5) - start) > int(18)) {
+	if (len(text_1) == start) || ((len(text_1) - start) > int(18)) {
 		return struct {
 			F0 int64
 			F1 bool
 		}{F0: int64(0), F1: false}
 	}
 	var n int64 = int64(0)
-	t := (range_1[int]{Start: start, End: len(text_5)})
+	t := (Range[int]{Start: start, End: len(text_1)})
 	for i := t.Start; i < t.End; i++ {
 		var i_1 int = i
-		var c_1 uint8 = text_5[i_1]
+		var c_1 uint8 = text_1[i_1]
 		if (c_1 < uint8(48)) || (c_1 > uint8(57)) {
 			return struct {
 				F0 int64
@@ -5152,38 +5154,38 @@ func smallInt(text_5 string) struct {
 	}{F0: v_2, F1: true}
 }
 
-func (g graph) Edges() []edge {
-	var out []edge = []edge{}
-	t := (range_1[int]{Start: int(0), End: g.Size})
+func (g graph__Graph) Edges() []graph__Edge {
+	var out []graph__Edge = []graph__Edge{}
+	t := (Range[int]{Start: int(0), End: g.Size})
 	for i := t.Start; i < t.End; i++ {
 		var n int = i
 		v_1 := (g).Succ(n)
 		out = ergo.Reserve(out, len(v_1))
 		for _, v_2 := range v_1 {
 			var m int = v_2
-			out = append_1[edge](out, edge{From: n, To: m})
+			out = Append[graph__Edge](out, graph__Edge{From: n, To: m})
 		}
 	}
 	return out
 }
 
-type edge struct {
+type graph__Edge struct {
 	From int
 	To   int
 }
 
-func layerOf(layers_1 []string, path_4 string) int {
-	for k, v := range layers_1 {
+func codegraph__layerOf(layers []string, path string) int {
+	for k, v := range layers {
 		var i int = k
 		var l string = v
-		b := (l == path_4)
+		b := (l == path)
 		if !b {
-			v_1 := hasSuffix(l, "/...")
+			v_1 := strings__HasSuffix(l, "/...")
 			b_1 := v_1
 			if b_1 {
-				t := path_4
-				v_2 := trimSuffix(l, "...")
-				v_3 := hasPrefix(t, v_2)
+				t := path
+				v_2 := strings__TrimSuffix(l, "...")
+				v_3 := strings__HasPrefix(t, v_2)
 				b_1 = v_3
 			}
 			b = b_1
@@ -5195,11 +5197,11 @@ func layerOf(layers_1 []string, path_4 string) int {
 	return int(-1)
 }
 
-func (r rows) levelPair(level_1 level, e edgeRow) struct {
+func (r codegraph__Rows) levelPair(level codegraph__Level, e codegraph__EdgeRow) struct {
 	F0 int
 	F1 int
 } {
-	s := level_1
+	s := level
 	switch s.tag {
 	case 0:
 		if e.Kind != "imports" {
@@ -5263,10 +5265,10 @@ func (r rows) levelPair(level_1 level, e edgeRow) struct {
 	}
 }
 
-func (r rows) testOnly(a int, b int) bool {
-	var any_2 bool = false
+func (r codegraph__Rows) testOnly(a int, b int) bool {
+	var any_1 bool = false
 	for _, v := range r.Edges {
-		var e edgeRow = v
+		var e codegraph__EdgeRow = v
 		b_2 := (e.Kind != "uses")
 		if !b_2 {
 			v_1 := (r).packageOf(e.From)
@@ -5286,88 +5288,88 @@ func (r rows) testOnly(a int, b int) bool {
 		if (s != "test") && (s != "law") {
 			return false
 		}
-		any_2 = true
+		any_1 = true
 	}
-	return any_2
+	return any_1
 }
 
-func of(size_1 int, edges_1 []edge) graph {
+func graph__Of(size int, edges []graph__Edge) graph__Graph {
 	var v int
-	if size_1 < int(0) {
+	if size < int(0) {
 		v = int(0)
 	} else {
-		v = size_1
+		v = size
 	}
 	var n int = v
-	v_1 := filled((n + int(1)), int(0))
-	for _, v_2 := range edges_1 {
-		var e edge = v_2
-		v_3 := inside(n, e)
+	v_1 := graph__filled((n + int(1)), int(0))
+	for _, v_2 := range edges {
+		var e graph__Edge = v_2
+		v_3 := graph__inside(n, e)
 		if v_3 {
 			v_1[(e.From + int(1))] = (v_1[(e.From+int(1))] + int(1))
 		}
 	}
-	t := (range_1[int]{Start: int(1), End: (n + int(1))})
+	t := (Range[int]{Start: int(1), End: (n + int(1))})
 	for i := t.Start; i < t.End; i++ {
 		var i_1 int = i
 		v_1[i_1] = (v_1[i_1] + v_1[(i_1-int(1))])
 	}
 	var starts []int = v_1
-	v_5 := filled(n, int(0))
-	t_1 := (range_1[int]{Start: int(0), End: n})
+	v_5 := graph__filled(n, int(0))
+	t_1 := (Range[int]{Start: int(0), End: n})
 	for i_2 := t_1.Start; i_2 < t_1.End; i_2++ {
 		var i_3 int = i_2
 		v_5[i_3] = starts[i_3]
 	}
-	v_7 := filled(v_1[n], int(0))
-	for _, v_8 := range edges_1 {
-		var e_1 edge = v_8
-		v_9 := inside(n, e_1)
+	v_7 := graph__filled(v_1[n], int(0))
+	for _, v_8 := range edges {
+		var e_1 graph__Edge = v_8
+		v_9 := graph__inside(n, e_1)
 		if v_9 {
 			v_7[v_5[e_1.From]] = e_1.To
 			v_5[e_1.From] = (v_5[e_1.From] + int(1))
 		}
 	}
-	return graph{Size: n, Starts: starts, Targets: v_7}
+	return graph__Graph{Size: n, Starts: starts, Targets: v_7}
 }
 
-func (g graph) Components() [][]int {
-	var done_1 []bool = []bool{}
-	t := (range_1[int]{Start: int(0), End: g.Size})
+func (g graph__Graph) Components() [][]int {
+	var done []bool = []bool{}
+	t := (Range[int]{Start: int(0), End: g.Size})
 	for i := t.Start; i < t.End; i++ {
-		done_1 = append_1[bool](done_1, false)
+		done = Append[bool](done, false)
 	}
 	var finished []int = []int{}
-	t_1 := (range_1[int]{Start: int(0), End: g.Size})
+	t_1 := (Range[int]{Start: int(0), End: g.Size})
 	for i_1 := t_1.Start; i_1 < t_1.End; i_1++ {
 		var s int = i_1
-		if done_1[s] {
+		if done[s] {
 			continue
 		}
-		done_1[s] = true
+		done[s] = true
 		var nodes []int = []int{s}
-		var at_2 []int = []int{int(0)}
+		var at []int = []int{int(0)}
 		for len(nodes) > int(0) {
 			var top int = (len(nodes) - int(1))
 			var n int = nodes[top]
 			v_2 := (g).Succ(n)
-			if at_2[top] < len(v_2) {
-				var m int = v_2[at_2[top]]
-				at_2[top] = (at_2[top] + int(1))
-				if !done_1[m] {
-					done_1[m] = true
-					nodes = append_1[int](nodes, m)
-					at_2 = append_1[int](at_2, int(0))
+			if at[top] < len(v_2) {
+				var m int = v_2[at[top]]
+				at[top] = (at[top] + int(1))
+				if !done[m] {
+					done[m] = true
+					nodes = Append[int](nodes, m)
+					at = Append[int](at, int(0))
 				}
 			} else {
-				finished = append_1[int](finished, n)
+				finished = Append[int](finished, n)
 				nodes = nodes[int(0):top]
-				at_2 = at_2[int(0):top]
+				at = at[int(0):top]
 			}
 		}
 	}
 	v_6 := (g).Reverse()
-	v_7 := filled(g.Size, int(-1))
+	v_7 := graph__filled(g.Size, int(-1))
 	var out [][]int = [][]int{}
 	var i_2 int = (len(finished) - int(1))
 	for i_2 >= int(0) {
@@ -5383,26 +5385,26 @@ func (g graph) Components() [][]int {
 		for len(stack) > int(0) {
 			var n_1 int = stack[(len(stack) - int(1))]
 			stack = stack[int(0):(len(stack) - int(1))]
-			members = append_1[int](members, n_1)
+			members = Append[int](members, n_1)
 			v_9 := (v_6).Succ(n_1)
 			for _, v_10 := range v_9 {
 				var m_1 int = v_10
 				if v_7[m_1] < int(0) {
 					v_7[m_1] = id
-					stack = append_1[int](stack, m_1)
+					stack = Append[int](stack, m_1)
 				}
 			}
 		}
 		t_2 := out
 		v_12 := ergo.SlicesSortOwned[int](members)
-		v_13 := append_1[[]int](t_2, v_12)
+		v_13 := Append[[]int](t_2, v_12)
 		out = v_13
 	}
 	v_14 := ergo.SlicesReverseOwned[[]int](out)
 	return v_14
 }
 
-func contains[T comparable](xs []T, x T) bool {
+func slices__Contains[T comparable](xs []T, x T) bool {
 	for _, v := range xs {
 		var y T = v
 		if y == x {
@@ -5412,7 +5414,7 @@ func contains[T comparable](xs []T, x T) bool {
 	return false
 }
 
-func containsMono_i1(xs []int, x int) bool {
+func slices__ContainsMono_i2515107422(xs []int, x int) bool {
 	for _, v := range xs {
 		var y int = v
 		if y == x {
@@ -5422,13 +5424,13 @@ func containsMono_i1(xs []int, x int) bool {
 	return false
 }
 
-func (g graph) closedPath(c_1 []int) []int {
-	var first int = c_1[int(0)]
+func (g graph__Graph) closedPath(c []int) []int {
+	var first int = c[int(0)]
 	var best []int = []int{}
 	v := (g).Succ(first)
 	for _, v_1 := range v {
 		var m int = v_1
-		v_2 := containsMono_i1(c_1, m)
+		v_2 := slices__ContainsMono_i2515107422(c, m)
 		if !v_2 {
 			continue
 		}
@@ -5456,8 +5458,8 @@ func (g graph) closedPath(c_1 []int) []int {
 	return best
 }
 
-func plain(s string) bool {
-	t := (range_1[int]{Start: int(0), End: len(s)})
+func json__plain(s string) bool {
+	t := (Range[int]{Start: int(0), End: len(s)})
 	for i := t.Start; i < t.End; i++ {
 		var i_1 int = i
 		var b uint8 = s[i_1]
@@ -5468,21 +5470,21 @@ func plain(s string) bool {
 	return true
 }
 
-func fromBytesOwned(bs []uint8) string {
+func ergo__strings__FromBytesOwned(bs []uint8) string {
 	v := ergo.StringsBuilderTextOwned(bs)
 	return v
 }
 
-func fromBytes(bs []uint8) string {
-	return fromBytesOwned(slices.Clone(bs))
+func strings__FromBytes(bs []uint8) string {
+	return ergo__strings__FromBytesOwned(slices.Clone(bs))
 }
 
-func textwireWrongKind(v wireWrongKind) string {
+func ergo__textWireWrongKind(v WireWrongKind) string {
 	return "{" + "Path:" + v.Path + " Want:" + v.Want + "}"
 }
 
-type rare struct {
-	src      source
+type json__rare struct {
+	src      io__Source
 	badWhy   string
 	failure  ergo.ReadFailed
 	base     int
@@ -5494,18 +5496,18 @@ type rare struct {
 	failed   bool
 }
 
-var badTok tok
+var json__badTok json__tok
 
-const sEnd int = int(5)
+const json__sEnd int = int(5)
 
-func (s *scan) ws() {
+func (s *json__scan) ws() {
 	for {
 		var b string = s.buf
 		var j int = s.i
 		for {
 			b_1 := (j < len(b))
 			if b_1 {
-				v := space(b[j])
+				v := json__space(b[j])
 				b_1 = v
 			}
 			if !(b_1) {
@@ -5525,15 +5527,15 @@ func (s *scan) ws() {
 	}
 }
 
-func (s *scan) token(env_1 *env) tok {
+func (s *json__scan) token(env *Env) json__tok {
 	if s.bad {
-		return badTok
+		return json__badTok
 	}
-	if s.state == sEnd {
-		return tok{kind: kDone, text: "", raw: false}
+	if s.state == json__sEnd {
+		return json__tok{kind: json__kDone, text: "", raw: false}
 	}
 	(s).ws()
-	if (s.seq && (s.nc == int(0))) && ((s.state == sRoot) || (s.state == sValue)) {
+	if (s.seq && (s.nc == int(0))) && ((s.state == json__sRoot) || (s.state == json__sValue)) {
 		var v bool
 		{
 			var n int = int(1)
@@ -5547,13 +5549,13 @@ func (s *scan) token(env_1 *env) tok {
 	inl:
 		_ = 0
 		if v {
-			s.state = sValue
-			v_2 := (s).value(env_1)
+			s.state = json__sValue
+			v_2 := (s).value(env)
 			return v_2
 		}
-		s.state = sRoot
+		s.state = json__sRoot
 	}
-	if s.state == sRoot {
+	if s.state == json__sRoot {
 		var v_3 bool
 		{
 			var n_1 int = int(1)
@@ -5580,12 +5582,12 @@ func (s *scan) token(env_1 *env) tok {
 			t_1 := s
 			v_7 := (s).pos()
 			(t_1).fail(v_7, "the read failed")
-			return badTok
+			return json__badTok
 		}
-		s.state = sEnd
-		return tok{kind: kDone, text: "", raw: false}
+		s.state = json__sEnd
+		return json__tok{kind: json__kDone, text: "", raw: false}
 	}
-	if (s.state == sFirst) || (s.state == sAfter) {
+	if (s.state == json__sFirst) || (s.state == json__sAfter) {
 		var list bool = s.ctx[(s.nc - int(1))]
 		var v_8 bool
 		{
@@ -5606,40 +5608,40 @@ func (s *scan) token(env_1 *env) tok {
 				s.nc = (s.nc - int(1))
 				var v_10 int
 				if s.nc == int(0) {
-					v_10 = sRoot
+					v_10 = json__sRoot
 				} else {
-					v_10 = sAfter
+					v_10 = json__sAfter
 				}
 				s.state = v_10
-				return tok{kind: kClose, text: "", raw: false}
+				return json__tok{kind: json__kClose, text: "", raw: false}
 			}
-			if s.state == sAfter {
+			if s.state == json__sAfter {
 				if c_1 != uint8(44) {
 					t_2 := s
 					v_11 := (s).pos()
 					(t_2).fail(v_11, "no comma or closing bracket")
-					return badTok
+					return json__badTok
 				}
 				s.i = (s.i + int(1))
 				(s).ws()
 			}
 		} else {
-			if s.state == sAfter {
+			if s.state == json__sAfter {
 				t_3 := s
 				v_12 := (s).pos()
 				(t_3).fail(v_12, "the text ends inside a list or object")
-				return badTok
+				return json__badTok
 			}
 		}
 		var v_13 int
 		if list {
-			v_13 = sValue
+			v_13 = json__sValue
 		} else {
-			v_13 = sKey
+			v_13 = json__sKey
 		}
 		s.state = v_13
 	}
-	if s.state == sKey {
+	if s.state == json__sKey {
 		var v_14 bool
 		{
 			var n_3 int = int(1)
@@ -5656,12 +5658,12 @@ func (s *scan) token(env_1 *env) tok {
 			t_4 := s
 			v_16 := (s).pos()
 			(t_4).fail(v_16, "an object key that is not a string")
-			return badTok
+			return json__badTok
 		}
-		v_17 := (s).str(env_1)
+		v_17 := (s).str(env)
 		(s).ws()
 		if s.bad {
-			return badTok
+			return json__badTok
 		}
 		var v_18 bool
 		{
@@ -5679,46 +5681,46 @@ func (s *scan) token(env_1 *env) tok {
 			t_5 := s
 			v_20 := (s).pos()
 			(t_5).fail(v_20, "no colon after an object key")
-			return badTok
+			return json__badTok
 		}
 		s.i = (s.i + int(1))
-		s.state = sValue
-		return tok{kind: kKey, text: v_17.text, raw: v_17.raw}
+		s.state = json__sValue
+		return json__tok{kind: json__kKey, text: v_17.text, raw: v_17.raw}
 	}
 	(s).ws()
-	v_21 := (s).value(env_1)
+	v_21 := (s).value(env)
 	return v_21
 }
 
-func (s *scan) push(t tok) {
+func (s *json__scan) push(t json__tok) {
 	if s.nq < len(s.q) {
 		s.q[s.nq] = t
 	} else {
-		s.q = append_1[tok](s.q, t)
+		s.q = Append[json__tok](s.q, t)
 	}
 	s.nq = (s.nq + int(1))
 }
 
-func itoa(n int) string {
+func strconv__Itoa(n int) string {
 	r := strconv.Itoa(n)
 	return r
 }
 
-func (b builder) Len() int {
+func (b strings__Builder) Len() int {
 	return len(b.buf)
 }
 
-func (b *builder) WriteByte_(c_1 uint8) {
-	b.buf = append_1[uint8](b.buf, c_1)
+func (b *strings__Builder) WriteByte_(c uint8) {
+	b.buf = Append[uint8](b.buf, c)
 }
 
-func (s *scan) readChunk(env_1 *env) {
-	env_1.task.Check()
-	var k rare = s.rare
+func (s *json__scan) readChunk(env *Env) {
+	env.task.Check()
+	var k json__rare = s.rare
 	if s.bad || k.eof {
 		return
 	}
-	v, err := (k.src).Read(env_1.task)
+	v, err := (k.src).Read(env.task)
 	if err != nil {
 		switch caught := err.(type) {
 		case ergo.ReadFailed:
@@ -5760,8 +5762,8 @@ func (s *scan) readChunk(env_1 *env) {
 			t_1 := k.maxBytes
 			var v_2 string
 			{
-				var max_3 int = k.maxBytes
-				v_3 := itoa(max_3)
+				var max_1 int = k.maxBytes
+				v_3 := strconv__Itoa(max_1)
 				v_2 = ("the text is longer than MaxBytes " + v_3)
 			}
 			(t).fail(t_1, v_2)
@@ -5775,26 +5777,26 @@ func (s *scan) readChunk(env_1 *env) {
 	}
 }
 
-func (s *scan) after(env_1 *env, k int) int {
-	v := (s).peekAt(env_1, k)
-	if ((v.kind == kClose) || (v.kind == kDone)) || (v.kind == kBad) {
+func (s *json__scan) after(env *Env, k int) int {
+	v := (s).peekAt(env, k)
+	if ((v.kind == json__kClose) || (v.kind == json__kDone)) || (v.kind == json__kBad) {
 		return k
 	}
-	if (v.kind != kList) && (v.kind != kObject) {
+	if (v.kind != json__kList) && (v.kind != json__kObject) {
 		return (k + int(1))
 	}
 	var j int = (k + int(1))
 	var depth int = int(1)
 	for {
-		v_1 := (s).peekAt(env_1, j)
-		if (v_1.kind == kDone) || (v_1.kind == kBad) {
+		v_1 := (s).peekAt(env, j)
+		if (v_1.kind == json__kDone) || (v_1.kind == json__kBad) {
 			return j
 		}
 		j = (j + int(1))
-		if (v_1.kind == kList) || (v_1.kind == kObject) {
+		if (v_1.kind == json__kList) || (v_1.kind == json__kObject) {
 			depth = (depth + int(1))
 		} else {
-			if v_1.kind == kClose {
+			if v_1.kind == json__kClose {
 				depth = (depth - int(1))
 				if depth == int(0) {
 					return j
@@ -5804,54 +5806,54 @@ func (s *scan) after(env_1 *env, k int) int {
 	}
 }
 
-func concatOwned[T any](a []T, b []T) []T {
+func ergo__slices__ConcatOwned[T any](a []T, b []T) []T {
 	v := ergo.SlicesConcatOwned[T](a, b)
 	return v
 }
 
-func concat_1[T any](a []T, b []T) []T {
-	return concatOwned[T](slices.Clone(a), b)
+func slices__Concat_1[T any](a []T, b []T) []T {
+	return ergo__slices__ConcatOwned[T](slices.Clone(a), b)
 }
 
-func filled(n int, v int) []int {
+func graph__filled(n int, v int) []int {
 	var out []int = []int{}
-	t := (range_1[int]{Start: int(0), End: n})
+	t := (Range[int]{Start: int(0), End: n})
 	for i := t.Start; i < t.End; i++ {
-		out = append_1[int](out, v)
+		out = Append[int](out, v)
 	}
 	return out
 }
 
-func walkBack(parent []int, a int, b int) []int {
+func graph__walkBack(parent []int, a int, b int) []int {
 	var back []int = []int{b}
 	var n int = b
 	for n != a {
 		n = parent[n]
-		back = append_1[int](back, n)
+		back = Append[int](back, n)
 	}
 	v_1 := ergo.SlicesReverseOwned[int](back)
 	return v_1
 }
 
-func (g graph) Order() option[[]int] {
-	v := filled(g.Size, int(0))
+func (g graph__Graph) Order() Option[[]int] {
+	v := graph__filled(g.Size, int(0))
 	v_1 := (g).Edges()
 	for _, v_2 := range v_1 {
-		var e edge = v_2
+		var e graph__Edge = v_2
 		v[e.To] = (v[e.To] + int(1))
 	}
 	var out []int = []int{}
 	var ready []int = []int{}
-	t := (range_1[int]{Start: int(0), End: g.Size})
+	t := (Range[int]{Start: int(0), End: g.Size})
 	for i := t.Start; i < t.End; i++ {
 		var n int = i
 		if v[n] == int(0) {
-			ready = append_1[int](ready, n)
+			ready = Append[int](ready, n)
 		}
 	}
 	for len(ready) > int(0) {
 		var least int = int(0)
-		t_1 := (range_1[int]{Start: int(1), End: len(ready)})
+		t_1 := (Range[int]{Start: int(1), End: len(ready)})
 		for i_1 := t_1.Start; i_1 < t_1.End; i_1++ {
 			var i_2 int = i_1
 			if ready[i_2] < ready[least] {
@@ -5867,34 +5869,34 @@ func (g graph) Order() option[[]int] {
 
 		}
 		ready = slices.Clone(v_6)
-		out = append_1[int](out, n_1)
+		out = Append[int](out, n_1)
 		v_9 := (g).Succ(n_1)
 		for _, v_10 := range v_9 {
 			var m int = v_10
 			v[m] = (v[m] - int(1))
 			if v[m] == int(0) {
-				ready = append_1[int](ready, m)
+				ready = Append[int](ready, m)
 			}
 		}
 	}
 	if len(out) < g.Size {
-		return (option[[]int]{tag: 1})
+		return (Option[[]int]{tag: 1})
 	} else {
-		return (option[[]int]{}).of0(some[[]int]{Value: out})
+		return (Option[[]int]{}).of0(Some[[]int]{Value: out})
 	}
 }
 
-func hasSuffix(s string, suffix string) bool {
-	r := strings.HasSuffix(s, suffix)
+func strings__HasSuffix(s string, suffix string) bool {
+	r := go__strings.HasSuffix(s, suffix)
 	return r
 }
 
-func trimSuffix(s string, suffix string) string {
-	r := strings.TrimSuffix(s, suffix)
+func strings__TrimSuffix(s string, suffix string) string {
+	r := go__strings.TrimSuffix(s, suffix)
 	return r
 }
 
-func (r rows) fileOf(id int) int {
+func (r codegraph__Rows) fileOf(id int) int {
 	var n int = id
 	for n >= int(0) {
 		if r.Nodes[n].Kind == "file" {
@@ -5905,7 +5907,7 @@ func (r rows) fileOf(id int) int {
 	return int(-1)
 }
 
-func (r rows) topOf(id int) int {
+func (r codegraph__Rows) topOf(id int) int {
 	var n int = id
 	for ((r.Nodes[n].Kind == "decl") && (r.Nodes[n].Parent >= int(0))) && (r.Nodes[r.Nodes[n].Parent].Kind == "decl") {
 		n = r.Nodes[n].Parent
@@ -5913,30 +5915,30 @@ func (r rows) topOf(id int) int {
 	return n
 }
 
-func inside(n int, e edge) bool {
+func graph__inside(n int, e graph__Edge) bool {
 	return ((((e.From >= int(0)) && (e.From < n)) && (e.To >= int(0))) && (e.To < n))
 }
 
-type source interface {
-	Read(*rt.Task) (option[string], error)
+type io__Source interface {
+	Read(*rt.Task) (Option[string], error)
 }
 
-func space(c_1 uint8) bool {
+func json__space(c_1 uint8) bool {
 	return ((((c_1 == uint8(32)) || (c_1 == uint8(9))) || (c_1 == uint8(10))) || (c_1 == uint8(13)))
 }
 
-func (s *scan) fill() bool {
+func (s *json__scan) fill() bool {
 	if (!s.bad) && (!s.rare.eof) {
 		s.starved = true
 	}
 	return false
 }
 
-const sRoot int = int(4)
+const json__sRoot int = int(4)
 
-const sValue int = int(0)
+const json__sValue int = int(0)
 
-func (s *scan) needMore(n int) bool {
+func (s *json__scan) needMore(n int) bool {
 	for (len(s.buf) - s.i) < n {
 		v := (s).fill()
 		if !v {
@@ -5946,7 +5948,7 @@ func (s *scan) needMore(n int) bool {
 	return true
 }
 
-func (s *scan) value(env_1 *env) tok {
+func (s *json__scan) value(env *Env) json__tok {
 	var v bool
 	{
 		var n int = int(1)
@@ -5963,7 +5965,7 @@ inl:
 		t := s
 		v_2 := (s).pos()
 		(t).fail(v_2, "the text ends before a value")
-		return badTok
+		return json__badTok
 	}
 	var c_1 uint8 = s.buf[s.i]
 	if (c_1 == uint8(91)) || (c_1 == uint8(123)) {
@@ -5971,32 +5973,32 @@ inl:
 			t_1 := s
 			v_3 := (s).pos()
 			t_2 := v_3
-			v_4 := itoa(s.maxDepth)
+			v_4 := strconv__Itoa(s.maxDepth)
 			(t_1).fail(t_2, ("nesting deeper than MaxDepth " + v_4))
-			return badTok
+			return json__badTok
 		}
 		s.i = (s.i + int(1))
 		if s.nc < len(s.ctx) {
 			s.ctx[s.nc] = (c_1 == uint8(91))
 		} else {
-			s.ctx = append_1[bool](s.ctx, (c_1 == uint8(91)))
+			s.ctx = Append[bool](s.ctx, (c_1 == uint8(91)))
 		}
 		s.nc = (s.nc + int(1))
-		s.state = sFirst
+		s.state = json__sFirst
 		var v_6 int
 		if c_1 == uint8(91) {
-			v_6 = kList
+			v_6 = json__kList
 		} else {
-			v_6 = kObject
+			v_6 = json__kObject
 		}
-		return tok{kind: v_6, text: "", raw: false}
+		return json__tok{kind: v_6, text: "", raw: false}
 	}
-	var t_3 tok = badTok
+	var t_3 json__tok = json__badTok
 	if c_1 == uint8(34) {
-		t_3 = (s).str(env_1)
+		t_3 = (s).str(env)
 	} else {
 		if c_1 == uint8(116) {
-			var v_8 tok
+			var v_8 json__tok
 			{
 				var word string = "true"
 				var v_9 bool
@@ -6015,18 +6017,18 @@ inl:
 					t_4 := s
 					v_11 := (s).pos()
 					(t_4).fail(v_11, "an invalid literal")
-					v_8 = badTok
+					v_8 = json__badTok
 					goto inl_1
 				}
 				s.i = (s.i + len(word))
-				v_8 = tok{kind: kBool, text: word, raw: true}
+				v_8 = json__tok{kind: json__kBool, text: word, raw: true}
 			}
 		inl_1:
 			_ = 0
 			t_3 = v_8
 		} else {
 			if c_1 == uint8(102) {
-				var v_12 tok
+				var v_12 json__tok
 				{
 					var word_1 string = "false"
 					var v_13 bool
@@ -6045,18 +6047,18 @@ inl:
 						t_5 := s
 						v_15 := (s).pos()
 						(t_5).fail(v_15, "an invalid literal")
-						v_12 = badTok
+						v_12 = json__badTok
 						goto inl_3
 					}
 					s.i = (s.i + len(word_1))
-					v_12 = tok{kind: kBool, text: word_1, raw: true}
+					v_12 = json__tok{kind: json__kBool, text: word_1, raw: true}
 				}
 			inl_3:
 				_ = 0
 				t_3 = v_12
 			} else {
 				if c_1 == uint8(110) {
-					var v_16 tok
+					var v_16 json__tok
 					{
 						var word_2 string = "null"
 						var v_17 bool
@@ -6075,11 +6077,11 @@ inl:
 							t_6 := s
 							v_19 := (s).pos()
 							(t_6).fail(v_19, "an invalid literal")
-							v_16 = badTok
+							v_16 = json__badTok
 							goto inl_5
 						}
 						s.i = (s.i + len(word_2))
-						v_16 = tok{kind: kNull, text: word_2, raw: true}
+						v_16 = json__tok{kind: json__kNull, text: word_2, raw: true}
 					}
 				inl_5:
 					_ = 0
@@ -6105,7 +6107,7 @@ inl:
 						t_7 := s
 						v_24 := (s).pos()
 						t_8 := v_24
-						v_25 := quote_1(s.buf[s.i:(s.i + v_23.Size)])
+						v_25 := strconv__Quote(s.buf[s.i:(s.i + v_23.Size)])
 						(t_7).fail(t_8, (("an unexpected " + v_25) + " where a value belongs"))
 					}
 				}
@@ -6113,59 +6115,59 @@ inl:
 		}
 	}
 	if s.bad {
-		return badTok
+		return json__badTok
 	}
 	var v_26 int
 	if s.nc == int(0) {
-		v_26 = sRoot
+		v_26 = json__sRoot
 	} else {
-		v_26 = sAfter
+		v_26 = json__sAfter
 	}
 	s.state = v_26
 	return t_3
 }
 
-func (s *scan) fail(at_2 int, why_2 string) {
+func (s *json__scan) fail(at int, why string) {
 	if (!s.bad) && (!s.starved) {
 		s.bad = true
-		s.rare.badAt = at_2
-		s.rare.badWhy = why_2
+		s.rare.badAt = at
+		s.rare.badWhy = why
 	}
 }
 
-func (s *scan) pos() int {
+func (s *json__scan) pos() int {
 	return (s.rare.base + s.i)
 }
 
-func (s *scan) failedRead() bool {
+func (s *json__scan) failedRead() bool {
 	return s.rare.failed
 }
 
-const sFirst int = int(1)
+const json__sFirst int = int(1)
 
-const sAfter int = int(2)
+const json__sAfter int = int(2)
 
-const sKey int = int(3)
+const json__sKey int = int(3)
 
-// tabunhexV are unhex's results by the index of its arguments, each filled at its first call (tabulate.go).
-var tabunhexK [256]ergo.MemoFlag
+// ergo__json__tabunhexV are unhex's results by the index of its arguments, each filled at its first call (tabulate.go).
+var ergo__json__tabunhexK [256]ergo.MemoFlag
 
-var tabunhexV [256]int
+var ergo__json__tabunhexV [256]int
 
-func tabunhexFill(i int, a0 uint8) int {
-	v := unhex(a0)
-	if tabunhexK[i].Claim() {
-		tabunhexV[i] = v
-		tabunhexK[i].Done()
+func ergo__json__tabunhexFill(i int, a0 uint8) int {
+	v := json__unhex(a0)
+	if ergo__json__tabunhexK[i].Claim() {
+		ergo__json__tabunhexV[i] = v
+		ergo__json__tabunhexK[i].Done()
 	}
 	return v
 }
 
-func (s *scan) str(env_1 *env) tok {
+func (s *json__scan) str(env *Env) json__tok {
 	s.i = (s.i + int(1))
 	s.mark = s.i
 	for {
-		s.i = plainRun(s.buf, s.i)
+		s.i = json__plainRun(s.buf, s.i)
 		if s.i < len(s.buf) {
 			break
 		}
@@ -6174,22 +6176,22 @@ func (s *scan) str(env_1 *env) tok {
 			t := s
 			v_2 := (s).pos()
 			(t).fail(v_2, "the text ends inside a string")
-			return badTok
+			return json__badTok
 		}
 	}
 	if s.buf[s.i] == uint8(34) {
-		var text_5 string = s.buf[s.mark:s.i]
+		var text_1 string = s.buf[s.mark:s.i]
 		s.mark = int(-1)
 		s.i = (s.i + int(1))
-		return tok{kind: kString, text: text_5, raw: true}
+		return json__tok{kind: json__kString, text: text_1, raw: true}
 	}
-	v_3 := newBuilder()
+	v_3 := strings__NewBuilder()
 	(&v_3).WriteString(s.buf[s.mark:s.i])
 	s.mark = int(-1)
-	var raw_2 bool = true
+	var raw_1 bool = true
 	for {
 		var start int = s.i
-		s.i = plainRun(s.buf, s.i)
+		s.i = json__plainRun(s.buf, s.i)
 		(&v_3).WriteString(s.buf[start:s.i])
 		if s.i >= len(s.buf) {
 			v_5 := (s).fill()
@@ -6197,24 +6199,24 @@ func (s *scan) str(env_1 *env) tok {
 				t_1 := s
 				v_6 := (s).pos()
 				(t_1).fail(v_6, "the text ends inside a string")
-				return badTok
+				return json__badTok
 			}
 			continue
 		}
 		var c_1 uint8 = s.buf[s.i]
 		if c_1 == uint8(34) {
 			s.i = (s.i + int(1))
-			t_2 := kString
-			v_7 := (ergoCloneBuilder(v_3)).stringOwned(env_1)
-			return tok{kind: t_2, text: v_7, raw: raw_2}
+			t_2 := json__kString
+			v_7 := (ergo__CloneBuilder(v_3)).ergo__strings__StringOwned(env)
+			return json__tok{kind: t_2, text: v_7, raw: raw_1}
 		}
 		if c_1 < uint8(32) {
 			t_3 := s
 			v_8 := (s).pos()
 			(t_3).fail(v_8, "a control byte inside a string")
-			return badTok
+			return json__badTok
 		}
-		raw_2 = false
+		raw_1 = false
 		s.i = (s.i + int(1))
 		var v_9 bool
 		{
@@ -6232,7 +6234,7 @@ func (s *scan) str(env_1 *env) tok {
 			t_4 := s
 			v_11 := (s).pos()
 			(t_4).fail(v_11, "the text ends inside a string")
-			return badTok
+			return json__badTok
 		}
 		var e uint8 = s.buf[s.i]
 		if e == uint8(117) {
@@ -6252,26 +6254,26 @@ func (s *scan) str(env_1 *env) tok {
 				t_5 := s
 				v_14 := (s).pos()
 				(t_5).fail(v_14, "a short \\u escape")
-				return badTok
+				return json__badTok
 			}
-			t_6 := (range_1[int]{Start: int(1), End: int(5)})
+			t_6 := (Range[int]{Start: int(1), End: int(5)})
 			for i := t_6.Start; i < t_6.End; i++ {
 				var k int = i
 				a := s.buf[(s.i + k)]
 				i_1 := 0
 				i_1 = i_1*256 + int(a)
 				var v_16 int
-				if tabunhexK[i_1].Ready() {
-					v_16 = tabunhexV[i_1]
+				if ergo__json__tabunhexK[i_1].Ready() {
+					v_16 = ergo__json__tabunhexV[i_1]
 				} else {
-					v_16 = tabunhexFill(i_1, a)
+					v_16 = ergo__json__tabunhexFill(i_1, a)
 				}
 				v_17 := v_16
 				if v_17 < int(0) {
 					t_7 := s
 					v_18 := (s).pos()
 					(t_7).fail((v_18 + k), "a \\u escape that is not hexadecimal")
-					return badTok
+					return json__badTok
 				}
 			}
 			v_19 := (s).hex4((s.i + int(1)))
@@ -6304,11 +6306,11 @@ func (s *scan) str(env_1 *env) tok {
 			} else {
 				if (v_19 >= int(55296)) && (v_19 < int(57344)) {
 					t_8 := &v_3
-					v_23 := runeText_1(int32(65533))
+					v_23 := utf8__RuneText_1(int32(65533))
 					(t_8).WriteString(v_23)
 				} else {
 					t_9 := &v_3
-					v_24 := runeText_1(int32(v_19))
+					v_24 := utf8__RuneText_1(int32(v_19))
 					(t_9).WriteString(v_24)
 				}
 			}
@@ -6340,7 +6342,7 @@ func (s *scan) str(env_1 *env) tok {
 									t_10 := s
 									v_25 := (s).pos()
 									(t_10).fail(v_25, "an invalid escape")
-									return badTok
+									return json__badTok
 								}
 							}
 						}
@@ -6351,11 +6353,11 @@ func (s *scan) str(env_1 *env) tok {
 	}
 }
 
-const kBool int = int(1)
+const json__kBool int = int(1)
 
-const kNull int = int(0)
+const json__kNull int = int(0)
 
-func (s *scan) num() tok {
+func (s *json__scan) num() json__tok {
 	s.mark = s.i
 	if s.buf[s.i] == uint8(45) {
 		s.i = (s.i + int(1))
@@ -6380,7 +6382,7 @@ inl:
 			t := s
 			v_3 := (s).pos()
 			(t).fail(v_3, "a number with no digits")
-			return badTok
+			return json__badTok
 		}
 	}
 	var v_4 bool
@@ -6402,7 +6404,7 @@ inl_1:
 			t_1 := s
 			v_7 := (s).pos()
 			(t_1).fail(v_7, "no digits after a decimal point")
-			return badTok
+			return json__badTok
 		}
 	}
 	var v_8 bool
@@ -6439,20 +6441,20 @@ inl_2:
 			t_2 := s
 			v_13 := (s).pos()
 			(t_2).fail(v_13, "no digits in an exponent")
-			return badTok
+			return json__badTok
 		}
 	}
-	var text_5 string = s.buf[s.mark:s.i]
+	var text_1 string = s.buf[s.mark:s.i]
 	s.mark = int(-1)
-	return tok{kind: kNumber, text: text_5, raw: true}
+	return json__tok{kind: json__kNumber, text: text_1, raw: true}
 }
 
-func quote_1(s string) string {
+func strconv__Quote(s string) string {
 	r := strconv.Quote(s)
 	return r
 }
 
-func plainRun(b string, j int) int {
+func json__plainRun(b string, j int) int {
 	var k int = j
 	for (((k < len(b)) && (b[k] != uint8(34))) && (b[k] != uint8(92))) && (b[k] >= uint8(32)) {
 		k = (k + int(1))
@@ -6460,7 +6462,7 @@ func plainRun(b string, j int) int {
 	return k
 }
 
-func unhex(c_1 uint8) int {
+func json__unhex(c_1 uint8) int {
 	if (c_1 >= uint8(48)) && (c_1 <= uint8(57)) {
 		return int((c_1 - uint8(48)))
 	}
@@ -6473,19 +6475,19 @@ func unhex(c_1 uint8) int {
 	return int(-1)
 }
 
-func (s *scan) hex4(j int) int {
+func (s *json__scan) hex4(j int) int {
 	var r int = int(0)
-	t := (range_1[int]{Start: int(0), End: int(4)})
+	t := (Range[int]{Start: int(0), End: int(4)})
 	for i := t.Start; i < t.End; i++ {
 		var k int = i
 		a := s.buf[(j + k)]
 		i_1 := 0
 		i_1 = i_1*256 + int(a)
 		var v_1 int
-		if tabunhexK[i_1].Ready() {
-			v_1 = tabunhexV[i_1]
+		if ergo__json__tabunhexK[i_1].Ready() {
+			v_1 = ergo__json__tabunhexV[i_1]
 		} else {
-			v_1 = tabunhexFill(i_1, a)
+			v_1 = ergo__json__tabunhexFill(i_1, a)
 		}
 		v_2 := v_1
 		if v_2 < int(0) {
@@ -6496,12 +6498,12 @@ func (s *scan) hex4(j int) int {
 	return r
 }
 
-func runeText_1(r int32) string {
+func utf8__RuneText_1(r int32) string {
 	v := ergo.UTF8RuneText(r)
 	return v
 }
 
-func (s *scan) digitRun() int {
+func (s *json__scan) digitRun() int {
 	var n int = int(0)
 	for {
 		var b string = s.buf
@@ -6553,19 +6555,23 @@ var ergoDecls = [...]ergoDecl{
 	{Name: "ok", File: "tool.ergo", Line: 360, End: 360},
 }
 
-// ergoInlines lists the program's inlined calls: each one's call table
-// entry and the inlined call around it, or -1 (runtime.md, Exit causes 6).
-var ergoInlines = [...]struct{ Call, Parent int }{
-	{Call: 35, Parent: -1},
-	{Call: 45, Parent: -1},
-	{Call: 46, Parent: -1},
-	{Call: 60, Parent: -1},
-	{Call: 61, Parent: -1},
-	{Call: 67, Parent: -1},
-	{Call: 68, Parent: -1},
-	{Call: 69, Parent: -1},
-	{Call: 70, Parent: -1},
-	{Call: 83, Parent: -1},
+// ergoInlines lists the program's inlined calls: each one's tag key, call
+// table entry and the inlined call around it, or "" (runtime.md, Exit causes 6).
+var ergoInlines = [...]struct {
+	Key    string
+	Call   int
+	Parent string
+}{
+	{Key: "tool.ergo@198.20", Call: 35, Parent: ""},
+	{Key: "tool.ergo@227.48", Call: 45, Parent: ""},
+	{Key: "tool.ergo@227.81", Call: 46, Parent: ""},
+	{Key: "tool.ergo@287.120", Call: 61, Parent: ""},
+	{Key: "tool.ergo@287.37", Call: 60, Parent: ""},
+	{Key: "tool.ergo@307.105", Call: 69, Parent: ""},
+	{Key: "tool.ergo@307.169", Call: 70, Parent: ""},
+	{Key: "tool.ergo@307.36", Call: 67, Parent: ""},
+	{Key: "tool.ergo@307.69", Call: 68, Parent: ""},
+	{Key: "tool.ergo@340.33", Call: 83, Parent: ""},
 }
 
 // ergoCall is the Ergo identity of one lowered call (#230).
@@ -6721,16 +6727,16 @@ func init() {
 }
 
 //line tool.ergo:18:1
-func run(env_1 *env, args []string, rows_1 string, old string) []string {
+func Run_1(env *Env, args []string, rows string, old string) []string {
 //line tool.ergo:18:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:19:2
 //line tool.ergo:19:10
-	v, err := decode(env_1, rows_1)
+	v, err := codegraph__Decode(env, rows)
 //line tool.ergo:19:2
 	if err != nil {
 		/*line tool.ergo:19:2*/ switch caught := err.(type) {
-		/*line tool.ergo:19:2*/ case badRows:
+		/*line tool.ergo:19:2*/ case codegraph__BadRows:
 			/*line tool.ergo:19:2*/ b := caught
 //line tool.ergo:21:3
 			return []string{"1", "", ("ergo graph: " + b.Reason + "\n")}
@@ -6751,18 +6757,18 @@ func run(env_1 *env, args []string, rows_1 string, old string) []string {
 		v_1 := noRows()
 //line tool.ergo:24:3
 //line tool.ergo:24:10
-		v_2 := runRows(env_1, t, t_1, v_1)
+		v_2 := runRows(env, t, t_1, v_1)
 //line tool.ergo:24:3
 		return v_2
 		/*line tool.ergo:24:3*/
 	}
 //line tool.ergo:26:2
 //line tool.ergo:26:13
-	v_3, err_1 := decode(env_1, old)
+	v_3, err_1 := codegraph__Decode(env, old)
 //line tool.ergo:26:2
 	if err_1 != nil {
 		/*line tool.ergo:26:2*/ switch caught_1 := err_1.(type) {
-		/*line tool.ergo:26:2*/ case badRows:
+		/*line tool.ergo:26:2*/ case codegraph__BadRows:
 			/*line tool.ergo:26:2*/ b_1 := caught_1
 //line tool.ergo:28:3
 			return []string{"1", "", ("ergo graph: the base's rows: " + b_1.Reason + "\n")}
@@ -6775,28 +6781,28 @@ func run(env_1 *env, args []string, rows_1 string, old string) []string {
 		/*line tool.ergo:28:3*/
 	}
 //line tool.ergo:30:2
-	v_4 := runRows(env_1, args, v, v_3)
+	v_4 := runRows(env, args, v, v_3)
 	/*line tool.ergo:30:2*/ return v_4
 	/*line tool.ergo:30:2*/
 }
 
 //line tool.ergo:34:1
-func noRows() rows {
+func noRows() codegraph__Rows {
 //line tool.ergo:34:32
-	return rows{Version: int(1), Nodes: []nodeRow{}, Edges: []edgeRow{}}
+	return codegraph__Rows{Version: int(1), Nodes: []codegraph__NodeRow{}, Edges: []codegraph__EdgeRow{}}
 	/*line tool.ergo:34:32*/
 }
 
 //line tool.ergo:44:1
-func runColumns(env_1 *env, args []string, strs []string, ints []int) []string {
+func RunColumns_1(env *Env, args []string, strs []string, ints []int) []string {
 //line tool.ergo:44:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:45:2
 //line tool.ergo:45:10
 	v := fromColumns(strs, ints, int(0), int(0))
 //line tool.ergo:45:2
 //line tool.ergo:46:2
-	var v_1 columns
+	var v_1 Columns
 //line tool.ergo:46:13
 	if v.Ints < len(ints) {
 //line tool.ergo:46:37
@@ -6812,77 +6818,77 @@ func runColumns(env_1 *env, args []string, strs []string, ints []int) []string {
 		/*line tool.ergo:46:86*/ v_1 = v_4
 		/*line tool.ergo:46:86*/
 	}
-	/*line tool.ergo:46:86*/ var base columns = v_1
+	/*line tool.ergo:46:86*/ var base Columns = v_1
 //line tool.ergo:47:2
-	v_5 := runRows(env_1, args, v.Rows, base.Rows)
+	v_5 := runRows(env, args, v.Rows, base.Rows)
 	/*line tool.ergo:47:2*/ return v_5
 	/*line tool.ergo:47:2*/
 }
 
 //line tool.ergo:51:1
-type columns struct {
-	/*line tool.ergo:51:1*/ Rows rows
+type Columns struct {
+	/*line tool.ergo:51:1*/ Rows codegraph__Rows
 	/*line tool.ergo:51:1*/ Strs int
 	/*line tool.ergo:51:1*/ Ints int
 	/*line tool.ergo:51:1*/
 }
 
 //line tool.ergo:53:1
-func columnsOf(r rows, s int, i int) columns {
+func columnsOf(r codegraph__Rows, s int, i int) Columns {
 //line tool.ergo:53:58
-	return columns{Rows: r, Strs: s, Ints: i}
+	return Columns{Rows: r, Strs: s, Ints: i}
 	/*line tool.ergo:53:58*/
 }
 
 //line tool.ergo:57:1
-func fromColumns(strs []string, ints []int, s int, i int) columns {
+func fromColumns(strs []string, ints []int, s int, i int) Columns {
 //line tool.ergo:58:2
 	var n int = /*line tool.ergo:58:10*/ ints[i]
 //line tool.ergo:59:2
 	var m int = /*line tool.ergo:59:10*/ ints[(i + int(1))]
 //line tool.ergo:60:2
-	var nodes []nodeRow = []nodeRow{}
+	var nodes []codegraph__NodeRow = []codegraph__NodeRow{}
 //line tool.ergo:61:2
-	t := (range_1[int]{Start: int(0), End: n})
+	t := (Range[int]{Start: int(0), End: n})
 	/*line tool.ergo:61:2*/ for i_1 := t.Start; i_1 < t.End; i_1++ {
 		/*line tool.ergo:61:2*/ var k int = i_1
 //line tool.ergo:62:3
-		var at_2 int = (s + (int(4) * k))
+		var at int = (s + (int(4) * k))
 //line tool.ergo:63:3
 		var p int = ((i + int(2)) + (int(2) * k))
 //line tool.ergo:64:3
 //line tool.ergo:64:3
-		nodes = /*line tool.ergo:64:11*/ append_1[nodeRow](nodes, nodeRow{Id: k, Kind: /*line tool.ergo:64:55*/ strs[at_2], Sub: /*line tool.ergo:64:70*/ strs[(at_2 + int(1))], Parent: /*line tool.ergo:64:92*/ ints[p], Name: /*line tool.ergo:64:107*/ strs[(at_2 + int(2))], Digest: /*line tool.ergo:64:129*/ strs[(at_2 + int(3))], Subject: /*line tool.ergo:64:152*/ ints[(p + int(1))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
+		nodes = /*line tool.ergo:64:11*/ Append[codegraph__NodeRow](nodes, codegraph__NodeRow{Id: k, Kind: /*line tool.ergo:64:55*/ strs[at], Sub: /*line tool.ergo:64:70*/ strs[(at + int(1))], Parent: /*line tool.ergo:64:92*/ ints[p], Name: /*line tool.ergo:64:107*/ strs[(at + int(2))], Digest: /*line tool.ergo:64:129*/ strs[(at + int(3))], Subject: /*line tool.ergo:64:152*/ ints[(p + int(1))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
 		/*line tool.ergo:64:3*/
 	}
 //line tool.ergo:66:2
-	var edges_1 []edgeRow = []edgeRow{}
+	var edges []codegraph__EdgeRow = []codegraph__EdgeRow{}
 //line tool.ergo:67:2
-	t_1 := (range_1[int]{Start: int(0), End: m})
+	t_1 := (Range[int]{Start: int(0), End: m})
 	/*line tool.ergo:67:2*/ for i_2 := t_1.Start; i_2 < t_1.End; i_2++ {
 		/*line tool.ergo:67:2*/ var k_1 int = i_2
 //line tool.ergo:68:3
-		var at_3 int = ((s + (int(4) * n)) + (int(2) * k_1))
+		var at_1 int = ((s + (int(4) * n)) + (int(2) * k_1))
 //line tool.ergo:69:3
 		var p_1 int = (((i + int(2)) + (int(2) * n)) + (int(2) * k_1))
 //line tool.ergo:70:3
 //line tool.ergo:70:3
-		edges_1 = /*line tool.ergo:70:11*/ append_1[edgeRow](edges_1, edgeRow{Kind: /*line tool.ergo:70:48*/ strs[at_3], How: /*line tool.ergo:70:63*/ strs[(at_3 + int(1))], From: /*line tool.ergo:70:83*/ ints[p_1], To: /*line tool.ergo:70:96*/ ints[(p_1 + int(1))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
+		edges = /*line tool.ergo:70:11*/ Append[codegraph__EdgeRow](edges, codegraph__EdgeRow{Kind: /*line tool.ergo:70:48*/ strs[at_1], How: /*line tool.ergo:70:63*/ strs[(at_1 + int(1))], From: /*line tool.ergo:70:83*/ ints[p_1], To: /*line tool.ergo:70:96*/ ints[(p_1 + int(1))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
 		/*line tool.ergo:70:3*/
 	}
 //line tool.ergo:72:2
-	v_4 := columnsOf(rows{Version: int(1), Nodes: nodes, Edges: edges_1}, ((s + (int(4) * n)) + (int(2) * m)), (((i + int(2)) + (int(2) * n)) + (int(2) * m)))
+	v_4 := columnsOf(codegraph__Rows{Version: int(1), Nodes: nodes, Edges: edges}, ((s + (int(4) * n)) + (int(2) * m)), (((i + int(2)) + (int(2) * n)) + (int(2) * m)))
 	/*line tool.ergo:72:2*/ return v_4
 	/*line tool.ergo:72:2*/
 }
 
 //line tool.ergo:77:1
-func runRows(env_1 *env, args []string, r rows, base rows) []string {
+func runRows(env *Env, args []string, r codegraph__Rows, base codegraph__Rows) []string {
 //line tool.ergo:77:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:78:2
 //line tool.ergo:78:10
-	v := options_1(args)
+	v := options(args)
 //line tool.ergo:78:2
 //line tool.ergo:79:2
 	if v.Bad != "" {
@@ -6914,7 +6920,7 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 			/*line tool.ergo:89:4*/
 		}
 //line tool.ergo:91:3
-		v_3 := cycles(env_1, r, v)
+		v_3 := cycles(env, r, v)
 		/*line tool.ergo:91:3*/ return v_3
 		/*line tool.ergo:91:3*/
 	case "why":
@@ -6928,7 +6934,7 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 			/*line tool.ergo:94:4*/
 		}
 //line tool.ergo:96:3
-		v_5 := why(env_1, r, v /*line tool.ergo:96:13*/, words[int(1)] /*line tool.ergo:96:23*/, words[int(2)])
+		v_5 := why(env, r, v /*line tool.ergo:96:13*/, words[int(1)] /*line tool.ergo:96:23*/, words[int(2)])
 		/*line tool.ergo:96:3*/ return v_5
 		/*line tool.ergo:96:3*/
 	case "affected":
@@ -6947,7 +6953,7 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 //line tool.ergo:101:18
 		v_7 := (base).Changed(r)
 //line tool.ergo:101:3
-		v_8 := affected(env_1, t, t_1, v_7)
+		v_8 := affected(env, t, t_1, v_7)
 		/*line tool.ergo:101:3*/ return v_8
 		/*line tool.ergo:101:3*/
 	case "hidden":
@@ -6961,7 +6967,7 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 			/*line tool.ergo:104:4*/
 		}
 //line tool.ergo:106:3
-		v_10 := hidden(env_1, r, v)
+		v_10 := hidden(env, r, v)
 		/*line tool.ergo:106:3*/ return v_10
 		/*line tool.ergo:106:3*/
 	case "chains":
@@ -6975,7 +6981,7 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 			/*line tool.ergo:109:4*/
 		}
 //line tool.ergo:111:3
-		v_12 := chains(env_1, r, v)
+		v_12 := chains(env, r, v)
 		/*line tool.ergo:111:3*/ return v_12
 		/*line tool.ergo:111:3*/
 	case "fan":
@@ -6989,7 +6995,7 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 			/*line tool.ergo:114:4*/
 		}
 //line tool.ergo:116:3
-		v_14 := fan(env_1, r, v)
+		v_14 := fan(env, r, v)
 		/*line tool.ergo:116:3*/ return v_14
 		/*line tool.ergo:116:3*/
 	case "layers":
@@ -7003,7 +7009,7 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 			/*line tool.ergo:119:4*/
 		}
 //line tool.ergo:121:3
-		v_16 := layers(env_1, r, v /*line tool.ergo:121:16*/, words[int(1):len(words)])
+		v_16 := layers(env, r, v /*line tool.ergo:121:16*/, words[int(1):len(words)])
 		/*line tool.ergo:121:3*/ return v_16
 		/*line tool.ergo:121:3*/
 	default:
@@ -7016,15 +7022,15 @@ func runRows(env_1 *env, args []string, r rows, base rows) []string {
 }
 
 //line tool.ergo:128:1
-func usage(why_2 string) []string {
+func usage(why_1 string) []string {
 //line tool.ergo:128:35
-	return []string{"2", "", ("ergo graph: " + why_2 + "\n")}
+	return []string{"2", "", ("ergo graph: " + why_1 + "\n")}
 	/*line tool.ergo:128:35*/
 }
 
 //line tool.ergo:131:1
-type options struct {
-	/*line tool.ergo:131:1*/ Level level
+type Options struct {
+	/*line tool.ergo:131:1*/ Level codegraph__Level
 	/*line tool.ergo:131:1*/ Words []string
 	/*line tool.ergo:131:1*/ Bad string
 	/*line tool.ergo:131:1*/ Min int
@@ -7034,9 +7040,9 @@ type options struct {
 }
 
 //line tool.ergo:142:1
-func options_1(args []string) options {
+func options(args []string) Options {
 //line tool.ergo:143:2
-	var o options = options{Json: false, Tests: false, Level: (level{tag: 0}), Min: int(2), Words: []string{}, Bad: ""}
+	var o Options = Options{Json: false, Tests: false, Level: (codegraph__Level{tag: 0}), Min: int(2), Words: []string{}, Bad: ""}
 //line tool.ergo:144:2
 	var i int = int(0)
 //line tool.ergo:145:2
@@ -7072,15 +7078,15 @@ func options_1(args []string) options {
 			switch v {
 			/*line tool.ergo:160:4*/ case "package":
 //line tool.ergo:162:5
-				o.Level = (level{tag: 0})
+				o.Level = (codegraph__Level{tag: 0})
 				/*line tool.ergo:162:5*/
 			case "file":
 //line tool.ergo:164:5
-				o.Level = (level{tag: 1})
+				o.Level = (codegraph__Level{tag: 1})
 				/*line tool.ergo:164:5*/
 			case "decl":
 //line tool.ergo:166:5
-				o.Level = (level{tag: 2})
+				o.Level = (codegraph__Level{tag: 2})
 				/*line tool.ergo:166:5*/
 			default:
 //line tool.ergo:168:5
@@ -7123,7 +7129,7 @@ func options_1(args []string) options {
 		default:
 //line tool.ergo:184:4
 //line tool.ergo:184:7
-			v_3 := hasPrefix(a, "-")
+			v_3 := strings__HasPrefix(a, "-")
 //line tool.ergo:184:4
 			if v_3 {
 //line tool.ergo:185:5
@@ -7134,7 +7140,7 @@ func options_1(args []string) options {
 			}
 //line tool.ergo:188:4
 //line tool.ergo:188:4
-			o.Words = /*line tool.ergo:188:14*/ append_1[string](o.Words, a)
+			o.Words = /*line tool.ergo:188:14*/ Append[string](o.Words, a)
 			/*line tool.ergo:188:4*/
 		}
 		/*line tool.ergo:188:4*/
@@ -7145,7 +7151,7 @@ func options_1(args []string) options {
 }
 
 //line tool.ergo:195:1
-func names(r rows, ids []int) []string {
+func names(r codegraph__Rows, ids []int) []string {
 //line tool.ergo:196:2
 	var out []string = []string{}
 //line tool.ergo:197:2
@@ -7157,7 +7163,7 @@ func names(r rows, ids []int) []string {
 //line tool.ergo:198:20
 		var v_1 string
 		/*line tool.ergo:198:20*/ {
-			/*line tool.ergo:198:20*/ var n nodeRow = r.Nodes[i]
+			/*line tool.ergo:198:20*/ var n codegraph__NodeRow = r.Nodes[i]
 			/*line tool.ergo:198:20*/ if n.Kind != "decl" {
 				/*line tool.ergo:198:20*/ v_1 = n.Name
 				/*line tool.ergo:198:20*/ goto inl
@@ -7178,7 +7184,7 @@ func names(r rows, ids []int) []string {
 		/*line tool.ergo:198:20*/ inl:
 		/*line tool.ergo:198:20*/ _ = 0
 //line tool.ergo:198:9
-		v_3 := append_1[string](t, v_1)
+		v_3 := Append[string](t, v_1)
 //line tool.ergo:198:20
 		out = v_3
 		/*line tool.ergo:198:20*/
@@ -7189,76 +7195,76 @@ func names(r rows, ids []int) []string {
 }
 
 //line tool.ergo:204:1
-type cycleOut struct {
+type CycleOut struct {
 	/*line tool.ergo:204:1*/ Nodes []string
 	/*line tool.ergo:204:1*/ Path []string
 	/*line tool.ergo:204:1*/
 }
 
 //line tool.ergo:206:1
-func cycles(env_1 *env, r rows, o options) []string {
+func cycles(env *Env, r codegraph__Rows, o Options) []string {
 //line tool.ergo:206:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:207:2
-	var out []cycleOut = []cycleOut{}
+	var out []CycleOut = []CycleOut{}
 //line tool.ergo:208:2
 //line tool.ergo:208:11
 	v := (r).Cycles(o.Level, o.Tests)
 //line tool.ergo:208:2
 	out = ergo.Reserve(out, len(v))
 	/*line tool.ergo:208:2*/ for _, v_1 := range v {
-		/*line tool.ergo:208:2*/ var c_1 cycle = v_1
+		/*line tool.ergo:208:2*/ var c codegraph__Cycle = v_1
 //line tool.ergo:209:3
 		t := out
 //line tool.ergo:209:36
-		v_2 := names(r, c_1.Nodes)
+		v_2 := names(r, c.Nodes)
 //line tool.ergo:209:3
 		t_1 := v_2
 //line tool.ergo:209:61
-		v_3 := names(r, c_1.Path)
+		v_3 := names(r, c.Path)
 //line tool.ergo:209:3
 //line tool.ergo:209:9
-		v_4 := append_1[cycleOut](t, cycleOut{Nodes: t_1, Path: v_3})
+		v_4 := Append[CycleOut](t, CycleOut{Nodes: t_1, Path: v_3})
 //line tool.ergo:209:3
 		out = v_4
 //line tool.ergo:208:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:208:2*/
 	}
 //line tool.ergo:211:2
 	if o.Json {
 //line tool.ergo:212:3
 //line tool.ergo:212:13
-		v_7 := encodeMono_i1(env_1, struct {
-			/*line tool.ergo:212:13*/ Enc func(*env, writer, []cycleOut) (struct{}, error)
-			/*line tool.ergo:212:13*/ Dec func(*env, reader_1) ([]cycleOut, error)
-			/*line tool.ergo:212:13*/ Direct0 func(*env, text_3, []cycleOut) text_3
-			/*line tool.ergo:212:13*/ Read0 func(*env, reader) ([]cycleOut, error)
-			/*line tool.ergo:212:13*/ Read1 func(*env, stream) ([]cycleOut, error)
+		v_7 := json__EncodeMono_i1166486571(env, struct {
+			/*line tool.ergo:212:13*/ Enc func(*Env, Writer, []CycleOut) (struct{}, error)
+			/*line tool.ergo:212:13*/ Dec func(*Env, Reader) ([]CycleOut, error)
+			/*line tool.ergo:212:13*/ Direct0 func(*Env, json__text, []CycleOut) json__text
+			/*line tool.ergo:212:13*/ Read0 func(*Env, json__Reader_1) ([]CycleOut, error)
+			/*line tool.ergo:212:13*/ Read1 func(*Env, json__Stream) ([]CycleOut, error)
 			/*line tool.ergo:212:13*/ Field *struct {
-				/*line tool.ergo:212:13*/ Enc func(*env, writer, []cycleOut) (struct{}, error)
-				/*line tool.ergo:212:13*/ Dec func(*env, reader_1) ([]cycleOut, error)
-				/*line tool.ergo:212:13*/ Direct0 func(*env, text_3, []cycleOut) text_3
-				/*line tool.ergo:212:13*/ Read0 func(*env, reader) ([]cycleOut, error)
-				/*line tool.ergo:212:13*/ Read1 func(*env, stream) ([]cycleOut, error)
-				/*line tool.ergo:212:13*/ Absent func([]cycleOut) bool
-				/*line tool.ergo:212:13*/ Empty []cycleOut
+				/*line tool.ergo:212:13*/ Enc func(*Env, Writer, []CycleOut) (struct{}, error)
+				/*line tool.ergo:212:13*/ Dec func(*Env, Reader) ([]CycleOut, error)
+				/*line tool.ergo:212:13*/ Direct0 func(*Env, json__text, []CycleOut) json__text
+				/*line tool.ergo:212:13*/ Read0 func(*Env, json__Reader_1) ([]CycleOut, error)
+				/*line tool.ergo:212:13*/ Read1 func(*Env, json__Stream) ([]CycleOut, error)
+				/*line tool.ergo:212:13*/ Absent func([]CycleOut) bool
+				/*line tool.ergo:212:13*/ Empty []CycleOut
 				/*line tool.ergo:212:13*/
 			}
 			/*line tool.ergo:212:13*/
-		}{Enc: func(e *env, w writer, v_5 []cycleOut) (struct{}, error) {
-			/*line tool.ergo:212:13*/ ergoEncodeSlice_9(e, w, v_5)
+		}{Enc: func(e *Env, w Writer, v_5 []CycleOut) (struct{}, error) {
+			/*line tool.ergo:212:13*/ ergo__EncodeSlice_9(e, w, v_5)
 			/*line tool.ergo:212:13*/ return struct{}{}, nil
 			/*line tool.ergo:212:13*/
-		}, Dec: func(e_1 *env, r_1 reader_1) ([]cycleOut, error) {
-			/*line tool.ergo:212:13*/ x, err := ergoDecodeSlice_9(e_1, r_1)
+		}, Dec: func(e_1 *Env, r_1 Reader) ([]CycleOut, error) {
+			/*line tool.ergo:212:13*/ x, err := ergo__DecodeSlice_9(e_1, r_1)
 			/*line tool.ergo:212:13*/ if err != nil {
-				/*line tool.ergo:212:13*/ return *new([]cycleOut), err
+				/*line tool.ergo:212:13*/ return *new([]CycleOut), err
 				/*line tool.ergo:212:13*/
 			}
 			/*line tool.ergo:212:13*/ return x, nil
 			/*line tool.ergo:212:13*/
-		}, Direct0: ergoWriteSlice_9, Read0: ergoReadSlice_9, Read1: ergoReadSlice_24, Field: nil}, codec[[]cycleOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+		}, Direct0: ergo__WriteSlice_9, Read0: ergo__ReadSlice_9, Read1: ergo__ReadSlice_24, Field: nil}, json__Codec[[]CycleOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
 //line tool.ergo:212:3
 //line tool.ergo:212:10
 		v_8 := ok((v_7 + "\n"))
@@ -7270,15 +7276,15 @@ func cycles(env_1 *env, r rows, o options) []string {
 	var b_1 string = ""
 //line tool.ergo:215:2
 	for _, v_9 := range out {
-		/*line tool.ergo:215:2*/ var c_2 cycleOut = v_9
+		/*line tool.ergo:215:2*/ var c_1 CycleOut = v_9
 //line tool.ergo:216:3
 		t_2 := b_1
 //line tool.ergo:216:11
-		v_10 := ergo.StringsJoin(c_2.Path, " -> ")
+		v_10 := ergo.StringsJoin(c_1.Path, " -> ")
 //line tool.ergo:216:3
 		b_1 = ((t_2 + v_10) + "\n")
 //line tool.ergo:215:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:215:2*/
 	}
 //line tool.ergo:218:2
@@ -7301,7 +7307,7 @@ func cycles(env_1 *env, r rows, o options) []string {
 }
 
 //line tool.ergo:222:1
-type stepOut struct {
+type StepOut struct {
 	/*line tool.ergo:222:1*/ Kind string
 	/*line tool.ergo:222:1*/ From string
 	/*line tool.ergo:222:1*/ To string
@@ -7309,13 +7315,13 @@ type stepOut struct {
 }
 
 //line tool.ergo:224:1
-func stepsOut(r rows, steps []step) []stepOut {
+func stepsOut(r codegraph__Rows, steps []codegraph__Step) []StepOut {
 //line tool.ergo:225:2
-	var out []stepOut = []stepOut{}
+	var out []StepOut = []StepOut{}
 //line tool.ergo:226:2
 	out = ergo.Reserve(out, len(steps))
 	/*line tool.ergo:226:2*/ for _, v := range steps {
-		/*line tool.ergo:226:2*/ var s step = v
+		/*line tool.ergo:226:2*/ var s codegraph__Step = v
 //line tool.ergo:227:3
 		t := out
 		/*line tool.ergo:227:3*/ t_1 := s.Kind
@@ -7323,7 +7329,7 @@ func stepsOut(r rows, steps []step) []stepOut {
 		var v_1 string
 		/*line tool.ergo:227:48*/ {
 			/*line tool.ergo:227:48*/ var id int = s.From
-			/*line tool.ergo:227:48*/ var n nodeRow = r.Nodes[id]
+			/*line tool.ergo:227:48*/ var n codegraph__NodeRow = r.Nodes[id]
 			/*line tool.ergo:227:48*/ if n.Kind != "decl" {
 				/*line tool.ergo:227:48*/ v_1 = n.Name
 				/*line tool.ergo:227:48*/ goto inl
@@ -7348,7 +7354,7 @@ func stepsOut(r rows, steps []step) []stepOut {
 		var v_3 string
 		/*line tool.ergo:227:81*/ {
 			/*line tool.ergo:227:81*/ var id_1 int = s.To
-			/*line tool.ergo:227:81*/ var n_1 nodeRow = r.Nodes[id_1]
+			/*line tool.ergo:227:81*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
 			/*line tool.ergo:227:81*/ if n_1.Kind != "decl" {
 				/*line tool.ergo:227:81*/ v_3 = n_1.Name
 				/*line tool.ergo:227:81*/ goto inl_1
@@ -7369,7 +7375,7 @@ func stepsOut(r rows, steps []step) []stepOut {
 		/*line tool.ergo:227:81*/ inl_1:
 		/*line tool.ergo:227:81*/ _ = 0
 //line tool.ergo:227:9
-		v_5 := append_1[stepOut](t, stepOut{Kind: t_1, From: t_2, To: v_3})
+		v_5 := Append[StepOut](t, StepOut{Kind: t_1, From: t_2, To: v_3})
 //line tool.ergo:227:81
 		out = v_5
 		/*line tool.ergo:227:81*/
@@ -7380,12 +7386,12 @@ func stepsOut(r rows, steps []step) []stepOut {
 }
 
 //line tool.ergo:232:1
-func stepsText(steps []stepOut) string {
+func stepsText(steps []StepOut) string {
 //line tool.ergo:233:2
 	var b string = ""
 //line tool.ergo:234:2
 	for _, v := range steps {
-		/*line tool.ergo:234:2*/ var s stepOut = v
+		/*line tool.ergo:234:2*/ var s StepOut = v
 //line tool.ergo:235:3
 		b = (b + (s.From + " " + s.Kind + " " + s.To + "\n"))
 		/*line tool.ergo:235:3*/
@@ -7396,19 +7402,19 @@ func stepsText(steps []stepOut) string {
 }
 
 //line tool.ergo:242:1
-type missing struct {
+type Missing struct {
 	/*line tool.ergo:242:1*/ Out []string
 	/*line tool.ergo:242:1*/
 }
 
 /*line tool.ergo:242:1*/
-func (e missing) Error() string {
-	/*line tool.ergo:242:1*/ return "Missing" + textmissing(e)
+func (e Missing) Error() string {
+	/*line tool.ergo:242:1*/ return "Missing" + ergo__textMissing(e)
 	/*line tool.ergo:242:1*/
 }
 
 //line tool.ergo:245:1
-func one(r rows, a string) (int, error) {
+func one(r codegraph__Rows, a string) (int, error) {
 //line tool.ergo:246:2
 //line tool.ergo:246:14
 	v := (r).Find(a)
@@ -7416,13 +7422,13 @@ func one(r rows, a string) (int, error) {
 //line tool.ergo:247:2
 	if len(v) == int(0) {
 //line tool.ergo:248:3
-		return 0, missing{Out: []string{"1", "", ("ergo graph: no node is named " + a + "\n")}}
+		return 0, Missing{Out: []string{"1", "", ("ergo graph: no node is named " + a + "\n")}}
 		/*line tool.ergo:248:3*/
 	}
 //line tool.ergo:250:2
 	if len(v) > int(1) {
 //line tool.ergo:251:3
-		return 0, missing{Out: []string{"1", "", ("ergo graph: " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v)), 10)) + " nodes are named " + a + "\n")}}
+		return 0, Missing{Out: []string{"1", "", ("ergo graph: " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v)), 10)) + " nodes are named " + a + "\n")}}
 		/*line tool.ergo:251:3*/
 	}
 //line tool.ergo:253:2
@@ -7431,16 +7437,16 @@ func one(r rows, a string) (int, error) {
 }
 
 //line tool.ergo:256:1
-func why(env_1 *env, r rows, o options, a string, b string) []string {
+func why(env *Env, r codegraph__Rows, o Options, a string, b string) []string {
 //line tool.ergo:256:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:257:2
 //line tool.ergo:257:10
 	v, err := one(r, a)
 //line tool.ergo:257:2
 	if err != nil {
 		/*line tool.ergo:257:2*/ switch caught := err.(type) {
-		/*line tool.ergo:257:2*/ case missing:
+		/*line tool.ergo:257:2*/ case Missing:
 			/*line tool.ergo:257:2*/ m := caught
 //line tool.ergo:259:3
 			return m.Out
@@ -7458,7 +7464,7 @@ func why(env_1 *env, r rows, o options, a string, b string) []string {
 //line tool.ergo:261:2
 	if err_1 != nil {
 		/*line tool.ergo:261:2*/ switch caught_1 := err_1.(type) {
-		/*line tool.ergo:261:2*/ case missing:
+		/*line tool.ergo:261:2*/ case Missing:
 			/*line tool.ergo:261:2*/ m_1 := caught_1
 //line tool.ergo:263:3
 			return m_1.Out
@@ -7486,36 +7492,36 @@ func why(env_1 *env, r rows, o options, a string, b string) []string {
 		if o.Json {
 //line tool.ergo:269:4
 //line tool.ergo:269:14
-			v_6 := encodeMono_i2(env_1, struct {
-				/*line tool.ergo:269:14*/ Enc func(*env, writer, []stepOut) (struct{}, error)
-				/*line tool.ergo:269:14*/ Dec func(*env, reader_1) ([]stepOut, error)
-				/*line tool.ergo:269:14*/ Direct0 func(*env, text_3, []stepOut) text_3
-				/*line tool.ergo:269:14*/ Read0 func(*env, reader) ([]stepOut, error)
-				/*line tool.ergo:269:14*/ Read1 func(*env, stream) ([]stepOut, error)
+			v_6 := json__EncodeMono_i3861161921(env, struct {
+				/*line tool.ergo:269:14*/ Enc func(*Env, Writer, []StepOut) (struct{}, error)
+				/*line tool.ergo:269:14*/ Dec func(*Env, Reader) ([]StepOut, error)
+				/*line tool.ergo:269:14*/ Direct0 func(*Env, json__text, []StepOut) json__text
+				/*line tool.ergo:269:14*/ Read0 func(*Env, json__Reader_1) ([]StepOut, error)
+				/*line tool.ergo:269:14*/ Read1 func(*Env, json__Stream) ([]StepOut, error)
 				/*line tool.ergo:269:14*/ Field *struct {
-					/*line tool.ergo:269:14*/ Enc func(*env, writer, []stepOut) (struct{}, error)
-					/*line tool.ergo:269:14*/ Dec func(*env, reader_1) ([]stepOut, error)
-					/*line tool.ergo:269:14*/ Direct0 func(*env, text_3, []stepOut) text_3
-					/*line tool.ergo:269:14*/ Read0 func(*env, reader) ([]stepOut, error)
-					/*line tool.ergo:269:14*/ Read1 func(*env, stream) ([]stepOut, error)
-					/*line tool.ergo:269:14*/ Absent func([]stepOut) bool
-					/*line tool.ergo:269:14*/ Empty []stepOut
+					/*line tool.ergo:269:14*/ Enc func(*Env, Writer, []StepOut) (struct{}, error)
+					/*line tool.ergo:269:14*/ Dec func(*Env, Reader) ([]StepOut, error)
+					/*line tool.ergo:269:14*/ Direct0 func(*Env, json__text, []StepOut) json__text
+					/*line tool.ergo:269:14*/ Read0 func(*Env, json__Reader_1) ([]StepOut, error)
+					/*line tool.ergo:269:14*/ Read1 func(*Env, json__Stream) ([]StepOut, error)
+					/*line tool.ergo:269:14*/ Absent func([]StepOut) bool
+					/*line tool.ergo:269:14*/ Empty []StepOut
 					/*line tool.ergo:269:14*/
 				}
 				/*line tool.ergo:269:14*/
-			}{Enc: func(e *env, w_1 writer, v_4 []stepOut) (struct{}, error) {
-				/*line tool.ergo:269:14*/ ergoEncodeSlice_13(e, w_1, v_4)
+			}{Enc: func(e *Env, w_1 Writer, v_4 []StepOut) (struct{}, error) {
+				/*line tool.ergo:269:14*/ ergo__EncodeSlice_13(e, w_1, v_4)
 				/*line tool.ergo:269:14*/ return struct{}{}, nil
 				/*line tool.ergo:269:14*/
-			}, Dec: func(e_1 *env, r_1 reader_1) ([]stepOut, error) {
-				/*line tool.ergo:269:14*/ x, err_2 := ergoDecodeSlice_13(e_1, r_1)
+			}, Dec: func(e_1 *Env, r_1 Reader) ([]StepOut, error) {
+				/*line tool.ergo:269:14*/ x, err_2 := ergo__DecodeSlice_13(e_1, r_1)
 				/*line tool.ergo:269:14*/ if err_2 != nil {
-					/*line tool.ergo:269:14*/ return *new([]stepOut), err_2
+					/*line tool.ergo:269:14*/ return *new([]StepOut), err_2
 					/*line tool.ergo:269:14*/
 				}
 				/*line tool.ergo:269:14*/ return x, nil
 				/*line tool.ergo:269:14*/
-			}, Direct0: ergoWriteSlice_13, Read0: ergoReadSlice_13, Read1: ergoReadSlice_28, Field: nil}, codec[[]stepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_3)
+			}, Direct0: ergo__WriteSlice_13, Read0: ergo__ReadSlice_13, Read1: ergo__ReadSlice_28, Field: nil}, json__Codec[[]StepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_3)
 //line tool.ergo:269:4
 //line tool.ergo:269:11
 			v_7 := ok((v_6 + "\n"))
@@ -7563,7 +7569,7 @@ func why(env_1 *env, r rows, o options, a string, b string) []string {
 }
 
 //line tool.ergo:282:1
-type reachedOut struct {
+type ReachedOut struct {
 	/*line tool.ergo:282:1*/ Node string
 	/*line tool.ergo:282:1*/ Kind string
 	/*line tool.ergo:282:1*/ By string
@@ -7571,25 +7577,25 @@ type reachedOut struct {
 }
 
 //line tool.ergo:284:1
-func affected(env_1 *env, r rows, o options, changed_1 []int) []string {
+func affected(env *Env, r codegraph__Rows, o Options, changed []int) []string {
 //line tool.ergo:284:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:285:2
-	var out []reachedOut = []reachedOut{}
+	var out []ReachedOut = []ReachedOut{}
 //line tool.ergo:286:2
 //line tool.ergo:286:11
-	v := (r).Affected(changed_1)
+	v := (r).Affected(changed)
 //line tool.ergo:286:2
 	out = ergo.Reserve(out, len(v))
 	/*line tool.ergo:286:2*/ for _, v_1 := range v {
-		/*line tool.ergo:286:2*/ var x reached = v_1
+		/*line tool.ergo:286:2*/ var x codegraph__Reached = v_1
 //line tool.ergo:287:3
 		t := out
 //line tool.ergo:287:37
 		var v_2 string
 		/*line tool.ergo:287:37*/ {
 			/*line tool.ergo:287:37*/ var id int = x.Node
-			/*line tool.ergo:287:37*/ var n nodeRow = r.Nodes[id]
+			/*line tool.ergo:287:37*/ var n codegraph__NodeRow = r.Nodes[id]
 			/*line tool.ergo:287:37*/ if n.Kind != "decl" {
 				/*line tool.ergo:287:37*/ v_2 = n.Name
 				/*line tool.ergo:287:37*/ goto inl
@@ -7623,7 +7629,7 @@ func affected(env_1 *env, r rows, o options, changed_1 []int) []string {
 			var v_5 string
 			/*line tool.ergo:287:120*/ {
 				/*line tool.ergo:287:120*/ var id_1 int = x.By.To
-				/*line tool.ergo:287:120*/ var n_1 nodeRow = r.Nodes[id_1]
+				/*line tool.ergo:287:120*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
 				/*line tool.ergo:287:120*/ if n_1.Kind != "decl" {
 					/*line tool.ergo:287:120*/ v_5 = n_1.Name
 					/*line tool.ergo:287:120*/ goto inl_1
@@ -7647,47 +7653,47 @@ func affected(env_1 *env, r rows, o options, changed_1 []int) []string {
 			/*line tool.ergo:287:120*/
 		}
 //line tool.ergo:287:9
-		v_7 := append_1[reachedOut](t, reachedOut{Node: t_1, Kind: t_2, By: v_4})
+		v_7 := Append[ReachedOut](t, ReachedOut{Node: t_1, Kind: t_2, By: v_4})
 //line tool.ergo:287:120
 		out = v_7
 //line tool.ergo:286:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:286:2*/
 	}
 //line tool.ergo:289:2
 	if o.Json {
 //line tool.ergo:290:3
 //line tool.ergo:290:13
-		v_10 := encodeMono_i3(env_1, struct {
-			/*line tool.ergo:290:13*/ Enc func(*env, writer, []reachedOut) (struct{}, error)
-			/*line tool.ergo:290:13*/ Dec func(*env, reader_1) ([]reachedOut, error)
-			/*line tool.ergo:290:13*/ Direct0 func(*env, text_3, []reachedOut) text_3
-			/*line tool.ergo:290:13*/ Read0 func(*env, reader) ([]reachedOut, error)
-			/*line tool.ergo:290:13*/ Read1 func(*env, stream) ([]reachedOut, error)
+		v_10 := json__EncodeMono_i4101663027(env, struct {
+			/*line tool.ergo:290:13*/ Enc func(*Env, Writer, []ReachedOut) (struct{}, error)
+			/*line tool.ergo:290:13*/ Dec func(*Env, Reader) ([]ReachedOut, error)
+			/*line tool.ergo:290:13*/ Direct0 func(*Env, json__text, []ReachedOut) json__text
+			/*line tool.ergo:290:13*/ Read0 func(*Env, json__Reader_1) ([]ReachedOut, error)
+			/*line tool.ergo:290:13*/ Read1 func(*Env, json__Stream) ([]ReachedOut, error)
 			/*line tool.ergo:290:13*/ Field *struct {
-				/*line tool.ergo:290:13*/ Enc func(*env, writer, []reachedOut) (struct{}, error)
-				/*line tool.ergo:290:13*/ Dec func(*env, reader_1) ([]reachedOut, error)
-				/*line tool.ergo:290:13*/ Direct0 func(*env, text_3, []reachedOut) text_3
-				/*line tool.ergo:290:13*/ Read0 func(*env, reader) ([]reachedOut, error)
-				/*line tool.ergo:290:13*/ Read1 func(*env, stream) ([]reachedOut, error)
-				/*line tool.ergo:290:13*/ Absent func([]reachedOut) bool
-				/*line tool.ergo:290:13*/ Empty []reachedOut
+				/*line tool.ergo:290:13*/ Enc func(*Env, Writer, []ReachedOut) (struct{}, error)
+				/*line tool.ergo:290:13*/ Dec func(*Env, Reader) ([]ReachedOut, error)
+				/*line tool.ergo:290:13*/ Direct0 func(*Env, json__text, []ReachedOut) json__text
+				/*line tool.ergo:290:13*/ Read0 func(*Env, json__Reader_1) ([]ReachedOut, error)
+				/*line tool.ergo:290:13*/ Read1 func(*Env, json__Stream) ([]ReachedOut, error)
+				/*line tool.ergo:290:13*/ Absent func([]ReachedOut) bool
+				/*line tool.ergo:290:13*/ Empty []ReachedOut
 				/*line tool.ergo:290:13*/
 			}
 			/*line tool.ergo:290:13*/
-		}{Enc: func(e *env, w writer, v_8 []reachedOut) (struct{}, error) {
-			/*line tool.ergo:290:13*/ ergoEncodeSlice_12(e, w, v_8)
+		}{Enc: func(e *Env, w Writer, v_8 []ReachedOut) (struct{}, error) {
+			/*line tool.ergo:290:13*/ ergo__EncodeSlice_12(e, w, v_8)
 			/*line tool.ergo:290:13*/ return struct{}{}, nil
 			/*line tool.ergo:290:13*/
-		}, Dec: func(e_1 *env, r_1 reader_1) ([]reachedOut, error) {
-			/*line tool.ergo:290:13*/ x_1, err := ergoDecodeSlice_12(e_1, r_1)
+		}, Dec: func(e_1 *Env, r_1 Reader) ([]ReachedOut, error) {
+			/*line tool.ergo:290:13*/ x_1, err := ergo__DecodeSlice_12(e_1, r_1)
 			/*line tool.ergo:290:13*/ if err != nil {
-				/*line tool.ergo:290:13*/ return *new([]reachedOut), err
+				/*line tool.ergo:290:13*/ return *new([]ReachedOut), err
 				/*line tool.ergo:290:13*/
 			}
 			/*line tool.ergo:290:13*/ return x_1, nil
 			/*line tool.ergo:290:13*/
-		}, Direct0: ergoWriteSlice_12, Read0: ergoReadSlice_12, Read1: ergoReadSlice_27, Field: nil}, codec[[]reachedOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+		}, Direct0: ergo__WriteSlice_12, Read0: ergo__ReadSlice_12, Read1: ergo__ReadSlice_27, Field: nil}, json__Codec[[]ReachedOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
 //line tool.ergo:290:3
 //line tool.ergo:290:10
 		v_11 := ok((v_10 + "\n"))
@@ -7699,7 +7705,7 @@ func affected(env_1 *env, r rows, o options, changed_1 []int) []string {
 	var b_1 string = ""
 //line tool.ergo:293:2
 	for _, v_12 := range out {
-		/*line tool.ergo:293:2*/ var x_2 reachedOut = v_12
+		/*line tool.ergo:293:2*/ var x_2 ReachedOut = v_12
 //line tool.ergo:294:3
 		t_3 := b_1
 		/*line tool.ergo:294:3*/ var v_13 string
@@ -7715,7 +7721,7 @@ func affected(env_1 *env, r rows, o options, changed_1 []int) []string {
 		}
 		/*line tool.ergo:294:61*/ b_1 = (t_3 + v_13)
 //line tool.ergo:293:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:293:2*/
 	}
 //line tool.ergo:296:2
@@ -7738,7 +7744,7 @@ func affected(env_1 *env, r rows, o options, changed_1 []int) []string {
 }
 
 //line tool.ergo:302:1
-type hiddenOut struct {
+type HiddenOut struct {
 	/*line tool.ergo:302:1*/ From string
 	/*line tool.ergo:302:1*/ To string
 	/*line tool.ergo:302:1*/ Package string
@@ -7748,25 +7754,25 @@ type hiddenOut struct {
 }
 
 //line tool.ergo:304:1
-func hidden(env_1 *env, r rows, o options) []string {
+func hidden(env *Env, r codegraph__Rows, o Options) []string {
 //line tool.ergo:304:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:305:2
-	var out []hiddenOut = []hiddenOut{}
+	var out []HiddenOut = []HiddenOut{}
 //line tool.ergo:306:2
 //line tool.ergo:306:11
 	v := (r).Hidden()
 //line tool.ergo:306:2
 	out = ergo.Reserve(out, len(v))
 	/*line tool.ergo:306:2*/ for _, v_1 := range v {
-		/*line tool.ergo:306:2*/ var h hiddenUse = v_1
+		/*line tool.ergo:306:2*/ var h codegraph__HiddenUse = v_1
 //line tool.ergo:307:3
 		t := out
 //line tool.ergo:307:36
 		var v_2 string
 		/*line tool.ergo:307:36*/ {
 			/*line tool.ergo:307:36*/ var id int = h.From
-			/*line tool.ergo:307:36*/ var n nodeRow = r.Nodes[id]
+			/*line tool.ergo:307:36*/ var n codegraph__NodeRow = r.Nodes[id]
 			/*line tool.ergo:307:36*/ if n.Kind != "decl" {
 				/*line tool.ergo:307:36*/ v_2 = n.Name
 				/*line tool.ergo:307:36*/ goto inl
@@ -7791,7 +7797,7 @@ func hidden(env_1 *env, r rows, o options) []string {
 		var v_4 string
 		/*line tool.ergo:307:69*/ {
 			/*line tool.ergo:307:69*/ var id_1 int = h.To
-			/*line tool.ergo:307:69*/ var n_1 nodeRow = r.Nodes[id_1]
+			/*line tool.ergo:307:69*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
 			/*line tool.ergo:307:69*/ if n_1.Kind != "decl" {
 				/*line tool.ergo:307:69*/ v_4 = n_1.Name
 				/*line tool.ergo:307:69*/ goto inl_1
@@ -7816,7 +7822,7 @@ func hidden(env_1 *env, r rows, o options) []string {
 		var v_6 string
 		/*line tool.ergo:307:105*/ {
 			/*line tool.ergo:307:105*/ var id_2 int = h.Package
-			/*line tool.ergo:307:105*/ var n_2 nodeRow = r.Nodes[id_2]
+			/*line tool.ergo:307:105*/ var n_2 codegraph__NodeRow = r.Nodes[id_2]
 			/*line tool.ergo:307:105*/ if n_2.Kind != "decl" {
 				/*line tool.ergo:307:105*/ v_6 = n_2.Name
 				/*line tool.ergo:307:105*/ goto inl_2
@@ -7849,7 +7855,7 @@ func hidden(env_1 *env, r rows, o options) []string {
 			var v_9 string
 			/*line tool.ergo:307:169*/ {
 				/*line tool.ergo:307:169*/ var id_3 int = h.Via
-				/*line tool.ergo:307:169*/ var n_3 nodeRow = r.Nodes[id_3]
+				/*line tool.ergo:307:169*/ var n_3 codegraph__NodeRow = r.Nodes[id_3]
 				/*line tool.ergo:307:169*/ if n_3.Kind != "decl" {
 					/*line tool.ergo:307:169*/ v_9 = n_3.Name
 					/*line tool.ergo:307:169*/ goto inl_3
@@ -7873,47 +7879,47 @@ func hidden(env_1 *env, r rows, o options) []string {
 			/*line tool.ergo:307:169*/
 		}
 //line tool.ergo:307:9
-		v_11 := append_1[hiddenOut](t, hiddenOut{From: t_1, To: t_2, Package: t_3, Via: v_8, How: h.How})
+		v_11 := Append[HiddenOut](t, HiddenOut{From: t_1, To: t_2, Package: t_3, Via: v_8, How: h.How})
 //line tool.ergo:307:169
 		out = v_11
 //line tool.ergo:306:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:306:2*/
 	}
 //line tool.ergo:309:2
 	if o.Json {
 //line tool.ergo:310:3
 //line tool.ergo:310:13
-		v_14 := encodeMono_i4(env_1, struct {
-			/*line tool.ergo:310:13*/ Enc func(*env, writer, []hiddenOut) (struct{}, error)
-			/*line tool.ergo:310:13*/ Dec func(*env, reader_1) ([]hiddenOut, error)
-			/*line tool.ergo:310:13*/ Direct0 func(*env, text_3, []hiddenOut) text_3
-			/*line tool.ergo:310:13*/ Read0 func(*env, reader) ([]hiddenOut, error)
-			/*line tool.ergo:310:13*/ Read1 func(*env, stream) ([]hiddenOut, error)
+		v_14 := json__EncodeMono_i4207365747(env, struct {
+			/*line tool.ergo:310:13*/ Enc func(*Env, Writer, []HiddenOut) (struct{}, error)
+			/*line tool.ergo:310:13*/ Dec func(*Env, Reader) ([]HiddenOut, error)
+			/*line tool.ergo:310:13*/ Direct0 func(*Env, json__text, []HiddenOut) json__text
+			/*line tool.ergo:310:13*/ Read0 func(*Env, json__Reader_1) ([]HiddenOut, error)
+			/*line tool.ergo:310:13*/ Read1 func(*Env, json__Stream) ([]HiddenOut, error)
 			/*line tool.ergo:310:13*/ Field *struct {
-				/*line tool.ergo:310:13*/ Enc func(*env, writer, []hiddenOut) (struct{}, error)
-				/*line tool.ergo:310:13*/ Dec func(*env, reader_1) ([]hiddenOut, error)
-				/*line tool.ergo:310:13*/ Direct0 func(*env, text_3, []hiddenOut) text_3
-				/*line tool.ergo:310:13*/ Read0 func(*env, reader) ([]hiddenOut, error)
-				/*line tool.ergo:310:13*/ Read1 func(*env, stream) ([]hiddenOut, error)
-				/*line tool.ergo:310:13*/ Absent func([]hiddenOut) bool
-				/*line tool.ergo:310:13*/ Empty []hiddenOut
+				/*line tool.ergo:310:13*/ Enc func(*Env, Writer, []HiddenOut) (struct{}, error)
+				/*line tool.ergo:310:13*/ Dec func(*Env, Reader) ([]HiddenOut, error)
+				/*line tool.ergo:310:13*/ Direct0 func(*Env, json__text, []HiddenOut) json__text
+				/*line tool.ergo:310:13*/ Read0 func(*Env, json__Reader_1) ([]HiddenOut, error)
+				/*line tool.ergo:310:13*/ Read1 func(*Env, json__Stream) ([]HiddenOut, error)
+				/*line tool.ergo:310:13*/ Absent func([]HiddenOut) bool
+				/*line tool.ergo:310:13*/ Empty []HiddenOut
 				/*line tool.ergo:310:13*/
 			}
 			/*line tool.ergo:310:13*/
-		}{Enc: func(e *env, w writer, v_12 []hiddenOut) (struct{}, error) {
-			/*line tool.ergo:310:13*/ ergoEncodeSlice_11(e, w, v_12)
+		}{Enc: func(e *Env, w Writer, v_12 []HiddenOut) (struct{}, error) {
+			/*line tool.ergo:310:13*/ ergo__EncodeSlice_11(e, w, v_12)
 			/*line tool.ergo:310:13*/ return struct{}{}, nil
 			/*line tool.ergo:310:13*/
-		}, Dec: func(e_1 *env, r_1 reader_1) ([]hiddenOut, error) {
-			/*line tool.ergo:310:13*/ x, err := ergoDecodeSlice_11(e_1, r_1)
+		}, Dec: func(e_1 *Env, r_1 Reader) ([]HiddenOut, error) {
+			/*line tool.ergo:310:13*/ x, err := ergo__DecodeSlice_11(e_1, r_1)
 			/*line tool.ergo:310:13*/ if err != nil {
-				/*line tool.ergo:310:13*/ return *new([]hiddenOut), err
+				/*line tool.ergo:310:13*/ return *new([]HiddenOut), err
 				/*line tool.ergo:310:13*/
 			}
 			/*line tool.ergo:310:13*/ return x, nil
 			/*line tool.ergo:310:13*/
-		}, Direct0: ergoWriteSlice_11, Read0: ergoReadSlice_11, Read1: ergoReadSlice_26, Field: nil}, codec[[]hiddenOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+		}, Direct0: ergo__WriteSlice_11, Read0: ergo__ReadSlice_11, Read1: ergo__ReadSlice_26, Field: nil}, json__Codec[[]HiddenOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
 //line tool.ergo:310:3
 //line tool.ergo:310:10
 		v_15 := ok((v_14 + "\n"))
@@ -7925,7 +7931,7 @@ func hidden(env_1 *env, r rows, o options) []string {
 	var b_1 string = ""
 //line tool.ergo:313:2
 	for _, v_16 := range out {
-		/*line tool.ergo:313:2*/ var h_1 hiddenOut = v_16
+		/*line tool.ergo:313:2*/ var h_1 HiddenOut = v_16
 //line tool.ergo:314:3
 		t_4 := (b_1 + (h_1.From + " uses " + h_1.To + " (" + h_1.How + ") without importing " + h_1.Package))
 		/*line tool.ergo:314:3*/ var v_17 string
@@ -7941,7 +7947,7 @@ func hidden(env_1 *env, r rows, o options) []string {
 		}
 		/*line tool.ergo:314:110*/ b_1 = ((t_4 + v_17) + "\n")
 //line tool.ergo:313:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:313:2*/
 	}
 //line tool.ergo:316:2
@@ -7964,9 +7970,9 @@ func hidden(env_1 *env, r rows, o options) []string {
 }
 
 //line tool.ergo:319:1
-func chains(env_1 *env, r rows, o options) []string {
+func chains(env *Env, r codegraph__Rows, o Options) []string {
 //line tool.ergo:319:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:320:2
 	var out [][]string = [][]string{}
 //line tool.ergo:321:2
@@ -7975,54 +7981,54 @@ func chains(env_1 *env, r rows, o options) []string {
 //line tool.ergo:321:2
 	out = ergo.Reserve(out, len(v))
 	/*line tool.ergo:321:2*/ for _, v_1 := range v {
-		/*line tool.ergo:321:2*/ var c_1 []int = v_1
+		/*line tool.ergo:321:2*/ var c []int = v_1
 //line tool.ergo:322:3
 		t := out
 //line tool.ergo:322:20
-		v_2 := names(r, c_1)
+		v_2 := names(r, c)
 //line tool.ergo:322:3
 //line tool.ergo:322:9
-		v_3 := append_1[[]string](t, v_2)
+		v_3 := Append[[]string](t, v_2)
 //line tool.ergo:322:3
 		out = v_3
 //line tool.ergo:321:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:321:2*/
 	}
 //line tool.ergo:324:2
 	if o.Json {
 //line tool.ergo:325:3
 //line tool.ergo:325:13
-		v_6 := encodeMono_i5(env_1, struct {
-			/*line tool.ergo:325:13*/ Enc func(*env, writer, [][]string) (struct{}, error)
-			/*line tool.ergo:325:13*/ Dec func(*env, reader_1) ([][]string, error)
-			/*line tool.ergo:325:13*/ Direct0 func(*env, text_3, [][]string) text_3
-			/*line tool.ergo:325:13*/ Read0 func(*env, reader) ([][]string, error)
-			/*line tool.ergo:325:13*/ Read1 func(*env, stream) ([][]string, error)
+		v_6 := json__EncodeMono_i2956508152(env, struct {
+			/*line tool.ergo:325:13*/ Enc func(*Env, Writer, [][]string) (struct{}, error)
+			/*line tool.ergo:325:13*/ Dec func(*Env, Reader) ([][]string, error)
+			/*line tool.ergo:325:13*/ Direct0 func(*Env, json__text, [][]string) json__text
+			/*line tool.ergo:325:13*/ Read0 func(*Env, json__Reader_1) ([][]string, error)
+			/*line tool.ergo:325:13*/ Read1 func(*Env, json__Stream) ([][]string, error)
 			/*line tool.ergo:325:13*/ Field *struct {
-				/*line tool.ergo:325:13*/ Enc func(*env, writer, [][]string) (struct{}, error)
-				/*line tool.ergo:325:13*/ Dec func(*env, reader_1) ([][]string, error)
-				/*line tool.ergo:325:13*/ Direct0 func(*env, text_3, [][]string) text_3
-				/*line tool.ergo:325:13*/ Read0 func(*env, reader) ([][]string, error)
-				/*line tool.ergo:325:13*/ Read1 func(*env, stream) ([][]string, error)
+				/*line tool.ergo:325:13*/ Enc func(*Env, Writer, [][]string) (struct{}, error)
+				/*line tool.ergo:325:13*/ Dec func(*Env, Reader) ([][]string, error)
+				/*line tool.ergo:325:13*/ Direct0 func(*Env, json__text, [][]string) json__text
+				/*line tool.ergo:325:13*/ Read0 func(*Env, json__Reader_1) ([][]string, error)
+				/*line tool.ergo:325:13*/ Read1 func(*Env, json__Stream) ([][]string, error)
 				/*line tool.ergo:325:13*/ Absent func([][]string) bool
 				/*line tool.ergo:325:13*/ Empty [][]string
 				/*line tool.ergo:325:13*/
 			}
 			/*line tool.ergo:325:13*/
-		}{Enc: func(e *env, w writer, v_4 [][]string) (struct{}, error) {
-			/*line tool.ergo:325:13*/ ergoEncodeSlice_1(e, w, v_4)
+		}{Enc: func(e *Env, w Writer, v_4 [][]string) (struct{}, error) {
+			/*line tool.ergo:325:13*/ ergo__EncodeSlice_1(e, w, v_4)
 			/*line tool.ergo:325:13*/ return struct{}{}, nil
 			/*line tool.ergo:325:13*/
-		}, Dec: func(e_1 *env, r_1 reader_1) ([][]string, error) {
-			/*line tool.ergo:325:13*/ x, err := ergoDecodeSlice_1(e_1, r_1)
+		}, Dec: func(e_1 *Env, r_1 Reader) ([][]string, error) {
+			/*line tool.ergo:325:13*/ x, err := ergo__DecodeSlice_1(e_1, r_1)
 			/*line tool.ergo:325:13*/ if err != nil {
 				/*line tool.ergo:325:13*/ return *new([][]string), err
 				/*line tool.ergo:325:13*/
 			}
 			/*line tool.ergo:325:13*/ return x, nil
 			/*line tool.ergo:325:13*/
-		}, Direct0: ergoWriteSlice_1, Read0: ergoReadSlice_1, Read1: ergoReadSlice_16, Field: nil}, codec[[][]string]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+		}, Direct0: ergo__WriteSlice_1, Read0: ergo__ReadSlice_1, Read1: ergo__ReadSlice_16, Field: nil}, json__Codec[[][]string]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
 //line tool.ergo:325:3
 //line tool.ergo:325:10
 		v_7 := ok((v_6 + "\n"))
@@ -8034,15 +8040,15 @@ func chains(env_1 *env, r rows, o options) []string {
 	var b_1 string = ""
 //line tool.ergo:328:2
 	for _, v_8 := range out {
-		/*line tool.ergo:328:2*/ var c_2 []string = v_8
+		/*line tool.ergo:328:2*/ var c_1 []string = v_8
 //line tool.ergo:329:3
-		t_1 := (b_1 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(len(c_2)), 10)) + " "))
+		t_1 := (b_1 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(len(c_1)), 10)) + " "))
 //line tool.ergo:329:26
-		v_9 := ergo.StringsJoin(c_2, " -> ")
+		v_9 := ergo.StringsJoin(c_1, " -> ")
 //line tool.ergo:329:3
 		b_1 = ((t_1 + v_9) + "\n")
 //line tool.ergo:328:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:328:2*/
 	}
 //line tool.ergo:331:2
@@ -8065,7 +8071,7 @@ func chains(env_1 *env, r rows, o options) []string {
 }
 
 //line tool.ergo:335:1
-type fanOut struct {
+type FanOut struct {
 	/*line tool.ergo:335:1*/ Node string
 	/*line tool.ergo:335:1*/ In int
 	/*line tool.ergo:335:1*/ Out int
@@ -8073,25 +8079,25 @@ type fanOut struct {
 }
 
 //line tool.ergo:337:1
-func fan(env_1 *env, r rows, o options) []string {
+func fan(env *Env, r codegraph__Rows, o Options) []string {
 //line tool.ergo:337:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:338:2
-	var out []fanOut = []fanOut{}
+	var out []FanOut = []FanOut{}
 //line tool.ergo:339:2
 //line tool.ergo:339:11
 	v := (r).Fan(o.Level, o.Tests)
 //line tool.ergo:339:2
 	out = ergo.Reserve(out, len(v))
 	/*line tool.ergo:339:2*/ for _, v_1 := range v {
-		/*line tool.ergo:339:2*/ var f fanRow = v_1
+		/*line tool.ergo:339:2*/ var f codegraph__FanRow = v_1
 //line tool.ergo:340:3
 		t := out
 //line tool.ergo:340:33
 		var v_2 string
 		/*line tool.ergo:340:33*/ {
 			/*line tool.ergo:340:33*/ var id int = f.Node
-			/*line tool.ergo:340:33*/ var n nodeRow = r.Nodes[id]
+			/*line tool.ergo:340:33*/ var n codegraph__NodeRow = r.Nodes[id]
 			/*line tool.ergo:340:33*/ if n.Kind != "decl" {
 				/*line tool.ergo:340:33*/ v_2 = n.Name
 				/*line tool.ergo:340:33*/ goto inl
@@ -8112,47 +8118,47 @@ func fan(env_1 *env, r rows, o options) []string {
 		/*line tool.ergo:340:33*/ inl:
 		/*line tool.ergo:340:33*/ _ = 0
 //line tool.ergo:340:9
-		v_4 := append_1[fanOut](t, fanOut{Node: v_2, In: f.In, Out: f.Out})
+		v_4 := Append[FanOut](t, FanOut{Node: v_2, In: f.In, Out: f.Out})
 //line tool.ergo:340:33
 		out = v_4
 //line tool.ergo:339:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:339:2*/
 	}
 //line tool.ergo:342:2
 	if o.Json {
 //line tool.ergo:343:3
 //line tool.ergo:343:13
-		v_7 := encodeMono_i6(env_1, struct {
-			/*line tool.ergo:343:13*/ Enc func(*env, writer, []fanOut) (struct{}, error)
-			/*line tool.ergo:343:13*/ Dec func(*env, reader_1) ([]fanOut, error)
-			/*line tool.ergo:343:13*/ Direct0 func(*env, text_3, []fanOut) text_3
-			/*line tool.ergo:343:13*/ Read0 func(*env, reader) ([]fanOut, error)
-			/*line tool.ergo:343:13*/ Read1 func(*env, stream) ([]fanOut, error)
+		v_7 := json__EncodeMono_i1457589478(env, struct {
+			/*line tool.ergo:343:13*/ Enc func(*Env, Writer, []FanOut) (struct{}, error)
+			/*line tool.ergo:343:13*/ Dec func(*Env, Reader) ([]FanOut, error)
+			/*line tool.ergo:343:13*/ Direct0 func(*Env, json__text, []FanOut) json__text
+			/*line tool.ergo:343:13*/ Read0 func(*Env, json__Reader_1) ([]FanOut, error)
+			/*line tool.ergo:343:13*/ Read1 func(*Env, json__Stream) ([]FanOut, error)
 			/*line tool.ergo:343:13*/ Field *struct {
-				/*line tool.ergo:343:13*/ Enc func(*env, writer, []fanOut) (struct{}, error)
-				/*line tool.ergo:343:13*/ Dec func(*env, reader_1) ([]fanOut, error)
-				/*line tool.ergo:343:13*/ Direct0 func(*env, text_3, []fanOut) text_3
-				/*line tool.ergo:343:13*/ Read0 func(*env, reader) ([]fanOut, error)
-				/*line tool.ergo:343:13*/ Read1 func(*env, stream) ([]fanOut, error)
-				/*line tool.ergo:343:13*/ Absent func([]fanOut) bool
-				/*line tool.ergo:343:13*/ Empty []fanOut
+				/*line tool.ergo:343:13*/ Enc func(*Env, Writer, []FanOut) (struct{}, error)
+				/*line tool.ergo:343:13*/ Dec func(*Env, Reader) ([]FanOut, error)
+				/*line tool.ergo:343:13*/ Direct0 func(*Env, json__text, []FanOut) json__text
+				/*line tool.ergo:343:13*/ Read0 func(*Env, json__Reader_1) ([]FanOut, error)
+				/*line tool.ergo:343:13*/ Read1 func(*Env, json__Stream) ([]FanOut, error)
+				/*line tool.ergo:343:13*/ Absent func([]FanOut) bool
+				/*line tool.ergo:343:13*/ Empty []FanOut
 				/*line tool.ergo:343:13*/
 			}
 			/*line tool.ergo:343:13*/
-		}{Enc: func(e *env, w writer, v_5 []fanOut) (struct{}, error) {
-			/*line tool.ergo:343:13*/ ergoEncodeSlice_10(e, w, v_5)
+		}{Enc: func(e *Env, w Writer, v_5 []FanOut) (struct{}, error) {
+			/*line tool.ergo:343:13*/ ergo__EncodeSlice_10(e, w, v_5)
 			/*line tool.ergo:343:13*/ return struct{}{}, nil
 			/*line tool.ergo:343:13*/
-		}, Dec: func(e_1 *env, r_1 reader_1) ([]fanOut, error) {
-			/*line tool.ergo:343:13*/ x, err := ergoDecodeSlice_10(e_1, r_1)
+		}, Dec: func(e_1 *Env, r_1 Reader) ([]FanOut, error) {
+			/*line tool.ergo:343:13*/ x, err := ergo__DecodeSlice_10(e_1, r_1)
 			/*line tool.ergo:343:13*/ if err != nil {
-				/*line tool.ergo:343:13*/ return *new([]fanOut), err
+				/*line tool.ergo:343:13*/ return *new([]FanOut), err
 				/*line tool.ergo:343:13*/
 			}
 			/*line tool.ergo:343:13*/ return x, nil
 			/*line tool.ergo:343:13*/
-		}, Direct0: ergoWriteSlice_10, Read0: ergoReadSlice_10, Read1: ergoReadSlice_25, Field: nil}, codec[[]fanOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+		}, Direct0: ergo__WriteSlice_10, Read0: ergo__ReadSlice_10, Read1: ergo__ReadSlice_25, Field: nil}, json__Codec[[]FanOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
 //line tool.ergo:343:3
 //line tool.ergo:343:10
 		v_8 := ok((v_7 + "\n"))
@@ -8164,11 +8170,11 @@ func fan(env_1 *env, r rows, o options) []string {
 	var b_1 string = ""
 //line tool.ergo:346:2
 	for _, v_9 := range out {
-		/*line tool.ergo:346:2*/ var f_1 fanOut = v_9
+		/*line tool.ergo:346:2*/ var f_1 FanOut = v_9
 //line tool.ergo:347:3
 		b_1 = (b_1 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(f_1.In), 10)) + " " + string(strconv.AppendInt(make([]byte, 0, 20), int64(f_1.Out), 10)) + " " + f_1.Node + "\n"))
 //line tool.ergo:346:2
-		env_1.task.Check()
+		env.task.Check()
 		/*line tool.ergo:346:2*/
 	}
 //line tool.ergo:349:2
@@ -8178,9 +8184,9 @@ func fan(env_1 *env, r rows, o options) []string {
 }
 
 //line tool.ergo:352:1
-func layers(env_1 *env, r rows, o options, patterns []string) []string {
+func layers(env *Env, r codegraph__Rows, o Options, patterns []string) []string {
 //line tool.ergo:352:1
-	env_1.task.Check()
+	env.task.Check()
 //line tool.ergo:353:2
 	t := r
 //line tool.ergo:353:24
@@ -8193,36 +8199,36 @@ func layers(env_1 *env, r rows, o options, patterns []string) []string {
 	if o.Json {
 //line tool.ergo:355:3
 //line tool.ergo:355:13
-		v_4 := encodeMono_i2(env_1, struct {
-			/*line tool.ergo:355:13*/ Enc func(*env, writer, []stepOut) (struct{}, error)
-			/*line tool.ergo:355:13*/ Dec func(*env, reader_1) ([]stepOut, error)
-			/*line tool.ergo:355:13*/ Direct0 func(*env, text_3, []stepOut) text_3
-			/*line tool.ergo:355:13*/ Read0 func(*env, reader) ([]stepOut, error)
-			/*line tool.ergo:355:13*/ Read1 func(*env, stream) ([]stepOut, error)
+		v_4 := json__EncodeMono_i3861161921(env, struct {
+			/*line tool.ergo:355:13*/ Enc func(*Env, Writer, []StepOut) (struct{}, error)
+			/*line tool.ergo:355:13*/ Dec func(*Env, Reader) ([]StepOut, error)
+			/*line tool.ergo:355:13*/ Direct0 func(*Env, json__text, []StepOut) json__text
+			/*line tool.ergo:355:13*/ Read0 func(*Env, json__Reader_1) ([]StepOut, error)
+			/*line tool.ergo:355:13*/ Read1 func(*Env, json__Stream) ([]StepOut, error)
 			/*line tool.ergo:355:13*/ Field *struct {
-				/*line tool.ergo:355:13*/ Enc func(*env, writer, []stepOut) (struct{}, error)
-				/*line tool.ergo:355:13*/ Dec func(*env, reader_1) ([]stepOut, error)
-				/*line tool.ergo:355:13*/ Direct0 func(*env, text_3, []stepOut) text_3
-				/*line tool.ergo:355:13*/ Read0 func(*env, reader) ([]stepOut, error)
-				/*line tool.ergo:355:13*/ Read1 func(*env, stream) ([]stepOut, error)
-				/*line tool.ergo:355:13*/ Absent func([]stepOut) bool
-				/*line tool.ergo:355:13*/ Empty []stepOut
+				/*line tool.ergo:355:13*/ Enc func(*Env, Writer, []StepOut) (struct{}, error)
+				/*line tool.ergo:355:13*/ Dec func(*Env, Reader) ([]StepOut, error)
+				/*line tool.ergo:355:13*/ Direct0 func(*Env, json__text, []StepOut) json__text
+				/*line tool.ergo:355:13*/ Read0 func(*Env, json__Reader_1) ([]StepOut, error)
+				/*line tool.ergo:355:13*/ Read1 func(*Env, json__Stream) ([]StepOut, error)
+				/*line tool.ergo:355:13*/ Absent func([]StepOut) bool
+				/*line tool.ergo:355:13*/ Empty []StepOut
 				/*line tool.ergo:355:13*/
 			}
 			/*line tool.ergo:355:13*/
-		}{Enc: func(e *env, w writer, v_2 []stepOut) (struct{}, error) {
-			/*line tool.ergo:355:13*/ ergoEncodeSlice_13(e, w, v_2)
+		}{Enc: func(e *Env, w Writer, v_2 []StepOut) (struct{}, error) {
+			/*line tool.ergo:355:13*/ ergo__EncodeSlice_13(e, w, v_2)
 			/*line tool.ergo:355:13*/ return struct{}{}, nil
 			/*line tool.ergo:355:13*/
-		}, Dec: func(e_1 *env, r_1 reader_1) ([]stepOut, error) {
-			/*line tool.ergo:355:13*/ x, err := ergoDecodeSlice_13(e_1, r_1)
+		}, Dec: func(e_1 *Env, r_1 Reader) ([]StepOut, error) {
+			/*line tool.ergo:355:13*/ x, err := ergo__DecodeSlice_13(e_1, r_1)
 			/*line tool.ergo:355:13*/ if err != nil {
-				/*line tool.ergo:355:13*/ return *new([]stepOut), err
+				/*line tool.ergo:355:13*/ return *new([]StepOut), err
 				/*line tool.ergo:355:13*/
 			}
 			/*line tool.ergo:355:13*/ return x, nil
 			/*line tool.ergo:355:13*/
-		}, Direct0: ergoWriteSlice_13, Read0: ergoReadSlice_13, Read1: ergoReadSlice_28, Field: nil}, codec[[]stepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_1)
+		}, Direct0: ergo__WriteSlice_13, Read0: ergo__ReadSlice_13, Read1: ergo__ReadSlice_28, Field: nil}, json__Codec[[]StepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_1)
 //line tool.ergo:355:3
 //line tool.ergo:355:10
 		v_5 := ok((v_4 + "\n"))
@@ -8251,19 +8257,19 @@ func layers(env_1 *env, r rows, o options, patterns []string) []string {
 }
 
 //line tool.ergo:360:1
-func ok(text_5 string) []string {
+func ok(text string) []string {
 //line tool.ergo:360:33
-	return []string{"0", text_5, ""}
+	return []string{"0", text, ""}
 	/*line tool.ergo:360:33*/
 }
 
 // ergoInit runs the package-level lets in Go's initialization order,
 // inside the program's root task.
 /*line tool.ergo:360:33*/
-func ergoInit(env_1 *env) {
+func ergoInit(env *Env) {
 //line std/json/stream.ergo:397:5
 	{
-		/*line std/json/stream.ergo:397:5*/ badTok = tok{kind: kBad, text: "", raw: false}
+		/*line std/json/stream.ergo:397:5*/ json__badTok = json__tok{kind: json__kBad, text: "", raw: false}
 		/*line std/json/stream.ergo:397:5*/
 	}
 	/*line std/json/stream.ergo:397:5*/
