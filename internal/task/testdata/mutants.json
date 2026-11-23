@@ -155,6 +155,15 @@
       "killers": ["internal/task:TestStatedEnvIsTheWholeEnvironment"]
     },
     {
+      "name": "child-env-host-path",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/child.go",
+      "from": "\tprogram, err := runtimeexec.ExecLookPath(name, path)\n",
+      "to": "\tprogram, err := runtimeexec.ExecLookPath(name, os.Getenv(\"PATH\")+path[:0])\n",
+      "rule": "A child resolves a bare program name on its own PATH, never the parent's.",
+      "killers": ["internal/task:TestStatedEnvIsTheWholeEnvironment"]
+    },
+    {
       "name": "child-env-unnamed-passes",
       "origin": "wf10 GB TASK-GATE (WS2)",
       "file": "internal/task/child.go",

@@ -57,7 +57,10 @@ func goClosure(ctx context.Context, env ChildEnv, root, pkg string, test bool) (
 	if test {
 		args = append(args, "-test")
 	}
-	cmd := command(ctx, env, root, "go", append(args, pkg)...)
+	cmd, err := command(ctx, env, root, "go", append(args, pkg)...)
+	if err != nil {
+		return Inputs{}, fmt.Errorf("go list %s: %w", pkg, err)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -178,12 +181,15 @@ func GoNode(g GoGen, env ChildEnv) (Node, error) {
 			return in, nil
 		},
 		Run: func(ctx context.Context, root string) ([]byte, error) {
-			cmd := command(ctx, env, root, "go", g.Command[1:]...)
+			cmd, err := command(ctx, env, root, "go", g.Command[1:]...)
+			if err != nil {
+				return nil, err
+			}
 			var out bytes.Buffer
 			cmd.Stdout, cmd.Stderr = &out, &out
 			ownGroup(cmd)
 			cmd.Cancel = func() error { killGroup(cmd); return nil }
-			err := cmd.Run()
+			err = cmd.Run()
 			killGroup(cmd)
 			return out.Bytes(), err
 		},

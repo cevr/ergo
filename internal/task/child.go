@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"ergo.local/prototype/internal/budget"
+	runtimeexec "ergo.local/prototype/runtime/v1/exec"
 )
 
 // ChildEnv is the whole environment a child of the runner sees: sorted
@@ -94,16 +95,26 @@ func (env ChildEnv) environ() []string {
 	return out
 }
 
-// command is the one place the runner starts a child (TestChildrenStartInOnePlace):
-// name with args in dir, its environment exactly env. The program is
-// looked up on the host's PATH until STD-EXEC-ENV's lookup on the child's
-// own PATH replaces it (row TASK-GATE-EXEC-POINT); env holds the host's
-// PATH, so the two agree while env's PATH is the host's.
-func command(ctx context.Context, env ChildEnv, dir, name string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, name, args...)
+// command starts a child with exactly env. Resolve bare names with std
+// exec's resolver before constructing the context-bound command, so
+// os/exec does not consult the parent's PATH.
+func command(ctx context.Context, env ChildEnv, dir, name string, args ...string) (*exec.Cmd, error) {
+	path := ""
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
+			path = v
+			break
+		}
+	}
+	program, err := runtimeexec.ExecLookPath(name, path)
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, program, args...)
+	cmd.Args[0] = name
 	cmd.Dir = dir
 	cmd.Env = env.environ()
-	return cmd
+	return cmd, nil
 }
 
 // Changed are the paths below root that differ from the commit base:
@@ -114,17 +125,20 @@ func Changed(ctx context.Context, root, base string) ([]string, error) {
 	env := StatedEnv(nil, nil)
 	var out []string
 	for _, args := range [][]string{
-		{"diff", "--name-only", "--relative", "--no-renames", base, "--", "."},
-		{"ls-files", "--others", "--exclude-standard", "--", "."},
+		{"diff", "--name-only", "-z", "--relative", "--no-renames", "--end-of-options", base, "--", "."},
+		{"ls-files", "--others", "--exclude-standard", "-z", "--", "."},
 	} {
-		cmd := command(ctx, env, root, "git", append([]string{"-c", "core.quotePath=false"}, args...)...)
+		cmd, err := command(ctx, env, root, "git", args...)
+		if err != nil {
+			return nil, &gitError{args: args, err: err}
+		}
 		var stderr strings.Builder
 		cmd.Stderr = &stderr
 		text, err := cmd.Output()
 		if err != nil {
 			return nil, &gitError{args: args, err: err, stderr: strings.TrimSpace(stderr.String())}
 		}
-		for _, l := range strings.Split(string(text), "\n") {
+		for l := range strings.SplitSeq(string(text), "\x00") {
 			if l != "" {
 				out = append(out, l)
 			}
@@ -153,7 +167,11 @@ func GoEnv(env ChildEnv) (string, error) {
 	if v, ok := goEnvs.Load(key); ok {
 		return v.(string), nil
 	}
-	out, err := command(context.Background(), env, "", "go", "env", "GOVERSION", "GOOS", "GOARCH", "GOFLAGS", "CGO_ENABLED", "GOEXPERIMENT", "GOAMD64", "GOARM64").Output()
+	cmd, err := command(context.Background(), env, "", "go", "env", "GOVERSION", "GOOS", "GOARCH", "GOFLAGS", "CGO_ENABLED", "GOEXPERIMENT", "GOAMD64", "GOARM64")
+	if err != nil {
+		return "", &goEnvError{err}
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return "", &goEnvError{err}
 	}

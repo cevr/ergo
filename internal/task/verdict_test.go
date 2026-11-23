@@ -194,22 +194,33 @@ func TestVerdictsRunAStepOnce(t *testing.T) {
 // TestStatedEnvIsTheWholeEnvironment: a child started through command
 // sees exactly the stated environment, and a host variable no env line
 // names never reaches it nor its key; a named one does, and its value
-// moves the key. It kills child-env-inherits.
+// moves the key. The command is found only on the child's PATH.
+// It kills child-env-inherits and child-env-host-path.
 func TestStatedEnvIsTheWholeEnvironment(t *testing.T) {
 	env, err := exec.LookPath("env")
 	if err != nil {
 		t.Skip("no env program")
 	}
-	host := []string{"PATH=" + os.Getenv("PATH"), "HOME=/h", "GOFLAGS=-mod=mod", "SECRET_NOT_NAMED=1", "LANG=C"}
+	dir := t.TempDir()
+	const child = "ergo-task-env-fixture"
+	if err := os.Symlink(env, filepath.Join(dir, child)); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	host := []string{"PATH=" + dir, "HOME=/h", "GOFLAGS=-mod=mod", "SECRET_NOT_NAMED=1", "LANG=C"}
 	stated := statedFrom(host, []string{"LANG", "MISSING"}, []string{"GOMAXPROCS=2"})
 	t.Setenv("ERGO_PARENT_ONLY", "x")
-	out, err := command(context.Background(), stated, "", env).Output()
+	cmd, err := command(context.Background(), stated, "", child)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Fields(string(out))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
 	slices.Sort(got)
-	want := []string{"GOFLAGS=-mod=mod", "GOMAXPROCS=2", "HOME=/h", "LANG=C", "PATH=" + os.Getenv("PATH")}
+	want := []string{"GOFLAGS=-mod=mod", "GOMAXPROCS=2", "HOME=/h", "LANG=C", "PATH=" + dir}
 	if !slices.Equal(got, want) {
 		t.Errorf("the child saw %v, want exactly %v", got, want)
 	}
