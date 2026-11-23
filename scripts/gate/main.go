@@ -405,7 +405,27 @@ func main() {
 	blameTarget := flag.String("blame", "", "DIR:TEST with one argument GOOD..BAD: list the first-parent tips of the range whose change reaches the test by the coverage store's record, with the reason, precise ones first, and exit (BULK MODE's bisect)")
 	newReds := flag.String("new-reds", "", "BASE: after the run, compare its failures by line with the record of BASE's tree in this tier (reds.go): print each NEW and FIXED line and exit 1 on a new one, 0 when every red line is BASE's; 2 when BASE has no record")
 	flag.BoolVar(&guardsOnly, "guards", false, "the fast tier's guard packages only (whole.go: granted the checkout or declared //gate:whole), run whole: a landing's check when it runs no tier")
+	parts := flag.Int("parts", 0, "N with one package directory: print the N go test selections that deal its tests into fixed parts by the counted work in "+testWorkFile+", one line each, and exit (parts.go)")
+	recordWorkProbe := flag.String("record-work", "", "PROBE with one package directory: rewrite the package's rows of "+testWorkFile+" from the probe log of a -short run (ERGO_SPLIT_PROBE), and exit")
 	flag.Parse()
+	if *parts != 0 || *recordWorkProbe != "" {
+		if flag.NArg() != 1 || (*parts != 0 && *recordWorkProbe != "") {
+			fatal(errors.New("-parts N and -record-work PROBE each take one package directory, and not together"))
+		}
+		root, err := repositoryRoot()
+		if err != nil {
+			fatal(err)
+		}
+		if *parts != 0 {
+			err = printParts(root, flag.Arg(0), *parts, os.Stdout)
+		} else {
+			err = recordWork(root, flag.Arg(0), *recordWorkProbe, os.Stdout)
+		}
+		if err != nil {
+			fatal(err)
+		}
+		return
+	}
 	if *blameTarget != "" {
 		if flag.NArg() != 1 {
 			fatal(errors.New("-blame DIR:TEST takes one argument, GOOD..BAD"))

@@ -1,4 +1,4 @@
-// Counterfactual (#125): the naive-trust projection, where the evidence
+// Counterfactual: the naive-trust projection, where the evidence
 // parameter is branded and the export trusts it. Strict, no casts, no any.
 // These attacks type-check and make search give a wrong answer: ada is in the
 // trio, yet search answers false because the trio is not sorted. The script

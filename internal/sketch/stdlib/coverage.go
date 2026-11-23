@@ -37,6 +37,7 @@ var coverage = sync.OnceValue(func() map[string][]string {
 		"rand":     {"math/rand", "math/rand/v2"},
 		"sha1":     {"crypto/sha1"},
 		"sha256":   {"crypto/sha256"},
+		"signal":   {"os/signal"},
 		"sha512":   {"crypto/sha512"},
 		"sql":      {"database/sql"},
 		"xml":      {"encoding/xml"},
@@ -56,7 +57,7 @@ var coverage = sync.OnceValue(func() map[string][]string {
 // counterpart outside the standard library (errgroup, x/term, x/mod's
 // semver).
 var coversNone = []string{
-	"actor", "ansi", "api", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "gen", "graph", "io", "jobs", "jobs/file", "jobs/memory", "journal", "journal/file",
+	"actor", "ansi", "api", "arena", "bench", "build", "cache", "civil", "code", "codec", "codegraph", "config", "cron", "decimal", "dense", "explore", "fs/mapped", "gen", "graph", "io", "jobs", "jobs/file", "jobs/memory", "journal", "journal/file",
 	"journal/memory", "jsonschema", "kv", "kv/file", "kv/memory", "lint", "llm", "llm/memory", "llm/recorded", "machines", "mcp", "mcp/memory", "mcp/stdio", "nettest", "pace", "prompt", "proof", "proof/file", "proof/memory", "pubsub", "queue", "ratelimit", "ratelimit/memory", "rpc", "schedule", "scope", "semver", "session", "session/file", "session/memory", "set", "sqltest", "stream",
 	"task", "tasks", "term", "text", "timeout", "toml", "totp", "trace", "tz", "tz/host", "tz/iana", "ui", "ui/layout", "uuid",
 }

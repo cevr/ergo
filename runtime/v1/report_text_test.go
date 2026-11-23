@@ -45,11 +45,13 @@ func refReport(w io.Writer, err error) int {
 	}
 	if len(reasons) == 1 && reasons[0].Kind == rt.KindFailure {
 		if x, ok := reasons[0].Err.(Exit); ok {
-			fmt.Fprintln(w, x.Message)
-			if x.Code >= 1 && x.Code <= 125 {
+			if x.Message != "" {
+				fmt.Fprintln(w, x.Message)
+			}
+			if x.Code >= 1 && x.Code <= 125 || x.Code >= 129 && x.Code <= 192 {
 				return int(x.Code)
 			}
-			fmt.Fprintf(w, "error: os.Exit code %d is outside 1..125\n", x.Code)
+			fmt.Fprintf(w, "error: os.Exit code %d is outside 1..125 and 129..192\n", x.Code)
 			return 1
 		}
 	}

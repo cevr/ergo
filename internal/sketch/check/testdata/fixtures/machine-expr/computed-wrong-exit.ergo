@@ -1,0 +1,19 @@
+// A computed exit is checked against the Machine's Exit field as a named
+// one is: an action with an error row is refused at the entry.
+type Down {}
+type S = Off{} | On{}
+type E = Flip{}
+
+func step(s S, e E) Decision[S, S] { Stay[S]{Next: s} }
+
+func leave(s S) Option[func() fails Down] { None }
+
+func same[F](f own F) F { f }
+
+type M machine[S, E] {
+	initial: Off,
+	step:    step,
+	exit:    same(leave), // want S108 "exit"
+}
+
+func main() {}

@@ -25,7 +25,7 @@ import "fmt"
 // delete's value is the Map it wrote, as append's is the slice: a Map is a
 // value (owner q26), so a binding returns m with k removed, and the
 // lowering writes the source itself only where it is not seen again, and a
-// copy of it otherwise (the value rule, lower/values.go preludeMapWrite).
+// copy of it otherwise (the value rule, lower/values.go writesMapSource).
 // The prelude's Delete is this binding (OPT7).
 //
 // Prior art: ReScript's external binds a JavaScript builtin by its name;

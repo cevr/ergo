@@ -113,6 +113,32 @@ func (b *irBuilder) provRead(v *check.Var, e *irExpr, x syntax.Expr) *irExpr {
 	return &irExpr{K: "toiface", Pos: e.Pos, T: b.goType(v.Type, x), X: e}
 }
 
+// knownDirect is the Go function a call x of a field of a known record
+// calls in its copy when the machine computes that field (knownRec.direct,
+// entrycopy.go); "" else.
+func (b *irBuilder) knownDirect(x *syntax.CallExpr) string {
+	if b.fc.recs == nil || recordLowering == "opaque" {
+		return ""
+	}
+	sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	id, ok := unparen(sel.X).(*syntax.Ident)
+	if !ok {
+		return ""
+	}
+	v, ok := b.l.info.Uses[id].(*check.Var)
+	if !ok || b.fc.recs[v] == nil {
+		return ""
+	}
+	e := b.fc.recs[v].entries[sel.Sel.Name]
+	if e == nil || !e.Computed() {
+		return ""
+	}
+	return b.l.entryCopyName(b.l.entryCopyOf(b.fc.recs[v].tn, sel.Sel.Name, e))
+}
+
 // knownField is c, the call x, as a call of the declared function a field
 // of a known record names, when x calls such a field in a copy
 // (recordCallText's conditions); else c.
@@ -133,7 +159,13 @@ func (b *irBuilder) knownField(x *syntax.CallExpr, c *check.Call) *check.Call {
 		return c
 	}
 	g := b.fc.recs[v].fields[sel.Sel.Name]
-	if g == nil || len(g.Sig.TParams) > 0 || len(witnessParams(g.Sig)) > 0 || g.Pkg == nil || g.Pkg.Info == nil {
+	var targs []check.Type
+	if e := b.fc.recs[v].entries[sel.Sel.Name]; e != nil && !e.Computed() {
+		// An instance step (knownEntry): a call of the generic function
+		// at the entry's type arguments, which goes to its plain copy.
+		g, targs = e.Func, e.TypeArgs
+	}
+	if g == nil || len(g.Sig.TParams) != len(targs) || len(witnessParams(g.Sig)) > 0 || g.Pkg == nil || g.Pkg.Info == nil {
 		return c
 	}
 	sig, ok := b.l.info.Types[x.Fun].(*check.Signature)
@@ -151,5 +183,5 @@ func (b *irBuilder) knownField(x *syntax.CallExpr, c *check.Call) *check.Call {
 		// direct call gave a value where the try bound a pair).
 		return c
 	}
-	return &check.Call{Kind: check.CallFunc, Func: g, Fails: c.Fails}
+	return &check.Call{Kind: check.CallFunc, Func: g, TypeArgs: targs, Fails: c.Fails}
 }

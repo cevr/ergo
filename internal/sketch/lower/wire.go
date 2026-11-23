@@ -608,14 +608,12 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 				l.gen.WriteString(head(n) + w + " := &" + param + "\n" + l.cellEventsFrom(cw, env, w, raw, &start, site) + "\nreturn " + param + "\n}\n\n")
 			}
 		}
-		if !cell && l.ir != nil {
-			// No IR builder takes an encoder on the reference Writer, or
-			// on a direct writer that is no cell, yet.
-			why := "codec writer on the reference Writer"
-			if via >= 0 {
-				why = "codec writer on a direct writer that is no cell"
-			}
-			l.ir.codecText(name, why)
+		if !cell && l.ir != nil && l.ir.wireWrite(l, name, t, em, scope, site) {
+			// The IR builds the body (ir_wire.go, W1): the Go
+			// declaration has none. A form the IR refuses keeps its
+			// text, counted by its reason.
+			l.gen.WriteString(strings.TrimSuffix(head(name), " {\n") + "\n\n")
+			return name
 		}
 		l.gen.WriteString(head(name) + text + "}\n\n")
 		if cell && cf.pending {
@@ -950,7 +948,9 @@ func (l *lowerer) wireDecodeBody(tc *typeCtx, b *strings.Builder, t check.Type, 
 		l.intMapConflict(u) // intmap.go: the codec makes Go's map
 		out, k := scope.alloc("out"), scope.alloc("k")
 		begin("Object")
-		b.WriteString(out + " := " + goType + "{}\nfor " + tc.readOp(env, r, "More") + " {\n" + k + " := " + tc.readOp(env, r, "Key") + "\n")
+		// The key a Map keeps is a copy (json 2): a reader's Key may be a
+		// window of its input (runtime/v1 WireKeyKept).
+		b.WriteString(out + " := " + goType + "{}\nfor " + tc.readOp(env, r, "More") + " {\n" + k + " := " + l.rt() + ".WireKeyKept(" + tc.readOp(env, r, "Key") + ")\n")
 		e := scope.alloc("e")
 		b.WriteString(tc.wireDecode(u.Elem, env, r, e, zero, scope))
 		b.WriteString(out + "[" + tc.goType(u.Key) + "(" + k + ")] = " + e + "\n}\n" + tc.readOp(env, r, "End") + "\nreturn " + out + ", nil\n")

@@ -616,7 +616,7 @@ func (w *worker) runTests(ctx context.Context, m *Mutant, ids []string, r *Resul
 		case o.timeout:
 			r.Ran, r.Hung = append(r.Ran, id), append(r.Hung, id)
 			if r.Killer == "" && r.Detail == "" {
-				r.Detail = id + " " + o.reason + " (a timeout, no kill): " + lastLines(o.tail, 30)
+				r.Detail = id + " timeout (no kill): " + lastLines(o.tail, 30)
 			}
 		case !o.started:
 			// The binary ended before the test started (a usage error, a

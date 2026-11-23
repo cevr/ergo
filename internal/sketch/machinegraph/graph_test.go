@@ -53,6 +53,10 @@ type gmachine struct {
 	src        string
 	timerLines map[int]int
 	exitLines  map[int]int // state -> the line of its exit action (FK9-g1)
+	// computed are the entries written as a computed expression
+	// (MACHINE-EXPR: same(step)), in declaration order: the source shows
+	// no graph of them.
+	computed []string
 }
 
 func sv(i int) string { return "S" + strconv.Itoa(i) }
@@ -241,7 +245,18 @@ func gen(r *rand.Rand) *gmachine {
 		}
 	}
 	w("\t}\n}\n")
-	w("type M machine[State, Signal] {\n\tinitial: S0{N: 0},\n\tstep: step,\n\tafter: after,\n\texit: leave,\n}\n")
+	// Each entry is a name, or in one case of four a computed entry, a
+	// call that gives the function back: it has no graph (Computed).
+	form := func(what, name string) string {
+		if r.Intn(4) == 0 {
+			m.computed = append(m.computed, what)
+			return "same(" + name + ")"
+		}
+		return name
+	}
+	stepE, afterE, exitE := form("step", "step"), form("after", "after"), form("exit", "leave")
+	w("func same[F](f own F) F { f }\n")
+	w("type M machine[State, Signal] {\n\tinitial: S0{N: 0},\n\tstep: %s,\n\tafter: %s,\n\texit: %s,\n}\n", stepE, afterE, exitE)
 	w("func main() {}\n")
 	m.src = b.String()
 	return m
@@ -249,7 +264,7 @@ func gen(r *rand.Rand) *gmachine {
 
 // want is the model's graph.
 func (m *gmachine) want() *Graph {
-	g := &Graph{Machine: "M", Initial: "S0", Timers: map[string]Timer{}, Work: map[string]Site{}, Exit: map[string]Site{}}
+	g := &Graph{Machine: "M", Initial: "S0", Timers: map[string]Timer{}, Work: map[string]Site{}, Exit: map[string]Site{}, Computed: m.computed}
 	for i := range m.ns {
 		g.States = append(g.States, Variant{Name: sv(i)})
 	}
@@ -257,6 +272,9 @@ func (m *gmachine) want() *Graph {
 		g.Signals = append(g.Signals, Variant{Name: ev(j)})
 	}
 	for _, a := range m.arms {
+		if slices.Contains(m.computed, "step") {
+			break
+		}
 		arm := Arm{Site: Site{"gen.ergo", a.line}, Edges: dedupe(a.edges)}
 		// The arm's States and Signals are its patterns' together (nil
 		// when one takes any); Alts lists each pattern of a case of two.
@@ -284,9 +302,15 @@ func (m *gmachine) want() *Graph {
 		g.Arms = append(g.Arms, arm)
 	}
 	for i, k := range m.timers {
+		if slices.Contains(m.computed, "after") {
+			break
+		}
 		g.Timers[sv(i)] = Timer{Signal: ev(k), Site: Site{"gen.ergo", m.timerLines[i]}}
 	}
 	for i, l := range m.exitLines {
+		if slices.Contains(m.computed, "exit") {
+			break
+		}
 		g.Exit[sv(i)] = Site{"gen.ergo", l}
 	}
 	return g
@@ -309,7 +333,9 @@ func read(src string) (*Graph, error) {
 	return gs[0], nil
 }
 
-// TestGraphMatchesTheModel is the graph's acceptance property (MU15).
+// TestGraphMatchesTheModel is the graph's acceptance property (MU15): a
+// computed entry (MACHINE-EXPR) gives no arm, timer or exit action and is
+// listed in Computed (mutant mexpr-graph-computed).
 func TestGraphMatchesTheModel(t *testing.T) {
 	seed := int64(1)
 	if s := os.Getenv("ERGO_GRAPH_SEED"); s != "" {
@@ -332,6 +358,9 @@ func TestGraphMatchesTheModel(t *testing.T) {
 			t.Fatalf("seed %d, case %d: %s\ngot:\n%+v\nwant:\n%+v\nsource:\n%s", seed, n, diff, *g, *want, m.src)
 		}
 		seen["nested match"] = seen["nested match"] || strings.Contains(m.src, "match e {")
+		for _, k := range m.computed {
+			seen["computed "+k] = true
+		}
 		for _, a := range g.Arms {
 			seen["two patterns"] = seen["two patterns"] || a.Alts != nil
 			for _, e := range a.Edges {
@@ -339,7 +368,7 @@ func TestGraphMatchesTheModel(t *testing.T) {
 			}
 		}
 	}
-	for _, k := range []string{"Enter false", "Stay false", "Stay true", "Emit false", "Ignore false", "Reject false", "Done false", "nested match", "two patterns"} {
+	for _, k := range []string{"Enter false", "Stay false", "Stay true", "Emit false", "Ignore false", "Reject false", "Done false", "nested match", "two patterns", "computed step", "computed after", "computed exit"} {
 		if !seen[k] {
 			t.Errorf("seed %d: no case reached %q", seed, k)
 		}
@@ -362,6 +391,8 @@ func compare(g, want *Graph) string {
 		return "states or signals"
 	case len(g.Arms) != len(want.Arms):
 		return "arm count"
+	case !slices.Equal(g.Computed, want.Computed):
+		return fmt.Sprintf("computed entries %v, want %v", g.Computed, want.Computed)
 	}
 	for i := range g.Arms {
 		a, b := g.Arms[i], want.Arms[i]

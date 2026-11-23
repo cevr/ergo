@@ -2,7 +2,7 @@
 
 A counter with buttons, a choice of step and keys, written once against
 std `ui` and shown by any ui host: `ui.TestHost` here, a MyGo window in
-`hosts/mygo/cmd/counter-gui`. Half of #216's showcase (X-gui).
+`hosts/mygo/cmd/counter-gui`. Half of the desktop showcase's showcase (X-gui).
 
 - `counter/` is the model: a machine (`Counter`) over a `Count`, with its
   laws. `Dec` stops at zero; a step outside 1 to 100 is ignored.
