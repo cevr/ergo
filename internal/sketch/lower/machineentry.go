@@ -215,14 +215,8 @@ func (l *lowerer) machineEntryInits(td *typeDecl) {
 }
 
 // entryCopyInit adds the initializer's assignment of a computed entry's
-// variable to its copy, at the entry x, as machineInitOf locates a std
-// machine's.
+// variable to its copy, at the entry x.
 func (l *lowerer) entryCopyInit(td *typeDecl, x syntax.Expr, assign string) {
-	if p := td.tn.Pkg; !l.isSourced(p) && p != nil && p.Info != nil {
-		saved, savedStd := l.info, l.stdLets
-		l.info, l.stdLets = p.Info, true
-		defer func() { l.info, l.stdLets = saved, savedStd }()
-	}
 	l.addInit(x, x, "", []string{assign})
 	l.machineInits = append(l.machineInits, machineInitial{pkg: td.tn.Pkg, x: x})
 }
@@ -265,11 +259,9 @@ func (l *lowerer) machineOfFunc(td *typeDecl, site syntax.Node) string {
 		ice(site, "the generic machine %s has no checked conversion to its Machine", td.tn.Name)
 	}
 	conv := *es.Conv
-	if p := td.tn.Pkg; !l.isSourced(p) && p != nil && p.Info != nil {
-		// A std machine's expressions are read with its package's facts,
-		// as its initial value's are (machineInit).
+	if info := td.tn.Pkg.Info; l.info != info {
 		saved := l.info
-		l.info = p.Info
+		l.info = info
 		defer func() { l.info = saved }()
 	}
 	scope := newNamer(l.names)

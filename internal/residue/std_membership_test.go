@@ -182,7 +182,6 @@ var (
 var declaredFlags = map[string]string{
 	"internal/sketch/lower:isSourced": flagFunc,
 	"internal/sketch/lower:sourced":   flagField,
-	"internal/sketch/lower:stdLets":   flagField,
 }
 
 const (

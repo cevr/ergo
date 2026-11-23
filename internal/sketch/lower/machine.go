@@ -127,13 +127,12 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl, tparams string, 
 		if fd != nil && !fd.lowered && len(l.refusals) > 0 {
 			return // the body was refused, and that refusal is reported
 		}
-		b := &l.user
-		if !l.isSourced(td.tn.Pkg) {
-			b = &l.gen
-		} else {
-			b.WriteString(l.directiveAt(td.tn.Decl.Name, td.tn.Decl.Pos()))
-		}
-		if l.isSourced(td.tn.Pkg) {
+		b := &l.gen
+		if i, ok := l.sourceOf(site); ok {
+			b = &l.user
+			sf := l.srcs[i]
+			line, column := sf.file.Position(td.tn.Decl.Pos())
+			b.WriteString(Directive(sf.path, line, column))
 			// Generated code: no directive maps it to the source.
 			l.gen.WriteString(l.machineGraph(td, tc, state, signal))
 		}
@@ -860,22 +859,19 @@ func (l *lowerer) machineInit(td *typeDecl, initial string) {
 // computed entries (machineentry.go), of type t, into the initializer,
 // assigning the variable name. owner names it in the declaration table.
 func (l *lowerer) machineInitOf(td *typeDecl, x syntax.Expr, initial string, t check.Type, owner string) {
-	sourced := l.isSourced(td.tn.Pkg)
-	if p := td.tn.Pkg; !sourced && p != nil && p.Info != nil {
-		// A std machine's initial value is lowered as a std let's
-		// (inStdPkg): its package's facts, no directive, its initializer
-		// located in std's tree, and no declaration-table entry.
-		saved, savedStd := l.info, l.stdLets
-		l.info, l.stdLets = p.Info, true
-		defer func() { l.info, l.stdLets = saved, savedStd }()
+	if info := td.tn.Pkg.Info; l.info != info {
+		saved := l.info
+		l.info = info
+		defer func() { l.info = saved }()
 	}
-	fc := newFuncCtx(l, newNamer(l.names), sourced)
+	src, hasLocation := l.sourceOf(x)
+	fc := newFuncCtx(l, newNamer(l.names), hasLocation)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	fc.owner = owner
 	fc.frame = newFrame(t, false, false)
-	if sourced {
-		l.recordDecl(fc.owner, x)
+	if hasLocation {
+		l.recordDeclAt(fc.owner, x, src)
 	}
 	l.analyzeValues(x, l.info)
 	val := fc.assigned(x)

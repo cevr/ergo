@@ -1044,23 +1044,17 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	f := fd.fn
 	l.readsOf(f)
-	b := &l.user
-	directives := l.isSourced(f.Pkg)
-	// A sourced package's body is lowered within its file, reading its
-	// package's Info (sources.go).
-	defer l.leave(l.enter(f.Decl.Name, f.Pkg))
-	if !directives {
-		b = &l.gen
-		// A library body with Ergo source (std log and trace) reads the
-		// facts of its own package's Info: every fact of the lowering is
-		// keyed by syntax node, and its nodes are its package's. A library
-		// body is emitted from the pending queue, never inside another
-		// body, so the swap covers exactly this body.
-		if f.Pkg.Info != nil && f.Pkg.Info != l.info {
-			saved := l.info
-			l.info = f.Pkg.Info
-			defer func() { l.info = saved }()
-		}
+	// Only an admitted file gives the body directives and table entries.
+	// Its checked facts always come from the declaring package.
+	src, directives := l.sourceOf(f.Decl)
+	defer l.leave(l.state())
+	b := &l.gen
+	if directives {
+		b = &l.user
+		l.setCur(src)
+	}
+	if f.Pkg.Info != nil {
+		l.info = f.Pkg.Info
 	}
 	// The locals of a function's own body yield to its package's names
 	// alone (pkgnames.go, plainScope); a copy's body (sp, known) to every
@@ -1081,7 +1075,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		fc.owner = fd.method.tn.Name + "." + f.Name
 	}
 	if directives {
-		l.recordDecl(fc.owner, f.Decl)
+		l.recordDeclAt(fc.owner, f.Decl, src)
 	}
 	if n := nativeOf(f); n != nil {
 		l.emitNative(b, fd.name, n, f) // pattern.go
@@ -1464,15 +1458,10 @@ func (l *lowerer) packageLet(d *syntax.VarDecl) {
 // stmts and then assigns.
 func (l *lowerer) addInit(x syntax.Expr, at syntax.Node, stmts string, assigns []string) {
 	var b strings.Builder
-	if l.stdLets {
-		// initFunc follows the program's declarations, so a std let's
-		// initializer names its own place in std's tree (locate), or its
-		// lines would take the last program directive's.
-		path, line, column := l.locate(at, at.Pos())
-		b.WriteString(Directive(path, line, column))
-	} else {
-		b.WriteString(l.directive(at))
-	}
+	// An initializer is written after the declarations, so map it to its
+	// own file even when the declaration itself has no line directive.
+	path, line, column := l.locate(at, at.Pos())
+	b.WriteString(Directive(path, line, column))
 	b.WriteString("\t{\n" + stmts)
 	for _, a := range assigns {
 		b.WriteString("\t\t" + a + "\n")
@@ -1565,7 +1554,8 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if !ok && (id.Name != "_" || x == nil) {
 		ice(id, "the let %s has no Defs entry", id.Name)
 	}
-	fc := newFuncCtx(l, newNamer(l.names), !l.stdLets)
+	src, hasLocation := l.sourceOf(spec)
+	fc := newFuncCtx(l, newNamer(l.names), hasLocation)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	name, goType := "_", ""
@@ -1581,7 +1571,11 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	if x != nil {
 		fc.frame.polls = framePolls(l.info, spec)
 	}
-	l.recordLet(fc.owner, spec)
+	if hasLocation {
+		l.recordDeclAt(fc.owner, spec, src)
+	} else {
+		src = -1
+	}
 	if call, ok := x.(*syntax.CallExpr); ok {
 		if c := l.info.Calls[call]; c != nil && c.Kind == check.CallEmbed {
 			fc.packageEmbed(c, name, goType, id)
@@ -1590,9 +1584,9 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 	}
 	if x == nil {
 		if def := fc.defaultValue(v.Type); def != "" {
-			l.letDecl(id, "var "+name+" "+goType+" = "+def+"\n\n")
+			l.letDecl(src, id, "var "+name+" "+goType+" = "+def+"\n\n")
 		} else {
-			l.letDecl(id, "var "+name+" "+goType+"\n\n")
+			l.letDecl(src, id, "var "+name+" "+goType+"\n\n")
 		}
 		return
 	}
@@ -1604,10 +1598,10 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 			if l.constFold(v) {
 				l.stats.Consts++ // read by its bare name (forms.go)
 			}
-			l.letDecl(id, "const "+name+" "+goType+" = "+val+"\n\n")
+			l.letDecl(src, id, "const "+name+" "+goType+" = "+val+"\n\n")
 			return
 		}
-		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
+		l.letDecl(src, id, "var "+name+" "+goType+" = "+val+"\n\n")
 		return
 	}
 	if ok && l.consts[v] {
@@ -1620,11 +1614,11 @@ func (l *lowerer) packageVar(spec *syntax.VarSpec, id *syntax.Ident, x syntax.Ex
 		// fail, and reads no other let, so its place in InitOrder does
 		// not matter.
 		l.stats.StaticLets++
-		l.letDecl(id, "var "+name+" "+goType+" = "+val+"\n\n")
+		l.letDecl(src, id, "var "+name+" "+goType+" = "+val+"\n\n")
 		return
 	}
 	if name != "_" {
-		l.letDecl(id, "var "+name+" "+goType+"\n\n")
+		l.letDecl(src, id, "var "+name+" "+goType+"\n\n")
 	}
 	l.addInit(x, id, fc.out.String(), []string{name + " = " + val})
 }
@@ -1702,25 +1696,17 @@ func (l *lowerer) letRead(v *check.Var, name string) string {
 	return name
 }
 
-// letDecl writes the Go declaration text of a package let: a program
-// let's after its //line directive among the program's declarations, a
-// std package's among the library declarations with no directive, as a
-// std body is lowered (wf10 defects D3).
-func (l *lowerer) letDecl(at syntax.Node, text string) {
-	if l.stdLets {
+// letDecl writes a package let's Go declaration after its line directive,
+// or among the generated declarations when it has no registered source.
+func (l *lowerer) letDecl(src int, at syntax.Node, text string) {
+	if src < 0 {
 		l.gen.WriteString(text)
 		return
 	}
-	l.user.WriteString(l.directive(at))
+	sf := l.srcs[src]
+	line, column := sf.file.Position(at.Pos())
+	l.user.WriteString(Directive(sf.path, line, column))
 	l.user.WriteString(text)
-}
-
-// recordLet records a program let in the declaration table; a std
-// let, like a std body, has no entry.
-func (l *lowerer) recordLet(owner string, spec *syntax.VarSpec) {
-	if !l.stdLets {
-		l.recordDecl(owner, spec)
-	}
 }
 
 // packagePattern lowers a package-level let that destructures one value
@@ -1730,7 +1716,8 @@ func (l *lowerer) recordLet(owner string, spec *syntax.VarSpec) {
 // variable, from it.
 func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	x := spec.Values[0]
-	fc := newFuncCtx(l, newNamer(l.names), !l.stdLets)
+	src, hasLocation := l.sourceOf(spec)
+	fc := newFuncCtx(l, newNamer(l.names), hasLocation)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
 	t := fc.typeOf(x)
@@ -1746,7 +1733,11 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	}
 	fc.frame = newFrame(t, false, framePolls(l.info, spec))
 	fc.entryPoll(l.info, spec)
-	l.recordLet(fc.owner, spec)
+	if hasLocation {
+		l.recordDeclAt(fc.owner, spec, src)
+	} else {
+		src = -1
+	}
 	var at syntax.Node = spec
 	if len(spec.Names) > 0 {
 		at = spec.Names[0]
@@ -1792,7 +1783,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 		assigns = append(assigns, name+" = "+b.val)
 	}
 	if len(binds) > 0 {
-		l.letDecl(at, decl.String())
+		l.letDecl(src, at, decl.String())
 	}
 	l.addInit(x, at, fc.out.String(), assigns)
 }

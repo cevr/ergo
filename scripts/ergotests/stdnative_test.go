@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -9,6 +11,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/eval"
 	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/sketch/testplan"
 )
 
 // TestStdNativeTargetsTheBinding uses a module-shaped fixture: the law is
@@ -52,8 +55,9 @@ func TestStdNativeTargetsTheBinding(t *testing.T) {
 	if got := run.verdicts[key]; !slices.Equal(got, []eval.Status{eval.Skipped, eval.Passed}) {
 		t.Fatalf("%s: evaluator outcomes %v; want declaration skip and provider pass", key, got)
 	}
-	want := []string{stdlib.PreludePath, "memory"}
-	if got := nativePackages([]string{key}, &run); !slices.Equal(got, want) {
+	nativeOnly := []testplan.NativeRoot{{Path: stdlib.PreludePath, Required: true}}
+	want := []testplan.NativeRoot{nativeOnly[0], {Path: "memory"}}
+	if got := nativePackages(nativeOnly, []string{key}, &run); !slices.Equal(got, want) {
 		t.Fatalf("native packages %v, want %v", got, want)
 	}
 }
@@ -72,10 +76,10 @@ func TestStdNativeVerdictsCount(t *testing.T) {
 		declared: map[string]string{"w Store.Kept": "w"},
 	}
 	out := "ok law Ran (100 cases)\nskip law Skips: needs a host\nFAIL law Fails: refuted at seed 3\nnoise\n"
-	if n := nativeVerdicts("a", []byte(out), &run); n != 3 {
+	if n := nativeVerdicts(testplan.NativeRoot{Path: "a"}, []byte(out), &run); n != 3 {
 		t.Errorf("read %d verdict lines, want 3", n)
 	}
-	nativeVerdicts("w/memory", []byte("ok law w.Store.Kept for Store (100 cases)\n"), &run)
+	nativeVerdicts(testplan.NativeRoot{Path: "w/memory"}, []byte("ok law w.Store.Kept for Store (100 cases)\n"), &run)
 	got := strings.Join(redProblems([]string{"a Ran", "a Skips", "a Fails", "w Store.Kept"}, run, map[string]redLine{}), "\n")
 	for _, want := range []string{"a Skips is not run", "a Fails is native fail"} {
 		if !strings.Contains(got, want) {
@@ -85,6 +89,31 @@ func TestStdNativeVerdictsCount(t *testing.T) {
 	for _, quiet := range []string{"a Ran", "Kept"} {
 		if strings.Contains(got, quiet) {
 			t.Errorf("the problems name %q, which ran natively:\n%s", quiet, got)
+		}
+	}
+}
+
+// TestNativeRootOutcomeFollowsPlan catches the path-keyed native failure
+// and missing-note mutants. A fixture required root behaves exactly like
+// another required root; an ordinary run with the old name does not.
+func TestNativeRootOutcomeFollowsPlan(t *testing.T) {
+	const note = "law Contract.Law runs where Contract has a provider: none is in this package or its imports"
+	for _, root := range []testplan.NativeRoot{
+		{Path: "fixture/contracts", Required: true},
+		{Path: stdlib.PreludePath},
+	} {
+		var out bytes.Buffer
+		run := stdRun{nativeMissing: map[string]string{}}
+		got := nativeResult(&out, root, errors.New("cannot invoke"), []byte(note), &run)
+		prefix, want := "red ", 0
+		if root.Required {
+			prefix, want = "FAIL ", 1
+		}
+		if got != want || !strings.HasPrefix(out.String(), prefix) {
+			t.Errorf("%+v: exit %d, output %q, want %d and %q", root, got, &out, want, prefix)
+		}
+		if missing := run.nativeMissing[root.Path+" Contract.Law"]; (missing == note) != root.Required {
+			t.Errorf("%+v: accounted for %q, want the missing note only for the required root", root, missing)
 		}
 	}
 }
