@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates the laws prototype receipts in benchmarks/laws/runs/ (#125):
+# Regenerates the laws prototype receipts in benchmarks/laws/runs/:
 #   erasure-diff.txt  each law example built with and without its contract and
 #                     satisfies blocks (replaced by blank lines so line
 #                     directives do not move); only the revision header may differ.

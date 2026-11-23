@@ -2127,7 +2127,7 @@ func sortedHas(xs []string, x string) bool {
 // value included, so each checks clean (lower/stage4_close_test.go runs
 // them). One form stays refused, once, at the provider: a generic Close
 // whose type parameter is constrained by operations, whose release would
-// pass witnesses no fact records (S109 naming #197, closeWitnessed). A std
+// pass witnesses no fact records (S109 naming resource ownership, closeWitnessed). A std
 // or extern Close is unreachable: no std or prelude Close is an extern, and
 // a user extern Close takes a named type, outside the C26 domain.
 func TestCloseRefusals(t *testing.T) {
@@ -2201,10 +2201,10 @@ func main() { with W { A.Use() } }
 `,
 	}
 	for name, src := range cases {
-		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "#197") })
+		t.Run(name, func(t *testing.T) { judgeOutside(t, src, "resource ownership") })
 	}
 	t.Run("user-extern-close", func(t *testing.T) {
-		judgeOutside(t, "type R {} implements Closer\nextern go example.com/x.F func Close(r R) // want S109\n", "#202")
+		judgeOutside(t, "type R {} implements Closer\nextern go example.com/x.F func Close(r R) // want S109\n", "Go interop")
 	})
 	t.Run("no-std-extern-close", func(t *testing.T) {
 		prog, ds := check.CheckSource("func f(c Console) { c.Println(\"x\") }\n")

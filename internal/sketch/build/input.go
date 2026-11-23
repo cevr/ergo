@@ -1,4 +1,4 @@
-// Package build is the cached build action of Ergo (#224). Go emission is an
+// Package build is the cached build action of Ergo. Go emission is an
 // internal content-addressed step: the generated Go module of one package
 // is stored under the user's cache directory at a path named by the digest
 // of everything emission reads (Input), with a manifest that states the

@@ -864,7 +864,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 				// The checker admits an index key of any int expression;
 				// Go takes only distinct constant keys, and no Ergo rule
 				// says what a computed, negative or repeated key does.
-				refuse(e, "an indexed slice literal waits for #196 to decide its keys (Go takes only distinct constant keys); write the elements in order")
+				refuse(e, "an indexed slice literal waits for the slice-key rule (Go takes only distinct constant keys); write the elements in order")
 			}
 			values = append(values, e)
 		}

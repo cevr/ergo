@@ -177,7 +177,7 @@ func TestRegistry(t *testing.T) {
 // corpus returns every source the checker's tests and the fuzz seeds use:
 // the fixture mirror, the acceptance rule fixtures copied into testdata/v1,
 // the prototype's fixtures and the parser's corpus, as translated into the
-// decided syntax (#196; the frozen old .sketch copies no longer parse).
+// decided syntax (the frozen old .sketch copies no longer parse).
 func corpus(t testing.TB) map[string]string {
 	out := map[string]string{}
 	for _, pattern := range []string{

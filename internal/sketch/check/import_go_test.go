@@ -8,7 +8,7 @@ import (
 	"ergo.local/prototype/internal/sketch/check"
 )
 
-// TestImportGoTwoPackages is #202's acceptance at Level 1 (IG2): two
+// TestImportGoTwoPackages is Go interop's acceptance at Level 1 (IG2): two
 // unrelated Go packages, net/url and regexp, check clean with no
 // declaration written by the user: functions, a handle (go.Ref) as a
 // result and a parameter, its methods and a read-only field, a nil-able
@@ -63,7 +63,7 @@ func main() needs Console | go.Foreign {
 	}
 }
 
-// TestImportGoRows: the negative controls of #202's acceptance. A foreign
+// TestImportGoRows: the negative controls of Go interop's acceptance. A foreign
 // call in an exported function whose row lacks go.Foreign is S102, a
 // go.Error that escapes its row is S101, and a test never gets go.Foreign
 // (it has no row and no context can bind it; rows.md, Entry 4).

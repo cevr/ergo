@@ -7,7 +7,7 @@
 // told its address before it starts, and a test that binds an address again
 // after the server released it to prove the release. Closing a probe
 // listener and handing its port over instead, or rebinding a released port,
-// leaves a window in which another test can take the port (#112).
+// leaves a window in which another test can take the port.
 //
 // Reservation needs Linux bind semantics (reserve_linux.go). BSD kernels
 // refuse a listener on an address that a bound, non-listening SO_REUSEADDR

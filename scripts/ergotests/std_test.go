@@ -8,7 +8,7 @@ import (
 )
 
 // TestStdLawsRunInPackage: a std package's law is a killer (STD-LAW-RUN,
-// #162). It runs in-package, as std is checked: json's RoundTrips calls
+// Laws and proofs). It runs in-package, as std is checked: json's RoundTrips calls
 // the package's private writer and its trusted runtime Go, which a folder
 // check refuses (S108), so before this the law could not run at all. A std
 // law check time leaves undecided is no killer: ergo test cannot reach a

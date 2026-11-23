@@ -7,7 +7,7 @@ import (
 )
 
 // EventKind is the kind of one trace event. The names are the trace
-// vocabulary of the runtime laws (#124, docs/research/lawful-runtime-contract.md
+// vocabulary of the runtime laws (the runtime laws, docs/research/lawful-runtime-contract.md
 // RS1), so a law checker and a person read the same stream. Three kinds are
 // additions, justified in docs/research/traceability.md: call and call-exit
 // (the capability boundary a checked row names, and its outcome) and
@@ -46,27 +46,27 @@ const (
 	// TraceConstruct: a context was built (emitted code).
 	TraceConstruct
 	// TraceCall: a capability call begins (emitted code, Task.TraceCall). An
-	// addition to #124.
+	// addition to the runtime laws.
 	TraceCall
 	// TraceInterrupt: a task observed a stop at an interruption point (I1)
-	// (emitted code). An addition to #124.
+	// (emitted code). An addition to the runtime laws.
 	TraceInterrupt
 	// TraceCallExit: a capability call ended (emitted code,
 	// Task.TraceCallExit, or the runtime when an unwind leaves the call: a
 	// defect, an interruption or a transported exit). Event.Link is the call;
 	// Event.Cause is its error, nil for ok, and Event.Defect the panic value
-	// that left it. An addition to #124.
+	// that left it. An addition to the runtime laws.
 	TraceCallExit
 	// TraceMachine: a machine actor's runner did one step of its contract
 	// (runtime/v1 actor.go; runtime.md, Machines and actors 15):
-	// Event.Machine says what. Def is the actor's span. An addition to #124
+	// Event.Machine says what. Def is the actor's span. An addition to the runtime laws
 	// (MU15).
 	TraceMachine
 	// TraceStep: a test host's script did one act (std ui Play, runtime/v1
 	// uitrace.go): Event.Step is its line, the one std ui's PlayTrace
 	// returns for it. Def is the task's span. Like every trace event it is
 	// instrumentation: it changes no value the program sees. An addition to
-	// #124 (wf10 NS3, `ergo test --trace`).
+	// The runtime laws (wf10 NS3, `ergo test --trace`).
 	TraceStep
 )
 

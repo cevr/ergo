@@ -13,7 +13,7 @@ const (
 	ruleOneResult = `the parser's S001 at a second result or a second returned value (a function has at most one result type, which may be a tuple; grammar.md, Declarations 7)`
 	// ruleLetNames: a let of several names takes apart one tuple of as many
 	// elements (196t).
-	ruleLetNames = `the checker's S108 "N names for M values" (a let of several names takes apart one tuple of as many elements, 196t)`
+	ruleLetNames = `the checker's S108 "N names for M values" (a let of several names takes apart one tuple of as many elements)`
 	// ruleCoveredCase: a case that earlier cases cover never runs.
 	ruleCoveredCase = `the checker's S108 "this case is already covered by the earlier case … (unreachable)" (D-B4)`
 	// ruleCaughtTwice: a catch handles each failure type once.

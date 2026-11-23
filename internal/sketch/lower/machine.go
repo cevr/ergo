@@ -57,7 +57,7 @@ import (
 // (methodReceiver takes records only). The plan has no runner of its own:
 // a value X{} converts to the prelude Machine (ConvMachine, expr.go
 // convert: Initial from the plan, Step the step function's value), which
-// std machines folds, and the actor library (#57, #101) will run.
+// std machines folds, and the actor library will run.
 //
 // Prior art: XState separates the machine definition from its interpreter;
 // Erlang's gen_statem keeps the callbacks apart from the process that runs

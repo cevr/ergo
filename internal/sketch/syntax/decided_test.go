@@ -16,8 +16,8 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// readDir reads one directory of the decided grammar's own fixtures (#196,
-// D7): testdata/decided holds one program per decided form, testdata/edge
+// readDir reads one directory of the decided grammar's own fixtures (D7):
+// testdata/decided holds one program per decided form, testdata/edge
 // the edge forms, testdata/refuse one old spelling per file.
 func readDir(t *testing.T, dir string) []sketchtest.Input {
 	t.Helper()

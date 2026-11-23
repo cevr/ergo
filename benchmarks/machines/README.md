@@ -33,7 +33,7 @@ action or per-level timer, so nothing observable differs.
   instructions:u` at N and at 0, and heap bytes per event from the peak
   resident size with `GOGC=off` at N and at 0 (an Ergo program cannot read
   `runtime.MemStats` yet: `ReadMemStats` takes a borrow it may keep, and a
-  local Go package is not bindable, #202). Each count is taken twice.
+  local Go package is not bindable, Go interop). Each count is taken twice.
 
 ```sh
 ergo build benchmarks/machines/ergo/cmd/p3bench -o /tmp/p3bench

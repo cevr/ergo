@@ -26,7 +26,7 @@ func (law *Law) Title(from *Package) string {
 	return title
 }
 
-// Laws (196l; spec D-E4; law-top; #162 law-run-1). A law is checked here
+// Laws (196l; spec D-E4; law-top; law-run-1). A law is checked here
 // and run by ergo test (rules 7 to 9). Its placement sets what it is
 // quantified over: a top-level
 // law over its parameters; a member of an operation type over its

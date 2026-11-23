@@ -14,7 +14,7 @@ import (
 )
 
 // The std laws (docs/spec/stdlib.md, Std laws; std-align S1a) are checked,
-// not run, until #162. TestStdLawsRun is the ledger's runner for the laws
+// not run, until laws and proofs. TestStdLawsRun is the ledger's runner for the laws
 // that need the lowering and the runtime: one Ergo program restates each
 // as a test of its own name, its parameters drawn by the property runner,
 // and the test build runs them with --seed 1, as ergo test --seed 1 does.

@@ -493,7 +493,7 @@ func result(t *testing.T, done <-chan error) error {
 // operations from one goroutine: Push, Pop, Poll, Close, and Len before each
 // step. The model is a FIFO list, a capacity and a closed flag; at the end
 // the queue is emptied by Values after End, or by Drain (the release of a
-// queue of resources, #197 L8 B3), which must also end admission. An operation
+// queue of resources, resource ownership L8 B3), which must also end admission. An operation
 // that would wait is skipped: the interleavings test covers waits. Poll is
 // never skipped, since it never waits.
 func TestQueueModel(t *testing.T) {
@@ -553,7 +553,7 @@ func TestQueueModel(t *testing.T) {
 		}
 		var rest []int
 		if seed%2 == 0 {
-			// The release of a queue of resources (#197 L8 B3, Q7): Drain
+			// The release of a queue of resources (L8 B3, Q7): Drain
 			// ends admission and gives every value left, oldest first.
 			rest = q.Drain()
 			if !closed(t, q.Push(bg, next)) {
