@@ -86,8 +86,8 @@ func runTaskJSON(t *testing.T, args ...string) taskResult {
 // --check, and a file out of format fails fmt --check, though both passed
 // before.
 //
-// It kills task-fmt-key-omits-bytes, task-gen-check-not-check and
-// ledger-library-resolves-toolchain.
+// It kills task-fmt-key-omits-bytes, task-fmt-key-parses-graph,
+// task-gen-check-not-check and ledger-library-resolves-toolchain.
 func TestTaskGateReplaysWhatHolds(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("ERGO_CACHE", "")

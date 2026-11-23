@@ -253,38 +253,24 @@ func (w *gateWorkspace) treeParts(dir, skip string, seen map[string]bool, key *t
 	return nil
 }
 
-// fmtKey is fmt --check's key at member i: the formatter, each .ergo
-// file of its packages by content, and each package folder's .ergo
-// names; its paths are those files and, per package folder, any .ergo
-// file in it ("DIR/*.ergo"), so a new file selects it.
+// fmtKey is fmt --check's key at member i: the formatter and the names
+// and bytes of its source files. Listing inputs does not parse them.
 func (w *gateWorkspace) fmtKey(i int) (task.Key, error) {
-	pkgs, err := w.packages(i)
-	if err != nil {
-		return task.Key{}, err
-	}
 	key := task.Key{Parts: []task.Part{{Name: "formatter", Digest: lawcache.Key(sketchfront.FormatterIdentity)}}}
-	for _, pkg := range pkgs {
-		files, err := gateSources(pkg.Dir)
-		if err != nil {
-			return task.Key{}, err
-		}
-		dir, _ := w.rel(pkg.Dir)
-		var names []string
-		for _, f := range files {
-			data, err := os.ReadFile(f)
-			if err != nil {
-				return task.Key{}, err
-			}
-			sum := sha256.Sum256(data)
-			r, _ := w.rel(f)
-			key.Parts = append(key.Parts, task.Part{Name: r, Digest: hex.EncodeToString(sum[:])})
-			key.Paths = append(key.Paths, r)
-			names = append(names, filepath.Base(f))
-		}
-		key.Parts = append(key.Parts, task.Part{Name: "sources of " + dir, Digest: lawcache.Key(names...)})
+	err := walkGateSources(w.ws.Members[i].Dir, func(dir string) {
+		dir, _ = w.rel(dir)
 		key.Paths = append(key.Paths, path.Join(dir, "*"+sourceExtension))
-	}
-	return key, nil
+	}, func(file string) error {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(data)
+		r, _ := w.rel(file)
+		key.Parts = append(key.Parts, task.Part{Name: r, Digest: hex.EncodeToString(sum[:])})
+		return nil
+	})
+	return key, err
 }
 
 // fail records a failed verdict of step id and prints it.
@@ -354,21 +340,12 @@ func (w *gateWorkspace) check(id string, i int) (bool, error) {
 // format is fmt --check at member i: every .ergo file is in ergo fmt's
 // layout.
 func (w *gateWorkspace) format(id string, i int) (bool, error) {
-	pkgs, err := w.packages(i)
-	if err != nil {
-		return false, err
-	}
 	held := true
-	for _, pkg := range pkgs {
-		files, err := gateSources(pkg.Dir)
-		if err != nil {
-			return false, err
-		}
-		for _, file := range files {
-			held = w.formatFile(id, file) && held
-		}
-	}
-	return held, nil
+	err := walkGateSources(w.ws.Members[i].Dir, nil, func(file string) error {
+		held = w.formatFile(id, file) && held
+		return nil
+	})
+	return held, err
 }
 
 func (w *gateWorkspace) formatFile(id, file string) bool {
@@ -477,20 +454,35 @@ func (w *gateWorkspace) test(id string, i int) (bool, error) {
 	return held, nil
 }
 
-// gateSources are the source files of the package folder dir, sorted.
-func gateSources(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	var files []string
-	for _, e := range entries {
-		if filepath.Ext(e.Name()) == sourceExtension && !e.IsDir() {
-			files = append(files, filepath.Join(dir, e.Name()))
+// walkGateSources walks a single member's format operands in lexical
+// order. Dependencies and nested members are not operands of its format
+// step; unlike package discovery, formatting needs no import graph.
+func walkGateSources(root string, folder func(string), source func(string) error) error {
+	return filepath.WalkDir(root, func(file string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-	}
-	slices.Sort(files)
-	return files, nil
+		if entry.IsDir() {
+			if file != root {
+				if !sketchfront.AdmitFolder(entry.Name()) {
+					return filepath.SkipDir
+				}
+				if _, err := os.Stat(filepath.Join(file, sketchfront.ModFile)); err == nil {
+					return filepath.SkipDir
+				} else if !errors.Is(err, fs.ErrNotExist) {
+					return err
+				}
+			}
+			if folder != nil {
+				folder(file)
+			}
+			return nil
+		}
+		if entry.Type().IsRegular() && filepath.Ext(file) == sourceExtension && sketchfront.AdmitFolder(entry.Name()) {
+			return source(file)
+		}
+		return nil
+	})
 }
 
 // gateLintConfig is the member's lint configuration document as a key
