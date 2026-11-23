@@ -10,12 +10,13 @@ import (
 // block moves a resource of the frame (R12, R30), so the block is a
 // literal a task captures (check.TaskCapture's Vars), and each has an IR
 // body (IR1 TASK-CAPTURES tip 2).
-var taskMoveFuncs = []string{"moveOne", "crew"}
+var taskMoveFuncs = []string{"spawn", "crew"}
 
 // GenerateTaskMove is a program of bodies whose task blocks move the
 // frame's resources:
-//   - moveOne's task.Go block passes a Res to consume, which takes it: the
-//     block owns the Res, consume's frame closes it, and the sender, which
+//   - spawn's task.Go block outlives spawn's Res (spawn returns the task,
+//     which moveOne waits for), so it moves the Res and passes it to
+//     consume, which takes it: consume's frame closes it, and spawn, which
 //     handed it out at the call, closes nothing;
 //   - crew starts one member of a Set per round, whose repeated block
 //     lends a Res the member's root owns: the root closes it after the
@@ -31,7 +32,8 @@ func GenerateTaskMove(seed uint64) string {
 	b.WriteString("type Res { id int } implements Closer\n\nfunc Close(r Res) needs Console {\n\tConsole.Println(\"close \\(r.id)\")\n}\n\n")
 	b.WriteString("type Stop { n int }\n\n")
 	fmt.Fprintf(&b, "func consume(r own Res, k int) int needs Console {\n\tConsole.Println(\"consume \\(r.id)\")\n\tr.id * %d + k\n}\n\n", 2+r.IntN(5))
-	b.WriteString("func moveOne(k int) int needs Console {\n\tlet r = Res{id: k}\n\tlet t = task.Go() { consume(r, k) }\n\tlet v = t.Wait()\n\tConsole.Println(\"moveOne \\(v)\")\n\tv\n}\n\n")
+	b.WriteString("func spawn(k int) Task[int, Stop] needs Console {\n\tlet r = Res{id: k}\n\tConsole.Println(\"spawn \\(k)\")\n\ttask.Go() { consume(r, k) }\n}\n\n")
+	b.WriteString("func moveOne(k int) int needs Console {\n\tlet t = spawn(k)\n\tlet v = t.Wait() catch {\n\tcase Stop:\n\t\t0\n\t}\n\tConsole.Println(\"moveOne \\(v)\")\n\tv\n}\n\n")
 	b.WriteString("func look(r Res, i int, stop int) fails Stop needs Console {\n\tConsole.Println(\"look \\(r.id) \\(i)\")\n\tif i == stop {\n\t\treturn Stop{n: r.id}\n\t}\n}\n\n")
 	fmt.Fprintf(&b, "func crew(n int, stop int) int fails Stop needs Console {\n\tlet mut sum = 0\n\tfor i in 0..n {\n\t\tlet s = tasks.NewSet[Stop](tasks.FailFast)\n\t\tlet r = Res{id: i * 3 + %d}\n\t\ttasks.Go(s) { try look(r, i, stop) } catch {\n\t\tcase tasks.Closed:\n\t\t\tbreak\n\t\t}\n\t\ttry s.Wait()\n\t\tsum = sum + i\n\t}\n\tsum\n}\n\n", r.IntN(9))
 	b.WriteString("func main() needs Console {\n")
