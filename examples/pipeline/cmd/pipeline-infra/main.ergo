@@ -31,8 +31,10 @@ func setting(key string, fallback string) string needs os.Process {
 
 func main() fails os.Exit needs Ambient | Console {
 	let host = fs.NewHost()
-	let spawner = exec.NewHost()
 	let proc = os.NewHost()
+	// The processes it starts are the user's programs: they see this
+	// process's whole environment.
+	let spawner = exec.NewHost().InheritEnv(proc.Environ())
 	let (home, program, portText, args) = with context { os.Process: proc } {
 		let cwd = os.Process.Getwd() catch {
 		case os.NoWorkdir:

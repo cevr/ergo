@@ -105,6 +105,24 @@ func TestGateReplaysWhatHolds(t *testing.T) {
 		}
 	}
 
+	// A marker edit must miss the cached generation verdict even when
+	// every Ergo source is byte-for-byte unchanged.
+	marker := filepath.Join(mod, "api", "apiapi", "ergo.gen")
+	markerBytes, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := strings.Replace(string(markerBytes), "generator ergo gen api", "generator stale", 1)
+	if err := os.WriteFile(marker, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if failed := runGate(t, mod).Failed; !hasFailure(failed, "gen", "ergo.gen") {
+		t.Errorf("a changed marker with unchanged sources: failures %v, want gen --check of ergo.gen", failed)
+	}
+	if err := os.WriteFile(marker, markerBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	// A changed contract: the hub is stale.
 	smokeWrite(t, mod, "api/api.ergo", "// Package api is the gate test's contract.\n\n// Item is what Read answers.\ntype Item { Count int, Note string }\n\n// API reads items.\ntype API { Read(key string) Item }\n")
 	if err := formatCommand([]string{"./..."}); err != nil {

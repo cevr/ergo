@@ -96,6 +96,8 @@ type actorV struct {
 
 	state     Value
 	ended     bool
+	onEnd     []Value // OnEnd's actions, run by finish (actor.go rule 14b)
+	endTaken  bool    // finish took onEnd: a later OnEnd fails Stopped
 	fail      *abrupt // the typed failure that ended it
 	defect    *abrupt // the first defect that ended it
 	subs      []*changeSub
@@ -171,6 +173,22 @@ func registerRunner(t nativeTables) {
 	natives["actor.hasLatest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).hasLatest, nil
 	}
+	// Ended is ActorEnded: whether the actor has ended; it never waits.
+	t.reads["actor.Ended"] = "host:actor.Actor"
+	natives["actor.Ended"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		return actorOf(args[0]).ended, nil
+	}
+	// OnEnd is ActorOnEnd: f runs when the actor ends (rule 14b); after
+	// the end took its actions it fails Stopped.
+	t.reads["actor.OnEnd"] = "host:actor.Actor"
+	natives["actor.OnEnd"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		a := actorOf(args[0])
+		if a.endTaken {
+			return nil, a.inbox.closedFailure(fr, at)
+		}
+		a.onEnd = append(a.onEnd, args[1])
+		return unit{}, nil
+	}
 	t.reads["actor.latest"] = "host:actor.Actor"
 	natives["actor.latest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).latest, nil
@@ -186,6 +204,16 @@ func registerRunner(t nativeTables) {
 			return unit{}, nil
 		}
 		return nil, fr.abrupt(ctlFail, at, a.fail.val, "")
+	}
+	// defectOf is ActorDefectReason: the text of the defect that ended the
+	// actor, "" when none did (ExitOf's Defected{Reason}).
+	t.reads["actor.defectOf"] = "host:actor.Actor"
+	natives["actor.defectOf"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		a := actorOf(args[0])
+		if a.defect == nil {
+			return "", nil
+		}
+		return a.defect.msg, nil
 	}
 	t.reads["actor.exitKind"] = "host:actor.Actor"
 	natives["actor.exitKind"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -868,6 +896,18 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 		a.note(ab)
 	}
 	a.feeds = nil
+	// The end actions (runtime/v1 actor.go rule 14b), masked, in order.
+	acts := a.onEnd
+	a.onEnd, a.endTaken = nil, true
+	for _, f := range acts {
+		in.mask(1)
+		_, ab := a.call(in, fr, f)
+		in.mask(-1)
+		if stops(ab) {
+			return ab
+		}
+		a.note(ab)
+	}
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil

@@ -32,7 +32,7 @@ func TestExecSandboxReexecsOncePerCase(t *testing.T) {
 	for c, commands := range []int{3, 1} {
 		root := v1.TestFolderOpen()
 		for i := range commands {
-			res, err := ExecRunIn(task, root, "sh", []string{"-c", "echo $PPID"}, nil, root, "", 0)
+			res, err := ExecRunIn(task, root, "/bin/sh", []string{"-c", "echo $PPID"}, nil, root, "", 0)
 			if err != nil {
 				t.Fatalf("case %d run %d: %v", c, i, err)
 			}
@@ -40,7 +40,7 @@ func TestExecSandboxReexecsOncePerCase(t *testing.T) {
 				t.Errorf("case %d run %d: the program's parent is %s, want this process %s", c, i, got, self)
 			}
 		}
-		running, err := ExecStartIn(task, root, "true", nil, nil, root, "", 0, execDiscard, "", false, execDiscard, "", false)
+		running, err := ExecStartIn(task, root, "/usr/bin/true", nil, nil, root, "", 0, execDiscard, "", false, execDiscard, "", false)
 		if err != nil {
 			t.Fatalf("case %d start: %v", c, err)
 		}
@@ -57,7 +57,7 @@ func TestExecSandboxReexecsOncePerCase(t *testing.T) {
 			t.Errorf("case %d: its end left its helper (registered %v, reaped %v)", c, kept, h != nil && h.cmd.ProcessState != nil)
 		}
 	}
-	if _, err := ExecRun(task, "true", nil, nil, "", "", 0); err != nil {
+	if _, err := ExecRun(task, "/usr/bin/true", nil, nil, "", "", 0); err != nil {
 		t.Fatalf("host run: %v", err)
 	}
 	if got := execSandboxReexecs.Load() - before; got != 2 {
@@ -67,11 +67,12 @@ func TestExecSandboxReexecsOncePerCase(t *testing.T) {
 
 // TestExecSandboxFailsAsTheHost: a command of the case's folder fails to
 // start exactly as the host's command does (TestExecFailures' table, in
-// the folder), keeps the call's contract (environment over the host's,
+// the folder), keeps the call's contract (exactly the environment it is given,
 // directory, standard input, status), and a program refused before its
 // exec leaves no child of this process unreaped: the helper refuses it
 // before the fork, as the parent never learns a failed fork's pid.
-// Mutant th1c-no-access-check (runtime/v1 ledger).
+// Mutants th1c-no-access-check and exec-sandbox-env-fallback (runtime/v1/exec
+// ledger).
 func TestExecSandboxFailsAsTheHost(t *testing.T) {
 	task := rt.Root("exec sandbox failures")
 	root := v1.TestFolderOpen()
@@ -101,9 +102,9 @@ func TestExecSandboxFailsAsTheHost(t *testing.T) {
 	}
 	t.Setenv("ERGO_EXEC_HOST", "host")
 	t.Setenv("ERGO_EXEC_OVER", "host")
-	res, err := ExecRunIn(task, root, "sh", []string{"-c", `printf '%s %s %s|' "$ERGO_EXEC_HOST" "$ERGO_EXEC_OVER" "$(pwd)"; cat; echo oops >&2; exit 7`},
+	res, err := ExecRunIn(task, root, "/bin/sh", []string{"-c", `printf '%s %s %s|' "$ERGO_EXEC_HOST" "$ERGO_EXEC_OVER" "$(pwd)"; cat; echo oops >&2; exit 7`},
 		map[string]string{"ERGO_EXEC_OVER": "set"}, root, "in\nput", 0)
-	want := ExecResult{Status: 7, Stdout: "host set " + root + "|in\nput", Stderr: "oops\n"}
+	want := ExecResult{Status: 7, Stdout: " set " + root + "|in\nput", Stderr: "oops\n"} // none of this process's environment
 	if err != nil || res != want {
 		t.Errorf("ExecRunIn = %#v, %v; want %#v", res, err, want)
 	}
@@ -137,13 +138,13 @@ func TestExecSandboxHelperOutOfReach(t *testing.T) {
 	root := v1.TestFolderOpen()
 	defer v1.TestFolderRemove(root)
 	task := rt.Root("exec sandbox reach")
-	if _, err := ExecRunIn(task, root, "true", nil, nil, root, "", 0); err != nil {
+	if _, err := ExecRunIn(task, root, "/usr/bin/true", nil, nil, root, "", 0); err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	execHelpers.Lock()
 	helper := strconv.Itoa(execHelpers.m[root].cmd.Process.Pid)
 	execHelpers.Unlock()
-	res, err := ExecRunIn(task, root, "sh", []string{"-c", `ls /proc/$1/fd >/dev/null 2>&1 && echo fd; head -c 1 /proc/$1/environ >/dev/null 2>&1 && echo environ; true`, "sh", helper}, nil, root, "", 0)
+	res, err := ExecRunIn(task, root, "/bin/sh", []string{"-c", `ls /proc/$1/fd >/dev/null 2>&1 && echo fd; head -c 1 /proc/$1/environ >/dev/null 2>&1 && echo environ; true`, "sh", helper}, nil, root, "", 0)
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -183,10 +184,10 @@ func BenchmarkExecSandbox(b *testing.B) {
 		name string
 		run  func() error
 	}{
-		{"host", func() error { _, err := ExecRun(task, "true", nil, nil, root, "", 0); return err }},
-		{"sandboxed", func() error { _, err := ExecRunIn(task, root, "true", nil, nil, root, "", 0); return err }},
-		{"host-case", inCase(func(dir string) error { _, err := ExecRun(task, "true", nil, nil, dir, "", 0); return err })},
-		{"case", inCase(func(dir string) error { _, err := ExecRunIn(task, dir, "true", nil, nil, dir, "", 0); return err })},
+		{"host", func() error { _, err := ExecRun(task, "/usr/bin/true", nil, nil, root, "", 0); return err }},
+		{"sandboxed", func() error { _, err := ExecRunIn(task, root, "/usr/bin/true", nil, nil, root, "", 0); return err }},
+		{"host-case", inCase(func(dir string) error { _, err := ExecRun(task, "/usr/bin/true", nil, nil, dir, "", 0); return err })},
+		{"case", inCase(func(dir string) error { _, err := ExecRunIn(task, dir, "/usr/bin/true", nil, nil, dir, "", 0); return err })},
 	} {
 		b.Run(c.name, func(b *testing.B) {
 			runtime.LockOSThread()

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketchfront"
@@ -242,18 +243,41 @@ func formatCommand(args []string) error {
 // (isPackageFolder: not a .ergo path) with the .ergo files in it and in the
 // folders below it, in lexical order, as gofmt walks a directory. A folder
 // sketchfront.AdmitFolder refuses (hidden, "_", testdata, node_modules,
-// vendor, ergo.bind) is skipped, as every DIR/... walk skips it; a
-// symbolic link is not followed. A folder with no .ergo
-// file is an invocation error, and so is an expansion past the file limit.
+// vendor, ergo.bind) and a folder with a current generation marker are
+// skipped. A symbolic link is not followed. A plain folder with no .ergo
+// file and no marked output is an invocation error, and so is an expansion
+// past the file limit.
 func expandFormatFolders(opts *fmtOptions) error {
 	var files []string
 	for _, operand := range opts.files {
 		if recursivePattern(operand) {
-			packages, err := sketchfront.DiscoverPackages(filepath.Dir(filepath.Clean(operand)))
+			root, err := filepath.Abs(filepath.Dir(filepath.Clean(operand)))
 			if err != nil {
 				return err
 			}
+			root, err = filepath.EvalSymlinks(root)
+			if err != nil {
+				return err
+			}
+			packages, err := sketchfront.DiscoverPackages(root)
+			if err != nil {
+				return err
+			}
+			held := map[string]bool{}
+			var inGenerated func(string) bool
+			inGenerated = func(dir string) bool {
+				if v, ok := held[dir]; ok {
+					return v
+				}
+				parent := filepath.Dir(dir)
+				v := (dir != root && dir != parent && inGenerated(parent)) || genmark.Held(dir)
+				held[dir] = v
+				return v
+			}
 			for _, pkg := range packages {
+				if inGenerated(pkg.Dir) {
+					continue
+				}
 				entries, err := os.ReadDir(pkg.Dir)
 				if err != nil {
 					return err
@@ -271,16 +295,22 @@ func expandFormatFolders(opts *fmtOptions) error {
 			files = append(files, operand)
 			continue
 		}
+		if genmark.Held(operand) {
+			continue
+		}
 		found := 0
+		skipped := false
 		err := filepath.WalkDir(operand, func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 			name := entry.Name()
 			if entry.IsDir() {
-				// DIR/...'s rule (build.md, Workspace): ergo.bind holds
-				// generated bindings (IG7), rewritten only by ergo bind go.
 				if path != operand && !sketchfront.AdmitFolder(name) {
+					return filepath.SkipDir
+				}
+				if path != operand && genmark.Held(path) {
+					skipped = true
 					return filepath.SkipDir
 				}
 				return nil
@@ -294,7 +324,7 @@ func expandFormatFolders(opts *fmtOptions) error {
 		if err != nil {
 			return err
 		}
-		if found == 0 {
+		if found == 0 && !skipped {
 			return fmt.Errorf("folder %s holds no %s file", operand, sourceExtension)
 		}
 	}

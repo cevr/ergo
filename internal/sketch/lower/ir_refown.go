@@ -79,7 +79,7 @@ func (b *irBuilder) ownedRefCall(x *syntax.CallExpr, c *check.Call, s *refSite, 
 	hidden := b.hidden(body, x, c, p)
 	pre, vals := b.operands(list)
 	// OPC's adaptOperand takes the literal's signature and its site (I-FLIP: OPC x IR-OWN).
-	bind, fv := b.adaptOperand(b.l.info.Literals[s.lit], s.lit, vals[cb], body.Params[cb], p) // ir_adapt.go
+	bind, fv, _ := b.adaptOperand(b.l.info.Literals[s.lit], s.lit, vals[cb], body.Params[cb], p) // ir_adapt.go
 	pre, vals[cb] = append(pre, bind...), fv
 	fresh := "false"
 	if s.fresh {

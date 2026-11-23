@@ -1,0 +1,5 @@
+kind cli
+generator ergo gen cli
+subject pipeline/pipeline.Pipeline
+contract sha256:9551527a1455c9f7c1e837e99fbf827e9ac389f4f4a7265393bd017aac0ec26f
+digest sha256:385876e4b9cbedcdc75254281819ca851e59e5872992d42f2319854347248714

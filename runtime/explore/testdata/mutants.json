@@ -108,7 +108,7 @@
       "to": "\tk.buf = append(k.buf, s...)",
       "rule": "Key.String: a string is written with its length.",
       "killers": [
-        "lower:TestKeyEqualsEquality"
+        "internal/sketch/lower:TestKeyEqualsEquality"
       ]
     },
     {
@@ -119,7 +119,7 @@
       "to": "func (k *Key) Float(v float64) {\n\tif v == 0 {\n\t\tv = 0\n\t}\n\tk.buf =",
       "rule": "Key.Float: a float is written by its bits, so 0 and -0, which a step tells apart, are two states (types.md Laws 13).",
       "killers": [
-        "lower:TestKeyEqualsEquality"
+        "internal/sketch/lower:TestKeyEqualsEquality"
       ]
     },
     {
