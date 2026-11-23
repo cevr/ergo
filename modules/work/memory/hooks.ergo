@@ -307,7 +307,7 @@ law FailedPostcreateLeavesActive(before int) {
 	case work.HooksRan, work.Untrusted:
 		false
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}

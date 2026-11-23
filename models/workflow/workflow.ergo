@@ -1,0 +1,928 @@
+// The package workflow is the design model of one durable workflow run
+// (the std package workflow of the DURABLE plan, unit W0), checked by
+// `ergo test models/workflow`: a breadth-first search of every state in a
+// small scope. It models what crashes and the order of events can break
+// in the protocol between a run's store, two workers and the receiver of
+// the run's effects.
+//
+// The store keeps, for the run, its events (the journal), its inbox (the
+// signal a sender delivered, kept until a wait takes it), its one wake (a
+// revision that is ready now, or the park's timer) and the claim's lease
+// with its epoch. Its writes are atomic:
+//
+//   - Deliver admits the signal: the signal and a ready wake (a new
+//     revision) in one write, so a parked run is woken; a second delivery
+//     of the same key is deduped, and a delivery to an ended run is
+//     refused;
+//   - Claim leases a due wake to a worker under a new epoch (a Claim after
+//     Expire is a reclaim): the worker loads the events and the inbox and
+//     notes the cursor and the revision it claimed;
+//   - Commit appends the events the body's fold asks for next, takes the
+//     signal when it wins the wait, and arms the next wake (a new
+//     revision; none when the run ended), as one write under the expected
+//     cursor and the claim's fence. A stale cursor (another write since
+//     the load) or a lost fence (another claim since this one) refuses it
+//     and changes nothing;
+//   - Settle retires the wake only when it is the revision the worker
+//     claimed (an ack of a stale claim, the plan's AckStale, leaves a
+//     newer arm), and gives back the lease.
+//
+// The run's body: call A twice (two calls of one operation, A#1 and A#2,
+// each with an undo), then wait for the signal or the park's timer. The
+// signal finishes the run; a failed A or the timer unwinds it: each call
+// done is undone, in reverse order, and the run ends failed. Replay is a
+// fold of the events: a worker decides from what it loaded, never from
+// memory of an earlier claim. A call's real work goes to the receiver
+// with its key; the receiver dedupes on the key and answers a repeated
+// key with the outcome it stored. The key is the run's id, the
+// operation's name and its count, so A#1 and A#2 have two keys.
+//
+// A worker may crash in every state (its process dies, a new one starts
+// with nothing in memory); its lease runs out (Expire) and another worker
+// reclaims the wake, while the old one may still run (a paused process).
+// Time passes for the park's timer (Tick). These are the plan's signals
+// Deliver, Tick, Claim, Park (a Commit at the wait), Commit, Crash,
+// Reclaim (Expire then Claim) and AckStale (Settle of a stale claim).
+//
+// Invariants (laws of Design, each `always`), on the store's durable
+// state, so each holds whatever crash comes next:
+//   - ReplayIsTheFold: every event is the one the body's fold asks for at
+//     its place, so a replay from any cut reproduces the run;
+//   - OneWinner: the wait has at most one winner in the journal;
+//   - WakeCoverage: a run that has not ended has a wake;
+//   - ParkHasWakeOrReadySignal: a parked run that has no winner keeps its
+//     timer or has the signal in its inbox;
+//   - SignalWinnerSurvives: an admitted signal is in the inbox or is the
+//     wait's recorded winner;
+//   - StaleAckCannotClearNewArm: a settle never retires a revision it did
+//     not claim;
+//   - EffectOncePerKey: the receiver applies each call's effect at most
+//     once, and a call the journal records as done had its effect applied
+//     (invocations may be more: Witness InvokesAgain);
+//   - UndoInReverse: the unwind undoes A#2 before A#1.
+//
+// Mutants, each a machine whose law Breaks must hold (a shortest run to a
+// state where the invariant named is false). The first three are the red
+// traces of the Rivet comparison (BACKLOG/BEAM-RUNTIME/RIVET page, 3):
+//   - DeleteBeforeWinner: a wait deletes the signal from the inbox in one
+//     write and records the winner in a later one, the destructive wait
+//     (SignalWinnerSurvives);
+//   - ArmAfterPark: the park is committed with the wake retired, and the
+//     timer is armed by a second write, the split park and alarm
+//     (ParkHasWakeOrReadySignal);
+//   - NoTailFence: a commit is not checked against the cursor and writes
+//     back the inbox it captured at its load, the held queue without a
+//     tail fence: a signal admitted after the load is lost
+//     (SignalWinnerSurvives);
+//   - AckByKey: a settle retires the run's wake whatever its revision, the
+//     ack by key without a revision (StaleAckCannotClearNewArm);
+//   - EarlyRelease: a worker settles its wake before its commit
+//     (WakeCoverage);
+//   - KeyWithoutCount: the key is the operation's name without its count,
+//     so A#2 is answered with A#1's stored outcome and its effect never
+//     happens (EffectOncePerKey);
+//   - BlindCommit: a commit checks neither the cursor nor the fence, so a
+//     stale worker and the reclaiming one both write (OneWinner and
+//     ReplayIsTheFold);
+//   - UndoInOrder: the unwind undoes A#1 first (UndoInReverse).
+//
+// Witnesses (laws of Design, each `sometimes`), so the invariants are not
+// vacuous: a call invoked twice (a crash after the call, before its
+// commit); the signal winning; the timer winning and the unwind ending
+// failed; a stale worker beside the reclaiming one; a duplicate delivery
+// deduped; a signal admitted after the timer won, kept.
+//
+// The scope: one run, two workers, one signal key delivered at most twice,
+// one timer. Epochs, revisions and cursors are relative, as in
+// models/durable: each is read only by the test "is it still the one I
+// hold", so a worker keeps that test's answer (Current, Mine, Fresh) and
+// every write that moves one clears it in the other worker. It is the
+// claim: "proved" means proved in this scope.
+
+// Ev is an event of the run's journal: a call done (Ok) or failed, the
+// park, the wait's winner (the signal, or the timer), an undo, the end.
+type Ev = Did{Call int, Ok bool} | Parked{} | Won{Signal bool} | Undid{Call int} | End{Ok bool}
+
+// Worker is what a worker holds in memory for its claim. Current: no claim
+// was made since its own (the fence). Mine: the store's wake is the
+// revision it claimed. Fresh: no write since its load (the cursor). View
+// is the events it loaded or committed; SawSig and Timer are the inbox and
+// the wake it saw at its claim (Timer: the park's timer, due). Out is the
+// answer of the call it invoked (0 none, 1 done, 2 failed). Took, Parking
+// and Acked are the mutants' (DeleteBeforeWinner, ArmAfterPark,
+// EarlyRelease).
+type Worker {
+	Has       bool,
+	Current   bool,
+	Mine      bool,
+	Fresh     bool,
+	View      []Ev,
+	SawSig    bool,
+	Timer     bool,
+	Out       int,
+	Committed bool,
+	Took      bool,
+	Parking   bool,
+	Acked     bool,
+}
+
+// World is the store, the two workers and the receiver. Wake is 0 none,
+// 1 ready, 2 the park's timer, 3 the timer due. Seen is whether the
+// signal's key was admitted; Sends counts deliveries. Res is the
+// receiver's stored outcome per key, Eff its effects and Inv the handler's
+// invocations per call (A#1, A#2, the undo of A#1, the undo of A#2), each
+// capped at 2. Cleared records a settle that retired a revision it did not
+// claim.
+type World {
+	Ev      []Ev,
+	Inbox   bool,
+	Seen    bool,
+	Sends   int,
+	Wake    int,
+	Leased  bool,
+	A       Worker,
+	B       Worker,
+	Res     []int,
+	Eff     []int,
+	Inv     []int,
+	Cleared bool,
+}
+
+// Act is the signals: one store or time event, or an action of worker A
+// (B false) or B.
+type Act =
+	| Deliver{}
+	| Tick{}
+	| Expire{}
+	| Claim{B bool}
+	| Invoke{B bool, Ok bool}
+	| Commit{B bool}
+	| Settle{B bool}
+	| Release{B bool}
+	| Crash{B bool}
+	| Take{B bool}
+	| Arm{B bool}
+
+let NoWake = 0
+let Ready = 1
+let TimerSet = 2
+let TimerDue = 3
+
+let MaxSends = 2
+
+// The mutants and the design, as the argument of next.
+let NoMutant = 0
+let DeleteBeforeWinnerMutant = 1
+let ArmAfterParkMutant = 2
+let AckByKeyMutant = 3
+let EarlyReleaseMutant = 4
+let KeyWithoutCountMutant = 5
+let NoTailFenceMutant = 6
+let BlindCommitMutant = 7
+let UndoInOrderMutant = 8
+
+// Pos is the fold of the events: where the body is. DidN is 0 for a call
+// not done, 1 done, 2 failed; Won 0 for no winner, 1 the signal, 2 the
+// timer. Valid is false once an event is not the one the body asks for.
+type Pos {
+	Valid  bool,
+	Did0   int,
+	Did1   int,
+	Parked bool,
+	Won    int,
+	Undid0 bool,
+	Undid1 bool,
+	Ended  bool,
+}
+
+// Step is what the body asks for next.
+type Step = CallStep{Call int} | AwaitStep{} | UndoStep{Call int} | FinishStep{Ok bool} | NoStep{}
+
+func start() Pos {
+	Pos{Valid: true, Did0: 0, Did1: 0, Parked: false, Won: 0, Undid0: false, Undid1: false, Ended: false}
+}
+
+// want is the body: call A#1, call A#2, wait; the signal ends the run;
+// a failure or the timer unwinds the calls done, A#2 before A#1 (A#1
+// first under UndoInOrder).
+func want(m int, p Pos) Step {
+	if !p.Valid || p.Ended {
+		return NoStep
+	}
+	if p.Did0 == 0 {
+		return CallStep{Call: 0}
+	}
+	if p.Did0 == 2 {
+		return FinishStep{Ok: false}
+	}
+	if p.Did1 == 0 {
+		return CallStep{Call: 1}
+	}
+	if p.Did1 == 1 && p.Won == 0 {
+		return AwaitStep
+	}
+	if p.Won == 1 {
+		return FinishStep{Ok: true}
+	}
+	if m == UndoInOrderMutant {
+		if !p.Undid0 {
+			return UndoStep{Call: 0}
+		}
+		if p.Did1 == 1 && !p.Undid1 {
+			return UndoStep{Call: 1}
+		}
+		return FinishStep{Ok: false}
+	}
+	if p.Did1 == 1 && !p.Undid1 {
+		return UndoStep{Call: 1}
+	}
+	if !p.Undid0 {
+		return UndoStep{Call: 0}
+	}
+	FinishStep{Ok: false}
+}
+
+func outcome(ok bool) int {
+	if ok {
+		return 1
+	}
+	2
+}
+
+// apply is p after the event e, or p made invalid when e is not what the
+// body asks for.
+func apply(m int, p Pos, e Ev) Pos {
+	let bad = Pos{..p, Valid: false}
+	let w = want(m, p)
+	match e {
+	case Did as d:
+		match w {
+		case CallStep as c:
+			if c.Call != d.Call {
+				return bad
+			}
+			if d.Call == 0 {
+				return Pos{..p, Did0: outcome(d.Ok)}
+			}
+			Pos{..p, Did1: outcome(d.Ok)}
+		case _:
+			bad
+		}
+	case Parked:
+		match w {
+		case AwaitStep:
+			if p.Parked {
+				return bad
+			}
+			Pos{..p, Parked: true}
+		case _:
+			bad
+		}
+	case Won as x:
+		match w {
+		case AwaitStep:
+			Pos{..p, Won: if x.Signal { 1 } else { 2 }}
+		case _:
+			bad
+		}
+	case Undid as u:
+		match w {
+		case UndoStep as c:
+			if c.Call != u.Call {
+				return bad
+			}
+			if u.Call == 0 {
+				return Pos{..p, Undid0: true}
+			}
+			Pos{..p, Undid1: true}
+		case _:
+			bad
+		}
+	case End as x:
+		match w {
+		case FinishStep as f:
+			if f.Ok != x.Ok {
+				return bad
+			}
+			Pos{..p, Ended: true}
+		case _:
+			bad
+		}
+	}
+}
+
+func foldFrom(m int, p Pos, es []Ev) Pos {
+	let mut acc = p
+	for e in es {
+		acc = apply(m, acc, e)
+	}
+	acc
+}
+
+func isFinish(s Step) bool {
+	match s {
+	case FinishStep:
+		true
+	case _:
+		false
+	}
+}
+
+func finishOk(s Step) bool {
+	match s {
+	case FinishStep as f:
+		f.Ok
+	case _:
+		false
+	}
+}
+
+// fold is the replay: the position the events give from the start.
+func fold(m int, es []Ev) Pos { foldFrom(m, start(), es) }
+
+func idle() Worker {
+	Worker{
+		Has:       false,
+		Current:   false,
+		Mine:      false,
+		Fresh:     false,
+		View:      []Ev{},
+		SawSig:    false,
+		Timer:     false,
+		Out:       0,
+		Committed: false,
+		Took:      false,
+		Parking:   false,
+		Acked:     false,
+	}
+}
+
+func zeros() []int { []int{0, 0, 0, 0} }
+
+// world is the start: the run created with a ready wake, no worker holds
+// a claim.
+func world() World {
+	World{
+		Ev:      []Ev{},
+		Inbox:   false,
+		Seen:    false,
+		Sends:   0,
+		Wake:    Ready,
+		Leased:  false,
+		A:       idle(),
+		B:       idle(),
+		Res:     zeros(),
+		Eff:     zeros(),
+		Inv:     zeros(),
+		Cleared: false,
+	}
+}
+
+func get(w World, b bool) Worker {
+	if b {
+		return w.B
+	}
+	w.A
+}
+
+func put(w World, b bool, k Worker) World {
+	if b {
+		return World{..w, B: k}
+	}
+	World{..w, A: k}
+}
+
+// other is the worker that is not b.
+func other(w World, b bool) Worker { get(w, !b) }
+
+// bump is xs with its element i one higher, capped at 2.
+func bump(xs []int, i int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i && x < 2 {
+			out = out.Append(x + 1)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+func set(xs []int, i int, v int) []int {
+	let mut out = []int{}
+	for j, x in xs {
+		if j == i {
+			out = out.Append(v)
+		} else {
+			out = out.Append(x)
+		}
+	}
+	out
+}
+
+// slot is the receiver's index of a call: A#1 0, A#2 1, the undo of A#1
+// 2, the undo of A#2 3.
+func slot(s Step) int {
+	match s {
+	case CallStep as c:
+		c.Call
+	case UndoStep as u:
+		2 + u.Call
+	case _:
+		-1
+	}
+}
+
+// keyOf is the receiver's key of a call's slot: the operation and its
+// count; under KeyWithoutCount the operation alone.
+func keyOf(m int, s int) int {
+	if m == KeyWithoutCountMutant {
+		return s - s%2
+	}
+	s
+}
+
+// finished reports whether the worker k has nothing left to commit: it
+// committed, or the run ended, or it is parked with neither the signal
+// nor a due timer.
+func finished(m int, k Worker) bool {
+	if k.Committed {
+		return true
+	}
+	let p = fold(m, k.View)
+	match want(m, p) {
+	case NoStep:
+		true
+	case AwaitStep:
+		p.Parked && !k.SawSig && !k.Timer
+	case _:
+		false
+	}
+}
+
+// moved clears Fresh in both workers: a write moved the cursor.
+func moved(w World) World {
+	World{..w, A: Worker{..w.A, Fresh: false}, B: Worker{..w.B, Fresh: false}}
+}
+
+// rearmed clears Mine in both workers: the wake is a new revision or none.
+func rearmed(w World) World {
+	World{..w, A: Worker{..w.A, Mine: false}, B: Worker{..w.B, Mine: false}}
+}
+
+func hasWon(es []Ev, signal bool) bool {
+	for e in es {
+		match e {
+		case Won as x:
+			if x.Signal == signal {
+				return true
+			}
+		case _:
+		}
+	}
+	false
+}
+
+// next is w after the action a under the mutant m (NoMutant is the
+// design), or None when a is not enabled.
+func next(m int, w World, a Act) Option[World] {
+	match a {
+	case Deliver:
+		if w.Sends >= MaxSends {
+			return None
+		}
+		let counted = World{..w, Sends: w.Sends + 1}
+		if w.Seen || fold(m, w.Ev).Ended {
+			// Deduped, or refused: the run ended.
+			return Some[World]{Value: counted}
+		}
+		Some[World]{Value: rearmed(moved(World{..counted, Seen: true, Inbox: true, Wake: Ready}))}
+	case Tick:
+		if w.Wake != TimerSet {
+			return None
+		}
+		Some[World]{Value: World{..w, Wake: TimerDue}}
+	case Expire:
+		if !w.Leased {
+			return None
+		}
+		Some[World]{Value: World{..w, Leased: false}}
+	case Claim as c:
+		let k = get(w, c.B)
+		if k.Has || w.Leased || (w.Wake != Ready && w.Wake != TimerDue) {
+			return None
+		}
+		let o = other(w, c.B)
+		let w2 = put(World{..w, Leased: true}, !c.B, Worker{..o, Current: false})
+		let z = idle()
+		Some[World]{Value: put(w2, c.B, Worker{
+			..z,
+			Has:     true,
+			Current: true,
+			Mine:    true,
+			Fresh:   true,
+			View:    w.Ev,
+			SawSig:  w.Inbox,
+			Timer:   w.Wake == TimerDue,
+		})}
+	case Invoke as v:
+		let k = get(w, v.B)
+		if !k.Has || k.Committed || k.Out != 0 {
+			return None
+		}
+		let s = want(m, fold(m, k.View))
+		let i = slot(s)
+		if i < 0 {
+			return None
+		}
+		let undo = i >= 2
+		if undo && !v.Ok {
+			// An undo succeeds here; a failed undo is the unwind's
+			// Pending (unit W4a).
+			return None
+		}
+		let key = keyOf(m, i)
+		let first = w.Res[key] == 0
+		if !first && !v.Ok {
+			return None
+		}
+		let out = if first { outcome(v.Ok) } else { w.Res[key] }
+		let res = if first { set(w.Res, key, out) } else { w.Res }
+		let eff = if first && out == 1 { bump(w.Eff, i) } else { w.Eff }
+		Some[World]{Value: put(World{..w, Res: res, Eff: eff, Inv: bump(w.Inv, i)}, v.B, Worker{..k, Out: out})}
+	case Commit as c:
+		return commit(m, w, c.B)
+	case Settle as s:
+		return settle(m, w, s.B)
+	case Release as r:
+		// A worker whose commit is refused (Conflict or Fenced) gives its
+		// claim back and keeps nothing; the wake stays.
+		let k = get(w, r.B)
+		if !k.Has || k.Parking || (k.Fresh && k.Current) {
+			return None
+		}
+		let w2 = if k.Current { World{..w, Leased: false} } else { w }
+		Some[World]{Value: put(w2, r.B, idle())}
+	case Crash as c:
+		let k = get(w, c.B)
+		if !k.Has {
+			return None
+		}
+		Some[World]{Value: put(w, c.B, idle())}
+	case Take as t:
+		// DeleteBeforeWinner: the wait deletes the signal from the inbox
+		// before it records the winner.
+		let k = get(w, t.B)
+		if m != DeleteBeforeWinnerMutant || !k.Has || !k.SawSig || k.Took || k.Committed {
+			return None
+		}
+		match want(m, fold(m, k.View)) {
+		case AwaitStep:
+			Some[World]{Value: put(World{..w, Inbox: false}, t.B, Worker{..k, Took: true})}
+		case _:
+			None
+		}
+	case Arm as r:
+		// ArmAfterPark: the timer of a committed park is armed by a
+		// second write.
+		let k = get(w, r.B)
+		if !k.Parking {
+			return None
+		}
+		Some[World]{Value: put(rearmed(World{..w, Wake: TimerSet}), r.B, Worker{..k, Parking: false})}
+	}
+}
+
+// decide is the events a worker's commit appends, and whether the commit
+// takes the signal, or None when it has nothing to commit.
+func decide(m int, k Worker) Option[[]Ev] {
+	let p = fold(m, k.View)
+	match want(m, p) {
+	case CallStep as c:
+		if k.Out == 0 {
+			return None
+		}
+		Some[[]Ev]{Value: []Ev{Did{Call: c.Call, Ok: k.Out == 1}}}
+	case UndoStep as u:
+		if k.Out == 0 {
+			return None
+		}
+		Some[[]Ev]{Value: []Ev{Undid{Call: u.Call}}}
+	case AwaitStep:
+		if k.SawSig {
+			if m == DeleteBeforeWinnerMutant && !k.Took {
+				return None
+			}
+			return Some[[]Ev]{Value: []Ev{Won{Signal: true}}}
+		}
+		if k.Timer && p.Parked {
+			return Some[[]Ev]{Value: []Ev{Won{Signal: false}}}
+		}
+		if !p.Parked {
+			return Some[[]Ev]{Value: []Ev{Parked}}
+		}
+		None
+	case _:
+		None
+	}
+}
+
+// commit is the one write of a worker's events, the signal it takes, and
+// the next wake, under the cursor and the fence.
+func commit(m int, w World, b bool) Option[World] {
+	let k = get(w, b)
+	if !k.Has || k.Committed || k.Parking {
+		return None
+	}
+	// Fenced: another claim was made since this one.
+	if m != BlindCommitMutant && !k.Current {
+		return None
+	}
+	// Conflict: another write since the load.
+	if m != BlindCommitMutant && m != NoTailFenceMutant && !k.Fresh {
+		return None
+	}
+	match decide(m, k) {
+	case None:
+		None
+	case Some[[]Ev] as d:
+		// The body finishes with these events: the end is in the same
+		// write.
+		let p = foldFrom(m, fold(m, k.View), d.Value)
+		let ended = isFinish(want(m, p))
+		let evs = if ended { d.Value.Append(End{Ok: finishOk(want(m, p))}) } else { d.Value }
+		let taken = hasWon(d.Value, true)
+		let parks = p.Parked && p.Won == 0
+		let mut ev2 = w.Ev
+		for e in evs {
+			ev2 = ev2.Append(e)
+		}
+		let inbox = if m == NoTailFenceMutant {
+			// The inbox it captured at its load, written back.
+			k.SawSig && !taken
+		} else {
+			w.Inbox && !taken
+		}
+		let w2 = moved(World{..w, Ev: ev2, Inbox: inbox})
+		let done = Worker{..k, Fresh: true, View: ev2, Out: 0, Committed: true}
+		if ended {
+			// The claimed wake stays; the settle retires it.
+			return Some[World]{Value: put(w2, b, done)}
+		}
+		if parks && m == ArmAfterParkMutant {
+			return Some[World]{Value: put(rearmed(World{..w2, Wake: NoWake}), b, Worker{..done, Mine: false, Parking: true})}
+		}
+		let wake = if parks { TimerSet } else { Ready }
+		Some[World]{Value: put(rearmed(World{..w2, Wake: wake}), b, Worker{..done, Mine: false})}
+	}
+}
+
+// settle retires the worker's claimed wake when it is still the store's
+// wake, and gives back the lease.
+func settle(m int, w World, b bool) Option[World] {
+	let k = get(w, b)
+	if !k.Has || k.Parking {
+		return None
+	}
+	let early = m == EarlyReleaseMutant && !k.Committed && !k.Acked
+	if !early && !finished(m, k) {
+		return None
+	}
+	let retire = w.Wake != NoWake && (k.Mine || m == AckByKeyMutant)
+	let base = World{
+		..w,
+		Leased:  if k.Current { false } else { w.Leased },
+		Cleared: w.Cleared || (retire && !k.Mine),
+	}
+	let w2 = if retire { rearmed(World{..base, Wake: NoWake}) } else { base }
+	if early {
+		// EarlyRelease: the worker acks first and goes on to its commit.
+		let k2 = get(w2, b)
+		return Some[World]{Value: put(w2, b, Worker{..k2, Acked: true})}
+	}
+	Some[World]{Value: put(w2, b, idle())}
+}
+
+// The invariants, on the store's durable state.
+
+func replayIsTheFold(w World) bool { fold(NoMutant, w.Ev).Valid }
+
+func winners(es []Ev) int {
+	let mut n = 0
+	for e in es {
+		match e {
+		case Won:
+			n = n + 1
+		case _:
+		}
+	}
+	n
+}
+
+func oneWinner(w World) bool { winners(w.Ev) <= 1 }
+
+func wakeCoverage(w World) bool { fold(NoMutant, w.Ev).Ended || w.Wake != NoWake }
+
+func parkHasWakeOrReadySignal(w World) bool {
+	let p = fold(NoMutant, w.Ev)
+	!(p.Parked && p.Won == 0) || w.Wake == TimerSet || w.Wake == TimerDue || w.Inbox
+}
+
+func signalWinnerSurvives(w World) bool { !w.Seen || w.Inbox || hasWon(w.Ev, true) }
+
+func staleAckCannotClearNewArm(w World) bool { !w.Cleared }
+
+// done is whether the journal records the receiver's call i as done: A#n
+// done, or the undo of A#n.
+func done(es []Ev, i int) bool {
+	for e in es {
+		match e {
+		case Did as d:
+			if d.Ok && d.Call == i {
+				return true
+			}
+		case Undid as u:
+			if 2+u.Call == i {
+				return true
+			}
+		case _:
+		}
+	}
+	false
+}
+
+func effectOncePerKey(w World) bool {
+	for i, n in w.Eff {
+		if n > 1 || (done(w.Ev, i) && n != 1) {
+			return false
+		}
+	}
+	true
+}
+
+// undoInReverse: an undo of A#1 comes only after A#2, when A#2 was done,
+// was undone.
+func undoInReverse(w World) bool {
+	let mut undid1 = false
+	for e in w.Ev {
+		match e {
+		case Undid as u:
+			if u.Call == 1 {
+				undid1 = true
+			}
+			if u.Call == 0 && done(w.Ev, 1) && !undid1 {
+				return false
+			}
+		case _:
+		}
+	}
+	true
+}
+
+func notTheFold(w World) bool     { !replayIsTheFold(w) }
+func twoWinners(w World) bool     { !oneWinner(w) }
+func uncovered(w World) bool      { !wakeCoverage(w) }
+func parkedBare(w World) bool     { !parkHasWakeOrReadySignal(w) }
+func signalLost(w World) bool     { !signalWinnerSurvives(w) }
+func clearedNewArm(w World) bool  { !staleAckCannotClearNewArm(w) }
+func effectMissed(w World) bool   { !effectOncePerKey(w) }
+func undoOutOfOrder(w World) bool { !undoInReverse(w) }
+
+// The witnesses.
+
+func invokedAgain(w World) bool {
+	for n in w.Inv {
+		if n >= 2 {
+			return true
+		}
+	}
+	false
+}
+
+func ends(es []Ev, ok bool) bool {
+	for e in es {
+		match e {
+		case End as x:
+			if x.Ok == ok {
+				return true
+			}
+		case _:
+		}
+	}
+	false
+}
+
+func signalWins(w World) bool { hasWon(w.Ev, true) && ends(w.Ev, true) }
+
+func timerUnwinds(w World) bool {
+	let p = fold(NoMutant, w.Ev)
+	p.Won == 2 && p.Undid0 && p.Undid1 && p.Ended
+}
+
+func staleBesideReclaim(w World) bool {
+	(w.A.Has && !w.A.Current && w.B.Has && w.B.Current) || (w.B.Has && !w.B.Current && w.A.Has && w.A.Current)
+}
+
+// deduped: the signal won and a second delivery came; only one was
+// admitted.
+func deduped(w World) bool { w.Sends == MaxSends && hasWon(w.Ev, true) }
+
+func lateSignalKept(w World) bool { w.Inbox && hasWon(w.Ev, false) }
+
+func stepWith(m int, w World, a Act) Decision[World, string] {
+	match next(m, w, a) {
+	case None:
+		Ignore
+	case Some[World] as n:
+		Enter[World]{Next: n.Value}
+	}
+}
+
+func stepDesign(w World, a Act) Decision[World, string]             { stepWith(NoMutant, w, a) }
+func stepDeleteBeforeWinner(w World, a Act) Decision[World, string] { stepWith(DeleteBeforeWinnerMutant, w, a) }
+func stepArmAfterPark(w World, a Act) Decision[World, string]       { stepWith(ArmAfterParkMutant, w, a) }
+func stepAckByKey(w World, a Act) Decision[World, string]           { stepWith(AckByKeyMutant, w, a) }
+func stepEarlyRelease(w World, a Act) Decision[World, string]       { stepWith(EarlyReleaseMutant, w, a) }
+func stepKeyWithoutCount(w World, a Act) Decision[World, string]    { stepWith(KeyWithoutCountMutant, w, a) }
+func stepNoTailFence(w World, a Act) Decision[World, string]        { stepWith(NoTailFenceMutant, w, a) }
+func stepBlindCommit(w World, a Act) Decision[World, string]        { stepWith(BlindCommitMutant, w, a) }
+func stepUndoInOrder(w World, a Act) Decision[World, string]        { stepWith(UndoInOrderMutant, w, a) }
+
+// The design keeps every invariant in the scope.
+type Design machine[World, Act] {
+	initial: world(),
+	step:    stepDesign,
+
+	law ReplayIsTheFold always replayIsTheFold,
+	law OneWinner always oneWinner,
+	law WakeCoverage always wakeCoverage,
+	law ParkHasWakeOrReadySignal always parkHasWakeOrReadySignal,
+	law SignalWinnerSurvives always signalWinnerSurvives,
+	law StaleAckCannotClearNewArm always staleAckCannotClearNewArm,
+	law EffectOncePerKey always effectOncePerKey,
+	law UndoInReverse always undoInReverse,
+
+	law InvokesAgain sometimes invokedAgain,
+	law SignalWins sometimes signalWins,
+	law TimerUnwinds sometimes timerUnwinds,
+	law StaleBesideReclaim sometimes staleBesideReclaim,
+	law DuplicateDeduped sometimes deduped,
+	law LateSignalKept sometimes lateSignalKept,
+}
+
+type DeleteBeforeWinner machine[World, Act] {
+	initial: world(),
+	step:    stepDeleteBeforeWinner,
+
+	law Breaks sometimes signalLost,
+}
+
+type ArmAfterPark machine[World, Act] {
+	initial: world(),
+	step:    stepArmAfterPark,
+
+	law Breaks sometimes parkedBare,
+}
+
+type NoTailFence machine[World, Act] {
+	initial: world(),
+	step:    stepNoTailFence,
+
+	law Breaks sometimes signalLost,
+}
+
+type AckByKey machine[World, Act] {
+	initial: world(),
+	step:    stepAckByKey,
+
+	law Breaks sometimes clearedNewArm,
+}
+
+type EarlyRelease machine[World, Act] {
+	initial: world(),
+	step:    stepEarlyRelease,
+
+	law Breaks sometimes uncovered,
+}
+
+type KeyWithoutCount machine[World, Act] {
+	initial: world(),
+	step:    stepKeyWithoutCount,
+
+	law Breaks sometimes effectMissed,
+}
+
+type BlindCommit machine[World, Act] {
+	initial: world(),
+	step:    stepBlindCommit,
+
+	law Breaks sometimes twoWinners,
+	law BreaksTheFold sometimes notTheFold,
+}
+
+type UndoInOrder machine[World, Act] {
+	initial: world(),
+	step:    stepUndoInOrder,
+
+	law Breaks sometimes undoOutOfOrder,
+}
