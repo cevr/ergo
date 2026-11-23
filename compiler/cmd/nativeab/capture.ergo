@@ -117,9 +117,13 @@ func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner 
 }
 
 // Origin is a compiled package's origin: "ergo" for the generated module
-// mod, "rt" for Ergo's Go runtime, "go" for any other Go package.
+// mod, "rt" for Ergo's Go runtime, "go" for any other Go package. The go
+// command compiles a program's main package as -p main, and in an ergo
+// build that package is always generated.
 func Origin(pkg string, mod string) string {
-	if mod != "" && (pkg == mod || strings.HasPrefix(pkg, mod + "/")) {
+	if mod != "" && pkg == "main" {
+		"ergo"
+	} else if mod != "" && (pkg == mod || strings.HasPrefix(pkg, mod + "/")) {
 		"ergo"
 	} else if strings.HasPrefix(pkg, "ergo.local/prototype/runtime") {
 		"rt"
@@ -133,7 +137,7 @@ func Origin(pkg string, mod string) string {
 // module's name, or any other Go package, is never charged to Ergo.
 law OriginNamesOnlyTheModule(name string) {
 	let leaf = if name == "" { "x" } else { strings.ReplaceAll(name, "/", "_") }
-	Origin("subject", "subject") == "ergo" && Origin("subject/" + leaf, "subject") == "ergo" && Origin("subject" + leaf, "subject") == "go" && Origin("example.com/" + leaf, "subject") == "go" && Origin(leaf, "subject") != "ergo" || leaf == "subject"
+	Origin("main", "subject") == "ergo" && Origin("subject", "subject") == "ergo" && Origin("subject/" + leaf, "subject") == "ergo" && Origin("subject" + leaf, "subject") == "go" && Origin("example.com/" + leaf, "subject") == "go" && Origin(leaf, "subject") != "ergo" || leaf == "subject" || leaf == "main"
 }
 
 // moduleOf is the module path of the go.mod text.
@@ -264,7 +268,7 @@ func capture(args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writ
 	case exec.NotFound, exec.Denied, exec.Failed:
 		exec.Result{Status: 1, Stdout: "", Stderr: ""}
 	}
-	let meta = []string{"label \(label)", "ergo \(strings.TrimSpace(version.Stdout))", "build \(strings.Join(build, " "))", "driver go-command reference path (GOFLAGS=-toolexec: the direct path refuses a set GOFLAGS and falls back to go build; shared GOCACHE, a hit starts no tool)", "counter perf stat -e instructions:u (user mode)"}
+	let meta = []string{"label \(label)", "ergo \(strings.Split(strings.TrimSpace(version.Stdout), "\n")[0])", "build \(strings.Join(build, " "))", "driver go-command reference path (GOFLAGS=-toolexec: the direct path refuses a set GOFLAGS and falls back to go build; shared GOCACHE, a hit starts no tool)", "counter perf stat -e instructions:u (user mode)"}
 	let text = try Assemble(tree, mod, records, meta)
 	fs.Writes.WriteFile(out, text) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:

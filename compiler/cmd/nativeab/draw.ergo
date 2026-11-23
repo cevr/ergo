@@ -74,13 +74,14 @@ func scratch(n int, kind string, at int) []string {
 // rebuildAgrees (law RebuildMatchesScratch): the cache compiles what the rule says, for every
 // chain length, edit kind and edited package.
 func rebuildAgrees(n int, kind int, at int) bool {
-	let m = 1 + abs(n) % 6
-	let k = Edits[abs(kind) % len(Edits)]
-	let a = abs(at) % m
+	let m = 1 + mod(n, 6)
+	let k = Edits[mod(kind, len(Edits))]
+	let a = mod(at, m)
 	slices.Equal(Rebuild(m, k, a), scratch(m, k, a))
 }
 
-func abs(n int) int { if n < 0 { 0 - n } else { n } }
+// mod is n modulo m in 0..m-1, for every n (no negation, so no overflow).
+func mod(n int, m int) int { ((n % m) + m) % m }
 
 // stagesOf is the stages a route's compile runs.
 func stagesOf(route string) []string {
@@ -93,7 +94,7 @@ func stagesOf(route string) []string {
 
 // Draw is the build of seed.
 func Draw(seed int) Case {
-	with context { Random: rand.Seeded(uint64(abs(seed))) } { draw() }
+	with context { Random: rand.Seeded(uint64(seed)) } { draw() }
 }
 
 func draw() Case needs Random {
