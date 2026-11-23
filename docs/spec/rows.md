@@ -186,6 +186,12 @@ let onHost = context needs TestAmbient {
 
 *Prior art:* Go's `testing.T.TempDir`, Rust's `tempfile` and Elixir ExUnit's `@tag :tmp_dir` give a test a folder removed at its end, as a value any code may ignore; none confines the code under test to it. Gleam's and ReScript's tests reach the host through their target's runtime with no authority at all. Deno's `--allow-write=<dir>` grants a process write access to one tree, the closest to this; here the grant is per case and in the row.
 
+## Test loopback
+
+A named context may list `TestLoopback` in its `needs` row. Only a `with` in a test body or a law case builds such a context. No context binds `TestLoopback`, and a context that needs it is neither embedded nor converted to a `Context` value. The test runner supplies it, not the program entry. It grants neither `TestAmbient`, `Ambient` nor `go.Foreign`.
+
+`net.NewTestHost()` and `http.NewTestNet(limits, redirects)` need `TestLoopback`. The net host listens and dials only on the literal addresses `127.0.0.1` and `::1`. The HTTP provider sends and follows redirects only to HTTP(S) URLs with one of those literal hosts. Hostnames, wildcard addresses, IPv6 zones, other IP addresses, and redirects off loopback fail the provider's typed `Denied` before any corresponding listen or dial. The confined providers perform no DNS lookup and use no proxy, including any proxy set in the environment. The grant limits addresses, not port identity: a case can reach unrelated services on the host's loopback interface. It does not expose other host interfaces.
+
 ## With
 
 Status: **implemented**: checked and lowered for every operand kind: a named, an inline or a local context (Context 9), a context value (rule 9; stage 4a), its protocol functions generic or not (check-v1 E6b, `TestErgoRunGenericContextKey`), and several operands (rule 7; check-v1 E5, `TestErgoRunE5Contexts`). A `with` of an imported context, `with b.W`, and of a context that embeds one are lowered too: the providers are built and released as those of a named context of the program's own package are (196b U4; `TestRunImportedContext`). Rule 6's constructor startup errors for context construction. An inline context whose entries are explicit provider expressions runs (stage 3c; `TestRuntime199AcquireProperty`).
