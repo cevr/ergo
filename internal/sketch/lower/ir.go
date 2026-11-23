@@ -116,6 +116,10 @@ type IRReport struct {
 	// copy's returns and failures are the caller's own (INLINE-RETURN,
 	// ir_forms_inline.go); Inlined counts them too.
 	InlinedReturns int `json:"-"`
+	// KnownInlined counts the inlined calls of known variants, whose
+	// callbacks are known pure functions bound at the copy's head
+	// (KNOWN-FILTER-INLINE, ir_forms_inline.go).
+	KnownInlined int `json:"-"`
 	// TailPairs counts the returns of a fallible call's value and error
 	// in an inlined fallible body, bound at the site's value and error
 	// (INLINE-RETURN, ir_forms_inline.go irRets).

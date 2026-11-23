@@ -57,7 +57,10 @@ func (b *irBuilder) fallibleCall(x syntax.Expr) *syntax.CallExpr {
 		return nil
 	}
 	c := b.l.info.Calls[call]
-	if c == nil || !failsHere(c) {
+	if c == nil || !failsHere(c) || b.plainCallee(call) {
+		// A known variant's callback, which the checker types with the
+		// callee's own row parameters, is called plain: it cannot fail
+		// (ir_kcb.go; KNOWN-VARIANT K1).
 		return nil
 	}
 	return call

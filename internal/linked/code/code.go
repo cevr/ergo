@@ -27672,7 +27672,7 @@ func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []cod
 				v_1 = b
 				goto inl
 			}
-			v_7, err := slices__IndexFuncMono_i4054113065(env, a.Alts, func(env_1 *Env, x code__Alt) (bool, error) {
+			v_7, err := ergo__slices__IndexFuncKnown[code__Alt](env, a.Alts, func(x code__Alt) bool {
 				var v_4 bool
 				{
 					b_4 := x.AnyState
@@ -27691,7 +27691,7 @@ func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []cod
 					}
 
 				}
-				return v_4, nil
+				return v_4
 			})
 			_ = err
 			v_1 = (v_7 >= int(0))
@@ -27706,7 +27706,7 @@ func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []cod
 					v_9 = a.Partial
 					goto inl_2
 				}
-				v_13, err_1 := slices__IndexFuncMono_i4054113065(env, a.Alts, func(env_2 *Env, x_1 code__Alt) (bool, error) {
+				v_13, err_1 := ergo__slices__IndexFuncKnown[code__Alt](env, a.Alts, func(x_1 code__Alt) bool {
 					var v_10 bool
 					{
 						b_7 := x_1.AnyState
@@ -27725,7 +27725,7 @@ func (g code__MachineGraph) armsFor(env *Env, state string, signal string) []cod
 						}
 
 					}
-					return (v_10 && (!x_1.Partial)), nil
+					return (v_10 && (!x_1.Partial))
 				})
 				_ = err_1
 				v_9 = (v_13 < int(0))
@@ -33404,15 +33404,11 @@ func slices__IndexFunc[T any](env *Env, xs []T, f func(*Env, T) (bool, error)) (
 	return int(-1), nil
 }
 
-func slices__IndexFuncMono_i4054113065(env *Env, xs []code__Alt, f func(*Env, code__Alt) (bool, error)) (int, error) {
-	env.task.Check()
+func ergo__slices__IndexFuncKnown[T any](env *Env, xs []T, f func(T) bool) (int, error) {
 	for k, v := range xs {
 		var i int = k
-		var x code__Alt = v
-		v_1, err := f(env, x)
-		if err != nil {
-			return 0, err
-		}
+		var x T = v
+		v_1 := f(x)
 		if v_1 {
 			return i, nil
 		}
@@ -34291,8 +34287,8 @@ func (report code__Report) familyOf(env *Env, d code__Decl) []code__Decl {
 			v_26, ok_5 := v[h]
 			if ok_5 {
 				x_2 := Some[code__Decl]{Value: v_26}
-				v_27, err := slices__IndexFuncMono_i1952133442(env, slices.Clone(out), func(env_1 *Env, y code__Decl) (bool, error) {
-					return (y.Handle == h), nil
+				v_27, err := ergo__slices__IndexFuncKnown[code__Decl](env, slices.Clone(out), func(y code__Decl) bool {
+					return (y.Handle == h)
 				})
 				_ = err
 				if v_27 < int(0) {
@@ -35394,23 +35390,6 @@ func (s *json__scan) digitRun() int {
 			return n
 		}
 	}
-}
-
-func slices__IndexFuncMono_i1952133442(env *Env, xs []code__Decl, f func(*Env, code__Decl) (bool, error)) (int, error) {
-	env.task.Check()
-	for k, v := range xs {
-		var i int = k
-		var x code__Decl = v
-		v_1, err := f(env, x)
-		if err != nil {
-			return 0, err
-		}
-		if v_1 {
-			return i, nil
-		}
-		env.task.Check()
-	}
-	return int(-1), nil
 }
 
 func maps__KeysMono_i1571956745(m map[string]int) Seq[string] {
