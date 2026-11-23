@@ -343,6 +343,32 @@ func TestSliceCapsTheBudget(t *testing.T) {
 	}
 }
 
+// TestRunHoldsItsWidth: the kernel holds a run's whole process tree to
+// its width and the budget's slice to its cores (cpu.max), memory budget
+// or not: a grandchild of a width-2 run reads its cgroup's cpu.max as two
+// cores' quota, and its slice's as the budget's three. Before, GOMAXPROCS
+// held one Go process and nothing held `go test ./...`'s packages and
+// compiles (2026-11-23, the host unreachable). It reads the cgroup files,
+// never a clock. Mutants: budget-width-unquoted, budget-slice-unquoted,
+// budget-quota-needs-memory.
+func TestRunHoldsItsWidth(t *testing.T) {
+	if !scopes() {
+		t.Skip("needs the user's systemd for a scope")
+	}
+	b := testBudget(t, 3, 0)
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	read := `c="/sys/fs/cgroup$(cut -d: -f3 /proc/self/cgroup)"; cat "$c/cpu.max" "$(dirname "$c")/cpu.max"`
+	var out strings.Builder
+	code, err := Run(ctx, b, Request{Width: 2, Lane: "quota", Key: "quota"}, []string{"sh", "-c", "sh -c '" + read + "'"}, nil, &out, io.Discard)
+	if err != nil || code != 0 {
+		t.Fatalf("the quota read: code %d, err %v", code, err)
+	}
+	if got, want := out.String(), "200000 100000\n300000 100000\n"; got != want {
+		t.Fatalf("the run's and its slice's cpu.max:\n%s\nwant\n%s", got, want)
+	}
+}
+
 // TestCrashFreesTheCores: a holder that dies without Release (its entry's
 // lock dropped by the kernel, here by closing its file) frees its cores,
 // and the waiter it blocked gets them. Mutant: budget-dead-entry-alive.

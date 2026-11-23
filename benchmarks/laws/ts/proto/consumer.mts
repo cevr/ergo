@@ -1,4 +1,4 @@
-// Positive TypeScript uses of the laws prototype's host boundary (#125).
+// Positive TypeScript uses of the laws prototype's host boundary.
 // Strict, no casts, no any. Run by ../run.sh with tsc and node.
 import { Effect } from 'effect';
 import { makeUser, makeTrio, sortTrio, sortTrioBy, sortTrioLater, search, oldest, sortedTrio } from './lib.mjs';

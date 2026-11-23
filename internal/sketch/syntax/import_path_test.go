@@ -9,7 +9,7 @@ import (
 // The grammar requires nonempty path elements starting with a letter or
 // underscore. A following comment does not make an invalid element valid.
 // A Go import's path is one word to the parser: the checker applies Go's
-// rule (module.CheckImportPath, #231), under which 0, h~ttp and h+ttp are
+// rule (module.CheckImportPath), under which 0, h~ttp and h+ttp are
 // paths (check's TestImportGoUses holds the malformed ones).
 func TestImportPathGrammar(t *testing.T) {
 	for _, form := range []struct{ prefix, suffix string }{

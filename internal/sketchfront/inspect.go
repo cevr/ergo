@@ -1,6 +1,6 @@
 // InspectGo is the one core of ergo inspect (IG8; docs/tooling.md,
 // inspect): what a checked program reaches of Go. The CLI prints its
-// GoReport; an MCP tool, when #203 ports one, prints the same GoReport.
+// GoReport; an MCP tool, when semantic tooling ports one, prints the same GoReport.
 //
 // For each function of the program it lists the Go symbols the function's
 // code can reach: the Go functions, methods and interface operations it

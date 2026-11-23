@@ -88,7 +88,7 @@ func TestEveryHabitHasAFixture(t *testing.T) {
 	}
 }
 
-// TestUsesIsAnIdentifier (#217): `uses` is not a keyword and has no
+// TestUsesIsAnIdentifier: `uses` is not a keyword and has no
 // compatibility path, so the old spelling of a needs clause gets the plain
 // S001 any stray identifier gets, never a dedicated hint.
 func TestUsesIsAnIdentifier(t *testing.T) {
