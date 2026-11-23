@@ -820,7 +820,6 @@ case flow seed 96
 case flow seed 97
 case flow seed 98
 case flow seed 99
-case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
 case internal/selfhostcheck/testdata/bind
@@ -852,6 +851,8 @@ case internal/sketch/check/testdata/fixtures/negative/error-method-on-error-type
 case internal/sketch/check/testdata/fixtures/negative/error-row-non-struct.ergo
 case internal/sketch/check/testdata/fixtures/negative/export-guard-machine-step.ergo
 case internal/sketch/check/testdata/fixtures/negative/fallible-function-value.ergo
+case internal/sketch/check/testdata/fixtures/negative/generic-operation-provider.ergo
+case internal/sketch/check/testdata/fixtures/negative/generic-operation-value.ergo
 case internal/sketch/check/testdata/fixtures/negative/generic-row-parameter-instantiated.ergo
 case internal/sketch/check/testdata/fixtures/negative/harness-arity.ergo
 case internal/sketch/check/testdata/fixtures/negative/harness-body.ergo
@@ -1226,6 +1227,7 @@ case unused examples/wire-config/config/config.ergo
 case unused examples/wtcache/settings/settings.ergo
 case unused internal/selfhostcheck/testdata/bind/a.ergo
 case unused internal/selfhostcheck/testdata/bind/elide.ergo
+case unused internal/selfhostcheck/testdata/bind/genop.ergo
 case unused internal/selfhostcheck/testdata/bind/lets.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
 case unused internal/sketch/std/ansi/ansi.ergo
@@ -1339,11 +1341,6 @@ site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-
 site S105 missing in internal/sketch/check/testdata/fixtures/negative/unhandled-define.ergo: unhandled-define.ergo 6:10: S105 the failure {Fault} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/C4-rows.neg.ergo: C4-rows.neg.ergo 20:13: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
 site S105 missing in internal/sketch/check/testdata/v1/E7-interpolation.neg.ergo: E7-interpolation.neg.ergo 11:11: S105 the failure {NotFound} of this expression is not handled: use try, catch or return (rows.md, Error rows 3)
-site S106 missing in internal/sketch/check/testdata/fixtures/negative/provider-method-needs.ergo: provider-method-needs.ergo 8:32: S106 Mem cannot provide Store: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/fixtures/negative/provider-missing-method.ergo: provider-missing-method.ergo 5:32: S106 Mem cannot provide Store: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/fixtures/negative/provider-wider-row.ergo: provider-wider-row.ergo 8:32: S106 Mem cannot provide Store: Mem does not declare that it implements Store: write implements Store after Mem's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/v1/D7-satisfaction.neg.ergo: D7-satisfaction.neg.ergo 25:10: S106 Tape cannot provide Orders: Tape does not declare that it implements Orders: write implements Orders after Tape's body (types.md, Interface assignability 1) (rows.md, Context 2)
-site S106 missing in internal/sketch/check/testdata/v1/E6-extern-contexts.neg.ergo: E6-extern-contexts.neg.ergo 19:11: S106 Mute cannot provide Greeter: Mute does not declare that it implements Greeter: write implements Greeter after Mute's body (types.md, Interface assignability 1) (rows.md, Context 2)
 site S107 missing in internal/sketch/check/testdata/fixtures/negative/missing-return.ergo: missing-return.ergo 1:50: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 13:1: S107 function pick can reach the end of its body without returning a value (rows.md, Totality 3)
 site S107 missing in internal/sketch/check/testdata/v1/C1-tail-result.neg.ergo: C1-tail-result.neg.ergo 7:1: S107 function add can reach the end of its body without returning a value (rows.md, Totality 3)

@@ -104,7 +104,8 @@ func takePending[E](f mut Frame[E], p int) {
 			let e = f.pending[b].entry
 			for k in 0..len(f.keptList[e].tops) {
 				let id = f.keptList[e].tops[k].id
-				count(f, slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}, 1)
+				let mut counted = slotOf{parent: p, b: base{site: id.site, each: id.each, key: id.key}}
+				count(f, &counted, 1)
 			}
 			f.pending[b].done = true
 		}
@@ -126,7 +127,8 @@ func giveBack[E](f mut Frame[E], start int) {
 			let e = g.entry
 			for k in 0..len(f.keptList[e].tops) {
 				let id = f.keptList[e].tops[k].id
-				count(f, slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}, -1)
+				let mut counted = slotOf{parent: g.parent, b: base{site: id.site, each: id.each, key: id.key}}
+				count(f, &counted, -1)
 			}
 		}
 	}

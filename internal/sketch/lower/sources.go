@@ -213,10 +213,7 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 					if bySpan && (d.Pos() > n.Pos() || n.End() > d.End()) || !holds(d, n) {
 						continue
 					}
-					sf := stdFile{file: f, path: "std/" + p.Path + "/" + f.Name}
-					if p.Path == stdlib.PreludePath {
-						sf.path = "std/" + f.Name
-					}
+					sf := stdFile{file: f, path: embeddedSourcePath(p, f.Name)}
 					if l.stdSrc == nil {
 						l.stdSrc = map[syntax.Node]stdFile{}
 					}
@@ -232,6 +229,14 @@ func (l *lowerer) stdFileOf(n syntax.Node) (stdFile, bool) {
 		}
 	}
 	return stdFile{}, false
+}
+
+// embeddedSourcePath is the displayed path of an embedded source file.
+func embeddedSourcePath(p *check.Package, name string) string {
+	if p.Prelude() {
+		return "std/" + name
+	}
+	return "std/" + p.Path + "/" + name
 }
 
 // holds reports whether the tree of root has the node n.

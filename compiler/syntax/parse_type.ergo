@@ -42,6 +42,13 @@ let ctxMember = 2
 // parseSignature parses `Params [Type] [fails …] [needs …] [takes …]`. lit
 // marks the parameters of a function literal (funcLitParams).
 func parseSignature(p mut parser, funcPos uint32, ctx int, lit bool) uint32 {
+	parseSignatureWith(p, funcPos, ctx, lit, none)
+}
+
+// parseSignatureWith is parseSignature with tps, an operation's own type
+// parameters already parsed (some of a KFieldList), or none; they become
+// the signature row's one item (GENERIC-OP).
+func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uint32) uint32 {
 	let params = parseParameters(p, ctx == ctxDecl, lit)
 	let rm = mark(p.t)
 	if startsType(p) {
@@ -64,7 +71,11 @@ func parseSignature(p mut parser, funcPos uint32, ctx int, lit bool) uint32 {
 	if p.tk == Takes {
 		tk = some(parseTakes(p, ctx))
 	}
-	mkFuncType(&p.t, mark(p.t), none, none, funcPos, params, results, nd, tk)
+	let m = mark(p.t)
+	if tps != none {
+		pushW(&p.t, tps-uint32(1))
+	}
+	mkFuncType(&p.t, m, none, none, funcPos, params, results, nd, tk)
 }
 
 // parseTakes parses `takes [a, b]`.
