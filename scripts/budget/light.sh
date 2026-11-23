@@ -35,6 +35,7 @@ trap scratch_drop EXIT
 exec 3<&0
 set -- -- nice -n 19 "$@"
 if [ -n "${ERGO_BUDGET_CEILING:-}" ]; then set -- --ceiling "${ERGO_BUDGET_CEILING:-}" "$@"; fi
+unset ERGO_BUDGET_CEILING # The ceiling is a launch option, not an input to the payload's build cache.
 "${ERGO_BUDGET_BIN:-ergo}" budget --config "$ERGO_BUDGET" --width 4 --class "$class" --lane "$lane" "$@" <&3 3<&- &
 child=$!
 exec 3<&-

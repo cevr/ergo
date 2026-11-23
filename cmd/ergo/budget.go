@@ -59,17 +59,21 @@ func budgetMain(args []string, stdin io.Reader, stdout, stderr io.Writer) error 
 	class := fs.String("class", classDefault, "")
 	lane := fs.String("lane", os.Getenv("ERGO_BUDGET_LANE"), "")
 	memory := fs.String("memory", "", "")
-	var ceiling int64
+	var ceilingInput *string
 	fs.Func("ceiling", "", func(s string) error {
-		v, err := budget.ParseSize(s)
-		if err != nil || v <= 0 {
-			return fmt.Errorf("want a positive size such as 8G or 512M")
-		}
-		ceiling = v
+		ceilingInput = &s
 		return nil
 	})
 	if err := fs.Parse(args); err != nil {
 		return flagError(err, budgetHelp)
+	}
+	var ceiling int64
+	if ceilingInput != nil {
+		var err error
+		ceiling, err = budget.ParseSize(*ceilingInput)
+		if err != nil || ceiling <= 0 {
+			return usageError{message: "budget: --ceiling: want a positive size such as 8G or 512M"}
+		}
 	}
 	var asked int64
 	if *memory != "" {
