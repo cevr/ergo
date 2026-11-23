@@ -212,7 +212,6 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"irBuilder.envPointer":     "the IR builder's shared reader: the Go type of an environment local, *Env (the function's parameter, a literal's, a with's pointer), recorded at its first read (ir.go, IR-ENV-SLOT-TYPE)",
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
-		"irBuilder.captureRoot":    "the Env copy and its pointer, locals of the IR task-capture prepare callback; it takes a *Task and the derivative writes the closure",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {

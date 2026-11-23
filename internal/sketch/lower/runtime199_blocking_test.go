@@ -26,6 +26,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 	}{
 		{"envTask", map[string]string{
 			"taskOf":                   "the only reader",
+			"irBuilder.everyAfter":     "the IR's After of a machine with an Every timer: MachineFiringNow and the clock's Now take the body's task, as funcCtx.everyTimers' taskOf (CENSUS-TAIL-2)",
 			"lowerer.envType":          "declares the field",
 			"funcCtx.operations":       "an operation table's Env literal for the caller's task",
 			"funcCtx.witnessMethod":    "a witness adapter's Env literal for the caller's task",
@@ -70,6 +71,7 @@ func TestRuntime199TaskReaders(t *testing.T) {
 			"lowerer.cellEventsFrom":  "a cell writer's events, whose Writer calls on the task it rewrites into the provider's functions (LR3, wiretext.go)",
 		}},
 		{"memberName", map[string]string{
+			"irBuilder.intrinsicSome":   "the IR's Some of a prelude intrinsic's Map read (Get, Take), its one field by shape, as funcCtx.optionSome's (CENSUS-TAIL-2)",
 			"funcCtx.runtimeCall":       "the runtime binding emitter",
 			"irBuilder.stdCloseCall":    "the IR's release of a std operation value: its runtime method with no hidden argument, as opCall's runtimeCall writes it (FLIP F7 FORK RELEASE-IR)",
 			"irBuilder.taskClose":       "the IR's release of a Task in a frame scope's list: Task.Close with its hidden CallerTask, the frame's (its body's facts read through runtimeBody), as providerRelease's runtimeCall writes it (GP-SPAWN)",

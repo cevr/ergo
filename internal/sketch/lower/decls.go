@@ -1277,6 +1277,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		// nothing: each return evaluates its value for its effects alone.
 		fc.frame.result = f.Sig.Results[0]
 	}
+	fc.goGeneric = sp == nil && len(own) > 0 // an intrinsic's IR body too (irHeadEnd)
 	if fd.extern != "" {
 		if isClose(f) {
 			// A checked Close masks its own body (closeBody, below); an
@@ -1285,10 +1286,16 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the checked Close %s has an extern body, which no release route masks", f.Name)
 		}
 		head.WriteString(fc.resultList(fc.frame.result, fd.fallible))
-		body := l.intrinsic(f)(fc, paramNames)
-		if l.ir != nil {
-			l.ir.intrinsic(f)
+		var gates []string
+		if sp != nil {
+			gates = append(gates, "copy for an instance")
 		}
+		if l.ir != nil && l.ir.body(fc, fd, params, gates, false) { // ir_intrinsic.go
+			fd.lowered, fd.readsEnv = true, false // no intrinsic's body reads its environment
+			b.WriteString(head.String() + irHeadEnd(fc.goGeneric) + "\n\n")
+			return
+		}
+		body := l.intrinsic(f)(fc, paramNames)
 		fd.lowered, fd.readsEnv = true, namesIdent(body, fc.env)
 		b.WriteString(head.String() + " {\n" + body + "}\n\n")
 		return
@@ -1323,7 +1330,6 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	fc.depth = 1
 	l.analyzeValues(f.Decl, f.Pkg.Info)
-	fc.goGeneric = sp == nil && len(own) > 0
 	fc.scalarSet = l.scalarVars(f)
 	if l.ir != nil {
 		if fc.frame.plain && sp == nil && l.staticPlan(params, f.Decl.Body.List, true) {

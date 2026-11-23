@@ -966,6 +966,10 @@ func (b *irBuilder) part(f func()) {
 // name (a gate keeps it a Go body).
 func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []string, drop bool) (ok bool) {
 	f := fd.fn
+	if fd.extern != "" {
+		// A prelude intrinsic: its body is the lowering's own (ir_intrinsic.go).
+		return st.intrinsicBody(fc, fd, params, len(gates) > 0, f.Pkg.Std())
+	}
 	var root syntax.Node
 	if f != nil && f.Decl != nil {
 		root = f.Decl
@@ -1164,19 +1168,6 @@ func (st *irState) fileOf(b *irBuilder, decl syntax.Node) string {
 		_, file, _, _ = b.l.at(decl, decl.Pos())
 	}
 	return file
-}
-
-// intrinsic records f, whose body is the lowerer's own Go text (an extern
-// body), in a census.
-func (st *irState) intrinsic(f *check.Func) {
-	if st.census == nil {
-		return
-	}
-	pkg := ""
-	if f.Pkg != nil {
-		pkg = f.Pkg.Path
-	}
-	st.census.Funcs = append(st.census.Funcs, IRCensusFunc{Pkg: pkg, Name: f.Name, Std: f.Pkg.Std(), Reasons: []string{"intrinsic body"}})
 }
 
 // pos is n's position as the IR spells it: its file in the program's

@@ -225,10 +225,28 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 		}
 		return b.variantForm(e, gt, k, layoutFlat, ofName(k)) // ir_forms.go
 	}
+	if funcInto(from, to) {
+		// A function value into a type defined over a function type (a
+		// function literal a Seq returns): the emitter leaves it to Go's
+		// assignability; the IR spells Go's conversion.
+		return &irExpr{K: "conv", Pos: e.Pos, T: gt, X: e}
+	}
 	if n, ok := to.(*check.Named); !ok || b.l.typeDecl(n.Obj, site).kind != kindUnion {
 		irNo("value of another type")
 	}
 	return b.variantForm(e, gt, unionTag(to, from), layoutIface, "")
+}
+
+// funcInto reports a function value from into to, a named type whose
+// underlying type is a function type.
+func funcInto(from, to check.Type) bool {
+	n, ok := to.(*check.Named)
+	if !ok {
+		return false
+	}
+	_, toFunc := n.Underlying().(*check.Signature)
+	_, fromFunc := from.(*check.Signature)
+	return toFunc && fromFunc
 }
 
 // bareRecord is the value of a record with no fields written bare, `A`,
