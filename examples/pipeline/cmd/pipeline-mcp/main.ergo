@@ -18,13 +18,15 @@ import pipeline/pipeline/pipelinemcp
 
 func main() fails os.Exit needs Ambient {
 	with context { Scheduler: NewLiveScheduler(), pipeline.Runner: runners.New(Map[int, int]{}) } {
-		let m, h = pipeline.Share(memory.New[pipeline.Entry]()) catch {
+		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
 		case domain.Conflict, domain.Reused:
 			return os.Exit{Code: 1, Message: "pipeline-mcp: the log refused a record"}
 		case domain.Unkept as u:
 			return os.Exit{Code: 1, Message: "pipeline-mcp: the log could not keep a record: \(u.Reason)"}
 		}
-		let server = mcp.Server{Name: "pipeline", Version: "0.1.0", Tools: pipelinemcp.Tools(h)}
-		let _ = mcp.Serve(server, stdio.New())
+		with context { pipeline.Pipeline: m } {
+			let server = mcp.Server{Name: "pipeline", Version: "0.1.0", Tools: pipelinemcp.Tools()}
+			let _ = mcp.Serve(server, stdio.New())
+		}
 	}
 }

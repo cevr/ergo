@@ -6,8 +6,3 @@
 # STD-TESTAMBIENT: std's test constructors for http.NewNet and fs.OpenRoot
 # under TestAmbient, so download's test context builds a Remote.
 download network S108 domain.Downloader.EmptyURLIsRejected Remote STD-TESTAMBIENT
-# RESOURCE-HANDLES: pipeline's Handle shares its Model's actor and owns
-# nothing, so a law case cannot own the Model behind it: no entry can take
-# a handle of another entry's Model (resources.md R17, "A declared root
-# owns its handles"), and a case owns only its context's providers.
-pipeline pipeline S108 Pipeline.DuplicateIsNoop Handle RESOURCE-HANDLES

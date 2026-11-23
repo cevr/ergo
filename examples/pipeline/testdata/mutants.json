@@ -236,9 +236,9 @@
     {
       "name": "pc-close-leaves-the-actor", "origin": "wf10/lang PIPELINE-CLOSE",
       "file": "examples/pipeline/pipeline/model.ergo",
-      "from": "\tm.h.desk.Stop() catch {\n\tcase _:\n\t}\n",
+      "from": "\tm.desk.Stop() catch {\n\tcase _:\n\t}\n",
       "to": "",
-      "rule": "The Model's release stops its actor, so no path needs a manual Stop: HandleEndsWithItsOwner (a command through the Handle after Close is taken, not Unavailable).",
+      "rule": "The Model's release stops its actor, so no path needs a manual Stop: CloseStopsTheActor (the actor takes a command after Close).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
     {
@@ -247,6 +247,14 @@
       "from": "\t\tForm{..f, ID: text}\n",
       "to": "\t\tForm{..f, ID: text + \"\\n\"}\n",
       "rule": "The screen sends the id its one-line field keeps (ui.OneLine), not more: HeldAskShowsSendingThenReceipt.",
+      "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
+    },
+    {
+      "name": "pl-late-view", "origin": "wf10/lang PIPELINE-LEND",
+      "file": "examples/pipeline/surfaces/laws.ergo",
+      "from": "\twith context { pipeline.Pipeline: m } {\n\t\tlet a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})\n\t\tlet mut h = ui.NewTestHost(a, view.View, clock, 8) catch {\n\t\tcase ui.BadPatch:\n\t\t\treturn []string{\"the screen did not start\"}\n\t\t}\n",
+      "to": "\tlet a = actor.StartMachine(screen.Life{}, 8, func(r screen.Reply) {})\n\tlet mut h = with context { pipeline.Pipeline: m } { ui.NewTestHost(a, view.View, clock, 8) } catch {\n\tcase ui.BadPatch:\n\t\treturn []string{\"the screen did not start\"}\n\t}\n\twith context { pipeline.Pipeline: m } {\n",
+      "rule": "A view holds the Model a with lends no longer than the block: a screen played after that with ended is the held-context defect, so SurfacesAgree fails (and, once LEND-ESCAPES-CHECKED lands, the checker refuses the host leaving the block).",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     }
   ]

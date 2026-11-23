@@ -13,7 +13,10 @@
 //   - Answer(r), which answers r through the hub's Call on the bound
 //     provider: the value as JSON, a typed failure as an mcp.ToolError
 //     whose message is the failure's tagged JSON (the wire's);
-//   - Tools(p), the mcp.Tool of each operation on the provider p.
+//   - Tools(), the mcp.Tool of each operation on the provider in force:
+//     each tool holds the context it was made in (InForce), so the tools
+//     answer while the with that made them runs, and a tool called after
+//     that with ended is the held-context defect.
 //
 // An operation whose only parameter is a record takes that record's
 // fields as its arguments; any other takes its parameters by their wire
@@ -325,8 +328,8 @@ func (g *gen) file(ops []rpcgen.Op, tools []*tool) string {
 	b.WriteString("case _:\nUnreachable(\"a tool answered an error no operation has: \" + text)\n}\n}\n}\n\n")
 
 	fmt.Fprintf(&b, "// toolOver is the tool name answered by answer: it reads its arguments\n// (Call) and shows answer's outcome (Show).\nfunc toolOver(name string, answer own func(r Request) %sOutcome) mcp.Tool {\nmcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {\nlet r = Call(name, arguments) catch {\ncase mcp.ToolError as e:\nreturn e\ncase mcp.UnknownTool as e:\nreturn mcp.ToolError{Message: \"no tool is named \" + e.Name}\n}\ntry Show(answer(r))\n}}\n}\n\n", g.rq)
-	fmt.Fprintf(&b, "// tool is the tool name on p: it reads its arguments (Call) and\n// answers on p through the hub's Call.\nfunc tool(name string, p %s) mcp.Tool {\ntoolOver(name, func(r Request) %sOutcome {\nwith context { %s: p } { %sCall(r) }\n})\n}\n\n", capName, g.rq, capName, g.rq)
-	fmt.Fprintf(&b, "// Tools are the tools of %s on p, one per operation, in its order.\nfunc Tools(p %s) []mcp.Tool {\nlet mut out = []mcp.Tool{}\nfor name in Names {\nout = out.Append(tool(name, p))\n}\nout\n}\n\n", capName, capName)
+	fmt.Fprintf(&b, "// tool is the tool name on the %s in force: it reads its\n// arguments (Call) and answers through the hub's Call on the providers\n// held where it was made.\nfunc tool(name string) mcp.Tool needs %s {\nlet held = InForce[%s]()\ntoolOver(name, func(r Request) %sOutcome {\nwith held { %sCall(r) }\n})\n}\n\n", capName, capName, capName, g.rq, g.rq)
+	fmt.Fprintf(&b, "// Tools are the tools of the %s in force, one per operation, in its order.\nfunc Tools() []mcp.Tool needs %s {\nlet mut out = []mcp.Tool{}\nfor name in Names {\nout = out.Append(tool(name))\n}\nout\n}\n\n", capName, capName)
 
 	fmt.Fprintf(&b, "// carry is c through the protocol: the tools/call message of its tool,\n// answered by module mcp's Handle over tools whose answer is answer, and\n// the result read back (ReadAnswer).\nfunc carry(c Request, answer own func(c Request) %sOutcome) %sOutcome {\n", g.rq, g.rq)
 	b.WriteString("let mut tools = []mcp.Tool{}\nfor name in Names {\ntools = tools.Append(toolOver(name, answer))\n}\nlet server = mcp.Server{Name: \"carry\", Version: \"1\", Tools: tools}\nlet (name, arguments) = Arguments(c)\nlet message = \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"tools/call\\\",\\\"params\\\":{\\\"name\\\":\" + rpc.Encode(name) + \",\\\"arguments\\\":\" + textOf(arguments) + \"}}\"\n")

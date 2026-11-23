@@ -1,73 +1,44 @@
 // The test file of package surfaces feeds the Api's laws at the two
-// generated Clients (types.md, Laws 10). A Client over the Model cannot be
-// fed: a law case owns only its context's providers, and no entry can take
-// a handle of another entry's Model (resources.md R17; RESOURCE-HANDLES).
-// So each Client here carries its calls to reference, a Pipeline that owns
-// nothing and takes each command ID once; the laws then say that the
-// Client carries what reference answers, over the hub's Call and over
-// Effect RPC's wire (rpc.Loopback). reference's own law runs under
-// overReference.
+// generated Clients (types.md, Laws 10), each over a Model. overModel
+// builds the Model and owns it, so each law case closes it when the case
+// ends (resources.md R24). overHub and overWire embed it and replace its
+// Pipeline with a Client built over the Model they replace (rows.md
+// Context 7): the laws then say that each Client carries what the Model
+// answers, over the hub's Call and over Effect RPC's wire (rpc.Loopback).
 
 import rpc
-import sync
-import pipeline/board
+import github.com/cevr/ergo/modules/domain
+import github.com/cevr/ergo/modules/domain/memory
+import runners pipeline/memory
 import pipeline/pipeline
 import pipeline/pipeline/pipelineapi
 import pipeline/pipeline/pipelinerpc
-import pipeline/run
+import time
 
-// reference takes each command ID once: the first command of an ID gets
-// the next position, and a resend of the ID gets the first receipt. It
-// keeps no run, so its board is empty and it has no run of any name.
-type reference { taken sync.Ref[Map[string, int]] } implements pipeline.Pipeline
-
-func newReference() reference { reference{taken: sync.NewRef(Map[string, int]{})} }
-
-// take is the receipt of the command id: its first position.
-func take(r reference, id string) pipeline.Receipt {
-	r.taken.Update(func(m Map[string, int]) Map[string, int] {
-		match m.Get(id) {
-		case Some[int]:
-			m
-		case None:
-			m.Put(id, len(m)+1)
-		}
-	})
-	match r.taken.Get().Get(id) {
-	case Some[int] as p:
-		pipeline.Receipt{Command: id, Position: p.Value}
-	case None:
-		pipeline.Receipt{Command: id, Position: 0}
-	}
-}
-
-func Submit(r reference, c pipeline.SubmitRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { take(r, c.ID) }
-
-func Cancel(r reference, c pipeline.CancelRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { take(r, c.ID) }
-
-func Retry(r reference, c pipeline.RetryRun) pipeline.Receipt fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | pipeline.NoSuchRun | pipeline.Unavailable { take(r, c.ID) }
-
-func Board(r reference) board.View { board.Empty }
-
-func RunOf(r reference, id string) run.Run fails pipeline.NoSuchRun { pipeline.NoSuchRun{Run: id} }
-
-// apiOver is the hub's Client whose calls reference answers.
-func apiOver(ref reference) pipelineapi.Client {
+// apiOver is the hub's Client whose calls the Pipeline in force answers,
+// on the providers held where it was made.
+func apiOver() pipelineapi.Client needs pipeline.Pipeline {
+	let held = InForce[pipeline.Pipeline]()
 	pipelineapi.NewClient(func(r Request) pipelineapi.Outcome {
-		with context { pipeline.Pipeline: ref } { pipelineapi.Call(r) }
+		with held { pipelineapi.Call(r) }
 	})
 }
 
 // rpcOver is Effect RPC's Client whose calls cross the wire to a server
-// in this process whose Pipeline is reference.
-func rpcOver(ref reference) pipelinerpc.Client {
+// in this process whose Pipeline is the one in force where it was made.
+func rpcOver() pipelinerpc.Client needs pipeline.Pipeline {
+	let held = InForce[pipeline.Pipeline]()
 	pipelinerpc.NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
-		with context { pipeline.Pipeline: ref } { try pipelinerpc.Handle(tag, payload) }
+		with held { try pipelinerpc.Handle(tag, payload) }
 	}))
 }
 
-let overReference = context { pipeline.Pipeline: newReference() }
+let overModel = context fails domain.Conflict | domain.Reused | domain.Unkept {
+	Scheduler: time.NewManual(0),
+	pipeline.Runner: runners.New(Map[int, int]{}),
+	pipeline.Pipeline: try pipeline.Open(memory.New[pipeline.Entry]()),
+}
 
-let overHub = context { pipeline.Pipeline: apiOver(newReference()) }
+let overHub = context fails domain.Conflict | domain.Reused | domain.Unkept { overModel, replace pipeline.Pipeline: apiOver() }
 
-let overWire = context { pipeline.Pipeline: rpcOver(newReference()) }
+let overWire = context fails domain.Conflict | domain.Reused | domain.Unkept { overModel, replace pipeline.Pipeline: rpcOver() }

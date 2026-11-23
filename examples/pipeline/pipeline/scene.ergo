@@ -333,7 +333,7 @@ func sceneOn(acts []Act, from int, clock time.Manual, log domain.Log[Entry]) (De
 		}
 		let _ = try m.Settle()
 	}
-	let d = m.h.desk.State().State
+	let d = m.desk.State().State
 	let v = m.Board()
 	(d, v)
 }
