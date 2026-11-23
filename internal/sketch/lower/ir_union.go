@@ -171,8 +171,6 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
 		return b.opsConv(conv, e, x) // ir_with.go
-	case check.ConvNarrow:
-		return b.narrowValue(conv, e, x) // ir_rowgap.go
 	case check.ConvWiden:
 		// A sub-union's value into a union that holds its variants (the
 		// emitter's widen): an assertion between two sealed interfaces.

@@ -623,6 +623,14 @@ func (l *lowerer) emitType(td *typeDecl) {
 			l.flatDecl(b, td, fu, tc, tparams)
 			break
 		}
+		if l.namedRow(td.named) {
+			// A named row is its row value, Go's error (namedrow.go).
+			for _, v := range td.variants {
+				l.emitType(l.useType(l.typeDecl(v, site)))
+			}
+			b.WriteString("type " + td.name + " = error\n\n")
+			break
+		}
 		l.unionMarker(td)
 		b.WriteString("type " + td.name + tparams + " interface{ " + td.marker + "() }\n\n")
 		// Two instances of one generic record, V[A] | V[B], share the
