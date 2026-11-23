@@ -249,11 +249,11 @@ func TestTestBuildHasEveryTest(t *testing.T) {
 		tb := lowerTestBuild(t, p.name, p.src)
 		code := tb.mainGo()
 		for _, test := range tb.pkg.Tests {
-			if !regexp.MustCompile(`(?m)^func ergoTest` + test.Name + `\(`).MatchString(code) {
+			if !regexp.MustCompile(`(?m)^func ` + goHelper("ergoTest"+test.Name) + `\(`).MatchString(code) {
 				t.Errorf("%s: the test build has no Go function for test %s", p.name, test.Name)
 			}
 		}
-		if !strings.Contains(code, "ergoTests(") || strings.Contains(code, "hostConsole{}") {
+		if !strings.Contains(code, goHelper("ergoTests")+"(") || strings.Contains(code, "hostConsole{}") {
 			t.Errorf("%s: the test build's main is not the test runner", p.name)
 		}
 	}

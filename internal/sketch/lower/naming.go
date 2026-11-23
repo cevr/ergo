@@ -53,6 +53,7 @@ func (l *lowerer) nameAll() {
 	if l.lib != "" {
 		l.nameExports()
 	}
+	l.namePrelude() // pkgnames.go, rule 5: before the root's declarations
 	l.declareNames()
 	for _, p := range l.sourcedPkgs() {
 		for _, tn := range l.canon.types(p) {

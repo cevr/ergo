@@ -1386,6 +1386,15 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	if b.Name == "hash" {
 		return c.hashCall(x) // mapprovider.go
 	}
+	if b.Name == TestSeedName {
+		// The run's --seed, which only a harnessed test's rewrite calls
+		// (harness.go).
+		if len(x.Args) != 0 {
+			c.silentArgs(x)
+			return bad(x)
+		}
+		return operand{mode: modeValue, typ: Typ[Uint64]}
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)

@@ -1,7 +1,7 @@
 // CK-FAILPARAM (MQ2 follow-up func-of-failure-param): serve's fails E makes
-// Classed's E an error row, so Classed[Boom].Of takes a row value of Boom;
-// a function of Boom goes in narrowed (ConvNarrow), a literal and a named
-// function alike, and runs on the failure serve caught.
+// Classed's E a slot row, which keeps its Go type (ROW-PARAM), so
+// Classed[Boom].Of takes a Boom: a function of Boom goes in as it is, a
+// literal and a named function alike, and runs on the failure serve caught.
 type Boom { Run int }
 
 type Fate { Keep bool, Text string }

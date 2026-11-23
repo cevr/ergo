@@ -25,8 +25,7 @@ package lower
 //
 // A return needs neither: a body's result type is its own declaration's,
 // with no instance put in. A row of several error types is a Go error on
-// both sides (a function of one of them goes in by ConvNarrow, narrowFunc),
-// so the gap and ConvNarrow never both adapt one value. A row nested
+// both sides. A row nested
 // deeper ([]E, Option[E], a result E) is not adapted: the follow-up
 // ROW-SLOT-TYPES gives a one-member row argument its member's Go type in
 // the declaration, which closes every gap at once.
@@ -329,8 +328,7 @@ func (fc *funcCtx) rowRead(x syntax.Expr, val string) string {
 // reverse: a function of the uniform shape (funcType) that asserts its
 // parameters at asserts to from's, passes the others as they are (Go
 // assigns a record to its error) and calls val, evaluated once, where the
-// value is made. narrowFunc (ConvNarrow) and the row gaps (rowWrite,
-// rowRead) build it.
+// value is made. The row gaps (rowWrite, rowRead) build it.
 func (fc *funcCtx) rowFunc(from, to *check.Signature, fromGo, toGo string, asserts []int, val string, site syntax.Node) string {
 	if len(from.Params) != len(to.Params) {
 		ice(site, "a function of %d parameters as one of %d", len(from.Params), len(to.Params))

@@ -137,8 +137,8 @@
       "name": "flattree-flat-object-keeps-last-member",
       "origin": "wf10 DF1",
       "file": "examples/flattree/flat/parse.ergo",
-      "from": "members = members.Append(Member{Key: k, Value: last(*r)})",
-      "to": "members = []Member{Member{Key: k, Value: last(*r)}}",
+      "from": "members = members.Append(Member{Key: k, Value: lastRead(*r)})",
+      "to": "members = []Member{Member{Key: k, Value: lastRead(*r)}}",
       "rule": "An object keeps every member, in order (law flat.FlatEqualsTree).",
       "killers": [
         "examples:flattree"
@@ -148,8 +148,8 @@
       "name": "flattree-flat-array-keeps-last-item",
       "origin": "wf10 DF1",
       "file": "examples/flattree/flat/parse.ergo",
-      "from": "items = items.Append(last(*r))",
-      "to": "items = []dense.ID[Node]{last(*r)}",
+      "from": "items = items.Append(lastRead(*r))",
+      "to": "items = []dense.ID[Node]{lastRead(*r)}",
       "rule": "An array keeps every item, in order (law flat.FlatEqualsTree).",
       "killers": [
         "examples:flattree"
