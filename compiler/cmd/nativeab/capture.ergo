@@ -7,6 +7,14 @@
 // a stock or ergo-patched compiler ignores it. A cache hit starts no tool,
 // so it records nothing: warm work is absent, not 0.
 //
+// A set GOFLAGS makes ergo's direct build path (internal/sketch/build/
+// direct.go, which runs compile and link itself) refuse and fall back to
+// go build, its reference: a capture measures that path. Each compile's
+// command is the same on both (TestDirectMatchesGoBuild); the driver cell
+// is the go command's, not the direct path's. This host's PMU gives
+// counts but no samples, so perf record's per-task reads are not there
+// to split the direct path's processes.
+//
 //	nativeab capture --ergo PATH --self PATH --out FILE [--label TEXT] -- BUILD-ARGS...
 //	(wrap mode: ERGO_NAB_DIR set, arguments TOOL ARGS... as -toolexec gives them)
 
@@ -256,7 +264,7 @@ func capture(args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writ
 	case exec.NotFound, exec.Denied, exec.Failed:
 		exec.Result{Status: 1, Stdout: "", Stderr: ""}
 	}
-	let meta = []string{"label \(label)", "ergo \(strings.TrimSpace(version.Stdout))", "build \(strings.Join(build, " "))", "goflags -toolexec=nativeab (shared GOCACHE; a hit starts no tool)", "counter perf stat -e instructions:u (user mode)"}
+	let meta = []string{"label \(label)", "ergo \(strings.TrimSpace(version.Stdout))", "build \(strings.Join(build, " "))", "driver go-command reference path (GOFLAGS=-toolexec: the direct path refuses a set GOFLAGS and falls back to go build; shared GOCACHE, a hit starts no tool)", "counter perf stat -e instructions:u (user mode)"}
 	let text = try Assemble(tree, mod, records, meta)
 	fs.Writes.WriteFile(out, text) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
