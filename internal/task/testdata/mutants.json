@@ -90,6 +90,105 @@
       "to": "\treturn lawcache.Key(\"task last\", n.Name, n.Ident)\n",
       "rule": "A node's last run is keyed by the tree's root: a gen in another checkout sharing the store does not make this tree miss.",
       "killers": ["internal/task:TestGenTreesShareAStore"]
+    },
+    {
+      "name": "verdict-flaky-kept",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/verdict.go",
+      "from": "\tcase Flaky:\n\t\tr.noteFlaky(res)\n",
+      "to": "\tcase Flaky:\n\t\tr.noteFlaky(res)\n\t\tr.Store.Put(content, \"pass \"+res.Log+\"\\n\")\n",
+      "rule": "A flaky verdict is never kept: the step runs again next time.",
+      "killers": ["internal/task:TestVerdictsAgreeWithRunningEverything"]
+    },
+    {
+      "name": "verdict-failure-kept",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/verdict.go",
+      "from": "\tcase Pass:\n\t\tif s.Key != nil {",
+      "to": "\tcase Pass, Fail:\n\t\tif s.Key != nil {",
+      "rule": "A failed verdict is never kept: a failure runs again every time.",
+      "killers": ["internal/task:TestVerdictsAgreeWithRunningEverything"]
+    },
+    {
+      "name": "verdict-affected-all",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/verdict.go",
+      "from": "\t\tif !Selected(paths, mode.Changed) {",
+      "to": "\t\tif false && !Selected(paths, mode.Changed) {",
+      "rule": "--affected runs only the steps whose inputs hold a changed path.",
+      "killers": ["internal/task:TestVerdictsAgreeWithRunningEverything"]
+    },
+    {
+      "name": "verdict-why-dropped",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/verdict.go",
+      "from": "\t\t\tres.Why = r.verdictWhy(s, stated)\n",
+      "to": "\t\t\t_ = r.verdictWhy(s, stated)\n",
+      "rule": "A miss always names its reason.",
+      "killers": ["internal/task:TestVerdictsAgreeWithRunningEverything"]
+    },
+    {
+      "name": "verdict-fresh-replays",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/verdict.go",
+      "from": "\t\tif kept && !mode.Fresh {",
+      "to": "\t\tif kept {",
+      "rule": "--fresh ignores kept verdicts: every selected step runs.",
+      "killers": ["internal/task:TestVerdictsAgreeWithRunningEverything"]
+    },
+    {
+      "name": "verdict-step-twice",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/verdict.go",
+      "from": "\t\tif prev, ok := done[s.ID()]; ok {",
+      "to": "\t\tif prev, ok := done[s.ID()]; ok && false {",
+      "rule": "A step two tasks plan runs once per run.",
+      "killers": ["internal/task:TestVerdictsRunAStepOnce"]
+    },
+    {
+      "name": "child-env-inherits",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/child.go",
+      "from": "\tcmd.Env = env.environ()\n",
+      "to": "\tcmd.Env = append(os.Environ(), env.environ()...)\n",
+      "rule": "A child sees exactly the stated environment, nothing inherited (GATE-CHILD-ENV).",
+      "killers": ["internal/task:TestStatedEnvIsTheWholeEnvironment"]
+    },
+    {
+      "name": "child-env-host-path",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/child.go",
+      "from": "\tprogram, err := runtimeexec.ExecLookPath(name, path)\n",
+      "to": "\tprogram, err := runtimeexec.ExecLookPath(name, os.Getenv(\"PATH\")+path[:0])\n",
+      "rule": "A child resolves a bare program name on its own PATH, never the parent's.",
+      "killers": ["internal/task:TestStatedEnvIsTheWholeEnvironment"]
+    },
+    {
+      "name": "child-env-unnamed-passes",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/child.go",
+      "from": "\t\tif want[k] || strings.HasPrefix(k, \"GO\") || strings.HasPrefix(k, \"CGO_\") {",
+      "to": "\t\tif true {",
+      "rule": "A host variable no env line names never reaches a child nor its key.",
+      "killers": ["internal/task:TestStatedEnvIsTheWholeEnvironment"]
+    },
+    {
+      "name": "child-env-key-omits-value",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/child.go",
+      "from": "\t\tb.WriteString(kv)\n",
+      "to": "\t\tb.WriteString(strings.SplitN(kv, \"=\", 2)[0])\n",
+      "rule": "Every entry of a child's environment is in its key, by value.",
+      "killers": ["internal/task:TestStatedEnvIsTheWholeEnvironment"]
+    },
+    {
+      "name": "verdict-settle-dropped",
+      "origin": "wf10 GB TASK-GATE (WS2)",
+      "file": "internal/task/verdict.go",
+      "from": "\t\tif r.RunWrites == nil {\n\t\t\tbreak\n",
+      "to": "\t\tif true {\n\t\t\tbreak\n",
+      "rule": "A pass is kept again over the tree as the run left it when only the run's own writes (the law ledger) moved: a second run of an unchanged tree replays every step.",
+      "killers": ["cmd/ergo:TestTaskGateReplaysWhatHolds"]
     }
   ]
 }
