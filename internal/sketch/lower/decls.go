@@ -1314,6 +1314,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		// LowerIR and CensusIR only (ir.go): a body in the IR builder's
 		// subset leaves its Go declaration without a body, or with the
 		// placeholder a generic one needs (ir_placeholder.go).
+		if !known && sp == nil && !drop && !slot {
+			l.ir.keepFlatWrapper(fd, directive, parts, args)
+		}
 		var gates []string
 		for _, g := range []struct {
 			on     bool

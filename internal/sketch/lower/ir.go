@@ -465,7 +465,6 @@ func lowerIRModuleReaching(u Unit, tests *testLowering, formsOff, unformatted bo
 	if err != nil {
 		return nil, nil, irModule{}, nil, err
 	}
-	code = l.ir.flatEnd(l, code) // ir_forms_flat.go
 	// The last round's bodies alone: an earlier round's fallbacks were
 	// the conflicts it lowered again for (intmap.go).
 	if err := l.ir.refuseFallbacks(); err != nil { // ir_fallback.go
@@ -559,8 +558,9 @@ type irState struct {
 	fallbacks  []IRCensusFunc
 	// flat is each function's flat convention, nil for none, and
 	// flatType its struct's Go name (ir_forms_flat.go).
-	flat     map[*check.Func]*flatRes
-	flatType string
+	flat         map[*check.Func]*flatRes
+	flatType     string
+	flatWrappers map[*check.Func]flatWrapper
 	// opFuncs are the implementing functions of closed types' operations
 	// (ir_instance.go staticOpFunc), filled on first use.
 	opFuncs map[opFuncKey]*check.WitnessOp

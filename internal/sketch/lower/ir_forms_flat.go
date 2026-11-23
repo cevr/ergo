@@ -2,10 +2,6 @@ package lower
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,6 +64,58 @@ type flatRes struct {
 	built  bool         // the worker is the function's own body (flatWorker)
 }
 
+// flatWrapper is the wrapper's Go parameter list before formatting. The
+// worker has the same parameter slots, followed by its out pointer.
+type flatWrapper struct {
+	directive string
+	parts     []string
+	names     []string
+}
+
+func (st *irState) keepFlatWrapper(fd *funcDecl, directive string, parts, names []string) {
+	if flatLowering == "off" || st.census != nil || fd.method != nil || !fd.fallible || flatFailure(fd.fn) == nil {
+		return
+	}
+	if st.flatWrappers == nil {
+		st.flatWrappers = map[*check.Func]flatWrapper{}
+	}
+	st.flatWrappers[fd.fn] = flatWrapper{directive: directive, parts: parts, names: names}
+}
+
+// flatFailure filters declarations by their checked signature, before
+// either a wrapper or a call site needs the worker's Go types.
+func flatFailure(f *check.Func) *check.Named {
+	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Decl.Recv != nil || f.Sig == nil || nativeOf(f) != nil {
+		return nil
+	}
+	if len(f.Sig.TParams) > 0 || len(f.Sig.Results) > 1 || len(f.Sig.Takes) > 0 || f.Sig.TakesSelf {
+		return nil
+	}
+	if len(f.Sig.Results) == 1 && (isNoValue(f.Sig.Results[0]) || isTuple(f.Sig.Results[0])) {
+		return nil // Go returns a tuple as its elements.
+	}
+	for _, p := range f.Sig.Params {
+		if p == nil || p.Name == "" || p.Name == "_" {
+			return nil
+		}
+		if _, fn := p.Type.(*check.Signature); fn {
+			return nil
+		}
+	}
+	elems := rowElems(f.Sig.Errors)
+	if len(elems) != 1 {
+		return nil
+	}
+	e, ok := elems[0].(*check.Named)
+	if !ok || len(e.TArgs) > 0 || len(e.TParams) > 0 {
+		return nil
+	}
+	if _, record := e.Underlying().(*check.Struct); !record {
+		return nil
+	}
+	return e
+}
+
 // flatResOf is f's flat convention, or nil: f is a declared function of
 // the program or std with a body, not a method, not generic, every
 // parameter named and none a function or taken, at most one result, and a
@@ -93,29 +141,8 @@ func (b *irBuilder) flatResOf(f *check.Func) (fl *flatRes) {
 		}
 		st.flat[f] = fl
 	}()
-	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Decl.Recv != nil || f.Sig == nil || f == b.l.mainFunc() {
-		return nil
-	}
-	if len(f.Sig.TParams) > 0 || len(f.Sig.Results) > 1 || len(f.Sig.Takes) > 0 || f.Sig.TakesSelf {
-		return nil
-	}
-	for _, p := range f.Sig.Params {
-		if p == nil || len(p.Name) == 0 || p.Name == "_" { // unnamed: no Go parameter to pass on
-			return nil
-		}
-		if _, fn := p.Type.(*check.Signature); fn {
-			return nil
-		}
-	}
-	elems := rowElems(f.Sig.Errors)
-	if len(elems) != 1 {
-		return nil
-	}
-	e, ok := elems[0].(*check.Named)
-	if !ok || len(e.TArgs) > 0 || len(e.TParams) > 0 {
-		return nil
-	}
-	if _, record := e.Underlying().(*check.Struct); !record {
+	e := flatFailure(f)
+	if e == nil || f == b.l.mainFunc() {
 		return nil
 	}
 	fd := b.l.funcDecl(f)
@@ -128,9 +155,6 @@ func (b *irBuilder) flatResOf(f *check.Func) (fl *flatRes) {
 	}
 	fl.err, fl.e = b.goType(e, f.Decl), e
 	if !fl.unit {
-		if isNoValue(f.Sig.Results[0]) || isTuple(f.Sig.Results[0]) {
-			return nil // Go returns a tuple as its elements
-		}
 		fl.val = b.goType(f.Sig.Results[0], f.Decl)
 	}
 	valText := "struct{}"
@@ -599,9 +623,9 @@ func (b *irBuilder) flatReturn(fl *flatRes, s *irStmt, out int) []*irStmt {
 
 // flatEnd ends the flat convention of a lowering: the trivial worker of
 // each function a call site chose that has no worker of its own body
-// (flatSplit), each worker's Go head beside its wrapper's, and the out
-// struct's type, appended to main.go's code.
-func (st *irState) flatEnd(l *lowerer, code []byte) []byte {
+// (flatSplit), each worker's Go head, and the out struct's type. It writes
+// declarations before the program or library formats its Go.
+func (st *irState) flatEnd(l *lowerer) {
 	var fls []*flatRes
 	for _, fl := range st.flat {
 		if fl != nil && (fl.used || fl.built) {
@@ -609,71 +633,43 @@ func (st *irState) flatEnd(l *lowerer, code []byte) []byte {
 		}
 	}
 	if len(fls) == 0 {
-		return code
+		return
 	}
 	sort.Slice(fls, func(i, j int) bool { return fls[i].worker < fls[j].worker })
-	src := string(code)
 	for _, fl := range fls {
+		wrapper, ok := st.flatWrappers[fl.f]
+		if !ok || len(wrapper.names) != fl.params {
+			ice(fl.f.Decl, "the flat function %s has no matching wrapper signature", fl.f.Name)
+		}
+		names := make(map[string]bool, len(wrapper.names)+1)
+		for _, name := range wrapper.names {
+			names[name] = true
+		}
 		// The out parameter's name is none of the worker body's locals:
 		// a library's Go text (LibraryText) declares them by name.
-		var locals []string
 		for _, fn := range st.out.Funcs {
 			if fn.Name == fl.worker {
 				for _, lc := range fn.Locals {
-					locals = append(locals, lc.Name)
+					names[lc.Name] = true
 				}
+				break
 			}
 		}
-		head, params, ok := flatHead(src, fl, locals)
-		if !ok {
-			ice(fl.f.Decl, "the flat function %s has no Go head %s in main.go", fl.f.Name, fl.name)
+		out := freeName("out", names)
+		params := strings.Join(wrapper.parts, ", ")
+		if params != "" {
+			params += ", "
 		}
 		if !fl.built {
-			st.trivialWorker(l, fl, params)
+			st.trivialWorker(l, fl, names)
 		}
-		code = append(code, []byte("\n"+head+"\n")...)
-	}
-	code = append(code, []byte("\n// "+st.flatType+" is a flat function's value or failure, written by its worker (IR-FORMS IRF-2).\ntype "+st.flatType+"[V, E any] struct {\n\tVal V\n\tErr E\n}\n")...)
-	return code
-}
-
-// flatHead is the worker's Go head, written from the wrapper's in src,
-// and the names taken: the wrapper's parameters, the worker's locals and
-// the out parameter.
-func flatHead(src string, fl *flatRes, locals []string) (string, map[string]bool, bool) {
-	re := regexp.MustCompile(`(?m)^(/\*line [^\n]*?\*/)?func ` + regexp.QuoteMeta(fl.name) + `\(.*$`)
-	line := re.FindString(src)
-	if line == "" {
-		return "", nil, false
-	}
-	at := strings.Index(line, "func "+fl.name+"(")
-	text := strings.TrimSuffix(strings.TrimSpace(line[at:]), "{")
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "", "package p\n"+text+" {}\n", 0)
-	if err != nil || len(file.Decls) != 1 {
-		return "", nil, false
-	}
-	fd, ok := file.Decls[0].(*ast.FuncDecl)
-	if !ok {
-		return "", nil, false
-	}
-	off := len("package p\n")
-	from, to := fset.Position(fd.Type.Params.Opening).Offset-off, fset.Position(fd.Type.Params.Closing).Offset-off
-	names := map[string]bool{}
-	for _, f := range fd.Type.Params.List {
-		for _, n := range f.Names {
-			names[n.Name] = true
+		dst := &l.gen
+		if wrapper.directive != "" {
+			dst = &l.user
 		}
+		dst.WriteString(wrapper.directive + "func " + fl.worker + "(" + params + out + " *" + fl.text + ") bool\n\n")
 	}
-	for _, n := range locals {
-		names[n] = true
-	}
-	out := freeName("out", names)
-	params := strings.TrimSpace(text[from+1 : to])
-	if params != "" {
-		params += ", "
-	}
-	return line[:at] + "func " + fl.worker + "(" + params + out + " *" + fl.text + ") bool", names, true
+	l.gen.WriteString("// " + st.flatType + " is a flat function's value or failure, written by its worker (IR-FORMS IRF-2).\ntype " + st.flatType + "[V, E any] struct {\n\tVal V\n\tErr E\n}\n\n")
 }
 
 // freeName is base, or base_N, not in taken; it takes it.
