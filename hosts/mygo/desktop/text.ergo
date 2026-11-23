@@ -18,11 +18,11 @@ func runesOf(s string) []string {
 	out
 }
 
-// edited takes the window's Edited input number n: an input method
+// takeEdited takes the window's Edited input number n: an input method
 // committed an edit, and the focused field's committed text is now text
 // (MB5). The field's value becomes it; a composition sends none, so the
 // program never sees half a character.
-func edited[E comparable, S, D, F](d mut Driver[S, E, D, F], n int, text string) fails actor.Stopped | ui.BadPatch needs go.Foreign {
+func takeEdited[E comparable, S, D, F](d mut Driver[S, E, D, F], n int, text string) fails actor.Stopped | ui.BadPatch needs go.Foreign {
 	d.edited = n
 	match focused(d) {
 	case Some[spot[E]] as s:

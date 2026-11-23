@@ -92,17 +92,17 @@ type Editor machine[State, Signal] {
 	law UndoRedoRoundTrips(text string, signals []Signal) {
 		let mut done = DocOf(Run(Open(text), signals))
 		for len(done.Redo) > 0 {
-			done = Redo(done)
+			done = Redone(done)
 		}
 		let mut d = done
 		for len(d.Undo) > 0 {
-			d = Undo(d)
+			d = Undone(d)
 		}
 		if Text(d) != text || len(d.Redo) != len(done.Undo) {
 			return false
 		}
 		for len(d.Redo) > 0 {
-			d = Redo(d)
+			d = Redone(d)
 		}
 		let caret = if len(done.Undo) > 0 { done.Undo[len(done.Undo)-1].After } else { d.Caret }
 		Text(d) == Text(done) && d.Caret == caret && len(d.Undo) == len(done.Undo)

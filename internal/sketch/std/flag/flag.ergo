@@ -53,7 +53,7 @@ law HelpNamesEveryFlag(names []string) {
 			flags = flags.Append(String(name, "", "u"))
 		}
 	}
-	let help = Usage(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}})
+	let help = UsageText(Set{Name: "law", Usage: "", Flags: flags, Args: []ArgSpec{}})
 	for name in names {
 		if !strings.Contains(help, "\n  -"+name+" string\n") {
 			return false
