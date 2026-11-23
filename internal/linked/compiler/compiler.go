@@ -65008,6 +65008,8 @@ func ergoInit(env *ergo__Env) {
 
 var _ *go__encoding_sbase64.Encoding // an import an IR body names
 
+var _ *rt.Task // an import an IR body names
+
 var _ = ergo.SliceOfLen[string] // an import an IR body names
 
 var _ = ergo.StrCat // an import an IR body names
