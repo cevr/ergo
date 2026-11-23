@@ -88,6 +88,11 @@ type wireGen struct {
 	p    irPos
 	env  int // locals: the environment, the cell's value, the value
 	wv   int
+	// writer is set for an encoder on the Writer interface or on a direct
+	// writer that is no cell (W1): wv is the writer, each event its method
+	// call, the task first, and the plan's steps are its statements as
+	// they stand (plain); cw is unset.
+	writer bool
 	// decls declare the function's key arrays (WireKeysIn), at its entry.
 	decls []*irStmt
 }
@@ -163,12 +168,116 @@ func (st *irState) wireCell(l *lowerer, name string, t check.Type, em wireEvents
 	return true
 }
 
+// wireWrite builds the encoder name of t on the Writer interface (em the
+// reference) or on a direct writer that is no cell as an IR body (W1),
+// and reports whether it did: the text emitter's wireEncodeBody, step for
+// step, each event the writer's method on the task, each nested value its
+// codec function's call. params named the Go parameters (env, w, v:
+// locals 0, 1, 2). Not taken (the text stays, counted by its reason): a
+// type that holds type parameters, a type whose own write may take the
+// Writer (wireOwnWrite asks the adapter first), and the forms wirePlan
+// refuses.
+func (st *irState) wireWrite(l *lowerer, name string, t check.Type, em wireEvents, params *namer, site syntax.Node) (ok bool) {
+	// A refusal's reason names the path first (units.go keys on it), then
+	// the form: "codec writer on the reference Writer: <why>".
+	path := "codec writer on the reference Writer"
+	if em.via >= 0 {
+		path = "codec writer on a direct writer that is no cell"
+	}
+	if wireIRLowering == "text" {
+		st.codecText(name, path)
+		return false
+	}
+	if len(freeTypeParams(t)) > 0 {
+		st.codecText(name, path+": a type that holds type parameters")
+		return false
+	}
+	if hook, own := check.WireWriteOf(t); own && em.via < 0 {
+		if _, _, _, adapter := l.ownWriteAdapter(hook); adapter {
+			st.codecText(name, path+": an own write")
+			return false
+		}
+	}
+	scope := newNamer(params)
+	fc := newFuncCtx(l, scope, false)
+	fc.site = site
+	b := st.newBuilder(fc, nil) // a codec encoder: no source statements
+	b.env, b.next, b.fn, b.names = 0, 3, &irFunc{Name: name}, scope
+	files := len(st.out.Files)
+	defer func() {
+		if r := recover(); r != nil {
+			why, no := r.(irUnsupported)
+			if !no {
+				panic(r)
+			}
+			st.codecText(name, path+": "+why.reason)
+			// A refused function records nothing: no import, no file.
+			st.out.Files = st.out.Files[:files]
+			for f, i := range st.files {
+				if i >= files {
+					delete(st.files, f)
+				}
+			}
+			ok = false
+		}
+	}()
+	g := &wireGen{b: b, em: em, site: site, env: 0, wv: 1, writer: true}
+	g.p = b.pos(site, site.Pos())
+	steps := g.plan(t, g.local(2))
+	body := append(g.decls, g.plain(steps)...)
+	b.fn.Pos, b.fn.End = g.p, g.p
+	b.fn.Body = irScopesIncrease(irUseLocals(body), b.fn.Pos) // ir_end.go
+	st.out.Funcs = append(st.out.Funcs, *b.fn)
+	st.report.CodecWrite = append(st.report.CodecWrite, name)
+	return true
+}
+
+// plain is the statements of a writer's steps (wireGen.writer): each
+// event is its own call, so no run is carried.
+func (g *wireGen) plain(steps []wireStep) []*irStmt {
+	var out []*irStmt
+	for _, s := range steps {
+		switch {
+		case s.pre != nil:
+			out = append(out, s.pre)
+		case s.call != nil:
+			out = append(out, s.call)
+		case s.own != nil:
+			out = append(out, s.own)
+		case s.loop != nil:
+			loop := *s.loop
+			loop.Body = g.plain(s.body)
+			out = append(out, &loop)
+		case s.sw != nil:
+			sw := *s.sw
+			sw.Cases = nil
+			for k, c := range s.sw.Cases {
+				arm := *c
+				arm.Body = append(append([]*irStmt(nil), s.heads[k]...), g.plain(s.arms[k])...)
+				sw.Cases = append(sw.Cases, &arm)
+			}
+			out = append(out, &sw)
+		default:
+			ice(g.site, "a writer's step of no kind")
+		}
+	}
+	return out
+}
+
+// writerEvent is the statement of the Writer event op on the writer, the
+// task first (wireEvents).
+func (g *wireGen) writerEvent(op string, args ...*irExpr) wireStep {
+	task := &irExpr{K: "field", Pos: g.p, Name: envTask, X: g.local(g.env)}
+	call := &irExpr{K: "mcall", Pos: g.p, Name: op, X: g.local(g.wv), Args: append([]*irExpr{task}, args...)}
+	return wireStep{own: &irStmt{K: "expr", Pos: g.p, X: call}}
+}
+
 func (g *wireGen) local(i int) *irExpr { return &irExpr{K: "local", Pos: g.p, I: i} }
 
 // plan is the steps that write v, of type t (wireEncodeBody's forms).
 func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
 	l, b := g.b.l, g.b
-	if hook, ok := check.WireWriteOf(t); ok && hook.Provider.Obj == g.cw.prov.Obj {
+	if hook, ok := check.WireWriteOf(t); ok && !g.writer && hook.Provider.Obj == g.cw.prov.Obj {
 		// P's own write of t (wireOwnWrite): w is *P.
 		return []wireStep{{own: &irStmt{K: "expr", Pos: g.p, X: g.funcCall(hook.Func, []*irExpr{v, g.cell(true)})}}}
 	}
@@ -472,12 +581,18 @@ func (g *wireGen) value(t check.Type, v *irExpr) []wireStep {
 	}
 	name := l.wireFunc(g.em.dir(), t, g.site)
 	call := &irExpr{K: "call", Pos: g.p, Name: name, Args: []*irExpr{g.local(g.env), g.local(g.wv), v}}
+	if g.writer {
+		return []wireStep{{call: &irStmt{K: "expr", Pos: g.p, X: call}, callee: name}}
+	}
 	return []wireStep{{call: &irStmt{K: "set", Pos: g.p, Local: g.wv, X: call}, callee: name}}
 }
 
 // event is the Writer event op with its non-constant arguments args, as
 // a call of the provider's function.
 func (g *wireGen) event(op string, args ...*irExpr) wireStep {
+	if g.writer {
+		return g.writerEvent(op, args...)
+	}
 	fn := g.cw.conv.Table[op]
 	if fn == nil {
 		ice(g.site, "the event %s has no function of %s", op, g.cw.prov)
@@ -491,6 +606,13 @@ func (g *wireGen) event(op string, args ...*irExpr) wireStep {
 
 // constEvent is the event op of one constant argument.
 func (g *wireGen) constEvent(op string, v constant.Value) wireStep {
+	if g.writer {
+		// BeginObject's count or a Key's or Tag's name.
+		if v.Kind() == constant.String {
+			return g.writerEvent(op, irStringConst(g.p, "string", constant.StringVal(v)))
+		}
+		return g.writerEvent(op, &irExpr{K: "const", Pos: g.p, T: "int", V: v.ExactString()})
+	}
 	s := g.event(op, nil)
 	s.ev.args[0] = rwArg{c: v}
 	return s

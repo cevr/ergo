@@ -5,6 +5,10 @@
 // DIR:Test where DIR holds .ergo files and no Go test).
 //
 //	go run ./scripts/ergotests [-run REGEXP] DIR|DIR/...
+//	go run ./scripts/ergotests -std
+//
+// -std runs every std package on its own source and holds that each std
+// law no Go test runs passed there (stdlaws.go).
 //
 // A test must pass: a skipped or incomplete test fails, since a skip is not
 // a pass. A law fails when it is refuted or hits a defect; a law that is
@@ -37,7 +41,20 @@ func main() {
 	run := flag.String("run", "", "run only the obligations whose name matches this regular expression")
 	killer := flag.String("killer", "", "run one test, or law:L for a law, as the mutant runner names a killer; it must pass")
 	ergo := flag.String("ergo", "", "the ergo binary that decides a -killer law check time leaves undecided (ergo test --law)")
+	std := flag.Bool("std", false, "run every std package's laws and tests on its own source and hold that each law with no Go runner passed (the gate's step \"std laws in place\")")
 	flag.Parse()
+	if *std {
+		if flag.NArg() != 0 || *run != "" || *killer != "" {
+			fmt.Fprintln(os.Stderr, "usage: ergotests -std (from the module root; no other argument)")
+			os.Exit(2)
+		}
+		root, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ergotests:", err)
+			os.Exit(2)
+		}
+		os.Exit(runStd(os.Stdout, root, *ergo))
+	}
 	if flag.NArg() == 0 || *run != "" && *killer != "" {
 		fmt.Fprintln(os.Stderr, "usage: ergotests [-run REGEXP | -killer NAME] DIR|DIR/...")
 		os.Exit(2)
@@ -83,7 +100,9 @@ func runKiller(w io.Writer, patterns []string, name, ergo string) int {
 	if !isLaw {
 		return runPicked(w, patterns, func(r string) bool { return r == name && !strings.HasPrefix(r, "law ") }, true, "-killer "+name)
 	}
-	match := func(r string) bool { return r == "law "+law || strings.HasPrefix(r, "law "+law+" for ") }
+	// A member law runs once per provider (for P) or context (under C),
+	// in the declaring package or a provider's (pkg.T.L).
+	match := func(r string) bool { l, ok := lawOf(r); return ok && l == law }
 	if ergo == "" {
 		return runPicked(w, patterns, match, true, "-killer "+name)
 	}
@@ -234,7 +253,7 @@ const stdRoot = "internal/sketch/std"
 // evaluate checks the package in dir and runs its obligations at check
 // time. A std package (under stdRoot) is checked as std, in-package: the
 // standard library this binary embeds, so its laws may call the
-// package's private functions and its trusted Go (STD-LAW-RUN, #162);
+// package's private functions and its trusted Go (STD-LAW-RUN);
 // checked as a folder it has diagnostics of its own (S108). The mutant
 // runner builds this binary in the mutated copy, so it embeds the mutant.
 // Any other package is checked as `ergo check` checks a folder.

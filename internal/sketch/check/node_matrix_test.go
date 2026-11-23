@@ -32,7 +32,7 @@ func Fail(x int) fails A { return A }
 // that skipped the kind, or passed it to the host unchecked, would lose that
 // diagnostic (spec Risk 1; round-1 review T1). A kind the 196a checker does
 // not check yet gives S109 at the node, never silence. The programs are
-// decided sources (#196).
+// decided sources.
 var nodeMatrix = []struct {
 	kind, src, code, span string
 }{
@@ -157,8 +157,8 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 
 // notBuilt are the node kinds the decided parser never builds (the
 // syntax package's TestDecidedOnly). Channels, select, go, defer, labels,
-// ++ and --, the empty statement and variadic parameters left the language
-// (#196), and their node types left the syntax package in lower-v1 stage
+// ++ and --, the empty statement and variadic parameters left the language,
+// and their node types left the syntax package in lower-v1 stage
 // 5 (D10), so the set is empty.
 var notBuilt = map[string]bool{}
 

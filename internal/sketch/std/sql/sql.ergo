@@ -94,9 +94,12 @@ type Conn {
 
 // Tx is the capability of a block that runs in a transaction: its
 // statements run on the transaction's connection. Only Transaction binds
-// it, so a function whose row needs Tx runs only inside one.
+// it, so a function whose row needs Tx runs only inside one: its
+// unexported operation bound keeps every other package's type from
+// implementing it, so no program fakes a transaction boundary.
 // law-exempt: Tx's statements are DB's; Transaction binds it to the connection that CommitsOnce and RollsBackOnFailure observe.
 type Tx {
+	bound(),
 	Exec(stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
 	Query(stmt string, args []Value) []Row fails Unique | Serialization | Deadlock | Timeout | Closed | Other,
 }
@@ -127,6 +130,8 @@ func Transaction[T, E, R](body func() T fails E needs R | Tx | DB) T fails E | U
 
 // held is Tx on a transaction's connection.
 type held { conn Conn } implements Tx
+
+func bound(_ held) {}
 
 func Exec(h held, stmt string, args []Value) Result fails Unique | Serialization | Deadlock | Timeout | Closed | Other {
 	try h.conn.Exec(stmt, args)

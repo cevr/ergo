@@ -2,7 +2,7 @@ package check
 
 import "ergo.local/prototype/internal/sketch/syntax"
 
-// The with budget (D16 as amended; #229 done-when 1; E5 round 2).
+// The with budget (D16 as amended; done-when 1; E5 round 2).
 //
 // A push of a with frame is the union of its context's summary with the
 // target's with scope (capset.go withScope). It costs O(log) per frame on

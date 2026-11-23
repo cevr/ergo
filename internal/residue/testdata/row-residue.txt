@@ -18,8 +18,15 @@
 # prose that only reads like a row: a verb or a noun before a comma, not a list of capabilities
 # Exact diagnostic sentence: "and" starts prose, not a comma-separated capability row.
 internal/sketch/lower/entry_scheduler_test.go	main needs Scheduler, and the host provides only Console and Ambient
-# The Go team's golang.org/x/sync, copied unchanged (examples/admit's Go module): Go prose.
-examples/admit/testdata/sync/errgroup/errgroup.go	provides synchronization, error propagation
+# Comments: a verb or pronoun after needs, then a clause.
+compiler/check/rows/rows.ergo	signature needs it, or of an
+internal/selfhostcheck/testdata/rows/needs.ergo	needs it, or an operation
+# A comment naming Go packages a test imports, not capabilities.
+internal/sketch/lower/json_value_test.go	It needs json, strconv and strings.
+# Diagnostic text: "needs evaluating" is a verb phrase.
+internal/sketch/lower/ir_methodvalue.go	receiver that needs evaluating, outside a value position
+# A parameter list: the comma ends the parameter `body func() fails F needs R`.
+internal/sketch/std/ui/track.ergo	fails F needs R, at CallSite
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
 docs/spec/rows.md	the entry that provides it, and

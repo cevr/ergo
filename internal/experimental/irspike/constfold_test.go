@@ -41,6 +41,27 @@ func lowerFold(t *testing.T, u lower.Unit, mode string) ([]lower.File, lower.IRR
 	return files, rep
 }
 
+// foldCalls reports whether an IR body other than name's own names name: a
+// call of name stays. name's own declaration is no call: its body takes IR
+// whether or not its callers' calls of it fold.
+func foldCalls(t *testing.T, files []lower.File, name string) bool {
+	var ir struct {
+		Funcs []struct {
+			Name string          `json:"name"`
+			Body json.RawMessage `json:"body"`
+		} `json:"funcs"`
+	}
+	if err := json.Unmarshal([]byte(foldIRText(files)), &ir); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range ir.Funcs {
+		if f.Name != name && strings.Contains(string(f.Body), `"name":"`+name+`"`) {
+			return true
+		}
+	}
+	return false
+}
+
 // foldIRText is the IR file's text among files.
 // foldIRBody is the JSON of the IR body of the function name, if any.
 func foldIRBody(t *testing.T, files []lower.File, name string) (string, bool) {
@@ -91,6 +112,9 @@ func TestConstFoldCounts(t *testing.T) {
 	if rep.Folds.Folded == 0 || rep.Folds.OverBudget == 0 {
 		t.Errorf("folds %+v: want folded calls and spin over the budget\n%s", rep.Folds, text)
 	}
+	if rep.Folds.NoNative != 0 {
+		t.Errorf("folds %+v: a fold called a Go function the evaluator has no native of (b25)", rep.Folds)
+	}
 	for _, fn := range []string{"static0", "lits", "recs"} {
 		if !slices.Contains(rep.IR, fn) {
 			t.Errorf("%s takes no IR body (fallback %v)", fn, rep.Fallback)
@@ -112,13 +136,13 @@ func TestConstFoldCounts(t *testing.T) {
 	if !tags {
 		t.Errorf("no static page holds a tag: a folded element is not its markup")
 	}
-	if strings.Contains(foldIRText(files), `"name":"fromLets"`) {
+	if foldCalls(t, files, "fromLets") {
 		t.Errorf("fromLets is still called: a fold that reads package lets did not bind them\n%s", text)
 	}
 	prevLet := eval.SetFoldLetStepsForTest(0)
 	unbound, _ := lowerFold(t, u, "")
 	eval.SetFoldLetStepsForTest(prevLet)
-	if !strings.Contains(foldIRText(unbound), `"name":"fromLets"`) {
+	if !foldCalls(t, unbound, "fromLets") {
 		t.Errorf("with no steps for a let, fromLets folded: a let's initializer ran past its bound")
 	}
 	// main takes IR once its html calls fold, and calls spin there.

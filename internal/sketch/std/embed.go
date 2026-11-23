@@ -13,8 +13,8 @@ import "embed"
 // Only stdlib reads them.
 //
 //go:embed prelude.ergo builtin.ergo timeout/*.ergo task/*.ergo scope/*.ergo slices/*.ergo queue/*.ergo log/*.ergo trace/*.ergo strings/*.ergo strconv/*.ergo
-//go:embed os/*.ergo
-//go:embed fs/*.ergo fstest/*.ergo
+//go:embed os/*.ergo signal/*.ergo
+//go:embed fs/*.ergo fs/mapped/*.ergo fstest/*.ergo
 //go:embed io/*.ergo term/*.ergo prompt/*.ergo ansi/*.ergo
 //go:embed utf8/*.ergo url/*.ergo
 //go:embed flag/*.ergo api/*.ergo
@@ -64,3 +64,8 @@ var Sources embed.FS
 //
 //go:embed ergo.laws
 var LedgerText string
+
+// TestRedText is the shipped standard-library test red list.
+//
+//go:embed std-red.txt
+var TestRedText string

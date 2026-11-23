@@ -14,7 +14,7 @@ import (
 )
 
 // The std laws (docs/spec/stdlib.md, Std laws; std-align S1a) are checked,
-// not run, until #162. TestStdLawsRun is the ledger's runner for the laws
+// not run, until laws and proofs. TestStdLawsRun is the ledger's runner for the laws
 // that need the lowering and the runtime: one Ergo program restates each
 // as a test of its own name, its parameters drawn by the property runner,
 // and the test build runs them with --seed 1, as ergo test --seed 1 does.
@@ -25,6 +25,10 @@ import (
 // A member law is restated for each kind of provider the std makes: a
 // queue of capacity 0 and one with room, a waiting task.
 const stdLawsProbe = `import queue
+import fstest
+import filepath
+import sync
+import signal
 import os
 import api
 import atomic
@@ -67,7 +71,7 @@ func Carry(t apiDropping, c string, answer own func(c string) int) int {
 }
 
 test ApiExitKeepsTheCode(o api.Output) {
-	let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 }
+	let want = if o.Code >= 1 && o.Code <= 125 || o.Code >= 129 && o.Code <= 192 { o.Code } else if o.Code == 0 { 0 } else { 1 }
 	api.ExitOf(o) catch {
 	case os.Exit as e:
 		assert int(e.Code) == want && want != 0
@@ -166,7 +170,7 @@ test ApiCompletionNamesEachCommand(words []string, shell api.Shell) {
 
 test OsCodeWhere(v os.Code) {
 	let it = int(v)
-	assert 1 <= it && it <= 125
+	assert (1 <= it && it <= 125) || (129 <= it && it <= 192)
 	assert try os.ParseCode(it) == v
 }
 
@@ -1173,6 +1177,212 @@ test MathToUintptrFailsOnlyOutside(f float64) {
 		assert lawUintptr(g)
 	}
 }
+
+func signalOf(p int) signal.Stop {
+	let c = (p%3+3)%3
+	if c == 0 {
+		signal.Interrupt
+	} else if c == 1 {
+		signal.Terminate
+	} else {
+		signal.Hangup
+	}
+}
+
+test SignalRaisedInOrder(picks []int) {
+	let mut raised = []signal.Stop{}
+	for p in picks {
+		raised = raised.Append(signalOf(p))
+	}
+	let s = signal.NewScript(raised)
+	for k in raised {
+		assert s.Next() == k
+	}
+	assert s.Poll() == None
+}
+
+test SignalPollTakesOnce(pick int) {
+	let k = signalOf(pick)
+	let s = signal.NewScript([]signal.Stop{k})
+	assert s.Poll() == Some[signal.Stop]{Value: k}
+	assert s.Poll() == None
+}
+
+test SignalQuietRunsBody(n int) {
+	let got = signal.UntilStop(signal.NewScript([]signal.Stop{}), func() int { n }) catch {
+	case signal.Stopped:
+		assert false
+		0
+	}
+	assert got == n
+}
+
+// signalAfterStart is StopEndsBody's Stops: Next gives k once the body
+// has pushed to started, so the stop comes while the body waits.
+type signalAfterStart { started queue.Queue[int], k signal.Stop } implements signal.Stops
+
+func Next(a signalAfterStart) signal.Stop {
+	let _ = a.started.Pop() catch {
+	case queue.Closed:
+		return a.k
+	}
+	a.k
+}
+
+func Poll(_ signalAfterStart) Option[signal.Stop] { None }
+
+test SignalStopEndsBody(pick int) {
+	let k = signalOf(pick)
+	let cleaned = sync.NewRef[int](0)
+	let started = queue.New[int](1)
+	let never = queue.New[int](0)
+	let _ = signal.UntilStop(signalAfterStart{started: started, k: k}, func() int {
+		scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) }
+		started.Push(1) catch {
+		case queue.Closed:
+		}
+		never.Pop() catch {
+		case queue.Closed:
+			0
+		}
+	}) catch {
+	case signal.Stopped as st:
+		assert st.Kind == k
+		assert cleaned.Get() == 1
+		return
+	}
+	assert false
+}
+
+test SignalStatusIsTheShells(pick int) {
+	let k = signalOf(pick)
+	let s = int(signal.StatusOf(k))
+	let want = match k {
+	case signal.Interrupt:
+		130
+	case signal.Terminate:
+		143
+	case signal.Hangup:
+		129
+	}
+	assert s == want
+	assert !(1 <= s && s <= 125)
+}
+
+test FilepathAbsFromIsAbsolute(dir string, path string) {
+	let d = "/" + dir
+	assert filepath.IsAbs(filepath.AbsFrom(d, path))
+	assert !filepath.IsAbs(path) || filepath.AbsFrom(d, path) == filepath.Clean(path)
+}
+
+test FilepathMatchItself(name string) {
+	if strings.Contains(name, "*") || strings.Contains(name, "?") || strings.Contains(name, "[") || strings.Contains(name, "\\") {
+		return
+	}
+	let ok = filepath.Match(name, name) catch {
+	case filepath.BadPattern:
+		assert false
+		false
+	}
+	assert ok
+}
+
+// fsGrown is fstest's grown: a Memory with a file at each path that
+// can hold one.
+func fsGrown(paths []string) fstest.Memory {
+	let m = fstest.NewMemory()
+	for p in paths {
+		m.MkdirAll(filepath.Dir(p)) catch {
+		case fs.Denied, fs.Failed:
+		}
+		m.WriteFile(p, "x") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+	}
+	m
+}
+
+func fsUnder(q string, p string) bool { q == p || strings.HasPrefix(q, p + "/") }
+
+test FstestWalkVisitsEachOnce(paths []string) {
+	let m = fsGrown(paths)
+	with context { fs.Files: m, fs.Writes: m } {
+		let walked = try fs.Walk(".")
+		assert len(walked) > 0 && walked[0] == "."
+		let mut seen = Map[string, int]{}
+		let mut i = 0
+		for w in walked {
+			assert seen.Get(w) == None
+			assert i == 0 || seen.Get(filepath.Dir(w)) != None
+			seen[w] = i
+			i = i + 1
+		}
+		for p in paths {
+			let info = m.Stat(p) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				continue
+			}
+			assert info.Dir || seen.Get(filepath.Clean(p)) != None
+		}
+	}
+}
+
+test FstestRemoveAllTouchesOnlyPath(paths []string, pick int) {
+	let m = fsGrown(paths)
+	with context { fs.Files: m, fs.Writes: m } {
+		let before = try fs.Walk(".")
+		let target = before[(pick%len(before)+len(before))%len(before)]
+		if target == "." {
+			return
+		}
+		try fs.RemoveAll(target)
+		for q in before {
+			let gone = m.Lstat(q) catch {
+			case fs.NotFound:
+				assert fsUnder(q, target)
+				continue
+			case fs.Denied, fs.Failed:
+				assert false
+				return
+			}
+			assert !fsUnder(q, target) && gone.Name != ""
+		}
+	}
+}
+
+test FstestMkdirTempIsNew(paths []string, prefix string) {
+	if strings.Contains(prefix, "/") {
+		return
+	}
+	let m = fsGrown(paths)
+	with context { fs.Files: m, fs.Writes: m } {
+		let a = try fs.MkdirTemp(".", prefix)
+		let b = try fs.MkdirTemp(".", prefix)
+		assert a != b && filepath.Dir(a) == "." && filepath.Dir(b) == "."
+		assert len(try fs.Walk(a)) == 1 && len(try fs.Walk(b)) == 1
+	}
+}
+
+test FstestScratchIsRemoved(name string) {
+	if name == "" || strings.Contains(name, "/") || name == "." || name == ".." {
+		return
+	}
+	let m = fstest.NewMemory()
+	let made = func() string fails fs.NotFound | fs.Denied | fs.Failed {
+		let s = try fs.NewScratch(m, m, ".", "t")
+		try m.WriteFile(filepath.Join([]string{s.Path, name}), "x")
+		s.Path
+	}
+	let path = try made()
+	let _ = m.Lstat(path) catch {
+	case fs.NotFound:
+		return
+	case fs.Denied, fs.Failed:
+		assert false
+		return
+	}
+	assert false
+}
 `
 
 // stdLawsTestName is the probe test that restates the law of a ledger row.
@@ -1185,7 +1395,18 @@ func stdLawsTestName(pkg, law string) string {
 // holds it equal to the ledger, so a law changed in source fails here
 // until its restatement in the probe is changed with it.
 var stdLawsStatements = map[string]string{
-	"api ExitKeepsTheCode":                 `ExitKeepsTheCode(o Output) { let want = if o.Code >= 1 && o.Code <= 125 { o.Code } else if o.Code == 0 { 0 } else { 1 } ExitOf(o) catch { case os.Exit as e: return int(e.Code) == want && want != 0 } want == 0 }`,
+	"fstest WalkVisitsEachOnce":            `WalkVisitsEachOnce(paths []string) { let m = grown(paths) with context { fs.Files: m, fs.Writes: m } { let walked = try fs.Walk(".") if len(walked) == 0 || walked[0] != "." { return false } let mut seen = Map[string, int]{} let mut i = 0 for w in walked { if seen.Get(w) != None { return false } if i > 0 && seen.Get(filepath.Dir(w)) == None { return false } seen[w] = i i = i + 1 } for p in paths { let info = m.Stat(p) catch { case fs.NotFound, fs.Denied, fs.Failed: continue } if !info.Dir && seen.Get(filepath.Clean(p)) == None { return false } } true } }`,
+	"fstest RemoveAllTouchesOnlyPath":      `RemoveAllTouchesOnlyPath(paths []string, pick int) { let m = grown(paths) with context { fs.Files: m, fs.Writes: m } { let before = try fs.Walk(".") let target = before[(pick%len(before)+len(before))%len(before)] if target == "." { return true } try fs.RemoveAll(target) for q in before { let _ = m.Lstat(q) catch { case fs.NotFound: if !under(q, target) { return false } continue case fs.Denied, fs.Failed: return false } if under(q, target) { return false } } true } }`,
+	"fstest MkdirTempIsNew":                `MkdirTempIsNew(paths []string, prefix string) { if strings.Contains(prefix, "/") { return true } let m = grown(paths) with context { fs.Files: m, fs.Writes: m } { let a = try fs.MkdirTemp(".", prefix) let b = try fs.MkdirTemp(".", prefix) let inA = try fs.Walk(a) let inB = try fs.Walk(b) a != b && filepath.Dir(a) == "." && filepath.Dir(b) == "." && len(inA) == 1 && len(inB) == 1 } }`,
+	"fstest ScratchIsRemoved":              `ScratchIsRemoved(name string) { if name == "" || strings.Contains(name, "/") || name == "." || name == ".." { return true } let m = NewMemory() let made = func() string fails fs.NotFound | fs.Denied | fs.Failed { let s = try fs.NewScratch(m, m, ".", "t") try m.WriteFile(filepath.Join([]string{s.Path, name}), "x") s.Path } let path = try made() let _ = m.Lstat(path) catch { case fs.NotFound: return true case fs.Denied, fs.Failed: return false } false }`,
+	"filepath AbsFromIsAbsolute":           `AbsFromIsAbsolute(dir string, path string) { let d = "/" + dir IsAbs(AbsFrom(d, path)) && (!IsAbs(path) || AbsFrom(d, path) == Clean(path)) }`,
+	"filepath MatchItself":                 `MatchItself(name string) { if strings.Contains(name, "*") || strings.Contains(name, "?") || strings.Contains(name, "[") || strings.Contains(name, "\\") { return true } try Match(name, name) }`,
+	"signal StatusIsTheShells":             `StatusIsTheShells(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = int(StatusOf(k)) s == 128 + hostNumber(codeOf(k)) && !(1 <= s && s <= 125) }`,
+	"signal RaisedInOrder":                 `RaisedInOrder(picks []int) { let mut raised = []Stop{} for p in picks { raised = raised.Append(stopOf((p%3+3)%3 + 1)) } let s = NewScript(raised) for k in raised { if s.Next() != k { return false } } s.Poll() == None }`,
+	"signal PollTakesOnce":                 `PollTakesOnce(pick int) { let k = stopOf((pick%3+3)%3 + 1) let s = NewScript([]Stop{k}) s.Poll() == Some[Stop]{Value: k} && s.Poll() == None }`,
+	"signal QuietRunsBody":                 `QuietRunsBody(n int) { let got = UntilStop(NewScript([]Stop{}), func() int { n }) catch { case Stopped: return false } got == n }`,
+	"signal StopEndsBody":                  `StopEndsBody(pick int) { let k = stopOf((pick%3+3)%3 + 1) let cleaned = sync.NewRef[int](0) let started = queue.New[int](1) let never = queue.New[int](0) let _ = UntilStop(afterStart{started: started, k: k}, func() int { scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) } started.Push(1) catch { case queue.Closed: } never.Pop() catch { case queue.Closed: 0 } }) catch { case Stopped as st: return st.Kind == k && cleaned.Get() == 1 } false }`,
+	"api ExitKeepsTheCode":                 `ExitKeepsTheCode(o Output) { let want = if o.Code >= 1 && o.Code <= 125 || o.Code >= 129 && o.Code <= 192 { o.Code } else if o.Code == 0 { 0 } else { 1 } ExitOf(o) catch { case os.Exit as e: return int(e.Code) == want && want != 0 } want == 0 }`,
 	"api KebabRoundTrips":                  `KebabRoundTrips(words []string) { let mut name = "" let mut parts = []string{} for w in words { let low = word(w) parts = parts.Append(low) name = name + strings.ToUpper(low[0:1]) + low[1:] } let k = Kebab(name) k == strings.Join(parts, "-") && Kebab(k) == k }`,
 	"api AgreesSeesTheLoss":                `AgreesSeesTheLoss(c string, o int) { Agrees(echo, c, o) && !Agrees(dropping, c+"!", o) }`,
 	"api CompletionNamesEachCommand":       `CompletionNamesEachCommand(words []string, shell Shell) { let mut commands = []Entry{} for w in words { commands = commands.Append(Entry{Name: word(w), Doc: "does " + w + "\nmore"}) } let text = Completion("prog", shell, commands) let mut at = 0 for c in commands { let i = strings.Index(text[at:], c.Name) if i < 0 { return false } at = at + i + len(c.Name) } !strings.Contains(text, "\nmore") }`,
@@ -1196,7 +1417,7 @@ var stdLawsStatements = map[string]string{
 	"math ToUintptrFailsOnlyOutside":       `ToUintptrFailsOnlyOutside(f float64) { let n = ToUintptr(f) catch { case OutOfRange: return IsNaN(f) || f >= 18446744073709551616.0 || Trunc(f) < 0.0 } float64(n) == Trunc(f) && n == uintptr(f) }`,
 	"api WordsReadLine":                    `WordsReadLine(args []string) { let back = Words(Line(args)) catch { case Unclosed: return false } back == args }`,
 	"api SessionIsEachLine":                `SessionIsEachLine(script [][]string) { let mut lines = []string{} for a in script { lines = lines.Append(" " + Line(a)) lines = lines.Append("# " + Line(a)) lines = lines.Append("") } let mut want = []Step{} for k, a in script { if len(a) == 0 { continue } let o = echoed(a) want = want.Append(Step{Line: 3*k + 1, Text: Line(a), Output: o}) if o.Code != 0 { break } } Session(lines, echoed) == want }`,
-	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) (1 <= it && it <= 125) && try ParseCode(it) == v }`,
+	"os CodeWhere":                         `CodeWhere(v Code) { let it = int(v) ((1 <= it && it <= 125) || (129 <= it && it <= 192)) && try ParseCode(it) == v }`,
 	"atomic InitialValues":                 `InitialValues(value int64, flag bool) { NewInt64(value).Load() == value && NewBool(flag).Load() == flag }`,
 	"atomic Int64.StoresAndAdds":           `StoresAndAdds(a int64, b int64) { Store(a) let sum = Add(b) let seen = Load() let previous = Swap(a) let changed = CompareAndSwap(a, b) let unchanged = !CompareAndSwap(b+1, a) sum == a+b && seen == sum && previous == sum && changed && unchanged && Load() == b }`,
 	"atomic Bool.Exchanges":                `Exchanges(a bool, b bool) { Store(a) let previous = Swap(b) let seen = Load() let changed = CompareAndSwap(b, a) let unchanged = !CompareAndSwap(!a, b) previous == a && seen == b && changed && unchanged && Load() == a }`,

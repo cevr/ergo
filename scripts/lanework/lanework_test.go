@@ -18,6 +18,10 @@ import (
 const fakeWork = `#!/bin/sh
 set -eu
 dir=@DIR@
+if [ "$1 ${2:-} ${3:-}" = "doctor -here -fix" ] && [ -f "$dir/doctor-writes" ]; then
+	git config merge.ergo-lines.driver "$(cat "$dir/doctor-writes")"
+	exit 0
+fi
 case "$2" in
 list)
 	printf '['

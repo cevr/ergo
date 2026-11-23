@@ -59,7 +59,6 @@ config	envKey	computation	LF2 and IR1: as an Ergo body it counted 1.126x the run
 config	envName	computation	LF2 and IR1: as an Ergo body it counted 1.225x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
 config	flagKey	computation	LF2 and IR1: as an Ergo body it counted 1.197x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
 config	flagName	computation	LF2 and IR1: as an Ergo body it counted 1.281x the runtime/v1 body (NP4f-7 receipt-2): std strings.Join clones its slice argument (LF2's appender and reads facts), and the per-part slices and Builder writes go through runtime/v1 calls the IR does not inline
-config	hostEnviron	library	HOST-ROW: os.Environ through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 csv	Format	library	not tried in NP4f-5: Go's csv.Writer writes to an io.Writer (strings.Builder through import go), a GB2 binding not probed
 csv	ParseError	type
 csv	Position	type
@@ -79,6 +78,7 @@ exec	confine	provider
 exec	confineSink	provider
 exec	hostAlive	host
 exec	hostKill	host
+exec	hostReplace	host
 exec	hostRun	host
 exec	hostRunIn	host
 exec	hostSpawn	host
@@ -95,29 +95,41 @@ fs	Clone	library	PRIM: a Text converts to nothing (types.md, Borrows 8), so Clon
 fs	CrossDevice	type
 fs	Denied	type
 fs	Escapes	type
+fs	Exists	type
 fs	Failed	type
 fs	HostRoot	type
 fs	Info	type
 fs	MapText	provider
 fs	Mapped	type
 fs	NotFound	type
+fs	NotRegular	type
 fs	OpenRoot	library	a scoped resource: the body acquires Go's *os.Root into the caller's Scope with its release route (rt.AcquireInto), the runtime's provider boundary, plus HOST-ROW for os.OpenRoot
 fs	Text	type
+fs	TooLarge	type
 fs	confine	provider
+fs	confineLast	provider
 fs	hostAppendFile	library	HOST-ROW: os.OpenFile through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its flags (os.O_APPEND) are constants, its errors need GBX3
 fs	hostChmod	library	HOST-ROW: os.Chmod through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostExchange	host
+fs	hostIsLink	library	HOST-ROW: os.Lstat through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
 fs	hostLink	host
 fs	hostLockFile	host
+fs	hostLstat	library	HOST-ROW: os.Lstat through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
+fs	hostMapBounded	provider
 fs	hostMapFile	provider
+fs	hostMkdir	library	HOST-ROW: os.Mkdir through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
 fs	hostMkdirAll	library	HOST-ROW: os.MkdirAll through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostMkdirAllMode	library	HOST-ROW: os.MkdirAll through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostReadDir	library	HOST-ROW: os.ReadDir through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostReadFile	library	HOST-ROW: os.ReadFile through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; NotFound and Denied read fs.ErrNotExist and fs.ErrPermission, Go variables (GBX3)
+fs	hostReadlink	library	HOST-ROW: os.Readlink through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
 fs	hostRemove	library	HOST-ROW: os.Remove through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostRename	library	HOST-ROW: os.Rename through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
+fs	hostResolve	library	HOST-ROW: filepath.EvalSymlinks through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
+fs	hostSameAs	host
 fs	hostSameFile	host
 fs	hostStat	library	HOST-ROW: os.Stat through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; Info from fs.FileInfo, an interface value (GB2), and its errors need GBX3
+fs	hostSymlink	library	HOST-ROW: os.Symlink through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
 fs	hostUnlockFile	host
 fs	hostWriteFile	library	HOST-ROW: os.WriteFile through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
 fs	hostWriteFileMode	library	HOST-ROW: os.WriteFile through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead; its errors need GBX3
@@ -201,11 +213,18 @@ nettest	PipeNet	type
 nettest	newPipeNet	provider
 os	Code	type
 os	Exit	type
+os	NoDir	type
 os	NoWorkdir	type
 os	hostArgs	library	HOST-ROW: GBX3 landed, but os.Args is host state, refused by gostd os, and a Go-backed provider's host call charges go.Foreign (as os's other host rows)
+os	hostCacheDir	library	HOST-ROW: os.UserCacheDir through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
+os	hostConfigDir	library	HOST-ROW: os.UserConfigDir through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
+os	hostEnviron	library	HOST-ROW: os.Environ through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
+os	hostExecutable	library	HOST-ROW: os.Executable through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
 os	hostGetenv	library	HOST-ROW: os.Getenv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostGetwd	library	HOST-ROW: os.Getwd through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
 os	hostHasEnv	library	HOST-ROW: os.LookupEnv through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; needs a reviewed fact row that charges the provider's own capability (Ambient) instead
+os	hostHomeDir	library	HOST-ROW: os.UserHomeDir through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
+os	hostPid	library	HOST-ROW: os.Getpid through import go charges go.Foreign, and NP4e charges it where the provider is built (probe pj6: "building Real as Env, whose operations call Go, requires go.Foreign"), so every program that builds the host provider would add go.Foreign to its row; the CAP stack's host leaf (917) waits with fs's and os's others
 prelude	AlarmClock	type
 prelude	InForce	provider
 prelude	Sleep	provider
@@ -242,7 +261,12 @@ rpc	readExit	computation	NP4f-7
 rpc	request	computation	NP4f-7
 scope	OnExit	provider
 sha1	Sum	library	I22-B22CLASS: crypto/sha1.Sum through import go (batch-22 extern, first class by I22; lane B confirms)
+sha256	Hasher	type
+sha256	New	library	LF2: through import go, Hasher.Write would hand crypto/sha256's Write([]byte) a copy of the text (a string to []byte conversion per part), where the body writes the string's own bytes with no copy (unsafe.StringData; Write keeps none of them); Clone takes hash.Cloner, which import go does not hold yet
 sha512	Sum	library	I22-B22CLASS: crypto/sha512.Sum through import go (batch-22 extern, first class by I22; lane B confirms)
+signal	hostNumber	host
+signal	hostUnwatch	host
+signal	hostWatch	host
 slices	Delete	library	I22-B22CLASS: Go's slices.Delete through import go (batch-22 extern, first class by I22; lane B confirms)
 slices	Insert	library	I22-B22CLASS: Go's slices.Insert through import go (batch-22 extern, first class by I22; lane B confirms)
 slices	Reverse	computation	OWN1: the owned in-place form (//ergo:owned SlicesReverseOwned) must come from OWN1's rules on an Ergo body
@@ -277,11 +301,13 @@ tasks	Transform	provider
 tasks	newSet	provider
 term	NotTerminal	type
 term	Window	type
+term	hostDrop	host
 term	hostEnterNoEcho	host
 term	hostEnterRaw	host
 term	hostLeave	host
-term	hostReadKey	host
+term	hostPeek	host
 term	hostSize	host
+term	peeked	type
 testing	At	provider
 testing	Op	type
 testing	Point	provider

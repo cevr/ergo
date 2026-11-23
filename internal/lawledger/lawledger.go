@@ -32,7 +32,7 @@ import (
 const File = "internal/lawledger/testdata/runners.txt"
 
 // NoRunner is the runner of a law that no Go test runs.
-const NoRunner = "#162"
+const NoRunner = "none"
 
 // Row is one line of the runner file.
 type Row struct {

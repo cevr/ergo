@@ -14,7 +14,7 @@ import (
 	"ergo.local/prototype/runtime/rt"
 )
 
-// The laws of docs/research/lawful-runtime-contract.md (#124) that apply to
+// The laws of docs/research/lawful-runtime-contract.md that apply to
 // task.Go, Task.Wait, Task.Stop and scope.OnExit, as executable tests over
 // frames written the way the lowering writes them (frame, frameValue).
 // docs/spec/runtime.md, "Runtime laws for task, scope and queue", maps each
@@ -47,7 +47,7 @@ func frameNoRow(t *rt.Task, body func(s *Scope)) {
 	body(&s)
 }
 
-// ownedGo is task.Go as the lowering emits it (#197 L8 B3t): the Task is an
+// ownedGo is task.Go as the lowering emits it (L8 B3t): the Task is an
 // owned value of the code at s, registered in the step that receives it
 // (Owning, R8), and its owner's end releases it with Close.
 func ownedGo[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
@@ -535,7 +535,7 @@ func TestUnconsumedFailureDropped(t *testing.T) {
 	}
 }
 
-// start is a lowered function whose result is a Task (#197 L8 B3t): the Task
+// start is a lowered function whose result is a Task (L8 B3t): the Task
 // is its owned value, and the return keeps the entry until the exit is
 // known (Returned); the caller's frame to registers it in the step that
 // receives it, as the lowering does.
@@ -549,7 +549,7 @@ func start(t *rt.Task, to *Scope, body func(*rt.Task) (int, error)) *Task[int] {
 }
 
 // TestTaskReturn is the regression test of the stage 3a round 1 review, M1
-// (Tasks rule 8), on owned values (#197 L8 B3t): a returned Task stays live,
+// (Tasks rule 8), on owned values (L8 B3t): a returned Task stays live,
 // the caller can Wait for it, and the caller's frame releases it.
 func TestTaskReturn(t *testing.T) {
 	t.Run("Wait after the frame returned", func(t *testing.T) {
