@@ -818,7 +818,6 @@ case flow seed 96
 case flow seed 97
 case flow seed 98
 case flow seed 99
-case internal/selfhostcheck/testdata/agree/tuple-let-resource
 case internal/selfhostcheck/testdata/bind
 case internal/sketch/check/testdata/fixtures/negative/argument-mismatch.ergo
 case internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo

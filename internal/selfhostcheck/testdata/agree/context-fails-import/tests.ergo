@@ -1,3 +1,0 @@
-import actor
-
-let viaMake = context fails actor.Stopped { Op: try Make() }

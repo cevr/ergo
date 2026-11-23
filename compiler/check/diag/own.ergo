@@ -227,6 +227,38 @@ func holds(s store.Store, k expr.Pkg, res Map[string, bool], own []bool, t dense
 	false
 }
 
+// holdsAcross is holds that also reads an imported type (resources.go
+// holdsResource walks every package's types): by deps, each package of
+// the program's resources by its path (Resources), and by its type
+// arguments. A package deps does not hold reads as plain data.
+func holdsAcross(s store.Store, k expr.Pkg, res Map[string, bool], deps Map[string, Map[string, bool]], t dense.ID[store.TKey]) bool {
+	let (path, name, args) = expr.ImportedRec(s, k, t)
+	if name != "" {
+		match deps.Get(path) {
+		case Some[Map[string, bool]] as d:
+			if holder(d.Value, name) {
+				return true
+			}
+		case None:
+		}
+		for a in args {
+			if holdsAcross(s, k, res, deps, a) {
+				return true
+			}
+		}
+		return false
+	}
+	let kind = store.KindOfType(s, t)
+	if kind == store.KSlice || kind == store.KArray || kind == store.KMap || kind == store.KTuple || kind == store.KRowValue || kind == store.KOwn || kind == store.KInstance {
+		for a in store.OperandsOf(s, t) {
+			if holdsAcross(s, k, res, deps, a) {
+				return true
+			}
+		}
+	}
+	holds(s, k, res, []bool{}, t)
+}
+
 // holder is whether res says the package's type name holds a resource.
 func holder(res Map[string, bool], name string) bool {
 	match res.Get(name) {
@@ -263,7 +295,11 @@ func languageType(s store.Store, g string) bool {
 // declaration's own parameters count as plain data here (an instance's
 // arguments are read apart). Solved once, each pass reads every field and
 // variant once.
-func resources(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []string) Map[string, bool] {
+func resources(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []string) Map[string, bool] { resourcesWith(s, k, infos, names, Map[string, Map[string, bool]]{}, false) }
+
+// resourcesWith is resources; across, a field's type is read by
+// holdsAcross, so a record that holds an imported resource holds one.
+func resourcesWith(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []string, deps Map[string, Map[string, bool]], across bool) Map[string, bool] {
 	let mut res = Map[string, bool]{}
 	for name in names {
 		match infos.Get(name) {
@@ -282,7 +318,7 @@ func resources(s store.Store, k expr.Pkg, infos Map[string, typeInfo], names []s
 				continue
 			}
 			for fd in r.Fields {
-				if holds(s, k, res, []bool{}, fd.T) {
+				if if across { holdsAcross(s, k, res, deps, fd.T) } else { holds(s, k, res, []bool{}, fd.T) } {
 					res[r.Name] = true
 					changed = true
 					break
