@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/uiskipgen"
 )
@@ -30,9 +29,8 @@ func TestIRUISkipMatchesSource(t *testing.T) {
 		uiGroupNames(t), "card", "list", "framed", "headed", "tallied", "wideView", "cardsView", "bagged")
 }
 
-// uiGroupNames is the group functions of the frame packages of
-// uiskipgen's program, as the lowering finds them, by shape and law
-// (lower.GroupFuncsForTest), never by their spelling.
+// uiGroupNames asks lowering for the emitted names of the specimen's lawed
+// group functions.
 func uiGroupNames(t *testing.T) []string {
 	t.Helper()
 	file := filepath.Join(t.TempDir(), "p.ergo")
@@ -43,25 +41,7 @@ func uiGroupNames(t *testing.T) []string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
-	seen := map[*check.Package]bool{}
-	for _, f := range u.Package.Funcs {
-		if f.Sig == nil || len(f.Sig.Params) == 0 {
-			continue
-		}
-		p, ok := f.Sig.Params[0].Type.(*check.Pointer)
-		if !ok {
-			continue
-		}
-		n, ok := p.Elem.(*check.Named)
-		if !ok || n.Obj == nil || n.Obj.Pkg == nil || seen[n.Obj.Pkg] {
-			continue
-		}
-		seen[n.Obj.Pkg] = true
-		for _, g := range lower.GroupFuncsForTest(n.Obj.Pkg) {
-			names = append(names, g.Name)
-		}
-	}
+	names := lower.GroupCallNamesForTest(u)
 	if len(names) == 0 {
 		t.Fatal("no frame package of the program declares a lawed group")
 	}

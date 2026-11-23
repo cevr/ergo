@@ -57,7 +57,9 @@ func TestGroupProtocolCopyAgrees(t *testing.T) {
 	group := ""
 	for _, g := range lower.GroupFuncsForTest(pair.std) {
 		if len(g.Sig.Params) == 4 {
-			group = g.Name + "_#0[" // copyCanonicalNames
+			// copyNormalise folds the copy's alias into this alias and
+			// copyCanonicalNames numbers the same stem in both builds.
+			group = lower.PackageAlias(g.Pkg.Path) + "__" + g.Name + "_#0["
 		}
 	}
 	if group == "" {

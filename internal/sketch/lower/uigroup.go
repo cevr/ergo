@@ -392,6 +392,22 @@ func GroupFuncsForTest(pkg *check.Package) []*check.Func {
 	return out
 }
 
+// GroupCallNamesForTest returns the names used for group calls in a unit's
+// lowered Go and IR. Use the same naming pass as the build, so package
+// qualifiers and collision suffixes come from the declarations, not from
+// a second mangler.
+func GroupCallNamesForTest(u Unit) []string {
+	l := newLowerer(u)
+	l.nameAll()
+	var names []string
+	for _, pkg := range l.libraries() {
+		for _, g := range GroupFuncsForTest(pkg) {
+			names = append(names, l.funcDecl(g).name)
+		}
+	}
+	return names
+}
+
 // groupShape reports g a group over the frame type frame (groupFrame).
 func groupShape(g *check.Func, frame *check.Named) bool {
 	if g.Decl == nil || g.Decl.Extern != nil || g.Sig == nil {
