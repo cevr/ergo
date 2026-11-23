@@ -118,17 +118,10 @@ func typecheckFiles(t *testing.T, programs []*lowered, arch string, infos map[st
 			}
 		}
 	}
-	exports, err := goExports.lookup(t, imports)
+	gc, err := goExportImporter(t, fset, imports)
 	if err != nil {
 		return nil, err
 	}
-	gc := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
-		file := exports[path]
-		if file == "" {
-			return nil, fmt.Errorf("no export data for %q", path)
-		}
-		return os.Open(file)
-	})
 	imp := gc
 	if len(sources) > 0 {
 		imp = &sourceImporter{fset: fset, gc: gc, sources: sources, done: map[string]*types.Package{}}
@@ -149,6 +142,20 @@ func typecheckFiles(t *testing.T, programs []*lowered, arch string, infos map[st
 		_, _ = conf.Check(programModule+"/p/"+p.name, fset, []*ast.File{files[p.name]}, info)
 	}
 	return failed, nil
+}
+
+func goExportImporter(t *testing.T, fset *token.FileSet, imports []string) (types.Importer, error) {
+	exports, err := goExports.lookup(t, imports)
+	if err != nil {
+		return nil, err
+	}
+	return importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+		file := exports[path]
+		if file == "" {
+			return nil, fmt.Errorf("no export data for %q", path)
+		}
+		return os.Open(file)
+	}), nil
 }
 
 // sourceImporter imports a Go package of a program's module from its

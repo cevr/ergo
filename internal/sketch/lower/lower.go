@@ -107,6 +107,10 @@ type Unit struct {
 	// lowering that keeps any body on the text path is refused with a
 	// FallbackRefused naming each (ir_fallback.go; F8's precondition).
 	NoFallback bool
+	// goPackages lowers every package of the unit, the root and each
+	// import, as a Go package that Go imports (LowerGoPackages): no entry,
+	// and each package's exported functions behind facades.
+	goPackages bool
 	// lib is the Go package name of a library lowering (LowerIRLibrary),
 	// "" for a program: the build lowerer writes that package, with each
 	// exported function's Go entry, in place of main (lowerer.lib).

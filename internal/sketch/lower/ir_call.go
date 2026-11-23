@@ -3,6 +3,8 @@ package lower
 // IR builder: calls, operation calls and polls. See ir.go.
 
 import (
+	"strings"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -174,6 +176,31 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 		// runtime reads it from the test binary's own arguments.
 		b.keepImport("var _ = " + b.l.rt() + ".TestSeed")
 		return nil, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSeed"}, false
+	case check.CallTestShown:
+		pre, e := b.shownCall(x, p) // ir_assert.go
+		return pre, e, false
+	case check.CallTestFile:
+		// The test's file as the runner names it (check harness.go): the
+		// file part of the call's siteText.
+		site := b.l.siteText(x)
+		for range 2 {
+			site = site[:strings.LastIndex(site, ":")]
+		}
+		return nil, &irExpr{K: "const", Pos: p, T: "string", V: site}, false
+	case check.CallTestReport:
+		// A harnessed test's failure (check harness.go): the harness's
+		// $Reported, which fails the test with the message as its report.
+		if b.l.tests == nil {
+			irNo("ergo·report outside a harnessed test")
+		}
+		pre, vals := b.operands(x.Args) // ir_fail.go
+		return pre, &irExpr{K: "call", Pos: p, Name: b.l.helper("Reported"), Args: vals}, false
+	case check.CallTestSource:
+		// The path a harnessed test's replay names (check harness.go):
+		// the binary's --source, or the test's file.
+		b.keepImport("var _ = " + b.l.rt() + ".TestSource")
+		pre, vals := b.operands(x.Args) // ir_fail.go
+		return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSource", Args: vals}, false
 	case check.CallHash:
 		return b.hashCall(x, p) // ir_mapprovider.go
 	case check.CallLen:

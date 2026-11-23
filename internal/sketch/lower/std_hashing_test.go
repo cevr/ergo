@@ -9,10 +9,8 @@ import (
 // stdHashingLawsProbe restates the prelude's Hashing laws (CONSTRAINTS C5;
 // types.md, Maps) as Ergo property tests over the prelude's own provider,
 // Structural, at int, string and float64: the member laws through its
-// functions. The laws that read a hash (EqualKeysHashEqual,
-// Structural*KeysHashEqual) are laws and proofs rows: a test build cannot lower hash
-// yet (calls.go, "an unknown call kind" for check.CallHash). A
-// where the law states (b K where Equal(a, b)) is the test's implication;
+// functions. This probe covers only the laws listed with this Go runner.
+// A where the law states (b K where Equal(a, b)) is the test's implication;
 // the test also ties b to a, and for float64 tries 0.0 and -0.0, which are
 // == and not identical.
 const stdHashingLawsProbe = `let si = Structural[int]

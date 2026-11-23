@@ -5,7 +5,7 @@ type Coin {
 	test Again, // want S108 "Coin declares a second test harness Again"
 }
 
-type Run { Name string, Seed uint64, Site string }
+type Run { Name string, Seed uint64, Site string, Source string }
 
 type Failed { Message string }
 
