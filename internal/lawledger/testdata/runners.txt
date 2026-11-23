@@ -587,6 +587,11 @@ prelude StructuralStringKeysHashEqual	none
 prelude TakeAtIsIndexAndRest	TestCollLaws
 prelude TakeIsGetAndDelete	TestCollLaws
 prelude Task.StopIsIdempotent	TestStdLawsRun
+process Runner.CleanupRunsBeforeReturn	TestStdProcessLaws
+process Runner.DefectIsCrashed	TestStdProcessLaws
+process Runner.ModelAgrees	TestStdProcessLaws
+process Runner.TimeIsExpired	TestStdProcessLaws
+process Runner.ValueOrFailurePasses	TestStdProcessLaws
 prompt MarkedAnswerIsSorted	TestPromptLaws
 prompt ReturnAnswersTheDefault	TestPromptLaws
 prompt SecretFrameHidesText	TestPromptLaws
@@ -776,8 +781,12 @@ sync ReleaseOnInterrupt	TestSyncLaws
 sync UpdateComposes	TestSyncLaws
 sync UpdateIsAtomic	TestSyncLaws
 sync WaitSeesTheValue	TestSyncLaws
+task DefectIsObservedOnce	TestStdLawsRun
+task ExitOfAnywhere	TestStdLawsRun
+task ExitOfWaitsForCleanup	TestStdLawsRun
 task SleepAdvancesNow	TestStdTimeLawsRun
 task StopIsIdempotent	TestStdLawsRun
+task StopOfWaiterStillInterrupts	TestStdLawsRun
 task WaitReturnsTheBlock	TestStdLawsRun
 tasks EarliestWins	TestTasksLaws
 tasks FailFastStopsTheRest	TestTasksLaws

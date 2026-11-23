@@ -60,4 +60,4 @@ runtime/v1/exec/exec_sandbox_linux.go	execSandboxEnd	host: the case's end waits 
 runtime/v1/exec/exec_sandbox_linux.go	execHelper.start	host: the exit of a helper that could not build the test folder's sandbox (TH1c)
 
 # a wait that parks inside runtime/rt
-runtime/v1/task.go	Task.Wait	parks in rt: rt.Handle.Wait parks the owner on the handle (rt handle.go)
+runtime/v1/task.go	Task.join	parks in rt: rt.Handle.Wait parks the owner on the handle (rt handle.go); Wait and TaskExit wait through it

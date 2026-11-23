@@ -1,0 +1,8 @@
+# scripts/opcount: `processbench bench run N` runs N process.Run of a
+# small block under no limit; the cost of one is the slope between the two
+# sizes (PROCESS-RUN), against hand Go (goroutine, recover, channel).
+unit run
+sizes 100000 1100000
+args bench run {n}
+control benchmarks/process/testdata/control
+binary processbench
