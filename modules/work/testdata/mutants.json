@@ -1677,7 +1677,7 @@
       "name": "st-stray-names-held", "origin": "wf10 NIH-213",
       "file": "modules/work/work/doctor.ergo",
       "from": "\t\tif slices.IndexFunc(all, func(w Workspace) bool { w.Id != \"\" && w.Id == id }) >= 0 {\n",
-      "to": "\t\tif false {\n",
+      "to": "\t\tif id == \"\" && len(all) < 0 {\n",
       "rule": "a live maker's staging folder is its record's, not a stray (memory's DoctorNamesAStrayStaging).",
       "anchor": {"tests": ["examples:modules/work"]}
     },
