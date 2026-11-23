@@ -1,5 +1,5 @@
 // The package dev is the design model of `ergo dev`'s lifecycle
-// (compile-speed plan §4.6, unit CS9, issue #203): one daemon per
+// (compile-speed plan §4.6, unit CS9): one daemon per
 // workspace and Ergo release, the CLI and an editor its clients. Checked
 // by `ergo test <this folder>`: a breadth-first search of every state in
 // the scope below.

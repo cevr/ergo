@@ -1,0 +1,9 @@
+# scripts/opcount: `fsbench bench N` appends N files, ten to a directory,
+# under tree/, walks the tree with fs.Walk and removes it with fs.RemoveAll
+# (CAP-FS2); the cost of one file is the slope between the two sizes. The
+# control is hand Go: the same files through the same host calls, then
+# filepath.WalkDir and os.RemoveAll.
+unit file
+sizes 200 2000
+args bench {n}
+control benchmarks/fstree/testdata/control

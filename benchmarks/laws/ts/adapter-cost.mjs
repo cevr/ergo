@@ -1,4 +1,4 @@
-// Host adapter cost of the laws prototype (#125, review 1 m5, review 2 m4).
+// Host adapter cost of the laws prototype (review 1 m5, review 2 m4).
 // Calls each export of proto/lib.mjs in a loop and prints raw per-call
 // samples.
 //   oldest     an export with no adapter, over the carrier: a floor for a

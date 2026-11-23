@@ -43,7 +43,7 @@ func TestDiagnosticMessagesSayWhatHappened(t *testing.T) {
 		{"law-hides-type", "type Item { N int }\ntype Store { Item(n int) Item, law ItemKeeps(n int) { Item(n) == Item{N: n} } }\n",
 			"Item is the operation Store.Item here, which hides the type Item in the law; rename the operation or the type"},
 		{"duration-times-int", "func late(d duration) duration { d / 4 }\n",
-			"a duration is not multiplied or divided by an integer (#175); write duration(int64(d) / 4)"},
+			"a duration is not multiplied or divided by an integer; write duration(int64(d) / 4)"},
 		{"duration-times-local", "func late(d duration, n int) duration { d * n }\n",
 			"write duration(int64(d) * int64(n))"},
 		{"catch-of-a-failing-argument", "type Missing { Name string }\nfunc find(name string) string fails Missing {\n\tif name == \"\" {\n\t\treturn Missing{Name: name}\n\t}\n\tname\n}\nfunc shown(s string) bool { s != \"\" }\nfunc f() bool {\n\tshown(find(\"x\")) catch {\n\tcase Missing:\n\t\tfalse\n\t}\n}\n",

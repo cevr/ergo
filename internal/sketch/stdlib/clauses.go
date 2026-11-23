@@ -63,6 +63,9 @@ var ArgClauses = []ArgClause{
 	{"api.Transport.Carry", "answer", "escaping", "no Go body: a provider is Ergo the checker reads; answer is own, so a transport may keep it for a server it starts, as rpc's Loopback runs its handle on a task below the caller"},
 	{"csv.scan", "each", "non-escaping", "CSVScan calls each in a loop over Go's csv.Reader on the caller's goroutine, one record at a time, and keeps nothing"},
 	{"exec.waitFor", "p", "lent", "ExecWaitFor calls p's Wait on the caller's task, or through After on a child that After stops and joins on every exit before it returns; Wait waits on channels and finish runs once, so the child's Wait is sound while the caller owns p; it keeps nothing and never releases p"},
+	// fs: SameAs reads only the identity m kept when it was mapped.
+	{"fs.hostSameAs", "m", "lent", "FSSameAs reads m's kept device and inode (m.known, m.dev, m.ino) on the caller's goroutine to compare them with os.Stat's, and keeps nothing; it never unmaps m"},
+	{"mapped.Maps.SameAs", "m", "lent", "no Go body: Host's SameAs is fs.SameAs over its fs.Host, whose body FSSameAs only reads m's kept identity and keeps nothing; an implementation reads m before it returns and never releases it"},
 	// http: a streamed client body (httpStreamURL) is read by a goroutine
 	// of its own, which hands each part over an unbuffered channel to the
 	// caller's task, where accepts and put run; the goroutine is joined

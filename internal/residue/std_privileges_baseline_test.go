@@ -563,6 +563,7 @@ var goBoundaryKeys = []string{
 	`internal/sketch/eval/gohost.go:goFuncs table "net/netip.ParseAddr"`,
 	`internal/sketch/eval/gohost.go:goFuncs table "net/url.Parse"`,
 	`internal/sketch/eval/gohost.go:goFuncs table "net/url.ParseQuery"`,
+	`internal/sketch/eval/gohost.go:goFuncs table "path/filepath.Match"`,
 	`internal/sketch/eval/gohost.go:goFuncs table "strconv.FormatUint"`,
 	`internal/sketch/eval/gohost.go:goFuncs table "strconv.ParseUint"`,
 	`internal/sketch/eval/gohost.go:goTypes table "net/netip.Addr"`,

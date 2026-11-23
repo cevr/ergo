@@ -422,7 +422,7 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 	return false
 }
 
-// Captures of let mut locals and of borrows by escaping frames (#197 C2;
+// Captures of let mut locals and of borrows by escaping frames (resource ownership C2;
 // types.md, Function values 3 and Borrows 1; owner q60, 2026-11-09:
 // "escaping let mut capture allowed only when no write follows").
 //
@@ -896,7 +896,7 @@ func commonPrefix(a, b []syntax.Node) int {
 	return n
 }
 
-// Local frames (#197 C2). A function literal that a `let` binds to one
+// Local frames (C2). A function literal that a `let` binds to one
 // immutable local, `let show = func() { … }`, is a non-escaping frame when
 // the local only runs in place: each use of it is a position the
 // non-escaping rule allows (the callee of a call, an argument of a

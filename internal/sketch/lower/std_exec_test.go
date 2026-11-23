@@ -315,6 +315,10 @@ func inGroup(pid, pgid string) bool {
 // a test of the same name (TestStdLawsRun's naming), and the Runner law
 // against a Script, the std's test provider.
 const execLawsProbe = `import exec
+import filepath
+import fs
+import fstest
+import os
 import strings
 import slices
 import time
@@ -494,12 +498,96 @@ test ScriptNotFoundNamesTheProgram(name string, other string) {
 	}
 	assert named
 }
+
+// probePath is the Process of the LookPath tests: PATH is path.
+type probePath { path string } implements os.Process
+
+func Args(_ probePath) []string { []string{} }
+
+func Getenv(p probePath, key string) Option[string] {
+	if key == "PATH" {
+		return Some[string]{Value: p.path}
+	}
+	None
+}
+
+func Getwd(_ probePath) string fails os.NoWorkdir { "/" }
+
+func probeRunnable() fs.Mode { fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute} }
+
+test ExecLookPathFindsTheFirst(paths []string, picks []int, dirs []string, name string) {
+	if name == "" || strings.Contains(name, "/") {
+		return
+	}
+	let m = fstest.NewMemory()
+	let mut i = 0
+	for p in paths {
+		let at = "/" + p
+		let pick = if i < len(picks) { picks[i] } else { 0 }
+		i = i + 1
+		let mode = if pick % 2 != 0 { probeRunnable() } else { fs.Shared() }
+		m.MkdirAll(filepath.Dir(at)) catch {
+		case fs.Denied, fs.Failed:
+		}
+		m.WriteFileMode(at, "#!", mode) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+		}
+	}
+	let mut abs = []string{}
+	for d in dirs {
+		abs = abs.Append("/" + d)
+	}
+	let mut want = ""
+	for d in abs {
+		let candidate = filepath.Join([]string{d, name})
+		let info = m.Stat(candidate) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			continue
+		}
+		if !info.Dir && (info.Perm & 73) != 0 {
+			want = candidate
+			break
+		}
+	}
+	with context { os.Process: probePath{path: strings.Join(abs, ":")}, fs.Files: m } {
+		let got = exec.LookPath(name) catch {
+		case exec.NotFound as n:
+			assert want == "" && n.Name == name
+			return
+		case exec.Denied:
+			assert false
+			return
+		}
+		assert got == want
+	}
+}
+
+test ExecLookPathSkipsRelative(name string) {
+	if name == "" || strings.Contains(name, "/") || name == "." || name == ".." {
+		return
+	}
+	let m = fstest.NewMemory()
+	try m.MkdirAll("bin")
+	try m.WriteFileMode("bin/" + name, "#!", probeRunnable())
+	with context { os.Process: probePath{path: ":bin:."}, fs.Files: m } {
+		let _ = exec.LookPath(name) catch {
+		case exec.NotFound:
+			return
+		case exec.Denied:
+			assert false
+			return
+		}
+		assert false
+	}
+}
 `
 
 // execLawStatements is the statement of each law the probe restates, the
 // law's source text as the ledger writes it, by ledger key; lawledger.Run
 // holds it equal to the ledger (fu-ledger-runner).
 var execLawStatements = map[string]string{
+	"exec LookPathFindsTheFirst":            `LookPathFindsTheFirst(paths []string, picks []int, dirs []string, name string) { if name == "" || strings.Contains(name, "/") { return true } let m = shelf(paths, picks) let mut abs = []string{} for d in dirs { abs = abs.Append("/" + d) } let mut want = "" for d in abs { let candidate = filepath.Join([]string{d, name}) let info = m.Stat(candidate) catch { case fs.NotFound, fs.Denied, fs.Failed: continue } if !info.Dir && (info.Perm & 73) != 0 { want = candidate break } } with context { os.Process: pathOnly{path: strings.Join(abs, ":")}, fs.Files: m } { let got = LookPath(name) catch { case NotFound as n: return want == "" && n.Name == name case Denied: return false } got == want } }`,
+	"exec LookPathSkipsRelative":            `LookPathSkipsRelative(name string) { if name == "" || strings.Contains(name, "/") || name == "." || name == ".." { return true } let m = fstest.NewMemory() m.MkdirAll("bin") catch { case fs.Denied, fs.Failed: return true } m.WriteFileMode("bin/" + name, "#!", fs.Mode{Owner: fs.ReadWriteExecute, Group: fs.ReadExecute, Other: fs.ReadExecute}) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } with context { os.Process: pathOnly{path: ":bin:."}, fs.Files: m } { let _ = LookPath(name) catch { case NotFound: return true case Denied: return false } false } }`,
 	"exec Runner.StartAgreesWithRun":        `StartAgreesWithRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToCaller}) catch { case NotFound, Denied, Failed: return false } let mut out = []string{} let mut errs = []string{} for l in p.Lines() { if l.Stderr { errs = errs.Append(l.Text) } else { out = out.Append(l.Text) } } slices.Equal(out, Split(want.Stdout)) && slices.Equal(errs, Split(want.Stderr)) && p.Wait() == want.Status }`,
 	"exec Runner.ShellRunsAsWritten":        `ShellRunsAsWritten(sh Shell) { let r = Run(ShellCommand(sh)) catch { case NotFound, Denied, Failed: return true } let mut out = "" let mut errs = "" for w in sh.Writes { if w.Stderr { errs = errs + w.Text } else { out = out + w.Text } } r.Stdout == out && r.Stderr == errs && r.Status == (sh.Status % 256 + 256) % 256 }`,
 	"exec Runner.StartMergedInterleavesRun": `StartMergedInterleavesRun(sh Shell) { let c = ShellCommand(sh) let want = Run(c) catch { case NotFound, Denied, Failed: return true } let p = Start(c, Streams{Stdout: ToCaller, Stderr: ToStdout}) catch { case NotFound, Denied, Failed: return false } let mut got = "" for k in p.Chunks() { if k.Stderr { return false } got = got + k.Text } Interleaves(got, want.Stdout, want.Stderr) && p.Wait() == want.Status }`,

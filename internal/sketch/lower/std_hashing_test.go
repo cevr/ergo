@@ -10,7 +10,7 @@ import (
 // types.md, Maps) as Ergo property tests over the prelude's own provider,
 // Structural, at int, string and float64: the member laws through its
 // functions. The laws that read a hash (EqualKeysHashEqual,
-// Structural*KeysHashEqual) are #162 rows: a test build cannot lower hash
+// Structural*KeysHashEqual) are laws and proofs rows: a test build cannot lower hash
 // yet (calls.go, "an unknown call kind" for check.CallHash). A
 // where the law states (b K where Equal(a, b)) is the test's implication;
 // the test also ties b to a, and for float64 tries 0.0 and -0.0, which are
