@@ -24,6 +24,7 @@ type Making {
 type Reserved = Making | Created
 
 func New(t Tool, name string, o NewOptions) Created fails NoBase | BadConfig | BadName | NameTaken | NoWorkspace | NoRevision | Diverged | CopyRefused | NotSameVolume | Unsupported | Exists | Missing | NoSpace | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | Busy {
+	try settled(t)
 	match try Reserve(t, name, o) {
 	case Created as done:
 		done
@@ -173,15 +174,56 @@ func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoW
 	m
 }
 
-// Fill is new's second step: the clone, with no lock but the
-// reservation's held, the folders work.toml leaves out, the branch and
-// the stat settings, the cloner on the reservation (under the lock), and
-// last the marker. A failure deletes what it made and the reservation.
+// Fill is new's second step, in two: Stage makes the whole clone in its
+// staging folder and Place renames it into the workspace's folder. So a
+// folder at a workspace's path that this work made is always whole, on
+// its branch and marked: it appears in one rename, after the marker.
+// Whatever a cut (a TERM, a KILL, an OOM, a power cut) leaves half made
+// is in the staging folder, which only its reservation owns; the next
+// command that takes the lock settles it (settle, in hold): a placed
+// clone is activated, a staging folder deleted for good with its record.
 func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed | VcsFailed | Unkept | Locked {
-	let by = cloned(t, m.Parent, m.Path, m.Copy) catch {
+	try Place(t, try Stage(t, m))
+}
+
+// StagingFolder is the folder of the base's staging folders: in its
+// home, beside the workspaces, so a staging folder and a workspace's
+// folder have parents of one file system (the home's; a workspace's
+// folder is always a child of the home, FolderOf has no slash).
+func StagingFolder(home string) string { home + "/.creating" }
+
+// StagingOf is the staging folder of the reservation id.
+func StagingOf(home string, id string) string { StagingFolder(home) + "/" + id }
+
+// TombOf is the staging folder of the reservation id once settle rolled
+// it back: renamed, so no copy a dead maker left running writes into it
+// by its name, and deleted with the lock free (buried). An id has no dot.
+func TombOf(home string, id string) string { StagingOf(home, id) + ".gone" }
+
+// Stage is Fill's first part, with no lock but the reservation's held:
+// the check that the staging folder can be placed by one rename (before
+// any copy), the clone into the staging folder, the folders work.toml
+// leaves out, the branch and the stat settings, the cloner on the
+// reservation (under the lock), and last the marker. No step writes the
+// staging folder's own path anywhere: Git keeps none in a checkout's
+// .git, the marker is the id, and the install and the hooks run after
+// Place. A failure deletes what it made and the reservation.
+func Stage(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed | VcsFailed | Unkept | Locked {
+	let staging = StagingOf(t.home, m.Id)
+	t.copier.Placeable(StagingFolder(t.home), t.home) catch {
 	case NotSameVolume as e:
 		try unreserve(t, m)
 		return e
+	case CloneFailed as e:
+		try unreserve(t, m)
+		return e
+	}
+	let (by, _) = cloned(t, m.Parent, staging, m.Copy, false) catch {
+	case NotSameVolume as e:
+		// The staging folder is on the home's file system (Placeable):
+		// the refusal names the workspace's folder.
+		try unreserve(t, m)
+		return NotSameVolume{From: e.From, To: m.Path}
 	case Unsupported as e:
 		try unreserve(t, m)
 		return e
@@ -204,44 +246,85 @@ func Fill(t Tool, m Making) Making fails NotSameVolume | Unsupported | CopyRefus
 	// Rift's marker names the copy it is in: a clone of a Rift copy, or
 	// of a base Rift made, must not carry it (the Mac's WK-MARKER).
 	for folder in slices.Concat(m.Config.LeaveOut, []string{RiftMarker}) {
-		let left = filepath.Join([]string{m.Path, folder})
+		let left = filepath.Join([]string{staging, folder})
 		if by.Has(left) {
 			by.Discard(left) catch {
 			case Missing:
 			case CloneFailed as e:
+				try discarded(by, staging)
+				try unreserve(t, m)
 				return e
 			}
 		}
 	}
-	startIn(t, by, m.Path, m.Branch, m.Start) catch {
+	startIn(t, by, staging, m.Branch, m.Start) catch {
 	case VcsFailed as e:
-		try discarded(by, m.Path)
+		try discarded(by, staging)
 		try unreserve(t, m)
 		return e
 	}
-	// The marker comes last: a clone that carries it is whole, on its
-	// branch, and its reservation names its cloner, so gc can activate
-	// it when its maker dies before Activate (Collect).
 	recordCloner(t, m, by.Name()) catch {
 	case Unkept as e:
-		try discarded(by, m.Path)
+		try discarded(by, staging)
 		try unreserve(t, m)
 		return e
 	case Locked as e:
-		try discarded(by, m.Path)
+		try discarded(by, staging)
 		try unreserve(t, m)
 		return e
 	}
-	let marked = mark(t, m.Path, m.Id) catch {
+	// The marker comes last: a staged clone that carries it is whole, on
+	// its branch, and its reservation names its cloner.
+	let marked = mark(t, staging, m.Id) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		false
 	}
 	if !marked {
-		try discarded(by, m.Path)
+		try discarded(by, staging)
 		try unreserve(t, m)
-		return CloneFailed{Cloner: by.Name(), Reason: "\(m.Path): the marker \(MarkerFile) could not be written"}
+		return CloneFailed{Cloner: by.Name(), Reason: "\(staging): the marker \(MarkerFile) could not be written"}
 	}
 	Making{..m, Cloner: by.Name()}
+}
+
+// Place is Fill's second part, with no lock but the reservation's: one
+// rename of the staged clone into the workspace's folder, made durable
+// before Activate writes the record Active (so no power cut leaves an
+// Active record without its folder). A failure (the folder taken, or
+// the staging folder moved to another file system since Stage) deletes
+// the staged clone and the reservation; nothing is ever copied.
+func Place(t Tool, m Making) Making fails NotSameVolume | Exists | Missing | CloneFailed | Unkept | Locked {
+	let staging = StagingOf(t.home, m.Id)
+	let by = clonerNamed(t, m.Cloner)
+	by.Place(staging, m.Path) catch {
+	case NotSameVolume as e:
+		try discarded(by, staging)
+		try unreserve(t, m)
+		return e
+	case Exists as e:
+		try discarded(by, staging)
+		try unreserve(t, m)
+		return e
+	case Missing as e:
+		try unreserve(t, m)
+		return e
+	case CloneFailed as e:
+		try discarded(by, staging)
+		try unreserve(t, m)
+		return e
+	}
+	m
+}
+
+// clonerNamed is the bound Cloner a record names, else the copier (a
+// record written before its clone, or by a Cloner not bound now).
+func clonerNamed(t Tool, name string) Cloner {
+	for c in t.cloners {
+		if c.Name() == name {
+			return c
+		}
+	}
+	t.copier
 }
 
 // recordCloner writes, under the lock, the cloner that made the clone

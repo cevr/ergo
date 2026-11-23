@@ -226,9 +226,9 @@ func skip(r mut reader) {
 // push leaves id as the value read last.
 func push(r mut reader, id dense.ID[Node]) { r.last = dense.OptOf(id) }
 
-// last is the id of the value read last; value leaves one when it reads
+// lastRead is the id of the value read last; value leaves one when it reads
 // one, and a caller asks only then.
-func last(r reader) dense.ID[Node] {
+func lastRead(r reader) dense.ID[Node] {
 	match dense.Unpack(r.last) {
 	case Some[dense.ID[Node]] as id:
 		id.Value
@@ -370,7 +370,7 @@ func array(r mut reader) {
 		if !ok(*r) {
 			return
 		}
-		items = items.Append(last(*r))
+		items = items.Append(lastRead(*r))
 		skip(r)
 		if r.pos < len(src) {
 			let c = src[r.pos]
@@ -426,7 +426,7 @@ func object(r mut reader) {
 		if !ok(*r) {
 			return
 		}
-		members = members.Append(Member{Key: k, Value: last(*r)})
+		members = members.Append(Member{Key: k, Value: lastRead(*r)})
 		skip(r)
 		if r.pos < len(src) {
 			let c = src[r.pos]

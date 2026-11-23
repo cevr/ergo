@@ -326,11 +326,11 @@ type checker struct {
 	// (providerAssignability): R22 does not apply there.
 	providing bool
 	// capture, when not nil, lets the next assignability admit a provider
-	// whose operations need go.Foreign beyond the operation type's row, and
-	// records that it did: the site that builds the provider is charged
-	// go.Foreign (captureForeign; README Gap 17). assignability takes it
-	// and clears it, so no nested check inherits it.
-	capture *bool
+	// whose operations need go.Foreign or Ambient beyond the operation
+	// type's row, and records which: the site that builds the provider is
+	// charged them (captureForeign; README Gap 17; HOST-ROW). assignability
+	// takes it and clears it, so no nested check inherits it.
+	capture *captured
 	// cellTypes memoizes cellType by origin; cellHolds memoizes holdsCell's
 	// final answers; cellSites are the type arguments checkCells decides
 	// (cells.go).
@@ -810,8 +810,9 @@ func universe() *Scope {
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
 		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
-		// A language type: its T admits a resource with no mark (Generics 9).
-		refT := &TypeParam{Name: "T", lang: true, id: newID()}
+		// Declared go.Ref[T own]: its T admits a resource by the mark, as a
+		// user type's does (types.md, Generics 9; GEN9-GENERAL).
+		refT := &TypeParam{Name: "T", Own: true, id: newID()}
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
@@ -938,6 +939,14 @@ type stdEntry struct {
 }
 
 // Std is the importer of the embedded standard library (internal/sketch/std).
+//
+// Import may be called from several goroutines (each package is checked
+// or decoded once), but the checker is single-use-at-a-time: the packages
+// Std hands out are shared by every check, and a check completes their
+// lazy parts (a host binding's declarations, the underlying type of an
+// instance a std package wrote) on first read, so two checks must not run
+// at once. Nothing in the product checks concurrently (ergo dev serializes
+// its requests).
 var Std Importer = newStdImporter()
 
 func newStdImporter() *stdImporter {

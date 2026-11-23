@@ -31,7 +31,7 @@ type shapeField struct {
 
 // shapeModel is a generated Go package of structs T0…Tn-1, M and A. M and
 // A have a memory-only method (a planted gofacts.Effects row with a
-// validated guard line); A is listed in v1.GoConcurrentTypes; some Ti have
+// validated guard line); A is listed in v1.GoConcurrentTypes(); some Ti have
 // a memory-only method of their own, some a foreign one (no row), and the
 // rest none. I is a Go interface, which some fields hold.
 type shapeModel struct {
@@ -39,10 +39,6 @@ type shapeModel struct {
 	fields  [][]shapeField
 	planted []bool // Ti has a memory-only row
 	plain   []bool // Ti has a method with no row: it touches the host
-	// promoted is the Ti whose method set has a method promoted from an
-	// embedded field, by Go's rules (go/types): its binding is a method of
-	// Ti with no row of its own, so it touches the host.
-	promoted map[string]bool
 }
 
 var shapeForms = []string{"T", "*T", "[]T", "[2]T", "map[string]T", "embed", "*embed"}
@@ -112,8 +108,11 @@ func (m *shapeModel) confined(t string, seen map[string]bool) bool {
 
 // touches is GBX1b's reference: the type named t reaches, through any
 // field of any form, a type with a method that has no memory-only row: its
-// own, one promoted from an embedded field, or a Go interface's. M and A
-// have only memory-only methods, and A's listing stops nothing here.
+// own or a Go interface's. A method Go promotes from an embedded field
+// takes the row of the type that declares it (GB; interop.md, Purity and
+// authority), and the walk reaches that type through the embedded field,
+// so a promotion adds nothing of its own. M and A have only memory-only
+// methods, and A's listing stops nothing here.
 func (m *shapeModel) touches(t string, seen map[string]bool) bool {
 	if seen[t] || t == "M" || t == "A" {
 		return false
@@ -123,7 +122,7 @@ func (m *shapeModel) touches(t string, seen map[string]bool) bool {
 	}
 	seen[t] = true
 	i, _ := strconv.Atoi(t[1:])
-	if m.plain[i] || m.promoted[t] {
+	if m.plain[i] {
 		return true
 	}
 	for _, f := range m.fields[i] {
@@ -201,7 +200,7 @@ func (m *shapeModel) ergoSource() (string, map[int]string) {
 // TestGoConfinementReachesThroughShapes (GB-RACE2): a Go type is confined
 // to one task when any field, element, Map value, pointer or embedded type
 // reachable through its structure has a memory-only method that
-// v1.GoConcurrentTypes does not list. Each seed generates a Go package of
+// v1.GoConcurrentTypes() does not list. Each seed generates a Go package of
 // structs, binds it with ergo bind's own generator, and checks a program
 // that captures a go.Ref to each struct in a task and makes a queue of
 // each; the refused lines must be the reference reachability model's.
@@ -241,15 +240,20 @@ func checkShapes(t *testing.T, name, code string, program func(*shapeModel) (str
 		}
 	}
 	savedEffects := gofacts.Effects
-	savedConcurrent := v1.GoConcurrentTypes
+	// GoConcurrentTypes is built once per process (ERGO-STARTUP-2): plant
+	// the entry in it and take it out again.
+	concurrent := v1.GoConcurrentTypes()
+	savedPlanted, hadPlanted := concurrent["shapes.A"]
 	savedLedger := check.FactLedger
 	t.Cleanup(func() {
-		gofacts.Effects, v1.GoConcurrentTypes, check.FactLedger = savedEffects, savedConcurrent, savedLedger
+		gofacts.Effects, check.FactLedger = savedEffects, savedLedger
+		if hadPlanted {
+			concurrent["shapes.A"] = savedPlanted
+		} else {
+			delete(concurrent, "shapes.A")
+		}
 	})
-	v1.GoConcurrentTypes = map[string]string{"shapes.A": "planted: safe for concurrent use"}
-	for k, v := range savedConcurrent {
-		v1.GoConcurrentTypes[k] = v
-	}
+	concurrent["shapes.A"] = "planted: safe for concurrent use"
 	yes, no := 0, 0
 	for _, seed := range seeds {
 		m := newShapeModel(rand.New(rand.NewPCG(seed, 0x6b2ace)))
@@ -270,7 +274,6 @@ func checkShapes(t *testing.T, name, code string, program func(*shapeModel) (str
 		if strings.Contains(binding, "ergo:refused") {
 			t.Fatalf("seed %d: the binding refuses a generated member; the generator must make only shapes ergo bind maps:\n%s", seed, binding)
 		}
-		m.promoted = promotedMethods(t, goSrc)
 		src, want := program(m)
 		f, err := syntax.Parse(src)
 		if err != nil {
@@ -313,31 +316,6 @@ func keysOf(m map[int]string) []int {
 		out = append(out, k)
 	}
 	slices.Sort(out)
-	return out
-}
-
-// promotedMethods is the generated types whose pointer's method set has a
-// method promoted from an embedded field, by go/types.
-func promotedMethods(t *testing.T, src string) map[string]bool {
-	t.Helper()
-	fs := token.NewFileSet()
-	f, err := parser.ParseFile(fs, "shapes.go", src, 0)
-	if err != nil {
-		t.Fatalf("parse: %v\n%s", err, src)
-	}
-	pkg, err := (&types.Config{IgnoreFuncBodies: true}).Check("shapes", fs, []*ast.File{f}, nil)
-	if err != nil {
-		t.Fatalf("types: %v\n%s", err, src)
-	}
-	out := map[string]bool{}
-	for _, name := range pkg.Scope().Names() {
-		ms := types.NewMethodSet(types.NewPointer(pkg.Scope().Lookup(name).Type()))
-		for i := range ms.Len() {
-			if len(ms.At(i).Index()) > 1 {
-				out[name] = true
-			}
-		}
-	}
 	return out
 }
 

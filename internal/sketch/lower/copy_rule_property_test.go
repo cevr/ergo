@@ -221,7 +221,7 @@ func w%[1]s%[2]s(x %[3]s) %[3]s {
 	s
 }
 
-func wr%[1]s%[2]s(x %[3]s, r *%[1]s%[2]s) %[3]s {
+func wr%[1]s%[2]s(x %[3]s, r mut %[1]s%[2]s) %[3]s {
 	let mut s = x
 	%[6]s
 	r.s[0] = dm%[1]s%[2]s(r.m)
@@ -682,18 +682,22 @@ func copyProgram(seed uint64, reached map[string]bool) (string, *copyGen) {
 	return src.String(), g
 }
 
-var copyOps = regexp.MustCompile(`\bmaps\.Clone\(|\bslices\.Clone\(|\bslices\.Clip\(|\bergoClone\w*\(`)
+var copyOps = regexp.MustCompile(`\bmaps\.Clone\(|\bslices\.Clone\(|\bslices\.Clip\(|\b` + goHelper("ergoClone") + `\w*\(`)
 
 // mapCopyOps are the copies of a Map (copyGen.mapOnly).
-var mapCopyOps = regexp.MustCompile(`\bmaps\.Clone\(|\bergoCloneMap\w*\(`)
+var mapCopyOps = regexp.MustCompile(`\bmaps\.Clone\(|\b` + goHelper("ergoCloneMap") + `\w*\(`)
 
 // goFuncsOf is the Go text of the function name: its body, and the body
 // of its owned form (values.go, V5) when it has one.
 func goFuncsOf(t *testing.T, mainGo, name string) string {
 	t.Helper()
 	text := goFuncBody(t, mainGo, name)
-	if regexp.MustCompile(`(?m)^func (\([^)]*\) )?` + name + `Owned\(`).MatchString(mainGo) {
-		text += goFuncBody(t, mainGo, name+"Owned")
+	// A function's owned form is a generated function (goHelper); a
+	// method's keeps its receiver's method set (StringOwned).
+	for _, owned := range []string{goHelper(name + "Owned"), name + "Owned"} {
+		if regexp.MustCompile(`(?m)^func (\([^)]*\) )?` + owned + `\(`).MatchString(mainGo) {
+			return text + goFuncBody(t, mainGo, owned)
+		}
 	}
 	return text
 }
@@ -742,7 +746,7 @@ func copyPaths() []string {
 
 // plainMapCopy matches a generated copy function of a plain family's Map
 // (int keys): under V8 a plain Map is copied as a table.
-var plainMapCopy = regexp.MustCompile(`(?m)^func ergoClone\w*\(v map\[int\]`)
+var plainMapCopy = regexp.MustCompile(`(?m)^func ` + goHelper("ergoClone") + `\w*\(v map\[int\]`)
 
 // TestCopyCountsMatchModel is the copy-count property (above), in process
 // on the lowered Go.
@@ -787,7 +791,7 @@ func TestGoGetsEntryCopies(t *testing.T) {
 	src := "import go net/url\n\nfunc enc(m Map[string, []string]) string needs go.Foreign {\n\tlet mut c = m\n\tc[\"b\"] = []string{\"2\"}\n\tlet s = url.Values(c).Encode()\n\ts + \"\\(len(c))\"\n}\n\n" +
 		"func main() needs Console | go.Foreign {\n\tConsole.Println(enc(Map[string, []string]{\"a\": []string{\"1\"}}))\n}\n"
 	mainGo := mustLower(t, "goentries", src).mainGo()
-	call := regexp.MustCompile(`(ergoClone\w*)\(url\.Values\(c\)\)\.Encode\(\)`).FindStringSubmatch(mainGo)
+	call := regexp.MustCompile(`(` + goHelper("ergoClone") + `\w*)\(` + HostImportSpelling("net/url") + `\.Values\(c\)\)\.Encode\(\)`).FindStringSubmatch(mainGo)
 	if call == nil {
 		t.Fatalf("Go's operand is not copied by a copy function:\n%s", mainGo)
 	}

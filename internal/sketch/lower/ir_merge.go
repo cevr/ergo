@@ -33,6 +33,7 @@ package lower
 import (
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"sync"
 )
 
 // pureMerge, "off", turns the merge pass off: set with
@@ -62,18 +63,17 @@ type irCall struct {
 
 // The merge pass's reasons (ir_forms_report.go).
 var (
-	mergeFired     = &FormReason{"call", "merge", true, "reads the value of an equal call before it"}
-	mergeWritten   = &FormReason{"call", "merge", false, "an operand or the earlier value is written in the function, or not of a basic type"}
-	mergeNotValue  = &FormReason{"call", "merge", false, "the equal call before it is not a whole value"}
-	mergeNotFirst  = &FormReason{"call", "merge", false, "the equal call before it does not run first on every path"}
-	mergeCallKinds = map[string]bool{"call": true, "pcall": true}
+	mergeFired    = &FormReason{"call", "merge", true, "reads the value of an equal call before it"}
+	mergeWritten  = &FormReason{"call", "merge", false, "an operand or the earlier value is written in the function, or not of a basic type"}
+	mergeNotValue = &FormReason{"call", "merge", false, "the equal call before it is not a whole value"}
+	mergeNotFirst = &FormReason{"call", "merge", false, "the equal call before it does not run first on every path"}
 )
 
 // markPure gives the call e of x its facts when its callee is pure: a
 // pure std body or reviewed-pure Go function (check.PureStd), or an Ergo
 // function the lowering emits pure.
 func (b *irBuilder) markPure(x *syntax.CallExpr, e *irExpr) {
-	if e == nil || !mergeCallKinds[e.K] || e.X != nil || x.Trailing != nil {
+	if e == nil || (e.K != "call" && e.K != "pcall") || e.X != nil || x.Trailing != nil {
 		return
 	}
 	c := b.l.info.Calls[x]
@@ -330,7 +330,7 @@ func (b *irBuilder) fixedLocals(body []*irStmt) map[int]bool {
 			if v := byIndex[i]; v != nil && binds[i] == 0 && irMemoBasic(v.Type) { // ir_memo.go
 				fixed[i] = true
 			}
-		case binds[i] == 1 && irBasicGo[b.fn.Locals[i-params].Type]:
+		case binds[i] == 1 && irBasicGo()[b.fn.Locals[i-params].Type]:
 			fixed[i] = true
 		}
 	}
@@ -339,8 +339,10 @@ func (b *irBuilder) fixedLocals(body []*irStmt) map[int]bool {
 
 // irBasicGo are the Go types of the values a merged call may take and
 // give.
-var irBasicGo = map[string]bool{
-	"bool": true, "string": true, "int": true, "int8": true, "int16": true, "int32": true, "int64": true,
-	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "uintptr": true,
-	"float32": true, "float64": true, "byte": true, "rune": true,
-}
+var irBasicGo = sync.OnceValue(func() map[string]bool {
+	return map[string]bool{
+		"bool": true, "string": true, "int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+		"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "uintptr": true,
+		"float32": true, "float64": true, "byte": true, "rune": true,
+	}
+})

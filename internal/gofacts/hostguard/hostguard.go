@@ -1,7 +1,7 @@
 // Package hostguard runs the guards of the reviewed tables that stay in
 // runtime/v1 (LAWFFI LF2c, LF2d; docs/spec/interop.md, Foreign facts 7):
-// v1.GoSyncCallbacks (sync.go), v1.PureImports minus
-// v1.PureImportsExcept (pure.go) and the memory-only rows of
+// v1.GoSyncCallbacks() (sync.go), v1.PureImports minus
+// v1.PureImportsExcept() (pure.go) and the memory-only rows of
 // gofacts.Effects (effect.go; np4f-plan GBX6). Entries gives the ledger line of each
 // row, which go run ./scripts/stdlaws writes into std's ledger; a row acts
 // only on its line current and validated (gofacts.Acts). The guards call
@@ -49,7 +49,7 @@ func Sync(target string) error {
 type errNoCall string
 
 func (e errNoCall) Error() string {
-	return string(e) + ": a row of v1.GoSyncCallbacks with no guarded call in hostguard"
+	return string(e) + ": a row of v1.GoSyncCallbacks() with no guarded call in hostguard"
 }
 
 type errNoEffectCall string
@@ -68,7 +68,7 @@ func Entries(toolchain string) []gofacts.Entry {
 		}
 		return "validated"
 	}
-	for target, reason := range v1.GoSyncCallbacks {
+	for target, reason := range v1.GoSyncCallbacks() {
 		out = append(out, gofacts.Entry{Key: gofacts.SyncKey(target), Verdict: verdict(Sync(target)), By: "guard", With: toolchain, Digest: gofacts.SyncDigest(target, reason, toolchain)})
 	}
 	// The memory-only rows (GBX6): a row with no guarded call is refuted.
@@ -80,6 +80,15 @@ func Entries(toolchain string) []gofacts.Entry {
 		}
 		out = append(out, gofacts.Entry{Key: gofacts.EffectKey(e.Target), Verdict: verdict(err), By: "guard", With: toolchain, Digest: e.Digest(toolchain)})
 	}
+	// The host rows (HOST-ROW).
+	var targets []string
+	for _, e := range gofacts.Hosts {
+		targets = append(targets, e.Target)
+	}
+	hosts := Hosts(targets)
+	for _, e := range gofacts.Hosts {
+		out = append(out, gofacts.Entry{Key: gofacts.HostKey(e.Target), Verdict: verdict(hosts[e.Target]), By: "guard", With: toolchain, Digest: e.HostDigest(toolchain)})
+	}
 	diffs := Pure(members)
 	for _, path := range v1.PureImports {
 		var err error
@@ -88,7 +97,7 @@ func Entries(toolchain string) []gofacts.Entry {
 				err = d
 			}
 		}
-		out = append(out, gofacts.Entry{Key: gofacts.PureKey(path), Verdict: verdict(err), By: "guard", With: toolchain, Digest: gofacts.PureDigest(path, v1.PureImportsExcept[path], toolchain)})
+		out = append(out, gofacts.Entry{Key: gofacts.PureKey(path), Verdict: verdict(err), By: "guard", With: toolchain, Digest: gofacts.PureDigest(path, v1.PureImportsExcept()[path], toolchain)})
 	}
 	slices.SortFunc(out, func(a, b gofacts.Entry) int {
 		if a.Key < b.Key {

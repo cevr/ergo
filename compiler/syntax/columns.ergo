@@ -58,7 +58,11 @@ func Columns(p Parsed) []uint32 {
 // ColumnsVersion is the first word of Columns: a host that reads another
 // layout refuses it. 3: a law's row gains TypeParams, its word 2. 4: a
 // context declaration's and literal's rows gain Fails, before Needs
-// (CTX-ROWS-1b): 7 and 4 fixed words. A change
-// of the layout is bootstrapped (go run ./scripts/linked -bootstrap): the
-// host reads this layout and the one before it.
-let ColumnsVersion = uint32(4)
+// (CTX-ROWS-1b): 7 and 4 fixed words. 5: the rows are 4's, and a failed
+// parse's text (dump.Failure) carries its fix as lines after the error's
+// line, `fix exact|suggested offset length "text"` (VET-CHECK-VAR). 6: a test
+// row's body (word 3) is optional, so it holds the body's id + 1: the
+// harness member `test H` of an operation type is a test row with none. A
+// change of the layout is bootstrapped (go run ./scripts/linked
+// -bootstrap): the host reads this layout and the one before it.
+let ColumnsVersion = uint32(6)

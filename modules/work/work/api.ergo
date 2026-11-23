@@ -258,8 +258,10 @@ type Api {
 	Trust() Trusted fails NoBase | BadConfig | Unkept | fs.NotFound | fs.Denied | fs.Failed,
 	// Doctor reports on the base: the clone providers, the file system,
 	// whether a purge is one call, a stale index, the trust; with -rift,
-	// the base's Rift copies no workspace holds yet.
-	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread,
+	// the base's Rift copies no workspace holds yet; the checkouts whose
+	// merge drivers are missing (with -here, only the one it runs in),
+	// which -fix registers.
+	Doctor(o DoctorOptions) Report fails NoBase | BadConfig | Unkept | VcsFailed | RiftUnread | Locked,
 	// PluginTest runs the laws of the language contracts against a plugin
 	// (a command, or the [language.NAME] it names) on the base's files, and
 	// refuses it with the law it broke.
@@ -267,6 +269,13 @@ type Api {
 	// Refresh refreshes the stat data of the base's Git index, so that a
 	// clone starts fresh; it is the number of stale entries it had.
 	Refresh() int fails NoBase | Unkept | VcsFailed,
+	// Clone clones the folder src to dst, which must be absent with its
+	// parent there, as new clones a workspace but with no base, registry,
+	// lock, hook or record: every entry not left out, links as links,
+	// nothing written in src or outside dst. A plain copy where no
+	// Cloner can share blocks is an answer (cloner copy), measured for
+	// room before it writes; a failure leaves no dst.
+	Clone(src string, dst string, o CloneOptions) TreeCloned fails BadConfig | Unsupported | Exists | Missing | NoSpace | CloneFailed,
 	// Bases is every base init registered on this host whose folder is
 	// there.
 	Bases() []string fails Unkept,
@@ -693,10 +702,14 @@ func startOf(t Tool, parent string, branch string, from Option[string]) string f
 
 // cloned clones from to path with the first sharing Cloner the file
 // system supports, or with the copier when none is supported and a copy
-// is allowed; it is the Cloner that made the tree. A copy that is not
-// allowed is CopyRefused with the bytes it would copy: it is never picked
-// silently. A failure other than Unsupported stops at its Cloner.
-func cloned(t Tool, from string, path string, copyAllowed bool) Cloner fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed {
+// is allowed; it is the Cloner that made the tree and the bytes it
+// copied (0 for a sharing one). A copy that is not allowed is CopyRefused
+// with the bytes it would copy: it is never picked silently. A copy is
+// measured first: one the folder of path has no room for is NoSpace and
+// writes nothing. A failure other than Unsupported stops at its Cloner,
+// and so does NotSameVolume unless acrossVolumes (clone: a copy across
+// file systems is an answer; new: a workspace must share its blocks).
+func cloned(t Tool, from string, path string, copyAllowed bool, acrossVolumes bool) (Cloner, int) fails NotSameVolume | Unsupported | CopyRefused | Exists | Missing | NoSpace | CloneFailed {
 	let mut why = []string{}
 	for c in t.cloners {
 		c.Clone(from, path) catch {
@@ -704,6 +717,10 @@ func cloned(t Tool, from string, path string, copyAllowed bool) Cloner fails Not
 			why = why.Append("\(u.Cloner): \(u.Why)")
 			continue
 		case NotSameVolume as e:
+			if acrossVolumes {
+				why = why.Append("\(c.Name()): \(e.To) is on another file system than \(e.From)")
+				continue
+			}
 			return e
 		case Exists as e:
 			return e
@@ -714,17 +731,85 @@ func cloned(t Tool, from string, path string, copyAllowed bool) Cloner fails Not
 		case CloneFailed as e:
 			return e
 		}
-		return c
+		return (c, 0)
 	}
+	let need = (t.copier.Usage(from) catch {
+	case Unsupported, Missing, CloneFailed:
+		Usage{Total: -1, Exclusive: -1, Shared: 0}
+	}).Total
 	if !copyAllowed {
-		let bytes = t.copier.Usage(from) catch {
+		return CopyRefused{From: from, Bytes: need, Why: strings.Join(why, "; ")}
+	}
+	if need >= 0 {
+		let free = t.copier.Free(filepath.Dir(path)) catch {
 		case Unsupported, Missing, CloneFailed:
-			Usage{Total: -1, Exclusive: -1, Shared: 0}
+			-1
 		}
-		return CopyRefused{From: from, Bytes: bytes.Total, Why: strings.Join(why, "; ")}
+		if free >= 0 && need > free {
+			return NoSpace{Path: path, Need: need, Free: free}
+		}
 	}
 	try t.copier.Clone(from, path)
-	t.copier
+	(t.copier, need)
+}
+
+// CloneOptions are clone's flags: -leave-out PATH (repeatable) is an
+// entry of the source, relative to it, the clone does without.
+type CloneOptions { LeaveOut []string }
+
+// TreeCloned is clone's answer: the Cloner that made the tree, whether it
+// shares its blocks with the source, the entries the tree holds (root not
+// counted), the bytes copied (0 when shared) and the milliseconds the
+// clone took (the count after it not included).
+type TreeCloned { Cloner string, Shared bool, Entries int, BytesCopied int, Ms int }
+
+func Clone(t Tool, src string, dst string, o CloneOptions) TreeCloned fails BadConfig | Unsupported | Exists | Missing | NoSpace | CloneFailed {
+	let out = try folders(o.LeaveOut)
+	let from = if filepath.IsAbs(src) { filepath.Clean(src) } else { filepath.Join([]string{t.here, src}) }
+	let to = if filepath.IsAbs(dst) { filepath.Clean(dst) } else { filepath.Join([]string{t.here, dst}) }
+	// The parent must be there: making it would write outside dst.
+	let parent = filepath.Dir(to)
+	if !t.copier.Has(parent) {
+		return Missing{Path: parent}
+	}
+	let start = t.clock.Now()
+	let (by, copied) = cloned(t, from, to, true, true) catch {
+	case NotSameVolume as e:
+		return CloneFailed{Cloner: "copy", Reason: "\(e.To) is on another file system than \(e.From)"}
+	case CopyRefused as e:
+		return CloneFailed{Cloner: "copy", Reason: e.Why}
+	case Unsupported as e:
+		return e
+	case Exists as e:
+		return e
+	case Missing as e:
+		return e
+	case NoSpace as e:
+		return e
+	case CloneFailed as e:
+		return e
+	}
+	for folder in out {
+		let left = filepath.Join([]string{to, folder})
+		if by.Has(left) {
+			by.Discard(left) catch {
+			case Missing:
+			case CloneFailed as e:
+				by.Discard(to) catch {
+				case Missing, CloneFailed:
+				}
+				return e
+			}
+		}
+	}
+	let ms = int(time.Count(t.clock.Elapsed(start), 1ms))
+	let entries = by.Entries(to) catch {
+	case Missing as e:
+		return e
+	case CloneFailed as e:
+		return e
+	}
+	TreeCloned{Cloner: by.Name(), Shared: by.Shares(), Entries: entries, BytesCopied: copied, Ms: ms}
 }
 
 // usage is the bytes of w's tree, measured by the Cloner that made it
@@ -740,6 +825,7 @@ func usage(t Tool, w Workspace) Usage fails Unsupported | Missing | CloneFailed 
 
 func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName | NameTaken | Missing | Unkept | VcsFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let folder = if filepath.IsAbs(dir) { filepath.Clean(dir) } else { filepath.Join([]string{t.base, dir}) }
 	let name = match o.Name {
 	case Some[string] as n:
@@ -759,9 +845,15 @@ func Adopt(t Tool, dir string, o AdoptOptions) Workspace fails NoBase | BadName 
 	w
 }
 
-func Pin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked { try pinned(t, name, true) }
+func Pin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked {
+	try settled(t)
+	try pinned(t, name, true)
+}
 
-func Unpin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked { try pinned(t, name, false) }
+func Unpin(t Tool, name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked {
+	try settled(t)
+	try pinned(t, name, false)
+}
 
 // pinned sets the pin of the live workspace name under the lock, from
 // the registry as it is under the lock.
@@ -846,6 +938,7 @@ func active(w Workspace) Workspace fails Busy {
 
 func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace | Busy | Detached | NotFastForward | Moved | Unkept | VcsFailed | Locked | BadRequest {
 	try initialized(t)
+	try settled(t)
 	let w = try active(try chosen(t, o.Name))
 	let branch = try t.vcs.Branch(w.Path)
 	if branch == "" {
@@ -874,6 +967,7 @@ func Ready(t Tool, o ReadyOptions) Handed fails NoBase | NotHere | NoWorkspace |
 
 func Sync(t Tool, o SyncOptions) Synced fails NoBase | BadConfig | NotHere | NoWorkspace | Busy | Detached | Dirty | Conflicted | Unkept | VcsFailed | Locked {
 	try initialized(t)
+	try settled(t)
 	let c = try config(t)
 	let w = try active(try chosen(t, o.Name))
 	if !try t.vcs.Clean(w.Path) {

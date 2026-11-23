@@ -1,0 +1,8 @@
+{
+  "name": "ergo-site-tokens",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@pierre/highlights": "0.5.2"
+  }
+}

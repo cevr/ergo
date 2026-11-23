@@ -120,7 +120,8 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		if b.fc.frame.fallible {
 			k = "fail"
 		}
-		return append(pre, &irStmt{K: k, Pos: p, X: e})
+		ft, ftp := b.failType(x) // for failJumps (FAILJUMP-TYPED)
+		return append(pre, &irStmt{K: k, Pos: p, X: e, FailT: ft, FailTP: ftp})
 	}
 	if b.result == nil {
 		// A no-value call returned for its effect (retExpr).
@@ -155,14 +156,22 @@ func (b *irBuilder) bodyStmts(list []syntax.Stmt) []*irStmt {
 	}
 	out := b.tail(list[:n-1], false)
 	b.part(func() {
-		if es, ok := list[n-1].(*syntax.ExprStmt); ok && (b.fallibleCall(es.X) != nil || b.isFailure(es.X)) {
+		s := list[n-1]
+		if es, ok := s.(*syntax.ExprStmt); ok && (b.fallibleCall(es.X) != nil || b.isFailure(es.X)) {
+			// It returns: the frame's exit releases what the statement
+			// owns (releasesAtExit's rule for a return).
+			if b.own != nil {
+				delete(b.own.keys, s)
+			}
 			out = append(out, b.ret(es.X, b.pos(es.X, es.X.Pos()))...)
 			return
 		}
 		// A branch whose tail is an error value fails the frame there
 		// (tailTo, voidTail).
-		b.voidTail = b.failureTail(list[n-1], false)
-		out = append(out, b.stmt(list[n-1])...)
+		b.voidTail = b.failureTail(s, false)
+		// The statement's own releases (R43), as tailTo's scoped: its
+		// temporaries end with it, before the frame's exit.
+		out = append(out, b.scoped(s, b.stmt(s), b.pos(s, s.Pos()))...) // ir_own.go
 		b.voidTail = false
 	})
 	return out
@@ -229,7 +238,13 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 			// emitter's try does.
 			return b.value(x.X)
 		}
-		return b.try(call)
+		pre, v := b.try(call)
+		if v != nil {
+			// The call's value, a temporary its statement owns (R43),
+			// registers once the failure has left (ownTemp, ir_own.go).
+			v = b.ownTemp(call, v)
+		}
+		return pre, v
 	case *syntax.CatchExpr:
 		return b.catch(x, false)
 	}
@@ -273,10 +288,18 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 		}
 		return upre, v, e
 	}
+	outer := b.tupleBind
+	b.tupleBind = call
 	pre, x := b.rawCall(call)
+	b.tupleBind = outer
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
+	if tt, ok := t.(*check.Tuple); ok && x != nil && b.tupleBound == x {
+		b.tupleBound = nil
+		tpre, tv := b.tupleErrBind(x, tt, e, call, p)
+		return append(pre, tpre...), tv, e
+	}
 	if (x.K == "vcall" || b.unitPair(call)) && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
 		// A function value with no value returns struct{} first
 		// (ir_closure.go), as a generic whose result is no value does
@@ -402,6 +425,9 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		types []string
 		as    *check.Var
 		asT   string
+		// whole marks `case Row as e` of a named row: the binding is the
+		// error itself, Go's error being the row's type (namedrow.go).
+		whole bool
 		pos   irPos
 		body  []syntax.Stmt
 	}
@@ -420,11 +446,14 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 			}
 			as = append(as, p)
 			switch {
+			// A named row's arm lists its variants (namedrow.go); its
+			// binding is the error itself, as Go's error is its type.
 			case p.Kind == check.PatTypeTest:
-				ar.types = append(ar.types, b.goType(p.Type, te))
+				ar.types = append(ar.types, b.l.caseGoTypes(p.Type, func(t check.Type) string { return b.goType(t, te) })...)
 			case p.Kind == check.PatAs && len(a.Types) == 1 && len(p.Elems) == 1 && p.Elems[0].Kind == check.PatTypeTest && p.Var != nil:
 				ar.asT = b.goType(p.Elems[0].Type, te)
-				ar.types = append(ar.types, ar.asT)
+				ar.whole = b.l.namedRow(p.Elems[0].Type)
+				ar.types = append(ar.types, b.l.caseGoTypes(p.Elems[0].Type, func(t check.Type) string { return b.goType(t, te) })...)
 				ar.as = p.Var
 			default:
 				patterned = true
@@ -489,7 +518,11 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 		if a.as != nil {
 			name := b.named(a.as.Name, a.asT, a.pos)
 			b.locals[a.as] = name
-			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}})
+			val := &irExpr{K: "assert", Pos: a.pos, T: a.asT, X: &irExpr{K: "local", Pos: a.pos, I: e}}
+			if a.whole {
+				val = &irExpr{K: "local", Pos: a.pos, I: e}
+			}
+			c.Body = append(c.Body, &irStmt{K: "def", Pos: a.pos, Local: name, X: val})
 		}
 		c.Body = append(c.Body, b.armBody(x.Arms[i], result, m.Result)...)
 		sw.Cases = append(sw.Cases, c)
@@ -498,6 +531,12 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	sw.Else = []*irStmt{b.catchDefault(x, k, partial, e, sw.ElsePos)} // ir_catch_defect.go
 	if plain {
 		then = b.armBody(x.Arms[0], result, m.Result)
+	} else if !patterned && !partial && len(arms) == 1 && arms[0].whole && b.armTakesRow(arms[0].types, m.Subjects, x) {
+		// A full catch whose one arm binds the named row whole takes every
+		// failure of the call, a Go error of one of the row's variants (the
+		// checker's proof, as catchDefault's): the arm is the then, with
+		// no type switch, as hand Go's `if err != nil` (NR1 receipt).
+		then = sw.Cases[0].Body
 	} else if !patterned {
 		// A patterned catch's tree is its whole then, empty for a catch
 		// whose one arm, `case _:`, does nothing: that swallows the
@@ -626,9 +665,21 @@ func (b *irBuilder) loopPoll(s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
 		// loop's own position, Go's range-over-func rewrite also calls the
 		// adapter, and gc does not inline a call at a position already on
 		// its inlining stack (ir_seq.go).
-		return []*irStmt{b.pollAt(body, body.Rbrace)}
+		return []*irStmt{b.sited(b.pollAt(body, body.Rbrace))}
 	}
-	return []*irStmt{b.poll(s)}
+	return []*irStmt{b.sitePoll(s)}
+}
+
+// sitePoll is a poll of the innermost loop's iteration, recorded as one
+// of its sites (ir_poll.go), which amortize may rewrite.
+func (b *irBuilder) sitePoll(s syntax.Node) *irStmt { return b.sited(b.poll(s)) }
+
+// sited records the poll p as a site of the innermost loop (ir_poll.go).
+func (b *irBuilder) sited(p *irStmt) *irStmt {
+	if n := len(b.pollSites); n > 0 {
+		b.pollSites[n-1] = append(b.pollSites[n-1], p)
+	}
+	return p
 }
 
 // loopPolls reports a frame whose loops end each iteration in a poll.
@@ -641,7 +692,27 @@ func (b *irBuilder) loopPolls() bool { return b.env >= 0 && b.fc.frame.polls }
 func (b *irBuilder) continueStmt(s *syntax.BranchStmt) []*irStmt {
 	var out []*irStmt
 	if b.loopPolls() {
-		out = append(out, b.poll(s))
+		out = append(out, b.sitePoll(s))
 	}
 	return append(out, &irStmt{K: "continue", Pos: b.pos(s, s.Pos())})
+}
+
+// armTakesRow reports whether a catch arm's Go case types are exactly its
+// call's failure row, subjects (namedrow.go's caseGoTypes of each).
+func (b *irBuilder) armTakesRow(types []string, subjects []check.Type, x *syntax.CatchExpr) bool {
+	want := map[string]bool{}
+	for _, s := range subjects {
+		for _, g := range b.l.caseGoTypes(s, func(t check.Type) string { return b.goType(t, x) }) {
+			want[g] = true
+		}
+	}
+	if len(want) != len(types) {
+		return false
+	}
+	for _, g := range types {
+		if !want[g] {
+			return false
+		}
+	}
+	return true
 }

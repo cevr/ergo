@@ -52,7 +52,7 @@
     {
       "name": "ws0-gc-keeps-cut-clones", "origin": "wf10/semws WS0",
       "file": "modules/work/work/remove.ergo",
-      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") {\n",
+      "from": "\t\t\t} else if taken && strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") && !t.copier.Has(TombOf(t.home, w.Id)) {\n",
       "to": "\t\t\t} else if false {\n",
       "rule": "A crash between the reservation and the clone leaves Creating, and gc removes its record and its tree once its maker is gone: memory's ToolAgreesWithTheReference (CrashOp, GcOp), StoppedWriterIsFinished.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
@@ -324,7 +324,7 @@
     {
       "name": "wg0-new-writes-the-source", "origin": "wf10/semws WG0",
       "file": "modules/work/work/new.ergo",
-      "from": "\tlet marked = mark(t, m.Path, m.Id) catch {",
+      "from": "\tlet marked = mark(t, staging, m.Id) catch {",
       "to": "\tlet marked = mark(t, m.Parent, m.Id) catch {",
       "rule": "new writes nothing into its source: the new-carries case (the base's status).",
       "anchor": {"tests": ["examples:work"]}, "killers": ["examples:work"]
@@ -532,8 +532,8 @@
     {
       "name": "wg1-copy-under-the-lock", "origin": "wf10/semws WG1",
       "file": "modules/work/work/new.ergo",
-      "from": "\tlet by = cloned(t, m.Parent, m.Path, m.Copy) catch {\n\tcase NotSameVolume as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n",
-      "to": "\ttry hold(t)\n\tlet by = cloned(t, m.Parent, m.Path, m.Copy) catch {\n\tcase NotSameVolume as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Unsupported as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CopyRefused as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Exists as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase Missing as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase NoSpace as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\tcase CloneFailed as e:\n\t\tt.lock.Release(\"\")\n\t\ttry unreserve(t, m)\n\t\treturn e\n\t}\n\tt.lock.Release(\"\")\n",
+      "from": "\tlet (by, _) = cloned(t, m.Parent, staging, m.Copy, false) catch {",
+      "to": "\ttry hold(t)\n\tlet (by, _) = cloned(t, m.Parent, staging, m.Copy, false) catch {",
       "rule": "No clone runs under the registry's lock: NoCopyUnderTheLock.",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     },
@@ -1620,8 +1620,8 @@
     {
       "name": "m0-doctor-skips-workspaces", "origin": "wf10/semws M0",
       "file": "modules/work/work/doctor.ergo",
-      "from": "\t\tif w.State == Active {\n\t\t\troots = roots.Append(w.Path)\n",
-      "to": "\t\tif false {\n\t\t\troots = roots.Append(w.Path)\n",
+      "from": "\t\tif w.State == Active {\n\t\t\tall = all.Append(w.Path)\n",
+      "to": "\t\tif false {\n\t\t\tall = all.Append(w.Path)\n",
       "rule": "doctor checks every active workspace, not only the base (memory's DoctorSeesAnUnregisteredDriver).",
       "anchor": {"tests": ["examples:modules/work"]}
     },
@@ -1658,11 +1658,27 @@
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
-      "name": "m0-no-rerere", "origin": "wf10/semws M0",
+      "name": "hmd-drivers-turn-on-rerere", "origin": "wf10/semws HUB-MERGE-DRIVERS",
       "file": "modules/work/work/merge.ergo",
-      "from": "\tout.Append([]string{\"rerere.enabled\", \"true\"})\n",
-      "to": "\tout\n",
-      "rule": "Every registered checkout reuses a recorded resolution (memory's NewWorkspaceMergesByClass).",
+      "from": "\tout\n}\n\n// DriversKey is",
+      "to": "\tout.Append([]string{\"rerere.enabled\", \"true\"})\n}\n\n// DriversKey is",
+      "rule": "A driver fix writes the drivers and nothing else: rerere.enabled stays as the checkout's owner set it (memory's RegisterDriversLeavesRerere, NewWorkspaceMergesByClass).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "hmd-here-checks-all", "origin": "wf10/semws HUB-MERGE-DRIVERS",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tlet roots = if here { holding(all, t.here) } else { all }\n",
+      "to": "\tlet roots = if here { holding(all, t.base) } else { all }\n",
+      "rule": "doctor -here names and fixes only the checkout it runs in, never another lane's clone (memory's DoctorHereFixesOnlyItsCheckout).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "hmd-here-nowhere-silent", "origin": "wf10/semws HUB-MERGE-DRIVERS",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tif here && len(roots) == 0 {\n",
+      "to": "\tif false {\n",
+      "rule": "doctor -here run in no checkout of the base says so, never passes silently (memory's DoctorHereFixesOnlyItsCheckout).",
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
@@ -1844,8 +1860,8 @@
     {
       "name": "wcg-gc-deletes-a-creating-checkout", "origin": "wf10/semws WORK-CREATING-GUARD",
       "file": "modules/work/work/remove.ergo",
-      "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") {",
-      "to": "strings.HasPrefix(w.Path, t.home+\"/\") {",
+      "from": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(w.Path+\"/.git\") && !t.copier.Has(TombOf",
+      "to": "strings.HasPrefix(w.Path, t.home+\"/\") && !t.copier.Has(TombOf",
       "rule": "gc (bare, -idle, -id) never deletes a Creating record whose folder holds a checkout: its maker may have died after the clone, and an agent may work there (memory's ToolAgreesWithTheReference, CrashOp Cloned).",
       "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
     },
@@ -1864,6 +1880,214 @@
       "to": "let local = try LocalTrash(c, strings.TrimPrefix(setting, setting))",
       "rule": "the base's Git setting work.trash (host-local) decides rm's trash over work.toml and the default; doctor says which (memory's TheHostSettingDecidesTrash).",
       "anchor": {"tests": ["modules/work/memory:law:TheHostSettingDecidesTrash"]}, "killers": ["modules/work/memory:law:TheHostSettingDecidesTrash"]
+    },
+    {
+      "name": "wcr-repair-activates-nothing", "origin": "wf10/semws WORK-CREATING (c)",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\thead != \"\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "to": "\t\thead == \"never\"\n\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\tfalse\n\t}\n}",
+      "rule": "doctor -repair activates a record left Creating over a whole clone whose maker is gone, and names it (memory's ToolAgreesWithTheReference, CrashOp Cloned then RepairOp).",
+      "anchor": {"tests": ["modules/work/memory:law:ToolAgreesWithTheReference"]}, "killers": ["modules/work/memory:law:ToolAgreesWithTheReference"]
+    },
+    {
+      "name": "clone-copy-is-failure", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\t\tif acrossVolumes {\n",
+      "to": "\t\t\tif false && acrossVolumes {\n",
+      "rule": "work clone copies where the target is on another volume: the copy is an answer, not NotSameVolume (memory's CopyIsAnAnswer, across).",
+      "anchor": {"tests": ["modules/work/memory:law:CopyIsAnAnswer"]}, "killers": ["modules/work/memory:law:CopyIsAnAnswer"]
+    },
+    {
+      "name": "clone-nospace-unmeasured", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\t\tif free >= 0 && need > free {\n",
+      "to": "\t\tif false && free >= 0 && need > free {\n",
+      "rule": "A plain copy is measured before it writes: NoSpace names the bytes needed and free (memory's CopyIsAnAnswer).",
+      "anchor": {"tests": ["modules/work/memory:law:CopyIsAnAnswer"]}, "killers": ["modules/work/memory:law:CopyIsAnAnswer"]
+    },
+    {
+      "name": "clone-writes-dst-parent", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tif !t.copier.Has(parent) {\n",
+      "to": "\tif false && !t.copier.Has(parent) {\n",
+      "rule": "work clone into a folder that is not there is Missing with that folder and writes nothing (memory's CloneIsTheSource, noParent).",
+      "anchor": {"tests": ["modules/work/memory:law:CloneIsTheSource"]}, "killers": ["modules/work/memory:law:CloneIsTheSource"]
+    },
+    {
+      "name": "clone-ignores-leave-out", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/work/api.ergo",
+      "from": "\tfor folder in out {\n",
+      "to": "\tfor folder in out[0:0] {\n",
+      "rule": "work clone -leave-out leaves exactly those entries out (memory's CloneIsTheSource, leave).",
+      "anchor": {"tests": ["modules/work/memory:law:CloneIsTheSource"]}, "killers": ["modules/work/memory:law:CloneIsTheSource"]
+    },
+    {
+      "name": "clone-follows-links", "origin": "wf10/semws WORK-CLONE",
+      "file": "modules/work/copy/copy.ergo",
+      "from": "[]string{\"-a\", from, to}",
+      "to": "[]string{\"-aL\", from, to}",
+      "rule": "The copy Cloner copies a link that leaves the source as a link with its text, never its target (copy's CloneKeepsLinksAsLinks on the host).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-clone-in-place", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tlet staging = StagingOf(t.home, m.Id)\n\tt.copier.Placeable(",
+      "to": "\tlet staging = m.Path\n\tt.copier.Placeable(",
+      "rule": "new clones into its staging folder and places it by one rename, so a folder at a workspace's path is never half made (SchedulesKeepTheInvariants, ListShowsAStrandedReservation).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-place-copies", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tt.copier.Placeable(StagingFolder(t.home), t.home) catch {",
+      "to": "\tt.copier.Placeable(t.home, t.home) catch {",
+      "rule": "Stage refuses a staging folder on another file system than the home before any copy (PlaceNeverCopies).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-marker-holds-path", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/new.ergo",
+      "from": "\tlet marked = mark(t, staging, m.Id) catch {",
+      "to": "\tlet marked = mark(t, staging, staging) catch {",
+      "rule": "The marker is the id, path-free, so a placed clone is its record's after the rename (SchedulesKeepTheInvariants: a dead maker's placed clone is settled; ListShowsAStrandedReservation at 3).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-settle-in-gc-only", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\t\tcase Creating:\n\t\t\t\ttry settle(t, w)\n",
+      "to": "\t\t\tcase Creating:\n",
+      "rule": "Every command that takes the lock settles a dead maker's reservation, not only gc (SchedulesKeepTheInvariants' next command, ListShowsAStrandedReservation, ToolAgreesWithTheReference).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-maker-by-age", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif w.Id == \"\" || !try makerGone(t, w) {",
+      "to": "\tif w.Id == \"\" || now(t)-w.Since < 3600 {",
+      "rule": "Only the kernel's lock of a reservation says its maker is gone, never its age (SettleNeverTakesALiveMaker).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-activate-unmarked", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tif markerOf(t, w.Path) == w.Id {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
+      "to": "\t\tif true {\n\t\t\tt.registry.Put(activation(t, w, now(t))) catch {",
+      "rule": "settle activates only a placed clone that carries its id; an older work's unmarked folder keeps gc's and doctor's rules (ToolAgreesWithTheReference, CrashOp at 0).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-placed-dropped", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif t.copier.Has(w.Path) {\n\t\tif markerOf(",
+      "to": "\tif false {\n\t\tif markerOf(",
+      "rule": "settle never drops a record whose folder is at its path (ToolAgreesWithTheReference at 3, SchedulesKeepTheInvariants).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-staging-kept", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif t.copier.Has(staging) {\n\t\tt.copier.Move(staging, TombOf(",
+      "to": "\tif false && t.copier.Has(staging) {\n\t\tt.copier.Move(staging, TombOf(",
+      "rule": "A rollback renames the staging folder to its tomb, deleted before the record is dropped: no staging folder outlives its record (ListShowsAStrandedReservation, SchedulesKeepTheInvariants' owned trees, ToolAgreesWithTheReference's gone paths).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-settle-scans-active", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\t\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\t\t}\n\t\t\tcontinue",
+      "to": "\t\t\tcase Active, Landing, Landed, Abandoned, Trashed:\n\t\t\t\tlet _ = t.copier.Has(w.Path)\n\t\t\t}\n\t\t\tcontinue",
+      "rule": "settle costs nothing per record that is not a reservation (SettleCostsAtMost).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-rm-cut-redone", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tif t.copier.Has(w.Moving) {\n\t\t\tt.copier.Move(w.Moving, w.Path) catch {",
+      "to": "\t\tif false {\n\t\t\tt.copier.Move(w.Moving, w.Path) catch {",
+      "rule": "An rm stopped after its intent has its move redone by the next command that takes the lock (SchedulesKeepTheInvariants).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-gc-cut-redone", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/work/remove.ergo",
+      "from": "func DiscardOf(t Tool, w Workspace) fails Missing | CloneFailed {\n\tif !t.copier.Has(w.Path) {",
+      "to": "func DiscardOf(t Tool, w Workspace) fails Missing | CloneFailed {\n\tif !t.copier.Has(w.Path + \"/.git\") {",
+      "rule": "A gc stopped inside its deletes deletes the rest of a part-deleted folder next time, before it buries the record (SchedulesKeepTheInvariants' cut in the discards).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-place-no-sync", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/system/trees.ergo",
+      "from": "sync -- \\\"$a\\\" \\\"$b\\\"; fi",
+      "to": "true; fi",
+      "rule": "Place syncs both folders after the rename, so a power cut cannot lose it after Activate writes Active (copy's PlaceSyncsBothFolders).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ns-place-copies-across", "origin": "wf10/semws WORK-NEW-SURVIVES-TERM",
+      "file": "modules/work/system/trees.ergo",
+      "from": "mv --no-copy -T -- ",
+      "to": "mv -T -- ",
+      "rule": "Place's rename never falls back to a copy (copy's PlaceSyncsBothFolders reads the call).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-settle-deletes", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tt.copier.Move(staging, TombOf(t.home, w.Id)) catch {\n\t\tcase Missing, Exists, CloneFailed:\n\t\t}\n",
+      "to": "\t\tclonerNamed(t, w.Cloner).Discard(staging) catch {\n\t\tcase Missing, CloneFailed:\n\t\t}\n",
+      "rule": "settle renames a rolled-back staging folder to its tomb under the registry's lock and never deletes it there.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-buried-under-lock", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tclonerNamed(t, w.Cloner).Discard(tomb) catch {\n",
+      "to": "\tlet _ = t.lock.Hold(\"\") catch {\n\tcase Unkept:\n\t\tfalse\n\t}\n\tclonerNamed(t, w.Cloner).Discard(tomb) catch {\n",
+      "rule": "buried deletes a tomb with the registry's lock free.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-tomb-dropped", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\tif t.copier.Has(TombOf(t.home, w.Id)) {\n\t\tunreserved(t, w)\n\t\treturn\n\t}\n",
+      "to": "",
+      "rule": "settle keeps the record of a reservation whose tomb is still there: no tomb outlives its record.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-buried-drops-on-failure", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tunreserved(t, w)\n\t\treturn false\n\t}\n\ttrue\n}\n",
+      "to": "\t\tunreserved(t, w)\n\t}\n\ttrue\n}\n",
+      "rule": "A tomb whose delete fails keeps its record for the next command.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-gc-purges-tomb", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/remove.ergo",
+      "from": " && !t.copier.Has(w.Path+\"/.git\") && !t.copier.Has(TombOf(t.home, w.Id)) {",
+      "to": " && !t.copier.Has(w.Path+\"/.git\") {",
+      "rule": "gc leaves a reservation with a tomb to buried, which drops it only once the tomb is gone.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-rm-trashes-tomb", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif w.Id != \"\" && t.copier.Has(TombOf(t.home, w.Id)) {\n\t\t\treturn Busy{Name: name, State: StateName(w.State)}\n\t\t}\n",
+      "to": "",
+      "rule": "rm of a reservation whose tomb is not yet deleted answers Busy: the record goes with the tomb.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "rb-no-burial", "origin": "wf10/semws WORK-ROLLBACK-OUTSIDE-LOCK",
+      "file": "modules/work/work/hooks.ergo",
+      "from": "\t\tif StateName(w.State) == \"creating\" && buried(t, w) {\n",
+      "to": "\t\tif StateName(w.State) == \"creating\" && false {\n",
+      "rule": "A command that settled deletes the tombs and drops their records.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]
 }

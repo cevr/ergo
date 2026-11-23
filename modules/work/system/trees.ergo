@@ -76,7 +76,7 @@ func Failure(who string, from string, to string, stderr string, unsupported []st
 		return work.NotSameVolume{From: from, To: to}
 	}
 	if strings.Contains(lower, "no space left") {
-		return work.NoSpace{Path: to}
+		return work.NoSpace{Path: to, Need: -1, Free: -1}
 	}
 	for phrase in unsupported {
 		if strings.Contains(lower, phrase) {
@@ -151,6 +151,46 @@ func Move(t Trees, who string, from string, to string) fails work.Exists | work.
 	}
 }
 
+// PlaceableScript makes the staging folder $1 and exits 3 when its device
+// is not the device of the home $2 (dev: GNU stat -c, BSD stat -f; two
+// folders of one file system, and of one btrfs subvolume, share it).
+let PlaceableScript = "set -eu\ndev() { if [ \"$(uname)\" = Darwin ]; then stat -f %d -- \"$1\"; else stat -c %d -- \"$1\"; fi; }\nmkdir -p -- \"$1\"\n[ \"$(dev \"$1\")\" = \"$(dev \"$2\")\" ] || exit 3\n"
+
+// PlaceScript renames the tree $1 to $2, both folders' devices the same,
+// with no copy (GNU mv --no-copy refuses EXDEV even in a race), then
+// syncs both folders so the rename survives a power cut: exit 3 across
+// devices, 4 with no source, 5 with a target there.
+let PlaceScript = "set -eu\ndev() { if [ \"$(uname)\" = Darwin ]; then stat -f %d -- \"$1\"; else stat -c %d -- \"$1\"; fi; }\n[ -e \"$1\" ] || exit 4\n[ ! -e \"$2\" ] || exit 5\na=$(dirname -- \"$1\"); b=$(dirname -- \"$2\")\n[ \"$(dev \"$a\")\" = \"$(dev \"$b\")\" ] || exit 3\nif [ \"$(uname)\" = Darwin ]; then mv -n -- \"$1\" \"$2\"; sync; else mv --no-copy -T -- \"$1\" \"$2\"; sync -- \"$a\" \"$b\"; fi\n"
+
+// Placeable makes staging and checks it is on home's device (PlaceableScript).
+func Placeable(t Trees, who string, staging string, home string) fails work.NotSameVolume | work.CloneFailed {
+	let r = try Run(t, who, "sh", []string{"-c", PlaceableScript, "work-placeable", staging, home})
+	if r.Status == 3 {
+		return work.NotSameVolume{From: staging, To: home}
+	}
+	if r.Status != 0 {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	}
+}
+
+// Place renames from to to by one rename and syncs both folders
+// (PlaceScript); across devices it is NotSameVolume and nothing moves.
+func Place(t Trees, who string, from string, to string) fails work.NotSameVolume | work.Exists | work.Missing | work.CloneFailed {
+	let r = try Run(t, who, "sh", []string{"-c", PlaceScript, "work-place", from, to})
+	if r.Status == 3 || (r.Status != 0 && strings.Contains(strings.ToLower(r.Stderr), "cross-device")) {
+		return work.NotSameVolume{From: from, To: to}
+	}
+	if r.Status == 4 {
+		return work.Missing{Path: from}
+	}
+	if r.Status == 5 {
+		return work.Exists{Path: to}
+	}
+	if r.Status != 0 {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	}
+}
+
 // Discard deletes the tree at root (a btrfs subvolume too: its owner may
 // remove it as a folder).
 func Discard(t Trees, who string, root string) fails work.Missing | work.CloneFailed {
@@ -211,6 +251,46 @@ func CopyUsage(t Trees, who string, root string) work.Usage fails work.Unsupport
 	}
 	let bytes = try count(who, fields[0]) * 1024
 	work.Usage{Total: bytes, Exclusive: bytes, Shared: 0}
+}
+
+// FreeOf is the bytes free on the file system of the folder root, by
+// df -Pk (POSIX output: the fourth field of its second line, in KiB).
+func FreeOf(t Trees, who string, root string) int fails work.Unsupported | work.Missing | work.CloneFailed {
+	if !Has(t, root) {
+		return work.Missing{Path: root}
+	}
+	let r = Run(t, who, "df", []string{"-Pk", "--", root}) catch {
+	case work.CloneFailed as f:
+		return work.Unsupported{Cloner: who, Why: f.Reason}
+	}
+	if r.Status != 0 {
+		return work.Unsupported{Cloner: who, Why: FirstLine(strings.TrimSpace(r.Stderr))}
+	}
+	let lines = strings.Split(strings.TrimSpace(r.Stdout), "\n")
+	if len(lines) < 2 {
+		return work.Unsupported{Cloner: who, Why: "df printed no table"}
+	}
+	let fields = strings.Fields(lines[len(lines)-1])
+	if len(fields) < 4 {
+		return work.Unsupported{Cloner: who, Why: "df: \(lines[len(lines)-1])"}
+	}
+	try count(who, fields[3]) * 1024
+}
+
+// EntriesScript prints the number of entries under the folder $1, not
+// following a link: find never descends through one.
+let EntriesScript = "set -eu\nfind \"$1\" -mindepth 1 | wc -l\n"
+
+// EntriesOf is the number of files, folders and links under root.
+func EntriesOf(t Trees, who string, root string) int fails work.Missing | work.CloneFailed {
+	if !Has(t, root) {
+		return work.Missing{Path: root}
+	}
+	let r = try Run(t, who, "sh", []string{"-c", EntriesScript, "work-entries", root})
+	if r.Status != 0 {
+		return work.CloneFailed{Cloner: who, Reason: strings.TrimSpace(r.Stderr)}
+	}
+	try count(who, strings.TrimSpace(r.Stdout))
 }
 
 func count(who string, text string) int fails work.CloneFailed {

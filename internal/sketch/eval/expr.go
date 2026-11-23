@@ -93,12 +93,17 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 	}
 	if f.owned != nil {
 		in.register(fr, x, v, f.owned, x) // a temporary its statement owns (R43)
+		if fr.info.ReturnedTemps[x] {
+			// A new value a return gives: the frame keeps it until its
+			// exit is known and it leaves with the value (R10,
+			// v1.Returned), as a returned owned local does (handoff).
+			fr.keep(x)
+		}
 	}
 	// A variant, a sub-union's value (ConvWiden) or a row value goes into its union unchanged: the value
-	// keeps its record type; so does a function narrowed to a row value's
-	// one error type (ConvNarrow), whose row value is that type's value. A provider goes into an operation type as an
+	// keeps its record type. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
-	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvNarrow && conv.Kind != check.ConvWiden {
+	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvWiden {
 		return in.toOperation(fr, x, v, conv)
 	}
 	if convs := f.elems; len(convs) > 0 {
@@ -108,7 +113,7 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 		}
 		var out tuple
 		for i, conv := range convs {
-			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvNarrow || conv.Kind == check.ConvWiden {
+			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvWiden {
 				continue
 			}
 			if out.elems == nil {
@@ -361,7 +366,7 @@ func (in *interp) peekPath(fr *frame, x syntax.Expr, path *[]step) (Value, *slot
 				var member check.Object
 				if pn := fr.info.Uses[id].(*check.PkgName); !pn.Pkg.Host() {
 					member = in.memberOf(pn.Pkg, x.Sel.Name)
-				} else if v, ok := goVars[pn.Pkg.Path+"."+x.Sel.Name]; ok {
+				} else if v, ok := goVars()[pn.Pkg.Path+"."+x.Sel.Name]; ok {
 					// A read-only Go variable that a Go function's
 					// native reads (nativespure.go, goVars).
 					return v, nil, nil
@@ -1022,6 +1027,10 @@ func (in *interp) callOf(fr *frame, x *syntax.CallExpr, xf *facts) (Value, *abru
 		}
 		mustCharge(in, fr, int64(len(s)))
 		return c.Pattern.Match(s), nil
+	case check.CallTestSeed:
+		// The run's --seed, for a harnessed test (check harness.go).
+		mustCharge(in, fr, 1)
+		return in.budget.Seed, nil
 	case check.CallHash:
 		v, ab := in.expr(fr, x.Args[0])
 		if ab != nil {

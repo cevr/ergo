@@ -214,6 +214,10 @@ func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []strin
 func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	rw := law.TopRewrite()
 	fr := in.newFrame(law.Pkg, law.Decl)
+	in.atInt = map[*check.TypeParam]bool{}
+	for _, tp := range law.TParams {
+		in.atInt[tp] = true
+	}
 	// types are the parameters' types as the run reads them, and families
 	// the pure functions a function parameter takes (licencefuncs.go).
 	n := len(law.Params)
@@ -612,6 +616,21 @@ func classesOf(t check.Type) []licenceClass {
 					xs[i] = elem[0].value(in, fr)
 				}
 				return newSlice(xs)
+			}})
+		}
+		return out
+	case *check.Union:
+		// A union's classes are its variants (LICENCE-ADT): each is a value
+		// of that variant, drawn at full size from a stream of its own, so
+		// a recursive union's class of a node holds nodes.
+		var out []licenceClass
+		for _, v := range u.Variants {
+			name := label(v.String())
+			out = append(out, licenceClass{name: name, value: func(in *interp, fr *frame) Value {
+				r := testgen.New(in.budget.Seed, name)
+				r.Charge = func(k int64) { mustCharge(in, fr, k) }
+				r.Start(4 * licenceSizes)
+				return in.generate(fr, r, v, testplan.Depth, nil)
 			}})
 		}
 		return out

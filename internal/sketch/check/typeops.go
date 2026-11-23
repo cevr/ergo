@@ -290,8 +290,7 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //     union whose variants it all holds: ConvWiden;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
-//     Go shape, spec D5); where t's parameter is a row value of one error
-//     type and v's is that type, ConvNarrow (narrowsRowParams);
+//     Go shape, spec D5);
 //  6. a machine declaration's value into the prelude Machine instance of
 //     its state, signal and step: ConvMachine (README Gap 46). It is tried
 //     after clause 2, since neither side is an operation type, a union or
@@ -534,12 +533,8 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// Only the runner makes an entry's send (Signature.Entry).
 		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
 	}
-	var conv Conversion
 	if !c.sameShape(vs, ts) {
-		if !c.narrowsRowParams(vs, ts) {
-			return assignment{}, "the parameters or results differ"
-		}
-		conv = Conversion{Kind: ConvNarrow, From: v, To: t}
+		return assignment{}, "the parameters or results differ"
 	}
 	if c.takesEffect(vs, nil) != c.takesEffect(ts, nil) {
 		// Gap 39: a caller of t gives up exactly what t's clause names.
@@ -555,38 +550,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if vu := vs.Uses.known(c.types); !ts.Uses.unknown(c.types) && !vu.subsetOf(c.types, ts.Uses) {
 		return assignment{}, fmt.Sprintf("its capability row %s is wider than %s", rowText(vu), rowText(ts.Uses))
 	}
-	return assignment{clause: assignSignature, conv: conv}, ""
-}
-
-// narrowsRowParams reports whether a function value of v may go in where t
-// is expected because each parameter of t that is not v's is a row value of
-// exactly one error type M, and v's parameter is M (CK-FAILPARAM; types.md,
-// Assignability 5): such a row value only ever holds an M, so the value
-// narrows it and calls v (ConvNarrow). Classed[Boom] with `type Classed[E]
-// { Of func(e E) Fate }`, whose E is an error row, has Of of a row value of
-// Boom, and `func(e Boom) Fate { … }` is that field's value. Results stay
-// identical, and so do generic signatures.
-func (c *checker) narrowsRowParams(v, t *Signature) bool {
-	if len(v.TParams) > 0 || len(t.TParams) > 0 || len(v.Params) != len(t.Params) || len(v.Results) != len(t.Results) {
-		return false
-	}
-	narrowed := false
-	for i := range v.Params {
-		vp, tp := v.Params[i].Type, t.Params[i].Type
-		if c.mayBeIdentical(vp, tp) {
-			continue
-		}
-		if m := c.oneMember(tp); m == nil || !c.identical(m, vp) {
-			return false
-		}
-		narrowed = true
-	}
-	for i := range v.Results {
-		if !c.mayBeIdentical(v.Results[i], t.Results[i]) {
-			return false
-		}
-	}
-	return narrowed
+	return assignment{clause: assignSignature}, ""
 }
 
 // hasName reports a type with a name for assignability (go/types hasName):
@@ -884,7 +848,7 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 // 17; #37 for every other capability). go.Foreign has no provider value
 // (rows.md, Entry 4), so the operation's Go call needs nothing at run time
 // that the build site did not have.
-func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *bool) string {
+func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *captured) string {
 	return c.implementsAt(v, it, checkReceiver, capture, nil)
 }
 
@@ -895,8 +859,8 @@ func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool,
 // Generics 2; Interface assignability 1; MODES-4). A conversion
 // (declared nil) reads the clause's verdict: a function on mut T
 // provides its operation for a value with a place, &x.
-func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, capture *bool, declared Type) string {
-	foreign := false
+func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, capture *captured, declared Type) string {
+	var held captured
 	// A Go interface spells no mut: a function on mut T provides its
 	// operation as Go's pointer-receiver method does, by the conversion
 	// rule (interop.md, Checking).
@@ -970,10 +934,9 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		}
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			extra := gu.minus(c.types, m.Sig.Uses)
-			if capture == nil || !goForeignRow(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+			if capture == nil || !held.add(extra) {
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with #37)", v, m.Name, rowText(extra))
 			}
-			foreign = true
 		}
 		if why := c.releaseWider(v, m); why != "" {
 			return why
@@ -993,8 +956,8 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
 	}
-	if foreign {
-		*capture = true
+	if held.foreign || held.ambient != nil {
+		*capture = held
 	}
 	return ""
 }

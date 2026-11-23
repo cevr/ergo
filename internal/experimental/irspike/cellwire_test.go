@@ -37,7 +37,7 @@ func (admitAll) Admit(*check.Law, *check.Named, lower.RewriteInstance) (bool, st
 func TestIRCellWritersMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
-	writers := regexp.MustCompile(`"name":"ergoWrite[A-Za-z0-9_]*"`)
+	writers := regexp.MustCompile(`"name":"` + lower.HelperSpelling("", "ergoWrite") + `[A-Za-z0-9_]*"`)
 	for seed := first; seed < first+count; seed++ {
 		text := GenerateCellWire(uint64(seed))
 		replay := "replay: ERGO_IRSPIKE_SEED=" + itoa(seed) + " ERGO_IRSPIKE_SEEDS=1 go test -run TestIRCellWritersMatchSource ./internal/experimental/irspike"

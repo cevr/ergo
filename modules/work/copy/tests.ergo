@@ -4,7 +4,9 @@
 
 import exec
 import fs
+import strings
 
+import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
 let onHost = context needs TestAmbient {
@@ -50,5 +52,75 @@ test CloneStatusEqualsBaseStatus {
 		let base = try status("base")
 		assert base == " M a.txt\nA  s.txt\n?? new.txt\n!! ignored\n"
 		assert try status("trees/one") == base
+	}
+}
+
+// LinkScript makes src with three links that leave it: an absolute one
+// to outside/secret, a relative one that climbs out (../outside/secret)
+// and the first of a chain that goes out and back (a -> ../outside/b,
+// outside/b -> ../src/c); and src/c.
+let LinkScript = "set -eu\nmkdir -p src outside trees\nprintf 'secret\\n' > outside/secret\nprintf 'c\\n' > src/c\nln -s \"$(pwd)/outside/secret\" src/abs\nln -s ../outside/secret src/climb\nln -s ../outside/b src/a\nln -s ../src/c outside/b\n"
+
+// LinkCheck exits 0 when every link of src is a link in trees/one with
+// the same text and the files outside src are as they were.
+let LinkCheck = "set -eu\nfor l in abs climb a; do test -L \"trees/one/$l\"; test \"$(readlink \"trees/one/$l\")\" = \"$(readlink \"src/$l\")\"; done\ntest \"$(cat outside/secret)\" = secret\ntest \"$(readlink outside/b)\" = ../src/c\ntest \"$(find trees/one | wc -l)\" -eq 5\n"
+
+// CloneKeepsLinksAsLinks: a link that leaves the source (absolute,
+// climbing out, or the start of a chain out and back) is cloned as a
+// link with its text, its target never followed; the clone answers four
+// entries, the files and links under it (the copy's cp -a; cp -aL would
+// copy the targets).
+test CloneKeepsLinksAsLinks {
+	with onHost {
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", LinkScript})).Status == 0
+		try work.Cloner.Clone("src", "trees/one")
+		assert try work.Cloner.Entries("trees/one") == 4
+		let check = try exec.Runner.Run(exec.New("sh", []string{"-c", LinkCheck}))
+		assert check.Status == 0
+	}
+}
+
+// PlacedCheck exits 0 when the checkout placed at home/one is whole and
+// names no staging path: its status is the base's, its top level is its
+// own folder, it has no core.worktree, its root kept its inode through
+// the rename ($1), a build step's output is ignored there as in the base,
+// and nothing in it (its .git, objects aside) holds ".creating".
+let PlacedCheck = "set -eu\ntest \"$(git -C home/one status --porcelain=v1 --untracked-files=all --ignored)\" = \"$(git -C base status --porcelain=v1 --untracked-files=all --ignored)\"\ntest \"$(git -C home/one rev-parse --show-toplevel)\" = \"$(cd home/one && pwd -P)\"\n! git -C home/one config --local --get core.worktree\ntest \"$(stat -c %i home/one)\" = \"$1\"\nprintf 'built\\n' > home/one/ignored\ntest -z \"$(git -C home/one status --porcelain=v1 --untracked-files=all | grep -v '^ M a.txt$' | grep -v '^A  s.txt$' | grep -v '^?? new.txt$' || true)\"\n! grep -rlI --exclude-dir=objects -e .creating home/one\ntest ! -e home/.creating/id\n"
+
+// PlacedCheckoutIsWhole: a checkout staged in the home's staging folder
+// and placed by one rename is the checkout it was, at its own path: git
+// reads its status, its top level and its config from the placed folder,
+// a build step there behaves as in the base, and nothing it holds names
+// the staging folder; the rename kept the tree's root (its inode).
+test PlacedCheckoutIsWhole {
+	with onHost {
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", BaseScript})).Status == 0
+		try fs.Writes.MkdirAll("home")
+		try work.Cloner.Placeable("home/.creating", "home")
+		try work.Cloner.Clone("base", "home/.creating/id")
+		let inode = try exec.Runner.Run(exec.New("stat", []string{"-c", "%i", "home/.creating/id"}))
+		try work.Cloner.Place("home/.creating/id", "home/one")
+		let check = try exec.Runner.Run(exec.New("sh", []string{"-c", PlacedCheck, "placed-check", strings.TrimSpace(inode.Stdout)}))
+		assert check.Status == 0
+		// A second place onto a taken folder is Exists, and moves nothing.
+		try work.Cloner.Clone("base", "home/.creating/two")
+		let mut exists = false
+		work.Cloner.Place("home/.creating/two", "home/one") catch {
+		case work.Exists:
+			exists = true
+		case _:
+		}
+		assert exists && work.Cloner.Has("home/.creating/two")
+	}
+}
+
+// PlaceSyncsBothFolders: Place's script renames with no copy and then
+// syncs the two folders the rename changed (sh -x's trace of it).
+test PlaceSyncsBothFolders {
+	with onHost {
+		try fs.Writes.MkdirAll("home/.creating/id")
+		let r = try exec.Runner.Run(exec.New("sh", []string{"-x", "-c", system.PlaceScript, "work-place", "home/.creating/id", "home/one"}))
+		assert r.Status == 0
+		assert strings.Contains(r.Stderr, "+ mv --no-copy -T -- home/.creating/id home/one") && strings.Contains(r.Stderr, "+ sync -- home/.creating home")
 	}
 }

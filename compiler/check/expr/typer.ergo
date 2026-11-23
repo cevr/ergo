@@ -58,6 +58,10 @@ type CapCall { Call dense.ID[store.PNode], T dense.ID[store.TKey] }
 // At, each none when the literal infers it.
 type LitRows { At dense.ID[store.PNode], Errs Option[dense.ID[store.TKey]], Uses Option[dense.ID[store.TKey]] }
 
+// DecodeRow is a call decode[T](r) with its row, what T's wire form may
+// fail (wire.ergo; the Go checker's wireRow).
+type DecodeRow { Call dense.ID[store.PNode], Errs []dense.ID[store.TKey] }
+
 // Typer is the walk's state and result.
 type Typer {
 	Entries []Entry,
@@ -73,6 +77,11 @@ type Typer {
 	// context's function type's when closed; none for a row it infers
 	// (compiler/check/rows; the Go checker's funcLit).
 	Lits []LitRows,
+	// Decodes is each decode[T](r) whose row this typer reads: a T whose
+	// wire form reaches only the package's records, unions, refined types
+	// and by-name pairs, Go's basic types, slices, maps and tuples
+	// (compiler/check/rows).
+	Decodes []DecodeRow,
 	// Outside is the values of a record literal of an import outside the
 	// run (outsideRec), whose fields' types the typer cannot read: they
 	// are typed with no expected type.
@@ -176,7 +185,7 @@ func fusedShape(m int) bool {
 	let k = Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
 	let t = Check(&s, k)
 	let f = CheckFused(&s, k)
-	len(f.Entries) == 0 && Typed(f) == len(t.Entries) && Typed(t) == len(t.Entries) && len(f.Insts) == len(t.Insts) && len(Diags(f)) == len(Diags(t)) && Steps(f) == Steps(t)
+	len(f.Entries) == 0 && Typed(f) == len(t.Entries) && Typed(t) == len(t.Entries) && len(f.Insts) == len(t.Insts) && len(f.Diags) == len(t.Diags) && Steps(f) == Steps(t)
 }
 
 // CheckFused types every function body of k as Check does, with no Entries
@@ -200,7 +209,7 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 	for _ in lets {
 		states = states.Append(0)
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Caps: []CapCall{}, Lits: []LitRows{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Caps: []CapCall{}, Lits: []LitRows{}, Decodes: []DecodeRow{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	// An operation type's operations, by name in its laws.
 	for o in k.Ops {
 		t.file = o.File
@@ -966,8 +975,6 @@ func misfits(s mut store.Store, k Pkg, file int, x dense.ID[syntax.Node], want d
 	}
 }
 
-// Diags is the type errors the typer found, in the order it found them.
-func Diags(t Typer) []Diag { t.Diags }
 
 func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[t.file].Tree

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"ergo.local/prototype/scripts/mutants/anchor"
 )
 
 // A package's mutants are judged in bounded work (GT-BOUND: the runner ran
@@ -254,7 +256,7 @@ func (e *engine) baselines(ctx context.Context, items []item, pending []int, jr 
 			o = neverRan(o)
 			t := &covTest{ID: id, Seconds: o.seconds}
 			if o.reason != "" {
-				t.Failed, t.Detail = true, o.reason+": "+lastLines(o.tail, 20)
+				t.Failed, t.Detail = true, baseDetail(id, o)
 				e.logf("baseline: %s fails on the unmutated tree (%s): its rows are unjudged\n%s", id, o.reason, lastLines(o.tail, 8))
 			}
 			mu.Lock()
@@ -367,11 +369,11 @@ func (w *worker) locate(m *Mutant, r *Result) (*target, bool) {
 		return nil, false
 	}
 	original := string(t.original)
-	if n := strings.Count(original, m.From); n != 1 {
-		r.Status, r.Detail = Stale, fmt.Sprintf("its from occurs %d times in %s", n, m.File)
+	at, err := anchor.Locate(m.File, t.original, m.Decl, m.From)
+	if err != nil {
+		r.Status, r.Detail = Stale, err.Error()
 		return nil, false
 	}
-	at := strings.Index(original, m.From)
 	r.Line = 1 + strings.Count(original[:at], "\n")
 	t.lo, t.hi = r.Line, r.Line+strings.Count(m.From, "\n")
 	t.header = headerLine(original, at) && m.Anchor == nil
@@ -438,7 +440,7 @@ func (w *worker) judgeNamed(ctx context.Context, m *Mutant) (r Result, more bool
 	// A test that would judge the mutant and fails on the unmutated tree
 	// kills nothing, so a verdict would rest on a red baseline (FT11b).
 	if red := w.e.red(named); len(red) > 0 {
-		r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
+		r.Status, r.Detail = Unjudged, w.e.redDetail(red)
 		return r, false
 	}
 	// A test that fails because the mutated file does not compile kills
@@ -510,7 +512,7 @@ func (w *worker) judgeCovered(ctx context.Context, m *Mutant, r Result) Result {
 	}
 	if red := w.e.red(ids); len(red) > 0 {
 		if r.Killer == "" {
-			r.Status, r.Detail = Unjudged, strings.Join(red, " ")+" fails on the unmutated tree"
+			r.Status, r.Detail = Unjudged, w.e.redDetail(red)
 			return r
 		}
 		// -all after a kill: a red test only names no further killer.
@@ -670,6 +672,56 @@ func firstCompileError(detail string) string {
 		return line
 	}
 	return firstLine(detail)
+}
+
+// testError is a line a failing Go test prints: a t.Error or t.Fatal
+// line (file_test.go:12: …), a panic, or a build error; or the FAIL line
+// of a command killer (scripts/examples: "FAIL modules/work: test: …").
+var testError = regexp.MustCompile(`(?m)^\s*(\S+\.go:\d+(:\d+)?: .*|panic: .*|FAIL \S+: .*)$`)
+
+// firstError is the first error line of a failed test's output, else its
+// first line that is neither go test's bookkeeping nor a passing or
+// skipped case of a command killer ("ok …", "skip …": I22's
+// clone-follows-links named the examples runner's full-tier skip line as
+// the failure); "" when it has none.
+func firstError(out string) string {
+	if line := testError.FindString(out); line != "" {
+		return strings.TrimSpace(line)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line == "FAIL" || strings.HasPrefix(line, "=== ") || strings.HasPrefix(line, "--- FAIL") || strings.HasPrefix(line, "ok ") || strings.HasPrefix(line, "skip ") {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
+// baseDetail is the Detail of id's red run on the unmutated tree: its
+// reason, its first error line and the file that keeps its whole output
+// (keepRed), then its output's last lines.
+func baseDetail(id string, o outcome) string {
+	first := firstError(o.tail)
+	if path := keepRed(id, o); path != "" {
+		first += " (whole output: " + path + ")"
+	}
+	return o.reason + ": " + first + "\n" + lastLines(o.tail, 20)
+}
+
+// redDetail is the Detail of a row whose covering tests red fail on the
+// unmutated tree: each with its first error line.
+func (e *engine) redDetail(red []string) string {
+	var parts []string
+	for _, id := range red {
+		if t := e.info(id); t != nil {
+			if _, rest, _ := strings.Cut(t.Detail, ": "); firstError(rest) != "" {
+				id += " (" + firstError(rest) + ")"
+			}
+		}
+		parts = append(parts, id)
+	}
+	return strings.Join(parts, " ") + " fails on the unmutated tree"
 }
 
 // notRun is the reason of a test that passed without starting: no test of

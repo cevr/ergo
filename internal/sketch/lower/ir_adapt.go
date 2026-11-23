@@ -110,7 +110,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 			&irStmt{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: cp}}, Y: &irExpr{K: "local", Pos: p, I: t}})
 		env = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "local", Pos: p, I: cp}}
 	}
-	call := &irExpr{K: "vcall", Pos: p, X: fv, Args: []*irExpr{env}}
+	call := &irExpr{K: "vcall", Pos: b.litCallPos(site, e, p), X: fv, Args: []*irExpr{env}}
 	for i, sp := range sig.Params {
 		if shape.Params[i].Func != nil {
 			irNo("std call that adapts a function the body gives a function")
@@ -123,7 +123,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	}
 	results := ""
 	r, err := b.temp("r", value, p), b.temp("err", "error", p)
-	bind := &irStmt{K: "def2", Pos: p, Local: r, Val: &err, X: call}
+	bind := &irStmt{K: "def2", Pos: call.Pos, Local: r, Val: &err, X: call}
 	switch {
 	case values == 1 && fallible:
 		results = " (" + value + ", error)"
@@ -139,6 +139,32 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	}
 	lit.T = "func(" + strings.Join(params, ", ") + ")" + results
 	return pre, lit
+}
+
+// litCallPos is the position of the adapter's call of e, the operand at
+// site: for a block or a function literal the adapter calls in place, the
+// position of its last statement, as the emitter's call follows the
+// literal's text, whose closing line repeats that statement's directive
+// (adaptFunc). Go reads the adapter's frame line there, so the report
+// writes the closure around an exit action's block as part of the
+// action's frame, not a call of scope.OnExit (runtime.md, Defects 3;
+// runtime/v1 ergoStack). Any other operand is called at p.
+func (b *irBuilder) litCallPos(site syntax.Node, e *irExpr, p irPos) irPos {
+	if e.K != "func" {
+		return p
+	}
+	var body *syntax.BlockStmt
+	switch n := site.(type) {
+	case *syntax.BlockStmt:
+		body = n
+	case *syntax.FuncLit:
+		body = n.Body
+	}
+	if body == nil || len(body.List) == 0 {
+		return p
+	}
+	last := body.List[len(body.List)-1]
+	return b.pos(last, last.Pos())
 }
 
 // adaptOperands passes each operand of a std body's call that its Go

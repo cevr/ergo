@@ -16,6 +16,7 @@ import (
 
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/stage"
+	"ergo.local/prototype/internal/toolchain"
 )
 
 // The warm answer (compile-speed plan CS2; docs/spec/build.md, Warm
@@ -48,11 +49,70 @@ func WarmEnabled() bool { return os.Getenv(WarmVariable) != "full" }
 // warmSchema versions the key and the manifest.
 const warmSchema = "ergo-warm-1"
 
+// warmEnv classifies the GO*, CGO_* and ERGO_* variables the warm key
+// knows. An answer variable (true) can change what a request answers, so
+// the key holds its value; a location variable (false) only names where
+// something is kept, or how a run is scheduled or reported, so the key
+// leaves it out: a run of the budget wrappers (scripts/budget), which
+// give each run its own GOTMPDIR, finds what the last one kept. A
+// variable the table does not name is held, as an answer variable is, and
+// `ergo version` lists it (WarmUnclassified) so that it gets classified.
+// TestWarmEnvClassifiesTheScripts holds the table to every such variable
+// the repository's scripts set.
+var warmEnv = map[string]bool{
+	// Answer: the target, the Go build and the checker's switches.
+	"GOOS": true, "GOARCH": true, "GOEXPERIMENT": true, "GOFLAGS": true,
+	"GOAMD64": true, "GOARM": true, "GOARM64": true, "GO386": true,
+	"GOMIPS": true, "GOMIPS64": true, "GOPPC64": true, "GORISCV64": true, "GOWASM": true,
+	"GOROOT": true, "GOTOOLCHAIN": true, "CGO_ENABLED": true,
+	"CGO_CFLAGS": true, "CGO_CPPFLAGS": true, "CGO_CXXFLAGS": true, "CGO_LDFLAGS": true,
+	"ERGO_GO": true, "ERGO_FALLBACK": true, "ERGO_LAWCACHE": true, "ERGO_SHARED_FALLBACK": true,
+	// Location: caches, scratch, the store's own folder, reports and the
+	// run budget's scheduling.
+	"GOTMPDIR": false, "GOCACHE": false, "GOMODCACHE": false, "GOPATH": false, "GOENV": false,
+	"GOTELEMETRY": false, "GOTELEMETRYDIR": false, "GOMAXPROCS": false, "GOMEMLIMIT": false,
+	"ERGO_CACHE": false, StageReportVariable: false, WarmVariable: false, "ERGO_PARITY_LOG": false,
+	"ERGO_BUDGET": false, "ERGO_BUDGET_SCRATCH": false, "ERGO_BUDGET_CLASS": false, "ERGO_BUDGET_LANE": false,
+	"ERGO_BUDGET_GRANT": false, "ERGO_BUDGET_BIN": false, "ERGO_BUDGET_CRIT": false, "ERGO_BUDGET_QUIET": false,
+	"ERGO_GATE_CPUS": false,
+	// The IR compiler's shared root (toolchain.IRCVariable): its entries'
+	// keys hold every input of the compile, so where they are kept
+	// changes no answer.
+	toolchain.IRCVariable: false,
+}
+
+// warmEnvName is the name of an environment entry the warm key may hold:
+// a GO*, CGO_* or ERGO_* variable; "" for any other.
+func warmEnvName(kv string) string {
+	name, _, _ := strings.Cut(kv, "=")
+	if strings.HasPrefix(name, "GO") || strings.HasPrefix(name, "CGO_") || strings.HasPrefix(name, "ERGO_") {
+		return name
+	}
+	return ""
+}
+
+// WarmUnclassified are the GO*, CGO_* and ERGO_* variables of the
+// environment that warmEnv does not name, sorted: the warm key holds each
+// one.
+func WarmUnclassified() []string {
+	var out []string
+	for _, kv := range os.Environ() {
+		if name := warmEnvName(kv); name != "" {
+			if _, ok := warmEnv[name]; !ok {
+				out = append(out, name)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
 // WarmKey is the key of a request: the parts the caller names (command,
-// folder, options, toolchain), the compiler's identity and every GO*,
-// CGO_* and ERGO_* variable of the environment but ERGO_STAGE_REPORT and
-// ERGO_BUILD, and the Go experiments (goExperiments). It is "" when the compiler has no shared identity (a
-// process-scoped one keys nothing another process may trust).
+// folder, options, toolchain), the compiler's identity, every GO*, CGO_*
+// and ERGO_* variable of the environment that is not a location
+// (warmEnv), and the Go experiments (goExperiments). It is "" when the
+// compiler has no shared identity (a process-scoped one keys nothing
+// another process may trust).
 func WarmKey(parts ...string) string {
 	compiler := preparedCompilerIdentity()
 	if compiler == "" {
@@ -82,10 +142,10 @@ func warmKeyOf(compiler string, parts, environ, experiments []string) string {
 	}
 	var env []string
 	for _, kv := range environ {
-		if strings.HasPrefix(kv, StageReportVariable+"=") || strings.HasPrefix(kv, WarmVariable+"=") {
-			continue
-		}
-		if strings.HasPrefix(kv, "GO") || strings.HasPrefix(kv, "CGO_") || strings.HasPrefix(kv, "ERGO_") {
+		// An answer variable, or one warmEnv does not classify; never a
+		// location (compiler/cachekey's WarmLocations is the same list).
+		name := warmEnvName(kv)
+		if answer, known := warmEnv[name]; name != "" && (answer || !known) {
 			env = append(env, kv)
 		}
 	}

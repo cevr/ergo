@@ -2,6 +2,7 @@ package lower
 
 import (
 	"go/token"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,7 +20,8 @@ import (
 // The cost rule reads checked facts only, never a package or function
 // name (internal/residue, TestLoweringKeysOnNoStdName). A call of a
 // declared function f is inlined when
-//   - f has an Ergo body: no extern, no Close, not main;
+//   - f has an Ergo body: no extern, no Close, not main, not marked
+//     `// ergo:aswritten` (check.AsWritten: its call stays a call);
 //   - its effects allow it: no task start or Task result, no capability
 //     in its footprint (a needs row it does not use changes nothing), no
 //     frame scope (a with that owns, an exit action), no context value,
@@ -241,7 +243,7 @@ type inlineRet struct {
 // it (its index plus one, 0 for none).
 type inlineSite struct {
 	src, offset int
-	parent      int
+	key, parent string
 }
 
 // litSub is a pure literal written where an inlined body calls its
@@ -275,13 +277,26 @@ func (l *lowerer) inlineBody(f *check.Func) bool { return l.inlineWithin(f, inli
 // field call of a known record in a copy (record.go) takes inlineGrowth,
 // since the copy is written once for its record, not at each call.
 func (l *lowerer) inlineWithin(f *check.Func, budget int) bool {
+	return l.inlineDecide(f, budget, false)
+}
+
+// inlineSlotBody is inlineBody for the IR inliner, which binds a Slot row
+// at the call (INLINE-SLOT): the text path, which also lowers an IR
+// build's fallback bodies, binds only type parameters and so keeps such
+// a callee a call.
+func (l *lowerer) inlineSlotBody(f *check.Func) bool {
+	return l.inlineDecide(f, inlineBudget, irInlineSlotLowering != "off")
+}
+
+// inlineDecide is inlineWithin, slot set for the IR inliner's question.
+func (l *lowerer) inlineDecide(f *check.Func, budget int, slot bool) bool {
 	if inlineLowering == "call" || f == nil {
 		return false
 	}
 	if l.inlineOK == nil {
 		l.inlineOK = map[inlineKey]knownState{}
 	}
-	key := inlineKey{f, budget}
+	key := inlineKey{f, budget, slot}
 	switch l.inlineOK[key] {
 	case knownYes:
 		return true
@@ -289,7 +304,7 @@ func (l *lowerer) inlineWithin(f *check.Func, budget int) bool {
 		return false
 	}
 	l.inlineOK[key] = knownDeciding
-	ok := l.inlineRule(f, budget)
+	ok := l.inlineRule(f, budget, slot)
 	l.inlineOK[key] = knownNo
 	if ok {
 		l.inlineOK[key] = knownYes
@@ -301,10 +316,11 @@ func (l *lowerer) inlineWithin(f *check.Func, budget int) bool {
 type inlineKey struct {
 	f      *check.Func
 	budget int
+	slot   bool // a Slot row may be bound at the call (inlineSlotBody)
 }
 
 // inlineRule is inlineWithin's decision for an undecided f.
-func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
+func (l *lowerer) inlineRule(f *check.Func, budget int, slot bool) bool {
 	// A negative budget is the fold's (knownmatch.go): a leaf Go would
 	// inline is inlined here too.
 	fold := budget < 0
@@ -312,7 +328,18 @@ func (l *lowerer) inlineRule(f *check.Func, budget int) bool {
 		budget = -budget
 	}
 	d := f.Decl
-	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil || l.hasGoRow(f.Sig) {
+	if d == nil || d.Body == nil || d.Extern != nil || f.Pkg == nil || f.Pkg.Info == nil || f.Name == "main" || isClose(f) || nativeOf(f) != nil || l.hasHeldRow(f.Sig) {
+		return false
+	}
+	// A Slot row: only the IR's inliner binds it at the call (rowslot.go,
+	// INLINE-SLOT); the text path's copy binds only type parameters.
+	if l.hasGoRow(f.Sig) && !slot {
+		return false
+	}
+	if check.AsWritten(f) {
+		// Its call stays a call node, so the rewrite pass sees where the
+		// kept call tree starts (ir_rewrite.go, asWrittenCall); Go
+		// inlines the identity itself.
 		return false
 	}
 	info := f.Pkg.Info
@@ -894,15 +921,42 @@ func (fc *funcCtx) inlineArgs(list []syntax.Expr, call *syntax.CallExpr, addr bo
 // site0 records the identity of the inlined call x, writes its directive,
 // and returns its inline site (plus one) for the lines of its body; 0 when
 // the code fc writes has no directives.
-func (fc *funcCtx) site0(x *syntax.CallExpr, c *check.Call) int {
+func (fc *funcCtx) site0(x *syntax.CallExpr, c *check.Call) string {
 	if !fc.directives || !x.Pos().IsValid() {
 		return fc.inl
 	}
 	fc.l.recordCall(x, fc.owner, fc.callee(x, c))
 	fc.at(x)
 	src, _, _, _ := fc.l.at(x, x.Pos())
-	fc.l.inlineSites = append(fc.l.inlineSites, inlineSite{src: src, offset: int(x.Pos()), parent: fc.inl})
-	return len(fc.l.inlineSites)
+	key := fc.l.inlineKey(src, int(x.Pos()), fc.inl)
+	fc.l.addInlineSite(inlineSite{src: src, offset: int(x.Pos()), key: key, parent: fc.inl})
+	return key
+}
+
+// inlineKey is the key of the inline site of the call at offset of source
+// src inside the site parent ("" for none) (rule 7 of
+// pkgnames.go): the call's path, line and column after its parent's key,
+// a function of the site alone, so the tags of a function's lines do not
+// depend on what else the program inlines. A site a second copy of the
+// same body inlines again has the same key and one table entry.
+func (l *lowerer) inlineKey(src, offset int, parent string) string {
+	line, col := l.srcs[src].file.Position(syntax.Pos(offset))
+	key := l.srcs[src].path + "@" + strconv.Itoa(line) + "." + strconv.Itoa(col)
+	if parent != "" {
+		key = parent + ">" + key
+	}
+	return key
+}
+
+// addInlineSite adds s to the program's inline table, once per key.
+func (l *lowerer) addInlineSite(s inlineSite) {
+	if l.inlineKeys == nil {
+		l.inlineKeys = map[string]bool{}
+	}
+	if !l.inlineKeys[s.key] {
+		l.inlineKeys[s.key] = true
+		l.inlineSites = append(l.inlineSites, s)
+	}
 }
 
 // closeInline writes an inlined body: its block, then its label when a
@@ -1017,7 +1071,7 @@ func (fc *funcCtx) inlineLit(x *syntax.CallExpr, c *check.Call, sub *litSub) ope
 	if sig == nil {
 		ice(sub.lit, "a function literal with no Literals entry")
 	}
-	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, static: o.static, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
+	lc := &funcCtx{typeCtx: o.typeCtx, out: &strings.Builder{}, scope: fc.scope, locals: o.locals, witness: o.witness, static: o.static, recs: o.recs, provs: o.provs, directives: o.directives, owner: o.owner, env: o.env, plain: o.plain, inl: fc.site0(x, c), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
 	ret := &inlineRet{label: fc.temp("inl")}
 	var result check.Type
 	if len(sig.Results) == 1 {
@@ -1127,10 +1181,10 @@ func (fc *funcCtx) writeDir(d string) {
 
 // tagPath is path with the inline site tag of the code fc writes.
 func (fc *funcCtx) tagPath(path string) string {
-	if fc.inl == 0 {
+	if fc.inl == "" {
 		return path
 	}
-	return path + inlineTag + strconv.Itoa(fc.inl-1)
+	return path + inlineTag + fc.inl
 }
 
 // inlineTable is the Go declaration of the program's inline sites and the
@@ -1144,10 +1198,12 @@ func (l *lowerer) inlineTable(entryOf func(src, offset int) int) (decl, register
 	}
 	name := l.pkgName(pkgKey{"inlines", nil}, "ergoInlines")
 	var b strings.Builder
-	b.WriteString("// " + name + " lists the program's inlined calls: each one's call table\n// entry and the inlined call around it, or -1 (runtime.md, Exit causes 6).\n")
-	b.WriteString("var " + name + " = [...]struct{ Call, Parent int }{\n")
-	for _, s := range l.inlineSites {
-		b.WriteString("\t{Call: " + strconv.Itoa(entryOf(s.src, s.offset)) + ", Parent: " + strconv.Itoa(s.parent-1) + "},\n")
+	b.WriteString("// " + name + " lists the program's inlined calls: each one's tag key, call\n// table entry and the inlined call around it, or \"\" (runtime.md, Exit causes 6).\n")
+	b.WriteString("var " + name + " = [...]struct {\n\tKey    string\n\tCall   int\n\tParent string\n}{\n")
+	sites := slices.Clone(l.inlineSites)
+	slices.SortFunc(sites, func(a, b inlineSite) int { return strings.Compare(a.key, b.key) })
+	for _, s := range sites {
+		b.WriteString("\t{Key: " + strconv.Quote(s.key) + ", Call: " + strconv.Itoa(entryOf(s.src, s.offset)) + ", Parent: " + strconv.Quote(s.parent) + "},\n")
 	}
 	b.WriteString("}\n\n")
 	return b.String(), "\t" + l.rt() + ".RegisterInlines(" + name + "[:])\n"

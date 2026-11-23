@@ -144,6 +144,10 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if check.IsUnreachable(c) {
 		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
 	}
+	if check.IsInForce(c) {
+		// Written at each call, never called (ir_inforce.go).
+		return b.inForce(x, c, p)
+	}
 	// The call keeps its Ergo identity in the call table, as the Go text's
 	// identify records it (calls.go, #230): the IR's position of the call
 	// is the Go frame's line that a defect's report looks up.
@@ -157,6 +161,11 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.unreachableValue(x) // ir_defect.go
 	}
 	switch c.Kind {
+	case check.CallTestSeed:
+		// The run's --seed, for a harnessed test (check harness.go): the
+		// runtime reads it from the test binary's own arguments.
+		b.keepImport("var _ = " + b.l.rt() + ".TestSeed")
+		return nil, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSeed"}, false
 	case check.CallHash:
 		return b.hashCall(x, p) // ir_mapprovider.go
 	case check.CallLen:
@@ -335,7 +344,14 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// which name the generic function.
 			return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: irArgs}), !fd.pure
 		}
-		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: b.ownedCallName(x, f, fd.name), T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
+		name := b.ownedCallName(x, f, fd.name)
+		if fd.pure && name == fd.name && x.Trailing == nil && c.Site == nil {
+			// The function's table, as the emitter's call reads it (ir_tab.go).
+			if tpre, v := b.tabCall(x, c, irArgs, p); v != nil {
+				return append(pre, tpre...), v, false
+			}
+		}
+		return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: name, T: b.typeArgs(c, x), Args: irArgs}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
 	case check.CallOp:
 		return b.opCall(x, c, p) // ir_pkg.go
 	case check.CallConversion:

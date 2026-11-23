@@ -35,7 +35,7 @@
 // it says nothing: an untyped value is not tracked, an unknown callee lends
 // its arguments, and these forms are not walked yet: another pattern's
 // bindings (a lent subject's, a let pattern's, a queue's for-in elements,
-// a field pattern's), a field taken in place (b.r.Close()), a provider its
+// a field pattern's), a provider its
 // with's block reaches only through a callee's needs, a function literal
 // or block that may escape, and the lends a value keeps (R31). The Go
 // checker's release plan is the lowering's and is not built here.
@@ -68,8 +68,16 @@ let mHold = 3
 type loan { call int, at dense.ID[syntax.Node], name string }
 
 // slot is one value's state at a program point; at and how name its
-// hand-off (an offset in the body's file, -1 for none).
-type slot { st int, at int, how string, loans []loan }
+// hand-off (an offset in the body's file, -1 for none). taken is the
+// fields of an owned record taken in place (`b.r.Close()`, R39, Gap 38)
+// on some path, and takenAt the first such take (-1 for none):
+// ownership.go's fields|maybe and fieldAt. Its split of every path
+// from some feeds the release plan, which this part does not build;
+// each diagnostic reads the union.
+// paramFree marks a value whose type holds an own type parameter, matched
+// on every path that still holds it to a variant that holds none (the Go
+// checker's ownSlot.paramFree, GEN9-GAP42 D).
+type slot { st int, at int, how string, loans []loan, taken []string, takenAt int, paramFree bool }
 
 // state is the flow state at one program point: whether a path reaches
 // it, and one slot per tracked value in scope.
@@ -372,6 +380,28 @@ func tracked(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, t Option[
 // parameter marked own: a refusal of its value names the mark (ownSite).
 func genericOnly(w mut walker, ws store.Store, wk expr.Pkg, t dense.ID[store.TKey]) bool { !holds(ws, wk, w.res, []bool{}, t) }
 
+// holdsOwnParam is whether t holds a value of a type parameter of the
+// function marked own, directly or through a part, whatever concrete
+// resources it also holds (the Go checker's holdsOwnParam): no package
+// type counts as a resource to it.
+func holdsOwnParam(w mut walker, ws store.Store, wk expr.Pkg, t dense.ID[store.TKey]) bool { holds(ws, wk, Map[string, bool]{}, w.own, t) }
+
+// paramFreeType is whether the pattern's type name x names a type of the
+// package with no type parameters: a variant that holds no value of the
+// function's own type parameters. A generic variant counts as one that
+// may (the Go checker reads its instance; this mirror does not).
+func paramFreeType(w mut walker, wk expr.Pkg, x dense.ID[syntax.Node]) bool {
+	if syntax.KindOf(wk.Parsed[w.file].Tree, x) != syntax.KIdent {
+		return false
+	}
+	match w.infos.Get(textAt(wk.Parsed[w.file], x)) {
+	case Some{Value: info}:
+		len(info.params) == 0
+	case None:
+		false
+	}
+}
+
 // ownNames is the own-marked type parameters t mentions, each once, in
 // the order a walk of t meets them.
 func ownNames(w mut walker, ws store.Store, wk expr.Pkg, t dense.ID[store.TKey], names0 []string) []string {
@@ -397,15 +427,21 @@ func refuse(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, ty Option[
 	match ty {
 	case Some{Value: t}:
 		if genericOnly(w, ws, wk, t) {
-			let names = ownNames(w, ws, wk, t, []string{})
-			if len(names) > 0 && holds(ws, wk, w.res, w.own, t) {
-				reportAt(w, ws, wk, wt, x, "\(what), and \(strings.Join(names, ", ")) is marked own, so its value has one owner as a resource's has (types.md, Generics 9)", take)
-			}
+			ownSite(w, ws, wk, wt, t, x, what, take)
 			return
 		}
 	case None:
 	}
 	reportAt(w, ws, wk, wt, x, msg, take)
+}
+
+// ownSite reports what at x, with the own type parameters t mentions
+// named, when t may hold a resource (takes.go ownSite).
+func ownSite(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, t dense.ID[store.TKey], x dense.ID[syntax.Node], what string, take int) {
+	let names = ownNames(w, ws, wk, t, []string{})
+	if len(names) > 0 && holds(ws, wk, w.res, w.own, t) {
+		reportAt(w, ws, wk, wt, x, "\(what), and \(strings.Join(names, ", ")) is marked own, so its value has one owner as a resource's has (types.md, Generics 9)", take)
+	}
 }
 
 func trackedAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) bool { tracked(w, ws, wk, wt, typeOf(w, ws, wk, wt, un(w, ws, wk, wt, x))) }
@@ -466,7 +502,7 @@ func slotOf(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID
 
 func unreached() state { state{reached: false, slots: []slot{}} }
 
-func none() slot { slot{st: stNone, at: -1, how: "", loans: []loan{}} }
+func none() slot { slot{st: stNone, at: -1, how: "", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false} }
 
 // live reports an owned or maybe-moved slot.
 func live(s slot) bool { s.st == stOwned || s.st == stMaybe }
@@ -524,11 +560,26 @@ func join(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, sa state, sb
 			out[i] = y
 		} else if y.st == stNone {
 		} else if x.st == stOwned {
-			out[i] = slot{st: stMaybe, at: y.at, how: y.how, loans: []loan{}}
+			out[i] = slot{st: stMaybe, at: y.at, how: y.how, loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		} else if y.st == stOwned || y.st == stMaybe {
-			out[i] = slot{st: stMaybe, at: x.at, how: x.how, loans: []loan{}}
+			out[i] = slot{st: stMaybe, at: x.at, how: x.how, loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		}
 		out[i].loans = liveLoans(w, ws, wk, wt, x.loans, y.loans)
+		// The fields taken on a path where the record is still held.
+		let mut taken = []string{}
+		if live(x) {
+			taken = x.taken
+		}
+		if live(y) {
+			for f in y.taken {
+				if !slices.Contains(taken, f) {
+					taken = taken.Append(f)
+				}
+			}
+		}
+		out[i].taken = taken
+		out[i].paramFree = if live(x) && live(y) { x.paramFree && y.paramFree } else if live(x) { x.paramFree } else { live(y) && y.paramFree }
+		out[i].takenAt = if x.takenAt >= 0 { x.takenAt } else { y.takenAt }
 	}
 	state{reached: true, slots: out}
 }
@@ -541,7 +592,7 @@ func same(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, sa state, sb
 	}
 	for i, x in sa.slots {
 		let y = sb.slots[i]
-		if x.st != y.st || (exact && (x.at != y.at || x.how != y.how)) {
+		if x.st != y.st || (exact && (x.at != y.at || x.how != y.how)) || !sameSet(x.taken, y.taken) {
 			return false
 		}
 		let lx = liveLoans(w, ws, wk, wt, x.loans, []loan{})
@@ -564,7 +615,7 @@ func acquire(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l0 local)
 	l.depth = w.depth
 	w.vars = w.vars.Append(l)
 	if w.st.reached {
-		w.st.slots = w.st.slots.Append(slot{st: stOwned, at: -1, how: "", loans: []loan{}})
+		w.st.slots = w.st.slots.Append(slot{st: stOwned, at: -1, how: "", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false})
 	}
 	len(w.vars) - 1
 }
@@ -573,9 +624,11 @@ func acquire(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l0 local)
 func temp(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], ty Option[dense.ID[store.TKey]]) int { acquire(w, ws, wk, wt, local{decl: -1, name: "", lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(x), from: ""}) }
 
 // release refuses each value from slot first on that a path still owns
-// (or may) and that holds a resource only through an own type parameter:
-// a generic body does not release one yet (#197 Gap 42; the Go
-// checker's releases), last acquired first. Its owner releases a lent one.
+// (or may) and that holds a value of an own type parameter, whatever
+// concrete resources it also holds, unless a pattern matched it to a
+// variant that holds none (paramFree): a generic body does not release
+// one yet (#197 Gap 42; the Go checker's releases), last acquired first.
+// Its owner releases a lent one.
 func release(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, first int) {
 	if !w.st.reached {
 		return
@@ -586,9 +639,9 @@ func release(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, first int
 		if live(w.st.slots[i]) && !l.lent {
 			match (l.ty, dense.Unpack(l.site)) {
 			case (Some{Value: t}, Some{Value: x}):
-				if genericOnly(w, ws, wk, t) {
+				if !w.st.slots[i].paramFree && holdsOwnParam(w, ws, wk, t) {
 					let name = if l.decl >= 0 { l.name } else { "a value" }
-					refuse(w, ws, wk, wt, l.ty, x, "\(name) is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42)", "", 0)
+					ownSite(w, ws, wk, wt, t, x, "\(name) is dropped at the end of its scope, and a generic body does not release a value of its type parameter yet (#197 Gap 42)", 0)
 				}
 			case _:
 			}
@@ -627,8 +680,36 @@ func reportAt(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 	w.diags = w.diags.Append(fdiag{at: a, length: end - a, msg: msg, take: take})
 }
 
-// use checks a lend of slot i at x.
+// use checks a lend of slot i at x: of the whole value, so none of its
+// fields may be taken (R39, Gap 38).
 func use(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x dense.ID[syntax.Node]) {
+	useRoot(w, ws, wk, wt, i, x)
+	if !w.st.reached {
+		return
+	}
+	let s = w.st.slots[i]
+	if live(s) && len(s.taken) > 0 {
+		let name = w.vars[i].name
+		let p = pos(w, ws, wk, wt, s.takenAt)
+		refuse(w, ws, wk, wt, w.vars[i].ty, x, "\(name) is used whole after a field is taken at \(p)", "a field of \(name) was taken at \(p), so \(name) cannot be used whole (resources R39, Gap 38); use its other fields", 0)
+	}
+}
+
+// sameSet is whether xs and ys hold the same names.
+func sameSet(xs []string, ys []string) bool {
+	if len(xs) != len(ys) {
+		return false
+	}
+	for x in xs {
+		if !slices.Contains(ys, x) {
+			return false
+		}
+	}
+	true
+}
+
+// useRoot checks a use of slot i at x as the root of a place (x.f, x[i]).
+func useRoot(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x dense.ID[syntax.Node]) {
 	if !w.st.reached {
 		return
 	}
@@ -653,7 +734,7 @@ func move(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x den
 	let s = w.st.slots[i]
 	if s.st != stOwned {
 		// Reported by use; the first hand-off stays the one named.
-		w.st.slots[i] = slot{st: stMoved, at: s.at, how: s.how, loans: []loan{}}
+		w.st.slots[i] = slot{st: stMoved, at: s.at, how: s.how, loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		return
 	}
 	let l = w.vars[i]
@@ -672,7 +753,7 @@ func move(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, i int, x den
 		return
 	}
 	loanConflict(w, ws, wk, wt, i, h)
-	w.st.slots[i] = slot{st: stMoved, at: h.at, how: h.how, loans: w.st.slots[i].loans}
+	w.st.slots[i] = slot{st: stMoved, at: h.at, how: h.how, loans: w.st.slots[i].loans, taken: []string{}, takenAt: -1, paramFree: false}
 }
 
 // loanConflict refuses each operand lent to a call still being evaluated
@@ -890,7 +971,19 @@ func patternClauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, su
 						move(w, ws, wk, wt, si, subj, handAt(at(w, ws, wk, wt, subj), "the match pattern moves it"))
 						acquire(w, ws, wk, wt, local{decl: dense.Index(d), name: textAt(wk.Parsed[w.file], ap.Name), lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(ap.Name), from: ""})
 					}
+				case syntax.CompositeLit as cl:
+					if syntax.Len(cc.List) == 1 {
+						match dense.Unpack(cl.Type) {
+						case Some{Value: tx}:
+							narrow(w, ws, wk, wt, subj, tx, cl.Elts, true)
+						case None:
+						}
+					}
 				case _:
+					let x = syntax.Item(tr, cc.List, 0)
+					if syntax.Len(cc.List) == 1 && syntax.KindOf(tr, x) == syntax.KIdent {
+						narrow(w, ws, wk, wt, subj, x, cc.List, false)
+					}
 				}
 			}
 			block(w, ws, wk, wt, cc.Body, yield)
@@ -899,6 +992,55 @@ func patternClauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, su
 		out = join(w, ws, wk, wt, out, w.st, n)
 	}
 	w.st = out
+}
+
+// narrow is a clause's one pattern, of type name tx and, when fields, the
+// keyed fields elts, on subj, a whole local this frame owns whose type holds a value
+// of an own type parameter (GEN9-GAP42 D; ownpattern.go patternClauses):
+// a field bound by name to a tracked part moves the subject into the
+// bindings, which own their parts there; a pattern that binds none and
+// names a variant with no type parameters leaves the subject owned but
+// holding nothing of T (paramFree).
+func narrow(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, subj dense.ID[syntax.Node], tx dense.ID[syntax.Node], elts syntax.List, fields bool) {
+	let tr = wk.Parsed[w.file].Tree
+	if syntax.KindOf(tr, subj) != syntax.KIdent || !w.st.reached {
+		return
+	}
+	let si = slotOf(w, ws, wk, wt, subj)
+	if si < 0 || w.vars[si].lent || w.vars[si].depth != w.depth || !live(w.st.slots[si]) {
+		return
+	}
+	match w.vars[si].ty {
+	case Some{Value: t}:
+		if !holdsOwnParam(w, ws, wk, t) {
+			return
+		}
+	case None:
+		return
+	}
+	let mut binds = []local{}
+	let count = if fields { syntax.Len(elts) } else { 0 }
+	for j in 0..count {
+		match syntax.ViewOf(tr, syntax.Item(tr, elts, j)) {
+		case syntax.KeyValueExpr as kv:
+			if syntax.KindOf(tr, kv.Value) == syntax.KIdent && textAt(wk.Parsed[w.file], kv.Value) != "_" {
+				let d = bind.PNodeOf(wk.Ps, w.file, kv.Value)
+				let ty = defType(w, ws, wk, wt, d)
+				if tracked(w, ws, wk, wt, ty) {
+					binds = binds.Append(local{decl: dense.Index(d), name: textAt(wk.Parsed[w.file], kv.Value), lent: false, depth: 0, param: 0, ty: ty, site: dense.OptOf(kv.Value), from: ""})
+				}
+			}
+		case _:
+		}
+	}
+	if len(binds) > 0 {
+		move(w, ws, wk, wt, si, subj, handAt(at(w, ws, wk, wt, subj), "the match pattern moves it"))
+		for b in binds {
+			acquire(w, ws, wk, wt, b)
+		}
+	} else if paramFreeType(w, wk, tx) {
+		w.st.slots[si].paramFree = true
+	}
 }
 
 func clauses(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, l syntax.List, yield bool) {
@@ -1036,7 +1178,18 @@ func fieldPlace(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dens
 	if syntax.KindOf(t, root) != syntax.KIdent || slotOf(w, ws, wk, wt, root) < 0 {
 		return false
 	}
-	match typeOf(w, ws, wk, wt, root) {
+	match rootInfo(w, ws, wk, wt, root) {
+	case Some[typeInfo] as ti:
+		!ti.Value.op && len(ti.Value.variants) == 0
+	case None:
+		false
+	}
+}
+
+// rootInfo is the declaration of the type of x when it is a type of the
+// package (typeInfos).
+func rootInfo(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) Option[typeInfo] {
+	match typeOf(w, ws, wk, wt, x) {
 	case Some{Value: rt}:
 		let kind = store.KindOfType(ws, rt)
 		let name = if kind == store.KNamed {
@@ -1046,15 +1199,76 @@ func fieldPlace(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dens
 		} else {
 			""
 		}
-		match w.infos.Get(name) {
-		case Some[typeInfo] as ti:
-			!ti.Value.op && len(ti.Value.variants) == 0
-		case None:
-			false
-		}
+		w.infos.Get(name)
+	case None:
+		None
+	}
+}
+
+// takenUse refuses a use of the field x of a record local after the field
+// is taken in place on some path (ownership.go selector; R39, R20).
+func takenUse(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node]) {
+	if !w.st.reached || !fieldPlace(w, ws, wk, wt, x) {
+		return
+	}
+	let p = wk.Parsed[w.file]
+	let se = syntax.SelectorExprOf(p.Tree, x)
+	let root = un(w, ws, wk, wt, se.X)
+	let i = slotOf(w, ws, wk, wt, root)
+	let s = w.st.slots[i]
+	let f = textAt(p, se.Sel)
+	if live(s) && slices.Contains(s.taken, f) {
+		let place = "\(textAt(p, root)).\(f)"
+		refuse(w, ws, wk, wt, w.vars[i].ty, se.Sel, "\(place) is used after it is taken", "\(place) was taken in place (on this path or another) and cannot be used after that (resources R39, R20)", 0)
+	}
+}
+
+// fieldTake takes the field x of an owned record local in place, as the
+// receiver a consuming call is on (`b.r.Close()`): the field is marked,
+// and the record's release skips it (ownership.go fieldTake; R39, Gap 38).
+// It is false when x is no field of a local that holds a resource; the
+// caller then hands x off whole.
+func fieldTake(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[syntax.Node], h hand) bool {
+	if !fieldPlace(w, ws, wk, wt, x) || !trackedAt(w, ws, wk, wt, x) {
+		return false
+	}
+	let p = wk.Parsed[w.file]
+	let se = syntax.SelectorExprOf(p.Tree, x)
+	let root = un(w, ws, wk, wt, se.X)
+	let i = slotOf(w, ws, wk, wt, root)
+	useRoot(w, ws, wk, wt, i, root)
+	if !w.st.reached {
+		return true
+	}
+	let s = w.st.slots[i]
+	let l = w.vars[i]
+	let f = textAt(p, se.Sel)
+	let place = "\(l.name).\(f)"
+	let closes = match rootInfo(w, ws, wk, wt, root) {
+	case Some[typeInfo] as ti:
+		ti.Value.closer
 	case None:
 		false
 	}
+	if !live(s) {
+		return true
+	}
+	if slices.Contains(s.taken, f) {
+		refuse(w, ws, wk, wt, l.ty, se.Sel, "\(place) is taken twice", "\(place) was taken in place (on this path or another) and cannot be taken again (resources R39, R20)", 0)
+	} else if closes {
+		refuse(w, ws, wk, wt, l.ty, se.Sel, "\(l.name) has its own Close and its field is taken", "\(l.name) has its own Close, which runs before its fields are released and may read \(place), so the field cannot be taken in place (resources R3, R39); release \(l.name) whole", 0)
+	} else if l.depth != w.depth {
+		let n = nestedText(w, ws, wk, wt)
+		refuse(w, ws, wk, wt, l.ty, x, "\(n) takes \(place), which may run more than once", "\(n) cannot take \(place) (\(h.how)): \(l.name) belongs to the enclosing function, which releases it, and the block may run at another time or more than once (resources R4, R30)", 0)
+	} else if l.lent {
+		refuse(w, ws, wk, wt, l.ty, x, "\(l.name) is lent and its field is taken", "\(l.name) is lent to \(w.name), so its field \(f) cannot be taken (\(h.how)) (resources R10, R17, R39); write own before its type in the signature: \(l.name) own T", l.param)
+	} else {
+		w.st.slots[i].taken = s.taken.Append(f)
+		if s.takenAt < 0 {
+			w.st.slots[i].takenAt = at(w, ws, wk, wt, x)
+		}
+	}
+	true
 }
 
 // placeMove refuses a hand-off of a place that holds a resource
@@ -1190,7 +1404,7 @@ func assign(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, a syntax.A
 			refuse(w, ws, wk, wt, w.vars[i].ty, x, "\(n) replaces \(w.vars[i].name), which may run more than once", "\(w.vars[i].name) belongs to the enclosing function; \(n) cannot replace it (resources R4)", 0)
 			continue
 		}
-		w.st.slots[i] = slot{st: stOwned, at: -1, how: "", loans: []loan{}}
+		w.st.slots[i] = slot{st: stOwned, at: -1, how: "", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 	}
 }
 
@@ -1244,6 +1458,7 @@ func eval(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 		let mut r = h
 		r.root = true
 		lendRoot(w, ws, wk, wt, syntax.SelectorExprOf(wk.Parsed[w.file].Tree, x).X, x, mode, r)
+		takenUse(w, ws, wk, wt, x)
 	} else if kind == syntax.KIndexExpr {
 		let ix = syntax.IndexExprOf(wk.Parsed[w.file].Tree, x)
 		if mode == mMove {
@@ -1273,7 +1488,7 @@ func eval(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[s
 			if w.st.reached {
 				for i in n..len(w.st.slots) {
 					if w.st.slots[i].st == stOwned {
-						w.st.slots[i] = slot{st: stMaybe, at: at(w, ws, wk, wt, be.Y), how: "its operand did not run", loans: []loan{}}
+						w.st.slots[i] = slot{st: stMaybe, at: at(w, ws, wk, wt, be.Y), how: "its operand did not run", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 					}
 				}
 			}
@@ -1359,12 +1574,16 @@ func ident(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.ID[
 		let owned = w.st.reached && w.st.slots[i].st == stOwned
 		move(w, ws, wk, wt, i, x, handAt(at(w, ws, wk, wt, x), "it is yielded to its consumer"))
 		if owned && w.st.slots[i].st == stMoved {
-			w.st.slots[w.tl.slot] = slot{st: stOwned, at: -1, how: "", loans: []loan{}}
+			w.st.slots[w.tl.slot] = slot{st: stOwned, at: -1, how: "", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		}
 	} else if mode == mMove {
 		move(w, ws, wk, wt, i, x, h)
 	} else {
-		use(w, ws, wk, wt, i, x)
+		if h.root {
+			useRoot(w, ws, wk, wt, i, x) // the root of a field: R39 checks the field
+		} else {
+			use(w, ws, wk, wt, i, x)
+		}
 		if h.yieldRoot && w.tl.slot >= 0 && i >= w.tl.first {
 			reportAt(w, ws, wk, wt, x, "the yielded resource is rooted at \(w.vars[i].name), whose owner ends before its consumer; yield the whole owner instead of a part (resources R43)", 0)
 		}
@@ -1452,7 +1671,7 @@ func produced(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 	} else if mode == mHold {
 		let i = w.tl.slot
 		if i >= 0 && i < len(w.st.slots) {
-			w.st.slots[i] = slot{st: stOwned, at: -1, how: "", loans: []loan{}}
+			w.st.slots[i] = slot{st: stOwned, at: -1, how: "", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		}
 	}
 }
@@ -1524,7 +1743,7 @@ func yieldValue(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dens
 	} else if mode == mLend && trackedAt(w, ws, wk, wt, x) && w.st.reached {
 		t.mode = mHold
 		t.slot = temp(w, ws, wk, wt, x, typeOf(w, ws, wk, wt, x))
-		w.st.slots[t.slot] = slot{st: stMoved, at: at(w, ws, wk, wt, x), how: "no arm made it", loans: []loan{}}
+		w.st.slots[t.slot] = slot{st: stMoved, at: at(w, ws, wk, wt, x), how: "no arm made it", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		t.first = len(w.vars)
 		if h.yieldRoot {
 			t.first = saved.first
@@ -1694,11 +1913,10 @@ func knownCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense
 	let off = if ct.Recv { 1 } else { 0 }
 	if ct.Recv {
 		let r = syntax.SelectorExprOf(wk.Parsed[w.file].Tree, un(w, ws, wk, wt, c.Fun)).X
-		if len(f.Takes) > 0 && f.Takes[0] && fieldPlace(w, ws, wk, wt, un(w, ws, wk, wt, r)) {
-			// A taken field receiver is taken in place (ownership.go
-			// fieldTake, R39), which is not walked yet: it is lent.
-			eval(w, ws, wk, wt, r, mLend, noHand())
-		} else {
+		let pname = if len(f.Pnames) > 0 { f.Pnames[0] } else { "" }
+		let how = if pname == "" || f.Close { "\(name) takes it" } else { "\(name) takes \(pname)" }
+		let taken = len(f.Takes) > 0 && f.Takes[0] && fieldTake(w, ws, wk, wt, un(w, ws, wk, wt, r), handAt(at(w, ws, wk, wt, r), how))
+		if !taken {
 			operand(w, ws, wk, wt, r, f, 0, name, id)
 		}
 	}
@@ -1900,7 +2118,7 @@ func withCall(w mut walker, ws store.Store, wk expr.Pkg, wt expr.Typer, x dense.
 	} else if mode == mLend && trackedAt(w, ws, wk, wt, x) && w.st.reached {
 		t.mode = mHold
 		t.slot = temp(w, ws, wk, wt, x, typeOf(w, ws, wk, wt, x))
-		w.st.slots[t.slot] = slot{st: stMoved, at: at(w, ws, wk, wt, x), how: "no arm made it", loans: []loan{}}
+		w.st.slots[t.slot] = slot{st: stMoved, at: at(w, ws, wk, wt, x), how: "no arm made it", loans: []loan{}, taken: []string{}, takenAt: -1, paramFree: false}
 		t.first = len(w.vars)
 		if h.yieldRoot {
 			t.first = saved.first

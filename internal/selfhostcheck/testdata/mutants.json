@@ -2,6 +2,17 @@
   "about": "The mutant ledger of internal/selfhostcheck and the self-hosting pilot it tests (testdata/selfhost): edits of the Go adapter and of the Ergo tree decoder that TestSelfhostBridgeAgrees, or the adapter's TestFamiliesCoverSyntax, must kill. scripts/mutants judges only check and lower today, and the pilot is a nested Go module; until it has a suite, a unit that changes these files applies each edit by hand and runs the killer (wf10 SH0).",
   "mutants": [
     {
+      "name": "aw-selfhost-unread",
+      "origin": "wf10 lawffi OS-ROWS-LAND (AW-ERGO port)",
+      "file": "compiler/check/diag/aswritten.ergo",
+      "from": "if fd.Doc < 0 || !asWrittenLine(p, fd.Doc) || asWrittenShape(p, fd) {",
+      "to": "if true {",
+      "rule": "The self-hosted checker reports S108 for a // ergo:aswritten line above no pure identity of one parameter, as the Go checker does (aswritten-not-identity.ergo).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerCheckAgrees"
+      ]
+    },
+    {
       "name": "sh-comment-crosses-token",
       "origin": "wf10/selfhost/SH1",
       "file": "compiler/format/printer.ergo",
@@ -785,6 +796,39 @@
           "./scripts/linked"
         ]
       }
+    },
+    {
+      "name": "snap-decode-skips-segment",
+      "origin": "wf10/selfhost/S3-SNAP",
+      "file": "internal/sketch/check/snapshot/packages.go",
+      "from": "for i := 1; i < len(s.segs); i++ {",
+      "to": "for i := 2; i < len(s.segs); i++ {",
+      "rule": "The snapshot agreement compares every std package of the export: a package the decode leaves out is a listed package that no longer agrees.",
+      "killers": [
+        "internal/selfhostcheck:TestStdSnapshotAgrees"
+      ]
+    },
+    {
+      "name": "unused-draw-by-position",
+      "origin": "wf10/selfhost/AGREEMENT-CASES-STABLE",
+      "file": "internal/selfhostcheck/diag_test.go",
+      "from": "\t\tseed := h.Sum32()\n",
+      "to": "\t\tseed := uint32(len(out))\n",
+      "rule": "An unused case is keyed by its own file: a pool that loses or gains other files leaves its perturbation unchanged.",
+      "killers": [
+        "internal/selfhostcheck:TestUnusedDrawsAreKeyedByFile"
+      ]
+    },
+    {
+      "name": "source-edit-by-position",
+      "origin": "wf10/selfhost/AGREEMENT-CASES-STABLE",
+      "file": "internal/selfhostcheck/inputs_test.go",
+      "from": "edit(rand.New(rand.NewPCG(seed, key)), in.Src)",
+      "to": "edit(rand.New(rand.NewPCG(seed, uint64(len(inputs)))), in.Src)",
+      "rule": "A source's edit is keyed by its name: sources that lose or gain other members leave it unchanged.",
+      "killers": [
+        "internal/selfhostcheck:TestSourceInputsAreKeyedByName"
+      ]
     }
   ]
 }

@@ -28,7 +28,7 @@ import (
 // IRGoText is the module files with each IR body printed into the Go file
 // that declares its function, each statement at its .ergo position (a
 // /*line*/ directive), each file formatted as gofmt formats it, and
-// without the IR files. imp imports every package the IR packages import
+// without the IR files or the digest lines naming them (irUnkeyed). imp imports every package the IR packages import
 // that is not itself an IR package (an IR package is type-checked from
 // its Go source here).
 func IRGoText(files []File, imp types.Importer) ([]File, error) {
@@ -55,13 +55,19 @@ func IRGoText(files []File, imp types.Importer) ([]File, error) {
 		// The file's own name, without its directory: a relative //line
 		// filename is the file's directory's (go/scanner), as the
 		// emitter's directives are.
-		af, err := parser.ParseFile(m.fset, path.Base(f.Path), f.Data, parser.ParseComments|parser.SkipObjectResolution)
+		src := irUnkeyed(f.Data)
+		af, err := parser.ParseFile(m.fset, path.Base(f.Path), src, parser.ParseComments|parser.SkipObjectResolution)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %v", f.Path, err)
 		}
-		p.files = append(p.files, &irTextFile{index: i, src: f.Data, ast: af})
+		p.files = append(p.files, &irTextFile{index: i, src: src, ast: af})
 	}
 	out := slices.Clone(files)
+	for _, p := range m.pkgs {
+		for _, file := range p.files {
+			out[file.index].Data = file.src
+		}
+	}
 	for _, p := range m.sorted() {
 		if _, err := m.check(p); err != nil {
 			return nil, err

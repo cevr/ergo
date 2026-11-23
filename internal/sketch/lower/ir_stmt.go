@@ -273,6 +273,20 @@ func (b *irBuilder) ifValue(s *syntax.IfStmt) ([]*irStmt, *irExpr) {
 	return pre, &irExpr{K: "local", Pos: p, I: i}
 }
 
+// dropsPlain reports an IR value with no effect and no defect: a local, a
+// constant, a zero value, a package variable, a function, or the address
+// of a local. A dropped call whose value is one of these keeps only its
+// statements.
+func dropsPlain(e *irExpr) bool {
+	switch e.K {
+	case "local", "const", "zero", "global", "func":
+		return true
+	case "addr":
+		return e.X != nil && e.X.K == "local"
+	}
+	return false
+}
+
 // discard is x evaluated for its effects and dropped (the emitter's
 // discard): a call is a call statement, any other value is `_ = x`.
 func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
@@ -293,6 +307,18 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 				// A function value's call, bound and dropped (ir_closure.go),
 				// or a tried call with no value (call).
 				return pre
+			}
+			if dropsPlain(e) {
+				// A call whose IR value is no call (go.New's &n, go.Zero's
+				// zero, a tabulated read's local): its statements ran, and
+				// the value has no effect, so it is dropped, as Go has no
+				// expression statement of it (the decoder's rule).
+				return pre
+			}
+			switch e.K {
+			case "call", "mcall", "pcall", "vcall", "builtin":
+			default:
+				irNo("dropped value of the IR kind %s", e.K)
 			}
 			return append(pre, &irStmt{K: "expr", Pos: p, X: e})
 		}
@@ -383,7 +409,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		if s.Tok != syntax.ASSIGN {
 			text := s.Tok.String()
 			op = text[:len(text)-1]
-			if !irOps[op] {
+			if !irOps()[op] {
 				irNo("assignment form %s", text)
 			}
 		}
@@ -534,8 +560,10 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			st.Key, st.Val = st.Val, nil
 		}
 		loop := b.memoLoop(first, func() []*irStmt { // ir_memo.go
-			b.loopBody(st, s, s.Body)
-			return []*irStmt{st}
+			// The nest's counter goes before the loop, after the
+			// pre-header's memoized calls (ir_poll.go).
+			ctr := b.loopBody(st, s, s.Body)
+			return append(ctr, st)
 		})
 		st.Pos = past(st.Pos, pre) // ir_match.go
 		return append(pre, loop...)
@@ -546,12 +574,26 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 
 // loopBody gives st, loop s, its body, where break and continue stand,
 // then its back-edge poll in a polling frame (loopPoll, ir_fail.go), and
-// the label a break inside a switch names.
-func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) {
+// the label a break inside a switch names. A quiet loop polls amortized
+// (ir_poll.go); the outermost loop of a quiet nest returns its counter's
+// definition, which the caller puts before the loop.
+func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
+	quiet := pollAmortLowering == "amortized" && b.loopPolls() && b.quietLoop(body) // ir_poll.go
+	var own *pollAmort
+	outer := b.amort
+	if quiet && b.amort == nil {
+		own = &pollAmort{ctr: -1, pos: st.Pos}
+		b.amort = own
+	}
 	b.loops++
+	b.pollSites = append(b.pollSites, nil)
 	switches, label := b.switches, b.label
 	b.switches, b.label = 0, ""
-	defer func() { b.loops, b.switches, b.label = b.loops-1, switches, label }()
+	defer func() {
+		b.loops, b.switches, b.label = b.loops-1, switches, label
+		b.pollSites = b.pollSites[:len(b.pollSites)-1]
+		b.amort = outer
+	}()
 	st.Body = b.scoped(body, b.tail(body.List, false), b.pos(body, body.Rbrace)) // ir_own.go: the iteration's scope (R6)
 	poll := b.loopPoll(s, body)
 	// The back-edge poll follows a body that reaches its end: after a
@@ -561,6 +603,13 @@ func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) 
 		st.Body = append(st.Body, poll...)
 	}
 	st.Label = b.label
+	if quiet {
+		b.amortize(b.pollSites[len(b.pollSites)-1])
+	}
+	if own != nil && own.ctr >= 0 {
+		return []*irStmt{{K: "def", Pos: st.Pos, Local: own.ctr, X: pollEveryConst(st.Pos)}}
+	}
+	return nil
 }
 
 // bodyEnd is what follows the IR body of a function with a result whose

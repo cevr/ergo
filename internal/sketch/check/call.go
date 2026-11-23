@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"go/constant"
 	"strings"
+	"sync"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -1385,6 +1386,15 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 	if b.Name == "hash" {
 		return c.hashCall(x) // mapprovider.go
 	}
+	if b.Name == TestSeedName {
+		// The run's --seed, which only a harnessed test's rewrite calls
+		// (harness.go).
+		if len(x.Args) != 0 {
+			c.silentArgs(x)
+			return bad(x)
+		}
+		return operand{mode: modeValue, typ: Typ[Uint64]}
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)
@@ -1422,22 +1432,24 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 // removedBuiltins are Go's built-in functions that Ergo does not
 // predeclare, each with the Ergo form that replaces it (#196, fourth round,
 // item 2; spec D-D5). A use of one is S104 naming that form.
-var removedBuiltins = map[string]string{
-	"append":  "write xs.Append(x)",
-	"delete":  "write m.Delete(k)",
-	"make":    "write a literal: []T{} or Map[K, V]{}",
-	"new":     "write a literal T{…}",
-	"cap":     "a slice's capacity is not part of the language; use len",
-	"copy":    "build the slice with a for loop and xs.Append(x)",
-	"close":   "Ergo has no channels",
-	"clear":   "assign an empty literal",
-	"print":   "write Console.Println(\"…\")",
-	"println": "write Console.Println(\"…\")",
-	"min":     "write if a < b { a } else { b }",
-	"max":     "write if a > b { a } else { b }",
-	"panic":   "a failure is a value: declare it with fails and return it; for a path that cannot run, write Unreachable(\"why\")",
-	"recover": "a failure is a value: handle it with catch",
-	"complex": "Ergo has no complex built-ins",
-	"real":    "Ergo has no complex built-ins",
-	"imag":    "Ergo has no complex built-ins",
-}
+var removedBuiltins = sync.OnceValue(func() map[string]string {
+	return map[string]string{
+		"append":  "write xs.Append(x)",
+		"delete":  "write m.Delete(k)",
+		"make":    "write a literal: []T{} or Map[K, V]{}",
+		"new":     "write a literal T{…}",
+		"cap":     "a slice's capacity is not part of the language; use len",
+		"copy":    "build the slice with a for loop and xs.Append(x)",
+		"close":   "Ergo has no channels",
+		"clear":   "assign an empty literal",
+		"print":   "write Console.Println(\"…\")",
+		"println": "write Console.Println(\"…\")",
+		"min":     "write if a < b { a } else { b }",
+		"max":     "write if a > b { a } else { b }",
+		"panic":   "a failure is a value: declare it with fails and return it; for a path that cannot run, write Unreachable(\"why\")",
+		"recover": "a failure is a value: handle it with catch",
+		"complex": "Ergo has no complex built-ins",
+		"real":    "Ergo has no complex built-ins",
+		"imag":    "Ergo has no complex built-ins",
+	}
+})

@@ -49,7 +49,7 @@ func TestPureBodiesKeepTheAllowlist(t *testing.T) {
 			}
 			for _, imp := range f.Imports {
 				p, _ := strconv.Unquote(imp.Path.Value)
-				if _, guarded := PureImportHostMembers[p]; !slices.Contains(PureImports, p) && !guarded {
+				if _, guarded := PureImportHostMembers()[p]; !slices.Contains(PureImports, p) && !guarded {
 					t.Errorf("%s: pure %s, but the file imports %s", name, fn.Name.Name, p)
 				}
 			}
