@@ -2,14 +2,12 @@ package main
 
 import (
 	"fmt"
-	"go/build"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -404,12 +402,12 @@ func fastTestCount(root string, p testPackage, rows map[string]float64) (int, er
 // value is the count at that head, 2063 at ddd817a1c, with a tenth of headroom.
 const fastReachTestLimit = 2270
 
-// Over the module's tests as go test lists them: each fast-tier package's
+// Over the module's runnable tests as Go registers them: each fast-tier package's
 // shards run every test that is not large exactly once and no large one,
 // so the fast selection and the full-only set are every test (gate-fast
 // acceptance leg 4); a package that runs whole (whole.go, its step's note
-// "whole: ...") runs every test once, the large ones too. It builds every
-// test binary, so the full tier runs it.
+// "whole: ...") runs every test once, the large ones too. It reads the
+// whole checkout's declarations, so the full tier runs it.
 func TestFastTierCoversEveryListedTest(t *testing.T) {
 	root := checkoutRoot(t)
 	durations, err := readDurations(root)
@@ -417,20 +415,18 @@ func TestFastTierCoversEveryListedTest(t *testing.T) {
 		t.Fatal(err)
 	}
 	module := modulePath(root)
-	for dir, steps := range fastPackageSteps(t, root) {
-		command := exec.Command("go", "test", "-list", ".", "./"+dir)
-		command.Dir = root
-		output, err := command.Output()
-		if err != nil {
-			t.Fatalf("%s: go test -list: %v", dir, err)
-		}
+	byDir := fastPackageSteps(t, root)
+	dirs := slices.Sorted(maps.Keys(byDir))
+	listed, err := goListRunnableTests(root, dirs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checked := 0
+	for _, dir := range dirs {
+		steps := byDir[dir]
 		whole := slices.ContainsFunc(steps, func(s *Step) bool { return strings.HasPrefix(s.Note, wholeNote) })
-		listed := 0
-		for _, name := range strings.Fields(string(output)) {
-			if !strings.HasPrefix(name, "Test") && !strings.HasPrefix(name, "Fuzz") && !strings.HasPrefix(name, "Example") {
-				continue
-			}
-			listed++
+		for _, name := range listed[dir] {
+			checked++
 			runs := 0
 			for _, step := range steps {
 				if runsIn(testSelection(step.Argv), name) {
@@ -445,38 +441,11 @@ func TestFastTierCoversEveryListedTest(t *testing.T) {
 				t.Errorf("%s: %s runs in %d fast steps, want %d (whole %t)", dir, name, runs, want, whole)
 			}
 		}
-		if listed == 0 {
-			// A package whose every test file is build-constrained out
-			// here (internal/testport off Linux) lists none, as it must.
-			if defined := platformTestNames(t, filepath.Join(root, filepath.FromSlash(dir))); len(defined) > 0 {
-				t.Errorf("%s: go test -list lists no test; its test files for %s/%s define %v", dir, runtime.GOOS, runtime.GOARCH, defined)
-			}
-		}
 	}
-}
-
-// platformTestNames are the test functions (testFunction, TestMain aside)
-// of the package's test files that build for this platform (go/build's
-// default context: GOOS, GOARCH, build tags and file name suffixes).
-func platformTestNames(t *testing.T, dir string) []string {
-	t.Helper()
-	p, err := build.ImportDir(dir, 0)
-	if err != nil {
-		t.Fatalf("%s: %v", dir, err)
+	if checked == 0 {
+		t.Fatal("Go registered no runnable tests in the fast-tier packages")
 	}
-	var names []string
-	for _, file := range append(slices.Clone(p.TestGoFiles), p.XTestGoFiles...) {
-		content, err := os.ReadFile(filepath.Join(dir, file))
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, match := range testFunction.FindAllSubmatch(content, -1) {
-			if name := string(match[1]); name != "TestMain" {
-				names = append(names, name)
-			}
-		}
-	}
-	return names
+	t.Logf("one go list -test, %d packages, %d runnable names, no inventory test binaries built", len(dirs), checked)
 }
 
 // fullTierPackageHasNoFastStep: planOf gives no fast step to a package
