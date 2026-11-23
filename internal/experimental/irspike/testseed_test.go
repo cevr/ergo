@@ -41,7 +41,7 @@ test InsertKeepsOrder {
 	if err != nil {
 		t.Fatalf("IR lowering: %v\n%s", err, text)
 	}
-	if !slices.Contains(rep.IR, "ergoTestInsertKeepsOrder") {
+	if !slices.Contains(rep.IR, lower.HelperSpelling("", "ergoTestInsertKeepsOrder")) {
 		t.Fatalf("the harnessed test has no IR body; lowered: %v; fallback: %v\n%s", rep.IR, rep.Fallback, text)
 	}
 
