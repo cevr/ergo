@@ -27,6 +27,16 @@ internal/sketch/lower/json_value_test.go	It needs json, strconv and strings.
 internal/sketch/lower/ir_methodvalue.go	receiver that needs evaluating, outside a value position
 # A parameter list: the comma ends the parameter `body func() fails F needs R`.
 internal/sketch/std/ui/track.ergo	fails F needs R, at CallSite
+# LAW-UNFED's diagnostic (types.md, Laws 10): "no package of module M provides X, so no case
+# runs it"; the comma ends the clause, and "so" starts prose
+docs/spec/types.md	provides Store, so no case runs it
+internal/sketch/check/stdunfed_test.go	provides Counter, so no case runs it
+internal/sketchfront/unfedmodule_test.go	provides Shape, so no case runs it
+# CTX-ROWS-2: "a written needs row, charged at each with": a noun, then a participle clause
+docs/spec/README.md	a written needs row, charged at each with
+docs/spec/status.json	a written needs row, charged at each with
+# contextneeds.go (CTX-ROWS-2): "no with site provides it, so it is not charged there": prose
+internal/sketch/check/contextneeds.go	no with site provides it, so it is not charged there
 NORTH_STAR.md	A build needs Node, Effect
 README.md	error and needs rows, contexts
 docs/spec/rows.md	the entry that provides it, and

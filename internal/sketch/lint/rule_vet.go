@@ -19,8 +19,9 @@ import (
 // preset, so a lint run reports them only when asked, and they skip a file
 // whose header says it is generated: a whole line matching Go's
 // convention, ^// Code generated .* DO NOT EDIT\.$, before the first
-// declaration (syntax.File.Generated), which `ergo bind go` and `ergo gen` put
-// first. A program evalgen writes is never linted at all: its harness
+// declaration (syntax.File.Generated), which `ergo bind go` puts first;
+// `ergo gen` output carries no header (its folder's marker names it,
+// genmark), so these rules read it as any source. A program evalgen writes is never linted at all: its harness
 // checks and runs it, and lint is a separate, asked-for run.
 
 // selfAssignment is go vet's assign: `x = x` stores a place's own value.

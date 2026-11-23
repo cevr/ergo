@@ -97,6 +97,7 @@ func TestRunnerMatchesModel(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("no go command")
 	}
+	t.Run("suite-id", checkCanonicalKiller)
 	seeds := []uint64{1, 2}
 	if s := os.Getenv(seedVariable); s != "" {
 		n, err := strconv.ParseUint(s, 10, 64)
@@ -109,6 +110,36 @@ func TestRunnerMatchesModel(t *testing.T) {
 		t.Run(fmt.Sprint("seed", seed), func(t *testing.T) {
 			checkModel(t, seed, seed%2 == 0)
 		})
+	}
+}
+
+// checkCanonicalKiller reproduces the duplicate std suite (mut-alias-not-canonical).
+// The ledger names the old alias; discovery already knows the suite by its
+// directory. It builds Go because a fake coverage report cannot prove that
+// the unchanged test binary runs only once on the mutant.
+func checkCanonicalKiller(t *testing.T) {
+	root := t.TempDir()
+	for name, text := range map[string]string{
+		"go.mod":                      "module fake.test/m\n\ngo 1.27\n",
+		"internal/sketch/stdlib/f.go": "package stdlib\n\nfunc value() int { return 1 }\n",
+		"internal/sketch/stdlib/f_test.go": "package stdlib\n\nimport \"testing\"\n\nfunc TestValue(t *testing.T) {\n" +
+			"\tif value() != 1 { t.Fatal(\"value changed\") }\n}\n",
+		"internal/sketch/stdlib/testdata/mutants.json": `{"about":"suite identity","mutants":[{
+			"name":"value","file":"internal/sketch/stdlib/f.go","from":"return 1","to":"return 2",
+			"killers":["std:TestValue"]}]}`,
+	} {
+		writeFile(t, filepath.Join(root, name), text)
+	}
+	git(t, root, "init", "-q")
+	git(t, root, "add", ".")
+	git(t, root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fake")
+	var stdout, stderr strings.Builder
+	code := run([]string{"-root", root, "-work", t.TempDir(), "-fresh", "-resume=false", "-all",
+		filepath.Join(root, "internal/sketch/stdlib")}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), "by internal/sketch/stdlib:TestValue") ||
+		!strings.Contains(stdout.String(), "1 tests run on mutants") ||
+		strings.Contains(stdout.String(), "killer moved") {
+		t.Fatalf("alias killer and coverage must identify one test, exit %d:\n%s\n%s", code, stdout.String(), stderr.String())
 	}
 }
 

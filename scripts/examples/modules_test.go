@@ -73,6 +73,18 @@ func TestModulesLeg(t *testing.T) {
 			t.Fatalf("-full-tier: exit %d, want 1 from heavy alone\n%s", code, out)
 		}
 	})
+	t.Run("full tier beside two packages", func(t *testing.T) {
+		// Two fast packages would take one ergo test DIR/..., which runs
+		// heavy too; the default run tests each fast package alone and
+		// fails nothing (kills module-run-with-full-tier).
+		extra := map[string]string{"heavy/heavy.ergo": "func g() {}\n", "other/other.ergo": "func o() {}\n", "full-tier": "heavy\n"}
+		f := newFixture(t)
+		module(f, "func f() {}\n", extra)
+		code, out := f.run("-modules")
+		if code != 0 || !strings.Contains(out, "ok modules/hello: test hello (") || !strings.Contains(out, "ok modules/hello: test other (") {
+			t.Fatalf("exit %d, want 0 with hello and other tested alone\n%s", code, out)
+		}
+	})
 	for _, c := range []struct {
 		extra map[string]string
 		want  string

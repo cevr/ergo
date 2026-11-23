@@ -280,10 +280,8 @@ func TestScheduleAgreesWithModel(t *testing.T) {
 	}
 }
 
-// stdScheduleLawsProbe restates the schedule laws, and the tasks laws of
-// Retry and Repeat, whose runner is TestStdScheduleLawsRun, as Ergo tests
-// over the exported API: within, draw, gen and lawSchedule are the
-// packages' own helpers, restated.
+// stdScheduleLawsProbe restates schedule's laws and tasks' Retry and
+// Repeat laws as Ergo tests over the exported API.
 const stdScheduleLawsProbe = `import cron
 import schedule
 import sync
@@ -338,11 +336,28 @@ func gen(seed uint64, depth int) schedule.Schedule {
 
 type lawFailed { Run int }
 
-func lawSchedule(k int, limit int) schedule.Schedule {
+func lawSchedule(k int, limit int, timed bool) schedule.Schedule {
 	let retries = schedule.Recurs(1 + (k%6+6)%6)
-	let l = duration(int64(1+(limit%5000+5000)%5000) * 1000000)
-	schedule.Exponential(10ms, 2.0, 1s).And(retries).UpTo(l)
+	let s = schedule.Exponential(10ms, 2.0, 1s).And(retries)
+	if timed {
+		let l = duration(int64(1+(limit%500+500)%500) * 1000000)
+		return s.UpTo(l)
+	}
+	s
 }
+
+type lawClock { clock testing.VirtualClock, reads sync.Ref[int] } implements time.Clock
+
+func newLawClock() lawClock {
+	lawClock{clock: testing.NewVirtualClock(0), reads: sync.NewRef[int](0)}
+}
+
+func Now(c lawClock) time.Time {
+	c.reads.Update(func(n int) int { n + 1 })
+	c.clock.Now()
+}
+
+func Elapsed(c lawClock, start time.Time) duration { c.Now().Sub(start) }
 
 test ScheduleRecursStopsAfter(n int64, at int64) {
 	let k = int(within(n, 0, 64))
@@ -429,11 +444,12 @@ test ScheduleAndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) {
 	}
 }
 
-test TasksRetryFollowsDecide(failing int, work int, k int, limit int) {
-	let s = lawSchedule(k, limit)
-	let w = duration(int64((work%300+300)%300) * 1000000)
+test TasksRetryFollowsDecide(failing int, work int, k int, limit int, timed bool) {
+	let s = lawSchedule(k, limit, timed)
+	let w = duration(int64(1+(work%300+300)%300) * 1000000)
 	let n = (failing%10 + 10) % 10
 	let mut runs = 0
+	let mut decisions = 0
 	let mut at = 0s
 	let mut want = 0
 	for want == 0 {
@@ -442,6 +458,7 @@ test TasksRetryFollowsDecide(failing int, work int, k int, limit int) {
 		if runs > n {
 			want = runs
 		} else {
+			decisions = decisions + 1
 			match schedule.Decide(s, runs, at) {
 			case schedule.Continue as c:
 				at = at + c.After
@@ -450,10 +467,11 @@ test TasksRetryFollowsDecide(failing int, work int, k int, limit int) {
 			}
 		}
 	}
-	let c = testing.NewVirtualClock(0)
+	let p = newLawClock()
+	let c = p.clock
 	let calls = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
-		let start = time.Clock.Now()
+	let start = c.Now()
+	with context { Scheduler: c, time.Clock: p } {
 		let got = tasks.Retry(s, func() int fails lawFailed needs Scheduler {
 			Scheduler.Sleep(w)
 			let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
@@ -465,13 +483,14 @@ test TasksRetryFollowsDecide(failing int, work int, k int, limit int) {
 		case lawFailed as f:
 			0 - f.Run
 		}
-		assert got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+		let wantReads = if timed { decisions + 1 } else { 0 }
+		assert got == want && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads
 	}
 }
 
-test TasksRepeatFollowsDecide(work int, k int, limit int) {
-	let s = lawSchedule(k, limit)
-	let w = duration(int64((work%300+300)%300) * 1000000)
+test TasksRepeatFollowsDecide(work int, k int, limit int, timed bool) {
+	let s = lawSchedule(k, limit, timed)
+	let w = duration(int64(1+(work%300+300)%300) * 1000000)
 	let mut runs = 0
 	let mut at = 0s
 	let mut more = true
@@ -485,15 +504,17 @@ test TasksRepeatFollowsDecide(work int, k int, limit int) {
 			more = false
 		}
 	}
-	let c = testing.NewVirtualClock(0)
+	let p = newLawClock()
+	let c = p.clock
 	let calls = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
-		let start = time.Clock.Now()
+	let start = c.Now()
+	with context { Scheduler: c, time.Clock: p } {
 		let got = tasks.Repeat(s, func() int needs Scheduler {
 			Scheduler.Sleep(w)
 			sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
 		})
-		assert got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+		let wantReads = if timed { runs + 1 } else { 0 }
+		assert got == runs && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads
 	}
 }
 `
@@ -508,8 +529,8 @@ var stdScheduleLawStatements = map[string]string{
 	"schedule ExponentialUnderCap":   `ExponentialUnderCap(base int64, cap int64, factor int64, runs int64) { let c = duration(within(cap, 0, 1000000000000)) let s = Exponential(duration(within(base, 0, 1000000000000)), 1.0+float64(within(factor, 0, 40))/10.0, c) let r = int(within(runs, 1, 200)) match (Decide(s, r, 0s), Decide(s, r+1, 0s)) { case (Continue as x, Continue as y): x.After <= c && x.After <= y.After case _: false } }`,
 	"schedule JitterInBounds":        `JitterInBounds(seed uint64, every int64, runs int64) { let d = duration(within(every, 0, 1099511627776)) let low = float64(draw(seed, 0, 30)) / 10.0 let high = low + float64(draw(seed, 1, 30))/10.0 match Decide(Jitter(Spaced(d), low, high, seed), int(within(runs, 1, 1000)), 0s) { case Continue as c: let got = float64(int64(c.After)) got >= float64(int64(d))*low-1.0 && got <= float64(int64(d))*high+1.0 case Stop: false } }`,
 	"schedule AndIsMaxOrIsMin":       `AndIsMaxOrIsMin(a uint64, b uint64, runs int64, at int64) { let x = gen(a, 2) let y = gen(b, 2) let r = int(within(runs, 1, 20)) let e = duration(within(at, 0, 20000000000)) let both = Decide(And(x, y), r, e) let either = Decide(Or(x, y), r, e) match (Decide(x, r, e), Decide(y, r, e)) { case (Continue as p, Continue as q): let long = if p.After >= q.After { p.After } else { q.After } let short = if p.After <= q.After { p.After } else { q.After } both == Continue{After: long} && either == Continue{After: short} case (Continue as p, Stop): both == Stop && either == p case (Stop, Continue as q): both == Stop && either == q case (Stop, Stop): both == Stop && either == Stop } }`,
-	"tasks RetryFollowsDecide":       `RetryFollowsDecide(failing int, work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let n = (failing%10 + 10) % 10 let mut runs = 0 let mut at = 0s let mut want = 0 for want == 0 { runs = runs + 1 at = at + w if runs > n { want = runs } else { match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: want = 0 - runs } } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Retry(s, func() int fails lawFailed needs Scheduler { Scheduler.Sleep(w) let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) if i <= n { return lawFailed{Run: i} } i }) catch { case lawFailed as f: 0 - f.Run } got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
-	"tasks RepeatFollowsDecide":      `RepeatFollowsDecide(work int, k int, limit int) { let s = lawSchedule(k, limit) let w = duration(int64((work%300+300)%300) * 1000000) let mut runs = 0 let mut at = 0s let mut more = true for more { runs = runs + 1 at = at + w match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: more = false } } let c = testing.NewVirtualClock(0) let calls = sync.NewRef[int](0) with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let got = Repeat(s, func() int needs Scheduler { Scheduler.Sleep(w) sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) }) got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at } }`,
+	"tasks RetryFollowsDecide":       `RetryFollowsDecide(failing int, work int, k int, limit int, timed bool) { let s = lawSchedule(k, limit, timed) let w = duration(int64(1+(work%300+300)%300) * 1000000) let n = (failing%10 + 10) % 10 let mut runs = 0 let mut decisions = 0 let mut at = 0s let mut want = 0 for want == 0 { runs = runs + 1 at = at + w if runs > n { want = runs } else { decisions = decisions + 1 match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: want = 0 - runs } } } let p = newLawClock() let c = p.clock let calls = sync.NewRef[int](0) let start = c.Now() with context { Scheduler: c, time.Clock: p } { let got = Retry(s, func() int fails lawFailed needs Scheduler { Scheduler.Sleep(w) let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) if i <= n { return lawFailed{Run: i} } i }) catch { case lawFailed as f: 0 - f.Run } let wantReads = if timed { decisions + 1 } else { 0 } got == want && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads } }`,
+	"tasks RepeatFollowsDecide":      `RepeatFollowsDecide(work int, k int, limit int, timed bool) { let s = lawSchedule(k, limit, timed) let w = duration(int64(1+(work%300+300)%300) * 1000000) let mut runs = 0 let mut at = 0s let mut more = true for more { runs = runs + 1 at = at + w match schedule.Decide(s, runs, at) { case schedule.Continue as c: at = at + c.After case schedule.Stop: more = false } } let p = newLawClock() let c = p.clock let calls = sync.NewRef[int](0) let start = c.Now() with context { Scheduler: c, time.Clock: p } { let got = Repeat(s, func() int needs Scheduler { Scheduler.Sleep(w) sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) }) }) let wantReads = if timed { runs + 1 } else { 0 } got == runs && calls.Get() == runs && c.Elapsed(start) == at && p.reads.Get() == wantReads } }`,
 }
 
 // TestStdScheduleLawsRun runs the probe's tests with --seed 1;

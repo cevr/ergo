@@ -144,7 +144,7 @@ func TestPortProvenanceIsChecked(t *testing.T) {
 				tests += "src/story.test.ts: two -> not restated: a reason\n"
 			}
 			writeFile(t, filepath.Join(ports, "tests.txt"), tests)
-			_, problems := loadExamples(root, false)
+			_, problems, _ := loadExamples(root, false, &findings{})
 			if missing := has(problems, "no line for src/story.test.ts: two"); missing == complete {
 				t.Errorf("%s, complete %v: want the missing title named exactly when it is missing; %q", name, complete, problems)
 			}
@@ -157,7 +157,7 @@ func TestPortProvenanceIsChecked(t *testing.T) {
 			with := maps.Clone(files)
 			with[form] = "an original\n"
 			program(t, root, name, with)
-			if _, problems := loadExamples(root, false); !has(problems, "never in the example") {
+			if _, problems, _ := loadExamples(root, false, &findings{}); !has(problems, "never in the example") {
 				t.Errorf("%s with %s: want the origin refused; %q", name, form, problems)
 			}
 		}
@@ -165,7 +165,7 @@ func TestPortProvenanceIsChecked(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "examples", "README.md"), "# examples\n")
 	writeFile(t, filepath.Join(root, "conformance", "upstream", "up", "ports", "gone", "README.md"), "# origin\n")
-	if _, problems := loadExamples(root, false); !has(problems, "no program examples/gone") {
+	if _, problems, _ := loadExamples(root, false, &findings{}); !has(problems, "no program examples/gone") {
 		t.Errorf("a provenance with no program: want it named; %q", problems)
 	}
 }

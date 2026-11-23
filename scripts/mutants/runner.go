@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/proclimit"
+	"ergo.local/prototype/scripts/mutants/suitename"
 )
 
 // Config is what the runner knows of a module: the packages whose blocks
@@ -1043,9 +1044,7 @@ func (e *engine) argv(s *Suite, root, bin, test string, deadline time.Duration) 
 // after the test, past a space ("TestX (ERGO_CLOSURE_SWEEP=cmd/ergo)"), is
 // for the reader and is not part of the test's name.
 func splitID(id string) (string, string) {
-	suite, name, _ := strings.Cut(id, ":")
-	name, _, _ = strings.Cut(name, " ")
-	return suite, name
+	return suitename.Split(id)
 }
 
 // killerIDs are a mutant's named killers and anchor tests as the runner
@@ -1084,6 +1083,14 @@ func (e *engine) prepareCoverage(ctx context.Context) error {
 	}
 	if e.cfg.Coverage == "" && c.Key != e.key {
 		return fmt.Errorf("%s: measured on tree %s, not %s", path, c.Key, e.key)
+	}
+	if e.cfg.Coverage != "" {
+		for _, t := range c.Tests {
+			suite, _ := splitID(t.ID)
+			if dir := suitename.LegacyTarget(suite); dir != "" && e.suite(suite) == nil {
+				return fmt.Errorf("%s: coverage uses legacy suite %q; measure it again for %q", path, suite, dir)
+			}
+		}
 	}
 	e.logf("coverage: %s (%d tests)", path, len(c.Tests))
 	e.cov = c

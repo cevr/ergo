@@ -1,6 +1,7 @@
 package check
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -359,6 +360,11 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 			}
 			return ""
 		case *Signature:
+			if NoopFunc(u) {
+				// func() with no rows has one behaviour, to return: its
+				// generator is that function (LAW-GEN-FUNC).
+				return ""
+			}
 			return t.String() + " is a function type"
 		case *Pointer:
 			return t.String() + " is a borrow"
@@ -403,8 +409,21 @@ func (c *checker) ungeneratableFrom(t Type, from *Package) string {
 			return n.String() + " has no finite value: each of its values holds another"
 		}
 	}
+	for _, n := range order {
+		if k := c.tests.ranks.Rank(n, builder); k > GenRankLimit {
+			// Its least value is deeper than a generator draws (eval's
+			// generator bound), so a case could not end.
+			return fmt.Sprintf("%s has no value a generator reaches: its least value is %d levels deep, past %d", n, k, GenRankLimit)
+		}
+	}
 	return ""
 }
+
+// GenRankLimit is the deepest least value a generated type may have: the
+// checker refuses a property parameter or provider whose type ranks past
+// it (ValueRanks), so eval's generator, which steps to a lower rank at
+// each level past the plan's depth, never draws deeper.
+const GenRankLimit = 1024
 
 // builderName is b's function as a diagnostic about n names it: with n's
 // own qualifier when n's package declares it, so llm's text says

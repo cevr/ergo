@@ -61,6 +61,8 @@ func Args(e FakeEnv) []string { e.Argv }
 
 func Getenv(e FakeEnv, key string) Option[string] { e.Vars.Get(key) }
 
+func Environ(e FakeEnv) Map[string, string] { e.Vars }
+
 func Getwd(e FakeEnv) string fails os.NoWorkdir { e.Dir }
 
 func show(v Option[string]) string {
@@ -102,6 +104,8 @@ func Args(e FakeEnv) []string { e.Argv }
 func Getenv(_ FakeEnv, key string) Option[string] { Some[string]{Value: "fake"} }
 
 func Getwd(_ FakeEnv) string fails os.NoWorkdir { "/fake" }
+
+func Environ(_ FakeEnv) Map[string, string] { Map[string, string]{} }
 
 func show(p os.Process) string {
 	match p.Getenv("ERGO_G2_K") {

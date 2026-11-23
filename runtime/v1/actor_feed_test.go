@@ -155,6 +155,10 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 			}
 		}
 	}
+	// An end action (rule 14b): it runs once, before the end returns,
+	// unless the actor's end took its actions before it was added.
+	var endRuns atomic.Int64
+	endAdded := ActorOnEnd(a, func(*rt.Task) { endRuns.Add(1) }) == nil
 	limit := testDeadline(t)
 	for i, f := range states {
 		select {
@@ -179,7 +183,16 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 			_ = a.Stop(rt.Root("stop"))
 		}
 	}()
-	// The end returned: no source may run now (rule 14).
+	// The end returned: Ended says so, and no source may run now (rule 14).
+	if !ActorEnded(a) {
+		return "the end returned, and Ended is false"
+	}
+	if want := map[bool]int64{true: 1, false: 0}[endAdded]; endRuns.Load() != want {
+		return fmt.Sprintf("the end action ran %d times, want %d", endRuns.Load(), want)
+	}
+	if ActorOnEnd(a, func(*rt.Task) { endRuns.Add(1) }) == nil {
+		return "an OnEnd after the end was taken"
+	}
 	if n := running.Load(); n != 0 {
 		return fmt.Sprintf("%d sources still run after the actor's end", n)
 	}

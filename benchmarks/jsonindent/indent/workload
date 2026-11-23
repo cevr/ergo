@@ -1,0 +1,6 @@
+# Indent the same JSON document N times. Only the last result is hashed.
+# The Go control indents the same text and produces the same owned string.
+unit document
+sizes 20000 120000
+args bench {n}
+control benchmarks/jsonindent/testdata/control
