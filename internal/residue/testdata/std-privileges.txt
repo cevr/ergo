@@ -661,12 +661,16 @@ debt	internal/sketchfront/inspect.go:ergoBody	mark	"Std()"	inspect skips std	NP5
 debt	internal/sketchfront/inspect.go:reachWalker.operation	mark	"Host()"	reachWalker.operation: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketchfront/inspect.go:reachWalker.reaches	flag	"ergoBody"	reachWalker.reaches: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketchfront/inspect.go:reachWalker.reaches	mark	"Host()"	reachWalker.reaches: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+seam	internal/sketchfront/load.go:StdTestPlan	mark	"stdlib.Packages"	lists the shipped package roots for the native and in-place test plan	-
 seam	internal/sketchfront/load.go:isStdPath	mark	"stdlib.Package"	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
 seam	internal/sketchfront/load.go:isStdPath	mark	"stdlib.PreludePath"	a std path names std: the loader reads no module package for it (no shadowing, C30)	-
 debt	internal/sketchfront/load.go:loader.read	flag	"isStdPath"	loader.read: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketchfront/load.go:modulePathProblem	mark	"stdlib.Package"	a module path may not take a std package's name	-
 seam	internal/sketchfront/load.go:modulePathProblem	mark	"stdlib.PreludePath"	a module path may not take a std package's name	-
 seam	internal/sketchfront/load.go:shippedImport	mark	"stdlib.Package"	std paths resolve to the embedded std first	-
+seam	internal/sketchfront/load.go:shippedNativeOnly	mark	"stdlib.PreludePath"	names the shipped root that has no importable evaluator directory	-
+seam	internal/sketchfront/load.go:stdTestSource	mark	"stdlib.Package"	locates the embedded text for the selected test root	-
+seam	internal/sketchfront/load.go:stdTestSource	mark	"stdlib.Prelude"	locates the embedded text for the unimportable root	-
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	mark	"stdlib.Package"	std's ledger is written by a std-only path	NP5
 debt	internal/sketchfront/rewrite.go:FreshStdLedger	mark	"stdlib.Packages"	std's ledger is written by a std-only path	NP5
 seam	internal/sketchfront/sketchfront.go:stdDependencies	mark	"stdlib.Package"	the digest of std's sources in the build key	-

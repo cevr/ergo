@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/sketch/testplan"
 )
 
 // TestStdTargetIsTestOnly: `ergo test std:PKG` names a std package, not a
@@ -59,8 +60,24 @@ func TestStdNativeSkipNeedsItsRecordedReason(t *testing.T) {
 	rows := map[string]stdlib.TestRed{
 		"prelude Contract.Law": {Class: stdlib.NativeSkipClass, Why: recorded},
 	}
-	got := unlistedStdSkips([]byte(recorded+"\n"+different), stdlib.PreludePath, rows)
+	got := unlistedStdSkips([]byte(recorded+"\n"+different), testplan.NativeRoot{Path: stdlib.PreludePath, Required: true}, rows)
 	if len(got) != 1 || got[0] != different {
 		t.Fatalf("want only the changed reason to fail, got %q", got)
+	}
+}
+
+// TestNativeRootSkipsFollowPlan catches required-native-skips-by-path:
+// the completeness of the run, not its package's name, decides whether
+// an unmatched provider is an unlisted skip.
+func TestNativeRootSkipsFollowPlan(t *testing.T) {
+	const note = "law Contract.Law runs where Contract has a provider: none is in this package or its imports"
+	for _, root := range []testplan.NativeRoot{
+		{Path: "fixture/contracts", Required: true},
+		{Path: stdlib.PreludePath},
+	} {
+		err := stdSkipsExit([]byte(note), root)
+		if (err != nil) != root.Required {
+			t.Errorf("%+v: %v, want unlisted skip only for the required root", root, err)
+		}
 	}
 }
