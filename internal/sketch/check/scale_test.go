@@ -28,7 +28,7 @@ import (
 // time exponents up to 1.70 at these sizes, so a bare time bound loose
 // enough not to flake would catch nothing the bytes miss. No active shape
 // asserts time: the one shape with a control (long names) is skipped for
-// #234, so a time-only quadratic is caught only where a control exists, and
+// Capability hashing per context, so a time-only quadratic is caught only where a control exists, and
 // today no active shape has one.
 //
 // Every shape comes from a review finding of run wf10 about memory or
@@ -180,10 +180,8 @@ type scaleShape struct {
 	// control's time grows by more than maxControlGrowth from n to 4n; the
 	// ratio of two runs of equal size cancels the box's load.
 	control func(n int) string
-	// skip, when set, starts with the filed issue ("#233: ...") of a shape
-	// that is superlinear on main, or with "proposed issue:" until the issue
-	// is filed; the case is skipped until that issue is fixed, and the
-	// issue's fix removes the skip.
+	// skip, when set, says what makes a shape superlinear on main; the case
+	// is skipped until that is fixed, and the fix removes the skip.
 	skip string
 }
 
@@ -653,25 +651,25 @@ var scaleShapes = []scaleShape{
 	},
 	{
 		name:    "long names",
-		finding: "checker-196 r21 m1: each context that reaches a capability hashes its whole name again, so the cost is the name length times the context count; issue #234",
+		finding: "checker-196 r21 m1: each context that reaches a capability hashes its whole name again, so the cost is the name length times the context count",
 		// Measured on main e36c9471: bytes exponent 1.02, time exponent
 		// 1.92 to 2.00; the time over the control's grows 3.2x to 3.9x
 		// from n to 4n. A linear stand-in (a 40-byte name) grew at most
 		// 1.45x in 15 runs of three concurrent copies. The margin is thin:
 		// in the round 2 review, unskipped, the shape failed 14 of 15 runs
 		// (one run grew only 1.93x, under maxControlGrowth), and the linear
-		// stand-in reached 1.60x. When #234 is fixed and the skip goes, check
+		// stand-in reached 1.60x. When capability hashing per context is fixed and the skip goes, check
 		// that margin again before the shape guards anything.
-		skip:    "#234: a capability's priority (FNV over the whole name) and its key comparison run on every insert, once per context that reaches it, so check time is the name length times the context count (checker-196 r21 m1)",
+		skip:    "a capability's priority (FNV over the whole name) and its key comparison run on every insert, once per context that reaches it, so check time is the name length times the context count (checker-196 r21 m1)",
 		source:  func(n int) string { return longNames(n, false) },
 		control: func(n int) string { return longNames(n, true) },
 	},
 	{
 		name:    "catch arms",
-		finding: "parse-v1 r14 M1: the duplicate-arm set and covered.with make a catch quadratic in its arm count; issue #233",
+		finding: "parse-v1 r14 M1: the duplicate-arm set and covered.with make a catch quadratic in its arm count",
 		// Measured on main e36c9471: exponent 1.35 at n = 250 and 1.69 at
 		// n = 1000 (20.7 MB, 63.0 MB, 214.0 MB).
-		skip: "#233: catch arm coverage (the duplicate-arm set and covered.with) is quadratic in the arm count (parse-v1 r14 M1)",
+		skip: "catch arm coverage (the duplicate-arm set and covered.with) is quadratic in the arm count (parse-v1 r14 M1)",
 		source: func(n int) string {
 			var g gen
 			var row []string

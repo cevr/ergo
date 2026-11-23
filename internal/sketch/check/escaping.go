@@ -83,6 +83,7 @@ func (c *checker) checkEscapes() {
 			w.finishCaptures()
 		}
 		c.checkBorrows(f)
+		c.checkHeldEscapes(f)
 	}
 }
 
@@ -422,7 +423,7 @@ func (w *escWalk) allowed(id *syntax.Ident, v *Var) bool {
 	return false
 }
 
-// Captures of let mut locals and of borrows by escaping frames (#197 C2;
+// Captures of let mut locals and of borrows by escaping frames (resource ownership C2;
 // types.md, Function values 3 and Borrows 1; owner q60, 2026-11-09:
 // "escaping let mut capture allowed only when no write follows").
 //
@@ -896,7 +897,7 @@ func commonPrefix(a, b []syntax.Node) int {
 	return n
 }
 
-// Local frames (#197 C2). A function literal that a `let` binds to one
+// Local frames (C2). A function literal that a `let` binds to one
 // immutable local, `let show = func() { … }`, is a non-escaping frame when
 // the local only runs in place: each use of it is a position the
 // non-escaping rule allows (the callee of a call, an argument of a
@@ -977,4 +978,419 @@ func (w *escWalk) runsInPlace(v *Var) bool {
 		}
 	}
 	return true
+}
+
+// Held contexts of a scoped with (rows.md, Context values, InForce). A
+// with that builds or lends a resource provider opens a scope, and a held
+// context made in its block (InForce) reads that scope's providers: used
+// after the block ends it is a defect, since a provider it holds may be
+// closed. The checker refuses the ways out it can see, so the defect is
+// left to a value whose type hides the context. A value is held of the
+// with x when it is made in x's block and is
+//
+//  1. an InForce call;
+//  2. a local the block declares and binds from a held value;
+//  3. a function literal that names a held local or calls InForce;
+//  4. a part of a composite literal, a call's argument, a field, a
+//     conversion, or the value of an if, match or with, when it is held
+//     and the result's type can carry it (heldCarrier).
+//
+// A held value cannot leave x's block: it is not the block's value, a
+// result of a return in the block's frame, the value of an assignment to a
+// place declared outside the block, or an argument the callee takes (a
+// push onto a queue, a hand-off to a task); each is S108 at the value.
+// Used inside the block, it is admitted.
+
+// heldText is the escape rule's S108.
+const heldText = "%s holds a context made inside the with at %s, which owns or lends a resource provider and ends with its block, so it cannot leave the block (%s) (rows.md, Context values, InForce); use it inside the block"
+
+// checkHeldEscapes applies the rule to every scoped with of f.
+func (c *checker) checkHeldEscapes(f *fileInfo) {
+	syntax.Inspect(f.syntax, func(n syntax.Node) bool {
+		x, ok := n.(*syntax.CallExpr)
+		if !ok || x.Trailing == nil {
+			return true
+		}
+		if call := c.pkg.Info.Calls[x]; call == nil || call.Kind != CallWith {
+			return true
+		}
+		for w := c.pkg.Info.Withs[x]; w != nil; w = w.Next {
+			if scopedWith(w) {
+				h := &heldWalk{c: c, with: x, held: map[*Var]bool{}}
+				h.check()
+				break
+			}
+		}
+		return true
+	})
+}
+
+// scopedWith reports a with operand that opens a scope (Acquisition.Scoped).
+func scopedWith(w *With) bool {
+	for _, a := range w.Acquired {
+		if a.Scoped() {
+			return true
+		}
+	}
+	return false
+}
+
+type heldWalk struct {
+	c    *checker
+	with *syntax.CallExpr
+	held map[*Var]bool
+}
+
+func (h *heldWalk) check() {
+	b := h.with.Trailing
+	// The held locals, to their fixpoint: a let or an assignment of a
+	// local the block declares, anywhere in it.
+	for changed := true; changed; {
+		changed = false
+		syntax.Inspect(b, func(n syntax.Node) bool {
+			switch s := n.(type) {
+			case *syntax.VarSpec:
+				for i, id := range s.Names {
+					v, _ := h.c.pkg.Info.Defs[id].(*Var)
+					if v == nil || h.held[v] {
+						continue
+					}
+					if val := specValue(s, i); val != nil && h.isHeld(val) && h.c.heldCarrier(v.Type) {
+						h.held[v], changed = true, true
+					}
+				}
+			case *syntax.AssignStmt:
+				for i, l := range s.Lhs {
+					id, ok := unparen(l).(*syntax.Ident)
+					if !ok || i >= len(s.Rhs) {
+						continue
+					}
+					v, _ := h.c.pkg.Info.Uses[id].(*Var)
+					if v == nil || h.held[v] || !h.declaredInside(v) {
+						continue
+					}
+					if h.isHeld(s.Rhs[i]) && h.c.heldCarrier(v.Type) {
+						h.held[v], changed = true, true
+					}
+				}
+			}
+			return true
+		})
+	}
+	// The block's value.
+	if h.c.heldCarrier(h.c.pkg.Info.Types[h.with]) {
+		if t := blockTail(b); t != nil && h.isHeld(t) {
+			h.report(t, "it is the block's value")
+		}
+	}
+	// Returns of the block's frame; assignments and taken arguments
+	// anywhere in it.
+	var frame func(n syntax.Node, own bool)
+	frame = func(n syntax.Node, own bool) {
+		syntax.Inspect(n, func(m syntax.Node) bool {
+			switch s := m.(type) {
+			case *syntax.FuncLit:
+				if s.Body != nil {
+					frame(s.Body, false)
+				}
+				return false
+			case *syntax.ReturnStmt:
+				if own {
+					for _, r := range s.Results {
+						if h.isHeld(r) {
+							h.report(r, "it is returned")
+						}
+					}
+				}
+			case *syntax.AssignStmt:
+				for i, l := range s.Lhs {
+					if i < len(s.Rhs) && !h.assignedInside(l) && h.isHeld(s.Rhs[i]) {
+						h.report(s.Rhs[i], fmt.Sprintf("it is assigned to %s, declared outside the block", exprText(l)))
+					}
+				}
+			case *syntax.CallExpr:
+				if s != h.with {
+					h.takenArgs(s)
+				}
+				if s.Trailing != nil {
+					if call := h.c.pkg.Info.Calls[s]; call == nil || call.Kind != CallWith {
+						// The trailing block of another call is a frame of
+						// its own: its return leaves it, not the block.
+						for _, a := range s.Args {
+							frame(a, own)
+						}
+						frame(s.Trailing, false)
+						return false
+					}
+				}
+			}
+			return true
+		})
+	}
+	frame(b, true)
+}
+
+// takenArgs reports a held argument of x that x's callee takes.
+func (h *heldWalk) takenArgs(x *syntax.CallExpr) {
+	call := h.c.pkg.Info.Calls[x]
+	if call == nil {
+		return
+	}
+	var takes []int
+	off := 0
+	switch call.Kind {
+	case CallFunc:
+		takes = takesOf(call.Func)
+		if call.Recv != nil {
+			off = 1
+			if slices.Contains(takes, 0) && h.isHeld(call.Recv) {
+				h.report(call.Recv, fmt.Sprintf("%s takes it", calleeText(x)))
+			}
+		}
+	case CallOp, CallProviderOp:
+		if call.Op != nil && call.Op.Sig != nil {
+			takes = call.Op.Sig.Takes
+		}
+	default:
+		return
+	}
+	for i, a := range x.Args {
+		if slices.Contains(takes, i+off) && h.isHeld(a) {
+			h.report(a, fmt.Sprintf("%s takes it", calleeText(x)))
+		}
+	}
+}
+
+func (h *heldWalk) report(at syntax.Node, how string) {
+	h.c.errorf(at, CodeType, heldText, exprText(at.(syntax.Expr)), h.posOf(h.with), how)
+}
+
+func (h *heldWalk) posOf(n syntax.Node) string {
+	line, col := h.c.cur.syntax.Position(n.Pos())
+	return fmt.Sprintf("%d:%d", line, col)
+}
+
+// declaredInside reports a local declared in the with's block.
+func (h *heldWalk) declaredInside(v *Var) bool {
+	b := h.with.Trailing
+	return v != nil && !v.pkg && v.Pos >= b.Pos() && v.Pos < b.End()
+}
+
+// assignedInside reports an assigned place whose root the block declares.
+func (h *heldWalk) assignedInside(l syntax.Expr) bool {
+	for {
+		switch e := unparen(l).(type) {
+		case *syntax.Ident:
+			v, _ := h.c.pkg.Info.Uses[e].(*Var)
+			return h.declaredInside(v)
+		case *syntax.SelectorExpr:
+			l = e.X
+		case *syntax.IndexExpr:
+			l = e.X
+		default:
+			return false
+		}
+	}
+}
+
+// isHeld reports a held value (rules 1 to 4).
+func (h *heldWalk) isHeld(x syntax.Expr) bool {
+	if x == nil {
+		return false
+	}
+	info := h.c.pkg.Info
+	carries := func() bool { return h.c.heldCarrier(info.Types[x]) }
+	switch e := x.(type) {
+	case *syntax.ParenExpr:
+		return h.isHeld(e.X)
+	case *syntax.TryExpr:
+		return h.isHeld(e.X)
+	case *syntax.Ident:
+		v, _ := info.Uses[e].(*Var)
+		return v != nil && h.held[v]
+	case *syntax.FuncLit:
+		found := false
+		syntax.Inspect(e, func(n syntax.Node) bool {
+			switch n := n.(type) {
+			case *syntax.Ident:
+				if v, _ := info.Uses[n].(*Var); v != nil && h.held[v] {
+					found = true
+				}
+			case *syntax.CallExpr:
+				found = found || IsInForce(info.Calls[n])
+			}
+			return !found
+		})
+		return found
+	case *syntax.CompositeLit:
+		for _, el := range e.Elts {
+			if kv, ok := el.(*syntax.KeyValueExpr); ok {
+				el = kv.Value
+			}
+			if h.isHeld(el) {
+				return carries()
+			}
+		}
+		return false
+	case *syntax.KeyValueExpr:
+		return h.isHeld(e.Value)
+	case *syntax.SelectorExpr:
+		return h.isHeld(e.X) && carries()
+	case *syntax.IndexExpr:
+		return h.isHeld(e.X) && carries()
+	case *syntax.CallExpr:
+		call := info.Calls[e]
+		if IsInForce(call) {
+			return true
+		}
+		if call != nil && call.Kind == CallWith {
+			if t := blockTail(e.Trailing); t != nil && h.isHeld(t) {
+				return carries()
+			}
+			return false
+		}
+		if call != nil && call.Recv != nil && h.isHeld(call.Recv) && carries() {
+			return true
+		}
+		for _, a := range e.Args {
+			if h.isHeld(a) {
+				return carries()
+			}
+		}
+		return false
+	case *syntax.IfStmt:
+		return (h.blockHeld(e.Body) || h.elseHeld(e.Else)) && carries()
+	case *syntax.SwitchStmt:
+		return h.clausesHeld(e.Clauses) && carries()
+	case *syntax.TypeSwitchStmt:
+		return h.clausesHeld(e.Clauses) && carries()
+	}
+	return false
+}
+
+func (h *heldWalk) blockHeld(b *syntax.BlockStmt) bool {
+	t := blockTail(b)
+	return t != nil && h.isHeld(t)
+}
+
+func (h *heldWalk) elseHeld(s syntax.Stmt) bool {
+	switch e := s.(type) {
+	case *syntax.BlockStmt:
+		return h.blockHeld(e)
+	case *syntax.IfStmt:
+		return h.isHeld(e)
+	}
+	return false
+}
+
+func (h *heldWalk) clausesHeld(cs []*syntax.CaseClause) bool {
+	for _, cl := range cs {
+		if len(cl.Body) == 0 {
+			continue
+		}
+		if t := stmtValue(cl.Body[len(cl.Body)-1]); t != nil && h.isHeld(t) {
+			return true
+		}
+	}
+	return false
+}
+
+// blockTail is the value of a block's last statement, or nil.
+func blockTail(b *syntax.BlockStmt) syntax.Expr {
+	if b == nil || len(b.List) == 0 {
+		return nil
+	}
+	return stmtValue(b.List[len(b.List)-1])
+}
+
+// stmtValue is the value a statement gives as a block's last, or nil.
+func stmtValue(s syntax.Stmt) syntax.Expr {
+	switch s := s.(type) {
+	case *syntax.ExprStmt:
+		return s.X
+	case *syntax.IfStmt:
+		return s
+	case *syntax.SwitchStmt:
+		return s
+	case *syntax.TypeSwitchStmt:
+		return s
+	}
+	return nil
+}
+
+// specValue is the value a let binds to its i-th name, or nil.
+func specValue(s *syntax.VarSpec, i int) syntax.Expr {
+	switch {
+	case len(s.Values) == len(s.Names):
+		return s.Values[i]
+	case len(s.Values) == 1:
+		return s.Values[0]
+	}
+	return nil
+}
+
+// heldCarrier reports whether a value of type t can carry a held context:
+// a Context, a function value (it may capture one), an operation type or
+// a type parameter (its value may be anything), or a type with a part
+// that can.
+func (c *checker) heldCarrier(t Type) bool {
+	return c.heldCarries(t, map[Type]bool{}, false)
+}
+
+func (c *checker) heldCarries(t Type, seen map[Type]bool, body bool) bool {
+	if t == nil || seen[t] {
+		return false
+	}
+	seen[t] = true
+	switch t := t.(type) {
+	case *TypeParam:
+		return !body
+	case *Signature, *Interface:
+		return true
+	case *Named:
+		if IsContext(t) {
+			return true
+		}
+		if t.foreign || t.Obj != nil && t.Obj.Pkg != nil && t.Obj.Pkg.Host() {
+			return false
+		}
+		for _, a := range t.TArgs {
+			if c.heldCarries(a, seen, body) {
+				return true
+			}
+		}
+		if t.Orig != nil {
+			// The type arguments were read above; the origin's body
+			// stands for them, so its type parameters carry nothing.
+			return c.heldCarries(t.Orig.underlying(), seen, true)
+		}
+		return c.heldCarries(t.underlying(), seen, body)
+	case *Struct:
+		for _, f := range t.Fields {
+			if c.heldCarries(f.Type, seen, body) {
+				return true
+			}
+		}
+	case *Union:
+		for _, v := range t.Variants {
+			if c.heldCarries(v, seen, body) {
+				return true
+			}
+		}
+	case *Slice:
+		return c.heldCarries(t.Elem, seen, body)
+	case *Array:
+		return c.heldCarries(t.Elem, seen, body)
+	case *Map:
+		return c.heldCarries(t.Key, seen, body) || c.heldCarries(t.Elem, seen, body)
+	case *Tuple:
+		for _, e := range t.Types {
+			if c.heldCarries(e, seen, body) {
+				return true
+			}
+		}
+	case *Pointer:
+		return c.heldCarries(t.Elem, seen, body)
+	}
+	return false
 }

@@ -35,12 +35,19 @@ type Log[S, E] {
 	Signals  []E,
 }
 
+// Stale is an Append whose writer expected another count of signals
+// after the snapshot than the journal holds (Actual): another writer
+// kept signals since this one loaded, so it keeps nothing.
+type Stale { Expected int, Actual int }
+
 // Journal keeps the committed signals of one machine actor and snapshots
-// of its state. One actor writes it at a time.
+// of its state. One actor writes it at a time; a second writer's Append
+// is Stale, since it expects the count it loaded.
 type Journal[S, E] {
-	// Append keeps e after the signals kept before it. Once it returns,
-	// Load gives e.
-	Append(e E) fails Failed,
+	// Append keeps e after the signals kept before it, when they are
+	// expected signals after the snapshot; another count is Stale, and
+	// keeps nothing. Once it returns, Load gives e.
+	Append(e E, expected int) fails Stale | Failed,
 	// Snapshot keeps s as the state after every signal kept so far and
 	// drops those signals: Load gives s and no signals.
 	Snapshot(s S) fails Failed,
@@ -54,8 +61,8 @@ type Journal[S, E] {
 		case Failed:
 			return true
 		}
-		Append(e) catch {
-		case Failed:
+		Append(e, len(before.Signals)) catch {
+		case Stale, Failed:
 			return true
 		}
 		let after = Load() catch {
@@ -119,9 +126,11 @@ type Codec[T] {
 // or from m's initial state, with m's step; the actor starts in the state
 // that gives. It fails Diverged when a signal of j does not commit in that
 // replay, and Failed when j cannot be read. The actor then runs as
-// actor.StartDurable runs it, with the save j.Append(sig): each commit is
-// kept before anyone sees it, and a failure to keep it is a defect that
-// ends the actor (actor.StartDurable). After every `every` signals the
+// actor.StartDurable runs it, with the save j.Append(sig, n), n the
+// signals it kept since the snapshot: each commit is kept before anyone
+// sees it, and a failure to keep it, a Stale append (another writer kept
+// signals since) among them, is a defect that ends the actor
+// (actor.StartDurable). After every `every` signals the
 // save also takes a snapshot of the state (none when every is 0 or less),
 // so a recovery replays fewer signals.
 //
@@ -148,7 +157,12 @@ func Start[S, E, O, F, R, W](m pure Machine[S, E, O, F, R, W], j Journal[S, E], 
 		since.Set(len(log.Signals))
 		Some[S]{Value: try replay(m.Step, from, log.Signals)}
 	}, func(prev S, next S, sig E) fails Failed | Diverged {
-		try j.Append(sig)
+		j.Append(sig, since.Get()) catch {
+		case Stale as s:
+			return Failed{Reason: "another writer kept signals: \(s.Expected) expected after the snapshot, \(s.Actual) kept"}
+		case Failed as f:
+			return f
+		}
 		since.Update(func(n int) int { n + 1 })
 		if every > 0 && since.Get() >= every {
 			try j.Snapshot(next)
