@@ -1824,7 +1824,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 	case _:
 		return false
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1832,7 +1832,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1867,7 +1867,7 @@ law DoctorHereRepairsOnlyItsOwn(at int) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1906,7 +1906,7 @@ law RmDropsAGoneFolder(present bool) {
 			return false
 		}
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1916,7 +1916,7 @@ law RmDropsAGoneFolder(present bool) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
