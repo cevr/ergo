@@ -50,8 +50,10 @@ type irOwn struct {
 	// registered so far (ownTemp): the statement's planned release finds
 	// it there (releaseAt).
 	tbit     map[syntax.Expr]int
-	deferred *irStmt       // the frame's deferred release, filled by ownDone
-	returned *syntax.Ident // the local a return hands off (returning)
+	deferred *irStmt         // the frame's deferred release, filled by ownDone
+	returned *syntax.Ident   // the local a return hands off (returning)
+	held     []*syntax.Ident // operands whose owner stays live through the call
+	hasHeld  bool            // a call can leave the frame with no live slots
 	site     syntax.Node
 	p        irPos
 	// keys are the places of the body whose planned releases the builder
@@ -499,10 +501,28 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 		lit := &irExpr{K: "func", Pos: p, T: "func()", Body: []*irStmt{{K: "expr", Pos: p, X: c}}, End: &end}
 		return &irStmt{K: "if", Pos: p, X: set(setOf(), k), End: p, Then: []*irStmt{{K: "expr", Pos: p, X: relCall("Part", lit)}}}
 	}
-	body := []*irStmt{
-		{K: "var", Pos: p, Local: rel},
-		{K: "set", Pos: p, Local: rel, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "StaticBegin", Args: []*irExpr{task, errArg, {K: "recover", Pos: p}}}},
+	var body []*irStmt
+	recovered := &irExpr{K: "recover", Pos: p}
+	if o.hasHeld {
+		// Successful admission commonly clears the last slot. If there is
+		// no incoming exit, no cleanup can fail and any kept value can
+		// leave as-is. Recover still runs in the deferred function itself.
+		got := h.temp("recovered", "any", p)
+		body = append(body, &irStmt{K: "def", Pos: p, Local: got, X: recovered})
+		recovered = local(got)
+		cond := &irExpr{K: "bin", Pos: p, Op: "&&",
+			X: &irExpr{K: "bin", Pos: p, Op: "==", X: deref(liveL), Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}},
+			Y: &irExpr{K: "bin", Pos: p, Op: "==", X: recovered, Y: &irExpr{K: "zero", Pos: p, T: "any"}}}
+		if errL >= 0 {
+			cond = &irExpr{K: "bin", Pos: p, Op: "&&", X: cond,
+				Y: &irExpr{K: "bin", Pos: p, Op: "==", X: deref(errL), Y: &irExpr{K: "zero", Pos: p, T: "error"}}}
+		}
+		body = append(body, &irStmt{K: "if", Pos: p, End: p, X: cond, Then: []*irStmt{{K: "ret", Pos: p}}})
 	}
+	body = append(body,
+		&irStmt{K: "var", Pos: p, Local: rel},
+		&irStmt{K: "set", Pos: p, Local: rel, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "StaticBegin", Args: []*irExpr{task, errArg, recovered}}},
+	)
 	for k := len(o.slots) - 1; k >= 0; k-- {
 		body = append(body, part(func() *irExpr { return deref(liveL) }, k))
 	}
@@ -606,7 +626,7 @@ func (b *irBuilder) closeOpCall(cl *check.Close, s irSlot, env, slot int, p irPo
 	}
 	site := b.own.site
 	if b.l.runtimeNamed(n, site) {
-		return b.stdCloseCall(cl, s, slot, p)
+		return b.stdCloseCall(cl, s, env, slot, p)
 	}
 	if b.l.typeDecl(n.Obj, site).kind != kindOps {
 		return nil, false
@@ -619,10 +639,10 @@ func (b *irBuilder) closeOpCall(cl *check.Close, s irSlot, env, slot int, p irPo
 
 // stdCloseCall is the release of a value of a std operation type at slot
 // (fs.Mapped): its runtime method, as the emitter's opCall writes it
-// through runtimeCall, for a Close that takes nothing and returns nothing
-// (no hidden argument, no operand) on a Go pointer. Any other keeps the
+// through runtimeCall, for a Close on a Go pointer, with no argument but
+// the possible hidden caller task. Any other keeps the
 // Go-text release.
-func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (*irExpr, bool) {
+func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	n, ok := cl.Receiver.(*check.Named)
 	if !ok || !b.l.runtimeNamed(n, b.own.site) || !strings.HasPrefix(b.fc.goType(s.t), "*") {
 		return nil, false
@@ -632,10 +652,18 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, slot int, p irPos) (
 		return nil, false
 	}
 	body, err := runtimeBody(name)
-	if err != nil || len(body.Hidden) != 0 || len(body.Params) != 0 || len(body.Results) != 0 {
+	if err != nil || len(body.Params) != 0 || len(body.Results) != 0 {
 		return nil, false
 	}
-	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}, true
+	var args []*irExpr
+	switch {
+	case len(body.Hidden) == 0:
+	case len(body.Hidden) == 1 && body.Hidden[0] == v1.CallerTask:
+		args = []*irExpr{{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: env}}}
+	default:
+		return nil, false
+	}
+	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}, Args: args}, true
 }
 
 // ownBodyChecks stops a static frame this form does not build: an owned
@@ -821,9 +849,16 @@ func (b *irBuilder) slotRelease(k int, p irPos) *irStmt {
 	live := func() *irExpr { return &irExpr{K: "local", Pos: p, I: o.live} }
 	set := &irExpr{K: "bin", Pos: p, Op: "!=", X: &irExpr{K: "bin", Pos: p, Op: "&", X: live(), Y: b.bitConst(k, p)}, Y: &irExpr{K: "const", Pos: p, T: "uint64", V: "0"}}
 	return &irStmt{K: "if", Pos: p, X: set, End: p, Then: []*irStmt{
-		{K: "set", Pos: p, Local: o.live, X: &irExpr{K: "bin", Pos: p, Op: "&^", X: live(), Y: b.bitConst(k, p)}},
+		b.clearSlots(1<<uint(k), p),
 		{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: s.helper, Args: []*irExpr{{K: "local", Pos: p, I: b.env}, b.addrOf(s.local, p)}}},
 	}}
+}
+
+func (b *irBuilder) clearSlots(mask uint64, p irPos) *irStmt {
+	live := b.own.live
+	return &irStmt{K: "set", Pos: p, Local: live, X: &irExpr{K: "bin", Pos: p, Op: "&^",
+		X: &irExpr{K: "local", Pos: p, I: live},
+		Y: &irExpr{K: "const", Pos: p, T: "uint64", V: strconv.FormatUint(mask, 10)}}}
 }
 
 // ownVisited stops a static frame whose body left a planned release
@@ -936,7 +971,11 @@ func (b *irBuilder) ownTemp(x syntax.Expr, e *irExpr) *irExpr {
 		o.tbit[x] = k
 		o.slots = append(o.slots, irSlot{local: b.temp("slot", typ, o.p), t: t, d: b.l.info.OwnedTemps[x], site: x})
 	}
-	return b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), e)
+	owned := b.ownCall("OwnStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), b.addrOf(o.slots[k].local, p), e)
+	if b.l.info.ReturnedTemps[x] {
+		return b.keepSlot(k, typ, owned)
+	}
+	return owned
 }
 
 // handoff is the read e of id, a use of an owned local: as it is, or at a
@@ -951,6 +990,11 @@ func (b *irBuilder) handoff(id *syntax.Ident, e *irExpr) *irExpr {
 	if o == nil {
 		irNo("owned local")
 	}
+	for _, held := range o.held {
+		if id == held {
+			return e // the foreign call settles the owner only after returning
+		}
+	}
 	if o.list {
 		return b.listHand(o, v, id, e)
 	}
@@ -960,16 +1004,20 @@ func (b *irBuilder) handoff(id *syntax.Ident, e *irExpr) *irExpr {
 	}
 	p := e.Pos
 	typ := b.goType(v.Type, id)
-	if id == o.returned {
-		if o.kept < 0 {
-			o.kept = b.temp("kept", "uint64", o.p)
-		}
-		return b.ownCall("ReturnStatic", typ, p, b.addrOf(o.live, p), b.addrOf(o.kept, p), b.bitConst(k, p), e)
-	}
-	if b.l.info.ReturnedTemps[id] {
-		irNo("owned local") // an arm's tail of a returned if or match
+	if id == o.returned || b.l.info.ReturnedTemps[id] {
+		return b.keepSlot(k, typ, e)
 	}
 	return b.ownCall("HandStatic", typ, p, b.addrOf(o.live, p), b.bitConst(k, p), e)
+}
+
+// keepSlot holds a returned owner until all other releases have succeeded.
+func (b *irBuilder) keepSlot(k int, typ string, e *irExpr) *irExpr {
+	o := b.own
+	if o.kept < 0 {
+		o.kept = b.temp("kept", "uint64", o.p)
+	}
+	p := e.Pos
+	return b.ownCall("ReturnStatic", typ, p, b.addrOf(o.live, p), b.addrOf(o.kept, p), b.bitConst(k, p), e)
 }
 
 // listHand is the read e of id, a hand-off of the list form's owned local
