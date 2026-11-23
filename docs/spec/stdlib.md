@@ -26,7 +26,7 @@ The standard library is the "Effect for Go" track, the standard library. Its mod
 | HTTP | std http and rpc | HttpClient, HttpServer, HttpRouter, HttpApi | `func(http.Request) http.Response`, total `catch` | library + host |
 | RPC | std rpc | Rpc, RpcGroup, RpcClient, RpcServer | `rpc.Answer` (an http handler, so one listener serves RPC beside other routes), `rpc.Serve`, `rpc.Call`, `rpc.Loopback` (a server in process, so a contract's laws run through the wire), and the server and client `ergo gen rpc` writes from an operation type ([rpc.md](rpc.md)) | library + host |
 | HTML | std html | (none; Lustre and Elm prior art) | `html` functions | library |
-| Actors | the actor library | cluster Entity (OTP, Gleam and Akka Typed prior art) | `actor.Start`, `actor.Ask` with an `actor.Reply[T, E]` in the message, `actor.Address[M]`, `actor.StartMachine(m, n)`, `actor.StartAgent` and `actor.Call` with a function on a lent `*S` ([#101 note](../research/actor-library.md)) | library: no compiler rule names it |
+| Actors | the actor library | cluster Entity (OTP, Gleam and Akka Typed prior art) | `actor.Start`, `actor.Ask` with an `actor.Reply[T, E]` in the message, `actor.Address[M]`, `actor.StartMachine(m, n)`, `actor.StartAgent` and `actor.Call` with a function on a lent `*S` ([actor library note](../research/actor-library.md)) | library: no compiler rule names it |
 | Host packages | std host packages | platform FileSystem, Path, Command, Socket; sql | `os`, `fs`, `net` ([net](#net)), `sql` with cancel hooks | host |
 | Core data | std core data | Option, Array, Record, HashMap, HashSet, Chunk, Order, Equivalence, Equal, Hash, Data | prelude `Option`, `slices`, `maps`, `cmp` | library + built-in constraints |
 
