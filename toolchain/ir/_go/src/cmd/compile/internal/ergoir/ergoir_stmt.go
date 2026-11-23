@@ -281,7 +281,11 @@ func (c *ergoChecker) stmt(s *ergoStmt) syntax.Stmt {
 		}
 		key, elem := ergoRangeTypes(t) // ergoir_call.go
 		if key == nil {
-			c.errorf(s.Pos, "ergoir: range over %v, not a slice, a map or a string", t)
+			c.errorf(s.Pos, "ergoir: range over unsupported type %v", t)
+			return nil
+		}
+		if elem == nil && s.Val != nil {
+			c.errorf(s.Pos, "ergoir: range over %v has only one binding", t)
 			return nil
 		}
 		lhs := &syntax.ListExpr{}
@@ -292,7 +296,7 @@ func (c *ergoChecker) stmt(s *ergoStmt) syntax.Stmt {
 				idx = s.Val
 			}
 			if want == nil {
-				continue // a range over a func has one variable
+				continue // a range over a func or integer has one variable
 			}
 			if idx == nil {
 				lhs.ElemList = append(lhs.ElemList, syntax.NewName(pos, "_"))

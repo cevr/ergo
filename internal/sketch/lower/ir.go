@@ -769,6 +769,9 @@ type irBuilder struct {
 	reasons []string
 	// loops is the depth of loops around the statement being built.
 	loops int
+	// compactNest is the count/make source-shape admission's cached
+	// loop-nest check: 0 unknown, 1 no nest, 2 a nest.
+	compactNest uint8
 	// memos are the loops around the statement being built whose
 	// pre-headers take memoized calls, innermost last; memoSites counts
 	// the body's memoized calls (ir_memo.go).

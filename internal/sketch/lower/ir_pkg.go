@@ -471,9 +471,11 @@ func goInterfaceMethod(recv check.Type, c *check.Call) (*check.Func, *check.Call
 	return f, &gc
 }
 
-// countLoop is the for-in s over a prelude Range[T] of an integer T, as
-// the emitter's rangeStmt writes it: the Range evaluated once into a
-// temporary r, then
+// countLoop uses Go's integer range for a direct zero-based int range
+// with a binding, unless a guarded loop idiom needs the endpoints. An
+// ignored index keeps the old counted loop: the native bare range can
+// lengthen the hot path of a nested append loop.
+// Otherwise countLoop evaluates the Range once into a temporary r, then emits
 //
 //	for v := r.Start; v < r.End; v++ { body }
 //
@@ -493,17 +495,24 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 	p := b.pos(s, s.Pos())
 	td := b.l.typeDecl(n.Obj, s.X)
 	var pre []*irStmt
-	var x *irExpr
+	var x, zero, end *irExpr
 	if bx, ok := unparen(s.X).(*syntax.BinaryExpr); ok && bx.Op.String() == ".." && len(td.fields) == 2 {
 		// a..b is Range{Start: a, End: b}, its operands in order (the
 		// emitter's rangeValue); the operator elsewhere is G1's.
 		var parts []*irExpr
 		pre, parts = b.operands([]syntax.Expr{bx.X, bx.Y})
-		x = &irExpr{K: "lit", Pos: p, T: b.goType(n, s.X), Keys: []string{td.fieldName["Start"], td.fieldName["End"]}, Elems: parts}
+		if bound(s.Value) && b.compactLoopBound(parts[0], parts[1]) && b.goType(lp.Elem, s) == "int" && b.loopIdiom(s, lp) == nil {
+			zero, end = parts[0], parts[1]
+		} else {
+			x = &irExpr{K: "lit", Pos: p, T: b.goType(n, s.X), Keys: []string{td.fieldName["Start"], td.fieldName["End"]}, Elems: parts}
+		}
 	} else {
 		pre, x = b.value(s.X)
 	}
-	r := b.temp("r", b.goType(n, s.X), p)
+	r := -1
+	if end == nil {
+		r = b.temp("r", b.goType(n, s.X), p)
+	}
 	var v int
 	if bound(s.Value) {
 		id, ok := s.Value.(*syntax.Ident)
@@ -517,6 +526,13 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		v = b.local(bv, id)
 	} else {
 		v = b.temp("i", b.goType(lp.Elem, s), p)
+	}
+	if end != nil {
+		loop := &irStmt{K: "range", Pos: past(p, pre), X: end, Key: &v, End: b.pos(s.Body, s.Body.Rbrace)}
+		filled := b.fillLoop(s, lp, zero, v, p)
+		ctr := b.loopBody(loop, s, s.Body)
+		filled()
+		return append(append(pre, ctr...), loop)
 	}
 	field := func(name string) *irExpr {
 		return &irExpr{K: "field", Pos: p, Name: td.fieldName[name], X: &irExpr{K: "local", Pos: p, I: r}}
@@ -728,6 +744,12 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// appender's operand is clipped and a Map write's copied, unless the
 	// call writes it in place (bs = bs.AppendString(s)).
 	b.valueSource(x, c, ops, args)
+	if irCompactGo != "off" && body.Package == runtimeImport && len(args) == 1 &&
+		len(hidden) == 0 && x.Trailing == nil && goBodySliceCapacity(name) && b.compactMakeSize(args[0]) && b.compactFrame() {
+		zero := &irExpr{K: "const", Pos: p, T: "int", V: "0"}
+		return pre, &irExpr{K: "builtin", Pos: p, Name: "make", T: b.goType(b.l.info.Types[x], x),
+			Args: []*irExpr{zero, args[0]}}, false
+	}
 	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
