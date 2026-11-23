@@ -1,8 +1,11 @@
 package irspike
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/uiskipgen"
 )
 
@@ -23,5 +26,24 @@ import (
 // ly-ns2-ir-reads-whole, ly-ns2-ir-keep-aliases.
 func TestIRUISkipMatchesSource(t *testing.T) {
 	lyProperty(t, "TestIRUISkipMatchesSource", func(seed uint64) string { return uiskipgen.Program([]uint64{seed}) },
-		[]string{"group", "groupBy"}, "card", "list", "framed", "headed", "tallied", "wideView", "cardsView", "bagged")
+		uiGroupNames(t), "card", "list", "framed", "headed", "tallied", "wideView", "cardsView", "bagged")
+}
+
+// uiGroupNames asks lowering for the emitted names of the specimen's lawed
+// group functions.
+func uiGroupNames(t *testing.T) []string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "p.ergo")
+	if err := os.WriteFile(file, []byte(uiskipgen.Program([]uint64{1})), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := Load(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := lower.GroupCallNamesForTest(u)
+	if len(names) == 0 {
+		t.Fatal("no frame package of the program declares a lawed group")
+	}
+	return names
 }
