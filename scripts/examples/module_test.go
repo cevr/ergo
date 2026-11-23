@@ -182,8 +182,8 @@ func TestModuleProgramRunsEveryPackage(t *testing.T) {
 }
 
 // A program of packages with generated files runs `ergo gen KIND --check`
-// once per contract, named by the files' contract line, and a stale file
-// fails the program before its build.
+// once per generated folder, named by its marker, and a stale file fails
+// the program before its build. It catches genmark-examples-reject-sidecar.
 func TestModuleProgramGenCheck(t *testing.T) {
 	t.Parallel()
 	for _, stale := range []bool{false, true} {

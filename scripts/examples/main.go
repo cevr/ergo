@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/cases"
+	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/gobind"
 	"ergo.local/prototype/internal/opcount"
 	"ergo.local/prototype/internal/proclimit"
@@ -697,7 +698,7 @@ func (p *program) checkedDir(dir string) (sketchfront.Analysis, error) {
 
 // packageSources adds the .ergo files of the package folder dir, and of
 // the package folders under it, to the program's sources. A package
-// folder holds .ergo files and package folders only.
+// folder holds .ergo files, its generation marker if any, and package folders.
 func packageSources(p *program, dir, label string) []string {
 	return packageAssetSources(p, dir, label, map[string]bool{})
 }
@@ -732,6 +733,8 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 			problems = append(problems, packageAssetSources(p, filepath.Join(dir, name), label+"/"+name, assets)...)
 		case strings.HasSuffix(name, ".ergo") && entry.Type().IsRegular():
 			p.sources = append(p.sources, filepath.Join(dir, name))
+		case name == genmark.Name && entry.Type().IsRegular():
+			// genProgram reads the marker, including for stale output.
 		case assets[filepath.Join(dir, name)] && entry.Type().IsRegular():
 		case p.library && strings.HasSuffix(name, ".go") && entry.Type().IsRegular():
 			// A module's own Go (docs/spec/interop.md, Trusted Go 3):
@@ -744,7 +747,7 @@ func packageAssetSources(p *program, dir, label string, assets map[string]bool) 
 		case p.library && strings.HasSuffix(name, ".s"):
 			problems = append(problems, fmt.Sprintf("%s/%s is assembly; a module's own Go body is written in Go (docs/spec/interop.md, Trusted Go 3)", label, name))
 		default:
-			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files and package folders", label, name))
+			problems = append(problems, fmt.Sprintf("unexpected %s/%s; a package folder holds .ergo files, an optional %s, and package folders", label, name, genmark.Name))
 		}
 	}
 	return problems
