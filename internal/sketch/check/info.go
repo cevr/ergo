@@ -780,6 +780,9 @@ const (
 	// of a comparable type, generated from its declared type as == is
 	// (types.md, Maps; CONSTRAINTS C5).
 	CallHash
+	// CallTestSeed is the run's --seed, a uint64, which only the rewrite of
+	// a harnessed test calls (harness.go, rule 3). Added in P1b.
+	CallTestSeed
 	// CallKindCount bounds the call kinds. Keep it last: exhaustive
 	// consumers must account for a newly admitted kind.
 	CallKindCount

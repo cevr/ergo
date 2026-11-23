@@ -333,6 +333,7 @@ func cwalk(c mut cyc, o owner, f int, env Env, x dense.ID[syntax.Node]) {
 				case None:
 				}
 			case syntax.LawDecl:
+			case syntax.TestDecl:
 			case syntax.VariantSpec:
 			case _:
 				cwalk(c, o, f, env, mb)

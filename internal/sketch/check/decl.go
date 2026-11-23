@@ -114,6 +114,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// A constructor's rows are inferred, so constructors are planned
 		// once bodies converge, before any generator is decided.
 		c.planConstructors,
+		c.planHarnesses,
 		c.checkTests,
 		c.checkLaws,
 		c.planLaws,

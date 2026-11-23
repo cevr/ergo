@@ -400,6 +400,8 @@ case examples/snake/cmd/snake
 case examples/snake/game
 case examples/snake/play
 case examples/snake/screen
+case examples/sorted-insert/cmd/sorted-insert
+case examples/sorted-insert/ordered
 case examples/ssg/cmd/ssg
 case examples/ssg/files
 case examples/ssg/memory
@@ -848,6 +850,16 @@ case internal/sketch/check/testdata/fixtures/negative/error-row-non-struct.ergo
 case internal/sketch/check/testdata/fixtures/negative/export-guard-machine-step.ergo
 case internal/sketch/check/testdata/fixtures/negative/fallible-function-value.ergo
 case internal/sketch/check/testdata/fixtures/negative/generic-row-parameter-instantiated.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-arity.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-body.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-failure.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-generic.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-missing.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-needs.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-run.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-second.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-two-in-test.ergo
+case internal/sketch/check/testdata/fixtures/negative/harness-type-params.ergo
 case internal/sketch/check/testdata/fixtures/negative/integer-literal-as-duration.ergo
 case internal/sketch/check/testdata/fixtures/negative/interface-method-needs.ergo
 case internal/sketch/check/testdata/fixtures/negative/interface-missing-method.ergo
@@ -970,6 +982,7 @@ case internal/sketch/std/filepath
 case internal/sketch/std/flag
 case internal/sketch/std/fs
 case internal/sketch/std/fstest
+case internal/sketch/std/gen
 case internal/sketch/std/graph
 case internal/sketch/std/hex
 case internal/sketch/std/hmac
@@ -1161,6 +1174,7 @@ case unused examples/scoped-engine/engine/engine.ergo
 case unused examples/scopes/table/table.ergo
 case unused examples/search/search/contracts.ergo
 case unused examples/snake/game/world.ergo
+case unused examples/sorted-insert/ordered/ordered.ergo
 case unused examples/ssg/memory/files.ergo
 case unused examples/ssg/site/escape.ergo
 case unused examples/ssg/site/page.ergo
@@ -1217,6 +1231,7 @@ case unused internal/sketch/std/fstest/confined.ergo
 case unused internal/sketch/std/fstest/memory.ergo
 case unused internal/sketch/std/fstest/recorder.ergo
 case unused internal/sketch/std/fstest/tree.ergo
+case unused internal/sketch/std/gen/gen.ergo
 case unused internal/sketch/std/graph/graph.ergo
 case unused internal/sketch/std/html/url.ergo
 case unused internal/sketch/std/jobs/file/file.ergo

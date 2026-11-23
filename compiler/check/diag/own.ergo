@@ -110,6 +110,7 @@ func typeInfos(k expr.Pkg) (Map[string, typeInfo], []string) {
 								case None:
 								}
 							case syntax.LawDecl:
+							case syntax.TestDecl:
 							case _:
 								// A union's member named by its type
 								// (`Res | Empty`).
