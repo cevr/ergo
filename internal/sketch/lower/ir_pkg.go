@@ -639,7 +639,12 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if isTuple {
 		// A body with Go's several results, one per element, is bound by
 		// a tdef (ir_tuple.go, F4b: bits.Add64); any other is adapted.
-		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
+		// One with an error after them, (A, B, error), is bound by bind
+		// alone, which takes the error too (tupleErrBind).
+		switch stdTupleAdmits(body, tuple, b.tupleBind == x) {
+		case tupleOutsideBind:
+			irNo("fallible call with an empty row at its site")
+		case tupleAdapted:
 			irNo("std call with an adapted result")
 		}
 	}
@@ -652,7 +657,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		// is (below): spelled alike, or the runtime's at the instance
 		// (TakeAt's (T, []T), actor's shown (S, int), keyState's []byte
 		// as []uint8; CONV-RESULT).
-		for i, r := range body.Results {
+		for i, r := range body.Results[:len(tuple.Types)] {
 			if !b.sameGo(tuple.Types[i], r) && !b.sameRT(tuple.Types[i], r, subst, body.Package) {
 				irNo("std call with a converted result")
 			}
@@ -726,6 +731,10 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
 	}
+	if isTuple && goFallible(body) {
+		b.tupleBound = call // bind binds its results and its error (tupleErrBind)
+		return pre, call, false
+	}
 	if isTuple {
 		tpre, e := b.tdef(call, tuple, x, p) // ir_tuple.go
 		return append(pre, tpre...), e, false
@@ -734,6 +743,34 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		call = b.dropErr(call) // ir_call.go: the row is empty here
 	}
 	return pre, call, !body.Pure
+}
+
+// The IR std call's verdicts on a body whose Ergo result is a tuple
+// (stdTupleAdmits).
+const (
+	tupleAdmitted    = iota
+	tupleOutsideBind // (A, B, error) outside bind, which alone takes its error
+	tupleAdapted     // results that are not the tuple's elements, one each
+)
+
+// stdTupleAdmits is the IR std call's verdict on body, whose Ergo result
+// is tuple: Go's several results, one per element, bound by a tdef, and
+// with an error after them only under bind (underBind), whose tdef takes
+// the error too (tupleErrBind; EXTERN-MULTI-RESULT, task's TaskExit
+// (int, string, error)). Any other shape is adapted, which the IR
+// refuses.
+func stdTupleAdmits(body v1.Body, tuple *check.Tuple, underBind bool) int {
+	n := len(body.Results)
+	if goFallible(body) {
+		if !underBind {
+			return tupleOutsideBind
+		}
+		n--
+	}
+	if len(tuple.Types) < 2 || n != len(tuple.Types) {
+		return tupleAdapted
+	}
+	return tupleAdmitted
 }
 
 // stdTypeArgs is the IR type argument list of the call x of a generic std

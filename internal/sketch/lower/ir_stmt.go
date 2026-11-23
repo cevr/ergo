@@ -274,6 +274,20 @@ func (b *irBuilder) ifValue(s *syntax.IfStmt) ([]*irStmt, *irExpr) {
 	return pre, &irExpr{K: "local", Pos: p, I: i}
 }
 
+// dropsPlain reports an IR value with no effect and no defect: a local, a
+// constant, a zero value, a package variable, a function, or the address
+// of a local. A dropped call whose value is one of these keeps only its
+// statements.
+func dropsPlain(e *irExpr) bool {
+	switch e.K {
+	case "local", "const", "zero", "global", "func":
+		return true
+	case "addr":
+		return e.X != nil && e.X.K == "local"
+	}
+	return false
+}
+
 // discard is x evaluated for its effects and dropped (the emitter's
 // discard): a call is a call statement, any other value is `_ = x`.
 func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
@@ -294,6 +308,18 @@ func (b *irBuilder) discard(x syntax.Expr) []*irStmt {
 				// A function value's call, bound and dropped (ir_closure.go),
 				// or a tried call with no value (call).
 				return pre
+			}
+			if dropsPlain(e) {
+				// A call whose IR value is no call (go.New's &n, go.Zero's
+				// zero, a tabulated read's local): its statements ran, and
+				// the value has no effect, so it is dropped, as Go has no
+				// expression statement of it (the decoder's rule).
+				return pre
+			}
+			switch e.K {
+			case "call", "mcall", "pcall", "vcall", "builtin":
+			default:
+				irNo("dropped value of the IR kind %s", e.K)
 			}
 			return append(pre, &irStmt{K: "expr", Pos: p, X: e})
 		}

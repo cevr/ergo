@@ -54,5 +54,8 @@ func LowerIRLibrary(u Unit, name string) ([]File, IRReport, error) {
 	}
 	files = append(files, File{Path: name + ".go", Data: code})
 	files = append(files, l.assetFiles()...)
-	return append(files, File{Path: IRFileName, Data: data}), report, nil
+	// Keyed as a program's are (irKeyed): `ergo go` builds a library at a
+	// stable path, where an edited IR body would otherwise reuse the old
+	// compile (GO-DROPIN-PROBE step 10).
+	return irKeyed(append(files, File{Path: IRFileName, Data: data})), report, nil
 }

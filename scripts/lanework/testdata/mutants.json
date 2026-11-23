@@ -135,6 +135,24 @@
       "to": "",
       "rule": "A lane's env states GOROOT, the lane's Go's, which a -trimpath build lacks.",
       "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
+    },
+    {
+      "name": "lanework-trial-no-drivers",
+      "origin": "wf10 MERGE-DRIVERS-EVERYWHERE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    set -- \"$@\" -c \"merge.$n.driver=$driver\"\n",
+      "to": "    set -- \"$@\"\n",
+      "rule": "trial merges with the merge drivers the attributes name, read from the clone or the attributes' driver table and passed by -c, so a clone without them trials as work merges.",
+      "killers": ["scripts/lanework:TestTrialMergesWithTheTableDrivers"]
+    },
+    {
+      "name": "lanework-drivers-write-none",
+      "origin": "wf10 MERGE-DRIVERS-EVERYWHERE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "      git -C \"$dir\" config \"merge.$n.$k\" \"$value\"\n",
+      "to": "      :\n",
+      "rule": "drivers writes each merge driver the clone's attributes name and its configuration lacks.",
+      "killers": ["scripts/lanework:TestDriversWritesTheMissingDriver"]
     }
   ]
 }
