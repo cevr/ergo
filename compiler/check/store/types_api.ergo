@@ -15,6 +15,8 @@ let tOwn = 14
 let tArray = 15
 let tForeign = 16
 let tEntry = 17
+let tSelf = 23
+let tReapplied = 24
 
 // arrayLenBit marks the basic operand that carries an array's length
 // (the pool's key has no word for it; lane C may give it one).
@@ -40,6 +42,8 @@ let KOwn = 14
 let KArray = 15
 let KForeign = 16
 let KEntry = 17
+let KSelf = 23
+let KReapplied = 24
 
 // KindOfType is t's kind.
 func KindOfType(s Store, t dense.ID[TKey]) int { int(Key(s.pool, t).k) }
@@ -108,6 +112,33 @@ func TForeign(s mut Store, i int) dense.ID[TKey] { intern(&s.pool, TKey{k: uint8
 
 // TEntry marks a parameter's function type written entry.
 func TEntry(s mut Store, t dense.ID[TKey]) dense.ID[TKey] { composite(&s.pool, tEntry, []dense.ID[TKey]{t}) }
+
+// TSelf is the claimant of an operation signature, optionally re-applied.
+func TSelf(s mut Store, args []dense.ID[TKey]) dense.ID[TKey] { symbolic(&s.pool, tSelf, args) }
+
+// TReapplied is a type parameter at arguments different from its bound's.
+func TReapplied(s mut Store, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID[TKey]) dense.ID[TKey] {
+	symbolic(&s.pool, tReapplied, []dense.ID[TKey]{recv, op}.Concat(args))
+}
+
+// ClaimLayout records which slots of a declaration its operation type
+// claim names, in claim argument order.
+type ClaimLayout { Op XRef, Positions []int }
+
+func AddClaimLayout(s mut Store, decl dense.ID[Decl], layout ClaimLayout) {
+	let key = TInstance(s, XRef{Import: uint32(0), Decl: uint32(dense.Index(decl))}, []dense.ID[TKey]{})
+	dense.SideSet(&s.pool.layouts, key, dense.SideOf(s.pool.layouts, key).Append(layout))
+}
+
+// ReadSelf substitutes a contract's arguments and claimant in a signature
+// or a member law type, keeping the declaration's positional layout.
+func ReadSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], recv dense.ID[TKey], positions []int) dense.ID[TKey] {
+	substAt(&s.pool, t, args, dense.OptOf(recv), dense.NoID[TKey](), positions)
+}
+
+func ReadAbstractSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], recv dense.ID[TKey], op dense.ID[TKey]) dense.ID[TKey] {
+	substAt(&s.pool, t, args, dense.OptOf(recv), dense.OptOf(op), []int{})
+}
 
 // TArray is [n]e: its operands are the length, as a marked basic, and e.
 func TArray(s mut Store, n int, e dense.ID[TKey]) dense.ID[TKey] {

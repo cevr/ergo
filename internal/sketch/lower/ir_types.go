@@ -32,6 +32,12 @@ func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
 }
 
 func (b *irBuilder) admit(t check.Type, depth int) {
+	if r, ok := t.(*check.Reapplied); ok {
+		t = b.fc.boundType(r)
+		if t == r {
+			ice(b.fc.site, "a re-applied type reached IR outside its copy: %s", t)
+		}
+	}
 	if t == check.NoValue {
 		return // a type parameter bound by a block with no value: Go's struct{} (goType), which the decoder spells (PORT-CALLS-2)
 	}

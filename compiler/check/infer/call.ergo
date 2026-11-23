@@ -32,13 +32,21 @@ type Callee { Params []dense.ID[store.TKey], Rows []bool, Base int }
 // for one parameter, or a type parameter nothing binds. The frame is
 // begun on f and cut before Infer returns.
 func Infer(s mut store.Store, f mut Frame, u Unions, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+	let (got, _) = InferAt(s, f, u, callee, explicit, args)
+	got
+}
+
+// InferAt also returns the first unbound slot when argument matching
+// succeeded but could not bind all the type parameters; -1 otherwise.
+func InferAt(s mut store.Store, f mut Frame, u Unions, callee Callee, explicit []dense.ID[store.TKey], args []Arg) (Option[[]dense.ID[store.TKey]], int) {
 	if len(args) != len(callee.Params) || len(explicit) > len(callee.Rows) {
-		return None
+		return (None, -1)
 	}
 	let c = Begin(f, callee.Rows, callee.Base)
-	let out = inferIn(s, f, u, c, callee, explicit, args)
+	let mut unbound = -1
+	let out = inferIn(s, f, u, c, callee, explicit, args, &unbound)
 	End(f, c)
-	out
+	(out, unbound)
 }
 
 // InferRecoversBindings: arguments made by substituting bindings into the
@@ -252,7 +260,7 @@ law InferStepsPerCallAreConstant(picks []int, n int) {
 	one > 0 && Steps(f) == 2*one && Depth(f) == 0
 }
 
-func inferIn(s mut store.Store, f mut Frame, u Unions, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg) Option[[]dense.ID[store.TKey]] {
+func inferIn(s mut store.Store, f mut Frame, u Unions, c Call, callee Callee, explicit []dense.ID[store.TKey], args []Arg, unbound mut int) Option[[]dense.ID[store.TKey]] {
 	for i, t in explicit {
 		Bind(f, c, i, t)
 	}
@@ -310,6 +318,7 @@ func inferIn(s mut store.Store, f mut Frame, u Unions, c Call, callee Callee, ex
 		case None:
 			if !f.slots[c.at+i].row {
 				// Outside the inferred subset: write the type arguments.
+				*unbound = i
 				return None
 			}
 			targs = targs.Append(store.TRow(s, []dense.ID[store.TKey]{}))

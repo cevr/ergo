@@ -610,7 +610,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 			l.errorMethod(b, td)
 		}
 	case kindOps:
-		if it, ok := td.named.Underlying().(*check.Interface); ok && it.Generic {
+		if check.ConstraintOnly(td.named) {
 			// A constraint only by a generic operation has no Go type:
 			// its functions are copies, which call providers directly
 			// (types.md, Interface assignability 8).
@@ -1196,6 +1196,18 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
+		if copiesOnly(f) {
+			fc.readCopy = check.CopyReader(f.Pkg, sp.bound)
+			saved := l.info
+			facts, why := check.CopyInfo(saved, f.Decl, fc.readCopy)
+			if why != "" {
+				ice(site, "%s", why)
+			}
+			oldFacts, oldPkg := l.copyFacts, l.copyPkg
+			l.copyFacts, l.copyPkg = facts, f.Pkg
+			l.info = facts
+			defer func() { l.info, l.copyFacts, l.copyPkg = saved, oldFacts, oldPkg }()
+		}
 		head.WriteString("func " + sp.name + "(")
 	} else {
 		list, tps := l.typeParams(own, scope, site)

@@ -286,8 +286,11 @@ func (c *checker) planMachineLaw(law *Law) {
 // q234), as a function's are declared (funcSig): each is a type, never a
 // row, since a rewrite's function parameters fail nothing and need
 // nothing (funcrewrite.go, rule 4).
-func (c *checker) lawTypeParams(list *syntax.FieldList) []*TypeParam {
+func (c *checker) lawTypeParams(list *syntax.FieldList, owner ...*TypeParam) []*TypeParam {
 	ctx := &typeCtx{params: map[string]*TypeParam{}}
+	for _, p := range owner {
+		ctx.params[p.Name] = p
+	}
 	var out []*TypeParam
 	type pending struct {
 		tp *TypeParam
@@ -320,7 +323,7 @@ func (l *Law) typeParams() []*TypeParam {
 		return l.TParams
 	}
 	if n, ok := l.Owner.Type.(*Named); ok {
-		return n.TParams
+		return slices.Concat(n.TParams, l.TParams)
 	}
 	return nil
 }
@@ -334,7 +337,7 @@ func (l *Law) capability() *Named {
 		return nil
 	}
 	n, ok := l.Owner.Type.(*Named)
-	if !ok || len(n.TParams) > 0 {
+	if !ok || len(n.TParams) > 0 || copiesOnly(n) {
 		return nil
 	}
 	if _, isOps := n.Underlying().(*Interface); !isOps {
@@ -401,6 +404,10 @@ func (c *checker) pairUngeneratable(t Type) string {
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
 func (c *checker) planLaw(law *Law) {
+	if law.Owner != nil && (len(law.selfUses) != 0 || len(law.TParams) != 0) {
+		law.Unrun = "a member law with Self or its own parameters needs a claimant-specific run (CLAIM-LAWS)"
+		return // CLAIM-LAWS plans the claimant-specific runs.
+	}
 	if len(law.TParams) > 0 {
 		// A rewrite over functions (owner q234): the property run has no
 		// instantiation and no generator of functions; ergo test's licence
@@ -1118,8 +1125,8 @@ func (c *checker) checkLaw(law *Law) {
 		return
 	}
 	defer c.beginBodyCheck(law)()
-	if law.Owner == nil && d.TypeParams != nil && law.TParams == nil {
-		law.TParams = c.lawTypeParams(d.TypeParams)
+	if d.TypeParams != nil && law.TParams == nil {
+		law.TParams = c.lawTypeParams(d.TypeParams, law.typeParams()...)
 	}
 	tparams := law.typeParams()
 	defer c.monoOwner(tparams)()
@@ -1152,15 +1159,13 @@ func (c *checker) checkLaw(law *Law) {
 	prev := c.fn
 	c.fn = fc
 	defer func() { c.fn = prev }()
-	params := map[string]*TypeParam{}
-	for _, tp := range tparams {
-		params[tp.Name] = tp
-	}
+	ctx := c.localTypeCtx()
+	ctx.param = true
 	if d.Params != nil {
 		// A law's parameters parse as a function's (paramPlain), so each
 		// field has a type: a lone name is one (S104 when no type has it).
 		for _, field := range d.Params.List {
-			typ := writtenParamType(field, c.typExpr(field.Type, &typeCtx{param: true, params: params}))
+			typ := writtenParamType(field, c.typExpr(field.Type, ctx))
 			if len(field.Names) == 0 {
 				law.Params = append(law.Params, &Var{Name: "_", Type: typ, Pos: field.Type.Pos(), param: true, used: true})
 				continue
@@ -1272,6 +1277,10 @@ func (c *checker) lawOpCall(x *syntax.CallExpr) (operand, bool) {
 		return operand{}, false
 	}
 	c.recordUse(id, m)
+	if law := c.fn.law; law != nil && law.Owner != nil && copiesOnly(law.Owner.Type) {
+		c.errorf(id, CodeType, "%s needs a value: write x.%s(…)", m.Name, m.Name)
+		return bad(x), true
+	}
 	fun := operand{mode: modeValue, typ: m.Sig, method: m}
 	// The callee and each parenthesis around it have the operation's type.
 	for e := x.Fun; ; {

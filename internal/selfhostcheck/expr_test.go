@@ -672,8 +672,12 @@ func hasField(t check.Type, name string) bool {
 // source lies under another module. Only a package checked as a program
 // root has the synthetic path main; recover its import path from its module.
 func importPath(dir string, pkg *check.Package) string {
-	if pkg.Path != "main" {
-		return pkg.Path
+	return sourceImportPath(dir, pkg.Path)
+}
+
+func sourceImportPath(dir, path string) string {
+	if path != "main" {
+		return path
 	}
 	for root := dir; root != filepath.Dir(root); root = filepath.Dir(root) {
 		mod, err := os.ReadFile(filepath.Join(root, "ergo.mod"))
@@ -684,7 +688,7 @@ func importPath(dir string, pkg *check.Package) string {
 			if name, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
 				r, err := filepath.Rel(root, dir)
 				if err != nil {
-					return pkg.Path
+					return path
 				}
 				if r == "." {
 					return strings.TrimSpace(name)
@@ -694,5 +698,5 @@ func importPath(dir string, pkg *check.Package) string {
 		}
 		break
 	}
-	return pkg.Path
+	return path
 }

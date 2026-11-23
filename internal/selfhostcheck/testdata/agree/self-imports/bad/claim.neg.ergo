@@ -1,0 +1,3 @@
+import selfsupport/role
+
+type Bytes []byte implements role.Mappable[byte]
