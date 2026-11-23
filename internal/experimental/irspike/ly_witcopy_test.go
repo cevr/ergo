@@ -1,6 +1,10 @@
 package irspike
 
-import "testing"
+import (
+	"testing"
+
+	"ergo.local/prototype/internal/sketch/lower"
+)
 
 // TestIRWitnessCopiesMatchSource is the seeded property over copies for a
 // known witness (G4, GenerateWitnessCopy): each program prints the same
@@ -16,5 +20,9 @@ func TestIRWitnessCopiesMatchSource(t *testing.T) {
 	for _, g := range witcopyGenerics {
 		copies = append(copies, g+"Rect", g+"Sq")
 	}
-	f7PropertyEval(t, "TestIRWitnessCopiesMatchSource", GenerateWitnessCopy, append(copies, "tallyKTally", "twiceKTally")...)
+	copies = append(copies, "tallyKTally", "twiceKTally")
+	for i, name := range copies {
+		copies[i] = lower.HelperSpelling("", name)
+	}
+	f7PropertyEval(t, "TestIRWitnessCopiesMatchSource", GenerateWitnessCopy, copies...)
 }
