@@ -92,3 +92,21 @@ func TestDriversWritesTheMissingDriver(t *testing.T) {
 	f.git(f.main, "checkout", "-q", "x")
 	f.git(f.main, "merge", "-q", "--no-edit", "y")
 }
+
+// TestDriversAsksWorkFirst: drivers runs work doctor -here -fix in the
+// clone, so work's own table writes the drivers, and the header's table
+// only fills what work left: the driver work wrote stays as work wrote
+// it. Mutant: drivers never asks work (lanework-drivers-skip-work).
+func TestDriversAsksWorkFirst(t *testing.T) {
+	f := newFixture(t, "no-push:workspaces-never-push-origin")
+	f.diverge(false, false)
+	if err := os.WriteFile(filepath.Join(f.dir, "doctor-writes"), []byte("work merge-file -path %P lines %O %A %B"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := f.lanework(f.main, "drivers"); err != nil {
+		t.Fatalf("drivers: %v\n%s", err, out)
+	}
+	if got, want := f.git(f.main, "config", "--get", "merge.ergo-lines.driver"), "work merge-file -path %P lines %O %A %B"; got != want {
+		t.Errorf("merge.ergo-lines.driver in the clone is %q; want work's %q", got, want)
+	}
+}

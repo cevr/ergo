@@ -564,6 +564,10 @@ func Configure(v Vcs, root string, key string, value string) fails work.VcsFaile
 
 func Setting(v Vcs, root string, key string) string fails work.VcsFailed { maps.GetOr(try checkout(v, root), ".git/config/"+key, "") }
 
+// OwnSetting is Setting: the model has no user's or system's file, so
+// every value is the checkout's own.
+func OwnSetting(v Vcs, root string, key string) string fails work.VcsFailed { try Setting(v, root, key) }
+
 // notesFolder holds a checkout's notes, one file per commit.
 let notesFolder = ".git/notes/work/"
 

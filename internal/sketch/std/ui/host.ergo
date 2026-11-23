@@ -1,0 +1,866 @@
+// The host vocabulary (HOST-VOCAB): what a host draws, as six kinds. A view
+// writes the app vocabulary, Node's twenty kinds; Lower gives each of them
+// as one HostNode, so a host matches six kinds, each exhaustively, and an
+// app node built of existing kinds costs it no edit. A box carries what
+// the app's controls and wrappers add to a plain box as data: its Access
+// and signal (Sem), the chrome a check or a switch shows (Mark), the
+// motion a host runs (Moves), its layer and its zone.
+//
+// Prior art: NSH's ViewKind (nsh/NSH-2/page.md) lowers controls onto a
+// few view kinds, ending in a catch-all that logs; here every match over
+// HostNode names each kind. React Native's host components and Flutter's
+// RenderObjects are the same split: an app's widget vocabulary over a
+// small host one.
+
+// HostNode is one node as a host draws it: a box, a text, a text editor,
+// a scroll, a virtual list of rows or a canvas. An image is a canvas
+// paint op (ImageOp).
+type HostNode[E] = HostBox{Style Style, Dir Dir, Sem Sem[E], Mark Mark, Moves Moves, Layer Option[Layered[E]], Zone Option[Key], Default LookId} | HostText{Value string, Style Style, Readout Option[int], Reserve string} | HostEditor{Value string, Placeholder string, Label string, Description string, Invalid bool, Hints Hints, Lines int, Caret int, Anchor int} | HostScroll{Style Style} | HostRows{Label string, Count int, RowHeight Length, First int, Offset Length} | HostCanvas{Label string, Width Length, Height Length, Paint []PaintOp}
+
+// Dir is a box's direction: a Box (laid out as a column), a Column or a
+// Row. A Box and a Column lay out alike; a screenshot names each as the
+// view wrote it.
+type Dir = DirBox | DirColumn | DirRow
+
+// DirBox is a Box's direction, a column.
+type DirBox {}
+
+// DirColumn stacks the children down.
+type DirColumn {}
+
+// DirRow places the children across.
+type DirRow {}
+
+// Sem is what a box is to a locator, an assistive technology and the
+// pointer: its Access as it reads alone; the Label a WithLabel locator
+// finds (None for a box no label names); Control, whether a disabled
+// Fieldset above disables it; Focus, whether it takes the focus from Tab;
+// Pointer, whether it takes pointer events as an Area; Live, whether it
+// says its name when it changes (a Live region); the signal a press sends;
+// and the Fence a Fieldset puts on the nodes under it.
+type Sem[E] { Access Access, Label Option[string], Control bool, Focus bool, Pointer bool, Live bool, On Option[E], Fence Option[Fence] }
+
+// Fence is what a Fieldset puts on the nodes under it: disabled, and its
+// description where they have none.
+type Fence { Disabled bool, Description string }
+
+// Mark is the chrome a host draws for a control, in its own idiom
+// (`[x]` on a terminal, a filled square in a window): none, a check or a
+// switch. Its state is the box's Access.Checked.
+type Mark = NoMark | CheckMark | SwitchMark
+
+// NoMark is a box with no chrome.
+type NoMark {}
+
+// CheckMark is a check box's mark.
+type CheckMark {}
+
+// SwitchMark is a switch's track and knob.
+type SwitchMark {}
+
+// Moves is what moves a box on the host's clock: nothing; a Track's
+// property toward its target (track.ergo), with the Style the Track was
+// written with; or a Transition's motion at T (presence.ergo).
+type Moves = Still | Tracking{Key Key, Prop TrackProp, Target float64, Curve TrackCurve, Style Style} | Transiting{Key Key, Motion Motion, T float64}
+
+// Still is a box nothing moves.
+type Still {}
+
+// HostShape is a host tree: a host node and its children.
+type HostShape[E] { Node HostNode[E], Kids []HostShape[E] }
+
+// LowerShapes is shapes as a host receives them.
+func LowerShapes[E](shapes []Shape[E]) []HostShape[E] {
+	let mut out = []HostShape[E]{}
+	for s in shapes {
+		out = out.Append(HostShape[E]{Node: Lower(s.Node), Kids: LowerShapes[E](s.Kids)})
+	}
+	out
+}
+
+// box is a plain box: no access but Generic, no chrome, no motion.
+func box[E](style Style, dir Dir) HostBox[E] {
+	HostBox[E]{Style: style, Dir: dir, Sem: Sem[E]{Access: Named(Generic, ""), Label: None, Control: false, Focus: false, Pointer: false, Live: false, On: None, Fence: None}, Mark: NoMark, Moves: Still, Layer: None, Zone: None, Default: BareId()}
+}
+
+// Lower is n as a host draws it: one host node for one app node, which
+// keeps every field of n, so two nodes of one kind that differ lower to
+// host nodes that differ (LowerIsInjective), and a host answers what a
+// TestHost answers of n (HostKeepsAnswers).
+func Lower[E](n Node[E]) HostNode[E] {
+	match n {
+	case BoxNode as x:
+		box[E](x.Style, DirBox)
+	case ColumnNode as x:
+		box[E](x.Style, DirColumn)
+	case RowNode as x:
+		box[E](x.Style, DirRow)
+	case PressableNode[E] as x:
+		let mut b = box[E](x.Style, DirRow)
+		b.Sem.Access = Named(Button, x.Label)
+		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Control = true
+		b.Sem.Focus = true
+		b.Sem.On = Some{Value: x.On}
+		b.Default = PressId()
+		b
+	case CheckNode[E] as x:
+		let mut b = box[E](Plain(), DirRow)
+		b.Sem.Access = Named(Checkbox, x.Label)
+		b.Sem.Access.Checked = Some{Value: x.Checked}
+		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Control = true
+		b.Sem.Focus = true
+		b.Sem.On = Some{Value: x.On}
+		b.Mark = CheckMark
+		b
+	case ToggleNode as x:
+		let mut b = box[E](Plain(), DirRow)
+		b.Sem.Access = Named(Switch, x.Label)
+		b.Sem.Access.Checked = Some{Value: x.On}
+		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Control = true
+		b.Sem.Focus = true
+		b.Mark = SwitchMark
+		b
+	case AreaNode as x:
+		let mut b = box[E](x.Style, DirBox)
+		b.Sem.Access = Named(Region, x.Label)
+		b.Sem.Label = Some{Value: x.Label}
+		b.Sem.Pointer = true
+		b
+	case SemanticNode[E] as x:
+		let mut b = box[E](x.Style, DirBox)
+		b.Sem.Access = x.Access
+		b.Sem.Label = Some{Value: x.Access.Name}
+		b.Sem.Control = true
+		b.Sem.Focus = !x.Access.Disabled && sends(x.On)
+		b.Sem.On = x.On
+		b
+	case FieldsetNode as x:
+		let mut b = box[E](Plain(), DirBox)
+		b.Sem.Access = Named(Group, "")
+		b.Sem.Fence = Some{Value: Fence{Disabled: x.Disabled, Description: x.Description}}
+		b
+	case ZoneNode as x:
+		let mut b = box[E](x.Style, DirBox)
+		b.Zone = Some{Value: x.Key}
+		b
+	case LiveNode as x:
+		let mut b = box[E](Plain(), DirBox)
+		b.Sem.Access = Named(Status, x.Text)
+		b.Sem.Live = true
+		b
+	case TransitionNode as x:
+		let mut b = box[E](Plain(), DirBox)
+		b.Moves = Transiting{Key: x.Key, Motion: x.Motion, T: x.T}
+		b
+	case TrackNode as x:
+		let mut b = box[E](Plain(), DirBox)
+		b.Moves = Tracking{Key: x.Key, Prop: x.Prop, Target: x.Target, Curve: x.Curve, Style: x.Style}
+		b
+	case LayerNode[E] as x:
+		let mut b = box[E](x.Style, DirBox)
+		b.Layer = Some{Value: Layered[E]{Z: x.Z, Anchor: x.Anchor, Place: x.Place, Scrim: x.Scrim, Dismiss: x.Dismiss}}
+		b
+	case TextNode as x:
+		HostText{Value: x.Value, Style: x.Style, Readout: None, Reserve: ""}
+	case ReadoutNode as x:
+		HostText{Value: "", Style: x.Style, Readout: Some{Value: x.Readout}, Reserve: x.Reserve}
+	case InputNode as x:
+		HostEditor{Value: x.Value, Placeholder: x.Placeholder, Label: x.Label, Description: x.Description, Invalid: x.Invalid, Hints: x.Hints, Lines: x.Lines, Caret: x.Caret, Anchor: x.Anchor}
+	case ScrollNode as x:
+		HostScroll{Style: x.Style}
+	case RowsNode as x:
+		HostRows{Label: x.Label, Count: x.Count, RowHeight: x.RowHeight, First: x.First, Offset: x.Offset}
+	case CanvasNode as x:
+		HostCanvas{Label: x.Label, Width: x.Width, Height: x.Height, Paint: x.Paint}
+	}
+}
+
+// HostScope is the disabled state and description h passes to the nodes
+// under it, and has itself: a Fieldset's fence on top of off and desc.
+func HostScope[E](h HostNode[E], off bool, desc string) (bool, string) {
+	match h {
+	case HostBox[E] as x:
+		match x.Sem.Fence {
+		case Some[Fence] as f:
+			let mut d = desc
+			if f.Value.Description != "" {
+				d = f.Value.Description
+			}
+			(off || f.Value.Disabled, d)
+		case None:
+			(off, desc)
+		}
+	case HostText, HostEditor, HostScroll, HostRows, HostCanvas:
+		(off, desc)
+	}
+}
+
+// HostAccess is h as a locator reads it, under a disabled Fieldset when
+// off, with the description desc (both from HostScope).
+func HostAccess[E](h HostNode[E], off bool, desc string) Access {
+	let mut a = Named(Generic, "")
+	a.Description = desc
+	match h {
+	case HostBox[E] as x:
+		a = x.Sem.Access
+		a.Disabled = x.Sem.Access.Disabled || off && x.Sem.Control
+		if x.Sem.Access.Description == "" {
+			a.Description = desc
+		}
+	case HostText as x:
+		match x.Readout {
+		case Some[int]:
+		case None:
+			a.Role = Static
+			a.Name = x.Value
+		}
+	case HostEditor as x:
+		a.Role = TextBox
+		a.Name = if x.Label != "" { x.Label } else { x.Placeholder }
+		a.Disabled = off
+		if x.Description != "" {
+			a.Description = x.Description
+		}
+		a.Value = Some{Value: x.Value}
+		a.Invalid = x.Invalid
+	case HostRows as x:
+		a.Role = List
+		a.Name = x.Label
+	case HostCanvas as x:
+		a.Role = Image
+		a.Name = x.Label
+	case HostScroll:
+	}
+	a
+}
+
+// HostFinds is whether loc finds the node h, read as a (HostAccess).
+func HostFinds[E](loc Locator, h HostNode[E], a Access) bool {
+	match loc {
+	case WithRole as x:
+		a.Role == x.Role && (x.Name == "" || a.Name == x.Name)
+	case WithLabel as x:
+		match h {
+		case HostBox[E] as b:
+			b.Sem.Label == (Some{Value: x.Label})
+		case HostEditor as e:
+			e.Label != "" && e.Label == x.Label
+		case HostRows as l:
+			l.Label == x.Label
+		case HostCanvas as c:
+			c.Label == x.Label
+		case HostText, HostScroll:
+			false
+		}
+	case WithPlaceholder as x:
+		match h {
+		case HostEditor as e:
+			e.Placeholder == x.Text
+		case HostBox[E], HostText, HostScroll, HostRows, HostCanvas:
+			false
+		}
+	case WithText as x:
+		HostTextOf(h) == x.Text && isText(h)
+	case WithZone as x:
+		match h {
+		case HostBox[E] as b:
+			b.Zone == (Some{Value: x.Key})
+		case HostText, HostEditor, HostScroll, HostRows, HostCanvas:
+			false
+		}
+	case First as x:
+		// LocateIn takes the first; a node it finds is one At finds.
+		HostFinds[E](x.At, h, a)
+	case Within as x:
+		// LocateIn keeps those under In; a node it finds is one At finds.
+		HostFinds[E](x.At, h, a)
+	}
+}
+
+// isText is whether h is a Text: a HostText with no readout.
+func isText[E](h HostNode[E]) bool {
+	match h {
+	case HostText as x:
+		x.Readout == None
+	case HostBox[E], HostEditor, HostScroll, HostRows, HostCanvas:
+		false
+	}
+}
+
+// HostTextOf is the text h holds as a node's text content: a Text's
+// value, "" for every other node (a readout's reading is the session's).
+func HostTextOf[E](h HostNode[E]) string {
+	match h {
+	case HostText as x:
+		match x.Readout {
+		case Some[int]:
+			""
+		case None:
+			x.Value
+		}
+	case HostBox[E], HostEditor, HostScroll, HostRows, HostCanvas:
+		""
+	}
+}
+
+// HostFocusable is whether h takes the keyboard's focus from Tab (UC-TAB):
+// a box that says so, and every editor.
+func HostFocusable[E](h HostNode[E]) bool {
+	match h {
+	case HostBox[E] as x:
+		x.Sem.Focus
+	case HostEditor:
+		true
+	case HostText, HostScroll, HostRows, HostCanvas:
+		false
+	}
+}
+
+// HostPaintOf is the paint list of a canvas, empty for any other node.
+func HostPaintOf[E](h HostNode[E]) []PaintOp {
+	match h {
+	case HostCanvas as x:
+		x.Paint
+	case HostBox[E], HostText, HostEditor, HostScroll, HostRows:
+		[]PaintOp{}
+	}
+}
+
+// HostLookId is the handle of h's looks: its Style's; BareId for a node
+// with no Style of its own, and for a Track and a Layer, whose Style gives
+// their layout only (StyleOf, look.ergo).
+func HostLookId[E](h HostNode[E]) LookId {
+	match h {
+	case HostBox[E] as x:
+		match x.Moves {
+		case Tracking:
+			BareId()
+		case Still, Transiting:
+			match x.Layer {
+			case Some[Layered[E]]:
+				BareId()
+			case None:
+				x.Style.Look
+			}
+		}
+	case HostText as x:
+		x.Style.Look
+	case HostScroll as x:
+		x.Style.Look
+	case HostEditor, HostRows, HostCanvas:
+		BareId()
+	}
+}
+
+// HostDefaultLook is the LookId std writes for h's node when the view
+// gives none (DefaultLooks): PressId for a press, BareId for the rest.
+func HostDefaultLook[E](h HostNode[E]) LookId {
+	match h {
+	case HostBox[E] as x:
+		x.Default
+	case HostText, HostEditor, HostScroll, HostRows, HostCanvas:
+		BareId()
+	}
+}
+
+// HostShotText is h as one line of a screenshot (Screenshot), before its
+// looks: its kind as the view wrote it and what it shows.
+func HostShotText[E](h HostNode[E]) string {
+	match h {
+	case HostBox[E] as x:
+		boxShot(x)
+	case HostText as x:
+		match x.Readout {
+		case Some[int]:
+			"readout \"\(x.Reserve)\""
+		case None:
+			"text \"\(x.Value)\""
+		}
+	case HostEditor as x:
+		editorShot(x)
+	case HostScroll:
+		"scroll"
+	case HostRows as x:
+		"rows \"\(x.Label)\" \(x.Count) of \(x.RowHeight) from \(x.First)"
+	case HostCanvas as x:
+		"canvas \"\(x.Label)\" \(x.Width)x\(x.Height)"
+	}
+}
+
+// boxShot is a box's screenshot line: what the box carries names it.
+func boxShot[E](x HostBox[E]) string {
+	match x.Sem.Fence {
+	case Some[Fence] as f:
+		let mut out = "fieldset"
+		if f.Value.Disabled {
+			out = out + " disabled"
+		}
+		if f.Value.Description != "" {
+			out = out + " \"\(f.Value.Description)\""
+		}
+		return out
+	case None:
+	}
+	match x.Zone {
+	case Some[Key] as k:
+		return "zone \(keyText(k.Value))"
+	case None:
+	}
+	if x.Sem.Live {
+		return "live \"\(x.Sem.Access.Name)\""
+	}
+	match x.Moves {
+	case Transiting as t:
+		return "transition \(keyText(t.Key)) \(motionText(t.Motion)) \(t.T)"
+	case Tracking as t:
+		return "track \(keyText(t.Key)) \(t.Target)"
+	case Still:
+	}
+	match x.Layer {
+	case Some[Layered[E]] as l:
+		let mut out = "layer \(zText(l.Value.Z))"
+		match l.Value.Anchor {
+		case Some[Key] as k:
+			out = out + " at \(keyText(k.Value))"
+		case None:
+		}
+		if l.Value.Scrim {
+			out = out + " scrim"
+		}
+		return out
+	case None:
+	}
+	let on = x.Sem.Access.Checked == (Some{Value: true})
+	match x.Mark {
+	case CheckMark:
+		return if on { "[x] \"\(x.Sem.Access.Name)\"" } else { "[ ] \"\(x.Sem.Access.Name)\"" }
+	case SwitchMark:
+		return if on { "(on) \"\(x.Sem.Access.Name)\"" } else { "(off) \"\(x.Sem.Access.Name)\"" }
+	case NoMark:
+	}
+	if x.Sem.Pointer {
+		return "area \"\(x.Sem.Access.Name)\""
+	}
+	if x.Sem.Control {
+		return "\(roleText(x.Sem.Access.Role)) \"\(x.Sem.Access.Name)\""
+	}
+	match x.Dir {
+	case DirBox:
+		"box"
+	case DirColumn:
+		"column"
+	case DirRow:
+		"row"
+	}
+}
+
+// editorShot is an editor's screenshot line.
+func editorShot(x HostEditor) string {
+	let mut out = "input \"\(x.Value)\" (\(x.Placeholder))"
+	if x.Label != "" {
+		out = out + " label \"\(x.Label)\""
+	}
+	if x.Description != "" {
+		out = out + " \"\(x.Description)\""
+	}
+	if x.Invalid {
+		out = out + " invalid"
+	}
+	if x.Lines > 1 {
+		out = out + " lines \(x.Lines)"
+	}
+	// The caret and the selection, unless both are at the end.
+	if x.Caret != x.Anchor {
+		let (lo, hi) = Selected(Editing{Text: x.Value, Caret: x.Caret, Anchor: x.Anchor})
+		out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
+	} else if x.Caret != len(x.Value) {
+		out = out + " caret \(x.Caret)"
+	}
+	out
+}
+
+// hostLooksText is what a screenshot prints after h for its looks: none
+// for its kind's default, else its looks in braces (looksIdText).
+func hostLooksText[E](h HostNode[E], table []Looks) string {
+	let id = HostLookId(h)
+	if id == HostDefaultLook(h) {
+		return ""
+	}
+	looksIdText(id, table)
+}
+
+// HostKeepsAnswers (HOST-VOCAB): for app nodes of each of the twenty
+// kinds, drawn from two values a field, under each scope (disabled or not,
+// with a description or none), the host node Lower gives answers each
+// question a TestHost asks as the app node does: the scope it passes down,
+// its Access, which locators find it, its text content, whether it takes
+// the focus, its screenshot line, its looks and its paint. The reference
+// is the app vocabulary's own answers (the ref helpers below).
+law HostKeepsAnswers(seed int) {
+	let mut r = seeded(seed)
+	let mut ok = true
+	for k in 0..appKinds {
+		for _ in 0..6 {
+			let n = appNode(k, drawPicks(&r))
+			let h = Lower(n)
+			for off in []bool{false, true} {
+				for desc in []string{"", "x"} {
+					let (o, d) = refScope(n, off, desc)
+					let (ho, hd) = HostScope(h, off, desc)
+					let a = refAccess(n, o, d)
+					ok = ok && ho == o && hd == d && HostAccess(h, o, d) == a
+					for loc in answerLocators(a) {
+						ok = ok && HostFinds(loc, h, a) == refFinds(loc, n, a)
+					}
+				}
+			}
+			ok = ok && HostTextOf(h) == refText(n) && HostFocusable(h) == refFocusable(n) && HostShotText(h) == refShot(n)
+			ok = ok && HostLookId(h) == LookIdOf(n) && HostDefaultLook(h) == DefaultLooks(n) && HostPaintOf(h) == PaintOf(n)
+		}
+	}
+	ok
+}
+
+// LowerIsInjective (HOST-VOCAB): two app nodes of one kind that differ in
+// one field lower to host nodes that differ, so a Set never carries a
+// host node equal to the one it replaces, and no field is lost on the
+// way to a host.
+law LowerIsInjective(seed int) {
+	let mut r = seeded(seed)
+	let mut ok = true
+	for k in 0..appKinds {
+		for _ in 0..4 {
+			let p = drawPicks(&r)
+			let a = appNode(k, p)
+			for i in 0..len(p) {
+				let mut q = []int{}
+				for j, v in p {
+					q = q.Append(if j == i { 1 - v } else { v })
+				}
+				let b = appNode(k, q)
+				ok = ok && (a == b || Lower(a) != Lower(b))
+			}
+		}
+	}
+	ok
+}
+
+// appKinds is the number of app node kinds appNode draws. (a law's helper)
+let appKinds = 20
+
+// drawPicks is a field-by-field choice of two values. (a law's helper)
+func drawPicks(r mut rng) []int {
+	let mut p = []int{}
+	for _ in 0..10 {
+		p = p.Append(draw(r, 2))
+	}
+	p
+}
+
+// appNode is the app node of kind k whose field i takes value p[i] of
+// two; the two values of each field differ. (a law's helper)
+func appNode(k int, p []int) Node[int] {
+	let names = []string{"a", ""}
+	let keys = []Key{NoKey, ByInt(1)}
+	let styles = []Style{Plain(), PressStyle()}
+	let ons = []Option[int]{None, Some{Value: 1}}
+	let b = func(i int) bool { p[i] == 1 }
+	match k {
+	case 0:
+		BoxNode{Style: styles[p[0]]}
+	case 1:
+		RowNode{Style: styles[p[0]]}
+	case 2:
+		ColumnNode{Style: styles[p[0]]}
+	case 3:
+		ScrollNode{Style: styles[p[0]]}
+	case 4:
+		TextNode{Value: []string{"a", "b"}[p[0]], Style: styles[p[1]]}
+	case 5:
+		PressableNode[int]{Label: names[p[0]], On: p[1], Style: styles[p[2]]}
+	case 6:
+		CheckNode[int]{Label: names[p[0]], Checked: b(1), On: p[2]}
+	case 7:
+		let value = []string{"ab", "a"}[p[0]]
+		InputNode{Value: value, Placeholder: []string{"p", ""}[p[1]], Label: names[p[2]], Description: []string{"d", ""}[p[3]], Invalid: b(4), Hints: Hints{Keyboard: TextKeys, Return: ReturnDone, Capitalize: CapSentences, Autocorrect: b(5)}, Lines: 1 + 2*p[6], Caret: p[7], Anchor: p[8]}
+	case 8:
+		ToggleNode{Label: names[p[0]], On: b(1)}
+	case 9:
+		AreaNode{Label: names[p[0]], Style: styles[p[1]]}
+	case 10:
+		let paints = [][]PaintOp{[]PaintOp{}, []PaintOp{FillOp{Path: RectPath(0.0, 0.0, 1.0, 1.0), Color: Rgb(0)}}}
+		CanvasNode{Label: names[p[0]], Width: Length(float64(10 + 10*p[1])), Height: Length(float64(10 + 10*p[2])), Paint: paints[p[3]]}
+	case 11:
+		RowsNode{Label: names[p[0]], Count: 3 * p[1], RowHeight: Length(float64(10 + 10*p[2])), First: p[3], Offset: Length(float64(5 * p[4]))}
+	case 12:
+		FieldsetNode{Disabled: b(0), Description: []string{"d", ""}[p[1]]}
+	case 13:
+		ZoneNode{Key: keys[p[0]], Style: styles[p[1]]}
+	case 14:
+		LiveNode{Text: names[p[0]]}
+	case 15:
+		TransitionNode{Key: keys[p[0]], Motion: []Motion{Entering, Exiting}[p[1]], T: 0.5 * float64(p[2])}
+	case 16:
+		let mut a = Named([]Role{Button, Checkbox}[p[0]], names[p[1]])
+		a.Disabled = b(2)
+		a.Description = []string{"d", ""}[p[3]]
+		a.Checked = []Option[bool]{None, Some{Value: true}}[p[4]]
+		SemanticNode[int]{Access: a, On: ons[p[5]], Style: styles[p[6]]}
+	case 17:
+		ReadoutNode{Readout: 1 + p[0], Reserve: []string{"r", ""}[p[1]], Style: styles[p[2]]}
+	case 18:
+		LayerNode[int]{Z: []Z{PopoverZ, ModalZ}[p[0]], Anchor: []Option[Key]{None, Some{Value: ByInt(1)}}[p[1]], Place: Place{Side: []Side{SideBottom, SideTop}[p[2]], Align: AlignStart, Gap: 0}, Scrim: b(3), Dismiss: ons[p[4]], Style: styles[p[5]]}
+	case _:
+		TrackNode{Key: keys[p[0]], Prop: []TrackProp{TrackX, TrackY}[p[1]], Target: float64(p[2]), Curve: []TrackCurve{TrackEase{Over: 120ms}, TrackSpring{Stiffness: 1.0, Damping: 1.0}}[p[3]], Style: styles[p[4]]}
+	}
+}
+
+// answerLocators are the locators HostKeepsAnswers asks of a node read as
+// a: its role with and without its name, and each locator kind with a
+// value some drawn node holds and one none does. (a law's helper)
+func answerLocators(a Access) []Locator {
+	[]Locator{WithRole{Role: a.Role, Name: ""}, WithRole{Role: a.Role, Name: a.Name}, WithRole{Role: Button, Name: "a"}, WithLabel{Label: "a"}, WithLabel{Label: ""}, WithPlaceholder{Text: "p"}, WithPlaceholder{Text: ""}, WithText{Text: "a"}, WithText{Text: ""}, WithZone{Key: ByInt(1)}, WithZone{Key: NoKey}, First{At: WithLabel{Label: "a"}}, Within{In: WithText{Text: "a"}, At: WithLabel{Label: ""}}}
+}
+
+// refScope is the reference's scope: the disabled state and description
+// an app node passes to the nodes under it. (a law's helper)
+func refScope(n Node[int], off bool, desc string) (bool, string) {
+	match n {
+	case FieldsetNode as x:
+		let mut d = desc
+		if x.Description != "" {
+			d = x.Description
+		}
+		(off || x.Disabled, d)
+	case _:
+		(off, desc)
+	}
+}
+
+// refAccess is the reference's Access of an app node under a scope. (a
+// law's helper)
+func refAccess(n Node[int], off bool, desc string) Access {
+	let mut a = Named(Generic, "")
+	a.Description = desc
+	match n {
+	case PressableNode[int] as x:
+		a.Role = Button
+		a.Name = x.Label
+		a.Disabled = off
+	case CheckNode[int] as x:
+		a.Role = Checkbox
+		a.Name = x.Label
+		a.Disabled = off
+		a.Checked = Some{Value: x.Checked}
+	case ToggleNode as x:
+		a.Role = Switch
+		a.Name = x.Label
+		a.Disabled = off
+		a.Checked = Some{Value: x.On}
+	case InputNode as x:
+		a.Role = TextBox
+		a.Name = if x.Label != "" { x.Label } else { x.Placeholder }
+		a.Disabled = off
+		a.Value = Some{Value: x.Value}
+		if x.Description != "" {
+			a.Description = x.Description
+		}
+		a.Invalid = x.Invalid
+	case TextNode as x:
+		a.Role = Static
+		a.Name = x.Value
+	case FieldsetNode:
+		a.Role = Group
+	case AreaNode as x:
+		a.Role = Region
+		a.Name = x.Label
+	case CanvasNode as x:
+		a.Role = Image
+		a.Name = x.Label
+	case RowsNode as x:
+		a.Role = List
+		a.Name = x.Label
+	case LiveNode as x:
+		a.Role = Status
+		a.Name = x.Text
+	case SemanticNode[int] as x:
+		a = x.Access
+		a.Disabled = x.Access.Disabled || off
+		if x.Access.Description == "" {
+			a.Description = desc
+		}
+	case _:
+	}
+	a
+}
+
+// refFinds is the reference's answer to whether loc finds the app node
+// n, read as a. (a law's helper)
+func refFinds(loc Locator, n Node[int], a Access) bool {
+	match loc {
+	case WithRole as x:
+		a.Role == x.Role && (x.Name == "" || a.Name == x.Name)
+	case WithLabel as x:
+		match n {
+		case PressableNode[int] as p:
+			p.Label == x.Label
+		case CheckNode[int] as c:
+			c.Label == x.Label
+		case ToggleNode as t:
+			t.Label == x.Label
+		case AreaNode as r:
+			r.Label == x.Label
+		case CanvasNode as c:
+			c.Label == x.Label
+		case RowsNode as l:
+			l.Label == x.Label
+		case SemanticNode[int] as s:
+			s.Access.Name == x.Label
+		case InputNode as i:
+			i.Label != "" && i.Label == x.Label
+		case _:
+			false
+		}
+	case WithPlaceholder as x:
+		match n {
+		case InputNode as i:
+			i.Placeholder == x.Text
+		case _:
+			false
+		}
+	case WithText as x:
+		match n {
+		case TextNode as t:
+			t.Value == x.Text
+		case _:
+			false
+		}
+	case WithZone as x:
+		match n {
+		case ZoneNode as z:
+			z.Key == x.Key
+		case _:
+			false
+		}
+	case First as x:
+		refFinds(x.At, n, a)
+	case Within as x:
+		refFinds(x.At, n, a)
+	}
+}
+
+// refFocusable is the reference's answer to whether an app node takes
+// the focus from Tab: a Pressable, a Check, a Toggle, an Input, or a
+// Semantic that a press sends from and is not disabled. (a law's helper)
+func refFocusable(n Node[int]) bool {
+	match n {
+	case PressableNode[int], CheckNode[int], ToggleNode, InputNode:
+		true
+	case SemanticNode[int] as x:
+		!x.Access.Disabled && sends(x.On)
+	case _:
+		false
+	}
+}
+
+// refText is the reference's text content of one app node. (a law's
+// helper)
+func refText(n Node[int]) string {
+	match n {
+	case TextNode as t:
+		t.Value
+	case _:
+		""
+	}
+}
+
+// refShot is the reference's screenshot line of an app node, before its
+// looks. (a law's helper)
+func refShot(n Node[int]) string {
+	match n {
+	case BoxNode:
+		"box"
+	case RowNode:
+		"row"
+	case ColumnNode:
+		"column"
+	case ScrollNode:
+		"scroll"
+	case AreaNode as x:
+		"area \"\(x.Label)\""
+	case CanvasNode as x:
+		"canvas \"\(x.Label)\" \(x.Width)x\(x.Height)"
+	case RowsNode as x:
+		"rows \"\(x.Label)\" \(x.Count) of \(x.RowHeight) from \(x.First)"
+	case TextNode as x:
+		"text \"\(x.Value)\""
+	case PressableNode[int] as x:
+		"button \"\(x.Label)\""
+	case CheckNode[int] as x:
+		if x.Checked {
+			return "[x] \"\(x.Label)\""
+		}
+		"[ ] \"\(x.Label)\""
+	case ToggleNode as x:
+		if x.On {
+			return "(on) \"\(x.Label)\""
+		}
+		"(off) \"\(x.Label)\""
+	case InputNode as x:
+		let mut out = "input \"\(x.Value)\" (\(x.Placeholder))"
+		if x.Label != "" {
+			out = out + " label \"\(x.Label)\""
+		}
+		if x.Description != "" {
+			out = out + " \"\(x.Description)\""
+		}
+		if x.Invalid {
+			out = out + " invalid"
+		}
+		if x.Lines > 1 {
+			out = out + " lines \(x.Lines)"
+		}
+		if x.Caret != x.Anchor {
+			let (lo, hi) = Selected(EditingOf(x))
+			out = out + " selected \(lo)..\(hi) caret \(x.Caret)"
+		} else if x.Caret != len(x.Value) {
+			out = out + " caret \(x.Caret)"
+		}
+		out
+	case FieldsetNode as x:
+		let mut out = "fieldset"
+		if x.Disabled {
+			out = out + " disabled"
+		}
+		if x.Description != "" {
+			out = out + " \"\(x.Description)\""
+		}
+		out
+	case ZoneNode as x:
+		"zone \(keyText(x.Key))"
+	case LiveNode as x:
+		"live \"\(x.Text)\""
+	case ReadoutNode as x:
+		"readout \"\(x.Reserve)\""
+	case TransitionNode as x:
+		"transition \(keyText(x.Key)) \(motionText(x.Motion)) \(x.T)"
+	case TrackNode as x:
+		"track \(keyText(x.Key)) \(x.Target)"
+	case SemanticNode[int] as x:
+		"\(roleText(x.Access.Role)) \"\(x.Access.Name)\""
+	case LayerNode[int] as x:
+		let mut out = "layer \(zText(x.Z))"
+		match x.Anchor {
+		case Some[Key] as k:
+			out = out + " at \(keyText(k.Value))"
+		case None:
+		}
+		if x.Scrim {
+			out = out + " scrim"
+		}
+		out
+	}
+}
