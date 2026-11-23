@@ -119,6 +119,7 @@ func backtestLedgers(store covfile.Store, root, commit string, closures map[stri
 				}
 				seg := segments[e.Key]
 				if seg == nil {
+					var ok bool
 					if seg, ok = store.Load(e.Key); !ok {
 						return report, fmt.Errorf("the index at %s names segment %s of %s, which the store does not hold", short(commit), e.Key, suite)
 					}
