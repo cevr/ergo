@@ -702,6 +702,17 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	// leaf's import path, which rtRef imports.
 	name = b.consumedForm(x, body, name)    // ir_own.go
 	name, isExit := b.exitsForm(body, name) // ir_exits.go: OnExit on a static exit form
+	moved, repeated := b.movedCaptures(x)   // ir_taskmove.go
+	handles := b.captureHandles(moved)
+	if repeated {
+		// A Set's repeated body lends what it moves: the member's root owns
+		// it, TasksGoOwned's prepare (the emitter's movingRootArg).
+		if name != "TasksGo" || len(args) != 2 || x.Trailing == nil {
+			irNo("function literal that a task captures")
+		}
+		name = "TasksGoOwned"
+		args = []*irExpr{args[0], b.captureRoot(x.Trailing, moved, p), args[1]}
+	}
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
@@ -735,6 +746,20 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	}
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
+	}
+	if len(handles) > 0 {
+		// The admission step hands the moved captures out of the sender's
+		// list, or releases them on a failed one (ir_taskmove.go).
+		if isTuple || isExit || goFallible(body) && !failsHere(c) {
+			irNo("function literal that a task captures")
+		}
+		value := goValue(body)
+		typ := ""
+		if value {
+			typ = b.goType(b.l.info.Types[x], x)
+		}
+		spre, v := b.settleCaptures(call, handles, goFallible(body), value, typ, p)
+		return append(pre, spre...), v, !body.Pure
 	}
 	if isTuple && goFallible(body) {
 		b.tupleBound = call // bind binds its results and its error (tupleErrBind)
