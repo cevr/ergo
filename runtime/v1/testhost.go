@@ -6,7 +6,75 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"ergo.local/prototype/runtime/rt"
 )
+
+// TestDirectory names the runner's folder and owns the rooted handles
+// acquired during the case. Named contexts do not have a function frame
+// of their own to register these handles on.
+type TestDirectory struct {
+	dir   string
+	mu    sync.Mutex
+	roots []*os.Root
+	ended bool
+}
+
+// OpenTestDirectory is the test harness's acquisition of the case folder.
+//
+//ergo:host
+func OpenTestDirectory() *TestDirectory { return &TestDirectory{dir: TestFolderOpen()} }
+
+// Name is the absolute path of the case folder.
+//
+//ergo:wait none
+func (d *TestDirectory) Name(_ *rt.Task) string { return d.dir }
+
+func (*TestDirectory) caseFolderOnly() {}
+
+// End closes every root before removing the folder, even if its context
+// build failed or its test ended with a failure.
+//
+//ergo:host
+func (d *TestDirectory) End() {
+	d.mu.Lock()
+	d.ended = true
+	for i := len(d.roots) - 1; i >= 0; i-- {
+		_ = d.roots[i].Close()
+	}
+	d.roots = nil
+	d.mu.Unlock()
+	TestFolderRemove(d.dir)
+}
+
+// FSOpenTestRoot opens a subdirectory relative to the case folder, never
+// an absolute path or a path segment that escapes it. It resolves dir
+// through the held descriptor, not by validating and reopening a path.
+//
+//ergo:host
+//ergo:wait none
+func FSOpenTestRoot(folder *TestDirectory, dir string) (*HostRoot, error) {
+	folder.mu.Lock()
+	defer folder.mu.Unlock()
+	if folder.ended {
+		return nil, Denied{Path: dir}
+	}
+	base, err := os.OpenRoot(folder.dir)
+	if err != nil {
+		return nil, fsErr(dir, err)
+	}
+	defer base.Close()
+	root, err := base.OpenRoot(dir)
+	if err != nil {
+		failure := rootErr(dir, err)
+		if _, escapes := failure.(Escapes); escapes {
+			return nil, Denied{Path: dir}
+		}
+		return nil, failure
+	}
+	folder.roots = append(folder.roots, root)
+	return &HostRoot{root: root}, nil
+}
 
 // The test's ambient (docs/spec/rows.md, Test's ambient; runtime.md, Tests 11).
 // The test runner gives each build of a context that needs
