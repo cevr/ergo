@@ -29,7 +29,11 @@ const (
 	runtimeDir    = "ergo"
 	runtimeImport = runtimeModule + "/runtime/v1"
 	taskImport    = runtimeModule + "/runtime/rt"
-	goVersion     = "1.27"
+	// hostFSImport is the toolchain's plain Go package that os's Stat,
+	// Lstat and ReadDir are bound to (HOST-ROW-3; gobind.ValueResults):
+	// an import go package of the runtime's module, copied with it.
+	hostFSImport = runtimeModule + "/runtime/v1/hostfs"
+	goVersion    = "1.27"
 )
 
 // File is one file of the emitted Go module, at a slash-separated path
@@ -43,18 +47,19 @@ type File struct {
 // go.mod and main.go: the runtime module's go.mod and the source of
 // runtime/v1 and of runtime/rt, which it imports, and of runtime/explore,
 // which a test build's reachability laws call (machinelaws.go). The lowered main runs
-// under v1.Main, whose defect report names Ergo call sites (#230).
+// under v1.Main, whose defect report names Ergo call sites.
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
 	// Every leaf of runtime/v1 is copied with it: a program imports only
 	// the leaves it calls (rtRef), and the Go linker reads only imported
 	// packages, so a leaf it does not import costs it no byte. The gofmt
-	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well.
+	// and hostwalk leaves (v1.HostText, v1.HostWalk) are copied as well,
+	// and hostfs, an import go package of the runtime's module.
 	pkgs := []string{"runtime/v1", "runtime/explore", "runtime/testgen"}
 	for _, leaf := range v1.Leaves {
 		pkgs = append(pkgs, "runtime/v1/"+leaf)
 	}
-	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"))
+	pkgs = append(pkgs, strings.TrimPrefix(v1.HostText, runtimefiles.Module+"/"), strings.TrimPrefix(v1.HostWalk, runtimefiles.Module+"/"), strings.TrimPrefix(hostFSImport, runtimefiles.Module+"/"))
 	src, err := runtimefiles.Files(pkgs...)
 	if err != nil {
 		panic("lower: the runtime source is not embedded: " + err.Error())
@@ -382,9 +387,9 @@ type lowerer struct {
 	builtinDone  map[string]bool      // the reference's builtin helpers written (builtinHelper)
 	patternsDone map[string]bool      // the pattern matchers written (refinematch.go)
 
-	calls    []callIdent // the call table (calls.go, #230)
+	calls    []callIdent // the call table (calls.go)
 	callSeen map[*syntax.CallExpr]bool
-	decls    []declIdent // the declaration table (calls.go, #230)
+	decls    []declIdent // the declaration table (calls.go)
 	declSeen map[syntax.Node]bool
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
@@ -474,6 +479,11 @@ type lowerer struct {
 	// tests is the test build's state (tests.go, LowerTests); nil in the
 	// run build, which lowers no test.
 	tests *testLowering
+
+	// adapterConvs is the conversion of each adapter the naming pass
+	// named, by key, so a codec function that names one can emit it
+	// (wireread.go, wirewrite.go).
+	adapterConvs map[string]check.Conversion
 }
 
 // sortedRefusals orders refusals by position and drops repeats: a
@@ -543,6 +553,7 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
 		envFields: map[string]string{},
 	}
+	l.adapterConvs = map[string]check.Conversion{}
 	l.reads = l.readVars()
 	return l
 }
@@ -899,7 +910,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		b.WriteString("\t" + rt + ".StdoutDirect()\n")
 	}
 	// main runs as the root task under v1.Main, which reports its exit:
-	// a typed failure, a defect with its Ergo call sites (#230), or an
+	// a typed failure, a defect with its Ergo call sites, or an
 	// interruption (runtime.md, Exit causes). The environment holds that
 	// task (stage D3b, Rule 1).
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", fields, func(env string) string {

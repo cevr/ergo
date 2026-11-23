@@ -10,7 +10,7 @@ Tag: `default`.
 permit-wizard < cases/tour/stdin
 ```
 
-The script's words are listed in `script/script.ergo`: `click LABEL`, `check LABEL`, `code TEXT`, `wait MS` and `stats`. A click on a control that is not on the screen prints `? no node`; one on a disabled control does nothing.
+The script's words are listed in `script/script.ergo`: `click LABEL`, `check LABEL`, `code TEXT`, `wait MS` and `stats` (the ops of the act before it). A click on a control that is not on the screen prints `? no node`; one on a disabled control does nothing.
 
 ## The shape
 
@@ -78,6 +78,6 @@ The mutants these laws and the cases kill are in `testdata/mutants.json`.
   - a known code, an unknown code and an edit that clears the refusal;
   - a review button disabled until the leader, and a file button disabled until the rules are agreed;
   - the office's answer, a second after the filing, with no Cancel meanwhile;
-  - the work of the filing click (`stats`).
+  - the ops of the filing click (`stats`); its work counters are the guard TourWorkIsBounded (script/tests.ergo).
 - `scenes`: the three scene tests, on one screen in order.
 - `badscript`: an unknown word. The program says which line and exits 1.

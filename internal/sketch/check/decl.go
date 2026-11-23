@@ -105,6 +105,9 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// contexts are closed contexts that read the converged inferred rows
 		// (M2).
 		c.checkBodies,
+		// After the bodies: the rows a marked function must leave empty
+		// are final (aswritten.go).
+		c.checkAsWritten,
 		c.checkProviderFields,
 		// A constructor's rows are inferred, so constructors are planned
 		// once bodies converge, before any generator is decided.
@@ -377,8 +380,8 @@ func (c *checker) collect() {
 			if syntax.IsBindingDecl(d) && !runtimeTypeDecl(d) {
 				// A host type, const or method comes only from a binding
 				// that ergo bind go writes (docs/spec/interop.md); the
-				// checker reads bindings with #202's import checking.
-				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) is #202's (Go imports); ergo bind go writes it, and it is not checked yet")
+				// checker reads bindings with Go interop's import checking.
+				c.errorf(d, CodeOutside, "a binding declaration (extern go with type, let or a receiver) waits for Go interop; ergo bind go writes it, and it is not checked yet")
 				continue
 			}
 			switch d := d.(type) {
@@ -632,7 +635,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	if spec.Kind == syntax.ImportGo {
 		// Go's rule for an import path, before any name is read from it
-		// (#202 comment, small-fix #231).
+		// (comment, small-fix the FuzzFormat fix).
 		if why := GoImportPathError(path); why != "" {
 			c.errorf(spec.Path, CodeType, "malformed Go import path %q: %s", path, why)
 			c.bindBrokenImport(fi, spec, path)
@@ -641,7 +644,7 @@ func (c *checker) importSpec(fi *fileInfo, spec *syntax.ImportSpec) {
 	}
 	// A keyword cannot be the name an import binds, so a path whose last
 	// element is one needs an alias (grammar.md, Declarations rule 1; 196w).
-	// The message recognises Go's `import "context"` habit (#220).
+	// The message recognises Go's `import "context"` habit.
 	if def := importDefault(spec, path); spec.Name == nil && syntax.IsKeyword(def) {
 		fix := "import " + def + "pkg " + path
 		if spec.Kind == syntax.ImportGo {
@@ -784,7 +787,7 @@ func (c *checker) checkImportAliases() {
 			}
 		}
 		if !clash {
-			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s (#196, fourth round, item 3)", a.path)
+			c.errorf(a.spec, CodeType, "an import alias is only for a name clash; write import %s", a.path)
 			if pn, ok := a.file.scope.names[importBinds(a.spec)].(*PkgName); ok {
 				pn.used = true // The refused alias must not also be unused.
 			}
@@ -1430,7 +1433,7 @@ type typeCtx struct {
 
 // litParams carries a function literal's expected function type into its
 // signature: a parameter written without a type takes the expected
-// parameter's type (D-E1, #214). With none it is S108, once per literal.
+// parameter's type (D-E1). With none it is S108, once per literal.
 type litParams struct {
 	expected *Signature // the expected function type, or nil
 	untyped  bool       // a parameter is written without a type
@@ -2506,7 +2509,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 				pt := t
 				if field.Type == nil {
 					// A function literal's parameter written without a
-					// type (D-E1, #214).
+					// type (D-E1).
 					pt = c.untypedParam(name, len(sig.Params), ctx.lit)
 				}
 				sig.Params = append(sig.Params, &Var{Name: name.Name, Type: pt, Pos: name.Pos(), id: name, param: true})

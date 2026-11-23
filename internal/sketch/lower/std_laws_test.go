@@ -8,12 +8,13 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/lawledger"
+	"ergo.local/prototype/internal/lawledger/parsed"
 	"ergo.local/prototype/internal/sketch/stdlib"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // The std laws (docs/spec/stdlib.md, Std laws; std-align S1a) are checked,
-// not run, until #162. TestStdLawsRun is the ledger's runner for the laws
+// not run, until laws and proofs. TestStdLawsRun is the ledger's runner for the laws
 // that need the lowering and the runtime: one Ergo program restates each
 // as a test of its own name, its parameters drawn by the property runner,
 // and the test build runs them with --seed 1, as ergo test --seed 1 does.
@@ -1225,7 +1226,7 @@ func TestStdLawsRun(t *testing.T) {
 	if code != 0 {
 		t.Errorf("the std law tests failed: exit %d\n%s\n%s", code, stdout, firstLines(stderr, 20))
 	}
-	lawledger.Run(t, lawsPassed(t, stdLawsStatements, func(key string) string {
+	parsed.Run(t, lawsPassed(t, stdLawsStatements, func(key string) string {
 		pkg, law, _ := strings.Cut(key, " ")
 		return stdLawsTestName(pkg, law)
 	}, stdLawsProbe, stdout))

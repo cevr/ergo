@@ -13,7 +13,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Stage E3b (196l; ledger row C20; spec D-E4), with #162 law-run-1: the run
+// Stage E3b (196l; ledger row C20; spec D-E4), with laws and proofs law-run-1: the run
 // build never lowers a law, and the test build runs each. A law's facts are
 // OwnerLaw's (check/owners.go); the run build's view does not see that
 // owner and the test build's does (lower/owners.go). Each program of
@@ -77,7 +77,7 @@ const lawFixture = "../check/testdata/fixtures/spec/types-laws.ergo"
 // into a law, and the build is byte-identical to the run build of the
 // source with its laws blanked out (blankLaws), with no exception (law-top:
 // a type of laws and no operations is S108, so no build meets one). The
-// test build lowers the laws (#162 law-run-1), so it must only lower.
+// test build lowers the laws (law-run-1), so it must only lower.
 func TestBuildsOmitLaws(t *testing.T) {
 	type source struct{ name, src string }
 	var srcs []source
@@ -178,7 +178,7 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 		parts = append(parts, f.law+"\n", b.main)
 	} else {
 		// LawHostMem is the provider the test build runs the member law
-		// against (#162 law-run-1).
+		// against (law-run-1).
 		parts = append(parts, "type LawHost {\n\tHostPing() int,\n\n\t"+f.law+",\n}\n", "type LawHostMem {} implements LawHost\n\nfunc HostPing(_ LawHostMem) int {\n\t0\n}\n", b.main)
 	}
 	for _, d := range parts {
@@ -197,7 +197,7 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 // (buildsOmitLaws), the run build gives a type only the law makes an error
 // type no Error method and no text helper, the canary local keeps its Go
 // name there, and the run binary prints the base's output. The test build
-// reads the law's facts and runs it (#162 law-run-1): every law here holds,
+// reads the law's facts and runs it (law-run-1): every law here holds,
 // so its binary reports the law's run ok and exits 0.
 //
 // It builds Go because the laws run in the built test binary (ergo test),
@@ -279,7 +279,7 @@ func lawErrorShape(t *testing.T, name, build, typ, code string) {
 
 // buildsOmitLaws checks the run build of src, which must declare a law,
 // against the run build of src without its laws, and returns it with the
-// test build of src, which lowers the laws (#162 law-run-1: the test build
+// test build of src, which lowers the laws (laws and proofs law-run-1: the test build
 // runs them, so it is no longer the build of the blanked source).
 func buildsOmitLaws(t *testing.T, name, src string) (run, test *lowered) {
 	t.Helper()

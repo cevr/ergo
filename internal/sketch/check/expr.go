@@ -390,9 +390,9 @@ func (c *checker) interpolated(x *syntax.InterpolatedString) operand {
 //
 //   - a basic type has a text form;
 //   - a record, a union or a variant, a tuple, a slice or a Map (so
-//     Option[T]) is data whose text form #49 derives: S109;
+//     Option[T]) is data whose text form std codecs and I/O derives: S109;
 //   - a type parameter has none in v1, whatever its constraint, since a
-//     text needs a per-instance function and v1 boxes nothing: S109 #49;
+//     text needs a per-instance function and v1 boxes nothing: S109 std codecs and I/O;
 //   - any other type (a function, an operation type such as Task, a
 //     pointer, a machine) never has one: S108.
 //
@@ -404,9 +404,9 @@ func (c *checker) textForm(e syntax.Expr, t Type) {
 	case *Basic:
 		return
 	case *Struct, *Union, *Tuple, *Slice, *Array, *Map:
-		c.errorf(e, CodeOutside, "a value of type %s has no text form yet; interpolate one of its fields, or wait for derived text forms (#49)", c.localTypeText(t))
+		c.errorf(e, CodeOutside, "a value of type %s has no text form yet; interpolate one of its fields, or wait for derived text forms", c.localTypeText(t))
 	case *TypeParam:
-		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms (#49)", c.localTypeText(u))
+		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms", c.localTypeText(u))
 	default:
 		c.errorf(e, CodeType, "a value of type %s has no text form; interpolate a value of a basic type or of a type defined over one (grammar.md, Literals 5)", c.localTypeText(t))
 	}
@@ -1764,8 +1764,8 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 		op.mode = modeInvalid
 		return false
 	}
-	captured := false
-	c.capture = &captured
+	var held captured
+	c.capture = &held
 	a, why := c.assignability(op.typ, t)
 	if !a.ok() {
 		repair := ""
@@ -1815,19 +1815,56 @@ func (c *checker) assign(op *operand, t Type, what string) bool {
 	c.implicit(op.expr, a)
 	if a.clause == assignOperations {
 		c.recordConversion(op.expr, op.typ, t)
-		c.captureForeign(op.expr, captured, op.typ, t)
+		c.captureForeign(op.expr, held, op.typ, t)
 	}
 	return true
 }
 
+// captured is what a provider's build holds for its operations beyond
+// the operation type's row (README Gap 17; HOST-ROW): go.Foreign for an
+// operation that calls Go, Ambient for one that reads the host through a
+// host row (a Go call bound with `// ergo:effect ambient`).
+type captured struct {
+	foreign bool
+	ambient Type
+}
+
+// add records the capabilities of extra, each go.Foreign or Ambient, and
+// reports whether there was no other.
+func (h *captured) add(extra *Row) bool {
+	elems := extra.Elems()
+	for _, e := range elems {
+		n, ok := e.(*Named)
+		switch {
+		case ok && IsGoForeign(n):
+		case isAmbient(e):
+		default:
+			return false
+		}
+	}
+	for _, e := range elems {
+		if n, ok := e.(*Named); ok && IsGoForeign(n) {
+			h.foreign = true
+		} else {
+			h.ambient = e
+		}
+	}
+	return len(elems) > 0
+}
+
 // captureForeign charges go.Foreign where a provider whose operations call
-// Go becomes a value of an operation type (README Gap 17): the build site
-// holds it for every later call through the operation type, whose own row
-// does not name it. The provider value is the capture; go.Foreign has no
-// provider of its own (rows.md, Entry 4), so nothing is stored.
-func (c *checker) captureForeign(at syntax.Node, captured bool, v, t Type) {
-	if captured {
+// Go becomes a value of an operation type (README Gap 17), and Ambient
+// where they read the host through a host row (HOST-ROW): the build site
+// holds them for every later call through the operation type, whose own
+// row does not name them. The provider value is the capture; neither has a
+// provider of its own but the entry (rows.md, Entry 4), so nothing is
+// stored.
+func (c *checker) captureForeign(at syntax.Node, held captured, v, t Type) {
+	if held.foreign {
 		c.chargeAs(at, goForeign(), fmt.Sprintf("building %s as %s, whose operations call Go,", v, t))
+	}
+	if held.ambient != nil {
+		c.chargeAs(at, held.ambient, fmt.Sprintf("building %s as %s, whose operations read the host,", v, t))
 	}
 }
 

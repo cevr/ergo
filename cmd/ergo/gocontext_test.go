@@ -7,7 +7,7 @@ import (
 )
 
 // TestGoContextInterrupts is IG10's acceptance (docs/spec/interop.md, Host
-// calls; #202's G8 host-call stage): a Go function whose first parameter
+// calls; Go interop's G8 host-call stage): a Go function whose first parameter
 // is context.Context is bound with that parameter hidden, and the call
 // passes the calling task's context, through import go and through a user
 // extern (a Level 2 adapter of runtime/trace.Log). A task blocked in such

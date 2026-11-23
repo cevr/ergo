@@ -1,6 +1,6 @@
 // The shell's tests drive Run with a scripted io.Input and record what it
 // writes with an io.Recorder, with no host. ergo test runs the laws of
-// laws.ergo itself (#162).
+// laws.ergo itself.
 
 import io
 import strings

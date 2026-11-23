@@ -207,7 +207,7 @@ XFAIL reproduced  A2 payload, element alias: smallest=a true-min=b (recorded a)
 XFAIL reproduced  A3 payload, accessor after re-check: smallest=c true-min=b (recorded c)
 XFAIL reproduced  R10 canonical, companion patch, form (i): smallest=c true-min=a (recorded c)
 XFAIL reproduced  R10 canonical, companion patch, re-establishment: smallest=c true-min=a (recorded c)
-expected-fail: 9 reproduced, 0 not reproduced (#125 input; not acceptance)
+expected-fail: 9 reproduced, 0 not reproduced (input; not acceptance)
 exit=0
 == node attacks.mts
 L1 launder via form (ii): returned c
@@ -293,7 +293,7 @@ negatives.mts:6  N1 a record is not Ordered  [expects TS2345]
     TS2345 Argument of type 'Three<User>' is not assignable to parameter of type 'Three<Ordered>'.   Types of property 'a' are incompatible.     Type 'User' is not assignable to type 'Ordered'.
 negatives.mts:8  N2 a function-keyed map  [expects TS2345]
     TS2345 Argument of type '() => void' is not assignable to parameter of type 'never'.
-negatives.mts:10  N3 a resource-handle key (File, #96)  [expects TS2345]
+negatives.mts:10  N3 a resource-handle key (File)  [expects TS2345]
     TS2345 Argument of type 'File' is not assignable to parameter of type 'never'.
 negatives.mts:12  N4 a record with a callable field  [expects TS2345]
     TS2345 Argument of type '{ id: bigint; run: () => void; }' is not assignable to parameter of type 'never'.

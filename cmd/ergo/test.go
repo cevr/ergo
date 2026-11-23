@@ -441,13 +441,19 @@ func writeLedger(opts fileOptions, l loaded) error {
 		Ledger:    ledgerPath(opts.file),
 		Laws:      lawStore(),
 	})
-	if err != nil {
-		return err
-	}
 	if changed > 0 {
 		fmt.Fprintf(os.Stderr, "ergo.laws: %d entries changed\n", changed)
 	}
-	return nil
+	var skipped *sketchfront.LicenceSkippedError
+	if errors.As(err, &skipped) {
+		// A rewrite law with no licence verdict fails the test (AC10):
+		// its line is a test's FAIL line, with the fix.
+		for _, s := range skipped.Skipped {
+			fmt.Fprintln(os.Stdout, s.Line())
+		}
+		return exitStatusError{code: 1, handled: true}
+	}
+	return err
 }
 
 // shadowLines reads the test program's standard error for the rewrite

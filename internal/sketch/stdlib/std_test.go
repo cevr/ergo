@@ -24,7 +24,7 @@ const v1Path = "ergo.local/prototype/runtime/v1"
 // that no Ergo operation binds, each with the reason. A body that binds no
 // declaration and is not listed here fails TestEachExternHasItsGoBody.
 var unbound = map[string]string{
-	// None since #197 L8 B3t: a returned Task is an owned value, and no
+	// None since resource ownership L8 B3t: a returned Task is an owned value, and no
 	// Move body is left.
 }
 
@@ -122,7 +122,7 @@ func main() fails queue.Closed {
 }
 
 // TestContextPackagesSurface: trace exports the two declarations of G1
-// and nothing else (the rest is #206; log's logging API is stdlib.md
+// and nothing else (the rest is the standard library; log's logging API is stdlib.md
 // log); trace's and log's values bind through
 // with by the context-binding protocol and their reads check in a program
 // with no capability.
@@ -1647,7 +1647,7 @@ extern go strings.ToUpper func up(s string) string
 func Get(_ Env) string { getenv("HOME") }
 
 extern go os.Getenv func getenv(k string) string
-`, "declare needs go.Foreign"},
+`, "declare needs Ambient"}, // a host row (interop.md, Purity and authority; HOST-ROW)
 		{"runtime extern", `type Disk {}
 
 func Read(_ Disk) string { hostRead("x") }

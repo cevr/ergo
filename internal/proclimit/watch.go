@@ -4,7 +4,6 @@ import (
 	"io"
 	"os/exec"
 	"sync"
-	"time"
 )
 
 // Watcher passes a program's stderr on and notes whether the Go runtime
@@ -19,10 +18,13 @@ type Watcher struct {
 
 // Watch makes cmd's stderr pass through a Watcher, which Check reads. Call
 // it after setting cmd.Stderr and before starting cmd. The program's stderr
-// is then a pipe, not the file cmd.Stderr names. A process the program
-// leaves behind may hold the pipe open; unless cmd sets its own WaitDelay,
-// Wait then gives up on the pipe one second after the program exits, as it
-// would not wait for a file.
+// is then a pipe, not the file cmd.Stderr names, so wait for it with Wait,
+// not cmd.Wait: a process the program leaves behind may hold the pipe
+// open, and Watch starts the program in a process group of its own, which
+// Wait kills once the program exits. Watch arms no fixed wait
+// (exec.Cmd.WaitDelay): the 1s it set until WAITDELAY failed passing runs
+// whose large output had not drained a second after the exit, on a loaded
+// host (BUDGET-BACKFILL, 2026-11-21).
 func Watch(cmd *exec.Cmd) *Watcher {
 	next := cmd.Stderr
 	if next == nil {
@@ -35,9 +37,7 @@ func Watch(cmd *exec.Cmd) *Watcher {
 		cmd.Stdout = w
 	}
 	cmd.Stderr = w
-	if cmd.WaitDelay == 0 {
-		cmd.WaitDelay = time.Second
-	}
+	ownGroup(cmd)
 	return w
 }
 

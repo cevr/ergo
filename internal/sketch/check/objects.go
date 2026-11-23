@@ -8,7 +8,7 @@ import (
 
 // requirementKeyword is the spelling of a capability (requirement) row in
 // source. The keyword is the only place the checker names it, so a rename of
-// the keyword (#217) touches this constant and the syntax nodes only.
+// the keyword touches this constant and the syntax nodes only.
 const requirementKeyword = "needs"
 
 // Object is a named entity: a type, a function, a variable, a constant, a
@@ -102,6 +102,9 @@ type Func struct {
 	// goExtern is a user extern's admitted adapter of its Go target's
 	// binding (extern.go, Level 2), once checkExterns admits it.
 	goExtern *GoExtern
+	// asWritten: the function's doc holds `// ergo:aswritten` and it is a
+	// pure identity of one parameter (aswritten.go).
+	asWritten bool
 }
 
 // Var is a variable: a parameter, a local or a package-level let.

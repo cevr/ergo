@@ -871,7 +871,7 @@ func ergoOperations(v Type) bool {
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
-// the check is linear in the method count (#122).
+// the check is linear in the method count.
 func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 	return c.implementsCapturing(v, it, checkReceiver, nil)
 }
@@ -881,10 +881,10 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 // admitted, and *capture is set when v implements it with such a method:
 // the site that builds the provider holds go.Foreign for it, as a provider
 // built by a constructor captures what its constructor needed (README Gap
-// 17; #37 for every other capability). go.Foreign has no provider value
+// 17; context construction for every other capability). go.Foreign has no provider value
 // (rows.md, Entry 4), so the operation's Go call needs nothing at run time
 // that the build site did not have.
-func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *bool) string {
+func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *captured) string {
 	return c.implementsAt(v, it, checkReceiver, capture, nil)
 }
 
@@ -895,8 +895,8 @@ func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool,
 // Generics 2; Interface assignability 1; MODES-4). A conversion
 // (declared nil) reads the clause's verdict: a function on mut T
 // provides its operation for a value with a place, &x.
-func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, capture *bool, declared Type) string {
-	foreign := false
+func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, capture *captured, declared Type) string {
+	var held captured
 	// A Go interface spells no mut: a function on mut T provides its
 	// operation as Go's pointer-receiver method does, by the conversion
 	// rule (interop.md, Checking).
@@ -970,10 +970,9 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		}
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			extra := gu.minus(c.types, m.Sig.Uses)
-			if capture == nil || !goForeignRow(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+			if capture == nil || !held.add(extra) {
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)", v, m.Name, rowText(extra))
 			}
-			foreign = true
 		}
 		if why := c.releaseWider(v, m); why != "" {
 			return why
@@ -993,8 +992,8 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
 		}
 	}
-	if foreign {
-		*capture = true
+	if held.foreign || held.ambient != nil {
+		*capture = held
 	}
 	return ""
 }

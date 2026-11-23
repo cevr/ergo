@@ -55,10 +55,10 @@ func Corpus() (v0, superseded []Input, err error) {
 	return v0, superseded, err
 }
 
-// Repository returns the migrated examples (docs/research/ef-migrate) and
+// Repository returns the migrated examples (testdata/migrated) and
 // the 2026 example program.
 func Repository() ([]Input, error) {
-	paths, _ := filepath.Glob(filepath.Join(root(), "docs", "research", "ef-migrate", "*.ergo"))
+	paths, _ := filepath.Glob(filepath.Join(root(), "internal", "sketch", "sketchtest", "testdata", "migrated", "*.ergo"))
 	paths = append(paths, filepath.Join(root(), "examples", "editions", "sketch", "main.ergo"))
 	var inputs []Input
 	for _, path := range paths {
@@ -78,7 +78,7 @@ func Repository() ([]Input, error) {
 var fenceStart = regexp.MustCompile("^```go\\s*$")
 
 // SpecFences returns every ```go fence of docs/spec/*.md, split into chunks
-// at blank lines outside brackets (#196, D8). A chunk that starts with
+// at blank lines outside brackets (D8). A chunk that starts with
 // import, type, func, let, test or extern is a file; any other is the body
 // of `func snippet()`.
 func SpecFences() ([]Input, error) {

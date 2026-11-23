@@ -63,7 +63,7 @@ const (
 	// ReadingPackage is the package that declares the context-read extern.
 	ReadingPackage Hidden = "context-package"
 	// ResultRelease, a Releaser[T], is the generated release of the call's
-	// result type T, or nil when T holds no resource (#197 L8 B4, Gap 47):
+	// result type T, or nil when T holds no resource (L8 B4, Gap 47):
 	// a boundary that drops a successful result releases it.
 	ResultRelease Hidden = "release"
 )
@@ -137,12 +137,6 @@ type Body struct {
 	// with its first operand a zero-field PROVIDER the call erases (the
 	// host Sleep of LiveScheduler).
 	BridgeTarget, BridgeProvider string
-	// AsWritten reports a body marked //ergo:aswritten (AsWrittenMark):
-	// a pure identity of one parameter, whose call keeps the call tree in
-	// its argument as written. A rewrite over functions never takes such a
-	// call tree as its root or a part of its match (docs/spec/types.md,
-	// Laws 14; lower/funcrewrite.go).
-	AsWritten bool
 	// Package is the import path of the body's package: runtime/v1 (Path)
 	// or one of its leaves (Leaves), which the lowering imports to call it.
 	Package string
@@ -228,8 +222,8 @@ func (b Bodies) Body(name string) (Body, error) {
 	switch {
 	case body.Wait == "":
 		return Body{}, fmt.Errorf("%s states no %sKIND (%s)", name, WaitMark, kindList(WaitKinds()))
-	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "" || body.View != "" || body.AsWritten:
-		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form, a checking form, a view form or %s, which only runtime/v1's bodies state", name, AsWrittenMark)
+	case body.Release != "" || body.BridgeTarget != "" || body.Owned != "" || body.Check != "" || body.View != "":
+		return Body{}, fmt.Errorf("%s states a release route, a bridge, an owned form, a checking form or a view form, which only runtime/v1's bodies state", name)
 	}
 	return body, nil
 }
@@ -241,11 +235,6 @@ const PureMark = "//ergo:pure"
 // HostMark is the directive line that marks a body that reaches host
 // state, in the doc comment of an exported function or method.
 const HostMark = "//ergo:host"
-
-// AsWrittenMark is the directive line that marks a body that keeps its
-// argument's call tree as written (Body.AsWritten): a pure function of one
-// parameter whose result is of the parameter's type.
-const AsWrittenMark = "//ergo:aswritten"
 
 // OwnedMark starts the directive line that names a body's owned form
 // (Body.Owned): "//ergo:owned Name".
@@ -834,12 +823,6 @@ func (d goDecls) body(name string) (Body, error) {
 	}
 	if err := policy(g.fn, &b); err != nil {
 		return Body{}, fmt.Errorf("runtime/v1: %s: %w", name, err)
-	}
-	if marked(g.fn, AsWrittenMark) {
-		if !b.Pure || len(b.Hidden) > 0 || len(b.Params) != 1 || len(b.Results) != 1 || b.Results[0] != b.Params[0].Type {
-			return Body{}, fmt.Errorf("runtime/v1: %s is marked %s, but is no pure function of one parameter whose result has its type", name, AsWrittenMark)
-		}
-		b.AsWritten = true
 	}
 	return b, nil
 }

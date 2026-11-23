@@ -2,7 +2,7 @@ package syntax
 
 import "strconv"
 
-// ---------------------------------------------------------------- decided-grammar nodes (#196)
+// ---------------------------------------------------------------- decided-grammar nodes
 
 // ExternSpec is the binding of an extern declaration: `extern go
 // path.Func`. Target is the unquoted target token (Kind PATH); its function
@@ -27,6 +27,16 @@ func (s *ExternSpec) SplitMethod() (path, typ, name string) {
 	rest, name := splitTarget(s.Target.Value)
 	path, typ = splitTarget(rest)
 	return path, typ, name
+}
+
+// FuncTarget reports a method's target that names a Go function, not a
+// method: path.F, which the call runs with the receiver as its first
+// argument (S2-FILE-B): `extern go
+// ergo.local/prototype/runtime/v1/hostfs.FileStat func (f *File) Stat()
+// hostfs.Info` calls hostfs.FileStat(f). Its path has no type element.
+func (s *ExternSpec) FuncTarget() bool {
+	path, _, _ := s.SplitMethod()
+	return path == ""
 }
 
 // RuntimeModule is the Go module path of the Ergo runtime. An extern type
@@ -271,7 +281,7 @@ func (v *VariantSpec) End() Pos { return v.Fields.End() }
 func (*VariantSpec) exprNode()  {}
 
 // AsPattern is `P as name`: it matches P and binds the matched value,
-// narrowed to P's type, to name (#196, ninth round).
+// narrowed to P's type, to name (ninth round).
 type AsPattern struct {
 	X    Expr
 	As   Pos

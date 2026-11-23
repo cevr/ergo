@@ -10,7 +10,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Go imports (#202, docs/spec/interop.md). `import go net/url` reads the
+// Go imports (docs/spec/interop.md). `import go net/url` reads the
 // binding of net/url: an Ergo file of extern go declarations that ergo bind
 // go generated from go/types. The checker never runs a Go tool (plan §2,
 // option C): Go's standard library is embedded (gostd), and a module's own
@@ -241,6 +241,7 @@ type hostPkg struct {
 	vouched  map[*Func][]vouch        // its vouched `// ergo:reads p (vouched: …)` lines (gofacts.go)
 	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
+	host     map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -303,6 +304,12 @@ func (s *GoBindings) ResolveAll(path string) bool {
 	}
 	h := p.host
 	h.load()
+	// A misfit line is reported in the binding's own file.
+	if h.fi != nil {
+		saved := h.c.cur
+		h.c.cur = h.fi
+		defer func() { h.c.cur = saved }()
+	}
 	for _, name := range sortedKeys(p.Scope.names) {
 		o := p.Scope.names[name]
 		h.resolve(o)
@@ -316,6 +323,7 @@ func (s *GoBindings) ResolveAll(path string) bool {
 			for _, m := range n.mlist {
 				h.c.funcSig(m)
 				h.misfitReads(m)
+				h.misfitWrites(m) // a method writes too (HOST-ROW-3 slice 2: File.Read)
 			}
 		}
 	}
@@ -506,6 +514,14 @@ func (h *hostPkg) load() {
 			}
 		}
 	}
+	for _, fn := range c.pkg.Funcs {
+		h.ambientUnvouched(fn)
+	}
+	for _, tn := range c.pkg.Types {
+		for _, m := range tn.Type.(*Named).mlist {
+			h.ambientUnvouched(m)
+		}
+	}
 }
 
 // GoVariadic reports a Go function or method of import go whose last
@@ -560,7 +576,7 @@ func goForeign() Type {
 }
 
 // GoImportPathError checks path by Go's rule for an import path
-// (golang.org/x/mod/module.CheckImportPath, #202; small-fix #231): it
+// (golang.org/x/mod/module.CheckImportPath, small-fix the FuzzFormat fix): it
 // returns the reason path is not one, or "".
 func GoImportPathError(path string) string {
 	switch {

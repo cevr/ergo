@@ -256,7 +256,7 @@ var usesKeyword = regexp.MustCompile(`\buses\b`)
 // TestContextBudgetHeadroom: every fixture, witness, prototype fixture,
 // corpus file and example uses under 10% of its context budget, so the
 // budget refuses only sources far from the ones written so far. The
-// prototype fixtures and the corpus are their decided translations (#196).
+// prototype fixtures and the corpus are their decided translations.
 func TestContextBudgetHeadroom(t *testing.T) {
 	var files []string
 	for _, pattern := range []string{
@@ -268,7 +268,7 @@ func TestContextBudgetHeadroom(t *testing.T) {
 		"../syntax/testdata/corpus/*/*.ergo",
 		"../syntax/testdata/corpus/*/*/*.ergo",
 		"../../../examples/*/*/*.ergo",
-		"../../../docs/research/ef-migrate/*.ergo",
+		"../../../internal/sketch/sketchtest/testdata/migrated/*.ergo",
 	} {
 		m, _ := filepath.Glob(pattern)
 		files = append(files, m...)

@@ -191,9 +191,9 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.initOnce":         "a library's init runner's declared header: func ergoInitRun(env *Env) (IG11)",
 		"lowerer.emitContext":      "a context builder's declared header",
 		"lowerer.envField":         "names the type before its first field",
-		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
+		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's, an exported function's (IG11)",
 		"lowerer.testDecl":         "a test's declared header: func ergoTestName(env *Env, ...)",
-		"lowerer.lawDecl":          "a law's declared header: func ergoLawName(env *Env, ...) (bool, error) (#162)",
+		"lowerer.lawDecl":          "a law's declared header: func ergoLawName(env *Env, ...) (bool, error)",
 		"lowerer.rewriteFunc":      "a rewrite law side's declared header: func ergoLawTLLeft(env *Env, ...) error (types.md, Laws 14)",
 		"lowerer.testRunnerHead":   "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
 		"funcCtx.operations":       "an Env value of the caller's task for an operation table",
@@ -219,6 +219,7 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"irBuilder.groupCall":      "the IR's group body of a component call: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
 		"irBuilder.sameLit":        "the IR's group equality literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
 		"irBuilder.cheapLit":       "the IR's group cheap-equality literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
+		"irBuilder.inForce":        "the IR's InForce: the Env copy taken at the call and the *Env parameter of the Context literal over it, locals of the IR body; the derivative writes the closure (ir_inforce.go, IR-INFORCE)",
 		"irBuilder.keepLit":        "the IR's group keep literal: its *Env parameter, a local of the IR literal; the derivative writes the closure (ir_uigroup.go, IRG-MAIN)",
 	}
 	for _, owner := range sortedKeys(readers) {

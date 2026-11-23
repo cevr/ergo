@@ -48,7 +48,7 @@ func TestMappedTextRows(t *testing.T) {
 		}},
 		{"mut-text", "func mutText() int {\n\tlet m = fs.MapText(\"abc\")\n\tlet mut t = m.Text()\n\tlen(t)\n}", []string{
 			"3:10: S108 t is a mapped text (fs.Text), a borrow of its Mapped, so a let mut cannot hold it: one let holds one text (types.md, Borrows 8); bind it with let",
-			"3:10: S110 t is never reassigned; write let t (#196, 196v)",
+			"3:10: S110 t is never reassigned; write let t",
 		}},
 		{"same-call", "func taker(t fs.Text, m own fs.Mapped) int {\n\tm.Close()\n\tlen(t)\n}\n\nfunc sameCall() int {\n\tlet m = fs.MapText(\"abc\")\n\ttaker(m.Text(), m)\n}", []string{
 			"8:8: S108 m is lent to taker here and handed off at 12:18 (taker takes m) in the same call (resources R17); hand it off in a statement of its own",

@@ -16,7 +16,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The decided grammar's own fixtures (#196, D7): testdata/decided holds the
+// The decided grammar's own fixtures (D7): testdata/decided holds the
 // preview's Decided blocks, testdata/edge the edge forms, testdata/refuse
 // one old spelling per file. They are copies of the acceptance inputs of
 // the parse-v1 unit.
@@ -24,7 +24,7 @@ const previewPath = "../../../docs/previews/2026-10-28-without-go-syntax.md"
 
 // previewRenames are the later renames of the preview's names: the preview
 // is recorded history and keeps its spelling, so the tests read it through
-// these (196w, docs/previews/2026-11-02-wire-to-context.md).
+// these (196w).
 var previewRenames = map[string]string{
 	"WireBody": "ContextBody", "WireEntry": "ContextEntry", "WireLit": "ContextLit",
 	"wire": "context",
@@ -534,7 +534,7 @@ func TestPreviewDecidedBlocksCanonical(t *testing.T) {
 // preview's decided sketch: PatternCore (D1) and ArrayType (196y, the
 // fixed arrays that decisions.md 2026-11-02 (c) brought back) and CapName
 // (L4, generic capabilities: a capability name takes type arguments) and
-// Implements (audit CSX, declared implementation, owner q167). #197's
+// Implements (audit CSX, declared implementation, owner q167). Resource ownership's
 // TakesClause left the grammar for the mode word own (EXM1, q168).
 // AltPattern is FK7a's nested alternatives (orpattern.go).
 var laterProductions = []string{"PatternCore", "ArrayType", "CapName", "Implements", "AltPattern"}

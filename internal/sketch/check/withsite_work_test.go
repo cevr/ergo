@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// The with-site work (#229, E5 slice B). A charge reads the target's with
+// The with-site work (E5 slice B). A charge reads the target's with
 // scope once (withScope), and a with's footprint joins its context's node
 // (footprinter.context), so the work at with sites is linear in the source
 // on every shape below. withOp counts it, deterministically.
@@ -211,7 +211,7 @@ func withSiteShapes() []withSiteShape {
 	return out
 }
 
-// TestWithSiteWorkLinear (#229 done-when 2 and 3; E5 Design B3): for each
+// TestWithSiteWorkLinear (done-when 2 and 3; E5 Design B3): for each
 // shape, at three sizes up to GrowthMaxNodes source nodes (test-speed plan
 // T4), the with-site steps are at most withStepsPerByte per byte of the
 // source, and the steps per byte and per log2 of the size at the largest
@@ -258,7 +258,7 @@ func withSiteWork(t *testing.T, shape string) {
 }
 
 // TestWithScopeIsTheWalk: the with scope answers each charge as the walk of
-// the frames it replaced does (rows.go before #229): the innermost frame
+// the frames it replaced does (rows.go before bounded body type-table work): the innermost frame
 // that binds the capability discharges it, unless an unknown frame is
 // inside it. Random stacks of frames over shared summaries (chains of
 // insertions, as the context summaries share embedded sets), replaces,
