@@ -357,6 +357,41 @@ func groupLawed(pkg *check.Package, g *check.Func) bool {
 	return false
 }
 
+// GroupFuncsForTest is the functions of pkg a component call goes through,
+// found as groupFrame and groupByOf find them: for each frame type of pkg,
+// its lawed group and groupBy. A test names the group calls it counts by
+// these, never by their spelling (STD HAS NO PRIVILEGES: std ui may call
+// its group writeGroup).
+func GroupFuncsForTest(pkg *check.Package) []*check.Func {
+	var out []*check.Func
+	seen := map[*check.Func]bool{}
+	add := func(g *check.Func) {
+		if g != nil && !seen[g] {
+			seen[g] = true
+			out = append(out, g)
+		}
+	}
+	for _, h := range pkg.Funcs {
+		if h.Sig == nil || len(h.Sig.Params) == 0 {
+			continue
+		}
+		p, ok := h.Sig.Params[0].Type.(*check.Pointer)
+		if !ok {
+			continue
+		}
+		n, ok := p.Elem.(*check.Named)
+		if !ok || n.Obj == nil || n.Obj.Pkg != pkg {
+			continue
+		}
+		frame := origin(n)
+		if groupShape(h, frame) && groupLawed(pkg, h) {
+			add(h)
+		}
+		add(groupByOf(frame))
+	}
+	return out
+}
+
 // groupShape reports g a group over the frame type frame (groupFrame).
 func groupShape(g *check.Func, frame *check.Named) bool {
 	if g.Decl == nil || g.Decl.Extern != nil || g.Sig == nil {

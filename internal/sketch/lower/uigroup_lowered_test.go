@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/check"
 )
 
 // groupedRows is NS1's rows bench in the bench's shape, with four
@@ -86,8 +88,15 @@ func TestComponentCallsLowerToGroup(t *testing.T) {
 			text = string(f.Data)
 		}
 	}
+	// The group functions are named as the lowering finds them, by shape
+	// and law (GroupFuncsForTest), never by their spelling.
+	names := groupFuncNames(t, u)
+	var quoted []string
+	for n := range names {
+		quoted = append(quoted, regexp.QuoteMeta(n))
+	}
 	for _, line := range recordCalls {
-		if !regexp.MustCompile(`:` + line + `:\d+\*/group(By)?\[`).MatchString(text) {
+		if !regexp.MustCompile(`:` + line + `:\d+\*/(` + strings.Join(quoted, "|") + `)\[`).MatchString(text) {
 			var near []string
 			for _, l := range strings.Split(text, "\n") {
 				if strings.Contains(l, ":"+line+":") {
@@ -112,29 +121,71 @@ func TestComponentCallsLowerToGroup(t *testing.T) {
 		if err := json.Unmarshal(f.Data, &v); err != nil {
 			t.Fatal(err)
 		}
-		groups += irGroupCalls(v)
+		groups += irGroupCalls(v, names)
 	}
 	if groups < len(groupedCalls) {
 		t.Errorf("the IR build calls group or groupBy %d times, want one for each of the %d component calls", groups, len(groupedCalls))
 	}
 }
 
-// irGroupCalls counts the calls of group and groupBy in a decoded IR file.
-func irGroupCalls(v any) int {
+// groupFuncNames is the names of the group functions of the frame
+// packages u imports, as the lowering finds them (GroupFuncsForTest).
+func groupFuncNames(t *testing.T, u Unit) map[string]bool {
+	t.Helper()
+	names := map[string]bool{}
+	seen := map[*check.Package]bool{}
+	var walk func(u Unit)
+	walk = func(u Unit) {
+		if u.Package == nil || seen[u.Package] {
+			return
+		}
+		seen[u.Package] = true
+		for _, g := range GroupFuncsForTest(u.Package) {
+			names[g.Name] = true
+		}
+		for _, i := range u.Imports {
+			walk(i)
+		}
+	}
+	walk(u)
+	// The frame packages of the program's components: the package of each
+	// pointer parameter's named type (a component takes its frame first).
+	for _, f := range u.Package.Funcs {
+		if f.Sig == nil || len(f.Sig.Params) == 0 {
+			continue
+		}
+		if p, ok := f.Sig.Params[0].Type.(*check.Pointer); ok {
+			if n, ok := p.Elem.(*check.Named); ok && n.Obj != nil && n.Obj.Pkg != nil && !seen[n.Obj.Pkg] {
+				seen[n.Obj.Pkg] = true
+				for _, g := range GroupFuncsForTest(n.Obj.Pkg) {
+					names[g.Name] = true
+				}
+			}
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no frame package of the program declares a lawed group")
+	}
+	return names
+}
+
+// irGroupCalls counts the calls of the group functions names in a decoded
+// IR file.
+func irGroupCalls(v any, names map[string]bool) int {
 	n := 0
 	switch v := v.(type) {
 	case map[string]any:
 		name, _ := v["name"].(string)
 		name = strings.TrimRightFunc(name, func(r rune) bool { return r == '_' || r >= '0' && r <= '9' })
-		if v["k"] == "call" && (name == "group" || name == "groupBy") {
+		if v["k"] == "call" && names[name] {
 			n++
 		}
 		for _, x := range v {
-			n += irGroupCalls(x)
+			n += irGroupCalls(x, names)
 		}
 	case []any:
 		for _, x := range v {
-			n += irGroupCalls(x)
+			n += irGroupCalls(x, names)
 		}
 	}
 	return n

@@ -1,8 +1,12 @@
 package irspike
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
+	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/lower"
 	"ergo.local/prototype/internal/sketch/uiskipgen"
 )
 
@@ -23,5 +27,43 @@ import (
 // ly-ns2-ir-reads-whole, ly-ns2-ir-keep-aliases.
 func TestIRUISkipMatchesSource(t *testing.T) {
 	lyProperty(t, "TestIRUISkipMatchesSource", func(seed uint64) string { return uiskipgen.Program([]uint64{seed}) },
-		[]string{"group", "groupBy"}, "card", "list", "framed", "headed", "tallied", "wideView", "cardsView", "bagged")
+		uiGroupNames(t), "card", "list", "framed", "headed", "tallied", "wideView", "cardsView", "bagged")
+}
+
+// uiGroupNames is the group functions of the frame packages of
+// uiskipgen's program, as the lowering finds them, by shape and law
+// (lower.GroupFuncsForTest), never by their spelling.
+func uiGroupNames(t *testing.T) []string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "p.ergo")
+	if err := os.WriteFile(file, []byte(uiskipgen.Program([]uint64{1})), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := Load(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	seen := map[*check.Package]bool{}
+	for _, f := range u.Package.Funcs {
+		if f.Sig == nil || len(f.Sig.Params) == 0 {
+			continue
+		}
+		p, ok := f.Sig.Params[0].Type.(*check.Pointer)
+		if !ok {
+			continue
+		}
+		n, ok := p.Elem.(*check.Named)
+		if !ok || n.Obj == nil || n.Obj.Pkg == nil || seen[n.Obj.Pkg] {
+			continue
+		}
+		seen[n.Obj.Pkg] = true
+		for _, g := range lower.GroupFuncsForTest(n.Obj.Pkg) {
+			names = append(names, g.Name)
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no frame package of the program declares a lawed group")
+	}
+	return names
 }
