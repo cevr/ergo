@@ -2,7 +2,9 @@ import dense
 import slices
 
 type FunctionClaim {}
-type FunctionMember { Import uint32, File uint32, Decl uint32 }
+// FunctionMember's path, file and source node always belong to the
+// declaring package, even when an include crosses several package edges.
+type FunctionMember { Path string, File uint32, Decl uint32 }
 type ClaimHead {
 	Role dense.ID[TKey],
 	Receiver dense.ID[TKey],
@@ -116,6 +118,68 @@ func shapeBind(p Pool, shape dense.ID[TKey], actual dense.ID[TKey], binds []bool
 	if int(k.k) == tInstance && OriginOf(p, shape) != OriginOf(p, actual) { return false }
 	for i, x in Operands(p, shape) {
 		if !shapeBind(p, x, operandAt(p, actual, i), binds, args, seen) { return false }
+	}
+	true
+}
+
+// ClaimIntersection solves equality of the two receiver and role shapes
+// together. Neither declaration's binders are rigid: []([T] etc.) on one
+// side can make a different part of the other side concrete.
+func ClaimIntersection(s mut Store, a ClaimHead, b ClaimHead) Option[[]dense.ID[TKey]] {
+	let mut bindings = []dense.ID[TKey]{}
+	let mut moved = []dense.ID[TKey]{}
+	for i in 0..len(a.Binds)+len(b.Binds) {
+		let t = TParam(s, i)
+		bindings = bindings.Append(t)
+		if i >= len(a.Binds) { moved = moved.Append(t) }
+	}
+	let recv = TSubst(s, b.Receiver, moved)
+	let role = TSubst(s, b.Role, moved)
+	if !intersect(s.pool, a.Receiver, recv, &bindings) || !intersect(s.pool, a.Role, role, &bindings) {
+		return None
+	}
+	let mut out = []dense.ID[TKey]{}
+	for t in bindings { out = out.Append(intersectionRead(s.pool, t, bindings)) }
+	Some{Value: out}
+}
+
+func intersectionRead(p Pool, t dense.ID[TKey], bindings []dense.ID[TKey]) dense.ID[TKey] {
+	let mut current = t
+	for {
+		let k = Key(p, current)
+		if int(k.k) != tParam || int(k.a) >= len(bindings) { return current }
+		let next = bindings[int(k.a)]
+		if next == current { return current }
+		current = next
+	}
+}
+
+func intersectionOccurs(p Pool, v dense.ID[TKey], t dense.ID[TKey], bindings []dense.ID[TKey]) bool {
+	let r = intersectionRead(p, t, bindings)
+	if v == r { return true }
+	if !Open(p, r) { return false }
+	for item in Operands(p, r) {
+		if intersectionOccurs(p, v, item, bindings) { return true }
+	}
+	false
+}
+
+func intersect(p Pool, a dense.ID[TKey], b dense.ID[TKey], bindings mut []dense.ID[TKey]) bool {
+	let x = intersectionRead(p, a, *bindings)
+	let y = intersectionRead(p, b, *bindings)
+	if x == y { return true }
+	let kx = Key(p, x)
+	let ky = Key(p, y)
+	if int(kx.k) == tParam {
+		if int(kx.a) >= len(*bindings) || intersectionOccurs(p, x, y, *bindings) { return false }
+		(*bindings)[int(kx.a)] = y
+		return true
+	}
+	if int(ky.k) == tParam { return intersect(p, y, x, bindings) }
+	if !Open(p, x) && !Open(p, y) || kx.k != ky.k || kx.b != ky.b { return false }
+	if int(kx.k) == tInstance && OriginOf(p, x) != OriginOf(p, y) { return false }
+	for i, item in Operands(p, x) {
+		if !intersect(p, item, operandAt(p, y, i), bindings) { return false }
 	}
 	true
 }

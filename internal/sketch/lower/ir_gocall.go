@@ -29,11 +29,17 @@ import (
 // method's receiver (c.Recv) is recv, evaluated before the operands
 // (FORK-GOLIB). Any other operand keeps the source body.
 func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr, []*irExpr) {
+	list := x.Args
+	receiver := c.Recv
+	if c.RecvIsParam() {
+		list = append([]syntax.Expr{receiver}, list...)
+		receiver = nil
+	}
 	shapes := make([]*v1.Body, len(f.Sig.Params))
 	fails := make([]*check.Signature, len(f.Sig.Params))
 	for i, q := range f.Sig.Params {
 		if cb, ok := q.Type.(*check.Signature); ok {
-			if b.fc.hostFuncRef(x.Args[i]) != nil {
+			if b.fc.hostFuncRef(list[i]) != nil {
 				irNo("Go function passed to a Go package function")
 			}
 			if cb.Fallible {
@@ -47,14 +53,14 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			irNo("call of a Go package function")
 		}
 	}
-	list := x.Args
-	if c.Recv != nil {
-		b.hostRecvOf(f, c.Recv) // ir_golib.go
-		list = append([]syntax.Expr{c.Recv}, list...)
+	operands := list
+	if receiver != nil {
+		b.hostRecvOf(f, receiver) // ir_golib.go
+		operands = append([]syntax.Expr{receiver}, list...)
 	}
-	pre, args := b.operands(list) // ir_fail.go
+	pre, args := b.operands(operands) // ir_fail.go
 	var recv *irExpr
-	if c.Recv != nil {
+	if receiver != nil {
 		recv, args = args[0], args[1:]
 	}
 	for i, q := range f.Sig.Params {
@@ -62,9 +68,9 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			args[i] = e
 		}
 		if check.IsGoAny(q.Type) {
-			args[i] = b.assignedTo(x.Args[i], args[i], q.Type) // ir_union.go: Go's any
+			args[i] = b.assignedTo(list[i], args[i], q.Type) // ir_union.go: Go's any
 		}
-		if wpre, w, ok := b.goWiden(b.l.info.Types[x.Args[i]], q.Type, args[i], x.Args[i], p); ok { // ir_govar.go
+		if wpre, w, ok := b.goWiden(b.l.info.Types[list[i]], q.Type, args[i], list[i], p); ok { // ir_govar.go
 			pre, args[i] = append(pre, wpre...), w
 		}
 	}
@@ -76,12 +82,12 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			pre = append(pre, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}})
 		}
 		if fails[i] != nil {
-			t := b.l.info.Types[x.Args[i]]
+			t := b.l.info.Types[list[i]]
 			if n, ok := t.(*check.Named); ok {
 				t = n.Underlying()
 			}
 			sig, _ := t.(*check.Signature)
-			bind, lit := b.hostCallback(sig, fails[i], x.Args[i], args[i], p)
+			bind, lit := b.hostCallback(sig, fails[i], list[i], args[i], p)
 			pre = append(pre, bind...)
 			args[i] = lit
 			continue
@@ -89,12 +95,12 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 		if shape == nil {
 			continue
 		}
-		t := b.l.info.Types[x.Args[i]]
+		t := b.l.info.Types[list[i]]
 		if n, ok := t.(*check.Named); ok {
 			t = n.Underlying()
 		}
 		sig, _ := t.(*check.Signature)
-		bind, e, _ := b.adaptOperand(sig, x.Args[i], args[i], v1.Param{Func: shape}, p)
+		bind, e, _ := b.adaptOperand(sig, list[i], args[i], v1.Param{Func: shape}, p)
 		pre, args[i] = append(pre, bind...), e
 	}
 	return pre, recv, args

@@ -173,7 +173,7 @@ func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args
 			return nil // the owned body (values.go, V5)
 		}
 	}
-	if !fc.l.monoTaken() {
+	if !copiesOnly(f) && !fc.l.monoTaken() {
 		return nil
 	}
 	sp := fc.monoFor(f, args)

@@ -572,7 +572,10 @@ func (l *lowerer) builtinHelper(b string, site syntax.Node) string {
 // is go build's error, at the call's //line (D-E5).
 func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Expr) string {
 	f := c.Func
-	if c.Recv != nil || len(f.Sig.TParams) > 0 || len(args) != len(f.Sig.Params) || len(f.Sig.Results) > 1 {
+	if c.RecvIsParam() {
+		args = append([]syntax.Expr{c.Recv}, args...)
+	}
+	if (c.Recv != nil && !c.RecvIsParam()) || len(f.Sig.TParams) > 0 || len(args) != len(f.Sig.Params) || len(f.Sig.Results) > 1 {
 		ice(x, "a call of the user extern %s outside its checked domain", f.Name)
 	}
 	vals := fc.callArgs(args, x)

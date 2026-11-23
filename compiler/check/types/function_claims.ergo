@@ -33,7 +33,7 @@ func HasFunctionClaims(files []syntax.Parsed) bool {
 // ImportFunctionClaims rebases the types only once and keeps the provider
 // members as references to their declarations in their original package.
 func ImportFunctionClaims(s mut store.Store, deps []Iface, foreign []Foreign) {
-	for i, dep in deps {
+	for dep in deps {
 		let source = dep.Types
 		let lookup = func(ref store.XRef) Option[DeclIdentity] { roleRef(dep.Refs, ref) }
 		for j in 0..store.FunctionClaimCount(source) {
@@ -51,24 +51,9 @@ func ImportFunctionClaims(s mut store.Store, deps []Iface, foreign []Foreign) {
 			case None:
 				continue
 			}
-			let mut members = []store.FunctionMember{}
-			for m in g.Members {
-				let mut imp = uint32(i + 1)
-				if m.Import > uint32(0) {
-					let paths = store.ImportPaths(source)
-					if int(m.Import) <= len(paths) {
-						let path = paths[int(m.Import)-1]
-						imp = uint32(0)
-						for k, dst in deps {
-							if dst.Path == path { imp = uint32(k + 1); break }
-						}
-					}
-				}
-				members = members.Append(store.FunctionMember{..m, Import: imp})
-			}
 			match Nominal(*s, role) {
 			case Some{Value: ref}:
-				store.AddFunctionClaim(s, ref, store.ClaimHead{..g, Role: role, Receiver: recv, Members: members})
+				store.AddFunctionClaim(s, ref, store.ClaimHead{..g, Role: role, Receiver: recv})
 			case None:
 			}
 		}
@@ -152,8 +137,8 @@ func claimProjection(s store.Store, e Env, h functionHead, role Role) string {
 
 func sameFunctionGroup(s mut store.Store, a functionHead, b functionHead) bool {
 	let args = match store.ShapeBindings(s, a.claim, b.claim.Receiver) {
-	case Some{Value: a}:
-		a
+	case Some{Value: renamed}:
+		renamed
 	case None:
 		return false
 	}
@@ -175,14 +160,9 @@ func sameFunctionGroup(s mut store.Store, a functionHead, b functionHead) bool {
 }
 
 func functionOverlap(s mut store.Store, a functionHead, b functionHead) bool {
-	match store.ShapeBindings(s, a.claim, b.claim.Receiver) {
-	case Some{Value: args}:
-		if store.TSubst(s, a.claim.Role, args) == b.claim.Role { return true }
-	case None:
-	}
-	match store.ShapeBindings(s, b.claim, a.claim.Receiver) {
-	case Some{Value: args}:
-		store.TSubst(s, b.claim.Role, args) == a.claim.Role
+	match store.ClaimIntersection(s, a.claim, b.claim) {
+	case Some:
+		true
 	case None:
 		false
 	}
@@ -249,15 +229,22 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 			[]int{}
 		}
 		h.claim = store.ClaimHead{..head, Receiver: receiver, Binds: binds, Positions: positions}
-		match claimsMember(role, f.Name) {
+		let member = match claimsMember(role, f.Name) {
 		case None:
 			out = out.Append(localClaimIssue(h, "S106", "\(role.Name) has no operation named \(f.Name)"))
 			continue
-		case Some:
+		case Some{Value: mem}:
+			mem
 		}
 		let why = claimProjection(*s, e, h, role)
 		if why != "" {
 			out = out.Append(localClaimIssue(h, "S106", why))
+			continue
+		}
+		let incompatible = functionMemberWhy(s, e, h, role, member)
+		if incompatible != "" {
+			let n = claimNames(e, h)
+			out = out.Append(localClaimIssue(h, "S106", "\(Text(*s, n, receiver)) does not implement \(Text(*s, n, op)): \(incompatible)"))
 			continue
 		}
 		let mut merged = false
@@ -293,6 +280,83 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 		out = out.Concat(publishFunctionGroup(s, e, roles, g, groups))
 	}
 	out
+}
+
+func signatureShape(s store.Store, n Names, params []dense.ID[store.TKey], result dense.ID[store.TKey]) string {
+	let mut text = "func("
+	for i, p in params {
+		if i > 0 { text = text + ", " }
+		text = text + Text(s, n, p)
+	}
+	text = text + ")"
+	if store.KindOfType(s, result) == store.KTuple {
+		let os = store.OperandsOf(s, result)
+		if len(os) == 0 { return text }
+		if len(os) == 1 { return text + " " + Text(s, n, os[0]) }
+	}
+	text + " " + Text(s, n, result)
+}
+
+func claimRowExtra(s store.Store, got dense.ID[store.TKey], want dense.ID[store.TKey]) []dense.ID[store.TKey] {
+	let mut extra = []dense.ID[store.TKey]{}
+	let allowed = store.OperandsOf(s, want)
+	for item in store.OperandsOf(s, got) {
+		let mut found = false
+		for x in allowed {
+			if x == item { found = true; break }
+		}
+		if !found { extra = extra.Append(item) }
+	}
+	extra
+}
+
+func functionMemberWhy(s mut store.Store, e Env, h functionHead, role Role, mem RoleMember) string {
+	let n = claimNames(e, h)
+	let recv = Text(*s, n, h.claim.Receiver)
+	let mut args = store.OperandsOf(*s, h.claim.Role)
+	let mut own = []int{}
+	for i, bound in h.claim.Binds {
+		if !bound { own = own.Append(i) }
+	}
+	if len(own) != len(mem.Own) {
+		return "\(h.name) has \(len(own)) type parameters beyond its first parameter's, and \(h.name) has \(len(mem.Own))"
+	}
+	for i, j in own {
+		let param = h.params[j]
+		if param.Cons != mem.Own[i].Cons && !(param.Cons == "any" && mem.Own[i].Cons == "") && !(param.Cons == "" && mem.Own[i].Cons == "any") {
+			return "\(h.name) has incompatible type parameter \(param.Name)"
+		}
+		args = args.Append(store.TParam(s, j))
+	}
+	let mut positions = []int{}
+	for i in mem.Positions {
+		if i >= 0 && i < len(h.claim.Positions) { positions = positions.Append(h.claim.Positions[i]) }
+	}
+	let want = store.ReadFunctionSelf(s, mem.Sig, args, store.ClaimHead{..h.claim, Positions: positions})
+	let g = store.OperandsOf(*s, h.sig)
+	let w = store.OperandsOf(*s, want)
+	if len(w) < 3 { return "" }
+	let gn = len(g) - 3
+	let wn = len(w) - 3
+	if store.KindOfType(*s, h.claim.Receiver) == store.KPointer && !mem.Mut {
+		return "\(h.name) writes its receiver, and the operation does not"
+	}
+	let mut same = gn-1 == wn && g[gn] == w[wn]
+	if same {
+		for i in 0..wn { same = same && g[i+1] == w[i] }
+	}
+	if !same {
+		return "\(recv).\(h.name) has signature \(signatureShape(*s, n, g[1:gn], g[gn])), want \(signatureShape(*s, n, w[0:wn], w[wn]))"
+	}
+	let errors = claimRowExtra(*s, g[gn+1], w[wn+1])
+	if len(errors) > 0 {
+		return "\(recv).\(h.name) can fail with {\(RowText(*s, n, errors))}, wider than {\(RowText(*s, n, store.OperandsOf(*s, w[wn+1])))}"
+	}
+	let uses = claimRowExtra(*s, g[gn+2], w[wn+2])
+	if len(uses) > 0 {
+		return "\(recv).\(h.name) requires {\(RowText(*s, n, uses))}, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)"
+	}
+	""
 }
 
 func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGroup, groups []functionGroup) []ClaimIssue {
@@ -332,7 +396,7 @@ func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGrou
 	for m in role.Members {
 		match groupMember(s, g, includes, groups, m.Name) {
 		case Some{Value: f}:
-			members = members.Append(store.FunctionMember{Import: uint32(0), File: uint32(f.file), Decl: uint32(dense.Index(f.node))})
+			members = members.Append(store.FunctionMember{Path: store.PathOf(*s), File: uint32(f.file), Decl: uint32(dense.Index(f.node))})
 			names = names.Append(m.Name)
 		case None:
 			let mut fed = false

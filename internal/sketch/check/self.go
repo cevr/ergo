@@ -529,13 +529,13 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 					op = closedClaimRole(op, mapTypes(r.Args, read))
 				}
 				f, args := closedClaimProvider(self, op, src.Op.Name, next.TypeArgs)
-				if f == nil && ConstraintOnly(tp.Constraint) {
+				if f == nil && (ConstraintOnly(tp.Constraint) || StaticClaimConstraint(tp.Constraint)) {
 					f = ProvidingFunc(self, src.Op.Name)
 					if f != nil {
 						args = ProviderTypeArgs(self, f, next.TypeArgs)
 					}
 				}
-				if f == nil && ConstraintOnly(tp.Constraint) {
+				if f == nil && (ConstraintOnly(tp.Constraint) || StaticClaimConstraint(tp.Constraint)) {
 					why = fmt.Sprintf("closed constraint %s has no implementation of %s", self, src.Op.Name)
 					return false
 				}

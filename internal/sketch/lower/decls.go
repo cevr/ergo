@@ -1019,7 +1019,7 @@ func copiesOnly(f *check.Func) bool {
 		return false
 	}
 	for _, tp := range f.Sig.TParams {
-		if tp.Kind == check.KindType && tp.Constraint != nil && check.ConstraintOnly(tp.Constraint) {
+		if tp.Kind == check.KindType && (check.ConstraintOnly(tp.Constraint) || check.StaticClaimConstraint(tp.Constraint)) {
 			return true
 		}
 	}

@@ -17,6 +17,13 @@ type functionClaim struct {
 	ops  map[string]*Func
 }
 
+// StaticClaimConstraint reports a contract with function-form claimants.
+// The contract stays available as a value through ordinary type claims.
+func StaticClaimConstraint(t Type) bool {
+	op, ok := t.(*Named)
+	return ok && op.Obj != nil && op.Obj.Pkg != nil && len(op.Obj.Pkg.functionClaims[op.origin()]) > 0
+}
+
 func receiverBinders(sig *Signature) []*TypeParam {
 	if len(sig.Params) == 0 {
 		return nil
@@ -195,12 +202,14 @@ func (c *checker) sameFunctionClaim(g, h *functionClaim) bool {
 	if !ok || len(g.bind) != len(h.bind) || !c.identical(c.subst(g.role, m), h.role) {
 		return false
 	}
+	seen := make(map[*TypeParam]bool, len(g.bind))
 	for _, p := range g.bind {
 		q := claimParam(m[p])
-		if q == nil || !slices.Contains(h.bind, q) || p.Kind != q.Kind || p.Own != q.Own ||
+		if q == nil || seen[q] || !slices.Contains(h.bind, q) || p.Kind != q.Kind || p.Own != q.Own ||
 			!c.sameConstraint(c.subst(p.Constraint, m), q.Constraint) {
 			return false
 		}
+		seen[q] = true
 	}
 	return true
 }
@@ -249,7 +258,7 @@ func (c *checker) functionClaimHead(f *Func) *functionClaim {
 		return nil
 	}
 	c.cur = f.file
-	if f.Decl.Recv != nil || len(f.Sig.Params) == 0 {
+	if f.Decl.Recv != nil || f.Sig == nil || len(f.Sig.Params) == 0 {
 		c.errorf(x, CodeType, "a function claim needs its receiver as the first parameter")
 		return nil
 	}
@@ -294,6 +303,10 @@ func (c *checker) functionClaimHead(f *Func) *functionClaim {
 	g := &functionClaim{recv: recv, role: op, head: f, bind: receiverBinders(f.Sig), ops: map[string]*Func{f.Name: f}}
 	if why := c.functionProjectionWhy(g, op); why != "" {
 		c.errorf(x, CodeProvider, "%s", why)
+		return nil
+	}
+	if p, why := c.boundsUnmet(op); p != nil {
+		c.errorf(x, CodeProvider, "%s claims %s, and %s's %s must satisfy %s: %s", recv, op, op.Obj.Name, p.Name, constraintText(p), why)
 		return nil
 	}
 	return g
