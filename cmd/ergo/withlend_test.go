@@ -80,10 +80,8 @@ func TestWithResourceLending(t *testing.T) {
 		}{
 			{"./pipeline", "CloseStopsTheActor", []string{"ok law CloseStopsTheActor "}},
 			{"./surfaces", "SurfacesAgree", []string{"ok law SurfacesAgree "}},
-			{"./surfaces", "pipeline.Pipeline.DuplicateIsNoop", []string{
-				"ok law pipeline.Pipeline.DuplicateIsNoop under overHub ",
-				"ok law pipeline.Pipeline.DuplicateIsNoop under overWire ",
-			}},
+			{"./pipeline/pipelineapi", "pipeline.Pipeline.DuplicateIsNoop", []string{"ok law pipeline.Pipeline.DuplicateIsNoop under overHub "}},
+			{"./pipeline/pipelinerpc", "pipeline.Pipeline.DuplicateIsNoop", []string{"ok law pipeline.Pipeline.DuplicateIsNoop under overWire "}},
 		} {
 			out := run("test", tc.pkg, "--law", tc.law, "--seed", "1")
 			for _, want := range tc.want {
