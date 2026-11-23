@@ -396,8 +396,8 @@ func (t *Task) makeStop() chan struct{} {
 	return t.stop
 }
 
-// stopFlags is one word of six flags: stopped (Load, set); made, which
-// publishes Task.stop to a read without the lock; ended (Handle.finish); polled (WhenPolled); claimed (claim); and parent (setParent). It is the size of the
+// stopFlags is one word of five flags: stopped (Load, set); made, which
+// publishes Task.stop to a read without the lock; ended (Handle.finish); polled (WhenPolled); and parent (setParent). It is the size of the
 // atomic.Bool it replaced, so a Task keeps its size class
 // (TestTraceHookKeepsTaskSize).
 type stopFlags struct{ v atomic.Uint32 }
@@ -409,19 +409,12 @@ const (
 	// flagPolled marks a task with a WhenPolled hook. Only the task's own
 	// goroutine sets or clears it.
 	flagPolled
-	// flagClaimed marks a task whose Handle a Wait or Stop took (claim): a
-	// second waiter is a defect (runtime.md Tasks, rule 11).
-	flagClaimed
 	// flagParent marks a task that has had a child linked below it (init),
 	// so detach looks for children to hand on only in a task that can have
 	// one: a leaf task ends without taking its own lock. adopt needs no
 	// mark: it moves a child of t to p, and t is p's child, so p has it.
 	flagParent
 )
-
-// claim marks the task's Handle taken by a waiter, and reports whether no
-// waiter had taken it before.
-func (f *stopFlags) claim() bool { return f.v.Or(flagClaimed)&flagClaimed == 0 }
 
 // setParent marks the task as one a child was linked below.
 func (f *stopFlags) setParent() { f.v.Or(flagParent) }

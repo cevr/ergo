@@ -26,8 +26,8 @@ func TestSecondWaiterIsADefect(t *testing.T) {
 			return 0, Interrupted
 		}
 	})
-	claimed := func() bool { return h.task.stopped.v.Load()&flagClaimed != 0 }
 	first := Go(&s, "first waiter", func(task *Task) (int, error) { return h.WaitBy(task) })
+	claimed := func() bool { return h.waiter.Load() == first.Task() }
 	if Exploring {
 		Await(root, claimed)
 	}

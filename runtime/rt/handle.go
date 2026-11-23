@@ -176,16 +176,28 @@ func (h *Handle[T]) Task() *Task { return &h.task }
 // that its starter consumes.
 func (h *Handle[T]) Wait() (T, error) { return h.WaitBy(h.waiter.Load()) }
 
-// claim makes w the handle's waiter (finish wakes it), before w reads
-// whether the task ended. A second waiter is a defect: a Task has one
-// owner, so checked code never makes one (runtime.md Tasks, rule 11).
+// claim consumes the handle and makes w its waiter (finish wakes it),
+// before w reads whether the task ended. A second waiter is a defect: a
+// Task has one owner, so checked code never makes one (runtime.md Tasks,
+// rule 11). consumed is the owner's word, and a hand-off orders the
+// first waiter's write before the next owner's read, so the check needs no
+// atomic operation; the starter, whom the word already names, stores nothing.
 func (h *Handle[T]) claim(w *Task) {
-	if !h.task.stopped.claim() {
-		panic("task: a second task waits for a Task that another task already waits for (runtime.md Tasks, rule 11)")
+	if h.task.consumed {
+		secondWaiter()
 	}
+	h.task.consumed = true
 	if h.waiter.Load() != w { // the starter waits: the word already names it
 		h.waiter.Store(w)
 	}
+}
+
+// secondWaiter raises the defect of a second waiter (claim), out of line so
+// that claim stays small enough to inline.
+//
+//go:noinline
+func secondWaiter() {
+	panic("task: a second task waits for a Task that another task already waits for (runtime.md Tasks, rule 11)")
 }
 
 // WaitBy is Wait by owner, the task that calls it: the Task's owner, which
@@ -194,7 +206,6 @@ func (h *Handle[T]) claim(w *Task) {
 // wait (rule 9).
 func (h *Handle[T]) WaitBy(owner *Task) (T, error) {
 	h.claim(owner)
-	h.task.consumed = true
 	Point(owner, Op{OpJoin, &h.task})
 	if !owner.Stopped() {
 		// The owner parks on its own word until the task ends or a stop it
@@ -248,7 +259,6 @@ func (h *Handle[T]) StopBy(owner *Task) error {
 		return nil
 	}
 	h.claim(owner)
-	h.task.consumed = true
 	Point(owner, Op{OpStop, &h.task})
 	h.task.Interrupt()
 	h.join(owner)
