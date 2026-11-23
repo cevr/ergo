@@ -13874,7 +13874,7 @@ func ergo__EncodeVerdict(env *Env, w Writer, v code__Verdict) {
 func ergo__EncodeOption_1(env *Env, w Writer, v Option[code__Contract]) {
 	switch v.tag {
 	case 0:
-		x := v.v0
+		x := v.as0()
 		w.BeginObject(env.task, 1)
 		w.Tag(env.task, "Some")
 		w.Key(env.task, "value")
@@ -14531,7 +14531,7 @@ func ergo__WriteOption(env *Env, wv json__text, v Option[code__Contract]) json__
 	w := &wv
 	switch v.tag {
 	case 0:
-		x := v.v0
+		x := v.as0()
 		(w).sep()
 		(w).raw(string("{\"_tag\":\"Some\",\"value\":"))
 		(w).setComma(bool(false))
@@ -14552,7 +14552,7 @@ func ergo__WriteOption_entry(env *Env, wv json__text, v Option[code__Contract]) 
 	w := &wv
 	switch v.tag {
 	case 0:
-		x := v.v0
+		x := v.as0()
 		(w).raw(string("{\"_tag\":\"Some\",\"value\":"))
 		(w).setComma(bool(false))
 		*w = ergo__WriteContract_entry(env, *w, x.Value)
@@ -19866,7 +19866,7 @@ func (r config__reader) Tag(env *Env) (string, error) {
 	s := v.tag
 	switch s.tag {
 	case 0:
-		t := s.v0
+		t := s.as0()
 		return t.Value, nil
 	case 1:
 		v_1 := (r).Path(env)
@@ -21562,11 +21562,13 @@ type code__ApiChange struct {
 
 type Option[T any] struct {
 	tag uint8
-	v0  Some[T]
+	p0  T
 }
 
-func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
+func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, p0: v.Value} }
+func (u Option[T]) as0() Some[T]          { return Some[T]{Value: u.p0} }
 func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
+
 func (x Option[T]) ErgoVariant() string {
 	return [...]func() string{ergo.VariantOf[Some[T]], ergo.VariantOf[None]}[x.tag]()
 }
@@ -23218,7 +23220,7 @@ func ergo__EqualSome_2(a, b Some[code__Contract]) bool {
 }
 
 func ergo__EqualOption_2(a, b Option[code__Contract]) bool {
-	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_2(a.v0, b.v0))
+	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_2(a.as0(), b.as0()))
 }
 
 func code__ApiDiff(env *Env, old []code__Contract, new_1 []code__Contract) []code__ApiChange {
@@ -23265,11 +23267,11 @@ func code__ApiDiff(env *Env, old []code__Contract, new_1 []code__Contract) []cod
 			{
 				switch s.tag {
 				case 0:
-					n_1 := s.v0
+					n_1 := s.as0()
 					_ = n_1
 					switch s_1.tag {
 					case 0:
-						n_2 := s_1.v0
+						n_2 := s_1.as0()
 						_ = n_2
 						x := n_1
 						y := n_2
@@ -23356,7 +23358,7 @@ func code__ApiDiffText(changes []code__ApiChange) string {
 		s := c.Old
 		switch s.tag {
 		case 0:
-			o := s.v0
+			o := s.as0()
 			t := (b + "- ")
 			v_1 := code__ApiText([]code__Contract{o.Value})
 			b = (t + v_1)
@@ -23365,7 +23367,7 @@ func code__ApiDiffText(changes []code__ApiChange) string {
 		s_1 := c.New
 		switch s_1.tag {
 		case 0:
-			n := s_1.v0
+			n := s_1.as0()
 			t_1 := (b + "+ ")
 			v_2 := code__ApiText([]code__Contract{n.Value})
 			b = (t_1 + v_2)
@@ -25201,7 +25203,7 @@ func (h code__disk) lockOn(env *Env) error {
 	s_1 := v_2
 	switch s_1.tag {
 	case 0:
-		l := s_1.v0
+		l := s_1.as0()
 		(h.lock).Set((Option[fs__FileLock]{}).of0(Some[fs__FileLock]{Value: l.Value}))
 		return nil
 	case 1:
@@ -25217,7 +25219,7 @@ func (h code__disk) unlockOn(env *Env) error {
 	s := v
 	switch s.tag {
 	case 0:
-		l := s.v0
+		l := s.as0()
 		(h.host).UnlockFile(env, l.Value)
 		(h.lock).Set((Option[fs__FileLock]{tag: 1}))
 		return nil
@@ -25672,7 +25674,7 @@ func code__text(o Option[string]) string {
 	s := o
 	switch s.tag {
 	case 0:
-		v := s.v0
+		v := s.as0()
 		return v.Value
 	case 1:
 		return ""
@@ -25873,7 +25875,7 @@ func (t code__Tables) apiOf(env *Env, q code__ApiQuery) (code__ApiView, error) {
 	s := q.Package
 	switch s.tag {
 	case 0:
-		p := s.v0
+		p := s.as0()
 		v = p.Value
 	case 1:
 		v = t.Root
@@ -26534,7 +26536,7 @@ func (s *json__scan) readChunk(env *Env) {
 	s_1 := v
 	switch s_1.tag {
 	case 0:
-		c_1 := s_1.v0
+		c_1 := s_1.as0()
 		k.total = (k.total + len(c_1.Value))
 		var v_1 int
 		if s.mark >= int(0) {
@@ -27438,7 +27440,7 @@ func code__or(o Option[int], d int) int {
 	s := o
 	switch s.tag {
 	case 0:
-		v := s.v0
+		v := s.as0()
 		return v.Value
 	case 1:
 		return d
@@ -34709,7 +34711,7 @@ func (s flag__Set) Parse(args []string) (flag__Values, error) {
 		s_1 := v
 		switch s_1.tag {
 		case 0:
-			d := s_1.v0
+			d := s_1.as0()
 			panic(ergo.UnreachableAt(("flag: a flag spelling is declared twice: " + d.Value), "std/flag/parse.ergo:272:3"))
 		case 1:
 		default:
@@ -36010,7 +36012,7 @@ func flag__parseLevel[C any](env *Env, name string, usage string, groups []strin
 	s := v_10
 	switch s.tag {
 	case 0:
-		own := s.v0
+		own := s.as0()
 		var leaf flag__Command[C] = own.Value
 		if len(leaf.Commands) > int(0) {
 			return ergo.Never[C]("flag: a group's own leaf has no children", "std/flag/command.ergo:234:11"), nil
@@ -36115,7 +36117,7 @@ func flag__parseLevelMono_i93032418(env *Env, name string, usage string, groups 
 	s := v_10
 	switch s.tag {
 	case 0:
-		own := s.v0
+		own := s.as0()
 		var leaf flag__Command[codetool_scodeapi__Request] = own.Value
 		if len(leaf.Commands) > int(0) {
 			return ergo.Never[codetool_scodeapi__Request]("flag: a group's own leaf has no children", "std/flag/command.ergo:234:11"), nil
@@ -39471,7 +39473,7 @@ func codetool_scodecli__runOver(env *Env, args []string, p codetool_scodecli__Po
 			s_1 := v_1
 			/*line codecli/cli.ergo:556:4*/ switch s_1.tag {
 			/*line codecli/cli.ergo:556:4*/ case 0:
-				/*line codecli/cli.ergo:556:4*/ q := s_1.v0
+				/*line codecli/cli.ergo:556:4*/ q := s_1.as0()
 //line codecli/cli.ergo:558:5
 //line codecli/cli.ergo:558:12
 				v_2 := codetool_scodecli__needsYes(q.Value)
@@ -40039,7 +40041,7 @@ func codetool_scodecli__Show(env *Env, o codetool_scodeapi__Outcome, asJSON bool
 			s := v_1
 			/*line codecli/cli.ergo:354:4*/ switch s.tag {
 			/*line codecli/cli.ergo:354:4*/ case 0:
-				/*line codecli/cli.ergo:354:4*/ s_1 := s.v0
+				/*line codecli/cli.ergo:354:4*/ s_1 := s.as0()
 //line codecli/cli.ergo:356:5
 //line codecli/cli.ergo:356:24
 				v_2 := codetool_scodecli__line(s_1.Value)
@@ -41272,7 +41274,7 @@ func codetool_scodecli__commandSymbol() flag__Command[codetool_scodeapi__Request
 			s := v_5
 			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2*/ switch s.tag {
 			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2*/ case 0:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2*/ s_1 := s.v0
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:128:2*/ s_1 := s.as0()
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:130:3
 				v_4 = s_1.Value
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@61.12:130:3*/ goto inl
@@ -41593,7 +41595,7 @@ func codetool_scodecli__commandMachineOf() flag__Command[codetool_scodeapi__Requ
 			s := v_5
 			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2*/ switch s.tag {
 			/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2*/ case 0:
-				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2*/ s_1 := s.v0
+				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:128:2*/ s_1 := s.as0()
 //line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:130:3
 				v_4 = s_1.Value
 				/*line codecli/cli.ergo#ergo-inline-codecli/cli.ergo@121.12:130:3*/ goto inl

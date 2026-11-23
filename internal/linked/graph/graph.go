@@ -3702,7 +3702,7 @@ func (r codegraph__Rows) Why(a int, b int) Option[[]codegraph__Step] {
 	s := v_1
 	switch s.tag {
 	case 0:
-		p := s.v0
+		p := s.as0()
 		var out []codegraph__Step = []codegraph__Step{}
 		t := (Range[int]{Start: int(1), End: len(p.Value)})
 		out = ergo.Reserve(out, max(int(t.End-t.Start), 0))
@@ -4206,11 +4206,13 @@ func Get[K comparable, V any](m map[K]V, k K) Option[V] {
 
 type Option[T any] struct {
 	tag uint8
-	v0  Some[T]
+	p0  T
 }
 
-func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
+func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, p0: v.Value} }
+func (u Option[T]) as0() Some[T]          { return Some[T]{Value: u.p0} }
 func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
+
 func (x Option[T]) ErgoVariant() string {
 	return [...]func() string{ergo.VariantOf[Some[T]], ergo.VariantOf[None]}[x.tag]()
 }
@@ -5046,7 +5048,7 @@ func (g graph__Graph) Chains(min_1 int) [][]int {
 	s := v_1
 	switch s.tag {
 	case 0:
-		o := s.v0
+		o := s.as0()
 		v = o.Value
 	case 1:
 		return [][]int{}
@@ -5441,7 +5443,7 @@ func (g graph__Graph) closedPath(c []int) []int {
 		s := v_3
 		switch s.tag {
 		case 0:
-			p := s.v0
+			p := s.as0()
 			if (len(best) == int(0)) || ((len(p.Value) + int(1)) < len(best)) {
 				var v_4 []int
 				{
@@ -5738,7 +5740,7 @@ func (s *json__scan) readChunk(env *Env) {
 	s_1 := v
 	switch s_1.tag {
 	case 0:
-		c_1 := s_1.v0
+		c_1 := s_1.as0()
 		k.total = (k.total + len(c_1.Value))
 		var v_1 int
 		if s.mark >= int(0) {
@@ -7483,7 +7485,7 @@ func why(env *Env, r codegraph__Rows, o Options, a string, b string) []string {
 	s := v_2
 	/*line tool.ergo:265:2*/ switch s.tag {
 	/*line tool.ergo:265:2*/ case 0:
-		/*line tool.ergo:265:2*/ w := s.v0
+		/*line tool.ergo:265:2*/ w := s.as0()
 //line tool.ergo:267:3
 //line tool.ergo:267:15
 		v_3 := stepsOut(r, w.Value)
