@@ -29,6 +29,7 @@ import fs
 import io
 import json
 import os
+import slices
 import strings
 
 func base(path string) string {
@@ -151,21 +152,20 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	// Each loaded package's resources, by path, for the types its
 	// importers read (diag.Held). A package reads those of its imports,
 	// in any order, so the passes go on until no package's set grows (each
-	// only grows).
+	// only grows). Sizes go by package, not path: several roots share the
+	// path main, which nothing imports.
 	let mut deps = Map[string, Map[string, bool]]{}
+	let mut sizes = slices.Repeat([]int{0}, len(p.Loaded))
 	let mut grew = true
 	for grew {
 		grew = false
-		for e in p.Loaded {
+		for i, e in p.Loaded {
 			let r = diag.Resources(e.S, e.K, deps)
-			let before = match deps.Get(e.Path) {
-			case Some[Map[string, bool]] as m:
-				len(m.Value)
-			case None:
-				0
+			grew = grew || len(r) != sizes[i]
+			sizes[i] = len(r)
+			if e.Path != "main" {
+				deps[e.Path] = r
 			}
-			grew = grew || len(r) != before
-			deps[e.Path] = r
 		}
 	}
 	let mut b = strings.NewBuilder()
