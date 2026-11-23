@@ -578,7 +578,6 @@ prelude Random.Float64InUnit	TestRandLaws
 prelude Random.IntNInRange	TestRandLaws
 prelude SliceIsWindow	TestCollLaws
 prelude StructuralFloatKeysHashEqual	none
-prelude StructuralIntKeysHashEqual	none
 prelude StructuralStringKeysHashEqual	none
 prelude TakeAtIsIndexAndRest	TestCollLaws
 prelude TakeIsGetAndDelete	TestCollLaws

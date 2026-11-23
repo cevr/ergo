@@ -64,3 +64,8 @@ var Sources embed.FS
 //
 //go:embed ergo.laws
 var LedgerText string
+
+// TestRedText is the shipped standard-library test red list.
+//
+//go:embed std-red.txt
+var TestRedText string
