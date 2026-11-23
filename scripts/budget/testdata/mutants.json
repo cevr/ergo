@@ -14,10 +14,37 @@
       "name": "budget-scratch-no-sweep",
       "origin": "wf10 TMPDIR-PER-RUN (2026-11-20: killed runs left tens of GiB under /tmp)",
       "file": "scripts/budget/scratch.sh",
-      "from": "    flock -n \"$l\" true 2>/dev/null && rm -rf \"${l%.lock}\" \"$l\"\n",
+      "from": "    flock -n \"$l\" true 2>/dev/null && scratch_remove \"${l%.lock}\"\n",
       "to": "    :\n",
       "rule": "A run's start removes every scratch folder whose lock no run holds: a killed run's.",
       "killers": ["scripts/budget:TestRunsGetTheirOwnScratch"]
+    },
+    {
+      "name": "scratch-keeps-readonly-dirs",
+      "origin": "wf10 BUDGET-SCRATCH-READONLY-TREES",
+      "file": "scripts/budget/scratch.sh",
+      "from": "  find -P \"$1\" -xdev -type d ! -perm -0700 -exec chmod u+rwx '{}' ';' >/dev/null 2>&1 || :\n",
+      "to": "  :\n",
+      "rule": "A run's read-only directories are removed on exit and during a later sweep.",
+      "killers": ["scripts/budget:TestScratchRemovesReadOnlyTrees"]
+    },
+    {
+      "name": "scratch-follows-linked-dirs",
+      "origin": "wf10 BUDGET-SCRATCH-READONLY-TREES",
+      "file": "scripts/budget/scratch.sh",
+      "from": "  find -P \"$1\" -xdev",
+      "to": "  find -L \"$1\" -xdev",
+      "rule": "Scratch cleanup does not alter the mode of an external symbolic-link target.",
+      "killers": ["scripts/budget:TestScratchRemovesReadOnlyTrees"]
+    },
+    {
+      "name": "scratch-prints-raw-removal-errors",
+      "origin": "wf10 BUDGET-SCRATCH-READONLY-TREES",
+      "file": "scripts/budget/scratch.sh",
+      "from": "  if ! { rm -rf \"$1\" && rm -f \"$1.lock\"; } 2>/dev/null; then\n",
+      "to": "  if ! { rm -rf \"$1\" && rm -f \"$1.lock\"; }; then\n",
+      "rule": "A cleanup failure prints one line naming the folder, not the remover's raw diagnostics.",
+      "killers": ["scripts/budget:TestScratchRemovalFailureKeepsCommandStatus"]
     },
     {
       "name": "budget-heavy-crit-from-env",
