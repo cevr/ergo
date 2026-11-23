@@ -231,47 +231,51 @@ func (c *checker) chargeHarness(t *target, n syntax.Node, cap Type) bool {
 }
 
 // rewrittenHarness is the harness's package of a test body the rewrite
-// made, or "" for any other body.
-func rewrittenHarness(body *syntax.BlockStmt) string {
+// made, its import path or "" for the test's own package, and whether the
+// rewrite made body.
+func rewrittenHarness(body *syntax.BlockStmt) (string, bool) {
 	if body == nil || len(body.List) != 1 {
-		return ""
+		return "", false
 	}
 	es, _ := body.List[0].(*syntax.ExprStmt)
 	if es == nil {
-		return ""
+		return "", false
 	}
 	caught, _ := es.X.(*syntax.CatchExpr)
 	if caught == nil {
-		return ""
+		return "", false
 	}
 	call, _ := caught.X.(*syntax.CallExpr)
 	if call == nil {
-		return ""
+		return "", false
 	}
 	sel, _ := call.Fun.(*syntax.SelectorExpr)
 	if sel == nil {
-		return ""
+		return "", false
 	}
 	id, _ := sel.X.(*syntax.Ident)
 	if id == nil || !strings.HasPrefix(id.Name, hiddenPrefix) {
-		return ""
+		return "", false
 	}
-	return strings.TrimPrefix(id.Name, hiddenPrefix)
+	return strings.TrimPrefix(id.Name, hiddenPrefix), true
 }
 
 // bindHarnessNames binds, in the frame of a rewritten test, the hidden
-// names its body uses: the harness's package path and the built-ins.
+// names its body uses: the harness's package, by its import path or ""
+// for the package under check (no path names it, STD HAS NO PRIVILEGES),
+// and the built-ins.
 func (c *checker) bindHarnessNames(frame *Scope, pkgPath string) {
 	frame.insert(TestSeedName, &Builtin{Name: TestSeedName})
 	frame.insert(TestShownName, &Builtin{Name: TestShownName})
 	frame.insert(TestSourceName, &Builtin{Name: TestSourceName})
 	frame.insert(TestReportName, &Builtin{Name: TestReportName})
 	frame.insert(TestFileName, &Builtin{Name: TestFileName})
-	var pkg *Package
-	if pkgPath == c.pkg.Path {
-		pkg = c.pkg
-	} else if p, err := c.imp.Import(pkgPath); err == nil {
-		pkg = p
+	pkg := c.pkg
+	if pkgPath != "" {
+		pkg = nil
+		if p, err := c.imp.Import(pkgPath); err == nil {
+			pkg = p
+		}
 	}
 	// The package binds in the file's scope, where a qualified type looks
 	// (lookupType); no source spells the name, so it hides nothing.
@@ -285,7 +289,12 @@ func (c *checker) rewriteHarnessed(test *Test, h *Harness) {
 	d := test.Decl
 	f := test.file.syntax
 	at := d.Test
-	pkgPath := h.Func.Pkg.Path
+	// The harness's package binds under a hidden name: its import path,
+	// or none when the harness is the test's own package's.
+	pkgPath := ""
+	if h.Func.Pkg != c.pkg {
+		pkgPath = h.Func.Pkg.Path
+	}
 	pkgID := func() *syntax.Ident { return &syntax.Ident{NamePos: at, Name: hiddenPrefix + pkgPath} }
 	qual := func(pos syntax.Pos, name string) *syntax.SelectorExpr {
 		return &syntax.SelectorExpr{X: &syntax.Ident{NamePos: pos, Name: hiddenPrefix + pkgPath}, Sel: &syntax.Ident{NamePos: pos, Name: name}}

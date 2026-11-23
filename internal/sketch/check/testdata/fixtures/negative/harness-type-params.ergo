@@ -12,7 +12,7 @@ type always {} implements Coin
 
 func Flip(a always) bool { true }
 
-func Toss[T](run Run, body func() fails Failed needs Coin, x T) fails Failed {
+func Toss[T](run Run, x T, body func() fails Failed needs Coin) fails Failed {
 	with context { Coin: always } { body() } catch {
 	case Failed as f:
 		return f

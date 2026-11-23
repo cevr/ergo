@@ -1,5 +1,5 @@
 // Package gen is test data drawn from a tape (PROPERTY-TESTING P1): a
-// generator is any function that needs Draws, a property is a body that
+// generator is any function that needs Draws; a property is a body that
 // draws and answers whether it holds, and Check runs it over seeded cases,
 // shrinks a failing case on its tape and reports the seed, the named
 // draws and a replay call (docs/spec/stdlib.md, Gen). It is plain Ergo: a
@@ -225,11 +225,12 @@ func ranked(o int, up uint64, down uint64, k uint64) int {
 // is a defect.
 func OneOf[T](xs []T) T needs Draws { xs[int(Draws.Draw(uint64(len(xs))))] }
 
-// ListOf is a list of min to max elements drawn by g. Past min, each
+// ListOf is a list of min to max elements drawn by g, written last so a
+// call can trail it. Past min, each
 // element is preceded by a draw that ends the list at 0, so a list at
 // size n has about n elements past min. Each element, with its draw, is a
 // span: a shrink deletes an element whole.
-func ListOf[T](g func() T needs Draws, min int, max int) []T needs Draws {
+func ListOf[T](min int, max int, g func() T needs Draws) []T needs Draws {
 	let mut xs = []T{}
 	let stop = uint64(Draws.CaseSize() + 1)
 	for len(xs) < max {
@@ -299,7 +300,7 @@ law ZeroIsSimplest() {
 	!Replay(Tape{Size: 5, Draws: []uint64{}}, func() bool fails Rejected needs Draws {
 		let a = IntIn(-5, 9) == 0 && IntIn(3, 9) == 3 && IntIn(-9, -2) == -2
 		let b = !Bool() && OneOf([]int{7, 8}) == 7 && Below(uint64(0)) == uint64(0)
-		let xs = ListOf(func() int needs Draws { IntIn(4, 6) }, 2, 5)
+		let xs = ListOf(2, 5, func() int needs Draws { IntIn(4, 6) })
 		a && b && xs == []int{4, 4}
 	}).Fails
 }
@@ -815,7 +816,7 @@ func below(k int) func() bool fails Rejected needs Draws {
 // k or more".
 func noneAtLeast(k int) func() bool fails Rejected needs Draws {
 	func() bool fails Rejected needs Draws {
-		let xs = Named("xs", showInts, func() []int needs Draws { ListOf(func() int needs Draws { IntIn(0, 100) }, 0, 10) })
+		let xs = Named("xs", showInts, func() []int needs Draws { ListOf(0, 10, func() int needs Draws { IntIn(0, 100) }) })
 		let mut ok = true
 		for x in xs {
 			ok = ok && x < k
@@ -828,7 +829,7 @@ func noneAtLeast(k int) func() bool fails Rejected needs Draws {
 // elements of 0..9 holds a 9": a row and its stop draw are 13 draws.
 func noNine() func() bool fails Rejected needs Draws {
 	func() bool fails Rejected needs Draws {
-		let rows = Named("rows", showRows, func() [][]int needs Draws { ListOf(func() []int needs Draws { ListOf(func() int needs Draws { IntIn(0, 9) }, 12, 12) }, 0, 3) })
+		let rows = Named("rows", showRows, func() [][]int needs Draws { ListOf(0, 3, func() []int needs Draws { ListOf(12, 12, func() int needs Draws { IntIn(0, 9) }) }) })
 		let mut ok = true
 		for r in rows {
 			for x in r {
