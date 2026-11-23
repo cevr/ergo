@@ -382,6 +382,14 @@ func copyVerdict(t *testing.T, path string, seeds []uint64) copyVerdictT {
 		src := copyProgram(pair, refs, seed)
 		a := copyLower(t, pair, src, false)
 		b := copyLower(t, pair, src, true)
+		if path == "ui" {
+			// UI passes CallSite through its components. Both versions
+			// must retain the same named binding after the path alias folds.
+			binding := lower.HelperSpelling("", "SitePkg_ui")
+			if !strings.Contains(a, binding) || !strings.Contains(b, binding) {
+				return copyVerdictT{stage: "lower", reason: "ui or its copy omitted the call-site package binding " + binding}
+			}
+		}
 		if a != b {
 			x, y := firstDiff(a, b)
 			detail := fmt.Sprintf("seed %d: the lowered Go differs.\nprogram:\n%s\nstd:  %s\ncopy: %s\nreplay: ERGO_STD_COPY_PKG=%s ERGO_STD_COPY_SEED=%d go test -run 'TestStdCopyAgrees$' ./internal/sketch/std", seed, src, x, y, path, seed)
