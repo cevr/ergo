@@ -456,7 +456,7 @@ func callsLedgerRun(fn *ast.FuncDecl) bool {
 // calls FSReadFile, FSMkdirAll, FSWriteFile, FSRemove and FSRename), over
 // seeded cases. It is the ledger's runner for os.Process.GetenvIsStable,
 // GetwdIsStable (in a directory, and in one removed under the process)
-// and GetwdIsAbsolute, and os.Self's EnvironIsSortedOnce, PidIsPositive
+// and GetwdIsAbsolute, and os.Self's PidIsPositive
 // and DirsAreAbsolute over the Go bodies os.Host's Self calls;
 // it runs fs.Files.ReadIsRepeatable, fs.Writes.MkdirAllIsIdempotent,
 // fs.Writes.RemoveThenNotFound and fs.Writes.RenameMoves on the host's
@@ -536,20 +536,6 @@ func TestStdHostLawsHold(t *testing.T) {
 			got, err := v1.OSGetwd()
 			if err != nil || !filepath.IsAbs(got) {
 				t.Errorf("GetwdIsAbsolute: %q, %v", got, err)
-			}
-		}},
-		// The host's environment with a name set twice in os.Environ's
-		// order and one set to the empty string.
-		"os Self.EnvironIsSortedOnce": {Statement: `EnvironIsSortedOnce() { let vars = Environ() let mut last = "" for i, kv in vars { let name = nameOf(kv) if i > 0 && name <= last { return false } last = name } true }`, Check: func(t *testing.T) {
-			t.Setenv("ERGO_LAW_B", "2")
-			t.Setenv("ERGO_LAW_A", "")
-			vars := v1.OSEnviron("")
-			for i := 1; i < len(vars); i++ {
-				prev, _, _ := strings.Cut(vars[i-1], "=")
-				name, _, _ := strings.Cut(vars[i], "=")
-				if name <= prev {
-					t.Errorf("EnvironIsSortedOnce: %q after %q", name, prev)
-				}
 			}
 		}},
 		"os Self.PidIsPositive": {Statement: `PidIsPositive() { Pid() > 0 }`, Check: func(t *testing.T) {

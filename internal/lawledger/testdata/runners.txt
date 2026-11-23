@@ -250,6 +250,8 @@ embed FS.ReadIsRepeatable	TestStdLawsRun
 exec InterleavesMatchesModel	TestExecLaws
 exec LookPathFindsTheFirst	TestExecLaws
 exec LookPathSkipsRelative	TestExecLaws
+exec Runner.EnvIsExact	none
+exec Runner.LookupUsesChildPath	none
 exec Runner.NotFoundNamesTheProgram	TestExecNotFoundNamesTheProgram
 exec Runner.ShellRunsAsWritten	TestExecLaws
 exec Runner.StartAgreesWithRun	TestExecLaws
@@ -258,6 +260,7 @@ exec ScriptReplaysRecorded	TestExecLaws
 exec Spawner.KillIsIdempotent	TestExecLaws
 exec Spawner.KilledIsNotAlive	TestExecLaws
 exec WaitForEndedGivesStatus	TestExecLaws
+exec WithEnvFromKeepsOwn	none
 exec WithEnvKeepsTheOriginal	TestExecLaws
 exec WithEnvOverrides	TestExecLaws
 explore AlwaysAgreesWithReference	TestStdExploreLawsRun
@@ -548,11 +551,11 @@ net Network.DialAfterCloseFails	TestNetLaws
 net Network.ListenTakenFails	TestNetLaws
 net Network.WriteThenReadRoundTrips	TestNetLaws
 os CodeWhere	TestStdLawsRun
+os Process.EnvironAgreesWithGetenv	none
 os Process.GetenvIsStable	TestStdHostLawsHold
 os Process.GetwdIsAbsolute	TestStdHostLawsHold
 os Process.GetwdIsStable	TestStdHostLawsHold
 os Self.DirsAreAbsolute	TestStdHostLawsHold
-os Self.EnvironIsSortedOnce	TestStdHostLawsHold
 os Self.PidIsPositive	TestStdHostLawsHold
 pace CountingCountsEachEdge	TestStdLawsRun
 pace DefaultReachesNothing	TestStdLawsRun

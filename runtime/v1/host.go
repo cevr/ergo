@@ -76,30 +76,21 @@ func OSHasEnv(key string) bool {
 //ergo:wait none
 func OSGetenv(key string) string { return os.Getenv(key) }
 
-// OSEnviron is the body of os.Environ on the host (config.Environ reads it there): each variable of the
-// environment whose name starts with prefix, as "NAME=VALUE", sorted by
-// name, in a fresh slice. A variable set twice is given once, with the
-// value Go's os.Getenv reads.
+// OSEnviron is the body of os.Process.Environ on the host, the one place
+// a program reads this process's whole environment. It gives a fresh map
+// with the same values as os.Getenv.
 //
 //ergo:host
 //ergo:wait none
-func OSEnviron(prefix string) []string {
-	names := []string{}
-	seen := map[string]bool{}
-	for _, kv := range os.Environ() {
-		name, _, ok := strings.Cut(kv, "=")
-		if !ok || name == "" || !strings.HasPrefix(name, prefix) || seen[name] {
-			continue
+func OSEnviron() map[string]string {
+	entries := os.Environ()
+	env := make(map[string]string, len(entries))
+	for _, kv := range entries {
+		if name, value, ok := strings.Cut(kv, "="); ok && name != "" {
+			env[name] = value
 		}
-		seen[name] = true
-		names = append(names, name)
 	}
-	slices.Sort(names)
-	out := make([]string, len(names))
-	for i, name := range names {
-		out[i] = name + "=" + os.Getenv(name)
-	}
-	return out
+	return env
 }
 
 // NoWorkdir is os.NoWorkdir: the host cannot name the process's working
