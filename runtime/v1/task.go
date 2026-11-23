@@ -406,8 +406,6 @@ type Task[T any] struct {
 	h rt.Handle[T]
 	// body is the block the task runs, until it starts (taskBody.Run).
 	body func(*rt.Task) (T, error)
-	task *rt.Task // the task that started it
-	used bool     // Wait, Stop or Close ran
 	// out is the value the body returned, kept past rt's stop-wins, which
 	// zeroes it when a stop is pending at the boundary (Gap 47); ended says
 	// the body returned one. The child writes them before its handle
@@ -462,8 +460,8 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	// The Task's owner releases it through its own entry, so rt registers
 	// the handle on no scope (rt.Start), and the Task itself is the body,
 	// so no closure carries it.
-	t := &Task[T]{task: s.s.Task(), body: body}
-	rt.Start(&t.h, t.task, string(span), (*taskBody[T])(t))
+	t := &Task[T]{body: body}
+	rt.Start(&t.h, s.s.Task(), string(span), (*taskBody[T])(t))
 	return t
 }
 
@@ -496,8 +494,7 @@ func GoWith[T, C any](s *Scope, span Site, c C, body func(*rt.Task, *C) (T, erro
 		panic("task.Go: the frame that would own this task has returned (law R9)")
 	}
 	x := &taskWith[T, C]{c: c, fn: body}
-	x.t.task = s.s.Task()
-	rt.Start(&x.t.h, x.t.task, string(span), x)
+	rt.Start(&x.t.h, s.s.Task(), string(span), x)
 	return &x.t
 }
 
@@ -536,10 +533,6 @@ func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
 //
 //ergo:wait caller
 func (t *Task[T]) Wait(ct *rt.Task) (T, error) {
-	if t.used {
-		panic("task: Wait on a task that was already waited for, stopped or released")
-	}
-	t.used = true
 	v, err := t.h.WaitBy(ct)
 	if err == nil {
 		return v, nil
@@ -561,10 +554,6 @@ func (t *Task[T]) Wait(ct *rt.Task) (T, error) {
 //
 //ergo:wait drain
 func (t *Task[T]) Stop(ct *rt.Task) {
-	if t.used {
-		return
-	}
-	t.used = true
 	if err := t.h.StopBy(ct); err != nil {
 		raise(err)
 	}
@@ -580,10 +569,9 @@ func (t *Task[T]) Stop(ct *rt.Task) {
 //ergo:wait none
 //ergo:release caller
 func (t *Task[T]) Close(ct *rt.Task) {
-	if t.used {
+	if t.h.Consumed() {
 		return
 	}
-	t.used = true
 	Release(ct, func() {
 		if err := t.h.StopBy(ct); err != nil {
 			raise(err)
@@ -599,7 +587,7 @@ func (t *Task[T]) Close(ct *rt.Task) {
 // does.
 //
 //ergo:wait none
-func ReleaseTask[T any](t *Task[T]) { t.Close(t.task) }
+func ReleaseTask[T any](t *Task[T]) { t.Close(t.h.Starter()) }
 
 // Drain is the rest of the release of a Task whose value holds a resource
 // (L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the
