@@ -1,6 +1,6 @@
 # Grammar
 
-Status: **implemented**: the parser `compiler/syntax` and the formatter `compiler/format` (both linked into `ergo`) implement the decided grammar of the v1 language, and nothing else. The source is the appendix "Decided Go-shaped sketch" of the [2026-10-28 preview](../previews/2026-10-28-without-go-syntax.md) (62 productions), its decisions table and its seventh, eighth and ninth rounds. Where the sketch is silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).
+Status: **implemented**: the parser `compiler/syntax` and the formatter `compiler/format` (both linked into `ergo`) implement the decided grammar of the v1 language, and nothing else. Each production below has a grammar fixture of its name (`internal/sketch/sketchtest/fixtures.go`), and each fixture names a production below. Where the productions are silent, the rules below decide; each says why. A syntax error is S001 ([diagnostics](diagnostics.md)), with one exception, S108 for a type that mixes fields and operations ([Declarations](#declarations) rule 5).
 
 A Go form that this file does not admit is an error, never a passthrough to the host (AGENTS.md). The old Go-shaped spelling has no compatibility path; a Go habit gets a message that names the Ergo form ([Old spellings](#old-spellings)).
 
