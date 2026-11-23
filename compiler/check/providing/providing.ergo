@@ -719,7 +719,11 @@ func placedLits(p syntax.Parsed) [](int, int) {
 	for i in 0..syntax.NumNodes(p.Tree) {
 		let n = syntax.NodeAt(p.Tree, i)
 		let kind = syntax.KindOf(p.Tree, n)
-		if kind == syntax.KVarSpec {
+		if kind == syntax.KContextDecl {
+			// A package's `let Name = context { … }`, a declaration of its
+			// own: its entries are always in place.
+			out = out.Append((syntax.NodePos(p, n), syntax.NodeEnd(p, n)))
+		} else if kind == syntax.KVarSpec {
 			match dense.Unpack(syntax.VarSpecOf(p.Tree, n).Value) {
 			case Some{Value: v}:
 				out = withLit(p, out, v)
@@ -757,8 +761,8 @@ func inSpans(spans [](int, int), at int) bool {
 
 // entries checks each context entry whose capability is a local
 // operation type and whose provider names a local type of no parameters
-// with no implements clause: it does not declare the operation type it
-// provides (types.md, Interface assignability 1).
+// with no implements clause: it does not declare that it implements the
+// operation type of its entry (types.md, Interface assignability 1).
 func entries(k expr.Pkg, decls Map[string, typeDecl]) []diag.Diag {
 	let mut out = []diag.Diag{}
 	for f, p in k.Parsed {
