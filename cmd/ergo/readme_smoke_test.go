@@ -73,6 +73,9 @@ var (
 	readmeSmokeRow = regexp.MustCompile("^\\| `([^`]+)` \\|[^|]*\\| \\*\\*([0-9.]+)\\*\\*")
 )
 
+// readmeSmokeProgram is the folder of the program "Try it" runs.
+const readmeSmokeProgram = "examples/lookup"
+
 // readmeBlock is one fenced block of the README: its language, its body
 // lines and the marker above it.
 type readmeBlock struct {
@@ -684,7 +687,7 @@ func TestReadmeSmoke(t *testing.T) {
 			t.Fatal("README has no sh block under \"Try it\"")
 		}
 		binary := buildTestCLI(t)
-		workspace := smokeWorkspace(t, "examples/lookup", "go.mod")
+		workspace := smokeWorkspace(t, readmeSmokeProgram, "go.mod")
 		commands := 0
 		for _, line := range strings.Split(block[1], "\n") {
 			command := readmeSmokeCommand.FindStringSubmatch(line)
