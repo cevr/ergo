@@ -27,7 +27,7 @@ var ergo__InitFailed any
 
 // ergo__InitRun runs the package-level lets in the first call, and raises the
 // panic that ended them again in every later call.
-func ergo__InitRun(env *Env) {
+func ergo__InitRun(env *ergo__Env) {
 	ergo__InitOnce.Do(func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -46,10 +46,10 @@ func ergo__InitRun(env *Env) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyFields(ctx go__context.Context, p0 []string, p1 []string) (string, error) {
 	v, err := ergo.Call(ctx, "KeyFields", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyFields_1(p0, p1), nil
+		return ergo__KeyFields_1(p0, p1), nil
 	})
 	return v, err
 }
@@ -58,10 +58,10 @@ func KeyFields(ctx go__context.Context, p0 []string, p1 []string) (string, error
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyBuildID(ctx go__context.Context, p0 string, p1 int) (string, error) {
 	v, err := ergo.Call(ctx, "KeyBuildID", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyBuildID_1(p0, p1), nil
+		return ergo__KeyBuildID_1(p0, p1), nil
 	})
 	return v, err
 }
@@ -70,10 +70,10 @@ func KeyBuildID(ctx go__context.Context, p0 string, p1 int) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyLaw(ctx go__context.Context, p0 []string) (string, error) {
 	v, err := ergo.Call(ctx, "KeyLaw", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyLaw_1(p0), nil
+		return ergo__KeyLaw_1(p0), nil
 	})
 	return v, err
 }
@@ -82,10 +82,10 @@ func KeyLaw(ctx go__context.Context, p0 []string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyFramed(ctx go__context.Context, p0 []string) (string, error) {
 	v, err := ergo.Call(ctx, "KeyFramed", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyFramed_1(p0), nil
+		return ergo__KeyFramed_1(p0), nil
 	})
 	return v, err
 }
@@ -94,10 +94,10 @@ func KeyFramed(ctx go__context.Context, p0 []string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyEnviron(ctx go__context.Context, p0 []string, p1 string) (string, error) {
 	v, err := ergo.Call(ctx, "KeyEnviron", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyEnviron_1(p0, p1), nil
+		return ergo__KeyEnviron_1(p0, p1), nil
 	})
 	return v, err
 }
@@ -106,10 +106,10 @@ func KeyEnviron(ctx go__context.Context, p0 []string, p1 string) (string, error)
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyWarm(ctx go__context.Context, p0 string, p1 []string, p2 []string, p3 []string) (string, error) {
 	v, err := ergo.Call(ctx, "KeyWarm", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyWarm_1(p0, p1, p2, p3), nil
+		return ergo__KeyWarm_1(p0, p1, p2, p3), nil
 	})
 	return v, err
 }
@@ -118,10 +118,10 @@ func KeyWarm(ctx go__context.Context, p0 string, p1 []string, p2 []string, p3 []
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyListing(ctx go__context.Context, p0 []string, p1 []int) (string, error) {
 	v, err := ergo.Call(ctx, "KeyListing", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyListing_1(p0, p1), nil
+		return ergo__KeyListing_1(p0, p1), nil
 	})
 	return v, err
 }
@@ -130,10 +130,10 @@ func KeyListing(ctx go__context.Context, p0 []string, p1 []int) (string, error) 
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func KeyTestResult(ctx go__context.Context, p0 string, p1 string, p2 uint64, p3 []string, p4 []string, p5 string) (string, error) {
 	v, err := ergo.Call(ctx, "KeyTestResult", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return KeyTestResult_1(p0, p1, p2, p3, p4, p5), nil
+		return ergo__KeyTestResult_1(p0, p1, p2, p3, p4, p5), nil
 	})
 	return v, err
 }
@@ -142,9 +142,9 @@ func KeyTestResult(ctx go__context.Context, p0 string, p1 string, p2 uint64, p3 
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Scan(ctx go__context.Context, p0 string) (string, error) {
 	v, err := ergo.Call(ctx, "Scan", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Scan_1(env, p0), nil
+		return ergo__Scan_1(env, p0), nil
 	})
 	return v, err
 }
@@ -153,9 +153,9 @@ func Scan(ctx go__context.Context, p0 string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Parse(ctx go__context.Context, p0 string) (string, error) {
 	v, err := ergo.Call(ctx, "Parse", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Parse_1(env, p0), nil
+		return ergo__Parse_1(env, p0), nil
 	})
 	return v, err
 }
@@ -164,10 +164,10 @@ func Parse(ctx go__context.Context, p0 string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Columns(ctx go__context.Context, p0 string) ([]uint32, error) {
 	v, err := ergo.Call(ctx, "Columns", func(t *rt.Task) ([]uint32, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return Columns_1(p0), nil
+		return ergo__Columns_1(p0), nil
 	})
 	return append([]uint32(nil), v...), err
 }
@@ -176,9 +176,9 @@ func Columns(ctx go__context.Context, p0 string) ([]uint32, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func ColumnsAll(ctx go__context.Context, p0 []string, p1 int) ([][]uint32, error) {
 	v, err := ergo.Call(ctx, "ColumnsAll", func(t *rt.Task) ([][]uint32, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return ColumnsAll_1(env, p0, p1), nil
+		return ergo__ColumnsAll_1(env, p0, p1), nil
 	})
 	return append([][]uint32(nil), v...), err
 }
@@ -187,10 +187,10 @@ func ColumnsAll(ctx go__context.Context, p0 []string, p1 int) ([][]uint32, error
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Tokens(ctx go__context.Context, p0 string) ([]uint32, error) {
 	v, err := ergo.Call(ctx, "Tokens", func(t *rt.Task) ([]uint32, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return Tokens_1(p0), nil
+		return ergo__Tokens_1(p0), nil
 	})
 	return append([]uint32(nil), v...), err
 }
@@ -199,10 +199,10 @@ func Tokens(ctx go__context.Context, p0 string) ([]uint32, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Failure(ctx go__context.Context, p0 string) (string, error) {
 	v, err := ergo.Call(ctx, "Failure", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return Failure_1(p0), nil
+		return ergo__Failure_1(p0), nil
 	})
 	return v, err
 }
@@ -211,10 +211,10 @@ func Failure(ctx go__context.Context, p0 string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func FixLines(ctx go__context.Context, p0 string, p1 []int, p2 []int, p3 []string) (string, error) {
 	v, err := ergo.Call(ctx, "FixLines", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return FixLines_1(p0, p1, p2, p3), nil
+		return ergo__FixLines_1(p0, p1, p2, p3), nil
 	})
 	return v, err
 }
@@ -223,9 +223,9 @@ func FixLines(ctx go__context.Context, p0 string, p1 []int, p2 []int, p3 []strin
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func FormatSource(ctx go__context.Context, p0 string, p1 int) (string, error) {
 	v, err := ergo.Call(ctx, "FormatSource", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return FormatSource_1(env, p0, p1), nil
+		return ergo__FormatSource_1(env, p0, p1), nil
 	})
 	return v, err
 }
@@ -234,9 +234,9 @@ func FormatSource(ctx go__context.Context, p0 string, p1 int) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func FormatWork(ctx go__context.Context, p0 string) (int, error) {
 	v, err := ergo.Call(ctx, "FormatWork", func(t *rt.Task) (int, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return FormatWork_1(env, p0), nil
+		return ergo__FormatWork_1(env, p0), nil
 	})
 	return v, err
 }
@@ -245,9 +245,9 @@ func FormatWork(ctx go__context.Context, p0 string) (int, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Laws(ctx go__context.Context, p0 string) (string, error) {
 	v, err := ergo.Call(ctx, "Laws", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Laws_1(env, p0), nil
+		return ergo__Laws_1(env, p0), nil
 	})
 	return v, err
 }
@@ -256,9 +256,9 @@ func Laws(ctx go__context.Context, p0 string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func Steps(ctx go__context.Context, p0 string, p1 int) (string, error) {
 	v, err := ergo.Call(ctx, "Steps", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return Steps_1(env, p0, p1), nil
+		return ergo__Steps_1(env, p0, p1), nil
 	})
 	return v, err
 }
@@ -267,9 +267,9 @@ func Steps(ctx go__context.Context, p0 string, p1 int) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func IRWrite(ctx go__context.Context, p0 []uint32, p1 []string) (string, error) {
 	v, err := ergo.Call(ctx, "IRWrite", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return IRWrite_1(env, p0, p1), nil
+		return ergo__IRWrite_1(env, p0, p1), nil
 	})
 	return v, err
 }
@@ -278,9 +278,9 @@ func IRWrite(ctx go__context.Context, p0 []uint32, p1 []string) (string, error) 
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func IRKinds(ctx go__context.Context) (string, error) {
 	v, err := ergo.Call(ctx, "IRKinds", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return IRKinds_1(env), nil
+		return ergo__IRKinds_1(env), nil
 	})
 	return v, err
 }
@@ -289,9 +289,9 @@ func IRKinds(ctx go__context.Context) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func ReportProject(ctx go__context.Context, p0 string, p1 string, p2 []string, p3 []string, p4 []int) (string, error) {
 	v, err := ergo.Call(ctx, "ReportProject", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		ergo__InitRun(env)
-		return ReportProject_1(env, p0, p1, p2, p3, p4), nil
+		return ergo__ReportProject_1(env, p0, p1, p2, p3, p4), nil
 	})
 	return v, err
 }
@@ -300,10 +300,10 @@ func ReportProject(ctx go__context.Context, p0 string, p1 string, p2 []string, p
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func ReportRevision(ctx go__context.Context, p0 string) (string, error) {
 	v, err := ergo.Call(ctx, "ReportRevision", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return ReportRevision_1(p0), nil
+		return ergo__ReportRevision_1(p0), nil
 	})
 	return v, err
 }
@@ -312,10 +312,10 @@ func ReportRevision(ctx go__context.Context, p0 string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func ReportStatus(ctx go__context.Context, p0 []string) (string, error) {
 	v, err := ergo.Call(ctx, "ReportStatus", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return ReportStatus_1(p0), nil
+		return ergo__ReportStatus_1(p0), nil
 	})
 	return v, err
 }
@@ -324,10 +324,10 @@ func ReportStatus(ctx go__context.Context, p0 []string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func ReportTarget(ctx go__context.Context, p0 string) (string, error) {
 	v, err := ergo.Call(ctx, "ReportTarget", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return ReportTarget_1(p0), nil
+		return ergo__ReportTarget_1(p0), nil
 	})
 	return v, err
 }
@@ -336,10 +336,10 @@ func ReportTarget(ctx go__context.Context, p0 string) (string, error) {
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func ReportPlatform(ctx go__context.Context, p0 string, p1 []string) (string, error) {
 	v, err := ergo.Call(ctx, "ReportPlatform", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return ReportPlatform_1(p0, p1), nil
+		return ergo__ReportPlatform_1(p0, p1), nil
 	})
 	return v, err
 }
@@ -348,20 +348,20 @@ func ReportPlatform(ctx go__context.Context, p0 string, p1 []string) (string, er
 // calling goroutine, as a root task that ctx cancels (v1.Call).
 func SourceAdmit(ctx go__context.Context, p0 bool, p1 int, p2 string) (string, error) {
 	v, err := ergo.Call(ctx, "SourceAdmit", func(t *rt.Task) (string, error) {
-		env := &Env{task: t}
+		env := &ergo__Env{task: t}
 		_ = env
 		ergo__InitRun(env)
-		return SourceAdmit_1(p0, p1, p2), nil
+		return ergo__SourceAdmit_1(p0, p1, p2), nil
 	})
 	return v, err
 }
 
-type Env struct {
+type ergo__Env struct {
 	task *rt.Task
-	from *Env
+	from *ergo__Env
 }
 
-func Append[T any](xs []T, x T) []T {
+func ergo__Append[T any](xs []T, x T) []T {
 	return ergo.Append(xs, x)
 }
 
@@ -413,7 +413,7 @@ func ergo__CloneParsed(v compiler_ssyntax__Parsed) compiler_ssyntax__Parsed {
 	return c
 }
 
-func ergo__textBadCommand(v BadCommand) string {
+func ergo__textergo__BadCommand(v ergo__BadCommand) string {
 	return "{" + "At:" + ergo.TextInt(int64(v.At)) + "}"
 }
 
@@ -479,7 +479,7 @@ func (b *strings__Builder) WriteString(s string) {
 
 //line compiler.go:465
 
-func (b strings__Builder) ergo__strings__StringOwned(env *Env) string {
+func (b strings__Builder) ergo__strings__StringOwned(env *ergo__Env) string {
 	/*line std/strings/builder.ergo:41:32*/ return ergo.StringsBuilderTextOwned(b.buf)
 }
 
@@ -492,17 +492,17 @@ func ergo__CloneBuilder_1(v strings__Builder) strings__Builder {
 }
 
 // String copies its owned arguments into ergo__strings__StringOwned; its body is IR (FLIP F7, OWNED-WRAP-IR).
-func (b strings__Builder) String(env *Env) string {
+func (b strings__Builder) String(env *ergo__Env) string {
 	/*line std/strings/builder.ergo:41:5*/ return ergo__CloneBuilder_1(b).ergo__strings__StringOwned(env)
 }
 
 //line compiler.go:476
 
-type Some[T any] struct {
+type ergo__Some[T any] struct {
 	Value T
 }
 
-type None struct {
+type ergo__None struct {
 }
 
 func sha256__Sum(s string) string {
@@ -552,7 +552,7 @@ type ergoOrdered interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 | ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 | ~uintptr | ~float32 | ~float64 | ~string
 }
 
-type Range[T ergoOrdered] struct {
+type ergo__Range[T ergoOrdered] struct {
 	Start T
 	End   T
 }
@@ -668,7 +668,7 @@ func (b *strings__Builder) WriteByte_(c uint8) {
 func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
 	/*line std/maps/maps.ergo:20:1*/ v_1, ok := m[k]
 	/*line std/maps/maps.ergo:20:1*/ if ok {
-		/*line std/maps/maps.ergo:21:1*/ v_2 := Some[V]{Value: v_1}
+		/*line std/maps/maps.ergo:21:1*/ v_2 := ergo__Some[V]{Value: v_1}
 		/*line std/maps/maps.ergo:22:2*/ return v_2.Value
 	} else {
 		/*line std/maps/maps.ergo:24:2*/ return def
@@ -680,7 +680,7 @@ func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
 func maps__GetOrMono_i1784119160(m map[string]bool, k string, def bool) bool {
 	/*line std/maps/maps.ergo:20:1*/ v_1, ok := m[k]
 	/*line std/maps/maps.ergo:20:1*/ if ok {
-		/*line std/maps/maps.ergo:21:1*/ v_2 := Some[bool]{Value: v_1}
+		/*line std/maps/maps.ergo:21:1*/ v_2 := ergo__Some[bool]{Value: v_1}
 		/*line std/maps/maps.ergo:22:2*/ return v_2.Value
 	} else {
 		/*line std/maps/maps.ergo:24:2*/ return def
@@ -689,15 +689,15 @@ func maps__GetOrMono_i1784119160(m map[string]bool, k string, def bool) bool {
 
 //line compiler.go:594
 
-type Option[T any] struct {
+type ergo__Option[T any] struct {
 	tag uint8
-	v0  Some[T]
+	v0  ergo__Some[T]
 }
 
-func (Option[T]) of0(v Some[T]) Option[T] { return Option[T]{tag: 0, v0: v} }
-func (Option[T]) of1(_ None) Option[T]    { return Option[T]{tag: 1} }
-func (x Option[T]) ErgoVariant() string {
-	return [...]func() string{ergo.VariantOf[Some[T]], ergo.VariantOf[None]}[x.tag]()
+func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] { return ergo__Option[T]{tag: 0, v0: v} }
+func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T]    { return ergo__Option[T]{tag: 1} }
+func (x ergo__Option[T]) ErgoVariant() string {
+	return [...]func() string{ergo.VariantOf[ergo__Some[T]], ergo.VariantOf[ergo__None]}[x.tag]()
 }
 
 func ergo__textcompiler_ssource__NegativeLimit(v compiler_ssource__NegativeLimit) string {
@@ -1039,20 +1039,20 @@ func dense__IDIndexMono_i1428406671(id dense__ID[compiler_ssyntax__Node]) int {
 
 //line compiler.go:724
 
-func (o dense__Opt[K]) Unpack() Option[dense__ID[K]] {
+func (o dense__Opt[K]) Unpack() ergo__Option[dense__ID[K]] {
 	/*line std/dense/dense.ergo:60:1*/ if o.n == uint32(0) {
-		/*line std/dense/dense.ergo:61:2*/ return Option[dense__ID[K]]{}.of1(None{})
+		/*line std/dense/dense.ergo:61:2*/ return ergo__Option[dense__ID[K]]{}.of1(ergo__None{})
 	}
-	/*line std/dense/dense.ergo:63:1*/ return Option[dense__ID[K]]{}.of0(Some[dense__ID[K]]{Value: dense__ID[K]{n: o.n - uint32(1)}})
+	/*line std/dense/dense.ergo:63:1*/ return ergo__Option[dense__ID[K]]{}.of0(ergo__Some[dense__ID[K]]{Value: dense__ID[K]{n: o.n - uint32(1)}})
 }
 
 //line compiler.go:726
 
-func dense__OptUnpackMono_i1428406671(o dense__Opt[compiler_ssyntax__Node]) Option[dense__ID[compiler_ssyntax__Node]] {
+func dense__OptUnpackMono_i1428406671(o dense__Opt[compiler_ssyntax__Node]) ergo__Option[dense__ID[compiler_ssyntax__Node]] {
 	/*line std/dense/dense.ergo:60:1*/ if o.n == uint32(0) {
-		/*line std/dense/dense.ergo:61:2*/ return Option[dense__ID[compiler_ssyntax__Node]]{}.of1(None{})
+		/*line std/dense/dense.ergo:61:2*/ return ergo__Option[dense__ID[compiler_ssyntax__Node]]{}.of1(ergo__None{})
 	}
-	/*line std/dense/dense.ergo:63:1*/ return Option[dense__ID[compiler_ssyntax__Node]]{}.of0(Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}})
+	/*line std/dense/dense.ergo:63:1*/ return ergo__Option[dense__ID[compiler_ssyntax__Node]]{}.of0(ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}})
 }
 
 //line compiler.go:728
@@ -12297,7 +12297,7 @@ func init() {
 }
 
 //line api/cachekey.ergo:10:1
-func KeyFields_1(names []string, values []string) string {
+func ergo__KeyFields_1(names []string, values []string) string {
 	/*line api/cachekey.ergo:11:1*/ if len(names) != len(values) {
 		/*line api/cachekey.ergo:12:2*/ return ""
 	}
@@ -12311,28 +12311,28 @@ func KeyFields_1(names []string, values []string) string {
 //line api/cachekey.ergo:11
 
 //line api/cachekey.ergo:22:1
-func KeyBuildID_1(key string, parts int) string {
+func ergo__KeyBuildID_1(key string, parts int) string {
 	/*line api/cachekey.ergo:22:48*/ return compiler_scachekey__BuildID(key, parts)
 }
 
 //line api/cachekey.ergo:23
 
 //line api/cachekey.ergo:25:1
-func KeyLaw_1(parts []string) string {
+func ergo__KeyLaw_1(parts []string) string {
 	/*line api/cachekey.ergo:25:37*/ return compiler_scachekey__LawKey(parts)
 }
 
 //line api/cachekey.ergo:26
 
 //line api/cachekey.ergo:28:1
-func KeyFramed_1(parts []string) string {
+func ergo__KeyFramed_1(parts []string) string {
 	/*line api/cachekey.ergo:28:40*/ return compiler_scachekey__Framed(parts)
 }
 
 //line api/cachekey.ergo:29
 
 //line api/cachekey.ergo:31:1
-func KeyEnviron_1(environ []string, skip string) string {
+func ergo__KeyEnviron_1(environ []string, skip string) string {
 	/*line api/cachekey.ergo:32:1*/ var out_1 ergo.StrBuf
 	/*line api/cachekey.ergo:32:1*/ ergo.StrSet(&out_1, "")
 	/*line api/cachekey.ergo:33:1*/ for _, kv := range compiler_scachekey__Environ(environ, skip) {
@@ -12347,14 +12347,14 @@ func KeyEnviron_1(environ []string, skip string) string {
 //line api/cachekey.ergo:32
 
 //line api/cachekey.ergo:40:1
-func KeyWarm_1(compiler string, parts []string, environ []string, experiments []string) string {
+func ergo__KeyWarm_1(compiler string, parts []string, environ []string, experiments []string) string {
 	/*line api/cachekey.ergo:41:1*/ return compiler_scachekey__WarmKey(compiler, parts, environ, experiments)
 }
 
 //line api/cachekey.ergo:41
 
 //line api/cachekey.ergo:46:1
-func KeyListing_1(names []string, types []int) string {
+func ergo__KeyListing_1(names []string, types []int) string {
 	/*line api/cachekey.ergo:47:1*/ if len(names) != len(types) {
 		/*line api/cachekey.ergo:48:2*/ return ""
 	}
@@ -12368,14 +12368,14 @@ func KeyListing_1(names []string, types []int) string {
 //line api/cachekey.ergo:47
 
 //line api/cachekey.ergo:58:1
-func KeyTestResult_1(id string, ledger string, limit uint64, args []string, environ []string, skip string) string {
+func ergo__KeyTestResult_1(id string, ledger string, limit uint64, args []string, environ []string, skip string) string {
 	/*line api/cachekey.ergo:59:1*/ return compiler_scachekey__TestResult(id, ledger, limit, args, environ, skip)
 }
 
 //line api/cachekey.ergo:59
 
 //line api/dump.ergo:5:1
-func Scan_1(env *Env, src string) string {
+func ergo__Scan_1(env *ergo__Env, src string) string {
 	/*line api/dump.ergo:5:31*/ v := compiler_ssyntax_sdump__Scan(env, src)
 	/*line api/dump.ergo:5:31*/ return v
 }
@@ -12383,7 +12383,7 @@ func Scan_1(env *Env, src string) string {
 //line api/dump.ergo:6
 
 //line api/dump.ergo:9:1
-func Parse_1(env *Env, src string) string {
+func ergo__Parse_1(env *ergo__Env, src string) string {
 	/*line api/dump.ergo:9:32*/ v := compiler_ssyntax_sdump__Parse(env, src)
 	/*line api/dump.ergo:9:32*/ return v
 }
@@ -12391,7 +12391,7 @@ func Parse_1(env *Env, src string) string {
 //line api/dump.ergo:10
 
 //line api/dump.ergo:13:1
-func Columns_1(src string) []uint32 {
+func ergo__Columns_1(src string) []uint32 {
 	/*line api/dump.ergo:13:36*/ {
 		/*line api/dump.ergo:13:49*/ p0_inl0 := src
 		/*line syntax/dump/columns.ergo#ergo-inline-api/dump.ergo@13.37:8:36*/ return compiler_ssyntax__Parse(p0_inl0).Columns()
@@ -12401,7 +12401,7 @@ func Columns_1(src string) []uint32 {
 //line api/dump.ergo:14
 
 //line api/dump.ergo:17:1
-func ColumnsAll_1(env *Env, srcs []string, workers int) [][]uint32 {
+func ergo__ColumnsAll_1(env *ergo__Env, srcs []string, workers int) [][]uint32 {
 	/*line api/dump.ergo:17:1*/ env.task.Check()
 	/*line api/dump.ergo:17:57*/ v := compiler_ssyntax_sdump__ColumnsAll(env, srcs, workers)
 	/*line api/dump.ergo:17:57*/ return v
@@ -12410,28 +12410,28 @@ func ColumnsAll_1(env *Env, srcs []string, workers int) [][]uint32 {
 //line api/dump.ergo:18
 
 //line api/dump.ergo:20:1
-func Tokens_1(src string) []uint32 {
+func ergo__Tokens_1(src string) []uint32 {
 	/*line api/dump.ergo:20:35*/ return compiler_ssyntax_sdump__Tokens(src)
 }
 
 //line api/dump.ergo:21
 
 //line api/dump.ergo:24:1
-func Failure_1(src string) string {
+func ergo__Failure_1(src string) string {
 	/*line api/dump.ergo:24:34*/ return compiler_ssyntax_sdump__Failure(src)
 }
 
 //line api/dump.ergo:25
 
 //line api/dump.ergo:28:1
-func FixLines_1(class string, offsets []int, lengths []int, texts []string) string {
+func ergo__FixLines_1(class string, offsets []int, lengths []int, texts []string) string {
 	/*line api/dump.ergo:28:83*/ return compiler_ssyntax_sdump__FixLines(class, offsets, lengths, texts)
 }
 
 //line api/dump.ergo:29
 
 //line api/format.ergo:14:1
-func FormatSource_1(env *Env, src string, limit int) string {
+func ergo__FormatSource_1(env *ergo__Env, src string, limit int) string {
 	/*line api/format.ergo:15:12*/ var text string
 	/*line api/format.ergo:15:12*/ var err error
 	/*line api/format.ergo:15:12*/ {
@@ -12463,7 +12463,7 @@ func FormatSource_1(env *Env, src string, limit int) string {
 //line api/format.ergo:15
 
 //line api/format.ergo:26:1
-func FormatWork_1(env *Env, src string) int {
+func ergo__FormatWork_1(env *ergo__Env, src string) int {
 	/*line api/format.ergo:27:9*/ v, err := compiler_sformat__Print(env, src, 0)
 	/*line api/format.ergo:27:30*/ if err != nil {
 		/*line api/format.ergo:27:30*/ switch err.(type) {
@@ -12482,7 +12482,7 @@ func FormatWork_1(env *Env, src string) int {
 //line api/format.ergo:27
 
 //line api/format.ergo:37:1
-func Laws_1(env *Env, src string) string {
+func ergo__Laws_1(env *ergo__Env, src string) string {
 	/*line api/format.ergo:37:31*/ v := compiler_sformat__CheckLaws(env, src)
 	/*line api/format.ergo:37:31*/ return v
 }
@@ -12490,8 +12490,8 @@ func Laws_1(env *Env, src string) string {
 //line api/format.ergo:38
 
 //line api/format.ergo:45:1
-func Steps_1(env *Env, commands string, limit int) string {
-	/*line api/format.ergo:46:12*/ var res ergoFlat[[]compiler_sformat__Command, BadCommand]
+func ergo__Steps_1(env *ergo__Env, commands string, limit int) string {
+	/*line api/format.ergo:46:12*/ var res ergoFlat[[]compiler_sformat__Command, ergo__BadCommand]
 	/*line api/format.ergo:46:35*/ var caught []compiler_sformat__Command = nil
 	/*line api/format.ergo:46:35*/ if readCommandsFlat(commands, &res) {
 		/*line api/format.ergo:47:1*/ b := res.Err
@@ -12515,20 +12515,20 @@ func Steps_1(env *Env, commands string, limit int) string {
 //line api/format.ergo:46
 
 //line api/format.ergo:58:1
-type BadCommand struct {
+type ergo__BadCommand struct {
 	/*line api/format.ergo:58:1*/ At int
 	/*line api/format.ergo:58:1*/
 }
 
 /*line api/format.ergo:58:1*/
-func (e BadCommand) Error() string {
-	/*line api/format.ergo:58:1*/ return "BadCommand" + ergo__textBadCommand(e)
+func (e ergo__BadCommand) Error() string {
+	/*line api/format.ergo:58:1*/ return "BadCommand" + ergo__textergo__BadCommand(e)
 	/*line api/format.ergo:58:1*/
 }
 
 //line api/format.ergo:60:1
 func readCommands(w string) ([]compiler_sformat__Command, error) {
-	/*line api/format.ergo:60:1*/ var res ergoFlat[[]compiler_sformat__Command, BadCommand]
+	/*line api/format.ergo:60:1*/ var res ergoFlat[[]compiler_sformat__Command, ergo__BadCommand]
 	/*line api/format.ergo:60:1*/ if readCommandsFlat(w, &res) {
 		/*line api/format.ergo:60:1*/ return nil, res.Err
 	}
@@ -12558,7 +12558,7 @@ func decimalAt(w string, at int, stop uint8) (struct {
 		/*line api/format.ergo:121:2*/ return struct {
 			F0 int
 			F1 int
-		}{}, BadCommand{At: at}
+		}{}, ergo__BadCommand{At: at}
 	}
 	/*line api/format.ergo:123:2*/ var if7 int
 	/*line api/format.ergo:123:2*/ if negative {
@@ -12575,7 +12575,7 @@ func decimalAt(w string, at int, stop uint8) (struct {
 //line api/format.ergo:109
 
 //line api/ir.ergo:26:1
-func IRWrite_1(env *Env, words []uint32, strs []string) string {
+func ergo__IRWrite_1(env *ergo__Env, words []uint32, strs []string) string {
 	/*line api/ir.ergo:27:12*/ var res ergoFlat[compiler_sir__File, compiler_sir__Malformed]
 	/*line api/ir.ergo:27:32*/ caught := compiler_sir__File{}
 	/*line api/ir.ergo:27:32*/ if replayFlat(words, strs, &res) {
@@ -12602,7 +12602,7 @@ func IRWrite_1(env *Env, words []uint32, strs []string) string {
 //line api/ir.ergo:27
 
 //line api/ir.ergo:39:1
-func IRKinds_1(env *Env) string {
+func ergo__IRKinds_1(env *ergo__Env) string {
 	/*line api/ir.ergo:39:24*/ return "1 6 |1,2,3,4\n2 5 local|2\n3 5 const|3,4,5\n4 5 field|6,8\n5 5 mcall|6,8,9\n6 5 lit|3,10,11\n7 5 zero|3\n8 5 bin|5,6,7\n9 5 call|3,8,9\n10 5 pcall|3,4,5,8,9\n11 5 index|6,7\n12 5 assert|3,6\n13 5 nil|3\n14 5 len|6\n15 5 addr|6\n16 5 append|9\n17 5 conv|3,6\n18 5 toiface|3,6\n19 5 un|5,6\n20 5 func|3,12,13,14\n21 5 vcall|6,9\n22 5 global|8\n23 5 mapAt|6,7\n24 5 deref|6\n25 5 builtin|8,9\n26 5 slice|6,9\n27 5 result|2\n28 5 recover|\n29 4 def|2,5\n30 4 ret|5\n31 4 if|5,6,7,9,10,11\n32 4 set|2,5,12\n33 4 expr|5\n34 4 store|5,12,15\n35 4 fail|5\n36 4 goto|14\n37 4 switch|5,7,9,10,13\n38 4 block|8,9,14\n39 4 panic|5\n40 4 def2|2,4,5\n41 4 discard|5\n42 4 var|2\n43 4 range|3,4,5,8,9,14\n44 4 tswitch|5,7,9,10,13\n45 4 count|2,5,8,9,15\n46 4 while|5,8,9,14\n47 4 mapget|2,4,5,15\n48 4 continue|\n49 4 break|14\n50 4 tdef|5,16\n51 4 defer|5\n"
 }
 
@@ -12720,7 +12720,7 @@ func replay(words []uint32, strs []string) (compiler_sir__File, error) {
 //line api/ir.ergo:79
 
 //line api/report.ergo:16:1
-func ReportProject_1(env *Env, source string, text string, files []string, strs []string, nums []int) string {
+func ergo__ReportProject_1(env *ergo__Env, source string, text string, files []string, strs []string, nums []int) string {
 	/*line api/report.ergo:16:1*/ env.task.Check()
 	/*line api/report.ergo:17:1*/ if len(files)%2 != 0 || len(strs)%3 != 0 || len(nums) != len(strs)/3*4 {
 		/*line api/report.ergo:18:2*/ return "malformed\n"
@@ -12798,7 +12798,7 @@ func field(s string) string {
 //line api/report.ergo:51
 
 //line api/report.ergo:53:1
-func ReportRevision_1(source string) string {
+func ergo__ReportRevision_1(source string) string {
 	/*line api/report.ergo:53:44*/ {
 		/*line report/report.ergo#ergo-inline-api/report.ergo@53.45:67:38*/ return ergodigest.HexEncode(sha256__Sum(source))
 	}
@@ -12807,22 +12807,22 @@ func ReportRevision_1(source string) string {
 //line api/report.ergo:54
 
 //line api/report.ergo:56:1
-func ReportStatus_1(statuses []string) string {
+func ergo__ReportStatus_1(statuses []string) string {
 	/*line api/report.ergo:56:46*/ return compiler_sreport__EvaluationStatus(statuses)
 }
 
 //line api/report.ergo:57
 
 //line api/report.ergo:60:1
-func ReportTarget_1(target string) string {
+func ergo__ReportTarget_1(target string) string {
 	/*line api/report.ergo:61:1*/ {
-		/*line api/report.ergo:61:1*/ var d_1 Some[compiler_sreport__Diagnostic]
+		/*line api/report.ergo:61:1*/ var d_1 ergo__Some[compiler_sreport__Diagnostic]
 		/*line api/report.ergo:61:1*/ {
 			/*line api/report.ergo:61:1*/ if target == "go" {
-				/*line api/report.ergo:61:1*/ _ = None{}
+				/*line api/report.ergo:61:1*/ _ = ergo__None{}
 				/*line api/report.ergo:61:1*/ goto fuse2
 			}
-			/*line api/report.ergo:61:1*/ d_1 = Some[compiler_sreport__Diagnostic]{Value: compiler_sreport__Diagnostic{Code: "EF110", File: "", Message: "unsupported target " + target + "; the only target is " + "go", Span: compiler_sreport__NoSpan()}}
+			/*line api/report.ergo:61:1*/ d_1 = ergo__Some[compiler_sreport__Diagnostic]{Value: compiler_sreport__Diagnostic{Code: "EF110", File: "", Message: "unsupported target " + target + "; the only target is " + "go", Span: compiler_sreport__NoSpan()}}
 			/*line api/report.ergo:61:1*/ goto fuse1
 		}
 		/*line api/report.ergo:62:1*/ fuse1:
@@ -12839,7 +12839,7 @@ func ReportTarget_1(target string) string {
 //line api/report.ergo:61
 
 //line api/report.ergo:70:1
-func ReportPlatform_1(platform string, platforms []string) string {
+func ergo__ReportPlatform_1(platform string, platforms []string) string {
 	/*line api/report.ergo:71:1*/ d := compiler_sreport__UnsupportedPlatform(platform, platforms)
 	/*line api/report.ergo:72:1*/ return d.Code + " " + d.Message
 }
@@ -12847,7 +12847,7 @@ func ReportPlatform_1(platform string, platforms []string) string {
 //line api/report.ergo:71
 
 //line api/source.ergo:10:1
-func SourceAdmit_1(regular bool, limit int, content string) string {
+func ergo__SourceAdmit_1(regular bool, limit int, content string) string {
 	/*line api/source.ergo:11:1*/ var res ergoFlat[struct{}, compiler_ssource__NegativeLimit]
 	/*line api/source.ergo:11:26*/ if compiler_ssource__CheckLimitFlat(limit, &res) {
 		/*line api/source.ergo:13:2*/ return "fail source size limit must not be negative\n"
@@ -12937,7 +12937,7 @@ func compiler_scachekey__BuildID(key string, parts int) string {
 	/*line cachekey/cachekey.ergo:48:12*/ {
 	}
 	/*line cachekey/cachekey.ergo:49:1*/ ids := ergo.SliceOfLen[string](parts - 0)
-	/*line cachekey/cachekey.ergo:50:1*/ r := Range[int]{Start: 0, End: parts}
+	/*line cachekey/cachekey.ergo:50:1*/ r := ergo__Range[int]{Start: 0, End: parts}
 	/*line cachekey/cachekey.ergo:50:1*/ for i := r.Start; i < r.End; i++ {
 		/*line cachekey/cachekey.ergo:51:2*/ ids[i-r.Start] = part
 	}
@@ -13043,11 +13043,11 @@ func compiler_scachekey__TestResult(id string, ledger string, limit uint64, args
 //line cachekey/cachekey.ergo:120
 
 //line syntax/dump/scan.ergo:8:1
-func compiler_ssyntax_sdump__Scan(env *Env, src string) string {
+func compiler_ssyntax_sdump__Scan(env *ergo__Env, src string) string {
 	/*line syntax/dump/scan.ergo:9:1*/ b := strings__Builder{buf: []uint8{}}
 	/*line syntax/dump/scan.ergo:10:1*/ s := compiler_ssyntax__Scan(src)
 	/*line syntax/dump/scan.ergo:11:1*/ t := s.Toks
-	/*line syntax/dump/scan.ergo:12:1*/ r := Range[int]{Start: 0, End: t.NumToks()}
+	/*line syntax/dump/scan.ergo:12:1*/ r := ergo__Range[int]{Start: 0, End: t.NumToks()}
 	/*line syntax/dump/scan.ergo:12:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/dump/scan.ergo:13:2*/ var id dense__ID[compiler_ssyntax__Tok]
 		/*line syntax/dump/scan.ergo:13:2*/ {
@@ -13074,7 +13074,7 @@ func compiler_ssyntax_sdump__Scan(env *Env, src string) string {
 		/*line syntax/dump/scan.ergo:16:2*/ (&b).WriteString("T " + strconv__Itoa(int(k)) + " " + strconv__Itoa(start) + " " + strconv__Itoa(compiler_ssyntax__End(src, k, start)) + "\n")
 	}
 	/*line syntax/dump/scan.ergo:18:1*/ c := s.Comments
-	/*line syntax/dump/scan.ergo:19:1*/ r_1 := Range[int]{Start: 0, End: c.NumComments()}
+	/*line syntax/dump/scan.ergo:19:1*/ r_1 := ergo__Range[int]{Start: 0, End: c.NumComments()}
 	/*line syntax/dump/scan.ergo:19:1*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
 		/*line syntax/dump/scan.ergo:20:2*/ var id_1 dense__ID[compiler_ssyntax__Cmt]
 		/*line syntax/dump/scan.ergo:20:2*/ {
@@ -13105,13 +13105,13 @@ func compiler_ssyntax_sdump__Scan(env *Env, src string) string {
 //line syntax/dump/scan.ergo:9
 
 //line syntax/dump/parse.ergo:462:1
-func compiler_ssyntax_sdump__Parse(env *Env, src string) string {
+func compiler_ssyntax_sdump__Parse(env *ergo__Env, src string) string {
 	/*line syntax/dump/parse.ergo:463:1*/ p := compiler_ssyntax__Parse(src)
 	/*line syntax/dump/parse.ergo:464:1*/ if p.Failed {
 		/*line syntax/dump/parse.ergo:465:2*/ return "E " + p.Code + " " + compiler_ssyntax_sdump__itoa(p.Offset) + " " + compiler_ssyntax_sdump__itoa(p.Length) + " " + compiler_ssyntax_sdump__itoa(p.Line) + " " + compiler_ssyntax_sdump__itoa(p.Column) + " " + strconv__Quote(p.Message) + "\n"
 	}
 	/*line syntax/dump/parse.ergo:467:1*/ d := compiler_ssyntax_sdump__dumper{b: strings__Builder{buf: []uint8{}}, p: ergo__CloneParsed(p)}
-	/*line syntax/dump/parse.ergo:468:1*/ r := Range[int]{Start: 0, End: p.NumGroups()}
+	/*line syntax/dump/parse.ergo:468:1*/ r := ergo__Range[int]{Start: 0, End: p.NumGroups()}
 	/*line syntax/dump/parse.ergo:468:1*/ for g := r.Start; g < r.End; g++ {
 		/*line syntax/dump/parse.ergo:469:2*/ {
 			/*line syntax/dump/parse.ergo:469:7*/ p0_inl0 := &d
@@ -13135,9 +13135,9 @@ func compiler_ssyntax_sdump__Columns(src string) []uint32 {
 //line syntax/dump/columns.ergo:9
 
 //line syntax/dump/columns.ergo:13:1
-func compiler_ssyntax_sdump__ColumnsAll(env *Env, srcs []string, workers int) [][]uint32 {
+func compiler_ssyntax_sdump__ColumnsAll(env *ergo__Env, srcs []string, workers int) [][]uint32 {
 	/*line syntax/dump/columns.ergo:13:1*/ env.task.Check()
-	/*line syntax/dump/columns.ergo:13:57*/ v := compiler_ssyntax__EachRunMono_i2128182604(env, srcs, workers, 32768, func(env_1 *Env, p string) ([]uint32, error) {
+	/*line syntax/dump/columns.ergo:13:57*/ v := compiler_ssyntax__EachRunMono_i2128182604(env, srcs, workers, 32768, func(env_1 *ergo__Env, p string) ([]uint32, error) {
 		/*line syntax/dump/columns.ergo:13:104*/ return compiler_ssyntax_sdump__Columns(p), nil
 	})
 	/*line syntax/dump/columns.ergo:13:57*/ return v
@@ -13164,7 +13164,7 @@ func compiler_ssyntax_sdump__Tokens(src string) []uint32 {
 		/*line syntax/dump/columns.ergo:21:45*/ p0_inl2 := 3 * n
 		/*line syntax/dump/columns.ergo:21:15*/ out = ergo.WithCapacity[uint32](p0_inl2)
 	}
-	/*line syntax/dump/columns.ergo:22:1*/ r := Range[int]{Start: 0, End: n}
+	/*line syntax/dump/columns.ergo:22:1*/ r := ergo__Range[int]{Start: 0, End: n}
 	/*line syntax/dump/columns.ergo:22:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/dump/columns.ergo:23:2*/ var id dense__ID[compiler_ssyntax__Tok]
 		/*line syntax/dump/columns.ergo:23:2*/ {
@@ -13212,7 +13212,7 @@ func compiler_ssyntax_sdump__Failure(src string) string {
 func compiler_ssyntax_sdump__FixLines(class string, offsets []int, lengths []int, texts []string) string {
 	/*line syntax/dump/columns.ergo:61:1*/ var out_1 ergo.StrBuf
 	/*line syntax/dump/columns.ergo:61:1*/ ergo.StrSet(&out_1, "")
-	/*line syntax/dump/columns.ergo:62:1*/ r := Range[int]{Start: 0, End: len(offsets)}
+	/*line syntax/dump/columns.ergo:62:1*/ r := ergo__Range[int]{Start: 0, End: len(offsets)}
 	/*line syntax/dump/columns.ergo:62:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/dump/columns.ergo:63:2*/ part := "\nfix "
 		/*line syntax/dump/columns.ergo:63:2*/ part_1 := class
@@ -13267,7 +13267,7 @@ func (e compiler_sformat__OutputLimit) Error() string {
 }
 
 //line format/format.ergo:25:1
-func compiler_sformat__Source(env *Env, src string, limit int) (string, error) {
+func compiler_sformat__Source(env *ergo__Env, src string, limit int) (string, error) {
 	/*line format/format.ergo:26:13*/ v, err := compiler_sformat__Print(env, src, limit)
 	/*line format/format.ergo:26:13*/ if err != nil {
 		/*line format/format.ergo:26:13*/ return "", err
@@ -13279,7 +13279,7 @@ func compiler_sformat__Source(env *Env, src string, limit int) (string, error) {
 //line format/format.ergo:26
 
 //line format/format.ergo:35:1
-func compiler_sformat__Print(env *Env, src string, limit int) (compiler_sformat__Printed, error) {
+func compiler_sformat__Print(env *ergo__Env, src string, limit int) (compiler_sformat__Printed, error) {
 	/*line format/format.ergo:39:1*/ p := compiler_sformat__Printer{P: ergo__CloneParsed(compiler_ssyntax__Parse(src)), Src: src, EOF: 0, Lines: compiler_ssyntax__LinesOf(src), ALine: 0, ALo: 0, AHi: 0, BLine: 0, BLo: 0, BHi: 0, CSlash: []int{}, CEnd: []int{}, CText: []string{}, Ci: 0, L: compiler_sformat__NewLayoutFor(len(src)), LastEnd: (-1), LastTok: (-1), LastEndLine: 0, LastTokLine: 0, Walked: []compiler_sformat__Walk{}, WalkedSet: []bool{}, Walks: 0, ListIndented: false}
 	/*line format/format.ergo:64:1*/ if p.P.Failed {
 		/*line format/format.ergo:65:2*/ return compiler_sformat__Printed{}, compiler_sformat__SyntaxFailure{Code: p.P.Code, Message: p.P.Message, Offset: p.P.Offset, Length: p.P.Length, Line: p.P.Line, Column: p.P.Column}
@@ -13311,7 +13311,7 @@ type compiler_sformat__Printed struct {
 }
 
 //line format/laws.ergo:80:1
-func compiler_sformat__CheckLaws(env *Env, src string) string {
+func compiler_sformat__CheckLaws(env *ergo__Env, src string) string {
 	/*line format/laws.ergo:81:1*/ broken := strings__Builder{buf: []uint8{}}
 	/*line format/laws.ergo:82:5*/ v := compiler_sformat__IdempotentHolds(env, src)
 	/*line format/laws.ergo:82:1*/ if !v {
@@ -13507,7 +13507,7 @@ type compiler_sformat__Rendered struct {
 }
 
 //line format/format.ergo:96:1
-func compiler_sformat__Steps(env *Env, commands []compiler_sformat__Command, limit int) (compiler_sformat__Rendered, error) {
+func compiler_sformat__Steps(env *ergo__Env, commands []compiler_sformat__Command, limit int) (compiler_sformat__Rendered, error) {
 	/*line format/format.ergo:96:1*/ var res ergoFlat[compiler_sformat__Rendered, compiler_sformat__OutputLimit]
 	/*line format/format.ergo:96:1*/ if compiler_sformat__StepsFlat(env, commands, limit, &res) {
 		/*line format/format.ergo:96:1*/ return compiler_sformat__Rendered{}, res.Err
@@ -13543,7 +13543,7 @@ type compiler_sir__File struct {
 }
 
 //line ir/json.ergo:11:1
-func (file compiler_sir__File) Write(env *Env) (string, error) {
+func (file compiler_sir__File) Write(env *ergo__Env) (string, error) {
 	/*line ir/json.ergo:11:1*/ file_Files := file.Files
 	/*line ir/json.ergo:11:1*/ file_Shared := file.Shared
 	/*line ir/json.ergo:12:1*/ if len(file.Strs) == 0 || len(file.Strs[0]) != 0 {
@@ -13557,7 +13557,7 @@ func (file compiler_sir__File) Write(env *Env) (string, error) {
 		/*line ir/json.ergo:20:2*/ (&w.b).WriteString("null")
 	} else {
 		/*line ir/json.ergo:22:2*/ (&w.b).WriteByte_(uint8(91))
-		/*line ir/json.ergo:23:2*/ r := Range[int]{Start: 0, End: len(file.Files)}
+		/*line ir/json.ergo:23:2*/ r := ergo__Range[int]{Start: 0, End: len(file.Files)}
 		/*line ir/json.ergo:23:2*/ for i := r.Start; i < r.End; i++ {
 			/*line ir/json.ergo:24:3*/ if i > 0 {
 				/*line ir/json.ergo:25:4*/ (&w.b).WriteByte_(uint8(44))
@@ -13572,7 +13572,7 @@ func (file compiler_sir__File) Write(env *Env) (string, error) {
 		/*line ir/json.ergo:33:2*/ (&w.b).WriteString("null")
 	} else {
 		/*line ir/json.ergo:35:2*/ (&w.b).WriteByte_(uint8(91))
-		/*line ir/json.ergo:36:2*/ r_1 := Range[int]{Start: 0, End: len(file.Funcs)}
+		/*line ir/json.ergo:36:2*/ r_1 := ergo__Range[int]{Start: 0, End: len(file.Funcs)}
 		/*line ir/json.ergo:36:2*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
 			/*line ir/json.ergo:37:3*/ if i_1 > 0 {
 				/*line ir/json.ergo:38:4*/ (&w.b).WriteByte_(uint8(44))
@@ -13586,7 +13586,7 @@ func (file compiler_sir__File) Write(env *Env) (string, error) {
 	}
 	/*line ir/json.ergo:44:1*/ if len(file.Shared) > 0 {
 		/*line ir/json.ergo:45:2*/ (&w.b).WriteString(",\"shared\":[")
-		/*line ir/json.ergo:46:2*/ r_2 := Range[int]{Start: 0, End: len(file.Shared)}
+		/*line ir/json.ergo:46:2*/ r_2 := ergo__Range[int]{Start: 0, End: len(file.Shared)}
 		/*line ir/json.ergo:46:2*/ for i_2 := r_2.Start; i_2 < r_2.End; i_2++ {
 			/*line ir/json.ergo:47:3*/ if i_2 > 0 {
 				/*line ir/json.ergo:48:4*/ (&w.b).WriteByte_(uint8(44))
@@ -13632,7 +13632,7 @@ type compiler_sir__Builder struct {
 func (b *compiler_sir__Builder) Text(s string) uint32 {
 	/*line ir/build.ergo:44:1*/ v, ok := b.ids[s]
 	/*line ir/build.ergo:44:1*/ if ok {
-		/*line ir/build.ergo:45:1*/ id_1 := Some[uint32]{Value: v}
+		/*line ir/build.ergo:45:1*/ id_1 := ergo__Some[uint32]{Value: v}
 		/*line ir/build.ergo:46:2*/ return id_1.Value
 	} else {
 		/*line ir/build.ergo:48:2*/ id := uint32(len(b.file.Strs))
@@ -13658,7 +13658,7 @@ func (b *compiler_sir__Builder) PosAt(p compiler_sir__Pos) uint32 {
 func (b *compiler_sir__Builder) List(words []uint32) uint32 {
 	/*line ir/build.ergo:113:1*/ q := uint32(len(b.fn.Body.Extra))
 	/*line ir/build.ergo:114:1*/ b.fn.Body.Extra = append(b.fn.Body.Extra, uint32(len(words)))
-	/*line ir/build.ergo:115:1*/ r := Range[int]{Start: 0, End: len(words)}
+	/*line ir/build.ergo:115:1*/ r := ergo__Range[int]{Start: 0, End: len(words)}
 	/*line ir/build.ergo:115:1*/ for i := r.Start; i < r.End; i++ {
 		/*line ir/build.ergo:116:2*/ b.fn.Body.Extra = append(b.fn.Body.Extra, words[i])
 	}
@@ -13706,7 +13706,7 @@ func (b *compiler_sir__Builder) Row(c uint8, at compiler_sir__Pos, slots []uint3
 	}
 	/*line ir/build.ergo:144:1*/ if n > 2 {
 		/*line ir/build.ergo:145:2*/ w = uint32(len(b.fn.Body.Extra))
-		/*line ir/build.ergo:146:2*/ r := Range[int]{Start: 1, End: n}
+		/*line ir/build.ergo:146:2*/ r := ergo__Range[int]{Start: 1, End: n}
 		/*line ir/build.ergo:146:2*/ for j := r.Start; j < r.End; j++ {
 			/*line ir/build.ergo:147:3*/ b.fn.Body.Extra = append(b.fn.Body.Extra, slots[j])
 		}
@@ -13769,7 +13769,7 @@ func (b *compiler_sir__Builder) End(roots uint32) error {
 func (b *compiler_sir__Builder) FileOf(path string) uint32 {
 	/*line ir/build.ergo:57:1*/ v, ok := b.files[path]
 	/*line ir/build.ergo:57:1*/ if ok {
-		/*line ir/build.ergo:58:1*/ i_1 := Some[uint32]{Value: v}
+		/*line ir/build.ergo:58:1*/ i_1 := ergo__Some[uint32]{Value: v}
 		/*line ir/build.ergo:59:2*/ return i_1.Value
 	} else {
 		/*line ir/build.ergo:61:2*/ i := uint32(len(b.file.Files))
@@ -13787,7 +13787,7 @@ func (b *compiler_sir__Builder) FileOf(path string) uint32 {
 func (b *compiler_sir__Builder) FileOfDropped(path string) {
 	/*line ir/build.ergo:57:1*/ v, ok := b.files[path]
 	/*line ir/build.ergo:57:1*/ if ok {
-		/*line ir/build.ergo:58:1*/ i_1 := Some[uint32]{Value: v}
+		/*line ir/build.ergo:58:1*/ i_1 := ergo__Some[uint32]{Value: v}
 		/*line ir/build.ergo:59:2*/ _ = i_1.Value
 	} else {
 		/*line ir/build.ergo:61:2*/ i := uint32(len(b.file.Files))
@@ -13851,7 +13851,7 @@ type compiler_sreport__Span struct {
 }
 
 //line report/report.ergo:233:1
-func compiler_sreport__Project(env *Env, text string, files map[string]string, ds []compiler_sreport__Diagnostic) []compiler_sreport__Finding {
+func compiler_sreport__Project(env *ergo__Env, text string, files map[string]string, ds []compiler_sreport__Diagnostic) []compiler_sreport__Finding {
 	/*line report/report.ergo:233:1*/ env.task.Check()
 	/*line report/report.ergo:234:1*/ seen := map[string]bool{}
 	/*line report/report.ergo:235:1*/ indexes := map[string]compiler_sreport__Index{}
@@ -13875,7 +13875,7 @@ func compiler_sreport__Project(env *Env, text string, files map[string]string, d
 		/*line report/report.ergo:245:2*/ if d.File != "" {
 			/*line report/report.ergo:246:3*/ v, ok := files[d.File]
 			/*line report/report.ergo:246:3*/ if ok {
-				/*line report/report.ergo:247:3*/ t_1 := Some[string]{Value: v}
+				/*line report/report.ergo:247:3*/ t_1 := ergo__Some[string]{Value: v}
 				/*line report/report.ergo:248:4*/ source = t_1.Value
 			} else {
 				/*line report/report.ergo:250:4*/ source = ""
@@ -13885,7 +13885,7 @@ func compiler_sreport__Project(env *Env, text string, files map[string]string, d
 		/*line report/report.ergo:254:10*/ var m14 compiler_sreport__Index
 		/*line report/report.ergo:254:10*/ v_1, ok_1 := indexes[d.File]
 		/*line report/report.ergo:254:10*/ if ok_1 {
-			/*line report/report.ergo:255:2*/ got_1 := Some[compiler_sreport__Index]{Value: v_1}
+			/*line report/report.ergo:255:2*/ got_1 := ergo__Some[compiler_sreport__Index]{Value: v_1}
 			/*line report/report.ergo:256:3*/ m14 = got_1.Value
 		} else {
 			/*line report/report.ergo:258:3*/ made := compiler_sreport__NewIndex(source)
@@ -13898,27 +13898,27 @@ func compiler_sreport__Project(env *Env, text string, files map[string]string, d
 			/*line report/report.ergo:264:3*/ text_1_1 := source
 			/*line report/report.ergo:264:3*/ span_1_1 := span
 			/*line report/report.ergo:264:3*/ {
-				/*line report/report.ergo:264:3*/ var r_1 Some[compiler_sreport__Range_1]
+				/*line report/report.ergo:264:3*/ var r_1 ergo__Some[compiler_sreport__Range_1]
 				/*line report/report.ergo:264:3*/ {
 					/*line report/report.ergo:264:3*/ if span_1_1.Offset < 0 || span_1_1.Length < 0 || span_1_1.Offset > len(text_1_1) || span_1_1.Length > len(text_1_1)-span_1_1.Offset {
-						/*line report/report.ergo:264:3*/ _ = None{}
+						/*line report/report.ergo:264:3*/ _ = ergo__None{}
 						/*line report/report.ergo:264:3*/ goto fuse2
 					}
 					/*line report/report.ergo:264:3*/ s24_1 := x.position(text_1_1, span_1_1.Offset)
 					/*line report/report.ergo:264:3*/ switch s24_1.tag {
 					case uint8(1):
-						/*line report/report.ergo:264:3*/ _ = None{}
+						/*line report/report.ergo:264:3*/ _ = ergo__None{}
 						/*line report/report.ergo:264:3*/ goto fuse2
 					case uint8(0):
 						/*line report/report.ergo:264:3*/ start := s24_1.v0
 						/*line report/report.ergo:264:3*/ s26_1 := x.position(text_1_1, span_1_1.Offset+span_1_1.Length)
 						/*line report/report.ergo:264:3*/ switch s26_1.tag {
 						case uint8(1):
-							/*line report/report.ergo:264:3*/ _ = None{}
+							/*line report/report.ergo:264:3*/ _ = ergo__None{}
 							/*line report/report.ergo:264:3*/ goto fuse2
 						case uint8(0):
 							/*line report/report.ergo:264:3*/ end := s26_1.v0
-							/*line report/report.ergo:264:3*/ r_1 = Some[compiler_sreport__Range_1]{Value: compiler_sreport__Range_1{Start: start.Value, End: end.Value}}
+							/*line report/report.ergo:264:3*/ r_1 = ergo__Some[compiler_sreport__Range_1]{Value: compiler_sreport__Range_1{Start: start.Value, End: end.Value}}
 							/*line report/report.ergo:264:3*/ goto fuse1
 						default:
 							/*line report/report.ergo:264:3*/ panic("ergo: defect: no case of the match at 187:3 matched")
@@ -13951,7 +13951,7 @@ func compiler_sreport__Project(env *Env, text string, files map[string]string, d
 		}
 	}
 	/*line report/report.ergo:273:1*/ v_2 := ergo.SlicesSortStableFunc[compiler_sreport__Finding](out, func(p_2 compiler_sreport__Finding, p_3 compiler_sreport__Finding) int {
-		/*line report/report.ergo:273:1*/ r_2, err := func(env_1 *Env, p compiler_sreport__Finding, p_1 compiler_sreport__Finding) (int, error) {
+		/*line report/report.ergo:273:1*/ r_2, err := func(env_1 *ergo__Env, p compiler_sreport__Finding, p_1 compiler_sreport__Finding) (int, error) {
 			/*line report/report.ergo:273:28*/ return p.compareFindings(p_1), nil
 		}(env, p_2, p_3)
 		/*line report/report.ergo:273:1*/ _ = err
@@ -13988,7 +13988,7 @@ type compiler_sreport__Range_1 struct {
 }
 
 //line report/report.ergo:303:1
-func compiler_sreport__Lines(env *Env, source string, fs []compiler_sreport__Finding) string {
+func compiler_sreport__Lines(env *ergo__Env, source string, fs []compiler_sreport__Finding) string {
 	/*line report/report.ergo:304:1*/ if len(fs) == 0 {
 		/*line report/report.ergo:305:2*/ return source + ": no diagnostics\n"
 	}
@@ -15114,7 +15114,7 @@ func (d *compiler_ssyntax_sdump__dumper) node(depth int, id dense__ID[compiler_s
 		/*line syntax/dump/parse.ergo:378:1*/ x_48 := s5.(compiler_ssyntax__OrPattern)
 		/*line syntax/dump/parse.ergo:379:2*/ var bars_1 ergo.StrBuf
 		/*line syntax/dump/parse.ergo:379:2*/ ergo.StrSet(&bars_1, "")
-		/*line syntax/dump/parse.ergo:380:2*/ r := Range[int]{Start: 1, End: x_48.Alts.Len()}
+		/*line syntax/dump/parse.ergo:380:2*/ r := ergo__Range[int]{Start: 1, End: x_48.Alts.Len()}
 		/*line syntax/dump/parse.ergo:380:2*/ for i := r.Start; i < r.End; i++ {
 			/*line syntax/dump/parse.ergo:381:3*/ first := d.p.TokStartingAt(d.p.NodePos(d.p.Tree.Item(x_48.Alts, i)))
 			/*line syntax/dump/parse.ergo:382:3*/ if i > 1 {
@@ -15208,7 +15208,7 @@ func (d *compiler_ssyntax_sdump__dumper) node(depth int, id dense__ID[compiler_s
 				/*line syntax/dump/parse.ergo:424:21*/ p2_inl69 := "list " + compiler_ssyntax_sdump__itoa(tup.Elts.Len())
 				/*line syntax/dump/parse.ergo#ergo-inline-syntax/dump/parse.ergo@424.4:15:1*/ (&d.b).WriteString(strconv__Itoa(c) + " " + p2_inl69 + "\n")
 			}
-			/*line syntax/dump/parse.ergo:425:3*/ r_1 := Range[int]{Start: 0, End: tup.Elts.Len()}
+			/*line syntax/dump/parse.ergo:425:3*/ r_1 := ergo__Range[int]{Start: 0, End: tup.Elts.Len()}
 			/*line syntax/dump/parse.ergo:425:3*/ for i_8 := r_1.Start; i_8 < r_1.End; i_8++ {
 				/*line syntax/dump/parse.ergo:426:4*/ d.guard(c+1, d.p.Tree.Item(tup.Elts, i_8))
 			}
@@ -15348,22 +15348,22 @@ func (p compiler_ssyntax__Parsed) Columns() []uint32 {
 	}
 //line syntax/columns.ergo:29:2
 //line syntax/columns.ergo:29:2
-	v_5 = /*line syntax/columns.ergo:29:8*/ Append[uint32](v_5, compiler_ssyntax__ColumnsVersion)
+	v_5 = /*line syntax/columns.ergo:29:8*/ ergo__Append[uint32](v_5, compiler_ssyntax__ColumnsVersion)
 //line syntax/columns.ergo:30:2
 //line syntax/columns.ergo:30:2
-	v_5 = /*line syntax/columns.ergo:30:8*/ Append[uint32](v_5, uint32(ntok))
+	v_5 = /*line syntax/columns.ergo:30:8*/ ergo__Append[uint32](v_5, uint32(ntok))
 //line syntax/columns.ergo:31:2
 //line syntax/columns.ergo:31:2
-	v_5 = /*line syntax/columns.ergo:31:8*/ Append[uint32](v_5, uint32(nrows))
+	v_5 = /*line syntax/columns.ergo:31:8*/ ergo__Append[uint32](v_5, uint32(nrows))
 //line syntax/columns.ergo:32:2
 //line syntax/columns.ergo:32:2
-	v_5 = /*line syntax/columns.ergo:32:8*/ Append[uint32](v_5, uint32(nextra))
+	v_5 = /*line syntax/columns.ergo:32:8*/ ergo__Append[uint32](v_5, uint32(nextra))
 //line syntax/columns.ergo:33:2
 //line syntax/columns.ergo:33:2
-	v_5 = /*line syntax/columns.ergo:33:8*/ Append[uint32](v_5, uint32(v_2))
+	v_5 = /*line syntax/columns.ergo:33:8*/ ergo__Append[uint32](v_5, uint32(v_2))
 //line syntax/columns.ergo:34:2
 //line syntax/columns.ergo:34:2
-	v_5 = /*line syntax/columns.ergo:34:8*/ Append[uint32](v_5, uint32(ngroups))
+	v_5 = /*line syntax/columns.ergo:34:8*/ ergo__Append[uint32](v_5, uint32(ngroups))
 //line syntax/columns.ergo:35:2
 	t := v_5
 	/*line syntax/columns.ergo:35:2*/ var v_13 uint32
@@ -15378,7 +15378,7 @@ func (p compiler_ssyntax__Parsed) Columns() []uint32 {
 		/*line syntax/columns.ergo:35:52*/
 	}
 //line syntax/columns.ergo:35:8
-	v_14 := Append[uint32](t, v_13)
+	v_14 := ergo__Append[uint32](t, v_13)
 //line syntax/columns.ergo:35:52
 	v_5 = v_14
 //line syntax/columns.ergo:36:2
@@ -15502,7 +15502,7 @@ func (p compiler_ssyntax__Parsed) Columns() []uint32 {
 //line syntax/columns.ergo:45:30
 	v_5 = v_38
 //line syntax/columns.ergo:46:2
-	t_9 := (Range[int]{Start: int(0), End: v_2})
+	t_9 := (ergo__Range[int]{Start: int(0), End: v_2})
 	/*line syntax/columns.ergo:46:2*/ for i_8 := t_9.Start; i_8 < t_9.End; i_8++ {
 		/*line syntax/columns.ergo:46:2*/ var c_2 int = i_8
 //line syntax/columns.ergo:47:3
@@ -15546,7 +15546,7 @@ func (p compiler_ssyntax__Parsed) Columns() []uint32 {
 		}
 //line syntax/columns.ergo:48:27
 //line syntax/columns.ergo:48:9
-		v_44 := Append[uint32](t_10, uint32(v_42))
+		v_44 := ergo__Append[uint32](t_10, uint32(v_42))
 //line syntax/columns.ergo:48:27
 		v_5 = v_44
 //line syntax/columns.ergo:49:3
@@ -15568,21 +15568,21 @@ func (p compiler_ssyntax__Parsed) Columns() []uint32 {
 		}
 //line syntax/columns.ergo:49:27
 //line syntax/columns.ergo:49:9
-		v_47 := Append[uint32](t_11, uint32(v_45))
+		v_47 := ergo__Append[uint32](t_11, uint32(v_45))
 //line syntax/columns.ergo:49:27
 		v_5 = v_47
 		/*line syntax/columns.ergo:49:27*/
 	}
 //line syntax/columns.ergo:51:2
-	t_12 := (Range[int]{Start: int(0), End: ngroups})
+	t_12 := (ergo__Range[int]{Start: int(0), End: ngroups})
 	/*line syntax/columns.ergo:51:2*/ for i_9 := t_12.Start; i_9 < t_12.End; i_9++ {
 		/*line syntax/columns.ergo:51:2*/ var g int = i_9
 //line syntax/columns.ergo:52:3
 //line syntax/columns.ergo:52:3
-		v_5 = /*line syntax/columns.ergo:52:9*/ Append[uint32](v_5, uint32( /*line syntax/columns.ergo:52:27*/ p.gFirst[g]))
+		v_5 = /*line syntax/columns.ergo:52:9*/ ergo__Append[uint32](v_5, uint32( /*line syntax/columns.ergo:52:27*/ p.gFirst[g]))
 //line syntax/columns.ergo:53:3
 //line syntax/columns.ergo:53:3
-		v_5 = /*line syntax/columns.ergo:53:9*/ Append[uint32](v_5, uint32( /*line syntax/columns.ergo:53:27*/ p.gLast[g]))
+		v_5 = /*line syntax/columns.ergo:53:9*/ ergo__Append[uint32](v_5, uint32( /*line syntax/columns.ergo:53:27*/ p.gLast[g]))
 		/*line syntax/columns.ergo:53:3*/
 	}
 //line syntax/columns.ergo:55:2
@@ -15591,7 +15591,7 @@ func (p compiler_ssyntax__Parsed) Columns() []uint32 {
 }
 
 //line syntax/parse.ergo:504:1
-func compiler_ssyntax__EachRun[T any](env *Env, srcs []string, workers int, least int, f func(*Env, string) (T, error)) []T {
+func compiler_ssyntax__EachRun[T any](env *ergo__Env, srcs []string, workers int, least int, f func(*ergo__Env, string) (T, error)) []T {
 //line syntax/parse.ergo:504:1
 	env.task.Check()
 //line syntax/parse.ergo:505:2
@@ -15653,7 +15653,7 @@ func compiler_ssyntax__EachRun[T any](env *Env, srcs []string, workers int, leas
 			/*line syntax/parse.ergo:514:21*/ _ = err
 //line syntax/parse.ergo:514:4
 //line syntax/parse.ergo:514:10
-			v_7 := Append[T](t, v_6)
+			v_7 := ergo__Append[T](t, v_6)
 //line syntax/parse.ergo:514:4
 			v_3 = v_7
 //line syntax/parse.ergo:513:3
@@ -15672,7 +15672,7 @@ func compiler_ssyntax__EachRun[T any](env *Env, srcs []string, workers int, leas
 	v_14, err_2 := ergo.TasksTransform[compiler_ssyntax__Chunk, []T](ergo.Site("EachRun calls tasks.Transform at syntax/parse.ergo:518:14"), env.task, nil, v_8, workers, func(t_3 *rt.Task, p compiler_ssyntax__Chunk) ([]T, error) {
 		/*line syntax/parse.ergo:518:14*/ e := env
 		/*line syntax/parse.ergo:518:14*/ if e.task != t_3 {
-			/*line syntax/parse.ergo:518:14*/ e, _ = t_3.EnvMemo().(*Env)
+			/*line syntax/parse.ergo:518:14*/ e, _ = t_3.EnvMemo().(*ergo__Env)
 			/*line syntax/parse.ergo:518:14*/ if e == nil || e.task != t_3 || e.from != env {
 				/*line syntax/parse.ergo:518:14*/ c_1 := *env
 				/*line syntax/parse.ergo:518:14*/ c_1.task, c_1.from = t_3, env
@@ -15682,7 +15682,7 @@ func compiler_ssyntax__EachRun[T any](env *Env, srcs []string, workers int, leas
 			}
 			/*line syntax/parse.ergo:518:14*/
 		}
-		/*line syntax/parse.ergo:518:14*/ return func(env_1 *Env, c compiler_ssyntax__Chunk) ([]T, error) {
+		/*line syntax/parse.ergo:518:14*/ return func(env_1 *ergo__Env, c compiler_ssyntax__Chunk) ([]T, error) {
 //line syntax/parse.ergo:518:64
 			env_1.task.Check()
 //line syntax/parse.ergo:519:3
@@ -15695,7 +15695,7 @@ func compiler_ssyntax__EachRun[T any](env *Env, srcs []string, workers int, leas
 				/*line syntax/parse.ergo:519:17*/
 			}
 //line syntax/parse.ergo:520:3
-			t_1 := (Range[int]{Start: c.From, End: c.To})
+			t_1 := (ergo__Range[int]{Start: c.From, End: c.To})
 			/*line syntax/parse.ergo:520:3*/ for i := t_1.Start; i < t_1.End; i++ {
 				/*line syntax/parse.ergo:520:3*/ var i_1 int = i
 //line syntax/parse.ergo:521:4
@@ -15705,7 +15705,7 @@ func compiler_ssyntax__EachRun[T any](env *Env, srcs []string, workers int, leas
 				/*line syntax/parse.ergo:521:21*/ _ = err_1
 //line syntax/parse.ergo:521:4
 //line syntax/parse.ergo:521:10
-				v_13 := Append[T](t_2, v_12)
+				v_13 := ergo__Append[T](t_2, v_12)
 //line syntax/parse.ergo:521:4
 				v_9 = v_13
 //line syntax/parse.ergo:520:3
@@ -15746,7 +15746,7 @@ func compiler_ssyntax__EachRun[T any](env *Env, srcs []string, workers int, leas
 }
 
 //line syntax/parse.ergo:504:1
-func compiler_ssyntax__EachRunMono_i2128182604(env *Env, srcs []string, workers int, least int, f func(*Env, string) ([]uint32, error)) [][]uint32 {
+func compiler_ssyntax__EachRunMono_i2128182604(env *ergo__Env, srcs []string, workers int, least int, f func(*ergo__Env, string) ([]uint32, error)) [][]uint32 {
 //line syntax/parse.ergo:504:1
 	env.task.Check()
 //line syntax/parse.ergo:505:2
@@ -15808,7 +15808,7 @@ func compiler_ssyntax__EachRunMono_i2128182604(env *Env, srcs []string, workers 
 			/*line syntax/parse.ergo:514:21*/ _ = err
 //line syntax/parse.ergo:514:4
 //line syntax/parse.ergo:514:10
-			v_7 := Append[[]uint32](t, v_6)
+			v_7 := ergo__Append[[]uint32](t, v_6)
 //line syntax/parse.ergo:514:4
 			v_3 = v_7
 //line syntax/parse.ergo:513:3
@@ -15827,7 +15827,7 @@ func compiler_ssyntax__EachRunMono_i2128182604(env *Env, srcs []string, workers 
 	v_14, err_2 := ergo.TasksTransform[compiler_ssyntax__Chunk, [][]uint32](ergo.Site("EachRun calls tasks.Transform at syntax/parse.ergo:518:14"), env.task, nil, v_8, workers, func(t_3 *rt.Task, p compiler_ssyntax__Chunk) ([][]uint32, error) {
 		/*line syntax/parse.ergo:518:14*/ e := env
 		/*line syntax/parse.ergo:518:14*/ if e.task != t_3 {
-			/*line syntax/parse.ergo:518:14*/ e, _ = t_3.EnvMemo().(*Env)
+			/*line syntax/parse.ergo:518:14*/ e, _ = t_3.EnvMemo().(*ergo__Env)
 			/*line syntax/parse.ergo:518:14*/ if e == nil || e.task != t_3 || e.from != env {
 				/*line syntax/parse.ergo:518:14*/ c_1 := *env
 				/*line syntax/parse.ergo:518:14*/ c_1.task, c_1.from = t_3, env
@@ -15837,7 +15837,7 @@ func compiler_ssyntax__EachRunMono_i2128182604(env *Env, srcs []string, workers 
 			}
 			/*line syntax/parse.ergo:518:14*/
 		}
-		/*line syntax/parse.ergo:518:14*/ return func(env_1 *Env, c compiler_ssyntax__Chunk) ([][]uint32, error) {
+		/*line syntax/parse.ergo:518:14*/ return func(env_1 *ergo__Env, c compiler_ssyntax__Chunk) ([][]uint32, error) {
 //line syntax/parse.ergo:518:64
 			env_1.task.Check()
 //line syntax/parse.ergo:519:3
@@ -15850,7 +15850,7 @@ func compiler_ssyntax__EachRunMono_i2128182604(env *Env, srcs []string, workers 
 				/*line syntax/parse.ergo:519:17*/
 			}
 //line syntax/parse.ergo:520:3
-			t_1 := (Range[int]{Start: c.From, End: c.To})
+			t_1 := (ergo__Range[int]{Start: c.From, End: c.To})
 			/*line syntax/parse.ergo:520:3*/ for i := t_1.Start; i < t_1.End; i++ {
 				/*line syntax/parse.ergo:520:3*/ var i_1 int = i
 //line syntax/parse.ergo:521:4
@@ -15860,7 +15860,7 @@ func compiler_ssyntax__EachRunMono_i2128182604(env *Env, srcs []string, workers 
 				/*line syntax/parse.ergo:521:21*/ _ = err_1
 //line syntax/parse.ergo:521:4
 //line syntax/parse.ergo:521:10
-				v_13 := Append[[]uint32](t_2, v_12)
+				v_13 := ergo__Append[[]uint32](t_2, v_12)
 //line syntax/parse.ergo:521:4
 				v_9 = v_13
 //line syntax/parse.ergo:520:3
@@ -16015,7 +16015,7 @@ func (p *compiler_sformat__Printer) load() {
 		/*line format/printer.ergo:59:11*/ st3 = ergo.WithCapacity[string](n)
 	}
 	/*line format/printer.ergo:59:1*/ p.CText = st3
-	/*line format/printer.ergo:60:1*/ r := Range[int]{Start: 0, End: n}
+	/*line format/printer.ergo:60:1*/ r := ergo__Range[int]{Start: 0, End: n}
 	/*line format/printer.ergo:60:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/printer.ergo:61:2*/ var c dense__ID[compiler_ssyntax__Cmt]
 		/*line format/printer.ergo:61:2*/ {
@@ -16057,7 +16057,7 @@ func (p *compiler_sformat__Printer) load() {
 //line format/printer.ergo:54
 
 //line format/nodes.ergo:66:1
-func (p *compiler_sformat__Printer) printFile(env *Env) {
+func (p *compiler_sformat__Printer) printFile(env *ergo__Env) {
 	/*line format/nodes.ergo:67:1*/ var f compiler_ssyntax__File
 	/*line format/nodes.ergo:67:1*/ {
 		/*line format/nodes.ergo:67:27*/ p0_inl0 := p.P.Tree
@@ -16066,7 +16066,7 @@ func (p *compiler_sformat__Printer) printFile(env *Env) {
 		/*line syntax/readers.ergo#ergo-inline-format/nodes.ergo@67.10:518:1*/ tok_inl0 := p0_inl0.tok[int(i_inl0)]
 		/*line syntax/readers.ergo#ergo-inline-format/nodes.ergo@67.10:519:1*/ f = compiler_ssyntax__File{Decls: p0_inl0.listAt(i_inl0, 0, p0_inl0.items(i_inl0, 0)), EOF: int(tok_inl0)}
 	}
-	/*line format/nodes.ergo:68:1*/ r := Range[int]{Start: 0, End: f.Decls.Len()}
+	/*line format/nodes.ergo:68:1*/ r := ergo__Range[int]{Start: 0, End: f.Decls.Len()}
 	/*line format/nodes.ergo:68:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/nodes.ergo:69:2*/ if i > 0 {
 			/*line format/nodes.ergo:70:3*/ {
@@ -16080,7 +16080,7 @@ func (p *compiler_sformat__Printer) printFile(env *Env) {
 //line format/nodes.ergo:67
 
 //line format/printer.ergo:251:1
-func (p *compiler_sformat__Printer) finish(env *Env, limit int) (compiler_sformat__Rendered, error) {
+func (p *compiler_sformat__Printer) finish(env *ergo__Env, limit int) (compiler_sformat__Rendered, error) {
 	/*line format/printer.ergo:252:1*/ p.flushComments(p.EOF + 1)
 	/*line format/printer.ergo:253:1*/ return (&p.L).Finish(env, limit)
 }
@@ -16088,7 +16088,7 @@ func (p *compiler_sformat__Printer) finish(env *Env, limit int) (compiler_sforma
 //line format/printer.ergo:252
 
 //line format/laws.ergo:13:1
-func compiler_sformat__IdempotentHolds(env *Env, src string) bool {
+func compiler_sformat__IdempotentHolds(env *ergo__Env, src string) bool {
 	/*line format/laws.ergo:14:11*/ var out string
 	/*line format/laws.ergo:14:11*/ var err error
 	/*line format/laws.ergo:14:11*/ {
@@ -16139,7 +16139,7 @@ func compiler_sformat__IdempotentHolds(env *Env, src string) bool {
 //line format/laws.ergo:14
 
 //line format/laws.ergo:27:1
-func compiler_sformat__ShapeHolds(env *Env, src string) bool {
+func compiler_sformat__ShapeHolds(env *ergo__Env, src string) bool {
 	/*line format/laws.ergo:28:11*/ var out string
 	/*line format/laws.ergo:28:11*/ var err error
 	/*line format/laws.ergo:28:11*/ {
@@ -16176,7 +16176,7 @@ func compiler_sformat__ShapeHolds(env *Env, src string) bool {
 //line format/laws.ergo:28
 
 //line format/laws.ergo:39:1
-func compiler_sformat__CommentsHold(env *Env, src string) bool {
+func compiler_sformat__CommentsHold(env *ergo__Env, src string) bool {
 	/*line format/laws.ergo:40:11*/ var out string
 	/*line format/laws.ergo:40:11*/ var err error
 	/*line format/laws.ergo:40:11*/ {
@@ -16206,7 +16206,7 @@ func compiler_sformat__CommentsHold(env *Env, src string) bool {
 //line format/laws.ergo:40
 
 //line format/laws.ergo:50:1
-func compiler_sformat__BoundHolds(env *Env, src string) bool {
+func compiler_sformat__BoundHolds(env *ergo__Env, src string) bool {
 	/*line format/laws.ergo:51:11*/ var out string
 	/*line format/laws.ergo:51:11*/ var err error
 	/*line format/laws.ergo:51:11*/ {
@@ -16371,16 +16371,16 @@ func (l *compiler_sformat__Layout) step(c compiler_sformat__Command) {
 //line format/layout.ergo:120
 
 //line format/align.ergo:48:1
-func (l *compiler_sformat__Layout) Finish(env *Env, limit int) (compiler_sformat__Rendered, error) {
+func (l *compiler_sformat__Layout) Finish(env *ergo__Env, limit int) (compiler_sformat__Rendered, error) {
 	/*line format/align.ergo:49:1*/ l.endLine()
 	/*line format/align.ergo:50:1*/ n := len(l.CellA)
 	/*line format/align.ergo:51:12*/ v := ergo__CloneBuilder_1(l.Buf).ergo__strings__StringOwned(env)
 	/*line format/align.ergo:51:1*/ text_1 := v
 	/*line format/align.ergo:54:1*/ c := compiler_sformat__Grid{Text: text_1, Width: slices__RepeatMono_i2515107422([]int{0}, n), Pad: slices__RepeatMono_i2515107422([]int{0}, n)}
-	/*line format/align.ergo:55:1*/ r := Range[int]{Start: 0, End: len(l.LineIndent)}
+	/*line format/align.ergo:55:1*/ r := ergo__Range[int]{Start: 0, End: len(l.LineIndent)}
 	/*line format/align.ergo:55:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/align.ergo:56:2*/ a := l.LineFirst[i]
-		/*line format/align.ergo:57:2*/ r_1 := Range[int]{Start: a, End: a + l.LineN[i] - 1}
+		/*line format/align.ergo:57:2*/ r_1 := ergo__Range[int]{Start: a, End: a + l.LineN[i] - 1}
 		/*line format/align.ergo:57:2*/ for k := r_1.Start; k < r_1.End; k++ {
 			/*line format/align.ergo:58:3*/ c.Width[k] = utf8__RuneCount(strings__Slice_2(text_1, l.CellA[k], l.CellB[k]))
 		}
@@ -16431,7 +16431,7 @@ type compiler_sir__Body struct {
 }
 
 //line ir/json.ergo:301:1
-func compiler_sir__Quote(env *Env, s string) string {
+func compiler_sir__Quote(env *ergo__Env, s string) string {
 	/*line ir/json.ergo:302:1*/ b := strings__Builder{buf: []uint8{}}
 	/*line ir/json.ergo:303:1*/ (&b).Grow(len(s) + 2)
 	/*line ir/json.ergo:304:1*/ (&b).WriteByte_(uint8(34))
@@ -16505,7 +16505,7 @@ func compiler_sir__Quote(env *Env, s string) string {
 //line ir/json.ergo:302
 
 //line ir/json.ergo:88:1
-func (w *compiler_sir__writer) function(env *Env, fi int) error {
+func (w *compiler_sir__writer) function(env *ergo__Env, fi int) error {
 	/*line ir/json.ergo:89:1*/ (&w.b).WriteString("{\"name\":")
 	/*line ir/json.ergo:90:16*/ var name string
 	/*line ir/json.ergo:90:16*/ var err error
@@ -16552,7 +16552,7 @@ func (w *compiler_sir__writer) function(env *Env, fi int) error {
 	/*line ir/json.ergo:98:1*/ nl := len(w.file.Funcs[fi].Locals)
 	/*line ir/json.ergo:99:1*/ if nl > 0 {
 		/*line ir/json.ergo:100:2*/ (&w.b).WriteString(",\"locals\":[")
-		/*line ir/json.ergo:101:2*/ r := Range[int]{Start: 0, End: nl}
+		/*line ir/json.ergo:101:2*/ r := ergo__Range[int]{Start: 0, End: nl}
 		/*line ir/json.ergo:101:2*/ for i := r.Start; i < r.End; i++ {
 			/*line ir/json.ergo:102:3*/ if i > 0 {
 				/*line ir/json.ergo:103:4*/ (&w.b).WriteByte_(uint8(44))
@@ -16707,14 +16707,14 @@ func (s compiler_sreport__Span) isNoSpan() bool {
 //line report/report.ergo:31
 
 //line report/report.ergo:166:1
-func (x compiler_sreport__Index) position(text string, offset int) Option[compiler_sreport__Position] {
+func (x compiler_sreport__Index) position(text string, offset int) ergo__Option[compiler_sreport__Position] {
 	/*line report/report.ergo:167:1*/ if x.valid[offset] {
-		/*line report/report.ergo:168:2*/ return Option[compiler_sreport__Position]{}.of0(Some[compiler_sreport__Position]{Value: x.positions[offset]})
+		/*line report/report.ergo:168:2*/ return ergo__Option[compiler_sreport__Position]{}.of0(ergo__Some[compiler_sreport__Position]{Value: x.positions[offset]})
 	}
 	/*line report/report.ergo:170:1*/ if offset > 0 && offset < len(text) && text[offset-1] == uint8(13) && text[offset] == uint8(10) && x.valid[offset-1] {
-		/*line report/report.ergo:171:2*/ return Option[compiler_sreport__Position]{}.of0(Some[compiler_sreport__Position]{Value: x.positions[offset-1]})
+		/*line report/report.ergo:171:2*/ return ergo__Option[compiler_sreport__Position]{}.of0(ergo__Some[compiler_sreport__Position]{Value: x.positions[offset-1]})
 	}
-	/*line report/report.ergo:173:1*/ return Option[compiler_sreport__Position]{}.of1(None{})
+	/*line report/report.ergo:173:1*/ return ergo__Option[compiler_sreport__Position]{}.of1(ergo__None{})
 }
 
 //line report/report.ergo:167
@@ -17106,7 +17106,7 @@ func (p *compiler_ssyntax__parser) groupComments() {
 	/*line syntax/parse.ergo:958:1*/ curOwn := false
 	/*line syntax/parse.ergo:959:1*/ curLast := 0
 	/*line syntax/parse.ergo:960:1*/ curTokens := (-1)
-	/*line syntax/parse.ergo:961:1*/ r := Range[int]{Start: 0, End: nc}
+	/*line syntax/parse.ergo:961:1*/ r := ergo__Range[int]{Start: 0, End: nc}
 	/*line syntax/parse.ergo:961:1*/ for c := r.Start; c < r.End; c++ {
 		/*line syntax/parse.ergo:962:2*/ var slash int
 		/*line syntax/parse.ergo:962:2*/ {
@@ -19165,7 +19165,7 @@ func (d *compiler_ssyntax_sdump__dumper) list(depth int, l compiler_ssyntax__Lis
 		/*line syntax/dump/parse.ergo:59:23*/ p2_inl0 := "list " + compiler_ssyntax_sdump__itoa(l.Len())
 		/*line syntax/dump/parse.ergo#ergo-inline-syntax/dump/parse.ergo@59.2:15:1*/ (&d.b).WriteString(strconv__Itoa(depth) + " " + p2_inl0 + "\n")
 	}
-	/*line syntax/dump/parse.ergo:60:1*/ r := Range[int]{Start: 0, End: l.Len()}
+	/*line syntax/dump/parse.ergo:60:1*/ r := ergo__Range[int]{Start: 0, End: l.Len()}
 	/*line syntax/dump/parse.ergo:60:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/dump/parse.ergo:61:2*/ d.node(depth+1, d.p.Tree.Item(l, i))
 	}
@@ -19182,17 +19182,17 @@ func (p compiler_ssyntax__Parsed) TokKind(j int) uint8 {
 
 //line syntax/dump/parse.ergo:31:1
 func (d *compiler_ssyntax_sdump__dumper) opt(depth int, o dense__Opt[compiler_ssyntax__Node]) {
-	/*line syntax/dump/parse.ergo:32:1*/ var n_1 Some[dense__ID[compiler_ssyntax__Node]]
-	/*line syntax/dump/parse.ergo:32:1*/ var n_2 None
+	/*line syntax/dump/parse.ergo:32:1*/ var n_1 ergo__Some[dense__ID[compiler_ssyntax__Node]]
+	/*line syntax/dump/parse.ergo:32:1*/ var n_2 ergo__None
 	/*line syntax/dump/parse.ergo:32:1*/ {
 		/*line syntax/dump/parse.ergo:32:7*/ if o.n == uint32(0) {
 			/*line syntax/dump/parse.ergo:32:7*/ {
-				/*line syntax/dump/parse.ergo:32:7*/ n_2 = None{}
+				/*line syntax/dump/parse.ergo:32:7*/ n_2 = ergo__None{}
 				/*line syntax/dump/parse.ergo:32:7*/ goto known1_1
 			}
 		}
 		/*line syntax/dump/parse.ergo:32:7*/ {
-			/*line syntax/dump/parse.ergo:32:7*/ n_1 = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
+			/*line syntax/dump/parse.ergo:32:7*/ n_1 = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
 			/*line syntax/dump/parse.ergo:32:7*/ goto known1_0
 		}
 	}
@@ -19256,10 +19256,10 @@ func compiler_ssyntax_sdump__isSome(o dense__Opt[compiler_ssyntax__Node]) bool {
 	/*line syntax/dump/parse.ergo:50:1*/ {
 		/*line syntax/dump/parse.ergo:50:1*/ {
 			/*line syntax/dump/parse.ergo:50:1*/ if o.n == uint32(0) {
-				/*line syntax/dump/parse.ergo:50:1*/ _ = None{}
+				/*line syntax/dump/parse.ergo:50:1*/ _ = ergo__None{}
 				/*line syntax/dump/parse.ergo:50:1*/ goto fuse2
 			}
-			/*line syntax/dump/parse.ergo:50:1*/ _ = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
+			/*line syntax/dump/parse.ergo:50:1*/ _ = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
 			/*line syntax/dump/parse.ergo:50:1*/ goto fuse1
 		}
 		/*line syntax/dump/parse.ergo:51:1*/ fuse1:
@@ -19277,17 +19277,17 @@ func compiler_ssyntax_sdump__isSome(o dense__Opt[compiler_ssyntax__Node]) bool {
 
 //line syntax/dump/parse.ergo:40:1
 func (d *compiler_ssyntax_sdump__dumper) optPos(o dense__Opt[compiler_ssyntax__Node]) int {
-	/*line syntax/dump/parse.ergo:41:1*/ var n_1 Some[dense__ID[compiler_ssyntax__Node]]
-	/*line syntax/dump/parse.ergo:41:1*/ var n_2 None
+	/*line syntax/dump/parse.ergo:41:1*/ var n_1 ergo__Some[dense__ID[compiler_ssyntax__Node]]
+	/*line syntax/dump/parse.ergo:41:1*/ var n_2 ergo__None
 	/*line syntax/dump/parse.ergo:41:1*/ {
 		/*line syntax/dump/parse.ergo:41:7*/ if o.n == uint32(0) {
 			/*line syntax/dump/parse.ergo:41:7*/ {
-				/*line syntax/dump/parse.ergo:41:7*/ n_2 = None{}
+				/*line syntax/dump/parse.ergo:41:7*/ n_2 = ergo__None{}
 				/*line syntax/dump/parse.ergo:41:7*/ goto known1_1
 			}
 		}
 		/*line syntax/dump/parse.ergo:41:7*/ {
-			/*line syntax/dump/parse.ergo:41:7*/ n_1 = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
+			/*line syntax/dump/parse.ergo:41:7*/ n_1 = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
 			/*line syntax/dump/parse.ergo:41:7*/ goto known1_0
 		}
 	}
@@ -19318,7 +19318,7 @@ func (p compiler_ssyntax__Parsed) NodePos(id dense__ID[compiler_ssyntax__Node]) 
 //line syntax/dump/parse.ergo:67:1
 func (d *compiler_ssyntax_sdump__dumper) listWhere(depth int, l compiler_ssyntax__List, pick int) {
 	/*line syntax/dump/parse.ergo:68:1*/ n := 0
-	/*line syntax/dump/parse.ergo:69:1*/ r := Range[int]{Start: 0, End: l.Len()}
+	/*line syntax/dump/parse.ergo:69:1*/ r := ergo__Range[int]{Start: 0, End: l.Len()}
 	/*line syntax/dump/parse.ergo:69:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/dump/parse.ergo:70:2*/ if d.picked(d.p.Tree.Item(l, i), pick) {
 			/*line syntax/dump/parse.ergo:71:3*/ n = n + 1
@@ -19328,7 +19328,7 @@ func (d *compiler_ssyntax_sdump__dumper) listWhere(depth int, l compiler_ssyntax
 		/*line syntax/dump/parse.ergo:74:23*/ p2_inl0 := "list " + compiler_ssyntax_sdump__itoa(n)
 		/*line syntax/dump/parse.ergo#ergo-inline-syntax/dump/parse.ergo@74.2:15:1*/ (&d.b).WriteString(strconv__Itoa(depth) + " " + p2_inl0 + "\n")
 	}
-	/*line syntax/dump/parse.ergo:75:1*/ r_1 := Range[int]{Start: 0, End: l.Len()}
+	/*line syntax/dump/parse.ergo:75:1*/ r_1 := ergo__Range[int]{Start: 0, End: l.Len()}
 	/*line syntax/dump/parse.ergo:75:1*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
 		/*line syntax/dump/parse.ergo:76:2*/ var id dense__ID[compiler_ssyntax__Node]
 		/*line syntax/dump/parse.ergo:76:2*/ {
@@ -19357,7 +19357,7 @@ func (d *compiler_ssyntax_sdump__dumper) listWhere(depth int, l compiler_ssyntax
 //line syntax/dump/parse.ergo:110:1
 func (d *compiler_ssyntax_sdump__dumper) typeTerms(depth int, l compiler_ssyntax__List) {
 	/*line syntax/dump/parse.ergo:111:1*/ n := 0
-	/*line syntax/dump/parse.ergo:112:1*/ r := Range[int]{Start: 0, End: l.Len()}
+	/*line syntax/dump/parse.ergo:112:1*/ r := ergo__Range[int]{Start: 0, End: l.Len()}
 	/*line syntax/dump/parse.ergo:112:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/dump/parse.ergo:113:2*/ if d.isTypeTerm(d.p.Tree.Item(l, i)) {
 			/*line syntax/dump/parse.ergo:114:3*/ n = n + 1
@@ -19367,7 +19367,7 @@ func (d *compiler_ssyntax_sdump__dumper) typeTerms(depth int, l compiler_ssyntax
 		/*line syntax/dump/parse.ergo:117:23*/ p2_inl0 := "list " + compiler_ssyntax_sdump__itoa(n)
 		/*line syntax/dump/parse.ergo#ergo-inline-syntax/dump/parse.ergo@117.2:15:1*/ (&d.b).WriteString(strconv__Itoa(depth) + " " + p2_inl0 + "\n")
 	}
-	/*line syntax/dump/parse.ergo:118:1*/ r_1 := Range[int]{Start: 0, End: l.Len()}
+	/*line syntax/dump/parse.ergo:118:1*/ r_1 := ergo__Range[int]{Start: 0, End: l.Len()}
 	/*line syntax/dump/parse.ergo:118:1*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
 		/*line syntax/dump/parse.ergo:119:2*/ var id dense__ID[compiler_ssyntax__Node]
 		/*line syntax/dump/parse.ergo:119:2*/ {
@@ -19448,7 +19448,7 @@ func (p compiler_ssyntax__Parsed) TokStartingAt(at int) int {
 			/*line syntax/access.ergo:34:3*/ hi = mid
 		}
 	}
-	/*line syntax/access.ergo:37:1*/ r := Range[int]{Start: lo, End: len(p.starts)}
+	/*line syntax/access.ergo:37:1*/ r := ergo__Range[int]{Start: lo, End: len(p.starts)}
 	/*line syntax/access.ergo:37:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/access.ergo:38:2*/ if int(p_starts[j]) != at {
 			/*line syntax/access.ergo:39:3*/ return (-1)
@@ -19530,7 +19530,7 @@ func compiler_ssyntax__Chunks(n int, workers int) []compiler_ssyntax__Chunk {
 		/*line syntax/parse.ergo:543:15*/ out = ergo.WithCapacity[compiler_ssyntax__Chunk](k)
 	}
 	/*line syntax/parse.ergo:544:1*/ from := 0
-	/*line syntax/parse.ergo:545:1*/ r := Range[int]{Start: 0, End: k}
+	/*line syntax/parse.ergo:545:1*/ r := ergo__Range[int]{Start: 0, End: k}
 	/*line syntax/parse.ergo:545:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse.ergo:546:2*/ to := from + (n-from)/(k-j)
 		/*line syntax/parse.ergo:547:2*/ out = append(out, compiler_ssyntax__Chunk{From: from, To: to})
@@ -19583,7 +19583,7 @@ func (p *compiler_sformat__Printer) newline() {
 //line format/printer.ergo:119
 
 //line format/nodes.ergo:81:1
-func (p *compiler_sformat__Printer) decl(env *Env, d dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) decl(env *ergo__Env, d dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:82:1*/ var k uint8
 	/*line format/nodes.ergo:82:1*/ {
 		/*line format/nodes.ergo:82:1*/ {
@@ -19954,13 +19954,13 @@ func (p *compiler_sformat__Printer) decl(env *Env, d dense__ID[compiler_ssyntax_
 						/*line format/nodes.ergo:104:3*/ {
 							/*line format/nodes.ergo:104:20*/ p0_inl47 := x.Body
 							/*line format/nodes.ergo:104:3*/ {
-								/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ var s_1_inl47 Some[dense__ID[compiler_ssyntax__Node]]
+								/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ var s_1_inl47 ergo__Some[dense__ID[compiler_ssyntax__Node]]
 								/*line format/nodes.ergo:104:3*/ {
 									/*line format/nodes.ergo:104:3*/ if p0_inl47.n == uint32(0) {
-										/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ _ = None{}
+										/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ _ = ergo__None{}
 										/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ goto fuse2_inl47
 									}
-									/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ s_1_inl47 = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl47.n - uint32(1)}}
+									/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ s_1_inl47 = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl47.n - uint32(1)}}
 									/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@104.15:47:1*/ goto fuse1_inl47
 								}
 								/*line format/nodes.ergo:104:3*/ fuse1_inl47:
@@ -20579,7 +20579,7 @@ func (p *compiler_sformat__Printer) flushComments(at int) {
 //line format/comments.ergo:8
 
 //line syntax/shape.ergo:10:1
-func (p compiler_ssyntax__Parsed) Shape(env *Env) string {
+func (p compiler_ssyntax__Parsed) Shape(env *ergo__Env) string {
 	/*line syntax/shape.ergo:11:1*/ b := strings__Builder{buf: []uint8{}}
 	/*line syntax/shape.ergo:12:1*/ if p.Tree.n > 0 {
 		/*line syntax/shape.ergo:13:2*/ p.shapeOf(uint32(p.Tree.n-1), &b)
@@ -20595,7 +20595,7 @@ func compiler_sformat__Comments(p compiler_ssyntax__Parsed) []string {
 	/*line format/laws.ergo:103:1*/ src := p.SourceOf()
 	/*line format/laws.ergo:104:1*/ cs := p.CommentsOf()
 	/*line format/laws.ergo:105:1*/ out := []string{}
-	/*line format/laws.ergo:106:1*/ r := Range[int]{Start: 0, End: cs.NumComments()}
+	/*line format/laws.ergo:106:1*/ r := ergo__Range[int]{Start: 0, End: cs.NumComments()}
 	/*line format/laws.ergo:106:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/laws.ergo:107:2*/ var c dense__ID[compiler_ssyntax__Cmt]
 		/*line format/laws.ergo:107:2*/ {
@@ -20863,14 +20863,14 @@ func (c *compiler_sformat__Grid) align(l *compiler_sformat__Layout, from int, to
 			/*line format/align.ergo:185:3*/ j += 1
 		}
 		/*line format/align.ergo:187:2*/ width := 0
-		/*line format/align.ergo:188:2*/ r := Range[int]{Start: i, End: j}
+		/*line format/align.ergo:188:2*/ r := ergo__Range[int]{Start: i, End: j}
 		/*line format/align.ergo:188:2*/ for k := r.Start; k < r.End; k++ {
 			/*line format/align.ergo:189:3*/ width = ergo.CmpMax[int](width, c.Width[l.LineFirst[k]+column])
 		}
 		/*line format/align.ergo:191:2*/ if width > 0 {
 			/*line format/align.ergo:192:3*/ width += 1
 		}
-		/*line format/align.ergo:194:2*/ r_1 := Range[int]{Start: i, End: j}
+		/*line format/align.ergo:194:2*/ r_1 := ergo__Range[int]{Start: i, End: j}
 		/*line format/align.ergo:194:2*/ for k_1 := r_1.Start; k_1 < r_1.End; k_1++ {
 			/*line format/align.ergo:195:3*/ c.Pad[l.LineFirst[k_1]+column] = width
 		}
@@ -20888,7 +20888,7 @@ func (l *compiler_sformat__Layout) lineLen(c compiler_sformat__Grid, i int) int 
 	/*line format/align.ergo:120:1*/ n := ergo.CmpMax[int](l.LineIndent[i], 0)
 	/*line format/align.ergo:121:1*/ a := l.LineFirst[i]
 	/*line format/align.ergo:122:1*/ b := a + l.LineN[i]
-	/*line format/align.ergo:123:1*/ r := Range[int]{Start: a, End: b}
+	/*line format/align.ergo:123:1*/ r := ergo__Range[int]{Start: a, End: b}
 	/*line format/align.ergo:123:1*/ for k := r.Start; k < r.End; k++ {
 		/*line format/align.ergo:124:2*/ n += l.CellB[k] - l.CellA[k]
 		/*line format/align.ergo:125:2*/ if k < b-1 && c_Pad[k] > 0 {
@@ -20903,7 +20903,7 @@ func (l *compiler_sformat__Layout) lineLen(c compiler_sformat__Grid, i int) int 
 //line format/align.ergo:77:1
 func (l *compiler_sformat__Layout) sizeOver(c compiler_sformat__Grid, first int, limit int) bool {
 	/*line format/align.ergo:78:1*/ size := 0
-	/*line format/align.ergo:79:1*/ r := Range[int]{Start: first, End: len(l.LineIndent)}
+	/*line format/align.ergo:79:1*/ r := ergo__Range[int]{Start: first, End: len(l.LineIndent)}
 	/*line format/align.ergo:79:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/align.ergo:80:2*/ size += l.lineLen(c, i) + 1
 		/*line format/align.ergo:81:2*/ if size > limit {
@@ -20916,30 +20916,30 @@ func (l *compiler_sformat__Layout) sizeOver(c compiler_sformat__Grid, first int,
 //line format/align.ergo:78
 
 //line format/align.ergo:91:1
-func (l *compiler_sformat__Layout) build(env *Env, c compiler_sformat__Grid, first int) string {
+func (l *compiler_sformat__Layout) build(env *ergo__Env, c compiler_sformat__Grid, first int) string {
 	/*line format/align.ergo:91:1*/ c_Text := c.Text
 	/*line format/align.ergo:91:1*/ c_Pad := c.Pad
 	/*line format/align.ergo:91:1*/ c_Width := c.Width
 	/*line format/align.ergo:92:1*/ size := 0
-	/*line format/align.ergo:93:1*/ r := Range[int]{Start: first, End: len(l.LineIndent)}
+	/*line format/align.ergo:93:1*/ r := ergo__Range[int]{Start: first, End: len(l.LineIndent)}
 	/*line format/align.ergo:93:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/align.ergo:94:2*/ size += l.lineLen(c, i) + 1
 	}
 	/*line format/align.ergo:96:1*/ out := strings__Builder{buf: []uint8{}}
 	/*line format/align.ergo:97:1*/ (&out).Grow(size)
-	/*line format/align.ergo:98:1*/ r_1 := Range[int]{Start: first, End: len(l.LineIndent)}
+	/*line format/align.ergo:98:1*/ r_1 := ergo__Range[int]{Start: first, End: len(l.LineIndent)}
 	/*line format/align.ergo:98:1*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
-		/*line format/align.ergo:99:2*/ r_2 := Range[int]{Start: 0, End: l.LineIndent[i_1]}
+		/*line format/align.ergo:99:2*/ r_2 := ergo__Range[int]{Start: 0, End: l.LineIndent[i_1]}
 		/*line format/align.ergo:99:2*/ for i_2 := r_2.Start; i_2 < r_2.End; i_2++ {
 			/*line format/align.ergo:100:3*/ (&out).WriteByte_(uint8(9))
 		}
 		/*line format/align.ergo:102:2*/ a := l.LineFirst[i_1]
 		/*line format/align.ergo:103:2*/ b := a + l.LineN[i_1]
-		/*line format/align.ergo:104:2*/ r_3 := Range[int]{Start: a, End: b}
+		/*line format/align.ergo:104:2*/ r_3 := ergo__Range[int]{Start: a, End: b}
 		/*line format/align.ergo:104:2*/ for k := r_3.Start; k < r_3.End; k++ {
 			/*line format/align.ergo:105:3*/ (&out).WriteString(strings__Slice_2(c_Text, l.CellA[k], l.CellB[k]))
 			/*line format/align.ergo:106:3*/ if k < b-1 {
-				/*line format/align.ergo:107:4*/ r_4 := Range[int]{Start: 0, End: c_Pad[k] - c_Width[k]}
+				/*line format/align.ergo:107:4*/ r_4 := ergo__Range[int]{Start: 0, End: c_Pad[k] - c_Width[k]}
 				/*line format/align.ergo:107:4*/ for i_3 := r_4.Start; i_3 < r_4.End; i_3++ {
 					/*line format/align.ergo:108:5*/ (&out).WriteByte_(uint8(32))
 				}
@@ -20977,7 +20977,7 @@ func (w *compiler_sir__writer) pos(a uint32, b uint32, c uint32) {
 //line ir/json.ergo:78
 
 //line ir/json.ergo:139:1
-func (w *compiler_sir__writer) rows(env *Env, fi int, q uint32, t uint8) error {
+func (w *compiler_sir__writer) rows(env *ergo__Env, fi int, q uint32, t uint8) error {
 	/*line ir/json.ergo:140:17*/ var v uint32
 	/*line ir/json.ergo:140:17*/ var err error
 	/*line ir/json.ergo:140:17*/ _ = err
@@ -20992,7 +20992,7 @@ func (w *compiler_sir__writer) rows(env *Env, fi int, q uint32, t uint8) error {
 	}
 	/*line ir/json.ergo:140:1*/ n := int(v)
 	/*line ir/json.ergo:141:1*/ (&w.b).WriteByte_(uint8(91))
-	/*line ir/json.ergo:142:1*/ r := Range[int]{Start: 0, End: n}
+	/*line ir/json.ergo:142:1*/ r := ergo__Range[int]{Start: 0, End: n}
 	/*line ir/json.ergo:142:1*/ for i := r.Start; i < r.End; i++ {
 		/*line ir/json.ergo:143:2*/ if i > 0 {
 			/*line ir/json.ergo:144:3*/ (&w.b).WriteByte_(uint8(44))
@@ -21031,7 +21031,7 @@ const compiler_sir__TCase uint8 = uint8(6)
 const compiler_sir__TExpr uint8 = uint8(5)
 
 //line ir/kinds.ergo:16:1
-func compiler_sir__k(env *Env, name string, class uint8, slots []uint8) compiler_sir__Kind {
+func compiler_sir__k(env *ergo__Env, name string, class uint8, slots []uint8) compiler_sir__Kind {
 	/*line ir/kinds.ergo:17:26*/ v := compiler_sir__Quote(env, name)
 	/*line ir/kinds.ergo:17:1*/ return compiler_sir__Kind{Name: name, Quoted: v, Class: class, Slots: slots}
 }
@@ -24712,7 +24712,7 @@ func (p *compiler_ssyntax__parser) parseLetDecl(doc uint32, top bool) uint32 {
 	}
 	/*line syntax/parse_decl.ergo:1143:1*/ np := p.t.mark() - pm
 	/*line syntax/parse_decl.ergo:1144:1*/ names := true
-	/*line syntax/parse_decl.ergo:1145:1*/ r := Range[int]{Start: pm, End: p.t.mark()}
+	/*line syntax/parse_decl.ergo:1145:1*/ r := ergo__Range[int]{Start: pm, End: p.t.mark()}
 	/*line syntax/parse_decl.ergo:1145:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse_decl.ergo:1146:2*/ if p.kindAt(p.t.stack[j]) != uint8(24) {
 			/*line syntax/parse_decl.ergo:1147:3*/ names = false
@@ -25649,7 +25649,7 @@ func compiler_ssyntax__dropCR(s string) string {
 	/*line syntax/parse.ergo:681:1*/ var out_1 ergo.StrBuf
 	/*line syntax/parse.ergo:681:1*/ ergo.StrSet(&out_1, "")
 	/*line syntax/parse.ergo:682:1*/ from := 0
-	/*line syntax/parse.ergo:683:1*/ r := Range[int]{Start: 0, End: len(s)}
+	/*line syntax/parse.ergo:683:1*/ r := ergo__Range[int]{Start: 0, End: len(s)}
 	/*line syntax/parse.ergo:683:1*/ for k := r.Start; k < r.End; k++ {
 		/*line syntax/parse.ergo:684:2*/ if s[k] == uint8(13) {
 			/*line syntax/parse.ergo:685:3*/ ergo.StrCat(&out_1, s[from:k])
@@ -26158,7 +26158,7 @@ func (p *compiler_sformat__Printer) importDecl(d dense__ID[compiler_ssyntax__Nod
 //line format/nodes.ergo:218
 
 //line format/nodes.ergo:249:1
-func (p *compiler_sformat__Printer) letDecl(env *Env, d dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) letDecl(env *ergo__Env, d dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:250:1*/ var x compiler_ssyntax__VarDecl
 	/*line format/nodes.ergo:250:1*/ {
 		/*line format/nodes.ergo:250:30*/ p0_inl0 := p.P.Tree
@@ -26457,7 +26457,7 @@ func (p *compiler_sformat__Printer) letDecl(env *Env, d dense__ID[compiler_ssynt
 //line format/nodes.ergo:250
 
 //line format/nodes.ergo:163:1
-func (p *compiler_sformat__Printer) typeDecl(env *Env, d dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) typeDecl(env *ergo__Env, d dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:164:1*/ x := p.P.Tree.TypeDeclOf(d)
 	/*line format/nodes.ergo:165:1*/ {
 		/*line format/nodes.ergo:165:16*/ p1_inl0 := x.Extern
@@ -26730,13 +26730,13 @@ func (p *compiler_sformat__Printer) typeDecl(env *Env, d dense__ID[compiler_ssyn
 		/*line format/nodes.ergo:179:2*/ {
 			/*line format/nodes.ergo:179:19*/ p0_inl32 := x.Spec
 			/*line format/nodes.ergo:179:2*/ {
-				/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ var s_1_inl32 Some[dense__ID[compiler_ssyntax__Node]]
+				/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ var s_1_inl32 ergo__Some[dense__ID[compiler_ssyntax__Node]]
 				/*line format/nodes.ergo:179:2*/ {
 					/*line format/nodes.ergo:179:2*/ if p0_inl32.n == uint32(0) {
-						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ _ = None{}
+						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ _ = ergo__None{}
 						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ goto fuse2_inl32
 					}
-					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ s_1_inl32 = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl32.n - uint32(1)}}
+					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ s_1_inl32 = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl32.n - uint32(1)}}
 					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@179.14:47:1*/ goto fuse1_inl32
 				}
 				/*line format/nodes.ergo:179:2*/ fuse1_inl32:
@@ -27297,10 +27297,10 @@ func compiler_sformat__some(o dense__Opt[compiler_ssyntax__Node]) bool {
 	/*line format/nodes.ergo:38:1*/ {
 		/*line format/nodes.ergo:38:1*/ {
 			/*line format/nodes.ergo:38:1*/ if o.n == uint32(0) {
-				/*line format/nodes.ergo:38:1*/ _ = None{}
+				/*line format/nodes.ergo:38:1*/ _ = ergo__None{}
 				/*line format/nodes.ergo:38:1*/ goto fuse2
 			}
-			/*line format/nodes.ergo:38:1*/ _ = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
+			/*line format/nodes.ergo:38:1*/ _ = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
 			/*line format/nodes.ergo:38:1*/ goto fuse1
 		}
 		/*line format/nodes.ergo:39:1*/ fuse1:
@@ -27317,7 +27317,7 @@ func compiler_sformat__some(o dense__Opt[compiler_ssyntax__Node]) bool {
 //line format/nodes.ergo:38
 
 //line format/nodes.ergo:379:1
-func (p *compiler_sformat__Printer) fieldList(env *Env, l dense__ID[compiler_ssyntax__Node], open string, close_1 string) {
+func (p *compiler_sformat__Printer) fieldList(env *ergo__Env, l dense__ID[compiler_ssyntax__Node], open string, close_1 string) {
 	/*line format/nodes.ergo:380:1*/ var fl compiler_ssyntax__FieldList
 	/*line format/nodes.ergo:380:1*/ {
 		/*line format/nodes.ergo:380:33*/ p0_inl0 := p.P.Tree
@@ -27673,13 +27673,13 @@ func (p *compiler_sformat__Printer) fieldList(env *Env, l dense__ID[compiler_ssy
 //line format/nodes.ergo:46:1
 func compiler_sformat__the(o dense__Opt[compiler_ssyntax__Node]) dense__ID[compiler_ssyntax__Node] {
 	/*line format/nodes.ergo:47:1*/ {
-		/*line format/nodes.ergo:47:1*/ var s_1 Some[dense__ID[compiler_ssyntax__Node]]
+		/*line format/nodes.ergo:47:1*/ var s_1 ergo__Some[dense__ID[compiler_ssyntax__Node]]
 		/*line format/nodes.ergo:47:1*/ {
 			/*line format/nodes.ergo:47:1*/ if o.n == uint32(0) {
-				/*line format/nodes.ergo:47:1*/ _ = None{}
+				/*line format/nodes.ergo:47:1*/ _ = ergo__None{}
 				/*line format/nodes.ergo:47:1*/ goto fuse2
 			}
-			/*line format/nodes.ergo:47:1*/ s_1 = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
+			/*line format/nodes.ergo:47:1*/ s_1 = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}}
 			/*line format/nodes.ergo:47:1*/ goto fuse1
 		}
 		/*line format/nodes.ergo:48:1*/ fuse1:
@@ -27771,7 +27771,7 @@ func (p *compiler_sformat__Printer) ident(x dense__ID[compiler_ssyntax__Node]) {
 //line format/nodes.ergo:77
 
 //line format/nodes.ergo:421:1
-func (p *compiler_sformat__Printer) signature(env *Env, ft dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) signature(env *ergo__Env, ft dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:422:1*/ x := p.P.Tree.FuncTypeOf(ft)
 	/*line format/nodes.ergo:423:1*/ if compiler_sformat__some(x.TypeParams) {
 		/*line format/nodes.ergo:424:2*/ p.fieldList(env, compiler_sformat__the(x.TypeParams), "[", "]")
@@ -27884,7 +27884,7 @@ func (p *compiler_sformat__Printer) blockOneLine(b dense__ID[compiler_ssyntax__N
 //line format/nodes.ergo:884
 
 //line format/nodes.ergo:862:1
-func (p *compiler_sformat__Printer) block(env *Env, b dense__ID[compiler_ssyntax__Node], oneLineOK bool) {
+func (p *compiler_sformat__Printer) block(env *ergo__Env, b dense__ID[compiler_ssyntax__Node], oneLineOK bool) {
 	/*line format/nodes.ergo:863:1*/ var x compiler_ssyntax__BlockStmt
 	/*line format/nodes.ergo:863:1*/ {
 		/*line format/nodes.ergo:863:32*/ p0_inl0 := p.P.Tree
@@ -28401,7 +28401,7 @@ func (p *compiler_sformat__Printer) synth(text_1 string) {
 //line format/printer.ergo:196
 
 //line format/nodes.ergo:783:1
-func (p *compiler_sformat__Printer) printContext(env *Env, contextPos int, prov dense__Opt[compiler_ssyntax__Node], failRow dense__Opt[compiler_ssyntax__Node], need dense__Opt[compiler_ssyntax__Node], body dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) printContext(env *ergo__Env, contextPos int, prov dense__Opt[compiler_ssyntax__Node], failRow dense__Opt[compiler_ssyntax__Node], need dense__Opt[compiler_ssyntax__Node], body dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:784:1*/ {
 		/*line format/nodes.ergo:784:21*/ p2_inl0 := "context"
 		/*line format/nodes.ergo:784:1*/ {
@@ -28870,7 +28870,7 @@ func (p *compiler_sformat__Printer) ids(l compiler_ssyntax__List) []dense__ID[co
 	/*line format/nodes.ergo:29:1*/ {
 		/*line format/nodes.ergo:29:15*/ out = ergo.WithCapacity[dense__ID[compiler_ssyntax__Node]](n)
 	}
-	/*line format/nodes.ergo:30:1*/ r := Range[int]{Start: 0, End: n}
+	/*line format/nodes.ergo:30:1*/ r := ergo__Range[int]{Start: 0, End: n}
 	/*line format/nodes.ergo:30:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/nodes.ergo:31:2*/ out = append(out, p.P.Tree.Item(l, i))
 	}
@@ -29126,7 +29126,7 @@ func (p compiler_ssyntax__Parsed) shapeOf(x uint32, b *strings__Builder) {
 			/*line syntax/shape.ergo:38:12*/ v_3 = ergo__compiler_ssyntax__taboptionalMaskFill(i_3, a_2)
 		}
 		/*line syntax/shape.ergo:38:2*/ opt := v_3
-		/*line syntax/shape.ergo:39:2*/ r := Range[int]{Start: 0, End: f}
+		/*line syntax/shape.ergo:39:2*/ r := ergo__Range[int]{Start: 0, End: f}
 		/*line syntax/shape.ergo:39:2*/ for w := r.Start; w < r.End; w++ {
 			/*line syntax/shape.ergo:40:3*/ if req>>w&1 == 1 || opt>>w&1 == 1 || w == 0 && compiler_ssyntax__hasDoc(k) {
 				/*line syntax/shape.ergo:41:4*/ continue
@@ -29253,7 +29253,7 @@ func (w *compiler_sir__writer) extra(fi int, at int) (uint32, error) {
 //line ir/json.ergo:131
 
 //line ir/json.ergo:159:1
-func (w *compiler_sir__writer) row(env *Env, fi int, id int, t uint8) error {
+func (w *compiler_sir__writer) row(env *ergo__Env, fi int, id int, t uint8) error {
 	/*line ir/json.ergo:160:1*/ if id <= 0 || id > len(w.file.Funcs[fi].Body.Kind) {
 		/*line ir/json.ergo:161:2*/ return compiler_sir__Malformed{At: id, Why: "no row"}
 	}
@@ -29269,7 +29269,7 @@ func (w *compiler_sir__writer) row(env *Env, fi int, id int, t uint8) error {
 	/*line ir/json.ergo:172:1*/ ns := len(kd.Slots)
 	/*line ir/json.ergo:173:1*/ si := 0
 	/*line ir/json.ergo:174:1*/ next := uint8(123)
-	/*line ir/json.ergo:175:1*/ r := Range[int]{Start: 0, End: len(fs)}
+	/*line ir/json.ergo:175:1*/ r := ergo__Range[int]{Start: 0, End: len(fs)}
 	/*line ir/json.ergo:175:1*/ for j := r.Start; j < r.End; j++ {
 		/*line ir/json.ergo:176:2*/ fd := fs[j]
 		/*line ir/json.ergo:177:2*/ v := uint32(0)
@@ -31382,7 +31382,7 @@ func (p *compiler_ssyntax__parser) parseTypeParams() uint32 {
 	/*line syntax/parse_decl.ergo:281:1*/ if p.failed {
 		/*line syntax/parse_decl.ergo:282:2*/ return uint32(4294967295)
 	}
-	/*line syntax/parse_decl.ergo:286:1*/ r := Range[int]{Start: lm, End: p.t.mark() - 1}
+	/*line syntax/parse_decl.ergo:286:1*/ r := ergo__Range[int]{Start: lm, End: p.t.mark() - 1}
 	/*line syntax/parse_decl.ergo:286:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse_decl.ergo:287:2*/ f_2 := p.t.stack[j]
 		/*line syntax/parse_decl.ergo:288:2*/ g := p.t.stack[j+1]
@@ -34046,7 +34046,7 @@ func (p *compiler_ssyntax__parser) parseParameters(decl bool, lit_1 bool) uint32
 	/*line syntax/parse_type.ergo:265:1*/ top := p.entTop
 	/*line syntax/parse_type.ergo:266:1*/ isNamed := false
 	/*line syntax/parse_type.ergo:267:1*/ ambiguous := false
-	/*line syntax/parse_type.ergo:268:1*/ r := Range[int]{Start: base, End: top}
+	/*line syntax/parse_type.ergo:268:1*/ r := ergo__Range[int]{Start: base, End: top}
 	/*line syntax/parse_type.ergo:268:1*/ for k := r.Start; k < r.End; k++ {
 		/*line syntax/parse_type.ergo:269:2*/ e_1 := p.ents[k]
 		/*line syntax/parse_type.ergo:270:2*/ isNamed = isNamed || e_1.hasName && !e_1.ambiguous
@@ -34055,7 +34055,7 @@ func (p *compiler_ssyntax__parser) parseParameters(decl bool, lit_1 bool) uint32
 	/*line syntax/parse_type.ergo:273:1*/ isNamed = isNamed || decl && ambiguous
 	/*line syntax/parse_type.ergo:274:1*/ lm := p.t.mark()
 	/*line syntax/parse_type.ergo:275:1*/ if !isNamed {
-		/*line syntax/parse_type.ergo:276:2*/ r_1 := Range[int]{Start: base, End: top}
+		/*line syntax/parse_type.ergo:276:2*/ r_1 := ergo__Range[int]{Start: base, End: top}
 		/*line syntax/parse_type.ergo:276:2*/ for k_1 := r_1.Start; k_1 < r_1.End; k_1++ {
 			/*line syntax/parse_type.ergo:277:3*/ e_2 := p.ents[k_1]
 			/*line syntax/parse_type.ergo:278:13*/ var own uint32
@@ -34130,7 +34130,7 @@ func (p *compiler_ssyntax__parser) parseParameters(decl bool, lit_1 bool) uint32
 	}
 	/*line syntax/parse_type.ergo:295:1*/ pm := lm
 	/*line syntax/parse_type.ergo:296:1*/ npend := 0
-	/*line syntax/parse_type.ergo:297:1*/ r_2 := Range[int]{Start: base, End: top}
+	/*line syntax/parse_type.ergo:297:1*/ r_2 := ergo__Range[int]{Start: base, End: top}
 	/*line syntax/parse_type.ergo:297:1*/ for k_2 := r_2.Start; k_2 < r_2.End; k_2++ {
 		/*line syntax/parse_type.ergo:298:2*/ e_3 := p.ents[k_2]
 		/*line syntax/parse_type.ergo:299:2*/ if !e_3.hasName {
@@ -35702,7 +35702,7 @@ func (p *compiler_sformat__Printer) basicLit(x dense__ID[compiler_ssyntax__Node]
 //line format/nodes.ergo:1081
 
 //line format/nodes.ergo:1078:1
-func (p *compiler_sformat__Printer) expr(env *Env, x dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) expr(env *ergo__Env, x dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:1078:52*/ p.expr1(env, x, 1)
 }
 
@@ -35849,14 +35849,14 @@ func (p *compiler_sformat__Printer) identList(list_1 []dense__ID[compiler_ssynta
 //line format/nodes.ergo:280
 
 //line format/nodes.ergo:470:1
-func (p *compiler_sformat__Printer) typ(env *Env, x dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) typ(env *ergo__Env, x dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:470:51*/ p.expr1(env, x, 1)
 }
 
 //line format/nodes.ergo:471
 
 //line format/nodes.ergo:298:1
-func (p *compiler_sformat__Printer) assignRHS(env *Env, value dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) assignRHS(env *ergo__Env, value dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:299:1*/ var broken bool
 	/*line format/nodes.ergo:299:1*/ {
 		/*line format/nodes.ergo:299:20*/ p1_inl0 := p.start(value)
@@ -35888,7 +35888,7 @@ func (p *compiler_sformat__Printer) assignRHS(env *Env, value dense__ID[compiler
 //line format/nodes.ergo:299
 
 //line format/nodes.ergo:638:1
-func (p *compiler_sformat__Printer) unionType(env *Env, t dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) unionType(env *ergo__Env, t dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:639:1*/ {
 		/*line format/nodes.ergo:639:9*/ p1_inl0 := "="
 		/*line format/printer.ergo#ergo-inline-format/nodes.ergo@639.2:196:1*/ at_inl0 := p.sourceToken(p1_inl0)
@@ -36255,7 +36255,7 @@ func (p *compiler_sformat__Printer) tokenEnd(at int, text_1 string, end int) {
 //line format/printer.ergo:159
 
 //line format/nodes.ergo:315:1
-func (p *compiler_sformat__Printer) list(env *Env, openPos int, open string, itemStarts []int, item func(*Env, int) (struct{}, error), closePos int, close_1 string) {
+func (p *compiler_sformat__Printer) list(env *ergo__Env, openPos int, open string, itemStarts []int, item func(*ergo__Env, int) (struct{}, error), closePos int, close_1 string) {
 	/*line format/nodes.ergo:315:1*/ env.task.Check()
 	/*line format/nodes.ergo:316:1*/ {
 		/*line format/nodes.ergo:316:1*/ if openPos >= 0 {
@@ -36468,7 +36468,7 @@ func (p *compiler_sformat__Printer) list(env *Env, openPos int, open string, ite
 	}
 	/*line format/nodes.ergo:323:1*/ indented := false
 	/*line format/nodes.ergo:324:1*/ saved := p.ListIndented
-	/*line format/nodes.ergo:325:1*/ r := Range[int]{Start: 0, End: len(itemStarts)}
+	/*line format/nodes.ergo:325:1*/ r := ergo__Range[int]{Start: 0, End: len(itemStarts)}
 	/*line format/nodes.ergo:325:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/nodes.ergo:326:2*/ if i == 0 {
 			/*line format/nodes.ergo:327:3*/ if p.gap(itemStarts[0], false) {
@@ -36816,7 +36816,7 @@ func (p *compiler_sformat__Printer) list(env *Env, openPos int, open string, ite
 //line format/nodes.ergo:316
 
 //line format/nodes.ergo:315:1
-func (p *compiler_sformat__Printer) listKnown(env *Env, openPos int, open string, itemStarts []int, item func(int), closePos int, close_1 string) {
+func (p *compiler_sformat__Printer) listKnown(env *ergo__Env, openPos int, open string, itemStarts []int, item func(int), closePos int, close_1 string) {
 	/*line format/nodes.ergo:316:1*/ {
 		/*line format/nodes.ergo:316:1*/ if openPos >= 0 {
 			/*line format/nodes.ergo:316:1*/ {
@@ -37028,7 +37028,7 @@ func (p *compiler_sformat__Printer) listKnown(env *Env, openPos int, open string
 	}
 	/*line format/nodes.ergo:323:1*/ indented := false
 	/*line format/nodes.ergo:324:1*/ saved := p.ListIndented
-	/*line format/nodes.ergo:325:1*/ r := Range[int]{Start: 0, End: len(itemStarts)}
+	/*line format/nodes.ergo:325:1*/ r := ergo__Range[int]{Start: 0, End: len(itemStarts)}
 	/*line format/nodes.ergo:325:1*/ for i := r.Start; i < r.End; i++ {
 		/*line format/nodes.ergo:326:2*/ if i == 0 {
 			/*line format/nodes.ergo:327:3*/ if p.gap(itemStarts[0], false) {
@@ -37413,7 +37413,7 @@ func (p *compiler_sformat__Printer) text(j int) string {
 //line format/nodes.ergo:19
 
 //line format/nodes.ergo:449:1
-func (p *compiler_sformat__Printer) needsClause(env *Env, u dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) needsClause(env *ergo__Env, u dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:450:1*/ var x compiler_ssyntax__NeedsClause
 	/*line format/nodes.ergo:450:1*/ {
 		/*line format/nodes.ergo:450:34*/ p0_inl0 := p.P.Tree
@@ -37504,7 +37504,7 @@ func (p *compiler_sformat__Printer) oneLine(lbrace int, rbrace int, contents []d
 //line format/nodes.ergo:832
 
 //line format/nodes.ergo:908:1
-func (p *compiler_sformat__Printer) stmt(env *Env, x dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) stmt(env *ergo__Env, x dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:909:1*/ var k uint8
 	/*line format/nodes.ergo:909:1*/ {
 		/*line format/nodes.ergo:909:1*/ {
@@ -38836,7 +38836,7 @@ func (p *compiler_sformat__Printer) openBody(lbrace int) {
 //line format/nodes.ergo:844
 
 //line format/nodes.ergo:897:1
-func (p *compiler_sformat__Printer) stmtList(env *Env, stmts []dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) stmtList(env *ergo__Env, stmts []dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:898:1*/ for i, x := range stmts {
 		/*line format/nodes.ergo:899:2*/ {
 			/*line format/nodes.ergo:899:2*/ if i == 0 {
@@ -39039,7 +39039,7 @@ func (p *compiler_sformat__Printer) write(text_1 string) {
 //line format/printer.ergo:154
 
 //line format/nodes.ergo:457:1
-func (p *compiler_sformat__Printer) row(env *Env, names []dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) row(env *ergo__Env, names []dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:458:1*/ for i, x := range names {
 		/*line format/nodes.ergo:459:2*/ p.space()
 		/*line format/nodes.ergo:460:2*/ if i > 0 {
@@ -39140,7 +39140,7 @@ func (p *compiler_sformat__Printer) row(env *Env, names []dense__ID[compiler_ssy
 //line format/nodes.ergo:458
 
 //line format/nodes.ergo:476:1
-func (p *compiler_sformat__Printer) members(env *Env, lbrace int, rbrace int, nodes []dense__ID[compiler_ssyntax__Node], print_1 func(*Env, int, bool) (struct{}, error), tight bool) {
+func (p *compiler_sformat__Printer) members(env *ergo__Env, lbrace int, rbrace int, nodes []dense__ID[compiler_ssyntax__Node], print_1 func(*ergo__Env, int, bool) (struct{}, error), tight bool) {
 	/*line format/nodes.ergo:476:1*/ env.task.Check()
 	/*line format/nodes.ergo:477:1*/ oneLine_1 := p.ln(lbrace) == p.ln(rbrace)
 	/*line format/nodes.ergo:478:1*/ pc := 1024
@@ -39216,7 +39216,7 @@ func (p *compiler_sformat__Printer) members(env *Env, lbrace int, rbrace int, no
 				/*line format/printer.ergo#ergo-inline-format/nodes.ergo@482.3>format/printer.ergo@156.50:176:1*/ p.LastTokLine = p.LastEndLine
 			}
 		}
-		/*line format/nodes.ergo:483:2*/ r := Range[int]{Start: 0, End: len(nodes)}
+		/*line format/nodes.ergo:483:2*/ r := ergo__Range[int]{Start: 0, End: len(nodes)}
 		/*line format/nodes.ergo:483:2*/ for i := r.Start; i < r.End; i++ {
 			/*line format/nodes.ergo:484:3*/ if i > 0 {
 				/*line format/nodes.ergo:485:4*/ {
@@ -39412,7 +39412,7 @@ func (p *compiler_sformat__Printer) members(env *Env, lbrace int, rbrace int, no
 		/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@498.2:845:1*/ p.indent(1)
 		/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@498.2:846:1*/ p.L.NoBlank = true
 	}
-	/*line format/nodes.ergo:499:1*/ r_1 := Range[int]{Start: 0, End: len(nodes)}
+	/*line format/nodes.ergo:499:1*/ r_1 := ergo__Range[int]{Start: 0, End: len(nodes)}
 	/*line format/nodes.ergo:499:1*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
 		/*line format/nodes.ergo:500:2*/ {
 			/*line format/nodes.ergo:500:2*/ if i_1 == 0 {
@@ -39559,7 +39559,7 @@ func (p *compiler_sformat__Printer) members(env *Env, lbrace int, rbrace int, no
 //line format/nodes.ergo:477
 
 //line format/nodes.ergo:476:1
-func (p *compiler_sformat__Printer) membersKnown(env *Env, lbrace int, rbrace int, nodes []dense__ID[compiler_ssyntax__Node], print_1 func(int, bool), tight bool) {
+func (p *compiler_sformat__Printer) membersKnown(env *ergo__Env, lbrace int, rbrace int, nodes []dense__ID[compiler_ssyntax__Node], print_1 func(int, bool), tight bool) {
 	/*line format/nodes.ergo:477:1*/ oneLine := p.ln(lbrace) == p.ln(rbrace)
 	/*line format/nodes.ergo:478:1*/ pc := 1024
 	/*line format/nodes.ergo:478:1*/ for _, m := range nodes {
@@ -39634,7 +39634,7 @@ func (p *compiler_sformat__Printer) membersKnown(env *Env, lbrace int, rbrace in
 				/*line format/printer.ergo#ergo-inline-format/nodes.ergo@482.3>format/printer.ergo@156.50:176:1*/ p.LastTokLine = p.LastEndLine
 			}
 		}
-		/*line format/nodes.ergo:483:2*/ r := Range[int]{Start: 0, End: len(nodes)}
+		/*line format/nodes.ergo:483:2*/ r := ergo__Range[int]{Start: 0, End: len(nodes)}
 		/*line format/nodes.ergo:483:2*/ for i := r.Start; i < r.End; i++ {
 			/*line format/nodes.ergo:484:3*/ if i > 0 {
 				/*line format/nodes.ergo:485:4*/ {
@@ -39828,7 +39828,7 @@ func (p *compiler_sformat__Printer) membersKnown(env *Env, lbrace int, rbrace in
 		/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@498.2:845:1*/ p.indent(1)
 		/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@498.2:846:1*/ p.L.NoBlank = true
 	}
-	/*line format/nodes.ergo:499:1*/ r_1 := Range[int]{Start: 0, End: len(nodes)}
+	/*line format/nodes.ergo:499:1*/ r_1 := ergo__Range[int]{Start: 0, End: len(nodes)}
 	/*line format/nodes.ergo:499:1*/ for i_1 := r_1.Start; i_1 < r_1.End; i_1++ {
 		/*line format/nodes.ergo:500:2*/ {
 			/*line format/nodes.ergo:500:2*/ if i_1 == 0 {
@@ -40172,7 +40172,7 @@ func (t compiler_ssyntax__Tree) ergo__compiler_ssyntax__childrenOwned(x uint32, 
 		/*line syntax/parse.ergo:212:9*/ v = ergo__compiler_ssyntax__tabfixedWordsFill(i_1, a_1)
 	}
 	/*line syntax/parse.ergo:212:1*/ f := v
-	/*line syntax/parse.ergo:213:1*/ r := Range[int]{Start: 0, End: t.items(x, f)}
+	/*line syntax/parse.ergo:213:1*/ r := ergo__Range[int]{Start: 0, End: t.items(x, f)}
 	/*line syntax/parse.ergo:213:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse.ergo:214:2*/ o = append(o, t.item(x, j))
 	}
@@ -40196,7 +40196,7 @@ func (t compiler_ssyntax__Tree) ergo__compiler_ssyntax__childrenOwned(x uint32, 
 		/*line syntax/parse.ergo:217:11*/ v_2 = ergo__compiler_ssyntax__taboptionalMaskFill(i_3, a_3)
 	}
 	/*line syntax/parse.ergo:217:1*/ opt := v_2
-	/*line syntax/parse.ergo:218:1*/ r_1 := Range[int]{Start: 0, End: f}
+	/*line syntax/parse.ergo:218:1*/ r_1 := ergo__Range[int]{Start: 0, End: f}
 	/*line syntax/parse.ergo:218:1*/ for j_1 := r_1.Start; j_1 < r_1.End; j_1++ {
 		/*line syntax/parse.ergo:219:2*/ w := t.fixed(x, f, j_1)
 		/*line syntax/parse.ergo:220:2*/ if req>>j_1&1 == 1 {
@@ -40295,7 +40295,7 @@ func (w *compiler_sir__writer) empty(fi int, k_1 uint8, v uint32) (bool, error) 
 //line ir/json.ergo:199
 
 //line ir/json.ergo:216:1
-func (w *compiler_sir__writer) value(env *Env, fi int, id int, fd compiler_sir__Field, kd compiler_sir__Kind, v uint32) error {
+func (w *compiler_sir__writer) value(env *ergo__Env, fi int, id int, fd compiler_sir__Field, kd compiler_sir__Kind, v uint32) error {
 	/*line ir/json.ergo:217:1*/ switch fd.Kind {
 	case uint8(11):
 		/*line ir/json.ergo:219:2*/ (&w.b).WriteString(kd.Quoted)
@@ -40632,7 +40632,7 @@ func (s *compiler_ssyntax__scanner) prefixed(start int) {
 		/*line syntax/scan.ergo:779:2*/ return
 	}
 	/*line syntax/scan.ergo:781:1*/ seen := false
-	/*line syntax/scan.ergo:782:1*/ r := Range[int]{Start: 2, End: len(lit_1)}
+	/*line syntax/scan.ergo:782:1*/ r := ergo__Range[int]{Start: 2, End: len(lit_1)}
 	/*line syntax/scan.ergo:782:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/scan.ergo:783:2*/ if lit_1[i] != uint8(95) {
 			/*line syntax/scan.ergo:784:6*/ a_1 := lit_1[i]
@@ -40715,7 +40715,7 @@ func (s *compiler_ssyntax__scanner) prefixed(start int) {
 
 //line syntax/scan.ergo:750:1
 func compiler_ssyntax__badSeparator(lit_1 string, base int, prefixed_1 bool) bool {
-	/*line syntax/scan.ergo:751:1*/ r := Range[int]{Start: 0, End: len(lit_1)}
+	/*line syntax/scan.ergo:751:1*/ r := ergo__Range[int]{Start: 0, End: len(lit_1)}
 	/*line syntax/scan.ergo:751:1*/ for i := r.Start; i < r.End; i++ {
 		/*line syntax/scan.ergo:752:2*/ if lit_1[i] == uint8(95) && (!(compiler_ssyntax__isDigitOf(lit_1, i-1, base) || prefixed_1 && i == 2) || !compiler_ssyntax__isDigitOf(lit_1, i+1, base)) {
 			/*line syntax/scan.ergo:753:3*/ return true
@@ -41271,7 +41271,7 @@ func (p *compiler_ssyntax__parser) providerPlanWhy(c uint32, tparams uint32, nam
 		/*line syntax/parse_decl.ergo:197:2*/ return shape
 	}
 	/*line syntax/parse_decl.ergo:199:1*/ capT := uint32(4294967295)
-	/*line syntax/parse_decl.ergo:200:1*/ r := Range[int]{Start: 0, End: 3}
+	/*line syntax/parse_decl.ergo:200:1*/ r := ergo__Range[int]{Start: 0, End: 3}
 	/*line syntax/parse_decl.ergo:200:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse_decl.ergo:201:2*/ a := p.t.item(c, j)
 		/*line syntax/parse_decl.ergo:202:2*/ if p.kindAt(a) != uint8(34) || p.t.items(a, 5) != 0 {
@@ -41289,10 +41289,10 @@ func (p *compiler_ssyntax__parser) providerPlanWhy(c uint32, tparams uint32, nam
 	/*line syntax/parse_decl.ergo:214:1*/ firstParam := uint32(4294967295)
 	/*line syntax/parse_decl.ergo:215:1*/ if tparams != uint32(0) {
 		/*line syntax/parse_decl.ergo:216:2*/ l := tparams - uint32(1)
-		/*line syntax/parse_decl.ergo:217:2*/ r_1 := Range[int]{Start: 0, End: p.t.items(l, 2)}
+		/*line syntax/parse_decl.ergo:217:2*/ r_1 := ergo__Range[int]{Start: 0, End: p.t.items(l, 2)}
 		/*line syntax/parse_decl.ergo:217:2*/ for f := r_1.Start; f < r_1.End; f++ {
 			/*line syntax/parse_decl.ergo:218:3*/ fl := p.t.item(l, f)
-			/*line syntax/parse_decl.ergo:219:3*/ r_2 := Range[int]{Start: 0, End: p.t.items(fl, 11)}
+			/*line syntax/parse_decl.ergo:219:3*/ r_2 := ergo__Range[int]{Start: 0, End: p.t.items(fl, 11)}
 			/*line syntax/parse_decl.ergo:219:3*/ for k := r_2.Start; k < r_2.End; k++ {
 				/*line syntax/parse_decl.ergo:220:4*/ if params == 0 {
 					/*line syntax/parse_decl.ergo:221:5*/ firstParam = p.t.item(fl, k)
@@ -42765,7 +42765,7 @@ func (p *compiler_ssyntax__parser) parseVariant() uint32 {
 		/*line syntax/parse_decl.ergo:741:2*/ lb := int(p.t.tok[int(x)])
 		/*line syntax/parse_decl.ergo:742:2*/ rb := int(p.t.fixed(x, 2, 1))
 		/*line syntax/parse_decl.ergo:743:2*/ n := p.t.items(x, 2)
-		/*line syntax/parse_decl.ergo:744:2*/ r_1 := Range[int]{Start: 0, End: n}
+		/*line syntax/parse_decl.ergo:744:2*/ r_1 := ergo__Range[int]{Start: 0, End: n}
 		/*line syntax/parse_decl.ergo:744:2*/ for j := r_1.Start; j < r_1.End; j++ {
 			/*line syntax/parse_decl.ergo:745:3*/ {
 				/*line syntax/parse_decl.ergo:745:9*/ p0_inl37 := &p.t
@@ -42786,7 +42786,7 @@ func (p *compiler_ssyntax__parser) parseVariant() uint32 {
 			}
 			/*line syntax/tree.ergo#ergo-inline-syntax/parse_decl.ergo@747.3:217:1*/ p0_inl38.n = i_inl38
 		}
-		/*line syntax/parse_decl.ergo:748:2*/ r_2 := Range[int]{Start: 0, End: n}
+		/*line syntax/parse_decl.ergo:748:2*/ r_2 := ergo__Range[int]{Start: 0, End: n}
 		/*line syntax/parse_decl.ergo:748:2*/ for j_1 := r_2.Start; j_1 < r_2.End; j_1++ {
 			/*line syntax/parse_decl.ergo:749:3*/ a := p.t.stack[m+j_1]
 			/*line syntax/parse_decl.ergo:750:3*/ var f uint32
@@ -46674,7 +46674,7 @@ func (p compiler_ssyntax__Parsed) TokEnd(j int) int {
 //line syntax/access.ergo:68
 
 //line format/nodes.ergo:1085:1
-func (p *compiler_sformat__Printer) expr1(env *Env, x dense__ID[compiler_ssyntax__Node], depth int) {
+func (p *compiler_sformat__Printer) expr1(env *ergo__Env, x dense__ID[compiler_ssyntax__Node], depth int) {
 	/*line format/nodes.ergo:1086:1*/ var k uint8
 	/*line format/nodes.ergo:1086:1*/ {
 		/*line format/nodes.ergo:1086:1*/ {
@@ -46789,7 +46789,7 @@ func (p *compiler_sformat__Printer) expr1(env *Env, x dense__ID[compiler_ssyntax
 		} else {
 			/*line format/nodes.ergo:1091:8*/ if k == uint8(51) {
 				/*line format/nodes.ergo:1093:2*/ parts := p.P.Tree.InterpolatedStringOf(x).Parts
-				/*line format/nodes.ergo:1094:2*/ r := Range[int]{Start: 0, End: parts.Len()}
+				/*line format/nodes.ergo:1094:2*/ r := ergo__Range[int]{Start: 0, End: parts.Len()}
 				/*line format/nodes.ergo:1094:2*/ for i := r.Start; i < r.End; i++ {
 					/*line format/nodes.ergo:1095:3*/ if i%2 == 0 {
 						/*line format/nodes.ergo:1096:4*/ {
@@ -48686,7 +48686,7 @@ func (p *compiler_sformat__Printer) stop(x dense__ID[compiler_ssyntax__Node]) in
 //line format/nodes.ergo:23
 
 //line format/nodes.ergo:667:1
-func (p *compiler_sformat__Printer) variant(env *Env, x dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) variant(env *ergo__Env, x dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:668:1*/ if p.kind(x) != uint8(23) {
 		/*line format/nodes.ergo:669:2*/ p.typ(env, x)
 		/*line format/nodes.ergo:670:2*/ return
@@ -48792,7 +48792,7 @@ func compiler_sformat__tokenText(n uint8) string {
 //line format/span.ergo:41
 
 //line format/nodes.ergo:999:1
-func (p *compiler_sformat__Printer) ifStmt(env *Env, x dense__ID[compiler_ssyntax__Node], oneLineOK bool) {
+func (p *compiler_sformat__Printer) ifStmt(env *ergo__Env, x dense__ID[compiler_ssyntax__Node], oneLineOK bool) {
 	/*line format/nodes.ergo:1000:1*/ var s compiler_ssyntax__IfStmt
 	/*line format/nodes.ergo:1000:1*/ {
 		/*line format/nodes.ergo:1000:29*/ p0_inl0 := p.P.Tree
@@ -48935,13 +48935,13 @@ func (p *compiler_sformat__Printer) ifStmt(env *Env, x dense__ID[compiler_ssynta
 		/*line format/nodes.ergo:1010:2*/ {
 			/*line format/nodes.ergo:1010:16*/ p0_inl13 := s.Else
 			/*line format/nodes.ergo:1010:2*/ {
-				/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ var s_1_inl13 Some[dense__ID[compiler_ssyntax__Node]]
+				/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ var s_1_inl13 ergo__Some[dense__ID[compiler_ssyntax__Node]]
 				/*line format/nodes.ergo:1010:2*/ {
 					/*line format/nodes.ergo:1010:2*/ if p0_inl13.n == uint32(0) {
-						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ _ = None{}
+						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ _ = ergo__None{}
 						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ goto fuse2_inl13
 					}
-					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ s_1_inl13 = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl13.n - uint32(1)}}
+					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ s_1_inl13 = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl13.n - uint32(1)}}
 					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@1010.11:47:1*/ goto fuse1_inl13
 				}
 				/*line format/nodes.ergo:1010:2*/ fuse1_inl13:
@@ -48976,7 +48976,7 @@ func (p *compiler_sformat__Printer) sameLine(x dense__ID[compiler_ssyntax__Node]
 //line format/nodes.ergo:907
 
 //line format/nodes.ergo:1034:1
-func (p *compiler_sformat__Printer) clauses(env *Env, lbrace int, arms []dense__ID[compiler_ssyntax__Node], rbrace int) {
+func (p *compiler_sformat__Printer) clauses(env *ergo__Env, lbrace int, arms []dense__ID[compiler_ssyntax__Node], rbrace int) {
 	/*line format/nodes.ergo:1035:1*/ base := p.L.Indent
 	/*line format/nodes.ergo:1036:1*/ {
 		/*line format/nodes.ergo:1036:17*/ p2_inl0 := "{"
@@ -49292,7 +49292,7 @@ var compiler_sir__caseFields []compiler_sir__Field
 var compiler_sir__noFields []compiler_sir__Field = []compiler_sir__Field{}
 
 //line ir/json.ergo:274:1
-func (w *compiler_sir__writer) list(env *Env, fi int, k_1 uint8, q uint32) error {
+func (w *compiler_sir__writer) list(env *ergo__Env, fi int, k_1 uint8, q uint32) error {
 	/*line ir/json.ergo:275:17*/ var v uint32
 	/*line ir/json.ergo:275:17*/ var err error
 	/*line ir/json.ergo:275:17*/ _ = err
@@ -49307,7 +49307,7 @@ func (w *compiler_sir__writer) list(env *Env, fi int, k_1 uint8, q uint32) error
 	}
 	/*line ir/json.ergo:275:1*/ n := int(v)
 	/*line ir/json.ergo:276:1*/ (&w.b).WriteByte_(uint8(91))
-	/*line ir/json.ergo:277:1*/ r := Range[int]{Start: 0, End: n}
+	/*line ir/json.ergo:277:1*/ r := ergo__Range[int]{Start: 0, End: n}
 	/*line ir/json.ergo:277:1*/ for i := r.Start; i < r.End; i++ {
 		/*line ir/json.ergo:278:2*/ if i > 0 {
 			/*line ir/json.ergo:279:3*/ (&w.b).WriteByte_(uint8(44))
@@ -49413,7 +49413,7 @@ func compiler_ssyntax__isDigitOf(lit_1 string, i int, base int) bool {
 //line syntax/scan.ergo:990:1
 func compiler_ssyntax__hexDigits(s string, i int, k int) int {
 	/*line syntax/scan.ergo:991:1*/ v := 0
-	/*line syntax/scan.ergo:992:1*/ r := Range[int]{Start: i, End: i + k}
+	/*line syntax/scan.ergo:992:1*/ r := ergo__Range[int]{Start: i, End: i + k}
 	/*line syntax/scan.ergo:992:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/scan.ergo:993:10*/ a := s[j]
 		/*line syntax/scan.ergo:993:10*/ i_1 := 0
@@ -52739,7 +52739,7 @@ func (t *compiler_ssyntax__Tree) mkContextBody(m int, lbrace int, rbrace int) ui
 //line syntax/view.ergo:657
 
 //line format/nodes.ergo:1424:1
-func (p *compiler_sformat__Printer) binaryOperand(env *Env, x dense__ID[compiler_ssyntax__Node], depth int) {
+func (p *compiler_sformat__Printer) binaryOperand(env *ergo__Env, x dense__ID[compiler_ssyntax__Node], depth int) {
 	/*line format/nodes.ergo:1425:1*/ if p.kind(x) == uint8(37) && p.opOf(x) != uint8(40) {
 		/*line format/nodes.ergo:1426:2*/ p.binary(env, x, depth)
 		/*line format/nodes.ergo:1427:2*/ return
@@ -52772,7 +52772,7 @@ func (p *compiler_sformat__Printer) binaryBreaks(x dense__ID[compiler_ssyntax__N
 //line format/nodes.ergo:1435
 
 //line format/nodes.ergo:1410:1
-func (p *compiler_sformat__Printer) binary(env *Env, x dense__ID[compiler_ssyntax__Node], depth int) {
+func (p *compiler_sformat__Printer) binary(env *ergo__Env, x dense__ID[compiler_ssyntax__Node], depth int) {
 	/*line format/nodes.ergo:1411:1*/ var b compiler_ssyntax__BinaryExpr
 	/*line format/nodes.ergo:1411:1*/ {
 		/*line format/nodes.ergo:1411:33*/ p0_inl0 := p.P.Tree
@@ -52912,7 +52912,7 @@ func (p *compiler_sformat__Printer) indexDepth(x dense__ID[compiler_ssyntax__Nod
 //line format/nodes.ergo:891
 
 //line format/nodes.ergo:1369:1
-func (p *compiler_sformat__Printer) slice(env *Env, x dense__ID[compiler_ssyntax__Node], depth int) {
+func (p *compiler_sformat__Printer) slice(env *ergo__Env, x dense__ID[compiler_ssyntax__Node], depth int) {
 	/*line format/nodes.ergo:1370:1*/ var s compiler_ssyntax__SliceExpr
 	/*line format/nodes.ergo:1370:1*/ {
 		/*line format/nodes.ergo:1370:32*/ p0_inl0 := p.P.Tree
@@ -53042,7 +53042,7 @@ func (p *compiler_sformat__Printer) slice(env *Env, x dense__ID[compiler_ssyntax
 //line format/nodes.ergo:1370
 
 //line format/nodes.ergo:1296:1
-func (p *compiler_sformat__Printer) call(env *Env, x dense__ID[compiler_ssyntax__Node], depth int) {
+func (p *compiler_sformat__Printer) call(env *ergo__Env, x dense__ID[compiler_ssyntax__Node], depth int) {
 	/*line format/nodes.ergo:1297:1*/ var c compiler_ssyntax__CallExpr
 	/*line format/nodes.ergo:1297:1*/ {
 		/*line format/nodes.ergo:1297:31*/ p0_inl0 := p.P.Tree
@@ -53153,7 +53153,7 @@ func (p *compiler_sformat__Printer) call(env *Env, x dense__ID[compiler_ssyntax_
 //line format/nodes.ergo:1297
 
 //line format/nodes.ergo:1344:1
-func (p *compiler_sformat__Printer) element(env *Env, x dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) element(env *ergo__Env, x dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:1345:1*/ if p.kind(x) != uint8(27) {
 		/*line format/nodes.ergo:1346:2*/ p.expr(env, x)
 		/*line format/nodes.ergo:1347:2*/ return
@@ -53290,7 +53290,7 @@ func (p compiler_ssyntax__Parsed) TokAtOrAfter(at int) int {
 //line syntax/access.ergo:72
 
 //line format/nodes.ergo:1326:1
-func (p *compiler_sformat__Printer) funcType(env *Env, t dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) funcType(env *ergo__Env, t dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:1327:1*/ f := p.P.Tree.FuncTypeOf(t)
 	/*line format/nodes.ergo:1328:1*/ if f.Escaping >= 0 {
 		/*line format/nodes.ergo:1329:2*/ {
@@ -53492,7 +53492,7 @@ func (p *compiler_sformat__Printer) funcType(env *Env, t dense__ID[compiler_ssyn
 //line format/nodes.ergo:1327
 
 //line format/nodes.ergo:529:1
-func (p *compiler_sformat__Printer) fieldMembers(env *Env, list_1 dense__ID[compiler_ssyntax__Node], tight bool) {
+func (p *compiler_sformat__Printer) fieldMembers(env *ergo__Env, list_1 dense__ID[compiler_ssyntax__Node], tight bool) {
 	/*line format/nodes.ergo:530:1*/ var fl compiler_ssyntax__FieldList
 	/*line format/nodes.ergo:530:1*/ {
 		/*line format/nodes.ergo:530:33*/ p0_inl0 := p.P.Tree
@@ -53508,7 +53508,7 @@ func (p *compiler_sformat__Printer) fieldMembers(env *Env, list_1 dense__ID[comp
 //line format/nodes.ergo:530
 
 //line format/nodes.ergo:541:1
-func (p *compiler_sformat__Printer) operationType(env *Env, t dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) operationType(env *ergo__Env, t dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:542:1*/ var x compiler_ssyntax__InterfaceType
 	/*line format/nodes.ergo:542:1*/ {
 		/*line format/nodes.ergo:542:36*/ p0_inl0 := p.P.Tree
@@ -53822,7 +53822,7 @@ func (p *compiler_sformat__Printer) operationType(env *Env, t dense__ID[compiler
 //line format/nodes.ergo:542
 
 //line format/nodes.ergo:680:1
-func (p *compiler_sformat__Printer) machineType(env *Env, t dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) machineType(env *ergo__Env, t dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:681:1*/ var x compiler_ssyntax__MachineType
 	/*line format/nodes.ergo:681:1*/ {
 		/*line format/nodes.ergo:681:34*/ p0_inl0 := p.P.Tree
@@ -54130,7 +54130,7 @@ func (p *compiler_sformat__Printer) machineType(env *Env, t dense__ID[compiler_s
 //line format/nodes.ergo:681
 
 //line format/nodes.ergo:359:1
-func (p *compiler_sformat__Printer) exprList(env *Env, xs []dense__ID[compiler_ssyntax__Node], depth int) {
+func (p *compiler_sformat__Printer) exprList(env *ergo__Env, xs []dense__ID[compiler_ssyntax__Node], depth int) {
 	/*line format/nodes.ergo:360:1*/ broken := false
 	/*line format/nodes.ergo:361:1*/ for i, x := range xs {
 		/*line format/nodes.ergo:362:2*/ if i > 0 {
@@ -54307,7 +54307,7 @@ func (p *compiler_sformat__Printer) flushClauseComments(at int) {
 //line format/comments.ergo:17
 
 //line format/nodes.ergo:1065:1
-func (p *compiler_sformat__Printer) caseHead(env *Env, casePos int, patterns []dense__ID[compiler_ssyntax__Node], colon int) {
+func (p *compiler_sformat__Printer) caseHead(env *ergo__Env, casePos int, patterns []dense__ID[compiler_ssyntax__Node], colon int) {
 	/*line format/nodes.ergo:1066:1*/ {
 		/*line format/nodes.ergo:1066:18*/ p2_inl0 := "case"
 		/*line format/nodes.ergo:1066:1*/ {
@@ -54710,7 +54710,7 @@ func (p *compiler_ssyntax__parser) tupleShaped(ft uint32) bool {
 	/*line syntax/parse_decl.ergo:599:1*/ if p.kindAt(l) != uint8(16) || p.t.items(l, 2) < 2 {
 		/*line syntax/parse_decl.ergo:600:2*/ return false
 	}
-	/*line syntax/parse_decl.ergo:602:1*/ r := Range[int]{Start: 0, End: p.t.items(l, 2)}
+	/*line syntax/parse_decl.ergo:602:1*/ r := ergo__Range[int]{Start: 0, End: p.t.items(l, 2)}
 	/*line syntax/parse_decl.ergo:602:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse_decl.ergo:603:2*/ f := p.t.item(l, j)
 		/*line syntax/parse_decl.ergo:604:2*/ if p.t.items(f, 11) > 0 || p.t.fixed(f, 11, 1) == uint32(0) {
@@ -55413,7 +55413,7 @@ func (p *compiler_ssyntax__parser) parseCaseList() int {
 	/*line syntax/parse_expr.ergo:747:1*/ if !p.failed {
 		/*line syntax/parse_expr.ergo:748:2*/ total := 0
 		/*line syntax/parse_expr.ergo:749:2*/ has := false
-		/*line syntax/parse_expr.ergo:750:2*/ r := Range[int]{Start: m, End: top}
+		/*line syntax/parse_expr.ergo:750:2*/ r := ergo__Range[int]{Start: m, End: top}
 		/*line syntax/parse_expr.ergo:750:2*/ for j := r.Start; j < r.End; j++ {
 			/*line syntax/parse_expr.ergo:751:3*/ c := p.expandCount(p.t.stack[j])
 			/*line syntax/parse_expr.ergo:752:3*/ has = has || c > 1
@@ -56619,7 +56619,7 @@ func (p *compiler_sformat__Printer) diffPrec(x dense__ID[compiler_ssyntax__Node]
 //line format/nodes.ergo:1457
 
 //line format/nodes.ergo:508:1
-func (p *compiler_sformat__Printer) fieldMember(env *Env, id dense__ID[compiler_ssyntax__Node], aligned bool) {
+func (p *compiler_sformat__Printer) fieldMember(env *ergo__Env, id dense__ID[compiler_ssyntax__Node], aligned bool) {
 	/*line format/nodes.ergo:509:1*/ f := p.P.Tree.FieldOf(id)
 	/*line format/nodes.ergo:510:1*/ if f.Dots >= 0 {
 		/*line format/nodes.ergo:511:2*/ {
@@ -56723,13 +56723,13 @@ func (p *compiler_sformat__Printer) fieldMember(env *Env, id dense__ID[compiler_
 		/*line format/nodes.ergo:523:2*/ {
 			/*line format/nodes.ergo:523:18*/ p0_inl8 := f.Key
 			/*line format/nodes.ergo:523:2*/ {
-				/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ var s_1_inl8 Some[dense__ID[compiler_ssyntax__Node]]
+				/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ var s_1_inl8 ergo__Some[dense__ID[compiler_ssyntax__Node]]
 				/*line format/nodes.ergo:523:2*/ {
 					/*line format/nodes.ergo:523:2*/ if p0_inl8.n == uint32(0) {
-						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ _ = None{}
+						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ _ = ergo__None{}
 						/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ goto fuse2_inl8
 					}
-					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ s_1_inl8 = Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl8.n - uint32(1)}}
+					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ s_1_inl8 = ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: p0_inl8.n - uint32(1)}}
 					/*line format/nodes.ergo#ergo-inline-format/nodes.ergo@523.13:47:1*/ goto fuse1_inl8
 				}
 				/*line format/nodes.ergo:523:2*/ fuse1_inl8:
@@ -56815,7 +56815,7 @@ func (p *compiler_sformat__Printer) fieldMember(env *Env, id dense__ID[compiler_
 //line format/nodes.ergo:509
 
 //line format/nodes.ergo:720:1
-func (p *compiler_sformat__Printer) memberLaw(env *Env, l dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) memberLaw(env *ergo__Env, l dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:721:1*/ x := p.P.Tree.LawDeclOf(l)
 	/*line format/nodes.ergo:722:1*/ {
 		/*line format/nodes.ergo:722:9*/ p1_inl0 := p.tp(x.Law)
@@ -57689,7 +57689,7 @@ func (p *compiler_sformat__Printer) memberLaw(env *Env, l dense__ID[compiler_ssy
 //line format/nodes.ergo:721
 
 //line format/nodes.ergo:592:1
-func (p *compiler_sformat__Printer) typeTerms(env *Env, terms []dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) typeTerms(env *ergo__Env, terms []dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:593:1*/ for i, m := range terms {
 		/*line format/nodes.ergo:594:2*/ if i > 0 {
 			/*line format/nodes.ergo:595:3*/ p.space()
@@ -58049,7 +58049,7 @@ func (p *compiler_ssyntax__parser) expandCount(x uint32) int {
 	/*line syntax/parse_expr.ergo:769:1*/ k := p.kindAt(x)
 	/*line syntax/parse_expr.ergo:770:1*/ if k == uint8(50) {
 		/*line syntax/parse_expr.ergo:771:2*/ n := 0
-		/*line syntax/parse_expr.ergo:772:2*/ r := Range[int]{Start: 0, End: p.t.items(x, 0)}
+		/*line syntax/parse_expr.ergo:772:2*/ r := ergo__Range[int]{Start: 0, End: p.t.items(x, 0)}
 		/*line syntax/parse_expr.ergo:772:2*/ for j := r.Start; j < r.End; j++ {
 			/*line syntax/parse_expr.ergo:773:3*/ n = n + p.expandCount(p.t.item(x, j))
 		}
@@ -58064,7 +58064,7 @@ func (p *compiler_ssyntax__parser) expandCount(x uint32) int {
 		}
 		/*line syntax/parse_expr.ergo:778:2*/ f := if6
 		/*line syntax/parse_expr.ergo:779:2*/ n_1 := 1
-		/*line syntax/parse_expr.ergo:780:2*/ r_1 := Range[int]{Start: 0, End: p.t.items(x, f)}
+		/*line syntax/parse_expr.ergo:780:2*/ r_1 := ergo__Range[int]{Start: 0, End: p.t.items(x, f)}
 		/*line syntax/parse_expr.ergo:780:2*/ for j_1 := r_1.Start; j_1 < r_1.End; j_1++ {
 			/*line syntax/parse_expr.ergo:781:3*/ n_1 = n_1 * p.expandCount(p.t.item(x, j_1))
 		}
@@ -58765,7 +58765,7 @@ func (p *compiler_ssyntax__parser) parseMatch() uint32 {
 			/*line syntax/parse_expr.ergo:693:3*/ (&p.t).cutStack(cm)
 			/*line syntax/parse_expr.ergo:694:3*/ n = 0
 		}
-		/*line syntax/parse_expr.ergo:696:2*/ r := Range[int]{Start: cm, End: cm + n}
+		/*line syntax/parse_expr.ergo:696:2*/ r := ergo__Range[int]{Start: cm, End: cm + n}
 		/*line syntax/parse_expr.ergo:696:2*/ for j := r.Start; j < r.End; j++ {
 			/*line syntax/parse_expr.ergo:697:3*/ x := p.t.stack[j]
 			/*line syntax/parse_expr.ergo:698:3*/ if p.kindAt(x) == uint8(36) && uint8(p.toks.kind[int(p.t.tok[int(x)])]) == uint8(14) {
@@ -59939,7 +59939,7 @@ func (p *compiler_sformat__Printer) walkBinary(e dense__ID[compiler_ssyntax__Nod
 //line format/nodes.ergo:1467
 
 //line format/nodes.ergo:612:1
-func (p *compiler_sformat__Printer) lawBody(env *Env, b dense__ID[compiler_ssyntax__Node]) {
+func (p *compiler_sformat__Printer) lawBody(env *ergo__Env, b dense__ID[compiler_ssyntax__Node]) {
 	/*line format/nodes.ergo:613:1*/ var x compiler_ssyntax__BlockStmt
 	/*line format/nodes.ergo:613:1*/ {
 		/*line format/nodes.ergo:613:32*/ p0_inl0 := p.P.Tree
@@ -60808,7 +60808,7 @@ func (p *compiler_ssyntax__parser) statementEnd(start int) int {
 //line syntax/parse_expr.ergo:1067:1
 func (p *compiler_ssyntax__parser) assignAt(start int, stop int) bool {
 	/*line syntax/parse_expr.ergo:1068:1*/ depth := 0
-	/*line syntax/parse_expr.ergo:1069:1*/ r := Range[int]{Start: start, End: stop}
+	/*line syntax/parse_expr.ergo:1069:1*/ r := ergo__Range[int]{Start: start, End: stop}
 	/*line syntax/parse_expr.ergo:1069:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse_expr.ergo:1070:2*/ k := p.tokKind(j)
 		/*line syntax/parse_expr.ergo:1071:2*/ if k == uint8(53) || k == uint8(51) || k == uint8(52) {
@@ -63681,7 +63681,7 @@ func (p *compiler_ssyntax__parser) parseWith() uint32 {
 
 //line syntax/parse_expr.ergo:204:1
 func (p *compiler_ssyntax__parser) lineBetween(a int, b int) bool {
-	/*line syntax/parse_expr.ergo:205:1*/ r := Range[int]{Start: a, End: b}
+	/*line syntax/parse_expr.ergo:205:1*/ r := ergo__Range[int]{Start: a, End: b}
 	/*line syntax/parse_expr.ergo:205:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse_expr.ergo:206:2*/ if p.src[j] == uint8(10) {
 			/*line syntax/parse_expr.ergo:207:3*/ return true
@@ -63980,7 +63980,7 @@ func (p *compiler_ssyntax__parser) typeOnly(t uint32) bool {
 	/*line syntax/parse_expr.ergo:477:1*/ if p.kindAt(t) != uint8(48) {
 		/*line syntax/parse_expr.ergo:478:2*/ return false
 	}
-	/*line syntax/parse_expr.ergo:480:1*/ r := Range[int]{Start: 0, End: p.t.items(t, 2)}
+	/*line syntax/parse_expr.ergo:480:1*/ r := ergo__Range[int]{Start: 0, End: p.t.items(t, 2)}
 	/*line syntax/parse_expr.ergo:480:1*/ for j := r.Start; j < r.End; j++ {
 		/*line syntax/parse_expr.ergo:481:2*/ e := p.t.item(t, j)
 		/*line syntax/parse_expr.ergo:482:2*/ k := p.kindAt(e)
@@ -64007,7 +64007,7 @@ func (p *compiler_ssyntax__parser) parseElementValue() uint32 {
 //line syntax/parse_expr.ergo:610
 
 //line format/format.ergo:96:1
-func compiler_sformat__StepsFlat(env *Env, commands []compiler_sformat__Command, limit int, out *ergoFlat[compiler_sformat__Rendered, compiler_sformat__OutputLimit]) bool {
+func compiler_sformat__StepsFlat(env *ergo__Env, commands []compiler_sformat__Command, limit int, out *ergoFlat[compiler_sformat__Rendered, compiler_sformat__OutputLimit]) bool {
 	/*line format/format.ergo:97:1*/ l := compiler_sformat__Layout{Buf: strings__Builder{buf: []uint8{}}, CellA: []int{}, CellB: []int{}, LineIndent: []int{}, LineFirst: []int{}, LineN: []int{}, Pend: 0, Open: 0, Trail: 0, Solid: uint8(0), CellsTail: uint8(0), CellTail: uint8(0), Started: false, Indent: 0, PendingNL: 0, PendingSpace: false, NoBlank: false}
 	/*line format/format.ergo:98:1*/ for _, c := range commands {
 		/*line format/format.ergo:99:2*/ (&l).step(c)
@@ -64047,7 +64047,7 @@ func compiler_ssource__FitFlat(data string, limit int, out *ergoFlat[string, com
 //line source/source.ergo:79
 
 //line api/format.ergo:60:1
-func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, BadCommand]) bool {
+func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, ergo__BadCommand]) bool {
 	/*line api/format.ergo:61:1*/ out := []compiler_sformat__Command{}
 	/*line api/format.ergo:62:1*/ at := 0
 	/*line api/format.ergo:63:1*/ for at < len(w) {
@@ -64070,7 +64070,7 @@ func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, Bad
 			/*line api/format.ergo:80:3*/ at += 1
 		case uint8(101):
 			/*line api/format.ergo:82:3*/ if at+1 >= len(w) || w[at+1] != uint8(48) && w[at+1] != uint8(49) {
-				/*line api/format.ergo:83:4*/ out_1.Err = BadCommand{At: at}
+				/*line api/format.ergo:83:4*/ out_1.Err = ergo__BadCommand{At: at}
 				/*line api/format.ergo:83:4*/ return true
 			}
 			/*line api/format.ergo:85:3*/ out = append(out, compiler_sformat__Command{}.of3(compiler_sformat__Emit_1{Blank: w[at+1] == uint8(49)}))
@@ -64078,14 +64078,14 @@ func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, Bad
 		case uint8(119), uint8(112):
 			/*line api/format.ergo:88:24*/ v, err := decimalAt(w, at+1, uint8(58))
 			/*line api/format.ergo:88:24*/ if err != nil {
-				/*line api/format.ergo:88:24*/ out_1.Err = err.(BadCommand)
+				/*line api/format.ergo:88:24*/ out_1.Err = err.(ergo__BadCommand)
 				/*line api/format.ergo:88:24*/ return true
 			}
 			/*line api/format.ergo:88:3*/ p := v
 			/*line api/format.ergo:88:3*/ n := p.F0
 			/*line api/format.ergo:88:3*/ start := p.F1
 			/*line api/format.ergo:89:3*/ if n < 0 || n > len(w)-start {
-				/*line api/format.ergo:90:4*/ out_1.Err = BadCommand{At: at}
+				/*line api/format.ergo:90:4*/ out_1.Err = ergo__BadCommand{At: at}
 				/*line api/format.ergo:90:4*/ return true
 			}
 			/*line api/format.ergo:92:3*/ text := strings__Slice_2(w, start, start+n)
@@ -64101,7 +64101,7 @@ func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, Bad
 		case uint8(105), uint8(116):
 			/*line api/format.ergo:96:23*/ v_1, err_1 := decimalAt(w, at+1, uint8(59))
 			/*line api/format.ergo:96:23*/ if err_1 != nil {
-				/*line api/format.ergo:96:23*/ out_1.Err = err_1.(BadCommand)
+				/*line api/format.ergo:96:23*/ out_1.Err = err_1.(ergo__BadCommand)
 				/*line api/format.ergo:96:23*/ return true
 			}
 			/*line api/format.ergo:96:3*/ p_1 := v_1
@@ -64117,7 +64117,7 @@ func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, Bad
 			/*line api/format.ergo:97:3*/ out = append(arg_1, if17)
 			/*line api/format.ergo:98:3*/ at = next
 		default:
-			/*line api/format.ergo:100:3*/ out_1.Err = BadCommand{At: at}
+			/*line api/format.ergo:100:3*/ out_1.Err = ergo__BadCommand{At: at}
 			/*line api/format.ergo:100:3*/ return true
 		}
 	}
@@ -64332,7 +64332,7 @@ func replayFlat(words []uint32, strs []string, out *ergoFlat[compiler_sir__File,
 // ergoInit runs the package-level lets in Go's initialization order,
 // inside the program's root task.
 /*line api/ir.ergo:78:1*/
-func ergoInit(env *Env) {
+func ergoInit(env *ergo__Env) {
 //line cachekey/warm.ergo:34:5
 	{
 		/*line cachekey/warm.ergo:34:5*/ compiler_scachekey__WarmLocations = []string{"GOTMPDIR", "GOCACHE", "GOMODCACHE", "GOPATH", "GOENV", "GOTELEMETRY", "GOTELEMETRYDIR", "GOMAXPROCS", "GOMEMLIMIT", "ERGO_CACHE", ergo.Let(compiler_scachekey__StageReportVariable), ergo.Let(compiler_scachekey__WarmVariable), "ERGO_PARITY_LOG", "ERGO_BUDGET", "ERGO_BUDGET_SCRATCH", "ERGO_BUDGET_CLASS", "ERGO_BUDGET_LANE", "ERGO_BUDGET_GRANT", "ERGO_BUDGET_BIN", "ERGO_BUDGET_CRIT", "ERGO_BUDGET_QUIET", "ERGO_GATE_CPUS", "ERGO_IRC"}
