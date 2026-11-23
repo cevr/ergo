@@ -58,6 +58,3 @@ runtime/v1/http/http_client.go	httpStreamVia	host: the next event of a streamed 
 runtime/v1/exec/exec_sandbox_linux.go	execHelperFor	host: another command of the same case waits for its helper's start (TH1c)
 runtime/v1/exec/exec_sandbox_linux.go	execSandboxEnd	host: the case's end waits for its helper's start, then for its exit (TH1c)
 runtime/v1/exec/exec_sandbox_linux.go	execHelper.start	host: the exit of a helper that could not build the test folder's sandbox (TH1c)
-
-# a wait that parks inside runtime/rt
-runtime/v1/task.go	Task.join	parks in rt: rt.Handle.Wait parks the owner on the handle (rt handle.go); Wait and TaskExit wait through it

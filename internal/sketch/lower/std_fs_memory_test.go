@@ -79,13 +79,15 @@ func step(line string) string needs fs.Files | fs.Writes {
 		return "Denied " + q(d.Path)
 	case fs.Failed as x:
 		return "Failed " + q(x.Path) + " " + q(x.Reason)
+	case fs.CrossDevice as x:
+		return "CrossDevice " + q(x.From) + " " + q(x.To)
 	case fs.Exists as e:
 		return "Exists " + q(e.Path)
 	}
 	"ok " + out
 }
 
-func run(op string, p string, f []string) string fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists needs fs.Files | fs.Writes {
+func run(op string, p string, f []string) string fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists | fs.CrossDevice needs fs.Files | fs.Writes {
 	match op {
 	case "ReadFile":
 		q(try fs.Files.ReadFile(p))
@@ -160,6 +162,10 @@ func runLaw(name string, f []string) string needs fs.Files | fs.Writes {
 		memoryAppendConcatenates(arg(f, 2), arg(f, 3), arg(f, 4))
 	case "MemoryModeIsKept":
 		memoryModeIsKept(arg(f, 2), arg(f, 3), arg(f, 4))
+	case "CrossDeviceMovesNothing":
+		crossDeviceMovesNothing(arg(f, 2), arg(f, 3), arg(f, 4))
+	case "MemoryVolumesAreCrossDevice":
+		memoryVolumesAreCrossDevice(arg(f, 2))
 	case _:
 		"unknown law " + name
 	}
@@ -246,13 +252,13 @@ func renameMoves(from string, to string, text string) string needs fs.Writes {
 		return "skip"
 	}
 	fs.Writes.Rename(from, to) catch {
-	case fs.NotFound, fs.Denied, fs.Failed:
+	case fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice:
 		return "skip"
 	}
 	fs.Writes.Rename(from, to) catch {
 	case fs.NotFound:
 		return "held"
-	case fs.Denied, fs.Failed:
+	case fs.Denied, fs.Failed, fs.CrossDevice:
 		return "broken"
 	}
 	"broken"
@@ -380,6 +386,68 @@ func memoryModeIsKept(path string, text string, more string) string {
 	verdict(info.Perm == fs.Perm(fs.Private()))
 }
 
+// Writes.CrossDeviceMovesNothing, on a new Memory with a volume at "v":
+// neither provider under test has a second file system, and to is in "v".
+func crossDeviceMovesNothing(from string, to string, text string) string {
+	let m = fstest.NewVolumes([]string{"v"})
+	m.MkdirAll(filepath.Dir(from)) catch {
+	case fs.Denied, fs.Failed:
+		return "skip"
+	}
+	m.MkdirAll(filepath.Dir(to)) catch {
+	case fs.Denied, fs.Failed:
+		return "skip"
+	}
+	m.WriteFile(from, text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "skip"
+	}
+	m.Rename(from, to) catch {
+	case fs.CrossDevice:
+		m.Remove(from) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return "broken"
+		}
+		return "held"
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "skip"
+	}
+	"skip"
+}
+
+// MemoryVolumesAreCrossDevice
+func memoryVolumesAreCrossDevice(text string) string {
+	let m = fstest.NewVolumes([]string{"v"})
+	m.WriteFile("f", text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "broken"
+	}
+	let mut crossed = false
+	m.Rename("f", "v/f") catch {
+	case fs.CrossDevice:
+		crossed = true
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "broken"
+	}
+	let kept = m.ReadFile("f") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "broken"
+	}
+	m.WriteFile("v/g", text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "broken"
+	}
+	m.Rename("v/g", "v/h") catch {
+	case fs.NotFound, fs.Denied, fs.Failed, fs.CrossDevice:
+		return "broken"
+	}
+	let moved = m.ReadFile("v/h") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return "broken"
+	}
+	verdict(crossed && kept == text && moved == text)
+}
+
 func each() needs Console | io.Stdin | fs.Files | fs.Writes {
 	for line in io.Stdin.Lines() {
 		Console.Println(step(line))
@@ -479,12 +547,12 @@ func fsOps(r *rand.Rand, n int) []string {
 }
 
 // fsLawLine is a Law line for one of the laws, with generated arguments.
-// Law lines are 6 in 25 of fsOps's lines, and RenameMoves is 2 in 13 of
+// Law lines are 6 in 25 of fsOps's lines, and RenameMoves is 2 in 15 of
 // them: its law is vacuous unless from holds a file it can rename, and
 // each law must hold in 20 cases that are not vacuous.
 func fsLawLine(r *rand.Rand, path, text, fileMode func() string) string {
 	q := strconv.Quote
-	switch r.IntN(13) {
+	switch r.IntN(15) {
 	case 10:
 		return "Law\t" + q("LstatDirIsStatDir") + "\t" + q(path())
 	case 11:
@@ -505,6 +573,10 @@ func fsLawLine(r *rand.Rand, path, text, fileMode func() string) string {
 		return "Law\t" + q("ModeIsKept") + "\t" + q(path()) + "\t" + q(text()) + "\t" + fileMode() + "\t" + q(text())
 	case 7:
 		return "Law\t" + q("MemoryCopiesShare") + "\t" + q(path()) + "\t" + q(text())
+	case 13:
+		return "Law\t" + q("CrossDeviceMovesNothing") + "\t" + q(path()) + "\t" + q("v/"+path()) + "\t" + q(text())
+	case 14:
+		return "Law\t" + q("MemoryVolumesAreCrossDevice") + "\t" + q(text())
 	case 8:
 		return "Law\t" + q("MemoryAppendConcatenates") + "\t" + q(path()) + "\t" + q(text()) + "\t" + q(text())
 	}
@@ -573,15 +645,17 @@ var fsOutcomesReached = []string{
 
 // fsLawStatements are fs's laws as the ledger states them, by key.
 var fsLawStatements = map[string]string{
-	"fs Files.LstatDirIsStatDir":     `LstatDirIsStatDir(path string) { let l = Lstat(path) catch { case NotFound, Denied, Failed: return true } if !l.Dir { return true } let s = try Stat(path) s.Dir }`,
-	"fs Writes.MkdirThenExists":      `MkdirThenExists(path string) { Mkdir(path, PrivateDir()) catch { case NotFound, Denied, Failed, Exists: return true } Mkdir(path, PrivateDir()) catch { case Exists: return true case NotFound, Denied, Failed: return false } false }`,
-	"fstest CopiesShare":             `CopiesShare(path string, text string) { let m = NewMemory() let copy = m copy.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } copy.WriteFile(path, text) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.ReadFile(path) == text }`,
-	"fstest AppendConcatenates":      `AppendConcatenates(path string, a string, b string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFile(path, a) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.AppendFile(path, b) try m.ReadFile(path) == a+b }`,
-	"fstest ModeIsKept":              `ModeIsKept(path string, text string, more string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFileMode(path, text, fs.Private()) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.WriteFile(path, more) try m.AppendFile(path, more) let info = try m.Stat(path) info.Perm == fs.Perm(fs.Private()) }`,
-	"fs Files.ReadIsRepeatable":      `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case NotFound as e: let _ = ReadFile(path) catch { case NotFound as again: return again == e case Denied, Failed: return false } return false case Denied as e: let _ = ReadFile(path) catch { case Denied as again: return again == e case NotFound, Failed: return false } return false case Failed as e: let _ = ReadFile(path) catch { case Failed as again: return again == e case NotFound, Denied: return false } return false } try ReadFile(path) == first }`,
-	"fs Writes.MkdirAllIsIdempotent": `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }`,
-	"fs Writes.RemoveThenNotFound":   `RemoveThenNotFound(path string) { Remove(path) catch { case NotFound, Denied, Failed: return true } Remove(path) catch { case NotFound: return true case Denied, Failed: return false } false }`,
-	"fs Writes.RenameMoves":          `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed: return false } false }`,
+	"fs Files.LstatDirIsStatDir":        `LstatDirIsStatDir(path string) { let l = Lstat(path) catch { case NotFound, Denied, Failed: return true } if !l.Dir { return true } let s = try Stat(path) s.Dir }`,
+	"fs Writes.MkdirThenExists":         `MkdirThenExists(path string) { Mkdir(path, PrivateDir()) catch { case NotFound, Denied, Failed, Exists: return true } Mkdir(path, PrivateDir()) catch { case Exists: return true case NotFound, Denied, Failed: return false } false }`,
+	"fstest CopiesShare":                `CopiesShare(path string, text string) { let m = NewMemory() let copy = m copy.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } copy.WriteFile(path, text) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.ReadFile(path) == text }`,
+	"fstest AppendConcatenates":         `AppendConcatenates(path string, a string, b string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFile(path, a) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.AppendFile(path, b) try m.ReadFile(path) == a+b }`,
+	"fstest ModeIsKept":                 `ModeIsKept(path string, text string, more string) { let m = NewMemory() m.MkdirAll(filepath.Dir(path)) catch { case fs.Denied, fs.Failed: return true } m.WriteFileMode(path, text, fs.Private()) catch { case fs.NotFound, fs.Denied, fs.Failed: return true } try m.WriteFile(path, more) try m.AppendFile(path, more) let info = try m.Stat(path) info.Perm == fs.Perm(fs.Private()) }`,
+	"fs Files.ReadIsRepeatable":         `ReadIsRepeatable(path string) { let first = ReadFile(path) catch { case NotFound as e: let _ = ReadFile(path) catch { case NotFound as again: return again == e case Denied, Failed: return false } return false case Denied as e: let _ = ReadFile(path) catch { case Denied as again: return again == e case NotFound, Failed: return false } return false case Failed as e: let _ = ReadFile(path) catch { case Failed as again: return again == e case NotFound, Denied: return false } return false } try ReadFile(path) == first }`,
+	"fs Writes.MkdirAllIsIdempotent":    `MkdirAllIsIdempotent(path string) { MkdirAll(path) catch { case Denied, Failed: return true } try MkdirAll(path) true }`,
+	"fs Writes.RemoveThenNotFound":      `RemoveThenNotFound(path string) { Remove(path) catch { case NotFound, Denied, Failed: return true } Remove(path) catch { case NotFound: return true case Denied, Failed: return false } false }`,
+	"fs Writes.CrossDeviceMovesNothing": `CrossDeviceMovesNothing(from string, to string, text string) { WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Rename(from, to) catch { case CrossDevice: Remove(from) catch { case NotFound, Denied, Failed: return false } return true case NotFound, Denied, Failed: return true } true }`,
+	"fstest VolumesAreCrossDevice":      `VolumesAreCrossDevice(text string) { volumesAreCrossDevice(text) }`,
+	"fs Writes.RenameMoves":             `RenameMoves(from string, to string, text string) { if from == to { return true } WriteFile(from, text) catch { case NotFound, Denied, Failed: return true } Remove(to) catch { case NotFound: case Denied, Failed: return true } Rename(from, to) catch { case NotFound, Denied, Failed, CrossDevice: return true } Rename(from, to) catch { case NotFound: return true case Denied, Failed, CrossDevice: return false } false }`,
 }
 
 // TestFSMemoryAgreesWithHost (U1 std-fs-memory; stdlib.md, fs 17 to 19)

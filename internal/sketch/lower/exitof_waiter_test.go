@@ -3,7 +3,6 @@ package lower
 import (
 	"bytes"
 	"context"
-	"os"
 	"os/exec"
 	"testing"
 
@@ -51,16 +50,11 @@ func main() {
 // request), which only a run of the lowered program shows; the
 // evaluator, which has no starter, passes law task.ExitOfAnywhere.
 //
-// It is red on main as of PROCESS-RUN r1 (measured: the program deadlocks,
-// Go's "all goroutines are asleep", with main in the waiter's Stop) and skipped
-// by name until wf10 NG STOP-NESTED-WAIT makes the waiter the caller and
-// gives TaskExit the caller-waiter marking; ERGO_STOP_NESTED_WAIT=1 runs it.
+// On the PROCESS-RUN integration base the program deadlocks with main in
+// the waiter's Stop.
 // The test's deadline (testwait) only stops the hung program and names it.
 func TestExitOfWaiterIsTheCaller(t *testing.T) {
 	needsBuild(t)
-	if os.Getenv("ERGO_STOP_NESTED_WAIT") == "" {
-		t.Skip("red until wf10 NG STOP-NESTED-WAIT: TaskExit waits as the Task's starter, so a stop of the task that calls ExitOf does not end its wait")
-	}
 	exes := buildAll(t, []*lowered{mustLower(t, "exitofwaiter", exitOfWaiterSource)}, true)
 	ctx, cancel := testwait.Context(t, context.Background()) // the test's own deadline
 	defer cancel()

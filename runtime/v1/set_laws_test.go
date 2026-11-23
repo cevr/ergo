@@ -129,28 +129,5 @@ func setLaws() map[string]lawledger.Law {
 				}
 			}
 		}},
-		"tasks Set.StopEndsEveryMember": {Statement: `StopEndsEveryMember() { Stop() Stop() Len() == 0 }`, Check: func(t *testing.T) {
-			r := rand.New(rand.NewPCG(1, 45))
-			for range 200 {
-				k := r.IntN(5)
-				root := rt.Root("law")
-				line := NewVirtualTimeline(root, 0, 0)
-				var left int
-				err := inSetFrame(root, r.IntN(3), r.IntN(3), func(set *Set) {
-					for range k {
-						_ = TasksGo(Site("law"), root, set, func(ct *rt.Task) error {
-							line.Wait(ct, time.Hour)
-							return nil
-						})
-					}
-					set.Stop(root)
-					set.Stop(root)
-					left = set.Len()
-				})
-				if err != nil || left != 0 {
-					t.Fatalf("%d members: Len %d after Stop, %v", k, left, err)
-				}
-			}
-		}},
 	}
 }

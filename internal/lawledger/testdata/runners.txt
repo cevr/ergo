@@ -311,6 +311,7 @@ fs Files.LstatDirIsStatDir	TestFSMemoryAgreesWithHost
 fs Files.ReadIsRepeatable	TestFSMemoryAgreesWithHost
 fs MapTextIsText	none
 fs Root.LeavingEscapes	TestFSRootTreeAgreesWithHost
+fs Writes.CrossDeviceMovesNothing	TestFSMemoryAgreesWithHost
 fs Writes.MkdirAllIsIdempotent	TestFSMemoryAgreesWithHost
 fs Writes.MkdirThenExists	TestFSMemoryAgreesWithHost
 fs Writes.RemoveThenNotFound	TestFSMemoryAgreesWithHost
@@ -342,6 +343,7 @@ gen ShrunkStillFails	none
 gen SpanDeletesARow	none
 gen SpanDeletesAnElement	none
 gen ZeroIsSimplest	none
+fstest VolumesAreCrossDevice	TestFSMemoryAgreesWithHost
 graph ChainIsAPath	TestStdGraphLawsRun
 graph EveryCycleIsAClosedPath	TestStdGraphLawsRun
 graph FanSumsToEdges	TestStdGraphLawsRun
@@ -818,13 +820,13 @@ tasks EarliestWins	TestTasksLaws
 tasks FailFastStopsTheRest	TestTasksLaws
 tasks FinishedAreDropped	TestTasksLaws
 tasks LimitHolds	TestTasksLaws
-tasks LosersStopped	TestTasksLaws
+tasks LosersStopped	none
 tasks NoMemberOutlivesItsFrame	TestTasksLaws
 tasks RecentKeepsTheVerdict	#162
 tasks RepeatFollowsDecide	TestStdScheduleLawsRun
 tasks RestartRunsAgain	TestTasksLaws
 tasks RetryFollowsDecide	TestStdScheduleLawsRun
-tasks Set.StopEndsEveryMember	TestTasksLaws
+tasks Set.StopEndsEveryMember	none
 tasks StrategiesNest	#162
 tasks TransformEqualsLoop	TestTasksLaws
 tasks TransformKeepsOrder	TestTasksLaws

@@ -78,7 +78,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 								}
 							}
 						case waitFirst:
-							if _, err := task.Wait(); err == nil {
+							if _, err := task.Wait(s.t); err == nil {
 								Hand(h, task)
 								delivered++
 							} else if _, ok := rt.Failure(err); !ok {
@@ -86,7 +86,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 							}
 						case waitStopped:
 							close(waiting)
-							_, _ = task.Wait() // raises the interruption
+							_, _ = task.Wait(s.t) // raises the interruption
 						}
 						return nil
 					})
@@ -102,7 +102,7 @@ func TestStopWinsReleaseModel(t *testing.T) {
 						return struct{}{}, owner(pt)
 					})
 					awaitClosed(root, waiting)
-					parent.Stop()
+					parent.Stop(root)
 					return nil
 				})
 				want := 0

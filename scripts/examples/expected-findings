@@ -5,6 +5,3 @@
 #
 # STD-TESTAMBIENT: std's test constructors for http.NewNet and fs.OpenRoot
 # under TestAmbient, so download's test context builds a Remote.
-# PIPELINE-CLOSE: pipeline's Model implements Closer (q266, Close = Stop),
-# a resource (resources.md R1/R22/R24), so a test context builds and closes
-# one per case.

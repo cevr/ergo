@@ -77,7 +77,7 @@ func TestManualAdvanceOneAtATime(t *testing.T) {
 		return struct{}{}, nil
 	})
 	mine := advance(root)
-	if _, err := h.Wait(); err != nil {
+	if _, err := h.Wait(root); err != nil {
 		t.Fatal(err)
 	}
 	sc.End(nil)
@@ -277,7 +277,7 @@ func settleRun(seed uint64, where *atomic.Value) string {
 				line.Advance(ct, time.Duration(d))
 				return struct{}{}, nil
 			})
-			if _, err := h.Wait(); err != nil {
+			if _, err := h.Wait(root); err != nil {
 				panic(err)
 			}
 		}

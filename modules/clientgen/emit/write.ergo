@@ -214,7 +214,7 @@ func lawOf(op Op) []string {
 
 func api(plan Plan, p Provider) []string {
 	let rt = p.RuntimeName
-	let mut b = comment("Api is \(p.Service) over net: each request is built with no credential and given to signer just before it is sent, so only the signer reads one.", "")
+	let mut b = comment("Api is \(p.Service) over net: each request is built with no credential. A static key is the net's (an http.Credential), and a signature computed from the request is the signer's, added just before the request is sent.", "")
 	b = b.Append("type Api { net http.Net, signer \(rt).Signer } implements \(p.Service)").Append("")
 	b = b.Append("// New is the client that sends over net and signs with signer.")
 	b = b.Append("func New(net http.Net, signer \(rt).Signer) Api { Api{net: net, signer: signer} }").Append("")

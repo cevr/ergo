@@ -12,9 +12,9 @@ import (
 // The expected findings (findingsFile) are the checker's errors an example
 // is red by record for until the unit it names lands: an unfed law whose
 // provider needs a context no unit has built yet (types.md, Laws 10). The
-// checker reports them as it reports any program's, an error; the runner
-// does not skip the law. It reads each line as one finding of one package
-// of one example, and:
+// checker reports them as errors; the runner does not treat the affected
+// package as tested. It reads each line as one finding of one package of
+// one example, and:
 //   - a diagnostic that matches a line is not a layout error; the runner
 //     prints it as red by record, naming the owed unit;
 //   - a line that no diagnostic matches is a layout error: the finding is
@@ -88,29 +88,36 @@ func readFindings(root string) (*findings, []string) {
 // the problem moduleLawProblems makes of a diagnostic (laws.go).
 const lawCheck = ": the law check reads the checked package, and the checker reports "
 
-// apply splits the layout errors of one program into those no finding
-// matches and a red-by-record note for each one a finding matches, which
-// it marks fired.
-func (fs *findings) apply(problems []string) (rest, notes []string) {
-	rest, notes, _ = fs.applyOwed(problems)
-	return rest, notes
-}
-
-// applyOwed is apply with the owed units of the findings matched, each
-// once, in the order first matched.
-func (fs *findings) applyOwed(problems []string) (rest, notes, owed []string) {
+// apply splits a program's layout errors into unmatched problems and
+// red-by-record notes. It returns the matched findings and marks them fired.
+func (fs *findings) apply(problems []string) (rest, notes []string, matched []*finding) {
 	for _, problem := range problems {
 		if f := fs.match(problem); f != nil {
 			f.fired = true
 			notes = append(notes, fmt.Sprintf("red by record (owed %s): %s", f.unit, problem))
-			if !slices.Contains(owed, f.unit) {
-				owed = append(owed, f.unit)
+			if !slices.Contains(matched, f) {
+				matched = append(matched, f)
 			}
 			continue
 		}
 		rest = append(rest, problem)
 	}
-	return rest, notes, owed
+	return rest, notes, matched
+}
+
+// runRedByRecord leaves the executable cases dark while their program
+// has a recorded checker error. Unblocked packages still run their laws.
+func (r *runner) runRedByRecord(p *program) {
+	var owed []string
+	for _, f := range p.findings {
+		if !slices.Contains(owed, f.unit) {
+			owed = append(owed, f.unit)
+		}
+	}
+	fmt.Fprintf(r.out, "red by record: %s: cases not run (%d cases) until %s land\n", p.name, len(p.cases), strings.Join(owed, ", "))
+	if !r.cfg.record {
+		r.testProgram(p)
+	}
 }
 
 // stale is a layout error for each finding no problem matched: the

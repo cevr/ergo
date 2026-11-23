@@ -28,18 +28,20 @@ func lines() []string {
 // each error's message plus one.
 func Bench(n int) int {
 	let cycle = lines()
-	let s = mcp.Server{Name: "counter", Version: "1", Tools: countermcp.Tools(counter.Tally)}
-	let mut sum = 0
-	for i in 0..n {
-		match mcp.Handle(s, cycle[i%len(cycle)]) {
-		case mcp.Answered as a:
-			sum = sum + len(a.Result)
-		case mcp.Refused as r:
-			sum = sum + len(r.Message) + 1
-		case mcp.Silent:
+	with context { counter.Counter: counter.Tally } {
+		let s = mcp.Server{Name: "counter", Version: "1", Tools: countermcp.Tools()}
+		let mut sum = 0
+		for i in 0..n {
+			match mcp.Handle(s, cycle[i%len(cycle)]) {
+			case mcp.Answered as a:
+				sum = sum + len(a.Result)
+			case mcp.Refused as r:
+				sum = sum + len(r.Message) + 1
+			case mcp.Silent:
+			}
 		}
+		sum
 	}
-	sum
 }
 
 func main() fails os.Exit needs Console | Ambient {
