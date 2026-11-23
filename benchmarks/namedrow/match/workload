@@ -1,0 +1,8 @@
+# scripts/opcount: NR1's receipt (NAMED-ROWS): `namedrowbench bench match N`
+# catches each failure whole as the named row (case Lost as l) and matches
+# it in a function typed by the name, the form only a name allows; the
+# control is the hand Go type switch.
+unit call
+sizes 409600 2457600
+args bench match {n}
+control benchmarks/namedrow/testdata/control
