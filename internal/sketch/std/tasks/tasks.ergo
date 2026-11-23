@@ -483,8 +483,9 @@ extern go ergo.local/prototype/runtime/v1.Set type Set[E] {
 	// returns and changes nothing.
 	law StopEndsEveryMember() {
 		Stop()
+		let left = Len()
 		Stop()
-		Len() == 0
+		left == 0 && Len() == left
 	},
 }
 
@@ -510,6 +511,30 @@ extern go ergo.local/prototype/runtime/v1.TasksGo func Go[E, R](set Set[E], body
 
 // setFailed is the failure of a member in the Set laws.
 type setFailed {}
+
+let liveSetForLaws = context { Set[setFailed]: setWithMembers() }
+
+// Both members stay live until the case stops them. Waiting on the
+// unopened latch, rather than on time, also makes an empty setup fail.
+func setWithMembers() Set[setFailed] {
+	let s = NewSet[setFailed](FailFast)
+	let blocked = sync.NewLatch()
+	for _ in 0..2 {
+		let ready = sync.NewLatch()
+		Go(s, func() {
+			ready.Open()
+			blocked.Await()
+		}) catch {
+		case Closed:
+			Unreachable("a fresh Set refused a member")
+		}
+		ready.Await()
+	}
+	if s.Len() != 2 {
+		Unreachable("the law needs two live members")
+	}
+	s
+}
 
 // sleepers starts k members of a Set it owns, each counting itself in,
 // counting itself out in an exit action and sleeping an hour, and

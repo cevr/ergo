@@ -27,7 +27,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 	fmtPkg := l.helper("fmt")
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, lc := range lr.Contexts {
-		label := "law " + l.lawTitle(law) + " under " + lc.Context.Name
+		label := "law " + l.lawTitle(law) + " under " + lc.Title()
 		if lc.Unrun != "" {
 			b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+lc.Unrun) + ")\n")
 			b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(lc.Unrun) + ")\n")

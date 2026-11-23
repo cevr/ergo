@@ -948,7 +948,7 @@ var actorLawStatements = map[string]string{
 	"testing Stage.SettleIsIdempotent": `SettleIsIdempotent() { Settle() let v = Show() Settle() Show() == v }`,
 	"testing Stage.ShowIsStable":       `ShowIsStable() { Settle() Show() == Show() }`,
 	"actor ActorStageAgreesWithFold":   `ActorStageAgreesWithFold(acts []int) { let clock = time.NewManual(0) with context { Scheduler: clock } { stagedAgrees(acts, clock) } }`,
-	"actor Actor.LatestChangesStops":   `LatestChangesStops(k int) { if k < 1 { return true } Stop() catch { case _: } let mut calls = 0 let s = LatestChanges() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
+	"actor Actor.LatestChangesStops":   `LatestChangesStops(k int) { Stop() catch { case _: } if k < 1 { return true } let mut calls = 0 let s = LatestChanges() s(func(v S) bool { calls = calls + 1 calls < k }) calls == 1 }`,
 }
 
 // TestStdActorLawsRun runs the probe's tests with --seed 1; lawledger.Run

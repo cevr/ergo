@@ -3,6 +3,7 @@ package check
 import (
 	"slices"
 	"sort"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -32,6 +33,24 @@ type LawContext struct {
 	// Witnesses are the generic owner's witnesses at the instance the
 	// context binds (lawWitnesses; LawProvider.Witnesses).
 	Witnesses []Witness
+}
+
+// Title names the context in transcripts and run keys. Qualify it with
+// the instance only when the context binds more than one for this law.
+func (lc LawContext) Title() string {
+	if cap, ok := lc.With.Discharged[0].(*Named); ok && cap.Orig != nil {
+		if others := lawContextCaps(cap.Orig, lc.Context); len(others) > 1 {
+			return lc.Context.Name + " (" + strings.TrimPrefix(typeString(cap), packagePath(cap.Obj.Pkg)) + ")"
+		}
+	}
+	return lc.Context.Name
+}
+
+func packagePath(p *Package) string {
+	if p != nil {
+		return p.Path + "."
+	}
+	return ""
 }
 
 // planLawContexts adds to each law run the named contexts of this package
@@ -67,8 +86,11 @@ func (c *checker) planLawContexts() {
 			}
 			var under []LawContext
 			for _, name := range names {
-				if lc, ok := c.lawContext(law, c.pkg.Contexts[name]); ok {
-					under = append(under, lc)
+				w := c.pkg.Contexts[name]
+				for _, cap := range lawContextCaps(law.Slots[0].Type, w) {
+					if lc, ok := c.lawContext(law, w, cap); ok {
+						under = append(under, lc)
+					}
 				}
 			}
 			if len(under) == 0 {
@@ -120,31 +142,31 @@ func (c *checker) builtByContext(p LawProvider, under []LawContext) bool {
 	return false
 }
 
-// lawContext is the run of law under the named context w, when w binds its
-// owner (an instance of it, for a generic owner).
-func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
+// lawContextCaps returns each instance a context binds in key order. A
+// non-generic owner has one candidate, found by the ordinary lookup.
+func lawContextCaps(own *Named, w *Context) []*Named {
+	if len(own.TParams) == 0 {
+		return []*Named{own}
+	}
+	var caps []*Named
+	w.binds.each(&contextMeter{limit: 1 << 30}, func(n *capNode) bool {
+		if t, ok := n.t.(*Named); ok && t.Orig == own {
+			caps = append(caps, t)
+		}
+		return true
+	})
+	return caps
+}
+
+// lawContext is the run of law under the named context w at the binding cap.
+func (c *checker) lawContext(law *Law, w *Context, cap *Named) (LawContext, bool) {
 	own := law.Slots[0].Type
-	var cap Type = own
 	var params []Type
-	if len(own.TParams) > 0 {
-		// A generic owner: the instance w binds, the first in key order.
-		var inst *Named
-		w.binds.each(&contextMeter{limit: 1 << 30}, func(n *capNode) bool {
-			if t, ok := n.t.(*Named); ok && t.Orig == own && inst == nil {
-				inst = t
-			}
-			return inst == nil
-		})
-		if inst == nil {
-			return LawContext{}, false
-		}
-		cap = inst
-		m := map[*TypeParam]Type{}
-		for i, tp := range own.TParams {
-			m[tp] = inst.TArgs[i]
-		}
-		for _, p := range law.Params {
-			params = append(params, c.subst(p.Type, m))
+	if cap.Orig != nil {
+		m := paramMap(own.TParams, cap.TArgs)
+		params = make([]Type, len(law.Params))
+		for i, p := range law.Params {
+			params[i] = c.subst(p.Type, m)
 		}
 	}
 	found, node := w.binds.find(c.types, cap)
@@ -185,7 +207,7 @@ func (c *checker) lawContext(law *Law, w *Context) (LawContext, bool) {
 			}
 		}
 		if lc.Unrun == "" {
-			lc.Witnesses, lc.Unrun = c.lawWitnesses(own, cap.(*Named).TArgs)
+			lc.Witnesses, lc.Unrun = c.lawWitnesses(own, cap.TArgs)
 		}
 	}
 	if lc.Unrun == "" && law.Decl.Rewrite != nil && !freshEntry(w, node.entry) {

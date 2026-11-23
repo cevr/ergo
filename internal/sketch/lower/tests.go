@@ -539,15 +539,11 @@ func (l *lowerer) lawDecl(law *check.Law, sp *specCopy) {
 			names, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
 			name = sp.name
 		} else {
-			tparams, names = l.typeParams(own.TParams, scope, d)
+			tparams, names = l.typeParams(lawGoParams(own), scope, d)
 		}
 		fc.params = names
-		args := make([]string, len(own.TParams))
-		for i, tp := range own.TParams {
-			args[i] = names[tp]
-		}
 		l.tests.lawOwn = scope.alloc("own")
-		parts = append(parts, l.tests.lawOwn+" "+fc.goType(own)+"["+strings.Join(args, ", ")+"]")
+		parts = append(parts, l.tests.lawOwn+" "+fc.lawReceiverType(own))
 		defer func() { l.tests.lawOwn = "" }()
 		// A parameter that operations constrain, Ranked's T in
 		// type Ranked[T Ranked[T]], takes its witness after the provider,
@@ -605,6 +601,20 @@ func (l *lowerer) lawDecl(law *check.Law, sp *specCopy) {
 	l.user.WriteString(head + " {\n")
 	l.user.WriteString(fc.out.String())
 	l.user.WriteString("}\n\n")
+}
+
+// lawReceiverType spells the owner at the law body's bindings. The
+// checked owner itself is the origin and has no type arguments.
+func (fc *funcCtx) lawReceiverType(own *check.Named) string {
+	recv := fc.goType(own)
+	var args []string
+	for _, tp := range lawGoParams(own) {
+		args = append(args, fc.params[tp])
+	}
+	if len(args) != 0 {
+		recv += "[" + strings.Join(args, ", ") + "]"
+	}
+	return recv
 }
 
 // testOf is the checked test of the declaration d.
