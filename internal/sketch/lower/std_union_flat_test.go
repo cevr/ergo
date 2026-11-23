@@ -33,17 +33,17 @@ func TestStdUnionsAreFlat(t *testing.T) {
 	ref := mustLower(t, "stdflatref", stdUnionSource)
 	msb3Lowering = saved
 	for _, name := range []string{"Month", "Weekday"} {
-		if !strings.Contains(flat.mainGo(), "type "+name+" struct {") {
+		if !strings.Contains(flat.mainGo(), "type "+goOf("time", name)+" struct {") {
 			t.Errorf("std time's %s is not a flat struct", name)
 		}
-		if !strings.Contains(ref.mainGo(), "type "+name+" struct {") {
+		if !strings.Contains(ref.mainGo(), "type "+goOf("time", name)+" struct {") {
 			t.Errorf("under msb3Lowering off, std time's %s is not a flat struct: the reference reads std unlike a user package", name)
 		}
 	}
 	// A field-less variant's literal is the tag literal, a constant, so
 	// std time's months() stays within Go's inlining budget and its slice
 	// does not escape (cron's test allocated 9M times with of calls).
-	if !strings.Contains(flat.mainGo(), "(Month{tag: 0})") {
+	if !strings.Contains(flat.mainGo(), "("+goOf("time", "Month")+"{tag: 0})") {
 		t.Errorf("std time's January is not the tag literal (Month{tag: 0})")
 	}
 	typecheckGo(t, []*lowered{flat, ref})

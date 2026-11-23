@@ -1,0 +1,21 @@
+// The run is a record {Name string, Seed uint64, Site string} (check
+// harness.go, rule 1).
+type Coin {
+	Flip() bool,
+	test Toss, // want S108 "its first parameter is not a record {Name string, Seed uint64, Site string} of this package"
+}
+
+type Run { Name string, Seed int, Site string }
+
+type Failed { Message string }
+
+type always {} implements Coin
+
+func Flip(a always) bool { true }
+
+func Toss(run Run, body func() fails Failed needs Coin) fails Failed {
+	with context { Coin: always } { body() } catch {
+	case Failed as f:
+		return Failed{Message: run.Name + ": " + f.Message}
+	}
+}
