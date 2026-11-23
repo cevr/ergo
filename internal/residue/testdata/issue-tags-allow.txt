@@ -15,7 +15,6 @@ compiler/check/types/kinds.ergo	1	ISSUE-TAGS (comments and test texts)
 compiler/format/nodes.ergo	1	ISSUE-TAGS (comments and test texts)
 compiler/syntax/lexerror.ergo	1	ISSUE-TAGS (comments and test texts)
 docs/decisions.md	9	PRINCIPLES
-docs/previews/2026-10-28-without-go-syntax.md	150	PREVIEW-TEST
 docs/spec/README.md	9	SPEC-GRAMMAR-DIAG
 docs/spec/diagnostics.md	17	SPEC-GRAMMAR-DIAG
 docs/spec/grammar.md	24	SPEC-GRAMMAR-DIAG
@@ -183,7 +182,7 @@ internal/sketch/std/gostd/src/time/time.ergo	4	ISSUE-TAGS (comments and test tex
 internal/sketch/std/prelude.ergo	1	ISSUE-TAGS (comments and test texts)
 internal/sketch/std/task/task.ergo	1	ISSUE-TAGS (comments and test texts)
 internal/sketch/syntax/ast.go	3	ISSUE-TAGS (comments and test texts)
-internal/sketch/syntax/decided_test.go	5	ISSUE-TAGS (comments and test texts)
+internal/sketch/syntax/decided_test.go	2	ISSUE-TAGS (comments and test texts)
 internal/sketch/syntax/oldspellings_test.go	1	ISSUE-TAGS (comments and test texts)
 internal/sketch/syntax/pair.go	2	ISSUE-TAGS (comments and test texts)
 internal/sketch/syntax/parser_test.go	2	ISSUE-TAGS (comments and test texts)

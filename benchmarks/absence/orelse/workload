@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench orelse N` makes N reads, a Map read through an Option OrElse whose closure gives the key's low bit (the body a prelude OrElse would have)
+# (ABSENCE r3); half the keys miss. The control is hand Go comma-ok:
+# the floor.
+unit read
+sizes 409600 2457600
+args bench orelse {n}
+control benchmarks/absence/testdata/control

@@ -6,6 +6,7 @@ import fs
 import fstest
 import github.com/cevr/ergo/modules/work/classes
 import github.com/cevr/ergo/modules/work/work
+import json
 import maps
 import slices
 import strings
@@ -54,6 +55,10 @@ let theBase = "/w/base"
 // World is a Tool over memory providers and the handles the driver uses.
 type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk Marked, hooks Hooks, lock Lock, runner Runner, p work.Providers }
 
+// records is the plain list of t's workspaces, as the registry keeps
+// them.
+func records(t work.Tool) []work.Workspace fails work.NoBase | work.Unkept { work.Records(try t.List(work.ListOptions{Status: false})) }
+
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
 func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "") }
@@ -77,11 +82,11 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -89,7 +94,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let purged = w.tool.List() catch {
+	let purged = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -112,7 +117,7 @@ law RemovingSparesTheReplacement() {
 	case _:
 		return false
 	}
-	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -144,7 +149,7 @@ law ReservingWithATokenTwiceIsOnce(token string, again int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -171,15 +176,15 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(a.Id), Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -219,7 +224,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 		return false
 	}
 	if replaced {
-		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+		let _ = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -233,7 +238,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 	}
 	let _ = w.tool.Claim(begun, o.On) catch {
 	case work.NoWorkspace as n:
-		let all = w.tool.List() catch {
+		let all = records(w.tool) catch {
 		case _:
 			return false
 		}
@@ -593,7 +598,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 			case None:
 				false
 			}
-			let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false}) catch {
+			let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: some(if creating { crashId(name) } else { "none" }), Archive: false, Dry: false}) catch {
 			case _:
 				return false
 			}
@@ -636,9 +641,9 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 		case GcOp as o:
 			let older = small(o.Older, 7200)
 			let idle = if o.Idle > 0 { Some[string]{Value: "\(small(o.Idle, 7200))s"} } else { None }
-			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None, Archive: false}) catch {
+			let out = w.tool.Gc(work.GcOptions{Older: Some[string]{Value: "\(older)s"}, Idle: idle, Id: None, Archive: false, Dry: false}) catch {
 			case _:
-				work.Collected{Purged: []string{}, Idle: []work.Idle{}}
+				work.Collected{Purged: []string{}, Idle: []work.Idle{}, Preview: json.Absent}
 			}
 			if o.Idle > 0 {
 				let found = idled(want, int64(small(o.Idle, 7200)), at)
@@ -698,7 +703,7 @@ law UseKeepsAWorkspace(sync bool) {
 			return false
 		}
 	}
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -729,7 +734,7 @@ law ArchiveKeepsTheWork(text string, archive bool, side bool, stash bool) {
 	let _ = Write(w.trees, b.Path, "draft.txt", text)
 	let files = Working(Files(w.trees, b.Path))
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -774,7 +779,7 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 		return false
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: archive, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -789,7 +794,7 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 		return !gone && out.Idle[0].Why == "NotHeld"
 	}
 	w.clock.Advance(time.Times(1s, 2*int(work.IdleTrash)))
-	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let purged = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -803,33 +808,44 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 // RmKeepsEveryBranch: rm of a clean workspace whose head its parent
 // holds refuses (NotHeld) while a branch only it has (kind 0) or a stash
 // entry (kind 1) would go with it; a branch a remote-tracking ref holds
-// is on the remote already (kind 2), and the workspace goes.
+// is on the remote already (kind 2), and the workspace goes. The refusal
+// names the ref and commit only the workspace has; with that branch
+// checked out in place of the record's (kind 3, as a lane that switched
+// branches), it names both branches too.
 law RmKeepsEveryBranch(kind int, text string) {
 	let w = world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
 	}
-	let k = small(kind, 3)
+	let k = small(kind, 4)
+	let mut side = ""
 	if k == 1 {
 		if !(Write(w.trees, a.Path, "stashed.txt", text) && Stash(w.vcs, a.Path)) {
 			return false
 		}
 	} else {
-		let c = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
-		if c == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", c)) {
+		side = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
+		if side == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", side)) || (k == 3 && !Write(w.trees, a.Path, ".git/branch", "side")) {
 			return false
 		}
 	}
 	let mut refused = false
+	let mut named = k == 2
 	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
-	case work.NotHeld:
+	case work.NotHeld as e:
 		refused = true
+		let one = len(e.Unheld) == 1 && strings.Contains(e.Why, e.Unheld[0].Ref+" at "+e.Unheld[0].Commit)
+		named = one && if k == 1 {
+			strings.HasPrefix(e.Unheld[0].Ref, "refs/stash/")
+		} else {
+			e.Unheld[0] == work.Local{Ref: "refs/heads/side", Commit: side} && (k != 3 || (e.Checkout == "side" && e.Branch == "a" && strings.Contains(e.Why, "it has side checked out, not its branch a")))
+		}
 		[]work.Removed{}
 	case _:
 		return false
 	}
-	refused == (k != 2)
+	refused == (k != 2) && named
 }
 
 // PinKeepsAWorkspace: gc -idle never takes a pinned workspace (it reports
@@ -853,7 +869,7 @@ law PinKeepsAWorkspace(unpin bool) {
 		}
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -873,7 +889,7 @@ law InUseKeepsAWorkspace(why string) {
 	}
 	w.runner.Use(a.Path, why)
 	w.clock.Advance(time.Times(1s, 7200))
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -891,13 +907,13 @@ law IdleTrashWaitsADay(wait int) {
 		return false
 	}
 	w.clock.Advance(time.Times(1s, 7200))
-	let first = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+	let first = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
 	let s = small(wait, 2*work.IdleTrash)
 	w.clock.Advance(time.Times(1s, s))
-	let later = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let later = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
@@ -939,7 +955,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 	let mut trash = "unread"
 	if viaGc {
 		w.clock.Advance(time.Times(1s, 7200))
-		let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false}) catch {
+		let out = w.tool.Gc(work.GcOptions{Older: None, Idle: Some[string]{Value: "1h"}, Id: None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -962,7 +978,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 		}
 	}
 	let at = w.clock.Now().UnixSeconds()
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1053,7 +1069,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1089,11 +1105,11 @@ law MadeCloneOutlivesItsMaker(text string) {
 	}
 	Die(maker)
 	let _ = Write(w.trees, made.Path, "draft.txt", text)
-	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1135,11 +1151,11 @@ law ActivatedCloneIsRecordedAsMade(lock string) {
 	case _:
 		return false
 	}
-	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+	let _ = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees}).Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1186,7 +1202,7 @@ func handedHeld(w World, e Expected, h work.Handed) bool {
 // synced reports whether a sync of name that merged theirs left it
 // recorded as the workspace's base, and its head contains it.
 func synced(w World, name string, theirs string) bool {
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1206,7 +1222,7 @@ func synced(w World, name string, theirs string) bool {
 // the records in order, and the trashed ones whose name a new took again
 // (work.TrashedName; the reference's name~) by their folders.
 func agrees(w World, want []Expected, gone []string) bool {
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1432,16 +1448,16 @@ law RmThenNewTakesTheName(name int) {
 	case _:
 		return false
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
 	let trash = slices.IndexFunc(listed, func(r work.Workspace) bool { r.Name == work.TrashedName(n, first.Id) && r.Id == first.Id && work.StateName(r.State) == "trashed" }) >= 0
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1493,7 +1509,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 		}
 		ids = ids.Append(made.Id)
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1504,11 +1520,11 @@ law RemovedAgainInOneSecond(name int, times int) {
 		}
 		trashes = trashes.Append(r.Path)
 	}
-	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+	let out = w.tool.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1778,6 +1794,227 @@ law RegisterDriversLeavesRerere(set int) {
 		return false
 	}
 	drivers && after == before
+}
+
+// DoctorNamesAStrayStaging: a staging folder no record holds (a work of
+// another version left it, as a folder or as its tomb) is named by
+// doctor, with or without -repair, and stays where it is; the staging
+// folder of a live maker's reservation, beside it, is not named and is
+// left whole (no delete without ownership), and nor is the tomb of a
+// rolled-back reservation whose record is still kept.
+law DoctorNamesAStrayStaging(repair bool, tomb bool) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let t = toolOf(w, Sharing(w.lock, 2), []work.Cloner{w.trees})
+	let m = match (t.Reserve("a", fresh(false)) catch {
+	case _:
+		return false
+	}) {
+	case work.Making as m:
+		m
+	case work.Created:
+		return false
+	}
+	let _ = t.Stage(m) catch {
+	case _:
+		return false
+	}
+	let live = work.StagingOf(home, m.Id)
+	let files = Files(w.trees, live)
+	let stray = if tomb { work.TombOf(home, "stray") } else { work.StagingOf(home, "stray") }
+	w.trees.Clone(theBase, stray) catch {
+	case _:
+		return false
+	}
+	// A reservation settle rolled back keeps its record until its tomb is
+	// deleted: the tomb is its record's, not a stray.
+	let held = "crash-held"
+	w.registry.Put(work.Workspace{Name: "held", Path: home + "/" + work.FolderOf("held"), Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: 1000, Base: "", Latest: "", Deps: "", Id: held, Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+	case _:
+		return false
+	}
+	w.trees.Clone(theBase, work.TombOf(home, held)) catch {
+	case _:
+		return false
+	}
+	let other = toolOf(w, Sharing(w.lock, 3), []work.Cloner{w.trees})
+	let report = other.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
+	case _:
+		return false
+	}
+	let named = func(path string) bool { slices.Contains(report.Notes, work.StrayNote(path)) }
+	named(stray) && !named(live) && !named(work.TombOf(home, held)) && w.trees.Has(stray) && Files(w.trees, live) == files
+}
+
+// DoctorPassesAGoneFolder: an adopted workspace whose folder was deleted
+// outside work (the Bite base, 2026-11-22) does not stop doctor: doctor,
+// with or without -repair, answers, names the record with the two
+// commands that drop it, leaves that record as it was, and -repair still
+// activates a reservation over a whole clone whose maker is gone.
+law DoctorPassesAGoneFolder(repair bool) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let path = home + "/" + work.FolderOf("cre")
+	w.registry.Put(work.Workspace{Name: "cre", Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: 1000, Base: "", Latest: "", Deps: "", Id: crashId("cre"), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+	case _:
+		return false
+	}
+	if !cloneWithWork(w, path) {
+		return false
+	}
+	let gone = "/w/gone"
+	w.trees.Clone(theBase, gone) catch {
+	case _:
+		return false
+	}
+	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	w.trees.Discard(gone) catch {
+	case _:
+		return false
+	}
+	let before = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
+	case _:
+		return false
+	}
+	let after = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let named = slices.Contains(report.Notes, work.GoneNote(adopted))
+	let mine = func(all []work.Workspace) []work.Workspace { slices.Filter(all, func(x work.Workspace) bool { x.Name == adopted.Name }) }
+	let activated = slices.Contains(report.Notes, "activated cre: its clone is whole and its maker is gone")
+	let cre = slices.Filter(after, func(x work.Workspace) bool { x.Name == "cre" })
+	named && mine(after) == mine(before) && activated == repair && len(cre) == 1 && (cre[0].State == work.Active) == repair
+}
+
+// DoctorHereRepairsOnlyItsOwn: of two reservations over whole clones
+// whose makers are gone, doctor -here -repair run inside one activates
+// that one alone; run in the base it activates neither.
+law DoctorHereRepairsOnlyItsOwn(at int) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let names = []string{"cre0", "cre1"}
+	for n in names {
+		let path = home + "/" + work.FolderOf(n)
+		w.registry.Put(work.Workspace{Name: n, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: 1000, Base: "", Latest: "", Deps: "", Id: crashId(n), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+		case _:
+			return false
+		}
+		if !cloneWithWork(w, path) {
+			return false
+		}
+	}
+	let k = small(at, 3)
+	let here = if k < 2 { home + "/" + work.FolderOf(names[k]) + "/sub" } else { theBase }
+	let t = work.NewTool(theBase, home, "/data", w.p, here)
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: true, Repair: true}) catch {
+	case _:
+		return false
+	}
+	let all = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let mut ok = true
+	for i, n in names {
+		let active = slices.IndexFunc(all, func(x work.Workspace) bool { x.Name == n && x.State == work.Active }) >= 0
+		let noted = slices.Contains(report.Notes, "activated \(n): its clone is whole and its maker is gone")
+		ok = ok && active == (i == k) && noted == (i == k)
+	}
+	ok
+}
+
+// RmDropsAGoneFolder: rm -abandon -expect of a workspace whose folder
+// was deleted outside work trashes its record without running preremove
+// there (there is no folder to run it in), runs postremove in the parent,
+// and leaves the other records as they were; with the folder there, the
+// same failing preremove still stops rm before anything is written.
+law RmDropsAGoneFolder(present bool) {
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npreremove = [\"test -d .\"]\npostremove = [\"true\"]\n", "test -d .")
+	let keep = w.tool.New("keep", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let gone = "/w/gone"
+	w.trees.Clone(theBase, gone) catch {
+	case _:
+		return false
+	}
+	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	if !present {
+		w.trees.Discard(gone) catch {
+		case _:
+			return false
+		}
+	}
+	let before = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let removed = w.tool.Rm(adopted.Name, expecting(Some[string]{Value: adopted.Id})) catch {
+	case work.HookFailed:
+		[]work.Removed{}
+	case _:
+		return false
+	}
+	let after = records(w.tool) catch {
+	case _:
+		return false
+	}
+	let runs = Runs(w.hooks)
+	let pre = slices.IndexFunc(runs, func(r HookRun) bool { r.Hook == "preremove" && r.Dir == gone }) >= 0
+	let post = slices.IndexFunc(runs, func(r HookRun) bool { r.Hook == "postremove" }) >= 0
+	let others = func(all []work.Workspace) []work.Workspace { slices.Filter(all, func(x work.Workspace) bool { x.Name != adopted.Name }) }
+	let still = slices.IndexFunc(after, func(x work.Workspace) bool { x.Name == adopted.Name && x.State != work.Trashed }) >= 0
+	if present {
+		return len(removed) == 0 && pre && !post && after == before
+	}
+	len(removed) == 1 && removed[0].Id == adopted.Id && !pre && post && !still && others(after) == others(before) && keep.Name == "keep"
+}
+
+// DoctorHereNamesAnOldRerere: doctor -here, with or without -fix, names
+// a checkout whose own config sets rerere.enabled=true (an older work
+// wrote it) with the command that unsets it, names no other value, and
+// leaves the key as it was: work no longer owns it.
+law DoctorHereNamesAnOldRerere(set int, fix bool) {
+	let w = world(true)
+	let copy = "/w/copy"
+	w.trees.Clone(theBase, copy) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let before = []string{"", "false", "true"}[small(set, 3)]
+	if before != "" {
+		Configure(w.vcs, copy, "rerere.enabled", before) catch {
+		case _:
+			return false
+		}
+	}
+	let t = work.NewTool(theBase, work.Home(theBase, ""), "/data", w.p, copy)
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix, Here: true, Repair: false}) catch {
+	case _:
+		return false
+	}
+	let after = Setting(w.vcs, copy, "rerere.enabled") catch {
+	case _:
+		return false
+	}
+	let note = copy + ": its own Git config sets rerere.enabled=true (an older work wrote it with the merge drivers; work no longer sets it), so Git replays recorded resolutions in its merges: to stop, run git -C " + copy + " config --local --unset rerere.enabled"
+	slices.Contains(report.Notes, note) == (before == "true") && after == before
 }
 
 // DoctorHereFixesOnlyItsCheckout: doctor -here, run inside one of two

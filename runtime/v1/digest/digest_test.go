@@ -7,7 +7,6 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
-	"hash/crc32"
 	"math/rand/v2"
 	"testing"
 
@@ -24,65 +23,58 @@ func digestText(r *rand.Rand) string {
 	return string(b)
 }
 
-// digestLaws restate the laws of std hex, base64, sha256, crc32 (G3
-// std-digest), sha512 and sha1 (std-spike D3) over their Go bodies.
+// digestLaws restate the SHA-256 streaming laws over their Go bodies.
 var digestLaws = map[string]func(r *rand.Rand) (bool, any){
-	"hex DecodeInvertsEncode": func(r *rand.Rand) (bool, any) {
+	// Cut points drawn anywhere, past the end and the same cut twice
+	// included, so parts of zero bytes and parts across a block run.
+	"sha256 PartsAreTheWhole": func(r *rand.Rand) (bool, any) {
 		s := digestText(r)
-		d, err := HexDecode(HexEncode(s))
-		return err == nil && d == s, s
-	},
-	"hex EncodeDoublesLength": func(r *rand.Rand) (bool, any) {
-		s := digestText(r)
-		return len(HexEncode(s)) == 2*len(s), s
-	},
-	"base64 DecodeInvertsEncode": func(r *rand.Rand) (bool, any) {
-		s := digestText(r)
-		std, err1 := Base64StdDecode(Base64StdEncode(s))
-		url, err2 := Base64URLDecode(Base64URLEncode(s))
-		return err1 == nil && err2 == nil && std == s && url == s, s
-	},
-	"base64 EncodedLength": func(r *rand.Rand) (bool, any) {
-		s := digestText(r)
-		return len(Base64StdEncode(s)) == (len(s)+2)/3*4, s
-	},
-	"sha256 SumIs32Bytes": func(r *rand.Rand) (bool, any) {
-		s := digestText(r)
+		h, at := Sha256New(), 0
+		cuts := make([]int, r.IntN(6))
+		for i := range cuts {
+			cuts[i] = r.IntN(200) - 20
+			n := len(s) + 1
+			end := min(at+(cuts[i]%n+n)%n, len(s))
+			h.Write(s[at:end])
+			at = end
+		}
+		h.Write(s[at:])
 		d := sha256.Sum256([]byte(s))
-		return len(string(d[:])) == 32, s
+		return h.Digest() == string(d[:]), [2]any{s, cuts}
 	},
-	"sha512 SumIs64Bytes": func(r *rand.Rand) (bool, any) {
-		s := digestText(r)
-		return len(Sha512Sum(s)) == 64, s
+	"sha256 NothingIsSumOfEmpty": func(r *rand.Rand) (bool, any) {
+		d := sha256.Sum256(nil)
+		return Sha256New().Digest() == string(d[:]), nil
 	},
-	"sha1 SumIs20Bytes": func(r *rand.Rand) (bool, any) {
-		s := digestText(r)
-		return len(Sha1Sum(s)) == 20, s
-	},
-	"crc32 UpdateChains": func(r *rand.Rand) (bool, any) {
+	"sha256 DigestKeepsTheHasher": func(r *rand.Rand) (bool, any) {
 		a, b := digestText(r), digestText(r)
-		return Crc32Update(crc32.ChecksumIEEE([]byte(a)), b) == crc32.ChecksumIEEE([]byte(a+b)), [2]string{a, b}
+		h := Sha256New()
+		h.Write(a)
+		_ = h.Digest()
+		h.Write(b)
+		d := sha256.Sum256([]byte(a + b))
+		return h.Digest() == string(d[:]), [2]string{a, b}
 	},
-	"crc32 UpdateFromZero": func(r *rand.Rand) (bool, any) {
-		s := digestText(r)
-		return Crc32Update(0, s) == crc32.ChecksumIEEE([]byte(s)), s
+	"sha256 CloneForks": func(r *rand.Rand) (bool, any) {
+		a, b, c := digestText(r), digestText(r), digestText(r)
+		h := Sha256New()
+		h.Write(a)
+		k := h.Clone()
+		h.Write(b)
+		k.Write(c)
+		ab, ac := sha256.Sum256([]byte(a+b)), sha256.Sum256([]byte(a+c))
+		return h.Digest() == string(ab[:]) && k.Digest() == string(ac[:]), [3]string{a, b, c}
 	},
 }
 
 var digestLawStatements = map[string]string{
-	"hex DecodeInvertsEncode":    `DecodeInvertsEncode(s string) { try Decode(Encode(s)) } == { s }`,
-	"hex EncodeDoublesLength":    `EncodeDoublesLength(s string) { len(Encode(s)) } == { 2 * len(s) }`,
-	"base64 DecodeInvertsEncode": `DecodeInvertsEncode(s string) { let std = try Decode(StdEncoding, Encode(StdEncoding, s)) let url = try Decode(URLEncoding, Encode(URLEncoding, s)) std == s && url == s }`,
-	"base64 EncodedLength":       `EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }`,
-	"sha256 SumIs32Bytes":        `SumIs32Bytes(s string) { len(Sum(s)) == 32 }`,
-	"sha512 SumIs64Bytes":        `SumIs64Bytes(s string) { len(Sum(s)) == 64 }`,
-	"sha1 SumIs20Bytes":          `SumIs20Bytes(s string) { len(Sum(s)) == 20 }`,
-	"crc32 UpdateChains":         `UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a + b) }`,
-	"crc32 UpdateFromZero":       `UpdateFromZero(s string) { Update(0, s) == Checksum(s) }`,
+	"sha256 PartsAreTheWhole":     `PartsAreTheWhole(s string, cuts []int) { let h = New() let mut at = 0 for c in cuts { let end = at + (c%(len(s)+1)+len(s)+1)%(len(s)+1) let stop = if end > len(s) { len(s) } else { end } h.Write(s[at:stop]) at = stop } h.Write(s[at:len(s)]) h.Digest() == Sum(s) }`,
+	"sha256 NothingIsSumOfEmpty":  `NothingIsSumOfEmpty() { let h = New() h.Digest() == Sum("") }`,
+	"sha256 DigestKeepsTheHasher": `DigestKeepsTheHasher(a string, b string) { let h = New() h.Write(a) let _ = h.Digest() h.Write(b) h.Digest() == Sum(a + b) }`,
+	"sha256 CloneForks":           `CloneForks(a string, b string, c string) { let h = New() h.Write(a) let k = h.Clone() h.Write(b) k.Write(c) h.Digest() == Sum(a + b) && k.Digest() == Sum(a + c) }`,
 }
 
-// TestStdDigestLaws runs each law of hex, base64, sha256 and crc32 on
-// 2,000 seeded byte strings of every byte value (Std laws, stdlib.md).
+// TestStdDigestLaws runs the SHA-256 streaming laws on seeded byte strings.
 func TestStdDigestLaws(t *testing.T) {
 	laws := map[string]lawledger.Law{}
 	for name, holds := range digestLaws {

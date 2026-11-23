@@ -77,7 +77,7 @@ func TestDurableStepIsPure(t *testing.T) {
 	}{
 		{name: "pure", step: pureStep, call: start},
 		{name: "input machine", step: pureStep, call: "journal.Start(machines.Start(Counted{}, 3), j, 2, 1, func(o int) {})"},
-		{name: "hooks", step: pureStep, call: "actor.StartDurable(Counter{}, 1, func(o int) {}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e) })"},
+		{name: "hooks", step: pureStep, call: "actor.StartDurable(Counter{}, 1, func(o int) {}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e, 0) catch { case journal.Stale: } })"},
 		{
 			name: "capability", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}", call: start,
 			want: "journal.Start requires its parameter m to be pure: step step calls the capability operation Console.Println at 11:2",
@@ -99,12 +99,12 @@ func TestDurableStepIsPure(t *testing.T) {
 		},
 		{
 			name: "hooks impure", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}",
-			call: "actor.StartDurable(Counter{}, 1, func(o int) {}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e) })",
+			call: "actor.StartDurable(Counter{}, 1, func(o int) {}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e, 0) catch { case journal.Stale: } })",
 			want: "actor.StartDurable requires its parameter m to be pure: step step calls",
 		},
 		{
 			name: "supervised impure", step: "needs Console {\n\tConsole.Println(\"x\")\n\tIgnore\n}",
-			call: "actor.SuperviseDurable(Counter{}, 1, func(o int) {}, tasks.Restart{Limit: 1}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e) })",
+			call: "actor.SuperviseDurable(Counter{}, 1, func(o int) {}, tasks.Restart{Limit: 1}, func() Option[State] fails journal.Failed { None }, func(p State, n State, e Signal) fails journal.Failed { try j.Append(e, 0) catch { case journal.Stale: } })",
 			want: "actor.SuperviseDurable requires its parameter m to be pure: step step calls",
 		},
 		{name: "literal", step: pureStep, call: "journal.Start(" + literal + ", j, 2, 1, func(o int) {})"},
@@ -128,7 +128,7 @@ func TestDurableStepIsPure(t *testing.T) {
 			// A body of two statements is not seen through.
 			name: "value", step: pureStep, helpers: "\nfunc counter() Machine[State, Signal, int] {\n\tlet m = Counter{}\n\tm\n}\n",
 			call: "journal.Start(counter(), j, 2, 1, func(o int) {})",
-			want: "journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)",
+			want: "journal.Start requires its parameter m to be pure, so the checker must see its step: pass a machine declaration's value X{} whose step names a function, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure (rows.md, Footprints 6)",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -46,6 +46,7 @@ import (
 	"time"
 
 	"ergo.local/prototype/internal/ergobuild"
+	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/internal/proclimit"
 )
 
@@ -594,17 +595,15 @@ func ergoPackage(root, dir string) bool {
 }
 
 // ergoTest says whether dir declares the Ergo test named test, or for
-// law:L the law L, top-level or a member law (LAW-KILLER).
+// law:L the law L, top-level, a member law T.L, or pkg.T.L an imported operation type's law its providers run (LAW-KILLER).
 func ergoTest(root, dir, test string) bool {
+	if law, ok := strings.CutPrefix(test, "law:"); ok {
+		// law:L, law:T.L, or law:pkg.T.L: a member law an imported
+		// operation type declares, which dir's providers run.
+		return lawledger.LawDeclared(root, dir, law)
+	}
 	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo"))
 	decl := regexp.MustCompile(`(?m)^test ` + regexp.QuoteMeta(test) + `\s*\{`)
-	if law, ok := strings.CutPrefix(test, "law:"); ok {
-		_, member, _ := strings.Cut(law, ".")
-		if member == "" {
-			member = law
-		}
-		decl = regexp.MustCompile(`(?m)^\s*law ` + regexp.QuoteMeta(member) + `\b`)
-	}
 	for _, f := range files {
 		if data, err := os.ReadFile(f); err == nil && decl.Match(data) {
 			return true

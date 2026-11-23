@@ -409,6 +409,12 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 			// takes (lawDecl), as a call on a value of the type does.
 			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{recv}, vals...), env, x, c, x)
 		}
+		if c.Kind == check.CallLawOp && fc.l.runtimeNamed(cap, x) {
+			// A law of an extern Go type (std rand.Stream, time.Timeline)
+			// calls the bound value's runtime method, with that body's
+			// hidden arguments and no task, as a call on a value does.
+			return fc.opCall(cap, c.Op, fc.typeOf(x), append([]string{env + "." + fc.l.envField(cap)}, vals...), env, x, c, x)
+		}
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
 		vals = append([]string{taskOf(env)}, vals...)
@@ -1312,11 +1318,12 @@ func (fc *funcCtx) scopeCall(name, recv string, vals []string, site syntax.Node)
 	return fc.runtimeCall(name, body, "", recv, vals, "", nil, nil, site)
 }
 
-// ownsResources reports a with that acquires a provider with a checked
-// Close (With.Acquired, the checker's ownership fact).
+// ownsResources reports a with that opens a scope: one that acquires a
+// provider with a checked Close, which it releases or lends
+// (With.Acquired, the checker's ownership fact; Acquisition.Scoped).
 func ownsResources(w *check.With) bool {
 	for _, a := range w.Acquired {
-		if a.Releases() {
+		if a.Scoped() {
 			return true
 		}
 	}
@@ -1504,7 +1511,10 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 	if local {
 		fc.env = outer
 	}
-	if ws != "" {
+	if ws != "" && !a.Lent {
+		// A lent provider is a place: its value cannot fail, and the
+		// with registers no release for it (R11), so it is published
+		// in place like a plain one.
 		fc.withClose(a, target, outer, ws, e.Provider)
 	} else {
 		fc.publishProvider(a, target)
