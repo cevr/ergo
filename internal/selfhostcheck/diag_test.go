@@ -255,11 +255,11 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 	seeds := 0
 	for _, d := range unusedDraws(pool) {
 		src := d.src
-		f, err := syntax.Parse(src)
+		parsed, err := syntax.Parse(src)
 		if err != nil {
 			t.Fatalf("%s: the perturbation does not parse: %v\n%s", d.name, err, src)
 		}
-		pkg, ds := checkUnusedPart(f, d.partial)
+		pkg, ds := checkUnusedPart(parsed, d.partial)
 		want := goUnused(ds)
 		if len(want) == 0 {
 			t.Fatalf("%s: the Go checker reports no unused name in the perturbation:\n%s", d.name, src)
