@@ -1,0 +1,15 @@
+type Foldable[T] {
+	Fold[A](z A, f func(acc A, x T) A) A,
+}
+
+type Box[T] { V T } implements Foldable[T]
+
+func Fold[T, A](b Box[T], z A, f func(acc A, x T) A) A { f(z, b.V) }
+
+func keep(s Foldable[int]) {} // want S108
+
+func hold(b Box[int]) {
+	let s Foldable[int] = b // want S108
+}
+
+func main() {}

@@ -8,6 +8,9 @@ import exec
 import strings
 import github.com/cevr/ergo/modules/work/work
 
+// TestTrees runs commands in the case's scratch folder.
+func TestTrees() Trees needs TestAmbient { New(exec.NewTestHost(), func(_ string) string { "" }) }
+
 // PlantScript makes the tree src in the working folder (a btrfs
 // subvolume when $1 is sub): a file of 1 MiB, larger than any inline
 // extent, so a copy of it holds blocks of its own, and a nested file; and

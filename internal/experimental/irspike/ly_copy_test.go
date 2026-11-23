@@ -107,9 +107,8 @@ func lyRun(t *testing.T, bin, replay, text string) outcome {
 	return o
 }
 
-// lyIRCalls are the callees of an IR file's calls: "name" for a call of a
-// package function (a prefix match keeps a uniqueness suffix), "pkg.Name"
-// for a Go package call.
+// lyIRCalls lists exact IR callees and their forms without a uniqueness
+// suffix, and "pkg.Name" and "Name" for Go package calls.
 func lyIRCalls(t *testing.T, file string) map[string]bool {
 	t.Helper()
 	data, err := os.ReadFile(file)
@@ -128,6 +127,7 @@ func lyIRCalls(t *testing.T, file string) map[string]bool {
 			name, _ := v["name"].(string)
 			switch v["k"] {
 			case "call":
+				out[name] = true
 				out[strings.TrimRightFunc(name, func(r rune) bool { return r == '_' || r >= '0' && r <= '9' })] = true
 			case "pcall":
 				pkg, _ := v["t"].(string)

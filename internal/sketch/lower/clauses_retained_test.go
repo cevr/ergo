@@ -31,10 +31,10 @@ func TestRetainedForeignArguments(t *testing.T) {
 			name, imports, params, row, body string
 			allowed, module                  bool
 		}{
-			{"bufio-lent", "import go bufio\nimport go os", "f go.Ref[os.File]", "needs go.Foreign", fmt.Sprintf("let _ = bufio.NewReaderSize(f, %d)", size), false, false},
-			{"bufio-owned", "import go bufio\nimport go os", "f own go.Ref[os.File]", "needs go.Foreign", "let _ = bufio.NewReader(f)", true, false},
-			{"bufio-after-take", "import go bufio\nimport go os", "f own go.Ref[os.File]", "needs go.Foreign", "let _ = bufio.NewReader(f)\nlet _ = f.Name()", false, false},
-			{"reviewed-lend", "import go io\nimport go os", "f go.Ref[os.File]", "fails go.Error needs go.Foreign", "let _ = try io.ReadAll(f)\nlet _ = f.Name()", true, false},
+			{"bufio-lent", "import go bufio\nimport go os", "f go.Ref[os.File]", "needs go.Foreign | Ambient", fmt.Sprintf("let _ = bufio.NewReaderSize(f, %d)", size), false, false},
+			{"bufio-owned", "import go bufio\nimport go os", "f own go.Ref[os.File]", "needs go.Foreign | Ambient", "let _ = bufio.NewReader(f)", true, false},
+			{"bufio-after-take", "import go bufio\nimport go os", "f own go.Ref[os.File]", "needs go.Foreign | Ambient", "let _ = bufio.NewReader(f)\nlet _ = f.Name()", false, false},
+			{"reviewed-lend", "import go io\nimport go os", "f go.Ref[os.File]", "fails go.Error needs go.Foreign | Ambient", "let _ = try io.ReadAll(f)\nlet _ = f.Name()", true, false},
 			{"unknown-lent", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unknown(f)", false, true},
 			{"empty-reason-lent", "import go hostres", "f go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unreasoned(f)", false, true},
 			{"unknown-owned", "import go hostres", "f own go.Ref[hostres.Handle]", "needs go.Foreign", "hostres.Unknown(f)", true, true},

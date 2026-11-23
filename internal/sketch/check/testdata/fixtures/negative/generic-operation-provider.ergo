@@ -1,0 +1,19 @@
+type Foldable[T] {
+	Fold[A](z A, f func(acc A, x T) A) A,
+}
+
+type Box[T] { V T } implements Foldable[T] // want S106
+
+func Fold[T, A, B](b Box[T], z A, f func(acc A, x T) A) A { z }
+
+type Cell[T] { V T } implements Foldable[T] // want S106
+
+func Fold[T, A comparable](c Cell[T], z A, f func(acc A, x T) A) A { z }
+
+type Plain { Get() int }
+
+type Wide {} implements Plain // want S106
+
+func Get[A](w Wide) int { 0 }
+
+func main() {}
