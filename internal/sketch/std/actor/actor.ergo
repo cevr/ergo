@@ -980,6 +980,37 @@ func source(xs []int) Seq[int] {
 	})
 }
 
+// FeedRunsEveryAdmitted: every source a Feed admitted runs, also when the
+// actor ends before its runner took the source: when Stop returns, each
+// of the n sources fed just before it has run.
+law FeedRunsEveryAdmitted(n int) {
+	with context { Scheduler: time.NewManual(0) } {
+		fedThenStopped(((n % 4) + 4) % 4 + 1)
+	}
+}
+
+// fedThenStopped feeds n sources, each counting its run, to an actor and
+// stops it at once.
+func fedThenStopped(n int) bool needs Scheduler {
+	let a = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
+	let runs = sync.NewRef[int](0)
+	for _ in 0..n {
+		Feed(a, counted(runs)) catch {
+		case Stopped:
+			return false
+		}
+	}
+	a.Stop()
+	runs.Get() == n
+}
+
+// counted is a Seq of no values that counts each run in runs.
+func counted(runs sync.Ref[int]) Seq[int] {
+	Seq[int](func(yield func(v int) bool) {
+		runs.Update(func(v int) int { v + 1 })
+	})
+}
+
 // live is a State read that fails Stopped when a has ended before it was
 // answered (ActorLiveState).
 extern go ergo.local/prototype/runtime/v1.ActorLiveState func live[S, E, D, F](a Actor[S, E, D, F]) S fails Stopped
@@ -1330,6 +1361,70 @@ func ExitOf[S, E, O, F](a Actor[S, E, Decision[S, O], F]) Exit[S, O, F] {
 	Halted[S]{State: a.State()}
 }
 
+// Ended is whether a has ended: true exactly when ExitOf of a would not
+// wait. Once true it stays true. It never waits, so an actor's own step
+// may ask it of itself (an actor's end as a value, without the wait
+// ExitOf has).
+extern go ergo.local/prototype/runtime/v1.ActorEnded func Ended[S, E, D, F](a Actor[S, E, D, F]) bool
+
+// EndedIsMonotone: once Ended is true it stays true; Stop, Drain and
+// ExitOf return only after it is.
+law EndedIsMonotone(signals []int, drain bool) {
+	with context { Scheduler: time.NewManual(0) } {
+		endedStays(signals, drain)
+	}
+}
+
+// endedStays: an actor that was sent signals (one may be a Done) ends by
+// Drain or Stop; Ended before the end may be either, and after it, and at
+// every later read, is true.
+func endedStays(signals []int, drain bool) bool needs Scheduler {
+	let a = sent(signals)
+	let before = Ended(a)
+	if drain {
+		a.Drain()
+	} else {
+		a.Stop()
+	}
+	let after = Ended(a)
+	let _ = exitCode(ExitOf(a))
+	(!before || after) && after && Ended(a)
+}
+
+// EndedAgreesWithExit: Ended is false for an actor that runs (it has
+// stepped signals and no Done) and true once its end returned, when ExitOf
+// gives its exit at once.
+law EndedAgreesWithExit(signals []int) {
+	with context { Scheduler: time.NewManual(0) } {
+		endedAgrees(signals)
+	}
+}
+
+// endedAgrees sends an actor that never ends by itself the signals, reads
+// Ended while it runs, then stops it.
+func endedAgrees(signals []int) bool needs Scheduler {
+	let a = StartMachine(Machine[[]int, int, int]{Initial: []int{}, Step: logStep, After: logUntimed, Work: logUnworked, Exit: logUnexited}, 1, func(o int) {})
+	for e in signals {
+		a.Send(e) catch {
+		case Stopped:
+			return false
+		}
+	}
+	let s = WaitFor(a, func(s []int) bool { len(s) >= len(signals) }) catch {
+	case Stopped:
+		return false
+	}
+	let running = !Ended(a)
+	a.Stop()
+	let ended = Ended(a)
+	match ExitOf(a) {
+	case Halted[[]int] as h:
+		running && ended && len(h.State) == len(s)
+	case _:
+		false
+	}
+}
+
 // Watch sends watcher the signal toSignal(x) once a has ended, x its exit
 // (ExitOf): a monitor whose report is a signal in the watcher's inbox
 // (Erlang's monitor and its 'DOWN' message, typed by the watcher's
@@ -1402,21 +1497,19 @@ func watchedBy[F](log Actor[[]int, int, Decision[[]int, int]], a Actor[int, int,
 
 // Registry names live actors of one type by a typed key: no name is a
 // string the program spells twice, and no registry is ambient (a program
-// makes one and passes it). An actor leaves it when it ends: once ExitOf
-// of a registered actor has returned, Lookup of its key is None and the
-// key is free. Its values are copies of one registry.
+// makes one and passes it). An actor leaves it when it ends: once Ended of
+// a registered actor is true, Lookup of its key is None and the key is
+// free. Its values are copies of one registry.
 type Registry[K comparable, S, E, D, F] {
 	entries sync.Ref[Map[K, registered[S, E, D, F]]],
 	next sync.Ref[int],
 }
 
 // registered is an actor in a registry, with the number of its Register,
-// so the end of an actor removes its own entry and never a later one, and
-// whether the source that removes it has started.
+// so the end of an actor removes its own entry and never a later one.
 type registered[S, E, D, F] {
 	Actor Actor[S, E, D, F],
 	N int,
-	Started sync.Ref[bool],
 }
 
 // Taken is the failure of Register when a live actor holds the key.
@@ -1432,22 +1525,20 @@ func NewRegistry[K comparable, S, E, D, F]() Registry[K, S, E, D, F] {
 
 // Register names a by k. It fails Taken while another live actor holds k,
 // and Stopped when a has ended or its Stop was requested (it then names
-// nothing). The entry is removed at a's end by a source of a (Feed's
-// body) whose exit action removes it, so a registry runs no task of its
-// own. A source a ends before it starts never runs: Lookup asks such an
-// entry's actor whether it runs (its inbox, behind the signals queued
-// before) and drops it when it does not, so Register and Lookup of a key
-// whose actor has ended never give that actor.
+// nothing). The entry is removed at a's end by the exit action of a source
+// of a (Feed's body; every admitted source runs, FeedRunsEveryAdmitted),
+// so a registry runs no task of its own; Lookup and Register never take an
+// ended actor's entry as live (Ended), whatever the order of the end and
+// the source's start.
 func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[S, E, D, F]) fails Taken | Stopped {
 	let _ = Lookup(r, k)
 	let n = sync.Modify(r.next, func(v int) (int, int) { (v + 1, v + 1) })
-	let started = sync.NewRef[bool](false)
 	let free = sync.Modify(r.entries, func(m Map[K, registered[S, E, D, F]]) (bool, Map[K, registered[S, E, D, F]]) {
 		match m.Get(k) {
 		case Some[registered[S, E, D, F]]:
 			(false, m)
 		case None:
-			(true, m.Put(k, registered[S, E, D, F]{Actor: a, N: n, Started: started}))
+			(true, m.Put(k, registered[S, E, D, F]{Actor: a, N: n}))
 		}
 	})
 	if !free {
@@ -1458,7 +1549,6 @@ func Register[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K, a Actor[
 		scope.OnExit() {
 			entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
 		}
-		started.Set(true)
 		let hold = queue.New[int](1)
 		hold.Pop() catch {
 		case queue.Closed:
@@ -1484,27 +1574,59 @@ func unregistered[K comparable, S, E, D, F](m Map[K, registered[S, E, D, F]], k 
 	}
 }
 
-// Lookup is the actor that k names, None when no live actor holds it. An
-// entry whose source has started is removed by that source's exit, before
-// Stop, Drain or ExitOf of its actor returns; for one whose source has not
-// started, Lookup asks the actor (live) and drops the entry when it has
-// ended. So Lookup from an actor's own step, of a key that actor took in
-// that step, waits for the actor: it never returns.
+// Lookup is the actor that k names, None when no live actor holds it (an
+// entry whose actor has ended is dropped here). It never waits, so an
+// actor's own step may look itself up.
 func Lookup[K comparable, S, E, D, F](r Registry[K, S, E, D, F], k K) Option[Actor[S, E, D, F]] {
 	match r.entries.Get().Get(k) {
 	case Some[registered[S, E, D, F]] as e:
-		if !e.Value.Started.Get() {
-			let _ = live(e.Value.Actor) catch {
-			case Stopped:
-				let n = e.Value.N
-				r.entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
-				return None
-			}
+		if Ended(e.Value.Actor) {
+			let n = e.Value.N
+			r.entries.Update(func(m Map[K, registered[S, E, D, F]]) Map[K, registered[S, E, D, F]] { unregistered(m, k, n) })
+			return None
 		}
 		Some[Actor[S, E, D, F]]{Value: e.Value.Actor}
 	case None:
 		None
 	}
+}
+
+// LookupFromOwnStep: an actor's own step looks up the key it is
+// registered by and finds it, without waiting.
+law LookupFromOwnStep(k int) {
+	with context { Scheduler: time.NewManual(0) } {
+		selfLookup(k)
+	}
+}
+
+// selfLookup registers an actor whose step counts the signals it stepped
+// while Lookup of k found an actor, sends it one signal and waits for it.
+func selfLookup(k int) bool needs Scheduler {
+	let r = NewRegistry[int, int, int, Decision[int, int]]()
+	let step = func(s int, e int) Decision[int, int] {
+		match Lookup(r, k) {
+		case Some[Actor[int, int, Decision[int, int]]]:
+			Stay[int]{Next: s + 1}
+		case None:
+			Stay[int]{Next: s - 1}
+		}
+	}
+	let a = StartMachine(Machine[int, int, int]{Initial: 0, Step: step, After: untimed, Work: unworked, Exit: unexited}, 1, func(o int) {})
+	Register(r, k, a) catch {
+	case Taken, Stopped:
+		a.Stop()
+		return false
+	}
+	a.Send(1) catch {
+	case Stopped:
+		return false
+	}
+	let s = WaitFor(a, func(s int) bool { s != 0 }) catch {
+	case Stopped:
+		return false
+	}
+	a.Stop()
+	s == 1
 }
 
 // RegistryDropsTheEnded: a registered actor is found by its key and the
@@ -1547,8 +1669,22 @@ func registryDrops(signals []int, k int) bool needs Scheduler {
 		return false
 	}
 	let back = named(r, k)
+	// b ends right after its Register, before its runner took the
+	// source that removes the entry: the entry is still removed by the
+	// end itself, not only hidden by Lookup (FeedRunsEveryAdmitted).
 	b.Stop()
-	found && taken && gone && back && !named(r, k)
+	found && taken && gone && back && !held(r, k)
+}
+
+// held is whether r holds an entry for k, live or not: what the end of
+// the actor removed, read without Lookup's own drop.
+func held(r Registry[int, int, int, Decision[int, int]], k int) bool {
+	match r.entries.Get().Get(k) {
+	case Some[registered[int, int, int, Decision[int, int]]]:
+		true
+	case None:
+		false
+	}
 }
 
 // named is whether k names an actor in r.

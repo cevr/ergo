@@ -7,12 +7,16 @@ actor ActorStageAgreesWithFold	TestStdActorLawsRun
 actor CanIsTheStep	TestStdActorLawsRun
 actor ChangesCountsWhatItDrops	TestStdActorLawsRun
 actor DoneIsFinal	TestStdActorLawsRun
+actor EndedAgreesWithExit	#162
+actor EndedIsMonotone	#162
 actor EveryFiresWithTheReading	TestStdActorLawsRun
 actor ExitIsShared	TestStdActorLawsRun
 actor ExitRunsOncePerEntry	TestStdActorLawsRun
 actor ExitSeesLastState	TestStdActorLawsRun
 actor FailedIsExit	TestStdActorLawsRun
+actor FeedRunsEveryAdmitted	#162
 actor FeedStepsInOrder	TestStdActorLawsRun
+actor LookupFromOwnStep	#162
 actor RegistryDropsTheEnded	#162
 actor RejectKeepsState	TestStdActorLawsRun
 actor RestartIsFresh	TestStdActorLawsRun
