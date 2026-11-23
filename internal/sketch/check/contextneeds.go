@@ -67,11 +67,14 @@ func (c *checker) readContextHeader(w *Context) {
 	c.silent--
 	c.cur, c.fn = saved, savedFn
 	for _, e := range row.Elems() {
-		if isTestAmbient(e) {
+		switch {
+		case isTestAmbient(e):
 			w.TestAmbient = e.(*Named)
-			continue
+		case isTestLoopback(e):
+			w.TestLoopback = e.(*Named)
+		default:
+			w.needs = w.needs.with(c.types, e)
 		}
-		w.needs = w.needs.with(c.types, e)
 	}
 }
 
