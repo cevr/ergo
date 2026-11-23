@@ -95,7 +95,7 @@ var runtimeBindings = sync.OnceValue(bodyCatalog)
 
 // runtimeCall binds a std body's hidden arguments at the point it runs.
 // stdResult calls it inside the invocation environment for a deferred Seq.
-// Wait uses the handle's owning task inside the primitive; Stop drains
+// Wait observes the calling task inside the primitive; Stop drains
 // uninterruptibly. No extra poll is needed for any of these primitives.
 func (fc *funcCtx) runtimeCall(name string, body v1.Body, typeArgs, recv string, vals []string, env string, x *syntax.CallExpr, c *check.Call, site syntax.Node) string {
 	binding, ok := runtimeBindings()[name]

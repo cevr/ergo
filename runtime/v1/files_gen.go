@@ -862,7 +862,7 @@ var typeTable = []typeRow{
 	{"Stream", GoType{Struct: true, Fields: []string{"mu", "pcg", "r"}, Package: Path + "/rand"}},
 	{"TOMLMalformed", GoType{Struct: true, Fields: []string{"Line", "Key", "Reason"}, Package: Path}},
 	{"TOMLUnrepresentable", GoType{Struct: true, Fields: []string{"Key", "Reason"}, Package: Path}},
-	{"Task", GoType{Arity: 1, Struct: true, Fields: []string{"h", "body", "task", "used", "out", "ended", "ent", "rel"}, Package: Path}},
+	{"Task", GoType{Arity: 1, Struct: true, Fields: []string{"h", "body", "out", "ended", "ent", "rel"}, Package: Path}},
 	{"TasksClosed", GoType{Struct: true, Package: Path}},
 	{"TermNotTerminal", GoType{Struct: true, Package: Path}},
 	{"TermPeeked", GoType{Struct: true, Fields: []string{"Bytes", "End", "Resized"}, Package: Path}},
