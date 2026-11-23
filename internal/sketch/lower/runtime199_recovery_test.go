@@ -98,6 +98,7 @@ func TestRuntime199DefectRecovery(t *testing.T) {
 		"runOn -> Run":           "guarded",
 		"Go -> Start":            "guarded", // PARK1: v1.Go starts its Task in place (rt.Start)
 		"GoWith -> Start":        "guarded", // GP-SPAWN2: v1.GoWith starts its taskWith in place, as Go does
+		"GoWithFrame -> Start":   "guarded", // as GoWith, with an addressable child environment in the task
 		"Scope.end -> Scope.End": "",
 		"release -> Release":     "classify",
 		// The static exit form (STATIC-EXIT, exits.go): the frame's end and

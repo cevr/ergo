@@ -524,6 +524,44 @@ func (x *taskWith[T, C]) Run(ct *rt.Task) (T, error) {
 	return v, err
 }
 
+// GoWithFrame is GoWith for a block whose environment can outlive the
+// call that uses it. The generated block initializes the frame on the
+// child, just as it would initialize an ordinary local. Captures still
+// clear when the block ends, but the frame stays valid for anything
+// that took its address. The frame is in the Task's allocation, not a
+// separate heap object. A lowering helper: no Ergo declaration binds it.
+//
+//ergo:wait none
+func GoWithFrame[T, C, F any](s *Scope, span Site, c C, body func(*rt.Task, *C, *F) (T, error)) *Task[T] {
+	s = s.current()
+	if s.ended {
+		panic("task.Go: the frame that would own this task has returned (law R9)")
+	}
+	x := &taskWithFrame[T, C, F]{c: c, fn: body}
+	x.t.task = s.s.Task()
+	rt.Start(&x.t.h, x.t.task, string(span), x)
+	return &x.t
+}
+
+type taskWithFrame[T, C, F any] struct {
+	t     Task[T]
+	c     C
+	frame F
+	fn    func(*rt.Task, *C, *F) (T, error)
+}
+
+func (x *taskWithFrame[T, C, F]) Run(ct *rt.Task) (T, error) {
+	fn := x.fn
+	x.fn = nil
+	v, err := guarded(ct, func(ct *rt.Task) (T, error) { return fn(ct, &x.c, &x.frame) })
+	var zero C
+	x.c = zero
+	if err == nil {
+		x.t.out, x.t.ended = v, true
+	}
+	return v, err
+}
+
 // Wait waits for the task to end and consumes it. It returns the task's
 // value, or its typed failure when that failure is the task's whole exit
 // (law R6: a catch handles only a lone typed failure). Any other exit is

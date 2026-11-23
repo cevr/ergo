@@ -13,16 +13,20 @@ import (
 // locals in an unnamed struct, passes it by value to v1.GoWith, which
 // keeps it in the Task's own allocation, and turns the literal into one
 // that captures nothing and reads each of them through its second
-// parameter.
+// parameter. If the block calls an indirect function value, Go must
+// assume the function retains the child environment passed by address.
+// Give that environment a stable, separately retained slot in the
+// same allocation rather than a heap allocation of its own.
 
-// spawnLowering selects GoWith for task.Go's block on the IR: "" uses it,
-// "closure" keeps the block a closure over its captures (v1.Go), the
-// reference GP-SPAWN2's property and receipt count against. Set with
+// spawnLowering selects the capture and frame layout for task.Go:
+// "" uses GoWith or GoWithFrame, "local-frame" keeps the child
+// environment local in GoWith, and "closure" keeps the capture closure
+// (v1.Go), GP-SPAWN2's reference. Set with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.spawnLowering=closure.
 var spawnLowering string
 
 // SetSpawnLoweringForTest sets spawnLowering for a test and returns the
-// previous mode ("" GoWith, "closure" the reference).
+// previous mode.
 func SetSpawnLoweringForTest(mode string) string {
 	old := spawnLowering
 	spawnLowering = mode
@@ -35,7 +39,7 @@ func SetSpawnLoweringForTest(mode string) string {
 // way but a read of its value: an assignment, its address (a frame
 // argument, a pointer method), a store through it. A copy is the same
 // value then, since nothing changes it while the block can run.
-func (b *irBuilder) spawnWith(call *irExpr, targs string, mark int, p irPos) *irExpr {
+func (b *irBuilder) spawnWith(call *irExpr, targs string, mark int, p irPos, frame *irStmt) *irExpr {
 	if spawnLowering == "closure" || len(call.Args) == 0 {
 		return call
 	}
@@ -74,34 +78,70 @@ func (b *irBuilder) spawnWith(call *irExpr, targs string, mark int, p irPos) *ir
 		return &irExpr{K: "field", Pos: e.Pos, Name: "F" + strconv.Itoa(k), X: &irExpr{K: "deref", Pos: e.Pos, X: &irExpr{K: "local", Pos: e.Pos, I: c}}}
 	}
 	nl := *lit
-	nl.Body = s.copyStmts(lit.Body, sub)
 	nl.Params = append(append([]int{}, lit.Params...), c)
-	nl.T = "func(" + task + ", *" + ct + ")" + strings.TrimPrefix(lit.T, head)
+	name, params := "GoWith", task+", *"+ct
+	targs += ", " + ct
+	tree := s.copyTree(sub)
+	if spawnLowering != "local-frame" && frame != nil && s.indirect {
+		ft, _ := b.spawnLocalType(frame.Local)
+		id := b.temp("childEnv", "*"+ft, p)
+		tree.putFrame(frame, id)
+		name = "GoWithFrame"
+		params += ", *" + ft
+		targs += ", " + ft
+		nl.Params = append(nl.Params, id)
+	}
+	nl.Body = tree.stmts(lit.Body)
+	nl.T = "func(" + params + ")" + strings.TrimPrefix(lit.T, head)
 	args := append(append([]*irExpr{}, call.Args[:len(call.Args)-1]...), caps, &nl)
-	return &irExpr{K: "pcall", Pos: call.Pos, T: call.T, Name: "GoWith", V: targs + ", " + ct, Args: args}
+	return &irExpr{K: "pcall", Pos: call.Pos, T: call.T, Name: name, V: targs, Args: args}
 }
 
 // spawnScan finds the locals below mark that a block reads (its
 // captures), in order, and refuses the block when it uses one otherwise.
 type spawnScan struct {
-	b       *irBuilder
-	mark    int
-	at      map[int]int // a captured local's field
-	order   []int
-	refused bool
+	b        *irBuilder
+	mark     int
+	at       map[int]int // a captured local's field
+	order    []int
+	refused  bool
+	indirect bool // the child environment may escape through a function value
 }
 
-// copyStmts is list with each read of a captured local replaced by sub's
-// expression, every node it passes through copied: the one tree copy
-// (ir_treecopy.go), so each match form's facts are the copy's.
-func (s *spawnScan) copyStmts(list []*irStmt, sub func(*irExpr) *irExpr) []*irStmt {
-	c := &irTreeCopy{subj: s.subj, expr: func(e *irExpr) *irExpr {
+// copyTree replaces each read of a captured local by sub's expression.
+// It uses the one tree copy so each match form's facts are the copy's.
+func (s *spawnScan) copyTree(sub func(*irExpr) *irExpr) *irTreeCopy {
+	return &irTreeCopy{subj: s.subj, expr: func(e *irExpr) *irExpr {
 		if e.K == "local" && s.outer(e.I) {
 			return sub(e)
 		}
 		return nil
 	}}
-	return c.stmts(list)
+}
+
+// putFrame moves the adapter's child environment local into its Task's
+// frame slot. The initializer stays on the child at its original
+// position; the sender still captures the same parent environment.
+func (c *irTreeCopy) putFrame(frame *irStmt, slot int) {
+	ptr := func(p irPos) *irExpr { return &irExpr{K: "local", Pos: p, I: slot} }
+	value := func(p irPos) *irExpr { return &irExpr{K: "deref", Pos: p, X: ptr(p)} }
+	isFrame := func(e *irExpr) bool { return e.K == "local" && e.I == frame.Local }
+	capture := c.expr
+	c.expr = func(e *irExpr) *irExpr {
+		switch {
+		case isFrame(e):
+			return value(e.Pos)
+		case e.K == "addr" && isFrame(e.X):
+			return ptr(e.Pos)
+		default:
+			return capture(e)
+		}
+	}
+	c.stmt = func(old, n *irStmt) {
+		if old == frame {
+			*n = irStmt{K: "store", Pos: n.Pos, X: value(n.Pos), Y: n.X}
+		}
+	}
 }
 
 func (s *spawnScan) outer(i int) bool { return i < s.mark }
@@ -209,6 +249,8 @@ func (s *spawnScan) expr(e *irExpr) {
 	case "result", "hole":
 		s.refused = true // a slot of the enclosing function
 		return
+	case "vcall":
+		s.indirect = s.indirect || e.X.K != "func"
 	}
 	s.expr(e.X)
 	s.expr(e.Y)
