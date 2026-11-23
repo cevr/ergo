@@ -18,14 +18,15 @@ import (
 // Give that environment a stable, separately retained slot in the
 // same allocation rather than a heap allocation of its own.
 
-// spawnLowering selects GoWith for task.Go's block on the IR: "" uses it,
-// "closure" keeps the block a closure over its captures (v1.Go), the
-// reference GP-SPAWN2's property and receipt count against. Set with
+// spawnLowering selects the capture and frame layout for task.Go:
+// "" uses GoWith or GoWithFrame, "local-frame" keeps the child
+// environment local in GoWith, and "closure" keeps the capture closure
+// (v1.Go), GP-SPAWN2's reference. Set with
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.spawnLowering=closure.
 var spawnLowering string
 
 // SetSpawnLoweringForTest sets spawnLowering for a test and returns the
-// previous mode ("" GoWith, "closure" the reference).
+// previous mode.
 func SetSpawnLoweringForTest(mode string) string {
 	old := spawnLowering
 	spawnLowering = mode
@@ -81,7 +82,7 @@ func (b *irBuilder) spawnWith(call *irExpr, targs string, mark int, p irPos, fra
 	name, params := "GoWith", task+", *"+ct
 	targs += ", " + ct
 	tree := s.copyTree(sub)
-	if frame != nil && s.indirect {
+	if spawnLowering != "local-frame" && frame != nil && s.indirect {
 		ft, _ := b.spawnLocalType(frame.Local)
 		id := b.temp("childEnv", "*"+ft, p)
 		tree.putFrame(frame, id)

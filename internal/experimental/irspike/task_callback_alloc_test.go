@@ -7,6 +7,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/lower"
 )
 
 // TestIRMovedTaskCallbackMatchesSource exercises a moved callback that
@@ -14,7 +16,7 @@ import (
 // builds Go because the callback must run under the spawned task's
 // environment, and the join must observe its exit.
 func TestIRMovedTaskCallbackMatchesSource(t *testing.T) {
-	f7Property(t, t.Name(), func(seed uint64) string {
+	program := func(seed uint64) string {
 		return fmt.Sprintf(`import task
 
 type Rejected { Code int }
@@ -38,7 +40,15 @@ func main() needs Console {
 	Console.Println("\(value)")
 }
 `, seed%2 == 0, 1+seed%100, 100+seed%100)
-	}, "moved")
+	}
+	t.Run("task-frame", func(t *testing.T) {
+		f7Property(t, t.Name(), program, "moved")
+	})
+	t.Run("local-frame", func(t *testing.T) {
+		prev := lower.SetSpawnLoweringForTest("local-frame")
+		defer lower.SetSpawnLoweringForTest(prev)
+		f7Property(t, t.Name(), program, "moved")
+	})
 }
 
 // TestIRMovedTaskCallbackAllocations checks that invoking a moved callback

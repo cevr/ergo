@@ -1,0 +1,12 @@
+type Store {
+	Get() int,
+	law GetIsStable() { Get() == Get() },
+}
+
+type Mem { N int } implements Store, Closer
+
+func Get(m Mem) int { m.N }
+
+func Close(m Mem) {}
+
+func Peek(m Mem) int { m.N }

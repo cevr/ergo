@@ -44,8 +44,7 @@ func closureRecordDir() string {
 //   - one with build tags (the explored runs): its test binary is not the
 //     one the sweep builds;
 //   - the build of every test binary (fullBuildStep), which runs no test;
-//   - one that runs go test elsewhere (-C), or with the cache kept
-//     (Hermetic).
+//   - one that runs go test elsewhere (-C).
 func recordForSweep(root string, steps []*Step) []*Step {
 	if !sweepSupported() {
 		return steps
@@ -99,7 +98,7 @@ func recordsForSweep(step *Step) bool {
 // root, whose tests step runs and records (recordForSweep), or none.
 func recordedPackages(module string, step *Step) []string {
 	argv := step.Argv
-	if len(argv) < 2 || argv[0] != "go" || argv[1] != "test" || step.Sweep != "" || step.Hermetic || len(step.Env) > 0 || step.Name == fullBuildStep {
+	if len(argv) < 2 || argv[0] != "go" || argv[1] != "test" || step.Sweep != "" || len(step.Env) > 0 || step.Name == fullBuildStep {
 		return nil
 	}
 	var packages []string
