@@ -445,21 +445,31 @@ law EarliestWins(ds []int) {
 	}
 }
 
-// LosersStopped: Race returns after every loser has ended, its exit
-// actions included: a loser that sleeps an hour is stopped, and its
-// cleanup has run when Race returns.
+// LosersStopped: the winner cannot finish before the loser registers
+// its exit action. Race stops the loser's work and waits for that
+// action to finish before returning.
 law LosersStopped(n int) {
 	let c = testing.NewVirtualClock(0)
+	let ready = sync.NewLatch()
 	let cleaned = sync.NewRef[int](0)
+	let cleanupTime = duration(int64(limitOf(n)))
 	with context { Scheduler: c, time.Clock: c } {
+		let start = time.Clock.Now()
 		let won = Race([]func() int needs Scheduler{
 			func() int needs Scheduler {
-				scope.OnExit() { cleaned.Update(func(v int) int { v + 1 }) }
+				scope.OnExit() {
+					Scheduler.Sleep(cleanupTime)
+					cleaned.Update(func(v int) int { v + 1 })
+				}
+				let _ = sync.Open(ready)
 				Scheduler.Sleep(1h)
 				0
 			},
-			func() int needs Scheduler { n },
+			func() int needs Scheduler {
+				sync.Await(ready)
+				n
+			},
 		})
-		won == n && cleaned.Get() == 1
+		won == n && cleaned.Get() == 1 && time.Clock.Now().Sub(start) == cleanupTime
 	}
 }
