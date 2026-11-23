@@ -56,6 +56,8 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.wireCall(x, c)
 	case check.CallPattern:
 		return fc.patternCall(x, c) // refinematch.go
+	case check.CallTestSeed:
+		return operand{val: fc.l.rt() + ".TestSeed()"}
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)

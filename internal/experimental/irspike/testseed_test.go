@@ -16,7 +16,9 @@ import (
 // makes the harness report the seed it actually received. It builds Go
 // because the two executables must read the seed from their arguments.
 func TestIRHarnessSeedMatchesSource(t *testing.T) {
-	const text = `test InsertKeepsOrder {
+	const text = `import gen
+
+test InsertKeepsOrder {
 	let x = gen.Named("x", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(-5, 100) })
 	assert x < -5
 }
@@ -60,8 +62,11 @@ func TestIRHarnessSeedMatchesSource(t *testing.T) {
 		}
 		outcomes[i] = runCase(t, bin, caseRun{name: "harness", args: []string{"--source", dir, "--seed", seed}})
 	}
-	agree(t, "harness seed", outcomes[0], outcomes[1])
+	if outcomes[0] != outcomes[1] {
+		t.Fatalf("harness reports differ\nsource: %+v\nIR: %+v\nreplay: go test -run '^TestIRHarnessSeedMatchesSource$' ./internal/experimental/irspike\n%s", outcomes[0], outcomes[1], text)
+	}
 	if got := outcomes[0]; got.exit == 0 || !strings.Contains(got.stdout+got.stderr, "--seed "+seed) {
 		t.Fatalf("want a refutation that replays seed %s, got %+v\n%s", seed, got, text)
 	}
+	t.Logf("source and IR both report the refutation with seed %s", seed)
 }
