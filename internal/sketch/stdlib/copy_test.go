@@ -115,6 +115,18 @@ func k() int64 { return none }
 type ergoCall = struct{ Func string }
 
 var ergoCalls = [...]ergoCall{{Func: "f"}}
+
+func copyfixture__Sum(p Pair) int64	{ return p.Left }
+
+func copyfixture__FirstMono_i123(xs []int64) int64 { return xs[0] }
+
+var siteAt = Site{File: "std/copyfixture/fixture.ergo", Line: 4, Column: 2, Id: 7}
+
+var siteWritten = Site{File: "std/copyfixture/fixture.ergo", Line: 5, Column: 2, Id: 0}
+
+func init() {
+	ergo.RegisterTypeNames("main", "copy_t__Box", "Box", "copyfixture__Cell", "Cell")
+}
 `
 	folded := map[string][2]string{
 		"directive":   {"//line /x/std/copyfixture/fixture.ergo:3:1\n", "//line /ergo-copy/std/copyfixture/fixture.ergo:9:1\n"},
@@ -126,6 +138,15 @@ var ergoCalls = [...]ergoCall{{Func: "f"}}
 		"order":       {"type Pair struct{ Left int64 }\n", ""},
 		"suffix":      {"Pair", "Pair_1"},
 		"same text":   {"return none }", "return none_1 }"},
+		// copy/P's alias in every joined name, and what follows from it:
+		// an instance's hash of its type arguments, the order of the
+		// registered type names, the Id of a site by path, the line a
+		// longer name breaks.
+		"package prefix":  {"copyfixture__", "copy_scopyfixture__"},
+		"instance hash":   {"FirstMono_i123", "FirstMono_i456"},
+		"type-name order": {`"copy_t__Box", "Box", "copyfixture__Cell", "Cell"`, `"copyfixture__Cell", "Cell", "copy_t__Box", "Box"`},
+		"site id":         {"Column: 2, Id: 7}", "Column: 2, Id: 9}"},
+		"layout":          {"int64\t{ return p.Left }", "int64 {\n\treturn p.Left\n}"},
 	}
 	kept := map[string][2]string{
 		"callee":         {"return g(", "return h("},
@@ -139,12 +160,19 @@ var ergoCalls = [...]ergoCall{{Func: "f"}}
 		"value":          {"const none int64 = -1", "const none int64 = -2"},
 		"callee package": {"calls copyfixture.g", "calls other.g"},
 		"callee name":    {"calls copyfixture.g", "calls copyfixture.h"},
+		// Only copy/P's own alias folds, and only into P's.
+		"other prefix":    {"copyfixture__Sum", "other__Sum"},
+		"type name pair":  {`"copyfixture__Cell", "Cell"`, `"copyfixture__Cell", "Box"`},
+		"written site id": {"Column: 2, Id: 0}", "Column: 2, Id: 7}"},
 	}
 	want := copyNormalise(base, copyFixturePath, false)
 	for kind, e := range folded {
 		text := strings.Replace(base, e[0], e[1], 1)
-		copied := kind == "namespace" || kind == "callee path"
+		copied := kind == "namespace" || kind == "callee path" || kind == "package prefix"
 		switch kind {
+		case "package prefix":
+			text = strings.ReplaceAll(base, e[0], e[1])
+			text = strings.Replace(text, `"std:copyfixture"`, `"copy/copyfixture"`, 1)
 		case "order":
 			text += e[0]
 		case "suffix":
@@ -168,7 +196,13 @@ var ergoCalls = [...]ergoCall{{Func: "f"}}
 		if text == base {
 			t.Fatalf("copyNormalise self-test: the %s plant does not apply", kind)
 		}
-		if copyNormalise(text, copyFixturePath, false) == want {
+		copied := false
+		if kind == "other prefix" {
+			// Under the copy's folding, as a copy's text.
+			copied = true
+			text = strings.Replace(text, `"std:copyfixture"`, `"copy/copyfixture"`, 1)
+		}
+		if copyNormalise(text, copyFixturePath, copied) == want {
 			t.Errorf("copyNormalise folds a planted %s difference: it would let a privilege through", kind)
 		}
 	}
@@ -752,6 +786,13 @@ func copyEvidence(t *testing.T, pair copyPair) lower.RewriteEvidence {
 //     copy's "calls copy/P.f" (the lowering names a callee by its
 //     package's path, std's and a user's alike);
 //   - positions and files written as text: the copy's root /ergo-copy/;
+//   - a compiler-passed CallSite's Id: it numbers the program's call
+//     positions in order of path (lower siteid.go), and the copy's path
+//     sorts elsewhere; the site's File, Line and Column, which fix it,
+//     are kept, and a written Id of 0 is kept;
+//   - a package's joined names (NAME-LOCAL rule 2): the copy's alias of
+//     copy/P is P's, in an identifier and in a Go type's name written as
+//     text, and so the order of a RegisterTypeNames call's pairs;
 //   - the suffix of a name the lowering made unique (copyCanonicalNames),
 //     in an identifier, and which of two declarations of the same text a
 //     body names; never in a variant's name, which is its Ergo name
@@ -770,6 +811,9 @@ func copyNormalise(text, path string, copied bool) string {
 		ns = strconv.Quote("copy/" + path)
 	}
 	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CompositeLit); ok {
+			copyFoldSiteID(c)
+		}
 		if b, ok := n.(*ast.BasicLit); ok && b.Kind == token.STRING {
 			if b.Value == ns {
 				b.Value = `"<namespace>"`
@@ -784,11 +828,39 @@ func copyNormalise(text, path string, copied bool) string {
 		}
 		return true
 	})
+	if copied {
+		// A package's joined names carry its path's alias (NAME-LOCAL
+		// rule 2): copy/P's are P's with the copy's alias.
+		from, to := lower.PackageAlias("copy/"+path)+"__", lower.PackageAlias(path)+"__"
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.Ident:
+				n.Name = strings.ReplaceAll(n.Name, from, to)
+			case *ast.BasicLit:
+				// A Go type's name written as text: a defect's message,
+				// a registered type name.
+				if n.Kind == token.STRING {
+					n.Value = strings.ReplaceAll(n.Value, `"`+from, `"`+to)
+					n.Value = strings.ReplaceAll(n.Value, " "+from, " "+to)
+				}
+			}
+			return true
+		})
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if c, ok := n.(*ast.CallExpr); ok {
+			copySortTypeNames(c)
+		}
+		return true
+	})
 	copyCanonicalNames(fset, f)
 	var decls []string
 	for _, d := range f.Decls {
 		var buf bytes.Buffer
-		if err := printer.Fprint(&buf, fset, d); err != nil {
+		// Printed with no positions, as copyCanonicalNames' keys are: the
+		// lowering's gofmt breaks a one-line body whose names are longer
+		// (copy/P's joined names), and the printer keeps that break.
+		if err := printer.Fprint(&buf, token.NewFileSet(), d); err != nil {
 			return text
 		}
 		s := buf.String()
@@ -812,7 +884,7 @@ func copyNormalise(text, path string, copied bool) string {
 // lowering made unique with a suffix (Dir and Dir_1: std fs's and fstest's
 // Dir), whose order follows the order in which it names std and user
 // packages. The declarations of one base name are ranked by their text with
-// every top-level name written as its base, and renamed base_#0,
+// every name of the group written as the base, and renamed base_#0,
 // base_#1, … in that order, so the same declarations get the same names
 // whatever order they were named in, and a declaration whose text differs
 // keeps differing. A field, a method and a selector keep their names.
@@ -838,10 +910,12 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 	}
 	groups := map[string][]string{}
+	stems := map[string][2]string{}
 	for name := range declOf {
 		stem, inst := copyNameParts(name)
 		base := stem + inst
 		groups[base] = append(groups[base], name)
+		stems[base] = [2]string{stem, inst}
 	}
 	keep := map[*ast.Ident]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -867,27 +941,20 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 		return true
 	})
-	// A key names every top-level declaration it mentions by its base, not
-	// only its own group's members: the uniqueness suffixes follow the
-	// order the packages lower in, which a copy changes (copy/fs/mapped
-	// sorts before fs, std fs/mapped after it), so a key that kept another
-	// group's suffix would rank the same declarations in another order.
-	baseOf := func(name string) string {
-		if _, ok := declOf[name]; !ok {
-			return name
-		}
-		stem, inst := copyNameParts(name)
-		return stem + inst
-	}
 	final := map[string]string{}
 	for base, names := range groups {
+		inst := ""
+		if stems[base][1] != "" {
+			inst = `_i\d+`
+		}
+		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(stems[base][0]) + `(?:_\d+)?` + inst + `\b`)
 		keys := map[string]string{}
 		for _, n := range names {
 			var buf bytes.Buffer
 			// Printed with no positions: a copy's line directives move
 			// them, and the printer's line breaks follow them.
 			_ = printer.Fprint(&buf, token.NewFileSet(), declOf[n])
-			keys[n] = copyIdent.ReplaceAllStringFunc(buf.String(), baseOf)
+			keys[n] = member.ReplaceAllString(buf.String(), base)
 		}
 		sort.Slice(names, func(i, j int) bool {
 			if keys[names[i]] != keys[names[j]] {
@@ -917,18 +984,67 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 	})
 }
 
-// copyNameParts splits a top-level Go name into its stem and the suffix
-// of a monomorphised instance (_i1), dropping the suffix the lowering adds
-// to make a name unique, which stands before the instance's: Pair_1 is
-// Pair, and DecodeMono_1_i1, toml's beside json's DecodeMono_i1, is
-// DecodeMono with _i1.
-func copyNameParts(name string) (stem, inst string) {
-	m := copyNameShape.FindStringSubmatch(name)
-	return m[1], m[2]
+// copyFoldSiteID writes the nonzero Id of a CallSite literal c (keyed
+// File, Line, Column and Id) as the mark siteId.
+func copyFoldSiteID(c *ast.CompositeLit) {
+	keys := map[string]*ast.KeyValueExpr{}
+	for _, e := range c.Elts {
+		if kv, ok := e.(*ast.KeyValueExpr); ok {
+			if id, ok := kv.Key.(*ast.Ident); ok {
+				keys[id.Name] = kv
+			}
+		}
+	}
+	id := keys["Id"]
+	if id == nil || keys["File"] == nil || keys["Line"] == nil || keys["Column"] == nil {
+		return
+	}
+	if b, ok := id.Value.(*ast.BasicLit); ok && b.Kind == token.INT && b.Value != "0" {
+		id.Value = ast.NewIdent("siteId")
+	}
 }
 
-// copyIdent is a Go identifier in a printed declaration.
-var copyIdent = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*\b`)
+// copySortTypeNames sorts the (Go name, Ergo name) pairs of a
+// RegisterTypeNames call c by their text: the lowering writes them in
+// order of Go name (lower machine.go, typeNamesInit), and copy/P's names
+// sort elsewhere among the other packages'.
+func copySortTypeNames(c *ast.CallExpr) {
+	sel, ok := c.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "RegisterTypeNames" || len(c.Args)%2 != 1 {
+		return
+	}
+	type pair struct{ goName, name ast.Expr }
+	var pairs []pair
+	for i := 1; i < len(c.Args); i += 2 {
+		pairs = append(pairs, pair{c.Args[i], c.Args[i+1]})
+	}
+	text := func(e ast.Expr) string {
+		if b, ok := e.(*ast.BasicLit); ok {
+			return b.Value
+		}
+		return ""
+	}
+	sort.SliceStable(pairs, func(i, j int) bool { return text(pairs[i].goName) < text(pairs[j].goName) })
+	for i, p := range pairs {
+		c.Args[1+2*i], c.Args[2+2*i] = p.goName, p.name
+	}
+}
+
+// copyNameParts splits a top-level Go name into its stem and the mark of
+// a monomorphised instance (_i), dropping the suffix the lowering adds to
+// make a name unique, which stands before the instance's: Pair_1 is Pair,
+// and DecodeMono_1_i1, toml's beside json's DecodeMono_i1, is DecodeMono
+// with _i. The instance's number is dropped too: it is a hash of its type
+// arguments (NAME-LOCAL's monoName), and copy/P's types are not P's, so
+// the instances of one stem are told apart by their text, as the
+// declarations of one base name are.
+func copyNameParts(name string) (stem, inst string) {
+	m := copyNameShape.FindStringSubmatch(name)
+	if m[2] != "" {
+		return m[1], "_i"
+	}
+	return m[1], ""
+}
 
 // copyNameShape is a Go name: its stem, a uniqueness suffix, and the suffix
 // of a monomorphised instance, each of the suffixes optional.
