@@ -15,7 +15,9 @@ it is never 0.
   against drawn builds (phase order, parser workers, packages of both
   origins and routes, cold, hit, private, public and dependency edits;
   duplicate, incomplete, lost and pid-reused records) and then every
-  capture in `testdata/route-a/`. `capture` runs one `ergo build` under
+  capture in `testdata/route-a/`. For a failing seed it removes leaf
+  actions while the same check still fails, then prints the reduced Ergo
+  source, both observations and a replay command. `capture` runs one `ergo build` under
   perf (the tree's total) with itself as the go command's `-toolexec`, so
   each tool process is counted alone. `attribute FILE` prints a capture's
   cells.

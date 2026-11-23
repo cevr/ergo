@@ -375,32 +375,44 @@ func (t *treeIR) leaf(lf *mleaf) []*irStmt {
 	var out []*irStmt
 	if label, ok := t.shared[lf.arm]; ok {
 		for _, bd := range lf.binds {
-			e, et := t.value(bd.val)
 			l, ok := b.locals[bd.v]
 			if !ok {
 				irNo("shared arm binding that its first leaf does not make")
 			}
-			if b.goType(et, t.s) != b.goType(bd.v.Type, t.s) {
-				irNo("match binding of another type")
-			}
-			out = append(out, &irStmt{K: "set", Pos: t.p, Local: l, X: e})
+			out = append(out, &irStmt{K: "set", Pos: t.p, Local: l, X: t.binding(bd)})
 		}
 		return append(out, &irStmt{K: "goto", Pos: t.p, Label: label})
 	}
 	for _, bd := range lf.binds {
-		e, et := t.value(bd.val)
-		g := b.goType(bd.v.Type, t.s)
-		if b.goType(et, t.s) != g {
-			irNo("match binding of another type")
-		}
 		if _, dup := b.locals[bd.v]; dup {
 			irNo("local declared twice")
 		}
-		l := b.named(bd.v.Name, g, t.p)
+		l := b.named(bd.v.Name, b.goType(bd.v.Type, t.s), t.p)
 		b.locals[bd.v] = l
-		out = append(out, &irStmt{K: "def", Pos: t.p, Local: l, X: e})
+		out = append(out, &irStmt{K: "def", Pos: t.p, Local: l, X: t.binding(bd)})
 	}
 	return append(out, t.body(lf.arm)...)
+}
+
+// binding reads a leaf's column as the type the checker gave the arm
+// binding. A catch receives a Go error even when the binding is a
+// concrete failure or a slot row; a shared arm can instead widen the
+// leaf's variant to the join of its alternatives.
+func (t *treeIR) binding(bd patBind) *irExpr {
+	b := t.b
+	e, from := t.value(bd.val)
+	to := bd.v.Type
+	gf, gt := b.goType(from, t.s), b.goType(to, t.s)
+	switch {
+	case gf == gt:
+		return e
+	case gf == "error" && b.flatOf(to) == nil:
+		return &irExpr{K: "assert", Pos: e.Pos, T: gt, X: e}
+	case gt == "error":
+		return &irExpr{K: "toiface", Pos: e.Pos, T: gt, X: e}
+	default:
+		return b.variantInto(from, to, e, t.s)
+	}
 }
 
 // noCase is the emitter's defect of a match that no case matched, at the

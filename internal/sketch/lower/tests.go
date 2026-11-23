@@ -143,7 +143,7 @@ func newTestLowerer(u Unit) *lowerer {
 // name, in the order the naming pass reserves them.
 var testHelpers = []struct{ key, base string }{
 	{"fmt", "fmt"}, {"os", "os"}, {"sort", "sort"}, {"strconv", "strconv"}, {"strings", "strings"},
-	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"AssertDiff", "ergoAssertDiff"}, {"Refuted", "ergoRefuted"},
+	{"Assertion", "ergoAssertion"}, {"AssertFail", "ergoAssertFail"}, {"Reported", "ergoReported"}, {"AssertDiff", "ergoAssertDiff"}, {"Refuted", "ergoRefuted"},
 	{"Case", "ergoCase"}, {"Asserted", "ergoAsserted"}, {"Where", "ergoWhere"},
 	{"Rand", "ergoRand"}, {"NewRand", "ergoNewRand"},
 	{"GenSlice", "ergoGenSlice"}, {"GenMap", "ergoGenMap"},
@@ -268,6 +268,18 @@ func (l *lowerer) nameTests() {
 					if l.ir != nil {
 						l.pkgName(assertShowKey(a), "ergoAssertShow") // ir_assert.go
 					}
+				}
+			}
+			// A harnessed test's rewritten shown assert (check harness.go).
+			if x, ok := n.(*syntax.CallExpr); ok {
+				if c := l.info.Calls[x]; c != nil && c.Kind == check.CallTestShown && len(x.Args) == 2 {
+					lt, lok := l.typedExpr(x.Args[0])
+					rt, rok := l.typedExpr(x.Args[1])
+					if lok && rok {
+						reserveLit(lt)
+						reserveLit(rt)
+					}
+					l.pkgName(assertShowKey(x), "ergoAssertShow")
 				}
 			}
 			return true
@@ -736,104 +748,20 @@ func isStringLike(t check.Type) bool {
 	return isBasic(t, check.String)
 }
 
-// assertShown reports whether a failed assert of x shows its operands: x is
-// a comparison (==, !=, <, <=, >, >=), not of two constants, whose operand
-// types both have an argument literal (printable). It returns the
-// comparison and the operand types. The naming pass (nameTests) and the
-// lowering (assert) ask it the same question. A try that starts x is
-// looked through (tried): try a == b shows a and b as (try a) == b does.
+// assertShown is check.ShownCompare in the package under test, looking
+// through a try that starts x (tried): try a == b shows a and b as
+// (try a) == b does. The naming pass (nameTests) and the lowering (assert)
+// ask it the same question.
 func (l *lowerer) assertShown(x syntax.Expr) (*syntax.BinaryExpr, check.Type, check.Type, bool) {
-	b, ok := unparen(tried(x)).(*syntax.BinaryExpr)
-	if !ok {
-		return nil, nil, nil, false
-	}
-	switch b.Op.String() {
-	case "==", "!=", "<", "<=", ">", ">=":
-	default:
-		return nil, nil, nil, false
-	}
-	_, lc := l.info.Values[b.X]
-	_, rc := l.info.Values[b.Y]
-	lt, lok := l.typedExpr(b.X)
-	rt, rok := l.typedExpr(b.Y)
-	if (lc && rc) || !lok || !rok || !l.printable(lt, map[*check.Named]bool{}) || !l.printable(rt, map[*check.Named]bool{}) {
-		return nil, nil, nil, false
-	}
-	return b, lt, rt, true
+	return check.ShownCompare(l.pkg, l.info, tried(x))
 }
 
 // typedExpr is x's checked type, through parentheses.
-func (l *lowerer) typedExpr(x syntax.Expr) (check.Type, bool) {
-	for {
-		if t, ok := l.info.Types[x]; ok {
-			return t, true
-		}
-		p, isParen := x.(*syntax.ParenExpr)
-		if !isParen {
-			return nil, false
-		}
-		x = p.X
-	}
-}
+func (l *lowerer) typedExpr(x syntax.Expr) (check.Type, bool) { return check.TypedExpr(l.info, x) }
 
-// printable reports a type that has an argument literal (litExpr): a basic
-// type; a slice, Map or tuple of printable types; or a record, union or
-// defined type of the package under test over printable types. A type of
-// another package, of std or of the prelude, an operation type, a function,
-// a borrow and a machine have none here, so their asserts show only the
-// source text, as before.
-func (l *lowerer) printable(t check.Type, seen map[*check.Named]bool) bool {
-	switch u := t.(type) {
-	case *check.Basic:
-		return true
-	case *check.Slice:
-		return l.printable(u.Elem, seen)
-	case *check.Map:
-		return l.printable(u.Key, seen) && l.printable(u.Elem, seen)
-	case *check.Tuple:
-		for _, e := range u.Types {
-			if !l.printable(e, seen) {
-				return false
-			}
-		}
-		return true
-	case *check.Union:
-		// A row value prints as its member (q47).
-		for _, v := range u.Variants {
-			if !l.printable(v, seen) {
-				return false
-			}
-		}
-		return len(u.Variants) > 0
-	case *check.Named:
-		if seen[u] {
-			return true
-		}
-		seen[u] = true
-		if u.Obj.Pkg != l.pkg {
-			return false
-		}
-		switch under := u.Underlying().(type) {
-		case *check.Struct:
-			for _, f := range under.Fields {
-				if !l.printable(f.Type, seen) {
-					return false
-				}
-			}
-			return true
-		case *check.Union:
-			for _, v := range under.Variants {
-				if !l.printable(v, seen) {
-					return false
-				}
-			}
-			return true
-		case *check.Basic, *check.Slice, *check.Map, *check.Tuple:
-			return l.printable(under, seen)
-		}
-	}
-	return false
-}
+// printable is check.Printable in the package under test: a type that has
+// an argument literal (litExpr).
+func (l *lowerer) printable(t check.Type) bool { return check.Printable(l.pkg, t) }
 
 // siteText is the position of the node n as a report names it:
 // file:line:column, the file, the one that holds n (locate). A program's
@@ -847,6 +775,27 @@ func (l *lowerer) siteText(n syntax.Node) string {
 		file = path.Base(strings.ReplaceAll(file, "\\", "/"))
 	}
 	return file + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+}
+
+// testFile is the file as the harness reports it, without line or column.
+func (l *lowerer) testFile(n syntax.Node) string {
+	site := l.siteText(n)
+	for range 2 {
+		site = site[:strings.LastIndexByte(site, ':')]
+	}
+	return site
+}
+
+// testShown uses the same report helper as the IR for a rewritten assert.
+func (fc *funcCtx) testShown(x *syntax.CallExpr) operand {
+	l := fc.l
+	lt, lok := l.typedExpr(x.Args[0])
+	rt, rok := l.typedExpr(x.Args[1])
+	if !lok || !rok || !l.printable(lt) || !l.printable(rt) {
+		ice(x, "ergo·shown of an operand that does not print")
+	}
+	vals := fc.callArgs(x.Args, x)
+	return operand{val: l.assertShowFunc(x, lt, rt, x) + "(" + strings.Join(vals, ", ") + ")"}
 }
 
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
@@ -1429,9 +1378,13 @@ func (a $TestAmbient) end() { $Runtime.TestFolderRemove(a.dir) }
 
 // $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
-type $Assertion struct{ at, text, what, declaration string }
+// report, when given, is the whole of a harnessed test's report ($Reported).
+type $Assertion struct{ at, text, what, declaration, report string }
 
 func (a $Assertion) String() string {
+	if a.report != "" {
+		return a.report
+	}
 	what := a.what
 	if what == "" {
 		what = "assert failed"
@@ -1444,6 +1397,10 @@ func (a $Assertion) String() string {
 }
 
 func $AssertFail(at, text string) { panic($Assertion{at: at, text: text}) }
+
+// $Reported fails a harnessed test with its harness's message as the
+// whole report (check.CallTestReport).
+func $Reported(text string) { panic($Assertion{report: text}) }
 
 // $Refuted ends a false law at its failing expression. declaration, when
 // given, is related information, not the primary failure position.

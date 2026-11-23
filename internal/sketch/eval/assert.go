@@ -16,6 +16,10 @@ import (
 // reported.
 type shownAssert struct {
 	text string
+	// report is a harnessed test's whole report, when reported: its
+	// harness's failure message (check.CallTestReport).
+	report   string
+	reported bool
 	// unshown says the native runner shows this assert's operands and
 	// the evaluator does not (tryShown): its report is not the native one.
 	unshown    bool
@@ -93,30 +97,12 @@ func (in *interp) assertStmt(fr *frame, s *syntax.AssertStmt) *abrupt {
 	return nil
 }
 
-// assertShown reports whether a failed assert of x shows its operands, by
-// the native runner's rule (lower's assertShown): x, through parentheses,
-// is a comparison (==, !=, <, <=, >, >=), not of two constants, whose
-// operand types are both printable. A try that starts x is not shown here
-// (the native runner looks through it): such an assert's report is not the
-// native one, and its result says so (Result.Message is empty).
+// assertShown is check.ShownCompare in the frame's package. A try that
+// starts x is not looked through here (the native runner looks through
+// it): such an assert's report is not the native one, and its result says
+// so (Result.Message is empty).
 func (in *interp) assertShown(fr *frame, x syntax.Expr) (*syntax.BinaryExpr, check.Type, check.Type, bool) {
-	b, ok := unparen(x).(*syntax.BinaryExpr)
-	if !ok {
-		return nil, nil, nil, false
-	}
-	switch b.Op.String() {
-	case "==", "!=", "<", "<=", ">", ">=":
-	default:
-		return nil, nil, nil, false
-	}
-	_, lc := fr.info.Values[b.X]
-	_, rc := fr.info.Values[b.Y]
-	lt, lok := typedExpr(fr.info, b.X)
-	rt, rok := typedExpr(fr.info, b.Y)
-	if (lc && rc) || !lok || !rok || !printable(fr.pkg, lt, map[*check.Named]bool{}) || !printable(fr.pkg, rt, map[*check.Named]bool{}) {
-		return nil, nil, nil, false
-	}
-	return b, lt, rt, true
+	return check.ShownCompare(fr.pkg, fr.info, x)
 }
 
 // tryShown reports whether x is an assert the native runner shows through
@@ -128,76 +114,6 @@ func (in *interp) tryShown(fr *frame, x syntax.Expr) bool {
 	}
 	_, _, _, shown := in.assertShown(fr, t.X)
 	return shown
-}
-
-// typedExpr is x's checked type, through parentheses.
-func typedExpr(info *check.Info, x syntax.Expr) (check.Type, bool) {
-	for {
-		if t, ok := info.Types[x]; ok {
-			return t, true
-		}
-		p, isParen := x.(*syntax.ParenExpr)
-		if !isParen {
-			return nil, false
-		}
-		x = p.X
-	}
-}
-
-// printable is the native runner's rule for a type a report shows (lower's
-// printable): a basic type; a slice, Map or tuple of printable types; a
-// union of printable members; or a record, union or defined type of pkg,
-// the package under test, over printable types.
-func printable(pkg *check.Package, t check.Type, seen map[*check.Named]bool) bool {
-	switch u := t.(type) {
-	case *check.Basic:
-		return true
-	case *check.Slice:
-		return printable(pkg, u.Elem, seen)
-	case *check.Map:
-		return printable(pkg, u.Key, seen) && printable(pkg, u.Elem, seen)
-	case *check.Tuple:
-		for _, e := range u.Types {
-			if !printable(pkg, e, seen) {
-				return false
-			}
-		}
-		return true
-	case *check.Union:
-		for _, v := range u.Variants {
-			if !printable(pkg, v, seen) {
-				return false
-			}
-		}
-		return len(u.Variants) > 0
-	case *check.Named:
-		if seen[u] {
-			return true
-		}
-		seen[u] = true
-		if u.Obj.Pkg != pkg {
-			return false
-		}
-		switch under := u.Underlying().(type) {
-		case *check.Struct:
-			for _, f := range under.Fields {
-				if !printable(pkg, f.Type, seen) {
-					return false
-				}
-			}
-			return true
-		case *check.Union:
-			for _, v := range under.Variants {
-				if !printable(pkg, v, seen) {
-					return false
-				}
-			}
-			return true
-		case *check.Basic, *check.Slice, *check.Map, *check.Tuple:
-			return printable(pkg, under, seen)
-		}
-	}
-	return false
 }
 
 // sourceText is x's text in the source of the frame's declaration.
@@ -218,6 +134,9 @@ func nativeSite(s Site) string {
 // assertMessage is the report of the failed assert a, at site: the native
 // runner's text after "): " on its FAIL line.
 func (in *interp) assertMessage(fr *frame, site Site, a *shownAssert) string {
+	if a.reported {
+		return a.report
+	}
 	text := a.text
 	if a.shown {
 		l, r := in.argument(fr, a.lt, a.left), in.argument(fr, a.rt, a.rite)
@@ -298,4 +217,37 @@ func assertDiff(a, b string) string {
 		}
 	}
 	return out.String()
+}
+
+// shownText is ergo·shown(left, right), which the rewrite of a harnessed
+// test's shown assert calls: the text assertMessage adds after a shown
+// assert's source text, ": left L, right R" and the line diff of two
+// strings, each operand at the type the checker gave it.
+func (in *interp) shownText(fr *frame, x *syntax.CallExpr) (Value, *abrupt) {
+	if len(x.Args) != 2 {
+		ice("ergo·shown of %d values", len(x.Args))
+	}
+	var vals [2]Value
+	var types [2]check.Type
+	for i, a := range x.Args {
+		v, ab := in.expr(fr, a)
+		if ab != nil {
+			return nil, ab
+		}
+		t, ok := check.TypedExpr(fr.info, a)
+		if !ok {
+			ice("ergo·shown of an untyped operand")
+		}
+		vals[i], types[i] = v, t
+	}
+	text := ": left " + in.argument(fr, types[0], vals[0]) + ", right " + in.argument(fr, types[1], vals[1])
+	if isStringLike(types[0]) && isStringLike(types[1]) {
+		ls, lok := vals[0].(string)
+		rs, rok := vals[1].(string)
+		if lok && rok {
+			text += assertDiff(ls, rs)
+		}
+	}
+	mustCharge(in, fr, int64(len(text)))
+	return text, nil
 }

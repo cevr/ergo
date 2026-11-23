@@ -188,6 +188,10 @@ func init() {
 		irCallWithoutStmt((*irBuilder).patternCall),     // CallPattern
 		irCallWithoutStmt((*irBuilder).hashBuiltinCall), // CallHash
 		irCallWithoutStmt((*irBuilder).testSeedCall),    // CallTestSeed
+		irCallWithoutStmt((*irBuilder).testShownCall),   // CallTestShown
+		irCallWithoutStmt((*irBuilder).testSourceCall),  // CallTestSource
+		irCallWithoutStmt((*irBuilder).testReportCall),  // CallTestReport
+		irCallWithoutStmt((*irBuilder).testFileCall),    // CallTestFile
 	}
 }
 
@@ -206,6 +210,30 @@ func (b *irBuilder) testSeedCall(_ *syntax.CallExpr, _ *check.Call, p irPos) ([]
 	// Read the test binary's --seed for the checker-rewritten harness.
 	b.keepImport("var _ = " + b.l.rt() + ".TestSeed")
 	return nil, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSeed"}, false
+}
+
+func (b *irBuilder) testShownCall(x *syntax.CallExpr, _ *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	pre, e := b.shownCall(x, p) // ir_assert.go
+	return pre, e, false
+}
+
+func (b *irBuilder) testSourceCall(x *syntax.CallExpr, _ *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	// A harnessed test replays the binary's --source, or the test's file.
+	b.keepImport("var _ = " + b.l.rt() + ".TestSource")
+	pre, vals := b.operands(x.Args)
+	return pre, &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestSource", Args: vals}, false
+}
+
+func (b *irBuilder) testReportCall(x *syntax.CallExpr, _ *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	if b.l.tests == nil {
+		irNo("ergo·report outside a harnessed test")
+	}
+	pre, vals := b.operands(x.Args)
+	return pre, &irExpr{K: "call", Pos: p, Name: b.l.helper("Reported"), Args: vals}, false
+}
+
+func (b *irBuilder) testFileCall(x *syntax.CallExpr, _ *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {
+	return nil, &irExpr{K: "const", Pos: p, T: "string", V: b.l.testFile(x)}, false
 }
 
 func (b *irBuilder) hashBuiltinCall(x *syntax.CallExpr, _ *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {

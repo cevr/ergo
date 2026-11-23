@@ -9,7 +9,8 @@ import (
 // GenerateInstances is a program whose generic bodies, its own and std's,
 // run at its types (FLIP F7 LY-FIX; the class of I-FLIP's a461a6b13 reds):
 // std slices.Fold and the program's fold at a record of the program's
-// (each a monomorphic copy, mono.go, beside the generic function); size
+// (a monomorphic copy and a known-callback copy, beside each generic
+// function); size
 // at a known provider (a copy for a provider, provider.go); a machine
 // whose after function gives a machines.Every timer and whose step cannot
 // fail, run by std machines.Run, which tries the step through a field
@@ -26,7 +27,10 @@ func GenerateInstances(seed uint64) string {
 	b.WriteString("type Ints []int implements Sized\n\ntype Sized { Size() int }\n\nfunc Size(xs Ints) int { len(xs) }\n\nfunc size(s Sized) int { s.Size() }\n\n")
 	b.WriteString("type Acc { N int, Sum int }\n\n")
 	b.WriteString("func fold[T, A](xs []T, a A, f func(acc A, x T) A) A {\n\tlet mut out = a\n\tfor x in xs {\n\t\tout = f(out, x)\n\t}\n\tout\n}\n\n")
-	fmt.Fprintf(&b, "func tally(xs []int) Acc {\n\tslices.Fold(xs, Acc{N: 0, Sum: %d}, func(a Acc, x int) Acc { Acc{N: a.N + 1, Sum: a.Sum + x} })\n}\n\n", g.n(9))
+	// A named callback keeps tally on the monomorphic path. A pure literal
+	// would now take Fold's known-callback path, as spans does for fold.
+	b.WriteString("func addToTally(a Acc, x int) Acc { Acc{N: a.N + 1, Sum: a.Sum + x} }\n\n")
+	fmt.Fprintf(&b, "func tally(xs []int) Acc {\n\tslices.Fold(xs, Acc{N: 0, Sum: %d}, addToTally)\n}\n\n", g.n(9))
 	fmt.Fprintf(&b, "func spans(ds []duration) duration {\n\tfold(ds, %dms, func(a duration, d duration) duration { a + d })\n}\n\n", g.n(5))
 	b.WriteString("type Lamp = Off{Count int} | On{Count int}\n\ntype Flip = Toggle{} | Tick{At time.Time}\n\n")
 	fmt.Fprintf(&b, "func step(l Lamp, f Flip) Decision[Lamp, int] {\n\tmatch (l, f) {\n\tcase (Off as o, Toggle):\n\t\tEnter[Lamp]{Next: On{Count: o.Count + 1}}\n\tcase (On as o, Toggle):\n\t\tif o.Count >= %d {\n\t\t\treturn Done[int]{Output: o.Count}\n\t\t}\n\t\tEnter[Lamp]{Next: Off{Count: o.Count}}\n\tcase (_, Tick):\n\t\tIgnore\n\t}\n}\n\n", 2+g.n(4))

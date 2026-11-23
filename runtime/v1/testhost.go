@@ -175,6 +175,28 @@ func TestSeed() uint64 { return testSeed() }
 
 var testSeed = sync.OnceValue(func() uint64 { return seedOf(os.Args[1:]) })
 
+// TestSource is the source path a harnessed test's replay command names
+// (check harness.go, rule 3): the value of --source among the process's
+// arguments, the file or package folder ergo test was given, or file, the
+// test's own, when the binary runs alone (lower/tests.go, $Source).
+func TestSource(file string) string {
+	args := os.Args[1:]
+	for i := 0; i < len(args); i++ {
+		key, v, joined := strings.Cut(args[i], "=")
+		if !joined {
+			if i+1 == len(args) {
+				break
+			}
+			i++
+			v = args[i]
+		}
+		if key == "--source" {
+			return v
+		}
+	}
+	return file
+}
+
 func seedOf(args []string) uint64 {
 	for i := 0; i < len(args); i++ {
 		key, v, joined := strings.Cut(args[i], "=")
