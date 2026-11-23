@@ -24,7 +24,14 @@
 //	                  and the bytes it wrote
 //
 // Output: "ok N" or "differ N: …" per step, then "end".
+//
+// A first line "fail AT STATUS" makes the screen's AT-th check fail with
+// the library status STATUS (screen.FailAt): the run stops at the
+// failure with a line "failed …". After the app, every such run prints
+// the checks the screen passed ("check CALL NODE", in order) and "live
+// N", the screens not quit (TestTuiFailuresAgree).
 
+import go ergo.local/prototype/hosts/opentui/screen
 import io
 import slices
 import strings
@@ -37,9 +44,27 @@ func main() needs Console | Ambient | go.Foreign {
 			Console.Println("differ 0: no input")
 			return
 		}
-		let lines = strings.Split(strings.TrimSpace(text), "\n")
+		let mut lines = strings.Split(strings.TrimSpace(text), "\n")
+		let faulted = strings.HasPrefix(lines[0], "fail ")
+		if faulted {
+			let f = strings.Fields(lines[0])
+			screen.FailAt(atoi(f[1]), atoi(f[2]))
+			lines = slices.Slice(lines, 1, len(lines))
+		}
 		let steps = slices.Slice(lines, 1, len(lines))
-		match strings.TrimSpace(lines[0]) {
+		play(lines[0], steps)
+		if faulted {
+			for c in screen.Checks() {
+				Console.Println("check \(c.Call) \(c.Node)")
+			}
+			Console.Println("live \(screen.Live())")
+		}
+	}
+}
+
+// play runs the app named app on steps.
+func play(app string, steps []string) needs Console | Scheduler | go.Foreign {
+		match strings.TrimSpace(app) {
 		case "counter":
 			agree(counterMachine(), counterView, func(a int, b int) bool { a == b }, steps)
 		case "shelf":
@@ -66,8 +91,7 @@ func main() needs Console | Ambient | go.Foreign {
 			agree(choiceMachine(), choiceView, func(a choice, b choice) bool { a == b }, steps)
 		case "reading":
 			agree(readingMachine(), readingView, func(a reading, b reading) bool { a == b }, steps)
-		case _:
-			Console.Println("differ 0: no app \(lines[0])")
-		}
+	case _:
+		Console.Println("differ 0: no app \(app)")
 	}
 }

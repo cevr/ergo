@@ -9,8 +9,12 @@ import ui
 import utf8
 
 // result is how a step ended on one host: done, or the label it found no
-// node for, or how it failed.
-type result = Done{} | Missing{Label string} | Broke{Why string}
+// node for, or how it failed; Failed is the terminal's screen failing,
+// which ends the run (TestTuiFailuresAgree).
+type result = Done{} | Missing{Label string} | Broke{Why string} | Failed{Failure tui.ScreenFailed}
+
+// failLine is the line hostagree prints for a screen failure.
+func failLine(e tui.ScreenFailed) string { "failed \(e.Why)" }
 
 // agree plays steps on both hosts and prints whether they agree after
 // each. The screen is 60 by 40 cells (480 by 640 DIPs, the window of
@@ -33,7 +37,7 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E
 		Console.Println("differ 0: driver: \(b.Why)")
 		return
 	case tui.ScreenFailed as e:
-		Console.Println("differ 0: driver: \(e.Why)")
+		Console.Println(failLine(e))
 		return
 	}
 	match compare(&h, &d, s, same) {
@@ -69,6 +73,12 @@ func agree[E comparable, S](m Machine[S, E, int], view own func(f mut ui.Frame[E
 		if costed {
 			Console.Println("cost \(s.Calls() - before) bytes \(s.Bytes() - wrote)")
 		}
+		match b {
+		case Failed as f:
+			Console.Println(failLine(f.Failure))
+			return
+		case _:
+		}
 		if a != b {
 			Console.Println("differ \(n): \(line): test host \(said(a)), terminal \(said(b))")
 			continue
@@ -95,6 +105,8 @@ func said(r result) string {
 		"no node \(m.Label)"
 	case Broke as b:
 		"failed \(b.Why)"
+	case Failed as f:
+		failLine(f.Failure)
 	}
 }
 
@@ -584,6 +596,11 @@ func run[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.Driver[
 		both(h, d, ui.SettleAll)
 	case "frames":
 		let (a, b) = both(h, d, ui.AdvanceBy{By: duration(int64(atoi(rest)) * int64(16ms))})
+		match b {
+		case Failed:
+			return (a, b)
+		case _:
+		}
 		match edged(d, ui.Screen(h)) {
 		case Some[string] as why:
 			(a, Broke{Why: why.Value})
@@ -683,7 +700,7 @@ func played(f func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatc
 	case ui.Closed:
 		return Broke{Why: "closed"}
 	case tui.ScreenFailed as e:
-		return Broke{Why: e.Why}
+		return Failed{Failure: e}
 	}
 	Done
 }
@@ -788,6 +805,11 @@ func focusPress[E comparable, S, D, F](h mut ui.TestHost[S, E, D, F], d mut tui.
 	let b = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		try tui.Send(d, keys)
 	})
+	match b {
+	case Failed:
+		return (Done, b)
+	case _:
+	}
 	let clicked = played(func() fails ui.NoNode | ui.Ambiguous | actor.Stopped | ui.BadPatch | ui.Closed | ui.Mismatch | tui.ScreenFailed needs go.Foreign {
 		match hit {
 		case Some[(ui.Id[E], ui.Node[E])] as t:
