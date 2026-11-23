@@ -1,0 +1,38 @@
+{
+  "about": "Generated-folder marker mutants (wf10 GEN-SIDECAR). Each is killed by the package's seeded property TestMarkerHoldsOnlyItsFolder.",
+  "mutants": [
+    {
+      "name": "genmark-held-ignores-digest",
+      "origin": "wf10 GEN-SIDECAR",
+      "file": "internal/genmark/genmark.go",
+      "from": "\treturn err == nil && Digest(files) == m.Digest",
+      "to": "\treturn err == nil",
+      "rule": "A marker holds only while its digest is its folder's: a marker copied into a hand-written folder, or a hand edit of a generated file, hides nothing.",
+      "killers": [
+        "internal/genmark:TestMarkerHoldsOnlyItsFolder"
+      ]
+    },
+    {
+      "name": "genmark-digest-skips-content",
+      "origin": "wf10 GEN-SIDECAR",
+      "file": "internal/genmark/genmark.go",
+      "from": "\t\th.Write([]byte(files[name]))\n",
+      "to": "",
+      "rule": "The digest covers each file's content.",
+      "killers": [
+        "internal/genmark:TestMarkerHoldsOnlyItsFolder"
+      ]
+    },
+    {
+      "name": "genmark-digest-skips-names",
+      "origin": "wf10 GEN-SIDECAR",
+      "file": "internal/genmark/genmark.go",
+      "from": "\t\tfmt.Fprintf(h, \"%d %s %d\\n\", len(name), name, len(files[name]))",
+      "to": "\t\tfmt.Fprintf(h, \"%d\\n\", len(files[name]))",
+      "rule": "The digest covers each file's path, so a marker moved to a folder of the same contents under other names does not hold.",
+      "killers": [
+        "internal/genmark:TestMarkerHoldsOnlyItsFolder"
+      ]
+    }
+  ]
+}

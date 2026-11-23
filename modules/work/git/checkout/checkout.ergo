@@ -8,10 +8,11 @@
 // law's fact on a repository they make, and the model's laws in memory.
 
 import exec
+import os
 import github.com/cevr/ergo/modules/work/git
 import github.com/cevr/ergo/modules/work/work
 
-let onHost = context needs TestAmbient { work.Vcs: Checkout(exec.NewTestHost()) }
+let onHost = context needs TestAmbient { work.Vcs: Checkout(exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ()))) }
 
 // CheckoutScript makes the working folder a checkout of branch main with
 // one commit and an untracked file. It starts three processes, as each

@@ -296,76 +296,122 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("check.Std.Import(%q): %v", path, err)
 		}
-		for _, tn := range pkg.Types {
-			n, ok := tn.Type.(*check.Named)
-			if !ok {
-				t.Errorf("%s.%s is not a named type", path, tn.Name)
-				continue
-			}
-			if _, ops := operations(n); ops {
-				continue // bound through the extern that returns it (goType)
-			}
-			if !isExportedName(tn.Name) {
-				// An unexported record (log's annotation, trace's span) is
-				// the program's declaration: no import names it, and the
-				// runtime has no struct for it (lower runtimeType).
-				if _, err := v1.StructFields(tn.Name); err == nil {
-					t.Errorf("%s.%s is unexported, and v1 declares a struct of its name", path, tn.Name)
-				}
-				continue
-			}
-			st, ok := n.Underlying().(*check.Struct)
-			if !ok {
-				t.Errorf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
-				continue
-			}
-			// A provider, a record that declares an operation type
-			// (cmp.Natural and cmp.Reverse implement cmp.Order; CONSTRAINTS
-			// C3), is the program's declaration too: an Ergo value its
-			// package's functions operate on, never a runtime error value.
-			provider := n.Obj.Decl != nil && len(n.Obj.Decl.Implements) > 0
-			if _, named := check.GoTypeOf(n); !named && (hasUnexportedField(st) || provider) {
-				// A record with construction authority whose declaration
-				// names no Go type (slices.Ascending, SS5) is the program's
-				// declaration (lower runtimeType): only its package builds
-				// it, so it is never an error value of the runtime.
-				if _, err := v1.StructFields(tn.Name); err == nil {
-					t.Errorf("%s.%s names no Go type, and v1 declares a struct of its name", path, tn.Name)
-				}
-				continue
-			}
-			seen++
-			goName, named := check.GoTypeOf(n)
-			if !named || goName != tn.Name {
-				t.Errorf("%s.%s names the Go type %q (%v); a v1 package's record names v1.%s", path, tn.Name, goName, named, tn.Name)
-				continue
-			}
-			var want []string
-			for _, f := range st.Fields {
-				want = append(want, f.Name)
-			}
-			got, err := v1.StructFields(goName)
-			if err != nil {
-				t.Errorf("%s.%s: %v", path, tn.Name, err)
-				continue
-			}
-			if !slices.Equal(got, want) {
-				t.Errorf("%s.%s has fields %v, its Go type v1.%s has %v", path, tn.Name, want, goName, got)
-			}
-			name := path + "." + tn.Name
-			v, ok := errorValues[name]
-			if !ok {
-				t.Errorf("%s is a record of a v1 package with no entry in errorValues", name)
-				continue
-			}
-			if v.Error() != name {
-				t.Errorf("v1.%s's text is %q, want its Ergo name %q", tn.Name, v.Error(), name)
-			}
+		problems, n := runtimeTypeProblems(path, pkg)
+		for _, p := range problems {
+			t.Error(p)
 		}
+		seen += n
 	}
 	if seen != len(errorValues) {
 		t.Errorf("checked %d records of v1 packages, errorValues lists %d", seen, len(errorValues))
 	}
+}
+
+// TestRuntimeTypeRuleAdmitsOnlyWhatNoExternMakes is the smallest fixture
+// of the record rule of TestStdTypesBindRuntimeTypes: Built, which no
+// extern returns, is the program's declaration, and so is Either, a
+// union; Made, which an extern returns and which names no Go type, still
+// fails, since a Go body makes the value that a catch or match waits for.
+func TestRuntimeTypeRuleAdmitsOnlyWhatNoExternMakes(t *testing.T) {
+	f, err := syntax.Parse("type Built { N int }\n" +
+		"type Made { N int }\n" +
+		"type Either = Built | Made\n" +
+		"extern go ergo.local/prototype/runtime/v1.TaskReason func made() Made\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.StdFixture("fixture", []*syntax.File{f})
+	if len(ds) != 0 {
+		t.Fatalf("fixture: %v", ds)
+	}
+	problems, _ := runtimeTypeProblems("fixture", pkg)
+	want := []string{`fixture.Made names the Go type "" (false); a v1 package's record names v1.Made`}
+	if !slices.Equal(problems, want) {
+		t.Errorf("problems = %q, want %q", problems, want)
+	}
+}
+
+// runtimeTypeProblems is TestStdTypesBindRuntimeTypes's rule over one
+// package: its problems, and how many records it tied to a v1 struct.
+func runtimeTypeProblems(path string, pkg *check.Package) (out []string, seen int) {
+	errf := func(format string, a ...any) { out = append(out, fmt.Sprintf(format, a...)) }
+	for _, tn := range pkg.Types {
+		n, ok := tn.Type.(*check.Named)
+		if !ok {
+			errf("%s.%s is not a named type", path, tn.Name)
+			continue
+		}
+		if _, ops := operations(n); ops {
+			continue // bound through the extern that returns it (goType)
+		}
+		if !isExportedName(tn.Name) {
+			// An unexported record (log's annotation, trace's span) is
+			// the program's declaration: no import names it, and the
+			// runtime has no struct for it (lower runtimeType).
+			if _, err := v1.StructFields(tn.Name); err == nil {
+				errf("%s.%s is unexported, and v1 declares a struct of its name", path, tn.Name)
+			}
+			continue
+		}
+		if _, union := n.Underlying().(*check.Union); union {
+			// A union (task.Exit) is the program's declaration, as
+			// Option is (Types 5): no Go body names it, and each of
+			// its variants is a record of the package, checked below.
+			continue
+		}
+		st, ok := n.Underlying().(*check.Struct)
+		if !ok {
+			errf("%s.%s is neither a record nor an operations type: it needs a binding rule", path, tn.Name)
+			continue
+		}
+		// A provider, a record that declares an operation type
+		// (cmp.Natural and cmp.Reverse implement cmp.Order; CONSTRAINTS
+		// C3), is the program's declaration too: an Ergo value its
+		// package's functions operate on, never a runtime error value.
+		provider := n.Obj.Decl != nil && len(n.Obj.Decl.Implements) > 0
+		// A record that no extern of its package returns or fails with
+		// (task.Done, a variant of the Exit that task.ExitOf's Ergo
+		// body builds) is the program's declaration too: no Go body can
+		// make one, so no catch arm or match waits for a runtime value.
+		if _, named := check.GoTypeOf(n); !named && (hasUnexportedField(st) || provider || !externMakes(pkg, tn)) {
+			// A record with construction authority whose declaration
+			// names no Go type (slices.Ascending, SS5) is the program's
+			// declaration (lower runtimeType): only its package builds
+			// it, so it is never an error value of the runtime.
+			if _, err := v1.StructFieldsOf(tn.Name, len(n.TParams)); err == nil {
+				errf("%s.%s names no Go type, and v1 declares a struct of its name", path, tn.Name)
+			}
+			continue
+		}
+		seen++
+		goName, named := check.GoTypeOf(n)
+		if !named || goName != tn.Name {
+			errf("%s.%s names the Go type %q (%v); a v1 package's record names v1.%s", path, tn.Name, goName, named, tn.Name)
+			continue
+		}
+		var want []string
+		for _, f := range st.Fields {
+			want = append(want, f.Name)
+		}
+		got, err := v1.StructFields(goName)
+		if err != nil {
+			errf("%s.%s: %v", path, tn.Name, err)
+			continue
+		}
+		if !slices.Equal(got, want) {
+			errf("%s.%s has fields %v, its Go type v1.%s has %v", path, tn.Name, want, goName, got)
+		}
+		name := path + "." + tn.Name
+		v, ok := errorValues[name]
+		if !ok {
+			errf("%s is a record of a v1 package with no entry in errorValues", name)
+			continue
+		}
+		if v.Error() != name {
+			errf("v1.%s's text is %q, want its Ergo name %q", tn.Name, v.Error(), name)
+		}
+	}
+	return out, seen
 }
 
 // matchTypeParams checks a body's Go type parameters against the Ergo type
@@ -588,6 +634,39 @@ func isExportedName(name string) bool {
 
 // hasUnexportedField reports a record with a field that only its package
 // names, so only its package builds it (construction authority).
+// externMakes reports whether an extern of pkg returns tn or fails with
+// it, directly or as a type argument or union variant: a Go body can then
+// make a value of it, which must be the Go type its declaration names.
+func externMakes(pkg *check.Package, tn *check.TypeName) bool {
+	var names func(check.Type) bool
+	names = func(ty check.Type) bool {
+		switch ty := ty.(type) {
+		case *check.Named:
+			if ty.Obj == tn {
+				return true
+			}
+			if slices.ContainsFunc(ty.TArgs, names) {
+				return true
+			}
+			if u, ok := ty.Underlying().(*check.Union); ok && ty.Obj.Pkg == pkg {
+				return slices.ContainsFunc(u.Variants, names)
+			}
+		case *check.Union:
+			return slices.ContainsFunc(ty.Variants, names)
+		}
+		return false
+	}
+	for _, f := range pkg.Funcs {
+		if f.Decl == nil || f.Decl.Extern == nil || f.Sig == nil {
+			continue
+		}
+		if slices.ContainsFunc(f.Sig.Results, names) || slices.ContainsFunc(f.Sig.Errors.Elems(), names) {
+			return true
+		}
+	}
+	return false
+}
+
 func hasUnexportedField(st *check.Struct) bool {
 	for _, f := range st.Fields {
 		if !isExportedName(f.Name) {

@@ -136,6 +136,10 @@ func (l *lowerer) litExpr(t check.Type, val string, site syntax.Node) string {
 		}
 		ice(site, "a property argument of type %s, which has no literal; the checker admits only generatable types", t)
 	}
+	if s, ok := t.(*check.Signature); ok && check.NoopFunc(s) {
+		// The one generated func() returns (LAW-GEN-FUNC): its literal.
+		return strconv.Quote("func() {}")
+	}
 	return l.litFunc(t, site) + "(" + val + ")"
 }
 

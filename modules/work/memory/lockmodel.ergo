@@ -20,6 +20,9 @@ type PackageManager { disk fstest.Memory, runs sync.Ref[int] } implements exec.R
 
 func NewPackageManager(disk fstest.Memory) PackageManager { PackageManager{disk: disk, runs: sync.NewRef(0)} }
 
+// Env is empty: the fake runs nothing (exec.Runner.Env).
+func Env(_ PackageManager) Map[string, string] { Map[string, string]{} }
+
 func Run(p PackageManager, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	if StatesItsStatus(c) {
 		return exec.NotFound{Name: c.Name}

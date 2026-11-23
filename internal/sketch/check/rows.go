@@ -30,7 +30,7 @@ type target struct {
 	// literal inside the law has a target of its own, without it.
 	law     bool
 	main    bool
-	context bool // a named context's build: closed (README Gap 6)
+	context bool // a named context's build: its header writes declUses (contextneeds.go)
 	// internal is what a named context binds itself: its providers may use it
 	// (rows.md, Context 4); charged collects the internal capabilities the
 	// entry being checked uses, for the context's entry-cycle check (M14).
@@ -115,7 +115,7 @@ func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 	}
 	switch {
 	case t.context:
-		c.errorf(n, CodeMissingCap, "%s requires %s while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)", t.name, cap)
+		c.errorf(n, CodeMissingCap, "%s requires %s while it is built, which its header's needs row does not list: write needs %s in its header (rows.md, Context 4)", t.name, cap, cap)
 	default:
 		if what == "" {
 			what = describeCharge(n)
@@ -163,7 +163,7 @@ func (c *checker) escape(n syntax.Node, row *Row) {
 	}
 	switch {
 	case t.context:
-		c.errorf(n, CodeUndeclared, "%s can fail with %s while it is built; a named context is closed: no failure escapes its build (README Gap 6)", t.name, rowText(extra))
+		c.errorf(n, CodeUndeclared, "%s can fail with %s while it is built, which its header's fails row does not list: write fails %s in its header, or catch it in the entry (rows.md, Context 4)", t.name, rowText(extra), extra.String())
 	default:
 		c.errorf(n, CodeUndeclared, "%s escapes %s, whose error row %s does not list it", rowText(extra), t.name, rowText(t.declErrors))
 	}

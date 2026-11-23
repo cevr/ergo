@@ -270,6 +270,8 @@ func repairRemoval(t Trees, who string, root string, failure work.CloneFailed) b
 // be independently actionable, so the final diagnostic keeps both.
 type retryRunner { attempts sync.Ref[int] } implements exec.Runner
 
+func Env(_ retryRunner) Map[string, string] { Map[string, string]{} }
+
 func Run(p retryRunner, c exec.Command) exec.Result fails exec.NotFound {
 	match c.Name {
 	case "test":

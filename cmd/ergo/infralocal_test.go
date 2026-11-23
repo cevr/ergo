@@ -49,10 +49,11 @@ func TestInfraLocalStartsARealProgram(t *testing.T) {
 import github.com/cevr/ergo/modules/infra-local/local
 import exec
 import fs
+import os
 
 func main() fails infra.Failed needs Console | Ambient {
 	let host = fs.NewHost()
-	let spawner = exec.NewHost()
+	let spawner = exec.NewHost().InheritEnv(exec.PathOf(os.NewHost().Environ()))
 	let pr = local.ProgramsOn(host, host, spawner, local.Up, "` + work + `", "` + work + `/state", 2s)
 	let props = local.ProcessProps{Program: "sleep", Args: "60", Env: "", Dir: "", Port: 1, Health: ""}
 	try pr.Apply("nap", props)

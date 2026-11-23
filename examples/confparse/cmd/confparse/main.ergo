@@ -175,6 +175,8 @@ func Args(_ proc) []string { []string{} }
 
 func Getenv(p proc, key string) Option[string] { p.env.Get(key) }
 
+func Environ(p proc) Map[string, string] { p.env }
+
 func Getwd(_ proc) string fails os.NoWorkdir { "/work" }
 
 func ran(args []string, env Map[string, string]) string fails fs.NotFound | fs.Denied | fs.Failed {

@@ -1,0 +1,47 @@
+// processbench holds PROCESS-RUN's probes of std process, each with a
+// hand Go twin in ../../testdata/control and a floor in
+// ../../testdata/floor; a workload per kind in ../../KIND (go run
+// ./scripts/opcount -control -rounds 5 benchmarks/process/KIND).
+//
+//	processbench bench KIND N
+//
+// run: N times process.Run of a small block under no limit (a spawn, a
+// join, and the defect boundary). timed: the same under a time limit of
+// an hour, which never passes.
+
+import os
+import process
+import strconv
+
+func run(n int, l process.Limits) int fails os.Exit needs Scheduler {
+	let mut acc = 0
+	for i in 0..n {
+		let v = process.Run(l) { i & 3 } catch {
+		case process.OverTime, process.Crashed:
+			return os.Exit{Code: 1, Message: "processbench: the process did not end with its value"}
+		}
+		acc += v
+	}
+	acc
+}
+
+func main() fails os.Exit needs Console | Ambient {
+	let args = os.NewHost().Args()
+	if len(args) != 3 || args[0] != "bench" {
+		return os.Exit{Code: 2, Message: "usage: processbench bench KIND N"}
+	}
+	let n = strconv.Atoi(args[2]) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return os.Exit{Code: 2, Message: "processbench: N must be a count"}
+	}
+	let l = match args[1] {
+	case "run":
+		process.Unlimited
+	case "timed":
+		process.Limits{..process.Unlimited, Time: 1h}
+	case _:
+		return os.Exit{Code: 2, Message: "processbench: unknown kind \(args[1])"}
+	}
+	let acc = with context { Scheduler: NewLiveScheduler() } { try run(n, l) }
+	Console.Println(strconv.Itoa(acc))
+}

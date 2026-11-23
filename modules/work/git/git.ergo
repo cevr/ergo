@@ -88,11 +88,12 @@ func other(root string, path string) string fails work.VcsFailed {
 func Head(v Vcs, root string) string fails work.VcsFailed { try answer(v, root, []string{"rev-parse", "--verify", "HEAD"}) }
 
 func Branch(v Vcs, root string) string fails work.VcsFailed {
-	let r = try reads(v, root, []string{"symbolic-ref", "--quiet", "--short", "HEAD"})
-	if r.Status != 0 {
+	let r = try reads(v, root, []string{"symbolic-ref", "--quiet", "HEAD"})
+	let ref = strings.TrimSpace(r.Stdout)
+	if r.Status != 0 || !strings.HasPrefix(ref, "refs/heads/") {
 		return ""
 	}
-	strings.TrimSpace(r.Stdout)
+	strings.TrimPrefix(ref, "refs/heads/")
 }
 
 func Clean(v Vcs, root string) bool fails work.VcsFailed {
@@ -299,6 +300,16 @@ func GuardPushes(v Vcs, root string) fails work.VcsFailed {
 	for name in exec.Split(try answer(v, root, []string{"remote"})) {
 		let _ = try writes(v, root, []string{"config", "remote.\(name).pushurl", Guard})
 	}
+}
+
+func PushesGuarded(v Vcs, root string) bool fails work.VcsFailed {
+	for name in exec.Split(try answer(v, root, []string{"remote"})) {
+		let urls = try reads(v, root, []string{"remote", "get-url", "--push", "--all", "--", name})
+		if urls.Status != 0 || exec.Split(urls.Stdout) != []string{Guard} {
+			return false
+		}
+	}
+	true
 }
 
 // Guarded reads each remote's push URLs (git config --get-all) and names

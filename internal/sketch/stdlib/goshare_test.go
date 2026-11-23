@@ -41,7 +41,7 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 // may hold. It only falls: a move lowers its class's ceiling to the count
 // it leaves.
 var stdGoShareCeiling = map[string]int{
-	"provider":    81, // CAP stack (917): +2 fs.confineLast, fs.hostMapBounded; I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written), -1 again by AW-ERGO (// ergo:aswritten, an Ergo body); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet
+	"provider":    84, // PROCESS-RUN: +3 task.exitOf, exitReason, exitValue (rt primitives: the join of a task's handle and its exit kind; PROC-REVERT-TASKEXIT folds exitReason into exitOf); CAP stack (917): +2 fs.confineLast, fs.hostMapBounded; I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written), -1 again by AW-ERGO (// ergo:aswritten, an Ergo body); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet
 	"host":        41, // CAP stack (917): +5 host leaves (exec.hostReplace, fs.hostSameAs, signal.hostWatch, hostUnwatch, hostNumber); I22: +14 batch-22 externs; NET1: +2 net.hostDial, net.hostListen; UC1: +1 (term.hostPeek and hostDrop replace hostReadKey)
 	"library":     89, // CAP stack (917): +11 HOST-ROW leaves (fs Lstat, IsLink, Mkdir, Readlink, Resolve, Symlink; os Pid, HomeDir, CacheDir, ConfigDir, Executable), +1 sha256.New (LF2); I22: +14 batch-22 externs (I22-B22CLASS rows)
 	"language":    3,  // I22: +2 batch-22 externs

@@ -1,0 +1,5 @@
+kind mcp
+generator ergo gen mcp
+subject pipeline/pipeline.Pipeline
+contract sha256:9551527a1455c9f7c1e837e99fbf827e9ac389f4f4a7265393bd017aac0ec26f
+digest sha256:f468ba6b0f7b1de20436787dc7e5757b0e2746fe5bb3e15030042e77ecba6f78
