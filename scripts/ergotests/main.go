@@ -53,7 +53,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ergotests:", err)
 			os.Exit(2)
 		}
-		os.Exit(runStd(os.Stdout, root))
+		os.Exit(runStd(os.Stdout, root, *ergo))
 	}
 	if flag.NArg() == 0 || *run != "" && *killer != "" {
 		fmt.Fprintln(os.Stderr, "usage: ergotests [-run REGEXP | -killer NAME] DIR|DIR/...")
@@ -100,7 +100,9 @@ func runKiller(w io.Writer, patterns []string, name, ergo string) int {
 	if !isLaw {
 		return runPicked(w, patterns, func(r string) bool { return r == name && !strings.HasPrefix(r, "law ") }, true, "-killer "+name)
 	}
-	match := func(r string) bool { return r == "law "+law || strings.HasPrefix(r, "law "+law+" for ") }
+	// A member law runs once per provider (for P) or context (under C),
+	// in the declaring package or a provider's (pkg.T.L).
+	match := func(r string) bool { l, ok := lawOf(r); return ok && l == law }
 	if ergo == "" {
 		return runPicked(w, patterns, match, true, "-killer "+name)
 	}
