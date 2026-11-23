@@ -1,0 +1,84 @@
+// A captured build as text (capture writes it, verify and attribute read
+// it), one record per line:
+//
+//	meta KEY VALUE...             a pin: version, flags, cpu, cache, edit
+//	tree N                        user instructions of the whole build tree
+//	proc ID TOOL PKG ORIGIN SELF  one tool process the toolexec wrapper ran
+//	span ID SEQ STAGE COUNT       one stage of compile ID (phase instrument)
+//	unmeasured ID WHY             a process whose count the host refused
+//
+// PKG is "-" for a process of no package. The driver (ergo, the go
+// command, the wrappers and perf around each tool) is the one process a
+// capture cannot count alone: Parse gives it the tree's total less every
+// tool's Self, the explicit residual, and refuses a capture where that is
+// negative.
+
+import slices
+import strconv
+import strings
+
+// Capture is a parsed capture: its trace, its pins and its unmeasured
+// processes.
+type Capture { Trace Trace, Meta []string, Unmeasured []string }
+
+// Malformed is a capture line Parse cannot read.
+type Malformed { Line int, Text string }
+
+func num(s string, at int, text string) int fails Malformed {
+	strconv.Atoi(s) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return Malformed{Line: at, Text: text}
+	}
+}
+
+// Parse reads a capture.
+func Parse(text string) Capture fails Malformed {
+	let mut procs = []Proc{}
+	let mut spans = []Span{}
+	let mut meta = []string{}
+	let mut unmeasured = []string{}
+	let mut ids = Map[string, int]{}
+	let mut tree = -1
+	let mut i = 0
+	for line in strings.Split(text, "\n") {
+		i = i + 1
+		let f = strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if f[0] == "meta" {
+			meta = meta.Append(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "meta")))
+		} else if f[0] == "tree" && len(f) == 2 {
+			tree = try num(f[1], i, line)
+		} else if f[0] == "proc" && len(f) == 6 {
+			let pid = len(ids) + 2
+			ids[f[1]] = pid
+			let pkg = if f[3] == "-" { "" } else { f[3] }
+			procs = procs.Append(Proc{Pid: pid, Gen: 1, Parent: procKey(1, 1), Tool: f[2], Pkg: pkg, Origin: f[4], Cached: false, Self: try num(f[5], i, line)})
+		} else if f[0] == "span" && len(f) == 5 {
+			let pid = match ids.Get(f[1]) {
+			case Some as x:
+				x.Value
+			case None:
+				0
+			}
+			spans = spans.Append(Span{Pid: pid, Gen: 1, Seq: try num(f[2], i, line), Worker: 0, Stage: f[3], Count: try num(f[4], i, line)})
+		} else if f[0] == "unmeasured" && len(f) >= 2 {
+			unmeasured = unmeasured.Append(strings.Join(slices.Slice(f, 1, len(f)), " "))
+		} else {
+			return Malformed{Line: i, Text: line}
+		}
+	}
+	if tree < 0 {
+		return Malformed{Line: 0, Text: "no tree line"}
+	}
+	let mut tools = 0
+	for p in procs {
+		tools = tools + p.Self
+	}
+	let driver = Proc{Pid: 1, Gen: 1, Parent: "", Tool: "driver", Pkg: "", Origin: "tool", Cached: false, Self: tree - tools}
+	if driver.Self < 0 {
+		return Malformed{Line: 0, Text: "tools \(tools) exceed the tree \(tree)"}
+	}
+	Capture{Trace: Trace{Procs: slices.Concat([]Proc{driver}, procs), Spans: spans, Tree: tree}, Meta: meta, Unmeasured: unmeasured}
+}
