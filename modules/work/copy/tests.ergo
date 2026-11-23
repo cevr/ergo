@@ -4,6 +4,7 @@
 
 import exec
 import fs
+import os
 import strings
 
 import github.com/cevr/ergo/modules/work/system
@@ -13,6 +14,7 @@ let onHost = context needs TestAmbient {
 	work.Cloner:         New(system.TestTrees()),
 	fs.Files, fs.Writes: fs.NewTestHost(),
 	exec.Runner:         exec.NewTestHost(),
+	os.Process:          os.NewTestHost(),
 }
 
 test CloneCopiesATree {
@@ -90,9 +92,10 @@ func plantPermissionFixture() fails fs.Denied | fs.Failed | fs.NotFound needs fs
 	try fs.Writes.WriteFileMode("bin/chmod", chmod, fs.PrivateDir())
 }
 
-func permissionFixture(path string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | TestAmbient {
+func permissionFixture(path string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed | os.NoWorkdir needs exec.Runner | os.Process {
+	let dir = try os.Process.Getwd()
 	let c = exec.New("sh", []string{"-c", system.RepairRemovalScript, "work-discard-permissions", path})
-	try exec.Runner.Run(c.WithEnv("PATH", TestFolder() + "/bin:/usr/bin:/bin"))
+	try exec.Runner.Run(c.WithEnv("PATH", dir + "/bin:/usr/bin:/bin"))
 }
 
 // BaseScript makes base a checkout whose files hold every kind git's
