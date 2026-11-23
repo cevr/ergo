@@ -20,6 +20,10 @@ import (
 // where a file is read).
 const missing = "-"
 
+// Missing is missing for a Base: the listing of a folder that does not
+// exist.
+const Missing = missing
+
 // fileStat is what a file's stat says of its content: when it is the same
 // as when the file was hashed, the hash still holds.
 type fileStat struct {

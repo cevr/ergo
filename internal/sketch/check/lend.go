@@ -508,6 +508,9 @@ func (w *ownWalk) keepArgumentLoans(x *syntax.CallExpr) {
 // loanTake guards an early root release, including assignment and partial
 // field release. A keeper drained on every incoming path no longer lends.
 func (w *ownWalk) loanTake(i int, at syntax.Node, field int) bool {
+	if e, ok := at.(syntax.Expr); ok && w.tracked(w.info.Types[e]) && w.withLent(i, at) {
+		return true // a with's lend (R11); writing a field that holds no resource takes nothing
+	}
 	if !w.st.reached || w.lending == nil {
 		return false
 	}

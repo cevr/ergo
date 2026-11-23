@@ -3,13 +3,11 @@
 // gate writes there, the replay of that record, and the merge tier's
 // comparison of an uncached run with it.
 //
-// The package runs no program and builds without cgo (package hermetic
-// checks it), so its tests replay from Go's test cache. Package main
-// collects the facts that need programs (git, tool queries, the systemd
-// probe) and passes them here as Facts. It builds on Linux and darwin, the
-// platforms the gate runs on: the stat tuple of an ignored file needs each
-// one's stat fields, and package hermetic refuses a file that none of its
-// configurations builds.
+// The package runs no program. Package main collects the facts that need
+// programs (git, tool queries, the systemd probe) and passes them here as
+// Facts. It builds on Linux and darwin, the platforms the gate runs on, and
+// on every other system through stat_other.go: the stat tuple of an ignored
+// file needs each one's stat fields.
 //
 // The store protocol follows the Quint model of the unit that introduced it
 // (gate-incr slice 1, gatestore.qnt): content-addressed objects written once,
