@@ -1570,13 +1570,16 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	var arms []arm
 	bind := false
 	seen := map[string]bool{}
-	caseType := func(t check.Type, item syntax.Node) string {
-		goType := fc.goType(t)
-		if seen[goType] {
-			unreachable(item, ruleCaughtTwice, "a catch arm of the Go type %s, which an earlier arm takes", goType)
+	// A named row's arm lists its variants (namedrow.go).
+	caseTypes := func(t check.Type, item syntax.Node) []string {
+		gs := fc.l.caseGoTypes(t, fc.goType)
+		for _, goType := range gs {
+			if seen[goType] {
+				unreachable(item, ruleCaughtTwice, "a catch arm of the Go type %s, which an earlier arm takes", goType)
+			}
+			seen[goType] = true
 		}
-		seen[goType] = true
-		return goType
+		return gs
 	}
 	for _, a := range x.Arms {
 		ar := arm{body: a.Body}
@@ -1587,12 +1590,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 			}
 			switch p.Kind {
 			case check.PatTypeTest:
-				ar.types = append(ar.types, caseType(p.Type, te))
+				ar.types = append(ar.types, caseTypes(p.Type, te)...)
 			case check.PatAs:
 				if len(a.Types) != 1 || len(p.Elems) != 1 || p.Elems[0].Kind != check.PatTypeTest || p.Var == nil {
 					unreachable(te, ruleSimpleCatch, "an as pattern that is not one type test in an arm of its own")
 				}
-				ar.types = append(ar.types, caseType(p.Elems[0].Type, te))
+				ar.types = append(ar.types, caseTypes(p.Elems[0].Type, te)...)
 				ar.as, bind = p.Var, true
 			default:
 				unreachable(te, ruleSimpleCatch, "a catch pattern that is not a type test")

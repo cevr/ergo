@@ -96,6 +96,8 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// rows are never inferred (D-E5).
 		c.checkExterns,
 		c.collectBodyErrorRows,
+		// After the error types: a named row is its row (namedrow.go).
+		c.knowRows,
 		c.checkSlotArgs,
 		c.checkEntry,
 		// The context pass runs once, before any body, so its budget verdict
@@ -169,6 +171,10 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		pass()
 	}
 	c.publishErrorTypes()
+	// The named-row hook reads this checker (namedrow.go); the published
+	// table holds no function (the std snapshot exports it), and a
+	// package that imports this one reads its rows from its error types.
+	c.types.rowOf = nil
 	c.cur = nil
 	c.pkg.withSpent = c.withs.used + 1
 	return c.pkg
