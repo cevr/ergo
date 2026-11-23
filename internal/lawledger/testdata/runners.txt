@@ -555,12 +555,14 @@ prelude GetAfterPut	TestCollLaws
 prelude Hashing.EqualIsReflexive	TestStdHashingLawsRun
 prelude Hashing.EqualIsSymmetric	TestStdHashingLawsRun
 prelude Hashing.EqualIsTransitive	TestStdHashingLawsRun
+# HASH-LOWERS: this and the three Structural*KeysHashEqual lines run under TestStdHashingLawsRun until STD-HASH-LAWS-NATIVE runs them under ergo test and deletes the Go runner.
 prelude Hashing.EqualKeysHashEqual	TestStdHashingLawsRun
 prelude Hashing.EqualKeysNormalEqual	TestStdHashingLawsRun
 prelude Hashing.NormalKeyIsEqual	TestStdHashingLawsRun
 prelude Random.Float64InUnit	TestRandLaws
 prelude Random.IntNInRange	TestRandLaws
 prelude SliceIsWindow	TestCollLaws
+# STD-HASH-LAWS-NATIVE: the three lines below.
 prelude StructuralFloatKeysHashEqual	TestStdHashingLawsRun
 prelude StructuralIntKeysHashEqual	TestStdHashingLawsRun
 prelude StructuralStringKeysHashEqual	TestStdHashingLawsRun
