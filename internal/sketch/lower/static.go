@@ -21,9 +21,10 @@ import (
 // literals, at most 64) has the release of its type's own Close (no
 // generated release of parts, B2), when no release point carries a drop
 // flag or a field mask (Info.Releases, Info.TryReleases), no owned local
-// is reassigned (R41's two entries), and no bodiless std call holds a taken value
-// (holdTaken, D-C). A value returned whole (v1.Returned) moves to a kept
-// bit: released only when the frame's exit fails.
+// is reassigned (R41's two entries). The text path also excludes calls
+// that hold a taken value (D-C); the IR can settle their slots after the
+// call. A value returned whole (v1.Returned) moves to a kept bit:
+// released only when the frame's exit fails.
 //
 // The list lowering (B1) stays selectable: releaseLowering = "scope", by
 // -ldflags -X or SetReleaseLoweringForTest. TestStaticReleaseAgrees holds
@@ -62,7 +63,7 @@ const staticMarker = "\x00static-prologue\x00"
 
 // staticPlan reports a declared function whose plain frame may use the
 // static form: params are its parameters, body its statements.
-func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
+func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt, ir bool) bool {
 	if releaseLowering == "scope" {
 		return false
 	}
@@ -115,7 +116,7 @@ func (l *lowerer) staticPlan(params []*check.Var, body []syntax.Stmt) bool {
 					ok = false
 				}
 			case *syntax.CallExpr:
-				if c := info.Calls[n]; c != nil && (c.Kind == check.CallWith || takesHeld(c)) {
+				if c := info.Calls[n]; c != nil && (c.Kind == check.CallWith || !ir && takesHeld(c)) {
 					// A with's local environment ends before the hoisted defer;
 					// B1 captures it at the acquisition instead.
 					ok = false

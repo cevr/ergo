@@ -421,7 +421,7 @@ func (h *hostPkg) load() {
 				fi.imports = append(fi.imports, pn)
 			}
 		case *syntax.TypeDecl:
-			tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID()}
+			tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID(), goType: true}
 			tn.Type = &Named{Obj: tn}
 			c.pkg.Scope.insert(tn.Name, tn)
 			c.pkg.Types = append(c.pkg.Types, tn)
@@ -430,7 +430,7 @@ func (h *hostPkg) load() {
 				methods = append(methods, d)
 				continue
 			}
-			fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi}
+			fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, goCall: true}
 			c.pkg.Scope.insert(fn.Name, fn)
 			c.pkg.Funcs = append(c.pkg.Funcs, fn)
 		case *syntax.VarDecl:
@@ -460,7 +460,7 @@ func (h *hostPkg) load() {
 			c.errorf(d.Recv, CodeUnknown, "the receiver of a binding method is a type of the binding")
 			continue
 		}
-		fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi}
+		fn := &Func{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, goCall: true}
 		h.recvPtr[fn] = star
 		tn.Type.(*Named).addMethod(fn)
 	}
