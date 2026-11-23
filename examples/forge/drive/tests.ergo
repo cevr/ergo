@@ -49,7 +49,7 @@ func script(text string) []string fails BadLine {
 	let end, lines = with context { forge.Assayer: ores() } { Run(Fresh(rack), items) }
 	let mut out = []string{}
 	for l in lines {
-		out = out.Append(Text(l))
+		out = out.Append(Shown(l))
 	}
 	out.Append(Summary(end))
 }
