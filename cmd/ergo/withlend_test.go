@@ -11,8 +11,9 @@ import (
 
 // TestWithResourceLending builds Go because a checked package can still
 // omit a wrapped provider's law or fail to install a live held context
-// when running the compiled law. The CLI also locates imported types and
-// reports their diagnostics using module-relative source positions.
+// when running the compiled law. The pipeline exercises those lifetimes
+// through the view and the generated clients. The CLI also locates
+// imported types and reports module-relative source positions.
 func TestWithResourceLending(t *testing.T) {
 	needsBuild(t)
 	const fixture = "cmd/ergo/testdata/withlend"
@@ -56,6 +57,42 @@ func TestWithResourceLending(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("pipeline", func(t *testing.T) {
+		const example = "examples/pipeline"
+		dir := filepath.Join(smokeWorkspace(t, example, "modules/domain"), filepath.FromSlash(example))
+		run := func(args ...string) string {
+			t.Helper()
+			out, stderr, code := runSmokeCLI(t, binary, dir, "", args...)
+			if code != 0 {
+				t.Fatalf("%s: exit %d\n%s\n%s", strings.Join(args, " "), code, out, stderr)
+			}
+			return string(out)
+		}
+		run("gen", "mcp", "--check", "pipeline.Pipeline")
+		run("check", "./cmd/pipeline", "./cmd/pipeline-mcp", "./cmd/pipeline-server", "./surfaces")
+		for _, tc := range []struct {
+			pkg  string
+			law  string
+			want []string
+		}{
+			{"./pipeline", "CloseStopsTheActor", []string{"ok law CloseStopsTheActor "}},
+			{"./surfaces", "SurfacesAgree", []string{"ok law SurfacesAgree "}},
+			{"./surfaces", "pipeline.Pipeline.DuplicateIsNoop", []string{
+				"ok law pipeline.Pipeline.DuplicateIsNoop under overHub ",
+				"ok law pipeline.Pipeline.DuplicateIsNoop under overWire ",
+			}},
+		} {
+			out := run("test", tc.pkg, "--law", tc.law, "--seed", "1")
+			for _, want := range tc.want {
+				if line, _ := verdictAt(out, want); line == "" {
+					t.Errorf("test %s: missing %q\n%s", tc.pkg, want, out)
+				} else {
+					t.Log(line)
+				}
+			}
+		}
+	})
 
 	t.Run("refused", func(t *testing.T) {
 		got := check(t, "refused", 1).Diagnostics

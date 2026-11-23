@@ -3,8 +3,8 @@
 
 // Package pipelinemcp puts pipeline.Pipeline on the Model Context Protocol (ergo gen
 // mcp): a tool per operation, the JSON schema of its arguments, Call and
-// Arguments between a tool call and a Request, and Tools, which call the
-// provider the caller gives.
+// Arguments between a tool call and a Request, and Tools, which hold the
+// provider in force where they are made.
 
 import api
 import json
@@ -269,32 +269,28 @@ func toolOver(name string, answer own func(r Request) pipelineapi.Outcome) mcp.T
 	}}
 }
 
-// tool is the tool name on p: it reads its arguments (Call) and
-// answers on p through the hub's Call.
-func tool(name string, p pipeline.Pipeline) mcp.Tool {
-	toolOver(name, func(r Request) pipelineapi.Outcome {
-		with context { pipeline.Pipeline: p } { pipelineapi.Call(r) }
-	})
-}
-
-// Tools are the tools of pipeline.Pipeline on p, one per operation, in its order.
-func Tools(p pipeline.Pipeline) []mcp.Tool {
+// toolsOver makes one tool per operation, in declaration order.
+func toolsOver(answer own func(r Request) pipelineapi.Outcome) []mcp.Tool {
 	let mut out = []mcp.Tool{}
 	for name in Names {
-		out = out.Append(tool(name, p))
+		out = out.Append(toolOver(name, answer))
 	}
 	out
+}
+
+// Tools are the tools of the pipeline.Pipeline in force, one per operation, in its order.
+func Tools() []mcp.Tool needs pipeline.Pipeline {
+	let held = InForce[pipeline.Pipeline]()
+	toolsOver(func(r Request) pipelineapi.Outcome {
+		with held { pipelineapi.Call(r) }
+	})
 }
 
 // carry is c through the protocol: the tools/call message of its tool,
 // answered by module mcp's Handle over tools whose answer is answer, and
 // the result read back (ReadAnswer).
 func carry(c Request, answer own func(c Request) pipelineapi.Outcome) pipelineapi.Outcome {
-	let mut tools = []mcp.Tool{}
-	for name in Names {
-		tools = tools.Append(toolOver(name, answer))
-	}
-	let server = mcp.Server{Name: "carry", Version: "1", Tools: tools}
+	let server = mcp.Server{Name: "carry", Version: "1", Tools: toolsOver(answer)}
 	let (name, arguments) = Arguments(c)
 	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + textOf(arguments) + "}}"
 	match mcp.Handle(server, message) {
