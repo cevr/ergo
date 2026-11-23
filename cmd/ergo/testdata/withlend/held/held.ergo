@@ -1,0 +1,21 @@
+import withlend/res
+
+func Stored() int {
+	let m = res.Mem{N: 1}
+	with context { res.Store: m } {
+		let held = InForce[res.Store]()
+		let v = func() int { with held { res.Store.Get() } }
+		v() + res.Peek(m)
+	}
+}
+
+func ReturnedInside() int {
+	let m = res.Mem{N: 2}
+	with context { res.Store: m } {
+		let held = InForce[res.Store]()
+		let v = func() Context[res.Store] { return held }
+		with v() { res.Store.Get() }
+	}
+}
+
+law HeldWhileLent() { Stored() == 2 && ReturnedInside() == 2 }
