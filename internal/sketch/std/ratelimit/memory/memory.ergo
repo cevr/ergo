@@ -41,17 +41,11 @@ func New(rule ratelimit.Rule) Limiter fails ratelimit.BadRule {
 	Limiter{rule: try ratelimit.Check(rule), keys: sync.NewRef(Map[string, entry]{})}
 }
 
-let onTokenBucket = context fails ratelimit.BadRule {
-	ratelimit.Limiter: try New(ratelimit.TokenBucket{Capacity: 3, Every: 1s}),
-}
+let onTokenBucket = context fails ratelimit.BadRule { ratelimit.Limiter: try New(ratelimit.TokenBucket{Capacity: 3, Every: 1s}) }
 
-let onFixedWindow = context fails ratelimit.BadRule {
-	ratelimit.Limiter: try New(ratelimit.FixedWindow{Limit: 3, Window: 1s}),
-}
+let onFixedWindow = context fails ratelimit.BadRule { ratelimit.Limiter: try New(ratelimit.FixedWindow{Limit: 3, Window: 1s}) }
 
-let onSlidingWindow = context fails ratelimit.BadRule {
-	ratelimit.Limiter: try New(ratelimit.SlidingWindow{Limit: 3, Window: 1s}),
-}
+let onSlidingWindow = context fails ratelimit.BadRule { ratelimit.Limiter: try New(ratelimit.SlidingWindow{Limit: 3, Window: 1s}) }
 
 // TakeAt grants cost tokens of key at now, or fails Limited with the
 // exact wait from now. A refused take stores nothing.
