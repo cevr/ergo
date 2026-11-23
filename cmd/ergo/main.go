@@ -536,7 +536,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	if recursivePattern(opts.file) && (command == "check" || command == "test" || command == "lint") {
 		return opts, nil
 	}
-	if isPackageFolder(opts.file) {
+	if isPackageFolder(opts.file) || isStdTarget(opts.file) && command == "test" {
 		return opts, nil
 	}
 	return opts, requireSourceExtension(opts.file)
