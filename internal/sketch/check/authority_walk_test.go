@@ -129,7 +129,6 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"Pos":        {why: "a position"},
 		"Slot":       {why: "a lowering mark (CK-rowarg)"},
 		"Own":        {why: "an ownership mark (Generics 9)"},
-		"lang":       {why: "an ownership mark: a language type's parameter"},
 		"conflict":   {why: "a diagnostic mark"},
 		"id":         {why: "an identity"},
 	},

@@ -32,11 +32,12 @@ func startHTTP(t *testing.T, handle func(*rt.Task, *ergohttp.Exchange, string, s
 		t.Fatal(err)
 	}
 	limits := ergohttp.HTTPLimits{MaxBodyBytes: 1 << 20, MaxHeaderBytes: 4096, IdleTimeout: time.Hour, ReadHeaderTimeout: time.Hour, ReadBodyTimeout: time.Hour}
-	s := v1.NewScope(rt.Root(t.Name()))
+	root := rt.Root(t.Name())
+	s := v1.NewScope(root)
 	h := v1.Go(&s, "http test server", func(ct *rt.Task) (struct{}, error) {
 		return struct{}{}, ergohttp.HTTPServe("http test request", ct, liveSleeper{}, l, limits, handle)
 	})
-	t.Cleanup(func() { h.Stop(); l.Close() })
+	t.Cleanup(func() { h.Stop(root); l.Close() })
 	return l
 }
 
