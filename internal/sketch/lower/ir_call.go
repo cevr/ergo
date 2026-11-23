@@ -151,7 +151,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		return b.inForce(x, c, p)
 	}
 	// The call keeps its Ergo identity in the call table, as the Go text's
-	// identify records it (calls.go, #230): the IR's position of the call
+	// identify records it (calls.go): the IR's position of the call
 	// is the Go frame's line that a defect's report looks up.
 	switch c.Kind {
 	case check.CallFunc, check.CallOp, check.CallProviderOp, check.CallLawOp, check.CallFuncValue:
@@ -242,11 +242,12 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			// emitter's does (ir_uigroup.go).
 			return b.groupCall(x, c, g, p)
 		}
-		// A prelude intrinsic (Append) is a Go function of main.go that
-		// the lowering writes (decls.go intrinsic): a call like a user
-		// function's.
 		if pre, e, ok := b.intMapPrelude(x, c, f, p, stmt); ok { // ir_intmap.go
 			return pre, e, false
+		}
+		switch check.CollOpOf(f) {
+		case check.CollGet, check.CollPut, check.CollTake:
+			return b.mapOp(x, c, p, stmt)
 		}
 		intrinsic := b.l.intrinsic(f) != nil
 		if _, own := check.ModuleBodySource(f); own {
@@ -397,6 +398,9 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		// A test build calls a capability's operation as a program does
 		// (calls.go: only a law's own operation, CallLawOp, differs).
 		named := b.lawOpCap(c) // ir_assert.go: a law's bare operation call
+		if named != nil && b.l.runtimeNamed(named, x) {
+			irNo("law operation of an extern Go type") // calls.go writes its runtime call
+		}
 		if named == nil {
 			sel, ok := unparen(x.Fun).(*syntax.SelectorExpr)
 			if !ok {

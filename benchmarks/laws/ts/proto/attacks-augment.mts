@@ -1,4 +1,4 @@
-// Object augmentation against the outward brand (#125). Kept in its own file
+// Object augmentation against the outward brand. Kept in its own file
 // because the augmentation is global. The brand is a declared class with a
 // private member, which no augmentation can supply; the inward parameter is
 // unbranded anyway, so the adapter's re-check still decides at runtime.

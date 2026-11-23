@@ -650,7 +650,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 				if names, _ := untypedParamNames(lit.Type); len(names) > 0 {
 					// An untyped parameter takes its type from the
 					// expected function type once the other arguments
-					// and the literals' defaults fix it (D-E1, #214).
+					// and the literals' defaults fix it (D-E1).
 					untyped = append(untyped, i)
 					continue
 				}
@@ -730,7 +730,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 			defaults[tp] = op.typ
 			order = append(order, tp)
 		case !c.identical(prev, op.typ):
-			c.errorf(x, CodeType, "cannot infer %s; write the type arguments, e.g. %s: its literal arguments take %s and %s (D6; 196u rule 6)", tp.Name, inferExample(x.Fun, sig), prev, op.typ)
+			c.errorf(x, CodeType, "cannot infer %s; write the type arguments, e.g. %s: its literal arguments take %s and %s (D6)", tp.Name, inferExample(x.Fun, sig), prev, op.typ)
 			return bad(x)
 		}
 	}
@@ -867,7 +867,7 @@ func (c *checker) callGeneric(x *syntax.CallExpr, sig *Signature, explicit []Typ
 // defaults fixed every type a function literal with untyped parameters
 // takes from want, its parameter type with the bindings so far: each
 // untyped parameter's and, when it writes no results, its results'. Else
-// it is S108 at the first unfixed one (D-E1, #214), and the call fails.
+// it is S108 at the first unfixed one (D-E1), and the call fails.
 func (c *checker) untypedFixed(lit *syntax.FuncLit, want Type, in *inferer) bool {
 	expected, _ := under0(want).(*Signature)
 	names, at := untypedParamNames(lit.Type)
@@ -892,7 +892,7 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 	lit := &litParams{expected: expected}
 	ctx.lit = lit
 	sig := c.signature(x.Type, ctx)
-	// A literal with untyped parameters writes no types (D-E1, #214): with
+	// A literal with untyped parameters writes no types (D-E1): with
 	// no results written, its results are the expected function type's
 	// when that fixes them, else its tail's type, as a trailing block's
 	// are (blockLit).
@@ -1362,7 +1362,7 @@ func (c *checker) unreachable(x *syntax.CallExpr, sig *Signature, fun operand, h
 	return bad(x)
 }
 
-// builtin checks a call of len, the one built-in function (#196, fourth
+// builtin checks a call of len, the one built-in function (the v1 language, fourth
 // round, item 2): its argument is a slice, a Map or a string, and its value
 // an int; the length of a constant string is a constant.
 func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
@@ -1462,7 +1462,7 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 }
 
 // removedBuiltins are Go's built-in functions that Ergo does not
-// predeclare, each with the Ergo form that replaces it (#196, fourth round,
+// predeclare, each with the Ergo form that replaces it (the v1 language, fourth round,
 // item 2; spec D-D5). A use of one is S104 naming that form.
 var removedBuiltins = sync.OnceValue(func() map[string]string {
 	return map[string]string{

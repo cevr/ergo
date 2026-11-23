@@ -254,7 +254,7 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 	// A machine declaration's value matches the prelude Machine (or InputMachine) of its
 	// state, signal and step, as it is assignable to it (README Gap 46).
 	if mode&unifyExact == 0 && isPreludeMachineValue(x) {
-		if view, _ := in.c.machineValue(y); view != nil {
+		if view, _, _ := in.c.machineValue(y); view != nil {
 			y = view
 		}
 	}

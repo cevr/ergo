@@ -63,7 +63,7 @@ func run(v flag.Values, handle own func(http.Request) http.Response needs api.Jo
 	let store = memory.NewTable()
 	if replayFlag.Get(v) {
 		let l = try listen("127.0.0.1:0")
-		let client = http.NewClient("http://"+l.Addr(), answers) catch {
+		let client = http.NewClient("http://"+l.Addr(), answers, []http.Credential{}) catch {
 		case http.InvalidLimits:
 			Unreachable("jobs uses positive limits")
 		case http.InvalidClient as e:

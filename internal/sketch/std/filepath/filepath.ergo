@@ -112,3 +112,45 @@ law RelThenJoin(base string, target string) {
 	}
 	Clean(Join([]string{base, r})) == Clean(target)
 }
+
+// AbsFrom is path made absolute against dir, a working directory, by its
+// text alone: Clean(path) when path is absolute, else Join(dir, path).
+// It is Go's filepath.Abs with the working directory given, so it reads
+// no state: a program passes os.Process.Getwd() as dir.
+func AbsFrom(dir string, path string) string {
+	if IsAbs(path) {
+		return Clean(path)
+	}
+	Join([]string{dir, path})
+}
+
+// AbsFromIsAbsolute: against an absolute dir, every path is made
+// absolute, and an absolute path is only cleaned.
+law AbsFromIsAbsolute(dir string, path string) {
+	let d = "/" + dir
+	IsAbs(AbsFrom(d, path)) && (!IsAbs(path) || AbsFrom(d, path) == Clean(path))
+}
+
+// BadPattern is the failure of Match on a malformed pattern, such as an
+// unclosed "[" (Go's filepath.ErrBadPattern).
+type BadPattern { Pattern string }
+
+// Match reports whether name matches the shell pattern pattern, as Go's
+// filepath.Match: "*" is any run of characters but "/", "?" one
+// character but "/", "[...]" a class, and "\\" escapes the next
+// character. Each element of name must match its element of pattern.
+// Go's Match fails only with ErrBadPattern.
+func Match(pattern string, name string) bool fails BadPattern {
+	filepath.Match(pattern, name) catch {
+	case go.Error:
+		return BadPattern{Pattern: pattern}
+	}
+}
+
+// MatchItself: a name with no pattern character matches itself.
+law MatchItself(name string) {
+	if strings.Contains(name, "*") || strings.Contains(name, "?") || strings.Contains(name, "[") || strings.Contains(name, "\\") {
+		return true
+	}
+	try Match(name, name)
+}

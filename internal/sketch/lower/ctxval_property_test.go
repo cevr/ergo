@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// The context values' seeded property (L5, #237 stage 2; rows.md, Context
+// The context values' seeded property (L5, generic contexts stage 2; rows.md, Context
 // values). Each seed writes a program over k capabilities C0…Ck-1, each
 // `Get() int`, which one provider Box implements. It makes Context values
 // in every form a context converts from: an inline literal, a local

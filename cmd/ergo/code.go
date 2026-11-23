@@ -213,6 +213,9 @@ type (
 		Work    []codePlace `json:"work"`
 		Exit    []codePlace `json:"exit"`
 		Unsure  []string    `json:"unsure"`
+		// Computed are the computed entries (MACHINE-EXPR), which have no
+		// graph.
+		Computed []string `json:"computed"`
 	}
 	codeArm struct {
 		At        codePlace        `json:"at"`
@@ -417,7 +420,7 @@ func codeMachineOf(m facts.MachineGraph, handle, name string) codeMachine {
 		return vs
 	}
 	place := func(p facts.Place) codePlace { return codePlace(p) }
-	out := codeMachine{Handle: handle, Name: name, States: list(m.States), Signals: list(m.Signals), Initial: m.Initial, Arms: []codeArm{}, Timers: []codeTimer{}, Work: []codePlace{}, Exit: []codePlace{}, Unsure: list(m.Unsure)}
+	out := codeMachine{Handle: handle, Name: name, States: list(m.States), Signals: list(m.Signals), Initial: m.Initial, Arms: []codeArm{}, Timers: []codeTimer{}, Work: []codePlace{}, Exit: []codePlace{}, Unsure: list(m.Unsure), Computed: list(m.Computed)}
 	for _, a := range m.Arms {
 		arm := codeArm{At: place(a.At), States: list(a.States), AnyState: a.States == nil, Signals: list(a.Signals), AnySignal: a.Signals == nil, Partial: a.Partial, Edges: []codeTransition{}, Alts: []codeAlt{}}
 		for _, x := range a.Alts {

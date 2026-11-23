@@ -1,0 +1,278 @@
+// Capturing a real build (trace.ergo's format). capture runs one ergo
+// build under `perf stat -e instructions:u` (the tree's total) with this
+// binary as the go command's -toolexec; each tool process the go command
+// starts then runs through wrap, which counts it alone under its own perf
+// stat and hands a compile ERGO_NAB_SPANS, where a compiler with the
+// phase instrument (testdata/phase-instrument.patch) writes its stages;
+// a stock or ergo-patched compiler ignores it. A cache hit starts no tool,
+// so it records nothing: warm work is absent, not 0.
+//
+// A set GOFLAGS makes ergo's direct build path (internal/sketch/build/
+// direct.go, which runs compile and link itself) refuse and fall back to
+// go build, its reference: a capture measures that path. Each compile's
+// command is the same on both (TestDirectMatchesGoBuild); the driver cell
+// is the go command's, not the direct path's. This host's PMU gives
+// counts but no samples, so perf record's per-task reads are not there
+// to split the direct path's processes.
+//
+//	nativeab capture --ergo PATH --self PATH --out FILE [--label TEXT] -- BUILD-ARGS...
+//	(wrap mode: ERGO_NAB_DIR set, arguments TOOL ARGS... as -toolexec gives them)
+
+import exec
+import fs
+import io
+import maps
+import os
+import slices
+import strconv
+import strings
+
+// Perf is the counter command; a host without perf has no capture.
+let Perf = "perf"
+
+// WrapDir is the variable that puts this binary in wrap mode.
+let WrapDir = "ERGO_NAB_DIR"
+
+// SpansVariable is where a compile with the phase instrument writes.
+let SpansVariable = "ERGO_NAB_SPANS"
+
+func base(path string) string {
+	let i = strings.LastIndex(path, "/")
+	if i < 0 { path } else { path[i+1 : len(path)] }
+}
+
+// Count is a counted number, or Why it is missing ("" when counted).
+type Count { N int, Why string }
+
+// perfCount is the instructions:u count of a `perf stat -x,` output, or
+// the reason there is none.
+func perfCount(text string) Count {
+	for line in strings.Split(text, "\n") {
+		let f = strings.Split(line, ",")
+		if len(f) >= 3 && strings.HasPrefix(f[2], "instructions") {
+			let n = strconv.Atoi(f[0]) catch {
+			case strconv.Malformed, strconv.OutOfRange:
+				return Count{N: 0, Why: "perf: " + strings.ReplaceAll(f[0], " ", "_")}
+			}
+			return Count{N: n, Why: ""}
+		}
+	}
+	Count{N: 0, Why: "perf: no instructions line"}
+}
+
+func flagOf(args []string, name string) string {
+	for i in 0..len(args) {
+		if args[i] == name && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	"-"
+}
+
+func runFailed(name string) os.Exit { os.Exit{Code: 1, Message: "nativeab: cannot run \(name)"} }
+
+// wrap runs one tool for the go command and records it in dir as ID.proc
+// (and ID.spans when the compile wrote spans). The tool's output and
+// status are passed through unchanged; a -V query (the go command's tool
+// id) is not counted.
+func wrap(dir string, id string, args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout | io.Stderr {
+	if len(args) == 0 {
+		return os.Exit{Code: 2, Message: "nativeab wrap: no tool"}
+	}
+	let query = slices.Contains(args, "-V=full") || slices.Contains(args, "-V")
+	let tool = base(args[0])
+	let perfOut = dir + "/" + id + ".perf"
+	let spans = dir + "/" + id + ".spans"
+	let c = if query {
+		exec.New(args[0], slices.Slice(args, 1, len(args)))
+	} else {
+		exec.New(Perf, slices.Concat([]string{"stat", "-e", "instructions:u", "-x,", "-o", perfOut, "--"}, args)).WithEnv(SpansVariable, spans)
+	}
+	let r = exec.Runner.Run(c) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return runFailed(c.Name)
+	}
+	io.Stdout.Print(r.Stdout)
+	io.Stderr.Eprint(r.Stderr)
+	if !query {
+		let text = fs.Files.ReadFile(perfOut) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			""
+		}
+		let pkg = flagOf(slices.Slice(args, 1, len(args)), "-p")
+		let n = perfCount(text)
+		let rec = if n.Why == "" { "proc \(id) \(tool) \(pkg) ? \(n.N)\n" } else { "unmeasured \(id) \(tool) \(pkg) \(n.Why)\n" }
+		fs.Writes.WriteFile(dir+"/"+id+".proc", rec) catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return os.Exit{Code: 1, Message: "nativeab wrap: cannot write \(dir)"}
+		}
+	}
+	if r.Status != 0 {
+		let code = os.ParseCode(if r.Status > 125 { 125 } else { r.Status }) catch {
+		case Unsatisfied:
+			return os.Exit{Code: 1, Message: ""}
+		}
+		return os.Exit{Code: code, Message: ""}
+	}
+}
+
+// Origin is a compiled package's origin: "ergo" for the generated module
+// mod, "rt" for Ergo's Go runtime, "go" for any other Go package. The go
+// command compiles a program's main package as -p main, and in an ergo
+// build that package is always generated.
+func Origin(pkg string, mod string) string {
+	if mod != "" && pkg == "main" {
+		"ergo"
+	} else if mod != "" && (pkg == mod || strings.HasPrefix(pkg, mod+"/")) {
+		"ergo"
+	} else if strings.HasPrefix(pkg, "ergo.local/prototype/runtime") {
+		"rt"
+	} else {
+		"go"
+	}
+}
+
+// OriginNamesOnlyTheModule: a package of the generated module, and only
+// one, is "ergo"; a Go package whose path merely starts with the
+// module's name, or any other Go package, is never charged to Ergo.
+law OriginNamesOnlyTheModule(name string) {
+	let leaf = if name == "" { "x" } else { strings.ReplaceAll(name, "/", "_") }
+	Origin("main", "subject") == "ergo" && Origin("subject", "subject") == "ergo" && Origin("subject/"+leaf, "subject") == "ergo" && Origin("subject"+leaf, "subject") == "go" && Origin("example.com/"+leaf, "subject") == "go" && Origin(leaf, "subject") != "ergo" || leaf == "subject" || leaf == "main"
+}
+
+// moduleOf is the module path of the go.mod text.
+func moduleOf(text string) string {
+	for line in strings.Split(text, "\n") {
+		let f = strings.Fields(line)
+		if len(f) == 2 && f[0] == "module" {
+			return f[1]
+		}
+	}
+	""
+}
+
+// Assemble is a capture's text from the tree's perf output, the module of
+// the generated Go, the records wrap left (file name -> text) and the
+// pins.
+func Assemble(tree string, mod string, records Map[string, string], meta []string) string fails os.Exit {
+	let counted = perfCount(tree)
+	if counted.Why != "" {
+		return os.Exit{Code: 1, Message: "nativeab capture: the build tree was not counted: \(counted.Why)"}
+	}
+	let total = counted.N
+	let mut b = strings.NewBuilder()
+	for m in meta {
+		b.WriteString("meta \(m)\n")
+	}
+	b.WriteString("meta module \(mod)\n")
+	b.WriteString("tree \(total)\n")
+	for name in slices.Sorted(maps.Keys(records)) {
+		let text = got2(records, name)
+		let id = strings.Split(name, ".")[0]
+		for line in strings.Split(text, "\n") {
+			let f = strings.Fields(line)
+			if len(f) == 0 {
+				continue
+			}
+			if strings.HasSuffix(name, ".proc") && f[0] == "proc" && len(f) == 6 {
+				b.WriteString("proc \(f[1]) \(f[2]) \(f[3]) \(Origin(f[3], mod)) \(f[5])\n")
+			} else if strings.HasSuffix(name, ".proc") {
+				b.WriteString(line + "\n")
+			} else if f[0] == "span" && len(f) == 4 {
+				b.WriteString("span \(id) \(f[1]) \(f[2]) \(f[3])\n")
+			} else if f[0] == "refused" {
+				b.WriteString("unmeasured \(id) stages \(strings.Join(slices.Slice(f, 1, len(f)), "_"))\n")
+			}
+		}
+	}
+	b.String()
+}
+
+func exists(path string) bool needs fs.Files {
+	let _ = fs.Files.Stat(path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	true
+}
+
+func got2(m Map[string, string], k string) string {
+	match m.Get(k) {
+	case Some as v:
+		v.Value
+	case None:
+		""
+	}
+}
+
+// capture runs the build and writes the capture to out; out + ".d" holds
+// the raw records and must not exist yet.
+func capture(args []string) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout {
+	let dash = slices.Index(args, "--")
+	if dash < 0 {
+		return usage()
+	}
+	let opts = slices.Slice(args, 0, dash)
+	let build = slices.Slice(args, dash+1, len(args))
+	let ergo = flagText(opts, "--ergo", "")
+	let self = flagText(opts, "--self", "")
+	let out = flagText(opts, "--out", "")
+	let label = flagText(opts, "--label", "-")
+	if ergo == "" || self == "" || out == "" {
+		return usage()
+	}
+	let dir = out + ".d"
+	if exists(dir) {
+		return os.Exit{Code: 1, Message: "nativeab capture: \(dir) exists; captures never reuse records"}
+	}
+	fs.Writes.MkdirAll(dir) catch {
+	case fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "nativeab capture: cannot make \(dir)"}
+	}
+	let c = exec.New(Perf, slices.Concat([]string{"stat", "-e", "instructions:u", "-x,", "-o", dir + "/tree.perf", "--", ergo, "build", "-work"}, build)).WithEnv(WrapDir, dir).WithEnv("GOFLAGS", "-toolexec="+self)
+	let r = exec.Runner.Run(c) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		return runFailed(Perf)
+	}
+	if r.Status != 0 {
+		return os.Exit{Code: 1, Message: "nativeab capture: build failed (\(r.Status)):\n\(r.Stderr)"}
+	}
+	let mut work = ""
+	for line in strings.Split(r.Stderr, "\n") {
+		if strings.HasPrefix(line, "WORK=") {
+			work = strings.TrimPrefix(line, "WORK=")
+		}
+	}
+	let mod = moduleOf(fs.Files.ReadFile(work + "/go.mod") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	})
+	let tree = fs.Files.ReadFile(dir + "/tree.perf") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		""
+	}
+	let mut records = Map[string, string]{}
+	let names = fs.Files.ReadDir(dir) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		[]string{}
+	}
+	for n in names {
+		if strings.HasSuffix(n, ".proc") || strings.HasSuffix(n, ".spans") {
+			records[n] = fs.Files.ReadFile(dir + "/" + n) catch {
+			case fs.NotFound, fs.Denied, fs.Failed:
+				return os.Exit{Code: 1, Message: "nativeab capture: cannot read \(n)"}
+			}
+		}
+	}
+	let version = exec.Runner.Run(exec.New(ergo, []string{"version"})) catch {
+	case exec.NotFound, exec.Denied, exec.Failed:
+		exec.Result{Status: 1, Stdout: "", Stderr: ""}
+	}
+	let meta = []string{"label \(label)", "ergo \(strings.Split(strings.TrimSpace(version.Stdout), "\n")[0])", "build \(strings.Join(build, " "))", "driver go-command reference path (GOFLAGS=-toolexec: the direct path refuses a set GOFLAGS and falls back to go build; shared GOCACHE, a hit starts no tool)", "counter perf stat -e instructions:u (user mode)"}
+	let text = try Assemble(tree, mod, records, meta)
+	fs.Writes.WriteFile(out, text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "nativeab capture: cannot write \(out)"}
+	}
+	io.Stdout.Println("captured \(out)")
+}
