@@ -623,6 +623,14 @@ func (l *lowerer) emitType(td *typeDecl) {
 			l.flatDecl(b, td, fu, tc, tparams)
 			break
 		}
+		if l.namedRow(td.named) {
+			// A named row is its row value, Go's error (namedrow.go).
+			for _, v := range td.variants {
+				l.emitType(l.useType(l.typeDecl(v, site)))
+			}
+			b.WriteString("type " + td.name + " = error\n\n")
+			break
+		}
 		l.unionMarker(td)
 		b.WriteString("type " + td.name + tparams + " interface{ " + td.marker + "() }\n\n")
 		// Two instances of one generic record, V[A] | V[B], share the
@@ -1027,7 +1035,14 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			defer func() { l.info = saved }()
 		}
 	}
-	scope := newNamer(l.names)
+	// The locals of a function's own body yield to its package's names
+	// alone (pkgnames.go, plainScope); a copy's body (sp, known) to every
+	// program name its type arguments may bring in.
+	parent := l.names
+	if sp == nil && !known {
+		parent = l.plainScope(f)
+	}
+	scope := newNamer(parent)
 	site := syntax.Node(f.Decl.Name)
 	fc := newFuncCtx(l, scope, directives)
 	// A library body, lowered without //line directives, writes cover

@@ -44,7 +44,7 @@ func outcome(args []string) string {
 }
 
 func probe() needs io.Stdout | io.Stdin {
-	io.Stdout.Print(flag.Usage(probeSet()))
+	io.Stdout.Print(flag.UsageText(probeSet()))
 	io.Stdout.Println("--cases--")
 	for line in io.Stdin.Lines() {
 		let fields = strings.Split(line, "\x1f")

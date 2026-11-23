@@ -227,7 +227,7 @@ func mapGoLines(name, text string) []goLine {
 }
 
 // parseDirective reads FILE:LINE or FILE:LINE:COL, the file without its
-// inline tag (#ergo-inline-N).
+// inline tag (#ergo-inline-K, K the site's key, NAME-LOCAL rule 7).
 func parseDirective(s string) (ergoPos, bool) {
 	s = strings.TrimSpace(s)
 	file, num, ok := cutLastNumber(s)
@@ -256,7 +256,7 @@ func cutLastNumber(s string) (string, int, bool) {
 	return s[:colon], n, true
 }
 
-// untag drops an inline tag (#ergo-inline-N) from a directive's file.
+// untag drops an inline tag (#ergo-inline-K) from a directive's file.
 func untag(file string) string {
 	if at := strings.Index(file, "#"); at >= 0 {
 		return file[:at]

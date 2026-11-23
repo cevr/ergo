@@ -46,7 +46,7 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
 	if len(args) > 0 && args[0] == "gen" {
 		let v = flag.Parse(genSet, slices.Slice(args, 1, len(args))) catch {
 		case err:
-			try flag.Exit(err, flag.Usage(genSet))
+			try flag.Exit(err, flag.UsageText(genSet))
 			return
 		}
 		io.Stdout.Print(script.Gen(uint64(seedFlag.Get(v)), stepsFlag.Get(v)))
@@ -54,7 +54,7 @@ func run(args []string, input io.Stdin) fails os.Exit needs io.Stdout {
 	}
 	let v = flag.Parse(playSet, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(playSet))
+		try flag.Exit(err, flag.UsageText(playSet))
 		return
 	}
 	let text = input.ReadAll() catch {
