@@ -101,10 +101,9 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 		}
 	}
 	// A variant, a sub-union's value (ConvWiden) or a row value goes into its union unchanged: the value
-	// keeps its record type; so does a function narrowed to a row value's
-	// one error type (ConvNarrow), whose row value is that type's value. A provider goes into an operation type as an
+	// keeps its record type. A provider goes into an operation type as an
 	// operation value (effects.go); a machine table waits for a later unit.
-	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvNarrow && conv.Kind != check.ConvWiden {
+	if conv := f.conv; f.hasConv && conv.Kind != check.ConvVariant && conv.Kind != check.ConvRow && conv.Kind != check.ConvWiden {
 		return in.toOperation(fr, x, v, conv)
 	}
 	if convs := f.elems; len(convs) > 0 {
@@ -114,7 +113,7 @@ func (in *interp) tailK(fr *frame, x syntax.Expr, f *facts) (Value, *abrupt) {
 		}
 		var out tuple
 		for i, conv := range convs {
-			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvNarrow || conv.Kind == check.ConvWiden {
+			if conv.Kind == 0 || conv.Kind == check.ConvVariant || conv.Kind == check.ConvRow || conv.Kind == check.ConvWiden {
 				continue
 			}
 			if out.elems == nil {

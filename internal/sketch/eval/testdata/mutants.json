@@ -890,7 +890,7 @@
       "name": "oracle-o33-plain-skips-conversion",
       "origin": "wf10 ORACLE O33",
       "file": "internal/sketch/eval/facts.go",
-      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow || f.conv.Kind == check.ConvWiden)",
+      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvWiden)",
       "to": "\t\ttrue",
       "rule": "A value the checker converts where it is used (a provider into an operation type) is converted however its expression is dispatched.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
