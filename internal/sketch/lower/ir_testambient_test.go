@@ -52,7 +52,7 @@ test Wd {
 			t.Fatal(err)
 		}
 		for _, fn := range ir.Funcs {
-			if fn.Name != "ergoTestWd" {
+			if fn.Name != goHelper("ergoTestWd") {
 				continue
 			}
 			body, err := json.Marshal(fn.Body)
@@ -65,5 +65,5 @@ test Wd {
 			return
 		}
 	}
-	t.Fatal("no IR file holds ergoTestWd's body")
+	t.Fatal("no IR file holds " + goHelper("ergoTestWd") + "'s body")
 }
