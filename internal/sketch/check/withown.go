@@ -17,8 +17,11 @@ import (
 //
 //  1. Acquisition. The entries of With.Entries are acquired, and each
 //     entry whose capability an acquired provider uses while it is built
-//     (ContextEntry.Uses), resolved through the with's context (Context.Provider).
-//     An entry of several capabilities is one acquisition. An overridden
+//     (ContextEntry.Uses), resolved through the with's context (Context.Provider),
+//     except that a replace entry's use of a capability it replaces is the
+//     entry the embedded context binds (Context.builtFrom), acquired before
+//     it with that capability in its Caps and released after it.
+//     An entry of several capabilities is one acquisition. Any other overridden
 //     entry binds nothing Provider returns, and an entry nothing reaches
 //     is not visited, so neither is acquired. The order is the one the
 //     builder follows: each entry after the providers it uses, the first
@@ -35,12 +38,12 @@ import (
 //     and no row holds is S102 at the with.
 //  4. Refusals, each located. A resource provider that names an existing
 //     value (a variable, a field, an element) is borrowed or reused: this
-//     bounded ownership owns only a value the provider makes (S109, #197).
+//     bounded ownership owns only a value the provider makes (S109).
 //     Every checked Close releases: an operation of the provider's type, a
 //     generic Close and a Close that takes a pointer to a provider that is
 //     a value included (C29). A generic Close whose type parameter is
 //     constrained by operations would pass witnesses that no fact
-//     records: S109 naming #197 at the provider (closeWitnessed). An exit action registered in the block runs when the function
+//     records: S109 naming resource ownership at the provider (closeWitnessed). An exit action registered in the block runs when the function
 //     returns (runtime.md, Exit actions 2), after the with closed its
 //     providers, so one that needs a provider that depends on a resource
 //     acquired by this with is S108. A with's value that holds a Task leaves the block that drains
@@ -129,7 +132,7 @@ func (c *checker) withOwnership() {
 			}
 			if info == nil || info.Types[a.Entry.Provider] == nil {
 				c.cur = s.file
-				c.errorf(s.x, CodeOutside, "this context's provider ownership cannot be proved without its defining package's facts; further resource ownership is #197's (resources.md, Context ownership)")
+				c.errorf(s.x, CodeOutside, "this context's provider ownership cannot be proved without its defining package's facts; further ownership waits for resource ownership (resources.md, Context ownership)")
 				continue
 			}
 			if !a.Releases() {
@@ -214,11 +217,16 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 	for _, e := range reached {
 		add(e)
 	}
+	under := map[*ContextEntry][]Type{} // the capabilities a replace builds each entry over for
 	for len(queue) > 0 {
 		e := queue[0]
 		queue = queue[1:]
 		for _, cap := range e.Uses {
-			add(w.Provider(cap))
+			p := w.builtFrom(e, owners[e], cap)
+			if p != nil && p != w.Provider(cap) {
+				under[p] = append(under[p], cap)
+			}
+			add(p)
 		}
 	}
 	// The context pass's entry order, not a walk of the embeddings: a with
@@ -239,7 +247,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 			}
 			ready := true
 			for _, cap := range e.Uses {
-				if p := w.Provider(cap); p != nil && p != e && !built[p] {
+				if p := w.builtFrom(e, owners[e], cap); p != nil && p != e && !built[p] {
 					ready = false
 					break
 				}
@@ -257,7 +265,7 @@ func (c *checker) acquire(w *Context, reached []*ContextEntry, owners map[*Conte
 		built[e] = true
 		a := &Acquisition{Entry: e}
 		for i, cap := range e.Caps {
-			if w.Provider(cap) == e {
+			if w.Provider(cap) == e || slices.ContainsFunc(under[e], func(t Type) bool { return sameCap(t, cap) }) {
 				a.Caps = append(a.Caps, i)
 			}
 		}
@@ -291,7 +299,7 @@ func (c *checker) providerClose(p Type) *Close {
 // parameter constrained by operations, or "". Its release would pass the
 // Close's witnesses (a struct of the type argument's operations), and an
 // Acquisition records no instance of its Close: a release beyond the
-// bounded with, which #197 owns with generated and aggregate Close (C29).
+// bounded with, which resource ownership owns with generated and aggregate Close (C29).
 func closeWitnessed(cl *Close) string {
 	if cl == nil || cl.Func == nil || cl.Func.Sig == nil {
 		return ""
@@ -308,7 +316,7 @@ func closeWitnessed(cl *Close) string {
 			it, _ = k.Underlying().(*Interface)
 		}
 		if it != nil && len(it.Methods) > 0 {
-			return fmt.Sprintf("a provider whose generic Close has the type parameter %s, constrained by operations, is released with #197: the release passes its witnesses, and a with records no instance of its Close", tp.Name)
+			return fmt.Sprintf("a provider whose generic Close has the type parameter %s, constrained by operations, waits for resource ownership: the release passes its witnesses, and a with records no instance of its Close", tp.Name)
 		}
 	}
 	return ""

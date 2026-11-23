@@ -223,7 +223,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 // literal's text, whose closing line repeats that statement's directive
 // (adaptFunc). Go reads the adapter's frame line there, so the report
 // writes the closure around an exit action's block as part of the
-// action's frame, not a call of scope.OnExit (runtime.md, Defects 3;
+// action's frame, not a call of scope.OnExit (runtime.md, Fork-tree defects 3;
 // runtime/v1 ergoStack). Any other operand is called at p.
 func (b *irBuilder) litCallPos(site syntax.Node, e *irExpr, p irPos) irPos {
 	if e.K != "func" {

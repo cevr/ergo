@@ -1,5 +1,8 @@
 version 2
 
+// Check std sources directly, not as members of the workspace.
+skip internal/sketch/std
+
 // The generated files of this repository (docs/spec/build.md, Generators):
 // `ergo task gen` runs these in the order their inputs and outputs give,
 // and `ergo task gen --check` says whether the checked-in files are what a

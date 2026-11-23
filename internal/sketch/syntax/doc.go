@@ -1,5 +1,5 @@
 // Package syntax is the AST of Ergo and its Go door to the parser: the
-// decided grammar of #196 (docs/spec/grammar.md is normative). Since
+// decided grammar of the v1 language (docs/spec/grammar.md is normative). Since
 // capstone S2d the scanner and parser are compiler/syntax's, in Ergo,
 // linked into the binary (internal/linked/compiler); Parse decodes their
 // rows into this AST (decode.go). Since S2e no Go parser is left: the
@@ -15,7 +15,7 @@
 // produces stay declared until their consumers are rewritten, and the
 // parser never builds them (TestDecidedOnly).
 //
-// The package resolves no names; the checker (internal/sketch/check), the LSP (#38) and the
+// The package resolves no names; the checker (internal/sketch/check), the LSP and the
 // formatter (compiler/format, through internal/hostsyntax) consume its AST. Every syntax error is
 // S001 (docs/spec/diagnostics.md), or S108 for a type that mixes fields and
 // operations, with a byte span, line and byte column; Parse reports the

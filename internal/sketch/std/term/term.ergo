@@ -166,12 +166,12 @@ func Restore(_ Host) { hostLeave() }
 // bytes alone and names them (Decode). The bytes after it stay in io's
 // buffer for the next read. A change of the window's size while it waits
 // is Resized, with the size then.
-func ReadKey(_ Host) Key fails io.ReadFailed {
+func ReadKey(h Host) Key fails io.ReadFailed {
 	let mut have = 0
 	for {
 		let p = try hostPeek(have)
 		if p.Resized {
-			match sizeNow() {
+			match sizeNow(h) {
 			case Some[Window] as w:
 				return Resized{Window: w.Value}
 			case None:
@@ -269,8 +269,9 @@ func Modes(s Script) []Mode { s.modes.Get() }
 extern go ergo.local/prototype/runtime/v1.TermEnterRaw func hostEnterRaw() fails NotTerminal
 extern go ergo.local/prototype/runtime/v1.TermEnterNoEcho func hostEnterNoEcho() fails NotTerminal
 extern go ergo.local/prototype/runtime/v1.TermLeave func hostLeave()
-// sizeNow is the window's size, None when there is no terminal.
-func sizeNow() Option[Window] {
+// sizeNow is the window's size, None when there is no terminal. It takes
+// the Host its caller holds, as every reach of the host does.
+func sizeNow(_ Host) Option[Window] {
 	let w = hostSize() catch {
 	case NotTerminal:
 		return None

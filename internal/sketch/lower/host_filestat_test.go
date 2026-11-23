@@ -85,10 +85,15 @@ func main() needs Console | Ambient {
 	if err != nil {
 		t.Fatal(err)
 	}
-	calls, ok := irCallTexts(t, files)["statSize"]
+	texts := irCallTexts(t, files)
+	calls, ok := texts["statSize"]
 	if !ok {
 		t.Fatalf("statSize has no IR body (fallbacks %v)", rep.Fallback)
 	}
+	// A fallible function with no environment of its own has a flat
+	// worker (ir_forms_flat.go) that holds the body; statSize then calls
+	// it, and the call to hostfs is the worker's.
+	calls = append(calls, texts["statSizeFlat"]...)
 	handle := regexp.MustCompile(`^FileStat\(local\d+\)$`) // the parameter f, after the environment
 	if !slices.ContainsFunc(calls, handle.MatchString) {
 		t.Errorf("statSize's IR body calls %v, want FileStat(f)", calls)

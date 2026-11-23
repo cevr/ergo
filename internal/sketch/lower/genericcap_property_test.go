@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// The generic capabilities' seeded property (L4, #196 item 10; types.md,
+// The generic capabilities' seeded property (L4, the v1 language item 10; types.md,
 // Capabilities 7). Each seed writes a program over k record types E0…Ek-1
 // and two generic operation types, Store[T] and Tally[T], which one
 // provider Box[T] implements. Functions need a random set of instances

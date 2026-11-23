@@ -76,6 +76,7 @@ func typedPackage(t *testing.T, dir string) *typedSource {
 			}
 			continue
 		}
+		probeLog("typed-source", probeSum([]byte(dir+"/"+name)))
 		f, err := parser.ParseFile(src.fset, dir+"/"+name, nil, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -194,9 +195,9 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"lowerer.initOnce":         "a library's init runner's declared header: func ergoInitRun(env *Env) (IG11)",
 		"lowerer.emitContext":      "a context builder's declared header",
 		"lowerer.envField":         "names the type before its first field",
-		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's (196l), an exported function's (IG11)",
+		"lowerer.rootTask":         "the root Env value of a root task: main's, the test build's main's, an exported function's (IG11)",
 		"lowerer.testDecl":         "a test's declared header: func ergoTestName(env *Env, ...)",
-		"lowerer.lawDecl":          "a law's declared header: func ergoLawName(env *Env, ...) (bool, error) (#162)",
+		"lowerer.lawDecl":          "a law's declared header: func ergoLawName(env *Env, ...) (bool, error)",
 		"lowerer.rewriteFunc":      "a rewrite law side's declared header: func ergoLawTLLeft(env *Env, ...) error (types.md, Laws 14)",
 		"lowerer.testRunnerHead":   "the test runner's declared header: func ergoTests(env *Env, seed uint64)",
 		"funcCtx.operations":       "an Env value of the caller's task for an operation table",

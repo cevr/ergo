@@ -119,8 +119,8 @@ func printProjectionJSON(v any) error {
 	return json.NewEncoder(os.Stdout).Encode(v)
 }
 
-// sourceExtension is the extension of every source file (#221). Every
-// other extension, the retired .ef included, gets the same refusal (#217:
+// sourceExtension is the extension of every source file. Every
+// other extension, the retired .ef included, gets the same refusal (the needs and provides rename:
 // no rename hint and no special case for an old spelling).
 const sourceExtension = ".ergo"
 
@@ -269,6 +269,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	seeded, searched := false, false
 	budgeted := false
 	selected, ran := false, false
+	laws, skips := 0, 0
 	platform, platformed := "", false
 	stepsGiven, bytesGiven := false, false
 	count, counted := "", false
@@ -319,11 +320,11 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--law="); ok {
-			opts.law, selected = value, true
+			opts.law, selected, laws = value, true, laws+1
 			continue
 		}
 		if value, ok := strings.CutPrefix(args[i], "--skip-law="); ok {
-			opts.skipLaw, selected = value, true
+			opts.skipLaw, selected, skips = value, true, skips+1
 			continue
 		}
 		took, err := parseExploreFlag(&opts.search, args, i)
@@ -360,9 +361,9 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 			case "--receipt":
 				opts.receipt = args[i+1]
 			case "--law":
-				opts.law, selected = args[i+1], true
+				opts.law, selected, laws = args[i+1], true, laws+1
 			case "--skip-law":
-				opts.skipLaw, selected = args[i+1], true
+				opts.skipLaw, selected, skips = args[i+1], true, skips+1
 			case "--run":
 				opts.run, ran = args[i+1], true
 			case "-go-text":
@@ -494,6 +495,8 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 		return opts, fmt.Errorf("--list and --why need --affected")
 	case opts.affected.on && (selected || ran || opts.receipt != "" || opts.emitted || opts.explore || searched || opts.work):
 		return opts, fmt.Errorf("--affected selects the obligations itself: it takes no --law, --skip-law, --run, --receipt, --emitted, --explore or -work")
+	case laws > 1 || skips > 1:
+		return opts, fmt.Errorf("--law and --skip-law each select one law: given twice, the first would be dropped")
 	case selected && (!validLaw(opts.law) || !validLaw(opts.skipLaw) || opts.law+opts.skipLaw == ""):
 		return opts, fmt.Errorf("--law and --skip-law take a law's name, as a report shows it (Design.Safe)")
 	case len(positional) > 1 && command != "test" && command != "check", len(positional) == 0 && command != "test":
@@ -533,7 +536,7 @@ func fileOptionsOf(command string, args []string) (fileOptions, error) {
 	if recursivePattern(opts.file) && (command == "check" || command == "test" || command == "lint") {
 		return opts, nil
 	}
-	if isPackageFolder(opts.file) {
+	if isPackageFolder(opts.file) || isStdTarget(opts.file) && command == "test" {
 		return opts, nil
 	}
 	return opts, requireSourceExtension(opts.file)

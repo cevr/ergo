@@ -41,12 +41,12 @@ func TestStdGoShareOnlyFalls(t *testing.T) {
 // may hold. It only falls: a move lowers its class's ceiling to the count
 // it leaves.
 var stdGoShareCeiling = map[string]int{
-	"provider":    79, // I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written), -1 again by AW-ERGO (// ergo:aswritten, an Ergo body); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet
-	"host":        35, // I22: +14 batch-22 externs; NET1: +2 net.hostDial, net.hostListen
-	"library":     77, // I22: +14 batch-22 externs (I22-B22CLASS rows)
+	"provider":    81, // CAP stack (917): +2 fs.confineLast, fs.hostMapBounded; I-FLIP: +1 prelude.AsWritten (LF6w, a runtime mark: the call tree kept as written), -1 again by AW-ERGO (// ergo:aswritten, an Ergo body); I22: +25 batch-22 externs; NET1: +1 nettest.newPipeNet
+	"host":        41, // CAP stack (917): +5 host leaves (exec.hostReplace, fs.hostSameAs, signal.hostWatch, hostUnwatch, hostNumber); I22: +14 batch-22 externs; NET1: +2 net.hostDial, net.hostListen; UC1: +1 (term.hostPeek and hostDrop replace hostReadKey)
+	"library":     89, // CAP stack (917): +11 HOST-ROW leaves (fs Lstat, IsLink, Mkdir, Readlink, Resolve, Symlink; os Pid, HomeDir, CacheDir, ConfigDir, Executable), +1 sha256.New (LF2); I22: +14 batch-22 externs (I22-B22CLASS rows)
 	"language":    3,  // I22: +2 batch-22 externs
 	"computation": 43, // I22: +5 batch-22 externs; NP4f-15: -2, NP4f-16: -5, NP4f-17: -2, NP4f-URL: -2 (moved to Ergo); HTTP-RAWPATH: +1 http.DecodePath
-	"type":        86, // I22: +4 batch-22 externs; NET1 +6 (net Conn, Listener, three failures; nettest.PipeNet) less http.Listener, HTTP-RAWPATH +1 http.BadEscape; STD-COPY-SAME: +1 fs.Text, which names the runtime's MappedText (extern go), not the path fs
+	"type":        92, // CAP stack (917): +5 fs.Exists, NotRegular, TooLarge, os.NoDir, sha256.Hasher; I22: +4 batch-22 externs; NET1 +6 (net Conn, Listener, three failures; nettest.PipeNet) less http.Listener, HTTP-RAWPATH +1 http.BadEscape; STD-COPY-SAME: +1 fs.Text, which names the runtime's MappedText (extern go), not the path fs; UC1: +1 term.peeked (hostPeek's answer)
 }
 
 // stdGoShareClasses are the classes a row may name; the true ones need a

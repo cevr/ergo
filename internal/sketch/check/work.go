@@ -1,9 +1,5 @@
 package check
 
-import (
-	"ergo.local/prototype/internal/sketch/syntax"
-)
-
 // The work of a machine's states (MU4; runtime.md, Machines and actors
 // 12). A machine declaration's `work: w` entry names a package function
 // w(s S) Option[W], where W is a work record (WorkStart), such as std
@@ -49,53 +45,19 @@ func TakesWorkSend(f *Func) bool {
 // function from the state to Option[W], W a work record of the signal
 // (WorkStart), with no rows of its own; R is the work's capability row,
 // charged to the machine (runtime.md, Machines and actors 12). It returns
-// w, or nil when the entry is refused.
-func (c *checker) checkMachineWork(tn *TypeName, x syntax.Expr, state, signal Type) *Func {
-	want := "func(" + state.String() + ") Option[machines.Work[" + signal.String() + ", R]]"
-	id, ok := x.(*syntax.Ident)
-	if !ok {
-		c.errorf(x, CodeType, "a machine's work names a function of this package of the type %s (runtime.md, Machines and actors 12)", want)
-		return nil
+// checkMachineWork checks a machine's work entry: a function from the
+// state to Option[machines.Work[E, R]] with no rows of its own, R being the
+// work's capability row, charged to the machine (runtime.md, Machines and
+// actors 12).
+func (c *checker) checkMachineWork(tn *TypeName, state, signal Type) {
+	e := c.machineEntry(tn, entryWork)
+	if e == nil {
+		return
 	}
-	f, ok := c.pkg.Scope.names[id.Name].(*Func)
-	if !ok {
-		if c.pkg.Scope.names[id.Name] == nil {
-			c.errorf(id, CodeUnknown, "unknown function %s", id.Name)
-		} else {
-			c.errorf(id, CodeType, "%s is not a function; a machine's work names a function (runtime.md, Machines and actors 12)", id.Name)
-		}
-		return nil
+	if c.machineWorkRow(e.Type, state, signal) == nil {
+		want := "func(" + state.String() + ") Option[machines.Work[" + signal.String() + ", R]]"
+		c.errorf(e.Expr, CodeType, "the work %sof machine %s must have the type %s, with no error or capability row of its own: R is the work's capability row, charged to the machine (runtime.md, Machines and actors 12)", entryLabel(e.Expr), tn.Name, want)
 	}
-	f.called = true
-	c.pkg.Info.Uses[id] = f
-	if isExtern(f) && !externValue(f) {
-		// A call-only extern is refused (P3); an extern value (G1) is
-		// checked as a work like any function.
-		c.errorf(id, CodeType, "%s", externCallOnlyText)
-		return nil
-	}
-	if f.Sig == nil {
-		return nil
-	}
-	r := c.machineWorkRow(f.Sig, state, signal)
-	if r == nil {
-		c.errorf(id, CodeType, "the work %s of machine %s must have the type %s, with no error or capability row of its own: R is the work's capability row, charged to the machine (runtime.md, Machines and actors 12)", id.Name, tn.Name, want)
-		return nil
-	}
-	// Its own rows: the value must be assignable to the same function type
-	// with empty rows; an inferred row is solved later, so assignment
-	// checks it (rows.md, Error rows).
-	wantSig := &Signature{Params: f.Sig.Params, Results: f.Sig.Results, Errors: newRow(), Uses: newRow()}
-	t := &target{name: "the work of " + tn.Name, declErrors: newRow(), declUses: newRow(), resultKnown: true}
-	prev := c.fn
-	c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope)}
-	op := c.valueExpr(x, wantSig)
-	ok = c.assign(&op, wantSig, "machine "+tn.Name+"'s work")
-	c.fn = prev
-	if !ok {
-		return nil
-	}
-	return f
 }
 
 // machineWorkRow is the work's capability row R when sig is func(S)
@@ -157,28 +119,22 @@ func WorkStart(w Type) (string, *Signature) {
 
 // machineWork is the work function of the machine declaration t and its
 // capability row, or nil when it has none or it is refused
+// machineWork is the work entry of the machine type t and its capability
+// row, at t's type arguments, or nils when it has none or it is refused
 // (checkMachineWork reports that).
-func (c *checker) machineWork(t Type) (*Func, *Row) {
-	n, ok := t.(*Named)
-	if !ok || n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
+func (c *checker) machineWork(t Type) (*MachineEntry, *Row) {
+	n, tn, m := machineDeclOf(t)
+	if n == nil {
 		return nil, nil
 	}
-	m, ok := n.Underlying().(*MachineType)
-	spec, ok2 := n.Obj.Decl.Spec.(*syntax.MachineType)
-	if !ok || !ok2 {
+	e := c.machineEntry(tn, entryWork)
+	sig := c.entrySig(n, e)
+	if sig == nil {
 		return nil, nil
 	}
-	id, ok := spec.Work.(*syntax.Ident)
-	if !ok {
-		return nil, nil
-	}
-	f, ok := n.Obj.Pkg.Scope.names[id.Name].(*Func)
-	if !ok || f.Sig == nil || isExtern(f) {
-		return nil, nil
-	}
-	r := c.machineWorkRow(f.Sig, m.State, m.Signal)
+	r := c.machineWorkRow(sig, m.State, m.Signal)
 	if r == nil {
 		return nil, nil
 	}
-	return f, r
+	return e, r
 }

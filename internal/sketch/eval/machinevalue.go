@@ -35,56 +35,85 @@ func (in *interp) machineValue(fr *frame, at syntax.Node, p *machinePlan, conv c
 	if !ok || structOf(n) == nil {
 		ice("a machine converts to %s, no record", to.t)
 	}
-	step := conv.Table["Step"]
-	if step == nil {
+	if conv.Entries["Step"] == nil {
 		ice("a machine conversion with no step")
-	}
-	if len(step.Sig.TParams) > 0 {
-		return nil, fr.unsupported(at, "a generic machine step (%s) yet", step.Name)
 	}
 	if ab := in.build(fr, at, 1, int64(len(structOf(n).Fields)), 0); ab != nil {
 		return nil, ab
 	}
 	out := &record{t: n, key: argsKey(n, to.env), fields: make([]Value, len(structOf(n).Fields))}
 	set := func(name string, v Value) { out.fields[fieldIndex(n, name)] = v }
-	if start := conv.Table["Start"]; start != nil {
-		set("Start", startValue(start))
+	entry := func(name string) (Value, *abrupt) {
+		e := conv.Entries[name]
+		if e == nil {
+			return nil, nil
+		}
+		return in.entryValue(fr, at, p.tn, e, conv.From)
+	}
+	if start := conv.Entries["Start"]; start != nil {
+		v, ab := entry("Start")
+		if ab != nil {
+			return nil, ab
+		}
+		set("Start", startValue(v, start.Type))
 	} else {
-		v, ok := in.initials[p.tn]
-		if !ok {
-			ice("the machine %s has no initial value", p.tn.Name)
+		v, ab := in.initialValue(fr, at, p.tn, conv.From)
+		if ab != nil {
+			return nil, ab
 		}
 		set("Initial", v)
 	}
-	set("Step", &funcRef{fn: step})
+	step, ab := entry("Step")
+	if ab != nil {
+		return nil, ab
+	}
+	set("Step", step)
 	// Exit (FK9-g1): the exit function, or None for every state; a fold
 	// runs no exit action, so only a program that calls Exit reads it.
 	for _, name := range []string{"After", "Work", "Exit"} {
-		set(name, in.machineOption(to, n, name, conv.Table[name]))
+		v, ab := entry(name)
+		if ab != nil {
+			return nil, ab
+		}
+		set(name, in.machineOption(to, n, name, v, conv.Entries[name]))
 	}
 	return out, nil
 }
 
-// startValue is the Start of an InputMachine: the start function, or, when
-// it takes several inputs, a function of the tuple of them.
-func startValue(start *check.Func) Value {
-	if len(start.Sig.Params) == 1 {
-		return &funcRef{fn: start}
+// initialValue is the initial value of the machine tn at the instance
+// from: computed once with the package's (initMachines), or, for a generic
+// machine, once per instance.
+func (in *interp) initialValue(fr *frame, at syntax.Node, tn *check.TypeName, from check.Type) (Value, *abrupt) {
+	if v, ok := in.initials[tn]; ok {
+		return v, nil
 	}
-	return &nativeFunc{name: start.Name, call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
+	env, args := machineEnv(fr, tn, from)
+	if env == nil {
+		ice("the machine %s has no initial value", tn.Name)
+	}
+	spec := tn.Decl.Spec.(*syntax.MachineType)
+	return in.declValue(fr, at, tn, spec.Initial, env, args, "the initial value of machine "+tn.Name)
+}
+
+// startValue is the Start of an InputMachine: the start function's value,
+// or, when it takes several inputs, a function of the tuple of them.
+func startValue(start Value, sig *check.Signature) Value {
+	if len(sig.Params) == 1 {
+		return start
+	}
+	return &nativeFunc{name: "start", call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
 		t, ok := args[0].(tuple)
 		if !ok {
-			ice("the input of %s is %T, no tuple", start.Name, args[0])
+			ice("the input of a machine's start is %T, no tuple", args[0])
 		}
-		call, _ := at.(*syntax.CallExpr)
-		return in.callResolved(fr, call, start, nil, t.elems)
+		return in.callValue(fr, at, start, t.elems)
 	}}
 }
 
 // machineOption is the Machine's field name (After or Work), a function of
 // a state that gives an Option: of the machine's function fn, or None
 // when it has none.
-func (in *interp) machineOption(to rtype, n *check.Named, name string, fn *check.Func) Value {
+func (in *interp) machineOption(to rtype, n *check.Named, name string, fn Value, e *check.MachineEntry) Value {
 	var field check.Type
 	for _, f := range structOf(n).Fields {
 		if f.Name == name {
@@ -100,8 +129,7 @@ func (in *interp) machineOption(to rtype, n *check.Named, name string, fn *check
 		if fn == nil {
 			return optionOf(result, nil, false), nil
 		}
-		call, _ := at.(*syntax.CallExpr)
-		o, ab := in.callResolved(fr, call, fn, nil, args)
+		o, ab := in.callValue(fr, at, fn, args)
 		if ab != nil {
 			return nil, ab
 		}
@@ -120,7 +148,7 @@ func (in *interp) machineOption(to rtype, n *check.Named, name string, fn *check
 				return nil, fr.unsupported(at, "a machine timer that is not positive, whose defect text the Go build formats")
 			}
 			if check.IsEvery(t.t) {
-				tv, ab := in.everyTimeout(fr, at, fn, result, t)
+				tv, ab := in.everyTimeout(fr, at, e.Type, result, t)
 				if ab != nil {
 					return nil, ab
 				}
@@ -142,14 +170,14 @@ func (in *interp) machineOption(to rtype, n *check.Named, name string, fn *check
 // machine.go): In as written, and Signal made from time.Clock's reading
 // when the task runs under std machines' firing mark (a timer that
 // fires), else from the zero time, where the runner reads only In.
-func (in *interp) everyTimeout(fr *frame, at syntax.Node, after *check.Func, result rtype, every *record) (Value, *abrupt) {
+func (in *interp) everyTimeout(fr *frame, at syntax.Node, after *check.Signature, result rtype, every *record) (Value, *abrupt) {
 	timeout, ok := optionElem(result)
 	if !ok {
 		ice("the prelude Machine's After gives no Option[Timeout[E]]")
 	}
 	sigField := every.fields[fieldIndex(every.t, "Signal")]
 	var when Value
-	clockT := check.EveryClock(after.Sig)
+	clockT := check.EveryClock(after)
 	if clockT == nil {
 		ice("std machines.Every has no time.Clock")
 	}

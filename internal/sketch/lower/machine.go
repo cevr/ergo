@@ -57,7 +57,7 @@ import (
 // (methodReceiver takes records only). The plan has no runner of its own:
 // a value X{} converts to the prelude Machine (ConvMachine, expr.go
 // convert: Initial from the plan, Step the step function's value), which
-// std machines folds, and the actor library (#57, #101) will run.
+// std machines folds, and the actor library will run.
 //
 // Prior art: XState separates the machine definition from its interpreter;
 // Erlang's gen_statem keeps the callbacks apart from the process that runs
@@ -67,59 +67,64 @@ import (
 type machineDecl struct {
 	state, signal check.Type
 	initial       syntax.Expr // nil for a machine with an input
-	step          *check.Func
-	start         *check.Func // the start function of a machine with an input
+	// entries are the declaration's checked entries (MACHINE-EXPR,
+	// machineentry.go): its step, and its start, after, work and exit.
+	entries *check.MachineEntries
+	tparams []*check.TypeParam
 }
 
 // machineOf reads a machine declaration's checked facts: its state and
-// signal types, its initial value and its step function.
+// signal types, its initial value and its entries.
 func (l *lowerer) machineOf(tn *check.TypeName, named *check.Named, spec *syntax.MachineType, site syntax.Node) *machineDecl {
 	m, ok := named.Underlying().(*check.MachineType)
 	if !ok {
 		ice(site, "the machine %s has no checked state and signal", tn.Name)
 	}
-	if len(named.TParams) > 0 {
-		ice(site, "the machine %s has type parameters, which the grammar does not give a machine", tn.Name)
+	es := tn.Pkg.Info.MachineEntries[tn]
+	if es == nil || es.Step == nil || es.Step.Type == nil || spec.Initial == nil {
+		ice(site, "the machine %s has no initial value or no checked step; the checker requires both", tn.Name)
 	}
-	id, ok := spec.Step.(*syntax.Ident)
-	if !ok || spec.Initial == nil {
-		ice(site, "the machine %s has no initial value or no step name; the checker requires both", tn.Name)
-	}
-	step, ok := tn.Pkg.Info.Uses[id].(*check.Func)
-	if !ok || step.Decl == nil || step.Decl.Body == nil || len(step.Sig.Params) != 2 || len(step.Sig.Results) != 1 {
-		ice(id, "the step %s of machine %s is not a package function from its state and signal to a Decision", id.Name, tn.Name)
-	}
-	md := &machineDecl{state: m.State, signal: m.Signal, initial: spec.Initial, step: step}
-	if iid, ok := spec.Initial.(*syntax.Ident); ok {
-		if start, ok := tn.Pkg.Info.Uses[iid].(*check.Func); ok {
-			// A machine with an input (V4): no initial value to compute at
-			// start; a run calls the start function with its input.
-			md.initial, md.start = nil, start
-		}
+	md := &machineDecl{state: m.State, signal: m.Signal, initial: spec.Initial, entries: es, tparams: named.TParams}
+	if es.Start != nil {
+		// A machine with an input (V4): no initial value to compute at
+		// start; a run calls the start entry with its input.
+		md.initial = nil
 	}
 	return md
 }
 
 // machinePlan writes the plan of the machine td and records its initial
-// value for the initializer.
-func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
+// value and its computed entries for the initializer. A generic machine's
+// plan is its Go generic type alone, and its conversion function
+// (machineentry.go).
+func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl, tparams string, names map[*check.TypeParam]string) {
 	m := td.machine
 	site := syntax.Node(td.tn.Decl.Name)
+	if len(m.tparams) > 0 {
+		b.WriteString("type " + td.name + tparams + " struct{}\n\n")
+		l.machineOfFunc(td, site)
+		return
+	}
 	tc := &typeCtx{l: l, params: map[*check.TypeParam]string{}, site: site}
 	state, signal := tc.goType(m.state), tc.goType(m.signal)
 	initial := l.pkgName(pkgKey{"machine initial", td.tn}, "ergoInitial"+td.tn.Name)
-	fd := l.useFunc(m.step, site)
-	result := tc.goType(m.step.Sig.Results[0])
+	step := m.entries.Step
+	result := tc.goType(step.Type.Results[0])
 
 	b.WriteString("type " + td.name + " struct{}\n\n")
-	if m.start == nil {
+	if m.initial != nil {
 		b.WriteString("var " + initial + " " + state + "\n\n")
 		b.WriteString("func (" + td.name + ") Initial() " + state + " { return " + initial + " }\n\n")
+	}
+	l.machineEntryVars(b, td, tc)
+	var fd *funcDecl
+	if !step.Computed() {
+		fd = l.useFunc(step.Func, site)
 	}
 	// The Step waits for the step's body: the body may come later in the
 	// source, and the plan's purity is a fact of that body.
 	l.queue(td.tn.Decl.Name, func() {
-		if !fd.lowered && len(l.refusals) > 0 {
+		if fd != nil && !fd.lowered && len(l.refusals) > 0 {
 			return // the body was refused, and that refusal is reported
 		}
 		b := &l.user
@@ -134,33 +139,29 @@ func (l *lowerer) machinePlan(b *strings.Builder, td *typeDecl) {
 		}
 		scope := newNamer(l.names)
 		s, e := scope.alloc("s"), scope.alloc("e")
-		// A step over a record state lowers to a Go method of the record
-		// (methodReceiver), so the state is its receiver (fu-mb2 F10).
-		call := func(lead []string) string {
-			if fd.method != nil {
-				return "(" + s + ")." + fd.name + "(" + strings.Join(append(lead, e), ", ") + ")"
-			}
-			return fd.name + "(" + strings.Join(append(lead, s, e), ", ") + ")"
-		}
-		if machinePure(m.step, fd, site) {
+		if l.entryEnvFree(step, site) {
 			// A pure step function takes no environment (pure.go); another
 			// step that reads none is passed nil.
-			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + call(fd.envLead("nil")) + "\n}\n\n")
+			call, _ := l.entryCall(td.tn, "Step", step, "nil", []string{s, e}, site)
+			b.WriteString("func (" + td.name + ") Step(" + s + " " + state + ", " + e + " " + signal + ") " + result + " {\n\treturn " + call + "\n}\n\n")
 			return
 		}
 		env := scope.alloc("env")
+		call, fallible := l.entryCall(td.tn, "Step", step, env, []string{s, e}, site)
 		results := result
-		if fd.fallible {
+		if fallible {
 			results = "(" + result + ", error)"
 		}
 		// The Step takes the environment (the runner passes one to a step
 		// that fails or reads it); a failing step that reads none takes
 		// none (ENV-FREE-FALLIBLE), so it is passed only to one that does.
-		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call(fd.envLead(env)) + "\n}\n\n")
+		// A computed step's value takes it, and returns its error.
+		b.WriteString("func (" + td.name + ") Step(" + env + " *" + l.env() + ", " + s + " " + state + ", " + e + " " + signal + ") " + results + " {\n\treturn " + call + "\n}\n\n")
 	})
-	if m.start == nil {
+	if m.initial != nil {
 		l.machineInit(td, initial)
 	}
+	l.machineEntryInits(td)
 }
 
 // Machine graphs (MU15; binsize BS7; runtime.md, Machines and actors 15).
@@ -567,8 +568,8 @@ func machinePure(step *check.Func, fd *funcDecl, site syntax.Node) bool {
 // state and the duration (fs2; runtime.md, Machines and actors 9), so no
 // runner that calls this After loops at one instant.
 func (fc *funcCtx) machineAfter(conv check.Conversion, site syntax.Node) string {
-	if after := conv.Table["After"]; after != nil {
-		if r := after.Sig.Results; len(r) == 1 && everyOption(r[0]) {
+	if after := fc.entryOf(conv, "After", site); after != nil {
+		if r := after.sig.Results; len(r) == 1 && everyOption(r[0]) {
 			return fc.everyTimers(conv, after, site)
 		}
 		return fc.positiveTimers(conv, after, site)
@@ -603,12 +604,12 @@ func everyOption(t check.Type) bool {
 //		}
 //		return None{}, nil
 //	}
-func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site syntax.Node) string {
-	sig := after.Sig
+func (fc *funcCtx) everyTimers(conv check.Conversion, after *entryValue, site syntax.Node) string {
+	sig := after.sig
 	field := fc.machineField(conv, "After", site)
 	clock, ok := check.EveryClock(sig).(*check.Named)
 	if !ok || len(sig.Params) != 1 {
-		ice(site, "the after function %s is not func(S) Option[machines.Every[E]] over std time", after.Name)
+		ice(site, "the after entry %s is not func(S) Option[machines.Every[E]] over std time", after.name)
 	}
 	timeout, ok := field.Results[0].(*check.Named)
 	if !ok || len(timeout.TArgs) != 1 {
@@ -633,7 +634,7 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 	if n, ok := conv.From.(*check.Named); ok {
 		machine = n.Obj.Name
 	}
-	g := fc.funcValue(after, sig, site, nil)
+	g := after.g
 	gv, s, o, t, when, e, err := fc.scope.alloc("after"), fc.scope.alloc("s"), fc.scope.alloc("o"), fc.scope.alloc("t"), fc.scope.alloc("at"), fc.scope.alloc("e"), fc.scope.alloc("err")
 	in, signal := memberName("In"), memberName("Signal")
 	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
@@ -676,7 +677,7 @@ func (fc *funcCtx) everyTimers(conv check.Conversion, after *check.Func, site sy
 //		return None{}, nil
 //	}
 func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
-	work := conv.Table["Work"]
+	work := fc.entryOf(conv, "Work", site)
 	if work == nil {
 		return fc.machineNone(conv, "Work", site)
 	}
@@ -684,15 +685,15 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 	// The work record's one field (check.WorkStart): Start for std
 	// machines.Work, or the name a program's record of its shape gives it.
 	var start string
-	if o, ok := work.Sig.Results[0].(*check.Named); ok && len(o.TArgs) == 1 {
+	if o, ok := work.sig.Results[0].(*check.Named); ok && len(o.TArgs) == 1 {
 		if field, _ := check.WorkStart(o.TArgs[0]); field != "" {
 			start = fc.l.typeDecl(o.TArgs[0].(*check.Named).Obj, site).fieldName[field]
 		}
 	}
 	if start == "" {
-		ice(site, "the work %s gives no work record", work.Name)
+		ice(site, "the work %s gives no work record", work.name)
 	}
-	g := fc.funcValue(work, work.Sig, site, nil)
+	g := work.g
 	gv, o, w := fc.scope.alloc("work"), fc.scope.alloc("o"), fc.scope.alloc("w")
 	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
 		s := fc.scope.alloc("s")
@@ -700,7 +701,7 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
 			ind + gv + " := " + g + "\n" +
 				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
-				ind + "if " + fc.optionSomeIf(work.Sig.Results[0], o, w, site) + " {\n" +
+				ind + "if " + fc.optionSomeIf(work.sig.Results[0], o, w, site) + " {\n" +
 				ind + "\treturn " + fc.optionSome(sig.Results[0], w+".Value."+start, site) + ", nil\n" +
 				ind + "}\n" +
 				ind + "return " + fc.optionNone(sig.Results[0], site) + ", nil\n"
@@ -722,15 +723,15 @@ func (fc *funcCtx) machineWork(conv check.Conversion, site syntax.Node) string {
 //		return None{}, nil
 //	}
 func (fc *funcCtx) machineExit(conv check.Conversion, site syntax.Node) string {
-	exit := conv.Table["Exit"]
+	exit := fc.entryOf(conv, "Exit", site)
 	if exit == nil {
 		return fc.machineNone(conv, "Exit", site)
 	}
 	sig := fc.machineField(conv, "Exit", site)
-	if len(exit.Sig.Params) != 1 || len(exit.Sig.Results) != 1 {
-		ice(site, "the exit function %s is not func(S) Option[func() needs R]", exit.Name)
+	if len(exit.sig.Params) != 1 || len(exit.sig.Results) != 1 {
+		ice(site, "the exit entry %s is not func(S) Option[func() needs R]", exit.name)
 	}
-	g := fc.funcValue(exit, exit.Sig, site, nil)
+	g := exit.g
 	gv, o, x := fc.scope.alloc("exit"), fc.scope.alloc("o"), fc.scope.alloc("x")
 	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
 		s := fc.scope.alloc("s")
@@ -738,7 +739,7 @@ func (fc *funcCtx) machineExit(conv check.Conversion, site syntax.Node) string {
 		return []string{s + " " + fc.goType(sig.Params[0].Type)}, fc.valueResults(sig.Results[0]),
 			ind + gv + " := " + g + "\n" +
 				ind + o + ", _ := " + gv + "(" + env + ", " + s + ")\n" +
-				ind + "if " + fc.optionSomeIf(exit.Sig.Results[0], o, x, site) + " {\n" +
+				ind + "if " + fc.optionSomeIf(exit.sig.Results[0], o, x, site) + " {\n" +
 				ind + "\treturn " + fc.optionSome(sig.Results[0], x+".Value", site) + ", nil\n" +
 				ind + "}\n" +
 				ind + "return " + fc.optionNone(sig.Results[0], site) + ", nil\n"
@@ -779,16 +780,16 @@ func (fc *funcCtx) machineNone(conv check.Conversion, name string, site syntax.N
 // whose Timeout's In is not positive panics with v1.MachineTimerNotPositive
 // (fs2). Go's time.NewTicker panics on a non-positive period for the same
 // reason: such a timer fires at once, forever.
-func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site syntax.Node) string {
-	sig := after.Sig
+func (fc *funcCtx) positiveTimers(conv check.Conversion, after *entryValue, site syntax.Node) string {
+	sig := after.sig
 	if len(sig.Params) != 1 || len(sig.Results) != 1 {
-		ice(site, "the after function %s is not func(S) Option[Timeout[E]]", after.Name)
+		ice(site, "the after entry %s is not func(S) Option[Timeout[E]]", after.name)
 	}
 	machine := "machine"
 	if n, ok := conv.From.(*check.Named); ok {
 		machine = n.Obj.Name
 	}
-	g := fc.funcValue(after, sig, site, nil)
+	g := after.g
 	gv, s, o, err, t := fc.scope.alloc("after"), fc.scope.alloc("s"), fc.scope.alloc("o"), fc.scope.alloc("err"), fc.scope.alloc("t")
 	return fc.envClosure(callerEnv, "env", site, func(env string) ([]string, string, string) {
 		ind := strings.Repeat("\t", fc.depth+1)
@@ -805,9 +806,9 @@ func (fc *funcCtx) positiveTimers(conv check.Conversion, after *check.Func, site
 // machineStart is the Start of a machine value's InputMachine (V4): the
 // start function's value when it has one parameter, else a function of the
 // tuple of its parameters that calls it with the tuple's elements.
-func (fc *funcCtx) machineStart(start *check.Func, site syntax.Node) string {
-	g := fc.funcValue(start, start.Sig, site, nil)
-	sig := start.Sig
+func (fc *funcCtx) machineStart(start *entryValue, site syntax.Node) string {
+	g := start.g
+	sig := start.sig
 	if len(sig.Params) == 1 {
 		return g
 	}
@@ -852,7 +853,13 @@ func namesIdent(src, id string) bool {
 // machineInit lowers the machine's initial value into the initializer, as
 // packageVar lowers a let's, assigning the plan's variable.
 func (l *lowerer) machineInit(td *typeDecl, initial string) {
-	x := td.machine.initial
+	l.machineInitOf(td, td.machine.initial, initial, td.machine.state, "machine "+td.tn.Name)
+}
+
+// machineInitOf lowers x, the machine td's initial value or one of its
+// computed entries (machineentry.go), of type t, into the initializer,
+// assigning the variable name. owner names it in the declaration table.
+func (l *lowerer) machineInitOf(td *typeDecl, x syntax.Expr, initial string, t check.Type, owner string) {
 	sourced := l.isSourced(td.tn.Pkg)
 	if p := td.tn.Pkg; !sourced && p != nil && p.Info != nil {
 		// A std machine's initial value is lowered as a std let's
@@ -865,8 +872,8 @@ func (l *lowerer) machineInit(td *typeDecl, initial string) {
 	fc := newFuncCtx(l, newNamer(l.names), sourced)
 	fc.depth = 2
 	fc.env = fc.scope.alloc("env") // initFunc's parameter (initEnv)
-	fc.owner = "machine " + td.tn.Name
-	fc.frame = newFrame(td.machine.state, false, false)
+	fc.owner = owner
+	fc.frame = newFrame(t, false, false)
 	if sourced {
 		l.recordDecl(fc.owner, x)
 	}

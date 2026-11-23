@@ -84,7 +84,7 @@ func ProgramType(t Type) bool {
 }
 
 // ProvidesOperation reports whether f is a method of its first
-// parameter's type (#196) that provides an operation of an operation type
+// parameter's type that provides an operation of an operation type
 // the type declares it implements: a call of the operation reaches f with
 // no call that names it.
 func (f *Func) ProvidesOperation() bool {

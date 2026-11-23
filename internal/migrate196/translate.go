@@ -1,11 +1,11 @@
 // Package migrate196 is the one-off translator from the Go-shaped syntax of
-// 92fac236 to the decided syntax of #196 (D5). It parses old syntax with a
+// 92fac236 to the decided syntax of the v1 language (D5). It parses old syntax with a
 // frozen copy of that parser (oldsyntax), rewrites the source by edits the
 // old tree locates, and prints the result with internal/hostsyntax, so
 // its output is canonical and keeps every comment. A form with no decided
 // spelling of the same meaning is left as it was and reported as a note for
 // a hand edit; the translator never emits a form whose meaning differs.
-// It is deleted after v1 (#196).
+// It is deleted after v1.
 package migrate196
 
 import (
@@ -1039,7 +1039,7 @@ func grouping(x oldsyntax.Expr, prec int) (string, string) {
 
 // lawDecl notes a law function, `func LawX(…) bool`: a decided law lives in
 // its operation type as `law X(…) { … }`, ends in a bool expression instead
-// of a return, and the prototype refuses laws until #162 (round-1 review,
+// of a return, and the prototype refuses laws until laws and proofs (round-1 review,
 // M13). The move changes the declaration's home and its body, so it is a
 // hand edit.
 func (t *translator) lawDecl(d *oldsyntax.FuncDecl) {
@@ -1054,7 +1054,7 @@ func (t *translator) lawDecl(d *oldsyntax.FuncDecl) {
 	if id, ok := r.List[0].Type.(*oldsyntax.Ident); !ok || id.Name != "bool" {
 		return
 	}
-	t.note(d.Pos(), "a law function %s: move it into its operation type as law %s(…) { … } by hand (laws come with #162)", name, strings.TrimPrefix(name, "Law"))
+	t.note(d.Pos(), "a law function %s: move it into its operation type as law %s(…) { … } by hand", name, strings.TrimPrefix(name, "Law"))
 }
 
 // testDecl turns `func TestX() needs testing.T { … }` into `test X { … }`
