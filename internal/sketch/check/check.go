@@ -871,6 +871,7 @@ func prelude() preludeResult {
 		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
+		c.pkg.module = StdModule
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
@@ -1090,7 +1091,8 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
-	c.pkg.trusted = true // the toolchain vouches for what it ships
+	c.pkg.trusted = true     // the toolchain vouches for what it ships
+	c.pkg.module = StdModule // its laws are judged over std as one module (lawmodule.go)
 	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
@@ -1118,6 +1120,7 @@ func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
 	c.pkg.trusted = true
+	c.pkg.module = StdModule
 	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()

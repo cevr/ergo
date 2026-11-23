@@ -702,3 +702,4 @@ language	internal/tsproj/project.go:emitter.declare	name	"Wire"	Wire, the codec'
 language	internal/tsproj/project.go:emitter.schema	mark	"stdlib.PreludePath"	Option	-
 language	internal/tsproj/project.go:emitter.schema	name	"Option"	Option	-
 debt	scripts/stdlaws/main.go:main	mark	"stdlib.Ledger"	main: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/contextneeds.go:checker.readContextHeader	flag	"isTestAmbient"	TestAmbient in a named context's needs row, the test runner's	-

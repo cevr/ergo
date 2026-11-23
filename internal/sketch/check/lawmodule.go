@@ -39,21 +39,13 @@ type fedBinding struct {
 	provider Type
 }
 
-// StdModule names the standard library as one module for this rule:
-// std's contracts are fed by contexts of its other packages (llm/memory
-// feeds llm's Model laws) as a module's are, and StdSnapshotNow, which
-// checks every std package, judges them (ReportUnfed).
+// StdModule is the module the standard library's packages are in, as the
+// loader names a module's packages' (check.go's seam sets it): std's
+// contracts are fed by contexts of its other packages (llm/memory feeds
+// llm's Model laws) as a module's are, and StdSnapshotNow, which checks
+// every std package, judges them (ReportUnfed). A package's law bindings
+// are judged over its module, "" for a program of its own.
 const StdModule = "std"
-
-// unfedModule is the module the package's law bindings are judged over:
-// its loader's module, std for a std package, "" for a program of its
-// own.
-func (c *checker) unfedModule() string {
-	if c.pkg.std {
-		return StdModule
-	}
-	return c.pkg.module
-}
 
 // lawSite is where law is declared, as an unfed binding's error at its
 // provider names it: FILE:LINE:COLUMN of the law's name, FILE the
