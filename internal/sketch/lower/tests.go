@@ -1350,12 +1350,12 @@ func (l *lowerer) harness() string {
 const harnessGo = `// $TestAmbient is the test runner's provider of TestAmbient (rows.md,
 // Test's ambient): the folder of one case, which the with or the law case that
 // builds the context made and removes when the case ends.
-type $TestAmbient struct{ dir string }
+type $TestAmbient struct{ dir *$Runtime.TestDirectory }
 
-func (a $TestAmbient) folder(_ *$Task.Task) string { return a.dir }
+func (a $TestAmbient) folder(_ *$Task.Task) *$Runtime.TestDirectory { return a.dir }
 
-// end removes the case's folder: the IR defers it (ir_with.go testAmbient).
-func (a $TestAmbient) end() { $Runtime.TestFolderRemove(a.dir) }
+// end releases the case's folder: the IR defers it (ir_with.go testAmbient).
+func (a $TestAmbient) end() { a.dir.End() }
 
 // $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".

@@ -1322,7 +1322,7 @@ func (fc *funcCtx) testAmbient(env string, ta *check.Named) {
 // provider of the test's ambient ta into the environment env.
 func testAmbientOpen(l *lowerer, env, dir string, ta *check.Named) string {
 	rt := l.rt()
-	return dir + " := " + rt + ".TestFolderOpen(); defer " + rt + ".TestFolderRemove(" + dir + "); " +
+	return dir + " := " + rt + ".OpenTestDirectory(); defer " + dir + ".End(); " +
 		env + "." + l.envField(ta) + " = " + l.helper("TestAmbient") + "{dir: " + dir + "}"
 }
 

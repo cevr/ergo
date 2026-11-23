@@ -34,3 +34,51 @@ func atLast(h Host, path string) string fails Denied {
 }
 
 extern go ergo.local/prototype/runtime/v1.FSConfineLast func confineLast(root string, path string) string fails Denied
+
+// TestRootFolder is the sealed directory of this case.
+func TestRootFolder() TestDirectory needs TestAmbient { TestFolderHandle() }
+
+// OpenTestRoot opens dir below the case folder. The runner closes the
+// handle when the case ends.
+extern go ergo.local/prototype/runtime/v1.FSOpenTestRoot func OpenTestRoot(folder TestDirectory, dir string) HostRoot fails NotFound | Denied | Failed needs TestAmbient
+
+let onTestRoot = context fails NotFound | Denied | Failed needs TestAmbient {
+	Root: try OpenTestRoot(TestRootFolder(), "."),
+}
+
+type rootOpeningCheck {
+	DeniedOutside() bool,
+}
+
+type openingVerdict { denied bool } implements rootOpeningCheck
+
+func DeniedOutside(v openingVerdict) bool { v.denied }
+
+func openingDenied(folder TestDirectory, path string) bool needs TestAmbient {
+	let _ = OpenTestRoot(folder, path) catch {
+	case Denied as d:
+		return d.Path == path
+	case NotFound, Failed:
+		return false
+	}
+	false
+}
+
+func checkOutsideOpening() openingVerdict fails NotFound | Denied | Failed needs TestAmbient {
+	let folder = TestRootFolder()
+	try Symlink(NewTestHost(), "..", "to-parent")
+	openingVerdict{denied: openingDenied(folder, "..") && openingDenied(folder, "to-parent") && openingDenied(folder, TestFolder())}
+}
+
+let outsideTestRoot = context fails NotFound | Denied | Failed needs TestAmbient {
+	rootOpeningCheck: try checkOutsideOpening(),
+}
+
+test TestRootOpeningIsConfined {
+	with try onTestRoot {
+		assert len(try Root.ReadDir(".")) == 0
+	}
+	with try outsideTestRoot {
+		assert rootOpeningCheck.DeniedOutside()
+	}
+}

@@ -40,12 +40,22 @@ type Ambient {
 // implements it and no context entry binds it.
 // law-exempt: its one operation is unexported, so no law can call it; the confinement it gives is stated by the laws of fstest.Confined, which run over fstest.NewFolder, the Host of fs.NewTestHost in the same folder.
 type TestAmbient {
-	folder() string,
+	folder() TestDirectory,
 }
+
+// TestDirectory is the runner's folder, sealed against user construction.
+// law-exempt: only the test runner makes one.
+extern go ergo.local/prototype/runtime/v1.TestDirectory type TestDirectory {
+	Name() string,
+	caseFolderOnly(),
+}
+
+// TestFolderHandle is the enclosing case's folder and acquisition owner.
+func TestFolderHandle() TestDirectory needs TestAmbient { TestAmbient.folder() }
 
 // TestFolder is the absolute path of the case's folder, with its symbolic
 // links resolved. It exists and is empty when the case starts.
-func TestFolder() string needs TestAmbient { TestAmbient.folder() }
+func TestFolder() string needs TestAmbient { TestFolderHandle().Name() }
 
 // Scheduler suspends the calling task. Alarms is the same time as the
 // runtime's own waits use it: an AlarmClock, on which a wait that runs no
