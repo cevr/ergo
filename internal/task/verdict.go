@@ -205,6 +205,7 @@ var seedPattern = regexp.MustCompile(`(?i)\bseed[ =:]+([0-9]+)`)
 // appended to r.Flaky with its seed or log.
 func (r *Runner) Verdicts(ctx context.Context, steps []Step, mode VerdictMode) (VerdictReport, error) {
 	var rep VerdictReport
+	var kept []keptPass
 	done := map[string]StepResult{}
 	for _, s := range steps {
 		if prev, ok := done[s.ID()]; ok {
@@ -213,68 +214,121 @@ func (r *Runner) Verdicts(ctx context.Context, steps []Step, mode VerdictMode) (
 			rep.Steps = append(rep.Steps, prev)
 			continue
 		}
-		res, err := r.verdict(ctx, s, mode)
+		res, key, err := r.verdict(ctx, s, mode)
 		if err != nil {
 			return rep, fmt.Errorf("%s %s at %s: %v", s.Task, s.Verb, s.Member, err)
+		}
+		if key != nil {
+			kept = append(kept, keptPass{s, *key, res})
 		}
 		done[s.ID()] = res
 		rep.Steps = append(rep.Steps, res)
 	}
+	// A later step may write a file an earlier one read (test writes the
+	// law ledger, which check read): the earlier pass is kept again over
+	// the tree as the run left it, when only parts the run writes itself
+	// (RunWrites) moved, so a second run of an unchanged tree replays every
+	// step. Any other moved part leaves the pass under its own key.
+	for _, k := range kept {
+		if r.RunWrites == nil {
+			break
+		}
+		now, err := k.step.Key(ctx)
+		if err != nil {
+			return rep, err
+		}
+		if !onlyRunWrites(k.key, now, r.RunWrites) {
+			continue
+		}
+		r.Store.Put(verdictKey(k.step, now), "pass "+k.res.Log+"\n")
+		r.Store.Put(r.verdictLastKey(k.step), encodeParts(now))
+	}
 	return rep, nil
 }
 
-func (r *Runner) verdict(ctx context.Context, s Step, mode VerdictMode) (StepResult, error) {
+// keptPass is a pass a run kept, and the key it was kept under.
+type keptPass struct {
+	step Step
+	key  Key
+	res  StepResult
+}
+
+// onlyRunWrites reports whether now differs from was, and only in parts
+// written reports the run writes itself.
+func onlyRunWrites(was, now Key, written func(part string) bool) bool {
+	if len(was.Parts) != len(now.Parts) {
+		return false
+	}
+	moved := false
+	for i, p := range was.Parts {
+		q := now.Parts[i]
+		if p.Name != q.Name {
+			return false
+		}
+		if p.Digest != q.Digest {
+			if !written(p.Name) {
+				return false
+			}
+			moved = true
+		}
+	}
+	return moved
+}
+
+// verdict runs one step; key is the key a pass was kept under this run
+// (nil when none was).
+func (r *Runner) verdict(ctx context.Context, s Step, mode VerdictMode) (_ StepResult, key *Key, _ error) {
 	res := StepResult{Task: s.Task, Step: s.Verb, Member: s.Member, Class: s.Class}
-	var key Key
+	var stated Key
 	if s.Key != nil {
 		k, err := s.Key(ctx)
 		if err != nil {
-			return res, err
+			return res, nil, err
 		}
-		key = k
+		stated = k
 	}
 	if mode.Affected {
-		paths := key.Paths
+		paths := stated.Paths
 		if s.Paths != nil {
 			p, err := s.Paths(ctx)
 			if err != nil {
-				return res, err
+				return res, nil, err
 			}
 			paths = p
 		}
 		if !Selected(paths, mode.Changed) {
 			res.Verdict = Unaffected
-			return res, nil
+			return res, key, nil
 		}
 	}
 	content := ""
 	kept := false
 	if s.Key != nil {
-		content = verdictKey(s, key)
+		content = verdictKey(s, stated)
 		var text string
 		text, kept = r.Store.Get(content)
 		if kept && !mode.Fresh {
 			res.Verdict, res.Replay = Pass, "hit"
 			res.Log, _ = strings.CutPrefix(strings.TrimSuffix(text, "\n"), "pass ")
-			return res, nil
+			return res, key, nil
 		}
 		if kept {
 			res.Why = "--fresh"
 		} else {
-			res.Why = r.verdictWhy(s, key)
+			res.Why = r.verdictWhy(s, stated)
 		}
 	}
 	res.Replay = "miss"
 	start := time.Now()
 	pass, log, err := s.Run(ctx)
 	if err != nil {
-		return res, err
+		return res, nil, err
 	}
 	if !pass && s.Retry {
 		first := log
 		pass, log, err = s.Run(ctx)
 		if err != nil {
-			return res, err
+			return res, nil, err
 		}
 		log = append(append(first, "\n--- retry ---\n"...), log...)
 		if pass {
@@ -299,22 +353,23 @@ func (r *Runner) verdict(ctx context.Context, s Step, mode VerdictMode) (StepRes
 		// it.
 		k, err := s.Key(ctx)
 		if err != nil {
-			return res, err
+			return res, nil, err
 		}
-		key, content = k, verdictKey(s, k)
-		r.Store.Put(r.verdictLastKey(s), encodeParts(key))
+		stated, content = k, verdictKey(s, k)
+		r.Store.Put(r.verdictLastKey(s), encodeParts(stated))
 	}
 	switch res.Verdict {
 	case Pass:
 		if s.Key != nil {
 			r.Store.Put(content, "pass "+res.Log+"\n")
+			key = &stated
 		}
 	case Flaky:
 		r.noteFlaky(res)
 	default:
 		res.Contradicted = kept && mode.Fresh
 	}
-	return res, nil
+	return res, key, nil
 }
 
 // writeLog keeps a step's output in r.Logs, named by the step and its

@@ -98,6 +98,9 @@ type Runner struct {
 	Logs string
 	// Flaky is the file each flaky step is appended to; "" notes none.
 	Flaky string
+	// RunWrites, when set, names the key parts a run of the steps writes
+	// itself (the law ledger), which Verdicts settles at the run's end.
+	RunWrites func(part string) bool
 }
 
 // Report is what Gen did.
