@@ -63,7 +63,7 @@ const (
 	// ReadingPackage is the package that declares the context-read extern.
 	ReadingPackage Hidden = "context-package"
 	// ResultRelease, a Releaser[T], is the generated release of the call's
-	// result type T, or nil when T holds no resource (#197 L8 B4, Gap 47):
+	// result type T, or nil when T holds no resource (L8 B4, Gap 47):
 	// a boundary that drops a successful result releases it.
 	ResultRelease Hidden = "release"
 )

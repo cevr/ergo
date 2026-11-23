@@ -31,12 +31,13 @@ type Entry struct {
 	Crit   bool   `json:"crit"`
 	Ticket int64  `json:"ticket"`
 	Lane   string `json:"lane,omitempty"`
-	// Key is the entry's command (Request.Key) and Asked its --memory:
-	// what Reserve reads, at each decision, to charge a waiter. Cap is
-	// the memory the holder runs capped at, 0 for none (Reservation).
-	Key   string `json:"key,omitempty"`
-	Asked int64  `json:"asked,omitempty"`
-	Cap   int64  `json:"cap,omitempty"`
+	// Key is the entry's command and Asked its --memory. The decision
+	// uses them to charge the waiter. Ceiling only limits Cap, the
+	// memory the holder runs capped at (0 for none).
+	Key     string `json:"key,omitempty"`
+	Asked   int64  `json:"asked,omitempty"`
+	Ceiling int64  `json:"ceiling,omitempty"`
+	Cap     int64  `json:"cap,omitempty"`
 	// Passed counts the later waiters that took past this one while it
 	// was the next waiter and did not fit (BUDGET-BACKFILL; at most
 	// Rules.Backfill).
@@ -226,12 +227,21 @@ func Size(n int64) string {
 	return fmt.Sprintf("%.1fM", float64(n)/(1<<20))
 }
 
-// charge sets waiter i's reservation and cap from its command's peak now.
+// charge sets waiter i's reservation and cap from its command's peak now,
+// then applies any ceiling to the cap alone.
 func (s *State) charge(r Rules, i int) {
+	w := &s.Waiters[i]
 	if r.Peak != nil && r.Memory > 0 {
-		w := &s.Waiters[i]
 		w.Memory, w.Cap = Reservation(r, w.Asked, r.Peak(w.Key), r.Default)
 	}
+	w.Cap = capAtCeiling(w.Cap, w.Ceiling)
+}
+
+func capAtCeiling(capAt, ceiling int64) int64 {
+	if ceiling > 0 && (capAt == 0 || ceiling < capAt) {
+		return ceiling
+	}
+	return capAt
 }
 
 // oldestFitting is the waiter other than h with the lowest ticket that
@@ -265,12 +275,12 @@ func (s *State) Holds(id string) bool {
 //     peak lowers the charge, never the kill (2026-11-20, a run that failed
 //     fast, exit 0, at 1.1G capped its full rerun at 1.4G, which the cap
 //     killed in its compile).
-//   - A command never measured is charged the default and not capped on
-//     its own: it runs, its peak is recorded, and only the budget's slice
-//     can kill it (the model's mutant CapUnknown caps it at the default,
-//     which killed a 20G command twice before it fitted).
+//   - A command never measured is charged the default, which is not a
+//     cap (the model's mutant CapUnknown caps it at the default, which
+//     killed a 20G command twice before it fitted).
 //
 // Neither is ever more than the whole budget, which no take could fit.
+// charge applies an explicit ceiling separately.
 func Reservation(r Rules, asked, peak, dflt int64) (res, capAt int64) {
 	switch {
 	case asked > 0:

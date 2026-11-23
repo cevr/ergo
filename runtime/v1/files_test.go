@@ -33,7 +33,7 @@ func TestBodiesFollowTheHiddenConvention(t *testing.T) {
 		"Queue.End":    {TypeParams: anyT},
 		// The prelude's Task operations wait by the caller's task (runtime.md
 		// Tasks, rule 11: the waiter is the owner); Close, the release, masks on the
-		// caller's task (#197 L8 B3t).
+		// caller's task (L8 B3t).
 		"Task.Wait":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}, Results: []string{"T", "error"}},
 		"Task.Stop":    {TypeParams: anyT, Hidden: []Hidden{CallerTask}},
 		"Task.Close":   {TypeParams: anyT, Hidden: []Hidden{CallerTask}},

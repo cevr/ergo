@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/scripts/mutants/anchor"
 )
 
@@ -185,14 +186,16 @@ var hostWords = []string{"linux", "darwin", "unix", "windows", "amd64", "arm64",
 // ergoKillerMissing judges a killer of an Ergo package with no Go test
 // (scripts/mutants runs it with scripts/ergotests, ST-0): Name is an Ergo
 // test of the package, law:L (law:T.L) a law it declares (LAW-KILLER).
-func ergoKillerMissing(dir, test string, files []string) string {
-	decl := regexp.MustCompile(`(?m)^test ` + regexp.QuoteMeta(test) + `\s*\{`)
+func ergoKillerMissing(root, dir, test string, files []string) string {
 	if law, ok := strings.CutPrefix(test, "law:"); ok {
-		if _, member, ok := strings.Cut(law, "."); ok {
-			law = member
+		// law:L, law:T.L, or law:pkg.T.L, a member law an imported
+		// operation type declares that dir's providers run.
+		if lawledger.LawDeclared(root, dir, law) {
+			return ""
 		}
-		decl = regexp.MustCompile(`(?m)^\s*law ` + regexp.QuoteMeta(law) + `\b`)
+		return "no Ergo law " + law + " declared for " + dir
 	}
+	decl := regexp.MustCompile(`(?m)^test ` + regexp.QuoteMeta(test) + `\s*\{`)
 	for _, f := range files {
 		if text, err := os.ReadFile(f); err == nil && decl.Match(text) {
 			return ""
@@ -251,7 +254,7 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 	}
 	if len(files) == 0 {
 		if ergo, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.ergo")); len(ergo) > 0 && tag == "" {
-			return ergoKillerMissing(dir, test, ergo)
+			return ergoKillerMissing(root, dir, test, ergo)
 		}
 		return "no test package " + dir + " (want DIR:Test, DIR[TAG]:Test, DIR:ErgoTest, DIR:law:L, an ergo suite, or examples:PROGRAM)"
 	}

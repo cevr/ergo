@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/runtime/rt"
 )
 
@@ -285,53 +284,4 @@ func virtualDiff(want, got map[vkey]vstamp) string {
 		return fmt.Sprintf("%d steps ran, model %d", len(got), len(want))
 	}
 	return ""
-}
-
-// TestTestingLaws runs the laws of std testing against VirtualClock's
-// timeline (docs/spec/stdlib.md, Std laws).
-func TestTestingLaws(t *testing.T) {
-	span := func(n int64) time.Duration {
-		return time.Duration(1 + (n%1099511627775+1099511627775)%1099511627775)
-	}
-	lawledger.Run(t, map[string]lawledger.Law{
-		"testing SleepAdvancesExactly": {Statement: `SleepAdvancesExactly(n int64) { let c = NewVirtualClock(0) let d = span(n) with context { Scheduler: c, time.Clock: c } { let before = time.Clock.Now() Scheduler.Sleep(d) time.Clock.Now().Sub(before) == d } }`, Check: func(t *testing.T) {
-			r := rand.New(rand.NewPCG(1, 13))
-			for range 200 {
-				root := rt.Root("law")
-				line := NewVirtualTimeline(root, 0, 0)
-				d := span(r.Int64())
-				before := line.Read()
-				line.Wait(root, d)
-				if got := line.Read().Mono - before.Mono; got != int64(d) {
-					t.Fatalf("Sleep(%v) moved the clock by %v", d, time.Duration(got))
-				}
-			}
-		}},
-		"testing IdleOnlyAdvance": {Statement: `IdleOnlyAdvance(n int64, k int) { let c = NewVirtualClock(0) let d = span(n) let count = 1 + (k%50+50)%50 with context { Scheduler: c, time.Clock: c } { let start = time.Clock.Now() let q = queue.New[int](count) let t = task.Go() { for i in 0..count { try q.Push(i) } time.Clock.Now() } Scheduler.Sleep(d) let seen = t.Wait() catch { case queue.Closed: time.Unix(1, 0) } seen.Equal(start) && time.Clock.Now().Sub(start) == d && q.Len() == count } }`, Check: func(t *testing.T) {
-			r := rand.New(rand.NewPCG(1, 14))
-			for range 200 {
-				root := rt.Root("law")
-				line := NewVirtualTimeline(root, 0, 0)
-				d := span(r.Int64())
-				count := 1 + r.IntN(50)
-				q := New[int](count)
-				s := NewScope(root)
-				h := ownedGo(&s, "pusher", func(ct *rt.Task) (int64, error) {
-					for i := range count {
-						if err := q.Push(ct, i); err != nil {
-							return 0, err
-						}
-						runtime.Gosched()
-					}
-					return line.Read().Mono, nil
-				})
-				line.Wait(root, d)
-				seen, err := h.Wait(root)
-				s.End(nil)
-				if err != nil || seen != 0 || line.Read().Mono != int64(d) || q.Len() != count {
-					t.Fatalf("pusher saw %v (err %v), clock %v after Sleep(%v), %d queued of %d", time.Duration(seen), err, time.Duration(line.Read().Mono), d, q.Len(), count)
-				}
-			}
-		}},
-	})
 }

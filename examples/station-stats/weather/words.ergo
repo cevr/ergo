@@ -52,7 +52,7 @@ func ReadTemp(w uint64) Temp {
 		let v = int(c0*10 + c2 - 0x30)
 		return Temp{Tenths: (v ^ -sign) + sign, Width: 3 + sign, Bad: 0}
 	}
-	if c2 == 0x2E && ((d >> 32) & 0xFF) == 0x0A && c0 <= 9 && c1-0x30 <= 9 && c3-0x30 <= 9 {
+	if c2 == 0x2E && ((d>>32)&0xFF) == 0x0A && c0 <= 9 && c1-0x30 <= 9 && c3-0x30 <= 9 {
 		let v = int(c0*100 + (c1-0x30)*10 + c3 - 0x30)
 		return Temp{Tenths: (v ^ -sign) + sign, Width: 4 + sign, Bad: 0}
 	}

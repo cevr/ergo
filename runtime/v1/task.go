@@ -62,7 +62,7 @@ type Scope struct {
 
 // entry is one entry of a frame's list: an exit action or an owned value's
 // release (the owned values below; a Task and a tasks.Set are owned values,
-// #197 L8 B3t).
+// Resource ownership L8 B3t).
 type entry struct {
 	prev, next *entry
 	action     func()
@@ -74,7 +74,7 @@ type entry struct {
 	// Task's first owner; selfOwned), in place of own: no closure (PARK2).
 	self selfOwned
 	// taken is the fields of an owned record taken in place (TakeField):
-	// its generated release skips them (#197 L8 B2; R39, Gap 38).
+	// its generated release skips them (L8 B2; R39, Gap 38).
 	taken uint64
 }
 
@@ -104,7 +104,7 @@ type selfOwned interface {
 func NewScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t)} }
 
 // NewOwnerScope is the frame scope of a frame that opens one only to own
-// values (#197 L8 B1): it releases them on every exit, and a stop pending
+// values (L8 B1): it releases them on every exit, and a stop pending
 // at its end stays pending for the caller's next checkpoint.
 func NewOwnerScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t), plain: true} }
 
@@ -396,7 +396,7 @@ func (a *exitAction) run(s *Scope) {
 // Task is a started task, Ergo's Task[T, E]. Its methods are the prelude's
 // operations, Wait() T fails E, Stop() and Close(), in the uniform Go shape,
 // so *Task[T] is a value of the operations interface the lowering emits for
-// Task[T, E]. A Task is a resource (#197 L8 B3t; resources R1): its owner
+// Task[T, E]. A Task is a resource (L8 B3t; resources R1): its owner
 // is the owner of any value, an entry of a frame's list (Owning), moved by
 // a return, into a field, a container or a queue, and released by Close at
 // its owner's end when no Wait took it.
@@ -437,7 +437,7 @@ func (t *Task[T]) releaseOwned() { t.rel(t) }
 // declaration and the call's source position, such as "main calls task.Go
 // at main.ergo:12:10", the form of a call frame in a defect report. The
 // lowering passes it as a hidden argument to a Go body that names a task
-// or a span by it (docs/spec/stdlib.md, Hidden arguments; G2, #230). No
+// or a span by it (docs/spec/stdlib.md, Hidden arguments; G2). No
 // Ergo type lowers to Site, so its Go type alone marks the argument.
 type Site string
 
@@ -571,7 +571,7 @@ func (t *Task[T]) Stop(ct *rt.Task) {
 }
 
 // Close is the prelude's Task.Close(), the release of a Task its owner did
-// not consume (#197 L8 B3t; Tasks 3, 12; Q5): masked on ct, the task that
+// not consume (L8 B3t; Tasks 3, 12; Q5): masked on ct, the task that
 // releases it, it stops the task and waits until it has ended, as Stop does.
 // The task's typed failure is dropped (a traced tree's observe event says
 // it was not observed) and its defects are raised for the releasing scope.
@@ -602,7 +602,7 @@ func (t *Task[T]) Close(ct *rt.Task) {
 func ReleaseTask[T any](t *Task[T]) { t.Close(t.task) }
 
 // Drain is the rest of the release of a Task whose value holds a resource
-// (#197 L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the
+// (L8 B3t, B4; Q5, Gap 47, resources R13): after Close, it gives the
 // value the body returned, for the owner's generated release, also when
 // rt's stop-wins dropped it (the body returned it while a stop was pending
 // at the task's boundary). A Wait that delivered the value moved the Task
@@ -895,7 +895,7 @@ func (dl *deadline) Stop() bool {
 	}
 }
 
-// Owned values (docs/spec/resources.md R5-R10, R21, R41, R43; #197 L8 B1).
+// Owned values (docs/spec/resources.md R5-R10, R21, R41, R43; L8 B1).
 // A value whose type holds a resource has one owner: the frame, owning
 // with or statement that the checker's release plan names (check
 // Info.Releases). The lowering registers each owned value on its frame's
@@ -950,7 +950,7 @@ func Owning[T any](h *Owned, v T, rel func(T)) T {
 }
 
 // OwningParts is Owning for a value whose release is generated from its
-// parts (#197 L8 B2; check.Drop): rel receives the fields the owner took
+// parts (L8 B2; check.Drop): rel receives the fields the owner took
 // in place (TakeField), which it skips (R39, Gap 38).
 //
 //ergo:wait none
@@ -995,7 +995,7 @@ func (h *Owned) TakeField(k int) {
 	}
 }
 
-// Drop runs the releases of one value's parts, a generated release (#197
+// Drop runs the releases of one value's parts, a generated release (resource ownership
 // L8 B2; resources R3, R9, R37): each part runs after an earlier part's
 // defect, every defect is kept, and End raises them together. Each part
 // is a checked Close, which masks its own body.

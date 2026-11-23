@@ -108,6 +108,7 @@ func (b *irBuilder) tailTo(list []syntax.Stmt, ret bool, to *yieldTo) []*irStmt 
 			continue
 		}
 		b.planFold(list, i) // ir_collectfold.go: a collect only folded next
+		b.fillPrev(list, i) // ir_fill.go
 		// Only the tail's own branches stay in the tail (failureTail).
 		b.voidTail = voidTail && last && isBranchStmt(s)
 		b.part(func() {
@@ -392,7 +393,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 			if i < 0 {
 				b.reserve(v)
 			}
-			out = append(out, &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x})
+			def := &irStmt{K: "def", Pos: b.pos(s.Decl, s.Decl.Pos()), Local: i, X: x}
+			b.fillLet(v, spec.Values[0], def) // ir_fill.go
+			out = append(out, def)
 			if i >= 0 {
 				b.fc.assumeLet(v, spec.Values[0]) // bounds.go (ir_bounds.go)
 			}
@@ -402,6 +405,9 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		return out
 	case *syntax.AssignStmt:
+		if out, ok := b.fillStore(s); ok { // ir_fill.go
+			return out
+		}
 		if len(s.Lhs) != 1 || len(s.Rhs) != 1 {
 			irNo("assignment form several")
 		}

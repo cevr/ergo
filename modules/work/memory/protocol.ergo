@@ -270,7 +270,7 @@ func nextSettles(w World, k int) bool {
 			work.Workspace{Name: "", Id: "", Path: "", Parent: "", Branch: "", Cloner: "", State: work.Trashed, Since: 0, Base: "", Latest: "", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 		}
 	}
-	let all = t.List() catch {
+	let all = records(t) catch {
 	case _:
 		return false
 	}
@@ -281,7 +281,7 @@ func nextSettles(w World, k int) bool {
 func recovered(w World) []work.Workspace fails work.NoBase | work.BadConfig | work.BadAge | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked {
 	let t = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees})
 	let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false})
-	try t.List()
+	try records(t)
 }
 
 // invariants are the model's, on the records all of w after recovery.
@@ -473,7 +473,7 @@ func newSteps(t work.Tool, trees Cloner, name string, o work.NewOptions, wrong s
 				// The claim is the new's linear point: its parent is, at
 				// that moment, the base or the live workspace Look found.
 				if m.ParentId != "" {
-					let all = t.List() catch {
+					let all = records(t) catch {
 					case _:
 						[]work.Workspace{}
 					}
@@ -639,7 +639,7 @@ law ListShowsAStrandedReservation(at int) {
 	case _:
 		return false
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -650,7 +650,7 @@ law ListShowsAStrandedReservation(at int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -709,7 +709,7 @@ law SettleNeverTakesALiveMaker(next int) {
 			return false
 		}
 	}
-	let mid = other.List() catch {
+	let mid = records(other) catch {
 	case _:
 		return false
 	}
@@ -741,7 +741,7 @@ law PlaceNeverCopies(copy bool) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -781,7 +781,7 @@ law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
 		if !poked(t, small(by, 3)) {
 			return false
 		}
-		let mid = t.List() catch {
+		let mid = records(t) catch {
 		case _:
 			return false
 		}
@@ -790,7 +790,7 @@ law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
 	if !poked(t, small(by, 3)) {
 		return false
 	}
-	let after = t.List() catch {
+	let after = records(t) catch {
 	case _:
 		return false
 	}

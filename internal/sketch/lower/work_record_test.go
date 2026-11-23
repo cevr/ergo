@@ -176,7 +176,7 @@ func goDecls(text string) []string {
 		cur = append(cur, l)
 	}
 	decls = append(decls, strings.Join(cur, "\n"))
-	// The source tables (#230) name each call and declaration by its Ergo
+	// The source tables name each call and declaration by its Ergo
 	// name and line, which the copy changes by design.
 	decls = slices.DeleteFunc(decls, func(d string) bool {
 		return strings.HasPrefix(d, "var ergoCalls ") || strings.HasPrefix(d, "var ergoDecls ") || strings.HasPrefix(d, "var ergoCallNames ")

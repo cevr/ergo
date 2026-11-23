@@ -73,6 +73,10 @@ extern go ergo.local/prototype/runtime/v1/rand.NewStream func newStream(seed uin
 // 10), the stream Seeded(1) draws from.
 let seededStream = context { Stream: newStream(1) }
 
+// seededRandom is the context the prelude's Random laws run under for PCG
+// (types.md, Laws 10): Seeded(1), whose Stream no generator builds.
+let seededRandom = context { Random: Seeded(1) }
+
 // Host is the host's Random provider: Go's global math/rand/v2 functions,
 // seeded by the runtime (ChaCha8 per thread), with no stream to replay.
 // Its field gives this package the construction authority, so only
