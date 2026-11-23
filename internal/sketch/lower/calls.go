@@ -1972,15 +1972,28 @@ type declIdent struct {
 // recordDecl adds the source declaration n, named name, to the
 // declaration table once.
 func (l *lowerer) recordDecl(name string, n syntax.Node) {
+	l.recordDeclAt(name, n, -1)
+}
+
+// recordDeclAt records n. A negative src resolves the source file lazily.
+func (l *lowerer) recordDeclAt(name string, n syntax.Node, src int) {
 	if l.declSeen[n] {
 		return
+	}
+	if src < 0 {
+		i, ok := l.sourceOf(n)
+		if !ok {
+			ice(n, "a location of a node that no source file holds")
+		}
+		src = i
 	}
 	if l.declSeen == nil {
 		l.declSeen = map[syntax.Node]bool{}
 	}
 	l.declSeen[n] = true
-	src, _, line, _ := l.at(n, n.Pos())
-	_, _, end, _ := l.at(n, n.End())
+	file := l.srcs[src].file
+	line, _ := file.Position(n.Pos())
+	end, _ := file.Position(n.End())
 	l.decls = append(l.decls, declIdent{src: src, offset: int(n.Pos()), name: name, line: line, end: end})
 }
 

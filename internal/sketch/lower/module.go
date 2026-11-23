@@ -466,10 +466,8 @@ type lowerer struct {
 	instances map[*check.TypeName][]check.Type
 
 	// stdInits are the reached std packages with lets (stdLetPkgs),
-	// computed once; stdLets is set while their lets are named and lowered
-	// (wf10 defects D3).
+	// computed once.
 	stdInits *[]*check.Package
-	stdLets  bool
 	// stdLetOf is the std let declaration and its package for each
 	// variable of one, from the naming pass; stdLetQueued holds the
 	// declarations a lowered body has reached, which alone are lowered

@@ -433,17 +433,12 @@ debt	internal/sketch/lower/catch_plain.go:funcCtx.plainCatch	flag	"goFailing"	fu
 debt	internal/sketch/lower/context.go:contextNamespace	mark	"Std()"	the context namespace std:path	NP8
 debt	internal/sketch/lower/contextvalues.go:funcCtx.contextValue	flag	"declaredContext"	funcCtx.contextValue: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/lower/decls.go:isPreludeType	name	"prelude"	Option, Some and None	-
-debt	internal/sketch/lower/decls.go:lowerer.addInit	flag	"stdLets"	lowerer.addInit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/decls.go:lowerer.emitBody	flag	"isSourced"	lowerer.emitBody: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/decls.go:lowerer.emitBody	flag	"marks"	lowerer.emitBody: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/decls.go:lowerer.emitBody	flag	"readsEnv"	lowerer.emitBody: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/decls.go:lowerer.emitType	flag	"isSourced"	lowerer.emitType: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/lower/decls.go:lowerer.intrinsic	name	"InForce"	the prelude collection functions	-
 language	internal/sketch/lower/decls.go:lowerer.intrinsic	name	"prelude"	the prelude collection functions	-
-debt	internal/sketch/lower/decls.go:lowerer.letDecl	flag	"stdLets"	lowerer.letDecl: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/decls.go:lowerer.packagePattern	flag	"stdLets"	lowerer.packagePattern: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/decls.go:lowerer.packageVar	flag	"stdLets"	lowerer.packageVar: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/decls.go:lowerer.recordLet	flag	"stdLets"	lowerer.recordLet: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/decls.go:lowerer.typeName	mark	"Host()"	lowerer.typeName: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/decls.go:lowerer.useFunc	flag	"userExtern"	lowerer.useFunc: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/defect.go:funcCtx.unreachableCall	flag	"IsUnreachable"	funcCtx.unreachableCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -575,9 +570,6 @@ language	internal/sketch/lower/library.go:hostProvides	name	"Console"	Console an
 language	internal/sketch/lower/library.go:hostProvides	name	"prelude"	Console and Ambient at the entry	-
 seam	internal/sketch/lower/lower.go:Unit.Validate	mark	"Std()"	a std package has no unit: its sources ship in the compiler	-
 debt	internal/sketch/lower/machine.go:lowerer.ergoVariantName	runtime	"v1.ErgoTypeName"	lowerer.ergoVariantName: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/machine.go:lowerer.machineInit	flag	"isSourced"	lowerer.machineInit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/machine.go:lowerer.machineInit	flag	"stdLets"	lowerer.machineInit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/machine.go:lowerer.machinePlan	flag	"isSourced"	lowerer.machinePlan: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/machine.go:lowerer.machinePlan	flag	"machinePure"	lowerer.machinePlan: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/machine.go:lowerer.variantName	runtime	"rt.TypeName"	lowerer.variantName: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/machine.go:machinePure	flag	"readsEnv"	machinePure: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -615,7 +607,6 @@ debt	internal/sketch/lower/release.go:funcCtx.providerRelease	flag	"HostClose"	f
 debt	internal/sketch/lower/rewritelaw.go:lowerer.rewriteFunc	flag	"isSourced"	lowerer.rewriteFunc: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sealedops.go:funcCtx.sealedMethod	built	"."	funcCtx.sealedMethod: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.enter	flag	"isSourced"	lowerer.enter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/sources.go:lowerer.inStdPkg	flag	"stdLets"	lowerer.inStdPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.isSourced	flag	"sourced"	lowerer.isSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.missingImport	flag	"isSourced"	lowerer.missingImport: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/lower/sources.go:lowerer.missingImport	mark	"Std()"	a reached user package needs a unit; std ships in the compiler	-
