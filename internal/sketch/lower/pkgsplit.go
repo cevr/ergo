@@ -156,7 +156,7 @@ func lowerSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, SplitRe
 	if !tests {
 		files = l.withRecord(u, files)
 	}
-	out, rep := splitFiles(u, files, l.stdOrigins(), l.harnessNames(), base, sh)
+	out, rep := splitFiles(u, files, l.stdOrigins(), l.harnessNames(), l.sitePkgNames(), base, sh)
 	return out, rep, nil
 }
 
@@ -200,12 +200,12 @@ func (l *lowerer) harnessNames() map[string]bool {
 }
 
 // splitFiles splits files, the lowering of u, by the std origins.
-func splitFiles(u Unit, files []File, origins map[string]*check.Package, harness map[string]bool, base string, sh *shardOpts) ([]File, SplitReport) {
+func splitFiles(u Unit, files []File, origins map[string]*check.Package, harness, sitePkgs map[string]bool, base string, sh *shardOpts) ([]File, SplitReport) {
 	i := slices.IndexFunc(files, func(f File) bool { return isMainGo(f.Path) })
 	if i < 0 {
 		return files, SplitReport{Packages: 1, Reason: "no main.go"}
 	}
-	out, rep := splitMain(u, files[i].Data, base, origins, harness, nil, sh)
+	out, rep := splitMain(u, files[i].Data, base, origins, harness, sitePkgs, nil, sh)
 	if out == nil {
 		if rep.Packages == 0 {
 			rep.Packages = 1
@@ -341,7 +341,7 @@ func (p *splitPlan) place(groups []splitGroup) string {
 // each IR body counts as its function's references, and each package
 // gets the IR file of its functions (pkgsplit_ir.go). With sh, each big
 // package of the program is cut into shards after placement (pkgshard.go).
-func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, harness map[string]bool, ir *irFile, sh *shardOpts) ([]File, SplitReport) {
+func splitMain(u Unit, src []byte, base string, origins map[string]*check.Package, harness, sitePkgs map[string]bool, ir *irFile, sh *shardOpts) ([]File, SplitReport) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "main.go", src, parser.ParseComments)
 	if err != nil {
@@ -417,6 +417,9 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 						if n.Name != "_" {
 							groupOf[n.Name] = len(groups)
 							defOf.add(n.Name, s, i)
+							if sitePkgs[n.Name] {
+								g.natural = 0
+							}
 						}
 					}
 				}
