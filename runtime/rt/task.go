@@ -110,6 +110,9 @@ func (t *Task) init(parent *Task, span string, masked, shield bool) {
 		t.next.prev = t
 	}
 	parent.first = t
+	if !parent.stopped.parent() {
+		parent.stopped.setParent()
+	}
 	parent.mu.Unlock()
 }
 
@@ -141,7 +144,9 @@ func (t *Task) detach() {
 			t.next.prev = t.prev
 		}
 		t.prev, t.next = nil, nil
-		t.adopt(p)
+		if t.stopped.parent() {
+			t.adopt(p)
+		}
 		p.mu.Unlock()
 		break
 	}
@@ -391,8 +396,8 @@ func (t *Task) makeStop() chan struct{} {
 	return t.stop
 }
 
-// stopFlags is one word of five flags: stopped (Load, set); made, which
-// publishes Task.stop to a read without the lock; ended (Handle.finish); polled (WhenPolled); and claimed (claim). It is the size of the
+// stopFlags is one word of six flags: stopped (Load, set); made, which
+// publishes Task.stop to a read without the lock; ended (Handle.finish); polled (WhenPolled); claimed (claim); and parent (setParent). It is the size of the
 // atomic.Bool it replaced, so a Task keeps its size class
 // (TestTraceHookKeepsTaskSize).
 type stopFlags struct{ v atomic.Uint32 }
@@ -407,11 +412,22 @@ const (
 	// flagClaimed marks a task whose Handle a Wait or Stop took (claim): a
 	// second waiter is a defect (runtime.md Tasks, rule 11).
 	flagClaimed
+	// flagParent marks a task that has had a child linked below it (init),
+	// so detach looks for children to hand on only in a task that can have
+	// one: a leaf task ends without taking its own lock. adopt needs no
+	// mark: it moves a child of t to p, and t is p's child, so p has it.
+	flagParent
 )
 
 // claim marks the task's Handle taken by a waiter, and reports whether no
 // waiter had taken it before.
 func (f *stopFlags) claim() bool { return f.v.Or(flagClaimed)&flagClaimed == 0 }
+
+// setParent marks the task as one a child was linked below.
+func (f *stopFlags) setParent() { f.v.Or(flagParent) }
+
+// parent reports whether a child was ever linked below the task.
+func (f *stopFlags) parent() bool { return f.v.Load()&flagParent != 0 }
 
 // Load reports whether a stop was requested.
 func (f *stopFlags) Load() bool { return f.v.Load()&flagStopped != 0 }

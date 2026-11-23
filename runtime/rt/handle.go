@@ -183,7 +183,9 @@ func (h *Handle[T]) claim(w *Task) {
 	if !h.task.stopped.claim() {
 		panic("task: a second task waits for a Task that another task already waits for (runtime.md Tasks, rule 11)")
 	}
-	h.waiter.Store(w)
+	if h.waiter.Load() != w { // the starter waits: the word already names it
+		h.waiter.Store(w)
+	}
 }
 
 // WaitBy is Wait by owner, the task that calls it: the Task's owner, which
