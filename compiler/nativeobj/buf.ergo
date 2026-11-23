@@ -1,0 +1,196 @@
+// Package nativeobj is route C of layer four (research NATIVE-TOOLCHAIN,
+// unit NATIVE-OBJECT-ROUNDTRIP): an independent producer of a Go package
+// archive for one checked Ergo package. It writes both members a stock Go
+// toolchain reads, __.PKGDEF (the unified export data the stock compiler
+// imports) and _go_.o (the Go object file the stock linker loads), from
+// the checked input alone: no stock compile, assemble or object-writer
+// process builds the package, and no member is spliced from a stock
+// archive. The pin is Go go1.27.4 on linux/amd64 (Pin); any other pin
+// is refused, never mixed.
+//
+// The files, by responsibility:
+//
+//	buf.ergo     little-endian and varint bytes (the formats' primitives)
+//	pkg.ergo     the checked input: a package, its functions and their ops
+//	check.ergo   the checked input's validation, before any byte is written
+//	abi.ergo     the pin, and the ABIInternal register and frame contract
+//	amd64.ergo   machine-code encoding of the instructions the lowering uses
+//	lower.ergo   a function's ops to machine code, frame, stack maps, PC tables
+//	slots.ergo   liveness of pointer slots, and the stack-move model
+//	goobj.ergo   the Go object file writer (_go_.o)
+//	export.ergo  the unified export data writer (__.PKGDEF)
+//	archive.ergo the ar archive and the whole producer (Archive)
+//	fixture.ergo the tiny fixture package the round trip compiles
+//	decode.ergo  independent decoders: ar, export data, object, x86 code
+//	verify.ergo  the metadata checks over the decoders, and their laws
+
+// Buf is bytes written in order, with the little-endian and varint forms
+// the Go object and export formats use.
+type Buf { b []byte }
+
+// NewBuf is an empty Buf.
+func NewBuf() Buf { Buf{b: []byte{}} }
+
+// Size is the number of bytes written to w.
+func Size(w Buf) int { len(w.b) }
+
+// Bytes is the text of w's bytes.
+func Bytes(w Buf) string { w.b.Text() }
+
+// U8 writes the low byte of x.
+func U8(w mut Buf, x int) { w.b = w.b.Append(byte(x & 255)) }
+
+// Raw writes the bytes of s.
+func Raw(w mut Buf, s string) {
+	for i in 0..len(s) {
+		w.b = w.b.Append(s[i])
+	}
+}
+
+// U16 writes the low 16 bits of x, little-endian.
+func U16(w mut Buf, x int) {
+	w.U8(x)
+	w.U8(x >> 8)
+}
+
+// U32 writes the low 32 bits of x, little-endian.
+func U32(w mut Buf, x int) {
+	w.U8(x)
+	w.U8(x >> 8)
+	w.U8(x >> 16)
+	w.U8(x >> 24)
+}
+
+// U64 writes x as 64 bits, little-endian (two's complement for a
+// negative x).
+func U64(w mut Buf, x int) {
+	w.U32(x)
+	w.U32(x >> 32)
+}
+
+// Uvarint writes x, which is not negative, as Go's binary.PutUvarint.
+func Uvarint(w mut Buf, x int) {
+	let mut v = x
+	for v >= 128 {
+		w.U8((v & 127) | 128)
+		v = v >> 7
+	}
+	w.U8(v)
+}
+
+// Varint writes x zig-zag encoded, as Go's binary.PutVarint.
+func Varint(w mut Buf, x int) {
+	if x < 0 {
+		w.Uvarint(((-x - 1) << 1) | 1)
+	} else {
+		w.Uvarint(x << 1)
+	}
+}
+
+// Put32 overwrites the four bytes at at with x, little-endian.
+func Put32(w mut Buf, at int, x int) {
+	w.b[at] = byte(x & 255)
+	w.b[at+1] = byte((x >> 8) & 255)
+	w.b[at+2] = byte((x >> 16) & 255)
+	w.b[at+3] = byte((x >> 24) & 255)
+}
+
+// Reader reads what a Buf wrote, from At on. A read past the end is a
+// Short failure, never a defect: the decoders read untrusted archives.
+type Reader { Data string, At int }
+
+// Short is a read past the end of the data.
+type Short { At int, Want int }
+
+// NewReader reads data from its start.
+func NewReader(data string) Reader { Reader{Data: data, At: 0} }
+
+// ByteAt is the byte of data at i as an int.
+func ByteAt(data string, i int) int { int(data[i]) }
+
+// RByte reads one byte.
+func RByte(r mut Reader) int fails Short {
+	if r.At+1 > len(r.Data) {
+		return Short{At: r.At, Want: 1}
+	}
+	let x = ByteAt(r.Data, r.At)
+	r.At = r.At + 1
+	x
+}
+
+// LE is the little-endian number of n bytes of data at at.
+func LE(data string, at int, n int) int {
+	let mut x = 0
+	for i in 0..n {
+		x = x | (ByteAt(data, at+i) << (8 * i))
+	}
+	x
+}
+
+// R32 reads four bytes, little-endian.
+func R32(r mut Reader) int fails Short {
+	if r.At+4 > len(r.Data) {
+		return Short{At: r.At, Want: 4}
+	}
+	let x = LE(r.Data, r.At, 4)
+	r.At = r.At + 4
+	x
+}
+
+// RUvarint reads what Uvarint wrote.
+func RUvarint(r mut Reader) int fails Short {
+	let mut x = 0
+	let mut shift = 0
+	for {
+		let c = try r.RByte()
+		x = x | ((c & 127) << shift)
+		if c < 128 {
+			return x
+		}
+		shift = shift + 7
+		if shift > 63 {
+			return Short{At: r.At, Want: 1}
+		}
+	}
+}
+
+// RVarint reads what Varint wrote.
+func RVarint(r mut Reader) int fails Short {
+	let u = try r.RUvarint()
+	if u & 1 == 1 { -(u >> 1) - 1 } else { u >> 1 }
+}
+
+// RRaw reads n bytes.
+func RRaw(r mut Reader, n int) string fails Short {
+	if n < 0 || r.At+n > len(r.Data) {
+		return Short{At: r.At, Want: n}
+	}
+	let s = r.Data[r.At : r.At+n]
+	r.At = r.At + n
+	s
+}
+
+// VarintsRoundTrip: what Uvarint and Varint write, RUvarint and RVarint
+// read back, for any value the formats carry.
+law VarintsRoundTrip(a int, b int) {
+	let u = if a < 0 { -(a + 1) } else { a }
+	let s = b % 1000000007
+	let mut w = NewBuf()
+	w.Uvarint(u)
+	w.Varint(s)
+	w.Varint(-s)
+	let mut r = NewReader(w.Bytes())
+	let x = r.RUvarint() catch {
+	case Short:
+		return false
+	}
+	let y = r.RVarint() catch {
+	case Short:
+		return false
+	}
+	let z = r.RVarint() catch {
+	case Short:
+		return false
+	}
+	x == u && y == s && z == -s && r.At == w.Size()
+}

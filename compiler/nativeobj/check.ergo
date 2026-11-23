@@ -1,0 +1,248 @@
+// Validation of the checked input. The producer writes nothing for a
+// package Check refuses: every index is in range, every slot an op reads
+// or writes has the kind the op needs, every call has an arity its target
+// accepts and ABIInternal can carry in registers, every branch names a
+// label, no body can run off its end, every init function is listed once,
+// and every import carries an 8-byte fingerprint. A refusal names the
+// first broken relation.
+
+import strings
+
+// Malformed is a checked input Check refuses.
+type Malformed { Why string }
+
+func bad(why string) Malformed { Malformed{Why: why} }
+
+func inRange(i int, n int) bool { i >= 0 && i < n }
+
+func validPath(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i in 0..len(s) {
+		let c = int(s[i])
+		if c <= 32 || c == 127 || c == 92 {
+			return false
+		}
+	}
+	true
+}
+
+func kindOf(p Package, f Func, s int) int { p.Types[f.Slots[s]].Kind }
+
+// targetOf is the function of p a call names, or -1 for a foreign one.
+func targetOf(p Package, name string) int {
+	for i, f in p.Funcs {
+		if f.Name != "init" && SymName(p, f.Name) == name {
+			return i
+		}
+	}
+	-1
+}
+
+func foreign(p Package, name string) bool {
+	for imp in p.Imports {
+		if strings.HasPrefix(name, imp.Path+".") && len(name) > len(imp.Path)+1 {
+			return true
+		}
+	}
+	false
+}
+
+func checkSlots(f Func, slots []int) fails Malformed {
+	for s in slots {
+		if !inRange(s, len(f.Slots)) {
+			return bad("\(f.Name): slot \(s) of \(len(f.Slots))")
+		}
+	}
+}
+
+func checkCall(p Package, f Func, dsts []int, args []int) fails Malformed {
+	try checkSlots(f, dsts)
+	try checkSlots(f, args)
+	if len(args) > len(IntRegs) || len(dsts) > len(IntRegs) {
+		return bad("\(f.Name): a call passes more words than ABIInternal's registers")
+	}
+}
+
+func checkOp(p Package, f Func, op Op, labels []int) fails Malformed {
+	try checkSlots(f, OpUses(op))
+	try checkSlots(f, OpDefs(op))
+	match op {
+	case Arith as x:
+		if !inRange(x.Kind, 4) {
+			return bad("\(f.Name): arithmetic kind \(x.Kind)")
+		}
+	case Load as l:
+		if kindOf(p, f, l.Ptr) != KPtr {
+			return bad("\(f.Name): load through slot \(l.Ptr), not a pointer")
+		}
+	case StorePtr as s:
+		if kindOf(p, f, s.Ptr) != KPtr || p.Types[p.Types[f.Slots[s.Ptr]].Elem].Kind == KInt || !IsPointer(p, f.Slots[s.Val]) {
+			return bad("\(f.Name): pointer store needs a pointer to a pointer and a pointer")
+		}
+	case Store as s:
+		if kindOf(p, f, s.Ptr) != KPtr || p.Types[p.Types[f.Slots[s.Ptr]].Elem].Kind != KInt || kindOf(p, f, s.Val) != KInt {
+			return bad("\(f.Name): int store needs a pointer to an int and an int")
+		}
+	case AddrOf as a:
+		if kindOf(p, f, a.Dst) != KPtr {
+			return bad("\(f.Name): address into slot \(a.Dst), not a pointer")
+		}
+		if !inRange(a.Of, len(f.Slots)) {
+			return bad("\(f.Name): address of slot \(a.Of)")
+		}
+	case GetGlobal as g:
+		if !inRange(g.Global, len(p.Globals)) {
+			return bad("\(f.Name): global \(g.Global)")
+		}
+	case SetGlobal as g:
+		if !inRange(g.Global, len(p.Globals)) {
+			return bad("\(f.Name): global \(g.Global)")
+		}
+	case Call as c:
+		try checkCall(p, f, c.Dsts, c.Args)
+		let t = targetOf(p, c.Target)
+		if t >= 0 {
+			if len(p.Funcs[t].Params) != len(c.Args) || len(c.Dsts) > len(p.Funcs[t].Results) {
+				return bad("\(f.Name): call of \(c.Target) with \(len(c.Args)) arguments and \(len(c.Dsts)) results")
+			}
+		} else if !foreign(p, c.Target) {
+			return bad("\(f.Name): call of \(c.Target), in no package this one imports")
+		}
+	case CallClosure as c:
+		try checkCall(p, f, c.Dsts, c.Args)
+		let ft = p.Types[f.Slots[c.Fn]]
+		if ft.Kind != KFunc || len(ft.Params) != len(c.Args) || len(c.Dsts) > len(ft.Results) {
+			return bad("\(f.Name): closure call through slot \(c.Fn) does not match its func type")
+		}
+	case Jump as j:
+		if !has(labels, j.To) {
+			return bad("\(f.Name): jump to label \(j.To), which is not placed")
+		}
+	case JumpIf as j:
+		if !has(labels, j.To) {
+			return bad("\(f.Name): branch to label \(j.To), which is not placed")
+		}
+		if !inRange(j.Cond, 4) {
+			return bad("\(f.Name): condition \(j.Cond)")
+		}
+	case Return as r:
+		if len(r.Vals) != len(f.Results) {
+			return bad("\(f.Name): returns \(len(r.Vals)) of \(len(f.Results)) results")
+		}
+	case _:
+	}
+}
+
+func checkFunc(p Package, f Func) fails Malformed {
+	if f.Name == "" {
+		return bad("a function has no name")
+	}
+	for t in f.Params.Concat(f.Results).Concat(f.Slots) {
+		if !inRange(t, len(p.Types)) {
+			return bad("\(f.Name): type \(t) of \(len(p.Types))")
+		}
+	}
+	if len(f.Params) > len(IntRegs) || len(f.Results) > len(IntRegs) {
+		return bad("\(f.Name): more parameters or results than ABIInternal's registers")
+	}
+	if len(f.Slots) < len(f.Params) {
+		return bad("\(f.Name): fewer slots than parameters")
+	}
+	for k, t in f.Params {
+		if f.Slots[k] != t {
+			return bad("\(f.Name): slot \(k) is not parameter \(k)'s type")
+		}
+	}
+	if len(f.Lines) != len(f.Ops) {
+		return bad("\(f.Name): \(len(f.Lines)) lines for \(len(f.Ops)) ops")
+	}
+	if len(f.Ops) == 0 {
+		return bad("\(f.Name): no body")
+	}
+	match f.Ops[len(f.Ops)-1] {
+	case Return:
+	case Jump:
+	case _:
+		return bad("\(f.Name): the body can run off its end")
+	}
+	let fr = FrameOf(len(f.Slots), maxArgs(f), isLeaf(f))
+	if fr.Size > StackBig {
+		return bad("\(f.Name): frame of \(fr.Size) bytes")
+	}
+	let mut labels = []int{}
+	for op in f.Ops {
+		match op {
+		case Label as l:
+			if l.Id < 0 || has(labels, l.Id) {
+				return bad("\(f.Name): label \(l.Id) placed twice or negative")
+			}
+			labels = labels.Append(l.Id)
+		case _:
+		}
+	}
+	for op in f.Ops {
+		try checkOp(p, f, op, labels)
+	}
+}
+
+// Check validates p.
+func Check(p Package) fails Malformed {
+	if !validPath(p.Path) || p.Name == "" || p.File == "" {
+		return bad("package path, name or file missing or invalid")
+	}
+	for i, t in p.Types {
+		if !inRange(t.Kind, 3) {
+			return bad("type \(i): kind \(t.Kind)")
+		}
+		if t.Kind == KPtr && !inRange(t.Elem, len(p.Types)) {
+			return bad("type \(i): element \(t.Elem)")
+		}
+		for u in t.Params.Concat(t.Results) {
+			if !inRange(u, len(p.Types)) {
+				return bad("type \(i): component \(u)")
+			}
+		}
+	}
+	for i, imp in p.Imports {
+		if !validPath(imp.Path) || imp.Name == "" || len(imp.Fingerprint) != 8 {
+			return bad("import \(i): path, name or 8-byte fingerprint missing")
+		}
+		for j in 0..i {
+			if p.Imports[j].Path == imp.Path {
+				return bad("import \(imp.Path) twice")
+			}
+		}
+	}
+	for i, g in p.Globals {
+		for j in 0..i {
+			if p.Globals[j].Name == g.Name {
+				return bad("global \(g.Name) twice")
+			}
+		}
+	}
+	for i, f in p.Funcs {
+		try checkFunc(p, f)
+		for j in 0..i {
+			if f.Name != "init" && p.Funcs[j].Name == f.Name {
+				return bad("function \(f.Name) twice")
+			}
+		}
+	}
+	for k, i in p.Inits {
+		if !inRange(i, len(p.Funcs)) || p.Funcs[i].Name != "init" || len(p.Funcs[i].Params) != 0 || len(p.Funcs[i].Results) != 0 {
+			return bad("init \(k): function \(i) is no init function")
+		}
+		for j in 0..k {
+			if p.Inits[j] == i {
+				return bad("init function \(i) listed twice")
+			}
+		}
+	}
+	for i, f in p.Funcs {
+		if f.Name == "init" && !has(p.Inits, i) {
+			return bad("init function \(i) is not listed")
+		}
+	}
+}

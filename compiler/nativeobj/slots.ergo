@@ -1,0 +1,331 @@
+// Liveness of a function's slots, and the stack-move model.
+//
+// The lowering keeps every value in a frame slot, so the GC and the stack
+// copier see a function's pointers only through its locals pointer
+// bitmaps: at each call (a safe point) the bitmap must mark every pointer
+// slot whose value is used after the call. Live computes that by backward
+// dataflow; LiveByPaths, the independent slot model the metadata checks
+// compare against, asks for one slot and one call whether some path from
+// the call reaches a use of the slot before a write to it. The two are
+// different algorithms over the same ops; LivenessAgrees holds them equal.
+
+// targets maps each label id to the index of its op.
+func targets(f Func) Map[int, int] {
+	let mut m = Map[int, int]{}
+	for i, op in f.Ops {
+		match op {
+		case Label as l:
+			m[l.Id] = i
+		case _:
+		}
+	}
+	m
+}
+
+func labelAt(m Map[int, int], id int) int {
+	match m.Get(id) {
+	case Some as s:
+		return s.Value
+	case None:
+		return -1
+	}
+}
+
+// Succs is the ops control may reach right after op i.
+func Succs(f Func, m Map[int, int], i int) []int {
+	let n = len(f.Ops)
+	let next = if i+1 < n { []int{i + 1} } else { []int{} }
+	match f.Ops[i] {
+	case Jump as j:
+		let t = labelAt(m, j.To)
+		return if t < 0 { []int{} } else { []int{t} }
+	case JumpIf as j:
+		let t = labelAt(m, j.To)
+		return if t < 0 { next } else { next.Append(t) }
+	case Return:
+		return []int{}
+	case _:
+		return next
+	}
+}
+
+func has(xs []int, x int) bool {
+	for y in xs {
+		if y == x {
+			return true
+		}
+	}
+	false
+}
+
+// AddressTaken is the slots some AddrOf names: the pointer among them stay
+// live at every call, since a pointer to them may be read at any time.
+func AddressTaken(f Func) []int {
+	let mut out = []int{}
+	for op in f.Ops {
+		match op {
+		case AddrOf as a:
+			if !has(out, a.Of) {
+				out = out.Append(a.Of)
+			}
+		case _:
+		}
+	}
+	out
+}
+
+// LiveAfter is, for each op, the slots live right after it (before its
+// successors run), by backward dataflow to a fixed point.
+func LiveAfter(f Func) [][]bool {
+	let n = len(f.Ops)
+	let k = len(f.Slots)
+	let m = targets(f)
+	let mut liveIn = [][]bool{}
+	let mut liveOut = [][]bool{}
+	for _ in 0..n {
+		let mut row = []bool{}
+		for _ in 0..k {
+			row = row.Append(false)
+		}
+		liveIn = liveIn.Append(row)
+		liveOut = liveOut.Append(row)
+	}
+	let mut changed = true
+	for changed {
+		changed = false
+		let mut i = n - 1
+		for i >= 0 {
+			let mut out = liveOut[i]
+			for s in Succs(f, m, i) {
+				for j in 0..k {
+					if liveIn[s][j] && !out[j] {
+						out[j] = true
+					}
+				}
+			}
+			let defs = OpDefs(f.Ops[i])
+			let uses = OpUses(f.Ops[i])
+			let mut inn = liveIn[i]
+			for j in 0..k {
+				let v = has(uses, j) || (out[j] && !has(defs, j))
+				if v != inn[j] {
+					inn[j] = v
+					changed = true
+				}
+				if out[j] != liveOut[i][j] {
+					changed = true
+				}
+			}
+			liveOut[i] = out
+			liveIn[i] = inn
+			i = i - 1
+		}
+	}
+	liveOut
+}
+
+// LiveAcross is the pointer slots a call at op i must keep: live after
+// it and not among its results, plus every address-taken pointer slot.
+func LiveAcross(p Package, f Func, after [][]bool, i int) []int {
+	let defs = OpDefs(f.Ops[i])
+	let taken = AddressTaken(f)
+	let mut out = []int{}
+	for j in 0..len(f.Slots) {
+		if IsPointer(p, f.Slots[j]) && ((after[i][j] && !has(defs, j)) || has(taken, j)) {
+			out = out.Append(j)
+		}
+	}
+	out
+}
+
+// LiveByPaths is the independent model: slot s is live across the op at
+// c when a path from c's successors reaches an op that reads s before
+// one that writes it, and the call itself does not write it.
+func LiveByPaths(f Func, c int, s int) bool {
+	// A result of the call is written when it returns: the slot's old
+	// value is dead during the call.
+	if has(OpDefs(f.Ops[c]), s) {
+		return false
+	}
+	let m = targets(f)
+	let mut seen = []bool{}
+	for _ in 0..len(f.Ops) {
+		seen = seen.Append(false)
+	}
+	let mut work = Succs(f, m, c)
+	for len(work) > 0 {
+		let p = work[len(work)-1]
+		work = work.Slice(0, len(work)-1)
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		if has(OpUses(f.Ops[p]), s) {
+			return true
+		}
+		if !has(OpDefs(f.Ops[p]), s) {
+			work = work.Concat(Succs(f, m, p))
+		}
+	}
+	false
+}
+
+// ModelAcross is LiveAcross by the independent model.
+func ModelAcross(p Package, f Func, i int) []int {
+	let taken = AddressTaken(f)
+	let mut out = []int{}
+	for j in 0..len(f.Slots) {
+		if IsPointer(p, f.Slots[j]) && (LiveByPaths(f, i, j) || has(taken, j)) {
+			out = out.Append(j)
+		}
+	}
+	out
+}
+
+func drawnOp(kind int, i int, a int, b int, l int) Op {
+	if kind == 0 {
+		return Const{Dst: a, V: i}
+	}
+	if kind == 1 {
+		return Arith{Dst: a, Kind: AAdd, A: b, B: a}
+	}
+	if kind == 2 {
+		return Load{Dst: a, Ptr: b}
+	}
+	if kind == 3 {
+		return Call{Dsts: []int{a}, Target: "q.F", Args: []int{b}}
+	}
+	if kind == 4 {
+		return Label{Id: l}
+	}
+	if kind == 5 {
+		return JumpIf{Cond: CLt, A: a, B: b, To: l}
+	}
+	if kind == 6 {
+		return Jump{To: l}
+	}
+	if kind == 7 {
+		return CallClosure{Dsts: []int{}, Fn: b, Args: []int{a}}
+	}
+	if i % 2 == 0 {
+		return StorePtr{Ptr: a, Val: b}
+	}
+	Return{Vals: []int{a}}
+}
+
+// drawn is a function over k slots (the even ones pointers) drawn from
+// codes: each code picks an op over slots and labels 0..3, so loops and
+// branches over the same slots come up.
+func drawn(codes []int) (Package, Func) {
+	let p = Package{Path: "p", Name: "p", File: "p.ergo",
+		Types: []TypeDef{TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}}, TypeDef{Kind: KPtr, Elem: 0, Params: []int{}, Results: []int{}}},
+		Imports: []Import{}, Globals: []Global{}, Funcs: []Func{}, Inits: []int{}}
+	let k = 6
+	let mut slots = []int{}
+	for j in 0..k {
+		slots = slots.Append(if j % 2 == 0 { 1 } else { 0 })
+	}
+	let mut ops = []Op{}
+	for i, c0 in codes {
+		let c = if c0 < 0 { -(c0 % 1000000) } else { c0 % 1000000 }
+		let a = c % k
+		let b = (c / 7) % k
+		let l = (c / 11) % 4
+		ops = ops.Append(drawnOp(c % 9, i, a, b, l))
+	}
+	let mut lines = []int{}
+	for _ in ops {
+		lines = lines.Append(1)
+	}
+	(p, Func{Name: "F", Params: []int{}, Results: []int{}, Slots: slots, Ops: ops, Lines: lines, Line: 1, Col: 1})
+}
+
+// LivenessAgrees: at every call of any drawn function, the dataflow's
+// pointer slots are exactly the path model's.
+law LivenessAgrees(codes []int) {
+	let (p, f) = drawn(codes)
+	let after = LiveAfter(f)
+	let mut ok = true
+	for i, op in f.Ops {
+		if IsCall(op) {
+			ok = ok && LiveAcross(p, f, after, i) == ModelAcross(p, f, i)
+		}
+	}
+	ok
+}
+
+// The stack-move model (planner's model native_object_r2, ported from
+// Quint to an Ergo machine, docs/decisions.md q76-q78). One pointer slot
+// holds the address of a value in the frame. The stack may move
+// (Move) while the frame waits at a call, the GC may scan it (Scan), and
+// the call returns to Go code (Back). The slot follows a move only when
+// the frame's bitmap at that call marks it (Marked): the copier adjusts
+// marked words and no others. Safe: the slot never names a stale address
+// at a scan or at the return.
+type Frame0 { Current int, Slot int, Marked bool }
+
+type Moves = Live{F Frame0} | Stale{} | Returned{} | MovedBack{}
+
+type MoveSig = Move{} | Scan{} | Back{}
+
+func moveStep(s Moves, sig MoveSig) Decision[Moves, string] {
+	match s {
+	case Live as l:
+		let f = l.F
+		match sig {
+		case Move:
+			if f.Current >= 2 {
+				return Ignore
+			}
+			let slot = if f.Marked { f.Current + 1 } else { f.Slot }
+			return Enter{Live{F: Frame0{Current: f.Current + 1, Slot: slot, Marked: f.Marked}}}
+		case Scan:
+			if !(f.Marked && f.Slot == f.Current) {
+				return Enter{Stale}
+			}
+			return Ignore
+		case Back:
+			if f.Slot != f.Current {
+				return Enter{Stale}
+			}
+			if f.Current > 0 {
+				return Enter{MovedBack}
+			}
+			return Enter{Returned}
+		}
+	case _:
+		return Ignore
+	}
+}
+
+// AnchorMarked says whether the producer marks, at the callback call of
+// the fixture's Anchor (fixture.ergo), the slot q that holds the address
+// of the frame's own v: the fact the model's Marked stands for, read from
+// the locals bitmap the producer emits for that call (LowerFunc).
+func AnchorMarked() bool {
+	let p = Tiny(1, 2, SampleDep())
+	let f = p.Funcs[FuncNamed(p, "Anchor")]
+	let lf = LowerFunc(p, f) catch {
+	case Undefined:
+		return false
+	}
+	// The callback is Anchor's one call: stack map 1. Slot 2 holds &v.
+	let bits = lf.Locals[1]
+	bits[SlotBit(lf.Frame, 2)]
+}
+
+func designStart() Moves { Live{F: Frame0{Current: 0, Slot: 0, Marked: AnchorMarked()}} }
+
+func missingStart() Moves { Live{F: Frame0{Current: 0, Slot: 0, Marked: false}} }
+
+// Design is the model with the bitmap the producer emits: no schedule of
+// moves and scans reaches a stale slot.
+type Design machine[Moves, MoveSig] { initial: designStart(), step: moveStep, law Safe never reaches Stale }
+
+// MissingMap is the model with the slot's bitmap entry omitted: some
+// schedule (one move, then a scan or the return) reaches a stale slot.
+type MissingMap machine[Moves, MoveSig] { initial: missingStart(), step: moveStep, law Breaks reaches Stale }
+
+// MovedAndReturned witnesses that Safe is not vacuous: a schedule moves
+// the stack and returns with the slot intact.
+type MovedAndReturned machine[Moves, MoveSig] { initial: designStart(), step: moveStep, law Exists reaches MovedBack }

@@ -1,0 +1,271 @@
+// nativeobj runs the round trip of route C, layer four (research
+// NATIVE-TOOLCHAIN, unit NATIVE-OBJECT-ROUNDTRIP):
+//
+//	GOROOT_STOCK=/path/to/pin nativeobj verify [--seed N] [--keep]
+//
+// It builds the tiny fixture package (compiler/nativeobj, fixture.ergo)
+// with constants drawn from the seed and writes its Go archive with the
+// Ergo producer alone. Around it, only stock tools of the pin run: the
+// stock compiler builds the dependency dep (testdata/dep), whose archive
+// gives the header line and dep's fingerprint, and the importing program
+// (testdata/main); the stock linker links it; the program runs on the
+// stock runtime. The same program is linked a second time against the
+// stock reference of the package (testdata/tinyref, compiled under the
+// same import path). Both must report completion and their outputs must
+// be equal. Before any link,
+// the independent decoders read the archive back and every metadata check
+// (nativeobj.Verify) must pass.
+//
+// The memory phase runs with GODEBUG=gccheckmark=1, the preemption phase
+// without checkmark. Both have a watchdog that only stops a hang and an
+// 8 GiB address-space limit the kernel enforces. The work folder
+// is removed after a pass and kept after a failure (--keep keeps it
+// always). Exit status: 0 the round trip holds, 1 it does not, 2 usage.
+
+import compiler/nativeobj
+import exec
+import fs
+import io
+import os
+import sha256
+import hex
+import strconv
+import strings
+
+let depGo = embedded[string]("testdata/dep/dep.go")
+let mainGo = embedded[string]("testdata/main/main.go")
+let refGo = embedded[string]("testdata/tinyref/tiny.go")
+
+func fail(msg string) os.Exit { os.Exit{Code: 1, Message: "nativeobj: " + msg} }
+
+// run runs c to its end and returns its standard output, failing on a
+// start failure or a status other than 0.
+func run(c exec.Command, what string) string fails os.Exit needs exec.Runner {
+	let r = exec.Runner.Run(c) catch {
+	case exec.NotFound as e:
+		return fail("\(what): no program \(e.Name)")
+	case exec.Denied as e:
+		return fail("\(what): may not run \(e.Name)")
+	case exec.Failed as e:
+		return fail("\(what): \(e.Reason)")
+	}
+	if r.Status != 0 {
+		return fail("\(what) exited \(r.Status):\n\(r.Stdout)\(r.Stderr)")
+	}
+	r.Stdout
+}
+
+func write(path string, text string) fails os.Exit needs fs.Writes {
+	fs.Writes.WriteFile(path, text) catch {
+	case fs.NotFound, fs.Denied:
+		return fail("cannot write \(path)")
+	case fs.Failed as e:
+		return fail("cannot write \(path): \(e.Reason)")
+	}
+}
+
+func read(path string) string fails os.Exit needs fs.Files {
+	fs.Files.ReadFile(path) catch {
+	case fs.NotFound, fs.Denied:
+		return fail("cannot read \(path)")
+	case fs.Failed as e:
+		return fail("cannot read \(path): \(e.Reason)")
+	}
+}
+
+type Stock { Root string }
+
+func command(s Stock, args []string) exec.Command {
+	exec.New(s.Root + "/bin/go", args).WithEnv("GOROOT", s.Root).WithEnv("GOTOOLCHAIN", "local")
+}
+
+func goTool(s Stock, args []string) exec.Command { s.command([]string{"tool"}.Concat(args)) }
+
+// constants draws K1 and K2 from the seed: both nonzero, of either sign,
+// and different for neighbouring seeds.
+func constants(seed int) (int, int) {
+	let s = if seed < 0 { -(seed % 1000000007) } else { seed % 1000000007 }
+	let k1 = (s * 7919 + 17) % 1000003 - 500000
+	let k2 = (s * 104729 + 31) % 999983 - 400000
+	(if k1 == 0 { 1 } else { k1 }, if k2 == 0 { -1 } else { k2 })
+}
+
+// program compiles main against the archive tinyA and links it.
+func program(stock Stock, dir string, std string, depA string, tinyA string, name string) string fails os.Exit needs exec.Runner | fs.Writes {
+	let cfg = dir + "/" + name + ".importcfg"
+	try write(cfg, std + "packagefile " + nativeobj.DepPath + "=" + depA + "\npackagefile " + nativeobj.TinyPath + "=" + tinyA + "\n")
+	let obj = dir + "/" + name + ".a"
+	try run(stock.goTool([]string{"compile", "-p", "main", "-importcfg", cfg, "-pack", "-o", obj, dir + "/main.go"}), "stock compile of main against " + name)
+	let bin = dir + "/" + name
+	try run(stock.goTool([]string{"link", "-importcfg", cfg, "-o", bin, obj}), "stock link of " + name)
+	bin
+}
+
+let completion = "\nround trip complete\n"
+let hangSeconds = "30"
+
+type RuntimePhase = MemoryChecks{} | Preemption{}
+
+func childCommand(bin string, phase RuntimePhase, callbackFile string) exec.Command {
+	let (mode, debug) = match phase {
+	case MemoryChecks:
+		("memory", "gccheckmark=1")
+	case Preemption:
+		// Go 1.27.4 turns async preemption off while checkmark is on
+		// (runtime/runtime1.go). The call-free loop must run separately.
+		("preempt", "gccheckmark=0")
+	}
+	exec.New("prlimit", []string{"--as=8589934592", "--", "timeout", "--foreground", "-s", "QUIT", "-k", "5", hangSeconds, bin, mode, callbackFile}).WithEnv("GODEBUG", debug)
+}
+
+// execute waits for the bounded fixture to exit, and requires its final
+// report even when it exited successfully.
+func execute(bin string, phase RuntimePhase, callbackFile string) string fails os.Exit needs exec.Runner {
+	let r = exec.Runner.Run(childCommand(bin, phase, callbackFile)) catch {
+	case exec.NotFound, exec.Denied:
+		return fail("cannot run \(bin)")
+	case exec.Failed as e:
+		return fail("cannot run \(bin): \(e.Reason)")
+	}
+	if r.Status == 124 {
+		return fail("\(bin) hung past \(hangSeconds) s:\n\(r.Stdout)\(r.Stderr)")
+	}
+	if r.Status != 0 {
+		return fail("\(bin) exited \(r.Status):\n\(r.Stdout)\(r.Stderr)")
+	}
+	if !strings.HasSuffix(r.Stdout, completion) {
+		return fail("\(bin) exited without its final report:\n\(r.Stdout)\(r.Stderr)")
+	}
+	r.Stdout
+}
+
+// The script delivers the exit event directly, without starting a process
+// or running a deadline. Status 0 alone does not complete the fixture.
+test ChildExitWithoutReportFails {
+	let partial = "diff 4 -16\n"
+	let complete = "init 1 1\nround trip complete\n"
+	let script = exec.Script{Results: Map[string, exec.Result]{
+		exec.Key(childCommand("incomplete", MemoryChecks, "tiny.ergo")): exec.Result{Status: 0, Stdout: partial, Stderr: ""},
+		exec.Key(childCommand("complete", Preemption, "tiny.ergo")): exec.Result{Status: 0, Stdout: complete, Stderr: ""},
+	}}
+	with context { exec.Runner: script } {
+		let got = execute("incomplete", MemoryChecks, "tiny.ergo") catch {
+		case os.Exit as e:
+			"exit \(e.Code)"
+		}
+		assert got == "exit 1"
+		assert try execute("complete", Preemption, "tiny.ergo") == complete
+	}
+}
+
+func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout {
+	let env = strings.Fields(try run(stock.command([]string{"env", "GOVERSION", "GOOS", "GOARCH"}), "stock go env"))
+	if env != []string{nativeobj.PinGo, nativeobj.PinGOOS, nativeobj.PinGOARCH} {
+		return fail("GOROOT_STOCK is \(strings.Join(env, " ")), not the pin \(nativeobj.PinGo) \(nativeobj.PinGOOS) \(nativeobj.PinGOARCH)")
+	}
+	let dir = strings.TrimSpace(try run(exec.New("mktemp", []string{"-d"}), "mktemp"))
+	let (k1, k2) = constants(seed)
+	io.Stdout.Println("seed \(seed): K1 \(k1) K2 \(k2), work \(dir)")
+	let std = try run(stock.command([]string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "fmt", "os", "path/filepath", "runtime", "weak", "sync/atomic"}), "stock go list -export")
+	try write(dir + "/std.importcfg", std)
+	try write(dir + "/dep.go", depGo)
+	try write(dir + "/main.go", mainGo)
+	try write(dir + "/tinyref.go", strings.ReplaceAll(strings.ReplaceAll(refGo, "K1 = 1111111", "K1 = \(k1)"), "K2 = 2222222", "K2 = \(k2)"))
+	// The stock dependency, and from its archive the pin's header line,
+	// its fingerprint and whether it has an init.
+	let depA = dir + "/dep.a"
+	try run(stock.goTool([]string{"compile", "-p", nativeobj.DepPath, "-importcfg", dir + "/std.importcfg", "-pack", "-o", depA, dir + "/dep.go"}), "stock compile of dep")
+	let depAr = try read(depA)
+	let header = nativeobj.StockHeader(depAr) catch {
+	case nativeobj.Bad as b:
+		return fail("dep.a: " + b.Why)
+	}
+	let depExp = nativeobj.ReadStockExport(depAr) catch {
+	case nativeobj.Bad as b:
+		return fail("dep.a export data: " + b.Why)
+	}
+	let dep = nativeobj.Import{Path: nativeobj.DepPath, Name: "dep", Fingerprint: depExp.Fingerprint, HasInit: depExp.HasInit}
+	// The producer: the archive from the checked input alone.
+	let p = nativeobj.Tiny(k1, k2, dep)
+	let built = nativeobj.Archive(p, header) catch {
+	case nativeobj.Refused as r:
+		return fail("refused: " + r.Why)
+	case nativeobj.Malformed as m:
+		return fail("malformed input: " + m.Why)
+	case nativeobj.Undefined as u:
+		return fail("undefined label \(u.Label)")
+	}
+	let tinyA = dir + "/tiny.a"
+	try write(tinyA, built.Archive)
+	io.Stdout.Println("producer: tiny.a \(len(built.Archive)) bytes, sha256 \(hex.Encode(sha256.Sum(built.Archive))[0:16]), fingerprint \(hex.Encode(built.Fingerprint))")
+	let problems = nativeobj.Verify(p, header, built.Archive)
+	if len(problems) > 0 {
+		return fail("metadata checks failed (work kept in \(dir)):\n" + strings.Join(problems, "\n"))
+	}
+	io.Stdout.Println("metadata: members, fingerprints, exports and ABI registers, safe points, live slots, barriers, relocations, inittask: all hold")
+	// The stock reference under the same import path.
+	let refA = dir + "/tinyref.a"
+	try write(dir + "/ref.importcfg", std + "packagefile " + nativeobj.DepPath + "=" + depA + "\n")
+	try run(stock.goTool([]string{"compile", "-p", nativeobj.TinyPath, "-importcfg", dir + "/ref.importcfg", "-pack", "-o", refA, dir + "/tinyref.go"}), "stock compile of the reference")
+	let ours = try program(stock, dir, std, depA, tinyA, "ergo")
+	let theirs = try program(stock, dir, std, depA, refA, "stock")
+	for phase in []RuntimePhase{MemoryChecks, Preemption} {
+		// Observe the stock control even when the candidate fails.
+		let want = try execute(theirs, phase, "tinyref.go")
+		let got = try execute(ours, phase, p.File)
+		io.Stdout.Print(got)
+		if got != want {
+			return fail("the program linked with the producer's archive printed\n\(got)but with the stock reference\n\(want)(work kept in \(dir))")
+		}
+	}
+	io.Stdout.Println("round trip: memory checks and preemption agree with the stock reference")
+	if keep {
+		io.Stdout.Println("kept \(dir)")
+	} else {
+		try run(exec.New("rm", []string{"-r", dir}), "removing the work folder")
+	}
+}
+
+func usage() os.Exit { os.Exit{Code: 2, Message: "usage: nativeobj verify [--seed N] [--keep]"} }
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdout: io.NewHost(), exec.Runner: exec.NewHost() } {
+		let mut args = os.Process.Args()
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:len(args)]
+		}
+		if len(args) == 0 || args[0] != "verify" {
+			return usage()
+		}
+		let mut seed = 1
+		let mut keep = false
+		let mut i = 1
+		for i < len(args) {
+			if args[i] == "--seed" && i+1 < len(args) {
+				seed = strconv.Atoi(args[i+1]) catch {
+				case strconv.Malformed, strconv.OutOfRange:
+					return usage()
+				}
+				i = i + 2
+			} else if args[i] == "--keep" {
+				keep = true
+				i = i + 1
+			} else {
+				return usage()
+			}
+		}
+		let root = match os.Process.Getenv("GOROOT_STOCK") {
+		case Some as path:
+			path.Value
+		case None:
+			return fail("set GOROOT_STOCK to the stock Go \(nativeobj.PinGo) root")
+		}
+		if !strings.HasPrefix(root, "/") {
+			return fail("GOROOT_STOCK must be an absolute path")
+		}
+		verify(Stock{Root: root}, seed, keep) catch {
+		case os.Exit as e:
+			return os.Exit{Code: e.Code, Message: e.Message + "\nreplay from compiler/: GOROOT_STOCK=\"$GOROOT_STOCK\" ergo run ./cmd/nativeobj -- verify --seed \(seed) --keep"}
+		}
+	}
+}
