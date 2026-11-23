@@ -173,7 +173,7 @@ func PhaseProbe(s Phase) int {
 // runner.
 func Toggle(s Light, e Press) Decision[Light, int] { toggle(s, e) }
 
-func Count(s Counter, e Inc) Decision[Counter, int] { count(s, e) }
+func CountStep(s Counter, e Inc) Decision[Counter, int] { count(s, e) }
 
 func JumpStep(s Tree, e Jump) Decision[Tree, int] { jump(s, e) }
 
