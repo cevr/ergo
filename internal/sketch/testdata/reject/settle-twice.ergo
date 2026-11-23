@@ -1,0 +1,14 @@
+// want S108
+
+// A second Settle of one claim does not check: Settle takes the claim
+// (workflow.Store, DUR-W1), so the claim is gone after the first.
+
+import time
+import workflow
+
+func twice(s workflow.Store) bool fails workflow.Fenced | workflow.Failed {
+	try workflow.Work(s, time.Unix(0, 0), 1s, func(c own workflow.Claimed) fails workflow.Fenced | workflow.Failed {
+		try s.Settle(c)
+		try s.Settle(c)
+	})
+}

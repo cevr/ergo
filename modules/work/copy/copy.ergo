@@ -4,15 +4,14 @@
 //
 // Go control: rift create on a file system without copy-on-write.
 
-import exec
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
 // Cloner copies through cp -a.
 type Cloner { trees system.Trees } implements work.Cloner
 
-// New is the Cloner over a Runner.
-func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
+// New is the Cloner over the host tree operations.
+func New(trees system.Trees) Cloner { Cloner{trees: trees} }
 
 func Name(_ Cloner) string { "copy" }
 
@@ -23,10 +22,10 @@ func KeepsInodes(_ Cloner) bool { false }
 
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "copy", from, to)
-	let r = try system.Run(c.trees, "copy", "cp", []string{"-a", from, to})
+	let r = try system.Invoke(c.trees, "copy", "cp", []string{"-a", from, to}, system.Between(from, to))
 	if r.Status != 0 {
 		system.Leave(c.trees, to)
-		try system.Failure("copy", from, to, r.Stderr, []string{})
+		try system.Failure(c.trees, "copy", "cp", from, to, r, []string{})
 	}
 }
 

@@ -62,6 +62,11 @@ func TestMain(m *testing.M) {
 			}
 		}
 		os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+		// The tests declare the real checkout's steps about 34 times; its
+		// go lists run once each (goListMemo, GATE-PKG-TIMEOUT).
+		if root, err := filepath.Abs("../.."); err == nil {
+			goListMemo = newListMemo(root)
+		}
 		return m.Run()
 	}))
 }
