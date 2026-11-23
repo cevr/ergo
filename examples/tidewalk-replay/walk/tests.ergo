@@ -1,4 +1,4 @@
-// The game's tests: four examples. ergo test runs the laws of laws.ergo (#162).
+// The game's tests: four examples. ergo test runs the laws of laws.ergo.
 
 func replayOf(s string) Game fails BadMove {
 	let ms = try ParseMoves(s)

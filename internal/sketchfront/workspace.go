@@ -93,8 +93,9 @@ func IsWorkspaceRoot(fsys FS, dir string) (bool, error) {
 
 // DiscoverWorkspace finds the members and edges of the workspace at root.
 // It walks by source admission: a folder whose name starts with `.` or
-// `_`, testdata, node_modules and vendor are never entered, nor a folder
-// ergo.work skips; directory links are not followed. A member's own
+// `_`, testdata, node_modules, vendor and ergo.bind (AdmitFolder) are
+// never entered, nor a folder ergo.work skips; directory links are not
+// followed. A member's own
 // subfolders are walked too, so a module nested in another is a member of
 // its own. It reads ergo.mod and go.mod files and nothing else.
 func DiscoverWorkspace(fsys FS, root string) (Workspace, error) {
@@ -125,7 +126,7 @@ func DiscoverWorkspace(fsys FS, root string) (Workspace, error) {
 	walk = func(dir, rel string) error {
 		if rel != "." {
 			name := filepath.Base(dir)
-			if !admitFolder(name) || skipped[rel] {
+			if !AdmitFolder(name) || skipped[rel] {
 				return nil
 			}
 		}
@@ -228,12 +229,20 @@ func DiscoverWorkspace(fsys FS, root string) (Workspace, error) {
 	return ws, nil
 }
 
-// admitFolder reports whether discovery enters a folder of this name:
-// not hidden, not underscored, and not testdata, node_modules or vendor,
-// which hold fixtures and copies, never members.
-func admitFolder(name string) bool {
+// BindFolder is the folder of a module's committed Go bindings (interop.md,
+// Go modules 2): `import go P` reads ergo.bind/P, so it holds inputs,
+// never packages.
+const BindFolder = "ergo.bind"
+
+// AdmitFolder reports whether a walk of `DIR/...` enters a folder of this
+// name (build.md, Workspace): not hidden, not underscored, and not
+// testdata, node_modules, vendor or ergo.bind, which hold fixtures, copies
+// and bindings, never packages or members. Every walk of the command line
+// asks it: package and member discovery, ergo fmt's folder walk, the task
+// runner's member walk and the gate's key.
+func AdmitFolder(name string) bool {
 	return !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_") &&
-		name != "testdata" && name != "node_modules" && name != "vendor"
+		name != "testdata" && name != "node_modules" && name != "vendor" && name != BindFolder
 }
 
 // Order is the members dependency first: a member after every member it

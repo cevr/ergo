@@ -8,7 +8,7 @@ import (
 )
 
 // TestWithValueHoldsNoRunningTask fixes the text and position of the one
-// rule specific to running code (running.go; #197 L8 B3t): the value of an
+// rule specific to running code (running.go; L8 B3t): the value of an
 // owning with holds no Task or tasks.Set, directly or in a part, since its
 // code may use the providers the with closes. It kills the mutants
 // "running finds nothing" and "running skips a record's fields" (check

@@ -47,7 +47,7 @@ type File struct {
 // go.mod and main.go: the runtime module's go.mod and the source of
 // runtime/v1 and of runtime/rt, which it imports, and of runtime/explore,
 // which a test build's reachability laws call (machinelaws.go). The lowered main runs
-// under v1.Main, whose defect report names Ergo call sites (#230).
+// under v1.Main, whose defect report names Ergo call sites.
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
 	// Every leaf of runtime/v1 is copied with it: a program imports only
@@ -391,9 +391,9 @@ type lowerer struct {
 	builtinDone  map[string]bool      // the reference's builtin helpers written (builtinHelper)
 	patternsDone map[string]bool      // the pattern matchers written (refinematch.go)
 
-	calls    []callIdent // the call table (calls.go, #230)
+	calls    []callIdent // the call table (calls.go)
 	callSeen map[*syntax.CallExpr]bool
-	decls    []declIdent // the declaration table (calls.go, #230)
+	decls    []declIdent // the declaration table (calls.go)
 	declSeen map[syntax.Node]bool
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
@@ -528,7 +528,16 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 
 // lowererOf is the lowerer of the canonical unit c of the package pkg, whose
 // root unit requires the Go modules goModule.
+// loweringWork, when set, is called with "lowerer" for each lowerer made
+// and "body" for each function body lowered (emitBody), whatever entry
+// point made them: the package tests' probe log counts the work of each
+// test by it (split_test.go, probeLog). Nil outside the tests.
+var loweringWork func(kind string)
+
 func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testLowering) *lowerer {
+	if loweringWork != nil {
+		loweringWork("lowerer")
+	}
 	l := &lowerer{
 		tests:     tests,
 		canon:     c,
@@ -914,7 +923,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		b.WriteString("\t" + rt + ".StdoutDirect()\n")
 	}
 	// main runs as the root task under v1.Main, which reports its exit:
-	// a typed failure, a defect with its Ergo call sites (#230), or an
+	// a typed failure, a defect with its Ergo call sites, or an
 	// interruption (runtime.md, Exit causes). The environment holds that
 	// task (stage D3b, Rule 1).
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", fields, func(env string) string {
