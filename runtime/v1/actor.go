@@ -100,9 +100,6 @@ import (
 //     Feed on an ended actor fails ActorStopped and its source never runs
 //     (nor does a source still queued when the actor ends: it began
 //     nothing, so it has nothing to release).
-//  14b. End actions (SUPERVISE-2): OnEnd adds an action that finish runs
-//     once, masked, after the sources stopped and before the end is
-//     published; one added after finish took them fails ActorStopped.
 //     The runner starts the source as a child task of its own (startFeed):
 //     it lives as long as the actor, not as its caller, and its sends are
 //     a sender's (rule 2: in the source's order, untagged, admitted as a
@@ -112,6 +109,9 @@ import (
 //     runs after the actor's end, and the actor's stop interrupts a
 //     source that waits. A source that ends ends only its feed; a defect
 //     of a source ends the actor, as a work's defect does (rule 10).
+//     14b. End actions: OnEnd adds an action that finish runs once,
+//     masked, after the sources stop and before the end is published;
+//     one added after finish takes the actions fails ActorStopped.
 //  15. Hosts (mu-host; actor_host.go, the model models/host): NewHost in a
 //     step (on the runner's task) keeps the host for the entry the step's
 //     decision opens (Enter, Emit) or keeps (Stay); any other decision, a
