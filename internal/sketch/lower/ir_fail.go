@@ -288,10 +288,18 @@ func (b *irBuilder) bind(call *syntax.CallExpr) (pre []*irStmt, v, e int) {
 		}
 		return upre, v, e
 	}
+	outer := b.tupleBind
+	b.tupleBind = call
 	pre, x := b.rawCall(call)
+	b.tupleBind = outer
 	p := b.pos(call, call.Pos())
 	e = b.temp("err", "error", p)
 	t := b.l.info.Types[call]
+	if tt, ok := t.(*check.Tuple); ok && x != nil && b.tupleBound == x {
+		b.tupleBound = nil
+		tpre, tv := b.tupleErrBind(x, tt, e, call, p)
+		return append(pre, tpre...), tv, e
+	}
 	if (x.K == "vcall" || b.unitPair(call)) && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
 		// A function value with no value returns struct{} first
 		// (ir_closure.go), as a generic whose result is no value does
