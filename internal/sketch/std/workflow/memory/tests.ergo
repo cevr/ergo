@@ -1,0 +1,5 @@
+// Give each workflow.Store law case an empty memory store.
+
+import workflow
+
+let fresh = context { workflow.Store: NewStore() }
