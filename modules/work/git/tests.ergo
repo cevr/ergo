@@ -206,7 +206,7 @@ test LocalsRemotesAndGuards {
 			let url = try exec.Runner.Run(exec.New("git", []string{"config", "remote.\(remote).pushurl"})).Stdout
 			assert url == Guard+"\n"
 		}
-		assert try exec.Runner.Run(exec.New("git", []string{"config", "--add", "remote.origin.pushurl", "/nonexistent/loop-probe-extra"})).Status == 0
+		assert try exec.Runner.Run(exec.New("git", []string{"config", "--add", "remote.origin.pushurl", "extra.push"})).Status == 0
 		assert !try work.Vcs.PushesGuarded(".")
 		// doctor -unguard (the Mac's fork): Unguard drops work's guard
 		// and keeps a push URL the owner set.
@@ -214,7 +214,7 @@ test LocalsRemotesAndGuards {
 		assert try work.Vcs.Guarded(".") == []string{"fork", "origin"}
 		try work.Vcs.Unguard(".")
 		assert try work.Vcs.Guarded(".") == []string{}
-		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git config remote.origin.pushurl"})).Status == 1
+		assert try exec.Runner.Run(exec.New("git", []string{"config", "remote.origin.pushurl"})).Stdout == "extra.push\n"
 		assert try exec.Runner.Run(exec.New("git", []string{"config", "remote.mine.pushurl"})).Stdout == "/nonexistent/loop-probe-own\n"
 	}
 }
