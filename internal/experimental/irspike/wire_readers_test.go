@@ -34,7 +34,7 @@ func TestIRWireReadersMatchSource(t *testing.T) {
 	f7PropertyWith(t, "TestIRWireReadersMatchSource", GenerateWireReaders, func(rep lower.IRReport) string {
 		var kept []string
 		for k := range rep.CodecText {
-			if strings.HasPrefix(k, "ergoDecode") || strings.HasPrefix(k, "ergoRead") {
+			if strings.HasPrefix(k, lower.HelperSpelling("", "ergoDecode")) || strings.HasPrefix(k, lower.HelperSpelling("", "ergoRead")) {
 				kept = append(kept, strings.ReplaceAll(k, "\t", ": "))
 			}
 		}
@@ -44,8 +44,8 @@ func TestIRWireReadersMatchSource(t *testing.T) {
 		}
 		iface, direct := false, false
 		for _, name := range rep.CodecRead {
-			iface = iface || strings.HasPrefix(name, "ergoDecodeEv")
-			direct = direct || strings.HasPrefix(name, "ergoReadEv")
+			iface = iface || strings.HasPrefix(name, lower.HelperSpelling("", "ergoDecodeEv"))
+			direct = direct || strings.HasPrefix(name, lower.HelperSpelling("", "ergoReadEv"))
 		}
 		switch {
 		case !iface:
