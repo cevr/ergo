@@ -480,7 +480,7 @@ func ContextDeclOf(t Tree, id dense.ID[Node]) ContextDecl {
 func TestDeclOf(t Tree, id dense.ID[Node]) TestDecl {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
-	TestDecl{Doc: otok(fixed(t, i, 4, 0)), Test: int(tok), Name: nid(t, fixed(t, i, 4, 1)), Params: onid(t, fixed(t, i, 4, 2)), Body: nid(t, fixed(t, i, 4, 3))}
+	TestDecl{Doc: otok(fixed(t, i, 4, 0)), Test: int(tok), Name: nid(t, fixed(t, i, 4, 1)), Params: onid(t, fixed(t, i, 4, 2)), Body: onid(t, fixed(t, i, 4, 3))}
 }
 
 // LawDeclOf reads a row of kind KLawDecl.

@@ -7,8 +7,9 @@ import (
 )
 
 // withFuncs are GenerateWith's functions: each gets an IR body in every
-// seed (G6).
-var withFuncs = []string{"show", "named", "inline", "nested", "multi", "local", "each", "adapted", "leak", "find", "touch", "caught", "tried", "silent", "branchy", "passed", "made", "liveValue", "viaValue", "embeds"}
+// seed (G6), by their Go names (find is find_1: NAME-LOCAL keeps a
+// program's name clear of a Go name the lowering takes).
+var withFuncs = []string{"show", "named", "inline", "nested", "multi", "local", "each", "adapted", "leak", "find_1", "touch", "caught", "tried", "silent", "branchy", "passed", "made", "liveValue", "viaValue", "embeds"}
 
 // GenerateWith is a program of withs (G6): a named context, an inline and
 // a local context, a with of two operands, nested withs, withs in value,
