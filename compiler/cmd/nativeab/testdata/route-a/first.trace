@@ -1,0 +1,12 @@
+meta label first-build
+meta ergo ergo v0.0.0-20261123055740-3a7ce691609b+dirty, Go go1.27.4
+meta build -o /tmp/opencode/nab/subject.36we/subject.bin ./cmd/subject
+meta driver go-command reference path (GOFLAGS=-toolexec: the direct path refuses a set GOFLAGS and falls back to go build; shared GOCACHE, a hit starts no tool)
+meta counter perf stat -e instructions:u (user mode)
+meta module ergo.local/program
+tree 2045860582
+proc 05a3a5625e93dc43 compile ergo.local/program/std/prelude ergo 42658092
+proc 153cc793911529b1 compile main ergo 293104805
+proc 3b9ebad6ee1a85da link - go 326946663
+proc 3e6f1e67c16f8858 compile ergo.local/program/shared ergo 108556961
+proc e903dd4c4e5485f2 compile ergo.local/program/std/io ergo 269549319

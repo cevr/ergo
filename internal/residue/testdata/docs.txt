@@ -19,7 +19,6 @@ docs/conformance.md	-	delete: TOOLING (merged into its home)
 docs/decisions.md	-	delete: PRINCIPLES (each live decision to its home)
 docs/design.md	-	the high-level design: the pipeline and its seams as built
 docs/domain.md	-	how to model a domain in Ergo; every quote is held to examples/
-docs/previews/2026-10-28-without-go-syntax.md	-	delete: PREVIEW-TEST
 docs/receipts/check-speed.md	-	delete: DEL-DEAD
 docs/receipts/checker-maps.md	-	delete: DEL-DEAD
 docs/receipts/compile-speed.md	-	delete: DEL-DEAD

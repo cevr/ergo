@@ -290,6 +290,7 @@ debt	internal/sketch/eval/foldvalue.go:interp.indexLets	mark	"Host()"	interp.ind
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/netip.ParseAddr"	goFuncs: a fact about Go's net/netip.ParseAddr (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/url.Parse"	goFuncs: a fact about Go's net/url.Parse (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"net/url.ParseQuery"	goFuncs: a fact about Go's net/url.ParseQuery (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
+go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"path/filepath.Match"	goFuncs: a fact about Go's path/filepath.Match (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	CAP-FS2
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"strconv.FormatUint"	goFuncs: a fact about Go's strconv.FormatUint (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goFuncs	table	"strconv.ParseUint"	goFuncs: a fact about Go's strconv.ParseUint (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
 go-boundary	internal/sketch/eval/gohost.go:goTypes	table	"net/netip.Addr"	goTypes: a fact about Go's net/netip.Addr (a table or test of Go library names; PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -517,6 +518,7 @@ debt	internal/sketch/lower/ir_fold.go:irBuilder.foldCalls	mark	"Host()"	irBuilde
 debt	internal/sketch/lower/ir_fold.go:irBuilder.foldableIn	mark	"Host()"	irBuilder.foldableIn: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"directives"	irBuilder.inlineMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"isSourced"	irBuilder.inlineMark: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_forms_inline.go:irInliner.splice	flag	"anon"	irInliner.splice: main's decision (site.anon = !directives, a library body's copy adds no inline site), counted once NAME-LOCAL dropped the int field irInline.anon that shared its name; not a new privilege (orchestrator, NAME-LOCAL r6 q16)	PK-NP
 debt	internal/sketch/lower/ir_forms_inline.go:irInliner.splice	flag	"sourced"	irInliner.splice: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"directives"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"isSourced"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -614,8 +616,6 @@ debt	internal/sketch/lower/rewritelaw.go:lowerer.rewriteFunc	flag	"isSourced"	lo
 debt	internal/sketch/lower/sealedops.go:funcCtx.sealedMethod	built	"."	funcCtx.sealedMethod: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"Std()"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
 debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"stdlib.PreludePath"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
-debt	internal/sketch/lower/slot.go:funcCtx.slotAdmit	flag	"slotCallee"	funcCtx.slotAdmit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/slot.go:lowerer.slotCallee	flag	"isSourced"	lowerer.slotCallee: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.enter	flag	"isSourced"	lowerer.enter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.inStdPkg	flag	"stdLets"	lowerer.inStdPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.isSourced	flag	"sourced"	lowerer.isSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -695,4 +695,3 @@ language	internal/tsproj/project.go:emitter.declare	name	"Wire"	Wire, the codec'
 language	internal/tsproj/project.go:emitter.schema	mark	"stdlib.PreludePath"	Option	-
 language	internal/tsproj/project.go:emitter.schema	name	"Option"	Option	-
 debt	scripts/stdlaws/main.go:main	mark	"stdlib.Ledger"	main: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-

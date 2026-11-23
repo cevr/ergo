@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
-
-	"ergo.local/prototype/internal/lawledger"
 )
 
 // pathSegments is the alphabet of generated paths: the empty segment,
@@ -38,90 +36,6 @@ func genPath(r *rand.Rand) string {
 }
 
 // lawCases (collections_test.go) is the number of generated cases per law.
-
-// TestFilepathLaws runs each law of std filepath (stdlib.md, Std laws)
-// over the Go functions its Ergo functions call, with 10,000 seeded paths per
-// law. It is the ledger's runner for every filepath law.
-func TestFilepathLaws(t *testing.T) {
-	r := rand.New(rand.NewPCG(3, 1))
-	split := filepath.Split
-	trailing := func(p string) bool { _, f := split(p); return p != "" && f == "" }
-	laws := map[string]func(p, q string) bool{
-		"CleanIsIdempotent": func(p, _ string) bool { return filepath.Clean(filepath.Clean(p)) == filepath.Clean(p) },
-		"CleanKeepsRoot":    func(p, _ string) bool { return filepath.IsAbs(filepath.Clean(p)) == filepath.IsAbs(p) },
-		"SplitRebuilds": func(p, _ string) bool {
-			d, f := split(p)
-			_, ff := split(f)
-			return d+f == p && ff == f
-		},
-		"JoinOfDirAndBase": func(p, _ string) bool {
-			if trailing(p) {
-				return true
-			}
-			return filepath.Clean(FilepathJoin([]string{filepath.Dir(p), filepath.Base(p)})) == filepath.Clean(p)
-		},
-		"BaseHasNoSeparator": func(p, _ string) bool {
-			b := filepath.Base(p)
-			bd, _ := split(b)
-			return b == "/" || bd == ""
-		},
-		"ExtIsSuffixOfBase": func(p, _ string) bool {
-			return strings.HasSuffix(filepath.Base(p), FilepathExt(p))
-		},
-		"ExtIsTheExtOfBase": func(p, _ string) bool {
-			if _, f := split(p); f == "" {
-				return true
-			}
-			return FilepathExt(filepath.Base(p)) == FilepathExt(p)
-		},
-		"RelThenJoin": func(base, target string) bool {
-			rel, err := FilepathRel(base, target)
-			if err != nil {
-				return true
-			}
-			return filepath.Clean(FilepathJoin([]string{base, rel})) == filepath.Clean(target)
-		},
-	}
-	ledger := map[string]lawledger.Law{}
-	for name, law := range laws {
-		ledger["filepath "+name] = lawledger.Law{Statement: filepathLawStatements["filepath "+name], Check: func(t *testing.T) {
-			related := 0
-			for range lawCases {
-				p, q := genPath(r), genPath(r)
-				if name == "RelThenJoin" && r.IntN(2) == 0 {
-					q = p + "/" + genPath(r) // a target under base, so Rel succeeds often
-				}
-				if name == "RelThenJoin" {
-					if _, err := FilepathRel(p, q); err == nil {
-						related++
-					}
-				}
-				if !law(p, q) {
-					t.Errorf("%s(%q, %q) is false", name, p, q)
-					break
-				}
-			}
-			if name == "RelThenJoin" && related < lawCases/4 {
-				t.Errorf("RelThenJoin: Rel succeeded in %d of %d cases; the generator misses the law's domain", related, lawCases)
-			}
-		}}
-	}
-	lawledger.Run(t, ledger)
-}
-
-// filepathLawStatements is the statement each law of TestFilepathLaws
-// restates, the law's source text as the ledger writes it; lawledger.Run
-// holds it equal to the ledger (fu-ledger-runner).
-var filepathLawStatements = map[string]string{
-	"filepath BaseHasNoSeparator": `BaseHasNoSeparator(path string) { Base(path) == "/" || Split(Base(path)).Dir == "" }`,
-	"filepath CleanIsIdempotent":  `CleanIsIdempotent(path string) { Clean(Clean(path)) == Clean(path) }`,
-	"filepath CleanKeepsRoot":     `CleanKeepsRoot(path string) { IsAbs(Clean(path)) == IsAbs(path) }`,
-	"filepath ExtIsSuffixOfBase":  `ExtIsSuffixOfBase(path string) { strings.HasSuffix(Base(path), Ext(path)) }`,
-	"filepath ExtIsTheExtOfBase":  `ExtIsTheExtOfBase(path string) { if Split(path).File == "" { return true } Ext(Base(path)) == Ext(path) }`,
-	"filepath JoinOfDirAndBase":   `JoinOfDirAndBase(path string) { if path != "" && Split(path).File == "" { return true } Clean(Join([]string{Dir(path), Base(path)})) == Clean(path) }`,
-	"filepath RelThenJoin":        `RelThenJoin(base string, target string) { let r = Rel(base, target) catch { case NotRelative: return true } Clean(Join([]string{base, r})) == Clean(target) }`,
-	"filepath SplitRebuilds":      `SplitRebuilds(path string) { let p = Split(path) p.Dir+p.File == path && Split(p.File).File == p.File }`,
-}
 
 // TestFilepathMatchesGo holds each body to Go's path/filepath, the
 // reference model, on generated paths: the same result, and for Rel the

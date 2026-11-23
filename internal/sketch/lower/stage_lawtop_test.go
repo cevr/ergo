@@ -11,7 +11,7 @@ import (
 )
 
 // law-top (spec A5): a top-level law is checked and not in the run build, as
-// a member law is (types.md, Laws 11); the test build runs both (#162
+// a member law is (types.md, Laws 11); the test build runs both (laws and proofs
 // law-run-1). The law corpus is the checker's: the
 // clean programs of sketchtest.LawTopCases (A2) and the clean top-level
 // programs of sketchtest.GenLaws (A3). TestBuildsOmitLaws and

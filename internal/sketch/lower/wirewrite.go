@@ -40,15 +40,7 @@ func (l *lowerer) wireOwnWrite(em wireEvents, tc *typeCtx, b *strings.Builder, t
 		b.WriteString(l.wireCallFunc(hook.Func, env, tc.site, v, w) + "\n")
 		return true
 	}
-	conv, ok := check.CellProvider(hook.Op)
-	if !ok {
-		return false
-	}
-	key, _, ok := l.adapterName(conv)
-	if !ok {
-		return false
-	}
-	name, ok := l.pkgNames[pkgKey{"adapter", key}]
+	conv, key, name, ok := l.ownWriteAdapter(hook)
 	if !ok {
 		return false
 	}
@@ -64,4 +56,20 @@ func (l *lowerer) wireOwnWrite(em wireEvents, tc *typeCtx, b *strings.Builder, t
 	}
 	b.WriteString("if " + a + ", " + is + " := " + w + ".(*" + name + "); " + is + " {\n" + l.wireCallFunc(hook.Func, env, tc.site, v, cell) + "\nreturn\n}\n")
 	return false
+}
+
+// ownWriteAdapter is the adapter of hook's provider cell, by its key and
+// Go name, when the program names one: then a Writer may be that cell,
+// and the codec function on the Writer interface asks first.
+func (l *lowerer) ownWriteAdapter(hook check.WireWrite) (conv check.Conversion, key, name string, ok bool) {
+	conv, ok = check.CellProvider(hook.Op)
+	if !ok {
+		return conv, "", "", false
+	}
+	key, _, ok = l.adapterName(conv)
+	if !ok {
+		return conv, "", "", false
+	}
+	name, ok = l.pkgNames[pkgKey{"adapter", key}]
+	return conv, key, name, ok
 }

@@ -55,29 +55,40 @@ type MachineSearch struct {
 }
 
 // machine is a machine type's checked parts, as the test build reads them
-// (lower/machine.go machineOf).
+// (lower/machine.go machineOf): its step and its start entries
+// (MACHINE-EXPR), and, once a law runs it, their function values.
 type machine struct {
 	tn            *check.TypeName
 	state, signal check.Type
-	step, start   *check.Func
+	step, start   *check.MachineEntry
+	stepV, startV Value
 }
 
 func machineOf(tn *check.TypeName) machine {
-	spec, ok := tn.Decl.Spec.(*syntax.MachineType)
-	m, ok2 := tn.Type.(*check.Named).Underlying().(*check.MachineType)
-	if !ok || !ok2 {
-		ice("the machine %s has no checked declaration", tn.Name)
+	m, ok := tn.Type.(*check.Named).Underlying().(*check.MachineType)
+	es := tn.Pkg.Info.MachineEntries[tn]
+	if !ok || es == nil || es.Step == nil {
+		ice("the machine %s has no checked declaration or step", tn.Name)
 	}
-	id, _ := spec.Step.(*syntax.Ident)
-	step, _ := tn.Pkg.Info.Uses[id].(*check.Func)
-	if id == nil || step == nil {
-		ice("the step of machine %s is not a checked function", tn.Name)
+	return machine{tn: tn, state: m.State, signal: m.Signal, step: es.Step, start: es.Start}
+}
+
+// values computes m's step and start values (entryValue), at the
+// declaration's own type.
+func (m *machine) values(in *interp, fr *frame) *abrupt {
+	v, ab := in.entryValue(fr, m.tn.Decl, m.tn, m.step, m.tn.Type)
+	if ab != nil {
+		return ab
 	}
-	out := machine{tn: tn, state: m.State, signal: m.Signal, step: step}
-	if iid, ok := spec.Initial.(*syntax.Ident); ok {
-		out.start, _ = tn.Pkg.Info.Uses[iid].(*check.Func)
+	m.stepV = v
+	if m.start != nil {
+		v, ab := in.entryValue(fr, m.tn.Decl, m.tn, m.start, m.tn.Type)
+		if ab != nil {
+			return ab
+		}
+		m.startV = v
 	}
-	return out
+	return nil
 }
 
 // initMachines computes the initial value of each machine of p that has
@@ -99,16 +110,30 @@ func (in *interp) initMachines(p *check.Package) *initFailure {
 			if !ok {
 				ice("the machine %s has no Defs entry", td.Name.Name)
 			}
-			if machineOf(tn).start != nil {
+			if len(tn.Type.(*check.Named).TParams) > 0 {
+				// A generic machine's initial value and entries are computed
+				// per instance, at its first conversion (machinevalue.go).
 				continue
 			}
 			fr := in.newFrame(p, td)
-			v, ab := in.expr(fr, spec.Initial)
+			var ab *abrupt
+			at := spec.Initial.Pos()
+			if es := p.Info.MachineEntries[tn]; es == nil || es.Start == nil {
+				var v Value
+				if v, ab = in.expr(fr, spec.Initial); ab == nil {
+					in.initials[tn] = v
+				}
+			}
 			if ab == nil {
-				in.initials[tn] = v
+				ab = in.computedEntries(fr, tn)
+				if ab != nil && ab.at.IsValid() {
+					at = ab.at
+				}
+			}
+			if ab == nil {
 				continue
 			}
-			site := in.site(p, td, spec.Initial.Pos())
+			site := in.site(p, td, at)
 			switch ab.kind {
 			case ctlDefect:
 				return &initFailure{Defect, "a machine's initial value hit a defect: " + ab.msg, site}
@@ -148,8 +173,13 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		return out
 	}
 	pre := preflight{in: in, seen: map[syntax.Node]bool{}}
-	if why := pre.function(fr, m.step); why != "" {
-		return skip(why)
+	if !m.step.Computed() {
+		if why := pre.function(fr, m.step.Func); why != "" {
+			return skip(why)
+		}
+	}
+	if ab := m.values(in, fr); ab != nil {
+		panic(ab)
 	}
 	// An always or sometimes law (X2) reads each state through its
 	// predicate, a pure Ergo function of the state the checker admitted
@@ -180,10 +210,12 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 		}
 		starts = []Value{v}
 	} else {
-		if why := pre.function(fr, m.start); why != "" {
-			return skip(why)
+		if !m.start.Computed() {
+			if why := pre.function(fr, m.start.Func); why != "" {
+				return skip(why)
+			}
 		}
-		for _, p := range m.start.Sig.Params {
+		for _, p := range m.start.Type.Params {
 			startTypes = append(startTypes, p.Type)
 		}
 		if lists, ok := listRun(startTypes); ok {
@@ -202,7 +234,7 @@ func (in *interp) machineLaw(law *check.Law, res Result) (out Result) {
 				for i, v := range c {
 					args[i] = in.listValue(fr, v)
 				}
-				starts = append(starts, mustValue(in.call(fr, nil, m.start, nil, args)))
+				starts = append(starts, mustValue(in.callValue(fr, nil, m.startV, args)))
 			}
 		} else {
 			for _, t := range startTypes {
@@ -421,7 +453,7 @@ func (l *machineRun) runs(kind string, startTypes []check.Type, note string) str
 			for k, t := range startTypes {
 				args[k] = in.generate(fr, r, t, testplan.Depth, nil)
 			}
-			s = mustValue(in.call(fr, nil, l.m.start, nil, args))
+			s = mustValue(in.callValue(fr, nil, l.m.startV, args))
 		}
 		var sigs []Value
 		if d := testplan.Depth; d > 0 {
@@ -514,7 +546,7 @@ func listRun(types []check.Type) ([][]testplan.Value, bool) {
 // the decision is Done. Another completion than a typed failure (a defect,
 // the budget, a form check time does not run) unwinds the search.
 func (in *interp) machineStep(fr *frame, m machine, s, e Value) (Value, bool) {
-	d, ab := in.call(fr, nil, m.step, nil, []Value{s, e})
+	d, ab := in.callValue(fr, nil, m.stepV, []Value{s, e})
 	if ab != nil {
 		if ab.kind == ctlFail {
 			return s, true // a step's failure keeps the state, as Reject does

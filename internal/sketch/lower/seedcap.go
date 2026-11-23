@@ -63,7 +63,7 @@ func (w *valueWalk) seedLits() {
 	grown := map[*check.Var]bool{}
 	for _, call := range w.calls {
 		c := w.info.Calls[call]
-		if c == nil || !preludeAppend(c.Func) || check.GoBuiltin(c.Func) == "append" && check.AppendsString(c.Func) {
+		if c == nil || !appendsSource(c.Func) || check.GoBuiltin(c.Func) == "append" && check.AppendsString(c.Func) {
 			continue
 		}
 		parent, child := w.unparenParent(call)

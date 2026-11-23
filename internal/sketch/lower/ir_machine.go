@@ -162,18 +162,23 @@ func (b *irBuilder) machineRecord(conv check.Conversion, n *check.Named, p irPos
 		}
 		lit.Keys, lit.Elems = append(lit.Keys, g), append(lit.Elems, e)
 	}
-	step := conv.Table["Step"]
+	step := conv.Entries["Step"]
 	if step == nil {
 		irNo("machine conversion without a step")
 	}
-	if start := conv.Table["Start"]; start != nil {
+	if start := conv.Entries["Start"]; start != nil {
 		sig := b.fc.machineField(conv, "Start", site)
-		field("Start", b.machineFunc(sig, p, site, func(env int, ps []int) []*irStmt {
-			if len(start.Sig.Params) != 1 {
-				irNo("machine start with several parameters")
-			}
-			return []*irStmt{{K: "ret", Pos: p, X: b.machineCall(start, env, []*irExpr{{K: "local", Pos: p, I: ps[0]}}, p, site)}}
-		}))
+		if len(start.Type.Params) != 1 {
+			irNo("machine start with several parameters")
+		}
+		if start.Computed() {
+			// A computed start's variable has the field's uniform shape.
+			field("Start", b.entryGlobal(n, "Start", p))
+		} else {
+			field("Start", b.machineFunc(sig, p, site, func(env int, ps []int) []*irStmt {
+				return []*irStmt{{K: "ret", Pos: p, X: b.machineCall(start.Func, env, []*irExpr{{K: "local", Pos: p, I: ps[0]}}, p, site)}}
+			}))
+		}
 	} else {
 		field("Initial", &irExpr{K: "mcall", Pos: p, Name: "Initial", X: &irExpr{K: "local", Pos: p, I: 0}})
 	}
@@ -181,10 +186,16 @@ func (b *irBuilder) machineRecord(conv check.Conversion, n *check.Named, p irPos
 	if !ok || len(stepSig.Params) != 2 {
 		irNo("machine conversion to a Step of another form")
 	}
-	field("Step", b.machineFunc(stepSig, p, site, func(env int, ps []int) []*irStmt {
-		args := []*irExpr{{K: "local", Pos: p, I: ps[0]}, {K: "local", Pos: p, I: ps[1]}}
-		return []*irStmt{{K: "ret", Pos: p, X: b.machineCall(step, env, args, p, site)}}
-	}))
+	if step.Computed() {
+		// A computed step's variable (machineentry.go) has the field's
+		// uniform shape: the Machine calls it through its value.
+		field("Step", b.entryGlobal(n, "Step", p))
+	} else {
+		field("Step", b.machineFunc(stepSig, p, site, func(env int, ps []int) []*irStmt {
+			args := []*irExpr{{K: "local", Pos: p, I: ps[0]}, {K: "local", Pos: p, I: ps[1]}}
+			return []*irStmt{{K: "ret", Pos: p, X: b.machineCall(step.Func, env, args, p, site)}}
+		}))
+	}
 	field("After", b.machineAfter(conv, n, p, site))
 	field("Work", b.machineOption(conv, "Work", p, site, func(t check.Type, x *irExpr) *irExpr {
 		return b.recordField(t, x, "Start", site) // machines.Work's Start
@@ -244,6 +255,26 @@ func (b *irBuilder) machineCall(f *check.Func, env int, args []*irExpr, p irPos,
 		return &irExpr{K: "mcall", Pos: p, Name: fd.name, X: args[0], Args: args[1:]}
 	}
 	return &irExpr{K: "call", Pos: p, Name: fd.name, Args: args}
+}
+
+// entryGlobal is the variable of the computed entry field of the machine
+// n (machineentry.go).
+func (b *irBuilder) entryGlobal(n *check.Named, field string, p irPos) *irExpr {
+	return &irExpr{K: "global", Pos: p, Name: b.l.pkgName(entryVarKey(n.Obj, field), "ergo"+field+n.Obj.Name)}
+}
+
+// entryDef binds the local o to the entry e's value at the state, local
+// s, on the environment, local env: a call of a name entry's function, or
+// of a computed entry's variable, whose error, always nil for an entry
+// with no rows, is bound and dropped.
+func (b *irBuilder) entryDef(n *check.Named, field string, e *check.MachineEntry, o, env, s int, p irPos, site syntax.Node) *irStmt {
+	arg := []*irExpr{{K: "local", Pos: p, I: s}}
+	if !e.Computed() {
+		return &irStmt{K: "def", Pos: p, Local: o, X: b.machineCall(e.Func, env, arg, p, site)}
+	}
+	err := b.temp("err", "error", p)
+	call := &irExpr{K: "vcall", Pos: p, X: b.entryGlobal(n, field, p), Args: append([]*irExpr{{K: "local", Pos: p, I: env}}, arg...)}
+	return &irStmt{K: "def2", Pos: p, Local: o, Val: &err, X: call}
 }
 
 // machineNone is the value None of the Option instance t.
@@ -306,23 +337,20 @@ func recordFieldType(t check.Type, name string) check.Type {
 // machine, the state and the duration (fs2); or None for every state.
 func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos, site syntax.Node) *irExpr {
 	sig := b.fc.machineField(conv, "After", site)
-	after := conv.Table["After"]
+	after := conv.Entries["After"]
 	return b.machineFunc(sig, p, site, func(env int, ps []int) []*irStmt {
 		if after == nil {
 			return []*irStmt{{K: "ret", Pos: p, X: b.machineNone(sig.Results[0], p, site)}}
 		}
-		if len(after.Sig.Params) != 1 || len(after.Sig.Results) != 1 || b.l.funcDecl(after).fallible {
+		if len(after.Type.Params) != 1 || len(after.Type.Results) != 1 || !after.Computed() && b.l.funcDecl(after.Func).fallible {
 			irNo("machine after entry of another form")
 		}
-		if everyOption(after.Sig.Results[0]) {
-			// A machines.Every timer: its own form (the emitter's
-			// everyTimers; LY-FIX: read as a Timeout, its Option did not
-			// type).
+		ot := after.Type.Results[0]
+		if everyOption(ot) {
 			return b.everyAfter(sig, after, n, env, ps[0], p, site)
 		}
-		ot := after.Sig.Results[0]
 		o := b.temp("o", b.goType(ot, site), p)
-		out := []*irStmt{{K: "def", Pos: p, Local: o, X: b.machineCall(after, env, []*irExpr{{K: "local", Pos: p, I: ps[0]}}, p, site)}}
+		out := []*irStmt{b.entryDef(n, "After", after, o, env, ps[0], p, site)}
 		some, _ := optionVariants(ot, site)
 		timeout := recordFieldType(some, "Value")
 		inType := recordFieldType(timeout, "In")
@@ -338,9 +366,9 @@ func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos,
 	})
 }
 
-// everyAfter is the body of the After of a machine whose after function
+// everyAfter is the body of the After of a machine whose after entry
 // gives a machines.Every (the emitter's everyTimers, FKG1), on the
-// environment env and the state s: the after function's Option; on a
+// environment env and the state s: the entry's Option; on a
 // Some, a timer whose In is not positive panics as machineAfter's does,
 // the reading is time.Clock's when the runner calls it for a timer that
 // fires (v1.MachineFiringNow) and the zero time otherwise, and the
@@ -349,8 +377,8 @@ func (b *irBuilder) machineAfter(conv check.Conversion, n *check.Named, p irPos,
 // which no runner reads beside an error). The fields are read by their
 // shape: Some's one field, the Every's function field (Signal) and its
 // other field (In), which the field's Timeout has too.
-func (b *irBuilder) everyAfter(field *check.Signature, after *check.Func, n *check.Named, env, s int, p irPos, site syntax.Node) []*irStmt {
-	asig := after.Sig
+func (b *irBuilder) everyAfter(field *check.Signature, after *check.MachineEntry, n *check.Named, env, s int, p irPos, site syntax.Node) []*irStmt {
+	asig := after.Type
 	clock, isClock := check.EveryClock(asig).(*check.Named)
 	ot := asig.Results[0]
 	every, isEvery := ot.(*check.Named).TArgs[0].(*check.Named)
@@ -381,7 +409,7 @@ func (b *irBuilder) everyAfter(field *check.Signature, after *check.Func, n *che
 	gst := b.timerImport(asig.Params[0].Type, site)
 	local := func(i int) *irExpr { return &irExpr{K: "local", Pos: p, I: i} }
 	o := b.temp("o", b.goType(ot, site), p)
-	out := []*irStmt{{K: "def", Pos: p, Local: o, X: b.machineCall(after, env, []*irExpr{local(s)}, p, site)}}
+	out := []*irStmt{b.entryDef(n, "After", after, o, env, s, p, site)}
 	out = append(out, b.machineSome(ot, o, p, site, func(w int) []*irStmt {
 		ev := func() *irExpr { return b.recordField(some, local(w), valueName, site) }
 		in := func() *irExpr { return b.recordField(every, ev(), inName, site) }
@@ -439,18 +467,18 @@ const timerPanic = "MachineTimerPanic"
 // field's Option, or None for every state when the machine has no entry.
 func (b *irBuilder) machineOption(conv check.Conversion, name string, p irPos, site syntax.Node, pick func(t check.Type, x *irExpr) *irExpr) *irExpr {
 	sig := b.fc.machineField(conv, name, site)
-	entry := conv.Table[name]
+	entry := conv.Entries[name]
 	return b.machineFunc(sig, p, site, func(env int, ps []int) []*irStmt {
 		rt := sig.Results[0]
 		if entry == nil {
 			return []*irStmt{{K: "ret", Pos: p, X: b.machineNone(rt, p, site)}}
 		}
-		if len(entry.Sig.Params) != 1 || len(entry.Sig.Results) != 1 || b.l.funcDecl(entry).fallible {
+		if len(entry.Type.Params) != 1 || len(entry.Type.Results) != 1 || !entry.Computed() && b.l.funcDecl(entry.Func).fallible {
 			irNo("machine %s entry of another form", name)
 		}
-		ot := entry.Sig.Results[0]
+		ot := entry.Type.Results[0]
 		o := b.temp("o", b.goType(ot, site), p)
-		out := []*irStmt{{K: "def", Pos: p, Local: o, X: b.machineCall(entry, env, []*irExpr{{K: "local", Pos: p, I: ps[0]}}, p, site)}}
+		out := []*irStmt{b.entryDef(conv.From.(*check.Named), name, entry, o, env, ps[0], p, site)}
 		some, _ := optionVariants(ot, site)
 		w := recordFieldType(some, "Value")
 		rsome, _ := optionVariants(rt, site)
