@@ -6,9 +6,7 @@ type NotFound {}
 
 type Bad {}
 
-type Item {
-	name string
-}
+type Item { name string }
 
 func find(name string) string fails NotFound {
 	if name == "" {
