@@ -878,6 +878,14 @@ func prelude() preludeResult {
 		c.pkg.module = StdModule
 		pkg := c.run(files)
 		pkg.qualify = false
+		// Install the language call forms once, on the canonical
+		// declarations. The lowering only sees the resulting action.
+		if f, ok := pkg.Scope.names["Unreachable"].(*Func); ok {
+			f.primitive = PrimitiveDefect
+		}
+		if f, ok := pkg.Scope.names["InForce"].(*Func); ok {
+			f.primitive = PrimitiveCaptureContext
+		}
 		scope := newScope(u)
 		coll := map[Object]bool{}
 		for _, f := range pkg.collFuncs {

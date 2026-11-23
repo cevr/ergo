@@ -138,7 +138,7 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 	// read); an extern that binds the Ergo runtime adapts it (stdCall,
 	// ir_adapt.go: timeout.After { … }; OPC-ADAPT2). An extern whose
 	// target is Go's library (hostCall) takes none.
-	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || userExtern(c.Func)) {
+	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.CallsGo()) {
 		irNo("trailing block")
 	}
 	if c.StartsTask && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
@@ -151,10 +151,10 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 		irNo("call without a value")
 	}
 	p := b.pos(x, x.Pos())
-	if check.IsUnreachable(c) {
+	switch check.PrimitiveOf(c) {
+	case check.PrimitiveDefect:
 		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
-	}
-	if check.IsInForce(c) {
+	case check.PrimitiveCaptureContext:
 		// Written at each call, never called (ir_inforce.go).
 		return b.inForce(x, c, p)
 	}
@@ -166,9 +166,6 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 		if b.fc.directives && x.Pos().IsValid() {
 			b.l.recordCall(x, b.fc.owner, b.fc.callee(x, c))
 		}
-	}
-	if check.IsUnreachable(c) {
-		return b.unreachableValue(x) // ir_defect.go
 	}
 	switch c.Kind {
 	case check.CallTestSeed:

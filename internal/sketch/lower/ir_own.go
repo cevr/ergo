@@ -424,7 +424,7 @@ func (b *irBuilder) startsOnFrame(c *check.Call) bool {
 // function value or an operation keeps its source body.
 func ergoBodyCall(c *check.Call) bool {
 	f := c.Func
-	return c.Kind == check.CallFunc && f != nil && !f.Pkg.Host() && f.Decl != nil && f.Decl.Extern == nil && f.Decl.Body != nil
+	return c.Kind == check.CallFunc && f != nil && !f.CallsGo() && f.Decl != nil && f.Decl.Extern == nil && f.Decl.Body != nil
 }
 
 // frameArg is the hidden frame argument of a std call (v1.Frame): the
@@ -717,17 +717,13 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irP
 	if _, bound := runtimeBindings()[name]; !bound {
 		return nil, false
 	}
-	body, err := runtimeBody(name)
-	if err != nil || len(body.Params) != 0 || len(body.Results) != 0 {
+	callerTask, ok := runtimeCloseShape(name)
+	if !ok {
 		return nil, false
 	}
 	var args []*irExpr
-	switch {
-	case len(body.Hidden) == 0:
-	case len(body.Hidden) == 1 && body.Hidden[0] == v1.CallerTask:
+	if callerTask {
 		args = []*irExpr{{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: env}}}
-	default:
-		return nil, false
 	}
 	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}, Args: args}, true
 }

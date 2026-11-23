@@ -941,7 +941,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 	}
 	// Native Go conversion uses the Go method set, not the shape an
 	// Ergo caller sees. Keep the binding's rows and lifetime checks.
-	native := isHostNamed(v) && it.obj != nil && it.obj.Pkg.Host()
+	native := isHostNamed(v) && it.obj.BindsGoType()
 	for _, m := range it.Methods {
 		got, fn := c.methodOf(v, m.Name)
 		if got == nil {

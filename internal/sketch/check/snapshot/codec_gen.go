@@ -619,6 +619,7 @@ func (e *encoder) encFieldsFunc(v *check.Func) {
 	e.encT1(*f.F_size)
 	e.encPtrGoExtern(*f.F_goExtern)
 	e.encT14(*f.F_goCall)
+	e.encCallPrimitive(*f.F_primitive)
 	e.encT14(*f.F_asWritten)
 }
 
@@ -2372,6 +2373,8 @@ func (e *encoder) encPtrGoExtern(v *check.GoExtern) {
 	}
 	e.encFieldsGoExtern(v)
 }
+
+func (e *encoder) encCallPrimitive(v check.CallPrimitive) { e.uint(uint64(v)) }
 
 func (e *encoder) encT79(v []check.Span) {
 	if v == nil {
@@ -11924,6 +11927,7 @@ func (d *decoder) decFieldsFunc(v *check.Func) {
 	*f.F_size = d.decT1()
 	*f.F_goExtern = d.decPtrGoExtern()
 	*f.F_goCall = d.decT14()
+	*f.F_primitive = d.decCallPrimitive()
 	*f.F_asWritten = d.decT14()
 }
 
@@ -13648,6 +13652,8 @@ func (d *decoder) decPtrGoExtern() *check.GoExtern {
 	d.decFieldsGoExtern(v)
 	return v
 }
+
+func (d *decoder) decCallPrimitive() check.CallPrimitive { return check.CallPrimitive(d.uint()) }
 
 func (d *decoder) decT79() []check.Span {
 	n := d.uint()

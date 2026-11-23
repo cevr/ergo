@@ -76,6 +76,20 @@ func runtimeBody(name string) (v1.Body, error) {
 	return v1.BodyOf(name)
 }
 
+// runtimeCloseShape is the release method ABI the static owner slot can
+// call directly: no values in or out, and at most a caller task.
+func runtimeCloseShape(name string) (callerTask, ok bool) {
+	body, err := runtimeBody(name)
+	if err != nil || len(body.Params) != 0 || len(body.Results) != 0 {
+		return false, false
+	}
+	if len(body.Hidden) == 0 {
+		return false, true
+	}
+	task := len(body.Hidden) == 1 && body.Hidden[0] == v1.CallerTask
+	return task, task
+}
+
 // bodyView is the view form (v1.Body.View, //ergo:view) of the body the
 // extern f binds, for an extern of any package (check.BodyOf), or ""
 // (LAWFFI LF2b, view.go).
