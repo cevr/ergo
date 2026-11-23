@@ -229,9 +229,9 @@ func main() {
 	// only a call as an expression statement (toolchain/ir, "an
 	// expression statement is a call"), and St's right side is the local t.
 	// Dec's value is dropped, so IR-DROP may call its variant with no
-	// result, DecDropped (ir_forms_drop.go): still Dec as written. (I-FLIP:
+	// result, DecDropped, a generated name (ir_forms_drop.go, goHelper): still Dec as written. (I-FLIP:
 	// LF6w x IR-DROP.)
-	if count(on["St"], "Enc") != 1 || count(on["St"], "Dec")+count(on["St"], "DecDropped") != 1 {
+	if count(on["St"], "Enc") != 1 || count(on["St"], "Dec")+count(on["St"], goHelper("DecDropped")) != 1 {
 		t.Errorf("run build: St calls %v; want Dec(Enc(t)) as written: a statement's call is no site", on["St"])
 	}
 	saved := rewriteLowering
