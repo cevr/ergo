@@ -125,9 +125,15 @@ func TReapplied(s mut Store, recv dense.ID[TKey], op dense.ID[TKey], args []dens
 // claim names, in claim argument order.
 type ClaimLayout { Op XRef, Positions []int }
 
-func AddClaimLayout(s mut Store, decl dense.ID[Decl], layout ClaimLayout) {
-	let key = TInstance(s, XRef{Import: uint32(0), Decl: uint32(dense.Index(decl))}, []dense.ID[TKey]{})
-	dense.SideSet(&s.pool.layouts, key, dense.SideOf(s.pool.layouts, key).Append(layout))
+func AddClaimLayout(s mut Store, claimant XRef, layout ClaimLayout) {
+	let key = TInstance(s, claimant, []dense.ID[TKey]{})
+	let old = dense.SideOf(s.pool.layouts, key)
+	for known in old {
+		if known.Op == layout.Op {
+			return
+		}
+	}
+	dense.SideSet(&s.pool.layouts, key, old.Append(layout))
 }
 
 // ReadSelf substitutes a contract's arguments and claimant in a signature
@@ -136,8 +142,8 @@ func ReadSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], recv dense.I
 	substAt(&s.pool, t, args, dense.OptOf(recv), dense.NoID[TKey](), positions)
 }
 
-func ReadAbstractSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], recv dense.ID[TKey], op dense.ID[TKey]) dense.ID[TKey] {
-	substAt(&s.pool, t, args, dense.OptOf(recv), dense.OptOf(op), []int{})
+func ReadAbstractSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], recv dense.ID[TKey], op dense.ID[TKey], positions []int) dense.ID[TKey] {
+	substAt(&s.pool, t, args, dense.OptOf(recv), dense.OptOf(op), positions)
 }
 
 // TArray is [n]e: its operands are the length, as a marked basic, and e.

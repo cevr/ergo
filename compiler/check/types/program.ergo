@@ -22,10 +22,12 @@ type IfaceDecl { Name string, Type bool, Kinds []int, Variants []int, Alias bool
 // Iface is a package's types as its importers read them: its path, the
 // name its types print with (its path's last element), and its
 // declarations in the store's order.
-type Iface { Path string, Name string, Decls []IfaceDecl }
+type Iface { Path string, Name string, Decls []IfaceDecl, Types store.Store, Roles []Role, Claims [][]store.ClaimLayout, Foreign []Foreign, Refs []RoleRef }
 
 // EmptyIface is the interface of an import the program does not hold.
-func EmptyIface(path string) Iface { Iface{Path: path, Name: lastOf(path), Decls: []IfaceDecl{}} }
+func EmptyIface(path string) Iface {
+	Iface{Path: path, Name: lastOf(path), Decls: []IfaceDecl{}, Types: store.New(path, []string{}), Roles: []Role{}, Claims: [][]store.ClaimLayout{}, Foreign: []Foreign{}, Refs: []RoleRef{}}
+}
 
 func lastOf(path string) string { path[strings.LastIndex(path, "/")+1 : len(path)] }
 
@@ -67,7 +69,14 @@ func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, for
 		}
 		ds = ds.Append(IfaceDecl{Name: name, Type: isType, Kinds: ks, Variants: vs, Alias: alias, Print: print, Key: key, Harness: harness})
 	}
-	Iface{Path: store.PathOf(s), Name: lastOf(store.PathOf(s)), Decls: ds}
+	let mut roles = []Role{}
+	let mut claims = [][]store.ClaimLayout{}
+	if len(files) > 0 {
+		let env = NewEnv(s, files, files[0], []string{}, kinds, ext, table, deps)
+		roles = Roles(&pool, env)
+		claims = LocalClaimLayouts(&pool, env, roles)
+	}
+	Iface{Path: store.PathOf(s), Name: lastOf(store.PathOf(s)), Decls: ds, Types: pool, Roles: roles, Claims: claims, Foreign: table, Refs: RoleRefs(pool, deps, roles, claims)}
 }
 
 // variantDecls is the variants of the non-generic union d as decl

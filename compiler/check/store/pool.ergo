@@ -191,12 +191,10 @@ func reapply(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID
 	let k = int(Key(*p, recv).k)
 	if k == tInstance && int(Key(*p, op).k) == tInstance {
 		let claimant = OriginOf(*p, recv)
-		if claimant.Import == uint32(0) {
-			let key = Instance(p, claimant, []dense.ID[TKey]{})
-			for lay in dense.SideOf(p.layouts, key) {
-				if lay.Op == OriginOf(*p, op) {
-					return replaceAt(p, recv, args, lay.Positions)
-				}
+		let key = Instance(p, claimant, []dense.ID[TKey]{})
+		for lay in dense.SideOf(p.layouts, key) {
+			if lay.Op == OriginOf(*p, op) {
+				return replaceAt(p, recv, args, lay.Positions)
 			}
 		}
 	} else if k == tReapplied {
@@ -227,12 +225,17 @@ func substAt(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey], self dense.Opt
 		case Some{Value: recv}:
 			if len(ts) == 0 {
 				recv
-			} else if int(Key(*p, recv).k) == tSelf {
-				symbolic(p, tSelf, ts)
 			} else {
 				match dense.Unpack(op) {
 				case Some{Value: role}:
-					reapply(p, recv, role, ts)
+					let mut outer = slices.Clone(Operands(*p, role))
+					for i, slot in positions {
+						if slot < 0 || slot >= len(outer) || i >= len(ts) {
+							return Basic(p, 0)
+						}
+						outer[slot] = ts[i]
+					}
+					if int(Key(*p, recv).k) == tSelf { symbolic(p, tSelf, outer) } else { reapply(p, recv, role, outer) }
 				case None:
 					replaceAt(p, recv, ts, positions)
 				}
@@ -292,6 +295,24 @@ law InstancesKeepTheirOrigins(i int, j int) {
 	let x = Instance(&p, a, []dense.ID[TKey]{})
 	let y = Instance(&p, b, []dense.ID[TKey]{})
 	(x == y) == (a == b) && OriginOf(p, x) == a && OriginOf(p, y) == b
+}
+
+// ImportedClaimKeepsItsFixedSlot checks that the importer applies a
+// layout belonging to another package, even when both arguments are equal.
+law ImportedClaimKeepsItsFixedSlot(first bool) {
+	let mut s = New("caller", []string{"role", "box"})
+	let claimant = XRef{Import: uint32(2), Decl: uint32(1)}
+	let role = XRef{Import: uint32(1), Decl: uint32(1)}
+	let slot = if first { 0 } else { 1 }
+	AddClaimLayout(&s, claimant, ClaimLayout{Op: role, Positions: []int{slot}})
+	let original = TBasic(&s, 3)
+	let replacement = TBasic(&s, 2)
+	let recv = TInstance(&s, claimant, []dense.ID[TKey]{original, original})
+	let bound = TInstance(&s, role, []dense.ID[TKey]{original})
+	let symbolicType = TReapplied(&s, TParam(&s, 0), bound, []dense.ID[TKey]{replacement})
+	let got = TSubst(&s, symbolicType, []dense.ID[TKey]{recv})
+	let want = TInstance(&s, claimant, if first { []dense.ID[TKey]{replacement, original} } else { []dense.ID[TKey]{original, replacement} })
+	got == want
 }
 
 // PoolInterns: two types of a pool are one id exactly when their
