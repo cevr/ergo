@@ -179,14 +179,16 @@ type TypeDecl struct {
 // net/url.URL.Hostname func (u *URL) Hostname() string`, whose target names
 // the type and the method.
 type FuncDecl struct {
-	Doc        *CommentGroup
-	Extern     *ExternSpec
-	Func       Pos
-	Recv       *FieldList
-	Name       *Ident
-	TypeParams *FieldList
-	Type       *FuncType
-	Body       *BlockStmt
+	Doc           *CommentGroup
+	Extern        *ExternSpec
+	Func          Pos
+	Recv          *FieldList
+	Name          *Ident
+	TypeParams    *FieldList
+	Type          *FuncType
+	Body          *BlockStmt
+	ImplementsPos Pos
+	Implements    Expr
 	// Derived is the refined type whose `where` the parser derived this
 	// function from (ParseX; refine.go), or nil for a written one. The
 	// formatter does not print it.
@@ -274,6 +276,9 @@ func (d *FuncDecl) Pos() Pos {
 func (d *FuncDecl) End() Pos {
 	if d.Body != nil {
 		return d.Body.End()
+	}
+	if d.Implements != nil {
+		return d.Implements.End()
 	}
 	return d.Type.End()
 }

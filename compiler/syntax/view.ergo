@@ -49,6 +49,8 @@ type View =
 		TypeParams dense.Opt[Node],
 		Type       dense.ID[Node],
 		Body       dense.Opt[Node],
+		ImplementsPos int,
+		Implements dense.Opt[Node],
 	}
 	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.Opt[Node]}
@@ -410,7 +412,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 		pushList(t, x.Implements)
 		mkTypeDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Type, wid(x.Name), wopt(x.TypeParams), wopt(x.Spec), wtok(x.WherePos), wopt(x.Where), wtok(x.DerivePos), wopt(x.Derive), wtok(x.ImplementsPos))
 	case FuncDecl as x:
-		mkFuncDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Func, wopt(x.Recv), wid(x.Name), wopt(x.TypeParams), wid(x.Type), wopt(x.Body))
+		mkFuncDecl(t, m, wtok(x.Doc), wopt(x.Extern), x.Func, wopt(x.Recv), wid(x.Name), wopt(x.TypeParams), wid(x.Type), wopt(x.Body), wtok(x.ImplementsPos), wopt(x.Implements))
 	case ContextDecl as x:
 		mkContextDecl(t, m, wtok(x.Doc), x.Let, x.Context, wid(x.Name), wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
 	case TestDecl as x:
@@ -600,7 +602,7 @@ func mkTypeDecl(t mut Tree, m int, doc uint32, ext uint32, typ int, name uint32,
 	rec(t, KTypeDecl, uint32(typ), m)
 }
 
-func mkFuncDecl(t mut Tree, m int, doc uint32, ext uint32, fn int, recv uint32, name uint32, tparams uint32, typ uint32, body uint32) uint32 {
+func mkFuncDecl(t mut Tree, m int, doc uint32, ext uint32, fn int, recv uint32, name uint32, tparams uint32, typ uint32, body uint32, implPos uint32, impl uint32) uint32 {
 	pushW(t, doc)
 	pushW(t, ext)
 	pushW(t, recv)
@@ -608,6 +610,8 @@ func mkFuncDecl(t mut Tree, m int, doc uint32, ext uint32, fn int, recv uint32, 
 	pushW(t, tparams)
 	pushW(t, typ)
 	pushW(t, body)
+	pushW(t, implPos)
+	pushW(t, impl)
 	rec(t, KFuncDecl, uint32(fn), m)
 }
 

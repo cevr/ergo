@@ -95,6 +95,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		// A user extern's written signature is final here: an extern's
 		// rows are never inferred (D-E5).
 		c.checkExterns,
+		c.collectFunctionClaims,
 		c.collectBodyErrorRows,
 		// After the error types: a named row is its row (namedrow.go).
 		c.knowRows,
@@ -122,6 +123,7 @@ func (c *checker) runOnce(files []*syntax.File) *Package {
 		c.checkLawPlacement,
 		c.checkTypeDecls,
 		c.checkImplementsClauses,
+		c.checkFunctionClaims,
 		c.checkContexts,
 		c.checkContextCycles,
 		c.checkErrorMethods,
@@ -2907,6 +2909,11 @@ func (c *checker) collectSelfFuncs() {
 			}
 			if g.opOwner != nil {
 				key = g.opOwner
+			}
+			if key == nil && g.Decl.Implements != nil && g.Name != "main" {
+				// Claim groups have their own coherence check after the
+				// signatures resolve; this is not inherent method lookup.
+				key = g
 			}
 			if g.file != nil && g.file.syntax == collFile && collFile != nil {
 				// Operations of one name on two receiver kinds,

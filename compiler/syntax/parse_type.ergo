@@ -51,7 +51,10 @@ func parseSignature(p mut parser, funcPos uint32, ctx int, lit bool) uint32 {
 func parseSignatureWith(p mut parser, funcPos uint32, ctx int, lit bool, tps uint32) uint32 {
 	let params = parseParameters(p, ctx == ctxDecl, lit)
 	let rm = mark(p.t)
-	if startsType(p) {
+	// In a declaration `implements Contract` can start immediately
+	// after the parameters. A result type named `implements` still works.
+	let claim = ctx == ctxDecl && funcPos == none && atImplements(p) && (peek(p, 1) == Ident || peek(p, 1) == Go)
+	if startsType(p) && !claim {
 		let ty = parseResultType(p, ctx)
 		pushW(&p.t, mkField(&p.t, mark(p.t), none, some(ty), none, none, none, none, none, none, none, none, none))
 	}

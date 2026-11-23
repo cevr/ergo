@@ -25,6 +25,7 @@ func TestFunctionClaims(t *testing.T) {
 		{dir: "projection", code: "S106", text: "re-applies Self"},
 		{dir: "incomplete", code: "S106", text: "no function"},
 		{dir: "overlap", code: "S106", text: "overlaps"},
+		{dir: "foreign-include", code: "S106", text: "in its declaring package"},
 	} {
 		t.Run(tc.dir, func(t *testing.T) {
 			a, err := sketchfront.CheckDir(filepath.Join(root, tc.dir))

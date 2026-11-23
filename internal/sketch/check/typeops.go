@@ -1104,30 +1104,6 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 			// cascade (D3; stage D1 fuzz triage, fuzz-check-C-r4-f8314ece).
 			continue
 		}
-		if !c.sameShape(got, m.Sig) {
-			// The shape is the mismatch, so the message prints shapes: an
-			// inferred row may still be open here, and its text would
-			// depend on declaration order (D0; fuzz-check-C-r7rev-dbdbb39c).
-			return fmt.Sprintf("%s.%s has signature %s, want %s", v, m.Name, shapeOf(got), shapeOf(m.Sig))
-		}
-		// An unknown row is checked by its known part (Row.unknown); an
-		// unknown method row (a refused entry, rowExpr) accepts any row, as
-		// clause 5's unknown destination does.
-		if ge := got.Errors.known(c.types); !m.Sig.Errors.unknown(c.types) && !ge.subsetOf(c.types, m.Sig.Errors) {
-			return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, m.Name, rowText(ge.minus(c.types, m.Sig.Errors)), rowText(m.Sig.Errors))
-		}
-		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
-			extra := gu.minus(c.types, m.Sig.Uses)
-			if capture == nil || !held.add(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)", v, m.Name, rowText(extra))
-			}
-		}
-		if why := c.releaseWider(v, m); why != "" {
-			return why
-		}
-		if got.Fallible != m.Sig.Fallible {
-			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
-		}
 		// At a direct Go argument, the enclosing Go function's clause
 		// owns the receiver lifetime (io.ReadAll lends it; bufio keeps
 		// it). The Go interface supplies its method shape there, not a
@@ -1136,12 +1112,53 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if !checkReceiver {
 			recv = nil
 		}
-		if c.takesEffect(got, recv) != c.takesEffect(m.Sig, recv) {
-			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
+		var allow *captured
+		if capture != nil {
+			allow = &held
+		}
+		if why := c.operationShape(v, m.Name, got, m.Sig, allow, func() string { return c.releaseWider(v, m) }); why != "" {
+			return why
+		}
+		if why := c.operationTakes(v, m.Name, got, m.Sig, recv); why != "" {
+			return why
 		}
 	}
 	if held.foreign || held.ambient != nil {
 		*capture = held
+	}
+	return ""
+}
+
+// operationShape checks the shared providing rule after receiver and
+// operation parameters have been bound. A claim for static dispatch has no
+// provider build site that can capture additional authority.
+func (c *checker) operationShape(v Type, name string, got, want *Signature, capture *captured, release func() string) string {
+	if !c.sameShape(got, want) {
+		return fmt.Sprintf("%s.%s has signature %s, want %s", v, name, shapeOf(got), shapeOf(want))
+	}
+	if ge := got.Errors.known(c.types); !want.Errors.unknown(c.types) && !ge.subsetOf(c.types, want.Errors) {
+		return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, name, rowText(ge.minus(c.types, want.Errors)), rowText(want.Errors))
+	}
+	if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, want.Uses) {
+		extra := gu.minus(c.types, want.Uses)
+		if capture == nil || !capture.add(extra) {
+			return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)", v, name, rowText(extra))
+		}
+	}
+	if release != nil {
+		if why := release(); why != "" {
+			return why
+		}
+	}
+	if got.Fallible != want.Fallible {
+		return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, name)
+	}
+	return ""
+}
+
+func (c *checker) operationTakes(v Type, name string, got, want *Signature, recv Type) string {
+	if c.takesEffect(got, recv) != c.takesEffect(want, recv) {
+		return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, name, takesText(got), takesText(want))
 	}
 	return ""
 }
@@ -1346,6 +1363,11 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 			return notInSetText(t, constraint, it)
 		}
 		if len(it.Methods) == 0 {
+			return ""
+		}
+	}
+	if op, ok := constraint.(*Named); ok {
+		if g, _ := c.functionClaim(t, op); g != nil {
 			return ""
 		}
 	}

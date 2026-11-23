@@ -427,5 +427,11 @@ func RoleRefs(s store.Store, deps []Iface, roles []Role, claims [][]store.ClaimL
 			addRoleRef(&out, deps, lay.Op)
 		}
 	}
+	for i in 0..store.FunctionClaimCount(s) {
+		let g = store.FunctionClaimAt(s, i)
+		if !namedInStore(s, g.Role) { continue }
+		roleTypeRefs(s, &out, deps, g.Role)
+		roleTypeRefs(s, &out, deps, g.Receiver)
+	}
 	out
 }

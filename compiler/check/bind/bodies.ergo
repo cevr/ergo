@@ -639,6 +639,7 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 		let m = enter(b)
 		params(b, d.TypeParams)
 		signature(b, d.Type)
+		opt(b, d.Implements)
 		match dense.Unpack(d.Body) {
 		case Some{Value: body}:
 			// The body block's statements are in the function's scope.

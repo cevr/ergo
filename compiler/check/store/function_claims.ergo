@@ -1,0 +1,167 @@
+import dense
+import slices
+
+type FunctionClaim {}
+type FunctionMember { Import uint32, File uint32, Decl uint32 }
+type ClaimHead {
+	Role dense.ID[TKey],
+	Receiver dense.ID[TKey],
+	Binds []bool,
+	Positions []int,
+	Members []FunctionMember,
+}
+
+type FunctionClaims {
+	count dense.Count[FunctionClaim],
+	roles dense.Col[FunctionClaim, dense.ID[TKey]],
+	receivers dense.Col[FunctionClaim, dense.ID[TKey]],
+	binds dense.Col[FunctionClaim, []bool],
+	positions dense.Col[FunctionClaim, []int],
+	members dense.Col[FunctionClaim, []FunctionMember],
+	byRole dense.Side[TKey, []dense.ID[FunctionClaim]],
+}
+
+func newFunctionClaims() FunctionClaims {
+	FunctionClaims{
+		count: dense.NewCount[FunctionClaim](),
+		roles: dense.NewCol[FunctionClaim, dense.ID[TKey]](),
+		receivers: dense.NewCol[FunctionClaim, dense.ID[TKey]](),
+		binds: dense.NewCol[FunctionClaim, []bool](),
+		positions: dense.NewCol[FunctionClaim, []int](),
+		members: dense.NewCol[FunctionClaim, []FunctionMember](),
+		byRole: dense.NewSide[TKey, []dense.ID[FunctionClaim]]([]dense.ID[FunctionClaim]{}),
+	}
+}
+
+func FunctionClaimCount(s Store) int { dense.Total(s.pool.functionClaims.count) }
+
+func FunctionClaimAt(s Store, at int) ClaimHead {
+	functionClaimOf(s.pool.functionClaims, dense.IDAt(s.pool.functionClaims.count, at))
+}
+
+func functionClaimOf(cs FunctionClaims, id dense.ID[FunctionClaim]) ClaimHead {
+	ClaimHead{
+		Role: dense.Of(cs.roles, id), Receiver: dense.Of(cs.receivers, id),
+		Binds: dense.Of(cs.binds, id), Positions: dense.Of(cs.positions, id),
+		Members: dense.Of(cs.members, id),
+	}
+}
+
+func AddFunctionClaim(s mut Store, role XRef, g ClaimHead) {
+	let key = TInstance(s, role, []dense.ID[TKey]{})
+	let old = dense.SideOf(s.pool.functionClaims.byRole, key)
+	for row in old {
+		let prior = functionClaimOf(s.pool.functionClaims, row)
+		if prior.Role == g.Role && prior.Receiver == g.Receiver && slices.Equal(prior.Binds, g.Binds) &&
+			slices.Equal(prior.Members, g.Members) { return }
+	}
+	let id = dense.Next(&s.pool.functionClaims.count)
+	dense.Push(&s.pool.functionClaims.roles, g.Role)
+	dense.Push(&s.pool.functionClaims.receivers, g.Receiver)
+	dense.Push(&s.pool.functionClaims.binds, g.Binds)
+	dense.Push(&s.pool.functionClaims.positions, g.Positions)
+	dense.Push(&s.pool.functionClaims.members, g.Members)
+	dense.SideSet(&s.pool.functionClaims.byRole, key, old.Append(id))
+}
+
+// ReceiverBinders marks the function's parameters mentioned by its first
+// parameter type, including a row nested in a function receiver.
+func ReceiverBinders(s Store, receiver dense.ID[TKey], params int) []bool {
+	let mut out = []bool{}
+	for _ in 0..params { out = out.Append(false) }
+	markClaimBinders(s.pool, receiver, &out)
+	out
+}
+
+func markClaimBinders(p Pool, t dense.ID[TKey], out mut []bool) {
+	if !Open(p, t) { return }
+	let k = Key(p, t)
+	if int(k.k) == tParam {
+		if int(k.a) < len(*out) { (*out)[int(k.a)] = true }
+		return
+	}
+	for a in Operands(p, t) { markClaimBinders(p, a, out) }
+}
+
+// ShapeBindings matches a receiver template against an actual type. The
+// result uses the declaration's indices, never the caller's name spelling.
+func ShapeBindings(s mut Store, g ClaimHead, receiver dense.ID[TKey]) Option[[]dense.ID[TKey]] {
+	shapeBindings(&s.pool, g, receiver)
+}
+
+func shapeBindings(p mut Pool, g ClaimHead, receiver dense.ID[TKey]) Option[[]dense.ID[TKey]] {
+	let mut args = []dense.ID[TKey]{}
+	for i in 0..len(g.Binds) { args = args.Append(Param(p, i)) }
+	let mut seen = []bool{}
+	for _ in g.Binds { seen = seen.Append(false) }
+	if shapeBind(*p, g.Receiver, receiver, g.Binds, &args, &seen) {
+		Some{Value: args}
+	} else {
+		None
+	}
+}
+
+func shapeBind(p Pool, shape dense.ID[TKey], actual dense.ID[TKey], binds []bool, args mut []dense.ID[TKey], seen mut []bool) bool {
+	let k = Key(p, shape)
+	let a = Key(p, actual)
+	if int(k.k) == tParam && int(k.a) < len(binds) && binds[int(k.a)] {
+		let i = int(k.a)
+		if (*seen)[i] { return (*args)[i] == actual }
+		(*seen)[i] = true
+		(*args)[i] = actual
+		return true
+	}
+	if !Open(p, shape) { return shape == actual }
+	if k.k != a.k || k.b != a.b { return false }
+	if int(k.k) == tInstance && OriginOf(p, shape) != OriginOf(p, actual) { return false }
+	for i, x in Operands(p, shape) {
+		if !shapeBind(p, x, operandAt(p, actual, i), binds, args, seen) { return false }
+	}
+	true
+}
+
+// FunctionClaimBindings selects a claim by its full nominal contract and
+// receiver pattern. Reapplication uses the same row as provision checks.
+func FunctionClaimBindings(s mut Store, role dense.ID[TKey], ref XRef, receiver dense.ID[TKey]) Option[ClaimHead] {
+	let key = TInstance(s, ref, []dense.ID[TKey]{})
+	for id in dense.SideOf(s.pool.functionClaims.byRole, key) {
+		let g = functionClaimOf(s.pool.functionClaims, id)
+		match shapeBindings(&s.pool, g, receiver) {
+		case Some{Value: args}:
+			let read = Subst(&s.pool, g.Role, args)
+			if sameClaimRole(s.pool, read, role) { return Some{Value: g} }
+		case None:
+		}
+	}
+	None
+}
+
+func sameClaimRole(p Pool, a dense.ID[TKey], b dense.ID[TKey]) bool {
+	a == b || int(Key(p, a).k) == tInstance && int(Key(p, b).k) == tInstance &&
+		OriginOf(p, a) == OriginOf(p, b) && slices.Equal(Operands(p, a), Operands(p, b))
+}
+
+func reapplyFunctionClaim(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID[TKey]) Option[dense.ID[TKey]] {
+	if int(Key(*p, op).k) != tInstance { return None }
+	let key = Instance(p, OriginOf(*p, op), []dense.ID[TKey]{})
+	for id in dense.SideOf(p.functionClaims.byRole, key) {
+		let g = functionClaimOf(p.functionClaims, id)
+		if len(g.Positions) != len(args) { continue }
+		match shapeBindings(p, g, recv) {
+		case Some{Value: slots}:
+			let read = Subst(p, g.Role, slots)
+			if !sameClaimRole(*p, read, op) { continue }
+			let mut to = slices.Clone(slots)
+			for i, at in g.Positions { to[at] = args[i] }
+			return Some{Value: Subst(p, g.Receiver, to)}
+		case None:
+		}
+	}
+	None
+}
+
+// ReadFunctionSelf applies a signature to the receiver template, not to a
+// synthetic nominal type. Positions maps Self's arguments to its binders.
+func ReadFunctionSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], g ClaimHead) dense.ID[TKey] {
+	substAt(&s.pool, t, args, dense.OptOf(g.Receiver), dense.NoID[TKey](), g.Positions, g.Binds)
+}

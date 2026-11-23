@@ -16,6 +16,11 @@ type Trimmed {
 	Trim() Self,
 }
 
+type Measured {
+	..foreign.Counted,
+	Nonempty() bool,
+}
+
 func Map[T, U](xs []T, f func(x T) U) []U implements Mappable[T] {
 	let mut out = []U{}
 	for x in xs {
@@ -24,7 +29,7 @@ func Map[T, U](xs []T, f func(x T) U) []U implements Mappable[T] {
 	out
 }
 
-func Size(f func(x int) int) int implements Sized {
+func Size(f own func(x int) int) int implements Sized {
 	f(0)
 }
 
@@ -34,7 +39,9 @@ func Score(v foreign.Value) int implements Scored {
 
 extern go strings.TrimSpace func Trim(s string) string implements Trimmed
 
-func MapValue[T, U, M Mappable[T]](m M, f func(x T) U) M[U] {
+func Nonempty(xs []int) bool implements Measured { len(xs) != 0 }
+
+func MapValue[T, U any, M Mappable[T]](m M, f func(x T) U) M[U] {
 	m.Map(f)
 }
 
@@ -48,4 +55,8 @@ func ScoreOf[M Scored](m M) int {
 
 func TrimValue[M Trimmed](m M) M {
 	m.Trim()
+}
+
+func Measure[M Measured](m M) (int, bool) {
+	(m.Count(), m.Nonempty())
 }
