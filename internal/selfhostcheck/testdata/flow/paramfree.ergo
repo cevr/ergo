@@ -1,0 +1,47 @@
+// GEN9-GAP42 D: a marked generic body drops an own union only on an arm
+// whose variant holds no value of T; a drop of a value that holds T,
+// alone or beside a concrete resource, is Gap 42.
+type File { fd int } implements Closer
+
+func Close(f File) {}
+
+type MySome[T own] { Value T }
+
+type MyHeld { F File }
+
+type MyNone {}
+
+type MyOpt[T own] = MySome[T] | MyNone
+
+type Mixed[T own] = MySome[T] | MyHeld | MyNone
+
+func toOption[T own](o own MyOpt[T]) Option[T] {
+	match o {
+	case MySome{Value: v}:
+		Some{Value: v}
+	case MyNone:
+		None
+	}
+}
+
+func mixed[T own](o own Mixed[T]) Option[T] {
+	match o {
+	case MySome{Value: v}:
+		Some{Value: v}
+	case MyHeld:
+		None
+	case MyNone:
+		None
+	}
+}
+
+func dropT[T own](o own MyOpt[T]) Option[T] { //want: flow
+	match o {
+	case MySome:
+		None
+	case MyNone:
+		None
+	}
+}
+
+func dropMixed[T own](o own Mixed[T]) {} //want: flow

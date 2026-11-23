@@ -1,0 +1,21 @@
+// A harness takes the run and the body and gives no result (check
+// harness.go, rule 1).
+type Coin {
+	Flip() bool,
+	test Toss, // want S108 "Toss does not take two parameters and give no result"
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string }
+
+type always {} implements Coin
+
+func Flip(a always) bool { true }
+
+func Toss(body func() fails Failed needs Coin) fails Failed {
+	with context { Coin: always } { body() } catch {
+	case Failed as f:
+		return f
+	}
+}

@@ -61,6 +61,9 @@ type typeTable struct {
 	gen int32
 
 	b *lookupSteps
+	// rowOf is the row a named type names, or nil (checker.namedRowOf):
+	// nil until the package's error types are collected (knowRows).
+	rowOf func(*Named) *Row
 	// lookupBuilds counts the nodes built while b was set (the tests'
 	// measure of identity work inside a lookup).
 	lookupBuilds int
@@ -206,6 +209,15 @@ func (tab *typeTable) intern(t Type) (int32, bool) {
 	}
 	if id, ok := tab.scoped[t]; ok {
 		return id, true
+	}
+	if n, ok := t.(*Named); ok && tab.rowOf != nil {
+		if r := tab.rowOf(n); r != nil {
+			// A named row is its row (namedrow.go): its id is the row
+			// value's of its variants.
+			id, infer := tab.build(vRowValue, nil, 0, "", []Type{&RowArg{Row: r}})
+			tab.remember(t, id, infer)
+			return id, infer
+		}
 	}
 	kind, ref, n, s, kids := shape(t)
 	if kind == vSig {
