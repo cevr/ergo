@@ -1,0 +1,1141 @@
+{
+  "schema": "bench.v1",
+  "tool": "opcount",
+  "commit": "5474b4d258796aaba4a561efa39aa1d7505160ea",
+  "host": {
+    "os": "linux",
+    "arch": "amd64",
+    "cpus": 16,
+    "go_version": "go1.27.4",
+    "level": "v1",
+    "counter": "user instructions",
+    "sample_period": 11428571
+  },
+  "load": [
+    "62.81 66.07 70.96 24/3344 1397881",
+    "62.95 65.79 70.71 16/3189 1401624"
+  ],
+  "priority": 19,
+  "cases": [
+    {
+      "case": "station-stats",
+      "unit": "row",
+      "sizes": [
+        1000000,
+        11000000
+      ],
+      "rounds": 3,
+      "workload": {
+        "unit": "row",
+        "args": [
+          "{input}",
+          "1"
+        ],
+        "binary": "station-stats",
+        "procs": 1,
+        "input_kind": "go",
+        "input_dir": "cmd/ergo/testdata/station-stats/gen",
+        "input_args": [
+          "{n}",
+          "7"
+        ],
+        "control": "cmd/ergo/testdata/station-stats/control",
+        "floor": "examples/station-stats/testdata/floor"
+      },
+      "path": "ir",
+      "bodies": [
+        {
+          "package": ".",
+          "ir": 2,
+          "funcs": 8
+        },
+        {
+          "package": "pkg/station_stats/mapped",
+          "ir": 1,
+          "funcs": 2
+        },
+        {
+          "package": "pkg/station_stats/weather",
+          "ir": 22,
+          "funcs": 46
+        },
+        {
+          "package": "std/bits",
+          "ir": 3,
+          "funcs": 3
+        },
+        {
+          "package": "std/fs",
+          "ir": 2,
+          "funcs": 2
+        },
+        {
+          "package": "std/os",
+          "ir": 2,
+          "funcs": 2
+        },
+        {
+          "package": "std/prelude",
+          "ir": 0,
+          "funcs": 1
+        },
+        {
+          "package": "std/slices",
+          "ir": 1,
+          "funcs": 1
+        },
+        {
+          "package": "std/strings",
+          "ir": 3,
+          "funcs": 3
+        }
+      ],
+      "series": [
+        {
+          "side": "ergo",
+          "counter": "Instructions",
+          "kind": "counted",
+          "per_unit": true,
+          "values": [
+            277.4770702,
+            277.4772281,
+            277.4717697
+          ],
+          "estimate": 277.4770702,
+          "spread": 0.0000196715353671378
+        },
+        {
+          "side": "ergo",
+          "counter": "InstructionsGCOff",
+          "kind": "counted",
+          "per_unit": true,
+          "values": [
+            277.4768656,
+            277.4892097,
+            277.4887053
+          ],
+          "estimate": 277.4887053,
+          "spread": 0.00004448505385709865
+        },
+        {
+          "side": "ergo",
+          "counter": "GCShare",
+          "kind": "counted",
+          "per_unit": false,
+          "values": [
+            0.0003731162582167138,
+            0.00030958485346893654,
+            0.0003094632733768817
+          ],
+          "estimate": 0.00030958485346893654,
+          "spread": 0.20560755517136112
+        },
+        {
+          "side": "ergo",
+          "counter": "Allocs",
+          "kind": "exact",
+          "per_unit": true,
+          "values": [
+            2e-7,
+            0,
+            1e-7
+          ],
+          "estimate": 1e-7,
+          "spread": 2
+        },
+        {
+          "side": "ergo",
+          "counter": "AllocBytes",
+          "kind": "exact",
+          "per_unit": true,
+          "values": [
+            0.000032,
+            0,
+            0.000016
+          ],
+          "estimate": 0.000016,
+          "spread": 2
+        },
+        {
+          "side": "ergo",
+          "counter": "GCCycles",
+          "kind": "exact",
+          "per_unit": false,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "GCCPUShare",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            0.000502281517968414,
+            0.0005316607831815703,
+            0.0005654687351452338
+          ],
+          "estimate": 0.0005316607831815703,
+          "spread": 0.11884874562064597
+        },
+        {
+          "side": "ergo",
+          "counter": "LiveHeapBytes",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            18954728,
+            18954408,
+            18954568
+          ],
+          "estimate": 18954568,
+          "spread": 0.00001688247392396387
+        },
+        {
+          "side": "ergo",
+          "counter": "PeakRSSKiB",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            177728,
+            177580,
+            177560
+          ],
+          "estimate": 177580,
+          "spread": 0.0009460524833877689
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrProgram",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            277.4770702,
+            275.18650787677905,
+            277.4717697
+          ],
+          "estimate": 277.4717697,
+          "spread": 0.00825511844213018
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrErgo",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrGC",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrAlloc",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrBarrier",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrSched",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrStack",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrRuntimeOther",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            1.145360111610487,
+            0
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "ergo",
+          "counter": "InstrOutside",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            1.145360111610487,
+            0
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "ergo",
+          "counter": "RuntimeShare",
+          "kind": "sampled",
+          "per_unit": false,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "ergo",
+          "counter": "Samples",
+          "kind": "exact",
+          "per_unit": false,
+          "values": [
+            267,
+            267,
+            267
+          ],
+          "estimate": 267,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "Instructions",
+          "kind": "counted",
+          "per_unit": true,
+          "values": [
+            303.7985808,
+            303.8206374,
+            303.8103285
+          ],
+          "estimate": 303.8103285,
+          "spread": 0.00007259990175082175
+        },
+        {
+          "side": "control",
+          "counter": "InstructionsGCOff",
+          "kind": "counted",
+          "per_unit": true,
+          "values": [
+            303.8168215,
+            303.8146193,
+            303.8048022
+          ],
+          "estimate": 303.8146193,
+          "spread": 0.00003956129572603467
+        },
+        {
+          "side": "control",
+          "counter": "GCShare",
+          "kind": "counted",
+          "per_unit": false,
+          "values": [
+            0.00021365483566508463,
+            0.00024329356930534438,
+            0.00027216695499151367
+          ],
+          "estimate": 0.00024329356930534438,
+          "spread": 0.24050006538805674
+        },
+        {
+          "side": "control",
+          "counter": "Allocs",
+          "kind": "exact",
+          "per_unit": true,
+          "values": [
+            0,
+            -6e-7,
+            0
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "control",
+          "counter": "AllocBytes",
+          "kind": "exact",
+          "per_unit": true,
+          "values": [
+            0,
+            -0.000532,
+            0
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "control",
+          "counter": "GCCycles",
+          "kind": "exact",
+          "per_unit": false,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "GCCPUShare",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            0.000218622275621089,
+            0.0002550795500102483,
+            0.0005011564541900681
+          ],
+          "estimate": 0.0002550795500102483,
+          "spread": 1.1076316331812088
+        },
+        {
+          "side": "control",
+          "counter": "LiveHeapBytes",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            60584,
+            60584,
+            60584
+          ],
+          "estimate": 60584,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "PeakRSSKiB",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            177080,
+            177092,
+            177124
+          ],
+          "estimate": 177092,
+          "spread": 0.0002484584283875048
+        },
+        {
+          "side": "control",
+          "counter": "InstrProgram",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            302.6407371595156,
+            303.8206374,
+            303.8103285
+          ],
+          "estimate": 303.8103285,
+          "spread": 0.0038836738905814205
+        },
+        {
+          "side": "control",
+          "counter": "InstrErgo",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "InstrGC",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "InstrAlloc",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "InstrBarrier",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "InstrSched",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "InstrStack",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "InstrRuntimeOther",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            1.1578436404844292,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "control",
+          "counter": "InstrOutside",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "RuntimeShare",
+          "kind": "sampled",
+          "per_unit": false,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "control",
+          "counter": "Samples",
+          "kind": "exact",
+          "per_unit": false,
+          "values": [
+            289,
+            292,
+            291
+          ],
+          "estimate": 291,
+          "spread": 0.010309278350515464
+        },
+        {
+          "side": "floor",
+          "counter": "Instructions",
+          "kind": "counted",
+          "per_unit": true,
+          "values": [
+            210.559742,
+            210.5642192,
+            210.5711812
+          ],
+          "estimate": 210.5642192,
+          "spread": 0.000054326419006388845
+        },
+        {
+          "side": "floor",
+          "counter": "InstructionsGCOff",
+          "kind": "counted",
+          "per_unit": true,
+          "values": [
+            210.5559595,
+            210.5580094,
+            210.5672995
+          ],
+          "estimate": 210.5580094,
+          "spread": 0.000053856892132975845
+        },
+        {
+          "side": "floor",
+          "counter": "GCShare",
+          "kind": "counted",
+          "per_unit": false,
+          "values": [
+            0.00039298807410037686,
+            0.0003709038493826082,
+            0.0003800774957333855
+          ],
+          "estimate": 0.0003800774957333855,
+          "spread": 0.05810453122239095
+        },
+        {
+          "side": "floor",
+          "counter": "Allocs",
+          "kind": "exact",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "AllocBytes",
+          "kind": "exact",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "GCCycles",
+          "kind": "exact",
+          "per_unit": false,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "GCCPUShare",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            0.0003588654455052686,
+            0.00017502321122358098,
+            0.0003929654243439054
+          ],
+          "estimate": 0.0003588654455052686,
+          "spread": 0.6073089951958741
+        },
+        {
+          "side": "floor",
+          "counter": "LiveHeapBytes",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            60584,
+            60584,
+            60584
+          ],
+          "estimate": 60584,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "PeakRSSKiB",
+          "kind": "timed",
+          "per_unit": false,
+          "values": [
+            177088,
+            177084,
+            177092
+          ],
+          "estimate": 177088,
+          "spread": 0.00004517528008673654
+        },
+        {
+          "side": "floor",
+          "counter": "InstrProgram",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            210.559742,
+            210.5642192,
+            208.284870173399
+          ],
+          "estimate": 210.559742,
+          "spread": 0.010825189112365945
+        },
+        {
+          "side": "floor",
+          "counter": "InstrErgo",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "InstrGC",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            1.1431555133004927
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "floor",
+          "counter": "InstrAlloc",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "InstrBarrier",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "InstrSched",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "InstrStack",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "InstrRuntimeOther",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            1.1431555133004927
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "floor",
+          "counter": "InstrOutside",
+          "kind": "sampled",
+          "per_unit": true,
+          "values": [
+            0,
+            0,
+            0
+          ],
+          "estimate": 0,
+          "spread": 0
+        },
+        {
+          "side": "floor",
+          "counter": "RuntimeShare",
+          "kind": "sampled",
+          "per_unit": false,
+          "values": [
+            0,
+            0,
+            0.005428831746043759
+          ],
+          "estimate": 0,
+          "spread": -1
+        },
+        {
+          "side": "floor",
+          "counter": "Samples",
+          "kind": "exact",
+          "per_unit": false,
+          "values": [
+            202,
+            202,
+            203
+          ],
+          "estimate": 202,
+          "spread": 0.0049504950495049506
+        }
+      ],
+      "comparisons": [
+        {
+          "counter": "Instructions",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 0.9133059138244537
+        },
+        {
+          "counter": "InstructionsGCOff",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 0.9133504185524228
+        },
+        {
+          "counter": "GCShare",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.2724744610096685
+        },
+        {
+          "counter": "Allocs",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 1,
+          "ratio": -0
+        },
+        {
+          "counter": "AllocBytes",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 1,
+          "ratio": -0
+        },
+        {
+          "counter": "GCCycles",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "GCCPUShare",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 2.0842940296868555
+        },
+        {
+          "counter": "LiveHeapBytes",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 312.8642545886703
+        },
+        {
+          "counter": "PeakRSSKiB",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.0027556298421159
+        },
+        {
+          "counter": "InstrProgram",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 0.9133059138244537
+        },
+        {
+          "counter": "InstrErgo",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrGC",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrAlloc",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrBarrier",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrSched",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrStack",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrRuntimeOther",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 1,
+          "ratio": 0
+        },
+        {
+          "counter": "InstrOutside",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "RuntimeShare",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "Samples",
+          "base": "control",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 0.9175257731958762
+        },
+        {
+          "counter": "Instructions",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.317779578858287
+        },
+        {
+          "counter": "InstructionsGCOff",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.3178295511507476
+        },
+        {
+          "counter": "GCShare",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 0.8346768414085192
+        },
+        {
+          "counter": "Allocs",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "AllocBytes",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "GCCycles",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "GCCPUShare",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.4389783429148755
+        },
+        {
+          "counter": "LiveHeapBytes",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 312.8642545886703
+        },
+        {
+          "counter": "PeakRSSKiB",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.0028009306317907
+        },
+        {
+          "counter": "InstrProgram",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.3178068493264017
+        },
+        {
+          "counter": "InstrErgo",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrGC",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 1,
+          "ratio": 0
+        },
+        {
+          "counter": "InstrAlloc",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrBarrier",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrSched",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrStack",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "InstrRuntimeOther",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 1,
+          "ratio": 0
+        },
+        {
+          "counter": "InstrOutside",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 0
+        },
+        {
+          "counter": "RuntimeShare",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 1,
+          "ratio": 0
+        },
+        {
+          "counter": "Samples",
+          "base": "floor",
+          "head": "ergo",
+          "pairs": 3,
+          "ratio": 1.3217821782178218
+        }
+      ]
+    }
+  ]
+}
