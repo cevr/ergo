@@ -69,4 +69,50 @@ test InsertKeepsOrder {
 		t.Fatalf("want a refutation that replays seed %s, got %+v\n%s", seed, got, text)
 	}
 	t.Logf("source and IR both report the refutation with seed %s", seed)
+	t.Run("example-census", censusFormerlyUnknownCalls)
+}
+
+// censusFormerlyUnknownCalls checks the four targets the fallback census
+// could not lower at all. The census emits fallback bodies even if the IR
+// would take them, so this reaches the missing seed arm on a different path.
+func censusFormerlyUnknownCalls(t *testing.T) {
+	root := filepath.Join("..", "..", "..", "examples")
+	for _, target := range []struct {
+		name  string
+		path  string
+		tests bool
+	}{
+		{"sorted-insert-tests", "sorted-insert/ordered", true},
+		{"triage-run", "triage/cmd/triage", false},
+		{"triage-tests", "triage/cmd/triage", true},
+		{"triage-entry-tests", "triage/entry", true},
+	} {
+		t.Run(target.name, func(t *testing.T) {
+			u, err := Load(filepath.Join(root, filepath.FromSlash(target.path)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			c, err := lower.CensusIR(u, target.tests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range c.Funcs {
+				for _, reason := range f.Reasons {
+					if strings.HasPrefix(reason, "call kind ") {
+						t.Errorf("%s: unhandled %s", f.Name, reason)
+					}
+				}
+			}
+			t.Logf("census reached %d bodies", len(c.Funcs))
+			if target.name == "sorted-insert-tests" {
+				_, rep, err := lower.LowerIRTests(u)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !slices.Contains(rep.IR, lower.HelperSpelling("", "ergoTestInsertKeepsOrder")) {
+					t.Fatalf("sorted-insert property has no IR body; fallback: %v", rep.Fallback)
+				}
+			}
+		})
+	}
 }
