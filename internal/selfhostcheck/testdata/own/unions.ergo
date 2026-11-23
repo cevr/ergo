@@ -1,0 +1,42 @@
+// GEN9-GENERAL (types.md, Generics 9): a user union admits a resource
+// exactly when its declaration marks the parameter own, as the prelude's
+// Option does; the mark asks nothing of the union's functions, whose own
+// calls decide them; an alias of the union is the union.
+type Res { n int } implements Closer
+
+func Close(r own Res) {}
+
+type MySome[T own] { Value T }
+
+type MyNone {}
+
+type MyOpt[T own] = MySome[T] | MyNone
+
+type Maybe = MyOpt[Res]
+
+type PlainSome[T] { Value T }
+
+type PlainOpt[T] = PlainSome[T] | MyNone
+
+type Held { a MyOpt[Res], b Option[Res], c Maybe }
+
+type Bad { a PlainOpt[Res] } //want: own
+
+func isSome[T](o MyOpt[T]) bool {
+	match o {
+	case MySome[T]:
+		true
+	case MyNone:
+		false
+	}
+}
+
+func pass[T own](o own MyOpt[T]) MyOpt[T] { o }
+
+func probe(o MyOpt[Res]) bool { isSome(o) } //want: own
+
+func keep(o own Maybe) MyOpt[Res] { pass(o) }
+
+func count(o MyOpt[int]) bool { isSome(o) }
+
+func main() {}

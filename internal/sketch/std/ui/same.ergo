@@ -60,8 +60,8 @@ law SameEqualsRecompute(seed int, steps int) {
 	let mut again = false
 	let key = KeyDown{Press: KeyPress{Name: "k", Mods: Mods{Shift: false, Ctrl: false, Alt: false, Meta: false}}}
 	for _ in 0..(steps%8+8)%8+2 {
-		let a = pass(&f, ps, s)
-		let b = pass(&g, qs, s)
+		let a = renderPass(&f, ps, s)
+		let b = renderPass(&g, qs, s)
 		if !opsEqual(a, b) || !SameShapes(FrameShape(&f), FrameShape(&g)) || !SameShapes(TreeShape(&f), TreeShape(&g)) {
 			return false
 		}

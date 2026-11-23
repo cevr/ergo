@@ -77,8 +77,8 @@ func backward(b piece.Buffer, edits []Edit, i int) piece.Buffer {
 	backward(apply(b, inverse(edits[i])), edits, i-1)
 }
 
-// Undo takes back the last change; it is d when there is none.
-func Undo(d Doc) Doc {
+// Undone takes back the last change; it is d when there is none.
+func Undone(d Doc) Doc {
 	if len(d.Undo) == 0 {
 		return d
 	}
@@ -86,8 +86,8 @@ func Undo(d Doc) Doc {
 	Doc{Buf: backward(d.Buf, c.Edits, len(c.Edits)-1), Caret: c.Before, Undo: drop(d.Undo), Redo: d.Redo.Append(c), Dirty: true}
 }
 
-// Redo makes the last undone change again; it is d when there is none.
-func Redo(d Doc) Doc {
+// Redone makes the last undone change again; it is d when there is none.
+func Redone(d Doc) Doc {
 	if len(d.Redo) == 0 {
 		return d
 	}
