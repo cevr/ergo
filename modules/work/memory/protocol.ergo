@@ -8,6 +8,7 @@
 // of the protocol (a refused parent, a refused id, a stopped writer).
 
 import github.com/cevr/ergo/modules/work/work
+import json
 import slices
 import sync
 import strings
@@ -75,6 +76,74 @@ func Usage(w Watching, root string) work.Usage fails work.Unsupported | work.Mis
 func Free(w Watching, root string) int fails work.Unsupported | work.Missing | work.CloneFailed { try w.c.Free(root) }
 
 func Entries(w Watching, root string) int fails work.Missing | work.CloneFailed { try w.c.Entries(root) }
+
+// GcKeepsGoingAfterFailures: the first two discards fail, but the third
+// tree and its record must still be removed.
+law GcKeepsGoingAfterFailures() {
+	let w = world(true)
+	let watch = Watch(w.trees, w.lock)
+	let t = toolOf(w, w.lock, []work.Cloner{watch})
+	let mut paths = []string{}
+	for name in []string{"a", "b", "c"} {
+		let _ = t.New(name, fresh(false)) catch {
+		case _:
+			return false
+		}
+		let removed = t.Rm(name, expecting(None)) catch {
+		case _:
+			return false
+		}
+		paths = paths.Append(removed[0].Trash)
+	}
+	watch.refuse.Set(2)
+	let mut failed = false
+	let _ = t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
+	case work.GcFailed as f:
+		failed = f.Result.Purged == []string{"c"} && len(f.Failures) == 2 && f.Failures[0].Path == paths[0] && f.Failures[1].Path == paths[1]
+		f.Result
+	case _:
+		return false
+	}
+	let remaining = records(t) catch {
+	case _:
+		return false
+	}
+	failed && len(remaining) == 2 && w.trees.Has(paths[0]) && w.trees.Has(paths[1]) && !w.trees.Has(paths[2]) && w.lock.Holds() == 0
+}
+
+law GcPreviewDoesNotDiscard() {
+	let w = world(true)
+	let watch = Watch(w.trees, w.lock)
+	let t = toolOf(w, w.lock, []work.Cloner{watch})
+	let _ = t.New("a", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let removed = t.Rm("a", expecting(None)) catch {
+	case _:
+		return false
+	}
+	let path = removed[0].Trash
+	let before = records(t) catch {
+	case _:
+		return false
+	}
+	let o = work.GcOptions{Older: None, Idle: None, Id: some(removed[0].Id), Archive: false, Dry: true}
+	let calls = watch.calls.Get()
+	let out = t.Gc(o) catch {
+	case _:
+		return false
+	}
+	let after = records(t) catch {
+	case _:
+		return false
+	}
+	let real = t.Gc(work.GcOptions{..o, Dry: false}) catch {
+	case _:
+		return false
+	}
+	out.Preview == json.Present[[]work.PurgeCandidate]{Value: []work.PurgeCandidate{work.PurgeCandidate{Name: "a", Path: path}}} && len(out.Purged) == 0 && before == after && watch.calls.Get() == calls+1 && !w.trees.Has(path) && real.Purged == []string{"a"} && w.lock.Holds() == 0
+}
 
 // NoCopyUnderTheLock: new clones with the registry's lock free, for a
 // workspace of the base and one made on it.
@@ -250,7 +319,7 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 func nextSettles(w World, k int) bool {
 	let t = toolOf(w, Sharing(w.lock, 98), []work.Cloner{w.trees})
 	if k == 0 {
-		let _ = t.Gc(work.GcOptions{Older: Some[string]{Value: "1h"}, Idle: None, Id: None, Archive: false}) catch {
+		let _ = t.Gc(work.GcOptions{Older: Some[string]{Value: "1h"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -278,9 +347,9 @@ func nextSettles(w World, k int) bool {
 }
 
 // recovered is the records after a gc of another process.
-func recovered(w World) []work.Workspace fails work.NoBase | work.BadConfig | work.BadAge | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked {
+func recovered(w World) []work.Workspace fails work.NoBase | work.BadConfig | work.BadAge | work.BadRequest | work.NoWorkspace | work.Exists | work.Missing | work.CloneFailed | work.GcFailed | work.Unkept | work.VcsFailed | work.HookFailed | work.Locked {
 	let t = toolOf(w, Sharing(w.lock, 99), []work.Cloner{w.trees})
-	let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false})
+	let _ = try t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false})
 	try records(t)
 }
 
@@ -687,7 +756,7 @@ law SettleNeverTakesALiveMaker(next int) {
 	let other = toolOf(w, Sharing(w.lock, 3), []work.Cloner{w.trees})
 	let k = small(next, 4)
 	if k == 0 {
-		let _ = other.Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false}) catch {
+		let _ = other.Gc(work.GcOptions{Older: Some[string]{Value: "0s"}, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -704,7 +773,7 @@ law SettleNeverTakesALiveMaker(next int) {
 			return false
 		}
 	} else {
-		let _ = other.Gc(work.GcOptions{Older: None, Idle: None, Id: some(m.Id), Archive: false}) catch {
+		let _ = other.Gc(work.GcOptions{Older: None, Idle: None, Id: some(m.Id), Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
@@ -810,7 +879,7 @@ func poked(t work.Tool, k int) bool {
 			return false
 		}
 	} else if k == 1 {
-		let _ = t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false}) catch {
+		let _ = t.Gc(work.GcOptions{Older: None, Idle: None, Id: None, Archive: false, Dry: false}) catch {
 		case _:
 			return false
 		}
