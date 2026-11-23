@@ -113,7 +113,6 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 	a := fstart(root, c.capacity)
 	var running atomic.Int64
 	states := make([]*fstate, len(c.sources))
-	admitted := make([]bool, len(c.sources))
 	for i, src := range c.sources {
 		f := &fstate{settled: make(chan struct{})}
 		states[i] = f
@@ -154,10 +153,12 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 			if !errors.Is(err, ActorStopped{}) {
 				return fmt.Sprintf("feed %d: %v", i, err)
 			}
-		} else {
-			admitted[i] = true
 		}
 	}
+	// An end action (rule 14b): it runs once, before the end returns,
+	// unless the actor's end took its actions before it was added.
+	var endRuns atomic.Int64
+	endAdded := ActorOnEnd(a, func(*rt.Task) { endRuns.Add(1) }) == nil
 	limit := testDeadline(t)
 	for i, f := range states {
 		select {
@@ -186,15 +187,16 @@ func runFeedCase(t *testing.T, c fcase, seen map[string]bool) string {
 	if !ActorEnded(a) {
 		return "the end returned, and Ended is false"
 	}
+	if want := map[bool]int64{true: 1, false: 0}[endAdded]; endRuns.Load() != want {
+		return fmt.Sprintf("the end action ran %d times, want %d", endRuns.Load(), want)
+	}
+	if ActorOnEnd(a, func(*rt.Task) { endRuns.Add(1) }) == nil {
+		return "an OnEnd after the end was taken"
+	}
 	if n := running.Load(); n != 0 {
 		return fmt.Sprintf("%d sources still run after the actor's end", n)
 	}
 	for i, f := range states {
-		// Every source a Feed admitted ran, also one whose start was
-		// still queued when the actor ended (rule 14).
-		if admitted[i] && !f.called.Load() {
-			return fmt.Sprintf("source %d: its Feed returned, but it never ran", i)
-		}
 		if f.sentAfterEnd.Load() {
 			return fmt.Sprintf("source %d: a send returned after the actor's admission closed", i)
 		}

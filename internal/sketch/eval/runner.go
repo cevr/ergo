@@ -96,6 +96,8 @@ type actorV struct {
 
 	state     Value
 	ended     bool
+	onEnd     []Value // OnEnd's actions, run by finish (actor.go rule 14b)
+	endTaken  bool    // finish took onEnd: a later OnEnd fails Stopped
 	fail      *abrupt // the typed failure that ended it
 	defect    *abrupt // the first defect that ended it
 	subs      []*changeSub
@@ -175,6 +177,17 @@ func registerRunner(t nativeTables) {
 	t.reads["actor.Ended"] = "host:actor.Actor"
 	natives["actor.Ended"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return actorOf(args[0]).ended, nil
+	}
+	// OnEnd is ActorOnEnd: f runs when the actor ends (rule 14b); after
+	// the end took its actions it fails Stopped.
+	t.reads["actor.OnEnd"] = "host:actor.Actor"
+	natives["actor.OnEnd"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		a := actorOf(args[0])
+		if a.endTaken {
+			return nil, a.inbox.closedFailure(fr, at)
+		}
+		a.onEnd = append(a.onEnd, args[1])
+		return unit{}, nil
 	}
 	t.reads["actor.latest"] = "host:actor.Actor"
 	natives["actor.latest"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -875,24 +888,6 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 		return ab
 	}
 	a.note(ab)
-	// A source Feed admitted whose envelope is still queued starts now, and
-	// stops with the others below (runtime/v1 actor.go rule 14): every
-	// admitted source runs, so its exit actions run before the end.
-	for {
-		v, ok := a.inbox.take()
-		if !ok {
-			break
-		}
-		env := v.(*envelope)
-		switch env.kind {
-		case envFeed:
-			a.startFeed(in, fr, env.run)
-		case envWorkDefect:
-			a.note(env.err)
-		default:
-			a.release(env)
-		}
-	}
 	for _, t := range a.feeds {
 		ab := a.stopTask(in, fr, t)
 		if stops(ab) {
@@ -901,6 +896,18 @@ func (a *actorV) finish(in *interp, fr *frame, exit *abrupt) *abrupt {
 		a.note(ab)
 	}
 	a.feeds = nil
+	// The end actions (runtime/v1 actor.go rule 14b), masked, in order.
+	acts := a.onEnd
+	a.onEnd, a.endTaken = nil, true
+	for _, f := range acts {
+		in.mask(1)
+		_, ab := a.call(in, fr, f)
+		in.mask(-1)
+		if stops(ab) {
+			return ab
+		}
+		a.note(ab)
+	}
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil

@@ -97,10 +97,12 @@ import (
 //     order; a work that started children waits for their stop before it
 //     ends, so no task ends before its children.
 //  14. Feeds (MU10): Feed admits a source as a feedStart envelope, so a
-//     Feed on an ended actor fails ActorStopped and its source never runs;
-//     a source Feed admitted always runs, also when the actor ended before
-//     the runner took its feedStart: finish starts it, then stops it with
-//     the others, so its exit actions run before the end is published.
+//     Feed on an ended actor fails ActorStopped and its source never runs
+//     (nor does a source still queued when the actor ends: it began
+//     nothing, so it has nothing to release).
+//  14b. End actions (SUPERVISE-2): OnEnd adds an action that finish runs
+//     once, masked, after the sources stopped and before the end is
+//     published; one added after finish took them fails ActorStopped.
 //     The runner starts the source as a child task of its own (startFeed):
 //     it lives as long as the actor, not as its caller, and its sends are
 //     a sender's (rule 2: in the source's order, untagged, admitted as a
@@ -206,6 +208,11 @@ type Actor[S, E, D any] struct {
 	// each state a Changes loop is given (ActorShown).
 	version int
 	ended   bool
+	// onEnd are the actions ActorOnEnd added, run by finish in order
+	// (rule 14b); endTaken is set when finish took them, so a later
+	// OnEnd fails Stopped instead of being lost.
+	onEnd    []func(*rt.Task)
+	endTaken bool
 	// doneWait are the waitDone callers parked in a clock's domain.
 	doneWait []*rt.Task
 	exit     error // the runner's exit, read after done closes
@@ -1469,24 +1476,6 @@ func (a *Actor[S, E, D]) finish(exit error) {
 	}
 	a.timers.Close() // no entry arms a timer again
 
-	// A source Feed admitted whose feedStart is still queued starts now
-	// (rule 14): every admitted source runs, and is stopped with the
-	// others below, so its exit actions run before the end is published.
-	// Admission is closed, so the queue holds exactly the admitted ones.
-	for n := a.inbox.Len(); n > 0; n-- {
-		env, ok := a.inbox.Poll()
-		if !ok {
-			break
-		}
-		switch env.kind {
-		case feedStart:
-			a.startFeed(a.task, env.epoch)
-		case workDefect:
-			exit = join(exit, env.err)
-		default:
-			a.release(&env)
-		}
-	}
 	// The sources last (rule 14): admission is closed, so each one's next
 	// send raises; the stop interrupts one that waits.
 	for _, f := range a.feeds {
@@ -1495,6 +1484,20 @@ func (a *Actor[S, E, D]) finish(exit error) {
 		}
 	}
 	a.feeds = nil
+	// The end actions (rule 14b), masked, in the order OnEnd added them:
+	// each runs once, before the end is published; a defect in one joins
+	// the exit.
+	a.mu.Lock()
+	acts := a.onEnd
+	a.onEnd, a.endTaken = nil, true
+	a.mu.Unlock()
+	for _, f := range acts {
+		var c rt.Cause
+		release(a.task, &c, func() { f(a.task) }, nil)
+		if err := c.Err(); err != nil {
+			exit = join(exit, err)
+		}
+	}
 	if a.cur != nil {
 		a.release(a.cur)
 		a.cur = nil
@@ -1875,6 +1878,23 @@ func ActorEnded[S, E, D any](a *Actor[S, E, D]) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.ended
+}
+
+// ActorOnEnd is std actor's OnEnd(a, f) (rule 14b): f runs once, masked,
+// on a's runner when a ends, after its sources stopped and before the end
+// is published, so before Stop, Drain or ExitOf of a returns. It fails
+// ActorStopped when a's end has already taken its actions; f then never
+// runs.
+//
+//ergo:wait none
+func ActorOnEnd[S, E, D any](a *Actor[S, E, D], f func(*rt.Task)) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.endTaken {
+		return ActorStopped{}
+	}
+	a.onEnd = append(a.onEnd, f)
+	return nil
 }
 
 // ActorHasLatest is std actor's hasLatest(a): whether a has stepped a
