@@ -329,7 +329,6 @@ type TypeParam struct {
 	// value (types.md, Generics 9; EXM2). A parameter without it binds
 	// plain data only.
 	Own      bool
-	lang     bool // a parameter of Option or Some, which admits a resource unmarked
 	conflict bool // a kind conflict, already reported: resolves to nothing
 	id       int
 }
@@ -614,6 +613,13 @@ func (r *Row) has(tab *typeTable, t Type) bool {
 func (r *Row) with(tab *typeTable, t Type) *Row {
 	if ra, ok := t.(*RowArg); ok {
 		return r.union(tab, ra.Row)
+	}
+	if n, ok := t.(*Named); ok && tab.rowOf != nil {
+		// A named row in a row is its members (namedrow.go): a row is a
+		// set of error types, and the name stands for its set.
+		if nr := tab.rowOf(n); nr != nil {
+			return r.union(tab, nr)
+		}
 	}
 	r = tab.local(r)
 	id, inf := tab.intern(t)

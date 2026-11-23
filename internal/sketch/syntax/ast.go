@@ -721,6 +721,10 @@ type (
 		Includes []*Field
 		Methods  []*Field
 		Laws     []*LawDecl
+		// Harnesses are the members `test H` (runtime.md, Tests: harnesses):
+		// the function of this package a test whose body needs the type
+		// runs under. The checker admits one.
+		Harnesses []*Harness
 		// Terms is the type-set member `~int | ~int64` (types.md,
 		// Generics 2): one term per `|`-separated type. Nil when the
 		// operation type has no type set; it then constrains by its
@@ -729,6 +733,14 @@ type (
 		Union []Expr
 		// Rbrace closes the braces; NoPos for a union.
 		Rbrace Pos
+	}
+
+	// Harness is the member `test H` of an operation type: Test is the
+	// position of `test`, Name the harness function's name.
+	Harness struct {
+		Doc  *CommentGroup
+		Test Pos
+		Name *Ident
 	}
 
 	// TypeTerm is one term of a type-set member: `~T` (Tilde set) admits
@@ -894,6 +906,9 @@ func (x *TypeTerm) Pos() Pos {
 	return x.Type.Pos()
 }
 func (x *TypeTerm) End() Pos { return x.Type.End() }
+
+func (x *Harness) Pos() Pos { return x.Test }
+func (x *Harness) End() Pos { return x.Name.End() }
 
 func (x *InterfaceType) Pos() Pos {
 	if x.Lbrace.IsValid() {

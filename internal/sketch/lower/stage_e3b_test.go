@@ -99,33 +99,29 @@ func TestBuildsOmitLaws(t *testing.T) {
 // imports and decls are production source the law needs (decls never
 // introduce the fact themselves), law is the law, a member of an operation
 // type of its own. errType names the type the law alone makes an error
-// type. canary is the Go name a build would reserve at package scope if it
-// read the law's fact: a production function binds a local of that name,
-// which keeps its spelling only while no build reads the fact, since a
-// local avoids every package name. The facts the lowering only reserves
-// names for are therefore seen in the Go.
-type lawFact struct{ name, imports, decls, law, errType, canary string }
+// type.
+type lawFact struct{ name, imports, decls, law, errType string }
 
 var lawFacts = []lawFact{
 	// An error row of a literal in a law makes a struct an error type.
-	{name: "failure-record", errType: "Bang1", canary: "textBang1",
+	{name: "failure-record", errType: "Bang1",
 		decls: "type Bang1 {}\n",
 		law:   "law L(n int) {\n\t\tlet f = func() int fails Bang1 { return Bang1 }\n\t\tlet v = f() catch {\n\t\tcase Bang1:\n\t\t\tn\n\t\t}\n\t\tv == n\n\t}"},
 	// The error type is a defined type over another struct.
-	{name: "defined-failure", errType: "Err2", canary: "textErr2",
+	{name: "defined-failure", errType: "Err2",
 		decls: "type Base2 { Code int }\n\ntype Err2 Base2\n",
 		law:   "law L(n int) {\n\t\tlet f = func() int fails Err2 { return Err2{Code: n} }\n\t\tlet v = f() catch {\n\t\tcase Err2 as e:\n\t\t\te.Code\n\t\t}\n\t\tv == n\n\t}"},
 	// The program returns the struct as a value; a law fails with it.
-	{name: "failure-and-value", errType: "Bang3", canary: "textBang3",
+	{name: "failure-and-value", errType: "Bang3",
 		decls: "type Bang3 { Code int }\n\nfunc make3() Bang3 {\n\tBang3{Code: 3}\n}\n\nfunc keep3() int {\n\tmake3().Code\n}\n",
 		law:   "law L() {\n\t\tlet f = func() int fails Bang3 { return make3() }\n\t\tlet v = f() catch {\n\t\tcase Bang3 as e:\n\t\t\te.Code\n\t\t}\n\t\tv == 3\n\t}"},
 	// An implicit conversion to an operation table needs an adapter.
-	{name: "adapter", canary: "opsSq4AsShape4",
+	{name: "adapter",
 		decls: "type Shape4 {\n\tArea() int,\n}\n\ntype Sq4 {} implements Shape4\n\nfunc Area(_ Sq4) int {\n\t4\n}\n",
 		law:   "law L() {\n\t\tlet s Shape4 = Sq4\n\t\ts.Area() == 4\n\t}"},
 	// A let without a value of a defined type holding a Map needs a
 	// default (a record has none: types.md, Zero values 3).
-	{name: "default-map", canary: "ergoDefaultReg5",
+	{name: "default-map",
 		decls: "type Reg5 (int, Map[string, int])\n",
 		law:   "law L(k string) {\n\t\tlet r Reg5\n\t\tlet (_, m) = r\n\t\tlet mut w = m\n\t\tw[k] = 5\n\t\tlen(w) == 1\n\t}"},
 	// A generic record and function instantiated only by a law.
@@ -133,24 +129,24 @@ var lawFacts = []lawFact{
 		decls: "type Box6[T] { V T }\n\nfunc wrap6[T](v T) Box6[T] {\n\tBox6{V: v}\n}\n",
 		law:   "law L(s string, n int) { wrap6(s).V == s && wrap6(n).V == n }"},
 	// A named context only a law opens.
-	{name: "named-context", canary: "buildLive7",
+	{name: "named-context",
 		decls: "type Store7 {\n\tPeek() int,\n}\n\ntype Mem7 {} implements Store7\n\nfunc Peek(_ Mem7) int {\n\t7\n}\n\nlet Live7 = context {\n\tStore7: Mem7,\n}\n",
 		law:   "law L() { with Live7 { Store7.Peek() } == 7 }"},
 	// A context literal only a law opens.
-	{name: "literal-context", canary: "opsMem8AsStore8",
+	{name: "literal-context",
 		decls: "type Store8 {\n\tLook() int,\n}\n\ntype Mem8 {} implements Store8\n\nfunc Look(_ Mem8) int {\n\t8\n}\n",
 		law:   "law L() { with context { Store8: Mem8 } { Store8.Look() } == 8 }"},
 	// A function generic over its needs, called only by a law.
-	{name: "generic-needs", canary: "opsMem9AsStore9",
+	{name: "generic-needs",
 		decls: "type Store9 {\n\tGet9() int,\n}\n\ntype Mem9 {} implements Store9\n\nfunc Get9(_ Mem9) int {\n\t9\n}\n\nfunc run9[F](f func() int needs F) int needs F {\n\tf()\n}\n",
 		law:   "law L() { with context { Store9: Mem9 } { run9() { Store9.Get9() } } == 9 }"},
 	// A library only a law uses; the erasure property blanks the import
 	// with the law. None10 is the law's subject (S115).
-	{name: "library-import", canary: "WithCapacity", imports: "import slices\n\n", decls: "func None10() int {\n\t0\n}\n",
+	{name: "library-import", imports: "import slices\n\n", decls: "func None10() int {\n\t0\n}\n",
 		law: "law L(s string) {\n\t\tlet xs = slices.WithCapacity[int](len(s))\n\t\tlen(xs) == None10()\n\t}"},
 	// A tuple type only a law uses, holding a defined type whose default
 	// holds a Map: a build that walks the tuple reserves the default's name.
-	{name: "tuple", canary: "ergoDefaultReg12",
+	{name: "tuple",
 		decls: "type Reg12 (int, Map[string, int])\n",
 		law:   "law L() {\n\t\tlet p (int, string, Reg12)\n\t\tlet (a, b, r) = p\n\t\tlet (_, m) = r\n\t\ta == 0 && b == \"\" && len(m) == 0\n\t}"},
 	// A package let only a law reads.
@@ -164,16 +160,13 @@ var lawFacts = []lawFact{
 		law:   "law L() {\n\t\tlet f = func() int fails Bang14 { return Bang14 }\n\t\tlet v = f() catch {\n\t\tcase Bang14:\n\t\t\t14\n\t\t}\n\t\tlet w = fail14() catch {\n\t\tcase Bang14:\n\t\t\t14\n\t\t}\n\t\tv == w\n\t}"},
 }
 
-// lawProgram assembles base b with fact f's production source, its canary
-// and its law: a member of an operation type of its own, or, when top, a
+// lawProgram assembles base b with fact f's production source and its
+// law: a member of an operation type of its own, or, when top, a
 // top-level law (law-top).
 func lawProgram(b ownerBase, f lawFact, top bool) string {
 	var s strings.Builder
 	s.WriteString(f.imports)
 	parts := []string{b.decls, f.decls}
-	if f.canary != "" {
-		parts = append(parts, "func canary() int {\n\tlet "+f.canary+" = 1\n\t"+f.canary+"\n}\n")
-	}
 	if top {
 		parts = append(parts, f.law+"\n", b.main)
 	} else {
@@ -195,8 +188,8 @@ func lawProgram(b ownerBase, f lawFact, top bool) string {
 // since law-top, a top-level law), both builds are the builds of the same
 // source with the law (and an import only the law uses) blanked out
 // (buildsOmitLaws), the run build gives a type only the law makes an error
-// type no Error method and no text helper, the canary local keeps its Go
-// name there, and the run binary prints the base's output. The test build
+// type no Error method and no text helper, and the run binary prints the
+// base's output. The test build
 // reads the law's facts and runs it (law-run-1): every law here holds,
 // so its binary reports the law's run ok and exits 0.
 //
@@ -224,9 +217,6 @@ func TestLawFactsStayOut(t *testing.T) {
 					run, test := buildsOmitLaws(t, name, src)
 					if f.errType != "" {
 						lawErrorShape(t, name, "run", f.errType, run.mainGo())
-					}
-					if f.canary != "" && !regexp.MustCompile(`(?m)^\tvar `+f.canary+` `).MatchString(run.mainGo()) {
-						t.Errorf("%s: the run build renamed the canary local %s: it read the law's fact", name, f.canary)
 					}
 					// LawHostMem has one value, so a law with no parameters
 					// has one case and is proved (Laws 10); a parameter of

@@ -28,7 +28,7 @@ func read(args []string) Option[string] fails os.Exit needs io.Stdout {
 	let set = Set()
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return None
 	}
 	Some[string]{Value: Journal.Get(v)}
@@ -101,5 +101,5 @@ test RefusalsExit {
 	let d = try memory.Files(Map[string, string]{"bad.journal": "open\thome\t0\n"})
 	assert session([]string{"-journal", "bad.journal"}, "open logs\nvolumes\n", d) == "exit 1: quota: bad.journal:1: home is not a quoted word"
 	assert session([]string{}, "open\n", d) == "exit 2: quota: line 1: open is not open VOL [OVERCOMMIT], grant KEY VOL SIZE, reclaim KEY VOL SIZE, move KEY FROM TO SIZE, size VOL or volumes"
-	assert session([]string{"-h"}, "", d) == flag.Usage(Set())
+	assert session([]string{"-h"}, "", d) == flag.UsageText(Set())
 }
