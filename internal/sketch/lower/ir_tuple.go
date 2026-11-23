@@ -174,6 +174,17 @@ func (b *irBuilder) tdef(call *irExpr, t *check.Tuple, x syntax.Node, p irPos) (
 	return []*irStmt{def}, b.tupleLit(t, vals, x, p)
 }
 
+// tupleErrBind binds call, a Go call whose results are t's elements and
+// then an error, to fresh locals and the error local e in one "tdef", and
+// defines a local of their tuple, which it returns: bind's form of a std
+// body returning (A, B, error) (task's TaskExit; EXTERN-MULTI-RESULT).
+func (b *irBuilder) tupleErrBind(call *irExpr, t *check.Tuple, e int, x syntax.Node, p irPos) ([]*irStmt, int) {
+	pre, lit := b.tdef(call, t, x, p)
+	pre[0].Ls = append(pre[0].Ls, e)
+	v := b.temp("v", b.tupleType(t, x), p)
+	return append(pre, &irStmt{K: "def", Pos: p, Local: v, X: lit}), v
+}
+
 // readsTdef reports whether e is the tuple of def, a tdef: its elements
 // read def's locals in order, so a let can bind its names in def itself.
 // A tuple literal whose operand only ran a tdef, (bits.Add64(…), 3), is
