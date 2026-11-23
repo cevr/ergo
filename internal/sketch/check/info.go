@@ -1360,8 +1360,8 @@ type LawRun struct {
 // built as any provider's is (by Ctor, or generated), and the run binds
 // its address; Conv converts from *Type.
 //
-// Native is a provider whose operations call Go (README Gap 17): its
-// build holds go.Foreign, which the test binary's law case holds and
+// Native is a provider whose constructor or operations call Go (README
+// Gap 17): its build holds go.Foreign, which the test binary's law case holds and
 // nothing else under a test does (types.md, Laws 10; owner q277). The
 // native run builds it; the check-time evaluator, which runs no Go,
 // reports the binding native, never passed.

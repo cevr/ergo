@@ -96,3 +96,38 @@ func main() {}
 		t.Errorf("%s\ngot:\n%s\nwant one S102 at 6: naming go.Foreign", lawBody, text)
 	}
 }
+
+// TestLawHarnessBuildsProviderViaGoConstructor catches a harness that
+// grants build authority only when the provider's operations need Go.
+// Read is pure, but its private field is set by the real constructor.
+func TestLawHarnessBuildsProviderViaGoConstructor(t *testing.T) {
+	const source = `import go strings
+
+type Label {
+	Read() string,
+	law HasPrefix() { Read() == "PREFIX" },
+}
+
+type Stored { text string } implements Label
+func NewStored(_ int) Stored needs go.Foreign { Stored{text: strings.ToUpper("prefix")} }
+func Read(s Stored) string { s.text }
+
+func main() {}
+`
+	pkg, ds := CheckSource(source)
+	if len(ds) > 0 {
+		t.Fatalf("checking the native binding: %v", ds)
+	}
+	for _, r := range pkg.LawRuns {
+		for _, b := range r.Bindings {
+			if r.Law.Name == "HasPrefix" && len(b) == 1 && b[0].Type.Obj.Name == "Stored" {
+				p := b[0]
+				if !p.Native || p.Unrun != "" || p.Ctor == nil || p.Ctor.Name != "NewStored" {
+					t.Fatalf("native = %t, unrun = %q, constructor = %v", p.Native, p.Unrun, p.Ctor)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("law has no native binding for Stored")
+}
