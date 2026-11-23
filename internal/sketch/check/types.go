@@ -140,6 +140,11 @@ type Interface struct {
 	// Generics 2), nil when the operation type has none. An operation
 	// type with one is a constraint only.
 	Terms []*Term
+	// Generic is true when an operation takes type parameters of its own
+	// (Method.Sig.TParams; types.md, Interface assignability, Generic
+	// operations). Such an operation type is a constraint only, too: no
+	// Go interface holds a generic method, so it lowers by copies only.
+	Generic bool
 	// byName holds the methods sorted by name, once, when the type is
 	// resolved (go/types NewInterfaceType): identity reads it and never
 	// sorts (round 11 M3).
@@ -225,6 +230,14 @@ type Map struct{ Key, Elem Type }
 
 // Pointer is *T, a borrow: only a parameter or receiver type.
 type Pointer struct{ Elem Type }
+
+// NoopFunc reports func() with no rows and no type parameters: a pure
+// function of nothing to nothing, whose one behaviour is to return. Its
+// generator is that function (LAW-GEN-FUNC), so a record that holds one,
+// such as a provider's Wait, is generated.
+func NoopFunc(s *Signature) bool {
+	return len(s.TParams) == 0 && len(s.Params) == 0 && len(s.Results) == 0 && s.Errors.Empty() && s.Uses.Empty() && !s.Entry
+}
 
 // Signature is a function type: parameters, value results and two rows. A
 // declaration's signature also holds its type parameters, every one

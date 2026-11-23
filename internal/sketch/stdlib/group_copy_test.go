@@ -3,6 +3,8 @@ package stdlib_test
 import (
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/internal/sketch/lower"
 )
 
 // groupCaller is a program whose view makes two component calls (head
@@ -45,10 +47,23 @@ func main() {
 // holds ui's copy the same).
 func TestGroupProtocolCopyAgrees(t *testing.T) {
 	const law = "law GroupSkipsEqualArguments("
-	const group = "group_#0[" // copyCanonicalNames
 	pair := checkCopy(t, "ui")
 	if len(pair.diags) > 0 {
 		t.Fatalf("the copy of ui does not check: %v", pair.diags[0])
+	}
+	// The group is named as the lowering finds it, by shape and law
+	// (lower.GroupFuncsForTest), never by its spelling: the one of
+	// Go-comparable arguments (four parameters; groupBy has seven).
+	group := ""
+	for _, g := range lower.GroupFuncsForTest(pair.std) {
+		if len(g.Sig.Params) == 4 {
+			// copyNormalise folds the copy's alias into this alias and
+			// copyCanonicalNames numbers the same stem in both builds.
+			group = lower.PackageAlias(g.Pkg.Path) + "__" + g.Name + "_#0["
+		}
+	}
+	if group == "" {
+		t.Fatal("std ui declares no lawed group")
 	}
 	text := copyLower(t, pair, groupCaller, false)
 	view := goFunc(t, text, "view")

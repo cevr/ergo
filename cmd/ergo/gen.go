@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"ergo.local/prototype/internal/apigen"
 	"ergo.local/prototype/internal/cligen"
+	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/llmgen"
 	"ergo.local/prototype/internal/mcpgen"
 	"ergo.local/prototype/internal/rpcgen"
@@ -53,7 +55,9 @@ const genHelp = "usage: ergo gen api [--check] DIR.OPTYPE\n" +
 	"function TYPE() jsonschema.Schema and the law TYPEValuesFitTheSchema\n" +
 	"(the codec's JSON of every value fits it; docs/spec/stdlib.md,\n" +
 	"jsonschema). It needs no hub.\n\n" +
-	"Each file carries the contract's digest, or the type it is for. --check writes nothing and\n" +
+	"Each generated folder holds ergo.gen, its marker: the generator, the\n" +
+	"contract and its digest (or the type it is for), and the digest of the\n" +
+	"folder's files; the files carry no header. --check writes nothing and\n" +
 	"fails when a file differs from what the contract generates now (a stale\n" +
 	"file).\n\n" +
 	"Exit codes: 0 written or current; 1 the package does not check, the\n" +
@@ -119,16 +123,8 @@ func genCommand(args []string) error {
 		}
 		return nil
 	}
-	for _, pkg := range out {
-		target := filepath.Join(dir, pkg.Dir)
-		if err := os.MkdirAll(target, 0o755); err != nil {
-			return exitStatusError{code: 1, message: name + ": " + err.Error()}
-		}
-		for _, file := range genNames(pkg) {
-			if err := os.WriteFile(filepath.Join(target, file), []byte(pkg.Files[file]), 0o644); err != nil {
-				return exitStatusError{code: 1, message: name + ": " + err.Error()}
-			}
-		}
+	if err := writeGenFiles(dir, out); err != nil {
+		return exitStatusError{code: 1, message: name + ": " + err.Error()}
 	}
 	return nil
 }
@@ -140,7 +136,7 @@ func genCommand(args []string) error {
 // so no order of gen commands can leave it naming a missing or stale one.
 func genFiles(kind string, pkg *check.Package, dir, path, opName string) ([]rpcgen.Files, error) {
 	if kind == "schema" {
-		out, err := rpcgen.GenerateSchema(pkg, path, opName)
+		out, err := genSchemas(pkg, dir, path, opName)
 		if err != nil {
 			return nil, err
 		}
@@ -171,10 +167,64 @@ func genFiles(kind string, pkg *check.Package, dir, path, opName string) ([]rpcg
 	return []rpcgen.Files{hub, out}, nil
 }
 
-// genNames are the generated files' names, sorted.
-func genNames(out rpcgen.Files) []string {
-	names := make([]string, 0, len(out.Files))
-	for name := range out.Files {
+// genSchemas owns the schema package as a group: keep its registered
+// types and regenerate from the contract, never from on-disk output.
+func genSchemas(pkg *check.Package, dir, path, name string) (rpcgen.Files, error) {
+	out, err := rpcgen.GenerateSchema(pkg, path, name)
+	if err != nil {
+		return rpcgen.Files{}, err
+	}
+	marker, ok, err := genmark.Read(filepath.Join(dir, out.Dir))
+	if err != nil {
+		return rpcgen.Files{}, err
+	}
+	if ok && marker.Kind == "schema" {
+		for _, subject := range marker.Subjects {
+			from, other, _ := genmark.SplitSubject(subject)
+			if from != path {
+				return rpcgen.Files{}, fmt.Errorf("%s: schema subject %q is not from %s", out.Dir, subject, path)
+			}
+			if slices.Contains(out.Marker.Subjects, subject) {
+				continue
+			}
+			next, err := rpcgen.GenerateSchema(pkg, path, other)
+			if err != nil {
+				return rpcgen.Files{}, err
+			}
+			for file, text := range next.Files {
+				if _, exists := out.Files[file]; exists {
+					return rpcgen.Files{}, fmt.Errorf("%s: %s and %s generate the same file %s", out.Dir, name, other, file)
+				}
+				out.Files[file] = text
+			}
+			out.Marker.Subjects = append(out.Marker.Subjects, subject)
+		}
+	}
+	slices.Sort(out.Marker.Subjects)
+	return out, nil
+}
+
+func writeGenFiles(dir string, out []rpcgen.Files) error {
+	for _, pkg := range out {
+		target := filepath.Join(dir, pkg.Dir)
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return err
+		}
+		written := pkg.Written()
+		// Publish the marker after the source files.
+		for _, file := range append(genNames(pkg.Files), genmark.Name) {
+			if err := os.WriteFile(filepath.Join(target, file), []byte(written[file]), 0o644); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// genNames are the names of a generated folder's files, sorted.
+func genNames(files map[string]string) []string {
+	names := make([]string, 0, len(files))
+	for name := range files {
 		names = append(names, name)
 	}
 	sort.Strings(names)
@@ -187,9 +237,10 @@ func staleFiles(dir string, out []rpcgen.Files) []string {
 	var stale []string
 	for _, pkg := range out {
 		target := filepath.Join(dir, pkg.Dir)
-		for _, name := range genNames(pkg) {
+		written := pkg.Written()
+		for _, name := range genNames(written) {
 			have, err := os.ReadFile(filepath.Join(target, name))
-			if err != nil || !bytes.Equal(have, []byte(pkg.Files[name])) {
+			if err != nil || !bytes.Equal(have, []byte(written[name])) {
 				stale = append(stale, filepath.Join(target, name))
 			}
 		}

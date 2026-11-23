@@ -135,7 +135,15 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 		out = append(out, b.publish(w, ptr, b.env, arg)...)
 	} else {
 		build := b.l.contextBuilder(w, arg)
-		out = append(out, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "call", Pos: p, Name: build, Args: []*irExpr{{K: "local", Pos: p, I: ptr}}}})
+		call := &irExpr{K: "call", Pos: p, Name: build, Args: []*irExpr{{K: "local", Pos: p, I: ptr}}}
+		if fallibleBuild(w) {
+			// with try W: the builder returns the build's failure, which
+			// leaves the with before its block runs (the emitter's with).
+			e := b.temp("err", "error", p)
+			out = append(out, &irStmt{K: "def", Pos: p, Local: e, X: call}, b.propagate(e, p))
+		} else {
+			out = append(out, &irStmt{K: "expr", Pos: p, X: call})
+		}
 	}
 	saved := b.env
 	b.env = ptr
@@ -171,6 +179,16 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		t := b.goType(conv.To, x)
 		b.keepImport("var _ " + b.fc.goType(conv.To)) // main.go imports its package
 		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
+	}
+	if goAdapterConv(conv) {
+		// A value of the program into a Go interface: goInterface's
+		// adapter, whose methods are Go callbacks with Go's results and
+		// error (io.Writer's Write), the callback shape callbackShape
+		// refuses. The operations adapter the rest of this function
+		// builds has Ergo's methods (the task first), which do not
+		// implement the Go interface, so the IR compile refused the body
+		// (LIB-ON-IR: TestGoCallsErgo's Count).
+		irNo("value of the program into a Go interface")
 	}
 	if check.ScriptOf(conv.From) != nil {
 		// A Script's adapter holds the Script alone (the emitter's
@@ -211,12 +229,6 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		irNo("operations conversion without an adapter")
 	}
 	p := e.Pos
-	if goAdapterConv(conv) {
-		// goInterface's v1.GoHanded: Go may call the value's methods from
-		// a goroutine of its own (rt.Alone).
-		b.keepImport("var _ = " + l.rt() + ".GoHanded")
-		b.runFirst([]*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}}})
-	}
 	lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
 	if !sealed {
 		env := &irExpr{K: "zero", Pos: p, T: "*" + l.env()}

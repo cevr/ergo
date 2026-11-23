@@ -64,6 +64,8 @@ type reach struct {
 	// firsts are the functions of each package by the type their first
 	// parameter names, built once per package.
 	firsts map[*check.Package]map[*check.TypeName][]*check.Func
+	// decodes are the types whose decoders decoded walked, by typeKey.
+	decodes map[string]bool
 }
 
 // computeReach sets l.reached, the declarations of the sourced packages
@@ -154,6 +156,20 @@ func (r *reach) visit(di declInfo) {
 					r.object(ctx)
 				}
 			}
+			if c := info.Calls[n]; c != nil && c.Kind == check.CallDecode {
+				r.decoded(info, c.Type)
+			}
+		}
+		if x, ok := n.(syntax.Expr); ok {
+			// A generic function's wire argument: its witness carries
+			// the argument's decoder (reserveWires, wireWitness).
+			if inst := info.Instances[x]; inst != nil && inst.Func != nil {
+				for i, tp := range inst.Func.Sig.TParams {
+					if isWireParam(tp) && i < len(inst.TypeArgs) {
+						r.decoded(info, inst.TypeArgs[i])
+					}
+				}
+			}
 		}
 		if x, ok := n.(syntax.Expr); ok {
 			if t := info.Types[x]; t != nil {
@@ -162,6 +178,64 @@ func (r *reach) visit(di declInfo) {
 		}
 		return true
 	})
+}
+
+// decoded reaches what a decoder of t calls by name: the ParseX of each
+// by-name pair and the derived ParseN of each refined type its wire form
+// reaches (NIH-67: a parser that only a decoder named had no Go
+// declaration, "undefined: ParseLevel", "undefined: ParseSmall"). The walk
+// is reserveWires's over t's structure; a pair's Wire is reached by its
+// type already (its first parameter).
+func (r *reach) decoded(info *check.Info, t check.Type) {
+	if r.decodes == nil {
+		r.decodes = map[string]bool{}
+	}
+	var walk func(t check.Type)
+	walk = func(t check.Type) {
+		if _, ok := t.(*check.TypeParam); ok {
+			return // its witness, built where it is bound, decodes it
+		}
+		key := r.l.typeKey(t)
+		if r.decodes[key] {
+			return
+		}
+		r.decodes[key] = true
+		if p := info.WirePairOf(t); p != nil {
+			r.object(p.Parse)
+			walk(p.Base)
+			return
+		}
+		if n, ok := t.(*check.Named); ok && check.RefinementOf(t) != nil && n.Obj.Pkg != nil && r.l.isSourced(n.Obj.Pkg) {
+			// A refined type decodes through its derived ParseN
+			// (types.md, Refinements 4).
+			name := syntax.ParseName(n.Obj.Name)
+			for _, f := range r.l.canon.funcs(n.Obj.Pkg) {
+				if f.Name == name {
+					r.object(f)
+				}
+			}
+			return
+		}
+		switch u := wireUnder(t).(type) {
+		case *check.Slice:
+			walk(u.Elem)
+		case *check.Map:
+			walk(u.Elem)
+		case *check.Tuple:
+			for _, e := range u.Types {
+				walk(e)
+			}
+		case *check.Struct:
+			for _, f := range u.Fields {
+				walk(f.Type)
+			}
+		case *check.Union:
+			for _, v := range u.Variants {
+				walk(v)
+			}
+		}
+	}
+	walk(t)
 }
 
 // typ reaches every named type that t names. An expression's type is an

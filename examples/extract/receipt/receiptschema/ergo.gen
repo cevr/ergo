@@ -1,0 +1,4 @@
+kind schema
+generator ergo gen schema
+subject extract/receipt.Receipt
+digest sha256:28cf9ed13d70440250e3d44c2dfa71a1c137b4b2e3c3e12c7d501488ff21d7d3

@@ -23,23 +23,35 @@ var nativeLine = regexp.MustCompile(`^(ok|skip|FAIL) law ([A-Za-z_][A-Za-z0-9_.]
 // nativeFail is the class of a law whose native run failed.
 const nativeFail = "native fail"
 
-// runStdNative is -std's native leg (NATIVE-LAWS slice 2): each std
-// package with a law the ledger gives no Go runner that did not run in
-// place (the evaluator skipped it, as a law it does not decide) is built
-// and run natively on its own source, `ergo test std:PKG`, and the
-// native verdicts join the run's: such a law ran when every native
-// verdict passed. ergo is the ergo binary; "" builds ./cmd/ergo.
-func runStdNative(w io.Writer, root, ergo string, bare []string, run *stdRun) int {
+// nativePackages selects where to rerun undecided laws. A member law
+// runs where a provider binds it, which need not be its own package.
+// A law with no known binding falls back to its declaration package.
+func nativePackages(bare []string, run *stdRun) []string {
 	// The prelude has no in-place evaluator leg: always account for its
 	// native verdicts, even when no entry in the runner file is bare.
 	pkgs := []string{stdlib.PreludePath}
 	for _, key := range bare {
-		pkg, _, _ := strings.Cut(key, " ")
-		if ranInPlace(run.verdicts[key]) || run.failed[key] != "" || run.failed[pkg+" *"] != "" || slices.Contains(pkgs, pkg) {
+		if ranInPlace(run.verdicts[key]) || run.failed[key] != "" {
 			continue
 		}
-		pkgs = append(pkgs, pkg)
+		bindings := run.bindings[key]
+		if len(bindings) == 0 {
+			pkg, _, _ := strings.Cut(key, " ")
+			bindings = []string{pkg}
+		}
+		for _, pkg := range bindings {
+			if run.failed[pkg+" *"] == "" && !slices.Contains(pkgs, pkg) {
+				pkgs = append(pkgs, pkg)
+			}
+		}
 	}
+	return pkgs
+}
+
+// runStdNative runs each selected package on its own source with
+// `ergo test std:PKG` and credits its verdicts to the declaring laws.
+// ergo is the ergo binary; "" builds ./cmd/ergo.
+func runStdNative(w io.Writer, root, ergo string, bare []string, run *stdRun) int {
 	tmp, err := os.MkdirTemp("", "ergotests-std-")
 	if err != nil {
 		fmt.Fprintln(w, "FAIL", err)
@@ -56,7 +68,7 @@ func runStdNative(w io.Writer, root, ergo string, bare []string, run *stdRun) in
 		}
 	}
 	cache := filepath.Join(tmp, "cache")
-	for _, pkg := range pkgs {
+	for _, pkg := range nativePackages(bare, run) {
 		cmd := exec.Command(ergo, "test", "std:"+pkg)
 		cmd.Dir = root
 		cmd.Env = os.Environ()

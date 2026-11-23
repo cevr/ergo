@@ -141,14 +141,27 @@ type Host {
 // NewHost is the host's Config provider. It needs Ambient: only code whose
 // row holds the authority to choose the host makes one.
 func NewHost() Host needs Ambient {
-	let env = os.NewHost()
-	let files = fs.NewHost()
+	hostOver(os.NewHost(), fs.NewHost())
+}
+
+// hostOver keeps the host providers behind Config's operations.
+func hostOver(env os.Host, files fs.Host) Host {
 	Host{
 		lookup: func(name string) Option[string] { os.Getenv(env, name) },
 		environ: func(prefix string) []Variable { environOf(os.Environ(env), prefix) },
 		readFile: func(path string) Option[string] fails Unreadable { try readFileOn(files, path) },
 	}
 }
+
+// testHost builds Host from the providers that take the test runner's
+// authority rather than the process's Ambient.
+func testHost() Host needs TestAmbient {
+	hostOver(os.NewTestHost(), fs.NewTestHost())
+}
+
+// onTestHost is the context Config's laws run Host under (types.md, Laws
+// 10).
+let onTestHost = context needs TestAmbient { Config: testHost() }
 
 // Lookup is the host's variable name, as os.Getenv reads it.
 func Lookup(h Host, name string) Option[string] { h.lookup(name) }

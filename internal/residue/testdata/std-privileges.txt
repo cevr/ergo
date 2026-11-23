@@ -95,6 +95,7 @@ debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_hand	flag	"hostLend
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_typeCtx	flag	"binding"	CodecFieldsOf_typeCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isTestAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+language	internal/sketch/check/contextneeds.go:checker.readContextHeader	flag	"isTestAmbient"	TestAmbient, the test runner's, in a named context's needs row	-
 language	internal/sketch/check/contextvalues.go:contextRow	mark	"stdlib.PreludePath"	Context, the predeclared row value	-
 language	internal/sketch/check/contextvalues.go:contextRow	name	"Context"	Context, the predeclared row value	-
 debt	internal/sketch/check/decl.go:checker.funcSig	mark	"Host()"	checker.funcSig: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -253,7 +254,6 @@ seam	internal/sketch/check/snapshot/snapshot.go:ExportSnapshot	mark	"Std()"	writ
 language	internal/sketch/check/stmt.go:checker.isErrorValue	name	"Error"	go.Error of the Go boundary	-
 debt	internal/sketch/check/tails.go:checker.yieldExpr	flag	"unreachableCall"	checker.yieldExpr: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/takes.go:checker.takesEffect	flag	"hostResourceParam"	checker.takesEffect: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/testambient.go:checker.contextTestAmbient	flag	"isTestAmbient"	checker.contextTestAmbient: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	flag	"goConfinedRef"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	flag	"hostLendArg"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	flag	"isHostNamed"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -614,8 +614,6 @@ debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	runtime	"v1.BodyOf"	decid
 debt	internal/sketch/lower/release.go:funcCtx.providerRelease	flag	"HostClose"	funcCtx.providerRelease: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/rewritelaw.go:lowerer.rewriteFunc	flag	"isSourced"	lowerer.rewriteFunc: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sealedops.go:funcCtx.sealedMethod	built	"."	funcCtx.sealedMethod: a built key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"Std()"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
-debt	internal/sketch/lower/siteid.go:lowerer.numberSites	mark	"stdlib.PreludePath"	lowerer.numberSites: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	LY CALLSITE-PER-PACKAGE
 debt	internal/sketch/lower/sources.go:lowerer.enter	flag	"isSourced"	lowerer.enter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.inStdPkg	flag	"stdLets"	lowerer.inStdPkg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/sources.go:lowerer.isSourced	flag	"sourced"	lowerer.isSourced: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -623,7 +621,6 @@ debt	internal/sketch/lower/sources.go:lowerer.missingImport	flag	"isSourced"	low
 seam	internal/sketch/lower/sources.go:lowerer.missingImport	mark	"Std()"	a reached user package needs a unit; std ships in the compiler	-
 debt	internal/sketch/lower/sources.go:lowerer.sourcedLibs	flag	"isSourced"	lowerer.sourcedLibs: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	mark	"Std()"	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
-seam	internal/sketch/lower/sources.go:lowerer.stdFileOf	mark	"stdlib.PreludePath"	finds, ships or names std (a seam file); it decides nothing (batch 21 integration)	-
 debt	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	flag	"isSourced"	lowerer.stdLetPkgs: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/lower/sources.go:lowerer.stdLetPkgs	mark	"Std()"	the std packages whose lets the program initializes	-
 seam	internal/sketch/lower/sources.go:shippedLedger	mark	"stdlib.Ledger"	std's law ledger ships with its sources: the ledger of the module the compiler ships	-

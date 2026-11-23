@@ -652,13 +652,17 @@ func startIn(t Tool, by Cloner, path string, branch string, start string) fails 
 // says push = "origin". A work.toml that does not read guards: the
 // guard is the safe side, and the command that reads it next says why.
 func guarded(t Tool, path string) fails VcsFailed {
+	if !allowsRemotePush(t) {
+		try t.vcs.GuardPushes(path)
+	}
+}
+
+func allowsRemotePush(t Tool) bool {
 	let c = config(t) catch {
 	case BadConfig:
 		EmptyConfig()
 	}
-	if c.Push != "origin" {
-		try t.vcs.GuardPushes(path)
-	}
+	c.Push == "origin"
 }
 
 // idOf is a new workspace's id: a digest of the base, the name, the

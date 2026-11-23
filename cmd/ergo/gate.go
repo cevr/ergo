@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/producer"
 	"ergo.local/prototype/internal/sketch/lawcache"
 	"ergo.local/prototype/internal/sketchfront"
@@ -256,9 +257,14 @@ func (w *gateWorkspace) treeParts(dir, skip string, seen map[string]bool, key *t
 // and bytes of its source files. Listing inputs does not parse them.
 func (w *gateWorkspace) fmtKey(i int) (task.Key, error) {
 	key := task.Key{Parts: []task.Part{{Name: "formatter", Digest: lawcache.Key(sketchfront.FormatterIdentity)}}}
-	err := walkGateSources(w.ws.Members[i].Dir, func(dir string) {
+	err := walkGateSources(w.ws.Members[i].Dir, func(dir string, marked bool) {
 		dir, _ = w.rel(dir)
 		key.Paths = append(key.Paths, path.Join(dir, "*"+sourceExtension))
+		key.Paths = append(key.Paths, path.Join(dir, genmark.Name))
+		if marked {
+			// Any file under a marker can change whether it still holds.
+			key.Paths = append(key.Paths, dir)
+		}
 	}, func(file string) error {
 		data, err := os.ReadFile(file)
 		if err != nil {
@@ -454,9 +460,9 @@ func (w *gateWorkspace) test(id string, i int) (bool, error) {
 }
 
 // walkGateSources walks a single member's format operands in lexical
-// order. Dependencies and nested members are not operands of its format
-// step; unlike package discovery, formatting needs no import graph.
-func walkGateSources(root string, folder func(string), source func(string) error) error {
+// order. It skips nested members and current generated trees, as the
+// formatter does, without loading the import graph.
+func walkGateSources(root string, folder func(dir string, marked bool), source func(string) error) error {
 	return filepath.WalkDir(root, func(file string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -472,8 +478,16 @@ func walkGateSources(root string, folder func(string), source func(string) error
 					return err
 				}
 			}
+			_, markerErr := os.Lstat(filepath.Join(file, genmark.Name))
+			marked := markerErr == nil
+			if markerErr != nil && !errors.Is(markerErr, fs.ErrNotExist) {
+				return markerErr
+			}
 			if folder != nil {
-				folder(file)
+				folder(file, marked)
+			}
+			if marked && genmark.Held(file) {
+				return filepath.SkipDir
 			}
 			return nil
 		}

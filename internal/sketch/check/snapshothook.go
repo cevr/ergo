@@ -69,6 +69,22 @@ func StdSnapshotNow() (base *stdBase, paths []string, pkgs []*Package, err error
 		pkgs = append(pkgs, imp.entries[path].pkg)
 	}
 	imp.mu.Unlock()
+	// Std is one module for a law no case can feed (lawmodule.go): with
+	// every std package checked, a binding no context of std feeds is an
+	// error of std, as a module's is of its module. A package decoded
+	// from an installed snapshot was judged when that snapshot was made.
+	ds := ReportUnfed(pkgs)
+	for i, pkg := range pkgs {
+		if d := ds[pkg]; len(d) > 0 {
+			name := ""
+			for _, f := range pkg.files {
+				if f.index == d[0].File {
+					name = f.syntax.Name + ":"
+				}
+			}
+			return nil, nil, nil, &ImportError{Path: paths[i], Reason: fmt.Sprintf("%s%s", name, d[0]), Broken: true}
+		}
+	}
 	for _, pkg := range append([]*Package{preludeOnce.r.pkg}, pkgs...) {
 		if pkg != nil && !pkg.Derive.Empty() {
 			return nil, nil, nil, fmt.Errorf("check: std package %s has a derive record, which the std snapshot does not carry", pkg.Path)

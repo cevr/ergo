@@ -1,0 +1,7 @@
+# scripts/opcount: the timed probe against its floor (testdata/floor: a
+# bare goroutine and a channel of one, no timer) (PROCESS-RUN).
+unit run
+sizes 100000 1100000
+args bench timed {n}
+control benchmarks/process/testdata/floor
+binary processbench

@@ -341,6 +341,18 @@ func patterns(s mut store.Store, k Pkg, t mut Typer, l syntax.List, subj Option[
 	}
 }
 
+// namesType is whether the index x is a name or an import's selector
+// that resolves to a type: a type argument.
+func namesType(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node]) bool {
+	let kind = syntax.KindOf(tree(k, t.file), x)
+	if kind != syntax.KIdent && kind != syntax.KSelectorExpr && kind != syntax.KIndexExpr {
+		return false
+	}
+	let ty = types.Resolve(s, envOf(*s, k, t), x)
+	// Resolve can intern a new type; read its ID from the updated store.
+	valid(*s, ty)
+}
+
 // patternType is the type a pattern's type name x tests: as written, or
 // as the subject fixes a generic one written bare.
 func patternType(s mut store.Store, k Pkg, t Typer, x dense.ID[syntax.Node], subj Option[dense.ID[store.TKey]]) Option[dense.ID[store.TKey]] {
@@ -724,8 +736,21 @@ func stmt(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
 		case None:
 			expr(s, k, t, a.Rhs, Unsure)
 		}
+	} else if kd == syntax.KContextEntry {
+		contextEntry(s, k, t, x)
 	} else {
 		walk(s, k, t, x)
+	}
+}
+
+// contextEntry types only the provider. A key names a capability or an
+// embedded context, not a value expression (context.go).
+func contextEntry(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node]) {
+	let e = syntax.ContextEntryOf(tree(k, t.file), x)
+	match dense.Unpack(e.Value) {
+	case Some[dense.ID[syntax.Node]] as v:
+		expr(s, k, t, v.Value, Unsure)
+	case None:
 	}
 }
 
@@ -975,7 +1000,6 @@ func misfits(s mut store.Store, k Pkg, file int, x dense.ID[syntax.Node], want d
 	}
 }
 
-
 func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w Want) Option[dense.ID[store.TKey]] {
 	let tr = k.Parsed[t.file].Tree
 	// The common kinds first: a name, a call or a selector is no constant.
@@ -1068,11 +1092,14 @@ func exprType(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], w 
 		}
 		if !isSome(out) {
 			// An untyped X leaves open whether its indices are values or
-			// type arguments (rpc.Decode[domains.Down]): a fieldless
-			// record's name, both at once, is not typed.
+			// type arguments (rpc.Decode[domains.Down], config.Load[S]):
+			// an index that names a type is a type argument, resolved as
+			// a type and typed as no expression (the Go checker's
+			// typExpr records none); a fieldless record's name, both at
+			// once, is not typed either.
 			for i in 0..syntax.Len(ie.Indices) {
 				let ix = syntax.Item(tr, ie.Indices, i)
-				if !namesBare(s, k, t, ix) {
+				if !namesBare(s, k, t, ix) && (isSome(xt) || !namesType(s, k, *t, ix)) {
 					expr(s, k, t, ix, Unsure)
 				}
 			}

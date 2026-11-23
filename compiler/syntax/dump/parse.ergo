@@ -334,6 +334,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		opt(d, c, x.Hashing)
 	case syntax.FuncType as x:
 		line(d, depth, "FuncType "+a+" Escaping="+itoa(tp(d, x.Escaping))+" Entry="+itoa(tp(d, x.Entry))+" Func="+itoa(tp(d, x.Func)))
+		opt(d, c, x.TypeParams)
 		node(d, c, x.Params)
 		opt(d, c, x.Results)
 		opt(d, c, x.Needs)

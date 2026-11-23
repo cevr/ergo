@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/stage"
 	"ergo.local/prototype/internal/task"
@@ -163,6 +164,30 @@ func TestTaskGateReplaysWhatHolds(t *testing.T) {
 	}
 	if v, _ := third.verdict("check", "."); v.Why != "new input NOTES.md" {
 		t.Errorf("a new NOTES.md: check's miss says %q", v.Why)
+	}
+
+	// A marker-only edit must invalidate a prior generation result, fail
+	// the check with the marker path, and leave the working tree alone.
+	marker := filepath.Join(mod, "api", "apiapi", genmark.Name)
+	markerBytes, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := strings.Replace(string(markerBytes), "generator ergo gen api", "generator stale", 1)
+	if stale == string(markerBytes) {
+		t.Fatal("fixture marker does not name the generator")
+	}
+	if err := os.WriteFile(marker, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := runTaskJSON(t, "gate", mod).verdict("gen --check", "."); v.Verdict != task.Fail || !strings.Contains(v.First, genmark.Name) {
+		t.Errorf("a changed marker with unchanged sources: gen --check is %+v", v)
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != stale {
+		t.Fatalf("gen --check changed the working tree marker: %q, %v", data, err)
+	}
+	if err := os.WriteFile(marker, markerBytes, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	// A changed contract: the hub is stale.

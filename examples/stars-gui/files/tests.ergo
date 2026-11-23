@@ -1,0 +1,11 @@
+// The test file of package files picks the disk its law runs use: each
+// case of catalog.Shelf's laws builds onTestHost, a Disk over the test's
+// own folder, so Repeatable runs on the host's files as the binary's Disk
+// does. The context is unexported, so only the test build's law runs read
+// it.
+
+import ergo.local/prototype/examples/starsgui/catalog
+import fs
+
+// onTestHost binds the shelf to a Disk over the test's folder.
+let onTestHost = context needs TestAmbient { catalog.Shelf: New(fs.NewTestHost()) }

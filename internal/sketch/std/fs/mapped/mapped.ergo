@@ -82,6 +82,9 @@ func NewTestHost() Host needs TestAmbient { NewHost(fs.NewTestHost()) }
 // OnTestHost runs Maps's laws on the host, in a folder of the case's own.
 let OnTestHost = context needs TestAmbient { Maps: NewTestHost() }
 
+// onTestFiles also runs the laws of the contracts Maps includes on Host.
+let onTestFiles = context needs TestAmbient { fs.Files, fs.Writes: NewTestHost() }
+
 func ReadFile(h Host, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try h.readFile(path) }
 
 func ReadDir(h Host, path string) []string fails fs.NotFound | fs.Denied | fs.Failed { try h.readDir(path) }

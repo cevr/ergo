@@ -134,7 +134,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 	if c.StartsTask && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
-	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc {
+	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc && !(c.Kind == check.CallOp && c.Op != nil && len(c.Op.Sig.TParams) > 0) {
 		irNo("generic call kind %d", c.Kind)
 	}
 	if !stmt && b.l.info.Types[x] == nil {
@@ -318,7 +318,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 		} else if known != "" {
 			// The variant takes the function's type arguments (callText).
 			targs := b.typeArgs(c, x)
-			return pre, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs}), !fd.envFree
+			return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: known, T: targs, Args: irArgs})), !fd.envFree // ir_forms_inline.go (KNOWN-FILTER-INLINE)
 		}
 		if fd.method != nil {
 			return pre, b.droppedCall(x, c, fd, b.inlineMark(x, c, fd, mark(&irExpr{K: "mcall", Pos: p, Name: b.ownedCallName(x, f, fd.name), X: irArgs[0], Args: irArgs[1:]}))), !fd.envFree // ir_forms_inline.go, ir_forms_drop.go
