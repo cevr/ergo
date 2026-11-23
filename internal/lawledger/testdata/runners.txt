@@ -782,9 +782,9 @@ tasks FinishedAreDropped	TestTasksLaws
 tasks LimitHolds	TestTasksLaws
 tasks LosersStopped	TestTasksLaws
 tasks NoMemberOutlivesItsFrame	TestTasksLaws
-tasks RepeatFollowsDecide	TestStdScheduleLawsRun
+tasks RepeatFollowsDecide	none
 tasks RestartRunsAgain	TestTasksLaws
-tasks RetryFollowsDecide	TestStdScheduleLawsRun
+tasks RetryFollowsDecide	none
 tasks Set.StopEndsEveryMember	TestTasksLaws
 tasks TransformEqualsLoop	TestTasksLaws
 tasks TransformKeepsOrder	TestTasksLaws

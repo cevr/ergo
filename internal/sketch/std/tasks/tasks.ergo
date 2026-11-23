@@ -28,20 +28,20 @@ import time
 extern go ergo.local/prototype/runtime/v1.TasksRace func Race[T own, E, R](blocks []func() T fails E needs R) T fails E needs R
 
 // Retry runs block until it gives a value or s stops (Effect retry): after
-// the n-th run fails, s decides by n and the time since the first run
-// began on the context's time.Clock; Continue sleeps its delay on the
-// context's Scheduler and runs block again, and Stop fails with that run's
-// failure. A defect or a stop of the task ends Retry at once. s does not
+// the n-th run fails, s decides by n and, if timed, the time since the
+// first run began on the context's time.Clock. Continue sleeps its delay
+// on the context's Scheduler and runs block again; Stop fails with that
+// run's failure. A defect or a stop of the task ends Retry at once. s does not
 // read the failure: a failure that must not be retried is caught in block
 // and given as a value of block's result.
 func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
-	let start = time.Clock.Now()
+	let start = startOf(s)
 	let mut runs = 0
 	for {
 		runs = runs + 1
 		let v = block() catch {
 		case err:
-			match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+			match schedule.Decide(s, runs, since(start)) {
 			case schedule.Continue as c:
 				Scheduler.Sleep(c.After)
 				continue
@@ -54,16 +54,16 @@ func Retry[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails
 }
 
 // Repeat runs block, and again while s continues (Effect repeat): after
-// the n-th run gives a value, s decides by n and the time since the first
-// run began; Continue sleeps its delay, and Stop gives the last value. A
-// failure of block is Repeat's at once.
+// the n-th run gives a value, s decides by n and, if timed, the time since
+// the first run began. Continue sleeps its delay; Stop gives the last
+// value. A failure of block is Repeat's at once.
 func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fails E needs R | Scheduler | time.Clock {
-	let start = time.Clock.Now()
+	let start = startOf(s)
 	let mut runs = 0
 	for {
 		runs = runs + 1
 		let v = try block()
-		match schedule.Decide(s, runs, time.Clock.Now().Sub(start)) {
+		match schedule.Decide(s, runs, since(start)) {
 		case schedule.Continue as c:
 			Scheduler.Sleep(c.After)
 		case schedule.Stop:
@@ -72,26 +72,60 @@ func Repeat[T, E, R](s schedule.Schedule, block func() T fails E needs R) T fail
 	}
 }
 
+// startOf reads the clock before the first run only if s uses elapsed time.
+func startOf(s schedule.Schedule) Option[time.Time] needs time.Clock {
+	if schedule.Timed(s) {
+		Some[time.Time]{Value: time.Clock.Now()}
+	} else {
+		None
+	}
+}
+
+// since reads elapsed time only when startOf captured a start.
+func since(start Option[time.Time]) duration needs time.Clock {
+	match start {
+	case Some[time.Time] as t:
+		time.Since(t.Value)
+	case None:
+		0s
+	}
+}
+
 // lawFailed is the failure of the retry laws' block: the run that failed.
 type lawFailed { Run int }
 
-// lawSchedule is an exponential backoff from 10ms, at most 1 to 6
-// retries, up to a limit of 1ms to 5s, drawn from k and limit.
-func lawSchedule(k int, limit int) schedule.Schedule {
+// lawSchedule draws a bounded backoff, with an elapsed limit only when timed.
+func lawSchedule(k int, limit int, timed bool) schedule.Schedule {
 	let retries = schedule.Recurs(1 + (k%6+6)%6)
-	let l = duration(int64(1+(limit%5000+5000)%5000) * 1000000)
-	schedule.Exponential(10ms, 2.0, 1s).And(retries).UpTo(l)
+	let s = schedule.Exponential(10ms, 2.0, 1s).And(retries)
+	if timed {
+		let l = duration(int64(1+(limit%500+500)%500) * 1000000)
+		return s.UpTo(l)
+	}
+	s
 }
+
+// lawClock counts clock reads, but not sleeps or the law's own readings.
+type lawClock { clock testing.VirtualClock, reads sync.Ref[int] } implements time.Clock
+
+func Now(c lawClock) time.Time {
+	c.reads.Update(func(n int) int { n + 1 })
+	c.clock.Now()
+}
+
+func Elapsed(c lawClock, start time.Time) duration { c.Now().Sub(start) }
 
 // RetryFollowsDecide: on a VirtualClock, Retry runs block as often as
 // Decide says, sleeps the delays it gives, and ends with the run the fold
 // of Decide ends with: the first run that does not fail, or the failure
-// of the run after which Decide stops. Each run takes w.
-law RetryFollowsDecide(failing int, work int, k int, limit int) {
-	let s = lawSchedule(k, limit)
-	let w = duration(int64((work%300+300)%300) * 1000000)
+// of the run after which Decide stops. Only a timed schedule reads the
+// clock, once at the start and once per decision.
+law RetryFollowsDecide(failing int, work int, k int, limit int, timed bool) {
+	let s = lawSchedule(k, limit, timed)
+	let w = duration(int64(1+(work%300+300)%300) * 1000000)
 	let n = (failing%10 + 10) % 10
 	let mut runs = 0
+	let mut decisions = 0
 	let mut at = 0s
 	let mut want = 0
 	for want == 0 {
@@ -100,6 +134,7 @@ law RetryFollowsDecide(failing int, work int, k int, limit int) {
 		if runs > n {
 			want = runs
 		} else {
+			decisions = decisions + 1
 			match schedule.Decide(s, runs, at) {
 			case schedule.Continue as c:
 				at = at + c.After
@@ -110,8 +145,9 @@ law RetryFollowsDecide(failing int, work int, k int, limit int) {
 	}
 	let c = testing.NewVirtualClock(0)
 	let calls = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
-		let start = time.Clock.Now()
+	let reads = sync.NewRef[int](0)
+	let start = c.Now()
+	with context { Scheduler: c, time.Clock: lawClock{clock: c, reads: reads} } {
 		let got = Retry(s, func() int fails lawFailed needs Scheduler {
 			Scheduler.Sleep(w)
 			let i = sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
@@ -123,16 +159,17 @@ law RetryFollowsDecide(failing int, work int, k int, limit int) {
 		case lawFailed as f:
 			0 - f.Run
 		}
-		got == want && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+		let wantReads = if timed { decisions + 1 } else { 0 }
+		got == want && calls.Get() == runs && c.Elapsed(start) == at && reads.Get() == wantReads
 	}
 }
 
 // RepeatFollowsDecide: on a VirtualClock, Repeat runs block until Decide
-// stops, sleeps the delays it gives, and gives the last run's value. Each
-// run takes w.
-law RepeatFollowsDecide(work int, k int, limit int) {
-	let s = lawSchedule(k, limit)
-	let w = duration(int64((work%300+300)%300) * 1000000)
+// stops, sleeps the delays it gives, and gives the last run's value. Only
+// a timed schedule reads the clock, once at the start and once per decision.
+law RepeatFollowsDecide(work int, k int, limit int, timed bool) {
+	let s = lawSchedule(k, limit, timed)
+	let w = duration(int64(1+(work%300+300)%300) * 1000000)
 	let mut runs = 0
 	let mut at = 0s
 	let mut more = true
@@ -148,13 +185,15 @@ law RepeatFollowsDecide(work int, k int, limit int) {
 	}
 	let c = testing.NewVirtualClock(0)
 	let calls = sync.NewRef[int](0)
-	with context { Scheduler: c, time.Clock: c } {
-		let start = time.Clock.Now()
+	let reads = sync.NewRef[int](0)
+	let start = c.Now()
+	with context { Scheduler: c, time.Clock: lawClock{clock: c, reads: reads} } {
 		let got = Repeat(s, func() int needs Scheduler {
 			Scheduler.Sleep(w)
 			sync.Modify(calls, func(v int) (int, int) { (v + 1, v + 1) })
 		})
-		got == runs && calls.Get() == runs && time.Clock.Now().Sub(start) == at
+		let wantReads = if timed { runs + 1 } else { 0 }
+		got == runs && calls.Get() == runs && c.Elapsed(start) == at && reads.Get() == wantReads
 	}
 }
 
