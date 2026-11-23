@@ -131,7 +131,7 @@ func testPackages(root string) ([]testPackage, string, error) {
 	command := exec.Command("go", "list", "-e", "-deps", "-test", "-json=ImportPath,Dir,ForTest,Deps,TestGoFiles,XTestGoFiles,EmbedFiles,TestEmbedFiles,XTestEmbedFiles", "./...")
 	command.Dir = root
 	command.Env = stepEnvironment()
-	output, err := runOutput(command)
+	output, err := listOutput(command)
 	if err != nil {
 		return nil, "", fmt.Errorf("go list -deps -test ./...: %w", err)
 	}
