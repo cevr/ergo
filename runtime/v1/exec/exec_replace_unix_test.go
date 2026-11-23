@@ -19,7 +19,7 @@ const replaceProbeName = "ergo-exec-replace-probe"
 func replaceProbeArgs() []string { return []string{"--ergo-replace-report", "an argument", ""} }
 
 func replaceProbeEnv(dir string) map[string]string {
-	return map[string]string{"PATH": dir, "VALUE": "two=parts"}
+	return map[string]string{"A\nB": "first\nsecond", "PATH": dir, "VALUE": "two=parts"}
 }
 
 func init() {
@@ -59,6 +59,13 @@ func TestExecReplaceMatchesRun(t *testing.T) {
 	run, err := ExecRun(rt.Root("replace control"), replaceProbeName, replaceProbeArgs(), replaceProbeEnv(dir), dir, "", 0)
 	if err != nil || run.Status != 7 {
 		t.Fatalf("Run: %+v, %v", run, err)
+	}
+	want, err := json.Marshal([][]string{
+		append([]string{replaceProbeName}, replaceProbeArgs()...),
+		{"A\nB=first\nsecond", "PATH=" + dir, "VALUE=two=parts"},
+	})
+	if err != nil || run.Stdout != string(want)+"\n" {
+		t.Fatalf("Run reported %q; want exact sorted entries %s (%v)", run.Stdout, want, err)
 	}
 	launcher := exec.Command(exe, "--ergo-replace-launch", dir)
 	launcher.Env = []string{ambient + "=parent", "PATH=/not-the-child-path"}

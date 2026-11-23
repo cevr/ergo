@@ -373,30 +373,30 @@ type Runner {
 		true
 	},
 
-	// EnvIsExact: a program sees exactly its Command's Env over the
-	// Runner's Env(): the program env (by its path, so no PATH is needed)
-	// prints each entry of c.WithEnvFrom(Env()) with its value, and no other
-	// key. The values are drawn; a NUL or a line feed, which no environment
-	// value holds or env's lines cannot show, is dropped.
+	// EnvIsExact: a program sees exactly its Command's Env over the Runner's
+	// Env(). The host rejects an empty key, "=" or NUL in a key, and NUL
+	// in a value as Failed before launch. The probe uses awk's ENVIRON
+	// with length-prefixed entries and LC_ALL=C so lengths count bytes.
+	// Its keys use portable names; values can contain arbitrary bytes
+	// except NUL, including line feeds. (Some awk implementations drop
+	// names that are not identifiers.)
 	law EnvIsExact(values []string) {
-		let mut c = New("/usr/bin/env", []string{})
+		let probe = "BEGIN { for (k in ENVIRON) printf \"%d %d\\n%s%s\", length(k), length(ENVIRON[k]), k, ENVIRON[k] }"
+		// GNU awk supplies defaults for absent or empty AWKPATH and
+		// AWKLIBPATH. Set them explicitly so the probe adds no entries.
+		let mut c = New("/usr/bin/awk", []string{probe}).WithEnv("LC_ALL", "C").WithEnv("AWKPATH", ".").WithEnv("AWKLIBPATH", ".").WithEnv("V_LINE", "one\ntwo")
 		for i, v in values {
-			c = c.WithEnv("V" + strconv.Itoa(i), envValue(v))
+			c = c.WithEnv("V" + strconv.Itoa(i), strings.ReplaceAll(v, "\x00", ""))
 		}
-		let want = c.WithEnvFrom(Env()).Env
 		let r = Run(c) catch {
 		case NotFound, Denied, Failed:
 			return true
 		}
-		let mut seen = 0
-		for line in Split(r.Stdout) {
-			let eq = strings.IndexByte(line, '=')
-			if eq < 0 || want.Get(line[:eq]) != (Some[string]{Value: line[eq + 1:]}) {
-				return false
-			}
-			seen = seen + 1
+		let mut want = []string{}
+		for key, value in c.WithEnvFrom(Env()).Env {
+			want = want.Append(key + "=" + value)
 		}
-		seen == len(want)
+		r.Status == 0 && envReportMatches(r.Stdout, want)
 	},
 
 	// LookupUsesChildPath: a name with no slash is looked up on the PATH
@@ -423,8 +423,39 @@ type Runner {
 // folder, and GIT_CEILING_DIRECTORIES, its parent. They are in its Env().
 let TestHostKeys = []string{"GIT_CEILING_DIRECTORIES", "HOME", "TMPDIR"}
 
-// envValue is v without NUL bytes and line feeds.
-func envValue(v string) string { strings.ReplaceAll(strings.ReplaceAll(v, "\x00", ""), "\n", "") }
+// envReportMatches reads header lengths, then exactly those key and
+// value bytes. The child reports a map in no order, so compare sorted
+// entries and keep duplicates visible if a reporter emits them.
+func envReportMatches(report string, want []string) bool {
+	let mut rest = report
+	let mut got = []string{}
+	for _ in 0..len(report) {
+		if rest == "" {
+			break
+		}
+		let end = strings.IndexByte(rest, '\n')
+		let space = strings.IndexByte(rest, ' ')
+		if space <= 0 || end <= space {
+			return false
+		}
+		let keyLen = strconv.Atoi(rest[:space]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		let valLen = strconv.Atoi(rest[space + 1:end]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return false
+		}
+		let payload = rest[end + 1:]
+		if keyLen <= 0 || keyLen > len(payload) || valLen < 0 || valLen > len(payload) - keyLen {
+			return false
+		}
+		let value = payload[keyLen:keyLen + valLen]
+		got = got.Append(payload[:keyLen] + "=" + value)
+		rest = payload[keyLen + valLen:]
+	}
+	slices.Equal(slices.Sort(got), slices.Sort(want))
+}
 
 // Interleaves reports whether s is a and b merged, each one's bytes kept
 // in its order: what a stream of a program whose Stderr is ToStdout holds

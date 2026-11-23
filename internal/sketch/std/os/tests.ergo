@@ -4,4 +4,4 @@
 // working directory and only HOME, TMPDIR, PWD and PATH set (rows.md,
 // Test's ambient).
 
-let onTestHost = context needs TestAmbient { Process: NewTestHost() }
+let onTestHost = context needs TestAmbient { Process: NewTestHost(), Self: NewTestHost() }

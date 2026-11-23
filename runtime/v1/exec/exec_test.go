@@ -426,7 +426,8 @@ echo late >> %[2]s
 // and holds the rest of the call's contract: exactly env as the
 // environment (STD-EXEC-ENV), a name looked up on env's PATH alone, the
 // directory, the standard input and a status that is not 0. Mutants
-// exec-env-inherits-host and exec-lookup-on-host-path.
+// exec-env-inherits-host, exec-lookup-on-host-path and
+// exec-accepts-invalid-env.
 func TestExecFailures(t *testing.T) {
 	task := rt.Root("exec test")
 	dir := t.TempDir()
@@ -461,7 +462,7 @@ func TestExecFailures(t *testing.T) {
 		{"/nonexistent/loop-probe-x", nil, "", ExecNotFound{Name: "/nonexistent/loop-probe-x"}},
 		{"", nil, "", ExecNotFound{Name: ""}},
 		{plain, nil, "", ExecDenied{Name: plain}},
-		{dir, nil, "", ExecDenied{Name: dir}}, // Go's LookPath: a directory is not executable
+		{dir, nil, "", ExecDenied{Name: dir}},     // Go's LookPath: a directory is not executable
 		{"sh", nil, "", ExecNotFound{Name: "sh"}}, // no PATH in env: this process's is not read
 		{"ergo-exec-only-here", nil, "", ExecNotFound{Name: "ergo-exec-only-here"}},
 		{"sh", hostPath, "", nil},
@@ -470,6 +471,10 @@ func TestExecFailures(t *testing.T) {
 		{"ergo-exec-only-here", map[string]string{"PATH": shadow}, "", ExecDenied{Name: "ergo-exec-only-here"}},
 		{"true", nil, filepath.Join(dir, "nowhere"), ExecFailed{Name: "true", Reason: "dir " + filepath.Join(dir, "nowhere") + ": no such file or directory"}},
 		{"true", nil, plain, ExecFailed{Name: "true", Reason: "dir " + plain + ": not a directory"}},
+		{"/usr/bin/true", map[string]string{"": "x"}, "", ExecFailed{Name: "/usr/bin/true", Reason: "invalid environment entry"}},
+		{"/usr/bin/true", map[string]string{"A=B": "x"}, "", ExecFailed{Name: "/usr/bin/true", Reason: "invalid environment entry"}},
+		{"/usr/bin/true", map[string]string{"A\x00B": "x"}, "", ExecFailed{Name: "/usr/bin/true", Reason: "invalid environment entry"}},
+		{"/usr/bin/true", map[string]string{"A": "x\x00y"}, "", ExecFailed{Name: "/usr/bin/true", Reason: "invalid environment entry"}},
 	} {
 		_, err := ExecRun(task, c.name, nil, c.env, c.dir, "", 0)
 		if err != c.want {

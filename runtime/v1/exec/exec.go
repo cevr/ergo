@@ -338,8 +338,9 @@ func execStatus(ps *os.ProcessState) int {
 // the program unless the caller put it in env), and stdin as its standard
 // input. A name with no slash is looked up on env's PATH, never on this
 // process's (ExecLookPath). It fails NotFound for the empty name, which no
-// program has, and for a name no directory of env's PATH holds, and Failed
-// for a dir that is not a directory. The caller sets SysProcAttr.
+// program has, and for a name no directory of env's PATH holds. It fails
+// Failed for a bad directory or an invalid environment entry. The caller
+// sets SysProcAttr.
 //
 // It is exported for the runtime's own Go callers that start a child (a
 // task runner's child start): the contract above is theirs too, so a child
@@ -347,6 +348,13 @@ func execStatus(ps *os.ProcessState) int {
 func ExecCommand(name string, args []string, env map[string]string, dir string, stdin string) (*exec.Cmd, error) {
 	if name == "" {
 		return nil, ExecNotFound{Name: name}
+	}
+	keys := make([]string, 0, len(env))
+	for k, value := range env {
+		if k == "" || strings.ContainsAny(k, "=\x00") || strings.IndexByte(value, 0) >= 0 {
+			return nil, ExecFailed{Name: name, Reason: "invalid environment entry"}
+		}
+		keys = append(keys, k)
 	}
 	if dir != "" {
 		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
@@ -364,10 +372,6 @@ func ExecCommand(name string, args []string, env map[string]string, dir string, 
 	// A Cmd built by hand, not exec.Command, which would look name up on
 	// this process's PATH.
 	cmd := &exec.Cmd{Path: path, Args: append([]string{name}, args...), Dir: dir}
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
-	}
 	slices.Sort(keys)
 	// Never nil: os/exec gives a program with a nil Env this process's
 	// whole environment.

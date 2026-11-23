@@ -9,11 +9,8 @@
 # names nothing, is red until its line goes; a key that now fails in
 # another class than its line's is red. This list only shrinks.
 cmp *	internal error: eval: a bare value of int is not a record with no fields (Natural[int] as a value)	STDLAW-RED-CMP
-exec Runner.EnvIsExact	not run: skipped at check time: check-time evaluation does not run the capability TestAmbient, which no with of the run binds (the host's Runner runs a real program); it runs as written under onHost and onHostWithPath in lower TestExecLaws's probe	STD-EXEC-LAWS-NATIVE
-exec Runner.LookupUsesChildPath	not run: skipped at check time: check-time evaluation does not run the capability TestAmbient, which no with of the run binds (the host's Runner runs a real program); it runs as written under onHost in lower TestExecLaws's probe	STD-EXEC-LAWS-NATIVE
 fstest Confined.InsideIsWritten	refuted: for Folder, a failure escaped: fs.NotFound{Path: "inside"}	STDLAW-RED-FSTEST
 fstest Confined.OutsideIsDenied	refuted: for Folder, the law is false	STDLAW-RED-FSTEST
-os Process.EnvironAgreesWithGetenv	not run: skipped at check time: check-time evaluation does not run the capability TestAmbient, which no with of the run binds; it runs as written under onProcess in lower TestExecLaws's probe	STD-EXEC-LAWS-NATIVE
 prelude Hashing.EqualKeysHashEqual	not run: the prelude is no std package, so no verdict on its own source	STDLAW-162-NOWHERE
 prelude StructuralFloatKeysHashEqual	not run: the prelude is no std package, so no verdict on its own source	STDLAW-162-NOWHERE
 prelude StructuralIntKeysHashEqual	not run: the prelude is no std package, so no verdict on its own source	STDLAW-162-NOWHERE

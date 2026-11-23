@@ -620,11 +620,8 @@ var execLawStatements = map[string]string{
 // drawn Shell, and each of those runs must pass. The laws Runner.EnvIsExact
 // (onHost, onHostWithPath), Runner.LookupUsesChildPath (onHost) and
 // os.Process.EnvironAgreesWithGetenv (onProcess) run here as written, not
-// restated: their ledger runner is none, and the std laws in place step
-// cannot run them, as check-time evaluation does not run TestAmbient
-// (scripts/ergotests/testdata/std-red.txt). This probe is their only
-// runner until ergo test runs std in place (STD-EXEC-LAWS-NATIVE, after
-// NATIVE-LAWS-2), when these contexts go.
+// restated. Their native std run also uses named TestAmbient contexts;
+// this probe checks that another package can supply those contexts too.
 //
 // It builds Go because the laws run in the built test binary (ergo test),
 // the only place a law runs; a host Runner's law runs a real program.
