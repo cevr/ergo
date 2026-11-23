@@ -576,17 +576,6 @@ func (in *irInliner) splice(s *irStmt, p *irPath) []*irStmt {
 		why := fmt.Sprintf("splice: mode=%s fallible=%v pays=%v spent=%d size=%d callee=%v frame=%v", mode, site.fallible, site.pays(site.loop || p.loop), p.spent, site.size, callee != nil, frame != nil)
 		if callee != nil && frame != nil {
 			why += fmt.Sprintf(" frame.f=%v args=%d params=%v inlinable=%v localType=%q", frame.f == site.f, len(s.X.Args), frame.params, irInlinable(callee.Body, len(site.f.Sig.Results) == 1, site.fallible), in.localType(s.Local))
-			irWalk(callee.Body, false, func(st *irStmt, lit bool) {
-				x := ""
-				if st.X != nil {
-					x = st.X.K
-				}
-				why += fmt.Sprintf("\n    stmt %s lit=%v x=%s pair=%v", st.K, lit, x, st.Pair)
-			}, func(e *irExpr, lit bool) {
-				if e.K == "result" || e.K == "recover" {
-					why += "\n    expr " + e.K
-				}
-			})
 		}
 		irKnownTrace(site.key, why)
 	}

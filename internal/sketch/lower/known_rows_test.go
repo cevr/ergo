@@ -103,7 +103,12 @@ func TestKnownVariantRowInstance(t *testing.T) {
 		if strings.Contains(read, name+"(") || strings.Contains(read, name+"Mono") {
 			t.Errorf("text: read calls %s itself, not its known variant", name)
 		}
+		// A program declaration's Go name may carry the program prefix
+		// (ergo__, NAME-LOCAL).
 		body := funcText(text, "func "+name+"Known")
+		if body == "" {
+			body = funcText(text, "func ergo__"+name+"Known")
+		}
 		if body == "" {
 			if !strings.Contains(read, name+"Known") {
 				continue // inlined
@@ -141,14 +146,14 @@ func TestKnownVariantRowInstance(t *testing.T) {
 	}
 	bodies := map[string]string{}
 	for _, f := range ir.Funcs {
-		bodies[f.Name] = string(f.Body)
+		bodies[strings.TrimPrefix(f.Name, "ergo__")] = string(f.Body)
 	}
 	irRead, ok := bodies["read"]
 	if !ok {
 		t.Fatal("IR: read is not on the IR")
 	}
 	for _, name := range knownRowsCombinators {
-		if strings.Contains(irRead, `"`+name+`"`) || strings.Contains(irRead, `"`+name+`Mono`) {
+		if strings.Contains(irRead, `"`+name+`"`) || strings.Contains(irRead, `"ergo__`+name+`"`) || strings.Contains(irRead, name+`Mono`) {
 			t.Errorf("IR: read calls %s itself, not its known variant", name)
 		}
 		if body, ok := bodies[name+"Known"]; ok && strings.Contains(body, `"Check"`) {
@@ -303,10 +308,18 @@ func TestKnownVariantInlined(t *testing.T) {
 			}
 		}
 	}
+	found := false
 	for _, f := range ir.Funcs {
-		if f.Name == "filters" && strings.Contains(string(f.Body), `"optFilterKnown"`) {
+		if strings.TrimPrefix(f.Name, "ergo__") != "filters" {
+			continue
+		}
+		found = true
+		if strings.Contains(string(f.Body), `optFilterKnown"`) {
 			t.Errorf("IR: filters still calls optFilterKnown per element:\n%s", f.Body)
 		}
+	}
+	if !found {
+		t.Error("IR: filters is not on the IR")
 	}
 	// The refusal: a variant past the inline budget keeps its call. It
 	// kills kfi-budget-ignored.
