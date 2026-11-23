@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// The call sites' seeded property (#196 item 13; types.md, Call sites).
+// The call sites' seeded property (item 13; types.md, Call sites).
 // Each seed writes a program whose main binds the results of calls that
 // leave out, or write, a final CallSite parameter, at lines and columns the
 // seed varies (blank and comment lines, indentation, spaces after `=`).

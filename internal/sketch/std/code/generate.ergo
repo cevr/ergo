@@ -297,7 +297,7 @@ func machinesIn(seed int, i int, p Package) []MachineGraph {
 			}
 		}
 		let initial = if roll(seed, salt+3, 5) == 0 { "*" } else { states[roll(seed, salt+4, len(states))] }
-		out = out.Append(MachineGraph{Handle: d.Handle, Name: d.Name, States: states, Signals: signals, Initial: initial, Arms: arms, Timers: timers, Work: work, Exit: exit, Unsure: unsure})
+		out = out.Append(MachineGraph{Handle: d.Handle, Name: d.Name, States: states, Signals: signals, Initial: initial, Arms: arms, Timers: timers, Work: work, Exit: exit, Unsure: unsure, Computed: []string{}})
 	}
 	out
 }

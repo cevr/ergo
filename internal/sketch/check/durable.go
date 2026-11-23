@@ -174,7 +174,7 @@ func seenForms(fn bool) string {
 	if fn {
 		return "a function's name, a call of a function whose body is one, or a parameter written pure"
 	}
-	return "a machine declaration's value X{}, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure"
+	return "a machine declaration's value X{} whose step names a function, a Machine literal whose Step names a function, a call of a function whose body is one of these, or a parameter written pure"
 }
 
 // checkPureClauses reports the clause pure written on anything but a
@@ -404,23 +404,18 @@ func (s *pureSeer) function(info *Info, x syntax.Expr, env map[string]*pureBindi
 }
 
 // declaredStep is the step function a machine declaration names, for its
-// value X{}, or nil.
+// value X{}, or nil: a computed step (MACHINE-EXPR) names none, so the
+// checker does not see its function.
 func declaredStep(n *Named) *Func {
-	if n.Obj == nil || n.Obj.Decl == nil || n.Obj.Pkg == nil {
+	_, tn, _ := machineDeclOf(n)
+	if tn == nil || tn.Pkg.Info == nil {
 		return nil
 	}
-	if _, ok := n.under.(*MachineType); !ok {
+	e := tn.Pkg.Info.MachineEntries[tn].get(entryStep)
+	if e == nil {
 		return nil
 	}
-	spec, ok := n.Obj.Decl.Spec.(*syntax.MachineType)
-	if !ok {
-		return nil
-	}
-	id, ok := spec.Step.(*syntax.Ident)
-	if !ok || n.Obj.Pkg.Scope == nil {
-		return nil
-	}
-	f, _ := n.Obj.Pkg.Scope.names[id.Name].(*Func)
+	f := e.Func
 	if f == nil || f.Decl == nil || f.Decl.Body == nil {
 		return nil
 	}

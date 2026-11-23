@@ -401,7 +401,7 @@ func (w *valueWalk) endingReturn(o *vocc) syntax.Node {
 // source and one element.
 func (w *valueWalk) appendSite(call *syntax.CallExpr) bool {
 	c := w.info.Calls[call]
-	if c == nil || c.Kind != check.CallFunc || !preludeAppend(c.Func) {
+	if c == nil || c.Kind != check.CallFunc || !appendsSource(c.Func) {
 		return false
 	}
 	ops := callOperands(call, c)
@@ -595,7 +595,7 @@ func (fc *funcCtx) lineageOK(x *syntax.CallExpr) bool {
 // Every other Append is recorded in the copy report here.
 func (fc *funcCtx) handoverAppend(x *syntax.CallExpr, c *check.Call, vals []string) string {
 	vf := fc.l.vals
-	if vf == nil || !preludeAppend(c.Func) || len(vals) != 2 || len(callOperands(x, c)) != 2 {
+	if vf == nil || !appendsSource(c.Func) || len(vals) != 2 || len(callOperands(x, c)) != 2 {
 		return ""
 	}
 	switch {

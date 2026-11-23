@@ -14,7 +14,7 @@ import "ergo.local/prototype/internal/sketch/syntax"
 //     bodies see its facts, and only the test build reads them.
 //   - OwnerLaw: a law body (stage E3b), with the function literals in it.
 //     Only law bodies see its facts, and only the test build reads them:
-//     ergo test runs laws (#162 law-run-1), and the run build has none.
+//     ergo test runs laws (law-run-1), and the run build has none.
 //
 // So a test changes neither the verdict on the rest of the program nor its
 // run Go: a struct type that only a test's error row names is an error type
@@ -51,7 +51,7 @@ const (
 	// OwnerLaw owns the facts of law bodies (stage E3b).
 	OwnerLaw
 	// ViewTestBuild owns no fact: it is the test build's view, which
-	// lowers the program, its tests and its laws (#162 law-run-1), so it
+	// lowers the program, its tests and its laws (law-run-1), so it
 	// sees the facts of all three owners. No body has it as its owner, so
 	// a test body still never sees a law's facts, nor a law a test's.
 	ViewTestBuild

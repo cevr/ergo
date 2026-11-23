@@ -17,7 +17,7 @@ import (
 //
 // Mutants (testdata/mutants.json): st0-ergo-dir-is-go,
 // st0-ergo-test-unchecked, lawkiller-law-undeclared,
-// lawkiller-ergo-tool-dropped.
+// lawkiller-ergo-tool-dropped, lawkiller-provider-law-unresolved.
 func TestErgoTestKillerIsRunByErgoTests(t *testing.T) {
 	root := t.TempDir()
 	for f, text := range map[string]string{
@@ -28,6 +28,10 @@ func TestErgoTestKillerIsRunByErgoTests(t *testing.T) {
 		// from the repository root, decided by ergo test (LAW-KILLER).
 		"hosts/m/go.mod":   "module hosts.test/m\n",
 		"hosts/m/d/d.ergo": "func fit(n int) bool { n >= 0 }\n\nlaw Fits(n int) { fit(n * n) }\n",
+		// A provider package runs the member laws of the operation type
+		// it imports, under their qualified name (LAW-RUNS-CREDIT-PROVIDERS).
+		"internal/sketch/std/w/w.ergo":        "type Store {\n\tGet() int,\n\tlaw Kept(n int) { true },\n}\n",
+		"internal/sketch/std/w/memory/m.ergo": "import w\n\nfunc get() int { 1 }\n",
 	} {
 		p := filepath.Join(root, filepath.FromSlash(f))
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -75,6 +79,15 @@ func TestErgoTestKillerIsRunByErgoTests(t *testing.T) {
 	for _, id := range []string{"compiler/syntax:ScanTwo", "compiler/syntax:law:ScanIsTwo", "compiler/syntax:law:ScanOne"} {
 		if _, _, _, err := suitesFor(root, ledger(id)); err == nil || !strings.Contains(err.Error(), "names no test") {
 			t.Errorf("killer %s, which the package does not declare: err %v; want it refused", id, err)
+		}
+	}
+	// pkg.T.L: the imported operation type's law, which the provider runs.
+	if _, _, _, err := suitesFor(root, ledger("internal/sketch/std/w/memory:law:w.Store.Kept")); err != nil {
+		t.Errorf("a provider's run of its operation type's law (law:w.Store.Kept): %v; want it resolved", err)
+	}
+	for _, id := range []string{"internal/sketch/std/w/memory:law:w.Store.Gone", "internal/sketch/std/w/memory:law:v.Store.Kept"} {
+		if _, _, _, err := suitesFor(root, ledger(id)); err == nil || !strings.Contains(err.Error(), "names no test") {
+			t.Errorf("killer %s, a law no imported package declares: err %v; want it refused", id, err)
 		}
 	}
 }

@@ -8,7 +8,7 @@ import (
 
 // requirementKeyword is the spelling of a capability (requirement) row in
 // source. The keyword is the only place the checker names it, so a rename of
-// the keyword (#217) touches this constant and the syntax nodes only.
+// the keyword touches this constant and the syntax nodes only.
 const requirementKeyword = "needs"
 
 // Object is a named entity: a type, a function, a variable, a constant, a

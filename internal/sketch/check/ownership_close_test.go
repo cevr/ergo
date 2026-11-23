@@ -10,7 +10,7 @@ import (
 )
 
 // TestCloseFormsTakeOnce is the smallest repro of B1's double release
-// through a Close reached another way (#197 L8 B1 known gap): `(&h).Close()`
+// through a Close reached another way (L8 B1 known gap): `(&h).Close()`
 // did not take h, so h was closed by hand and again at its scope end; and
 // a method value of Close (`let f = r.Close`) could be called twice or
 // never. The address form now takes h (a later use is S108); the method
@@ -71,7 +71,7 @@ func main() {}
 }
 
 // TestGenericDropRefused is the text and position row of the refusal
-// that stands in for Gap 42 (#197 L8 B2): a generic body that drops a
+// that stands in for Gap 42 (L8 B2): a generic body that drops a
 // value of its own type parameter cannot release it, so the drop is S108
 // in the body (Generics 9); the calls, with plain data and with a
 // resource, are admitted by the mark.
@@ -134,7 +134,7 @@ func TestArrayOwnership(t *testing.T) {
 }
 
 // TestNoReleaseRefused is the text and position row of the refusal of an
-// owned value whose type keeps resources and has no release (#197 L8 B2,
+// owned value whose type keeps resources and has no release (resource ownership L8 B2,
 // B3): a user operation type whose operation takes a resource and that has
 // no Close() (resources R1, R13). The std queue includes the prelude's
 // Keeping; this one does not, so a drain of Keeping's shape is an ordinary

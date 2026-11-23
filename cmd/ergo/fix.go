@@ -17,7 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lint"
 )
 
-const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--std DIR] [--go] PATH..."
+const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments] [--std DIR] [--go] PATH..."
 
 const fixHelp = fixUsage + `
 
@@ -54,6 +54,10 @@ first. Other diagnostics are printed, and the exit status is then 1.
   --lint     then apply the safe lint fixes (race-for-timeout) of each
              program's lint configuration, until none is left; a fix
              that leaves a diagnostic refuses the run and writes nothing
+  --comments only remove, under each PATH and the --std DIR, every comment
+             lint's no-comments refuses (all but a public declaration's
+             doc comment), keeping each file's tokens; with --json it
+             lists what it removed: file, line, declaration, position, text
 
 Exit codes: 0 done; 1 a file could not be read or written, a diagnostic
 remains, or --check found a change; 2 invalid invocation.
@@ -71,7 +75,7 @@ type fixReport struct {
 // clause pass over each PATH that is a program.
 func fixCommand(args []string) error {
 	var paths []string
-	var check, dry, asJSON, goLits, withLint bool
+	var check, dry, asJSON, goLits, withLint, comments bool
 	stdRoot := ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -85,6 +89,8 @@ func fixCommand(args []string) error {
 			goLits = true
 		case "--lint":
 			withLint = true
+		case "--comments":
+			comments = true
 		case "--std":
 			if i+1 == len(args) {
 				return usageError{message: fixUsage}
@@ -102,6 +108,9 @@ func fixCommand(args []string) error {
 		return usageError{message: fixUsage}
 	}
 	write := !check && !dry
+	if comments {
+		return fixComments(respellRoots(fixFolders(paths), stdRoot), write, check, asJSON)
+	}
 	// The respells come first: they are syntactic, so they read a file
 	// that does not check, and every checked pass below reads the new
 	// spelling (RESPELL-SYNTAX). A std folder, or a package, written in
@@ -364,6 +373,39 @@ func fixState(root string) (string, error) {
 
 // respellRoots is the folders and files the respells walk: the paths, and
 // the std folder when no path holds it already.
+// fixComments is `ergo fix --comments`: the comment pass alone over roots
+// (fix.RunComments). With asJSON it prints the comments it took out, the
+// rows of the refactor worklist; with check it writes nothing and exits 1
+// when a comment would go.
+func fixComments(roots []string, write, check, asJSON bool) error {
+	rep, err := fix.RunComments(fix.Options{Paths: roots, Write: write})
+	if err != nil {
+		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
+	}
+	if asJSON {
+		removed := rep.Removed
+		if removed == nil {
+			removed = []fix.Removed{}
+		}
+		if err := printJSON(struct {
+			Written bool          `json:"written"`
+			Removed []fix.Removed `json:"removed"`
+			Errors  []string      `json:"errors,omitempty"`
+		}{write && len(rep.Files) > 0, removed, rep.Errs}); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprint(os.Stdout, rep.Text())
+	}
+	switch {
+	case len(rep.Errs) > 0:
+		return exitStatusError{code: 1, message: "fix: comments left in files it could not change", handled: true}
+	case check && len(rep.Files) > 0:
+		return exitStatusError{code: 1, message: "fix: comments would be removed", handled: true}
+	}
+	return nil
+}
+
 func respellRoots(paths []string, stdRoot string) []string {
 	roots := slices.Clone(paths)
 	if stdRoot == "" {

@@ -12,7 +12,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// TestTakesInferenceModel (#197 L8 A3) is a seeded property of takes
+// TestTakesInferenceModel (L8 A3) is a seeded property of takes
 // inference (takes.go) and of the own mark (types.md, Generics 9; EXM2).
 // It generates a package's call graph: functions, exported (a written
 // takes clause, chosen at random) and unexported (none: inferred), whose

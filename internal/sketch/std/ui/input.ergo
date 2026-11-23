@@ -256,16 +256,7 @@ func focusKey[E](f mut Frame[E], r arena.Ref[node[E]], k KeyPress) focusHit[E] {
 // control a press or a text acts on (a Pressable, a Check, a Toggle, an
 // Input) or a Semantic that a press sends from and is not disabled (a
 // radio, an option, a link). A node under a disabled Fieldset does not.
-func Focusable[E](n Node[E]) bool {
-	match n {
-	case PressableNode[E], CheckNode[E], ToggleNode, InputNode:
-		true
-	case SemanticNode[E] as x:
-		!x.Access.Disabled && sends(x.On)
-	case _:
-		false
-	}
-}
+func Focusable[E](n Node[E]) bool { HostFocusable(Lower(n)) }
 
 // sends is whether a press has a signal to send.
 func sends[E](on Option[E]) bool {
