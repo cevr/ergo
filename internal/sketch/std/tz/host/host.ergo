@@ -8,6 +8,7 @@
 // is not a zone name (posixrules, localtime) loads when it is a TZif file.
 
 import tz
+import tz/iana
 
 // Zones is the provider of tz.Zones over the host's zone files. Its field
 // gives this package the construction authority, so only New makes one.
@@ -60,6 +61,17 @@ type Named { Name string, Zones tz.Zones } implements tz.Local
 
 // Zone is the zone n names.
 func Zone(n Named) tz.Zone fails tz.UnknownZone { try n.Zones.Load(n.Name) }
+
+// testLocal is Local over std's copy of the database. Local reads the
+// host's TZ and zone file, so it needs the test's ambient, which only the
+// test runner provides.
+func testLocal() Local needs TestAmbient { Local{zones: iana.New()} }
+
+// onStdZones and namedUTC are the contexts tz.Local's laws run Local and
+// Named under, over std's copy of the database (types.md, Laws 10).
+let onStdZones = context needs TestAmbient { tz.Local: testLocal() }
+
+let namedUTC = context { tz.Local: Named{Name: "UTC", Zones: iana.New()} }
 
 extern go ergo.local/prototype/runtime/v1.TzEnv func hostEnv() (bool, string)
 extern go ergo.local/prototype/runtime/v1.TzHostLocal func hostLocal() (string, string)

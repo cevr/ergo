@@ -14,6 +14,7 @@ import (
 
 	"ergo.local/prototype/internal/lawledger"
 	"ergo.local/prototype/scripts/mutants/anchor"
+	"ergo.local/prototype/scripts/mutants/suitename"
 )
 
 // ledgerFile is the schema of a package's testdata/mutants.json, as
@@ -72,6 +73,7 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 	}
 	ledgers := 0
 	testFiles := map[string][]testFile{}
+	names := suitename.At(root)
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -121,8 +123,13 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 					if name, _, _ = strings.Cut(name, " "); ledger.Commands[name] == nil {
 						t.Errorf("%s: %s: killer %q: the ledger has no command %q", path, m.Name, k, name)
 					}
-				} else if why := killerMissing(root, k, testFiles); why != "" {
-					t.Errorf("%s: %s: killer %q: %s", path, m.Name, k, why)
+				} else {
+					id, err := names.Resolve(k)
+					if err != nil {
+						t.Errorf("%s: %s: %v", path, m.Name, err)
+					} else if why := killerMissing(root, id, testFiles); why != "" {
+						t.Errorf("%s: %s: killer %q: %s", path, m.Name, k, why)
+					}
 				}
 			}
 			seen[m.Name] = true
@@ -146,16 +153,6 @@ func TestLedgerEditsApplyOnce(t *testing.T) {
 	if ledgers == 0 {
 		t.Fatal("no testdata/mutants.json below the module root")
 	}
-}
-
-// ergoSuites are the suite names of scripts/mutants' ergoSuites and their
-// packages.
-var ergoSuites = map[string]string{
-	"check": "internal/sketch/check",
-	"lower": "internal/sketch/lower",
-	"std":   "internal/sketch/stdlib", // the std tests (GS25)
-	"api":   "internal/sketch/api",
-	"ergo":  "cmd/ergo",
 }
 
 // testFile is a _test.go file of a package: its build constraint's tag (a
@@ -205,11 +202,10 @@ func ergoKillerMissing(root, dir, test string, files []string) string {
 }
 
 func killerMissing(root, id string, cache map[string][]testFile) string {
-	suite, rest, ok := strings.Cut(id, ":")
-	if !ok {
+	if !strings.Contains(id, ":") {
 		return "not SUITE:TEST"
 	}
-	test, _, _ := strings.Cut(rest, " ")
+	suite, test := suitename.Split(id)
 	if suite == "examples" {
 		// A program is a directory of examples with its ergo.mod; a
 		// package or a case inside one is not (r3b-local-exit named
@@ -224,9 +220,7 @@ func killerMissing(root, id string, cache map[string][]testFile) string {
 		return ""
 	}
 	dir, tag := suite, ""
-	if pkg, ok := ergoSuites[suite]; ok {
-		dir = pkg
-	} else if d, t, tagged := strings.Cut(suite, "["); tagged {
+	if d, t, tagged := strings.Cut(suite, "["); tagged {
 		dir, tag = d, strings.TrimSuffix(t, "]")
 	}
 	files, ok := cache[dir]

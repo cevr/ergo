@@ -1,0 +1,5 @@
+kind rpc
+generator ergo gen rpc
+subject jobsweb/jobs.Jobs
+contract sha256:50a9107372d5c3db6ab26e8f8421b182dc9c610f79c6f9bf1e4bf0c4feebd0b7
+digest sha256:e6251467cbc2c1b1351e963d5fca65ab307440fb24b54eb25a968d5b88c6565f

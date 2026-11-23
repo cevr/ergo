@@ -14,7 +14,7 @@ import (
 // TestAmbient` checks clean where a test builds it. Each row kills a
 // mutant of testambient.go that no law or example catches (the examples
 // only build such a context where it is allowed): rule 1's header read
-// (a wider row admitted), rule 2's entry refusal, rule 3's with site, its
+// (TestAmbient is the runner's, the rest of a wider row the with site's), rule 2's entry refusal, rule 3's with site, its
 // embedding and its Context value.
 func TestTestAmbientDiagnostics(t *testing.T) {
 	const head = "import fs\n\nlet onDisk = context needs TestAmbient { fs.Files: fs.NewTestHost() }\n\n"
@@ -42,11 +42,14 @@ func TestTestAmbientDiagnostics(t *testing.T) {
 }
 `, []string{"6:7 S102 " + withOutside}},
 		{"no header", `let bare = context { fs.Files: fs.NewTestHost() }
-`, []string{"5:32 S102 context bare requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)"}},
-		{"a wider header", `let wider = context needs TestAmbient | fs.Writes { fs.Files: fs.NewTestHost() }
+`, []string{"5:32 S102 context bare requires TestAmbient while it is built, which its header's needs row does not list: write needs TestAmbient in its header (rows.md, Context 4)"}},
+		{"a wider header: the with site gives the rest of the row", `let wider = context needs TestAmbient | fs.Writes { fs.Files: fs.NewTestHost() }
+
+test Wider {
+	with wider {}
+}
 `, []string{
-			"5:21 S109 a context's needs clause waits for context header checking (rows.md Context 8); it is not checked yet, but for needs TestAmbient alone (rows.md, Test's ambient)",
-			"5:63 S102 context wider requires TestAmbient while it is built; a named context is closed: its providers require no capability from the with site (README Gap 6)",
+			"8:7 S102 context wider requires fs.Writes, which is not in the capability row of test Wider and no with provides it",
 		}},
 		{"an embedding", `let embeds = context { onDisk }
 `, []string{"5:24 S108 context onDisk needs TestAmbient and is not embedded: its folder lives for one with of it (rows.md, Test's ambient)"}},

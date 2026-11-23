@@ -58,7 +58,7 @@ func run(t *testing.T, program []sockFilter, arch, nr uint32, args ...uint64) ui
 }
 
 func TestFilter(t *testing.T) {
-	program := filter()
+	program := filter(false)
 	if len(program) > 4096 {
 		t.Fatalf("%d instructions exceed BPF_MAXINSNS", len(program))
 	}
@@ -67,6 +67,8 @@ func TestFilter(t *testing.T) {
 	for _, c := range calls {
 		want := notify
 		switch c.kind {
+		case kindWriteFD:
+			want = allow
 		case kindRefused:
 			want = seccompRetErrno | uint32(syscall.ENOSYS)
 		case kindNamespaceClone:

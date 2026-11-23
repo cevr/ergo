@@ -122,10 +122,12 @@ func Generate(root string, p Package) (map[string][]byte, error) {
 		}
 		for _, gen := range []struct {
 			dir   string
-			files map[string]string
-		}{{hub.Dir, hub.Files}, {c.Dir, files.Files}} {
-			for name, text := range gen.files {
+			files apigen.Files
+		}{{hub.Dir, hub}, {c.Dir, files}} {
+			for name, text := range gen.files.Written() {
 				out[path.Join(p.ModuleDir(), gen.dir, name)] = []byte(text)
+			}
+			for name, text := range gen.files.Files {
 				module[path.Join(gen.dir, name)] = text
 			}
 		}

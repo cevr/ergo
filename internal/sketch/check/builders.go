@@ -1,6 +1,7 @@
 package check
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -28,6 +29,9 @@ import (
 //     provides I by its operations: fstest.NewMemory for fs.Files and
 //     fs.Writes, io.NewRecorder for io.Stdout, io.NewInput for io.Stdin.
 //     Two such functions are no builder: a generator does not choose.
+//     Among several, one that takes a value of I wraps one and has no
+//     base case (fstest.NewRecorder over an fs.Root), so it is no
+//     candidate, and fstest.NewTree is fs.Root's builder.
 //  3. The builder's parameters are generated, as a constructor's are.
 //  4. A builder with no parameters builds the case's world: a case builds
 //     one value with it, and every value of an operation type it builds in
@@ -100,6 +104,13 @@ func builderOf(n *Named, sees map[*Package]bool) (*Builder, string) {
 			}
 		}
 	}
+	if len(cands) > 1 {
+		// A builder that takes a value of n wraps one (fstest.NewRecorder
+		// over an fs.Root) and has no base case, so it builds nothing
+		// unless another builder starts the value: it is no candidate
+		// (LAW-UNFED; BUILDER-WELLFOUNDED ranks it with no finite value).
+		cands = slices.DeleteFunc(cands, func(b *Builder) bool { return wrapsOwn(b, n) })
+	}
 	switch len(cands) {
 	case 1:
 		return cands[0], ""
@@ -116,6 +127,16 @@ func builderOf(n *Named, sees map[*Package]bool) (*Builder, string) {
 	}
 	sort.Strings(names)
 	return nil, n.String() + " is an operation type with more than one builder (" + strings.Join(names, ", ") + "), and a generator does not choose"
+}
+
+// wrapsOwn reports whether b takes a parameter of n's operation type.
+func wrapsOwn(b *Builder, n *Named) bool {
+	for _, v := range b.Func.Sig.Params {
+		if p, ok := v.Type.(*Named); ok && p.origin() == n.origin() {
+			return true
+		}
+	}
+	return false
 }
 
 // builderOf is builderOf for the package under check, planning n's own

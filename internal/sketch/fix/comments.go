@@ -7,9 +7,11 @@ import (
 	"slices"
 	"strings"
 
+	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/hostsyntax"
 	"ergo.local/prototype/internal/sketch/lint"
 	"ergo.local/prototype/internal/sketch/syntax"
+	"ergo.local/prototype/internal/sketchfront"
 )
 
 // Removed is one comment group the comment pass took out of a file: where
@@ -123,10 +125,9 @@ func (r CommentsReport) Text() string {
 }
 
 // RunComments applies Comments to every .ergo file under opts.Paths, as
-// the formatter's walk reaches them: a folder named testdata or ergo.bind,
-// or starting with "." or "_", is not entered, nor a gostd folder of
-// generated Go bindings. A file that does not parse is left as it is and
-// named. It writes the files when opts.Write.
+// the formatter's walk reaches them: it skips folders sketchfront.AdmitFolder
+// excludes and folders with a current generation marker. A file that does
+// not parse is left as it is and named. It writes the files when opts.Write.
 func RunComments(opts Options) (CommentsReport, error) {
 	rep := CommentsReport{Files: map[string]string{}}
 	visit := func(file string) error {
@@ -152,7 +153,7 @@ func RunComments(opts Options) (CommentsReport, error) {
 			}
 			name := d.Name()
 			if d.IsDir() {
-				if path != p && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" || name == "ergo.bind" || name == "gostd") {
+				if (path != p && !sketchfront.AdmitFolder(name)) || genmark.Held(path) {
 					return filepath.SkipDir
 				}
 				return nil
