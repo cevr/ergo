@@ -1,0 +1,20 @@
+// The failure is one record {Message string} (check harness.go, rule 1).
+type Coin {
+	Flip() bool,
+	test Toss, // want S108 "its failure row is not one record {Message string} of this package"
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string, Code int }
+
+type always {} implements Coin
+
+func Flip(a always) bool { true }
+
+func Toss(run Run, body func() fails Failed needs Coin) fails Failed {
+	with context { Coin: always } { body() } catch {
+	case Failed as f:
+		return Failed{Message: run.Name + ": " + f.Message, Code: f.Code}
+	}
+}

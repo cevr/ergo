@@ -1,0 +1,21 @@
+// A resource type of another package: a let in cmd that holds one only
+// for its release at scope end is not unused (rows.go reportUnused:
+// holdsResource; resources R42), alone, in a tuple, or in a tuple a
+// catch gives (S3-UNUSED-TUPLE-RESOURCE, found by lane MX2 in
+// examples/pipeline).
+type Res {} implements Closer
+
+func Close(r Res) {}
+
+type Bad {}
+
+func One() Res { Res }
+
+func Two() (Res, int) { (Res, 1) }
+
+func Fails(k int) (Res, int) fails Bad {
+	if k < 0 {
+		return Bad
+	}
+	(Res, k)
+}

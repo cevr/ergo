@@ -574,6 +574,7 @@ var bodyTable = []bodyRow{
 	{"TermPeek", bodyFact{body: Body{Hidden: []Hidden{"task"}, Params: []Param{{Type: "int"}}, Results: []string{"TermPeeked", "error"}, Host: true, Wait: "caller", Package: Path}}},
 	{"TestFolderOpen", bodyFact{body: Body{Results: []string{"string"}, Host: true, Package: Path}}},
 	{"TestFolderRemove", bodyFact{body: Body{Params: []Param{{Type: "string"}}, Host: true, Package: Path}}},
+	{"TestSeed", bodyFact{refusal: "runtime/v1: TestSeed reaches host state (os.Args) but is not marked //ergo:host"}},
 	{"TextBool", bodyFact{body: Body{Params: []Param{{Type: "bool"}}, Results: []string{"string"}, Package: Path}}},
 	{"TextDuration", bodyFact{body: Body{Params: []Param{{Type: "time.Duration"}}, Results: []string{"string"}, Package: Path}}},
 	{"TextFloat", bodyFact{body: Body{Params: []Param{{Type: "float64"}, {Type: "int"}}, Results: []string{"string"}, Package: Path}}},

@@ -70,7 +70,7 @@ func report(entries []entry.Entry) string {
 func run(args []string) fails os.Exit needs io.Stdout | io.Stdin {
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return
 	}
 	let n = genFlag.Get(v)

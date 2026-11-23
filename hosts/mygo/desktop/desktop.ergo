@@ -541,7 +541,7 @@ func Feed[E comparable, S, D, F](d mut Driver[S, E, D, F], input screen.Input) f
 	} else if input.Kind == screen.Text {
 		try typed(d, input.Text, mods)
 	} else if input.Kind == screen.Edited {
-		try edited(d, input.Edit, input.Text)
+		try takeEdited(d, input.Edit, input.Text)
 	} else if input.Kind == screen.Resize {
 		d.width = float32(input.Width)
 		d.height = float32(input.Height)
