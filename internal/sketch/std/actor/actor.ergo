@@ -1004,7 +1004,7 @@ func endActions(n int, signals []int, drain bool) bool needs Scheduler {
 	let mut added = 0
 	for i in 0..n {
 		let mut took = true
-		OnEnd(a, func() { ran.Update(func(xs []int) []int { xs.Append(i) }) }) catch {
+		OnEnd(a, appends(ran, i)) catch {
 		case Stopped:
 			took = false
 		}
@@ -1028,6 +1028,11 @@ func endActions(n int, signals []int, drain bool) bool needs Scheduler {
 		inOrder = inOrder && got[i] == i
 	}
 	inOrder && late && len(ran.Get()) == len(got)
+}
+
+// appends is an action that appends v to ran.
+func appends(ran sync.Ref[[]int], v int) func() {
+	func() { ran.Update(func(xs []int) []int { xs.Append(v) }) }
 }
 
 // live is a State read that fails Stopped when a has ended before it was
