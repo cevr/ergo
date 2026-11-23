@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 
 	"ergo.local/prototype/runtime/rt"
+	v1net "ergo.local/prototype/runtime/v1/net"
 )
 
 // HTTPInvalidClient is http.InvalidClient: an origin that is not
@@ -61,6 +63,27 @@ func httpTransportFor(maxHeader int) *http.Transport {
 	// The body comes back as the peer sent it: no transparent gzip.
 	tr.DisableCompression = true
 	got, _ := httpTransports.LoadOrStore(maxHeader, tr)
+	return got.(*http.Transport)
+}
+
+var httpLoopbackTransports sync.Map // int -> *http.Transport
+
+func httpLoopbackTransportFor(maxHeader int) *http.Transport {
+	if tr, ok := httpLoopbackTransports.Load(maxHeader); ok {
+		return tr.(*http.Transport)
+	}
+	tr := httpTransportFor(maxHeader).Clone()
+	tr.Proxy = nil
+	tr.DialTLSContext = nil
+	tr.DialTLS = nil
+	tr.Dial = nil
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if !v1net.LoopbackAddress(addr) {
+			return nil, HTTPDenied{Origin: addr}
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
+	got, _ := httpLoopbackTransports.LoadOrStore(maxHeader, tr)
 	return got.(*http.Transport)
 }
 
@@ -201,6 +224,10 @@ func httpExchange(tr *http.Transport, req *http.Request, limits HTTPLimits) http
 
 // httpDoErr is the failure of a Go client Do that returned no response.
 func httpDoErr(err error, limits HTTPLimits) error {
+	var denied HTTPDenied
+	if errors.As(err, &denied) {
+		return denied
+	}
 	switch {
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return httpFailed(httpRefused, err.Error())

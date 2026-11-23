@@ -37,7 +37,7 @@ func Ready(h HTTP, url string) bool {
 // answers is whether one GET of url gets a 2xx answer.
 func answers(h HTTP, url string) bool {
 	let r = h.net.SendURL(http.URLRequest{URL: url, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{}, Body: ""}) catch {
-	case http.RequestFailed, http.OriginRefused, http.RedirectLimit:
+	case http.RequestFailed, http.OriginRefused, http.Denied, http.RedirectLimit:
 		return false
 	}
 	r.Status >= 200 && r.Status < 300
