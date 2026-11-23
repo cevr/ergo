@@ -171,8 +171,13 @@ func init() {
 		return
 	}
 	observed = true
+	_, target := os.LookupEnv(targetVariable)
+	os.Unsetenv(targetVariable)
 	defer syscall.Close(socket) // reached only if the tests run here, unobserved
 	if verdict, _ := receive(socket); verdict != "go" {
+		if target {
+			runTarget(socket)
+		}
 		return // the observer cannot take a descriptor from this process, and says why itself
 	}
 	// Only this thread takes the filter (see installFilter). runtime.main
@@ -184,6 +189,9 @@ func init() {
 	listener, err := installFilter(filter())
 	if err != nil {
 		syscall.Write(socket, []byte(noFilter+err.Error()))
+		if target {
+			runTarget(socket)
+		}
 		return
 	}
 	if beforeHandover != nil {
@@ -198,9 +206,31 @@ func init() {
 		fmt.Fprintln(os.Stderr, "testinputs: the observer did not take the filter's listener: "+reply)
 		os.Exit(1)
 	}
+	if target {
+		runTarget(socket)
+	}
 	if executable, err := os.Executable(); err == nil {
 		syscall.Exec(executable, os.Args, append(os.Environ(), filteredVariable+"="+value))
 	}
+}
+
+// targetVariable makes the observed child execute its arguments instead
+// of restarting the test binary.
+const targetVariable = "ERGO_TESTINPUTS_TARGET"
+
+// runTarget replaces the launcher with the requested command. After a
+// successful handover, the same locked thread looks up the command and
+// executes it, so both operations are observed.
+func runTarget(socket int) {
+	syscall.Close(socket)
+	program, err := exec.LookPath(os.Args[0])
+	if err != nil && !errors.Is(err, exec.ErrDot) {
+		fmt.Fprintln(os.Stderr, "ergo task exec:", err)
+		os.Exit(127)
+	}
+	err = syscall.Exec(program, os.Args, os.Environ())
+	fmt.Fprintln(os.Stderr, "ergo task exec: run "+program+":", err)
+	os.Exit(126)
 }
 
 // The messages on the socket between the observer and its child. The
@@ -388,12 +418,6 @@ func observe(root string) (int, *recorder, error) {
 	if err != nil {
 		return 0, nil, err
 	}
-	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_SEQPACKET|syscall.SOCK_CLOEXEC, 0)
-	if err != nil {
-		return 0, nil, err
-	}
-	parent, child := os.NewFile(uintptr(pair[0]), "testinputs"), os.NewFile(uintptr(pair[1]), "testinputs")
-	defer parent.Close()
 	command := exec.Command(executable, os.Args[1:]...)
 	command.Args[0] = os.Args[0]
 	identityFile := os.Getenv(IdentityVariable)
@@ -404,8 +428,42 @@ func observe(root string) (int, *recorder, error) {
 			command.Env = append(command.Env, kv)
 		}
 	}
-	command.Env = append(command.Env, listenerVariable+"="+strconv.Itoa(childSocket))
 	command.Stdin, command.Stdout, command.Stderr = os.Stdin, os.Stdout, os.Stderr
+	o := newObserver(root)
+	if identityFile != "" {
+		if id, err := newIdentity(identityFile, o.rec); err != nil {
+			o.rec.refuse("identity mode: " + err.Error())
+		} else {
+			o.rec.ident = id
+		}
+	}
+	if err := o.run(command); err != nil {
+		o.rec.finishIdentity()
+		return 0, nil, err
+	}
+	o.rec.finishIdentity()
+	if !o.armed.Load() {
+		o.rec.refuse("the test process never reported its armed filter")
+	}
+	if state := command.ProcessState; state != nil {
+		if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+			fmt.Fprintf(os.Stderr, "testinputs: test process: %v\n", status.Signal())
+		}
+	}
+	return childExit(command.ProcessState), o.rec, nil
+}
+
+// run owns the handover and waits for the child. An error means the child
+// did not start; after a start, the child's status and observation verdict
+// are separate.
+func (o *observer) run(command *exec.Cmd) error {
+	pair, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_SEQPACKET|syscall.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	parent, child := os.NewFile(uintptr(pair[0]), "testinputs"), os.NewFile(uintptr(pair[1]), "testinputs")
+	defer parent.Close()
+	command.Env = append(command.Env, listenerVariable+"="+strconv.Itoa(childSocket))
 	command.ExtraFiles = []*os.File{child}
 	// The test process dies with this one: cmd/go kills only the process it
 	// started when a test times out, and an orphan's filtered calls would
@@ -418,29 +476,24 @@ func observe(root string) (int, *recorder, error) {
 	err = command.Start()
 	child.Close()
 	if err != nil {
-		return 0, nil, err
+		return err
 	}
 	signals := make(chan os.Signal, 4)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT, syscall.SIGHUP)
 	defer signal.Stop(signals)
+	done := make(chan struct{})
+	defer close(done)
 	go func() {
-		// The tests run in the child: cmd/go's timeout (SIGQUIT) and
-		// interrupts go to it.
-		for sig := range signals {
-			command.Process.Signal(sig)
+		for {
+			select {
+			case sig := <-signals:
+				command.Process.Signal(sig)
+			case <-done:
+				return
+			}
 		}
 	}()
-	o := newObserver(root)
-	o.child, o.executable = command.Process.Pid, executable
-	if identityFile != "" {
-		// Identity mode starts before the child takes its filter, so
-		// before the tests start.
-		if id, err := newIdentity(identityFile, o.rec); err != nil {
-			o.rec.refuse("identity mode: " + err.Error())
-		} else {
-			o.rec.ident = id
-		}
-	}
+	o.child, o.executable = command.Process.Pid, command.Path
 	listener, err := takeListener(int(parent.Fd()), command.Process.Pid)
 	if err != nil {
 		o.rec.fail(err.Error())
@@ -449,20 +502,12 @@ func observe(root string) (int, *recorder, error) {
 	}
 	err = command.Wait()
 	o.rec.stop()
-	o.rec.finishIdentity()
-	if !o.armed.Load() {
-		o.rec.refuse("the test process never reported its armed filter")
+	if err != nil {
+		if _, exit := err.(*exec.ExitError); !exit {
+			o.rec.refuse(fmt.Sprintf("wait for the child process: %v", err))
+		}
 	}
-	state := command.ProcessState
-	if state == nil {
-		o.rec.refuse(fmt.Sprintf("wait for the test process: %v", err))
-		return 1, o.rec, nil
-	}
-	if status, ok := state.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-		fmt.Fprintf(os.Stderr, "testinputs: test process: %v\n", status.Signal())
-		return 128 + int(status.Signal()), o.rec, nil
-	}
-	return state.ExitCode(), o.rec, nil
+	return nil
 }
 
 // takeListener takes the child's filter listener with pidfd_getfd (Linux
@@ -531,6 +576,8 @@ type observer struct {
 	rec   *recorder
 	dirs  linkedDirs
 	armed atomic.Bool
+	// A target's exec proves the locked launcher thread acquired the filter.
+	target bool
 
 	// The child's exec of the test binary from its init (see init) is not
 	// the test's: it is skipped once, from the child's main thread, where Go
@@ -660,8 +707,12 @@ func (o *observer) handle(listener int, n *notification, buffer []byte) {
 		o.armed.Store(true)
 		return
 	}
-	if c.kind == kindExec && ok && tid == o.child && first.path == o.executable && o.refiltered.CompareAndSwap(false, true) {
-		return
+	if c.kind == kindExec && ok && tid == o.child {
+		if o.target {
+			o.armed.Store(true)
+		} else if first.path == o.executable && o.refiltered.CompareAndSwap(false, true) {
+			return
+		}
 	}
 	read := true
 	switch c.kind {

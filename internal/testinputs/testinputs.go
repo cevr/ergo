@@ -33,10 +33,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 
 	"ergo.local/prototype/internal/testinputs/testenv"
 )
+
+// Tests is what Main needs of a *testing.M: its Run. Taking it, not the
+// type, keeps package testing out of the binaries that link the observer
+// for ergo task exec (Exec).
+type Tests interface{ Run() int }
 
 // ToolDigest is the variable through which the gate passes a digest of the
 // test tools, the installed dependencies and the test environment
@@ -47,7 +51,7 @@ const ToolDigest = testenv.ToolDigest
 // Main runs the package's tests under observation and returns the exit code
 // for TestMain: os.Exit(testinputs.Main(m)). Code before Main in TestMain
 // runs twice, in the observing process and in the test process.
-func Main(m *testing.M) int { return MainFunc(m, m.Run) }
+func Main(m Tests) int { return MainFunc(m, m.Run) }
 
 // makesNamespaces is set by MakesNamespaces.
 var makesNamespaces bool
@@ -70,7 +74,7 @@ func MakesNamespaces() { makesNamespaces = true }
 // (ERGO_GO=system), as in the gate: a test that runs the ergo CLI never
 // downloads its pinned Go (internal/toolchain), so no test needs the
 // network. A caller's ERGO_GO stands.
-func MainFunc(m *testing.M, run func() int) int {
+func MainFunc(m Tests, run func() int) int {
 	log := testLog(os.Args[1:])
 	if base := os.Getenv(RecordVariable); base != "" && !observed && impostor == "" && log == "" && !makesNamespaces {
 		if why := boxRecording(); why != "" {
