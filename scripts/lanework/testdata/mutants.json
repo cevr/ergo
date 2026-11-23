@@ -32,7 +32,7 @@
       "name": "lanework-cache-relative",
       "origin": "wf10 SHARED-GOCACHE",
       "file": "scripts/lanework/lanework.sh",
-      "from": "    *) fail \"the shared Go cache is not an absolute path: '$GOCACHE_SHARED'\" ;;\n",
+      "from": "    *) fail \"the shared Go cache is not an absolute path: '$SHARED_CACHE'\" ;;\n",
       "to": "",
       "rule": "The shared Go cache is an absolute path.",
       "killers": ["scripts/lanework:TestLaneRefusesACacheACloneCopies"]
@@ -135,6 +135,33 @@
       "to": "",
       "rule": "A lane's env states GOROOT, the lane's Go's, which a -trimpath build lacks.",
       "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
+    },
+    {
+      "name": "lanework-trial-no-drivers",
+      "origin": "wf10 MERGE-DRIVERS-EVERYWHERE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    set -- \"$@\" -c \"merge.$n.driver=$driver\"\n",
+      "to": "    set -- \"$@\"\n",
+      "rule": "trial merges with the merge drivers the attributes name, read from the clone or the attributes' driver table and passed by -c, so a clone without them trials as work merges.",
+      "killers": ["scripts/lanework:TestTrialMergesWithTheTableDrivers"]
+    },
+    {
+      "name": "lanework-drivers-write-none",
+      "origin": "wf10 MERGE-DRIVERS-EVERYWHERE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "      git -C \"$dir\" config \"merge.$n.$k\" \"$value\"\n",
+      "to": "      :\n",
+      "rule": "drivers writes each merge driver the clone's attributes name and its configuration lacks.",
+      "killers": ["scripts/lanework:TestDriversWritesTheMissingDriver"]
+    },
+    {
+      "name": "lanework-drivers-skip-work",
+      "origin": "wf10 DRIVER-TABLE-ONE-SOURCE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    (cd \"$dir\" && \"$WORK\" doctor -here -fix >/dev/null 2>&1) && printf 'work doctor -here -fix in %s\\n' \"$dir\" || true\n",
+      "to": "    :\n",
+      "rule": "drivers asks work first (work doctor -here -fix), so work's own table writes the drivers; the header's table fills only what work left. Not run: crunch.",
+      "killers": ["scripts/lanework:TestDriversAsksWorkFirst"]
     }
   ]
 }

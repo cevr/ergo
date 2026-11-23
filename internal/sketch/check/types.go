@@ -59,7 +59,7 @@ type Named struct {
 
 	under   Type
 	def     Type             // origin only: the type a defined type `type N T` is defined over
-	methods map[string]*Func // origin only, keyed: method sets are linear (#122)
+	methods map[string]*Func // origin only, keyed: method sets are linear
 	// opFuncs, on an operation type's origin only, are the package
 	// functions whose first parameter is the operation type: x.f(…)
 	// reaches them after its operations (types.md, Methods 1; G-ex-e-2).
@@ -262,7 +262,7 @@ type Signature struct {
 	Entry bool
 	// Takes lists the parameters a written `takes` clause names, by index
 	// into Params, in the clause's order; TakesSelf is a bare `takes` of an
-	// operation: the value the operation is called on (#197 A1; resources
+	// operation: the value the operation is called on (resource ownership A1; resources
 	// R19). Function-type identity reads them in A3 (Gap 39).
 	Takes     []int
 	TakesSelf bool
@@ -326,7 +326,6 @@ type TypeParam struct {
 	// value (types.md, Generics 9; EXM2). A parameter without it binds
 	// plain data only.
 	Own      bool
-	lang     bool // a parameter of Option or Some, which admits a resource unmarked
 	conflict bool // a kind conflict, already reported: resolves to nothing
 	id       int
 }
@@ -611,6 +610,13 @@ func (r *Row) has(tab *typeTable, t Type) bool {
 func (r *Row) with(tab *typeTable, t Type) *Row {
 	if ra, ok := t.(*RowArg); ok {
 		return r.union(tab, ra.Row)
+	}
+	if n, ok := t.(*Named); ok && tab.rowOf != nil {
+		// A named row in a row is its members (namedrow.go): a row is a
+		// set of error types, and the name stands for its set.
+		if nr := tab.rowOf(n); nr != nil {
+			return r.union(tab, nr)
+		}
 	}
 	r = tab.local(r)
 	id, inf := tab.intern(t)

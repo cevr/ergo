@@ -237,8 +237,9 @@ func callerSlot(a check.Type) *check.TypeParam {
 // goArg is the Go type argument a of the Go type parameter tp, as the
 // emitter's goArg writes it (rowslot.go): a type-kinded parameter's Go
 // type; a Slot row's (`F error`) single named error type, or error for a
-// row of none or several. A row that names a type parameter of the caller,
-// and a held row, keep the source body.
+// row of none or several; a row that is one row parameter of the caller,
+// that parameter's Go type parameter, or error when it has none. A Slot
+// row and a held row keep the source body.
 func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
 	if tp.Kind == check.KindType {
 		return b.goType(a, site)
@@ -259,11 +260,19 @@ func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) s
 	}
 	es := rowElems(ra.Row)
 	if len(es) == 1 {
-		e, named := es[0].(*check.Named)
-		if !named {
-			irNo("generic call with a row type argument of the caller")
+		switch e := es[0].(type) {
+		case *check.Named:
+			return b.goType(e, site)
+		case *check.TypeParam:
+			// The caller's row parameter: its Go type parameter, or,
+			// when it has none (an erased row), error, as the
+			// emitter's goArg falls through to it.
+			if name, ok := b.fc.params[e]; ok {
+				return b.spelling(name)
+			}
+			return "error"
 		}
-		return b.goType(e, site)
+		irNo("generic call with a row type argument of the caller")
 	}
 	return "error"
 }
@@ -278,7 +287,7 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		return
 	}
 	switch {
-	case preludeAppend(c.Func):
+	case appendsSource(c.Func):
 		// The element type: the call's type argument, or the operand's
 		// for a []byte operation on its receiver (bs.AppendString(s)).
 		var et check.Type
@@ -305,7 +314,7 @@ func (b *irBuilder) valueSource(x *syntax.CallExpr, c *check.Call, args []syntax
 		}
 		src := irArgs[0]
 		irArgs[0] = &irExpr{K: "pcall", Pos: src.Pos, T: "slices", Name: "Clip", V: "[]" + elem + ", " + elem, Args: []*irExpr{src}}
-	case preludeMapWrite(c.Func) || preludeMapTake(c.Func):
+	case writesMapSource(c.Func) || takesMapSource(c.Func):
 		if len(c.TypeArgs) != 2 {
 			irNo("Map write form")
 		}
@@ -486,7 +495,9 @@ func (b *irBuilder) countLoop(s *syntax.RangeStmt, lp *check.Loop) []*irStmt {
 		return &irExpr{K: "field", Pos: p, Name: td.fieldName[name], X: &irExpr{K: "local", Pos: p, I: r}}
 	}
 	loop := &irStmt{K: "count", Pos: p, Local: v, X: field("Start"), Y: field("End"), End: b.pos(s.Body, s.Body.Rbrace)}
-	ctr := b.loopBody(loop, s, s.Body) // ir_stmt.go
+	filled := b.fillLoop(s, lp, field("Start"), v, p) // ir_fill.go
+	ctr := b.loopBody(loop, s, s.Body)                // ir_stmt.go
+	filled()
 	// The Range's statements run first, once (rangeStmt).
 	loop.Pos = past(loop.Pos, pre) // ir_match.go
 	// The nest's counter follows the Range's definition (ir_poll.go).
@@ -637,7 +648,12 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if isTuple {
 		// A body with Go's several results, one per element, is bound by
 		// a tdef (ir_tuple.go, F4b: bits.Add64); any other is adapted.
-		if goFallible(body) || len(tuple.Types) < 2 || len(body.Results) != len(tuple.Types) {
+		// One with an error after them, (A, B, error), is bound by bind
+		// alone, which takes the error too (tupleErrBind).
+		switch stdTupleAdmits(body, tuple, b.tupleBind == x) {
+		case tupleOutsideBind:
+			irNo("fallible call with an empty row at its site")
+		case tupleAdapted:
 			irNo("std call with an adapted result")
 		}
 	}
@@ -650,7 +666,7 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		// is (below): spelled alike, or the runtime's at the instance
 		// (TakeAt's (T, []T), actor's shown (S, int), keyState's []byte
 		// as []uint8; CONV-RESULT).
-		for i, r := range body.Results {
+		for i, r := range body.Results[:len(tuple.Types)] {
 			if !b.sameGo(tuple.Types[i], r) && !b.sameRT(tuple.Types[i], r, subst, body.Package) {
 				irNo("std call with a converted result")
 			}
@@ -724,6 +740,10 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	if isExit {
 		b.noteExit(call, x) // ir_exits.go: the defer form, if the frame keeps it
 	}
+	if isTuple && goFallible(body) {
+		b.tupleBound = call // bind binds its results and its error (tupleErrBind)
+		return pre, call, false
+	}
 	if isTuple {
 		tpre, e := b.tdef(call, tuple, x, p) // ir_tuple.go
 		return append(pre, tpre...), e, false
@@ -732,6 +752,34 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		call = b.dropErr(call) // ir_call.go: the row is empty here
 	}
 	return pre, call, !body.Pure
+}
+
+// The IR std call's verdicts on a body whose Ergo result is a tuple
+// (stdTupleAdmits).
+const (
+	tupleAdmitted    = iota
+	tupleOutsideBind // (A, B, error) outside bind, which alone takes its error
+	tupleAdapted     // results that are not the tuple's elements, one each
+)
+
+// stdTupleAdmits is the IR std call's verdict on body, whose Ergo result
+// is tuple: Go's several results, one per element, bound by a tdef, and
+// with an error after them only under bind (underBind), whose tdef takes
+// the error too (tupleErrBind; EXTERN-MULTI-RESULT, task's TaskExit
+// (int, string, error)). Any other shape is adapted, which the IR
+// refuses.
+func stdTupleAdmits(body v1.Body, tuple *check.Tuple, underBind bool) int {
+	n := len(body.Results)
+	if goFallible(body) {
+		if !underBind {
+			return tupleOutsideBind
+		}
+		n--
+	}
+	if len(tuple.Types) < 2 || n != len(tuple.Types) {
+		return tupleAdapted
+	}
+	return tupleAdmitted
 }
 
 // stdTypeArgs is the IR type argument list of the call x of a generic std

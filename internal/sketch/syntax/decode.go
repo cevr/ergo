@@ -31,13 +31,13 @@ import (
 const MaxNesting = 1000
 
 // CodeMixedMembers is the code of a type declaration that mixes fields with
-// operations or laws (#196, D1.12): the tree cannot hold the mix, so the
+// operations or laws (D1.12): the tree cannot hold the mix, so the
 // parser reports it with the checker's code for the rule.
 const CodeMixedMembers = "S108"
 
 // Parse parses one source file with compiler/syntax's parser (ParseRows).
 // It returns the first syntax error, an *Error with code S001 (or S108 for
-// a type that mixes fields and operations), and no file; recovery is #38's.
+// a type that mixes fields and operations), and no file; recovery is the language server's.
 func Parse(src string) (*File, error) { return ParseRows(src) }
 
 // ParseRows parses src with compiler/syntax's parser and decodes its rows.
@@ -95,8 +95,10 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 // (CTX-ROWS-1b), so they have 7 and 4. 5: the rows are 4's, and a failed
 // parse's text carries its fix as lines after the error's line, which is
 // 4's six fields byte for byte (failureOf; VET-CHECK-VAR), so both read
-// alike.
-const ColumnsVersion = 5
+// alike. 6: a test row's body is optional (the harness
+// member `test H` of an operation type has none), so its word holds the
+// id + 1.
+const ColumnsVersion = 6
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -104,7 +106,7 @@ const ColumnsVersion = 5
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 4
+const PreviousColumnsVersion = 5
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -169,6 +171,8 @@ func failureOf(text string) error {
 // rowDecoder reads the columns of one parse.
 type rowDecoder struct {
 	src string
+	// layout is the rows' layout, ColumnsVersion or PreviousColumnsVersion.
+	layout uint32
 	// The row columns: kind, token, a and b of each row.
 	rowKind, rowTok, rowA, rowB []uint32
 	extra                       []uint32
@@ -180,7 +184,7 @@ type rowDecoder struct {
 // for a parse that did not fail.
 func Decode(src string, cols []uint32) *File {
 	ntok, nrows, nextra, ncmt, ngroups := int(cols[1]), int(cols[2]), int(cols[3]), int(cols[4]), int(cols[5])
-	d := &rowDecoder{src: src}
+	d := &rowDecoder{src: src, layout: cols[0]}
 	w := colHeader
 	d.toks = tokensOfColumns(src, cols[w:w+ntok], cols[w+ntok:w+2*ntok], cols[w+2*ntok:w+3*ntok])
 	w += 3 * ntok
@@ -378,13 +382,21 @@ func (d *rowDecoder) node(r uint32) Node {
 			Body:       opt[*BlockStmt](d, d.fixed(r, 7, 6)),
 		}
 	case kContextDecl:
-		// Layouts 4 and 5 put Fails at word 4 (layout 3, which had no such
+		// Layouts 5 and 6 put Fails at word 4 (layout 3, which had no such
 		// word, is no longer read).
 		return &ContextDecl{Doc: d.doc(d.fixed(r, 7, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 7, 1)), Name: one[*Ident](d, d.fixed(r, 7, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, 7, 3)), Fails: opt[*ErrorRow](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Body: one[*ContextBody](d, d.fixed(r, 7, 6))}
 	case kTestDecl:
-		return &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2)), Body: one[*BlockStmt](d, d.fixed(r, 4, 3))}
+		x := &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2))}
+		// Layout 6 made the body optional (the harness member `test H` has
+		// none), so its word holds the id + 1; layout 5 holds the id.
+		if d.layout == PreviousColumnsVersion {
+			x.Body = one[*BlockStmt](d, d.fixed(r, 4, 3))
+		} else {
+			x.Body = opt[*BlockStmt](d, d.fixed(r, 4, 3))
+		}
+		return x
 	case kLawDecl:
-		// Layouts 4 and 5 hold TypeParams at word 2 (layout 2, which had
+		// Layouts 5 and 6 hold TypeParams at word 2 (layout 2, which had
 		// no such word, is no longer read).
 		w, s := 9, 1
 		l := &LawDecl{Doc: d.doc(d.fixed(r, w, 0)), Law: d.pos(t), Name: one[*Ident](d, d.fixed(r, w, 1)), Params: opt[*FieldList](d, d.fixed(r, w, 2+s)), Body: opt[*BlockStmt](d, d.fixed(r, w, 3+s)), Reach: opt[*LawReach](d, d.fixed(r, w, 4+s))}
@@ -494,7 +506,7 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kCatchExpr:
 		return &CatchExpr{X: one[Expr](d, d.fixed(r, 2, 0)), Catch: d.pos(t), Lbrace: d.pos(t + 1), Arms: list[*CatchArm](d, r, 0, d.items(r, 2)), Rbrace: d.pos(d.fixed(r, 2, 1))}
 	case kContextLit:
-		// Layouts 4 and 5 put Fails at word 1 (layout 3 is no longer read).
+		// Layouts 5 and 6 put Fails at word 1 (layout 3 is no longer read).
 		return &ContextLit{Context: d.pos(t), Provides: opt[*ProvidesClause](d, d.fixed(r, 4, 0)), Fails: opt[*ErrorRow](d, d.fixed(r, 4, 1)), Needs: opt[*NeedsClause](d, d.fixed(r, 4, 2)), Body: one[*ContextBody](d, d.fixed(r, 4, 3))}
 	case kArrayType:
 		x := &ArrayType{Lbrack: d.pos(t), Elt: one[Expr](d, a)}
@@ -538,6 +550,9 @@ func (d *rowDecoder) node(r uint32) Node {
 				}
 			case *LawDecl:
 				x.Laws = append(x.Laws, m)
+			case *TestDecl:
+				// `test H`, the harness member (runtime.md, Tests: harnesses).
+				x.Harnesses = append(x.Harnesses, &Harness{Doc: m.Doc, Test: m.Test, Name: m.Name})
 			case *UnaryExpr:
 				// `~T`, a term of the type-set member (CONSTRAINTS C1).
 				x.Terms = append(x.Terms, &TypeTerm{Tilde: m.OpPos, Type: m.X})

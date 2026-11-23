@@ -15,7 +15,7 @@ func TestExitCodeIsRefined(t *testing.T) {
 		t.Fatalf("want a refined Code assignment refusal, got %s", describe(ds))
 	}
 	_, ds = check.CheckSource("import os\nfunc f() os.Exit { os.Exit{Code: 0, Message: \"x\"} }\n")
-	if len(ds) != 1 || !strings.Contains(ds[0].Message, "where is 1 <= it && it <= 125") {
+	if len(ds) != 1 || !strings.Contains(ds[0].Message, "where is (1 <= it && it <= 125) || (129 <= it && it <= 192)") {
 		t.Fatalf("want the refinement diagnostic, got %s", describe(ds))
 	}
 }

@@ -784,6 +784,9 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 			let mem = syntax.Item(b.p.Tree, e.Members, i)
 			match syntax.ViewOf(b.p.Tree, mem) {
 			case syntax.LawDecl:
+			case syntax.TestDecl as h:
+				// `test H`: H names a function of the package (harness).
+				use(b, h.Name)
 			case syntax.Field as f:
 				match dense.Unpack(f.Type) {
 				case Some{Value: t}:
@@ -883,7 +886,7 @@ func walk(b mut binder, x dense.ID[syntax.Node]) {
 	case syntax.TestDecl as d:
 		let m = enter(b)
 		params(b, d.Params)
-		walk(b, d.Body)
+		opt(b, d.Body)
 		leave(b, m)
 	case _:
 		children(b, x)

@@ -14,6 +14,7 @@ package lower
 // ir_stmt.go (statements), ir_expr.go (expressions), ir_call.go (calls).
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -57,12 +58,16 @@ type IRReport struct {
 	Folds FoldCounts `json:"folds"`
 	// CodecText counts the codec functions that keep their text body,
 	// by "name\treason": a cell writer the IR builder refused
-	// (ir_wire.go), an encoder on the reference Writer and a decoder of
-	// a form no IR builder takes yet (the text emitter's). In memory only.
+	// (ir_wire.go), and an encoder or a decoder of a form no IR builder
+	// takes yet (the text emitter's). In memory only.
 	CodecText map[string]int `json:"-"`
 	// CodecRead names the decoders the IR builds (ir_wire_read.go). In
 	// memory only.
 	CodecRead []string `json:"-"`
+	// CodecWrite names the encoders on the Writer interface or on a
+	// direct writer that is no cell the IR builds (ir_wire.go, W1). In
+	// memory only.
+	CodecWrite []string `json:"-"`
 	// Forms counts the IR forms the bodies held before erasure, by
 	// kind and layout ("match/flat"; ir_forms.go): in memory only.
 	Forms map[string]int `json:"-"`
@@ -92,6 +97,9 @@ type IRReport struct {
 	// CatchDefects counts the full catches whose default panics with the
 	// unreachable defect, naming no failure (ir_catch_defect.go).
 	CatchDefects int `json:"-"`
+	// FlatWorkers counts the functions given a flat worker and wrapper
+	// (IR-FORMS IRF-2, ir_forms_flat.go).
+	FlatWorkers int `json:"-"`
 	// StoreFields counts the stored record literals written field by
 	// field (ir_forms_store.go).
 	StoreFields int `json:"-"`
@@ -289,6 +297,22 @@ func irKeyed(files []File) []File {
 		out[at].Data = slices.Concat(out[at].Data, []byte("\n// "+IRFileName+" sha256 "+hex.EncodeToString(sum[:])+"\n"))
 	}
 	return out
+}
+
+// irUnkeyed is data without the digest line irKeyed appended: the Go
+// text (IRGoText) holds the IR bodies and no IR file, so the line would
+// name a file the text does not have, and the linked packages' checked-in
+// text would change with every IR edit's digest.
+func irUnkeyed(data []byte) []byte {
+	const tail = len("\n// "+IRFileName+" sha256 ") + 2*sha256.Size + 1
+	if len(data) < tail {
+		return data
+	}
+	line := data[len(data)-tail:]
+	if !bytes.HasPrefix(line, []byte("\n// "+IRFileName+" sha256 ")) || line[tail-1] != '\n' {
+		return data
+	}
+	return data[:len(data)-tail]
 }
 
 // LowerIRSplit is LowerIR (LowerIRTests when tests is set) with the
@@ -532,6 +556,11 @@ type irState struct {
 	// builder stopped at, with their reasons (ir_fallback.go).
 	noFallback bool
 	fallbacks  []IRCensusFunc
+	// flat is each function's flat convention, nil for none, and
+	// flatType its struct's Go name (ir_forms_flat.go).
+	flat         map[*check.Func]*flatRes
+	flatType     string
+	flatWrappers map[*check.Func]flatWrapper
 	// opFuncs are the implementing functions of closed types' operations
 	// (ir_instance.go staticOpFunc), filled on first use.
 	opFuncs map[opFuncKey]*check.WitnessOp
@@ -729,6 +758,8 @@ type irBuilder struct {
 	// forms are the body's form sites (ir_forms_report.go), kept with its
 	// IR body.
 	forms []FormSite
+	// fills are the fill form's facts (ir_fill.go).
+	fills fillState
 	// amort is the counter of the quiet loop nest being built, nil
 	// outside one; pollSites are the polls of each loop being built,
 	// innermost last: its back edge's and its continues' (ir_poll.go).
@@ -741,6 +772,12 @@ type irBuilder struct {
 	// (catch_plain.go; ir_fail.go catch): bind leaves it Go's error, not
 	// go.Error (GOERR-BOX).
 	rawErr *syntax.CallExpr
+	// tupleBind is the fallible call bind is binding, whose std body may
+	// return several values and an error (A, B, error); tupleBound is
+	// that body's Go call, which bind binds with its error (tupleErrBind;
+	// EXTERN-MULTI-RESULT).
+	tupleBind  *syntax.CallExpr
+	tupleBound *irExpr
 	// admitted are the unions admitted so far (ir_union.go): one that
 	// holds itself is admitted once.
 	admitted map[*check.TypeName]bool
@@ -853,6 +890,8 @@ type irBuilder struct {
 	// preset are the arguments of a component call evaluated once into a
 	// local, which the call in its group's body reads (ir_uigroup.go).
 	preset map[syntax.Expr]int
+	// flatRets are the forms of the body's returns (ir_forms_flat.go).
+	flatRets map[*irStmt]string
 }
 
 // gate stops the body for reason; a census records it and goes on.
@@ -1023,6 +1062,7 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		b.part(func() { b.goType(b.result, f.Decl) })
 	}
 	b.ops = &irOpBody{f: f, env: b.env} // ir_forms_op.go
+	slots := b.next                     // the Go parameters' (ir_forms_flat.go)
 	b.fn = &irFunc{Name: name, Pos: b.pos(f.Decl, f.Decl.Pos()), End: b.pos(f.Decl, f.Decl.Body.Rbrace)}
 	b.names = b.tempNames(f.Decl.Body)            // ir_fail.go
 	b.strVars = strBufVars(b.l.info, f.Decl.Body) // strbuf.go
@@ -1050,7 +1090,8 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if st.census != nil {
 		return false
 	}
-	b.ownDone(name) // ir_own.go
+	b.flatSplit(f, name, slots) // ir_forms_flat.go
+	b.ownDone(name)             // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
 	st.inlineCallee(b, fd, params) // ir_forms_inline.go
 	st.report.IR = append(st.report.IR, name)

@@ -40,7 +40,7 @@ func report(w mut walker, s store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDe
 	let mut out = []diag.Diag{}
 	for st in w.sites {
 		let at = syntax.NodePos(p, st.at)
-		let length = syntax.NodeEnd(p, st.at) - at
+		let length = spanLen(p, at, syntax.NodeEnd(p, st.at))
 		if st.lit {
 			// A literal is no declaration: its sites carry no clause to
 			// write (pend; rows.go escape and chargeAs).
@@ -70,19 +70,80 @@ func reportTest(w mut walker, s store.Store, k expr.Pkg, f expr.Fn) []diag.Diag 
 	let p = k.Parsed[f.File]
 	let names = types.Names{Params: f.Params, Foreign: k.Foreign, Pkg: "", Deps: k.Ifaces}
 	let mut out = []diag.Diag{}
+	// A test with no parameters runs a body that needs a capability with a
+	// harness under it (runtime.md, Tests: harnesses 2; check harness.go
+	// chargeHarness): the charge is admitted, and one of a second harness
+	// is S102.
+	let harnessable = syntax.KindOf(p.Tree, f.Decl) == syntax.KTestDecl && !isSome(dense.Unpack(syntax.TestDeclOf(p.Tree, f.Decl).Params))
+	let mut firstCap = ""
+	let mut firstHarness = ""
 	for st in w.sites {
 		let at = syntax.NodePos(p, st.at)
 		if st.kind == kErrors {
 			// Only a literal's: the test's own failures are not read.
 			let msg = "\(rowText(s, names, st.extra)) escapes this function literal, whose error row \(rowText(s, names, st.decl)) does not list it"
-			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: syntax.NodeEnd(p, st.at) - at, Code: "S101", Message: msg})
+			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: spanLen(p, at, syntax.NodeEnd(p, st.at)), Code: "S101", Message: msg})
 			continue
 		}
+		let mut extra = st.extra
+		if harnessable && !st.lit {
+			let mut rest = []dense.ID[store.TKey]{}
+			for c in st.extra {
+				let (cname, h) = harnessOf(s, k, c)
+				if h == "" {
+					rest = rest.Append(c)
+				} else if firstHarness == "" {
+					firstCap = cname
+					firstHarness = h
+				} else if cname != firstCap || h != firstHarness {
+					let one = "a test body runs under one harness; test \(types.NameText(p, f.Name)) needs \(firstCap) (harness \(firstHarness)) and \(cname) (harness \(h))"
+					out = out.Append(diag.Diag{File: f.File, Offset: at, Length: spanLen(p, at, syntax.NodeEnd(p, st.at)), Code: "S102", Message: one})
+				}
+			}
+			if len(rest) == 0 {
+				continue
+			}
+			extra = rest
+		}
 		let owner = if st.lit { "this function literal" } else { "test " + types.NameText(p, f.Name) }
-		let msg = "this call requires \(types.RowText(s, names, st.extra)), which is not in the capability row of \(owner) and no with provides it"
-		out = out.Append(diag.Diag{File: f.File, Offset: at, Length: syntax.NodeEnd(p, st.at) - at, Code: "S102", Message: msg})
+		let msg = "this call requires \(types.RowText(s, names, extra)), which is not in the capability row of \(owner) and no with provides it"
+		out = out.Append(diag.Diag{File: f.File, Offset: at, Length: spanLen(p, at, syntax.NodeEnd(p, st.at)), Code: "S102", Message: msg})
 	}
 	out
+}
+
+// spanLen is the length of a report from at to end (check.go report): a
+// span stays on its first line, cut before a comment that ends that line
+// and before the blanks in front of it, so `try e catch { //want` is
+// underlined at `try e catch {`.
+func spanLen(p syntax.Parsed, at int, end int) int {
+	let src = syntax.SourceOf(p)
+	let mut n = if end > at { end - at } else { 0 }
+	let mut nl = -1
+	for i in at..at+n {
+		if i < len(src) && src[i] == '\n' {
+			nl = i - at
+			break
+		}
+	}
+	if nl < 0 {
+		return n
+	}
+	n = nl
+	let c = syntax.CommentsOf(p)
+	for i in 0..syntax.NumComments(c) {
+		let cs = syntax.CommentStart(c, syntax.CommentAt(c, i))
+		if cs > at {
+			if cs < at+n {
+				n = cs - at
+			}
+			break
+		}
+	}
+	for n > 0 && (src[at+n-1] == ' ' || src[at+n-1] == '\t') {
+		n = n - 1
+	}
+	n
 }
 
 // rowText is a row as a message writes it, in braces (typeops.go rowText).
@@ -151,4 +212,31 @@ func signature(s store.Store, names types.Names, p syntax.Parsed, fd syntax.Func
 		at
 	}
 	strings.Join(strings.Fields(src[start:at]+text+src[at:end]), " ")
+}
+
+// harnessOf is the type name of the capability c and the H of its harness
+// member `test H` of the shape (types.Harness; an import's from its
+// interface), or "" for H when it has none.
+func harnessOf(s store.Store, k expr.Pkg, c dense.ID[store.TKey]) (string, string) {
+	let kind = store.KindOfType(s, c)
+	if kind == store.KNamed {
+		let name = store.TypeNameText(s, store.ArgOf(s, c))
+		return (name, types.Harness(k.Parsed, name))
+	}
+	if kind != store.KInstance || len(store.OperandsOf(s, c)) != 0 {
+		return ("", "")
+	}
+	let o = store.OriginOfType(s, c)
+	if o.Import == uint32(0) {
+		let name = store.DeclText(s, int(o.Decl))
+		return (name, types.Harness(k.Parsed, name))
+	}
+	if int(o.Import) == store.ForeignBit || int(o.Import) > len(k.Ifaces) {
+		return ("", "")
+	}
+	let ds = k.Ifaces[int(o.Import)-1].Decls
+	if int(o.Decl) >= len(ds) {
+		return ("", "")
+	}
+	(ds[int(o.Decl)].Name, ds[int(o.Decl)].Harness)
 }

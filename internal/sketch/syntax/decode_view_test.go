@@ -347,6 +347,14 @@ func (d *dumper) node(depth int, n Node) {
 			d.line(c+1, "TypeTerm %d %d Tilde=%d", t.Pos(), t.End(), t.Tilde)
 			d.node(c+2, t.Type)
 		}
+		// `test H`, the harness member: the view keeps its TestDecl row.
+		d.line(c, "list %d", len(x.Harnesses))
+		for _, h := range x.Harnesses {
+			d.line(c+1, "TestDecl %d %d doc=%d Test=%d", h.Pos(), h.End(), d.doc(h.Doc), h.Test)
+			d.node(c+2, h.Name)
+			d.line(c+2, "nil")
+			d.line(c+2, "nil")
+		}
 	case *ErrorRow:
 		d.line(depth, "ErrorRow %s Error=%d", at, x.Error)
 		d.list(c, exprs(x.Types))

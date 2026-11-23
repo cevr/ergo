@@ -31,7 +31,7 @@ func importGoSeeds(defaults ...uint64) []uint64 {
 }
 
 // importGoProgram is the Ergo half of TestImportGoRuns: one function per Go
-// package, each a Level 1 use of import go (#202): a (*S, error) result
+// package, each a Level 1 use of import go: a (*S, error) result
 // (url.Parse, regexp.Compile), methods on a go.Ref, fields, a nullable
 // field (u.User), a method of a Go type over a Map (url.Values.Get), a
 // variadic (filepath.Join), a tuple result (strings.CutPrefix), a slice
@@ -149,7 +149,7 @@ func tableLine(rows []string) string needs go.Foreign {
 func main() needs Console | go.Foreign {
 `
 
-// TestImportGoRuns is IG3's acceptance (#202 Level 1): one program over
+// TestImportGoRuns is IG3's acceptance (Level 1): one program over
 // net/url, regexp, strconv, strings, path/filepath and text/tabwriter,
 // seeds × rounds of generated inputs (URLs with odd escapes, user info and
 // ports; patterns that compile or not; numbers that parse or not; table

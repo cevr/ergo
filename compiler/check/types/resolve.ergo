@@ -49,6 +49,8 @@ func aliasTarget(s store.Store, d dense.ID[store.Decl], files []syntax.Parsed) O
 						None
 					case syntax.LawDecl:
 						None
+					case syntax.TestDecl:
+						None
 					case _:
 						Some[AliasOf]{Value: AliasOf{p: p, x: ms[0]}}
 					}
@@ -816,6 +818,8 @@ func unionSpec(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) Opt
 						case syntax.Field:
 							return None
 						case syntax.LawDecl:
+							return None
+						case syntax.TestDecl:
 							return None
 						case _:
 						}

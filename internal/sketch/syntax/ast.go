@@ -73,7 +73,7 @@ type File struct {
 }
 
 // Pos is the first declaration or comment, or the end of an empty file: a
-// decided source has no package clause (#196).
+// decided source has no package clause.
 func (f *File) Pos() Pos {
 	pos := f.EOF
 	if len(f.Decls) > 0 {
@@ -108,7 +108,7 @@ const (
 )
 
 // ImportDecl is `import p`: the decided parser builds one spec and no
-// parentheses (#196).
+// parentheses.
 type ImportDecl struct {
 	Doc    *CommentGroup
 	Import Pos
@@ -124,7 +124,7 @@ type ImportSpec struct {
 	Path    *BasicLit
 }
 
-// VarDecl is `let [mut] patterns [Type] [= e]` (#196): one VarSpec, no
+// VarDecl is `let [mut] patterns [Type] [= e]`: one VarSpec, no
 // parentheses, Var at `let`. Mut is the position of `mut`, or NoPos.
 type VarDecl struct {
 	Doc    *CommentGroup
@@ -174,8 +174,8 @@ type TypeDecl struct {
 }
 
 // FuncDecl is a function, or with Extern set and Body nil, the Go binding
-// `extern go path.F func Name(sig)`. A receiver is the first parameter
-// (#196). Recv is set only on a Go method of a binding, `extern go
+// `extern go path.F func Name(sig)`. A receiver is the first parameter.
+// Recv is set only on a Go method of a binding, `extern go
 // net/url.URL.Hostname func (u *URL) Hostname() string`, whose target names
 // the type and the method.
 type FuncDecl struct {
@@ -201,7 +201,7 @@ type FuncDecl struct {
 // nil.
 //
 // The decided spelling is `let Name = context [provides …] [fails …] [needs …] { … }` at
-// package level (#196); Let is the position of `let`.
+// package level; Let is the position of `let`.
 type ContextDecl struct {
 	Doc      *CommentGroup
 	Let      Pos
@@ -483,7 +483,7 @@ func unparenType(x Expr) Expr {
 	}
 }
 
-// TakesClause is `takes a, b` after a signature's rows (#197, resources.md
+// TakesClause is `takes a, b` after a signature's rows (resource ownership, resources.md
 // R19): the parameters the call hands off. Names is empty for a bare
 // `takes` in an operation type, which names the value the operation is
 // called on. The names are binders' references, not expressions: Inspect
@@ -588,8 +588,7 @@ type (
 		Rbrack Pos
 	}
 
-	// TypeGuard is a subject of a TypeSwitchStmt: the subject of a match
-	// (#196).
+	// TypeGuard is a subject of a TypeSwitchStmt: the subject of a match.
 	TypeGuard struct {
 		X Expr
 	}
@@ -673,7 +672,7 @@ type (
 	}
 
 	// MapType is `Map[K, V]` or `Map[K, V, H]`: Map is the position of
-	// the name, Lbrack and Rbrack of its brackets (#196, eighth round: a
+	// the name, Lbrack and Rbrack of its brackets (the v1 language, eighth round: a
 	// prelude name cannot be redeclared, so the name always means the map
 	// type). Hashing is the third type argument, the provider by which
 	// the Map finds its keys, or nil (CONSTRAINTS C5).
@@ -727,6 +726,10 @@ type (
 		Includes []*Field
 		Methods  []*Field
 		Laws     []*LawDecl
+		// Harnesses are the members `test H` (runtime.md, Tests: harnesses):
+		// the function of this package a test whose body needs the type
+		// runs under. The checker admits one.
+		Harnesses []*Harness
 		// Terms is the type-set member `~int | ~int64` (types.md,
 		// Generics 2): one term per `|`-separated type. Nil when the
 		// operation type has no type set; it then constrains by its
@@ -735,6 +738,14 @@ type (
 		Union []Expr
 		// Rbrace closes the braces; NoPos for a union.
 		Rbrace Pos
+	}
+
+	// Harness is the member `test H` of an operation type: Test is the
+	// position of `test`, Name the harness function's name.
+	Harness struct {
+		Doc  *CommentGroup
+		Test Pos
+		Name *Ident
 	}
 
 	// TypeTerm is one term of a type-set member: `~T` (Tilde set) admits
@@ -902,6 +913,9 @@ func (x *TypeTerm) Pos() Pos {
 	return x.Type.Pos()
 }
 func (x *TypeTerm) End() Pos { return x.Type.End() }
+
+func (x *Harness) Pos() Pos { return x.Test }
+func (x *Harness) End() Pos { return x.Name.End() }
 
 func (x *InterfaceType) Pos() Pos {
 	if x.Lbrace.IsValid() {
@@ -1113,7 +1127,7 @@ func (*TypeSwitchStmt) stmtNode() {}
 func (*ForStmt) stmtNode()        {}
 func (*RangeStmt) stmtNode()      {}
 
-// if and match are expressions in operand position (#196, sixth round).
+// if and match are expressions in operand position (sixth round).
 func (*IfStmt) exprNode()         {}
 func (*SwitchStmt) exprNode()     {}
 func (*TypeSwitchStmt) exprNode() {}

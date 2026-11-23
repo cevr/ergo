@@ -212,3 +212,36 @@ func TestPeakIsReadAtAdmission(t *testing.T) {
 		t.Fatalf("b admitted after its key was deleted: %+v; want charged 8, not capped", s.Holders)
 	}
 }
+
+// TestCeilingLimitsTheCapNotTheCharge compares two admissions of the same
+// request: a ceiling limits the cap (including an otherwise uncapped run)
+// but does not change the charge. Mutant: CeilingIgnored.
+func TestCeilingLimitsTheCapNotTheCharge(t *testing.T) {
+	for _, memory := range []int64{0, 16} {
+		for _, asked := range []int64{0, 3, 32} {
+			for _, peak := range []int64{0, 2, 10, 30} {
+				r := Rules{Cores: 1, Memory: memory, Default: 4, Peak: func(string) int64 { return peak }}
+				admit := func(ceiling int64) Entry {
+					s := State{Holders: []Entry{{ID: "busy", Width: 1}}}
+					s.Join(r, Entry{ID: "next", Width: 1, Asked: asked, Ceiling: ceiling})
+					s.Remove(r, "busy")
+					if len(s.Holders) != 1 {
+						t.Fatalf("memory %d, asked %d, peak %d, ceiling %d: not admitted: %+v", memory, asked, peak, ceiling, s)
+					}
+					return s.Holders[0]
+				}
+				unbounded := admit(0)
+				for _, ceiling := range []int64{1, 8, 24} {
+					wantCap := ceiling
+					if unbounded.Cap > 0 && unbounded.Cap < ceiling {
+						wantCap = unbounded.Cap
+					}
+					got := admit(ceiling)
+					if got.Memory != unbounded.Memory || got.Cap != wantCap {
+						t.Fatalf("memory %d, asked %d, peak %d, ceiling %d: charge %d cap %d; want charge %d cap %d", memory, asked, peak, ceiling, got.Memory, got.Cap, unbounded.Memory, wantCap)
+					}
+				}
+			}
+		}
+	}
+}

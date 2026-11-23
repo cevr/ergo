@@ -8,7 +8,7 @@ import (
 
 // requirementKeyword is the spelling of a capability (requirement) row in
 // source. The keyword is the only place the checker names it, so a rename of
-// the keyword (#217) touches this constant and the syntax nodes only.
+// the keyword touches this constant and the syntax nodes only.
 const requirementKeyword = "needs"
 
 // Object is a named entity: a type, a function, a variable, a constant, a
@@ -29,8 +29,11 @@ type TypeName struct {
 	// (stage E3b, 196l). They are not part of the type's shape, so identity,
 	// satisfaction and the lowering never read them.
 	Laws []*Law
-	file *fileInfo
-	id   int
+	// Harness is the test harness an operation type declares (harness.go),
+	// or nil.
+	Harness *Harness
+	file    *fileInfo
+	id      int
 	// ctor is the type's constructor, which a generator builds its values
 	// with (tests.go rule 3); ctorState is 0 before its package's check
 	// plans it, 1 while it is planned and 2 once planned.

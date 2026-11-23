@@ -103,6 +103,9 @@ type Frame[E] {
 	sames     int,
 	keptSames int,
 	compared  int,
+	// lowered is the nodes this Commit's ops carry, each lowered once on
+	// its way out (lower; Stats.Lowered).
+	lowered int,
 	// visits is the nodes Commit visited (NS3).
 	visits int,
 	// now is the time of the last frame (Tick), tickAt that time while
@@ -1672,7 +1675,7 @@ type Op[E] = Insert{Id Id[E], Parent Id[E], Before Option[Id[E]], Node Node[E]} 
 func NewFrame[E]() Frame[E] {
 	let mut nodes = arena.New[node[E]]()
 	let root = nodes.Put(fresh[E](BoxNode{Style: Plain()}, ident{site: nowhere, each: nowhere, key: NoKey, n: 0}, None, None, None, false))
-	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
+	Frame[E]{nodes: nodes, root: root, specs: []spec[E]{}, nspecs: 0, first: -1, last: -1, nroot: 0, pass: 0, pending: []pendingCounts{}, npending: 0, rootPending: false, unplaced: 0, cells: []cellSpec{}, ncells: 0, loads: []loadSpec[E]{}, nloads: 0, seen: Map[int, tally]{}, seenWide: Map[slotOf, tally]{}, seenLog: []slotOf{}, nseen: 0, index: Map[kid[E], arena.Ref[node[E]]]{}, indexed: Map[arena.Ref[node[E]], bool]{}, held: Map[arena.Ref[node[E]], bool]{}, stopped: Map[int, bool]{}, parent: -1, each: nowhere, key: NoKey, epoch: 0, ops: []Op[E]{}, jobs: []Job[E]{}, keys: []func(k KeyPress) Option[E]{}, nkeys: 0, urls: []func(u URL) Option[E]{}, nurls: 0, anims: []func(at duration) E{}, nanims: 0, rowRuns: 0, skips: 0, written: 0, stops: []CallSite{}, nstops: 0, slow: None, args: newArgs(), kept: Map[groupKey[E], int]{}, keptList: []keptGroup[E]{}, free: []int{}, nfree: 0, keptPasses: 0, nheld: 0, swept: 0, groups: []groupRec[E]{}, ngroups: 0, nested: false, group: -1, groupSeen: Map[int, tally]{}, groupWide: Map[slotOf, tally]{}, groupRuns: 0, sameSkips: 0, sames: 0, keptSames: 0, compared: 0, lowered: 0, visits: 0, now: duration(int64(0)), tickAt: None, passes: 0, moving: false, focus: arena.Null[node[E]](), down: arena.Null[node[E]](), lookList: defaultTable(), lookIds: defaultIds(), lookSent: len(defaultTable()), hover: arena.Null[node[E]](), over: []arena.Ref[node[E]]{}, crossed: []E{}, visible: false, want: None, wanted: None, openers: []opener[E]{}, roved: Map[arena.Ref[node[E]], arena.Ref[node[E]]]{}, paint: Paint{ops: []PaintOp{}, segs: []Seg{}, ends: []int{}}, readouts: []Readout{}, nreadouts: 0}
 }
 
 // IncrementalEqualsFresh: committing the frames of a run of states in
@@ -1689,13 +1692,13 @@ law IncrementalEqualsFresh(seed int, steps int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..(steps%8+8)%8+1 {
 		let s = genState(&r)
-		Apply(&m, pass(&f, ps, s)) catch {
+		Apply(&m, renderPass(&f, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
 		let mut fresh = NewFrame[int]()
 		let mut fm = NewMirror[int](Root(&fresh))
-		Apply(&fm, pass(&fresh, ps, s)) catch {
+		Apply(&fm, renderPass(&fresh, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
@@ -1871,8 +1874,8 @@ func digest(kids []prog, s []int, row int) int {
 // a read is drawn only under a pBound.
 func models(ps []prog, s []int, row int) []Shape[int] { outcomes(ps, s, row).shapes }
 
-// pass renders the programs ps at state s as one pass of f.
-func pass(f mut Frame[int], ps []prog, s []int) []Op[int] {
+// renderPass renders the programs ps at state s as one pass of f.
+func renderPass(f mut Frame[int], ps []prog, s []int) []Op[int] {
 	Render(f, func(g mut Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
@@ -1900,9 +1903,9 @@ law IdempotentCommit(seed int) {
 	let mut f = NewFrame[int]()
 	let s0 = genState(&r)
 	let s1 = genState(&r)
-	let _ = pass(&f, ps, s0)
-	let _ = pass(&f, ps, s1)
-	len(pass(&f, ps, s1)) == 0
+	let _ = renderPass(&f, ps, s0)
+	let _ = renderPass(&f, ps, s1)
+	len(renderPass(&f, ps, s1)) == 0
 }
 
 // KeyedMovesFewest: a permutation of one-node keyed rows shows the new
@@ -2388,10 +2391,10 @@ law GroupSkipsEqualArguments(seed int, steps int) {
 	true
 }
 
-// group writes body's nodes as one group (the compiler's form of a
+// writeGroup writes body's nodes as one group (the compiler's form of a
 // component call, never written by a program): the nodes of the last
 // pass's group when it is kept with arguments equal to args, else body's.
-func group[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
+func writeGroup[E comparable, A comparable](f mut Frame[E], args A, body func(), at CallSite) {
 	let id = groupIdent(f, at)
 	let key = groupKey[E]{owner: owner(f, f.parent), id: id}
 	let outer = f.group
@@ -2434,7 +2437,7 @@ func grBody(f mut Frame[int], a grArgs) {
 // grGrouped writes grBody through group, as the compiler writes a
 // component call.
 func grGrouped(f mut Frame[int], a grArgs) {
-	group(f, a, func() { grBody(f, a) })
+	writeGroup(f, a, func() { grBody(f, a) })
 }
 
 // StateKeeps: across passes that reorder keyed rows, each cell holds the
@@ -3123,6 +3126,7 @@ func Commit[E comparable](f mut Frame[E]) []Op[E] {
 	f.ops = defines(f)
 	f.jobs = []Job[E]{}
 	f.compared = 0
+	f.lowered = 0
 	f.visits = 0
 	reconcile(f, -1, f.root)
 	settle(f)
@@ -3196,6 +3200,16 @@ func change[E](f mut Frame[E], r arena.Ref[node[E]], edit func(n mut node[E])) {
 
 func emit[E](f mut Frame[E], op Op[E]) { f.ops = f.ops.Append(op) }
 
+// lower is n as an Insert or a Set of this Commit carries it, counted
+// (Stats.Lowered): the one place a node of the pass leaves for a host, so
+// a node no op carries (kept, in a kept group, under a skipped Same) costs
+// no lowering. The ops carry the app node until the host vocabulary is
+// theirs (HOST-VOCAB HV2), when this is Lower(n).
+func lower[E](f mut Frame[E], n Node[E]) Node[E] {
+	f.lowered = f.lowered + 1
+	n
+}
+
 // reconcile makes the children of parent (spec index p, node pr) the nodes
 // of the child specs of p, keeping each old child that put matched (prev),
 // and then does the same below each child. When every child is the old
@@ -3241,7 +3255,7 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 	// parked children stay parked while a group under p stopped in this
 	// pass, and are dropped otherwise. An old child the pass did not write
 	// leaves the host's copy, and is parked or dropped by the same rule.
-	let park = stops(f, p)
+	let park = stoppedUnder(f, p)
 	let held = parkedOf(f, pr)
 	let mut heldAt = Map[arena.Ref[node[E]], int]{}
 	let mut back = []bool{}
@@ -3320,7 +3334,7 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 		let id = Id[E]{ref: refs[j]}
 		if src[j] < 0 {
 			f.compared = f.compared + 1
-			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: sp.node})
+			emit(f, Insert{Id: id, Parent: parent, Before: before, Node: lower(f, sp.node)})
 			if revive[j] {
 				change(f, refs[j], func(n mut node[E]) {
 					n.node = sp.node
@@ -3400,7 +3414,7 @@ func update[E comparable](f mut Frame[E], s int, r arena.Ref[node[E]]) {
 	f.compared = f.compared + 1
 	let sp = f.specs[s]
 	if !shows(f, r, sp.node) {
-		emit(f, Set{Id: Id[E]{ref: r}, Node: sp.node})
+		emit(f, Set{Id: Id[E]{ref: r}, Node: lower(f, sp.node)})
 	}
 	change(f, r, func(n mut node[E]) {
 		n.node = sp.node

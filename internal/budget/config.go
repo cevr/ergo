@@ -3,6 +3,7 @@ package budget
 import (
 	"bufio"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -129,7 +130,7 @@ func ParseSize(s string) (int64, error) {
 		s = s[:len(s)-1]
 	}
 	v, err := strconv.ParseInt(s, 10, 64)
-	if err != nil || v < 0 {
+	if err != nil || v < 0 || v > math.MaxInt64/mult {
 		return 0, fmt.Errorf("budget: %q is not a size (40G, 512M, bytes)", s)
 	}
 	return v * mult, nil

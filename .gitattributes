@@ -3,7 +3,10 @@
 # these files merge as text. `work new` writes the drivers into each
 # workspace it makes, `work init` into the base, and `work doctor -fix`
 # into a base or an adopted workspace that lacks them (`work doctor`
-# names each one that does). By hand, once per clone:
+# names each one that does). The gate refuses a clone without them, and
+# `sh scripts/lanework/lanework.sh drivers` writes them into one clone
+# from the base; `lanework.sh trial A B` merges two commits with them in
+# memory, without writing any configuration. By hand, once per clone:
 #
 #   for c in rows measured lines derived json; do
 #     git config merge.ergo-$c.name "work merge-file $c"
@@ -19,6 +22,7 @@ scripts/gate/fast-cpu.json merge=ergo-measured
 internal/residue/testdata/*.txt merge=ergo-lines
 internal/lawledger/testdata/runners.txt merge=ergo-lines
 internal/sketch/check/testdata/provenance-manifest.txt merge=ergo-lines
+internal/sketch/std/std-red.txt merge=ergo-lines
 # derived: generated files are made again, never merged. Git takes the
 # side that changed; when both changed, the driver keeps ours and prints
 # "regenerate":true, and the file must be made again from the merged

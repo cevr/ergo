@@ -4,6 +4,11 @@
     {"name":"ladt-union-untyped","origin":"wf10 LICENCE-ADT","file":"internal/sketch/eval/cases.go","from":"\t\tif in.atInt[u] {\n\t\t\treturn in.generate(fr, r, check.Typ[check.Int], d, nil)","to":"\t\tif false && in.atInt[u] {\n\t\t\treturn in.generate(fr, r, check.Typ[check.Int], d, nil)","rule":"types.md Laws 14 rule 5: a licence run reads the law's type parameters at int inside every type (a Maybe[T], a Tree[T]).","killers":["internal/sketch/eval:TestLicenceOverUnions"]},
     {"name":"ladt-union-one-class","origin":"wf10 LICENCE-ADT","file":"internal/sketch/eval/licence.go","from":"\t\tfor _, v := range u.Variants {\n\t\t\tname := label(v.String())","to":"\t\tfor _, v := range u.Variants[:1] {\n\t\t\tname := label(v.String())","rule":"LICENCE-ADT: a union's licence classes are all its variants, so every variant (a Tree's Leaf and Node) is reached.","killers":["internal/sketch/eval:TestLicenceOverUnions"]},
     {"name":"ladt-no-two-family","origin":"wf10 LICENCE-ADT","file":"internal/sketch/eval/licencefuncs.go","from":"len(sig.Params) < 1 || len(sig.Params) > 2 || len(sig.Results) != 1","to":"len(sig.Params) < 1 || len(sig.Params) > 1 || len(sig.Results) != 1","rule":"LICENCE-ADT: a two-parameter function (a fold's step) takes a family of pure functions.","killers":["internal/sketch/eval:TestLicenceOverUnions"]},
+    {"name":"eval-repeat-drops-one","origin":"wf10/std/M1","file":"internal/sketch/eval/nativesbits.go", "decl": "registerNativesbits","from":"\t\tout, why := guard(func() Value { return newSlice(slices.Repeat(xs.elems(), int(n))) })","to":"\t\tout, why := guard(func() Value { return newSlice(slices.Repeat(xs.elems(), max(int(n)-1, 0))) })","rule":"The evaluator's slices.Repeat is the runtime's SlicesRepeat: n copies, and Go's panic for a negative n.","anchor":{"tests":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},"killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"eval-sortfunc-equal-on-greater","origin":"wf10/std/M1","file":"internal/sketch/eval/natives.go", "decl": "registerNatives","from":"\t\t\treturn cmp.Compare(v.(int64), 0)\n\t\t})\n\t\tif stop != nil {","to":"\t\t\treturn cmp.Compare(v.(int64), 1)\n\t\t})\n\t\tif stop != nil {","rule":"The evaluator's slices.SortFunc orders by the sign of the comparison, as the runtime's SlicesSortFunc (Go's slices.SortFunc) does.","anchor":{"tests":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},"killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"eval-time-parse-is-gos","origin":"wf10/std/M1","file":"internal/sketch/eval/timetext.go","decl":"parseTime","from":"\tfor i := 0; i < len(value); i++ {\n\t\tif value[i] != '+' && value[i] != '-' {","to":"\tfor i := 0; i < 0; i++ {\n\t\tif value[i] != '+' && value[i] != '-' {","rule":"The evaluator's time.parse reads the expanded year Format writes, which Go's Parse refuses, as the runtime's TimeParse does.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"eval-time-format-is-gos","origin":"wf10/std/M1","file":"internal/sketch/eval/timetext.go","decl":"formatTime","from":"\tif sec >= year0Sec && sec < year10000Sec {","to":"\tif true {","rule":"The evaluator's time.format writes ISO 8601's expanded year (+010000) past the years 0 to 9999, as the runtime's TimeFormat does, which Parse reads back (law FormatParseRoundTrip at sec 253402300800).","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
+    {"name":"eval-time-expanded-year-unpadded","origin":"wf10/std/M1","file":"internal/sketch/eval/timetext.go","decl":"expandedYear","from":"\tif len(digits) < 6 {","to":"\tif false {","rule":"An expanded year has at least six digits (+010000, -000001), as the runtime's TimeFormat writes it.","killers":["internal/sketch/eval:TestNativesAgreeWithRuntime"]},
     {"name":"g17-eval-passes","origin":"wf10 GAP17-LAWS","file":"internal/sketch/eval/cases.go","from":"\tif p.Native != \"\" {\n\t\tout.Status, out.Reason = Native, NativeReason(p.Native)","to":"\tif false && p.Native != \"\" {\n\t\tout.Status, out.Reason = Native, NativeReason(p.Native)","rule":"runtime.md Tests 9 (owner q277): the evaluator runs no Go, so a law over a Go-backed provider is native, never passed or refuted at check time.","killers":["internal/sketch/eval:TestNativeOnlyLawsRunNatively"]},
     {"name":"bw-eval-variants-no-builders","origin":"wf10 BUILDER-WELLFOUNDED","file":"internal/sketch/eval/cases.go","from":"testplan.SmallVariants(in.root.Builder, vs)","to":"testplan.SmallVariants(func(*check.Named) *check.Builder { return nil }, vs)","rule":"At the depth limit eval ranks a union's variants with the package's builders, as the checker and the Go build do.","killers":["internal/sketch/eval:TestGenerationEndsOrIsRefused"]},
     {"name":"esr-shrink-stop-wins","origin":"wf10 EVAL-SHRINK-REFUTED","file":"internal/sketch/eval/cases.go","from":"\tif stopped {\n\t\treturn drawn, drawnShows\n\t}","to":"\tif stopped {\n\t\treturn Result{Status: Incomplete, Reason: \"the shrink stopped\"}, nil\n\t}","rule":"A refutation already found decides the obligation: a shrink the budget stops leaves the drawn case refuted, never incomplete.","killers":["internal/sketch/eval:TestRefutationOutlivesItsShrink"]},
@@ -687,7 +692,7 @@
       "rule": "ListenFailed's Reason is Go's net.Listen error text.",
       "killers": ["internal/sketch/eval:TestHTTPPolicyAgreesWithRuntime"]
     },
-    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallHash:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
+    {"name":"oracle-o23-preflight-codec","origin":"wf10 ORACLE O23","file":"internal/sketch/eval/preflight.go","from":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallEncode, check.CallDecode, check.CallHash, check.CallTestSeed:","to":"\t\t\tcase check.CallLen, check.CallConversion, check.CallPattern, check.CallEmbed, check.CallHash, check.CallTestSeed:","rule":"An obligation that reaches encode or decode runs (Never silently skipped: the preflight skips only what the run cannot evaluate).","killers":["internal/sketch/eval:TestPreflightAdmitsWhatRuns"]},
     {
       "name": "oracle-o23-preflight-go-extern",
       "origin": "wf10 ORACLE O23",
@@ -890,7 +895,7 @@
       "name": "oracle-o33-plain-skips-conversion",
       "origin": "wf10 ORACLE O33",
       "file": "internal/sketch/eval/facts.go",
-      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvNarrow || f.conv.Kind == check.ConvWiden)",
+      "from": "\t\t(!f.hasConv || f.conv.Kind == check.ConvVariant || f.conv.Kind == check.ConvRow || f.conv.Kind == check.ConvWiden)",
       "to": "\t\ttrue",
       "rule": "A value the checker converts where it is used (a provider into an operation type) is converted however its expression is dispatched.",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithLowering"]
@@ -1422,17 +1427,17 @@
     {
       "name": "oracle-o13-parse-message-lost",
       "origin": "wf10 ORACLE O13",
-      "file": "internal/sketch/eval/nativestime.go",
-      "from": "\"Value\": value, \"Message\": err.Error()}",
-      "to": "\"Value\": value, \"Message\": \"\"}",
+      "file": "internal/sketch/eval/nativestime.go", "decl": "registerNativestime",
+      "from": "\"Value\": pe.Value, \"Message\": pe.Message}",
+      "to": "\"Value\": pe.Value, \"Message\": \"\"}",
       "rule": "std time.Parse fails ParseError with Go's message (std time Parse; runtime/v1 TimeParse).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
     {
       "name": "oracle-o13-parse-keeps-nanos-off",
       "origin": "wf10 ORACLE O13",
-      "file": "internal/sketch/eval/nativestime.go",
-      "from": "\"Nsec\": int64(t.Nanosecond()),",
+      "file": "internal/sketch/eval/nativestime.go", "decl": "registerNativestime",
+      "from": "\"Nsec\": r.Nsec,",
       "to": "\"Nsec\": int64(0),",
       "rule": "std time.Parse reads the fraction of a second the layout writes: the Reading's Nsec (std time Parse).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
@@ -1440,9 +1445,9 @@
     {
       "name": "oracle-o13-format-ignores-layout",
       "origin": "wf10 ORACLE O13",
-      "file": "internal/sketch/eval/nativestime.go",
-      "from": ".UTC().Format(args[2].(string))",
-      "to": ".UTC().Format(time.RFC3339)",
+      "file": "internal/sketch/eval/nativestime.go", "decl": "registerNativestime",
+      "from": "args[1].(int64), args[2].(string))",
+      "to": "args[1].(int64), \"2006-01-02T15:04:05Z07:00\")",
       "rule": "std time.Format writes the instant in UTC by its layout, as Go's t.UTC().Format(layout).",
       "killers": ["internal/sketch/eval:TestNativesAgreeWithRuntime"]
     },
@@ -2055,7 +2060,7 @@
     {"origin":"wf10 CF2","name":"cf2-range-reads-hole","file":"internal/sketch/eval/stmt.go","from":"\tif _, isTerm := dom.(term); isTerm && in.sym != nil {\n","to":"\tif _, isTerm := dom.(term); false && isTerm && in.sym != nil {\n","rule":"A for-in over a hole stops the run and names it (Each's list widens to the Each).","killers":["internal/experimental/irspike:TestTemplateCounts"]},
     {"origin":"wf10 CF2","name":"cf2-template-not-in-fold","file":"internal/sketch/eval/foldvalue.go","from":"globals: map[*check.Var]*slot{}, sym: run, fold: true, walk: true}","to":"globals: map[*check.Var]*slot{}, sym: run, walk: true}","rule":"A template run is a fold: std build's InFold is true there, so html builds its template.","killers":["internal/experimental/irspike:TestTemplateCounts"]},
     {"origin":"wf10 CF2","name":"cf2-hole-never-hole","file":"internal/sketch/eval/nativesjson.go","from":"\t\treturn in.fold && hole, in.charge(fr, at, 1)\n","to":"\t\treturn in.fold && hole && false, in.charge(fr, at, 1)\n","rule":"std build's Hole is true of a template's hole in a fold, so html places it as it is rather than read it.","killers":["internal/experimental/irspike:TestTemplateCounts"]},
-    {"name":"evgrow-unmapped","origin":"wf10 NP4f-15 reland (NS lane)","file":"internal/sketch/eval/natives.go","from":"\tcheck.CollGrow:       \"bytes.grow\",\n","to":"","rule":"std http.ParseQuery (Ergo, bs.Grow) runs at check time, not a skip: eval runs bs.Grow as runtime/v1.StringsBuilderGrow.","killers":["internal/sketch/eval:TestQueryParsesAtCheckTime"]},
+    {"name":"evgrow-unmapped","origin":"wf10 NP4f-15 reland (NS lane)","file":"internal/sketch/eval/natives.go","from":"\tcheck.CollGrow:         \"bytes.grow\",\n","to":"","rule":"std html.Escape (Ergo, strings.Grow over bs.Grow) runs at check time, not a skip: eval runs bs.Grow as runtime/v1.StringsBuilderGrow.","killers":["internal/sketch/eval:TestBuilderGrowsAtCheckTime"]},
     {"name":"evfiring-never-set","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/nativesmore.go","from":"\t\tin.firing = true\n","to":"\t\tin.firing = false\n","rule":"Under std machines' firing mark an Every timer's signal carries time.Clock's reading, not the zero time.","killers":["examples:stopwatch"]},
     {"name":"evevery-unconverted","origin":"wf10 MX-EVQUERY","file":"internal/sketch/eval/machinevalue.go","from":"\t\t\tif check.IsEvery(t.t) {\n","to":"\t\t\tif false && check.IsEvery(t.t) {\n","rule":"A machine's After turns an after function's machines.Every into the Timeout the build's everyTimers gives.","killers":["examples:stopwatch"]},
     {"name":"stepop-leaf-charged","origin":"wf10 FU-eval-step-per-op","file":"internal/sketch/eval/expr.go","from":"if leaf := f.op == opConst || f.op == opIdent; !leaf {","to":"if leaf := false; !leaf {","rule":"A leaf (a name, a constant) costs no step of its own: the node that reads it pays.","killers":["internal/sketch/eval:TestStepsCountTheNodesThatWork"]},
@@ -2103,7 +2108,7 @@
       "name": "red18-bytes-op-not-evaluated",
       "origin": "wf10 red #18 (NP4f x PRIM-4)",
       "file": "internal/sketch/eval/natives.go",
-      "from": "\tcheck.CollBytes:      \"strings.stringsBytes\",\n",
+      "from": "\tcheck.CollBytes:        \"strings.stringsBytes\",\n",
       "to": "",
       "rule": "The evaluator runs the operation s.Bytes(), so check-time evaluation of std's digests (sha256.Sum) agrees with the build.",
       "anchor": {"tests":["internal/sketch/eval:TestEvalAgreesWithLowering"]},
@@ -2196,6 +2201,16 @@
     {"name":"arity-serve-handler-short","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/http.ergo","from":"[]Field, string, bool, string) Response needs R)","to":"[]Field, string, bool) Response needs R)","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind, and calls a callback with the declared arity (EVAL-RAWPATH: serve called an 8-parameter handler with 9).","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
     {"name":"arity-send-moved","origin":"wf10 NATIVES-ARITY (NS lane)","file":"internal/sketch/std/http/client.ergo","from":"header []Field, body string) Response fails SendFailed","to":"body string, header []Field) Response fails SendFailed","rule":"Every evaluator native reads the arguments its std declaration gives, by count and kind: a parameter moved under an unchanged native fails the fast tier.","killers":["internal/sketch/eval:TestEveryNativeReadsItsDeclaration"]},
     {"name":"wr-eval-ordinary","origin":"wf10 NG WIRE-READ","file":"internal/sketch/eval/codecwalk.go","from":"\thook, ok := check.WireReadOf(r.t)\n\tif !ok {\n\t\treturn nil, false, nil\n\t}\n","to":"\thook, ok := check.WireReadOf(r.t)\n\tif true || !ok {\n\t\treturn nil, false, nil\n\t}\n","rule":"The evaluator reads X by its own WireRead on R, as the lowering does.","killers":["lower:TestCellReaderAgrees"]},
-    {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]}
+    {"name":"cv-method-value-eval-borrow","origin":"wf10 CV1 (CAP-VALUE A2)","file":"internal/sketch/eval/expr.go","from":"\t\t\trecv, ab := in.receiver(fr, x.X, f)\n","to":"\t\t\trecv, ab := in.expr(fr, x.X)\n","rule":"types.md Methods 2: a method value through a borrow binds the borrowed value, as a dot call's receiver is passed","killers":["internal/sketch/eval:TestMethodValueAgrees"]},
+    {"name":"prelude-append-string-native","origin":"wf10 PRELUDE-EXTERNS-EVALUATED (NS lane)","file":"internal/sketch/eval/natives.go","from":"\tcheck.CollAppendString: \"strings.builderAppend\",\n","to":"","rule":"Every pure extern std calls (bs.AppendString, declared in the prelude) has an evaluator native, so a build-time fold that writes through a Builder runs (b25: std html's folds were refused).","killers":["internal/sketch/eval:TestEveryPureStdExternHasANative","internal/experimental/irspike:TestConstFoldCounts"]},
+    {"name":"harness-seed-ignored","origin":"wf10 PROPERTY-TESTING P1b","file":"internal/sketch/eval/expr.go","from":"\t\treturn in.budget.Seed, nil","to":"\t\treturn uint64(1), nil","rule":"runtime.md Tests, harnesses 3: a harnessed test's run carries the run's --seed.","killers":["internal/sketch/eval:TestHarnessRunsTheBody"]},
+    {"name":"eval-returned-temp-released","origin":"wf10 lang EVAL-RETURNED-TEMPS (found by STOP-NESTED-WAIT)","file":"internal/sketch/eval/expr.go","from":"\t\tif fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","to":"\t\tif false && fr.info.ReturnedTemps[x] {\n\t\t\t// A new value a return gives","rule":"resources R10, in the evaluator: a new value a return gives while its frame owns another (return outer.Wait()) leaves with the value; the frame's end does not release it.","killers":["lower:TestReturnedTempsAgree"]},
+    {"name":"file-eval-size-missing","origin":"wf10/std/CAP-FILE","file":"internal/sketch/eval/nativespure.go","from":"\tcase \"Size\":\n\t\treturn int64(len(m.text)), nil\n","to":"","rule":"The evaluator gives fs.Mapped's Size on a Mapped of MapText (the check-time law run of a program providing fs/mapped.Maps); a missing case is an internal error.","killers":["internal/sketch/eval:TestMappedSizeEvaluates"]},
+    {"name":"m1p2-native-sha512-is-sha1","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"return sum(sha512.New, str(a[0]))","to":"return sum(sha1.New, str(a[0]))","rule":"stdlib.md Std laws: sha512's Sum is 64 bytes (law SumIs64Bytes, run in place by ergotests -std).","killers":["internal/sketch/std/sha512:law:SumIs64Bytes"]},
+    {"name":"m1p2-native-sub64-adds","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"d, b := bits.Sub64(u64(a[0]), u64(a[1]), u64(a[2]))","to":"d, b := bits.Add64(u64(a[0]), u64(a[1]), u64(a[2]))","rule":"stdlib.md Std laws: bits Sub64 undoes Add64 (law SubUndoesAdd64, run in place).","killers":["internal/sketch/std/bits:law:SubUndoesAdd64"]},
+    {"name":"m1p2-native-maptext-empty","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"return &mappedV{text: args[0].(string)}, nil","to":"return &mappedV{text: \"\"}, nil","rule":"stdlib.md Std laws: the text of fs.MapText(s) is s (law MapTextIsText, run in place).","killers":["internal/sketch/std/fs:law:MapTextIsText"]},
+    {"name":"m1p2-native-appenduint-base-ten","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/nativespure.go", "decl": "registerNativespure","from":"return strconv.FormatUint(u64(a[0]), int(a[1].(int64)))","to":"return strconv.FormatUint(u64(a[0]), 10)","rule":"stdlib.md Std laws: strconv's Append functions append the Format text in the base asked (law AppendsFormat, run in place).","killers":["internal/sketch/std/strconv:law:AppendsFormat"]},
+    {"name":"m1p2-native-durationtext-halves","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/natives.go", "decl": "registerNatives","from":"return time.Duration(a[0].(int64)).String()","to":"return time.Duration(a[0].(int64) / 2).String()","rule":"stdlib.md Std laws: ParseDuration reads DurationText(d) back as d (law DurationTextRoundTrips, run in place).","killers":["internal/sketch/std/time:law:DurationTextRoundTrips"]},
+    {"name":"m1p2-virtual-sleep-overshoots","origin":"wf10 M1 part 2 (laws in place)","file":"internal/sketch/eval/tasks.go", "decl": "timelineV.opCall","from":"s := &sleeper{tl: l, at: l.deadline(d)}","to":"s := &sleeper{tl: l, at: l.deadline(d + 1)}","rule":"stdlib.md Std laws: a Sleep on a VirtualClock advances its clock by exactly d (law SleepAdvancesExactly, run in place).","killers":["internal/sketch/std/testing:law:SleepAdvancesExactly"]}
   ]
 }

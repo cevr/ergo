@@ -490,7 +490,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 						fns = fns.Append(lf)
 					}
 				case syntax.TestDecl as td:
-					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), dense.OptOf(td.Body)))
+					fns = fns.Append(declared(s, env, p, file, d, td.Name, td.Params, store.TTuple(s, []dense.ID[store.TKey]{}), td.Body))
 				case syntax.TypeDecl as td:
 					// A refined type with no bracket parameters derives its
 					// parse function (types.RefinedParse).

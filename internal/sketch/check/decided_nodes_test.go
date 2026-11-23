@@ -293,7 +293,7 @@ func f() int fails Bang needs Log {
 }
 func main() {}
 `, nil},
-	{"fails and needs", "a retired takes clause names own (#197, q168)", `
+	{"fails and needs", "a retired takes clause names own (q168)", `
 type R {} implements Closer
 func Close(r R) {}
 type Holder { r R }

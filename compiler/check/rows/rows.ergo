@@ -67,6 +67,11 @@ type walker {
 	sites   []site,
 	// lit is whether the body walked is a function literal's.
 	lit bool,
+	// result is the declaration's one result, none for none or several;
+	// failures is each named type an error row of the package lists (an
+	// error type: types.md, Error types 1).
+	result   Option[dense.ID[store.TKey]],
+	failures []dense.ID[store.TKey],
 }
 
 // Rows is the S101 and S102 diagnostics of one typed package, in the Go
@@ -115,7 +120,7 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			dense.SetOf(&ks, c.Call, dense.OptOf(c.T))
 		}
 	}
-	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, decs: ds, decRows: t.Decodes, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false}
+	let mut w = walker{types: ts, calls: cs, caps: ks, lits: ls, litRows: t.Lits, decs: ds, decRows: t.Decodes, file: 0, errs: []dense.ID[store.TKey]{}, uses: []dense.ID[store.TKey]{}, known: []bool{true, true}, tries: 0, sites: []site{}, lit: false, result: None, failures: errorTypes(s, k)}
 	let mut out = []diag.Diag{}
 	let mut seen = Map[string, bool]{}
 	for f in k.Fns {
@@ -132,7 +137,11 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			w.known = []bool{false, true}
 			w.tries = 0
 			w.sites = []site{}
-			body(&w, s, k, syntax.TestDeclOf(p.Tree, f.Decl).Body)
+			match dense.Unpack(syntax.TestDeclOf(p.Tree, f.Decl).Body) {
+			case Some[dense.ID[syntax.Node]] as tb:
+				body(&w, s, k, tb.Value)
+			case None:
+			}
 			for d in reportTest(&w, s, k, f) {
 				let key = "\(d.File):\(d.Offset):\(d.Code):\(d.Message)"
 				if !isSome(seen.Get(key)) {
@@ -155,6 +164,7 @@ func Rows(s store.Store, k expr.Pkg, t expr.Typer) []diag.Diag {
 			w.file = f.File
 			w.errs = store.OperandsOf(s, ops[len(ops)-2])
 			w.uses = store.OperandsOf(s, ops[len(ops)-1])
+			w.result = oneResult(s, ops[len(ops)-3])
 			w.known = []bool{simple(s, w.errs), simple(s, w.uses)}
 			w.tries = 0
 			w.sites = []site{}
@@ -274,7 +284,81 @@ func valueAt(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], a
 		call(w, s, k, y, Some[dense.ID[syntax.Node]]{Value: at})
 	} else {
 		walk(w, s, k, x)
+		errorValue(w, s, k, x, at)
 	}
+}
+
+// errorValue records the escape of x, a value that leaves the body at at,
+// when it is of an error type (stmt.go returnedErrorRow): a failure, not
+// the success value. This part reads a function whose one result is no
+// union and no type parameter: a result that is the value's own type
+// makes it the success value (a constructor, K1); a union result may take
+// it as a variant (variantExit), which this part does not decide.
+func errorValue(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], at dense.ID[syntax.Node]) {
+	if w.lit {
+		return
+	}
+	let r = match w.result {
+	case Some[dense.ID[store.TKey]] as r:
+		r.Value
+	case None:
+		return
+	}
+	let n = bind.PNodeOf(k.Ps, w.file, un(k.Parsed[w.file].Tree, x))
+	if !dense.In(w.types, n) {
+		return
+	}
+	match dense.Unpack(dense.Of(w.types, n)) {
+	case Some[dense.ID[store.TKey]] as ty:
+		let t = ty.Value
+		if t == r || !slices.Contains(w.failures, t) {
+			return
+		}
+		let rk = store.KindOfType(s, r)
+		if rk == store.KNamed && !isRecord(k, store.TypeNameText(s, store.ArgOf(s, r))) {
+			return
+		}
+		if rk != store.KBasic && rk != store.KNamed && rk != store.KSlice && rk != store.KMap {
+			return
+		}
+		escape(w, at, []dense.ID[store.TKey]{t})
+	case None:
+	}
+}
+
+// isRecord is whether the package declares a record (no operation type)
+// named name.
+func isRecord(k expr.Pkg, name string) bool {
+	for r in k.Recs {
+		if r.Name == name && !r.Op {
+			return true
+		}
+	}
+	false
+}
+
+// oneResult is a signature's result when it is one type: none for no
+// result (the empty tuple) or a tuple of several.
+func oneResult(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	if store.KindOfType(s, r) == store.KTuple { None } else { Some[dense.ID[store.TKey]]{Value: r} }
+}
+
+// errorTypes is each of the package's named types that an error row of
+// one of its functions lists (owners.go: an error type of its package).
+func errorTypes(s store.Store, k expr.Pkg) []dense.ID[store.TKey] {
+	let mut out = []dense.ID[store.TKey]{}
+	for f in k.Fns {
+		let ops = store.OperandsOf(s, f.Sig)
+		if len(ops) < 3 {
+			continue
+		}
+		for e in store.OperandsOf(s, ops[len(ops)-2]) {
+			if store.KindOfType(s, e) == store.KNamed && !slices.Contains(out, e) {
+				out = out.Append(e)
+			}
+		}
+	}
+	out
 }
 
 // walk walks the node x of the body.
@@ -299,6 +383,7 @@ func walk(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node]) {
 		let te = syntax.TryExprOf(tr, x)
 		let y = un(tr, te.X)
 		if syntax.KindOf(tr, y) == syntax.KCatchExpr {
+			tryCatch(w, s, k, x, y)
 			return
 		}
 		w.tries = w.tries + 1
@@ -370,6 +455,73 @@ func rowOf(s store.Store, r Option[dense.ID[store.TKey]]) ([]dense.ID[store.TKey
 		(xs, simple(s, xs))
 	case None:
 		([]dense.ID[store.TKey]{}, false)
+	}
+}
+
+// tryCatch walks `try e catch { … }` at x, the catch y (handlers.go try):
+// one partial catch, whose rest escapes through the try, at the try. The
+// rest is read when e is a call of a row of the package's named types and
+// every arm names one of them by a bare name: an arm of another form (a
+// rest `case err:` or `case _`, an as-pattern, a record pattern) may
+// handle more, so nothing is reported then.
+func tryCatch(w mut walker, s store.Store, k expr.Pkg, x dense.ID[syntax.Node], y dense.ID[syntax.Node]) {
+	let tr = k.Parsed[w.file].Tree
+	let ce = syntax.CatchExprOf(tr, y)
+	let saved = w.tries
+	w.tries = 0
+	walkNoEscape(w, s, k, ce.X)
+	w.tries = saved
+	for i in 0..syntax.Len(ce.Arms) {
+		walk(w, s, k, syntax.Item(tr, ce.Arms, i))
+	}
+	let op = un(tr, ce.X)
+	if syntax.KindOf(tr, op) != syntax.KCallExpr {
+		return
+	}
+	let row = match sigOf(w, s, k, op, syntax.CallExprOf(tr, op).Fun) {
+	case Some[dense.ID[store.TKey]] as sig:
+		let ops = store.OperandsOf(s, sig.Value)
+		if len(ops) < 3 {
+			return
+		}
+		store.OperandsOf(s, ops[len(ops)-2])
+	case None:
+		return
+	}
+	for e in row {
+		if store.KindOfType(s, e) != store.KNamed {
+			return
+		}
+	}
+	let mut covered = []dense.ID[store.TKey]{}
+	for i in 0..syntax.Len(ce.Arms) {
+		let arm = syntax.CatchArmOf(tr, syntax.Item(tr, ce.Arms, i))
+		for j in 0..syntax.Len(arm.Types) {
+			let te = syntax.Item(tr, arm.Types, j)
+			if syntax.KindOf(tr, te) != syntax.KIdent {
+				return
+			}
+			let name = types.NameText(k.Parsed[w.file], te)
+			let mut found = false
+			for e in row {
+				if store.TypeNameText(s, store.ArgOf(s, e)) == name {
+					covered = covered.Append(e)
+					found = true
+				}
+			}
+			if !found {
+				return
+			}
+		}
+	}
+	let mut rest = []dense.ID[store.TKey]{}
+	for e in row {
+		if !slices.Contains(covered, e) {
+			rest = rest.Append(e)
+		}
+	}
+	if len(rest) > 0 {
+		escape(w, x, rest)
 	}
 }
 

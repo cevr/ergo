@@ -60,3 +60,8 @@ func (f *FS) Stat(_ *rt.Task, name string) (Info, error) {
 	}
 	return Info{Name: info.Name(), Size: int(info.Size()), Dir: info.IsDir(), Perm: int(info.Mode().Perm())}, nil
 }
+
+// Lstat is Stat: an embedded tree has no symbolic links.
+//
+//ergo:wait none
+func (f *FS) Lstat(t *rt.Task, name string) (Info, error) { return f.Stat(t, name) }

@@ -66,6 +66,8 @@ func Inspect(n Node, f func(Node) bool) {
 		walk(n.Target)
 	case *TestDecl:
 		walk(n.Name, n.Params, n.Body)
+	case *Harness:
+		walk(n.Name)
 	case *LawDecl:
 		walk(n.Name, n.TypeParams, n.Params, n.Body)
 		if n.Reach != nil {
@@ -172,6 +174,9 @@ func Inspect(n Node, f func(Node) bool) {
 		for _, l := range n.Laws {
 			Inspect(l, f)
 		}
+		for _, h := range n.Harnesses {
+			Inspect(h, f)
+		}
 		for _, t := range n.Terms {
 			Inspect(t.Type, f)
 		}
@@ -255,6 +260,8 @@ func isNilNode(n Node) bool {
 	case *ExternSpec:
 		return n == nil
 	case *LawDecl:
+		return n == nil
+	case *Harness:
 		return n == nil
 	case *StructType:
 		return n == nil

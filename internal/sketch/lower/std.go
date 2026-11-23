@@ -508,6 +508,18 @@ func (fc *funcCtx) stdResult(body v1.Body, result check.Type, env string, site s
 		ind := strings.Repeat("\t", fc.depth)
 		return "func() " + fc.goType(tuple) + " {\n" + ind + "\t" + strings.Join(vals, ", ") + " := " + call(env) + "\n" + ind + "\treturn " + fc.goType(tuple) + "{" + strings.Join(vals, ", ") + "}\n" + ind + "}()"
 	}
+	if tuple, ok := result.(*check.Tuple); ok && goFallible(body) && len(body.Results) == len(tuple.Types)+1 {
+		// (A, B, error) is the tuple and the failure (task's TaskExit;
+		// EXTERN-MULTI-RESULT): Go's several values become the one tuple,
+		// beside the error, as a single fallible result is (T, error).
+		var vals []string
+		for range tuple.Types {
+			vals = append(vals, fc.temp("part"))
+		}
+		err := fc.scope.alloc("err")
+		ind := strings.Repeat("\t", fc.depth)
+		return "func() (" + fc.goType(tuple) + ", error) {\n" + ind + "\t" + strings.Join(append(vals, err), ", ") + " := " + call(env) + "\n" + ind + "\treturn " + fc.goType(tuple) + "{" + strings.Join(vals, ", ") + "}, " + err + "\n" + ind + "}()"
+	}
 	if commaOk(body) {
 		// Go's comma-ok (T, bool) is the prelude's Option[T] (stdlib.md,
 		// Types 5; queue.Queue's Poll): Some of the value when ok, else

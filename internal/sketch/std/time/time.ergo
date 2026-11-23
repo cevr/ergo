@@ -134,7 +134,26 @@ func Add(t Time, d duration) Time {
 	}
 	let mono = t.mono + ns
 	let keep = t.hasMono && (ns < 0) == (mono < t.mono)
-	Time{sec: s, nsec: n, mono: mono, hasMono: keep}
+	// A time with no reading keeps none: its mono stays 0, so == compares
+	// the instant alone.
+	let kept = if keep { mono } else { 0 }
+	Time{sec: s, nsec: n, mono: kept, hasMono: keep}
+}
+
+// AddKeepsWallOnly: Add on a time with no monotonic reading gives a time
+// with none, as Go's Time.Add does, so the same instant built by Add and
+// by Unix is ==.
+law AddKeepsWallOnly(sec int64, n int64) {
+	let t = Unix(anyYear(sec), 0)
+	let ns = within(n, -4000000000000000000, 4000000000000000000)
+	t.Add(duration(ns)) == Unix(t.sec, ns)
+}
+
+// AddDropsAnOverflowedReading: when the monotonic reading would overflow,
+// Add drops it, as Go does, and the time is the wall-only one.
+law AddDropsAnOverflowedReading(sec int64) {
+	let s = anyYear(sec)
+	read(s, 0, 9223372036854775807).Add(1ns) == Unix(s, 1)
 }
 
 // Sub is the duration t - u. A result past the range of a duration is the

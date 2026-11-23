@@ -1,4 +1,4 @@
-// Counterfactual (#125): ../proto/lib.d.mts with search taking branded evidence (naive trust). Derived by hand.
+// Counterfactual: ../proto/lib.d.mts with search taking branded evidence (naive trust). Derived by hand.
 import type { Context, Effect, Fiber } from 'effect';
 export interface File {readonly _effraFile: "File"}
 export interface Latch {readonly _effraLatch: "Latch"}

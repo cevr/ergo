@@ -18,7 +18,7 @@ type target struct {
 	declErrors, declUses *Row
 	errors, uses         *Row // what escapes or is charged (inferred rows)
 	// scope is what the with frames around the body being checked bind
-	// (withScope): a charge reads it once, whatever their number (#229).
+	// (withScope): a charge reads it once, whatever their number.
 	scope withScope
 	// results are the value results a return gives; resultKnown is false
 	// for a block whose result is its last expression's type.
@@ -47,6 +47,9 @@ type target struct {
 	decl                 *Func
 	pending              []pendingClause
 	missErrors, missUses *Row
+	// harness is set on a test body with no parameters: the harnessed
+	// capability it charged (harness.go, rule 2).
+	harness *harnessUse
 }
 
 func (t *target) row(declared, inferred *Row) *Row {
@@ -105,6 +108,9 @@ func (c *checker) chargeAs(n syntax.Node, cap Type, what string) {
 		return
 	}
 	if !t.context && c.pend(t, n, KindUses, newRow().with(c.types, cap), what) {
+		return
+	}
+	if t.harness != nil && c.chargeHarness(t, n, cap) {
 		return
 	}
 	switch {
@@ -966,10 +972,14 @@ type funcCtx struct {
 	law      *Law // the law whose body this is (laws.go)
 	test     bool // a test's body, its function literals included (testambient.go)
 	reach    *reachNode
+	// tparams are a machine declaration's own type parameters, which
+	// scope over its entries (MACHINE-EXPR; checkMachine).
+	tparams []*TypeParam
 }
 
 // typeParams are the type parameters the body is generic in: a function's
-// own, or a law's type's (laws.go, rule 6). The type context of a body
+// own, a law's type's (laws.go, rule 6), or a machine declaration's for
+// its entries (MACHINE-EXPR). The type context of a body
 // (localTypeCtx) and a with operand's name (operandScope) both read them
 // here, so the two cannot disagree on what a body is generic in.
 func (fc *funcCtx) typeParams() []*TypeParam {
@@ -980,6 +990,8 @@ func (fc *funcCtx) typeParams() []*TypeParam {
 		return fc.fn.Sig.TParams
 	case fc.law != nil:
 		return fc.law.typeParams()
+	case fc.tparams != nil:
+		return fc.tparams
 	}
 	return nil
 }

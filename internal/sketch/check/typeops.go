@@ -295,8 +295,7 @@ func (a assignment) ok() bool { return a.clause != assignRefused }
 //     union whose variants it all holds: ConvWiden;
 //  5. a function value into a function type whose rows are supersets, at
 //     least one side unnamed: no conversion (every function value has one
-//     Go shape, spec D5); where t's parameter is a row value of one error
-//     type and v's is that type, ConvNarrow (narrowsRowParams);
+//     Go shape, spec D5);
 //  6. a machine declaration's value into the prelude Machine instance of
 //     its state, signal and step: ConvMachine (README Gap 46). It is tried
 //     after clause 2, since neither side is an operation type, a union or
@@ -324,7 +323,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if c.sameUnderlying(v, t) {
 		return assignment{clause: assignUnderlying}, ""
 	}
-	if view, step := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
+	if view, step, stepSig := c.machineValue(v); view != nil && isPreludeMachineValue(t) {
 		// A machine declaration's value is a Machine of its state, signal
 		// and step (README Gap 46), or an InputMachine when its initial is
 		// a function of an input (V4): ConvMachine.
@@ -339,24 +338,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 			k := len(view.TArgs) - 4
 			o, f, r, w := view.TArgs[k], view.TArgs[k+1].(*RowArg), view.TArgs[k+2].(*RowArg), view.TArgs[k+3].(*RowArg)
 			if input {
-				return assignment{}, fmt.Sprintf("its start takes %s and its step %s gives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+				return assignment{}, fmt.Sprintf("its start takes %s and its step %sgives an InputMachine with output %s, error row %s, capability row %s and work row %s", view.TArgs[0], entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 			}
-			return assignment{}, fmt.Sprintf("its step %s gives a Machine with output %s, error row %s, capability row %s and work row %s", step.Name, o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
+			return assignment{}, fmt.Sprintf("its step %sgives a Machine with output %s, error row %s, capability row %s and work row %s", entryLabel(step.Expr), o, rowText(f.Row), rowText(r.Row), rowText(w.Row))
 		}
-		table := map[string]*Func{"Step": step}
-		if input {
-			table["Start"] = machineStart(v.(*Named).Obj.Pkg, v.(*Named).Obj.Decl.Spec.(*syntax.MachineType))
+		conv, why := c.machineConversion(v.(*Named), t, step, stepSig, input)
+		if why != "" {
+			return assignment{}, why
 		}
-		if after := c.machineAfter(v); after != nil {
-			table["After"] = after // else every state has no timer
-		}
-		if work, _ := c.machineWork(v); work != nil {
-			table["Work"] = work // else every state has no work
-		}
-		if exit, _ := c.machineExit(v); exit != nil {
-			table["Exit"] = exit // else every state has no exit action
-		}
-		return assignment{clause: assignMachine, conv: Conversion{Kind: ConvMachine, From: v, To: t, Table: table}}, ""
+		return assignment{clause: assignMachine, conv: conv}, ""
 	}
 	if IsGoAny(t) {
 		// Clause 8 (GB2): Go's own conversion to its empty interface.
@@ -539,12 +529,8 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 		// Only the runner makes an entry's send (Signature.Entry).
 		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
 	}
-	var conv Conversion
 	if !c.sameShape(vs, ts) {
-		if !c.narrowsRowParams(vs, ts) {
-			return assignment{}, "the parameters or results differ"
-		}
-		conv = Conversion{Kind: ConvNarrow, From: v, To: t}
+		return assignment{}, "the parameters or results differ"
 	}
 	if c.takesEffect(vs, nil) != c.takesEffect(ts, nil) {
 		// Gap 39: a caller of t gives up exactly what t's clause names.
@@ -560,38 +546,7 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if vu := vs.Uses.known(c.types); !ts.Uses.unknown(c.types) && !vu.subsetOf(c.types, ts.Uses) {
 		return assignment{}, fmt.Sprintf("its capability row %s is wider than %s", rowText(vu), rowText(ts.Uses))
 	}
-	return assignment{clause: assignSignature, conv: conv}, ""
-}
-
-// narrowsRowParams reports whether a function value of v may go in where t
-// is expected because each parameter of t that is not v's is a row value of
-// exactly one error type M, and v's parameter is M (CK-FAILPARAM; types.md,
-// Assignability 5): such a row value only ever holds an M, so the value
-// narrows it and calls v (ConvNarrow). Classed[Boom] with `type Classed[E]
-// { Of func(e E) Fate }`, whose E is an error row, has Of of a row value of
-// Boom, and `func(e Boom) Fate { … }` is that field's value. Results stay
-// identical, and so do generic signatures.
-func (c *checker) narrowsRowParams(v, t *Signature) bool {
-	if len(v.TParams) > 0 || len(t.TParams) > 0 || len(v.Params) != len(t.Params) || len(v.Results) != len(t.Results) {
-		return false
-	}
-	narrowed := false
-	for i := range v.Params {
-		vp, tp := v.Params[i].Type, t.Params[i].Type
-		if c.mayBeIdentical(vp, tp) {
-			continue
-		}
-		if m := c.oneMember(tp); m == nil || !c.identical(m, vp) {
-			return false
-		}
-		narrowed = true
-	}
-	for i := range v.Results {
-		if !c.mayBeIdentical(v.Results[i], t.Results[i]) {
-			return false
-		}
-	}
-	return narrowed
+	return assignment{clause: assignSignature}, ""
 }
 
 // hasName reports a type with a name for assignability (go/types hasName):
@@ -930,7 +885,7 @@ func ergoOperations(v Type) bool {
 // a method with identical parameters and results, the same fallibility, and
 // error and capability rows that are subsets (types.md, Interface
 // assignability 1; rows.md, Context 2). Each lookup is a keyed map access, so
-// the check is linear in the method count (#122).
+// the check is linear in the method count.
 func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 	return c.implementsCapturing(v, it, checkReceiver, nil)
 }
@@ -940,7 +895,7 @@ func (c *checker) implements(v Type, it *Interface, checkReceiver bool) string {
 // admitted, and *capture is set when v implements it with such a method:
 // the site that builds the provider holds go.Foreign for it, as a provider
 // built by a constructor captures what its constructor needed (README Gap
-// 17; #37 for every other capability). go.Foreign has no provider value
+// 17; context construction for every other capability). go.Foreign has no provider value
 // (rows.md, Entry 4), so the operation's Go call needs nothing at run time
 // that the build site did not have.
 func (c *checker) implementsCapturing(v Type, it *Interface, checkReceiver bool, capture *captured) string {
@@ -1050,7 +1005,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
 			extra := gu.minus(c.types, m.Sig.Uses)
 			if capture == nil || !held.add(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with #37)", v, m.Name, rowText(extra))
+				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)", v, m.Name, rowText(extra))
 			}
 		}
 		if why := c.releaseWider(v, m); why != "" {

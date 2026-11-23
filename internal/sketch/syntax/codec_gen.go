@@ -526,6 +526,22 @@ func (e *encoder) encPtrFuncType(v *FuncType) {
 	e.uint(e.id(v))
 }
 
+func (e *encoder) encFieldsHarness(v *Harness) {
+	e.encPtrCommentGroup(v.Doc)
+	e.encPos(v.Test)
+	e.encPtrIdent(v.Name)
+}
+
+func (e *encoder) encHarness(v Harness) { e.encFieldsHarness(&v) }
+
+func (e *encoder) encPtrHarness(v *Harness) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(e.id(v))
+}
+
 func (e *encoder) encFieldsIdent(v *Ident) {
 	e.encPos(v.NamePos)
 	e.encT1(v.Name)
@@ -614,7 +630,8 @@ func (e *encoder) encFieldsInterfaceType(v *InterfaceType) {
 	e.encT9(v.Includes)
 	e.encT9(v.Methods)
 	e.encT14(v.Laws)
-	e.encT15(v.Terms)
+	e.encT15(v.Harnesses)
+	e.encT16(v.Terms)
 	e.encT2(v.Union)
 	e.encPos(v.Rbrace)
 }
@@ -630,7 +647,7 @@ func (e *encoder) encPtrInterfaceType(v *InterfaceType) {
 }
 
 func (e *encoder) encFieldsInterpolatedString(v *InterpolatedString) {
-	e.encT16(v.Texts)
+	e.encT17(v.Texts)
 	e.encT2(v.Exprs)
 }
 
@@ -730,7 +747,7 @@ func (e *encoder) encFieldsMachineType(v *MachineType) {
 	e.encExpr(v.Signal)
 	e.encPos(v.Rbrack)
 	e.encPos(v.Lbrace)
-	e.encT17(v.Entries)
+	e.encT18(v.Entries)
 	e.encPos(v.Rbrace)
 	e.encExpr(v.Initial)
 	e.encExpr(v.Step)
@@ -786,7 +803,7 @@ func (e *encoder) encPtrNeedsClause(v *NeedsClause) {
 
 func (e *encoder) encFieldsOrPattern(v *OrPattern) {
 	e.encT2(v.Alts)
-	e.encT18(v.Bars)
+	e.encT19(v.Bars)
 }
 
 func (e *encoder) encOrPattern(v OrPattern) { e.encFieldsOrPattern(&v) }
@@ -951,7 +968,7 @@ func (e *encoder) encFieldsSwitchStmt(v *SwitchStmt) {
 	e.encPos(v.Switch)
 	e.encExpr(v.Tag)
 	e.encPos(v.Lbrace)
-	e.encT19(v.Clauses)
+	e.encT20(v.Clauses)
 	e.encPos(v.Rbrace)
 }
 
@@ -1071,9 +1088,9 @@ func (e *encoder) encPtrTypeGuard(v *TypeGuard) {
 
 func (e *encoder) encFieldsTypeSwitchStmt(v *TypeSwitchStmt) {
 	e.encPos(v.Switch)
-	e.encT20(v.Subjects)
+	e.encT21(v.Subjects)
 	e.encPos(v.Lbrace)
-	e.encT19(v.Clauses)
+	e.encT20(v.Clauses)
 	e.encPos(v.Rbrace)
 }
 
@@ -1123,7 +1140,7 @@ func (e *encoder) encFieldsVarDecl(v *VarDecl) {
 	e.encPtrExternSpec(v.Extern)
 	e.encPos(v.Var)
 	e.encPos(v.Mut)
-	e.encT21(v.Specs)
+	e.encT22(v.Specs)
 }
 
 func (e *encoder) encVarDecl(v VarDecl) { e.encFieldsVarDecl(&v) }
@@ -1308,7 +1325,7 @@ func (e *encoder) encT12(v []int) {
 	}
 	e.uint(uint64(len(v)) + 1)
 	for _, x := range v {
-		e.encT22(x)
+		e.encT23(x)
 	}
 }
 
@@ -1344,7 +1361,18 @@ func (e *encoder) encT14(v []*LawDecl) {
 	}
 }
 
-func (e *encoder) encT15(v []*TypeTerm) {
+func (e *encoder) encT15(v []*Harness) {
+	if v == nil {
+		e.uint(0)
+		return
+	}
+	e.uint(uint64(len(v)) + 1)
+	for _, x := range v {
+		e.encPtrHarness(x)
+	}
+}
+
+func (e *encoder) encT16(v []*TypeTerm) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1355,7 +1383,7 @@ func (e *encoder) encT15(v []*TypeTerm) {
 	}
 }
 
-func (e *encoder) encT16(v []*BasicLit) {
+func (e *encoder) encT17(v []*BasicLit) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1398,7 +1426,7 @@ func (e *encoder) encPtrLawEquation(v *LawEquation) {
 	e.uint(e.id(v))
 }
 
-func (e *encoder) encT17(v []*MachineEntry) {
+func (e *encoder) encT18(v []*MachineEntry) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1409,7 +1437,7 @@ func (e *encoder) encT17(v []*MachineEntry) {
 	}
 }
 
-func (e *encoder) encT18(v []Pos) {
+func (e *encoder) encT19(v []Pos) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1420,7 +1448,7 @@ func (e *encoder) encT18(v []Pos) {
 	}
 }
 
-func (e *encoder) encT19(v []*CaseClause) {
+func (e *encoder) encT20(v []*CaseClause) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1431,7 +1459,7 @@ func (e *encoder) encT19(v []*CaseClause) {
 	}
 }
 
-func (e *encoder) encT20(v []*TypeGuard) {
+func (e *encoder) encT21(v []*TypeGuard) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1442,7 +1470,7 @@ func (e *encoder) encT20(v []*TypeGuard) {
 	}
 }
 
-func (e *encoder) encT21(v []*VarSpec) {
+func (e *encoder) encT22(v []*VarSpec) {
 	if v == nil {
 		e.uint(0)
 		return
@@ -1461,7 +1489,7 @@ func (e *encoder) encDecl(v Decl) {
 	e.uint(e.id(v))
 }
 
-func (e *encoder) encT22(v int) { e.int(int64(v)) }
+func (e *encoder) encT23(v int) { e.int(int64(v)) }
 
 // objTag is the table tag of x's type, or 0 when x is no table object.
 func objTag(x any) uint64 {
@@ -1526,86 +1554,88 @@ func objTag(x any) uint64 {
 		return 29
 	case *FuncType:
 		return 30
-	case *Ident:
+	case *Harness:
 		return 31
-	case *IfStmt:
+	case *Ident:
 		return 32
-	case *ImportDecl:
+	case *IfStmt:
 		return 33
-	case *ImportSpec:
+	case *ImportDecl:
 		return 34
-	case *IndexExpr:
+	case *ImportSpec:
 		return 35
-	case *InterfaceType:
+	case *IndexExpr:
 		return 36
-	case *InterpolatedString:
+	case *InterfaceType:
 		return 37
-	case *KeyValueExpr:
+	case *InterpolatedString:
 		return 38
-	case *LawDecl:
+	case *KeyValueExpr:
 		return 39
-	case *LawEquation:
+	case *LawDecl:
 		return 40
-	case *LawReach:
+	case *LawEquation:
 		return 41
-	case *LawRewrite:
+	case *LawReach:
 		return 42
-	case *MachineEntry:
+	case *LawRewrite:
 		return 43
-	case *MachineType:
+	case *MachineEntry:
 		return 44
-	case *MapType:
+	case *MachineType:
 		return 45
-	case *NeedsClause:
+	case *MapType:
 		return 46
-	case *OrPattern:
+	case *NeedsClause:
 		return 47
-	case *ParenExpr:
+	case *OrPattern:
 		return 48
-	case *ProvidesClause:
+	case *ParenExpr:
 		return 49
-	case *RangeStmt:
+	case *ProvidesClause:
 		return 50
-	case *ReturnStmt:
+	case *RangeStmt:
 		return 51
-	case *SelectorExpr:
+	case *ReturnStmt:
 		return 52
-	case *SkipStmt:
+	case *SelectorExpr:
 		return 53
-	case *SliceExpr:
+	case *SkipStmt:
 		return 54
-	case *StarExpr:
+	case *SliceExpr:
 		return 55
-	case *StructType:
+	case *StarExpr:
 		return 56
-	case *SwitchStmt:
+	case *StructType:
 		return 57
-	case *TakesClause:
+	case *SwitchStmt:
 		return 58
-	case *TestDecl:
+	case *TakesClause:
 		return 59
-	case *TryExpr:
+	case *TestDecl:
 		return 60
-	case *TupleExpr:
+	case *TryExpr:
 		return 61
-	case *TypeDecl:
+	case *TupleExpr:
 		return 62
-	case *TypeGuard:
+	case *TypeDecl:
 		return 63
-	case *TypeSwitchStmt:
+	case *TypeGuard:
 		return 64
-	case *TypeTerm:
+	case *TypeSwitchStmt:
 		return 65
-	case *UnaryExpr:
+	case *TypeTerm:
 		return 66
-	case *VarDecl:
+	case *UnaryExpr:
 		return 67
-	case *VarSpec:
+	case *VarDecl:
 		return 68
-	case *VariantSpec:
+	case *VarSpec:
 		return 69
-	case *Word:
+	case *VariantSpec:
 		return 70
+	case *Word:
+		return 71
 	}
 	return 0
 }
@@ -1673,6 +1703,8 @@ func (e *encoder) encObj(x any) {
 		e.encFieldsFuncLit(x)
 	case *FuncType:
 		e.encFieldsFuncType(x)
+	case *Harness:
+		e.encFieldsHarness(x)
 	case *Ident:
 		e.encFieldsIdent(x)
 	case *IfStmt:
@@ -2369,6 +2401,25 @@ func (d *decoder) decPtrFuncType() *FuncType {
 	return x.(*FuncType)
 }
 
+func (d *decoder) decFieldsHarness(v *Harness) {
+	v.Doc = d.decPtrCommentGroup()
+	v.Test = d.decPos()
+	v.Name = d.decPtrIdent()
+}
+
+func (d *decoder) decHarness() (v Harness) {
+	d.decFieldsHarness(&v)
+	return v
+}
+
+func (d *decoder) decPtrHarness() *Harness {
+	x := d.obj(d.uint())
+	if x == nil {
+		return nil
+	}
+	return x.(*Harness)
+}
+
 func (d *decoder) decFieldsIdent(v *Ident) {
 	v.NamePos = d.decPos()
 	v.Name = d.decT1()
@@ -2472,7 +2523,8 @@ func (d *decoder) decFieldsInterfaceType(v *InterfaceType) {
 	v.Includes = d.decT9()
 	v.Methods = d.decT9()
 	v.Laws = d.decT14()
-	v.Terms = d.decT15()
+	v.Harnesses = d.decT15()
+	v.Terms = d.decT16()
 	v.Union = d.decT2()
 	v.Rbrace = d.decPos()
 }
@@ -2491,7 +2543,7 @@ func (d *decoder) decPtrInterfaceType() *InterfaceType {
 }
 
 func (d *decoder) decFieldsInterpolatedString(v *InterpolatedString) {
-	v.Texts = d.decT16()
+	v.Texts = d.decT17()
 	v.Exprs = d.decT2()
 }
 
@@ -2606,7 +2658,7 @@ func (d *decoder) decFieldsMachineType(v *MachineType) {
 	v.Signal = d.decExpr()
 	v.Rbrack = d.decPos()
 	v.Lbrace = d.decPos()
-	v.Entries = d.decT17()
+	v.Entries = d.decT18()
 	v.Rbrace = d.decPos()
 	v.Initial = d.decExpr()
 	v.Step = d.decExpr()
@@ -2671,7 +2723,7 @@ func (d *decoder) decPtrNeedsClause() *NeedsClause {
 
 func (d *decoder) decFieldsOrPattern(v *OrPattern) {
 	v.Alts = d.decT2()
-	v.Bars = d.decT18()
+	v.Bars = d.decT19()
 }
 
 func (d *decoder) decOrPattern() (v OrPattern) {
@@ -2866,7 +2918,7 @@ func (d *decoder) decFieldsSwitchStmt(v *SwitchStmt) {
 	v.Switch = d.decPos()
 	v.Tag = d.decExpr()
 	v.Lbrace = d.decPos()
-	v.Clauses = d.decT19()
+	v.Clauses = d.decT20()
 	v.Rbrace = d.decPos()
 }
 
@@ -3007,9 +3059,9 @@ func (d *decoder) decPtrTypeGuard() *TypeGuard {
 
 func (d *decoder) decFieldsTypeSwitchStmt(v *TypeSwitchStmt) {
 	v.Switch = d.decPos()
-	v.Subjects = d.decT20()
+	v.Subjects = d.decT21()
 	v.Lbrace = d.decPos()
-	v.Clauses = d.decT19()
+	v.Clauses = d.decT20()
 	v.Rbrace = d.decPos()
 }
 
@@ -3068,7 +3120,7 @@ func (d *decoder) decFieldsVarDecl(v *VarDecl) {
 	v.Extern = d.decPtrExternSpec()
 	v.Var = d.decPos()
 	v.Mut = d.decPos()
-	v.Specs = d.decT21()
+	v.Specs = d.decT22()
 }
 
 func (d *decoder) decVarDecl() (v VarDecl) {
@@ -3274,7 +3326,7 @@ func (d *decoder) decT12() []int {
 	}
 	v := make([]int, n-1)
 	for i := range v {
-		v[i] = d.decT22()
+		v[i] = d.decT23()
 	}
 	return v
 }
@@ -3313,7 +3365,19 @@ func (d *decoder) decT14() []*LawDecl {
 	return v
 }
 
-func (d *decoder) decT15() []*TypeTerm {
+func (d *decoder) decT15() []*Harness {
+	n := d.uint()
+	if n == 0 {
+		return nil
+	}
+	v := make([]*Harness, n-1)
+	for i := range v {
+		v[i] = d.decPtrHarness()
+	}
+	return v
+}
+
+func (d *decoder) decT16() []*TypeTerm {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -3325,7 +3389,7 @@ func (d *decoder) decT15() []*TypeTerm {
 	return v
 }
 
-func (d *decoder) decT16() []*BasicLit {
+func (d *decoder) decT17() []*BasicLit {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -3375,7 +3439,7 @@ func (d *decoder) decPtrLawEquation() *LawEquation {
 	return x.(*LawEquation)
 }
 
-func (d *decoder) decT17() []*MachineEntry {
+func (d *decoder) decT18() []*MachineEntry {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -3387,7 +3451,7 @@ func (d *decoder) decT17() []*MachineEntry {
 	return v
 }
 
-func (d *decoder) decT18() []Pos {
+func (d *decoder) decT19() []Pos {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -3399,7 +3463,7 @@ func (d *decoder) decT18() []Pos {
 	return v
 }
 
-func (d *decoder) decT19() []*CaseClause {
+func (d *decoder) decT20() []*CaseClause {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -3411,7 +3475,7 @@ func (d *decoder) decT19() []*CaseClause {
 	return v
 }
 
-func (d *decoder) decT20() []*TypeGuard {
+func (d *decoder) decT21() []*TypeGuard {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -3423,7 +3487,7 @@ func (d *decoder) decT20() []*TypeGuard {
 	return v
 }
 
-func (d *decoder) decT21() []*VarSpec {
+func (d *decoder) decT22() []*VarSpec {
 	n := d.uint()
 	if n == 0 {
 		return nil
@@ -3443,7 +3507,7 @@ func (d *decoder) decDecl() Decl {
 	return x.(Decl)
 }
 
-func (d *decoder) decT22() int { return int(d.int()) }
+func (d *decoder) decT23() int { return int(d.int()) }
 
 // newObj allocates a table object of the tag, or nil.
 func newObj(tag uint64) any {
@@ -3509,84 +3573,86 @@ func newObj(tag uint64) any {
 	case 30:
 		return new(FuncType)
 	case 31:
-		return new(Ident)
+		return new(Harness)
 	case 32:
-		return new(IfStmt)
+		return new(Ident)
 	case 33:
-		return new(ImportDecl)
+		return new(IfStmt)
 	case 34:
-		return new(ImportSpec)
+		return new(ImportDecl)
 	case 35:
-		return new(IndexExpr)
+		return new(ImportSpec)
 	case 36:
-		return new(InterfaceType)
+		return new(IndexExpr)
 	case 37:
-		return new(InterpolatedString)
+		return new(InterfaceType)
 	case 38:
-		return new(KeyValueExpr)
+		return new(InterpolatedString)
 	case 39:
-		return new(LawDecl)
+		return new(KeyValueExpr)
 	case 40:
-		return new(LawEquation)
+		return new(LawDecl)
 	case 41:
-		return new(LawReach)
+		return new(LawEquation)
 	case 42:
-		return new(LawRewrite)
+		return new(LawReach)
 	case 43:
-		return new(MachineEntry)
+		return new(LawRewrite)
 	case 44:
-		return new(MachineType)
+		return new(MachineEntry)
 	case 45:
-		return new(MapType)
+		return new(MachineType)
 	case 46:
-		return new(NeedsClause)
+		return new(MapType)
 	case 47:
-		return new(OrPattern)
+		return new(NeedsClause)
 	case 48:
-		return new(ParenExpr)
+		return new(OrPattern)
 	case 49:
-		return new(ProvidesClause)
+		return new(ParenExpr)
 	case 50:
-		return new(RangeStmt)
+		return new(ProvidesClause)
 	case 51:
-		return new(ReturnStmt)
+		return new(RangeStmt)
 	case 52:
-		return new(SelectorExpr)
+		return new(ReturnStmt)
 	case 53:
-		return new(SkipStmt)
+		return new(SelectorExpr)
 	case 54:
-		return new(SliceExpr)
+		return new(SkipStmt)
 	case 55:
-		return new(StarExpr)
+		return new(SliceExpr)
 	case 56:
-		return new(StructType)
+		return new(StarExpr)
 	case 57:
-		return new(SwitchStmt)
+		return new(StructType)
 	case 58:
-		return new(TakesClause)
+		return new(SwitchStmt)
 	case 59:
-		return new(TestDecl)
+		return new(TakesClause)
 	case 60:
-		return new(TryExpr)
+		return new(TestDecl)
 	case 61:
-		return new(TupleExpr)
+		return new(TryExpr)
 	case 62:
-		return new(TypeDecl)
+		return new(TupleExpr)
 	case 63:
-		return new(TypeGuard)
+		return new(TypeDecl)
 	case 64:
-		return new(TypeSwitchStmt)
+		return new(TypeGuard)
 	case 65:
-		return new(TypeTerm)
+		return new(TypeSwitchStmt)
 	case 66:
-		return new(UnaryExpr)
+		return new(TypeTerm)
 	case 67:
-		return new(VarDecl)
+		return new(UnaryExpr)
 	case 68:
-		return new(VarSpec)
+		return new(VarDecl)
 	case 69:
-		return new(VariantSpec)
+		return new(VarSpec)
 	case 70:
+		return new(VariantSpec)
+	case 71:
 		return new(Word)
 	}
 	return nil
@@ -3655,6 +3721,8 @@ func (d *decoder) decObj(x any) {
 		d.decFieldsFuncLit(x)
 	case *FuncType:
 		d.decFieldsFuncType(x)
+	case *Harness:
+		d.decFieldsHarness(x)
 	case *Ident:
 		d.decFieldsIdent(x)
 	case *IfStmt:

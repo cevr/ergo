@@ -635,7 +635,7 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[
 			}
 		}
 		if len(more) > 0 && !builtHeld(s, k, more) {
-			return "\(v).\(mem.Name) requires \(setText(s, fnm, more)), which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with #37)"
+			return "\(v).\(mem.Name) requires \(setText(s, fnm, more)), which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)"
 		}
 	}
 	""
@@ -1129,4 +1129,35 @@ func Check(s store.Store, k expr.Pkg) []diag.Diag {
 		out = out.Append(g)
 	}
 	out
+}
+
+// MatchingProviderHasNoS106: a claim with one matching function per
+// operation is accepted at the types named in its brackets, even when
+// their order differs from the claimant's parameter order.
+law MatchingProviderHasNoS106(reversed bool) {
+	let parsed = syntax.Parse(providerSource(reversed))
+	let files = []bind.File{bind.File{Name: "p.ergo", Parsed: parsed}}
+	let ps = bind.BuildParents(files)
+	// The providing check reads package signatures, not body uses.
+	let mut s = bind.Collect("p", files)
+	let u = bind.Join(&s, []bind.Body{})
+	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
+	if parsed.Failed || len(k.Claims) != 1 || len(k.OpSigs) != 2 || len(k.Fns) != 2 {
+		return false
+	}
+	for g in Check(s, k) {
+		if g.Code == "S106" {
+			return false
+		}
+	}
+	true
+}
+
+func providerSource(reversed bool) string {
+	let first = if reversed { "B" } else { "A" }
+	let second = if reversed { "A" } else { "B" }
+	"type Access[K, V] {\n\tKey(k K) K,\n\tValue(v V) V,\n}\n" +
+		"type Pair[A, B] {} implements Access[\(first), \(second)]\n" +
+		"func Key[A, B](_ Pair[A, B], k \(first)) \(first) { k }\n" +
+		"func Value[A, B](_ Pair[A, B], v \(second)) \(second) { v }\n"
 }

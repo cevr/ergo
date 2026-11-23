@@ -528,6 +528,9 @@ type checker struct {
 	funcs      []*Func // every package function and method, in source order
 	vars       []*pkgVar
 	machines   []*TypeName
+	// entryState is, per machine entry, whether it is being checked or
+	// done (machineentry.go).
+	entryState map[machineEntryKey]int
 	guarded    map[*Func]bool // steps of exported machines: rows written (export guard)
 
 	// The reach graph for context cycles (rows.md, Context 5).
@@ -757,7 +760,7 @@ var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
 // lent, comparable and the codec one, true,
-// false and len, the one built-in function (#196, fourth round, item 2;
+// false and len, the one built-in function (the v1 language, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).
 func universe() *Scope {
@@ -810,8 +813,9 @@ func universe() *Scope {
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
 		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
-		// A language type: its T admits a resource with no mark (Generics 9).
-		refT := &TypeParam{Name: "T", lang: true, id: newID()}
+		// Declared go.Ref[T own]: its T admits a resource by the mark, as a
+		// user type's does (types.md, Generics 9; GEN9-GENERAL).
+		refT := &TypeParam{Name: "T", Own: true, id: newID()}
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
@@ -907,6 +911,11 @@ func prelude() preludeResult {
 // PreludeDiagnostics returns the prelude's own diagnostics (none when the
 // embedded source is valid; a test pins it).
 func PreludeDiagnostics() []Diagnostic { return prelude().diags }
+
+// PreludePackage is the checked prelude, as every package sees it: the
+// root a test build of the prelude's own laws lowers (sketchfront.CheckStd,
+// NIH-75), since no import names it.
+func PreludePackage() *Package { return prelude().pkg }
 
 // stdImporter imports the embedded standard library, checking each package
 // once per process. A std package may import another (io imports strings),

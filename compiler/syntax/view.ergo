@@ -51,7 +51,7 @@ type View =
 		Body       dense.Opt[Node],
 	}
 	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
-	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.ID[Node]}
+	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.Opt[Node]}
 	| LawDecl{
 		Doc        int,
 		Law        int,
@@ -414,7 +414,7 @@ func Put(t mut Tree, v View) dense.ID[Node] {
 	case ContextDecl as x:
 		mkContextDecl(t, m, wtok(x.Doc), x.Let, x.Context, wid(x.Name), wopt(x.Provides), wopt(x.Fails), wopt(x.Needs), wid(x.Body))
 	case TestDecl as x:
-		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wid(x.Body))
+		mkTestDecl(t, m, wtok(x.Doc), x.Test, wid(x.Name), wopt(x.Params), wopt(x.Body))
 	case LawDecl as x:
 		mkLawDecl(t, m, wtok(x.Doc), x.Law, wid(x.Name), wopt(x.TypeParams), wopt(x.Params), wopt(x.Body), wopt(x.Reach), if x.Equation { uint32(2) } else { wflag(x.Rewrite) }, wtok(x.When), wtok(x.Eq))
 	case LawReach as x:

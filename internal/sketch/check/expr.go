@@ -390,9 +390,9 @@ func (c *checker) interpolated(x *syntax.InterpolatedString) operand {
 //
 //   - a basic type has a text form;
 //   - a record, a union or a variant, a tuple, a slice or a Map (so
-//     Option[T]) is data whose text form #49 derives: S109;
+//     Option[T]) is data whose text form std codecs and I/O derives: S109;
 //   - a type parameter has none in v1, whatever its constraint, since a
-//     text needs a per-instance function and v1 boxes nothing: S109 #49;
+//     text needs a per-instance function and v1 boxes nothing: S109 std codecs and I/O;
 //   - any other type (a function, an operation type such as Task, a
 //     pointer, a machine) never has one: S108.
 //
@@ -404,9 +404,9 @@ func (c *checker) textForm(e syntax.Expr, t Type) {
 	case *Basic:
 		return
 	case *Struct, *Union, *Tuple, *Slice, *Array, *Map:
-		c.errorf(e, CodeOutside, "a value of type %s has no text form yet; interpolate one of its fields, or wait for derived text forms (#49)", c.localTypeText(t))
+		c.errorf(e, CodeOutside, "a value of type %s has no text form yet; interpolate one of its fields, or wait for derived text forms", c.localTypeText(t))
 	case *TypeParam:
-		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms (#49)", c.localTypeText(u))
+		c.errorf(e, CodeOutside, "a value of type %s has no text form yet: a type parameter has no text form in v1; interpolate a value of a basic type, or wait for derived text forms", c.localTypeText(u))
 	default:
 		c.errorf(e, CodeType, "a value of type %s has no text form; interpolate a value of a basic type or of a type defined over one (grammar.md, Literals 5)", c.localTypeText(t))
 	}
@@ -886,7 +886,6 @@ func (c *checker) literalType(x *syntax.CompositeLit, hint Type) Type {
 		}
 	}
 	c.recordInstantiation(n.Obj.Name, n.TParams, targs, x)
-	c.recordTypeMark(n, targs, x)
 	return c.instantiate(n, targs)
 }
 
