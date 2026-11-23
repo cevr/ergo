@@ -557,8 +557,9 @@ func locateFrom[E](m mut Mirror[E], at Option[Id[E]], loc Locator, off bool, des
 		match c {
 		case Some[Id[E]] as x:
 			let e = entry(m, refOf(m, x.Value))
-			let (o, d) = within(e.node, off, desc)
-			if finds(loc, e.node, access(e.node, o, d)) {
+			let h = Lower(e.node)
+			let (o, d) = HostScope(h, off, desc)
+			if HostFinds(loc, h, HostAccess(h, o, d)) {
 				out = out.Append(x.Value)
 			}
 			out = locateFrom[E](m, e.first, loc, o, d, out)
@@ -569,98 +570,31 @@ func locateFrom[E](m mut Mirror[E], at Option[Id[E]], loc Locator, off bool, des
 	}
 }
 
-// within is the disabled state and description a node passes to the
-// nodes under it, and has itself.
-func within[E](n Node[E], off bool, desc string) (bool, string) {
-	match n {
-	case FieldsetNode as x:
-		let mut d = desc
-		if x.Description != "" {
-			d = x.Description
-		}
-		(off || x.Disabled, d)
-	case _:
-		(off, desc)
-	}
-}
-
 // AccessOf is the node id names on m as a locator reads it; a Generic
 // with no name for an Id m does not hold.
 func AccessOf[E](m mut Mirror[E], id Id[E]) Access {
 	let mut off = false
 	let mut desc = ""
-	let mut path = []Node[E]{}
+	let mut path = []HostNode[E]{}
 	let mut at = id
 	for at != m.root {
 		match entryOf(m, at) {
 		case Some[mirrored[E]] as n:
-			path = path.Append(n.Value.node)
+			path = path.Append(Lower(n.Value.node))
 			at = n.Value.parent
 		case None:
-			return access[E](BoxNode{Style: Plain()}, false, "")
+			return Named(Generic, "")
 		}
 	}
 	if len(path) == 0 {
-		return access[E](BoxNode{Style: Plain()}, false, "")
+		return Named(Generic, "")
 	}
 	for i in 0..len(path) {
-		let (o, d) = within(path[len(path)-1-i], off, desc)
+		let (o, d) = HostScope(path[len(path)-1-i], off, desc)
 		off = o
 		desc = d
 	}
-	access(path[0], off, desc)
-}
-
-// access is n as a locator reads it, under a disabled Fieldset when off,
-// with the description desc.
-func access[E](n Node[E], off bool, desc string) Access {
-	let mut a = Access{Role: Generic, Name: "", Disabled: false, Description: desc, Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: NoKey, Rels: []Rel{}}
-	match n {
-	case PressableNode[E] as x:
-		a.Role = Button
-		a.Name = x.Label
-		a.Disabled = off
-	case CheckNode[E] as x:
-		a.Role = Checkbox
-		a.Name = x.Label
-		a.Disabled = off
-		a.Checked = Some{Value: x.Checked}
-	case ToggleNode as x:
-		a.Role = Switch
-		a.Name = x.Label
-		a.Disabled = off
-		a.Checked = Some{Value: x.On}
-	case InputNode as x:
-		a.Role = TextBox
-		a.Name = fieldName(x)
-		a.Disabled = off
-		a.Value = Some{Value: x.Value}
-		if x.Description != "" {
-			a.Description = x.Description
-		}
-		a.Invalid = x.Invalid
-	case TextNode as x:
-		a.Role = Static
-		a.Name = x.Value
-	case FieldsetNode:
-		a.Role = Group
-	case AreaNode as x:
-		a.Role = Region
-		a.Name = x.Label
-	case CanvasNode as x:
-		a.Role = Image
-		a.Name = x.Label
-	case RowsNode as x:
-		a.Role = List
-		a.Name = x.Label
-	case LiveNode as x:
-		a.Role = Status
-		a.Name = x.Text
-	case SemanticNode[E] as x:
-		a = declared(x.Access, off, desc)
-	case _:
-	}
-	a
+	HostAccess(path[0], off, desc)
 }
 
 // fieldName is an Input's accessible name: its label, or its placeholder
@@ -672,85 +606,12 @@ func fieldName(x InputNode) string {
 	x.Placeholder
 }
 
-// declared is what a Semantic node declared, disabled also under a
-// disabled Fieldset, and with the Fieldset's description when it has
-// none of its own.
-func declared(a Access, off bool, desc string) Access {
-	let mut d = a
-	d.Disabled = a.Disabled || off
-	if a.Description == "" {
-		d.Description = desc
-	}
-	d
-}
-
-// finds is whether loc finds a node n, read as a.
-func finds[E](loc Locator, n Node[E], a Access) bool {
-	match loc {
-	case WithRole as x:
-		a.Role == x.Role && (x.Name == "" || a.Name == x.Name)
-	case WithLabel as x:
-		match n {
-		case PressableNode[E] as p:
-			p.Label == x.Label
-		case CheckNode[E] as c:
-			c.Label == x.Label
-		case ToggleNode as t:
-			t.Label == x.Label
-		case AreaNode as r:
-			r.Label == x.Label
-		case CanvasNode as c:
-			c.Label == x.Label
-		case RowsNode as l:
-			l.Label == x.Label
-		case SemanticNode[E] as s:
-			s.Access.Name == x.Label
-		case InputNode as i:
-			i.Label != "" && i.Label == x.Label
-		case _:
-			false
-		}
-	case WithPlaceholder as x:
-		match n {
-		case InputNode as i:
-			i.Placeholder == x.Text
-		case _:
-			false
-		}
-	case WithText as x:
-		match n {
-		case TextNode as t:
-			t.Value == x.Text
-		case _:
-			false
-		}
-	case WithZone as x:
-		match n {
-		case ZoneNode as z:
-			z.Key == x.Key
-		case _:
-			false
-		}
-	case First as x:
-		// LocateIn takes the first; a node it finds is one At finds.
-		finds[E](x.At, n, a)
-	case Within as x:
-		// LocateIn keeps those under In; a node it finds is one At finds.
-		finds[E](x.At, n, a)
-	}
-}
-
 // TextIn is the values of the Texts in the subtree of id on m (id's own
 // included), in tree order, run together: a node's text content.
 func TextIn[E](m mut Mirror[E], id Id[E]) string {
 	match entryOf(m, id) {
 	case Some[mirrored[E]] as n:
-		let mut out = ""
-		match n.Value.node {
-		case TextNode as t:
-			out = t.Value
-		case _:
-		}
+		let mut out = HostTextOf(Lower(n.Value.node))
 		for k in childIds(m, n.Value) {
 			out = out + TextIn[E](m, k)
 		}
@@ -764,7 +625,7 @@ func TextIn[E](m mut Mirror[E], id Id[E]) string {
 // both sides.
 func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 	let ids = LocateIn(m, loc)
-	let want = locatorText(loc) + " " + matcherText(is)
+	let want = LocatorText(loc) + " " + matcherText(is)
 	match is {
 	case ToExist:
 		if len(ids) == 0 {
@@ -836,7 +697,10 @@ func ExpectIn[E](m mut Mirror[E], loc Locator, is Matcher) fails Mismatch {
 	}
 }
 
-func locatorText(loc Locator) string {
+// LocatorText is a locator as a scene's failure names it ("label \"Save\"",
+// "first role button \"\""): what NoNode, Ambiguous and Mismatch say, so a
+// host's locator steps fail in a TestHost's words.
+func LocatorText(loc Locator) string {
 	match loc {
 	case WithRole as x:
 		"role \(roleText(x.Role)) \"\(x.Name)\""
@@ -849,9 +713,9 @@ func locatorText(loc Locator) string {
 	case WithZone as x:
 		"zone \(keyText(x.Key))"
 	case First as x:
-		"first \(locatorText(x.At))"
+		"first \(LocatorText(x.At))"
 	case Within as x:
-		"\(locatorText(x.At)) within \(locatorText(x.In))"
+		"\(LocatorText(x.At)) within \(LocatorText(x.In))"
 	}
 }
 

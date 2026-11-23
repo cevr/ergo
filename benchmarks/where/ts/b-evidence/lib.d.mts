@@ -1,5 +1,5 @@
-// #125 INPUT EVIDENCE, NOT ACCEPTANCE (note §2.10). The evidence mechanism is
-// #125's; this fixture models only the outward boundary rule, under which an
+// The laws spike INPUT EVIDENCE, NOT ACCEPTANCE (note §2.10). The evidence mechanism is
+// The laws spike's; this fixture models only the outward boundary rule, under which an
 // exported function that mints evidence takes one of two forms in the .d.mts.
 // It does not model inward admission, a stable payload or a private canonical
 // method: attacks-expected-fail.mts records those routes as expected failures.

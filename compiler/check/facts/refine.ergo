@@ -556,10 +556,26 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 		if p.Failed {
 			continue
 		}
-		let mut inLaw = Map[int, bool]{}
+		// inLaw maps each law parameter field to its law's parameter
+		// fields, lawOf to its law; ops maps a member law to its operation
+		// type's operations.
+		let mut inLaw = Map[int, []dense.ID[syntax.Node]]{}
+		let mut lawOf = Map[int, int]{}
+		let mut ops = Map[int, []string]{}
 		for i in 0..syntax.NumNodes(p.Tree) {
 			let x = syntax.NodeAt(p.Tree, i)
-			if syntax.KindOf(p.Tree, x) != syntax.KLawDecl {
+			let kind = syntax.KindOf(p.Tree, x)
+			if kind == syntax.KInterfaceType {
+				let members = syntax.InterfaceTypeOf(p.Tree, x).Members
+				let names = opsOf(k, f, x, 0)
+				for j in 0..syntax.Len(members) {
+					let m = syntax.Item(p.Tree, members, j)
+					if syntax.KindOf(p.Tree, m) == syntax.KLawDecl {
+						ops[dense.Index(m)] = names
+					}
+				}
+			}
+			if kind != syntax.KLawDecl {
 				continue
 			}
 			match syntax.ViewOf(p.Tree, x) {
@@ -568,8 +584,13 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 				case Some{Value: ps}:
 					match syntax.ViewOf(p.Tree, ps) {
 					case syntax.FieldList as fl:
+						let mut fields = []dense.ID[syntax.Node]{}
 						for j in 0..syntax.Len(fl.List) {
-							inLaw[dense.Index(syntax.Item(p.Tree, fl.List, j))] = true
+							fields = fields.Append(syntax.Item(p.Tree, fl.List, j))
+						}
+						for fx in fields {
+							inLaw[dense.Index(fx)] = fields
+							lawOf[dense.Index(fx)] = dense.Index(x)
 						}
 					case _:
 					}
@@ -588,7 +609,30 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 				match dense.Unpack(fd.Where) {
 				case Some{Value: wh}:
 					match inLaw.Get(dense.Index(x)) {
-					case Some[bool]:
+					case Some{Value: fields}:
+						// The names a where may relate to (Laws 15): the
+						// operations of a member law's type, then each
+						// parameter before the one it qualifies.
+						let mut before = match lawOf.Get(dense.Index(x)) {
+						case Some{Value: l}:
+							match ops.Get(l) {
+							case Some{Value: ns}:
+								ns
+							case None:
+								[]string{}
+							}
+						case None:
+							[]string{}
+						}
+						for other in fields {
+							if dense.Index(other) == dense.Index(x) {
+								break
+							}
+							let of = syntax.FieldOf(p.Tree, other)
+							for j in 0..syntax.Len(of.Names) {
+								before = before.Append(types.NameText(p, syntax.Item(p.Tree, of.Names, j)))
+							}
+						}
 						let tx = match dense.Unpack(fd.Type) {
 						case Some{Value: v}:
 							v
@@ -599,6 +643,14 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 						let ty = types.Resolve(s, env, tx)
 						for j in 0..syntax.Len(fd.Names) {
 							let name = types.NameText(p, syntax.Item(p.Tree, fd.Names, j))
+							let relational = names(p, wh, before)
+							before = before.Append(name)
+							if relational {
+								// An admission, not a refinement: a case
+								// runs only when it holds (types.md, Laws
+								// 15; the Go checker's relationalWhere).
+								continue
+							}
 							let (_, ds) = decide(s, whereOf{k: k, f: f, where: wh, subject: name, what: name, done: done}, ty)
 							for g in ds {
 								out = out.Append(g)
@@ -617,17 +669,163 @@ func ParamWheres(s mut store.Store, k expr.Pkg, done []string) []diag.Diag {
 	out
 }
 
-// Diags is the refinement diagnostics of the package k. The prelude has
-// none: the Go checker checks it once and reads none of its diagnostics
-// (check.go prelude()), and its laws' relational wheres (b where a == b)
-// stand. This mirrors the Go checker only until unit PRELUDE-CHECKED
-// (lane SQ) checks the prelude and rewrites those laws; that tip deletes
-// this carve-out and its mutant row facts-prelude-diags-reported.
-func Diags(s mut store.Store, k expr.Pkg) []diag.Diag {
-	let mut out = []diag.Diag{}
-	if store.PathOf(*s) == "prelude" {
+// opsOf is the operations of the operation type whose spec is the
+// interface type it, in file f of k: its own, then each included type's
+// (..T; the Go checker's method set). depth stops an include cycle,
+// which the Go checker refuses elsewhere.
+func opsOf(k expr.Pkg, f int, it dense.ID[syntax.Node], depth int) []string {
+	let p = k.Parsed[f]
+	let mut out = []string{}
+	if depth > 32 {
 		return out
 	}
+	let members = syntax.InterfaceTypeOf(p.Tree, it).Members
+	for j in 0..syntax.Len(members) {
+		let m = syntax.Item(p.Tree, members, j)
+		if syntax.KindOf(p.Tree, m) != syntax.KField {
+			continue
+		}
+		let fd = syntax.FieldOf(p.Tree, m)
+		if fd.Dots < 0 {
+			for n in 0..syntax.Len(fd.Names) {
+				out = out.Append(types.NameText(p, syntax.Item(p.Tree, fd.Names, n)))
+			}
+			continue
+		}
+		match dense.Unpack(fd.Type) {
+		case Some{Value: tx}:
+			for name in included(k, f, tx, depth) {
+				out = out.Append(name)
+			}
+		case None:
+		}
+	}
+	out
+}
+
+// included is the operations of the operation type the include tx of
+// file f names: k's own, the prelude's (a bare name k does not declare),
+// or, qualified, an import's from k.Deps.
+func included(k expr.Pkg, f int, tx dense.ID[syntax.Node], depth int) []string {
+	let p = k.Parsed[f]
+	let mut x = tx
+	if syntax.KindOf(p.Tree, x) == syntax.KIndexExpr {
+		x = syntax.IndexExprOf(p.Tree, x).X
+	}
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIdent {
+		let name = types.NameText(p, x)
+		let (found, ops) = declaredOps(k, name, depth)
+		if found {
+			return ops
+		}
+		for d in k.Deps {
+			if d.Path == "prelude" {
+				let (_, pre) = declaredOps(d.K, name, depth)
+				return pre
+			}
+		}
+	} else if kind == syntax.KSelectorExpr {
+		let sel = syntax.SelectorExprOf(p.Tree, x)
+		let path = importPath(p, types.NameText(p, sel.X))
+		for d in k.Deps {
+			if d.Path == path {
+				let (_, ops) = declaredOps(d.K, types.NameText(p, sel.Sel), depth)
+				return ops
+			}
+		}
+	}
+	[]string{}
+}
+
+// declaredOps is whether k declares an operation type named name, and
+// its operations.
+func declaredOps(k expr.Pkg, name string, depth int) (bool, []string) {
+	for f in 0..len(k.Parsed) {
+		let p = k.Parsed[f]
+		if p.Failed {
+			continue
+		}
+		let decls = syntax.FileOf(p.Tree, syntax.Root(p.Tree)).Decls
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			if syntax.KindOf(p.Tree, d) != syntax.KTypeDecl {
+				continue
+			}
+			let td = syntax.TypeDeclOf(p.Tree, d)
+			if types.NameText(p, td.Name) != name {
+				continue
+			}
+			match dense.Unpack(td.Spec) {
+			case Some{Value: sp}:
+				if syntax.KindOf(p.Tree, sp) == syntax.KInterfaceType {
+					return (true, opsOf(k, f, sp, depth+1))
+				}
+			case None:
+			}
+		}
+	}
+	(false, []string{})
+}
+
+// importPath is the path of the Ergo import of file p named name, "" for none.
+func importPath(p syntax.Parsed, name string) string {
+	let decls = syntax.FileOf(p.Tree, syntax.Root(p.Tree)).Decls
+	for i in 0..syntax.Len(decls) {
+		let d = syntax.Item(p.Tree, decls, i)
+		if syntax.KindOf(p.Tree, d) != syntax.KImportDecl {
+			continue
+		}
+		let spec = syntax.ImportDeclOf(p.Tree, d).Spec
+		if syntax.KindOf(p.Tree, spec) != syntax.KImportSpec {
+			continue
+		}
+		let is = syntax.ImportSpecOf(p.Tree, spec)
+		let j = syntax.TokStartingAt(p, syntax.NodePos(p, is.Path))
+		let path = strings.TrimRight(strings.TrimLeft(if j < 0 { "" } else { syntax.TokText(p, j) }, "\""), "\"")
+		let alias = match dense.Unpack(is.Name) {
+		case Some{Value: n}:
+			types.NameText(p, n)
+		case None:
+			path[strings.LastIndex(path, "/")+1 : len(path)]
+		}
+		if alias == name {
+			return path
+		}
+	}
+	""
+}
+
+// names is whether the expression x names one of among: an
+// identifier inside x's span spelled as one of them.
+func names(p syntax.Parsed, x dense.ID[syntax.Node], among []string) bool {
+	if len(among) == 0 {
+		return false
+	}
+	let from = syntax.NodePos(p, x)
+	let to = syntax.NodeEnd(p, x)
+	for i in 0..syntax.NumNodes(p.Tree) {
+		let y = syntax.NodeAt(p.Tree, i)
+		if syntax.KindOf(p.Tree, y) != syntax.KIdent {
+			continue
+		}
+		let at = syntax.NodePos(p, y)
+		if at < from || at >= to {
+			continue
+		}
+		let name = types.NameText(p, y)
+		for n in among {
+			if n == name {
+				return true
+			}
+		}
+	}
+	false
+}
+
+// Diags is the refinement diagnostics of the package k.
+func Diags(s mut store.Store, k expr.Pkg) []diag.Diag {
+	let mut out = []diag.Diag{}
 	let mut done = []string{}
 	for r in Refinements(s, k) {
 		for g in r.Diags {

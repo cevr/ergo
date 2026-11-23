@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# spike-where (#116) hard-case probes: the same key under style (a), explicit
+# spike-where hard-case probes: the same key under style (a), explicit
 # hash/equals arguments, and style (b), a where clause resolved through the
 # owner module. Each probe's first line states the expected outcome
 # (`// expect: accepted` or `// expect: EFnnn`). The prototype compiler is
@@ -15,7 +15,7 @@ set -u
 sed --version 2>/dev/null | grep -q GNU || { echo "run.sh needs GNU sed (on macOS: gsed, first on PATH as sed)" >&2; exit 2; }
 here=$(cd "$(dirname "$0")" && pwd)
 EF=${1:?usage: run.sh EF_PROTO}
-# The probes are stored as .ergo (#221); the spike compiler reads .ef, so
+# The probes are stored as .ergo; the spike compiler reads .ef, so
 # each probe is checked from a copy with that extension.
 scratch=$(mktemp -d)
 failures=0

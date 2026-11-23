@@ -11,7 +11,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// The pattern language and match (196p rules 1 to 4; #196 fourth, sixth,
+// The pattern language and match (196p rules 1 to 4; the v1 language fourth, sixth,
 // seventh and ninth rounds; spec D-B3 and D-B4).
 //
 //  1. A bare name that resolves to a type is a type test; `_` is the
