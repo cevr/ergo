@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -104,6 +105,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 
 	reach := map[string]int{}
 	built, failed := 0, 0
+	sourcedCalls := map[string]bool{"CallPoint.S4CallMethod": false, "S4CallDependency": false, "S4CallLeaf": false}
 	var files []string
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-corpus", m) {
 		kind, rest, _ := strings.Cut(l, " ")
@@ -165,6 +167,11 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			}
 			built++
 			reach["built, equal"]++
+			if filepath.Base(f[0]) == "calls.ergo" {
+				if _, wanted := sourcedCalls[fn.Name]; wanted {
+					sourcedCalls[fn.Name] = true
+				}
+			}
 		}
 	}
 	var lines []string
@@ -173,6 +180,12 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	}
 	sort.Strings(lines)
 	t.Logf("compiler/lower built %d functions equal to the Go builder's; %d differ:\n%s", built, failed, strings.Join(lines, "\n"))
+	t.Logf("Go comparison corpus: %d distinct IR function identities (source position and split-normalized name)", goFuncs.functionCount())
+	for _, name := range slices.Sorted(maps.Keys(sourcedCalls)) {
+		if !sourcedCalls[name] {
+			t.Errorf("calls.ergo: %s did not reach a matching IR body", name)
+		}
+	}
 	if failed > 0 {
 		t.Fatalf("%d functions differ", failed)
 	}
@@ -202,6 +215,23 @@ type irGoFunc struct {
 // irGoIndex is the Go builder's functions by declaration position, each
 // the distinct texts written there across the programs.
 type irGoIndex map[irKey][]irGoFunc
+
+func (x irGoIndex) functionCount() int {
+	n := 0
+	names := map[string]struct{}{}
+	for _, fs := range x {
+		if len(fs) == 1 {
+			n++
+			continue
+		}
+		clear(names)
+		for _, f := range fs {
+			names[f.name] = struct{}{}
+		}
+		n += len(names)
+	}
+	return n
+}
 
 // irProgramName is the Go builder's names that are program-wide rather
 // than the function's: the split's export of a name two Go packages use
