@@ -17,8 +17,10 @@ type TypeDef { Kind int, Elem int, Params []int, Results []int }
 // Import is a foreign (stock Go) package the package refers to: its import
 // path, its package name, and the fingerprint its export data ends with
 // (8 raw bytes), which the object records so the linker can refuse a
-// stale dependency.
-type Import { Path string, Name string, Fingerprint string }
+// stale dependency, and whether it has an inittask (the private root of
+// its export data says so), which this package's inittask must order
+// before its own.
+type Import { Path string, Name string, Fingerprint string, HasInit bool }
 
 // Global is a package variable of type int (it holds no pointer, so it
 // needs no GC type).
@@ -45,6 +47,9 @@ type Load { Dst int, Ptr int }
 // StorePtr writes the pointer in slot Val to the word at the address in
 // slot Ptr: a heap pointer publication, so it carries the write barrier.
 type StorePtr { Ptr int, Val int }
+// Store writes the int in slot Val to the word at the address in slot
+// Ptr (no barrier: an int is no pointer).
+type Store { Ptr int, Val int }
 // AddrOf is the address of slot Of in the function's own frame.
 type AddrOf { Dst int, Of int }
 type GetGlobal { Dst int, Global int }
@@ -60,7 +65,7 @@ type Jump { To int }
 type JumpIf { Cond int, A int, B int, To int }
 type Return { Vals []int }
 
-type Op = Const | Arith | Load | StorePtr | AddrOf | GetGlobal | SetGlobal | Call | CallClosure | Label | Jump | JumpIf | Return
+type Op = Const | Arith | Load | StorePtr | Store | AddrOf | GetGlobal | SetGlobal | Call | CallClosure | Label | Jump | JumpIf | Return
 
 // Func is one function: its name in the package, its parameter and result
 // type ids, the type id of every slot (parameters first), its ops and,
@@ -129,6 +134,8 @@ func OpUses(op Op) []int {
 	case Load as l:
 		return []int{l.Ptr}
 	case StorePtr as s:
+		return []int{s.Ptr, s.Val}
+	case Store as s:
 		return []int{s.Ptr, s.Val}
 	case AddrOf:
 		return []int{}

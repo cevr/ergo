@@ -298,33 +298,20 @@ func moveStep(s Moves, sig MoveSig) Decision[Moves, string] {
 	}
 }
 
-// AnchorMarked says whether the lowering marks, at the call of the
-// stack-anchor function below, the slot that holds the address of the
-// frame's own value: the fact the model's Marked stands for, read from
-// the bitmap the producer emits (LowerFunc, lower.ergo).
+// AnchorMarked says whether the producer marks, at the callback call of
+// the fixture's Anchor (fixture.ergo), the slot q that holds the address
+// of the frame's own v: the fact the model's Marked stands for, read from
+// the locals bitmap the producer emits for that call (LowerFunc).
 func AnchorMarked() bool {
-	let (p, f) = anchorFixture()
+	let p = Tiny(1, 2, SampleDep())
+	let f = p.Funcs[FuncNamed(p, "Anchor")]
 	let lf = LowerFunc(p, f) catch {
 	case Undefined:
 		return false
 	}
-	// The call is the only site with an index above 0; slot 2 holds &v.
+	// The callback is Anchor's one call: stack map 1. Slot 2 holds &v.
 	let bits = lf.Locals[1]
 	bits[SlotBit(lf.Frame, 2)]
-}
-
-// anchorFixture is the shape of the stack anchor: v (slot 1) is the
-// argument, q (slot 2) = &v, a callback call that may move the stack,
-// then a use of q.
-func anchorFixture() (Package, Func) {
-	let p = Package{Path: "p", Name: "p", File: "p.ergo",
-		Types: []TypeDef{TypeDef{Kind: KInt, Elem: 0, Params: []int{}, Results: []int{}}, TypeDef{Kind: KPtr, Elem: 0, Params: []int{}, Results: []int{}},
-			TypeDef{Kind: KFunc, Elem: 0, Params: []int{0}, Results: []int{0}}},
-		Imports: []Import{}, Globals: []Global{}, Funcs: []Func{}, Inits: []int{}}
-	let f = Func{Name: "Anchor", Params: []int{2, 0}, Results: []int{0}, Slots: []int{2, 0, 1, 0, 0},
-		Ops: []Op{AddrOf{Dst: 2, Of: 1}, CallClosure{Dsts: []int{3}, Fn: 0, Args: []int{1}}, Load{Dst: 4, Ptr: 2}, Return{Vals: []int{4}}},
-		Lines: []int{1, 2, 3, 4}, Line: 1, Col: 1}
-	(p, f)
 }
 
 func designStart() Moves { Live{F: Frame0{Current: 0, Slot: 0, Marked: AnchorMarked()}} }

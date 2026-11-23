@@ -48,6 +48,16 @@ func maxArgs(f Func) int {
 	n
 }
 
+// isLeaf says whether f makes no call.
+func isLeaf(f Func) bool {
+	for op in f.Ops {
+		if IsCall(op) {
+			return false
+		}
+	}
+	true
+}
+
 func cond(c int) int {
 	if c == CLt {
 		return JccLt
@@ -91,7 +101,7 @@ func zeros(n int) []bool {
 
 // LowerFunc lowers function f of package p.
 func LowerFunc(p Package, f Func) Lowered fails Undefined {
-	let fr = FrameOf(len(f.Slots), maxArgs(f))
+	let fr = FrameOf(len(f.Slots), maxArgs(f), isLeaf(f))
 	let after = LiveAfter(f)
 	let nargs = len(f.Params) + len(f.Results)
 	let mut argMaps = [][]bool{entryArgs(p, f)}
@@ -100,8 +110,11 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 	let mut a = NewAsm(f.Line)
 	a.Bind(entryLabel)
 	if fr.Size > 0 {
-		a.CmpSPGuard(fr.Size)
+		// The stack check and its branch are not preemptible, as the stock
+		// prologue's: a preemption there would be followed by a needless
+		// morestack.
 		a.SetUnsafe(UnsafeUnsafe)
+		a.CmpSPGuard(fr.Size)
 		a.Jcc(JccBe, morestackLabel)
 		a.SetUnsafe(UnsafeSafe)
 		a.PushBP()
@@ -161,6 +174,10 @@ func LowerFunc(p Package, f Func) Lowered fails Undefined {
 			a.Bind(barrierLabel(i))
 			a.MovStore(RSI, RDI, 0)
 			a.SetUnsafe(UnsafeSafe)
+		case Store as s:
+			a.MovLoad(RDI, RSP, SlotOff(fr, s.Ptr))
+			a.MovLoad(RSI, RSP, SlotOff(fr, s.Val))
+			a.MovStore(RSI, RDI, 0)
 		case AddrOf as x:
 			a.Lea(RAX, RSP, SlotOff(fr, x.Of))
 			a.MovStore(RAX, RSP, SlotOff(fr, x.Dst))

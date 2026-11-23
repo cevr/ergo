@@ -115,9 +115,10 @@ let GCWriteBarrier2 = "runtime.gcWriteBarrier2"
 type Frame { Size int, Slots int, Out int }
 
 // FrameOf lays out a frame of slots words and an outgoing area of out
-// words.
-func FrameOf(slots int, out int) Frame {
-	if slots == 0 && out == 0 {
+// words. Only a leaf (a function that makes no call) with no slots goes
+// without a frame: a call needs the stack check and a saved BP.
+func FrameOf(slots int, out int, leaf bool) Frame {
+	if leaf && slots == 0 {
 		return Frame{Size: 0, Slots: 0, Out: 0}
 	}
 	Frame{Size: 8 + 8*slots + 8*out, Slots: slots, Out: out}
@@ -140,7 +141,7 @@ func SlotOfBit(fr Frame, b int) int { fr.Slots - 1 - b }
 law SlotsAndBitsAgree(n int, i int) {
 	let slots = if n < 0 { -(n % 50) + 1 } else { n % 50 + 1 }
 	let k = if i < 0 { -(i % slots) } else { i % slots }
-	let fr = FrameOf(slots, 2)
+	let fr = FrameOf(slots, 2, false)
 	let b = SlotBit(fr, k)
 	b >= 0 && b < slots && SlotOfBit(fr, b) == k && (fr.Size - 8) - 8*(fr.Slots-b) == SlotOff(fr, k)
 }

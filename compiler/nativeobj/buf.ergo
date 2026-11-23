@@ -20,7 +20,9 @@
 //	goobj.ergo   the Go object file writer (_go_.o)
 //	export.ergo  the unified export data writer (__.PKGDEF)
 //	archive.ergo the ar archive and the whole producer (Archive)
-//	decode.ergo  independent decoders and the metadata checks over them
+//	fixture.ergo the tiny fixture package the round trip compiles
+//	decode.ergo  independent decoders: ar, export data, object, x86 code
+//	verify.ergo  the metadata checks over the decoders, and their laws
 
 // Buf is bytes written in order, with the little-endian and varint forms
 // the Go object and export formats use.
@@ -39,7 +41,11 @@ func Bytes(w Buf) string { w.b.Text() }
 func U8(w mut Buf, x int) { w.b = w.b.Append(byte(x & 255)) }
 
 // Raw writes the bytes of s.
-func Raw(w mut Buf, s string) { w.b = w.b.AppendString(s) }
+func Raw(w mut Buf, s string) {
+	for i in 0..len(s) {
+		w.b = w.b.Append(s[i])
+	}
+}
 
 // U16 writes the low 16 bits of x, little-endian.
 func U16(w mut Buf, x int) {

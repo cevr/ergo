@@ -1,0 +1,58 @@
+// The archive and the whole producer. A Go package archive is an ar file
+// of two members: __.PKGDEF first (the export data; the stock compiler
+// reads only it) and _go_.o (the object; the linker reads it and skips to
+// the "\n!\n" that ends its header). Both start with the stock
+// toolchain's header line, which the producer takes as a checked input
+// (CheckHeader) and copies, so the linker's exact comparison holds.
+
+import strconv
+
+// Member is one ar member.
+type Member { Name string, Data string }
+
+func pad(s string, n int) string {
+	let mut out = s
+	for len(out) < n {
+		out = out + " "
+	}
+	out
+}
+
+// WriteAr is the ar archive of members, each with the header Go's
+// archive.FormatHeader writes and a zero pad byte after an odd size.
+func WriteAr(ms []Member) string {
+	let mut w = NewBuf()
+	w.Raw("!<arch>\n")
+	for m in ms {
+		w.Raw(pad(m.Name, 16) + pad("0", 12) + pad("0", 6) + pad("0", 6) + pad("644", 8) + pad(strconv.Itoa(len(m.Data)), 10) + "`\n")
+		w.Raw(m.Data)
+		if len(m.Data) % 2 == 1 {
+			w.U8(0)
+		}
+	}
+	w.Bytes()
+}
+
+// Built is what the producer made: the archive, its fingerprint, and the
+// lowered functions (for the metadata checks).
+type Built { Archive string, Fingerprint string, Lowered []Lowered }
+
+// Archive produces the archive of the checked package p for the stock
+// header line header: Check, lower every function, write the export data,
+// then the object with the export data's fingerprint, then the two
+// members.
+func Archive(p Package, header string) Built fails Refused | Malformed | Undefined {
+	try CheckHeader(header)
+	try Check(p)
+	let mut lowered = []Lowered{}
+	for f in p.Funcs {
+		lowered = lowered.Append(try LowerFunc(p, f))
+	}
+	let (blob, fp) = ExportBlob(p)
+	let obj = WriteObject(BuildObject(p, lowered, fp))
+	let ar = WriteAr([]Member{
+		Member{Name: "__.PKGDEF", Data: PkgDef(header, blob)},
+		Member{Name: "_go_.o", Data: header + "\n" + "\n!\n" + obj},
+	})
+	Built{Archive: ar, Fingerprint: fp, Lowered: lowered}
+}

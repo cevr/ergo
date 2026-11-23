@@ -1,0 +1,362 @@
+// The Go object file of the pin (cmd/internal/goobj, magic "\x00go120ld"):
+// a header of block offsets, a string table, then the blocks. The
+// package's own symbols are indexed definitions (PkgIdxSelf), so a stock
+// importer can name them by index through the export data, which is why
+// the object's fingerprint must be the export data's. Every symbol of
+// another package (the runtime, a stock dependency) is a reference by
+// name. A function's metadata (FuncInfo, PC tables, stack maps) is a set
+// of unnamed indexed definitions its text symbol names as aux symbols.
+
+// Package index values of a symbol reference.
+let PkgIdxNone = 2147483647
+let PkgIdxSelf = 2147483643
+
+// Block numbers (goobj.Blk*), and their count.
+let BlkAutolib = 0
+let BlkPkgIdx = 1
+let BlkFile = 2
+let BlkSymdef = 3
+let BlkNonpkgref = 7
+let BlkRelocIdx = 11
+let BlkAuxIdx = 12
+let BlkDataIdx = 13
+let BlkReloc = 14
+let BlkAux = 15
+let BlkData = 16
+let BlkRefName = 17
+let BlkEnd = 18
+let NBlk = 19
+
+// Aux types (goobj.Aux*).
+let AuxFuncInfo = 1
+let AuxFuncdata = 2
+let AuxPcsp = 7
+let AuxPcfile = 8
+let AuxPcline = 9
+let AuxPcdata = 11
+
+// Symbol flags.
+let FlagPkgInit = 8
+
+// HeaderSize is the size of the object header: magic, fingerprint,
+// flags and the block offsets.
+let HeaderSize = 8 + 8 + 4 + 4 * 19
+
+// SymRef names a symbol: a package index and an index in it.
+type SymRef { Pkg int, Idx int }
+
+// ObjReloc is a relocation with its target resolved to a SymRef.
+type ObjReloc { Off int, Size int, Type int, Add int, Sym SymRef }
+
+// ObjAux is an aux symbol of a definition.
+type ObjAux { Type int, Sym SymRef }
+
+// Def is one symbol the object defines.
+type Def {
+	Name   string,
+	ABI    int,
+	Kind   int,
+	Flag   int,
+	Flag2  int,
+	Size   int,
+	Align  int,
+	Data   string,
+	Relocs []ObjReloc,
+	Aux    []ObjAux,
+}
+
+// Ref is one symbol the object refers to by name.
+type Ref { Name string, ABI int }
+
+// Object is everything the object file holds.
+type Object {
+	Fingerprint string,
+	Autolib     []Import,
+	Files       []string,
+	Defs        []Def,
+	Refs        []Ref,
+}
+
+// objBuilder collects definitions and by-name references.
+type objBuilder { defs []Def, refs []Ref, own Map[string, int] }
+
+func refTo(b mut objBuilder, name string, abi int) SymRef {
+	match b.own.Get(name) {
+	case Some as i:
+		return SymRef{Pkg: PkgIdxSelf, Idx: i.Value}
+	case None:
+	}
+	for i, r in b.refs {
+		if r.Name == name && r.ABI == abi {
+			return SymRef{Pkg: PkgIdxNone, Idx: i}
+		}
+	}
+	b.refs = b.refs.Append(Ref{Name: name, ABI: abi})
+	SymRef{Pkg: PkgIdxNone, Idx: len(b.refs) - 1}
+}
+
+func addDef(b mut objBuilder, d Def) SymRef {
+	b.defs = b.defs.Append(d)
+	SymRef{Pkg: PkgIdxSelf, Idx: len(b.defs) - 1}
+}
+
+func dataDef(kind int, align int, data string) Def {
+	Def{Name: "", ABI: 0, Kind: kind, Flag: 0, Flag2: 0, Size: len(data), Align: align, Data: data, Relocs: []ObjReloc{}, Aux: []ObjAux{}}
+}
+
+// FuncInfo is the FuncInfo aux bytes of a function: Args, Locals,
+// FuncID 0, FuncFlag 0, StartLine, the CU files it uses (file 0), no
+// inline tree.
+func FuncInfo(lf Lowered) string {
+	let mut w = NewBuf()
+	w.U32(lf.Args)
+	w.U32(lf.Frame.Size)
+	w.U8(0)
+	w.U8(0)
+	w.U8(0)
+	w.U8(0)
+	w.U32(lf.Line)
+	w.U32(1)
+	w.U32(0)
+	w.U32(0)
+	w.Bytes()
+}
+
+// InitTask is the bytes of the package's inittask: state 0, the number
+// of init functions, then one pointer each (relocated).
+func InitTask(n int) string {
+	let mut w = NewBuf()
+	w.U32(0)
+	w.U32(n)
+	for _ in 0..n {
+		w.U64(0)
+	}
+	w.Bytes()
+}
+
+// BuildObject lays out the object of package p from its lowered
+// functions (in p.Funcs order) and the export data's fingerprint.
+func BuildObject(p Package, lowered []Lowered, fingerprint string) Object {
+	let mut b = objBuilder{defs: []Def{}, refs: []Ref{}, own: Map[string, int]{}}
+	// Text symbols first, so a function's SymIdx is its place in p.Funcs.
+	for i in 0..len(lowered) {
+		b.own[FuncSym(p, i)] = i
+	}
+	let nf = len(lowered)
+	for k, g in p.Globals {
+		b.own[SymName(p, g.Name)] = nf + k
+	}
+	let hasInit = len(p.Inits) > 0
+	let task = SymName(p, ".inittask")
+	if hasInit {
+		b.own[task] = nf + len(p.Globals)
+	}
+	for i, lf in lowered {
+		let flag2 = if p.Funcs[i].Name == "init" { FlagPkgInit } else { 0 }
+		b.addDef(Def{Name: FuncSym(p, i), ABI: ABIInternal, Kind: SText, Flag: 0, Flag2: flag2, Size: len(lf.Code), Align: 0,
+			Data: lf.Code, Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+	}
+	for g in p.Globals {
+		b.addDef(Def{Name: SymName(p, g.Name), ABI: ABI0, Kind: SNoptrbss, Flag: 0, Flag2: 0, Size: 8, Align: 8, Data: "", Relocs: []ObjReloc{}, Aux: []ObjAux{}})
+	}
+	if hasInit {
+		let mut rs = []ObjReloc{}
+		for k, fi in p.Inits {
+			rs = rs.Append(ObjReloc{Off: 8 + 8*k, Size: 8, Type: RAddr, Add: 0, Sym: SymRef{Pkg: PkgIdxSelf, Idx: fi}})
+		}
+		for imp in p.Imports {
+			if imp.HasInit {
+				rs = rs.Append(ObjReloc{Off: 0, Size: 0, Type: RInitorder, Add: 0, Sym: b.refTo(imp.Path + "..inittask", ABI0)})
+			}
+		}
+		let data = InitTask(len(p.Inits))
+		b.addDef(Def{Name: task, ABI: ABI0, Kind: SNoptrdata, Flag: 0, Flag2: 0, Size: len(data), Align: 8, Data: data, Relocs: rs, Aux: []ObjAux{}})
+	}
+	for i, lf in lowered {
+		let mut rs = []ObjReloc{}
+		for r in lf.Relocs {
+			let target = if r.Sym == "" { SymRef{Pkg: 0, Idx: 0} } else { b.refTo(r.Sym, r.ABI) }
+			rs = rs.Append(ObjReloc{Off: r.Off, Size: r.Size, Type: r.Type, Add: r.Add, Sym: target})
+		}
+		let info = b.addDef(dataDef(7, 0, FuncInfo(lf)))
+		let args = b.addDef(dataDef(SRodata, 4, StackMap(lf.ArgMaps, len(p.Funcs[i].Params) + len(p.Funcs[i].Results))))
+		let locals = b.addDef(dataDef(SRodata, 4, StackMap(lf.Locals, lf.Frame.Slots)))
+		let pcsp = b.addDef(dataDef(SRodata, 1, lf.Pcsp))
+		let pcfile = b.addDef(dataDef(SRodata, 1, lf.Pcfile))
+		let pcline = b.addDef(dataDef(SRodata, 1, lf.Pcline))
+		let unsafe = b.addDef(dataDef(SRodata, 1, lf.Unsafe))
+		let smi = b.addDef(dataDef(SRodata, 1, lf.Smi))
+		let mut d = b.defs[i]
+		d.Relocs = rs
+		d.Aux = []ObjAux{
+			ObjAux{Type: AuxFuncInfo, Sym: info},
+			ObjAux{Type: AuxFuncdata, Sym: args},
+			ObjAux{Type: AuxFuncdata, Sym: locals},
+			ObjAux{Type: AuxPcsp, Sym: pcsp},
+			ObjAux{Type: AuxPcfile, Sym: pcfile},
+			ObjAux{Type: AuxPcline, Sym: pcline},
+			ObjAux{Type: AuxPcdata, Sym: unsafe},
+			ObjAux{Type: AuxPcdata, Sym: smi},
+		}
+		b.defs[i] = d
+	}
+	Object{Fingerprint: fingerprint, Autolib: p.Imports, Files: []string{p.File}, Defs: b.defs, Refs: b.refs}
+}
+
+// strtab is the object's string table being written.
+type strtab { offs Map[string, int] }
+
+func addStr(t mut strtab, w mut Buf, s string) {
+	match t.offs.Get(s) {
+	case Some:
+		return
+	case None:
+	}
+	t.offs[s] = w.Size()
+	w.Raw(s)
+}
+
+func strRef(t strtab, w mut Buf, s string) {
+	w.U32(len(s))
+	match t.offs.Get(s) {
+	case Some as o:
+		w.U32(o.Value)
+	case None:
+		w.U32(0)
+	}
+}
+
+func symRef(w mut Buf, r SymRef) {
+	w.U32(r.Pkg)
+	w.U32(r.Idx)
+}
+
+func sym(t strtab, w mut Buf, name string, abi int, kind int, flag int, flag2 int, size int, align int) {
+	t.strRef(w, name)
+	w.U16(abi)
+	w.U8(kind)
+	w.U8(flag)
+	w.U8(flag2)
+	w.U32(size)
+	w.U32(align)
+}
+
+// WriteObject is the bytes of o, from the magic on (what follows "\n!\n"
+// in the _go_.o member).
+func WriteObject(o Object) string {
+	let mut w = NewBuf()
+	let mut t = strtab{offs: Map[string, int]{}}
+	let mut offs = []int{}
+	for _ in 0..NBlk {
+		offs = offs.Append(0)
+	}
+	w.Raw(ObjMagic)
+	w.Raw(o.Fingerprint)
+	w.U32(0)
+	for _ in 0..NBlk {
+		w.U32(0)
+	}
+	t.addStr(&w, "")
+	for imp in o.Autolib {
+		t.addStr(&w, imp.Path)
+	}
+	for d in o.Defs {
+		t.addStr(&w, d.Name)
+	}
+	for r in o.Refs {
+		t.addStr(&w, r.Name)
+	}
+	for f in o.Files {
+		t.addStr(&w, f)
+	}
+	offs[BlkAutolib] = w.Size()
+	for imp in o.Autolib {
+		t.strRef(&w, imp.Path)
+		w.Raw(imp.Fingerprint)
+	}
+	offs[BlkPkgIdx] = w.Size()
+	t.strRef(&w, "")
+	offs[BlkFile] = w.Size()
+	for f in o.Files {
+		t.strRef(&w, f)
+	}
+	offs[BlkSymdef] = w.Size()
+	for d in o.Defs {
+		t.sym(&w, d.Name, d.ABI, d.Kind, d.Flag, d.Flag2, d.Size, d.Align)
+	}
+	// No hashed or non-package definitions.
+	offs[4] = w.Size()
+	offs[5] = w.Size()
+	offs[6] = w.Size()
+	offs[BlkNonpkgref] = w.Size()
+	for r in o.Refs {
+		t.sym(&w, r.Name, r.ABI, 0, 0, 0, 0, 0)
+	}
+	// No reference flags, hashes.
+	offs[8] = w.Size()
+	offs[9] = w.Size()
+	offs[10] = w.Size()
+	offs[BlkRelocIdx] = w.Size()
+	let mut n = 0
+	for d in o.Defs {
+		w.U32(n)
+		n = n + len(d.Relocs)
+	}
+	w.U32(n)
+	offs[BlkAuxIdx] = w.Size()
+	n = 0
+	for d in o.Defs {
+		w.U32(n)
+		n = n + len(d.Aux)
+	}
+	w.U32(n)
+	offs[BlkDataIdx] = w.Size()
+	n = 0
+	for d in o.Defs {
+		w.U32(n)
+		n = n + len(d.Data)
+	}
+	w.U32(n)
+	offs[BlkReloc] = w.Size()
+	for d in o.Defs {
+		for r in sortedRelocs(d.Relocs) {
+			w.U32(r.Off)
+			w.U8(r.Size)
+			w.U16(r.Type)
+			w.U64(r.Add)
+			w.symRef(r.Sym)
+		}
+	}
+	offs[BlkAux] = w.Size()
+	for d in o.Defs {
+		for a in d.Aux {
+			w.U8(a.Type)
+			w.symRef(a.Sym)
+		}
+	}
+	offs[BlkData] = w.Size()
+	for d in o.Defs {
+		w.Raw(d.Data)
+	}
+	offs[BlkRefName] = w.Size()
+	offs[BlkEnd] = w.Size()
+	for i, x in offs {
+		w.Put32(8 + 8 + 4 + 4*i, x)
+	}
+	w.Bytes()
+}
+
+// sortedRelocs orders relocations by offset, as the stock writer does.
+func sortedRelocs(rs []ObjReloc) []ObjReloc {
+	let mut out = rs
+	for i in 1..len(out) {
+		let mut j = i
+		for j > 0 && out[j-1].Off > out[j].Off {
+			let x = out[j]
+			out[j] = out[j-1]
+			out[j-1] = x
+			j = j - 1
+		}
+	}
+	out
+}
