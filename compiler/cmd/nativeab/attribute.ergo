@@ -194,15 +194,7 @@ func StagesOf(cells Map[string, int], origin string, pkg string) []string {
 // at most one broken record), Attribute gives the cells the generator
 // knows, or refuses exactly the broken record's kind.
 func recovers(seed int) bool {
-	recoversCase(Draw(seed))
-}
-
-func recoversCase(c Case) bool {
-	let cells = Attribute(c.Trace) catch {
-	case Refused as r:
-		return r.Why == c.Truth.Refusal
-	}
-	c.Truth.Refusal == "" && slices.Equal(Lines(cells), Lines(c.Truth.Cells))
+	traceAgrees(Draw(seed), TraceRecovery)
 }
 
 // conserves (law CellsConserveTheTree): the cells of a trace Attribute accepts sum to the
@@ -211,39 +203,84 @@ func conserves(seed int) bool {
 	conservesCase(Draw(seed))
 }
 
-func conservesCase(c Case) bool {
-	let cells = Attribute(c.Trace) catch {
-	case Refused:
-		return true
-	}
-	Sum(cells) == c.Trace.Tree
-}
-
 // chargesStages (law RoutesChargeTheirStages): in an accepted trace, a rebuilt route B
 // package has no parse or check cell, a rebuilt route A package and a
 // rebuilt ordinary Go package have both, and a warm hit has no cell.
 func chargesStages(seed int) bool {
-	chargesCase(Draw(seed))
+	traceAgrees(Draw(seed), TraceStages)
 }
 
-func chargesCase(c Case) bool {
-	let cells = Attribute(c.Trace) catch {
-	case Refused:
-		return true
+type TraceCheck = TraceRecovery | TraceConservation | TraceStages
+type Difference { Observed string, Reference string }
+
+func traceAgrees(c Case, check TraceCheck) bool {
+	match traceDifference(c, check) {
+	case None:
+		true
+	case Some:
+		false
 	}
-	let mut ok = true
+}
+
+func traceDifference(c Case, check TraceCheck) Option[Difference] {
+	let cells = Attribute(c.Trace) catch {
+	case Refused as r:
+		match check {
+		case TraceRecovery:
+			if r.Why != c.Truth.Refusal {
+				return Some(Difference{Observed: "refused \(r.Why) at \(r.At)", Reference: reference(c)})
+			}
+		case TraceConservation:
+		case TraceStages:
+		}
+		return None
+	}
+	match check {
+	case TraceRecovery:
+		let seen = Lines(cells)
+		if c.Truth.Refusal != "" || !slices.Equal(seen, Lines(c.Truth.Cells)) {
+			return Some(Difference{Observed: strings.Join(seen, "\n"), Reference: reference(c)})
+		}
+	case TraceConservation:
+		let n = Sum(cells)
+		if n != c.Trace.Tree {
+			return Some(Difference{Observed: "cell sum \(n)", Reference: "tree total \(c.Trace.Tree)"})
+		}
+	case TraceStages:
+		return stageDifference(c, cells)
+	}
+	None
+}
+
+func reference(c Case) string {
+	if c.Truth.Refusal != "" {
+		return "refused \(c.Truth.Refusal)"
+	}
+	strings.Join(Lines(c.Truth.Cells), "\n")
+}
+
+func stageDifference(c Case, cells Map[string, int]) Option[Difference] {
 	for p in c.Packages {
 		let st = StagesOf(cells, p.Origin, p.Name)
-		let text = slices.Contains(st, "parse") && slices.Contains(st, "check")
+		let parse = slices.Contains(st, "parse")
+		let check = slices.Contains(st, "check")
+		let mut want = ""
 		if !slices.Contains(c.Truth.Rebuilt, p.Name) {
-			ok = ok && len(st) == 0
+			if len(st) > 0 {
+				want = "no stages on a cache hit"
+			}
 		} else if p.Route == "B" {
-			ok = ok && !slices.Contains(st, "parse") && !slices.Contains(st, "check") && slices.Contains(st, "adapter")
-		} else {
-			ok = ok && text
+			if parse || check || !slices.Contains(st, "adapter") {
+				want = "adapter, without parse or check"
+			}
+		} else if !parse || !check {
+			want = "both parse and check"
+		}
+		if want != "" {
+			return Some(Difference{Observed: "\(p.Name) route \(p.Route) stages [\(strings.Join(st, ", "))]", Reference: want})
 		}
 	}
-	ok
+	None
 }
 
 // The laws over the drawn builds; verify runs the same checks over a

@@ -1,6 +1,104 @@
+import maps
 import slices
+import strings
 
+// minimise keeps exactly the edits that still fail the selected check.
+// Each accepted edit removes one leaf action. Start over after an edit:
+// removing a child can expose another removable leaf. The resulting case
+// has no single leaf deletion that preserves the disagreement.
 func minimise(c Case, disagrees func(Case) bool) Case {
+	let mut best = c
+	let mut i = 0
+	for i < len(best.Trace.Procs) {
+		let p = best.Trace.Procs[i]
+		if removable(best, p) {
+			let smaller = withoutAction(best, p)
+			if disagrees(smaller) {
+				best = smaller
+				i = 0
+				continue
+			}
+		}
+		i = i + 1
+	}
+	best
+}
+
+func removable(c Case, p Proc) bool {
+	let key = procKey(p.Pid, p.Gen)
+	if p.Parent == "" || key == c.FaultTarget {
+		return false
+	}
+	for child in c.Trace.Procs {
+		if child.Parent == key {
+			return false
+		}
+	}
+	true
+}
+
+// Project the generator's truth along with the records. Do not consult
+// Attribute to rebuild the reference. Each draw has at most one action
+// per package or tool. The missing record of a tree-mismatch is not in
+// Procs and its Self therefore remains in Tree.
+func withoutAction(c Case, p Proc) Case {
+	let key = procKey(p.Pid, p.Gen)
+	let mut procs = []Proc{}
+	let mut spans = []Span{}
+	let mut packages = []Package{}
+	let mut rebuilt = []string{}
+	let mut cells = Map[string, int]{}
+	for item in c.Trace.Procs {
+		if procKey(item.Pid, item.Gen) != key {
+			procs = procs.Append(item)
+		}
+	}
+	for span in c.Trace.Spans {
+		if procKey(span.Pid, span.Gen) != key {
+			spans = spans.Append(span)
+		}
+	}
+	for item in c.Packages {
+		if item.Name != p.Pkg {
+			packages = packages.Append(item)
+		}
+	}
+	for name in c.Truth.Rebuilt {
+		if name != p.Pkg {
+			rebuilt = rebuilt.Append(name)
+		}
+	}
+	for k in maps.Keys(c.Truth.Cells) {
+		let removed = if p.Tool == "compile" {
+			strings.HasPrefix(k, cellKey(p.Origin, p.Pkg, ""))
+		} else {
+			k == cellKey("tool", "", p.Tool)
+		}
+		if !removed {
+			cells[k] = got(c.Truth.Cells, k)
+		}
+	}
+	Case{
+		Trace:       Trace{Procs: procs, Spans: spans, Tree: c.Trace.Tree - p.Self},
+		Truth:       Truth{Cells: cells, Rebuilt: rebuilt, Refusal: c.Truth.Refusal},
+		Packages:    packages,
+		FaultTarget: c.FaultTarget,
+	}
+}
+
+// The cache model has at most six packages. Try smaller chains and edit
+// positions in order, without changing the kind of edit that failed.
+func minimiseCache(c CacheCase) CacheCase {
+	for n in 1..c.N+1 {
+		for at in 0..n {
+			if at <= c.At {
+				let candidate = CacheCase{N: n, Kind: c.Kind, At: at}
+				if !cacheAgrees(candidate) {
+					return candidate
+				}
+			}
+		}
+	}
 	c
 }
 
@@ -33,7 +131,7 @@ law MinimizedSeedStillDisagrees() {
 			if p.Route == "B" && has(c.Truth.Cells, key) {
 				let failsFixture = func(candidate Case) bool { missesAdapter(candidate, key) }
 				let small = minimise(c, failsFixture)
-				return failsFixture(c) && failsFixture(small) && recoversCase(small) &&
+				return failsFixture(c) && failsFixture(small) && traceAgrees(small, TraceRecovery) &&
 					len(small.Packages) == 1 && small.Packages[0].Name == p.Name &&
 					len(small.Trace.Procs) < len(c.Trace.Procs)
 			}
