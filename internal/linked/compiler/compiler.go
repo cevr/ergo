@@ -1461,6 +1461,12 @@ func slices__RepeatMono_i2826136942(xs []compiler_sformat__Walk, n int) []compil
 
 //line compiler.go:956
 
+// ergoFlat is a flat function's value or failure, written by its worker (IR-FORMS IRF-2).
+type ergoFlat[V, E any] struct {
+	Val V
+	Err E
+}
+
 // ergoDecl is one source declaration and its lines (#230).
 type ergoDecl = struct {
 	Name      string
@@ -63937,9 +63943,332 @@ func (p *compiler_ssyntax__parser) parseElementValue() uint32 {
 
 //line syntax/parse_expr.ergo:610
 
+//line format/format.ergo:96:1
+func compiler_sformat__StepsFlat(env *Env, commands []compiler_sformat__Command, limit int, out *ergoFlat[compiler_sformat__Rendered, compiler_sformat__OutputLimit]) bool {
+	/*line format/format.ergo:97:1*/ l := compiler_sformat__Layout{Buf: strings__Builder{buf: []uint8{}}, CellA: []int{}, CellB: []int{}, LineIndent: []int{}, LineFirst: []int{}, LineN: []int{}, Pend: 0, Open: 0, Trail: 0, Solid: uint8(0), CellsTail: uint8(0), CellTail: uint8(0), Started: false, Indent: 0, PendingNL: 0, PendingSpace: false, NoBlank: false}
+	/*line format/format.ergo:98:1*/ for _, c := range commands {
+		/*line format/format.ergo:99:2*/ (&l).step(c)
+	}
+	/*line format/format.ergo:101:1*/ v, err := (&l).Finish(env, limit)
+	/*line format/format.ergo:101:1*/ if err != nil {
+		/*line format/format.ergo:101:1*/ out.Err = err.(compiler_sformat__OutputLimit)
+		/*line format/format.ergo:101:1*/ return true
+	}
+	/*line format/format.ergo:101:1*/ out.Val = v
+	/*line format/format.ergo:101:1*/ return false
+}
+
+//line format/format.ergo:97
+
+//line source/source.ergo:58:1
+func compiler_ssource__CheckLimitFlat(limit int, out *ergoFlat[struct{}, compiler_ssource__NegativeLimit]) bool {
+	/*line source/source.ergo:59:1*/ if limit < 0 {
+		/*line source/source.ergo:60:2*/ out.Err = compiler_ssource__NegativeLimit{}
+		/*line source/source.ergo:60:2*/ return true
+	}
+	/*line source/source.ergo:62:1*/ return false
+}
+
+//line source/source.ergo:59
+
+//line source/source.ergo:78:1
+func compiler_ssource__FitFlat(data string, limit int, out *ergoFlat[string, compiler_ssource__TooLarge]) bool {
+	/*line source/source.ergo:79:1*/ if limit > 0 && len(data) > limit {
+		/*line source/source.ergo:80:2*/ out.Err = compiler_ssource__TooLarge{Limit: limit}
+		/*line source/source.ergo:80:2*/ return true
+	}
+	/*line source/source.ergo:82:1*/ out.Val = data
+	/*line source/source.ergo:82:1*/ return false
+}
+
+//line source/source.ergo:79
+
+//line api/format.ergo:60:1
+func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, BadCommand]) bool {
+	/*line api/format.ergo:61:1*/ out := []compiler_sformat__Command{}
+	/*line api/format.ergo:62:1*/ at := 0
+	/*line api/format.ergo:63:1*/ for at < len(w) {
+		/*line api/format.ergo:64:2*/ c := w[at]
+		/*line api/format.ergo:65:2*/ switch c {
+		case uint8(115):
+			/*line api/format.ergo:67:3*/ out = append(out, compiler_sformat__Command{}.of0(compiler_sformat__Space{}))
+			/*line api/format.ergo:68:3*/ at += 1
+		case uint8(110):
+			/*line api/format.ergo:70:3*/ out = append(out, compiler_sformat__Command{}.of1(compiler_sformat__Newline{}))
+			/*line api/format.ergo:71:3*/ at += 1
+		case uint8(98):
+			/*line api/format.ergo:73:3*/ out = append(out, compiler_sformat__Command{}.of2(compiler_sformat__NoBlank{}))
+			/*line api/format.ergo:74:3*/ at += 1
+		case uint8(124):
+			/*line api/format.ergo:76:3*/ out = append(out, compiler_sformat__Command{}.of6(compiler_sformat__Separator{}))
+			/*line api/format.ergo:77:3*/ at += 1
+		case uint8(108):
+			/*line api/format.ergo:79:3*/ out = append(out, compiler_sformat__Command{}.of9(compiler_sformat__EndLine{}))
+			/*line api/format.ergo:80:3*/ at += 1
+		case uint8(101):
+			/*line api/format.ergo:82:3*/ if at+1 >= len(w) || w[at+1] != uint8(48) && w[at+1] != uint8(49) {
+				/*line api/format.ergo:83:4*/ out_1.Err = BadCommand{At: at}
+				/*line api/format.ergo:83:4*/ return true
+			}
+			/*line api/format.ergo:85:3*/ out = append(out, compiler_sformat__Command{}.of3(compiler_sformat__Emit_1{Blank: w[at+1] == uint8(49)}))
+			/*line api/format.ergo:86:3*/ at += 2
+		case uint8(119), uint8(112):
+			/*line api/format.ergo:88:24*/ v, err := decimalAt(w, at+1, uint8(58))
+			/*line api/format.ergo:88:24*/ if err != nil {
+				/*line api/format.ergo:88:24*/ out_1.Err = err.(BadCommand)
+				/*line api/format.ergo:88:24*/ return true
+			}
+			/*line api/format.ergo:88:3*/ p := v
+			/*line api/format.ergo:88:3*/ n := p.F0
+			/*line api/format.ergo:88:3*/ start := p.F1
+			/*line api/format.ergo:89:3*/ if n < 0 || n > len(w)-start {
+				/*line api/format.ergo:90:4*/ out_1.Err = BadCommand{At: at}
+				/*line api/format.ergo:90:4*/ return true
+			}
+			/*line api/format.ergo:92:3*/ text := strings__Slice_2(w, start, start+n)
+			/*line api/format.ergo:93:9*/ arg := out
+			/*line api/format.ergo:93:20*/ var if10 compiler_sformat__Command
+			/*line api/format.ergo:93:20*/ if c == uint8(119) {
+				/*line api/format.ergo:93:34*/ if10 = compiler_sformat__Command{}.of4(compiler_sformat__Write{Text: text})
+			} else {
+				/*line api/format.ergo:93:68*/ if10 = compiler_sformat__Command{}.of5(compiler_sformat__Put_2{Text: text})
+			}
+			/*line api/format.ergo:93:3*/ out = append(arg, if10)
+			/*line api/format.ergo:94:3*/ at = start + n
+		case uint8(105), uint8(116):
+			/*line api/format.ergo:96:23*/ v_1, err_1 := decimalAt(w, at+1, uint8(59))
+			/*line api/format.ergo:96:23*/ if err_1 != nil {
+				/*line api/format.ergo:96:23*/ out_1.Err = err_1.(BadCommand)
+				/*line api/format.ergo:96:23*/ return true
+			}
+			/*line api/format.ergo:96:3*/ p_1 := v_1
+			/*line api/format.ergo:96:3*/ n_1 := p_1.F0
+			/*line api/format.ergo:96:3*/ next := p_1.F1
+			/*line api/format.ergo:97:9*/ arg_1 := out
+			/*line api/format.ergo:97:20*/ var if17 compiler_sformat__Command
+			/*line api/format.ergo:97:20*/ if c == uint8(105) {
+				/*line api/format.ergo:97:34*/ if17 = compiler_sformat__Command{}.of7(compiler_sformat__Indent{By: n_1})
+			} else {
+				/*line api/format.ergo:97:64*/ if17 = compiler_sformat__Command{}.of8(compiler_sformat__SetIndent{To: n_1})
+			}
+			/*line api/format.ergo:97:3*/ out = append(arg_1, if17)
+			/*line api/format.ergo:98:3*/ at = next
+		default:
+			/*line api/format.ergo:100:3*/ out_1.Err = BadCommand{At: at}
+			/*line api/format.ergo:100:3*/ return true
+		}
+	}
+	/*line api/format.ergo:103:1*/ out_1.Val = out
+	/*line api/format.ergo:103:1*/ return false
+}
+
+//line api/format.ergo:61
+
+//line api/ir.ergo:78:1
+func replayFlat(words []uint32, strs []string, out *ergoFlat[compiler_sir__File, compiler_sir__Malformed]) bool {
+	/*line api/ir.ergo:79:1*/ r := reader{words: words, at: 0, strs: strs, stack: []uint32{}}
+	/*line api/ir.ergo:80:18*/ v, err := (&r).next()
+	/*line api/ir.ergo:80:18*/ if err != nil {
+		/*line api/ir.ergo:80:18*/ out.Err = err.(compiler_sir__Malformed)
+		/*line api/ir.ergo:80:18*/ return true
+	}
+	/*line api/ir.ergo:80:1*/ layout := v
+	/*line api/ir.ergo:81:1*/ if layout != uint32(3) {
+		/*line api/ir.ergo:82:2*/ out.Err = compiler_sir__Malformed{At: 0, Why: "layout " + strconv.FormatUint(uint64(layout), 10)}
+		/*line api/ir.ergo:82:2*/ return true
+	}
+	/*line api/ir.ergo:84:14*/ v_1, err_1 := (&r).next()
+	/*line api/ir.ergo:84:14*/ if err_1 != nil {
+		/*line api/ir.ergo:84:14*/ out.Err = err_1.(compiler_sir__Malformed)
+		/*line api/ir.ergo:84:14*/ return true
+	}
+	/*line api/ir.ergo:84:1*/ lo := v_1
+	/*line api/ir.ergo:85:14*/ v_2, err_2 := (&r).next()
+	/*line api/ir.ergo:85:14*/ if err_2 != nil {
+		/*line api/ir.ergo:85:14*/ out.Err = err_2.(compiler_sir__Malformed)
+		/*line api/ir.ergo:85:14*/ return true
+	}
+	/*line api/ir.ergo:85:1*/ hi := v_2
+	/*line api/ir.ergo:86:1*/ b := compiler_sir__NewBuilder(int64(uint64(lo) | uint64(hi)<<uint64(32)))
+	/*line api/ir.ergo:87:1*/ for r.at < len(r.words) {
+		/*line api/ir.ergo:88:15*/ v_3, err_3 := (&r).next()
+		/*line api/ir.ergo:88:15*/ if err_3 != nil {
+			/*line api/ir.ergo:88:15*/ out.Err = err_3.(compiler_sir__Malformed)
+			/*line api/ir.ergo:88:15*/ return true
+		}
+		/*line api/ir.ergo:88:2*/ op := v_3
+		/*line api/ir.ergo:89:2*/ switch op {
+		case uint32(1):
+			/*line api/ir.ergo:91:15*/ v_4, err_4 := (&r).str()
+			/*line api/ir.ergo:91:15*/ if err_4 != nil {
+				/*line api/ir.ergo:91:15*/ out.Err = err_4.(compiler_sir__Malformed)
+				/*line api/ir.ergo:91:15*/ return true
+			}
+			/*line api/ir.ergo:91:3*/ s := v_4
+			/*line api/ir.ergo:92:3*/ r.stack = append(r.stack, (&b).Text(s))
+		case uint32(2):
+			/*line api/ir.ergo:94:15*/ v_5, err_5 := (&r).next()
+			/*line api/ir.ergo:94:15*/ if err_5 != nil {
+				/*line api/ir.ergo:94:15*/ out.Err = err_5.(compiler_sir__Malformed)
+				/*line api/ir.ergo:94:15*/ return true
+			}
+			/*line api/ir.ergo:94:3*/ w := v_5
+			/*line api/ir.ergo:95:3*/ r.stack = append(r.stack, w)
+		case uint32(3):
+			/*line api/ir.ergo:97:15*/ v_6, err_6 := (&r).position()
+			/*line api/ir.ergo:97:15*/ if err_6 != nil {
+				/*line api/ir.ergo:97:15*/ out.Err = err_6.(compiler_sir__Malformed)
+				/*line api/ir.ergo:97:15*/ return true
+			}
+			/*line api/ir.ergo:97:3*/ p := v_6
+			/*line api/ir.ergo:98:3*/ r.stack = append(r.stack, (&b).PosAt(p))
+		case uint32(4):
+			/*line api/ir.ergo:100:19*/ v_7, err_7 := (&r).next()
+			/*line api/ir.ergo:100:19*/ if err_7 != nil {
+				/*line api/ir.ergo:100:19*/ out.Err = err_7.(compiler_sir__Malformed)
+				/*line api/ir.ergo:100:19*/ return true
+			}
+			/*line api/ir.ergo:100:3*/ n := int(v_7)
+			/*line api/ir.ergo:101:16*/ v_8, err_8 := (&r).pop(n)
+			/*line api/ir.ergo:101:16*/ if err_8 != nil {
+				/*line api/ir.ergo:101:16*/ out.Err = err_8.(compiler_sir__Malformed)
+				/*line api/ir.ergo:101:16*/ return true
+			}
+			/*line api/ir.ergo:101:3*/ xs := v_8
+			/*line api/ir.ergo:102:3*/ r.stack = append(r.stack, (&b).List(xs))
+		case uint32(5):
+			/*line api/ir.ergo:104:15*/ v_9, err_9 := (&r).next()
+			/*line api/ir.ergo:104:15*/ if err_9 != nil {
+				/*line api/ir.ergo:104:15*/ out.Err = err_9.(compiler_sir__Malformed)
+				/*line api/ir.ergo:104:15*/ return true
+			}
+			/*line api/ir.ergo:104:3*/ k := v_9
+			/*line api/ir.ergo:105:16*/ v_10, err_10 := (&r).position()
+			/*line api/ir.ergo:105:16*/ if err_10 != nil {
+				/*line api/ir.ergo:105:16*/ out.Err = err_10.(compiler_sir__Malformed)
+				/*line api/ir.ergo:105:16*/ return true
+			}
+			/*line api/ir.ergo:105:3*/ at := v_10
+			/*line api/ir.ergo:106:3*/ if k == uint32(0) || int(k) >= 52 {
+				/*line api/ir.ergo:107:4*/ out.Err = compiler_sir__Malformed{At: r.at, Why: "kind " + strconv.FormatUint(uint64(k), 10)}
+				/*line api/ir.ergo:107:4*/ return true
+			}
+			/*line api/ir.ergo:109:19*/ v_11, err_11 := (&r).pop(len(compiler_sir__KindOf(uint8(k)).Slots))
+			/*line api/ir.ergo:109:19*/ if err_11 != nil {
+				/*line api/ir.ergo:109:19*/ out.Err = err_11.(compiler_sir__Malformed)
+				/*line api/ir.ergo:109:19*/ return true
+			}
+			/*line api/ir.ergo:109:3*/ slots := v_11
+			/*line api/ir.ergo:110:16*/ v_12, err_12 := (&b).Row(uint8(k), at, slots)
+			/*line api/ir.ergo:110:16*/ if err_12 != nil {
+				/*line api/ir.ergo:110:16*/ out.Err = err_12.(compiler_sir__Malformed)
+				/*line api/ir.ergo:110:16*/ return true
+			}
+			/*line api/ir.ergo:110:3*/ id := v_12
+			/*line api/ir.ergo:111:3*/ r.stack = append(r.stack, id)
+		case uint32(6):
+			/*line api/ir.ergo:113:18*/ v_13, err_13 := (&r).str()
+			/*line api/ir.ergo:113:18*/ if err_13 != nil {
+				/*line api/ir.ergo:113:18*/ out.Err = err_13.(compiler_sir__Malformed)
+				/*line api/ir.ergo:113:18*/ return true
+			}
+			/*line api/ir.ergo:113:3*/ name := v_13
+			/*line api/ir.ergo:114:15*/ v_14, err_14 := (&r).position()
+			/*line api/ir.ergo:114:15*/ if err_14 != nil {
+				/*line api/ir.ergo:114:15*/ out.Err = err_14.(compiler_sir__Malformed)
+				/*line api/ir.ergo:114:15*/ return true
+			}
+			/*line api/ir.ergo:114:3*/ p_1 := v_14
+			/*line api/ir.ergo:115:15*/ v_15, err_15 := (&r).position()
+			/*line api/ir.ergo:115:15*/ if err_15 != nil {
+				/*line api/ir.ergo:115:15*/ out.Err = err_15.(compiler_sir__Malformed)
+				/*line api/ir.ergo:115:15*/ return true
+			}
+			/*line api/ir.ergo:115:3*/ e := v_15
+			/*line api/ir.ergo:116:7*/ err_16 := (&b).Begin(name, p_1, e)
+			/*line api/ir.ergo:116:7*/ if err_16 != nil {
+				/*line api/ir.ergo:116:7*/ out.Err = err_16.(compiler_sir__Malformed)
+				/*line api/ir.ergo:116:7*/ return true
+			}
+		case uint32(7):
+			/*line api/ir.ergo:118:18*/ v_16, err_17 := (&r).str()
+			/*line api/ir.ergo:118:18*/ if err_17 != nil {
+				/*line api/ir.ergo:118:18*/ out.Err = err_17.(compiler_sir__Malformed)
+				/*line api/ir.ergo:118:18*/ return true
+			}
+			/*line api/ir.ergo:118:3*/ name_1 := v_16
+			/*line api/ir.ergo:119:17*/ v_17, err_18 := (&r).str()
+			/*line api/ir.ergo:119:17*/ if err_18 != nil {
+				/*line api/ir.ergo:119:17*/ out.Err = err_18.(compiler_sir__Malformed)
+				/*line api/ir.ergo:119:17*/ return true
+			}
+			/*line api/ir.ergo:119:3*/ typ := v_17
+			/*line api/ir.ergo:120:15*/ v_18, err_19 := (&r).position()
+			/*line api/ir.ergo:120:15*/ if err_19 != nil {
+				/*line api/ir.ergo:120:15*/ out.Err = err_19.(compiler_sir__Malformed)
+				/*line api/ir.ergo:120:15*/ return true
+			}
+			/*line api/ir.ergo:120:3*/ p_2 := v_18
+			/*line api/ir.ergo:121:7*/ err_20 := (&b).AddLocal(name_1, typ, p_2)
+			/*line api/ir.ergo:121:7*/ if err_20 != nil {
+				/*line api/ir.ergo:121:7*/ out.Err = err_20.(compiler_sir__Malformed)
+				/*line api/ir.ergo:121:7*/ return true
+			}
+		case uint32(8):
+			/*line api/ir.ergo:123:19*/ v_19, err_21 := (&r).pop(1)
+			/*line api/ir.ergo:123:19*/ if err_21 != nil {
+				/*line api/ir.ergo:123:19*/ out.Err = err_21.(compiler_sir__Malformed)
+				/*line api/ir.ergo:123:19*/ return true
+			}
+			/*line api/ir.ergo:123:3*/ roots := v_19
+			/*line api/ir.ergo:124:7*/ err_22 := (&b).End(roots[0])
+			/*line api/ir.ergo:124:7*/ if err_22 != nil {
+				/*line api/ir.ergo:124:7*/ out.Err = err_22.(compiler_sir__Malformed)
+				/*line api/ir.ergo:124:7*/ return true
+			}
+		case uint32(9):
+			/*line api/ir.ergo:126:18*/ v_20, err_23 := (&r).str()
+			/*line api/ir.ergo:126:18*/ if err_23 != nil {
+				/*line api/ir.ergo:126:18*/ out.Err = err_23.(compiler_sir__Malformed)
+				/*line api/ir.ergo:126:18*/ return true
+			}
+			/*line api/ir.ergo:126:3*/ path := v_20
+			/*line api/ir.ergo:127:3*/ (&b).FileOfDropped(path)
+		case uint32(10):
+			/*line api/ir.ergo:129:15*/ v_21, err_24 := (&r).str()
+			/*line api/ir.ergo:129:15*/ if err_24 != nil {
+				/*line api/ir.ergo:129:15*/ out.Err = err_24.(compiler_sir__Malformed)
+				/*line api/ir.ergo:129:15*/ return true
+			}
+			/*line api/ir.ergo:129:3*/ s_1 := v_21
+			/*line api/ir.ergo:130:3*/ (&b).Share(s_1)
+		case uint32(11):
+			/*line api/ir.ergo:132:3*/ (&b).NoFiles()
+		case uint32(12):
+			/*line api/ir.ergo:134:3*/ (&b).NoFuncs()
+		default:
+			/*line api/ir.ergo:136:3*/ out.Err = compiler_sir__Malformed{At: r.at - 1, Why: "op " + strconv.FormatUint(uint64(op), 10)}
+			/*line api/ir.ergo:136:3*/ return true
+		}
+	}
+	/*line api/ir.ergo:139:1*/ if len(r.stack) != 0 {
+		/*line api/ir.ergo:140:2*/ out.Err = compiler_sir__Malformed{At: r.at, Why: "words left on the stack"}
+		/*line api/ir.ergo:140:2*/ return true
+	}
+	/*line api/ir.ergo:142:5*/ v_22, err_25 := b.Finish()
+	/*line api/ir.ergo:142:5*/ if err_25 != nil {
+		/*line api/ir.ergo:142:5*/ out.Err = err_25.(compiler_sir__Malformed)
+		/*line api/ir.ergo:142:5*/ return true
+	}
+	/*line api/ir.ergo:142:1*/ out.Val = v_22
+	/*line api/ir.ergo:142:1*/ return false
+}
+
+//line api/ir.ergo:79
+
 // ergoInit runs the package-level lets in Go's initialization order,
 // inside the program's root task.
-/*line syntax/parse_expr.ergo:609:1*/
+/*line api/ir.ergo:78:1*/
 func ergoInit(env *Env) {
 //line cachekey/warm.ergo:34:5
 	{
@@ -64606,330 +64935,6 @@ func ergoInit(env *Env) {
 		/*line ir/kinds.ergo:52:2*/
 	}
 	/*line ir/kinds.ergo:52:2*/
-}
-
-func compiler_sformat__StepsFlat(env *Env, commands []compiler_sformat__Command, limit int, out *ergoFlat[compiler_sformat__Rendered, compiler_sformat__OutputLimit]) bool {
-	/*line format/format.ergo:97:1*/ l := compiler_sformat__Layout{Buf: strings__Builder{buf: []uint8{}}, CellA: []int{}, CellB: []int{}, LineIndent: []int{}, LineFirst: []int{}, LineN: []int{}, Pend: 0, Open: 0, Trail: 0, Solid: uint8(0), CellsTail: uint8(0), CellTail: uint8(0), Started: false, Indent: 0, PendingNL: 0, PendingSpace: false, NoBlank: false}
-	/*line format/format.ergo:98:1*/ for _, c := range commands {
-		/*line format/format.ergo:99:2*/ (&l).step(c)
-	}
-	/*line format/format.ergo:101:1*/ v, err := (&l).Finish(env, limit)
-	/*line format/format.ergo:101:1*/ if err != nil {
-		/*line format/format.ergo:101:1*/ out.Err = err.(compiler_sformat__OutputLimit)
-		/*line format/format.ergo:101:1*/ return true
-	}
-	/*line format/format.ergo:101:1*/ out.Val = v
-	/*line format/format.ergo:101:1*/ return false
-}
-
-//line ir/kinds.ergo:55
-
-func compiler_ssource__CheckLimitFlat(limit int, out *ergoFlat[struct{}, compiler_ssource__NegativeLimit]) bool {
-	/*line source/source.ergo:59:1*/ if limit < 0 {
-		/*line source/source.ergo:60:2*/ out.Err = compiler_ssource__NegativeLimit{}
-		/*line source/source.ergo:60:2*/ return true
-	}
-	/*line source/source.ergo:62:1*/ return false
-}
-
-//line ir/kinds.ergo:57
-
-func compiler_ssource__FitFlat(data string, limit int, out *ergoFlat[string, compiler_ssource__TooLarge]) bool {
-	/*line source/source.ergo:79:1*/ if limit > 0 && len(data) > limit {
-		/*line source/source.ergo:80:2*/ out.Err = compiler_ssource__TooLarge{Limit: limit}
-		/*line source/source.ergo:80:2*/ return true
-	}
-	/*line source/source.ergo:82:1*/ out.Val = data
-	/*line source/source.ergo:82:1*/ return false
-}
-
-//line ir/kinds.ergo:59
-
-func readCommandsFlat(w string, out_1 *ergoFlat[[]compiler_sformat__Command, BadCommand]) bool {
-	/*line api/format.ergo:61:1*/ out := []compiler_sformat__Command{}
-	/*line api/format.ergo:62:1*/ at := 0
-	/*line api/format.ergo:63:1*/ for at < len(w) {
-		/*line api/format.ergo:64:2*/ c := w[at]
-		/*line api/format.ergo:65:2*/ switch c {
-		case uint8(115):
-			/*line api/format.ergo:67:3*/ out = append(out, compiler_sformat__Command{}.of0(compiler_sformat__Space{}))
-			/*line api/format.ergo:68:3*/ at += 1
-		case uint8(110):
-			/*line api/format.ergo:70:3*/ out = append(out, compiler_sformat__Command{}.of1(compiler_sformat__Newline{}))
-			/*line api/format.ergo:71:3*/ at += 1
-		case uint8(98):
-			/*line api/format.ergo:73:3*/ out = append(out, compiler_sformat__Command{}.of2(compiler_sformat__NoBlank{}))
-			/*line api/format.ergo:74:3*/ at += 1
-		case uint8(124):
-			/*line api/format.ergo:76:3*/ out = append(out, compiler_sformat__Command{}.of6(compiler_sformat__Separator{}))
-			/*line api/format.ergo:77:3*/ at += 1
-		case uint8(108):
-			/*line api/format.ergo:79:3*/ out = append(out, compiler_sformat__Command{}.of9(compiler_sformat__EndLine{}))
-			/*line api/format.ergo:80:3*/ at += 1
-		case uint8(101):
-			/*line api/format.ergo:82:3*/ if at+1 >= len(w) || w[at+1] != uint8(48) && w[at+1] != uint8(49) {
-				/*line api/format.ergo:83:4*/ out_1.Err = BadCommand{At: at}
-				/*line api/format.ergo:83:4*/ return true
-			}
-			/*line api/format.ergo:85:3*/ out = append(out, compiler_sformat__Command{}.of3(compiler_sformat__Emit_1{Blank: w[at+1] == uint8(49)}))
-			/*line api/format.ergo:86:3*/ at += 2
-		case uint8(119), uint8(112):
-			/*line api/format.ergo:88:24*/ v, err := decimalAt(w, at+1, uint8(58))
-			/*line api/format.ergo:88:24*/ if err != nil {
-				/*line api/format.ergo:88:24*/ out_1.Err = err.(BadCommand)
-				/*line api/format.ergo:88:24*/ return true
-			}
-			/*line api/format.ergo:88:3*/ p := v
-			/*line api/format.ergo:88:3*/ n := p.F0
-			/*line api/format.ergo:88:3*/ start := p.F1
-			/*line api/format.ergo:89:3*/ if n < 0 || n > len(w)-start {
-				/*line api/format.ergo:90:4*/ out_1.Err = BadCommand{At: at}
-				/*line api/format.ergo:90:4*/ return true
-			}
-			/*line api/format.ergo:92:3*/ text := strings__Slice_2(w, start, start+n)
-			/*line api/format.ergo:93:9*/ arg := out
-			/*line api/format.ergo:93:20*/ var if10 compiler_sformat__Command
-			/*line api/format.ergo:93:20*/ if c == uint8(119) {
-				/*line api/format.ergo:93:34*/ if10 = compiler_sformat__Command{}.of4(compiler_sformat__Write{Text: text})
-			} else {
-				/*line api/format.ergo:93:68*/ if10 = compiler_sformat__Command{}.of5(compiler_sformat__Put_2{Text: text})
-			}
-			/*line api/format.ergo:93:3*/ out = append(arg, if10)
-			/*line api/format.ergo:94:3*/ at = start + n
-		case uint8(105), uint8(116):
-			/*line api/format.ergo:96:23*/ v_1, err_1 := decimalAt(w, at+1, uint8(59))
-			/*line api/format.ergo:96:23*/ if err_1 != nil {
-				/*line api/format.ergo:96:23*/ out_1.Err = err_1.(BadCommand)
-				/*line api/format.ergo:96:23*/ return true
-			}
-			/*line api/format.ergo:96:3*/ p_1 := v_1
-			/*line api/format.ergo:96:3*/ n_1 := p_1.F0
-			/*line api/format.ergo:96:3*/ next := p_1.F1
-			/*line api/format.ergo:97:9*/ arg_1 := out
-			/*line api/format.ergo:97:20*/ var if17 compiler_sformat__Command
-			/*line api/format.ergo:97:20*/ if c == uint8(105) {
-				/*line api/format.ergo:97:34*/ if17 = compiler_sformat__Command{}.of7(compiler_sformat__Indent{By: n_1})
-			} else {
-				/*line api/format.ergo:97:64*/ if17 = compiler_sformat__Command{}.of8(compiler_sformat__SetIndent{To: n_1})
-			}
-			/*line api/format.ergo:97:3*/ out = append(arg_1, if17)
-			/*line api/format.ergo:98:3*/ at = next
-		default:
-			/*line api/format.ergo:100:3*/ out_1.Err = BadCommand{At: at}
-			/*line api/format.ergo:100:3*/ return true
-		}
-	}
-	/*line api/format.ergo:103:1*/ out_1.Val = out
-	/*line api/format.ergo:103:1*/ return false
-}
-
-//line ir/kinds.ergo:61
-
-func replayFlat(words []uint32, strs []string, out *ergoFlat[compiler_sir__File, compiler_sir__Malformed]) bool {
-	/*line api/ir.ergo:79:1*/ r := reader{words: words, at: 0, strs: strs, stack: []uint32{}}
-	/*line api/ir.ergo:80:18*/ v, err := (&r).next()
-	/*line api/ir.ergo:80:18*/ if err != nil {
-		/*line api/ir.ergo:80:18*/ out.Err = err.(compiler_sir__Malformed)
-		/*line api/ir.ergo:80:18*/ return true
-	}
-	/*line api/ir.ergo:80:1*/ layout := v
-	/*line api/ir.ergo:81:1*/ if layout != uint32(3) {
-		/*line api/ir.ergo:82:2*/ out.Err = compiler_sir__Malformed{At: 0, Why: "layout " + strconv.FormatUint(uint64(layout), 10)}
-		/*line api/ir.ergo:82:2*/ return true
-	}
-	/*line api/ir.ergo:84:14*/ v_1, err_1 := (&r).next()
-	/*line api/ir.ergo:84:14*/ if err_1 != nil {
-		/*line api/ir.ergo:84:14*/ out.Err = err_1.(compiler_sir__Malformed)
-		/*line api/ir.ergo:84:14*/ return true
-	}
-	/*line api/ir.ergo:84:1*/ lo := v_1
-	/*line api/ir.ergo:85:14*/ v_2, err_2 := (&r).next()
-	/*line api/ir.ergo:85:14*/ if err_2 != nil {
-		/*line api/ir.ergo:85:14*/ out.Err = err_2.(compiler_sir__Malformed)
-		/*line api/ir.ergo:85:14*/ return true
-	}
-	/*line api/ir.ergo:85:1*/ hi := v_2
-	/*line api/ir.ergo:86:1*/ b := compiler_sir__NewBuilder(int64(uint64(lo) | uint64(hi)<<uint64(32)))
-	/*line api/ir.ergo:87:1*/ for r.at < len(r.words) {
-		/*line api/ir.ergo:88:15*/ v_3, err_3 := (&r).next()
-		/*line api/ir.ergo:88:15*/ if err_3 != nil {
-			/*line api/ir.ergo:88:15*/ out.Err = err_3.(compiler_sir__Malformed)
-			/*line api/ir.ergo:88:15*/ return true
-		}
-		/*line api/ir.ergo:88:2*/ op := v_3
-		/*line api/ir.ergo:89:2*/ switch op {
-		case uint32(1):
-			/*line api/ir.ergo:91:15*/ v_4, err_4 := (&r).str()
-			/*line api/ir.ergo:91:15*/ if err_4 != nil {
-				/*line api/ir.ergo:91:15*/ out.Err = err_4.(compiler_sir__Malformed)
-				/*line api/ir.ergo:91:15*/ return true
-			}
-			/*line api/ir.ergo:91:3*/ s := v_4
-			/*line api/ir.ergo:92:3*/ r.stack = append(r.stack, (&b).Text(s))
-		case uint32(2):
-			/*line api/ir.ergo:94:15*/ v_5, err_5 := (&r).next()
-			/*line api/ir.ergo:94:15*/ if err_5 != nil {
-				/*line api/ir.ergo:94:15*/ out.Err = err_5.(compiler_sir__Malformed)
-				/*line api/ir.ergo:94:15*/ return true
-			}
-			/*line api/ir.ergo:94:3*/ w := v_5
-			/*line api/ir.ergo:95:3*/ r.stack = append(r.stack, w)
-		case uint32(3):
-			/*line api/ir.ergo:97:15*/ v_6, err_6 := (&r).position()
-			/*line api/ir.ergo:97:15*/ if err_6 != nil {
-				/*line api/ir.ergo:97:15*/ out.Err = err_6.(compiler_sir__Malformed)
-				/*line api/ir.ergo:97:15*/ return true
-			}
-			/*line api/ir.ergo:97:3*/ p := v_6
-			/*line api/ir.ergo:98:3*/ r.stack = append(r.stack, (&b).PosAt(p))
-		case uint32(4):
-			/*line api/ir.ergo:100:19*/ v_7, err_7 := (&r).next()
-			/*line api/ir.ergo:100:19*/ if err_7 != nil {
-				/*line api/ir.ergo:100:19*/ out.Err = err_7.(compiler_sir__Malformed)
-				/*line api/ir.ergo:100:19*/ return true
-			}
-			/*line api/ir.ergo:100:3*/ n := int(v_7)
-			/*line api/ir.ergo:101:16*/ v_8, err_8 := (&r).pop(n)
-			/*line api/ir.ergo:101:16*/ if err_8 != nil {
-				/*line api/ir.ergo:101:16*/ out.Err = err_8.(compiler_sir__Malformed)
-				/*line api/ir.ergo:101:16*/ return true
-			}
-			/*line api/ir.ergo:101:3*/ xs := v_8
-			/*line api/ir.ergo:102:3*/ r.stack = append(r.stack, (&b).List(xs))
-		case uint32(5):
-			/*line api/ir.ergo:104:15*/ v_9, err_9 := (&r).next()
-			/*line api/ir.ergo:104:15*/ if err_9 != nil {
-				/*line api/ir.ergo:104:15*/ out.Err = err_9.(compiler_sir__Malformed)
-				/*line api/ir.ergo:104:15*/ return true
-			}
-			/*line api/ir.ergo:104:3*/ k := v_9
-			/*line api/ir.ergo:105:16*/ v_10, err_10 := (&r).position()
-			/*line api/ir.ergo:105:16*/ if err_10 != nil {
-				/*line api/ir.ergo:105:16*/ out.Err = err_10.(compiler_sir__Malformed)
-				/*line api/ir.ergo:105:16*/ return true
-			}
-			/*line api/ir.ergo:105:3*/ at := v_10
-			/*line api/ir.ergo:106:3*/ if k == uint32(0) || int(k) >= 52 {
-				/*line api/ir.ergo:107:4*/ out.Err = compiler_sir__Malformed{At: r.at, Why: "kind " + strconv.FormatUint(uint64(k), 10)}
-				/*line api/ir.ergo:107:4*/ return true
-			}
-			/*line api/ir.ergo:109:19*/ v_11, err_11 := (&r).pop(len(compiler_sir__KindOf(uint8(k)).Slots))
-			/*line api/ir.ergo:109:19*/ if err_11 != nil {
-				/*line api/ir.ergo:109:19*/ out.Err = err_11.(compiler_sir__Malformed)
-				/*line api/ir.ergo:109:19*/ return true
-			}
-			/*line api/ir.ergo:109:3*/ slots := v_11
-			/*line api/ir.ergo:110:16*/ v_12, err_12 := (&b).Row(uint8(k), at, slots)
-			/*line api/ir.ergo:110:16*/ if err_12 != nil {
-				/*line api/ir.ergo:110:16*/ out.Err = err_12.(compiler_sir__Malformed)
-				/*line api/ir.ergo:110:16*/ return true
-			}
-			/*line api/ir.ergo:110:3*/ id := v_12
-			/*line api/ir.ergo:111:3*/ r.stack = append(r.stack, id)
-		case uint32(6):
-			/*line api/ir.ergo:113:18*/ v_13, err_13 := (&r).str()
-			/*line api/ir.ergo:113:18*/ if err_13 != nil {
-				/*line api/ir.ergo:113:18*/ out.Err = err_13.(compiler_sir__Malformed)
-				/*line api/ir.ergo:113:18*/ return true
-			}
-			/*line api/ir.ergo:113:3*/ name := v_13
-			/*line api/ir.ergo:114:15*/ v_14, err_14 := (&r).position()
-			/*line api/ir.ergo:114:15*/ if err_14 != nil {
-				/*line api/ir.ergo:114:15*/ out.Err = err_14.(compiler_sir__Malformed)
-				/*line api/ir.ergo:114:15*/ return true
-			}
-			/*line api/ir.ergo:114:3*/ p_1 := v_14
-			/*line api/ir.ergo:115:15*/ v_15, err_15 := (&r).position()
-			/*line api/ir.ergo:115:15*/ if err_15 != nil {
-				/*line api/ir.ergo:115:15*/ out.Err = err_15.(compiler_sir__Malformed)
-				/*line api/ir.ergo:115:15*/ return true
-			}
-			/*line api/ir.ergo:115:3*/ e := v_15
-			/*line api/ir.ergo:116:7*/ err_16 := (&b).Begin(name, p_1, e)
-			/*line api/ir.ergo:116:7*/ if err_16 != nil {
-				/*line api/ir.ergo:116:7*/ out.Err = err_16.(compiler_sir__Malformed)
-				/*line api/ir.ergo:116:7*/ return true
-			}
-		case uint32(7):
-			/*line api/ir.ergo:118:18*/ v_16, err_17 := (&r).str()
-			/*line api/ir.ergo:118:18*/ if err_17 != nil {
-				/*line api/ir.ergo:118:18*/ out.Err = err_17.(compiler_sir__Malformed)
-				/*line api/ir.ergo:118:18*/ return true
-			}
-			/*line api/ir.ergo:118:3*/ name_1 := v_16
-			/*line api/ir.ergo:119:17*/ v_17, err_18 := (&r).str()
-			/*line api/ir.ergo:119:17*/ if err_18 != nil {
-				/*line api/ir.ergo:119:17*/ out.Err = err_18.(compiler_sir__Malformed)
-				/*line api/ir.ergo:119:17*/ return true
-			}
-			/*line api/ir.ergo:119:3*/ typ := v_17
-			/*line api/ir.ergo:120:15*/ v_18, err_19 := (&r).position()
-			/*line api/ir.ergo:120:15*/ if err_19 != nil {
-				/*line api/ir.ergo:120:15*/ out.Err = err_19.(compiler_sir__Malformed)
-				/*line api/ir.ergo:120:15*/ return true
-			}
-			/*line api/ir.ergo:120:3*/ p_2 := v_18
-			/*line api/ir.ergo:121:7*/ err_20 := (&b).AddLocal(name_1, typ, p_2)
-			/*line api/ir.ergo:121:7*/ if err_20 != nil {
-				/*line api/ir.ergo:121:7*/ out.Err = err_20.(compiler_sir__Malformed)
-				/*line api/ir.ergo:121:7*/ return true
-			}
-		case uint32(8):
-			/*line api/ir.ergo:123:19*/ v_19, err_21 := (&r).pop(1)
-			/*line api/ir.ergo:123:19*/ if err_21 != nil {
-				/*line api/ir.ergo:123:19*/ out.Err = err_21.(compiler_sir__Malformed)
-				/*line api/ir.ergo:123:19*/ return true
-			}
-			/*line api/ir.ergo:123:3*/ roots := v_19
-			/*line api/ir.ergo:124:7*/ err_22 := (&b).End(roots[0])
-			/*line api/ir.ergo:124:7*/ if err_22 != nil {
-				/*line api/ir.ergo:124:7*/ out.Err = err_22.(compiler_sir__Malformed)
-				/*line api/ir.ergo:124:7*/ return true
-			}
-		case uint32(9):
-			/*line api/ir.ergo:126:18*/ v_20, err_23 := (&r).str()
-			/*line api/ir.ergo:126:18*/ if err_23 != nil {
-				/*line api/ir.ergo:126:18*/ out.Err = err_23.(compiler_sir__Malformed)
-				/*line api/ir.ergo:126:18*/ return true
-			}
-			/*line api/ir.ergo:126:3*/ path := v_20
-			/*line api/ir.ergo:127:3*/ (&b).FileOfDropped(path)
-		case uint32(10):
-			/*line api/ir.ergo:129:15*/ v_21, err_24 := (&r).str()
-			/*line api/ir.ergo:129:15*/ if err_24 != nil {
-				/*line api/ir.ergo:129:15*/ out.Err = err_24.(compiler_sir__Malformed)
-				/*line api/ir.ergo:129:15*/ return true
-			}
-			/*line api/ir.ergo:129:3*/ s_1 := v_21
-			/*line api/ir.ergo:130:3*/ (&b).Share(s_1)
-		case uint32(11):
-			/*line api/ir.ergo:132:3*/ (&b).NoFiles()
-		case uint32(12):
-			/*line api/ir.ergo:134:3*/ (&b).NoFuncs()
-		default:
-			/*line api/ir.ergo:136:3*/ out.Err = compiler_sir__Malformed{At: r.at - 1, Why: "op " + strconv.FormatUint(uint64(op), 10)}
-			/*line api/ir.ergo:136:3*/ return true
-		}
-	}
-	/*line api/ir.ergo:139:1*/ if len(r.stack) != 0 {
-		/*line api/ir.ergo:140:2*/ out.Err = compiler_sir__Malformed{At: r.at, Why: "words left on the stack"}
-		/*line api/ir.ergo:140:2*/ return true
-	}
-	/*line api/ir.ergo:142:5*/ v_22, err_25 := b.Finish()
-	/*line api/ir.ergo:142:5*/ if err_25 != nil {
-		/*line api/ir.ergo:142:5*/ out.Err = err_25.(compiler_sir__Malformed)
-		/*line api/ir.ergo:142:5*/ return true
-	}
-	/*line api/ir.ergo:142:1*/ out.Val = v_22
-	/*line api/ir.ergo:142:1*/ return false
-}
-
-//line ir/kinds.ergo:63
-
-// ergoFlat is a flat function's value or failure, written by its worker (IR-FORMS IRF-2).
-type ergoFlat[V, E any] struct {
-	Val V
-	Err E
 }
 
 var _ *go__encoding_sbase64.Encoding // an import an IR body names
