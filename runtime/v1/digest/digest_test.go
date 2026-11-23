@@ -51,6 +51,46 @@ var digestLaws = map[string]func(r *rand.Rand) (bool, any){
 		d := sha256.Sum256([]byte(s))
 		return len(string(d[:])) == 32, s
 	},
+	// Cut points drawn anywhere, past the end and the same cut twice
+	// included, so parts of zero bytes and parts across a block run.
+	"sha256 PartsAreTheWhole": func(r *rand.Rand) (bool, any) {
+		s := digestText(r)
+		h, at := Sha256New(), 0
+		cuts := make([]int, r.IntN(6))
+		for i := range cuts {
+			cuts[i] = r.IntN(200) - 20
+			n := len(s) + 1
+			end := min(at+(cuts[i]%n+n)%n, len(s))
+			h.Write(s[at:end])
+			at = end
+		}
+		h.Write(s[at:])
+		d := sha256.Sum256([]byte(s))
+		return h.Digest() == string(d[:]), [2]any{s, cuts}
+	},
+	"sha256 NothingIsSumOfEmpty": func(r *rand.Rand) (bool, any) {
+		d := sha256.Sum256(nil)
+		return Sha256New().Digest() == string(d[:]), nil
+	},
+	"sha256 DigestKeepsTheHasher": func(r *rand.Rand) (bool, any) {
+		a, b := digestText(r), digestText(r)
+		h := Sha256New()
+		h.Write(a)
+		_ = h.Digest()
+		h.Write(b)
+		d := sha256.Sum256([]byte(a + b))
+		return h.Digest() == string(d[:]), [2]string{a, b}
+	},
+	"sha256 CloneForks": func(r *rand.Rand) (bool, any) {
+		a, b, c := digestText(r), digestText(r), digestText(r)
+		h := Sha256New()
+		h.Write(a)
+		k := h.Clone()
+		h.Write(b)
+		k.Write(c)
+		ab, ac := sha256.Sum256([]byte(a+b)), sha256.Sum256([]byte(a+c))
+		return h.Digest() == string(ab[:]) && k.Digest() == string(ac[:]), [3]string{a, b, c}
+	},
 	"sha512 SumIs64Bytes": func(r *rand.Rand) (bool, any) {
 		s := digestText(r)
 		return len(Sha512Sum(s)) == 64, s
@@ -70,15 +110,19 @@ var digestLaws = map[string]func(r *rand.Rand) (bool, any){
 }
 
 var digestLawStatements = map[string]string{
-	"hex DecodeInvertsEncode":    `DecodeInvertsEncode(s string) { try Decode(Encode(s)) } == { s }`,
-	"hex EncodeDoublesLength":    `EncodeDoublesLength(s string) { len(Encode(s)) } == { 2 * len(s) }`,
-	"base64 DecodeInvertsEncode": `DecodeInvertsEncode(s string) { let std = try Decode(StdEncoding, Encode(StdEncoding, s)) let url = try Decode(URLEncoding, Encode(URLEncoding, s)) std == s && url == s }`,
-	"base64 EncodedLength":       `EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }`,
-	"sha256 SumIs32Bytes":        `SumIs32Bytes(s string) { len(Sum(s)) == 32 }`,
-	"sha512 SumIs64Bytes":        `SumIs64Bytes(s string) { len(Sum(s)) == 64 }`,
-	"sha1 SumIs20Bytes":          `SumIs20Bytes(s string) { len(Sum(s)) == 20 }`,
-	"crc32 UpdateChains":         `UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a + b) }`,
-	"crc32 UpdateFromZero":       `UpdateFromZero(s string) { Update(0, s) == Checksum(s) }`,
+	"hex DecodeInvertsEncode":     `DecodeInvertsEncode(s string) { try Decode(Encode(s)) } == { s }`,
+	"hex EncodeDoublesLength":     `EncodeDoublesLength(s string) { len(Encode(s)) } == { 2 * len(s) }`,
+	"base64 DecodeInvertsEncode":  `DecodeInvertsEncode(s string) { let std = try Decode(StdEncoding, Encode(StdEncoding, s)) let url = try Decode(URLEncoding, Encode(URLEncoding, s)) std == s && url == s }`,
+	"base64 EncodedLength":        `EncodedLength(s string) { len(Encode(StdEncoding, s)) == (len(s) + 2) / 3 * 4 }`,
+	"sha256 SumIs32Bytes":         `SumIs32Bytes(s string) { len(Sum(s)) == 32 }`,
+	"sha256 PartsAreTheWhole":     `PartsAreTheWhole(s string, cuts []int) { let h = New() let mut at = 0 for c in cuts { let end = at + (c%(len(s)+1)+len(s)+1)%(len(s)+1) let stop = if end > len(s) { len(s) } else { end } h.Write(s[at:stop]) at = stop } h.Write(s[at:len(s)]) h.Digest() == Sum(s) }`,
+	"sha256 NothingIsSumOfEmpty":  `NothingIsSumOfEmpty() { let h = New() h.Digest() == Sum("") }`,
+	"sha256 DigestKeepsTheHasher": `DigestKeepsTheHasher(a string, b string) { let h = New() h.Write(a) let _ = h.Digest() h.Write(b) h.Digest() == Sum(a + b) }`,
+	"sha256 CloneForks":           `CloneForks(a string, b string, c string) { let h = New() h.Write(a) let k = h.Clone() h.Write(b) k.Write(c) h.Digest() == Sum(a + b) && k.Digest() == Sum(a + c) }`,
+	"sha512 SumIs64Bytes":         `SumIs64Bytes(s string) { len(Sum(s)) == 64 }`,
+	"sha1 SumIs20Bytes":           `SumIs20Bytes(s string) { len(Sum(s)) == 20 }`,
+	"crc32 UpdateChains":          `UpdateChains(a string, b string) { Update(Checksum(a), b) == Checksum(a + b) }`,
+	"crc32 UpdateFromZero":        `UpdateFromZero(s string) { Update(0, s) == Checksum(s) }`,
 }
 
 // TestStdDigestLaws runs each law of hex, base64, sha256 and crc32 on

@@ -299,7 +299,6 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 	if c.fn != nil && c.fn.t != nil && c.fn.t.context {
 		build = c.fn.t
 	}
-	deps := &contextDeps{tab: c.types, needs: map[int32]*Row{}, at: map[int32]syntax.Expr{}}
 	for _, e := range body.Entries {
 		if e.Kind == syntax.ContextEmbed {
 			inner := c.embeddedContext(e, sum.embeds)
@@ -337,19 +336,13 @@ func (c *checker) contextBody(body *syntax.ContextBody, w *Context) (*capSet, bo
 		if c.silent == 0 {
 			made = c.contextEntries[e] // the record the context summary's nodes carry
 		}
-		caps, entry := c.contextEntry(e, made)
+		_, entry := c.contextEntry(e, made)
 		if c.silent == 0 {
 			w.Entries = append(w.Entries, entry)
 		}
-		if build != nil {
-			deps.add(caps, build.charged, e.Key)
-			if entry != nil && c.silent == 0 {
-				entry.Uses = build.charged.Elems()
-			}
+		if build != nil && entry != nil && c.silent == 0 {
+			entry.Uses = build.charged.Elems()
 		}
-	}
-	if build != nil {
-		c.checkEntryCycles(build.name, deps)
 	}
 	return sum.binds, sum.known
 }
@@ -422,84 +415,151 @@ func (c *checker) unknownEmbedding(e *syntax.ContextEntry) {
 	c.errorf(e.Key, CodeUnknown, "unknown context %s", exprText(e.Key))
 }
 
-// contextDeps records, for a named context's entries, the capabilities of the
-// context each entry's provider uses while it is built.
-type contextDeps struct {
-	tab   *typeTable
-	order []Type
-	needs map[int32]*Row // by the capability's interned id
-	at    map[int32]syntax.Expr
-}
-
-func (d *contextDeps) add(caps []Type, needs *Row, at syntax.Expr) {
-	for _, cap := range caps {
-		id := d.tab.id(cap)
-		if _, seen := d.needs[id]; !seen {
-			d.order = append(d.order, cap)
-			d.at[id] = at
-			d.needs[id] = newRow()
-		}
-		d.needs[id] = d.needs[id].union(d.tab, needs)
+// builtFrom is the entry a use of cap by e's provider, while e is built,
+// resolves to in a with of w: for a replace entry and a capability it
+// replaces, the provider the embedded context binds (wrapped); else w's
+// own binding of cap (rows.md, Context 5 and 7). owner is the context
+// that declares e.
+func (w *Context) builtFrom(e *ContextEntry, owner *Context, cap Type) *ContextEntry {
+	if inner := wrapped(e, owner, cap); inner != nil {
+		return inner
 	}
+	return w.Provider(cap)
 }
 
-// checkEntryCycles reports entries of a named context that need each other
-// (S108, once per cycle): a provider that uses a capability of its own context
-// is built after that capability's provider, so a cycle has no first entry
-// (rows.md, Context 4 and 5).
-func (c *checker) checkEntryCycles(name string, d *contextDeps) {
+// wrapped is the entry a replace entry e of owner is built over for cap,
+// one of e's own capabilities: the one entry owner's embedded contexts bind
+// for it. It is nil for any other entry or capability, and when no
+// embedding or two of them bind cap (a replaced collision names no one
+// provider to wrap, so the use stays a cycle).
+func wrapped(e *ContextEntry, owner *Context, cap Type) *ContextEntry {
+	if e == nil || !e.Replace || owner == nil || !bindsCap(e, cap) {
+		return nil
+	}
+	var found *ContextEntry
+	for _, emb := range owner.Entries {
+		if emb == nil || emb.Embedded == nil {
+			continue
+		}
+		p := emb.Embedded.Provider(cap)
+		if p == nil || p == found {
+			continue
+		}
+		if found != nil {
+			return nil
+		}
+		found = p
+	}
+	return found
+}
+
+// bindsCap reports whether e names cap among its keys.
+func bindsCap(e *ContextEntry, cap Type) bool {
+	return slices.ContainsFunc(e.Caps, func(t Type) bool { return sameCap(t, cap) })
+}
+
+// usesCap reports whether e's provider uses cap while it is built.
+func usesCap(e *ContextEntry, cap Type) bool {
+	return e != nil && slices.ContainsFunc(e.Uses, func(t Type) bool { return sameCap(t, cap) })
+}
+
+func sameCap(a, b Type) bool {
+	ka, ok := keyOf(a)
+	kb, okb := keyOf(b)
+	return ok && okb && ka == kb
+}
+
+// checkEntryCycles reports entries of the named context w that need each
+// other (S108, once per cycle, at the first own entry on it): a provider is
+// built after the providers it uses (builtFrom), so a cycle has no first
+// entry (rows.md, Context 4 and 5). It runs once every context body is
+// checked, so each entry's Uses is known. An embedded entry's uses resolve
+// through w too, so in a context with a replace a cycle may pass through an
+// entry of an embedded context; in one without, an embedded entry is built
+// as in its own context, which checked it.
+func (c *checker) checkEntryCycles(w *Context) {
+	key := map[*ContextEntry]syntax.Expr{}
+	var own []*ContextEntry
+	replace := false
+	for _, se := range w.Decl.Body.Entries {
+		if se.Kind == syntax.ContextEmbed {
+			continue
+		}
+		if e := c.contextEntries[se]; e != nil {
+			key[e] = se.Key
+			own = append(own, e)
+			replace = replace || e.Replace
+		}
+	}
+	if replace {
+		c.contextOwners.add(w)
+	}
+	owner := func(e *ContextEntry) *Context {
+		if key[e] != nil {
+			return w
+		}
+		return c.contextOwners.of[e]
+	}
 	const (
 		white = iota
 		grey
 		black
 	)
-	colour := map[int32]int{}
-	key := c.types.id
-	var stack []Type
-	var visit func(cap Type) []Type
-	visit = func(cap Type) []Type {
-		colour[key(cap)] = grey
-		stack = append(stack, cap)
+	type step struct {
+		e   *ContextEntry
+		via Type // the capability of e its predecessor on the stack uses
+	}
+	colour := map[*ContextEntry]int{}
+	var stack []step
+	var visit func(e *ContextEntry, via Type) []step
+	visit = func(e *ContextEntry, via Type) []step {
+		colour[e] = grey
+		stack = append(stack, step{e, via})
 		defer func() {
 			stack = stack[:len(stack)-1]
-			colour[key(cap)] = black
+			colour[e] = black
 		}()
-		for _, next := range d.needs[key(cap)].Elems() {
-			if _, entry := d.needs[key(next)]; !entry {
-				continue // bound by an embedded context, built in its own context
+		for _, cap := range e.Uses {
+			next := w.builtFrom(e, owner(e), cap)
+			if next == nil || key[next] == nil && !replace {
+				continue // bound by an embedded context, built as in its own context
 			}
-			switch colour[key(next)] {
+			switch colour[next] {
 			case grey:
 				for i, s := range stack {
-					if key(s) == key(next) {
-						return append([]Type(nil), stack[i:]...)
+					if s.e == next {
+						cycle := append([]step(nil), stack[i:]...)
+						cycle[0].via = cap
+						return cycle
 					}
 				}
 			case white:
-				if cycle := visit(next); cycle != nil {
+				if cycle := visit(next, cap); cycle != nil {
 					return cycle
 				}
 			}
 		}
 		return nil
 	}
-	for _, cap := range d.order {
-		if colour[key(cap)] != white {
+	for _, e := range own {
+		if colour[e] != white || len(e.Caps) == 0 {
 			continue
 		}
-		cycle := visit(cap)
+		cycle := visit(e, e.Caps[0])
 		if cycle == nil {
 			continue
 		}
-		for _, m := range cycle {
-			colour[key(m)] = black
+		first := slices.IndexFunc(cycle, func(s step) bool { return key[s.e] != nil })
+		if first < 0 {
+			continue // a cycle of an embedded context, reported there
 		}
+		cycle = append(cycle[first:], cycle[:first]...)
 		parts := make([]string, 0, len(cycle)+1)
-		for _, m := range cycle {
-			parts = append(parts, m.String())
+		for _, s := range cycle {
+			parts = append(parts, s.via.String())
 		}
-		parts = append(parts, cycle[0].String())
-		c.errorf(d.at[key(cycle[0])], CodeType, "the entries of %s need each other (%s), so none can be built first (rows.md, Context 4 and 5)", name, strings.Join(parts, " -> "))
+		parts = append(parts, cycle[0].via.String())
+		c.errorf(key[cycle[0].e], CodeType, "the entries of context %s need each other (%s), so none can be built first (rows.md, Context 4 and 5)", w.Name, strings.Join(parts, " -> "))
 	}
 }
 
@@ -667,5 +727,10 @@ func (c *checker) checkContexts() {
 		c.fn = &funcCtx{t: t, scope: newScope(c.pkg.Scope), reach: c.reachOf(w)}
 		c.contextBody(d.Body, w)
 		c.fn = nil
+	}
+	// Once every body is checked, each entry's Uses is known.
+	for _, w := range contexts {
+		c.cur = w.file
+		c.checkEntryCycles(w)
 	}
 }
