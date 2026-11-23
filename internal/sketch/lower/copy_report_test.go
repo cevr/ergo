@@ -48,7 +48,7 @@ func goCopies(t *testing.T, mainGo string) map[string]int {
 	}
 	out := map[string]int{}
 	for _, d := range f.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok && strings.HasPrefix(fd.Name.Name, "ergoClone") {
+		if fd, ok := d.(*ast.FuncDecl); ok && strings.HasPrefix(fd.Name.Name, goHelper("ergoClone")) {
 			continue
 		}
 		ast.Inspect(d, func(n ast.Node) bool {

@@ -1,0 +1,42 @@
+// A test body runs under one harness (check harness.go, rule 2): a body
+// that needs two capabilities, each with a harness, is S102 at the second.
+type Coin {
+	Flip() bool,
+	test Toss,
+}
+
+type Bell {
+	Ring() bool,
+	test Chime,
+}
+
+type Run { Name string, Seed uint64, Site string }
+
+type Failed { Message string }
+
+type always {} implements Coin
+
+func Flip(a always) bool { true }
+
+type loud {} implements Bell
+
+func Ring(l loud) bool { true }
+
+func Toss(run Run, body func() fails Failed needs Coin) fails Failed {
+	with context { Coin: always } { body() } catch {
+	case Failed as f:
+		return Failed{Message: run.Name + ": " + f.Message}
+	}
+}
+
+func Chime(run Run, body func() fails Failed needs Bell) fails Failed {
+	with context { Bell: loud } { body() } catch {
+	case Failed as f:
+		return Failed{Message: run.Name + ": " + f.Message}
+	}
+}
+
+test Both {
+	assert Coin.Flip()
+	assert Bell.Ring() // want S102 "a test body runs under one harness; test Both needs Coin (harness Toss) and Bell (harness Chime)"
+}

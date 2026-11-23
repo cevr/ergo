@@ -34,7 +34,7 @@ law CompletionsMatchTheParser() {
 // them: each line "  -name …".
 func flagsOf(set flag.Set) []string {
 	let mut out = []string{}
-	for line in strings.Split(flag.Usage(set), "\n") {
+	for line in strings.Split(flag.UsageText(set), "\n") {
 		if strings.HasPrefix(line, "  -") {
 			out = out.Append(strings.Fields(strings.TrimPrefix(line, "  -"))[0])
 		}

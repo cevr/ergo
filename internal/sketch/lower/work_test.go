@@ -107,7 +107,7 @@ func TestDefaultWorkIsLinear(t *testing.T) {
 		if len(code) > 4000+300*c.types {
 			t.Errorf("%s of %d types: %d Go bytes, more than 4000 + 300 per type", c.name, c.types, len(code))
 		}
-		if got := strings.Count(string(code), "\nfunc ergoDefault"); got != c.types {
+		if got := strings.Count(string(code), "\nfunc "+goHelper("ergoDefault")); got != c.types {
 			t.Errorf("%s of %d types: %d generated default functions, want one per type", c.name, c.types, got)
 		}
 	}
