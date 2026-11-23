@@ -249,9 +249,6 @@ func (r *recorder) inside(path string) (string, bool) {
 		w := r.identify(path)
 		return w.logged, w.entered
 	}
-	if r.logical == "/" {
-		return path, filepath.IsAbs(path)
-	}
 	if rest, ok := r.within(path); ok {
 		return r.logical + rest, true
 	}
