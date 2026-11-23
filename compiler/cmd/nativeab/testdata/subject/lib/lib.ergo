@@ -1,0 +1,5 @@
+// The smoke subject's library: the package a private edit changes (the
+// smoke script rewrites the factor in Scale's body).
+
+// Scale is n times the factor.
+func Scale(n int) int { n * 3 }

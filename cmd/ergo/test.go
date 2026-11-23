@@ -85,6 +85,9 @@ func testCommand(args []string) error {
 	if trace && (recursivePattern(opts.file) || len(opts.more) > 0 || opts.explore || opts.search.mode != "") {
 		return invalidInvocation(fmt.Errorf("ergo test: --trace takes one package, played plainly, not a pattern or --explore"))
 	}
+	if isStdTarget(opts.file) {
+		return stdTestPackage(opts)
+	}
 	if opts.affected.on {
 		return affectedTestCommand(opts, os.Stdout, func(o fileOptions, l loaded) error { return testLoadedPackage(o, l, nil) })
 	}
@@ -419,6 +422,9 @@ func runTestBinary(opts fileOptions, l loaded, tc build.Toolchain, binary string
 // entries stale, and its ergo test, which tests nothing, never rewrote
 // them).
 func writeLedger(opts fileOptions, l loaded) error {
+	if isStdTarget(opts.file) {
+		return nil // std's ledger is compiled in (stdTestPackage)
+	}
 	root, err := build.DefaultRoot()
 	if err != nil {
 		return err
@@ -485,6 +491,11 @@ func (s *shadowLines) Write(p []byte) (int, error) {
 // writeRefutations writes the shadows' refutations of a test run into the
 // module's ergo.laws and ergo.cases (sketchfront.RecordRefutations).
 func writeRefutations(opts fileOptions, l loaded, refs []sketchfront.ShadowRefutation) error {
+	if isStdTarget(opts.file) {
+		// A std rewrite law's refutation is a failed run, its line on
+		// stdout; no ergo.laws of std's is written.
+		return nil
+	}
 	changed, err := sketchfront.RecordRefutations(l.analysis, sketchfront.BuildRequest{
 		Source: l.source.Admitted(),
 		Stderr: os.Stderr,

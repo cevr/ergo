@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -44,22 +45,32 @@ func newHost(t *testing.T) host {
 	return h
 }
 
-// run runs script from workspace ws with the host's variables and extra,
-// and answers the arguments it gave ergo.
-func (h host) run(t *testing.T, script, ws string, extra []string, argv ...string) []string {
+// command runs script from workspace ws with the host's variables and extra.
+func (h host) command(t *testing.T, script, ws string, extra []string, argv ...string) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command("sh", append([]string{filepath.Join(must(os.Getwd()), script)}, argv...)...)
 	cmd.Dir = filepath.Join(h.dir, ws)
 	// The caller's own width (a test under `ergo budget` has GOMAXPROCS
 	// set) is not the run's.
 	for _, kv := range os.Environ() {
-		if k, _, _ := strings.Cut(kv, "="); k != "GOMAXPROCS" && k != "HEAVY_CORES" && k != "ERGO_GATE_CPUS" && k != "HEAVY_HELD" {
+		if k, _, _ := strings.Cut(kv, "="); k != "GOMAXPROCS" && k != "HEAVY_CORES" && k != "ERGO_GATE_CPUS" && k != "HEAVY_HELD" && k != "ERGO_BUDGET_CEILING" {
 			cmd.Env = append(cmd.Env, kv)
 		}
 	}
-	cmd.Env = append(cmd.Env, "TMPDIR="+filepath.Join(h.dir, "tmp"), "ERGO_BUDGET="+h.conf, "ERGO_BUDGET_CRIT="+h.crit, "ERGO_BUDGET_BIN="+h.bin, "FAKE_ARGS="+h.args, "HEAVY_DIR="+filepath.Join(h.dir, "heavy"))
+	cmd.Env = append(cmd.Env,
+		"TMPDIR="+filepath.Join(h.dir, "tmp"), "ERGO_BUDGET_SCRATCH=",
+		"ERGO_BUDGET="+h.conf, "ERGO_BUDGET_CRIT="+h.crit, "ERGO_BUDGET_BIN="+h.bin, "FAKE_ARGS="+h.args,
+		"HEAVY_DIR="+filepath.Join(h.dir, "heavy"),
+		"GOCACHE=", // The fake ergo builds nothing; heavy.sh need not seed or copy the host cache.
+	)
 	cmd.Env = append(cmd.Env, extra...)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	return cmd
+}
+
+// run answers the arguments a successful run gave ergo.
+func (h host) run(t *testing.T, script, ws string, extra []string, argv ...string) []string {
+	t.Helper()
+	if out, err := h.command(t, script, ws, extra, argv...).CombinedOutput(); err != nil {
 		t.Fatalf("%s %v: %v\n%s", script, argv, err, out)
 	}
 	got, err := os.ReadFile(h.args)
@@ -101,6 +112,26 @@ func TestLightCritComesOnlyFromTheCritFile(t *testing.T) {
 	}
 	if got := h.run(t, "light.sh", "ws-lane", []string{"LIGHT_CRIT=1"}, "true"); flag(got, "class") != "lane" {
 		t.Errorf("a run of ws-lane with LIGHT_CRIT=1: %q, want class lane", got)
+	}
+}
+
+// TestLightPassesTheHostCeiling checks the wrapper's argv with and without
+// a ceiling, so the new wrapper still works with an old ergo binary until
+// the host sets the variable. Mutants: budget-light-ceiling-ignored and
+// ceiling-flag-always-passed.
+func TestLightPassesTheHostCeiling(t *testing.T) {
+	h := newHost(t)
+	prefix := []string{"budget", "--config", h.conf, "--width", "4", "--class", "lane", "--lane", "ws-lane"}
+	payload := []string{"--", "nice", "-n", "19", "true"}
+	for _, c := range []struct{ env, args []string }{
+		{nil, nil},
+		{[]string{"ERGO_BUDGET_CEILING="}, nil},
+		{[]string{"ERGO_BUDGET_CEILING=3G"}, []string{"--ceiling", "3G"}},
+	} {
+		want := slices.Concat(prefix, c.args, payload)
+		if got := h.run(t, "light.sh", "ws-lane", c.env, "true"); !slices.Equal(got, want) {
+			t.Errorf("environment %q: argv %q; want %q", c.env, got, want)
+		}
 	}
 }
 
@@ -166,6 +197,107 @@ func TestRunsGetTheirOwnScratch(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
 		t.Errorf("a removal followed a link out of the scratch root: %v", err)
+	}
+}
+
+// TestScratchRemovesReadOnlyTrees covers cleanup on exit and on the next
+// run's sweep, without making the target of a symbolic link writable.
+// Mutants: scratch-keeps-readonly-dirs, scratch-follows-linked-dirs.
+func TestScratchRemovesReadOnlyTrees(t *testing.T) {
+	h := newHost(t)
+	root := filepath.Join(h.dir, "tmp", "ergo-budget")
+	stale := filepath.Join(root, "stale")
+	outside := filepath.Join(h.dir, "outside")
+	runPath := filepath.Join(h.dir, "run-path")
+	readonly := func(dir string) {
+		t.Helper()
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		if err := os.WriteFile(filepath.Join(dir, "keep"), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readonly(outside)
+	t.Cleanup(func() {
+		if p, err := os.ReadFile(runPath); err == nil {
+			_ = os.Chmod(filepath.Join(string(p), "dr-x"), 0o755)
+		}
+	})
+	readonly(filepath.Join(stale, "dr-x"))
+	if err := os.Symlink(outside, filepath.Join(stale, "out")); err != nil {
+		t.Fatal(err)
+	}
+	// The stale folder can itself be a link.
+	if err := os.Symlink(outside, filepath.Join(root, "stale-link")); err != nil {
+		t.Fatal(err)
+	}
+	for _, lock := range []string{"stale.lock", "stale-link.lock"} {
+		if err := os.WriteFile(filepath.Join(root, lock), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := h.command(t, "light.sh", "ws-lane", nil, "sh", "-ec", `
+		printf %s "$TMPDIR" > "$1"
+		mkdir "$TMPDIR/dr-x"
+		touch "$TMPDIR/dr-x/file"
+		chmod a-w "$TMPDIR/dr-x"
+		ln -s "$2" "$TMPDIR/out"
+	`, "payload", runPath, outside)
+	if out, err := cmd.CombinedOutput(); err != nil || len(out) != 0 {
+		t.Errorf("light.sh: want success and no cleanup diagnostic, got %v: %s", err, out)
+	}
+	p, err := os.ReadFile(runPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{stale, filepath.Join(root, "stale-link"), string(p)} {
+		if _, err := os.Lstat(dir); !os.IsNotExist(err) {
+			t.Errorf("scratch folder %s remains: %v", dir, err)
+		}
+		if _, err := os.Lstat(dir + ".lock"); !os.IsNotExist(err) {
+			t.Errorf("scratch lock for %s remains: %v", dir, err)
+		}
+	}
+	if info, err := os.Stat(outside); err != nil || info.Mode().Perm() != 0o555 {
+		t.Errorf("scratch cleanup changed the target directory of a symbolic link: %v, %v", info, err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "keep")); err != nil {
+		t.Errorf("scratch cleanup deleted the target of a symbolic link: %v", err)
+	}
+}
+
+// TestScratchRemovalFailureKeepsCommandStatus makes rm fail even after a
+// repair. A successful and a failing command each keep their own status and
+// get one cleanup diagnostic naming the folder. Mutant:
+// scratch-prints-raw-removal-errors.
+func TestScratchRemovalFailureKeepsCommandStatus(t *testing.T) {
+	for _, code := range []string{"0", "17"} {
+		t.Run(code, func(t *testing.T) {
+			h := newHost(t)
+			fakeRm := "#!/bin/sh\nset -eu\nprintf 'rm: detail 1\\nrm: detail 2\\n' >&2\nexit 42\n"
+			if err := os.WriteFile(filepath.Join(h.dir, "rm"), []byte(fakeRm), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			p := filepath.Join(h.dir, "run-path")
+			cmd := h.command(t, "light.sh", "ws-lane", []string{"PATH=" + h.dir + ":" + os.Getenv("PATH")}, "sh", "-ec",
+				`printf %s "$TMPDIR" > "$1"; exit "$2"`, "payload", p, code)
+			out, err := cmd.CombinedOutput()
+			if cmd.ProcessState == nil || fmt.Sprint(cmd.ProcessState.ExitCode()) != code {
+				t.Fatalf("light.sh: want command status %s, got %v: %s", code, err, out)
+			}
+			dir, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if text := string(out); strings.Count(text, "\n") != 1 || !strings.Contains(text, string(dir)) {
+				t.Errorf("light.sh: want one cleanup line naming %q, got %q", dir, text)
+			}
+		})
 	}
 }
 

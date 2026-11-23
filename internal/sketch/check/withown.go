@@ -20,7 +20,7 @@ import (
 //     (ContextEntry.Uses), resolved through the with's context (Context.Provider),
 //     except that a replace entry's use of a capability it replaces is the
 //     entry the embedded context binds (Context.builtFrom), acquired before
-//     it with that capability in its Caps and released after it.
+//     it with that capability in its Caps and, if owned, released after it.
 //     An entry of several capabilities is one acquisition. Any other overridden
 //     entry binds nothing Provider returns, and an entry nothing reaches
 //     is not visited, so neither is acquired. The order is the one the
@@ -44,7 +44,8 @@ import (
 //     opens a scope as an owning one does, so the rules below that name
 //     an owning with hold for it too.
 //  5. Refusals, each located. A resource provider read through an element
-//     of a package let has no owner to give it to the with. Every checked Close releases: an operation of the provider's type, a
+//     of a package let has no owner to give it to the with.
+//     An owned provider's checked Close releases: an operation of its type, a
 //     generic Close and a Close that takes a pointer to a provider that is
 //     a value included (C29). A generic Close whose type parameter is
 //     constrained by operations would pass witnesses that no fact

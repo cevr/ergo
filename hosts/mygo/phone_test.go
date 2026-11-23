@@ -35,7 +35,10 @@ const androidImage = "system-images;android-36;google_apis;x86_64"
 // log holds no fatal line. Then (drive) the app on the phone's screen
 // plays each example's seeded script sent through `adb forward`, as
 // TestExamplesAnswerOverASocket plays it on the desktop, and answers with
-// what the example's own binary prints on ui.TestHost. The device is shut
+// what the example's own binary prints on ui.TestHost. Then (access),
+// after seed 1, the phone's accessibility tree, read with uiautomator,
+// holds the nodes, names and states of std ui's tree (-headless -tree),
+// by the widget classes MyGo's Android host gives their roles. The device is shut
 // down and deleted at the end.
 // Without -phone.run it skips: no test of a phone ran (NO TESTS IS RED;
 // the batch's phone legs pass the flag).
@@ -108,6 +111,30 @@ func TestExamplesAgreeOnAPhone(t *testing.T) {
 				if err != nil || got != want {
 					t.Errorf("%s seed %d: ui.TestHost and the app on the emulator differ (%v), %s\nscript:\n%s", name, seed, err, firstDiff(want, got), script)
 				}
+			}
+		})
+		// access: after seed 1's script, driven as above, the phone's
+		// accessibility tree holds the nodes std ui's tree names, with
+		// their names and states (phone_access_test.go).
+		t.Run("android-emulator/"+name+"/access", func(t *testing.T) {
+			if pkg == "" {
+				t.Skip("the launch failed")
+			}
+			dev.adb(t, "shell", "setprop", "debug.ergo.drive", "127.0.0.1:"+phoneDrivePort)
+			t.Cleanup(func() { dev.run("shell", "setprop", "debug.ergo.drive", "''") })
+			port := strings.TrimSpace(string(dev.adb(t, "forward", "tcp:0", "tcp:"+phoneDrivePort)))
+			t.Cleanup(func() { dev.run("forward", "--remove", "tcp:"+port) })
+			script, _ := seededScript(t, bins[name].testHost, name, 1)
+			want := wantAccess(t, bins[name].desktop, script)
+			dev.adb(t, "shell", "am", "force-stop", pkg)
+			dev.adb(t, "shell", "am", "start", "-W", "-n", pkg+"/"+activity)
+			c, r := dev.dialReady(t, port)
+			if _, err := answers(c, r, script); err != nil {
+				t.Fatalf("drive seed 1: %v", err)
+			}
+			c.Close()
+			if d := sameAccess(want, dev.phoneAccess(t, pkg)); d != "" {
+				t.Errorf("%s: the phone's accessibility tree and std ui's differ after seed 1:\n%s\nscript:\n%s", name, d, script)
 			}
 		})
 	}

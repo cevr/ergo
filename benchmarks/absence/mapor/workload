@@ -1,0 +1,7 @@
+# scripts/opcount: `absencebench bench mapor N` makes N reads, a Map read through an Option MapOr (the body a prelude MapOr would have); its hand twin is maphand
+# (ABSENCE r3); half the keys miss. The control is hand Go comma-ok:
+# the floor.
+unit read
+sizes 409600 2457600
+args bench mapor {n}
+control benchmarks/absence/testdata/control

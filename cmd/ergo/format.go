@@ -241,8 +241,9 @@ func formatCommand(args []string) error {
 // expandFormatFolders replaces each operand that names a folder
 // (isPackageFolder: not a .ergo path) with the .ergo files in it and in the
 // folders below it, in lexical order, as gofmt walks a directory. A folder
-// whose name starts with "." or "_", or is testdata, is skipped, as the go
-// command skips it; a symbolic link is not followed. A folder with no .ergo
+// sketchfront.AdmitFolder refuses (hidden, "_", testdata, node_modules,
+// vendor, ergo.bind) is skipped, as every DIR/... walk skips it; a
+// symbolic link is not followed. A folder with no .ergo
 // file is an invocation error, and so is an expansion past the file limit.
 func expandFormatFolders(opts *fmtOptions) error {
 	var files []string
@@ -277,9 +278,9 @@ func expandFormatFolders(opts *fmtOptions) error {
 			}
 			name := entry.Name()
 			if entry.IsDir() {
-				// ergo.bind holds generated bindings (IG7), already in
-				// ergo fmt's form and rewritten only by ergo bind go.
-				if path != operand && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" || name == "ergo.bind") {
+				// DIR/...'s rule (build.md, Workspace): ergo.bind holds
+				// generated bindings (IG7), rewritten only by ergo bind go.
+				if path != operand && !sketchfront.AdmitFolder(name) {
 					return filepath.SkipDir
 				}
 				return nil

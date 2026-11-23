@@ -125,7 +125,8 @@ func (l *lowerer) wireMembersDecode(tc *typeCtx, b *strings.Builder, t check.Typ
 	e, out, key, x := scope.alloc("err"), scope.alloc("members"), scope.alloc("key"), scope.alloc("value")
 	b.WriteString("if " + e + " := " + tc.readOp(env, r, "BeginObject") + "; " + e + " != nil {\nreturn " + zero + ", " + e + "\n}\n")
 	b.WriteString(out + " := " + tc.goType(outer.Type) + "{}\nfor " + tc.readOp(env, r, "More") + " {\n")
-	b.WriteString(key + " := " + tc.readOp(env, r, "Key") + "\n")
+	// A member's key is kept, so it is a copy (json 2; runtime/v1 WireKeyKept).
+	b.WriteString(key + " := " + l.rt() + ".WireKeyKept(" + tc.readOp(env, r, "Key") + ")\n")
 	b.WriteString(tc.wireDecode(entry.Fields[1].Type, env, r, x, zero, scope))
 	b.WriteString(out + " = append(" + out + ", " + tc.goType(list.Elem) + "{" + td.fieldName[entry.Fields[0].Name] + ": " + tc.goType(entry.Fields[0].Type) + "(" + key + "), " + td.fieldName[entry.Fields[1].Name] + ": " + x + "})\n}\n" + tc.readOp(env, r, "End") + "\n")
 	b.WriteString("return " + tc.wrapperValue(t, outer, out) + ", nil\n")

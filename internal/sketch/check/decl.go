@@ -554,7 +554,14 @@ func (c *checker) collect() {
 		if !ok || !isExported(tn.Name) {
 			continue
 		}
-		if id, ok := m.Step.(*syntax.Ident); ok {
+		// A name step's function (an instance's too, stepT[T]); a
+		// computed step's rows are its value's type, which the functions
+		// it composes spell.
+		x := unparen(m.Step)
+		if ix, ok := x.(*syntax.IndexExpr); ok {
+			x = unparen(ix.X)
+		}
+		if id, ok := x.(*syntax.Ident); ok {
 			if f, ok := c.pkg.Scope.names[id.Name].(*Func); ok {
 				c.guarded[f] = true
 			}
@@ -2050,7 +2057,7 @@ func (c *checker) slotArgs(orig *Named, targs []Type) []Type {
 
 // markSlotParams sets TypeParam.Slot on each error row parameter of sig
 // that stands alone as a type argument of a generic type in sig's
-// parameters or results, at any depth.
+// parameters or results, at any depth, or as a value parameter's type.
 func markSlotParams(sig *Signature) {
 	own := map[*TypeParam]bool{}
 	for _, tp := range sig.TParams {
@@ -2102,6 +2109,15 @@ func markSlotParams(sig *Signature) {
 		}
 	}
 	for _, p := range sig.Params {
+		// A value parameter whose type is the row parameter alone (`f F`)
+		// is a slot too: the argument keeps its own Go type, converted to
+		// error only where the function fails with it (rows.md, Error rows
+		// 8, Lowering; PRELUDE-ORFAIL).
+		if tp, ok := p.Type.(*TypeParam); ok && own[tp] {
+			tp.Slot = true
+		} else if tp := SlotRow(p.Type); tp != nil && own[tp] {
+			tp.Slot = true
+		}
 		walk(p.Type)
 	}
 	for _, r := range sig.Results {

@@ -5,4 +5,3 @@
 #
 # STD-TESTAMBIENT: std's test constructors for http.NewNet and fs.OpenRoot
 # under TestAmbient, so download's test context builds a Remote.
-download network S108 domain.Downloader.EmptyURLIsRejected Remote STD-TESTAMBIENT

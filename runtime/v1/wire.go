@@ -3,6 +3,7 @@ package v1
 import (
 	"maps"
 	"slices"
+	"strings"
 )
 
 // WireKeys are the keys of a Map in order, the order a derived encode
@@ -11,6 +12,12 @@ import (
 func WireKeys[K ~string, V any](m map[K]V) []K {
 	return slices.Sorted(maps.Keys(m))
 }
+
+// WireKeyKept is the copy of a member's key that a derived Map decode
+// keeps (std json 2; JSON-CURSOR-ALLOC): a reader's Key may be a window
+// of its input, which a record's decode only compares, so the Map, the
+// one decode that keeps a key, copies it and keeps no input alive.
+func WireKeyKept(k string) string { return strings.Clone(k) }
 
 // WireKeyRoom is how many keys WireKeysIn sorts in its caller's array.
 const WireKeyRoom = 8

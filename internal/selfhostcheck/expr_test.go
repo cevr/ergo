@@ -668,11 +668,13 @@ func hasField(t check.Type, name string) bool {
 	return false
 }
 
-// importPath is the path the folder dir's package is imported by: its
-// module's name and its folder in the module (the nearest ergo.mod above
-// dir), or the package's own path (std, or a folder with no module). A
-// package checked as a root has the path main, which no import names.
+// importPath keeps a checked package's resolved identity, even when its
+// source lies under another module. Only a package checked as a program
+// root has the synthetic path main; recover its import path from its module.
 func importPath(dir string, pkg *check.Package) string {
+	if pkg.Path != "main" {
+		return pkg.Path
+	}
 	for root := dir; root != filepath.Dir(root); root = filepath.Dir(root) {
 		mod, err := os.ReadFile(filepath.Join(root, "ergo.mod"))
 		if err != nil {

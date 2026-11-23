@@ -46,8 +46,15 @@ func Open(l Limits) Session needs Model | Tools | exec.Runner | Scheduler {
 // version of the loop), and Failed when j cannot be read or written.
 func Resume(l Limits, j journal.Journal[State, Signal]) Session fails journal.Failed | journal.Diverged needs Model | Tools | exec.Runner | Scheduler {
 	let log = try j.Load()
+	let mut kept = len(log.Signals)
 	for e in try Recover(l, log.Signals) {
-		try j.Append(e)
+		j.Append(e, kept) catch {
+		case journal.Stale as s:
+			return journal.Failed{Reason: "another session kept signals: \(s.Expected) expected, \(s.Actual) kept"}
+		case journal.Failed as f:
+			return f
+		}
+		kept = kept + 1
 	}
 	let a = try journal.Start(machines.Start(Agent{}, l), j, 0, 16, func(n Never) {})
 	Session{Agent: a, Journal: j, Limits: l}

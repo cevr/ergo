@@ -1,0 +1,35 @@
+// A product of two machines over a record state: the step is built by an
+// ordinary generic function from two package steps (DECL-VALUES b_product,
+// in the record form).
+import machines
+
+type Pair[A, B] { L A, R B }
+
+func Both[S1, S2, E, O1, O2](a own func(s S1, e E) Decision[S1, O1], b own func(s S2, e E) Decision[S2, O2]) func(s Pair[S1, S2], e E) Decision[Pair[S1, S2], Pair[S1, S2]] {
+	func(s Pair[S1, S2], e E) Decision[Pair[S1, S2], Pair[S1, S2]] {
+		Enter[Pair[S1, S2]]{Next: Pair[S1, S2]{L: machines.Next(s.L, a(s.L, e)), R: machines.Next(s.R, b(s.R, e))}}
+	}
+}
+
+type S = Off{} | On{}
+type E = Flip{}
+
+func step(s S, e E) Decision[S, S] {
+	match s {
+	case Off:
+		Enter[S]{Next: On}
+	case On:
+		Enter[S]{Next: Off}
+	}
+}
+
+type Two machine[Pair[S, S], E] {
+	initial: Pair[S, S]{L: Off, R: On},
+	step:    Both(step, step),
+}
+
+func run() machines.Outcome[Pair[S, S], Pair[S, S]] fails machines.Rejected {
+	try machines.Run(Two{}, []E{Flip, Flip})
+}
+
+func main() {}

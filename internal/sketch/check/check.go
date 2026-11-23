@@ -528,6 +528,9 @@ type checker struct {
 	funcs      []*Func // every package function and method, in source order
 	vars       []*pkgVar
 	machines   []*TypeName
+	// entryState is, per machine entry, whether it is being checked or
+	// done (machineentry.go).
+	entryState map[machineEntryKey]int
 	guarded    map[*Func]bool // steps of exported machines: rows written (export guard)
 
 	// The reach graph for context cycles (rows.md, Context 5).
@@ -909,6 +912,11 @@ func prelude() preludeResult {
 // PreludeDiagnostics returns the prelude's own diagnostics (none when the
 // embedded source is valid; a test pins it).
 func PreludeDiagnostics() []Diagnostic { return prelude().diags }
+
+// PreludePackage is the checked prelude, as every package sees it: the
+// root a test build of the prelude's own laws lowers (sketchfront.CheckStd,
+// NIH-75), since no import names it.
+func PreludePackage() *Package { return prelude().pkg }
 
 // stdImporter imports the embedded standard library, checking each package
 // once per process. A std package may import another (io imports strings),

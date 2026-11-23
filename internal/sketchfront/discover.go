@@ -25,9 +25,10 @@ type PackageTarget struct {
 // reuses the loader's module, package and import rules but never checks a
 // body or runs user code. A syntax error or import cycle is left for the
 // selected command, so formatting stays syntax-only. Nested modules and
-// the folders admitFolder refuses (testdata, hidden, underscored,
-// node_modules, vendor) are excluded; directory symlinks are not followed. Imports outside dir may supply ordering
-// edges, but do not enlarge the set of selected packages.
+// the folders AdmitFolder refuses (testdata, hidden, underscored,
+// node_modules, vendor, ergo.bind) are excluded; directory symlinks are
+// not followed. Imports outside dir may supply ordering edges, but do not
+// enlarge the set of selected packages.
 func DiscoverPackages(dir string) ([]PackageTarget, error) { return DiscoverPackagesThrough(nil, dir) }
 
 // DiscoverPackagesThrough is DiscoverPackages reading through fsys (a warm
@@ -113,7 +114,7 @@ func discoverModulePackages(fsys FS, dir, abs string) ([]PackageTarget, error) {
 	var walk func(path string) error
 	walk = func(path string) error {
 		if path != abs {
-			if !admitFolder(filepath.Base(path)) {
+			if !AdmitFolder(filepath.Base(path)) {
 				return nil
 			}
 			_, modErr := fsys.Stat(filepath.Join(path, ModFile))

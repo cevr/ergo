@@ -1,0 +1,25 @@
+import withlend/res
+
+func CloseWhileProvided() int {
+	let m = res.Mem{N: 1}
+	with context { res.Store: m } {
+		m.Close()
+		res.Store.Get()
+	}
+}
+
+func MoveWhileProvided() int {
+	let m = res.Mem{N: 1}
+	with context { res.Store: m } {
+		let q = m
+		res.Store.Get() + res.Peek(q)
+	}
+}
+
+func View(s res.Store) func() int { func() int { s.Get() } }
+
+func ValueView() int {
+	let m = res.Mem{N: 1}
+	let v = View(m)
+	v() + res.Peek(m)
+}

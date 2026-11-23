@@ -584,6 +584,11 @@ func (m *mappedV) opCall(in *interp, fr *frame, at syntax.Node, name string, arg
 		return m.text, nil
 	case "Close":
 		return unit{}, nil
+	case "Size":
+		return int64(len(m.text)), nil
+	case "PhysicalPath":
+		// A Mapped of MapText names no file (fs.Mapped.PhysicalPath).
+		return "", nil
 	}
 	ice("the fs.Mapped operation %s", name)
 	return nil, nil

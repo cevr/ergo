@@ -1,0 +1,8 @@
+# scripts/opcount: `readerbench bench map N` reads a Map of four keys N
+# times from a json.Reader on the prelude's Reader interface
+# (JSON-CURSOR-ALLOC): each key the Map keeps is a copy (stdlib.md json
+# 2). The control is hand Go: encoding/json into a map[string]int.
+unit read
+sizes 20000 120000
+args bench map {n}
+control benchmarks/wirereaders/testdata/control

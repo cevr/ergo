@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"ergo.local/prototype/internal/cases"
 	"ergo.local/prototype/internal/ergobuild"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketchfront"
@@ -65,7 +66,7 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, "cmd/ergo tests: private cache directory:", err)
 			return 2
 		}
-		defer os.RemoveAll(cache)
+		defer cases.RemoveAll(cache)
 		processCache = cache
 		if store := os.Getenv(goStoreVariable); store != "" {
 			// The outer run's Go action store, outside the HOME it
