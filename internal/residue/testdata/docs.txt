@@ -114,6 +114,7 @@ docs/testing.md	-	delete: TOOLING (merged into its home)
 docs/tooling.md	-	the repository's own tooling rules: gate tiers, mutant ledger, closure rule, toolchain pin, regeneration order
 docs/wayfinder/ARCHIVE.md	-	delete: DEL-DEAD
 docs/wayfinder/README.md	-	delete: WAYFINDER
+docs/why.md	-	what the compiler checks, shown with programs: the old README's tour, to be rewritten as checked files (SITE-WHY)
 examples/**/README.md	-	one example: what it shows and how to run it
 examples/README.md	-	the layout every example follows
 hosts/*/README.md	-	one host: what it provides and how to run it

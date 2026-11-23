@@ -668,3 +668,25 @@ The compile benchmarks `BenchmarkCompile10KLines` and `BenchmarkLintAndGraph10KL
 ### Process start
 
 Every `ergo` process, a warm answer included, pays its packages' inits before `main`. A package of the module keeps package-level values that cost nothing to build (constants, and slices and structs Go lays out at build time). A table a command needs, such as a map or a parsed or read source, is built on its first use (`sync.OnceValue`), never at start. `TestStartBuildsNoTables` bounds the bytes the module's inits allocate, from `GODEBUG=inittrace=1`. `go run ./scripts/buildcost start` counts the thin client, the warm `check` and `build`, and the start of a probe per package; `buildcost count CMD ARG...` counts any command (docs/receipts/compile-speed.md, "Process start"). `buildcost reuse` checks generated programs and examples in process, edits them, and counts the packages the incremental check's decision would check again after each edit (docs/spec/build.md, "Interface fingerprint"; docs/receipts/compile-speed.md, "Incremental check (CS5a)").
+
+## Building ergo from source
+
+Moved from the README on 2026-11-23.
+
+Building ergo from source needs Go 1.27 or later and Git. The programs ergo builds need no Go install: each ergo pins one Go release, downloads it on first build, verifies it against Go's checksum database and caches it (`ergo version`; `ERGO_GO=system` builds with the go command on PATH instead; [Go toolchain](../docs/tooling.md#go-toolchain)).
+
+```sh
+git clone https://github.com/cevr/ergo.git
+cd ergo
+CGO_ENABLED=0 go build -o bin/ergo ./cmd/ergo   # ergo needs no C; a static binary starts faster
+
+./bin/ergo run examples/lookup/cmd/lookup          # prints: 192.0.2.1
+./bin/ergo test examples/lookup/cmd/lookup         # prints: PASS (4 tests)
+./bin/ergo test examples/lookup/...                # tests each package, dependencies first
+./bin/ergo run examples/editions/sketch/main.ergo  # prints: hello, Ada / no friend named Bob
+./bin/ergo fmt --check examples/editions/sketch/main.ergo
+go run ./scripts/examples                          # builds and runs the example programs against their recorded cases
+./scripts/gate.sh                                  # the merge gate: formatting, vet, tests and CLI checks
+```
+
+A source is one `.ergo` file, with no manifest. The parser is in `internal/sketch/syntax`, the checker in `internal/sketch/check`, lowering in `internal/sketch/lower`, the task runtime in `runtime/rt` and the CLI in `cmd/ergo`.
