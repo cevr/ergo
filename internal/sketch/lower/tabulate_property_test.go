@@ -101,7 +101,7 @@ func TestTabulatedAgree(t *testing.T) {
 	}
 	if *tabSeed == 0 {
 		var missing []string
-		for _, k := range []string{"tabulated E0", "tabulated bool", "tabulated byte", "no decision", "int parameter", "slice result", "call of an earlier function", "call in a record literal and an interpolation", "defect"} {
+		for _, k := range []string{"tabulated E0", "tabulated bool", "tabulated byte", "no decision", "int parameter", "slice result", "call of an earlier function", "call in a record literal and an interpolation", "dropped call", "defect"} {
 			if !reached[k] {
 				missing = append(missing, k)
 			}
