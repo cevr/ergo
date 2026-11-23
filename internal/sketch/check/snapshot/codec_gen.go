@@ -102,6 +102,7 @@ func (e *encoder) encFieldsTypeName(v *check.TypeName) {
 	e.encPtrBuilder(*f.F_newOp)
 	e.encT21(*f.F_provides)
 	e.encPtrRefinement(v.Refine)
+	e.encT14(*f.F_goType)
 	e.encPtrProviderTypes(v.Provider)
 }
 
@@ -618,6 +619,7 @@ func (e *encoder) encFieldsFunc(v *check.Func) {
 	e.encT14(*f.F_overloaded)
 	e.encT1(*f.F_size)
 	e.encPtrGoExtern(*f.F_goExtern)
+	e.encT14(*f.F_goCall)
 	e.encT14(*f.F_asWritten)
 }
 
@@ -11411,6 +11413,7 @@ func (d *decoder) decFieldsTypeName(v *check.TypeName) {
 	*f.F_newOp = d.decPtrBuilder()
 	*f.F_provides = d.decT21()
 	v.Refine = d.decPtrRefinement()
+	*f.F_goType = d.decT14()
 	v.Provider = d.decPtrProviderTypes()
 }
 
@@ -11934,6 +11937,7 @@ func (d *decoder) decFieldsFunc(v *check.Func) {
 	*f.F_overloaded = d.decT14()
 	*f.F_size = d.decT1()
 	*f.F_goExtern = d.decPtrGoExtern()
+	*f.F_goCall = d.decT14()
 	*f.F_asWritten = d.decT14()
 }
 

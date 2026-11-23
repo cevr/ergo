@@ -195,7 +195,7 @@ func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr
 			irNo("call without a function")
 		case check.GoBuiltin(f) != "":
 			return b.goBuiltinCall(x, c, f, p, stmt) // ir_builtin.go
-		case userExtern(f), f.Pkg != nil && f.Pkg.Host():
+		case f.CallsGo():
 			// A function of a Go package: an extern whose target is in
 			// Go's library, or one read from its binding (import go;
 			// gostd's runtime.NumCPU). The emitter calls its Go target
