@@ -255,10 +255,11 @@ func TestCompilerUnusedAgreesWithChecker(t *testing.T) {
 	seeds := 0
 	for _, d := range unusedDraws(pool) {
 		src := d.src
-		pkg, ds := check.CheckSource(src)
-		if len(ds) > 0 && ds[0].Code == check.CodeSyntax {
-			t.Fatalf("%s: the perturbation does not parse: %v\n%s", d.name, ds[0], src)
+		f, err := syntax.Parse(src)
+		if err != nil {
+			t.Fatalf("%s: the perturbation does not parse: %v\n%s", d.name, err, src)
 		}
+		pkg, ds := checkUnusedPart(f, d.partial)
 		want := goUnused(ds)
 		if len(want) == 0 {
 			t.Fatalf("%s: the Go checker reports no unused name in the perturbation:\n%s", d.name, src)
@@ -348,32 +349,58 @@ func bindDump(t *testing.T, ctx context.Context) string {
 type unusedFile struct {
 	path         string // the file, relative to the repository root
 	src          string
+	partial      bool // the containing package has other files
 	bodies       []int // the offset after each body's "{"
 	blocks       []int // the offset after each nested block's "{"
 	imports      []string
 	afterImports int // where an import line goes: after the last import, else 0
 }
 
-// unusedPool is the corpus files that check alone with no diagnostic, in
-// path order.
+// unusedPart treats an extracted file as part of a module. Such a load
+// still checks the file's own declarations, but cannot judge whether
+// the rest of the module supplies a provider for its laws.
+type unusedPart struct{ check.Importer }
+
+func (unusedPart) TrustsGo() (string, bool) { return "agreement", false }
+
+func checkUnusedPart(f *syntax.File, partial bool) (*check.Package, []check.Diagnostic) {
+	var imp check.Importer
+	if partial {
+		imp = unusedPart{check.Std}
+	}
+	return check.Check("main", []*syntax.File{f}, imp)
+}
+
+func (d unusedDraw) check(src string) (*check.Package, []check.Diagnostic) {
+	f, err := syntax.Parse(src)
+	if err != nil {
+		return nil, nil
+	}
+	return checkUnusedPart(f, d.partial)
+}
+
+// unusedPool is the corpus files that check without their siblings, in
+// path order. A file remains a partial module load after perturbation.
 func unusedPool(t *testing.T) []unusedFile {
 	t.Helper()
 	var pool []unusedFile
 	for _, dir := range corpusDirs(t) {
-		for _, p := range ergoFiles(t, dir) {
+		files := ergoFiles(t, dir)
+		partial := len(files) > 1
+		for _, p := range files {
 			b, err := os.ReadFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
 			src := string(b)
-			if _, ds := check.CheckSource(src); len(ds) > 0 {
-				continue
-			}
 			f, err := syntax.Parse(src)
 			if err != nil {
 				continue
 			}
-			u := unusedFile{path: rel(p), src: src}
+			if _, ds := checkUnusedPart(f, partial); len(ds) > 0 {
+				continue
+			}
+			u := unusedFile{path: rel(p), src: src, partial: partial}
 			for _, d := range f.Decls {
 				if im, ok := d.(*syntax.ImportDecl); ok {
 					for _, s := range im.Specs {
@@ -409,9 +436,10 @@ func unusedPool(t *testing.T) []unusedFile {
 // unusedDraw is a pool file's unused case: its name, the seed its
 // perturbation draws from and the perturbed source.
 type unusedDraw struct {
-	name string
-	seed uint32
-	src  string
+	name    string
+	seed    uint32
+	src     string
+	partial bool
 }
 
 // unusedDraws is the unused cases of pool, in pool order: one per file
@@ -425,7 +453,7 @@ func unusedDraws(pool []unusedFile) []unusedDraw {
 		h.Write([]byte(u.path))
 		seed := h.Sum32()
 		if src, ok := perturbUnused(u, seed); ok {
-			out = append(out, unusedDraw{name: "unused " + u.path, seed: seed, src: src})
+			out = append(out, unusedDraw{name: "unused " + u.path, seed: seed, src: src, partial: u.partial})
 		}
 	}
 	return out
