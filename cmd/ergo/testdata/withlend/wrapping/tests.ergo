@@ -1,0 +1,11 @@
+import withlend/res
+
+type Client { held Context[res.Store] } implements res.Store
+
+func Get(c Client) int { with c.held { res.Store.Get() } }
+
+func over() Client needs res.Store { Client{held: InForce[res.Store]()} }
+
+let base = context { res.Store: res.Mem{N: 1} }
+
+let overMem = context { base, replace res.Store: over() }

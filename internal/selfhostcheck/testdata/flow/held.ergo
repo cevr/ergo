@@ -1,0 +1,89 @@
+// A held context made in the block of a with that lends or builds a
+// resource cannot leave the block (escaping.go, held contexts): as the
+// block's value, a return, an assignment to a local declared outside, an
+// argument the callee takes, or a function literal that captures it. Used
+// inside, or made in a with of plain values, it is admitted.
+
+type Res { id int } implements Closer, Store
+
+type Store { Get() int }
+
+type Free { n int } implements Store
+
+type Hold { c Context[Store] }
+
+func Close(r Res) {}
+
+func Get(r Res) int { r.id }
+
+func Get(f Free) int { f.n }
+
+func open(n int) Res { Res{id: n} }
+
+func keep(c own Context[Store]) {}
+
+func blockValue() Context[Store] {
+	let m = open(1)
+	let v = with context { Store: m } {
+		let _ = Store.Get()
+		InForce[Store]() //want: flow
+	}
+	v
+}
+
+func returned(seed Context[Store]) Context[Store] {
+	with context { Store: open(2) } {
+		let h = InForce[Store]()
+		let _ = Store.Get()
+		return h //want: flow
+	}
+	seed
+}
+
+func assigned(seed Context[Store]) Context[Store] {
+	let m = open(1)
+	let mut out = seed
+	with context { Store: m } {
+		let h = Hold{c: InForce[Store]()}.c
+		let _ = Store.Get()
+		out = h //want: flow
+	}
+	out
+}
+
+func taken() {
+	let m = open(1)
+	with context { Store: m } {
+		let h = InForce[Store]()
+		let _ = Store.Get()
+		keep(h) //want: flow
+	}
+}
+
+func captured() int {
+	let m = open(1)
+	let f = with context { Store: m } {
+		let h = InForce[Store]()
+		let _ = Store.Get()
+		func() int { with h { Store.Get() } } //want: flow
+	}
+	f()
+}
+
+func inside() {
+	let m = open(1)
+	with context { Store: m } {
+		let h = InForce[Store]()
+		let _ = with h { Store.Get() }
+	}
+}
+
+func plain() Context[Store] {
+	let v = with context { Store: Free{n: 3} } {
+		let _ = Store.Get()
+		InForce[Store]()
+	}
+	v
+}
+
+func main() {}

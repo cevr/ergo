@@ -597,6 +597,47 @@ func TestGenTreesShareAStore(t *testing.T) {
 	}
 }
 
+// TestGenRunsWithNoStore: with no store (ERGO_LAWCACHE=off) gen runs each
+// generator of a chain once and settles, and --check names a stale
+// output, instead of reporting a restless cycle (CS's bug report). It
+// catches task-no-store-restless (testdata/mutants.json).
+func TestGenRunsWithNoStore(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "in.txt", "x")
+	writeFile(t, root, "a.txt", "stale") // b may run first: it reads a's old output
+	step := func(name, from, to string) Node {
+		return Node{
+			Name: name, Class: Vouched, Ident: name,
+			Env:    func(context.Context) (string, error) { return "env", nil },
+			Inputs: func(context.Context, string) (Inputs, error) { return Inputs{Files: []string{from}}, nil },
+			Run: func(_ context.Context, root string) ([]byte, error) {
+				data, err := os.ReadFile(filepath.Join(root, from))
+				if err != nil {
+					return nil, err
+				}
+				return nil, os.WriteFile(filepath.Join(root, to), append(data, '!'), 0o644)
+			},
+		}
+	}
+	nodes := []Node{step("b", "a.txt", "b.txt"), step("a", "in.txt", "a.txt")}
+	r := &Runner{Root: root, Out: &strings.Builder{}}
+	rep, err := r.Gen(context.Background(), nodes, Mode{})
+	if err != nil {
+		t.Fatalf("gen with no store: %v", err)
+	}
+	if got := readTree(t, root)["b.txt"]; got != "x!!" {
+		t.Fatalf("b.txt = %q, want x!!", got)
+	}
+	if rep.Ran["a"] != 1 {
+		t.Fatalf("gen with no store ran a %d times", rep.Ran["a"])
+	}
+	writeFile(t, root, "b.txt", "by hand")
+	rep, err = r.Gen(context.Background(), nodes, Mode{Check: true})
+	if err != nil || !slices.Equal(rep.Stale, []string{"b.txt"}) {
+		t.Fatalf("check with no store: stale %v, %v", rep.Stale, err)
+	}
+}
+
 func maps2Equal(a, b map[string]string) bool {
 	if len(a) != len(b) {
 		return false
