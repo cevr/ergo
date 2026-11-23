@@ -78,6 +78,11 @@ var ArgClauses = []ArgClause{
 	{"http.fetchLocalInto", "accepts", "non-escaping", "HTTPFetchLocalInto calls accepts on the caller's task, once per final answer, before it returns; it keeps nothing"},
 	{"http.fetchLocalInto", "put", "non-escaping", "HTTPFetchLocalInto calls put on the caller's task, at most once, before it returns; it keeps nothing"},
 	{"http.fetchLocalInto", "handle", "non-escaping", "HTTPFetchLocalInto calls handle through httpLocalExchange on the caller's task, once per hop, before it returns; it keeps nothing"},
+	// llm: Model is an operation type with no Go body; its providers
+	// (llm/memory, llm/recorded, the Retry, Fallback and Metered policies,
+	// and the generated vendor clients) are Ergo the checker reads, so it
+	// holds each provider's body to the declared clause.
+	{"llm.Model.Stream", "put", "non-escaping", "no Go body: a provider is Ergo the checker reads, and the checker refuses a provider that keeps put or calls it after Stream returns; each delta goes to put on the caller's task, in order, before the turn is returned"},
 	{"http.Net.SendInto", "put", "non-escaping", "an operation: its std providers are Ergo bodies the checker holds to the clause (Client.SendInto through sendInto, reviewed above; InMemory's Handler.SendInto); a user's provider is checked the same way"},
 	{"http.Network.SendURLInto", "put", "non-escaping", "an operation: its std provider Remote.SendURLInto is an Ergo body the checker holds to the clause, through fetchInto (reviewed above); a user's provider is checked the same way"},
 	// rpc: rpcCalls starts each Request's handle on a child task of its
