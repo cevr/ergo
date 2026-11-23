@@ -741,7 +741,10 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 			}
 			sig.Params = append([]*Var{{Name: "self", Type: self}}, op.Sig.Params...)
 			wo := WitnessOp{Name: op.Name, Sig: &sig, Func: f}
-			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 {
+			// A generic operation's function has its own type parameters
+			// beyond the receiver's: its instance is the call's, in a copy
+			// (GENERIC-OP), never the witness's.
+			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 && len(op.Sig.TParams) == 0 {
 				var why string
 				wo.Inst, why = build(f, receiverTypeArgs(targs[i], f))
 				if why != "" {
@@ -767,6 +770,47 @@ func receiverTypeArgs(self Type, f *Func) []Type {
 	}
 	return args
 }
+
+// ProviderTypeArgs are the type arguments of f, the function that provides
+// a generic operation for self, at a call of that operation with own, the
+// operation's type arguments (Call.TypeArgs): those self's type arguments
+// bind, then own in order for the rest (types.md, Interface assignability,
+// Generic operations). Nil when the counts do not match.
+func ProviderTypeArgs(self Type, f *Func, own []Type) []Type {
+	args := receiverTypeArgs(self, f)
+	k := 0
+	for i := range args {
+		if args[i] != nil {
+			continue
+		}
+		if k >= len(own) {
+			return nil
+		}
+		args[i] = own[k]
+		k++
+	}
+	if k != len(own) {
+		return nil
+	}
+	return args
+}
+
+// ProvidingFunc is the package function that provides the operation name
+// for the named type t (Methods 4), or nil.
+func ProvidingFunc(t Type, name string) *Func {
+	if p, ok := t.(*Pointer); ok {
+		t = p.Elem
+	}
+	if n, ok := t.(*Named); ok {
+		return n.method(name)
+	}
+	return nil
+}
+
+// ConstraintOnly reports whether an operation type is a constraint only by
+// a generic operation (Interface.Generic): a function its operations
+// constrain is lowered only as copies, one per instance.
+func ConstraintOnly(t Type) bool { return genericOpOnly(t) }
 
 // CallKind is what a call calls.
 type CallKind int

@@ -524,6 +524,10 @@ func (d *rowDecoder) node(r uint32) Node {
 	case kFuncType:
 		x := &FuncType{Escaping: d.opos(d.fixed(r, 7, 0)), EntryPos: d.zpos(d.fixed(r, 7, 1)), Func: d.opos(d.fixed(r, 7, 2)), Params: one[*FieldList](d, d.fixed(r, 7, 3)), Results: opt[*FieldList](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Takes: opt[*TakesClause](d, d.fixed(r, 7, 6))}
 		x.Entry = d.fixed(r, 7, 1) != 0
+		if d.items(r, 7) == 1 {
+			// An operation's own type parameters (GENERIC-OP).
+			x.TypeParams = one[*FieldList](d, d.item(r, 0))
+		}
 		return x
 	case kStructType:
 		return &StructType{Fields: one[*FieldList](d, a)}

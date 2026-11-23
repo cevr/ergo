@@ -182,8 +182,8 @@ func stringLits(t *testing.T, n ast.Node) []string {
 // other reader may hold both "func(" and "{" in its literals, however the
 // text is assembled (concatenation, fmt.Sprintf, a local). A helper that
 // returns env-typed parameter text is a new reader, so it fails too.
-// The IR builder's readers read the type through irBuilder.envPointer,
-// so they are not listed; the same closure rule holds them.
+// The IR builder's readers that use irBuilder.envPointer are not listed;
+// the same closure rule holds them.
 func TestRuntime199EnvTypeReaders(t *testing.T) {
 	src := typedPackage(t, ".")
 	readers := src.users(src.method(t, "lowerer", "env"))
@@ -207,10 +207,12 @@ func TestRuntime199EnvTypeReaders(t *testing.T) {
 		"funcCtx.contextValue":     "the zero Env a Context value's providers build into where no environment is bound: a variable, no closure (its closure is envClosure's)",
 		"typeCtx.funcType":         "a function type, which has no body",
 		"lowerer.machinePlan":      "a machine plan's declared Step header: func (X) Step(env *Env, ...)",
+		"lowerer.machineOfFunc":    "a generic machine converter's declared header: func ergoMachineOfX[T any](env *Env, ...)",
 		"lowerer.genFunc":          "a generator's assertion of the runner's Env that a constructor or a builder runs in (fu6a, fu7a)",
-		"irBuilder.envPointer":     "the IR builder's one reader: the Go type of an environment local, *Env (the function's parameter, a literal's, a with's pointer), recorded at its first read; the IR's readers take it from there (ir.go, IR-ENV-SLOT-TYPE)",
+		"irBuilder.envPointer":     "the IR builder's shared reader: the Go type of an environment local, *Env (the function's parameter, a literal's, a with's pointer), recorded at its first read (ir.go, IR-ENV-SLOT-TYPE)",
 		"lowerer.envCopier":        "the copier interface and join of a held row: method headers copyEnv(d *Env, s Env), no closure (inforce.go)",
 		"lowerer.capsType":         "a capability set's copier type: a method header copyEnv(d *Env, s Env), no closure (inforce.go)",
+		"irBuilder.captureRoot":    "the Env copy and its pointer, locals of the IR task-capture prepare callback; it takes a *Task and the derivative writes the closure",
 	}
 	for _, owner := range sortedKeys(readers) {
 		if _, ok := classified[owner]; !ok {

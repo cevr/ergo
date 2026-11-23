@@ -116,6 +116,10 @@ type IRReport struct {
 	// copy's returns and failures are the caller's own (INLINE-RETURN,
 	// ir_forms_inline.go); Inlined counts them too.
 	InlinedReturns int `json:"-"`
+	// KnownInlined counts the inlined calls of known variants, whose
+	// callbacks are known pure functions bound at the copy's head
+	// (KNOWN-FILTER-INLINE, ir_forms_inline.go).
+	KnownInlined int `json:"-"`
 	// TailPairs counts the returns of a fallible call's value and error
 	// in an inlined fallible body, bound at the site's value and error
 	// (INLINE-RETURN, ir_forms_inline.go irRets).
@@ -364,7 +368,7 @@ func lowerIRSplitReaching(u Unit, tests bool, base string, sh *shardOpts, reach 
 	var out []File
 	rep := SplitReport{Reason: "no main.go"}
 	if i >= 0 {
-		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), &l.ir.out, sh)
+		out, rep = splitMain(u, files[i].Data, base, origins, l.harnessNames(), l.sitePkgNames(), &l.ir.out, sh)
 		if rep.err != nil {
 			return nil, IRReport{}, SplitReport{}, rep.err
 		}
@@ -722,7 +726,7 @@ func (st *irState) newBuilder(fc *funcCtx, root syntax.Node) *irBuilder {
 
 // envPointer is the Go type of an environment local, *Env: the function's
 // environment parameter, each literal's (every IR function value takes
-// one), a with's pointer. It is the IR builder's one reader of the
+// one), a with's pointer. It is the IR builder's shared reader of the
 // lowerer's name for the type (TestRuntime199EnvTypeReaders), recorded at
 // the first read: a pure body that reads none imports no task package.
 func (b *irBuilder) envPointer() string {
@@ -746,8 +750,9 @@ type irBuilder struct {
 	// their value, for unfoldAt (ir_unfold.go).
 	letInits map[*check.Var]syntax.Expr
 	next     int
-	slots    int // the Go parameter slots, witnesses too (ir_forms_inline.go)
-	env      int // the environment's local, or -1 in a pure function
+	slots    int  // the Go parameter slots, witnesses too (ir_forms_inline.go)
+	env      int  // the environment's local, or -1 in a pure function
+	inSeq    bool // building a deferred call's hidden arguments inside its Seq (seqLit, ir_adapted.go)
 	// envType is the Go type of an environment local (*Env), recorded by
 	// envPointer at its first read.
 	envType string

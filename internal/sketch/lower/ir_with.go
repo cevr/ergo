@@ -172,6 +172,16 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		b.keepImport("var _ " + b.fc.goType(conv.To)) // main.go imports its package
 		return &irExpr{K: "toiface", Pos: e.Pos, T: t, X: e}
 	}
+	if goAdapterConv(conv) {
+		// A value of the program into a Go interface: goInterface's
+		// adapter, whose methods are Go callbacks with Go's results and
+		// error (io.Writer's Write), the callback shape callbackShape
+		// refuses. The operations adapter the rest of this function
+		// builds has Ergo's methods (the task first), which do not
+		// implement the Go interface, so the IR compile refused the body
+		// (LIB-ON-IR: TestGoCallsErgo's Count).
+		irNo("value of the program into a Go interface")
+	}
 	if check.ScriptOf(conv.From) != nil {
 		// A Script's adapter holds the Script alone (the emitter's
 		// scriptOperations): &A{v: e}, as the operation type.
@@ -211,12 +221,6 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		irNo("operations conversion without an adapter")
 	}
 	p := e.Pos
-	if goAdapterConv(conv) {
-		// goInterface's v1.GoHanded: Go may call the value's methods from
-		// a goroutine of its own (rt.Alone).
-		b.keepImport("var _ = " + l.rt() + ".GoHanded")
-		b.runFirst([]*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}}})
-	}
 	lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
 	if !sealed {
 		env := &irExpr{K: "zero", Pos: p, T: b.envPointer()}
