@@ -16,10 +16,10 @@ import strings
 // whole reply: not JSON, or cut at its length), and why.
 type NoFit { Reply string, Path string, Reason string }
 
-// Format is r asking for a reply that fits s: the reply's form is JSON of
+// WithSchema is r asking for a reply that fits s: the reply's form is JSON of
 // the schema, for a vendor with that mode, and the system text names the
 // schema, for one without it. The rest of r is kept.
-func Format(r Request, s jsonschema.Encoded) Request {
+func WithSchema(r Request, s jsonschema.Encoded) Request {
 	let note = "Reply with one JSON value that fits this JSON schema, and nothing else:\n" + jsonschema.TextOf(s)
 	let system = if r.System == "" { note } else { r.System + "\n\n" + note }
 	Request{System: system, Messages: r.Messages, Tools: r.Tools, Choice: r.Choice, Format: JSON{Schema: jsonschema.TextOf(s)}, MaxTokens: r.MaxTokens}
@@ -43,11 +43,11 @@ func Parse[T wire](c json.Codec[T], reply string) json.Read[T] fails NoFit needs
 }
 
 // Ask asks the bound Model for a T of schema s: one Generate of
-// Format(r, s), and Parse of its text. A reply that stopped at its length
+// WithSchema(r, s), and Parse of its text. A reply that stopped at its length
 // is cut short, so it is never parsed: it fails NoFit with the reply
 // (LengthStopIsNotParsed, in llm/memory).
 func Ask[T wire](c json.Codec[T], s jsonschema.Encoded, r Request) json.Read[T] fails RateLimited | Overloaded | Unauthorized | Refused | Truncated | Transport | InvalidRequest | InvalidResponse | UnsupportedSchema | NoFit needs Model | wired[T] {
-	let t = try Model.Generate(Format(r, s))
+	let t = try Model.Generate(WithSchema(r, s))
 	let cut = match t.Stop {
 	case Length:
 		true
@@ -98,7 +98,7 @@ law FormatAgreesWithCodec(v askProbe) {
 // with the schema's text, and the reply's form, which is JSON of it.
 law FormatKeepsTheRequest(system string, max int) {
 	let r = Request{System: system, Messages: []Message{User{Text: "hi"}}, Tools: []ToolSpec{}, Choice: Auto, Format: Prose, MaxTokens: max}
-	let f = Format(r, askProbeSchema())
+	let f = WithSchema(r, askProbeSchema())
 	let text = jsonschema.TextOf(askProbeSchema())
 	let form = match f.Format {
 	case JSON as j:

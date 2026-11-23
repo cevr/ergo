@@ -26,7 +26,7 @@ let set = flag.Set{Name: "snake", Usage: "keys: b begins, w a s d turn, p pauses
 func run(args []string) fails os.Exit needs io.Stdin | io.Stdout | Scheduler {
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return
 	}
 	let w = widthFlag.Get(v)

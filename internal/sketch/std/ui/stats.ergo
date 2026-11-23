@@ -590,7 +590,7 @@ law CountsSumToPatch(seed int, steps int) {
 			s[2] = 7
 			s[3] = 9
 		}
-		let ops = pass(&f, ps, s)
+		let ops = renderPass(&f, ps, s)
 		let c = PassCounts(&f)
 		let mut ins = 0
 		let mut mov = 0
