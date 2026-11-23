@@ -21,3 +21,16 @@ func at(h Host, path string) string fails Denied {
 }
 
 extern go ergo.local/prototype/runtime/v1.FSConfine func confine(root string, path string) string fails Denied
+
+// atLast is at for an operation on path itself, as Go's Lstat, Remove,
+// Rename, Readlink and Symlink are: a test's Host resolves the directory
+// above path and not its last element, so a link there is the link and
+// never what it leads to (a walk lists it, a removal removes it).
+func atLast(h Host, path string) string fails Denied {
+	if h.root == "" {
+		return path
+	}
+	try confineLast(h.root, path)
+}
+
+extern go ergo.local/prototype/runtime/v1.FSConfineLast func confineLast(root string, path string) string fails Denied
