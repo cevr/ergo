@@ -22,22 +22,13 @@ func indented(text string, prefix string, indent string) string {
 	let mut depth = 0
 	let mut open = false
 	let mut started = false
-	let mut inString = false
-	let mut escaped = false
-	for i in 0..len(text) {
+	let mut i = 0
+	let end = len(text)
+	for i < end {
 		let c = text[i]
-		if inString {
-			out = out.Append(c)
-			if escaped {
-				escaped = false
-			} else if c == '\\' {
-				escaped = true
-			} else if c == '"' {
-				inString = false
-			}
-			continue
-		}
-		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+		i = i + 1
+		// Validation rules out any other byte below space outside strings.
+		if c <= ' ' {
 			// Kept only after the value: a valid text has one value, so
 			// white space at depth 0 once it began, outside a pending
 			// list or object, follows it.
@@ -50,14 +41,14 @@ func indented(text string, prefix string, indent string) string {
 		if open && c != '}' && c != ']' {
 			open = false
 			depth = depth + 1
-			out = newline(out, prefix, indent, depth)
+			newline(&out, prefix, indent, depth)
 		}
 		if c == '{' || c == '[' {
 			open = true
 			out = out.Append(c)
 		} else if c == ',' {
 			out = out.Append(c)
-			out = newline(out, prefix, indent, depth)
+			newline(&out, prefix, indent, depth)
 		} else if c == ':' {
 			out = out.Append(c)
 			out = out.Append(' ')
@@ -66,28 +57,38 @@ func indented(text string, prefix string, indent string) string {
 				open = false
 			} else {
 				depth = depth - 1
-				out = newline(out, prefix, indent, depth)
+				newline(&out, prefix, indent, depth)
 			}
 			out = out.Append(c)
-		} else {
-			if c == '"' {
-				inString = true
+		} else if c == '"' {
+			let start = i - 1
+			for i < end {
+				let q = text[i]
+				i = i + 1
+				if q == '"' {
+					break
+				}
+				if q == '\\' {
+					i = i + 1
+				}
 			}
+			out = out.AppendString(text[start:i])
+		} else {
 			out = out.Append(c)
 		}
 	}
 	out.Text()
 }
 
-// newline takes the output buffer so every append can use its spare room.
-func newline(out []byte, prefix string, indent string, depth int) []byte {
-	let mut b = out
-	b = b.Append('\n')
-	b = b.AppendString(prefix)
-	for _ in 0..depth {
-		b = b.AppendString(indent)
+// newline borrows the output buffer so appends can use its spare room.
+func newline(out mut []byte, prefix string, indent string, depth int) {
+	*out = (*out).Append('\n')
+	if prefix != "" {
+		*out = (*out).AppendString(prefix)
 	}
-	b
+	for _ in 0..depth {
+		*out = (*out).AppendString(indent)
+	}
 }
 
 // IndentWritesGoForm: the indented text is encoding/json's Indent's,
