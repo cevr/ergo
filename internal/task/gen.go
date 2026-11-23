@@ -63,6 +63,17 @@ func (r *Runner) LastOutputs(n Node) []string {
 	return out
 }
 
+// LastInputs are the inputs n's last run read, as stored; ok is false
+// when n has not run (its inputs are unknown).
+func (r *Runner) LastInputs(n Node) (in Inputs, ok bool) {
+	text, ok := r.Store.Get(r.lastKey(n))
+	if !ok {
+		return Inputs{}, false
+	}
+	rec, ok := decodeRecord(text)
+	return rec.in, ok
+}
+
 // edgesOf are the edges of the nodes' last runs: a before b when an
 // output of a is a file b read or lies in a folder b listed.
 func edgesOf(recs []*record) [][2]int {

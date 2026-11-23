@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
 // GoGen is a generator ergo.work declares: `gen NAME COMMAND...` and its
@@ -43,16 +41,6 @@ func goPackage(g GoGen) (pkg string, test bool, err error) {
 	return pkg, g.Command[1] == "test", nil
 }
 
-// GoEnv is the Go toolchain's environment a go command's build depends
-// on, read once per process by `go env`.
-var GoEnv = sync.OnceValues(func() (string, error) {
-	out, err := exec.Command("go", "env", "GOVERSION", "GOOS", "GOARCH", "GOFLAGS", "CGO_ENABLED", "GOEXPERIMENT", "GOAMD64", "GOARM64").Output()
-	if err != nil {
-		return "", fmt.Errorf("go env: %v", err)
-	}
-	return string(out), nil
-})
-
 // goListTemplate prints, per non-standard package, "P DIR FILE..." with
 // every file its build reads, its tests' too, and "M GOMOD" for its
 // module's go.mod.
@@ -64,13 +52,12 @@ M {{.Module.GoMod}}{{end}}{{end}}{{end}}`
 // reads below root, and each such package's folder and the folder of
 // each embedded file, by listing. Files outside root (the module cache,
 // GOROOT) are left out: go.sum and the Go version key them.
-func goClosure(ctx context.Context, root, pkg string, test bool) (Inputs, error) {
+func goClosure(ctx context.Context, env ChildEnv, root, pkg string, test bool) (Inputs, error) {
 	args := []string{"list", "-deps", "-f", goListTemplate}
 	if test {
 		args = append(args, "-test")
 	}
-	cmd := exec.CommandContext(ctx, "go", append(args, pkg)...)
-	cmd.Dir = root
+	cmd := command(ctx, env, root, "go", append(args, pkg)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -162,9 +149,9 @@ func readsOf(root string, reads []string) (Inputs, error) {
 	return in, nil
 }
 
-// GoNode is the node of a declared go generator. Its runs get env added
-// to the process environment (the budget's GOMAXPROCS and lent grant).
-func GoNode(g GoGen, env []string) (Node, error) {
+// GoNode is the node of a declared go generator. Its children (go list,
+// go env and the command) see exactly env, which is in its key.
+func GoNode(g GoGen, env ChildEnv) (Node, error) {
 	pkg, test, err := goPackage(g)
 	if err != nil {
 		return Node{}, err
@@ -173,9 +160,12 @@ func GoNode(g GoGen, env []string) (Node, error) {
 		Name:  g.Name,
 		Class: Vouched,
 		Ident: strings.Join(g.Command, "\x00") + "\x01" + strings.Join(g.Reads, "\x00"),
-		Env:   func(context.Context) (string, error) { return GoEnv() },
+		Env: func(context.Context) (string, error) {
+			goEnv, err := GoEnv(env)
+			return goEnv + "child env\n" + env.Key(), err
+		},
 		Inputs: func(ctx context.Context, root string) (Inputs, error) {
-			in, err := goClosure(ctx, root, pkg, test)
+			in, err := goClosure(ctx, env, root, pkg, test)
 			if err != nil {
 				return Inputs{}, err
 			}
@@ -188,9 +178,7 @@ func GoNode(g GoGen, env []string) (Node, error) {
 			return in, nil
 		},
 		Run: func(ctx context.Context, root string) ([]byte, error) {
-			cmd := exec.CommandContext(ctx, "go", g.Command[1:]...)
-			cmd.Dir = root
-			cmd.Env = append(os.Environ(), env...)
+			cmd := command(ctx, env, root, "go", g.Command[1:]...)
 			var out bytes.Buffer
 			cmd.Stdout, cmd.Stderr = &out, &out
 			ownGroup(cmd)

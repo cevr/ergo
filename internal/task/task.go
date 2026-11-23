@@ -93,6 +93,11 @@ type Runner struct {
 	// Ran, when set, is told each node that ran and the root it ran in
 	// (the property's witness of order and counts).
 	Ran func(name, root string)
+	// Logs is the folder a step's output is kept in (Verdicts); "" keeps
+	// none.
+	Logs string
+	// Flaky is the file each flaky step is appended to; "" notes none.
+	Flaky string
 }
 
 // Report is what Gen did.
