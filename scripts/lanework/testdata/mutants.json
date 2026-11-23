@@ -153,6 +153,15 @@
       "to": "      :\n",
       "rule": "drivers writes each merge driver the clone's attributes name and its configuration lacks.",
       "killers": ["scripts/lanework:TestDriversWritesTheMissingDriver"]
+    },
+    {
+      "name": "lanework-drivers-skip-work",
+      "origin": "wf10 DRIVER-TABLE-ONE-SOURCE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    (cd \"$dir\" && \"$WORK\" doctor -here -fix >/dev/null 2>&1) && printf 'work doctor -here -fix in %s\\n' \"$dir\" || true\n",
+      "to": "    :\n",
+      "rule": "drivers asks work first (work doctor -here -fix), so work's own table writes the drivers; the header's table fills only what work left. Not run: crunch.",
+      "killers": ["scripts/lanework:TestDriversAsksWorkFirst"]
     }
   ]
 }
