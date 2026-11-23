@@ -812,7 +812,7 @@ func copyNormalise(text, path string, copied bool) string {
 // lowering made unique with a suffix (Dir and Dir_1: std fs's and fstest's
 // Dir), whose order follows the order in which it names std and user
 // packages. The declarations of one base name are ranked by their text with
-// every name of the group written as the base, and renamed base_#0,
+// every top-level name written as its base, and renamed base_#0,
 // base_#1, … in that order, so the same declarations get the same names
 // whatever order they were named in, and a declaration whose text differs
 // keeps differing. A field, a method and a selector keep their names.
@@ -838,12 +838,10 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 	}
 	groups := map[string][]string{}
-	stems := map[string][2]string{}
 	for name := range declOf {
 		stem, inst := copyNameParts(name)
 		base := stem + inst
 		groups[base] = append(groups[base], name)
-		stems[base] = [2]string{stem, inst}
 	}
 	keep := map[*ast.Ident]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
@@ -869,16 +867,27 @@ func copyCanonicalNames(fset *token.FileSet, f *ast.File) {
 		}
 		return true
 	})
+	// A key names every top-level declaration it mentions by its base, not
+	// only its own group's members: the uniqueness suffixes follow the
+	// order the packages lower in, which a copy changes (copy/fs/mapped
+	// sorts before fs, std fs/mapped after it), so a key that kept another
+	// group's suffix would rank the same declarations in another order.
+	baseOf := func(name string) string {
+		if _, ok := declOf[name]; !ok {
+			return name
+		}
+		stem, inst := copyNameParts(name)
+		return stem + inst
+	}
 	final := map[string]string{}
 	for base, names := range groups {
-		member := regexp.MustCompile(`\b` + regexp.QuoteMeta(stems[base][0]) + `(?:_\d+)?` + regexp.QuoteMeta(stems[base][1]) + `\b`)
 		keys := map[string]string{}
 		for _, n := range names {
 			var buf bytes.Buffer
 			// Printed with no positions: a copy's line directives move
 			// them, and the printer's line breaks follow them.
 			_ = printer.Fprint(&buf, token.NewFileSet(), declOf[n])
-			keys[n] = member.ReplaceAllString(buf.String(), base)
+			keys[n] = copyIdent.ReplaceAllStringFunc(buf.String(), baseOf)
 		}
 		sort.Slice(names, func(i, j int) bool {
 			if keys[names[i]] != keys[names[j]] {
@@ -917,6 +926,9 @@ func copyNameParts(name string) (stem, inst string) {
 	m := copyNameShape.FindStringSubmatch(name)
 	return m[1], m[2]
 }
+
+// copyIdent is a Go identifier in a printed declaration.
+var copyIdent = regexp.MustCompile(`\b[A-Za-z_][A-Za-z0-9_]*\b`)
 
 // copyNameShape is a Go name: its stem, a uniqueness suffix, and the suffix
 // of a monomorphised instance, each of the suffixes optional.

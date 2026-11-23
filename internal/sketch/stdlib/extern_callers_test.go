@@ -261,15 +261,22 @@ func TestStdExternCallersHoldAuthority(t *testing.T) {
 		}
 	}
 	slices.Sort(hosts)
-	want := []string{"config.hostEnviron", "exec.confine", "exec.confineSink", "exec.hostAlive", "exec.hostKill", "exec.hostRun", "exec.hostRunIn", "exec.hostSpawn", "exec.hostStart", "exec.hostStartIn", "fs.OpenRoot", "fs.confine", "fs.hostAppendFile", "fs.hostChmod", "fs.hostExchange", "fs.hostLink", "fs.hostLockFile", "fs.hostMapFile", "fs.hostMkdirAll", "fs.hostMkdirAllMode",
-		"fs.hostReadDir", "fs.hostReadFile", "fs.hostRemove", "fs.hostRename", "fs.hostSameFile", "fs.hostStat", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode", "host.hostEnv", "host.hostLocal", "host.hostZone",
+	want := []string{
+		"exec.confine", "exec.confineSink", "exec.hostAlive", "exec.hostKill", "exec.hostReplace", "exec.hostRun", "exec.hostRunIn", "exec.hostSpawn", "exec.hostStart", "exec.hostStartIn",
+		"fs.OpenRoot", "fs.confine", "fs.confineLast", "fs.hostAppendFile", "fs.hostChmod", "fs.hostExchange", "fs.hostIsLink", "fs.hostLink", "fs.hostLockFile", "fs.hostLstat", "fs.hostMapBounded", "fs.hostMapFile", "fs.hostMkdir", "fs.hostMkdirAll", "fs.hostMkdirAllMode", "fs.hostReadDir", "fs.hostReadFile", "fs.hostReadlink", "fs.hostRemove", "fs.hostRename", "fs.hostResolve", "fs.hostSameAs", "fs.hostSameFile", "fs.hostStat", "fs.hostSymlink", "fs.hostUnlockFile", "fs.hostWriteFile", "fs.hostWriteFileMode",
+		"host.hostEnv", "host.hostLocal", "host.hostZone",
 		"http.IntoFile", "http.Listen", "http.fetch", "http.fetchInto", "http.send", "http.sendInto", "http.serve",
 		"io.hostEprint", "io.hostIsTerminal", "io.hostLines", "io.hostPrint", "io.hostRead", "io.hostReadAll", "io.hostStderrIsTerminal", "io.hostStdinIsTerminal",
 		"net.hostDial", "net.hostListen",
-		"os.hostArgs", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "prelude.Sleep", "prelude.hostAlarms",
-		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rand.secureBytes", "rpc.call",
+		"os.hostArgs", "os.hostCacheDir", "os.hostConfigDir", "os.hostEnviron", "os.hostExecutable", "os.hostGetenv", "os.hostGetwd", "os.hostHasEnv", "os.hostHomeDir", "os.hostPid",
+		"prelude.Sleep", "prelude.hostAlarms",
+		"rand.hostFloat64", "rand.hostIntN", "rand.hostUint64", "rand.secureBytes",
+		"rpc.call",
+		"signal.hostNumber", "signal.hostUnwatch", "signal.hostWatch",
 		"sql.hostBegin", "sql.hostCommit", "sql.hostExec", "sql.hostOpen", "sql.hostQuery", "sql.hostRollback", "sql.hostTxExec", "sql.hostTxQuery",
-		"term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostReadKey", "term.hostSize", "time.hostMono", "time.hostNow"}
+		"term.hostEnterNoEcho", "term.hostEnterRaw", "term.hostLeave", "term.hostReadKey", "term.hostSize",
+		"time.hostMono", "time.hostNow",
+	}
 	if !slices.Equal(hosts, want) {
 		t.Errorf("host externs %v, want %v", hosts, want)
 	}
