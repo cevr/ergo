@@ -40,7 +40,7 @@ func report(w mut walker, s store.Store, k expr.Pkg, f expr.Fn, fd syntax.FuncDe
 	let mut out = []diag.Diag{}
 	for st in w.sites {
 		let at = syntax.NodePos(p, st.at)
-		let length = syntax.NodeEnd(p, st.at) - at
+		let length = spanLen(p, at, syntax.NodeEnd(p, st.at))
 		if st.lit {
 			// A literal is no declaration: its sites carry no clause to
 			// write (pend; rows.go escape and chargeAs).
@@ -75,14 +75,48 @@ func reportTest(w mut walker, s store.Store, k expr.Pkg, f expr.Fn) []diag.Diag 
 		if st.kind == kErrors {
 			// Only a literal's: the test's own failures are not read.
 			let msg = "\(rowText(s, names, st.extra)) escapes this function literal, whose error row \(rowText(s, names, st.decl)) does not list it"
-			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: syntax.NodeEnd(p, st.at) - at, Code: "S101", Message: msg})
+			out = out.Append(diag.Diag{File: f.File, Offset: at, Length: spanLen(p, at, syntax.NodeEnd(p, st.at)), Code: "S101", Message: msg})
 			continue
 		}
 		let owner = if st.lit { "this function literal" } else { "test " + types.NameText(p, f.Name) }
 		let msg = "this call requires \(types.RowText(s, names, st.extra)), which is not in the capability row of \(owner) and no with provides it"
-		out = out.Append(diag.Diag{File: f.File, Offset: at, Length: syntax.NodeEnd(p, st.at) - at, Code: "S102", Message: msg})
+		out = out.Append(diag.Diag{File: f.File, Offset: at, Length: spanLen(p, at, syntax.NodeEnd(p, st.at)), Code: "S102", Message: msg})
 	}
 	out
+}
+
+// spanLen is the length of a report from at to end (check.go report): a
+// span stays on its first line, cut before a comment that ends that line
+// and before the blanks in front of it, so `try e catch { //want` is
+// underlined at `try e catch {`.
+func spanLen(p syntax.Parsed, at int, end int) int {
+	let src = syntax.SourceOf(p)
+	let mut n = if end > at { end - at } else { 0 }
+	let mut nl = -1
+	for i in at..at+n {
+		if i < len(src) && src[i] == '\n' {
+			nl = i - at
+			break
+		}
+	}
+	if nl < 0 {
+		return n
+	}
+	n = nl
+	let c = syntax.CommentsOf(p)
+	for i in 0..syntax.NumComments(c) {
+		let cs = syntax.CommentStart(c, syntax.CommentAt(c, i))
+		if cs > at {
+			if cs < at+n {
+				n = cs - at
+			}
+			break
+		}
+	}
+	for n > 0 && (src[at+n-1] == ' ' || src[at+n-1] == '\t') {
+		n = n - 1
+	}
+	n
 }
 
 // rowText is a row as a message writes it, in braces (typeops.go rowText).
