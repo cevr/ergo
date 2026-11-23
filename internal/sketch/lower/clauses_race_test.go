@@ -202,6 +202,7 @@ var clauseUnreached = map[string]string{
 	"http.serve.handle":            "serve is unexported; its handle is Serve's literal over Serve's escaping handle, and a server runs until stopped, which this property does not do",
 	"http.IntoFile.fetch":          "IntoFile needs an fs.HostRoot, which needs Ambient; the generated main holds Console only",
 	"http.Network.SendURLInto.put": "Network's std provider (NewNet's Remote) needs Ambient and a live origin; http.Net.SendInto.put's template covers the in-memory provider's shape",
+	"llm.Model.Stream.put":         "an operation called through a context, whose std providers are Ergo bodies calling put in a loop on the caller's task: http.Net.SendInto.put's template covers that shape, and no lowering path is llm's own (a template here names no mutant the other does not kill)",
 	"rpc.exits.handle":             "exits is unexported; Answer passes its escaping handle through, and Answer needs http.Streaming",
 	"rpc.exitLines.handle":         "exitLines is unexported; Answer passes its escaping handle through, and Answer needs http.Streaming",
 	"rpc.exitLines.emit":           "exitLines is unexported; emit is Answer's literal over the stream's BodyWriter",
