@@ -26,7 +26,7 @@ import (
 func TestIRCopiesMatchSource(t *testing.T) {
 	// No ergoCloneMap: under the entry rule (V8) a Map of slices whose
 	// entries are not written copies by maps.Clone.
-	lyProperty(t, "TestIRCopiesMatchSource", GenerateCopy, []string{"slices.Clone", "maps.Clone", "ergoCloneSlice", "ergoCloneBox"},
+	lyProperty(t, "TestIRCopiesMatchSource", GenerateCopy, []string{"slices.Clone", "maps.Clone", lower.HelperSpelling("", "ergoCloneSlice"), lower.HelperSpelling("", "ergoCloneBox")},
 		"copySlice", "copyMap", "takeMap", "copyBoxes", "copyLists", "Box.copyBox", "copyAny")
 }
 
