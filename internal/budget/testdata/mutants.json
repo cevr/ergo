@@ -2,6 +2,33 @@
   "about": "The host budget (WS4a, WS4c): each row is one of the model's mutants (models/gatebudget) ported to the implementation.",
   "mutants": [
     {
+      "name": "budget-width-unquoted",
+      "origin": "wf10 BUDGET-WIDTH-UNDERCOUNTS",
+      "file": "internal/budget/run_unix.go",
+      "from": "\"--slice=\" + slice, \"-p\", \"CPUQuota=\" + CPUQuota(g.Width())}",
+      "to": "\"--slice=\" + slice}",
+      "rule": "A run's whole process tree is held to its width by the kernel (its scope's cpu.max), not by GOMAXPROCS alone.",
+      "killers": ["internal/budget:TestRunHoldsItsWidth"]
+    },
+    {
+      "name": "budget-slice-unquoted",
+      "origin": "wf10 BUDGET-WIDTH-UNDERCOUNTS",
+      "file": "internal/budget/run_unix.go",
+      "from": "\t\tprops := []string{\"CPUQuota=\" + CPUQuota(b.config().Cores)}\n",
+      "to": "\t\tprops := []string{}\n",
+      "rule": "The budget's slice is held to its cores: every run of the budget together holds no more.",
+      "killers": ["internal/budget:TestRunHoldsItsWidth"]
+    },
+    {
+      "name": "budget-quota-needs-memory",
+      "origin": "wf10 BUDGET-WIDTH-UNDERCOUNTS",
+      "file": "internal/budget/run_unix.go",
+      "from": "\tif !g.Lent() && scopes() {\n",
+      "to": "\tif g.Memory() > 0 && scopes() {\n",
+      "rule": "A run is held to its width whether or not the budget counts memory.",
+      "killers": ["internal/budget:TestRunHoldsItsWidth"]
+    },
+    {
       "name": "budget-admit-by-count",
       "origin": "wf10 WS4a (model ByCount)",
       "file": "internal/budget/decide.go",

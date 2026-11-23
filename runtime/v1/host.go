@@ -37,7 +37,8 @@ type Exit struct {
 
 // Code is os.Code, an exit status, which os.ergo's declaration names as
 // its Go type (docs/spec/stdlib.md, The body contract). The refinement
-// (1..125) is the checker's; reportExit holds a Code outside it to 1.
+// (1..125 or 129..192) is the checker's; reportExit holds a Code outside
+// it to 1.
 type Code int
 
 // Error is the failure's text: its Ergo name and fields, as the lowering
@@ -75,32 +76,21 @@ func OSHasEnv(key string) bool {
 //ergo:wait none
 func OSGetenv(key string) string { return os.Getenv(key) }
 
-// OSEnviron is the body of config.Host's Environ and os.Host's Environ
-// (with prefix ""), and the one place a program reads this process's
-// whole environment (residue TestExecEnvIsAValue): each variable of the
-// environment whose name starts with prefix, as "NAME=VALUE", sorted by
-// name, in a fresh slice. A variable set twice is given once, with the
-// value Go's os.Getenv reads.
+// OSEnviron is the body of os.Process.Environ on the host, the one place
+// a program reads this process's whole environment. It gives a fresh map
+// with the same values as os.Getenv.
 //
 //ergo:host
 //ergo:wait none
-func OSEnviron(prefix string) []string {
-	names := []string{}
-	seen := map[string]bool{}
-	for _, kv := range os.Environ() {
-		name, _, ok := strings.Cut(kv, "=")
-		if !ok || name == "" || !strings.HasPrefix(name, prefix) || seen[name] {
-			continue
+func OSEnviron() map[string]string {
+	entries := os.Environ()
+	env := make(map[string]string, len(entries))
+	for _, kv := range entries {
+		if name, value, ok := strings.Cut(kv, "="); ok && name != "" {
+			env[name] = value
 		}
-		seen[name] = true
-		names = append(names, name)
 	}
-	slices.Sort(names)
-	out := make([]string, len(names))
-	for i, name := range names {
-		out[i] = name + "=" + os.Getenv(name)
-	}
-	return out
+	return env
 }
 
 // NoWorkdir is os.NoWorkdir: the host cannot name the process's working
@@ -271,6 +261,11 @@ type Mapped struct {
 	text string
 	data []byte // the mapping; nil for a text in memory or an unmapped one
 	id   uint64 // the rt registration of data
+	// The file's identity and physical path, kept by MapBounded alone
+	// (bounded.go): known is false for MapFile and MapText.
+	phys     string
+	dev, ino uint64
+	known    bool
 }
 
 // Text is the mapped text.

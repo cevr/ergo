@@ -474,22 +474,27 @@ const randSeedHi = 0x45_72_67_6f_52_61_6e_64
 // collNatives are the natives of the operations of the built-in types
 // (check.CollOpOf, PRIM-4), by operation, never by a declaration's name:
 // each runs as the std function it was before it became an operation.
-// Of the builder operations only Grow has one (std http's ParseQuery
-// calls it); the others have none, as their std helpers had none.
+// The builder's appends run as std strings' Builder writes did before
+// PRIM-4 made them operations (b25: without them every fold that writes
+// through a Builder, std html's, was refused); TestEveryPureStdExternHasANative
+// holds each pure extern std calls to a native, wherever it is declared.
 var collNatives = sync.OnceValue(func() map[check.CollOp]string {
 	return map[check.CollOp]string{
-		check.CollTakeAt:     "slices.Take",
-		check.CollSlice:      "slices.Slice",
-		check.CollClone:      "maps.Clone",
-		check.CollSliceClone: "slices.Clone",
-		check.CollConcat:     "slices.Concat",
-		check.CollRepeat:     "slices.Repeat",
-		check.CollSubstring:  "strings.Slice",
-		check.CollText:       "strings.builderText",
-		check.CollRuneText:   "utf8.RuneText",
-		check.CollMakeSlice:  "slices.WithCapacity",
-		check.CollBytes:      "strings.stringsBytes",
-		check.CollGrow:       "bytes.grow",
+		check.CollTakeAt:       "slices.Take",
+		check.CollSlice:        "slices.Slice",
+		check.CollClone:        "maps.Clone",
+		check.CollSliceClone:   "slices.Clone",
+		check.CollConcat:       "slices.Concat",
+		check.CollRepeat:       "slices.Repeat",
+		check.CollSubstring:    "strings.Slice",
+		check.CollText:         "strings.builderText",
+		check.CollRuneText:     "utf8.RuneText",
+		check.CollMakeSlice:    "slices.WithCapacity",
+		check.CollBytes:        "strings.stringsBytes",
+		check.CollGrow:         "bytes.grow",
+		check.CollAppendString: "strings.builderAppend",
+		check.CollAppendBytes:  "strings.builderAppendBytes",
+		check.CollAppendFrom:   "strings.builderAppendFrom",
 	}
 })
 

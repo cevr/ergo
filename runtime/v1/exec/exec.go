@@ -86,9 +86,8 @@ type ExecResult struct {
 }
 
 // ExecRun is the body of exec.Host's Run on the caller's task t: it runs
-// name with args in dir ("" is the caller's working directory), with the
-// host process's environment and env's entries over it, and with stdin as
-// its standard input. A stop of t sends SIGTERM to the group and waits
+// name with args in dir ("" is the caller's working directory), with exactly
+// env and with stdin as its standard input. A stop of t sends SIGTERM to the group and waits
 // grace for the program's end before the SIGKILL; grace 0 sends SIGKILL at
 // once.
 //

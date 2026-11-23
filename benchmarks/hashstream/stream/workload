@@ -1,0 +1,8 @@
+# scripts/opcount: `hashbench bench N` writes one 4 KiB part N times to one
+# sha256.Hasher (CAP-HASH); the cost of one write is the slope between the
+# two sizes. 256 writes are the owner's 1 MiB in 4 KiB writes. The control
+# is hand Go: the same part written N times to one sha256.New.
+unit write
+sizes 256 2560
+args bench {n}
+control benchmarks/hashstream/testdata/control

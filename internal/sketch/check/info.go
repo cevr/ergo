@@ -1017,7 +1017,9 @@ type ContextBinding struct {
 
 // Acquisition is one provider entry a with builds: the
 // entry, the indexes of the capabilities in Entry.Caps it still binds in
-// the with's context, and its provider's resolved Close (Info.Closes), nil
+// the with's context or that a later replace entry is built over (the
+// later entry's binding then overrides it in the environment), and its
+// provider's resolved Close (Info.Closes), nil
 // when the provider is not a resource. The with releases each resource
 // once, in reverse acquisition order, on every exit of its block.
 type Acquisition struct {

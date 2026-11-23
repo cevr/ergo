@@ -119,60 +119,60 @@ The size of the language, counted from the parser and this specification by `scr
 | Productions (grammar.md) | 87 |  |
 | Signature clause kinds | 4 | `fails`, `needs`, `provides`, `takes` |
 | Diagnostic rule bullets (diagnostics.md) | 77 |  |
-| Spec words (docs/spec) | 324745 |  |
+| Spec words (docs/spec) | 324947 |  |
 
-Uses count tokens, so neither a comment nor a string, in the 1565 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
+Uses count tokens, so neither a comment nor a string, in the 1574 `.ergo` files under `examples/`, `internal/sketch/std/` and `modules/` (testdata left out; 0 that do not parse are not counted). A contextual word the syntax tree keeps as a name counts under Names, not as a use. A built form under 10 uses at two counts in a row is for the owner: delete or teach.
 
 | Form | Kind | Uses | Names | Previous | Note |
 | --- | --- | --- | --- | --- | --- |
 | `break` | keyword | 174 |  | 174 |  |
-| `case` | keyword | 21357 |  | 21350 |  |
-| `continue` | keyword | 578 |  | 578 |  |
-| `else` | keyword | 3484 |  | 3480 |  |
-| `for` | keyword | 6218 |  | 6218 |  |
-| `func` | keyword | 18817 |  | 18804 |  |
-| `if` | keyword | 12192 |  | 12185 |  |
-| `import` | keyword | 4351 |  | 4347 |  |
-| `return` | keyword | 10592 |  | 10584 |  |
-| `type` | keyword | 5426 |  | 5422 |  |
-| `try` | keyword | 4276 |  | 4275 |  |
-| `catch` | keyword | 3557 |  | 3550 |  |
-| `needs` | keyword | 5964 |  | 5977 |  |
+| `case` | keyword | 21941 |  | 21357 |  |
+| `continue` | keyword | 575 |  | 578 |  |
+| `else` | keyword | 3564 |  | 3484 |  |
+| `for` | keyword | 6312 |  | 6218 |  |
+| `func` | keyword | 19077 |  | 18817 |  |
+| `if` | keyword | 12448 |  | 12192 |  |
+| `import` | keyword | 4402 |  | 4351 |  |
+| `return` | keyword | 10856 |  | 10592 |  |
+| `type` | keyword | 5570 |  | 5426 |  |
+| `try` | keyword | 4410 |  | 4276 |  |
+| `catch` | keyword | 3659 |  | 3557 |  |
+| `needs` | keyword | 5970 |  | 5964 |  |
 | `provides` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `context` | keyword | 714 |  | 714 |  |
+| `context` | keyword | 717 |  | 714 |  |
 | `machine` | keyword | 106 |  | 106 |  |
-| `let` | keyword | 28063 |  | 28050 |  |
-| `mut` | keyword | 8291 |  | 8288 |  |
-| `in` | keyword | 5486 |  | 5486 |  |
-| `match` | keyword | 4982 |  | 4982 |  |
+| `let` | keyword | 28489 |  | 28063 |  |
+| `mut` | keyword | 8400 |  | 8291 |  |
+| `in` | keyword | 5578 |  | 5486 |  |
+| `match` | keyword | 5177 |  | 4982 |  |
 | `escaping` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `fails` | keyword | 4523 |  | 4518 |  |
-| `test` | keyword | 607 |  | 607 |  |
-| `law` | keyword | 2131 |  | 2128 |  |
-| `assert` | keyword | 1700 |  | 1700 |  |
-| `extern` | keyword | 9729 |  | 9724 |  |
-| `with` | keyword | 705 |  | 705 |  |
+| `fails` | keyword | 4605 |  | 4523 |  |
+| `test` | keyword | 613 |  | 607 |  |
+| `law` | keyword | 2151 |  | 2131 |  |
+| `assert` | keyword | 1716 |  | 1700 |  |
+| `extern` | keyword | 9729 |  | 9729 |  |
+| `with` | keyword | 708 |  | 705 |  |
 | `takes` | keyword | 0 |  | 0 | for the owner: delete or teach |
-| `as` | keyword | 8432 |  | 8432 |  |
-| `after` | word | 21 | 466 | 21 |  |
+| `as` | keyword | 8639 |  | 8432 |  |
+| `after` | word | 21 | 474 | 21 |  |
 | `always` | word | 8 | 9 | 8 | for the owner: delete or teach |
 | `derive` | word | 2 | 0 | 2 | for the owner: delete or teach |
 | `entry` | word | 18 | 218 | 18 |  |
 | `exit` | word | 2 | 51 | 2 | for the owner: delete or teach |
-| `implements` | word | 376 | 0 | 376 |  |
-| `initial` | word | 106 | 20 | 106 |  |
+| `implements` | word | 381 | 0 | 376 |  |
+| `initial` | word | 106 | 23 | 106 |  |
 | `never` | word | 1 | 4 | 1 | for the owner: delete or teach |
-| `own` | word | 1460 | 52 | 1460 |  |
-| `path` | word | 14 | 1843 | 14 |  |
+| `own` | word | 1457 | 52 | 1460 |  |
+| `path` | word | 14 | 1905 | 14 |  |
 | `pure` | word | 3 | 6 | 3 | for the owner: delete or teach |
 | `reaches` | word | 7 | 19 | 7 | for the owner: delete or teach |
 | `replace` | word | 2 | 4 | 2 | for the owner: delete or teach |
 | `skip` | word | 0 | 70 | 0 | for the owner: delete or teach |
 | `sometimes` | word | 7 | 0 | 7 | for the owner: delete or teach |
-| `step` | word | 106 | 215 | 106 |  |
+| `step` | word | 106 | 218 | 106 |  |
 | `when` | word | 0 | 17 | 0 | for the owner: delete or teach |
-| `where` | word | 96 | 42 | 96 |  |
-| `work` | word | 20 | 1876 | 20 |  |
+| `where` | word | 96 | 49 | 96 |  |
+| `work` | word | 20 | 2037 | 20 |  |
 | `given` | planned | 0 |  | 0 | specified, not built |
 | `gives` | planned | 0 |  | 0 | specified, not built |
 | `keeps` | planned | 0 |  | 0 | specified, not built |
@@ -230,7 +230,7 @@ The prototype's behaviour and the sketches leave the points below unstated or in
 33. **A context header clause: exposure or requirements.** The corpus (`sketch-eval-8/five/layers`, both `context-effects` files) wrote `context App uses Account, Invoice { … }`, where the clause meant the capabilities the context exposes ("Store stays hidden"), while `uses` on a signature meant requirements ([rows-and-constraints.md](../research/rows-and-constraints.md) §7 item 9). *Resolved 2026-10-27*: two keywords, one meaning each. `provides A | B` lists what a named context exposes, and the entries it does not list stay private to its build; `needs C | D` lists what its providers require from the `with` site, joined into that site's row, as Effect's `Layer<ROut, E, RIn>` keeps provided and required services apart. A header may state both, `provides` first: `context App provides Account | Invoice needs Config { … }` ([grammar.md](grammar.md#extensions-beyond-the-written-productions), [rows.md](rows.md#context) rule 8). The corpus copy now says `provides`. The parser of the parser and formatter admits both clauses, and the checker refuses them with S109 naming the second stage of the v1 language, which checks them.
 34. **One provider for several capabilities: `Clock, Scheduler = testing.VirtualClock{}`.** The corpus binds one value to several capability rows in one context entry. The parser of the parser and formatter admits several keys before `=`, as Go's `var a, b = …` admits several names ([grammar.md](grammar.md#extensions-beyond-the-written-productions)), and the bridge refuses it with S109. Its meaning (one value shared by several rows, or one value per row) is the checker's to define. *Status:* the checker reads it as one shared value that must implement each listed capability. *Prior art:* Effect's `Layer.mergeAll` builds one layer that provides several services.
 
-Gaps 35 to 47 come from the [#101 spike](../research/actor-library.md) (A1 to A13 there). The `actor` package is library code only if these general rules exist. Each also serves tasks in containers and channels, queues, `tasks.Set`, RPC replies and batch waiters.
+Gaps 35 to 47 come from the [actor library spike](../research/actor-library.md) (A1 to A13 there). The `actor` package is library code only if these general rules exist. Each also serves tasks in containers and channels, queues, `tasks.Set`, RPC replies and batch waiters.
 
 35. **Consuming parameters and receivers (A1).** R19 names the consuming calls: `Close`, `Task.Wait`, `Task.Stop` and an actor's `Stop`. A library type such as `actor.Reply` needs its own consuming method (`Send`). *Recommendation:* a parameter or receiver whose body consumes or moves it is consuming, and a call moves the argument. The checker infers it and records it in the exported interface summary, as it does for concurrent parameters. R19's list becomes a consequence of the rule. *Prior art:* Rust by-value `self`; Swift `consuming` methods.
 36. **Resource unions (A2).** No rule says whether a union with a resource variant is a resource. *Recommendation:* it is (R1 extended); a type switch on an owned union moves the variant into the case binding.

@@ -10,18 +10,20 @@
 // Ambient.
 
 import filepath
-import strings
 
 // Exit is the failure that ends main with status Code. When it is main's
 // only reason, the entry writes Message and a line feed to standard error,
-// verbatim, and exits with Code; Code must be in 1..125 (docs/spec/
-// runtime.md, Exit causes). It is a failure, not a call, so every scope's
+// verbatim (nothing when Message is empty), and exits with Code; Code is
+// in 1..125 or 129..192 (docs/spec/runtime.md, Exit causes). It is a failure, not a call, so every scope's
 // cleanup runs before the program ends.
 extern go ergo.local/prototype/runtime/v1.Exit type Exit { Code Code, Message string }
 
-// Code is a failure status: zero claims success, and 126 and above are
-// reserved by the shell. ParseCode checks a status computed at run time.
-extern go ergo.local/prototype/runtime/v1.Code type Code int where 1 <= it && it <= 125
+// Code is a failure status: 1..125 for a program's own failure, and
+// 129..192 for an end by a stop, 128 plus the signal's number, as a shell
+// reports it (signal.StatusOf: 130 for SIGINT, 143 for SIGTERM). Zero
+// claims success, and 126 to 128 are the shell's own (not executable, not
+// found, an invalid exit). ParseCode checks a status computed at run time.
+extern go ergo.local/prototype/runtime/v1.Code type Code int where (1 <= it && it <= 125) || (129 <= it && it <= 192)
 
 // NoWorkdir is the failure of Getwd when the host cannot name the
 // process's working directory: it was removed, or a directory above it
@@ -91,7 +93,7 @@ type Process {
 // writes os.Host{}, its zero value or a record update of it. root is ""
 // for the host's own (NewHost), and the case's folder for a test's
 // (NewTestHost, confined.ergo).
-type Host { root string } implements Process
+type Host { root string } implements Process, Self
 
 // NewHost is the host's Process provider. It needs Ambient: only code
 // whose row holds the authority to choose the host makes one.
@@ -124,17 +126,10 @@ func Environ(h Host) Map[string, string] {
 	if h.root != "" {
 		return confinedEnviron(h)
 	}
-	let mut env = Map[string, string]{}
-	for kv in hostEnviron("") {
-		let eq = strings.IndexByte(kv, '=')
-		if eq > 0 {
-			env[kv[:eq]] = kv[eq + 1:]
-		}
-	}
-	env
+	hostEnviron()
 }
 
-extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron(prefix string) []string
+extern go ergo.local/prototype/runtime/v1.OSEnviron func hostEnviron() Map[string, string]
 
 // Getwd is the host process's working directory, an absolute path (Go's
 // os.Getwd). It fails NoWorkdir when the host cannot name it.
