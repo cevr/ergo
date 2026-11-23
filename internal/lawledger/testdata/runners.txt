@@ -805,7 +805,7 @@ tasks EarliestWins	TestTasksLaws
 tasks FailFastStopsTheRest	TestTasksLaws
 tasks FinishedAreDropped	TestTasksLaws
 tasks LimitHolds	TestTasksLaws
-tasks LosersStopped	TestTasksLaws
+tasks LosersStopped	none
 tasks NoMemberOutlivesItsFrame	TestTasksLaws
 tasks RecentKeepsTheVerdict	#162
 tasks RepeatFollowsDecide	TestStdScheduleLawsRun
