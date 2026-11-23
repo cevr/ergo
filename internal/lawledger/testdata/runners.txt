@@ -383,6 +383,7 @@ http SuccessJSONIsSuccess	TestStdHTTPLawsRun
 http SuccessUsesRoute	TestStdHTTPLawsRun
 http WriteAfterStreamFails	TestStdHTTPLawsRun
 http WriteThenRead	TestStdHTTPLawsRun
+http loopbackNetwork.OutsideIsDenied	none
 io ChunksJoinToInput	TestIOLaws
 io InputLinesStops	TestIOLaws
 io LinesSplitInput	TestIOLaws
@@ -575,6 +576,7 @@ net Network.CloseEndsReads	TestNetLaws
 net Network.DialAfterCloseFails	TestNetLaws
 net Network.ListenTakenFails	TestNetLaws
 net Network.WriteThenReadRoundTrips	TestNetLaws
+net loopbackNetwork.OutsideIsDenied	none
 os CodeWhere	TestStdLawsRun
 os Process.EnvironAgreesWithGetenv	none
 os Process.GetenvIsStable	TestStdHostLawsHold

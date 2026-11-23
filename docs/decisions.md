@@ -1,10 +1,10 @@
 # Decisions
 
+This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
+
 ## Owner direction, 2026-11-23
 
 - **Test loopback (q371).** Asked whether tests may reach loopback under `TestAmbient`, under a separate capability, or not at all, the owner answered: “Yes, as its own capability”. [`TestLoopback`](spec/rows.md#test-loopback) grants only the named loopback addresses through the confined providers. The filesystem grant is unchanged.
-
-This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
 ## Owner direction, 2026-11-20
 

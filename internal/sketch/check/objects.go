@@ -233,7 +233,9 @@ type Context struct {
 	// runner provides, so only a test's with or a law run builds it.
 	// headerRead marks the header read (contextTestAmbient).
 	TestAmbient *Named
-	headerRead  bool
+	// TestLoopback is the runner's separate loopback grant, when listed.
+	TestLoopback *Named
+	headerRead   bool
 }
 
 func (o *TypeName) name() string { return o.Name }
