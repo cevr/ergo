@@ -452,29 +452,57 @@ test TaskExitOfAnywhere(n int) {
 	assert ok
 }
 
-test TaskStopAfterStopsAtD(w int, d int, alarmFirst bool, k int) {
+test TestingStopAfterStopsAtD(w int, d int, alarmFirst bool, k int, manual bool) {
 	let wait = 1 + ((w % 6) + 6) % 6
 	let limit = 1 + ((d % 6) + 6) % 6
 	let n = ((k % 4) + 4) % 4
-	let m = time.NewManual(0)
+	if manual {
+		let m = time.NewManual(0)
+		with context { Scheduler: m } {
+			assert testingStopsAtD(n, wait, limit, alarmFirst, func() int { m.Sleepers() }, func() {
+				for _ in 0..7 {
+					m.Advance(1ms)
+				}
+			})
+		}
+	} else {
+		let c = testing.NewVirtualClock(0)
+		with context { Scheduler: c } {
+			assert testingStopsAtD(n, wait, limit, alarmFirst, func() int { c.Sleepers() }, func() { Scheduler.Sleep(7ms) })
+		}
+	}
+}
+
+func testingStopsAtD(n int, wait int, limit int, alarmFirst bool, sleepers func() int, pass func() needs Scheduler) bool needs Scheduler {
 	let marks = queue.New[int](4)
 	let gate = queue.New[int](1)
-	with context { Scheduler: m } {
-		let t = task.Go() { try taskSlept(n, marks, gate, time.Times(1ms, wait)) }
-		let a = try taskArmed(t, gate, m, alarmFirst, time.Times(1ms, limit))
-		for _ in 0..7 {
-			m.Advance(1ms)
-		}
-		let ended = match task.ExitOf(t) {
-		case task.Done[int] as v:
-			wait <= limit && v.Value == 1
-		case task.Stopped:
-			wait > limit
-		case _:
-			false
-		}
-		assert ended && marks.Len() == n && !a.Cancel()
+	let t = task.Go() { try taskSlept(n, marks, gate, time.Times(1ms, wait)) }
+	let a = testingArmed(t, gate, sleepers, alarmFirst, time.Times(1ms, limit)) catch {
+	case queue.Closed:
+		return false
 	}
+	pass()
+	let ended = match task.ExitOf(t) {
+	case task.Done[int] as v:
+		wait <= limit && v.Value == 1
+	case task.Stopped:
+		wait > limit
+	case _:
+		false
+	}
+	ended && marks.Len() == n && !a.Cancel()
+}
+
+func testingArmed(t Task[int, queue.Closed], gate queue.Queue[int], sleepers func() int, first bool, d duration) task.Alarm fails queue.Closed needs Scheduler {
+	if first {
+		let a = task.StopAfter(t, d)
+		try gate.Push(0)
+		return a
+	}
+	try gate.Push(0)
+	for sleepers() == 0 {
+	}
+	task.StopAfter(t, d)
 }
 
 test TaskCancelBeforeFireNeverStops(w int, d int, c int) {
@@ -1333,7 +1361,7 @@ var stdLawsStatements = map[string]string{
 	"task ExitOfWaitsForCleanup":           `ExitOfWaitsForCleanup(n int) { let k = ((n % 4) + 4) % 4 let marks = queue.New[int](4) let t = Go() { crashed(k, marks) } match ExitOf(t) { case Defected: marks.Len() == k case _: false } }`,
 	"task ExitOfAnywhere":                  `ExitOfAnywhere(n int) { let outer = Go() { Go() { n } } let t = outer.Wait() match ExitOf(t) { case Done[int] as d: d.Value == n case _: false } }`,
 	"task StopOfWaiterStillInterrupts":     `StopOfWaiterStillInterrupts() { let m = time.NewManual(0) with context { Scheduler: m } { let waiter = Go() { let sleeper = Go() { Scheduler.Sleep(1h) 0 } let _ = ExitOf(sleeper) Unreachable("ExitOf returned to a stopped waiter") } for m.Sleepers() == 0 { } waiter.Stop() m.Sleepers() == 0 } }`,
-	"task StopAfterStopsAtD":               `StopAfterStopsAtD(w int, d int, alarmFirst bool, k int) { let wait = 1 + ((w % 6) + 6) % 6 let limit = 1 + ((d % 6) + 6) % 6 let n = ((k % 4) + 4) % 4 let m = time.NewManual(0) let marks = queue.New[int](4) let gate = queue.New[int](1) with context { Scheduler: m } { let t = Go() { try slept(n, marks, gate, time.Times(1ms, wait)) } let a = try armed(t, gate, m, alarmFirst, time.Times(1ms, limit)) for _ in 0..7 { m.Advance(1ms) } let ended = match ExitOf(t) { case Done[int] as v: wait <= limit && v.Value == 1 case Stopped: wait > limit case _: false } ended && marks.Len() == n && !a.Cancel() } }`,
+	"testing StopAfterStopsAtD":            `StopAfterStopsAtD(w int, d int, alarmFirst bool, k int, manual bool) { let wait = 1 + ((w % 6) + 6) % 6 let limit = 1 + ((d % 6) + 6) % 6 let n = ((k % 4) + 4) % 4 if manual { let m = time.NewManual(0) with context { Scheduler: m } { stopsAtD(n, wait, limit, alarmFirst, func() int { m.Sleepers() }, func() { for _ in 0..7 { m.Advance(1ms) } }) } } else { let c = NewVirtualClock(0) with context { Scheduler: c } { stopsAtD(n, wait, limit, alarmFirst, func() int { c.Sleepers() }, func() { Scheduler.Sleep(7ms) }) } } }`,
 	"task CancelBeforeFireNeverStops":      `CancelBeforeFireNeverStops(w int, d int, c int) { let wait = 1 + ((w % 6) + 6) % 6 let limit = 1 + ((d % 6) + 6) % 6 let after = ((c % 7) + 7) % 7 let m = time.NewManual(0) let marks = queue.New[int](1) let gate = queue.New[int](1) with context { Scheduler: m } { let t = Go() { try slept(0, marks, gate, time.Times(1ms, wait)) } let a = try armed(t, gate, m, false, time.Times(1ms, limit)) m.Advance(time.Times(1ms, after)) let armedStill = a.Cancel() for _ in 0..7 { m.Advance(1ms) } let stopped = after >= limit && wait > limit let ended = match ExitOf(t) { case Done[int]: !stopped case Stopped: stopped case _: false } ended && armedStill == (after < limit) } }`,
 	"task AlarmOutlivesItsTask":            `AlarmOutlivesItsTask(how int, d int) { let limit = 1 + ((d % 6) + 6) % 6 let m = time.NewManual(0) with context { Scheduler: m } { let other = Go() { Scheduler.Sleep(1h) 0 } let t = Go() { 1 } let a = StopAfter(t, time.Times(1ms, limit)) let h = ((how % 3) + 3) % 3 let gave = if h == 0 { match ExitOf(t) { case Done[int] as v: v.Value == 1 case _: false } } else if h == 1 { t.Wait() == 1 } else { t.Stop() true } for m.Sleepers() < 2 { } m.Advance(time.Times(1ms, limit + 1)) let asleep = m.Sleepers() == 1 other.Stop() gave && asleep && !a.Cancel() } }`,
 	"testing HeldCallWaitsForRelease":      `HeldCallWaitsForRelease(k string, a int) { let s = Script[probe]{} s.Get.Answer(func(key string) int fails Absent { a }) s.Get.Hold() let c = NewVirtualClock(0) with context { probe: s, Scheduler: c } { let t = task.Go() { probe.Get(k) } Scheduler.Sleep(1s) let held = s.Get.Held() let waited = len(held) == 1 && held[0] == k && len(s.Get.Calls()) == 1 s.Get.Release(func(key string) int fails Absent { a + 1 }) let got = t.Wait() catch { case Absent: a } s.Get.Answer(func(key string) int fails Absent { a + 2 }) let later = probe.Get(k) catch { case Absent: a } waited && got == a + 1 && later == a + 2 && len(s.Get.Held()) == 0 } }`,

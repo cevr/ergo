@@ -758,7 +758,6 @@ task DefectIsObservedOnce	TestStdLawsRun
 task ExitOfAnywhere	TestStdLawsRun
 task ExitOfWaitsForCleanup	TestStdLawsRun
 task SleepAdvancesNow	TestStdTimeLawsRun
-task StopAfterStopsAtD	TestStdLawsRun
 task StopIsIdempotent	TestStdLawsRun
 task StopOfWaiterStillInterrupts	TestStdLawsRun
 task WaitReturnsTheBlock	TestStdLawsRun
@@ -789,6 +788,7 @@ testing ScriptAnswersByTheLastAnswer	TestStdLawsRun
 testing ScriptNamesTheHeldCall	TestStdLawsRun
 testing ScriptRecordsEachCall	TestStdLawsRun
 testing SleepAdvancesExactly	TestTestingLaws
+testing StopAfterStopsAtD	TestStdLawsRun
 testing Stage.SettleIsIdempotent	TestStdActorLawsRun
 testing Stage.ShowIsStable	TestStdActorLawsRun
 testing WorldSharesEachPair	TestStdLawsRun

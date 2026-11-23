@@ -98,39 +98,6 @@ extern go ergo.local/prototype/runtime/v1.TaskReason func exitReason[T own, E](t
 // exitValue takes the value t's block returned, after exitOf gave 0.
 extern go ergo.local/prototype/runtime/v1.TaskValue func exitValue[T own, E](t own Task[T, E]) T
 
-// StopAfterStopsAtD: a task that registers k exit actions, then sleeps w
-// ms and returns 1, under StopAfter(t, d ms) on a time.Manual, is Done
-// with its value when w <= d and Stopped when w > d, with its exit
-// actions run in both. The tie is exact: at w == d it is Done whichever of
-// the two was armed first (alarmFirst), because the alarm acts after every
-// other event of its instant, so the sleep wakes first and the block
-// returns before its next wait. The alarm has fired when the clock passed
-// d, so Cancel then reports false, on an ended task too.
-law StopAfterStopsAtD(w int, d int, alarmFirst bool, k int) {
-	let wait = 1 + ((w % 6) + 6) % 6
-	let limit = 1 + ((d % 6) + 6) % 6
-	let n = ((k % 4) + 4) % 4
-	let m = time.NewManual(0)
-	let marks = queue.New[int](4)
-	let gate = queue.New[int](1)
-	with context { Scheduler: m } {
-		let t = Go() { try slept(n, marks, gate, time.Times(1ms, wait)) }
-		let a = try armed(t, gate, m, alarmFirst, time.Times(1ms, limit))
-		for _ in 0..7 {
-			m.Advance(1ms)
-		}
-		let ended = match ExitOf(t) {
-		case Done[int] as v:
-			wait <= limit && v.Value == 1
-		case Stopped:
-			wait > limit
-		case _:
-			false
-		}
-		ended && marks.Len() == n && !a.Cancel()
-	}
-}
-
 // CancelBeforeFireNeverStops: an alarm of d ms cancelled c ms after it was
 // armed reports true when c < d, and then never stops its task, which
 // sleeps w ms and returns; when c >= d it fired and reports false, and the
