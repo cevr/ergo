@@ -32,7 +32,7 @@
       "name": "lanework-cache-relative",
       "origin": "wf10 SHARED-GOCACHE",
       "file": "scripts/lanework/lanework.sh",
-      "from": "    *) fail \"the shared Go cache is not an absolute path: '$GOCACHE_SHARED'\" ;;\n",
+      "from": "    *) fail \"the shared Go cache is not an absolute path: '$SHARED_CACHE'\" ;;\n",
       "to": "",
       "rule": "The shared Go cache is an absolute path.",
       "killers": ["scripts/lanework:TestLaneRefusesACacheACloneCopies"]
@@ -99,6 +99,69 @@
       "to": " -maxdepth 2 -type f ",
       "rule": "The trim deletes only the cache's entries, never its own files beside them (trim.txt, README).",
       "killers": ["scripts/lanework:TestCreateTrimsTheCacheOverItsBound"]
+    },
+    {
+      "name": "lanework-env-no-go-path",
+      "origin": "wf10 LANE-ENV-TOOLCHAIN",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    printf 'export PATH=%s:$PATH GOTOOLCHAIN=local\\n' \"$bin\"\n",
+      "to": "    :\n",
+      "rule": "A lane's env puts the source's Go first on PATH.",
+      "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
+    },
+    {
+      "name": "lanework-go-bin-ignores-gomod",
+      "origin": "wf10 LANE-ENV-TOOLCHAIN",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "awk '$1 == \"toolchain\" { print $2 }'",
+      "to": "awk '$1 == \"go\" { print \"go\" $2 }'",
+      "rule": "The lane's Go is the one go.mod's toolchain line names, not its go line.",
+      "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
+    },
+    {
+      "name": "lanework-go-bin-override-ignored",
+      "origin": "wf10 LANE-ENV-TOOLCHAIN",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  if [ -n \"${LANE_GO_BIN:-}\" ]; then\n",
+      "to": "  if false; then\n",
+      "rule": "LANE_GO_BIN names the lane's Go when it is set.",
+      "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
+    },
+    {
+      "name": "lanework-env-no-goroot",
+      "origin": "wf10 TRIMPATH-SHARE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "  printf 'export GOROOT=%s\\n' \"$(lane_goroot \"$bin\")\"\n",
+      "to": "",
+      "rule": "A lane's env states GOROOT, the lane's Go's, which a -trimpath build lacks.",
+      "killers": ["scripts/lanework:TestLaneEnvPutsGoModsGoFirst"]
+    },
+    {
+      "name": "lanework-trial-no-drivers",
+      "origin": "wf10 MERGE-DRIVERS-EVERYWHERE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    set -- \"$@\" -c \"merge.$n.driver=$driver\"\n",
+      "to": "    set -- \"$@\"\n",
+      "rule": "trial merges with the merge drivers the attributes name, read from the clone or the attributes' driver table and passed by -c, so a clone without them trials as work merges.",
+      "killers": ["scripts/lanework:TestTrialMergesWithTheTableDrivers"]
+    },
+    {
+      "name": "lanework-drivers-write-none",
+      "origin": "wf10 MERGE-DRIVERS-EVERYWHERE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "      git -C \"$dir\" config \"merge.$n.$k\" \"$value\"\n",
+      "to": "      :\n",
+      "rule": "drivers writes each merge driver the clone's attributes name and its configuration lacks.",
+      "killers": ["scripts/lanework:TestDriversWritesTheMissingDriver"]
+    },
+    {
+      "name": "lanework-drivers-skip-work",
+      "origin": "wf10 DRIVER-TABLE-ONE-SOURCE",
+      "file": "scripts/lanework/lanework.sh",
+      "from": "    (cd \"$dir\" && \"$WORK\" doctor -here -fix >/dev/null 2>&1) && printf 'work doctor -here -fix in %s\\n' \"$dir\" || true\n",
+      "to": "    :\n",
+      "rule": "drivers asks work first (work doctor -here -fix), so work's own table writes the drivers; the header's table fills only what work left. Not run: crunch.",
+      "killers": ["scripts/lanework:TestDriversAsksWorkFirst"]
     }
   ]
 }

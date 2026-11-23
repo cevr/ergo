@@ -15,7 +15,9 @@ import strings
 // 7), its target's text and sort key as its package resolves it. An
 // importer reads an alias as that text: its target may name a package
 // the importer does not import, which no XRef of the importer names.
-type IfaceDecl { Name string, Type bool, Kinds []int, Variants []int, Alias bool, Print string, Key string }
+// Harness is the H of an operation type's harness member `test H` of
+// the shape (harness.ergo), else "": an importer's test body may need it.
+type IfaceDecl { Name string, Type bool, Kinds []int, Variants []int, Alias bool, Print string, Key string, Harness string }
 
 // Iface is a package's types as its importers read them: its path, the
 // name its types print with (its path's last element), and its
@@ -44,6 +46,7 @@ func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, for
 		let mut alias = false
 		let mut print = ""
 		let mut key = ""
+		let mut harness = ""
 		if isType {
 			for j, n in kinds.Names {
 				if n == name {
@@ -60,8 +63,9 @@ func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, for
 			case None:
 			}
 			vs = variantDecls(s, files, d)
+			harness = Harness(files, name)
 		}
-		ds = ds.Append(IfaceDecl{Name: name, Type: isType, Kinds: ks, Variants: vs, Alias: alias, Print: print, Key: key})
+		ds = ds.Append(IfaceDecl{Name: name, Type: isType, Kinds: ks, Variants: vs, Alias: alias, Print: print, Key: key, Harness: harness})
 	}
 	Iface{Path: store.PathOf(s), Name: lastOf(store.PathOf(s)), Decls: ds}
 }

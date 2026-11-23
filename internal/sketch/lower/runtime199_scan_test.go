@@ -76,6 +76,7 @@ func typedPackage(t *testing.T, dir string) *typedSource {
 			}
 			continue
 		}
+		probeLog("typed-source", probeSum([]byte(dir+"/"+name)))
 		f, err := parser.ParseFile(src.fset, dir+"/"+name, nil, 0)
 		if err != nil {
 			t.Fatal(err)

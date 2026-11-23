@@ -12,8 +12,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -383,14 +385,55 @@ func coversDomain(t *testing.T, s splitEntry, declared []int) {
 }
 
 // The leg 1 probe (request.md, "Leg 1"): with ERGO_SPLIT_PROBE set to a
-// file, every lowerSource call, every program buildAll builds and every
-// built program that runs appends "<kind> <sha256>" to it. The base carried
-// the same functions as a scratch file, so the sorted lines of the unsplit
-// test at the base and of its parts at the head compare.
+// file, every lowerSource call, every program buildAll builds or
+// type-checks and every built program that runs appends
+// "<kind> <sha256> <test>" to it. The base carried the same functions as a
+// scratch file, so the sorted first two fields of the unsplit test at the
+// base and of its parts at the head compare. Each lowerer made ("lowerer",
+// whatever entry point made it) and each source file typedPackage
+// type-checks ("typed-source") is a line too, and each body lowered
+// ("body"); a program typecheckGo checks is one line "typecheck" with
+// the count of its functions: the counted work by which
+// scripts/gate deals the package's tests into parts (-record-work, -parts;
+// LOWER-SHORT-FITS). <test> is the running top-level test: the one on the
+// logging goroutine's stack, else the one the last line named (work a test
+// started on another goroutine), else "unknown".
 
 var probe struct {
 	sync.Mutex
 	exes map[string]string
+	last string // the test the last line named
+}
+
+func init() {
+	if os.Getenv("ERGO_SPLIT_PROBE") != "" {
+		loweringWork = func(kind string) { probeLog(kind, "-") }
+	}
+}
+
+// probeTestFunc matches a top-level test function of this package, or a
+// function literal in one, in a stack frame's function name.
+var probeTestFunc = regexp.MustCompile(`^ergo\.local/prototype/internal/sketch/lower\.(Test[A-Za-z0-9_]*)(\.|$)`)
+
+// probeTest is the running top-level test (probe's comment); the caller
+// holds probe's lock.
+func probeTest() string {
+	pcs := make([]uintptr, 256)
+	frames := runtime.CallersFrames(pcs[:runtime.Callers(2, pcs)])
+	for {
+		f, more := frames.Next()
+		if m := probeTestFunc.FindStringSubmatch(f.Function); m != nil {
+			probe.last = m[1]
+			return m[1]
+		}
+		if !more {
+			break
+		}
+	}
+	if probe.last != "" {
+		return probe.last
+	}
+	return "unknown"
 }
 
 func probeSum(data []byte) string {
@@ -398,7 +441,11 @@ func probeSum(data []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-func probeLog(kind, sum string) {
+func probeLog(kind, sum string) { probeLogN(kind, sum, 1) }
+
+// probeLogN logs n items of work of one kind in one line, "<kind> <sum>
+// <test> <n>" (n = 1 is left out).
+func probeLogN(kind, sum string, n int) {
 	path := os.Getenv("ERGO_SPLIT_PROBE")
 	if path == "" {
 		return
@@ -410,7 +457,11 @@ func probeLog(kind, sum string) {
 		panic(err)
 	}
 	defer f.Close()
-	fmt.Fprintf(f, "%s %s\n", kind, sum)
+	if n == 1 {
+		fmt.Fprintf(f, "%s %s %s\n", kind, sum, probeTest())
+	} else {
+		fmt.Fprintf(f, "%s %s %s %d\n", kind, sum, probeTest(), n)
+	}
 }
 
 // probeBuilt records a built program and the executable that holds it.
@@ -436,4 +487,46 @@ func probeRan(exe string) {
 		sum = "unknown"
 	}
 	probeLog("run", sum)
+}
+
+// The probe names the test whose work each line counts: a lowering through
+// lowerSource ("lower"), the lowerer it makes and the bodies it lowers
+// ("lowerer", "body": the count of every entry point), and work the test runs on another goroutine, by the
+// last name. scripts/gate deals lower's tests into parts by these counts
+// (-record-work, LOWER-SHORT-FITS).
+func TestProbeNamesItsTest(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "probe")
+	t.Setenv("ERGO_SPLIT_PROBE", path)
+	work := loweringWork
+	loweringWork = func(kind string) { probeLog(kind, "-") }
+	t.Cleanup(func() { loweringWork = work })
+	mustLower(t, "probe", "func main() {}\n")
+	lowerElsewhere("probe2", "func main() {}\n")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]int{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[2] != t.Name() {
+			t.Errorf("probe line %q does not name %s", line, t.Name())
+			continue
+		}
+		kinds[fields[0]]++
+	}
+	if kinds["lower"] != 2 || kinds["lowerer"] < 2 || kinds["body"] < 2 {
+		t.Errorf("two lowerings logged %v, want 2 lower, and a lowerer and a body (main's) each", kinds)
+	}
+}
+
+// lowerElsewhere lowers src on a goroutine of its own, as a helper that
+// spreads work does: no test function is on that goroutine's stack.
+func lowerElsewhere(name, src string) {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		lowerSource(name, src, true)
+	}()
+	<-done
 }
