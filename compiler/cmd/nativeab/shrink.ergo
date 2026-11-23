@@ -1,0 +1,43 @@
+import slices
+
+func minimise(c Case, disagrees func(Case) bool) Case {
+	c
+}
+
+// The fixture plants an observer that omits one route B adapter cell.
+// It never patches the drawn input or its reference. For a clean input,
+// removing the affected package makes the observer agree again.
+func missesAdapter(c Case, key string) bool {
+	let actual = Attribute(c.Trace) catch {
+	case Refused:
+		return false
+	}
+	let mut lines = []string{}
+	let lost = "\(key) \(got(actual, key))"
+	for line in Lines(actual) {
+		if line != lost {
+			lines = lines.Append(line)
+		}
+	}
+	!slices.Equal(lines, Lines(c.Truth.Cells))
+}
+
+law MinimizedSeedStillDisagrees() {
+	for seed in 17..49 {
+		let c = Draw(seed)
+		if c.Truth.Refusal != "" || len(c.Packages) < 2 {
+			continue
+		}
+		for p in c.Packages {
+			let key = cellKey(p.Origin, p.Name, "adapter")
+			if p.Route == "B" && has(c.Truth.Cells, key) {
+				let failsFixture = func(candidate Case) bool { missesAdapter(candidate, key) }
+				let small = minimise(c, failsFixture)
+				return failsFixture(c) && failsFixture(small) && recoversCase(small) &&
+					len(small.Packages) == 1 && small.Packages[0].Name == p.Name &&
+					len(small.Trace.Procs) < len(c.Trace.Procs)
+			}
+		}
+	}
+	false
+}

@@ -194,7 +194,10 @@ func StagesOf(cells Map[string, int], origin string, pkg string) []string {
 // at most one broken record), Attribute gives the cells the generator
 // knows, or refuses exactly the broken record's kind.
 func recovers(seed int) bool {
-	let c = Draw(seed)
+	recoversCase(Draw(seed))
+}
+
+func recoversCase(c Case) bool {
 	let cells = Attribute(c.Trace) catch {
 	case Refused as r:
 		return r.Why == c.Truth.Refusal
@@ -205,7 +208,10 @@ func recovers(seed int) bool {
 // conserves (law CellsConserveTheTree): the cells of a trace Attribute accepts sum to the
 // process tree's total, so no instruction is lost or charged twice.
 func conserves(seed int) bool {
-	let c = Draw(seed)
+	conservesCase(Draw(seed))
+}
+
+func conservesCase(c Case) bool {
 	let cells = Attribute(c.Trace) catch {
 	case Refused:
 		return true
@@ -217,7 +223,10 @@ func conserves(seed int) bool {
 // package has no parse or check cell, a rebuilt route A package and a
 // rebuilt ordinary Go package have both, and a warm hit has no cell.
 func chargesStages(seed int) bool {
-	let c = Draw(seed)
+	chargesCase(Draw(seed))
+}
+
+func chargesCase(c Case) bool {
 	let cells = Attribute(c.Trace) catch {
 	case Refused:
 		return true
