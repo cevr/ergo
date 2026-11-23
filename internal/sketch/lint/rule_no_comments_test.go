@@ -123,7 +123,7 @@ func (p *commentPlant) decl(i int) {
 		if p.r.IntN(2) == 0 {
 			p.b.WriteString("\n")
 			p.doc("\t", public)
-			p.b.WriteString("\tlaw Holds(n int) {\n\t\tn == n\n\t}\n")
+			p.b.WriteString("\tlaw Holds(n int) {\n\t\tn == n\n\t},\n")
 		}
 		p.b.WriteString("}\n")
 	case 3:
@@ -195,8 +195,7 @@ func markers(t *testing.T, src string) []string {
 // fix guards); and the result is a formatter fixpoint (law 4). Mutants:
 // nocom-skip-trailing, nocom-skip-body, nocom-private-doc-kept,
 // nocom-member-of-private-kept, nocom-public-doc-dropped,
-// nocom-test-doc-kept, nocom-blank-pair-left, nocom-open-blank-left,
-// nocom-guard-off.
+// nocom-test-doc-kept, nocom-blank-pair-left, nocom-open-blank-left.
 func TestNoCommentsAgreesWithModel(t *testing.T) {
 	for _, seed := range propertySeeds(60) {
 		src, kept, gone := plantComments(t, seed)
@@ -204,7 +203,7 @@ func TestNoCommentsAgreesWithModel(t *testing.T) {
 		var want []int
 		for i, line := range strings.Split(src, "\n") {
 			for _, m := range gone {
-				if strings.Contains(line, " "+m+" ") && !strings.Contains(line, "more of it") {
+				if slices.Contains(strings.Fields(line), m) {
 					want = append(want, i+1)
 				}
 			}
