@@ -105,5 +105,6 @@ func main() {
 	fmt.Println("spin stopped")
 
 	fmt.Println("init", tiny.InitRuns(), dep.Inits())
+	fmt.Println("round trip complete")
 	os.Exit(0)
 }

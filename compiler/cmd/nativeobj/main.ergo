@@ -11,7 +11,8 @@
 // (testdata/main); the stock linker links it; the program runs on the
 // stock runtime. The same program is linked a second time against the
 // stock reference of the package (testdata/tinyref, compiled under the
-// same import path), and the two outputs must be equal. Before any link,
+// same import path). Both must report completion and their outputs must
+// be equal. Before any link,
 // the independent decoders read the archive back and every metadata check
 // (nativeobj.Verify) must pass.
 //
@@ -94,22 +95,50 @@ func program(dir string, std string, depA string, tinyA string, name string) str
 	bin
 }
 
-// execute runs a linked program under the deadline and the memory bound.
+let completion = "\nround trip complete\n"
+
+func childCommand(bin string) exec.Command {
+	exec.New("prlimit", []string{"--as=8589934592", "--", "timeout", "--foreground", "-s", "QUIT", "-k", "5", "300", bin}).WithEnv("GODEBUG", "gccheckmark=1")
+}
+
+// execute waits for the bounded fixture to exit, and requires its final
+// report even when it exited successfully.
 func execute(bin string) string fails os.Exit needs exec.Runner {
-	let c = exec.WithEnv(exec.New("prlimit", []string{"--as=8589934592", "--", "timeout", "300", bin}), "GODEBUG", "gccheckmark=1")
-	let r = exec.Runner.Run(c) catch {
+	let r = exec.Runner.Run(childCommand(bin)) catch {
 	case exec.NotFound, exec.Denied:
 		return fail("cannot run \(bin)")
 	case exec.Failed as e:
 		return fail("cannot run \(bin): \(e.Reason)")
 	}
 	if r.Status == 124 {
-		return fail("\(bin) hung past 300 s (Spin is stopped only by an async preemption)\n\(r.Stdout)")
+		return fail("\(bin) hung past 300 s:\n\(r.Stdout)\(r.Stderr)")
 	}
 	if r.Status != 0 {
 		return fail("\(bin) exited \(r.Status):\n\(r.Stdout)\(r.Stderr)")
 	}
+	if !strings.HasSuffix(r.Stdout, completion) {
+		return fail("\(bin) exited without its final report:\n\(r.Stdout)\(r.Stderr)")
+	}
 	r.Stdout
+}
+
+// The script delivers the exit event directly, without starting a process
+// or running a deadline. Status 0 alone does not complete the fixture.
+test ChildExitWithoutReportFails {
+	let partial = "diff 4 -16\n"
+	let complete = "init 1 1\nround trip complete\n"
+	let script = exec.Script{Results: Map[string, exec.Result]{
+		exec.Key(childCommand("incomplete")): exec.Result{Status: 0, Stdout: partial, Stderr: ""},
+		exec.Key(childCommand("complete")): exec.Result{Status: 0, Stdout: complete, Stderr: ""},
+	}}
+	with context { exec.Runner: script } {
+		let got = execute("incomplete") catch {
+		case os.Exit as e:
+			"exit \(e.Code)"
+		}
+		assert got == "exit 1"
+		assert try execute("complete") == complete
+	}
 }
 
 func verify(seed int, keep bool) fails os.Exit needs exec.Runner | fs.Files | fs.Writes | io.Stdout {
