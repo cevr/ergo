@@ -206,7 +206,7 @@ type collKey struct {
 	on   collOn
 }
 
-// Info records the checker's results for the lowering (#197, #50).
+// Info records the checker's results for the lowering.
 type Info struct {
 	// Carries is the sorted Go import paths that the package of main
 	// carries into the binary for their initialization: an import go of a
@@ -237,7 +237,7 @@ type Info struct {
 	// reference, an operation selector or a call. An entry proves a method
 	// with no operands or results and an empty failure row (R2). A field
 	// called Close and an unrelated function or method have no entry.
-	// Added by #199 stage 3a; general resource ownership remains #197's.
+	// Added by runtime semantics stage 3a; general resource ownership remains resource ownership's.
 	Closes map[syntax.Node]*Close
 	// Implicit is every implicit conversion at an assignment site, keyed
 	// by the assigned expression. The checker's one assignability relation
@@ -296,7 +296,7 @@ type Info struct {
 	// and otherwise in declaration order. The lowering runs them in this
 	// order inside the program's root task (stage C round 2 review m1).
 	InitOrder []*Initializer
-	// Footprints is every frame's footprint (rows.md, Footprints; #199
+	// Footprints is every frame's footprint (rows.md, Footprints; runtime semantics
 	// stage 1): each function with a body (*syntax.FuncDecl), function
 	// literal (*syntax.FuncLit), trailing block of a call other than with
 	// (*syntax.BlockStmt; a with block runs in its enclosing frame), named
@@ -305,7 +305,7 @@ type Info struct {
 	// (*syntax.LawDecl, OwnerLaw's, so no build reads it; stage E3b). The
 	// lowering places interruption points only in a frame whose footprint
 	// is not Empty (runtime.md, I1) and never derives a footprint again.
-	// Added for #199 stage 1 (additive).
+	// Added for runtime semantics stage 1 (additive).
 	Footprints map[syntax.Node]Footprint
 	// Reads is, for each function of the package with a body, keyed by
 	// its *syntax.FuncDecl, what the body reads of each parameter, one
@@ -332,7 +332,7 @@ type Info struct {
 	// mapped to the leftmost such try. Every fallible value evaluated in
 	// Y propagates, as under the try itself (cover.go).
 	TryCovers map[syntax.Expr]*syntax.TryExpr
-	// Releases is the release plan of the ownership pass (#197 L8 A2;
+	// Releases is the release plan of the ownership pass (resource ownership L8 A2;
 	// resources R5, R10, R21, R41, R43; ownership.go): what is still owned,
 	// in release order (last acquired first), where control leaves a place.
 	// Keys: a scope (*syntax.BlockStmt, *syntax.CaseClause,
@@ -352,7 +352,7 @@ type Info struct {
 	// the frame holds at run time (presence bits, the scope list).
 	TryReleases map[*syntax.TryExpr][]Release
 	// OwnedVars and OwnedTemps are the values the ownership pass gives an
-	// owner (#197 L8 B1): each owned local and taken parameter, and each
+	// owner (L8 B1): each owned local and taken parameter, and each
 	// temporary a statement owns (R43), with the release the lowering
 	// registers for it: the call of its type's checked Close, or the
 	// generated release of its parts (Drop, L8 B2). The lowering registers
@@ -442,7 +442,7 @@ type Info struct {
 	// arm, then registers its disjoint bindings in written order (R39).
 	PatternOwners map[*syntax.CaseClause]PatternOwners
 	// Takes is the inferred takes clause of each unexported function with
-	// a body and no written clause (#197 L8 A3; takes.go): the indexes into
+	// a body and no written clause (L8 A3; takes.go): the indexes into
 	// its signature's Params that it takes, ascending. A written clause is
 	// in Signature.Takes; a function that takes nothing has no key. Added
 	// in L8 A3 (additive).
@@ -757,7 +757,7 @@ const (
 	// the law around it, by its bare name (196l, spec D-E4): no receiver, no
 	// charge (Needs is empty), and Fails is the operation's failure row,
 	// which joins the law's. It stands only in a law body, which neither
-	// build lowers: laws are checked, not run (#162). Added in check-v1
+	// build lowers: laws are checked, not run. Added in check-v1
 	// stage E3b (additive).
 	CallLawOp
 	// CallGoError is go.Is or go.As (Name "go.Is" or "go.As"); Type is
@@ -815,7 +815,7 @@ type Call struct {
 	// tails pass through (rows.md, With 6).
 	Fails, Needs *Row
 	// StartsTask reports a call whose result holds a running task the
-	// caller then owns, a Task or a tasks.Set (running.go; #197 L8 B3t):
+	// caller then owns, a Task or a tasks.Set (running.go; L8 B3t):
 	// task.Go, tasks.NewSet, or a function, function value or operation
 	// that returns one. The caller needs a frame scope (frames.go), and
 	// its footprint starts a task.
@@ -1377,7 +1377,7 @@ func (c *checker) recordWith(x *syntax.CallExpr, frames []*withFrame) {
 	c.pkg.Info.Withs[x] = withs[0]
 	c.callInfo(x).Kind = CallWith
 	// Operand i's environment is the scope around its frame, a persistent
-	// version shared, never copied (chargeRelease; #229).
+	// version shared, never copied (chargeRelease).
 	for i := len(frames) - 1; i >= 0; i-- {
 		c.withSites = append(c.withSites, withSite{x: x, operand: i, w: withs[i], file: c.cur, t: c.fn.t, outer: frames[i].outer})
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 // classHSources are the fixtures, the witnesses, the translated prototype
-// fixtures and corpus (#196; the frozen old .sketch copies no longer
+// fixtures and corpus (the v1 language; the frozen old .sketch copies no longer
 // parse) and sources of the generators: the domain of the class H
 // properties.
 func classHSources(t *testing.T) map[string]string {

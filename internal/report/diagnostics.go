@@ -13,7 +13,7 @@ import (
 )
 
 // DiagnosticReportSchemaVersion versions the diagnostic report. Version 2
-// dropped the lint fields and the suppression list (#205). Version 3 makes two
+// dropped the lint fields and the suppression list. Version 3 makes two
 // changes in one step: the lint fields return on the new checker (LINT0: a
 // finding's rule, lintComplete and suppressions), and a diagnostic carries its
 // fix (EX1: Fix). A rule pack finding's related places and suggestions

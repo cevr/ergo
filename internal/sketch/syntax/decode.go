@@ -31,13 +31,13 @@ import (
 const MaxNesting = 1000
 
 // CodeMixedMembers is the code of a type declaration that mixes fields with
-// operations or laws (#196, D1.12): the tree cannot hold the mix, so the
+// operations or laws (D1.12): the tree cannot hold the mix, so the
 // parser reports it with the checker's code for the rule.
 const CodeMixedMembers = "S108"
 
 // Parse parses one source file with compiler/syntax's parser (ParseRows).
 // It returns the first syntax error, an *Error with code S001 (or S108 for
-// a type that mixes fields and operations), and no file; recovery is #38's.
+// a type that mixes fields and operations), and no file; recovery is the language server's.
 func Parse(src string) (*File, error) { return ParseRows(src) }
 
 // ParseRows parses src with compiler/syntax's parser and decodes its rows.

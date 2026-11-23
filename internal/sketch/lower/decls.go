@@ -269,7 +269,7 @@ func (l *lowerer) decl(d syntax.Decl) {
 		l.testDecl(d) // the test build only (tests.go, rule 1)
 	case *syntax.LawDecl:
 		// A top-level law is in neither build (types.md, Laws 11): its facts
-		// are OwnerLaw's, and #162 runs laws.
+		// are OwnerLaw's, and laws and proofs runs laws.
 	default:
 		unreachable(d, ruleAccepted, "a declaration of the kind %T", d)
 	}
@@ -1006,6 +1006,9 @@ func (l *lowerer) emitFuncBody(fd *funcDecl) { l.emitBody(fd, false, nil, false)
 func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	slot := fd.emitSlot
 	l.bodies++
+	if loweringWork != nil {
+		loweringWork("body")
+	}
 	f := fd.fn
 	l.readsOf(f)
 	b := &l.user
@@ -1676,7 +1679,7 @@ func (l *lowerer) letDecl(at syntax.Node, text string) {
 	l.user.WriteString(text)
 }
 
-// recordLet records a program let in the declaration table (#230); a std
+// recordLet records a program let in the declaration table; a std
 // let, like a std body, has no entry.
 func (l *lowerer) recordLet(owner string, spec *syntax.VarSpec) {
 	if !l.stdLets {
@@ -1698,7 +1701,7 @@ func (l *lowerer) packagePattern(spec *syntax.VarSpec) {
 	if c, ok := l.info.Implicit[x]; ok && spec.Pattern != nil {
 		t = c.To
 	}
-	// The owner of the initializer's calls is the let's first name (#230).
+	// The owner of the initializer's calls is the let's first name.
 	fc.owner = "_"
 	if len(spec.Names) > 0 {
 		fc.owner = spec.Names[0].Name

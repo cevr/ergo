@@ -56,6 +56,42 @@ func forGood(t Tool, r Removed) Removed fails Missing | CloneFailed | Unkept | L
 	Removed{..r, Trash: ""}
 }
 
+// NotHeldOf is rm's refusal of w, whose work Kept found not kept: what
+// in it is not held, read again (the refusal path only, so a kept
+// workspace pays nothing for it).
+func NotHeldOf(w Workspace) NotHeld fails VcsFailed needs Vcs {
+	let unheld = try Unheld(w.Path, w.Parent, false)
+	let dirty = !(try Vcs.Clean(w.Path))
+	let head = try Vcs.Head(w.Path)
+	let headHeld = head == "" || slices.IndexFunc(unheld, func(l Local) bool { l.Commit == head }) >= 0 || try Held(w.Path, w.Parent, head, false)
+	let checkout = try Vcs.Branch(w.Path)
+	let lone = if headHeld { "" } else { head }
+	NotHeld{Name: w.Name, Path: w.Path, Branch: w.Branch, Checkout: checkout, Head: lone, Dirty: dirty, Unheld: unheld, Why: NotHeldWhy(w.Branch, checkout, lone, dirty, unheld)}
+}
+
+// NotHeldWhy is NotHeld's sentence: each ref and commit only the
+// workspace has, the detached head that is unheld, the uncommitted
+// change, and the other branch checked out.
+func NotHeldWhy(branch string, checkout string, head string, dirty bool, unheld []Local) string {
+	let mut parts = []string{}
+	for l in unheld {
+		parts = parts.Append("\(l.Ref) at \(l.Commit) is in no branch of the parent and on no remote")
+	}
+	if head != "" {
+		parts = parts.Append("HEAD at \(head) is in no branch of the parent and on no remote")
+	}
+	if dirty {
+		parts = parts.Append("it has uncommitted or untracked changes")
+	}
+	if branch != "" && checkout != branch {
+		parts = parts.Append(if checkout == "" { "its HEAD is detached, not on its branch \(branch)" } else { "it has \(checkout) checked out, not its branch \(branch)" })
+	}
+	if len(parts) == 0 {
+		parts = parts.Append("its snapshot is not the one the parent last took")
+	}
+	strings.Join(parts, "; ") + ": push or merge that work, or rm -abandon to drop it"
+}
+
 // Check is rm's first step, with no lock: a workspace whose work is not
 // held in its parent is NotHeld (unless it is abandoned), and the
 // preremove hooks run. It is the hooks' environment.
@@ -85,10 +121,17 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 		if held && !abandon {
 			let kept = with context { Vcs: t.vcs } { try Kept(w.Path, w.Parent, w.Latest, SnapshotRef(w.Name), false) }
 			if !kept {
-				return NotHeld{Name: name, Path: w.Path}
+				let refusal = with context { Vcs: t.vcs } { try NotHeldOf(w) }
+				return refusal
 			}
 		}
 		let env = hookEnv(w.Parent, w.Path, w.Id, "")
+		// A folder deleted outside work has no hook to run in: its record
+		// is all there is to remove (doctor's GoneNote), and postremove
+		// still runs in the parent.
+		if !t.copier.Has(w.Path) {
+			return env
+		}
 		match runHook(t, c, "preremove", w.Path, env) {
 		case HookFailed as f:
 			return f

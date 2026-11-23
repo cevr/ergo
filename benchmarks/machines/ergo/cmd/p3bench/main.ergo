@@ -1,7 +1,7 @@
 // p3bench runs one of plusthree's benchmark scenarios for N events and
 // prints the scenario's probe. An Ergo program cannot read the Go runtime's
 // allocation count yet (runtime.ReadMemStats takes a borrow it may keep,
-// and a local Go package is not bindable, #202), so the heap bytes per
+// and a local Go package is not bindable, Go interop), so the heap bytes per
 // event are measured from outside: the peak resident size with GOGC=off
 // at two N.
 //

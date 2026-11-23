@@ -11,7 +11,7 @@ import (
 // TestDefectReportNamesErgoCallSites: a defect that escapes main is
 // reported with its Ergo call chain from the call table, innermost first:
 // the frame that panicked, then each call, by Ergo function, callee and
-// .ergo position; no Go frame (#230; runtime.md, Exit causes). The pure
+// .ergo position; no Go frame (runtime.md, Exit causes). The pure
 // call into pick is named as well as the capability call into middle.
 //
 // It builds Go because it checks what the built program prints and how it

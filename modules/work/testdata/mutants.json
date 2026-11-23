@@ -1666,6 +1666,86 @@
       "anchor": {"tests": ["examples:modules/work"]}
     },
     {
+      "name": "nh-unheld-unnamed", "origin": "wf10 WORK-NOTHELD-SAYS-WHICH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet unheld = try Unheld(w.Path, w.Parent, false)\n",
+      "to": "\tlet unheld = []Local{}\n",
+      "rule": "rm's NotHeld names each ref and commit only the workspace has (memory's RmKeepsEveryBranch).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "nh-checkout-unnamed", "origin": "wf10 WORK-NOTHELD-SAYS-WHICH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tif branch != \"\" && checkout != branch {\n",
+      "to": "\tif false {\n",
+      "rule": "rm's NotHeld says when another branch than the record's is checked out (memory's RmKeepsEveryBranch, kind 3).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "nh-dirty-unnamed", "origin": "wf10 WORK-NOTHELD-SAYS-WHICH",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\tlet dirty = !(try Vcs.Clean(w.Path))\n",
+      "to": "\tlet dirty = false\n",
+      "rule": "rm's NotHeld says the workspace has uncommitted or untracked changes (examples/work cases rm-dirty, rm-untracked-cached).",
+      "anchor": {"tests": ["examples:work"]}
+    },
+    {
+      "name": "st-stray-unnamed", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\tif !o.Here {\n\t\tnotes = slices.Concat(notes, try strayNotes(t))\n",
+      "to": "\tif false {\n\t\tnotes = slices.Concat(notes, try strayNotes(t))\n",
+      "rule": "doctor names a staging folder no record holds and deletes none (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "st-stray-names-held", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif slices.IndexFunc(all, func(w Workspace) bool { w.Id != \"\" && w.Id == id }) >= 0 {\n",
+      "to": "\t\tif id == \"\" && len(all) < 0 {\n",
+      "rule": "a live maker's staging folder is its record's, not a stray (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "st-tomb-is-stray", "origin": "wf10 NIH-213",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tlet id = strings.TrimSuffix(name, \".gone\")\n",
+      "to": "\t\tlet id = name\n",
+      "rule": "the tomb of a rolled-back reservation whose record is kept is that record's, not a stray (memory's DoctorNamesAStrayStaging).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "rd-gone-folder-asks-git", "origin": "wf10/semws WORK-REPAIR-DANGLING",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif livesAt(w) && !t.copier.Has(w.Path) {\n",
+      "to": "\t\tif false {\n",
+      "rule": "A record whose folder was deleted outside work does not stop doctor: it is named with the commands that drop it, and -repair still runs (memory's DoctorPassesAGoneFolder).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "rd-gone-preremove-runs", "origin": "wf10/semws WORK-REPAIR-DANGLING",
+      "file": "modules/work/work/remove.ergo",
+      "from": "\t\tif !t.copier.Has(w.Path) {\n\t\t\treturn env\n",
+      "to": "\t\tif false {\n\t\t\treturn env\n",
+      "rule": "rm of a record whose folder is gone runs no preremove hook in the missing folder, so the record can be dropped (memory's RmDropsAGoneFolder).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "rd-here-repairs-all", "origin": "wf10/semws WORK-REPAIR-DANGLING",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif here && len(holding([]string{w.Path}, t.here)) == 0 {\n",
+      "to": "\t\tif false {\n",
+      "rule": "doctor -here -repair activates only the reservation whose folder holds the folder it runs in (memory's DoctorHereRepairsOnlyItsOwn).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
+      "name": "dt-old-rerere-unnamed", "origin": "wf10/semws DRIVER-TABLE-ONE-SOURCE",
+      "file": "modules/work/work/doctor.ergo",
+      "from": "\t\tif here && try t.vcs.OwnSetting(root, \"rerere.enabled\") == \"true\" {\n",
+      "to": "\t\tif false {\n",
+      "rule": "doctor -here names a checkout's own rerere.enabled=true with the command that unsets it, and changes nothing (memory's DoctorHereNamesAnOldRerere).",
+      "anchor": {"tests": ["examples:modules/work"]}
+    },
+    {
       "name": "hmd-here-checks-all", "origin": "wf10/semws HUB-MERGE-DRIVERS",
       "file": "modules/work/work/doctor.ergo",
       "from": "\tlet roots = if here { holding(all, t.here) } else { all }\n",
@@ -2087,6 +2167,78 @@
       "from": "\t\tif StateName(w.State) == \"creating\" && buried(t, w) {\n",
       "to": "\t\tif StateName(w.State) == \"creating\" && false {\n",
       "rule": "A command that settled deletes the tombs and drops their records.",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ls-ancestry-only", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/work/status.ergo",
+      "from": "\tif p.At.Ref == \"\" || apart.Ahead == 0 ||",
+      "to": "\tif true || p.At.Ref == \"\" || apart.Ahead == 0 ||",
+      "rule": "list -status counts ahead by patch within the bound: a commit whose patch landed on the default branch by cherry-pick is not ahead, and By says patch (memory's StatusIsTheReference).",
+      "anchor": {"tests": ["modules/work/memory:law:StatusIsTheReference"]}, "killers": ["modules/work/memory:law:StatusIsTheReference"]
+    },
+    {
+      "name": "ls-no-bound", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/work/status.ergo",
+      "from": "apart.Ahead+apart.Behind > bound {",
+      "to": "apart.Ahead+apart.Behind > bound+1000 {",
+      "rule": "Past PatchBound commits apart, ahead is by ancestry and no patch comparison runs (memory's StatusIsTheReference, the bound lowered to 0..3).",
+      "anchor": {"tests": ["modules/work/memory:law:StatusIsTheReference"]}, "killers": ["modules/work/memory:law:StatusIsTheReference"]
+    },
+    {
+      "name": "ls-stale-default", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/work/status.ergo",
+      "from": "parents[w.Parent] = parentage(t, w.Parent)",
+      "to": "parents[w.Parent] = parentage(t, w.Path)",
+      "rule": "list -status compares against the parent's default branch as the parent holds it now, never the workspace's own copy of its refs (memory's StatusIsTheReference: main moved after the clone).",
+      "anchor": {"tests": ["modules/work/memory:law:StatusIsTheReference"]}, "killers": ["modules/work/memory:law:StatusIsTheReference"]
+    },
+    {
+      "name": "ls-no-default-no-base", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/work/status.ergo",
+      "from": "let base = if p.At.Ref != \"\" { p.At.Commit } else { w.Base }",
+      "to": "let base = if p.At.Ref != \"\" { p.At.Commit } else { \"\" }",
+      "rule": "A parent with no default branch: the record's base commit, by ancestry (memory's StatusIsTheReference, noDefault).",
+      "anchor": {"tests": ["modules/work/memory:law:StatusIsTheReference"]}, "killers": ["modules/work/memory:law:StatusIsTheReference"]
+    },
+    {
+      "name": "ls-plain-runs-git", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/work/status.ergo",
+      "from": "\tif o.Status {\n",
+      "to": "\tif true {\n",
+      "rule": "A plain list reads the registry alone: no Vcs call and no status (memory's PlainListIsUnchanged).",
+      "anchor": {"tests": ["modules/work/memory:law:PlainListIsUnchanged"]}, "killers": ["modules/work/memory:law:PlainListIsUnchanged"]
+    },
+    {
+      "name": "ls-dirty-dropped", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/work/status.ergo",
+      "from": "LastCommit: tip.Time, Dirty: !clean}",
+      "to": "LastCommit: tip.Time, Dirty: !clean && false}",
+      "rule": "list -status says whether the workspace has a change, by Clean's rule (memory's StatusIsTheReference: an untracked file is dirty, an ignored one not).",
+      "anchor": {"tests": ["modules/work/memory:law:StatusIsTheReference"]}, "killers": ["modules/work/memory:law:StatusIsTheReference"]
+    },
+    {
+      "name": "ls-status-locks", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/git/git.ergo",
+      "from": "\ttry answer(v, root, []string{\"status\", \"--porcelain\", \"--untracked-files=normal\"}) == \"\"\n",
+      "to": "\ttry writes(v, root, []string{\"status\", \"--porcelain\", \"--untracked-files=normal\"}) == \"\"\n",
+      "rule": "Clean, which list -status runs in every workspace, reads with --no-optional-locks: a stale stat is never refreshed into the index (git's ListStatusReadsInARepository on the host).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ls-no-alternate", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/git/git.ergo",
+      "from": "let env = if objects == \"\" {",
+      "to": "let env = if true {",
+      "rule": "The counts run with the parent's objects as an alternate, so the parent's commits the workspace never fetched are known (git's ListStatusReadsInARepository).",
+      "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
+    },
+    {
+      "name": "ls-no-cherry-pick", "origin": "wf10/semws WORK-LIST-STATUS",
+      "file": "modules/work/git/git.ergo",
+      "from": "\"--no-merges\", \"--cherry-pick\", \"--right-only\"",
+      "to": "\"--no-merges\", \"--right-only\"",
+      "rule": "Unpicked leaves out a commit whose patch the default branch has (git's ListStatusReadsInARepository: a cherry-picked commit).",
       "anchor": {"tests": ["examples:modules/work"]}, "killers": ["examples:modules/work"]
     }
   ]

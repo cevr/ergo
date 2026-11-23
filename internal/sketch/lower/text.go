@@ -30,7 +30,7 @@ import (
 // per instance of the type that the program's types name (instancesOf),
 // which covers every value that reaches an error report, since a report
 // reads a row of a non-generic body, whose types are concrete. A Map or a
-// tuple field is refused where the error type is declared (#49). A borrow
+// tuple field is refused where the error type is declared. A borrow
 // is never a field. Every local of a generated function comes from a namer
 // whose parent is the package scope.
 //
@@ -113,7 +113,7 @@ func (l *lowerer) textTypes(t check.Type, site syntax.Node, seen map[pkgKey]bool
 		l.textTypes(u.Elem, site, seen, visit)
 		return
 	}
-	refuse(site, "the text of an error type with a field of type %s waits for derived text forms (#49)", t)
+	refuse(site, "the text of an error type with a field of type %s waits for derived text forms", t)
 }
 
 // errorMethod writes the Error method of the error type td, and queues the

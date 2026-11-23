@@ -2,7 +2,7 @@
 
 A to-do list written once against std `ui` and shown by any ui host:
 `ui.TestHost` here, a MyGo window in `hosts/mygo/cmd/todo-gui`. Half of
-#216's showcase (X-gui).
+The desktop showcase's showcase (X-gui).
 
 - `todo/` is the model: a machine (`Todo`) over a `List` of items, which
   keeps the count of open items itself, and the filter. A blank add, and a
@@ -35,7 +35,7 @@ hosts/mygo holds them equal, byte for byte. The MyGo-direct control,
 `hosts/mygo/controls/todo-gui`, is the same list written on MyGo's own
 widgets; it prints the same lines too.
 
-#216's webview mode (a web page in the window, talking to the model) is
+The desktop showcase's webview mode (a web page in the window, talking to the model) is
 not here yet: it needs typed IPC between the page's TypeScript and the
 program's operation types, which H3w builds (q67) as a second binary of
 this example. Until then the window is drawn by Ergo through MyGo's

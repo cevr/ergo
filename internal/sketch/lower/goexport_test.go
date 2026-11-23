@@ -154,7 +154,7 @@ func main() {
 `
 
 // TestGoCallsErgo is IG11's acceptance (docs/spec/interop.md, Go calls
-// Ergo; #202's inbound control): a Go program calls an Ergo library that
+// Ergo; Go interop's inbound control): a Go program calls an Ergo library that
 // LowerLibrary emitted. Each exported function whose signature Go can
 // spell is a Go function of the same name taking a context first: a pure
 // one, one over a slice, one that fails with a go.Error, one that passes

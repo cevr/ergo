@@ -61,7 +61,8 @@ func typecheckGo(t *testing.T, programs []*lowered) {
 		}
 	}
 	for _, p := range programs {
-		probeBuilt("", p.mainGo())
+		text := p.mainGo()
+		probeLogN("typecheck", probeSum([]byte(text)), 1+strings.Count(text, "\nfunc "))
 	}
 }
 
