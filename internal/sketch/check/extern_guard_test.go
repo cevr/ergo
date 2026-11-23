@@ -99,11 +99,14 @@ var externPlaceRows = map[string]externPlaceRow{
 	"VarSpec.Values":           {guardValue, "func main() {\n\tlet v = @Upper\n\t_ = v\n}\n"},
 
 	// Types.
-	"ArrayType.Elt":        {guardType, "func f(xs []@Upper) {}\n"},
-	"CompositeLit.Type":    {guardType, "func main() {\n\t_ = @Upper{}\n}\n"},
-	"ContextEntry.Key":     {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context { @Upper: P }\n"},
-	"ContextEntry.Keys":    {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context { C, @Upper: P }\n"},
-	"ErrorRow.Types":       {guardType, "func f() fails @Upper {}\n"},
+	"ArrayType.Elt":     {guardType, "func f(xs []@Upper) {}\n"},
+	"CompositeLit.Type": {guardType, "func main() {\n\t_ = @Upper{}\n}\n"},
+	"ContextEntry.Key":  {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context { @Upper: P }\n"},
+	"ContextEntry.Keys": {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context { C, @Upper: P }\n"},
+	"ErrorRow.Types":    {guardType, "func f() fails @Upper {}\n"},
+	// A context header's fails row is an error row (CTX-ROWS-1b).
+	"ContextDecl.Fails":    {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context fails @Upper { C: P }\n"},
+	"ContextLit.Fails":     {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nfunc main() {\n\twith context fails @Upper { C: P } { C.M() }\n}\n"},
 	"Field.Type":           {guardType, "func f(x @Upper) {}\n"},
 	"FuncDecl.Type":        {guardType, "func f(x @Upper) {}\n"},
 	"FuncLit.Type":         {guardType, "func main() {\n\t_ = func(x @Upper) {}\n}\n"},
