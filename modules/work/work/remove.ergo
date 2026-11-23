@@ -89,6 +89,12 @@ func Check(t Tool, c Config, name string, expect Option[string], abandon bool) [
 			}
 		}
 		let env = hookEnv(w.Parent, w.Path, w.Id, "")
+		// A folder deleted outside work has no hook to run in: its record
+		// is all there is to remove (doctor's GoneNote), and postremove
+		// still runs in the parent.
+		if !t.copier.Has(w.Path) {
+			return env
+		}
 		match runHook(t, c, "preremove", w.Path, env) {
 		case HookFailed as f:
 			return f

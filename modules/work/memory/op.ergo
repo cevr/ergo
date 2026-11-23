@@ -1780,6 +1780,177 @@ law RegisterDriversLeavesRerere(set int) {
 	drivers && after == before
 }
 
+// DoctorPassesAGoneFolder: an adopted workspace whose folder was deleted
+// outside work (the Bite base, 2026-11-22) does not stop doctor: doctor,
+// with or without -repair, answers, names the record with the two
+// commands that drop it, leaves that record as it was, and -repair still
+// activates a reservation over a whole clone whose maker is gone.
+law DoctorPassesAGoneFolder(repair bool) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let path = home + "/" + work.FolderOf("cre")
+	w.registry.Put(work.Workspace{Name: "cre", Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: 1000, Base: "", Latest: "", Deps: "", Id: crashId("cre"), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+	case _:
+		return false
+	}
+	if !cloneWithWork(w, path) {
+		return false
+	}
+	let gone = "/w/gone"
+	w.trees.Clone(theBase, gone) catch {
+	case _:
+		return false
+	}
+	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	w.trees.Discard(gone) catch {
+	case _:
+		return false
+	}
+	let before = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let report = w.tool.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: false, Repair: repair}) catch {
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let named = slices.Contains(report.Notes, work.GoneNote(adopted))
+	let mine = func(all []work.Workspace) []work.Workspace { slices.Filter(all, func(x work.Workspace) bool { x.Name == adopted.Name }) }
+	let activated = slices.Contains(report.Notes, "activated cre: its clone is whole and its maker is gone")
+	let cre = slices.Filter(after, func(x work.Workspace) bool { x.Name == "cre" })
+	named && mine(after) == mine(before) && activated == repair && len(cre) == 1 && (cre[0].State == work.Active) == repair
+}
+
+// DoctorHereRepairsOnlyItsOwn: of two reservations over whole clones
+// whose makers are gone, doctor -here -repair run inside one activates
+// that one alone; run in the base it activates neither.
+law DoctorHereRepairsOnlyItsOwn(at int) {
+	let w = world(true)
+	let home = work.Home(theBase, "")
+	let names = []string{"cre0", "cre1"}
+	for n in names {
+		let path = home + "/" + work.FolderOf(n)
+		w.registry.Put(work.Workspace{Name: n, Path: path, Parent: theBase, Branch: "", Cloner: "", State: work.Creating, Since: 1000, Base: "", Latest: "", Deps: "", Id: crashId(n), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
+		case _:
+			return false
+		}
+		if !cloneWithWork(w, path) {
+			return false
+		}
+	}
+	let k = small(at, 3)
+	let here = if k < 2 { home + "/" + work.FolderOf(names[k]) + "/sub" } else { theBase }
+	let t = work.NewTool(theBase, home, "/data", w.p, here)
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: false, Here: true, Repair: true}) catch {
+	case _:
+		return false
+	}
+	let all = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let mut ok = true
+	for i, n in names {
+		let active = slices.IndexFunc(all, func(x work.Workspace) bool { x.Name == n && x.State == work.Active }) >= 0
+		let noted = slices.Contains(report.Notes, "activated \(n): its clone is whole and its maker is gone")
+		ok = ok && active == (i == k) && noted == (i == k)
+	}
+	ok
+}
+
+// RmDropsAGoneFolder: rm -abandon -expect of a workspace whose folder
+// was deleted outside work trashes its record without running preremove
+// there (there is no folder to run it in), runs postremove in the parent,
+// and leaves the other records as they were; with the folder there, the
+// same failing preremove still stops rm before anything is written.
+law RmDropsAGoneFolder(present bool) {
+	let w = worldWith(true, Map[string, string]{}, "[hooks]\npreremove = [\"test -d .\"]\npostremove = [\"true\"]\n", "test -d .")
+	let keep = w.tool.New("keep", fresh(false)) catch {
+	case _:
+		return false
+	}
+	let gone = "/w/gone"
+	w.trees.Clone(theBase, gone) catch {
+	case _:
+		return false
+	}
+	let adopted = w.tool.Adopt(gone, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	if !present {
+		w.trees.Discard(gone) catch {
+		case _:
+			return false
+		}
+	}
+	let before = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let removed = w.tool.Rm(adopted.Name, expecting(Some[string]{Value: adopted.Id})) catch {
+	case work.HookFailed:
+		[]work.Removed{}
+	case _:
+		return false
+	}
+	let after = w.tool.List() catch {
+	case _:
+		return false
+	}
+	let runs = Runs(w.hooks)
+	let pre = slices.IndexFunc(runs, func(r HookRun) bool { r.Hook == "preremove" && r.Dir == gone }) >= 0
+	let post = slices.IndexFunc(runs, func(r HookRun) bool { r.Hook == "postremove" }) >= 0
+	let others = func(all []work.Workspace) []work.Workspace { slices.Filter(all, func(x work.Workspace) bool { x.Name != adopted.Name }) }
+	let still = slices.IndexFunc(after, func(x work.Workspace) bool { x.Name == adopted.Name && x.State != work.Trashed }) >= 0
+	if present {
+		return len(removed) == 0 && pre && !post && after == before
+	}
+	len(removed) == 1 && removed[0].Id == adopted.Id && !pre && post && !still && others(after) == others(before) && keep.Name == "keep"
+}
+
+// DoctorHereNamesAnOldRerere: doctor -here, with or without -fix, names
+// a checkout whose own config sets rerere.enabled=true (an older work
+// wrote it) with the command that unsets it, names no other value, and
+// leaves the key as it was: work no longer owns it.
+law DoctorHereNamesAnOldRerere(set int, fix bool) {
+	let w = world(true)
+	let copy = "/w/copy"
+	w.trees.Clone(theBase, copy) catch {
+	case _:
+		return false
+	}
+	let _ = w.tool.Adopt(copy, work.AdoptOptions{Name: None}) catch {
+	case _:
+		return false
+	}
+	let before = []string{"", "false", "true"}[small(set, 3)]
+	if before != "" {
+		Configure(w.vcs, copy, "rerere.enabled", before) catch {
+		case _:
+			return false
+		}
+	}
+	let t = work.NewTool(theBase, work.Home(theBase, ""), "/data", w.p, copy)
+	let report = t.Doctor(work.DoctorOptions{Rift: false, Registry: None, Unguard: false, Fix: fix, Here: true, Repair: false}) catch {
+	case _:
+		return false
+	}
+	let after = Setting(w.vcs, copy, "rerere.enabled") catch {
+	case _:
+		return false
+	}
+	let note = copy + ": its own Git config sets rerere.enabled=true (an older work wrote it with the merge drivers; work no longer sets it), so Git replays recorded resolutions in its merges: to stop, run git -C " + copy + " config --local --unset rerere.enabled"
+	slices.Contains(report.Notes, note) == (before == "true") && after == before
+}
+
 // DoctorHereFixesOnlyItsCheckout: doctor -here, run inside one of two
 // adopted copies that lack the merge drivers, names (or with -fix
 // registers) that copy's drivers alone; the other copy is never named

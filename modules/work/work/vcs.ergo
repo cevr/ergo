@@ -96,6 +96,10 @@ type Vcs {
 	// Setting is the value of key in the checkout's configuration, ""
 	// when no file of it sets key.
 	Setting(root string, key string) string fails VcsFailed,
+	// OwnSetting is the value of key in the checkout's own configuration
+	// file alone (.git/config), "" when it does not set key: a value the
+	// user's or the system's file sets does not count.
+	OwnSetting(root string, key string) string fails VcsFailed,
 	// StatDirty is the number of tracked files whose stat the index does
 	// not match: the next Git command reads each again.
 	StatDirty(root string) int fails VcsFailed,
