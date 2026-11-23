@@ -7,7 +7,7 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// Ownership flow (#197 L8 A2; resources R4, R5, R10, R15-R17, R19-R21,
+// Ownership flow (resource ownership L8 A2; resources R4, R5, R10, R15-R17, R19-R21,
 // R41-R43). A value whose type holds a resource (resource.go) has one
 // owner. One forward pass per frame over the structured control flow
 // decides, for each owned local, taken parameter and temporary, whether
@@ -74,6 +74,12 @@ type ownSlot struct {
 	fields, maybe uint64
 	fieldAt       syntax.Node
 	loans         []resourceLoan
+	// paramFree marks a value whose type holds an own type parameter,
+	// matched, on every path that still holds it, to a variant that holds
+	// no value of one: its drop releases only the variant's concrete
+	// resources, which a generic body can (types.md, Generics 9;
+	// GEN9-GAP42 D).
+	paramFree bool
 }
 
 // ownState is the flow state at one program point. Whether a path reaches
@@ -429,10 +435,11 @@ func (w *ownWalk) join(as, bs ownState, n int) ownState {
 		case x.live() && y.live():
 			all := x.fields & y.fields
 			a[i].fields, a[i].maybe = all, (x.fields|y.fields|x.maybe|y.maybe)&^all
+			a[i].paramFree = x.paramFree && y.paramFree
 		case x.live():
-			a[i].fields, a[i].maybe = x.fields, x.maybe
+			a[i].fields, a[i].maybe, a[i].paramFree = x.fields, x.maybe, x.paramFree
 		case y.live():
-			a[i].fields, a[i].maybe = y.fields, y.maybe
+			a[i].fields, a[i].maybe, a[i].paramFree = y.fields, y.maybe, y.paramFree
 		}
 		a[i].fieldAt = x.fieldAt
 		a[i].loans = mergeLoans(x.loans, y.loans)
@@ -552,10 +559,21 @@ func (w *ownWalk) releases(first int) []Release {
 		if l.lent || l.loanOnly {
 			continue // its owner releases it
 		}
-		if t := w.typ(l); w.genericOnly(t) {
+		t := w.typ(l)
+		if w.st.slots[i].paramFree {
+			// Matched to a variant that holds no value of an own type
+			// parameter (GEN9-GAP42 D): its concrete resources, if the
+			// type has any, are released as any value's; otherwise there
+			// is nothing to release.
+			if w.genericOnly(t) {
+				continue
+			}
+		} else if w.c.holdsOwnParam(t) {
 			// A generic body that drops an own T would release it through
 			// its instance; that release is not built (Gap 42), so the
-			// drop is refused: hand the value off or return it.
+			// drop is refused: hand the value off or return it. A type
+			// that also holds a concrete resource is refused alike: its
+			// release would skip the T part.
 			var at syntax.Node = l.temp
 			name := "a value"
 			if l.v != nil {
@@ -1508,7 +1526,7 @@ func (w *ownWalk) expr(x syntax.Expr, mode ownMode, h hand) {
 		}
 		if op, generic := w.resourceMethod(x); op != nil {
 			// The same for any other operation of a resource (Task.Wait,
-			// Task.Stop; #197 L8 B3t): the function value would own its
+			// Task.Stop; resource ownership L8 B3t): the function value would own its
 			// receiver, or hold a lend of it past its release. A queue's
 			// Values is one: f() of f = q.Values would be a Seq of owned
 			// values that no for-in over q.Values() releases (R35). In a

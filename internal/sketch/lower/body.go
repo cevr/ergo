@@ -158,8 +158,8 @@ type funcCtx struct {
 	// lowered places (failJump, inline.go): a catch's or a try's operand.
 	failJump syntax.Expr
 	// owner is the Ergo name of the source declaration being lowered (a
-	// function, a package let, a context), the Func of its call identities
-	// (#230); a function literal inherits it.
+	// function, a package let, a context), the Func of its call identities;
+	// a function literal inherits it.
 	owner string
 	// lastPos is the position of the last //line directive written.
 	lastPos syntax.Pos
@@ -202,7 +202,7 @@ type funcCtx struct {
 	// around it; lits are the literals an inlined body's callback
 	// parameters stand for; inlined is the value of the call callText
 	// just inlined.
-	inl      int
+	inl      string
 	inlDepth int
 	// pendingKnown is the fold of the match whose subject is being
 	// lowered, until its inlined call takes it (knownmatch.go).

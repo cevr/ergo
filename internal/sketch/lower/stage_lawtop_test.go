@@ -11,7 +11,7 @@ import (
 )
 
 // law-top (spec A5): a top-level law is checked and not in the run build, as
-// a member law is (types.md, Laws 11); the test build runs both (#162
+// a member law is (types.md, Laws 11); the test build runs both (laws and proofs
 // law-run-1). The law corpus is the checker's: the
 // clean programs of sketchtest.LawTopCases (A2) and the clean top-level
 // programs of sketchtest.GenLaws (A3). TestBuildsOmitLaws and
@@ -59,8 +59,11 @@ func TestTopLevelLawsLeaveNoGo(t *testing.T) {
 			a3++
 		}
 	}
-	if a2 < 12 || a3 < 300 {
-		t.Fatalf("the law corpus holds %d A2 and %d A3 clean programs; want 12 and 300 or more", a2, a3)
+	// The domain is not degenerate, by check's rule for the same laws
+	// (TestTopLevelLawMatchesMember): a tenth of them are clean. A law over
+	// a function is not (LAW-UNFED), so the share is no count to pin.
+	if a2 < 12 || a3 < sketchtest.LawDomainSize/10 {
+		t.Fatalf("the law corpus holds %d A2 and %d A3 clean programs; want 12 and %d or more", a2, a3, sketchtest.LawDomainSize/10)
 	}
 	for _, p := range corpus {
 		t.Run(p.name, func(t *testing.T) {

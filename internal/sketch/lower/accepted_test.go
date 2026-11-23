@@ -37,7 +37,7 @@ var implementedFamilies = []string{
 	// A test and its asserts lower in the test build (LowerTests, swept by
 	// stage_e3a_test.go); the run build this test lowers skips them whole.
 	"TestDecl", "AssertStmt",
-	// A law lowers in the test build, which runs it (#162 law-run-1,
+	// A law lowers in the test build, which runs it (law-run-1,
 	// law_run_test.go); the run build this test lowers skips it whole
 	// (stage E3b-2).
 	"LawDecl", "call:LawOp",
@@ -45,15 +45,22 @@ var implementedFamilies = []string{
 	// machine.go; TestMachinePlanValues), and the value converts to the
 	// prelude's Machine (ConvMachine).
 	"MachineType", "MachineEntry", "conv:Machine",
-	// A function of an error type goes where a row value of that one type
-	// is its parameter, narrowed (CK-FAILPARAM; testdata/narrow_param.ergo).
-	"conv:Narrow",
+	// conv:Narrow is gone: since ROW-PARAM r3 (d8f68b1b7) a slot row keeps
+	// its Go type, so testdata/narrow_param.ergo's Classed[Boom].Of takes a
+	// Boom, and no checked source reached the narrowing conversion
+	// (CK-FAILPARAM). The row gaps (rowgap.go) adapt what remains.
 	// encode(v, w) lowers to the codec functions of v's type over w
 	// (types.md, Laws 14); examples/cborpack's codec is a witness.
 	"call:Encode",
 	// A refinement's pattern lowers to a Go matcher (types.md, Refinements
-	// 11; refinematch.go): signup-form's and domain-search' wheres are its witnesses.
+	// 11; refinematch.go): testdata/refine_pattern.ergo is its witness (the
+	// examples' wheres sit in packages of several files, which this test
+	// does not check one file at a time).
 	"call:Pattern",
+	// A declared union goes into one that holds each of its variants as the
+	// same variant (UNION-FLAT; subunion.go): the union-flat fixtures are
+	// its witnesses.
+	"conv:Widen",
 }
 
 // refusedFamilies are the families whose lowering waits for a later stage,
@@ -65,12 +72,12 @@ var refusedFamilies = map[string]string{
 	// context: the unit sources the imported package, and its contexts are
 	// built as the root's are (TestRunImportedContext).
 	// The text of an error type with a field whose type has no text form
-	// (a Map, a tuple, a pointer): derived text forms are #49's.
-	"TypeDecl:errorText": "#49",
+	// (a Map, a tuple, a pointer) waits for derived text forms.
+	"TypeDecl:errorText": "derived text forms",
 	// An indexed slice literal `[]int{2: 5}`: the checker admits any int
-	// key, Go takes only distinct constant keys, and #196 has not decided
+	// key, Go takes only distinct constant keys, and the v1 language has not decided
 	// what a computed, negative or repeated key does.
-	"CompositeLit:indexedSlice": "#196",
+	"CompositeLit:indexedSlice": "the slice-key rule",
 	// Stage 4 of lower-v1 (S4d) made every other refusal of a form that a
 	// checker or parser rule refuses an internal compiler error that names
 	// the rule (unreachable, unreachable.go; TestRefusalsNameOpenOwners),
@@ -112,8 +119,8 @@ var refusalReasons = []struct {
 	family  string
 	pattern *regexp.Regexp
 }{
-	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of type .+ waits for derived text forms \(#49\)`)},
-	{"CompositeLit:indexedSlice", regexp.MustCompile(`^an indexed slice literal waits for #196 to decide its keys`)},
+	{"TypeDecl:errorText", regexp.MustCompile(`^the text of an error type with a field of type .+ waits for derived text forms`)},
+	{"CompositeLit:indexedSlice", regexp.MustCompile(`^an indexed slice literal waits for the slice-key rule`)},
 }
 
 // refusalFamily is the refused family a refusal message stands at, or "".

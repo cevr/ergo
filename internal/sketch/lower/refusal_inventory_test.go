@@ -60,7 +60,7 @@ func main() { with (Tag{V: 1}) { } }
 func main() fails Fault { return Fault{F: Map[string, int]{}} }
 `,
 		// An indexed slice literal: the checker admits it, and its keys
-		// wait for #196.
+		// wait for the v1 language.
 		`func main() needs Console {
 	let xs = []int{2: 5}
 	Console.Println("\(len(xs))")

@@ -135,9 +135,14 @@ type Host { env os.Host, files fs.Host } implements Config
 // row holds the authority to choose the host makes one.
 func NewHost() Host needs Ambient { Host{env: os.NewHost(), files: fs.NewHost()} }
 
-// onTestHost is Host over a test's own environment and folder, the context
-// Config's laws run Host under (types.md, Laws 10).
-let onTestHost = context needs TestAmbient { Config: Host{env: os.NewTestHost(), files: fs.NewTestHost()} }
+// testHost is Host over a test's own environment and folder. It needs the
+// test's ambient, which only the test runner provides, as os.NewTestHost
+// and fs.NewTestHost do.
+func testHost() Host needs TestAmbient { Host{env: os.NewTestHost(), files: fs.NewTestHost()} }
+
+// onTestHost is the context Config's laws run Host under (types.md, Laws
+// 10).
+let onTestHost = context needs TestAmbient { Config: testHost() }
 
 // Lookup is the host's variable name, as os.Getenv reads it.
 func Lookup(h Host, name string) Option[string] { os.Getenv(h.env, name) }

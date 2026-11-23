@@ -125,7 +125,7 @@ The mutants are in `testdata/mutants.json`.
 
 - **One actor per context.** An actor per run would need children that outlive the parent's other transitions (corpus L3), so one actor holds every run, and one stage runs at a time.
 - **An output from a `Stay` has no form (L1).** A command taken while a try runs must `Stay`, or the try would stop; so the entries live in the state, and the save appends them to the `domain.Log` when the step commits; the notices and the board follow that log, not the actor's sink.
-- **A provider cannot need another capability (#37).** `Model` holds its actor; the runner and the clock are bound where `Open` runs.
+- **A provider cannot need another capability.** `Model` holds its actor; the runner and the clock are bound where `Open` runs.
 - **`Model` is a resource (q266).** `Model implements Closer`: its `Close` stops the actor, and the `with` or the frame that holds it releases it on every path. Code that gives a `Pipeline` to a `with` or a stored value while it goes on using the `Model` takes the `Handle` that `Share` gives beside it. `Handle`'s member law of `Pipeline` has no context yet: a case cannot own the `Model` behind it (RESOURCE-HANDLES, `scripts/examples/expected-findings`), so the program is red by record.
 - **A screen's signal must compare.** `ui`'s signal type is `comparable`, and a board's columns are slices, so the board's load gives `screen.Lines` (each column joined by `, `), not a `board.View`.
 - **A screen's call is a load, not the machine's work.** A `ui` session renders after its own events only; a signal that an actor's work sends would change the state with no new pass. So the view asks for each call (`ui.Load`), and its answer arrives through the session.

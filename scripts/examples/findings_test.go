@@ -12,9 +12,9 @@ import (
 // matches is a layout error, so the file empties itself as the owed units
 // land.
 //
-// Mutants: findings-stale-never (stale returns nil), findings-match-any-
-// provider (matches drops the provider), findings-match-any-package
-// (matches drops the package).
+// Mutants: findings-stale-never (stale reports nothing),
+// findings-match-any-provider (matches drops the provider),
+// findings-match-any-package (matches drops the package).
 func TestFindingExcusesOnlyItsOwnAndGoesStale(t *testing.T) {
 	t.Parallel()
 	fs := &findings{list: []*finding{
@@ -44,8 +44,6 @@ func TestFindingExcusesOnlyItsOwnAndGoesStale(t *testing.T) {
 // TestExpectedFindingsNameOwedUnits: each line of the expected findings
 // reads as six fields and names an owed unit examples/README.md describes
 // under "Red by record"; it pins no count.
-//
-// Mutant: findings-unit-unread (a line whose unit no ledger names passes).
 func TestExpectedFindingsNameOwedUnits(t *testing.T) {
 	t.Parallel()
 	root := filepath.Join("..", "..")

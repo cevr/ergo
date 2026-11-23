@@ -757,7 +757,7 @@ var universeOnce universeState
 
 // universe is the predeclared block: the basic types, the constraints
 // lent, comparable and the codec one, true,
-// false and len, the one built-in function (#196, fourth round, item 2;
+// false and len, the one built-in function (the v1 language, fourth round, item 2;
 // removedBuiltins names the Ergo form of each Go built-in it drops), and
 // with, the construct (grammar.md, Reserved names 2).
 func universe() *Scope {
@@ -810,8 +810,9 @@ func universe() *Scope {
 		// collection: an opaque handle, never nil (owner q32, q38;
 		// docs/spec/interop.md). Ergo's own *T stays a borrow.
 		ref := &TypeName{Name: "Ref", Pkg: goPkg, id: newID()}
-		// A language type: its T admits a resource with no mark (Generics 9).
-		refT := &TypeParam{Name: "T", lang: true, id: newID()}
+		// Declared go.Ref[T own]: its T admits a resource by the mark, as a
+		// user type's does (types.md, Generics 9; GEN9-GENERAL).
+		refT := &TypeParam{Name: "T", Own: true, id: newID()}
 		ref.Type = &Named{Obj: ref, TParams: []*TypeParam{refT}, under: &Pointer{Elem: refT}, state: 2}
 		goPkg.Scope.insert("Ref", ref)
 		universeOnce.ref = ref.Type.(*Named)
@@ -871,6 +872,7 @@ func prelude() preludeResult {
 		c := newChecker(stdlib.PreludePath, nil, u)
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
+		c.pkg.module = StdModule
 		pkg := c.run(files)
 		pkg.qualify = false
 		scope := newScope(u)
@@ -1090,7 +1092,8 @@ func (s *stdImporter) load(path string) (*Package, error) {
 	}
 	c := newChecker(path, s, prelude().scope)
 	c.pkg.std = true
-	c.pkg.trusted = true // the toolchain vouches for what it ships
+	c.pkg.trusted = true     // the toolchain vouches for what it ships
+	c.pkg.module = StdModule // its laws are judged over std as one module (lawmodule.go)
 	c.pkg.testOf = s.testOf(path)
 	pkg := c.run(files)
 	var err error
@@ -1118,6 +1121,7 @@ func StdFixture(path string, files []*syntax.File) (*Package, []Diagnostic) {
 	c := newChecker(path, Std, prelude().scope)
 	c.pkg.std = true
 	c.pkg.trusted = true
+	c.pkg.module = StdModule
 	c.pkg.testOf = Std.(*stdImporter).testOf(path)
 	pkg := c.run(files)
 	return pkg, c.sorted()

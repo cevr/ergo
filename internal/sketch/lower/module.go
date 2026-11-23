@@ -47,7 +47,7 @@ type File struct {
 // go.mod and main.go: the runtime module's go.mod and the source of
 // runtime/v1 and of runtime/rt, which it imports, and of runtime/explore,
 // which a test build's reachability laws call (machinelaws.go). The lowered main runs
-// under v1.Main, whose defect report names Ergo call sites (#230).
+// under v1.Main, whose defect report names Ergo call sites.
 func Runtime() []File {
 	files := []File{{Path: runtimeDir + "/go.mod", Data: []byte("module " + runtimeModule + "\n\ngo " + goVersion + "\n")}}
 	// Every leaf of runtime/v1 is copied with it: a program imports only
@@ -184,7 +184,7 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 	if l.prenamed {
 		unreachable(l.file, ruleNamingPass, "the package-scope name %s (%s) has no name from the naming pass", base, key.kind)
 	}
-	name := l.names.alloc(base)
+	name := l.packageScopeName(key, base) // pkgnames.go
 	l.pkgNames[key] = name
 	l.pkgOrder = append(l.pkgOrder, pkgEntry{key: key, base: base})
 	return name
@@ -239,13 +239,16 @@ type lowerer struct {
 	siteIDs      map[siteKey]int         // each call position's CallSite Id (siteid.go)
 	initPkgs     []*check.Package        // the sourced libraries in initialization order
 
-	names    *namer // the Go package scope
-	pkgNames map[pkgKey]string
-	pkgOrder []pkgEntry // in naming order
-	prenamed bool       // the naming pass is done
-	bodies   int        // function bodies lowered (TestNamingWorkIsLinear)
-	formats  int        // go/format runs
-	raw      bool       // Unit.Raw: program skips go/format
+	names *namer // the Go package scope: every package-scope name (pkgnames.go)
+	fixed *namer // its parent: the fixed generated names and the prelude's (pkgnames.go, rules 4 and 5)
+	// pkgNamers number each non-root package's own declarations (pkgnames.go, rule 2).
+	pkgNamers map[*check.Package]*namer
+	pkgNames  map[pkgKey]string
+	pkgOrder  []pkgEntry // in naming order
+	prenamed  bool       // the naming pass is done
+	bodies    int        // function bodies lowered (TestNamingWorkIsLinear)
+	formats   int        // go/format runs
+	raw       bool       // Unit.Raw: program skips go/format
 	// unformatted skips go/format (the IR split, lowerIRSplit): only the
 	// compiler reads the split's Go, and the split parses main.go itself,
 	// so go/format's parse and print were the edit's second parse
@@ -270,6 +273,7 @@ type lowerer struct {
 	// (record.go): they take copyGrowth.
 	copyScopes  map[*namer]bool
 	inlineSites []inlineSite
+	inlineKeys  map[string]bool // the keys of inlineSites
 	lastDir     string
 	// coverMarks is Unit.CoverMarks: std bodies write cover marks.
 	coverMarks bool
@@ -387,9 +391,9 @@ type lowerer struct {
 	builtinDone  map[string]bool      // the reference's builtin helpers written (builtinHelper)
 	patternsDone map[string]bool      // the pattern matchers written (refinematch.go)
 
-	calls    []callIdent // the call table (calls.go, #230)
+	calls    []callIdent // the call table (calls.go)
 	callSeen map[*syntax.CallExpr]bool
-	decls    []declIdent // the declaration table (calls.go, #230)
+	decls    []declIdent // the declaration table (calls.go)
 	declSeen map[syntax.Node]bool
 	// inits is the Go code of each package-level initializer, by its
 	// value, which initFunc runs in Info.InitOrder (review m1).
@@ -414,7 +418,7 @@ type lowerer struct {
 	recParams map[*check.Func]int
 	specs     map[specKey]*specCopy
 	monos     map[monoKey]*specCopy // monomorphic copies (mono.go)
-	monoCount map[monoDecl]int      // copies made per declaration (mono.go)
+	monoNames map[string]bool       // the copies' names (mono.go monoName)
 	// provParams memoizes each function's operation-type parameter a copy
 	// for a known provider is made for (provider.go).
 	provParams map[*check.Func]int
@@ -534,7 +538,6 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		file:      c.srcs[0].file,
 		src:       c.srcs[0].path,
 		srcs:      c.srcs,
-		names:     newNamer(nil),
 		pkgNames:  map[pkgKey]string{},
 		types:     map[*check.TypeName]*typeDecl{},
 		funcs:     map[*check.Func]*funcDecl{},
@@ -553,6 +556,7 @@ func lowererOf(c *canonical, pkg *check.Package, goModule GoModule, tests *testL
 		methods:   map[*check.Package]map[*check.TypeName][]*check.Func{},
 		envFields: map[string]string{},
 	}
+	l.fixed, l.names = newPkgNamers() // pkgnames.go
 	l.adapterConvs = map[string]check.Conversion{}
 	l.reads = l.readVars()
 	return l
@@ -910,7 +914,7 @@ func (l *lowerer) entry(b *strings.Builder, main *check.Func) {
 		b.WriteString("\t" + rt + ".StdoutDirect()\n")
 	}
 	// main runs as the root task under v1.Main, which reports its exit:
-	// a typed failure, a defect with its Ergo call sites (#230), or an
+	// a typed failure, a defect with its Ergo call sites, or an
 	// interruption (runtime.md, Exit causes). The environment holds that
 	// task (stage D3b, Rule 1).
 	b.WriteString("\t" + rt + ".Main(" + l.rootTask(locals, "error", fields, func(env string) string {

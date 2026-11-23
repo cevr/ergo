@@ -3,7 +3,7 @@
 // grammar.md is silent, or marks a production "prototype", the parser takes
 // Go's production for that form, without goto, fallthrough and const.
 //
-// The package resolves no names; the checker (#196), the LSP (#38) and the
+// The package resolves no names; the checker, the LSP and the
 // formatter (internal/sketch/format) consume its AST. Every syntax error is
 // S001 (docs/spec/diagnostics.md) with a byte span, line and byte column;
 // Parse reports the first error and returns no file.

@@ -288,10 +288,10 @@ func (c *checker) contextLit(w *syntax.ContextLit) (binds *capSet, known bool, c
 func (c *checker) contextHeader(w *syntax.ContextLit) {
 	c.contextFails(w.Fails)
 	if w.Provides != nil {
-		c.errorf(w.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+		c.errorf(w.Provides, CodeOutside, "a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet")
 	}
 	if w.Needs != nil {
-		c.errorf(w.Needs, CodeOutside, "a context's needs clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+		c.errorf(w.Needs, CodeOutside, "a context's needs clause waits for context header checking (rows.md Context 8); it is not checked yet")
 	}
 }
 
@@ -529,7 +529,7 @@ func (c *checker) checkEntryCycles(name string, d *contextDeps) {
 // contextEntry checks the provider of one `Cap = provider` or `replace Cap =
 // provider` entry: it must implement each capability by method-row
 // compatibility (S106); one value may serve several capabilities (README
-// Gap 28 and 34). A constructor entry is #37's (S109). The second-entry
+// Gap 28 and 34). A constructor entry is context construction's (S109). The second-entry
 // and replace rules are the body summary's (contextsum.go). It returns the
 // capabilities the entry names and its Info record: made, the one the context
 // pass made for a named context's entry, filled in here, or a new one.
@@ -548,10 +548,10 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 	if f := c.constructorFunc(e.Value); f != nil {
 		if isExtern(f) && !externValue(f) {
 			// A constructor entry is a function value; a call-only extern
-			// (P3; externValue) is refused as such, before and after #37.
+			// (P3; externValue) is refused as such, before and after context construction.
 			c.errorf(e.Value, CodeType, "%s", externCallOnlyText)
 		} else {
-			c.errorf(e.Value, CodeOutside, "a constructor entry is #37's (context constructors); write a provider value, not a function")
+			c.errorf(e.Value, CodeOutside, "a constructor entry waits for context construction; write a provider value, not a function")
 		}
 		return caps, entry
 	}
@@ -611,7 +611,7 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 }
 
 // isConstructor reports whether a provider expression names a function
-// without calling it (rows.md, Context 6: constructor entries, #37).
+// without calling it (rows.md, Context 6: constructor entries).
 func (c *checker) isConstructor(x syntax.Expr) bool {
 	return c.constructorFunc(x) != nil
 }
@@ -661,11 +661,10 @@ func (c *checker) checkContexts() {
 	for _, w := range contexts {
 		c.cur = w.file
 		d := w.Decl
-		// The header's provides clause (#217) is checked by #196's second
-		// stage; until then it is refused, never read partly (rows.md,
-		// Context 8).
+		// The header's provides clause waits for context header checking;
+		// until then it is refused, never read partly (rows.md, Context 8).
 		if d.Provides != nil {
-			c.errorf(d.Provides, CodeOutside, "a context's provides clause is #196 stage b's (the context header, rows.md Context 8); it is not checked yet")
+			c.errorf(d.Provides, CodeOutside, "a context's provides clause waits for context header checking (rows.md Context 8); it is not checked yet")
 		}
 		c.readContextHeader(w)
 		t := &target{name: "context " + w.Name, declErrors: newRow(), declUses: newRow(), context: true}

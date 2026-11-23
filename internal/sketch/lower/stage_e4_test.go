@@ -213,7 +213,7 @@ func main() needs Console {
 		// The operation, generic and pointer Close forms release since
 		// lower-v1 stage 4 (stage4_close_test.go); a generic Close that
 		// needs witnesses is still the checker's (closeWitnessed).
-		{"close-witnessed", "release.go generic Close with witnesses", "S109", "#197", `type A { Use() }
+		{"close-witnessed", "release.go generic Close with witnesses", "S109", "resource ownership", `type A { Use() }
 type Named { Name() string }
 type N {} implements Named
 func Name(_ N) string { "n" }
@@ -223,14 +223,14 @@ func Close[T Named](_ G[T]) {}
 let W = context { A: G[N]{Value: N} }
 func main() { with W { A.Use() } }
 `},
-		{"close-extern", "release.go extern Close", "S109", "#202", `type A { Use() }
+		{"close-extern", "release.go extern Close", "S109", "Go interop", `type A { Use() }
 type P {} implements A, Closer
 func Use(_ P) {}
 extern go example.com/x.Close func Close(p P)
 let W = context { A: P }
 func main() { with W { A.Use() } }
 `},
-		{"context-extern", "context.go extern protocol function", "S109", "#202", `type tag { text string }
+		{"context-extern", "context.go extern protocol function", "S109", "Go interop", `type tag { text string }
 extern go example.com/x.Key func contextKey(t tag) string
 func contextText(t tag) string { t.text }
 func main() needs Console { with (tag{text: "x"}) { Console.Println("in") } }

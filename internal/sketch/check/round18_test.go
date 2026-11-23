@@ -125,7 +125,7 @@ func TestCapSetPut(t *testing.T) {
 // fields, each a slice literal with elided children, cost linear work in
 // the reference walk (round 17 M2: each element scanned the field list).
 // Round 17 wrote an anonymous struct literal; the decided language has
-// none (#196), so the record is named.
+// none, so the record is named.
 func TestRecordLiteralLinear(t *testing.T) {
 	for _, keyed := range []bool{true, false} {
 		counts := map[int]int{}
@@ -156,7 +156,7 @@ func TestRecordLiteralLinear(t *testing.T) {
 // TestMissingLiteralType: a struct field's composite literal writes its
 // type, keyed or positional, as in Go; the elements and keys of a slice or
 // map literal may elide it (round 17 C1; the decided language has no fixed
-// arrays, #196).
+// arrays, the v1 language).
 func TestMissingLiteralType(t *testing.T) {
 	const decls = "type S { a int }\ntype Wrap[T] { value T }\n" +
 		"type Long { alpha int, beta int, gamma int, delta int }\n"

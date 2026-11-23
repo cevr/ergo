@@ -62,9 +62,14 @@ type Named { Name string, Zones tz.Zones } implements tz.Local
 // Zone is the zone n names.
 func Zone(n Named) tz.Zone fails tz.UnknownZone { try n.Zones.Load(n.Name) }
 
+// testLocal is Local over std's copy of the database. Local reads the
+// host's TZ and zone file, so it needs the test's ambient, which only the
+// test runner provides.
+func testLocal() Local needs TestAmbient { Local{zones: iana.New()} }
+
 // onStdZones and namedUTC are the contexts tz.Local's laws run Local and
 // Named under, over std's copy of the database (types.md, Laws 10).
-let onStdZones = context { tz.Local: Local{zones: iana.New()} }
+let onStdZones = context needs TestAmbient { tz.Local: testLocal() }
 
 let namedUTC = context { tz.Local: Named{Name: "UTC", Zones: iana.New()} }
 

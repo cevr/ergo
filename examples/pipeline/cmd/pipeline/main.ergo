@@ -192,7 +192,7 @@ func main() fails os.Exit needs Ambient | Console {
 	let v = with context { io.Stdout: io.NewHost(), io.Stderr: io.NewErrors() } {
 		flag.Parse(set, args) catch {
 		case err:
-			try flag.Exit(err, flag.Usage(set))
+			try flag.Exit(err, flag.UsageText(set))
 			return
 		}
 	}

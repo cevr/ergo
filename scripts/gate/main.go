@@ -493,6 +493,16 @@ func main() {
 		// Returns only when the gate cannot run in its own scope.
 		scopeNote = enterScope(command, reason, budget, cpus)
 	}
+	// The first check, in the process that runs the steps and before any
+	// (drivers.go); its warning goes to stderr, as the first line of the
+	// output names the checkout.
+	if root, err := repositoryRoot(); err != nil {
+		fatal(err)
+	} else if warning, err := driverCheck(root); err != nil {
+		fatal(err)
+	} else if warning != "" {
+		fmt.Fprintln(os.Stderr, "gate:", warning)
+	}
 	// The whole-gate replay keys the checkout once the limiter is open and
 	// before the steps are declared: a replay declares none, and a miss
 	// keeps the facts as the run's start key (gate.startFacts). It ran

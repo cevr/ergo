@@ -97,6 +97,16 @@ test Any(s Shape) { assert s.Area() > 0 }
 			want: []string{"1:13 S108 law Applies cannot run: its parameter f has no generator: func(int) int is a function type (types.md, Laws 10)"},
 		},
 		{
+			// A rewrite law's function parameter is drawn by its licence
+			// run (types.md, Over function parameters), so it is fed.
+			// Mutant: lu-rewrite-func-unfed.
+			name: "rewrite law's function parameter",
+			src: `func Twice(f func(x int) int, x int) int { f(f(x)) }
+
+law TwiceUnfolds(f func(x int) int, x int) { Twice(f, x) } == { f(f(x)) }
+`,
+		},
+		{
 			// func() with an error row is not the one returning function
 			// (LAW-GEN-FUNC), so it has no generator.
 			name: "parameter of a fallible function type",

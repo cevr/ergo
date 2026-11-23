@@ -294,8 +294,6 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 			return b.String()
 		}
 		return val + ".(" + fc.goType(conv.To) + ")"
-	case check.ConvNarrow:
-		return fc.narrowFunc(conv, val, site)
 	case check.ConvWiden:
 		return fc.widen(conv, val, site)
 	case check.ConvMachine:
@@ -323,28 +321,6 @@ func (fc *funcCtx) convert(conv check.Conversion, val string, site syntax.Node) 
 // Assignability 4; subunion.go).
 func (fc *funcCtx) widen(conv check.Conversion, val string, site syntax.Node) string {
 	return fc.unionInto(conv.From, conv.To, val, site)
-}
-
-// narrowFunc is val, a function value of conv.From, as one of conv.To
-// (ConvNarrow, CK-FAILPARAM): a function of the uniform shape (funcType)
-// whose parameters that are a row value of one error type, a Go error,
-// are asserted to that type, the value's parameter, before val runs. val
-// is evaluated once, where the conversion is.
-func (fc *funcCtx) narrowFunc(conv check.Conversion, val string, site syntax.Node) string {
-	from, ok := underlyingOf(conv.From).(*check.Signature)
-	to, ok2 := underlyingOf(conv.To).(*check.Signature)
-	if !ok || !ok2 || len(from.Params) != len(to.Params) {
-		ice(site, "a narrowing conversion of %s to %s", conv.From, conv.To)
-	}
-	var asserts []int
-	for i, p := range to.Params {
-		if u, isRow := p.Type.(*check.Union); isRow && u.Row != nil {
-			if fu, same := from.Params[i].Type.(*check.Union); !same || fu.Row == nil {
-				asserts = append(asserts, i)
-			}
-		}
-	}
-	return fc.rowFunc(from, to, fc.goType(conv.From), fc.goType(conv.To), asserts, val, site) // rowgap.go
 }
 
 // expr lowers x; in a statement header, a composite literal value is
@@ -883,7 +859,7 @@ func (fc *funcCtx) composite(x *syntax.CompositeLit, t check.Type) string {
 				// The checker admits an index key of any int expression;
 				// Go takes only distinct constant keys, and no Ergo rule
 				// says what a computed, negative or repeated key does.
-				refuse(e, "an indexed slice literal waits for #196 to decide its keys (Go takes only distinct constant keys); write the elements in order")
+				refuse(e, "an indexed slice literal waits for the slice-key rule (Go takes only distinct constant keys); write the elements in order")
 			}
 			values = append(values, e)
 		}
@@ -1570,13 +1546,16 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	var arms []arm
 	bind := false
 	seen := map[string]bool{}
-	caseType := func(t check.Type, item syntax.Node) string {
-		goType := fc.goType(t)
-		if seen[goType] {
-			unreachable(item, ruleCaughtTwice, "a catch arm of the Go type %s, which an earlier arm takes", goType)
+	// A named row's arm lists its variants (namedrow.go).
+	caseTypes := func(t check.Type, item syntax.Node) []string {
+		gs := fc.l.caseGoTypes(t, fc.goType)
+		for _, goType := range gs {
+			if seen[goType] {
+				unreachable(item, ruleCaughtTwice, "a catch arm of the Go type %s, which an earlier arm takes", goType)
+			}
+			seen[goType] = true
 		}
-		seen[goType] = true
-		return goType
+		return gs
 	}
 	for _, a := range x.Arms {
 		ar := arm{body: a.Body}
@@ -1587,12 +1566,12 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 			}
 			switch p.Kind {
 			case check.PatTypeTest:
-				ar.types = append(ar.types, caseType(p.Type, te))
+				ar.types = append(ar.types, caseTypes(p.Type, te)...)
 			case check.PatAs:
 				if len(a.Types) != 1 || len(p.Elems) != 1 || p.Elems[0].Kind != check.PatTypeTest || p.Var == nil {
 					unreachable(te, ruleSimpleCatch, "an as pattern that is not one type test in an arm of its own")
 				}
-				ar.types = append(ar.types, caseType(p.Elems[0].Type, te))
+				ar.types = append(ar.types, caseTypes(p.Elems[0].Type, te)...)
 				ar.as, bind = p.Var, true
 			default:
 				unreachable(te, ruleSimpleCatch, "a catch pattern that is not a type test")
