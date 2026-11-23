@@ -15,7 +15,8 @@ import time
 // Unlimited, so a bound added later leaves the literal valid:
 // process.Limits{..process.Unlimited, Time: 2s}.
 type Limits {
-	// Time is the longest the block may run, on the Scheduler.
+	// Time is the longest the block may run, on the Scheduler. A
+	// nonpositive Time sets no deadline.
 	Time duration,
 }
 
@@ -44,8 +45,13 @@ type Exit = OverTime | Crashed
 // (GEN9-GAP42), so a block gives plain data.
 func Run[A, E, R](l Limits, f own func() A fails E needs R) A fails E | OverTime | Crashed needs R | Scheduler {
 	let t = task.Go() { try f() }
-	let limit = task.StopAfter(t, l.Time)
-	match task.ExitOf(t) {
+	let exit = if l.Time > 0ns {
+		let limit = task.StopAfter(t, l.Time)
+		task.ExitOf(t)
+	} else {
+		task.ExitOf(t)
+	}
+	match exit {
 	case task.Done[A] as d:
 		d.Value
 	case task.Failed[E] as e:
