@@ -18,3 +18,69 @@ func Sum(s string) string {
 
 // SumIs32Bytes: every digest is 32 bytes.
 law SumIs32Bytes(s string) { len(Sum(s)) == 32 }
+
+// Hasher is a SHA-256 of a text given in parts, as Go's sha256.New with
+// Write and Sum: a cache key folds files in order without joining them
+// first. It is an owned resource holding Go's hash state: the program
+// moves it, and its owner's scope releases it (resources R5). A Write is
+// one call of crypto/sha256's Write on the text's bytes, with no copy.
+// Only New and Clone make one.
+// law-exempt: only New and Clone make one; PartsAreTheWhole,
+// NothingIsSumOfEmpty, DigestKeepsTheHasher and CloneForks check it.
+extern go ergo.local/prototype/runtime/v1/digest.Hasher type Hasher {
+	..Closer,
+	runtimeOnly(),
+	// Write hashes the bytes of s after those the hasher has hashed.
+	Write(s string),
+	// Digest is the 32-byte digest of every byte written, in order. The
+	// hasher is unchanged, as Go's Sum leaves it: more writes may follow.
+	Digest() string,
+	// Clone is a hasher that has hashed what this one has, and goes on
+	// alone: the explicit fork of a hash.
+	Clone() Hasher,
+}
+
+// New is a Hasher that has hashed nothing.
+extern go ergo.local/prototype/runtime/v1/digest.Sha256New func New() Hasher
+
+// PartsAreTheWhole: s written to a Hasher in parts, cut anywhere, has
+// the digest Sum gives s at once.
+law PartsAreTheWhole(s string, cuts []int) {
+	let h = New()
+	let mut at = 0
+	for c in cuts {
+		let end = at + (c%(len(s)+1)+len(s)+1)%(len(s)+1)
+		let stop = if end > len(s) { len(s) } else { end }
+		h.Write(s[at:stop])
+		at = stop
+	}
+	h.Write(s[at:len(s)])
+	h.Digest() == Sum(s)
+}
+
+// NothingIsSumOfEmpty: a Hasher that hashed nothing has the digest of
+// the empty text.
+law NothingIsSumOfEmpty() {
+	let h = New()
+	h.Digest() == Sum("")
+}
+
+// DigestKeepsTheHasher: a Digest between two writes changes nothing.
+law DigestKeepsTheHasher(a string, b string) {
+	let h = New()
+	h.Write(a)
+	let _ = h.Digest()
+	h.Write(b)
+	h.Digest() == Sum(a + b)
+}
+
+// CloneForks: a clone goes on from what its source had hashed, and
+// neither's writes reach the other.
+law CloneForks(a string, b string, c string) {
+	let h = New()
+	h.Write(a)
+	let k = h.Clone()
+	h.Write(b)
+	k.Write(c)
+	h.Digest() == Sum(a + b) && k.Digest() == Sum(a + c)
+}

@@ -20,7 +20,7 @@ import (
 // kind at assignment sites, including writes, aggregates, contextual joins,
 // closure results, invariant pointers/slices, a pattern's written type and
 // the operands of == and !=; every kind meets the operation type Store as a
-// inline provider expression, whose admitted pairs lower and run (#199
+// inline provider expression, whose admitted pairs lower and run (runtime semantics
 // stage 3c). A refused pair has exactly one diagnostic, on the
 // line of its site (or of the refused definition, or of a Task written in a
 // type position: a tuple result or a record field). An admitted pair lowers

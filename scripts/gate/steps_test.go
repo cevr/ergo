@@ -10,6 +10,32 @@ import (
 	"testing"
 )
 
+// TestEveryTierChecksTheGeneratedFiles: the fast tier checks the
+// generated files with `ergo task gen --check` after the CLI's build,
+// taking hits; the full tier also runs it with --fresh, which the fast
+// tier never does (MONOREPO WT2a). It catches gate-generated-step-skipped
+// and gate-generated-fresh-fast (testdata/mutants.json).
+func TestEveryTierChecksTheGeneratedFiles(t *testing.T) {
+	_, full := repositorySteps(t)
+	fast, err := classFastSteps(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	has := func(steps []*Step, argv ...string) bool {
+		return slices.ContainsFunc(steps, func(s *Step) bool {
+			return slices.Equal(s.Argv, argv) && slices.Contains(s.Needs, buildCLIStep)
+		})
+	}
+	check := []string{"./bin/ergo", "task", "gen", "--check"}
+	fresh := append(slices.Clone(check), "--fresh")
+	if !has(fast, check...) || !has(full, check...) || !has(full, fresh...) {
+		t.Fatalf("want %q in every tier and %q in the full tier, each after %q", check, fresh, buildCLIStep)
+	}
+	if has(fast, fresh...) {
+		t.Fatalf("the fast tier runs %q, which trusts no hit", fresh)
+	}
+}
+
 // The checker and the lowering are sharded packages: each has recorded
 // durations, and at each CPU budget it splits into that many shards or
 // fewer, by its measured work (shardTargetSeconds). At a budget of 4 or more

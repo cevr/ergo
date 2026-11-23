@@ -6,15 +6,14 @@
 //
 // Go control: Rift's per-file FICLONE walk.
 
-import exec
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 
 // Cloner reflinks each file through GNU cp.
 type Cloner { trees system.Trees } implements work.Cloner
 
-// New is the Cloner over a Runner.
-func New(run exec.Runner) Cloner { Cloner{trees: system.New(run)} }
+// New is the Cloner over the host tree operations.
+func New(trees system.Trees) Cloner { Cloner{trees: trees} }
 
 // unsupported are cp's errors that mean "no reflink here", and the
 // options a cp without --reflink refuses.
@@ -29,10 +28,10 @@ func KeepsInodes(_ Cloner) bool { false }
 
 func Clone(c Cloner, from string, to string) fails work.NotSameVolume | work.Unsupported | work.Exists | work.Missing | work.NoSpace | work.CloneFailed {
 	try system.Prepare(c.trees, "reflink", from, to)
-	let r = try system.Run(c.trees, "reflink", "cp", []string{"-a", "--reflink=always", "--", from, to})
+	let r = try system.Invoke(c.trees, "reflink", "cp", []string{"-a", "--reflink=always", "--", from, to}, system.Between(from, to))
 	if r.Status != 0 {
 		system.Leave(c.trees, to)
-		try system.Failure("reflink", from, to, r.Stderr, unsupported)
+		try system.Failure(c.trees, "reflink", "cp", from, to, r, unsupported)
 	}
 }
 

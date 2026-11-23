@@ -79,10 +79,10 @@ func TestSweepCostChecksTheRecordAgainstTheRun(t *testing.T) {
 		t.Fatalf("rewritten table %v; want %v (a scaled, b kept, c new)", table, want)
 	}
 	durations := map[string]map[string]float64{"m/internal/sketchfront": {"TestA": 0.5}}
-	if got := sweepWeight(durations, "m/internal/sketchfront", recorded); got != 1200 {
+	if got := sweepWeight(durations, "m/internal/sketchfront", "", recorded); got != 1200 {
 		t.Errorf("sweepWeight with a recorded sweep of 1200 s = %v; want 1200", got)
 	}
-	if got := sweepWeight(durations, "m/internal/sketchfront", sweepCost{}); got != sweepWeightFactor*0.5 {
+	if got := sweepWeight(durations, "m/internal/sketchfront", "", sweepCost{}); got != sweepWeightFactor*0.5 {
 		t.Errorf("sweepWeight with no record = %v; want %v", got, sweepWeightFactor*0.5)
 	}
 }

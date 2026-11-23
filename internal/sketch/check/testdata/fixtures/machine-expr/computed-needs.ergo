@@ -1,0 +1,21 @@
+// A machine's entries are computed in a closed context, as a package let's
+// value is: an entry whose computation needs a capability is refused (the
+// step's own row may need one; computing the step may not).
+type S = Off{} | On{}
+type E = Flip{}
+
+func step(s S, e E) Decision[S, S] { Stay[S]{Next: s} }
+
+func ask() bool needs Console {
+	Console.Println("asked")
+	true
+}
+
+func keep(b bool, f own func(s S, e E) Decision[S, S]) func(s S, e E) Decision[S, S] { f }
+
+type M machine[S, E] {
+	initial: Off,
+	step:    keep(ask(), step), // want S102
+}
+
+func main() {}

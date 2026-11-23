@@ -54,7 +54,7 @@ func (st *irState) testBody(fc *funcCtx, d *syntax.TestDecl, name string, params
 	if n := len(d.Body.List); needsFrame && n > 0 && !irListTerminates(b.fn.Body) {
 		// The emitter's test ends in a return at its last statement's
 		// line, where its exit actions run: a defect in one names that
-		// line, not the closing brace (runtime.md, Defects 3).
+		// line, not the closing brace (runtime.md, Fork-tree defects 3).
 		last := d.Body.List[n-1]
 		b.fn.Body = append(b.fn.Body, b.ret(nil, b.pos(last, last.Pos()))...)
 	}

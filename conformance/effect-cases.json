@@ -7,7 +7,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Effect.test.ts", "line": 2733, "label": "is interrupted when scope is closed"},
       "behavior": "Closing an owning scope interrupts its child and waits for child cleanup before parent cleanup.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The Ergo fixture asserts completed child-before-parent release, not upstream Scope internals or the entire forkScoped API.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The Ergo fixture asserts completed child-before-parent release, not upstream Scope internals or the entire forkScoped API.",
       "evidence": []
     },
     {
@@ -15,7 +15,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Effect.test.ts", "line": 2903, "label": "scoped combines usage and finalizer failures"},
       "behavior": "An expected failure and a cleanup defect both survive scope closure.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Ergo uses Timeout plus an acquired-resource cleanup defect, including attempted Timeout recovery. This is a behavior comparison, not a port of generic addFinalizer syntax.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Ergo uses Timeout plus an acquired-resource cleanup defect, including attempted Timeout recovery. This is a behavior comparison, not a port of generic addFinalizer syntax.",
       "evidence": []
     },
     {
@@ -23,7 +23,7 @@
       "status": "covered",
       "upstream": {"file": "packages/effect/test/TestClock.test.ts", "line": 8, "label": "sleep - does not require passage of wall time"},
       "behavior": "Advancing test program time admits an already-forked sleeper and allows its join without waiting for the requested wall-clock delay.",
-      "limits": "Ergo's TestClock is std time's Manual (std-align S2b), which provides Scheduler and time.Clock. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) starts a task that sleeps 10 hours on a Manual, advances the Manual 11 hours, and waits for the task; the Go test bounds the run to 30 seconds of wall time. Effect's adjust also runs the woken fibers before it returns; Advance wakes the sleepers, and the program reads the task's result with Wait. The program waits until the task is asleep (Sleepers) before it advances. The case lost its earlier evidence with the .ef compiler (#205).",
+      "limits": "Ergo's TestClock is std time's Manual (std-align S2b), which provides Scheduler and time.Clock. TestTimeEffectCases's subtest of this case (internal/sketch/lower/std_time_test.go) starts a task that sleeps 10 hours on a Manual, advances the Manual 11 hours, and waits for the task; the Go test bounds the run to 30 seconds of wall time. Effect's adjust also runs the woken fibers before it returns; Advance wakes the sleepers, and the program reads the task's result with Wait. The program waits until the task is asleep (Sleepers) before it advances. The case lost its earlier evidence with the .ef compiler.",
       "evidence": [{"file": "internal/sketch/lower/std_time_test.go", "test": "TestTimeEffectCases", "targets": ["go"]}]
     },
     {
@@ -47,7 +47,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Effect.test.ts", "line": 2066, "label": "timeout a long computation"},
       "behavior": "A deadline reports a typed timeout; a timer defect must retain its Cause rather than being recast as that timeout.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Upstream asserts Cause.TimeoutError with a duration message. Ergo declares nominal Timeout and an explicit Scheduler capability; its supplemental invalid-duration timer test also checks cleanup defects. This does not claim identical timeout APIs or full upstream case parity.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Upstream asserts Cause.TimeoutError with a duration message. Ergo declares nominal Timeout and an explicit Scheduler capability; its supplemental invalid-duration timer test also checks cleanup defects. This does not claim identical timeout APIs or full upstream case parity.",
       "evidence": []
     },
     {
@@ -183,7 +183,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/schema/Schema.test.ts", "line": 391, "label": "String"},
       "behavior": "A JSON string decodes to a string and non-strings fail with a typed first issue.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes.",
       "evidence": []
     },
     {
@@ -191,7 +191,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/schema/Schema.test.ts", "line": 469, "label": "Boolean"},
       "behavior": "JSON true/false decode to booleans; other JSON values fail.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes.",
       "evidence": []
     },
     {
@@ -199,7 +199,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/schema/Schema.test.ts", "line": 537, "label": "Void"},
       "behavior": "Void decodes only from a present JSON null, fails on any other value or a missing key, and encodes as JSON null.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. Ergo's void boundary, absence and host-null contracts are unchanged; only the codec representation is compared.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. Ergo's void boundary, absence and host-null contracts are unchanged; only the codec representation is compared.",
       "evidence": []
     },
     {
@@ -207,7 +207,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/schema/Schema.test.ts", "line": 2198, "label": "BigIntFromString"},
       "behavior": "A signed decimal string decodes to a 64-bit integer with leading zeros and negative zero normalized; non-decimal strings fail.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. The signed 64-bit range is an added comparator check, not upstream BigInt behavior.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. The signed 64-bit range is an added comparator check, not upstream BigInt behavior.",
       "evidence": []
     },
     {
@@ -215,7 +215,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/schema/Schema.test.ts", "line": 4066, "label": "applies excess-property options to unmatched own keys"},
       "behavior": "Record and variant decoding ignore excess properties under the default policy.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. Only the ignore policy is profiled; error and preserve are not offered.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. Only the ignore policy is profiled; error and preserve are not offered.",
       "evidence": []
     },
     {
@@ -223,7 +223,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/schema/Schema.test.ts", "line": 6030, "label": "use case: create a JSON string serializer for an existing schema"},
       "behavior": "Decoding a JSON string into a struct reports a missing declared key at its path; malformed text fails as a JSON parse failure.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes.",
       "evidence": []
     },
     {
@@ -231,7 +231,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/schema/Schema.test.ts", "line": 6011, "label": "use case: Unknown <-> JSON string"},
       "behavior": "Ergo admission is stricter than JSON.parse: duplicate keys, invalid UTF-8, lone surrogate escapes, byte-order marks, and body/depth bounds fail with byte offsets where Effect parses last-wins over replacement-decoded text without bounds.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. Each differing vector is labelled `difference` in json-structural-vectors.json.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: The pinned Effect comparator output over the shared ergo/json-structural-1 policy vectors is frozen in conformance/codecs/effect-comparator.out.jsonl; the vector test checks Go outcomes against the vectors and the frozen comparator bytes. Each differing vector is labelled `difference` in json-structural-vectors.json.",
       "evidence": []
     },
     {
@@ -239,7 +239,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Layer.test.ts", "line": 505, "label": "interrupting a build does not hang current or later requesters"},
       "behavior": "Interrupting one requester of a shared layer acquisition leaves other current and later requesters able to complete.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Upstream MemoMap builds in the first requester's fiber, so interrupting it completes the shared entry with that interruption for every waiter. Ergo producers belong to the provision build: cancelling one waiter abandons only its own wait, the producer continues, and every other waiter observes the actual shared outcome. Whole-build cancellation is the only static-surface trigger; the evidence drives the emitted Go runtime seam directly until a language caller exists.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Upstream MemoMap builds in the first requester's fiber, so interrupting it completes the shared entry with that interruption for every waiter. Ergo producers belong to the provision build: cancelling one waiter abandons only its own wait, the producer continues, and every other waiter observes the actual shared outcome. Whole-build cancellation is the only static-surface trigger; the evidence drives the emitted Go runtime seam directly until a language caller exists.",
       "evidence": []
     },
     {
@@ -247,7 +247,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Layer.test.ts", "line": 15, "label": "layers can be acquired in parallel"},
       "behavior": "Independent selected nodes acquire concurrently; cancelling the build while one producer never completes still returns after every producer joins.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Ergo asserts the cancelDuringConcurrentAcquisition trace: a cooperative producer observes cancellation, a masked concurrent acquisition completes late, nothing is released or returned before both join, and the cause is the caller's interruption alone. It drives the emitted Go runtime seam directly, not upstream Layer.merge.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Ergo asserts the cancelDuringConcurrentAcquisition trace: a cooperative producer observes cancellation, a masked concurrent acquisition completes late, nothing is released or returned before both join, and the cause is the caller's interruption alone. It drives the emitted Go runtime seam directly, not upstream Layer.merge.",
       "evidence": []
     },
     {
@@ -255,7 +255,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Layer.test.ts", "line": 44, "label": "preserves a failure when a shared layer build is interrupted"},
       "behavior": "When a sibling fails while a shared node is still being acquired and another node waits on it, the build fails with the actual failure; the abort-induced interruption of the shared node does not replace or fabricate it.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Ergo asserts the partialFailureRollback trace: the pending shared producer is cancelled and joined, its waiter never constructs, rollback releases dependents first and the typed failure stays primary beside every cleanup defect. Only the fail case is exercised; defect primary selection is covered by the Go runtime suite.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Ergo asserts the partialFailureRollback trace: the pending shared producer is cancelled and joined, its waiter never constructs, rollback releases dependents first and the typed failure stays primary beside every cleanup defect. Only the fail case is exercised; defect primary selection is covered by the Go runtime suite.",
       "evidence": []
     },
     {
@@ -263,7 +263,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Layer.test.ts", "line": 322, "label": "interruption with multiple layers"},
       "behavior": "Interrupting a build releases every resource that some node acquired, including one whose uninterruptible acquisition completes after the interruption.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Upstream only checks that acquired implies released after an arbitrary interruption point. Ergo fixes the interruption point while two producers run and asserts the exact release order and that the late acquisition is released exactly once.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Upstream only checks that acquired implies released after an arbitrary interruption point. Ergo fixes the interruption point while two producers run and asserts the exact release order and that the late acquisition is released exactly once.",
       "evidence": []
     },
     {
@@ -271,7 +271,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Layer.test.ts", "line": 357, "label": "finalizers with multiple layers with provideTo"},
       "behavior": "Node finalizers run after the provided program's, dependents before their dependencies.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Ergo asserts the programFailureWithCleanupDefects trace, which also requires every finalizer to run after a program failure and each cleanup defect to follow the program failure in close order. Independent nodes close sequentially in reverse canonical order; concurrent closure is permitted but not exercised.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Ergo asserts the programFailureWithCleanupDefects trace, which also requires every finalizer to run after a program failure and each cleanup defect to follow the program failure in close order. Independent nodes close sequentially in reverse canonical order; concurrent closure is permitted but not exercised.",
       "evidence": []
     },
     {
@@ -279,7 +279,7 @@
       "status": "pending",
       "upstream": {"file": "packages/effect/test/Layer.test.ts", "line": 621, "label": "memoizes layer across builds"},
       "behavior": "Separate provisions are separate builds with independent acquisition tables: a node is acquired again by each build, a failed build retains its one outcome and is retried only by a new explicit build, and a caller-owned borrowed resource stays open across both.",
-      "limits": "Its evidence tests were deleted with the earlier .ef compiler (#205); the case returns when a v1 test asserts it. Earlier limits: Upstream shares one MemoMap across builds so the second build reuses the first build's layer. Ergo has no shared or global memo map; explicit cross-build leases remain libraries with their own owning scope.",
+      "limits": "Its evidence tests were deleted with the earlier .ef compiler; the case returns when a v1 test asserts it. Earlier limits: Upstream shares one MemoMap across builds so the second build reuses the first build's layer. Ergo has no shared or global memo map; explicit cross-build leases remain libraries with their own owning scope.",
       "evidence": []
     },
     {

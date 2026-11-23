@@ -172,6 +172,11 @@ func Stat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Fail
 	}
 }
 
+// Lstat is Stat: Memory has no symbolic links.
+func Lstat(m Memory, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Failed {
+	try m.Stat(path)
+}
+
 // WriteFile makes the file at path hold text. A new file has mode
 // fs.Shared(); a file that was there keeps its mode.
 func WriteFile(m Memory, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
@@ -188,6 +193,34 @@ func WriteFileMode(m Memory, path string, text string, mode fs.Mode) fails fs.No
 // with mode fs.Shared(), when there is none.
 func AppendFile(m Memory, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
 	try raise(sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) { write(t, path, text, -1, true) }))
+}
+
+// Mkdir makes the one directory path with exactly mode when nothing is
+// there, and fails fs.Exists when something is.
+func Mkdir(m Memory, path string, mode fs.Mode) fails fs.NotFound | fs.Denied | fs.Failed | fs.Exists {
+	let perm = fs.Perm(mode)
+	let made = sync.Modify(m.tree, func(t Map[string, entry]) (outcome, Map[string, entry]) {
+		let mut u = t
+		match find(t, path) {
+		case NoParent:
+			(Missing{Path: path}, u)
+		case UnderFile:
+			(Broken{Path: path, Reason: "not a directory"}, u)
+		case Taken:
+			(Broken{Path: path, Reason: "file exists"}, u)
+		case Free:
+			u[filepath.Clean(path)] = entry{Dir: true, Text: "", More: NoParts, Perm: perm}
+			(Changed, u)
+		}
+	})
+	match made {
+	case Broken as b:
+		if b.Reason == "file exists" {
+			return fs.Exists{Path: path}
+		}
+	case Changed, Missing:
+	}
+	try raise(made)
 }
 
 // MkdirAll makes the directory path and each missing parent, with mode

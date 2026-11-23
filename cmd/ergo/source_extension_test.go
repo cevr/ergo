@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-// TestSourceExtensionRule (#221, #217): a source ends in .ergo, and the
+// TestSourceExtensionRule: a source ends in .ergo, and the
 // retired .ef spelling gets exactly the refusal of any other extension.
 func TestSourceExtensionRule(t *testing.T) {
 	const refusal = "source file must have .ergo extension"

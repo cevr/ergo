@@ -3,6 +3,7 @@ import github.com/cevr/ergo/modules/work/classes
 import filepath
 import fs
 import hex
+import json
 import sha256
 import slices
 import strconv
@@ -30,8 +31,14 @@ type CopyRefused { From string, Bytes int, Why string }
 
 // NotHeld is a workspace whose work is not in its parent: it has an
 // uncommitted or untracked change, or a commit no branch of the parent
-// holds. Remove it with --abandon.
-type NotHeld { Name string, Path string }
+// holds. Remove it with --abandon. It says which: Unheld is each local
+// branch and stash entry no branch of the parent and no remote holds (ref
+// and commit), Head the checkout's head when that is unheld too (else
+// ""), Dirty an uncommitted or untracked change; Branch is the record's
+// branch and Checkout the one checked out ("" when detached), which
+// differ when another branch was checked out in the workspace. Why says
+// it all in a sentence.
+type NotHeld { Name string, Path string, Branch string, Checkout string, Head string, Dirty bool, Unheld []Local, Why string }
 
 // Busy is a workspace in a state that refuses the command (a land runs).
 type Busy { Name string, State string }
@@ -150,11 +157,25 @@ type HasDescendants { Name string, Paths []string }
 // (a snapshot of every file that is not ignored, as a commit) in the
 // base at ArchiveRef, then removes it too: Rift's prune with its
 // archive, in the base's repository (a parent workspace may go next).
-type GcOptions { Older Option[string], Id Option[string], Idle Option[string], Archive bool }
+// -dry previews eligible paths without removing them. It does not run
+// -idle or -archive.
+type GcOptions { Older Option[string], Id Option[string], Idle Option[string], Archive bool, Dry bool }
 
 // Collected is what gc did: the names it purged, and each idle workspace
-// -idle found, removed or not.
-type Collected { Purged []string, Idle []Idle }
+// -idle found, removed or not. Preview is present only for -dry.
+type Collected { Purged []string, Idle []Idle, Preview json.Optional[[]PurgeCandidate] }
+
+type PurgeCandidate { Name string, Path string }
+
+type DiscardCause = Missing | CloneFailed
+
+type DiscardFailure { Name string, Path string, Cause DiscardCause }
+
+// GcFailed names both the successful purges and failed discards. A
+// failed discard stays registered for a retry.
+type GcFailed { Result Collected, Failures []DiscardFailure, Registry json.Optional[GcRegistryFailure] }
+
+type GcRegistryFailure = Unkept | Locked
 
 // Idle is a workspace -idle found: removed, or kept back with why
 // (Pinned, InUse, NotKept, or the name of the failure rm gave: NotHeld,
@@ -184,6 +205,8 @@ type Space { Name string, Path string, Usage Usage }
 // Api is `work` (and `ergo work`): the commands of one base. `ergo gen cli` makes its
 // command line (work/workcli).
 type Api {
+	// Version prints this executable's build commit and date.
+	Version() string,
 	// Init registers the base: it writes a starter work.toml when the base
 	// has none, the registry, the trust of the work.toml's commands (the
 	// user who inits allows them), refreshes the base's Git index, and adds
@@ -199,14 +222,17 @@ type Api {
 	// read only) as a workspace, a copy made on a copy with that one as
 	// its parent; it moves no file, and a second run adopts nothing.
 	AdoptRift(o RiftOptions) RiftAdopted fails NoBase | RiftUnread | Unkept | VcsFailed | Locked,
-	// List is every workspace of the base.
-	List() []Workspace fails NoBase | Unkept,
+	// List is every workspace of the base; with -status, each active
+	// one's commits against its parent's default branch, whether it has a
+	// change and its last commit (LaneStatus), by read-only Git calls.
+	List(o ListOptions) []Listed fails NoBase | Unkept,
 	// Rm moves a workspace to the trash.
 	Rm(name string, o RmOptions) []Removed fails NoBase | BadConfig | NoWorkspace | NotHeld | Busy | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked | IdMismatch | HasDescendants,
 	// Gc deletes the trash of this base (never another's) and the
 	// workspaces whose clone never ended, and names each; -idle removes
 	// the idle workspaces whose work is held first, and reports the rest.
-	Gc(o GcOptions) Collected fails NoBase | BadConfig | BadAge | NoWorkspace | Exists | Missing | CloneFailed | Unkept | VcsFailed | HookFailed | Locked,
+	// -dry lists eligible paths without deleting them (not with -idle or -archive).
+	Gc(o GcOptions) Collected fails NoBase | BadConfig | BadAge | BadRequest | NoWorkspace | Exists | Missing | CloneFailed | GcFailed | Unkept | VcsFailed | HookFailed | Locked,
 	// Pin keeps a workspace from gc -idle: a pinned one is never removed
 	// as idle. It is the workspace pinned.
 	Pin(name string) Workspace fails NoBase | NoWorkspace | Unkept | Locked,
@@ -300,11 +326,11 @@ type Api {
 			return true
 		}
 		let path = made.Path
-		let all = List() catch {
+		let all = List(ListOptions{Status: false}) catch {
 		case NoBase, Unkept:
 			return false
 		}
-		let mine = named(all, name)
+		let mine = named(Records(all), name)
 		let listed = len(mine) == 1 && mine[0].Path == path && StateName(mine[0].State) == "active"
 		New(name, NewOptions{Copy: true, From: None, Branch: None, On: None, Token: None}) catch {
 		case NameTaken:
@@ -336,6 +362,7 @@ type Tool {
 	runner   exec.Runner,
 	clock    time.Clock,
 	here     string,
+	version  string,
 } implements Api
 
 // Providers are what the binary chose: the Cloners that share blocks,
@@ -358,8 +385,13 @@ type Providers {
 // user's data folder data (the list of bases), over the providers, run in
 // the folder here.
 func NewTool(base string, home string, data string, p Providers, here string) Tool {
-	Tool{base: base, home: home, data: data, lock: p.Lock, hooks: p.Hooks, cloners: p.Cloners, copier: p.Copier, registry: p.Registry, vcs: p.Vcs, files: p.Files, writes: p.Writes, runner: p.Runner, clock: p.Clock, here: here}
+	Tool{base: base, home: home, data: data, lock: p.Lock, hooks: p.Hooks, cloners: p.Cloners, copier: p.Copier, registry: p.Registry, vcs: p.Vcs, files: p.Files, writes: p.Writes, runner: p.Runner, clock: p.Clock, here: here, version: "work: unstamped development build"}
 }
+
+// WithVersion gives the Tool the build stamp supplied by its binary.
+func WithVersion(t Tool, version string) Tool { Tool{..t, version: version} }
+
+func Version(t Tool) string { t.version }
 
 // Home is the folder of a base's workspaces, by work.toml's storage
 // (relative to the base; "<base>" is the base's folder name): by default
@@ -879,11 +911,6 @@ func pinned(t Tool, name string, on bool) Workspace fails NoBase | NoWorkspace |
 	}
 	t.lock.Release("")
 	w
-}
-
-func List(t Tool) []Workspace fails NoBase | Unkept {
-	try initialized(t)
-	try t.registry.All()
 }
 
 func Du(t Tool) []Space fails NoBase | Unsupported | Missing | CloneFailed | Unkept {

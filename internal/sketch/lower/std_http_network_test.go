@@ -11,14 +11,15 @@ import (
 	"testing"
 )
 
-const httpNetworkProbe = `import fs
+const httpNetworkProbe = `import config
+import fs
 import http
 import os
 import strconv
 import sync
 
-// body is the response body as args[5] asks for it: buffered by Fetch,
-// given to a put by FetchInto (DoInto, through the fixed-origin Client),
+// body is the response body as args[5] asks for it: buffered by Fetch (Do,
+// through the fixed-origin Client), given to a put by FetchInto (DoInto),
 // or written to out.txt below the root args[6] by FetchFile (DoFile) and
 // read back.
 func body(request http.URLRequest, fixed http.Request, args []string) string fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.StatusRefused | http.SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs http.Network | http.Net | Ambient {
@@ -33,6 +34,10 @@ func body(request http.URLRequest, fixed http.Request, args []string) string fai
 		let _ = if args[5] == "file" { try http.FetchFile(root, "out.txt", request) } else { try http.DoFile(root, "out.txt", fixed) }
 		return try root.ReadFile("out.txt")
 	}
+	if args[5] == "do" {
+		let d = try http.Do(fixed)
+		return d.Body
+	}
 	let result = try http.Fetch(request)
 	result.Body
 }
@@ -43,9 +48,9 @@ func main() fails http.InvalidClient | http.InvalidLimits needs Ambient | Consol
 	let policy http.OriginPolicy = if args[2] == "any" { http.AnyOrigin } else if args[2] == "both" { http.Origins{Values: []string{args[0], args[1]}} } else if args[2] == "first" { http.Origins{Values: []string{args[0]}} } else { http.Origins{Values: []string{}} }
 	let limits = http.Limits{MaxBodyBytes: 128, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}
 	let net = try http.NewNet(policy, limits, http.Follow{MaxHops: hops})
-	let client = try http.NewClient(args[0], limits)
-	let a = try http.ForOrigin(args[0], http.Field{Name: "X-Mark-A", Value: "mark-A"})
-	let b = try http.ForOrigin(args[1], http.Field{Name: "X-Mark-B", Value: "mark-B"})
+	let a = try http.ForOrigin(args[0], "X-Mark-A", config.NewRedacted("mark-A"))
+	let client = try http.NewClient(args[0], limits, []http.Credential{a})
+	let b = try http.ForOrigin(args[1], "X-Mark-B", config.NewRedacted("mark-B"))
 	let path = "/0/" + args[4] + "/" + args[7]
 	let request = http.URLRequest{URL: args[0] + path, Method: "GET", Header: []http.Field{}, Credentials: []http.Credential{a, b}, Body: ""}
 	let fixed = http.Request{Method: "GET", Path: path, RawPath: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
@@ -69,7 +74,10 @@ func main() fails http.InvalidClient | http.InvalidLimits needs Ambient | Consol
 // the runtime property calls the Go bodies, not the std provider over them.
 // Its final statuses and fixed-origin sinks (CU6b) kill the std mutants of
 // the 2xx rule's callers: FetchInto, FetchFile, DoInto, DoFile, and the
-// providers Remote and Client that hand the rule to the runtime.
+// providers Remote and Client that hand the rule to the runtime. Its
+// fixed-origin client holds A's credential (HTTP-SECRET), so it kills
+// hs-client-send-plain and hs-client-into-plain: a Client that sends the
+// request's header without its credentials.
 func TestHTTPNetworkRuns(t *testing.T) {
 	needsBuild(t)
 	exes := buildAll(t, []*lowered{mustLower(t, "httpnetwork", httpNetworkProbe)}, true)
@@ -118,11 +126,11 @@ func TestHTTPNetworkRuns(t *testing.T) {
 		status := []int{200, 201, 404}[r.IntN(3)]
 		// Each case runs through every sink, so each sink's std caller meets
 		// a 2xx and a refused status within the seeds.
-		for _, sink := range []string{"fetch", "into", "file", "dointo", "dofile"} {
+		for _, sink := range []string{"fetch", "into", "file", "do", "dointo", "dofile"} {
 			// outcome is the line of a final response: a sink takes a 2xx body
-			// (the default rule); Fetch buffers any.
+			// (the default rule); Fetch and Do buffer any.
 			outcome := func(final int, text string) string {
-				if sink != "fetch" && (final < 200 || final >= 300) {
+				if sink != "fetch" && sink != "do" && (final < 200 || final >= 300) {
 					return fmt.Sprintf("refused %d [%s]\n", final, text)
 				}
 				return "ok " + text + "\n"
@@ -133,7 +141,8 @@ func TestHTTPNetworkRuns(t *testing.T) {
 				// The fixed-origin client follows no redirect; the 307 has no body.
 				want = outcome(307, "")
 			case strings.HasPrefix(sink, "do"):
-				want = outcome(status, "/")
+				// The fixed-origin client holds A's credential (NewClient).
+				want = outcome(status, "mark-A/")
 			case mode == "none":
 				want = "origin " + origins[0] + "\n"
 			case length > 0 && hops > 0 && mode == "first":

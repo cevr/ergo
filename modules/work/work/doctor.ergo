@@ -149,6 +149,12 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 	// workspaces only: a workspace new made keeps its guard.
 	let mut guarded = []string{}
 	for w in try t.registry.All() {
+		// A record whose folder was deleted outside work has no Git to
+		// ask: doctor names it (GoneNote) and goes on with the others.
+		if livesAt(w) && !t.copier.Has(w.Path) {
+			notes = notes.Append(GoneNote(w))
+			continue
+		}
 		if w.Cloner == "adopted" && w.State == Active && len(try t.vcs.Guarded(w.Path)) > 0 {
 			if o.Unguard {
 				try t.vcs.Unguard(w.Path)
@@ -160,12 +166,47 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 		notes = notes.Append(if o.Unguard { "dropped the push guard of \(len(guarded)) adopted workspaces" } else { "\(len(guarded)) adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard" })
 	}
 	notes = slices.Concat(notes, try driverNotes(t, o.Fix, o.Here))
-	notes = slices.Concat(notes, try repairNotes(t, o.Repair))
+	notes = slices.Concat(notes, try repairNotes(t, o.Repair, o.Here))
+	if !o.Here {
+		notes = slices.Concat(notes, try strayNotes(t))
+	}
 	let rift = if o.Rift { try RiftLeft(t, RiftOptions{Registry: o.Registry}) } else { []string{} }
 	if len(rift) > 0 {
 		notes = notes.Append("\(len(rift)) Rift copies of the base are no workspace: run work adopt-rift")
 	}
 	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes, Rift: rift}
+}
+
+// strayNotes are doctor's notes on the staging folders no record holds:
+// a folder in StagingFolder named by no record's id (its tomb's name, the
+// id and ".gone", counts as the id's). new writes its record before its
+// staging folder and settle drops a record only after its staging folder
+// is gone, so this work never leaves one; a work of another version on
+// the same home, or a hand edit of the registry, can. Doctor names each
+// and deletes none, -repair or not: a folder an older process still
+// writes into must not be guessed at (no delete without ownership).
+func strayNotes(t Tool) []string fails Unkept {
+	let staging = StagingFolder(t.home)
+	let names = t.files.ReadDir(staging) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return []string{}
+	}
+	let all = try t.registry.All()
+	let mut notes = []string{}
+	for name in names {
+		let id = strings.TrimSuffix(name, ".gone")
+		if slices.IndexFunc(all, func(w Workspace) bool { w.Id != "" && w.Id == id }) >= 0 {
+			continue
+		}
+		notes = notes.Append(StrayNote(staging + "/" + name))
+	}
+	notes
+}
+
+// StrayNote is doctor's note on a staging folder at path that no record
+// holds.
+func StrayNote(path string) string {
+	"\(path) is a staging folder no workspace record holds (a work of another version, or a registry edited by hand, left it): work deletes none; once no work runs on this home, check it and delete it by hand"
 }
 
 // Repairable reports whether w is a record left Creating over a whole
@@ -197,8 +238,9 @@ func Repairable(t Tool, w Workspace) bool {
 // clone): gc and rm keep them, and nobody else activates one without a
 // marker. With repair each is recorded Active under the lock, as gc
 // activates a marked one (activation); no file is written. The answer
-// names each.
-func repairNotes(t Tool, repair bool) []string fails Unkept | Locked {
+// names each. With here, only the record whose folder holds the folder
+// doctor runs in is looked at.
+func repairNotes(t Tool, repair bool, here bool) []string fails Unkept | Locked {
 	if repair {
 		try hold(t)
 	}
@@ -212,6 +254,9 @@ func repairNotes(t Tool, repair bool) []string fails Unkept | Locked {
 	let at = now(t)
 	let mut notes = []string{}
 	for w in all {
+		if here && len(holding([]string{w.Path}, t.here)) == 0 {
+			continue
+		}
 		if !Repairable(t, w) {
 			continue
 		}
@@ -261,6 +306,11 @@ func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed 
 	let again = if here { "work doctor -here -fix" } else { "work doctor -fix" }
 	let mut notes = []string{}
 	for root in roots {
+		// An older work wrote rerere.enabled with the drivers (M0); work
+		// no longer owns the key, so doctor names it and changes nothing.
+		if here && try t.vcs.OwnSetting(root, "rerere.enabled") == "true" {
+			notes = notes.Append(rerereNote(root))
+		}
 		let names = Unregistered(t, root) catch {
 		case fs.Denied, fs.Failed:
 			[]string{}
@@ -296,6 +346,36 @@ func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed 
 		notes = notes.Append("the merge line \(p) takes no file of the base")
 	}
 	notes
+}
+
+// livesAt reports whether w's record says a folder is at its path: an
+// active, landing, landed or abandoned workspace. A reservation may have
+// no folder yet, and a trashed one's is in the trash or purged.
+func livesAt(w Workspace) bool {
+	match w.State {
+	case Active, Landing, Landed, Abandoned:
+		true
+	case Creating, Trashed:
+		false
+	}
+}
+
+// GoneNote is doctor's note on a record whose folder is not there (it
+// was deleted outside work): the record stays, and the two commands that
+// drop it, by its id so that no other record is touched (rm trashes only
+// that record; gc -id purges only it).
+func GoneNote(w Workspace) string {
+	if w.Id == "" {
+		return "\(w.Name): its folder \(w.Path) is gone (deleted outside work); drop its record with work rm -abandon \(w.Name), then work gc -older 0s"
+	}
+	"\(w.Name): its folder \(w.Path) is gone (deleted outside work); drop its record with work rm -abandon -expect \(w.Id) \(w.Name), then work gc -id \(w.Id)"
+}
+
+// rerereNote is doctor -here's note on a checkout whose own Git config
+// sets rerere.enabled: Git replays each recorded resolution into its later
+// merges, and the one command that stops it.
+func rerereNote(root string) string {
+	"\(root): its own Git config sets rerere.enabled=true (an older work wrote it with the merge drivers; work no longer sets it), so Git replays recorded resolutions in its merges: to stop, run git -C \(root) config --local --unset rerere.enabled"
 }
 
 // holding is the checkout of roots that holds the folder dir, the

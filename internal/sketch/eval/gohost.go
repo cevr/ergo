@@ -3,6 +3,7 @@ package eval
 import (
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"reflect"
 	"strconv"
 	"sync"
@@ -33,6 +34,7 @@ var goFuncs = sync.OnceValue(func() map[string]any {
 		"net/url.ParseQuery":  url.ParseQuery,
 		"net/netip.ParseAddr": netip.ParseAddr,
 		"strconv.ParseUint":   strconv.ParseUint,
+		"path/filepath.Match": filepath.Match,
 		"strconv.FormatUint":  strconv.FormatUint,
 	}
 })
