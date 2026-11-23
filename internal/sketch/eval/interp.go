@@ -534,7 +534,13 @@ func (in *interp) callPlanned(fr *frame, at *syntax.CallExpr, p *funcPlan, targs
 		}
 		body = *bodyFast
 	}
-	v, ab := in.runFrameBody(fr, at, callee, fn.Name, fn.Decl.Body.List, body)
+	var v Value
+	var ab *abrupt
+	if p.closeParts != nil {
+		v, ab = in.runClosingFrame(fr, at, callee, p, body, args[0])
+	} else {
+		v, ab = in.runFrameBody(fr, at, callee, fn.Name, fn.Decl.Body.List, body)
+	}
 	in.freeFrame(callee)
 	return v, ab
 }
