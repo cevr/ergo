@@ -75,7 +75,7 @@ func (b *irBuilder) givenFunc(t check.Type, task bool, site syntax.Node, p irPos
 // shape (tasks.Race's blocks), as the emitter's adaptFuncs writes it: a
 // new slice of e's length whose element i adapts e's element i
 // (adaptOperand), each bound where the call is made.
-func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, shape *v1.Body, p irPos) ([]*irStmt, *irExpr) {
+func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr) {
 	x, ok := site.(syntax.Expr)
 	if !ok {
 		irNo("std call that adapts a slice of functions") // a trailing block is one function
@@ -95,7 +95,8 @@ func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, shape *v1.Body, p ir
 	fs := b.temp("fs", b.goType(t, site), p)
 	f := b.temp("f", b.goType(s.Elem, site), p)
 	i := b.temp("i", "int", p)
-	bind, lit := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, v1.Param{Func: shape}, p)
+	q.Func, q.Funcs = q.Funcs, nil // each element takes the slice's shape
+	bind, lit := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, q, p)
 	out := b.temp("blocks", "[]"+lit.T, p)
 	mk := &irExpr{K: "builtin", Pos: p, Name: "make", T: "[]" + lit.T, Args: []*irExpr{{K: "len", Pos: p, X: &irExpr{K: "local", Pos: p, I: fs}}}}
 	body := append(bind, &irStmt{K: "store", Pos: p, X: &irExpr{K: "index", Pos: p, X: &irExpr{K: "local", Pos: p, I: out}, Y: &irExpr{K: "local", Pos: p, I: i}}, Y: lit})
@@ -112,7 +113,7 @@ func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, shape *v1.Body, p ir
 func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr) {
 	shape := q.Func
 	if q.Funcs != nil {
-		return b.adaptSlice(site, e, q.Funcs, p)
+		return b.adaptSlice(site, e, q, p)
 	}
 	if b.env < 0 {
 		irNo("std call that adapts a function from a pure function")
