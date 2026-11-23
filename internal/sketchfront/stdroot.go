@@ -21,13 +21,21 @@ const stdRootDir = "/std"
 // files are named stdRootDir/<importPath>/<file>; the other std packages it
 // imports stay std, which every program imports.
 func CheckStd(importPath string) (Analysis, error) {
-	sources, ok := stdlib.Package(importPath)
-	if !ok {
-		return Analysis{}, fmt.Errorf("sketchfront: %s is no std package", importPath)
-	}
-	pkg, err := check.Std.Import(importPath)
-	if err != nil {
-		return Analysis{}, err
+	var sources map[string]string
+	var pkg *check.Package
+	if importPath == stdlib.PreludePath {
+		// No import names the prelude: its checked package is the one
+		// every package sees (NIH-75).
+		sources, pkg = stdlib.Prelude(), check.PreludePackage()
+	} else {
+		var ok bool
+		if sources, ok = stdlib.Package(importPath); !ok {
+			return Analysis{}, fmt.Errorf("sketchfront: %s is no std package", importPath)
+		}
+		var err error
+		if pkg, err = check.Std.Import(importPath); err != nil {
+			return Analysis{}, err
+		}
 	}
 	dir := path.Join(stdRootDir, importPath)
 	root := &loadedPackage{path: importPath, dir: dir, pkg: pkg}

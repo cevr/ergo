@@ -908,6 +908,11 @@ func prelude() preludeResult {
 // embedded source is valid; a test pins it).
 func PreludeDiagnostics() []Diagnostic { return prelude().diags }
 
+// PreludePackage is the checked prelude, as every package sees it: the
+// root a test build of the prelude's own laws lowers (sketchfront.CheckStd,
+// NIH-75), since no import names it.
+func PreludePackage() *Package { return prelude().pkg }
+
 // stdImporter imports the embedded standard library, checking each package
 // once per process. A std package may import another (io imports strings),
 // so the lock guards only the table: each package is checked inside its own
