@@ -213,3 +213,43 @@ test LocalsRemotesAndGuards {
 		assert try exec.Runner.Run(exec.New("git", []string{"config", "remote.mine.pushurl"})).Stdout == "/nonexistent/loop-probe-own\n"
 	}
 }
+
+// ListStatusReadsInARepository: the reads of list -status on a real
+// clone. The lane has two commits; the parent took the first one's patch
+// by a commit of its own (a cherry-pick) and moved on once more. Default
+// is the parent's branch (origin's HEAD's when the parent has it); Counts
+// finds the parent's new commits only through its objects (the lane never
+// fetched them); Unpicked leaves the landed patch out; TipOf names the
+// lane's head and branch; and Clean on a tree whose stat went stale writes
+// no index (--no-optional-locks).
+test ListStatusReadsInARepository {
+	with onShell {
+		let c = "-c user.name=t -c user.email=t@example.com"
+		let script = "git init -q -b main parent && git -C parent \(c) commit -q --allow-empty -m one && git clone -q parent child && git -C child switch -q -c lane && printf '1\\n' > child/f1.txt && git -C child add f1.txt && git -C child \(c) commit -q -m f1 && printf '2\\n' > child/f2.txt && git -C child add f2.txt && git -C child \(c) commit -q -m f2 && printf '1\\n' > parent/f1.txt && git -C parent add f1.txt && git -C parent \(c) commit -q -m picked && git -C parent \(c) commit -q --allow-empty -m moved"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", script})).Status == 0
+		let here = try os.Process.Getwd()
+		let at = try work.Vcs.Default("parent")
+		assert at.Ref == "refs/heads/main" && at.Commit == try work.Vcs.Head("parent") && at.Objects == here+"/parent/.git/objects"
+		let tip = try work.Vcs.TipOf("child")
+		assert tip.Commit == try work.Vcs.Head("child") && tip.Branch == "lane" && tip.Time > 0
+		assert try work.Vcs.Counts("child", at.Objects, at.Commit, tip.Commit) == work.Apart{Ahead: 2, Behind: 2}
+		assert try work.Vcs.Unpicked("child", at.Objects, at.Commit, tip.Commit) == 1
+		// Without the parent's objects the lane does not know its commits.
+		let blind = work.Vcs.Counts("child", "", at.Commit, tip.Commit) catch {
+		case work.VcsFailed:
+			work.Apart{Ahead: -1, Behind: -1}
+		}
+		assert blind == work.Apart{Ahead: -1, Behind: -1}
+		let stamp = "stat -c '%y %i' child/.git/index"
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "touch -d 2020-01-01T00:00:00 child/f1.txt"})).Status == 0
+		let before = try exec.Runner.Run(exec.New("sh", []string{"-c", stamp})).Stdout
+		assert try work.Vcs.Clean("child")
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", stamp})).Stdout == before
+		// origin's HEAD names trunk, which the parent has: that is its
+		// default; a detached lane has no branch.
+		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "git -C parent branch trunk HEAD~1 && git -C parent update-ref refs/remotes/origin/trunk trunk && git -C parent symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/trunk && git -C child switch -q --detach"})).Status == 0
+		let trunk = try work.Vcs.Default("parent")
+		assert trunk.Ref == "refs/heads/trunk" && trunk.Commit == try work.Vcs.Resolve("parent", "trunk")
+		assert try work.Vcs.TipOf("child") == work.Tip{Commit: tip.Commit, Branch: "", Time: tip.Time}
+	}
+}

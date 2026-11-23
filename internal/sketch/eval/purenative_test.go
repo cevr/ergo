@@ -20,7 +20,11 @@ import (
 // package of v1.PureImports that a std package reaches through import go,
 // less the members v1.PureImportsExcept() names. A call of one with no
 // native stops the evaluation as "a Go function (name), even a pure one".
-// Mutant only it kills (testdata/mutants.json): st4-native-missing.
+// The callees are read from std's calls, so a pure extern counts wherever
+// it is declared: in a std package, in the prelude (the built-in types'
+// operations, b25), or in a package it moves to.
+// Mutants only it kills (testdata/mutants.json): st4-native-missing,
+// prelude-append-string-native.
 func TestEveryPureStdExternHasANative(t *testing.T) {
 	missing := map[string]bool{}
 	for _, path := range stdPaths(t) {
@@ -35,7 +39,13 @@ func TestEveryPureStdExternHasANative(t *testing.T) {
 		}
 		for _, c := range pkg.Info.Calls {
 			f := c.Func
-			if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil || f.Pkg.Std() {
+			if f == nil || f.Decl == nil || f.Decl.Extern == nil || f.Pkg == nil {
+				continue
+			}
+			if f.Pkg.Std() {
+				if check.BodyOf(f).Pure && !check.IsUnreachable(c) && !runsExtern(f) {
+					missing[f.Pkg.Path+"."+f.Name+" (called from "+path+")"] = true
+				}
 				continue
 			}
 			goPath, name := f.Decl.Extern.Split()
@@ -55,6 +65,13 @@ func TestEveryPureStdExternHasANative(t *testing.T) {
 	if len(out) > 0 {
 		t.Errorf("%d pure Go functions std reaches have no evaluator native:\n%s", len(out), strings.Join(out, "\n"))
 	}
+}
+
+// runsExtern reports whether the evaluator runs the extern f without its
+// Go body, as planOf chooses: a built-in collection operation, Go's
+// append, or a native.
+func runsExtern(f *check.Func) bool {
+	return preludeCollection(f) || check.AppendsString(f) || check.GoBuiltin(f) == "append" || nativeOf(f) != nil || goNativeOf(f) != nil
 }
 
 // stdPaths are the std package paths of the embedded sources, gostd's
