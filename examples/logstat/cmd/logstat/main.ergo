@@ -82,7 +82,7 @@ func key(name string) report.Key {
 func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin | fs.Files {
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return
 	}
 	let files = flag.Rest(v)

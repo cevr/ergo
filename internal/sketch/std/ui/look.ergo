@@ -596,10 +596,10 @@ law PaintIsWhatWasGiven(seed int, state int, part int) {
 	}
 }
 
-// nested writes a drawn tree under a node of looks ls: depth levels, each
+// writeNested writes a drawn tree under a node of looks ls: depth levels, each
 // a Box, Row, Column, Area or Pressable given ls, holding a child of the
 // same kind written with no look of its own, and a Text. (a law's helper)
-func nested(f mut Frame[int], ls Looks, kinds []int, depth int) {
+func writeNested(f mut Frame[int], ls Looks, kinds []int, depth int) {
 	if depth >= len(kinds) {
 		Text(f, "leaf")
 		return
@@ -610,19 +610,19 @@ func nested(f mut Frame[int], ls Looks, kinds []int, depth int) {
 		match kinds[depth] {
 		case 0:
 			Box(f, Plain()) {
-				nested(f, ls, kinds, depth+1)
+				writeNested(f, ls, kinds, depth+1)
 			}
 		case 1:
 			Row(f, Plain()) {
-				nested(f, ls, kinds, depth+1)
+				writeNested(f, ls, kinds, depth+1)
 			}
 		case 2:
 			Area(f, "a\(depth)", Plain(), func(p PointerEvent) Option[int] { None }) {
-				nested(f, ls, kinds, depth+1)
+				writeNested(f, ls, kinds, depth+1)
 			}
 		case _:
 			Pressable(f, "p\(depth)", depth) {
-				nested(f, ls, kinds, depth+1)
+				writeNested(f, ls, kinds, depth+1)
 			}
 		}
 	}
@@ -675,7 +675,7 @@ law PaintIsNotInherited(seed int) {
 		for _ in 0..draw(&r, 4)+1 {
 			kinds = kinds.Append(draw(&r, 4))
 		}
-		let view = func(f mut Frame[int], s int) { nested(f, ls, kinds, 0) }
+		let view = func(f mut Frame[int], s int) { writeNested(f, ls, kinds, 0) }
 		let a = actor.StartMachine(Machine[int, int, int]{Initial: 0, Step: semStep, After: semTimer, Work: semWork, Exit: func(at int) Option[func()] { None }}, 1, func(o int) {})
 		let mut h = NewTestHost(a, view, m, 4) catch {
 		case BadPatch:

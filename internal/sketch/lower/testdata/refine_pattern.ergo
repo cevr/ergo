@@ -1,0 +1,17 @@
+// call:Pattern's witness (the family test lowers one file at a time): a
+// refinement by a pattern, its derived ParseCode, and a match on its
+// Unsatisfied failure.
+type Code string where matches(it, "[A-Z]{3}-[0-9]+")
+
+func show(s string) string {
+	let c = ParseCode(s) catch {
+	case Unsatisfied:
+		return "no \(s)"
+	}
+	"code \(string(c))"
+}
+
+func main() needs Console {
+	Console.Println(show("ABC-12"))
+	Console.Println(show("abc"))
+}

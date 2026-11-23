@@ -124,6 +124,20 @@ func TestKeywordsAreNotNames(t *testing.T) {
 				// mode (MODES-1): mut is still no name there.
 				continue
 			}
+			if word == "test" && strings.HasPrefix(src, "type T { ") {
+				// `test int64` is the harness member of an operation type
+				// (grammar.md, Declarations 11): it names a function, and
+				// test is no name there either.
+				f, err := Parse(src)
+				if err != nil || len(f.Decls) != 1 {
+					t.Errorf("%q: %v", src, err)
+				} else if td, _ := f.Decls[0].(*TypeDecl); td == nil {
+					t.Errorf("%q declares no type", src)
+				} else if it, ok := td.Spec.(*InterfaceType); !ok || len(it.Harnesses) != 1 {
+					t.Errorf("%q is no operation type with one harness", src)
+				}
+				continue
+			}
 			if _, err := Parse(src); err == nil {
 				t.Errorf("%q parsed: %s is a name", src, word)
 			}

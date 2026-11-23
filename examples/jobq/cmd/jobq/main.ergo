@@ -41,7 +41,7 @@ func read(args []string) Option[Options] fails os.Exit needs io.Stdout {
 	let set = Set()
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return None
 	}
 	if Workers.Get(v) < 1 || Attempts.Get(v) < 1 || Burst.Get(v) < 1 || BackoffMs.Get(v) < 0 || EveryMs.Get(v) < 0 || MaxMs.Get(v) < BackoffMs.Get(v) {
@@ -203,7 +203,7 @@ test RefusalsExit {
 	assert session([]string{}, "a\n") == "exit 2: jobq: line 1: a is not NAME MS [FLAKY] [fatal]"
 	assert session([]string{}, "a 5 1 fatall\n") == "exit 2: jobq: line 1: a 5 1 fatall is not NAME MS [FLAKY] [fatal]"
 	assert session([]string{"-workers", "0"}, "") == "exit 2: jobq: -workers, -attempts and -burst are at least 1, the times are not negative, and -max-ms is at least -backoff-ms"
-	assert session([]string{"-h"}, "") == flag.Usage(Set())
+	assert session([]string{"-h"}, "") == flag.UsageText(Set())
 }
 
 // The virtual run and the live run agree on how every job ends.
