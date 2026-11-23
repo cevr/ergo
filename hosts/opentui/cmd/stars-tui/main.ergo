@@ -120,63 +120,62 @@ func headless(rows []catalog.Star, height int) fails os.Exit needs Ambient | go.
 	}
 	let out = io.NewHost()
 	with context { Scheduler: time.NewManual(0) } {
-		let s = screen.Headless(Cols, Lines) catch {
-		case go.Error as e:
-			return os.Exit{Code: 1, Message: "stars-tui: \(e.Text)"}
-		}
-		let refused = sync.NewRef[[]catalog.Refused]([]catalog.Refused{})
-		let a = actor.StartMachine(machines.Start(window.App{}, window.Opening{Rows: rows, Height: height}), 8, func(r catalog.Refused) {
-			refused.Update(func(old []catalog.Refused) []catalog.Refused { old.Append(r) })
-		})
-		let mut d = tui.NewWith(s, a, window.View, 64, options()) catch {
-		case ui.BadPatch as b:
-			return os.Exit{Code: 1, Message: "stars-tui: \(b.Why)"}
+		tui.Headless(Cols, Lines, func(s go.Ref[screen.Screen]) fails os.Exit needs Scheduler | go.Foreign {
+			let refused = sync.NewRef[[]catalog.Refused]([]catalog.Refused{})
+			let a = actor.StartMachine(machines.Start(window.App{}, window.Opening{Rows: rows, Height: height}), 8, func(r catalog.Refused) {
+				refused.Update(func(old []catalog.Refused) []catalog.Refused { old.Append(r) })
+			})
+			let mut d = tui.NewWith(s, a, window.View, 64, options()) catch {
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "stars-tui: \(b.Why)"}
+			case tui.ScreenFailed as e:
+				return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
+			}
+			try follow(&d)
+			for line in strings.Split(text, "\n") {
+				let l = strings.TrimSuffix(line, "\r")
+				if l == "" || strings.HasPrefix(l, "#") {
+					continue
+				}
+				let c = script.Parse(l) catch {
+				case script.BadLine as b:
+					out.Println("? " + catalog.Quote(b.Text) + ": want " + b.Want)
+					continue
+				}
+				match c {
+				case script.Show:
+					let g = catalog.GridOf(tui.StateOf(&d))
+					for t in script.Shown(tui.Screen(&d), script.Window{Top: g.Top, Height: g.Height}) {
+						out.Println(t)
+					}
+				case script.Send as m:
+					send(&d, s, m.Signal) catch {
+					case ui.NoNode as x:
+						out.Println("? no node " + x.Label)
+					case ui.Ambiguous as amb:
+						out.Println("? " + amb.At + " finds \(amb.Count) nodes")
+					case ui.Mismatch as miss:
+						out.Println("? want " + miss.Want + ", got " + miss.Got)
+					case ui.Closed, actor.Stopped:
+						return os.Exit{Code: 1, Message: "stars-tui: the app stopped"}
+					case ui.BadPatch as b:
+						return os.Exit{Code: 1, Message: "stars-tui: the view's patch did not apply: " + b.Why}
+					case tui.ScreenFailed as e:
+						return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
+					}
+					try follow(&d)
+					for r in refused.Get() {
+						out.Println(script.Refusal(r))
+					}
+					refused.Set([]catalog.Refused{})
+				}
+			}
+			a.Stop()
+		}) catch {
+		case os.Exit as x:
+			return x
 		case tui.ScreenFailed as e:
 			return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
-		}
-		try follow(&d)
-		for line in strings.Split(text, "\n") {
-			let l = strings.TrimSuffix(line, "\r")
-			if l == "" || strings.HasPrefix(l, "#") {
-				continue
-			}
-			let c = script.Parse(l) catch {
-			case script.BadLine as b:
-				out.Println("? " + catalog.Quote(b.Text) + ": want " + b.Want)
-				continue
-			}
-			match c {
-			case script.Show:
-				let g = catalog.GridOf(tui.StateOf(&d))
-				for t in script.Shown(tui.Screen(&d), script.Window{Top: g.Top, Height: g.Height}) {
-					out.Println(t)
-				}
-			case script.Send as m:
-				send(&d, s, m.Signal) catch {
-				case ui.NoNode as x:
-					out.Println("? no node " + x.Label)
-				case ui.Ambiguous as amb:
-					out.Println("? " + amb.At + " finds \(amb.Count) nodes")
-				case ui.Mismatch as miss:
-					out.Println("? want " + miss.Want + ", got " + miss.Got)
-				case ui.Closed, actor.Stopped:
-					return os.Exit{Code: 1, Message: "stars-tui: the app stopped"}
-				case ui.BadPatch as b:
-					return os.Exit{Code: 1, Message: "stars-tui: the view's patch did not apply: " + b.Why}
-				case tui.ScreenFailed as e:
-					return os.Exit{Code: 1, Message: "stars-tui: \(e.Why)"}
-				}
-				try follow(&d)
-				for r in refused.Get() {
-					out.Println(script.Refusal(r))
-				}
-				refused.Set([]catalog.Refused{})
-			}
-		}
-		a.Stop()
-		s.Quit() catch {
-		// ergo-lint-disable-next-line silent-catch -- the run is over; Quit restores the terminal as far as it can, and nothing is left to tell
-		case go.Error:
 		}
 	}
 }

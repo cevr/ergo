@@ -117,6 +117,14 @@ func (b *irBuilder) rawCall(x *syntax.CallExpr) ([]*irStmt, *irExpr) {
 // call with effects.
 func (b *irBuilder) callParts(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
 	c := b.l.info.Calls[x]
+	if ids := b.heldOperands(x, c); len(ids) != 0 {
+		return b.heldCall(x, c, stmt, ids)
+	}
+	return b.callPartsRaw(x, stmt)
+}
+
+func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr, bool) {
+	c := b.l.info.Calls[x]
 	if c == nil {
 		irNo("call without a Calls entry")
 	}
@@ -269,7 +277,7 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 		irNo("call without a function")
 	case check.GoBuiltin(f) != "":
 		return b.goBuiltinCall(x, c, f, p, stmt) // ir_builtin.go
-	case userExtern(f), f.Pkg != nil && f.Pkg.Host():
+	case f.CallsGo():
 		// A function of a Go package: an extern whose target is in
 		// Go's library, or one read from its binding (import go;
 		// gostd's runtime.NumCPU). The emitter calls its Go target

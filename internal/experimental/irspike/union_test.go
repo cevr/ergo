@@ -14,7 +14,7 @@ import (
 
 // unionFuncs are GenerateUnion's functions: each gets an IR body in every
 // seed.
-var unionFuncs = append([]string{"mk", "flip", "weight", "name", "pick", "count", "firstB", "all", "build", "sum", "depth", "classify", "code", "stretch", "meters"}, treeFuncs...)
+var unionFuncs = append([]string{"mk", "flip", "weight", "name", "pick", "count", "firstB", "all", "build", "sum", "depth", "classify", "code", "stretch", "meters", "ab", "widen", "fetchU", "got", "gotN", "lost", "widenLost"}, treeFuncs...)
 
 // TestIRUnionsMatchSource is IRG3's agreement property: for generated
 // union programs (GenerateUnion), the IR path and the source path print

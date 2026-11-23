@@ -175,9 +175,10 @@ func (l *lowerer) locate(n syntax.Node, pos syntax.Pos) (path string, line, colu
 
 // find is locate's location, or false for a node no file holds.
 func (l *lowerer) find(n syntax.Node, pos syntax.Pos) (path string, line, column int, ok bool) {
-	if _, ok := l.sourceOf(n); ok {
-		_, path, line, column = l.at(n, pos)
-		return path, line, column, true
+	if i, ok := l.sourceOf(n); ok {
+		sf := l.srcs[i]
+		line, column = sf.file.Position(pos)
+		return sf.path, line, column, true
 	}
 	sf, ok := l.stdFileOf(n)
 	if !ok || n == nil {
@@ -361,12 +362,12 @@ func (l *lowerer) eachStdLet(f func(stdLet)) {
 	}
 }
 
-// inStdPkg runs f guarded, with p's Info and stdLets set.
+// inStdPkg runs f guarded, with p's checked facts.
 func (l *lowerer) inStdPkg(p *check.Package, f func()) {
 	l.guard(func() {
-		saved, savedStd := l.info, l.stdLets
-		l.info, l.stdLets = p.Info, true
-		defer func() { l.info, l.stdLets = saved, savedStd }()
+		saved := l.info
+		l.info = p.Info
+		defer func() { l.info = saved }()
 		f()
 	})
 }

@@ -106,77 +106,76 @@ func headless(o opts) fails os.Exit needs Ambient | go.Foreign {
 	}
 	let out = io.NewHost()
 	with context { Scheduler: time.NewManual(0), feed.Sensors: synth.Bank{Seed: o.seed} } {
-		let s = screen.Headless(Cols, Lines) catch {
-		case go.Error as e:
-			return os.Exit{Code: 1, Message: "dash-tui: \(e.Text)"}
-		}
-		let notes = sync.NewRef[[]feed.Notice]([]feed.Notice{})
-		let a = actor.StartMachine(machines.Start(dash.App{}, feed.NewBoard()), 8, func(ns []feed.Notice) {
-			notes.Update(func(old []feed.Notice) []feed.Notice {
-				let mut all = old
-				for n in ns {
-					all = all.Append(n)
-				}
-				all
+		tui.Headless(Cols, Lines, func(s go.Ref[screen.Screen]) fails os.Exit needs Scheduler | feed.Sensors | go.Foreign {
+			let notes = sync.NewRef[[]feed.Notice]([]feed.Notice{})
+			let a = actor.StartMachine(machines.Start(dash.App{}, feed.NewBoard()), 8, func(ns []feed.Notice) {
+				notes.Update(func(old []feed.Notice) []feed.Notice {
+					let mut all = old
+					for n in ns {
+						all = all.Append(n)
+					}
+					all
+				})
 			})
-		})
-		let mut d = tui.New(s, a, dash.View, 8) catch {
-		case ui.BadPatch as b:
-			return os.Exit{Code: 1, Message: "dash-tui: \(b.Why)"}
+			let mut d = tui.New(s, a, dash.View, 8) catch {
+			case ui.BadPatch as b:
+				return os.Exit{Code: 1, Message: "dash-tui: \(b.Why)"}
+			case tui.ScreenFailed as e:
+				return os.Exit{Code: 1, Message: "dash-tui: \(e.Why)"}
+			}
+			tui.FrameEvery(&d, script.Period)
+			try run(&d, o.frames, notes, out)
+			for line in strings.Split(input, "\n") {
+				let l = strings.TrimSuffix(line, "\r")
+				if l == "" || strings.HasPrefix(l, "#") || l == "shot" {
+					continue
+				}
+				let words = strings.Split(l, " ")
+				match words[0] {
+				case "frames":
+					let n = strconv.Atoi(if len(words) == 2 { words[1] } else { "" }) catch {
+					case strconv.Malformed, strconv.OutOfRange:
+						out.Println("? \"" + l + "\": want frames N")
+						continue
+					}
+					if n < 0 {
+						out.Println("? \"" + l + "\": want frames N")
+						continue
+					}
+					try run(&d, n, notes, out)
+				case "tap":
+					tui.Play(&d, []ui.Act{ui.TapOn{Label: strings.TrimPrefix(l, "tap ")}}) catch {
+					case ui.NoNode as x:
+						out.Println("? no node " + x.Label)
+					case ui.Ambiguous as amb:
+						out.Println("? " + amb.At + " finds \(amb.Count) nodes")
+					case ui.Mismatch as miss:
+						out.Println("? want " + miss.Want + ", got " + miss.Got)
+					case ui.Closed, actor.Stopped:
+						return os.Exit{Code: 1, Message: "dash-tui: the app stopped"}
+					case ui.BadPatch as b:
+						return os.Exit{Code: 1, Message: "dash-tui: the view's patch did not apply: " + b.Why}
+					case tui.ScreenFailed as e:
+						return os.Exit{Code: 1, Message: "dash-tui: \(e.Why)"}
+					}
+				case "show":
+					for t in script.Texts(tui.Screen(&d)) {
+						out.Println(t)
+					}
+				case _:
+					out.Println("? \"" + l + "\": want frames, tap, show or shot")
+				}
+			}
+			// The board's queues are made fresh each frame and never ended, so
+			// the app's step cannot fail with queue.Closed.
+			a.Stop() catch {
+			case queue.Closed:
+			}
+		}) catch {
+		case os.Exit as x:
+			return x
 		case tui.ScreenFailed as e:
 			return os.Exit{Code: 1, Message: "dash-tui: \(e.Why)"}
-		}
-		tui.FrameEvery(&d, script.Period)
-		try run(&d, o.frames, notes, out)
-		for line in strings.Split(input, "\n") {
-			let l = strings.TrimSuffix(line, "\r")
-			if l == "" || strings.HasPrefix(l, "#") || l == "shot" {
-				continue
-			}
-			let words = strings.Split(l, " ")
-			match words[0] {
-			case "frames":
-				let n = strconv.Atoi(if len(words) == 2 { words[1] } else { "" }) catch {
-				case strconv.Malformed, strconv.OutOfRange:
-					out.Println("? \"" + l + "\": want frames N")
-					continue
-				}
-				if n < 0 {
-					out.Println("? \"" + l + "\": want frames N")
-					continue
-				}
-				try run(&d, n, notes, out)
-			case "tap":
-				tui.Play(&d, []ui.Act{ui.TapOn{Label: strings.TrimPrefix(l, "tap ")}}) catch {
-				case ui.NoNode as x:
-					out.Println("? no node " + x.Label)
-				case ui.Ambiguous as amb:
-					out.Println("? " + amb.At + " finds \(amb.Count) nodes")
-				case ui.Mismatch as miss:
-					out.Println("? want " + miss.Want + ", got " + miss.Got)
-				case ui.Closed, actor.Stopped:
-					return os.Exit{Code: 1, Message: "dash-tui: the app stopped"}
-				case ui.BadPatch as b:
-					return os.Exit{Code: 1, Message: "dash-tui: the view's patch did not apply: " + b.Why}
-				case tui.ScreenFailed as e:
-					return os.Exit{Code: 1, Message: "dash-tui: \(e.Why)"}
-				}
-			case "show":
-				for t in script.Texts(tui.Screen(&d)) {
-					out.Println(t)
-				}
-			case _:
-				out.Println("? \"" + l + "\": want frames, tap, show or shot")
-			}
-		}
-		s.Quit() catch {
-		// ergo-lint-disable-next-line silent-catch -- the run is over; nothing is left to tell
-		case go.Error:
-		}
-		// The board's queues are made fresh each frame and never ended, so
-		// the app's step cannot fail with queue.Closed.
-		a.Stop() catch {
-		case queue.Closed:
 		}
 	}
 }

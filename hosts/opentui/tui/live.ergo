@@ -29,10 +29,7 @@ func sayLive[E](s go.Ref[screen.Screen], n ui.Node[E]) fails ScreenFailed needs 
 	match n {
 	case ui.LiveNode as l:
 		if l.Text != "" {
-			s.Notify(l.Text) catch {
-			case go.Error as e:
-				return ScreenFailed{Why: e.Text}
-			}
+			try notify(s, l.Text)
 		}
 	case _:
 	}

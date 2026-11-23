@@ -3,13 +3,16 @@ package irspike
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
 // TestIRGetMatchesSource is the seeded property over matches on m.Get(k)
 // (F7 lane B, GenerateGetMatch): each program prints the same under both
 // lowerings, and every function whose match the lowering reads with the
-// comma-ok form has an IR body. A failing seed prints the Ergo source,
+// comma-ok form has an IR body, as have the prelude's Append, Put, Get
+// and Take, which its main calls (CENSUS-TAIL-2, ir_intrinsic.go). A failing seed prints the Ergo source,
 // both outcomes and its replay command.
 //
 // It builds Go because the IR's comma-ok read is typed by the patched
@@ -38,6 +41,11 @@ func TestIRGetMatchesSource(t *testing.T) {
 		got := map[string]bool{}
 		for _, f := range rep.IR {
 			got[f] = true
+		}
+		for _, f := range []string{"Append", "Put", "Get", "Take"} {
+			if !slices.ContainsFunc(rep.IR, func(n string) bool { return n == f || strings.HasPrefix(n, f+"_") }) {
+				t.Errorf("seed %d: the prelude's %s has no IR body (IR bodies: %v)\n%s", seed, f, rep.IR, replay)
+			}
 		}
 		for i, s := range shapes {
 			if f := "f" + itoa(uint64(i)); s.Fused() && !got[f] {

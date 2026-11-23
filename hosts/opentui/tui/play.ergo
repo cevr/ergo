@@ -8,7 +8,7 @@ import actor
 import go ergo.local/prototype/hosts/opentui/screen
 import ui
 
-// Drain feeds the screen's queued input to d.
+// Drain feeds the screen's queued input to d, with Feed's failures.
 func Drain[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for {
 		let next = d.s.Take()
@@ -19,7 +19,7 @@ func Drain[E comparable, S, D, F](d mut Driver[S, E, D, F]) fails ui.Closed | ac
 	}
 }
 
-// Send feeds the terminal bytes b to the screen, then d.
+// Send feeds the terminal bytes b to the screen, then d, with Feed's failures.
 func Send[E comparable, S, D, F](d mut Driver[S, E, D, F], b string) fails ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	d.s.Feed(b)
 	if b == "\x1b" {
@@ -198,7 +198,8 @@ func typeInto[E comparable, S, D, F](d mut Driver[S, E, D, F], id ui.Id[E], labe
 // history and send URLChanged, as ui.TestHost does. PointOn sends the
 // mouse bytes of its pointer event at the Area (pointOn); ScrollOn
 // scrolls the list to its offset (its height is the screen's, which the
-// list reports). AdvanceBy moves the frames' time (Advance).
+// list reports). AdvanceBy moves the frames' time (Advance). Play adds
+// ui.NoNode, ui.Ambiguous, and ui.Mismatch to the failures of Feed.
 func Play[E comparable, S, D, F](d mut Driver[S, E, D, F], script []ui.Act) fails ui.NoNode | ui.Ambiguous | ui.Mismatch | ui.Closed | actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	for act in script {
 		match act {

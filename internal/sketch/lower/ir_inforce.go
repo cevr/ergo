@@ -23,10 +23,9 @@ func (b *irBuilder) inForce(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irSt
 		irNo("InForce in a pure function") // InForce needs R: the checker gives its caller an environment
 	}
 	copier := b.spelling(b.fc.heldArg(c.TypeArgs[0]))
-	env := b.l.env()
-	snap := b.temp("held", env, p)
+	snap := b.temp("held", b.envValue(), p)
 	pre := []*irStmt{{K: "def", Pos: p, Local: snap, X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: b.env}}}}
-	e := b.temp("e", "*"+env, p)
+	e := b.temp("e", b.envPointer(), p)
 	r := b.temp("r", copier, p)
 	held := &irExpr{K: "local", Pos: p, I: snap}
 	lit := &irExpr{K: "func", Pos: p, T: b.sigType(&check.Signature{}, x), Params: []int{e}}

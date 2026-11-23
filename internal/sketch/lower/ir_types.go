@@ -37,8 +37,10 @@ func (b *irBuilder) admit(t check.Type, depth int) {
 	}
 	switch t := t.(type) {
 	case *check.Basic:
+		// uintptr is Go's own, which the decoder resolves in Go's
+		// universe as any other basic type (CENSUS-TAIL-2: math.ToUintptr).
 		switch t.Kind {
-		case check.Complex64, check.Complex128, check.Uintptr, check.Invalid:
+		case check.Complex64, check.Complex128, check.Invalid:
 			irNo("basic type %s", t.Name)
 		}
 		return

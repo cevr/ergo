@@ -3,7 +3,6 @@
 package screen
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -21,7 +20,7 @@ import (
 func Open() (*Screen, error) {
 	cols, rows, err := termSize(os.Stdout)
 	if err != nil {
-		return nil, fmt.Errorf("screen: the terminal's size: %w", err)
+		return nil, fail(CallOpen, 0, fmt.Errorf("screen: the terminal's size: %w", err))
 	}
 	s, err := OpenOn(os.Stdin, os.Stdout, cols, rows)
 	if err != nil {
@@ -30,12 +29,21 @@ func Open() (*Screen, error) {
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	done := make(chan struct{})
+	watcherStopped := make(chan struct{})
 	go func() {
+		defer close(watcherStopped)
 		for {
 			select {
 			case <-winch:
-				if c, r, err := termSize(os.Stdout); err == nil {
-					_ = s.Resize(c, r)
+				c, r, err := termSize(os.Stdout)
+				if err != nil {
+					err = fail(CallResize, 0, fmt.Errorf("screen: the terminal's size: %w", err))
+				} else {
+					err = s.Resize(c, r)
+				}
+				if err != nil {
+					s.failInput(err)
+					return
 				}
 			case <-done:
 				return
@@ -46,6 +54,7 @@ func Open() (*Screen, error) {
 	s.stop = func() {
 		signal.Stop(winch)
 		close(done)
+		<-watcherStopped
 		readerStop()
 	}
 	return s, nil
@@ -59,20 +68,30 @@ func OpenOn(in, out *os.File, cols, rows int) (*Screen, error) {
 		return nil, err
 	}
 	s.live, s.in = true, in
+	err = check(CallSetup, 0)
+	setup := false
 	s.do(func() {
+		if err != nil {
+			return
+		}
 		s.calls++
 		err = ot.SessionSetupTerminal(s.ctx, s.session, ot.SessionTerminalOptions{
 			Flags:              ot.OT_TERMINAL_ALTERNATE_SCREEN | ot.OT_TERMINAL_MOUSE | ot.OT_TERMINAL_CLEAR_ON_CLOSE,
 			KittyKeyboardFlags: ot.OT_KITTY_KEYBOARD_DISAMBIGUATE,
 		})
 		if err == nil {
+			setup = true
 			err = s.pump(false)
+		} else {
+			err = fail(CallSetup, 0, err)
 		}
 	})
 	if err != nil {
-		s.live = false
-		s.Quit()
-		return nil, fmt.Errorf("screen: terminal setup: %w", err)
+		// A successful setup may already have written to the terminal.
+		// Restore it in that case, and free what newScreen made either way.
+		s.live = setup
+		_ = s.Quit()
+		return nil, fail(CallSetup, 0, fmt.Errorf("screen: terminal setup: %w", err))
 	}
 	// One reader of the input: its bytes go to the parser on the owner
 	// thread; end of input closes.
@@ -138,7 +157,7 @@ func (s *Screen) pump(untilClosed bool) error {
 		s.calls++
 		r, err := ot.SessionPump(s.ctx, s.session, now, 64)
 		if err != nil {
-			return fmt.Errorf("screen: pump: %w", err)
+			return fail(CallWrite, 0, fmt.Errorf("screen: pump: %w", err))
 		}
 		if err := s.flush(); err != nil {
 			return err
@@ -159,7 +178,7 @@ func (s *Screen) pump(untilClosed bool) error {
 			return nil
 		}
 	}
-	return errors.New("screen: the session did not settle")
+	return fail(CallWrite, 0, ErrUnsettled)
 }
 
 // restore closes the session and writes the terminal's restoration
@@ -167,7 +186,7 @@ func (s *Screen) pump(untilClosed bool) error {
 func (s *Screen) restore() error {
 	s.calls++
 	if err := ot.SessionClose(s.ctx, s.session); err != nil {
-		return fmt.Errorf("screen: close: %w", err)
+		return fail(CallQuit, 0, fmt.Errorf("screen: close: %w", err))
 	}
 	return s.pump(true)
 }
@@ -180,7 +199,7 @@ func termSize(f *os.File) (int, int, error) {
 		return 0, 0, e
 	}
 	if ws.Col == 0 || ws.Row == 0 {
-		return 0, 0, errors.New("the terminal reports a size of zero")
+		return 0, 0, ErrZeroSize
 	}
 	return int(ws.Col), int(ws.Row), nil
 }

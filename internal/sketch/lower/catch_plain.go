@@ -60,7 +60,7 @@ func (fc *funcCtx) goFailing(x syntax.Expr) bool {
 		return false
 	}
 	c := fc.l.info.Calls[call]
-	return c != nil && !check.IsUnreachable(c) && (goImportCall(c, fc.typeOf) || hostCalled(c))
+	return c != nil && (goImportCall(c, fc.typeOf) || c.Kind == check.CallFunc && c.Func.CallsGo())
 }
 
 // catchBinding is the pattern `T as e` of a one-arm catch, nil when its arm

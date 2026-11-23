@@ -70,54 +70,50 @@ func main() needs Console | Ambient | go.Foreign {
 			Console.Println("fail 0: no input")
 			return
 		}
-		let s = screen.Headless(40, 5) catch {
-		case go.Error as e:
-			Console.Println("fail 0: \(e.Text)")
-			return
-		}
-		let a = actor.StartMachine(fieldMachine(), 1, func(o int) {})
-		let mut d = tui.New(s, a, fieldView, 4) catch {
-		case ui.BadPatch as b:
-			Console.Println("fail 0: \(b.Why)")
-			return
+		tui.Headless(40, 5, func(s go.Ref[screen.Screen]) needs Console | Scheduler | go.Foreign {
+			let a = actor.StartMachine(fieldMachine(), 1, func(o int) {})
+			let mut d = tui.New(s, a, fieldView, 4) catch {
+			case ui.BadPatch as b:
+				Console.Println("fail 0: \(b.Why)")
+				return
+			case tui.ScreenFailed as e:
+				Console.Println("fail 0: \(e.Why)")
+				return
+			}
+			for i, line in strings.Split(strings.TrimSpace(text), "\n") {
+				let bytes = base64.Decode(base64.StdEncoding, strings.TrimPrefix(line, "send ")) catch {
+				case base64.Malformed:
+					Console.Println("fail \(i + 1): no base64")
+					continue
+				}
+				tui.Send(&d, bytes) catch {
+				case ui.Closed:
+					Console.Println("fail \(i + 1): closed")
+					continue
+				case actor.Stopped:
+					Console.Println("fail \(i + 1): stopped")
+					continue
+				case ui.BadPatch as b:
+					Console.Println("fail \(i + 1): \(b.Why)")
+					continue
+				case tui.ScreenFailed as e:
+					Console.Println("fail \(i + 1): \(e.Why)")
+					continue
+				}
+				let b = match tui.Number(&d, "type here") {
+				case Some[int] as n:
+					s.BoxOf(n.Value)
+				case None:
+					screen.Rect{X: -1, Y: -1, Width: 0, Height: 0}
+				}
+				let rows = s.Rows()
+				let row = if b.Y >= 0 && b.Y < len(rows) { rows[b.Y] } else { "" }
+				let c = s.Cursor()
+				Console.Println("\(strconv.Quote(tui.StateOf(&d).text))\t\(strconv.Quote(row))\t\(c.X) \(c.Y) \(c.Shown)\t\(b.X) \(b.Y) \(b.Width) \(b.Height)")
+			}
+		}) catch {
 		case tui.ScreenFailed as e:
 			Console.Println("fail 0: \(e.Why)")
-			return
-		}
-		for i, line in strings.Split(strings.TrimSpace(text), "\n") {
-			let bytes = base64.Decode(base64.StdEncoding, strings.TrimPrefix(line, "send ")) catch {
-			case base64.Malformed:
-				Console.Println("fail \(i + 1): no base64")
-				continue
-			}
-			tui.Send(&d, bytes) catch {
-			case ui.Closed:
-				Console.Println("fail \(i + 1): closed")
-				continue
-			case actor.Stopped:
-				Console.Println("fail \(i + 1): stopped")
-				continue
-			case ui.BadPatch as b:
-				Console.Println("fail \(i + 1): \(b.Why)")
-				continue
-			case tui.ScreenFailed as e:
-				Console.Println("fail \(i + 1): \(e.Why)")
-				continue
-			}
-			let b = match tui.Number(&d, "type here") {
-			case Some[int] as n:
-				s.BoxOf(n.Value)
-			case None:
-				screen.Rect{X: -1, Y: -1, Width: 0, Height: 0}
-			}
-			let rows = s.Rows()
-			let row = if b.Y >= 0 && b.Y < len(rows) { rows[b.Y] } else { "" }
-			let c = s.Cursor()
-			Console.Println("\(strconv.Quote(tui.StateOf(&d).text))\t\(strconv.Quote(row))\t\(c.X) \(c.Y) \(c.Shown)\t\(b.X) \(b.Y) \(b.Width) \(b.Height)")
-		}
-		s.Quit() catch {
-		// ergo-lint-disable-next-line silent-catch -- the run is over; nothing is left to tell
-		case go.Error:
 		}
 	}
 }

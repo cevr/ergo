@@ -358,10 +358,7 @@ func (b *irBuilder) bindCall(pre []*irStmt, x *irExpr, call *syntax.CallExpr) (_
 // (bind), never passed on raw (SP4).
 func (b *irBuilder) hostFails(x *syntax.CallExpr) bool {
 	c := b.l.info.Calls[x]
-	if c == nil || c.Kind != check.CallFunc || c.Func == nil || !c.Func.Sig.Fallible {
-		return false
-	}
-	return userExtern(c.Func) || c.Func.Pkg != nil && c.Func.Pkg.Host()
+	return c != nil && c.Kind == check.CallFunc && c.Func.CallsGo() && c.Func.Sig.Fallible
 }
 
 // bindMatch evaluates x, the match m whose arms' tails are fallible calls,

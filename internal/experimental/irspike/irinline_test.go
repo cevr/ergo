@@ -109,7 +109,7 @@ func TestIRInlineMatchesSource(t *testing.T) {
 			n    int
 			what string
 		}{
-			{lower.IRInlineOn() && lower.IRStdInlOn(), rep.StdInlined, "call in a library body was inlined"},
+			{lower.IRInlineOn(), rep.StdInlined, "call in a library body was inlined"},
 			{lower.IRInlineOn() && lower.IRDeadZeroOn(), rep.DeadZeros, "dead zero value set was dropped"},
 			{lower.IRInlineOn() && lower.IRStoreOn(), rep.StoreFields, "stored record literal was written field by field"},
 			{lower.IRDropOn() && lower.IRDropBodyOn(), rep.DropBodies, "variant with no result was the IR's"},
