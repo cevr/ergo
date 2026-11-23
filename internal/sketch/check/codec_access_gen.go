@@ -76,8 +76,6 @@ type Codec_column = column
 
 type Codec_contextComp = contextComp
 
-type Codec_contextDeps = contextDeps
-
 type Codec_contextFinding = contextFinding
 
 type Codec_contextGroup = contextGroup
@@ -1117,17 +1115,6 @@ type CodecFields_contextComp struct {
 
 func CodecFieldsOf_contextComp(v *contextComp) CodecFields_contextComp {
 	return CodecFields_contextComp{F_binds: &v.binds, F_unknown: &v.unknown, F_done: &v.done}
-}
-
-type CodecFields_contextDeps struct {
-	F_tab   **typeTable
-	F_order *[]Type
-	F_needs *map[int32]*Row
-	F_at    *map[int32]syntax.Expr
-}
-
-func CodecFieldsOf_contextDeps(v *contextDeps) CodecFields_contextDeps {
-	return CodecFields_contextDeps{F_tab: &v.tab, F_order: &v.order, F_needs: &v.needs, F_at: &v.at}
 }
 
 type CodecFields_contextFinding struct {
