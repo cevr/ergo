@@ -237,8 +237,9 @@ func callerSlot(a check.Type) *check.TypeParam {
 // goArg is the Go type argument a of the Go type parameter tp, as the
 // emitter's goArg writes it (rowslot.go): a type-kinded parameter's Go
 // type; a Slot row's (`F error`) single named error type, or error for a
-// row of none or several. A row that names a type parameter of the caller,
-// and a held row, keep the source body.
+// row of none or several; a row that is one row parameter of the caller,
+// that parameter's Go type parameter, or error when it has none. A Slot
+// row and a held row keep the source body.
 func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
 	if tp.Kind == check.KindType {
 		return b.goType(a, site)
@@ -259,11 +260,19 @@ func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) s
 	}
 	es := rowElems(ra.Row)
 	if len(es) == 1 {
-		e, named := es[0].(*check.Named)
-		if !named {
-			irNo("generic call with a row type argument of the caller")
+		switch e := es[0].(type) {
+		case *check.Named:
+			return b.goType(e, site)
+		case *check.TypeParam:
+			// The caller's row parameter: its Go type parameter, or,
+			// when it has none (an erased row), error, as the
+			// emitter's goArg falls through to it.
+			if name, ok := b.fc.params[e]; ok {
+				return b.spelling(name)
+			}
+			return "error"
 		}
-		return b.goType(e, site)
+		irNo("generic call with a row type argument of the caller")
 	}
 	return "error"
 }
