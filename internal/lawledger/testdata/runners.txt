@@ -578,6 +578,7 @@ pace Pacing.HoldKeepsValues	TestStdLawsRun
 pace QuietForwardsHolds	TestStdLawsRun
 pace RaisesFollowModel	TestStdLawsRun
 prelude AppendIsLast	TestCollLaws
+prelude CatchUndoesOrFail	none
 prelude CloneIsEqual	TestCollLaws
 prelude GetAfterDelete	TestCollLaws
 prelude GetAfterPut	TestCollLaws
@@ -587,6 +588,7 @@ prelude Hashing.EqualIsTransitive	TestStdHashingLawsRun
 prelude Hashing.EqualKeysHashEqual	none
 prelude Hashing.EqualKeysNormalEqual	TestStdHashingLawsRun
 prelude Hashing.NormalKeyIsEqual	TestStdHashingLawsRun
+prelude OrFailIsMatch	none
 prelude Random.Float64InUnit	TestRandLaws
 prelude Random.IntNInRange	TestRandLaws
 prelude SliceIsWindow	TestCollLaws
