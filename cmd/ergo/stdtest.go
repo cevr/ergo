@@ -30,6 +30,15 @@ func stdSkipsExit(stdout []byte, pkg string) error {
 	if err != nil {
 		return err
 	}
+	unexpected := unlistedStdSkips(stdout, pkg, listed)
+	if len(unexpected) == 0 {
+		return nil
+	}
+	return exitStatusError{code: 1, message: fmt.Sprintf("FAIL: %d unexpected skips in std:%s; see %s\n    %s",
+		len(unexpected), pkg, stdlib.TestRedPath, strings.Join(unexpected, "\n    "))}
+}
+
+func unlistedStdSkips(stdout []byte, pkg string, listed map[string]stdlib.TestRed) []string {
 	var unexpected []string
 	for line := range strings.SplitSeq(string(stdout), "\n") {
 		line = strings.TrimSpace(line)
@@ -42,16 +51,12 @@ func stdSkipsExit(stdout []byte, pkg string) error {
 			if red.Class == stdlib.NativeSkipClass && red.Why == line {
 				continue
 			}
-			unexpected = append(unexpected, line)
-		} else if strings.HasPrefix(line, "skip ") && !missing {
-			unexpected = append(unexpected, line)
+		} else if !strings.HasPrefix(line, "skip ") {
+			continue
 		}
+		unexpected = append(unexpected, line)
 	}
-	if len(unexpected) == 0 {
-		return nil
-	}
-	return exitStatusError{code: 1, message: fmt.Sprintf("FAIL: %d unexpected skips in std:%s; see %s\n    %s",
-		len(unexpected), pkg, stdlib.TestRedPath, strings.Join(unexpected, "\n    "))}
+	return unexpected
 }
 
 // stdTestPackage is `ergo test std:PKG`. The run is always native and
