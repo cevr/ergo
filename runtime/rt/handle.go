@@ -119,7 +119,9 @@ func (h *Handle[T]) finish(done chan struct{}) {
 		close(done)
 	}
 	p.mu.Unlock()
-	m.unlock()
+	if m != nil {
+		m.unlock()
+	}
 	waiter.wake.unpark()
 	if own := h.task.member.Load(); own != nil {
 		own.leave()
@@ -139,7 +141,9 @@ func (h *Handle[T]) join(w *Task) {
 		w.wake.park()
 	}
 	Unblock(w)
-	m.unpark()
+	if m != nil {
+		m.unpark()
+	}
 }
 
 // park parks w, the waiter, on h, and on its stop when stoppable, when w
@@ -149,6 +153,10 @@ func (h *Handle[T]) park(w *Task, stoppable bool) *member {
 	if w.member.Load() == nil {
 		return nil
 	}
+	return h.parkInDomain(w, stoppable)
+}
+
+func (h *Handle[T]) parkInDomain(w *Task, stoppable bool) *member {
 	return parkOn(w, h, nil, stoppable, h.finished)
 }
 
@@ -175,20 +183,26 @@ func (h *Handle[T]) Wait() (T, error) { return h.WaitBy(h.starter) }
 // itself detach while it is joining; the tree already names that waiter.
 // Only a different caller needs to register.
 func (h *Handle[T]) claim(w *Task) {
+	p := h.task.parent.Load()
+	if h.task.consumed || (p != w && p != nil) {
+		h.claimSlow(p, w)
+		return
+	}
+	h.consume()
+}
+
+func (h *Handle[T]) consume() {
+	h.task.consumed = true
+	h.starter = nil
+}
+
+func (h *Handle[T]) claimSlow(p, w *Task) {
 	if h.task.consumed {
 		secondWaiter()
 	}
-	h.task.consumed = true
-	h.starter = nil
-	if p := h.task.parent.Load(); p != w && p != nil {
-		h.registerWaiter(p, w)
-	}
-}
-
-// registerWaiter either registers under the current parent's lock or finds the
-// exit already published. Thus finish sees the registration or the caller
-// sees a completed handle and does not park.
-func (h *Handle[T]) registerWaiter(p, w *Task) {
+	h.consume()
+	// Either register under the current parent's lock or find the exit
+	// already published. In the latter case the caller does not park.
 	if p = h.task.lockParent(p); p != nil {
 		h.waiter.Store(w)
 		p.mu.Unlock()
@@ -221,7 +235,9 @@ func (h *Handle[T]) WaitBy(owner *Task) (T, error) {
 			owner.wake.park()
 		}
 		Unblock(owner)
-		m.unpark()
+		if m != nil {
+			m.unpark()
+		}
 		// An owner that is still not stopped left the wait because the task
 		// ended.
 		if !owner.Stopped() {
