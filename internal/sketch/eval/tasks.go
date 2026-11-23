@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -65,9 +66,10 @@ func registerTasks(t nativeTables) {
 		return v.t.val, nil
 	}
 	// task.StopAfter(t, d) (runtime/v1 TaskStopAfter): one alarm on the
-	// time.Manual the run's Scheduler is, which stops t's tree at d. A d
-	// of zero or less arms nothing. A Scheduler that is no Manual (an auto
-	// clock, a provider) is beyond the evaluator.
+	// timeline of the run's Scheduler (a time.Manual's, whose Advance
+	// fires it, or a testing.VirtualClock's, whose idle does), which stops
+	// t's tree at d. A d of zero or less arms nothing. A Scheduler with no
+	// timeline (a provider written in Ergo) is beyond the evaluator.
 	t.reads["task.StopAfter"] = "host:prelude.Task int64"
 	natives["task.StopAfter"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		v, ok := args[0].(*taskV)
@@ -83,8 +85,16 @@ func registerTasks(t nativeTables) {
 			return nil, fr.unsupported(at, "a StopAfter whose Scheduler no with of the run binds")
 		}
 		l := timelineOf(sched)
-		if l == nil || l.auto {
-			return nil, fr.unsupported(at, "a StopAfter on a Scheduler that is no time.Manual")
+		if l == nil {
+			return nil, fr.unsupported(at, "a StopAfter on a Scheduler that is no time.Manual or testing.VirtualClock")
+		}
+		if l.auto {
+			if in.sched == nil {
+				return nil, fr.unsupported(at, "a StopAfter on a testing.VirtualClock outside a scheduled run")
+			}
+			if !slices.Contains(in.sched.alarmLines, l) {
+				in.sched.alarmLines = append(in.sched.alarmLines, l)
+			}
 		}
 		a := &alarmV{tl: l, at: l.deadline(d), target: v.t, armed: true}
 		l.alarms = append(l.alarms, a)
@@ -867,23 +877,40 @@ func (l *timelineV) opCall(in *interp, fr *frame, at syntax.Node, name string, a
 // sleeper's deadline, when no task can go on (testing.VirtualClock); it
 // reports whether one moved.
 func (s *scheduler) idle() bool {
-	var best *sleeper
-	var gap time.Duration
+	var best *timelineV
+	var when, gap time.Duration
+	consider := func(l *timelineV, at time.Duration) {
+		if g := at - l.now; best == nil || g < gap {
+			best, when, gap = l, at, g
+		}
+	}
 	for _, t := range s.tasks {
 		if t.state != blocked || t.sleep == nil || !t.sleep.tl.auto || t.sleep.woke {
 			continue
 		}
-		g := t.sleep.at - t.sleep.tl.now
-		if best == nil || g < gap {
-			best, gap = t.sleep, g
+		consider(t.sleep.tl, t.sleep.at)
+	}
+	for _, l := range s.alarmLines {
+		for _, a := range l.alarms {
+			consider(l, a.at)
 		}
 	}
 	if best == nil {
 		return false
 	}
-	best.tl.now = best.at
-	best.tl.wake()
-	return true
+	if when > best.now {
+		best.now = when
+	}
+	// The instant's sleepers wake first; its alarms (StopAfter's settled
+	// alarms) fire at the next idle of the same instant, once the woken
+	// tasks ran to their next wait (rt.Virtual.AfterSettledFunc).
+	for _, sl := range best.sleepers {
+		if sl.at <= best.now {
+			best.wake()
+			return true
+		}
+	}
+	return best.fireAlarms()
 }
 
 // setV is a tasks.Set (runtime.md, G4): its members, its policy, and
