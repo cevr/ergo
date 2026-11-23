@@ -4,6 +4,8 @@
 // call's site, are docs/spec/stdlib.md's Hidden arguments.
 
 import queue
+import scope
+import strings
 import time
 
 // Go starts body as a child task of the calling task and returns at once:
@@ -14,6 +16,148 @@ import time
 // caller's. The block outlives the call, so its parameter is `escaping`
 // (196e): it captures no non-escaping function value.
 extern go ergo.local/prototype/runtime/v1.Go func Go[T own, E, R](body own func() T fails E needs R) Task[T, E] needs R
+
+// Done is a task whose block returned Value.
+type Done[T own] { Value T }
+
+// Failed is a task whose whole exit is one typed failure of its row.
+type Failed[E] { Error E }
+
+// Defected is a task that a defect ended: Reason is the defect's text, as
+// the runtime's report writes it after "panic: " (an Unreachable's
+// "unreachable at a.ergo:9:3: no route"), the text actor.Defected holds.
+type Defected { Reason string }
+
+// Exit is how a task ended: its value, its typed failure, or a defect.
+type Exit[T own, E] = Done[T] | Failed[E] | Defected
+
+// ExitOf waits for t to end, as Wait does, and is how it ended
+// (docs/spec/runtime.md, Tasks 13). It consumes t. A defect it gives as
+// Defected is contained: neither this call nor t's owner raises it again.
+// The task's exit actions have run before it returns. A stop of the
+// waiting task is Wait's: t is stopped and drained, and the waiter's exit
+// is the interruption with t's defects. A Go fatal error (out of memory, a
+// stack overflow) is no defect, and ends the program.
+func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
+	let k = exitOf(t) catch {
+	case err:
+		let _ = exitReason(t)
+		return Failed[E]{Error: err}
+	}
+	if k == 2 {
+		return Defected{Reason: exitReason(t)}
+	}
+	Done[T]{Value: exitValue(t)}
+}
+
+// exitOf waits for t and gives how it ended: 0 the block's value, 2 a
+// defect, whose text exitReason gives; a lone typed failure is its
+// failure. It consumes t, and leaves the value in it for exitValue.
+extern go ergo.local/prototype/runtime/v1.TaskExit func exitOf[T own, E](t Task[T, E]) int fails E
+
+// exitReason takes t after exitOf, on a path that gives no value (no
+// value is left in t), and is the text of the defect exitOf gave as 2,
+// else "". Every path of ExitOf takes t, so no generic release of T
+// follows it (GEN9-GAP42).
+extern go ergo.local/prototype/runtime/v1.TaskReason func exitReason[T own, E](t own Task[T, E]) string
+
+// exitValue takes the value t's block returned, after exitOf gave 0.
+extern go ergo.local/prototype/runtime/v1.TaskValue func exitValue[T own, E](t own Task[T, E]) T
+
+// DefectIsObservedOnce: a defect of a task's block reaches ExitOf as
+// Defected with the report's text, and nothing raises it again: not
+// ExitOf, not the owner's release when the law returns. A typed failure
+// is Failed, a value Done.
+law DefectIsObservedOnce(n int) {
+	let k = ((n % 3) + 3) % 3
+	let t = Go() { try ended(k, n) }
+	match ExitOf(t) {
+	case Defected as d:
+		k == 0 && strings.HasPrefix(d.Reason, "unreachable at ") && strings.HasSuffix(d.Reason, ": crash \(n)")
+	case Failed[odd] as f:
+		k == 1 && f.Error.N == n
+	case Done[int] as v:
+		k == 2 && v.Value == n
+	}
+}
+
+// odd is the typed failure DefectIsObservedOnce's block fails with.
+type odd { N int }
+
+// ended is n for k 2, the failure odd for k 1, and a defect for k 0.
+func ended(k int, n int) int fails odd {
+	if k == 0 {
+		Unreachable("crash \(n)")
+	}
+	if k == 1 {
+		return odd{N: n}
+	}
+	n
+}
+
+// crashed registers k exit actions, each pushing its mark, then raises a
+// defect.
+func crashed(k int, marks queue.Queue[int]) int {
+	for i in 0..k {
+		scope.OnExit() {
+			marks.Push(i) catch {
+			case queue.Closed:
+			}
+		}
+	}
+	Unreachable("after \(k) actions")
+}
+
+// ExitOfWaitsForCleanup: the exit actions of a task that a defect ended
+// have run when ExitOf returns: each pushed its mark before it.
+law ExitOfWaitsForCleanup(n int) {
+	let k = ((n % 4) + 4) % 4
+	let marks = queue.New[int](4)
+	let t = Go() { crashed(k, marks) }
+	match ExitOf(t) {
+	case Defected:
+		marks.Len() == k
+	case _:
+		false
+	}
+}
+
+// ExitOfAnywhere: ExitOf of a task that was returned out of the block of
+// the task that started it, and waited for elsewhere, gives the task's
+// end: the waiter is the task that calls ExitOf, not the starter.
+law ExitOfAnywhere(n int) {
+	let outer = Go() { Go() { n } }
+	let t = outer.Wait()
+	match ExitOf(t) {
+	case Done[int] as d:
+		d.Value == n
+	case _:
+		false
+	}
+}
+
+// StopOfWaiterStillInterrupts: a task that waits in ExitOf on a task that
+// sleeps forever ends when it is stopped, by the interruption, not with
+// an Exit: ExitOf never returns to it (a return would reach the
+// Unreachable, whose defect Stop raises), and the sleeper is stopped and
+// drained.
+law StopOfWaiterStillInterrupts() {
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let waiter = Go() {
+			let sleeper = Go() {
+				Scheduler.Sleep(1h)
+				0
+			}
+			let _ = ExitOf(sleeper)
+			Unreachable("ExitOf returned to a stopped waiter")
+		}
+		for m.Sleepers() == 0 {
+		}
+		waiter.Stop()
+		m.Sleepers() == 0
+	}
+}
 
 // WaitReturnsTheBlock: Wait gives the value of the task's block.
 law WaitReturnsTheBlock(n int) {

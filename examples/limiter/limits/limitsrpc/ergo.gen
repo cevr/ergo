@@ -1,0 +1,5 @@
+kind rpc
+generator ergo gen rpc
+subject limiter/limits.Limiter
+contract sha256:250bde175fb81ff064550e40c6d31e629f0ceae3f45f2ca00697a6f7e3105372
+digest sha256:f7cb7db947969dbe6a537b9e83ccd4e86724d8fe5cd0ddde54ac1d4eddcbec00

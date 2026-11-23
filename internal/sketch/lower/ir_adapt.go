@@ -96,7 +96,7 @@ func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, q v1.Param, p irPos)
 	f := b.temp("f", b.goType(s.Elem, site), p)
 	i := b.temp("i", "int", p)
 	q.Func, q.Funcs = q.Funcs, nil // each element takes the slice's shape
-	bind, lit := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, q, p)
+	bind, lit, _ := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, q, p)
 	out := b.temp("blocks", "[]"+lit.T, p)
 	mk := &irExpr{K: "builtin", Pos: p, Name: "make", T: "[]" + lit.T, Args: []*irExpr{{K: "len", Pos: p, X: &irExpr{K: "local", Pos: p, I: fs}}}}
 	body := append(bind, &irStmt{K: "store", Pos: p, X: &irExpr{K: "index", Pos: p, X: &irExpr{K: "local", Pos: p, I: out}, Y: &irExpr{K: "local", Pos: p, I: i}}, Y: lit})
@@ -109,11 +109,14 @@ func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, q v1.Param, p irPos)
 
 // adaptOperand is the adapter of e, the IR of a function value of the
 // signature sig (the operand at site), to the Go parameter q of a std
-// body, and the statements that bind e first.
-func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr) {
+// body. It returns the binding statements, the adapted value, and the
+// child environment definition for a single task callback. Each adapter
+// in a slice keeps its own child environment.
+func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr, *irStmt) {
 	shape := q.Func
 	if q.Funcs != nil {
-		return b.adaptSlice(site, e, q, p)
+		pre, slice := b.adaptSlice(site, e, q, p)
+		return pre, slice, nil
 	}
 	if b.env < 0 {
 		irNo("std call that adapts a function from a pure function")
@@ -165,6 +168,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	}
 	lit := &irExpr{K: "func", Pos: p, End: &p}
 	var params []string
+	var frame *irStmt
 	var env *irExpr = &irExpr{K: "local", Pos: p, I: b.env}
 	if task {
 		// childEnv: e := *env; e.task = t; the value runs with &e.
@@ -173,8 +177,8 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 		params = append(params, tt)
 		lit.Params = append(lit.Params, t)
 		cp := b.temp("e", b.envValue(), p)
-		lit.Body = append(lit.Body,
-			&irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: env}},
+		frame = &irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: env}}
+		lit.Body = append(lit.Body, frame,
 			&irStmt{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: cp}}, Y: &irExpr{K: "local", Pos: p, I: t}})
 		env = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "local", Pos: p, I: cp}}
 	}
@@ -214,7 +218,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 		lit.Body = append(lit.Body, bind)
 	}
 	lit.T = "func(" + strings.Join(params, ", ") + ")" + results
-	return pre, lit
+	return pre, lit, frame
 }
 
 // litCallPos is the position of the adapter's call of e, the operand at
@@ -248,9 +252,9 @@ func (b *irBuilder) litCallPos(site syntax.Node, e *irExpr, p irPos) irPos {
 // params take, in order (x's arguments, after a slice operation's
 // receiver; PORT-CALLS), x's trailing block after them; args are their IR
 // (the block last), after the receiver of an operation, which params do
-// not take (skip 1).
-func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []syntax.Expr, args []*irExpr, skip int, p irPos) []*irStmt {
-	var pre []*irStmt
+// not take (skip 1). The trailing block's child environment definition
+// is returned separately for spawn lowering.
+func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []syntax.Expr, args []*irExpr, skip int, p irPos) (pre []*irStmt, frame *irStmt) {
 	for i, q := range params {
 		if !adapted(q) {
 			continue
@@ -267,8 +271,11 @@ func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []s
 		} else {
 			site, sig = x.Trailing, b.l.info.Literals[x.Trailing]
 		}
-		bind, e := b.adaptOperand(sig, site, args[skip+i], q, p)
+		bind, e, child := b.adaptOperand(sig, site, args[skip+i], q, p)
 		pre, args[skip+i] = append(pre, bind...), e
+		if i >= len(ops) {
+			frame = child
+		}
 	}
-	return pre
+	return pre, frame
 }

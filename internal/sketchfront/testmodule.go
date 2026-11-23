@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"sync/atomic"
 
 	"ergo.local/prototype/internal/gobind"
+	"ergo.local/prototype/internal/report"
 	"ergo.local/prototype/internal/sketch/build"
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/lower"
@@ -170,7 +172,54 @@ func CheckPackagesFS(fsys FS, dirs []string, platform gobind.Platform) ([]Analys
 	if len(l.bindings) > 0 {
 		return nil, ErrNotShared
 	}
+	if l.coversModule(dirs) {
+		// Only a load of the whole module judges (check.ReportUnfed); a
+		// load of part of it decides nothing, and the bindings it leaves
+		// are neither run nor skipped.
+		l.reportUnfed(selected, out)
+	}
 	return out, nil
+}
+
+// coversModule reports whether dirs are every package of the module, so
+// that each package that imports one of them is checked in this load.
+func (l *loader) coversModule(dirs []string) bool {
+	all, err := DiscoverPackages(l.root)
+	if err != nil {
+		return false
+	}
+	for _, p := range all {
+		if !slices.Contains(dirs, p.Dir) {
+			return false
+		}
+	}
+	return true
+}
+
+// reportUnfed judges, over the packages of the module's own that this
+// load checked, the law bindings their checks left to the module
+// (check.ReportUnfed; types.md, Laws 10): a binding no named context of
+// the module feeds is a diagnostic of the package that holds it, the
+// root of its analysis in out. A package of a required module is no
+// input: its contexts feed nothing here.
+func (l *loader) reportUnfed(selected []*loadedPackage, out []Analysis) {
+	var own []*check.Package
+	for _, p := range l.order {
+		if p.mod == nil && p.pkg != nil {
+			own = append(own, p.pkg)
+		}
+	}
+	ds := check.ReportUnfed(own)
+	for i, p := range selected {
+		for _, d := range ds[p.pkg] {
+			out[i].Diagnostics = append(out[i].Diagnostics, report.Diagnostic{
+				Code:    d.Code,
+				File:    p.files[d.File].rel,
+				Message: d.Message,
+				Span:    report.Span{Offset: d.Offset, Length: d.Length, Line: d.Line, Column: d.Column},
+			})
+		}
+	}
 }
 
 // checkShared checks the package p as path, as checkAll checks it, and

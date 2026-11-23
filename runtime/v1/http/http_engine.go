@@ -5,12 +5,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -816,7 +814,7 @@ func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 		c.mu.Lock()
 		gone := c.gone
 		c.mu.Unlock()
-		if watch && gone || !s.answerOn(w, &in, c, watch) {
+		if watch && gone || !s.answer(w, &in, c, watch) {
 			e.unwatch()
 			return
 		}
@@ -839,22 +837,6 @@ func (s *httpServer) serveConn(c *httpConn, l *engineListener) {
 			return
 		}
 	}
-}
-
-// answerOn runs answer, and ends a panic of the answer's writing (an
-// invalid status) as net/http's conn.serve ends it: logged, and the
-// connection closed.
-func (s *httpServer) answerOn(w *engineResponse, in *httpIncoming, c *httpConn, watch bool) (ok bool) {
-	defer func() {
-		if err := recover(); err != nil {
-			const size = 64 << 10
-			buf := make([]byte, size)
-			buf = buf[:runtime.Stack(buf, false)]
-			log.Printf("http: panic serving %v: %v\n%s", c.RemoteAddr(), err, buf)
-			ok = false
-		}
-	}()
-	return s.answer(w, in, c, watch)
 }
 
 // engineResponse is net/http's response and chunkWriter (server.go) for

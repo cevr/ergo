@@ -402,7 +402,7 @@ func writeAlpha(w io.Writer, rows []alphaRow) error {
 
 // alphaJobs adds to jobs, for each ledger of the checkout outside them,
 // the rows that name a test of the targets: their kills count too.
-func alphaJobs(root string, jobs []Job, targetDirs []string) ([]Job, error) {
+func alphaJobs(root string, jobs []Job, targetDirs []string, notes io.Writer) ([]Job, error) {
 	names, err := listFiles(root, "-c", "--", "*testdata/mutants.json")
 	if err != nil {
 		return nil, err
@@ -412,7 +412,7 @@ func alphaJobs(root string, jobs []Job, targetDirs []string) ([]Job, error) {
 		if slices.ContainsFunc(jobs, func(j Job) bool { return filepath.Clean(j.Path) == filepath.Clean(path) }) {
 			continue
 		}
-		l, err := readLedger(path)
+		l, err := readLedger(root, path, notes)
 		if err != nil {
 			return nil, err
 		}
@@ -449,7 +449,7 @@ func targetDirsOf(root string, jobs []Job) []string {
 // ledgers, unselected).
 func runAlpha(ctx context.Context, cfg Config, jobs []Job, out, failLogs string, stdout io.Writer) error {
 	dirs := targetDirsOf(cfg.Root, jobs)
-	jobs, err := alphaJobs(cfg.Root, jobs, dirs)
+	jobs, err := alphaJobs(cfg.Root, jobs, dirs, cfg.Log)
 	if err != nil {
 		return err
 	}

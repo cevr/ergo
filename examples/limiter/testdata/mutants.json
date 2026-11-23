@@ -1,0 +1,21 @@
+{
+  "about": "Mutants of the limiter's generated RPC client, held to the limits.Limiter laws under the named contexts of loopback/tests.ergo (HUB-CLIENT-UNFED). Killers are the examples suite (examples:limiter). A hub Client that drops a field is refuted by the hub's own laws (ClientIsCall), so it has no row here.",
+  "mutants": [
+    {
+      "name": "hcu-rpc-drops-retry-after",
+      "origin": "wf10 HUB-CLIENT-UNFED",
+      "file": "examples/limiter/limits/limitsrpc/client.ergo",
+      "from": "\t\t\ttry exactLimitsLimited(e)\n\t\t\treturn e\n",
+      "to": "\t\t\ttry exactLimitsLimited(e)\n\t\t\treturn limits.Limited{RetryAfterMs: e.RetryAfterMs * 0}\n",
+      "rule": "The RPC Client is held to the limits.Limiter laws under overMemory (loopback/tests.ergo): a Client that drops Limited's RetryAfterMs on its way back is refuted by RetryAfterIsExact.",
+      "anchor": {
+        "tests": [
+          "examples:limiter"
+        ]
+      },
+      "killers": [
+        "examples:limiter"
+      ]
+    }
+  ]
+}
