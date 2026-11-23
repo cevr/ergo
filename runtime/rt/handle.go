@@ -94,9 +94,40 @@ type funcBody[T any] func(*Task) (T, error)
 func (f funcBody[T]) Run(t *Task) (T, error) { return f(t) }
 
 func (h *Handle[T]) run(b Body[T], done chan struct{}) {
-	schedStart(&h.task)
+	t := &h.task
+	schedStart(t)
+	if t.trace != nil || mappingsLive.Load() != 0 {
+		h.runObserved(b, done)
+		return
+	}
+	defer h.complete(done)
+	h.value, h.err = b.Run(t)
+}
+
+// runObserved keeps Run's trace and mapped-fault setup on the paths that
+// use them. A plain child calls the body interface directly.
+func (h *Handle[T]) runObserved(b Body[T], done chan struct{}) {
 	defer h.finish(done)
 	h.value, h.err = Run(&h.task, b.Run)
+}
+
+// complete is the ordinary child's recovery and completion boundary.
+// It only builds an exit when there is one, with the same classification
+// and stop-wins rule as Run. Finish still runs when classification panics.
+func (h *Handle[T]) complete(done chan struct{}) {
+	if p := recover(); p != nil || h.err != nil || h.task.stopped.v.Load()&(flagStopped|flagPolled) != 0 {
+		h.completeExit(done, p)
+		return
+	}
+	h.finish(done)
+}
+
+func (h *Handle[T]) completeExit(done chan struct{}, p any) {
+	defer h.finish(done)
+	if err := h.task.exitOf(h.err, p); err != nil {
+		var zero T
+		h.value, h.err = zero, err
+	}
 }
 
 // finish unlinks the task and publishes its exit by clearing the parent
