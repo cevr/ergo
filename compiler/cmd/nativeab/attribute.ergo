@@ -200,7 +200,7 @@ func recovers(seed int) bool {
 // conserves (law CellsConserveTheTree): the cells of a trace Attribute accepts sum to the
 // process tree's total, so no instruction is lost or charged twice.
 func conserves(seed int) bool {
-	conservesCase(Draw(seed))
+	traceAgrees(Draw(seed), TraceConservation)
 }
 
 // chargesStages (law RoutesChargeTheirStages): in an accepted trace, a rebuilt route B
@@ -210,7 +210,7 @@ func chargesStages(seed int) bool {
 	traceAgrees(Draw(seed), TraceStages)
 }
 
-type TraceCheck = TraceRecovery | TraceConservation | TraceStages
+type TraceCheck = TraceRecovery{} | TraceConservation{} | TraceStages{}
 type Difference { Observed string, Reference string }
 
 func traceAgrees(c Case, check TraceCheck) bool {
@@ -228,7 +228,7 @@ func traceDifference(c Case, check TraceCheck) Option[Difference] {
 		match check {
 		case TraceRecovery:
 			if r.Why != c.Truth.Refusal {
-				return Some(Difference{Observed: "refused \(r.Why) at \(r.At)", Reference: reference(c)})
+				return Some{Value: Difference{Observed: "refused \(r.Why) at \(r.At)", Reference: reference(c)}}
 			}
 		case TraceConservation:
 		case TraceStages:
@@ -239,12 +239,12 @@ func traceDifference(c Case, check TraceCheck) Option[Difference] {
 	case TraceRecovery:
 		let seen = Lines(cells)
 		if c.Truth.Refusal != "" || !slices.Equal(seen, Lines(c.Truth.Cells)) {
-			return Some(Difference{Observed: strings.Join(seen, "\n"), Reference: reference(c)})
+			return Some{Value: Difference{Observed: strings.Join(seen, "\n"), Reference: reference(c)}}
 		}
 	case TraceConservation:
 		let n = Sum(cells)
 		if n != c.Trace.Tree {
-			return Some(Difference{Observed: "cell sum \(n)", Reference: "tree total \(c.Trace.Tree)"})
+			return Some{Value: Difference{Observed: "cell sum \(n)", Reference: "tree total \(c.Trace.Tree)"}}
 		}
 	case TraceStages:
 		return stageDifference(c, cells)
@@ -277,7 +277,7 @@ func stageDifference(c Case, cells Map[string, int]) Option[Difference] {
 			want = "both parse and check"
 		}
 		if want != "" {
-			return Some(Difference{Observed: "\(p.Name) route \(p.Route) stages [\(strings.Join(st, ", "))]", Reference: want})
+			return Some{Value: Difference{Observed: "\(p.Name) route \(p.Route) stages [\(strings.Join(st, ", "))]", Reference: want}}
 		}
 	}
 	None

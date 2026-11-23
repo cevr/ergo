@@ -91,14 +91,17 @@ func reportFailure(seed int, source string, d Difference) needs io.Stdout {
 
 func reportTraceFailure(seed int, c Case) bool needs io.Stdout {
 	for check in []TraceCheck{TraceRecovery, TraceConservation, TraceStages} {
-		if !traceAgrees(c, check) {
+		match traceDifference(c, check) {
+		case Some as original:
 			let small = minimise(c, func(candidate Case) bool { !traceAgrees(candidate, check) })
 			match traceDifference(small, check) {
 			case Some as d:
 				reportFailure(seed, describe(small), d.Value)
 			case None:
+				reportFailure(seed, describe(c), original.Value)
 			}
 			return true
+		case None:
 		}
 	}
 	false
