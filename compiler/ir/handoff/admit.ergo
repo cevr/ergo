@@ -1,0 +1,83 @@
+import compiler/ir
+
+// Target is the package and compile tuple independent of the image.
+// Profile must include every output-affecting flag choice. A consumer
+// must support this tuple itself before it invokes Admit.
+type Target { Path string, GOOS string, GOARCH string, Pin string, Profile string }
+
+// Import is the identity independently observed from a compiled archive.
+// Fingerprint is the eight raw export bytes, not a hex string.
+type Import { Path string, Name string, HasInit bool, Fingerprint string }
+
+type Expect { Target Target, Imports []Import }
+type WrongTarget { Want Target, Got Target }
+type StaleImport { Path string }
+
+func name(p Image, s int, i int, c int) string { text(p, int(word(p, s, i, c))-1) }
+
+func target(p Image) Target {
+	Target{Path: name(p, ir.HPackage, 0, 0), GOOS: name(p, ir.HPackage, 0, 2),
+		GOARCH: name(p, ir.HPackage, 0, 3), Pin: name(p, ir.HPackage, 0, 4), Profile: name(p, ir.HPackage, 0, 5)}
+}
+
+// Admit matches a structurally checked image to the actual compile
+// action and ordered import closure before any compiler output is made.
+// Do not derive want from the file itself: use toolchain and archive inputs.
+func Admit(p Image, want Expect) fails WrongTarget | StaleImport {
+	let got = target(p)
+	if got != want.Target {
+		return WrongTarget{Got: got, Want: want.Target}
+	}
+	if Rows(p, ir.HImports) != len(want.Imports) {
+		return StaleImport{Path: ""}
+	}
+	for i, x in want.Imports {
+		let path = name(p, ir.HImports, i, 0)
+		if x.Path != path || x.Name != name(p, ir.HImports, i, 1) || x.HasInit != (word(p, ir.HImports, i, 2) == 1) ||
+			!sameFingerprint(p, i, x.Fingerprint) {
+			return StaleImport{Path: path}
+		}
+	}
+}
+
+func sameFingerprint(p Image, i int, fingerprint string) bool {
+	len(fingerprint) == 8 && u32(fingerprint, 0) == word(p, ir.HImports, i, 3) && u32(fingerprint, 4) == word(p, ir.HImports, i, 4)
+}
+
+law AdmissionChecksTargetAndImport(seed uint32) {
+	let p = sample(seed) catch {
+	case Malformed:
+		return false
+	}
+	let t = Target{Path: "z/tiny", GOOS: "linux", GOARCH: "amd64", Pin: "go1.27.4", Profile: "plain"}
+	let d = Import{Path: "a/dep", Name: "dep", HasInit: true, Fingerprint: "\x01\x02\x03\x04\x05\x06\x07\x08"}
+	let good = Expect{Target: t, Imports: []Import{d}}
+	Admit(p, good) catch {
+	case WrongTarget, StaleImport:
+		return false
+	}
+	let wrong = Expect{Target: Target{..t, Profile: "race"}, Imports: good.Imports}
+	let targetRefused = wrongTarget(p, wrong)
+	let stale = Expect{Target: t, Imports: []Import{Import{..d, Fingerprint: "\x01\x02\x03\x04\x05\x06\x07\x09"}}}
+	targetRefused && staleImport(p, stale)
+}
+
+func wrongTarget(p Image, w Expect) bool {
+	Admit(p, w) catch {
+	case WrongTarget as e:
+		return e.Want.Profile == "race" && e.Got.Profile == "plain"
+	case StaleImport:
+		return false
+	}
+	false
+}
+
+func staleImport(p Image, w Expect) bool {
+	Admit(p, w) catch {
+	case StaleImport as e:
+		return e.Path == "a/dep"
+	case WrongTarget:
+		return false
+	}
+	false
+}

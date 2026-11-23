@@ -1,0 +1,42 @@
+// nativehandoff verifies and identifies the canonical handoff specimen.
+// From compiler/: ergo run ./cmd/nativehandoff -- verify --seed 17.
+// Add --emit to write raw EIR bytes instead of the textual receipt.
+import compiler/ir
+import compiler/ir/handoff
+import hex
+import io
+import os
+import strconv
+
+func usage() os.Exit {
+	os.Exit{Code: 2, Message: "usage: nativehandoff verify --seed N [--emit]"}
+}
+
+func main() fails os.Exit needs Ambient {
+	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost() } {
+		let mut args = os.Process.Args()
+		if len(args) > 0 && args[0] == "--" {
+			args = args[1:len(args)]
+		}
+		if len(args) < 3 || len(args) > 4 || args[0] != "verify" || args[1] != "--seed" {
+			return usage()
+		}
+		if len(args) == 4 && args[3] != "--emit" { return usage() }
+		let seed = strconv.Atoi(args[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return usage()
+		}
+		let p = handoff.VerifyFixture(uint32(seed)) catch {
+		case handoff.Malformed as m:
+			return os.Exit{Code: 1, Message: "nativehandoff seed \(seed), section \(m.Section), row \(m.Row): \(m.Why)\nreplay: ergo run ./cmd/nativehandoff -- verify --seed \(seed)"}
+		}
+		let bytes = handoff.Encode(p)
+		if len(args) == 4 {
+			io.Stdout.Print(bytes)
+		} else {
+			io.Stdout.Println("EIR v\(ir.HandoffVersion) seed \(seed): \(len(bytes)) bytes, \(handoff.Rows(p, ir.HOps)) op rows, \(handoff.Rows(p, ir.HTypes)) type rows")
+			io.Stdout.Println("round trip: logical columns and init order agree")
+			io.Stdout.Println("sha256 \(hex.Encode(handoff.Digest(p)))")
+		}
+	}
+}
