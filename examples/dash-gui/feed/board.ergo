@@ -82,12 +82,12 @@ func Advance(b Board, w Pipes) Step fails queue.Closed needs Sensors {
 	Shown(b, f, data, dropped)
 }
 
-// Frame is Advance with no tasks: each source's samples of the frame are
+// NextFrame is Advance with no tasks: each source's samples of the frame are
 // offered, in order, to a queue of its own under its policy, as its task
 // would offer them, and the board takes what the queues kept. A view's
 // step runs it, since a step starts no task; the two agree on every frame
 // (cmd/ergo TestDashGuiAgreesWithControl runs both).
-func Frame(b Board) Step fails queue.Closed needs Sensors {
+func NextFrame(b Board) Step fails queue.Closed needs Sensors {
 	let f = b.Frame + 1
 	let mut dropped = slices.Clone(b.Dropped)
 	let mut data = [][]int{}

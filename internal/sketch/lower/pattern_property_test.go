@@ -72,7 +72,7 @@ func TestPatternMatchersAgree(t *testing.T) {
 			t.Fatalf("seed %d: the program does not build\n%s", seed, src)
 		}
 		for i, form := range []string{"table", "switch"} {
-			if strings.Contains(programs[i].mainGo(), "ergoMatchTable") != (form == "table") {
+			if strings.Contains(programs[i].mainGo(), goHelper("ergoMatchTable")) != (form == "table") {
 				t.Fatalf("seed %d: the %s form was not written", seed, form)
 			}
 			name := fmt.Sprintf("pat%d%s", seed, form)

@@ -630,13 +630,12 @@ func CodecFieldsOf_TypeName(v *TypeName) CodecFields_TypeName {
 }
 
 type CodecFields_TypeParam struct {
-	F_lang     *bool
 	F_conflict *bool
 	F_id       *int
 }
 
 func CodecFieldsOf_TypeParam(v *TypeParam) CodecFields_TypeParam {
-	return CodecFields_TypeParam{F_lang: &v.lang, F_conflict: &v.conflict, F_id: &v.id}
+	return CodecFields_TypeParam{F_conflict: &v.conflict, F_id: &v.id}
 }
 
 type CodecFields_ValueRanks struct {
@@ -1865,11 +1864,10 @@ type CodecFields_ownMarkSite struct {
 	F_name *string
 	F_tp   **TypeParam
 	F_arg  *Type
-	F_typ  *bool
 }
 
 func CodecFieldsOf_ownMarkSite(v *ownMarkSite) CodecFields_ownMarkSite {
-	return CodecFields_ownMarkSite{F_file: &v.file, F_at: &v.at, F_name: &v.name, F_tp: &v.tp, F_arg: &v.arg, F_typ: &v.typ}
+	return CodecFields_ownMarkSite{F_file: &v.file, F_at: &v.at, F_name: &v.name, F_tp: &v.tp, F_arg: &v.arg}
 }
 
 type CodecFields_ownScope struct {
@@ -1890,10 +1888,11 @@ type CodecFields_ownSlot struct {
 	F_maybe     *uint64
 	F_fieldAt   *syntax.Node
 	F_loans     *[]resourceLoan
+	F_paramFree *bool
 }
 
 func CodecFieldsOf_ownSlot(v *ownSlot) CodecFields_ownSlot {
-	return CodecFields_ownSlot{F_st: &v.st, F_at: &v.at, F_how: &v.how, F_callLoans: &v.callLoans, F_fields: &v.fields, F_maybe: &v.maybe, F_fieldAt: &v.fieldAt, F_loans: &v.loans}
+	return CodecFields_ownSlot{F_st: &v.st, F_at: &v.at, F_how: &v.how, F_callLoans: &v.callLoans, F_fields: &v.fields, F_maybe: &v.maybe, F_fieldAt: &v.fieldAt, F_loans: &v.loans, F_paramFree: &v.paramFree}
 }
 
 type CodecFields_ownState struct {
@@ -2295,10 +2294,11 @@ type CodecFields_resWalk struct {
 	F_nodes *map[int32]*taskNode
 	F_stack *[]int32
 	F_next  *int
+	F_local *map[int32]bool
 }
 
 func CodecFieldsOf_resWalk(v *resWalk) CodecFields_resWalk {
-	return CodecFields_resWalk{F_c: &v.c, F_mode: &v.mode, F_nodes: &v.nodes, F_stack: &v.stack, F_next: &v.next}
+	return CodecFields_resWalk{F_c: &v.c, F_mode: &v.mode, F_nodes: &v.nodes, F_stack: &v.stack, F_next: &v.next, F_local: &v.local}
 }
 
 type CodecFields_resolved struct {
@@ -2573,6 +2573,7 @@ type CodecFields_typeTable struct {
 	F_empty        *int32
 	F_gen          *int32
 	F_b            **lookupSteps
+	F_rowOf        *func(*Named) *Row
 	F_lookupBuilds *int
 	F_sigBuilds    *int
 	F_sortCmps     *int
@@ -2580,7 +2581,7 @@ type CodecFields_typeTable struct {
 }
 
 func CodecFieldsOf_typeTable(v *typeTable) CodecFields_typeTable {
-	return CodecFields_typeTable{F_nodes: &v.nodes, F_sizes: &v.sizes, F_empty: &v.empty, F_gen: &v.gen, F_b: &v.b, F_lookupBuilds: &v.lookupBuilds, F_sigBuilds: &v.sigBuilds, F_sortCmps: &v.sortCmps, F_work: &v.work}
+	return CodecFields_typeTable{F_nodes: &v.nodes, F_sizes: &v.sizes, F_empty: &v.empty, F_gen: &v.gen, F_b: &v.b, F_rowOf: &v.rowOf, F_lookupBuilds: &v.lookupBuilds, F_sigBuilds: &v.sigBuilds, F_sortCmps: &v.sortCmps, F_work: &v.work}
 }
 
 type CodecFields_typeWalker struct {
