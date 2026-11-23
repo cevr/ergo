@@ -306,11 +306,14 @@ func TestStdTypesBindRuntimeTypes(t *testing.T) {
 // union; Made, which an extern returns and which names no Go type, still
 // fails, since a Go body makes the value that a catch or match waits for.
 func TestRuntimeTypeRuleAdmitsOnlyWhatNoExternMakes(t *testing.T) {
-	pkg, ds := check.CheckSource("type Built { N int }\n" +
+	f, err := syntax.Parse("type Built { N int }\n" +
 		"type Made { N int }\n" +
 		"type Either = Built | Made\n" +
-		"extern go ergo.local/prototype/runtime/v1.FixtureMade func made() Made\n" +
-		"func main() { _ = made() }\n")
+		"extern go ergo.local/prototype/runtime/v1.TaskReason func made() Made\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, ds := check.StdFixture("fixture", []*syntax.File{f})
 	if len(ds) != 0 {
 		t.Fatalf("fixture: %v", ds)
 	}
