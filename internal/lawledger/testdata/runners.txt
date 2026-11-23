@@ -330,6 +330,19 @@ fstest ModeIsKept	TestFSMemoryAgreesWithHost
 fstest RemoveAllTouchesOnlyPath	TestStdLawsRun
 fstest ScratchIsRemoved	TestStdLawsRun
 fstest WalkVisitsEachOnce	TestStdLawsRun
+gen Draws.DrawBelowBound	none
+gen IntInRanksByDistance	none
+gen PropertyReportsTheShrunkAssert	none
+gen RejectedIsNotACase	none
+gen ReplayGivesTheSameDraws	none
+gen ReportNamesSeedDrawsReplay	none
+gen ShrinkIsLocallyMinimal	none
+gen ShrinkReachesTheBoundary	none
+gen ShrinkingEnds	none
+gen ShrunkStillFails	none
+gen SpanDeletesARow	none
+gen SpanDeletesAnElement	none
+gen ZeroIsSimplest	none
 fstest VolumesAreCrossDevice	TestFSMemoryAgreesWithHost
 graph ChainIsAPath	TestStdGraphLawsRun
 graph EveryCycleIsAClosedPath	TestStdGraphLawsRun
@@ -582,6 +595,7 @@ pace Pacing.HoldKeepsValues	TestStdLawsRun
 pace QuietForwardsHolds	TestStdLawsRun
 pace RaisesFollowModel	TestStdLawsRun
 prelude AppendIsLast	TestCollLaws
+prelude CatchUndoesOrFail	none
 prelude CloneIsEqual	TestCollLaws
 prelude GetAfterDelete	TestCollLaws
 prelude GetAfterPut	TestCollLaws
@@ -591,6 +605,7 @@ prelude Hashing.EqualIsTransitive	TestStdHashingLawsRun
 prelude Hashing.EqualKeysHashEqual	none
 prelude Hashing.EqualKeysNormalEqual	TestStdHashingLawsRun
 prelude Hashing.NormalKeyIsEqual	TestStdHashingLawsRun
+prelude OrFailIsMatch	none
 prelude Random.Float64InUnit	TestRandLaws
 prelude Random.IntNInRange	TestRandLaws
 prelude SliceIsWindow	TestCollLaws

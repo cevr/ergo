@@ -1,0 +1,15 @@
+{
+  "about": "Process observations that the native archive round-trip runner requires before it reports success.",
+  "mutants": [
+    {
+      "name": "accept-exit-without-completion",
+      "origin": "wf10 NATIVE-OBJECT-ROUNDTRIP (not-run-crunch)",
+      "file": "compiler/cmd/nativeobj/main.ergo",
+      "from": "\tif !strings.HasSuffix(r.Stdout, completion) {\n\t\treturn fail(\"\\(bin) exited without its final report:\\n\\(r.Stdout)\\(r.Stderr)\")\n\t}\n",
+      "to": "",
+      "rule": "An exit status of zero is not a successful native run unless the fixture reported its completion after all observations.",
+      "regenerate": {"dir": ".", "argv": ["go", "run", "./scripts/linked"]},
+      "killers": ["compiler/cmd/nativeobj:ChildExitWithoutReportFails"]
+    }
+  ]
+}

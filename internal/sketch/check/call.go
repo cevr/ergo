@@ -1399,6 +1399,38 @@ func (c *checker) builtin(x *syntax.CallExpr, b *Builtin, targ Type) operand {
 		}
 		return operand{mode: modeValue, typ: Typ[Uint64]}
 	}
+	if b.Name == TestShownName {
+		return c.shownCall(x) // harness.go
+	}
+	if b.Name == TestFileName {
+		// The test's file as the runner names it, which only a harnessed
+		// test's rewrite calls (harness.go).
+		if len(x.Args) != 0 {
+			c.silentArgs(x)
+			return bad(x)
+		}
+		return operand{mode: modeValue, typ: Typ[String]}
+	}
+	if b.Name == TestReportName {
+		// A harnessed test's failure, reported whole: only its rewrite
+		// calls it, with the harness's message (harness.go).
+		if len(x.Args) != 1 {
+			c.silentArgs(x)
+			return bad(x)
+		}
+		c.expr(x.Args[0], Typ[String])
+		return operand{mode: modeNoValue, typ: NoValue}
+	}
+	if b.Name == TestSourceName {
+		// The source path a harnessed test's replay command names, which
+		// only its rewrite calls with the test's file (harness.go).
+		if len(x.Args) != 1 {
+			c.silentArgs(x)
+			return bad(x)
+		}
+		c.expr(x.Args[0], Typ[String])
+		return operand{mode: modeValue, typ: Typ[String]}
+	}
 	if b.Name != "len" {
 		c.errorf(x, CodeType, "unknown built-in %s", b.Name)
 		return bad(x)

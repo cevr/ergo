@@ -4,7 +4,7 @@ type Coin {
 	test Toss, // want S108 "no function Toss is declared in this package"
 }
 
-type Run { Name string, Seed uint64, Site string }
+type Run { Name string, Seed uint64, Site string, Source string }
 
 type Failed { Message string }
 

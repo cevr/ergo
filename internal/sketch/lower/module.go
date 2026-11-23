@@ -401,6 +401,9 @@ type lowerer struct {
 
 	gen  strings.Builder // generated and library declarations, before any //line
 	user strings.Builder // the user package's declarations, with //line
+	// hashSeeded is whether gen holds the hash seed's declaration
+	// (hashSeed, ir_mapprovider.go).
+	hashSeeded bool
 
 	// pending holds library declarations met while lowering, emitted into
 	// gen until none is left.
@@ -497,6 +500,9 @@ type lowerer struct {
 	// program (library.go, IG11); libImports are its own imports.
 	lib        string
 	libImports []string
+	// goPackages is Unit.goPackages: lib is set, and every sourced
+	// package exports (exportsOf).
+	goPackages bool
 	// matchTest is the match tree's test hook (matchtree.go): it can force
 	// the flat lowering, the reference the match-tree property compares
 	// with, and it counts the column kinds the trees split on. Only a test
@@ -546,6 +552,9 @@ func newBuildLowerer(u Unit, tests *testLowering) *lowerer {
 	}
 	l.raw = u.Raw
 	l.lib = u.lib
+	if u.goPackages {
+		l.lib, l.goPackages = goPackagesRoot, true
+	}
 	return l
 }
 

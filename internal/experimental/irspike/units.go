@@ -144,7 +144,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"op-assignment of a scalar-form local", "G3b"},
 	{"match with patterns", "G3b"}, // the flat lowering of a tree (flatPatternMatch)
 	{"match tree *", "G3b"},
-	{"match binding of another type", "G3b"},
 	{"shared arm binding that its first leaf does not make", "G3b"},
 	{"record pattern of an unnamed type", "G3b"},
 	{"interpolated value of type *", "G3b"},
