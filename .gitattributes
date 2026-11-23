@@ -19,6 +19,7 @@ scripts/gate/fast-cpu.json merge=ergo-measured
 internal/residue/testdata/*.txt merge=ergo-lines
 internal/lawledger/testdata/runners.txt merge=ergo-lines
 internal/sketch/check/testdata/provenance-manifest.txt merge=ergo-lines
+scripts/ergotests/testdata/std-red.txt merge=ergo-lines
 # derived: generated files are made again, never merged. Git takes the
 # side that changed; when both changed, the driver keeps ours and prints
 # "regenerate":true, and the file must be made again from the merged

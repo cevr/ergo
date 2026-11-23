@@ -17,7 +17,7 @@ import (
 // never the checker:
 //
 //   - clean iff the part's underlying type is a basic type;
-//   - S109 naming #49 at the part iff it is data (a record, a union, a
+//   - S109 naming std codecs and I/O at the part iff it is data (a record, a union, a
 //     variant, a tuple, a slice, a Map) or a type parameter;
 //   - S108 at the part otherwise (a function, an operation type, a Task, a
 //     pointer);
@@ -35,8 +35,8 @@ func TestInterpolationDomain(t *testing.T) {
 				continue
 			}
 			for _, d := range diags {
-				if d.Code == check.CodeOutside && !strings.Contains(d.Message, "#49") {
-					t.Errorf("%s, %s: the S109 does not name #49: %s", tt.name, pos.name, d)
+				if d.Code == check.CodeOutside && !strings.Contains(d.Message, "derived text forms") {
+					t.Errorf("%s, %s: the S109 does not name derived text forms: %s", tt.name, pos.name, d)
 				}
 			}
 			n++

@@ -16,7 +16,7 @@ import (
 
 // CheckSchemaVersion versions the check envelope and the snapshot
 // qualification every qualified projection carries. Version 10 dropped the
-// edition field (#205); version 11 added a diagnostic's fix (Fix).
+// edition field; version 11 added a diagnostic's fix (Fix).
 const CheckSchemaVersion = 11
 
 // MaxCheckDiagnostics bounds the diagnostics a check envelope lists. The

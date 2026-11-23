@@ -1262,7 +1262,7 @@
       "name": "existing-48-stale-refusal",
       "origin": "lower-v1/receipts/s4/mutants-s4d.json",
       "file": "internal/sketch/lower/text.go",
-      "from": "waits for derived text forms (#49)\", t)",
+      "from": "waits for derived text forms\", t)",
       "to": "is lowered in lower-v1 stage 4\", t)",
       "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
       "killers": [
@@ -1273,8 +1273,8 @@
       "name": "existing-49-refusal-names-no-owner",
       "origin": "lower-v1/receipts/s4/mutants-s4d.json",
       "file": "internal/sketch/lower/text.go",
-      "from": "waits for derived text forms (#49)\", t)",
-      "to": "waits for derived text forms\", t)",
+      "from": "waits for derived text forms\", t)",
+      "to": "waits\", t)",
       "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
       "killers": [
         "lower:TestRefusalsBeforeGo",
@@ -1432,7 +1432,7 @@
       "name": "existing-58-v-refusal-as-entry-error",
       "origin": "lower-v1/verify-s4d/mutants-extra.json",
       "file": "internal/sketch/lower/text.go",
-      "from": "refuse(site, \"the text of an error type with a field of type %s waits for derived text forms (#49)\", t)",
+      "from": "refuse(site, \"the text of an error type with a field of type %s waits for derived text forms\", t)",
       "to": "entryError(site, \"main: the text of an error type with a field of type %s\", t)",
       "rule": "textTypes: textTypes walks the types whose text functions the text of t needs, in a fixed order, calling visit once for each; it refuses, at site, a type whose text is not lowered.",
       "killers": [

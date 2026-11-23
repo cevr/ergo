@@ -5,7 +5,7 @@ import "sync"
 // movesOnly is the reviewed table of generic bodies in this package that
 // only move the values of their type parameters: each value it is given
 // is stored once, handed back once, or released, and never duplicated
-// (#197 L8 A3; plan 1.3, D-B). The checker reads it through MovesOnly: an
+// (L8 A3; plan 1.3, D-B). The checker reads it through MovesOnly: an
 // extern may mark a type parameter own, [T own], only when its body is
 // listed here, so the table is the review ledger of the std marks (types.md,
 // Generics 9; MODES-5). The names are BodyOf names. A body joins the table
@@ -35,7 +35,7 @@ var movesOnly = sync.OnceValue(func() map[string]bool {
 func MovesOnly(name string) bool { return movesOnly()[name] }
 
 // running is the reviewed table of std releases that stop code still
-// running (#197 L8 B3t): a value whose release is one of them runs the
+// running (L8 B3t): a value whose release is one of them runs the
 // code it was started with, in the environment it was started in, until
 // it is released. The checker reads it through StopsRunning: such a value
 // never leaves the with whose providers its code may use (resources.md,
