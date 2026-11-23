@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"ergo.local/prototype/scripts/mutants/covfile"
 )
 
 // The gate's cache policy (gate-testcache-gap spec Q-R4-1, with its one
@@ -69,7 +71,14 @@ var stepPrograms = map[string]string{
 // (examplesCacheVariable) the examples runner's verdict cache, which keys
 // each program's pass on its inputs (GS1): each is a place the gate
 // chooses, not a selection of what runs or a Go cache or flag.
-var stepEnvironmentNames = []string{"CGO_ENABLED", "GOOS", "GOARCH", "ERGO_REPO_ROOT", "ERGO_TEST_CLI", "ERGO_CLOSURE_SWEEP", "ERGO_CLOSURE_STD_DIR", "ERGO_CLOSURE_RUN_DEADLINE", "ERGO_EXAMPLES_CACHE", "ERGO_TEST_CORPUS_GC"}
+//
+// ERGO_MUTANTS_CACHE (covfile.CacheVariable) names the mutant runner's
+// coverage store that the full tier's "coverage store backtest" step reads,
+// a place like ERGO_EXAMPLES_CACHE; ERGO_COVER_INDEX is the digest of that
+// store's index (storeIndexDigest), set only so Step.Env keys the step on
+// the store it reads, which no checkout file holds (CS-ROUND). Neither
+// selects what runs or touches a Go cache or flag.
+var stepEnvironmentNames = []string{"CGO_ENABLED", "GOOS", "GOARCH", "ERGO_REPO_ROOT", "ERGO_TEST_CLI", "ERGO_CLOSURE_SWEEP", "ERGO_CLOSURE_STD_DIR", "ERGO_CLOSURE_RUN_DEADLINE", "ERGO_EXAMPLES_CACHE", "ERGO_TEST_CORPUS_GC", covfile.CacheVariable, "ERGO_COVER_INDEX"}
 
 // timeoutDuration is the DURATION operand of timeout, written literally.
 var timeoutDuration = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?[smhd]?$`)
