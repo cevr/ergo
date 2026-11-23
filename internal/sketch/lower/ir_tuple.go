@@ -276,6 +276,19 @@ func (b *irBuilder) letTuple(spec *syntax.VarSpec, p irPos) (out []*irStmt, ok b
 	if converts && len(convs) != len(names) {
 		irNo("element conversions of another tuple")
 	}
+	locals := make([]int, len(vars))
+	for i := range locals {
+		locals[i] = -1
+	}
+	bind := func(i int, v *check.Var) {
+		if v == nil {
+			return // Go's _
+		}
+		b.part(func() { locals[i] = b.local(v, names[i]) })
+		if locals[i] < 0 {
+			b.reserve(v)
+		}
+	}
 	if n := len(out); n > 0 && readsTdef(e, out[n-1]) {
 		if converts {
 			irNo("element conversions of a Go call's results")
@@ -283,36 +296,31 @@ func (b *irBuilder) letTuple(spec *syntax.VarSpec, p irPos) (out []*irStmt, ok b
 		// The Go call's own locals are the names: `a, b := f(…)`.
 		def := out[n-1]
 		for i, v := range vars {
+			bind(i, v)
+			def.Ls[i] = locals[i]
+		}
+	} else {
+		tmp := -1
+		b.part(func() { tmp = b.temp("p", b.goType(t, x), p) })
+		out = append(out, &irStmt{K: "def", Pos: p, Local: tmp, X: e})
+		for i, v := range vars {
 			if v == nil {
-				def.Ls[i] = -1 // Go's _
 				continue
 			}
-			l := -1
-			b.part(func() { l = b.local(v, names[i]) })
-			if l < 0 {
-				b.reserve(v)
+			bind(i, v)
+			field := &irExpr{K: "field", Pos: p, Name: tupleField(i), X: &irExpr{K: "local", Pos: p, I: tmp}}
+			if converts {
+				field = b.convert(convs[i], field, x)
 			}
-			def.Ls[i] = l
+			out = append(out, &irStmt{K: "def", Pos: p, Local: locals[i], X: field})
 		}
-		return out, true
 	}
-	tmp := -1
-	b.part(func() { tmp = b.temp("p", b.goType(t, x), p) })
-	out = append(out, &irStmt{K: "def", Pos: p, Local: tmp, X: e})
+	// As in letPattern, bind all names, then register their owners in
+	// order, then release the statement's temporaries.
 	for i, v := range vars {
-		if v == nil {
-			continue
+		if locals[i] >= 0 {
+			out = append(out, b.ownLet(v, locals[i], spec, nil)...)
 		}
-		l := -1
-		b.part(func() { l = b.local(v, names[i]) })
-		if l < 0 {
-			b.reserve(v)
-		}
-		field := &irExpr{K: "field", Pos: p, Name: tupleField(i), X: &irExpr{K: "local", Pos: p, I: tmp}}
-		if converts {
-			field = b.convert(convs[i], field, x)
-		}
-		out = append(out, &irStmt{K: "def", Pos: p, Local: l, X: field})
 	}
-	return out, true
+	return append(out, b.releaseAt(spec, p)...), true
 }
