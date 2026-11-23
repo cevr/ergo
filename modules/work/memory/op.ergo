@@ -54,6 +54,10 @@ let theBase = "/w/base"
 // World is a Tool over memory providers and the handles the driver uses.
 type World { tool work.Tool, trees Cloner, vcs Vcs, registry work.Registry, clock time.Manual, disk Marked, hooks Hooks, lock Lock, runner Runner, p work.Providers }
 
+// records is the plain list of t's workspaces, as the registry keeps
+// them.
+func records(t work.Tool) []work.Workspace fails work.NoBase | work.Unkept { work.Records(try t.List(work.ListOptions{Status: false})) }
+
 // world is a fresh World: the base committed as c0, initialized; the
 // sharing Cloner refuses every clone when sharing is false.
 func world(sharing bool) World { worldWith(sharing, Map[string, string]{}, "", "") }
@@ -77,7 +81,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -89,7 +93,7 @@ law RemovingIsIdempotent(name int) {
 	case _:
 		return false
 	}
-	let purged = w.tool.List() catch {
+	let purged = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -144,7 +148,7 @@ law ReservingWithATokenTwiceIsOnce(token string, again int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -171,7 +175,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -179,7 +183,7 @@ law PurgingTouchesOneEntry() {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -233,7 +237,7 @@ law ClaimReadsTheParentAgain(replaced bool) {
 	}
 	let _ = w.tool.Claim(begun, o.On) catch {
 	case work.NoWorkspace as n:
-		let all = w.tool.List() catch {
+		let all = records(w.tool) catch {
 		case _:
 			return false
 		}
@@ -803,33 +807,44 @@ law IdleKeepsAStaleBranch(text string, archive bool, onDefault bool) {
 // RmKeepsEveryBranch: rm of a clean workspace whose head its parent
 // holds refuses (NotHeld) while a branch only it has (kind 0) or a stash
 // entry (kind 1) would go with it; a branch a remote-tracking ref holds
-// is on the remote already (kind 2), and the workspace goes.
+// is on the remote already (kind 2), and the workspace goes. The refusal
+// names the ref and commit only the workspace has; with that branch
+// checked out in place of the record's (kind 3, as a lane that switched
+// branches), it names both branches too.
 law RmKeepsEveryBranch(kind int, text string) {
 	let w = world(true)
 	let a = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
 	}
-	let k = small(kind, 3)
+	let k = small(kind, 4)
+	let mut side = ""
 	if k == 1 {
 		if !(Write(w.trees, a.Path, "stashed.txt", text) && Stash(w.vcs, a.Path)) {
 			return false
 		}
 	} else {
-		let c = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
-		if c == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", c)) {
+		side = SideCommit(w.vcs, a.Path, "side", "side.txt", text)
+		if side == "" || (k == 2 && !Write(w.trees, a.Path, ".git/refs/remotes/origin/side", side)) || (k == 3 && !Write(w.trees, a.Path, ".git/branch", "side")) {
 			return false
 		}
 	}
 	let mut refused = false
+	let mut named = k == 2
 	let _ = w.tool.Rm("a", work.RmOptions{Abandon: false, Expect: None, Tree: false}) catch {
-	case work.NotHeld:
+	case work.NotHeld as e:
 		refused = true
+		let one = len(e.Unheld) == 1 && strings.Contains(e.Why, e.Unheld[0].Ref+" at "+e.Unheld[0].Commit)
+		named = one && if k == 1 {
+			strings.HasPrefix(e.Unheld[0].Ref, "refs/stash/")
+		} else {
+			e.Unheld[0] == work.Local{Ref: "refs/heads/side", Commit: side} && (k != 3 || (e.Checkout == "side" && e.Branch == "a" && strings.Contains(e.Why, "it has side checked out, not its branch a")))
+		}
 		[]work.Removed{}
 	case _:
 		return false
 	}
-	refused == (k != 2)
+	refused == (k != 2) && named
 }
 
 // PinKeepsAWorkspace: gc -idle never takes a pinned workspace (it reports
@@ -962,7 +977,7 @@ law NoTrashDeletesForGood(viaGc bool, unsaved bool) {
 		}
 	}
 	let at = w.clock.Now().UnixSeconds()
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1053,7 +1068,7 @@ law StackRecordsItsParent(tree Map[string, string]) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1093,7 +1108,7 @@ law MadeCloneOutlivesItsMaker(text string) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1139,7 +1154,7 @@ law ActivatedCloneIsRecordedAsMade(lock string) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1186,7 +1201,7 @@ func handedHeld(w World, e Expected, h work.Handed) bool {
 // synced reports whether a sync of name that merged theirs left it
 // recorded as the workspace's base, and its head contains it.
 func synced(w World, name string, theirs string) bool {
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1206,7 +1221,7 @@ func synced(w World, name string, theirs string) bool {
 // the records in order, and the trashed ones whose name a new took again
 // (work.TrashedName; the reference's name~) by their folders.
 func agrees(w World, want []Expected, gone []string) bool {
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case work.NoBase, work.Unkept:
 		return false
 	}
@@ -1432,7 +1447,7 @@ law RmThenNewTakesTheName(name int) {
 	case _:
 		return false
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1441,7 +1456,7 @@ law RmThenNewTakesTheName(name int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1493,7 +1508,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 		}
 		ids = ids.Append(made.Id)
 	}
-	let listed = w.tool.List() catch {
+	let listed = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1508,7 +1523,7 @@ law RemovedAgainInOneSecond(name int, times int) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1859,7 +1874,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 	case _:
 		return false
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1867,7 +1882,7 @@ law DoctorPassesAGoneFolder(repair bool) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1902,7 +1917,7 @@ law DoctorHereRepairsOnlyItsOwn(at int) {
 	case _:
 		return false
 	}
-	let all = w.tool.List() catch {
+	let all = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1941,7 +1956,7 @@ law RmDropsAGoneFolder(present bool) {
 			return false
 		}
 	}
-	let before = w.tool.List() catch {
+	let before = records(w.tool) catch {
 	case _:
 		return false
 	}
@@ -1951,7 +1966,7 @@ law RmDropsAGoneFolder(present bool) {
 	case _:
 		return false
 	}
-	let after = w.tool.List() catch {
+	let after = records(w.tool) catch {
 	case _:
 		return false
 	}
