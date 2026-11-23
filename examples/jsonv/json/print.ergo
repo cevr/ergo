@@ -244,7 +244,7 @@ func escapeOf(c byte) string {
 
 // Spelling is n's text as the document wrote it (2.50 stays 2.50): std
 // json's codec form of a Num.
-func Spelling(n json.Num) string { json.Wire(n) }
+func Spelling(n json.Num) string { n.Wire() }
 
 // Quoted is s as a JSON string literal.
 func Quoted(s string) string {

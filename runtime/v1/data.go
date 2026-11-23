@@ -167,14 +167,3 @@ func UnreachableAt(reason, at string) *UnreachableDefect {
 // Never is Unreachable(reason) at at in a position that expects a value of
 // type T: it panics with UnreachableAt and returns no value.
 func Never[T any](reason, at string) T { panic(UnreachableAt(reason, at)) }
-
-// AsWritten is the body of the prelude's AsWritten: its argument. The
-// lowering knows it by its mark, never by its name: a call tree inside its
-// argument is never the root or a part of a rewrite's match
-// (lower/ir_rewrite.go; the test build's shadow is the leaf
-// runtime/v1/shadow).
-//
-//ergo:pure
-//ergo:wait none
-//ergo:aswritten
-func AsWritten[T any](v T) T { return v }

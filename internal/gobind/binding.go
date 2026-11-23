@@ -290,8 +290,14 @@ func Render(path, name, stamp, module string, decls []Decl) (string, error) {
 		for _, v := range d.Vouched {
 			body.WriteString("// ergo:reads " + v.Param + " (vouched: " + v.Reason + ")\n")
 		}
-		if d.Effect != "" {
+		switch {
+		case d.Effect != "" && d.EffectFrom != "":
+			body.WriteString("// ergo:effect none from " + d.EffectFrom + " (vouched: " + d.Effect + ")\n")
+		case d.Effect != "":
 			body.WriteString("// ergo:effect none (vouched: " + d.Effect + ")\n")
+		}
+		if d.Host != "" {
+			body.WriteString("// ergo:effect ambient (vouched: " + d.Host + ")\n")
 		}
 		if d.Total {
 			body.WriteString("// ergo:total\n")
@@ -421,7 +427,7 @@ func (c *closer) decls(path string) []Decl {
 		if p == nil {
 			continue
 		}
-		ds := Decls(p, c.facts)
+		ds := c.valueResults(path, i, Decls(p, c.facts))
 		for _, d := range ds {
 			for _, rp := range d.refPkgs {
 				c.add(i, rp)
@@ -451,6 +457,73 @@ func (c *closer) decls(path string) []Decl {
 	}
 	c.done[path] = merged
 	return merged
+}
+
+// valueResults replaces each declaration of bound's ds that ValueResults names
+// with the declaration of the function it names, under Go's name, when
+// that function's package is loaded on platform i (Bind loads HostFS with
+// os); otherwise the declaration stays Go's.
+func (c *closer) valueResults(bound string, i int, ds []Decl) []Decl {
+	q := func(p *types.Package) string { return "⟦" + p.Path() + " " + p.Name() + "⟧" }
+	for k, d := range ds {
+		via, ok := ValueResults[bound+"."+d.Name]
+		if !ok || d.Kind != Func && d.Kind != Method {
+			continue
+		}
+		path, name := splitRef(via)
+		var obj types.Object
+		if ps := c.pkgs[path]; ps != nil && ps[i] != nil {
+			obj = ps[i].Scope().Lookup(name)
+		}
+		if obj == nil {
+			continue
+		}
+		nd := mapIn(c.pkgs[bound][i], obj, nil, q, c.facts)
+		nd.Name, nd.Via = d.Name, via
+		if d.Kind == Method && nd.Refused == "" {
+			// The function takes the receiver first (S2-FILE-B): its
+			// first parameter becomes the method's receiver, under Go's
+			// method name.
+			_, method := splitRef(d.Name)
+			text, ok := asMethod(nd.Ergo, obj.Name(), method)
+			if !ok {
+				continue
+			}
+			nd.Kind, nd.Ergo = Method, text
+		}
+		ds[k] = nd
+	}
+	return ds
+}
+
+// asMethod is the Ergo text of the function fn, `func fn(r *T, rest)
+// …`, as the method `func (r *T) method(rest) …` (S2-FILE-B); ok is false
+// for a text of another shape (no parameter, a type parameter).
+func asMethod(text, fn, method string) (string, bool) {
+	head := "func " + fn + "("
+	rest, ok := strings.CutPrefix(text, head)
+	if !ok {
+		return "", false
+	}
+	depth := 0
+	for i, r := range rest {
+		switch r {
+		case '(', '[', '{':
+			depth++
+		case ']', '}':
+			depth--
+		case ')':
+			if depth == 0 {
+				return "func (" + rest[:i] + ") " + method + "()" + rest[i+1:], i > 0
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return "func (" + rest[:i] + ") " + method + "(" + strings.TrimPrefix(rest[i+1:], " "), true
+			}
+		}
+	}
+	return "", false
 }
 
 func splitRef(ref string) (path, name string) {

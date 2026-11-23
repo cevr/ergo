@@ -37,7 +37,7 @@ func newHost(t *testing.T) host {
 		}
 	}
 	for _, ws := range []string{"ws-crit", "ws-lane"} {
-		if out, err := exec.Command("git", "init", "-q", filepath.Join(d, ws)).CombinedOutput(); err != nil {
+		if out, err := exec.Command("git", "--no-optional-locks", "init", "-q", filepath.Join(d, ws)).CombinedOutput(); err != nil {
 			t.Fatalf("git init: %v %s", err, out)
 		}
 	}

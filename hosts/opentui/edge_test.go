@@ -36,7 +36,8 @@ func edgeScroll(offset, height, content, y float64) float64 {
 // calls Go (go.Foreign): no in-process check runs it, and hostagree is the
 // program that does.
 //
-// Mutant: an Area edge-scrolls only a list, never a plain Scroll.
+// Mutant OT5-edge-scroll-plain-scroll-still: an Area scrolls at its edge
+// only a list, never a plain Scroll.
 func TestPlainScrollEdges(t *testing.T) {
 	bin, err := build("hostagree", "./cmd/hostagree")
 	if err != nil {
