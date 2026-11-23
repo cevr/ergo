@@ -25,6 +25,9 @@ func NewDriver(disk fstest.Memory, text string, status int, version string) Driv
 	Driver{disk: disk, text: text, status: status, version: version, ran: sync.NewRef([]string{})}
 }
 
+// Env is empty: the fake runs nothing (exec.Runner.Env).
+func Env(_ Driver) Map[string, string] { Map[string, string]{} }
+
 func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	if StatesItsStatus(c) {
 		return exec.NotFound{Name: c.Name}

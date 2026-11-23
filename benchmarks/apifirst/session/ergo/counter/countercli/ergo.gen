@@ -1,0 +1,5 @@
+kind cli
+generator ergo gen cli
+subject sessionbench/counter.Counter
+contract sha256:e77eb8a32baf682d1375d3528c719428331b18b41b5a0678e09b7de46f9a6d26
+digest sha256:9bfbd3a7522bbaba71093c56bd8ea5f6363fa53297c7b5cd6702e1890e48c89e

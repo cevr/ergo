@@ -207,7 +207,7 @@ func checkAlpha(t *testing.T, seed uint64) {
 	}
 	for pass := 1; pass <= 2; pass++ {
 		judged = 0
-		l, err := readLedger(ledger)
+		l, err := readLedger(repo, ledger, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

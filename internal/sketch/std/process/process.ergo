@@ -1,0 +1,323 @@
+// Package process runs a block as a process: a child task whose end is
+// one typed value, never the caller's crash (docs/spec/stdlib.md, Process).
+// A defect of the block is the typed failure Crashed, and a block that
+// outlives its time limit is stopped, its cleanup run, and fails OverTime.
+// It is plain Ergo over task.Go, task.ExitOf and timeout.After.
+
+import queue
+import scope
+import strings
+import task
+import time
+import timeout
+
+// Limits bound one process. A zero field is no bound. Build one from
+// Unlimited, so a bound added later leaves the literal valid:
+// process.Limits{..process.Unlimited, Time: 2s}.
+type Limits {
+	// Time is the longest the block may run, on the Scheduler.
+	Time duration,
+}
+
+// Unlimited is the Limits with no bound.
+let Unlimited = Limits{Time: 0s}
+
+// OverTime is the failure of a process stopped at its time limit, Limit.
+type OverTime { Limit duration }
+
+// Crashed is the failure of a process that a defect ended: Reason is the
+// defect's text, as the runtime's report writes it after "panic: " (an
+// Unreachable's "unreachable at a.ergo:9:3: no route").
+type Crashed { Reason string }
+
+// Exit is how a process ended other than by its block's value or typed
+// failure: a limit or a crash.
+type Exit = OverTime | Crashed
+
+// Run runs f as a child task of the caller under l and gives its value.
+// It fails with f's typed failure, OverTime when l.Time passes first, and
+// Crashed when a defect ends f. Every exit action and task of f has ended
+// before Run returns, on every path. A stop of the caller stops f and is
+// the caller's interruption, never an Exit. A Go fatal error in f (out of
+// memory, a stack overflow) is no defect, and ends the program. A is not
+// own: a generic body cannot yet release a resource value it drops
+// (GEN9-GAP42), so a block gives plain data.
+func Run[A, E, R](l Limits, f own func() A fails E needs R) A fails E | OverTime | Crashed needs R | Scheduler {
+	let t = task.Go() { try settle(l, f) }
+	match task.ExitOf(t) {
+	case task.Done[attempt[A, E]] as d:
+		match d.Value {
+		case gave[A] as g:
+			g.Value
+		case raised[E] as r:
+			return r.Error
+		}
+	case task.Failed[timeout.Expired]:
+		return OverTime{Limit: l.Time}
+	case task.Defected as c:
+		return Crashed{Reason: c.Reason}
+	}
+}
+
+// attempt is f's end as a value: its value or its typed failure. It
+// keeps f's own failures apart from the time limit's timeout.Expired,
+// which f may fail with too.
+type attempt[A, E] = gave[A]{Value A} | raised[E]{Error E}
+
+// settle runs f under l's time limit, on the process's task.
+func settle[A, E, R](l Limits, f own func() A fails E needs R) attempt[A, E] fails timeout.Expired needs R | Scheduler {
+	if l.Time > 0s {
+		return try timeout.After(l.Time) { tried(f) }
+	}
+	tried(f)
+}
+
+// tried is f's end as an attempt.
+func tried[A, E, R](f own func() A fails E needs R) attempt[A, E] needs R {
+	let v = f() catch {
+	case err:
+		return raised[E]{Error: err}
+	}
+	gave[A]{Value: v}
+}
+
+// Runner is the contract of a process provider: Play runs a script, data
+// that says what a process's block does, under limits, and reports how it
+// ended. Local runs it in this program's task tree with Run; a provider
+// that runs it in another OS process meets the same laws.
+type Runner {
+	// Play runs s as a process under l, its waits and time limit on the
+	// Scheduler on (an argument: an operation writes no capability row,
+	// types.md Capabilities 4). Cleaned in the report counts the exit
+	// actions of s that ran before Play returned.
+	Play(l Limits, s Script, on Scheduler) Report,
+
+	// ValueOrFailurePasses: a block that ends with its value or its typed
+	// failure, under no limit, ends the process the same way, after its
+	// exit actions.
+	law ValueOrFailurePasses(v int, failing bool, k int) {
+		let n = small(k)
+		let end End = if failing { Fails{Code: v} } else { Gives{Value: v} }
+		let r = Play(Unlimited, Script{Cleanups: n, Waits: 0ns, End: end}, time.NewManual(0))
+		let same = match r.Ended {
+		case Gives as g:
+			!failing && g.Value == v
+		case Fails as f:
+			failing && f.Code == v
+		case _:
+			false
+		}
+		same && r.Cleaned == n
+	},
+
+	// DefectIsCrashed: a defect of the block ends the process with
+	// Crashed, whose reason is the runtime report's text of the defect,
+	// after the exit actions; the caller goes on.
+	law DefectIsCrashed(text string, k int) {
+		let n = small(k)
+		let r = Play(Unlimited, Script{Cleanups: n, Waits: 0ns, End: Panics{Text: text}}, time.NewManual(0))
+		agrees(r, Report{Ended: Crashed{Reason: text}, Cleaned: n})
+	},
+
+	// TimeIsExpired: on a manual clock, a block that waits w ms under a
+	// limit of t ms gives its value when w < t, and fails OverTime at t,
+	// its exit actions run, when w > t (time is the input; a tie is
+	// either).
+	law TimeIsExpired(w int, t int, k int) {
+		let wait = 1 + ((w % 20) + 20) % 20
+		let limit = 1 + ((t % 20) + 20) % 20
+		let n = small(k)
+		let l = Limits{..Unlimited, Time: time.Times(1ms, limit)}
+		let r = timed(func(on Scheduler) Report needs Runner { Play(l, Script{Cleanups: n, Waits: time.Times(1ms, wait), End: Gives{Value: 1}}, on) })
+		let gave = agrees(r, Report{Ended: Gives{Value: 1}, Cleaned: n})
+		let over = agrees(r, Report{Ended: OverTime{Limit: l.Time}, Cleaned: n})
+		r.Cleaned == n && (if wait < limit { gave } else if wait > limit { over } else { gave || over })
+	},
+
+	// CleanupRunsBeforeReturn: whatever ends the process (value, failure,
+	// defect, time limit), every exit action its block registered has run
+	// when Play returns.
+	law CleanupRunsBeforeReturn(kind int, k int) {
+		let n = small(k)
+		let c = ((kind % 4) + 4) % 4
+		let end End = if c == 0 { Gives{Value: 1} } else if c == 1 { Fails{Code: 1} } else { Panics{Text: "x"} }
+		let wait = if c == 3 { 5ms } else { 0ns }
+		let l = Limits{..Unlimited, Time: 2ms}
+		let r = timed(func(on Scheduler) Report needs Runner { Play(l, Script{Cleanups: n, Waits: wait, End: end}, on) })
+		r.Cleaned == n
+	},
+
+	// ModelAgrees: a seeded run of scripts, each under drawn limits, gives
+	// the reports a fold over the scripts gives, in order: the process's
+	// end and its cleanup count, and no process is left over to move the
+	// next one's end.
+	law ModelAgrees(seed int) {
+		let mut x = ((seed % 2147483647) + 2147483647) % 2147483647
+		let mut want = 0
+		let mut got = 0
+		let mut agree = true
+		for _ in 0..8 {
+			x = next(x)
+			let s = drawn(x)
+			x = next(x)
+			let l = drawnLimits(x, s)
+			let r = timed(func(on Scheduler) Report needs Runner { Play(l, s, on) })
+			let m = expected(l, s)
+			agree = agree && agrees(r, m)
+			want = want + m.Cleaned
+			got = got + r.Cleaned
+		}
+		agree && want == got
+	},
+}
+
+// Script is what a process's block does: it registers Cleanups exit
+// actions, waits Waits on the Scheduler (none when zero), then ends as End
+// says.
+type Script {
+	Cleanups int,
+	Waits duration,
+	End End,
+}
+
+// End is how a script's block ends: its value, its typed failure, or a
+// defect with the text Text.
+type End = Gives{Value int} | Fails{Code int} | Panics{Text string}
+
+// Ended is how a played process ended.
+type Ended = Gives | Fails | OverTime | Crashed
+
+// Report is how a played process ended, and how many of its exit actions
+// had run when Play returned.
+type Report {
+	Ended Ended,
+	Cleaned int,
+}
+
+// Local is the Runner that plays a script with Run, in this program.
+type Local {} implements Runner
+
+// Play runs s with Run under l, on the Scheduler on.
+func Play(p Local, l Limits, s Script, on Scheduler) Report {
+	with context { Scheduler: on } { reported(l, s) }
+}
+
+// reported runs s with Run under l and reports how it ended.
+func reported(l Limits, s Script) Report needs Scheduler {
+	let marks = queue.New[int](s.Cleanups + 1)
+	let v = Run(l) { try played(s, marks) } catch {
+	case Fails as f:
+		return Report{Ended: f, Cleaned: marks.Len()}
+	case OverTime as o:
+		return Report{Ended: o, Cleaned: marks.Len()}
+	case Crashed as c:
+		return Report{Ended: c, Cleaned: marks.Len()}
+	}
+	Report{Ended: Gives{Value: v}, Cleaned: marks.Len()}
+}
+
+// played is a script's block: each exit action pushes a mark.
+func played(s Script, marks queue.Queue[int]) int fails Fails needs Scheduler {
+	for i in 0..s.Cleanups {
+		scope.OnExit() {
+			marks.Push(i) catch {
+			case queue.Closed:
+			}
+		}
+	}
+	if s.Waits > 0ns {
+		Scheduler.Sleep(s.Waits)
+	}
+	match s.End {
+	case Gives as g:
+		g.Value
+	case Fails as f:
+		return f
+	case Panics as p:
+		Unreachable(p.Text)
+	}
+}
+
+// small is a cleanup count from 0 to 3.
+func small(k int) int { ((k % 4) + 4) % 4 }
+
+// timed runs play on a time.Manual in a task, and moves the clock a
+// millisecond at a time until that task has played: time is the input.
+// Advance returns once every other task waits again, so each step sees
+// every sleep the last one led to.
+func timed(play own func(on Scheduler) Report needs Runner) Report needs Runner {
+	let m = time.NewManual(0)
+	let played = queue.New[int](1)
+	with context { Scheduler: m } {
+		let p = task.Go() {
+			let r = play(m)
+			played.Push(1) catch {
+			case queue.Closed:
+			}
+			r
+		}
+		m.Advance(0ns)
+		for played.Len() == 0 {
+			m.Advance(1ms)
+		}
+		p.Wait()
+	}
+}
+
+// next is the seeded draw after x (a linear congruential step mod 2^31).
+func next(x int) int { (x * 1103515245 + 12345) % 2147483648 }
+
+// drawn is a script drawn from x.
+func drawn(x int) Script {
+	let c = (x / 7) % 4
+	let k = (x / 31) % 3
+	let w = (x / 97) % 6
+	let end End = if k == 0 { Gives{Value: x % 100} } else if k == 1 { Fails{Code: x % 100} } else { Panics{Text: "p\(x % 10)"} }
+	Script{Cleanups: c, Waits: time.Times(1ms, w), End: end}
+}
+
+// drawnLimits are limits drawn from x for s: no time limit, or one that
+// never ties with s's wait.
+func drawnLimits(x int, s Script) Limits {
+	let t = (x / 13) % 7
+	if t == 0 || time.Times(1ms, t) == s.Waits {
+		return Unlimited
+	}
+	Limits{..Unlimited, Time: time.Times(1ms, t)}
+}
+
+// expected is the fold's report for s under l: the time limit wins over a
+// longer wait, and every exit action runs on every path.
+func expected(l Limits, s Script) Report {
+	if l.Time > 0ns && s.Waits > l.Time {
+		return Report{Ended: OverTime{Limit: l.Time}, Cleaned: s.Cleanups}
+	}
+	match s.End {
+	case Gives as g:
+		Report{Ended: g, Cleaned: s.Cleanups}
+	case Fails as f:
+		Report{Ended: f, Cleaned: s.Cleanups}
+	case Panics as p:
+		Report{Ended: Crashed{Reason: p.Text}, Cleaned: s.Cleanups}
+	}
+}
+
+// agrees is whether r is the fold's report m: the same end and cleanup
+// count, where m's Crashed reason is the text the defect's report ends
+// with (after the Unreachable's position).
+func agrees(r Report, m Report) bool {
+	if r.Cleaned != m.Cleaned {
+		return false
+	}
+	match m.Ended {
+	case Crashed as want:
+		match r.Ended {
+		case Crashed as c:
+			strings.HasPrefix(c.Reason, "unreachable at ") && strings.HasSuffix(c.Reason, ": " + want.Reason)
+		case _:
+			false
+		}
+	case _:
+		r.Ended == m.Ended
+	}
+}

@@ -11,8 +11,6 @@
 # names nothing, is red until its line goes; a key that now fails in
 # another class than its line's is red. This list only shrinks.
 cmp *	internal error: eval: a bare value of int is not a record with no fields (Natural[int] as a value)	STDLAW-RED-CMP
-fstest Confined.InsideIsWritten	refuted: for Folder, a failure escaped: fs.NotFound{Path: "inside"}	STDLAW-RED-FSTEST
-fstest Confined.OutsideIsDenied	refuted: for Folder, the law is false	STDLAW-RED-FSTEST
 prelude Hashing.EqualIsReflexive	native skip: law Hashing.EqualIsReflexive runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
 prelude Hashing.EqualIsSymmetric	native skip: law Hashing.EqualIsSymmetric runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
 prelude Hashing.EqualIsTransitive	native skip: law Hashing.EqualIsTransitive runs where Hashing has a provider: none is in this package or its imports	STD-PRELUDE-NATIVE-RED
@@ -24,7 +22,6 @@ prelude Random.IntNInRange	native skip: law Random.IntNInRange runs where Random
 prelude Task.StopIsIdempotent	native skip: skip law Task.StopIsIdempotent: its operation type Task has the row parameter E, and a run binds only type parameters	STD-PRELUDE-NATIVE-RED
 proof/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
 rand *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
-ratelimit Limiter.RetryAfterIsExact	refuted: run in ratelimit/memory for Limiter, the law is false	STDLAW-RED-RATELIMIT
 session/memory *	internal error: eval: the rand.Stream operation Bytes (the evaluator's Stream has no Bytes)	STDLAW-RED-RAND-BYTES
 slices FilterFuses	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE
 slices FilterThenTransform	not run: skipped at check time: a law with type parameters of its own runs as its licence run, at int	STDLAW-162-NOWHERE

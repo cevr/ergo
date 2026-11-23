@@ -284,6 +284,9 @@ func serving(l Lines) Serving { Serving{s: l, i: l, c: l, status: 0, silent: fal
 // Started is how many times the plugin ran.
 func Started(sv Serving) int { sv.runs.Get() }
 
+// Env is empty: the fake runs nothing (exec.Runner.Env).
+func Env(_ Serving) Map[string, string] { Map[string, string]{} }
+
 func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
 	if StatesItsStatus(c) {
 		return exec.NotFound{Name: c.Name}

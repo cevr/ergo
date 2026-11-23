@@ -41,8 +41,9 @@ func trailing(x *syntax.CallExpr) int {
 
 // adaptOperand is the adapter of e, the IR of a function value of the
 // signature sig (the operand at site), to the Go parameter q of a std
-// body, and the statements that bind e first.
-func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr) {
+// body, the statements that bind e first, and the definition of the
+// child environment if the adapter makes one.
+func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr, *irStmt) {
 	shape := q.Func
 	if q.Funcs != nil {
 		irNo("std call that adapts a slice of functions")
@@ -97,6 +98,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	}
 	lit := &irExpr{K: "func", Pos: p, End: &p}
 	var params []string
+	var frame *irStmt
 	var env *irExpr = &irExpr{K: "local", Pos: p, I: b.env}
 	if task {
 		// childEnv: e := *env; e.task = t; the value runs with &e.
@@ -105,8 +107,8 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 		params = append(params, tt)
 		lit.Params = append(lit.Params, t)
 		cp := b.temp("e", b.envValue(), p)
-		lit.Body = append(lit.Body,
-			&irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: env}},
+		frame = &irStmt{K: "def", Pos: p, Local: cp, X: &irExpr{K: "deref", Pos: p, X: env}}
+		lit.Body = append(lit.Body, frame,
 			&irStmt{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: cp}}, Y: &irExpr{K: "local", Pos: p, I: t}})
 		env = &irExpr{K: "addr", Pos: p, X: &irExpr{K: "local", Pos: p, I: cp}}
 	}
@@ -138,7 +140,7 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 		lit.Body = append(lit.Body, bind)
 	}
 	lit.T = "func(" + strings.Join(params, ", ") + ")" + results
-	return pre, lit
+	return pre, lit, frame
 }
 
 // litCallPos is the position of the adapter's call of e, the operand at
@@ -172,9 +174,9 @@ func (b *irBuilder) litCallPos(site syntax.Node, e *irExpr, p irPos) irPos {
 // params take, in order (x's arguments, after a slice operation's
 // receiver; PORT-CALLS), x's trailing block after them; args are their IR
 // (the block last), after the receiver of an operation, which params do
-// not take (skip 1).
-func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []syntax.Expr, args []*irExpr, skip int, p irPos) []*irStmt {
-	var pre []*irStmt
+// not take (skip 1). The trailing block's child environment definition
+// is returned separately for spawn lowering.
+func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []syntax.Expr, args []*irExpr, skip int, p irPos) (pre []*irStmt, frame *irStmt) {
 	for i, q := range params {
 		if !adapted(q) {
 			continue
@@ -191,8 +193,11 @@ func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []s
 		} else {
 			site, sig = x.Trailing, b.l.info.Literals[x.Trailing]
 		}
-		bind, e := b.adaptOperand(sig, site, args[skip+i], q, p)
+		bind, e, child := b.adaptOperand(sig, site, args[skip+i], q, p)
 		pre, args[skip+i] = append(pre, bind...), e
+		if i >= len(ops) {
+			frame = child
+		}
 	}
-	return pre
+	return pre, frame
 }

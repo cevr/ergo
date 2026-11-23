@@ -8,7 +8,7 @@
       "from": "!isError(o.Type()) && !resourceType(o.Type())",
       "to": "!isError(o.Type())",
       "rule": "Resource-typed package variables are admitted as borrows.",
-      "killers": ["internal/gobind:TestBindMappingProperty", "lower:TestHostResourceVerdicts"]
+      "killers": ["internal/gobind:TestBindMappingProperty", "internal/sketch/lower:TestHostResourceVerdicts"]
     },
     {
       "name": "BV1 ordinary host state admitted",
@@ -35,7 +35,7 @@
       "from": "(&sigMapper{mapper: m}).typ(o.Type(), atField, false)",
       "to": "(&sigMapper{mapper: m}).typ(o.Type(), atErrResult, false)",
       "rule": "A variable can be nil; map a resource pointer to Option[go.Ref[T]].",
-      "killers": ["internal/gobind:TestBindMappingProperty", "lower:TestHostResourceVerdicts"]
+      "killers": ["internal/gobind:TestBindMappingProperty", "internal/sketch/lower:TestHostResourceVerdicts"]
     },
     {"name":"ffi-derive-reads-on-mutates","origin":"wf10 LAWFFI LF0","file":"internal/gobind/derive.go","from":"\t\tother[p] = true\n\t}\n\treturn reads, other","to":"\t\tif strings.HasPrefix(msg, \"mutates param: \") {\n\t\t\treads[p] = true\n\t\t\tcontinue\n\t\t}\n\t\tother[p] = true\n\t}\n\treturn reads, other","rule":"A parameter Go says the function writes is never reads.","killers":["internal/gobind:TestDerivedFactsSound"]},
     {"name":"ffi-derive-reads-on-leak-to-result","origin":"wf10 LAWFFI LF0","file":"internal/gobind/derive.go","from":"\t\tother[p] = true\n\t}\n\treturn reads, other","to":"\t\tif strings.HasPrefix(msg, \"leaking param: \") && strings.Contains(msg, \" to result \") {\n\t\t\treads[p] = true\n\t\t\tcontinue\n\t\t}\n\t\tother[p] = true\n\t}\n\treturn reads, other","rule":"A parameter whose memory the result shares is never reads.","killers":["internal/gobind:TestDerivedFactsSound"]},

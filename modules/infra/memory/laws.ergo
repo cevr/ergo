@@ -82,6 +82,16 @@ func run(w World, mode infra.Mode, holder string, want Want) Ran {
 	Finished{Steps: infra.Steps(r)}
 }
 
+// leftoverDirs is the directory engine of a new pass over a world whose
+// first run ensured all six objects: the pass ensures nothing, so every
+// row is a leftover, the state infra.Sweeper's law bounds (tests.ergo
+// binds it to Sweeper).
+func leftoverDirs() infra.Engine[DirProps, Dir] {
+	let w = newWorld()
+	let _ = run(w, infra.Applying, "r1", Want{Of: []int{1, 2, 1, 2, 1, 2}})
+	infra.Engine[DirProps, Dir]{Kind: "dir", Driver: DirsIn(w.cloud), State: w.dirs, Pass: infra.NewPass(infra.Planning)}
+}
+
 // destroy destroys every object of w as holder.
 func destroy(w World, holder string) Ran {
 	let r = infra.NewPass(infra.Applying)

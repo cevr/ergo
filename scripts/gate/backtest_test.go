@@ -37,22 +37,26 @@ func B() int {
 // step "coverage store backtest" on the workbox.
 //
 // Mutants (testdata/mutants.json): round-missing-store-passes,
-// round-backtest-empty-passes, round-backtest-miss-unreported.
+// round-backtest-empty-passes, round-backtest-miss-unreported,
+// round-backtest-alias-unresolved.
+// The ledger names a legacy suite; the index and coverage know the
+// directory. A reader must not lose those killers during migration.
 func TestSelectionHoldsEveryLedgerKiller(t *testing.T) {
 	if _, err := backtestCommit(covfile.Store{Dir: t.TempDir()}, "."); err == nil || !strings.Contains(err.Error(), "no coverage store") {
 		t.Fatalf("an empty coverage store: backtestCommit = %v, want the no coverage store error", err)
 	}
 	repo := t.TempDir()
+	const dir = "internal/sketch/stdlib"
 	files := map[string]string{
-		"go.mod":      "module example.test/bt\n\ngo 1.24\n",
-		"p/p.go":      backtestSource,
-		"p/p_test.go": "package p\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) { _ = A() }\n\nfunc TestB(t *testing.T) { _ = B() }\n\nfunc TestC(t *testing.T) { _ = K }\n",
-		"p/testdata/mutants.json": `{"mutants": [
-  {"name": "a-body", "file": "p/p.go", "from": "\tx := 1\n", "to": "\tx := 2\n", "killers": ["p:TestA"]},
-  {"name": "b-body", "file": "p/p.go", "from": "\treturn 2\n", "to": "\treturn 3\n", "killers": ["p:TestB"]},
-  {"name": "k-declaration", "file": "p/p.go", "from": "const K = 1", "to": "const K = 2", "killers": ["p:TestC"]},
-  {"name": "other-suite", "file": "p/p.go", "from": "\tx := 1\n", "to": "\tx := 3\n", "killers": ["q:TestZ"]},
-  {"name": "stale", "file": "p/p.go", "from": "nowhere", "to": "", "killers": ["p:TestA"]}
+		"go.mod":           "module example.test/bt\n\ngo 1.24\n",
+		dir + "/p.go":      backtestSource,
+		dir + "/p_test.go": "package p\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) { _ = A() }\n\nfunc TestB(t *testing.T) { _ = B() }\n\nfunc TestC(t *testing.T) { _ = K }\n",
+		dir + "/testdata/mutants.json": `{"mutants": [
+  {"name": "a-body", "file": "` + dir + `/p.go", "from": "\tx := 1\n", "to": "\tx := 2\n", "killers": ["std:TestA"]},
+  {"name": "b-body", "file": "` + dir + `/p.go", "from": "\treturn 2\n", "to": "\treturn 3\n", "killers": ["std:TestB"]},
+  {"name": "k-declaration", "file": "` + dir + `/p.go", "from": "const K = 1", "to": "const K = 2", "killers": ["std:TestC"]},
+  {"name": "other-suite", "file": "` + dir + `/p.go", "from": "\tx := 1\n", "to": "\tx := 3\n", "killers": ["q:TestZ"]},
+  {"name": "stale", "file": "` + dir + `/p.go", "from": "nowhere", "to": "", "killers": ["std:TestA"]}
 ]}
 `,
 	}
@@ -82,22 +86,22 @@ func TestSelectionHoldsEveryLedgerKiller(t *testing.T) {
 	head := gitIn("rev-parse", "HEAD")
 
 	store := covfile.Store{Dir: t.TempDir()}
-	closures := map[string]*replay.Closure{"./p": {Dir: "p", Deps: []string{"p"}}}
+	closures := map[string]*replay.Closure{"./" + dir: {Dir: dir, Deps: []string{dir}}}
 	if _, err := backtestLedgers(store, repo, head, closures); err == nil || !strings.Contains(err.Error(), "no backtest") {
 		t.Fatalf("a store with no segment of a ledger's suite: err = %v, want no backtest", err)
 	}
-	// index records a segment of suite p at head whose A body (lines 5-8)
+	// index records a segment of the suite at head whose A body (lines 5-8)
 	// is run by test a and B body (lines 10-12) by test b.
 	index := func(key string, a, b int) {
 		t.Helper()
 		seg := &covfile.Coverage{
-			Tests: []*covfile.Test{{ID: "p:TestA"}, {ID: "p:TestB"}, {ID: "p:TestC"}},
-			Files: map[string][]covfile.Block{"p/p.go": {{Start: 5, End: 8, Tests: []int{a}}, {Start: 10, End: 12, Tests: []int{b}}}},
+			Tests: []*covfile.Test{{ID: dir + ":TestA"}, {ID: dir + ":TestB"}, {ID: dir + ":TestC"}},
+			Files: map[string][]covfile.Block{dir + "/p.go": {{Start: 5, End: 8, Tests: []int{a}}, {Start: 10, End: 12, Tests: []int{b}}}},
 		}
 		if err := store.Save(key, seg); err != nil {
 			t.Fatal(err)
 		}
-		if err := store.Record(covfile.Entry{Suite: "p", Package: "./p", Cover: []string{"./p"}, Key: key, Mode: covfile.Mode, Commit: head}); err != nil {
+		if err := store.Record(covfile.Entry{Suite: dir, Package: "./" + dir, Cover: []string{"./" + dir}, Key: key, Mode: covfile.Mode, Commit: head}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -118,7 +122,7 @@ func TestSelectionHoldsEveryLedgerKiller(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(report.Missed, []string{"b-body p:TestB"}) {
-		t.Fatalf("%s, missed %v; want b-body p:TestB missed", report, report.Missed)
+	if !slices.Equal(report.Missed, []string{"b-body std:TestB"}) {
+		t.Fatalf("%s, missed %v; want b-body std:TestB missed", report, report.Missed)
 	}
 }

@@ -1,6 +1,9 @@
 {
   "about": "The mutant runner shares the capped-child classifier with proclimit.",
   "mutants": [
+    {"name":"mut-alias-not-canonical","origin":"NIH-577","file":"scripts/mutants/ledger.go","from":"\t\t\t\t\tids[i] = canonical\n","to":"\t\t\t\t\tids[i] = id\n","rule":"An alias and its directory name schedule the same test once.","killers":["scripts/mutants:TestRunnerMatchesModel"]},
+    {"name":"mut-ambiguous-alias-taken","origin":"NIH-577","file":"scripts/mutants/suitename/suitename.go","from":"\tif hasTests {\n","to":"\tif hasTests && false {\n","rule":"A legacy alias that is also a directory with tests names both choices and is refused.","killers":["scripts/mutants:TestLedgerRefusesAmbiguousSuite"]},
+    {"name":"mut-migration-skips-anchors","origin":"NIH-577","file":"scripts/mutants/killer_migration.go","from":"slices.Equal(path, []string{\"mutants\", \"\", \"anchor\", \"tests\", \"\"})","to":"false","rule":"The legacy migration includes the test IDs in anchors.","killers":["scripts/mutants:TestCanonicalKillerMigration"]},
     {
       "name": "gcoom-mutants-text-only",
       "origin": "wf10 FU-gcoom r2",

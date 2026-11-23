@@ -362,22 +362,20 @@ type ergo__Env struct {
 }
 
 func ergo__Append[T any](xs []T, x T) []T {
-	/*line std/builtin.ergo:20:1*/ return ergo.Append[T](xs, x)
+	return ergo.Append(xs, x)
 }
-
-//line compiler.go:365
 
 func strings__TrimSpace(s string) string {
 	/*line std/strings/strings.ergo:25:34*/ return go__strings.TrimSpace(s)
 }
 
-//line compiler.go:367
+//line compiler.go:369
 
 func strings__ToLower(s string) string {
 	/*line std/strings/strings.ergo:59:32*/ return go__strings.ToLower(s)
 }
 
-//line compiler.go:369
+//line compiler.go:371
 
 func ergo__CloneTree(v compiler_ssyntax__Tree) compiler_ssyntax__Tree {
 	c := v
@@ -423,7 +421,7 @@ func strings__Slice_2(s string, i int, j int) string {
 	/*line std/strings/strings.ergo:86:44*/ return ergo.StringsSlice(s, i, j)
 }
 
-//line compiler.go:411
+//line compiler.go:413
 
 func ergo__CloneBody(v compiler_sir__Body) compiler_sir__Body {
 	c := v
@@ -479,13 +477,13 @@ func (b *strings__Builder) WriteString(s string) {
 	/*line std/strings/builder.ergo:14:44*/ b.buf = ergo.StringsBuilderAppend(b.buf, s)
 }
 
-//line compiler.go:463
+//line compiler.go:465
 
 func (b strings__Builder) ergo__strings__StringOwned(env *ergo__Env) string {
 	/*line std/strings/builder.ergo:41:32*/ return ergo.StringsBuilderTextOwned(b.buf)
 }
 
-//line compiler.go:465
+//line compiler.go:467
 
 func ergo__CloneBuilder_1(v strings__Builder) strings__Builder {
 	c := v
@@ -498,7 +496,7 @@ func (b strings__Builder) String(env *ergo__Env) string {
 	/*line std/strings/builder.ergo:41:5*/ return ergo__CloneBuilder_1(b).ergo__strings__StringOwned(env)
 }
 
-//line compiler.go:474
+//line compiler.go:476
 
 type ergo__Some[T any] struct {
 	Value T
@@ -512,7 +510,7 @@ func sha256__Sum(s string) string {
 	/*line std/sha256/sha256.ergo:16:1*/ return ergo__strings__FromBytesOwned(d[:])
 }
 
-//line compiler.go:483
+//line compiler.go:485
 
 func base64__Encode(e base64__Encoding, s string) string {
 	/*line std/base64/base64.ergo:32:1*/ s2 := e
@@ -530,7 +528,7 @@ func base64__Encode(e base64__Encoding, s string) string {
 	}
 }
 
-//line compiler.go:485
+//line compiler.go:487
 
 type base64__URLEncoding struct {
 }
@@ -563,7 +561,7 @@ func strings__HasPrefix(s string, prefix string) bool {
 	/*line std/strings/strings.ergo:19:47*/ return go__strings.HasPrefix(s, prefix)
 }
 
-//line compiler.go:514
+//line compiler.go:516
 
 type dense__ID[K any] struct {
 	n uint32
@@ -573,7 +571,7 @@ func strconv__Itoa(n int) string {
 	/*line std/strconv/strconv.ergo:22:26*/ return strconv.Itoa(n)
 }
 
-//line compiler.go:520
+//line compiler.go:522
 
 // ergo__compiler_ssyntax__tabopLenV are opLen's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabopLenK [256]ergo.MemoFlag
@@ -593,7 +591,7 @@ func strconv__Quote(s string) string {
 	/*line std/strconv/strconv.ergo:80:30*/ return strconv.Quote(s)
 }
 
-//line compiler.go:536
+//line compiler.go:538
 
 type dense__Col[K any, V any] struct {
 	xs []V
@@ -617,13 +615,13 @@ func slices__WithCapacity[T any](n int) []T {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[T](n)
 }
 
-//line compiler.go:556
+//line compiler.go:558
 
 func slices__WithCapacityMono_i848563180(n int) []uint32 {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[uint32](n)
 }
 
-//line compiler.go:558
+//line compiler.go:560
 
 func ergo__textcompiler_sformat__SyntaxFailure(v compiler_sformat__SyntaxFailure) string {
 	return "{" + "Code:" + v.Code + " Message:" + v.Message + " Offset:" + ergo.TextInt(int64(v.Offset)) + " Length:" + ergo.TextInt(int64(v.Length)) + " Line:" + ergo.TextInt(int64(v.Line)) + " Column:" + ergo.TextInt(int64(v.Column)) + "}"
@@ -649,7 +647,7 @@ func (b strings__Builder) Len() int {
 	/*line std/strings/builder.ergo:38:26*/ return len(b.buf)
 }
 
-//line compiler.go:580
+//line compiler.go:582
 
 func ergo__textcompiler_sir__Malformed(v compiler_sir__Malformed) string {
 	return "{" + "At:" + ergo.TextInt(int64(v.At)) + " Why:" + v.Why + "}"
@@ -659,13 +657,13 @@ func strconv__FormatInt(n int64, base int) string {
 	/*line std/strconv/strconv.ergo:27:43*/ return strconv.FormatInt(n, base)
 }
 
-//line compiler.go:586
+//line compiler.go:588
 
 func (b *strings__Builder) WriteByte_(c uint8) {
 	/*line std/strings/builder.ergo:17:40*/ b.buf = append(b.buf, c)
 }
 
-//line compiler.go:588
+//line compiler.go:590
 
 func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
 	/*line std/maps/maps.ergo:20:1*/ v_1, ok := m[k]
@@ -677,7 +675,7 @@ func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
 	}
 }
 
-//line compiler.go:590
+//line compiler.go:592
 
 func maps__GetOrMono_i1784119160(m map[string]bool, k string, def bool) bool {
 	/*line std/maps/maps.ergo:20:1*/ v_1, ok := m[k]
@@ -689,15 +687,19 @@ func maps__GetOrMono_i1784119160(m map[string]bool, k string, def bool) bool {
 	}
 }
 
-//line compiler.go:592
+//line compiler.go:594
 
 type ergo__Option[T any] struct {
 	tag uint8
-	v0  ergo__Some[T]
+	p0  T
 }
 
-func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] { return ergo__Option[T]{tag: 0, v0: v} }
-func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T]    { return ergo__Option[T]{tag: 1} }
+func (ergo__Option[T]) of0(v ergo__Some[T]) ergo__Option[T] {
+	return ergo__Option[T]{tag: 0, p0: v.Value}
+}
+func (u ergo__Option[T]) as0() ergo__Some[T]             { return ergo__Some[T]{Value: u.p0} }
+func (ergo__Option[T]) of1(_ ergo__None) ergo__Option[T] { return ergo__Option[T]{tag: 1} }
+
 func (x ergo__Option[T]) ErgoVariant() string {
 	return [...]func() string{ergo.VariantOf[ergo__Some[T]], ergo.VariantOf[ergo__None]}[x.tag]()
 }
@@ -718,20 +720,20 @@ func strings__Bytes_1(s string) []uint8 {
 	/*line std/strings/bytes.ergo:5:30*/ return ergo.StringsBytes(s)
 }
 
-//line compiler.go:617
+//line compiler.go:623
 
 func ergo__strings__FromBytesOwned(bs []uint8) string {
 	/*line std/strings/bytes.ergo:12:35*/ return ergo.StringsBuilderTextOwned(bs)
 }
 
-//line compiler.go:619
+//line compiler.go:625
 
 // strings__FromBytes copies its owned arguments into ergo__strings__FromBytesOwned; its body is IR (FLIP F7, OWNED-WRAP-IR).
 func strings__FromBytes(bs []uint8) string {
 	/*line std/strings/bytes.ergo:12:5*/ return ergo__strings__FromBytesOwned(slices.Clone[[]uint8, uint8](bs))
 }
 
-//line compiler.go:622
+//line compiler.go:628
 
 func ergo__GoStdEncoding() *go__encoding_sbase64.Encoding {
 	return (*go__encoding_sbase64.Encoding)(go__encoding_sbase64.StdEncoding)
@@ -741,7 +743,7 @@ func base64__encodeStd(s string) string {
 	/*line std/base64/base64.ergo:52:34*/ return ergo__GoStdEncoding().EncodeToString(strings__Bytes_1(s))
 }
 
-//line compiler.go:628
+//line compiler.go:634
 
 func ergo__GoURLEncoding() *go__encoding_sbase64.Encoding {
 	return (*go__encoding_sbase64.Encoding)(go__encoding_sbase64.URLEncoding)
@@ -751,14 +753,14 @@ func base64__encodeURL(s string) string {
 	/*line std/base64/base64.ergo:54:34*/ return ergo__GoURLEncoding().EncodeToString(strings__Bytes_1(s))
 }
 
-//line compiler.go:634
+//line compiler.go:640
 
 func strings__Split(s string, sep string) []string {
 	/*line std/strings/strings.ergo:13:44*/ r := go__strings.Split(s, sep)
 	/*line std/strings/strings.ergo:13:44*/ return r
 }
 
-//line compiler.go:636
+//line compiler.go:642
 
 func slices__Contains[T comparable](xs []T, x T) bool {
 	/*line std/slices/slices.ergo:246:1*/ for _, y := range xs {
@@ -769,7 +771,7 @@ func slices__Contains[T comparable](xs []T, x T) bool {
 	/*line std/slices/slices.ergo:251:1*/ return false
 }
 
-//line compiler.go:638
+//line compiler.go:644
 
 func slices__ContainsMono_i398550328(xs []string, x string) bool {
 	/*line std/slices/slices.ergo:246:1*/ for _, y := range xs {
@@ -780,7 +782,7 @@ func slices__ContainsMono_i398550328(xs []string, x string) bool {
 	/*line std/slices/slices.ergo:251:1*/ return false
 }
 
-//line compiler.go:640
+//line compiler.go:646
 
 type dense__Count[K any] struct {
 	n uint32
@@ -790,13 +792,13 @@ func (c dense__Count[K]) Total() int {
 	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
 }
 
-//line compiler.go:646
+//line compiler.go:652
 
 func dense__CountTotalMono_i2427209043(c dense__Count[compiler_ssyntax__Tok]) int {
 	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
 }
 
-//line compiler.go:648
+//line compiler.go:654
 
 func (c dense__Count[K]) IDAt(i int) dense__ID[K] {
 	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
@@ -805,7 +807,7 @@ func (c dense__Count[K]) IDAt(i int) dense__ID[K] {
 	/*line std/dense/dense.ergo:378:1*/ return dense__ID[K]{n: uint32(i)}
 }
 
-//line compiler.go:650
+//line compiler.go:656
 
 func dense__CountIDAtMono_i2427209043(c dense__Count[compiler_ssyntax__Tok], i int) dense__ID[compiler_ssyntax__Tok] {
 	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
@@ -814,25 +816,25 @@ func dense__CountIDAtMono_i2427209043(c dense__Count[compiler_ssyntax__Tok], i i
 	/*line std/dense/dense.ergo:378:1*/ return dense__ID[compiler_ssyntax__Tok]{n: uint32(i)}
 }
 
-//line compiler.go:652
+//line compiler.go:658
 
 func (id dense__ID[K]) Index() int {
 	/*line std/dense/dense.ergo:78:30*/ return int(id.n)
 }
 
-//line compiler.go:654
+//line compiler.go:660
 
 func dense__IDIndexMono_i2427209043(id dense__ID[compiler_ssyntax__Tok]) int {
 	/*line std/dense/dense.ergo:78:30*/ return int(id.n)
 }
 
-//line compiler.go:656
+//line compiler.go:662
 
 func dense__CountTotalMono_i1278758797(c dense__Count[compiler_ssyntax__Cmt]) int {
 	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
 }
 
-//line compiler.go:658
+//line compiler.go:664
 
 func dense__CountIDAtMono_i1278758797(c dense__Count[compiler_ssyntax__Cmt], i int) dense__ID[compiler_ssyntax__Cmt] {
 	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
@@ -841,25 +843,25 @@ func dense__CountIDAtMono_i1278758797(c dense__Count[compiler_ssyntax__Cmt], i i
 	/*line std/dense/dense.ergo:378:1*/ return dense__ID[compiler_ssyntax__Cmt]{n: uint32(i)}
 }
 
-//line compiler.go:660
+//line compiler.go:666
 
 func (c dense__Col[K, V]) Of(id dense__ID[K]) V {
 	/*line std/dense/dense.ergo:413:41*/ return c.xs[int(id.n)]
 }
 
-//line compiler.go:662
+//line compiler.go:668
 
 func dense__ColOfMono_i2843391274(c dense__Col[compiler_ssyntax__Cmt, uint32], id dense__ID[compiler_ssyntax__Cmt]) uint32 {
 	/*line std/dense/dense.ergo:413:41*/ return c.xs[int(id.n)]
 }
 
-//line compiler.go:664
+//line compiler.go:670
 
 func strings__IndexByte(s string, c uint8) int {
 	/*line std/strings/strings.ergo:69:39*/ return go__strings.IndexByte(s, c)
 }
 
-//line compiler.go:666
+//line compiler.go:672
 
 func dense__CountIDAtMono_i1428406671(c dense__Count[compiler_ssyntax__Node], i int) dense__ID[compiler_ssyntax__Node] {
 	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
@@ -868,73 +870,73 @@ func dense__CountIDAtMono_i1428406671(c dense__Count[compiler_ssyntax__Node], i 
 	/*line std/dense/dense.ergo:378:1*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(i)}
 }
 
-//line compiler.go:668
+//line compiler.go:674
 
 func slices__Slice_2[T any](xs []T, i int, j int) []T {
 	/*line std/slices/slices.ergo:516:42*/ return ergo.SlicesSlice[T](xs, i, j)
 }
 
-//line compiler.go:670
+//line compiler.go:676
 
 func slices__WithCapacityMono_i2128182604(n int) [][]uint32 {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[[]uint32](n)
 }
 
-//line compiler.go:672
+//line compiler.go:678
 
 func (b *strings__Builder) Grow(n int) {
 	/*line std/strings/builder.ergo:35:34*/ b.buf = ergo.StringsBuilderGrow(b.buf, n)
 }
 
-//line compiler.go:674
+//line compiler.go:680
 
 func slices__WithCapacityMono_i2515107422(n int) []int {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[int](n)
 }
 
-//line compiler.go:676
+//line compiler.go:682
 
 func slices__WithCapacityMono_i398550328(n int) []string {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[string](n)
 }
 
-//line compiler.go:678
+//line compiler.go:684
 
 func strings__ReplaceAll(s string, old string, repl string) string {
 	/*line std/strings/strings.ergo:91:60*/ return go__strings.ReplaceAll(s, old, repl)
 }
 
-//line compiler.go:680
+//line compiler.go:686
 
 func slices__Repeat_1[T any](xs []T, n int) []T {
 	/*line std/slices/slices.ergo:498:36*/ return ergo.SlicesRepeat[T](slices.Clip[[]T, T](xs), n)
 }
 
-//line compiler.go:682
+//line compiler.go:688
 
 func slices__RepeatMono_i2515107422(xs []int, n int) []int {
 	/*line std/slices/slices.ergo:498:36*/ return ergo.SlicesRepeat[int](slices.Clip[[]int, int](xs), n)
 }
 
-//line compiler.go:684
+//line compiler.go:690
 
 func utf8__RuneCount(s string) int {
 	/*line std/utf8/utf8.ergo:13:31*/ return go__unicode_sutf8.RuneCountInString(s)
 }
 
-//line compiler.go:686
+//line compiler.go:692
 
 func slices__RepeatMono_i1097503029(xs []compiler_sreport__Position, n int) []compiler_sreport__Position {
 	/*line std/slices/slices.ergo:498:36*/ return ergo.SlicesRepeat[compiler_sreport__Position](slices.Clip[[]compiler_sreport__Position, compiler_sreport__Position](xs), n)
 }
 
-//line compiler.go:688
+//line compiler.go:694
 
 func slices__RepeatMono_i3365180733(xs []bool, n int) []bool {
 	/*line std/slices/slices.ergo:498:36*/ return ergo.SlicesRepeat[bool](slices.Clip[[]bool, bool](xs), n)
 }
 
-//line compiler.go:690
+//line compiler.go:696
 
 func cmp__Compare[T ergoOrdered](a T, b T) int {
 	/*line std/cmp/cmp.ergo:11:1*/ if a != a {
@@ -955,7 +957,7 @@ func cmp__Compare[T ergoOrdered](a T, b T) int {
 	/*line std/cmp/cmp.ergo:26:1*/ return 0
 }
 
-//line compiler.go:692
+//line compiler.go:698
 
 func cmp__CompareMono_i398550328(a string, b string) int {
 	/*line std/cmp/cmp.ergo:11:1*/ if a != a {
@@ -976,7 +978,7 @@ func cmp__CompareMono_i398550328(a string, b string) int {
 	/*line std/cmp/cmp.ergo:26:1*/ return 0
 }
 
-//line compiler.go:694
+//line compiler.go:700
 
 func cmp__CompareMono_i2515107422(a int, b int) int {
 	/*line std/cmp/cmp.ergo:11:1*/ if a != a {
@@ -997,25 +999,25 @@ func cmp__CompareMono_i2515107422(a int, b int) int {
 	/*line std/cmp/cmp.ergo:26:1*/ return 0
 }
 
-//line compiler.go:696
+//line compiler.go:702
 
 func dense__NewCount[K any]() dense__Count[K] {
 	/*line std/dense/dense.ergo:338:30*/ return dense__Count[K]{n: uint32(0)}
 }
 
-//line compiler.go:698
+//line compiler.go:704
 
 func dense__NewCountMono_i2427209043() dense__Count[compiler_ssyntax__Tok] {
 	/*line std/dense/dense.ergo:338:30*/ return dense__Count[compiler_ssyntax__Tok]{n: uint32(0)}
 }
 
-//line compiler.go:700
+//line compiler.go:706
 
 func dense__NewCountMono_i1428406671() dense__Count[compiler_ssyntax__Node] {
 	/*line std/dense/dense.ergo:338:30*/ return dense__Count[compiler_ssyntax__Node]{n: uint32(0)}
 }
 
-//line compiler.go:702
+//line compiler.go:708
 
 // ergo__compiler_ssyntax__tabtokenHabitV are tokenHabit's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabtokenHabitK [256]ergo.MemoFlag
@@ -1039,7 +1041,7 @@ func dense__IDIndexMono_i1428406671(id dense__ID[compiler_ssyntax__Node]) int {
 	/*line std/dense/dense.ergo:78:30*/ return int(id.n)
 }
 
-//line compiler.go:722
+//line compiler.go:728
 
 func (o dense__Opt[K]) Unpack() ergo__Option[dense__ID[K]] {
 	/*line std/dense/dense.ergo:60:1*/ if o.n == uint32(0) {
@@ -1048,7 +1050,7 @@ func (o dense__Opt[K]) Unpack() ergo__Option[dense__ID[K]] {
 	/*line std/dense/dense.ergo:63:1*/ return ergo__Option[dense__ID[K]]{}.of0(ergo__Some[dense__ID[K]]{Value: dense__ID[K]{n: o.n - uint32(1)}})
 }
 
-//line compiler.go:724
+//line compiler.go:730
 
 func dense__OptUnpackMono_i1428406671(o dense__Opt[compiler_ssyntax__Node]) ergo__Option[dense__ID[compiler_ssyntax__Node]] {
 	/*line std/dense/dense.ergo:60:1*/ if o.n == uint32(0) {
@@ -1057,13 +1059,13 @@ func dense__OptUnpackMono_i1428406671(o dense__Opt[compiler_ssyntax__Node]) ergo
 	/*line std/dense/dense.ergo:63:1*/ return ergo__Option[dense__ID[compiler_ssyntax__Node]]{}.of0(ergo__Some[dense__ID[compiler_ssyntax__Node]]{Value: dense__ID[compiler_ssyntax__Node]{n: o.n - uint32(1)}})
 }
 
-//line compiler.go:726
+//line compiler.go:732
 
 func slices__WithCapacityMono_i197219316(n int) []compiler_ssyntax__Chunk {
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[compiler_ssyntax__Chunk](n)
 }
 
-//line compiler.go:728
+//line compiler.go:734
 
 // ergo__compiler_ssyntax__tabrecordWordsV are recordWords's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabrecordWordsK [256]ergo.MemoFlag
@@ -1111,49 +1113,49 @@ func strings__TrimRight(s string, cutset string) string {
 	/*line std/strings/strings.ergo:40:49*/ return go__strings.TrimRight(s, cutset)
 }
 
-//line compiler.go:772
+//line compiler.go:778
 
 func slices__SliceMono_i2515107422(xs []int, i int, j int) []int {
 	/*line std/slices/slices.ergo:516:42*/ return ergo.SlicesSlice[int](xs, i, j)
 }
 
-//line compiler.go:774
+//line compiler.go:780
 
 func math__Log(f float64) float64 {
 	/*line std/math/math.ergo:49:30*/ return go__math.Log(f)
 }
 
-//line compiler.go:776
+//line compiler.go:782
 
 func math__Exp(f float64) float64 {
 	/*line std/math/math.ergo:53:30*/ return go__math.Exp(f)
 }
 
-//line compiler.go:778
+//line compiler.go:784
 
 func slices__RepeatMono_i848563180(xs []uint32, n int) []uint32 {
 	/*line std/slices/slices.ergo:498:36*/ return ergo.SlicesRepeat[uint32](slices.Clip[[]uint32, uint32](xs), n)
 }
 
-//line compiler.go:780
+//line compiler.go:786
 
 func dense__NewCountMono_i1278758797() dense__Count[compiler_ssyntax__Cmt] {
 	/*line std/dense/dense.ergo:338:30*/ return dense__Count[compiler_ssyntax__Cmt]{n: uint32(0)}
 }
 
-//line compiler.go:782
+//line compiler.go:788
 
 func dense__ColWithCap[K any, V any](n int) dense__Col[K, V] {
 	/*line std/dense/dense.ergo:404:41*/ return dense__Col[K, V]{xs: slices__WithCapacity[V](n)}
 }
 
-//line compiler.go:784
+//line compiler.go:790
 
 func dense__ColWithCapMono_i2843391274(n int) dense__Col[compiler_ssyntax__Cmt, uint32] {
 	/*line std/dense/dense.ergo:404:41*/ return dense__Col[compiler_ssyntax__Cmt, uint32]{xs: slices__WithCapacityMono_i848563180(n)}
 }
 
-//line compiler.go:786
+//line compiler.go:792
 
 // ergo__compiler_ssyntax__tabsemiAfterV are semiAfter's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabsemiAfterK [256]ergo.MemoFlag
@@ -1173,13 +1175,13 @@ func dense__NoID[K any]() dense__Opt[K] {
 	/*line std/dense/dense.ergo:51:24*/ return dense__Opt[K]{n: uint32(0)}
 }
 
-//line compiler.go:802
+//line compiler.go:808
 
 func dense__NoIDMono_i1428406671() dense__Opt[compiler_ssyntax__Node] {
 	/*line std/dense/dense.ergo:51:24*/ return dense__Opt[compiler_ssyntax__Node]{n: uint32(0)}
 }
 
-//line compiler.go:804
+//line compiler.go:810
 
 // ergo__compiler_sformat__tabtokenTextV are tokenText's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_sformat__tabtokenTextK [256]ergo.MemoFlag
@@ -1199,7 +1201,7 @@ func slices__WithCapacityMono_i3320569705(n int) []dense__ID[compiler_ssyntax__N
 	/*line std/slices/slices.ergo:28:38*/ return ergo.WithCapacity[dense__ID[compiler_ssyntax__Node]](n)
 }
 
-//line compiler.go:820
+//line compiler.go:826
 
 // ergo__compiler_ssyntax__tabfixedWordsV are fixedWords's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabfixedWordsK [256]ergo.MemoFlag
@@ -1220,7 +1222,7 @@ func (t compiler_ssyntax__Tree) children(x uint32, out []uint32) []uint32 {
 	/*line syntax/parse.ergo:183:5*/ return t.ergo__compiler_ssyntax__childrenOwned(x, slices.Clone[[]uint32, uint32](out))
 }
 
-//line compiler.go:837
+//line compiler.go:843
 
 func (c *dense__Count[K]) Next() dense__ID[K] {
 	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[K]
@@ -1235,7 +1237,7 @@ func (c *dense__Count[K]) Next() dense__ID[K] {
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:839
+//line compiler.go:845
 
 func dense__CountNextMono_i2427209043(c *dense__Count[compiler_ssyntax__Tok]) dense__ID[compiler_ssyntax__Tok] {
 	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[compiler_ssyntax__Tok]
@@ -1250,13 +1252,13 @@ func dense__CountNextMono_i2427209043(c *dense__Count[compiler_ssyntax__Tok]) de
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:841
+//line compiler.go:847
 
 func strings__Index(s string, sub string) int {
 	/*line std/strings/strings.ergo:65:39*/ return go__strings.Index(s, sub)
 }
 
-//line compiler.go:843
+//line compiler.go:849
 
 // ergo__compiler_ssyntax__tabbaseOfV are baseOf's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabbaseOfK [256]ergo.MemoFlag
@@ -1290,7 +1292,7 @@ func dense__CountTotalMono_i1428406671(c dense__Count[compiler_ssyntax__Node]) i
 	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
 }
 
-//line compiler.go:873
+//line compiler.go:879
 
 func dense__CountNextMono_i1428406671(c *dense__Count[compiler_ssyntax__Node]) dense__ID[compiler_ssyntax__Node] {
 	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[compiler_ssyntax__Node]
@@ -1305,7 +1307,7 @@ func dense__CountNextMono_i1428406671(c *dense__Count[compiler_ssyntax__Node]) d
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:875
+//line compiler.go:881
 
 const dense__limit uint32 = uint32(4294967295)
 
@@ -1315,13 +1317,13 @@ func (id dense__ID[K]) OptOf() dense__Opt[K] {
 	/*line std/dense/dense.ergo:48:33*/ return dense__Opt[K]{n: id.n + uint32(1)}
 }
 
-//line compiler.go:881
+//line compiler.go:887
 
 func dense__IDOptOfMono_i1428406671(id dense__ID[compiler_ssyntax__Node]) dense__Opt[compiler_ssyntax__Node] {
 	/*line std/dense/dense.ergo:48:33*/ return dense__Opt[compiler_ssyntax__Node]{n: id.n + uint32(1)}
 }
 
-//line compiler.go:883
+//line compiler.go:889
 
 func dense__next[K any](n int) dense__ID[K] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -1330,7 +1332,7 @@ func dense__next[K any](n int) dense__ID[K] {
 	/*line std/dense/dense.ergo:85:1*/ return dense__ID[K]{n: uint32(n)}
 }
 
-//line compiler.go:885
+//line compiler.go:891
 
 func dense__nextMono_i2427209043(n int) dense__ID[compiler_ssyntax__Tok] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -1339,7 +1341,7 @@ func dense__nextMono_i2427209043(n int) dense__ID[compiler_ssyntax__Tok] {
 	/*line std/dense/dense.ergo:85:1*/ return dense__ID[compiler_ssyntax__Tok]{n: uint32(n)}
 }
 
-//line compiler.go:887
+//line compiler.go:893
 
 func dense__CountNextMono_i1278758797(c *dense__Count[compiler_ssyntax__Cmt]) dense__ID[compiler_ssyntax__Cmt] {
 	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[compiler_ssyntax__Cmt]
@@ -1354,31 +1356,31 @@ func dense__CountNextMono_i1278758797(c *dense__Count[compiler_ssyntax__Cmt]) de
 	/*line std/dense/dense.ergo:344:1*/ return id
 }
 
-//line compiler.go:889
+//line compiler.go:895
 
 func (c *dense__Col[K, V]) Push(v V) {
 	/*line std/dense/dense.ergo:407:40*/ c.xs = append(c.xs, v)
 }
 
-//line compiler.go:891
+//line compiler.go:897
 
 func dense__ColPushMono_i2843391274(c *dense__Col[compiler_ssyntax__Cmt, uint32], v uint32) {
 	/*line std/dense/dense.ergo:407:40*/ c.xs = append(c.xs, v)
 }
 
-//line compiler.go:893
+//line compiler.go:899
 
 func strings__ContainsRune(s string, r int32) bool {
 	/*line std/strings/strings.ergo:115:43*/ return go__strings.ContainsRune(s, r)
 }
 
-//line compiler.go:895
+//line compiler.go:901
 
 func strings__ToUpper(s string) string {
 	/*line std/strings/strings.ergo:62:32*/ return go__strings.ToUpper(s)
 }
 
-//line compiler.go:897
+//line compiler.go:903
 
 func dense__nextMono_i1428406671(n int) dense__ID[compiler_ssyntax__Node] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -1387,7 +1389,7 @@ func dense__nextMono_i1428406671(n int) dense__ID[compiler_ssyntax__Node] {
 	/*line std/dense/dense.ergo:85:1*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(n)}
 }
 
-//line compiler.go:899
+//line compiler.go:905
 
 // ergo__compiler_ssyntax__tabwflagV are wflag's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabwflagK [2]ergo.MemoFlag
@@ -1422,7 +1424,7 @@ func (t compiler_ssyntax__Tree) Children(id dense__ID[compiler_ssyntax__Node], o
 	/*line syntax/access.ergo:90:5*/ return t.ergo__compiler_ssyntax__ChildrenOwned(id, slices.Clone[[]uint32, uint32](out))
 }
 
-//line compiler.go:930
+//line compiler.go:936
 
 func dense__nextMono_i1278758797(n int) dense__ID[compiler_ssyntax__Cmt] {
 	/*line std/dense/dense.ergo:82:1*/ if n >= 4294967295 {
@@ -1431,7 +1433,7 @@ func dense__nextMono_i1278758797(n int) dense__ID[compiler_ssyntax__Cmt] {
 	/*line std/dense/dense.ergo:85:1*/ return dense__ID[compiler_ssyntax__Cmt]{n: uint32(n)}
 }
 
-//line compiler.go:932
+//line compiler.go:938
 
 // ergo__compiler_ssyntax__tabprecedenceV are precedence's results by the index of its arguments, each filled at its first call (tabulate.go).
 var ergo__compiler_ssyntax__tabprecedenceK [256]ergo.MemoFlag
@@ -1451,13 +1453,13 @@ func slices__SliceMono_i3320569705(xs []dense__ID[compiler_ssyntax__Node], i int
 	/*line std/slices/slices.ergo:516:42*/ return ergo.SlicesSlice[dense__ID[compiler_ssyntax__Node]](xs, i, j)
 }
 
-//line compiler.go:948
+//line compiler.go:954
 
 func slices__RepeatMono_i2826136942(xs []compiler_sformat__Walk, n int) []compiler_sformat__Walk {
 	/*line std/slices/slices.ergo:498:36*/ return ergo.SlicesRepeat[compiler_sformat__Walk](slices.Clip[[]compiler_sformat__Walk, compiler_sformat__Walk](xs), n)
 }
 
-//line compiler.go:950
+//line compiler.go:956
 
 // ergoFlat is a flat function's value or failure, written by its worker (IR-FORMS IRF-2).
 type ergoFlat[V, E any] struct {
@@ -13912,14 +13914,14 @@ func compiler_sreport__Project(env *ergo__Env, text string, files map[string]str
 						/*line report/report.ergo:264:3*/ _ = ergo__None{}
 						/*line report/report.ergo:264:3*/ goto fuse2
 					case uint8(0):
-						/*line report/report.ergo:264:3*/ start := s24_1.v0
+						/*line report/report.ergo:264:3*/ start := s24_1.as0()
 						/*line report/report.ergo:264:3*/ s26_1 := x.position(text_1_1, span_1_1.Offset+span_1_1.Length)
 						/*line report/report.ergo:264:3*/ switch s26_1.tag {
 						case uint8(1):
 							/*line report/report.ergo:264:3*/ _ = ergo__None{}
 							/*line report/report.ergo:264:3*/ goto fuse2
 						case uint8(0):
-							/*line report/report.ergo:264:3*/ end := s26_1.v0
+							/*line report/report.ergo:264:3*/ end := s26_1.as0()
 							/*line report/report.ergo:264:3*/ r_1 = ergo__Some[compiler_sreport__Range_1]{Value: compiler_sreport__Range_1{Start: start.Value, End: end.Value}}
 							/*line report/report.ergo:264:3*/ goto fuse1
 						default:

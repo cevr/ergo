@@ -370,6 +370,9 @@ func describeColl(v Value) (string, bool) {
 	case *funcRef:
 		return "the function " + v.fn.Name, true
 	case *nativeFunc:
+		if v == noopFunc {
+			return v.name, true // its literal: func() {}
+		}
 		return "the function " + v.name, true
 	case *machinePlan:
 		return v.tn.Name + "{}", true

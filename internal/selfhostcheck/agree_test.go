@@ -192,8 +192,8 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	// One source as a package of one file: the Go checker's diagnostics
 	// and its tables.
 	tmp := t.TempDir()
-	single := func(name, file, src string) bool {
-		pkg, ds := check.CheckSource(src)
+	single := func(name, file, src string, checkSource func(string) (*check.Package, []check.Diagnostic)) bool {
+		pkg, ds := checkSource(src)
 		if pkg == nil || (len(ds) > 0 && ds[0].Code == check.CodeSyntax) {
 			return false // the parser's, not the checker's
 		}
@@ -219,7 +219,7 @@ func TestCompilerCheckAgrees(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if single(rel(p), filepath.Base(p), string(src)) {
+			if single(rel(p), filepath.Base(p), string(src), check.CheckSource) {
 				fixtures++
 			}
 		}
@@ -227,12 +227,12 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	seeds := 0
 	pool := unusedPool(t)
 	for _, d := range unusedDraws(pool) {
-		if single(d.name, "p.ergo", d.src) {
+		if single(d.name, "p.ergo", d.src, d.check) {
 			seeds++
 		}
 	}
 	for seed := base; seed < base+300; seed++ {
-		if single(fmt.Sprintf("flow seed %d", seed), "p.ergo", flowProgram(seed)) {
+		if single(fmt.Sprintf("flow seed %d", seed), "p.ergo", flowProgram(seed), check.CheckSource) {
 			seeds++
 		}
 	}
@@ -320,14 +320,11 @@ func TestCompilerCheckAgrees(t *testing.T) {
 		table = append(table, fmt.Sprintf("%s missing %d extra %d", code, counts[code].Missing, counts[code].Extra))
 	}
 	t.Logf("%d corpus folders, %d fixtures, %d seeds (%d cases); %d Go diagnostics; %d missing, %d extra (sites: %s):\n%s", folders, fixtures, seeds, len(cases), goLines, missing, extra, out, strings.Join(table, "\n"))
-	if os.Getenv("ERGO_WRITE_RATCHET") != "" {
-		if err := os.WriteFile(ratchetPath, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		t.Logf("wrote %s", ratchetPath)
-		return
-	}
+	write := os.Getenv("ERGO_WRITE_RATCHET") != ""
 	b, err := os.ReadFile(ratchetPath)
+	if write && os.IsNotExist(err) {
+		b, err = nil, nil // first generation has no previous cases
+	}
 	if err != nil {
 		t.Fatalf("no ratchet: %v (write it: %s)", err, ratchetCommand)
 	}
@@ -352,7 +349,14 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	sort.Strings(added)
 	sort.Strings(fewer)
 	if len(gone) > 0 {
-		t.Errorf("%d cases of the ratchet are no longer drawn (resolve each, then regenerate: %s):\n%s", len(gone), ratchetCommand, strings.Join(gone, "\n"))
+		t.Fatalf("%d cases of the ratchet are no longer drawn (resolve each, then regenerate: %s):\n%s", len(gone), ratchetCommand, strings.Join(gone, "\n"))
+	}
+	if write {
+		if err := os.WriteFile(ratchetPath, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("wrote %s", ratchetPath)
+		return
 	}
 	if len(added) > 0 {
 		t.Errorf("%d sites the ratchet does not hold (diff %s against %s):\n%s", len(added), out, ratchetPath, strings.Join(added, "\n"))

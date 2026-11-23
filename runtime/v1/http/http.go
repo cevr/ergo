@@ -808,51 +808,53 @@ func (s *httpServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// answer runs the handler of in on its request task and writes its
-// answer on w, net/http's or the engine's. watch: a disconnect of conn
-// stops the request. false: the request ended in a stop or a defect, and
-// the connection ends with no more bytes (net/http's ErrAbortHandler).
+// answer runs the handler of in and writes its response on the same request
+// task, so a panic while writing is also a request defect. A false result
+// closes the connection without a further response.
 func (s *httpServer) answer(w http.ResponseWriter, in *httpIncoming, conn *httpConn, watch bool) bool {
 	x := &Exchange{w: w}
-	response, err := rt.RunIn(s.requests, s.site, func(ct *rt.Task) (HTTPResponse, error) {
-		if watch {
-			// A disconnect stops this request alone.
-			conn.running(ct)
-			defer conn.running(nil)
-		}
-		return v1.Guarded(ct, func(ct *rt.Task) (HTTPResponse, error) {
-			ct.Check()
-			if ew, onEngine := w.(*engineResponse); watch && onEngine && engineLazyWatch {
-				// The engine watches the connection from the handler's
-				// first interruption point (a wait, Check or Stopped),
-				// the first point a stop can end it: a handler that
-				// answers without one needs no watch (HTTP-FAST-c3, c4).
-				defer rt.WhenPolled(ct, &ew.e.poll, ew.e.watchFn).End()
+	_, err := rt.RunIn(s.requests, s.site, func(ct *rt.Task) (struct{}, error) {
+		return v1.Guarded(ct, func(ct *rt.Task) (struct{}, error) {
+			ew, onEngine := w.(*engineResponse)
+			response := s.callHandler(ct, x, in, conn, watch, ew)
+			if !x.finish() {
+				ct.Check()
+				fast := onEngine && engineFastWriter && ew.fastAnswer(response)
+				if onEngine && engineFastHook != nil {
+					engineFastHook(fast)
+				}
+				if !fast {
+					httpWriteAnswer(w, response)
+				}
 			}
-			return s.handle(ct, x, in.Method, in.Path, in.RawPath, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError), nil
+			return struct{}{}, nil
 		})
 	})
-	// The request task has ended: a writer it kept now fails, and a
-	// streamed response is complete (or, after a stop or a defect,
-	// aborted with the connection, so the client sees a cut body).
-	streamed := x.finish()
 	if err != nil {
+		// The handler may have stopped or panicked before finish closed
+		// its Exchange. No writer it kept can write after the task ends.
+		x.End()
 		if !rt.OnlyInterruption(err) {
 			s.fail(err)
 		}
 		return false
 	}
-	if !streamed {
-		ew, onEngine := w.(*engineResponse)
-		fast := onEngine && engineFastWriter && ew.fastAnswer(response)
-		if onEngine && engineFastHook != nil {
-			engineFastHook(fast)
-		}
-		if !fast {
-			httpWriteAnswer(w, response)
-		}
-	}
 	return true
+}
+
+// callHandler watches only the handler: a disconnect stops this request
+// alone. The engine arms its watch at the handler's first interruption
+// point, so the transport's own pre-write check does not start a watch.
+func (s *httpServer) callHandler(ct *rt.Task, x *Exchange, in *httpIncoming, conn *httpConn, watch bool, ew *engineResponse) HTTPResponse {
+	if watch {
+		conn.running(ct)
+		defer conn.running(nil)
+	}
+	ct.Check()
+	if watch && ew != nil && engineLazyWatch {
+		defer rt.WhenPolled(ct, &ew.e.poll, ew.e.watchFn).End()
+	}
+	return s.handle(ct, x, in.Method, in.Path, in.RawPath, in.Query, in.Header, in.Body, in.TooLarge, in.ReadError)
 }
 
 // httpWriteAnswer writes a handler's buffered answer: Serve's, and a local
