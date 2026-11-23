@@ -437,7 +437,13 @@ func (c *checker) planLaw(law *Law) {
 		}
 		if why := c.ungeneratable(v.Type); why != "" {
 			law.Unrun = "its parameter " + v.Name + " has no generator: " + why
-			c.reportUnfedLaw(law, lawParamNode(law, i))
+			// A top-level rewrite law's function parameter is fed by its
+			// licence run, which draws a family of pure functions for it
+			// (types.md, Over function parameters), as a law with type
+			// parameters of its own is above.
+			if _, fn := v.Type.(*Signature); !fn || law.Owner != nil || law.Decl == nil || law.Decl.Equation == nil {
+				c.reportUnfedLaw(law, lawParamNode(law, i))
+			}
 			return
 		}
 		if law.Decl.Pair != nil {
@@ -886,7 +892,7 @@ func (c *checker) reportUnfedProviders() {
 					p.Unrun += fix
 					continue
 				}
-				if c.unfedModule() == "" {
+				if c.pkg.module == "" {
 					// A package of no module is a program of its own,
 					// which no other package imports: its contexts are
 					// the only ones that could feed the binding.
@@ -900,7 +906,7 @@ func (c *checker) reportUnfedProviders() {
 				// prepared here when no package of the module feeds it.
 				u := unfedBinding{law: r.Law, provider: p.Type}
 				u.diag = c.prepared(func() {
-					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.unfedModule())
+					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.pkg.module)
 				})
 				c.pkg.unfed = append(c.pkg.unfed, u)
 				drop[key] = true
@@ -923,7 +929,7 @@ func (c *checker) reportUnfedProviders() {
 // generic operation type is not run yet (Laws 10), so it has none; a
 // package of no module keeps the line, "runs where T has a provider".
 func (c *checker) prepareUnprovided() {
-	module := c.unfedModule()
+	module := c.pkg.module
 	if module == "" {
 		return
 	}
