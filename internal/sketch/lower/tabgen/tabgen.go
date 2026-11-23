@@ -206,6 +206,11 @@ func Program(seed uint64, reached map[string]bool) (src string, eligible []bool,
 			args = append(args, fmt.Sprintf("x%d", i))
 		}
 		call := fmt.Sprintf("g%d(%s)", j, strings.Join(args, ", "))
+		// A dropped call, first: on the IR a tabulated read's value is a
+		// local, which a Go expression statement cannot be (gocalls'
+		// `let _ = go.New(z)`); the call still fills its entry.
+		fmt.Fprintf(&m, "%slet _ = %s\n", ind, call)
+		g.reached["dropped call"] = true
 		for rep := range 2 {
 			if g.results[j] == "slice" {
 				// A caller writes the slice it was given: a table would
@@ -237,7 +242,8 @@ func Program(seed uint64, reached map[string]bool) (src string, eligible []bool,
 		// A defect in a tabulated function leaves its entry empty: the
 		// call before fills another entry, the defect's call raises it.
 		s.WriteString("func boom(x E0) int {\n\tlet z = []int{1}\n\tmatch x {\n\tcase V0x0:\n\t\tz[3]\n\tcase _:\n\t\t1\n\t}\n}\n\n")
-		m.WriteString("\tConsole.Println(\"boom \\(boom(V0x1))\")\n\tConsole.Println(\"boom \\(boom(V0x0))\")\n")
+		// The defect's call is dropped: a dropped call keeps its defect.
+		m.WriteString("\tConsole.Println(\"boom \\(boom(V0x1))\")\n\tlet _ = boom(V0x0)\n")
 		reached["defect"] = true
 	}
 	m.WriteString("}\n")
