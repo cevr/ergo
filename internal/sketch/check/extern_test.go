@@ -1637,6 +1637,80 @@ func main() {
 	use(Mine)
 }
 `,
+	// std mcp (MCP0): a transport is a program's provider, as mcp/memory's and mcp/stdio's are std's.
+	"mcp.Transport": `import mcp
+
+type Mine {} implements mcp.Transport
+
+func Messages(_ Mine) Seq[string] { func(yield func(m string) bool) {} }
+func Send(_ Mine, message string) {}
+
+func use(_ mcp.Transport) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// std sql: a database's provider is a module's (sqltest.Script is std's, for tests).
+	"sql.DB": `import sql
+
+type Mine {} implements sql.DB
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func Begin(_ Mine) sql.Conn fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { return sql.Closed{Message: "x"} }
+
+func use(_ sql.DB) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"sql.Conn": `import sql
+
+type Mine {} implements sql.Conn
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func Commit(_ Mine) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {}
+func Rollback(_ Mine) {}
+func Savepoint(_ Mine, name string) fails sql.Timeout | sql.Closed | sql.Other {}
+func Release(_ Mine, name string) fails sql.Timeout | sql.Closed | sql.Other {}
+func RollbackTo(_ Mine, name string) fails sql.Timeout | sql.Closed | sql.Other {}
+
+func use(_ sql.Conn) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	"sql.Dialect": `import sql
+
+type Mine {} implements sql.Dialect
+
+func Classify(_ Mine, e sql.HostError) sql.Failure { sql.Other{Code: e.Code, Message: e.Message} }
+
+func use(_ sql.Dialect) {}
+
+func main() {
+	use(Mine)
+}
+`,
+	// Only Transaction binds Tx: a program's Tx would fake a transaction boundary.
+	"sql.Tx": `import sql
+
+type Mine {}
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func bound(_ Mine) {}
+
+func use(_ sql.Tx) {}
+
+func main() {
+	use(Mine)
+}
+`,
 }
 
 // unexportedStd is the std operation types sealed by an unexported
@@ -1652,6 +1726,7 @@ var unexportedStd = map[string]string{
 	"json.Text":           "raw is an unexported operation of json.Text, so only a type of package json implements it",
 	"xml.Text":            "raw is an unexported operation of xml.Text, so only a type of package xml implements it",
 	"explore.Hasher":      "size is an unexported operation of explore.Hasher, so only a type of package explore implements it",
+	"sql.Tx":              "bound is an unexported operation of sql.Tx, so only a type of package sql implements it",
 }
 
 // openStd records the operation types that did not use the old implicit
@@ -1716,6 +1791,10 @@ var openStd = map[string]bool{
 	"session.Store":     true, // open: std's own providers are other packages (session/memory.Store, session/file), and a database's is a module's
 	"testing.Allocs":    true,
 	"llm.Model":         true,
+	"mcp.Transport":     true, // open: std's own providers are other packages (mcp/memory, mcp/stdio), and a socket's is a module's
+	"sql.DB":            true, // open: a database's provider is a module's; std has sqltest.Script for tests
+	"sql.Conn":          true, // open: as sql.DB's
+	"sql.Dialect":       true, // open: a database's failure codes are its module's (std has sql.Standard)
 	// The layout's text measure, which a host provides with its fonts.
 }
 
@@ -1834,6 +1913,16 @@ func use(t Task[int, Fault]) { t.Stop() }
 func main() {
 	use(Mine) // want S109
 }
+`,
+		// A program's Tx would fake a transaction boundary: only
+		// Transaction binds it (std sql, Operation types 1).
+		"sql-tx-faked": `import sql
+
+type Mine {} implements sql.Tx // want S106
+
+func Exec(_ Mine, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { sql.Result{Affected: 0} }
+func Query(_ Mine, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other { []sql.Row{} }
+func bound(_ Mine) {}
 `,
 		// Controls: a value of the std type itself converts nothing, and
 		// the prelude's Console takes a program provider.
