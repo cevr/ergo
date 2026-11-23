@@ -41,6 +41,7 @@ type Exit[T own, E] = Done[T] | Failed[E] | Defected
 func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
 	let k = exitOf(t) catch {
 	case err:
+		let _ = exitReason(t)
 		return Failed[E]{Error: err}
 	}
 	if k == 2 {
@@ -54,8 +55,11 @@ func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
 // failure. It consumes t, and leaves the value in it for exitValue.
 extern go ergo.local/prototype/runtime/v1.TaskExit func exitOf[T own, E](t Task[T, E]) int fails E
 
-// exitReason is the text of the defect exitOf gave as 2.
-extern go ergo.local/prototype/runtime/v1.TaskReason func exitReason[T own, E](t Task[T, E]) string
+// exitReason takes t after exitOf, on a path that gives no value (no
+// value is left in t), and is the text of the defect exitOf gave as 2,
+// else "". Every path of ExitOf takes t, so no generic release of T
+// follows it (GEN9-GAP42).
+extern go ergo.local/prototype/runtime/v1.TaskReason func exitReason[T own, E](t own Task[T, E]) string
 
 // exitValue takes the value t's block returned, after exitOf gave 0.
 extern go ergo.local/prototype/runtime/v1.TaskValue func exitValue[T own, E](t own Task[T, E]) T
