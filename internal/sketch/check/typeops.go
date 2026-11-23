@@ -289,16 +289,20 @@ func (c *checker) identical(a, b Type) bool {
 // results, where an unknown row may be identical to another row
 // (mayBeIdentical).
 func (c *checker) sameShape(a, b *Signature) bool {
-	if len(a.Params) != len(b.Params) || len(a.Results) != len(b.Results) {
+	return c.sameSignatureShape(a.Params, b.Params, a.Results, b.Results)
+}
+
+func (c *checker) sameSignatureShape(a, b []*Var, ar, br []Type) bool {
+	if len(a) != len(b) || len(ar) != len(br) {
 		return false
 	}
-	for i := range a.Params {
-		if !c.mayBeIdentical(a.Params[i].Type, b.Params[i].Type) {
+	for i := range a {
+		if !c.mayBeIdentical(a[i].Type, b[i].Type) {
 			return false
 		}
 	}
-	for i := range a.Results {
-		if !c.mayBeIdentical(a.Results[i], b.Results[i]) {
+	for i := range ar {
+		if !c.mayBeIdentical(ar[i], br[i]) {
 			return false
 		}
 	}
@@ -1029,6 +1033,9 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		}
 		return ""
 	}
+	// Native Go conversion uses the Go method set, not the shape an
+	// Ergo caller sees. Keep the binding's rows and lifetime checks.
+	native := isHostNamed(v) && it.obj != nil && it.obj.Pkg.Host()
 	var self selfReader
 	if len(it.selfUses) > 0 {
 		if n, ok := v.(*Named); ok && asInterface(n) == nil {
@@ -1104,6 +1111,10 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 			// cascade (D3; stage D1 fuzz triage, fuzz-check-C-r4-f8314ece).
 			continue
 		}
+		gr, wr := got.Results, m.Sig.Results
+		if native {
+			gr, wr = goMethodResults(got, fn), goMethodResults(m.Sig, nil)
+		}
 		// At a direct Go argument, the enclosing Go function's clause
 		// owns the receiver lifetime (io.ReadAll lends it; bufio keeps
 		// it). The Go interface supplies its method shape there, not a
@@ -1116,7 +1127,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if capture != nil {
 			allow = &held
 		}
-		if why := c.operationShape(v, m.Name, got, m.Sig, allow, func() string { return c.releaseWider(v, m) }); why != "" {
+		if why := c.operationShape(v, m.Name, got, m.Sig, gr, wr, allow, func() string { return c.releaseWider(v, m) }); why != "" {
 			return why
 		}
 		if why := c.operationTakes(v, m.Name, got, m.Sig, recv); why != "" {
@@ -1132,9 +1143,12 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 // operationShape checks the shared providing rule after receiver and
 // operation parameters have been bound. A claim for static dispatch has no
 // provider build site that can capture additional authority.
-func (c *checker) operationShape(v Type, name string, got, want *Signature, capture *captured, release func() string) string {
-	if !c.sameShape(got, want) {
-		return fmt.Sprintf("%s.%s has signature %s, want %s", v, name, shapeOf(got), shapeOf(want))
+func (c *checker) operationShape(v Type, name string, got, want *Signature, gr, wr []Type, capture *captured, release func() string) string {
+	if !c.sameSignatureShape(got.Params, want.Params, gr, wr) {
+		// An inferred row may still be open, so print the shapes.
+		have, expected := shapeOf(got), shapeOf(want)
+		have.Results, expected.Results = gr, wr
+		return fmt.Sprintf("%s.%s has signature %s, want %s", v, name, have, expected)
 	}
 	if ge := got.Errors.known(c.types); !want.Errors.unknown(c.types) && !ge.subsetOf(c.types, want.Errors) {
 		return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, name, rowText(ge.minus(c.types, want.Errors)), rowText(want.Errors))

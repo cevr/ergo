@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"path"
 
-	"ergo.local/prototype/internal/sketch/check"
-	"ergo.local/prototype/internal/sketch/stdlib"
+	"ergo.local/prototype/internal/sketch/testplan"
 )
 
 // stdRootDir is the folder a std package's files are named under when the
@@ -20,22 +19,10 @@ const stdRootDir = "/std"
 // it as a user package, which std's own declarations refuse (S108). The
 // files are named stdRootDir/<importPath>/<file>; the other std packages it
 // imports stay std, which every program imports.
-func CheckStd(importPath string) (Analysis, error) {
-	var sources map[string]string
-	var pkg *check.Package
-	if importPath == stdlib.PreludePath {
-		// No import names the prelude: its checked package is the one
-		// every package sees (NIH-75).
-		sources, pkg = stdlib.Prelude(), check.PreludePackage()
-	} else {
-		var ok bool
-		if sources, ok = stdlib.Package(importPath); !ok {
-			return Analysis{}, fmt.Errorf("sketchfront: %s is no std package", importPath)
-		}
-		var err error
-		if pkg, err = check.Std.Import(importPath); err != nil {
-			return Analysis{}, err
-		}
+func CheckStd(importPath string) (Analysis, testplan.NativeRoot, error) {
+	pkg, sources, plan, err := stdTestSource(importPath)
+	if err != nil {
+		return Analysis{}, testplan.NativeRoot{}, err
 	}
 	dir := path.Join(stdRootDir, importPath)
 	root := &loadedPackage{path: importPath, dir: dir, pkg: pkg}
@@ -43,12 +30,12 @@ func CheckStd(importPath string) (Analysis, error) {
 	for _, f := range pkg.Files() {
 		text, ok := sources[f.Name]
 		if !ok {
-			return Analysis{}, fmt.Errorf("sketchfront: std %s has no source for its file %q", importPath, f.Name)
+			return Analysis{}, testplan.NativeRoot{}, fmt.Errorf("sketchfront: std %s has no source for its file %q", importPath, f.Name)
 		}
 		rel := path.Join(importPath, f.Name)
 		root.files = append(root.files, loadedFile{rel: rel, abs: path.Join(dir, f.Name), text: text, syntax: f})
 		texts[rel] = text
 	}
 	p := &program{root: root, texts: texts, dir: stdRootDir, platform: hostPlatform()}
-	return Analysis{program: p, pkg: pkg}, nil
+	return Analysis{program: p, pkg: pkg}, plan, nil
 }

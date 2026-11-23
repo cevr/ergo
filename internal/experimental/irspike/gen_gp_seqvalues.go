@@ -8,12 +8,14 @@ import (
 
 // seqValueFuncs are GenerateSeqValues' functions: each gets an IR body in
 // every seed (GP-DEFINED, the Seq half of lane B's 6cebc4c40).
-var seqValueFuncs = []string{"pass", "feed", "wrap"}
+var seqValueFuncs = []string{"pass", "feed", "wrap", "bare"}
 
 // GenerateSeqValues is a program of the prelude's Seq[int] values that
 // are not ranged over: pass moves one through, feed calls one with the
 // caller's yield, and wrap converts a function literal to Seq[int] that
-// feeds another Seq with a seeded step. main collects and folds each, so a
+// feeds another Seq with a seeded step, and bare returns a function
+// literal as its Seq[int] with no conversion written (the implicit one, as
+// std's tz.Transitions and kv/memory's Scan do). main collects and folds each, so a
 // Seq called with another yield, a yield's false ignored or a conversion
 // of another value changes the output.
 func GenerateSeqValues(seed uint64) string {
@@ -27,6 +29,8 @@ func GenerateSeqValues(seed uint64) string {
 	// wrap: a function literal converted to Seq[int], which stops after n
 	// elements and steps each.
 	fmt.Fprintf(&b, "func wrap(s Seq[int], n int) Seq[int] {\n\tSeq[int](func(yield func(v int) bool) {\n\t\tlet mut k = 0\n\t\tfeed(s, func(v int) bool {\n\t\t\tk = k + 1\n\t\t\tk <= n && yield(v * %d + k)\n\t\t})\n\t})\n}\n\n", 1+g.n(5))
+	// bare: a function literal that is the Seq[int] it returns, implicitly.
+	fmt.Fprintf(&b, "func bare(s Seq[int]) Seq[int] {\n\tfunc(yield func(v int) bool) {\n\t\tfeed(s, func(v int) bool { yield(v + %d) })\n\t}\n}\n\n", 1+g.n(9))
 	b.WriteString("func main() needs Console {\n")
 	for k := 0; k < 3; k++ {
 		var xs []string
@@ -34,7 +38,7 @@ func GenerateSeqValues(seed uint64) string {
 			xs = append(xs, fmt.Sprint(g.n(20)))
 		}
 		fmt.Fprintf(&b, "\tlet xs%d = []int{%s}\n", k, strings.Join(xs, ", "))
-		fmt.Fprintf(&b, "\tlet ys%d = slices.Collect(wrap(pass(slices.Values(xs%d)), %d))\n", k, k, g.n(7))
+		fmt.Fprintf(&b, "\tlet ys%d = slices.Collect(bare(wrap(pass(slices.Values(xs%d)), %d)))\n", k, k, g.n(7))
 		fmt.Fprintf(&b, "\tlet mut t%d = len(ys%d)\n\tfor y in ys%d {\n\t\tt%d = t%d * 3 + y\n\t}\n", k, k, k, k, k)
 		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(t%d)\")\n", k, k)
 	}

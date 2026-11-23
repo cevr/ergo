@@ -518,7 +518,7 @@ func (c *checker) checkFunctionClaims() {
 				if _, mut := recv.(*Pointer); mut && !want.MutSelf {
 					why = fmt.Sprintf("%s writes its receiver, and the operation does not", f.Name)
 				} else {
-					why = c.operationShape(recv, f.Name, got, want, nil, nil)
+					why = c.operationShape(recv, f.Name, got, want, got.Results, want.Results, nil, nil)
 					if why == "" {
 						why = c.operationTakes(recv, f.Name, got, want, recv)
 					}
