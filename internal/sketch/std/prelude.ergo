@@ -117,9 +117,9 @@ type Random {
 }
 
 // Option is a value that may be absent (#99).
-type Some[T] { Value T }
+type Some[T own] { Value T }
 type None {}
-type Option[T] = Some[T] | None
+type Option[T own] = Some[T] | None
 
 // OrFail is o's value, or fails with f when o is None: the one call from
 // a miss as an Option to a miss as a failure, which carries what the

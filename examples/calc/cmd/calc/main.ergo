@@ -32,7 +32,7 @@ func optimizer(fold bool) opt.Optimizer {
 func run(args []string, host io.Stdin) fails os.Exit needs io.Stdout | io.Stderr {
 	let v = flag.Parse(set, args) catch {
 	case err:
-		try flag.Exit(err, flag.Usage(set))
+		try flag.Exit(err, flag.UsageText(set))
 		return
 	}
 	let src = exprFlag.Get(v)
