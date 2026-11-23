@@ -213,12 +213,14 @@ type lowerer struct {
 	// (ir.go); nil in every other lowering.
 	ir *irState
 	// goModule is the root unit's Go requirements (hostPkg).
-	goModule GoModule
-	pkg      *check.Package
-	info     *check.Info
-	file     *syntax.File // the current source file (sources.go)
-	src      string       // its admitted path, which //line directives name
-	cur      int          // its index in srcs
+	goModule  GoModule
+	pkg       *check.Package
+	info      *check.Info
+	copyFacts *check.Info // specialized body facts, when they are l.info
+	copyPkg   *check.Package
+	file      *syntax.File // the current source file (sources.go)
+	src       string       // its admitted path, which //line directives name
+	cur       int          // its index in srcs
 
 	srcs []srcFile // every source file in canonical order (canon.srcs)
 	// rowPlaces are the places a row gap can be found at in each

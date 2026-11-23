@@ -36,18 +36,21 @@ import strings
 // law or a test is one too, with the signature its parameters and result
 // make (a law's result is bool).
 type Fn {
-	File   int,
-	Decl   dense.ID[syntax.Node],
-	Name   dense.ID[syntax.Node],
-	Params []string,
-	Rows   []bool,
-	Own    []bool,
-	Names  []dense.Opt[syntax.Node],
-	Sig    dense.ID[store.TKey],
-	Body   dense.Opt[syntax.Node],
-	Takes  []bool,
-	Pnames []string,
-	Close  bool,
+	File       int,
+	Decl       dense.ID[syntax.Node],
+	Name       dense.ID[syntax.Node],
+	Params     []string,
+	Rows       []bool,
+	Own        []bool,
+	Names      []dense.Opt[syntax.Node],
+	Sig        dense.ID[store.TKey],
+	Body       dense.Opt[syntax.Node],
+	Takes      []bool,
+	Pnames     []string,
+	Close      bool,
+	SelfBounds []types.SelfBound,
+	SelfArity  int,
+	SelfRole   dense.Opt[store.TKey],
 }
 
 // Field is a record field: its name and type (the record's bracket
@@ -83,10 +86,9 @@ type Pkg {
 	// (ParsePort for Port): each named by its type's name node, where
 	// bind declares it.
 	Parses []OpName,
-	// Claims and OpSigs are the package's implements clauses and its
-	// operation types' operations, resolved (claims.ergo).
+	// Claims are implements clauses at their declaration's parameters.
 	Claims []Claim,
-	OpSigs []OpSig,
+	Roles  []types.Role,
 	Deps   []Dep,
 	// Unions is the unions a call's inference may meet, the package's
 	// and its imports' (types.UnionsOf).
@@ -186,7 +188,7 @@ func declared(s mut store.Store, env types.Env, p syntax.Parsed, file int, decl 
 	case None:
 	}
 	let none = store.TRow(s, []dense.ID[store.TKey]{})
-	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b, Takes: []bool{}, Pnames: []string{}, Close: false}
+	Fn{File: file, Decl: decl, Name: name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: names, Sig: store.TSig(s, ts, result, none, none), Body: b, Takes: []bool{}, Pnames: []string{}, Close: false, SelfBounds: []types.SelfBound{}, SelfArity: 0, SelfRole: dense.NoID[store.TKey]()}
 }
 
 // sigFacts is what a function's declaration says of its parameters: the
@@ -423,6 +425,9 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	}
 	let foreign = types.WithAliases(foreign0, *s, deps)
 	let kinds = types.SolveKinds(*s, parsed, ext)
+	let roles = if len(parsed) == 0 { []types.Role{} } else { types.Roles(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) }
+	types.ImportClaimLayouts(s, deps)
+	let claims = claimsOf(s, parsed, kinds, ext, foreign, deps, roles)
 	let mut fns = []Fn{}
 	let closers = closerNames(parsed)
 	for f in types.SolveFuncKinds(*s, parsed, ext, kinds) {
@@ -433,7 +438,8 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 			if writesWired(p, fd.Type) && types.WiredOfType(*s, env, fd.Type) {
 				continue
 			}
-			let sig = types.Resolve(s, env, fd.Type)
+			let bounds = types.SelfBounds(s, env, roles, fd.TypeParams)
+			let sig = types.Resolve(s, types.WithSelfBounds(env, bounds), fd.Type)
 			let mut rows = []bool{}
 			for k in f.Kinds {
 				rows = rows.Append(k != 1)
@@ -445,7 +451,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 				[]bool{}
 			}
 			let facts = factsOf(*s, p, types.NameText(p, fd.Name), fd.Type, sig, closers)
-			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body, Takes: facts.taken, Pnames: facts.names, Close: facts.close})
+			fns = fns.Append(Fn{File: f.File, Decl: f.Decl, Name: fd.Name, Params: f.Params, Rows: rows, Own: own, Names: paramNames(p, fd.Type), Sig: sig, Body: fd.Body, Takes: facts.taken, Pnames: facts.names, Close: facts.close, SelfBounds: bounds, SelfArity: 0, SelfRole: dense.NoID[store.TKey]()})
 		case _:
 		}
 	}
@@ -502,44 +508,58 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 						}
 					}
 					// An operation type's laws, and its operations they call.
-					if !isSome(dense.Unpack(td.TypeParams)) {
-						match dense.Unpack(td.Spec) {
-						case Some[dense.ID[syntax.Node]] as sp:
-							match syntax.ViewOf(p.Tree, sp.Value) {
-							case syntax.InterfaceType as it:
-								// A type that embeds another (..fs.Files) has
-								// operations its laws call that are not its
-								// own: its laws are not typed.
-								let mut embeds = false
-								for j in 0..syntax.Len(it.Members) {
-									match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
-									case syntax.Field as fd:
-										embeds = embeds || fd.Dots >= 0
-									case _:
-									}
+					let owner = bracketList(p, td.TypeParams)
+					match dense.Unpack(td.Spec) {
+					case Some[dense.ID[syntax.Node]] as sp:
+						match syntax.ViewOf(p.Tree, sp.Value) {
+						case syntax.InterfaceType as it:
+							// A type that embeds another (..fs.Files) has
+							// operations its laws call that are not its
+							// own: its laws are not typed.
+							let mut embeds = false
+							for j in 0..syntax.Len(it.Members) {
+								match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
+								case syntax.Field as fd:
+									embeds = embeds || fd.Dots >= 0
+								case _:
 								}
-								for j in 0..syntax.Len(it.Members) {
-									let m = syntax.Item(p.Tree, it.Members, j)
-									match syntax.ViewOf(p.Tree, m) {
-									case syntax.Field as fd:
-										match dense.Unpack(fd.Type) {
-										case Some[dense.ID[syntax.Node]] as ft:
-											if syntax.KindOf(p.Tree, ft.Value) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
-												ops = ops.Append(OpName{File: file, Name: syntax.Item(p.Tree, fd.Names, 0), T: types.Resolve(s, env, ft.Value)})
+							}
+							for j in 0..syntax.Len(it.Members) {
+								let m = syntax.Item(p.Tree, it.Members, j)
+								match syntax.ViewOf(p.Tree, m) {
+								case syntax.Field as fd:
+									match dense.Unpack(fd.Type) {
+									case Some[dense.ID[syntax.Node]] as ft:
+										if len(owner) == 0 && syntax.KindOf(p.Tree, ft.Value) == syntax.KFuncType && syntax.Len(fd.Names) == 1 {
+											ops = ops.Append(OpName{File: file, Name: syntax.Item(p.Tree, fd.Names, 0), T: types.Resolve(s, env, ft.Value)})
+										}
+									case None:
+									}
+								case syntax.LawDecl as ld:
+									if ld.Body != dense.NoID[syntax.Node]() && !embeds && (len(owner) == 0 || types.SelfSites(p, m) != 0) {
+										let own = bracketList(p, ld.TypeParams)
+										let names = owner.Concat(own)
+										let scope = types.WithSelf(types.NewEnv(*s, parsed, p, names, kinds, ext, foreign, deps), len(owner))
+										let mut member = declared(s, scope, p, file, m, ld.Name, ld.Params, store.TBasic(s, bBool), ld.Body)
+										member.SelfArity = len(owner) + 1
+										member.Params = names
+										match store.Lookup(*s, types.NameText(p, td.Name)) {
+										case Some{Value: id}:
+											let mut actual = []dense.ID[store.TKey]{}
+											for a in 0..len(owner) {
+												actual = actual.Append(store.TParam(s, a))
 											}
+											member.SelfRole = dense.OptOf(if len(actual) == 0 { store.TNamed(s, id) } else { store.TInstance(s, store.XRef{Import: uint32(0), Decl: uint32(dense.Index(id))}, actual) })
 										case None:
 										}
-									case syntax.LawDecl as ld:
-										if ld.Body != dense.NoID[syntax.Node]() && !embeds {
-											fns = fns.Append(declared(s, env, p, file, m, ld.Name, ld.Params, store.TBasic(s, bBool), ld.Body))
-										}
-									case _:
+										fns = fns.Append(member)
 									}
+								case _:
 								}
-							case _:
 							}
-						case None:
+						case _:
 						}
+					case None:
 					}
 				case _:
 				}
@@ -598,8 +618,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	// The unions a call meets, read once: inference looks one up per
 	// union argument, not per declaration.
 	let unions = if len(parsed) > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
-	let (claims, opSigs) = claimsOf(s, parsed, kinds, ext, foreign, deps)
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Claims: claims, OpSigs: opSigs, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Claims: claims, Roles: roles, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
 }
 
 // parseFn is the parse function the refined type named at the package
@@ -608,7 +627,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 func parseFn(k Pkg, at dense.ID[store.PNode]) Option[Fn] {
 	for o in k.Parses {
 		if bind.PNodeOf(k.Ps, o.File, o.Name) == at {
-			return Some[Fn]{Value: Fn{File: o.File, Decl: o.Name, Name: o.Name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: []dense.Opt[syntax.Node]{dense.NoID[syntax.Node]()}, Sig: o.T, Body: dense.NoID[syntax.Node](), Takes: []bool{false}, Pnames: []string{""}, Close: false}}
+			return Some[Fn]{Value: Fn{File: o.File, Decl: o.Name, Name: o.Name, Params: []string{}, Rows: []bool{}, Own: []bool{}, Names: []dense.Opt[syntax.Node]{dense.NoID[syntax.Node]()}, Sig: o.T, Body: dense.NoID[syntax.Node](), Takes: []bool{false}, Pnames: []string{""}, Close: false, SelfBounds: []types.SelfBound{}, SelfArity: 0, SelfRole: dense.NoID[store.TKey]()}}
 		}
 	}
 	None

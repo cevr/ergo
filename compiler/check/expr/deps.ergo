@@ -64,20 +64,6 @@ func imported(s mut store.Store, k Pkg, path string, name string, args []dense.I
 	if f >= 0 { some(store.TForeign(s, f)) } else { None }
 }
 
-// refName is the package path and type name the XRef o of the
-// dependency d's pool names: one of d's own declarations (Import 0), or
-// a type of one of d's Ergo imports.
-func refName(d Dep, o store.XRef) Option[(string, string)] {
-	if int(o.Import) == 0 {
-		return Some[(string, string)]{Value: (d.Path, store.DeclText(d.S, int(o.Decl)))}
-	}
-	let i = int(o.Import) - 1
-	if i >= len(d.K.Ifaces) || int(o.Decl) >= len(d.K.Ifaces[i].Decls) {
-		return None
-	}
-	Some[(string, string)]{Value: (d.K.Ifaces[i].Path, d.K.Ifaces[i].Decls[int(o.Decl)].Name)}
-}
-
 // port is the type dt of the dependency d's pool as a type of s's pool:
 // a type d declares, or reads from one of its Ergo imports, is k's
 // reference into that package's interface (imported); one d reads from
@@ -86,81 +72,7 @@ func refName(d Dep, o store.XRef) Option[(string, string)] {
 // of k's own cannot (a wired or row value): the member is then left
 // untyped.
 func port(s mut store.Store, k Pkg, d Dep, dt dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
-	let ds = d.S
-	let kind = store.KindOfType(ds, dt)
-	if kind == store.KBasic {
-		return some(store.TBasic(s, store.ArgOf(ds, dt)))
-	}
-	if kind == store.KParam {
-		return some(store.TParam(s, store.ArgOf(ds, dt)))
-	}
-	if kind == store.KNamed {
-		return imported(s, k, d.Path, store.TypeNameText(ds, store.ArgOf(ds, dt)), []dense.ID[store.TKey]{})
-	}
-	if kind == store.KForeign {
-		let df = d.K.Foreign[store.ArgOf(ds, dt)]
-		let f = foreignAt(k, df.Path, df.Name)
-		return if f >= 0 && df.Path != "-" { some(store.TForeign(s, f)) } else { None }
-	}
-	if kind == store.KArray {
-		let ops = store.OperandsOf(ds, dt)
-		return match port(s, k, d, ops[1]) {
-		case Some[dense.ID[store.TKey]] as e:
-			some(store.TArray(s, store.ArrayLen(ds, dt), e.Value))
-		case None:
-			None
-		}
-	}
-	let mut ops = []dense.ID[store.TKey]{}
-	for o in store.OperandsOf(ds, dt) {
-		match port(s, k, d, o) {
-		case Some[dense.ID[store.TKey]] as p:
-			ops = ops.Append(p.Value)
-		case None:
-			return None
-		}
-	}
-	if kind == store.KSlice {
-		return some(store.TSlice(s, ops[0]))
-	}
-	if kind == store.KMap {
-		return some(store.TMap(s, ops[0], ops[1]))
-	}
-	if kind == store.KPointer {
-		return some(store.TPointer(s, ops[0]))
-	}
-	if kind == store.KTuple {
-		return some(store.TTuple(s, ops))
-	}
-	if kind == store.KRow {
-		return some(store.TRow(s, ops))
-	}
-	if kind == store.KOwn {
-		return some(store.TOwn(s, ops[0]))
-	}
-	if kind == store.KEntry {
-		return some(store.TEntry(s, ops[0]))
-	}
-	if kind == store.KSig {
-		let n = len(ops)
-		return some(store.TSig(s, ops[0:n-3], ops[n-3], ops[n-2], ops[n-1]))
-	}
-	if kind == store.KInstance {
-		let o = store.OriginOfType(ds, dt)
-		if int(o.Import) == store.ForeignBit {
-			let df = d.K.Foreign[int(o.Decl)]
-			let f = if df.Path == "-" { -1 } else { foreignAt(k, df.Path, df.Name) }
-			return if f >= 0 { some(store.TInstance(s, store.XRef{Import: uint32(store.ForeignBit), Decl: uint32(f)}, ops)) } else { None }
-		}
-		return match refName(d, o) {
-		case Some[(string, string)] as r:
-			let (path, name) = r.Value
-			imported(s, k, path, name, ops)
-		case None:
-			None
-		}
-	}
-	None
+	types.Port(s, k.Ifaces, k.Foreign, d.S, d.Path, func(ref store.XRef) Option[types.DeclIdentity] { types.DepIdentity(d.K.Ifaces, ref) }, d.K.Foreign, dt)
 }
 
 // importedFn is the function the selector's name sel names in an import,

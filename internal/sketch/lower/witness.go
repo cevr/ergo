@@ -33,7 +33,7 @@ func witnessParams(sig *check.Signature) []*check.TypeParam {
 		// Go function field holds a generic operation, so its function
 		// lowers only as copies, which call the providers directly
 		// (GENERIC-OP; directOp).
-		if it := constraintOf(tp); it != nil && !it.Generic && (len(it.Methods) > 0 || it.Set == check.SetWire) {
+		if it := constraintOf(tp); it != nil && !it.ConstraintOnly && (len(it.Methods) > 0 || it.Set == check.SetWire) {
 			out = append(out, tp)
 		}
 	}

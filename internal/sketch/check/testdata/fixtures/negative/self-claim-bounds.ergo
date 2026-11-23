@@ -1,0 +1,5 @@
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+}
+
+type Set[T ordered] []T implements Mappable[T]

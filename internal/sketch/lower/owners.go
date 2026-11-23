@@ -91,6 +91,9 @@ func (l *lowerer) errorType(named *check.Named) bool {
 // bodyPkg is the package whose body the lowering is in: the package of the
 // Info it reads (sources.go, decls.go swap it per body).
 func (l *lowerer) bodyPkg() *check.Package {
+	if l.copyFacts != nil && l.info == l.copyFacts {
+		return l.copyPkg
+	}
 	if l.info == l.pkg.Info {
 		return l.pkg
 	}

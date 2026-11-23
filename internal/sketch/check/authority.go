@@ -432,6 +432,16 @@ func (m *mentioner) walk(t Type) {
 		m.walk(u.Signal)
 	case *TypeParam:
 		m.walk(u.Constraint)
+	case *SelfType:
+		// The claimant is unknown here; the arguments may name types.
+		for _, a := range u.Args {
+			m.walk(a)
+		}
+	case *Reapplied:
+		m.walk(u.Param)
+		for _, a := range u.Args {
+			m.walk(a)
+		}
 	case *RowArg:
 		m.row(u.Row)
 	case *Wired:

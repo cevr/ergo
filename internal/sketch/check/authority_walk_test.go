@@ -62,14 +62,21 @@ var mentionsParts = map[string]map[string]mentionsPart{
 		"provider": {why: "an Ergo provider field's NewF and Call: functions of the field type's package, whose types the field's Type already names (the field type at its A and G)"},
 	},
 	"Interface": {
-		"Methods":  {sel: "Methods"},
-		"obj":      {sel: "obj"},
-		"byName":   {why: "Methods sorted"},
-		"Set":      {why: "a predeclared constraint's type set: basic types only"},
-		"Terms":    {why: "a type set's terms: an operation type with them is a constraint only, so no value, field or row holds one; a type argument it admits is mentioned where it is written"},
-		"includes": {why: "the ..I members: their operations are in Methods, which the walk reads"},
-		"Generic":  {why: "a flag: an operation has its own type parameters; it holds no type"},
+		"Methods":        {sel: "Methods"},
+		"obj":            {sel: "obj"},
+		"byName":         {why: "Methods sorted"},
+		"Set":            {why: "a predeclared constraint's type set: basic types only"},
+		"Terms":          {why: "a type set's terms: an operation type with them is a constraint only, so no value, field or row holds one; a type argument it admits is mentioned where it is written"},
+		"includes":       {why: "the ..I members: their operations are in Methods, which the walk reads"},
+		"ConstraintOnly": {why: "a flag; it holds no type"},
+		"selfUses":       {why: "the operation signatures hold and walk these types"},
 	},
+	"SelfType": {
+		"Args":   {sel: "Args"},
+		"owner":  {why: "the enclosing declaration, not the claimant"},
+		"source": {why: "the name of the operation or law for diagnostics"},
+	},
+	"Reapplied": {"Param": {sel: "Param"}, "Args": {sel: "Args"}},
 	"Method": {
 		"Sig":  {sel: "Sig"},
 		"Name": {why: "a name; implementers matches it"},
@@ -176,6 +183,7 @@ var mentionsKinds = map[string]reflect.Type{
 	"Slice": reflect.TypeFor[Slice](), "Array": reflect.TypeFor[Array](), "Map": reflect.TypeFor[Map](), "Pointer": reflect.TypeFor[Pointer](),
 	"Tuple": reflect.TypeFor[Tuple](), "Signature": reflect.TypeFor[Signature](), "Var": reflect.TypeFor[Var](),
 	"TypeParam": reflect.TypeFor[TypeParam](), "RowArg": reflect.TypeFor[RowArg](), "RowVar": reflect.TypeFor[RowVar](),
+	"SelfType": reflect.TypeFor[SelfType](), "Reapplied": reflect.TypeFor[Reapplied](),
 	"Wired": reflect.TypeFor[Wired](), "Row": reflect.TypeFor[Row](),
 }
 
