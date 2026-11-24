@@ -1,0 +1,108 @@
+// Withs that own resources (the with lifetime owner): each releases the
+// providers it built once, last built first, when its block ends or
+// leaves, on the IR as on the text path. Every Close prints, so the
+// output is the release order.
+
+type Log { Name() string }
+type Db { Name() string }
+type Fault {}
+
+func boom() fails Fault { return Fault }
+
+type FileLog {} implements Log, Closer
+func Name(_ FileLog) string { "log" }
+func Close(_ FileLog) needs Console { Console.Println("close log") }
+
+type MemDb {} implements Db, Closer
+func Name(_ MemDb) string { "db" }
+func Close(_ MemDb) needs Console { Console.Println("close db") }
+
+type Plain {} implements Log
+func Name(_ Plain) string { "plain" }
+
+let Named = context { Log: FileLog, Db: MemDb }
+
+// inline builds its providers in place, each in one masked acquisition.
+func inline() needs Console {
+	with context { Log: FileLog, Db: MemDb } {
+		Console.Println("inline " + Log.Name() + " " + Db.Name())
+	}
+	Console.Println("end inline")
+}
+
+// midway leaves its with from mid-block by a failure: the frame's end
+// releases what the with built.
+func midway() fails Fault needs Console {
+	with Named {
+		Console.Println("midway " + Log.Name() + " " + Db.Name())
+		try boom()
+		Console.Println("unreached")
+	}
+	Console.Println("unreached end")
+}
+
+// lent lends a resource the function owns and builds a plain provider:
+// the with releases neither, the function's end releases the lent one.
+func lent() needs Console {
+	let d = MemDb
+	with context { Db: d, Log: Plain } {
+		Console.Println("lent " + Db.Name() + " " + Log.Name())
+	}
+	Console.Println("end lent")
+}
+
+// nested owns a with inside another: the inner one ends first.
+func nested() needs Console {
+	with context { Db: MemDb } {
+		with context { Log: FileLog } {
+			Console.Println("nested " + Log.Name() + " " + Db.Name())
+		}
+		Console.Println("after inner")
+	}
+	Console.Println("end nested")
+}
+
+// valued is a with as the function's result: its scope ends before the
+// value returns.
+func valued(fail bool) int fails Fault needs Console {
+	with Named {
+		Console.Println("valued " + Db.Name())
+		if fail {
+			try boom()
+		}
+		7
+	}
+}
+
+// tail is a with built in place whose block's tail fails: the with's
+// failure is the function's.
+func tail() fails Fault needs Console {
+	with context { Log: FileLog, Db: MemDb } {
+		Console.Println("tail " + Log.Name() + " " + Db.Name())
+		boom()
+	}
+}
+
+func main() needs Console {
+	inline()
+	midway() catch {
+	case Fault:
+		Console.Println("midway failed")
+	}
+	lent()
+	nested()
+	let v = valued(false) catch {
+	case Fault:
+		0
+	}
+	Console.Println("valued \(v)")
+	let w = valued(true) catch {
+	case Fault:
+		0 - 1
+	}
+	Console.Println("valued \(w)")
+	tail() catch {
+	case Fault:
+		Console.Println("tail failed")
+	}
+}
