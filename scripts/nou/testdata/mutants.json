@@ -18,6 +18,33 @@
       "to": "\t\treturn bareLegacyCall(call.Fun)",
       "rule": "The prelude binding, not a user shadow with the same spelling, is inventoried.",
       "killers": ["scripts/nou:TestRatchetRejectsReplacementNotShadow"]
+    },
+    {
+      "name": "nou-ratchet-misses-joined-fixture",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/go_source.go",
+      "from": "if !literalText(fset, n, &b, &parts) {",
+      "to": "if _, split := n.(*ast.BinaryExpr); split || !literalText(fset, n, &b, &parts) {",
+      "rule": "Decode and concatenate literal fixture source before filtering on the name.",
+      "killers": ["scripts/nou:TestInventoryExtractsEmbeddedErgo"]
+    },
+    {
+      "name": "nou-ratchet-drops-template-fragment",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/ergo_literals.go",
+      "from": "for _, offset := range offsets {\n\t\tresult = append",
+      "to": "for _, offset := range offsets[:0] {\n\t\tresult = append",
+      "rule": "A template fragment that is not a whole package still holds a tracked legacy occurrence.",
+      "killers": ["scripts/nou:TestInventoryExtractsEmbeddedErgo"]
+    },
+    {
+      "name": "nou-ratchet-skips-damaged-fragment",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/ergo_literals.go",
+      "from": "if damagedCall.MatchString(text[covered:]) {",
+      "to": "if false && damagedCall.MatchString(text[covered:]) {",
+      "rule": "A lexical failure before a candidate cannot silently drop the fixture from the inventory.",
+      "killers": ["scripts/nou:TestInventoryExtractsEmbeddedErgo"]
     }
   ]
 }

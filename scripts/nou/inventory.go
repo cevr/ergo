@@ -15,8 +15,8 @@ const legacyName = "Unreachable"
 type siteID struct{ file, anchor string }
 
 type site struct {
-	id   siteID
-	line int
+	id           siteID
+	line, offset int
 }
 
 func boundSites(file, src string, f *syntax.File, pkg *check.Package) []site {
@@ -33,16 +33,21 @@ func provisionalSites(file, src string, f *syntax.File) []site {
 }
 
 func bareLegacyCall(fun syntax.Expr) bool {
+	return legacyIdent(fun) != nil
+}
+
+func legacyIdent(fun syntax.Expr) *syntax.Ident {
 	switch f := fun.(type) {
 	case *syntax.Ident:
-		return f.Name == legacyName
+		if f.Name == legacyName {
+			return f
+		}
 	case *syntax.ParenExpr:
-		return bareLegacyCall(f.X)
+		return legacyIdent(f.X)
 	case *syntax.IndexExpr:
-		return bareLegacyCall(f.X)
-	default:
-		return false
+		return legacyIdent(f.X)
 	}
+	return nil
 }
 
 func callSites(file, src string, f *syntax.File, take func(*syntax.CallExpr) bool) []site {
@@ -56,7 +61,10 @@ func callSites(file, src string, f *syntax.File, take func(*syntax.CallExpr) boo
 		if call, ok := n.(*syntax.CallExpr); ok && !seen[call.Pos()] && take(call) {
 			seen[call.Pos()] = true
 			line := 1 + strings.Count(src[:call.Pos()], "\n")
-			out = append(out, site{siteID{file, prefix + fingerprint(src, call.Pos(), call.End())}, line})
+			out = append(out, site{
+				id:   siteID{file, prefix + fingerprint(src, call.Pos(), call.End())},
+				line: line, offset: int(call.Pos()),
+			})
 		}
 		first := true
 		syntax.Inspect(n, func(child syntax.Node) bool {
@@ -135,6 +143,12 @@ func fingerprint(src string, start, end syntax.Pos) string {
 		return fmt.Sprintf("%x", sha256.Sum256([]byte(syntax.TokenText(src[start:end]))))
 	}
 	return ""
+}
+
+func fragmentDigest(src string) string {
+	// Preserve bytes the grammar cannot read while making a line move in
+	// the Go host irrelevant.
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(src))))
 }
 
 func newSites(current []site, baseline map[siteID]int) []site {
