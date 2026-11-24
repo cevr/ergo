@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"syscall"
 )
 
 // ---- step ----
@@ -329,6 +330,38 @@ func benchProvSpill(n int) int {
 	return s
 }
 
+// ---- mapclose ----
+
+//go:noinline
+func mapClose(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return false
+	}
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(info.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return false
+	}
+	syscall.Munmap(data)
+	return true
+}
+
+func benchMapClose(n int) int {
+	k := 0
+	for i := 0; i < n; i++ {
+		if !mapClose("/proc/self/exe") {
+			return -1
+		}
+		k++
+	}
+	return k
+}
+
 // ---- ref ----
 
 type cell struct {
@@ -436,6 +469,8 @@ func main() {
 		out = benchCtx(n)
 	case "ref":
 		out = benchRef(n)
+	case "mapclose":
+		out = benchMapClose(n)
 	case "provspill":
 		out = benchProvSpill(n)
 	case "widen", "rebuild":
