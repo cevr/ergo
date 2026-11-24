@@ -6,7 +6,7 @@ The checker's graph of a program as dense rows (CI-SELECT §12, GRAPH-TABLE). Ev
 ergo graph export [DIR|DIR/...] [--json]
 ```
 
-The queries over these rows are std `codegraph`'s functions, and `ergo graph cycles | why | affected | hidden | chains | fan | interfaces | files | layers` their command line ([stdlib, Graph and codegraph](stdlib.md#graph-and-codegraph); `ergo graph --help`).
+The queries over these rows are std `codegraph`'s functions, and `ergo graph cycles | why | affected | hidden | chains | fan | interfaces | files | directories | layers` their command line ([stdlib, Graph and codegraph](stdlib.md#graph-and-codegraph); `ergo graph --help`).
 
 `DIR/...` takes every package below `DIR`: of `DIR`'s module, or, at a workspace root (an `ergo.work`, or no module holds `DIR`), of every member ([build](build.md#workspace)). At a workspace root the rows hold a `module` node for every member, also one with no package, and a `requires` edge for each member another resolves locally.
 

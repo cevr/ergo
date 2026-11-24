@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -125,6 +125,11 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("files takes no argument; the line max is --max N, the modules --module PATH")
 		}
 		files(r, o)
+	case "directories":
+		if len(words) != 1 {
+			return usage("directories takes no argument; the member max is --max N, the modules --module PATH")
+		}
+		directories(r, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -426,6 +431,28 @@ func files(r codegraph.Rows, o Options) []string {
 		b = b + "\(f.Lines) \(f.File)\n"
 	}
 	ok(if len(out) == 0 { "no file\n" } else { b })
+}
+
+type DirectoryOut { Path string, Members []string, Anchor int, Wide bool }
+
+func directories(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []DirectoryOut{}
+	for d in codegraph.Directories(r, modules).Directories {
+		let wide = o.Max >= 0 && codegraph.WideDirectory(d, o.Max)
+		if o.Max >= 0 && !wide {
+			continue
+		}
+		out = out.Append(DirectoryOut{Path: d.Path, Members: d.Members, Anchor: d.Anchor, Wide: wide})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]DirectoryOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for d in out {
+		b = b + "\(len(d.Members)) \(d.Path)/\n"
+	}
+	ok(if len(out) == 0 { "no directory\n" } else { b })
 }
 
 func interfaces(r codegraph.Rows, o Options) []string {

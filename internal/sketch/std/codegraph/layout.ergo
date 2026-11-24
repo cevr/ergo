@@ -1,3 +1,7 @@
+import maps
+import slices
+import strings
+
 type FileLength { File int, Lines int }
 
 type FileLengths { Files []FileLength, Work int }
@@ -38,4 +42,106 @@ func physicalLinesWorkIsLinear(seed int, size int) bool {
 		}
 	}
 	got.Work <= len(r.Nodes) + 1
+}
+
+type Directory { Path string, Members []string, Anchor int }
+
+type DirectoryList { Directories []Directory, Work int }
+
+func WideDirectory(d Directory, max int) bool { len(d.Members) > max }
+
+func childEntry(parts []string, k int) string { parts[k] }
+
+func Directories(r Rows, modules []int) DirectoryList {
+	let mut work = 0
+	let mut chosen = Map[int, bool]{}
+	for m in modules {
+		chosen[m] = true
+	}
+	let mut places = []place{}
+	let mut dirs = []string{}
+	let mut members = Map[string, []string]{}
+	let mut seen = Map[string, bool]{}
+	let mut directAnchor = Map[string, int]{}
+	let mut anyAnchor = Map[string, int]{}
+	for i, row in r.Nodes {
+		work = work + 1
+		let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+		if row.Parent >= 0 {
+			at = if row.Parent < i { places[row.Parent] } else { placeOf(r, row.Parent, chosen) }
+		}
+		let here = placed(r, i, at, chosen)
+		places = places.Append(here)
+		if row.Kind != "file" || !here.InScope || row.Name == "" {
+			continue
+		}
+		let raw = strings.Split(row.Name, "/")
+		let mut parts = []string{}
+		for p in raw {
+			if p != "" && p != "." {
+				parts = parts.Append(p)
+			}
+		}
+		for k in 0..len(parts) {
+			work = work + 1
+			let dir = if k == 0 { "." } else { strings.Join(parts[0:k], "/") }
+			let child = childEntry(parts, k)
+			let key = dir + "\n" + child
+			if seen.Get(key) == None {
+				seen[key] = true
+				if members.Get(dir) == None {
+					dirs = dirs.Append(dir)
+				}
+				members[dir] = maps.GetOr(members, dir, []string{}).Append(child)
+			}
+			if k == len(parts) - 1 {
+				match directAnchor.Get(dir) {
+				case None:
+					directAnchor[dir] = i
+				case Some[int] as prev:
+					if row.Name < r.Nodes[prev.Value].Name {
+						directAnchor[dir] = i
+					}
+				}
+			}
+			match anyAnchor.Get(dir) {
+			case None:
+				anyAnchor[dir] = i
+			case Some[int] as prev:
+				if row.Name < r.Nodes[prev.Value].Name {
+					anyAnchor[dir] = i
+				}
+			}
+		}
+	}
+	let mut out = []Directory{}
+	for d in slices.Sort(dirs) {
+		let anchor = match directAnchor.Get(d) {
+		case Some[int] as a:
+			a.Value
+		case None:
+			maps.GetOr(anyAnchor, d, -1)
+		}
+		out = out.Append(Directory{Path: d, Members: slices.Sort(maps.GetOr(members, d, []string{})), Anchor: anchor})
+	}
+	DirectoryList{Directories: out, Work: work}
+}
+
+law DirectoriesWorkIsLinear(seed int, size int) { directoriesWorkIsLinear(seed, size) }
+
+func directoriesWorkIsLinear(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let got = Directories(r, []int{0})
+	let mut parts = 0
+	for n in r.Nodes {
+		if n.Kind == "file" {
+			parts = parts + len(strings.Split(n.Name, "/"))
+		}
+	}
+	for d in got.Directories {
+		if d.Anchor < 0 || r.Nodes[d.Anchor].Kind != "file" || len(d.Members) == 0 {
+			return false
+		}
+	}
+	got.Work <= len(r.Nodes) + parts + 1
 }
