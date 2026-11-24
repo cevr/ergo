@@ -657,10 +657,10 @@
       "from": "if c.method {",
       "to": "if false {",
       "rule": "A call of a function on a record of its package is the Go method's call, an mcall on the receiver (lower's funcDecl, methodReceiver).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ],
-      "gap": "survived (scripts/mutants -run, 2026-11-20, S4-PORT: /tmp/opencode/s4p/mutrun1.log): no body the corpus lowers reaches the form yet: a std body's leaf call of this kind meets another stop first, and a sourced body's call stops at the inline decision. The fixture's calls build once S4c10 ports the inline decision; the fixture then holds the call and this row is judged again"
+      ]
     },
     {
       "name": "lower-mcall-receiver-kept",
@@ -669,10 +669,10 @@
       "from": "ir.List(b, ids[1:len(ids)])",
       "to": "ir.List(b, ids)",
       "rule": "An mcall's operands are the call's after its receiver, which is its x.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ],
-      "gap": "survived (scripts/mutants -run, 2026-11-20, S4-PORT: /tmp/opencode/s4p/mutrun1.log): no body the corpus lowers reaches the form yet: a std body's leaf call of this kind meets another stop first, and a sourced body's call stops at the inline decision. The fixture's calls build once S4c10 ports the inline decision; the fixture then holds the call and this row is judged again"
+      ]
     },
     {
       "name": "lower-dep-alias-caller",
@@ -681,10 +681,20 @@
       "from": "out.alias = pkgAlias(d.Path)",
       "to": "out.alias = st.alias",
       "rule": "A call of another package's function names it by that package's alias (alias__name), not the caller's (NAME-LOCAL rule 2).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
-      ],
-      "gap": "survived (scripts/mutants -run, 2026-11-20, S4-PORT: /tmp/opencode/s4p/mutrun1.log): no body the corpus lowers reaches the form yet: a std body's leaf call of this kind meets another stop first, and a sourced body's call stops at the inline decision. The fixture's calls build once S4c10 ports the inline decision; the fixture then holds the call and this row is judged again"
+      ]
+    },
+    {
+      "name": "lower-stop-sourced-leaf-call",
+      "origin": "wf10/selfhost/S4-PORT S4c10 (not-run-crunch)",
+      "file": "compiler/lower/lower.ergo",
+      "from": "\tlet first = try leafCallee(cst, i, name)\n",
+      "to": "\tif st.alias == \"\" {\n\t\treturn stop(\"call in a sourced body (inline decision)\")\n\t}\n\tlet first = try leafCallee(cst, i, name)\n",
+      "rule": "An unboxed leaf never gets an inline site, even when it is called in a sourced root or is larger than the Go cost budget.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     },
     {
       "name": "lower-float-product-unrounded",

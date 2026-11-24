@@ -41,6 +41,12 @@ func New(rule ratelimit.Rule) Limiter fails ratelimit.BadRule {
 	Limiter{rule: try ratelimit.Check(rule), keys: sync.NewRef(Map[string, entry]{})}
 }
 
+let onTokenBucket = context fails ratelimit.BadRule { ratelimit.Limiter: try New(ratelimit.TokenBucket{Capacity: 3, Every: 1s}) }
+
+let onFixedWindow = context fails ratelimit.BadRule { ratelimit.Limiter: try New(ratelimit.FixedWindow{Limit: 3, Window: 1s}) }
+
+let onSlidingWindow = context fails ratelimit.BadRule { ratelimit.Limiter: try New(ratelimit.SlidingWindow{Limit: 3, Window: 1s}) }
+
 // TakeAt grants cost tokens of key at now, or fails Limited with the
 // exact wait from now. A refused take stores nothing.
 func TakeAt(l Limiter, key string, cost int, now time.Time) ratelimit.Grant fails ratelimit.Limited | ratelimit.BadCost {
@@ -355,7 +361,7 @@ law LateTakeCountsAsTheLastGrant(seed int64, back int) {
 		for at in []time.Time{t, early, early, t} {
 			let a = TakeAt(late, "k", 1, at) catch {
 			case ratelimit.Limited as x:
-				ratelimit.Grant{Remaining: -1 - int(int64(x.RetryAfter - t.Sub(at)))}
+				ratelimit.Grant{Remaining: -1 - int(int64(x.RetryAfter-t.Sub(at)))}
 			case ratelimit.BadCost:
 				return false
 			}

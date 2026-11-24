@@ -9,6 +9,7 @@ import compiler/check/infer
 import compiler/check/store
 import compiler/syntax
 import dense
+import slices
 import strconv
 import strings
 
@@ -146,22 +147,24 @@ func WithUnions(foreign []Foreign, text string) []Foreign {
 // types, the foreign table, and the interfaces of the package's imports
 // in its import list's order (an XRef's import minus one).
 type Env {
-	p       syntax.Parsed,
-	params  []string,
-	kinds   Kinds,
-	ext     []Ext,
-	foreign []Foreign,
-	ownMap  bool,
-	depth   int,
-	files   []syntax.Parsed,
-	deps    []Iface,
+	p          syntax.Parsed,
+	params     []string,
+	kinds      Kinds,
+	ext        []Ext,
+	foreign    []Foreign,
+	ownMap     bool,
+	depth      int,
+	files      []syntax.Parsed,
+	deps       []Iface,
+	selfArity  int, // arity + one inside an operation type; zero elsewhere
+	selfBounds []SelfBound,
 }
 
 // inFile is e's environment for a type expression of file p with no
 // parameters, at depth: a new Env that shares e's tables (a let mut copy
 // of e is cloned whole, its file included).
 func inFile(e Env, p syntax.Parsed, depth int) Env {
-	Env{p: p, params: []string{}, kinds: e.kinds, ext: e.ext, foreign: e.foreign, ownMap: e.ownMap, depth: depth, files: e.files, deps: e.deps}
+	Env{..e, p: p, params: []string{}, depth: depth, selfArity: 0, selfBounds: []SelfBound{}}
 }
 
 // NewEnv is the environment of one declaration of file p.
@@ -172,7 +175,173 @@ func NewEnv(s store.Store, files []syntax.Parsed, p syntax.Parsed, params []stri
 		own = store.KindName(int(store.DeclOf(s, d.Value).Kind)) == "type"
 	case None:
 	}
-	Env{p: p, params: params, kinds: kinds, ext: ext, foreign: foreign, ownMap: own, depth: 0, files: files, deps: deps}
+	Env{p: p, params: params, kinds: kinds, ext: ext, foreign: foreign, ownMap: own, depth: 0, files: files, deps: deps, selfArity: 0, selfBounds: []SelfBound{}}
+}
+
+// WithSelf gives type positions in an operation or its member law a
+// claimant. The parameter names remain those of the lexical declaration.
+func WithSelf(e Env, arity int) Env {
+	let mut out = e
+	out.selfArity = arity + 1
+	out
+}
+
+func WithSelfBounds(e Env, bounds []SelfBound) Env {
+	let mut out = e
+	out.selfBounds = bounds
+	out
+}
+
+// SelfSites returns 2 when a type expression re-applies Self, 1 when it
+// names bare Self, and zero otherwise.
+func SelfSites(p syntax.Parsed, x dense.ID[syntax.Node]) int {
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.LawDecl as d:
+		if shadowsSelf(p, d.TypeParams) {
+			return 0
+		}
+		let params = match dense.Unpack(d.Params) {
+		case Some{Value: t}:
+			selfTypeSites(p, t)
+		case None:
+			0
+		}
+		return match dense.Unpack(d.Body) {
+		case Some{Value: b}:
+			maxSelfSite(params, selfLawBody(p, b))
+		case None:
+			params
+		}
+	case syntax.InterfaceType as i:
+		let mut sites = 0
+		for j in 0..syntax.Len(i.Members) {
+			let member = syntax.Item(p.Tree, i.Members, j)
+			match syntax.ViewOf(p.Tree, member) {
+			case syntax.Field as f:
+				if f.Dots < 0 {
+					sites = maxSelfSite(sites, selfTypeSites(p, member))
+				}
+			case syntax.LawDecl:
+				sites = maxSelfSite(sites, SelfSites(p, member))
+			case _:
+			}
+		}
+		return sites
+	case _:
+		return selfTypeSites(p, x)
+	}
+}
+
+func maxSelfSite(a int, b int) int { if a > b { a } else { b } }
+
+func shadowsSelf(p syntax.Parsed, at dense.Opt[syntax.Node]) bool {
+	match dense.Unpack(at) {
+	case Some{Value: n}:
+		let l = syntax.FieldListOf(p.Tree, n).List
+		for i in 0..syntax.Len(l) {
+			let f = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, l, i))
+			for j in 0..syntax.Len(f.Names) {
+				if NameText(p, syntax.Item(p.Tree, f.Names, j)) == "Self" {
+					return true
+				}
+			}
+		}
+	case None:
+	}
+	false
+}
+
+func selfLawBody(p syntax.Parsed, x dense.ID[syntax.Node]) int {
+	let mut sites = match syntax.ViewOf(p.Tree, x) {
+	case syntax.VarSpec as v:
+		match dense.Unpack(v.Type) {
+		case Some{Value: t}:
+			selfTypeSites(p, t)
+		case None:
+			0
+		}
+	case syntax.FuncLit as f:
+		selfTypeSites(p, f.Type)
+	case _:
+		0
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		sites = maxSelfSite(sites, selfLawBody(p, syntax.NodeAt(p.Tree, int(c))))
+	}
+	sites
+}
+
+func selfTypeSites(p syntax.Parsed, x dense.ID[syntax.Node]) int {
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind == syntax.KIdent {
+		return if NameText(p, x) == "Self" { 1 } else { 0 }
+	}
+	if kind == syntax.KSelectorExpr {
+		return 0
+	}
+	if kind == syntax.KFuncType && shadowsSelf(p, syntax.FuncTypeOf(p.Tree, x).TypeParams) {
+		return 0
+	}
+	if kind == syntax.KIndexExpr {
+		let head = unparen(p, syntax.IndexExprOf(p.Tree, x).X)
+		if syntax.KindOf(p.Tree, head) == syntax.KIdent && NameText(p, head) == "Self" {
+			return 2
+		}
+	}
+	if kind == syntax.KField {
+		return match dense.Unpack(syntax.FieldOf(p.Tree, x).Type) {
+		case Some{Value: t}:
+			selfTypeSites(p, t)
+		case None:
+			0
+		}
+	}
+	let mut sites = 0
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		sites = maxSelfSite(sites, selfTypeSites(p, syntax.NodeAt(p.Tree, int(c))))
+	}
+	sites
+}
+
+// SelfBound is a bracket parameter's Self constraint, if any. Arity is
+// -1 when the constraint does not re-apply Self.
+type SelfBound { Op dense.Opt[store.TKey], Arity int }
+
+// SelfBounds reads a declaration's constraints for receiver calls and
+// explicit reapplications.
+func SelfBounds(s mut store.Store, e Env, roles []Role, at dense.Opt[syntax.Node]) []SelfBound {
+	let mut out = []SelfBound{}
+	let noSelf = SelfBound{Op: dense.NoID[store.TKey](), Arity: -1}
+	match dense.Unpack(at) {
+	case Some{Value: tp}:
+		let fs = syntax.FieldListOf(e.p.Tree, tp).List
+		for i in 0..syntax.Len(fs) {
+			let f = syntax.FieldOf(e.p.Tree, syntax.Item(e.p.Tree, fs, i))
+			let bound = match dense.Unpack(f.Type) {
+			case Some{Value: x}:
+				let t = Resolve(s, e, x)
+				let sites = match RoleAt(*s, roles, e.deps, t) {
+				case Some{Value: role}:
+					role.Self
+				case None:
+					0
+				}
+				if sites != 0 {
+					let arity = if sites == 2 { len(store.OperandsOf(*s, t)) } else { -1 }
+					SelfBound{Op: dense.OptOf(t), Arity: arity}
+				} else {
+					noSelf
+				}
+			case None:
+				noSelf
+			}
+			for _ in 0..syntax.Len(f.Names) {
+				out = out.Append(bound)
+			}
+		}
+	case None:
+	}
+	out
 }
 
 // The basic types by name, at their ordinals (the Go checker's
@@ -843,6 +1012,9 @@ func unionSpec(s store.Store, files []syntax.Parsed, d dense.ID[store.Decl]) Opt
 func Resolve(s mut store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.TKey] {
 	let k = syntax.KindOf(e.p.Tree, x)
 	if k == syntax.KIdent || k == syntax.KSelectorExpr {
+		if k == syntax.KIdent && e.selfArity > 0 && NameText(e.p, x) == "Self" && !slices.Contains(e.params, "Self") {
+			return store.TSelf(s, []dense.ID[store.TKey]{})
+		}
 		return named(s, e, headOf(*s, e, x))
 	}
 	if k == syntax.KParenExpr {
@@ -850,6 +1022,28 @@ func Resolve(s mut store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.T
 	}
 	if k == syntax.KIndexExpr {
 		let ix = syntax.IndexExprOf(e.p.Tree, x)
+		let head = unparen(e.p, ix.X)
+		if syntax.KindOf(e.p.Tree, head) == syntax.KIdent {
+			let name = NameText(e.p, head)
+			if e.selfArity > 0 && name == "Self" && !slices.Contains(e.params, "Self") {
+				if syntax.Len(ix.Indices) != e.selfArity-1 {
+					return invalidType(s)
+				}
+				return store.TSelf(s, readArgs(s, e, ix.Indices))
+			}
+			for i, pn in e.params {
+				if name == pn && i < len(e.selfBounds) {
+					match dense.Unpack(e.selfBounds[i].Op) {
+					case Some{Value: op}:
+						if syntax.Len(ix.Indices) == e.selfBounds[i].Arity {
+							return store.TReapplied(s, store.TParam(s, i), op, readArgs(s, e, ix.Indices))
+						}
+					case None:
+					}
+					return invalidType(s)
+				}
+			}
+		}
 		return instance(s, e, headOf(*s, e, ix.X), listIDs(e.p, ix.Indices))
 	}
 	if k == syntax.KArrayType {
@@ -896,6 +1090,14 @@ func Resolve(s mut store.Store, e Env, x dense.ID[syntax.Node]) dense.ID[store.T
 		return signature(s, e, syntax.FuncTypeOf(e.p.Tree, x))
 	}
 	invalidType(s)
+}
+
+func readArgs(s mut store.Store, e Env, nodes syntax.List) []dense.ID[store.TKey] {
+	let mut out = []dense.ID[store.TKey]{}
+	for i in 0..syntax.Len(nodes) {
+		out = out.Append(Resolve(s, e, syntax.Item(e.p.Tree, nodes, i)))
+	}
+	out
 }
 
 // preludeQual is the FOREIGN qualifier of the prelude's types that are
@@ -1101,6 +1303,12 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 	if k == store.KParam {
 		let i = store.ArgOf(s, t)
 		return if i < len(n.Params) { n.Params[i] } else { "P\(i)" }
+	}
+	if k == store.KSelf {
+		return if len(ops) == 0 { "Self" } else { "Self[" + joined(s, n, ops, ", ") + "]" }
+	}
+	if k == store.KReapplied {
+		return Text(s, n, ops[0]) + "[" + joined(s, n, ops[2:len(ops)], ", ") + "]"
 	}
 	if k == store.KNamed {
 		return qualified(n, store.TypeNameText(s, store.ArgOf(s, t)))

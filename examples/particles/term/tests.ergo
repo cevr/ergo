@@ -5,6 +5,8 @@ import particles/sim
 import particles/world
 import strings
 
+let recordingFrames = context { sim.Screen: New(io.NewRecorder()) }
+
 // frame is a frame of a blank box.
 func frame(n int) sim.Frame { sim.Frame{N: n, Phase: "running", G: sim.Fresh(world.Blank())} }
 

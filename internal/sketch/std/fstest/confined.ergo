@@ -60,6 +60,8 @@ func NewFolder() Folder needs TestAmbient {
 	Folder{files: host, writes: host, root: TestFolder()}
 }
 
+let inTestFolder = context needs TestAmbient { Confined: NewFolder() }
+
 func Folder(f Folder) string { f.root }
 
 func ReadFile(f Folder, path string) string fails fs.NotFound | fs.Denied | fs.Failed { try f.files.ReadFile(path) }

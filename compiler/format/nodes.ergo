@@ -755,6 +755,9 @@ func memberLaw(p mut Printer, l dense.ID[syntax.Node]) {
 		p.token(p.tp(r.Rbrack), "]")
 		return
 	}
+	if some(x.TypeParams) {
+		p.fieldList(the(x.TypeParams), "[", "]")
+	}
 	p.fieldList(the(x.Params), "(", ")")
 	p.space()
 	if x.Rewrite {

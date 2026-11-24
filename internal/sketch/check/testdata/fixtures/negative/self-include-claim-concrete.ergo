@@ -1,0 +1,9 @@
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+}
+
+type Chainable[T] {
+	..Mappable[T],
+}
+
+type Bytes []byte implements Chainable[byte]
