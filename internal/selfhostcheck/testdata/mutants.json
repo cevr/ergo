@@ -3,6 +3,24 @@
   "mutants": [
     {"name":"claim-law-permits-bare-self-call","origin":"wf10 CLAIM-LAWS","file":"compiler/check/expr/call.ergo","from":"if selected.NeedsReceiver {","to":"if false {","rule":"A constraint-only law has no ambient value for a bare operation call.","killers":["internal/selfhostcheck:TestCompilerCheckAgrees"],"regenerate":{"dir":".","argv":["go","run","./scripts/linked","-bootstrap"]},"gap":"not-run-crunch"},
     {
+      "name": "lower-agree-guess-split-export",
+      "origin": "wf10/selfhost/S4-PORT DRIVER (not-run-crunch)",
+      "file": "internal/selfhostcheck/irbuild_test.go",
+      "from": "if name, ok := originals[e.Name]; ok {\n\t\t\t\t\t\te.Name = name\n\t\t\t\t\t}",
+      "to": "e.Name = irSplitName(e.Name)",
+      "rule": "An X-prefixed method remains a genuine difference unless this build's split exported it.",
+      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"]
+    },
+    {
+      "name": "lower-agree-guess-slice-element-export",
+      "origin": "wf10/selfhost/S4-PORT DRIVER (not-run-crunch)",
+      "file": "internal/selfhostcheck/irbuild_test.go",
+      "from": "if name, ok := originals[elem]; ok {\n\t\t\t\t\t\te.T = e.T[:len(e.T)-len(elem)] + name\n\t\t\t\t\t}",
+      "to": "e.T = e.T[:len(e.T)-len(elem)] + irSplitName(elem)",
+      "rule": "An X-prefixed slice element type remains a genuine difference unless this build's split exported it.",
+      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnrenamedOperands"]
+    },
+    {
       "name": "pool-case-silently-dropped",
       "origin": "wf10 LAW-UNFED (878 r5)",
       "file": "internal/selfhostcheck/agree_test.go",
