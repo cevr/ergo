@@ -1,4 +1,4 @@
 kind schema
 generator ergo gen schema
 subject extract/receipt.Receipt
-digest sha256:28cf9ed13d70440250e3d44c2dfa71a1c137b4b2e3c3e12c7d501488ff21d7d3
+digest sha256:2e055e673abbb0f5aee7c3e6f498f74604ecc25482240bf875760912dc124042

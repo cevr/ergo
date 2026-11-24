@@ -62,6 +62,102 @@ func TextOf(e Encoded) string { e.text }
 // SchemaOf is e's Schema.
 func SchemaOf(e Encoded) Schema { e.schema }
 
+type Prop { Key string, Schema Schema }
+
+func Any() Schema { Schema{root: json.Object{Members: []json.Member{}}} }
+
+func Null() Schema {
+	Schema{root: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "null"}}}}}
+}
+
+func Bool() Schema {
+	Schema{root: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "boolean"}}}}}
+}
+
+func String() Schema {
+	Schema{root: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "string"}}}}}
+}
+
+func Integer() Schema {
+	Schema{root: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "integer"}}}}}
+}
+
+func Number() Schema {
+	Schema{root: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "number"}}}}}
+}
+
+func ConstString(s string) Schema {
+	Schema{root: json.Object{Members: []json.Member{json.Member{Key: "const", Value: json.Str{Value: s}}}}}
+}
+
+func Array(items Schema) Schema {
+	Schema{root: json.Object{Members: []json.Member{
+		json.Member{Key: "type", Value: json.Str{Value: "array"}},
+		json.Member{Key: "items", Value: items.root},
+	}}}
+}
+
+func FixedArray(items Schema, n int) Schema {
+	let k = if n < 0 { 0 } else { n }
+	Schema{root: json.Object{Members: []json.Member{
+		json.Member{Key: "type", Value: json.Str{Value: "array"}},
+		json.Member{Key: "items", Value: items.root},
+		json.Member{Key: "minItems", Value: json.IntNumber(int64(k))},
+		json.Member{Key: "maxItems", Value: json.IntNumber(int64(k))},
+	}}}
+}
+
+func Tuple(items []Schema) Schema {
+	let mut xs = []json.Value{}
+	for s in items {
+		xs = xs.Append(s.root)
+	}
+	Schema{root: json.Object{Members: []json.Member{
+		json.Member{Key: "type", Value: json.Str{Value: "array"}},
+		json.Member{Key: "prefixItems", Value: json.Array{Items: xs}},
+	}}}
+}
+
+func Object(props []Prop, required []string) Schema {
+	let mut ps = []json.Member{}
+	for p in props {
+		ps = ps.Append(json.Member{Key: p.Key, Value: p.Schema.root})
+	}
+	let mut members = []json.Member{
+		json.Member{Key: "type", Value: json.Str{Value: "object"}},
+		json.Member{Key: "properties", Value: json.Object{Members: ps}},
+	}
+	if len(required) > 0 {
+		let mut req = []json.Value{}
+		for r in required {
+			req = req.Append(json.Str{Value: r})
+		}
+		members = members.Append(json.Member{Key: "required", Value: json.Array{Items: req}})
+	}
+	Schema{root: json.Object{Members: members}}
+}
+
+func ObjectAny() Schema {
+	Schema{root: json.Object{Members: []json.Member{json.Member{Key: "type", Value: json.Str{Value: "object"}}}}}
+}
+
+func Record(additional Schema) Schema {
+	Schema{root: json.Object{Members: []json.Member{
+		json.Member{Key: "type", Value: json.Str{Value: "object"}},
+		json.Member{Key: "additionalProperties", Value: additional.root},
+	}}}
+}
+
+func AnyOf(first Schema, rest []Schema) Schema {
+	let mut xs = []json.Value{first.root}
+	for s in rest {
+		xs = xs.Append(s.root)
+	}
+	Schema{root: json.Object{Members: []json.Member{
+		json.Member{Key: "anyOf", Value: json.Array{Items: xs}},
+	}}}
+}
+
 // NewEncoded is the object schema whose properties are the keys, each a
 // string and each required, encoded: the simplest tool input, and the
 // constructor a law's generator calls for an Encoded (a Request with

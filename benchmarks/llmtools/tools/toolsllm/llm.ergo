@@ -12,21 +12,11 @@ let specs = toolSpecs()
 
 func toolSpecs() []llm.ToolSpec {
 	[]llm.ToolSpec{
-		llm.ToolSpec{Name: "find", Description: toolsapi.Doc(toolsapi.FindOp), Input: encoded("{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\"},\"limit\":{\"type\":\"integer\"},\"tags\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}},\"required\":[\"text\",\"limit\",\"tags\"]}")},
-		llm.ToolSpec{Name: "count", Description: toolsapi.Doc(toolsapi.CountOp), Input: encoded("{\"type\":\"object\",\"properties\":{\"word\":{\"type\":\"string\"}},\"required\":[\"word\"]}")},
+		llm.ToolSpec{Name: "find", Description: toolsapi.Doc(toolsapi.FindOp), Input: jsonschema.Encode(jsonschema.Object([]jsonschema.Prop{jsonschema.Prop{Key: "text", Schema: jsonschema.String()}, jsonschema.Prop{Key: "limit", Schema: jsonschema.Integer()}, jsonschema.Prop{Key: "tags", Schema: jsonschema.Array(jsonschema.String())}}, []string{"text", "limit", "tags"}))},
+		llm.ToolSpec{Name: "count", Description: toolsapi.Doc(toolsapi.CountOp), Input: jsonschema.Encode(jsonschema.Object([]jsonschema.Prop{jsonschema.Prop{Key: "word", Schema: jsonschema.String()}}, []string{"word"}))},
 	}
 }
 
-func encoded(text string) jsonschema.Encoded {
-	let s = jsonschema.Parse(text) catch {
-	case jsonschema.Invalid as e:
-		Unreachable("ergo gen llm wrote a schema that is no schema: " + e.Reason)
-	}
-	jsonschema.Encode(s)
-}
-
-// Specs are the tools of tools.Search, one per operation, in its order: what a
-// Request's Tools carries.
 func Specs() []llm.ToolSpec { specs }
 
 func argumentsOf(c llm.Call) string {
