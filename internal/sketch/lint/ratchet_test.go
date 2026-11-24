@@ -49,7 +49,7 @@ func TestLayoutRatchetAgreesWithReference(t *testing.T) {
 	for _, seed := range propertySeeds(8) {
 		r := rand.New(rand.NewPCG(seed, 0x7a7c))
 		extraLines := 2 + r.IntN(3)
-		policy := lint.LayoutPolicy{MaxFileLines: 3}
+		policy := lint.LayoutPolicy{MaxFileLines: 9}
 
 		// Base module with a sibling-folder cycle {a, b}, two long files, and a foreign field write.
 		baseFiles := map[string]string{
@@ -60,8 +60,8 @@ func TestLayoutRatchetAgreesWithReference(t *testing.T) {
 			"b/p/p.ergo":   "import app/a/q\n\nfunc P() int { q.Q() }\n",
 			"queue/q.ergo": "type Queue { Items [1]int, head int }\nfunc New() Queue { Queue{Items: [1]int{0}, head: 0} }\n",
 			"sched/s.ergo": "import app/queue\n\nfunc Bump(n int) int {\n\tlet mut q = queue.New()\n\tq.Items[0] = n\n\tq.Items[0]\n}\n",
-			"long1/l.ergo": "func L1() int { 1 }\n// 2\n// 3\n// 4\n// 5\n",
-			"long2/l.ergo": "func L2() int { 2 }\n// 2\n// 3\n// 4\n// 5\n",
+			"long1/l.ergo": "func L1() int { 1 }\n" + strings.Repeat("// pad\n", 10),
+			"long2/l.ergo": "func L2() int { 2 }\n" + strings.Repeat("// pad\n", 10),
 			"short/s.ergo": "func S() int { 3 }\n",
 			"cmd/app/main.ergo": strings.Join([]string{
 				"import app/a/p",
@@ -70,10 +70,7 @@ func TestLayoutRatchetAgreesWithReference(t *testing.T) {
 				"import app/long1",
 				"import app/long2",
 				"import app/short",
-				"",
-				"func main() needs Console {",
-				"\tConsole.Println(\"\\(p.P() + bp.P() + sched.Bump(1) + long1.L1() + long2.L2() + short.S())\")",
-				"}",
+				"func main() needs Console { Console.Println(\"\\(p.P() + bp.P() + sched.Bump(1) + long1.L1() + long2.L2() + short.S())\") }",
 			}, "\n") + "\n",
 		}
 		base := checkedGraph(t, baseFiles)
@@ -127,7 +124,7 @@ func TestLayoutRatchetAgreesWithReference(t *testing.T) {
 		netFiles := cloneMap(baseFiles)
 		netFiles["long1/l.ergo"] = "func L1() int { 1 }\n"
 		netFiles["long2/l.ergo"] = "func L2() int { 2 }\n"
-		netFiles["short/s.ergo"] = "func S() int { 3 }\n" + strings.Repeat("// pad\n", 3+extraLines)
+		netFiles["short/s.ergo"] = "func S() int { 3 }\n" + strings.Repeat("// pad\n", 9+extraLines)
 		headNet := checkedGraph(t, netFiles)
 		cmpNet, err := lint.CompareLayout(base, headNet, []string{"app"}, policy)
 		if err != nil {
