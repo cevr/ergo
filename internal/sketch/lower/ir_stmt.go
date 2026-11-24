@@ -60,6 +60,7 @@ func (b *irBuilder) named(name, typ string, p irPos) int {
 // temporaries' namer's name_N. A local spelled len or string never shadows
 // Go's, and two locals of one spelling in two scopes are told apart.
 func (b *irBuilder) localName(name string) string {
+	name = goNameBase(name)
 	if !b.fc.scope.taken(name) && !b.given[name] {
 		return name
 	}

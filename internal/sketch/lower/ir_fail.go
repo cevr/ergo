@@ -42,7 +42,7 @@ func (b *irBuilder) tempNames(body *syntax.BlockStmt) *namer {
 	n := newNamer(b.fc.scope)
 	syntax.Inspect(body, func(x syntax.Node) bool {
 		if id, ok := x.(*syntax.Ident); ok {
-			n.used[id.Name] = true
+			n.used[goNameBase(id.Name)] = true
 		}
 		return true
 	})

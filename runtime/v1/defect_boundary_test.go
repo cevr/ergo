@@ -84,7 +84,7 @@ func TestDefectInterruptedWait(t *testing.T) {
 				})
 				<-ready
 				root.Interrupt()
-				_, err := child.Wait(s.s.Task())
+				_, err := child.Wait(s.t)
 				return err
 			})
 		})
