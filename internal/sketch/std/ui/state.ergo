@@ -30,22 +30,16 @@ type Draft { Value string, at cellAt }
 // Flag is an on-off state, as this pass reads it.
 type Flag { On bool, at cellAt }
 
-// remember reads the cell at the call's identity: its value from the last
-// pass when the enclosing node kept its identity and the cell was read
-// there, else init.
-func remember[E](f mut Frame[E], init Cell, at CallSite) (cellAt, Cell) {
+func cellSlot[E](f mut Frame[E], at CallSite) (ident, Option[Cell]) {
 	let id = identify(f, at)
 	let o = owner(f, f.parent)
-	let mut c = init
 	if arena.Has(f.nodes, o) {
-		match cellOf(f, o, id) {
-		case Some[Cell] as old:
-			if sameCell(old.Value, init) {
-				c = old.Value
-			}
-		case None:
-		}
+		return (id, cellOf(f, o, id))
 	}
+	(id, None)
+}
+
+func storeCell[E](f mut Frame[E], id ident, c Cell) cellAt {
 	let cs = cellSpec{parent: f.parent, id: id, cell: c}
 	if f.ncells < len(f.cells) {
 		f.cells[f.ncells] = cs
@@ -53,46 +47,39 @@ func remember[E](f mut Frame[E], init Cell, at CallSite) (cellAt, Cell) {
 		f.cells = f.cells.Append(cs)
 	}
 	f.ncells = f.ncells + 1
-	(cellAt{parent: f.parent, id: id}, c)
+	cellAt{parent: f.parent, id: id}
 }
 
-func sameCell(a Cell, b Cell) bool { cellKind(a) == cellKind(b) }
-
-// cellKind numbers the variants of Cell: a cell keeps its value only while
-// its kind stays.
-func cellKind(c Cell) int {
-	match c {
-	case TextCell:
-		0
-	case FlagCell:
-		1
-	case ViewCell:
-		2
-	case PresenceCell:
-		3
-	}
-}
-
-// NewDraft is the draft text at this call, init on its first pass.
 func NewDraft[E](f mut Frame[E], init string, at CallSite) Draft {
-	let (where, c) = remember(f, TextCell{Value: init}, at)
-	match c {
-	case TextCell as t:
-		Draft{Value: t.Value, at: where}
-	case _:
-		Unreachable("ui: a draft cell holds text")
+	let (id, prev) = cellSlot(f, at)
+	let mut val = init
+	match prev {
+	case Some[Cell] as old:
+		match old.Value {
+		case TextCell as t:
+			val = t.Value
+		case FlagCell, ViewCell, PresenceCell:
+		}
+	case None:
 	}
+	let where = storeCell(f, id, TextCell{Value: val})
+	Draft{Value: val, at: where}
 }
 
-// NewFlag is the flag at this call, init on its first pass.
 func NewFlag[E](f mut Frame[E], init bool, at CallSite) Flag {
-	let (where, c) = remember(f, FlagCell{On: init}, at)
-	match c {
-	case FlagCell as b:
-		Flag{On: b.On, at: where}
-	case _:
-		Unreachable("ui: a flag cell holds a flag")
+	let (id, prev) = cellSlot(f, at)
+	let mut on = init
+	match prev {
+	case Some[Cell] as old:
+		match old.Value {
+		case FlagCell as b:
+			on = b.On
+		case TextCell, ViewCell, PresenceCell:
+		}
+	case None:
 	}
+	let where = storeCell(f, id, FlagCell{On: on})
+	Flag{On: on, at: where}
 }
 
 // Field shows a text field over d: a text the host takes in it becomes the
@@ -192,41 +179,26 @@ law AwaitIsTheMatch(seed int) {
 // slot is a live load: its key and the epoch of its fetch.
 type slot { key Key, epoch int }
 
-// loadSpec is a load a pass wrote: held is the live load of its node
-// with its key, when the node holds one (then it starts no fetch).
-type loadSpec[E] { parent int, id ident, key Key, fetch Option[func() E], held Option[slot] }
+type loadPlan[E] = loadHeld{s slot} | loadStart{run func() E}
 
-// Job is work a commit gives the host loop: run a fetch, or cancel one.
-// Each fetch has an epoch no other fetch of the frame has.
+type loadSpec[E] { parent int, id ident, key Key, plan loadPlan[E] }
+
 type Job[E] = Fetch{Epoch int, Run func() E} | Cancel{Epoch int}
 
-// Load asks for fetch() while this call returns with key: the host runs
-// it after the commit, never in the pass, and its result is a signal of
-// the program (Arrive). A new key cancels the fetch of the old key and
-// starts one with a new epoch; a pass without this call cancels it. The
-// program keeps the result in its machine state, as an Async. The fetch
-// may need capabilities (H8b, Q16), which the view's row lists; and
-// the fetch runs with the providers in force where Load was called (the
-// with around the host's entry, or a with the view wrote around this
-// subtree), which Load holds with InForce, not with those of the task
-// that runs it.
 func Load[E, R](f mut Frame[E], key Key, fetch own func() E needs R, at CallSite) needs R {
 	let id = identify(f, at)
-	// A load its node already holds with key starts no fetch (settle), so
-	// only a load that may start holds its providers: a kept load costs
-	// no allocation for them (H8b's counted fact). A cut that moves a
-	// load to the group's parent moves only one its node does not hold.
-	let held = liveLoad(f, owner(f, f.parent), id, key)
-	let mut run Option[func() E] = None
-	if held == None {
+	let plan loadPlan[E] = match liveLoad(f, owner(f, f.parent), id, key) {
+	case Some[slot] as h:
+		loadHeld{s: h.Value}
+	case None:
 		let ctx = InForce[R]()
-		run = Some{Value: func() E {
+		loadStart[E]{run: func() E {
 			with ctx {
 				fetch()
 			}
 		}}
 	}
-	let ls = loadSpec[E]{parent: f.parent, id: id, key: key, fetch: run, held: held}
+	let ls = loadSpec[E]{parent: f.parent, id: id, key: key, plan: plan}
 	if f.nloads < len(f.loads) {
 		f.loads[f.nloads] = ls
 	} else {
@@ -587,28 +559,18 @@ func settle[E](f mut Frame[E]) {
 		let l = f.loads[i]
 		let o = made(f, l.parent)
 		let mut m = loadsOf(loads, o)
-		let mut s = slot{key: l.key, epoch: 0}
-		let mut started = true
-		match l.held {
-		case Some[slot] as h:
-			s = h.Value
-			started = false
-		case None:
+		let s = match l.plan {
+		case loadHeld as h:
+			h.s
+		case loadStart[E] as st:
 			match liveLoad(f, o, l.id, l.key) {
 			case Some[slot] as old:
-				s = old.Value
-				started = false
+				old.Value
 			case None:
-			}
-		}
-		if started {
-			f.epoch = f.epoch + 1
-			s = slot{key: l.key, epoch: f.epoch}
-			match l.fetch {
-			case Some[func() E] as run:
-				f.jobs = f.jobs.Append(Fetch{Epoch: s.epoch, Run: run.Value})
-			case None:
-				Unreachable("ui: a load its node held was fetched")
+				f.epoch = f.epoch + 1
+				let next = slot{key: l.key, epoch: f.epoch}
+				f.jobs = f.jobs.Append(Fetch{Epoch: next.epoch, Run: st.run})
+				next
 			}
 		}
 		m[l.id] = s
