@@ -175,7 +175,8 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			key := irKey{file: fn.Pos[0], line: fn.Pos[1], col: fn.Pos[2]}
 			site := irWitnessSite{f[0], f[1], fn.Name}
 			testOracle.fill(t, paths, goFuncs, key, site.path)
-			comparison := goFuncs.compare(key, site, got, unlowered[filepath.Dir(f[0])] != "", matchLines)
+			goUnavailable := unlowered[filepath.Dir(f[0])] != "" || testOracle.unavailable[filepath.Dir(f[0])] != ""
+			comparison := goFuncs.compare(key, site, got, goUnavailable, matchLines)
 			if comparison.skipped {
 				reach[goSkipped]++
 				continue
@@ -608,8 +609,9 @@ type irGoProgram struct {
 // Keep the test index separate: a test variant must not mask a real
 // disagreement at a declaration for which production already wrote IR.
 type irGoTestOracle struct {
-	roots map[string]irGoProgram
-	cache map[string]irGoIndex
+	roots       map[string]irGoProgram
+	cache       map[string]irGoIndex
+	unavailable map[string]string
 }
 
 func (o irGoTestOracle) fill(t *testing.T, paths irPathIDs, idx irGoIndex, key irKey, source string) {
@@ -628,12 +630,173 @@ func (o irGoTestOracle) fill(t *testing.T, paths irPathIDs, idx irGoIndex, key i
 		bodies = irGoIndex{}
 		if err := indexGoIR(t, paths, bodies, p); err != nil {
 			t.Logf("%s: Go test-build oracle unavailable: %v", rel(dir), err)
+			if o.unavailable != nil {
+				o.unavailable[dir] = err.Error()
+			}
 			bodies = nil
 		}
 		o.cache[dir] = bodies
 	}
 	if len(bodies[key]) != 0 {
 		idx[key] = bodies[key]
+	}
+}
+
+func TestIRTestBuildAndProductionControl(t *testing.T) {
+	needsBuild(t)
+	ctx, cancel := testwait.Context(t, context.Background())
+	defer cancel()
+	bin := filepath.Join(t.TempDir(), "irdump")
+	if o, err := runCompiler(t, ctx, ergoCLI(t, ctx), "build", "-o", bin, "./cmd/irdump"); err != nil {
+		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
+	}
+	const src = `func main() {}
+
+func Helper(n int) int { n + 1 }
+
+test Check {
+	let n = 2
+	let ok = n > 0
+	assert ok
+}
+
+test SkipBranch {
+	let done = false
+	if done {
+		skip "already done"
+	}
+	assert !done
+}
+`
+	dir := t.TempDir()
+	file := filepath.Join(dir, "main.ergo")
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := irspike.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ext := goKinds(u.Package)
+	_, foreign := goTypes(u.Package)
+	pkgPath := importPath(dir, u.Package)
+	tmp := t.TempDir()
+	ef, ff := filepath.Join(tmp, "ext"), filepath.Join(tmp, "foreign")
+	writeLines(t, ef, ext)
+	writeLines(t, ff, foreign)
+	manifest := filepath.Join(tmp, "manifest")
+	writeLines(t, manifest, []string{strings.Join([]string{pkgPath, ef, ff, file}, " ")})
+	roots := filepath.Join(tmp, "roots")
+	writeLines(t, roots, []string{pkgPath})
+	empty := filepath.Join(tmp, "empty")
+	writeLines(t, empty, nil)
+
+	parseDump := func(lines []string, paths irPathIDs) (map[string]struct {
+		key  irKey
+		data []byte
+	}, []string) {
+		emitted := map[string]struct {
+			key  irKey
+			data []byte
+		}{}
+		var files, stops []string
+		for _, l := range lines {
+			kind, rest, _ := strings.Cut(l, " ")
+			switch kind {
+			case "@pkg":
+				files = nil
+			case "P":
+				_, path, _ := strings.Cut(rest, " ")
+				files = append(files, path)
+			case "S":
+				stops = append(stops, l)
+			case "F":
+				f := strings.SplitN(rest, " ", 3)
+				var fn irFunc
+				if err := json.Unmarshal([]byte(f[2]), &fn); err != nil {
+					t.Fatalf("unmarshal IR: %v", err)
+				}
+				if err := irMapFiles(&fn, files, paths); err != nil {
+					t.Fatal(err)
+				}
+				got, err := json.Marshal(&fn)
+				if err != nil {
+					t.Fatal(err)
+				}
+				emitted[fn.Name] = struct {
+					key  irKey
+					data []byte
+				}{irKey{fn.Pos[0], fn.Pos[1], fn.Pos[2]}, got}
+			}
+		}
+		return emitted, stops
+	}
+
+	paths := irPathIDs{}
+	prodGo := irGoIndex{}
+	if err := indexGoIR(t, paths, prodGo, irGoProgram{u: u, tests: false, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
+		t.Fatal(err)
+	}
+	testGo := irGoIndex{}
+	if err := indexGoIR(t, paths, testGo, irGoProgram{u: u, tests: true, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"ergo__TestCheck", "ergo__TestSkipBranch"} {
+		for _, fs := range prodGo {
+			for _, f := range fs {
+				if f.name == want {
+					t.Fatalf("Go production build unexpectedly emitted %s", want)
+				}
+			}
+		}
+	}
+
+	unexpectedStops := func(stops []string) []string {
+		var out []string
+		for _, s := range stops {
+			if !strings.HasSuffix(s, " main or Close") {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+
+	testEmitted, testStops := parseDump(runDump(t, ctx, bin, "-std", stdDir(), "-roots", roots, "-tests", roots, "-corpus", manifest), paths)
+	if bad := unexpectedStops(testStops); len(bad) != 0 {
+		t.Fatalf("test build had unexpected stops: %v", bad)
+	}
+	for _, want := range []string{"Helper", "ergo__TestCheck", "ergo__TestSkipBranch"} {
+		got, ok := testEmitted[want]
+		if !ok {
+			t.Fatalf("test build did not emit %s (got %v)", want, testEmitted)
+		}
+		res := testGo.compare(got.key, irWitnessSite{file, "0", want}, got.data, false, nil)
+		if res.match < 0 {
+			t.Fatalf("test build %s differed from Go (%s)\nergo: %s\n  go: %v", want, res.cause, got.data, res.wants)
+		}
+	}
+
+	prodEmitted, prodStops := parseDump(runDump(t, ctx, bin, "-std", stdDir(), "-roots", roots, "-corpus", manifest), paths)
+	if bad := unexpectedStops(prodStops); len(bad) != 0 {
+		t.Fatalf("production build had unexpected stops: %v", bad)
+	}
+	if _, ok := prodEmitted["Helper"]; !ok {
+		t.Fatal("production build omitted ordinary Helper")
+	}
+	for _, forbidden := range []string{"ergo__TestCheck", "ergo__TestSkipBranch"} {
+		if _, ok := prodEmitted[forbidden]; ok {
+			t.Fatalf("production build emitted test body %s", forbidden)
+		}
+	}
+
+	nonRootEmitted, nonRootStops := parseDump(runDump(t, ctx, bin, "-std", stdDir(), "-roots", empty, "-tests", roots, "-corpus", manifest), paths)
+	if bad := unexpectedStops(nonRootStops); len(bad) != 0 {
+		t.Fatalf("non-root build had unexpected stops: %v", bad)
+	}
+	for _, forbidden := range []string{"ergo__TestCheck", "ergo__TestSkipBranch"} {
+		if _, ok := nonRootEmitted[forbidden]; ok {
+			t.Fatalf("non-root build emitted test body %s", forbidden)
+		}
 	}
 }
 
@@ -690,7 +853,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 	idx := irGoIndex{}
 	unlowered := map[string]string{}
 	var programs []irGoProgram
-	testOracle := irGoTestOracle{roots: map[string]irGoProgram{}, cache: map[string]irGoIndex{}}
+	testOracle := irGoTestOracle{roots: map[string]irGoProgram{}, cache: map[string]irGoIndex{}, unavailable: map[string]string{}}
 	covered := map[string]bool{}
 	for _, dir := range irPrograms(t) {
 		u, err := irspike.Load(dir)

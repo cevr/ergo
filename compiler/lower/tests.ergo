@@ -1,0 +1,107 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+import strconv
+import strings
+
+func testFrame() framePlan {
+	framePlan{env: 0, slots: 1, pure: false, fallible: None, pollEntry: false, op: None}
+}
+
+func testFunction(st mut fnb, b mut ir.Builder, f expr.Fn, td syntax.TestDecl, planned GeneratedBody, path string) bool fails Unported | ir.Malformed {
+	if planned.Symbol == "" {
+		return stop("test name taken (name_N)")
+	}
+	if dense.Unpack(td.Params) != None || len(f.Names) != 0 {
+		return stop("test: parameters")
+	}
+	let ops = store.OperandsOf(st.s, f.Sig)
+	if store.KindOfType(st.s, f.Sig) != store.KSig || len(ops) < 3 {
+		return stop("signature")
+	}
+	let n = len(ops) - 3
+	if n != 0 {
+		return stop("test: parameters")
+	}
+	let body = match dense.Unpack(td.Body) {
+	case Some[dense.ID[syntax.Node]] as x:
+		x.Value
+	case None:
+		return stop("no body")
+	}
+	let p = st.p
+	let (list, rbrace) = match syntax.ViewOf(p.Tree, body) {
+	case syntax.BlockStmt as bl:
+		(bl.List, bl.Rbrace)
+	case _:
+		return stop("body that is no block")
+	}
+	st.frame = testFrame()
+	let prepared = try statementsTest(st, body, list, f.Names, st.frame.slots, ops[0])
+	st.fileIx = ir.FileOf(b, path)
+	let fp = pos(*st, syntax.TokPos(p, td.Test))
+	let end = pos(*st, syntax.TokPos(p, rbrace))
+	try ir.Begin(b, planned.Symbol, fp, end)
+	let roots = try controlEmit(*st, b, prepared, end)
+	let rows = if len(roots) == 0 { uint32(0) } else { ir.List(b, roots) }
+	try ir.End(b, rows)
+	true
+}
+
+func isCompareOp(op string) bool {
+	op == "==" || op == "!=" || op == "<" || op == "<=" || op == ">" || op == ">="
+}
+
+func assertShownCheck(st fnb, x dense.ID[syntax.Node]) bool {
+	let y = unparen(st, x)
+	match syntax.ViewOf(st.p.Tree, y) {
+	case syntax.BinaryExpr as be:
+		isCompareOp(syntax.TokText(st.p, be.Op)) && !(isConst(st, be.X) && isConst(st, be.Y))
+	case _:
+		false
+	}
+}
+
+func assertSiteText(st fnb, offset int) string {
+	let q = syntax.PositionOf(st.lines, offset)
+	let i = strings.LastIndex(st.filePath, "/")
+	let file = if i < 0 { st.filePath } else { st.filePath[i+1 : len(st.filePath)] }
+	file + ":" + strconv.Itoa(q.Line) + ":" + strconv.Itoa(q.Column)
+}
+
+func assertSourceText(st fnb, x dense.ID[syntax.Node]) string fails Unported {
+	let src = syntax.SourceOf(st.p)
+	let lo = syntax.NodePos(st.p, x)
+	let hi = syntax.NodeEnd(st.p, x)
+	if lo < 0 || hi < lo || hi > len(src) {
+		return stop("test: assert text span")
+	}
+	src[lo:hi]
+}
+
+func skipReason(st fnb, sk syntax.SkipStmt) string fails Unported {
+	if sk.Reason < 0 {
+		return stop("test: skip reason")
+	}
+	strconv.Unquote(syntax.TokText(st.p, sk.Reason)) catch {
+	case _:
+		return stop("test: skip reason")
+	}
+}
+
+func emitAssertStmt(b mut ir.Builder, at ir.Pos, condRow uint32, site string, text string) uint32 fails ir.Malformed {
+	let notCond = try ir.Row(b, ir.KindCode(ir.TExpr, "un"), at, []uint32{ir.Text(b, "!"), condRow})
+	let siteExpr = try constRow(b, at, "string", site)
+	let textExpr = try constRow(b, at, "string", text)
+	let failCall = try ir.Row(b, ir.KindCode(ir.TExpr, "call"), at, []uint32{ir.Text(b, ""), ir.Text(b, HelperSpelling("ergoAssertFail")), ir.List(b, []uint32{siteExpr, textExpr})})
+	let failStmt = try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{failCall})
+	try ir.Row(b, ir.KindCode(ir.TStmt, "if"), at, []uint32{notCond, ir.List(b, []uint32{failStmt}), ir.List(b, []uint32{}), ir.PosAt(b, at), 0, 0})
+}
+
+func emitSkipStmt(b mut ir.Builder, at ir.Pos, reason string) uint32 fails ir.Malformed {
+	let arg = try constRow(b, at, "string", reason)
+	let call = try ir.Row(b, ir.KindCode(ir.TExpr, "call"), at, []uint32{ir.Text(b, ""), ir.Text(b, HelperSpelling("ergoSkipNow")), ir.List(b, []uint32{arg})})
+	try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{call})
+}
