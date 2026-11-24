@@ -1441,6 +1441,46 @@
       "rule": "A returned exact failure of a multi-member row does not become the shaped success value (FrameFailureOnly).",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes3-map-refuses-nested-record-field",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "from": "if kind == store.KMap {",
+      "to": "if kind == store.KMap && len(trail.seen) == 0 {",
+      "rule": "A definitely native map is admitted inside a record, even when the body only reads a scalar sibling.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes3-map-drops-key-spelling",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "from": "\"map[\" + key + \"]\" + elem",
+      "to": "\"map[string]\" + \"string\"",
+      "rule": "A slice literal containing a map uses its actual recursively admitted element type, not a fixed map spelling.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes3-array-refuses-nested-record-field",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "from": "if kind == store.KArray {",
+      "to": "if kind == store.KArray && len(trail.seen) == 0 {",
+      "rule": "A checked fixed array is admitted inside a record even when only a scalar sibling is read.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes3-array-increments-checked-length",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "from": "strconv.Itoa(store.ArrayLen(st.s, t))",
+      "to": "strconv.Itoa(store.ArrayLen(st.s, t) + 1)",
+      "rule": "The array nested inside a slice literal preserves the checked length in its Go type.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     }
   ]
 }
