@@ -855,8 +855,8 @@ func callHeader(st fnb, i int, name string) ordinaryCallee fails Unported {
 			return stop("callee: a type not basic")
 		}
 	}
-	for takes in f.Takes {
-		if takes {
+	for taken in f.Takes {
+		if taken {
 			return stop("callee: takes a formal")
 		}
 	}
