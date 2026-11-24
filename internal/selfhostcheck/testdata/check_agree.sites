@@ -827,6 +827,8 @@ case internal/selfhostcheck/testdata/agree/claim-laws/role
 case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
+case internal/selfhostcheck/testdata/agree/provider-empty-row
+case internal/selfhostcheck/testdata/agree/provider-empty-row/refused
 case internal/selfhostcheck/testdata/agree/self-imports/bad
 case internal/selfhostcheck/testdata/agree/self-imports/box
 case internal/selfhostcheck/testdata/agree/self-imports/cmd

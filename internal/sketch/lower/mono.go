@@ -108,6 +108,9 @@ func (l *lowerer) monoCandidate(f *check.Func) bool {
 			generic = true
 		}
 	}
+	if len(opABIBindings(f.Sig)) != 0 {
+		return true
+	}
 	// A Slot or held row is a Go type parameter (rowslot.go) that the
 	// copy would erase: Bad[F] would be Bad[error] in the copy and
 	// Bad[E0] at its caller. The function stays stenciled, as the
@@ -169,11 +172,11 @@ func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args
 		if c.Kind != check.CallFunc || c.Func != f || c.Site != nil || c.StartsTask {
 			return nil
 		}
-		if fc.l.vals != nil && fc.l.vals.ownCall[x] {
+		if fc.l.vals != nil && fc.l.vals.ownCall[x] && !opABICopy(f.Sig, args) {
 			return nil // the owned body (values.go, V5)
 		}
 	}
-	if !fc.l.monoTaken() {
+	if !fc.l.monoTaken() && !opABICopy(f.Sig, args) {
 		return nil
 	}
 	sp := fc.monoFor(f, args)
@@ -297,21 +300,30 @@ func (fc *funcCtx) monoFor(f *check.Func, args []check.Type) *specCopy {
 	typeArgs := map[*check.TypeParam]string{}
 	bound := map[*check.TypeParam]check.Type{}
 	var spelled []string
+	abiCopy := opABICopy(f.Sig, args)
+	if !abiCopy && l.hasGoRow(f.Sig) {
+		return nil
+	}
 	for i, tp := range f.Sig.TParams {
-		if tp.Kind != check.KindType {
+		if tp.Kind != check.KindType && !abiCopy {
 			continue
 		}
 		if i >= len(args) {
 			return nil
 		}
-		if mentionsTypeParam(args[i]) && !fc.mono {
+		arg := fc.boundType(args[i])
+		if (mentionsTypeParam(arg) || abiCopy && openRowArg(arg)) && !fc.mono {
 			return nil
 		}
-		g := fc.goType(args[i])
-		typeArgs[tp] = g
-		spelled = append(spelled, g)
-		if t := fc.boundType(args[i]); !mentionsTypeParam(t) {
-			bound[tp] = t
+		if tp.Kind == check.KindType {
+			g := fc.goType(arg)
+			typeArgs[tp] = g
+			spelled = append(spelled, g)
+		} else {
+			spelled = append(spelled, l.semanticTypeKey(arg))
+		}
+		if !mentionsTypeParam(arg) {
+			bound[tp] = arg
 		}
 	}
 	if len(spelled) == 0 {
@@ -320,6 +332,7 @@ func (fc *funcCtx) monoFor(f *check.Func, args []check.Type) *specCopy {
 	sp, made := l.monoCopy(monoFunc{f}, base, spelled, f.Decl.Name)
 	if made {
 		sp.f, sp.fd, sp.typeArgs, sp.bound = f, fd, typeArgs, bound
+		sp.opsABI = abiCopy
 		l.pending = append(l.pending, func() { l.emitBody(fd, false, sp, false) })
 	}
 	return sp

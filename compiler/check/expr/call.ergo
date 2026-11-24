@@ -81,31 +81,6 @@ func hasWired(s store.Store, t dense.ID[store.TKey]) bool {
 	false
 }
 
-// emptiedFails is whether a signature in t writes a fails row that the
-// type arguments targs empty: the Go checker's signature keeps the written
-// `fails` (an empty row it prints), which the pool does not record, so
-// such an instance is not recorded.
-func emptiedFails(s store.Store, t dense.ID[store.TKey], targs []dense.ID[store.TKey]) bool {
-	let ops = store.OperandsOf(s, t)
-	if store.KindOfType(s, t) == store.KSig {
-		let errs = store.OperandsOf(s, ops[len(ops)-2])
-		let mut all = len(errs) > 0
-		for e in errs {
-			let i = if store.KindOfType(s, e) == store.KParam { store.ArgOf(s, e) } else { -1 }
-			all = all && i >= 0 && i < len(targs) && store.KindOfType(s, targs[i]) == store.KRow && len(store.OperandsOf(s, targs[i])) == 0
-		}
-		if all {
-			return true
-		}
-	}
-	for o in ops {
-		if emptiedFails(s, o, targs) {
-			return true
-		}
-	}
-	false
-}
-
 // resultOf is a call's type from its signature's result: no value (the
 // empty tuple) when it has none, as the Go checker's NoValue.
 func resultOf(s store.Store, r dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { some(r) }
@@ -564,7 +539,7 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 		let inst = store.TSubst(s, f.Sig, targs.Value)
 		// The callee records the instance: the name when inferred, the
 		// index expression when written.
-		if !dropsSite(*s, k, f.Sig, n+m) && !hasWired(*s, inst) && !emptiedFails(*s, f.Sig, targs.Value) && !funcArg(*s, targs.Value) {
+		if !dropsSite(*s, k, f.Sig, n+m) && !hasWired(*s, inst) && !funcArg(*s, targs.Value) {
 			let shown = if m == 1 { withoutFirst(s, inst) } else { inst }
 			note(k, t, if len(written) > 0 { unparen(tr, c.Fun) } else { fun }, shown)
 		}

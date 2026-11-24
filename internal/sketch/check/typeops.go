@@ -219,6 +219,9 @@ func (c *checker) substWith(t Type, m map[*TypeParam]Type, self selfReader) Type
 		}
 		s.Errors = row(t.Errors)
 		s.Uses = row(t.Uses)
+		if !t.Errors.Empty() && s.Errors.Empty() {
+			s.Fallible = false
+		}
 		// Type parameters that stay unbound remain the signature's own.
 		for _, tp := range t.TParams {
 			if _, bound := m[tp]; !bound {
@@ -530,7 +533,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// assignment (batch-16b r3): check and build agree.
 				return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
 			}
-			// An operation type's value is already an interface value.
+			// A generic operation value may widen its result ABI without
+			// choosing a new provider. Record the checked conversion even
+			// under open row arguments: a copy can close them.
+			if vn, ok := v.(*Named); ok && !sealedStdOps(v) && !isHostNamed(v) {
+				if tn, ok := t.(*Named); ok && vn.Orig != nil && vn.Orig == tn.Orig {
+					return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
+				}
+			}
+			// An operation type's value is otherwise already an interface value.
 			return assignment{clause: assignOperations}, ""
 		}
 		table := map[string]*Func{}
@@ -1035,7 +1046,11 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 	}
 	// Native Go conversion uses the Go method set, not the shape an
 	// Ergo caller sees. Keep the binding's rows and lifetime checks.
-	native := isHostNamed(v) && it.obj != nil && it.obj.Pkg.Host()
+	native := isHostNamed(v) && it.obj.BindsGoType()
+	// A value can widen an existing instance's row without a new provider
+	// claim. The subset check still refuses a narrowing.
+	source := asInterface(v)
+	sameOperation := declared == nil && !native && source != nil && it.obj != nil && source.obj == it.obj
 	var self selfReader
 	if len(it.selfUses) > 0 {
 		if n, ok := v.(*Named); ok && asInterface(n) == nil {
@@ -1138,7 +1153,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if why := c.releaseWider(v, m); why != "" {
 			return why
 		}
-		if got.Fallible != m.Sig.Fallible {
+		if got.Fallible != m.Sig.Fallible && !sameOperation {
 			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
 		}
 		// At a direct Go argument, the enclosing Go function's clause

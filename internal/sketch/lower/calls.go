@@ -503,7 +503,11 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 		if builtinLowering == "call" {
 			return fc.l.builtinHelper("appendAll", x) + "(" + vals[0] + ", " + vals[1] + ")"
 		}
-		return "append(" + vals[0] + ", " + vals[1] + "...)"
+		text := "append(" + vals[0] + ", " + vals[1] + "...)"
+		if fc.stmtCall == x {
+			return "_ = " + text // Go's append is not an expression statement.
+		}
+		return text
 	}
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"
@@ -1678,6 +1682,9 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	if from, ok := conv.From.(*check.Named); ok && from.Underlying() != nil {
 		if _, ops := from.Underlying().(*check.Interface); ops {
+			if rowWidening(conv) {
+				return "&" + fc.widenOps(conv, site) + "{v: " + val + "}"
+			}
 			// A sealed std operation type that Ergo code implements
 			// (http.Streaming): its value is already an interface value.
 			return val
@@ -1705,6 +1712,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	if toDecl.kind != kindOps {
 		ice(site, "an operations conversion to %s, which is not an operation type", conv.To)
 	}
+	ops := to.Underlying().(*check.Interface).Methods
 	tc := &typeCtx{l: l, params: map[*check.TypeParam]string{}, site: site}
 	// The adapter's own type parameters stand for the enclosing function's
 	// that the conversion names; the site instantiates it with them.
@@ -1739,7 +1747,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			}
 		}
 	}
-	for _, op := range toDecl.ops {
+	for _, op := range ops {
 		f := conv.Table[op.Name]
 		if param != nil {
 			continue // the witness supplies every operation
@@ -1770,7 +1778,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	var fields, values []string
 	witnessFields := map[string][]string{}
 	if param == nil {
-		for _, op := range toDecl.ops {
+		for _, op := range ops {
 			f := conv.Table[op.Name]
 			inst := conv.Instances[op.Name]
 			args := fc.witnessArgs(f, inst, site)
@@ -1803,7 +1811,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			}
 			b.WriteString(" }\n\n")
 		}
-		for _, op := range toDecl.ops {
+		for _, op := range ops {
 			locals := newNamer(l.names) // so no local hides the function it calls
 			if param != nil {
 				b.WriteString(fc.witnessMethod(tc, locals, name+recvArgs, op, ptrSource))

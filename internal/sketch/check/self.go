@@ -8,8 +8,12 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
+// isSelfName recognizes the contextual spelling; the caller still decides
+// whether the spelling is shadowed in its scope.
+func isSelfName(name string) bool { return name == "Self" }
+
 func (c *checker) isContextualSelf(name string, ctx *typeCtx) bool {
-	return name == "Self" && ctx != nil && ctx.self != nil && ctx.params[name] == nil
+	return isSelfName(name) && ctx != nil && ctx.self != nil && ctx.params[name] == nil
 }
 
 func (c *checker) selfType(at syntax.Expr, args []syntax.Expr, ctx *typeCtx) Type {
@@ -65,7 +69,7 @@ func (c *checker) lawsMentionSelf(spec *syntax.InterfaceType, owner *Named) bool
 // lawSelfSites records declaration-time use, before law bodies are checked:
 // 1 names contextual Self, and 2 re-applies it.
 func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
-	if owner == nil || slices.ContainsFunc(owner.TParams, func(p *TypeParam) bool { return p.Name == "Self" }) {
+	if owner == nil || slices.ContainsFunc(owner.TParams, func(p *TypeParam) bool { return isSelfName(p.Name) }) {
 		return 0
 	}
 	sites := 0
@@ -73,7 +77,7 @@ func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
 		shadowed := false
 		if law.TypeParams != nil {
 			for _, f := range law.TypeParams.List {
-				if slices.ContainsFunc(f.Names, func(id *syntax.Ident) bool { return id.Name == "Self" }) {
+				if slices.ContainsFunc(f.Names, func(id *syntax.Ident) bool { return isSelfName(id.Name) }) {
 					shadowed = true
 					break
 				}
@@ -84,12 +88,12 @@ func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
 		}
 		w := typeWalker{
 			f: func(id *syntax.Ident, _ Kind) {
-				if id.Name == "Self" {
+				if isSelfName(id.Name) {
 					sites = max(sites, 1)
 				}
 			},
 			index: func(ix *syntax.IndexExpr) bool {
-				if id, ok := unparen(ix.X).(*syntax.Ident); ok && id.Name == "Self" {
+				if id, ok := unparen(ix.X).(*syntax.Ident); ok && isSelfName(id.Name) {
 					sites = 2
 				}
 				return false
@@ -566,6 +570,9 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 		// A closed constraint call is a call of the provider, not an
 		// operation value (which cannot exist for this constraint).
 		if src.Kind == CallOp && src.Recv != nil && src.Op != nil {
+			op := *src.Op
+			op.Sig = read(op.Sig).(*Signature)
+			next.Op = &op
 			recv := base.Types[src.Recv]
 			if p, ok := recv.(*Pointer); ok {
 				recv = p.Elem
@@ -588,6 +595,10 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 					out.Instances[x] = &Instance{Func: f, TypeArgs: next.TypeArgs}
 				}
 			}
+		} else if (src.Kind == CallProviderOp || src.Kind == CallLawOp) && src.Op != nil {
+			op := *src.Op
+			op.Sig = read(op.Sig).(*Signature)
+			next.Op = &op
 		}
 		out.Calls[x] = &next
 		return true

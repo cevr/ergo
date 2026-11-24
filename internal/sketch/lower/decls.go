@@ -1199,7 +1199,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
-		if copiesOnly(f) {
+		if copiesOnly(f) || sp.opsABI {
 			fc.readCopy = check.CopyReader(f.Pkg, sp.bound)
 			saved := l.info
 			facts, why := check.CopyInfo(saved, f.Decl, fc.readCopy)

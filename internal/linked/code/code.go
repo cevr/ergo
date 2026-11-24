@@ -19403,6 +19403,62 @@ type ergo__opstextAsText struct {
 	env *ergo__Env
 }
 
+func (a *ergo__opstextAsText) Null(_ *rt.Task) {
+	(&a.v).Null()
+}
+
+func (a *ergo__opstextAsText) Number(_ *rt.Task, p string) {
+	(&a.v).Number(p)
+}
+
+func (a *ergo__opstextAsText) Bool(_ *rt.Task, p bool) {
+	(&a.v).Bool(p)
+}
+
+func (a *ergo__opstextAsText) Int(_ *rt.Task, p int64) {
+	(&a.v).Int(p)
+}
+
+func (a *ergo__opstextAsText) Uint(_ *rt.Task, p uint64) {
+	(&a.v).Uint(p)
+}
+
+func (a *ergo__opstextAsText) Float(_ *rt.Task, p float64) {
+	(&a.v).Float(p)
+}
+
+func (a *ergo__opstextAsText) String(_ *rt.Task, p string) {
+	(&a.v).String_(p)
+}
+
+func (a *ergo__opstextAsText) StringBytes(_ *rt.Task, p []uint8) {
+	(&a.v).StringBytes(p)
+}
+
+func (a *ergo__opstextAsText) BeginList(_ *rt.Task, p int) {
+	(&a.v).BeginList(p)
+}
+
+func (a *ergo__opstextAsText) EndList(_ *rt.Task) {
+	(&a.v).EndList()
+}
+
+func (a *ergo__opstextAsText) BeginObject(_ *rt.Task, p int) {
+	(&a.v).BeginObject(p)
+}
+
+func (a *ergo__opstextAsText) Tag(_ *rt.Task, p string) {
+	(&a.v).Tag(p)
+}
+
+func (a *ergo__opstextAsText) Key(_ *rt.Task, p string) {
+	(&a.v).Key(p)
+}
+
+func (a *ergo__opstextAsText) EndObject(_ *rt.Task) {
+	(&a.v).EndObject()
+}
+
 func (a *ergo__opstextAsText) Written(_ *rt.Task) string {
 	return (&a.v).Written()
 }
@@ -19483,62 +19539,6 @@ func (a *ergo__opstextAsText) drop(t *rt.Task, p int) {
 		e = &c
 	}
 	(&a.v).drop(e, p)
-}
-
-func (a *ergo__opstextAsText) Null(_ *rt.Task) {
-	(&a.v).Null()
-}
-
-func (a *ergo__opstextAsText) Number(_ *rt.Task, p string) {
-	(&a.v).Number(p)
-}
-
-func (a *ergo__opstextAsText) Bool(_ *rt.Task, p bool) {
-	(&a.v).Bool(p)
-}
-
-func (a *ergo__opstextAsText) Int(_ *rt.Task, p int64) {
-	(&a.v).Int(p)
-}
-
-func (a *ergo__opstextAsText) Uint(_ *rt.Task, p uint64) {
-	(&a.v).Uint(p)
-}
-
-func (a *ergo__opstextAsText) Float(_ *rt.Task, p float64) {
-	(&a.v).Float(p)
-}
-
-func (a *ergo__opstextAsText) String(_ *rt.Task, p string) {
-	(&a.v).String_(p)
-}
-
-func (a *ergo__opstextAsText) StringBytes(_ *rt.Task, p []uint8) {
-	(&a.v).StringBytes(p)
-}
-
-func (a *ergo__opstextAsText) BeginList(_ *rt.Task, p int) {
-	(&a.v).BeginList(p)
-}
-
-func (a *ergo__opstextAsText) EndList(_ *rt.Task) {
-	(&a.v).EndList()
-}
-
-func (a *ergo__opstextAsText) BeginObject(_ *rt.Task, p int) {
-	(&a.v).BeginObject(p)
-}
-
-func (a *ergo__opstextAsText) Tag(_ *rt.Task, p string) {
-	(&a.v).Tag(p)
-}
-
-func (a *ergo__opstextAsText) Key(_ *rt.Task, p string) {
-	(&a.v).Key(p)
-}
-
-func (a *ergo__opstextAsText) EndObject(_ *rt.Task) {
-	(&a.v).EndObject()
 }
 
 func json__Encode[T any](env *ergo__Env, wT struct {
@@ -23613,61 +23613,6 @@ type json__Text_1 interface {
 	EndObject(*rt.Task)
 }
 
-func (t *json__text) Written() string {
-	v := ergo.StringsBuilderText(t.out)
-	return v
-}
-
-func (t *json__text) commaDue() bool {
-	return t.comma
-}
-
-func (t *json__text) quote(s string) {
-	v := json__plain(s)
-	if v {
-		(t).plainBody(s)
-		return
-	} else {
-		(t).stringBody(s)
-		return
-	}
-}
-
-func (t *json__text) plainBody(s string) {
-	v := append(t.out, "\""...)
-	v_1 := append(v, s...)
-	v_2 := append(v_1, "\""...)
-	t.out = v_2
-}
-
-func (t *json__text) bytesBody(b []uint8) {
-	t.out = ergo.JSONAppendQuotedBytes(t.out, b, t.html)
-}
-
-func (t *json__text) uintBody(n uint64) {
-	t.out = ergo.JSONAppendUint(t.out, n)
-}
-
-func (t *json__text) floatBody(f float64) {
-	t.out = ergo.JSONAppendFloat(t.out, f)
-}
-
-func (t *json__text) finish(env *ergo__Env, hint int) string {
-	env.task.Check()
-	v := ergo__strings__FromBytesOwned(slices.Clone(t.out))
-	t.out = ergo.StringsGive(t.out, hint)
-	return v
-}
-
-func (t json__text) bytes() []uint8 {
-	return t.out
-}
-
-func (t *json__text) drop(env *ergo__Env, hint int) {
-	env.task.Check()
-	t.out = ergo.StringsGive(t.out, hint)
-}
-
 func (t *json__text) Null() {
 	{
 		if t.comma {
@@ -23870,6 +23815,61 @@ func (t *json__text) EndObject() {
 	(t).raw("}")
 	(t).setComma(true)
 	return
+}
+
+func (t *json__text) Written() string {
+	v := ergo.StringsBuilderText(t.out)
+	return v
+}
+
+func (t *json__text) commaDue() bool {
+	return t.comma
+}
+
+func (t *json__text) quote(s string) {
+	v := json__plain(s)
+	if v {
+		(t).plainBody(s)
+		return
+	} else {
+		(t).stringBody(s)
+		return
+	}
+}
+
+func (t *json__text) plainBody(s string) {
+	v := append(t.out, "\""...)
+	v_1 := append(v, s...)
+	v_2 := append(v_1, "\""...)
+	t.out = v_2
+}
+
+func (t *json__text) bytesBody(b []uint8) {
+	t.out = ergo.JSONAppendQuotedBytes(t.out, b, t.html)
+}
+
+func (t *json__text) uintBody(n uint64) {
+	t.out = ergo.JSONAppendUint(t.out, n)
+}
+
+func (t *json__text) floatBody(f float64) {
+	t.out = ergo.JSONAppendFloat(t.out, f)
+}
+
+func (t *json__text) finish(env *ergo__Env, hint int) string {
+	env.task.Check()
+	v := ergo__strings__FromBytesOwned(slices.Clone(t.out))
+	t.out = ergo.StringsGive(t.out, hint)
+	return v
+}
+
+func (t json__text) bytes() []uint8 {
+	return t.out
+}
+
+func (t *json__text) drop(env *ergo__Env, hint int) {
+	env.task.Check()
+	t.out = ergo.StringsGive(t.out, hint)
 }
 
 type ergo__WireNull struct {

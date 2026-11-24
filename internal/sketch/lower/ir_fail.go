@@ -426,6 +426,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if m == nil || m.Partial != partial {
 		irNo("catch without its Matches entry")
 	}
+	if b.fc.readCopy != nil {
+		if x, ok := unparen(x.X).(*syntax.CallExpr); ok {
+			if c := b.l.info.Calls[x]; c != nil && !failsHere(c) {
+				return b.call(x, m.Result == nil)
+			}
+		}
+	}
 	// The caught value: a fallible call, or a match whose arms' tails
 	// fail (bindMatch).
 	call := b.fallibleCall(x.X)
@@ -586,7 +593,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
 		hold, val := b.catchValue(src, &irExpr{K: "local", Pos: sw.End, I: v}, m.Result)
 		ifs.Else = append(hold, &irStmt{K: "set", Pos: sw.End, Local: result, X: val})
-		if !patterned && len(hold) == 0 && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irArmsLeave(sw, result) {
+		if !patterned && len(hold) == 0 && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irCatchLeaves(then, result) {
 			// Every arm leaves (the emitter's catch, whose arms all
 			// panic or return, yields the call's value in place): the
 			// value is the call's own local, with no caught copy (RED17).
@@ -599,6 +606,12 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		return pre, nil
 	}
 	return pre, &irExpr{K: "local", Pos: p, I: result}
+}
+
+// irCatchLeaves tests the emitted failure branch, not the candidate type
+// switch. A plain catch or a whole-row catch can replace that switch.
+func irCatchLeaves(then []*irStmt, result int) bool {
+	return irListTerminates(then) && !irNames(then, result, true)
 }
 
 // catchValue owns the caught call's successful result before it joins the
