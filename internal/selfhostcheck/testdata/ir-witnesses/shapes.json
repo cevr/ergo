@@ -1,0 +1,7 @@
+[
+  {"fixture": "port_shapes.ergo", "declaration": "func KeepNested(", "symbol": "Nested.KeepNested"},
+  {"fixture": "port_shapes.ergo", "declaration": "func KeepOuter(", "symbol": "Outer.KeepOuter"},
+  {"fixture": "port_shapes.ergo", "declaration": "func ItemsOf(", "symbol": "Nested.ItemsOf"},
+  {"fixture": "port_shapes.ergo", "declaration": "func KeepSlice(", "symbol": "KeepSlice"},
+  {"fixture": "port_shapes.ergo", "declaration": "func Singleton(", "symbol": "Singleton"}
+]

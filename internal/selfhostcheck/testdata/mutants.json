@@ -817,6 +817,56 @@
       ]
     },
     {
+      "name": "lower-shape-slice-field-rejected",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-1 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo",
+      "from": "if !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
+      "to": "if store.KindOfType(st.s, f.T) == store.KSlice || !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
+      "rule": "A record with a slice field is a direct record receiver; the KeepNested witness must not disappear.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shape-nested-record-field-rejected",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-1 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo",
+      "from": "if !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
+      "to": "if store.KindOfType(st.s, f.T) == store.KNamed || !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == \"\" {",
+      "rule": "Shape admission recurses through a named field, as for Outer.Inner.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shape-slice-field-key-suffixed",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-1 (not-run-crunch)",
+      "file": "compiler/lower/aggregate.ergo",
+      "from": "\t\treturn stop(\"selector that is no field\")\n\t}\n\tname\n",
+      "to": "\t\treturn stop(\"selector that is no field\")\n\t}\n\tif store.KindOfType(st.s, t) == store.KSlice {\n\t\treturn name + \"_\"\n\t}\n\tname\n",
+      "rule": "The field operand keeps the checked Go member name regardless of its value's slice shape.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shape-slice-parameter-rejected",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-1 (not-run-crunch)",
+      "file": "compiler/lower/lower.ergo",
+      "from": "if sig == \"\" && shapeGo(*st, ops[i]) == \"\" {",
+      "to": "if sig == \"\" && (shapeGo(*st, ops[i]) == \"\" || store.KindOfType(st.s, ops[i]) == store.KSlice) {",
+      "rule": "A read-only slice parameter has a direct local operand; KeepSlice must not disappear.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shape-slice-literal-spelling",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-1 (not-run-crunch)",
+      "file": "compiler/lower/aggregate.ergo",
+      "from": "return aggregate{typ: gt, record: -1, keys: []string{}, values: values}",
+      "to": "return aggregate{typ: gt[2:len(gt)], record: -1, keys: []string{}, values: values}",
+      "rule": "A slice literal's type operand includes the slice constructor, not just the element spelling.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "ir-const-op-dropped",
       "origin": "wf10/selfhost/S4 (re-merge on 23342802b)",
       "file": "compiler/ir/kinds.ergo",
