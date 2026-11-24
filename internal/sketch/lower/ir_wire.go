@@ -339,6 +339,12 @@ func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
 		body = append(body, g.value(u.Elem, &irExpr{K: "index", Pos: g.p, X: v, Y: g.local(k)})...)
 		out = append(out, wireStep{loop: &irStmt{K: "range", Pos: g.p, End: g.p, X: keys, Val: &k}, body: body})
 		return append(out, g.event("EndObject"))
+	case *check.Tuple:
+		out := []wireStep{g.constEvent("BeginList", constant.MakeInt64(int64(len(u.Types))))}
+		for i, et := range u.Types {
+			out = append(out, g.value(et, &irExpr{K: "field", Pos: g.p, Name: tupleField(i), X: v})...)
+		}
+		return append(out, g.event("EndList"))
 	case *check.Struct:
 		n, ok := t.(*check.Named)
 		if !ok {
