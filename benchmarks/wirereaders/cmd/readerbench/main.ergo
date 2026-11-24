@@ -12,7 +12,11 @@
 // one json.Decode takes. One unit is one read. KIND map, mapstream and
 // mapreplay read a Map of four keys N times (JSON-CURSOR-ALLOC), from a
 // json.Reader, a json.Stream and a codec.Replay; the workloads are
-// ../../map, ../../mapstream and ../../mapreplay.
+// ../../map, ../../mapstream and ../../mapreplay. KIND omittable reads
+// a record with a missing or present optional field. KIND tagged reads
+// a union with the tag first or last in the object. KIND parsed reads a
+// by-name pair and a refinement. KIND nullable reads a tuple containing
+// null or its integer payload.
 
 import codec
 import io
@@ -20,8 +24,227 @@ import json
 import os
 import strconv
 import strings
+import time
 
 type box { Label string, Count int, Tags []string, Weight float64 }
+
+type crate { Count int, Extra json.Optional[int] }
+
+type parcel[T] { Count int, Extra T }
+
+func takeParcel[T wire](r Reader) parcel[T] fails wired[parcel[T]] needs wired[T] {
+	decode[parcel[T]](r)
+}
+
+type reading { At time.Time, Data json.Raw }
+
+let readingText = "{\"at\":\"2026-11-23T00:12:00Z\",\"data\":{ \"x\": [1, 2] }}"
+
+func wireLeafSum(n int) int64 {
+	let mut total int64 = 0
+	for _ in 0..n {
+		let r = json.Open(readingText, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let v = decode[reading](r) catch {
+		case _:
+			return -1
+		}
+		total = total + v.At.UnixSeconds() % 1000 + int64(len(v.Data.String()))
+	}
+	total
+}
+
+type Entry = Labelled | Unlabelled
+
+type Labelled { Count int, Label string }
+
+type Unlabelled { Count int }
+
+type PlainEntry { Count int }
+type NoteItem { Count int, Label string }
+
+func markRow(plain bool) int fails PlainEntry | NoteItem {
+	if plain {
+		return PlainEntry{Count: 0}
+	}
+	return NoteItem{Count: 0, Label: ""}
+}
+
+type Mode = Low | High
+type Low {}
+type High {}
+type BadMode { Value string }
+type Limit int where 0 <= it && it <= 99
+type Parsed { Mode Mode, Limit Limit }
+
+func takeDuo(r Reader) (json.Nullable[int], int) fails wired[(json.Nullable[int], int)] {
+	decode[(json.Nullable[int], int)](r)
+}
+
+func nullableSum(n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 { "[null,12]" } else { "[3,12]" }
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let (first, second) = takeDuo(r) catch {
+		case _:
+			return -1
+		}
+		sum = sum + second
+		match first {
+		case json.Null:
+		case json.NonNull[int] as x:
+			sum = sum + x.Value
+		}
+	}
+	sum
+}
+
+func ParseMode(s string) Mode fails BadMode {
+	match s {
+	case "low":
+		Low
+	case "high":
+		High
+	case _:
+		BadMode{Value: s}
+	}
+}
+
+func Wire(m Mode) string {
+	match m {
+	case Low:
+		"low"
+	case High:
+		"high"
+	}
+}
+
+func takeParsed(r Reader) Parsed fails wired[Parsed] {
+	decode[Parsed](r)
+}
+
+func parsedSum(n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 { "{\"mode\":\"low\",\"limit\":12}" } else { "{\"limit\":3,\"mode\":\"high\"}" }
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let p = takeParsed(r) catch {
+		case _:
+			return -1
+		}
+		sum = sum + int(p.Limit)
+		match p.Mode {
+		case Low:
+		case High:
+			sum = sum + 1
+		}
+	}
+	sum
+}
+
+func takeEntry(r Reader) Entry fails wired[Entry] {
+	decode[Entry](r)
+}
+
+func taggedSum(n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 {
+			"{\"count\":12,\"_tag\":\"Unlabelled\"}"
+		} else {
+			"{\"_tag\":\"Labelled\",\"label\":\"wood\",\"count\":3}"
+		}
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let e = takeEntry(r) catch {
+		case _:
+			return -1
+		}
+		match e {
+		case Unlabelled as x:
+			sum = sum + x.Count
+		case Labelled as x:
+			sum = sum + x.Count + len(x.Label)
+		}
+	}
+	sum
+}
+
+func readRow[T wire](_ json.Codec[T], r json.Reader) (T, bool) fails wired[T] needs wired[T] {
+	let member = try decode[T](r)
+	(member, true)
+}
+
+func rowSum(n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 {
+			"{\"count\":12,\"_tag\":\"PlainEntry\"}"
+		} else {
+			"{\"_tag\":\"NoteItem\",\"label\":\"wood\",\"count\":3}"
+		}
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let (e, _) = readRow(json.Codec[PlainEntry | NoteItem]{MaxBytes: 0, MaxDepth: 0}, r) catch {
+		case _:
+			return -1
+		}
+		match e {
+		case PlainEntry as x:
+			sum = sum + x.Count
+		case NoteItem as x:
+			sum = sum + x.Count + len(x.Label)
+		}
+	}
+	sum
+}
+
+func takeCrate(r Reader) crate fails wired[crate] {
+	decode[crate](r)
+}
+
+func omittableSum(n int, generic bool) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 { "{\"count\":12}" } else { "{\"count\":12,\"extra\":3}" }
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let c = if generic {
+			let p = takeParcel[json.Optional[int]](r) catch {
+			case _:
+				return -1
+			}
+			crate{Count: p.Count, Extra: p.Extra}
+		} else {
+			takeCrate(r) catch {
+			case _:
+				return -1
+			}
+		}
+		sum = sum + c.Count
+		match c.Extra {
+		case json.Absent:
+		case json.Present[int] as x:
+			sum = sum + x.Value
+		}
+	}
+	sum
+}
 
 let one = "{\"label\":\"crate\",\"count\":12,\"tags\":[\"wood\",\"heavy\"],\"weight\":30.5}"
 
@@ -104,6 +327,27 @@ func valueSum(n int) int {
 
 // bench is the sum of the counts of N reads, or -1 when a read fails.
 func bench(kind string, n int) int {
+	if kind == "wire-leaves" {
+		return int(wireLeafSum(n))
+	}
+	if kind == "generic" {
+		return omittableSum(n, true)
+	}
+	if kind == "nullable" {
+		return nullableSum(n)
+	}
+	if kind == "parsed" {
+		return parsedSum(n)
+	}
+	if kind == "tagged" {
+		return taggedSum(n)
+	}
+	if kind == "row" {
+		return rowSum(n)
+	}
+	if kind == "omittable" {
+		return omittableSum(n, false)
+	}
 	if kind == "value" {
 		return valueSum(n)
 	}

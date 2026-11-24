@@ -41,7 +41,7 @@ func TestIRGoLibMatchSource(t *testing.T) {
 		if a != b {
 			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", seed, a, b, replay, text)
 		}
-		var want []string
+		want := []string{"elapsed"}
 		if strings.Contains(text, "\tparse(s)") {
 			want = append(want, "parse")
 		}

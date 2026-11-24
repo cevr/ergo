@@ -1872,10 +1872,8 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/rpcgen/rpcgen.go:pairOf` | `Wire`, the codec's conversion protocol |
 | `internal/sketch/check/authority.go:authorityText` | a prelude constructor, named unqualified |
 | `internal/sketch/check/authority.go:isAmbient` | `Ambient` |
-| `internal/sketch/check/authority.go:isTestAmbient` | `TestAmbient` |
 | `internal/sketch/check/call.go:checker.preludeOp` | a prelude operation, reached by the dot form |
 | `internal/sketch/check/call.go:isUnreachable` | `Unreachable` |
-| `internal/sketch/check/contextneeds.go:checker.readContextHeader` | `TestAmbient` in a named context's needs row: the test runner gives it; no with site does ([rows](rows.md#context)) |
 | `internal/sketch/check/contextvalues.go:contextRow` | `Context` |
 | `internal/sketch/check/durable.go:pureSeer.step` | `Machine`, a machine literal whose Step a pure parameter sees |
 | `internal/sketch/check/durable.go:pureSeer.stepValue` | `Machine`'s `Step` |
@@ -1916,6 +1914,10 @@ The standard library is an ordinary set of packages ([NORTH_STAR.md](../../NORTH
 | `internal/sketch/check/mapprovider.go:checker.isStructural` | `Structural`, the Map's default provider |
 | `internal/sketch/check/mapprovider.go:checker.preludeTypeObj` | the prelude's Map types, from its scope in its own check |
 | `internal/sketch/eval/cases.go:qualifiedLaw` | a prelude law, named unqualified |
+
+The checker installs the IR call forms of `Unreachable` and `InForce` on their resolved language declarations. The IR uses that action, not the name or package of the call; a different declaration does not get the action by naming the same Go target.
+
+Likewise, the checker assigns the test runner's two authorities to the predeclared `TestAmbient` and `TestLoopback` types. The reader of a named context's needs row uses those roles, not the types' names ([rows](rows.md#context)). A type of the same spelling is not supplied by the runner.
 
 The reviewed facts of a Go body (pure, host, inert, its hidden arguments, moves only, a moving callback and its keeper, a release that stops running code, an operation that drains lends) are read in one place, `check.BodyOf` and `check.OpBodyOf`, by the body the extern's declaration names. An extern of any package that binds the same body gets the same facts; the declaring package is never read (`TestBodyFactsFollowTheBody`). Whether a package may bind the runtime at all is the extern rule's question, not the facts'.
 
