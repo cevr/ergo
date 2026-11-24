@@ -250,7 +250,7 @@ func (fc *funcCtx) sourceReturn(vals ...string) {
 // registration as one acquisition. No other lowering path registers a
 // provider. WithAcquire reuses v1's list and rt's acquiring region, and
 // restores the mask before this code handles an error or lexical transfer.
-func (fc *funcCtx) withClose(a *check.Acquisition, target, outer, ws string, site syntax.Node) {
+func (fc *funcCtx) withClose(a *check.Acquisition, target, outer, ws string, site syntax.Node, raw string) {
 	f := fc.frame
 	flow := &acquireFlow{flow: fc.temp("flow"), loops: len(fc.loops)}
 	fc.line("var " + flow.flow + " int")
@@ -267,7 +267,7 @@ func (fc *funcCtx) withClose(a *check.Acquisition, target, outer, ws string, sit
 		inner.out = &strings.Builder{}
 		inner.depth++
 		inner.acquiring = flow
-		val := inner.publishProvider(a, target)
+		val := inner.publishProvider(a, target, raw)
 		inner.line("return " + inner.providerCloser(a, outer, val, site) + ", nil")
 		return nil, " (func(), error)", inner.out.String()
 	})

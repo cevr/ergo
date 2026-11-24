@@ -15,6 +15,9 @@ import (
 // path among the package's imports, and the lowering keeps the import used,
 // keepImport).
 func (b *irBuilder) goType(t check.Type, site syntax.Node) string {
+	if b.fc.claim != nil {
+		t = b.fc.boundType(t)
+	}
 	switch u := t.(type) {
 	case *check.Signature:
 		return b.sigType(u, site) // ir_closure.go

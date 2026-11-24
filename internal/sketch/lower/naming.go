@@ -157,9 +157,7 @@ func (l *lowerer) nameAll() {
 			if !l.stdContext(w) {
 				continue
 			}
-			for _, with := range l.withsOf(w) {
-				l.pkgName(pkgKey{"context", l.acquiredSet(with)}, "build"+w.Name)
-			}
+			l.nameContextBuilders(w)
 		}
 	}
 	type entry = generatedEntry
