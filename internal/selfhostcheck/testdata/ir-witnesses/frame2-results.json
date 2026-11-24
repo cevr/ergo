@@ -1,0 +1,8 @@
+[
+  {"fixture": "port_frame_results.ergo", "declaration": "func FrameText(", "symbol": "PortResultInput.FrameText"},
+  {"fixture": "port_frame_results.ergo", "declaration": "func FrameSlice(", "symbol": "PortResultInput.FrameSlice"},
+  {"fixture": "port_frame_results.ergo", "declaration": "func FrameRecord(", "symbol": "PortResultInput.FrameRecord"},
+  {"fixture": "port_frame_results.ergo", "declaration": "func FrameImported(", "symbol": "PortResultInput.FrameImported"},
+  {"fixture": "port_frame_results.ergo", "declaration": "func FrameUnion(", "symbol": "PortResultInput.FrameUnion"},
+  {"fixture": "port_frame_results.ergo", "declaration": "func FrameFailureOnly(", "symbol": "FrameFailureOnly"}
+]
