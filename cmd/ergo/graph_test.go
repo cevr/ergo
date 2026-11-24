@@ -85,6 +85,7 @@ func TestGraphColumnsAreTheJSON(t *testing.T) {
 		{"test-support", "--json"},
 		{"seams", "--json"},
 		{"folder-cycles", "--json"},
+		{"tangles", "--json"},
 		{"layers", "--json"},
 		{"why", "pipeline/run", "slices", "--json"},
 		{"hidden"},

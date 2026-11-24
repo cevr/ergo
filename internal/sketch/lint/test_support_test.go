@@ -67,9 +67,9 @@ func TestProductionUsesTestSupportAgreesWithReference(t *testing.T) {
 			otherSupportBody = "fixture.MakeClock()"
 		}
 		files := map[string]string{
-			"ergo.mod":            "module app\n",
-			"fixture/clock.ergo":  "func MakeClock() int { 42 }\n",
-			"samefix/helper.ergo": "import app/fixture\n\nfunc SameSeam() int { fixture.MakeClock() }\n",
+			"ergo.mod":             "module app\n",
+			"fixture/clock.ergo":   "func MakeClock() int { 42 }\n",
+			"samefix/helper.ergo":  "import app/fixture\n\nfunc SameSeam() int { fixture.MakeClock() }\n",
 			"otherfix/helper.ergo": otherImport + "func OtherSeam() int { " + otherSupportBody + " }\n",
 			"watch/watch.ergo": strings.Join([]string{
 				"import app/fixture",

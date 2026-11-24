@@ -47,12 +47,12 @@ type testSupportOptions struct {
 }
 
 type testSupportRow struct {
-	CallerId  int
-	Caller    string
-	TargetId  int
-	Target    string
-	Site      int
-	Import    int
+	CallerId int
+	Caller   string
+	TargetId int
+	Target   string
+	Site     int
+	Import   int
 }
 
 type testSupportFinding struct {

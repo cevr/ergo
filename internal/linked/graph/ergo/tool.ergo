@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, tangles, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -150,6 +150,11 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("folder-cycles takes no argument; the modules are --module PATH")
 		}
 		folderCycles(r, o)
+	case "tangles":
+		if len(words) != 1 {
+			return usage("tangles takes no argument; the member max is --max N, the modules --module PATH")
+		}
+		tangles(r, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -633,6 +638,41 @@ func folderCycles(r codegraph.Rows, o Options) []string {
 		b = b + "\(c.Parent): " + strings.Join(c.Path, " -> ") + "\n"
 	}
 	ok(if len(out) == 0 { "no sibling folder cycle\n" } else { b })
+}
+
+type TangleOut {
+	Package   string,
+	Members   []string,
+	Files     []string,
+	Path      []string,
+	Sites     []int,
+	CrossFile bool,
+}
+
+func tangles(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []TangleOut{}
+	for t in codegraph.DeclarationTanglesOf(r, modules).Tangles {
+		if o.Max >= 0 && !codegraph.TangleReported(t, o.Max) {
+			continue
+		}
+		out = out.Append(TangleOut{
+			Package:   r.Nodes[t.Package].Name,
+			Members:   names(r, t.Members),
+			Files:     names(r, t.Files),
+			Path:      names(r, t.Path),
+			Sites:     t.Sites,
+			CrossFile: len(t.Files) > 1,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]TangleOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for t in out {
+		b = b + "\(t.Package) (\(len(t.Members)) decls, \(len(t.Files)) files): " + strings.Join(t.Path, " -> ") + "\n"
+	}
+	ok(if len(out) == 0 { "no declaration tangle\n" } else { b })
 }
 
 func interfaces(r codegraph.Rows, o Options) []string {

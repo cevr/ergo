@@ -182,3 +182,160 @@ func siblingFolderCyclesWorkIsLinear(seed int, size int) bool {
 	}
 	got.Work <= 8*(len(r.Nodes)+len(r.Edges))+4
 }
+
+type DeclarationTangle {
+	Package int,
+	Members []int,
+	Files   []int,
+	Path    []int,
+	Sites   []int,
+}
+
+type DeclarationTangles { Tangles []DeclarationTangle, Work int }
+
+func TangleReported(t DeclarationTangle, max int) bool {
+	len(t.Files) > 1 || (max > 0 && len(t.Members) > max)
+}
+
+func tangleNode(p place) int { p.Top }
+
+func DeclarationTanglesOf(r Rows, modules []int) DeclarationTangles {
+	let mut work = 0
+	let mut chosen = Map[int, bool]{}
+	for m in modules {
+		chosen[m] = true
+	}
+	let mut places = []place{}
+	for i, row in r.Nodes {
+		work = work + 1
+		let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+		if row.Parent >= 0 {
+			at = if row.Parent < i { places[row.Parent] } else { placeOf(r, row.Parent, chosen) }
+		}
+		places = places.Append(placed(r, i, at, chosen))
+	}
+	let mut aliases = Map[int, int]{}
+	for e in r.Edges {
+		work = work + 1
+		if e.Kind == "reexports" {
+			aliases[e.From] = e.To
+		}
+	}
+	let mut resolvedCache = Map[int, int]{}
+	let width = len(r.Nodes)
+	let mut nodeSet = Map[int, bool]{}
+	let mut nodes = []int{}
+	let mut firstSite = Map[int, int]{}
+	let mut rawPairs = []int{}
+	for k, e in r.Edges {
+		work = work + 1
+		if e.Kind != "uses" || !places[e.From].Ordinary || !places[e.To].Ordinary {
+			continue
+		}
+		let a = places[e.From]
+		if !a.InScope || a.Package < 0 || a.File < 0 {
+			continue
+		}
+		let mut target = e.To
+		if maps.GetOr(aliases, e.From, -1) != e.To {
+			match resolvedCache.Get(e.To) {
+			case Some[int] as cached:
+				target = cached.Value
+			case None:
+				let (res, steps) = resolve(aliases, e.To)
+				work = work + steps
+				resolvedCache[e.To] = res
+				target = res
+			}
+		}
+		if target < 0 {
+			continue
+		}
+		let b = places[target]
+		if !b.InScope || b.Package != a.Package || b.File < 0 {
+			continue
+		}
+		let u = tangleNode(a)
+		let v = tangleNode(b)
+		if u < 0 || v < 0 || u == v {
+			continue
+		}
+		let pair = u*width + v
+		if firstSite.Get(pair) == None {
+			firstSite[pair] = k
+			rawPairs = rawPairs.Append(pair)
+			if nodeSet.Get(u) == None {
+				nodeSet[u] = true
+				nodes = nodes.Append(u)
+			}
+			if nodeSet.Get(v) == None {
+				nodeSet[v] = true
+				nodes = nodes.Append(v)
+			}
+		}
+	}
+	let sortedNodes = slices.Sort(nodes)
+	let mut idOf = Map[int, int]{}
+	for idx, n in sortedNodes {
+		idOf[n] = idx
+	}
+	let mut gEdges = []graph.Edge{}
+	for pair in rawPairs {
+		work = work + 1
+		gEdges = gEdges.Append(graph.Edge{From: maps.GetOr(idOf, pair/width, -1), To: maps.GetOr(idOf, pair%width, -1)})
+	}
+	let g = graph.Of(len(sortedNodes), gEdges)
+	let mut out = []DeclarationTangle{}
+	for c in graph.Cycles(g) {
+		if len(c.Nodes) < 2 {
+			continue
+		}
+		let mut members = []int{}
+		let mut fileSet = Map[int, bool]{}
+		let mut files = []int{}
+		for n in c.Nodes {
+			let rid = sortedNodes[n]
+			members = members.Append(rid)
+			let f = places[rid].File
+			if f >= 0 && fileSet.Get(f) == None {
+				fileSet[f] = true
+				files = files.Append(f)
+			}
+		}
+		let mut path = []int{}
+		for n in c.Path {
+			path = path.Append(sortedNodes[n])
+		}
+		let mut sites = []int{}
+		for j in 1..len(path) {
+			sites = sites.Append(maps.GetOr(firstSite, path[j-1]*width+path[j], -1))
+		}
+		out = out.Append(DeclarationTangle{
+			Package: places[members[0]].Package,
+			Members: members,
+			Files:   slices.Sort(files),
+			Path:    path,
+			Sites:   sites,
+		})
+	}
+	DeclarationTangles{Tangles: out, Work: work}
+}
+
+law DeclarationTanglesWorkIsLinear(seed int, size int) { declarationTanglesWorkIsLinear(seed, size) }
+
+func declarationTanglesWorkIsLinear(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let got = DeclarationTanglesOf(r, []int{0})
+	let mut lets = 1
+	for n in r.Nodes {
+		if n.Sub == "let" {
+			lets = lets + 1
+		}
+	}
+	for t in got.Tangles {
+		if len(t.Members) < 2 || len(t.Path) != len(t.Sites)+1 || t.Path[0] != t.Path[len(t.Path)-1] {
+			return false
+		}
+	}
+	got.Work <= 4*lets*(len(r.Nodes)+len(r.Edges))+4
+}
