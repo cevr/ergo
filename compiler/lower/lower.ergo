@@ -510,16 +510,18 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if shapeGo(*st, ops[n]) == "" {
 		sig = "result: " + typeCause(*st, ops[n])
 	}
-	let unit = store.KindOfType(st.s, ops[n]) == store.KTuple && len(store.OperandsOf(st.s, ops[n])) == 0 && controlUnitAdmitted(*st, f, body)
+	let unit = !uses && isUnit(*st, ops[n])
+	let borrowUnit = unit && controlUnitAdmitted(*st, f, body)
 	if unit {
-		// The opted-in unit profile has no result slot. Parameter
-		// admission below still checks every formal.
 		sig = ""
 	}
 	for i in 0..n {
+		if sig == "" && unit && i < len(f.Takes) && f.Takes[i] {
+			sig = "parameter: owned unit frame"
+		}
 		if sig == "" && shapeGo(*st, ops[i]) == "" {
 			sig = "parameter: " + typeCause(*st, ops[i])
-			if admittedBorrowParam(*st, f, i, ops[i], !uses) {
+			if (!unit || borrowUnit) && admittedBorrowParam(*st, f, i, ops[i], !uses) {
 				sig = ""
 			}
 		}
@@ -543,7 +545,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case _:
 		return stop("body that is no block")
 	}
-	let prepared = statements(st, body, list, f.Names, n, ops[n], unit) catch {
+	let prepared = statements(st, body, list, f.Names, n, ops[n], unit, borrowUnit) catch {
 	case Unported as u:
 		if sig != "" {
 			return stop(sig + " / body: " + u.Cause)
