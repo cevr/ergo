@@ -208,6 +208,8 @@ func (l *lowerer) keyPkg(key pkgKey) *check.Package {
 		return o.Pkg
 	case *check.TypeName:
 		return o.Pkg
+	case opsABIKey:
+		return o.origin.Pkg
 	case *check.Named:
 		if o.Obj != nil {
 			return o.Obj.Pkg

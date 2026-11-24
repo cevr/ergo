@@ -32,6 +32,18 @@ func WidthOrLost(t Transport[string, int, Lost], c string) int fails Lost {
 
 func Widen(t Transport[string, int]) Transport[string, int, Lost] { t }
 
+func carried[C wire, O wire, F](t Transport[C, O, F], c C, answer own func(c C) O) bool {
+	let _ = t.Carry(c, answer) catch {
+	case _:
+		return false
+	}
+	true
+}
+
+func GenericCarry[C wire, O wire, F](t Transport[C, O, F], c C, answer own func(c C) O) bool {
+	carried(t, c, answer)
+}
+
 test TransportCarriesItsInstanceRow {
 	assert DirectWidth("abc") == 3
 	assert EchoWidth("abcd") == 4
@@ -45,4 +57,8 @@ test TransportCarriesItsInstanceRow {
 	}
 	assert carried == 5
 	assert refused == -1
+	let total Transport[string, int] = echo
+	let partial Transport[string, int, Lost] = dropping
+	assert GenericCarry(total, "abc", width)
+	assert !GenericCarry(partial, "", width)
 }

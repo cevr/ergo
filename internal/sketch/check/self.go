@@ -566,6 +566,9 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 		// A closed constraint call is a call of the provider, not an
 		// operation value (which cannot exist for this constraint).
 		if src.Kind == CallOp && src.Recv != nil && src.Op != nil {
+			op := *src.Op
+			op.Sig = read(op.Sig).(*Signature)
+			next.Op = &op
 			recv := base.Types[src.Recv]
 			if p, ok := recv.(*Pointer); ok {
 				recv = p.Elem
@@ -588,6 +591,10 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 					out.Instances[x] = &Instance{Func: f, TypeArgs: next.TypeArgs}
 				}
 			}
+		} else if (src.Kind == CallProviderOp || src.Kind == CallLawOp) && src.Op != nil {
+			op := *src.Op
+			op.Sig = read(op.Sig).(*Signature)
+			next.Op = &op
 		}
 		out.Calls[x] = &next
 		return true

@@ -430,7 +430,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
 		vals = append([]string{taskOf(env)}, vals...)
-		return env + "." + fc.l.envField(cap) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, erasedOpFallible(cap, c.Op)
+		return env + "." + fc.l.envField(cap) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
 		// underlying signature.
@@ -1678,6 +1678,9 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	}
 	if from, ok := conv.From.(*check.Named); ok && from.Underlying() != nil {
 		if _, ops := from.Underlying().(*check.Interface); ops {
+			if rowWidening(conv) {
+				return "&" + fc.widenOps(conv, site) + "{v: " + val + "}"
+			}
 			// A sealed std operation type that Ergo code implements
 			// (http.Streaming): its value is already an interface value.
 			return val
@@ -1705,6 +1708,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	if toDecl.kind != kindOps {
 		ice(site, "an operations conversion to %s, which is not an operation type", conv.To)
 	}
+	ops := to.Underlying().(*check.Interface).Methods
 	tc := &typeCtx{l: l, params: map[*check.TypeParam]string{}, site: site}
 	// The adapter's own type parameters stand for the enclosing function's
 	// that the conversion names; the site instantiates it with them.
@@ -1739,7 +1743,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			}
 		}
 	}
-	for _, op := range toDecl.ops {
+	for _, op := range ops {
 		f := conv.Table[op.Name]
 		if param != nil {
 			continue // the witness supplies every operation
@@ -1770,7 +1774,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 	var fields, values []string
 	witnessFields := map[string][]string{}
 	if param == nil {
-		for _, op := range toDecl.ops {
+		for _, op := range ops {
 			f := conv.Table[op.Name]
 			inst := conv.Instances[op.Name]
 			args := fc.witnessArgs(f, inst, site)
@@ -1803,7 +1807,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 			}
 			b.WriteString(" }\n\n")
 		}
-		for _, op := range toDecl.ops {
+		for _, op := range ops {
 			locals := newNamer(l.names) // so no local hides the function it calls
 			if param != nil {
 				b.WriteString(fc.witnessMethod(tc, locals, name+recvArgs, op, ptrSource))
