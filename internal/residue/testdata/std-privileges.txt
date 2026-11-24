@@ -51,11 +51,8 @@ debt	internal/sketch/check/aspattern.go:checker.refusedRest	flag	"preludeObject"
 language	internal/sketch/check/authority.go:authorityText	mark	"stdlib.PreludePath"	a prelude constructor is named unqualified in a diagnostic	-
 language	internal/sketch/check/authority.go:isAmbient	mark	"stdlib.PreludePath"	Ambient, the host authority	-
 language	internal/sketch/check/authority.go:isAmbient	name	"Ambient"	Ambient, the host authority	-
-language	internal/sketch/check/authority.go:isTestAmbient	mark	"stdlib.PreludePath"	TestAmbient, the test's host authority	-
-language	internal/sketch/check/authority.go:isTestAmbient	name	"TestAmbient"	TestAmbient, the test's host authority	-
 debt	internal/sketch/check/body.go:checker.runtimeTypeRefusal	mark	".trusted"	checker.runtimeTypeRefusal: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/borrowconv.go:escWalk.checkBorrowConv	flag	"goArgument"	escWalk.checkBorrowConv: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/borrowconv.go:escWalk.goArgument	flag	"isHostNamed"	escWalk.goArgument: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/borrowconv.go:escWalk.goArgument	mark	"Host()"	escWalk.goArgument: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/call.go:IsInForce	mark	"stdlib.PreludePath"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
 debt	internal/sketch/check/call.go:IsInForce	name	"InForce"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
@@ -63,7 +60,6 @@ debt	internal/sketch/check/call.go:IsUnreachable	flag	"isUnreachable"	IsUnreacha
 debt	internal/sketch/check/call.go:checker.argument	flag	"hostCall"	checker.argument: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/call.go:checker.callOf	flag	"isUnreachable"	checker.callOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/call.go:checker.callSig	flag	"hostCall"	checker.callSig: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/call.go:checker.callSig	flag	"isHostNamed"	checker.callSig: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/call.go:checker.callSig	mark	"Host()"	checker.callSig: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/call.go:checker.preludeOp	mark	"stdlib.PreludePath"	a prelude operation reached by the dot form	-
 debt	internal/sketch/check/call.go:checker.unreachableCall	flag	"isUnreachable"	checker.unreachableCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -92,20 +88,15 @@ seam	internal/sketch/check/check.go:stdImporter.testOf	mark	"stdlib.Package"	fin
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_Package	mark	".trusted"	CodecFieldsOf_Package: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_checker	flag	"hostCall"	CodecFieldsOf_checker: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_hand	flag	"hostLend"	CodecFieldsOf_hand: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_typeCtx	flag	"binding"	CodecFieldsOf_typeCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isTestAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-language	internal/sketch/check/contextneeds.go:checker.readContextHeader	flag	"isTestAmbient"	TestAmbient, the test runner's, in a named context's needs row	-
 language	internal/sketch/check/contextvalues.go:contextRow	mark	"stdlib.PreludePath"	Context, the predeclared row value	-
 language	internal/sketch/check/contextvalues.go:contextRow	name	"Context"	Context, the predeclared row value	-
 debt	internal/sketch/check/decl.go:checker.funcSig	mark	"Host()"	checker.funcSig: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/check/decl.go:checker.importSpec	mark	"stdlib.Package"	a std path always names std (no shadowing)	-
-debt	internal/sketch/check/decl.go:checker.interfaceType	mark	"Host()"	checker.interfaceType: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/decl.go:checker.resolveNamed	flag	"emptyUnion"	checker.resolveNamed: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/check/decl.go:checker.run	mark	".std"	the second check of a package keeps its std mark	-
 debt	internal/sketch/check/decl.go:checker.run	mark	".trusted"	checker.run: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/decl.go:checker.structType	mark	"Host()"	checker.structType: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/decl.go:checker.typExpr0	flag	"binding"	checker.typExpr0: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/discard.go:checker.raisesByName	flag	"IsUnreachable"	checker.raisesByName: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/durable.go:pureSeer.step	name	"Step"	Machine, a machine literal whose Step a pure parameter sees	-
 language	internal/sketch/check/durable.go:pureSeer.stepValue	name	"Step"	Machine's Step	-
@@ -118,7 +109,6 @@ language	internal/sketch/check/entry.go:isPreludeMachineValue	name	"Machine"	Mac
 debt	internal/sketch/check/expr.go:captured.add	flag	"isAmbient"	captured.add: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/expr.go:checker.compositeLit	mark	"stdlib.PreludePath"	the predeclared Map's provider form: the prelude writes its table as the record	-
 debt	internal/sketch/check/expr.go:checker.qualified	mark	"Host()"	checker.qualified: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/expr.go:checker.selector	flag	"isHostNamed"	checker.selector: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/extern.go:IsGoError	name	"Error"	go.Error of the Go boundary	-
 debt	internal/sketch/check/extern.go:PureGoPackages	runtime	"v1.PureImports"	PureGoPackages: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/extern.go:checker.externAdapter	flag	"isAmbient"	checker.externAdapter: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -140,8 +130,6 @@ debt	internal/sketch/check/funcrewrite.go:ergoCalls	mark	"Host()"	ergoCalls: a m
 debt	internal/sketch/check/funcrewrite.go:pureOverArgs	mark	"Host()"	pureOverArgs: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/funcrewrite.go:rewriteImpure	mark	"Host()"	rewriteImpure: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/funcrewrite.go:rewriteValueWhy	mark	"Host()"	rewriteValueWhy: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/goany.go:checker.goAnyForm	flag	"isHostNamed"	checker.goAnyForm: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/gobinding.go:isHostNamed	mark	"Host()"	isHostNamed: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/goconfined.go:confinedText	flag	"goConfinedRef"	confinedText: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/goconfined.go:goConfinedRef	mark	"Host()"	goConfinedRef: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/goconfined.go:goReaches	runtime	"v1.GoConcurrentTypes"	goReaches: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -152,31 +140,18 @@ debt	internal/sketch/check/gocopy.go:checker.goHeld	flag	"goCall"	checker.goHeld
 debt	internal/sketch/check/gocopy.go:checker.reportGoCopyWrites	flag	"goCall"	checker.reportGoCopyWrites: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/gocopy.go:checker.reportGoCopyWrites	flag	"goHeld"	checker.reportGoCopyWrites: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/gocopy.go:goNamedRecv	mark	"Host()"	goNamedRecv: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/goerror.go:checker.goAsTarget	flag	"isHostNamed"	checker.goAsTarget: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/gofresh.go:checker.markFreshRef	flag	"goCall"	checker.markFreshRef: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/goinspect.go:GoImports	mark	"Host()"	GoImports: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/gonew.go:checker.goNewTarget	flag	"isHostNamed"	checker.goNewTarget: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/govalue.go:GoDirectSig	flag	"goDirect"	GoDirectSig: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/govalue.go:goDirect	flag	"isHostNamed"	goDirect: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostclauses.go:checker.hostClauses	flag	"hostResourceParam"	checker.hostClauses: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostclauses.go:checker.hostClauses	runtime	"v1.GoArgLent"	checker.hostClauses: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostclauses.go:checker.hostKeeps	flag	"isHostNamed"	checker.hostKeeps: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostclauses.go:checker.hostMayHold	flag	"isHostNamed"	checker.hostMayHold: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostclauses.go:checker.hostResourceParam	flag	"isHostNamed"	checker.hostResourceParam: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostclauses.go:checker.hostTakesRecv	flag	"isHostNamed"	checker.hostTakesRecv: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostclauses.go:ownWalk.hostRecvCall	flag	"isHostNamed"	ownWalk.hostRecvCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostclauses.go:ownWalk.hostRecvCall	mark	"Host()"	ownWalk.hostRecvCall: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostres.go:Close.HostClose	flag	"isHostNamed"	Close.HostClose: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostres.go:Close.HostClose	mark	"Host()"	Close.HostClose: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostres.go:Close.HostFallible	flag	"HostClose"	Close.HostFallible: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostres.go:checker.hostClose	mark	"Host()"	checker.hostClose: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostres.go:checker.hostCloseFunc	mark	"Host()"	checker.hostCloseFunc: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostres.go:checker.hostCloseOp	mark	"Host()"	checker.hostCloseOp: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostres.go:checker.hostLendArg	flag	"hostCall"	checker.hostLendArg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/hostres.go:checker.hostLendArg	flag	"isHostNamed"	checker.hostLendArg: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/hostres.go:isHostPkgName	mark	"Host()"	isHostPkgName: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/implements.go:checker.checkImplementsClauses	flag	"isGoCloser"	checker.checkImplementsClauses: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/implements.go:checker.checkImplementsClauses	flag	"isHostNamed"	checker.checkImplementsClauses: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/implements.go:checker.checkImplementsClauses	mark	"Host()"	checker.checkImplementsClauses: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/implements.go:checker.clauseUnmet	flag	"isGoCloser"	checker.clauseUnmet: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/implements.go:checker.clauseUnmet	mark	"Host()"	checker.clauseUnmet: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -184,10 +159,7 @@ debt	internal/sketch/check/implements.go:checker.declaredOpsOf	flag	"isGoCloser"
 language	internal/sketch/check/implements.go:checker.implementsClause	mark	"stdlib.PreludePath"	a prelude type that a package's own type of its name hides	-
 debt	internal/sketch/check/implements.go:checker.implementsCloser	flag	"isGoCloser"	checker.implementsCloser: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/implements.go:checker.preludeContract	mark	"stdlib.PreludePath"	Closer and Keeping, the prelude's contracts	-
-debt	internal/sketch/check/implements.go:checker.recordLegacy	flag	"isHostNamed"	checker.recordLegacy: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/implements.go:checker.recordLegacyReleases	mark	"stdlib.PreludePath"	Closer, the release contract (ergo fix)	-
-debt	internal/sketch/check/implements.go:checker.recordMutOp	flag	"isHostNamed"	checker.recordMutOp: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/implements.go:checker.undeclared	flag	"isHostNamed"	checker.undeclared: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/implements.go:checker.undeclared	mark	"Host()"	checker.undeclared: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/implements.go:isGoCloser	mark	"Host()"	isGoCloser: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/implements.go:isGoCloser	name	"Closer"	io.Closer, Go's release contract in a binding	-
@@ -240,7 +212,6 @@ debt	internal/sketch/check/never.go:IsNever	name	"Never"	decides by std membersh
 debt	internal/sketch/check/never.go:checker.emptyUnion	mark	"stdlib.PreludePath"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/check/never.go:checker.emptyUnion	name	"Never"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 language	internal/sketch/check/ownership.go:checker.checkOwnership	name	"Close"	Close, the release operation	-
-debt	internal/sketch/check/ownership.go:ownWalk.call	flag	"isHostNamed"	ownWalk.call: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/ownership.go:ownWalk.call	mark	"Host()"	ownWalk.call: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/ownership.go:ownWalk.convertedAt	flag	"hostLend"	ownWalk.convertedAt: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/ownership.go:ownWalk.pkgLetMove	flag	"isHostPkgName"	ownWalk.pkgLetMove: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -251,15 +222,11 @@ debt	internal/sketch/check/resource.go:resWalk.visit	mark	"Host()"	resWalk.visit
 seam	internal/sketch/check/snapshot/snapshot.go:ExportSnapshot	mark	"Std()"	writes the checked snapshot of std and of required modules' packages; a module segment is never a std package	-
 language	internal/sketch/check/stmt.go:checker.isErrorValue	name	"Error"	go.Error of the Go boundary	-
 debt	internal/sketch/check/tails.go:checker.yieldExpr	flag	"unreachableCall"	checker.yieldExpr: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/takes.go:checker.takesEffect	flag	"hostResourceParam"	checker.takesEffect: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	flag	"goConfinedRef"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	flag	"hostLendArg"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/typeops.go:checker.assignability	flag	"isHostNamed"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	flag	"isPreludeMachine"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	flag	"isPreludeMachineValue"	checker.assignability: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/typeops.go:checker.assignability	mark	"Host()"	checker.assignability: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/typeops.go:checker.implementsAt	flag	"isHostNamed"	checker.implementsAt: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/typeops.go:ergoOperations	flag	"isHostNamed"	ergoOperations: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/types.go:Named.underlying	mark	"Host()"	Named.underlying: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/types.go:isCapability	mark	"Host()"	isCapability: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/unify.go:inferer.nify	flag	"isPreludeMachineValue"	inferer.nify: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -389,13 +356,8 @@ debt	internal/sketch/lint/rule_with_at_entry.go:checkWithAtEntry	flag	"ProgramTy
 debt	internal/sketch/lint/rule_with_at_entry.go:contextPick	flag	"ProgramType"	contextPick: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/blocking.go:funcCtx.runtimeCall	runtime	"v1.CallerTask"	funcCtx.runtimeCall: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/blocking.go:funcCtx.runtimeCall	runtime	"v1.ReadingPackage"	funcCtx.runtimeCall: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/body.go:funcCtx.at	flag	"directives"	funcCtx.at: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/body.go:funcCtx.at	flag	"marks"	funcCtx.at: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/body.go:funcCtx.atSite	flag	"directives"	funcCtx.atSite: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/body.go:funcCtx.innerFuncCtx	flag	"directives"	funcCtx.innerFuncCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/body.go:funcCtx.innerFuncCtx	flag	"marks"	funcCtx.innerFuncCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/body.go:funcCtx.joinResult	flag	"directives"	funcCtx.joinResult: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	flag	"directives"	funcCtx.buildProvider: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	flag	"marks"	funcCtx.buildProvider: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/calls.go:funcCtx.buildProvider	mark	"Std()"	a std provider has no line directive and its own Info	NP8
 debt	internal/sketch/lower/calls.go:funcCtx.call	flag	"IsInForce"	funcCtx.call: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -408,7 +370,6 @@ debt	internal/sketch/lower/calls.go:funcCtx.funcValue	flag	"hostValue"	funcCtx.f
 debt	internal/sketch/lower/calls.go:funcCtx.funcValue	flag	"userExtern"	funcCtx.funcValue: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/calls.go:funcCtx.funcValue	mark	"Host()"	funcCtx.funcValue: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/calls.go:funcCtx.hostTarget	mark	"Host()"	funcCtx.hostTarget: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/calls.go:funcCtx.identify	flag	"directives"	funcCtx.identify: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/calls.go:funcCtx.with	flag	"declaredContext"	funcCtx.with: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/calls.go:hostCalled	flag	"userExtern"	hostCalled: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/calls.go:lowerer.declaredContext	flag	"stdContext"	lowerer.declaredContext: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -467,36 +428,18 @@ debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.Graph"	hiddenArg: the
 debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.ReadingPackage"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
 debt	internal/sketch/lower/hidden.go:hiddenArg	runtime	"v1.ResultRelease"	hiddenArg: the hidden-argument kinds of a body contract, read once for the emitter (funcCtx.hiddenArgs) and the IR builder (irBuilder.hidden); a declaration any module can write is PK-NP's debt	PK-NP
 debt	internal/sketch/lower/inforce.go:lowerer.held	flag	"IsInForce"	lowerer.held: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.closeInline	flag	"directives"	funcCtx.closeInline: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.closeInline	flag	"iface"	funcCtx.closeInline: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.inlineCall	flag	"directives"	funcCtx.inlineCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.inlineCall	flag	"iface"	funcCtx.inlineCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.inlineCall	flag	"isSourced"	funcCtx.inlineCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.inlineLit	flag	"directives"	funcCtx.inlineLit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.inlineLit	flag	"iface"	funcCtx.inlineLit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/inline.go:funcCtx.site0	flag	"directives"	funcCtx.site0: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/inplace.go:lowerer.writtenInPlace	flag	"isSourced"	lowerer.writtenInPlace: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir.go:irState.body	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
-debt	internal/sketch/lower/ir_intrinsic.go:irState.intrinsicBody	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/ir.go:irState.reachAll	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/ir_adapt.go:irBuilder.adaptOperand	runtime	"v1.CallerTask"	irBuilder.adaptOperand: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_assert.go:irState.lawBody	mark	"Std()"	decides by std membership or a std name; came with a batch-21 unit developed beside the rule (batch 21 integration)	B21-NP
-debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"IsInForce"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"IsUnreachable"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"directives"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"ergoBodyCall"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	flag	"userExtern"	irBuilder.callParts: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_call.go:irBuilder.callParts	mark	"Host()"	irBuilder.callParts: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_constfold.go:irBuilder.fold	mark	"Host()"	irBuilder.fold: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_defect.go:irBuilder.unreachableCall	flag	"IsUnreachable"	irBuilder.unreachableCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fnname.go:irBuilder.declaredLit	flag	"userExtern"	irBuilder.declaredLit: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fnname.go:irBuilder.declaredLit	mark	"Host()"	irBuilder.declaredLit: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fold.go:irBuilder.foldCalls	mark	"Host()"	irBuilder.foldCalls: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fold.go:irBuilder.foldableIn	mark	"Host()"	irBuilder.foldableIn: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_forms_inline.go:irBuilder.inlineMark	flag	"directives"	irBuilder.inlineMark: positions only: inline site and //line; decides no emitted instruction (TestInlinePositionsOnly)	PK-NP
-debt	internal/sketch/lower/ir_forms_inline.go:irInliner.splice	flag	"anon"	irInliner.splice: positions only: whether a copy registers an inline site, which file tag it gets, and whether its local names and labels carry the no-site marker; the copy ordinal and instructions do not change (TestInlinePositionsOnly)	PK-NP
 debt	internal/sketch/lower/ir_forms_inline.go:irInliner.splice	flag	"isSourced"	irInliner.splice: positions only: inline site and //line; decides no emitted instruction (TestInlinePositionsOnly)	PK-NP
-debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"directives"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_forms_match.go:irBuilder.fuseBuild	flag	"isSourced"	irBuilder.fuseBuild: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_fusion.go:irBuilder.fuseOr	runtime	"v1.PackageOf"	irBuilder.fuseOr: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_gocall.go:irBuilder.callbackShape	runtime	"v1.Body"	irBuilder.callbackShape: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -508,8 +451,8 @@ debt	internal/sketch/lower/ir_gocall.go:irBuilder.hostValue	mark	"Host()"	irBuil
 debt	internal/sketch/lower/ir_golib.go:irBuilder.goTarget	flag	"hostValue"	irBuilder.goTarget: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_govar.go:goInterface	mark	"Host()"	goInterface: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_govar.go:hostVarPath	mark	"Host()"	hostVarPath: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
+debt	internal/sketch/lower/ir_intrinsic.go:irState.intrinsicBody	mark	"Std()"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/ir_operand.go:basicOver	runtime	"v1.TypeOf"	basicOver: a real std read main held unlisted (DOC-GUARD-1 triage); its fix deletes the row	SQ STD-READS-OUT
-debt	internal/sketch/lower/ir_own.go:ergoBodyCall	mark	"Host()"	ergoBodyCall: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_own.go:irBuilder.closeCall	flag	"HostClose"	irBuilder.closeCall: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_own.go:irBuilder.closeMasked	runtime	"v1.CallerTask"	irBuilder.closeMasked: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_own.go:irBuilder.startsOnFrame	mark	"Host()"	irBuilder.startsOnFrame: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -517,7 +460,6 @@ debt	internal/sketch/lower/ir_own.go:irBuilder.startsOnFrame	runtime	"v1.Frame"	
 debt	internal/sketch/lower/ir_own.go:irBuilder.taskClose	runtime	"v1.CallerTask"	irBuilder.taskClose: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_pkg.go:irBuilder.stdCall	runtime	"v1.PackageOf"	irBuilder.stdCall: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_rewrite.go:irBuilder.canary	runtime	"v1.PackageOf"	irBuilder.canary: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/ir_rewrite.go:irBuilder.lawSide	flag	"directives"	irBuilder.lawSide: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_rewrite.go:irBuilder.shadow	flag	"isSourced"	irBuilder.shadow: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_rewrite.go:irBuilder.shadow	runtime	"v1.PackageOf"	irBuilder.shadow: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/ir_rewrite.go:lowerer.funcVerdictOf	flag	"isSourced"	lowerer.funcVerdictOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -568,7 +510,6 @@ debt	internal/sketch/lower/provider.go:lowerer.provType	mark	"Host()"	lowerer.pr
 debt	internal/sketch/lower/provider.go:lowerer.providerOf	flag	"hostSourced"	lowerer.providerOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/provider.go:lowerer.providerOf	flag	"provType"	lowerer.providerOf: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/reach.go:reach.typeName	flag	"isSourced"	reach.typeName: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/lower/record.go:funcCtx.inlineField	flag	"directives"	funcCtx.inlineField: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	runtime	"v1.Body"	funcCtx.inPlaceOf: a runtime key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/lower/refown.go:funcCtx.inPlaceOf	runtime	"v1.BodyOf"	decides by std membership or a std name; came with a unit developed beside the rule (batch 20 integration)	B20-NP
 debt	internal/sketch/lower/release.go:funcCtx.providerRelease	flag	"HostClose"	funcCtx.providerRelease: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
