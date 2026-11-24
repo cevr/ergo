@@ -1,3 +1,4 @@
+import compiler/check/expr
 import compiler/check/store
 import compiler/ir
 import compiler/syntax
@@ -23,6 +24,45 @@ func borrowParamGo(st fnb, t dense.ID[store.TKey]) string {
 		if gt == "" { "" } else { "*" + gt }
 	case None:
 		""
+	}
+}
+
+// The first unit frame is scoped to one place write or one invocation,
+// with a borrowed formal and no taken parameters. CONTROL plans the
+// actual statement; this predicate does not admit its operands.
+func controlUnitAdmitted(st fnb, f expr.Fn, body dense.ID[syntax.Node]) bool {
+	let ops = store.OperandsOf(st.s, f.Sig)
+	let formals = len(f.Names)
+	if formals == 0 || len(ops) != formals+3 || len(f.Takes) != formals {
+		return false
+	}
+	let mut borrowed = false
+	for i in 0..formals {
+		if f.Takes[i] {
+			return false
+		}
+		borrowed = borrowed || borrowParamGo(st, ops[i]) != ""
+	}
+	if !borrowed {
+		return false
+	}
+	let p = st.p
+	match syntax.ViewOf(p.Tree, body) {
+	case syntax.BlockStmt as block:
+		if syntax.Len(block.List) != 1 {
+			return false
+		}
+		let node = syntax.Item(p.Tree, block.List, 0)
+		match syntax.ViewOf(p.Tree, node) {
+		case syntax.AssignStmt as a:
+			syntax.KindOf(p.Tree, unparen(st, a.Lhs)) == syntax.KSelectorExpr
+		case syntax.ExprStmt as e:
+			syntax.KindOf(p.Tree, unparen(st, e.X)) == syntax.KCallExpr
+		case _:
+			false
+		}
+	case _:
+		false
 	}
 }
 
