@@ -56,6 +56,9 @@ import (
 //
 // Set ERGO_IR_AGREE_STOPS to a receipt path to save this run's raw stop
 // lines (including duplicate sites), even if IR comparisons differ.
+// Set ERGO_IR_AGREE_MATCHES to a separate path outside the repository
+// for the byte-equal emissions: F PATH OFFSET split-normalized-symbol.
+// Both receipts are in irdump order and retain repeat emissions.
 //
 // It builds compiler/cmd/irdump and runs Go binaries because the Ergo
 // side is a whole compiled program over the corpus (as the other
@@ -119,8 +122,14 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	reach := map[string]int{}
 	equal := map[irIdentity]struct{}{}
 	equalEvents, differEvents := 0, 0
+	const goSkipped = "built, its package's test build the Go builder does not lower"
 	stopPath := os.Getenv("ERGO_IR_AGREE_STOPS")
 	var stopLines strings.Builder
+	matchPath := os.Getenv("ERGO_IR_AGREE_MATCHES")
+	var matchLines *strings.Builder
+	if matchPath != "" {
+		matchLines = new(strings.Builder)
+	}
 	var files []string
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-corpus", m) {
 		kind, rest, _ := strings.Cut(l, " ")
@@ -156,21 +165,20 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 				t.Fatal(err)
 			}
 			key := irKey{file: fn.Pos[0], line: fn.Pos[1], col: fn.Pos[2]}
-			wants, cause := goFuncs.at(key, fn.Name)
-			if cause != "" && unlowered[filepath.Dir(f[0])] != "" {
-				reach["built, its package's test build the Go builder does not lower"]++
+			site := irWitnessSite{f[0], f[1], fn.Name}
+			comparison := goFuncs.compare(key, site, got, unlowered[filepath.Dir(f[0])] != "", matchLines)
+			if comparison.skipped {
+				reach[goSkipped]++
 				continue
 			}
-			if cause != "" {
+			if comparison.cause != "" {
 				differEvents++
 				if differEvents <= 10 {
-					t.Errorf("%s:%s %s: compiler/lower builds a body where the Go builder writes none (%s; Go names there: %s)\n ergo: %s", rel(f[0]), f[1], fn.Name, cause, goFuncs.names(key), got)
+					t.Errorf("%s:%s %s: compiler/lower builds a body where the Go builder writes none (%s; Go names there: %s)\n ergo: %s", rel(f[0]), f[1], fn.Name, comparison.cause, goFuncs.names(key), got)
 				}
 				continue
 			}
-			// A body the programs lower differently (its callees'
-			// forms differ by program) agrees with one of them.
-			i := slices.IndexFunc(wants, func(w irGoFunc) bool { return bytes.Equal(got, w.data) })
+			wants, i := comparison.wants, comparison.match
 			if i < 0 {
 				differEvents++
 				if differEvents <= 10 {
@@ -195,6 +203,13 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		}
 		t.Logf("raw IR stop lines: %s", stopPath)
 	}
+	if matchLines != nil {
+		if err := os.WriteFile(matchPath, []byte(matchLines.String()), 0o644); err != nil {
+			t.Logf("could not write IR agreement matches: %v", err)
+		} else {
+			t.Logf("raw IR match lines: %s", matchPath)
+		}
+	}
 	var lines []string
 	for cause, n := range reach {
 		lines = append(lines, fmt.Sprintf("%7d %s", n, cause))
@@ -202,6 +217,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	sort.Strings(lines)
 	t.Logf("compiler/lower built %d distinct functions equal to the Go builder's (%d equal comparison events); %d comparison events differ:\n%s", len(equal), equalEvents, differEvents, strings.Join(lines, "\n"))
 	t.Logf("Go comparison corpus: %d distinct IR function identities (source position and split-normalized name)", goFuncs.functionCount())
+	t.Logf("Go comparison skipped: %d function emissions (Go did not lower their package)", reach[goSkipped])
 	t.Logf("IR witnesses: %d/%d reached matching bodies", required-len(witnesses), required)
 	var missing []string
 	for k, group := range witnesses {
@@ -513,6 +529,59 @@ func (x irGoIndex) at(k irKey, name string) ([]irGoFunc, string) {
 		return nil, "Go IR bodies of another name at the position"
 	}
 	return same, ""
+}
+
+type irBodyComparison struct {
+	wants   []irGoFunc
+	cause   string
+	match   int
+	skipped bool
+}
+
+func (x irGoIndex) compare(k irKey, site irWitnessSite, got []byte, goUnlowered bool, receipt *strings.Builder) irBodyComparison {
+	wants, cause := x.at(k, site.symbol)
+	if cause != "" {
+		return irBodyComparison{cause: cause, match: -1, skipped: goUnlowered}
+	}
+	// A body the programs lower differently agrees with one of them.
+	match := slices.IndexFunc(wants, func(w irGoFunc) bool { return bytes.Equal(got, w.data) })
+	if match >= 0 && receipt != nil {
+		fmt.Fprintf(receipt, "F %s %s %s\n", site.path, site.offset, wants[match].name)
+	}
+	return irBodyComparison{wants: wants, match: match}
+}
+
+// TestIRAgreementMatchesReceipt kills lower-agree-record-differing-body:
+// the receipt proves equality, not just the existence of a Go body.
+func TestIRAgreementMatchesReceipt(t *testing.T) {
+	start := irKey{line: 1}
+	idx := irGoIndex{
+		start: {
+			{name: "read", raw: "Xread", data: []byte("different variant")},
+			{name: "read", raw: "Xread", data: []byte("equal variant")},
+		},
+	}
+	var receipt strings.Builder
+	for _, tc := range []struct {
+		key     irKey
+		site    irWitnessSite
+		body    string
+		noGo    bool
+		match   int
+		skipped bool
+	}{
+		{start, irWitnessSite{"/corpus/reader.ergo", "12", "read"}, "equal variant", false, 1, false},
+		{start, irWitnessSite{"/corpus/reader.ergo", "12", "read"}, "not an equal body", false, -1, false},
+		{irKey{line: 2}, irWitnessSite{"/corpus/skipped.ergo", "20", "skipped"}, "no Go body", true, -1, true},
+	} {
+		result := idx.compare(tc.key, tc.site, []byte(tc.body), tc.noGo, &receipt)
+		if result.match != tc.match || result.skipped != tc.skipped {
+			t.Errorf("%s: match=%d skipped=%v, want %d/%v", tc.body, result.match, result.skipped, tc.match, tc.skipped)
+		}
+	}
+	if want := "F /corpus/reader.ergo 12 read\n"; receipt.String() != want {
+		t.Errorf("matches receipt = %q, want %q", receipt.String(), want)
+	}
 }
 
 // goIRFuncs lowers each example program with the Go IR builder and
