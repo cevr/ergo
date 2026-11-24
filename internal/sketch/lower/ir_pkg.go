@@ -196,9 +196,9 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 
 // typeArgs is the Go type argument list of the generic call c, comma and
 // space between them, as the emitter's typeArgs writes it in brackets: a
-// type argument of each type-kinded parameter (a row or an operations
-// parameter has no Go type parameter). "" for a call of a function that
-// is not generic.
+// type argument of each type-kinded parameter, Slot row and held row.
+// Ordinary rows and operations parameters are erased. "" for a call of
+// a function with no Go type parameters.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 	return b.sigTypeArgs(c.Func.Sig, c.TypeArgs, site)
 }
@@ -238,20 +238,23 @@ func callerSlot(a check.Type) *check.TypeParam {
 // emitter's goArg writes it (rowslot.go): a type-kinded parameter's Go
 // type; a Slot row's (`F error`) single named error type, or error for a
 // row of none or several; a row that is one row parameter of the caller,
-// that parameter's Go type parameter, or error when it has none. A Slot
-// row and a held row keep the source body.
+// that parameter's Go type parameter, or error when it has none. A held
+// capability row uses the same copier type as InForce (ir_inforce.go).
 func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
 	if tp.Kind == check.KindType {
 		return b.goType(a, site)
 	}
-	if r := callerSlot(a); r != nil && tp.Kind != check.KindUses && irInlineSlotLowering != "off" {
+	if tp.Kind == check.KindUses {
+		return b.spelling(b.fc.heldArg(a))
+	}
+	if r := callerSlot(a); r != nil && irInlineSlotLowering != "off" {
 		// The caller's own Slot row passed on is its Go type parameter,
 		// as the emitter's slotType names it (rowslot.go, INLINE-SLOT).
 		if name, ok := b.fc.params[r]; ok {
 			return b.spelling(name)
 		}
 	}
-	if tp.Kind == check.KindUses || check.SlotRow(a) != nil {
+	if check.SlotRow(a) != nil {
 		irNo("generic call with a row type argument of the caller")
 	}
 	ra, ok := a.(*check.RowArg)
