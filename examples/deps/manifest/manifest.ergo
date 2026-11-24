@@ -15,7 +15,6 @@
 
 import deps/resolve
 import semver
-import machines
 import slices
 import strings
 
@@ -33,10 +32,13 @@ type Block = Top{M Manifest} | InProject{M Manifest} | InRelease{M Manifest}
 // Signal is a line of the manifest, or its end.
 type Signal = Line{No int, Text string} | End{}
 
+// LineAction says how a line advanced the reader. Only Finish can end it.
+type LineAction = Opened{} | Extended{} | Skipped{}
+
 // Reader reads a manifest one line at a time.
 type Reader machine[Block, Signal] {
 	initial: Start(),
-	step:    Step,
+	step:    decide,
 }
 
 // Start is the first block: nothing read yet.
@@ -56,27 +58,39 @@ func ManifestOf(b Block) Manifest {
 	}
 }
 
-// Step reads one line in block b. A project or package line Enters its
-// block; a needs line Stays in its block with one more need; a blank line
-// or a comment is Ignored; the end is Done with the manifest, and a
-// manifest with no project line fails.
-func Step(b Block, s Signal) Decision[Block, Manifest] fails BadLine {
+// Finish returns the manifest in b, or fails if no project was declared.
+func Finish(b Block) Manifest fails BadLine {
+	let m = ManifestOf(b)
+	if m.Project == "" {
+		return BadLine{No: 0, Text: "", Reason: "the manifest has no project line"}
+	}
+	m
+}
+
+// decide exposes the line actions and end to the general machine runner.
+func decide(b Block, s Signal) Decision[Block, Manifest] fails BadLine {
 	match s {
 	case End:
-		let m = ManifestOf(b)
-		if m.Project == "" {
-			return BadLine{No: 0, Text: "", Reason: "the manifest has no project line"}
-		}
-		Done[Manifest]{Output: m}
+		Done[Manifest]{Output: try Finish(b)}
 	case Line as l:
-		try line(b, l)
+		let (next, action) = try Step(b, l)
+		match action {
+		case Opened:
+			Enter[Block]{Next: next}
+		case Extended:
+			Stay[Block]{Next: next}
+		case Skipped:
+			Ignore
+		}
 	}
 }
 
-func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
+// Step reads one line. A project or package opens a block, a needs line
+// extends the current block, and blank lines and comments leave it alone.
+func Step(b Block, l Line) (Block, LineAction) fails BadLine {
 	let text = strings.TrimSpace(stripComment(l.Text))
 	if text == "" {
-		return Ignore
+		return (b, Skipped)
 	}
 	let words = strings.Fields(text)
 	let indented = strings.HasPrefix(l.Text, " ") || strings.HasPrefix(l.Text, "\t")
@@ -89,7 +103,7 @@ func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
 		if m.Project != "" {
 			return BadLine{No: l.No, Text: l.Text, Reason: "a second project line"}
 		}
-		Enter[Block]{Next: InProject{M: Manifest{..m, Project: words[1]}}}
+		(InProject{M: Manifest{..m, Project: words[1]}}, Opened)
 	case ("package", false):
 		if len(words) != 3 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write package NAME VERSION"}
@@ -104,7 +118,7 @@ func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
 			}
 		}
 		let release = resolve.Release{Name: words[1], V: v, Needs: []resolve.Requirement{}}
-		Enter[Block]{Next: InRelease{M: Manifest{..m, Releases: m.Releases.Append(release)}}}
+		(InRelease{M: Manifest{..m, Releases: m.Releases.Append(release)}}, Opened)
 	case ("needs", true):
 		if len(words) < 2 {
 			return BadLine{No: l.No, Text: l.Text, Reason: "write needs NAME [CONSTRAINT]"}
@@ -118,9 +132,9 @@ func line(b Block, l Line) Decision[Block, Manifest] fails BadLine {
 		case Top:
 			BadLine{No: l.No, Text: l.Text, Reason: "a needs line belongs under a project or package line"}
 		case InProject:
-			Stay[Block]{Next: InProject{M: Manifest{..m, Root: m.Root.Append(r)}}}
+			(InProject{M: Manifest{..m, Root: m.Root.Append(r)}}, Extended)
 		case InRelease:
-			Stay[Block]{Next: InRelease{M: withNeed(m, r)}}
+			(InRelease{M: withNeed(m, r)}, Extended)
 		}
 	case (_, true):
 		BadLine{No: l.No, Text: l.Text, Reason: "an indented line is a needs line"}
@@ -148,22 +162,16 @@ func withNeed(m Manifest, r resolve.Requirement) Manifest {
 	Manifest{..m, Releases: rs}
 }
 
-// Read runs the Reader over text, line by line, and then its end.
+// Read advances through each line and finishes the last block.
 func Read(text string) Manifest fails BadLine {
-	let mut signals = []Signal{}
+	let mut block = Start()
+	let mut no = 0
 	for l in strings.Lines(text) {
-		signals = signals.Append(Line{No: len(signals) + 1, Text: l})
+		no = no + 1
+		let (next, _) = try Step(block, Line{No: no, Text: l})
+		block = next
 	}
-	let o = try machines.Run(Reader{}, signals.Append(End)) catch {
-	case machines.Rejected:
-		Unreachable("Step never rejects: a bad line fails BadLine")
-	}
-	match o {
-	case machines.Finished[Block, Manifest] as f:
-		f.Output
-	case machines.Running[Block, Manifest]:
-		Unreachable("the last signal is End, and Step ends every End with Done or BadLine")
-	}
+	try Finish(block)
 }
 
 // ReadInvertsFormat: reading a formatted manifest gives the manifest back.

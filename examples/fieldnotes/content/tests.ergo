@@ -1,6 +1,9 @@
 // The rows the law cannot state: the line and the reason of each bad
 // note.
 
+import fieldnotes/journal
+import machines
+
 func bad(text string) string {
 	let e = Read("a", text) catch {
 	case BadLine as b:
@@ -17,4 +20,19 @@ test BadNotesSayWhere {
 	assert bad("title: A\nmood: calm\n") == "2: unknown key mood; want title, day or related"
 	assert bad("title A\n") == "1: a head line is key: value"
 	assert bad("title: A\nday: 2026-01-02\nrelated: ok, Not Ok\n") == "3: Not Ok is not a slug"
+}
+
+test EndFlushesPendingLines {
+	let e = journal.Entry{Slug: "walk", Title: "A walk", Day: "2026-10-03", Body: []string{"Earlier."}, Related: []string{"first-frost"}}
+	let body = Body{E: e, Lines: []string{"one two"}}
+	let next Part = try Step(body, Line{No: 7, Text: "three four"})
+	let done journal.Entry = try Finish(next)
+	let want = journal.Entry{..e, Body: []string{"Earlier.", "one two three four"}}
+	assert journal.Same(done, want)
+	match try machines.From(Reader{}, next, []Signal{End}) {
+	case machines.Finished[Part, journal.Entry] as f:
+		assert journal.Same(f.Output, want)
+	case machines.Running[Part, journal.Entry]:
+		assert false
+	}
 }

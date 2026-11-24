@@ -107,6 +107,9 @@ type virtualTimer struct {
 	task  *Task
 	fired atomic.Bool
 	f     func() // an AfterFunc's function, which its fire starts; c is nil
+	// settled marks an AfterSettledFunc's timer: it fires only in a step
+	// of its instant in which no other timer is due (fireAt).
+	settled bool
 }
 
 // NewVirtual returns a virtual clock that reads start.
@@ -167,6 +170,71 @@ func (v *Virtual) AfterFunc(d Span, f func()) Timer {
 	v.timers[i] = t
 	v.armed.Broadcast()
 	return t
+}
+
+// AfterSettledFunc is AfterFunc for a function that acts after every other
+// event of its instant. On a clock with a domain (an auto clock, or a
+// manual one that AdvanceSettled moves) it fires when the time has reached
+// its deadline, every other timer due at that instant has fired, and the
+// domain has settled: each task those timers woke, and each task those
+// woke, has run to a wait the clock sees. It fires before the time moves
+// on. So a task whose sleep ends at the same instant runs to its next wait
+// (or its end) first, whichever was armed first. Several settled timers
+// of one instant fire in one step, in arming order. One that f arms for
+// the instant it fires at is no settled timer: a d of zero or less runs at
+// once, as AfterFunc's does; a d above zero is a later instant. A plain
+// timer that a woken task arms at a later instant fires there, after the
+// settled ones of this instant. Without a domain (Advance) there is no
+// settling: it fires in deadline order, as AfterFunc's does. It fires
+// once; Stop disarms it as AfterFunc's.
+func (v *Virtual) AfterSettledFunc(d Span, f func()) Timer {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.seq++
+	t := &virtualTimer{v: v, when: v.now + Instant(d), seq: v.seq, f: f, settled: true}
+	if d <= 0 {
+		v.runAlarm(f)
+		return t
+	}
+	i := sort.Search(len(v.timers), func(i int) bool { return t.before(v.timers[i]) })
+	v.timers = append(v.timers, nil)
+	copy(v.timers[i+1:], v.timers[i:])
+	v.timers[i] = t
+	v.armed.Broadcast()
+	return t
+}
+
+// fireAt is one step of the instant when, the earliest deadline armed: when
+// a timer due at when is not settled, every such timer fires, in arming
+// order, and the settled ones stay armed for a later step of when; when
+// only settled timers are due, they all fire, in arming order. So a
+// settled timer fires in a step of its own, after the domain settled from
+// the step before. With no settled timer armed it is the plain step: the
+// first look finds a plain timer. v.mu is held.
+func (v *Virtual) fireAt(when Instant) {
+	plain := false
+	for i := 0; i < len(v.timers) && v.timers[i].when == when; i++ {
+		if !v.timers[i].settled {
+			plain = true
+			break
+		}
+	}
+	for i := 0; i < len(v.timers) && v.timers[i].when == when; {
+		tm := v.timers[i]
+		if plain && tm.settled {
+			i++
+			continue
+		}
+		v.removeAt(i)
+		v.fire(tm)
+	}
+}
+
+// removeAt removes the timer at i, keeping the order. v.mu is held.
+func (v *Virtual) removeAt(i int) {
+	n := copy(v.timers[i:], v.timers[i+1:]) + i
+	v.timers[n] = nil
+	v.timers = v.timers[:n]
 }
 
 // popFirst removes the earliest timer. It keeps the slice's room at its
@@ -259,11 +327,7 @@ func (v *Virtual) AdvanceSettled(t *Task, d Span) error {
 		}
 		when := v.timers[0].when
 		v.setNow(when)
-		for len(v.timers) > 0 && v.timers[0].when == when {
-			tm := v.timers[0]
-			v.popFirst()
-			v.fire(tm)
-		}
+		v.fireAt(when) // a settled timer waits for the next turn's Settle
 		v.armed.Broadcast()
 		v.mu.Unlock()
 	}

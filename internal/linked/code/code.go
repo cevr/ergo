@@ -36340,7 +36340,7 @@ func flag__Defaults(flags []flag__Flag) string {
 							goto kn_6
 						default:
 							_ = v_7
-							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:40:2 matched")
+							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:41:2 matched")
 						}
 					}
 				kn_3:
@@ -36435,7 +36435,7 @@ func flag__Defaults(flags []flag__Flag) string {
 							goto kn_12
 						default:
 							_ = v_10
-							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:40:2 matched")
+							panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:41:2 matched")
 						}
 					}
 				kn_9:
@@ -36754,7 +36754,7 @@ func flag__aliasOf(f flag__Flag) string {
 		return c_1.base.alias
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:189:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:215:2 matched")
 	}
 }
 
@@ -36831,7 +36831,7 @@ func flag__defaultOf(f flag__Flag) string {
 			goto kn_3
 		default:
 			_ = v_3
-			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:40:2 matched")
+			panic("ergo: defect: no case of the match at std/flag/cardinality.ergo:41:2 matched")
 		}
 	}
 kn:

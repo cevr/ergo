@@ -4,6 +4,7 @@
 // the test waits. The rest of the package (T, Discard, Idle) is #209's.
 
 import queue
+import scope
 import task
 import time
 
@@ -41,6 +42,10 @@ func Elapsed(c VirtualClock, t time.Time) duration { c.Now().Sub(t) }
 // Sleep suspends the calling task until the clock's time is d past now.
 // A d of zero or less returns at once; a stop of the task ends the sleep.
 func Sleep(c VirtualClock, d duration) { c.line.Wait(d) }
+
+// Sleepers is the number of deadlines armed on the clock: the tasks asleep
+// on it and the alarms of its AlarmClock, as time.Manual's Sleepers.
+func Sleepers(c VirtualClock) int { c.line.Sleepers() }
 
 // Alarms is the clock's time as the runtime's waits use it: an alarm's
 // deadline is one the clock moves to when its domain waits.
@@ -87,4 +92,87 @@ law IdleOnlyAdvance(n int64, k int) {
 		}
 		seen.Equal(start) && time.Clock.Now().Sub(start) == d && q.Len() == count
 	}
+}
+
+// StopAfterStopsAtD: a task that registers k exit actions, then sleeps w
+// ms and returns 1, under task.StopAfter(t, d ms), is Done with its value
+// when w <= d and Stopped when w > d, with its exit actions run in both;
+// on a time.Manual and on a VirtualClock (manual) alike, by one text. The
+// tie is exact: at w == d it is Done whichever of the two was armed first
+// (alarmFirst), because the alarm acts after every other event of its
+// instant, so the sleep wakes first and the block returns before its next
+// wait. The alarm has fired when the clock passed d, so Cancel then
+// reports false, on an ended task too. It is here, beside VirtualClock,
+// because task cannot import testing.
+law StopAfterStopsAtD(w int, d int, alarmFirst bool, k int, manual bool) {
+	let wait = 1 + ((w % 6) + 6) % 6
+	let limit = 1 + ((d % 6) + 6) % 6
+	let n = ((k % 4) + 4) % 4
+	if manual {
+		let m = time.NewManual(0)
+		with context { Scheduler: m } {
+			stopsAtD(n, wait, limit, alarmFirst, func() int { m.Sleepers() }, func() {
+				for _ in 0..7 {
+					m.Advance(1ms)
+				}
+			})
+		}
+	} else {
+		let c = NewVirtualClock(0)
+		with context { Scheduler: c } {
+			stopsAtD(n, wait, limit, alarmFirst, func() int { c.Sleepers() }, func() { Scheduler.Sleep(7ms) })
+		}
+	}
+}
+
+// stopsAtD is StopAfterStopsAtD on the bound Scheduler, whose deadlines
+// sleepers counts and whose time pass moves by 7 ms.
+func stopsAtD(n int, wait int, limit int, alarmFirst bool, sleepers func() int, pass func() needs Scheduler) bool needs Scheduler {
+	let marks = queue.New[int](4)
+	let gate = queue.New[int](1)
+	let t = task.Go() { try stopSlept(n, marks, gate, time.Times(1ms, wait)) }
+	let a = stopArmed(t, gate, sleepers, alarmFirst, time.Times(1ms, limit)) catch {
+	case queue.Closed:
+		return false
+	}
+	pass()
+	let ended = match task.ExitOf(t) {
+	case task.Done[int] as v:
+		wait <= limit && v.Value == 1
+	case task.Stopped:
+		wait > limit
+	case _:
+		false
+	}
+	ended && marks.Len() == n && !a.Cancel()
+}
+
+// stopSlept is the block of StopAfterStopsAtD: n exit actions, each
+// pushing its mark, then one value from gate, a sleep of wait, and 1.
+func stopSlept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) int fails queue.Closed needs Scheduler {
+	for i in 0..n {
+		scope.OnExit() {
+			marks.Push(i) catch {
+			case queue.Closed:
+			}
+		}
+	}
+	try gate.Pop()
+	Scheduler.Sleep(wait)
+	1
+}
+
+// stopArmed arms task.StopAfter(t, d) before t sleeps (first) or once it
+// sleeps (sleepers counts its deadline): the two arming orders of the
+// alarm and t's sleep.
+func stopArmed(t Task[int, queue.Closed], gate queue.Queue[int], sleepers func() int, first bool, d duration) task.Alarm fails queue.Closed needs Scheduler {
+	if first {
+		let a = task.StopAfter(t, d)
+		try gate.Push(0)
+		return a
+	}
+	try gate.Push(0)
+	for sleepers() == 0 {
+	}
+	task.StopAfter(t, d)
 }
