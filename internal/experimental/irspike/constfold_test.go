@@ -139,6 +139,11 @@ func TestConstFoldCounts(t *testing.T) {
 	if foldCalls(t, files, "fromLets") {
 		t.Errorf("fromLets is still called: a fold that reads package lets did not bind them\n%s", text)
 	}
+	for _, fn := range []string{"foldRowJSON", "foldRowTOML", "foldRowGeneric"} {
+		if foldCalls(t, files, fn) {
+			t.Errorf("%s is still called: the error-row agreement must exercise a fold\n%s", fn, text)
+		}
+	}
 	prevLet := eval.SetFoldLetStepsForTest(0)
 	unbound, _ := lowerFold(t, u, "")
 	eval.SetFoldLetStepsForTest(prevLet)
@@ -180,6 +185,9 @@ func TestConstFoldCounts(t *testing.T) {
 // message, for generated std html pages and the program's own pure
 // functions of records, lists, union variants, floats and strings; even
 // seeds end in a defect a call of constants raises, which stays a call.
+// Error-row values returned by generic code (the JSON and TOML decoders
+// included) are data, unlike an actual typed failure. This distinguishes
+// fold-return-rechecks-instantiated-type from a correct evaluator.
 // Both print what the source path (the Go text) prints, so the impure
 // calls inside list and record literals run in the source's order, and a
 // node built from run-time data is not static (no call of an extern, such

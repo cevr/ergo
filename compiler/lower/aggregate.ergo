@@ -1,0 +1,171 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+
+type aggregate {
+	typ    string,
+	record int,
+	keys   []string,
+	values []dense.ID[syntax.Node],
+}
+
+// aggregateLiteral resolves the literal's operands in source order. A
+// new slice has no seeded capacity in an immutable binding or tail; an
+// ordinary record with every field set has no default or slot adapter.
+func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) aggregate fails Unported {
+	let t = try typeOf(st, x, "CompositeLit")
+	let gt = shapeGo(st, t)
+	let checked = dense.Unpack(cl.Type) != None
+	if store.KindOfType(st.s, t) == store.KSlice {
+		if gt == "" || !checked || dense.Unpack(cl.Base) != None {
+			return stop("slice literal of unsupported shape")
+		}
+		let elem = store.OperandsOf(st.s, t)[0]
+		let mut values = []dense.ID[syntax.Node]{}
+		for i in 0..syntax.Len(cl.Elts) {
+			let e = syntax.Item(st.p.Tree, cl.Elts, i)
+			if syntax.KindOf(st.p.Tree, e) == syntax.KKeyValueExpr || (try typeOf(st, e, "slice element")) != elem {
+				return stop("slice literal with an adapted element")
+			}
+			values = values.Append(e)
+		}
+		return aggregate{typ: gt, record: -1, keys: []string{}, values: values}
+	}
+	let r = ordinaryRecord(st, t)
+	if gt == "" || !checked || r < 0 {
+		return stop("literal of no plain record")
+	}
+	let fields = st.k.Recs[r].Fields
+	let n = syntax.Len(cl.Elts)
+	match dense.Unpack(cl.Base) {
+	case Some{Value: base}:
+		// Keep the original basic-record update. For a reference-bearing
+		// base the Go value rules decide which paths to copy or transfer.
+		if plainRecord(st, t) < 0 {
+			return stop("record update of a non-basic shape")
+		}
+		if syntax.KindOf(st.p.Tree, base) != syntax.KIdent {
+			return stop("record update of a computed base")
+		}
+		if (try typeOf(st, base, "update base")) != t {
+			return stop("record update of another type")
+		}
+		let _ = try paramLocal(st, base)
+	case None:
+		if n != len(fields) {
+			return stop("record literal without every field")
+		}
+	}
+	let mut keys = []string{}
+	let mut values = []dense.ID[syntax.Node]{}
+	for i in 0..n {
+		let e = syntax.Item(st.p.Tree, cl.Elts, i)
+		let (j, v) = match syntax.ViewOf(st.p.Tree, e) {
+		case syntax.KeyValueExpr as kv:
+			(fieldIndex(fields, nameText(st.p, kv.Key)), kv.Value)
+		case _:
+			(i, e)
+		}
+		if j < 0 || j >= len(fields) {
+			return stop("record key")
+		}
+		let f = fields[j]
+		if has(keys, f.Name) || (try typeOf(st, v, "field value")) != f.T {
+			return stop("record literal with a duplicate or adapted field")
+		}
+		keys = keys.Append(f.Name)
+		values = values.Append(v)
+	}
+	aggregate{typ: gt, record: r, keys: keys, values: values}
+}
+
+func fieldIndex(fields []expr.Field, name string) int {
+	for i, f in fields {
+		if f.Name == name {
+			return i
+		}
+	}
+	-1
+}
+
+func emitAggregate(st fnb, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.CompositeLit, at ir.Pos) uint32 fails Unported | ir.Malformed {
+	let a = try aggregateLiteral(st, x, cl)
+	let base = match dense.Unpack(cl.Base) {
+	case Some{Value: bx}:
+		try value(st, b, bx)
+	case None:
+		uint32(0)
+	}
+	let mut elems = []uint32{}
+	for e in a.values {
+		elems = elems.Append(try value(st, b, e))
+	}
+	let mut names = a.keys
+	if base != 0 {
+		for f in st.k.Recs[a.record].Fields {
+			if !has(a.keys, f.Name) {
+				names = names.Append(f.Name)
+				elems = elems.Append(try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{base, ir.Text(b, f.Name)}))
+			}
+		}
+	}
+	let mut keyIDs = []uint32{}
+	for name in names {
+		keyIDs = keyIDs.Append(ir.Text(b, name))
+	}
+	try ir.Row(b, ir.KindCode(ir.TExpr, "lit"), at, []uint32{ir.Text(b, a.typ), ir.List(b, elems), ir.List(b, keyIDs)})
+}
+
+// field selects a checked field, not a method value or a package member.
+func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails Unported {
+	try fieldOn(st, x, se, try typeOf(st, se.X, "selector operand"))
+}
+
+// fieldOn also serves a place whose caller has checked and peeled one
+// borrow marker. It only resolves the member; it does not admit the place
+// or say how to read or write it.
+func fieldOn(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr, recordType dense.ID[store.TKey]) string fails Unported {
+	let r = ordinaryRecord(st, recordType)
+	if r < 0 || shapeGo(st, recordType) == "" {
+		return stop("selector on no plain record")
+	}
+	let t = try typeOf(st, x, "SelectorExpr")
+	let name = nameText(st.p, se.Sel)
+	let fs = st.k.Recs[r].Fields
+	let i = fieldIndex(fs, name)
+	if i < 0 || fs[i].T != t {
+		return stop("selector that is no field")
+	}
+	name
+}
+
+// readPlace admits immutable local roots and nested record fields, never
+// a borrow, computed receiver or a place passed to an operation that writes.
+func readPlace(st fnb, x dense.ID[syntax.Node]) fails Unported {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		let _ = try paramLocal(st, x)
+	case syntax.SelectorExpr as se:
+		let _ = try field(st, x, se)
+		try readPlace(st, se.X)
+	case syntax.ParenExpr as pe:
+		try readPlace(st, pe.X)
+	case _:
+		return stop("read of a computed place")
+	}
+}
+
+// sliceIndex admits Go's checked read. This straight-line profile has
+// no dominating comparisons from which the oracle can prove bounds.
+func sliceIndex(st fnb, x dense.ID[syntax.Node], ie syntax.IndexExpr) dense.ID[syntax.Node] fails Unported {
+	let t = try typeOf(st, ie.X, "index operand")
+	if store.KindOfType(st.s, t) != store.KSlice || shapeGo(st, t) == "" || syntax.Len(ie.Indices) != 1 {
+		return stop("index of no admitted slice")
+	}
+	if (try typeOf(st, x, "IndexExpr")) != store.OperandsOf(st.s, t)[0] {
+		return stop("slice read with an adapted element")
+	}
+	syntax.Item(st.p.Tree, ie.Indices, 0)
+}

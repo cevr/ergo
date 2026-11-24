@@ -176,10 +176,6 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"Option's pointer niche", "G4"},
 	{"append form", "G4"},
 	{"append to a defined slice type", "G4"},
-	// slices.AppendAll, Go's append(xs, ys...): ir_builtin.go falls back to
-	// the text body (I22); the bulk append lowers with NB-ROLE (NO-BUILTINS
-	// findings §7).
-	{"append of a slice's elements", "NB-ROLE"},
 	{"Map write form", "G4"},
 	{"Map write to a defined Map type", "G4"},
 	// IRG4 calls other packages' functions and std externs with a plain
@@ -287,13 +283,7 @@ var reasonUnits = []struct{ prefix, unit string }{
 	{"encode on a direct writer", "G6"},
 	// JVD-DIRECT: the IR declines a direct reader's decode as it declines the direct writer's encode.
 	{"decode on a direct reader", "G6"},
-	// IR2's (59f20e1d5's merge fixes; census at 1a520fc08): forms the IR
-	// does not write yet, not refused by design. SL2's bulk append, 8 std
-	// bodies (dense.Pool.PutList, dense.Table.Put, ui.Paint.Fill and
-	// Stroke, with their copies); a row into a flat union (MSB3), whose
-	// variant the emitter builds by a type switch, 2 example bodies
-	// (fetch's fetching, weather's Lookup.fetch).
-	{"bulk append (SL2) on the IR", "PORT-SL2"},
+	// A row into a flat union (MSB3): text builds its variant by a type switch.
 	{"row into a flat union", "PORT-FLATROW"},
 	{"call kind 12", "G6"}, // CallEmbed
 	{"call kind 13", "G6"}, // CallPattern: a refinement's matches(it, `…`)

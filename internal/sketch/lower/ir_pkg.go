@@ -196,9 +196,9 @@ func (b *irBuilder) admitArgs(t *check.Named, depth int) {
 
 // typeArgs is the Go type argument list of the generic call c, comma and
 // space between them, as the emitter's typeArgs writes it in brackets: a
-// type argument of each type-kinded parameter (a row or an operations
-// parameter has no Go type parameter). "" for a call of a function that
-// is not generic.
+// type argument of each type-kinded parameter, Slot row and held row.
+// Ordinary rows and operations parameters are erased. "" for a call of
+// a function with no Go type parameters.
 func (b *irBuilder) typeArgs(c *check.Call, site syntax.Node) string {
 	return b.sigTypeArgs(c.Func.Sig, c.TypeArgs, site)
 }
@@ -238,20 +238,23 @@ func callerSlot(a check.Type) *check.TypeParam {
 // emitter's goArg writes it (rowslot.go): a type-kinded parameter's Go
 // type; a Slot row's (`F error`) single named error type, or error for a
 // row of none or several; a row that is one row parameter of the caller,
-// that parameter's Go type parameter, or error when it has none. A Slot
-// row and a held row keep the source body.
+// that parameter's Go type parameter, or error when it has none. A held
+// capability row uses the same copier type as InForce (ir_inforce.go).
 func (b *irBuilder) goArg(tp *check.TypeParam, a check.Type, site syntax.Node) string {
 	if tp.Kind == check.KindType {
 		return b.goType(a, site)
 	}
-	if r := callerSlot(a); r != nil && tp.Kind != check.KindUses && irInlineSlotLowering != "off" {
+	if tp.Kind == check.KindUses {
+		return b.spelling(b.fc.heldArg(a))
+	}
+	if r := callerSlot(a); r != nil && irInlineSlotLowering != "off" {
 		// The caller's own Slot row passed on is its Go type parameter,
 		// as the emitter's slotType names it (rowslot.go, INLINE-SLOT).
 		if name, ok := b.fc.params[r]; ok {
 			return b.spelling(name)
 		}
 	}
-	if tp.Kind == check.KindUses || check.SlotRow(a) != nil {
+	if check.SlotRow(a) != nil {
 		irNo("generic call with a row type argument of the caller")
 	}
 	ra, ok := a.(*check.RowArg)
@@ -677,8 +680,6 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("std call with another arity")
 	case x.Trailing != nil && !adapted(body.Params[len(ops)]):
 		irNo("std call with another arity")
-	case len(b.l.ownedParams(fd.fn)) > 0:
-		irNo("call that passes owned values")
 	case c.Site != nil:
 		irNo("call with a call site")
 	case len(b.fc.captureOwners(x)) > 0:
@@ -777,12 +778,22 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
-		// A leaf's generic function is kept as an instance (I-FLIP:
-		// examples/pipeline's ergorpc.RPCDie).
-		if b.namesTypeParam(targs) {
-			irNo("runtime leaf's generic function in a generic body")
+		// A keep lives at package scope, where the caller's type
+		// parameters cannot be named. A closed, zero-size instance keeps
+		// the import for every call; the IR call keeps its actual types.
+		anchors := make([]string, len(body.TypeParams))
+		for i, tp := range body.TypeParams {
+			switch tp.Constraint {
+			case "any", "comparable":
+				anchors[i] = "struct{}"
+			default:
+				anchors[i] = subst[tp.Name]
+				if b.namesTypeParam(anchors[i]) {
+					irNo("runtime leaf's generic function in a generic body")
+				}
+			}
 		}
-		b.keepImport("var _ = " + b.l.rtRef(name) + "[" + targs + "]")
+		b.keepImport("var _ = " + b.l.rtRef(name) + "[" + strings.Join(anchors, ", ") + "]")
 	case pkg != "" && pkg != runtimeImport:
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	case targs != "":
@@ -1127,12 +1138,13 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		// Go's several results, one per element, are adapted.
 		irNo("std call with an adapted result")
 	}
+	subst := b.recvTypeSubst(n)
 	convs := map[int]string{} // by index of the receiver-first vals
 	for i, q := range body.Params {
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		conv, ok := b.operandConv(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) // ir_operand.go
+		conv, ok := b.operandConv(x.Args[i], q.Type, subst, body.Package) // ir_operand.go
 		if !ok {
 			irNo("std call with a converted operand")
 		}
@@ -1144,7 +1156,7 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		irNo("fallible call with an empty row at its site")
 	}
 	resConv := "" // the Go conversion the result takes (ir_operand.go basicOver)
-	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) && !b.sameRT(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0]), nil, body.Package) {
+	if goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		// A runtime type over the method's basic result (Mapped.Text's
 		// string for fs.Text) is the result converted, when the call is
 		// a single value (CONV-OPERAND).
@@ -1178,10 +1190,10 @@ func (b *irBuilder) boundOpOperands(x *syntax.CallExpr, c *check.Call, recv *irE
 	return pre, append([]*irExpr{recv}, vals...)
 }
 
-// recvTypeArgs is the Go type s of a runtime method of n's Go type with
-// the method's type parameters (the receiver's: Ref[T]'s T) replaced by
-// n's Go type arguments, so sameGo compares the instance's types.
-func (b *irBuilder) recvTypeArgs(n *check.Named, s string) string {
+// recvTypeSubst maps the runtime method's receiver formals (Ref[T]'s T)
+// to the Go spellings of their actual types. sameRT inserts them into
+// compound types too: Script's Op[A,F].Calls() returns []A.
+func (b *irBuilder) recvTypeSubst(n *check.Named) map[string]string {
 	args := typeArgs(n)
 	if n.Orig == nil && len(n.TParams) != 0 {
 		// A bare operation in a generic member law uses the formals
@@ -1196,17 +1208,21 @@ func (b *irBuilder) recvTypeArgs(n *check.Named, s string) string {
 	if n.Orig != nil {
 		origin = n.Orig
 	}
+	var subst map[string]string
 	i := 0
 	for _, tp := range origin.TParams {
 		if tp.Kind != check.KindType {
 			continue
 		}
-		if i < len(args) && s == tp.Name {
-			return b.fc.goType(args[i])
+		if i < len(args) {
+			if subst == nil {
+				subst = make(map[string]string, len(args))
+			}
+			subst[tp.Name] = b.fc.goType(args[i])
 		}
 		i++
 	}
-	return s
+	return subst
 }
 
 // sameGo reports whether the Ergo type t lowers to the Go type a

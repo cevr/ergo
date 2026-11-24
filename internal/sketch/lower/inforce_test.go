@@ -21,7 +21,8 @@ import (
 // A hold is made four ways: the generic hold, a generic caller that passes
 // its own row on (holdVia), one that adds C0 to it (holdMore, a join of a
 // row parameter and a capability), and InForce of a written row in a
-// function with no row parameter (holdC). The generator is the model: a
+// function with no row parameter (holdC). It also holds a join of two
+// caller rows (holdBoth) and reads it on the failure path. The model: a
 // held function sees the boxes in force at its hold for S, and the boxes
 // at the call for every other capability. A with that installed the call
 // site's providers, a copy of only some of R, or a copy of more than R
@@ -51,8 +52,10 @@ func inforceProgram(seed uint64) (string, string, map[string]bool) {
 	b.WriteString("\nfunc hold[R](f own func() string needs R) Held[R] needs R {\n\tHeld[R]{Run: f, Ctx: InForce[R]()}\n}\n")
 	b.WriteString("\nfunc holdVia[R](f own func() string needs R) Held[R] needs R { hold(f) }\n")
 	b.WriteString("\nfunc holdMore[R](f own func() string needs R | C0) Held[R | C0] needs R | C0 { hold(f) }\n")
+	b.WriteString("\nfunc holdBoth[R, S](f own func() string needs R | S) Held[R | S] needs R | S { hold[R | S](f) }\n")
 	b.WriteString("\nfunc holdC() Held[C0 | C1] needs C0 | C1 {\n\tHeld[C0 | C1]{Run: func() string { \"\\(C0.Get()) \\(C1.Get())\" }, Ctx: InForce[C0 | C1]()}\n}\n")
 	b.WriteString("\nfunc call[R](h Held[R]) string {\n\twith h.Ctx { h.Run() }\n}\n")
+	b.WriteString("\ntype Captured { Text string }\n\nfunc callFailed[R](h Held[R]) string fails Captured {\n\treturn Captured{Text: call(h)}\n}\n")
 	for x := range k {
 		fmt.Fprintf(&b, "\nfunc callPlus%d[R](h Held[R]) string needs C%d {\n\twith h.Ctx { h.Run() + \" | \\(C%d.Get())\" }\n}\n", x, x, x)
 	}
@@ -82,6 +85,10 @@ func inforceProgram(seed uint64) (string, string, map[string]bool) {
 		outer[c] = n
 		all = append(all, fmt.Sprintf("C%d: Box{n: %d}", c, n))
 	}
+	left, right := box(), box()
+	fmt.Fprintf(&body, "\tlet joined = with context { C0: Box{n: %d}, C1: Box{n: %d} } {\n\t\tholdBoth[C0, C1]() { \"\\(C0.Get()) \\(C1.Get())\" }\n\t}\n", left, right)
+	body.WriteString("\tlet bad = callFailed(joined) catch {\n\tcase Captured as e:\n\t\te.Text\n\t}\n\tConsole.Println(bad)\n")
+	fmt.Fprintf(&out, "%d %d\n", left, right)
 	// A kept record: the boxes its function reads, in the order it prints.
 	type kept struct {
 		caps  []int
