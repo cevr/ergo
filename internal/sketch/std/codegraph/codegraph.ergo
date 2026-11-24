@@ -36,6 +36,7 @@ type NodeRow {
 	Name    string,
 	Digest  string,
 	Subject int,
+	Lines   int,
 	File    int,
 	Offset  int,
 	Line    int,
@@ -73,8 +74,8 @@ func Decode(text string) Rows fails BadRows {
 	case _:
 		return BadRows{Reason: "the JSON is not the graph rows"}
 	}
-	if r.Version != 1 {
-		return BadRows{Reason: "rows of version \(r.Version); this reader reads version 1"}
+	if r.Version != 2 {
+		return BadRows{Reason: "rows of version \(r.Version); this reader reads version 2"}
 	}
 	for i, n in r.Nodes {
 		if n.Id != i || n.Parent >= len(r.Nodes) || n.Subject >= len(r.Nodes) {
@@ -605,7 +606,7 @@ func changedIsTheEdit(seed int, size int, x int) bool {
 	let mut edited = nodes[k]
 	edited.Digest = "edited"
 	nodes[k] = edited
-	Changed(r, Rows{Version: 1, Nodes: nodes, Edges: r.Edges}) == []int{k}
+	Changed(r, Rows{Version: 2, Nodes: nodes, Edges: r.Edges}) == []int{k}
 }
 
 // HiddenUse is a use from a declaration of one package of a declaration
@@ -920,7 +921,10 @@ func drawnRows(seed int, size int) Rows {
 		for f in 0..(x / 16) % 2 + 1 {
 			let fid = len(nodes)
 			files = files.Append(fid)
-			nodes = nodes.Append(nodeRow(fid, "file", "", pid, "p\(p)/f\(f).ergo"))
+			let mut frow = nodeRow(fid, "file", "", pid, "p\(p)/f\(f).ergo")
+			x = next(x)
+			frow.Lines = (x / 16) % 50
+			nodes = nodes.Append(frow)
 			x = next(x)
 			for d in 0..(x / 16) % 3 + 1 {
 				x = next(x)
@@ -943,7 +947,7 @@ func drawnRows(seed int, size int) Rows {
 	for f in files {
 		for p in packages {
 			x = next(x)
-			if p != packageOf(Rows{Version: 1, Nodes: nodes, Edges: edges}, f) && (x / 16) % 3 == 0 {
+			if p != packageOf(Rows{Version: 2, Nodes: nodes, Edges: edges}, f) && (x / 16) % 3 == 0 {
 				edges = edges.Append(edgeRow("imports", "", f, p))
 			}
 		}
@@ -959,7 +963,7 @@ func drawnRows(seed int, size int) Rows {
 	for d in decls {
 		if nodes[d].Sub == "test" {
 			let tid = len(nodes)
-			let mut task = nodeRow(tid, "task", "test", packageOf(Rows{Version: 1, Nodes: nodes, Edges: edges}, d), "test \(nodes[d].Name)")
+			let mut task = nodeRow(tid, "task", "test", packageOf(Rows{Version: 2, Nodes: nodes, Edges: edges}, d), "test \(nodes[d].Name)")
 			task.Subject = d
 			nodes = nodes.Append(task)
 			edges = edges.Append(edgeRow("input", "", tid, d))
@@ -973,14 +977,14 @@ func drawnRows(seed int, size int) Rows {
 			}
 		}
 	}
-	Rows{Version: 1, Nodes: nodes, Edges: edges}
+	Rows{Version: 2, Nodes: nodes, Edges: edges}
 }
 
 // next is the generator's next state.
 func next(x int) int { (x * 1103515245 + 12345) % 2147483648 }
 
 func nodeRow(id int, kind string, sub string, parent int, name string) NodeRow {
-	NodeRow{Id: id, Kind: kind, Sub: sub, Parent: parent, Name: name, Digest: "", Subject: -1, File: -1, Offset: 0, Line: 0, Column: 0}
+	NodeRow{Id: id, Kind: kind, Sub: sub, Parent: parent, Name: name, Digest: "", Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0}
 }
 
 func edgeRow(kind string, how string, from int, to int) EdgeRow {

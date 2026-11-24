@@ -95,6 +95,28 @@ func (f *File) Line(pos Pos) int {
 	return line
 }
 
+// LineCount is the physical line count of f: blank and comment lines
+// count, an empty file has 0 lines, and a trailing newline does not add
+// an empty line. Uses the parser's line-start index when present.
+func (f *File) LineCount() int {
+	if len(f.Src) == 0 {
+		return 0
+	}
+	n := len(f.lines)
+	if n == 0 {
+		for i := 0; i < len(f.Src); i++ {
+			if f.Src[i] == '\n' {
+				n++
+			}
+		}
+		n++
+	}
+	if f.Src[len(f.Src)-1] == '\n' {
+		n--
+	}
+	return n
+}
+
 // ---------------------------------------------------------------- declarations
 
 // ImportKind is the form of an import spec.

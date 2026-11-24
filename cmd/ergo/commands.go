@@ -57,7 +57,7 @@ var commands = []cliCommand{
 	{name: "budget", usage: "budget [--config FILE] [--width N] [--memory SIZE] [--class crit|lane] [--lane NAME] -- COMMAND [ARGS...]", help: budgetHelp, run: budgetCommand},
 	{name: "work", usage: "work COMMAND [ARGS...]", help: workHelp, run: workCommand},
 	{name: "code", usage: "code [--in DIR] [--json] COMMAND [ARGS...]", help: codeHelp, run: codeCommand},
-	{name: "graph", usage: "graph [--in DIR|DIR/...] export|cycles|why|affected|hidden|chains|fan|interfaces|layers [--json]", help: graphHelp, run: graphCommand},
+	{name: "graph", usage: "graph [--in DIR|DIR/...] export|cycles|why|affected|hidden|chains|fan|interfaces|files|layers [--json]", help: graphHelp, run: graphCommand},
 	{name: "version", usage: "version [--json]", help: versionHelp, run: versionCommand},
 	{name: "conform", usage: conformUsage, help: conformHelp, run: conformCommand},
 	{name: "tsmap", usage: "tsmap [--emit-js FILE.ergo]", help: tsmapHelp, run: tsmapCommand},

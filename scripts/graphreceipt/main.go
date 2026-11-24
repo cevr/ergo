@@ -119,11 +119,11 @@ func queryArgs(query string) []string {
 // the digest and a task's subject, which these queries do not read, are
 // left out (empty, -1), so the decode stays the control's.
 func columns(r *rows) ([]string, []int) {
-	ints := make([]int, 0, 2+2*len(r.Nodes)+2*len(r.Edges))
+	ints := make([]int, 0, 2+3*len(r.Nodes)+2*len(r.Edges))
 	strs := make([]string, 0, 4*len(r.Nodes)+2*len(r.Edges))
 	ints = append(ints, len(r.Nodes), len(r.Edges))
 	for _, n := range r.Nodes {
-		ints = append(ints, n.Parent, -1)
+		ints = append(ints, n.Parent, -1, 0)
 		strs = append(strs, n.Kind, n.Sub, n.Name, "")
 	}
 	for _, e := range r.Edges {

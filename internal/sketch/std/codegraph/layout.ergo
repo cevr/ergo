@@ -1,0 +1,41 @@
+type FileLength { File int, Lines int }
+
+type FileLengths { Files []FileLength, Work int }
+
+func LongFile(f FileLength, max int) bool { f.Lines > max }
+
+func PhysicalLines(r Rows, modules []int) FileLengths {
+	let mut work = 0
+	let mut chosen = Map[int, bool]{}
+	for m in modules {
+		chosen[m] = true
+	}
+	let mut places = []place{}
+	let mut files = []FileLength{}
+	for i, row in r.Nodes {
+		work = work + 1
+		let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+		if row.Parent >= 0 {
+			at = if row.Parent < i { places[row.Parent] } else { placeOf(r, row.Parent, chosen) }
+		}
+		let here = placed(r, i, at, chosen)
+		places = places.Append(here)
+		if row.Kind == "file" && here.InScope {
+			files = files.Append(FileLength{File: i, Lines: row.Lines})
+		}
+	}
+	FileLengths{Files: files, Work: work}
+}
+
+law PhysicalLinesWorkIsLinear(seed int, size int) { physicalLinesWorkIsLinear(seed, size) }
+
+func physicalLinesWorkIsLinear(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let got = PhysicalLines(r, []int{0})
+	for f in got.Files {
+		if r.Nodes[f.File].Kind != "file" || f.Lines != r.Nodes[f.File].Lines {
+			return false
+		}
+	}
+	got.Work <= len(r.Nodes) + 1
+}

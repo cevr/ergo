@@ -34,7 +34,7 @@ import (
 )
 
 // Version is the rows' format version; a decoder refuses another.
-const Version = 1
+const Version = 2
 
 // NodeKind is a node's kind: a closed set.
 type NodeKind uint8
@@ -201,7 +201,10 @@ type Table struct {
 	Nodes   []Node
 	// NodeAt is each node's position: a declaration's name, else none.
 	NodeAt []Pos
-	Edges  []Edge
+	// NodeLines is each node's physical line count (side column, parallel
+	// to NodeAt: set for File nodes from syntax.File.LineCount, 0 otherwise).
+	NodeLines []uint32
+	Edges     []Edge
 	// EdgeAt is each edge's position: a use's name, an import's path,
 	// else none.
 	EdgeAt []Pos
@@ -334,6 +337,7 @@ func BuildWorkspace(mods []ModuleRow, pkgs []SourcePackage) *Table {
 			files[fi] = b.node(Node{Kind: File, Parent: pn, Name: b.str(f.Name)}, Pos{File: NoNode})
 			b.edge(Edge{Kind: Contains, From: pn, To: files[fi]}, Pos{File: NoNode})
 			if f.Syntax != nil {
+				b.t.NodeLines[files[fi]] = uint32(f.Syntax.LineCount())
 				b.declNodes(p, files[fi], f.Syntax)
 			}
 		}
@@ -393,6 +397,7 @@ func (b *builder) node(n Node, at Pos) uint32 {
 	id := uint32(len(b.t.Nodes))
 	b.t.Nodes = append(b.t.Nodes, n)
 	b.t.NodeAt = append(b.t.NodeAt, at)
+	b.t.NodeLines = append(b.t.NodeLines, 0)
 	return id
 }
 
