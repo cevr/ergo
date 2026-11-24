@@ -274,18 +274,17 @@ func finish(es []Entry, now duration, p jobs.Policy) ([]Entry, []Event) needs jo
 			case jobs.Running as r:
 				if r.Ends <= now {
 					let res = jobs.Worker.Do(e.Job, r.N)
-					match jobs.Step(l.P, jobs.Finish{At: now, R: res, P: p}) {
-					case Done[jobs.Outcome] as d:
+					let step = jobs.FinishJob(r, now, res, p) catch {
+					case jobs.TooEarly:
+						continue
+					}
+					match step {
+					case jobs.Finished as d:
 						out = replaced(out, i, Entry{..e, S: Over{O: d.Output}})
 						log = log.Append(ended(e.Job.ID, d.Output))
-					case Enter[jobs.Phase] as n:
-						out = replaced(out, i, Entry{..e, S: Live{P: n.Next, Worker: 0}})
-						log = log.Append(Retrying{At: now, ID: e.Job.ID, N: r.N, Until: readyOf(n.Next)})
-					case Emit[jobs.Phase, jobs.Outcome], Tell[jobs.Phase, jobs.Outcome]:
-						Unreachable("jobs.Step never emits")
-					case Stay[jobs.Phase]:
-					case Ignore:
-					case Reject:
+					case jobs.Retry as rt:
+						out = replaced(out, i, Entry{..e, S: Live{P: rt.Next, Worker: 0}})
+						log = log.Append(Retrying{At: now, ID: e.Job.ID, N: r.N, Until: rt.Next.Ready})
 					}
 				}
 			}
@@ -301,16 +300,6 @@ func ended(id int, o jobs.Outcome) Event {
 		Succeeded{At: s.At, ID: id, N: s.N}
 	case jobs.GaveUp as g:
 		GaveUp{At: g.At, ID: id, N: g.N, Why: g.Why}
-	}
-}
-
-// readyOf is the time a phase is ready to start.
-func readyOf(p jobs.Phase) duration {
-	match p {
-	case jobs.Queued as q:
-		q.Ready
-	case jobs.Running as r:
-		r.Ends
 	}
 }
 
@@ -336,13 +325,15 @@ func start(es []Entry, now duration, workers int, b limit.Bucket) ([]Entry, limi
 		let e = out[i]
 		match e.S {
 		case Live as l:
-			match jobs.Step(l.P, jobs.Start{At: now, Takes: e.Job.Takes}) {
-			case Enter[jobs.Phase] as n:
-				out = replaced(out, i, Entry{..e, S: Live{P: n.Next, Worker: w}})
-				log = log.Append(Started{At: now, ID: e.Job.ID, N: tryOf(n.Next), Worker: w})
-			case Emit[jobs.Phase, jobs.Outcome], Tell[jobs.Phase, jobs.Outcome]:
-				Unreachable("jobs.Step never emits")
-			case Stay[jobs.Phase], Ignore, Reject, Done[jobs.Outcome]:
+			match l.P {
+			case jobs.Queued as q:
+				let running = jobs.StartJob(q, now, e.Job.Takes) catch {
+				case jobs.TooEarly:
+					break
+				}
+				out = replaced(out, i, Entry{..e, S: Live{P: running, Worker: w}})
+				log = log.Append(Started{At: now, ID: e.Job.ID, N: running.N, Worker: w})
+			case jobs.Running:
 				break
 			}
 		case Over:
@@ -350,16 +341,6 @@ func start(es []Entry, now duration, workers int, b limit.Bucket) ([]Entry, limi
 		}
 	}
 	(out, bucket, log)
-}
-
-// tryOf is the try a phase is at.
-func tryOf(p jobs.Phase) int {
-	match p {
-	case jobs.Queued as q:
-		q.N
-	case jobs.Running as r:
-		r.N
-	}
 }
 
 // next is the time of the next event after now: the first try to end,

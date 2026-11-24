@@ -30,3 +30,12 @@ test ScriptsAJob {
 	assert Scripted(j, 1) == Transient{Reason: "try 1 of mail timed out"}
 	assert Scripted(j, 2) == Fatal{Reason: "mail is malformed"}
 }
+
+test StartAndFinishHaveNarrowContracts {
+	let r Running = try StartJob(Queued{N: 1, Ready: 0s}, 1s, 2s)
+	assert r == Running{N: 1, Ends: 3s}
+	let res FinishOutcome = try FinishJob(r, 3s, Transient{Reason: "busy"}, Default)
+	assert res == Retry{Next: Queued{N: 2, Ready: 3s + 100ms}}
+	let done FinishOutcome = try FinishJob(Running{N: 4, Ends: 5s}, 5s, Ok, Default)
+	assert done == Finished{Output: Succeeded{N: 4, At: 5s}}
+}
