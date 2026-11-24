@@ -1,0 +1,5 @@
+[
+  {"fixture": "port_borrow2.ergo", "declaration": "func AdjustBorrowedCount(", "symbol": "BorrowEnvelope.AdjustBorrowedCount"},
+  {"fixture": "port_borrow2.ergo", "declaration": "func AdjustBorrowedScalar(", "symbol": "AdjustBorrowedScalar"},
+  {"fixture": "port_borrow2.ergo", "declaration": "func ScaleBorrowedWeight(", "symbol": "BorrowWeight.ScaleBorrowedWeight"}
+]

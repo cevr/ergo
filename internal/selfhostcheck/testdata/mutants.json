@@ -1235,6 +1235,63 @@
       "rule": "The exact typed failure leaves through the failure channel, not the ordinary success return (FrameValidate).",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-borrow-nested-receiver-flattened",
+      "origin": "wf10/selfhost/S4-PORT BORROW-2 (not-run-crunch)",
+      "file": "compiler/lower/places.ergo",
+      "from": "let root = try emitBorrowPath(st, b, slot, se.X)",
+      "to": "let root = if syntax.KindOf(p.Tree, unparen(st, se.X)) == syntax.KSelectorExpr {\n\t\t\ttry ir.Row(b, ir.KindCode(ir.TExpr, \"local\"), at, []uint32{uint32(slot)})\n\t\t} else {\n\t\t\ttry emitBorrowPath(st, b, slot, se.X)\n\t\t}",
+      "rule": "A nested fixed place retains the intervening selector (AdjustBorrowedCount).",
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      },
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-borrow-dereference-passes-pointer",
+      "origin": "wf10/selfhost/S4-PORT BORROW-2 (not-run-crunch)",
+      "file": "compiler/lower/places.ergo",
+      "from": "try ir.Row(b, ir.KindCode(ir.TExpr, \"deref\"), at, []uint32{root})",
+      "to": "root",
+      "rule": "An explicit dereference reads and writes the pointee, not the address (AdjustBorrowedScalar).",
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      },
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-borrow-float-store-drops-rounding",
+      "origin": "wf10/selfhost/S4-PORT BORROW-2 (not-run-crunch)",
+      "file": "compiler/lower/places.ergo",
+      "from": "let rounded = try ir.Row(b, ir.KindCode(ir.TExpr, \"conv\"), at, []uint32{ir.Text(b, w.round), product})",
+      "to": "let rounded = product",
+      "rule": "The fixed-place float product rounds before the store (ScaleBorrowedWeight).",
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      },
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
     }
   ]
 }
