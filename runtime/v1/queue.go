@@ -134,6 +134,69 @@ func New[T any](capacity int) *Queue[T] {
 	return q
 }
 
+// OpenQueue is queue.OpenQueue[T]: a bounded FIFO queue whose admission
+// never ends, so Push, Pop and Offer never fail with Closed.
+type OpenQueue[T any] struct {
+	q *Queue[T]
+}
+
+// NewOpen is queue.NewOpen[T](capacity).
+//
+//ergo:wait none
+func NewOpen[T any](capacity int) *OpenQueue[T] {
+	if capacity < 0 {
+		panic("queue.NewOpen: negative capacity " + strconv.Itoa(capacity))
+	}
+	q := &Queue[T]{capacity: capacity}
+	if rt.Exploring {
+		nameHandle([]string{"queue.NewOpen"}, "", q)
+	}
+	return &OpenQueue[T]{q: q}
+}
+
+// Push is o.Push(v) on the caller's task t: waits while full, never closes.
+//
+//ergo:wait caller
+func (o *OpenQueue[T]) Push(t *rt.Task, v T) {
+	_ = o.q.Push(t, v)
+}
+
+// Pop is o.Pop() on the caller's task t: waits while empty, never closes.
+//
+//ergo:wait caller
+func (o *OpenQueue[T]) Pop(t *rt.Task) T {
+	v, _ := o.q.Pop(t)
+	return v
+}
+
+// Offer is o.Offer(v): enters now or fails Full, never closes.
+//
+//ergo:wait none
+func (o *OpenQueue[T]) Offer(v T) error {
+	return o.q.Offer(v)
+}
+
+// Poll is o.Poll(): takes the front value if present, else false.
+//
+//ergo:wait none
+func (o *OpenQueue[T]) Poll() (T, bool) {
+	return o.q.Poll()
+}
+
+// Cap is o.Cap(): the capacity NewOpen gave the queue.
+//
+//ergo:wait none
+func (o *OpenQueue[T]) Cap() int {
+	return o.q.Cap()
+}
+
+// Len is o.Len(): untaken values currently buffered.
+//
+//ergo:wait none
+func (o *OpenQueue[T]) Len() int {
+	return o.q.Len()
+}
+
 // Push is q.Push(v) on the caller's task t: nil when v entered the queue,
 // Closed when it did not. It raises rt.Interrupted, and v never enters the
 // queue, when t is stopped before it begins or while it waits.

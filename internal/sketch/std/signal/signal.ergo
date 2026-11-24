@@ -47,16 +47,10 @@ type Stops {
 
 // Watched is the host's Stops for the kinds Watch named. Its fields give
 // this package the construction authority, so only Watch makes one.
-type Watched { q queue.Queue[int], id int } implements Stops
+type Watched { q queue.OpenQueue[int], id int } implements Stops
 
-// Watch starts taking the stops of kinds from the host: from now until
-// Unwatch, such a stop no longer ends the process but is delivered to
-// Next. Pair it with scope.OnExit() { signal.Unwatch(w) }. It needs
-// Ambient: only code that may choose the host's behaviour takes its
-// stops. A stop that comes while eight wait untaken is dropped, as the
-// host coalesces stops of one kind.
 func Watch(kinds []Stop) Watched needs Ambient {
-	let q = queue.New[int](8)
+	let q = queue.NewOpen[int](8)
 	let mut codes = []int{}
 	for k in kinds {
 		codes = codes.Append(codeOf(k))
@@ -64,40 +58,27 @@ func Watch(kinds []Stop) Watched needs Ambient {
 	Watched{q: q, id: hostWatch(q, codes)}
 }
 
-// Unwatch gives the host back its default action for the kinds w took:
-// a later stop ends the process. Stops delivered before it stay for Poll
-// and Next. A second Unwatch of w does nothing.
 func Unwatch(w Watched) { hostUnwatch(w.id) }
 
-// Next is the next stop the host sent, waiting for it.
 func Next(w Watched) Stop { nextOf(w.q) }
 
-// Poll is a stop the host already sent, if any.
 func Poll(w Watched) Option[Stop] { pollOf(w.q) }
 
-extern go ergo.local/prototype/runtime/v1.SignalWatch func hostWatch(q queue.Queue[int], kinds []int) int
+extern go ergo.local/prototype/runtime/v1.SignalWatch func hostWatch(q queue.OpenQueue[int], kinds []int) int
 extern go ergo.local/prototype/runtime/v1.SignalUnwatch func hostUnwatch(id int)
 
-// Script is a Stops a program raises stops on itself: the provider of a
-// test or a law, which sends no host signal. Raise may run in any task.
-type Script { q queue.Queue[int] } implements Stops
+type Script { q queue.OpenQueue[int] } implements Stops
 
-// NewScript is a Script with raised already delivered, in order.
 func NewScript(raised []Stop) Script {
-	let s = Script{q: queue.New[int](len(raised) + 8)}
+	let s = Script{q: queue.NewOpen[int](len(raised) + 8)}
 	for k in raised {
 		s.Raise(k)
 	}
 	s
 }
 
-// Raise delivers k to s, after every stop raised before it. It waits
-// while eight raised stops wait untaken beyond the ones NewScript gave.
 func Raise(s Script, k Stop) {
-	s.q.Push(codeOf(k)) catch {
-	case queue.Closed:
-		Unreachable("a Script's queue is never closed")
-	}
+	s.q.Push(codeOf(k))
 }
 
 // Next is the next stop raised on s, waiting for it.
@@ -213,22 +194,16 @@ func StatusOf(k Stop) os.Code {
 law StatusIsTheShells(pick int) {
 	let k = stopOf((pick%3+3)%3 + 1)
 	let s = int(StatusOf(k))
-	s == 128 + hostNumber(codeOf(k)) && !(1 <= s && s <= 125)
+	s == 128+hostNumber(codeOf(k)) && !(1 <= s && s <= 125)
 }
 
 extern go ergo.local/prototype/runtime/v1.SignalNumber func hostNumber(code int) int
 
-// nextOf takes the next stop of q, waiting for it.
-func nextOf(q queue.Queue[int]) Stop {
-	let c = q.Pop() catch {
-	case queue.Closed:
-		Unreachable("a stop queue is never closed")
-	}
-	stopOf(c)
+func nextOf(q queue.OpenQueue[int]) Stop {
+	stopOf(q.Pop())
 }
 
-// pollOf takes a stop of q already there.
-func pollOf(q queue.Queue[int]) Option[Stop] {
+func pollOf(q queue.OpenQueue[int]) Option[Stop] {
 	match q.Poll() {
 	case Some[int] as c:
 		Some[Stop]{Value: stopOf(c.Value)}

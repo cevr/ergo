@@ -97,7 +97,10 @@ func Stream(s Scripted, r llm.Request, put func(d llm.Delta) fails llm.SinkFaile
 	try streamed(entry(s, r), put)
 }
 
-// generated is the turn or the failure a reply gives.
+func StreamEach(s Scripted, r llm.Request, put func(d llm.Delta)) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try streamed(entry(s, r), put)
+}
+
 func generated(x Reply) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
 	match x {
 	case Says as y:
@@ -111,8 +114,7 @@ func generated(x Reply) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Un
 	}
 }
 
-// streamed is generated, with the reply's deltas given to put first.
-func streamed(x Reply, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+func streamed[E](x Reply, put func(d llm.Delta) fails E) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | E {
 	match x {
 	case Says as y:
 		for d in y.Deltas {

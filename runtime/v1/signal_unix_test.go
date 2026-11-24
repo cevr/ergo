@@ -28,18 +28,15 @@ func TestSignalHelper(t *testing.T) {
 		t.Skip("the child of TestSignalWatchTakesTheStop")
 	}
 	Main(func(root *rt.Task) error {
-		q := New[int](8)
+		q := NewOpen[int](8)
 		n := SignalWatch(q, []int{1, 2})
 		fmt.Println("ready")
-		code, err := q.Pop(root)
-		if err != nil {
-			return err
-		}
+		code := q.Pop(root)
 		fmt.Println("got", code)
 		SignalUnwatch(n)
 		SignalUnwatch(n)
 		fmt.Println("unwatched")
-		_, err = New[int](0).Pop(root)
+		_, err := New[int](0).Pop(root)
 		return err
 	})
 }

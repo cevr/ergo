@@ -2,15 +2,12 @@
 // over a disk in memory: each case opens a fresh log.
 
 import fstest
+import sync
 import workflow
 
 let onMemoryDisk = context { workflow.Store: fresh() }
 
-// fresh is a file store over an empty disk in memory.
 func fresh() Store {
 	let disk = fstest.NewMemory()
-	Open(disk, disk, "runs.log") catch {
-	case workflow.Failed:
-		Unreachable("an empty disk in memory opens")
-	}
+	Store{path: "runs.log", files: disk, writes: disk, state: sync.NewRef(workflow.Empty()), broken: sync.NewRef(false), cut: sync.NewRef(-1), lock: sync.NewSemaphore(1)}
 }

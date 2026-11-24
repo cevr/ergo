@@ -234,6 +234,8 @@ prelude	hostAlarms	provider
 queue	Closed	type
 queue	Full	type
 queue	New	provider
+queue	NewOpen	provider
+queue	OpenQueue	type
 queue	Queue	type
 rand	Stream	type
 rand	hostFloat64	library	host state: Go's global rand.Float64 reads the runtime's per-thread ChaCha8 state and is bound needs go.Foreign; Host's Float64 holds no row

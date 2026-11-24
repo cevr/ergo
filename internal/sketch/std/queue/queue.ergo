@@ -203,6 +203,44 @@ law DrainReleasesLeft(n int) {
 // is a defect.
 extern go ergo.local/prototype/runtime/v1.New func New[T own](capacity int) Queue[T]
 
+extern go ergo.local/prototype/runtime/v1.OpenQueue type OpenQueue[T] {
+	runtimeOnly(),
+	Push(v T),
+	Pop() T,
+	Poll() Option[T],
+	Offer(v T) fails Full,
+	Cap() int,
+	Len() int,
+}
+
+extern go ergo.local/prototype/runtime/v1.NewOpen func NewOpen[T](capacity int) OpenQueue[T]
+
+law OpenFirstInFirstOut(a int, b int) {
+	let q = NewOpen[int](2)
+	q.Push(a)
+	q.Push(b)
+	q.Pop() == a && q.Pop() == b && q.Poll() == None && q.Len() == 0 && q.Cap() == 2
+}
+
+law OpenOfferRespectsCapacity(xs []int, c int) {
+	let capacity = 1 + (c%4+4)%4
+	let q = NewOpen[int](capacity)
+	let mut kept = []int{}
+	let mut ok = true
+	for x in xs {
+		q.Offer(x) catch {
+		case Full:
+			ok = ok && len(kept) == capacity
+			continue
+		}
+		kept = kept.Append(x)
+	}
+	for k in kept {
+		ok = ok && q.Pop() == k
+	}
+	ok && q.Len() == 0 && len(kept) <= capacity
+}
+
 // SlidingKeepsTheNewest: Slide into a queue of capacity c never waits and
 // leaves the last c values sent, in order.
 law SlidingKeepsTheNewest(xs []int, c int) {

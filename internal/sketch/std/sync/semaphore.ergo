@@ -15,22 +15,15 @@ import time
 
 // Semaphore holds a fixed count of permits. Its field is unexported, so
 // only NewSemaphore makes one.
-type Semaphore { permits queue.Queue[bool], size int }
+type Semaphore { permits queue.OpenQueue[bool], size int }
 
-// NewSemaphore is a semaphore of permits permits, none taken. A count
-// below 1 is a defect: no block could ever run.
 func NewSemaphore(permits int) Semaphore {
 	if permits < 1 {
 		Unreachable("sync.NewSemaphore: the permit count is 1 or more")
 	}
-	Semaphore{permits: queue.New[bool](permits), size: permits}
+	Semaphore{permits: queue.NewOpen[bool](permits), size: permits}
 }
 
-// With runs block while it holds one permit of s, and gives its value or
-// its failure. It waits while every permit is taken. The permit goes back
-// when block ends, on every path: a value, a failure, a defect or a stop
-// of the task (an exit action, runtime.md Exit actions). A stop while it
-// waits takes no permit.
 func With[T, E, R](s Semaphore, block func() T fails E needs R) T fails E needs R {
 	let mut held = false
 	scope.OnExit() {
@@ -38,10 +31,7 @@ func With[T, E, R](s Semaphore, block func() T fails E needs R) T fails E needs 
 			let _ = s.permits.Poll()
 		}
 	}
-	s.permits.Push(true) catch {
-	case queue.Closed:
-		Unreachable("sync: a semaphore's queue is never ended")
-	}
+	s.permits.Push(true)
 	held = true
 	try block()
 }

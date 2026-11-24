@@ -128,24 +128,64 @@ func Read(text string) []Exchange fails Unreadable {
 }
 
 func Generate(m Record, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
-	try m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
-	case llm.SinkFailed:
-		Unreachable("a sink that drops every delta failed")
-	}
+	try m.StreamEach(r, func(d llm.Delta) {})
 }
 
 func Stream(m Record, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	try recordStream(m, r, func(onDelta func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+		try m.Inner.Stream(r, onDelta)
+	}, put)
+}
+
+func StreamEach(m Record, r llm.Request, put func(d llm.Delta)) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try recordStream(m, r, func(onDelta func(d llm.Delta)) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+		try m.Inner.StreamEach(r, onDelta)
+	}, put)
+}
+
+func recordStream[E](m Record, r llm.Request, ask func(onDelta func(d llm.Delta) fails E) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | E, put func(d llm.Delta) fails E) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | E {
 	let mut ds = []llm.Delta{}
-	let t = m.Inner.Stream(r, func(d llm.Delta) fails llm.SinkFailed {
+	let mut failed Option[llm.Failure] = None
+	let t = ask(func(d llm.Delta) fails E {
 		ds = ds.Append(d)
 		try put(d)
 	}) catch {
-	case llm.SinkFailed as s:
-		return s
-	case f:
-		let failure llm.Failure = f
+	case llm.RateLimited as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.Overloaded as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.Unauthorized as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.Refused as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.Truncated as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.Transport as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.InvalidRequest as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.InvalidResponse as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case llm.UnsupportedSchema as x:
+		failed = Some[llm.Failure]{Value: x}
+		llm.Turn{Text: "", Calls: []llm.Call{}, Stop: llm.Ended, Usage: llm.Usage{Input: 0, Output: 0, CacheRead: 0, CacheWrite: 0}}
+	case e:
+		return e
+	}
+	match failed {
+	case Some[llm.Failure] as f:
+		let failure = f.Value
 		keep(m, Exchange{Digest: Digest(r), Deltas: ds, End: Failed{Failure: failure}})
 		return try llm.Raise(failure)
+	case None:
 	}
 	keep(m, Exchange{Digest: Digest(r), Deltas: ds, End: Answered{Turn: t}})
 	t
@@ -193,13 +233,18 @@ func next(p Replay, digest string) Option[Exchange] {
 }
 
 func Generate(p Replay, r llm.Request) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
-	try p.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
-	case llm.SinkFailed:
-		Unreachable("a sink that drops every delta failed")
-	}
+	try p.StreamEach(r, func(d llm.Delta) {})
 }
 
 func Stream(p Replay, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | llm.SinkFailed {
+	try replayStream(p, r, put)
+}
+
+func StreamEach(p Replay, r llm.Request, put func(d llm.Delta)) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try replayStream(p, r, put)
+}
+
+func replayStream[E](p Replay, r llm.Request, put func(d llm.Delta) fails E) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema | E {
 	let digest = Digest(r)
 	match next(p, digest) {
 	case None:
@@ -217,11 +262,8 @@ func Stream(p Replay, r llm.Request, put func(d llm.Delta) fails llm.SinkFailed)
 	}
 }
 
-// seen is what an ask gave its caller: the deltas put saw, then the turn
-// or the failure.
 type seen { Deltas []llm.Delta, End End }
 
-// asked is how one ask of m went, by Stream or by Generate.
 func asked(m llm.Model, r llm.Request, stream bool) seen {
 	if !stream {
 		let g = m.Generate(r) catch {
@@ -232,9 +274,7 @@ func asked(m llm.Model, r llm.Request, stream bool) seen {
 		return seen{Deltas: []llm.Delta{}, End: Answered{Turn: g}}
 	}
 	let mut ds = []llm.Delta{}
-	let t = m.Stream(r, func(d llm.Delta) fails llm.SinkFailed { ds = ds.Append(d) }) catch {
-	case llm.SinkFailed:
-		Unreachable("a sink that keeps every delta failed")
+	let t = m.StreamEach(r, func(d llm.Delta) { ds = ds.Append(d) }) catch {
 	case f:
 		let failure llm.Failure = f
 		return seen{Deltas: ds, End: Failed{Failure: failure}}

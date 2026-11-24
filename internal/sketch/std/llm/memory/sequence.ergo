@@ -60,6 +60,10 @@ func Stream(s Sequence, r llm.Request, put func(d llm.Delta) fails llm.SinkFaile
 	try streamed(next(s, r, true), put)
 }
 
+func StreamEach(s Sequence, r llm.Request, put func(d llm.Delta)) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
+	try streamed(next(s, r, true), put)
+}
+
 // bare is the failure a reply that fails with f before any delta gives.
 func bare(f llm.Failure) llm.Failure { broken(Breaks{Deltas: []llm.Delta{}, Failure: f}) }
 
@@ -245,13 +249,9 @@ func meter(us []llm.Usage, f llm.Failure, stream bool) metering {
 	metering{Transparent: false, Summed: llm.Used(m) == want}
 }
 
-// metered asks m by Generate, or by Stream when stream.
 func metered(m llm.Metered, r llm.Request, stream bool) llm.Turn fails llm.RateLimited | llm.Overloaded | llm.Unauthorized | llm.Refused | llm.Truncated | llm.Transport | llm.InvalidRequest | llm.InvalidResponse | llm.UnsupportedSchema {
 	if stream {
-		return try m.Stream(r, func(d llm.Delta) fails llm.SinkFailed {}) catch {
-		case llm.SinkFailed:
-			Unreachable("a sink that drops every delta failed")
-		}
+		return try m.StreamEach(r, func(d llm.Delta) {})
 	}
 	try m.Generate(r)
 }
