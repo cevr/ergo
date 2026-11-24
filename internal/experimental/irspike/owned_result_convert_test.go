@@ -252,6 +252,8 @@ type dropNode { item dropTicket, more []dropNode }
 `)
 	forms := []struct{ name, body, live, released string }{
 		{"Record", `let pair = dropPair{left: l, right: r}`, "0", "11*id+10"},
+		{"InPlace", `let mut pair = dropPair{left: l, right: r}
+		pair.left.id = id+2`, "0", "11*id+12"},
 		{"Tuple", `let pair = (l, r)`, "0", "11*id+10"},
 		{"Slice", `let pair = []dropTicket{l, r}`, "0", "11*id+10"},
 		{"Array", `let pair = [2]dropTicket{l, r}`, "0", "11*id+10"},
