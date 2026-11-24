@@ -91,8 +91,8 @@ extern go ergo.local/prototype/runtime/v1.MachineFiringOff func firingOff()
 // last, Done's output, and the outputs of the run's Emits and Tells
 // before it, in order.
 type Finished[S, O] {
-	State S,
-	Output O,
+	State   S,
+	Output  O,
 	Emitted []O,
 }
 
@@ -100,7 +100,7 @@ type Finished[S, O] {
 // state after the last one, and the outputs of the run's Emits and Tells,
 // in order.
 type Running[S, O] {
-	State S,
+	State   S,
 	Emitted []O,
 }
 
@@ -128,7 +128,7 @@ type Rejected { At int }
 // Timed is a signal from outside the machine at the time At of a timed run
 // (RunTimed): At is the time since the run's start, by time.Clock.
 type Timed[E] {
-	At duration,
+	At     duration,
 	Signal E,
 }
 
@@ -140,7 +140,7 @@ law UntimedRunsAsRun(signals []int, gaps []int) {
 	let mut at = 0s
 	for i, e in signals {
 		if i < len(gaps) {
-			at = at + duration(int64(gaps[i] % 1000))
+			at = at + duration(int64(gaps[i]%1000))
 		}
 		trace = trace.Append(Timed[int]{At: at, Signal: e})
 	}
@@ -200,7 +200,7 @@ func bellExit(b Bell) Option[func()] { None }
 // one at 10.5s; a count of -1 when it did not ring.
 func rung(kind int, pokes int) (int, []int) {
 	let mut trace = []Timed[int]{}
-	for i in 0..((pokes % 10) + 10) % 10 {
+	for i in 0..((pokes%10)+10)%10 {
 		trace = trace.Append(Timed[int]{At: duration(int64(i+1) * int64(1s)), Signal: 1})
 	}
 	trace = trace.Append(Timed[int]{At: 10s + 500ms, Signal: 1})
@@ -262,7 +262,7 @@ func Next[S, O](s S, d Decision[S, O]) S {
 // NextTakesItsState: Enter, Stay, Emit and Tell give their Next; Ignore,
 // Reject and Done keep the state.
 law NextTakesItsState(s int, n int) {
-	Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n &&
+		Next[int, int](s, Enter[int]{Next: n}) == n && Next[int, int](s, Stay[int]{Next: n}) == n &&
 		Next[int, int](s, Emit[int, int]{Next: n, Output: s}) == n && Next[int, int](s, Ignore) == s &&
 		Next[int, int](s, Reject) == s && Next[int, int](s, Done[int]{Output: n}) == s &&
 		Next[int, int](s, Tell[int, int]{Next: n, Output: s}) == n
@@ -437,7 +437,7 @@ func From[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S, signals []E) Outco
 // armed is the timer of a run's open entry: it fires at At, and the entry
 // opened in State; its signal is made when it fires (fired).
 type armed[S] {
-	At duration,
+	At    duration,
 	State S,
 }
 
@@ -471,18 +471,6 @@ func AfterFiring[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], at S) Option[Tim
 	let timer = m.After(at)
 	firingOff()
 	timer
-}
-
-// fired is the signal of the timer that an entry opened in s armed, made
-// as it fires (AfterFiring). After is a function of the state alone, so it
-// gives the timer it gave when the entry opened.
-func fired[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], s S) E {
-	match AfterFiring(m, s) {
-	case Some[Timeout[E]] as t:
-		t.Value.Signal
-	case None:
-		Unreachable("the state's After gave a timer when its entry opened")
-	}
 }
 
 // notPositive raises the defect of a timer armed at now whose In is not
@@ -571,9 +559,14 @@ func RunTimed[S, E, O, F, R, W](m Machine[S, E, O, F, R, W], trace []Timed[E], e
 		}
 		now = until(start, ev.At)
 		let sig = if timer {
-			fired(m, ev.State)
+			match AfterFiring(m, ev.State) {
+			case Some[Timeout[E]] as t:
+				t.Value.Signal
+			case None:
+				continue
+			}
 		} else {
-			trace[i - 1].Signal
+			trace[i-1].Signal
 		}
 		let d = try m.Step(at, sig)
 		match d {
