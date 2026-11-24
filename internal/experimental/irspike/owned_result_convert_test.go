@@ -775,5 +775,48 @@ test CheckDropSliceTask {
 	assert a.Get() == 1 && b.Get() == 1
 }
 `)
+	names = append(names, "DropAppendTask")
+	src.WriteString(`
+func DropAppendTask(original own []Task[bool], next own Task[bool], a sync.Ref[int], b sync.Ref[int], reject bool, defect bool) bool fails Bad {
+	let mut owners = original
+	owners = owners.Append(next)
+	if a.Get() != 0 || b.Get() != 0 { Unreachable("a task was stopped during append") }
+	if defect { Unreachable("after append") }
+	if reject { return Bad }
+	let chosen, rest = owners.TakeAt(1)
+	chosen.Stop()
+	true
+}
+
+test CheckDropAppendTask {
+	let a = sync.NewRef(0)
+	let b = sync.NewRef(0)
+	let x = startBlocked(a)
+	let y = startBlocked(b)
+	let ok = DropAppendTask([]Task[bool]{x}, y, a, b, false, false) catch { case Bad: false }
+	assert ok
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let x2 = startBlocked(a)
+	let y2 = startBlocked(b)
+	let rejected = DropAppendTask([]Task[bool]{x2}, y2, a, b, true, false) catch { case Bad: true }
+	assert rejected
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let crash = task.Go() {
+		let x3 = startBlocked(a)
+		let y3 = startBlocked(b)
+		try DropAppendTask([]Task[bool]{x3}, y3, a, b, false, true)
+	}
+	let defected = match task.ExitOf(crash) {
+	case task.Defected: true
+	case _: false
+	}
+	assert defected
+	assert a.Get() == 1 && b.Get() == 1
+}
+`)
 	return src.String(), names
 }

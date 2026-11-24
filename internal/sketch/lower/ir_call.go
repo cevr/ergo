@@ -141,9 +141,9 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || userExtern(c.Func)) {
 		irNo("trailing block")
 	}
-	// Map.Take and slice.TakeAt transfer an already running value.
-	// Neither starts a task even when its result bears one.
-	if op := check.CollOpOf(c.Func); c.StartsTask && op != check.CollTake && op != check.CollTakeAt && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
+	// These collection operations transfer already running values.
+	// They do not start a task even when their result bears one.
+	if op := check.CollOpOf(c.Func); c.StartsTask && op != check.CollTake && op != check.CollTakeAt && op != check.CollAppend && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
 	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc && !(c.Kind == check.CallOp && c.Op != nil && len(c.Op.Sig.TParams) > 0) {
