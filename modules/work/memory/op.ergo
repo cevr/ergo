@@ -406,6 +406,11 @@ func worldOn(r work.Registry, sharing bool, tree Map[string, string], config str
 	let lock = NewLock()
 	let hooks = Recording(lock, failing)
 	let runner = NewRunner()
+	let parsed = work.ParseConfig(config) catch {
+	case work.BadConfig:
+		work.EmptyConfig()
+	}
+	runner.install.Set(parsed.Install)
 	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: hooks, Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: clock}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 	let _ = tool.Init() catch {
