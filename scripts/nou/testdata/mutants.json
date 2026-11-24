@@ -63,6 +63,24 @@
       "to": "if false {",
       "rule": "Once activated, the Go scope stays sealed even after every existing call is removed.",
       "killers": ["scripts/nou:TestBootstrapUsesAcceptedTree"]
+    },
+    {
+      "name": "nou-prune-write-keeps-retired-rows",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/prune.go",
+      "from": "if total != 0 {",
+      "to": "if false && total != 0 {",
+      "rule": "Write mode removes the exact retired row and decrements the surviving one on disk.",
+      "killers": ["scripts/nou:TestPruneWriteReportsExactRemovals"]
+    },
+    {
+      "name": "nou-prune-write-reports-old-multiplicity",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/prune.go",
+      "from": "id.file, id.anchor, removed[id])",
+      "to": "id.file, id.anchor, row.count)",
+      "rule": "The report gives the number of retired occurrences for each ID, not its old ceiling.",
+      "killers": ["scripts/nou:TestPruneWriteReportsExactRemovals"]
     }
   ]
 }

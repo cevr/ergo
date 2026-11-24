@@ -3,17 +3,17 @@
 //
 //	go run ./scripts/nou check
 //	go run ./scripts/nou check --base BASE
-//	go run ./scripts/nou prune > /tmp/nou-sites.tsv
+//	go run ./scripts/nou prune         # preview the replacement on stdout
+//	go run ./scripts/nou prune -write  # atomically replace the ledger
 //
 // For the one landing that activates Go fixture coverage, regenerate from
 // the accepted pre-merge main (not the candidate), then prune any sites
 // retired by the merge and check it:
 //
 //	go run ./scripts/nou bootstrap-go --base BASE --write
-//	go run ./scripts/nou prune > /tmp/nou-sites.tsv  # replace ledger on success
+//	go run ./scripts/nou prune -write
 //	go run ./scripts/nou check
 //
-// Review the deletions before replacing scripts/nou/testdata/sites.tsv.
 // Prune refuses to add a site, even when another site has disappeared.
 package main
 
@@ -40,13 +40,16 @@ type allowance struct {
 }
 
 func main() {
-	const usage = "usage: nou check [--base REV] | prune | inventory | bootstrap-go --base REV --write"
+	const usage = "usage: nou check [--base REV] | prune [-write] | inventory | bootstrap-go --base REV --write"
 	var baseRef string
+	var pruneWrite bool
 	switch {
 	case len(os.Args) == 5 && os.Args[1] == "bootstrap-go" && os.Args[2] == "--base" && os.Args[3] != "" && os.Args[4] == "--write":
 		baseRef = os.Args[3]
 	case len(os.Args) == 4 && os.Args[1] == "check" && os.Args[2] == "--base" && os.Args[3] != "":
 		baseRef = os.Args[3]
+	case len(os.Args) == 3 && os.Args[1] == "prune" && (os.Args[2] == "-write" || os.Args[2] == "--write"):
+		pruneWrite = true
 	case len(os.Args) == 2 && os.Args[1] != "bootstrap-go":
 	default:
 		fmt.Fprintln(os.Stderr, usage)
@@ -61,13 +64,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
-	if err := run(os.Args[1], baseRef, os.Stdout, os.Stderr); err != nil {
+	if err := run(os.Args[1], baseRef, pruneWrite, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "nou:", err)
 		os.Exit(1)
 	}
 }
 
-func run(cmd, baseRef string, out, diagnostics io.Writer) error {
+func run(cmd, baseRef string, pruneWrite bool, out, diagnostics io.Writer) error {
 	root, err := filepath.Abs(".")
 	if err != nil {
 		return err
@@ -85,12 +88,13 @@ func run(cmd, baseRef string, out, diagnostics io.Writer) error {
 		}
 		return nil
 	}
-	base, err := os.Open(filepath.Join(root, ledger))
+	name := filepath.Join(root, ledger)
+	base, err := os.Open(name)
 	if err != nil {
 		return err
 	}
-	defer base.Close()
 	rows, err := readLedger(base)
+	base.Close()
 	if err != nil {
 		return err
 	}
@@ -129,10 +133,10 @@ func run(cmd, baseRef string, out, diagnostics io.Writer) error {
 		fmt.Fprintf(diagnostics, "%s\t%d -> %d (%+d)\n", key, n[0], n[1], n[1]-n[0])
 	}
 	if cmd == "prune" {
-		return writeLedger(out, rows, have)
+		return pruneLedger(name, pruneWrite, out, rows, have)
 	}
 	if removed > 0 {
-		return fmt.Errorf("%d retired legacy sites still in the baseline; run nou prune and commit the deletions", removed)
+		return fmt.Errorf("%d retired legacy sites still in the baseline; run nou prune -write and commit the deletions", removed)
 	}
 	fmt.Fprintf(out, "%d legacy sites, no additions or stale rows\n", len(current))
 	return nil
@@ -197,18 +201,22 @@ func writeLedger(w io.Writer, rows map[siteID]allowance, counts map[siteID]int) 
 	b := bufio.NewWriter(w)
 	fmt.Fprintln(b, "# family\tsource scope\tpath\tdeclaration/local anchor\tcount")
 	fmt.Fprintln(b, goLedgerSeal)
-	ids := slices.Collect(maps.Keys(counts))
+	for _, id := range sortedSiteIDs(counts) {
+		r := rows[id]
+		fmt.Fprintf(b, "%s\t%s\t%s\t%s\t%d\n", r.family, r.scope, id.file, id.anchor, counts[id])
+	}
+	return b.Flush()
+}
+
+func sortedSiteIDs[V any](rows map[siteID]V) []siteID {
+	ids := slices.Collect(maps.Keys(rows))
 	slices.SortFunc(ids, func(a, b siteID) int {
 		if n := strings.Compare(a.file, b.file); n != 0 {
 			return n
 		}
 		return strings.Compare(a.anchor, b.anchor)
 	})
-	for _, id := range ids {
-		r := rows[id]
-		fmt.Fprintf(b, "%s\t%s\t%s\t%s\t%d\n", r.family, r.scope, id.file, id.anchor, counts[id])
-	}
-	return b.Flush()
+	return ids
 }
 
 func sourceScope(file string) string {
