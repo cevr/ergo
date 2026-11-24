@@ -1,0 +1,6 @@
+import compiler/syntax
+import dense
+
+// A fixed borrowed scalar read needs only its formal slot for liveness.
+// None leaves the ordinary expression path in charge.
+func borrowScalarRead(_ fnb, _ dense.ID[syntax.Node]) Option[fixedBorrowField] { None }
