@@ -1,0 +1,110 @@
+import compiler/ir
+import slices
+
+func declarations(p Image) fails Malformed {
+	let n = Rows(p, ir.HTypes)
+	let mut owned = slices.WithCapacity[bool](n)
+	for _ in 0..n {
+		owned = owned.Append(false)
+	}
+	for i in 0..Rows(p, ir.HSymbols) {
+		let k = word(p, ir.HSymbols, i, 2)
+		let s = uint32(i + 1)
+		let base = word(p, ir.HSymbols, i, 3)
+		if k == ir.HSType && (typeKind(p, base) != ir.HTNamed || word(p, ir.HTypes, int(base)-1, 1) != s) {
+			return bad(ir.HSymbols, i, "named type identity")
+		}
+		if k != ir.HSType && k != ir.HSFunc && k != ir.HSMethod {
+			continue
+		}
+		let t = genericType(p, s)
+		if (k == ir.HSFunc || k == ir.HSMethod) && signature(p, t) == 0 {
+			return bad(ir.HSymbols, i, "callable declaration signature")
+		}
+		if typeKind(p, t) != ir.HTGeneric {
+			continue
+		}
+		let row = int(t) - 1
+		let lo = word(p, ir.HTypes, row, 2)
+		for j in 0..int(word(p, ir.HTypes, row, 3)) {
+			let pidx = int(operand(p, lo, uint32(j))) - 1
+			if owned[pidx] || word(p, ir.HTypes, pidx, 1) != s {
+				return bad(ir.HTypes, pidx, "duplicate or foreign type parameter")
+			}
+			owned[pidx] = true
+		}
+	}
+	for i in 0..n {
+		let k = word(p, ir.HTypes, i, 0)
+		if k == ir.HTParameter && !owned[i] {
+			return bad(ir.HTypes, i, "unowned type parameter")
+		}
+		if k == ir.HTApplied {
+			let g = genericType(p, word(p, ir.HTypes, i, 1))
+			if typeKind(p, g) != ir.HTGeneric || word(p, ir.HTypes, i, 3) != word(p, ir.HTypes, int(g)-1, 3) {
+				return bad(ir.HTypes, i, "type application arity")
+			}
+		}
+	}
+}
+
+law ByValueCyclesAreRefused(seed uint32) {
+	let p = Pack(recursiveSpecimen(seed)) catch {
+	case Malformed:
+		return false
+	}
+	refuses(editWord(p, ir.HTypes, Rows(p, ir.HTypes)-1, 0, ir.HTArray), ir.HTypes)
+}
+
+// Walk the direct storage edges. Pointer, slice, function, map, interface
+// and constraint references do not embed their child values. The backend
+// still checks layout after substitution at a generic application.
+func embeds(p Image, i int) uint32 {
+	let k = word(p, ir.HTypes, i, 0)
+	if k == ir.HTRecord { return word(p, ir.HTypes, i, 3) }
+	if k == ir.HTNamed || k == ir.HTArray || k == ir.HTGeneric || k == ir.HTApplied { return 1 }
+	0
+}
+
+func embeddedType(p Image, i int, j uint32) int {
+	let k = word(p, ir.HTypes, i, 0)
+	if k == ir.HTGeneric { return int(word(p, ir.HTypes, i, 1)) - 1 }
+	if k == ir.HTApplied { return int(genericType(p, word(p, ir.HTypes, i, 1))) - 1 }
+	let x = operand(p, word(p, ir.HTypes, i, 2), j)
+	if k == ir.HTRecord { return int(word(p, ir.HSymbols, int(x)-1, 3)) - 1 }
+	int(x) - 1
+}
+
+type frame { row int, next uint32, n uint32 }
+
+func storageGraph(p Image) fails Malformed {
+	let n = Rows(p, ir.HTypes)
+	let mut state = slices.WithCapacity[uint8](n)
+	for _ in 0..n {
+		state = state.Append(0)
+	}
+	let mut todo = []frame{}
+	for i in 0..n {
+		if state[i] != 0 { continue }
+		state[i] = 1
+		todo = todo.Append(frame{row: i, next: 0, n: embeds(p, i)})
+		for len(todo) > 0 {
+			let top = len(todo) - 1
+			let f = todo[top]
+			if f.next == f.n {
+				state[f.row] = 2
+				todo = todo[0:top]
+				continue
+			}
+			let x = embeddedType(p, f.row, f.next)
+			todo[top] = frame{..f, next: f.next + 1}
+			if state[x] == 1 {
+				return bad(ir.HTypes, x, "type embeds itself by value")
+			}
+			if state[x] == 0 {
+				state[x] = 1
+				todo = todo.Append(frame{row: x, next: 0, n: embeds(p, x)})
+			}
+		}
+	}
+}
