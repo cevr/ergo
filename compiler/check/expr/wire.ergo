@@ -19,7 +19,7 @@ import dense
 type wireWalk { row []dense.ID[store.TKey], seen []dense.ID[store.TKey], ok bool }
 
 // isBuiltin is whether fun names the predeclared word: a name the package
-// does not declare, written word (isLen's test).
+// does not declare, written word.
 func isBuiltin(k Pkg, t Typer, fun dense.ID[syntax.Node], word string) bool {
 	if syntax.KindOf(tree(k, t.file), fun) != syntax.KIdent {
 		return false

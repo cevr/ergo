@@ -150,11 +150,32 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 			}
 		}
 	}
+	if t.fn >= 0 && syntax.KindOf(tr, fun) == syntax.KIdent && c.Trailing == dense.NoID[syntax.Node]() {
+		match dense.Unpack(k.Fns[t.fn].SelfRole) {
+		case Some{Value: op}:
+			if !shadowsMember(k, *t, fun) {
+				match roleMember(s, k, op, nameAt(k, *t, fun)) {
+				case Some{Value: member}:
+					let recv = store.TSelf(s, store.OperandsOf(*s, op))
+					return callMember(s, k, t, x, c, c.Fun, written, recv, op, member)
+				case None:
+				}
+			}
+		case None:
+		}
+	}
 	if c.Trailing == dense.NoID[syntax.Node]() && indexed && n == 1 && len(written) == 1 && isBuiltin(k, *t, fun, "decode") {
 		decodeCall(s, k, t, x, written[0])
 	}
-	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && n == 1 && isLen(k, *t, fun) {
-		return lenCall(s, k, t, syntax.Item(tr, c.Args, 0))
+	if c.Trailing == dense.NoID[syntax.Node]() && !indexed && n == 1 {
+		let arg = syntax.Item(tr, c.Args, 0)
+		if isBuiltin(k, *t, fun, "len") {
+			return lenCall(s, k, t, arg)
+		}
+		if isBuiltin(k, *t, fun, "hash") {
+			expr(s, k, t, arg, Free)
+			return some(store.TBasic(s, bUint64))
+		}
 	}
 	// The callee: a function of the package, or of an import (pkg.F).
 	let callee = if syntax.KindOf(tr, fun) == syntax.KIdent {
@@ -223,21 +244,6 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 		return resultOf(*s, r)
 	}
 	generic(s, k, t, x, c, fun, written, f, None)
-}
-
-// isLen is whether fun names the builtin len: a name the package does not
-// declare, written len.
-func isLen(k Pkg, t Typer, fun dense.ID[syntax.Node]) bool {
-	if syntax.KindOf(tree(k, t.file), fun) != syntax.KIdent {
-		return false
-	}
-	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, fun)) {
-	case bind.Outside:
-		let p = k.Parsed[t.file]
-		syntax.TokText(p, syntax.TokStartingAt(p, syntax.NodePos(p, fun))) == "len"
-	case _:
-		false
-	}
 }
 
 // lenCall types len(a): an int, of a string, a slice, an array or a Map
@@ -368,6 +374,34 @@ func roleMember(s mut store.Store, k Pkg, op dense.ID[store.TKey], name string) 
 	None
 }
 
+// shadowsMember is whether a local is nearer than the owner's operation
+// scope. The binder's directly declared operation is itself marked local;
+// only a field of an operation type can be that operation declaration.
+func shadowsMember(k Pkg, t Typer, name dense.ID[syntax.Node]) bool {
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, name)) {
+	case bind.Declared as d:
+		match bind.DefOf(k.U, d.At) {
+		case bind.Local:
+			match dense.Unpack(bind.ParentOf(k.Ps, d.At)) {
+			case Some{Value: decl}:
+				match dense.Unpack(bind.ParentOf(k.Ps, decl)) {
+				case Some{Value: owner}:
+					let (file, row) = bind.RowOf(k.Ps, owner)
+					let tr = tree(k, file)
+					return syntax.KindOf(tr, syntax.NodeAt(tr, row)) != syntax.KInterfaceType
+				case None:
+				}
+			case None:
+			}
+			true
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
 func rowSlot(s store.Store, typ dense.ID[store.TKey], slot int) bool {
 	let row = store.KindOfType(s, typ) == store.KRow
 	for o in store.OperandsOf(s, typ) {
@@ -379,13 +413,16 @@ func rowSlot(s store.Store, typ dense.ID[store.TKey], slot int) bool {
 }
 
 func roleCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], written []dense.ID[syntax.Node], recv dense.ID[store.TKey], op dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
-	let m = match roleMember(s, k, op, name) {
+	match roleMember(s, k, op, name) {
 	case Some{Value: m}:
-		m
+		callMember(s, k, t, x, c, fun, written, recv, op, m)
 	case None:
 		args(s, k, t, c, []dense.ID[store.TKey]{})
-		return None
+		None
 	}
+}
+
+func callMember(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], written []dense.ID[syntax.Node], recv dense.ID[store.TKey], op dense.ID[store.TKey], m types.RoleMember) Option[dense.ID[store.TKey]] {
 	let n = syntax.Len(c.Args)
 	let tr = tree(k, t.file)
 	let actual = store.OperandsOf(*s, op)
@@ -452,10 +489,22 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 	for p in params {
 		renamed = renamed.Append(store.TSubst(s, p, rename))
 	}
+	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], mine, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
+	let frame = infer.Begin(&t.frame, f.Rows, base)
+	let all = len(written) == len(f.Rows)
+	let mut ok = n+m == len(params) && len(written) <= len(f.Rows)
+	if ok {
+		for i, w in written {
+			infer.Bind(&t.frame, frame, i, types.Resolve(s, env, w))
+		}
+	}
 	let mut ins = []infer.Arg{}
 	match recv {
 	case Some[dense.ID[store.TKey]] as rt:
-		ins = ins.Append(infer.Typed{T: rt.Value})
+		if ok {
+			ok = infer.Argument(s, &t.frame, k.Unions, frame, renamed[0], rt.Value, all)
+		}
+		ins = ins.Append(infer.Unknown)
 	case None:
 	}
 	for i in 0..n {
@@ -466,22 +515,33 @@ func generic(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c s
 				ins = ins.Append(infer.Literal{Default: d.Value})
 			case None:
 				ins = ins.Append(infer.Unknown)
+				ok = false
 			}
 			continue
 		}
-		match expr(s, k, t, a, Free) {
-		case Some[dense.ID[store.TKey]] as at:
-			ins = ins.Append(infer.Typed{T: at.Value})
-		case None:
-			ins = ins.Append(infer.Unknown)
+		let want = if ok {
+			match infer.Expected(s, t.frame, frame, renamed[i+m]) {
+			case Some{Value: p}:
+				Exactly{T: infer.Unmarked(*s, p)}
+			case None:
+				Free
+			}
+		} else {
+			Free
 		}
+		match expr(s, k, t, a, want) {
+		case Some[dense.ID[store.TKey]] as at:
+			if ok {
+				ok = infer.Argument(s, &t.frame, k.Unions, frame, renamed[i+m], at.Value, all)
+			}
+		case None:
+			ok = false
+		}
+		ins = ins.Append(infer.Unknown)
 	}
-	let env = types.NewEnv(*s, k.Parsed, k.Parsed[t.file], mine, k.Kinds, k.Ext, k.Foreign, k.Ifaces)
-	let mut explicit = []dense.ID[store.TKey]{}
-	for w in written {
-		explicit = explicit.Append(types.Resolve(s, env, w))
-	}
-	let (inferred, unbound) = infer.InferAt(s, &t.frame, k.Unions, infer.Callee{Params: renamed, Rows: f.Rows, Base: base}, explicit, ins)
+	let mut unbound = -1
+	let inferred = if ok { infer.Finish(s, &t.frame, frame, renamed, ins, all, &unbound) } else { None }
+	infer.End(&t.frame, frame)
 	match inferred {
 	case Some[[]dense.ID[store.TKey]] as targs:
 		// An import's function is named by its selector's name.
