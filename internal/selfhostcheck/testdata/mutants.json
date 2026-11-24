@@ -1307,7 +1307,7 @@
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
       "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
       "from": "match importedShapeOf(st, t, trail.deps) {",
-      "to": "match importedShapeOf(st, t, []expr.Dep{}) {",
+      "to": "match importedShapeOf(st, t, Map[string, expr.Dep]{}) {",
       "rule": "Values of an admitted imported record retain their direct signature and local reference.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
@@ -1479,6 +1479,16 @@
       "from": "strconv.Itoa(store.ArrayLen(st.s, t))",
       "to": "strconv.Itoa(store.ArrayLen(st.s, t) + 1)",
       "rule": "The array nested inside a slice literal preserves the checked length in its Go type.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes3-imports-only-direct-stores",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-3 (not-run-crunch)",
+      "file": "compiler/lower/imported_shape.ergo", "decl": "shapeDeps",
+      "from": "func shapeDeps(st fnb) Map[string, expr.Dep] { st.shapeImports }",
+      "to": "func shapeDeps(st fnb) Map[string, expr.Dep] {\n\tlet mut direct = Map[string, expr.Dep]{}\n\tfor d in st.k.Deps {\n\t\tdirect = direct.Put(d.Path, d)\n\t}\n\tdirect\n}",
+      "rule": "A non-root package can admit a nested imported record only by following the exact transitive loaded shape inventory.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     }
