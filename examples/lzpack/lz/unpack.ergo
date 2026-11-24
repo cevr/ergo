@@ -3,34 +3,35 @@
 // output but the ring's. Every length and offset is checked against the
 // block and the bytes so far before a byte moves.
 
-import machines
 import strings
 
-// Decoder is an unpack in progress: the ring of the last Window bytes
-// written, the output, the bytes written, and the next byte to read.
 type Decoder { win [65536]byte, out strings.Builder, total int, at int }
 
-// Unpack is the text packed holds, or why packed is not a stream Pack
-// could write.
 func Unpack(packed string) string fails Corrupt {
 	let mut d = Decoder{win: [65536]byte{}, out: strings.NewBuilder(), total: 0, at: 0}
 	d.out.Grow(3 * len(packed))
-	let mut f Frame = Header
 	let ok = len(packed) >= len(Magic) && strings.Slice(packed, 0, len(Magic)) == Magic
-	f = try advance(f, Opened{Ok: ok}, 0)
+	let mut b = openFrame(Opened{Ok: ok}) catch {
+	case r:
+		return Corrupt{Offset: 0, Reason: r}
+	}
 	d.at = len(Magic)
+	let mut end = Ended{Total: 0}
 	for {
 		let h = d.at
 		let n = try d.uvarint(packed)
 		if n == 0 {
-			f = try advance(f, EndMark, h)
+			end = closeFrame(b)
 			break
 		}
-		f = try advance(f, Block{Raw: n}, h)
+		b = stepBlock(b, Block{Raw: n}) catch {
+		case r:
+			return Corrupt{Offset: h, Reason: r}
+		}
 		try d.block(packed, n)
 	}
 	if d.at < len(packed) {
-		f = try advance(f, Extra, d.at)
+		return Corrupt{Offset: d.at, Reason: rejectExtra(end)}
 	}
 	d.out.String()
 }
@@ -105,21 +106,6 @@ law MalformedIsAFailure(body string, s string, k int, b int) {
 	true
 }
 
-// advance is the frame after the part p read at offset at, or the
-// Corrupt that ends the frame there.
-func advance(f Frame, p Part, at int) Frame fails Corrupt {
-	let d = FrameStep(f, p)
-	match d {
-	case Done[Reason] as r:
-		return Corrupt{Offset: at, Reason: r.Output}
-	case Reject:
-		Unreachable("the decoder reads the parts of a frame in order")
-	case Enter[Frame], Stay[Frame], Emit[Frame, Reason], Tell[Frame, Reason], Ignore:
-	}
-	machines.Next(f, d)
-}
-
-// truncated is the failure of a read past the end of packed.
 func truncated(packed string) Corrupt { Corrupt{Offset: len(packed), Reason: Truncated} }
 
 // uvarint reads a block header: at most three bytes of seven bits each,

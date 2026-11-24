@@ -14,26 +14,43 @@ type Frame = Header{} | Body{Total int} | Ended{Total int}
 // byte after the end mark.
 type Part = Opened{Ok bool} | Block{Raw int} | EndMark{} | Extra{}
 
-// FrameStep is the frame's transition. A stream that is not one Pack
-// could write ends the frame with the Reason for it.
+func openFrame(o Opened) Body fails Reason {
+	if o.Ok {
+		Body{Total: 0}
+	} else {
+		return BadMagic
+	}
+}
+
+func stepBlock(b Body, k Block) Body fails Reason {
+	if k.Raw > BlockMax {
+		return BlockTooLong
+	}
+	Body{Total: b.Total + k.Raw}
+}
+
+func closeFrame(b Body) Ended { Ended{Total: b.Total} }
+
+func rejectExtra(e Ended) Reason { Trailing }
+
 func FrameStep(f Frame, p Part) Decision[Frame, Reason] {
 	match (f, p) {
 	case (Header, Opened as o):
-		if o.Ok {
-			Enter[Frame]{Next: Body{Total: 0}}
-		} else {
-			Done[Reason]{Output: BadMagic}
+		let next = openFrame(o) catch {
+		case r:
+			return Done[Reason]{Output: r}
 		}
+		Enter[Frame]{Next: next}
 	case (Body as b, Block as k):
-		if k.Raw > BlockMax {
-			Done[Reason]{Output: BlockTooLong}
-		} else {
-			Stay[Frame]{Next: Body{Total: b.Total + k.Raw}}
+		let next = stepBlock(b, k) catch {
+		case r:
+			return Done[Reason]{Output: r}
 		}
+		Stay[Frame]{Next: next}
 	case (Body as b, EndMark):
-		Enter[Frame]{Next: Ended{Total: b.Total}}
-	case (Ended, Extra):
-		Done[Reason]{Output: Trailing}
+		Enter[Frame]{Next: closeFrame(b)}
+	case (Ended as e, Extra):
+		Done[Reason]{Output: rejectExtra(e)}
 	case (Header, Block), (Header, EndMark), (Header, Extra), (Body, Opened), (Body, Extra), (Ended, Opened), (Ended, Block), (Ended, EndMark):
 		Reject
 	}

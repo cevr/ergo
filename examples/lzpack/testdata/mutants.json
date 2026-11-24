@@ -56,6 +56,14 @@
       "to": "if k.Raw > BlockMax+1 {",
       "rule": "A block holds at most BlockMax raw bytes; a header of BlockMax+1 is BlockTooLong.",
       "anchor": {"tests": ["examples:lzpack"]}, "killers": ["examples:lzpack", "cmd/ergo:TestLzpackAgreesWithControl"]
+    },
+    {
+      "name": "nou-lzpack-unpack-skips-trailing", "origin": "wf10 NOU-DATA-REP r3",
+      "file": "examples/lzpack/lz/unpack.ergo",
+      "from": "if d.at < len(packed) {\n\t\treturn Corrupt{Offset: d.at, Reason: rejectExtra(end)}\n\t}",
+      "to": "if false && d.at < len(packed) {\n\t\treturn Corrupt{Offset: d.at, Reason: rejectExtra(end)}\n\t}",
+      "rule": "Unpack rejects bytes after the end mark as Trailing through the typed Ended transition.",
+      "anchor": {"tests": ["examples:lzpack"]}, "killers": ["examples:lzpack", "cmd/ergo:TestLzpackAgreesWithControl"]
     }
   ]
 }
