@@ -47,10 +47,6 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], seen []dense.ID[store.TKey]) st
 	gt
 }
 
-// The union lane replaces this refusal with its checked layout and
-// spelling query. Until then no type outside the shapes above is admitted.
-func unionGo(_ fnb, _ dense.ID[store.TKey]) string { "" }
-
 // ordinaryRecord is a declaration query, not value admission. In particular
 // the leading parameter's receiver role does not depend on its field types.
 func ordinaryRecord(st fnb, t dense.ID[store.TKey]) int {
