@@ -738,7 +738,7 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irP
 
 // ownBodyChecks stops a static frame this form does not build: an owned
 // temporary or arm value, a record
-// update's replaced fields, a taking receiver passed by its address, a
+// update's replaced fields, a
 // match pattern that owns outside the admitted list-owned type switch.
 // It records in o the places with planned releases (Info.Releases),
 // which the builder must each reach.
@@ -766,12 +766,6 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 		case *syntax.CompositeLit:
 			if len(info.Replaced[n]) > 0 {
 				irNo("owned temporary")
-			}
-		case *syntax.CallExpr:
-			if c := info.Calls[n]; c != nil && c.Recv != nil && c.Func != nil && c.Func.Ptr {
-				if id, ok := unparen(c.Recv).(*syntax.Ident); ok && info.Handoffs[id] != nil {
-					irNo("owned local")
-				}
 			}
 		}
 		if x, ok := n.(syntax.Expr); ok && (info.OwnedTemps[x] != nil && !b.tempOwnable(x, o) || info.ArmValues[x] != nil) {

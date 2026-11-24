@@ -579,5 +579,54 @@ test CheckDropLentTemp {
 	assert log.Get() == 11*id+10
 }
 `, 1+seed%7, 1+seed%7)
+	src.WriteString(`
+type refCloseTicket { id int, log sync.Ref[int], crash bool } implements Closer
+
+func Close(t mut refCloseTicket) {
+	t.log.Set(t.log.Get()*10 + t.id)
+	t.id = 0
+	if t.crash { Unreachable("release defect") }
+}
+
+type refClosePair { left refCloseTicket, right refCloseTicket }
+`)
+	for _, f := range []struct{ name, body, released string }{
+		{"DropAddr", `let mut t = refCloseTicket{id: id, log: log, crash: defect}
+			(&t).Close()`, "id"},
+		{"DropAddrReceiver", `let mut t = refCloseTicket{id: id, log: log, crash: defect}
+			t.Close()`, "id"},
+		{"DropAddrField", `let mut t = refClosePair{left: refCloseTicket{id: id, log: log, crash: defect}, right: refCloseTicket{id: id+1, log: log, crash: false}}
+			t.left.Close()`, "11*id+1"},
+	} {
+		names = append(names, f.name)
+		fmt.Fprintf(&src, `
+func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	%[2]s
+	if log.Get() != id { Unreachable("close has not run") }
+	if reject { return Bad }
+	false
+}
+
+test Check%[1]s {
+	let id = %[3]d
+	let log = sync.NewRef(0)
+	let ok = %[1]s(log, id, false, false) catch { case Bad: true }
+	assert !ok
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let rejected = %[1]s(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let child = task.Go() { try %[1]s(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == %[4]s
+}
+`, f.name, f.body, 1+seed%7, f.released)
+	}
 	return src.String(), names
 }
