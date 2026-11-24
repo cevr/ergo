@@ -28,15 +28,17 @@ import (
 // folder of the examples and of std, typed by compiler/check as
 // TestCompilerExprAgreesWithChecker types them) must be, byte for byte,
 // the function the Go builder writes at the same declaration. The Go side
-// is every example program lowered with every function of its own
-// packages reached (lower.LowerIRSplitReaching: called by its main or
-// not), the test build of each example package no program imports,
-// reached alike, and one empty program that reaches every std function,
-// as the IR census reaches them; so the Go builder lowers every function
+// is every example program lowered with its own package functions
+// seeded (lower.LowerIRSplitReaching), the test build of each example
+// package no program imports, and one empty program that reaches every
+// std function, as the IR census reaches them. The Go builder lowers what
 // the Ergo side can build. A body the programs lower differently agrees
-// with one of them. A test build the Go lowerer refuses is logged, and
-// its functions are not compared. The two sides' file indices are mapped
-// to the files' paths first; the bytes are otherwise the IR file's
+// with one of them. If a production root has no Go body at the
+// declaration, its test build can supply one: production can prune a
+// declaration reachable only from tests. This never replaces a Go body
+// that was already indexed. A test build a package relies on but the Go
+// lowerer refuses is logged and its functions are not compared. The two
+// sides' file indices are mapped to the files' paths first; the bytes are otherwise the IR file's
 // (ir.WriteFunc against encoding/json).
 //
 // compiler/lower stops at a function it cannot build yet: an expression
@@ -78,7 +80,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	paths := irPathIDs{}
 	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
 	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"), "leaf")...)
-	goFuncs, unlowered, rootDirs := goIRFuncs(t, paths, importFixture)
+	goFuncs, unlowered, rootDirs, testOracle := goIRFuncs(t, paths, importFixture)
 	for dir, err := range unlowered {
 		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
 	}
@@ -167,6 +169,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			}
 			key := irKey{file: fn.Pos[0], line: fn.Pos[1], col: fn.Pos[2]}
 			site := irWitnessSite{f[0], f[1], fn.Name}
+			testOracle.fill(t, paths, goFuncs, key, site.path)
 			comparison := goFuncs.compare(key, site, got, unlowered[filepath.Dir(f[0])] != "", matchLines)
 			if comparison.skipped {
 				reach[goSkipped]++
@@ -588,30 +591,110 @@ func TestIRAgreementMatchesReceipt(t *testing.T) {
 	}
 }
 
+type irGoProgram struct {
+	u      lower.Unit
+	tests  bool
+	dir    string
+	module string
+	reach  []*check.Func
+}
+
+// irGoTestOracle reads a production root's test build only when needed.
+// Keep the test index separate: a test variant must not mask a real
+// disagreement at a declaration for which production already wrote IR.
+type irGoTestOracle struct {
+	roots map[string]irGoProgram
+	cache map[string]irGoIndex
+}
+
+func (o irGoTestOracle) fill(t *testing.T, paths irPathIDs, idx irGoIndex, key irKey, source string) {
+	t.Helper()
+	if len(idx[key]) != 0 {
+		return
+	}
+	dir := filepath.Dir(source)
+	p, ok := o.roots[dir]
+	if !ok {
+		return
+	}
+	bodies, ready := o.cache[dir]
+	if !ready {
+		p.tests = true
+		bodies = irGoIndex{}
+		if err := indexGoIR(t, paths, bodies, p); err != nil {
+			t.Logf("%s: Go test-build oracle unavailable: %v", rel(dir), err)
+			bodies = nil
+		}
+		o.cache[dir] = bodies
+	}
+	if len(bodies[key]) != 0 {
+		idx[key] = bodies[key]
+	}
+}
+
+// TestIRAgreementTestOnlyOracle kills lower-agree-replace-production-oracle:
+// a test build fills a genuine production hole, not a disagreement.
+func TestIRAgreementTestOnlyOracle(t *testing.T) {
+	const src = `func main() {}
+func InTest(n int) int { n + 1 }
+test ReachesInTest { assert InTest(2) == 3 }
+`
+	dir := t.TempDir()
+	file := filepath.Join(dir, "main.ergo")
+	if err := os.WriteFile(file, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u, err := irspike.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := irGoProgram{u: u, dir: dir, module: dir, reach: ownFuncs(u, map[string]bool{})}
+	paths := irPathIDs{}
+	idx := irGoIndex{}
+	if err := indexGoIR(t, paths, idx, p); err != nil {
+		t.Fatal(err)
+	}
+	key := irKey{paths.id(file), 2, 1}
+	if len(idx[key]) != 0 {
+		t.Fatal("fixture must be absent from production IR")
+	}
+	o := irGoTestOracle{roots: map[string]irGoProgram{dir: p}, cache: map[string]irGoIndex{}}
+	o.fill(t, paths, idx, key, file)
+	wants, cause := idx.at(key, "InTest")
+	if cause != "" {
+		t.Fatalf("test build did not supply InTest: %s (at %v; files %v)", cause, key, paths)
+	}
+	got := wants[0].data
+	site := irWitnessSite{path: file, symbol: "InTest"}
+	if result := idx.compare(key, site, got, false, nil); result.match < 0 {
+		t.Fatal("test-only body was not compared")
+	}
+	idx[key] = []irGoFunc{{name: site.symbol, data: []byte("different production body")}}
+	o.fill(t, paths, idx, key, file)
+	if result := idx.compare(key, site, got, false, nil); result.match >= 0 {
+		t.Fatal("test-only body hid a production difference")
+	}
+}
+
 // goIRFuncs lowers each example program with the Go IR builder and
 // indexes its IR files' functions by declaration position, file indices
 // mapped to source paths.
 // The folders of the builds' root packages are the third result.
-func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex, map[string]string, map[string]bool) {
+func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex, map[string]string, map[string]bool, irGoTestOracle) {
 	t.Helper()
 	idx := irGoIndex{}
-	std := stdDir()
-	type program struct {
-		u      lower.Unit
-		tests  bool
-		dir    string
-		module string
-		reach  []*check.Func
-	}
 	unlowered := map[string]string{}
-	var programs []program
+	var programs []irGoProgram
+	testOracle := irGoTestOracle{roots: map[string]irGoProgram{}, cache: map[string]irGoIndex{}}
 	covered := map[string]bool{}
 	for _, dir := range irPrograms(t) {
 		u, err := irspike.Load(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
-		programs = append(programs, program{u: u, module: moduleRoot(dir), reach: ownFuncs(u, covered)})
+		pr := irGoProgram{u: u, dir: dir, module: moduleRoot(dir), reach: ownFuncs(u, covered)}
+		programs = append(programs, pr)
+		testOracle.roots[dir] = pr
 	}
 	// A package no program imports is lowered in its test build (the IR
 	// census's test targets), its functions reached alike.
@@ -634,7 +717,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
-		programs = append(programs, program{u: u, tests: true, dir: dir, module: moduleRoot(dir), reach: ownFuncs(u, covered)})
+		programs = append(programs, irGoProgram{u: u, tests: true, dir: dir, module: moduleRoot(dir), reach: ownFuncs(u, covered)})
 	}
 	// Every std body, reached by a program that calls none (the IR
 	// census's std domain).
@@ -647,13 +730,13 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 	if err != nil {
 		t.Fatal(err)
 	}
-	programs = append(programs, program{u: su, module: filepath.Dir(su.Sources[0].Path), reach: funcs})
+	programs = append(programs, irGoProgram{u: su, module: filepath.Dir(su.Sources[0].Path), reach: funcs})
 	roots := map[string]bool{}
 	for _, pr := range programs[:len(programs)-1] { // the std program's root is no corpus folder
 		roots[filepath.Dir(pr.u.Sources[0].Path)] = true
 	}
 	for _, pr := range programs {
-		out, _, split, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
+		err := indexGoIR(t, paths, idx, pr)
 		if err != nil && pr.tests {
 			// A test build the Go lowerer refuses (an internal compiler
 			// error of its own) has no IR to compare; it is logged.
@@ -663,51 +746,61 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 		if err != nil {
 			t.Fatalf("%s: %v", pr.module, err)
 		}
-		originals := make(map[string]string, len(split.IRExports))
-		for original, exported := range split.IRExports {
-			originals[exported] = original
+	}
+	return idx, unlowered, roots, testOracle
+}
+
+func indexGoIR(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram) error {
+	t.Helper()
+	out, _, split, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
+	if err != nil {
+		return err
+	}
+	std := stdDir()
+	originals := make(map[string]string, len(split.IRExports))
+	for original, exported := range split.IRExports {
+		originals[exported] = original
+	}
+	module := pr.module
+	for _, file := range out {
+		if filepath.Base(file.Path) != lower.IRFileName {
+			continue
 		}
-		module := pr.module
-		for _, file := range out {
-			if filepath.Base(file.Path) != lower.IRFileName {
-				continue
+		var f irFile
+		if err := json.Unmarshal(file.Data, &f); err != nil {
+			t.Fatalf("%s: %v", file.Path, err)
+		}
+		abs := make([]string, len(f.Files))
+		for i, p := range f.Files {
+			if rest, ok := strings.CutPrefix(p, "std/"); ok {
+				abs[i] = filepath.Join(std, rest)
+			} else {
+				abs[i] = filepath.Join(module, p)
 			}
-			var f irFile
-			if err := json.Unmarshal(file.Data, &f); err != nil {
-				t.Fatalf("%s: %v", file.Path, err)
+		}
+		for i := range f.Funcs {
+			fn := &f.Funcs[i]
+			if err := irMapFiles(fn, abs, paths); err != nil {
+				t.Fatalf("%s: %s: %v", file.Path, fn.Name, err)
 			}
-			abs := make([]string, len(f.Files))
-			for i, p := range f.Files {
-				if rest, ok := strings.CutPrefix(p, "std/"); ok {
-					abs[i] = filepath.Join(std, rest)
-				} else {
-					abs[i] = filepath.Join(module, p)
-				}
+			raw := fn.Name
+			fn.Name = irSplitName(raw)
+			irBaseFields(fn, originals, split.IRTypeHeads[file.Path])
+			data, err := json.Marshal(fn)
+			if err != nil {
+				t.Fatal(err)
 			}
-			for i := range f.Funcs {
-				fn := &f.Funcs[i]
-				if err := irMapFiles(fn, abs, paths); err != nil {
-					t.Fatalf("%s: %s: %v", file.Path, fn.Name, err)
-				}
-				raw := fn.Name
-				fn.Name = irSplitName(raw)
-				irBaseFields(fn, originals, split.IRTypeHeads[file.Path])
-				data, err := json.Marshal(fn)
-				if err != nil {
-					t.Fatal(err)
-				}
-				k := irKey{file: fn.Pos[0], line: fn.Pos[1], col: fn.Pos[2]}
-				seen := false
-				for _, g := range idx[k] {
-					seen = seen || g.name == fn.Name && bytes.Equal(g.data, data)
-				}
-				if !seen {
-					idx[k] = append(idx[k], irGoFunc{name: fn.Name, raw: raw, data: data})
-				}
+			k := irKey{file: fn.Pos[0], line: fn.Pos[1], col: fn.Pos[2]}
+			seen := false
+			for _, g := range idx[k] {
+				seen = seen || g.name == fn.Name && bytes.Equal(g.data, data)
+			}
+			if !seen {
+				idx[k] = append(idx[k], irGoFunc{name: fn.Name, raw: raw, data: data})
 			}
 		}
 	}
-	return idx, unlowered, roots
+	return nil
 }
 
 // ownFuncs is every function with a body of u's packages and their
