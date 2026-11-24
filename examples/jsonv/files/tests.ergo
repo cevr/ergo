@@ -1,7 +1,7 @@
 // Disk's tests, over an fstest.Memory and a standard input held in
-// memory. ergo test runs app.Documents.ReadIsRepeatable on a generated
-// Disk, whose io.Input gives its text to every read; ReadIsRepeatableHolds
-// restates it with an input that drains, as the host's does.
+// memory. The Documents law runs over a new Disk for every case;
+// ReadIsRepeatableHolds also exercises copies of one Disk and drains
+// its input, as the host does.
 
 import fs
 import fstest
@@ -30,6 +30,8 @@ func disk(text string) Disk fails fs.NotFound | fs.Denied | fs.Failed {
 	try files.MkdirAll("dir")
 	New(files, drained{text: text, reads: sync.NewRef[int](0)})
 }
+
+let onFixture = context fails fs.NotFound | fs.Denied | fs.Failed { app.Documents: try disk("{}") }
 
 // outcome is the text of Read(name), or the failure's name.
 func outcome(d Disk, name string) string {

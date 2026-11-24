@@ -18,4 +18,4 @@ A static key (an API key, a bearer token) is an `http.Credential` the Net holds 
 - `KeyOnlyInTheNet`: a key bound to the Net reaches the server on every request and is in none the Api or its signer hands on; each request the server gets went through the signer once.
 - `SlashesStayInThePath`: a key's "/" is sent as a separator, each segment escaped once.
 
-`expected-skips` lists the generated laws skipped for `Api` in package s3 (no `http.Net` is built there); they run in package memory. The mutant ledger is `testdata/mutants.json`.
+The generated `Api` laws run under `memory.lawApi`, which builds the client over the in-memory HTTP provider. The mutant ledger is `testdata/mutants.json`.

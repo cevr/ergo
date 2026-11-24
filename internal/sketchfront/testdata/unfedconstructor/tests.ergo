@@ -1,0 +1,5 @@
+import fs
+import unfedconstructor/disk
+import unfedconstructor/session
+
+let onDisk = context needs TestAmbient { session.Sessions: disk.New(fs.NewTestHost()) }

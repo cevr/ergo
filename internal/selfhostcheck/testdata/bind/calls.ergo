@@ -1,0 +1,15 @@
+import civil
+
+type CallPoint { X int }
+
+func Bias(p CallPoint, delta int) int { p.X + delta }
+
+func S4CallMethod(p CallPoint, delta int) int { p.Bias(delta) }
+
+func S4CallDependency(year int) bool { civil.IsLeap(year) }
+
+func longLeaf(x int) int {
+	x + 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 14 + 15
+}
+
+func S4CallLeaf(x int) int { longLeaf(x) }

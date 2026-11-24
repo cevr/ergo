@@ -14,6 +14,11 @@ type Marked { disk fstest.Memory, trees Cloner } implements fs.Files, fs.Writes
 // MarkedOver is the disk with the markers of trees' trees in them.
 func MarkedOver(disk fstest.Memory, trees Cloner) Marked { Marked{disk: disk, trees: trees} }
 
+let onMarkedDisk = context {
+	fs.Files:  MarkedOver(fstest.NewMemory(), NewCloner()),
+	fs.Writes: MarkedOver(fstest.NewMemory(), NewCloner()),
+}
+
 // markedTree is the root of the tree whose marker path is.
 func markedTree(m Marked, path string) Option[string] {
 	if !strings.HasSuffix(path, "/"+work.MarkerFile) {

@@ -24,10 +24,16 @@ func (b *irBuilder) reserve(v *check.Var) {
 }
 
 func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
+	b.ownable(v) // ir_own.go
+	return b.bindLocal(v, id)
+}
+
+// bindLocal declares a Go local without registering ownership. A
+// parameter's owner frame registers it after binding all its parameters.
+func (b *irBuilder) bindLocal(v *check.Var, id *syntax.Ident) int {
 	if _, dup := b.locals[v]; dup {
 		irNo("local declared twice")
 	}
-	b.ownable(v) // ir_own.go
 	i := b.named(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
@@ -405,9 +411,6 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 		}
 		return out
 	case *syntax.AssignStmt:
-		if out, ok := b.fillStore(s); ok { // ir_fill.go
-			return out
-		}
 		if len(s.Lhs) != 1 || len(s.Rhs) != 1 {
 			irNo("assignment form several")
 		}
@@ -419,14 +422,25 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 				irNo("assignment form %s", text)
 			}
 		}
-		if id, ok := s.Lhs[0].(*syntax.Ident); ok && id.Name == "_" && op == "" {
-			return b.discard(s.Rhs[0])
-		}
-		id, ok := s.Lhs[0].(*syntax.Ident)
+		id, ok := unparen(s.Lhs[0]).(*syntax.Ident)
 		if !ok {
 			return b.store(s, op) // ir_place.go
 		}
+		if id.Name == "_" && op == "" {
+			return b.discard(s.Rhs[0])
+		}
 		v, ok := b.l.info.Uses[id].(*check.Var)
+		if b.l.info.OwnedVars[v] != nil {
+			i, local := b.locals[v]
+			if !local || op != "" {
+				irNo("owned local")
+			}
+			pre, x := b.value(s.Rhs[0])
+			return append(pre, b.reassignList(v, i, id, x)...)
+		}
+		if out, ok := b.fillStore(s); ok { // ir_fill.go
+			return out
+		}
 		if ptr, held := b.held[v]; held && ok {
 			// The held local of an in-place literal is *p (ir_ownlit.go):
 			// s = v and s op= v store into the cell's value, which Go

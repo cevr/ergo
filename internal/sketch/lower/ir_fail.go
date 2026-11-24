@@ -87,10 +87,10 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		return []*irStmt{b.formed(&irStmt{K: "ret", Pos: p}, "unit")}
 	}
 	if call := b.fallibleCall(x); call != nil {
-		if _, implicit := b.l.info.Implicit[x]; implicit {
-			// The value converts (a variant into the result's union):
-			// the call's failure leaves first, then the value returns.
-			pre, v := b.try(call)
+		if _, implicit := b.l.info.Implicit[x]; implicit || b.l.info.ReturnedTemps[call] {
+			// A converted or kept result needs a success edge of its
+			// own. A failed call produces no value to own or convert.
+			pre, v := b.tryValue(call)
 			return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: b.implicit(x, v)}, "val"))
 		}
 		if c := b.l.info.Calls[call]; c != nil && (c.Kind == check.CallFuncValue || b.unitPair(call) || b.fc.frame.unit) && b.result == nil {
@@ -241,18 +241,23 @@ func (b *irBuilder) failExpr(x syntax.Expr) ([]*irStmt, *irExpr) {
 			// emitter's try does.
 			return b.value(x.X)
 		}
-		pre, v := b.try(call)
-		if v != nil {
-			// The call's value, a temporary its statement owns (R43),
-			// registers once the failure has left (ownTemp, ir_own.go).
-			v = b.ownTemp(call, v)
-		}
-		return pre, v
+		return b.tryValue(call)
 	case *syntax.CatchExpr:
 		return b.catch(x, false)
 	}
 	irNo("expression %T", x)
 	return nil, nil
+}
+
+// tryValue is try for a value: the failure has left before the successful
+// result can acquire its owner (R43, R10), which precedes any conversion.
+func (b *irBuilder) tryValue(call *syntax.CallExpr) ([]*irStmt, *irExpr) {
+	pre, v := b.try(call)
+	if v == nil || b.l.info.OwnedTemps[call] == nil {
+		return pre, v
+	}
+	hold, v := b.collect(func() ([]*irStmt, *irExpr) { return nil, b.ownTemp(call, v) })
+	return append(pre, hold...), v
 }
 
 // try is try call: its value, after a failure leaves the frame.
@@ -579,10 +584,9 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 	ifs := &irStmt{K: "if", Pos: p, End: sw.End, X: b.notNil(e, p), Then: then}
 	if result >= 0 && v >= 0 {
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
-		// The call's value joins the union of the arms' (ir_union.go).
-		val := b.variantInto(b.l.info.Types[src], m.Result, &irExpr{K: "local", Pos: sw.End, I: v}, src)
-		ifs.Else = []*irStmt{{K: "set", Pos: sw.End, Local: result, X: val}}
-		if !patterned && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irArmsLeave(sw, result) {
+		hold, val := b.catchValue(src, &irExpr{K: "local", Pos: sw.End, I: v}, m.Result)
+		ifs.Else = append(hold, &irStmt{K: "set", Pos: sw.End, Local: result, X: val})
+		if !patterned && len(hold) == 0 && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irArmsLeave(sw, result) {
 			// Every arm leaves (the emitter's catch, whose arms all
 			// panic or return, yields the call's value in place): the
 			// value is the call's own local, with no caught copy (RED17).
@@ -595,6 +599,18 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		return pre, nil
 	}
 	return pre, &irExpr{K: "local", Pos: p, I: result}
+}
+
+// catchValue owns the caught call's successful result before it joins the
+// catch's arms, as tryValue does on a try's success edge.
+func (b *irBuilder) catchValue(src syntax.Expr, val *irExpr, result check.Type) ([]*irStmt, *irExpr) {
+	key := unparen(src)
+	if !b.l.info.ReturnedTemps[key] {
+		return nil, b.variantInto(b.l.info.Types[src], result, val, src)
+	}
+	return b.collect(func() ([]*irStmt, *irExpr) {
+		return nil, b.assignedTo(src, b.implicit(src, b.ownTemp(key, val)), result)
+	})
 }
 
 // armBody is a catch arm's statements; its last expression is the
@@ -627,7 +643,7 @@ func (b *irBuilder) operand(x syntax.Expr) ([]*irStmt, *irExpr) {
 	switch u := unparen(x).(type) {
 	case *syntax.CallExpr:
 		if b.tries > 0 && b.fallibleCall(u) != nil {
-			pre, v := b.try(u)
+			pre, v := b.tryValue(u)
 			if v == nil {
 				irNo("try without a value")
 			}

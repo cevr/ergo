@@ -82,10 +82,6 @@ type fnb {
 	// prelude is the prelude's declarations, which every package's
 	// yield to (lower's pkgnames.go, rule 5).
 	prelude []string,
-	// sourced: the package is the program's own (not std), lowered with
-	// //line directives, where a call site may be marked for inlining
-	// (lower's inlineMark), which the slice does not port.
-	sourced bool,
 	// calls is check/expr's resolved calls (Typer.Calls); callAt maps a
 	// call's row to its index in calls plus one (0: none).
 	calls  []expr.CallTo,
@@ -96,7 +92,7 @@ type fnb {
 // are its files' paths, File.Files' entries, path its import path, and root
 // whether it is the build's root package (a program's main package, or the
 // package a test build tests), whose declarations Go spells bare.
-func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, sourced bool) Out {
+func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool) Out {
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
@@ -142,7 +138,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, sourced: sourced, calls: t.Calls, callAt: callAt}
+		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt}
 		let built = function(&st, &b, f, paths[f.File]) catch {
 		case Unported as u:
 			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
@@ -770,9 +766,8 @@ type aCall { name string, method bool, args []dense.ID[syntax.Node] }
 // of the package on a record of its own (x.f(…), the receiver first), or
 // of another Ergo package of the program (pkg.f(…), lower's useFunc: a
 // function of the one Go package, alias__name), not the prelude's; no
-// trailing block; a leaf (leafCallee), from a std body (a sourced body's
-// call may be inlined, inlineMark), on operands not all constants (lower's
-// fold evaluates a call on constants) and none a call or a literal
+// trailing block; a direct leaf (leafCallee), with operands not all
+// constants (lower's fold evaluates a call on constants) and none a call or a literal
 // (lower's template), with no rewrite law over it (rewritePass). The
 // callee is a Go method when its first parameter is a record of its
 // package (goName, lower's methodReceiver).
@@ -827,9 +822,6 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	}
 	if i < 0 {
 		return stop("call of a function value")
-	}
-	if st.sourced {
-		return stop("call in a sourced body (inline decision)")
 	}
 	let f = cst.k.Fns[i]
 	let name = nameText(cst.k.Parsed[f.File], f.Name)
@@ -892,7 +884,6 @@ func depOf(st fnb, sel dense.ID[syntax.Node]) fnb fails Unported {
 				out.k = d.K
 				out.s = d.S
 				out.alias = pkgAlias(d.Path)
-				out.sourced = false
 				return out
 			}
 		}
@@ -975,6 +966,13 @@ func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
 // its purity needs no fixed point; its name is the package's once. Its
 // first parameter may be a plain record (plainRecord), whose function is
 // then a Go method (goName); the result tells which.
+//
+// This is also the inline decision for this domain. No type parameters
+// and no calls imply Go's goLeaf; one basic result rules out boxedResult.
+// inlineRule's positive-budget inlineSlotBody therefore rejects the
+// callee before inlineMark makes a site. pays never runs, regardless of
+// body size, loop hotness, or source directives. A negative-budget fold
+// is a separate decision: callee still stops at fold and template operands.
 func leafCallee(st fnb, i int, name string) bool fails Unported {
 	let f = st.k.Fns[i]
 	let p = st.k.Parsed[f.File]
