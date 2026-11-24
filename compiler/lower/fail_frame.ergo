@@ -1,0 +1,129 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/syntax
+import dense
+import strings
+
+type failureExit { at dense.ID[syntax.Node], operands []dense.ID[syntax.Node] }
+type falliblePlan { member dense.ID[store.TKey], exit Option[failureExit] }
+
+// envFreeFallibleFrame proves a no-call scalar method that either succeeds
+// or returns one exact local failure before its success tail. A Go method
+// cannot get a flat worker. No borrowed/owned operand, dynamic witness,
+// conversion or other body effect is admitted.
+func envFreeFallibleFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops []dense.ID[store.TKey], n int) framePlan fails Unported {
+	let row = ops[n+1]
+	let members = store.OperandsOf(st.s, row)
+	if store.KindOfType(st.s, row) != store.KRow || len(members) != 1 || plainRecord(st, members[0]) < 0 {
+		return stop("one closed local plain failure required")
+	}
+	if basicGo(st, ops[n]) == "" {
+		return stop("scalar success result required")
+	}
+	if n == 0 || plainRecord(st, ops[0]) < 0 || !strings.Contains(try goName(st, name, Some[dense.ID[store.TKey]]{Value: ops[0]}), ".") {
+		return stop("non-flat method required")
+	}
+	if len(f.Takes) != n {
+		return stop("formal modes unavailable")
+	}
+	for i in 0..n {
+		if f.Takes[i] || (i != 0 && basicGo(st, ops[i]) == "") {
+			return stop("value receiver and scalar non-taking formals required")
+		}
+	}
+	let failure = try fallibleTail(st, body, ops[n], members[0])
+	framePlan{env: -1, slots: n, pure: false, fallible: Some[falliblePlan]{Value: failure}, pollEntry: false, op: None}
+}
+
+// Recognize only the two whole-body footprints described above. CONTROL
+// still owns branch planning, flow, liveness, positions and row emission.
+func fallibleTail(st fnb, body dense.ID[syntax.Node], success dense.ID[store.TKey], member dense.ID[store.TKey]) falliblePlan fails Unported {
+	let tr = st.p.Tree
+	let list = match syntax.ViewOf(tr, body) {
+	case syntax.BlockStmt as b:
+		b.List
+	case _:
+		return stop("fallible body must have a scalar tail")
+	}
+	let n = syntax.Len(list)
+	if n != 1 && n != 2 {
+		return stop("fallible body must have a scalar tail")
+	}
+	match syntax.ViewOf(tr, syntax.Item(tr, list, n-1)) {
+	case syntax.ExprStmt as e:
+		if (try typeOf(st, e.X, "success tail")) != success || !exitScalar(st, e.X) {
+			return stop("success tail is not an exact scalar")
+		}
+	case _:
+		return stop("fallible body must have a scalar tail")
+	}
+	let exit = if n == 1 {
+		None
+	} else {
+		Some[failureExit]{Value: try earlyFailure(st, syntax.Item(tr, list, 0), member)}
+	}
+	falliblePlan{member: member, exit: exit}
+}
+
+func earlyFailure(st fnb, node dense.ID[syntax.Node], member dense.ID[store.TKey]) failureExit fails Unported {
+	let tr = st.p.Tree
+	match syntax.ViewOf(tr, node) {
+	case syntax.IfStmt as branch:
+		if dense.Unpack(branch.Else) == None && exitScalar(st, branch.Cond) {
+			match syntax.ViewOf(tr, branch.Body) {
+			case syntax.BlockStmt as b:
+				if syntax.Len(b.List) == 1 {
+					match syntax.ViewOf(tr, syntax.Item(tr, b.List, 0)) {
+					case syntax.ReturnStmt as r:
+						match dense.Unpack(r.Result) {
+						case Some{Value: x}:
+							return try recordFailure(st, x, member)
+						case None:
+						}
+					case _:
+					}
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	stop("typed failure must be the early return of one scalar branch")
+}
+
+func recordFailure(st fnb, x dense.ID[syntax.Node], member dense.ID[store.TKey]) failureExit fails Unported {
+	let y = unparen(st, x)
+	match syntax.ViewOf(st.p.Tree, y) {
+	case syntax.CompositeLit as lit:
+		if dense.Unpack(lit.Base) == None && (try typeOf(st, y, "failure return")) == member {
+			let a = try aggregateLiteral(st, y, lit)
+			for operand in a.values {
+				if !exitScalar(st, operand) {
+					return stop("failure field is not an exact scalar")
+				}
+			}
+			return failureExit{at: x, operands: a.values}
+		}
+	case _:
+	}
+	stop("return does not build the row's exact failure")
+}
+
+// The ordinary expression planner still checks the operators, types and
+// binder reads. This vocabulary rules out hidden calls and frame actions.
+func exitScalar(st fnb, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		true
+	case syntax.BasicLit:
+		true
+	case syntax.ParenExpr as p:
+		exitScalar(st, p.X)
+	case syntax.UnaryExpr as u:
+		exitScalar(st, u.X)
+	case syntax.BinaryExpr as b:
+		exitScalar(st, b.X) && exitScalar(st, b.Y)
+	case _:
+		false
+	}
+}

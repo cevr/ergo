@@ -9,9 +9,9 @@ import strings
 // framePlan distinguishes purity, environment ABI and failure ABI. slots
 // counts formals, including the environment when it has a slot. None of
 // those formals is declared in ir.Func.Locals, which holds body locals only.
-type framePlan { env int, slots int, pure bool, fallible bool, pollEntry bool, op Option[directOp] }
+type framePlan { env int, slots int, pure bool, fallible Option[falliblePlan], pollEntry bool, op Option[directOp] }
 
-func rowlessFrame(n int) framePlan { framePlan{env: -1, slots: n, pure: true, fallible: false, pollEntry: false, op: None} }
+func rowlessFrame(n int) framePlan { framePlan{env: -1, slots: n, pure: true, fallible: None, pollEntry: false, op: None} }
 
 func needsFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops []dense.ID[store.TKey], n int) framePlan fails Unported {
 	let row = ops[n+2]
@@ -51,7 +51,7 @@ func needsFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops 
 	// The operation polls at its site, but Footprint.EntryPoll is false.
 	let env = if method { 1 } else { 0 }
 	let planned = directOp{call: op.call, args: op.args, member: op.member, cap: capName, result: op.result, tail: tail}
-	framePlan{env: env, slots: n + 1, pure: false, fallible: false, pollEntry: false, op: Some[directOp]{Value: planned}}
+	framePlan{env: env, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: Some[directOp]{Value: planned}}
 }
 
 // parameterSlots binds names once, leaving unnamed formal slots in place.
