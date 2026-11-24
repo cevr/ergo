@@ -91,8 +91,12 @@ type Unit struct {
 	Package *check.Package
 	// Path is the package's import path as the loader resolved it; the
 	// root package's own Package.Path is "main" whatever its folder.
-	Path  string
-	Files []File
+	Path string
+	// Module is the module that holds the package, as the graph rows
+	// name it (sketchfront.Analysis.ModuleOf): a file's Rel is relative
+	// to this module's root.
+	Module string
+	Files  []File
 	// Dependency marks a package of a required module, not the linted
 	// module's own: its facts are read, but no rule runs over its files.
 	Dependency bool
@@ -118,16 +122,27 @@ type Pass struct {
 	// rule that takes none.
 	Options any
 	rel     string
-	found   []Finding
-	bad     error
-	run     *ruleRun
+	// unit and index place the pass's file: Input.Units[unit].Files[index].
+	unit, index int
+	found       []Finding
+	bad         error
+	run         *ruleRun
 }
 
 // ruleRun is what the passes of one rule over one program share: the
-// program and the rule's memo.
+// program, the rule's memo and the run's shared facts.
 type ruleRun struct {
-	in   Input
-	memo any
+	in     Input
+	memo   any
+	shared *runShared
+}
+
+// runShared is what every rule of one run shares: facts over the whole
+// program that no rule's options change, each built once, on first use.
+type runShared struct {
+	in     Input
+	graph  *programGraph
+	layout *layoutRows
 }
 
 // Rel is the file's path relative to the module root, "" for a program of

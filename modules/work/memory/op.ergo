@@ -406,6 +406,11 @@ func worldOn(r work.Registry, sharing bool, tree Map[string, string], config str
 	let lock = NewLock()
 	let hooks = Recording(lock, failing)
 	let runner = NewRunner()
+	let parsed = work.ParseConfig(config) catch {
+	case work.BadConfig:
+		work.EmptyConfig()
+	}
+	runner.install.Set(parsed.Install)
 	let p = work.Providers{Cloners: []work.Cloner{cloner}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: hooks, Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: clock}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
 	let _ = tool.Init() catch {
@@ -556,7 +561,7 @@ law ToolAgreesWithTheReference(ops []Op, sharing bool, tree Map[string, string])
 				let path = work.Home(theBase, "") + "/" + work.FolderOf(name)
 				let cut = small(o.At, 4)
 				w.registry.Put(work.Workspace{Name: name, Path: path, Parent: theBase, Branch: if cut == 3 { name } else { "" }, Cloner: "", State: work.Creating, Since: at, Base: "", Latest: "", Deps: "", Id: crashId(name), Token: "", Moving: "", Pinned: false, Until: 0}) catch {
-					case work.Unkept:
+				case work.Unkept:
 				}
 				// The name's folder and staging folder are this crash's now.
 				let staging = work.StagingOf(work.Home(theBase, ""), crashId(name))

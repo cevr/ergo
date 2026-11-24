@@ -1,0 +1,6 @@
+# scripts/opcount: `irforms bench provspill N` runs N units of the probe provspill;
+# the cost of one unit is the slope between the two sizes (IR-FORMS §2).
+unit op
+sizes 409600 2457600
+args bench provspill {n}
+control benchmarks/forms/testdata/control

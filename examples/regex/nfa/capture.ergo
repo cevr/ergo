@@ -6,7 +6,6 @@
 // other dropped; that keeps the list as long as the program at most and
 // keeps the history of the path the reference engine would choose.
 
-import machines
 import regex/syntax
 import slices
 import regex/backtrack
@@ -37,83 +36,95 @@ type Tags = Running{B Begin, Threads []Thread, At int, Best Option[Best], Work T
 
 // StartTags is the state before the first byte: the closure of the start
 // instruction with an empty history.
-func StartTags(b Begin) Tags {
+func StartTags(b Begin) Running {
 	let mut v = newVisit(b.P)
 	v.add(b.P, b.P.start, syntax.Start, b.At)
-	settle(Running{B: b, Threads: v.out, At: b.At, Best: None, Work: TagWork{Steps: 0, Events: v.events}})
+	let mut r = Running{B: b, Threads: v.out, At: b.At, Best: None, Work: TagWork{Steps: 0, Events: v.events}}
+	settle(&r)
+	r
 }
 
-// StepTags is the tagged machine's transition. On a byte it moves every
-// thread that reads it, in order; at the End it is Done with its match.
-// It is Done early when no thread is left.
-func StepTags(s Tags, sig Signal) Decision[Tags, Tagged] {
+// StepTags moves the ordered threads over one byte without changing the
+// program. An empty thread list cannot find a better match.
+func StepTags(r mut Running, rd Read) {
+	let p = r.B.P
+	let at = r.At + 1
+	let mut v = newVisit(p)
+	for t in r.Threads {
+		match p.insts[t.Pc] {
+		case Byte as b:
+			if b.C == rd.C {
+				v.add(p, b.Next, t.H, at)
+			}
+		case AnyByte as a:
+			v.add(p, a.Next, t.H, at)
+		case Set as st:
+			if st.Class.Has(rd.C) {
+				v.add(p, st.Next, t.H, at)
+			}
+		case Split, Save, Accept:
+		}
+	}
+	r.Work = TagWork{Steps: r.Work.Steps + len(r.Threads), Events: r.Work.Events + v.events}
+	r.Threads = v.out
+	r.At = at
+	settle(r)
+}
+
+// FinishTags returns the best prefix in Find mode, or the first
+// accepting thread at End in whole-match mode.
+func FinishTags(r Running) Tagged {
+	if r.B.Find {
+		return Tagged{Match: r.Best, Work: r.Work}
+	}
+	for t in r.Threads {
+		match r.B.P.insts[t.Pc] {
+		case Accept:
+			return Tagged{Match: Some{Value: Best{End: r.At, H: t.H}}, Work: r.Work}
+		case _:
+		}
+	}
+	Tagged{Match: None, Work: r.Work}
+}
+
+func taggerStart(b Begin) Tags { StartTags(b) }
+
+func decideTags(s Tags, sig Signal) Decision[Tags, Tagged] {
 	match (s, sig) {
 	case (Running as r, Read as rd):
-		let mut v = newVisit(r.B.P)
-		for t in r.Threads {
-			match r.B.P.insts[t.Pc] {
-			case Byte as b:
-				if b.C == rd.C {
-					v.add(r.B.P, b.Next, t.H, r.At+1)
-				}
-			case AnyByte as a:
-				v.add(r.B.P, a.Next, t.H, r.At+1)
-			case Set as st:
-				if st.Class.Has(rd.C) {
-					v.add(r.B.P, st.Next, t.H, r.At+1)
-				}
-			case Split, Save, Accept:
-			}
-		}
-		let work = TagWork{Steps: r.Work.Steps + len(r.Threads), Events: r.Work.Events + v.events}
-		let next = settle(Running{B: r.B, Threads: v.out, At: r.At + 1, Best: r.Best, Work: work})
-		match next {
-		case Running as n:
-			if len(n.Threads) == 0 {
-				return Done[Tagged]{Output: Tagged{Match: n.Best, Work: n.Work}}
-			}
+		let mut next = r
+		next.StepTags(rd)
+		if len(next.Threads) == 0 {
+			return Done[Tagged]{Output: Tagged{Match: next.Best, Work: next.Work}}
 		}
 		Enter[Tags]{Next: next}
 	case (Running as r, End):
-		if r.B.Find {
-			return Done[Tagged]{Output: Tagged{Match: r.Best, Work: r.Work}}
-		}
-		for t in r.Threads {
-			match r.B.P.insts[t.Pc] {
-			case Accept:
-				return Done[Tagged]{Output: Tagged{Match: Some{Value: Best{End: r.At, H: t.H}}, Work: r.Work}}
-			case _:
-			}
-		}
-		Done[Tagged]{Output: Tagged{Match: None, Work: r.Work}}
+		Done[Tagged]{Output: FinishTags(r)}
 	}
 }
 
 // settle records, when the machine finds, the first thread at Accept as
 // the best match so far and drops it and every thread after it: they
 // have lower priority. The threads before it may still find a better one.
-func settle(s Tags) Tags {
-	match s {
-	case Running as r:
-		if !r.B.Find {
-			return s
+func settle(r mut Running) {
+	if !r.B.Find {
+		return
+	}
+	for i in 0..len(r.Threads) {
+		match r.B.P.insts[r.Threads[i].Pc] {
+		case Accept:
+			r.Best = Some{Value: Best{End: r.At, H: r.Threads[i].H}}
+			r.Threads = r.Threads[:i]
+			return
+		case _:
 		}
-		for i in 0..len(r.Threads) {
-			match r.B.P.insts[r.Threads[i].Pc] {
-			case Accept:
-				let best = Best{End: r.At, H: r.Threads[i].H}
-				return Running{B: r.B, Threads: r.Threads[:i], At: r.At, Best: Some{Value: best}, Work: r.Work}
-			case _:
-			}
-		}
-		s
 	}
 }
 
 // Tagger is the tagged NFA as a machine. Its input is a Begin.
 type Tagger machine[Tags, Signal] {
-	initial: StartTags,
-	step:    StepTags,
+	initial: taggerStart,
+	step:    decideTags,
 }
 
 // visit is a closure while it is built: its threads in priority order, a
@@ -242,23 +253,14 @@ law TagWorkIsBounded(seed int) {
 
 // runTags runs the tagged machine on text from start.
 func runTags(p Program, text string, start int, find bool) Tagged {
-	let m = machines.Start(Tagger{}, Begin{P: p, At: start, Find: find})
-	let mut s = machines.Initial(m)
+	let mut r = StartTags(Begin{P: p, At: start, Find: find})
 	for i in start..len(text) {
-		let d = m.Step(s, Read{C: text[i]})
-		match d {
-		case Done[Tagged] as o:
-			return o.Output
-		case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Tell[Tags, Tagged], Ignore, Reject:
+		r.StepTags(Read{C: text[i]})
+		if len(r.Threads) == 0 {
+			return Tagged{Match: r.Best, Work: r.Work}
 		}
-		s = machines.Next(s, d)
 	}
-	match m.Step(s, End) {
-	case Done[Tagged] as o:
-		o.Output
-	case Enter[Tags], Stay[Tags], Emit[Tags, Tagged], Tell[Tags, Tagged], Ignore, Reject:
-		Unreachable("StepTags is Done at the End of every text")
-	}
+	FinishTags(r)
 }
 
 // ParseCaptures is the events of the match of c on the whole text, or

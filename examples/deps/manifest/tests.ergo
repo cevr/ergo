@@ -28,26 +28,32 @@ test BadLinesNameTheirNumber {
 	assert failure("project a b\n") == "1: write project NAME"
 }
 
-test StepUsesEveryDecision {
+test LineAndFinishHaveSeparateContracts {
+	let (project, _) = try Step(Start(), Line{No: 1, Text: "project app"})
+	let (withRoot, _) = try Step(project, Line{No: 2, Text: "  needs web"})
+	let (withRelease, _) = try Step(withRoot, Line{No: 3, Text: "package web 1.0.0"})
+	let m Manifest = try Finish(withRelease)
+	assert m.Project == "app" && len(m.Root) == 1 && len(m.Releases) == 1
+
 	let top = Start()
-	match try Step(top, Line{No: 1, Text: "# only a comment"}) {
+	match try decide(top, Line{No: 1, Text: "# only a comment"}) {
 	case Ignore:
 	case _:
 		assert false
 	}
-	let inProject = match try Step(top, Line{No: 1, Text: "project app"}) {
+	let inProject = match try decide(top, Line{No: 1, Text: "project app"}) {
 	case Enter[Block] as e:
 		e.Next
 	case _:
 		top
 	}
-	match try Step(inProject, Line{No: 2, Text: "  needs web"}) {
+	match try decide(inProject, Line{No: 2, Text: "  needs web"}) {
 	case Stay[Block] as s:
 		assert len(ManifestOf(s.Next).Root) == 1
 	case _:
 		assert false
 	}
-	match try Step(inProject, End) {
+	match try decide(inProject, End) {
 	case Done[Manifest] as d:
 		assert d.Output.Project == "app"
 	case _:

@@ -1,0 +1,9 @@
+type MapHolder { Values Map[string, int], Count int }
+
+func PortMapKeep(x Map[string, int]) Map[string, int] { x }
+
+func PortMapReadCount(x MapHolder) int { x.Count }
+
+func PortMapSlice(x Map[string, int]) []Map[string, int] { []Map[string, int]{x} }
+
+func PortIntegerMapStillUnproved(x Map[int, int]) Map[int, int] { x }

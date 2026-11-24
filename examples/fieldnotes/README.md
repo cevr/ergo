@@ -22,7 +22,7 @@ Tag: `default`. It is an original program, not a port. Its goldens were made by 
 | folder | what it holds |
 | --- | --- |
 | `journal/` | The domain. `Entry`, `Missing`, the contract `Journal` (an operation type with laws `ListedEntriesRead` and `ListIsNewestFirst`), `Same`, `Before`, `Slug` with law `SlugIsItsOwn`. Pure. |
-| `content/` | The note format. `note.ergo`: the machine `Reader`, whose state is the part being read (`Head` or `Body`), `Step`, `Read`, `Format`, `IsDay`, and `ReadFolder` over `fs.Files`, with law `FormatThenRead` beside `Format`. `tests.ergo`: each bad note's line and reason. |
+| `content/` | The note format. `Reader` interprets `Head` and `Body` as machine states. `Read` streams lines through `Step` and uses `Finish` to validate or flush the last part. `FormatThenRead` checks round trips; the tests check `BadLine` locations and final paragraphs. `ReadFolder` reads files through `fs.Files`. |
 | `memory/` | `Journal`, the `journal.Journal` of a list of entries (`NewJournal`), on which the contract's laws run. |
 | `site/` | The site. `route.ergo`: `Route = Index \| Entry \| Feed`, its `web.Routes` map, and law `HrefParses` (the link form: a route parses back from the link `web.To` prints). `page.ergo`: `Page`, `Load` (needs `journal.Journal`), `Listed`, `New`, with the laws `BuiltEqualsServed`, `LinksResolve`, `EveryPageIsListed`, `FeedIsWellFormed` over generated journals. `view.ergo`: `View`, with a `match` over every page. `feed.ergo`: `FeedText`. |
 | `cmd/fieldnotes/` | The binary. It binds the host's files, standard output and arguments, and a `memory.Journal` of the notes it read, and is the only place that chooses them. Its test builds over an `fstest.Memory`. |

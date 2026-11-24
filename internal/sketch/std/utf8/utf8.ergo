@@ -52,6 +52,8 @@ func IsDigit(r rune) bool { unicode.IsDigit(r) }
 // unicode.IsLetter.
 func IsLetter(r rune) bool { unicode.IsLetter(r) }
 
+func IsUpper(r rune) bool { unicode.IsUpper(r) }
+
 // IsSpace reports whether r is white space as Go's unicode.IsSpace
 // defines it: '\t', '\n', '\v', '\f', '\r', ' ', U+0085, U+00A0, and
 // the Unicode class Z beyond Latin-1.

@@ -101,14 +101,14 @@ func (b *irBuilder) tupleValue(x *syntax.TupleExpr) ([]*irStmt, *irExpr) {
 }
 
 // hostBasic reports a Go basic type that a Go call passes or returns with
-// no adapter: not a Duration (time.Duration in Go), complex or uintptr.
+// no adapter. Duration already lowers to Go's time.Duration.
 func hostBasic(t check.Type) bool {
 	bt, ok := t.(*check.Basic)
 	if !ok {
 		return false
 	}
 	switch bt.Kind {
-	case check.Complex64, check.Complex128, check.Uintptr, check.Invalid, check.Duration:
+	case check.Complex64, check.Complex128, check.Uintptr, check.Invalid:
 		return false
 	}
 	return true

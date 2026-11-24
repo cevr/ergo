@@ -1,0 +1,8 @@
+type Sized { Size() int }
+
+type Output { Println(message string) }
+
+func Size(xs []int) int needs Output implements Sized {
+	Output.Println("sizing")
+	len(xs)
+}

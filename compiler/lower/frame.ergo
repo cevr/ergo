@@ -1,0 +1,87 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+import strings
+
+// framePlan distinguishes purity, environment ABI and failure ABI. slots
+// counts formals, including the environment when it has a slot. None of
+// those formals is declared in ir.Func.Locals, which holds body locals only.
+type framePlan { env int, slots int, pure bool, fallible Option[falliblePlan], pollEntry bool, op Option[directOp] }
+
+func rowlessFrame(n int) framePlan { framePlan{env: -1, slots: n, pure: true, fallible: None, pollEntry: false, op: None} }
+
+func needsFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops []dense.ID[store.TKey], n int) framePlan fails Unported {
+	let row = ops[n+2]
+	let caps = store.OperandsOf(st.s, row)
+	if store.KindOfType(st.s, row) != store.KRow || len(caps) != 1 || store.KindOfType(st.s, caps[0]) != store.KNamed {
+		return stop("closed local capability required")
+	}
+	if basicGo(st, ops[n]) == "" {
+		return stop("scalar result required")
+	}
+	for take in f.Takes {
+		if take {
+			return stop("owned parameter")
+		}
+	}
+	for i in 0..n {
+		if basicGo(st, ops[i]) == "" && (i != 0 || plainRecord(st, ops[i]) < 0) {
+			return stop("scalar parameters or a leading plain record required")
+		}
+	}
+	let first = if n > 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None }
+	let method = strings.Contains(try goName(st, name, first), ".")
+	// Go's known-provider pass scans main programs, and treats their
+	// methods as escaped. A no-main root has no known-provider sites.
+	if !st.frameRoot || (!method && store.Lookup(st.s, "main") != None) {
+		return stop("program provider binding not proved")
+	}
+	let tail = try frameTail(st, body)
+	let op = try operationIn(st, tail, caps[0])
+	let capName = try envMember(st, caps[0])
+	if has(f.Pnames, "v") || has(st.prelude, "v") || store.Lookup(st.s, "v") != None {
+		return stop("operation temporary name taken")
+	}
+	// This whole body has one checked CallProviderOp and no other calls,
+	// context conversions, tasks, borrowed/owned inputs or statement
+	// forms. Its footprint is that capability, not opaque or recursive.
+	// The operation polls at its site, but Footprint.EntryPoll is false.
+	let env = if method { 1 } else { 0 }
+	let planned = directOp{call: op.call, args: op.args, member: op.member, cap: capName, result: op.result, tail: tail}
+	framePlan{env: env, slots: n + 1, pure: false, fallible: None, pollEntry: false, op: Some[directOp]{Value: planned}}
+}
+
+// parameterSlots binds names once, leaving unnamed formal slots in place.
+// The environment precedes ordinary parameters, but follows a receiver.
+func parameterSlots(st mut fnb, f expr.Fn) {
+	for i, pn in f.Names {
+		match dense.Unpack(pn) {
+		case Some[dense.ID[syntax.Node]] as x:
+			st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, x.Value))
+			st.locals = st.locals.Append(if st.frame.env >= 0 && i >= st.frame.env { i + 1 } else { i })
+		case None:
+		}
+	}
+}
+
+// frameBody writes the effect profile's single tail after its frame and
+// expression have been checked. Other bodies belong to the statement
+// walker. A direct operation is scheduled before the expression only
+// when it has been proved to supply the leftmost operand.
+func frameBody(st fnb, b mut ir.Builder, fp ir.Pos, op directOp) fails Unported | ir.Malformed {
+	let mut out = []uint32{}
+	if st.frame.pollEntry {
+		out = out.Append(try framePoll(st, b, fp))
+	}
+	let rows = try operationRows(st, b, op)
+	for x in rows {
+		out = out.Append(x)
+	}
+	let x = try value(st, b, op.tail)
+	let at = pos(st, syntax.NodePos(st.p, op.tail))
+	out = out.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{x}))
+	try ir.End(b, ir.List(b, out))
+}

@@ -13,9 +13,9 @@ import strings
 import sync
 import time
 
-// PackageManager is an exec.Runner over a memory disk: each command it
-// runs, in the command's folder, reads package.json and writes bun.lock
-// as LockOf it (status 1 when the manifest does not read).
+// PackageManager plays Bun's lockfile-only install on a memory disk.
+// In the command's folder it reads package.json and writes bun.lock as
+// LockOf it (status 1 when the manifest does not read).
 type PackageManager { disk fstest.Memory, runs sync.Ref[int] } implements exec.Runner
 
 func NewPackageManager(disk fstest.Memory) PackageManager { PackageManager{disk: disk, runs: sync.NewRef(0)} }
@@ -24,7 +24,7 @@ func NewPackageManager(disk fstest.Memory) PackageManager { PackageManager{disk:
 func Env(_ PackageManager) Map[string, string] { Map[string, string]{} }
 
 func Run(p PackageManager, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
-	if StatesItsStatus(c) {
+	if shellScript(c) != "bun install --lockfile-only" {
 		return exec.NotFound{Name: c.Name}
 	}
 	p.runs.Set(p.runs.Get() + 1)

@@ -2,6 +2,7 @@ package v1
 
 import (
 	"strconv"
+	"sync"
 	"time"
 
 	"ergo.local/prototype/runtime/rt"
@@ -589,22 +590,28 @@ const (
 	taskDone     = iota // the block returned its value
 	taskFailed          // the task's whole exit is one typed failure
 	taskDefected        // a defect ended it (with or without a typed failure)
+	taskStopped         // a stop that was not the waiter's ended it
 )
 
-// TaskExit is std task's exitOf(t): it waits for the task to end, as Wait
-// does, and gives how it ended (taskDone, taskFailed, taskDefected); for
-// a defect it keeps the text of its first defect, as the runtime's report
-// writes it after "panic: ", for TaskReason (defectReason, the helper ActorDefectReason
-// reads; Tasks 13). A lone typed failure is its returned error, which the
-// caller's catch takes. A defect is observed here: it is returned as a
-// value and never raised again, by this call or by the owner's release,
-// since the task is consumed. The task's exit actions and drains have run
-// before it returns, because rt writes the exit only after the task's
-// releases. A stop of the waiter is Wait's: the task is stopped and
-// drained, and the interruption, with the task's defects, is raised. So is
-// an exit that holds an interruption. A TaskExit after Wait, Stop or Close
-// is a defect. It consumes the task but does not deliver its value: the
-// value stays in the Task for TaskValue.
+// TaskExit is std task's exitOf(t) on ct, the waiting task: it waits for
+// the task to end, as Wait does, and gives how it ended (taskDone,
+// taskFailed, taskDefected, taskStopped); for a defect it keeps the text
+// of its first defect, as the runtime's report writes it after "panic: ",
+// for TaskReason (defectReason, the helper ActorDefectReason reads; Tasks
+// 13). A lone typed failure is its returned error, which the caller's
+// catch takes. A defect is observed here: it is returned as a value and
+// never raised again, by this call or by the owner's release, since the
+// task is consumed. The task's exit actions and drains have run before it
+// returns, because rt writes the exit only after the task's releases.
+//
+// A stop of the waiter is Wait's: the task is stopped and drained, and the
+// interruption, with the task's defects, is raised. A stop that is not the
+// waiter's (a StopAfter alarm, a stop of the task's starter when another
+// task waits) is taskStopped, unless the block returned its value before
+// the stop reached it, which rt's stop-wins dropped and the Task kept
+// (taskDone), or a defect came with it (taskDefected). A TaskExit after
+// Wait, Stop or Close is a defect. It consumes the task but does not
+// deliver its value: the value stays in the Task for TaskValue.
 //
 //ergo:wait caller
 func TaskExit[T any](ct *rt.Task, t *Task[T]) (int, error) {
@@ -615,13 +622,92 @@ func TaskExit[T any](ct *rt.Task, t *Task[T]) (int, error) {
 	if f, ok := rt.Failure(err); ok {
 		return taskFailed, f
 	}
-	if why := defectReason(err); why != "" && !interrupted(err) {
-		t.why = why
-		return taskDefected, nil
+	why := defectReason(err)
+	if !interrupted(err) || !ct.Stopped() {
+		switch {
+		case why != "":
+			t.why = why
+			return taskDefected, nil
+		case t.ended:
+			return taskDone, nil
+		case interrupted(err):
+			return taskStopped, nil
+		}
 	}
 	raise(err)
 	panic("unreachable")
 }
+
+// TaskAlarm is std task's Alarm, what StopAfter armed: one alarm on the
+// Scheduler's AlarmClock that stops a task. Cancel or its release (Close)
+// disarms it; after it fired, both do nothing.
+type TaskAlarm struct {
+	mu    sync.Mutex
+	alarm Alarm // the armed alarm; nil once it fired or was disarmed
+}
+
+// TaskStopAfter is std task's StopAfter(x, d) on t, the calling task, and
+// s, the program's Scheduler: it arms one alarm on s's AlarmClock that
+// stops x once d has passed, as x's Stop would, but it neither waits for
+// x nor consumes it. It starts no task: the host's time.AfterFunc, or one
+// alarm on a time.Manual's timeline. A d of zero or less arms nothing.
+// The alarm acts after every other event of its instant
+// (AlarmClock.AfterSettled): on a time.Manual, a task woken at the same
+// instant runs to its next wait first, whichever was armed first, so a
+// block whose sleep ends at d and then returns gives its value. A
+// fire after x has ended stops nothing: x's rt task ended and has no
+// tasks under it, and no other task shares it (a task.Go handle is never
+// reused). Prior art: Go's context.WithTimeout's timer, which cancels and
+// never waits; Erlang's erlang:send_after with exit/2.
+//
+//ergo:wait none
+func TaskStopAfter[T any](t *rt.Task, s Sleeper, x *Task[T], d time.Duration) *TaskAlarm {
+	a := &TaskAlarm{}
+	if d <= 0 {
+		return a
+	}
+	al, ok := s.(Alarmer)
+	if !ok {
+		panic("task.StopAfter: the Scheduler gives no AlarmClock")
+	}
+	clock := al.Alarms(t)
+	xt := x.h.Task()
+	a.mu.Lock()
+	a.alarm = clock.AfterSettled(d, func() {
+		a.mu.Lock()
+		armed := a.alarm != nil
+		a.alarm = nil
+		a.mu.Unlock()
+		if armed {
+			xt.Interrupt()
+		}
+	})
+	a.mu.Unlock()
+	return a
+}
+
+// Cancel is Alarm.Cancel(): it disarms a and reports whether it was still
+// armed. False means the alarm fired (or a stopped nothing, d <= 0, or
+// was disarmed before).
+//
+//ergo:wait none
+func (a *TaskAlarm) Cancel() bool {
+	a.mu.Lock()
+	al := a.alarm
+	a.alarm = nil
+	a.mu.Unlock()
+	if al == nil {
+		return false
+	}
+	al.Stop()
+	return true
+}
+
+// Close is the release of an Alarm: Cancel, its result dropped.
+//
+//ergo:wait none
+//ergo:release caller
+func (a *TaskAlarm) Close(ct *rt.Task) { a.Cancel() }
 
 // interrupted reports whether err holds an interruption.
 func interrupted(err error) bool {
@@ -742,9 +828,11 @@ type Sleeper interface {
 // runs body as a child of t, the caller's task, and races it against a
 // deadline that the program's Scheduler gives. span, t and s are the
 // hidden site, task and scheduler arguments; body receives the child's
-// task. The deadline is a second child of t that calls s.Sleep(d): time is
-// a capability, so a test Scheduler controls when the deadline passes, and
-// After arms no host timer of its own.
+// task. The deadline is one alarm on s's AlarmClock (alarmTimers), the
+// alarm task.StopAfter arms: no task and no sleep, a time.AfterFunc on the
+// host and a timeline alarm on a time.Manual, so a test Scheduler controls
+// when it passes. Only a Go Sleeper of a test with no AlarmClock gets the
+// old deadline, a second child of t that calls s.Sleep(d) (deadlines).
 //
 // rt.AfterSpan races the two and drains both before it returns. The body
 // ends first: its value or its typed failure. The deadline passes first:
@@ -761,7 +849,11 @@ type Sleeper interface {
 func After[A any](span Site, t *rt.Task, s Sleeper, rel Releaser[A], d time.Duration, body func(*rt.Task) (A, error)) (A, error) {
 	var kept A
 	returned := false
-	v, err := rt.AfterSpan(t, deadlines{t: t, s: s, span: string(span) + " (deadline)"}, d, string(span), func(ct *rt.Task) (A, error) {
+	var timers rt.Scheduler = deadlines{t: t, s: s, span: string(span) + " (deadline)"}
+	if a, ok := s.(Alarmer); ok {
+		timers = alarmTimers{t: t, clock: a.Alarms(t)}
+	}
+	v, err := rt.AfterSpan(t, timers, d, string(span), func(ct *rt.Task) (A, error) {
 		v, err := guarded(ct, body)
 		if err == nil {
 			kept, returned = v, true
@@ -966,6 +1058,55 @@ func (ds deadlines) NewTimer(d rt.Span) rt.Timer {
 		})
 	})
 	return dl
+}
+
+// alarmTimers is After's deadline on the Scheduler's AlarmClock, as
+// task.StopAfter arms it: one alarm, no task and no sleep (PROC-RUN-FLOOR).
+// Every Scheduler of a program gives one (Alarmer); a Go Sleeper of a test
+// that gives none keeps deadlines.
+type alarmTimers struct {
+	t     *rt.Task
+	clock *AlarmClock
+}
+
+// NewTimer arms the alarm. It acts after every other event of its instant
+// (AlarmClock.AfterSettled), as StopAfter's does: on a time.Manual, a body
+// woken at the deadline's instant runs to its next wait before the
+// deadline passes. The fire then closes fired and wakes the race's caller.
+func (at alarmTimers) NewTimer(d rt.Span) rt.Timer {
+	dl := &alarmDeadline{fired: make(chan rt.Instant), done: make(chan struct{})}
+	dl.alarm = at.clock.AfterSettled(time.Duration(d), func() {
+		defer close(dl.done)
+		w := rt.Waking(at.t, dl)
+		close(dl.fired)
+		w.Done()
+	})
+	return dl
+}
+
+// alarmDeadline is one armed alarm of alarmTimers: fired closes when it
+// passes, done when its fire has finished.
+type alarmDeadline struct {
+	alarm Alarm
+	fired chan rt.Instant
+	done  chan struct{}
+}
+
+// C delivers when the deadline passes: it closes.
+func (dl *alarmDeadline) C() <-chan rt.Instant { return dl.fired }
+
+// WakesItsWaiter marks the alarm as an rt.WakeSource: its fire wakes the
+// race's caller through rt.Waking, so the caller may park on it.
+func (dl *alarmDeadline) WakesItsWaiter() {}
+
+// Stop disarms the alarm and reports whether it had not fired. A fire
+// that has begun is waited for, so none runs after After returns.
+func (dl *alarmDeadline) Stop() bool {
+	if dl.alarm.Stop() {
+		return true
+	}
+	<-dl.done
+	return false
 }
 
 // deadline is one armed deadline: its child and the channel the child

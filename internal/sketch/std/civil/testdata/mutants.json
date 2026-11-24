@@ -1,0 +1,16 @@
+{
+  "about": "Checked calendar format presets.",
+  "mutants": [
+    {
+      "name": "nou-rfc3339-zero-writes-numeric",
+      "origin": "wf10 NOU-DOMAIN-BOUNDARIES",
+      "file": "internal/sketch/std/civil/zoned.ergo",
+      "decl": "RFC3339Seconds",
+      "from": "OffsetField{Colon: true, Z: true}",
+      "to": "OffsetField{Colon: true, Z: false}",
+      "rule": "The seconds-only timestamp uses Z at zero and retains nonzero offset seconds.",
+      "killers": ["internal/sketch/std/civil:law:RFC3339SecondsAgreesWithPattern"],
+      "gap": "not-run-crunch"
+    }
+  ]
+}

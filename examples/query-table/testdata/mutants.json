@@ -116,10 +116,11 @@
     {
       "name": "fk10-control-moves-state", "origin": "wf10/fk10a",
       "file": "examples/query-table/table/table.ergo",
-      "from": "Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}",
-      "to": "Emit[query.Route, Replace]{Next: query.Browse{Query: query.Query{..q, Search: s.Text}}, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}",
-      "rule": "A control changes nothing itself; the address does (law UrlIsAFunctionOfTheControls).",
-      "anchor": {"tests": ["examples:query-table"]}, "killers": ["examples:query-table"]
+      "from": "Emit[query.Route, Replace]{Next: r, Output: request}",
+      "to": "Emit[query.Route, Replace]{Next: query.Decode(request.Path), Output: request}",
+      "rule": "Emitting a replacement URL leaves the route unchanged until host navigation (TableOnlyNavigatesOrRequests; not-run-crunch).",
+      "anchor": {"tests": ["examples/query-table/table:TableOnlyNavigatesOrRequests"]},
+      "killers": ["examples/query-table/table:TableOnlyNavigatesOrRequests"]
     },
     {
       "name": "fk10b-open-at-first", "origin": "wf10/fk10b",

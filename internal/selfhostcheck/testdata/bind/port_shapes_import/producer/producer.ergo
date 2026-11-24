@@ -1,0 +1,9 @@
+type Payload { Code int }
+
+type Report { Body Payload, Values []int }
+
+type Empty {}
+
+extern go ergo.local/prototype/runtime/v1.Malformed type FailureText { Text string }
+
+type Outcome = Declined{} | Accepted{Code int}

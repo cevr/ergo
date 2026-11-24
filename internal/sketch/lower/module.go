@@ -182,7 +182,7 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 	if name, ok := l.pkgNames[key]; ok {
 		return name
 	}
-	if l.prenamed {
+	if l.prenamed && key.kind != "ops ABI" && !(key.kind == "adapter" && l.copyFacts != nil) {
 		unreachable(l.file, ruleNamingPass, "the package-scope name %s (%s) has no name from the naming pass", base, key.kind)
 	}
 	name := l.packageScopeName(key, base) // pkgnames.go
@@ -772,6 +772,7 @@ func (l *lowerer) program() ([]byte, error) {
 	if l.ir != nil {
 		l.ir.inlineBodies(l) // ir_forms_inline.go: before the call table, which writes the inline table
 		l.guard(func() { l.ir.flatEnd(l) })
+		l.ir.projectWireWitnesses(l)
 		if len(l.refusals) > 0 {
 			return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
 		}

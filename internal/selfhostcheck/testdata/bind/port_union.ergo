@@ -1,0 +1,42 @@
+type PortUnionMode = PortUnionOff{} | PortUnionOn{}
+
+type PortUnionReading = PortUnionMissing{} | PortUnionPresent{N int}
+
+func PortUnionMakeMode() PortUnionMode {
+	PortUnionOn
+}
+
+func PortUnionMakeReading(n int) PortUnionReading {
+	PortUnionPresent{N: n}
+}
+
+func PortUnionModeRank(mode PortUnionMode) int {
+	match mode {
+	case PortUnionOn:
+		7
+	case PortUnionOff:
+		3
+	}
+}
+
+func PortUnionRead(mode PortUnionMode, reading PortUnionReading) int {
+	match mode {
+	case PortUnionOff:
+		13
+	case PortUnionOn:
+		match reading {
+		case PortUnionPresent as present:
+			present.N
+		case PortUnionMissing:
+			17
+		}
+	}
+}
+
+func PortUnionOptionValues(o Option[int]) []Option[int] {
+	[]Option[int]{o}
+}
+
+func PortUnionDecisionValues(d Decision[int, bool]) []Decision[int, bool] {
+	[]Decision[int, bool]{d}
+}

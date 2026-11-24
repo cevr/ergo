@@ -1,0 +1,228 @@
+import maps
+import slices
+import strings
+import utf8
+
+type InterfaceGroup { Node int, Entries []int }
+
+type Interface {
+	Package    int,
+	Entries    []int,
+	Sites      []int,
+	Groups     []InterfaceGroup,
+	Widest     int,
+	Backing    []int,
+	Unresolved int,
+}
+
+type Interfaces { Packages []Interface, Work int }
+
+type place {
+	Package  int,
+	File     int,
+	Top      int,
+	Ordinary bool,
+	InScope  bool,
+}
+
+func Wide(i Interface, max int) bool { len(i.Entries) > max && i.Widest > max }
+
+func ObservedInterfaces(r Rows, modules []int) Interfaces {
+	let mut work = 0
+	let mut chosen = Map[int, bool]{}
+	for m in modules {
+		chosen[m] = true
+	}
+	let mut places = []place{}
+	for i, row in r.Nodes {
+		work = work + 1
+		let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+		if row.Parent >= 0 {
+			at = if row.Parent < i { places[row.Parent] } else { placeOf(r, row.Parent, chosen) }
+		}
+		places = places.Append(placed(r, i, at, chosen))
+	}
+	let mut aliases = Map[int, int]{}
+	for e in r.Edges {
+		work = work + 1
+		if e.Kind == "reexports" {
+			aliases[e.From] = e.To
+		}
+	}
+	let mut firstSite = Map[int, int]{}
+	let mut entriesOf = Map[int, []int]{}
+	let mut packages = []int{}
+	let mut named = Map[int, []int]{}
+	let mut namedSeen = Map[int, bool]{}
+	let mut calls = Map[int, []int]{}
+	let mut callSeen = Map[int, bool]{}
+	let width = len(r.Nodes)
+	for k, e in r.Edges {
+		if e.Kind != "uses" || !places[e.From].Ordinary || !places[e.To].Ordinary {
+			continue
+		}
+		let a = places[e.From]
+		let b = places[e.To]
+		let (resolved, steps) = resolve(aliases, e.To)
+		work = work + steps
+		if (e.How == "call" || e.How == "read") && resolved >= 0 && callable(r.Nodes[resolved].Sub) && a.InScope && b.InScope && a.Package != b.Package && b.File >= 0 && firstSite.Get(e.To) == None {
+			firstSite[e.To] = k
+			if entriesOf.Get(b.Package) == None {
+				packages = packages.Append(b.Package)
+			}
+			entriesOf[b.Package] = maps.GetOr(entriesOf, b.Package, []int{}).Append(e.To)
+		}
+		if a.Package != b.Package || a.Top < 0 || b.Top < 0 {
+			continue
+		}
+		let topSub = r.Nodes[b.Top].Sub
+		let sub = r.Nodes[e.To].Sub
+		if (topSub == "type" || topSub == "machine") && (e.How == "typeuse" || e.How == "construct" || e.How == "match" || sub == "field" || sub == "operation" || sub == "variant") && namedSeen.Get(a.Top*width+b.Top) == None {
+			namedSeen[a.Top*width+b.Top] = true
+			named[a.Top] = maps.GetOr(named, a.Top, []int{}).Append(b.Top)
+		}
+		if e.How == "call" && resolved >= 0 && r.Nodes[resolved].Sub == "func" && places[resolved].Package == a.Package && callSeen.Get(a.Top*width+resolved) == None {
+			callSeen[a.Top*width+resolved] = true
+			calls[a.Top] = maps.GetOr(calls, a.Top, []int{}).Append(resolved)
+		}
+	}
+	let mut out = []Interface{}
+	for p in slices.Sort(packages) {
+		let entries = slices.Sort(maps.GetOr(entriesOf, p, []int{}))
+		let mut sites = []int{}
+		let mut members = Map[int, []int]{}
+		let mut keys = []int{}
+		let mut todo = []int{}
+		let mut unresolved = 0
+		for entry in entries {
+			work = work + 1
+			sites = sites.Append(maps.GetOr(firstSite, entry, -1))
+			let (real, steps) = resolve(aliases, entry)
+			work = work + steps
+			let local = real >= 0 && places[real].Package == p
+			let mut groups = []int{}
+			if local && r.Nodes[real].Sub == "operation" {
+				groups = []int{r.Nodes[real].Parent}
+			} else if local {
+				groups = maps.GetOr(named, real, []int{})
+			}
+			if len(groups) == 0 {
+				groups = []int{entry}
+			}
+			for g in groups {
+				work = work + 1
+				if members.Get(g) == None {
+					keys = keys.Append(g)
+				}
+				members[g] = maps.GetOr(members, g, []int{}).Append(entry)
+			}
+			if local && r.Nodes[real].Sub == "func" {
+				todo = todo.Append(real)
+			} else {
+				unresolved = unresolved + 1
+			}
+		}
+		let mut grouped = []InterfaceGroup{}
+		let mut widest = 0
+		for g in slices.Sort(keys) {
+			let m = maps.GetOr(members, g, []int{})
+			grouped = grouped.Append(InterfaceGroup{Node: g, Entries: m})
+			if len(m) > widest {
+				widest = len(m)
+			}
+		}
+		if len(grouped) > widest {
+			widest = len(grouped)
+		}
+		let mut visited = Map[int, bool]{}
+		let mut backing = []int{}
+		for len(todo) > 0 {
+			let current = todo[len(todo)-1]
+			todo = todo[0 : len(todo)-1]
+			work = work + 1
+			if visited.Get(current) != None {
+				continue
+			}
+			visited[current] = true
+			if !exported(r.Nodes[current].Name) {
+				backing = backing.Append(current)
+			}
+			todo = slices.Concat(todo, maps.GetOr(calls, current, []int{}))
+		}
+		out = out.Append(Interface{Package: p, Entries: entries, Sites: sites, Groups: grouped, Widest: widest, Backing: slices.Sort(backing), Unresolved: unresolved})
+	}
+	Interfaces{Packages: out, Work: work}
+}
+
+func placed(r Rows, i int, parent place, chosen Map[int, bool]) place {
+	let row = r.Nodes[i]
+	let mut at = parent
+	at.Ordinary = parent.Ordinary && row.Sub != "test" && row.Sub != "law"
+	match row.Kind {
+	case "module":
+		at.InScope = chosen.Get(i) != None
+	case "package":
+		at.Package = i
+	case "file":
+		at.File = i
+	case "decl":
+		if at.Top < 0 {
+			at.Top = i
+		}
+	case _:
+	}
+	at
+}
+
+func placeOf(r Rows, i int, chosen Map[int, bool]) place {
+	let mut chain = []int{}
+	let mut n = i
+	for n >= 0 && len(chain) <= len(r.Nodes) {
+		chain = chain.Append(n)
+		n = r.Nodes[n].Parent
+	}
+	let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+	for k in 0..len(chain) {
+		at = placed(r, chain[len(chain)-1-k], at, chosen)
+	}
+	at
+}
+
+func resolve(aliases Map[int, int], from int) (int, int) {
+	let mut at = from
+	let mut steps = 0
+	let mut seen = Map[int, bool]{}
+	for {
+		match aliases.Get(at) {
+		case Some[int] as next:
+			if seen.Get(at) != None {
+				return (-1, steps)
+			}
+			seen[at] = true
+			steps = steps + 1
+			at = next.Value
+		case None:
+			return (at, steps)
+		}
+	}
+}
+
+func callable(sub string) bool { sub == "func" || sub == "operation" }
+
+func exported(name string) bool {
+	let last = name[strings.LastIndex(name, ".")+1 : len(name)]
+	last != "" && utf8.IsUpper(utf8.DecodeRuneInString(last).Rune)
+}
+
+law ObservedInterfacesWorkIsLinear(seed int, size int) { observedInterfacesWorkIsLinear(seed, size) }
+
+func observedInterfacesWorkIsLinear(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let mut lets = 1
+	for n in r.Nodes {
+		if n.Sub == "let" {
+			lets = lets + 1
+		}
+	}
+	ObservedInterfaces(r, []int{0}).Work <= 4*lets*(len(r.Nodes)+len(r.Edges))
+}

@@ -73,12 +73,6 @@ func argOf(a flag.ArgSpec, v flag.Values) string {
 
 let usage = "usage: timetable departures STOP DATE [-now INSTANT] | timetable week DATE [-n N] | timetable trip SERVICE DATE [-now INSTANT] [-delay D] [-cancel REASON]"
 
-// instantFormat is -now's form: RFC 3339 to the second.
-let instantFormat = civil.ZonedPattern("yyyy-MM-dd'T'HH:mm:ssXXX") catch {
-case civil.BadPattern:
-	Unreachable("-now's pattern is LDML")
-}
-
 // dayOf is the text as a date, or exit 2.
 func dayOf(text string) civil.Date fails os.Exit {
 	civil.ParseISODate(text) catch {
@@ -242,7 +236,7 @@ func withNow(now string, f func() fails os.Exit needs io.Stdout | tz.Zones | tim
 		try f()
 		return
 	}
-	let at = tz.ParseInstant(instantFormat, now) catch {
+	let at = tz.ParseInstant(civil.RFC3339Seconds, now) catch {
 	case civil.ParseError as e:
 		return os.Exit{Code: 2, Message: "timetable: bad -now \"\(now)\" (\(e.Reason)): write 2027-03-13T12:00:00-04:00"}
 	}

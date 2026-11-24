@@ -1,0 +1,19 @@
+import hex
+
+type PortResultInput { Source int }
+type PortResultBad { Value int }
+type PortResultOther { Value int }
+type PortResultRecord { Value int }
+type PortResultUnion = PortResultEmpty{} | PortResultFull{Value int}
+
+func FrameText(input PortResultInput, n int) string fails PortResultBad { "value" }
+
+func FrameSlice(input PortResultInput, n int) []int fails PortResultBad { []int{n} }
+
+func FrameRecord(input PortResultInput, n int) PortResultRecord fails PortResultBad { PortResultRecord{Value: n} }
+
+func FrameImported(input PortResultInput, n int) hex.Malformed fails PortResultBad { hex.Malformed{Offset: n} }
+
+func FrameUnion(input PortResultInput, n int) PortResultUnion fails PortResultBad { PortResultFull{Value: n} }
+
+func FrameFailureOnly(n int) []int fails PortResultBad | PortResultOther { PortResultOther{Value: n} }

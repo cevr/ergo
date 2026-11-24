@@ -74,11 +74,12 @@ type specKey struct {
 // specCopy is the copy of f for rec: its Go name, the index of the record
 // parameter and the Go types of f's type parameters.
 type specCopy struct {
-	f     *check.Func
-	fd    *funcDecl
-	name  string
-	param int
-	rec   *knownRec
+	opsABI bool // checked copy with concrete operation-row ABI bindings
+	f      *check.Func
+	fd     *funcDecl
+	name   string
+	param  int
+	rec    *knownRec
 	// prov is the provider a copy for a known provider is made for
 	// (provider.go); rec is nil then.
 	prov *knownProv
@@ -90,7 +91,10 @@ type specCopy struct {
 	// takes none, and its callers pass none. Nil keeps the parameters.
 	wits        map[*check.TypeParam]*check.Witness
 	witsDecided bool
-	typeArgs    map[*check.TypeParam]string
+	// claims are the parameters whose function-form providers are read
+	// directly from the checked copy, never passed in a witness.
+	claims   map[*check.TypeParam]bool
+	typeArgs map[*check.TypeParam]string
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
 	bound map[*check.TypeParam]check.Type
@@ -98,6 +102,13 @@ type specCopy struct {
 	// inst spells the Go type arguments of a copy made by specAt, in f's
 	// type-parameter order: the one instance the copy is.
 	inst string
+}
+
+func (sp *specCopy) claimParams() map[*check.TypeParam]bool {
+	if sp == nil {
+		return nil
+	}
+	return sp.claims
 }
 
 // recordParam is the index of f's record parameter that its body calls a

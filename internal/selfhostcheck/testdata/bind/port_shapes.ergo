@@ -1,0 +1,8 @@
+type Nested { Items []int }
+type Outer { Inner Nested }
+
+func KeepNested(x Nested) Nested { x }
+func KeepOuter(x Outer) Outer    { x }
+func ItemsOf(x Nested) []int     { x.Items }
+func KeepSlice(xs []int) []int   { xs }
+func Singleton(x int) []int      { []int{x} }

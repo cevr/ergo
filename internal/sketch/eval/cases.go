@@ -154,7 +154,7 @@ func (in *interp) operationCall(fr *frame, x *syntax.CallExpr, c *check.Call) (V
 		// A value of a constrained type parameter runs its witness's
 		// function (witness.go).
 		if tp := recvParam(fr.typeOf(c.Recv)); tp != nil {
-			v, ab, witnessed = in.witnessCall(fr, x, fr.env, tp, c.Op.Name, recv, args)
+			v, ab, witnessed = in.witnessCall(fr, x, fr.env, tp, c, recv, args)
 		}
 	}
 	if !witnessed {

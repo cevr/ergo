@@ -157,8 +157,17 @@ func (g *gen) function(j int) {
 		case kind < 7 && j > 0:
 			m := g.r.IntN(j)
 			passes = append(passes, m)
-			fmt.Fprintf(&b, "\tlet t%d = try f%d(s, k + %d)\n\tacc = acc + t%d\n", n, m, c, n)
-			g.reached["pass on"] = true
+			if c%2 == 1 {
+				// A later operand that runs statements (a failing
+				// operation call) spills s to a temporary before the
+				// call (the emitter's operands; IR ordered): the
+				// temporary holds the adapter's pointer.
+				fmt.Fprintf(&b, "\tlet t%d = try f%d(s, try s.Take(%d))\n\tacc = acc + t%d\n", n, m, c, n)
+				g.reached["pass on: spilled"] = true
+			} else {
+				fmt.Fprintf(&b, "\tlet t%d = try f%d(s, k + %d)\n\tacc = acc + t%d\n", n, m, c, n)
+				g.reached["pass on"] = true
+			}
 		case kind == 7 && g.r.IntN(3) == 0:
 			eligible = false
 			switch g.r.IntN(3) {
@@ -236,7 +245,16 @@ func Program(seed uint64, reached map[string]bool) (src string, copies int, defe
 		if !g.eligible[j] {
 			reached["call kept"] = true
 		}
-		fmt.Fprintf(&calls, "\tlet r%d = f%d(%s, %d) catch {\n\tcase Empty as e:\n\t\t-1000 - e.at\n\t}\n", n, j, providers[p], g.r.IntN(6))
+		arg := strconv.Itoa(g.r.IntN(6))
+		if arg == "5" {
+			// A later operand that runs statements (a call of total,
+			// whose value is hoisted) spills the operations conversion
+			// to a temporary of the adapter's pointer.
+			arg = "total(x)"
+			g.copies["total Fixed"] = true
+			reached["provider spilled"] = true
+		}
+		fmt.Fprintf(&calls, "\tlet r%d = f%d(%s, %s) catch {\n\tcase Empty as e:\n\t\t-1000 - e.at\n\t}\n", n, j, providers[p], arg)
 		fmt.Fprintf(&calls, "\tConsole.Println(\"%d \\(r%d) \\(c.sum) \\(c.puts) \\(l.text)\")\n", n, n)
 	}
 	// keep is generic: its copy for a provider is one instance, the

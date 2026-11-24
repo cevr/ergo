@@ -7,7 +7,7 @@
 //	                    the P lines)
 //	S PATH OFFSET CAUSE a function lower stopped at, and why
 //
-//	irdump [-std DIR] [-roots FILE] -corpus MANIFEST
+//	irdump [-std DIR] [-roots FILE] [-type-counts] -corpus MANIFEST
 //
 // The roots file names, one per line, the import paths of the packages
 // that are a build's root (a program's main package, a package a test
@@ -16,9 +16,10 @@
 //
 // The manifest is exprdump's (one package per line, "PATH EXT FOREIGN
 // FILE..."), typed by compiler/check/load as exprdump types it. Each
-// package is written as it is typed, so the run holds one package's
-// typing at a time. It is the Ergo side of internal/selfhostcheck's
-// TestCompilerIRAgreesWithBuilder.
+// package is rendered as it is typed, so the run holds one package's
+// typing at a time. Imports are typed first; the IR is still printed in
+// manifest order. -type-counts also prints "@typed INDEX COUNT" in the
+// actual typing order. It is the Ergo side of TestCompilerIRAgreesWithBuilder.
 
 import compiler/check/bind
 import compiler/check/load
@@ -46,23 +47,28 @@ func read(path string) string fails os.Exit needs fs.Files {
 	}
 }
 
-func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
+// InputTables keeps the actual table contents, not their manifest
+// filenames. Repeated corpus entries use different temporary filenames.
+type InputTables { Ext string, Foreign string }
+
+func unitOf(g []string) (load.Unit, InputTables) fails os.Exit needs fs.Files {
 	if len(g) < 2 {
 		return os.Exit{Code: 2, Message: "irdump: a package needs EXT FOREIGN FILE..."}
 	}
-	let tab = load.TablesOf(try read(g[0]), try read(g[1]))
+	let tables = InputTables{Ext: try read(g[0]), Foreign: try read(g[1])}
+	let tab = load.TablesOf(tables.Ext, tables.Foreign)
 	let paths = g[2:len(g)]
 	let mut files = []bind.File{}
 	for path in paths {
 		files = files.Append(bind.File{Name: base(path), Parsed: syntax.Parse(try read(path))})
 	}
-	load.UnitOf(tab, files, paths)
+	(load.UnitOf(tab, files, paths), tables)
 }
 
 // write prints one typed package's IR lines after its "@pkg I" line.
-func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool) {
+func write(i int, u load.Unit, out lower.Out) string {
+	let mut b = strings.NewBuilder()
 	b.WriteString("@pkg \(i)\n")
-	let out = lower.Package(d.S, d.K, d.T, u.Paths, u.Path, root)
 	for j, path in out.File.Files {
 		b.WriteString("P \(j) \(path)\n")
 	}
@@ -76,6 +82,7 @@ func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool) {
 	for s in out.Stops {
 		b.WriteString("S \(u.Paths[s.File]) \(s.At) \(s.Cause)\n")
 	}
+	b.String()
 }
 
 func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
@@ -90,29 +97,60 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		roots = strings.Fields(try read(argv[1]))
 		argv = argv[2:len(argv)]
 	}
+	let counts = len(argv) > 0 && argv[0] == "-type-counts"
+	if counts {
+		argv = argv[1:len(argv)]
+	}
 	if len(argv) != 2 || argv[0] != "-corpus" {
-		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] [-roots FILE] -corpus MANIFEST"}
+		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] [-roots FILE] [-type-counts] -corpus MANIFEST"}
 	}
 	let mut units = []load.Unit{}
+	let mut inputs = []InputTables{}
 	for line in strings.Split(try read(argv[1]), "\n") {
 		let g = strings.Fields(line)
 		if len(g) > 0 {
-			let mut u = try unitOf(g[1:len(g)])
+			let (loaded, tables) = try unitOf(g[1:len(g)])
+			let mut u = loaded
 			u.Path = g[0]
 			units = units.Append(u)
+			inputs = inputs.Append(tables)
 		}
 	}
 	let p = load.LoadAll(units, load.Outside(units, std), 4)
-	let mut b = strings.NewBuilder()
-	for i in 0..len(p.Loaded) {
+	let available = importUnits(p, units)
+	let exact = exactLoadedUnits(p)
+	let shapeUnits = shapeLoadedUnits(p, units, inputs)
+	let order = orderCalls(p, exact)
+	let mut summaries = []Option[lower.CallFacts]{}
+	let mut blocks = []string{}
+	let mut typed = []int{}
+	for _ in p.Loaded {
+		summaries = summaries.Append(None)
+		blocks = blocks.Append("")
+		typed = typed.Append(0)
+	}
+	for j, i in order.Units {
 		let ui = p.Units[i]
 		let mut root = false
 		for r in roots {
 			root = root || r == units[ui].Path
 		}
-		write(&b, ui, units[ui], load.TypeAt(p, i), root)
+		let imports = if root { rootImports(p, i, available) } else { None }
+		let d = load.TypeAt(p, i)
+		if counts {
+			typed[i] = typed[i] + 1
+			io.Stdout.Print("@typed \(ui) \(typed[i])\n")
+		}
+		let depFacts = if j < order.Ready { directCallFacts(d.K.Deps, exact, summaries) } else { []lower.ImportCallFacts{} }
+		let out = lower.Package(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, imports, depFacts, shapeImports(p, i, shapeUnits))
+		if j < order.Ready && exactLoadedUnit(exact, p.Loaded[i].Path) == i && hasSources(p.Loaded[i]) && lower.HasCallFacts(out.CallFacts) {
+			summaries[i] = Some[lower.CallFacts]{Value: out.CallFacts}
+		}
+		blocks[i] = write(ui, units[ui], out)
 	}
-	io.Stdout.Print(b.String())
+	for block in blocks {
+		io.Stdout.Print(block)
+	}
 }
 
 func main() fails os.Exit needs Ambient {

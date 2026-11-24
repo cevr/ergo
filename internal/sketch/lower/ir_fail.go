@@ -80,6 +80,9 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 
 // retOf is ret's statements before a law's check.
 func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
+	if b.slotOut != nil && x != nil && !b.isFailure(x) {
+		return b.slotRet(x, p) // a slot variant's return (ir_slot.go)
+	}
 	if x == nil {
 		if b.result != nil {
 			irNo("bare return")
@@ -87,6 +90,11 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		return []*irStmt{b.formed(&irStmt{K: "ret", Pos: p}, "unit")}
 	}
 	if call := b.fallibleCall(x); call != nil {
+		if w, ok := b.isWith(call); ok && call == unparen(x) && !implicitAt(b.l.info, x) {
+			// A with whose block's tail fails, returned: its block's tail
+			// returns (ir_with.go), as a with that is the body's tail.
+			return b.withStmt(w, true, nil)
+		}
 		if _, implicit := b.l.info.Implicit[x]; implicit || b.l.info.ReturnedTemps[call] {
 			// A converted or kept result needs a success edge of its
 			// own. A failed call produces no value to own or convert.
@@ -115,6 +123,13 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
+		if e != nil && e.UnitPair && b.result == nil {
+			// The caller returns only its error; the Go callee returns
+			// a pair. Discard its unit result as a try would.
+			pre, _, err := b.bindCall(pre, e, call)
+			pre = append(pre, b.propagate(err, p))
+			return append(pre, b.formed(&irStmt{K: "ret", Pos: p}, "unit"))
+		}
 		return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e, Pair: true}, "tuple"))
 	}
 	if b.isFailure(x) {
@@ -133,6 +148,13 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 	pre, e := b.value(x)
 	e = b.assignedTo(x, e, b.result) // a variant joins the result's union (ir_union.go)
 	return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e}, "val"))
+}
+
+// implicitAt reports an expression the checker converts where it is
+// used (Info.Implicit).
+func implicitAt(info *check.Info, x syntax.Expr) bool {
+	_, ok := info.Implicit[x]
+	return ok
 }
 
 // isFailure reports a value x of an error type that the frame does not
@@ -326,10 +348,9 @@ func (b *irBuilder) bindCall(pre []*irStmt, x *irExpr, call *syntax.CallExpr) (_
 		tpre, tv := b.tupleErrBind(x, tt, e, call, p)
 		return append(pre, tpre...), tv, e
 	}
-	if (x.K == "vcall" || b.unitPair(call)) && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
-		// A function value with no value returns struct{} first
-		// (ir_closure.go), as a generic whose result is no value does
-		// (unitPair).
+	if x.UnitPair || (x.K == "vcall" || b.unitPair(call)) && !b.hasValue(call) {
+		// A Go pair's first result may stand for no Ergo value, as
+		// with some runtime methods, function values and generics.
 		u := b.temp("unit", "struct{}", p)
 		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
 	}
@@ -425,6 +446,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	m := b.l.info.Matches[x]
 	if m == nil || m.Partial != partial {
 		irNo("catch without its Matches entry")
+	}
+	if b.fc.readCopy != nil {
+		if x, ok := unparen(x.X).(*syntax.CallExpr); ok {
+			if c := b.l.info.Calls[x]; c != nil && !failsHere(c) {
+				return b.call(x, m.Result == nil)
+			}
+		}
 	}
 	// The caught value: a fallible call, or a match whose arms' tails
 	// fail (bindMatch).
@@ -586,7 +614,7 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		ifs.ElsePos, ifs.ElseEnd = sw.End, sw.End
 		hold, val := b.catchValue(src, &irExpr{K: "local", Pos: sw.End, I: v}, m.Result)
 		ifs.Else = append(hold, &irStmt{K: "set", Pos: sw.End, Local: result, X: val})
-		if !patterned && len(hold) == 0 && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irArmsLeave(sw, result) {
+		if !patterned && len(hold) == 0 && val.K == "local" && val.I == v && b.localTypeOf(v) == rt && irCatchLeaves(then, result) {
 			// Every arm leaves (the emitter's catch, whose arms all
 			// panic or return, yields the call's value in place): the
 			// value is the call's own local, with no caught copy (RED17).
@@ -599,6 +627,12 @@ func (b *irBuilder) catchWith(x *syntax.CatchExpr, partial bool, m *check.Match,
 		return pre, nil
 	}
 	return pre, &irExpr{K: "local", Pos: p, I: result}
+}
+
+// irCatchLeaves tests the emitted failure branch, not the candidate type
+// switch. A plain catch or a whole-row catch can replace that switch.
+func irCatchLeaves(then []*irStmt, result int) bool {
+	return irListTerminates(then) && !irNames(then, result, true)
 }
 
 // catchValue owns the caught call's successful result before it joins the

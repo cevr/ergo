@@ -75,6 +75,10 @@ func Interface(s store.Store, files []syntax.Parsed, kinds Kinds, ext []Ext, for
 		let env = NewEnv(s, files, files[0], []string{}, kinds, ext, table, deps)
 		roles = Roles(&pool, env)
 		claims = LocalClaimLayouts(&pool, env, roles)
+		ImportFunctionClaims(&pool, deps, table)
+		if HasFunctionClaims(files) {
+			FunctionClaimFacts(&pool, env, roles, SolveFuncKinds(s, files, ext, kinds))
+		}
 	}
 	Iface{Path: store.PathOf(s), Name: lastOf(store.PathOf(s)), Decls: ds, Types: pool, Roles: roles, Claims: claims, Foreign: table, Refs: RoleRefs(pool, deps, roles, claims)}
 }

@@ -239,8 +239,6 @@ func (b *irBuilder) machineCall(f *check.Func, env int, args []*irExpr, p irPos,
 		irNo("machine entry that is an extern")
 	case len(f.Sig.TParams) > 0:
 		irNo("generic machine entry")
-	case len(b.l.ownedParams(f)) > 0:
-		irNo("call that passes owned values")
 	case len(witnessParams(f.Sig)) > 0:
 		irNo("call that passes witnesses")
 	}
@@ -251,6 +249,8 @@ func (b *irBuilder) machineCall(f *check.Func, env int, args []*irExpr, p irPos,
 		}
 		args = append(args[:at:at], append([]*irExpr{{K: "local", Pos: p, I: env}}, args[at:]...)...)
 	}
+	// A machine entry is a function value, not a checked consuming
+	// call. Its normal name is the copying wrapper, as entryOf uses.
 	if fd.method != nil {
 		return &irExpr{K: "mcall", Pos: p, Name: fd.name, X: args[0], Args: args[1:]}
 	}

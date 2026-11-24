@@ -59,8 +59,11 @@ func (b *irBuilder) matchValue(s syntax.Expr) ([]*irStmt, *irExpr) {
 
 // typeMatch is the match s on one subject of a union.
 func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) []*irStmt {
-	if out, ok := b.getMatch(s, ret, to); ok { // ir_get.go (lane B)
-		return out
+	owns := b.hasPatternOwners(s)
+	if !owns {
+		if out, ok := b.getMatch(s, ret, to); ok { // ir_get.go (lane B)
+			return out
+		}
 	}
 	x := s.Subjects[0].X
 	if call, ok := unparen(x).(*syntax.CallExpr); ok {
@@ -83,8 +86,10 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	if len(b.l.info.Releases[s.Subjects[0]]) > 0 || len(b.l.info.Releases[x]) > 0 {
 		irNo("match subject that releases owned values")
 	}
-	if out, ok := b.fuseMatch(s, ret, to); ok { // ir_forms_match.go
-		return out
+	if !owns {
+		if out, ok := b.fuseMatch(s, ret, to); ok { // ir_forms_match.go
+			return out
+		}
 	}
 	st := b.l.info.Types[x]
 	if st == nil {
@@ -96,6 +101,14 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	subj := -1
 	fu := b.flatOf(st)
 	sc := b.scalarIdent(x) // ir_scalar.go
+	if sc == nil && fu == nil && irSlotLowering != "off" && b.fc.isInterface(st) {
+		// A call whose result the match alone reads: its slot variant
+		// writes the variant into a slot and returns its tag (ir_slot.go).
+		if spre, ssc, ok := b.slotSubject(x, st); ok {
+			pre, sc = spre, ssc
+			p = past(p, pre)
+		}
+	}
 	if sc == nil {
 		var sx *irExpr
 		pre, sx = b.value(x)
@@ -186,6 +199,7 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 			arm.Bind = &irStmt{K: "def", Pos: cp, Local: name, X: val}
 			c.Body = append(c.Body, arm.Bind)
 		}
+		c.Body = append(c.Body, b.bindPatternOwners(cl, cp)...)
 		c.Body = append(c.Body, b.scoped(cl, b.arm(cl.Body, ret, to), cp)...) // ir_own.go
 		if def {
 			// The emitter writes default: for the whole case.

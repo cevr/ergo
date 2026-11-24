@@ -93,6 +93,13 @@ type SplitReport struct {
 	// names IR bodies use that another package declares, which their own
 	// package declares again (pkgsplit_ir.go).
 	IRPackages, IRForeign int
+	// IRExports records the original and exported spellings chosen by the
+	// split that wrote the IR. It is nil when no IR split took place.
+	IRExports map[string]string
+	// IRTypeHeads maps each IR file to its qualified generic type heads
+	// and their names before the split. These come from foreignDecls,
+	// not from the Go import list (which also holds foreign host types).
+	IRTypeHeads map[string]map[string]string
 	// Shards counts the Go packages that declaration shards made below
 	// the packages of the program (pkgshard.go).
 	Shards int
@@ -165,6 +172,13 @@ func lowerSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, SplitRe
 // no //line directive, so this is how the split finds its package.
 func (l *lowerer) stdOrigins() map[string]*check.Package {
 	out := map[string]*check.Package{}
+	if l.ir != nil {
+		for name, p := range l.ir.wireOrigins {
+			if p.Std() {
+				out[name] = p
+			}
+		}
+	}
 	for key, name := range l.pkgNames {
 		var p *check.Package
 		switch o := key.obj.(type) {
@@ -1122,6 +1136,22 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 		outFiles = append(outFiles, files...)
 		rep.IRPackages = withIR
+		rep.IRExports = rename
+		for k, names := range irs.qual {
+			for original, qualified := range names {
+				if _, isType := defOf.node[original].(*ast.TypeSpec); !isType {
+					continue
+				}
+				if rep.IRTypeHeads == nil {
+					rep.IRTypeHeads = map[string]map[string]string{}
+				}
+				file := path.Join(plan.pkgs[k].dir, IRFileName)
+				if rep.IRTypeHeads[file] == nil {
+					rep.IRTypeHeads[file] = map[string]string{}
+				}
+				rep.IRTypeHeads[file][qualified] = original
+			}
+		}
 		for _, names := range irs.uses {
 			rep.IRForeign += len(names)
 		}

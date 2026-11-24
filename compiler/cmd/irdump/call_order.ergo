@@ -1,0 +1,73 @@
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import compiler/lower
+
+// callOrder walks the exact import graph once. Ready imports are visited
+// first, with input-ordered roots and edges. Cycles and packages transitively
+// blocked by a cycle are typed in input order without importing or publishing
+// facts. Missing or ambiguous imports do not supply edges or summaries.
+type CallOrder { Units []int, Ready int }
+
+func orderCalls(p load.Program, exact Map[string, int]) CallOrder {
+	let mut users = [][]int{}
+	let mut pending = []int{}
+	for _ in p.Loaded {
+		users = users.Append([]int{})
+		pending = pending.Append(0)
+	}
+	for i, d in p.Loaded {
+		let mut paths = store.ImportPaths(d.S)
+		if d.Path != "prelude" {
+			paths = paths.Append("prelude")
+		}
+		for path in paths {
+			let at = exactLoadedUnit(exact, path)
+			if at >= 0 {
+				users[at] = users[at].Append(i)
+				pending[i] = pending[i] + 1
+			}
+		}
+	}
+	let mut order = []int{}
+	for i, n in pending {
+		if n == 0 {
+			order = order.Append(i)
+		}
+	}
+	let mut j = 0
+	for j < len(order) {
+		let i = order[j]
+		j = j + 1
+		for user in users[i] {
+			pending[user] = pending[user] - 1
+			if pending[user] == 0 {
+				order = order.Append(user)
+			}
+		}
+	}
+	let ready = len(order)
+	for i, n in pending {
+		if n > 0 {
+			order = order.Append(i)
+		}
+	}
+	CallOrder{Units: order, Ready: ready}
+}
+
+// directCallFacts pairs facts with the same direct deps TypeAt put in k.
+// An exact loaded slot is the only source of a summary, never an iface.
+func directCallFacts(deps []expr.Dep, exact Map[string, int], summaries []Option[lower.CallFacts]) []lower.ImportCallFacts {
+	let mut out = []lower.ImportCallFacts{}
+	for d in deps {
+		let at = exactLoadedUnit(exact, d.Path)
+		if at >= 0 {
+			match summaries[at] {
+			case Some[lower.CallFacts] as proven:
+				out = out.Append(lower.ImportCallFacts{Path: d.Path, Facts: proven.Value})
+			case None:
+			}
+		}
+	}
+	out
+}

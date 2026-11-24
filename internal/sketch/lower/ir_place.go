@@ -25,19 +25,28 @@ import (
 // place is x as an IR place.
 func (b *irBuilder) place(x syntax.Expr) *irExpr {
 	x = unparen(x)
-	if id, ok := x.(*syntax.Ident); ok && b.l.info.Handoffs[id] != nil {
-		irNo("place of a handed-off local") // a Close through its address
-	}
-	if sel, ok := x.(*syntax.SelectorExpr); ok {
-		if _, taken := b.l.info.FieldTakes[sel]; taken {
-			irNo("place of a taken field") // takeField (release.go)
-		}
-	}
 	if _, ok := b.l.info.Implicit[x]; ok {
 		irNo("place with a conversion")
 	}
 	if !b.fc.isPlace(x) {
 		irNo("place that is not addressable")
+	}
+	if id, ok := x.(*syntax.Ident); ok {
+		if v := b.l.info.Handoffs[id]; v != nil && b.l.info.OwnedVars[v] != nil {
+			i, local := b.locals[v]
+			if !local {
+				irNo("place of a handed-off local")
+			}
+			p := b.pos(id, id.Pos())
+			e := &irExpr{K: "local", Pos: p, I: i}
+			if hand := b.handoff(id, e); hand != e {
+				// Like the text path, relinquish the entry first,
+				// but pass the *original place*, not the value Hand
+				// returns. A held take keeps the entry for heldCall.
+				b.runFirst([]*irStmt{{K: "expr", Pos: p, X: hand}})
+			}
+			return e
+		}
 	}
 	e := b.exprOf(x)
 	switch e.K {
@@ -209,7 +218,7 @@ func (b *irBuilder) storeOld(s *syntax.AssignStmt, op string, to *irExpr, pre []
 // addrRecv reports whether c calls a *T function on a T receiver, which
 // passes the receiver's address (calls.go: addr).
 func (b *irBuilder) addrRecv(c *check.Call) bool {
-	if c.Recv == nil || !c.Func.Ptr {
+	if !c.BorrowsReceiver() {
 		return false
 	}
 	// In a copy, a type parameter is its bound type: a witness copy's S
@@ -226,7 +235,9 @@ func (b *irBuilder) recvAddrCall(c *check.Call, args []syntax.Expr) ([]*irStmt, 
 	var recv *irExpr
 	isPlace := b.fc.isPlace(unparen(c.Recv))
 	if isPlace {
-		recv = &irExpr{K: "addr", Pos: p, X: b.place(c.Recv)}
+		pre, recv = b.collect(func() ([]*irStmt, *irExpr) {
+			return nil, &irExpr{K: "addr", Pos: p, X: b.place(c.Recv)}
+		})
 	} else {
 		// A value that is no place: in a temporary, whose address Go
 		// can take; the call writes the temporary.
@@ -241,7 +252,7 @@ func (b *irBuilder) recvAddrCall(c *check.Call, args []syntax.Expr) ([]*irStmt, 
 		// The emitter's place takes &target(x, later): the receiver's
 		// pointers, slices and indexes are fixed before the operands'
 		// statements, so they cannot move it (fixPlace, FLIP F7 PORT-TEMP).
-		pre = b.fixPlace(c.Recv, recv.X)
+		pre = append(pre, b.fixPlace(c.Recv, recv.X)...)
 	}
 	return append(pre, argPre...), append([]*irExpr{recv}, vals...)
 }

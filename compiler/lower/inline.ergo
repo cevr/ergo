@@ -1,0 +1,47 @@
+import compiler/check/expr
+import compiler/check/store
+
+// The original scalar S4c10 leaf has no calls and a nonboxed result.
+// A proved scalar body calling only builtins is the same Go leaf.
+// For a nonleaf, the positive-budget inlineRule cannot mark a recursive
+// body, a loop body, or a body above 120 syntax nodes. No marked site
+// means the later pays/splice/return decisions cannot change this call.
+// A small acyclic nonleaf is not assumed to be a direct call.
+func keepDirectCall(st fnb, f expr.Fn, body callBody, recursive bool) fails Unported {
+	let cause = directWithoutCopy(st, f, body, recursive)
+	if cause != "" {
+		return stop(cause)
+	}
+}
+
+func directWithoutCopy(st fnb, f expr.Fn, body callBody, recursive bool) string {
+	if body.edges > 0 && !body.loop && !recursive && body.sizeFloor <= 120 {
+		return "call of a pure nonleaf (inline decision)"
+	}
+	// findTab can turn a decision with only finite scalar parameters
+	// into a table read. A non-finite formal proves it cannot.
+	if body.decision && tabDomain(st, f) {
+		return "call of a pure decision (tabulation)"
+	}
+	""
+}
+
+func tabDomain(st fnb, f expr.Fn) bool {
+	let ops = store.OperandsOf(st.s, f.Sig)
+	let n = len(ops) - 3
+	let mut size = 1
+	for i in 0..n {
+		let basic = basicGo(st, ops[i])
+		if basic == "bool" {
+			size = size * 2
+		} else if basic == "uint8" {
+			size = size * 256
+		} else {
+			return false
+		}
+		if size > 4096 {
+			return false
+		}
+	}
+	n > 0
+}

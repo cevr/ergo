@@ -48,21 +48,41 @@ import (
 // fields of the uniform shape (funcType), Enc of (Writer, self) and Dec of
 // (Reader) with a self result.
 func (tc *typeCtx) wireCodecType(self check.Type) string {
-	return "struct{ " + tc.wireCodecFuncs(self) + "; Field *" + tc.wireFieldType(self) + " }"
+	return tc.wireCodecTypeWith(self, tc.wireCodecFields(self))
 }
 
-// wireCodecFuncs are the Enc and Dec fields of a codec witness, and its
-// Direct field for each direct writer (wiredirect.go).
-func (tc *typeCtx) wireCodecFuncs(self check.Type) string {
+func (tc *typeCtx) wireCodecTypeWith(self check.Type, fields []wireCodecField) string {
+	return "struct{ " + wireCodecFuncs(fields) + "; Field *" + tc.wireFieldType(self) + " }"
+}
+
+type wireCodecField struct{ name, typ string }
+
+// wireCodecFields are the callable fields of the witness ABI. The
+// projection pass uses the same field declarations as the whole witness.
+func (tc *typeCtx) wireCodecFields(self check.Type) []wireCodecField {
 	enc, dec := wireCodecSigs(self)
-	s := "Enc " + tc.funcType(enc) + "; Dec " + tc.funcType(dec)
+	fields := make([]wireCodecField, 0, 2+len(tc.l.directWriters)+len(tc.l.directReaders))
+	fields = append(fields, wireCodecField{"Enc", tc.funcType(enc)}, wireCodecField{"Dec", tc.funcType(dec)})
 	for i, w := range tc.l.directWriters {
-		s += "; " + directField(i) + " " + tc.wireDirectType(w, self)
+		fields = append(fields, wireCodecField{directField(i), tc.wireDirectType(w, self)})
 	}
 	for i := range tc.l.directReaders {
-		s += "; " + readField(i) + " " + tc.wireReadType(i, self)
+		fields = append(fields, wireCodecField{readField(i), tc.wireReadType(i, self)})
 	}
-	return s
+	return fields
+}
+
+func wireCodecFuncs(fields []wireCodecField) string {
+	var b strings.Builder
+	for i, field := range fields {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		b.WriteString(field.name)
+		b.WriteByte(' ')
+		b.WriteString(field.typ)
+	}
+	return b.String()
 }
 
 // wireFieldType is the Go type of a witness's Field: the record-field form
@@ -71,7 +91,7 @@ func (tc *typeCtx) wireCodecFuncs(self check.Type) string {
 // Absent reports the empty state and Empty is the value of an absent key.
 func (tc *typeCtx) wireFieldType(self check.Type) string {
 	gt := tc.goType(self)
-	return "struct{ " + tc.wireCodecFuncs(self) + "; Absent func(" + gt + ") bool; Empty " + gt + " }"
+	return "struct{ " + wireCodecFuncs(tc.wireCodecFields(self)) + "; Absent func(" + gt + ") bool; Empty " + gt + " }"
 }
 
 // wireDirectType is the Go type of a codec witness's Direct field for the
@@ -632,7 +652,7 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 	if l.ir != nil && l.ir.wireRead(l, name, t, tc, scope, site) {
 		// The IR builds the body (ir_wire_read.go): the Go declaration
 		// has none.
-		l.gen.WriteString(head + "\n\n")
+		l.gen.WriteString(head + irHeadEnd(tlist != "") + "\n\n")
 		return name
 	}
 	// A decoder the IR does not build keeps this text; wireRead counted

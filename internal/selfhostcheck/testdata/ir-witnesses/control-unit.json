@@ -1,0 +1,7 @@
+[
+  {"fixture": "port_unit.ergo", "declaration": "func PortUnitEmpty(", "symbol": "PortUnitEmpty"},
+  {"fixture": "port_unit.ergo", "declaration": "func PortUnitBare(", "symbol": "PortUnitBare"},
+  {"fixture": "port_unit.ergo", "declaration": "func PortUnitTail(", "symbol": "PortUnitTail"},
+  {"fixture": "port_unit.ergo", "declaration": "func PortUnitCall(", "symbol": "PortUnitCall"},
+  {"fixture": "port_unit.ergo", "declaration": "func PortUnitBranchCall(", "symbol": "PortUnitBranchCall"}
+]

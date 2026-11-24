@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"syscall"
 )
 
 // ---- step ----
@@ -304,6 +305,129 @@ func total(p plain, n int) int {
 
 func benchCtx(n int) int { return total(plain{3}, n) }
 
+// ---- provspill ----
+
+type tally interface{ bump(x int) int }
+
+type provStep struct{ k int }
+
+func (s provStep) bump(x int) int { return x*s.k + 1 }
+
+//go:noinline
+func bumps(t tally, from, n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += t.bump((i + from) & 1023)
+	}
+	return s
+}
+
+func benchProvSpill(n int) int {
+	s := 0
+	for i := 0; i < n/64; i++ {
+		s += bumps(provStep{3}, bumps(provStep{2}, i, 1), 63)
+	}
+	return s
+}
+
+// ---- mapclose ----
+
+//go:noinline
+func mapClose(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return false
+	}
+	data, err := syscall.Mmap(int(f.Fd()), 0, int(info.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return false
+	}
+	syscall.Munmap(data)
+	return true
+}
+
+func benchMapClose(n int) int {
+	k := 0
+	for i := 0; i < n; i++ {
+		if !mapClose("/proc/self/exe") {
+			return -1
+		}
+		k++
+	}
+	return k
+}
+
+// ---- slotmatch ----
+
+type shape struct {
+	kind          uint8
+	a, b, c, d, e int
+}
+
+func shapeOf(i, d int) shape {
+	if d > 0 {
+		return shapeOf(i, d-1)
+	}
+	if i%3 == 0 {
+		return shape{kind: 0, a: i & 7}
+	}
+	if i%3 == 1 {
+		return shape{kind: 1, a: i & 7, b: 3}
+	}
+	return shape{kind: 2, a: 1, b: 2, c: i & 7, d: 4, e: 5}
+}
+
+func area(i int) int {
+	s := shapeOf(i, 2)
+	switch s.kind {
+	case 0:
+		return s.a * s.a * 3
+	case 1:
+		return s.a * s.b
+	}
+	return s.a + s.b + s.c + s.d + s.e
+}
+
+func benchSlotMatch(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += area(i)
+	}
+	return s
+}
+
+// ---- ownwith ----
+
+type gauge interface{ read(x int) int }
+
+type counter struct{ k int }
+
+func (c counter) read(x int) int { return x*c.k + 1 }
+
+//go:noinline
+func (c counter) close() {}
+
+//go:noinline
+func gauged(x int) int {
+	c := counter{3}
+	defer c.close()
+	var g gauge = c
+	return g.read(x)
+}
+
+func benchOwnWith(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += gauged(i & 1023)
+	}
+	return s
+}
+
 // ---- ref ----
 
 type cell struct {
@@ -411,6 +535,14 @@ func main() {
 		out = benchCtx(n)
 	case "ref":
 		out = benchRef(n)
+	case "mapclose":
+		out = benchMapClose(n)
+	case "slotmatch":
+		out = benchSlotMatch(n)
+	case "ownwith":
+		out = benchOwnWith(n)
+	case "provspill":
+		out = benchProvSpill(n)
 	case "widen", "rebuild":
 		out = benchWiden(n)
 	}

@@ -1,0 +1,5 @@
+# Reads one required field and a field that is absent in half the objects.
+unit read
+sizes 20000 120000
+args bench omittable {n}
+control benchmarks/wirereaders/testdata/control

@@ -1,0 +1,270 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/infer
+import compiler/check/store
+import compiler/syntax
+import dense
+import strings
+
+type failureExit { at dense.ID[syntax.Node], operands []dense.ID[syntax.Node] }
+type falliblePlan { exit Option[failureExit] }
+
+// envFreeFallibleFrame proves a no-call frame. Go excludes a
+// method or a row with several distinct failures from flat lowering.
+// No borrowed/owned operand, dynamic witness or other effect is admitted.
+func envFreeFallibleFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops []dense.ID[store.TKey], n int) framePlan fails Unported {
+	let row = ops[n+1]
+	let members = try frameFailureMembers(st, row)
+	if shapeGo(st, ops[n]) == "" {
+		return stop("SHAPES: unspelled success result")
+	}
+	let leading = if n != 0 { plainRecord(st, ops[0]) >= 0 } else { false }
+	let first = if n != 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None }
+	if len(members) == 1 && (!leading || !strings.Contains(try goName(st, name, first), ".")) {
+		return stop("non-flat method required")
+	}
+	if len(f.Takes) != n {
+		return stop("formal modes unavailable")
+	}
+	for i in 0..n {
+		if f.Takes[i] || (basicGo(st, ops[i]) == "" && (i != 0 || !leading)) {
+			return stop("scalar non-taking formals or a leading value receiver required")
+		}
+	}
+	let failure = falliblePlan{exit: try fallibleTail(st, body, ops[n], members)}
+	framePlan{env: -1, slots: n, pure: false, fallible: Some[falliblePlan]{Value: failure}, pollEntry: false, op: None}
+}
+
+func frameFailureMembers(st fnb, row dense.ID[store.TKey]) []dense.ID[store.TKey] fails Unported {
+	let members = store.OperandsOf(st.s, row)
+	if store.KindOfType(st.s, row) != store.KRow || len(members) == 0 {
+		return stop("checker: non-closed failure row")
+	}
+	for member in members {
+		let k = store.KindOfType(st.s, member)
+		if k == store.KNamed {
+			if ordinaryRecord(st, member) >= 0 && shapeGo(st, member) != "" {
+				continue
+			}
+			match failureVariant(st, member) {
+			case Some{Value: owner}:
+				match unionNamed(st, owner) {
+				case Some{Value: shape}:
+					if unionTagOfType(shape, member) >= 0 {
+						continue
+					}
+				case None:
+				}
+				return stop("UNION: unspelled failure variant")
+			case None:
+				return stop("SHAPES: unspelled local failure type")
+			}
+		}
+		if k == store.KForeign || k == store.KInstance && store.OriginOfType(st.s, member).Import != 0 {
+			// shapeGo has no imported record spelling yet. A provider's
+			// loaded path alone does not establish its Go type.
+			if shapeGo(st, member) == "" {
+				return stop("SHAPES: imported failure spelling")
+			}
+			if frameImportedMemberAdmitted(st, member) {
+				continue
+			}
+			// Native generic union spelling is not a proof that the
+			// checker's row has expanded that instance to its variants.
+			return stop("UNION: unexpanded generic failure row")
+		}
+		return stop("checker: unexpanded or unresolved failure member")
+	}
+	members
+}
+
+// A local union row is expanded to its variants by types.members. Recover
+// the owning declaration from the variant's binder row, not from a name
+// search over all unions; UNION supplies the checked shape and tag.
+func failureVariant(st fnb, t dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+	let d = match store.Lookup(st.s, name) {
+	case Some{Value: id}:
+		store.DeclOf(st.s, id)
+	case None:
+		return None
+	}
+	let file = int(d.File)
+	let p = st.k.Parsed[file]
+	let node = bind.PNodeOf(st.k.Ps, file, syntax.NodeAt(p.Tree, int(d.Node)))
+	let mut parent = node
+	for k in []uint8{syntax.KVariantSpec, syntax.KInterfaceType, syntax.KTypeDecl} {
+		match dense.Unpack(bind.ParentOf(st.k.Ps, parent)) {
+		case Some{Value: next}:
+			parent = next
+		case None:
+			return None
+		}
+		let (_, r) = bind.RowOf(st.k.Ps, parent)
+		if syntax.KindOf(p.Tree, syntax.NodeAt(p.Tree, r)) != k {
+			return None
+		}
+	}
+	let (_, r) = bind.RowOf(st.k.Ps, parent)
+	let td = syntax.TypeDeclOf(p.Tree, syntax.NodeAt(p.Tree, r))
+	match store.Lookup(st.s, nameText(p, td.Name)) {
+	case Some{Value: union}:
+		let mut s = st.s
+		Some[dense.ID[store.TKey]]{Value: store.TNamed(&s, union)}
+	case None:
+		None
+	}
+}
+
+// Recognize only the two whole-body footprints described above. CONTROL
+// still owns branch planning, flow, liveness, positions and row emission.
+func fallibleTail(st fnb, body dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) Option[failureExit] fails Unported {
+	let tr = st.p.Tree
+	let list = match syntax.ViewOf(tr, body) {
+	case syntax.BlockStmt as b:
+		b.List
+	case _:
+		return stop("fallible body must have a value tail")
+	}
+	let n = syntax.Len(list)
+	if n != 1 && n != 2 {
+		return stop("fallible body must have a value tail")
+	}
+	let tail = match syntax.ViewOf(tr, syntax.Item(tr, list, n-1)) {
+	case syntax.ExprStmt as e:
+		e.X
+	case syntax.ReturnStmt as r:
+		match dense.Unpack(r.Result) {
+		case Some{Value: x}:
+			x
+		case None:
+			return stop("fallible value frame has a bare return")
+		}
+	case _:
+		return stop("fallible body must have a value tail")
+	}
+	let actual = try typeOf(st, unparen(st, tail), "fallible tail")
+	if actual != success && failureMember(members, actual) {
+		if n != 1 {
+			return stop("fallible frame with several failure exits")
+		}
+		return Some[failureExit]{Value: try recordFailure(st, tail, success, members)}
+	}
+	if callsIn(st.p, tail) {
+		return stop("CALLS: fallible frame value tail contains a call")
+	}
+	if actual != success && unionGo(st, success) == "" {
+		return stop("SHAPES/UNION: fallible tail needs a success conversion")
+	}
+	// CONTROL owns value admission and source-order emission, including
+	// UNION's return injection when a checked variant joins the result.
+	if n == 1 {
+		None
+	} else {
+		Some[failureExit]{Value: try earlyFailure(st, syntax.Item(tr, list, 0), success, members)}
+	}
+}
+
+func earlyFailure(st fnb, node dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) failureExit fails Unported {
+	let tr = st.p.Tree
+	match syntax.ViewOf(tr, node) {
+	case syntax.IfStmt as branch:
+		if dense.Unpack(branch.Else) == None && exitScalar(st, branch.Cond) {
+			match syntax.ViewOf(tr, branch.Body) {
+			case syntax.BlockStmt as b:
+				if syntax.Len(b.List) == 1 {
+					match syntax.ViewOf(tr, syntax.Item(tr, b.List, 0)) {
+					case syntax.ReturnStmt as r:
+						match dense.Unpack(r.Result) {
+						case Some{Value: x}:
+							return try recordFailure(st, x, success, members)
+						case None:
+						}
+					case _:
+					}
+				}
+			case _:
+			}
+		}
+	case _:
+	}
+	stop("typed failure must be the early return of one scalar branch")
+}
+
+func recordFailure(st fnb, x dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) failureExit fails Unported {
+	let y = unparen(st, x)
+	let t = try typeOf(st, y, "failure return")
+	if !failureMember(members, t) {
+		return stop("return does not build a declared failure")
+	}
+	// An error value can also be a success type (including a variant of
+	// an all-error union). Do not guess which channel the checker chose.
+	let mut s = st.s
+	if t == success || failureMember(infer.VariantsOf(&s, st.k.Unions, success), t) {
+		return stop("checker: failure also inhabits the success result")
+	}
+	if store.KindOfType(st.s, t) == store.KNamed && failureVariant(st, t) != None {
+		return stop("UNION: direct failure variant value")
+	}
+	match syntax.ViewOf(st.p.Tree, y) {
+	case syntax.CompositeLit as lit:
+		if dense.Unpack(lit.Base) == None {
+			let a = try aggregateLiteral(st, y, lit)
+			for operand in a.values {
+				try failureField(st, operand)
+			}
+			return failureExit{at: x, operands: a.values}
+		}
+	case _:
+	}
+	stop("failure value needs a fresh record literal")
+}
+
+func failureMember(members []dense.ID[store.TKey], t dense.ID[store.TKey]) bool {
+	for member in members {
+		if member == t {
+			return true
+		}
+	}
+	false
+}
+
+// Fresh aggregates need no ownership/copy decision. Leave a reference
+// taken from an existing value at the SHAPES/OWN boundary.
+func failureField(st fnb, x dense.ID[syntax.Node]) fails Unported {
+	let y = unparen(st, x)
+	if basicGo(st, try typeOf(st, y, "failure field")) != "" && exitScalar(st, y) {
+		return
+	}
+	match syntax.ViewOf(st.p.Tree, y) {
+	case syntax.CompositeLit as lit:
+		if dense.Unpack(lit.Base) == None {
+			let a = try aggregateLiteral(st, y, lit)
+			for operand in a.values {
+				try failureField(st, operand)
+			}
+			return
+		}
+	case _:
+	}
+	stop("SHAPES/OWN: failure field is not a fresh aggregate or scalar")
+}
+
+// The ordinary expression planner still checks the operators, types and
+// binder reads. This vocabulary rules out hidden calls and frame actions.
+func exitScalar(st fnb, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		true
+	case syntax.BasicLit:
+		true
+	case syntax.ParenExpr as p:
+		exitScalar(st, p.X)
+	case syntax.UnaryExpr as u:
+		exitScalar(st, u.X)
+	case syntax.BinaryExpr as b:
+		exitScalar(st, b.X) && exitScalar(st, b.Y)
+	case _:
+		false
+	}
+}

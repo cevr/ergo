@@ -1,0 +1,15 @@
+// CallFacts is a package's projection, indexed by expr.FnAt's function
+// index in that exact loaded package. Its verdict distinguishes proved
+// pure from proved pure and stays-direct; either can carry purity across
+// an import, but only the latter justifies a direct call.
+type CallFacts { flags []uint8 }
+
+// ImportCallFacts pairs a projection with its exact loaded import. The
+// driver withholds projections for ambiguous or unavailable packages.
+type ImportCallFacts { Path string, Facts CallFacts }
+
+func EmptyCallFacts() CallFacts { CallFacts{flags: []uint8{}} }
+
+// HasCallFacts tells the driver whether the package produced a projection
+// at all. A verdict can still explicitly withhold proof for a function.
+func HasCallFacts(facts CallFacts) bool { len(facts.flags) > 0 }

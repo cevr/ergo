@@ -1,0 +1,164 @@
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import compiler/syntax
+import slices
+
+// exactLoadedUnits indexes only unambiguous loaded units. Equal paths
+// (even of equal file lists) do not prove equal declaration rows.
+func exactLoadedUnits(p load.Program) Map[string, int] {
+	let mut byPath = Map[string, int]{}
+	for i, dep in p.Loaded {
+		let at = if byPath.Get(dep.Path) == None { i } else { -1 }
+		byPath = byPath.Put(dep.Path, at)
+	}
+	byPath
+}
+
+func exactLoadedUnit(exact Map[string, int], path string) int {
+	match exact.Get(path) {
+	case Some[int] as at:
+		at.Value
+	case None:
+		-1
+	}
+}
+
+// shapeLoadedUnits selects the very first loaded store, as load.TypeAt
+// does, for repeated presentations of the same checked package. Prove
+// they are repeats with the full ordered source inputs and both tables,
+// not just a path or file list. Conflicting inputs prove no store.
+func shapeLoadedUnits(p load.Program, units []load.Unit, inputs []InputTables) Map[string, int] {
+	let mut byPath = Map[string, int]{}
+	for i, dep in p.Loaded {
+		match byPath.Get(dep.Path) {
+		case Some[int] as first:
+			if first.Value >= 0 && !sameShapeInputs(units, inputs, p.Units[first.Value], p.Units[i]) {
+				byPath = byPath.Put(dep.Path, -1)
+			}
+		case None:
+			byPath = byPath.Put(dep.Path, i)
+		}
+	}
+	byPath
+}
+
+func sameShapeInputs(units []load.Unit, inputs []InputTables, a int, b int) bool {
+	if inputs[a].Ext != inputs[b].Ext || inputs[a].Foreign != inputs[b].Foreign || !slices.Equal(units[a].Paths, units[b].Paths) {
+		return false
+	}
+	for i, file in units[a].Files {
+		if syntax.SourceOf(file.Parsed) != syntax.SourceOf(units[b].Files[i].Parsed) {
+			return false
+		}
+	}
+	true
+}
+
+// importUnits indexes the loaded stores by import path, preserving
+// LoadAll's order. A corpus can list the same source package twice, but a
+// path with two different source sets cannot prove a root's inventory.
+func importUnits(p load.Program, units []load.Unit) Map[string, int] {
+	let mut byPath = Map[string, int]{}
+	for i, dep in p.Loaded {
+		match byPath.Get(dep.Path) {
+		case Some[int] as previous:
+			if previous.Value >= 0 && !slices.Equal(units[p.Units[i]].Paths, units[p.Units[previous.Value]].Paths) {
+				byPath = byPath.Put(dep.Path, -1)
+			}
+		case None:
+			byPath = byPath.Put(dep.Path, i)
+		}
+	}
+	byPath
+}
+
+func hasSources(dep expr.Dep) bool {
+	if len(dep.K.Parsed) == 0 {
+		return false
+	}
+	for parsed in dep.K.Parsed {
+		if parsed.Failed {
+			return false
+		}
+	}
+	true
+}
+
+// shapeImports is the declaration inventory of a unit, including a
+// non-root. Follow exact loaded edges only: a missing, ambiguous or
+// unparsed unit proves neither its own declarations nor its imports.
+// An unavailable edge does not invalidate the other reachable stores.
+func shapeImports(p load.Program, unit int, exact Map[string, int]) Map[string, expr.Dep] {
+	let source = p.Loaded[unit]
+	let mut deps = Map[string, expr.Dep]{}
+	if !hasSources(source) {
+		return deps
+	}
+	let mut paths = store.ImportPaths(source.S)
+	if source.Path != "prelude" {
+		paths = paths.Append("prelude")
+	}
+	let mut i = 0
+	for i < len(paths) {
+		let path = paths[i]
+		i = i + 1
+		if path == source.Path || deps.Get(path) != None {
+			continue
+		}
+		let at = exactLoadedUnit(exact, path)
+		if at < 0 || !hasSources(p.Loaded[at]) {
+			continue
+		}
+		let dep = p.Loaded[at]
+		deps = deps.Put(dep.Path, dep)
+		for imported in store.ImportPaths(dep.S) {
+			paths = paths.Append(imported)
+		}
+	}
+	deps
+}
+
+// rootImports is the root's read-only import closure. ImportPaths is
+// sorted and LoadAll rejoins in input order, so neither the closure's
+// contents nor its order depend on task width. An interface without
+// sources cannot certify that the package has no private declarations.
+func rootImports(p load.Program, root int, available Map[string, int]) Option[[]expr.Dep] {
+	let first = p.Loaded[root]
+	if !hasSources(first) {
+		return None
+	}
+	let mut paths = []string{"prelude"}
+	for path in store.ImportPaths(first.S) {
+		paths = paths.Append(path)
+	}
+	let mut seen = Map[string, bool]{first.Path: true}
+	let mut deps = []expr.Dep{}
+	let mut i = 0
+	for i < len(paths) {
+		let path = paths[i]
+		i = i + 1
+		if seen.Get(path) != None {
+			continue
+		}
+		seen = seen.Put(path, true)
+		let at = match available.Get(path) {
+		case Some[int] as loaded:
+			loaded.Value
+		case None:
+			return None
+		}
+		if at < 0 {
+			return None
+		}
+		let dep = p.Loaded[at]
+		if !hasSources(dep) {
+			return None
+		}
+		deps = deps.Append(dep)
+		for imported in store.ImportPaths(dep.S) {
+			paths = paths.Append(imported)
+		}
+	}
+	Some[[]expr.Dep]{Value: deps}
+}

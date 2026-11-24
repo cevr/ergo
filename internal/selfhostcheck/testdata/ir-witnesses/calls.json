@@ -1,0 +1,5 @@
+[
+  {"fixture": "port_calls.ergo", "declaration": "func PortCallBuiltin(", "symbol": "PortCallBuiltin"},
+  {"fixture": "port_calls.ergo", "declaration": "func PortCallOrdered(", "symbol": "PortCallOrdered"},
+  {"fixture": "port_calls.ergo", "declaration": "func PortCallCycle(", "symbol": "PortCallCycle"}
+]

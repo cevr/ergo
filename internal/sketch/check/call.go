@@ -1246,6 +1246,24 @@ func isUnreachable(f *Func) bool {
 // lowering writes as a panic at its site, never as a call of its Go body.
 func IsUnreachable(c *Call) bool { return c != nil && c.Kind == CallFunc && isUnreachable(c.Func) }
 
+// CallPrimitive is a language action the lowering writes at its call
+// site rather than calling a function body.
+type CallPrimitive uint8
+
+const (
+	PrimitiveNone CallPrimitive = iota
+	PrimitiveDefect
+	PrimitiveCaptureContext
+)
+
+// PrimitiveOf returns the action assigned to the call's resolved declaration.
+func PrimitiveOf(c *Call) CallPrimitive {
+	if c != nil && c.Kind == CallFunc && c.Func != nil {
+		return c.Func.primitive
+	}
+	return PrimitiveNone
+}
+
 // unsatisfied reports, at x, that the type argument b of f's parameter tp
 // does not satisfy its constraint cons, for the reason why: in a call and
 // in a written instantiation alike, it names f's parameter and, when a

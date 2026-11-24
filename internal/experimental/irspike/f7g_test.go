@@ -140,7 +140,7 @@ func TestIROrderMatchesSource(t *testing.T) {
 					seen[form]++
 				}
 			}
-			if name == "gate" && gateTails.MatchString(bodyOf(text, name)) {
+			if name == "gateUnit" && gateUnitTails.MatchString(bodyOf(text, name)) {
 				gated++
 			}
 		}
@@ -153,7 +153,7 @@ func TestIROrderMatchesSource(t *testing.T) {
 	}
 	if count >= uint64(len(orderForms())) && (len(missing) > 0 || gated == 0) {
 		slices.Sort(missing)
-		t.Fatalf("the run did not reach IR bodies with: %v (gate's failing branch tails: %d)", missing, gated)
+		t.Fatalf("the run did not reach IR bodies with: %v (gateUnit's failing branch tails: %d)", missing, gated)
 	}
 }
 
@@ -176,14 +176,14 @@ var orderFormRes = map[string]*regexp.Regexp{
 	"catch arm whose value is an if":           regexp.MustCompile(`case E\d as x:\n\s+if `),
 	"positional record literal":                regexp.MustCompile(`Pt\{[^:}]*\}`),
 	"fallible call with an empty row":          regexp.MustCompile(`app\([^\n]*, func\(n int\) int \{`),
-	"call of gate":                             regexp.MustCompile(`try gate\(`),
+	"call of a unit fallible function":         regexp.MustCompile(`try gateUnit\(`),
 	"catch of a match":                         regexp.MustCompile(`\tcase _:\n[^\n]*\n\s*\} catch \{`),
 	"op-assignment of a value with statements": regexp.MustCompile(` \+= if tr\(`),
 }
 
-// gateTails is gate's body (orderDecls): a branch tail that fails a body
+// gateUnitTails is gateUnit's body (orderDecls): a branch tail that fails a body
 // with no value.
-var gateTails = regexp.MustCompile(`\n\t\tE1\{Code: n\}\n\t\} else if`)
+var gateUnitTails = regexp.MustCompile(`\n\t\tE1\{Code: n\}\n\t\} else if`)
 
 // bodyOf is function name's body in text.
 func bodyOf(text, name string) string {

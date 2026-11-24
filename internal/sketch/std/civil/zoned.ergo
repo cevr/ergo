@@ -4,8 +4,49 @@
 // back as text (ZonedText); tz.FormatZoned and tz.ParseZoned are the
 // functions a program calls.
 
+import time
+
 // ZonedFormat is a checked format of a wall time and its zone.
 type ZonedFormat { fields []Field, names Names }
+
+// RFC3339Seconds is a date, time and offset with no fraction. It writes
+// Z at zero and preserves an offset's seconds when they are nonzero.
+let RFC3339Seconds = ZonedFormat{fields: ISODateTime().fields.Append(OffsetField{Colon: true, Z: true}), names: English()}
+
+// RFC3339SecondsAgreesWithPattern: the preset writes and reads the same
+// wall time and offset as the LDML pattern, including Z at zero and the
+// optional offset seconds civil preserves.
+law RFC3339SecondsAgreesWithPattern(n int64, ns int64, k int) {
+	let p = try ZonedPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
+	let dt = DateTimeOf(time.Unix(n%253402300800, ns%1000000000))
+	for offset in []int{0, k % 64801} {
+		let z = ZoneParts{Offset: offset, Abbreviation: "", Zone: ""}
+		let text = FormatWithZone(dt, z, p)
+		if FormatWithZone(dt, z, RFC3339Seconds) != text {
+			return false
+		}
+		if try ParseWithZone(RFC3339Seconds, text) != try ParseWithZone(p, text) {
+			return false
+		}
+	}
+	true
+}
+
+// RFC9557 is a date, time, optional fraction, numeric offset and zone
+// name in brackets. The offset retains seconds when it has them.
+let RFC9557 = ZonedFormat{
+	fields: ISODateTime().fields.Append(Fraction{Digits: 9, Trim: true}).Append(OffsetField{Colon: true, Z: false}).Append(Literal{Text: "["}).Append(ZoneID).Append(Literal{Text: "]"}),
+	names:  English(),
+}
+
+// CommonLogTimestamp is the timestamp inside an HTTP Common Log Format
+// record: 02/Jan/2006:15:04:05 -0700.
+let CommonLogTimestamp = ZonedFormat{fields: commonLogFields(), names: English()}
+
+func commonLogFields() []Field {
+	let date = []Field{DayOfMonth{Pad: ZeroPad}, Literal{Text: "/"}, MonthName{Width: Short}, Literal{Text: "/"}, YearNumber{Digits: FourDigits}, Literal{Text: ":"}}
+	date.Concat(ClockSeconds.fields).Append(Literal{Text: " "}).Append(OffsetField{Colon: false, Z: false})
+}
 
 // ZonedFields is the zoned format of fields with names.
 func ZonedFields(fields []Field, names Names) ZonedFormat fails BadPattern {

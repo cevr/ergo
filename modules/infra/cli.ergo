@@ -35,9 +35,32 @@ type Deployment[O wire] {
 	Outputs func(stage string) string,
 }
 
+// CommandStatus is an exit status an infra command can produce.
+type CommandStatus int where 0 <= it && it <= 3
+
 // Output is what Exec prints: Out to standard output, Err to standard
 // error, and the exit status.
-type Output { Out string, Err string, Code int }
+type Output { Out string, Err string, Code CommandStatus }
+
+// CommandStatusKeepsNumber checks the raw admission boundary: only the
+// documented exit codes are accepted and an accepted code is unchanged.
+law CommandStatusKeepsNumber(raw int) {
+	for n in -1..5 {
+		if !keepsStatus(n) {
+			return false
+		}
+	}
+	keepsStatus(raw)
+}
+
+func keepsStatus(raw int) bool {
+	let accepted = raw == 0 || raw == 1 || raw == 2 || raw == 3
+	let status = ParseCommandStatus(raw) catch {
+	case Unsatisfied:
+		return !accepted
+	}
+	accepted && int(status) == raw
+}
 
 // Order is a command line Exec reads.
 type Order = PlanOrder{Stage string, JSON bool, Refresh bool} | ApplyOrder{Stage string, JSON bool, Yes bool, Holder string} | DestroyOrder{Stage string, JSON bool, Yes bool, Holder string} | StateOrder{Stage string, JSON bool} | UnlockOrder{Stage string, Holder string}
@@ -138,7 +161,7 @@ func told(asJSON bool, stage string, steps []Step, last string) Output {
 }
 
 // refused is the Output of a failed run of name.
-func refused(name string, why string, code int) Output { Output{Out: "", Err: name + ": " + why + "\n", Code: code} }
+func refused(name string, why string, code CommandStatus) Output { Output{Out: "", Err: name + ": " + why + "\n", Code: code} }
 
 // held is the Output of a lock another holds.
 func held(name string, stage string, h Held) Output {
@@ -292,10 +315,7 @@ func Run[O wire](d Deployment[O], args []string) fails os.Exit needs Console | w
 		Console.Println(strings.TrimSuffix(o.Out, "\n"))
 	}
 	if o.Code != 0 {
-		let code = os.ParseCode(o.Code) catch {
-		case Unsatisfied:
-			Unreachable("infra's Exec gives status 0, 1, 2 or 3")
-		}
+		let code os.Code = if o.Code == 1 { 1 } else if o.Code == 2 { 2 } else { 3 }
 		return os.Exit{Code: code, Message: strings.TrimSuffix(o.Err, "\n")}
 	}
 }

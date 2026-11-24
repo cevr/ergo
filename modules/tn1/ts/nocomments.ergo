@@ -1,0 +1,749 @@
+import slices
+import strings
+
+type Form { Name string, Openings []string }
+
+let DirectiveForms = []Form{
+	Form{Name: "shebang", Openings: []string{}},
+	Form{Name: "typescript", Openings: []string{"@ts-expect-error", "@ts-ignore", "@ts-nocheck", "@ts-check"}},
+	Form{Name: "triple-slash", Openings: []string{"/ <reference", "/<reference", "/ <amd-module", "/ <amd-dependency"}},
+	Form{Name: "lint", Openings: []string{"oxlint-disable", "oxlint-enable", "eslint-disable", "eslint-enable", "eslint ", "biome-ignore", "@effect-diagnostics"}},
+	Form{Name: "format", Openings: []string{"prettier-ignore", "oxfmt-ignore", "biome-format-ignore", "dprint-ignore"}},
+	Form{Name: "coverage", Openings: []string{"istanbul ignore", "c8 ignore", "v8 ignore", "node:coverage"}},
+	Form{Name: "bundler", Openings: []string{
+		"#__PURE__", "@__PURE__", "#__NO_SIDE_EFFECTS__", "@__NO_SIDE_EFFECTS__", "#__KEY__", "@__KEY__",
+		"#__INLINE__", "@__INLINE__", "#__NOINLINE__", "@__NOINLINE__", "@vite-ignore", "webpack", "turbopackIgnore",
+	}},
+	Form{Name: "jsx-pragma", Openings: []string{"@jsx"}},
+	Form{Name: "source-map", Openings: []string{
+		"# sourceMappingURL=", "@ sourceMappingURL=", "#sourceMappingURL=", "@sourceMappingURL=",
+		"# sourceURL=", "@ sourceURL=", "#sourceURL=", "@sourceURL=",
+	}},
+}
+
+let Prose = -1
+
+type Comment { From int, To int, Line int, Form int }
+
+type Edit { From int, To int, With string }
+
+let frameCode = byte(0)
+let frameTemplate = byte(1)
+let frameJsxTag = byte(2)
+let frameJsxChildren = byte(3)
+let frameJsxExpr = byte(4)
+
+type scanFrame {
+	Kind         byte,
+	OpenPos      int,
+	AngleDepth   int,
+	HasCode      bool,
+	HasDirective bool,
+	HasProse     bool,
+}
+
+type jsxContainer { From int, To int }
+
+type tagHead { Name string, End int }
+
+type scannedSource {
+	Tokens        []Token,
+	Comments      []Comment,
+	JsxContainers []jsxContainer,
+}
+
+func formOf(src string, t Token) int {
+	let text = strings.Slice(src, t.From, t.To)
+	if t.From == 0 && strings.HasPrefix(text, "#!") {
+		return 0
+	}
+	let isBlock = match t.Kind {
+	case BlockComment:
+		true
+	case LineComment, Ident, Punct, Literal:
+		false
+	}
+	let end = if isBlock && len(text) >= 4 && strings.HasSuffix(text, "*/") { len(text) - 2 } else { len(text) }
+	let raw = strings.Slice(text, lo(2, end), end)
+	let body = if isBlock { strings.TrimLeft(raw, "*\n\r\t ") } else { strings.TrimLeft(raw, "\t ") }
+	for i in 1..len(DirectiveForms) {
+		if isBlock && DirectiveForms[i].Name == "triple-slash" {
+			continue
+		}
+		for o in DirectiveForms[i].Openings {
+			if strings.HasPrefix(body, o) {
+				return i
+			}
+		}
+	}
+	Prose
+}
+
+func isJsxTagNameByte(c byte) bool { identByte(c) || c == '-' || c == ':' }
+
+func readJsxTagName(src string, i int) tagHead {
+	let mut j = i
+	for j < len(src) && isJsxTagNameByte(src[j]) {
+		j += 1
+	}
+	for j < len(src) && src[j] == '.' && j+1 < len(src) && identStart(src[j+1]) {
+		j += 1
+		for j < len(src) && isJsxTagNameByte(src[j]) {
+			j += 1
+		}
+	}
+	tagHead{Name: strings.Slice(src, i, j), End: j}
+}
+
+func hasClosingTag(src string, from int, tag string) bool {
+	let needle = "</" + tag
+	let mut p = from
+	for p < len(src) {
+		let idx = strings.Index(strings.Slice(src, p, len(src)), needle)
+		if idx < 0 {
+			return false
+		}
+		let mut k = p + idx + len(needle)
+		for k < len(src) && (space(src[k]) || src[k] == '\n') {
+			k += 1
+		}
+		if k < len(src) && src[k] == '>' {
+			return true
+		}
+		p = p + idx + 2
+	}
+	false
+}
+
+func jsxAttrString(src string, i int) int {
+	let q = src[i]
+	let mut j = i + 1
+	for j < len(src) && src[j] != q {
+		j += 1
+	}
+	if j < len(src) {
+		return j + 1
+	}
+	len(src)
+}
+
+func skipTemplate(src string, i int) int {
+	let mut j = i + 1
+	for j < len(src) {
+		let p = templateEnd(src, j)
+		j = p.End
+		if !p.Opens {
+			return j
+		}
+		let mut braces = 1
+		for j < len(src) && braces > 0 {
+			let c = src[j]
+			if c == '\'' || c == '"' {
+				j = quoted(src, j)
+			} else if c == '`' {
+				j = skipTemplate(src, j)
+			} else if c == '/' && j+1 < len(src) && src[j+1] == '/' {
+				let nl = strings.IndexByte(strings.Slice(src, j, len(src)), '\n')
+				j = if nl < 0 { len(src) } else { j + nl + 1 }
+			} else if c == '/' && j+1 < len(src) && src[j+1] == '*' {
+				let cl = strings.Index(strings.Slice(src, j+2, len(src)), "*/")
+				j = if cl < 0 { len(src) } else { j + 2 + cl + 2 }
+			} else if c == '{' {
+				braces += 1
+				j += 1
+			} else if c == '}' {
+				braces -= 1
+				j += 1
+			} else {
+				j += 1
+			}
+		}
+	}
+	j
+}
+
+func skipWs(src string, i int) int {
+	let mut j = i
+	for j < len(src) && (space(src[j]) || src[j] == '\n') {
+		j += 1
+	}
+	j
+}
+
+func isExtendsTypeParam(src string, k int) bool {
+	if !strings.HasPrefix(strings.Slice(src, k, len(src)), "extends") {
+		return false
+	}
+	if k+7 < len(src) && identByte(src[k+7]) {
+		return false
+	}
+	let after = skipWs(src, k+7)
+	after < len(src) && src[after] != '=' && src[after] != '>' && src[after] != '/'
+}
+
+func looksLikeJsxOpen(src string, i int) bool {
+	if i+1 >= len(src) {
+		return false
+	}
+	if src[i+1] == '>' {
+		return hasClosingTag(src, i+2, "")
+	}
+	if !identStart(src[i+1]) {
+		return false
+	}
+	let h = readJsxTagName(src, i+1)
+	let k = skipWs(src, h.End)
+	if k >= len(src) {
+		return false
+	}
+	if src[k] == ',' || src[k] == '=' || isExtendsTypeParam(src, k) {
+		return false
+	}
+	if h.Name == "const" && identStart(src[k]) {
+		let h2 = readJsxTagName(src, k)
+		let k2 = skipWs(src, h2.End)
+		if k2 < len(src) && (src[k2] == ',' || src[k2] == '=' || isExtendsTypeParam(src, k2)) {
+			return false
+		}
+	}
+	let mut j = k
+	let mut braces = 0
+	let mut angles = 0
+	if src[j] == '<' {
+		angles = 1
+		j += 1
+	}
+	for j < len(src) {
+		let c = src[j]
+		let next = at(src, j+1)
+		if c == '/' && next == '/' {
+			let nl = strings.IndexByte(strings.Slice(src, j, len(src)), '\n')
+			j = if nl < 0 { len(src) } else { j + nl + 1 }
+		} else if c == '/' && next == '*' {
+			let cl = strings.Index(strings.Slice(src, j+2, len(src)), "*/")
+			j = if cl < 0 { len(src) } else { j + 2 + cl + 2 }
+		} else if c == '"' || c == '\'' {
+			j = if braces > 0 { quoted(src, j) } else { jsxAttrString(src, j) }
+		} else if c == '`' {
+			j = skipTemplate(src, j)
+		} else if c == '{' {
+			braces += 1
+			j += 1
+		} else if c == '}' {
+			if braces == 0 {
+				return false
+			}
+			braces -= 1
+			j += 1
+		} else if braces == 0 {
+			if angles > 0 {
+				if c == '<' {
+					angles += 1
+				} else if c == '>' {
+					angles -= 1
+				}
+				j += 1
+			} else if c == '/' && next == '>' {
+				return true
+			} else if c == '>' {
+				return hasClosingTag(src, j+1, h.Name)
+			} else if c == ';' {
+				return false
+			} else {
+				j += 1
+			}
+		} else {
+			j += 1
+		}
+	}
+	false
+}
+
+func regexAllowedCode(hasLast bool, last Token) bool {
+	if !hasLast {
+		return true
+	}
+	match last.Kind {
+	case Punct:
+		last.Text != ")" && last.Text != "]"
+	case Ident:
+		regexAfter(last.Text)
+	case Literal, LineComment, BlockComment:
+		false
+	}
+}
+
+func jsxAllowedCode(hasLast bool, last Token) bool {
+	if !hasLast {
+		return true
+	}
+	match last.Kind {
+	case Punct:
+		last.Text != ")" && last.Text != "]" && last.Text != "++" && last.Text != "--"
+	case Ident:
+		regexAfter(last.Text)
+	case Literal, LineComment, BlockComment:
+		false
+	}
+}
+
+func scanNoComments(src string) scannedSource {
+	let n = len(src)
+	let mut toks = slices.WithCapacity[Token](n / 4)
+	let mut comments = []Comment{}
+	let mut containers = []jsxContainer{}
+	let mut stack = []scanFrame{}
+	let mut i = 0
+	let mut line = 1
+	let mut lineAt = 0
+	let mut newLine = false
+	let mut hasLast = false
+	let mut last = Token{Kind: Punct, From: 0, To: 0, Text: "", NewLine: false, Depth: 0}
+
+	if strings.HasPrefix(src, "#!") {
+		let nl = strings.IndexByte(src, '\n')
+		let mut to = if nl < 0 { n } else { nl }
+		if to > 0 && src[to-1] == '\r' {
+			to -= 1
+		}
+		let tok = Token{Kind: LineComment, From: 0, To: to, Text: "", NewLine: false, Depth: 0}
+		toks = toks.Append(tok)
+		comments = comments.Append(Comment{From: 0, To: to, Line: 1, Form: 0})
+		i = to
+	}
+
+	for i < n {
+		let topIdx = len(stack) - 1
+		let topKind = if topIdx < 0 { frameCode } else { stack[topIdx].Kind }
+		let c = src[i]
+		let next = at(src, i+1)
+
+		if topKind == frameJsxChildren {
+			if c == '{' {
+				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "{", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				stack = stack.Append(scanFrame{Kind: frameJsxExpr, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+				hasLast = false
+				newLine = false
+				i += 1
+			} else if c == '<' && next == '/' {
+				let mut j = i + 2
+				for j < n && src[j] != '>' {
+					j += 1
+				}
+				if j < n {
+					j += 1
+				}
+				let tok = Token{Kind: Punct, From: i, To: j, Text: strings.Slice(src, i, j), NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				stack = stack[:topIdx]
+				last = Token{Kind: Literal, From: i, To: j, Text: "", NewLine: newLine, Depth: len(stack)}
+				hasLast = true
+				newLine = false
+				i = j
+			} else if c == '<' && next == '>' {
+				let tok = Token{Kind: Punct, From: i, To: i + 2, Text: "<>", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				stack = stack.Append(scanFrame{Kind: frameJsxChildren, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+				newLine = false
+				i += 2
+			} else if c == '<' && identStart(next) {
+				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "<", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				stack = stack.Append(scanFrame{Kind: frameJsxTag, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+				hasLast = false
+				newLine = false
+				i += 1
+			} else if c == '<' {
+				let tok = Token{Kind: Literal, From: i, To: i + 1, Text: "", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				newLine = false
+				i += 1
+			} else {
+				let mut j = i
+				for j < n && src[j] != '<' && src[j] != '{' {
+					j += 1
+				}
+				let tok = Token{Kind: Literal, From: i, To: j, Text: "", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				newLine = false
+				i = j
+			}
+			continue
+		}
+
+		let cl = classes[int(c)]
+		if cl == cNewline {
+			newLine = true
+			i += 1
+			continue
+		}
+		if cl == cSpace {
+			i += 1
+			continue
+		}
+
+		if topKind == frameJsxTag {
+			if cl == cSlash && next == '/' {
+				let nl = strings.IndexByte(strings.Slice(src, i, n), '\n')
+				let mut end = if nl < 0 { n } else { i + nl }
+				if end > i && src[end-1] == '\r' {
+					end -= 1
+				}
+				let tok = Token{Kind: LineComment, From: i, To: end, Text: "", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				line += strings.Count(strings.Slice(src, lineAt, i), "\n")
+				lineAt = i
+				comments = comments.Append(Comment{From: i, To: end, Line: line, Form: formOf(src, tok)})
+				newLine = false
+				i = end
+			} else if cl == cSlash && next == '*' {
+				let close = strings.Index(strings.Slice(src, i+2, n), "*/")
+				let end = if close < 0 { n } else { i + 2 + close + 2 }
+				let tok = Token{Kind: BlockComment, From: i, To: end, Text: "", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				line += strings.Count(strings.Slice(src, lineAt, i), "\n")
+				lineAt = i
+				comments = comments.Append(Comment{From: i, To: end, Line: line, Form: formOf(src, tok)})
+				newLine = false
+				i = end
+			} else if cl == cQuote {
+				let end = jsxAttrString(src, i)
+				toks = toks.Append(Token{Kind: Literal, From: i, To: end, Text: "", NewLine: newLine, Depth: len(stack)})
+				newLine = false
+				i = end
+			} else if c == '{' {
+				let tok = Token{Kind: Punct, From: i, To: i + 1, Text: "{", NewLine: newLine, Depth: len(stack)}
+				toks = toks.Append(tok)
+				stack = stack.Append(scanFrame{Kind: frameCode, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+				hasLast = false
+				newLine = false
+				i += 1
+			} else if c == '<' {
+				stack[topIdx].AngleDepth += 1
+				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 1, Text: "<", NewLine: newLine, Depth: len(stack)})
+				newLine = false
+				i += 1
+			} else if c == '>' {
+				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 1, Text: ">", NewLine: newLine, Depth: len(stack)})
+				if stack[topIdx].AngleDepth > 0 {
+					stack[topIdx].AngleDepth -= 1
+				} else {
+					stack[topIdx].Kind = frameJsxChildren
+				}
+				newLine = false
+				i += 1
+			} else if c == '/' && next == '>' && stack[topIdx].AngleDepth == 0 {
+				toks = toks.Append(Token{Kind: Punct, From: i, To: i + 2, Text: "/>", NewLine: newLine, Depth: len(stack)})
+				stack = stack[:topIdx]
+				last = Token{Kind: Literal, From: i, To: i + 2, Text: "", NewLine: newLine, Depth: len(stack)}
+				hasLast = true
+				newLine = false
+				i += 2
+			} else if cl == cIdent {
+				let mut j = i + 1
+				for j < n && isJsxTagNameByte(src[j]) {
+					j += 1
+				}
+				toks = toks.Append(Token{Kind: Ident, From: i, To: j, Text: strings.Slice(src, i, j), NewLine: newLine, Depth: len(stack)})
+				newLine = false
+				i = j
+			} else {
+				let end = i + punctLen(src, i)
+				toks = toks.Append(Token{Kind: Punct, From: i, To: end, Text: strings.Slice(src, i, end), NewLine: newLine, Depth: len(stack)})
+				newLine = false
+				i = end
+			}
+			continue
+		}
+
+		let depth = len(stack)
+		let mut kind Kind = Punct
+		let mut end = i + 1
+		let mut text = ""
+		let mut isComment = false
+
+		if cl == cSlash && next == '/' {
+			kind = LineComment
+			isComment = true
+			let nl = strings.IndexByte(strings.Slice(src, i, n), '\n')
+			end = if nl < 0 { n } else { i + nl }
+			if end > i && src[end-1] == '\r' {
+				end -= 1
+			}
+		} else if cl == cSlash && next == '*' {
+			kind = BlockComment
+			isComment = true
+			let close = strings.Index(strings.Slice(src, i+2, n), "*/")
+			end = if close < 0 { n } else { i + 2 + close + 2 }
+		} else if cl == cQuote {
+			kind = Literal
+			end = quoted(src, i)
+		} else if cl == cTick {
+			kind = Literal
+			let p = templateEnd(src, i+1)
+			end = p.End
+			if p.Opens {
+				if topKind == frameJsxExpr {
+					stack[topIdx].HasCode = true
+				}
+				stack = stack.Append(scanFrame{Kind: frameTemplate, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+			}
+		} else if cl == cClose && topKind == frameTemplate {
+			kind = Literal
+			stack = stack[:topIdx]
+			let p = templateEnd(src, i+1)
+			end = p.End
+			if p.Opens {
+				stack = stack.Append(scanFrame{Kind: frameTemplate, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+			}
+		} else if cl == cClose && topKind == frameJsxExpr {
+			let f = stack[topIdx]
+			stack = stack[:topIdx]
+			text = "}"
+			if !f.HasCode && !f.HasDirective && f.HasProse {
+				containers = containers.Append(jsxContainer{From: f.OpenPos, To: i + 1})
+			}
+		} else if cl == cDigit || cl == cDot && classes[int(next)] == cDigit {
+			kind = Literal
+			let hex = c == '0' && (next == 'x' || next == 'X')
+			let mut j = i + 1
+			for j < n && (classes[int(src[j])] <= cDigit || src[j] == '.' || (src[j] == '+' || src[j] == '-') && (src[j-1] == 'e' || src[j-1] == 'E') && !hex) {
+				j += 1
+			}
+			end = j
+		} else if cl == cIdent || cl == cHash && classes[int(next)] == cIdent || cl == cBackslash {
+			kind = Ident
+			let mut j = i + 1
+			for j < n && (classes[int(src[j])] <= cDigit || src[j] == '\\') {
+				j += 1
+			}
+			end = j
+			text = strings.Slice(src, i, end)
+		} else if cl == cSlash && regexAllowedCode(hasLast, last) {
+			kind = Literal
+			end = regexEnd(src, i)
+		} else if c == '<' && jsxAllowedCode(hasLast, last) && looksLikeJsxOpen(src, i) {
+			if topKind == frameJsxExpr {
+				stack[topIdx].HasCode = true
+			}
+			if next == '>' {
+				end = i + 2
+				text = "<>"
+				stack = stack.Append(scanFrame{Kind: frameJsxChildren, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+			} else {
+				end = i + 1
+				text = "<"
+				stack = stack.Append(scanFrame{Kind: frameJsxTag, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+			}
+			let tok = Token{Kind: Punct, From: i, To: end, Text: text, NewLine: newLine, Depth: depth}
+			toks = toks.Append(tok)
+			hasLast = false
+			newLine = false
+			i = end
+			continue
+		} else {
+			end = i + punctLen(src, i)
+			text = strings.Slice(src, i, end)
+			if c == '{' {
+				if topKind == frameJsxExpr {
+					stack[topIdx].HasCode = true
+				}
+				stack = stack.Append(scanFrame{Kind: frameCode, OpenPos: i, AngleDepth: 0, HasCode: false, HasDirective: false, HasProse: false})
+			} else if c == '}' && topIdx >= 0 && topKind == frameCode {
+				stack = stack[:topIdx]
+			}
+		}
+
+		let tok = Token{Kind: kind, From: i, To: end, Text: text, NewLine: newLine, Depth: depth}
+		toks = toks.Append(tok)
+		if isComment {
+			line += strings.Count(strings.Slice(src, lineAt, i), "\n")
+			lineAt = i
+			let form = formOf(src, tok)
+			comments = comments.Append(Comment{From: i, To: end, Line: line, Form: form})
+			if topKind == frameJsxExpr {
+				if form == Prose {
+					stack[topIdx].HasProse = true
+				} else {
+					stack[topIdx].HasDirective = true
+				}
+			}
+		} else {
+			if topKind == frameJsxExpr && topIdx < len(stack) && stack[topIdx].Kind == frameJsxExpr {
+				stack[topIdx].HasCode = true
+			}
+			last = tok
+			hasLast = true
+		}
+		newLine = false
+		i = end
+	}
+
+	scannedSource{Tokens: toks, Comments: comments, JsxContainers: containers}
+}
+
+func Comments(src string) []Comment { scanNoComments(src).Comments }
+
+func space(c byte) bool { c == ' ' || c == '\t' || c == '\r' }
+
+func needsSpace(left byte, right byte) bool {
+	if (identByte(left) || left == '#') && (identByte(right) || right == '#') {
+		return true
+	}
+	if digit(left) && right == '.' {
+		return true
+	}
+	if left == '/' && (right == '/' || right == '*' || right == '=') {
+		return true
+	}
+	if left == '+' && (right == '+' || right == '=') {
+		return true
+	}
+	if left == '-' && (right == '-' || right == '=') {
+		return true
+	}
+	if left == '=' && (right == '=' || right == '>') {
+		return true
+	}
+	if left == '!' && right == '=' {
+		return true
+	}
+	if left == '*' && (right == '*' || right == '=') {
+		return true
+	}
+	if left == '&' && (right == '&' || right == '=') {
+		return true
+	}
+	if left == '|' && (right == '|' || right == '=') {
+		return true
+	}
+	if left == '?' && (right == '?' || right == '.') {
+		return true
+	}
+	if left == '<' && (right == '<' || right == '=') {
+		return true
+	}
+	if left == '>' && (right == '>' || right == '=') {
+		return true
+	}
+	if left == '%' && right == '=' {
+		return true
+	}
+	if left == '^' && right == '=' {
+		return true
+	}
+	left == '.' && right == '.'
+}
+
+func hasRealSpace(src string, gone []bool, a int, b int) bool {
+	for i in a..b {
+		if !gone[i] && space(src[i]) {
+			return true
+		}
+	}
+	false
+}
+
+func Edits(src string) []Edit {
+	let n = len(src)
+	let scanned = scanNoComments(src)
+	let mut gone = []bool{}
+	for _ in 0..n {
+		gone = gone.Append(false)
+	}
+	for c in scanned.Comments {
+		if c.Form == Prose {
+			for i in c.From..c.To {
+				gone[i] = true
+			}
+		}
+	}
+	for jc in scanned.JsxContainers {
+		for i in jc.From..jc.To {
+			gone[i] = true
+		}
+	}
+	let mut edits = []Edit{}
+	let mut ls = 0
+	for ls < n {
+		let mut le = ls
+		for le < n && src[le] != '\n' {
+			le += 1
+		}
+		let contentEnd = if le > ls && src[le-1] == '\r' { le - 1 } else { le }
+		let mut had = false
+		let mut code = false
+		for i in ls..contentEnd {
+			if gone[i] {
+				had = true
+			} else if !space(src[i]) {
+				code = true
+			}
+		}
+		if had && !code {
+			edits = edits.Append(Edit{From: ls, To: if le < n { le + 1 } else { le }, With: ""})
+		} else if had {
+			edits = lineEdits(src, gone, ls, contentEnd, edits)
+		}
+		ls = le + 1
+	}
+	edits
+}
+
+func lineEdits(src string, gone []bool, ls int, le int, into []Edit) []Edit {
+	let mut out = into
+	let mut i = ls
+	for i < le {
+		if !gone[i] {
+			i += 1
+			continue
+		}
+		let mut a = i
+		let mut b = i
+		for b < le && (gone[b] || space(src[b])) {
+			b += 1
+		}
+		if b == le {
+			for a > ls && space(src[a-1]) {
+				a -= 1
+			}
+			out = out.Append(Edit{From: a, To: b, With: ""})
+		} else if a > ls && space(src[a-1]) {
+			if strings.ContainsRune(")]},;", rune(src[b])) {
+				let mut p = a
+				for p > ls && space(src[p-1]) {
+					p -= 1
+				}
+				if p > ls {
+					a = p
+				}
+			}
+			out = out.Append(Edit{From: a, To: b, With: ""})
+		} else if a > ls && !space(src[a-1]) {
+			let left = src[a-1]
+			let right = src[b]
+			if needsSpace(left, right) || (hasRealSpace(src, gone, a, b) && !strings.ContainsRune("([{", rune(left)) && !strings.ContainsRune(")]},;", rune(right))) {
+				out = out.Append(Edit{From: a, To: b, With: " "})
+			} else {
+				out = out.Append(Edit{From: a, To: b, With: ""})
+			}
+		} else {
+			out = out.Append(Edit{From: a, To: b, With: ""})
+		}
+		i = b
+	}
+	out
+}
+
+func Fix(src string) string {
+	let mut b = strings.NewBuilder()
+	let mut at = 0
+	for e in Edits(src) {
+		b.WriteString(strings.Slice(src, at, e.From))
+		b.WriteString(e.With)
+		at = e.To
+	}
+	b.WriteString(strings.Slice(src, at, len(src)))
+	b.String()
+}

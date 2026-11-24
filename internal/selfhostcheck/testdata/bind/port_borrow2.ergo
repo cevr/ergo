@@ -1,0 +1,16 @@
+type BorrowCount { Value int }
+type BorrowEnvelope { Count BorrowCount }
+type BorrowWeight { Value float64 }
+
+func AdjustBorrowedCount(e mut BorrowEnvelope, delta int) {
+	e.Count.Value = e.Count.Value + delta
+	e.Count.Value += 1
+}
+
+func AdjustBorrowedScalar(n mut int, delta int) {
+	*n = *n + delta
+}
+
+func ScaleBorrowedWeight(w mut BorrowWeight, factor float64) {
+	w.Value *= factor
+}

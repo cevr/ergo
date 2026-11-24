@@ -418,6 +418,16 @@ func (l *lowerer) libraryPackages() []*check.Package {
 	visited := map[*check.Context]bool{}
 	visit := func(p *check.Package) {
 		info := p.Info
+		// A wire-constrained function's codec witness uses the prelude's
+		// Reader and Writer even when no expression names either type.
+		for _, f := range l.canon.funcs(p) {
+			for _, tp := range witnessParams(f.Sig) {
+				if isWireParam(tp) {
+					add(check.PreludeType(check.WireWriterName).Obj.Pkg)
+					break
+				}
+			}
+		}
 		for id, o := range info.Uses {
 			if !l.readsFact(p, id) {
 				continue

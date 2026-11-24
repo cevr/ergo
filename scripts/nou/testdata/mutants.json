@@ -1,0 +1,86 @@
+{
+  "about": "The legacy binding inventory rejects additions by site, not count or spelling.",
+  "mutants": [
+    {
+      "name": "nou-ratchet-count-only",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/inventory.go",
+      "from": "if left[s.id] > 0 {",
+      "to": "if len(current) <= len(baseline) {",
+      "rule": "Deleting a different site does not authorize a new legacy call.",
+      "killers": ["scripts/nou:TestRatchetRejectsReplacementNotShadow"]
+    },
+    {
+      "name": "nou-ratchet-name-only",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/inventory.go",
+      "from": "\t\tinfo := pkg.Info.Calls[call]\n\t\treturn check.IsUnreachable(info) && info.Func.Pkg.Prelude()",
+      "to": "\t\treturn bareLegacyCall(call.Fun)",
+      "rule": "The prelude binding, not a user shadow with the same spelling, is inventoried.",
+      "killers": ["scripts/nou:TestRatchetRejectsReplacementNotShadow"]
+    },
+    {
+      "name": "nou-ratchet-misses-joined-fixture",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/go_source.go",
+      "from": "if !literalText(fset, n, &b, &parts) {",
+      "to": "if _, split := n.(*ast.BinaryExpr); split || !literalText(fset, n, &b, &parts) {",
+      "rule": "Decode and concatenate literal fixture source before filtering on the name.",
+      "killers": ["scripts/nou:TestInventoryExtractsEmbeddedErgo"]
+    },
+    {
+      "name": "nou-ratchet-drops-template-fragment",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/ergo_literals.go",
+      "from": "for _, offset := range offsets {\n\t\tresult = append",
+      "to": "for _, offset := range offsets[:0] {\n\t\tresult = append",
+      "rule": "A template fragment that is not a whole package still holds a tracked legacy occurrence.",
+      "killers": ["scripts/nou:TestInventoryExtractsEmbeddedErgo"]
+    },
+    {
+      "name": "nou-ratchet-skips-damaged-fragment",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/ergo_literals.go",
+      "from": "if damagedCall.MatchString(text[covered:]) {",
+      "to": "if false && damagedCall.MatchString(text[covered:]) {",
+      "rule": "A lexical failure before a candidate cannot silently drop the fixture from the inventory.",
+      "killers": ["scripts/nou:TestInventoryExtractsEmbeddedErgo"]
+    },
+    {
+      "name": "nou-bootstrap-reads-working-tree",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/bootstrap.go",
+      "from": "sites, err := committedGoSites(root, commit)",
+      "to": "sites, err := inventory(root)",
+      "rule": "Only branches already accepted into the supplied revision may seed new Go identities.",
+      "killers": ["scripts/nou:TestBootstrapUsesAcceptedTree"]
+    },
+    {
+      "name": "nou-bootstrap-reopens-empty-scope",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/bootstrap.go",
+      "from": "if bytes.HasPrefix(pinned, []byte(goLedgerSeal+\"\\n\")) ||\n\t\tbytes.Contains(pinned, []byte(\"\\n\"+goLedgerSeal+\"\\n\")) {",
+      "to": "if false {",
+      "rule": "Once activated, the Go scope stays sealed even after every existing call is removed.",
+      "killers": ["scripts/nou:TestBootstrapUsesAcceptedTree"]
+    },
+    {
+      "name": "nou-prune-write-keeps-retired-rows",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/prune.go",
+      "from": "if total != 0 {",
+      "to": "if false && total != 0 {",
+      "rule": "Write mode removes the exact retired row and decrements the surviving one on disk.",
+      "killers": ["scripts/nou:TestPruneWriteReportsExactRemovals"]
+    },
+    {
+      "name": "nou-prune-write-reports-old-multiplicity",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/prune.go",
+      "from": "id.file, id.anchor, removed[id])",
+      "to": "id.file, id.anchor, row.count)",
+      "rule": "The report gives the number of retired occurrences for each ID, not its old ceiling.",
+      "killers": ["scripts/nou:TestPruneWriteReportsExactRemovals"]
+    }
+  ]
+}

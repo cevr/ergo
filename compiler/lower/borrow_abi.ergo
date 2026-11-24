@@ -1,0 +1,22 @@
+import compiler/check/expr
+import compiler/check/store
+import dense
+
+// admittedBorrowParam accepts only a row-free, non-taking pointer formal
+// whose checked borrow profile supplies its Go spelling.
+func admittedBorrowParam(st fnb, f expr.Fn, i int, t dense.ID[store.TKey], rowless bool) bool {
+	rowless && i < len(f.Takes) && !f.Takes[i] && store.KindOfType(st.s, t) == store.KPointer && borrowParamGo(st, t) != ""
+}
+
+// frameName treats an admitted slot-zero borrow's checked base like a
+// value receiver for naming. Field-name collisions still stay functions.
+func frameName(st fnb, f expr.Fn, name string, params []dense.ID[store.TKey], rowless bool) string fails Unported {
+	if len(params) == 0 {
+		return try goName(st, name, None)
+	}
+	let t = params[0]
+	if admittedBorrowParam(st, f, 0, t, rowless) {
+		return try goName(st, name, borrowParamBase(st, t))
+	}
+	try goName(st, name, Some[dense.ID[store.TKey]]{Value: t})
+}

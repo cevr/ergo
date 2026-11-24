@@ -49,6 +49,8 @@ type TypeName struct {
 	// as read from a binding. A runtime-backed Ergo type still has Ergo's
 	// operation ABI.
 	goType bool
+	// testAuthority is nonzero only on a declaration the test runner supplies.
+	testAuthority testAuthority
 	// Provider is the resolved plan of a derived provider (script.go), or
 	// nil.
 	Provider *ProviderTypes
@@ -116,6 +118,9 @@ type Func struct {
 	// goCall marks the Go calling convention of a binding or admitted
 	// user extern, including a raw Go error for a fallible signature.
 	goCall bool
+	// primitive is a language call installed on its canonical declaration,
+	// not on ordinary functions of the same name or Go target.
+	primitive CallPrimitive
 	// asWritten: the function's doc holds `// ergo:aswritten` and it is a
 	// pure identity of one parameter (aswritten.go).
 	asWritten bool

@@ -4,7 +4,6 @@
 import regex/engine
 import regex/syntax
 import strings
-import machines
 import regex/backtrack
 import slices
 
@@ -185,25 +184,6 @@ func Measure(c SearchCompiled, text string) Work {
 // scan counts the original Simulation's byte/End operations for a
 // no-prefix fallback Search program. No mutable storage escapes a scan.
 func scan(p Program, text string) Work {
-	let m = machines.Start(Simulation{}, p)
-	let mut state = machines.Initial(m)
-	let mut work = Work{Matched: false, Starts: 1, Transitions: 0}
-	for i in 0..len(text) {
-		let d = m.Step(state, Read{C: text[i]})
-		work.Transitions += 1
-		match d {
-		case Done[bool] as out:
-			work.Matched = out.Output
-			return work
-		case Enter[Scan], Stay[Scan], Emit[Scan, bool], Tell[Scan, bool], Ignore, Reject:
-		}
-		state = machines.Next(state, d)
-	}
-	match m.Step(state, End) {
-	case Done[bool] as out:
-		work.Matched = out.Output
-	case Enter[Scan], Stay[Scan], Emit[Scan, bool], Tell[Scan, bool], Ignore, Reject:
-		Unreachable("Simulation is Done at End")
-	}
-	work
+	let (matched, visited) = scanText(p, text)
+	Work{Matched: matched, Starts: 1, Transitions: visited}
 }

@@ -62,7 +62,7 @@ func (b *irBuilder) litParam(v *check.Var, id *syntax.Ident, t check.Type, site 
 	if v == nil {
 		return b.temp("p", b.goType(t, site), p)
 	}
-	return b.local(v, id)
+	return b.bindLocal(v, id) // openScopeOf registers it in the literal's frame
 }
 
 // hasSig reports a slice type whose elements are, at some depth, function
@@ -168,12 +168,12 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 		inner.frame.plain = !l.bodyNeedsScope(list) // the emitter's funcLitClosure
 	}
 	fc, env, res, loops, tries, switches, label, law, memos := b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos
-	own, frame, exits, exitsFC := b.own, b.frame, b.exits, b.exitsFC
+	own, frame, with, exits, exitsFC := b.own, b.frame, b.with, b.exits, b.exitsFC
 	amort, sites := b.amort, b.pollSites
 	b.amort, b.pollSites = nil, nil // a frame of its own: its nests count apart (ir_poll.go)
 	defer func() {
 		b.fc, b.env, b.result, b.loops, b.tries, b.switches, b.label, b.law, b.memos = fc, env, res, loops, tries, switches, label, law, memos
-		b.own, b.frame, b.exits, b.exitsFC = own, frame, exits, exitsFC
+		b.own, b.frame, b.with, b.exits, b.exitsFC = own, frame, with, exits, exitsFC
 		b.amort, b.pollSites = amort, sites
 	}()
 	// The literal's body is a frame of its own: no loop of the maker's
@@ -189,7 +189,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 		// The literal's own frame scope, its End on the named error
 		// result (frameSigType's second), then its taken parameters
 		// (the emitter's openFrame and ownVar), before the entry poll.
-		b.own, b.frame, b.exits, b.exitsFC = nil, 0, false, nil
+		b.own, b.frame, b.with, b.exits, b.exitsFC = nil, 0, 0, false, nil
 		var body *syntax.BlockStmt
 		if x != nil {
 			body = x.Body

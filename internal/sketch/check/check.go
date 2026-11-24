@@ -166,7 +166,9 @@ func CheckSource(src string) (*Package, []Diagnostic) {
 }
 
 type checker struct {
-	opts Options
+	// Set only while checking the canonical predeclared types.
+	testAuthorities map[string]testAuthority
+	opts            Options
 	// inConstraint counts the constraint positions being resolved (a
 	// bracket constraint, an implements clause, an include, a type-set
 	// term): only there may a type with a type set be written (typExpr).
@@ -876,8 +878,20 @@ func prelude() preludeResult {
 		c.pkg.std = true
 		c.pkg.trusted = true // the toolchain vouches for what it ships
 		c.pkg.module = StdModule
+		c.testAuthorities = map[string]testAuthority{
+			"TestAmbient":  testAuthorityAmbient,
+			"TestLoopback": testAuthorityLoopback,
+		}
 		pkg := c.run(files)
 		pkg.qualify = false
+		// Install the language call forms once, on the canonical
+		// declarations. The lowering only sees the resulting action.
+		if f, ok := pkg.Scope.names["Unreachable"].(*Func); ok {
+			f.primitive = PrimitiveDefect
+		}
+		if f, ok := pkg.Scope.names["InForce"].(*Func); ok {
+			f.primitive = PrimitiveCaptureContext
+		}
 		scope := newScope(u)
 		coll := map[Object]bool{}
 		for _, f := range pkg.collFuncs {

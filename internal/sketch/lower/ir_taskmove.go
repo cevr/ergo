@@ -125,8 +125,8 @@ func (b *irBuilder) captureRoot(n syntax.Node, vars []*check.Var, p irPos) *irEx
 		&irStmt{K: "var", Pos: p, Local: root},
 		&irStmt{K: "set", Pos: p, Local: root, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "NewOwnerScope", Args: []*irExpr{task}}},
 	)
-	env, frame, own := b.env, b.frame, b.own
-	b.env, b.frame = ep, root+1
+	env, frame, with, own := b.env, b.frame, b.with, b.own
+	b.env, b.frame, b.with = ep, root+1, 0
 	b.own = &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, site: n, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
 	for _, v := range vars {
 		i, ok := b.locals[v]
@@ -135,7 +135,7 @@ func (b *irBuilder) captureRoot(n syntax.Node, vars []*check.Var, p irPos) *irEx
 		}
 		lit.Body = append(lit.Body, b.ownLet(v, i, n, nil)...)
 	}
-	b.env, b.frame, b.own = env, frame, own
+	b.env, b.frame, b.with, b.own = env, frame, with, own
 	lit.Body = append(lit.Body, &irStmt{K: "ret", Pos: p, X: b.addrOf(root, p)})
 	return lit
 }

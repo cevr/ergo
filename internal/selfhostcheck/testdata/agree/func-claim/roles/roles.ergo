@@ -1,0 +1,74 @@
+import functionclaims/foreign
+
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+}
+
+type Sized {
+	Size() int,
+}
+
+type Scored {
+	Score() int,
+}
+
+type Trimmed {
+	Trim() Self,
+}
+
+type Bumped {
+	mut Bump(),
+}
+
+type Measured {
+	..foreign.Counted,
+	Nonempty() bool,
+}
+
+func Map[T, U](xs []T, f func(x T) U) []U implements Mappable[T] {
+	let mut out = []U{}
+	for x in xs {
+		out = out.Append(f(x))
+	}
+	out
+}
+
+func Size(f own func(x int) int) int implements Sized {
+	f(0)
+}
+
+func Score(v foreign.Value) int implements Scored {
+	v.Score
+}
+
+extern go strings.TrimSpace func Trim(s string) string implements Trimmed
+
+func Nonempty(xs []int) bool implements Measured { len(xs) != 0 }
+
+func Bump(xs mut []int) implements Bumped {
+	(*xs)[0] = 8
+}
+
+func BumpValue[M Bumped](m mut M) {
+	m.Bump()
+}
+
+func MapValue[T, U any, M Mappable[T]](m M, f func(x T) U) M[U] {
+	m.Map(f)
+}
+
+func SizeOf[M Sized](m M) int {
+	m.Size()
+}
+
+func ScoreOf[M Scored](m M) int {
+	m.Score()
+}
+
+func TrimValue[M Trimmed](m M) M {
+	m.Trim()
+}
+
+func Measure[M Measured](m M) (int, bool) {
+	(m.Count(), m.Nonempty())
+}

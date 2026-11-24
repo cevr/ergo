@@ -1,0 +1,197 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+
+// borrowParamBase is the admitted pointee of a checked mut parameter.
+// Frame naming still decides whether the pointee can be a Go receiver.
+func borrowParamBase(st fnb, t dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	if store.KindOfType(st.s, t) != store.KPointer {
+		return None
+	}
+	let elem = store.OperandsOf(st.s, t)[0]
+	if basicGo(st, elem) == "" && ordinaryRecord(st, elem) < 0 && store.KindOfType(st.s, elem) != store.KSlice {
+		return None
+	}
+	if shapeGo(st, elem) == "" {
+		return None
+	}
+	Some[dense.ID[store.TKey]]{Value: elem}
+}
+
+func borrowParamGo(st fnb, t dense.ID[store.TKey]) string {
+	match borrowParamBase(st, t) {
+	case Some{Value: elem}:
+		"*" + shapeGo(st, elem)
+	case None:
+		""
+	}
+}
+
+// Unit uses the ordinary row-free frame whenever a proven borrow enters
+// and no formal is taken. CONTROL still validates the entire body before
+// Begin; an address or value use it cannot lower stops the function.
+func controlUnitAdmitted(st fnb, f expr.Fn, _ dense.ID[syntax.Node]) bool {
+	let ops = store.OperandsOf(st.s, f.Sig)
+	let formals = len(f.Names)
+	if formals == 0 || len(ops) != formals+3 || len(f.Takes) != formals {
+		return false
+	}
+	let mut borrowed = false
+	for i in 0..formals {
+		if f.Takes[i] {
+			return false
+		}
+		borrowed = borrowed || borrowParamBase(st, ops[i]) != None
+	}
+	borrowed
+}
+
+// fixedBorrowField is a checked path of selectors or a dereference
+// through one fixed formal slot. The plan retains the leaf's syntax id:
+// positions and Go member spellings are read from the same path at
+// emission, without allocating a second node for each step.
+type fixedBorrowField { slot int, leaf dense.ID[syntax.Node], t dense.ID[store.TKey] }
+
+func planBorrowField(st fnb, x dense.ID[syntax.Node], formals int) fixedBorrowField fails Unported {
+	let leaf = unparen(st, x)
+	let kind = syntax.KindOf(st.p.Tree, leaf)
+	if kind != syntax.KSelectorExpr && kind != syntax.KStarExpr {
+		return stop("borrow place: expected field or dereference")
+	}
+	let slot = try borrowPath(st, leaf, formals)
+	fixedBorrowField{slot: slot, leaf: leaf, t: try typeOf(st, leaf, "borrow place")}
+}
+
+func borrowPath(st fnb, x dense.ID[syntax.Node], formals int) int fails Unported {
+	let p = st.p
+	let q = unparen(st, x)
+	match syntax.ViewOf(p.Tree, q) {
+	case syntax.Name:
+		let slot = try paramLocal(st, q)
+		if slot < 0 || slot >= formals {
+			return stop("borrow place: root is not a formal slot")
+		}
+		if borrowParamBase(st, try typeOf(st, q, "borrow root")) == None {
+			return stop("borrow place: root is not an admitted borrow")
+		}
+		slot
+	case syntax.StarExpr as star:
+		if syntax.KindOf(p.Tree, unparen(st, star.X)) != syntax.KIdent {
+			return stop("borrow place: dereference of a computed root")
+		}
+		let t = try typeOf(st, star.X, "borrow pointer")
+		match borrowParamBase(st, t) {
+		case Some{Value: elem}:
+			if elem != (try typeOf(st, q, "borrow dereference")) {
+				return stop("borrow place: dereference type mismatch")
+			}
+		case None:
+			return stop("borrow place: dereference of a non-borrow")
+		}
+		try borrowPath(st, star.X, formals)
+	case syntax.SelectorExpr as se:
+		let t = try typeOf(st, se.X, "borrow selector operand")
+		let rec = match borrowParamBase(st, t) {
+		case Some{Value: elem}:
+			if syntax.KindOf(p.Tree, unparen(st, se.X)) != syntax.KIdent {
+				return stop("borrow place: indirect field of a computed pointer")
+			}
+			elem
+		case None:
+			t
+		}
+		let _ = try fieldOn(st, q, se, rec)
+		try borrowPath(st, se.X, formals)
+	case _:
+		stop("borrow place: computed root")
+	}
+}
+
+// Read only scalar endpoints: the oracle has no aggregate copy, held
+// temporary, or field-hoist decision for these paths through a pointer.
+func fixedBorrowScalar(st fnb, x dense.ID[syntax.Node]) Option[fixedBorrowField] {
+	if st.frame.env >= 0 || st.frame.fallible != None {
+		return None
+	}
+	let place = planBorrowField(st, x, st.frame.slots) catch {
+	case Unported:
+		return None
+	}
+	if basicGo(st, place.t) == "" {
+		return None
+	}
+	Some[fixedBorrowField]{Value: place}
+}
+
+type borrowWrite { place fixedBorrowField, at int, op string, round string }
+
+// planBorrowWrite checks the store's proof domain in addition to
+// CONTROL's ordinary RHS check. An admitted RHS has no operand prelude,
+// so the oracle has no old-value temp or address operands to fix.
+func planBorrowWrite(st fnb, node dense.ID[syntax.Node], a syntax.AssignStmt, formals int) borrowWrite fails Unported {
+	let place = try planBorrowField(st, a.Lhs, formals)
+	let gt = basicGo(st, place.t)
+	if gt == "" {
+		return stop("borrow store: non-scalar field")
+	}
+	let text = syntax.TokText(st.p, a.Tok)
+	let op = if text == "=" { "" } else { text[:len(text)-1] }
+	if op != "" && !isIROp(op) {
+		return stop("borrow store: operator")
+	}
+	if callsIn(st.p, a.Rhs) {
+		return stop("borrow store: RHS call decision")
+	}
+	let round = if op == "*" && (gt == "float32" || gt == "float64") { gt } else { "" }
+	borrowWrite{place: place, at: syntax.NodePos(st.p, node), op: op, round: round}
+}
+
+func emitBorrowField(st fnb, b mut ir.Builder, fieldPlace fixedBorrowField) uint32 fails ir.Malformed {
+	try emitBorrowPath(st, b, fieldPlace.slot, fieldPlace.leaf)
+}
+
+func emitBorrowPath(st fnb, b mut ir.Builder, slot int, x dense.ID[syntax.Node]) uint32 fails ir.Malformed {
+	let p = st.p
+	let q = unparen(st, x)
+	let at = pos(st, syntax.NodePos(p, q))
+	match syntax.ViewOf(p.Tree, q) {
+	case syntax.Name:
+		try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(slot)})
+	case syntax.StarExpr as star:
+		let root = try emitBorrowPath(st, b, slot, star.X)
+		try ir.Row(b, ir.KindCode(ir.TExpr, "deref"), at, []uint32{root})
+	case syntax.SelectorExpr as se:
+		let root = try emitBorrowPath(st, b, slot, se.X)
+		let member = nameText(p, se.Sel)
+		try ir.Row(b, ir.KindCode(ir.TExpr, "field"), pos(st, syntax.NodePos(p, se.Sel)), []uint32{root, ir.Text(b, member)})
+	case _:
+		ir.Malformed{At: syntax.NodePos(p, q), Why: "unprepared borrow path"}
+	}
+}
+
+func emitBorrowWrite(st fnb, b mut ir.Builder, w borrowWrite, rhs dense.ID[syntax.Node]) uint32 fails Unported | ir.Malformed {
+	let to = try emitBorrowField(st, b, w.place)
+	let x = try value(st, b, rhs)
+	if w.round != "" {
+		let at = pos(st, w.at)
+		let old = try emitBorrowField(st, b, w.place)
+		let product = try ir.Row(b, ir.KindCode(ir.TExpr, "bin"), at, []uint32{ir.Text(b, w.op), old, x})
+		let rounded = try ir.Row(b, ir.KindCode(ir.TExpr, "conv"), at, []uint32{ir.Text(b, w.round), product})
+		return try ir.Row(b, ir.KindCode(ir.TStmt, "store"), at, []uint32{to, 0, rounded})
+	}
+	try ir.Row(b, ir.KindCode(ir.TStmt, "store"), pos(st, w.at), []uint32{to, ir.Text(b, w.op), x})
+}
+
+// borrowInvoke is a resolved unit method on a fixed record field. CALLS
+// proves the target and the absence of call transforms before storing it.
+type borrowInvoke { recv fixedBorrowField, recvAt int, callAt int, name string }
+
+func emitBorrowInvoke(st fnb, b mut ir.Builder, call borrowInvoke) uint32 fails ir.Malformed {
+	let place = try emitBorrowField(st, b, call.recv)
+	let recv = try ir.Row(b, ir.KindCode(ir.TExpr, "addr"), pos(st, call.recvAt), []uint32{place})
+	let at = pos(st, call.callAt)
+	let e = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), at, []uint32{recv, ir.Text(b, call.name), 0})
+	try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{e})
+}

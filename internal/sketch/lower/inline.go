@@ -702,7 +702,8 @@ func (fc *funcCtx) inlineCall(x *syntax.CallExpr, c *check.Call, fd *funcDecl, l
 		skip[i] = true
 	}
 	vals := fc.inlineArgs(list, x, addr, skip)
-	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: fc.l.isSourced(f.Pkg), inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
+	_, directives := fc.l.sourceOf(f.Decl)
+	ic := &funcCtx{typeCtx: typeCtx{l: fc.l, params: map[*check.TypeParam]string{}, site: x, mono: fc.mono}, out: &strings.Builder{}, scope: fc.scope, locals: fc.locals, witness: map[*check.TypeParam]string{}, directives: directives, inlDepth: fc.inlDepth + 1, path: fc.sitePath(), hot: fc.onLoopPath()}
 	for i, tp := range f.Sig.TParams {
 		if tp.Kind != check.KindType {
 			continue

@@ -16,9 +16,53 @@ var wireReaderSites = []string{"take", "cut", "direct"}
 // a map and a list of ints (PORT-WIRE-READERS R1's forms).
 const wireReaderDecls = `type In { A int8, B uint8, S string, F bool, X float64 }
 
-type Ev { N int, Name string, In In, Xs []In, M Map[string, int], Ts []int }
+type Shape = Point | Arc
+
+type Point { X int }
+
+type Arc { Radius int, Label json.Optional[string] }
+
+type Ev {
+	N int, Name string, In In, Xs []In, M Map[string, int], Ts []int,
+	Extra json.Optional[int], Shape Shape, Level Level, Tags Tags, Limit Small,
+	Duo (json.Nullable[int], int),
+	At time.Time, Data json.Value, Raw json.Raw,
+}
 
 func showIn(i In) string { "(\(i.A) \(i.B) \(i.S) \(i.F) \(i.X))" }
+
+func showExtra(extra json.Optional[int]) string {
+	match extra {
+	case json.Absent:
+		"absent"
+	case json.Present[int] as x:
+		"extra \(x.Value)"
+	}
+}
+
+func showShape(s Shape) string {
+	match s {
+	case Point as p:
+		"point \(p.X)"
+	case Arc as a:
+		match a.Label {
+		case json.Absent:
+			"arc \(a.Radius) unlabelled"
+		case json.Present[string] as x:
+			"arc \(a.Radius) \(x.Value)"
+		}
+	}
+}
+
+func showDuo(duo (json.Nullable[int], int)) string {
+	let (first, second) = duo
+	match first {
+	case json.Null:
+		"null \(second)"
+	case json.NonNull[int] as x:
+		"\(x.Value) \(second)"
+	}
+}
 
 func show(e Ev) string {
 	let mut s = "\(e.N) \(e.Name) \(showIn(e.In)) ["
@@ -33,7 +77,12 @@ func show(e Ev) string {
 	for t in e.Ts {
 		ts = ts * 3 + t
 	}
-	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts)"
+	let mut tags = ""
+	for t in e.Tags.xs {
+		tags = tags + "[" + t + "]"
+	}
+	let data = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, e.Data)
+	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts) \(showExtra(e.Extra)) \(showShape(e.Shape)) \(e.Level.Wire()) \(tags) \(int(e.Limit)) \(showDuo(e.Duo)) \(e.At.UnixSeconds()) \(data) \(e.Raw.String())"
 }
 
 // take decodes on the Reader interface: Ev's decoder function and the
@@ -44,6 +93,16 @@ func take(r Reader) string {
 		return "kind \(w.Path) \(w.Want)"
 	case WireMissingField as m:
 		return "missing \(m.Path) \(m.Field)"
+	case WireUnknownTag as u:
+		return "tag \(u.Path) \(u.Tag)"
+	case UnknownLevel as u:
+		return "level \(u.Name)"
+	case Unsatisfied as u:
+		return "refinement \(u.Type) \(u.Where)"
+	case time.ParseError:
+		return "time parse"
+	case json.Malformed:
+		return "number malformed"
 	}
 	show(e)
 }
@@ -69,6 +128,16 @@ func direct(text string) string {
 		return "kind \(w.Path) \(w.Want)"
 	case WireMissingField as m:
 		return "missing \(m.Path) \(m.Field)"
+	case WireUnknownTag as u:
+		return "tag \(u.Path) \(u.Tag)"
+	case UnknownLevel as u:
+		return "level \(u.Name)"
+	case Unsatisfied as u:
+		return "refinement \(u.Type) \(u.Where)"
+	case time.ParseError:
+		return "time parse"
+	case json.Malformed:
+		return "number malformed"
 	}
 	show(e)
 }
@@ -91,6 +160,87 @@ func cut(text string, k int) string {
 	encode(e, w)
 	let evs = codec.Recorded(w)
 	take(codec.NewReplay(evs[0:k % (len(evs) + 1)]))
+}
+
+type Packet[T] { Value T, Items []T }
+
+type WireLeft { N int }
+type WireRight { S string }
+
+func rowTag(left bool) int fails WireLeft | WireRight {
+	if left {
+		return WireLeft{N: 0}
+	}
+	return WireRight{S: ""}
+}
+
+func readWireRow[T wire](_ json.Codec[T], r json.Reader) (T, bool) fails wired[T] needs wired[T] {
+	let member = try decode[T](r)
+	(member, true)
+}
+
+func showWireRow(text string) string {
+	let r = json.Open(text, 0, 0) catch {
+	case _:
+		return "row malformed"
+	}
+	let (row, _) = readWireRow(json.Codec[WireLeft | WireRight]{MaxBytes: 0, MaxDepth: 0}, r) catch {
+	case WireUnknownTag as u:
+		return "row tag \(u.Tag)"
+	case _:
+		return "row failure"
+	}
+	match row {
+	case WireLeft as left:
+		"row left \(left.N)"
+	case WireRight as right:
+		"row right \(right.S)"
+	}
+}
+
+func packet[T wire](r Reader) Packet[T] fails wired[Packet[T]] needs wired[T] {
+	decode[Packet[T]](r)
+}
+
+func packetDirect[T wire](r json.Reader) Packet[T] fails wired[Packet[T]] needs wired[T] {
+	decode[Packet[T]](r)
+}
+
+func showPackets(text string) string {
+	let r = json.Open(text, 0, 0) catch {
+	case _:
+		return "malformed"
+	}
+	if text == "{\"items\":[]}" || text == "{\"items\":[],\"value\":4}" {
+		let p = packet[json.Optional[int]](r) catch {
+		case _:
+			return "optional interface failure"
+		}
+		let r2 = json.Open(text, 0, 0) catch {
+		case _:
+			return "malformed"
+		}
+		let d = packetDirect[json.Optional[int]](r2) catch {
+		case _:
+			return "optional direct failure"
+		}
+		return showExtra(p.Value) + " " + showExtra(d.Value)
+	}
+	let p = packet[int](r) catch {
+	case WireMissingField as m:
+		return "packet missing \(m.Path) \(m.Field)"
+	case WireWrongKind as w:
+		return "packet kind \(w.Path) \(w.Want)"
+	}
+	let r2 = json.Open(text, 0, 0) catch {
+	case _:
+		return "malformed"
+	}
+	let d = packetDirect[int](r2) catch {
+	case _:
+		return "direct packet failure"
+	}
+	"\(p.Value) \(d.Value) \(p.Items[0]) \(d.Items[0])"
 }
 
 `
@@ -132,6 +282,54 @@ func GenerateWireReaders(seed uint64) string {
 		for i := n(3); i > 0; i-- {
 			xs = append(xs, in(0))
 		}
+		tag := q("_tag") + ": "
+		shape := "{" + q("x") + ": " + fmt.Sprint(n(9)) + ", " + tag + q("Point") + "}"
+		switch bad {
+		case 11:
+			shape = "{" + tag + q("Arc") + ", " + q("radius") + ": " + fmt.Sprint(n(9)) + ", " + q("label") + ": " + q("arc") + "}"
+		case 12:
+			shape = "{" + tag + q("Unknown") + "}"
+		case 13:
+			shape = "{}"
+		case 14:
+			shape = "{" + tag + q("Point") + "}"
+		case 15:
+			shape = "[]"
+		case 16:
+			shape = "{" + tag + q("Arc") + ", " + q("radius") + ": " + q("not an int") + "}"
+		}
+		level, tags, limit := q([]string{"debug", "info", "warn"}[n(3)]), "["+q("short")+","+q("tag")+"]", fmt.Sprint(n(100))
+		switch bad {
+		case 17:
+			level = q("other")
+		case 18:
+			level = "1"
+		case 19:
+			limit = "100"
+		case 20:
+			tags = "[" + q("ok") + ",1]"
+		}
+		duo := fmt.Sprintf("[null,%d]", n(100))
+		switch bad {
+		case 21:
+			duo = fmt.Sprintf("[%d,%d]", n(100), n(100))
+		case 22:
+			duo = "[" + q("bad nullable payload") + ",4]"
+		case 23:
+			duo = "[null]"
+		case 24:
+			duo = "[null,4,5]"
+		case 25:
+			duo = "{}"
+		}
+		at := q(fmt.Sprintf("2026-11-23T00:%02d:00Z", n(60)))
+		switch bad {
+		case 26:
+			at = q("not a date")
+		case 27:
+			at = "1"
+		}
+		data := "{" + q("repeat") + ":1e+02," + q("repeat") + ":[null,true," + q("s") + "]}"
 		fields := []string{
 			q("n") + ": " + fmt.Sprint(n(100)),
 			q("name") + ": " + q([]string{"p", "", "q r"}[n(3)]),
@@ -139,6 +337,14 @@ func GenerateWireReaders(seed uint64) string {
 			q("xs") + ": [" + strings.Join(xs, ", ") + "]",
 			q("m") + ": {" + q("k") + ": " + fmt.Sprint(n(9)) + ", " + q("kk") + ": " + fmt.Sprint(n(9)) + "}",
 			q("ts") + ": [" + fmt.Sprint(n(5)) + ", " + fmt.Sprint(n(5)) + "]",
+			q("shape") + ": " + shape,
+			q("level") + ": " + level,
+			q("tags") + ": " + tags,
+			q("limit") + ": " + limit,
+			q("duo") + ": " + duo,
+			q("at") + ": " + at,
+			q("data") + ": " + data,
+			q("raw") + ": { " + q("space") + ": [ 1, 2 ] }",
 		}
 		switch bad {
 		case 2: // a field missing at the top
@@ -151,6 +357,12 @@ func GenerateWireReaders(seed uint64) string {
 			fields[0] = q("n") + ": [1]"
 		case 6: // a map value of the wrong kind
 			fields[4] = q("m") + ": {" + q("k") + ": " + q("v") + "}"
+		case 8: // an omittable key whose payload is present (zero is present too)
+			fields = append(fields, q("extra")+": "+fmt.Sprint(n(2)))
+		case 9: // null is not absence for Optional[int]
+			fields = append(fields, q("extra")+": null")
+		case 10: // the last omittable key wins
+			fields = append(fields, q("extra")+": 3", q("extra")+": 5")
 		}
 		r.Shuffle(len(fields), func(i, j int) { fields[i], fields[j] = fields[j], fields[i] })
 		s := "{" + strings.Join(fields, ", ") + "}"
@@ -162,14 +374,15 @@ func GenerateWireReaders(seed uint64) string {
 		return s
 	}
 	var b strings.Builder
-	b.WriteString("// generated by irspike.GenerateWireReaders\n\nimport codec\nimport json\n\n")
+	b.WriteString("// generated by irspike.GenerateWireReaders\n\nimport codec\nimport json\nimport time\n\n")
+	b.WriteString(pairTypes)
 	b.WriteString(wireReaderDecls)
 	b.WriteString("func main() needs Console {\n")
 	// Every program reaches every failure: each bad at the top, each of
 	// the nested record's four (two out of range), and two texts that
 	// read, in a drawn order.
 	var cases [][2]int
-	for bad := 0; bad < 8; bad++ {
+	for bad := 0; bad <= 27; bad++ {
 		if bad != 1 {
 			cases = append(cases, [2]int{bad, 0})
 		}
@@ -186,6 +399,22 @@ func GenerateWireReaders(seed uint64) string {
 		for j := 0; j < 3; j++ {
 			fmt.Fprintf(&b, "\tConsole.Println(cut(\"%s\", %d))\n", t, n(60))
 		}
+	}
+	for _, row := range []string{
+		`{\"items\":[]}`,
+		`{\"items\":[],\"value\":4}`,
+		`{\"items\":[3]}`,
+		`{\"items\":[\"bad\"],\"value\":3}`,
+		fmt.Sprintf(`{\"items\":[%d],\"value\":%d}`, n(10), n(10)),
+	} {
+		fmt.Fprintf(&b, "\tConsole.Println(showPackets(\"%s\"))\n", row)
+	}
+	for _, row := range []string{
+		fmt.Sprintf(`{\"_tag\":\"WireLeft\",\"n\":%d}`, n(10)),
+		`{\"s\":\"cedar\",\"_tag\":\"WireRight\"}`,
+		`{\"_tag\":\"Foreign\"}`,
+	} {
+		fmt.Fprintf(&b, "\tConsole.Println(showWireRow(\"%s\"))\n", row)
 	}
 	b.WriteString("}\n")
 	return b.String()

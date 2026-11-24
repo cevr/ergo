@@ -13,7 +13,8 @@ import (
 func (a Analysis) Graph() *graphrows.Table { return GraphOf([]Analysis{a}) }
 
 // GraphOf is the graph rows of the checked programs as, one table: their
-// packages in the loader's order, a package two programs share once, each
+// packages in the loader's order, a package two programs share (the same
+// path in the same module, at the same version) once, each
 // with its files, the checker's package (also a partial one, whose rows
 // are what the checker resolved) and, when it and its imports check, its
 // tasks. A package of a program's own module sits under that module (its
@@ -24,24 +25,20 @@ func GraphOf(as []Analysis) *graphrows.Table { return graphrows.Build(sourcePack
 // sourcePackages is the packages of as for the graph rows, GraphOf's.
 func sourcePackages(as []Analysis) []graphrows.SourcePackage {
 	var pkgs []graphrows.SourcePackage
-	seen := map[string]bool{}
+	seen := map[[2]string]bool{}
 	for _, a := range as {
-		own := "main"
-		if a.program != nil {
-			own = a.program.module
-			if own == "" {
-				own = a.program.dir
-			}
+		ps := a.packagesOrRoot()
+		modules := make(map[string]string, len(ps))
+		for _, p := range ps {
+			modules[p.Path] = a.ModuleOf(p)
 		}
-		for _, p := range a.packagesOrRoot() {
-			if seen[p.Path] {
+		for _, p := range ps {
+			key := [2]string{modules[p.Path], p.Path}
+			if seen[key] {
 				continue
 			}
-			seen[p.Path] = true
-			sp := graphrows.SourcePackage{Path: p.Path, Module: own, Info: p.Partial, Checked: p.Package}
-			if p.Module != "" {
-				sp.Module = p.Module
-			}
+			seen[key] = true
+			sp := graphrows.SourcePackage{Path: p.Path, Module: key[0], Modules: modules, Info: p.Partial, Checked: p.Package}
 			if sp.Info == nil {
 				sp.Info = p.Package
 			}
@@ -52,6 +49,23 @@ func sourcePackages(as []Analysis) []graphrows.SourcePackage {
 		}
 	}
 	return pkgs
+}
+
+// ModuleOf is the module that holds p, as the graph rows name it: a
+// required module's PATH@VERSION, else the program's own module, its
+// folder when there is no ergo.mod, or "main" for one source text. Lint
+// and the graph export read this one identity, so a file's
+// module-relative name is never taken for another module's.
+func (a Analysis) ModuleOf(p CheckedPackage) string {
+	switch {
+	case p.Module != "":
+		return p.Module
+	case a.program == nil:
+		return "main"
+	case a.program.module != "":
+		return a.program.module
+	}
+	return a.program.dir
 }
 
 // packagesOrRoot is Packages, or the one root package of a source text.

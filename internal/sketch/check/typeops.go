@@ -219,6 +219,9 @@ func (c *checker) substWith(t Type, m map[*TypeParam]Type, self selfReader) Type
 		}
 		s.Errors = row(t.Errors)
 		s.Uses = row(t.Uses)
+		if !t.Errors.Empty() && s.Errors.Empty() {
+			s.Fallible = false
+		}
 		// Type parameters that stay unbound remain the signature's own.
 		for _, tp := range t.TParams {
 			if _, bound := m[tp]; !bound {
@@ -530,7 +533,15 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 				// assignment (batch-16b r3): check and build agree.
 				return assignment{}, fmt.Sprintf("the operations of %s take Ergo's calling convention, not the Go methods of %s", v, t)
 			}
-			// An operation type's value is already an interface value.
+			// A generic operation value may widen its result ABI without
+			// choosing a new provider. Record the checked conversion even
+			// under open row arguments: a copy can close them.
+			if vn, ok := v.(*Named); ok && !sealedStdOps(v) && !isHostNamed(v) {
+				if tn, ok := t.(*Named); ok && vn.Orig != nil && vn.Orig == tn.Orig {
+					return assignment{clause: assignOperations, conv: Conversion{Kind: ConvOperations, From: v, To: t}}, ""
+				}
+			}
+			// An operation type's value is otherwise already an interface value.
 			return assignment{clause: assignOperations}, ""
 		}
 		table := map[string]*Func{}
@@ -1035,7 +1046,11 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 	}
 	// Native Go conversion uses the Go method set, not the shape an
 	// Ergo caller sees. Keep the binding's rows and lifetime checks.
-	native := isHostNamed(v) && it.obj != nil && it.obj.Pkg.Host()
+	native := isHostNamed(v) && it.obj.BindsGoType()
+	// A value can widen an existing instance's row without a new provider
+	// claim. The subset check still refuses a narrowing.
+	source := asInterface(v)
+	sameOperation := declared == nil && !native && source != nil && it.obj != nil && source.obj == it.obj
 	var self selfReader
 	if len(it.selfUses) > 0 {
 		if n, ok := v.(*Named); ok && asInterface(n) == nil {
@@ -1115,32 +1130,6 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if native {
 			gr, wr = goMethodResults(got, fn), goMethodResults(m.Sig, nil)
 		}
-		if !c.sameSignatureShape(got.Params, m.Sig.Params, gr, wr) {
-			// The shape is the mismatch, so the message prints shapes: an
-			// inferred row may still be open here, and its text would
-			// depend on declaration order (D0; fuzz-check-C-r7rev-dbdbb39c).
-			have, want := shapeOf(got), shapeOf(m.Sig)
-			have.Results, want.Results = gr, wr
-			return fmt.Sprintf("%s.%s has signature %s, want %s", v, m.Name, have, want)
-		}
-		// An unknown row is checked by its known part (Row.unknown); an
-		// unknown method row (a refused entry, rowExpr) accepts any row, as
-		// clause 5's unknown destination does.
-		if ge := got.Errors.known(c.types); !m.Sig.Errors.unknown(c.types) && !ge.subsetOf(c.types, m.Sig.Errors) {
-			return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, m.Name, rowText(ge.minus(c.types, m.Sig.Errors)), rowText(m.Sig.Errors))
-		}
-		if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, m.Sig.Uses) {
-			extra := gu.minus(c.types, m.Sig.Uses)
-			if capture == nil || !held.add(extra) {
-				return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)", v, m.Name, rowText(extra))
-			}
-		}
-		if why := c.releaseWider(v, m); why != "" {
-			return why
-		}
-		if got.Fallible != m.Sig.Fallible {
-			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
-		}
 		// At a direct Go argument, the enclosing Go function's clause
 		// owns the receiver lifetime (io.ReadAll lends it; bufio keeps
 		// it). The Go interface supplies its method shape there, not a
@@ -1149,12 +1138,58 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if !checkReceiver {
 			recv = nil
 		}
-		if c.takesEffect(got, recv) != c.takesEffect(m.Sig, recv) {
-			return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, m.Name, takesText(got), takesText(m.Sig))
+		var allow *captured
+		if capture != nil {
+			allow = &held
+		}
+		if why := c.operationShape(v, m.Name, got, m.Sig, gr, wr, allow, func() string { return c.releaseWider(v, m) }, sameOperation); why != "" {
+			return why
+		}
+		if why := c.operationTakes(v, m.Name, got, m.Sig, recv); why != "" {
+			return why
 		}
 	}
 	if held.foreign || held.ambient != nil {
 		*capture = held
+	}
+	return ""
+}
+
+// operationShape checks the shared providing rule after receiver and
+// operation parameters have been bound. A claim for static dispatch has no
+// provider build site that can capture additional authority.
+// Only an existing value of the same operation declaration may widen
+// from an empty row; a concrete provider claim must match fallibility.
+func (c *checker) operationShape(v Type, name string, got, want *Signature, gr, wr []Type, capture *captured, release func() string, sameOperation bool) string {
+	if !c.sameSignatureShape(got.Params, want.Params, gr, wr) {
+		// An inferred row may still be open, so print the shapes.
+		have, expected := shapeOf(got), shapeOf(want)
+		have.Results, expected.Results = gr, wr
+		return fmt.Sprintf("%s.%s has signature %s, want %s", v, name, have, expected)
+	}
+	if ge := got.Errors.known(c.types); !want.Errors.unknown(c.types) && !ge.subsetOf(c.types, want.Errors) {
+		return fmt.Sprintf("%s.%s can fail with %s, wider than %s", v, name, rowText(ge.minus(c.types, want.Errors)), rowText(want.Errors))
+	}
+	if gu := got.Uses.known(c.types); !gu.subsetOf(c.types, want.Uses) {
+		extra := gu.minus(c.types, want.Uses)
+		if capture == nil || !capture.add(extra) {
+			return fmt.Sprintf("%s.%s requires %s, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)", v, name, rowText(extra))
+		}
+	}
+	if release != nil {
+		if why := release(); why != "" {
+			return why
+		}
+	}
+	if got.Fallible != want.Fallible && !sameOperation {
+		return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, name)
+	}
+	return ""
+}
+
+func (c *checker) operationTakes(v Type, name string, got, want *Signature, recv Type) string {
+	if c.takesEffect(got, recv) != c.takesEffect(want, recv) {
+		return fmt.Sprintf("%s.%s %s, but the interface's method %s (resources R19, Gap 39)", v, name, takesText(got), takesText(want))
 	}
 	return ""
 }
@@ -1359,6 +1394,11 @@ func (c *checker) satisfies(t Type, constraint Type) string {
 			return notInSetText(t, constraint, it)
 		}
 		if len(it.Methods) == 0 {
+			return ""
+		}
+	}
+	if op, ok := constraint.(*Named); ok {
+		if g, _ := c.functionClaim(t, op); g != nil {
 			return ""
 		}
 	}

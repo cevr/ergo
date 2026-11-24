@@ -58,15 +58,16 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if e != nil {
 		b.callFacts(x, e, stmt) // ir_rewrite_pass.go: the rewrite passes read them
 	}
-	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x))) {
+	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x) || e.UnitPair)) {
 		// A function value returns its (value, error) pair (ir_closure.go;
 		// a known callback's is plain, ir_kcb.go),
 		// as a fallible function does where its row is empty (dropErr): the
 		// value is bound and the error, nil, dropped. A statement binds
 		// both to blanks, as the emitter's `_, _ = f(…)` does: Go reads
 		// no call statement of a pair (I-FLIP red #14, lru's
-		// `let _ = m.Get(k, Square)`). A fallible call with no value
-		// returns the error alone, which a call statement drops.
+		// `let _ = m.Get(k, Square)`). This includes a Go pair whose
+		// first result represents no Ergo value. A call statement can
+		// drop a single error result without binding it.
 		vpre, v := b.valueResult(x, e, stmt)
 		return append(pre, vpre...), v
 	}
@@ -76,8 +77,7 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	return pre, e
 }
 
-// hasValue reports a call x with a value, whose Go form returns it beside
-// the error.
+// hasValue reports whether x produces a success value in Ergo.
 func (b *irBuilder) hasValue(x *syntax.CallExpr) bool {
 	t := b.l.info.Types[x]
 	return t != nil && !isNoValue(t) && !b.fc.noValue(x)
@@ -136,10 +136,12 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 	// read); an extern that binds the Ergo runtime adapts it (stdCall,
 	// ir_adapt.go: timeout.After { … }; OPC-ADAPT2). An extern whose
 	// target is Go's library (hostCall) takes none.
-	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || userExtern(c.Func)) {
+	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.CallsGo()) {
 		irNo("trailing block")
 	}
-	if c.StartsTask && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
+	// These collection operations transfer already running values.
+	// They do not start a task even when their result bears one.
+	if op := check.CollOpOf(c.Func); c.StartsTask && op != check.CollTake && op != check.CollTakeAt && op != check.CollAppend && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
 	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc && !(c.Kind == check.CallOp && c.Op != nil && len(c.Op.Sig.TParams) > 0) {
@@ -149,10 +151,10 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 		irNo("call without a value")
 	}
 	p := b.pos(x, x.Pos())
-	if check.IsUnreachable(c) {
+	switch check.PrimitiveOf(c) {
+	case check.PrimitiveDefect:
 		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
-	}
-	if check.IsInForce(c) {
+	case check.PrimitiveCaptureContext:
 		// Written at each call, never called (ir_inforce.go).
 		return b.inForce(x, c, p)
 	}
@@ -345,6 +347,11 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 	} else {
 		pre, irArgs = b.operands(args) // a row parameter's operand goes in by implicit (ir_rowgap.go)
 	}
+	if c.ReadsClaimReceiver() {
+		if _, borrowed := b.l.info.Types[c.Recv].(*check.Pointer); borrowed {
+			irArgs[0] = &irExpr{K: "deref", Pos: p, X: irArgs[0]}
+		}
+	}
 	b.valueSource(x, c, args, irArgs)   // ir_pkg.go
 	b.l.intMapCall(x, c.Recv, f, false) // intmap.go: a generic signature's Map is Go's
 	if x.Trailing != nil {
@@ -366,10 +373,14 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 	if wc := b.witnessCopy(x, c); wc != "" && known == "" { // ir_witness.go
 		return pre, mark(&irExpr{K: "call", Pos: p, Name: wc, Args: irArgs}), !fd.envFree
 	}
-	if known == "" && b.copyTakesNoWitness(x, c, fd) {
+	var mono *specCopy
+	if known == "" && b.copyCall(x, c) == "" {
+		mono = b.fc.monoAt(x, c, f, c.TypeArgs)
+	}
+	if mono != nil && mono.wits != nil {
 		// A copy for an instance whose witnesses are known (mono.go
 		// monoWitnesses): its operations are its own.
-	} else if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
+	} else if wits := b.witnessArgs(f, x, p, mono.claimParams()); len(wits) > 0 { // ir_witness.go
 		// After the environment, before the operands (witnessArgs).
 		at := 0
 		if !fd.envFree {
@@ -381,19 +392,17 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 	// callText's does: a plain function, which Go compiles once, in
 	// the copy's package, where an instance of the generic is
 	// compiled again in each package that names it (MONO-HOOKS-MIN).
-	// It takes the instance's witnesses, as callText's copy does.
-	if known == "" && b.copyCall(x, c) == "" {
-		if mono := b.fc.monoAt(x, c, f, c.TypeArgs); mono != nil {
-			if fd.method != nil && !fd.envFree {
-				// The copy of a method takes the environment
-				// before its receiver (callText).
-				irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
-			}
-			// The copy's own IR body is the inliner's to copy, as
-			// the text path's OPT4a writes the instance's body at
-			// its call (lru's Churn: Cache.Get; IR-GETMATCH).
-			return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
+	// Its operand list keeps only the witnesses the copy still needs.
+	if mono != nil {
+		if fd.method != nil && !fd.envFree {
+			// The copy of a method takes the environment
+			// before its receiver (callText).
+			irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 		}
+		// The copy's own IR body is the inliner's to copy, as
+		// the text path's OPT4a writes the instance's body at
+		// its call (lru's Churn: Cache.Get; IR-GETMATCH).
+		return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
 	}
 	if known != "" && fd.method != nil {
 		return pre, mark(&irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}), !fd.envFree
@@ -419,7 +428,7 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 		if fd.envFree {
 			env = 0
 		}
-		return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env)}), !fd.envFree
+		return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env, pre)}), !fd.envFree
 	}
 	if sp := b.instanceCopy(x, c); sp != "" {
 		// The copy for the instance (ir_instance.go): no type

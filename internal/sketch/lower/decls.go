@@ -1028,7 +1028,7 @@ func copiesOnly(f *check.Func) bool {
 		return false
 	}
 	for _, tp := range f.Sig.TParams {
-		if tp.Kind == check.KindType && tp.Constraint != nil && check.ConstraintOnly(tp.Constraint) {
+		if tp.Kind == check.KindType && check.ConstraintOnly(tp.Constraint) {
 			return true
 		}
 	}
@@ -1199,7 +1199,8 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
-		if copiesOnly(f) {
+		fc.claims = sp.claims
+		if copiesOnly(f) || sp.opsABI || len(sp.claims) > 0 {
 			fc.readCopy = check.CopyReader(f.Pkg, sp.bound)
 			saved := l.info
 			facts, why := check.CopyInfo(saved, f.Decl, fc.readCopy)
@@ -1237,7 +1238,12 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
-	for _, tp := range witnessParams(f.Sig) {
+	witnesses := witnessParams(f.Sig)
+	var wireHead wireProjectHead
+	for _, tp := range witnesses {
+		if fc.claims[tp] {
+			continue
+		}
 		if fd.method != nil {
 			ice(site, "the Go method %s has a witness for %s; methodReceiver keeps such a function a Go function", f.Name, tp.Name)
 		}
@@ -1257,7 +1263,13 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			fc.static[tp] = sp.wits[tp]
 			continue
 		}
-		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		if l.ir != nil && l.ir.projectsWireWitnesses() && sp != nil && len(witnesses) == 1 && isWireParam(tp) {
+			fields := fc.wireCodecFields(tp)
+			wireHead = wireProjectHead{pkg: f.Pkg, slot: len(parts), local: fc.witness[tp], fields: fields}
+			parts = append(parts, wireHead.local+" "+fc.wireCodecTypeWith(tp, fields))
+		} else {
+			parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		}
 		args = append(args, fc.witness[tp])
 	}
 	for i, p := range f.Sig.Params {
@@ -1366,7 +1378,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		for _, g := range []struct {
 			on     bool
 			reason string
-		}{{irInstanceCopy(sp), "copy for an instance"}, {drop && irDropBodyLowering == "off", "variant with no result"}, {slot, "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
+		}{{irInstanceCopy(sp), "copy for an instance"}, {drop && irDropBodyLowering == "off", "variant with no result"}, {slot && irSlotLowering == "off", "slot variant (UNI2)"}, {needsFrame && !irFrame(fc), "body that needs a frame"}} {
 			if g.on {
 				gates = append(gates, g.reason)
 			}
@@ -1375,6 +1387,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			// A generic declaration takes the placeholder body (ir_placeholder.go).
 			b.WriteString(directive + head.String() + irHeadEnd(fc.goGeneric) + "\n\n")
+			if wireHead.fields != nil && !needsFrame {
+				wireHead.directive, wireHead.parts, wireHead.results = directive, parts, results
+				l.ir.keepWireHead(sp.name, wireHead)
+			}
 
 			if owned && !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site) { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
 				l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))

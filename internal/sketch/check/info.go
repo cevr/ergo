@@ -94,6 +94,9 @@ type Package struct {
 	// Types is every declared type in source order: records, operation
 	// types, unions and defined types.
 	Types []*TypeName
+	// functionClaims indexes checked structural receivers by the identity
+	// of the contract whose package owns the claims.
+	functionClaims map[*Named][]*functionClaim
 	// Tests is every test block with its parameters (stage E, 196l).
 	Tests []*Test
 	// Laws is every law of the package in source order, top-level and
@@ -735,6 +738,12 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 		w := Witness{Param: tp, Arg: targs[i]}
 		for _, op := range it.Methods {
 			method, f := c.methodOf(targs[i], op.Name)
+			var bound []Type
+			if role, ok := constraint.(*Named); ok {
+				if impl, args := c.functionProvider(targs[i], role, op.Name, nil); impl != nil {
+					f, bound, method = impl, args, op.Sig
+				}
+			}
 			if method == nil {
 				if c.clauseUnmet(targs[i], it) {
 					// The clause failed at the type (S106 there); the
@@ -757,7 +766,10 @@ func (c *checker) instanceWitnesses(inst *Instance, build func(*Func, []Type) (*
 			// (GENERIC-OP), never the witness's.
 			if f != nil && f.Sig != nil && len(f.Sig.TParams) > 0 && len(op.Sig.TParams) == 0 {
 				var why string
-				wo.Inst, why = build(f, receiverTypeArgs(targs[i], f))
+				if bound == nil {
+					bound = receiverTypeArgs(targs[i], f)
+				}
+				wo.Inst, why = build(f, bound)
 				if why != "" {
 					return why
 				}
@@ -953,6 +965,30 @@ func (c *Call) RecvIsParam() bool {
 		return false
 	}
 	return c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Recv == nil
+}
+
+// BorrowsReceiver is a declared function call that passes its receiver
+// through a mutable borrow, including a structural function claim.
+func (c *Call) BorrowsReceiver() bool {
+	if c == nil || c.Recv == nil || c.Func == nil {
+		return false
+	}
+	if c.Func.Ptr {
+		return true
+	}
+	f := c.Func
+	if f.Decl == nil || f.Decl.Implements == nil || len(f.Sig.Params) == 0 {
+		return false
+	}
+	_, ptr := f.Sig.Params[0].Type.(*Pointer)
+	return ptr
+}
+
+// ReadsClaimReceiver is a function-form receiver passed by value. A mut
+// operation can use it, but its caller then reads the borrowed value.
+func (c *Call) ReadsClaimReceiver() bool {
+	return c.RecvIsParam() && c.Func != nil && c.Func.Decl != nil &&
+		c.Func.Decl.Implements != nil && !c.BorrowsReceiver()
 }
 
 // ConversionKind is an implicit conversion's kind.

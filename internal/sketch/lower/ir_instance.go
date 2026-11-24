@@ -82,17 +82,6 @@ func (b *irBuilder) instanceCopy(x *syntax.CallExpr, c *check.Call) string {
 	return ""
 }
 
-// copyTakesNoWitness reports a call x of c that goes to a copy for its
-// instance (instanceCopy, after the known variant and the copy for a known
-// record, as call orders them) that takes no witness (specCopy.wits).
-func (b *irBuilder) copyTakesNoWitness(x *syntax.CallExpr, c *check.Call, fd *funcDecl) bool {
-	if fd.method != nil || len(witnessParams(c.Func.Sig)) == 0 || b.copyCall(x, c) != "" {
-		return false
-	}
-	sp := b.fc.monoAt(x, c, c.Func, c.TypeArgs)
-	return sp != nil && sp.wits != nil
-}
-
 // directOp is the operation call x of c on a value of the type parameter
 // tp as a direct call of the function that implements the operation for
 // tp's type argument in the copy being built, when the copy knows it

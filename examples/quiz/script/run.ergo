@@ -47,7 +47,7 @@ func intOf(text string, word string) int fails BadLine {
 // set of quiz.Sets to play, the machine's input. It shows each state on
 // Console and returns the exit status: 0 when an item was picked, 1 when
 // the set could not open, 2 when the input ended first.
-func Run() int needs Console | io.Stdin | quiz.Sets {
+func Run() Status needs Console | io.Stdin | quiz.Sets {
 	let mut started = false
 	let mut q quiz.Quiz = quiz.Begin(quiz.Plants())
 	let mut i = 0
@@ -101,6 +101,9 @@ func Run() int needs Console | io.Stdin | quiz.Sets {
 	Console.Println("input ended with no pick")
 	2
 }
+
+// Status is the result of playing a script: picked, not opened, or no pick.
+type Status int where 0 <= it && it <= 2
 
 // turn is the decision of s on q. A refusal is told by name and is Reject.
 func turn(q quiz.Quiz, s quiz.Signal) Decision[quiz.Quiz, quiz.Picked] needs Console {

@@ -1,0 +1,6 @@
+# scripts/opcount: `irforms bench mapclose N` runs N units of the probe mapclose;
+# the cost of one unit is the slope between the two sizes (IR-FORMS §2).
+unit op
+sizes 4096 24576
+args bench mapclose {n}
+control benchmarks/forms/testdata/control

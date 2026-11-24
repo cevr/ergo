@@ -8,8 +8,12 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
+// isSelfName recognizes the contextual spelling; the caller still decides
+// whether the spelling is shadowed in its scope.
+func isSelfName(name string) bool { return name == "Self" }
+
 func (c *checker) isContextualSelf(name string, ctx *typeCtx) bool {
-	return name == "Self" && ctx != nil && ctx.self != nil && ctx.params[name] == nil
+	return isSelfName(name) && ctx != nil && ctx.self != nil && ctx.params[name] == nil
 }
 
 func (c *checker) selfType(at syntax.Expr, args []syntax.Expr, ctx *typeCtx) Type {
@@ -65,7 +69,7 @@ func (c *checker) lawsMentionSelf(spec *syntax.InterfaceType, owner *Named) bool
 // lawSelfSites records declaration-time use, before law bodies are checked:
 // 1 names contextual Self, and 2 re-applies it.
 func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
-	if owner == nil || slices.ContainsFunc(owner.TParams, func(p *TypeParam) bool { return p.Name == "Self" }) {
+	if owner == nil || slices.ContainsFunc(owner.TParams, func(p *TypeParam) bool { return isSelfName(p.Name) }) {
 		return 0
 	}
 	sites := 0
@@ -73,7 +77,7 @@ func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
 		shadowed := false
 		if law.TypeParams != nil {
 			for _, f := range law.TypeParams.List {
-				if slices.ContainsFunc(f.Names, func(id *syntax.Ident) bool { return id.Name == "Self" }) {
+				if slices.ContainsFunc(f.Names, func(id *syntax.Ident) bool { return isSelfName(id.Name) }) {
 					shadowed = true
 					break
 				}
@@ -84,12 +88,12 @@ func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
 		}
 		w := typeWalker{
 			f: func(id *syntax.Ident, _ Kind) {
-				if id.Name == "Self" {
+				if isSelfName(id.Name) {
 					sites = max(sites, 1)
 				}
 			},
 			index: func(ix *syntax.IndexExpr) bool {
-				if id, ok := unparen(ix.X).(*syntax.Ident); ok && id.Name == "Self" {
+				if id, ok := unparen(ix.X).(*syntax.Ident); ok && isSelfName(id.Name) {
 					sites = 2
 				}
 				return false
@@ -360,6 +364,12 @@ func reappliesSelf(op *Named) bool {
 }
 
 func (c *checker) reapply(t Type, param *TypeParam, args []Type) Type {
+	op, _ := param.Constraint.(*Named)
+	if op != nil {
+		if g, m := c.functionClaim(t, op.origin()); g != nil {
+			return c.functionClaimReceiver(g, m, op.origin(), args)
+		}
+	}
 	switch t := t.(type) {
 	case *TypeParam:
 		return &Reapplied{Param: t, Args: args}
@@ -368,7 +378,6 @@ func (c *checker) reapply(t Type, param *TypeParam, args []Type) Type {
 	case *SelfType:
 		return &SelfType{owner: t.owner, source: t.source, Args: args}
 	case *Named:
-		op, _ := param.Constraint.(*Named)
 		if op == nil {
 			return invalid
 		}
@@ -566,6 +575,9 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 		// A closed constraint call is a call of the provider, not an
 		// operation value (which cannot exist for this constraint).
 		if src.Kind == CallOp && src.Recv != nil && src.Op != nil {
+			op := *src.Op
+			op.Sig = read(op.Sig).(*Signature)
+			next.Op = &op
 			recv := base.Types[src.Recv]
 			if p, ok := recv.(*Pointer); ok {
 				recv = p.Elem
@@ -575,19 +587,40 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 				tp = r.Param
 			}
 			_, symbolicSelf := recv.(*SelfType)
-			if symbolicSelf || tp != nil && ConstraintOnly(tp.Constraint) {
+			if symbolicSelf || tp != nil {
 				self := read(recv)
-				f := ProvidingFunc(self, src.Op.Name)
-				if f == nil {
+				var f *Func
+				var args []Type
+				if tp != nil {
+					op, _ := read(tp.Constraint).(*Named)
+					if r, ok := recv.(*Reapplied); ok && op != nil {
+						op = closedClaimRole(op, mapTypes(r.Args, read))
+					}
+					f, args = closedClaimProvider(self, op, src.Op.Name, next.TypeArgs)
+				}
+				required := symbolicSelf || ConstraintOnly(tp.Constraint)
+				if f == nil && required {
+					f = ProvidingFunc(self, src.Op.Name)
+					if f != nil {
+						args = ProviderTypeArgs(self, f, next.TypeArgs)
+					}
+				}
+				if f == nil && required {
 					why = fmt.Sprintf("closed constraint %s has no implementation of %s", self, src.Op.Name)
 					return false
 				}
-				next.Kind, next.Func, next.Op = CallFunc, f, nil
-				next.TypeArgs = ProviderTypeArgs(self, f, next.TypeArgs)
-				if len(next.TypeArgs) != 0 {
-					out.Instances[x] = &Instance{Func: f, TypeArgs: next.TypeArgs}
+				if f != nil {
+					next.Kind, next.Func, next.Op = CallFunc, f, nil
+					next.TypeArgs = args
+					if len(args) != 0 {
+						out.Instances[x] = &Instance{Func: f, TypeArgs: args}
+					}
 				}
 			}
+		} else if (src.Kind == CallProviderOp || src.Kind == CallLawOp) && src.Op != nil {
+			op := *src.Op
+			op.Sig = read(op.Sig).(*Signature)
+			next.Op = &op
 		}
 		out.Calls[x] = &next
 		return true
@@ -595,36 +628,80 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 	return &out, why
 }
 
-// SubstSelf reads a member law's types at a named claimant. It does not run
+func closedClaimRole(role *Named, args []Type) *Named {
+	lawSelfMu.Lock()
+	defer lawSelfMu.Unlock()
+	return role.Obj.Pkg.claimReader().instantiate(role.origin(), args)
+}
+
+func closedClaimProvider(recv Type, role *Named, name string, own []Type) (*Func, []Type) {
+	if role == nil || role.Obj.Pkg == nil {
+		return nil, nil
+	}
+	lawSelfMu.Lock()
+	defer lawSelfMu.Unlock()
+	return role.Obj.Pkg.claimReader().functionProvider(recv, role, name, own)
+}
+
+// ClosedFunctionClaim is the function-form implementation at a concrete
+// receiver and the caller's closed bindings. The evaluator and the
+// lowering both read the same claim group; neither searches method names
+// on the receiver's package or in the caller's imports.
+func ClosedFunctionClaim(pkg *Package, recv Type, constraint Type, name string, own []Type, bound map[*TypeParam]Type) (*Func, []Type) {
+	if pkg == nil || !staticClaimConstraint(constraint) {
+		return nil, nil
+	}
+	lawSelfMu.Lock()
+	defer lawSelfMu.Unlock()
+	c := pkg.claimReader()
+	role, _ := c.subst(constraint, bound).(*Named)
+	return c.functionProvider(recv, role, name, own)
+}
+
+// SubstSelf reads a member law's types at a checked claimant. It does not run
 // the law or look up the functions that provide its operations.
-func SubstSelf(law *Law, claimant *Named, projection ...*Named) (func(Type) Type, string) {
-	if law == nil || law.Owner == nil || claimant == nil || claimant.Obj == nil || claimant.Obj.Pkg == nil {
-		return nil, "Self needs a member law and a named claimant"
+func SubstSelf(law *Law, claimant Type, projection ...*Named) (func(Type) Type, string) {
+	if law == nil || law.Owner == nil || claimant == nil {
+		return nil, "Self needs a member law and a claimant"
 	}
 	op, ok := law.Owner.Type.(*Named)
 	if !ok || asInterface(op) == nil {
 		return nil, "Self needs a member law of an operation type"
 	}
-	pkg := claimant.Obj.Pkg
 	lawSelfMu.Lock()
 	defer lawSelfMu.Unlock()
-	c := pkg.claimReader()
+	c := op.Obj.Pkg.claimReader()
 	var m map[*TypeParam]Type
 	var self selfReader
-	if len(projection) == 1 && projection[0] != nil && projection[0].origin() == op {
-		m, self = c.claimSubstAt(claimant, projection[0])
-	} else {
-		var why string
-		m, self, why = c.claimSubst(claimant, op)
-		if why != "" {
-			return nil, why
+	var why string
+	selected := op
+	projected := len(projection) == 1 && projection[0] != nil && projection[0].origin() == op
+	if projected {
+		selected = projection[0]
+	}
+	if g, args := c.functionClaim(claimant, selected); g != nil {
+		actual := c.subst(g.role, args).(*Named)
+		m, self = paramMap(op.TParams, actual.TArgs), c.functionClaimSelf(g, args)
+	} else if n, ok := claimant.(*Named); ok && n.Obj != nil && n.Obj.Pkg != nil {
+		c = n.Obj.Pkg.claimReader()
+		if projected {
+			m, self = c.claimSubstAt(n, selected)
+		} else {
+			m, self, why = c.claimSubst(n, op)
 		}
+	} else {
+		return nil, fmt.Sprintf("%s does not claim %s", claimant, op)
+	}
+	if why != "" {
+		return nil, why
 	}
 	for _, s := range law.selfUses {
-		if n, ok := c.substWith(s, m, self).(*Named); !ok {
+		if t := c.substWith(s, m, self); isInvalid(t) {
 			return nil, fmt.Sprintf("cannot read %s at %s", s, claimant)
-		} else if p, a := c.reapplicationUnmet(n); p != nil {
-			return nil, fmt.Sprintf("%s does not satisfy %s of %s's %s", a, p.Constraint, claimant.Obj.Name, p.Name)
+		} else if n, ok := t.(*Named); ok {
+			if p, a := c.reapplicationUnmet(n); p != nil {
+				return nil, fmt.Sprintf("%s does not satisfy %s of %s's %s", a, p.Constraint, n.Obj.Name, p.Name)
+			}
 		}
 	}
 	return func(t Type) Type {
