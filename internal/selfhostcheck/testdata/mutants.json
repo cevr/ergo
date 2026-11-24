@@ -643,9 +643,88 @@
       "name": "lower-call-name-bare",
       "origin": "wf10/selfhost/S4c7",
       "file": "compiler/lower/lower.ergo",
-      "from": "ir.Text(b, try declName(st, name)), ir.List(b, ids)",
-      "to": "ir.Text(b, name), ir.List(b, ids)",
+      "from": "aCall{name: g, method: false, args: args}",
+      "to": "aCall{name: name, method: false, args: args}",
       "rule": "A call names its callee by the callee's Go name: alias__name outside the build's root (NAME-LOCAL).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-mcall-as-call",
+      "origin": "wf10/selfhost/S4-PORT S4c8",
+      "file": "compiler/lower/lower.ergo",
+      "from": "if c.method {",
+      "to": "if false {",
+      "rule": "A call of a function on a record of its package is the Go method's call, an mcall on the receiver (lower's funcDecl, methodReceiver).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-mcall-receiver-kept",
+      "origin": "wf10/selfhost/S4-PORT S4c8",
+      "file": "compiler/lower/lower.ergo",
+      "from": "ir.List(b, ids[1:len(ids)])",
+      "to": "ir.List(b, ids)",
+      "rule": "An mcall's operands are the call's after its receiver, which is its x.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-dep-alias-caller",
+      "origin": "wf10/selfhost/S4-PORT S4c8",
+      "file": "compiler/lower/lower.ergo",
+      "from": "out.alias = pkgAlias(d.Path)",
+      "to": "out.alias = st.alias",
+      "rule": "A call of another package's function names it by that package's alias (alias__name), not the caller's (NAME-LOCAL rule 2).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-stop-sourced-leaf-call",
+      "origin": "wf10/selfhost/S4-PORT S4c10 (not-run-crunch)",
+      "file": "compiler/lower/lower.ergo",
+      "from": "\tlet first = try leafCallee(cst, i, name)\n",
+      "to": "\tif st.alias == \"\" {\n\t\treturn stop(\"call in a sourced body (inline decision)\")\n\t}\n\tlet first = try leafCallee(cst, i, name)\n",
+      "rule": "An unboxed leaf never gets an inline site, even when it is called in a sourced root or is larger than the Go cost budget.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-float-product-unrounded",
+      "origin": "wf10/selfhost/S4-PORT S4c8",
+      "file": "compiler/lower/lower.ergo",
+      "from": "if op == \"*\" && (t == \"float64\" || t == \"float32\") {",
+      "to": "if false {",
+      "rule": "A float product that is no constant rounds under T(a * b), so Go cannot fuse it into a multiply-add (lower's rounded, FLOAT-STRICT).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-conv-type-from",
+      "origin": "wf10/selfhost/S4-PORT S4c9",
+      "file": "compiler/lower/lower.ergo",
+      "from": "aBuiltin{conv: true, t: to, arg: a}",
+      "to": "aBuiltin{conv: true, t: from, arg: a}",
+      "rule": "A conversion's conv row names the target type (lower's conversion: goType(c.Type)).",
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
+      "name": "lower-conv-float-int-plain",
+      "origin": "wf10/selfhost/S4-PORT S4c9",
+      "file": "compiler/lower/lower.ergo",
+      "from": "if (from == \"float32\" || from == \"float64\") && toInt {",
+      "to": "if toInt && false {",
+      "rule": "A float converted to an integer goes through the runtime's checked helper (lower's floatToInteger), never a plain conv.",
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
       ]
