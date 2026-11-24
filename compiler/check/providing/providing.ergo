@@ -1250,6 +1250,9 @@ func Check(s store.Store, k expr.Pkg) []diag.Diag {
 	}
 	let mut pool = s
 	let mut out = clauses(&pool, k, decls, order)
+	for issue in k.FunctionClaimIssues {
+		out = out.Append(at(k, issue.File, issue.At, issue.Code, issue.Message))
+	}
 	for g in entries(k, decls) {
 		out = out.Append(g)
 	}

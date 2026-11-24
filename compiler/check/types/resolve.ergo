@@ -326,7 +326,13 @@ func SelfBounds(s mut store.Store, e Env, roles []Role, at dense.Opt[syntax.Node
 				case None:
 					0
 				}
-				if sites != 0 {
+				let functionRole = match Nominal(*s, t) {
+				case Some{Value: ref}:
+					store.HasFunctionClaimRole(s, ref)
+				case None:
+					false
+				}
+				if sites != 0 || functionRole {
 					let arity = if sites == 2 { len(store.OperandsOf(*s, t)) } else { -1 }
 					SelfBound{Op: dense.OptOf(t), Arity: arity}
 				} else {

@@ -1,0 +1,5 @@
+import functionclaims/foreign
+
+type Measured { ..foreign.Counted, Nonempty() bool }
+
+func Nonempty(xs []string) bool implements Measured { len(xs) != 0 }

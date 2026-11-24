@@ -234,10 +234,10 @@ func fixedWords(k uint8) int {
 	if k == KTypeDecl {
 		return 10
 	}
-	if k == KLawDecl {
+	if k == KLawDecl || k == KFuncDecl {
 		return 9
 	}
-	if k == KFuncDecl || k == KFuncType || k == KContextDecl {
+	if k == KFuncType || k == KContextDecl {
 		return 7
 	}
 	if k == KLawReach || k == KSliceExpr {
@@ -317,7 +317,7 @@ func optionalMask(k uint8) int {
 		return 2 | 8 | 16 | 64 | 256
 	}
 	if k == KFuncDecl {
-		return 2 | 4 | 16 | 64
+		return 2 | 4 | 16 | 64 | 256
 	}
 	if k == KContextDecl {
 		return 8 | 16 | 32

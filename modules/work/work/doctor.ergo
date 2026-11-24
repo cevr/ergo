@@ -241,7 +241,7 @@ func repairNotes(t Tool, repair bool, here bool) []string fails Unkept | Locked 
 		if here && len(holding([]string{w.Path}, t.here)) == 0 {
 			continue
 		}
-		if w.State != Creating || !t.copier.Has(w.Path + "/.git") {
+		if w.State != Creating || !t.copier.Has(w.Path+"/.git") {
 			continue
 		}
 		let marker = markerOf(t, w.Path)

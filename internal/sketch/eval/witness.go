@@ -59,26 +59,26 @@ func recvParam(t check.Type) *check.TypeParam {
 // witnessCall runs the operation name of recv, a value of the type
 // parameter tp, through the witness env binds for it. It reports false
 // when no witness is bound, so the caller dispatches on the value.
-func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *check.TypeParam, name string, recv Value, args []Value) (Value, *abrupt, bool) {
+func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *check.TypeParam, call *check.Call, recv Value, args []Value) (Value, *abrupt, bool) {
 	wv := env.witnessFor(tp)
 	if wv == nil {
 		return nil, nil, false
 	}
 	var op *check.WitnessOp
 	for i := range wv.w.Ops {
-		if wv.w.Ops[i].Name == name {
+		if wv.w.Ops[i].Name == call.Op.Name {
 			op = &wv.w.Ops[i]
 			break
 		}
 	}
 	if op == nil {
-		ice("the witness of %s has no operation %s", tp.Name, name)
+		ice("the witness of %s has no operation %s", tp.Name, call.Op.Name)
 	}
 	if op.Func == nil {
 		// The argument is the caller's own type parameter, whose witness
 		// supplies the operation, or an operation type, whose value does.
 		if outer := recvParam(wv.w.Arg); outer != nil {
-			if v, ab, ok := in.witnessCall(fr, at, wv.env, outer, name, recv, args); ok {
+			if v, ab, ok := in.witnessCall(fr, at, wv.env, outer, call, recv, args); ok {
 				return v, ab, true
 			}
 		}
@@ -91,7 +91,7 @@ func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *che
 			}
 			recv = v
 		}
-		v, ab := in.dispatch(fr, at, recv, name, args)
+		v, ab := in.dispatch(fr, at, recv, call.Op.Name, args)
 		return v, ab, true
 	}
 	var targs []rtype
@@ -101,6 +101,24 @@ func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *che
 			targs = append(targs, wv.env.resolve(t))
 		}
 		wits = witnessesOf(op.Inst, wv.env)
+	} else if op.Func.Decl != nil && op.Func.Decl.Implements != nil && len(op.Func.Sig.TParams) != 0 {
+		// A generic operation's witness has no provider instance: its
+		// type arguments are the operation call's, not the outer call's.
+		bound := make(map[*check.TypeParam]check.Type)
+		for _, p := range env.tps {
+			bound[p] = env.checkedType(fr.pkg, p)
+		}
+		var own []check.Type
+		for _, t := range call.TypeArgs {
+			own = append(own, fr.env.checkedType(fr.pkg, t))
+		}
+		f, resolved := check.ClosedFunctionClaim(fr.pkg, bound[tp], tp.Constraint, call.Op.Name, own, bound)
+		if f != op.Func {
+			return nil, fr.unsupported(at, "the generic operation %s has no closed function claim", call.Op.Name), true
+		}
+		for _, t := range resolved {
+			targs = append(targs, rtype{t: t})
+		}
 	}
 	if p, ok := recv.(*ptrV); ok && len(op.Func.Sig.Params) > 0 && !isPointer(op.Func.Sig.Params[0].Type) {
 		// A `mut S` receiver whose witness takes its type by value (a read
@@ -116,4 +134,16 @@ func (in *interp) witnessCall(fr *frame, at *syntax.CallExpr, env *tenv, tp *che
 	all = append(append(all, recv), args...)
 	v, ab := in.callWitnessed(fr, at, op.Func, targs, wits, all)
 	return v, ab, true
+}
+
+func (e *tenv) checkedType(pkg *check.Package, t check.Type) check.Type {
+	if e == nil {
+		return t
+	}
+	bound := make(map[*check.TypeParam]check.Type, len(e.tps))
+	for i, p := range e.tps {
+		r := e.args[i]
+		bound[p] = r.env.checkedType(pkg, r.t)
+	}
+	return check.CopyReader(pkg, bound)(t)
 }

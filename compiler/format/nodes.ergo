@@ -100,6 +100,12 @@ func decl(p mut Printer, d dense.ID[syntax.Node]) {
 			p.fieldList(the(x.TypeParams), "[", "]")
 		}
 		p.signature(x.Type)
+		if some(x.Implements) {
+			p.space()
+			p.token(p.tp(x.ImplementsPos), "implements")
+			p.space()
+			p.expr(the(x.Implements))
+		}
 		if some(x.Body) {
 			let body = the(x.Body)
 			if p.blockOneLine(body) {

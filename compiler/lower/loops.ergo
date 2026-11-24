@@ -1,0 +1,43 @@
+import compiler/syntax
+import dense
+
+// compactBound is the scalar subset of Go's countLoop/compactLoopBound.
+// The typer checks both endpoints against the element type and binds
+// the iteration name at that type. A non-int or a computed bound needs
+// the explicit Range record, whose generic spelling is not ported here.
+// The statement walk also excludes nested-loop frames and loop idioms:
+// scalar assignments cannot write an indexed place or collect to a slice.
+func compactBound(st fnb, r syntax.RangeStmt) dense.ID[syntax.Node] fails Unported {
+	let p = st.p
+	if dense.Unpack(r.Key) != None || syntax.KindOf(p.Tree, r.Value) != syntax.KIdent || nameText(p, r.Value) == "_" {
+		return stop("range: needs a single bound index")
+	}
+	let b = match syntax.ViewOf(p.Tree, r.X) {
+	case syntax.BinaryExpr as bx:
+		bx
+	case _:
+		return stop("range: not a direct integer range")
+	}
+	if syntax.TokKind(p, b.Op) != syntax.DotDot {
+		return stop("range: not a direct integer range")
+	}
+	if basicGo(st, try typeOf(st, b.X, "range start")) != "int" || basicGo(st, try typeOf(st, b.Y, "range end")) != "int" {
+		return stop("range: not an int range")
+	}
+	if !isConst(st, b.X) {
+		return stop("range: nonzero start takes counted form")
+	}
+	match try fold(st, b.X) {
+	case CInt as integer:
+		if integer.I != 0 {
+			return stop("range: nonzero start takes counted form")
+		}
+	case _:
+		return stop("range: nonzero start takes counted form")
+	}
+	let end = unparen(st, b.Y)
+	if !isConst(st, end) && syntax.KindOf(p.Tree, end) != syntax.KIdent {
+		return stop("range: computed end takes counted form")
+	}
+	end
+}

@@ -119,9 +119,9 @@ func (l *lowerer) reserveWitnessValues() {
 
 // witnessArgs are the witnesses the call x of f passes, as package
 // variables, in f's witness parameter order; nil when f takes none.
-func (b *irBuilder) witnessArgs(f *check.Func, x *syntax.CallExpr, p irPos) []*irExpr {
+func (b *irBuilder) witnessArgs(f *check.Func, x *syntax.CallExpr, p irPos, skip map[*check.TypeParam]bool) []*irExpr {
 	params := witnessParams(f.Sig)
-	if len(params) == 0 {
+	if !hasWitnessArgs(params, skip) {
 		return nil
 	}
 	inst := b.l.info.Instances[x]
@@ -135,11 +135,15 @@ func (b *irBuilder) witnessArgs(f *check.Func, x *syntax.CallExpr, p irPos) []*i
 		}
 	}
 	if open {
-		return b.passedWitnesses(f, inst, params, p)
+		return b.passedWitnesses(f, inst, slices.DeleteFunc(params, func(tp *check.TypeParam) bool { return skip[tp] }), p)
 	}
-	texts := b.fc.witnessArgs(f, inst, x)
-	out := make([]*irExpr, len(texts))
-	for i, text := range texts {
+	texts := b.fc.witnessArgsExcept(f, inst, x, skip)
+	out := make([]*irExpr, 0, len(texts))
+	for i, tp := range params {
+		if skip[tp] {
+			continue
+		}
+		text := texts[len(out)]
 		key := pkgKey{"witness value", witnessSite{x, i}}
 		name, ok := b.l.pkgNames[key]
 		if !ok {
@@ -149,7 +153,7 @@ func (b *irBuilder) witnessArgs(f *check.Func, x *syntax.CallExpr, p irPos) []*i
 			b.l.texts[key] = true
 			b.l.gen.WriteString("var " + name + " = " + text + "\n\n")
 		}
-		out[i] = &irExpr{K: "global", Pos: p, Name: name}
+		out = append(out, &irExpr{K: "global", Pos: p, Name: name})
 	}
 	return out
 }
@@ -296,7 +300,7 @@ var witnessIR = ""
 // head's order (decls.go: after the environment, before the parameters).
 func (b *irBuilder) witnessSlots(f *check.Func) {
 	for _, tp := range witnessParams(f.Sig) {
-		if b.fc.static[tp] != nil {
+		if b.fc.static[tp] != nil || b.fc.claims[tp] {
 			continue // a copy's known witness: no parameter (decls.go)
 		}
 		if b.wits == nil {
