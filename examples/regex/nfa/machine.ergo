@@ -153,7 +153,7 @@ func scanText(p Program, text string) (bool, int) {
 	for i in 0..len(text) {
 		at = Step(p, at, Read{C: text[i]})
 		if len(at) == 0 {
-			return (false, i+1)
+			return (false, i + 1)
 		}
 	}
 	(Finish(p, at), len(text))
