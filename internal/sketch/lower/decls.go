@@ -1200,7 +1200,7 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
 		fc.claims = sp.claims
-		if copiesOnly(f) || len(sp.claims) > 0 {
+		if copiesOnly(f) || sp.opsABI || len(sp.claims) > 0 {
 			fc.readCopy = check.CopyReader(f.Pkg, sp.bound)
 			saved := l.info
 			facts, why := check.CopyInfo(saved, f.Decl, fc.readCopy)

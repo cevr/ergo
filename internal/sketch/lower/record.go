@@ -74,11 +74,12 @@ type specKey struct {
 // specCopy is the copy of f for rec: its Go name, the index of the record
 // parameter and the Go types of f's type parameters.
 type specCopy struct {
-	f     *check.Func
-	fd    *funcDecl
-	name  string
-	param int
-	rec   *knownRec
+	opsABI bool // checked copy with concrete operation-row ABI bindings
+	f      *check.Func
+	fd     *funcDecl
+	name   string
+	param  int
+	rec    *knownRec
 	// prov is the provider a copy for a known provider is made for
 	// (provider.go); rec is nil then.
 	prov *knownProv

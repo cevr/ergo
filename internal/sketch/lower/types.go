@@ -50,7 +50,7 @@ func (tc *typeCtx) boundType(t check.Type) check.Type {
 // type-kinded arguments; a function type is the uniform function value
 // (funcType).
 func (tc *typeCtx) goType(t check.Type) string {
-	if tc.claim != nil {
+	if tc.readCopy != nil || tc.claim != nil {
 		t = tc.boundType(t)
 	}
 	if t == check.NoValue {
@@ -101,7 +101,12 @@ func (tc *typeCtx) goType(t check.Type) string {
 			// A type argument that is no value is struct{} (above); a
 			// field func() T of the instance is then the one Go shape of
 			// a function value with no result (funcType, C11).
-			name = tc.l.useType(tc.l.typeDecl(t.Obj, tc.site)).name
+			td := tc.l.typeDecl(t.Obj, tc.site)
+			if td.kind == kindOps {
+				name = tc.l.opsABIName(t, td, tc.site)
+			} else {
+				name = tc.l.useType(td).name
+			}
 		}
 		origin := t
 		if t.Orig != nil {
@@ -452,6 +457,11 @@ func (l *lowerer) keyType(t check.Type, semantic bool) string {
 			path = u.Obj.Pkg.Path
 		}
 		k = path + "." + u.Obj.Name + "@" + strconv.Itoa(int(u.Obj.Pos))
+		if !semantic {
+			if shape, _ := opsABI(u); shape.origin != nil {
+				k += "/rows" + shape.empty
+			}
+		}
 		args := typeArgs(u)
 		if semantic {
 			args = u.TArgs

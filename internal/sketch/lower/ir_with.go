@@ -216,6 +216,12 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 	sealed := from != nil && l.runtimeNamed(from, x)
 	if !sealed && from != nil && from.Underlying() != nil {
 		if _, ops := from.Underlying().(*check.Interface); ops {
+			if rowWidening(conv) {
+				name := b.fc.widenOps(conv, x)
+				p := e.Pos
+				lit := &irExpr{K: "lit", Pos: p, T: name, Keys: []string{"v"}, Elems: []*irExpr{e}}
+				return &irExpr{K: "toiface", Pos: p, T: b.goType(conv.To, x), X: &irExpr{K: "addr", Pos: p, X: lit}}
+			}
 			return e
 		}
 	}

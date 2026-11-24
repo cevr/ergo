@@ -1,0 +1,9 @@
+type Lost {}
+
+type Transport[C wire, O wire, F] {
+	Carry(c C, answer own func(c C) O) O fails F,
+}
+
+type echo {} implements Transport[string, int, Lost]
+
+func Carry(t echo, c string, answer own func(c string) int) int { answer(c) }
