@@ -884,6 +884,56 @@
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     },
     {
+      "name": "lower-unit-empty-rejected",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-2 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "if count == 0 && tail {",
+      "to": "if count == 0 && (tail || p.unit) {",
+      "rule": "An ordinary checked empty unit body is emitted with no root rows, not stopped as a missing tail value.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-unit-bare-return-rejected",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-2 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "if !p.unit {\n\t\t\t\treturn stop(\"control: bare return\")",
+      "to": "if !p.unit || loops == 0 {\n\t\t\t\treturn stop(\"control: bare return\")",
+      "rule": "Bare return terminates a unit frame and has no result operand, including at top level.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-unit-fallthrough-panics",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-2 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "if !p.unit && len(roots) > 0 && !body.body.terminates {",
+      "to": "if (!p.unit || !p.borrowUnit && len(p.locals) > 0) && len(roots) > 0 && !body.body.terminates {",
+      "rule": "When a unit frame with live ordinary locals falls through, there is no missing value to diagnose at runtime.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-unit-call-as-discard",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-2 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "try ir.Row(b, ir.KindCode(ir.TStmt, \"expr\"), at, []uint32{call})",
+      "to": "try ir.Row(b, ir.KindCode(ir.TStmt, \"discard\"), at, []uint32{call})",
+      "rule": "A proved local unit call executes as an expression statement, not a discard of a non-existent result.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-unit-branch-call-rejected",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-2 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "case Some{Value: prepared}:\n\t\t\tfor arg in prepared.args {",
+      "to": "case Some{Value: prepared}:\n\t\t\tif p.extended && len(p.locals) == 0 {\n\t\t\t\treturn stop(\"unit call is not top level\")\n\t\t\t}\n\t\t\tfor arg in prepared.args {",
+      "rule": "A proved unit call inside a branch stays in that branch.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "lower-control-tail-does-not-yield",
       "origin": "wf10/selfhost/S4-PORT CONTROL-1 (not-run-crunch)",
       "file": "compiler/lower/control.ergo",
