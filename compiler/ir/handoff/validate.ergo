@@ -1,0 +1,290 @@
+import compiler/ir
+import slices
+import strings
+
+func validate(p Image) fails Malformed {
+	try names(p)
+	try sources(p)
+	try symbols(p)
+	let off = try types(p)
+	try declarations(p)
+	try storageGraph(p)
+	let tail = try bodies(p, off)
+	try instances(p, tail)
+	try initOrder(p)
+}
+
+func names(p Image) fails Malformed {
+	let mut end = uint32(0)
+	let mut prev = ""
+	for i in 0..Rows(p, ir.HNames) {
+		let next = word(p, ir.HNames, i, 0)
+		if next <= end || next > uint32(Rows(p, ir.HText)) {
+			return bad(ir.HNames, i, "name bounds")
+		}
+		let n = text(p, i)
+		if n <= prev || strings.Contains(n, "\x00") {
+			return bad(ir.HNames, i, "names are not strictly sorted non-NUL strings")
+		}
+		prev = n
+		end = next
+	}
+	if end != uint32(Rows(p, ir.HText)) {
+		return bad(ir.HText, -1, "unowned text")
+	}
+	for c in 0..ir.HandoffWidth(ir.HPackage) {
+		if !ref(p, ir.HNames, word(p, ir.HPackage, 0, c)) {
+			return bad(ir.HPackage, 0, "package identity")
+		}
+	}
+	let mut path = uint32(0)
+	for i in 0..Rows(p, ir.HImports) {
+		let next = word(p, ir.HImports, i, 0)
+		if next <= path || !ref(p, ir.HNames, next) || next == word(p, ir.HPackage, 0, 0) ||
+			!ref(p, ir.HNames, word(p, ir.HImports, i, 1)) || word(p, ir.HImports, i, 2) > 1 {
+			return bad(ir.HImports, i, "import identity or order")
+		}
+		path = next
+	}
+}
+
+// run accepts exactly the next contiguous portion of the pool. Compare
+// before adding, so no extreme count can wrap into an apparently valid run.
+func run(p Image, s int, at uint32, first uint32, n uint32) bool {
+	first == at && n <= uint32(Rows(p, s))-at
+}
+
+func sources(p Image) fails Malformed {
+	let mut path = uint32(0)
+	let mut at = uint32(0)
+	for i in 0..Rows(p, ir.HFiles) {
+		let next = word(p, ir.HFiles, i, 0)
+		let size = word(p, ir.HFiles, i, 1)
+		let lo = word(p, ir.HFiles, i, 2)
+		let n = word(p, ir.HFiles, i, 3)
+		if next <= path || !ref(p, ir.HNames, next) || !strings.HasSuffix(text(p, int(next)-1), ".ergo") {
+			return bad(ir.HFiles, i, "source path or order")
+		}
+		if size == uint32(0xffffffff) || n == 0 || !run(p, ir.HLines, at, lo, n) || word(p, ir.HLines, int(lo), 0) != 0 {
+			return bad(ir.HFiles, i, "source line run")
+		}
+		let mut last = uint32(0)
+		for j in int(lo)+1..int(lo+n) {
+			let x = word(p, ir.HLines, j, 0)
+			if x <= last || x > size {
+				return bad(ir.HLines, j, "line outside source or out of order")
+			}
+			last = x
+		}
+		path = next
+		at = lo + n
+	}
+	if at != uint32(Rows(p, ir.HLines)) {
+		return bad(ir.HLines, -1, "unowned source lines")
+	}
+	for i in 0..Rows(p, ir.HSpans) {
+		let f = word(p, ir.HSpans, i, 0)
+		let start = word(p, ir.HSpans, i, 1)
+		let end = word(p, ir.HSpans, i, 2)
+		if !ref(p, ir.HFiles, f) || start > end || end > word(p, ir.HFiles, int(f)-1, 1) {
+			return bad(ir.HSpans, i, "span outside source")
+		}
+	}
+}
+
+func symKind(p Image, id uint32, k uint32) bool {
+	ref(p, ir.HSymbols, id) && word(p, ir.HSymbols, int(id)-1, 2) == k
+}
+
+func symbols(p Image) fails Malformed {
+	let mut imp = uint32(0)
+	let mut name = uint32(0)
+	for i in 0..Rows(p, ir.HSymbols) {
+		let x = word(p, ir.HSymbols, i, 0)
+		let n = word(p, ir.HSymbols, i, 1)
+		let k = word(p, ir.HSymbols, i, 2)
+		let t = word(p, ir.HSymbols, i, 3)
+		let span = word(p, ir.HSymbols, i, 4)
+		if x < imp || (x == imp && n <= name) || (x != 0 && !ref(p, ir.HImports, x)) || !ref(p, ir.HNames, n) ||
+			k < ir.HSFunc || k > ir.HSMethod || !ref(p, ir.HTypes, t) {
+			return bad(ir.HSymbols, i, "symbol identity, kind, type, or order")
+		}
+		if (x == 0 && !ref(p, ir.HSpans, span)) || (x != 0 && span != 0) {
+			return bad(ir.HSymbols, i, "local or foreign symbol span")
+		}
+		imp = x
+		name = n
+	}
+}
+
+func operand(p Image, lo uint32, off uint32) uint32 { word(p, ir.HOperands, int(lo+off), 0) }
+
+func typeKind(p Image, t uint32) uint32 { word(p, ir.HTypes, int(t)-1, 0) }
+
+func types(p Image) uint32 fails Malformed {
+	let mut at = uint32(0)
+	for i in 0..Rows(p, ir.HTypes) {
+		let k = word(p, ir.HTypes, i, 0)
+		let x = word(p, ir.HTypes, i, 1)
+		let lo = word(p, ir.HTypes, i, 2)
+		let n = word(p, ir.HTypes, i, 3)
+		let t = uint32(i + 1)
+		let shape = typeShape(p, k, x, n, t)
+		if !shape || !run(p, ir.HOperands, at, lo, n) {
+			return bad(ir.HTypes, i, "type kind, arity or operand run")
+		}
+		for j in 0..int(n) {
+			let xref = operand(p, lo, uint32(j))
+			let ok = typeOperand(p, k, t, xref)
+			if !ok {
+				return bad(ir.HTypes, i, "type operand reference")
+			}
+		}
+		at = lo + n
+	}
+	at
+}
+
+func typeShape(p Image, k uint32, x uint32, n uint32, t uint32) bool {
+	if k == ir.HTBasic { return n == 0 && x > 0 && x <= ir.HBasicAny }
+	if k == ir.HTPointer || k == ir.HTSlice { return x == 0 && n == 1 }
+	if k == ir.HTArray { return n == 1 }
+	if k == ir.HTMap { return x == 0 && n == 2 }
+	if k == ir.HTSignature { return x <= n }
+	if k == ir.HTRecord || k == ir.HTInterface { return x == 0 }
+	if k == ir.HTNamed { return n == 1 && symKind(p, x, ir.HSType) && word(p, ir.HSymbols, int(x)-1, 3) == t }
+	if k == ir.HTParameter { return n == 1 && (symKind(p, x, ir.HSFunc) || symKind(p, x, ir.HSType)) }
+	if k == ir.HTGeneric { return n > 0 && ref(p, ir.HTypes, x) && x != t }
+	k == ir.HTApplied && n > 0 && symKind(p, x, ir.HSType)
+}
+
+func typeOperand(p Image, k uint32, t uint32, x uint32) bool {
+	if k == ir.HTRecord { return symKind(p, x, ir.HSField) }
+	if k == ir.HTInterface { return symKind(p, x, ir.HSMethod) }
+	if k == ir.HTGeneric { return ref(p, ir.HTypes, x) && typeKind(p, x) == ir.HTParameter }
+	ref(p, ir.HTypes, x) && x != t
+}
+
+func genericType(p Image, sym uint32) uint32 {
+	let t = word(p, ir.HSymbols, int(sym)-1, 3)
+	if typeKind(p, t) == ir.HTNamed {
+		return operand(p, word(p, ir.HTypes, int(t)-1, 2), 0)
+	}
+	t
+}
+
+func signature(p Image, t uint32) uint32 {
+	let k = typeKind(p, t)
+	let sig = if k == ir.HTGeneric {
+		word(p, ir.HTypes, int(t)-1, 1)
+	} else if k == ir.HTNamed {
+		operand(p, word(p, ir.HTypes, int(t)-1, 2), 0)
+	} else {
+		t
+	}
+	if typeKind(p, sig) == ir.HTSignature { sig } else { 0 }
+}
+
+func signatureSize(p Image, sig uint32) (uint32, uint32) {
+	let i = int(sig) - 1
+	let n = word(p, ir.HTypes, i, 1)
+	(n, word(p, ir.HTypes, i, 3) - n)
+}
+
+func orderedArgs(p Image, a uint32, an uint32, b uint32, bn uint32) bool {
+	for j in 0..int(an) {
+		if uint32(j) >= bn {
+			return false
+		}
+		let left = operand(p, a, uint32(j))
+		let right = operand(p, b, uint32(j))
+		if left != right {
+			return left < right
+		}
+	}
+	an < bn
+}
+
+func instances(p Image, start uint32) fails Malformed {
+	let mut at = start
+	let mut last = uint32(0)
+	let mut lastLo = uint32(0)
+	let mut lastN = uint32(0)
+	for i in 0..Rows(p, ir.HInstances) {
+		let g = word(p, ir.HInstances, i, 0)
+		let s = word(p, ir.HInstances, i, 1)
+		let d = word(p, ir.HInstances, i, 2)
+		let lo = word(p, ir.HInstances, i, 3)
+		let n = word(p, ir.HInstances, i, 4)
+		if !symKind(p, g, ir.HSFunc) || !ref(p, ir.HTypes, s) || typeKind(p, s) != ir.HTSignature {
+			return bad(ir.HInstances, i, "generic or specialization signature")
+		}
+		if !dictionary(p, d, s) {
+			return bad(ir.HInstances, i, "missing or inconsistent dictionary")
+		}
+		let t = genericType(p, g)
+		if typeKind(p, t) != ir.HTGeneric || n != word(p, ir.HTypes, int(t)-1, 3) || !run(p, ir.HOperands, at, lo, n) {
+			return bad(ir.HInstances, i, "generic argument arity or run")
+		}
+		if g < last || (g == last && !orderedArgs(p, lastLo, lastN, lo, n)) {
+			return bad(ir.HInstances, i, "instance order")
+		}
+		for j in 0..int(n) {
+			if !ref(p, ir.HTypes, operand(p, lo, uint32(j))) {
+				return bad(ir.HInstances, i, "generic argument type")
+			}
+		}
+		at = lo + n
+		last = g
+		lastLo = lo
+		lastN = n
+	}
+	if at != uint32(Rows(p, ir.HOperands)) {
+		return bad(ir.HOperands, -1, "unowned operands")
+	}
+}
+
+func dictionary(p Image, d uint32, s uint32) bool {
+		symKind(p, d, ir.HSDictionary) && word(p, ir.HSymbols, int(d)-1, 0) == 0 &&
+		word(p, ir.HSymbols, int(d)-1, 3) == s
+}
+
+func initOrder(p Image) fails Malformed {
+	let mut seen = slices.WithCapacity[bool](Rows(p, ir.HSymbols))
+	for _ in 0..Rows(p, ir.HSymbols) {
+		seen = seen.Append(false)
+	}
+	for i in 0..Rows(p, ir.HInit) {
+		let s = word(p, ir.HInit, i, 0)
+		let j = int(s) - 1
+		if !symKind(p, s, ir.HSFunc) || seen[j] || word(p, ir.HSymbols, j, 0) != 0 ||
+			!strings.HasPrefix(text(p, int(word(p, ir.HSymbols, j, 1))-1), "init.") {
+			return bad(ir.HInit, i, "incomplete, duplicate or foreign initializer")
+		}
+		let sig = signature(p, word(p, ir.HSymbols, j, 3))
+		if sig == 0 || word(p, ir.HTypes, int(sig)-1, 3) != 0 {
+			return bad(ir.HInit, i, "initializer signature")
+		}
+		seen[j] = true
+	}
+	for i in 0..Rows(p, ir.HSymbols) {
+		if word(p, ir.HSymbols, i, 0) == 0 && word(p, ir.HSymbols, i, 2) == ir.HSFunc &&
+			strings.HasPrefix(text(p, int(word(p, ir.HSymbols, i, 1))-1), "init.") && !seen[i] {
+			return bad(ir.HSymbols, i, "initializer missing from init order")
+		}
+	}
+}
+
+law InvalidRelationsAreRefused(seed uint32) {
+	let p = sample(seed) catch {
+	case Malformed:
+		return false
+	}
+		refuses(editWord(p, ir.HSpans, 0, 2, 101), ir.HSpans) &&
+		refuses(editWord(p, ir.HTypes, 2, 3, 0xffffffff), ir.HTypes) &&
+		refuses(editWord(p, ir.HOperands, 0, 0, 2), ir.HOps) &&
+		refuses(editWord(p, ir.HSlots, 0, 0, 2), ir.HOps) &&
+		refuses(editWord(p, ir.HInstances, 0, 2, 0), ir.HInstances) &&
+		refuses(editWord(p, ir.HInstances, 0, 4, 0), ir.HInstances) &&
+		refuses(editWord(p, ir.HInit, 0, 0, 3), ir.HInit)
+}

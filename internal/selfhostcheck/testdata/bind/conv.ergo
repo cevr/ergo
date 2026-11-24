@@ -1,0 +1,15 @@
+// Conversions between basic types (compiler/lower, capstone S4c9): a
+// conv row of the target type; a float to an integer goes through the
+// runtime's checked helper, which the slice stops at.
+
+func widen(a int) float64 {
+	float64(a)
+}
+
+func narrow(a int) uint8 {
+	uint8(a)
+}
+
+func truncate(x float64) int {
+	int(x)
+}
