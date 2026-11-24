@@ -177,7 +177,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		let u = units[at]
 		let d = load.TypeAt(p, i)
 		let held = diag.Held(d.S, d.K, d.T, deps)
-		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), providing.Quiet(d.K, held))
+		let mut ds = diag.Unused(d.K.Files, d.S, d.K.U, d.K.Ps, missing(u, p, outside), providing.Quiet(d.S, d.K, held))
 		for g in diag.Flow(d.S, d.K, d.T, srcs[at]) {
 			ds = ds.Append(g)
 		}
@@ -198,6 +198,11 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		}
 		for g in providing.Check(d.S, d.K) {
 			ds = ds.Append(g)
+		}
+		for g in d.T.SelfInference {
+			let parsed = d.K.Parsed[g.File]
+			let offset = syntax.NodePos(parsed, g.At)
+			ds = ds.Append(diag.Diag{File: g.File, Offset: offset, Length: syntax.NodeEnd(parsed, g.At) - offset, Code: "S108", Message: "cannot infer \(g.Param); write the type arguments, e.g. \(g.Example) (D6)"})
 		}
 		let mut s = d.S
 		for g in facts.Diags(&s, d.K) {

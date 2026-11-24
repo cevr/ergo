@@ -22,6 +22,12 @@ type hostOnly {}
 // makes one (docs/spec/stdlib.md, Host packages).
 func New() Zones needs Ambient { Zones{live: hostOnly} }
 
+// testZones reads the host's zone database, as testLocal reads the host's
+// zone setting, only in the law harness.
+func testZones() Zones needs TestAmbient { Zones{live: hostOnly} }
+
+let onHostZones = context needs TestAmbient { tz.Zones: testZones() }
+
 // Load is the zone of the host's zone file name, or UnknownZone when no
 // zone directory holds a TZif file of that name. A name with a ..
 // element, an absolute path or a backslash is UnknownZone without a read.

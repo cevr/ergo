@@ -87,11 +87,13 @@ type nodeKey struct {
 
 // The constructors beyond the variant index's (variantindex.go).
 const (
-	vParam    byte = iota + 100
-	vFresh         // a type identical only to itself: a union, a machine
-	vVar           // a row variable (class F)
-	vRowValue      // a row value: its row's set (q47)
-	vWired         // wired[T]: the decode row of a wire type parameter
+	vParam     byte = iota + 100
+	vFresh          // a type identical only to itself: a union, a machine
+	vVar            // a row variable (class F)
+	vRowValue       // a row value: its row's set (q47)
+	vWired          // wired[T]: the decode row of a wire type parameter
+	vSelf           // Self, at the operation type that declares it
+	vReapplied      // a type parameter re-applied at other arguments
 )
 
 // maxSize saturates node counts: a type that shares subterms can have a
@@ -295,6 +297,10 @@ func shape(t Type) (kind byte, ref any, n int64, s string, kids []Type) {
 		return vBasic, t, 0, "", nil
 	case *TypeParam:
 		return vParam, t, 0, "", nil
+	case *SelfType:
+		return vSelf, t.owner, int64(len(t.Args)), "", t.Args
+	case *Reapplied:
+		return vReapplied, t.Param, int64(len(t.Args)), "", t.Args
 	case *Slice:
 		return vSlice, nil, 0, "", []Type{t.Elem}
 	case *Array:

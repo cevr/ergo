@@ -97,6 +97,9 @@ func Decide(noColor Option[string], term Option[string], terminal bool) Detected
 	Detected{on: !off && !dumb && terminal}
 }
 
+let onTerminal = context { Colors: Decide(None, None, true) }
+let onDumbTerminal = context { Colors: Decide(None, Some[string]{Value: "dumb"}, true) }
+
 // Paint is text in style s when colour is on: s's codes (SGR), text, and
 // the reset. With colour off, or s Plain, it is text.
 func Paint(s Style, text string) string needs Colors {

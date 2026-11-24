@@ -1,8 +1,0 @@
-# s3.Api is the generated client over an http.Net the program chooses;
-# package s3 sees no provider of it. Its four laws run in package memory
-# under lawApi (the Api over http.InMemory(Handler(NewMemory()))), and
-# over the fake under lawMemory.
-skip law S3.HeadObjectIsRepeatable for Api: Api is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses
-skip law S3.GetObjectIsRepeatable for Api: Api is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses
-skip law S3.PutObjectIsIdempotent for Api: Api is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses
-skip law S3.DeleteObjectIsIdempotent for Api: Api is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses

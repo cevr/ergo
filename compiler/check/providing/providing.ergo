@@ -6,10 +6,7 @@
 // context entry's providerAssignability and typExpr's genericOpOnly, with
 // their texts (S3-PROVIDES).
 //
-// It reads the package's local operation types only: an imported one, a
-// release contract (Closer) and an operation type that includes another
-// (..X) are not checked here yet, so the Go checker's diagnostics there
-// stay the agreement's missing lines, never false ones.
+// Role signatures come from the same dense facts read by receiver calls.
 
 import compiler/check/bind
 import compiler/check/diag
@@ -25,24 +22,19 @@ import slices
 // constraint's text, "" for none.
 type tparam { Name string, Cons string }
 
-// opMember is one operation of an operation type: its name, its own type
-// parameters, whether it is marked mut, and its signature's node.
-type opMember { Name string, Own []tparam, Mut bool, Sig dense.ID[syntax.Node] }
-
 // typeDecl is one type declaration of the package.
 type typeDecl {
 	File   int,
-	Node   dense.ID[syntax.Node],
 	Name   string,
 	Params []tparam,
 	// Op is whether it is an operation type this pass reads: braces of
 	// operations (and laws) only.
-	Op      bool,
-	Members []opMember,
+	Op bool,
 	// Generic is whether one of its operations has type parameters of
 	// its own: a constraint only (types.md, Interface assignability 8).
-	Generic bool,
-	Claims  []dense.ID[syntax.Node],
+	Generic   bool,
+	SelfSites int,
+	Claims    []dense.ID[syntax.Node],
 }
 
 func isSome[T](o Option[T]) bool {
@@ -112,44 +104,17 @@ func names(ps []tparam) []string {
 	out
 }
 
-// opBody is the operations of the interface body sp, and whether this
-// pass reads it: every member an operation or a law.
-func opBody(p syntax.Parsed, sp dense.ID[syntax.Node]) ([]opMember, bool) {
-	let mut ops = []opMember{}
-	match syntax.ViewOf(p.Tree, sp) {
-	case syntax.InterfaceType as it:
-		if it.Lbrace < 0 {
-			return (ops, false)
+func genericRole(role types.Role) bool {
+	for m in role.Members {
+		if len(m.Own) != 0 {
+			return true
 		}
-		for j in 0..syntax.Len(it.Members) {
-			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, it.Members, j)) {
-			case syntax.Field as fd:
-				if fd.Dots >= 0 || syntax.Len(fd.Names) != 1 {
-					return (ops, false)
-				}
-				match dense.Unpack(fd.Type) {
-				case Some{Value: ft}:
-					if syntax.KindOf(p.Tree, ft) != syntax.KFuncType {
-						return (ops, false)
-					}
-					let own = brackets(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams)
-					ops = ops.Append(opMember{Name: textOf(p, syntax.Item(p.Tree, fd.Names, 0)), Own: own, Mut: fd.Mut >= 0, Sig: ft})
-				case None:
-					return (ops, false)
-				}
-			case syntax.LawDecl:
-			case _:
-				return (ops, false)
-			}
-		}
-		(ops, len(ops) > 0)
-	case _:
-		(ops, false)
 	}
+	false
 }
 
 // typeDecls is the package's type declarations by name.
-func typeDecls(k expr.Pkg) Map[string, typeDecl] {
+func typeDecls(s store.Store, k expr.Pkg) Map[string, typeDecl] {
 	let mut out = Map[string, typeDecl]{}
 	for f, p in k.Parsed {
 		if p.Failed {
@@ -159,47 +124,45 @@ func typeDecls(k expr.Pkg) Map[string, typeDecl] {
 			match syntax.ViewOf(p.Tree, d) {
 			case syntax.TypeDecl as td:
 				let name = textOf(p, td.Name)
-				let mut ops = []opMember{}
 				let mut op = false
-				match dense.Unpack(td.Spec) {
-				case Some{Value: sp}:
-					let (o, ok) = opBody(p, sp)
-					ops = o
-					op = ok
-				case None:
-				}
+				let mut selfSites = 0
 				let mut generic = false
-				for m in ops {
-					generic = generic || len(m.Own) > 0
+				match typeID(s, name) {
+				case Some{Value: id}:
+					let i = dense.Index(id)
+					if i < len(k.Roles) {
+						let role = k.Roles[i]
+						op = role.Name != ""
+						selfSites = role.Self
+						generic = genericRole(role)
+					}
+				case None:
 				}
 				let mut claims = []dense.ID[syntax.Node]{}
 				for j in 0..syntax.Len(td.Implements) {
 					claims = claims.Append(syntax.Item(p.Tree, td.Implements, j))
 				}
 				if !isSome(out.Get(name)) {
-					out[name] = typeDecl{File: f, Node: d, Name: name, Params: brackets(p, td.TypeParams), Op: op, Members: ops, Generic: op && generic, Claims: claims}
+					out[name] = typeDecl{File: f, Name: name, Params: brackets(p, td.TypeParams), Op: op, Generic: generic, SelfSites: selfSites, Claims: claims}
 				}
 			case _:
 			}
 		}
 	}
-	out
-}
-
-// headOf is the name a type expression's head writes: a name, or an
-// instance's; "" for any other form (a selector: an import's type).
-func headOf(p syntax.Parsed, x dense.ID[syntax.Node]) string {
-	let k = syntax.KindOf(p.Tree, x)
-	if k == syntax.KIdent {
-		return textOf(p, x)
-	}
-	if k == syntax.KIndexExpr {
-		let ix = syntax.IndexExprOf(p.Tree, x)
-		if syntax.KindOf(p.Tree, ix.X) == syntax.KIdent {
-			return textOf(p, ix.X)
+	for i in 0..store.NumDecls(s) {
+		let d = store.DeclAt(s, i)
+		let imp = store.ImportOf(s, d)
+		if imp <= 0 || imp > len(k.Ifaces) { continue }
+		let qual = store.DeclText(s, i)
+		for role in k.Ifaces[imp-1].Roles {
+			// This adds imported Self constraints, not foreign contexts
+			// or any declaration to the binding scope.
+			if role.Self != 0 && len(role.Name) > 0 && role.Name[0] >= 65 && role.Name[0] <= 90 {
+				out[qual+"."+role.Name] = typeDecl{File: -1, Name: role.Name, Params: []tparam{}, Op: true, Generic: genericRole(role), SelfSites: role.Self, Claims: []dense.ID[syntax.Node]{}}
+			}
 		}
 	}
-	""
+	out
 }
 
 func isInvalid(s store.Store, t dense.ID[store.TKey]) bool { store.KindOfType(s, t) == store.KBasic && store.ArgOf(s, t) == 0 }
@@ -220,57 +183,6 @@ func typeID(s store.Store, name string) Option[dense.ID[store.Decl]] {
 	case None:
 		None
 	}
-}
-
-// claimOf is the type arguments the clause x of the claimant d gives the
-// operation type op, read at d's own parameters (expr.Claims, resolved
-// with the package's signatures); none when x is not a clause of d naming
-// op, or an argument is invalid.
-func claimOf(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, x dense.ID[syntax.Node]) Option[[]dense.ID[store.TKey]] {
-	let id = match typeID(s, op.Name) {
-	case Some{Value: i}:
-		i
-	case None:
-		return None
-	}
-	for c in k.Claims {
-		if c.File != d.File || c.At != x {
-			continue
-		}
-		let t = c.T
-		let kind = store.KindOfType(s, t)
-		if len(op.Params) == 0 {
-			return if kind == store.KNamed && store.TypeNameText(s, store.ArgOf(s, t)) == op.Name { Some{Value: []dense.ID[store.TKey]{}} } else { None }
-		}
-		if kind != store.KInstance {
-			return None
-		}
-		let o = store.OriginOfType(s, t)
-		if int(o.Import) != 0 || int(o.Decl) != dense.Index(id) {
-			return None
-		}
-		let args = store.OperandsOf(s, t)
-		if len(args) != len(op.Params) {
-			return None
-		}
-		for a in args {
-			if isInvalid(s, a) {
-				return None
-			}
-		}
-		return Some{Value: args}
-	}
-	None
-}
-
-// opSig is the signature of op's operation name (expr.OpSigs).
-func opSig(k expr.Pkg, op typeDecl, name string) Option[dense.ID[store.TKey]] {
-	for o in k.OpSigs {
-		if o.File == op.File && o.Decl == op.Node && o.Name == name {
-			return Some{Value: o.Sig}
-		}
-	}
-	None
 }
 
 // printer is the names types print with: Param(i) as params[i].
@@ -295,7 +207,7 @@ func selfText(d typeDecl) string {
 // boundsWhy is the first parameter of op whose argument in the clause
 // does not satisfy its bound, with why; the Go checker's boundsUnmet, for
 // the bound comparable (another bound is not read here).
-func boundsWhy(s store.Store, d typeDecl, op typeDecl, args []dense.ID[store.TKey]) Option[(tparam, string)] {
+func boundsWhy(s store.Store, d typeDecl, op types.Role, args []dense.ID[store.TKey]) Option[(types.Bracket, string)] {
 	for i, tp in op.Params {
 		if tp.Cons != "comparable" || i >= len(args) {
 			continue
@@ -333,7 +245,7 @@ func isSelf(s store.Store, d typeDecl, t dense.ID[store.TKey]) bool {
 		return false
 	}
 	for a in store.OperandsOf(s, t) {
-		if store.KindOfType(s, a) != store.KParam {
+		if types.DeclSlot(s, a) < 0 {
 			return false
 		}
 	}
@@ -388,7 +300,7 @@ let slotOwn = 2
 type slot { Kind int, T dense.ID[store.TKey], N int }
 
 // side is one signature's reading at the claimant: Param(i) is at[i].
-type side { at []slot }
+type side { at []slot, selfName string, selfParams int, positions []int }
 
 // resolveParam is the slot Param(i) stands for on side v; the claimant's
 // own Param(i) on the identity side.
@@ -418,6 +330,14 @@ func settled(s store.Store, x slot) slot {
 func same(s store.Store, a dense.ID[store.TKey], va Option[side], b dense.ID[store.TKey], vb Option[side]) bool {
 	let ka = store.KindOfType(s, a)
 	let kb = store.KindOfType(s, b)
+	if kb == store.KSelf {
+		return match vb {
+		case Some{Value: v}:
+			sameSelf(s, a, va, b, v)
+		case None:
+			a == b
+		}
+	}
 	if ka == store.KParam || kb == store.KParam {
 		let sa = settled(s, if ka == store.KParam { resolveParam(s, va, a) } else { slot{Kind: slotType, T: a, N: 0} })
 		let sb = settled(s, if kb == store.KParam { resolveParam(s, vb, b) } else { slot{Kind: slotType, T: b, N: 0} })
@@ -450,6 +370,46 @@ func same(s store.Store, a dense.ID[store.TKey], va Option[side], b dense.ID[sto
 	for i, x in oa {
 		if !same(s, x, va, ob[i], vb) {
 			return false
+		}
+	}
+	true
+}
+
+func sameSelf(s store.Store, a dense.ID[store.TKey], va Option[side], b dense.ID[store.TKey], v side) bool {
+	let ka = store.KindOfType(s, a)
+	if v.selfParams == 0 {
+		return ka == store.KNamed && store.TypeNameText(s, store.ArgOf(s, a)) == v.selfName
+	}
+	if ka != store.KInstance {
+		return false
+	}
+	let origin = store.OriginOfType(s, a)
+	if origin.Import != uint32(0) || store.DeclText(s, int(origin.Decl)) != v.selfName {
+		return false
+	}
+	let got = store.OperandsOf(s, a)
+	let replacement = store.OperandsOf(s, b)
+	if len(got) != v.selfParams {
+		return false
+	}
+	for i, t in got {
+		let mut replaced = false
+		for j, x in replacement {
+			if j < len(v.positions) && v.positions[j] == i {
+				if !same(s, t, va, x, Some{Value: v}) {
+					return false
+				}
+				replaced = true
+			}
+		}
+		if !replaced {
+			if store.KindOfType(s, t) != store.KParam {
+				return false
+			}
+			let q = settled(s, resolveParam(s, va, t))
+			if q.Kind != slotClaimant || q.N != i {
+				return false
+			}
 		}
 	}
 	true
@@ -497,7 +457,7 @@ func setText(s store.Store, n types.Names, ts []dense.ID[store.TKey]) string {
 // arguments args: the first operation that fails, in the order op
 // declares them; "" when it provides every one (the Go checker's
 // implementsAt at a clause).
-func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[store.TKey]) string {
+func whyNot(s store.Store, k expr.Pkg, d typeDecl, op types.Role, args []dense.ID[store.TKey]) string {
 	let v = selfText(d)
 	let cnames = names(d.Params)
 	for mem in op.Members {
@@ -521,8 +481,8 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[
 		}
 		if store.KindOfType(s, base) == store.KInstance {
 			for j, a in store.OperandsOf(s, base) {
-				let i = store.ArgOf(s, a)
-				if i < len(bound) {
+				let i = types.DeclSlot(s, a)
+				if i >= 0 && i < len(bound) {
 					bound[i] = j
 				}
 			}
@@ -546,12 +506,7 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[
 				return "\(d.Name).\(mem.Name)'s type parameter \(tp.Name) is \(consText(tp.Cons)), and \(op.Name).\(mem.Name)'s \(w.Name) is \(consText(w.Cons))"
 			}
 		}
-		let wsig = match opSig(k, op, mem.Name) {
-		case Some{Value: t}:
-			t
-		case None:
-			continue
-		}
+		let wsig = mem.Sig
 		if store.KindOfType(s, wsig) != store.KSig {
 			continue
 		}
@@ -581,8 +536,14 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[
 			wat = wat.Append(slot{Kind: slotOwn, T: wsig, N: i})
 			wnames = wnames.Append(o.Name)
 		}
-		let fv = Some{Value: side{at: fat}}
-		let wv = Some{Value: side{at: wat}}
+		let fv = Some{Value: side{at: fat, selfName: "", selfParams: 0, positions: []int{}}}
+		let positions = match types.Positions(s, args, len(d.Params)) {
+		case Some{Value: ps}:
+			projectPositions(ps, mem.Positions)
+		case None:
+			[]int{}
+		}
+		let wv = Some{Value: side{at: wat, selfName: d.Name, selfParams: len(d.Params), positions: positions}}
 		let want = store.OperandsOf(s, wsig)
 		let np = len(fops) - 3
 		let wp = len(want) - 3
@@ -641,6 +602,69 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op typeDecl, args []dense.ID[
 	""
 }
 
+// selfWhy checks the claim's layout and each reapplication's promised
+// bounds. It never decides by the name of a contract or claimant.
+func selfWhy(s store.Store, k expr.Pkg, d typeDecl, op types.Role, x dense.ID[syntax.Node], args []dense.ID[store.TKey]) string {
+	if op.Self != 2 {
+		return ""
+	}
+	let p = k.Parsed[d.File]
+	let ix = syntax.IndexExprOf(p.Tree, x)
+	let mut seen = []int{}
+	for i, a in args {
+		let name = textOf(p, syntax.Item(p.Tree, ix.Indices, i))
+		let j = types.DeclSlot(s, a)
+		if j < 0 || j >= len(d.Params) {
+			return "\(op.Name) re-applies Self, and \(name) is not a type parameter of \(d.Name)"
+		}
+		if slices.Contains(seen, j) {
+			return "\(op.Name) re-applies Self, and \(name) is named more than once in the claim"
+		}
+		seen = seen.Append(j)
+	}
+	for m in op.Members {
+		let why = selfBoundsWhy(s, d, op, m, m.Sig, projectPositions(seen, m.Positions))
+		if why != "" {
+			return why
+		}
+	}
+	""
+}
+
+func projectPositions(outer []int, inner []int) []int {
+	let mut result = []int{}
+	for i in inner {
+		result = result.Append(if i >= 0 && i < len(outer) { outer[i] } else { -1 })
+	}
+	result
+}
+
+func selfBoundsWhy(s store.Store, d typeDecl, op types.Role, m types.RoleMember, t dense.ID[store.TKey], positions []int) string {
+	let os = store.OperandsOf(s, t)
+	if store.KindOfType(s, t) == store.KSelf {
+		for i, a in os {
+			if i >= len(positions) || positions[i] < 0 || store.KindOfType(s, a) != store.KParam {
+				continue
+			}
+			let p = store.ArgOf(s, a)
+			let into = d.Params[positions[i]]
+			if p >= len(op.Params) && p-len(op.Params) < len(m.Own) {
+				let from = m.Own[p-len(op.Params)]
+				if from.Cons == "" && into.Cons != "" {
+					return "\(m.Name)'s \(from.Name) is unconstrained, and \(d.Name)'s \(into.Name) is \(into.Cons)"
+				}
+			}
+		}
+	}
+	for a in os {
+		let why = selfBoundsWhy(s, d, op, m, a, positions)
+		if why != "" {
+			return why
+		}
+	}
+	""
+}
+
 // builtHeld is whether every capability of more is one a provider's build
 // site holds for it: go.Foreign, which has no provider value, or Ambient
 // (README Gap 17; the Go checker's captured.add at a clause).
@@ -663,7 +687,7 @@ func builtHeld(s store.Store, k expr.Pkg, more []dense.ID[store.TKey]) bool {
 
 // clauses checks each implements clause of the package that names a
 // local operation type this pass reads.
-func clauses(s store.Store, k expr.Pkg, decls Map[string, typeDecl], order []string) []diag.Diag {
+func clauses(s mut store.Store, k expr.Pkg, decls Map[string, typeDecl], order []string) []diag.Diag {
 	let mut out = []diag.Diag{}
 	for name in order {
 		let d = match decls.Get(name) {
@@ -672,35 +696,55 @@ func clauses(s store.Store, k expr.Pkg, decls Map[string, typeDecl], order []str
 		case None:
 			continue
 		}
-		if len(d.Claims) == 0 || d.Op || !isSome(typeID(s, d.Name)) {
+		if len(d.Claims) == 0 || d.Op || !isSome(typeID(*s, d.Name)) {
 			continue
 		}
 		let p = k.Parsed[d.File]
 		for x in d.Claims {
-			let op = match decls.Get(headOf(p, x)) {
+			let mut found Option[dense.ID[store.TKey]] = None
+			for c in k.Claims {
+				if c.File == d.File && c.At == x {
+					found = Some{Value: c.T}
+					break
+				}
+			}
+			let t = match found {
+			case Some{Value: t}:
+				t
+			case None:
+				continue
+			}
+			let op = match types.ReadRole(s, k.Ifaces, k.Foreign, k.Roles, t) {
 			case Some{Value: o}:
 				o
 			case None:
 				continue
 			}
-			if !op.Op || op.Name == "Closer" {
+			if op.Name == "Closer" {
 				continue
 			}
-			let args = match claimOf(s, k, d, op, x) {
-			case Some{Value: a}:
-				a
-			case None:
+			let args = store.OperandsOf(*s, t)
+			let mut invalid = false
+			for a in args {
+				invalid = invalid || isInvalid(*s, a)
+			}
+			if len(args) != len(op.Params) || invalid {
 				continue
 			}
 			let claim = textOf(p, x)
-			match boundsWhy(s, d, op, args) {
+			match boundsWhy(*s, d, op, args) {
 			case Some{Value: b}:
 				let (tp, why) = b
 				out = out.Append(at(k, d.File, x, "S106", "\(d.Name) implements \(claim), and \(op.Name)'s \(tp.Name) must satisfy \(tp.Cons): \(why)"))
 				continue
 			case None:
 			}
-			let why = whyNot(s, k, d, op, args)
+			let self = selfWhy(*s, k, d, op, x, args)
+			if self != "" {
+				out = out.Append(at(k, d.File, x, "S106", "\(d.Name) cannot claim \(claim): \(self)"))
+				continue
+			}
+			let why = whyNot(*s, k, d, op, args)
 			if why != "" {
 				out = out.Append(at(k, d.File, x, "S106", "\(d.Name) does not implement \(claim): \(why) (types.md, Interface assignability 1)"))
 			}
@@ -859,19 +903,8 @@ func shadowed(k expr.Pkg, f int, x dense.ID[syntax.Node], name string) bool {
 // signature) that names an operation type with a generic operation
 // (decl.go typExpr, genericOpOnly). A constraint, an implements clause,
 // a needs row and an operation's own signature are not values' places.
-func valueTypes(k expr.Pkg, decls Map[string, typeDecl], order []string) []diag.Diag {
+func valueTypes(s store.Store, k expr.Pkg, decls Map[string, typeDecl]) []diag.Diag {
 	let mut out = []diag.Diag{}
-	let mut any = false
-	for name in order {
-		match decls.Get(name) {
-		case Some{Value: d}:
-			any = any || d.Generic
-		case None:
-		}
-	}
-	if !any {
-		return out
-	}
 	for f, p in k.Parsed {
 		if p.Failed {
 			continue
@@ -887,6 +920,14 @@ func valueTypes(k expr.Pkg, decls Map[string, typeDecl], order []string) []diag.
 				case None:
 				}
 			case syntax.TypeDecl as td:
+				match typeID(s, textOf(p, td.Name)) {
+				case Some{Value: id}:
+					let i = dense.Index(id)
+					if i < len(k.Roles) && k.Roles[i].Name != "" {
+						continue
+					}
+				case None:
+				}
 				match dense.Unpack(td.Spec) {
 				case Some{Value: sp}:
 					if syntax.KindOf(p.Tree, sp) == syntax.KStructType {
@@ -903,6 +944,21 @@ func valueTypes(k expr.Pkg, decls Map[string, typeDecl], order []string) []diag.
 	out
 }
 
+func reapplyArity(k expr.Pkg, f int, p syntax.Parsed, x dense.ID[syntax.Node], name string) int {
+	let offset = syntax.NodePos(p, x)
+	for fn in k.Fns {
+		if fn.File != f || offset < syntax.NodePos(p, fn.Decl) || offset >= syntax.NodeEnd(p, fn.Decl) {
+			continue
+		}
+		for i, param in fn.Params {
+			if param == name && i < len(fn.SelfBounds) {
+				return fn.SelfBounds[i].Arity
+			}
+		}
+	}
+	-1
+}
+
 func hidden(hide []string, name string) bool {
 	for h in hide {
 		if h == name {
@@ -915,7 +971,8 @@ func hidden(hide []string, name string) bool {
 // constraintOnly is the declaration the name x writes when it is an
 // operation type with a generic operation.
 func constraintOnly(decls Map[string, typeDecl], p syntax.Parsed, hide []string, x dense.ID[syntax.Node]) Option[typeDecl] {
-	if syntax.KindOf(p.Tree, x) != syntax.KIdent {
+	let kind = syntax.KindOf(p.Tree, x)
+	if kind != syntax.KIdent && kind != syntax.KSelectorExpr {
 		return None
 	}
 	let name = textOf(p, x)
@@ -924,28 +981,64 @@ func constraintOnly(decls Map[string, typeDecl], p syntax.Parsed, hide []string,
 	}
 	match decls.Get(name) {
 	case Some{Value: d}:
-		if d.Generic { Some{Value: d} } else { None }
+		if d.Generic || d.SelfSites != 0 { Some{Value: d} } else { None }
 	case None:
 		None
 	}
+}
+
+func noValue(d typeDecl, t string) string {
+	if d.Generic {
+		return "\(d.Name) has a generic operation, so it is a constraint and has no values; write [M \(t)] (types.md, Interface assignability, Generic operations)"
+	}
+	"\(d.Name) names Self, so it is a constraint and has no values; write [M \(t)] (types.md, Interface assignability, Self)"
 }
 
 // typePlace walks the type expression x of a value's place.
 func typePlace(out mut []diag.Diag, k expr.Pkg, decls Map[string, typeDecl], f int, p syntax.Parsed, hide []string, x dense.ID[syntax.Node]) {
 	let kind = syntax.KindOf(p.Tree, x)
 	if kind == syntax.KIdent {
+		if textOf(p, x) == "Self" && !hidden(hide, "Self") && !isSome(decls.Get("Self")) {
+			*out = (*out).Append(at(k, f, x, "S104", "unknown type Self; Self names the claiming type, inside an operation type"))
+			return
+		}
 		match constraintOnly(decls, p, hide, x) {
 		case Some{Value: d}:
-			*out = (*out).Append(at(k, f, x, "S108", "\(d.Name) has a generic operation, so it is a constraint and has no values; write [M \(textOf(p, x))] (types.md, Interface assignability, Generic operations)"))
+			*out = (*out).Append(at(k, f, x, "S108", noValue(d, textOf(p, x))))
+		case None:
+		}
+		return
+	}
+	if kind == syntax.KSelectorExpr {
+		match constraintOnly(decls, p, hide, x) {
+		case Some{Value: d}:
+			*out = (*out).Append(at(k, f, x, "S108", noValue(d, textOf(p, x))))
 		case None:
 		}
 		return
 	}
 	if kind == syntax.KIndexExpr {
 		let ix = syntax.IndexExprOf(p.Tree, x)
+		let head = textOf(p, ix.X)
+		if head == "Self" && !hidden(hide, head) && !isSome(decls.Get(head)) {
+			typePlace(out, k, decls, f, p, hide, ix.X)
+			return
+		}
+		if hidden(hide, head) {
+			let arity = reapplyArity(k, f, p, x, head)
+			if arity < 0 {
+				*out = (*out).Append(at(k, f, x, "S108", "\(head) is not a generic type; only a parameter constrained by an operation type that re-applies Self is re-applied"))
+				return
+			}
+			let n = syntax.Len(ix.Indices)
+			if n != arity {
+				*out = (*out).Append(at(k, f, x, "S108", "\(head) takes \(arity) type arguments when re-applied, not \(n)"))
+				return
+			}
+		}
 		match constraintOnly(decls, p, hide, ix.X) {
 		case Some{Value: d}:
-			*out = (*out).Append(at(k, f, x, "S108", "\(d.Name) has a generic operation, so it is a constraint and has no values; write [M \(textOf(p, x))] (types.md, Interface assignability, Generic operations)"))
+			*out = (*out).Append(at(k, f, x, "S108", noValue(d, textOf(p, x))))
 			return
 		case None:
 		}
@@ -1033,9 +1126,9 @@ func bodyPlaces(out mut []diag.Diag, k expr.Pkg, decls Map[string, typeDecl], f 
 // this check refuses (a constraint-only operation type as a value's type).
 // Such a local's type is invalid, so it is never reported unused (the Go
 // checker's declareLocal marks it used; S110 does not stack on S108).
-func RefusedLets(k expr.Pkg) []dense.ID[store.PNode] {
+func RefusedLets(s store.Store, k expr.Pkg) []dense.ID[store.PNode] {
 	let mut out = []dense.ID[store.PNode]{}
-	let decls = typeDecls(k)
+	let decls = typeDecls(s, k)
 	let mut any = false
 	for p in k.Parsed {
 		if p.Failed {
@@ -1046,11 +1139,16 @@ func RefusedLets(k expr.Pkg) []dense.ID[store.PNode] {
 			case syntax.TypeDecl as td:
 				match decls.Get(textOf(p, td.Name)) {
 				case Some{Value: t}:
-					any = any || t.Generic
+					any = any || t.Generic || t.SelfSites != 0
 				case None:
 				}
 			case _:
 			}
+		}
+	}
+	for dep in k.Ifaces {
+		for role in dep.Roles {
+			any = any || role.Self != 0
 		}
 	}
 	if !any {
@@ -1078,8 +1176,8 @@ func RefusedLets(k expr.Pkg) []dense.ID[store.PNode] {
 
 // Quiet is held, and also true of the names RefusedLets finds: the locals
 // whose S110 the unused check (diag.Unused) does not report.
-func Quiet(k expr.Pkg, held own func(n dense.ID[store.PNode]) bool) func(n dense.ID[store.PNode]) bool {
-	let refused = RefusedLets(k)
+func Quiet(s store.Store, k expr.Pkg, held own func(n dense.ID[store.PNode]) bool) func(n dense.ID[store.PNode]) bool {
+	let refused = RefusedLets(s, k)
 	if len(refused) == 0 {
 		return held
 	}
@@ -1109,7 +1207,7 @@ func refusedLets(out mut []dense.ID[store.PNode], k expr.Pkg, decls Map[string, 
 
 // Check is the providing check's diagnostics of the package.
 func Check(s store.Store, k expr.Pkg) []diag.Diag {
-	let decls = typeDecls(k)
+	let decls = typeDecls(s, k)
 	let mut order = []string{}
 	for p in k.Parsed {
 		if p.Failed {
@@ -1123,11 +1221,12 @@ func Check(s store.Store, k expr.Pkg) []diag.Diag {
 			}
 		}
 	}
-	let mut out = clauses(s, k, decls, order)
+	let mut pool = s
+	let mut out = clauses(&pool, k, decls, order)
 	for g in entries(k, decls) {
 		out = out.Append(g)
 	}
-	for g in valueTypes(k, decls, order) {
+	for g in valueTypes(s, k, decls) {
 		out = out.Append(g)
 	}
 	out
@@ -1144,7 +1243,7 @@ law MatchingProviderHasNoS106(reversed bool) {
 	let mut s = bind.Collect("p", files)
 	let u = bind.Join(&s, []bind.Body{})
 	let k = expr.Load(&s, files, u, ps, []types.Ext{}, []types.Foreign{}, []types.Iface{}, false)
-	if parsed.Failed || len(k.Claims) != 1 || len(k.OpSigs) != 2 || len(k.Fns) != 2 {
+	if parsed.Failed || len(k.Claims) != 1 || len(k.Fns) != 2 {
 		return false
 	}
 	for g in Check(s, k) {
