@@ -1381,6 +1381,66 @@
       "rule": "The same correctly bound runtime record is admissible in a closed failure row when declared by a user package.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-result-refuses-string",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
+      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "from": "if shapeGo(st, ops[n]) == \"\" {",
+      "to": "if shapeGo(st, ops[n]) == \"\" || basicGo(st, ops[n]) == \"string\" {",
+      "rule": "String success stays an ordinary return when the method declares a failure (FrameText).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-result-refuses-slice",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
+      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "from": "if shapeGo(st, ops[n]) == \"\" {",
+      "to": "if shapeGo(st, ops[n]) == \"\" || store.KindOfType(st.s, ops[n]) == store.KSlice {",
+      "rule": "A fresh shaped slice may be the ordinary success result of a fallible method (FrameSlice).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-result-refuses-local-record",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
+      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "from": "if shapeGo(st, ops[n]) == \"\" {",
+      "to": "if shapeGo(st, ops[n]) == \"\" || ordinaryRecord(st, ops[n]) >= 0 {",
+      "rule": "The checked local record is returned as the value, without a result adapter (FrameRecord).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-result-refuses-imported-record",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
+      "file": "compiler/lower/fail_frame.ergo", "decl": "envFreeFallibleFrame",
+      "from": "if shapeGo(st, ops[n]) == \"\" {",
+      "to": "if shapeGo(st, ops[n]) == \"\" || importedShapeOf(st, ops[n], shapeDeps(st)) != None {",
+      "rule": "The success channel can carry a record spelled by SHAPES from its importing owner (FrameImported).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-result-refuses-union-injection",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
+      "file": "compiler/lower/fail_frame.ergo", "decl": "fallibleTail",
+      "from": "if actual != success && unionGo(st, success) == \"\" {",
+      "to": "if actual != success {",
+      "rule": "An already-described UNION variant can join a declared success result (FrameUnion).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-result-drops-failure-only-tail",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 step 3 (not-run-crunch)",
+      "file": "compiler/lower/fail_frame.ergo", "decl": "fallibleTail",
+      "from": "return Some[failureExit]{Value: try recordFailure(st, tail, success, members)}",
+      "to": "return None",
+      "rule": "A returned exact failure of a multi-member row does not become the shaped success value (FrameFailureOnly).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     }
   ]
 }
