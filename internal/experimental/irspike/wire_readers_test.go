@@ -8,25 +8,31 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// TestIRWireReadersMatchSource is PORT-WIRE-READERS R1's and R2a's
-// property: Ev's decoder functions on the prelude's Reader interface
-// (ergoDecode*) and on json's Reader, a direct reader (ergoRead*: a
-// record of basics with narrow integers, a nested record, a list of
-// records, a map, a list of ints) take IR bodies, none keeps its text,
-// and each program prints what the source path's prints, with the
-// build-time fold on and off. take decodes on the interface and direct on
-// json's Reader itself, so both decoders run on every text.
-// GenerateWireReaders's texts reach every failure the decoder gives (a
-// missing field, the wrong kind, an integer out of its range), an unknown
-// key, a key given twice and a text cut short mid-decode (on a second
-// reader, codec's Replay), and print each failure's value and place.
+// TestIRWireReadersMatchSource checks decoder bodies on both the prelude
+// Reader interface (ergoDecode*) and json's direct reader (ergoRead*).
+// No decoder keeps its text, and the program agrees with the source path
+// with the build-time fold on and off. GenerateWireReaders reaches
+// concrete and generic codecs, introduced wire forms, and failures
+// including texts cut short mid-decode on codec's Replay.
 //
 // Mutants: pwr-reader-text (no decoder takes the IR), pwr-reader-range
 // (the range check of a narrow integer dropped), pwr-reader-skip (an
 // unknown key's value is not skipped), pwr-reader-missing (a missing
 // field is not a failure), r2a-direct-text (no direct decoder takes the
 // IR) and r2a-direct-via-iface (a direct decoder's nested value read by
-// the interface's decoder function).
+// the interface's decoder function), pwr-r3-absent-not-initialized (a
+// missing optional key does not produce the explicit empty alternative),
+// pwr-r3-wrapper-loses-payload (the present alternative loses its value),
+// pwr-r3-unknown-tag-lost (the rejected tag is missing from its failure),
+// pwr-r3-parser-bypassed (a decoded base bypasses its parser),
+// pwr-r3-null-not-read (a null is sent to the payload reader), and
+// pwr-r3-tuple-extra-ignored (a tuple ignores trailing elements).
+// The small forms add pwr-r3-own-read-ignored, pwr-r3-bare-null-not-taken,
+// pwr-r3-members-key-lost, pwr-r3-number-text-lost and pwr-r3-append-prefix.
+// pwr-r3-pointer-assertion-unavailable removes pointer assertions; the
+// generic record uses pwr-r3-generic-field-reader-lost.
+// pwr-r3-row-variant-refused sends a row value through the named-union
+// conversion, leaving the error-row reader on text.
 //
 // It builds Go because the other side of the agreement is the built
 // program, by both paths.

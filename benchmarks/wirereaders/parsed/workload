@@ -1,0 +1,5 @@
+# Reads a string by a declared parser and an integer by a derived one.
+unit read
+sizes 20000 120000
+args bench parsed {n}
+control benchmarks/wirereaders/testdata/control

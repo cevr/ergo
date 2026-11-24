@@ -47,7 +47,7 @@ test DiscardRepairsReadOnlyDirectories {
 		assert !work.Cloner.Has("trash/one")
 		assert try fs.Files.ReadFile("outside/file") == "preserve\n"
 		let outside = try fs.Files.Stat("outside")
-		assert outside.Perm & 128 == 0
+		assert outside.Perm&128 == 0
 		// Allow the case's own cleanup to delete the original and outside.
 		assert try exec.Runner.Run(exec.New("sh", []string{"-c", "chmod u+w src/locked src/locked/nested outside"})).Status == 0
 	}
@@ -61,7 +61,7 @@ test RepairAcceptsBsdChmod {
 		let r = try permissionFixture("recover")
 		assert r.Status == 0 && r.Stdout == "repaired\n" && r.Stderr == ""
 		let folder = try fs.Files.Stat("recover/read only")
-		assert folder.Perm & 448 == 448
+		assert folder.Perm&448 == 448
 	}
 }
 
@@ -74,7 +74,7 @@ test RepairReturnsTheChmodFailure {
 		assert r.Status == 7 && r.Stdout == ""
 		assert strings.Contains(r.Stderr, "fixture chmod refused")
 		let folder = try fs.Files.Stat("mixed/refuse")
-		assert folder.Perm & 128 == 0
+		assert folder.Perm&128 == 0
 		try fs.Writes.Chmod("mixed/refuse", fs.PrivateDir())
 	}
 }
@@ -95,7 +95,7 @@ func plantPermissionFixture() fails fs.Denied | fs.Failed | fs.NotFound needs fs
 func permissionFixture(path string) exec.Result fails exec.NotFound | exec.Denied | exec.Failed | os.NoWorkdir needs exec.Runner | os.Process {
 	let dir = try os.Process.Getwd()
 	let c = exec.New("sh", []string{"-c", system.RepairRemovalScript, "work-discard-permissions", path})
-	try exec.Runner.Run(c.WithEnv("PATH", dir + "/bin:/usr/bin:/bin"))
+	try exec.Runner.Run(c.WithEnv("PATH", dir+"/bin:/usr/bin:/bin"))
 }
 
 // BaseScript makes base a checkout whose files hold every kind git's
