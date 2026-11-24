@@ -9,7 +9,7 @@ import strings
 // the script's clock. Run tells on Console what each signal does, and
 // returns the exit status: 0 when the board closed, 1 when the form could
 // not open. The end of the input closes the board.
-func Run() int needs Console | io.Stdin | keypad.Forms {
+func Run() Status needs Console | io.Stdin | keypad.Forms {
 	let mut opened = false
 	let mut p keypad.Pad = keypad.Start()
 	let mut now = 0s
@@ -76,6 +76,9 @@ func Run() int needs Console | io.Stdin | keypad.Forms {
 	tell(keypad.Closed{Fields: keypad.BoardOf(p).Fields})
 	0
 }
+
+// Status is 0 for a completed session or 1 if no form could open.
+type Status int where 0 <= it && it <= 1
 
 // open is the board of the form that the first line names.
 func open(line string) keypad.Pad fails keypad.NoSuchForm | keypad.NoFields | keypad.Duplicate | keypad.BadSpec | BadLine needs keypad.Forms {

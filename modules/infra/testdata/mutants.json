@@ -2,6 +2,14 @@
   "about": "module infra's mutants: the six of the design model models/infra, planted in the code, and the driver of d02; each is judged by the module's tests and laws (scripts/examples -modules infra). The law that kills each is named in its rule.",
   "mutants": [
     {
+      "name": "nou-status-admits-unknown", "origin": "wf10 NOU-DOMAIN-BOUNDARIES",
+      "file": "modules/infra/cli.ergo",
+      "from": "type CommandStatus int where 0 <= it && it <= 3",
+      "to": "type CommandStatus int where 0 <= it && it <= 4",
+      "rule": "A raw code outside 0..3 is not an infra command result; CommandStatusKeepsNumber rejects it.",
+      "killers": ["modules/infra:law:CommandStatusKeepsNumber"], "gap": "not-run-crunch"
+    },
+    {
       "name": "ia1-no-write-ahead", "origin": "wf10/domain IA1 (models/infra NoWriteAhead)",
       "file": "modules/infra/engine.ergo",
       "from": "\ttry e.State.Put(Row[P]{ID: id, Status: Creating, Props: p, Seq: seq})\n",
