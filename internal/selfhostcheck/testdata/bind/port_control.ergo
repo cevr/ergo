@@ -1,0 +1,48 @@
+func ControlTail(n int) int {
+	if n < 0 {
+		-n
+	} else {
+		n + 1
+	}
+}
+
+func ControlReturn(n int) int {
+	if n < 0 {
+		return -n
+	}
+	n + 1
+}
+
+func ControlShadow(n int) int {
+	let mut total = n
+	total = n + 1
+	if n < 0 {
+		let total = n - 1
+		return total
+	}
+	total
+}
+
+func ControlRange(n int) int {
+	let mut total = 0
+	for i in 0..n {
+		total += i
+	}
+	total
+}
+
+func ControlWhile(n int) int {
+	let mut cursor = 0
+	let mut total = 0
+	for cursor < n {
+		cursor += 1
+		if cursor == 2 {
+			continue
+		}
+		if cursor > 5 {
+			break
+		}
+		total += cursor
+	}
+	total
+}
