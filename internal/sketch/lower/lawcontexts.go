@@ -28,10 +28,9 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 	fmtPkg := l.helper("fmt")
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, lc := range lr.Contexts {
-		label := "law " + l.lawTitle(law) + " under " + lc.Title()
+		label := ContextLabel(l.pkg, law, &lc)
 		claimAt := at
 		if lc.Claim != nil {
-			label = l.bindingLabel(law, []check.LawProvider{*lc.Claim}) + " under " + lc.Title()
 			claimAt = strconv.Quote(l.siteText(law.Decl) + lc.Claim.ClaimBlame())
 		}
 		if lc.Unrun != "" {

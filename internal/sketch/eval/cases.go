@@ -39,7 +39,7 @@ func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 		t.name += " under " + c.Title()
 		out = append(out, t)
 	}
-	if len(out) == 0 {
+	if len(out) == 0 && !run.Law.Claimed() {
 		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law), why: "no binding of the law runs in this package"})
 	}
 	return out
@@ -284,7 +284,22 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		return
 	}
 	for _, input := range p.Inputs {
-		if why := pre.generator(fr, input.Type, input.Provider, map[check.Type]bool{}); why != "" {
+		t := input.Type
+		if input.Callback != nil {
+			t = input.Callback.Results[0]
+		}
+		var why string
+		if build := input.ClaimCtor; build != nil {
+			why = pre.function(fr, build.ClaimCtor)
+			for _, t := range build.ClaimCtorParams {
+				if why == "" {
+					why = pre.generator(fr, t, nil, map[check.Type]bool{})
+				}
+			}
+		} else {
+			why = pre.generator(fr, t, input.Provider, map[check.Type]bool{})
+		}
+		if why != "" {
 			out.Status, out.Reason = Skipped, why
 			return
 		}
@@ -315,14 +330,30 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 		drawn := make([]Value, len(p.Inputs))
 		for i, input := range p.Inputs {
 			var v Value
+			draw := func(t check.Type) Value {
+				if build := input.ClaimCtor; build != nil {
+					var args []Value
+					for _, t := range build.ClaimCtorParams {
+						args = append(args, in.generate(cf, r, t, testplan.Depth, nil))
+					}
+					return mustValue(in.call(cf, nil, build.ClaimCtor, build.ClaimCtorArgs, args))
+				}
+				return in.generate(cf, r, t, testplan.Depth, input.Where)
+			}
 			if p.Listed {
 				v = in.listValue(cf, listed[i])
-			} else if build := input.ClaimCtor; build != nil {
-				var args []Value
-				for _, t := range build.ClaimCtorParams {
-					args = append(args, in.generate(cf, r, t, testplan.Depth, nil))
-				}
-				v = mustValue(in.call(cf, nil, build.ClaimCtor, build.ClaimCtorArgs, args))
+			} else if sig := input.Callback; sig != nil {
+				variant := r.Intn(testplan.CallbackVariants)
+				a, b := draw(sig.Results[0]), draw(sig.Results[0])
+				v = &nativeFunc{name: "callback class " + strconv.Itoa(variant), call: func(in *interp, fr *frame, at syntax.Node, vs []Value) (Value, *abrupt) {
+					mustCharge(in, fr, 1)
+					if testplan.CallbackSecond(variant, vs[len(vs)-1].(int64)) {
+						return b, nil
+					}
+					return a, nil
+				}}
+			} else if input.ClaimCtor != nil {
+				v = draw(input.Type)
 			} else if input.Provider != nil && input.Provider.Ctor != nil {
 				ctor := input.Provider.Ctor
 				var vs []Value
@@ -340,11 +371,14 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			} else {
 				// The tie rule (testplan.Tie): an input may repeat an
 				// earlier value of its type, as the test build's does.
-				v = testplan.Tie(p, r, i, drawn, func() Value { return in.generate(cf, r, input.Type, testplan.Depth, input.Where) })
+				v = testplan.Tie(p, r, i, drawn, func() Value { return draw(input.Type) })
 			}
 			drawn[i] = v
 			switch {
 			case len(shows) > i:
+			case input.Callback != nil:
+				label := v.(*nativeFunc).name
+				shows = append(shows, func() Argument { return Argument{Name: input.Name, Value: label} })
 			case input.Provider != nil:
 				// A provider's state may change as its operations run:
 				// its text is the one it had before the case.

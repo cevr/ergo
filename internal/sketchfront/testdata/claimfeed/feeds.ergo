@@ -3,8 +3,6 @@ import claimfeed/domain
 
 type Feed {} implements domain.Source
 
-func Read(_: Feed) int { 17 }
+func Read(_ Feed) int { 17 }
 
-let built = context {
-	domain.View: device.NewDevice[int](5, Feed{}),
-}
+let built = context needs TestAmbient { domain.View: device.NewDevice[int](5, Feed) }

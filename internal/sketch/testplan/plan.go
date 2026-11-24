@@ -115,6 +115,7 @@ type Input struct {
 	Provider  *check.LawProvider
 	Where     *check.Refinement
 	ClaimCtor *check.LawProvider
+	Callback  *check.Signature
 }
 
 type Plan struct {
@@ -249,6 +250,12 @@ func Law(l *check.Law, bd []check.LawProvider) Plan {
 			if p.ClaimCtor != nil && p.Params[i] == p.At {
 				ins[i].ClaimCtor = &p
 			}
+			if sig, ok := p.Params[i].(*check.Signature); ok && check.ClaimCallback(sig) {
+				ins[i].Callback = sig
+				if p.ClaimCtor != nil && sig.Results[0] == p.At {
+					ins[i].ClaimCtor = &p
+				}
+			}
 			if i < len(l.Where) {
 				ins[i].Where = l.Where[i]
 			}
@@ -287,6 +294,22 @@ func Law(l *check.Law, bd []check.LawProvider) Plan {
 		p.Reason = l.Unrun
 	}
 	return p
+}
+
+// CallbackVariants choose among two independently generated results.
+// The value and its provenance are chosen before a callback executes.
+const CallbackVariants = 4
+
+func CallbackSecond(k int, x int64) bool {
+	switch k {
+	case 1:
+		return true
+	case 2:
+		return x%2 != 0
+	case 3:
+		return x < 0
+	}
+	return false
 }
 
 func GenericOwner(l *check.Law) *check.Named {

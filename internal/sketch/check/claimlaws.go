@@ -145,6 +145,16 @@ func (c *checker) claimBinding(law *Law, b *LawProvider) {
 		b.At = c.instantiate(b.Type, at)
 	}
 	b.Slot = c.readClaim(b.At, b.Slot)
+	if it := asInterface(b.Slot); it != nil {
+		var held captured
+		_ = c.implementsAt(&Pointer{Elem: b.At}, it, true, &held, b.Slot)
+		if held.ambient != nil {
+			b.Unrun = "its operations require Ambient, which a law case does not hold"
+			b.noGenerator = !law.ClaimEquation()
+			return
+		}
+		b.Native = held.foreign
+	}
 	b.LawTypeArgs, why = c.lawSample(law.TParams)
 	if why == "" {
 		var read func(Type) Type
@@ -155,11 +165,27 @@ func (c *checker) claimBinding(law *Law, b *LawProvider) {
 			for i, p := range law.Params {
 				t := read(p.Type)
 				b.Params[i] = t
-				if sig, ok := t.(*Signature); ok && law.ClaimEquation() {
+				if sig, ok := t.(*Signature); ok {
 					if len(sig.Results) != 1 {
-						continue // report the missing family in the licence run
+						if law.ClaimEquation() {
+							continue // report the missing family in the licence run
+						}
+						why = "its callback " + p.Name + " has no pure generated family"
+						break
+					}
+					if !law.ClaimEquation() && !ClaimCallback(sig) {
+						why = "its callback " + p.Name + " has no pure generated family"
+						break
 					}
 					t = sig.Results[0]
+					if !law.ClaimEquation() {
+						if n, ok := t.(*Named); ok && n.origin() == b.Type {
+							if only, whyBuilt := c.claimConstructor(n, b); only && whyBuilt != "" {
+								why = "its callback " + p.Name + " cannot draw a result: " + whyBuilt
+								break
+							}
+						}
+					}
 				}
 				from := law.Pkg
 				if n, ok := t.(*Named); ok && n.origin() == b.Type {
@@ -194,6 +220,21 @@ func (c *checker) claimBinding(law *Law, b *LawProvider) {
 	}
 }
 
+// ClaimCallback is the checked shape of a callback drawn for a claim
+// property. Results are independently drawable; the callback has no
+// authority and uses up to two integer operands to select its result.
+func ClaimCallback(sig *Signature) bool {
+	if sig == nil || len(sig.Params) == 0 || len(sig.Params) > 2 || len(sig.Results) != 1 || rowHolds(sig.Errors) || rowHolds(sig.Uses) {
+		return false
+	}
+	for _, p := range sig.Params {
+		if p.Type != Typ[Int] || p.Mut() {
+			return false
+		}
+	}
+	return true
+}
+
 // claimConstructor recognizes a private record with an actual constructor
 // of this instance. Infer from the result: the declaration may reorder
 // or fix type arguments, and other instances are not constructors here.
@@ -202,6 +243,7 @@ func (c *checker) claimConstructor(n *Named, b *LawProvider) (built bool, why st
 	if !ok || !slices.ContainsFunc(s.Fields, func(f *Field) bool { return !isExported(f.Name) }) {
 		return false, ""
 	}
+constructors:
 	for _, f := range n.Obj.Pkg.Funcs {
 		sig := f.Sig
 		if sig == nil || len(sig.Results) != 1 {
@@ -229,9 +271,9 @@ func (c *checker) claimConstructor(n *Named, b *LawProvider) (built bool, why st
 		}
 		for _, p := range sig.Params {
 			t := c.subst(p.Type, in.m)
-			_, recv := under(t).(*Pointer)
-			if c.identical(t, n) || recv && c.identical(under(t).(*Pointer).Elem, n) {
-				goto next // this function needs a Self to make a Self
+			ptr, recv := under(t).(*Pointer)
+			if c.identical(t, n) || recv && c.identical(ptr.Elem, n) {
+				continue constructors // this function needs a Self to make a Self
 			}
 			params = append(params, t)
 		}
@@ -239,7 +281,10 @@ func (c *checker) claimConstructor(n *Named, b *LawProvider) (built bool, why st
 		if why == "" {
 			why = n.String() + " is built only by its constructor " + f.Name + ", which a law case cannot build from draws"
 		}
-		if drawable && !rowHolds(sig.Errors) && !rowHolds(sig.Uses) {
+		uses := c.subst(&RowArg{Row: sig.Uses}, in.m).(*RowArg).Row
+		errs := c.subst(&RowArg{Row: sig.Errors}, in.m).(*RowArg).Row
+		native := goForeignRow(uses)
+		if drawable && !rowHolds(errs) && (!rowHolds(uses) || native) {
 			for _, p := range params {
 				if c.ungeneratableFrom(p, n.Obj.Pkg) != "" {
 					drawable = false
@@ -248,10 +293,10 @@ func (c *checker) claimConstructor(n *Named, b *LawProvider) (built bool, why st
 			}
 			if drawable {
 				b.ClaimCtor, b.ClaimCtorArgs, b.ClaimCtorParams = f, args, params
+				b.Native = b.Native || native
 				return true, ""
 			}
 		}
-	next:
 	}
 	return built, why
 }

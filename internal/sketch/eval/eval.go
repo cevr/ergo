@@ -370,7 +370,7 @@ func runOrdered(pkg *check.Package, b Budget, order mapOrder) (rep Report, range
 				continue
 			}
 			// A target with no why is a binding of the run (lawTargets).
-			keyed := b.Verdicts != nil && target.why == ""
+			keyed := b.Verdicts != nil && target.why == "" && (target.ctx == nil || target.ctx.Claim == nil)
 			if keyed {
 				if v, ok := b.Verdicts.Cached(run.Law, target.binding); ok {
 					res.Status, res.Evidence, res.Seed, res.Cached = Passed, v.Evidence, b.Seed, true

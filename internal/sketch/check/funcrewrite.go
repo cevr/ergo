@@ -401,8 +401,10 @@ func pureOverArgs(info *Info, call *Call, e *syntax.CallExpr) bool {
 	return true
 }
 
-// rewriteValueWhy is why t is not of the value class a rewrite compares
+// RewriteValueWhy is why t is not of the value class a rewrite compares
 // (key equality, no identity, nothing foreign), "" when it is.
+func RewriteValueWhy(t Type) string { return rewriteValueWhy(t, map[Type]bool{}) }
+
 func rewriteValueWhy(t Type, seen map[Type]bool) string {
 	if !Equatable(t) {
 		return "has no equality"

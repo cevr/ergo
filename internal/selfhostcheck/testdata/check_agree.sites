@@ -821,6 +821,9 @@ case flow seed 96
 case flow seed 97
 case flow seed 98
 case flow seed 99
+case internal/selfhostcheck/testdata/agree/claim-laws/box
+case internal/selfhostcheck/testdata/agree/claim-laws/refused
+case internal/selfhostcheck/testdata/agree/claim-laws/role
 case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res

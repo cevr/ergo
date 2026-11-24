@@ -163,7 +163,7 @@ func (c *checker) planClaimContexts(names []string, pkgs []*Package, runs map[*L
 				e := key.entry
 				owner := c.contextOwners.of[e]
 				info := providerInfo(owner)
-				if info == nil || e.Provider == nil || !c.identical(info.Types[e.Provider], it.p.At) {
+				if info == nil || e.Provider == nil || !c.identical(info.Types[e.Provider], it.p.At) || !claimEntryBuilt(info, e.Provider, it.p.At) {
 					return true
 				}
 				fact := &With{Contexts: []*Context{w}, Discharged: []Type{key.t}, Entries: []*ContextEntry{e}}
@@ -199,6 +199,30 @@ func (c *checker) planClaimContexts(names []string, pkgs []*Package, runs map[*L
 			return fed[&b[0]]
 		})
 	}
+}
+
+// A local let holding a claimant is not a construction. A context entry
+// may build it using a checked result call, including an inferred
+// generic instance.
+func claimEntryBuilt(info *Info, x syntax.Expr, at *Named) bool {
+	call, ok := unwrapTry(x).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	checked := info.Calls[call]
+	if checked == nil || checked.Kind != CallFunc || checked.Func == nil {
+		return false
+	}
+	for _, op := range checked.Operands(call) {
+		t := info.Types[op]
+		if p, ok := t.(*Pointer); ok {
+			t = p.Elem
+		}
+		if n, ok := t.(*Named); ok && n.origin() == at.origin() {
+			return false // requires a claimant before the context can build it
+		}
+	}
+	return true
 }
 
 // builtByContext reports whether a context of under builds the provider p

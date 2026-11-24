@@ -389,13 +389,25 @@ func (b *irBuilder) bindOperands(m rwMatch) ([]*irStmt, map[*check.Var]*irExpr) 
 // its calls as they are.
 func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Var]*irExpr, keep bool) ([]*irStmt, *irExpr) {
 	savedInfo, savedDirectives := b.l.info, b.fc.directives
+	savedClaim, savedReader := b.fc.claim, b.fc.readCopy
 	if b.lawArgs == nil {
 		b.lawArgs = map[*check.Var]*irExpr{}
 	}
 	for v, e := range vals {
 		b.lawArgs[v] = e
 	}
-	b.l.info, b.fc.directives = law.RewriteInfo(), false
+	info := law.RewriteInfo()
+	if p := law.ClaimRewriteBinding(); p != nil {
+		read := check.CopyReader(law.RewritePackage(), b.rwBound)
+		var why string
+		info, why = check.CopyInfo(info, law.Decl, read)
+		if why != "" {
+			irNo("%s", why)
+		}
+		b.fc.claim = p
+		b.fc.readCopy = func(t check.Type) check.Type { return read(law.RewriteType(t)) }
+	}
+	b.l.info, b.fc.directives = info, false
 	// A side's own binders (a function literal's parameter, in a law over
 	// function parameters) are the side's: each lowering of it declares
 	// them again (two sites, or both sides under FuseOr).
@@ -416,6 +428,7 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 	}
 	defer func() {
 		b.l.info, b.fc.directives = savedInfo, savedDirectives
+		b.fc.claim, b.fc.readCopy = savedClaim, savedReader
 		b.lawDepth--
 		if keep {
 			b.lawKeep--

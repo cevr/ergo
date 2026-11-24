@@ -908,8 +908,8 @@ func (c *checker) nativeConstructor(p *Named) *Func {
 func (c *checker) reportUnfedProviders() {
 	saved := c.cur
 	defer func() { c.cur = saved }()
-	seen := map[[2]any]bool{}
-	drop := map[[2]any]bool{}
+	seen := map[[3]any]bool{}
+	drop := map[[3]any]bool{}
 	for _, r := range c.pkg.LawRuns {
 		for _, b := range r.Bindings {
 			for k := range b {
@@ -922,7 +922,7 @@ func (c *checker) reportUnfedProviders() {
 				if !strings.HasPrefix(p.Unrun, "its parameter ") {
 					fix = c.lawProviderFix(r.Law, *p)
 				}
-				key := [2]any{r.Law, p.Type.Obj}
+				key := [3]any{r.Law, p.Type.Obj, p.ClaimSlot}
 				if seen[key] {
 					p.Unrun += fix
 					continue
@@ -982,7 +982,7 @@ func (c *checker) reportUnfedProviders() {
 	for i := range c.pkg.LawRuns {
 		r := &c.pkg.LawRuns[i]
 		r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
-			return slices.ContainsFunc(b, func(p LawProvider) bool { return p.Type != nil && drop[[2]any{r.Law, p.Type.Obj}] })
+			return slices.ContainsFunc(b, func(p LawProvider) bool { return p.Type != nil && drop[[3]any{r.Law, p.Type.Obj, p.ClaimSlot}] })
 		})
 	}
 	c.prepareUnprovided()

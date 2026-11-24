@@ -1095,6 +1095,9 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		return
 	}
 	if len(lr.Bindings) == 0 {
+		if law.Claimed() {
+			return
+		}
 		var types []string
 		for _, s := range law.Slots {
 			types = append(types, s.Type.Obj.Name)
@@ -1252,29 +1255,41 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				continue
 			}
 			a := inner.alloc(base)
-			var gen string
-			if build := input.ClaimCtor; build != nil {
-				ctor := build.ClaimCtor
-				sig := *ctor.Sig
-				sig.Params = make([]*check.Var, len(build.ClaimCtorParams))
-				for i, t := range build.ClaimCtorParams {
-					p := *ctor.Sig.Params[i]
-					p.Type = t
-					sig.Params[i] = &p
+			draw := func(dst string, t check.Type) {
+				if build := input.ClaimCtor; build != nil {
+					l.drawClaimCtor(b, fc, law.Decl, dst, env, r, build, t)
+				} else {
+					b.WriteString("\t\t\t" + dst + " := " + l.genExpr(t, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
 				}
-				sig.Results = []check.Type{vt}
-				call := fc.funcValue(ctor, &sig, law.Decl, &check.Instance{Func: ctor, TypeArgs: build.ClaimCtorArgs})
-				cargs := []string{env}
-				for _, t := range build.ClaimCtorParams {
-					cargs = append(cargs, l.genExpr(t, r, strconv.Itoa(testDepth), inner, law.Decl))
+			}
+			if sig := input.Callback; sig != nil {
+				t := sig.Results[0]
+				kind, x := inner.alloc("callbackClass"), inner.alloc("x")
+				first, second := inner.alloc("firstResult"), inner.alloc("secondResult")
+				b.WriteString("\t\t\t" + kind + " := " + r + ".stream.Intn(" + strconv.Itoa(testplan.CallbackVariants) + ")\n")
+				draw(first, t)
+				draw(second, t)
+				formals := "_ *" + l.env() + ", "
+				if len(sig.Params) == 2 {
+					formals += "_ int, "
 				}
-				b.WriteString("\t\t\t" + a + ", _ := " + call + "(" + strings.Join(cargs, ", ") + ")\n")
+				formals += x + " int"
+				b.WriteString("\t\t\t" + a + " := func(" + formals + ") (" + fc.goType(t) + ", error) { " +
+					"if " + kind + " == 1 || " + kind + " == 2 && " + x + "%2 != 0 || " + kind + " == 3 && " + x + " < 0 { return " + second +
+					", nil }; return " + first + ", nil }\n")
+				args = append(args, a)
+				shown = append(shown, strconv.Quote(sep+v.Name+" = callback class "), conv+".Itoa("+kind+")")
+				sep = ", "
+				continue
+			}
+			if input.ClaimCtor != nil {
+				draw(a, vt)
 				args = append(args, a)
 				shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
 				sep = ", "
 				continue
 			}
-			gen = l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl)
+			gen := l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl)
 			if input.Where != nil {
 				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
 			}
@@ -1333,6 +1348,24 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		b.WriteString("\t\t\t" + l.replayLine(law, strconv.Quote("--seed ")+" + "+conv+".FormatUint("+seed+", 10)") + "\n\t\t}\n")
 		b.WriteString("\t\t" + l.helper("Record") + "(" + strconv.Quote(tg.label) + ", " + r + ", \"\")\n\t}\n")
 	}
+}
+
+func (l *lowerer) drawClaimCtor(b *strings.Builder, fc *funcCtx, site syntax.Node, dst, env, r string, build *check.LawProvider, result check.Type) {
+	ctor := build.ClaimCtor
+	sig := *ctor.Sig
+	sig.Params = make([]*check.Var, len(build.ClaimCtorParams))
+	for i, t := range build.ClaimCtorParams {
+		p := *ctor.Sig.Params[i]
+		p.Type = t
+		sig.Params[i] = &p
+	}
+	sig.Results = []check.Type{result}
+	call := fc.funcValue(ctor, &sig, site, &check.Instance{Func: ctor, TypeArgs: build.ClaimCtorArgs})
+	args := []string{env}
+	for _, t := range build.ClaimCtorParams {
+		args = append(args, l.genExpr(t, r, strconv.Itoa(testDepth), fc.scope, site))
+	}
+	b.WriteString("\t\t\t" + dst + ", _ := " + call + "(" + strings.Join(args, ", ") + ")\n")
 }
 
 // replayLine is the Go statement that prints the command that reruns the

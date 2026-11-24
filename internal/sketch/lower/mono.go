@@ -443,7 +443,7 @@ func (l *lowerer) lawCallee(law *check.Law, own *check.Named, targs []check.Type
 // never just by the role's type arguments: two types may claim one role.
 func (l *lowerer) claimLawCallee(law *check.Law, p check.LawProvider) string {
 	base := l.pkgNames[monoLaw{law}.base()]
-	sp, made := l.monoCopy(monoLaw{law}, base, []string{l.semanticTypeKey(p.At), l.semanticTypeKey(p.Slot)}, law.Decl)
+	sp, made := l.monoCopy(monoLaw{law}, base, []string{l.semanticTypeKey(p.At), l.semanticTypeKey(p.ClaimSlot)}, law.Decl)
 	if made {
 		sp.claim = &p
 		l.pending = append(l.pending, func() { l.lawDecl(law, sp) })

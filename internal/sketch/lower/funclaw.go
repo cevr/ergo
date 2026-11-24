@@ -36,18 +36,7 @@ func funcLawDigest(names LedgerNames, law *check.Law, keys ForeignKeys) (digest,
 	d.names = names
 	if claim := law.ClaimRewriteBinding(); claim != nil {
 		d.derived = true
-		d.typ(law.Owner) // includes the declaration's member law tokens
-		d.typ(claim.Type.Obj)
-		info := law.RewriteInfo()
-		syntax.Inspect(law.Decl, func(n syntax.Node) bool {
-			if call, ok := n.(*syntax.CallExpr); ok {
-				if c := info.Calls[call]; c != nil && c.Func != nil {
-					d.fn(c.Func)
-				}
-			}
-			return true
-		})
-		d.walk(law.Pkg, law.Decl)
+		d.claimLaw(law, claim, law.RewriteInfo())
 	} else {
 		d.decl("law "+d.names.Of(law.Pkg)+"."+law.Name, law.Pkg, law.Decl)
 	}
@@ -63,6 +52,31 @@ func funcLawDigest(names LedgerNames, law *check.Law, keys ForeignKeys) (digest,
 	}
 	with, build = d.foreignKeys(h, keys)
 	return "h1:" + base64.StdEncoding.EncodeToString(h.Sum(nil)), with, build
+}
+
+func (d *digester) claimLaw(law *check.Law, claim *check.LawProvider, info *check.Info) {
+	d.typ(law.Owner)
+	d.typ(claim.Type.Obj)
+	if claim.ClaimCtor != nil {
+		d.fn(claim.ClaimCtor)
+	}
+	for _, id := range []*check.Named{claim.Claim, claim.At, claim.Slot, claim.ClaimSlot} {
+		if id != nil {
+			d.decls["claim law type "+id.String()] = true
+			d.typ(id.Obj)
+		}
+	}
+	if info != nil {
+		syntax.Inspect(law.Decl, func(n syntax.Node) bool {
+			if call, ok := n.(*syntax.CallExpr); ok {
+				if c := info.Calls[call]; c != nil && c.Func != nil {
+					d.fn(c.Func)
+				}
+			}
+			return true
+		})
+	}
+	d.walk(law.Pkg, law.Decl)
 }
 
 // funcLaw is a top-level law's entry name: its package's module-wide

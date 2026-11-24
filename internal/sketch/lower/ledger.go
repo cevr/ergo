@@ -442,6 +442,12 @@ func targetWalk(law *check.Law, binding []check.LawProvider) (*digester, []strin
 		if p.Type == nil {
 			continue
 		}
+		if p.Claim != nil {
+			info, _ := p.ClaimInfo(law)
+			d.claimLaw(law, &p, info)
+			slots = append(slots, fmt.Sprintf("%d claim %s", k, p.InstanceTitle()))
+			continue
+		}
 		d.typ(p.Type.Obj)
 		roots := tableFuncs(p.Conv)
 		if p.Ctor != nil {
@@ -485,6 +491,10 @@ func contextWalk(law *check.Law, lc check.LawContext) (*digester, []string) {
 	d := newDigester()
 	d.derived = true
 	d.typ(law.Owner)
+	if lc.Claim != nil {
+		info, _ := lc.Claim.ClaimInfo(law)
+		d.claimLaw(law, lc.Claim, info)
+	}
 	d.context(lc.Context)
 	var slots []string
 	if lc.With != nil {
@@ -656,7 +666,7 @@ func RunTargets(pkg *check.Package) []RunTarget {
 		out = append(out, t)
 	}
 	for _, r := range pkg.LawRuns {
-		if r.Law.Unrun != "" {
+		if r.Law.Unrun != "" || r.Law.ClaimEquation() {
 			continue
 		}
 		if r.Law.Machine != nil && r.Law.Decl != nil && r.Law.Decl.Reach != nil {
@@ -674,10 +684,20 @@ func RunTargets(pkg *check.Package) []RunTarget {
 			if lc.Unrun != "" {
 				continue
 			}
-			add(RunTarget{Law: r.Law, Context: lc, Label: "law " + r.Law.Title(pkg) + " under " + lc.Title()})
+			add(RunTarget{Law: r.Law, Context: lc, Label: ContextLabel(pkg, r.Law, lc)})
 		}
 	}
 	return slices.DeleteFunc(out, func(t RunTarget) bool { return count[t.Label] > 1 })
+}
+
+// ContextLabel names a context verdict, identifying the concrete input
+// as well as the context when it feeds a claimant.
+func ContextLabel(pkg *check.Package, law *check.Law, lc *check.LawContext) string {
+	label := "law " + law.Title(pkg)
+	if lc.Claim != nil {
+		label = BindingLabel(pkg, law, []check.LawProvider{*lc.Claim})
+	}
+	return label + " under " + lc.Title()
 }
 
 // BindingLabel is the report's name of a run of law with the binding b

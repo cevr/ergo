@@ -486,6 +486,30 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 	out.Tails = make(map[syntax.Stmt]Type)
 	out.Literals = make(map[syntax.Node]*Signature)
 	out.Instances = make(map[syntax.Expr]*Instance)
+	out.Implicit = make(map[syntax.Expr]Conversion)
+	out.ImplicitElems = make(map[syntax.Expr][]Conversion)
+	out.Patterns = make(map[syntax.Expr]*Pattern)
+	out.Matches = make(map[syntax.Node]*Match)
+	var pattern func(*Pattern) *Pattern
+	pattern = func(p *Pattern) *Pattern {
+		if p == nil {
+			return nil
+		}
+		next := *p
+		next.Type = read(p.Type)
+		next.Elems, next.Fields = slices.Clone(p.Elems), slices.Clone(p.Fields)
+		for i := range next.Elems {
+			next.Elems[i] = pattern(next.Elems[i])
+		}
+		for i := range next.Fields {
+			next.Fields[i].Pattern = pattern(next.Fields[i].Pattern)
+		}
+		return &next
+	}
+	conv := func(v Conversion) Conversion {
+		v.From, v.To = read(v.From), read(v.To)
+		return v
+	}
 	why := ""
 	syntax.Inspect(root, func(n syntax.Node) bool {
 		if why != "" {
@@ -500,12 +524,30 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 				copy.TypeArgs = mapTypes(inst.TypeArgs, read)
 				out.Instances[x] = &copy
 			}
+			if v, ok := base.Implicit[x]; ok {
+				out.Implicit[x] = conv(v)
+			}
+			if vs := base.ImplicitElems[x]; len(vs) != 0 {
+				cp := make([]Conversion, len(vs))
+				for i, v := range vs {
+					cp[i] = conv(v)
+				}
+				out.ImplicitElems[x] = cp
+			}
+			if p := base.Patterns[x]; p != nil {
+				out.Patterns[x] = pattern(p)
+			}
 		}
 		if s, ok := n.(syntax.Stmt); ok && base.Tails[s] != nil {
 			out.Tails[s] = read(base.Tails[s])
 		}
 		if sig := base.Literals[n]; sig != nil {
 			out.Literals[n] = read(sig).(*Signature)
+		}
+		if m := base.Matches[n]; m != nil {
+			cp := *m
+			cp.Subjects, cp.Result = mapTypes(m.Subjects, read), read(m.Result)
+			out.Matches[n] = &cp
 		}
 		x, ok := n.(*syntax.CallExpr)
 		if !ok || base.Calls[x] == nil {

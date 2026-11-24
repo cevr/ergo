@@ -142,14 +142,15 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	}
 	before := cases.format()
 	fresh, skipped, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases, req.Toolchain)
-	if err != nil {
+	var refuted *ClaimLicenceRefutedError
+	if err != nil && !errors.As(err, &refuted) {
 		return 0, err
 	}
 	// A skipped licence fails the test once the ledger is written
 	// (AC10): the entry records it, and the error names the fix.
-	var skip error
+	verdict := err
 	if len(skipped) > 0 {
-		skip = &LicenceSkippedError{Skipped: skipped}
+		verdict = errors.Join(verdict, &LicenceSkippedError{Skipped: skipped})
 	}
 	if HasMain(unit.Package) {
 		// RewriteChecks runs nothing when neither the root nor an import
@@ -197,12 +198,12 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		}
 	}
 	if changed == 0 {
-		return 0, skip
+		return 0, verdict
 	}
 	if err := writeFileAtomic(req.Ledger, []byte(lower.FormatLedger(next))); err != nil {
 		return 0, err
 	}
-	return changed, skip
+	return changed, verdict
 }
 
 // ledgerSource answers whether the module's sources still declare a

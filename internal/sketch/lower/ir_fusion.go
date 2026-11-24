@@ -228,6 +228,12 @@ func (b *irBuilder) fuseAt(x *syntax.CallExpr) ([]*irStmt, *irExpr, bool) {
 func (b *irBuilder) fuseSite(law *check.Law, bind rwBinding, ops map[*check.Var]syntax.Expr, x *syntax.CallExpr) ([]*irStmt, *irExpr, bool) {
 	r := b.l.canon.funcRw
 	m := rwMatch{law: law, site: x, bind: bind, ops: ops, keep: b.keep > 0}
+	if why := b.claimSiteResult(m); why != "" {
+		if !r.test {
+			b.siteRow(x, funcVerdict{Key: LedgerNames(nil).funcKey(law)}, false, why)
+		}
+		return nil, nil, false
+	}
 	if r.test {
 		// The shadow evaluates the operands before either side too: a
 		// site the run build keeps for its operands keeps them here.
@@ -257,6 +263,22 @@ func (b *irBuilder) fuseSite(law *check.Law, bind rwBinding, ops map[*check.Var]
 		irNo("a fusion site refused after its admission")
 	}
 	return append(append(pre, slot...), spre...), e, true
+}
+
+func (b *irBuilder) claimSiteResult(m rwMatch) string {
+	if m.law.ClaimRewriteBinding() == nil {
+		return ""
+	}
+	lhs := b.l.info.Types[m.site]
+	if why := check.RewriteValueWhy(lhs); why != "" {
+		return "not applied: its result " + why
+	}
+	read := check.CopyReader(m.law.RewritePackage(), m.bind)
+	rhs := read(m.law.RewriteInfo().Types[m.law.TopRewrite().Rhs])
+	if rhs == nil || b.l.semanticTypeKey(lhs) != b.l.semanticTypeKey(rhs) {
+		return "not applied: the equation's sides have different types at this site"
+	}
+	return ""
 }
 
 // lawOrder is law's parameters in the order its left side evaluates

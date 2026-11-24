@@ -37,3 +37,8 @@ func Effectful(x Tree[string]) int {
 	}).Map(Double).Count()
 	n + calls
 }
+
+func main() {
+	let x Tree[string] = Leaf[string]{Value: "ergo"}
+	let _ = Dot(x) + Ordinary(x) + Effectful(x)
+}

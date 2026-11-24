@@ -1388,10 +1388,7 @@ func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
 // contextBuilderCapturing also writes the selected raw entry before its
 // operation conversions. It is still built and released exactly once.
 func (l *lowerer) contextBuilderCapturing(w *check.With, site syntax.Node, t check.Type) string {
-	key := l.acquiredSet(w)
-	if t != nil {
-		key.capture = w.Entries[0]
-	}
+	key := l.contextBuildKey(w, t != nil)
 	if name, ok := l.contexts[key]; ok {
 		return name
 	}
@@ -1399,6 +1396,14 @@ func (l *lowerer) contextBuilderCapturing(w *check.With, site syntax.Node, t che
 	l.contexts[key] = name
 	l.queue(key.w.Decl, func() { l.emitContext(w, name, site, t) })
 	return name
+}
+
+func (l *lowerer) contextBuildKey(w *check.With, capture bool) contextSet {
+	key := l.acquiredSet(w)
+	if capture {
+		key.capture = w.Entries[0]
+	}
+	return key
 }
 
 // context checks a named context declaration. Its builders are written at the

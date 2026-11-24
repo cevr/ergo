@@ -158,7 +158,7 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 				if types.ConstraintOnlyRole(role) {
 					let name = types.NameText(k.Parsed[t.file], fun)
 					for m in role.Members {
-						if m.Name == name {
+						if m.Name == name && !localCallee(k, *t, fun) {
 							t.BareSelfCalls = t.BareSelfCalls.Append(BareSelfCall{File: t.file, At: fun, Name: name})
 							return None
 						}
@@ -242,6 +242,20 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 		return resultOf(*s, r)
 	}
 	generic(s, k, t, x, c, fun, written, f, None)
+}
+
+func localCallee(k Pkg, t Typer, n dense.ID[syntax.Node]) bool {
+	match bind.ResolutionOf(k.U, k.Ps, pnode(k, t.file, n)) {
+	case bind.Declared as d:
+		for op in k.Ops {
+			if pnode(k, op.File, op.Name) == d.At {
+				return false
+			}
+		}
+		isSome(dense.Unpack(dense.Of(t.defs, d.At)))
+	case _:
+		false
+	}
 }
 
 // isLen is whether fun names the builtin len: a name the package does not
