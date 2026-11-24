@@ -1,0 +1,4 @@
+[
+  {"fixture": "port_borrow.ergo", "declaration": "func Inc(", "symbol": "Counter.Inc"},
+  {"fixture": "port_borrow.ergo", "declaration": "func BorrowedIncrement(", "symbol": "CounterHolder.BorrowedIncrement"}
+]
