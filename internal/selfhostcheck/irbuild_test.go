@@ -54,6 +54,9 @@ import (
 // split's X export (irSplitName) is compared under its unexported name;
 // that export is the program's, not the function's (NL-3).
 //
+// Set ERGO_IR_AGREE_STOPS to a receipt path to save this run's raw stop
+// lines (including duplicate sites), even if IR comparisons differ.
+//
 // It builds compiler/cmd/irdump and runs Go binaries because the Ergo
 // side is a whole compiled program over the corpus (as the other
 // agreement tests of this package); full tier only.
@@ -110,6 +113,8 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	reach := map[string]int{}
 	equal := map[irIdentity]struct{}{}
 	equalEvents, differEvents := 0, 0
+	stopPath := os.Getenv("ERGO_IR_AGREE_STOPS")
+	var stopLines strings.Builder
 	var files []string
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-corpus", m) {
 		kind, rest, _ := strings.Cut(l, " ")
@@ -120,6 +125,10 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			_, path, _ := strings.Cut(rest, " ")
 			files = append(files, path)
 		case "S":
+			if stopPath != "" {
+				stopLines.WriteString(l)
+				stopLines.WriteByte('\n')
+			}
 			f := strings.SplitN(rest, " ", 3)
 			if len(f) == 3 {
 				reach["stop: "+f[2]]++
@@ -173,6 +182,12 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			equalEvents++
 			delete(witnesses, irWitnessSite{filepath.Clean(f[0]), f[1], wants[i].name})
 		}
+	}
+	if stopPath != "" {
+		if err := os.WriteFile(stopPath, []byte(stopLines.String()), 0o644); err != nil {
+			t.Fatalf("write IR agreement stops: %v", err)
+		}
+		t.Logf("raw IR stop lines: %s", stopPath)
 	}
 	var lines []string
 	for cause, n := range reach {
