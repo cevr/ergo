@@ -604,6 +604,12 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if basicGo(*st, ops[n]) == "" && plainRecord(*st, ops[n]) < 0 {
 		sig = "result: " + typeCause(*st, ops[n])
 	}
+	let unit = store.KindOfType(st.s, ops[n]) == store.KTuple && len(store.OperandsOf(st.s, ops[n])) == 0 && controlUnitAdmitted(*st, f, body)
+	if unit {
+		// The opted-in unit profile has no result slot. Parameter
+		// admission below still checks every formal.
+		sig = ""
+	}
 	for i in 0..n {
 		if sig == "" && basicGo(*st, ops[i]) == "" && plainRecord(*st, ops[i]) < 0 {
 			sig = "parameter: " + typeCause(*st, ops[i])
@@ -628,7 +634,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case _:
 		return stop("body that is no block")
 	}
-	let prepared = statements(st, body, list, f.Names, n) catch {
+	let prepared = statements(st, body, list, f.Names, n, ops[n], unit) catch {
 	case Unported as u:
 		if sig != "" {
 			return stop(sig + " / body: " + u.Cause)
@@ -644,7 +650,8 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	let end = pos(*st, syntax.TokPos(p, rbrace))
 	try ir.Begin(b, gname, fp, end)
 	let roots = try controlEmit(*st, b, prepared, end)
-	try ir.End(b, ir.List(b, roots))
+	let rows = if len(roots) == 0 { uint32(0) } else { ir.List(b, roots) }
+	try ir.End(b, rows)
 	let _ = lbrace
 	true
 }
