@@ -127,9 +127,15 @@ func emitAggregate(st fnb, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.
 
 // field selects a checked field, not a method value or a package member.
 func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails Unported {
-	let xt = try typeOf(st, se.X, "selector operand")
-	let r = ordinaryRecord(st, xt)
-	if r < 0 || shapeGo(st, xt) == "" {
+	try fieldOn(st, x, se, try typeOf(st, se.X, "selector operand"))
+}
+
+// fieldOn also serves a place whose caller has checked and peeled one
+// borrow marker. It only resolves the member; it does not admit the place
+// or say how to read or write it.
+func fieldOn(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr, recordType dense.ID[store.TKey]) string fails Unported {
+	let r = ordinaryRecord(st, recordType)
+	if r < 0 || shapeGo(st, recordType) == "" {
 		return stop("selector on no plain record")
 	}
 	let t = try typeOf(st, x, "SelectorExpr")
