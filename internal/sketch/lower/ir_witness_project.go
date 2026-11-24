@@ -1,10 +1,6 @@
 package lower
 
 import (
-	"go/ast"
-	"go/format"
-	"go/parser"
-	"go/token"
 	"slices"
 	"strings"
 
@@ -26,28 +22,23 @@ func SetWireProjectionForTest(mode string) func() {
 type wireProjectHead struct {
 	pkg                *check.Package
 	slot               int
+	local              string
+	fields             []wireCodecField
 	parts              []string
 	directive, results string
 }
 
+func (st *irState) projectsWireWitnesses() bool {
+	return st.census == nil && !st.formsOff && wireProjectionLowering != "off"
+}
+
 // keepWireHead records a concrete function whose only witness is a codec.
 // Its ordinary head is not changed; text and indirect callers still use it.
-func (st *irState) keepWireHead(fc *funcCtx, f *check.Func, name, directive string, parts []string, results string) {
-	if st.census != nil || st.formsOff || wireProjectionLowering == "off" {
-		return
-	}
-	ps := witnessParams(f.Sig)
-	if len(ps) != 1 || !isWireParam(ps[0]) || fc.static[ps[0]] != nil {
-		return
-	}
-	slot := 0
-	if fc.env != "" {
-		slot++
-	}
+func (st *irState) keepWireHead(name string, head wireProjectHead) {
 	if st.wireHeads == nil {
 		st.wireHeads = map[string]wireProjectHead{}
 	}
-	st.wireHeads[name] = wireProjectHead{f.Pkg, slot, parts, directive, results}
+	st.wireHeads[name] = head
 }
 
 // A witness projects only when every occurrence of its local selects
@@ -100,39 +91,14 @@ func (p *wireProjection) demand(all map[string]*wireProjection) string {
 		}
 	})
 	if ok && uses == admitted {
-		p.param = wireProjectedParam(p.head.parts[slot], field)
-		if p.param != "" {
-			p.field = field
+		for _, f := range p.head.fields {
+			if f.name == field {
+				p.field, p.param = field, p.head.local+" "+f.typ
+				break
+			}
 		}
 	}
 	return p.field
-}
-
-// wireProjectedParam reads the compiler-written anonymous witness type.
-// Only a function-valued field can replace the full parameter.
-func wireProjectedParam(part, name string) string {
-	if name == "" {
-		return ""
-	}
-	local, spelling, _ := strings.Cut(part, " ")
-	x, err := parser.ParseExpr(spelling)
-	st, ok := x.(*ast.StructType)
-	if err != nil || !ok {
-		return ""
-	}
-	for _, f := range st.Fields.List {
-		if len(f.Names) == 1 && f.Names[0].Name == name {
-			if _, ok := f.Type.(*ast.FuncType); !ok {
-				return ""
-			}
-			var out strings.Builder
-			out.WriteString(local + " ")
-			if format.Node(&out, token.NewFileSet(), f.Type) == nil {
-				return out.String()
-			}
-		}
-	}
-	return ""
 }
 
 func (st *irState) projectWireWitnesses(l *lowerer) {
@@ -169,7 +135,11 @@ func (st *irState) projectWireWitnesses(l *lowerer) {
 		p.worker = l.names.alloc(fn.Name + "WitnessField")
 		parts := slices.Clone(p.head.parts)
 		parts[p.head.slot] = p.param
-		l.gen.WriteString(p.head.directive + "func " + p.worker + "(" + strings.Join(parts, ", ") + ")" + p.head.results + "\n\n")
+		dst := &l.gen
+		if p.head.directive != "" {
+			dst = &l.user
+		}
+		dst.WriteString(p.head.directive + "func " + p.worker + "(" + strings.Join(parts, ", ") + ")" + p.head.results + "\n\n")
 		st.wireOrigins[p.worker] = p.head.pkg
 		st.report.IR = append(st.report.IR, p.worker)
 		copy := *fn
