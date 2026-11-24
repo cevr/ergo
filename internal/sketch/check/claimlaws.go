@@ -155,8 +155,11 @@ func (c *checker) claimBinding(law *Law, b *LawProvider) {
 			for i, p := range law.Params {
 				t := read(p.Type)
 				b.Params[i] = t
-				if law.ClaimEquation() {
-					continue // the licence case planner supplies its families
+				if sig, ok := t.(*Signature); ok && law.ClaimEquation() {
+					if len(sig.Results) != 1 {
+						continue // report the missing family in the licence run
+					}
+					t = sig.Results[0]
 				}
 				from := law.Pkg
 				if n, ok := t.(*Named); ok && n.origin() == b.Type {
@@ -165,7 +168,7 @@ func (c *checker) claimBinding(law *Law, b *LawProvider) {
 						if missing == "" {
 							continue
 						}
-						if b.ClaimFeed != 0 || !c.identical(n, b.At) {
+						if law.ClaimEquation() || b.ClaimFeed != 0 || !c.identical(n, b.At) {
 							why = missing
 							b.ClaimFeed = 0
 							break

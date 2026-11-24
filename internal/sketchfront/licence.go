@@ -108,7 +108,7 @@ func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]
 			cases[stub.Key()] = append(cases[stub.Key()], l.Case)
 		}
 		if l.Verdict == "skipped" {
-			skipped = append(skipped, SkippedLicence{Law: stub.Law, Package: pkg.Path, Reason: l.Reason})
+			skipped = append(skipped, SkippedLicence{Law: stub.Key(), Package: pkg.Path, Reason: l.Reason})
 		}
 		out = append(out, lower.FuncLawEntry(law, names, l.Verdict, keys))
 	}

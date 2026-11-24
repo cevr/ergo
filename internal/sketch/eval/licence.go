@@ -190,6 +190,9 @@ func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []strin
 	l.Name = lawName(law)
 	if claim := law.ClaimRewriteBinding(); claim != nil {
 		l.Name = "law " + law.Title(pkg) + " for " + claim.Type.Obj.Name
+		if claim.At != nil && claim.At != claim.Type {
+			l.Name += " at " + claim.InstanceTitle()
+		}
 		if claim.Unrun != "" {
 			l.Verdict, l.Reason = "skipped", claim.Unrun+claim.ClaimBlame()
 			return l, false, nil
@@ -244,6 +247,18 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	for _, tp := range law.TParams {
 		in.atInt[tp] = true
 	}
+	r := testgen.New(in.budget.Seed, l.Name)
+	r.Charge = func(k int64) { mustCharge(in, fr, k) }
+	draw := func(t check.Type) Value {
+		if claim != nil && claim.ClaimCtor != nil && t == claim.At {
+			var args []Value
+			for _, tp := range claim.ClaimCtorParams {
+				args = append(args, in.generate(fr, r, tp, testplan.Depth, nil))
+			}
+			return mustValue(in.call(fr, nil, claim.ClaimCtor, claim.ClaimCtorArgs, args))
+		}
+		return in.generate(fr, r, t, testplan.Depth, nil)
+	}
 	// types are the parameters' types as the run reads them, and families
 	// the pure functions a function parameter takes (licencefuncs.go).
 	n := len(law.Params)
@@ -257,7 +272,11 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 			types[i] = paramType
 		}
 		if _, isFunc := paramType.(*check.Signature); isFunc {
-			if families[i] = funcFamily(law, paramType); families[i] == nil {
+			families[i] = funcFamily(law, paramType)
+			if families[i] == nil && claim != nil {
+				families[i] = claimResultFamily(paramType, claim.At, draw)
+			}
+			if families[i] == nil {
 				l.Verdict, l.Reason = "skipped", "the run has no family of pure functions for "+v.Name+" "+v.Type.String()
 				return
 			}
@@ -279,6 +298,7 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 		bodies = []*syntax.BlockStmt{left, right}
 	}
 	for _, body := range bodies {
+		delete(pre.seen, fr.decl)
 		if why := pre.body(fr, fr.decl, body, nil, map[*check.Var]check.Conversion{}); why != "" {
 			l.Verdict, l.Reason = "skipped", why
 			return
@@ -377,8 +397,6 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 		}
 	}
 	defer finish()
-	r := testgen.New(in.budget.Seed, l.Name)
-	r.Charge = func(k int64) { mustCharge(in, fr, k) }
 	// current is the case being run, for the corpus line of a refuted one.
 	var current []Value
 	defer func() {
@@ -417,7 +435,7 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 			} else if families[i] != nil {
 				vals[i] = families[i][r.Intn(len(families[i]))].value(in, fr)
 			} else {
-				vals[i] = in.generate(fr, r, types[i], testplan.Depth, nil)
+				vals[i] = draw(types[i])
 			}
 		}
 		args := func() []Argument {
