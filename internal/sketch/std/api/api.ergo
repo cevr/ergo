@@ -24,12 +24,9 @@ func ExitOf(o Output) fails os.Exit {
 	if o.Code == 0 {
 		return
 	}
-	let code = os.ParseCode(o.Code) catch {
+	let code os.Code = os.ParseCode(o.Code) catch {
 	case Unsatisfied:
-		os.ParseCode(1) catch {
-		case Unsatisfied:
-			Unreachable("1 is a status os.Exit carries")
-		}
+		1
 	}
 	if o.Err == "" {
 		return os.Exit{Code: code, Message: "failed; the JSON on standard output says why"}
