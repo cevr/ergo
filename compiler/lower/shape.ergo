@@ -1,0 +1,68 @@
+import compiler/check/store
+import dense
+import strings
+
+// shapeGo spells the admitted value shapes. A named type here is a local
+// declaration (the checker represents imported types separately). Its
+// declaration spells bare in the root and with its package prefix elsewhere.
+// Unsupported types do not acquire a spelling.
+func shapeGo(st fnb, t dense.ID[store.TKey]) string {
+	shapeWithin(st, t, []dense.ID[store.TKey]{})
+}
+
+func shapeWithin(st fnb, t dense.ID[store.TKey], seen []dense.ID[store.TKey]) string {
+	let basic = basicGo(st, t)
+	if basic != "" {
+		return basic
+	}
+	if store.KindOfType(st.s, t) == store.KSlice {
+		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[0], seen)
+		return if elem == "" { "" } else { "[]" + elem }
+	}
+	let r = ordinaryRecord(st, t)
+	if r < 0 {
+		return ""
+	}
+	let rec = st.k.Recs[r]
+	if len(rec.Fields) == 0 {
+		return ""
+	}
+	let gt = declName(st, rec.Name) catch {
+	case Unported:
+		return ""
+	}
+	// By declaration identity, not spelling. The Go admit walk similarly
+	// visits a declaration once (e.g. a record containing a slice of itself).
+	for id in seen {
+		if id == t {
+			return gt
+		}
+	}
+	let path = seen.Append(t)
+	for f in rec.Fields {
+		if !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == "" {
+			return ""
+		}
+	}
+	gt
+}
+
+// ordinaryRecord is a declaration query, not value admission. In particular
+// the leading parameter's receiver role does not depend on its field types.
+func ordinaryRecord(st fnb, t dense.ID[store.TKey]) int {
+	if store.KindOfType(st.s, t) != store.KNamed {
+		return -1
+	}
+	let name = store.TypeNameText(st.s, store.ArgOf(st.s, t))
+	for r, rec in st.k.Recs {
+		if rec.Name == name {
+			return if rec.Op || len(rec.Params) > 0 || !structDecl(st, name) { -1 } else { r }
+		}
+	}
+	-1
+}
+
+// Retain the original boundary on fields that can have special Go names.
+func ordinaryFieldName(name string) bool {
+	name != "Error" && !strings.HasSuffix(name, "_") && !goKeyword(name)
+}
