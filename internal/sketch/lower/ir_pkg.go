@@ -680,8 +680,6 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		irNo("std call with another arity")
 	case x.Trailing != nil && !adapted(body.Params[len(ops)]):
 		irNo("std call with another arity")
-	case len(b.l.ownedParams(fd.fn)) > 0:
-		irNo("call that passes owned values")
 	case c.Site != nil:
 		irNo("call with a call site")
 	case len(b.fc.captureOwners(x)) > 0:
