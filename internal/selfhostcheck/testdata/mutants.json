@@ -587,6 +587,36 @@
       ]
     },
     {
+      "name": "lower-call-drop-imported-proof",
+      "origin": "wf10/selfhost/S4-PORT CALLS r2 (not-run-crunch)",
+      "file": "compiler/lower/calls.ergo",
+      "from": "let flag = importedCallFact(imports, path, i)",
+      "to": "let flag = noCallFact",
+      "rule": "The consumer uses the checked import unit's direct-call fact (PortCallImported).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-call-ignore-imported-component",
+      "origin": "wf10/selfhost/S4-PORT CALLS r2 (not-run-crunch)",
+      "file": "compiler/lower/calls.ergo",
+      "from": "if end > 1 {\n\t\t\tfor i in 0..end {",
+      "to": "if end > 1 && false {\n\t\t\tfor i in 0..end {",
+      "rule": "A mutually recursive component of more than one member stays direct (PortCallImportedCycle).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-call-imported-edge-requires-direct",
+      "origin": "wf10/selfhost/S4-PORT CALLS r2 (not-run-crunch)",
+      "file": "compiler/lower/calls.ergo",
+      "from": "if flag != pureCallFact && flag != directCallFact {",
+      "to": "if flag != directCallFact {",
+      "rule": "A pure imported inline candidate can still prove a local caller pure (PortCallImportedEdge).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "lower-bin-pos-start",
       "origin": "wf10/selfhost/S4c2",
       "file": "compiler/lower/lower.ergo",
