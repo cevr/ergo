@@ -65,7 +65,8 @@ func run(v flag.Values, handle own func(http.Request) http.Response needs api.Jo
 		let l = try listen("127.0.0.1:0")
 		let client = http.NewClient("http://"+l.Addr(), answers, []http.Credential{}) catch {
 		case http.InvalidLimits:
-			Unreachable("jobs uses positive limits")
+			l.Close()
+			return os.Exit{Code: 2, Message: "jobs: the client's limits are not positive"}
 		case http.InvalidClient as e:
 			l.Close()
 			return os.Exit{Code: 1, Message: "jobs: no client for " + e.Origin + ": " + e.Reason}
