@@ -698,6 +698,56 @@
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     },
     {
+      "name": "lower-control-tail-does-not-yield",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-1 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "row.first = try controlBlock(st, p, iff.Body, tail, loops)",
+      "to": "row.first = try controlBlock(st, p, iff.Body, false, loops)",
+      "rule": "A tail if yields from its then arm, not only from its else arm (ControlTail).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-control-return-operand-position",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-1 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "row.offset = syntax.TokPos(parsed, r.Return)",
+      "to": "match dense.Unpack(row.x) {\n\t\tcase Some{Value: x}:\n\t\t\trow.offset = syntax.NodePos(parsed, x)\n\t\tcase None:\n\t\t}",
+      "rule": "An explicit return keeps the return token's position even when the value starts later (ControlReturn).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-control-shadow-reuses-name",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-1 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "p.locals = p.locals.Append(controlLocal{name: name,",
+      "to": "p.locals = p.locals.Append(controlLocal{name: base,",
+      "rule": "A shadow has a distinct Go local name even when its source name is already in use (ControlShadow).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-control-range-end-is-start",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-1 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "ir.List(b, loop), ir.PosAt(b, pos(st, s.end)), 0})\n\t\tcase CBreak:",
+      "to": "ir.List(b, loop), ir.PosAt(b, at), 0})\n\t\tcase CBreak:",
+      "rule": "A compact range's scope ends at its closing brace, not its opening for (ControlRange).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-control-continue-as-break",
+      "origin": "wf10/selfhost/S4-PORT CONTROL-1 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "ir.KindCode(ir.TStmt, \"continue\"), at, []uint32{}",
+      "to": "ir.KindCode(ir.TStmt, \"break\"), at, []uint32{0}",
+      "rule": "Continue goes to the back edge, not out of the enclosing loop (ControlWhile).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "lower-float-product-unrounded",
       "origin": "wf10/selfhost/S4-PORT S4c8",
       "file": "compiler/lower/lower.ergo",
