@@ -1,0 +1,4 @@
+type Sized { Size() int }
+type Full { ..Sized, Full() bool }
+
+func Size(xs []int) int implements Full { len(xs) }

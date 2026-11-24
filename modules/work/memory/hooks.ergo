@@ -95,14 +95,14 @@ func Run(h Hooks, hook string, command string, dir string, env []work.Setting) f
 // Runs is every command the recorder ran, in order.
 func Runs(h Hooks) []HookRun { h.runs.Get() }
 
-// Runner is an exec.Runner that ends every command with status 0 and
-// counts the commands it ran.
+// Runner plays the configured install command and counts its runs.
 // It answers work's in-use probe (work.UseScript) of a folder with the
 // reason Use gave it, none by default, and does not count the probe.
-type Runner { ran sync.Ref[[]string], uses sync.Ref[Map[string, string]] } implements exec.Runner
+// It does not run any other program or script.
+type Runner { ran sync.Ref[[]string], uses sync.Ref[Map[string, string]], install sync.Ref[string] } implements exec.Runner
 
-// NewRunner is a Runner that ran nothing.
-func NewRunner() Runner { Runner{ran: sync.NewRef([]string{}), uses: sync.NewRef(Map[string, string]{})} }
+// NewRunner starts with no install command registered.
+func NewRunner() Runner { Runner{ran: sync.NewRef([]string{}), uses: sync.NewRef(Map[string, string]{}), install: sync.NewRef("")} }
 
 // Use makes the probe of the folder root answer why (in use for
 // any window; "" for not in use).
@@ -115,40 +115,33 @@ func Use(r Runner, root string, why string) {
 	r.uses.Set(uses)
 }
 
-// StatesItsStatus reports whether c is a shell script whose last line
-// is its own exit status (sh -c "…\nexit N"), the program
-// exec.ShellCommand writes. A fake that answers every command one way
-// does not model such a script, so it answers exec.NotFound, as
-// exec.Script does for a command it was not given: never a status the
-// script did not state.
-func StatesItsStatus(c exec.Command) bool {
-	if c.Name != "sh" || len(c.Args) != 2 || c.Args[0] != "-c" {
-		return false
+// shellScript is the script in Work's two-argument shell invocation, or
+// empty for an invocation the in-process shell fakes do not model.
+func shellScript(c exec.Command) string {
+	if c.Name == "sh" && len(c.Args) == 2 && c.Args[0] == "-c" {
+		return c.Args[1]
 	}
-	let lines = strings.Split(c.Args[1], "\n")
-	strings.HasPrefix(lines[len(lines)-1], "exit ")
+	""
 }
 
 // Env is empty: the fake runs nothing (exec.Runner.Env).
 func Env(_ Runner) Map[string, string] { Map[string, string]{} }
 
 func Run(r Runner, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
-	if StatesItsStatus(c) {
-		return exec.NotFound{Name: c.Name}
-	}
-	if c.Name == "sh" && len(c.Args) >= 4 && c.Args[2] == work.UseProbe {
+	if c.Name == "sh" && len(c.Args) == 6 && c.Args[0] == "-c" && c.Args[1] == work.UseScript && c.Args[2] == work.UseProbe {
 		return exec.Result{Status: 0, Stdout: maps.GetOr(r.uses.Get(), c.Args[3], ""), Stderr: ""}
+	}
+	let install = r.install.Get()
+	if install == "" || shellScript(c) != install {
+		return exec.NotFound{Name: c.Name}
 	}
 	r.ran.Set(r.ran.Get().Append(exec.Key(c)))
 	exec.Result{Status: 0, Stdout: "", Stderr: ""}
 }
 
 func Start(r Runner, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
-	if StatesItsStatus(c) {
-		return exec.NotFound{Name: c.Name}
-	}
-	r.ran.Set(r.ran.Get().Append(exec.Key(c)))
-	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): exec.Result{Status: 0, Stdout: "", Stderr: ""}}}.Start(c, s)
+	let result = try r.Run(c)
+	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): result}}.Start(c, s)
 }
 
 // Ran is every command the Runner ran, in order.
@@ -281,6 +274,7 @@ law UnallowedConfigRunsNothing(n int) {
 	case _:
 		return false
 	}
+	w.runner.install.Set(want.Install)
 	let _ = w.tool.Deps(work.DepsOptions{Name: Some[string]{Value: "a"}}) catch {
 	case _:
 		return false

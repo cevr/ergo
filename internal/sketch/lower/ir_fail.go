@@ -432,6 +432,13 @@ func (b *irBuilder) catch(x *syntax.CatchExpr, partial bool) ([]*irStmt, *irExpr
 	if m == nil || m.Partial != partial {
 		irNo("catch without its Matches entry")
 	}
+	if b.fc.readCopy != nil {
+		if x, ok := unparen(x.X).(*syntax.CallExpr); ok {
+			if c := b.l.info.Calls[x]; c != nil && !failsHere(c) {
+				return b.call(x, m.Result == nil)
+			}
+		}
+	}
 	// The caught value: a fallible call, or a match whose arms' tails
 	// fail (bindMatch).
 	call := b.fallibleCall(x.X)

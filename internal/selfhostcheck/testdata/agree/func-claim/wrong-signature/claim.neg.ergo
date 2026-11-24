@@ -1,0 +1,3 @@
+type Sized { Size() int }
+
+func Size(xs []string) bool implements Sized { len(xs) != 0 }

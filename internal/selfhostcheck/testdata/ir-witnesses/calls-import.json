@@ -1,0 +1,5 @@
+[
+  {"fixture": "port_calls_import/reader/reader.ergo", "declaration": "func PortCallImported(", "symbol": "PortCallImported"},
+  {"fixture": "port_calls_import/reader/reader.ergo", "declaration": "func PortCallImportedCycle(", "symbol": "PortCallImportedCycle"},
+  {"fixture": "port_calls_import/reader/reader.ergo", "declaration": "func PortCallImportedEdge(", "symbol": "PortCallImportedEdge"}
+]

@@ -1,0 +1,17 @@
+func Length(s string) int { len(s) + 1 }
+
+func CycleLeft(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	CycleRight(n - 1)
+}
+
+func CycleRight(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	CycleLeft(n - 1)
+}
+
+func Small(s string) int { Length(s) }

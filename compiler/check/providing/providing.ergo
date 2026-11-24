@@ -418,9 +418,33 @@ func sameSelf(s store.Store, a dense.ID[store.TKey], va Option[side], b dense.ID
 // held is whether the row element e (side ve) is among es (side vs).
 func held(s store.Store, e dense.ID[store.TKey], ve Option[side], es []dense.ID[store.TKey], vs Option[side]) bool {
 	for x in es {
+		if store.KindOfType(s, x) == store.KParam {
+			let arg = resolveParam(s, vs, x)
+			if arg.Kind == slotType && store.KindOfType(s, arg.T) == store.KRow {
+				if held(s, e, ve, store.OperandsOf(s, arg.T), None) {
+					return true
+				}
+				continue
+			}
+		}
 		if same(s, e, ve, x, vs) {
 			return true
 		}
+	}
+	false
+}
+
+// hasFailure is the ABI of a method's failure row at the claim. A row
+// slot bound to the empty row contributes nothing; an open slot does.
+func hasFailure(s store.Store, es []dense.ID[store.TKey], v Option[side]) bool {
+	for e in es {
+		if store.KindOfType(s, e) == store.KParam {
+			let arg = resolveParam(s, v, e)
+			if arg.Kind == slotType && store.KindOfType(s, arg.T) == store.KRow && len(store.OperandsOf(s, arg.T)) == 0 {
+				continue
+			}
+		}
+		return true
 	}
 	false
 }
@@ -597,6 +621,9 @@ func whyNot(s store.Store, k expr.Pkg, d typeDecl, op types.Role, args []dense.I
 		}
 		if len(more) > 0 && !builtHeld(s, k, more) {
 			return "\(v).\(mem.Name) requires \(setText(s, fnm, more)), which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)"
+		}
+		if hasFailure(s, ge, fv) != hasFailure(s, we, wv) {
+			return "\(v).\(mem.Name) differs in fallibility from the interface's method"
 		}
 	}
 	""
@@ -1223,6 +1250,9 @@ func Check(s store.Store, k expr.Pkg) []diag.Diag {
 	}
 	let mut pool = s
 	let mut out = clauses(&pool, k, decls, order)
+	for issue in k.FunctionClaimIssues {
+		out = out.Append(at(k, issue.File, issue.At, issue.Code, issue.Message))
+	}
 	for g in entries(k, decls) {
 		out = out.Append(g)
 	}

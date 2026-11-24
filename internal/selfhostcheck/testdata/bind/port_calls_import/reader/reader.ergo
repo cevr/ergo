@@ -1,0 +1,17 @@
+import portcallsdemo/producer
+
+func PortCallImported(s string) int { producer.Length(s) }
+
+func PortCallImportedCycle(n int) int { producer.CycleLeft(n) }
+
+func PortCallImportedInline(s string) int { producer.Small(s) }
+
+func throughImported(s string) int {
+	let mut n = 0
+	for n < len(s) {
+		n = n + producer.Small(s)
+	}
+	n
+}
+
+func PortCallImportedEdge(s string) int { throughImported(s) }

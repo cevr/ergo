@@ -62,7 +62,9 @@ func Columns(p Parsed) []uint32 {
 // parse's text (dump.Failure) carries its fix as lines after the error's
 // line, `fix exact|suggested offset length "text"` (VET-CHECK-VAR). 6: a test
 // row's body (word 3) is optional, so it holds the body's id + 1: the
-// harness member `test H` of an operation type is a test row with none. A
+// harness member `test H` of an operation type is a test row with none.
+// 7: a function declaration ends its fixed row with the optional
+// implements token and contract type. A
 // change of the layout is bootstrapped (go run ./scripts/linked
 // -bootstrap): the host reads this layout and the one before it.
-let ColumnsVersion = uint32(6)
+let ColumnsVersion = uint32(7)

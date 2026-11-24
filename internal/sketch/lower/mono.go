@@ -108,6 +108,9 @@ func (l *lowerer) monoCandidate(f *check.Func) bool {
 			generic = true
 		}
 	}
+	if len(opABIBindings(f.Sig)) != 0 {
+		return true
+	}
 	// A Slot or held row is a Go type parameter (rowslot.go) that the
 	// copy would erase: Bad[F] would be Bad[error] in the copy and
 	// Bad[E0] at its caller. The function stays stenciled, as the
@@ -169,14 +172,11 @@ func (fc *funcCtx) monoAt(x *syntax.CallExpr, c *check.Call, f *check.Func, args
 		if c.Kind != check.CallFunc || c.Func != f || c.Site != nil || c.StartsTask {
 			return nil
 		}
-		if fc.l.vals != nil && fc.l.vals.ownCall[x] {
+		if fc.l.vals != nil && fc.l.vals.ownCall[x] && !opABICopy(f.Sig, args) {
 			return nil // the owned body (values.go, V5)
 		}
 	}
-	if !fc.l.monoTaken() {
-		return nil
-	}
-	sp := fc.monoFor(f, args)
+	sp := fc.monoForAt(f, args, !copiesOnly(f) && !fc.l.monoTaken())
 	if sp != nil && x != nil {
 		fc.monoWitnesses(sp, fc.l.info.Instances[x])
 	}
@@ -202,6 +202,9 @@ func (fc *funcCtx) monoWitnesses(sp *specCopy, inst *check.Instance) {
 	}
 	wits := map[*check.TypeParam]*check.Witness{}
 	for _, tp := range params {
+		if sp.claims[tp] {
+			continue
+		}
 		if isWireParam(tp) {
 			return
 		}
@@ -285,6 +288,10 @@ func (fc *funcCtx) monoWitness(w *check.Witness) *check.Witness {
 // f's type-parameter order), or nil when f has none or an argument names a
 // type parameter that is no Go type here.
 func (fc *funcCtx) monoFor(f *check.Func, args []check.Type) *specCopy {
+	return fc.monoForAt(f, args, false)
+}
+
+func (fc *funcCtx) monoForAt(f *check.Func, args []check.Type, requiredOnly bool) *specCopy {
 	l := fc.l
 	base, ok := l.pkgNames[monoBase(f)]
 	if !ok {
@@ -297,29 +304,43 @@ func (fc *funcCtx) monoFor(f *check.Func, args []check.Type) *specCopy {
 	typeArgs := map[*check.TypeParam]string{}
 	bound := map[*check.TypeParam]check.Type{}
 	var spelled []string
+	abiCopy := opABICopy(f.Sig, args)
+	if !abiCopy && l.hasGoRow(f.Sig) {
+		return nil
+	}
 	for i, tp := range f.Sig.TParams {
-		if tp.Kind != check.KindType {
-			continue
-		}
 		if i >= len(args) {
 			return nil
 		}
-		if mentionsTypeParam(args[i]) && !fc.mono {
+		if tp.Kind != check.KindType && !abiCopy {
+			continue
+		}
+		arg := fc.boundType(args[i])
+		if (mentionsTypeParam(arg) || abiCopy && openRowArg(arg)) && !fc.mono {
 			return nil
 		}
-		g := fc.goType(args[i])
-		typeArgs[tp] = g
-		spelled = append(spelled, g)
-		if t := fc.boundType(args[i]); !mentionsTypeParam(t) {
-			bound[tp] = t
+		if tp.Kind == check.KindType {
+			g := fc.goType(arg)
+			typeArgs[tp] = g
+			spelled = append(spelled, g)
+		} else {
+			spelled = append(spelled, l.semanticTypeKey(arg))
+		}
+		if !mentionsTypeParam(arg) {
+			bound[tp] = arg
 		}
 	}
 	if len(spelled) == 0 {
 		return nil
 	}
+	claims := check.FunctionClaimParams(f, bound)
+	if requiredOnly && !abiCopy && len(claims) == 0 {
+		return nil
+	}
 	sp, made := l.monoCopy(monoFunc{f}, base, spelled, f.Decl.Name)
 	if made {
-		sp.f, sp.fd, sp.typeArgs, sp.bound = f, fd, typeArgs, bound
+		sp.f, sp.fd, sp.typeArgs, sp.bound, sp.claims = f, fd, typeArgs, bound, claims
+		sp.opsABI = abiCopy
 		l.pending = append(l.pending, func() { l.emitBody(fd, false, sp, false) })
 	}
 	return sp

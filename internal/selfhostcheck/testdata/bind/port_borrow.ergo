@@ -1,0 +1,6 @@
+type Counter { N int }
+type CounterHolder { Inner Counter }
+
+func Inc(c mut Counter) { c.N += 1 }
+
+func BorrowedIncrement(h mut CounterHolder) { h.Inner.Inc() }
