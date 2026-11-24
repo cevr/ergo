@@ -248,8 +248,8 @@ type Signature struct {
 	NBracket int
 	Params   []*Var
 	Results  []Type
-	// Fallible is true when the signature writes an error row; it decides
-	// method-row compatibility (types.md, Interface assignability 1).
+	// Fallible records an explicit failure contract. Substituting its row
+	// to empty makes the instance infallible (Interface assignability 1).
 	Fallible bool
 	Errors   *Row
 	Uses     *Row

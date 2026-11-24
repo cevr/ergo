@@ -219,6 +219,9 @@ func (c *checker) substWith(t Type, m map[*TypeParam]Type, self selfReader) Type
 		}
 		s.Errors = row(t.Errors)
 		s.Uses = row(t.Uses)
+		if !t.Errors.Empty() && s.Errors.Empty() {
+			s.Fallible = false
+		}
 		// Type parameters that stay unbound remain the signature's own.
 		for _, tp := range t.TParams {
 			if _, bound := m[tp]; !bound {

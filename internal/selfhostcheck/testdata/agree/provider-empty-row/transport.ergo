@@ -1,0 +1,46 @@
+type Transport[C wire, O wire, F] {
+	Carry(c C, answer own func(c C) O) O fails F,
+}
+
+type echo {} implements Transport[string, int]
+
+func Carry(t echo, c string, answer own func(c string) int) int { answer(c) }
+
+func Width(t Transport[string, int], c string) int {
+	t.Carry(c, width)
+}
+
+func EchoWidth(c string) int { Width(echo, c) }
+
+func DirectWidth(c string) int { echo.Carry(c, width) }
+
+func width(c string) int { len(c) }
+
+type Lost {}
+type dropping {} implements Transport[string, int, Lost]
+
+func Carry(t dropping, c string, answer own func(c string) int) int fails Lost {
+	if len(c) > 0 {
+		return answer(c)
+	}
+	Lost
+}
+
+func WidthOrLost(t Transport[string, int, Lost], c string) int fails Lost {
+	try t.Carry(c, width)
+}
+
+test TransportCarriesItsInstanceRow {
+	assert DirectWidth("abc") == 3
+	assert EchoWidth("abcd") == 4
+	let carried = WidthOrLost(dropping, "abcde") catch {
+	case Lost:
+		-1
+	}
+	let refused = WidthOrLost(dropping, "") catch {
+	case Lost:
+		-1
+	}
+	assert carried == 5
+	assert refused == -1
+}

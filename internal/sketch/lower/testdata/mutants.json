@@ -1,10 +1,12 @@
 {
   "about": "The mutant ledger of internal/sketch/lower: edits of the package's source that some test, law or example must kill. Run it with go run ./scripts/mutants lower; docs/tooling.md, \"Mutant ledger\", says when a change must run it and how to add a mutant. Seeded from the test-speed plan (wf10, 2026-11-08) and the units' verify mutants.",
   "commands": {
+    "native-provider-empty-row": ["go", "run", "./cmd/ergo", "test", "./internal/selfhostcheck/testdata/agree/provider-empty-row", "--native", "--seed", "1"],
     "native-prelude": ["go", "run", "./cmd/ergo", "test", "std:prelude"],
     "native-prelude-string-hash": ["go", "run", "./cmd/ergo", "test", "std:prelude", "--law", "StructuralStringKeysHashEqual"]
   },
   "mutants": [
+    {"name":"nou-row-narrow-dynamic","origin":"wf10 NOU-PROVIDER-ROWS","file":"internal/sketch/lower/ir_call.go","from":"if !failsHere(c) && erasedOpFallible(t, c.Op) {","to":"if !failsHere(c) && len(rowElems(c.Op.Sig.Errors)) != 0 {","rule":"The explicitly erased Go method's nil error is dropped without a test only when the checked call row is empty.","killers":["command:native-provider-empty-row"],"gap":"not-run-crunch"},
     {"name":"claim-context-capture-unreserved","origin":"wf10 CLAIM-LAWS","file":"internal/sketch/lower/decls.go","from":"if lc.Context == w && lc.Claim != nil {","to":"if false {","rule":"A law under a context names the builder that returns its actual raw claimant, not the context's ordinary builder.","killers":["internal/sketchfront:TestClaimLaws"],"gap":"not-run-crunch"},
     {"name":"claim-rewrite-rejects-dot","origin":"wf10 CLAIM-LAWS","file":"internal/sketch/lower/ir_fusion.go","from":"if len(pa) != len(sa) {","to":"if len(pa) != len(sa) || scall.Recv != nil {","rule":"Dot and ordinary spellings match the same checked claimant equation.","killers":["internal/sketchfront:TestClaimLaws"],"gap":"not-run-crunch"},
     {"name":"split-moves-deferred-release-to-foreign-package","origin":"wf10 IR-OWNED-PARAMETER-SLOT (not-run-crunch)","file":"internal/sketch/lower/pkgsplit.go","from":"releases[fn.release] = owner","to":"_ = owner","rule":"A deferred release stays in its owner's Go package so no forwarding function changes the identity of recover or qualifies the generic defer.","killers":["internal/sketch/lower:TestIRSplitKeepsDeferredReleaseLocal"]},

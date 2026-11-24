@@ -430,7 +430,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// A capability's operation takes the running task first (rows.md,
 		// Rows 7).
 		vals = append([]string{taskOf(env)}, vals...)
-		return env + "." + fc.l.envField(cap) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, len(rowElems(c.Op.Sig.Errors)) > 0
+		return env + "." + fc.l.envField(cap) + "." + memberName(c.Op.Name) + "(" + strings.Join(vals, ", ") + ")", len(c.Op.Sig.Results) > 0, erasedOpFallible(cap, c.Op)
 	case check.CallFuncValue:
 		// A value of a declared function type (Seq[T]) calls through its
 		// underlying signature.

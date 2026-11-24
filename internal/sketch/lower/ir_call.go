@@ -94,10 +94,10 @@ func (b *irBuilder) dropErr(e *irExpr) *irExpr {
 	return e
 }
 
-// opResult is e, the call of c's operation: an operation declared with
-// failures returns an error, which a site whose row is empty drops.
-func (b *irBuilder) opResult(c *check.Call, e *irExpr) *irExpr {
-	if len(rowElems(c.Op.Sig.Errors)) > 0 && !failsHere(c) {
+// opResult is e, the call of c's erased operation: its Go ABI can return
+// a nil error even when the checked row of this call is empty.
+func (b *irBuilder) opResult(t check.Type, c *check.Call, e *irExpr) *irExpr {
+	if !failsHere(c) && erasedOpFallible(t, c.Op) {
 		return b.dropErr(e)
 	}
 	return e
@@ -478,10 +478,10 @@ func (b *irBuilder) providerCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]
 		// A law of a generic operation type calls the provider it
 		// takes, as a call on a value of the type does (calls.go).
 		own := &irExpr{K: "local", Pos: p, I: b.lawOwn}
-		return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: own, Args: args}), true
+		return pre, b.opResult(named, c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: own, Args: args}), true
 	}
 	capField := b.knownOp(x, named, &irExpr{K: "field", Pos: p, Name: b.l.envField(named), X: env}) // ir_forms_op.go
-	return pre, b.opResult(c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
+	return pre, b.opResult(named, c, &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: capField, Args: args}), true
 }
 
 func (b *irBuilder) funcValueCall(x *syntax.CallExpr, c *check.Call, p irPos) ([]*irStmt, *irExpr, bool) {

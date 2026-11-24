@@ -468,7 +468,42 @@ func (fc *funcCtx) programOpCall(t check.Type, op *check.Method, vals []string, 
 		ice(site, "the std operation %s.%s reached through %s, which the checker refuses", n.Obj.Name, op.Name, t)
 	}
 	rest := append([]string{taskOf(env)}, vals[1:]...)
-	return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(rest, ", ") + ")", len(op.Sig.Results) > 0, len(rowElems(op.Sig.Errors)) > 0
+	return "(" + vals[0] + ")." + memberName(op.Name) + "(" + strings.Join(rest, ", ") + ")", len(op.Sig.Results) > 0, erasedOpFallible(t, op)
+}
+
+// erasedOpFallible reports the Go ABI of an operation value, not the
+// call's checked failure row. All instances share the declaration's Go
+// interface: a slot that is empty at the call can still return a nil error.
+// A direct provider call does not cross this erased boundary.
+func erasedOpFallible(t check.Type, op *check.Method) bool {
+	if len(rowElems(op.Sig.Errors)) != 0 {
+		return true
+	}
+	for {
+		n, ok := t.(*check.Named)
+		if !ok {
+			return false
+		}
+		if n.Orig != nil {
+			n = n.Orig
+		}
+		if a := n.Alias(); a != nil {
+			t = a
+			continue
+		}
+		if d := n.Defined(); d != nil {
+			t = d
+			continue
+		}
+		if it, ok := n.Underlying().(*check.Interface); ok {
+			for _, method := range it.Methods {
+				if method.Name == op.Name {
+					return len(rowElems(method.Sig.Errors)) != 0
+				}
+			}
+		}
+		return false
+	}
 }
 
 // defersCall reports a std body whose result defers its call: Go's
