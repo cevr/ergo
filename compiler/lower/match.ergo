@@ -3,6 +3,7 @@ import compiler/check/store
 import compiler/ir
 import compiler/syntax
 import dense
+import slices
 import strconv
 
 // The ordered arms live next to CONTROL's flat statement spans. An arm
@@ -38,6 +39,7 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 	let start = syntax.TokPos(st.p, m.Switch)
 	let subject = try matchTemp(*st, p, shape.typ, start)
 	let mut s = row
+	s.op = CMatch
 	s.offset = start
 	s.end = syntax.TokPos(st.p, m.Rbrace)
 	s.slot = subject
@@ -49,8 +51,9 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 	p.extended = true
 	p.reads = p.reads.Append(src)
 	s.readHi = len(p.reads)
-	let mut arms = []matchArm{}
-	let mut seen = []bool{}
+	let mut arms = slices.WithCapacity[matchArm](syntax.Len(m.Clauses))
+	let mut tags = slices.WithCapacity[int](len(shape.variants))
+	let mut seen = slices.WithCapacity[bool](len(shape.variants))
 	for _ in shape.variants {
 		seen = seen.Append(false)
 	}
@@ -64,6 +67,7 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 			return stop("match: case after wildcard")
 		}
 		fallback = count == 0
+		let tagsStart = len(tags)
 		let mut a = matchArm{at: at, tags: []int{}, binding: -1, variant: "", payload: false, span: controlEmpty(len(p.stmts))}
 		for j in 0..count {
 			let item = syntax.Item(st.p.Tree, clause.List, j)
@@ -83,7 +87,7 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 				return stop("match: foreign or repeated case")
 			}
 			seen[tag] = true
-			a.tags = a.tags.Append(tag)
+			tags = tags.Append(tag)
 			match dense.Unpack(name) {
 			case Some{Value: binder}:
 				let v = shape.variants[tag]
@@ -95,6 +99,7 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 			case None:
 			}
 		}
+		a.tags = tags[tagsStart:len(tags)]
 		for j in 0..syntax.Len(clause.Body) {
 			if !matchArmSupported(st.p, syntax.Item(st.p.Tree, clause.Body, j)) {
 				return stop("match: loop or break in case")
