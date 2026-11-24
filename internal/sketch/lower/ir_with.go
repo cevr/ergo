@@ -417,14 +417,18 @@ func (b *irBuilder) acquire(a *check.Acquisition, ptr, src, outer, ws int, p irP
 	end := p
 	release := &irExpr{K: "zero", Pos: p, T: "func()"}
 	if a.Releases() {
+		// The release is closeCall's on a slot that points at the copy,
+		// read as the copy itself (onValue): the literal captures the
+		// value, as the emitter's providerRelease does, and takes its
+		// address only for a Close that takes a pointer.
 		t := b.l.info.Types[a.Entry.Provider]
-		pv := b.temp("pv", "*"+b.goType(t, a.Entry.Provider), p)
-		call, ok := b.closeCall(irSlot{t: t, d: &check.Drop{Type: t, Close: a.Close}, site: a.Entry.Provider}, outer, pv, p) // ir_own.go
+		// slot is no local: onValue replaces each read of it.
+		const slot = -2
+		call, ok := b.closeCall(irSlot{t: t, d: &check.Drop{Type: t, Close: a.Close}, site: a.Entry.Provider}, outer, slot, p) // ir_own.go
 		if !ok {
 			irNo("with that releases a provider by a Close the IR does not call")
 		}
-		body = append(body, &irStmt{K: "def", Pos: p, Local: pv, X: b.addrOf(val, p)})
-		release = &irExpr{K: "func", Pos: p, T: "func()", End: &end, Body: []*irStmt{{K: "expr", Pos: p, X: call}}}
+		release = &irExpr{K: "func", Pos: p, T: "func()", End: &end, Body: []*irStmt{{K: "expr", Pos: p, X: onValue(call, slot, val)}}}
 	}
 	body = append(body, &irStmt{K: "ret", Pos: p, X: release})
 	open := &irExpr{K: "func", Pos: p, T: "func() (func(), error)", End: &end, Body: body}
@@ -441,6 +445,46 @@ func (b *irBuilder) acquire(a *check.Acquisition, ptr, src, outer, ws int, p irP
 			b.formed(&irStmt{K: k, Pos: p, X: &irExpr{K: "local", Pos: p, I: e}}, "fail:error"),
 		}},
 	}
+}
+
+// onValue is x with the pointer local slot replaced by the local val it
+// points at: *slot is val, slot is &val.
+func onValue(x *irExpr, slot, val int) *irExpr {
+	if x == nil {
+		return nil
+	}
+	if x.K == "deref" && x.X != nil && x.X.K == "local" && x.X.I == slot {
+		return &irExpr{K: "local", Pos: x.Pos, I: val}
+	}
+	if x.K == "local" && x.I == slot {
+		return &irExpr{K: "addr", Pos: x.Pos, X: &irExpr{K: "local", Pos: x.Pos, I: val}}
+	}
+	y := *x
+	y.X, y.Y = onValue(x.X, slot, val), onValue(x.Y, slot, val)
+	y.Args, y.Elems = onValues(x.Args, slot, val), onValues(x.Elems, slot, val)
+	if x.Body != nil {
+		y.Body = make([]*irStmt, len(x.Body))
+		for i, st := range x.Body {
+			c := *st
+			c.X, c.Y = onValue(st.X, slot, val), onValue(st.Y, slot, val)
+			if st.Then != nil || st.Else != nil || st.Body != nil {
+				irNo("with that releases a provider by a Close the IR does not call")
+			}
+			y.Body[i] = &c
+		}
+	}
+	return &y
+}
+
+func onValues(xs []*irExpr, slot, val int) []*irExpr {
+	if xs == nil {
+		return nil
+	}
+	out := make([]*irExpr, len(xs))
+	for i, x := range xs {
+		out[i] = onValue(x, slot, val)
+	}
+	return out
 }
 
 // leavesFrame reports an expression that can leave the function it is
