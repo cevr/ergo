@@ -392,22 +392,13 @@ func registerProcess(t nativeTables) {
 	hostNative(t, "os.hostGetenv", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return h.env[args[0].(string)], nil
 	})
-	t.reads["os.hostEnviron"] = "string"
-	hostNative(t, "os.hostEnviron", func(in *interp, h *host, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-		prefix := args[0].(string)
-		// Sorted by name: "A0=x" sorts before "A=y", but A before A0.
-		var names []string
-		for k := range h.env {
-			if strings.HasPrefix(k, prefix) {
-				names = append(names, k)
-			}
+	t.reads["os.hostEnviron"] = ""
+	hostNative(t, "os.hostEnviron", func(_ *interp, h *host, _ *frame, _ syntax.Node, _ *check.Func, _ []Value) (Value, *abrupt) {
+		env := newMap()
+		for name, value := range h.env {
+			env.b.m[name] = value
 		}
-		sort.Strings(names)
-		out := make([]string, len(names))
-		for i, k := range names {
-			out[i] = k + "=" + h.env[k]
-		}
-		return stringSlice(out), nil
+		return env, nil
 	})
 	// The terminal: the simulated process's standard input is no
 	// terminal, so a mode or a size fails NotTerminal, and there is no
