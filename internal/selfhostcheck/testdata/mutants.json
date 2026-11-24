@@ -658,6 +658,46 @@
       ]
     },
     {
+      "name": "lower-call-builtin-is-not-go-leaf",
+      "origin": "wf10/selfhost/S4-PORT CALLS (not-run-crunch)",
+      "file": "compiler/lower/inline.ergo",
+      "from": "if body.edges > 0 && !body.loop && !recursive && body.sizeFloor <= 120 {",
+      "to": "if !body.loop && !recursive && body.sizeFloor <= 120 {",
+      "rule": "A body calling only checked builtins is still a Go leaf; PortCallBuiltin must be emitted.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-call-loop-needs-inline-decision",
+      "origin": "wf10/selfhost/S4-PORT CALLS (not-run-crunch)",
+      "file": "compiler/lower/inline.ergo",
+      "from": "if body.edges > 0 && !body.loop && !recursive && body.sizeFloor <= 120 {",
+      "to": "if body.edges > 0 && !recursive && body.sizeFloor <= 120 {",
+      "rule": "The oracle does not mark a looping callee for inlining; PortCallOrdered must be emitted.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-call-ignores-transitive-backedge",
+      "origin": "wf10/selfhost/S4-PORT CALLS (not-run-crunch)",
+      "file": "compiler/lower/calls.ergo",
+      "from": "graph.recursive = graph.recursive || next == graph.start",
+      "to": "graph.recursive = false",
+      "rule": "A back-edge from any reached callee to the starting declaration proves recursion; PortCallCycle must be emitted.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-call-reverses-new-pure-operands",
+      "origin": "wf10/selfhost/S4-PORT CALLS (not-run-crunch)",
+      "file": "compiler/lower/lower.ergo",
+      "from": "args = args.Append(syntax.Item(p.Tree, ce.Args, j))",
+      "to": "args = args.Append(syntax.Item(p.Tree, ce.Args, if nonleaf { n - 1 - j } else { j }))",
+      "rule": "Ordinary calls evaluate explicit operands in written order even when they may raise a defect (PortCallOrdered).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "lower-call-name-bare",
       "origin": "wf10/selfhost/S4c7",
       "file": "compiler/lower/lower.ergo",
