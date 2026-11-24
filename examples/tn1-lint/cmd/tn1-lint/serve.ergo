@@ -1,19 +1,10 @@
-// serve keeps one tn1-lint process for a whole lint run: a caller (the
-// package's JS wrapper, reached from an oxlint rule) writes one request
-// per line and reads one reply per line, so N files cost one process
-// start and one parse of each weights file, not N of each.
-
 import ergo.dev/tn1
 import fs
 import io
 import json
 
-// A Request is one line of serve's input: lint text, named path, with
-// the network in the weights file, reporting as rule.
 type Request { Rule string "rule", Weights string "weights", Path string "path", Text string "text" }
 
-// A Reply is one line of serve's output: the request's diagnostics, the
-// ones `lint` prints for the same text, or an error and none.
 type Reply { Diagnostics []Diagnostic "diagnostics", Error string "error" }
 
 func requestCodec() json.Codec[Request] { json.Codec[Request]{MaxBytes: 0, MaxDepth: 0} }
@@ -22,10 +13,8 @@ func replyCodec() json.Codec[Reply] { json.Codec[Reply]{MaxBytes: 0, MaxDepth: 0
 
 func failed(reason string) Reply { Reply{Diagnostics: []Diagnostic{}, Error: reason} }
 
-// LoadFailed is a weights file that cannot be read or parsed.
 type LoadFailed { Reason string }
 
-// loadNet is the network in the weights file at path.
 func loadNet(path string) tn1.Net fails LoadFailed needs fs.Files {
 	let text = fs.Files.ReadFile(path) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
@@ -37,9 +26,6 @@ func loadNet(path string) tn1.Net fails LoadFailed needs fs.Files {
 	}
 }
 
-// Answer replies to each line of the standard input until it ends. A
-// weights file is read once, the first time a request names it; one
-// that fails is read again by the next request that names it.
 func Answer() needs fs.Files | io.Stdin | io.Stdout {
 	let mut nets = Map[string, tn1.Net]{}
 	for line in io.Stdin.Lines() {
@@ -52,6 +38,10 @@ func Answer() needs fs.Files | io.Stdin | io.Stdout {
 			continue
 		case WireMissingField as f:
 			io.Stdout.Println(json.Encode(replyCodec(), failed("tn1-lint: request has no \(f.Field)")))
+			continue
+		}
+		if request.Rule == "no-comments" && request.Weights == "" {
+			io.Stdout.Println(json.Encode(replyCodec(), Reply{Diagnostics: NoCommentFindings(request.Path, request.Text), Error: ""}))
 			continue
 		}
 		match nets.Get(request.Weights) {

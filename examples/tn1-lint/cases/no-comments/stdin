@@ -1,0 +1,19 @@
+#!/usr/bin/env bun
+/** @jsxImportSource react */
+// top prose comment
+/**
+ * JSDoc docstring.
+ * @param name string
+ */
+export function Greeting(name: string) {
+  const value = foo(/* arg */name)
+  // @ts-expect-error keep directive
+  return (
+    <div /* prop comment */ id="greet">
+      {/* jsx comment */}
+      {/* @ts-ignore */}
+      <p>Visit https://example.com /* keep text */ don't</p>
+      <span>{value}</span>
+    </div>
+  ) // trailing comment
+}
