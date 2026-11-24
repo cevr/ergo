@@ -1,9 +1,3 @@
-# Skip lines `ergo test` prints for this program's packages (fs4).
-# web.OpenMeteo holds an http.Network, and a law generator must not forge a
-# network. web/tests.ergo's property ContractHoldsOverTheFixture runs both
-# Forecast laws against OpenMeteo over an http.InMemoryNetwork instead.
-skip law weather.Forecast.ReportIsForTheZip for OpenMeteo: OpenMeteo is built only by its constructor NewOpenMeteo, which takes a value a case cannot draw; a value drawn from its fields may be one NewOpenMeteo refuses
-skip law weather.Forecast.NotFoundNamesTheZip for OpenMeteo: OpenMeteo is built only by its constructor NewOpenMeteo, which takes a value a case cannot draw; a value drawn from its fields may be one NewOpenMeteo refuses
 # memory.Slow holds the wait main gives it (a sleep on the script's
 # clock), and a generated clock never moves; its Fetch is Stations' after
 # the wait, and the laws run for Stations.

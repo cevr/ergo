@@ -1089,7 +1089,7 @@ func (c *checker) resolveNamed(n *Named) {
 		} else if len(spec.Union) > 0 {
 			n.under = c.unionType(n, spec, ctx)
 		} else {
-			it := c.interfaceType(spec, ctx, d.Name.Name)
+			it := c.interfaceType(spec, ctx, d.Name.Name, n)
 			it.obj = n.Obj
 			n.under = it
 		}
@@ -1252,10 +1252,12 @@ func (c *checker) opTypeParams(ft *syntax.FuncType, ctx *typeCtx, owner string) 
 // interfaceType resolves an operation type. Its laws are not part of the
 // type (Law): collect records them with the declaration that holds them,
 // the only place the decided parser builds an operation type (typExpr).
-func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner string) *Interface {
+func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner string, self *Named) *Interface {
 	it := &Interface{}
 	seen := map[string]bool{}
 	c.interfaceIncludes(spec, ctx, it, seen)
+	it.ConstraintOnly = it.ConstraintOnly || c.lawsMentionSelf(spec, self)
+	var needs []*syntax.FuncType
 	if spec.Terms != nil {
 		if it.Terms != nil {
 			c.errorf(spec.Terms[0], CodeType, "an operation type has one type set, and an included type gives it one already (types.md, Generics 2)")
@@ -1276,11 +1278,14 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			// var A interface{A()} dereferencing it).
 			mctx.params, mctx.decl = ctx.params, ctx.decl
 		}
+		if !mctx.binding {
+			mctx.self, mctx.selfUses, mctx.selfSource = self, &it.selfUses, name.Name
+		}
 		own := c.opTypeParams(ft, mctx, owner+"."+name.Name)
 		sig := c.signature(ft, mctx)
 		if len(own) > 0 {
 			sig.TParams, sig.NBracket = own, len(own)
-			it.Generic = true
+			it.ConstraintOnly = true
 		}
 		if m.Own != nil {
 			sig.TakesSelf = true // own Close(): the operation keeps its receiver
@@ -1294,12 +1299,6 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 		if c.pkg.host == nil {
 			c.closeOpTakes(name.Name, sig)
 		}
-		if ft.Needs != nil && c.pkg.host == nil {
-			// A Go interface's method runs Go code: its binding charges
-			// go.Foreign at the call (docs/spec/interop.md).
-			c.errorf(ft.Needs, CodeType, "an interface method writes no capability row: a provider's requirements are captured when it is built (types.md, Capabilities 4; README Gap 17)")
-			sig.Uses = newRow()
-		}
 		if seen[name.Name] {
 			c.errorf(name, CodeType, "method %s is declared twice", name.Name)
 			continue
@@ -1310,8 +1309,18 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			m.pkg = c.pkg
 		}
 		it.Methods = append(it.Methods, m)
+		needs = append(needs, ft)
 		c.def(name, m)
 		c.defParams(ft, sig)
+	}
+	it.ConstraintOnly = it.ConstraintOnly || len(it.selfUses) != 0
+	if !it.ConstraintOnly && !c.pkg.Host() {
+		for i, ft := range needs {
+			if ft.Needs != nil {
+				c.errorf(ft.Needs, CodeType, "an interface method writes no capability row: a provider's requirements are captured when it is built (types.md, Capabilities 4; README Gap 17)")
+				it.Methods[len(it.Methods)-len(needs)+i].Sig.Uses = newRow()
+			}
+		}
 	}
 	// Sorted once, here, for identity (intern.go shape; round 11 M3).
 	it.byName = slices.Clone(it.Methods)
@@ -1484,16 +1493,19 @@ func (c *checker) unionReaches(from, target *TypeName, seen map[*TypeName]bool) 
 // typeCtx is the context of a type expression: the type parameters in scope
 // and the rules for unbound one-letter names (rows-and-constraints §3).
 type typeCtx struct {
-	params   map[string]*TypeParam // bracket and receiver parameters (196g: every parameter is declared)
-	method   bool                  // a method or interface method: no type parameters of its own (D6)
-	hostRecv string                // a binding method's receiver name, usable in takes
-	decl     bool                  // a type declaration: bracket parameters only
-	field    bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
-	param    bool                  // a parameter or receiver: *T allowed
-	binding  bool                  // a Go binding (a host package or extern go): *T is Go's pointer there
-	textTop  syntax.Expr           // a parameter's whole type: fs.Text allowed there (mappedtext.go)
-	scope    *Scope
-	lit      *litParams // a function literal's signature: its untyped parameters (D-E1)
+	params     map[string]*TypeParam // bracket and receiver parameters (196g: every parameter is declared)
+	method     bool                  // a method or interface method: no type parameters of its own (D6)
+	hostRecv   string                // a binding method's receiver name, usable in takes
+	decl       bool                  // a type declaration: bracket parameters only
+	field      bool                  // a struct field: *T is not a field type (types.md, Borrows 1)
+	param      bool                  // a parameter or receiver: *T allowed
+	binding    bool                  // a Go binding (a host package or extern go): *T is Go's pointer there
+	textTop    syntax.Expr           // a parameter's whole type: fs.Text allowed there (mappedtext.go)
+	scope      *Scope
+	lit        *litParams // a function literal's signature: its untyped parameters (D-E1)
+	self       *Named
+	selfUses   *[]*SelfType
+	selfSource string
 }
 
 // litParams carries a function literal's expected function type into its
@@ -1605,9 +1617,9 @@ func (c *checker) typExpr(x syntax.Expr, ctx *typeCtx) Type {
 		c.errorf(x, CodeType, "%s has a type set, so it is a constraint only and no value has it as its type; write a type parameter: [T %s] (types.md, Generics 2)", t, t)
 		return invalid
 	}
-	if c.inConstraint == 0 && genericOpOnly(t) {
+	if c.inConstraint == 0 && copiesOnly(t) {
 		n := t.(*Named)
-		c.errorf(x, CodeType, "%s has a generic operation, so it is a constraint and has no values; write [M %s] (types.md, Interface assignability, Generic operations)", n.Obj.Name, t)
+		c.noOperationValue(x, n)
 		return invalid
 	}
 	return t
@@ -1622,9 +1634,15 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 	case *syntax.ParenExpr:
 		return c.typExpr0(x.X, ctx)
 	case *syntax.IndexExpr:
+		if id, ok := unparen(x.X).(*syntax.Ident); ok && c.isContextualSelf(id.Name, ctx) {
+			return c.selfType(x, x.Indices, ctx)
+		}
 		base := c.typExpr0(x.X, ctx)
 		if isInvalid(base) {
 			return invalid
+		}
+		if tp, ok := base.(*TypeParam); ok {
+			return c.reappliedType(x, tp, ctx)
 		}
 		n, ok := base.(*Named)
 		if !ok || n.Orig != nil || len(n.TParams) == 0 {
@@ -1757,10 +1775,17 @@ func (c *checker) typExpr0(x syntax.Expr, ctx *typeCtx) Type {
 }
 
 func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
+	if c.isContextualSelf(x.Name, ctx) {
+		return c.selfType(x, nil, ctx)
+	}
 	o := c.lookupType(x.Name, ctx)
 	if o == nil {
 		if x.Name == "any" {
 			c.errorf(x, CodeUnknown, "Ergo has no any; use a type parameter or a union (types.md, Basic types)")
+			return invalid
+		}
+		if x.Name == "Self" {
+			c.errorf(x, CodeUnknown, "unknown type Self; Self names the claiming type, inside an operation type")
 			return invalid
 		}
 		c.errorf(x, CodeUnknown, "unknown type %s", x.Name)

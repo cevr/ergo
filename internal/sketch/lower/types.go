@@ -25,7 +25,8 @@ type typeCtx struct {
 	mono bool
 	// bound is the checked type each type parameter of a copy stands for
 	// (record.go), where it names no type parameter itself.
-	bound map[*check.TypeParam]check.Type
+	bound    map[*check.TypeParam]check.Type
+	readCopy func(check.Type) check.Type
 	// readVia is the reader a codec body reads from: 0 the prelude's
 	// Reader interface, i+1 direct reader i (wirereader.go).
 	readVia int
@@ -34,8 +35,11 @@ type typeCtx struct {
 // boundType is t with a type parameter that bound names replaced by its
 // type; t itself otherwise.
 func (tc *typeCtx) boundType(t check.Type) check.Type {
-	if tp, ok := t.(*check.TypeParam); ok && tc.bound[tp] != nil {
-		return tc.bound[tp]
+	if tc.readCopy != nil {
+		return tc.readCopy(t)
+	}
+	if p, ok := t.(*check.TypeParam); ok && tc.bound[p] != nil {
+		return tc.bound[p]
 	}
 	return t
 }
@@ -128,6 +132,13 @@ func (tc *typeCtx) goType(t check.Type) string {
 			return name
 		}
 		ice(tc.site, "the type parameter %s appears outside its declaration", t.Name)
+	case *check.Reapplied:
+		if n, ok := tc.boundType(t).(*check.Named); ok {
+			return tc.goType(n)
+		}
+		ice(tc.site, "a re-applied type reached lowering outside its copy: %s", t)
+	case *check.SelfType:
+		ice(tc.site, "Self reached lowering before claim substitution")
 	case *check.Tuple:
 		// A tuple is structural (196t): an unnamed Go struct, identical
 		// wherever its element types are, and comparable when they are.

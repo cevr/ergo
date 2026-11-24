@@ -1,0 +1,5 @@
+import selfsupport/role
+
+type Bytes []byte implements role.Mappable[byte]
+
+type NoSize {} implements role.Sized

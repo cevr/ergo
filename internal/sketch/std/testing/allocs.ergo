@@ -35,6 +35,8 @@ type AllocCounter { folder string } implements Allocs
 // `context needs TestAmbient { testing.Allocs: testing.NewAllocCounter() }`.
 func NewAllocCounter() AllocCounter needs TestAmbient { AllocCounter{folder: TestFolder()} }
 
+let measured = context needs TestAmbient { Allocs: NewAllocCounter() }
+
 func PerRun(c AllocCounter, runs int, f func()) int { allocsPerRun(runs, f) }
 
 extern go ergo.local/prototype/runtime/v1.AllocsPerRun func allocsPerRun(runs int, f func()) int
