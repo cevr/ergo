@@ -89,17 +89,49 @@ func (b *irBuilder) copyCall(x *syntax.CallExpr, c *check.Call) string {
 // before it) taken as the adapter's pointer: the operations conversion's
 // literal before its conversion to the interface (opsConv), or the copy's
 // own parameter before provRead's. Else irArgs.
-func (b *irBuilder) provArg(x *syntax.CallExpr, c *check.Call, irArgs []*irExpr, at int) []*irExpr {
+//
+// An argument a later operand's statements spilled (ordered) is a
+// temporary pre defines: it holds the adapter's pointer, as the
+// emitter's spill does (its `:=` takes the pointer's type), and the call
+// passes the temporary.
+func (b *irBuilder) provArg(x *syntax.CallExpr, c *check.Call, irArgs []*irExpr, at int, pre []*irStmt) []*irExpr {
 	sp := b.fc.specAt(x, c)
 	if sp == nil || sp.prov == nil || provCopyIR == "off" {
 		return irArgs
 	}
 	i := at + sp.param
+	if i < len(irArgs) && irArgs[i].K == "local" {
+		if d := spillDef(pre, irArgs[i].I); d != nil && d.X.K == "toiface" {
+			d.X = d.X.X
+			b.retype(d.Local, "*"+b.l.pkgNames[pkgKey{"adapter", sp.prov.key}])
+			return irArgs
+		}
+	}
 	if i >= len(irArgs) || irArgs[i].K != "toiface" {
 		irNo("argument for a known provider's copy")
 	}
 	irArgs[i] = irArgs[i].X
 	return irArgs
+}
+
+// spillDef is the statement of pre that defines the temporary local, or
+// nil.
+func spillDef(pre []*irStmt, local int) *irStmt {
+	for _, s := range pre {
+		if s.K == "def" && s.Local == local && s.X != nil {
+			return s
+		}
+	}
+	return nil
+}
+
+// retype gives b's temporary local i (one a def of the body declares,
+// never a parameter) the Go type typ.
+func (b *irBuilder) retype(i int, typ string) {
+	if j := i - (b.next - len(b.fn.Locals)); j >= 0 && j < len(b.fn.Locals) {
+		b.fn.Locals[j].Type = typ
+		b.setLocalType(i, typ)
+	}
 }
 
 // provRead is the read e of the variable v: when v is the parameter of a
