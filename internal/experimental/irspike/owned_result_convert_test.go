@@ -507,5 +507,77 @@ test CheckDropPatternChoice {
 	assert log.Get() == id
 }
 `, 1+seed%7, 1+seed%7, 1+seed%7)
+	names = append(names, "DropReturned", "DropLentTemp")
+	fmt.Fprintf(&src, `
+func DropReturned(log sync.Ref[int], id int, reject bool, defect bool) (dropPair, int) fails Bad {
+	let guard = dropTicket{id: id, log: log, crash: defect}
+	if guard.log.Get() != 0 { Unreachable("early release") }
+	if reject { return Bad }
+	(dropPair{left: dropTicket{id: id+1, log: log, crash: false}, right: dropTicket{id: id+2, log: log, crash: false}}, id)
+}
+
+func useReturned(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let pair, tag = try DropReturned(log, id, reject, defect)
+	if pair.right.log.Get() != id { Unreachable("returned owner is no longer live") }
+	tag == id
+}
+
+test CheckDropReturned {
+	let id = %d
+	let log = sync.NewRef(0)
+	let used = useReturned(log, id, false, false) catch { case Bad: false }
+	assert used
+	assert log.Get() == 111*id+21
+	log.Set(0)
+	let rejected = useReturned(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == id
+	log.Set(0)
+	let child = task.Go() { try useReturned(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 111*id+21
+}
+
+func lendTemp(pair dropPair, tag int) int {
+	if pair.left.log.Get() != 0 || pair.right.log.Get() != 0 { Unreachable("borrow not live") }
+	tag
+}
+
+func tempTag(id int, reject bool, defect bool) int fails Bad {
+	if defect { Unreachable("later argument defects") }
+	if reject { return Bad }
+	id
+}
+
+func DropLentTemp(log sync.Ref[int], id int, reject bool, defect bool) int fails Bad {
+	let n = lendTemp(dropPair{left: dropTicket{id: id, log: log, crash: false}, right: dropTicket{id: id+1, log: log, crash: false}}, try tempTag(id, reject, defect))
+	if log.Get() != 11*id+10 { Unreachable("statement did not release its borrow") }
+	n
+}
+
+test CheckDropLentTemp {
+	let id = %d
+	let log = sync.NewRef(0)
+	let n = DropLentTemp(log, id, false, false) catch { case Bad: -1 }
+	assert n == id
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let rejected = DropLentTemp(log, id, true, false) catch { case Bad: -1 }
+	assert rejected == -1
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let child = task.Go() { try DropLentTemp(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 11*id+10
+}
+`, 1+seed%7, 1+seed%7)
 	return src.String(), names
 }

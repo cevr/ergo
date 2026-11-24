@@ -46,9 +46,9 @@ type irOwn struct {
 	live, kept int // locals; kept is -1 until a return keeps a value
 	slots      []irSlot
 	bit        map[*check.Var]int
-	// tbit is the slot of each owned temporary (Info.OwnedTemps, R43)
-	// registered so far (ownTemp): the statement's planned release finds
-	// it there (releaseAt).
+	// tbit is the slot (static) or the handle local (list) of each
+	// temporary registered so far. The statement's release plan names
+	// the temporary by its checked expression (R43).
 	tbit                   map[syntax.Expr]int
 	deferred               *irStmt         // the frame's deferred release, filled by ownDone
 	returned               *syntax.Ident   // the local a return hands off (returning)
@@ -209,7 +209,7 @@ func (b *irBuilder) openScopeOf(body *syntax.BlockStmt, site, name syntax.Node, 
 	fs := b.temp("fs", b.spelling(b.l.rt()+".Scope"), p)
 	b.frame = fs + 1
 	b.keepImport("var _ = " + b.l.rt() + "." + ctor)
-	if (takes || b.ownsLocals(body)) && frameListLowering != "off" {
+	if (takes || b.l.bodyOwns(body.List)) && frameListLowering != "off" {
 		b.openList(body, site, p)
 	}
 	out := []*irStmt{
@@ -240,34 +240,12 @@ func (b *irBuilder) openScopeOf(body *syntax.BlockStmt, site, name syntax.Node, 
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.frameListLowering=off.
 var frameListLowering string
 
-// ownsLocals reports a body that binds a local the checker gives an owner
-// (Info.OwnedVars), outside the function literals in it (frames of their
-// own).
-func (b *irBuilder) ownsLocals(body *syntax.BlockStmt) bool {
-	owns := false
-	syntax.Inspect(body, func(n syntax.Node) bool {
-		if n == nil || owns {
-			return false
-		}
-		if _, lit := n.(*syntax.FuncLit); lit {
-			return false
-		}
-		if id, ok := n.(*syntax.Ident); ok {
-			if v, ok := b.l.info.Defs[id].(*check.Var); ok && b.l.info.OwnedVars[v] != nil {
-				owns = true
-			}
-		}
-		return true
-	})
-	return owns
-}
-
 // openList starts the list form of the frame scope of body, whose node is
 // site (a declaration or a function literal) (the
 // emitter's own, owning, handoff and releaseAt on a frame that is not in
 // the static form). It records the releases the body must reach.
 func (b *irBuilder) openList(body *syntax.BlockStmt, site syntax.Node, p irPos) {
-	o := &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, site: site, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
+	o := &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, tbit: map[syntax.Expr]int{}, site: site, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
 	b.ownBodyChecks(body, o)
 	delete(o.keys, body) // the body's own scope ends at the frame's End
 	b.own = o
@@ -299,20 +277,22 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 func (b *irBuilder) listRegistration(v *check.Var, d *check.Drop, site syntax.Node, value syntax.Expr, h *irExpr, i int, at bool) *irStmt {
 	p := b.pos(site, site.Pos())
 	typ := b.goType(v.Type, site)
-	name := "Owning"
-	var release *irExpr
-	if d.Glue() {
-		name = "OwningParts"
-		release = b.dropRelease(d, typ, site, p)
-	} else {
-		release = b.listRelease(d, v.Type, typ, p, b.listReleaseHere(v.Type, site, value))
-	}
+	name, release := b.listReleaseValue(d, v.Type, typ, site, value, p)
 	x := &irExpr{K: "local", Pos: p, I: i}
 	if at {
 		name += "At"
 		x = b.addrOf(i, p)
 	}
 	return &irStmt{K: "expr", Pos: p, X: b.ownCall(name, typ, p, h, x, release)}
+}
+
+// listReleaseValue selects the runtime entry and its callback from the
+// checked drop plan, for locals, their replacements and temporaries.
+func (b *irBuilder) listReleaseValue(d *check.Drop, t check.Type, typ string, site syntax.Node, value syntax.Expr, p irPos) (string, *irExpr) {
+	if d.Glue() {
+		return "OwningParts", b.dropRelease(d, typ, site, p)
+	}
+	return "Owning", b.listRelease(d, t, typ, p, b.listReleaseHere(t, site, value))
 }
 
 // reassignList implements R41: acquire the replacement before releasing
@@ -910,9 +890,8 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 			if b.l.info.OwnedTemps[r.Temp] == nil {
 				continue
 			}
-			// The statement's temporary, released now if its bit is
-			// still set (the emitter's staticRelease); a temporary the
-			// builder did not register (ownTemp) stops the body.
+			// The statement's temporary, released now if it still owns
+			// its value. A missing registration stops the body.
 			k, ok := -1, false
 			if o != nil {
 				k, ok = o.tbit[r.Temp]
@@ -920,7 +899,11 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 			if !ok {
 				irNo("owned temporary")
 			}
-			out = append(out, b.slotRelease(k, p))
+			if o.list {
+				handles = append(handles, &irExpr{K: "local", Pos: p, I: k})
+			} else {
+				out = append(out, b.slotRelease(k, p))
+			}
 			continue
 		}
 		if b.l.info.OwnedVars[r.Var] == nil {
@@ -1057,17 +1040,14 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node, value syntax.E
 	return []*irStmt{{K: "expr", Pos: p, X: call}}
 }
 
-// tempOwnable reports an owned temporary x whose release is its type's
-// own Close and that is neither a moved part nor a lent arm result.
-// Both frames can keep a returned value directly (R10). Other list
-// temporaries would need a handle for releaseAt, which it does not track.
+// tempOwnable reports an owned temporary the frame can register.
+// The list accepts generated releases; the static form still uses
+// one checked Close per slot. Moved parts and conditional arm values
+// have their own transfer protocols, not this one.
 func (b *irBuilder) tempOwnable(x syntax.Expr, o *irOwn) bool {
 	info := b.l.info
 	d := info.OwnedTemps[x]
-	if d == nil || o == nil || d.Glue() || d.Close == nil {
-		return false
-	}
-	if o.list && !info.ReturnedTemps[x] {
+	if d == nil || o == nil || !o.list && d.Glue() {
 		return false
 	}
 	return !info.PartHands[x] && !info.ArmHeld[x] && info.HeldIn[x] == nil
@@ -1094,13 +1074,16 @@ func (b *irBuilder) ownTemp(x syntax.Expr, e *irExpr) *irExpr {
 	}
 	p := e.Pos
 	if o.list {
-		// No release point reads this handle: the value is kept on the
-		// same step that receives it, until the frame's exit is known.
 		typ := b.goType(t, x)
 		owner, h := b.listOwner(p)
 		b.runFirst([]*irStmt{owner})
-		rel := b.listRelease(b.l.info.OwnedTemps[x], t, typ, p, b.listReleaseHere(t, x, x))
-		return b.ownCall("Returned", typ, p, h, b.ownCall("Owning", typ, p, h, e, rel))
+		name, rel := b.listReleaseValue(b.l.info.OwnedTemps[x], t, typ, x, x, p)
+		owned := b.ownCall(name, typ, p, h, e, rel)
+		o.tbit[x] = owner.Local
+		if b.l.info.ReturnedTemps[x] {
+			return b.ownCall("Returned", typ, p, h, owned)
+		}
+		return owned
 	}
 	k, seen := o.tbit[x]
 	typ := b.goType(t, x)
