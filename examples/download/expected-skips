@@ -1,5 +1,0 @@
-# The host provider captures an http.Remote that only main can acquire
-# under Ambient. A law generator must not forge that authority. The
-# two-peer runtime model and source-boundary property exercise this provider
-# path; the recorded cases keep its typed policy refusal visible.
-skip law domain.Downloader.EmptyURLIsRejected for Remote: Remote is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses

@@ -102,9 +102,7 @@ The runner tests every package, whether or not it declares a test or a law: the 
 
 ## Red by record
 
-A law a program declares or provides that no context can run yet is an error, S108, for every program, ours too (types.md, Laws 10). Until the unit that feeds it lands, the program is red by record: `scripts/examples/expected-findings` holds one line for each such error (`EXAMPLE PACKAGE CODE LAW PROVIDER UNIT`). The runner reports the finding rather than treating it as a layout error. It reports the executable cases and each affected package's test leg as not run. It tests the other packages individually, so a refutation in one of them fails the examples run. Any other error is still a layout error, and so is a line the checker no longer reports. This is the ledger of owed units; a line names one of them:
-
-- **STD-TESTAMBIENT**: std's test constructors for `http.NewNet` and `fs.OpenRoot` under TestAmbient, so download's test context builds a `Remote`.
+A law a program declares or provides that no context can run yet is an error, S108, for every program, ours too (types.md, Laws 10). Until the unit that feeds it lands, the program is red by record: `scripts/examples/expected-findings` holds one line for each such error (`EXAMPLE PACKAGE CODE LAW PROVIDER UNIT`). The runner reports the finding rather than treating it as a layout error. It reports the executable cases and each affected package's test leg as not run. It tests the other packages individually, so a refutation in one of them fails the examples run. Any other error is still a layout error, and so is a line the checker no longer reports.
 
 ## Record leg
 

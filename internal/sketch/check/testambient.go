@@ -31,24 +31,31 @@ const testAmbientEntryText = "no context binds TestAmbient: its one provider is 
 // contextTestAmbient reports whether the named context w's header needs
 // TestAmbient (rule 1), read once with the rest of its row
 // (readContextHeader).
-func (c *checker) contextTestAmbient(w *Context) bool {
+func (c *checker) contextTestGrant(w *Context) (name, life, section string) {
 	c.readContextHeader(w)
-	return w != nil && w.TestAmbient != nil
+	if w != nil && w.TestAmbient != nil {
+		return "TestAmbient", "its folder lives for one with of it", "Test's ambient"
+	}
+	if w != nil && w.TestLoopback != nil {
+		return "TestLoopback", "its grant lives for one build", "Test loopback"
+	}
+	return "", "", ""
 }
 
 // testAmbientWith refuses a with of a context that needs TestAmbient
 // outside a test (rule 3).
 func (c *checker) testAmbientWith(at syntax.Node, w *Context) {
-	if !c.contextTestAmbient(w) || c.fn != nil && c.fn.test {
+	name, _, section := c.contextTestGrant(w)
+	if name == "" || c.fn != nil && c.fn.test {
 		return
 	}
-	c.errorf(at, CodeMissingCap, "context %s needs TestAmbient; only the test runner provides it: with it in a test, or let a law run under it (rows.md, Test's ambient)", w.Name)
+	c.errorf(at, CodeMissingCap, "context %s needs %s; only the test runner provides it: with it in a test, or let a law run under it (rows.md, %s)", w.Name, name, section)
 }
 
 // testAmbientEmbed refuses an embedding of a context that needs
 // TestAmbient (rule 3).
 func (c *checker) testAmbientEmbed(at syntax.Node, inner *Context) {
-	if c.contextTestAmbient(inner) {
-		c.errorf(at, CodeType, "context %s needs TestAmbient and is not embedded: its folder lives for one with of it (rows.md, Test's ambient)", inner.Name)
+	if name, life, section := c.contextTestGrant(inner); name != "" {
+		c.errorf(at, CodeType, "context %s needs %s and is not embedded: %s (rows.md, %s)", inner.Name, name, life, section)
 	}
 }

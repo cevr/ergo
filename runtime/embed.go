@@ -47,7 +47,7 @@ import (
 //go:embed explore/sched/dfs.go explore/sched/pct.go explore/sched/sched.go explore/sched/token.go explore/sched/worker.go
 //go:embed rt/mapfault.go rt/pace.go rt/gcknobs.go rt/readsmall.go rt/readsmall_other.go rt/park.go rt/park_stock.go rt/park_word.go rt/waiter.go
 //go:embed v1/lineage.go v1/mapfile_unix.go v1/mapped.go v1/stdout.go v1/ui_args.go
-//go:embed v1/exec/exec_unix.go v1/net/net.go
+//go:embed v1/exec/exec_unix.go v1/net/net.go v1/net/loopback.go
 //go:embed rt/group.go v1/buffer.go v1/heap.go v1/term_bsd.go v1/unsupported_os.go v1/exec/exec_spawn.go v1/exec/exec_spawn_darwin.go v1/exec/exec_spawn_linux.go v1/exec/exec_spawn_other.go v1/http/http_local.go v1/http/http_query.go
 //go:embed v1/exchange_darwin.go v1/exchange_linux.go v1/exchange_linux_amd64.go v1/exchange_linux_arm64.go v1/exchange_other.go
 //go:embed tzdata/tzdata.go tzdata/zones.bin
@@ -136,7 +136,7 @@ var packages = sync.OnceValue(func() map[string]pkg {
 		// Go's net: std net's sockets and memory pipe, and the Listener std
 		// http serves.
 		"runtime/v1/net": {
-			files:   []string{"net.go"},
+			files:   []string{"loopback.go", "net.go"},
 			imports: []string{"runtime/rt"},
 		},
 		// A file's metadata as values: os's Stat, Lstat and ReadDir are bound
