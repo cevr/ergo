@@ -69,6 +69,9 @@ type fnb {
 	// Root's transitive imports, including the prelude. None means the
 	// driver could not prove complete coverage; not a lexical search path.
 	rootImports Option[[]expr.Dep],
+	// Exact reachable declaration stores, keyed by checked import path.
+	// A partial inventory is useful for shapes, not for root-wide proofs.
+	shapeImports Map[string, expr.Dep],
 	// Checked call projections of exact direct imports; absent is not proof.
 	importCalls []ImportCallFacts,
 	k           expr.Pkg,
@@ -101,7 +104,7 @@ type fnb {
 // are its files' paths, File.Files' entries, path its import path, and root
 // whether it is the build's root package (a program's main package, or the
 // package a test build tests), whose declarations Go spells bare.
-func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports Option[[]expr.Dep], direct []ImportCallFacts) Out {
+func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports Option[[]expr.Dep], direct []ImportCallFacts, shapeImports Map[string, expr.Dep]) Out {
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
@@ -149,7 +152,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for i, f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{rootImports: imports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0)}
+		let mut st = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0)}
 		// Read the package-wide columns once, before building any body.
 		// A body that stops during lowering can still have a call proof.
 		if i == 0 {
