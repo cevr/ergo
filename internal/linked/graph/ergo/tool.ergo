@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -135,6 +135,11 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("field-writes takes no argument; the modules are --module PATH")
 		}
 		fieldWrites(r, o)
+	case "test-support":
+		if len(words) != 1 {
+			return usage("test-support takes no argument; supply --support PATH or --support-seam SEAM=PATH")
+		}
+		testSupport(r, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -156,6 +161,7 @@ type Options {
 	Min     int,
 	Max     int,
 	Modules []string,
+	Support []codegraph.SupportEntry,
 	Words   []string,
 	Bad     string,
 }
@@ -163,7 +169,7 @@ type Options {
 // options reads --json, --tests, --level package|file|decl and --min N
 // from args; every other argument is a word.
 func options(args []string) Options {
-	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Max: -1, Modules: []string{}, Words: []string{}, Bad: ""}
+	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Max: -1, Modules: []string{}, Support: []codegraph.SupportEntry{}, Words: []string{}, Bad: ""}
 	let mut i = 0
 	for i < len(args) {
 		let a = args[i]
@@ -222,6 +228,26 @@ func options(args []string) Options {
 			}
 			o.Modules = o.Modules.Append(args[i])
 			i = i + 1
+		case "--support":
+			if i >= len(args) {
+				o.Bad = "--support takes a package path"
+				return o
+			}
+			o.Support = o.Support.Append(codegraph.SupportEntry{Package: args[i], Seam: ""})
+			i = i + 1
+		case "--support-seam":
+			if i >= len(args) {
+				o.Bad = "--support-seam takes SEAM=PATH"
+				return o
+			}
+			let raw = args[i]
+			i = i + 1
+			let eq = strings.Index(raw, "=")
+			if eq <= 0 || eq == len(raw)-1 {
+				o.Bad = "--support-seam takes SEAM=PATH, not \(raw)"
+				return o
+			}
+			o.Support = o.Support.Append(codegraph.SupportEntry{Package: raw[eq+1 : len(raw)], Seam: raw[0:eq]})
 		case _:
 			if strings.HasPrefix(a, "-") {
 				o.Bad = "unknown option \(a)"
@@ -495,6 +521,38 @@ func fieldWrites(r codegraph.Rows, o Options) []string {
 		b = b + "\(w.Field) <- \(len(w.Callers)) callers (\(strings.Join(w.Callers, ", ")))\n"
 	}
 	ok(if len(out) == 0 { "no foreign record field write\n" } else { b })
+}
+
+type TestSupportOut {
+	CallerId int,
+	Caller   string,
+	TargetId int,
+	Target   string,
+	Site     int,
+	Import   int,
+}
+
+func testSupport(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []TestSupportOut{}
+	for u in codegraph.ProductionUsesTestSupport(r, modules, o.Support).Uses {
+		out = out.Append(TestSupportOut{
+			CallerId: u.Caller,
+			Caller:   codegraph.NameOf(r, u.Caller),
+			TargetId: u.Target,
+			Target:   r.Nodes[u.Target].Name,
+			Site:     u.Site,
+			Import:   u.Import,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]TestSupportOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for u in out {
+		b = b + "\(u.Caller) uses \(u.Target)\n"
+	}
+	ok(if len(out) == 0 { "no production use of test support\n" } else { b })
 }
 
 func interfaces(r codegraph.Rows, o Options) []string {

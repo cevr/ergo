@@ -76,6 +76,10 @@ Commands:
                                   each exported direct field of a record with
                                   a private field written from another package
                                   outside tests and laws
+  test-support [--support PATH]... [--support-seam SEAM=PATH]... [--module PATH]...
+                                  each ordinary declaration outside test
+                                  support that uses a configured test-support
+                                  package
   layers PATTERN...               each import that goes up the layering
                                   PATTERN... names from the top down (a
                                   path, or a prefix ending /...)
@@ -102,13 +106,13 @@ func graphCommand(args []string) error {
 		}
 	}
 	if len(args) == 0 {
-		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, layers"))
+		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, layers"))
 	}
 	if args[0] == "export" {
 		return graphExport(dir, args[1:])
 	}
 	switch args[0] {
-	case "cycles", "why", "affected", "hidden", "chains", "fan", "interfaces", "files", "directories", "field-writes", "layers":
+	case "cycles", "why", "affected", "hidden", "chains", "fan", "interfaces", "files", "directories", "field-writes", "test-support", "layers":
 	default:
 		return invalidInvocation(fmt.Errorf("ergo graph: unknown command %s", args[0]))
 	}

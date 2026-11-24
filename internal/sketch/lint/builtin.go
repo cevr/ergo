@@ -36,7 +36,7 @@ var builtinRules = []*Rule{
 	causeDropped, failureAsVariant, vacuousTest, parameterClump, constantArgument, longParameterList,
 	derivedField, optionFollowsVariant, takeOneByLaw, independentWaits,
 	constantRestated, repeatedCase,
-	fileCycle, layer, domainImportsImplementation, hiddenDependency, wideObservedInterface, longFile, wideDirectory, foreignRecordFieldWrite,
+	fileCycle, layer, domainImportsImplementation, hiddenDependency, wideObservedInterface, longFile, wideDirectory, foreignRecordFieldWrite, productionUsesTestSupport,
 	narrationComment, commentedCode, noComments,
 	snapshotArgument, repeatedTraversal, quadraticScan, concatInLoop, largeValueCopy,
 	addedClone, scatteredEdit,
@@ -76,8 +76,8 @@ func builtinPresets() []Preset {
 		},
 		{
 			Name:  Layout,
-			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console kept out of domain packages, tests through the exported functions, and from the graph rows: imports down a declared layering, implementations imported only by an entry, and no name reached through a re-export of a package not imported; as advisory hints: wide-observed-interface, long-file, wide-directory, and foreign-record-field-write.",
-			Rules: on(withAtEntry, conceptFileNames, foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported, layer, domainImportsImplementation, hiddenDependency, wideObservedInterface, longFile, wideDirectory, foreignRecordFieldWrite),
+			Doc:   "The Go layout of AGENTS.md: implementations chosen only at the entry, files named by concept, Go code only in adapters, capabilities run only by their owners, Console kept out of domain packages, tests through the exported functions, and from the graph rows: imports down a declared layering, implementations imported only by an entry, and no name reached through a re-export of a package not imported; as advisory hints: wide-observed-interface, long-file, wide-directory, foreign-record-field-write, and production-uses-test-support.",
+			Rules: on(withAtEntry, conceptFileNames, foreignOutsideAdapter, capabilityOutsideOwner, consoleOutsideEntry, testReadsUnexported, layer, domainImportsImplementation, hiddenDependency, wideObservedInterface, longFile, wideDirectory, foreignRecordFieldWrite, productionUsesTestSupport),
 		},
 		{
 			Name:  Advisory,
