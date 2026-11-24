@@ -9,6 +9,7 @@ tn1-lint lint --rule narration narration.tn1 src/*.ts > tn1.json
 
 ```sh
 tn1-lint lint --rule NAME WEIGHTS FILE...   # findings, oxlint JSON; always exit 0 (advisory)
+tn1-lint no-comments [--fix] FILE...        # ban non-directive comments in TS/TSX (or rewrite with --fix)
 tn1-lint record FILE                        # the feature record of FILE (a FILE of - is the standard input)
 tn1-lint project FILE...                    # each FILE's record version 3 in the project of FILEs, after "== FILE"
 tn1-lint chunks FILE                        # each top-level statement: FROM TO (bytes)

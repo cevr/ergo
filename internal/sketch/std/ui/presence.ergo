@@ -47,18 +47,21 @@ type presenceItem { key Key, motion int, started bool, start duration, from floa
 // that subtree (a cell under it changed, its group stopped) it is removed
 // at once.
 func Presence[E, F, R, T](f mut Frame[E], xs []T, key func(x T) Key, dur duration, row func(x T, p Progress) fails F needs R, at CallSite) fails F needs R {
-	let (where, c) = remember(f, PresenceCell{Items: []presenceItem{}, Fresh: true}, at)
+	let (id, prev) = cellSlot(f, at)
 	let mut old = []presenceItem{}
-	let mut fresh = false
-	match c {
-	case PresenceCell as p:
-		old = p.Items
-		fresh = p.Fresh
-	case _:
-		Unreachable("ui: a presence cell holds its rows")
+	let mut fresh = true
+	match prev {
+	case Some[Cell] as existing:
+		match existing.Value {
+		case PresenceCell as p:
+			old = p.Items
+			fresh = p.Fresh
+		case TextCell, FlagCell, ViewCell:
+		}
+	case None:
 	}
+	let _ = storeCell(f, id, PresenceCell{Items: old, Fresh: fresh})
 	let cellIndex = f.ncells - 1
-	let _ = where
 	let mut keys = []Key{}
 	for x in xs {
 		keys = keys.Append(key(x))

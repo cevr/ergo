@@ -27,13 +27,7 @@ let fresh = context { session.Store: newForLaws() }
 
 // newForLaws is an empty store of a valid policy, which NewPolicy does
 // not refuse.
-func newForLaws() Store {
-	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
-	case session.BadPolicy as b:
-		Unreachable(b.Reason)
-	}
-	New(p)
-}
+func newForLaws() Store { New(session.PolicyMillis(10, 20, 70)) }
 
 func apply(s Store, op session.Op) session.Outcome {
 	let p = s.policy

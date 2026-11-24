@@ -1,48 +1,25 @@
-// tn1-lint is TN1's sidecar for TypeScript projects: it runs beside
-// oxlint (as `oxlint && tn1-lint lint …`) and prints its findings in
-// oxlint's JSON form, so a tool that reads oxlint's report reads these
-// too. It reads source itself, through the TypeScript host of the
-// feature record (ergo.dev/tn1/ts), and decides with the Ergo engine
-// (ergo.dev/tn1); no Ergo toolchain is needed beside the binary.
-//
-//	tn1-lint lint --rule NAME WEIGHTS FILE...   findings, oxlint JSON; exit 0 (advisory)
-//	tn1-lint record FILE                        the feature record
-//	tn1-lint project FILE...                    each file's version 3 record in the project of FILEs
-//	tn1-lint chunks FILE                        each top-level statement: FROM TO (bytes)
-//	tn1-lint serve                              one reply line per request line, until EOF
-//	tn1-lint --help                             this usage, exit 0
-//
-// A FILE of - is the standard input: a caller with an unsaved buffer (an
-// oxlint rule) passes it there. /dev/stdin is not a way round it, since a
-// pipe a Node or Bun parent makes is a socket, which cannot be opened.
-//
-// A finding's span is its line's comment. Its probability and the
-// model's id are in its message; an advisory finding never changes the
-// exit code.
-
 import ergo.dev/tn1
 import ergo.dev/tn1/ts
 import fs
 import io
 import json
 import os
-import strings
 import strconv
+import strings
 
-// Usage is the text of a usage failure.
-let Usage = "usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint record FILE | tn1-lint project FILE... | tn1-lint chunks FILE | tn1-lint serve | tn1-lint --help"
+let Usage = "usage: tn1-lint lint --rule NAME WEIGHTS FILE... | tn1-lint no-comments [--fix] FILE... | tn1-lint record FILE | tn1-lint project FILE... | tn1-lint chunks FILE | tn1-lint serve | tn1-lint --help"
 
 type Lint { Rule string, Weights string, Files []string }
+type NoComments { Fix bool, Files []string }
 type Record { File string }
 type Project { Files []string }
 type Chunks { File string }
 type Help {}
 type Serve {}
-type Command = Lint | Record | Project | Chunks | Serve | Help
+type Command = Lint | NoComments | Record | Project | Chunks | Serve | Help
 
 func usage() os.Exit { os.Exit{Code: 2, Message: Usage} }
 
-// Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
 	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
 		return Help
@@ -59,13 +36,30 @@ func Parse(args []string) Command fails os.Exit {
 	if len(args) == 2 && args[0] == "chunks" {
 		return Chunks{File: args[1]}
 	}
+	if len(args) >= 2 && args[0] == "no-comments" {
+		if args[1] == "--fix" {
+			if len(args) < 3 {
+				return usage()
+			}
+			return NoComments{Fix: true, Files: args[2:]}
+		}
+		return NoComments{Fix: false, Files: args[1:]}
+	}
+	if len(args) >= 4 && args[0] == "lint" && args[1] == "--rule" && args[2] == "no-comments" {
+		if args[3] == "--fix" {
+			if len(args) < 5 {
+				return usage()
+			}
+			return NoComments{Fix: true, Files: args[4:]}
+		}
+		return NoComments{Fix: false, Files: args[3:]}
+	}
 	if len(args) >= 5 && args[0] == "lint" && args[1] == "--rule" {
 		return Lint{Rule: args[2], Weights: args[3], Files: args[4:]}
 	}
 	return usage()
 }
 
-// The report, in oxlint's JSON form.
 type Place { Offset int "offset", Length int "length", Line int "line", Column int "column" }
 type Label { Span Place "span" }
 type Diagnostic {
@@ -94,14 +88,17 @@ func read(path string) string fails os.Exit needs fs.Files | io.Stdin {
 	}
 }
 
-// thousandths writes n/1000 with three decimals.
+func write(path string, text string) fails os.Exit needs fs.Writes {
+	fs.Writes.WriteFile(path, text) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return os.Exit{Code: 1, Message: "tn1-lint: cannot write \(path)"}
+	}
+}
+
 func thousandths(n int) string { "0." + strings.PadLeft(strconv.Itoa(n), 3, '0') }
 
-// Findings is the diagnostics of net on the file at path, whose text is
-// src.
 func Findings(rule string, net tn1.Net, path string, src string) []Diagnostic {
 	let model = strings.Slice(tn1.ID(net), 0, 12)
-	// The network reads the lines only, so lint makes no node.
 	let linted = ts.ForLint(src)
 	let mut out = []Diagnostic{}
 	for f in tn1.Run(net, tn1.Features{Version: 2, Language: "ts", Lines: linted.Lines, Nodes: []tn1.Node{}, Packages: []tn1.PackageItem{}, Files: []tn1.FileItem{}}) {
@@ -118,8 +115,24 @@ func Findings(rule string, net tn1.Net, path string, src string) []Diagnostic {
 	out
 }
 
-// lastNewline is how many bytes before p its line starts, less one: the
-// 1-based column of p is p - (that line's start) + 1.
+func NoCommentFindings(path string, src string) []Diagnostic {
+	let mut out = []Diagnostic{}
+	for c in ts.Comments(src) {
+		if c.Form != ts.Prose {
+			continue
+		}
+		let col = c.From - lastNewline(src, c.From)
+		out = out.Append(Diagnostic{
+			Message:  "no-comments: comment is not a directive",
+			Code:     "ergo-tn1(no-comments)",
+			Severity: "error",
+			Filename: path,
+			Labels:   []Label{Label{Span: Place{Offset: c.From, Length: c.To - c.From, Line: c.Line, Column: col}}},
+		})
+	}
+	out
+}
+
 func lastNewline(src string, p int) int {
 	let mut i = p
 	for i > 0 && src[i-1] != '\n' {
@@ -128,9 +141,7 @@ func lastNewline(src string, p int) int {
 	i - 1
 }
 
-// Run is what the command writes; serve writes its replies as it goes,
-// and Run is "" then.
-func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin | io.Stdout {
+func Run(c Command) string fails os.Exit needs fs.Files | fs.Writes | io.Stdin | io.Stdout {
 	match c {
 	case Help:
 		Usage + "\n"
@@ -140,9 +151,6 @@ func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin | io.Stdout {
 	case Record as r:
 		tn1.EncodeRecord(ts.FromSource(try read(r.File)))
 	case Project as p:
-		// Each record after a line "== FILE"; a file's name in the
-		// project is its path as given, so an import resolves among the
-		// FILEs by the same relative paths.
 		let mut named = []tn1.Named{}
 		for f in p.Files {
 			named = named.Append(tn1.Named{Name: f, Text: try read(f)})
@@ -160,6 +168,27 @@ func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin | io.Stdout {
 			b.WriteString("\(s.From) \(s.To)\n")
 		}
 		b.String()
+	case NoComments as nc:
+		if nc.Fix {
+			let mut b = strings.NewBuilder()
+			for f in nc.Files {
+				let src = try read(f)
+				let fixed = ts.Fix(src)
+				if f == "-" {
+					b.WriteString(fixed)
+				} else if fixed != src {
+					try write(f, fixed)
+				}
+			}
+			return b.String()
+		}
+		let mut all = []Diagnostic{}
+		for f in nc.Files {
+			for d in NoCommentFindings(f, try read(f)) {
+				all = all.Append(d)
+			}
+		}
+		json.Encode(json.Codec[Report]{MaxBytes: 0, MaxDepth: 0}, Report{Diagnostics: all, Files: len(nc.Files), Rules: 1}) + "\n"
 	case Lint as l:
 		let net = tn1.ParseNet(try read(l.Weights)) catch {
 		case tn1.Malformed as m:
@@ -177,7 +206,7 @@ func Run(c Command) string fails os.Exit needs fs.Files | io.Stdin | io.Stdout {
 
 func main() fails os.Exit needs Ambient {
 	let c = try Parse(os.NewHost().Args())
-	with context { fs.Files: fs.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
+	with context { fs.Files: fs.NewHost(), fs.Writes: fs.NewHost(), io.Stdin: io.NewStdin(), io.Stdout: io.NewHost() } {
 		io.Stdout.Print(try Run(c))
 	}
 }

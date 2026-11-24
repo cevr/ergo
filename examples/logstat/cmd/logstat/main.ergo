@@ -68,17 +68,6 @@ func readFile(path string) Batch fails os.Exit needs fs.Files | io.Stderr {
 	}
 }
 
-// key is the report.Key that the -by value names. The flag admits only
-// report.Keys, so None cannot happen.
-func key(name string) report.Key {
-	match report.KeyNamed(name) {
-	case Some as k:
-		k.Value
-	case None:
-		Unreachable("-by admits only the names of report.Keys")
-	}
-}
-
 func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin | fs.Files {
 	let v = flag.Parse(set, args) catch {
 	case err:
@@ -96,7 +85,13 @@ func run(args []string) fails os.Exit needs io.Stdout | io.Stderr | io.Stdin | f
 		bad += b.Bad
 	}
 	let style = if jsonFlag.Get(v) { report.JSON } else { report.Plain }
-	io.Stdout.Print(report.Write(style, report.Summarize(reqs, bad, key(byFlag.Get(v)), topFlag.Get(v))))
+	let by = match report.KeyNamed(byFlag.Get(v)) {
+	case Some as k:
+		k.Value
+	case None:
+		return os.Exit{Code: 2, Message: "logstat: unknown key " + byFlag.Get(v)}
+	}
+	io.Stdout.Print(report.Write(style, report.Summarize(reqs, bad, by, topFlag.Get(v))))
 	if strictFlag.Get(v) && bad > 0 {
 		return os.Exit{Code: 1, Message: "logstat: " + report.BadLines(bad)}
 	}

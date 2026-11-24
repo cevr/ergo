@@ -79,6 +79,13 @@ func TestGraphColumnsAreTheJSON(t *testing.T) {
 		{"hidden", "--json"},
 		{"chains", "--json"},
 		{"fan", "--json"},
+		{"files", "--json"},
+		{"directories", "--json"},
+		{"field-writes", "--json"},
+		{"test-support", "--json"},
+		{"seams", "--json"},
+		{"folder-cycles", "--json"},
+		{"tangles", "--json"},
 		{"layers", "--json"},
 		{"why", "pipeline/run", "slices", "--json"},
 		{"hidden"},
@@ -95,13 +102,17 @@ func TestGraphColumnsAreTheJSON(t *testing.T) {
 			t.Errorf("ergo graph %v: columns %q, JSON %q", args, viaColumns, viaJSON)
 		}
 	}
-	args := []string{"affected", "base", "--json"}
-	viaJSON, err := lgraph.Run(context.Background(), args, string(data), string(data))
-	if err != nil {
-		t.Fatal(err)
-	}
-	viaColumns, err := lgraph.RunColumns(context.Background(), args, base, bints)
-	if err != nil || !slices.Equal(viaJSON, viaColumns) {
-		t.Errorf("ergo graph affected: columns %q %v, JSON %q", viaColumns, err, viaJSON)
+	for _, pairArgs := range [][]string{
+		{"affected", "base", "--json"},
+		{"compare", "base", "--max-surface", "7", "--max-lines", "2000", "--max-dir", "15", "--json"},
+	} {
+		viaJSON, err := lgraph.Run(context.Background(), pairArgs, string(data), string(data))
+		if err != nil {
+			t.Fatal(err)
+		}
+		viaColumns, err := lgraph.RunColumns(context.Background(), pairArgs, base, bints)
+		if err != nil || !slices.Equal(viaJSON, viaColumns) {
+			t.Errorf("ergo graph %v: columns %q %v, JSON %q", pairArgs, viaColumns, err, viaJSON)
+		}
 	}
 }

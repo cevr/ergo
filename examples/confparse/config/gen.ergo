@@ -5,9 +5,9 @@ import rand
 
 let hosts = []string{"127.0.0.1", "0.0.0.0", "::", "proxy.local", "with \"quote\"", ""}
 let ports = []Port{1, 80, 443, 8080, 65535}
+let weights = []Weight{1, 2, 5, 10, 25, 50, 75, 99, 100}
 let names = []string{"a", "b", "eu-1", "us_2", "back\\up", "x y"}
 
-// Gen is a Valid configuration.
 func Gen() Config needs Random {
 	let mut ups = []Upstream{}
 	for n in names {
@@ -15,10 +15,7 @@ func Gen() Config needs Random {
 			ups = ups.Append(Upstream{
 				Name:   n,
 				Addr:   "10.0.0.\(Random.IntN(256)):\(ports[Random.IntN(len(ports))])",
-				Weight: ParseWeight(1 + Random.IntN(100)) catch {
-				case Unsatisfied:
-					Unreachable("1 + IntN(100) is in 1..100")
-				},
+				Weight: weights[Random.IntN(len(weights))],
 				Backup: Random.IntN(2) == 0,
 			})
 		}

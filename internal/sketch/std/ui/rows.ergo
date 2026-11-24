@@ -236,16 +236,20 @@ func Keep(keep int, rowHeight Length, v Viewport) Length {
 
 func rowsKeeping[E, F, R](f mut Frame[E], label string, count int, rowHeight Length, keep int, key func(i int) Key, row func(i int) fails F needs R, at CallSite) fails F needs R {
 	let m = markOf(f)
-	let (where, c) = remember(f, ViewCell{Offset: 0, Height: 0, Follow: -1}, at)
+	let (id, prev) = cellSlot(f, at)
 	let mut v = Viewport{Offset: 0, Height: 0}
 	let mut follow = -1
-	match c {
-	case ViewCell as x:
-		v = Viewport{Offset: x.Offset, Height: x.Height}
-		follow = x.Follow
-	case _:
-		Unreachable("ui: a list's cell holds its viewport")
+	match prev {
+	case Some[Cell] as existing:
+		match existing.Value {
+		case ViewCell as x:
+			v = Viewport{Offset: x.Offset, Height: x.Height}
+			follow = x.Follow
+		case TextCell, FlagCell, PresenceCell:
+		}
+	case None:
 	}
+	let where = storeCell(f, id, ViewCell{Offset: v.Offset, Height: v.Height, Follow: follow})
 	if keep != follow {
 		if keep >= 0 && keep < count {
 			v.Offset = Keep(keep, rowHeight, v)

@@ -34,7 +34,7 @@ import (
 )
 
 // Version is the rows' format version; a decoder refuses another.
-const Version = 1
+const Version = 2
 
 // NodeKind is a node's kind: a closed set.
 type NodeKind uint8
@@ -201,7 +201,10 @@ type Table struct {
 	Nodes   []Node
 	// NodeAt is each node's position: a declaration's name, else none.
 	NodeAt []Pos
-	Edges  []Edge
+	// NodeLines is each node's physical line count (side column, parallel
+	// to NodeAt: set for File nodes from syntax.File.LineCount, 0 otherwise).
+	NodeLines []uint32
+	Edges     []Edge
 	// EdgeAt is each edge's position: a use's name, an import's path,
 	// else none.
 	EdgeAt []Pos
@@ -221,7 +224,15 @@ type SourcePackage struct {
 	Path string
 	// Module is the module path that holds the package.
 	Module string
-	Files  []SourceFile
+	// Modules is the module of each package path the package's program
+	// reads (its own and its required modules' packages), one map shared
+	// by the packages of one program: an import or a use of another
+	// package names the package under that module, so two programs that
+	// select two versions of one module have a package node each. A path
+	// it lacks is a package of no module (std, Go). Nil: a path names the
+	// package Build reads under it, in any module.
+	Modules map[string]string
+	Files   []SourceFile
 	// Info is the checker's package, also when it has diagnostics (its
 	// rows are then the names the checker resolved); nil when unchecked.
 	Info *check.Package
@@ -234,10 +245,13 @@ type SourcePackage struct {
 type builder struct {
 	t       *Table
 	strs    map[string]uint32
-	pkgs    map[string]uint32 // package path -> node
+	pkgs    map[pkgKey]uint32 // package (module, path) -> node
 	mods    map[string]uint32
-	handles map[string]uint32 // a declaration's full handle -> node
-	decls   map[syntax.Node]uint32
+	handles map[pkgKey]uint32 // a declaration's (module, full handle) -> node
+	// read is the module of each package path Build reads, the first
+	// read: how a package with no Modules map resolves a path.
+	read  map[string]string
+	decls map[syntax.Node]uint32
 	// named maps (file node, offset, name) of a declaring name to its
 	// node: how a symbol finds the declaration that declares it.
 	named map[namedKey]uint32
@@ -251,6 +265,13 @@ type fileDecls struct {
 	syntax *syntax.File
 	decls  []syntax.Decl
 	nodes  []uint32
+}
+
+// pkgKey is a package path, or a declaration's handle, in a module: the
+// identity of a package node and of a declaration node.
+type pkgKey struct {
+	module string
+	name   string
 }
 
 type namedKey struct {
@@ -277,9 +298,10 @@ func BuildWorkspace(mods []ModuleRow, pkgs []SourcePackage) *Table {
 	b := &builder{
 		t:       &Table{Strings: []string{""}},
 		strs:    map[string]uint32{"": 0},
-		pkgs:    map[string]uint32{},
+		pkgs:    map[pkgKey]uint32{},
 		mods:    map[string]uint32{},
-		handles: map[string]uint32{},
+		handles: map[pkgKey]uint32{},
+		read:    map[string]string{},
 		decls:   map[syntax.Node]uint32{},
 		named:   map[namedKey]uint32{},
 		edges:   map[Edge]bool{},
@@ -299,17 +321,23 @@ func BuildWorkspace(mods []ModuleRow, pkgs []SourcePackage) *Table {
 		}
 	}
 	all := make([]built, len(pkgs))
+	for _, p := range pkgs {
+		if _, ok := b.read[p.Path]; !ok {
+			b.read[p.Path] = p.Module
+		}
+	}
 	for i, p := range pkgs {
 		parent := NoNode
 		if p.Module != "" {
 			parent = b.module(p.Module)
 		}
-		pn := b.packageNode(p.Path, parent, 0)
+		pn := b.packageNode(p.Module, p.Path, parent, 0)
 		files := make([]uint32, len(p.Files))
 		for fi, f := range p.Files {
 			files[fi] = b.node(Node{Kind: File, Parent: pn, Name: b.str(f.Name)}, Pos{File: NoNode})
 			b.edge(Edge{Kind: Contains, From: pn, To: files[fi]}, Pos{File: NoNode})
 			if f.Syntax != nil {
+				b.t.NodeLines[files[fi]] = uint32(f.Syntax.LineCount())
 				b.declNodes(p, files[fi], f.Syntax)
 			}
 		}
@@ -320,23 +348,23 @@ func BuildWorkspace(mods []ModuleRow, pkgs []SourcePackage) *Table {
 				ff = append(ff, facts.File{Name: f.Name, Syntax: f.Syntax})
 			}
 			all[i].table, _ = facts.Build(p.Info, ff)
-			b.members(all[i].table, p.Path, files)
+			b.members(all[i].table, p, files)
 		}
 	}
 	for i, p := range pkgs {
 		for fi, f := range p.Files {
 			if f.Syntax != nil {
-				b.imports(all[i].files[fi], f.Syntax)
+				b.imports(p, all[i].files[fi], f.Syntax)
 			}
 		}
 		if t := all[i].table; t != nil {
-			b.rows(t, p.Path, all[i].files, pkgs[i])
+			b.rows(t, all[i].files, pkgs[i])
 		}
 		if p.Info != nil {
 			b.laws(p.Info, p.Path)
 		}
 		if p.Checked != nil {
-			b.tasks(p.Checked, b.pkgs[p.Path])
+			b.tasks(p.Checked, b.pkgs[pkgKey{p.Module, p.Path}])
 		}
 	}
 	return b.t
@@ -369,6 +397,7 @@ func (b *builder) node(n Node, at Pos) uint32 {
 	id := uint32(len(b.t.Nodes))
 	b.t.Nodes = append(b.t.Nodes, n)
 	b.t.NodeAt = append(b.t.NodeAt, at)
+	b.t.NodeLines = append(b.t.NodeLines, 0)
 	return id
 }
 
@@ -384,11 +413,21 @@ func (b *builder) edge(e Edge, at Pos) {
 	b.t.EdgeAt = append(b.t.EdgeAt, at)
 }
 
-// packageNode is the node of the package at path, added under parent on
-// first sight; a package first met as an import and later read keeps its
-// node and takes its module.
-func (b *builder) packageNode(path string, parent uint32, sub uint8) uint32 {
-	if n, ok := b.pkgs[path]; ok {
+// moduleOf is the module whose package path p's program reads: p's
+// Modules, or with none the module Build reads the path in.
+func (b *builder) moduleOf(p SourcePackage, path string) string {
+	if p.Modules != nil {
+		return p.Modules[path]
+	}
+	return b.read[path]
+}
+
+// packageNode is the node of the package at path in module, added under
+// parent on first sight; a package first met as an import and later read
+// keeps its node and takes its module.
+func (b *builder) packageNode(module, path string, parent uint32, sub uint8) uint32 {
+	key := pkgKey{module, path}
+	if n, ok := b.pkgs[key]; ok {
 		if parent != NoNode && b.t.Nodes[n].Parent == NoNode {
 			b.t.Nodes[n].Parent = parent
 			b.edge(Edge{Kind: Contains, From: parent, To: n}, Pos{File: NoNode})
@@ -396,7 +435,7 @@ func (b *builder) packageNode(path string, parent uint32, sub uint8) uint32 {
 		return n
 	}
 	n := b.node(Node{Kind: Package, Sub: sub, Parent: parent, Name: b.str(path)}, Pos{File: NoNode})
-	b.pkgs[path] = n
+	b.pkgs[key] = n
 	if parent != NoNode {
 		b.edge(Edge{Kind: Contains, From: parent, To: n}, Pos{File: NoNode})
 	}
@@ -458,8 +497,8 @@ func (b *builder) declNodes(p SourcePackage, file uint32, f *syntax.File) {
 		if kind == Test {
 			b.named[namedKey{file, uint32(name.NamePos), local}] = n
 		}
-		if _, dup := b.handles[p.Path+"."+local]; !dup {
-			b.handles[p.Path+"."+local] = n
+		if key := (pkgKey{p.Module, p.Path + "." + local}); !b.hasHandle(key) {
+			b.handles[key] = n
 		}
 		if v, ok := d.(*syntax.VarDecl); ok {
 			// Each name a let binds names the let.
@@ -526,18 +565,20 @@ func handleOf(t *facts.Table, path string, s facts.Symbol) string {
 // members maps each symbol t declares to its node: the top-level
 // declaration whose name it is, or a member node under the declaration
 // that holds it.
-func (b *builder) members(t *facts.Table, path string, files []uint32) {
+func (b *builder) members(t *facts.Table, p SourcePackage, files []uint32) {
+	path := p.Path
 	for _, s := range t.Symbols {
 		if !s.Declared || s.Handle == "" || !isNode(s.Kind) {
 			continue
 		}
 		h := handleOf(t, path, s)
-		if _, ok := b.handles[h]; ok {
+		key := pkgKey{p.Module, h}
+		if b.hasHandle(key) {
 			continue
 		}
 		file := files[s.File]
 		if n, ok := b.named[namedKey{file, s.Off, s.Name}]; ok {
-			b.handles[h] = n
+			b.handles[key] = n
 			continue
 		}
 		owner := b.holder(file, s.Off)
@@ -547,7 +588,7 @@ func (b *builder) members(t *facts.Table, path string, files []uint32) {
 		local := strings.TrimPrefix(h, path+".")
 		n := b.node(Node{Kind: Decl, Sub: uint8(declKindOf(s.Kind)), Parent: owner, Name: b.str(local)}, b.pos(file, b.files[file].syntax, syntax.Pos(s.Off)))
 		b.edge(Edge{Kind: Contains, From: owner, To: n}, Pos{File: NoNode})
-		b.handles[h] = n
+		b.handles[key] = n
 		b.named[namedKey{file, s.Off, s.Name}] = n
 	}
 }
@@ -567,8 +608,14 @@ func (b *builder) holder(file uint32, off uint32) uint32 {
 	return NoNode
 }
 
-// imports adds an Imports row for each import spec of f.
-func (b *builder) imports(file uint32, f *syntax.File) {
+// hasHandle reports whether a declaration node has key.
+func (b *builder) hasHandle(key pkgKey) bool {
+	_, ok := b.handles[key]
+	return ok
+}
+
+// imports adds an Imports row for each import spec of f, a file of p.
+func (b *builder) imports(p SourcePackage, file uint32, f *syntax.File) {
 	for _, d := range f.Decls {
 		id, ok := d.(*syntax.ImportDecl)
 		if !ok {
@@ -583,17 +630,18 @@ func (b *builder) imports(file uint32, f *syntax.File) {
 			if s.Kind == syntax.ImportGo {
 				sub = PackageGo
 			}
-			pn := b.packageNode(path, NoNode, sub)
+			pn := b.packageNode(b.moduleOf(p, path), path, NoNode, sub)
 			b.edge(Edge{Kind: Imports, From: file, To: pn}, b.pos(file, f, s.Path.ValuePos))
 		}
 	}
 }
 
-// target is the node of a symbol of t: a declared one by its handle, one
-// of another package by its handle, added under its package when the
+// target is the node of a symbol of t, a table of p: a declared one by
+// its handle, one of another package by its handle in the module p's
+// program reads that package in, added under its package when the
 // program does not hold it (a std declaration). NoNode for a symbol that
 // is no node, or whose package t does not import (a predeclared name).
-func (b *builder) target(t *facts.Table, path string, id uint32, imported []string) uint32 {
+func (b *builder) target(t *facts.Table, p SourcePackage, id uint32, imported []string) uint32 {
 	if id == facts.NoSym || int(id) >= len(t.Symbols) {
 		return NoNode
 	}
@@ -601,38 +649,61 @@ func (b *builder) target(t *facts.Table, path string, id uint32, imported []stri
 	if s.Handle == "" || !isNode(s.Kind) {
 		return NoNode
 	}
-	h := handleOf(t, path, s)
-	if n, ok := b.handles[h]; ok {
-		return n
-	}
+	h := handleOf(t, p.Path, s)
 	if s.Declared {
+		if n, ok := b.handles[pkgKey{p.Module, h}]; ok {
+			return n
+		}
 		return NoNode
 	}
+	// The package that declares it: the longest path of the program's
+	// packages (Modules, or every package read) a prefix of h names.
+	for i := len(h) - 1; i > 0; i-- {
+		if h[i] != '.' {
+			continue
+		}
+		path := h[:i]
+		module, ok := p.Modules[path]
+		if p.Modules == nil {
+			module, ok = b.read[path]
+		}
+		if !ok {
+			continue
+		}
+		if n, ok := b.handles[pkgKey{module, h}]; ok {
+			return n
+		}
+	}
 	pkg := ""
-	for _, p := range imported {
-		if strings.HasPrefix(h, p+".") && len(p) > len(pkg) {
-			pkg = p
+	for _, q := range imported {
+		if strings.HasPrefix(h, q+".") && len(q) > len(pkg) {
+			pkg = q
 		}
 	}
 	if pkg == "" {
 		return NoNode
 	}
-	pn := b.packageNode(pkg, NoNode, 0)
+	key := pkgKey{b.moduleOf(p, pkg), h}
+	if n, ok := b.handles[key]; ok {
+		return n
+	}
+	pn := b.packageNode(key.module, pkg, NoNode, 0)
 	n := b.node(Node{Kind: Decl, Sub: uint8(declKindOf(s.Kind)), Parent: pn, Name: b.str(h[len(pkg)+1:])}, Pos{File: NoNode})
-	b.handles[h] = n
+	b.handles[key] = n
 	return n
 }
 
 // rows adds the Uses, Needs, Fails, Provides, ReExports and TestOf rows
 // of one package's fact table.
-func (b *builder) rows(t *facts.Table, path string, files []uint32, p SourcePackage) {
+func (b *builder) rows(t *facts.Table, files []uint32, p SourcePackage) {
+	path := p.Path
 	var imported []string
 	for _, s := range t.Symbols {
 		if s.Kind == facts.Package && s.Handle != "" {
 			imported = append(imported, s.Handle)
 		}
 	}
-	node := func(id uint32) uint32 { return b.target(t, path, id, imported) }
+	node := func(id uint32) uint32 { return b.target(t, p, id, imported) }
 	syn := make([]*syntax.File, len(p.Files))
 	for i, f := range p.Files {
 		syn[i] = f.Syntax
@@ -657,7 +728,7 @@ func (b *builder) rows(t *facts.Table, path string, files []uint32, p SourcePack
 		}
 		if b.t.Nodes[from].Sub == uint8(Test) && b.t.Nodes[from].Kind == Decl && from != to {
 			// A test's subjects: the declarations of its package it names.
-			if top := b.top(to); top != NoNode && b.packageOf(top) == b.pkgs[path] && top != from {
+			if top := b.top(to); top != NoNode && b.packageOf(top) == b.pkgs[pkgKey{p.Module, path}] && top != from {
 				b.edge(Edge{Kind: TestOf, From: from, To: top}, Pos{File: NoNode})
 			}
 		}

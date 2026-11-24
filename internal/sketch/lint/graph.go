@@ -1,6 +1,10 @@
 package lint
 
 import (
+	"context"
+	"fmt"
+
+	"ergo.local/prototype/internal/linked/graph"
 	"ergo.local/prototype/internal/sketch/graphrows"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -82,8 +86,12 @@ func (s *runShared) programGraph() *programGraph {
 func programGraphOf(units []Unit) *programGraph {
 	pkgs := make([]graphrows.SourcePackage, len(units))
 	g := &programGraph{first: make([]int, len(units)+1)}
+	modules := make(map[string]string, len(units))
+	for _, unit := range units {
+		modules[unitPath(unit)] = unit.Module
+	}
 	for u, unit := range units {
-		sp := graphrows.SourcePackage{Path: unitPath(unit), Module: unit.Module, Info: unit.Package}
+		sp := graphrows.SourcePackage{Path: unitPath(unit), Module: unit.Module, Modules: modules, Info: unit.Package}
 		for _, f := range unit.Files {
 			sp.Files = append(sp.Files, graphrows.SourceFile{Name: f.Rel, Syntax: f.Syntax})
 		}
@@ -149,4 +157,26 @@ func (g *programGraph) edgesIn(f uint32, kind graphrows.EdgeKind, visit func(e g
 			visit(e, syntax.Pos(g.t.EdgeAt[i].Off))
 		}
 	}
+}
+
+// query runs a linked `ergo graph` query over g's columns for the
+// modules of units' own packages and returns its JSON stdout.
+func (g *programGraph) query(units []Unit, args ...string) ([]byte, error) {
+	full := append([]string(nil), args...)
+	seen := map[string]bool{}
+	for _, u := range units {
+		if !u.Dependency && !seen[u.Module] {
+			seen[u.Module] = true
+			full = append(full, "--module", u.Module)
+		}
+	}
+	strs, ints := g.t.AppendColumns(nil, nil)
+	out, err := graph.RunColumns(context.Background(), full, strs, ints)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) != 3 || out[0] != "0" {
+		return nil, fmt.Errorf("ergo graph %v: %v", args, out)
+	}
+	return []byte(out[1]), nil
 }

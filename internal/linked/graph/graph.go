@@ -6,10 +6,12 @@ import (
 	go__context "context"
 	rt "ergo.local/prototype/runtime/rt"
 	ergo "ergo.local/prototype/runtime/v1"
+	maps "maps"
 	slices "slices"
 	strconv "strconv"
 	go__strings "strings"
 	go__sync "sync"
+	go__unicode "unicode"
 )
 
 // ergo__InitOnce runs the package-level lets once, in the task of the first call.
@@ -62,7 +64,7 @@ type ergo__Env struct {
 	task *rt.Task
 }
 
-func ergo__EncodeSlice_14(env *ergo__Env, w ergo__Writer, v []string) {
+func ergo__EncodeSlice_29(env *ergo__Env, w ergo__Writer, v []string) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		w.String(env.task, string(e))
@@ -70,24 +72,22 @@ func ergo__EncodeSlice_14(env *ergo__Env, w ergo__Writer, v []string) {
 	w.EndList(env.task)
 }
 
-func ergo__EncodeCycleOut(env *ergo__Env, w ergo__Writer, v ergo__CycleOut) {
-	w.BeginObject(env.task, 2)
-	w.Key(env.task, "nodes")
-	ergo__EncodeSlice_14(env, w, v.Nodes)
-	w.Key(env.task, "path")
-	ergo__EncodeSlice_14(env, w, v.Path)
+func ergo__EncodeSeamSpec(env *ergo__Env, w ergo__Writer, v codegraph__SeamSpec) {
+	w.BeginObject(env.task, 5)
+	w.Key(env.task, "root")
+	w.String(env.task, string(v.Root))
+	w.Key(env.task, "packages")
+	ergo__EncodeSlice_29(env, w, v.Packages)
+	w.Key(env.task, "entries")
+	ergo__EncodeSlice_29(env, w, v.Entries)
+	w.Key(env.task, "testSupport")
+	ergo__EncodeSlice_29(env, w, v.TestSupport)
+	w.Key(env.task, "testThroughEntries")
+	w.Bool(env.task, bool(v.TestThroughEntries))
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_9(env *ergo__Env, w ergo__Writer, v []ergo__CycleOut) {
-	w.BeginList(env.task, len(v))
-	for _, e := range v {
-		ergo__EncodeCycleOut(env, w, e)
-	}
-	w.EndList(env.task)
-}
-
-func ergo__DecodeSlice_14(env *ergo__Env, r ergo__Reader) ([]string, error) {
+func ergo__DecodeSlice_29(env *ergo__Env, r ergo__Reader) ([]string, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]string), err
 	}
@@ -104,6 +104,923 @@ func ergo__DecodeSlice_14(env *ergo__Env, r ergo__Reader) ([]string, error) {
 	return out, nil
 }
 
+func ergo__DecodeSeamSpec(env *ergo__Env, r ergo__Reader) (codegraph__SeamSpec, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__SeamSpec), err
+	}
+	var out codegraph__SeamSpec
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "root":
+			raw, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(codegraph__SeamSpec), err_1
+			}
+			f := string(raw)
+			out.Root = f
+			seen = true
+		case "packages":
+			f_1, err_2 := ergo__DecodeSlice_29(env, r)
+			if err_2 != nil {
+				return *new(codegraph__SeamSpec), err_2
+			}
+			out.Packages = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__DecodeSlice_29(env, r)
+			if err_3 != nil {
+				return *new(codegraph__SeamSpec), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		case "testSupport":
+			f_3, err_4 := ergo__DecodeSlice_29(env, r)
+			if err_4 != nil {
+				return *new(codegraph__SeamSpec), err_4
+			}
+			out.TestSupport = f_3
+			seen_3 = true
+		case "testThroughEntries":
+			raw_1, err_5 := r.Bool(env.task)
+			if err_5 != nil {
+				return *new(codegraph__SeamSpec), err_5
+			}
+			f_4 := bool(raw_1)
+			out.TestThroughEntries = f_4
+			seen_4 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: r.Path(env.task), Field: "root"}
+	}
+	if !seen_1 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: r.Path(env.task), Field: "packages"}
+	}
+	if !seen_2 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: r.Path(env.task), Field: "entries"}
+	}
+	if !seen_3 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: r.Path(env.task), Field: "testSupport"}
+	}
+	if !seen_4 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: r.Path(env.task), Field: "testThroughEntries"}
+	}
+	return out, nil
+}
+
+func ergo__WriteSlice_29(env *ergo__Env, wv json__text, v []string) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		(w).sep()
+		(w).stringBody(string(e))
+		(w).setComma(bool(true))
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_29(env *ergo__Env, wv json__text, v []string) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		(w).sep()
+		(w).stringBody(string(e))
+		(w).setComma(bool(true))
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSeamSpec(env *ergo__Env, wv json__text, v codegraph__SeamSpec) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"root\":"))
+	(w).stringBody(string(v.Root))
+	(w).raw(string(",\"packages\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Packages)
+	(w).sep()
+	(w).raw(string("\"entries\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Entries)
+	(w).sep()
+	(w).raw(string("\"testSupport\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.TestSupport)
+	(w).sep()
+	(w).raw(string("\"testThroughEntries\":"))
+	(w).boolBody(bool(v.TestThroughEntries))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadSlice_29(env *ergo__Env, r json__Reader_1) ([]string, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]string), err
+	}
+	out := []string{}
+	for (r).More(env) {
+		raw, err_1 := (r).String(env)
+		if err_1 != nil {
+			return *new([]string), err_1
+		}
+		e := string(raw)
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadSeamSpec(env *ergo__Env, r json__Reader_1) (codegraph__SeamSpec, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__SeamSpec), err
+	}
+	var out codegraph__SeamSpec
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "root":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__SeamSpec), err_1
+			}
+			f := string(raw)
+			out.Root = f
+			seen = true
+		case "packages":
+			f_1, err_2 := ergo__ReadSlice_29(env, r)
+			if err_2 != nil {
+				return *new(codegraph__SeamSpec), err_2
+			}
+			out.Packages = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__ReadSlice_29(env, r)
+			if err_3 != nil {
+				return *new(codegraph__SeamSpec), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		case "testSupport":
+			f_3, err_4 := ergo__ReadSlice_29(env, r)
+			if err_4 != nil {
+				return *new(codegraph__SeamSpec), err_4
+			}
+			out.TestSupport = f_3
+			seen_3 = true
+		case "testThroughEntries":
+			raw_1, err_5 := (r).Bool(env)
+			if err_5 != nil {
+				return *new(codegraph__SeamSpec), err_5
+			}
+			f_4 := bool(raw_1)
+			out.TestThroughEntries = f_4
+			seen_4 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "root"}
+	}
+	if !seen_1 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
+	}
+	if !seen_2 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "entries"}
+	}
+	if !seen_3 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "testSupport"}
+	}
+	if !seen_4 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "testThroughEntries"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_59(env *ergo__Env, r json__Stream) ([]string, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]string), err
+	}
+	out := []string{}
+	for (r).More(env) {
+		raw, err_1 := (r).String(env)
+		if err_1 != nil {
+			return *new([]string), err_1
+		}
+		e := string(raw)
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadSeamSpec_1(env *ergo__Env, r json__Stream) (codegraph__SeamSpec, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__SeamSpec), err
+	}
+	var out codegraph__SeamSpec
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "root":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__SeamSpec), err_1
+			}
+			f := string(raw)
+			out.Root = f
+			seen = true
+		case "packages":
+			f_1, err_2 := ergo__ReadSlice_59(env, r)
+			if err_2 != nil {
+				return *new(codegraph__SeamSpec), err_2
+			}
+			out.Packages = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__ReadSlice_59(env, r)
+			if err_3 != nil {
+				return *new(codegraph__SeamSpec), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		case "testSupport":
+			f_3, err_4 := ergo__ReadSlice_59(env, r)
+			if err_4 != nil {
+				return *new(codegraph__SeamSpec), err_4
+			}
+			out.TestSupport = f_3
+			seen_3 = true
+		case "testThroughEntries":
+			raw_1, err_5 := (r).Bool(env)
+			if err_5 != nil {
+				return *new(codegraph__SeamSpec), err_5
+			}
+			f_4 := bool(raw_1)
+			out.TestThroughEntries = f_4
+			seen_4 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "root"}
+	}
+	if !seen_1 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "packages"}
+	}
+	if !seen_2 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "entries"}
+	}
+	if !seen_3 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "testSupport"}
+	}
+	if !seen_4 {
+		return *new(codegraph__SeamSpec), ergo__WireMissingField{Path: (r).Path(env), Field: "testThroughEntries"}
+	}
+	return out, nil
+}
+
+func ergo__CloneSeamSpec(v codegraph__SeamSpec) codegraph__SeamSpec {
+	c := v
+	c.Packages = slices.Clone(v.Packages)
+	c.Entries = slices.Clone(v.Entries)
+	c.TestSupport = slices.Clone(v.TestSupport)
+	return c
+}
+
+func ergo__EncodeSupportEntry(env *ergo__Env, w ergo__Writer, v codegraph__SupportEntry) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "package")
+	w.String(env.task, string(v.Package))
+	w.Key(env.task, "seam")
+	w.String(env.task, string(v.Seam))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_7(env *ergo__Env, w ergo__Writer, v []codegraph__SupportEntry) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeSupportEntry(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__EncodeSlice_6(env *ergo__Env, w ergo__Writer, v []codegraph__SeamSpec) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeSeamSpec(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__EncodeLayoutPolicy(env *ergo__Env, w ergo__Writer, v codegraph__LayoutPolicy) {
+	w.BeginObject(env.task, 6)
+	w.Key(env.task, "maxSurfaceList")
+	w.Int(env.task, int64(v.MaxSurfaceList))
+	w.Key(env.task, "maxFileLines")
+	w.Int(env.task, int64(v.MaxFileLines))
+	w.Key(env.task, "maxDirectoryMembers")
+	w.Int(env.task, int64(v.MaxDirectoryMembers))
+	w.Key(env.task, "maxTangleMembers")
+	w.Int(env.task, int64(v.MaxTangleMembers))
+	w.Key(env.task, "support")
+	ergo__EncodeSlice_7(env, w, v.Support)
+	w.Key(env.task, "seams")
+	ergo__EncodeSlice_6(env, w, v.Seams)
+	w.EndObject(env.task)
+}
+
+func ergo__DecodeSupportEntry(env *ergo__Env, r ergo__Reader) (codegraph__SupportEntry, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__SupportEntry), err
+	}
+	var out codegraph__SupportEntry
+	var seen, seen_1 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "package":
+			raw, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(codegraph__SupportEntry), err_1
+			}
+			f := string(raw)
+			out.Package = f
+			seen = true
+		case "seam":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(codegraph__SupportEntry), err_2
+			}
+			f_1 := string(raw_1)
+			out.Seam = f_1
+			seen_1 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(codegraph__SupportEntry), ergo__WireMissingField{Path: r.Path(env.task), Field: "package"}
+	}
+	if !seen_1 {
+		return *new(codegraph__SupportEntry), ergo__WireMissingField{Path: r.Path(env.task), Field: "seam"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_7(env *ergo__Env, r ergo__Reader) ([]codegraph__SupportEntry, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]codegraph__SupportEntry), err
+	}
+	out := []codegraph__SupportEntry{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeSupportEntry(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__SupportEntry), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__DecodeSlice_6(env *ergo__Env, r ergo__Reader) ([]codegraph__SeamSpec, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]codegraph__SeamSpec), err
+	}
+	out := []codegraph__SeamSpec{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeSeamSpec(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__SeamSpec), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__DecodeLayoutPolicy(env *ergo__Env, r ergo__Reader) (codegraph__LayoutPolicy, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__LayoutPolicy), err
+	}
+	var out codegraph__LayoutPolicy
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "maxSurfaceList":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(codegraph__LayoutPolicy), err_1
+			}
+			f := int(raw)
+			out.MaxSurfaceList = f
+			seen = true
+		case "maxFileLines":
+			raw_1, err_2 := r.Int(env.task)
+			if err_2 != nil {
+				return *new(codegraph__LayoutPolicy), err_2
+			}
+			f_1 := int(raw_1)
+			out.MaxFileLines = f_1
+			seen_1 = true
+		case "maxDirectoryMembers":
+			raw_2, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(codegraph__LayoutPolicy), err_3
+			}
+			f_2 := int(raw_2)
+			out.MaxDirectoryMembers = f_2
+			seen_2 = true
+		case "maxTangleMembers":
+			raw_3, err_4 := r.Int(env.task)
+			if err_4 != nil {
+				return *new(codegraph__LayoutPolicy), err_4
+			}
+			f_3 := int(raw_3)
+			out.MaxTangleMembers = f_3
+			seen_3 = true
+		case "support":
+			f_4, err_5 := ergo__DecodeSlice_7(env, r)
+			if err_5 != nil {
+				return *new(codegraph__LayoutPolicy), err_5
+			}
+			out.Support = f_4
+			seen_4 = true
+		case "seams":
+			f_5, err_6 := ergo__DecodeSlice_6(env, r)
+			if err_6 != nil {
+				return *new(codegraph__LayoutPolicy), err_6
+			}
+			out.Seams = f_5
+			seen_5 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: r.Path(env.task), Field: "maxSurfaceList"}
+	}
+	if !seen_1 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: r.Path(env.task), Field: "maxFileLines"}
+	}
+	if !seen_2 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: r.Path(env.task), Field: "maxDirectoryMembers"}
+	}
+	if !seen_3 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: r.Path(env.task), Field: "maxTangleMembers"}
+	}
+	if !seen_4 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: r.Path(env.task), Field: "support"}
+	}
+	if !seen_5 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: r.Path(env.task), Field: "seams"}
+	}
+	return out, nil
+}
+
+func ergo__WriteSupportEntry(env *ergo__Env, wv json__text, v codegraph__SupportEntry) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"package\":"))
+	(w).stringBody(string(v.Package))
+	(w).raw(string(",\"seam\":"))
+	(w).stringBody(string(v.Seam))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_7(env *ergo__Env, wv json__text, v []codegraph__SupportEntry) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteSupportEntry(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_6(env *ergo__Env, wv json__text, v []codegraph__SeamSpec) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteSeamSpec(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_7(env *ergo__Env, wv json__text, v []codegraph__SupportEntry) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteSupportEntry(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_6(env *ergo__Env, wv json__text, v []codegraph__SeamSpec) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteSeamSpec(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteLayoutPolicy(env *ergo__Env, wv json__text, v codegraph__LayoutPolicy) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"maxSurfaceList\":"))
+	(w).intBody(int64(v.MaxSurfaceList))
+	(w).raw(string(",\"maxFileLines\":"))
+	(w).intBody(int64(v.MaxFileLines))
+	(w).raw(string(",\"maxDirectoryMembers\":"))
+	(w).intBody(int64(v.MaxDirectoryMembers))
+	(w).raw(string(",\"maxTangleMembers\":"))
+	(w).intBody(int64(v.MaxTangleMembers))
+	(w).raw(string(",\"support\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_7(env, *w, v.Support)
+	(w).sep()
+	(w).raw(string("\"seams\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_6(env, *w, v.Seams)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadSupportEntry(env *ergo__Env, r json__Reader_1) (codegraph__SupportEntry, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__SupportEntry), err
+	}
+	var out codegraph__SupportEntry
+	var seen, seen_1 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "package":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__SupportEntry), err_1
+			}
+			f := string(raw)
+			out.Package = f
+			seen = true
+		case "seam":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(codegraph__SupportEntry), err_2
+			}
+			f_1 := string(raw_1)
+			out.Seam = f_1
+			seen_1 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__SupportEntry), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
+	}
+	if !seen_1 {
+		return *new(codegraph__SupportEntry), ergo__WireMissingField{Path: (r).Path(env), Field: "seam"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_7(env *ergo__Env, r json__Reader_1) ([]codegraph__SupportEntry, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__SupportEntry), err
+	}
+	out := []codegraph__SupportEntry{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSupportEntry(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__SupportEntry), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadSlice_6(env *ergo__Env, r json__Reader_1) ([]codegraph__SeamSpec, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__SeamSpec), err
+	}
+	out := []codegraph__SeamSpec{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSeamSpec(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__SeamSpec), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadLayoutPolicy(env *ergo__Env, r json__Reader_1) (codegraph__LayoutPolicy, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__LayoutPolicy), err
+	}
+	var out codegraph__LayoutPolicy
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "maxSurfaceList":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(codegraph__LayoutPolicy), err_1
+			}
+			f := int(raw)
+			out.MaxSurfaceList = f
+			seen = true
+		case "maxFileLines":
+			raw_1, err_2 := (r).Int(env)
+			if err_2 != nil {
+				return *new(codegraph__LayoutPolicy), err_2
+			}
+			f_1 := int(raw_1)
+			out.MaxFileLines = f_1
+			seen_1 = true
+		case "maxDirectoryMembers":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(codegraph__LayoutPolicy), err_3
+			}
+			f_2 := int(raw_2)
+			out.MaxDirectoryMembers = f_2
+			seen_2 = true
+		case "maxTangleMembers":
+			raw_3, err_4 := (r).Int(env)
+			if err_4 != nil {
+				return *new(codegraph__LayoutPolicy), err_4
+			}
+			f_3 := int(raw_3)
+			out.MaxTangleMembers = f_3
+			seen_3 = true
+		case "support":
+			f_4, err_5 := ergo__ReadSlice_7(env, r)
+			if err_5 != nil {
+				return *new(codegraph__LayoutPolicy), err_5
+			}
+			out.Support = f_4
+			seen_4 = true
+		case "seams":
+			f_5, err_6 := ergo__ReadSlice_6(env, r)
+			if err_6 != nil {
+				return *new(codegraph__LayoutPolicy), err_6
+			}
+			out.Seams = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxSurfaceList"}
+	}
+	if !seen_1 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxFileLines"}
+	}
+	if !seen_2 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxDirectoryMembers"}
+	}
+	if !seen_3 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxTangleMembers"}
+	}
+	if !seen_4 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "support"}
+	}
+	if !seen_5 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "seams"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSupportEntry_1(env *ergo__Env, r json__Stream) (codegraph__SupportEntry, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__SupportEntry), err
+	}
+	var out codegraph__SupportEntry
+	var seen, seen_1 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "package":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__SupportEntry), err_1
+			}
+			f := string(raw)
+			out.Package = f
+			seen = true
+		case "seam":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(codegraph__SupportEntry), err_2
+			}
+			f_1 := string(raw_1)
+			out.Seam = f_1
+			seen_1 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__SupportEntry), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
+	}
+	if !seen_1 {
+		return *new(codegraph__SupportEntry), ergo__WireMissingField{Path: (r).Path(env), Field: "seam"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_37(env *ergo__Env, r json__Stream) ([]codegraph__SupportEntry, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__SupportEntry), err
+	}
+	out := []codegraph__SupportEntry{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSupportEntry_1(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__SupportEntry), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadSlice_36(env *ergo__Env, r json__Stream) ([]codegraph__SeamSpec, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__SeamSpec), err
+	}
+	out := []codegraph__SeamSpec{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSeamSpec_1(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__SeamSpec), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadLayoutPolicy_1(env *ergo__Env, r json__Stream) (codegraph__LayoutPolicy, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__LayoutPolicy), err
+	}
+	var out codegraph__LayoutPolicy
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "maxSurfaceList":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(codegraph__LayoutPolicy), err_1
+			}
+			f := int(raw)
+			out.MaxSurfaceList = f
+			seen = true
+		case "maxFileLines":
+			raw_1, err_2 := (r).Int(env)
+			if err_2 != nil {
+				return *new(codegraph__LayoutPolicy), err_2
+			}
+			f_1 := int(raw_1)
+			out.MaxFileLines = f_1
+			seen_1 = true
+		case "maxDirectoryMembers":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(codegraph__LayoutPolicy), err_3
+			}
+			f_2 := int(raw_2)
+			out.MaxDirectoryMembers = f_2
+			seen_2 = true
+		case "maxTangleMembers":
+			raw_3, err_4 := (r).Int(env)
+			if err_4 != nil {
+				return *new(codegraph__LayoutPolicy), err_4
+			}
+			f_3 := int(raw_3)
+			out.MaxTangleMembers = f_3
+			seen_3 = true
+		case "support":
+			f_4, err_5 := ergo__ReadSlice_37(env, r)
+			if err_5 != nil {
+				return *new(codegraph__LayoutPolicy), err_5
+			}
+			out.Support = f_4
+			seen_4 = true
+		case "seams":
+			f_5, err_6 := ergo__ReadSlice_36(env, r)
+			if err_6 != nil {
+				return *new(codegraph__LayoutPolicy), err_6
+			}
+			out.Seams = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxSurfaceList"}
+	}
+	if !seen_1 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxFileLines"}
+	}
+	if !seen_2 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxDirectoryMembers"}
+	}
+	if !seen_3 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "maxTangleMembers"}
+	}
+	if !seen_4 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "support"}
+	}
+	if !seen_5 {
+		return *new(codegraph__LayoutPolicy), ergo__WireMissingField{Path: (r).Path(env), Field: "seams"}
+	}
+	return out, nil
+}
+
+func ergo__CloneSlice_14(v []codegraph__SeamSpec) []codegraph__SeamSpec {
+	if v == nil {
+		return nil
+	}
+	c := make([]codegraph__SeamSpec, len(v))
+	for i, e := range v {
+		c[i] = ergo__CloneSeamSpec(e)
+	}
+	return c
+}
+
+func ergo__CloneLayoutPolicy(v codegraph__LayoutPolicy) codegraph__LayoutPolicy {
+	c := v
+	c.Support = slices.Clone(v.Support)
+	c.Seams = ergo__CloneSlice_14(v.Seams)
+	return c
+}
+
+func ergo__EncodeCycleOut(env *ergo__Env, w ergo__Writer, v ergo__CycleOut) {
+	w.BeginObject(env.task, 2)
+	w.Key(env.task, "nodes")
+	ergo__EncodeSlice_29(env, w, v.Nodes)
+	w.Key(env.task, "path")
+	ergo__EncodeSlice_29(env, w, v.Path)
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_14(env *ergo__Env, w ergo__Writer, v []ergo__CycleOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeCycleOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
 func ergo__DecodeCycleOut(env *ergo__Env, r ergo__Reader) (ergo__CycleOut, error) {
 	if err := r.BeginObject(env.task); err != nil {
 		return *new(ergo__CycleOut), err
@@ -113,14 +1030,14 @@ func ergo__DecodeCycleOut(env *ergo__Env, r ergo__Reader) (ergo__CycleOut, error
 	for r.More(env.task) {
 		switch r.Key(env.task) {
 		case "nodes":
-			f, err_1 := ergo__DecodeSlice_14(env, r)
+			f, err_1 := ergo__DecodeSlice_29(env, r)
 			if err_1 != nil {
 				return *new(ergo__CycleOut), err_1
 			}
 			out.Nodes = f
 			seen = true
 		case "path":
-			f_1, err_2 := ergo__DecodeSlice_14(env, r)
+			f_1, err_2 := ergo__DecodeSlice_29(env, r)
 			if err_2 != nil {
 				return *new(ergo__CycleOut), err_2
 			}
@@ -140,7 +1057,7 @@ func ergo__DecodeCycleOut(env *ergo__Env, r ergo__Reader) (ergo__CycleOut, error
 	return out, nil
 }
 
-func ergo__DecodeSlice_9(env *ergo__Env, r ergo__Reader) ([]ergo__CycleOut, error) {
+func ergo__DecodeSlice_14(env *ergo__Env, r ergo__Reader) ([]ergo__CycleOut, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]ergo__CycleOut), err
 	}
@@ -156,53 +1073,22 @@ func ergo__DecodeSlice_9(env *ergo__Env, r ergo__Reader) ([]ergo__CycleOut, erro
 	return out, nil
 }
 
-func ergo__WriteSlice_14(env *ergo__Env, wv json__text, v []string) json__text {
-	w := &wv
-	(w).sep()
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		(w).sep()
-		(w).stringBody(string(e))
-		(w).setComma(bool(true))
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
-func ergo__WriteSlice_entry_14(env *ergo__Env, wv json__text, v []string) json__text {
-	w := &wv
-	(w).raw(string("["))
-	(w).setComma(bool(false))
-	_ = len(v)
-	for _, e := range v {
-		(w).sep()
-		(w).stringBody(string(e))
-		(w).setComma(bool(true))
-	}
-	(w).raw(string("]"))
-	(w).setComma(bool(true))
-	return wv
-}
-
 func ergo__WriteCycleOut(env *ergo__Env, wv json__text, v ergo__CycleOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("{\"nodes\":"))
 	(w).setComma(bool(false))
-	*w = ergo__WriteSlice_entry_14(env, *w, v.Nodes)
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Nodes)
 	(w).sep()
 	(w).raw(string("\"path\":"))
 	(w).setComma(bool(false))
-	*w = ergo__WriteSlice_entry_14(env, *w, v.Path)
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Path)
 	(w).raw(string("}"))
 	(w).setComma(bool(true))
 	return wv
 }
 
-func ergo__WriteSlice_9(env *ergo__Env, wv json__text, v []ergo__CycleOut) json__text {
+func ergo__WriteSlice_14(env *ergo__Env, wv json__text, v []ergo__CycleOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -216,93 +1102,7 @@ func ergo__WriteSlice_9(env *ergo__Env, wv json__text, v []ergo__CycleOut) json_
 	return wv
 }
 
-func ergo__ReadSlice_14(env *ergo__Env, r json__Reader_1) ([]string, error) {
-	if err := (r).BeginList(env); err != nil {
-		return *new([]string), err
-	}
-	out := []string{}
-	for (r).More(env) {
-		raw, err_1 := (r).String(env)
-		if err_1 != nil {
-			return *new([]string), err_1
-		}
-		e := string(raw)
-		out = append(out, e)
-	}
-	(r).End(env)
-	return out, nil
-}
-
 func ergo__ReadCycleOut(env *ergo__Env, r json__Reader_1) (ergo__CycleOut, error) {
-	if err := (r).BeginObject(env); err != nil {
-		return *new(ergo__CycleOut), err
-	}
-	var out ergo__CycleOut
-	var seen, seen_1 bool
-	for (r).More(env) {
-		switch (r).Key(env) {
-		case "nodes":
-			f, err_1 := ergo__ReadSlice_14(env, r)
-			if err_1 != nil {
-				return *new(ergo__CycleOut), err_1
-			}
-			out.Nodes = f
-			seen = true
-		case "path":
-			f_1, err_2 := ergo__ReadSlice_14(env, r)
-			if err_2 != nil {
-				return *new(ergo__CycleOut), err_2
-			}
-			out.Path = f_1
-			seen_1 = true
-		default:
-			(r).Skip(env)
-		}
-	}
-	(r).End(env)
-	if !seen {
-		return *new(ergo__CycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "nodes"}
-	}
-	if !seen_1 {
-		return *new(ergo__CycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
-	}
-	return out, nil
-}
-
-func ergo__ReadSlice_9(env *ergo__Env, r json__Reader_1) ([]ergo__CycleOut, error) {
-	if err := (r).BeginList(env); err != nil {
-		return *new([]ergo__CycleOut), err
-	}
-	out := []ergo__CycleOut{}
-	for (r).More(env) {
-		e, err_1 := ergo__ReadCycleOut(env, r)
-		if err_1 != nil {
-			return *new([]ergo__CycleOut), err_1
-		}
-		out = append(out, e)
-	}
-	(r).End(env)
-	return out, nil
-}
-
-func ergo__ReadSlice_29(env *ergo__Env, r json__Stream) ([]string, error) {
-	if err := (r).BeginList(env); err != nil {
-		return *new([]string), err
-	}
-	out := []string{}
-	for (r).More(env) {
-		raw, err_1 := (r).String(env)
-		if err_1 != nil {
-			return *new([]string), err_1
-		}
-		e := string(raw)
-		out = append(out, e)
-	}
-	(r).End(env)
-	return out, nil
-}
-
-func ergo__ReadCycleOut_1(env *ergo__Env, r json__Stream) (ergo__CycleOut, error) {
 	if err := (r).BeginObject(env); err != nil {
 		return *new(ergo__CycleOut), err
 	}
@@ -338,7 +1138,59 @@ func ergo__ReadCycleOut_1(env *ergo__Env, r json__Stream) (ergo__CycleOut, error
 	return out, nil
 }
 
-func ergo__ReadSlice_24(env *ergo__Env, r json__Stream) ([]ergo__CycleOut, error) {
+func ergo__ReadSlice_14(env *ergo__Env, r json__Reader_1) ([]ergo__CycleOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__CycleOut), err
+	}
+	out := []ergo__CycleOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadCycleOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__CycleOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadCycleOut_1(env *ergo__Env, r json__Stream) (ergo__CycleOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__CycleOut), err
+	}
+	var out ergo__CycleOut
+	var seen, seen_1 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "nodes":
+			f, err_1 := ergo__ReadSlice_59(env, r)
+			if err_1 != nil {
+				return *new(ergo__CycleOut), err_1
+			}
+			out.Nodes = f
+			seen = true
+		case "path":
+			f_1, err_2 := ergo__ReadSlice_59(env, r)
+			if err_2 != nil {
+				return *new(ergo__CycleOut), err_2
+			}
+			out.Path = f_1
+			seen_1 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__CycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "nodes"}
+	}
+	if !seen_1 {
+		return *new(ergo__CycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_44(env *ergo__Env, r json__Stream) ([]ergo__CycleOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__CycleOut), err
 	}
@@ -365,7 +1217,7 @@ func ergo__EncodeStepOut(env *ergo__Env, w ergo__Writer, v ergo__StepOut) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_13(env *ergo__Env, w ergo__Writer, v []ergo__StepOut) {
+func ergo__EncodeSlice_26(env *ergo__Env, w ergo__Writer, v []ergo__StepOut) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeStepOut(env, w, e)
@@ -422,7 +1274,7 @@ func ergo__DecodeStepOut(env *ergo__Env, r ergo__Reader) (ergo__StepOut, error) 
 	return out, nil
 }
 
-func ergo__DecodeSlice_13(env *ergo__Env, r ergo__Reader) ([]ergo__StepOut, error) {
+func ergo__DecodeSlice_26(env *ergo__Env, r ergo__Reader) ([]ergo__StepOut, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]ergo__StepOut), err
 	}
@@ -452,7 +1304,7 @@ func ergo__WriteStepOut(env *ergo__Env, wv json__text, v ergo__StepOut) json__te
 	return wv
 }
 
-func ergo__WriteSlice_13(env *ergo__Env, wv json__text, v []ergo__StepOut) json__text {
+func ergo__WriteSlice_26(env *ergo__Env, wv json__text, v []ergo__StepOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -515,7 +1367,7 @@ func ergo__ReadStepOut(env *ergo__Env, r json__Reader_1) (ergo__StepOut, error) 
 	return out, nil
 }
 
-func ergo__ReadSlice_13(env *ergo__Env, r json__Reader_1) ([]ergo__StepOut, error) {
+func ergo__ReadSlice_26(env *ergo__Env, r json__Reader_1) ([]ergo__StepOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__StepOut), err
 	}
@@ -580,7 +1432,7 @@ func ergo__ReadStepOut_1(env *ergo__Env, r json__Stream) (ergo__StepOut, error) 
 	return out, nil
 }
 
-func ergo__ReadSlice_28(env *ergo__Env, r json__Stream) ([]ergo__StepOut, error) {
+func ergo__ReadSlice_56(env *ergo__Env, r json__Stream) ([]ergo__StepOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__StepOut), err
 	}
@@ -607,7 +1459,7 @@ func ergo__EncodeReachedOut(env *ergo__Env, w ergo__Writer, v ergo__ReachedOut) 
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_12(env *ergo__Env, w ergo__Writer, v []ergo__ReachedOut) {
+func ergo__EncodeSlice_24(env *ergo__Env, w ergo__Writer, v []ergo__ReachedOut) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeReachedOut(env, w, e)
@@ -664,7 +1516,7 @@ func ergo__DecodeReachedOut(env *ergo__Env, r ergo__Reader) (ergo__ReachedOut, e
 	return out, nil
 }
 
-func ergo__DecodeSlice_12(env *ergo__Env, r ergo__Reader) ([]ergo__ReachedOut, error) {
+func ergo__DecodeSlice_24(env *ergo__Env, r ergo__Reader) ([]ergo__ReachedOut, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]ergo__ReachedOut), err
 	}
@@ -694,7 +1546,7 @@ func ergo__WriteReachedOut(env *ergo__Env, wv json__text, v ergo__ReachedOut) js
 	return wv
 }
 
-func ergo__WriteSlice_12(env *ergo__Env, wv json__text, v []ergo__ReachedOut) json__text {
+func ergo__WriteSlice_24(env *ergo__Env, wv json__text, v []ergo__ReachedOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -757,7 +1609,7 @@ func ergo__ReadReachedOut(env *ergo__Env, r json__Reader_1) (ergo__ReachedOut, e
 	return out, nil
 }
 
-func ergo__ReadSlice_12(env *ergo__Env, r json__Reader_1) ([]ergo__ReachedOut, error) {
+func ergo__ReadSlice_24(env *ergo__Env, r json__Reader_1) ([]ergo__ReachedOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__ReachedOut), err
 	}
@@ -822,7 +1674,7 @@ func ergo__ReadReachedOut_1(env *ergo__Env, r json__Stream) (ergo__ReachedOut, e
 	return out, nil
 }
 
-func ergo__ReadSlice_27(env *ergo__Env, r json__Stream) ([]ergo__ReachedOut, error) {
+func ergo__ReadSlice_54(env *ergo__Env, r json__Stream) ([]ergo__ReachedOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__ReachedOut), err
 	}
@@ -853,7 +1705,7 @@ func ergo__EncodeHiddenOut(env *ergo__Env, w ergo__Writer, v ergo__HiddenOut) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_11(env *ergo__Env, w ergo__Writer, v []ergo__HiddenOut) {
+func ergo__EncodeSlice_22(env *ergo__Env, w ergo__Writer, v []ergo__HiddenOut) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeHiddenOut(env, w, e)
@@ -932,7 +1784,7 @@ func ergo__DecodeHiddenOut(env *ergo__Env, r ergo__Reader) (ergo__HiddenOut, err
 	return out, nil
 }
 
-func ergo__DecodeSlice_11(env *ergo__Env, r ergo__Reader) ([]ergo__HiddenOut, error) {
+func ergo__DecodeSlice_22(env *ergo__Env, r ergo__Reader) ([]ergo__HiddenOut, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]ergo__HiddenOut), err
 	}
@@ -966,7 +1818,7 @@ func ergo__WriteHiddenOut(env *ergo__Env, wv json__text, v ergo__HiddenOut) json
 	return wv
 }
 
-func ergo__WriteSlice_11(env *ergo__Env, wv json__text, v []ergo__HiddenOut) json__text {
+func ergo__WriteSlice_22(env *ergo__Env, wv json__text, v []ergo__HiddenOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1051,7 +1903,7 @@ func ergo__ReadHiddenOut(env *ergo__Env, r json__Reader_1) (ergo__HiddenOut, err
 	return out, nil
 }
 
-func ergo__ReadSlice_11(env *ergo__Env, r json__Reader_1) ([]ergo__HiddenOut, error) {
+func ergo__ReadSlice_22(env *ergo__Env, r json__Reader_1) ([]ergo__HiddenOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__HiddenOut), err
 	}
@@ -1138,7 +1990,7 @@ func ergo__ReadHiddenOut_1(env *ergo__Env, r json__Stream) (ergo__HiddenOut, err
 	return out, nil
 }
 
-func ergo__ReadSlice_26(env *ergo__Env, r json__Stream) ([]ergo__HiddenOut, error) {
+func ergo__ReadSlice_52(env *ergo__Env, r json__Stream) ([]ergo__HiddenOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__HiddenOut), err
 	}
@@ -1157,7 +2009,7 @@ func ergo__ReadSlice_26(env *ergo__Env, r json__Stream) ([]ergo__HiddenOut, erro
 func ergo__EncodeSlice_1(env *ergo__Env, w ergo__Writer, v [][]string) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
-		ergo__EncodeSlice_14(env, w, e)
+		ergo__EncodeSlice_29(env, w, e)
 	}
 	w.EndList(env.task)
 }
@@ -1168,7 +2020,7 @@ func ergo__DecodeSlice_1(env *ergo__Env, r ergo__Reader) ([][]string, error) {
 	}
 	out := [][]string{}
 	for r.More(env.task) {
-		e, err_1 := ergo__DecodeSlice_14(env, r)
+		e, err_1 := ergo__DecodeSlice_29(env, r)
 		if err_1 != nil {
 			return *new([][]string), err_1
 		}
@@ -1185,7 +2037,7 @@ func ergo__WriteSlice_1(env *ergo__Env, wv json__text, v [][]string) json__text 
 	(w).setComma(bool(false))
 	_ = len(v)
 	for _, e := range v {
-		*w = ergo__WriteSlice_14(env, *w, e)
+		*w = ergo__WriteSlice_29(env, *w, e)
 	}
 	(w).raw(string("]"))
 	(w).setComma(bool(true))
@@ -1198,7 +2050,7 @@ func ergo__ReadSlice_1(env *ergo__Env, r json__Reader_1) ([][]string, error) {
 	}
 	out := [][]string{}
 	for (r).More(env) {
-		e, err_1 := ergo__ReadSlice_14(env, r)
+		e, err_1 := ergo__ReadSlice_29(env, r)
 		if err_1 != nil {
 			return *new([][]string), err_1
 		}
@@ -1208,13 +2060,13 @@ func ergo__ReadSlice_1(env *ergo__Env, r json__Reader_1) ([][]string, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_16(env *ergo__Env, r json__Stream) ([][]string, error) {
+func ergo__ReadSlice_31(env *ergo__Env, r json__Stream) ([][]string, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([][]string), err
 	}
 	out := [][]string{}
 	for (r).More(env) {
-		e, err_1 := ergo__ReadSlice_29(env, r)
+		e, err_1 := ergo__ReadSlice_59(env, r)
 		if err_1 != nil {
 			return *new([][]string), err_1
 		}
@@ -1235,7 +2087,7 @@ func ergo__EncodeFanOut(env *ergo__Env, w ergo__Writer, v ergo__FanOut) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_10(env *ergo__Env, w ergo__Writer, v []ergo__FanOut) {
+func ergo__EncodeSlice_17(env *ergo__Env, w ergo__Writer, v []ergo__FanOut) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeFanOut(env, w, e)
@@ -1292,7 +2144,7 @@ func ergo__DecodeFanOut(env *ergo__Env, r ergo__Reader) (ergo__FanOut, error) {
 	return out, nil
 }
 
-func ergo__DecodeSlice_10(env *ergo__Env, r ergo__Reader) ([]ergo__FanOut, error) {
+func ergo__DecodeSlice_17(env *ergo__Env, r ergo__Reader) ([]ergo__FanOut, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]ergo__FanOut), err
 	}
@@ -1322,7 +2174,7 @@ func ergo__WriteFanOut(env *ergo__Env, wv json__text, v ergo__FanOut) json__text
 	return wv
 }
 
-func ergo__WriteSlice_10(env *ergo__Env, wv json__text, v []ergo__FanOut) json__text {
+func ergo__WriteSlice_17(env *ergo__Env, wv json__text, v []ergo__FanOut) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1385,7 +2237,7 @@ func ergo__ReadFanOut(env *ergo__Env, r json__Reader_1) (ergo__FanOut, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_10(env *ergo__Env, r json__Reader_1) ([]ergo__FanOut, error) {
+func ergo__ReadSlice_17(env *ergo__Env, r json__Reader_1) ([]ergo__FanOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__FanOut), err
 	}
@@ -1450,7 +2302,7 @@ func ergo__ReadFanOut_1(env *ergo__Env, r json__Stream) (ergo__FanOut, error) {
 	return out, nil
 }
 
-func ergo__ReadSlice_25(env *ergo__Env, r json__Stream) ([]ergo__FanOut, error) {
+func ergo__ReadSlice_47(env *ergo__Env, r json__Stream) ([]ergo__FanOut, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]ergo__FanOut), err
 	}
@@ -1466,6 +2318,4347 @@ func ergo__ReadSlice_25(env *ergo__Env, r json__Stream) ([]ergo__FanOut, error) 
 	return out, nil
 }
 
+func ergo__EncodeFileLengthOut(env *ergo__Env, w ergo__Writer, v ergo__FileLengthOut) {
+	w.BeginObject(env.task, 4)
+	w.Key(env.task, "fileId")
+	w.Int(env.task, int64(v.FileId))
+	w.Key(env.task, "file")
+	w.String(env.task, string(v.File))
+	w.Key(env.task, "lines")
+	w.Int(env.task, int64(v.Lines))
+	w.Key(env.task, "long")
+	w.Bool(env.task, bool(v.Long))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_19(env *ergo__Env, w ergo__Writer, v []ergo__FileLengthOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeFileLengthOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeFileLengthOut(env *ergo__Env, r ergo__Reader) (ergo__FileLengthOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__FileLengthOut), err
+	}
+	var out ergo__FileLengthOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "fileId":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(ergo__FileLengthOut), err_1
+			}
+			f := int(raw)
+			out.FileId = f
+			seen = true
+		case "file":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(ergo__FileLengthOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.File = f_1
+			seen_1 = true
+		case "lines":
+			raw_2, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(ergo__FileLengthOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.Lines = f_2
+			seen_2 = true
+		case "long":
+			raw_3, err_4 := r.Bool(env.task)
+			if err_4 != nil {
+				return *new(ergo__FileLengthOut), err_4
+			}
+			f_3 := bool(raw_3)
+			out.Long = f_3
+			seen_3 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "fileId"}
+	}
+	if !seen_1 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
+	}
+	if !seen_2 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "lines"}
+	}
+	if !seen_3 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "long"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_19(env *ergo__Env, r ergo__Reader) ([]ergo__FileLengthOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__FileLengthOut), err
+	}
+	out := []ergo__FileLengthOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeFileLengthOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FileLengthOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteFileLengthOut(env *ergo__Env, wv json__text, v ergo__FileLengthOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"fileId\":"))
+	(w).intBody(int64(v.FileId))
+	(w).raw(string(",\"file\":"))
+	(w).stringBody(string(v.File))
+	(w).raw(string(",\"lines\":"))
+	(w).intBody(int64(v.Lines))
+	(w).raw(string(",\"long\":"))
+	(w).boolBody(bool(v.Long))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_19(env *ergo__Env, wv json__text, v []ergo__FileLengthOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteFileLengthOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadFileLengthOut(env *ergo__Env, r json__Reader_1) (ergo__FileLengthOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__FileLengthOut), err
+	}
+	var out ergo__FileLengthOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "fileId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__FileLengthOut), err_1
+			}
+			f := int(raw)
+			out.FileId = f
+			seen = true
+		case "file":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__FileLengthOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.File = f_1
+			seen_1 = true
+		case "lines":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__FileLengthOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.Lines = f_2
+			seen_2 = true
+		case "long":
+			raw_3, err_4 := (r).Bool(env)
+			if err_4 != nil {
+				return *new(ergo__FileLengthOut), err_4
+			}
+			f_3 := bool(raw_3)
+			out.Long = f_3
+			seen_3 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "fileId"}
+	}
+	if !seen_1 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
+	}
+	if !seen_2 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "lines"}
+	}
+	if !seen_3 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "long"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_19(env *ergo__Env, r json__Reader_1) ([]ergo__FileLengthOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__FileLengthOut), err
+	}
+	out := []ergo__FileLengthOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFileLengthOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FileLengthOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadFileLengthOut_1(env *ergo__Env, r json__Stream) (ergo__FileLengthOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__FileLengthOut), err
+	}
+	var out ergo__FileLengthOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "fileId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__FileLengthOut), err_1
+			}
+			f := int(raw)
+			out.FileId = f
+			seen = true
+		case "file":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__FileLengthOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.File = f_1
+			seen_1 = true
+		case "lines":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__FileLengthOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.Lines = f_2
+			seen_2 = true
+		case "long":
+			raw_3, err_4 := (r).Bool(env)
+			if err_4 != nil {
+				return *new(ergo__FileLengthOut), err_4
+			}
+			f_3 := bool(raw_3)
+			out.Long = f_3
+			seen_3 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "fileId"}
+	}
+	if !seen_1 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
+	}
+	if !seen_2 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "lines"}
+	}
+	if !seen_3 {
+		return *new(ergo__FileLengthOut), ergo__WireMissingField{Path: (r).Path(env), Field: "long"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_49(env *ergo__Env, r json__Stream) ([]ergo__FileLengthOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__FileLengthOut), err
+	}
+	out := []ergo__FileLengthOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFileLengthOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FileLengthOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__EncodeDirectoryOut(env *ergo__Env, w ergo__Writer, v ergo__DirectoryOut) {
+	w.BeginObject(env.task, 4)
+	w.Key(env.task, "path")
+	w.String(env.task, string(v.Path))
+	w.Key(env.task, "members")
+	ergo__EncodeSlice_29(env, w, v.Members)
+	w.Key(env.task, "anchor")
+	w.Int(env.task, int64(v.Anchor))
+	w.Key(env.task, "wide")
+	w.Bool(env.task, bool(v.Wide))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_15(env *ergo__Env, w ergo__Writer, v []ergo__DirectoryOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeDirectoryOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeDirectoryOut(env *ergo__Env, r ergo__Reader) (ergo__DirectoryOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__DirectoryOut), err
+	}
+	var out ergo__DirectoryOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "path":
+			raw, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(ergo__DirectoryOut), err_1
+			}
+			f := string(raw)
+			out.Path = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__DecodeSlice_29(env, r)
+			if err_2 != nil {
+				return *new(ergo__DirectoryOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "anchor":
+			raw_1, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(ergo__DirectoryOut), err_3
+			}
+			f_2 := int(raw_1)
+			out.Anchor = f_2
+			seen_2 = true
+		case "wide":
+			raw_2, err_4 := r.Bool(env.task)
+			if err_4 != nil {
+				return *new(ergo__DirectoryOut), err_4
+			}
+			f_3 := bool(raw_2)
+			out.Wide = f_3
+			seen_3 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "path"}
+	}
+	if !seen_1 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "anchor"}
+	}
+	if !seen_3 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "wide"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_15(env *ergo__Env, r ergo__Reader) ([]ergo__DirectoryOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__DirectoryOut), err
+	}
+	out := []ergo__DirectoryOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeDirectoryOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__DirectoryOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteDirectoryOut(env *ergo__Env, wv json__text, v ergo__DirectoryOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"path\":"))
+	(w).stringBody(string(v.Path))
+	(w).raw(string(",\"members\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Members)
+	(w).sep()
+	(w).raw(string("\"anchor\":"))
+	(w).intBody(int64(v.Anchor))
+	(w).raw(string(",\"wide\":"))
+	(w).boolBody(bool(v.Wide))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_15(env *ergo__Env, wv json__text, v []ergo__DirectoryOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteDirectoryOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadDirectoryOut(env *ergo__Env, r json__Reader_1) (ergo__DirectoryOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__DirectoryOut), err
+	}
+	var out ergo__DirectoryOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "path":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(ergo__DirectoryOut), err_1
+			}
+			f := string(raw)
+			out.Path = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__ReadSlice_29(env, r)
+			if err_2 != nil {
+				return *new(ergo__DirectoryOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "anchor":
+			raw_1, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__DirectoryOut), err_3
+			}
+			f_2 := int(raw_1)
+			out.Anchor = f_2
+			seen_2 = true
+		case "wide":
+			raw_2, err_4 := (r).Bool(env)
+			if err_4 != nil {
+				return *new(ergo__DirectoryOut), err_4
+			}
+			f_3 := bool(raw_2)
+			out.Wide = f_3
+			seen_3 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
+	}
+	if !seen_1 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "anchor"}
+	}
+	if !seen_3 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "wide"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_15(env *ergo__Env, r json__Reader_1) ([]ergo__DirectoryOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__DirectoryOut), err
+	}
+	out := []ergo__DirectoryOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadDirectoryOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__DirectoryOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadDirectoryOut_1(env *ergo__Env, r json__Stream) (ergo__DirectoryOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__DirectoryOut), err
+	}
+	var out ergo__DirectoryOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "path":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(ergo__DirectoryOut), err_1
+			}
+			f := string(raw)
+			out.Path = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__ReadSlice_59(env, r)
+			if err_2 != nil {
+				return *new(ergo__DirectoryOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "anchor":
+			raw_1, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__DirectoryOut), err_3
+			}
+			f_2 := int(raw_1)
+			out.Anchor = f_2
+			seen_2 = true
+		case "wide":
+			raw_2, err_4 := (r).Bool(env)
+			if err_4 != nil {
+				return *new(ergo__DirectoryOut), err_4
+			}
+			f_3 := bool(raw_2)
+			out.Wide = f_3
+			seen_3 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
+	}
+	if !seen_1 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "anchor"}
+	}
+	if !seen_3 {
+		return *new(ergo__DirectoryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "wide"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_45(env *ergo__Env, r json__Stream) ([]ergo__DirectoryOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__DirectoryOut), err
+	}
+	out := []ergo__DirectoryOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadDirectoryOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__DirectoryOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__EncodeSlice_9(env *ergo__Env, w ergo__Writer, v []int) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		w.Int(env.task, int64(e))
+	}
+	w.EndList(env.task)
+}
+
+func ergo__EncodeFieldWriteOut(env *ergo__Env, w ergo__Writer, v ergo__FieldWriteOut) {
+	w.BeginObject(env.task, 8)
+	w.Key(env.task, "fieldId")
+	w.Int(env.task, int64(v.FieldId))
+	w.Key(env.task, "field")
+	w.String(env.task, string(v.Field))
+	w.Key(env.task, "recordId")
+	w.Int(env.task, int64(v.RecordId))
+	w.Key(env.task, "record")
+	w.String(env.task, string(v.Record))
+	w.Key(env.task, "privateFieldId")
+	w.Int(env.task, int64(v.PrivateFieldId))
+	w.Key(env.task, "privateField")
+	w.String(env.task, string(v.PrivateField))
+	w.Key(env.task, "callers")
+	ergo__EncodeSlice_29(env, w, v.Callers)
+	w.Key(env.task, "sites")
+	ergo__EncodeSlice_9(env, w, v.Sites)
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_18(env *ergo__Env, w ergo__Writer, v []ergo__FieldWriteOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeFieldWriteOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeSlice_9(env *ergo__Env, r ergo__Reader) ([]int, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]int), err
+	}
+	out := []int{}
+	for r.More(env.task) {
+		raw, err_1 := r.Int(env.task)
+		if err_1 != nil {
+			return *new([]int), err_1
+		}
+		e := int(raw)
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__DecodeFieldWriteOut(env *ergo__Env, r ergo__Reader) (ergo__FieldWriteOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__FieldWriteOut), err
+	}
+	var out ergo__FieldWriteOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "fieldId":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(ergo__FieldWriteOut), err_1
+			}
+			f := int(raw)
+			out.FieldId = f
+			seen = true
+		case "field":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(ergo__FieldWriteOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Field = f_1
+			seen_1 = true
+		case "recordId":
+			raw_2, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(ergo__FieldWriteOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.RecordId = f_2
+			seen_2 = true
+		case "record":
+			raw_3, err_4 := r.String(env.task)
+			if err_4 != nil {
+				return *new(ergo__FieldWriteOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.Record = f_3
+			seen_3 = true
+		case "privateFieldId":
+			raw_4, err_5 := r.Int(env.task)
+			if err_5 != nil {
+				return *new(ergo__FieldWriteOut), err_5
+			}
+			f_4 := int(raw_4)
+			out.PrivateFieldId = f_4
+			seen_4 = true
+		case "privateField":
+			raw_5, err_6 := r.String(env.task)
+			if err_6 != nil {
+				return *new(ergo__FieldWriteOut), err_6
+			}
+			f_5 := string(raw_5)
+			out.PrivateField = f_5
+			seen_5 = true
+		case "callers":
+			f_6, err_7 := ergo__DecodeSlice_29(env, r)
+			if err_7 != nil {
+				return *new(ergo__FieldWriteOut), err_7
+			}
+			out.Callers = f_6
+			seen_6 = true
+		case "sites":
+			f_7, err_8 := ergo__DecodeSlice_9(env, r)
+			if err_8 != nil {
+				return *new(ergo__FieldWriteOut), err_8
+			}
+			out.Sites = f_7
+			seen_7 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "fieldId"}
+	}
+	if !seen_1 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "field"}
+	}
+	if !seen_2 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "recordId"}
+	}
+	if !seen_3 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "record"}
+	}
+	if !seen_4 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "privateFieldId"}
+	}
+	if !seen_5 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "privateField"}
+	}
+	if !seen_6 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "callers"}
+	}
+	if !seen_7 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "sites"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_18(env *ergo__Env, r ergo__Reader) ([]ergo__FieldWriteOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__FieldWriteOut), err
+	}
+	out := []ergo__FieldWriteOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeFieldWriteOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FieldWriteOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteSlice_9(env *ergo__Env, wv json__text, v []int) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		(w).sep()
+		(w).intBody(int64(e))
+		(w).setComma(bool(true))
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_9(env *ergo__Env, wv json__text, v []int) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		(w).sep()
+		(w).intBody(int64(e))
+		(w).setComma(bool(true))
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteFieldWriteOut(env *ergo__Env, wv json__text, v ergo__FieldWriteOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"fieldId\":"))
+	(w).intBody(int64(v.FieldId))
+	(w).raw(string(",\"field\":"))
+	(w).stringBody(string(v.Field))
+	(w).raw(string(",\"recordId\":"))
+	(w).intBody(int64(v.RecordId))
+	(w).raw(string(",\"record\":"))
+	(w).stringBody(string(v.Record))
+	(w).raw(string(",\"privateFieldId\":"))
+	(w).intBody(int64(v.PrivateFieldId))
+	(w).raw(string(",\"privateField\":"))
+	(w).stringBody(string(v.PrivateField))
+	(w).raw(string(",\"callers\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Callers)
+	(w).sep()
+	(w).raw(string("\"sites\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_9(env, *w, v.Sites)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_18(env *ergo__Env, wv json__text, v []ergo__FieldWriteOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteFieldWriteOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadSlice_9(env *ergo__Env, r json__Reader_1) ([]int, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]int), err
+	}
+	out := []int{}
+	for (r).More(env) {
+		raw, err_1 := (r).Int(env)
+		if err_1 != nil {
+			return *new([]int), err_1
+		}
+		e := int(raw)
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadFieldWriteOut(env *ergo__Env, r json__Reader_1) (ergo__FieldWriteOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__FieldWriteOut), err
+	}
+	var out ergo__FieldWriteOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "fieldId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__FieldWriteOut), err_1
+			}
+			f := int(raw)
+			out.FieldId = f
+			seen = true
+		case "field":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__FieldWriteOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Field = f_1
+			seen_1 = true
+		case "recordId":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__FieldWriteOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.RecordId = f_2
+			seen_2 = true
+		case "record":
+			raw_3, err_4 := (r).String(env)
+			if err_4 != nil {
+				return *new(ergo__FieldWriteOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.Record = f_3
+			seen_3 = true
+		case "privateFieldId":
+			raw_4, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(ergo__FieldWriteOut), err_5
+			}
+			f_4 := int(raw_4)
+			out.PrivateFieldId = f_4
+			seen_4 = true
+		case "privateField":
+			raw_5, err_6 := (r).String(env)
+			if err_6 != nil {
+				return *new(ergo__FieldWriteOut), err_6
+			}
+			f_5 := string(raw_5)
+			out.PrivateField = f_5
+			seen_5 = true
+		case "callers":
+			f_6, err_7 := ergo__ReadSlice_29(env, r)
+			if err_7 != nil {
+				return *new(ergo__FieldWriteOut), err_7
+			}
+			out.Callers = f_6
+			seen_6 = true
+		case "sites":
+			f_7, err_8 := ergo__ReadSlice_9(env, r)
+			if err_8 != nil {
+				return *new(ergo__FieldWriteOut), err_8
+			}
+			out.Sites = f_7
+			seen_7 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "fieldId"}
+	}
+	if !seen_1 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "field"}
+	}
+	if !seen_2 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "recordId"}
+	}
+	if !seen_3 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "record"}
+	}
+	if !seen_4 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "privateFieldId"}
+	}
+	if !seen_5 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "privateField"}
+	}
+	if !seen_6 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "callers"}
+	}
+	if !seen_7 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_18(env *ergo__Env, r json__Reader_1) ([]ergo__FieldWriteOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__FieldWriteOut), err
+	}
+	out := []ergo__FieldWriteOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFieldWriteOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FieldWriteOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadSlice_39(env *ergo__Env, r json__Stream) ([]int, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]int), err
+	}
+	out := []int{}
+	for (r).More(env) {
+		raw, err_1 := (r).Int(env)
+		if err_1 != nil {
+			return *new([]int), err_1
+		}
+		e := int(raw)
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadFieldWriteOut_1(env *ergo__Env, r json__Stream) (ergo__FieldWriteOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__FieldWriteOut), err
+	}
+	var out ergo__FieldWriteOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "fieldId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__FieldWriteOut), err_1
+			}
+			f := int(raw)
+			out.FieldId = f
+			seen = true
+		case "field":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__FieldWriteOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Field = f_1
+			seen_1 = true
+		case "recordId":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__FieldWriteOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.RecordId = f_2
+			seen_2 = true
+		case "record":
+			raw_3, err_4 := (r).String(env)
+			if err_4 != nil {
+				return *new(ergo__FieldWriteOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.Record = f_3
+			seen_3 = true
+		case "privateFieldId":
+			raw_4, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(ergo__FieldWriteOut), err_5
+			}
+			f_4 := int(raw_4)
+			out.PrivateFieldId = f_4
+			seen_4 = true
+		case "privateField":
+			raw_5, err_6 := (r).String(env)
+			if err_6 != nil {
+				return *new(ergo__FieldWriteOut), err_6
+			}
+			f_5 := string(raw_5)
+			out.PrivateField = f_5
+			seen_5 = true
+		case "callers":
+			f_6, err_7 := ergo__ReadSlice_59(env, r)
+			if err_7 != nil {
+				return *new(ergo__FieldWriteOut), err_7
+			}
+			out.Callers = f_6
+			seen_6 = true
+		case "sites":
+			f_7, err_8 := ergo__ReadSlice_39(env, r)
+			if err_8 != nil {
+				return *new(ergo__FieldWriteOut), err_8
+			}
+			out.Sites = f_7
+			seen_7 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "fieldId"}
+	}
+	if !seen_1 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "field"}
+	}
+	if !seen_2 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "recordId"}
+	}
+	if !seen_3 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "record"}
+	}
+	if !seen_4 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "privateFieldId"}
+	}
+	if !seen_5 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "privateField"}
+	}
+	if !seen_6 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "callers"}
+	}
+	if !seen_7 {
+		return *new(ergo__FieldWriteOut), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_48(env *ergo__Env, r json__Stream) ([]ergo__FieldWriteOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__FieldWriteOut), err
+	}
+	out := []ergo__FieldWriteOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFieldWriteOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FieldWriteOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__EncodeTestSupportOut(env *ergo__Env, w ergo__Writer, v ergo__TestSupportOut) {
+	w.BeginObject(env.task, 6)
+	w.Key(env.task, "callerId")
+	w.Int(env.task, int64(v.CallerId))
+	w.Key(env.task, "caller")
+	w.String(env.task, string(v.Caller))
+	w.Key(env.task, "targetId")
+	w.Int(env.task, int64(v.TargetId))
+	w.Key(env.task, "target")
+	w.String(env.task, string(v.Target))
+	w.Key(env.task, "site")
+	w.Int(env.task, int64(v.Site))
+	w.Key(env.task, "import")
+	w.Int(env.task, int64(v.Import))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_28(env *ergo__Env, w ergo__Writer, v []ergo__TestSupportOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeTestSupportOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeTestSupportOut(env *ergo__Env, r ergo__Reader) (ergo__TestSupportOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__TestSupportOut), err
+	}
+	var out ergo__TestSupportOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "callerId":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(ergo__TestSupportOut), err_1
+			}
+			f := int(raw)
+			out.CallerId = f
+			seen = true
+		case "caller":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(ergo__TestSupportOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Caller = f_1
+			seen_1 = true
+		case "targetId":
+			raw_2, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(ergo__TestSupportOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.TargetId = f_2
+			seen_2 = true
+		case "target":
+			raw_3, err_4 := r.String(env.task)
+			if err_4 != nil {
+				return *new(ergo__TestSupportOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.Target = f_3
+			seen_3 = true
+		case "site":
+			raw_4, err_5 := r.Int(env.task)
+			if err_5 != nil {
+				return *new(ergo__TestSupportOut), err_5
+			}
+			f_4 := int(raw_4)
+			out.Site = f_4
+			seen_4 = true
+		case "import":
+			raw_5, err_6 := r.Int(env.task)
+			if err_6 != nil {
+				return *new(ergo__TestSupportOut), err_6
+			}
+			f_5 := int(raw_5)
+			out.Import = f_5
+			seen_5 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "callerId"}
+	}
+	if !seen_1 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "caller"}
+	}
+	if !seen_2 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "targetId"}
+	}
+	if !seen_3 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "target"}
+	}
+	if !seen_4 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "site"}
+	}
+	if !seen_5 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "import"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_28(env *ergo__Env, r ergo__Reader) ([]ergo__TestSupportOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__TestSupportOut), err
+	}
+	out := []ergo__TestSupportOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeTestSupportOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__TestSupportOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteTestSupportOut(env *ergo__Env, wv json__text, v ergo__TestSupportOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"callerId\":"))
+	(w).intBody(int64(v.CallerId))
+	(w).raw(string(",\"caller\":"))
+	(w).stringBody(string(v.Caller))
+	(w).raw(string(",\"targetId\":"))
+	(w).intBody(int64(v.TargetId))
+	(w).raw(string(",\"target\":"))
+	(w).stringBody(string(v.Target))
+	(w).raw(string(",\"site\":"))
+	(w).intBody(int64(v.Site))
+	(w).raw(string(",\"import\":"))
+	(w).intBody(int64(v.Import))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_28(env *ergo__Env, wv json__text, v []ergo__TestSupportOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteTestSupportOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadTestSupportOut(env *ergo__Env, r json__Reader_1) (ergo__TestSupportOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__TestSupportOut), err
+	}
+	var out ergo__TestSupportOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "callerId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__TestSupportOut), err_1
+			}
+			f := int(raw)
+			out.CallerId = f
+			seen = true
+		case "caller":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__TestSupportOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Caller = f_1
+			seen_1 = true
+		case "targetId":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__TestSupportOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.TargetId = f_2
+			seen_2 = true
+		case "target":
+			raw_3, err_4 := (r).String(env)
+			if err_4 != nil {
+				return *new(ergo__TestSupportOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.Target = f_3
+			seen_3 = true
+		case "site":
+			raw_4, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(ergo__TestSupportOut), err_5
+			}
+			f_4 := int(raw_4)
+			out.Site = f_4
+			seen_4 = true
+		case "import":
+			raw_5, err_6 := (r).Int(env)
+			if err_6 != nil {
+				return *new(ergo__TestSupportOut), err_6
+			}
+			f_5 := int(raw_5)
+			out.Import = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "callerId"}
+	}
+	if !seen_1 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "caller"}
+	}
+	if !seen_2 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "targetId"}
+	}
+	if !seen_3 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "target"}
+	}
+	if !seen_4 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "site"}
+	}
+	if !seen_5 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "import"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_28(env *ergo__Env, r json__Reader_1) ([]ergo__TestSupportOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__TestSupportOut), err
+	}
+	out := []ergo__TestSupportOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadTestSupportOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__TestSupportOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadTestSupportOut_1(env *ergo__Env, r json__Stream) (ergo__TestSupportOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__TestSupportOut), err
+	}
+	var out ergo__TestSupportOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "callerId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__TestSupportOut), err_1
+			}
+			f := int(raw)
+			out.CallerId = f
+			seen = true
+		case "caller":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__TestSupportOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Caller = f_1
+			seen_1 = true
+		case "targetId":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__TestSupportOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.TargetId = f_2
+			seen_2 = true
+		case "target":
+			raw_3, err_4 := (r).String(env)
+			if err_4 != nil {
+				return *new(ergo__TestSupportOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.Target = f_3
+			seen_3 = true
+		case "site":
+			raw_4, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(ergo__TestSupportOut), err_5
+			}
+			f_4 := int(raw_4)
+			out.Site = f_4
+			seen_4 = true
+		case "import":
+			raw_5, err_6 := (r).Int(env)
+			if err_6 != nil {
+				return *new(ergo__TestSupportOut), err_6
+			}
+			f_5 := int(raw_5)
+			out.Import = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "callerId"}
+	}
+	if !seen_1 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "caller"}
+	}
+	if !seen_2 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "targetId"}
+	}
+	if !seen_3 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "target"}
+	}
+	if !seen_4 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "site"}
+	}
+	if !seen_5 {
+		return *new(ergo__TestSupportOut), ergo__WireMissingField{Path: (r).Path(env), Field: "import"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_58(env *ergo__Env, r json__Stream) ([]ergo__TestSupportOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__TestSupportOut), err
+	}
+	out := []ergo__TestSupportOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadTestSupportOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__TestSupportOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__EncodeSeamViolationOut(env *ergo__Env, w ergo__Writer, v ergo__SeamViolationOut) {
+	w.BeginObject(env.task, 7)
+	w.Key(env.task, "seam")
+	w.Int(env.task, int64(v.Seam))
+	w.Key(env.task, "import")
+	w.Int(env.task, int64(v.Import))
+	w.Key(env.task, "file")
+	w.Int(env.task, int64(v.File))
+	w.Key(env.task, "callerPkg")
+	w.String(env.task, string(v.CallerPkg))
+	w.Key(env.task, "targetPkg")
+	w.String(env.task, string(v.TargetPkg))
+	w.Key(env.task, "inside")
+	w.Bool(env.task, bool(v.Inside))
+	w.Key(env.task, "testSites")
+	ergo__EncodeSlice_9(env, w, v.TestSites)
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_25(env *ergo__Env, w ergo__Writer, v []ergo__SeamViolationOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeSeamViolationOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeSeamViolationOut(env *ergo__Env, r ergo__Reader) (ergo__SeamViolationOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__SeamViolationOut), err
+	}
+	var out ergo__SeamViolationOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "seam":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(ergo__SeamViolationOut), err_1
+			}
+			f := int(raw)
+			out.Seam = f
+			seen = true
+		case "import":
+			raw_1, err_2 := r.Int(env.task)
+			if err_2 != nil {
+				return *new(ergo__SeamViolationOut), err_2
+			}
+			f_1 := int(raw_1)
+			out.Import = f_1
+			seen_1 = true
+		case "file":
+			raw_2, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(ergo__SeamViolationOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.File = f_2
+			seen_2 = true
+		case "callerPkg":
+			raw_3, err_4 := r.String(env.task)
+			if err_4 != nil {
+				return *new(ergo__SeamViolationOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.CallerPkg = f_3
+			seen_3 = true
+		case "targetPkg":
+			raw_4, err_5 := r.String(env.task)
+			if err_5 != nil {
+				return *new(ergo__SeamViolationOut), err_5
+			}
+			f_4 := string(raw_4)
+			out.TargetPkg = f_4
+			seen_4 = true
+		case "inside":
+			raw_5, err_6 := r.Bool(env.task)
+			if err_6 != nil {
+				return *new(ergo__SeamViolationOut), err_6
+			}
+			f_5 := bool(raw_5)
+			out.Inside = f_5
+			seen_5 = true
+		case "testSites":
+			f_6, err_7 := ergo__DecodeSlice_9(env, r)
+			if err_7 != nil {
+				return *new(ergo__SeamViolationOut), err_7
+			}
+			out.TestSites = f_6
+			seen_6 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "seam"}
+	}
+	if !seen_1 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "import"}
+	}
+	if !seen_2 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
+	}
+	if !seen_3 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "callerPkg"}
+	}
+	if !seen_4 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "targetPkg"}
+	}
+	if !seen_5 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "inside"}
+	}
+	if !seen_6 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "testSites"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_25(env *ergo__Env, r ergo__Reader) ([]ergo__SeamViolationOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__SeamViolationOut), err
+	}
+	out := []ergo__SeamViolationOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeSeamViolationOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__SeamViolationOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteSeamViolationOut(env *ergo__Env, wv json__text, v ergo__SeamViolationOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"seam\":"))
+	(w).intBody(int64(v.Seam))
+	(w).raw(string(",\"import\":"))
+	(w).intBody(int64(v.Import))
+	(w).raw(string(",\"file\":"))
+	(w).intBody(int64(v.File))
+	(w).raw(string(",\"callerPkg\":"))
+	(w).stringBody(string(v.CallerPkg))
+	(w).raw(string(",\"targetPkg\":"))
+	(w).stringBody(string(v.TargetPkg))
+	(w).raw(string(",\"inside\":"))
+	(w).boolBody(bool(v.Inside))
+	(w).raw(string(",\"testSites\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_9(env, *w, v.TestSites)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_25(env *ergo__Env, wv json__text, v []ergo__SeamViolationOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteSeamViolationOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadSeamViolationOut(env *ergo__Env, r json__Reader_1) (ergo__SeamViolationOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__SeamViolationOut), err
+	}
+	var out ergo__SeamViolationOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "seam":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__SeamViolationOut), err_1
+			}
+			f := int(raw)
+			out.Seam = f
+			seen = true
+		case "import":
+			raw_1, err_2 := (r).Int(env)
+			if err_2 != nil {
+				return *new(ergo__SeamViolationOut), err_2
+			}
+			f_1 := int(raw_1)
+			out.Import = f_1
+			seen_1 = true
+		case "file":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__SeamViolationOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.File = f_2
+			seen_2 = true
+		case "callerPkg":
+			raw_3, err_4 := (r).String(env)
+			if err_4 != nil {
+				return *new(ergo__SeamViolationOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.CallerPkg = f_3
+			seen_3 = true
+		case "targetPkg":
+			raw_4, err_5 := (r).String(env)
+			if err_5 != nil {
+				return *new(ergo__SeamViolationOut), err_5
+			}
+			f_4 := string(raw_4)
+			out.TargetPkg = f_4
+			seen_4 = true
+		case "inside":
+			raw_5, err_6 := (r).Bool(env)
+			if err_6 != nil {
+				return *new(ergo__SeamViolationOut), err_6
+			}
+			f_5 := bool(raw_5)
+			out.Inside = f_5
+			seen_5 = true
+		case "testSites":
+			f_6, err_7 := ergo__ReadSlice_9(env, r)
+			if err_7 != nil {
+				return *new(ergo__SeamViolationOut), err_7
+			}
+			out.TestSites = f_6
+			seen_6 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "seam"}
+	}
+	if !seen_1 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "import"}
+	}
+	if !seen_2 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
+	}
+	if !seen_3 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "callerPkg"}
+	}
+	if !seen_4 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "targetPkg"}
+	}
+	if !seen_5 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "inside"}
+	}
+	if !seen_6 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "testSites"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_25(env *ergo__Env, r json__Reader_1) ([]ergo__SeamViolationOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__SeamViolationOut), err
+	}
+	out := []ergo__SeamViolationOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSeamViolationOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__SeamViolationOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadSeamViolationOut_1(env *ergo__Env, r json__Stream) (ergo__SeamViolationOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__SeamViolationOut), err
+	}
+	var out ergo__SeamViolationOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "seam":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__SeamViolationOut), err_1
+			}
+			f := int(raw)
+			out.Seam = f
+			seen = true
+		case "import":
+			raw_1, err_2 := (r).Int(env)
+			if err_2 != nil {
+				return *new(ergo__SeamViolationOut), err_2
+			}
+			f_1 := int(raw_1)
+			out.Import = f_1
+			seen_1 = true
+		case "file":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__SeamViolationOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.File = f_2
+			seen_2 = true
+		case "callerPkg":
+			raw_3, err_4 := (r).String(env)
+			if err_4 != nil {
+				return *new(ergo__SeamViolationOut), err_4
+			}
+			f_3 := string(raw_3)
+			out.CallerPkg = f_3
+			seen_3 = true
+		case "targetPkg":
+			raw_4, err_5 := (r).String(env)
+			if err_5 != nil {
+				return *new(ergo__SeamViolationOut), err_5
+			}
+			f_4 := string(raw_4)
+			out.TargetPkg = f_4
+			seen_4 = true
+		case "inside":
+			raw_5, err_6 := (r).Bool(env)
+			if err_6 != nil {
+				return *new(ergo__SeamViolationOut), err_6
+			}
+			f_5 := bool(raw_5)
+			out.Inside = f_5
+			seen_5 = true
+		case "testSites":
+			f_6, err_7 := ergo__ReadSlice_39(env, r)
+			if err_7 != nil {
+				return *new(ergo__SeamViolationOut), err_7
+			}
+			out.TestSites = f_6
+			seen_6 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "seam"}
+	}
+	if !seen_1 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "import"}
+	}
+	if !seen_2 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
+	}
+	if !seen_3 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "callerPkg"}
+	}
+	if !seen_4 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "targetPkg"}
+	}
+	if !seen_5 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "inside"}
+	}
+	if !seen_6 {
+		return *new(ergo__SeamViolationOut), ergo__WireMissingField{Path: (r).Path(env), Field: "testSites"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_55(env *ergo__Env, r json__Stream) ([]ergo__SeamViolationOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__SeamViolationOut), err
+	}
+	out := []ergo__SeamViolationOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadSeamViolationOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__SeamViolationOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__EncodeFolderCycleOut(env *ergo__Env, w ergo__Writer, v ergo__FolderCycleOut) {
+	w.BeginObject(env.task, 4)
+	w.Key(env.task, "parent")
+	w.String(env.task, string(v.Parent))
+	w.Key(env.task, "members")
+	ergo__EncodeSlice_29(env, w, v.Members)
+	w.Key(env.task, "path")
+	ergo__EncodeSlice_29(env, w, v.Path)
+	w.Key(env.task, "sites")
+	ergo__EncodeSlice_9(env, w, v.Sites)
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_20(env *ergo__Env, w ergo__Writer, v []ergo__FolderCycleOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeFolderCycleOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeFolderCycleOut(env *ergo__Env, r ergo__Reader) (ergo__FolderCycleOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__FolderCycleOut), err
+	}
+	var out ergo__FolderCycleOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "parent":
+			raw, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(ergo__FolderCycleOut), err_1
+			}
+			f := string(raw)
+			out.Parent = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__DecodeSlice_29(env, r)
+			if err_2 != nil {
+				return *new(ergo__FolderCycleOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "path":
+			f_2, err_3 := ergo__DecodeSlice_29(env, r)
+			if err_3 != nil {
+				return *new(ergo__FolderCycleOut), err_3
+			}
+			out.Path = f_2
+			seen_2 = true
+		case "sites":
+			f_3, err_4 := ergo__DecodeSlice_9(env, r)
+			if err_4 != nil {
+				return *new(ergo__FolderCycleOut), err_4
+			}
+			out.Sites = f_3
+			seen_3 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "parent"}
+	}
+	if !seen_1 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "path"}
+	}
+	if !seen_3 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "sites"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_20(env *ergo__Env, r ergo__Reader) ([]ergo__FolderCycleOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__FolderCycleOut), err
+	}
+	out := []ergo__FolderCycleOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeFolderCycleOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FolderCycleOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteFolderCycleOut(env *ergo__Env, wv json__text, v ergo__FolderCycleOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"parent\":"))
+	(w).stringBody(string(v.Parent))
+	(w).raw(string(",\"members\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Members)
+	(w).sep()
+	(w).raw(string("\"path\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Path)
+	(w).sep()
+	(w).raw(string("\"sites\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_9(env, *w, v.Sites)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_20(env *ergo__Env, wv json__text, v []ergo__FolderCycleOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteFolderCycleOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadFolderCycleOut(env *ergo__Env, r json__Reader_1) (ergo__FolderCycleOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__FolderCycleOut), err
+	}
+	var out ergo__FolderCycleOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "parent":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(ergo__FolderCycleOut), err_1
+			}
+			f := string(raw)
+			out.Parent = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__ReadSlice_29(env, r)
+			if err_2 != nil {
+				return *new(ergo__FolderCycleOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "path":
+			f_2, err_3 := ergo__ReadSlice_29(env, r)
+			if err_3 != nil {
+				return *new(ergo__FolderCycleOut), err_3
+			}
+			out.Path = f_2
+			seen_2 = true
+		case "sites":
+			f_3, err_4 := ergo__ReadSlice_9(env, r)
+			if err_4 != nil {
+				return *new(ergo__FolderCycleOut), err_4
+			}
+			out.Sites = f_3
+			seen_3 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "parent"}
+	}
+	if !seen_1 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
+	}
+	if !seen_3 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_20(env *ergo__Env, r json__Reader_1) ([]ergo__FolderCycleOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__FolderCycleOut), err
+	}
+	out := []ergo__FolderCycleOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFolderCycleOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FolderCycleOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadFolderCycleOut_1(env *ergo__Env, r json__Stream) (ergo__FolderCycleOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__FolderCycleOut), err
+	}
+	var out ergo__FolderCycleOut
+	var seen, seen_1, seen_2, seen_3 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "parent":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(ergo__FolderCycleOut), err_1
+			}
+			f := string(raw)
+			out.Parent = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__ReadSlice_59(env, r)
+			if err_2 != nil {
+				return *new(ergo__FolderCycleOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "path":
+			f_2, err_3 := ergo__ReadSlice_59(env, r)
+			if err_3 != nil {
+				return *new(ergo__FolderCycleOut), err_3
+			}
+			out.Path = f_2
+			seen_2 = true
+		case "sites":
+			f_3, err_4 := ergo__ReadSlice_39(env, r)
+			if err_4 != nil {
+				return *new(ergo__FolderCycleOut), err_4
+			}
+			out.Sites = f_3
+			seen_3 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "parent"}
+	}
+	if !seen_1 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
+	}
+	if !seen_3 {
+		return *new(ergo__FolderCycleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_50(env *ergo__Env, r json__Stream) ([]ergo__FolderCycleOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__FolderCycleOut), err
+	}
+	out := []ergo__FolderCycleOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadFolderCycleOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__FolderCycleOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__EncodeTangleOut(env *ergo__Env, w ergo__Writer, v ergo__TangleOut) {
+	w.BeginObject(env.task, 6)
+	w.Key(env.task, "package")
+	w.String(env.task, string(v.Package))
+	w.Key(env.task, "members")
+	ergo__EncodeSlice_29(env, w, v.Members)
+	w.Key(env.task, "files")
+	ergo__EncodeSlice_29(env, w, v.Files)
+	w.Key(env.task, "path")
+	ergo__EncodeSlice_29(env, w, v.Path)
+	w.Key(env.task, "sites")
+	ergo__EncodeSlice_9(env, w, v.Sites)
+	w.Key(env.task, "crossFile")
+	w.Bool(env.task, bool(v.CrossFile))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_27(env *ergo__Env, w ergo__Writer, v []ergo__TangleOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeTangleOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeTangleOut(env *ergo__Env, r ergo__Reader) (ergo__TangleOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__TangleOut), err
+	}
+	var out ergo__TangleOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "package":
+			raw, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(ergo__TangleOut), err_1
+			}
+			f := string(raw)
+			out.Package = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__DecodeSlice_29(env, r)
+			if err_2 != nil {
+				return *new(ergo__TangleOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "files":
+			f_2, err_3 := ergo__DecodeSlice_29(env, r)
+			if err_3 != nil {
+				return *new(ergo__TangleOut), err_3
+			}
+			out.Files = f_2
+			seen_2 = true
+		case "path":
+			f_3, err_4 := ergo__DecodeSlice_29(env, r)
+			if err_4 != nil {
+				return *new(ergo__TangleOut), err_4
+			}
+			out.Path = f_3
+			seen_3 = true
+		case "sites":
+			f_4, err_5 := ergo__DecodeSlice_9(env, r)
+			if err_5 != nil {
+				return *new(ergo__TangleOut), err_5
+			}
+			out.Sites = f_4
+			seen_4 = true
+		case "crossFile":
+			raw_1, err_6 := r.Bool(env.task)
+			if err_6 != nil {
+				return *new(ergo__TangleOut), err_6
+			}
+			f_5 := bool(raw_1)
+			out.CrossFile = f_5
+			seen_5 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "package"}
+	}
+	if !seen_1 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "files"}
+	}
+	if !seen_3 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "path"}
+	}
+	if !seen_4 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "sites"}
+	}
+	if !seen_5 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "crossFile"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_27(env *ergo__Env, r ergo__Reader) ([]ergo__TangleOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__TangleOut), err
+	}
+	out := []ergo__TangleOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeTangleOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__TangleOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteTangleOut(env *ergo__Env, wv json__text, v ergo__TangleOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"package\":"))
+	(w).stringBody(string(v.Package))
+	(w).raw(string(",\"members\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Members)
+	(w).sep()
+	(w).raw(string("\"files\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Files)
+	(w).sep()
+	(w).raw(string("\"path\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Path)
+	(w).sep()
+	(w).raw(string("\"sites\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_9(env, *w, v.Sites)
+	(w).sep()
+	(w).raw(string("\"crossFile\":"))
+	(w).boolBody(bool(v.CrossFile))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_27(env *ergo__Env, wv json__text, v []ergo__TangleOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteTangleOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadTangleOut(env *ergo__Env, r json__Reader_1) (ergo__TangleOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__TangleOut), err
+	}
+	var out ergo__TangleOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "package":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(ergo__TangleOut), err_1
+			}
+			f := string(raw)
+			out.Package = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__ReadSlice_29(env, r)
+			if err_2 != nil {
+				return *new(ergo__TangleOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "files":
+			f_2, err_3 := ergo__ReadSlice_29(env, r)
+			if err_3 != nil {
+				return *new(ergo__TangleOut), err_3
+			}
+			out.Files = f_2
+			seen_2 = true
+		case "path":
+			f_3, err_4 := ergo__ReadSlice_29(env, r)
+			if err_4 != nil {
+				return *new(ergo__TangleOut), err_4
+			}
+			out.Path = f_3
+			seen_3 = true
+		case "sites":
+			f_4, err_5 := ergo__ReadSlice_9(env, r)
+			if err_5 != nil {
+				return *new(ergo__TangleOut), err_5
+			}
+			out.Sites = f_4
+			seen_4 = true
+		case "crossFile":
+			raw_1, err_6 := (r).Bool(env)
+			if err_6 != nil {
+				return *new(ergo__TangleOut), err_6
+			}
+			f_5 := bool(raw_1)
+			out.CrossFile = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
+	}
+	if !seen_1 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "files"}
+	}
+	if !seen_3 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
+	}
+	if !seen_4 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
+	}
+	if !seen_5 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "crossFile"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_27(env *ergo__Env, r json__Reader_1) ([]ergo__TangleOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__TangleOut), err
+	}
+	out := []ergo__TangleOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadTangleOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__TangleOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadTangleOut_1(env *ergo__Env, r json__Stream) (ergo__TangleOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__TangleOut), err
+	}
+	var out ergo__TangleOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "package":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(ergo__TangleOut), err_1
+			}
+			f := string(raw)
+			out.Package = f
+			seen = true
+		case "members":
+			f_1, err_2 := ergo__ReadSlice_59(env, r)
+			if err_2 != nil {
+				return *new(ergo__TangleOut), err_2
+			}
+			out.Members = f_1
+			seen_1 = true
+		case "files":
+			f_2, err_3 := ergo__ReadSlice_59(env, r)
+			if err_3 != nil {
+				return *new(ergo__TangleOut), err_3
+			}
+			out.Files = f_2
+			seen_2 = true
+		case "path":
+			f_3, err_4 := ergo__ReadSlice_59(env, r)
+			if err_4 != nil {
+				return *new(ergo__TangleOut), err_4
+			}
+			out.Path = f_3
+			seen_3 = true
+		case "sites":
+			f_4, err_5 := ergo__ReadSlice_39(env, r)
+			if err_5 != nil {
+				return *new(ergo__TangleOut), err_5
+			}
+			out.Sites = f_4
+			seen_4 = true
+		case "crossFile":
+			raw_1, err_6 := (r).Bool(env)
+			if err_6 != nil {
+				return *new(ergo__TangleOut), err_6
+			}
+			f_5 := bool(raw_1)
+			out.CrossFile = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
+	}
+	if !seen_1 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "members"}
+	}
+	if !seen_2 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "files"}
+	}
+	if !seen_3 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "path"}
+	}
+	if !seen_4 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "sites"}
+	}
+	if !seen_5 {
+		return *new(ergo__TangleOut), ergo__WireMissingField{Path: (r).Path(env), Field: "crossFile"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_57(env *ergo__Env, r json__Stream) ([]ergo__TangleOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__TangleOut), err
+	}
+	out := []ergo__TangleOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadTangleOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__TangleOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__EncodeEvidenceDelta(env *ergo__Env, w ergo__Writer, v codegraph__EvidenceDelta) {
+	w.BeginObject(env.task, 6)
+	w.Key(env.task, "rule")
+	w.String(env.task, string(v.Rule))
+	w.Key(env.task, "subject")
+	w.String(env.task, string(v.Subject))
+	w.Key(env.task, "key")
+	w.String(env.task, string(v.Key))
+	w.Key(env.task, "baseCount")
+	w.Int(env.task, int64(v.BaseCount))
+	w.Key(env.task, "headCount")
+	w.Int(env.task, int64(v.HeadCount))
+	w.Key(env.task, "detail")
+	w.String(env.task, string(v.Detail))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_3(env *ergo__Env, w ergo__Writer, v []codegraph__EvidenceDelta) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeEvidenceDelta(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__EncodeEvidenceItem(env *ergo__Env, w ergo__Writer, v codegraph__EvidenceItem) {
+	w.BeginObject(env.task, 5)
+	w.Key(env.task, "rule")
+	w.String(env.task, string(v.Rule))
+	w.Key(env.task, "subject")
+	w.String(env.task, string(v.Subject))
+	w.Key(env.task, "key")
+	w.String(env.task, string(v.Key))
+	w.Key(env.task, "count")
+	w.Int(env.task, int64(v.Count))
+	w.Key(env.task, "detail")
+	w.String(env.task, string(v.Detail))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_4(env *ergo__Env, w ergo__Writer, v []codegraph__EvidenceItem) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeEvidenceItem(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__EncodeLayoutComparison(env *ergo__Env, w ergo__Writer, v codegraph__LayoutComparison) {
+	w.BeginObject(env.task, 6)
+	w.Key(env.task, "advisory")
+	w.Bool(env.task, bool(v.Advisory))
+	w.Key(env.task, "regressed")
+	w.Bool(env.task, bool(v.Regressed))
+	w.Key(env.task, "added")
+	ergo__EncodeSlice_3(env, w, v.Added)
+	w.Key(env.task, "grown")
+	ergo__EncodeSlice_3(env, w, v.Grown)
+	w.Key(env.task, "unchanged")
+	ergo__EncodeSlice_4(env, w, v.Unchanged)
+	w.Key(env.task, "removed")
+	ergo__EncodeSlice_4(env, w, v.Removed)
+	w.EndObject(env.task)
+}
+
+func ergo__DecodeEvidenceDelta(env *ergo__Env, r ergo__Reader) (codegraph__EvidenceDelta, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__EvidenceDelta), err
+	}
+	var out codegraph__EvidenceDelta
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "rule":
+			raw, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(codegraph__EvidenceDelta), err_1
+			}
+			f := string(raw)
+			out.Rule = f
+			seen = true
+		case "subject":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(codegraph__EvidenceDelta), err_2
+			}
+			f_1 := string(raw_1)
+			out.Subject = f_1
+			seen_1 = true
+		case "key":
+			raw_2, err_3 := r.String(env.task)
+			if err_3 != nil {
+				return *new(codegraph__EvidenceDelta), err_3
+			}
+			f_2 := string(raw_2)
+			out.Key = f_2
+			seen_2 = true
+		case "baseCount":
+			raw_3, err_4 := r.Int(env.task)
+			if err_4 != nil {
+				return *new(codegraph__EvidenceDelta), err_4
+			}
+			f_3 := int(raw_3)
+			out.BaseCount = f_3
+			seen_3 = true
+		case "headCount":
+			raw_4, err_5 := r.Int(env.task)
+			if err_5 != nil {
+				return *new(codegraph__EvidenceDelta), err_5
+			}
+			f_4 := int(raw_4)
+			out.HeadCount = f_4
+			seen_4 = true
+		case "detail":
+			raw_5, err_6 := r.String(env.task)
+			if err_6 != nil {
+				return *new(codegraph__EvidenceDelta), err_6
+			}
+			f_5 := string(raw_5)
+			out.Detail = f_5
+			seen_5 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: r.Path(env.task), Field: "rule"}
+	}
+	if !seen_1 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: r.Path(env.task), Field: "subject"}
+	}
+	if !seen_2 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: r.Path(env.task), Field: "key"}
+	}
+	if !seen_3 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: r.Path(env.task), Field: "baseCount"}
+	}
+	if !seen_4 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: r.Path(env.task), Field: "headCount"}
+	}
+	if !seen_5 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: r.Path(env.task), Field: "detail"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_3(env *ergo__Env, r ergo__Reader) ([]codegraph__EvidenceDelta, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]codegraph__EvidenceDelta), err
+	}
+	out := []codegraph__EvidenceDelta{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeEvidenceDelta(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__EvidenceDelta), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__DecodeEvidenceItem(env *ergo__Env, r ergo__Reader) (codegraph__EvidenceItem, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__EvidenceItem), err
+	}
+	var out codegraph__EvidenceItem
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "rule":
+			raw, err_1 := r.String(env.task)
+			if err_1 != nil {
+				return *new(codegraph__EvidenceItem), err_1
+			}
+			f := string(raw)
+			out.Rule = f
+			seen = true
+		case "subject":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(codegraph__EvidenceItem), err_2
+			}
+			f_1 := string(raw_1)
+			out.Subject = f_1
+			seen_1 = true
+		case "key":
+			raw_2, err_3 := r.String(env.task)
+			if err_3 != nil {
+				return *new(codegraph__EvidenceItem), err_3
+			}
+			f_2 := string(raw_2)
+			out.Key = f_2
+			seen_2 = true
+		case "count":
+			raw_3, err_4 := r.Int(env.task)
+			if err_4 != nil {
+				return *new(codegraph__EvidenceItem), err_4
+			}
+			f_3 := int(raw_3)
+			out.Count = f_3
+			seen_3 = true
+		case "detail":
+			raw_4, err_5 := r.String(env.task)
+			if err_5 != nil {
+				return *new(codegraph__EvidenceItem), err_5
+			}
+			f_4 := string(raw_4)
+			out.Detail = f_4
+			seen_4 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: r.Path(env.task), Field: "rule"}
+	}
+	if !seen_1 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: r.Path(env.task), Field: "subject"}
+	}
+	if !seen_2 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: r.Path(env.task), Field: "key"}
+	}
+	if !seen_3 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: r.Path(env.task), Field: "count"}
+	}
+	if !seen_4 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: r.Path(env.task), Field: "detail"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_4(env *ergo__Env, r ergo__Reader) ([]codegraph__EvidenceItem, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]codegraph__EvidenceItem), err
+	}
+	out := []codegraph__EvidenceItem{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeEvidenceItem(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__EvidenceItem), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__DecodeLayoutComparison(env *ergo__Env, r ergo__Reader) (codegraph__LayoutComparison, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(codegraph__LayoutComparison), err
+	}
+	var out codegraph__LayoutComparison
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "advisory":
+			raw, err_1 := r.Bool(env.task)
+			if err_1 != nil {
+				return *new(codegraph__LayoutComparison), err_1
+			}
+			f := bool(raw)
+			out.Advisory = f
+			seen = true
+		case "regressed":
+			raw_1, err_2 := r.Bool(env.task)
+			if err_2 != nil {
+				return *new(codegraph__LayoutComparison), err_2
+			}
+			f_1 := bool(raw_1)
+			out.Regressed = f_1
+			seen_1 = true
+		case "added":
+			f_2, err_3 := ergo__DecodeSlice_3(env, r)
+			if err_3 != nil {
+				return *new(codegraph__LayoutComparison), err_3
+			}
+			out.Added = f_2
+			seen_2 = true
+		case "grown":
+			f_3, err_4 := ergo__DecodeSlice_3(env, r)
+			if err_4 != nil {
+				return *new(codegraph__LayoutComparison), err_4
+			}
+			out.Grown = f_3
+			seen_3 = true
+		case "unchanged":
+			f_4, err_5 := ergo__DecodeSlice_4(env, r)
+			if err_5 != nil {
+				return *new(codegraph__LayoutComparison), err_5
+			}
+			out.Unchanged = f_4
+			seen_4 = true
+		case "removed":
+			f_5, err_6 := ergo__DecodeSlice_4(env, r)
+			if err_6 != nil {
+				return *new(codegraph__LayoutComparison), err_6
+			}
+			out.Removed = f_5
+			seen_5 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: r.Path(env.task), Field: "advisory"}
+	}
+	if !seen_1 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: r.Path(env.task), Field: "regressed"}
+	}
+	if !seen_2 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: r.Path(env.task), Field: "added"}
+	}
+	if !seen_3 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: r.Path(env.task), Field: "grown"}
+	}
+	if !seen_4 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: r.Path(env.task), Field: "unchanged"}
+	}
+	if !seen_5 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: r.Path(env.task), Field: "removed"}
+	}
+	return out, nil
+}
+
+func ergo__WriteEvidenceDelta(env *ergo__Env, wv json__text, v codegraph__EvidenceDelta) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"rule\":"))
+	(w).stringBody(string(v.Rule))
+	(w).raw(string(",\"subject\":"))
+	(w).stringBody(string(v.Subject))
+	(w).raw(string(",\"key\":"))
+	(w).stringBody(string(v.Key))
+	(w).raw(string(",\"baseCount\":"))
+	(w).intBody(int64(v.BaseCount))
+	(w).raw(string(",\"headCount\":"))
+	(w).intBody(int64(v.HeadCount))
+	(w).raw(string(",\"detail\":"))
+	(w).stringBody(string(v.Detail))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_3(env *ergo__Env, wv json__text, v []codegraph__EvidenceDelta) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteEvidenceDelta(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteEvidenceItem(env *ergo__Env, wv json__text, v codegraph__EvidenceItem) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"rule\":"))
+	(w).stringBody(string(v.Rule))
+	(w).raw(string(",\"subject\":"))
+	(w).stringBody(string(v.Subject))
+	(w).raw(string(",\"key\":"))
+	(w).stringBody(string(v.Key))
+	(w).raw(string(",\"count\":"))
+	(w).intBody(int64(v.Count))
+	(w).raw(string(",\"detail\":"))
+	(w).stringBody(string(v.Detail))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_4(env *ergo__Env, wv json__text, v []codegraph__EvidenceItem) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteEvidenceItem(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_3(env *ergo__Env, wv json__text, v []codegraph__EvidenceDelta) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteEvidenceDelta(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_4(env *ergo__Env, wv json__text, v []codegraph__EvidenceItem) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteEvidenceItem(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteLayoutComparison(env *ergo__Env, wv json__text, v codegraph__LayoutComparison) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"advisory\":"))
+	(w).boolBody(bool(v.Advisory))
+	(w).raw(string(",\"regressed\":"))
+	(w).boolBody(bool(v.Regressed))
+	(w).raw(string(",\"added\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_3(env, *w, v.Added)
+	(w).sep()
+	(w).raw(string("\"grown\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_3(env, *w, v.Grown)
+	(w).sep()
+	(w).raw(string("\"unchanged\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_4(env, *w, v.Unchanged)
+	(w).sep()
+	(w).raw(string("\"removed\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_4(env, *w, v.Removed)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadEvidenceDelta(env *ergo__Env, r json__Reader_1) (codegraph__EvidenceDelta, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__EvidenceDelta), err
+	}
+	var out codegraph__EvidenceDelta
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "rule":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__EvidenceDelta), err_1
+			}
+			f := string(raw)
+			out.Rule = f
+			seen = true
+		case "subject":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(codegraph__EvidenceDelta), err_2
+			}
+			f_1 := string(raw_1)
+			out.Subject = f_1
+			seen_1 = true
+		case "key":
+			raw_2, err_3 := (r).String(env)
+			if err_3 != nil {
+				return *new(codegraph__EvidenceDelta), err_3
+			}
+			f_2 := string(raw_2)
+			out.Key = f_2
+			seen_2 = true
+		case "baseCount":
+			raw_3, err_4 := (r).Int(env)
+			if err_4 != nil {
+				return *new(codegraph__EvidenceDelta), err_4
+			}
+			f_3 := int(raw_3)
+			out.BaseCount = f_3
+			seen_3 = true
+		case "headCount":
+			raw_4, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(codegraph__EvidenceDelta), err_5
+			}
+			f_4 := int(raw_4)
+			out.HeadCount = f_4
+			seen_4 = true
+		case "detail":
+			raw_5, err_6 := (r).String(env)
+			if err_6 != nil {
+				return *new(codegraph__EvidenceDelta), err_6
+			}
+			f_5 := string(raw_5)
+			out.Detail = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "rule"}
+	}
+	if !seen_1 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "subject"}
+	}
+	if !seen_2 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "key"}
+	}
+	if !seen_3 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "baseCount"}
+	}
+	if !seen_4 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "headCount"}
+	}
+	if !seen_5 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "detail"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_3(env *ergo__Env, r json__Reader_1) ([]codegraph__EvidenceDelta, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__EvidenceDelta), err
+	}
+	out := []codegraph__EvidenceDelta{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEvidenceDelta(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__EvidenceDelta), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadEvidenceItem(env *ergo__Env, r json__Reader_1) (codegraph__EvidenceItem, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__EvidenceItem), err
+	}
+	var out codegraph__EvidenceItem
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "rule":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__EvidenceItem), err_1
+			}
+			f := string(raw)
+			out.Rule = f
+			seen = true
+		case "subject":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(codegraph__EvidenceItem), err_2
+			}
+			f_1 := string(raw_1)
+			out.Subject = f_1
+			seen_1 = true
+		case "key":
+			raw_2, err_3 := (r).String(env)
+			if err_3 != nil {
+				return *new(codegraph__EvidenceItem), err_3
+			}
+			f_2 := string(raw_2)
+			out.Key = f_2
+			seen_2 = true
+		case "count":
+			raw_3, err_4 := (r).Int(env)
+			if err_4 != nil {
+				return *new(codegraph__EvidenceItem), err_4
+			}
+			f_3 := int(raw_3)
+			out.Count = f_3
+			seen_3 = true
+		case "detail":
+			raw_4, err_5 := (r).String(env)
+			if err_5 != nil {
+				return *new(codegraph__EvidenceItem), err_5
+			}
+			f_4 := string(raw_4)
+			out.Detail = f_4
+			seen_4 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "rule"}
+	}
+	if !seen_1 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "subject"}
+	}
+	if !seen_2 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "key"}
+	}
+	if !seen_3 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "count"}
+	}
+	if !seen_4 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "detail"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_4(env *ergo__Env, r json__Reader_1) ([]codegraph__EvidenceItem, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__EvidenceItem), err
+	}
+	out := []codegraph__EvidenceItem{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEvidenceItem(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__EvidenceItem), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadLayoutComparison(env *ergo__Env, r json__Reader_1) (codegraph__LayoutComparison, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__LayoutComparison), err
+	}
+	var out codegraph__LayoutComparison
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "advisory":
+			raw, err_1 := (r).Bool(env)
+			if err_1 != nil {
+				return *new(codegraph__LayoutComparison), err_1
+			}
+			f := bool(raw)
+			out.Advisory = f
+			seen = true
+		case "regressed":
+			raw_1, err_2 := (r).Bool(env)
+			if err_2 != nil {
+				return *new(codegraph__LayoutComparison), err_2
+			}
+			f_1 := bool(raw_1)
+			out.Regressed = f_1
+			seen_1 = true
+		case "added":
+			f_2, err_3 := ergo__ReadSlice_3(env, r)
+			if err_3 != nil {
+				return *new(codegraph__LayoutComparison), err_3
+			}
+			out.Added = f_2
+			seen_2 = true
+		case "grown":
+			f_3, err_4 := ergo__ReadSlice_3(env, r)
+			if err_4 != nil {
+				return *new(codegraph__LayoutComparison), err_4
+			}
+			out.Grown = f_3
+			seen_3 = true
+		case "unchanged":
+			f_4, err_5 := ergo__ReadSlice_4(env, r)
+			if err_5 != nil {
+				return *new(codegraph__LayoutComparison), err_5
+			}
+			out.Unchanged = f_4
+			seen_4 = true
+		case "removed":
+			f_5, err_6 := ergo__ReadSlice_4(env, r)
+			if err_6 != nil {
+				return *new(codegraph__LayoutComparison), err_6
+			}
+			out.Removed = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "advisory"}
+	}
+	if !seen_1 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "regressed"}
+	}
+	if !seen_2 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "added"}
+	}
+	if !seen_3 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "grown"}
+	}
+	if !seen_4 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "unchanged"}
+	}
+	if !seen_5 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "removed"}
+	}
+	return out, nil
+}
+
+func ergo__ReadEvidenceDelta_1(env *ergo__Env, r json__Stream) (codegraph__EvidenceDelta, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__EvidenceDelta), err
+	}
+	var out codegraph__EvidenceDelta
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "rule":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__EvidenceDelta), err_1
+			}
+			f := string(raw)
+			out.Rule = f
+			seen = true
+		case "subject":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(codegraph__EvidenceDelta), err_2
+			}
+			f_1 := string(raw_1)
+			out.Subject = f_1
+			seen_1 = true
+		case "key":
+			raw_2, err_3 := (r).String(env)
+			if err_3 != nil {
+				return *new(codegraph__EvidenceDelta), err_3
+			}
+			f_2 := string(raw_2)
+			out.Key = f_2
+			seen_2 = true
+		case "baseCount":
+			raw_3, err_4 := (r).Int(env)
+			if err_4 != nil {
+				return *new(codegraph__EvidenceDelta), err_4
+			}
+			f_3 := int(raw_3)
+			out.BaseCount = f_3
+			seen_3 = true
+		case "headCount":
+			raw_4, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(codegraph__EvidenceDelta), err_5
+			}
+			f_4 := int(raw_4)
+			out.HeadCount = f_4
+			seen_4 = true
+		case "detail":
+			raw_5, err_6 := (r).String(env)
+			if err_6 != nil {
+				return *new(codegraph__EvidenceDelta), err_6
+			}
+			f_5 := string(raw_5)
+			out.Detail = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "rule"}
+	}
+	if !seen_1 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "subject"}
+	}
+	if !seen_2 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "key"}
+	}
+	if !seen_3 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "baseCount"}
+	}
+	if !seen_4 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "headCount"}
+	}
+	if !seen_5 {
+		return *new(codegraph__EvidenceDelta), ergo__WireMissingField{Path: (r).Path(env), Field: "detail"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_33(env *ergo__Env, r json__Stream) ([]codegraph__EvidenceDelta, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__EvidenceDelta), err
+	}
+	out := []codegraph__EvidenceDelta{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEvidenceDelta_1(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__EvidenceDelta), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadEvidenceItem_1(env *ergo__Env, r json__Stream) (codegraph__EvidenceItem, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__EvidenceItem), err
+	}
+	var out codegraph__EvidenceItem
+	var seen, seen_1, seen_2, seen_3, seen_4 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "rule":
+			raw, err_1 := (r).String(env)
+			if err_1 != nil {
+				return *new(codegraph__EvidenceItem), err_1
+			}
+			f := string(raw)
+			out.Rule = f
+			seen = true
+		case "subject":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(codegraph__EvidenceItem), err_2
+			}
+			f_1 := string(raw_1)
+			out.Subject = f_1
+			seen_1 = true
+		case "key":
+			raw_2, err_3 := (r).String(env)
+			if err_3 != nil {
+				return *new(codegraph__EvidenceItem), err_3
+			}
+			f_2 := string(raw_2)
+			out.Key = f_2
+			seen_2 = true
+		case "count":
+			raw_3, err_4 := (r).Int(env)
+			if err_4 != nil {
+				return *new(codegraph__EvidenceItem), err_4
+			}
+			f_3 := int(raw_3)
+			out.Count = f_3
+			seen_3 = true
+		case "detail":
+			raw_4, err_5 := (r).String(env)
+			if err_5 != nil {
+				return *new(codegraph__EvidenceItem), err_5
+			}
+			f_4 := string(raw_4)
+			out.Detail = f_4
+			seen_4 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "rule"}
+	}
+	if !seen_1 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "subject"}
+	}
+	if !seen_2 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "key"}
+	}
+	if !seen_3 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "count"}
+	}
+	if !seen_4 {
+		return *new(codegraph__EvidenceItem), ergo__WireMissingField{Path: (r).Path(env), Field: "detail"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_34(env *ergo__Env, r json__Stream) ([]codegraph__EvidenceItem, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]codegraph__EvidenceItem), err
+	}
+	out := []codegraph__EvidenceItem{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEvidenceItem_1(env, r)
+		if err_1 != nil {
+			return *new([]codegraph__EvidenceItem), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadLayoutComparison_1(env *ergo__Env, r json__Stream) (codegraph__LayoutComparison, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(codegraph__LayoutComparison), err
+	}
+	var out codegraph__LayoutComparison
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "advisory":
+			raw, err_1 := (r).Bool(env)
+			if err_1 != nil {
+				return *new(codegraph__LayoutComparison), err_1
+			}
+			f := bool(raw)
+			out.Advisory = f
+			seen = true
+		case "regressed":
+			raw_1, err_2 := (r).Bool(env)
+			if err_2 != nil {
+				return *new(codegraph__LayoutComparison), err_2
+			}
+			f_1 := bool(raw_1)
+			out.Regressed = f_1
+			seen_1 = true
+		case "added":
+			f_2, err_3 := ergo__ReadSlice_33(env, r)
+			if err_3 != nil {
+				return *new(codegraph__LayoutComparison), err_3
+			}
+			out.Added = f_2
+			seen_2 = true
+		case "grown":
+			f_3, err_4 := ergo__ReadSlice_33(env, r)
+			if err_4 != nil {
+				return *new(codegraph__LayoutComparison), err_4
+			}
+			out.Grown = f_3
+			seen_3 = true
+		case "unchanged":
+			f_4, err_5 := ergo__ReadSlice_34(env, r)
+			if err_5 != nil {
+				return *new(codegraph__LayoutComparison), err_5
+			}
+			out.Unchanged = f_4
+			seen_4 = true
+		case "removed":
+			f_5, err_6 := ergo__ReadSlice_34(env, r)
+			if err_6 != nil {
+				return *new(codegraph__LayoutComparison), err_6
+			}
+			out.Removed = f_5
+			seen_5 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "advisory"}
+	}
+	if !seen_1 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "regressed"}
+	}
+	if !seen_2 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "added"}
+	}
+	if !seen_3 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "grown"}
+	}
+	if !seen_4 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "unchanged"}
+	}
+	if !seen_5 {
+		return *new(codegraph__LayoutComparison), ergo__WireMissingField{Path: (r).Path(env), Field: "removed"}
+	}
+	return out, nil
+}
+
+func ergo__EncodeEntryOut(env *ergo__Env, w ergo__Writer, v ergo__EntryOut) {
+	w.BeginObject(env.task, 3)
+	w.Key(env.task, "id")
+	w.Int(env.task, int64(v.Id))
+	w.Key(env.task, "name")
+	w.String(env.task, string(v.Name))
+	w.Key(env.task, "site")
+	w.Int(env.task, int64(v.Site))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_16(env *ergo__Env, w ergo__Writer, v []ergo__EntryOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeEntryOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__EncodeGroupOut(env *ergo__Env, w ergo__Writer, v ergo__GroupOut) {
+	w.BeginObject(env.task, 3)
+	w.Key(env.task, "id")
+	w.Int(env.task, int64(v.Id))
+	w.Key(env.task, "name")
+	w.String(env.task, string(v.Name))
+	w.Key(env.task, "entries")
+	ergo__EncodeSlice_9(env, w, v.Entries)
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_21(env *ergo__Env, w ergo__Writer, v []ergo__GroupOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeGroupOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__EncodeInterfaceOut(env *ergo__Env, w ergo__Writer, v ergo__InterfaceOut) {
+	w.BeginObject(env.task, 8)
+	w.Key(env.task, "packageId")
+	w.Int(env.task, int64(v.PackageId))
+	w.Key(env.task, "package")
+	w.String(env.task, string(v.Package))
+	w.Key(env.task, "entries")
+	ergo__EncodeSlice_16(env, w, v.Entries)
+	w.Key(env.task, "groups")
+	ergo__EncodeSlice_21(env, w, v.Groups)
+	w.Key(env.task, "widest")
+	w.Int(env.task, int64(v.Widest))
+	w.Key(env.task, "wide")
+	w.Bool(env.task, bool(v.Wide))
+	w.Key(env.task, "backing")
+	ergo__EncodeSlice_29(env, w, v.Backing)
+	w.Key(env.task, "unresolved")
+	w.Int(env.task, int64(v.Unresolved))
+	w.EndObject(env.task)
+}
+
+func ergo__EncodeSlice_23(env *ergo__Env, w ergo__Writer, v []ergo__InterfaceOut) {
+	w.BeginList(env.task, len(v))
+	for _, e := range v {
+		ergo__EncodeInterfaceOut(env, w, e)
+	}
+	w.EndList(env.task)
+}
+
+func ergo__DecodeEntryOut(env *ergo__Env, r ergo__Reader) (ergo__EntryOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__EntryOut), err
+	}
+	var out ergo__EntryOut
+	var seen, seen_1, seen_2 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "id":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(ergo__EntryOut), err_1
+			}
+			f := int(raw)
+			out.Id = f
+			seen = true
+		case "name":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(ergo__EntryOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Name = f_1
+			seen_1 = true
+		case "site":
+			raw_2, err_3 := r.Int(env.task)
+			if err_3 != nil {
+				return *new(ergo__EntryOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.Site = f_2
+			seen_2 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "id"}
+	}
+	if !seen_1 {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "name"}
+	}
+	if !seen_2 {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "site"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_16(env *ergo__Env, r ergo__Reader) ([]ergo__EntryOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__EntryOut), err
+	}
+	out := []ergo__EntryOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeEntryOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__EntryOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__DecodeGroupOut(env *ergo__Env, r ergo__Reader) (ergo__GroupOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__GroupOut), err
+	}
+	var out ergo__GroupOut
+	var seen, seen_1, seen_2 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "id":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(ergo__GroupOut), err_1
+			}
+			f := int(raw)
+			out.Id = f
+			seen = true
+		case "name":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(ergo__GroupOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Name = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__DecodeSlice_9(env, r)
+			if err_3 != nil {
+				return *new(ergo__GroupOut), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "id"}
+	}
+	if !seen_1 {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "name"}
+	}
+	if !seen_2 {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "entries"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_21(env *ergo__Env, r ergo__Reader) ([]ergo__GroupOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__GroupOut), err
+	}
+	out := []ergo__GroupOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeGroupOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__GroupOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__DecodeInterfaceOut(env *ergo__Env, r ergo__Reader) (ergo__InterfaceOut, error) {
+	if err := r.BeginObject(env.task); err != nil {
+		return *new(ergo__InterfaceOut), err
+	}
+	var out ergo__InterfaceOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
+	for r.More(env.task) {
+		switch r.Key(env.task) {
+		case "packageId":
+			raw, err_1 := r.Int(env.task)
+			if err_1 != nil {
+				return *new(ergo__InterfaceOut), err_1
+			}
+			f := int(raw)
+			out.PackageId = f
+			seen = true
+		case "package":
+			raw_1, err_2 := r.String(env.task)
+			if err_2 != nil {
+				return *new(ergo__InterfaceOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Package = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__DecodeSlice_16(env, r)
+			if err_3 != nil {
+				return *new(ergo__InterfaceOut), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		case "groups":
+			f_3, err_4 := ergo__DecodeSlice_21(env, r)
+			if err_4 != nil {
+				return *new(ergo__InterfaceOut), err_4
+			}
+			out.Groups = f_3
+			seen_3 = true
+		case "widest":
+			raw_2, err_5 := r.Int(env.task)
+			if err_5 != nil {
+				return *new(ergo__InterfaceOut), err_5
+			}
+			f_4 := int(raw_2)
+			out.Widest = f_4
+			seen_4 = true
+		case "wide":
+			raw_3, err_6 := r.Bool(env.task)
+			if err_6 != nil {
+				return *new(ergo__InterfaceOut), err_6
+			}
+			f_5 := bool(raw_3)
+			out.Wide = f_5
+			seen_5 = true
+		case "backing":
+			f_6, err_7 := ergo__DecodeSlice_29(env, r)
+			if err_7 != nil {
+				return *new(ergo__InterfaceOut), err_7
+			}
+			out.Backing = f_6
+			seen_6 = true
+		case "unresolved":
+			raw_4, err_8 := r.Int(env.task)
+			if err_8 != nil {
+				return *new(ergo__InterfaceOut), err_8
+			}
+			f_7 := int(raw_4)
+			out.Unresolved = f_7
+			seen_7 = true
+		default:
+			r.Skip(env.task)
+		}
+	}
+	r.End(env.task)
+	if !seen {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "packageId"}
+	}
+	if !seen_1 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "package"}
+	}
+	if !seen_2 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "entries"}
+	}
+	if !seen_3 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "groups"}
+	}
+	if !seen_4 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "widest"}
+	}
+	if !seen_5 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "wide"}
+	}
+	if !seen_6 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "backing"}
+	}
+	if !seen_7 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: r.Path(env.task), Field: "unresolved"}
+	}
+	return out, nil
+}
+
+func ergo__DecodeSlice_23(env *ergo__Env, r ergo__Reader) ([]ergo__InterfaceOut, error) {
+	if err := r.BeginList(env.task); err != nil {
+		return *new([]ergo__InterfaceOut), err
+	}
+	out := []ergo__InterfaceOut{}
+	for r.More(env.task) {
+		e, err_1 := ergo__DecodeInterfaceOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__InterfaceOut), err_1
+		}
+		out = append(out, e)
+	}
+	r.End(env.task)
+	return out, nil
+}
+
+func ergo__WriteEntryOut(env *ergo__Env, wv json__text, v ergo__EntryOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"id\":"))
+	(w).intBody(int64(v.Id))
+	(w).raw(string(",\"name\":"))
+	(w).stringBody(string(v.Name))
+	(w).raw(string(",\"site\":"))
+	(w).intBody(int64(v.Site))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_16(env *ergo__Env, wv json__text, v []ergo__EntryOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteEntryOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteGroupOut(env *ergo__Env, wv json__text, v ergo__GroupOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"id\":"))
+	(w).intBody(int64(v.Id))
+	(w).raw(string(",\"name\":"))
+	(w).stringBody(string(v.Name))
+	(w).raw(string(",\"entries\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_9(env, *w, v.Entries)
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_21(env *ergo__Env, wv json__text, v []ergo__GroupOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteGroupOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_16(env *ergo__Env, wv json__text, v []ergo__EntryOut) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteEntryOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_entry_21(env *ergo__Env, wv json__text, v []ergo__GroupOut) json__text {
+	w := &wv
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteGroupOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteInterfaceOut(env *ergo__Env, wv json__text, v ergo__InterfaceOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("{\"packageId\":"))
+	(w).intBody(int64(v.PackageId))
+	(w).raw(string(",\"package\":"))
+	(w).stringBody(string(v.Package))
+	(w).raw(string(",\"entries\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_16(env, *w, v.Entries)
+	(w).sep()
+	(w).raw(string("\"groups\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_21(env, *w, v.Groups)
+	(w).sep()
+	(w).raw(string("\"widest\":"))
+	(w).intBody(int64(v.Widest))
+	(w).raw(string(",\"wide\":"))
+	(w).boolBody(bool(v.Wide))
+	(w).raw(string(",\"backing\":"))
+	(w).setComma(bool(false))
+	*w = ergo__WriteSlice_entry_29(env, *w, v.Backing)
+	(w).sep()
+	(w).raw(string("\"unresolved\":"))
+	(w).intBody(int64(v.Unresolved))
+	(w).raw(string("}"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__WriteSlice_23(env *ergo__Env, wv json__text, v []ergo__InterfaceOut) json__text {
+	w := &wv
+	(w).sep()
+	(w).raw(string("["))
+	(w).setComma(bool(false))
+	_ = len(v)
+	for _, e := range v {
+		*w = ergo__WriteInterfaceOut(env, *w, e)
+	}
+	(w).raw(string("]"))
+	(w).setComma(bool(true))
+	return wv
+}
+
+func ergo__ReadEntryOut(env *ergo__Env, r json__Reader_1) (ergo__EntryOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__EntryOut), err
+	}
+	var out ergo__EntryOut
+	var seen, seen_1, seen_2 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "id":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__EntryOut), err_1
+			}
+			f := int(raw)
+			out.Id = f
+			seen = true
+		case "name":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__EntryOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Name = f_1
+			seen_1 = true
+		case "site":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__EntryOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.Site = f_2
+			seen_2 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "id"}
+	}
+	if !seen_1 {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
+	}
+	if !seen_2 {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "site"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_16(env *ergo__Env, r json__Reader_1) ([]ergo__EntryOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__EntryOut), err
+	}
+	out := []ergo__EntryOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEntryOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__EntryOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadGroupOut(env *ergo__Env, r json__Reader_1) (ergo__GroupOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__GroupOut), err
+	}
+	var out ergo__GroupOut
+	var seen, seen_1, seen_2 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "id":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__GroupOut), err_1
+			}
+			f := int(raw)
+			out.Id = f
+			seen = true
+		case "name":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__GroupOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Name = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__ReadSlice_9(env, r)
+			if err_3 != nil {
+				return *new(ergo__GroupOut), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: (r).Path(env), Field: "id"}
+	}
+	if !seen_1 {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
+	}
+	if !seen_2 {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: (r).Path(env), Field: "entries"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_21(env *ergo__Env, r json__Reader_1) ([]ergo__GroupOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__GroupOut), err
+	}
+	out := []ergo__GroupOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadGroupOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__GroupOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadInterfaceOut(env *ergo__Env, r json__Reader_1) (ergo__InterfaceOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__InterfaceOut), err
+	}
+	var out ergo__InterfaceOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "packageId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__InterfaceOut), err_1
+			}
+			f := int(raw)
+			out.PackageId = f
+			seen = true
+		case "package":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__InterfaceOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Package = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__ReadSlice_16(env, r)
+			if err_3 != nil {
+				return *new(ergo__InterfaceOut), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		case "groups":
+			f_3, err_4 := ergo__ReadSlice_21(env, r)
+			if err_4 != nil {
+				return *new(ergo__InterfaceOut), err_4
+			}
+			out.Groups = f_3
+			seen_3 = true
+		case "widest":
+			raw_2, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(ergo__InterfaceOut), err_5
+			}
+			f_4 := int(raw_2)
+			out.Widest = f_4
+			seen_4 = true
+		case "wide":
+			raw_3, err_6 := (r).Bool(env)
+			if err_6 != nil {
+				return *new(ergo__InterfaceOut), err_6
+			}
+			f_5 := bool(raw_3)
+			out.Wide = f_5
+			seen_5 = true
+		case "backing":
+			f_6, err_7 := ergo__ReadSlice_29(env, r)
+			if err_7 != nil {
+				return *new(ergo__InterfaceOut), err_7
+			}
+			out.Backing = f_6
+			seen_6 = true
+		case "unresolved":
+			raw_4, err_8 := (r).Int(env)
+			if err_8 != nil {
+				return *new(ergo__InterfaceOut), err_8
+			}
+			f_7 := int(raw_4)
+			out.Unresolved = f_7
+			seen_7 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "packageId"}
+	}
+	if !seen_1 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
+	}
+	if !seen_2 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "entries"}
+	}
+	if !seen_3 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "groups"}
+	}
+	if !seen_4 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "widest"}
+	}
+	if !seen_5 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "wide"}
+	}
+	if !seen_6 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "backing"}
+	}
+	if !seen_7 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "unresolved"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_23(env *ergo__Env, r json__Reader_1) ([]ergo__InterfaceOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__InterfaceOut), err
+	}
+	out := []ergo__InterfaceOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadInterfaceOut(env, r)
+		if err_1 != nil {
+			return *new([]ergo__InterfaceOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadEntryOut_1(env *ergo__Env, r json__Stream) (ergo__EntryOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__EntryOut), err
+	}
+	var out ergo__EntryOut
+	var seen, seen_1, seen_2 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "id":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__EntryOut), err_1
+			}
+			f := int(raw)
+			out.Id = f
+			seen = true
+		case "name":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__EntryOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Name = f_1
+			seen_1 = true
+		case "site":
+			raw_2, err_3 := (r).Int(env)
+			if err_3 != nil {
+				return *new(ergo__EntryOut), err_3
+			}
+			f_2 := int(raw_2)
+			out.Site = f_2
+			seen_2 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "id"}
+	}
+	if !seen_1 {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
+	}
+	if !seen_2 {
+		return *new(ergo__EntryOut), ergo__WireMissingField{Path: (r).Path(env), Field: "site"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_46(env *ergo__Env, r json__Stream) ([]ergo__EntryOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__EntryOut), err
+	}
+	out := []ergo__EntryOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadEntryOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__EntryOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadGroupOut_1(env *ergo__Env, r json__Stream) (ergo__GroupOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__GroupOut), err
+	}
+	var out ergo__GroupOut
+	var seen, seen_1, seen_2 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "id":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__GroupOut), err_1
+			}
+			f := int(raw)
+			out.Id = f
+			seen = true
+		case "name":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__GroupOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Name = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__ReadSlice_39(env, r)
+			if err_3 != nil {
+				return *new(ergo__GroupOut), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: (r).Path(env), Field: "id"}
+	}
+	if !seen_1 {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: (r).Path(env), Field: "name"}
+	}
+	if !seen_2 {
+		return *new(ergo__GroupOut), ergo__WireMissingField{Path: (r).Path(env), Field: "entries"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_51(env *ergo__Env, r json__Stream) ([]ergo__GroupOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__GroupOut), err
+	}
+	out := []ergo__GroupOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadGroupOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__GroupOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
+func ergo__ReadInterfaceOut_1(env *ergo__Env, r json__Stream) (ergo__InterfaceOut, error) {
+	if err := (r).BeginObject(env); err != nil {
+		return *new(ergo__InterfaceOut), err
+	}
+	var out ergo__InterfaceOut
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7 bool
+	for (r).More(env) {
+		switch (r).Key(env) {
+		case "packageId":
+			raw, err_1 := (r).Int(env)
+			if err_1 != nil {
+				return *new(ergo__InterfaceOut), err_1
+			}
+			f := int(raw)
+			out.PackageId = f
+			seen = true
+		case "package":
+			raw_1, err_2 := (r).String(env)
+			if err_2 != nil {
+				return *new(ergo__InterfaceOut), err_2
+			}
+			f_1 := string(raw_1)
+			out.Package = f_1
+			seen_1 = true
+		case "entries":
+			f_2, err_3 := ergo__ReadSlice_46(env, r)
+			if err_3 != nil {
+				return *new(ergo__InterfaceOut), err_3
+			}
+			out.Entries = f_2
+			seen_2 = true
+		case "groups":
+			f_3, err_4 := ergo__ReadSlice_51(env, r)
+			if err_4 != nil {
+				return *new(ergo__InterfaceOut), err_4
+			}
+			out.Groups = f_3
+			seen_3 = true
+		case "widest":
+			raw_2, err_5 := (r).Int(env)
+			if err_5 != nil {
+				return *new(ergo__InterfaceOut), err_5
+			}
+			f_4 := int(raw_2)
+			out.Widest = f_4
+			seen_4 = true
+		case "wide":
+			raw_3, err_6 := (r).Bool(env)
+			if err_6 != nil {
+				return *new(ergo__InterfaceOut), err_6
+			}
+			f_5 := bool(raw_3)
+			out.Wide = f_5
+			seen_5 = true
+		case "backing":
+			f_6, err_7 := ergo__ReadSlice_59(env, r)
+			if err_7 != nil {
+				return *new(ergo__InterfaceOut), err_7
+			}
+			out.Backing = f_6
+			seen_6 = true
+		case "unresolved":
+			raw_4, err_8 := (r).Int(env)
+			if err_8 != nil {
+				return *new(ergo__InterfaceOut), err_8
+			}
+			f_7 := int(raw_4)
+			out.Unresolved = f_7
+			seen_7 = true
+		default:
+			(r).Skip(env)
+		}
+	}
+	(r).End(env)
+	if !seen {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "packageId"}
+	}
+	if !seen_1 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "package"}
+	}
+	if !seen_2 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "entries"}
+	}
+	if !seen_3 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "groups"}
+	}
+	if !seen_4 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "widest"}
+	}
+	if !seen_5 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "wide"}
+	}
+	if !seen_6 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "backing"}
+	}
+	if !seen_7 {
+		return *new(ergo__InterfaceOut), ergo__WireMissingField{Path: (r).Path(env), Field: "unresolved"}
+	}
+	return out, nil
+}
+
+func ergo__ReadSlice_53(env *ergo__Env, r json__Stream) ([]ergo__InterfaceOut, error) {
+	if err := (r).BeginList(env); err != nil {
+		return *new([]ergo__InterfaceOut), err
+	}
+	out := []ergo__InterfaceOut{}
+	for (r).More(env) {
+		e, err_1 := ergo__ReadInterfaceOut_1(env, r)
+		if err_1 != nil {
+			return *new([]ergo__InterfaceOut), err_1
+		}
+		out = append(out, e)
+	}
+	(r).End(env)
+	return out, nil
+}
+
 type codegraph__Rows struct {
 	Nodes   []codegraph__NodeRow
 	Edges   []codegraph__EdgeRow
@@ -1473,7 +6666,7 @@ type codegraph__Rows struct {
 }
 
 func ergo__EncodeNodeRow(env *ergo__Env, w ergo__Writer, v codegraph__NodeRow) {
-	w.BeginObject(env.task, 11)
+	w.BeginObject(env.task, 12)
 	w.Key(env.task, "id")
 	w.Int(env.task, int64(v.Id))
 	w.Key(env.task, "kind")
@@ -1488,6 +6681,8 @@ func ergo__EncodeNodeRow(env *ergo__Env, w ergo__Writer, v codegraph__NodeRow) {
 	w.String(env.task, string(v.Digest))
 	w.Key(env.task, "subject")
 	w.Int(env.task, int64(v.Subject))
+	w.Key(env.task, "lines")
+	w.Int(env.task, int64(v.Lines))
 	w.Key(env.task, "file")
 	w.Int(env.task, int64(v.File))
 	w.Key(env.task, "offset")
@@ -1499,7 +6694,7 @@ func ergo__EncodeNodeRow(env *ergo__Env, w ergo__Writer, v codegraph__NodeRow) {
 	w.EndObject(env.task)
 }
 
-func ergo__EncodeSlice_3(env *ergo__Env, w ergo__Writer, v []codegraph__NodeRow) {
+func ergo__EncodeSlice_5(env *ergo__Env, w ergo__Writer, v []codegraph__NodeRow) {
 	w.BeginList(env.task, len(v))
 	for _, e := range v {
 		ergo__EncodeNodeRow(env, w, e)
@@ -1541,7 +6736,7 @@ func ergo__EncodeRows(env *ergo__Env, w ergo__Writer, v codegraph__Rows) {
 	w.Key(env.task, "version")
 	w.Int(env.task, int64(v.Version))
 	w.Key(env.task, "nodes")
-	ergo__EncodeSlice_3(env, w, v.Nodes)
+	ergo__EncodeSlice_5(env, w, v.Nodes)
 	w.Key(env.task, "edges")
 	ergo__EncodeSlice_2(env, w, v.Edges)
 	w.EndObject(env.task)
@@ -1552,7 +6747,7 @@ func ergo__DecodeNodeRow(env *ergo__Env, r ergo__Reader) (codegraph__NodeRow, er
 		return *new(codegraph__NodeRow), err
 	}
 	var out codegraph__NodeRow
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10, seen_11 bool
 	for r.More(env.task) {
 		switch r.Key(env.task) {
 		case "id":
@@ -1611,38 +6806,46 @@ func ergo__DecodeNodeRow(env *ergo__Env, r ergo__Reader) (codegraph__NodeRow, er
 			f_6 := int(raw_6)
 			out.Subject = f_6
 			seen_6 = true
-		case "file":
+		case "lines":
 			raw_7, err_8 := r.Int(env.task)
 			if err_8 != nil {
 				return *new(codegraph__NodeRow), err_8
 			}
 			f_7 := int(raw_7)
-			out.File = f_7
+			out.Lines = f_7
 			seen_7 = true
-		case "offset":
+		case "file":
 			raw_8, err_9 := r.Int(env.task)
 			if err_9 != nil {
 				return *new(codegraph__NodeRow), err_9
 			}
 			f_8 := int(raw_8)
-			out.Offset = f_8
+			out.File = f_8
 			seen_8 = true
-		case "line":
+		case "offset":
 			raw_9, err_10 := r.Int(env.task)
 			if err_10 != nil {
 				return *new(codegraph__NodeRow), err_10
 			}
 			f_9 := int(raw_9)
-			out.Line = f_9
+			out.Offset = f_9
 			seen_9 = true
-		case "column":
+		case "line":
 			raw_10, err_11 := r.Int(env.task)
 			if err_11 != nil {
 				return *new(codegraph__NodeRow), err_11
 			}
 			f_10 := int(raw_10)
-			out.Column = f_10
+			out.Line = f_10
 			seen_10 = true
+		case "column":
+			raw_11, err_12 := r.Int(env.task)
+			if err_12 != nil {
+				return *new(codegraph__NodeRow), err_12
+			}
+			f_11 := int(raw_11)
+			out.Column = f_11
+			seen_11 = true
 		default:
 			r.Skip(env.task)
 		}
@@ -1670,21 +6873,24 @@ func ergo__DecodeNodeRow(env *ergo__Env, r ergo__Reader) (codegraph__NodeRow, er
 		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "subject"}
 	}
 	if !seen_7 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "lines"}
 	}
 	if !seen_8 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "offset"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "file"}
 	}
 	if !seen_9 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "line"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "offset"}
 	}
 	if !seen_10 {
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "line"}
+	}
+	if !seen_11 {
 		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: r.Path(env.task), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergo__DecodeSlice_3(env *ergo__Env, r ergo__Reader) ([]codegraph__NodeRow, error) {
+func ergo__DecodeSlice_5(env *ergo__Env, r ergo__Reader) ([]codegraph__NodeRow, error) {
 	if err := r.BeginList(env.task); err != nil {
 		return *new([]codegraph__NodeRow), err
 	}
@@ -1837,7 +7043,7 @@ func ergo__DecodeRows(env *ergo__Env, r ergo__Reader) (codegraph__Rows, error) {
 			out.Version = f
 			seen = true
 		case "nodes":
-			f_1, err_2 := ergo__DecodeSlice_3(env, r)
+			f_1, err_2 := ergo__DecodeSlice_5(env, r)
 			if err_2 != nil {
 				return *new(codegraph__Rows), err_2
 			}
@@ -1884,6 +7090,8 @@ func ergo__WriteNodeRow(env *ergo__Env, wv json__text, v codegraph__NodeRow) jso
 	(w).stringBody(string(v.Digest))
 	(w).raw(string(",\"subject\":"))
 	(w).intBody(int64(v.Subject))
+	(w).raw(string(",\"lines\":"))
+	(w).intBody(int64(v.Lines))
 	(w).raw(string(",\"file\":"))
 	(w).intBody(int64(v.File))
 	(w).raw(string(",\"offset\":"))
@@ -1897,7 +7105,7 @@ func ergo__WriteNodeRow(env *ergo__Env, wv json__text, v codegraph__NodeRow) jso
 	return wv
 }
 
-func ergo__WriteSlice_3(env *ergo__Env, wv json__text, v []codegraph__NodeRow) json__text {
+func ergo__WriteSlice_5(env *ergo__Env, wv json__text, v []codegraph__NodeRow) json__text {
 	w := &wv
 	(w).sep()
 	(w).raw(string("["))
@@ -1949,7 +7157,7 @@ func ergo__WriteSlice_2(env *ergo__Env, wv json__text, v []codegraph__EdgeRow) j
 	return wv
 }
 
-func ergo__WriteSlice_entry_3(env *ergo__Env, wv json__text, v []codegraph__NodeRow) json__text {
+func ergo__WriteSlice_entry_5(env *ergo__Env, wv json__text, v []codegraph__NodeRow) json__text {
 	w := &wv
 	(w).raw(string("["))
 	(w).setComma(bool(false))
@@ -1982,7 +7190,7 @@ func ergo__WriteRows(env *ergo__Env, wv json__text, v codegraph__Rows) json__tex
 	(w).intBody(int64(v.Version))
 	(w).raw(string(",\"nodes\":"))
 	(w).setComma(bool(false))
-	*w = ergo__WriteSlice_entry_3(env, *w, v.Nodes)
+	*w = ergo__WriteSlice_entry_5(env, *w, v.Nodes)
 	(w).sep()
 	(w).raw(string("\"edges\":"))
 	(w).setComma(bool(false))
@@ -1997,7 +7205,7 @@ func ergo__ReadNodeRow(env *ergo__Env, r json__Reader_1) (codegraph__NodeRow, er
 		return *new(codegraph__NodeRow), err
 	}
 	var out codegraph__NodeRow
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10, seen_11 bool
 	for (r).More(env) {
 		switch (r).Key(env) {
 		case "id":
@@ -2056,38 +7264,46 @@ func ergo__ReadNodeRow(env *ergo__Env, r json__Reader_1) (codegraph__NodeRow, er
 			f_6 := int(raw_6)
 			out.Subject = f_6
 			seen_6 = true
-		case "file":
+		case "lines":
 			raw_7, err_8 := (r).Int(env)
 			if err_8 != nil {
 				return *new(codegraph__NodeRow), err_8
 			}
 			f_7 := int(raw_7)
-			out.File = f_7
+			out.Lines = f_7
 			seen_7 = true
-		case "offset":
+		case "file":
 			raw_8, err_9 := (r).Int(env)
 			if err_9 != nil {
 				return *new(codegraph__NodeRow), err_9
 			}
 			f_8 := int(raw_8)
-			out.Offset = f_8
+			out.File = f_8
 			seen_8 = true
-		case "line":
+		case "offset":
 			raw_9, err_10 := (r).Int(env)
 			if err_10 != nil {
 				return *new(codegraph__NodeRow), err_10
 			}
 			f_9 := int(raw_9)
-			out.Line = f_9
+			out.Offset = f_9
 			seen_9 = true
-		case "column":
+		case "line":
 			raw_10, err_11 := (r).Int(env)
 			if err_11 != nil {
 				return *new(codegraph__NodeRow), err_11
 			}
 			f_10 := int(raw_10)
-			out.Column = f_10
+			out.Line = f_10
 			seen_10 = true
+		case "column":
+			raw_11, err_12 := (r).Int(env)
+			if err_12 != nil {
+				return *new(codegraph__NodeRow), err_12
+			}
+			f_11 := int(raw_11)
+			out.Column = f_11
+			seen_11 = true
 		default:
 			(r).Skip(env)
 		}
@@ -2115,21 +7331,24 @@ func ergo__ReadNodeRow(env *ergo__Env, r json__Reader_1) (codegraph__NodeRow, er
 		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "subject"}
 	}
 	if !seen_7 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "lines"}
 	}
 	if !seen_8 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "offset"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_9 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "offset"}
 	}
 	if !seen_10 {
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
+	}
+	if !seen_11 {
 		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_3(env *ergo__Env, r json__Reader_1) ([]codegraph__NodeRow, error) {
+func ergo__ReadSlice_5(env *ergo__Env, r json__Reader_1) ([]codegraph__NodeRow, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]codegraph__NodeRow), err
 	}
@@ -2282,7 +7501,7 @@ func ergo__ReadRows(env *ergo__Env, r json__Reader_1) (codegraph__Rows, error) {
 			out.Version = f
 			seen = true
 		case "nodes":
-			f_1, err_2 := ergo__ReadSlice_3(env, r)
+			f_1, err_2 := ergo__ReadSlice_5(env, r)
 			if err_2 != nil {
 				return *new(codegraph__Rows), err_2
 			}
@@ -2317,7 +7536,7 @@ func ergo__ReadNodeRow_1(env *ergo__Env, r json__Stream) (codegraph__NodeRow, er
 		return *new(codegraph__NodeRow), err
 	}
 	var out codegraph__NodeRow
-	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10 bool
+	var seen, seen_1, seen_2, seen_3, seen_4, seen_5, seen_6, seen_7, seen_8, seen_9, seen_10, seen_11 bool
 	for (r).More(env) {
 		switch (r).Key(env) {
 		case "id":
@@ -2376,38 +7595,46 @@ func ergo__ReadNodeRow_1(env *ergo__Env, r json__Stream) (codegraph__NodeRow, er
 			f_6 := int(raw_6)
 			out.Subject = f_6
 			seen_6 = true
-		case "file":
+		case "lines":
 			raw_7, err_8 := (r).Int(env)
 			if err_8 != nil {
 				return *new(codegraph__NodeRow), err_8
 			}
 			f_7 := int(raw_7)
-			out.File = f_7
+			out.Lines = f_7
 			seen_7 = true
-		case "offset":
+		case "file":
 			raw_8, err_9 := (r).Int(env)
 			if err_9 != nil {
 				return *new(codegraph__NodeRow), err_9
 			}
 			f_8 := int(raw_8)
-			out.Offset = f_8
+			out.File = f_8
 			seen_8 = true
-		case "line":
+		case "offset":
 			raw_9, err_10 := (r).Int(env)
 			if err_10 != nil {
 				return *new(codegraph__NodeRow), err_10
 			}
 			f_9 := int(raw_9)
-			out.Line = f_9
+			out.Offset = f_9
 			seen_9 = true
-		case "column":
+		case "line":
 			raw_10, err_11 := (r).Int(env)
 			if err_11 != nil {
 				return *new(codegraph__NodeRow), err_11
 			}
 			f_10 := int(raw_10)
-			out.Column = f_10
+			out.Line = f_10
 			seen_10 = true
+		case "column":
+			raw_11, err_12 := (r).Int(env)
+			if err_12 != nil {
+				return *new(codegraph__NodeRow), err_12
+			}
+			f_11 := int(raw_11)
+			out.Column = f_11
+			seen_11 = true
 		default:
 			(r).Skip(env)
 		}
@@ -2435,21 +7662,24 @@ func ergo__ReadNodeRow_1(env *ergo__Env, r json__Stream) (codegraph__NodeRow, er
 		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "subject"}
 	}
 	if !seen_7 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "lines"}
 	}
 	if !seen_8 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "offset"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "file"}
 	}
 	if !seen_9 {
-		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "offset"}
 	}
 	if !seen_10 {
+		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "line"}
+	}
+	if !seen_11 {
 		return *new(codegraph__NodeRow), ergo__WireMissingField{Path: (r).Path(env), Field: "column"}
 	}
 	return out, nil
 }
 
-func ergo__ReadSlice_18(env *ergo__Env, r json__Stream) ([]codegraph__NodeRow, error) {
+func ergo__ReadSlice_35(env *ergo__Env, r json__Stream) ([]codegraph__NodeRow, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]codegraph__NodeRow), err
 	}
@@ -2569,7 +7799,7 @@ func ergo__ReadEdgeRow_1(env *ergo__Env, r json__Stream) (codegraph__EdgeRow, er
 	return out, nil
 }
 
-func ergo__ReadSlice_17(env *ergo__Env, r json__Stream) ([]codegraph__EdgeRow, error) {
+func ergo__ReadSlice_32(env *ergo__Env, r json__Stream) ([]codegraph__EdgeRow, error) {
 	if err := (r).BeginList(env); err != nil {
 		return *new([]codegraph__EdgeRow), err
 	}
@@ -2602,14 +7832,14 @@ func ergo__ReadRows_1(env *ergo__Env, r json__Stream) (codegraph__Rows, error) {
 			out.Version = f
 			seen = true
 		case "nodes":
-			f_1, err_2 := ergo__ReadSlice_18(env, r)
+			f_1, err_2 := ergo__ReadSlice_35(env, r)
 			if err_2 != nil {
 				return *new(codegraph__Rows), err_2
 			}
 			out.Nodes = f_1
 			seen_1 = true
 		case "edges":
-			f_2, err_3 := ergo__ReadSlice_17(env, r)
+			f_2, err_3 := ergo__ReadSlice_32(env, r)
 			if err_3 != nil {
 				return *new(codegraph__Rows), err_3
 			}
@@ -2673,8 +7903,8 @@ func codegraph__Decode(env *ergo__Env, text string) (codegraph__Rows, error) {
 		v_3 = v_2
 	}
 	var r_1 codegraph__Rows = v_3
-	if r_1.Version != int(1) {
-		return *new(codegraph__Rows), codegraph__BadRows{Reason: ("rows of version " + string(strconv.AppendInt(make([]byte, 0, 20), int64(r_1.Version), 10)) + "; this reader reads version 1")}
+	if r_1.Version != int(2) {
+		return *new(codegraph__Rows), codegraph__BadRows{Reason: ("rows of version " + string(strconv.AppendInt(make([]byte, 0, 20), int64(r_1.Version), 10)) + "; this reader reads version 2")}
 	}
 	for k, v_4 := range r_1.Nodes {
 		var i int = k
@@ -2710,6 +7940,7 @@ type codegraph__NodeRow struct {
 	Id      int
 	Parent  int
 	Subject int
+	Lines   int
 	File    int
 	Offset  int
 	Line    int
@@ -2823,6 +8054,921 @@ func (codegraph__Level) of2(_ codegraph__Decls) codegraph__Level    { return cod
 
 func (x codegraph__Level) ErgoVariant() string {
 	return [...]string{"Packages", "Files", "Decls"}[x.tag]
+}
+
+type codegraph__SupportEntry struct {
+	Package string
+	Seam    string
+}
+
+type codegraph__SeamSpec struct {
+	Root               string
+	Packages           []string
+	Entries            []string
+	TestSupport        []string
+	TestThroughEntries bool
+}
+
+type codegraph__LayoutPolicy struct {
+	Support             []codegraph__SupportEntry
+	Seams               []codegraph__SeamSpec
+	MaxSurfaceList      int
+	MaxFileLines        int
+	MaxDirectoryMembers int
+	MaxTangleMembers    int
+}
+
+func strings__Index(s string, sub string) int {
+	r := go__strings.Index(s, sub)
+	return r
+}
+
+func json__Decode[T any](env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (T, error)
+	Direct0 func(*ergo__Env, json__text, T) json__text
+	Read0   func(*ergo__Env, json__Reader_1) (T, error)
+	Read1   func(*ergo__Env, json__Stream) (T, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (T, error)
+		Direct0 func(*ergo__Env, json__text, T) json__text
+		Read0   func(*ergo__Env, json__Reader_1) (T, error)
+		Read1   func(*ergo__Env, json__Stream) (T, error)
+		Absent  func(T) bool
+		Empty   T
+	}
+}, c_1 json__Codec[T], text_1 string) (T, error) {
+	env.task.Check()
+	v, err := ergo.JSONOpenChecked(text_1, c_1.MaxBytes, c_1.MaxDepth)
+	if err != nil {
+		return *new(T), err
+	}
+	var r json__Reader_1 = json__Reader_1{c: v}
+	env.task.Check()
+	v_1, err_1 := wT.Read0(env, r)
+	var v_2 T
+	if err_1 != nil {
+		err_2 := err_1
+		err_3 := ergo.JSONSettle(r.c)
+		if err_3 != nil {
+			return *new(T), err_3
+		}
+		return *new(T), err_2
+	} else {
+		v_2 = v_1
+	}
+	var v_3 T = v_2
+	err_4 := ergo.JSONSettle(r.c)
+	if err_4 != nil {
+		return *new(T), err_4
+	}
+	return v_3, nil
+}
+
+func json__DecodeMono_i2624676259(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, codegraph__SeamSpec) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (codegraph__SeamSpec, error)
+	Direct0 func(*ergo__Env, json__text, codegraph__SeamSpec) json__text
+	Read0   func(*ergo__Env, json__Reader_1) (codegraph__SeamSpec, error)
+	Read1   func(*ergo__Env, json__Stream) (codegraph__SeamSpec, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, codegraph__SeamSpec) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (codegraph__SeamSpec, error)
+		Direct0 func(*ergo__Env, json__text, codegraph__SeamSpec) json__text
+		Read0   func(*ergo__Env, json__Reader_1) (codegraph__SeamSpec, error)
+		Read1   func(*ergo__Env, json__Stream) (codegraph__SeamSpec, error)
+		Absent  func(codegraph__SeamSpec) bool
+		Empty   codegraph__SeamSpec
+	}
+}, c json__Codec[codegraph__SeamSpec], text string) (codegraph__SeamSpec, error) {
+	env.task.Check()
+	v, err := ergo.JSONOpenChecked(text, c.MaxBytes, c.MaxDepth)
+	if err != nil {
+		return *new(codegraph__SeamSpec), err
+	}
+	var r json__Reader_1 = json__Reader_1{c: v}
+	env.task.Check()
+	v_1, err_1 := wT.Read0(env, r)
+	var v_2 codegraph__SeamSpec
+	if err_1 != nil {
+		err_2 := err_1
+		err_3 := ergo.JSONSettle(r.c)
+		if err_3 != nil {
+			return *new(codegraph__SeamSpec), err_3
+		}
+		return *new(codegraph__SeamSpec), err_2
+	} else {
+		v_2 = v_1
+	}
+	var v_3 codegraph__SeamSpec = v_2
+	err_4 := ergo.JSONSettle(r.c)
+	if err_4 != nil {
+		return *new(codegraph__SeamSpec), err_4
+	}
+	return v_3, nil
+}
+
+type json__Codec[T any] struct {
+	MaxBytes int
+	MaxDepth int
+}
+
+type ergo__Writer interface {
+	Null(*rt.Task)
+	Number(*rt.Task, string)
+	Bool(*rt.Task, bool)
+	Int(*rt.Task, int64)
+	Uint(*rt.Task, uint64)
+	Float(*rt.Task, float64)
+	String(*rt.Task, string)
+	StringBytes(*rt.Task, []uint8)
+	BeginList(*rt.Task, int)
+	EndList(*rt.Task)
+	BeginObject(*rt.Task, int)
+	Tag(*rt.Task, string)
+	Key(*rt.Task, string)
+	EndObject(*rt.Task)
+}
+
+type ergo__Reader interface {
+	TakeNull(*rt.Task) bool
+	Peek(*rt.Task) ergo__WireKind
+	Number(*rt.Task) (string, error)
+	Path(*rt.Task) string
+	Bool(*rt.Task) (bool, error)
+	Int(*rt.Task) (int64, error)
+	Uint(*rt.Task) (uint64, error)
+	Float(*rt.Task) (float64, error)
+	String(*rt.Task) (string, error)
+	StringBytes(*rt.Task, []uint8) ([]uint8, error)
+	BeginList(*rt.Task) error
+	BeginObject(*rt.Task) error
+	Tag(*rt.Task) (string, error)
+	More(*rt.Task) bool
+	Key(*rt.Task) string
+	Skip(*rt.Task)
+	End(*rt.Task)
+}
+
+type ergo__WireMissingField struct {
+	Path  string
+	Field string
+}
+
+func (e ergo__WireMissingField) Error() string {
+	return "WireMissingField" + ergo__textergo__WireMissingField(e)
+}
+
+type json__text struct {
+	out   []uint8
+	comma bool
+	html  bool
+}
+
+func (t *json__text) sep() {
+	if t.comma {
+		(t).raw(",")
+		return
+	}
+}
+
+func (t *json__text) raw(s string) {
+	t.out = append(t.out, s...)
+}
+
+func (t *json__text) setComma(due bool) {
+	t.comma = due
+}
+
+func (t *json__text) stringBody(s string) {
+	t.out = ergo.JSONAppendQuoted(t.out, s, t.html)
+}
+
+func (t *json__text) boolBody(b bool) {
+	t.out = ergo.JSONAppendBool(t.out, b)
+}
+
+type json__Reader_1 struct {
+	c *ergo.Cursor
+}
+
+func (r json__Reader_1) BeginObject(env *ergo__Env) error {
+	env.task.Check()
+	v := (r.c).BeginObject()
+	if !v {
+		v_1 := (r.c).Path()
+		return ergo__WireWrongKind{Path: v_1, Want: "an object"}
+	}
+	return nil
+}
+
+func (r json__Reader_1) More(env *ergo__Env) bool {
+	env.task.Check()
+	v := (r.c).More()
+	return v
+}
+
+func (r json__Reader_1) Key(env *ergo__Env) string {
+	env.task.Check()
+	v := (r.c).Key()
+	return v
+}
+
+func (r json__Reader_1) String(env *ergo__Env) (string, error) {
+	env.task.Check()
+	v := (r.c).String()
+	v_1 := (r.c).Wrong()
+	if v_1 {
+		v_2 := (r.c).Path()
+		return "", ergo__WireWrongKind{Path: v_2, Want: "a string"}
+	}
+	return v, nil
+}
+
+func (r json__Reader_1) BeginList(env *ergo__Env) error {
+	env.task.Check()
+	v := (r.c).BeginList()
+	if !v {
+		v_1 := (r.c).Path()
+		return ergo__WireWrongKind{Path: v_1, Want: "an array"}
+	}
+	return nil
+}
+
+func (r json__Reader_1) End(env *ergo__Env) {
+	env.task.Check()
+	(r.c).End()
+	return
+}
+
+func (r json__Reader_1) Bool(env *ergo__Env) (bool, error) {
+	env.task.Check()
+	v := (r.c).Bool()
+	v_1 := (r.c).Wrong()
+	if v_1 {
+		v_2 := (r.c).Path()
+		return false, ergo__WireWrongKind{Path: v_2, Want: "a boolean"}
+	}
+	return v, nil
+}
+
+func (r json__Reader_1) Skip(env *ergo__Env) {
+	env.task.Check()
+	(r.c).Skip()
+	return
+}
+
+func (r json__Reader_1) Path(env *ergo__Env) string {
+	env.task.Check()
+	v := (r.c).Path()
+	return v
+}
+
+type json__Stream struct {
+	st *ergo.Ref[json__scan]
+}
+
+func ergo__Clonescan(v json__scan) json__scan {
+	c := v
+	c.ctx = slices.Clone(v.ctx)
+	c.q = slices.Clone(v.q)
+	c.frames = slices.Clone(v.frames)
+	return c
+}
+
+func (r json__Stream) BeginObject(env *ergo__Env) error {
+	env.task.Check()
+	for {
+		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
+				v := (&(*p)).opening()
+				var v_1 bool
+				{
+					var s *json__scan = (&(*p))
+					var list bool = false
+					(s).enter()
+					var v_2 int
+					if list {
+						v_2 = json__kList
+					} else {
+						v_2 = json__kObject
+					}
+					var want int = v_2
+					var v_3 json__tok
+					{
+						v_3 = (s).peekAt(env_1, int(0))
+
+					}
+					if v_3.kind != want {
+						v_1 = false
+						goto inl
+					}
+					(s).advance()
+					var f json__frame = json__frame{list: list, n: int(0), key: "", has: false}
+					if s.nf < len(s.frames) {
+						s.frames[s.nf] = f
+					} else {
+						s.frames = ergo__Append[json__frame](s.frames, f)
+					}
+					s.nf = (s.nf + int(1))
+					v_1 = true
+				}
+			inl:
+				_ = 0
+				var v_6 json__got[bool]
+				{
+					var s_1 *json__scan = (&(*p))
+
+					{
+						if s_1.starved {
+							s_1.qi = v.qi
+							s_1.nf = v.nf
+							if v.nf > int(0) {
+								s_1.frames[(v.nf - int(1))] = v.top
+							}
+							s_1.wrong = v.wrong
+							s_1.starved = false
+							v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
+							goto inl_3
+						}
+						v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
+					}
+				inl_3:
+					_ = 0
+					if (!v_6.starved) && (!v_1) {
+						v_8 := (s_1).path(env_1)
+						v_6 = json__got[bool]{v: false, wrong: true, path: v_8, starved: false}
+						goto inl_2
+					}
+
+				}
+			inl_2:
+				_ = 0
+				return v_6, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
+		if v_10.wrong {
+			return ergo__WireWrongKind{Path: v_10.path, Want: "an object"}
+		}
+		if !v_10.starved {
+			return nil
+		}
+		(r).refill(env)
+	}
+}
+
+func (r json__Stream) More(env *ergo__Env) bool {
+	env.task.Check()
+	for {
+		v_6 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
+				v := (&(*p)).opening()
+				var v_1 bool
+				{
+					var s *json__scan = (&(*p))
+					var v_2 json__tok
+					{
+						v_2 = (s).peekAt(env_1, int(0))
+
+					}
+					if ((v_2.kind == json__kClose) || (v_2.kind == json__kDone)) || (v_2.kind == json__kBad) {
+						v_1 = false
+						goto inl
+					}
+					var n int = s.nf
+					if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_2.kind == json__kKey) {
+						(s).advance()
+						var f json__frame = s.frames[(n - int(1))]
+						f.key = v_2.text
+						f.has = true
+						s.frames[(n - int(1))] = f
+					}
+					v_1 = true
+				}
+			inl:
+				_ = 0
+				var v_4 json__got[bool]
+				{
+					var s_1 *json__scan = (&(*p))
+					if s_1.starved {
+						s_1.qi = v.qi
+						s_1.nf = v.nf
+						if v.nf > int(0) {
+							s_1.frames[(v.nf - int(1))] = v.top
+						}
+						s_1.wrong = v.wrong
+						s_1.starved = false
+						v_4 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
+						goto inl_2
+					}
+					v_4 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
+				}
+			inl_2:
+				_ = 0
+				return v_4, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_5 json__scan) json__scan { return ergo__Clonescan(v_5) }, true, true)
+		if !v_6.starved {
+			return v_6.v
+		}
+		(r).refill(env)
+	}
+}
+
+func (r json__Stream) Key(env *ergo__Env) string {
+	env.task.Check()
+	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
+		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (string, error) {
+			v := (&(*p)).key()
+			return v, nil
+		}(env, p_1)
+		return r_1
+	}, func(v_1 json__scan) json__scan { return ergo__Clonescan(v_1) }, true, true)
+	return v_2
+}
+
+func (r json__Stream) String(env *ergo__Env) (string, error) {
+	env.task.Check()
+	for {
+		v_12 := ergo.RefModifyInPlace[json__scan, json__got[string]](env.task, r.st, func(p_1 *json__scan) json__got[string] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[string], error) {
+				v := (&(*p)).opening()
+				var v_1 string
+				{
+					var s *json__scan = (&(*p))
+					var v_2 json__tok
+					{
+						(s).enter()
+
+						{
+							v_2 = (s).peekAt(env_1, int(0))
+
+						}
+						s.wrong = (v_2.kind != json__kString)
+						if !s.wrong {
+							(s).advance()
+						}
+
+					}
+					if s.wrong {
+						v_1 = ""
+						goto inl
+					} else {
+						if v_2.raw {
+							var v_5 string
+							{
+								var text_1 string = v_2.text
+								v_6 := strings__NewBuilder()
+								(&v_6).Grow(len(text_1))
+								(&v_6).WriteString(text_1)
+								v_5 = (v_6).ergo__strings__StringOwned(env_1)
+
+							}
+							v_1 = v_5
+							goto inl
+						} else {
+							v_1 = v_2.text
+							goto inl
+						}
+					}
+				}
+			inl:
+				_ = 0
+				var v_8 json__got[string]
+				{
+					var s_1 *json__scan = (&(*p))
+
+					{
+						if s_1.starved {
+							s_1.qi = v.qi
+							s_1.nf = v.nf
+							if v.nf > int(0) {
+								s_1.frames[(v.nf - int(1))] = v.top
+							}
+							s_1.wrong = v.wrong
+							s_1.starved = false
+							v_8 = json__got[string]{v: v_1, wrong: false, path: "", starved: true}
+							goto inl_5
+						}
+						v_8 = json__got[string]{v: v_1, wrong: false, path: "", starved: false}
+					}
+				inl_5:
+					_ = 0
+					if (!v_8.starved) && s_1.wrong {
+						t := v_1
+						v_10 := (s_1).path(env_1)
+						v_8 = json__got[string]{v: t, wrong: true, path: v_10, starved: false}
+						goto inl_4
+					}
+
+				}
+			inl_4:
+				_ = 0
+				return v_8, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
+		if v_12.wrong {
+			return "", ergo__WireWrongKind{Path: v_12.path, Want: "a string"}
+		}
+		if !v_12.starved {
+			return v_12.v, nil
+		}
+		(r).refill(env)
+	}
+}
+
+func (r json__Stream) BeginList(env *ergo__Env) error {
+	env.task.Check()
+	for {
+		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
+				v := (&(*p)).opening()
+				var v_1 bool
+				{
+					var s *json__scan = (&(*p))
+					var list bool = true
+					(s).enter()
+					var v_2 int
+					if list {
+						v_2 = json__kList
+					} else {
+						v_2 = json__kObject
+					}
+					var want int = v_2
+					var v_3 json__tok
+					{
+						v_3 = (s).peekAt(env_1, int(0))
+
+					}
+					if v_3.kind != want {
+						v_1 = false
+						goto inl
+					}
+					(s).advance()
+					var f json__frame = json__frame{list: list, n: int(0), key: "", has: false}
+					if s.nf < len(s.frames) {
+						s.frames[s.nf] = f
+					} else {
+						s.frames = ergo__Append[json__frame](s.frames, f)
+					}
+					s.nf = (s.nf + int(1))
+					v_1 = true
+				}
+			inl:
+				_ = 0
+				var v_6 json__got[bool]
+				{
+					var s_1 *json__scan = (&(*p))
+
+					{
+						if s_1.starved {
+							s_1.qi = v.qi
+							s_1.nf = v.nf
+							if v.nf > int(0) {
+								s_1.frames[(v.nf - int(1))] = v.top
+							}
+							s_1.wrong = v.wrong
+							s_1.starved = false
+							v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
+							goto inl_3
+						}
+						v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
+					}
+				inl_3:
+					_ = 0
+					if (!v_6.starved) && (!v_1) {
+						v_8 := (s_1).path(env_1)
+						v_6 = json__got[bool]{v: false, wrong: true, path: v_8, starved: false}
+						goto inl_2
+					}
+
+				}
+			inl_2:
+				_ = 0
+				return v_6, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
+		if v_10.wrong {
+			return ergo__WireWrongKind{Path: v_10.path, Want: "an array"}
+		}
+		if !v_10.starved {
+			return nil
+		}
+		(r).refill(env)
+	}
+}
+
+func (r json__Stream) End(env *ergo__Env) {
+	env.task.Check()
+	for {
+		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
+				v := (&(*p)).opening()
+				(&(*p)).end(env_1)
+				var v_1 json__got[bool]
+				{
+					var s *json__scan = (&(*p))
+					var x bool = true
+					if s.starved {
+						s.qi = v.qi
+						s.nf = v.nf
+						if v.nf > int(0) {
+							s.frames[(v.nf - int(1))] = v.top
+						}
+						s.wrong = v.wrong
+						s.starved = false
+						v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: true}
+						goto inl
+					}
+					v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: false}
+				}
+			inl:
+				_ = 0
+				return v_1, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_2 json__scan) json__scan { return ergo__Clonescan(v_2) }, true, true)
+		if !v_3.starved {
+			return
+		}
+		(r).refill(env)
+	}
+}
+
+func (r json__Stream) Bool(env *ergo__Env) (bool, error) {
+	env.task.Check()
+	for {
+		v_9 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
+				v := (&(*p)).opening()
+				var v_1 bool
+				{
+					var s *json__scan = (&(*p))
+					var v_2 json__tok
+					{
+						(s).enter()
+
+						{
+							v_2 = (s).peekAt(env_1, int(0))
+
+						}
+						s.wrong = (v_2.kind != json__kBool)
+						if !s.wrong {
+							(s).advance()
+						}
+
+					}
+					v_1 = (v_2.text == "true")
+				}
+				var v_5 json__got[bool]
+				{
+					var s_1 *json__scan = (&(*p))
+
+					{
+						if s_1.starved {
+							s_1.qi = v.qi
+							s_1.nf = v.nf
+							if v.nf > int(0) {
+								s_1.frames[(v.nf - int(1))] = v.top
+							}
+							s_1.wrong = v.wrong
+							s_1.starved = false
+							v_5 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
+							goto inl_4
+						}
+						v_5 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
+					}
+				inl_4:
+					_ = 0
+					if (!v_5.starved) && s_1.wrong {
+						t := v_1
+						v_7 := (s_1).path(env_1)
+						v_5 = json__got[bool]{v: t, wrong: true, path: v_7, starved: false}
+						goto inl_3
+					}
+
+				}
+			inl_3:
+				_ = 0
+				return v_5, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_8 json__scan) json__scan { return ergo__Clonescan(v_8) }, true, true)
+		if v_9.wrong {
+			return false, ergo__WireWrongKind{Path: v_9.path, Want: "a boolean"}
+		}
+		if !v_9.starved {
+			return v_9.v, nil
+		}
+		(r).refill(env)
+	}
+}
+
+func (r json__Stream) Skip(env *ergo__Env) {
+	env.task.Check()
+	for {
+		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
+				v := (&(*p)).opening()
+				{
+					var s *json__scan = (&(*p))
+					(s).enter()
+					(s).pass(env_1)
+				}
+				var v_1 json__got[bool]
+				{
+					var s_1 *json__scan = (&(*p))
+					var x bool = true
+					if s_1.starved {
+						s_1.qi = v.qi
+						s_1.nf = v.nf
+						if v.nf > int(0) {
+							s_1.frames[(v.nf - int(1))] = v.top
+						}
+						s_1.wrong = v.wrong
+						s_1.starved = false
+						v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: true}
+						goto inl_1
+					}
+					v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: false}
+				}
+			inl_1:
+				_ = 0
+				return v_1, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_2 json__scan) json__scan { return ergo__Clonescan(v_2) }, true, true)
+		if !v_3.starved {
+			return
+		}
+		(r).refill(env)
+	}
+}
+
+func (r json__Stream) Path(env *ergo__Env) string {
+	env.task.Check()
+	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
+		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (string, error) {
+			v := (&(*p)).path(env_1)
+			return v, nil
+		}(env, p_1)
+		return r_1
+	}, func(v_1 json__scan) json__scan { return ergo__Clonescan(v_1) }, true, true)
+	return v_2
+}
+
+func json__DecodeMono_i521860722(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, codegraph__LayoutPolicy) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (codegraph__LayoutPolicy, error)
+	Direct0 func(*ergo__Env, json__text, codegraph__LayoutPolicy) json__text
+	Read0   func(*ergo__Env, json__Reader_1) (codegraph__LayoutPolicy, error)
+	Read1   func(*ergo__Env, json__Stream) (codegraph__LayoutPolicy, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, codegraph__LayoutPolicy) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (codegraph__LayoutPolicy, error)
+		Direct0 func(*ergo__Env, json__text, codegraph__LayoutPolicy) json__text
+		Read0   func(*ergo__Env, json__Reader_1) (codegraph__LayoutPolicy, error)
+		Read1   func(*ergo__Env, json__Stream) (codegraph__LayoutPolicy, error)
+		Absent  func(codegraph__LayoutPolicy) bool
+		Empty   codegraph__LayoutPolicy
+	}
+}, c json__Codec[codegraph__LayoutPolicy], text string) (codegraph__LayoutPolicy, error) {
+	env.task.Check()
+	v, err := ergo.JSONOpenChecked(text, c.MaxBytes, c.MaxDepth)
+	if err != nil {
+		return *new(codegraph__LayoutPolicy), err
+	}
+	var r json__Reader_1 = json__Reader_1{c: v}
+	env.task.Check()
+	v_1, err_1 := wT.Read0(env, r)
+	var v_2 codegraph__LayoutPolicy
+	if err_1 != nil {
+		err_2 := err_1
+		err_3 := ergo.JSONSettle(r.c)
+		if err_3 != nil {
+			return *new(codegraph__LayoutPolicy), err_3
+		}
+		return *new(codegraph__LayoutPolicy), err_2
+	} else {
+		v_2 = v_1
+	}
+	var v_3 codegraph__LayoutPolicy = v_2
+	err_4 := ergo.JSONSettle(r.c)
+	if err_4 != nil {
+		return *new(codegraph__LayoutPolicy), err_4
+	}
+	return v_3, nil
+}
+
+func (t *json__text) intBody(n int64) {
+	t.out = ergo.JSONAppendInt(t.out, n)
+}
+
+func (r json__Reader_1) Int(env *ergo__Env) (int64, error) {
+	env.task.Check()
+	v := (r.c).Int()
+	v_1 := (r.c).Wrong()
+	if v_1 {
+		v_2 := (r.c).Path()
+		return 0, ergo__WireWrongKind{Path: v_2, Want: "an integer"}
+	}
+	return v, nil
+}
+
+func (r json__Stream) Int(env *ergo__Env) (int64, error) {
+	env.task.Check()
+	for {
+		v_12 := ergo.RefModifyInPlace[json__scan, json__got[int64]](env.task, r.st, func(p_1 *json__scan) json__got[int64] {
+			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[int64], error) {
+				v := (&(*p)).opening()
+				var v_1 int64
+				{
+					var s *json__scan = (&(*p))
+					var v_2 json__tok
+					{
+						(s).enter()
+
+						{
+							v_2 = (s).peekAt(env_1, int(0))
+
+						}
+						s.wrong = (v_2.kind != json__kNumber)
+						if !s.wrong {
+							(s).advance()
+						}
+
+					}
+					if s.wrong {
+						v_1 = int64(0)
+						goto inl
+					}
+					var small int64
+					var ok bool
+					v_5 := json__smallInt(v_2.text)
+					small, ok = v_5.F0, v_5.F1
+					if ok {
+						v_1 = small
+						goto inl
+					}
+					v_6, err := ergo.StrconvParseInt(v_2.text, int(10), int(64))
+
+					if err != nil {
+						s.wrong = true
+						v_1 = int64(0)
+					} else {
+						v_1 = v_6
+					}
+
+				}
+			inl:
+				_ = 0
+				var v_8 json__got[int64]
+				{
+					var s_1 *json__scan = (&(*p))
+
+					{
+						if s_1.starved {
+							s_1.qi = v.qi
+							s_1.nf = v.nf
+							if v.nf > int(0) {
+								s_1.frames[(v.nf - int(1))] = v.top
+							}
+							s_1.wrong = v.wrong
+							s_1.starved = false
+							v_8 = json__got[int64]{v: v_1, wrong: false, path: "", starved: true}
+							goto inl_4
+						}
+						v_8 = json__got[int64]{v: v_1, wrong: false, path: "", starved: false}
+					}
+				inl_4:
+					_ = 0
+					if (!v_8.starved) && s_1.wrong {
+						t := v_1
+						v_10 := (s_1).path(env_1)
+						v_8 = json__got[int64]{v: t, wrong: true, path: v_10, starved: false}
+						goto inl_3
+					}
+
+				}
+			inl_3:
+				_ = 0
+				return v_8, nil
+			}(env, p_1)
+			return r_1
+		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
+		if v_12.wrong {
+			return 0, ergo__WireWrongKind{Path: v_12.path, Want: "an integer"}
+		}
+		if !v_12.starved {
+			return v_12.v, nil
+		}
+		(r).refill(env)
+	}
 }
 
 func strings__HasPrefix(s string, prefix string) bool {
@@ -3072,575 +9218,6 @@ func json__EncodeMono_i3749910856(env *ergo__Env, wT struct {
 	return v_3
 }
 
-type json__Codec[T any] struct {
-	MaxBytes int
-	MaxDepth int
-}
-
-type ergo__Writer interface {
-	Null(*rt.Task)
-	Number(*rt.Task, string)
-	Bool(*rt.Task, bool)
-	Int(*rt.Task, int64)
-	Uint(*rt.Task, uint64)
-	Float(*rt.Task, float64)
-	String(*rt.Task, string)
-	StringBytes(*rt.Task, []uint8)
-	BeginList(*rt.Task, int)
-	EndList(*rt.Task)
-	BeginObject(*rt.Task, int)
-	Tag(*rt.Task, string)
-	Key(*rt.Task, string)
-	EndObject(*rt.Task)
-}
-
-type ergo__Reader interface {
-	TakeNull(*rt.Task) bool
-	Peek(*rt.Task) ergo__WireKind
-	Number(*rt.Task) (string, error)
-	Path(*rt.Task) string
-	Bool(*rt.Task) (bool, error)
-	Int(*rt.Task) (int64, error)
-	Uint(*rt.Task) (uint64, error)
-	Float(*rt.Task) (float64, error)
-	String(*rt.Task) (string, error)
-	StringBytes(*rt.Task, []uint8) ([]uint8, error)
-	BeginList(*rt.Task) error
-	BeginObject(*rt.Task) error
-	Tag(*rt.Task) (string, error)
-	More(*rt.Task) bool
-	Key(*rt.Task) string
-	Skip(*rt.Task)
-	End(*rt.Task)
-}
-
-type ergo__WireMissingField struct {
-	Path  string
-	Field string
-}
-
-func (e ergo__WireMissingField) Error() string {
-	return "WireMissingField" + ergo__textergo__WireMissingField(e)
-}
-
-type json__text struct {
-	out   []uint8
-	comma bool
-	html  bool
-}
-
-func (t *json__text) sep() {
-	if t.comma {
-		(t).raw(",")
-		return
-	}
-}
-
-func (t *json__text) raw(s string) {
-	t.out = append(t.out, s...)
-}
-
-func (t *json__text) setComma(due bool) {
-	t.comma = due
-}
-
-func (t *json__text) stringBody(s string) {
-	t.out = ergo.JSONAppendQuoted(t.out, s, t.html)
-}
-
-type json__Reader_1 struct {
-	c *ergo.Cursor
-}
-
-func (r json__Reader_1) BeginList(env *ergo__Env) error {
-	env.task.Check()
-	v := (r.c).BeginList()
-	if !v {
-		v_1 := (r.c).Path()
-		return ergo__WireWrongKind{Path: v_1, Want: "an array"}
-	}
-	return nil
-}
-
-func (r json__Reader_1) More(env *ergo__Env) bool {
-	env.task.Check()
-	v := (r.c).More()
-	return v
-}
-
-func (r json__Reader_1) BeginObject(env *ergo__Env) error {
-	env.task.Check()
-	v := (r.c).BeginObject()
-	if !v {
-		v_1 := (r.c).Path()
-		return ergo__WireWrongKind{Path: v_1, Want: "an object"}
-	}
-	return nil
-}
-
-func (r json__Reader_1) Key(env *ergo__Env) string {
-	env.task.Check()
-	v := (r.c).Key()
-	return v
-}
-
-func (r json__Reader_1) String(env *ergo__Env) (string, error) {
-	env.task.Check()
-	v := (r.c).String()
-	v_1 := (r.c).Wrong()
-	if v_1 {
-		v_2 := (r.c).Path()
-		return "", ergo__WireWrongKind{Path: v_2, Want: "a string"}
-	}
-	return v, nil
-}
-
-func (r json__Reader_1) End(env *ergo__Env) {
-	env.task.Check()
-	(r.c).End()
-	return
-}
-
-func (r json__Reader_1) Skip(env *ergo__Env) {
-	env.task.Check()
-	(r.c).Skip()
-	return
-}
-
-func (r json__Reader_1) Path(env *ergo__Env) string {
-	env.task.Check()
-	v := (r.c).Path()
-	return v
-}
-
-type json__Stream struct {
-	st *ergo.Ref[json__scan]
-}
-
-func ergo__Clonescan(v json__scan) json__scan {
-	c := v
-	c.ctx = slices.Clone(v.ctx)
-	c.q = slices.Clone(v.q)
-	c.frames = slices.Clone(v.frames)
-	return c
-}
-
-func (r json__Stream) BeginList(env *ergo__Env) error {
-	env.task.Check()
-	for {
-		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
-				v := (&(*p)).opening()
-				var v_1 bool
-				{
-					var s *json__scan = (&(*p))
-					var list bool = true
-					(s).enter()
-					var v_2 int
-					if list {
-						v_2 = json__kList
-					} else {
-						v_2 = json__kObject
-					}
-					var want int = v_2
-					var v_3 json__tok
-					{
-						v_3 = (s).peekAt(env_1, int(0))
-
-					}
-					if v_3.kind != want {
-						v_1 = false
-						goto inl
-					}
-					(s).advance()
-					var f json__frame = json__frame{list: list, n: int(0), key: "", has: false}
-					if s.nf < len(s.frames) {
-						s.frames[s.nf] = f
-					} else {
-						s.frames = ergo__Append[json__frame](s.frames, f)
-					}
-					s.nf = (s.nf + int(1))
-					v_1 = true
-				}
-			inl:
-				_ = 0
-				var v_6 json__got[bool]
-				{
-					var s_1 *json__scan = (&(*p))
-
-					{
-						if s_1.starved {
-							s_1.qi = v.qi
-							s_1.nf = v.nf
-							if v.nf > int(0) {
-								s_1.frames[(v.nf - int(1))] = v.top
-							}
-							s_1.wrong = v.wrong
-							s_1.starved = false
-							v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
-							goto inl_3
-						}
-						v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
-					}
-				inl_3:
-					_ = 0
-					if (!v_6.starved) && (!v_1) {
-						v_8 := (s_1).path(env_1)
-						v_6 = json__got[bool]{v: false, wrong: true, path: v_8, starved: false}
-						goto inl_2
-					}
-
-				}
-			inl_2:
-				_ = 0
-				return v_6, nil
-			}(env, p_1)
-			return r_1
-		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
-		if v_10.wrong {
-			return ergo__WireWrongKind{Path: v_10.path, Want: "an array"}
-		}
-		if !v_10.starved {
-			return nil
-		}
-		(r).refill(env)
-	}
-}
-
-func (r json__Stream) More(env *ergo__Env) bool {
-	env.task.Check()
-	for {
-		v_6 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
-				v := (&(*p)).opening()
-				var v_1 bool
-				{
-					var s *json__scan = (&(*p))
-					var v_2 json__tok
-					{
-						v_2 = (s).peekAt(env_1, int(0))
-
-					}
-					if ((v_2.kind == json__kClose) || (v_2.kind == json__kDone)) || (v_2.kind == json__kBad) {
-						v_1 = false
-						goto inl
-					}
-					var n int = s.nf
-					if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_2.kind == json__kKey) {
-						(s).advance()
-						var f json__frame = s.frames[(n - int(1))]
-						f.key = v_2.text
-						f.has = true
-						s.frames[(n - int(1))] = f
-					}
-					v_1 = true
-				}
-			inl:
-				_ = 0
-				var v_4 json__got[bool]
-				{
-					var s_1 *json__scan = (&(*p))
-					if s_1.starved {
-						s_1.qi = v.qi
-						s_1.nf = v.nf
-						if v.nf > int(0) {
-							s_1.frames[(v.nf - int(1))] = v.top
-						}
-						s_1.wrong = v.wrong
-						s_1.starved = false
-						v_4 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
-						goto inl_2
-					}
-					v_4 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
-				}
-			inl_2:
-				_ = 0
-				return v_4, nil
-			}(env, p_1)
-			return r_1
-		}, func(v_5 json__scan) json__scan { return ergo__Clonescan(v_5) }, true, true)
-		if !v_6.starved {
-			return v_6.v
-		}
-		(r).refill(env)
-	}
-}
-
-func (r json__Stream) BeginObject(env *ergo__Env) error {
-	env.task.Check()
-	for {
-		v_10 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
-				v := (&(*p)).opening()
-				var v_1 bool
-				{
-					var s *json__scan = (&(*p))
-					var list bool = false
-					(s).enter()
-					var v_2 int
-					if list {
-						v_2 = json__kList
-					} else {
-						v_2 = json__kObject
-					}
-					var want int = v_2
-					var v_3 json__tok
-					{
-						v_3 = (s).peekAt(env_1, int(0))
-
-					}
-					if v_3.kind != want {
-						v_1 = false
-						goto inl
-					}
-					(s).advance()
-					var f json__frame = json__frame{list: list, n: int(0), key: "", has: false}
-					if s.nf < len(s.frames) {
-						s.frames[s.nf] = f
-					} else {
-						s.frames = ergo__Append[json__frame](s.frames, f)
-					}
-					s.nf = (s.nf + int(1))
-					v_1 = true
-				}
-			inl:
-				_ = 0
-				var v_6 json__got[bool]
-				{
-					var s_1 *json__scan = (&(*p))
-
-					{
-						if s_1.starved {
-							s_1.qi = v.qi
-							s_1.nf = v.nf
-							if v.nf > int(0) {
-								s_1.frames[(v.nf - int(1))] = v.top
-							}
-							s_1.wrong = v.wrong
-							s_1.starved = false
-							v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: true}
-							goto inl_3
-						}
-						v_6 = json__got[bool]{v: v_1, wrong: false, path: "", starved: false}
-					}
-				inl_3:
-					_ = 0
-					if (!v_6.starved) && (!v_1) {
-						v_8 := (s_1).path(env_1)
-						v_6 = json__got[bool]{v: false, wrong: true, path: v_8, starved: false}
-						goto inl_2
-					}
-
-				}
-			inl_2:
-				_ = 0
-				return v_6, nil
-			}(env, p_1)
-			return r_1
-		}, func(v_9 json__scan) json__scan { return ergo__Clonescan(v_9) }, true, true)
-		if v_10.wrong {
-			return ergo__WireWrongKind{Path: v_10.path, Want: "an object"}
-		}
-		if !v_10.starved {
-			return nil
-		}
-		(r).refill(env)
-	}
-}
-
-func (r json__Stream) Key(env *ergo__Env) string {
-	env.task.Check()
-	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
-		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (string, error) {
-			v := (&(*p)).key()
-			return v, nil
-		}(env, p_1)
-		return r_1
-	}, func(v_1 json__scan) json__scan { return ergo__Clonescan(v_1) }, true, true)
-	return v_2
-}
-
-func (r json__Stream) String(env *ergo__Env) (string, error) {
-	env.task.Check()
-	for {
-		v_12 := ergo.RefModifyInPlace[json__scan, json__got[string]](env.task, r.st, func(p_1 *json__scan) json__got[string] {
-			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[string], error) {
-				v := (&(*p)).opening()
-				var v_1 string
-				{
-					var s *json__scan = (&(*p))
-					var v_2 json__tok
-					{
-						(s).enter()
-
-						{
-							v_2 = (s).peekAt(env_1, int(0))
-
-						}
-						s.wrong = (v_2.kind != json__kString)
-						if !s.wrong {
-							(s).advance()
-						}
-
-					}
-					if s.wrong {
-						v_1 = ""
-						goto inl
-					} else {
-						if v_2.raw {
-							var v_5 string
-							{
-								var text_1 string = v_2.text
-								v_6 := strings__NewBuilder()
-								(&v_6).Grow(len(text_1))
-								(&v_6).WriteString(text_1)
-								v_5 = (v_6).ergo__strings__StringOwned(env_1)
-
-							}
-							v_1 = v_5
-							goto inl
-						} else {
-							v_1 = v_2.text
-							goto inl
-						}
-					}
-				}
-			inl:
-				_ = 0
-				var v_8 json__got[string]
-				{
-					var s_1 *json__scan = (&(*p))
-
-					{
-						if s_1.starved {
-							s_1.qi = v.qi
-							s_1.nf = v.nf
-							if v.nf > int(0) {
-								s_1.frames[(v.nf - int(1))] = v.top
-							}
-							s_1.wrong = v.wrong
-							s_1.starved = false
-							v_8 = json__got[string]{v: v_1, wrong: false, path: "", starved: true}
-							goto inl_5
-						}
-						v_8 = json__got[string]{v: v_1, wrong: false, path: "", starved: false}
-					}
-				inl_5:
-					_ = 0
-					if (!v_8.starved) && s_1.wrong {
-						t := v_1
-						v_10 := (s_1).path(env_1)
-						v_8 = json__got[string]{v: t, wrong: true, path: v_10, starved: false}
-						goto inl_4
-					}
-
-				}
-			inl_4:
-				_ = 0
-				return v_8, nil
-			}(env, p_1)
-			return r_1
-		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
-		if v_12.wrong {
-			return "", ergo__WireWrongKind{Path: v_12.path, Want: "a string"}
-		}
-		if !v_12.starved {
-			return v_12.v, nil
-		}
-		(r).refill(env)
-	}
-}
-
-func (r json__Stream) End(env *ergo__Env) {
-	env.task.Check()
-	for {
-		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
-				v := (&(*p)).opening()
-				(&(*p)).end(env_1)
-				var v_1 json__got[bool]
-				{
-					var s *json__scan = (&(*p))
-					var x bool = true
-					if s.starved {
-						s.qi = v.qi
-						s.nf = v.nf
-						if v.nf > int(0) {
-							s.frames[(v.nf - int(1))] = v.top
-						}
-						s.wrong = v.wrong
-						s.starved = false
-						v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: true}
-						goto inl
-					}
-					v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: false}
-				}
-			inl:
-				_ = 0
-				return v_1, nil
-			}(env, p_1)
-			return r_1
-		}, func(v_2 json__scan) json__scan { return ergo__Clonescan(v_2) }, true, true)
-		if !v_3.starved {
-			return
-		}
-		(r).refill(env)
-	}
-}
-
-func (r json__Stream) Skip(env *ergo__Env) {
-	env.task.Check()
-	for {
-		v_3 := ergo.RefModifyInPlace[json__scan, json__got[bool]](env.task, r.st, func(p_1 *json__scan) json__got[bool] {
-			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[bool], error) {
-				v := (&(*p)).opening()
-				{
-					var s *json__scan = (&(*p))
-					(s).enter()
-					(s).pass(env_1)
-				}
-				var v_1 json__got[bool]
-				{
-					var s_1 *json__scan = (&(*p))
-					var x bool = true
-					if s_1.starved {
-						s_1.qi = v.qi
-						s_1.nf = v.nf
-						if v.nf > int(0) {
-							s_1.frames[(v.nf - int(1))] = v.top
-						}
-						s_1.wrong = v.wrong
-						s_1.starved = false
-						v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: true}
-						goto inl_1
-					}
-					v_1 = json__got[bool]{v: x, wrong: false, path: "", starved: false}
-				}
-			inl_1:
-				_ = 0
-				return v_1, nil
-			}(env, p_1)
-			return r_1
-		}, func(v_2 json__scan) json__scan { return ergo__Clonescan(v_2) }, true, true)
-		if !v_3.starved {
-			return
-		}
-		(r).refill(env)
-	}
-}
-
-func (r json__Stream) Path(env *ergo__Env) string {
-	env.task.Check()
-	v_2 := ergo.RefModifyInPlace[json__scan, string](env.task, r.st, func(p_1 *json__scan) string {
-		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (string, error) {
-			v := (&(*p)).path(env_1)
-			return v, nil
-		}(env, p_1)
-		return r_1
-	}, func(v_1 json__scan) json__scan { return ergo__Clonescan(v_1) }, true, true)
-	return v_2
-}
-
 type codegraph__Step struct {
 	Kind string
 	From int
@@ -3717,7 +9294,7 @@ func (r codegraph__Rows) Why(a int, b int) ergo__Option[[]codegraph__Step] {
 	case 1:
 		return (ergo__Option[[]codegraph__Step]{tag: 1})
 	default:
-		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:433:2 matched")
+		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:435:2 matched")
 	}
 }
 
@@ -3984,110 +9561,2177 @@ func json__EncodeMono_i2903857829(env *ergo__Env, wT struct {
 	return v_3
 }
 
-func (t *json__text) intBody(n int64) {
-	t.out = ergo.JSONAppendInt(t.out, n)
+func strings__Contains(s string, sub string) bool {
+	r := go__strings.Contains(s, sub)
+	return r
 }
 
-func (r json__Reader_1) Int(env *ergo__Env) (int64, error) {
-	env.task.Check()
-	v := (r.c).Int()
-	v_1 := (r.c).Wrong()
-	if v_1 {
-		v_2 := (r.c).Path()
-		return 0, ergo__WireWrongKind{Path: v_2, Want: "an integer"}
+func slices__Contains[T comparable](xs []T, x T) bool {
+	for _, v := range xs {
+		var y T = v
+		if y == x {
+			return true
+		}
 	}
-	return v, nil
+	return false
 }
 
-func (r json__Stream) Int(env *ergo__Env) (int64, error) {
+func slices__ContainsMono_i398550328(xs []string, x string) bool {
+	for _, v := range xs {
+		var y string = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
+func (r codegraph__Rows) PhysicalLines(modules []int) codegraph__FileLengths {
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	var files []codegraph__FileLength = []codegraph__FileLength{}
+	places = ergo.Reserve(places, len(r.Nodes))
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		if row.Parent >= int(0) {
+			var v_2 codegraph__place
+			if row.Parent < i {
+				v_2 = places[row.Parent]
+			} else {
+				v_3 := (r).placeOf(row.Parent, chosen)
+				v_2 = v_3
+			}
+			at = v_2
+		}
+		v_4 := (r).placed(i, at, chosen)
+		places = ergo__Append[codegraph__place](places, v_4)
+		if (row.Kind == "file") && v_4.InScope {
+			files = ergo__Append[codegraph__FileLength](files, codegraph__FileLength{File: i, Lines: row.Lines})
+		}
+	}
+	return codegraph__FileLengths{Files: files, Work: work}
+}
+
+type codegraph__FileLength struct {
+	File  int
+	Lines int
+}
+
+func (f codegraph__FileLength) LongFile(max_1 int) bool {
+	return (f.Lines > max_1)
+}
+
+func json__EncodeMono_i2628906324(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__FileLengthOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__FileLengthOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__FileLengthOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__FileLengthOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__FileLengthOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__FileLengthOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__FileLengthOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__FileLengthOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__FileLengthOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__FileLengthOut, error)
+		Absent  func([]ergo__FileLengthOut) bool
+		Empty   []ergo__FileLengthOut
+	}
+}, c json__Codec[[]ergo__FileLengthOut], v []ergo__FileLengthOut) string {
 	env.task.Check()
-	for {
-		v_12 := ergo.RefModifyInPlace[json__scan, json__got[int64]](env.task, r.st, func(p_1 *json__scan) json__got[int64] {
-			r_1, _ := func(env_1 *ergo__Env, p *json__scan) (json__got[int64], error) {
-				v := (&(*p)).opening()
-				var v_1 int64
+	v_1 := ergo.StringsHint[json__text, []ergo__FileLengthOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+func ergo__EqualSlice_3(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !(a[i] == b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func ergo__EqualSome_2(a, b ergo__Some[[]string]) bool {
+	return ergo__EqualSlice_3(a.Value, b.Value)
+}
+
+func ergo__EqualOption_2(a, b ergo__Option[[]string]) bool {
+	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_2(a.as0(), b.as0()))
+}
+
+func (r codegraph__Rows) Directories(modules []int) codegraph__DirectoryList {
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	var dirs []string = []string{}
+	var members map[string][]string = map[string][]string{}
+	var seen map[string]bool = map[string]bool{}
+	var directAnchor map[string]int = map[string]int{}
+	var anyAnchor map[string]int = map[string]int{}
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		if row.Parent >= int(0) {
+			var v_2 codegraph__place
+			if row.Parent < i {
+				v_2 = places[row.Parent]
+			} else {
+				v_3 := (r).placeOf(row.Parent, chosen)
+				v_2 = v_3
+			}
+			at = v_2
+		}
+		v_4 := (r).placed(i, at, chosen)
+		places = ergo__Append[codegraph__place](places, v_4)
+		if ((row.Kind != "file") || (!v_4.InScope)) || (row.Name == "") {
+			continue
+		}
+		v_6 := strings__Split(row.Name, "/")
+		var parts []string = []string{}
+		for _, v_7 := range v_6 {
+			var p string = v_7
+			if (p != "") && (p != ".") {
+				parts = ergo__Append[string](parts, p)
+			}
+		}
+		t := (ergo__Range[int]{Start: int(0), End: len(parts)})
+		for i_1 := t.Start; i_1 < t.End; i_1++ {
+			var k_1 int = i_1
+			work = (work + int(1))
+			var v_10 string
+			if k_1 == int(0) {
+				v_10 = "."
+			} else {
+				v_11 := ergo.StringsJoin(parts[int(0):k_1], "/")
+				v_10 = v_11
+			}
+			var dir string = v_10
+			v_12 := codegraph__childEntry(parts, k_1)
+			var key string = ((dir + "\n") + v_12)
+			v_13 := ergo__Get[string, bool](seen, key)
+			if v_13 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+				seen[key] = true
+				v_14 := ergo__Get[string, []string](members, dir)
+				if ergo__EqualOption_2(v_14, (ergo__Option[[]string]{}).of1((ergo__None{}))) {
+					dirs = ergo__Append[string](dirs, dir)
+				}
+				t_1 := members
+				t_2 := dir
+				var v_16 []string
 				{
-					var s *json__scan = (&(*p))
-					var v_2 json__tok
-					{
-						(s).enter()
-
-						{
-							v_2 = (s).peekAt(env_1, int(0))
-
-						}
-						s.wrong = (v_2.kind != json__kNumber)
-						if !s.wrong {
-							(s).advance()
-						}
-
-					}
-					if s.wrong {
-						v_1 = int64(0)
-						goto inl
-					}
-					var small int64
-					var ok bool
-					v_5 := json__smallInt(v_2.text)
-					small, ok = v_5.F0, v_5.F1
+					var m_1 map[string][]string = members
+					var def []string = []string{}
+					v_17, ok := m_1[dir]
 					if ok {
-						v_1 = small
+						v_18 := ergo__Some[[]string]{Value: v_17}
+						v_16 = v_18.Value
+						goto inl
+					} else {
+						v_16 = def
 						goto inl
 					}
-					v_6, err := ergo.StrconvParseInt(v_2.text, int(10), int(64))
-
-					if err != nil {
-						s.wrong = true
-						v_1 = int64(0)
-					} else {
-						v_1 = v_6
-					}
-
 				}
 			inl:
 				_ = 0
-				var v_8 json__got[int64]
-				{
-					var s_1 *json__scan = (&(*p))
-
-					{
-						if s_1.starved {
-							s_1.qi = v.qi
-							s_1.nf = v.nf
-							if v.nf > int(0) {
-								s_1.frames[(v.nf - int(1))] = v.top
-							}
-							s_1.wrong = v.wrong
-							s_1.starved = false
-							v_8 = json__got[int64]{v: v_1, wrong: false, path: "", starved: true}
-							goto inl_4
-						}
-						v_8 = json__got[int64]{v: v_1, wrong: false, path: "", starved: false}
+				v_19 := ergo__Append[string](slices.Clip(slices.Clone(v_16)), v_12)
+				t_1[t_2] = v_19
+			}
+			if k_1 == (len(parts) - int(1)) {
+				v_20, ok_1 := directAnchor[dir]
+				if ok_1 {
+					prev := ergo__Some[int]{Value: v_20}
+					if row.Name < r.Nodes[prev.Value].Name {
+						directAnchor[dir] = i
 					}
-				inl_4:
-					_ = 0
-					if (!v_8.starved) && s_1.wrong {
-						t := v_1
-						v_10 := (s_1).path(env_1)
-						v_8 = json__got[int64]{v: t, wrong: true, path: v_10, starved: false}
-						goto inl_3
-					}
-
+				} else {
+					directAnchor[dir] = i
 				}
-			inl_3:
-				_ = 0
-				return v_8, nil
-			}(env, p_1)
-			return r_1
-		}, func(v_11 json__scan) json__scan { return ergo__Clonescan(v_11) }, true, true)
-		if v_12.wrong {
-			return 0, ergo__WireWrongKind{Path: v_12.path, Want: "an integer"}
+			}
+			v_21, ok_2 := anyAnchor[dir]
+			if ok_2 {
+				prev_1 := ergo__Some[int]{Value: v_21}
+				if row.Name < r.Nodes[prev_1.Value].Name {
+					anyAnchor[dir] = i
+				}
+			} else {
+				anyAnchor[dir] = i
+			}
 		}
-		if !v_12.starved {
-			return v_12.v, nil
-		}
-		(r).refill(env)
 	}
+	var out []codegraph__Directory = []codegraph__Directory{}
+	v_22 := ergo.SlicesSortOwned[string](dirs)
+	out = ergo.Reserve(out, len(v_22))
+	for _, v_23 := range v_22 {
+		var d string = v_23
+		var v_24 int
+		v_25, ok_3 := directAnchor[d]
+		if ok_3 {
+			a := ergo__Some[int]{Value: v_25}
+			v_24 = a.Value
+		} else {
+			var v_26 int
+			{
+				var m_2 map[string]int = anyAnchor
+				var def_1 int = int(-1)
+				v_27, ok_4 := m_2[d]
+				if ok_4 {
+					v_28 := ergo__Some[int]{Value: v_27}
+					v_26 = v_28.Value
+					goto inl_1
+				} else {
+					v_26 = def_1
+					goto inl_1
+				}
+			}
+		inl_1:
+			_ = 0
+			v_24 = v_26
+		}
+		var anchor int = v_24
+		t_3 := out
+		t_4 := d
+		var v_29 []string
+		{
+			var m_3 map[string][]string = members
+			var def_2 []string = []string{}
+			v_30, ok_5 := m_3[d]
+			if ok_5 {
+				v_31 := ergo__Some[[]string]{Value: v_30}
+				v_29 = v_31.Value
+				goto inl_2
+			} else {
+				v_29 = def_2
+				goto inl_2
+			}
+		}
+	inl_2:
+		_ = 0
+		v_32 := ergo.SlicesSortOwned[string](v_29)
+		v_33 := ergo__Append[codegraph__Directory](t_3, codegraph__Directory{Path: t_4, Members: v_32, Anchor: anchor})
+		out = v_33
+	}
+	return codegraph__DirectoryList{Directories: out, Work: work}
+}
+
+type codegraph__Directory struct {
+	Path    string
+	Members []string
+	Anchor  int
+}
+
+func (d codegraph__Directory) WideDirectory(max_1 int) bool {
+	return (len(d.Members) > max_1)
+}
+
+func json__EncodeMono_i2720617043(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__DirectoryOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__DirectoryOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__DirectoryOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__DirectoryOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__DirectoryOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__DirectoryOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__DirectoryOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__DirectoryOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__DirectoryOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__DirectoryOut, error)
+		Absent  func([]ergo__DirectoryOut) bool
+		Empty   []ergo__DirectoryOut
+	}
+}, c json__Codec[[]ergo__DirectoryOut], v []ergo__DirectoryOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ergo__DirectoryOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+func ergo__EqualSlice_2(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if !(a[i] == b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func ergo__EqualSome_1(a, b ergo__Some[[]int]) bool {
+	return ergo__EqualSlice_2(a.Value, b.Value)
+}
+
+func ergo__EqualOption_1(a, b ergo__Option[[]int]) bool {
+	return (a.tag == b.tag) && (a.tag != 0 || ergo__EqualSome_1(a.as0(), b.as0()))
+}
+
+func (r codegraph__Rows) ForeignRecordFieldWrites(modules []int) codegraph__ForeignFieldWrites {
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	var privateField map[int]int = map[int]int{}
+	places = ergo.Reserve(places, len(r.Nodes))
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		if row.Parent >= int(0) {
+			var v_2 codegraph__place
+			if row.Parent < i {
+				v_2 = places[row.Parent]
+			} else {
+				v_3 := (r).placeOf(row.Parent, chosen)
+				v_2 = v_3
+			}
+			at = v_2
+		}
+		t := places
+		v_4 := (r).placed(i, at, chosen)
+		v_5 := ergo__Append[codegraph__place](t, v_4)
+		places = v_5
+		b_1 := ((((row.Kind == "decl") && (row.Sub == "field")) && (row.Parent >= int(0))) && (r.Nodes[row.Parent].Sub == "type"))
+		if b_1 {
+			var v_6 bool
+			{
+				var name string = row.Name
+				t_1 := name
+				v_7 := strings__LastIndex(name, ".")
+				var last string = t_1[(v_7 + int(1)):len(name)]
+				v_6 = (last != "")
+				if v_6 {
+					v_8 := ergo.UTF8DecodeRuneInString(last)
+					v_9 := utf8__IsUpper(v_8.Rune)
+					v_6 = v_9
+				}
+
+			}
+			b_1 = (!v_6)
+		}
+		b := b_1
+		if b {
+			v_10 := ergo__Get[int, int](privateField, row.Parent)
+			b = (v_10 == (ergo__Option[int]{}).of1((ergo__None{})))
+		}
+		if b {
+			privateField[row.Parent] = i
+		}
+	}
+	var width int = len(r.Nodes)
+	var fields []int = []int{}
+	var callersOf map[int][]int = map[int][]int{}
+	var firstSite map[int]int = map[int]int{}
+	for k_1, v_11 := range r.Edges {
+		var k_2 int = k_1
+		var e codegraph__EdgeRow = v_11
+		work = (work + int(1))
+		b_3 := (e.Kind != "uses")
+		if !b_3 {
+			v_12 := codegraph__isFieldWrite(e.How)
+			b_3 = (!v_12)
+		}
+		if (b_3 || (!places[e.From].Ordinary)) || (!places[e.To].Ordinary) {
+			continue
+		}
+		var a codegraph__place = places[e.From]
+		var b_4 codegraph__place = places[e.To]
+		if ((((((!a.InScope) || (!b_4.InScope)) || (a.File < int(0))) || (b_4.File < int(0))) || (a.Package < int(0))) || (b_4.Package < int(0))) || (a.Package == b_4.Package) {
+			continue
+		}
+		var to codegraph__NodeRow = r.Nodes[e.To]
+		b_5 := ((to.Kind != "decl") || (to.Sub != "field"))
+		if !b_5 {
+			var v_13 bool
+			{
+				var name_1 string = to.Name
+				t_2 := name_1
+				v_14 := strings__LastIndex(name_1, ".")
+				var last_1 string = t_2[(v_14 + int(1)):len(name_1)]
+				v_13 = (last_1 != "")
+				if v_13 {
+					v_15 := ergo.UTF8DecodeRuneInString(last_1)
+					v_16 := utf8__IsUpper(v_15.Rune)
+					v_13 = v_16
+				}
+
+			}
+			b_5 = (!v_13)
+		}
+		if (b_5 || (to.Parent < int(0))) || (r.Nodes[to.Parent].Sub != "type") {
+			continue
+		}
+		v_17 := codegraph__hasPrivateField(privateField, to.Parent)
+		if !v_17 {
+			continue
+		}
+		var pair int = ((e.To * width) + e.From)
+		v_18 := ergo__Get[int, int](firstSite, pair)
+		if v_18 == (ergo__Option[int]{}).of1((ergo__None{})) {
+			firstSite[pair] = k_2
+			v_19 := ergo__Get[int, []int](callersOf, e.To)
+			if ergo__EqualOption_1(v_19, (ergo__Option[[]int]{}).of1((ergo__None{}))) {
+				fields = ergo__Append[int](fields, e.To)
+			}
+			t_3 := callersOf
+			t_4 := e.To
+			var v_21 []int
+			{
+				var m_1 map[int][]int = callersOf
+				var k_3 int = e.To
+				var def []int = []int{}
+				v_22, ok := m_1[k_3]
+				if ok {
+					v_23 := ergo__Some[[]int]{Value: v_22}
+					v_21 = v_23.Value
+					goto inl_2
+				} else {
+					v_21 = def
+					goto inl_2
+				}
+			}
+		inl_2:
+			_ = 0
+			v_24 := ergo__Append[int](slices.Clip(slices.Clone(v_21)), e.From)
+			t_3[t_4] = v_24
+		}
+	}
+	var out []codegraph__ForeignFieldWrite = []codegraph__ForeignFieldWrite{}
+	v_25 := ergo.SlicesSortOwned[int](fields)
+	out = ergo.Reserve(out, len(v_25))
+	for _, v_26 := range v_25 {
+		var f int = v_26
+		var v_27 []int
+		{
+			var m_2 map[int][]int = callersOf
+			var def_1 []int = []int{}
+			v_28, ok_1 := m_2[f]
+			if ok_1 {
+				v_29 := ergo__Some[[]int]{Value: v_28}
+				v_27 = v_29.Value
+				goto inl_3
+			} else {
+				v_27 = def_1
+				goto inl_3
+			}
+		}
+	inl_3:
+		_ = 0
+		v_30 := ergo.SlicesSortOwned[int](v_27)
+		var sites []int = []int{}
+		sites = ergo.Reserve(sites, len(v_30))
+		for _, v_31 := range v_30 {
+			var c int = v_31
+			t_5 := sites
+			var v_32 int
+			{
+				var m_3 map[int]int = firstSite
+				var k_4 int = ((f * width) + c)
+				var def_2 int = int(-1)
+				v_33, ok_2 := m_3[k_4]
+				if ok_2 {
+					v_34 := ergo__Some[int]{Value: v_33}
+					v_32 = v_34.Value
+					goto inl_4
+				} else {
+					v_32 = def_2
+					goto inl_4
+				}
+			}
+		inl_4:
+			_ = 0
+			v_35 := ergo__Append[int](t_5, v_32)
+			sites = v_35
+		}
+		var record int = r.Nodes[f].Parent
+		t_6 := out
+		t_7 := f
+		t_8 := record
+		var v_36 int
+		{
+			var m_4 map[int]int = privateField
+			var def_3 int = int(-1)
+			v_37, ok_3 := m_4[record]
+			if ok_3 {
+				v_38 := ergo__Some[int]{Value: v_37}
+				v_36 = v_38.Value
+				goto inl_5
+			} else {
+				v_36 = def_3
+				goto inl_5
+			}
+		}
+	inl_5:
+		_ = 0
+		v_39 := ergo__Append[codegraph__ForeignFieldWrite](t_6, codegraph__ForeignFieldWrite{Field: t_7, Record: t_8, PrivateField: v_36, Callers: v_30, Sites: sites})
+		out = v_39
+	}
+	return codegraph__ForeignFieldWrites{Writes: out, Work: work}
+}
+
+type codegraph__ForeignFieldWrite struct {
+	Callers      []int
+	Sites        []int
+	Field        int
+	Record       int
+	PrivateField int
+}
+
+func json__EncodeMono_i628892963(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__FieldWriteOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__FieldWriteOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__FieldWriteOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__FieldWriteOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__FieldWriteOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__FieldWriteOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__FieldWriteOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__FieldWriteOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__FieldWriteOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__FieldWriteOut, error)
+		Absent  func([]ergo__FieldWriteOut) bool
+		Empty   []ergo__FieldWriteOut
+	}
+}, c json__Codec[[]ergo__FieldWriteOut], v []ergo__FieldWriteOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ergo__FieldWriteOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+func (r codegraph__Rows) ProductionUsesTestSupport(modules []int, support []codegraph__SupportEntry) codegraph__TestSupportUses {
+	if len(support) == int(0) {
+		return codegraph__TestSupportUses{Uses: []codegraph__TestSupportUse{}, Work: int(0)}
+	}
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var supportSeams map[string][]string = map[string][]string{}
+	for _, v_1 := range support {
+		var s codegraph__SupportEntry = v_1
+		work = (work + int(1))
+		var v_2 []string
+		{
+			var m_1 map[string][]string = supportSeams
+			var k string = s.Package
+			var def []string = []string{}
+			v_3, ok := m_1[k]
+			if ok {
+				v_4 := ergo__Some[[]string]{Value: v_3}
+				v_2 = v_4.Value
+				goto inl
+			} else {
+				v_2 = def
+				goto inl
+			}
+		}
+	inl:
+		_ = 0
+		var cur []string = slices.Clone(v_2)
+		v_5 := slices__ContainsMono_i398550328(cur, s.Seam)
+		if !v_5 {
+			t := supportSeams
+			t_1 := s.Package
+			t[t_1] = ergo__Append[string](cur, s.Seam)
+		}
+	}
+	var places []codegraph__place = []codegraph__place{}
+	var fileHasTest map[int]bool = map[int]bool{}
+	places = ergo.Reserve(places, len(r.Nodes))
+	for k_1, v_7 := range r.Nodes {
+		var i int = k_1
+		var row codegraph__NodeRow = v_7
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		if row.Parent >= int(0) {
+			var v_8 codegraph__place
+			if row.Parent < i {
+				v_8 = places[row.Parent]
+			} else {
+				v_9 := (r).placeOf(row.Parent, chosen)
+				v_8 = v_9
+			}
+			at = v_8
+		}
+		v_10 := (r).placed(i, at, chosen)
+		places = ergo__Append[codegraph__place](places, v_10)
+		if ((row.Sub == "test") || (row.Sub == "law")) && (v_10.File >= int(0)) {
+			fileHasTest[v_10.File] = true
+		}
+	}
+	var width int = len(r.Nodes)
+	var importSite map[int]int = map[int]int{}
+	for k_2, v_12 := range r.Edges {
+		var k_3 int = k_2
+		var e codegraph__EdgeRow = v_12
+		work = (work + int(1))
+		if e.Kind == "imports" {
+			var key int = ((e.From * width) + e.To)
+			v_13 := ergo__Get[int, int](importSite, key)
+			if v_13 == (ergo__Option[int]{}).of1((ergo__None{})) {
+				importSite[key] = k_3
+			}
+		}
+	}
+	var pairs []int = []int{}
+	var firstSite map[int]int = map[int]int{}
+	for k_4, v_14 := range r.Edges {
+		var k_5 int = k_4
+		var e_1 codegraph__EdgeRow = v_14
+		work = (work + int(1))
+		if e_1.Kind != "uses" {
+			continue
+		}
+		var a codegraph__place = places[e_1.From]
+		var b codegraph__place = places[e_1.To]
+		if ((((!a.InScope) || (a.Package < int(0))) || (b.Package < int(0))) || (a.Package == b.Package)) || (a.File < int(0)) {
+			continue
+		}
+		var targetPkg string = r.Nodes[b.Package].Name
+		var v_15 []string
+		{
+			var m_2 map[string][]string = supportSeams
+			var def_1 []string = []string{}
+			v_16, ok_1 := m_2[targetPkg]
+			if ok_1 {
+				v_17 := ergo__Some[[]string]{Value: v_16}
+				v_15 = v_17.Value
+				goto inl_1
+			} else {
+				v_15 = def_1
+				goto inl_1
+			}
+		}
+	inl_1:
+		_ = 0
+		if len(v_15) == int(0) {
+			continue
+		}
+		t_2 := a.Ordinary
+		v_18 := ergo__Get[int, bool](fileHasTest, a.File)
+		v_19 := codegraph__callerExempt(t_2, (v_18 != (ergo__Option[bool]{}).of1((ergo__None{}))))
+		if v_19 {
+			continue
+		}
+		var callerPkg string = r.Nodes[a.Package].Name
+		var v_20 []string
+		{
+			var m_3 map[string][]string = supportSeams
+			var def_2 []string = []string{}
+			v_21, ok_2 := m_3[callerPkg]
+			if ok_2 {
+				v_22 := ergo__Some[[]string]{Value: v_21}
+				v_20 = v_22.Value
+				goto inl_2
+			} else {
+				v_20 = def_2
+				goto inl_2
+			}
+		}
+	inl_2:
+		_ = 0
+		v_23 := codegraph__supportAllowed(v_20, v_15)
+		if v_23 {
+			continue
+		}
+		var pair int = ((e_1.From * width) + b.Package)
+		v_24 := ergo__Get[int, int](firstSite, pair)
+		if v_24 == (ergo__Option[int]{}).of1((ergo__None{})) {
+			firstSite[pair] = k_5
+			pairs = ergo__Append[int](pairs, pair)
+		}
+	}
+	var out []codegraph__TestSupportUse = []codegraph__TestSupportUse{}
+	v_26 := ergo.SlicesSortOwned[int](pairs)
+	out = ergo.Reserve(out, len(v_26))
+	for _, v_27 := range v_26 {
+		var pair_1 int = v_27
+		var caller int = (pair_1 / width)
+		var target int = (pair_1 % width)
+		var v_28 int
+		{
+			var m_4 map[int]int = importSite
+			var k_6 int = ((places[caller].File * width) + target)
+			var def_3 int = int(-1)
+			v_29, ok_3 := m_4[k_6]
+			if ok_3 {
+				v_30 := ergo__Some[int]{Value: v_29}
+				v_28 = v_30.Value
+				goto inl_3
+			} else {
+				v_28 = def_3
+				goto inl_3
+			}
+		}
+	inl_3:
+		_ = 0
+		t_3 := out
+		t_4 := caller
+		t_5 := target
+		var v_31 int
+		{
+			var m_5 map[int]int = firstSite
+			var def_4 int = int(-1)
+			v_32, ok_4 := m_5[pair_1]
+			if ok_4 {
+				v_33 := ergo__Some[int]{Value: v_32}
+				v_31 = v_33.Value
+				goto inl_4
+			} else {
+				v_31 = def_4
+				goto inl_4
+			}
+		}
+	inl_4:
+		_ = 0
+		v_34 := ergo__Append[codegraph__TestSupportUse](t_3, codegraph__TestSupportUse{Caller: t_4, Target: t_5, Site: v_31, Import: v_28})
+		out = v_34
+	}
+	return codegraph__TestSupportUses{Uses: out, Work: work}
+}
+
+type codegraph__TestSupportUse struct {
+	Caller int
+	Target int
+	Site   int
+	Import int
+}
+
+func json__EncodeMono_i3595107923(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__TestSupportOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__TestSupportOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__TestSupportOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__TestSupportOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__TestSupportOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__TestSupportOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__TestSupportOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__TestSupportOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__TestSupportOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__TestSupportOut, error)
+		Absent  func([]ergo__TestSupportOut) bool
+		Empty   []ergo__TestSupportOut
+	}
+}, c json__Codec[[]ergo__TestSupportOut], v []ergo__TestSupportOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ergo__TestSupportOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+func (r codegraph__Rows) SeamEntrypoints(modules []int, seams []codegraph__SeamSpec) codegraph__SeamViolations {
+	if len(seams) == int(0) {
+		return codegraph__SeamViolations{Violations: []codegraph__SeamViolation{}, Work: int(0)}
+	}
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	var roles []string = []string{}
+	places = ergo.Reserve(places, len(r.Nodes))
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		if row.Parent >= int(0) {
+			var v_2 codegraph__place
+			if row.Parent < i {
+				v_2 = places[row.Parent]
+			} else {
+				v_3 := (r).placeOf(row.Parent, chosen)
+				v_2 = v_3
+			}
+			at = v_2
+		}
+		t := places
+		v_4 := (r).placed(i, at, chosen)
+		v_5 := ergo__Append[codegraph__place](t, v_4)
+		places = v_5
+		t_1 := roles
+		v_6 := (r).roleOf(i, roles)
+		v_7 := ergo__Append[string](t_1, v_6)
+		roles = v_7
+	}
+	var width int = len(r.Nodes)
+	var hasOrdinary map[int]bool = map[int]bool{}
+	var hasTestOrLaw map[int]bool = map[int]bool{}
+	var testSites map[int][]int = map[int][]int{}
+	for k_1, v_8 := range r.Edges {
+		var k_2 int = k_1
+		var e codegraph__EdgeRow = v_8
+		work = (work + int(1))
+		if e.Kind != "uses" {
+			continue
+		}
+		var a codegraph__place = places[e.From]
+		var b codegraph__place = places[e.To]
+		if ((!a.InScope) || (a.File < int(0))) || (b.Package < int(0)) {
+			continue
+		}
+		var key int = ((a.File * width) + b.Package)
+		switch roles[e.From] {
+		case "test":
+			hasTestOrLaw[key] = true
+			t_2 := testSites
+			t_3 := key
+			var v_9 []int
+			{
+				var m_1 map[int][]int = testSites
+				var def []int = []int{}
+				v_10, ok := m_1[key]
+				if ok {
+					v_11 := ergo__Some[[]int]{Value: v_10}
+					v_9 = v_11.Value
+					goto inl
+				} else {
+					v_9 = def
+					goto inl
+				}
+			}
+		inl:
+			_ = 0
+			v_12 := ergo__Append[int](slices.Clip(slices.Clone(v_9)), k_2)
+			t_2[t_3] = v_12
+		case "law":
+			hasTestOrLaw[key] = true
+		default:
+			hasOrdinary[key] = true
+		}
+	}
+	var out []codegraph__SeamViolation = []codegraph__SeamViolation{}
+	for k_3, v_13 := range r.Edges {
+		var k_4 int = k_3
+		var e_1 codegraph__EdgeRow = v_13
+		work = (work + int(1))
+		if e_1.Kind != "imports" {
+			continue
+		}
+		var a_1 codegraph__place = places[e_1.From]
+		var b_1 codegraph__place = places[e_1.To]
+		if ((!a_1.InScope) || (!b_1.InScope)) || (a_1.Package < int(0)) {
+			continue
+		}
+		var callerName string = r.Nodes[a_1.Package].Name
+		var targetName string = r.Nodes[e_1.To].Name
+		var key_1 int = ((e_1.From * width) + e_1.To)
+		v_14 := ergo__Get[int, bool](hasOrdinary, key_1)
+		var ord bool = (v_14 != (ergo__Option[bool]{tag: 1}))
+		v_15 := ergo__Get[int, bool](hasTestOrLaw, key_1)
+		var tl bool = (v_15 != (ergo__Option[bool]{tag: 1}))
+		var testOnly_1 bool = (tl && (!ord))
+		var v_16 []int
+		{
+			var m_2 map[int][]int = testSites
+			var def_1 []int = []int{}
+			v_17, ok_1 := m_2[key_1]
+			if ok_1 {
+				v_18 := ergo__Some[[]int]{Value: v_17}
+				v_16 = v_18.Value
+				goto inl_1
+			} else {
+				v_16 = def_1
+				goto inl_1
+			}
+		}
+	inl_1:
+		_ = 0
+		for k_5, v_19 := range seams {
+			var si int = k_5
+			var seam codegraph__SeamSpec = v_19
+			work = (work + int(1))
+			var v_20 bool
+			{
+				v_21 := slices__ContainsMono_i398550328(seam.Packages, targetName)
+				v_20 = v_21
+				if !v_20 {
+					b_4 := (seam.Root != "")
+					if b_4 {
+						b_5 := (targetName == seam.Root)
+						if !b_5 {
+							v_22 := strings__HasPrefix(targetName, (seam.Root + "/"))
+							b_5 = v_22
+						}
+						b_4 = b_5
+					}
+					v_20 = b_4
+				}
+
+			}
+			b_2 := (!v_20)
+			if !b_2 {
+				v_23 := slices__ContainsMono_i398550328(seam.Entries, targetName)
+				b_2 = v_23
+			}
+			if b_2 {
+				continue
+			}
+			var v_24 bool
+			{
+				v_25 := slices__ContainsMono_i398550328(seam.Packages, callerName)
+				v_24 = v_25
+				if !v_24 {
+					b_7 := (seam.Root != "")
+					if b_7 {
+						b_8 := (callerName == seam.Root)
+						if !b_8 {
+							v_26 := strings__HasPrefix(callerName, (seam.Root + "/"))
+							b_8 = v_26
+						}
+						b_7 = b_8
+					}
+					v_24 = b_7
+				}
+
+			}
+			v_27 := slices__ContainsMono_i398550328(seam.TestSupport, targetName)
+			if !v_24 {
+				if !(v_27 && testOnly_1) {
+					out = ergo__Append[codegraph__SeamViolation](out, codegraph__SeamViolation{Seam: si, Import: k_4, File: e_1.From, CallerPkg: a_1.Package, TargetPkg: e_1.To, Inside: false, TestSites: slices.Clone(v_16)})
+				}
+			} else {
+				b_9 := (seam.TestThroughEntries && (!v_27))
+				if b_9 {
+					v_29 := codegraph__insideTestViolates((len(v_16) > int(0)), ord)
+					b_9 = v_29
+				}
+				if b_9 {
+					out = ergo__Append[codegraph__SeamViolation](out, codegraph__SeamViolation{Seam: si, Import: k_4, File: e_1.From, CallerPkg: a_1.Package, TargetPkg: e_1.To, Inside: true, TestSites: slices.Clone(v_16)})
+				}
+			}
+		}
+	}
+	return codegraph__SeamViolations{Violations: out, Work: work}
+}
+
+type codegraph__SeamViolation struct {
+	TestSites []int
+	Seam      int
+	Import    int
+	File      int
+	CallerPkg int
+	TargetPkg int
+	Inside    bool
+}
+
+func json__EncodeMono_i2291527153(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__SeamViolationOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__SeamViolationOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__SeamViolationOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__SeamViolationOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__SeamViolationOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__SeamViolationOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__SeamViolationOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__SeamViolationOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__SeamViolationOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__SeamViolationOut, error)
+		Absent  func([]ergo__SeamViolationOut) bool
+		Empty   []ergo__SeamViolationOut
+	}
+}, c json__Codec[[]ergo__SeamViolationOut], v []ergo__SeamViolationOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ergo__SeamViolationOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+func (r codegraph__Rows) SiblingFolderCycles(modules []int) codegraph__FolderCycles {
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	var modOf []int = []int{}
+	var fileFolders map[int][]string = map[int][]string{}
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		var mid int = int(-1)
+		if row.Kind == "module" {
+			mid = i
+		} else {
+			if row.Parent >= int(0) {
+				if row.Parent < i {
+					at = places[row.Parent]
+					mid = modOf[row.Parent]
+				} else {
+					at = (r).placeOf(row.Parent, chosen)
+					var p int = row.Parent
+					var steps int = int(0)
+					for (p >= int(0)) && (steps <= len(r.Nodes)) {
+						if r.Nodes[p].Kind == "module" {
+							mid = p
+							break
+						}
+						p = r.Nodes[p].Parent
+						steps = (steps + int(1))
+					}
+				}
+			}
+		}
+		v_3 := (r).placed(i, at, chosen)
+		places = ergo__Append[codegraph__place](places, v_3)
+		modOf = ergo__Append[int](modOf, mid)
+		if (row.Kind == "file") && v_3.InScope {
+			t := fileFolders
+			t_1 := i
+			v_6 := codegraph__folderParts(row.Name)
+			t[t_1] = slices.Clone(v_6)
+		}
+	}
+	var groupKeys []string = []string{}
+	var groupMod map[string]int = map[string]int{}
+	var groupParent map[string]string = map[string]string{}
+	var groupEdges map[string][]codegraph__folderEdge = map[string][]codegraph__folderEdge{}
+	var edgeSeen map[string]int = map[string]int{}
+	for k_1, v_7 := range r.Edges {
+		var k_2 int = k_1
+		var e codegraph__EdgeRow = v_7
+		work = (work + int(1))
+		if ((e.Kind != "uses") || (!places[e.From].Ordinary)) || (!places[e.To].Ordinary) {
+			continue
+		}
+		var a codegraph__place = places[e.From]
+		var b codegraph__place = places[e.To]
+		if (((((((!a.InScope) || (!b.InScope)) || (modOf[e.From] != modOf[e.To])) || (a.Package < int(0))) || (b.Package < int(0))) || (a.Package == b.Package)) || (a.File < int(0))) || (b.File < int(0)) {
+			continue
+		}
+		var v_8 []string
+		{
+			var m_1 map[int][]string = fileFolders
+			var k_3 int = a.File
+			var def []string = []string{}
+			v_9, ok := m_1[k_3]
+			if ok {
+				v_10 := ergo__Some[[]string]{Value: v_9}
+				v_8 = v_10.Value
+				goto inl
+			} else {
+				v_8 = def
+				goto inl
+			}
+		}
+	inl:
+		_ = 0
+		var v_11 []string
+		{
+			var m_2 map[int][]string = fileFolders
+			var k_4 int = b.File
+			var def_1 []string = []string{}
+			v_12, ok_1 := m_2[k_4]
+			if ok_1 {
+				v_13 := ergo__Some[[]string]{Value: v_12}
+				v_11 = v_13.Value
+				goto inl_1
+			} else {
+				v_11 = def_1
+				goto inl_1
+			}
+		}
+	inl_1:
+		_ = 0
+		var v_14 int
+		if len(v_8) < len(v_11) {
+			v_14 = len(v_8)
+		} else {
+			v_14 = len(v_11)
+		}
+		var lim int = v_14
+		var common int = int(0)
+		for (common < lim) && (v_8[common] == v_11[common]) {
+			common = (common + int(1))
+			work = (work + int(1))
+		}
+		if common >= lim {
+			continue
+		}
+		var v_15 string
+		if common == int(0) {
+			v_15 = "."
+		} else {
+			v_16 := ergo.StringsJoin(v_8[int(0):common], "/")
+			v_15 = v_16
+		}
+		var parent string = v_15
+		v_17 := codegraph__folderChild(v_8, common)
+		v_18 := codegraph__folderChild(v_11, common)
+		if v_17 == v_18 {
+			continue
+		}
+		var gKey string = (string(strconv.AppendInt(make([]byte, 0, 20), int64(modOf[e.From]), 10)) + "\n" + parent)
+		var eKey string = (gKey + "\n" + v_17 + "\n" + v_18)
+		v_19 := ergo__Get[string, int](edgeSeen, eKey)
+		if v_19 == (ergo__Option[int]{}).of1((ergo__None{})) {
+			edgeSeen[eKey] = k_2
+			v_20 := ergo__Get[string, int](groupMod, gKey)
+			if v_20 == (ergo__Option[int]{}).of1((ergo__None{})) {
+				groupKeys = ergo__Append[string](groupKeys, gKey)
+				groupMod[gKey] = modOf[e.From]
+				groupParent[gKey] = parent
+			}
+			t_2 := groupEdges
+			t_3 := gKey
+			var v_22 []codegraph__folderEdge
+			{
+				var m_3 map[string][]codegraph__folderEdge = groupEdges
+				var def_2 []codegraph__folderEdge = []codegraph__folderEdge{}
+				v_23, ok_2 := m_3[gKey]
+				if ok_2 {
+					v_24 := ergo__Some[[]codegraph__folderEdge]{Value: v_23}
+					v_22 = v_24.Value
+					goto inl_2
+				} else {
+					v_22 = def_2
+					goto inl_2
+				}
+			}
+		inl_2:
+			_ = 0
+			v_25 := ergo__Append[codegraph__folderEdge](slices.Clip(slices.Clone(v_22)), codegraph__folderEdge{From: v_17, To: v_18, Site: k_2})
+			t_2[t_3] = v_25
+		}
+	}
+	var out []codegraph__FolderCycle = []codegraph__FolderCycle{}
+	v_26 := ergo.SlicesSortOwned[string](groupKeys)
+	for _, v_27 := range v_26 {
+		var gKey_1 string = v_27
+		var v_28 []codegraph__folderEdge
+		{
+			var m_4 map[string][]codegraph__folderEdge = groupEdges
+			var def_3 []codegraph__folderEdge = []codegraph__folderEdge{}
+			v_29, ok_3 := m_4[gKey_1]
+			if ok_3 {
+				v_30 := ergo__Some[[]codegraph__folderEdge]{Value: v_29}
+				v_28 = v_30.Value
+				goto inl_3
+			} else {
+				v_28 = def_3
+				goto inl_3
+			}
+		}
+	inl_3:
+		_ = 0
+		var childSet map[string]bool = map[string]bool{}
+		var children []string = []string{}
+		for _, v_31 := range v_28 {
+			var fe codegraph__folderEdge = v_31
+			v_32 := ergo__Get[string, bool](childSet, fe.From)
+			if v_32 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+				childSet[fe.From] = true
+				children = ergo__Append[string](children, fe.From)
+			}
+			v_34 := ergo__Get[string, bool](childSet, fe.To)
+			if v_34 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+				childSet[fe.To] = true
+				children = ergo__Append[string](children, fe.To)
+			}
+		}
+		v_36 := ergo.SlicesSortOwned[string](children)
+		var idOf map[string]int = map[string]int{}
+		for k_5, v_37 := range v_36 {
+			var idx int = k_5
+			var name string = v_37
+			idOf[name] = idx
+		}
+		var gEdges []graph__Edge = []graph__Edge{}
+		gEdges = ergo.Reserve(gEdges, len(v_28))
+		for _, v_38 := range v_28 {
+			var fe_1 codegraph__folderEdge = v_38
+			work = (work + int(1))
+			t_4 := gEdges
+			var v_39 int
+			{
+				var m_5 map[string]int = idOf
+				var k_6 string = fe_1.From
+				var def_4 int = int(-1)
+				v_40, ok_4 := m_5[k_6]
+				if ok_4 {
+					v_41 := ergo__Some[int]{Value: v_40}
+					v_39 = v_41.Value
+					goto inl_4
+				} else {
+					v_39 = def_4
+					goto inl_4
+				}
+			}
+		inl_4:
+			_ = 0
+			t_5 := v_39
+			var v_42 int
+			{
+				var m_6 map[string]int = idOf
+				var k_7 string = fe_1.To
+				var def_5 int = int(-1)
+				v_43, ok_5 := m_6[k_7]
+				if ok_5 {
+					v_44 := ergo__Some[int]{Value: v_43}
+					v_42 = v_44.Value
+					goto inl_5
+				} else {
+					v_42 = def_5
+					goto inl_5
+				}
+			}
+		inl_5:
+			_ = 0
+			v_45 := ergo__Append[graph__Edge](t_4, graph__Edge{From: t_5, To: v_42})
+			gEdges = v_45
+		}
+		v_46 := graph__Of(len(v_36), gEdges)
+		v_47 := (v_46).Cycles()
+		for _, v_48 := range v_47 {
+			var c graph__Cycle = v_48
+			if len(c.Nodes) < int(2) {
+				continue
+			}
+			var members []string = []string{}
+			members = ergo.Reserve(members, len(c.Nodes))
+			for _, v_49 := range c.Nodes {
+				var n int = v_49
+				members = ergo__Append[string](members, v_36[n])
+			}
+			var path []string = []string{}
+			path = ergo.Reserve(path, len(c.Path))
+			for _, v_51 := range c.Path {
+				var n_1 int = v_51
+				path = ergo__Append[string](path, v_36[n_1])
+			}
+			var sites []int = []int{}
+			t_6 := (ergo__Range[int]{Start: int(1), End: len(path)})
+			sites = ergo.Reserve(sites, max(int(t_6.End-t_6.Start), 0))
+			for i_1 := t_6.Start; i_1 < t_6.End; i_1++ {
+				var j int = i_1
+				var eKey_1 string = (gKey_1 + "\n" + path[(j-int(1))] + "\n" + path[j])
+				t_7 := sites
+				var v_54 int
+				{
+					var m_7 map[string]int = edgeSeen
+					var def_6 int = int(-1)
+					v_55, ok_6 := m_7[eKey_1]
+					if ok_6 {
+						v_56 := ergo__Some[int]{Value: v_55}
+						v_54 = v_56.Value
+						goto inl_6
+					} else {
+						v_54 = def_6
+						goto inl_6
+					}
+				}
+			inl_6:
+				_ = 0
+				v_57 := ergo__Append[int](t_7, v_54)
+				sites = v_57
+			}
+			t_8 := out
+			var v_58 int
+			{
+				var m_8 map[string]int = groupMod
+				var def_7 int = int(-1)
+				v_59, ok_7 := m_8[gKey_1]
+				if ok_7 {
+					v_60 := ergo__Some[int]{Value: v_59}
+					v_58 = v_60.Value
+					goto inl_7
+				} else {
+					v_58 = def_7
+					goto inl_7
+				}
+			}
+		inl_7:
+			_ = 0
+			t_9 := v_58
+			var v_61 string
+			{
+				var m_9 map[string]string = groupParent
+				var def_8 string = "."
+				v_62, ok_8 := m_9[gKey_1]
+				if ok_8 {
+					v_63 := ergo__Some[string]{Value: v_62}
+					v_61 = v_63.Value
+					goto inl_8
+				} else {
+					v_61 = def_8
+					goto inl_8
+				}
+			}
+		inl_8:
+			_ = 0
+			v_64 := ergo__Append[codegraph__FolderCycle](t_8, codegraph__FolderCycle{Module: t_9, Parent: v_61, Members: members, Path: path, Sites: sites})
+			out = v_64
+		}
+	}
+	return codegraph__FolderCycles{Cycles: out, Work: work}
+}
+
+type codegraph__FolderCycle struct {
+	Parent  string
+	Members []string
+	Path    []string
+	Sites   []int
+	Module  int
+}
+
+func json__EncodeMono_i2267674688(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__FolderCycleOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__FolderCycleOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__FolderCycleOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__FolderCycleOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__FolderCycleOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__FolderCycleOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__FolderCycleOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__FolderCycleOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__FolderCycleOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__FolderCycleOut, error)
+		Absent  func([]ergo__FolderCycleOut) bool
+		Empty   []ergo__FolderCycleOut
+	}
+}, c json__Codec[[]ergo__FolderCycleOut], v []ergo__FolderCycleOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ergo__FolderCycleOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+func (r codegraph__Rows) DeclarationTanglesOf(modules []int) codegraph__DeclarationTangles {
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	places = ergo.Reserve(places, len(r.Nodes))
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		if row.Parent >= int(0) {
+			var v_2 codegraph__place
+			if row.Parent < i {
+				v_2 = places[row.Parent]
+			} else {
+				v_3 := (r).placeOf(row.Parent, chosen)
+				v_2 = v_3
+			}
+			at = v_2
+		}
+		t := places
+		v_4 := (r).placed(i, at, chosen)
+		v_5 := ergo__Append[codegraph__place](t, v_4)
+		places = v_5
+	}
+	var aliases map[int]int = map[int]int{}
+	for _, v_6 := range r.Edges {
+		var e codegraph__EdgeRow = v_6
+		work = (work + int(1))
+		if e.Kind == "reexports" {
+			aliases[e.From] = e.To
+		}
+	}
+	var resolvedCache map[int]int = map[int]int{}
+	var width int = len(r.Nodes)
+	var nodeSet map[int]bool = map[int]bool{}
+	var nodes []int = []int{}
+	var firstSite map[int]int = map[int]int{}
+	var rawPairs []int = []int{}
+	for k_1, v_7 := range r.Edges {
+		var k_2 int = k_1
+		var e_1 codegraph__EdgeRow = v_7
+		work = (work + int(1))
+		if ((e_1.Kind != "uses") || (!places[e_1.From].Ordinary)) || (!places[e_1.To].Ordinary) {
+			continue
+		}
+		var a codegraph__place = places[e_1.From]
+		if ((!a.InScope) || (a.Package < int(0))) || (a.File < int(0)) {
+			continue
+		}
+		var target int = e_1.To
+		var v_8 int
+		{
+			var m_1 map[int]int = aliases
+			var k_3 int = e_1.From
+			var def int = int(-1)
+			v_9, ok := m_1[k_3]
+			if ok {
+				v_10 := ergo__Some[int]{Value: v_9}
+				v_8 = v_10.Value
+				goto inl
+			} else {
+				v_8 = def
+				goto inl
+			}
+		}
+	inl:
+		_ = 0
+		if v_8 != e_1.To {
+			v_11, ok_1 := resolvedCache[e_1.To]
+			if ok_1 {
+				cached := ergo__Some[int]{Value: v_11}
+				target = cached.Value
+			} else {
+				var res int
+				var steps int
+				v_12 := codegraph__resolve(aliases, e_1.To)
+				res, steps = v_12.F0, v_12.F1
+				work = (work + steps)
+				resolvedCache[e_1.To] = res
+				target = res
+			}
+		}
+		if target < int(0) {
+			continue
+		}
+		var b codegraph__place = places[target]
+		if ((!b.InScope) || (b.Package != a.Package)) || (b.File < int(0)) {
+			continue
+		}
+		v_13 := (a).tangleNode()
+		v_14 := (b).tangleNode()
+		if ((v_13 < int(0)) || (v_14 < int(0))) || (v_13 == v_14) {
+			continue
+		}
+		var pair int = ((v_13 * width) + v_14)
+		v_15 := ergo__Get[int, int](firstSite, pair)
+		if v_15 == (ergo__Option[int]{}).of1((ergo__None{})) {
+			firstSite[pair] = k_2
+			rawPairs = ergo__Append[int](rawPairs, pair)
+			v_17 := ergo__Get[int, bool](nodeSet, v_13)
+			if v_17 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+				nodeSet[v_13] = true
+				nodes = ergo__Append[int](nodes, v_13)
+			}
+			v_19 := ergo__Get[int, bool](nodeSet, v_14)
+			if v_19 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+				nodeSet[v_14] = true
+				nodes = ergo__Append[int](nodes, v_14)
+			}
+		}
+	}
+	v_21 := ergo.SlicesSortOwned[int](nodes)
+	var idOf map[int]int = map[int]int{}
+	for k_4, v_22 := range v_21 {
+		var idx int = k_4
+		var n int = v_22
+		idOf[n] = idx
+	}
+	var gEdges []graph__Edge = []graph__Edge{}
+	gEdges = ergo.Reserve(gEdges, len(rawPairs))
+	for _, v_23 := range rawPairs {
+		var pair_1 int = v_23
+		work = (work + int(1))
+		t_1 := gEdges
+		var v_24 int
+		{
+			var m_2 map[int]int = idOf
+			var k_5 int = (pair_1 / width)
+			var def_1 int = int(-1)
+			v_25, ok_2 := m_2[k_5]
+			if ok_2 {
+				v_26 := ergo__Some[int]{Value: v_25}
+				v_24 = v_26.Value
+				goto inl_1
+			} else {
+				v_24 = def_1
+				goto inl_1
+			}
+		}
+	inl_1:
+		_ = 0
+		t_2 := v_24
+		var v_27 int
+		{
+			var m_3 map[int]int = idOf
+			var k_6 int = (pair_1 % width)
+			var def_2 int = int(-1)
+			v_28, ok_3 := m_3[k_6]
+			if ok_3 {
+				v_29 := ergo__Some[int]{Value: v_28}
+				v_27 = v_29.Value
+				goto inl_2
+			} else {
+				v_27 = def_2
+				goto inl_2
+			}
+		}
+	inl_2:
+		_ = 0
+		v_30 := ergo__Append[graph__Edge](t_1, graph__Edge{From: t_2, To: v_27})
+		gEdges = v_30
+	}
+	v_31 := graph__Of(len(v_21), gEdges)
+	var out []codegraph__DeclarationTangle = []codegraph__DeclarationTangle{}
+	v_32 := (v_31).Cycles()
+	for _, v_33 := range v_32 {
+		var c graph__Cycle = v_33
+		if len(c.Nodes) < int(2) {
+			continue
+		}
+		var members []int = []int{}
+		var fileSet map[int]bool = map[int]bool{}
+		var files []int = []int{}
+		members = ergo.Reserve(members, len(c.Nodes))
+		for _, v_34 := range c.Nodes {
+			var n_1 int = v_34
+			var rid int = v_21[n_1]
+			members = ergo__Append[int](members, rid)
+			var f int = places[rid].File
+			b_1 := (f >= int(0))
+			if b_1 {
+				v_36 := ergo__Get[int, bool](fileSet, f)
+				b_1 = (v_36 == (ergo__Option[bool]{}).of1((ergo__None{})))
+			}
+			if b_1 {
+				fileSet[f] = true
+				files = ergo__Append[int](files, f)
+			}
+		}
+		var path []int = []int{}
+		path = ergo.Reserve(path, len(c.Path))
+		for _, v_38 := range c.Path {
+			var n_2 int = v_38
+			path = ergo__Append[int](path, v_21[n_2])
+		}
+		var sites []int = []int{}
+		t_3 := (ergo__Range[int]{Start: int(1), End: len(path)})
+		sites = ergo.Reserve(sites, max(int(t_3.End-t_3.Start), 0))
+		for i_1 := t_3.Start; i_1 < t_3.End; i_1++ {
+			var j int = i_1
+			t_4 := sites
+			var v_41 int
+			{
+				var m_4 map[int]int = firstSite
+				var k_7 int = ((path[(j-int(1))] * width) + path[j])
+				var def_3 int = int(-1)
+				v_42, ok_4 := m_4[k_7]
+				if ok_4 {
+					v_43 := ergo__Some[int]{Value: v_42}
+					v_41 = v_43.Value
+					goto inl_3
+				} else {
+					v_41 = def_3
+					goto inl_3
+				}
+			}
+		inl_3:
+			_ = 0
+			v_44 := ergo__Append[int](t_4, v_41)
+			sites = v_44
+		}
+		t_5 := out
+		t_6 := places[members[int(0)]].Package
+		t_7 := members
+		v_45 := ergo.SlicesSortOwned[int](files)
+		v_46 := ergo__Append[codegraph__DeclarationTangle](t_5, codegraph__DeclarationTangle{Package: t_6, Members: t_7, Files: v_45, Path: path, Sites: sites})
+		out = v_46
+	}
+	return codegraph__DeclarationTangles{Tangles: out, Work: work}
+}
+
+type codegraph__DeclarationTangle struct {
+	Members []int
+	Files   []int
+	Path    []int
+	Sites   []int
+	Package int
+}
+
+func (t codegraph__DeclarationTangle) TangleReported(max_1 int) bool {
+	return ((len(t.Files) > int(1)) || ((max_1 > int(0)) && (len(t.Members) > max_1)))
+}
+
+func json__EncodeMono_i3625328035(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__TangleOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__TangleOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__TangleOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__TangleOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__TangleOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__TangleOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__TangleOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__TangleOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__TangleOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__TangleOut, error)
+		Absent  func([]ergo__TangleOut) bool
+		Empty   []ergo__TangleOut
+	}
+}, c json__Codec[[]ergo__TangleOut], v []ergo__TangleOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ergo__TangleOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+type codegraph__LayoutComparison struct {
+	Added     []codegraph__EvidenceDelta
+	Grown     []codegraph__EvidenceDelta
+	Unchanged []codegraph__EvidenceItem
+	Removed   []codegraph__EvidenceItem
+	Advisory  bool
+	Regressed bool
+}
+
+func (base codegraph__Rows) CompareLayout(head codegraph__Rows, baseModules []int, headModules []int, policy codegraph__LayoutPolicy) codegraph__LayoutComparison {
+	v := (base).LayoutEvidence(baseModules, policy)
+	v_1 := (head).LayoutEvidence(headModules, policy)
+	var baseByKey map[string]codegraph__EvidenceItem = map[string]codegraph__EvidenceItem{}
+	for _, v_2 := range v {
+		var b codegraph__EvidenceItem = v_2
+		baseByKey[b.Key] = b
+	}
+	var headByKey map[string]codegraph__EvidenceItem = map[string]codegraph__EvidenceItem{}
+	for _, v_3 := range v_1 {
+		var h codegraph__EvidenceItem = v_3
+		headByKey[h.Key] = h
+	}
+	var added []codegraph__EvidenceDelta = []codegraph__EvidenceDelta{}
+	var grown_1 []codegraph__EvidenceDelta = []codegraph__EvidenceDelta{}
+	var unchanged []codegraph__EvidenceItem = []codegraph__EvidenceItem{}
+	var removed []codegraph__EvidenceItem = []codegraph__EvidenceItem{}
+	for _, v_4 := range v_1 {
+		var h_1 codegraph__EvidenceItem = v_4
+		v_5, ok := baseByKey[h_1.Key]
+		if ok {
+			b_1 := ergo__Some[codegraph__EvidenceItem]{Value: v_5}
+			if h_1.Count > b_1.Value.Count {
+				grown_1 = ergo__Append[codegraph__EvidenceDelta](grown_1, codegraph__EvidenceDelta{Rule: h_1.Rule, Subject: h_1.Subject, Key: h_1.Key, BaseCount: b_1.Value.Count, HeadCount: h_1.Count, Detail: h_1.Detail})
+			} else {
+				unchanged = ergo__Append[codegraph__EvidenceItem](unchanged, h_1)
+			}
+		} else {
+			added = ergo__Append[codegraph__EvidenceDelta](added, codegraph__EvidenceDelta{Rule: h_1.Rule, Subject: h_1.Subject, Key: h_1.Key, BaseCount: int(0), HeadCount: h_1.Count, Detail: h_1.Detail})
+		}
+	}
+	for _, v_9 := range v {
+		var b_2 codegraph__EvidenceItem = v_9
+		v_10 := ergo__Get[string, codegraph__EvidenceItem](headByKey, b_2.Key)
+		if v_10 == (ergo__Option[codegraph__EvidenceItem]{}).of1((ergo__None{})) {
+			removed = ergo__Append[codegraph__EvidenceItem](removed, b_2)
+		}
+	}
+	return codegraph__LayoutComparison{Advisory: true, Regressed: ((len(added) > int(0)) || (len(grown_1) > int(0))), Added: added, Grown: grown_1, Unchanged: unchanged, Removed: removed}
+}
+
+func json__EncodeMono_i2246012281(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, codegraph__LayoutComparison) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) (codegraph__LayoutComparison, error)
+	Direct0 func(*ergo__Env, json__text, codegraph__LayoutComparison) json__text
+	Read0   func(*ergo__Env, json__Reader_1) (codegraph__LayoutComparison, error)
+	Read1   func(*ergo__Env, json__Stream) (codegraph__LayoutComparison, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, codegraph__LayoutComparison) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) (codegraph__LayoutComparison, error)
+		Direct0 func(*ergo__Env, json__text, codegraph__LayoutComparison) json__text
+		Read0   func(*ergo__Env, json__Reader_1) (codegraph__LayoutComparison, error)
+		Read1   func(*ergo__Env, json__Stream) (codegraph__LayoutComparison, error)
+		Absent  func(codegraph__LayoutComparison) bool
+		Empty   codegraph__LayoutComparison
+	}
+}, c json__Codec[codegraph__LayoutComparison], v codegraph__LayoutComparison) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, codegraph__LayoutComparison]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
+}
+
+type codegraph__EvidenceDelta struct {
+	Rule      string
+	Subject   string
+	Key       string
+	Detail    string
+	BaseCount int
+	HeadCount int
+}
+
+type codegraph__EvidenceItem struct {
+	Rule    string
+	Subject string
+	Key     string
+	Detail  string
+	Count   int
+}
+
+func (r codegraph__Rows) ObservedInterfaces(modules []int) codegraph__Interfaces {
+	var work int = int(0)
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	places = ergo.Reserve(places, len(r.Nodes))
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		work = (work + int(1))
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		if row.Parent >= int(0) {
+			var v_2 codegraph__place
+			if row.Parent < i {
+				v_2 = places[row.Parent]
+			} else {
+				v_3 := (r).placeOf(row.Parent, chosen)
+				v_2 = v_3
+			}
+			at = v_2
+		}
+		t := places
+		v_4 := (r).placed(i, at, chosen)
+		v_5 := ergo__Append[codegraph__place](t, v_4)
+		places = v_5
+	}
+	var aliases map[int]int = map[int]int{}
+	for _, v_6 := range r.Edges {
+		var e codegraph__EdgeRow = v_6
+		work = (work + int(1))
+		if e.Kind == "reexports" {
+			aliases[e.From] = e.To
+		}
+	}
+	var firstSite map[int]int = map[int]int{}
+	var entriesOf map[int][]int = map[int][]int{}
+	var packages []int = []int{}
+	var named map[int][]int = map[int][]int{}
+	var namedSeen map[int]bool = map[int]bool{}
+	var calls map[int][]int = map[int][]int{}
+	var callSeen map[int]bool = map[int]bool{}
+	var width int = len(r.Nodes)
+	for k_1, v_7 := range r.Edges {
+		var k_2 int = k_1
+		var e_1 codegraph__EdgeRow = v_7
+		if ((e_1.Kind != "uses") || (!places[e_1.From].Ordinary)) || (!places[e_1.To].Ordinary) {
+			continue
+		}
+		var a codegraph__place = places[e_1.From]
+		var b codegraph__place = places[e_1.To]
+		var resolved int
+		var steps int
+		v_8 := codegraph__resolve(aliases, e_1.To)
+		resolved, steps = v_8.F0, v_8.F1
+		work = (work + steps)
+		b_2 := (((e_1.How == "call") || (e_1.How == "read")) && (resolved >= int(0)))
+		if b_2 {
+			v_9 := codegraph__callable(r.Nodes[resolved].Sub)
+			b_2 = v_9
+		}
+		b_1 := ((((b_2 && a.InScope) && b.InScope) && (a.Package != b.Package)) && (b.File >= int(0)))
+		if b_1 {
+			v_10 := ergo__Get[int, int](firstSite, e_1.To)
+			b_1 = (v_10 == (ergo__Option[int]{}).of1((ergo__None{})))
+		}
+		if b_1 {
+			firstSite[e_1.To] = k_2
+			v_11 := ergo__Get[int, []int](entriesOf, b.Package)
+			if ergo__EqualOption_1(v_11, (ergo__Option[[]int]{}).of1((ergo__None{}))) {
+				packages = ergo__Append[int](packages, b.Package)
+			}
+			t_1 := entriesOf
+			t_2 := b.Package
+			var v_13 []int
+			{
+				var m_1 map[int][]int = entriesOf
+				var k_3 int = b.Package
+				var def []int = []int{}
+				v_14, ok := m_1[k_3]
+				if ok {
+					v_15 := ergo__Some[[]int]{Value: v_14}
+					v_13 = v_15.Value
+					goto inl
+				} else {
+					v_13 = def
+					goto inl
+				}
+			}
+		inl:
+			_ = 0
+			v_16 := ergo__Append[int](slices.Clip(slices.Clone(v_13)), e_1.To)
+			t_1[t_2] = v_16
+		}
+		if ((a.Package != b.Package) || (a.Top < int(0))) || (b.Top < int(0)) {
+			continue
+		}
+		var topSub string = r.Nodes[b.Top].Sub
+		var sub string = r.Nodes[e_1.To].Sub
+		b_3 := (((topSub == "type") || (topSub == "machine")) && ((((((e_1.How == "typeuse") || (e_1.How == "construct")) || (e_1.How == "match")) || (sub == "field")) || (sub == "operation")) || (sub == "variant")))
+		if b_3 {
+			v_17 := ergo__Get[int, bool](namedSeen, ((a.Top * width) + b.Top))
+			b_3 = (v_17 == (ergo__Option[bool]{}).of1((ergo__None{})))
+		}
+		if b_3 {
+			namedSeen[((a.Top * width) + b.Top)] = true
+			t_3 := named
+			t_4 := a.Top
+			var v_18 []int
+			{
+				var m_2 map[int][]int = named
+				var k_4 int = a.Top
+				var def_1 []int = []int{}
+				v_19, ok_1 := m_2[k_4]
+				if ok_1 {
+					v_20 := ergo__Some[[]int]{Value: v_19}
+					v_18 = v_20.Value
+					goto inl_1
+				} else {
+					v_18 = def_1
+					goto inl_1
+				}
+			}
+		inl_1:
+			_ = 0
+			v_21 := ergo__Append[int](slices.Clip(slices.Clone(v_18)), b.Top)
+			t_3[t_4] = v_21
+		}
+		b_4 := ((((e_1.How == "call") && (resolved >= int(0))) && (r.Nodes[resolved].Sub == "func")) && (places[resolved].Package == a.Package))
+		if b_4 {
+			v_22 := ergo__Get[int, bool](callSeen, ((a.Top * width) + resolved))
+			b_4 = (v_22 == (ergo__Option[bool]{}).of1((ergo__None{})))
+		}
+		if b_4 {
+			callSeen[((a.Top * width) + resolved)] = true
+			t_5 := calls
+			t_6 := a.Top
+			var v_23 []int
+			{
+				var m_3 map[int][]int = calls
+				var k_5 int = a.Top
+				var def_2 []int = []int{}
+				v_24, ok_2 := m_3[k_5]
+				if ok_2 {
+					v_25 := ergo__Some[[]int]{Value: v_24}
+					v_23 = v_25.Value
+					goto inl_2
+				} else {
+					v_23 = def_2
+					goto inl_2
+				}
+			}
+		inl_2:
+			_ = 0
+			v_26 := ergo__Append[int](slices.Clip(slices.Clone(v_23)), resolved)
+			t_5[t_6] = v_26
+		}
+	}
+	var out []codegraph__Interface = []codegraph__Interface{}
+	v_27 := ergo.SlicesSortOwned[int](packages)
+	for _, v_28 := range v_27 {
+		var p int = v_28
+		var v_29 []int
+		{
+			var m_4 map[int][]int = entriesOf
+			var def_3 []int = []int{}
+			v_30, ok_3 := m_4[p]
+			if ok_3 {
+				v_31 := ergo__Some[[]int]{Value: v_30}
+				v_29 = v_31.Value
+				goto inl_3
+			} else {
+				v_29 = def_3
+				goto inl_3
+			}
+		}
+	inl_3:
+		_ = 0
+		v_32 := ergo.SlicesSortOwned[int](v_29)
+		var sites []int = []int{}
+		var members map[int][]int = map[int][]int{}
+		var keys []int = []int{}
+		var todo []int = []int{}
+		var unresolved int = int(0)
+		sites = ergo.Reserve(sites, len(v_32))
+		for _, v_33 := range v_32 {
+			var entry int = v_33
+			work = (work + int(1))
+			t_7 := sites
+			var v_34 int
+			{
+				var m_5 map[int]int = firstSite
+				var def_4 int = int(-1)
+				v_35, ok_4 := m_5[entry]
+				if ok_4 {
+					v_36 := ergo__Some[int]{Value: v_35}
+					v_34 = v_36.Value
+					goto inl_4
+				} else {
+					v_34 = def_4
+					goto inl_4
+				}
+			}
+		inl_4:
+			_ = 0
+			v_37 := ergo__Append[int](t_7, v_34)
+			sites = v_37
+			var real_1 int
+			var steps_1 int
+			v_38 := codegraph__resolve(aliases, entry)
+			real_1, steps_1 = v_38.F0, v_38.F1
+			work = (work + steps_1)
+			var local bool = ((real_1 >= int(0)) && (places[real_1].Package == p))
+			var groups []int = []int{}
+			if local && (r.Nodes[real_1].Sub == "operation") {
+				groups = []int{r.Nodes[real_1].Parent}
+			} else {
+				if local {
+					var v_39 []int
+					{
+						var m_6 map[int][]int = named
+						var def_5 []int = []int{}
+						v_40, ok_5 := m_6[real_1]
+						if ok_5 {
+							v_41 := ergo__Some[[]int]{Value: v_40}
+							v_39 = v_41.Value
+							goto inl_5
+						} else {
+							v_39 = def_5
+							goto inl_5
+						}
+					}
+				inl_5:
+					_ = 0
+					groups = v_39
+				}
+			}
+			if len(groups) == int(0) {
+				groups = []int{entry}
+			}
+			for _, v_42 := range groups {
+				var g int = v_42
+				work = (work + int(1))
+				v_43 := ergo__Get[int, []int](members, g)
+				if ergo__EqualOption_1(v_43, (ergo__Option[[]int]{}).of1((ergo__None{}))) {
+					keys = ergo__Append[int](keys, g)
+				}
+				t_8 := members
+				t_9 := g
+				var v_45 []int
+				{
+					var m_7 map[int][]int = members
+					var def_6 []int = []int{}
+					v_46, ok_6 := m_7[g]
+					if ok_6 {
+						v_47 := ergo__Some[[]int]{Value: v_46}
+						v_45 = v_47.Value
+						goto inl_6
+					} else {
+						v_45 = def_6
+						goto inl_6
+					}
+				}
+			inl_6:
+				_ = 0
+				v_48 := ergo__Append[int](slices.Clip(slices.Clone(v_45)), entry)
+				t_8[t_9] = v_48
+			}
+			if local && (r.Nodes[real_1].Sub == "func") {
+				todo = ergo__Append[int](todo, real_1)
+			} else {
+				unresolved = (unresolved + int(1))
+			}
+		}
+		var grouped []codegraph__InterfaceGroup = []codegraph__InterfaceGroup{}
+		var widest int = int(0)
+		v_50 := ergo.SlicesSortOwned[int](keys)
+		grouped = ergo.Reserve(grouped, len(v_50))
+		for _, v_51 := range v_50 {
+			var g_1 int = v_51
+			var v_52 []int
+			{
+				var m_8 map[int][]int = members
+				var def_7 []int = []int{}
+				v_53, ok_7 := m_8[g_1]
+				if ok_7 {
+					v_54 := ergo__Some[[]int]{Value: v_53}
+					v_52 = v_54.Value
+					goto inl_7
+				} else {
+					v_52 = def_7
+					goto inl_7
+				}
+			}
+		inl_7:
+			_ = 0
+			grouped = ergo__Append[codegraph__InterfaceGroup](grouped, codegraph__InterfaceGroup{Node: g_1, Entries: slices.Clone(v_52)})
+			if len(v_52) > widest {
+				widest = len(v_52)
+			}
+		}
+		if len(grouped) > widest {
+			widest = len(grouped)
+		}
+		var visited map[int]bool = map[int]bool{}
+		var backing []int = []int{}
+		for len(todo) > int(0) {
+			var current int = todo[(len(todo) - int(1))]
+			todo = todo[int(0):(len(todo) - int(1))]
+			work = (work + int(1))
+			v_56 := ergo__Get[int, bool](visited, current)
+			if v_56 != (ergo__Option[bool]{}).of1((ergo__None{})) {
+				continue
+			}
+			visited[current] = true
+			var v_57 bool
+			{
+				var name string = r.Nodes[current].Name
+				t_10 := name
+				v_58 := strings__LastIndex(name, ".")
+				var last string = t_10[(v_58 + int(1)):len(name)]
+				v_57 = (last != "")
+				if v_57 {
+					v_59 := ergo.UTF8DecodeRuneInString(last)
+					v_60 := utf8__IsUpper(v_59.Rune)
+					v_57 = v_60
+				}
+
+			}
+			if !v_57 {
+				backing = ergo__Append[int](backing, current)
+			}
+			t_11 := todo
+			var v_62 []int
+			{
+				var m_9 map[int][]int = calls
+				var def_8 []int = []int{}
+				v_63, ok_8 := m_9[current]
+				if ok_8 {
+					v_64 := ergo__Some[[]int]{Value: v_63}
+					v_62 = v_64.Value
+					goto inl_9
+				} else {
+					v_62 = def_8
+					goto inl_9
+				}
+			}
+		inl_9:
+			_ = 0
+			var v_65 []int
+			{
+				var a_1 []int = t_11
+				var b_6 []int = v_62
+				v_65 = ergo.SlicesConcatOwned[int](a_1, b_6)
+
+			}
+			todo = v_65
+		}
+		t_12 := out
+		t_13 := p
+		t_14 := v_32
+		t_15 := sites
+		t_16 := grouped
+		t_17 := widest
+		v_67 := ergo.SlicesSortOwned[int](backing)
+		v_68 := ergo__Append[codegraph__Interface](t_12, codegraph__Interface{Package: t_13, Entries: t_14, Sites: t_15, Groups: t_16, Widest: t_17, Backing: v_67, Unresolved: unresolved})
+		out = v_68
+	}
+	return codegraph__Interfaces{Packages: out, Work: work}
+}
+
+type codegraph__Interface struct {
+	Entries    []int
+	Sites      []int
+	Groups     []codegraph__InterfaceGroup
+	Backing    []int
+	Package    int
+	Widest     int
+	Unresolved int
+}
+
+func (i codegraph__Interface) Wide(max_1 int) bool {
+	return ((len(i.Entries) > max_1) && (i.Widest > max_1))
+}
+
+type codegraph__InterfaceGroup struct {
+	Entries []int
+	Node    int
+}
+
+func json__EncodeMono_i1016977051(env *ergo__Env, wT struct {
+	Enc     func(*ergo__Env, ergo__Writer, []ergo__InterfaceOut) (struct{}, error)
+	Dec     func(*ergo__Env, ergo__Reader) ([]ergo__InterfaceOut, error)
+	Direct0 func(*ergo__Env, json__text, []ergo__InterfaceOut) json__text
+	Read0   func(*ergo__Env, json__Reader_1) ([]ergo__InterfaceOut, error)
+	Read1   func(*ergo__Env, json__Stream) ([]ergo__InterfaceOut, error)
+	Field   *struct {
+		Enc     func(*ergo__Env, ergo__Writer, []ergo__InterfaceOut) (struct{}, error)
+		Dec     func(*ergo__Env, ergo__Reader) ([]ergo__InterfaceOut, error)
+		Direct0 func(*ergo__Env, json__text, []ergo__InterfaceOut) json__text
+		Read0   func(*ergo__Env, json__Reader_1) ([]ergo__InterfaceOut, error)
+		Read1   func(*ergo__Env, json__Stream) ([]ergo__InterfaceOut, error)
+		Absent  func([]ergo__InterfaceOut) bool
+		Empty   []ergo__InterfaceOut
+	}
+}, c json__Codec[[]ergo__InterfaceOut], v []ergo__InterfaceOut) string {
+	env.task.Check()
+	v_1 := ergo.StringsHint[json__text, []ergo__InterfaceOut]()
+	v_2 := ergo.StringsBorrow(v_1)
+	t := &ergo__opstextAsText{v: json__text{comma: false, html: false, out: v_2}, env: env}
+	env.task.Check()
+	*&t.v = wT.Direct0(env, *&t.v, v)
+	v_3 := (&t.v).finish(env, v_1)
+	return v_3
 }
 
 func (r codegraph__Rows) Up(layers []string) []codegraph__Step {
@@ -4105,49 +11749,6 @@ func (r codegraph__Rows) Up(layers []string) []codegraph__Step {
 		}
 	}
 	return out
-}
-
-func json__Decode[T any](env *ergo__Env, wT struct {
-	Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
-	Dec     func(*ergo__Env, ergo__Reader) (T, error)
-	Direct0 func(*ergo__Env, json__text, T) json__text
-	Read0   func(*ergo__Env, json__Reader_1) (T, error)
-	Read1   func(*ergo__Env, json__Stream) (T, error)
-	Field   *struct {
-		Enc     func(*ergo__Env, ergo__Writer, T) (struct{}, error)
-		Dec     func(*ergo__Env, ergo__Reader) (T, error)
-		Direct0 func(*ergo__Env, json__text, T) json__text
-		Read0   func(*ergo__Env, json__Reader_1) (T, error)
-		Read1   func(*ergo__Env, json__Stream) (T, error)
-		Absent  func(T) bool
-		Empty   T
-	}
-}, c_1 json__Codec[T], text_1 string) (T, error) {
-	env.task.Check()
-	v, err := ergo.JSONOpenChecked(text_1, c_1.MaxBytes, c_1.MaxDepth)
-	if err != nil {
-		return *new(T), err
-	}
-	var r json__Reader_1 = json__Reader_1{c: v}
-	env.task.Check()
-	v_1, err_1 := wT.Read0(env, r)
-	var v_2 T
-	if err_1 != nil {
-		err_2 := err_1
-		err_3 := ergo.JSONSettle(r.c)
-		if err_3 != nil {
-			return *new(T), err_3
-		}
-		return *new(T), err_2
-	} else {
-		v_2 = v_1
-	}
-	var v_3 T = v_2
-	err_4 := ergo.JSONSettle(r.c)
-	if err_4 != nil {
-		return *new(T), err_4
-	}
-	return v_3, nil
 }
 
 func json__DecodeMono_i3426309363(env *ergo__Env, wT struct {
@@ -4219,6 +11820,361 @@ func (x ergo__Option[T]) ErgoVariant() string {
 	return [...]func() string{ergo.VariantOf[ergo__Some[T]], ergo.VariantOf[ergo__None]}[x.tag]()
 }
 
+type ergo__WireNull struct {
+}
+
+type ergo__WireBool struct {
+}
+
+type ergo__WireNumber struct {
+}
+
+type ergo__WireString struct {
+}
+
+type ergo__WireList struct {
+}
+
+type ergo__WireObject struct {
+}
+
+type ergo__WireEnd struct {
+}
+
+type ergo__WireKind struct {
+	tag uint8
+}
+
+func (ergo__WireKind) of0(_ ergo__WireNull) ergo__WireKind   { return ergo__WireKind{tag: 0} }
+func (ergo__WireKind) of1(_ ergo__WireBool) ergo__WireKind   { return ergo__WireKind{tag: 1} }
+func (ergo__WireKind) of2(_ ergo__WireNumber) ergo__WireKind { return ergo__WireKind{tag: 2} }
+func (ergo__WireKind) of3(_ ergo__WireString) ergo__WireKind { return ergo__WireKind{tag: 3} }
+func (ergo__WireKind) of4(_ ergo__WireList) ergo__WireKind   { return ergo__WireKind{tag: 4} }
+func (ergo__WireKind) of5(_ ergo__WireObject) ergo__WireKind { return ergo__WireKind{tag: 5} }
+func (ergo__WireKind) of6(_ ergo__WireEnd) ergo__WireKind    { return ergo__WireKind{tag: 6} }
+
+func (x ergo__WireKind) ErgoVariant() string {
+	return [...]string{"WireNull", "WireBool", "WireNumber", "WireString", "WireList", "WireObject", "WireEnd"}[x.tag]
+}
+
+func ergo__textergo__WireMissingField(v ergo__WireMissingField) string {
+	return "{" + "Path:" + v.Path + " Field:" + v.Field + "}"
+}
+
+type ergo__WireWrongKind struct {
+	Path string
+	Want string
+}
+
+func (e ergo__WireWrongKind) Error() string {
+	return "WireWrongKind" + ergo__textergo__WireWrongKind(e)
+}
+
+type json__scan struct {
+	buf      string
+	ctx      []bool
+	q        []json__tok
+	frames   []json__frame
+	rare     json__rare
+	i        int
+	mark     int
+	maxDepth int
+	nc       int
+	state    int
+	nq       int
+	qi       int
+	nf       int
+	bad      bool
+	wrong    bool
+	seq      bool
+	starved  bool
+}
+
+type json__got[R any] struct {
+	v       R
+	path    string
+	wrong   bool
+	starved bool
+}
+
+type json__place struct {
+	top   json__frame
+	qi    int
+	nf    int
+	wrong bool
+}
+
+func (s *json__scan) opening() json__place {
+	if s.qi >= s.nq {
+		s.nq = int(0)
+		s.qi = int(0)
+	}
+	var v json__frame
+	if s.nf > int(0) {
+		v = s.frames[(s.nf - int(1))]
+	} else {
+		v = json__frame{list: false, n: int(0), key: "", has: false}
+	}
+	var top json__frame = v
+	return json__place{qi: s.qi, nf: s.nf, top: top, wrong: s.wrong}
+}
+
+func (s *json__scan) enter() {
+	var n int = s.nf
+	if n > int(0) {
+		var f json__frame = s.frames[(n - int(1))]
+		if f.list {
+			f.n = (f.n + int(1))
+		}
+		f.has = true
+		s.frames[(n - int(1))] = f
+	}
+}
+
+const json__kList int = int(4)
+
+const json__kObject int = int(5)
+
+type json__tok struct {
+	text string
+	kind int
+	raw  bool
+}
+
+func (s *json__scan) peekAt(env *ergo__Env, k int) json__tok {
+	for (s.nq - s.qi) <= k {
+		var v json__tok
+		{
+			if s.starved {
+				v = json__badTok
+				goto inl
+			}
+			if (!s.bad) && (s.state != json__sEnd) {
+				(s).ws()
+				if s.starved {
+					v = json__badTok
+					goto inl
+				}
+			}
+			var i int = s.i
+			var state_1 int = s.state
+			var nc int = s.nc
+			v = (s).token(env)
+			if s.starved {
+				s.i = i
+				s.state = state_1
+				s.nc = nc
+				s.mark = int(-1)
+				v = json__badTok
+				goto inl
+			}
+
+		}
+	inl:
+		_ = 0
+		if s.starved {
+			return v
+		}
+		(s).push(v)
+	}
+	return s.q[(s.qi + k)]
+}
+
+func (s *json__scan) advance() {
+	s.qi = (s.qi + int(1))
+}
+
+type json__frame struct {
+	key  string
+	n    int
+	list bool
+	has  bool
+}
+
+func (s *json__scan) path(env *ergo__Env) string {
+	v := strings__NewBuilder()
+	t := (ergo__Range[int]{Start: int(0), End: s.nf})
+	for i := t.Start; i < t.End; i++ {
+		var k int = i
+		var f json__frame = s.frames[k]
+		if !f.has {
+			break
+		}
+		if f.list {
+			t_1 := &v
+			v_2 := strconv__Itoa((f.n - int(1)))
+			(t_1).WriteString((("[" + v_2) + "]"))
+			continue
+		}
+		v_3 := (v).Len()
+		if v_3 > int(0) {
+			(&v).WriteByte_(uint8(46))
+		}
+		(&v).WriteString(f.key)
+	}
+	v_4 := (v).ergo__strings__StringOwned(env)
+	return v_4
+}
+
+func (r json__Stream) refill(env *ergo__Env) {
+	env.task.Check()
+	ergo.RefModifyInPlace[json__scan, bool](env.task, r.st, func(p_1 *json__scan) bool {
+		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (bool, error) {
+			env_1.task.Check()
+			(&(*p)).readChunk(env_1)
+			return true, nil
+		}(env, p_1)
+		return r_1
+	}, func(v json__scan) json__scan { return ergo__Clonescan(v) }, true, false)
+}
+
+const json__kClose int = int(6)
+
+const json__kDone int = int(8)
+
+const json__kBad int = int(9)
+
+const json__kKey int = int(7)
+
+func (s *json__scan) key() string {
+	var n int = s.nf
+	if n > int(0) {
+		return s.frames[(n - int(1))].key
+	} else {
+		return ""
+	}
+}
+
+const json__kString int = int(3)
+
+type strings__Builder struct {
+	buf []uint8
+}
+
+func strings__NewBuilder() strings__Builder {
+	return strings__Builder{buf: []uint8{}}
+}
+
+func (b *strings__Builder) Grow(n int) {
+	b.buf = ergo.StringsBuilderGrow(b.buf, n)
+}
+
+func (b *strings__Builder) WriteString(s string) {
+	b.buf = ergo.StringsBuilderAppend(b.buf, s)
+}
+
+func (b strings__Builder) ergo__strings__StringOwned(env *ergo__Env) string {
+	v := ergo.StringsBuilderTextOwned(b.buf)
+	return v
+}
+
+func ergo__CloneBuilder(v strings__Builder) strings__Builder {
+	c := v
+	c.buf = slices.Clone(v.buf)
+	return c
+}
+
+func (b strings__Builder) String(env *ergo__Env) string {
+	return (ergo__CloneBuilder(b)).ergo__strings__StringOwned(env)
+}
+
+func (s *json__scan) end(env *ergo__Env) {
+	for {
+		var v bool
+		{
+			var v_1 json__tok
+			{
+				v_1 = (s).peekAt(env, int(0))
+
+			}
+			if ((v_1.kind == json__kClose) || (v_1.kind == json__kDone)) || (v_1.kind == json__kBad) {
+				v = false
+				goto inl
+			}
+			var n int = s.nf
+			if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_1.kind == json__kKey) {
+				(s).advance()
+				var f json__frame = s.frames[(n - int(1))]
+				f.key = v_1.text
+				f.has = true
+				s.frames[(n - int(1))] = f
+			}
+			v = true
+		}
+	inl:
+		_ = 0
+		if !(v) {
+			break
+		}
+		(s).pass(env)
+	}
+	var v_3 json__tok
+	{
+		v_3 = (s).peekAt(env, int(0))
+
+	}
+	if v_3.kind == json__kClose {
+		(s).advance()
+	}
+	if s.nf > int(0) {
+		s.nf = (s.nf - int(1))
+	}
+}
+
+const json__kBool int = int(1)
+
+func (s *json__scan) pass(env *ergo__Env) {
+	v := (s).after(env, int(0))
+	t := (ergo__Range[int]{Start: int(0), End: v})
+	for i := t.Start; i < t.End; i++ {
+		(s).advance()
+	}
+}
+
+const json__kNumber int = int(2)
+
+func json__smallInt(text_1 string) struct {
+	F0 int64
+	F1 bool
+} {
+	var v int
+	if (len(text_1) > int(0)) && (text_1[int(0)] == uint8(45)) {
+		v = int(1)
+	} else {
+		v = int(0)
+	}
+	var start int = v
+	if (len(text_1) == start) || ((len(text_1) - start) > int(18)) {
+		return struct {
+			F0 int64
+			F1 bool
+		}{F0: int64(0), F1: false}
+	}
+	var n int64 = int64(0)
+	t := (ergo__Range[int]{Start: start, End: len(text_1)})
+	for i := t.Start; i < t.End; i++ {
+		var i_1 int = i
+		var c_1 uint8 = text_1[i_1]
+		if (c_1 < uint8(48)) || (c_1 > uint8(57)) {
+			return struct {
+				F0 int64
+				F1 bool
+			}{F0: int64(0), F1: false}
+		}
+		n = ((n * int64(10)) + int64((c_1 - uint8(48))))
+	}
+	var v_2 int64
+	if start == int(1) {
+		v_2 = (-n)
+	} else {
+		v_2 = n
+	}
+	return struct {
+		F0 int64
+		F1 bool
+	}{F0: v_2, F1: true}
+}
+
 type codegraph__LevelGraph struct {
 	Graph graph__Graph
 	Nodes []int
@@ -4235,7 +12191,7 @@ func (r codegraph__Rows) LevelOf(level codegraph__Level, tests bool) codegraph__
 	case 2:
 		v = "decl"
 	default:
-		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:191:13 matched")
+		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:193:13 matched")
 	}
 	var kind string = v
 	var index []int = []int{}
@@ -4593,10 +12549,6 @@ func (t *json__text) uintBody(n uint64) {
 	t.out = ergo.JSONAppendUint(t.out, n)
 }
 
-func (t *json__text) boolBody(b bool) {
-	t.out = ergo.JSONAppendBool(t.out, b)
-}
-
 func (t *json__text) floatBody(f float64) {
 	t.out = ergo.JSONAppendFloat(t.out, f)
 }
@@ -4615,315 +12567,6 @@ func (t json__text) bytes() []uint8 {
 func (t *json__text) drop(env *ergo__Env, hint int) {
 	env.task.Check()
 	t.out = ergo.StringsGive(t.out, hint)
-}
-
-type ergo__WireNull struct {
-}
-
-type ergo__WireBool struct {
-}
-
-type ergo__WireNumber struct {
-}
-
-type ergo__WireString struct {
-}
-
-type ergo__WireList struct {
-}
-
-type ergo__WireObject struct {
-}
-
-type ergo__WireEnd struct {
-}
-
-type ergo__WireKind struct {
-	tag uint8
-}
-
-func (ergo__WireKind) of0(_ ergo__WireNull) ergo__WireKind   { return ergo__WireKind{tag: 0} }
-func (ergo__WireKind) of1(_ ergo__WireBool) ergo__WireKind   { return ergo__WireKind{tag: 1} }
-func (ergo__WireKind) of2(_ ergo__WireNumber) ergo__WireKind { return ergo__WireKind{tag: 2} }
-func (ergo__WireKind) of3(_ ergo__WireString) ergo__WireKind { return ergo__WireKind{tag: 3} }
-func (ergo__WireKind) of4(_ ergo__WireList) ergo__WireKind   { return ergo__WireKind{tag: 4} }
-func (ergo__WireKind) of5(_ ergo__WireObject) ergo__WireKind { return ergo__WireKind{tag: 5} }
-func (ergo__WireKind) of6(_ ergo__WireEnd) ergo__WireKind    { return ergo__WireKind{tag: 6} }
-
-func (x ergo__WireKind) ErgoVariant() string {
-	return [...]string{"WireNull", "WireBool", "WireNumber", "WireString", "WireList", "WireObject", "WireEnd"}[x.tag]
-}
-
-func ergo__textergo__WireMissingField(v ergo__WireMissingField) string {
-	return "{" + "Path:" + v.Path + " Field:" + v.Field + "}"
-}
-
-type ergo__WireWrongKind struct {
-	Path string
-	Want string
-}
-
-func (e ergo__WireWrongKind) Error() string {
-	return "WireWrongKind" + ergo__textergo__WireWrongKind(e)
-}
-
-type json__scan struct {
-	buf      string
-	ctx      []bool
-	q        []json__tok
-	frames   []json__frame
-	rare     json__rare
-	i        int
-	mark     int
-	maxDepth int
-	nc       int
-	state    int
-	nq       int
-	qi       int
-	nf       int
-	bad      bool
-	wrong    bool
-	seq      bool
-	starved  bool
-}
-
-type json__got[R any] struct {
-	v       R
-	path    string
-	wrong   bool
-	starved bool
-}
-
-type json__place struct {
-	top   json__frame
-	qi    int
-	nf    int
-	wrong bool
-}
-
-func (s *json__scan) opening() json__place {
-	if s.qi >= s.nq {
-		s.nq = int(0)
-		s.qi = int(0)
-	}
-	var v json__frame
-	if s.nf > int(0) {
-		v = s.frames[(s.nf - int(1))]
-	} else {
-		v = json__frame{list: false, n: int(0), key: "", has: false}
-	}
-	var top json__frame = v
-	return json__place{qi: s.qi, nf: s.nf, top: top, wrong: s.wrong}
-}
-
-func (s *json__scan) enter() {
-	var n int = s.nf
-	if n > int(0) {
-		var f json__frame = s.frames[(n - int(1))]
-		if f.list {
-			f.n = (f.n + int(1))
-		}
-		f.has = true
-		s.frames[(n - int(1))] = f
-	}
-}
-
-const json__kList int = int(4)
-
-const json__kObject int = int(5)
-
-type json__tok struct {
-	text string
-	kind int
-	raw  bool
-}
-
-func (s *json__scan) peekAt(env *ergo__Env, k int) json__tok {
-	for (s.nq - s.qi) <= k {
-		var v json__tok
-		{
-			if s.starved {
-				v = json__badTok
-				goto inl
-			}
-			if (!s.bad) && (s.state != json__sEnd) {
-				(s).ws()
-				if s.starved {
-					v = json__badTok
-					goto inl
-				}
-			}
-			var i int = s.i
-			var state_1 int = s.state
-			var nc int = s.nc
-			v = (s).token(env)
-			if s.starved {
-				s.i = i
-				s.state = state_1
-				s.nc = nc
-				s.mark = int(-1)
-				v = json__badTok
-				goto inl
-			}
-
-		}
-	inl:
-		_ = 0
-		if s.starved {
-			return v
-		}
-		(s).push(v)
-	}
-	return s.q[(s.qi + k)]
-}
-
-func (s *json__scan) advance() {
-	s.qi = (s.qi + int(1))
-}
-
-type json__frame struct {
-	key  string
-	n    int
-	list bool
-	has  bool
-}
-
-func (s *json__scan) path(env *ergo__Env) string {
-	v := strings__NewBuilder()
-	t := (ergo__Range[int]{Start: int(0), End: s.nf})
-	for i := t.Start; i < t.End; i++ {
-		var k int = i
-		var f json__frame = s.frames[k]
-		if !f.has {
-			break
-		}
-		if f.list {
-			t_1 := &v
-			v_2 := strconv__Itoa((f.n - int(1)))
-			(t_1).WriteString((("[" + v_2) + "]"))
-			continue
-		}
-		v_3 := (v).Len()
-		if v_3 > int(0) {
-			(&v).WriteByte_(uint8(46))
-		}
-		(&v).WriteString(f.key)
-	}
-	v_4 := (v).ergo__strings__StringOwned(env)
-	return v_4
-}
-
-func (r json__Stream) refill(env *ergo__Env) {
-	env.task.Check()
-	ergo.RefModifyInPlace[json__scan, bool](env.task, r.st, func(p_1 *json__scan) bool {
-		r_1, _ := func(env_1 *ergo__Env, p *json__scan) (bool, error) {
-			env_1.task.Check()
-			(&(*p)).readChunk(env_1)
-			return true, nil
-		}(env, p_1)
-		return r_1
-	}, func(v json__scan) json__scan { return ergo__Clonescan(v) }, true, false)
-}
-
-const json__kClose int = int(6)
-
-const json__kDone int = int(8)
-
-const json__kBad int = int(9)
-
-const json__kKey int = int(7)
-
-func (s *json__scan) key() string {
-	var n int = s.nf
-	if n > int(0) {
-		return s.frames[(n - int(1))].key
-	} else {
-		return ""
-	}
-}
-
-const json__kString int = int(3)
-
-type strings__Builder struct {
-	buf []uint8
-}
-
-func strings__NewBuilder() strings__Builder {
-	return strings__Builder{buf: []uint8{}}
-}
-
-func (b *strings__Builder) Grow(n int) {
-	b.buf = ergo.StringsBuilderGrow(b.buf, n)
-}
-
-func (b *strings__Builder) WriteString(s string) {
-	b.buf = ergo.StringsBuilderAppend(b.buf, s)
-}
-
-func (b strings__Builder) ergo__strings__StringOwned(env *ergo__Env) string {
-	v := ergo.StringsBuilderTextOwned(b.buf)
-	return v
-}
-
-func ergo__CloneBuilder(v strings__Builder) strings__Builder {
-	c := v
-	c.buf = slices.Clone(v.buf)
-	return c
-}
-
-func (b strings__Builder) String(env *ergo__Env) string {
-	return (ergo__CloneBuilder(b)).ergo__strings__StringOwned(env)
-}
-
-func (s *json__scan) end(env *ergo__Env) {
-	for {
-		var v bool
-		{
-			var v_1 json__tok
-			{
-				v_1 = (s).peekAt(env, int(0))
-
-			}
-			if ((v_1.kind == json__kClose) || (v_1.kind == json__kDone)) || (v_1.kind == json__kBad) {
-				v = false
-				goto inl
-			}
-			var n int = s.nf
-			if ((n > int(0)) && (!s.frames[(n - int(1))].list)) && (v_1.kind == json__kKey) {
-				(s).advance()
-				var f json__frame = s.frames[(n - int(1))]
-				f.key = v_1.text
-				f.has = true
-				s.frames[(n - int(1))] = f
-			}
-			v = true
-		}
-	inl:
-		_ = 0
-		if !(v) {
-			break
-		}
-		(s).pass(env)
-	}
-	var v_3 json__tok
-	{
-		v_3 = (s).peekAt(env, int(0))
-
-	}
-	if v_3.kind == json__kClose {
-		(s).advance()
-	}
-	if s.nf > int(0) {
-		s.nf = (s.nf - int(1))
-	}
-}
-
-func (s *json__scan) pass(env *ergo__Env) {
-	v := (s).after(env, int(0))
-	t := (ergo__Range[int]{Start: int(0), End: v})
-	for i := t.Start; i < t.End; i++ {
-		(s).advance()
-	}
 }
 
 type codegraph__depends struct {
@@ -5114,187 +12757,202 @@ func (g graph__Graph) FanOf() graph__Fan {
 	return graph__Fan{In: v, Out: v_1}
 }
 
-const json__kNumber int = int(2)
-
-func json__smallInt(text_1 string) struct {
-	F0 int64
-	F1 bool
-} {
-	var v int
-	if (len(text_1) > int(0)) && (text_1[int(0)] == uint8(45)) {
-		v = int(1)
-	} else {
-		v = int(0)
-	}
-	var start int = v
-	if (len(text_1) == start) || ((len(text_1) - start) > int(18)) {
-		return struct {
-			F0 int64
-			F1 bool
-		}{F0: int64(0), F1: false}
-	}
-	var n int64 = int64(0)
-	t := (ergo__Range[int]{Start: start, End: len(text_1)})
-	for i := t.Start; i < t.End; i++ {
-		var i_1 int = i
-		var c_1 uint8 = text_1[i_1]
-		if (c_1 < uint8(48)) || (c_1 > uint8(57)) {
-			return struct {
-				F0 int64
-				F1 bool
-			}{F0: int64(0), F1: false}
-		}
-		n = ((n * int64(10)) + int64((c_1 - uint8(48))))
-	}
-	var v_2 int64
-	if start == int(1) {
-		v_2 = (-n)
-	} else {
-		v_2 = n
-	}
-	return struct {
-		F0 int64
-		F1 bool
-	}{F0: v_2, F1: true}
+type codegraph__FileLengths struct {
+	Files []codegraph__FileLength
+	Work  int
 }
 
-func (g graph__Graph) Edges() []graph__Edge {
-	var out []graph__Edge = []graph__Edge{}
-	t := (ergo__Range[int]{Start: int(0), End: g.Size})
-	for i := t.Start; i < t.End; i++ {
-		var n int = i
-		v_1 := (g).Succ(n)
-		out = ergo.Reserve(out, len(v_1))
-		for _, v_2 := range v_1 {
-			var m int = v_2
-			out = ergo__Append[graph__Edge](out, graph__Edge{From: n, To: m})
+type codegraph__place struct {
+	Package  int
+	File     int
+	Top      int
+	Ordinary bool
+	InScope  bool
+}
+
+func (r codegraph__Rows) placeOf(i int, chosen map[int]bool) codegraph__place {
+	var chain []int = []int{}
+	var n int = i
+	for (n >= int(0)) && (len(chain) <= len(r.Nodes)) {
+		chain = ergo__Append[int](chain, n)
+		n = r.Nodes[n].Parent
+	}
+	var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+	t := (ergo__Range[int]{Start: int(0), End: len(chain)})
+	for i_1 := t.Start; i_1 < t.End; i_1++ {
+		var k int = i_1
+		at = (r).placed(chain[((len(chain)-int(1))-k)], at, chosen)
+	}
+	return at
+}
+
+func (r codegraph__Rows) placed(i int, parent codegraph__place, chosen map[int]bool) codegraph__place {
+	var row codegraph__NodeRow = r.Nodes[i]
+	var at codegraph__place = parent
+	at.Ordinary = ((parent.Ordinary && (row.Sub != "test")) && (row.Sub != "law"))
+	switch row.Kind {
+	case "module":
+		v := ergo__Get[int, bool](chosen, i)
+		at.InScope = (v != (ergo__Option[bool]{tag: 1}))
+	case "package":
+		at.Package = i
+	case "file":
+		at.File = i
+	case "decl":
+		if at.Top < int(0) {
+			at.Top = i
+		}
+	default:
+	}
+	return at
+}
+
+type codegraph__DirectoryList struct {
+	Directories []codegraph__Directory
+	Work        int
+}
+
+func strings__Split(s string, sep string) []string {
+	r := go__strings.Split(s, sep)
+	return r
+}
+
+func codegraph__childEntry(parts []string, k int) string {
+	return parts[k]
+}
+
+func maps__GetOr[K comparable, V any](m map[K]V, k K, def V) V {
+	v, ok := m[k]
+	if ok {
+		v_1 := ergo__Some[V]{Value: v}
+		return v_1.Value
+	} else {
+		return def
+	}
+}
+
+type codegraph__ForeignFieldWrites struct {
+	Writes []codegraph__ForeignFieldWrite
+	Work   int
+}
+
+func strings__LastIndex(s string, sub string) int {
+	r := go__strings.LastIndex(s, sub)
+	return r
+}
+
+func utf8__IsUpper(r int32) bool {
+	r_1 := go__unicode.IsUpper(r)
+	return r_1
+}
+
+func codegraph__isFieldWrite(how string) bool {
+	return (how == "write")
+}
+
+func codegraph__hasPrivateField(priv map[int]int, record int) bool {
+	v := ergo__Get[int, int](priv, record)
+	return (v != (ergo__Option[int]{tag: 1}))
+}
+
+type codegraph__TestSupportUses struct {
+	Uses []codegraph__TestSupportUse
+	Work int
+}
+
+func codegraph__callerExempt(ord bool, fileHasTest bool) bool {
+	return (!ord)
+}
+
+func codegraph__supportAllowed(callerSeams []string, targetSeams []string) bool {
+	if len(callerSeams) == int(0) {
+		return false
+	}
+	for _, v := range targetSeams {
+		var ts string = v
+		b := (ts == "")
+		if !b {
+			v_1 := slices__ContainsMono_i398550328(callerSeams, ts)
+			b = v_1
+		}
+		if b {
+			return true
 		}
 	}
-	return out
+	return false
+}
+
+type codegraph__SeamViolations struct {
+	Violations []codegraph__SeamViolation
+	Work       int
+}
+
+func (r codegraph__Rows) roleOf(i int, roles []string) string {
+	var row codegraph__NodeRow = r.Nodes[i]
+	if row.Sub == "test" {
+		return "test"
+	}
+	if row.Sub == "law" {
+		return "law"
+	}
+	if row.Parent < int(0) {
+		return "ordinary"
+	}
+	if row.Parent < i {
+		return roles[row.Parent]
+	}
+	var n int = row.Parent
+	var steps int = int(0)
+	for (n >= int(0)) && (steps <= len(r.Nodes)) {
+		if r.Nodes[n].Sub == "test" {
+			return "test"
+		}
+		if r.Nodes[n].Sub == "law" {
+			return "law"
+		}
+		n = r.Nodes[n].Parent
+		steps = (steps + int(1))
+	}
+	return "ordinary"
+}
+
+func codegraph__insideTestViolates(hasTest bool, hasOrdinary bool) bool {
+	return hasTest
+}
+
+type codegraph__FolderCycles struct {
+	Cycles []codegraph__FolderCycle
+	Work   int
+}
+
+func codegraph__folderParts(path string) []string {
+	v := strings__Split(path, "/")
+	var parts []string = []string{}
+	for _, v_1 := range v {
+		var p string = v_1
+		if (p != "") && (p != ".") {
+			parts = ergo__Append[string](parts, p)
+		}
+	}
+	if len(parts) <= int(1) {
+		return []string{}
+	}
+	return parts[int(0):(len(parts) - int(1))]
+}
+
+type codegraph__folderEdge struct {
+	From string
+	To   string
+	Site int
+}
+
+func codegraph__folderChild(parts []string, common int) string {
+	return parts[common]
 }
 
 type graph__Edge struct {
 	From int
 	To   int
-}
-
-func codegraph__layerOf(layers []string, path string) int {
-	for k, v := range layers {
-		var i int = k
-		var l string = v
-		b := (l == path)
-		if !b {
-			v_1 := strings__HasSuffix(l, "/...")
-			b_1 := v_1
-			if b_1 {
-				t := path
-				v_2 := strings__TrimSuffix(l, "...")
-				v_3 := strings__HasPrefix(t, v_2)
-				b_1 = v_3
-			}
-			b = b_1
-		}
-		if b {
-			return i
-		}
-	}
-	return int(-1)
-}
-
-func (r codegraph__Rows) levelPair(level codegraph__Level, e codegraph__EdgeRow) struct {
-	F0 int
-	F1 int
-} {
-	s := level
-	switch s.tag {
-	case 0:
-		if e.Kind != "imports" {
-			return struct {
-				F0 int
-				F1 int
-			}{F0: int(-1), F1: int(-1)}
-		}
-		v := (r).packageOf(e.From)
-		return struct {
-			F0 int
-			F1 int
-		}{F0: v, F1: e.To}
-	case 1:
-		if e.Kind != "uses" {
-			return struct {
-				F0 int
-				F1 int
-			}{F0: int(-1), F1: int(-1)}
-		}
-		v_1 := (r).fileOf(e.From)
-		v_2 := (r).fileOf(e.To)
-		b := ((v_1 < int(0)) || (v_2 < int(0)))
-		if !b {
-			v_3 := (r).packageOf(v_1)
-			t := v_3
-			v_4 := (r).packageOf(v_2)
-			b = (t != v_4)
-		}
-		if b {
-			return struct {
-				F0 int
-				F1 int
-			}{F0: int(-1), F1: int(-1)}
-		}
-		return struct {
-			F0 int
-			F1 int
-		}{F0: v_1, F1: v_2}
-	case 2:
-		if ((e.Kind != "uses") || (r.Nodes[e.From].Kind != "decl")) || (r.Nodes[e.To].Kind != "decl") {
-			return struct {
-				F0 int
-				F1 int
-			}{F0: int(-1), F1: int(-1)}
-		}
-		v_5 := (r).topOf(e.From)
-		v_6 := (r).topOf(e.To)
-		if v_5 == v_6 {
-			return struct {
-				F0 int
-				F1 int
-			}{F0: int(-1), F1: int(-1)}
-		}
-		return struct {
-			F0 int
-			F1 int
-		}{F0: v_5, F1: v_6}
-	default:
-		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:228:2 matched")
-	}
-}
-
-func (r codegraph__Rows) testOnly(a int, b int) bool {
-	var any_1 bool = false
-	for _, v := range r.Edges {
-		var e codegraph__EdgeRow = v
-		b_2 := (e.Kind != "uses")
-		if !b_2 {
-			v_1 := (r).packageOf(e.From)
-			b_2 = (v_1 != a)
-		}
-		b_1 := b_2
-		if !b_1 {
-			v_2 := (r).packageOf(e.To)
-			b_1 = (v_2 != b)
-		}
-		if b_1 {
-			continue
-		}
-		t := r.Nodes
-		v_3 := (r).topOf(e.From)
-		var s string = t[v_3].Sub
-		if (s != "test") && (s != "law") {
-			return false
-		}
-		any_1 = true
-	}
-	return any_1
 }
 
 func graph__Of(size int, edges []graph__Edge) graph__Graph {
@@ -5337,150 +12995,886 @@ func graph__Of(size int, edges []graph__Edge) graph__Graph {
 	return graph__Graph{Size: n, Starts: starts, Targets: v_7}
 }
 
-func (g graph__Graph) Components() [][]int {
-	var done []bool = []bool{}
-	t := (ergo__Range[int]{Start: int(0), End: g.Size})
-	for i := t.Start; i < t.End; i++ {
-		done = ergo__Append[bool](done, false)
-	}
-	var finished []int = []int{}
-	t_1 := (ergo__Range[int]{Start: int(0), End: g.Size})
-	for i_1 := t_1.Start; i_1 < t_1.End; i_1++ {
-		var s int = i_1
-		if done[s] {
-			continue
+type codegraph__DeclarationTangles struct {
+	Tangles []codegraph__DeclarationTangle
+	Work    int
+}
+
+func codegraph__resolve(aliases map[int]int, from int) struct {
+	F0 int
+	F1 int
+} {
+	var at int = from
+	var steps int = int(0)
+	var seen map[int]bool = map[int]bool{}
+	for {
+		v, ok := aliases[at]
+		if ok {
+			next_1 := ergo__Some[int]{Value: v}
+			v_1 := ergo__Get[int, bool](seen, at)
+			if v_1 != (ergo__Option[bool]{}).of1((ergo__None{})) {
+				return struct {
+					F0 int
+					F1 int
+				}{F0: int(-1), F1: steps}
+			}
+			seen[at] = true
+			steps = (steps + int(1))
+			at = next_1.Value
+		} else {
+			return struct {
+				F0 int
+				F1 int
+			}{F0: at, F1: steps}
 		}
-		done[s] = true
-		var nodes []int = []int{s}
-		var at []int = []int{int(0)}
-		for len(nodes) > int(0) {
-			var top int = (len(nodes) - int(1))
-			var n int = nodes[top]
-			v_2 := (g).Succ(n)
-			if at[top] < len(v_2) {
-				var m int = v_2[at[top]]
-				at[top] = (at[top] + int(1))
-				if !done[m] {
-					done[m] = true
-					nodes = ergo__Append[int](nodes, m)
-					at = ergo__Append[int](at, int(0))
+	}
+}
+
+func (p codegraph__place) tangleNode() int {
+	return p.Top
+}
+
+func ergo__CloneTuple_3(v struct {
+	F0 []codegraph__EvidenceItem
+	F1 map[string]int
+}) struct {
+	F0 []codegraph__EvidenceItem
+	F1 map[string]int
+} {
+	c := v
+	c.F0 = slices.Clone(v.F0)
+	c.F1 = maps.Clone(v.F1)
+	return c
+}
+
+func (r codegraph__Rows) LayoutEvidence(modules []int, policy codegraph__LayoutPolicy) []codegraph__EvidenceItem {
+	var items []codegraph__EvidenceItem = []codegraph__EvidenceItem{}
+	var seen map[string]int = map[string]int{}
+	var chosen map[int]bool = map[int]bool{}
+	for _, v := range modules {
+		var m int = v
+		chosen[m] = true
+	}
+	var places []codegraph__place = []codegraph__place{}
+	var modOf []int = []int{}
+	var fileFolders map[int][]string = map[int][]string{}
+	for k, v_1 := range r.Nodes {
+		var i int = k
+		var row codegraph__NodeRow = v_1
+		var at codegraph__place = codegraph__place{Package: int(-1), File: int(-1), Top: int(-1), Ordinary: true, InScope: false}
+		var mid int = int(-1)
+		if row.Kind == "module" {
+			mid = i
+		} else {
+			if row.Parent >= int(0) {
+				if row.Parent < i {
+					at = places[row.Parent]
+					mid = modOf[row.Parent]
+				} else {
+					at = (r).placeOf(row.Parent, chosen)
+					var p int = row.Parent
+					var steps int = int(0)
+					for (p >= int(0)) && (steps <= len(r.Nodes)) {
+						if r.Nodes[p].Kind == "module" {
+							mid = p
+							break
+						}
+						p = r.Nodes[p].Parent
+						steps = (steps + int(1))
+					}
 				}
+			}
+		}
+		v_3 := (r).placed(i, at, chosen)
+		places = ergo__Append[codegraph__place](places, v_3)
+		modOf = ergo__Append[int](modOf, mid)
+		if (row.Kind == "file") && v_3.InScope {
+			t := fileFolders
+			t_1 := i
+			v_6 := codegraph__folderParts(row.Name)
+			t[t_1] = slices.Clone(v_6)
+		}
+	}
+	v_7 := (r).SiblingFolderCycles(modules)
+	var fc []codegraph__FolderCycle = v_7.Cycles
+	if len(fc) > int(0) {
+		var folderScc map[string]int = map[string]int{}
+		var sccMembers []string = []string{}
+		sccMembers = ergo.Reserve(sccMembers, len(fc))
+		for k_1, v_8 := range fc {
+			var ci int = k_1
+			var c codegraph__FolderCycle = v_8
+			t_2 := sccMembers
+			v_9 := ergo.StringsJoin(c.Members, ",")
+			v_10 := ergo__Append[string](t_2, v_9)
+			sccMembers = v_10
+			for _, v_11 := range c.Members {
+				var m_1 string = v_11
+				folderScc[(string(strconv.AppendInt(make([]byte, 0, 20), int64(c.Module), 10)) + "\n" + c.Parent + "\n" + m_1)] = ci
+			}
+		}
+		for _, v_12 := range r.Edges {
+			var e codegraph__EdgeRow = v_12
+			if ((e.Kind != "uses") || (!places[e.From].Ordinary)) || (!places[e.To].Ordinary) {
+				continue
+			}
+			var a codegraph__place = places[e.From]
+			var b codegraph__place = places[e.To]
+			if (((((((!a.InScope) || (!b.InScope)) || (modOf[e.From] != modOf[e.To])) || (a.Package < int(0))) || (b.Package < int(0))) || (a.Package == b.Package)) || (a.File < int(0))) || (b.File < int(0)) {
+				continue
+			}
+			var v_13 []string
+			{
+				var m_2 map[int][]string = fileFolders
+				var k_2 int = a.File
+				var def []string = []string{}
+				v_14, ok := m_2[k_2]
+				if ok {
+					v_15 := ergo__Some[[]string]{Value: v_14}
+					v_13 = v_15.Value
+					goto inl
+				} else {
+					v_13 = def
+					goto inl
+				}
+			}
+		inl:
+			_ = 0
+			var v_16 []string
+			{
+				var m_3 map[int][]string = fileFolders
+				var k_3 int = b.File
+				var def_1 []string = []string{}
+				v_17, ok_1 := m_3[k_3]
+				if ok_1 {
+					v_18 := ergo__Some[[]string]{Value: v_17}
+					v_16 = v_18.Value
+					goto inl_1
+				} else {
+					v_16 = def_1
+					goto inl_1
+				}
+			}
+		inl_1:
+			_ = 0
+			var v_19 int
+			if len(v_13) < len(v_16) {
+				v_19 = len(v_13)
 			} else {
-				finished = ergo__Append[int](finished, n)
-				nodes = nodes[int(0):top]
-				at = at[int(0):top]
+				v_19 = len(v_16)
 			}
-		}
-	}
-	v_6 := (g).Reverse()
-	v_7 := graph__filled(g.Size, int(-1))
-	var out [][]int = [][]int{}
-	var i_2 int = (len(finished) - int(1))
-	for i_2 >= int(0) {
-		var s_1 int = finished[i_2]
-		i_2 = (i_2 - int(1))
-		if v_7[s_1] >= int(0) {
-			continue
-		}
-		var id int = len(out)
-		v_7[s_1] = id
-		var members []int = []int{}
-		var stack []int = []int{s_1}
-		for len(stack) > int(0) {
-			var n_1 int = stack[(len(stack) - int(1))]
-			stack = stack[int(0):(len(stack) - int(1))]
-			members = ergo__Append[int](members, n_1)
-			v_9 := (v_6).Succ(n_1)
-			for _, v_10 := range v_9 {
-				var m_1 int = v_10
-				if v_7[m_1] < int(0) {
-					v_7[m_1] = id
-					stack = ergo__Append[int](stack, m_1)
+			var lim int = v_19
+			var common int = int(0)
+			for (common < lim) && (v_13[common] == v_16[common]) {
+				common = (common + int(1))
+			}
+			if common >= lim {
+				continue
+			}
+			var v_20 string
+			if common == int(0) {
+				v_20 = "."
+			} else {
+				v_21 := ergo.StringsJoin(v_13[int(0):common], "/")
+				v_20 = v_21
+			}
+			var parent string = v_20
+			v_22 := codegraph__folderChild(v_13, common)
+			v_23 := codegraph__folderChild(v_16, common)
+			if v_22 == v_23 {
+				continue
+			}
+			var ka string = (string(strconv.AppendInt(make([]byte, 0, 20), int64(modOf[e.From]), 10)) + "\n" + parent + "\n" + v_22)
+			var kb string = (string(strconv.AppendInt(make([]byte, 0, 20), int64(modOf[e.From]), 10)) + "\n" + parent + "\n" + v_23)
+			var v_24 int
+			{
+				var m_4 map[string]int = folderScc
+				var def_2 int = int(-1)
+				v_25, ok_2 := m_4[ka]
+				if ok_2 {
+					v_26 := ergo__Some[int]{Value: v_25}
+					v_24 = v_26.Value
+					goto inl_2
+				} else {
+					v_24 = def_2
+					goto inl_2
 				}
 			}
-		}
-		t_2 := out
-		v_12 := ergo.SlicesSortOwned[int](members)
-		v_13 := ergo__Append[[]int](t_2, v_12)
-		out = v_13
-	}
-	v_14 := ergo.SlicesReverseOwned[[]int](out)
-	return v_14
-}
-
-func slices__Contains[T comparable](xs []T, x T) bool {
-	for _, v := range xs {
-		var y T = v
-		if y == x {
-			return true
-		}
-	}
-	return false
-}
-
-func slices__ContainsMono_i2515107422(xs []int, x int) bool {
-	for _, v := range xs {
-		var y int = v
-		if y == x {
-			return true
-		}
-	}
-	return false
-}
-
-func (g graph__Graph) closedPath(c []int) []int {
-	var first int = c[int(0)]
-	var best []int = []int{}
-	v := (g).Succ(first)
-	for _, v_1 := range v {
-		var m int = v_1
-		v_2 := slices__ContainsMono_i2515107422(c, m)
-		if !v_2 {
-			continue
-		}
-		if m == first {
-			return []int{first, first}
-		}
-		v_3 := (g).Path(m, first)
-		s := v_3
-		switch s.tag {
-		case 0:
-			p := s.as0()
-			if (len(best) == int(0)) || ((len(p.Value) + int(1)) < len(best)) {
-				var v_4 []int
+		inl_2:
+			_ = 0
+			var v_27 int
+			{
+				var m_5 map[string]int = folderScc
+				var def_3 int = int(-2)
+				v_28, ok_3 := m_5[kb]
+				if ok_3 {
+					v_29 := ergo__Some[int]{Value: v_28}
+					v_27 = v_29.Value
+					goto inl_3
+				} else {
+					v_27 = def_3
+					goto inl_3
+				}
+			}
+		inl_3:
+			_ = 0
+			if (v_24 >= int(0)) && (v_24 == v_27) {
+				var v_30 string
 				{
-					var a []int = []int{first}
-					var b []int = p.Value
-					v_4 = ergo.SlicesConcatOwned[int](a, b)
-
+					var id int = e.From
+					var n codegraph__NodeRow = r.Nodes[id]
+					if n.Kind != "decl" {
+						v_30 = n.Name
+						goto inl_4
+					}
+					v_31 := (r).packageOf(id)
+					if v_31 < int(0) {
+						v_30 = n.Name
+						goto inl_4
+					} else {
+						v_30 = (r.Nodes[v_31].Name + "." + n.Name)
+						goto inl_4
+					}
 				}
-				best = v_4
+			inl_4:
+				_ = 0
+				var v_32 string
+				{
+					var id_1 int = e.To
+					var n_1 codegraph__NodeRow = r.Nodes[id_1]
+					if n_1.Kind != "decl" {
+						v_32 = n_1.Name
+						goto inl_5
+					}
+					v_33 := (r).packageOf(id_1)
+					if v_33 < int(0) {
+						v_32 = n_1.Name
+						goto inl_5
+					} else {
+						v_32 = (r.Nodes[v_33].Name + "." + n_1.Name)
+						goto inl_5
+					}
+				}
+			inl_5:
+				_ = 0
+				var ek string = (v_22 + "->" + v_23 + "|" + v_30 + "->" + v_32 + "|" + e.How)
+				v_34 := codegraph__cycleEvidenceKey("sibling-folder-cycle", parent, sccMembers[v_24], ek)
+				var ni []codegraph__EvidenceItem
+				var ns map[string]int
+				v_35 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "sibling-folder-cycle", Subject: parent, Key: v_34, Count: int(1), Detail: (v_22 + " -> " + v_23 + ": " + v_30 + " -> " + v_32 + " (" + e.How + ")")})
+				p_1 := ergo__CloneTuple_3(v_35)
+				ni, ns = p_1.F0, p_1.F1
+				items = ni
+				seen = ns
 			}
-		case 1:
 		}
 	}
-	return best
-}
-
-func json__plain(s string) bool {
-	t := (ergo__Range[int]{Start: int(0), End: len(s)})
-	for i := t.Start; i < t.End; i++ {
-		var i_1 int = i
-		var b uint8 = s[i_1]
-		if (b >= uint8(128)) || ("00000000000000000000000000000000110111011111111111111111111101011111111111111111111111111111011111111111111111111111111111111110"[int(b)] != uint8(49)) {
-			return false
+	v_36 := (r).DeclarationTanglesOf(modules)
+	var tans []codegraph__DeclarationTangle = v_36.Tangles
+	if len(tans) > int(0) {
+		var declScc map[int]int = map[int]int{}
+		var tMembers []string = []string{}
+		var tPkg []string = []string{}
+		tMembers = ergo.Reserve(tMembers, len(tans))
+		for k_4, v_37 := range tans {
+			var ti int = k_4
+			var t_3 codegraph__DeclarationTangle = v_37
+			var mNames []string = []string{}
+			mNames = ergo.Reserve(mNames, len(t_3.Members))
+			for _, v_38 := range t_3.Members {
+				var m_6 int = v_38
+				t_4 := mNames
+				var v_39 string
+				{
+					var n_2 codegraph__NodeRow = r.Nodes[m_6]
+					if n_2.Kind != "decl" {
+						v_39 = n_2.Name
+						goto inl_6
+					}
+					v_40 := (r).packageOf(m_6)
+					if v_40 < int(0) {
+						v_39 = n_2.Name
+						goto inl_6
+					} else {
+						v_39 = (r.Nodes[v_40].Name + "." + n_2.Name)
+						goto inl_6
+					}
+				}
+			inl_6:
+				_ = 0
+				v_41 := ergo__Append[string](t_4, v_39)
+				mNames = v_41
+			}
+			t_5 := tMembers
+			v_42 := ergo.SlicesSortOwned[string](mNames)
+			v_43 := ergo.StringsJoin(v_42, ",")
+			v_44 := ergo__Append[string](t_5, v_43)
+			tMembers = v_44
+			tPkg = ergo__Append[string](tPkg, r.Nodes[t_3.Package].Name)
+			v_46 := (t_3).TangleReported(policy.MaxTangleMembers)
+			if v_46 {
+				for _, v_47 := range t_3.Members {
+					var m_7 int = v_47
+					declScc[m_7] = ti
+				}
+			}
+		}
+		if len(declScc) > int(0) {
+			var aliases map[int]int = map[int]int{}
+			for _, v_48 := range r.Edges {
+				var e_1 codegraph__EdgeRow = v_48
+				if e_1.Kind == "reexports" {
+					aliases[e_1.From] = e_1.To
+				}
+			}
+			var resolvedCache map[int]int = map[int]int{}
+			for _, v_49 := range r.Edges {
+				var e_2 codegraph__EdgeRow = v_49
+				if ((e_2.Kind != "uses") || (!places[e_2.From].Ordinary)) || (!places[e_2.To].Ordinary) {
+					continue
+				}
+				var a_1 codegraph__place = places[e_2.From]
+				if ((!a_1.InScope) || (a_1.Package < int(0))) || (a_1.File < int(0)) {
+					continue
+				}
+				var target int = e_2.To
+				var v_50 int
+				{
+					var m_8 map[int]int = aliases
+					var k_5 int = e_2.From
+					var def_4 int = int(-1)
+					v_51, ok_4 := m_8[k_5]
+					if ok_4 {
+						v_52 := ergo__Some[int]{Value: v_51}
+						v_50 = v_52.Value
+						goto inl_7
+					} else {
+						v_50 = def_4
+						goto inl_7
+					}
+				}
+			inl_7:
+				_ = 0
+				if v_50 != e_2.To {
+					v_53, ok_5 := resolvedCache[e_2.To]
+					if ok_5 {
+						cached := ergo__Some[int]{Value: v_53}
+						target = cached.Value
+					} else {
+						var res int
+						v_54 := codegraph__resolve(aliases, e_2.To)
+						res, _ = v_54.F0, v_54.F1
+						resolvedCache[e_2.To] = res
+						target = res
+					}
+				}
+				if target < int(0) {
+					continue
+				}
+				var b_1 codegraph__place = places[target]
+				if ((!b_1.InScope) || (b_1.Package != a_1.Package)) || (b_1.File < int(0)) {
+					continue
+				}
+				v_55 := (a_1).tangleNode()
+				v_56 := (b_1).tangleNode()
+				if ((v_55 < int(0)) || (v_56 < int(0))) || (v_55 == v_56) {
+					continue
+				}
+				var v_57 int
+				{
+					var m_9 map[int]int = declScc
+					var def_5 int = int(-1)
+					v_58, ok_6 := m_9[v_55]
+					if ok_6 {
+						v_59 := ergo__Some[int]{Value: v_58}
+						v_57 = v_59.Value
+						goto inl_8
+					} else {
+						v_57 = def_5
+						goto inl_8
+					}
+				}
+			inl_8:
+				_ = 0
+				var v_60 int
+				{
+					var m_10 map[int]int = declScc
+					var def_6 int = int(-2)
+					v_61, ok_7 := m_10[v_56]
+					if ok_7 {
+						v_62 := ergo__Some[int]{Value: v_61}
+						v_60 = v_62.Value
+						goto inl_9
+					} else {
+						v_60 = def_6
+						goto inl_9
+					}
+				}
+			inl_9:
+				_ = 0
+				if (v_57 >= int(0)) && (v_57 == v_60) {
+					var uf string = r.Nodes[places[v_55].File].Name
+					var vf string = r.Nodes[places[v_56].File].Name
+					var v_63 string
+					{
+						var n_3 codegraph__NodeRow = r.Nodes[v_55]
+						if n_3.Kind != "decl" {
+							v_63 = n_3.Name
+							goto inl_10
+						}
+						v_64 := (r).packageOf(v_55)
+						if v_64 < int(0) {
+							v_63 = n_3.Name
+							goto inl_10
+						} else {
+							v_63 = (r.Nodes[v_64].Name + "." + n_3.Name)
+							goto inl_10
+						}
+					}
+				inl_10:
+					_ = 0
+					var v_65 string
+					{
+						var n_4 codegraph__NodeRow = r.Nodes[v_56]
+						if n_4.Kind != "decl" {
+							v_65 = n_4.Name
+							goto inl_11
+						}
+						v_66 := (r).packageOf(v_56)
+						if v_66 < int(0) {
+							v_65 = n_4.Name
+							goto inl_11
+						} else {
+							v_65 = (r.Nodes[v_66].Name + "." + n_4.Name)
+							goto inl_11
+						}
+					}
+				inl_11:
+					_ = 0
+					var ek_1 string = (uf + ":" + v_63 + "->" + vf + ":" + v_65 + "|" + e_2.How)
+					v_67 := codegraph__cycleEvidenceKey("declaration-tangle", tPkg[v_57], tMembers[v_57], ek_1)
+					var ni_1 []codegraph__EvidenceItem
+					var ns_1 map[string]int
+					v_68 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "declaration-tangle", Subject: tPkg[v_57], Key: v_67, Count: int(1), Detail: (uf + ":" + v_63 + " -> " + vf + ":" + v_65 + " (" + e_2.How + ")")})
+					p_2 := ergo__CloneTuple_3(v_68)
+					ni_1, ns_1 = p_2.F0, p_2.F1
+					items = ni_1
+					seen = ns_1
+				}
+			}
 		}
 	}
-	return true
+	v_69 := (r).ForeignRecordFieldWrites(modules)
+	var fw []codegraph__ForeignFieldWrite = v_69.Writes
+	if len(fw) > int(0) {
+		var violatingFields map[int]bool = map[int]bool{}
+		for _, v_70 := range fw {
+			var w codegraph__ForeignFieldWrite = v_70
+			violatingFields[w.Field] = true
+		}
+		var writeCounts map[string]int = map[string]int{}
+		var writeOrder []string = []string{}
+		var writeField map[string]string = map[string]string{}
+		var writeDetail map[string]string = map[string]string{}
+		for _, v_71 := range r.Edges {
+			var e_3 codegraph__EdgeRow = v_71
+			b_2 := (e_3.Kind != "uses")
+			if !b_2 {
+				v_72 := codegraph__isFieldWrite(e_3.How)
+				b_2 = (!v_72)
+			}
+			if (b_2 || (!places[e_3.From].Ordinary)) || (!places[e_3.To].Ordinary) {
+				continue
+			}
+			v_73 := ergo__Get[int, bool](violatingFields, e_3.To)
+			if v_73 == (ergo__Option[bool]{}).of1((ergo__None{})) {
+				continue
+			}
+			var a_2 codegraph__place = places[e_3.From]
+			var b_3 codegraph__place = places[e_3.To]
+			if ((!a_2.InScope) || (!b_3.InScope)) || (a_2.Package == b_3.Package) {
+				continue
+			}
+			var v_74 string
+			{
+				var id_2 int = e_3.To
+				var n_5 codegraph__NodeRow = r.Nodes[id_2]
+				if n_5.Kind != "decl" {
+					v_74 = n_5.Name
+					goto inl_12
+				}
+				v_75 := (r).packageOf(id_2)
+				if v_75 < int(0) {
+					v_74 = n_5.Name
+					goto inl_12
+				} else {
+					v_74 = (r.Nodes[v_75].Name + "." + n_5.Name)
+					goto inl_12
+				}
+			}
+		inl_12:
+			_ = 0
+			var v_76 string
+			{
+				var id_3 int = e_3.From
+				var n_6 codegraph__NodeRow = r.Nodes[id_3]
+				if n_6.Kind != "decl" {
+					v_76 = n_6.Name
+					goto inl_13
+				}
+				v_77 := (r).packageOf(id_3)
+				if v_77 < int(0) {
+					v_76 = n_6.Name
+					goto inl_13
+				} else {
+					v_76 = (r.Nodes[v_77].Name + "." + n_6.Name)
+					goto inl_13
+				}
+			}
+		inl_13:
+			_ = 0
+			var key string = ("foreign-record-field-write|" + v_74 + "|" + v_76 + "|" + e_3.How)
+			v_78 := ergo__Get[string, int](writeCounts, key)
+			if v_78 == (ergo__Option[int]{}).of1((ergo__None{})) {
+				writeOrder = ergo__Append[string](writeOrder, key)
+				writeField[key] = v_74
+				writeDetail[key] = (v_76 + " writes " + v_74)
+			}
+			t_6 := writeCounts
+			t_7 := key
+			var v_80 int
+			{
+				var m_11 map[string]int = writeCounts
+				var def_7 int = int(0)
+				v_81, ok_8 := m_11[key]
+				if ok_8 {
+					v_82 := ergo__Some[int]{Value: v_81}
+					v_80 = v_82.Value
+					goto inl_14
+				} else {
+					v_80 = def_7
+					goto inl_14
+				}
+			}
+		inl_14:
+			_ = 0
+			t_6[t_7] = (v_80 + int(1))
+		}
+		v_83 := ergo.SlicesSortOwned[string](writeOrder)
+		for _, v_84 := range v_83 {
+			var key_1 string = v_84
+			var ni_2 []codegraph__EvidenceItem
+			var ns_2 map[string]int
+			t_8 := items
+			t_9 := seen
+			var v_85 string
+			{
+				var m_12 map[string]string = writeField
+				var def_8 string = ""
+				v_86, ok_9 := m_12[key_1]
+				if ok_9 {
+					v_87 := ergo__Some[string]{Value: v_86}
+					v_85 = v_87.Value
+					goto inl_15
+				} else {
+					v_85 = def_8
+					goto inl_15
+				}
+			}
+		inl_15:
+			_ = 0
+			t_10 := v_85
+			t_11 := key_1
+			var v_88 int
+			{
+				var m_13 map[string]int = writeCounts
+				var def_9 int = int(1)
+				v_89, ok_10 := m_13[key_1]
+				if ok_10 {
+					v_90 := ergo__Some[int]{Value: v_89}
+					v_88 = v_90.Value
+					goto inl_16
+				} else {
+					v_88 = def_9
+					goto inl_16
+				}
+			}
+		inl_16:
+			_ = 0
+			t_12 := v_88
+			var v_91 string
+			{
+				var m_14 map[string]string = writeDetail
+				var def_10 string = ""
+				v_92, ok_11 := m_14[key_1]
+				if ok_11 {
+					v_93 := ergo__Some[string]{Value: v_92}
+					v_91 = v_93.Value
+					goto inl_17
+				} else {
+					v_91 = def_10
+					goto inl_17
+				}
+			}
+		inl_17:
+			_ = 0
+			v_94 := codegraph__addEvidenceOnce(t_8, t_9, codegraph__EvidenceItem{Rule: "foreign-record-field-write", Subject: t_10, Key: t_11, Count: t_12, Detail: v_91})
+			p_3 := ergo__CloneTuple_3(v_94)
+			ni_2, ns_2 = p_3.F0, p_3.F1
+			items = ni_2
+			seen = ns_2
+		}
+	}
+	if policy.MaxSurfaceList > int(0) {
+		v_95 := (r).ObservedInterfaces(modules)
+		for _, v_96 := range v_95.Packages {
+			var p_4 codegraph__Interface = v_96
+			v_97 := (p_4).Wide(policy.MaxSurfaceList)
+			if !v_97 {
+				continue
+			}
+			var pkg string = r.Nodes[p_4.Package].Name
+			var allGroupsWide bool = (len(p_4.Groups) > policy.MaxSurfaceList)
+			var ni_3 []codegraph__EvidenceItem
+			var ns_3 map[string]int
+			v_98 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "wide-observed-interface", Subject: pkg, Key: ("wide-observed-interface|widest|" + pkg), Count: p_4.Widest, Detail: (pkg + ": widest list " + string(strconv.AppendInt(make([]byte, 0, 20), int64(p_4.Widest), 10)) + " (max " + string(strconv.AppendInt(make([]byte, 0, 20), int64(policy.MaxSurfaceList), 10)) + ")")})
+			p_5 := ergo__CloneTuple_3(v_98)
+			ni_3, ns_3 = p_5.F0, p_5.F1
+			items = ni_3
+			seen = ns_3
+			for _, v_99 := range p_4.Groups {
+				var g codegraph__InterfaceGroup = v_99
+				if (!allGroupsWide) && (len(g.Entries) <= policy.MaxSurfaceList) {
+					continue
+				}
+				var v_100 string
+				{
+					var id_4 int = g.Node
+					var n_7 codegraph__NodeRow = r.Nodes[id_4]
+					if n_7.Kind != "decl" {
+						v_100 = n_7.Name
+						goto inl_18
+					}
+					v_101 := (r).packageOf(id_4)
+					if v_101 < int(0) {
+						v_100 = n_7.Name
+						goto inl_18
+					} else {
+						v_100 = (r.Nodes[v_101].Name + "." + n_7.Name)
+						goto inl_18
+					}
+				}
+			inl_18:
+				_ = 0
+				for _, v_102 := range g.Entries {
+					var eid int = v_102
+					var v_103 string
+					{
+						var n_8 codegraph__NodeRow = r.Nodes[eid]
+						if n_8.Kind != "decl" {
+							v_103 = n_8.Name
+							goto inl_19
+						}
+						v_104 := (r).packageOf(eid)
+						if v_104 < int(0) {
+							v_103 = n_8.Name
+							goto inl_19
+						} else {
+							v_103 = (r.Nodes[v_104].Name + "." + n_8.Name)
+							goto inl_19
+						}
+					}
+				inl_19:
+					_ = 0
+					var ni2 []codegraph__EvidenceItem
+					var ns2 map[string]int
+					v_105 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "wide-observed-interface", Subject: pkg, Key: ("wide-observed-interface|entry|" + pkg + "|" + v_100 + "|" + v_103), Count: int(1), Detail: (pkg + " group " + v_100 + " entry " + v_103)})
+					p_6 := ergo__CloneTuple_3(v_105)
+					ni2, ns2 = p_6.F0, p_6.F1
+					items = ni2
+					seen = ns2
+				}
+			}
+		}
+	}
+	if policy.MaxFileLines > int(0) {
+		v_106 := (r).PhysicalLines(modules)
+		for _, v_107 := range v_106.Files {
+			var f codegraph__FileLength = v_107
+			v_108 := (f).LongFile(policy.MaxFileLines)
+			if !v_108 {
+				continue
+			}
+			var name string = r.Nodes[f.File].Name
+			var ni_4 []codegraph__EvidenceItem
+			var ns_4 map[string]int
+			v_109 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "long-file", Subject: name, Key: ("long-file|" + name), Count: (f.Lines - policy.MaxFileLines), Detail: (name + ": " + string(strconv.AppendInt(make([]byte, 0, 20), int64(f.Lines), 10)) + " lines (max " + string(strconv.AppendInt(make([]byte, 0, 20), int64(policy.MaxFileLines), 10)) + ")")})
+			p_7 := ergo__CloneTuple_3(v_109)
+			ni_4, ns_4 = p_7.F0, p_7.F1
+			items = ni_4
+			seen = ns_4
+		}
+	}
+	if policy.MaxDirectoryMembers > int(0) {
+		v_110 := (r).Directories(modules)
+		for _, v_111 := range v_110.Directories {
+			var d codegraph__Directory = v_111
+			v_112 := (d).WideDirectory(policy.MaxDirectoryMembers)
+			if !v_112 {
+				continue
+			}
+			var ni_5 []codegraph__EvidenceItem
+			var ns_5 map[string]int
+			v_113 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "wide-directory", Subject: d.Path, Key: ("wide-directory|" + d.Path), Count: (len(d.Members) - policy.MaxDirectoryMembers), Detail: (d.Path + "/: " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(d.Members)), 10)) + " entries (max " + string(strconv.AppendInt(make([]byte, 0, 20), int64(policy.MaxDirectoryMembers), 10)) + ")")})
+			p_8 := ergo__CloneTuple_3(v_113)
+			ni_5, ns_5 = p_8.F0, p_8.F1
+			items = ni_5
+			seen = ns_5
+		}
+	}
+	if len(policy.Support) > int(0) {
+		v_114 := (r).ProductionUsesTestSupport(modules, policy.Support)
+		for _, v_115 := range v_114.Uses {
+			var u codegraph__TestSupportUse = v_115
+			var v_116 string
+			{
+				var id_5 int = u.Caller
+				var n_9 codegraph__NodeRow = r.Nodes[id_5]
+				if n_9.Kind != "decl" {
+					v_116 = n_9.Name
+					goto inl_20
+				}
+				v_117 := (r).packageOf(id_5)
+				if v_117 < int(0) {
+					v_116 = n_9.Name
+					goto inl_20
+				} else {
+					v_116 = (r.Nodes[v_117].Name + "." + n_9.Name)
+					goto inl_20
+				}
+			}
+		inl_20:
+			_ = 0
+			var target_1 string = r.Nodes[u.Target].Name
+			var ni_6 []codegraph__EvidenceItem
+			var ns_6 map[string]int
+			v_118 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "production-uses-test-support", Subject: v_116, Key: ("production-uses-test-support|" + v_116 + "|" + target_1 + "|ordinary"), Count: int(1), Detail: (v_116 + " uses test support " + target_1)})
+			p_9 := ergo__CloneTuple_3(v_118)
+			ni_6, ns_6 = p_9.F0, p_9.F1
+			items = ni_6
+			seen = ns_6
+		}
+	}
+	if len(policy.Seams) > int(0) {
+		v_119 := (r).SeamEntrypoints(modules, policy.Seams)
+		for _, v_120 := range v_119.Violations {
+			var v_121 codegraph__SeamViolation = v_120
+			var s codegraph__SeamSpec = policy.Seams[v_121.Seam]
+			var v_122 string
+			if s.Root != "" {
+				v_122 = s.Root
+			} else {
+				if len(s.Entries) > int(0) {
+					v_122 = s.Entries[int(0)]
+				} else {
+					v_122 = ""
+				}
+			}
+			var scope string = v_122
+			var caller string = r.Nodes[v_121.CallerPkg].Name
+			var target_2 string = r.Nodes[v_121.TargetPkg].Name
+			var v_123 string
+			if v_121.Inside {
+				v_123 = "inside-test"
+			} else {
+				v_123 = "outside"
+			}
+			var role string = v_123
+			var ni_7 []codegraph__EvidenceItem
+			var ns_7 map[string]int
+			v_124 := codegraph__addEvidenceOnce(items, seen, codegraph__EvidenceItem{Rule: "seam-entrypoints", Subject: caller, Key: ("seam-entrypoints|" + scope + "|" + caller + "|" + target_2 + "|" + role), Count: int(1), Detail: (caller + " -> " + target_2 + " (" + role + " in " + scope + ")")})
+			p_10 := ergo__CloneTuple_3(v_124)
+			ni_7, ns_7 = p_10.F0, p_10.F1
+			items = ni_7
+			seen = ns_7
+		}
+	}
+	var keys []string = []string{}
+	var byKey map[string]codegraph__EvidenceItem = map[string]codegraph__EvidenceItem{}
+	keys = ergo.Reserve(keys, len(items))
+	for _, v_125 := range items {
+		var it codegraph__EvidenceItem = v_125
+		keys = ergo__Append[string](keys, it.Key)
+		byKey[it.Key] = it
+	}
+	var sorted []codegraph__EvidenceItem = []codegraph__EvidenceItem{}
+	v_127 := ergo.SlicesSortOwned[string](keys)
+	for _, v_128 := range v_127 {
+		var k_6 string = v_128
+		v_129, ok_12 := byKey[k_6]
+		if ok_12 {
+			v_130 := ergo__Some[codegraph__EvidenceItem]{Value: v_129}
+			sorted = ergo__Append[codegraph__EvidenceItem](sorted, v_130.Value)
+		} else {
+		}
+	}
+	return sorted
 }
 
-func ergo__strings__FromBytesOwned(bs []uint8) string {
-	v := ergo.StringsBuilderTextOwned(bs)
+type codegraph__Interfaces struct {
+	Packages []codegraph__Interface
+	Work     int
+}
+
+func codegraph__callable(sub string) bool {
+	return ((sub == "func") || (sub == "operation"))
+}
+
+func ergo__slices__ConcatOwned[T any](a []T, b []T) []T {
+	v := ergo.SlicesConcatOwned[T](a, b)
 	return v
 }
 
-func strings__FromBytes(bs []uint8) string {
-	return ergo__strings__FromBytesOwned(slices.Clone(bs))
+func slices__Concat_1[T any](a []T, b []T) []T {
+	return ergo__slices__ConcatOwned[T](slices.Clone(a), b)
+}
+
+func (g graph__Graph) Edges() []graph__Edge {
+	var out []graph__Edge = []graph__Edge{}
+	t := (ergo__Range[int]{Start: int(0), End: g.Size})
+	for i := t.Start; i < t.End; i++ {
+		var n int = i
+		v_1 := (g).Succ(n)
+		out = ergo.Reserve(out, len(v_1))
+		for _, v_2 := range v_1 {
+			var m int = v_2
+			out = ergo__Append[graph__Edge](out, graph__Edge{From: n, To: m})
+		}
+	}
+	return out
+}
+
+func codegraph__layerOf(layers []string, path string) int {
+	for k, v := range layers {
+		var i int = k
+		var l string = v
+		b := (l == path)
+		if !b {
+			v_1 := strings__HasSuffix(l, "/...")
+			b_1 := v_1
+			if b_1 {
+				t := path
+				v_2 := strings__TrimSuffix(l, "...")
+				v_3 := strings__HasPrefix(t, v_2)
+				b_1 = v_3
+			}
+			b = b_1
+		}
+		if b {
+			return i
+		}
+	}
+	return int(-1)
 }
 
 func ergo__textergo__WireWrongKind(v ergo__WireWrongKind) string {
@@ -5810,13 +14204,236 @@ func (s *json__scan) after(env *ergo__Env, k int) int {
 	}
 }
 
-func ergo__slices__ConcatOwned[T any](a []T, b []T) []T {
-	v := ergo.SlicesConcatOwned[T](a, b)
+func (r codegraph__Rows) levelPair(level codegraph__Level, e codegraph__EdgeRow) struct {
+	F0 int
+	F1 int
+} {
+	s := level
+	switch s.tag {
+	case 0:
+		if e.Kind != "imports" {
+			return struct {
+				F0 int
+				F1 int
+			}{F0: int(-1), F1: int(-1)}
+		}
+		v := (r).packageOf(e.From)
+		return struct {
+			F0 int
+			F1 int
+		}{F0: v, F1: e.To}
+	case 1:
+		if e.Kind != "uses" {
+			return struct {
+				F0 int
+				F1 int
+			}{F0: int(-1), F1: int(-1)}
+		}
+		v_1 := (r).fileOf(e.From)
+		v_2 := (r).fileOf(e.To)
+		b := ((v_1 < int(0)) || (v_2 < int(0)))
+		if !b {
+			v_3 := (r).packageOf(v_1)
+			t := v_3
+			v_4 := (r).packageOf(v_2)
+			b = (t != v_4)
+		}
+		if b {
+			return struct {
+				F0 int
+				F1 int
+			}{F0: int(-1), F1: int(-1)}
+		}
+		return struct {
+			F0 int
+			F1 int
+		}{F0: v_1, F1: v_2}
+	case 2:
+		if ((e.Kind != "uses") || (r.Nodes[e.From].Kind != "decl")) || (r.Nodes[e.To].Kind != "decl") {
+			return struct {
+				F0 int
+				F1 int
+			}{F0: int(-1), F1: int(-1)}
+		}
+		v_5 := (r).topOf(e.From)
+		v_6 := (r).topOf(e.To)
+		if v_5 == v_6 {
+			return struct {
+				F0 int
+				F1 int
+			}{F0: int(-1), F1: int(-1)}
+		}
+		return struct {
+			F0 int
+			F1 int
+		}{F0: v_5, F1: v_6}
+	default:
+		panic("ergo: defect: no case of the match at std/codegraph/codegraph.ergo:230:2 matched")
+	}
+}
+
+func (r codegraph__Rows) testOnly(a int, b int) bool {
+	var any_1 bool = false
+	for _, v := range r.Edges {
+		var e codegraph__EdgeRow = v
+		b_2 := (e.Kind != "uses")
+		if !b_2 {
+			v_1 := (r).packageOf(e.From)
+			b_2 = (v_1 != a)
+		}
+		b_1 := b_2
+		if !b_1 {
+			v_2 := (r).packageOf(e.To)
+			b_1 = (v_2 != b)
+		}
+		if b_1 {
+			continue
+		}
+		t := r.Nodes
+		v_3 := (r).topOf(e.From)
+		var s string = t[v_3].Sub
+		if (s != "test") && (s != "law") {
+			return false
+		}
+		any_1 = true
+	}
+	return any_1
+}
+
+func (g graph__Graph) Components() [][]int {
+	var done []bool = []bool{}
+	t := (ergo__Range[int]{Start: int(0), End: g.Size})
+	for i := t.Start; i < t.End; i++ {
+		done = ergo__Append[bool](done, false)
+	}
+	var finished []int = []int{}
+	t_1 := (ergo__Range[int]{Start: int(0), End: g.Size})
+	for i_1 := t_1.Start; i_1 < t_1.End; i_1++ {
+		var s int = i_1
+		if done[s] {
+			continue
+		}
+		done[s] = true
+		var nodes []int = []int{s}
+		var at []int = []int{int(0)}
+		for len(nodes) > int(0) {
+			var top int = (len(nodes) - int(1))
+			var n int = nodes[top]
+			v_2 := (g).Succ(n)
+			if at[top] < len(v_2) {
+				var m int = v_2[at[top]]
+				at[top] = (at[top] + int(1))
+				if !done[m] {
+					done[m] = true
+					nodes = ergo__Append[int](nodes, m)
+					at = ergo__Append[int](at, int(0))
+				}
+			} else {
+				finished = ergo__Append[int](finished, n)
+				nodes = nodes[int(0):top]
+				at = at[int(0):top]
+			}
+		}
+	}
+	v_6 := (g).Reverse()
+	v_7 := graph__filled(g.Size, int(-1))
+	var out [][]int = [][]int{}
+	var i_2 int = (len(finished) - int(1))
+	for i_2 >= int(0) {
+		var s_1 int = finished[i_2]
+		i_2 = (i_2 - int(1))
+		if v_7[s_1] >= int(0) {
+			continue
+		}
+		var id int = len(out)
+		v_7[s_1] = id
+		var members []int = []int{}
+		var stack []int = []int{s_1}
+		for len(stack) > int(0) {
+			var n_1 int = stack[(len(stack) - int(1))]
+			stack = stack[int(0):(len(stack) - int(1))]
+			members = ergo__Append[int](members, n_1)
+			v_9 := (v_6).Succ(n_1)
+			for _, v_10 := range v_9 {
+				var m_1 int = v_10
+				if v_7[m_1] < int(0) {
+					v_7[m_1] = id
+					stack = ergo__Append[int](stack, m_1)
+				}
+			}
+		}
+		t_2 := out
+		v_12 := ergo.SlicesSortOwned[int](members)
+		v_13 := ergo__Append[[]int](t_2, v_12)
+		out = v_13
+	}
+	v_14 := ergo.SlicesReverseOwned[[]int](out)
+	return v_14
+}
+
+func slices__ContainsMono_i2515107422(xs []int, x int) bool {
+	for _, v := range xs {
+		var y int = v
+		if y == x {
+			return true
+		}
+	}
+	return false
+}
+
+func (g graph__Graph) closedPath(c []int) []int {
+	var first int = c[int(0)]
+	var best []int = []int{}
+	v := (g).Succ(first)
+	for _, v_1 := range v {
+		var m int = v_1
+		v_2 := slices__ContainsMono_i2515107422(c, m)
+		if !v_2 {
+			continue
+		}
+		if m == first {
+			return []int{first, first}
+		}
+		v_3 := (g).Path(m, first)
+		s := v_3
+		switch s.tag {
+		case 0:
+			p := s.as0()
+			if (len(best) == int(0)) || ((len(p.Value) + int(1)) < len(best)) {
+				var v_4 []int
+				{
+					var a []int = []int{first}
+					var b []int = p.Value
+					v_4 = ergo.SlicesConcatOwned[int](a, b)
+
+				}
+				best = v_4
+			}
+		case 1:
+		}
+	}
+	return best
+}
+
+func json__plain(s string) bool {
+	t := (ergo__Range[int]{Start: int(0), End: len(s)})
+	for i := t.Start; i < t.End; i++ {
+		var i_1 int = i
+		var b uint8 = s[i_1]
+		if (b >= uint8(128)) || ("00000000000000000000000000000000110111011111111111111111111101011111111111111111111111111111011111111111111111111111111111111110"[int(b)] != uint8(49)) {
+			return false
+		}
+	}
+	return true
+}
+
+func ergo__strings__FromBytesOwned(bs []uint8) string {
+	v := ergo.StringsBuilderTextOwned(bs)
 	return v
 }
 
-func slices__Concat_1[T any](a []T, b []T) []T {
-	return ergo__slices__ConcatOwned[T](slices.Clone(a), b)
+func strings__FromBytes(bs []uint8) string {
+	return ergo__strings__FromBytesOwned(slices.Clone(bs))
 }
 
 func graph__filled(n int, v int) []int {
@@ -5890,6 +14507,34 @@ func (g graph__Graph) Order() ergo__Option[[]int] {
 	}
 }
 
+func graph__inside(n int, e graph__Edge) bool {
+	return ((((e.From >= int(0)) && (e.From < n)) && (e.To >= int(0))) && (e.To < n))
+}
+
+func codegraph__cycleEvidenceKey(rule string, scope string, members string, edgeKey string) string {
+	return (rule + "|" + scope + "|" + edgeKey)
+}
+
+func codegraph__addEvidenceOnce(items []codegraph__EvidenceItem, seen map[string]int, item codegraph__EvidenceItem) struct {
+	F0 []codegraph__EvidenceItem
+	F1 map[string]int
+} {
+	v := ergo__Get[string, int](seen, item.Key)
+	if v != (ergo__Option[int]{}).of1((ergo__None{})) {
+		return struct {
+			F0 []codegraph__EvidenceItem
+			F1 map[string]int
+		}{F0: items, F1: seen}
+	}
+	var nextSeen map[string]int = maps.Clone(seen)
+	nextSeen[item.Key] = len(items)
+	v_1 := ergo__Append[codegraph__EvidenceItem](slices.Clip(items), item)
+	return struct {
+		F0 []codegraph__EvidenceItem
+		F1 map[string]int
+	}{F0: v_1, F1: nextSeen}
+}
+
 func strings__HasSuffix(s string, suffix string) bool {
 	r := go__strings.HasSuffix(s, suffix)
 	return r
@@ -5898,29 +14543,6 @@ func strings__HasSuffix(s string, suffix string) bool {
 func strings__TrimSuffix(s string, suffix string) string {
 	r := go__strings.TrimSuffix(s, suffix)
 	return r
-}
-
-func (r codegraph__Rows) fileOf(id int) int {
-	var n int = id
-	for n >= int(0) {
-		if r.Nodes[n].Kind == "file" {
-			return n
-		}
-		n = r.Nodes[n].Parent
-	}
-	return int(-1)
-}
-
-func (r codegraph__Rows) topOf(id int) int {
-	var n int = id
-	for ((r.Nodes[n].Kind == "decl") && (r.Nodes[n].Parent >= int(0))) && (r.Nodes[r.Nodes[n].Parent].Kind == "decl") {
-		n = r.Nodes[n].Parent
-	}
-	return n
-}
-
-func graph__inside(n int, e graph__Edge) bool {
-	return ((((e.From >= int(0)) && (e.From < n)) && (e.To >= int(0))) && (e.To < n))
 }
 
 type io__Source interface {
@@ -6357,7 +14979,24 @@ func (s *json__scan) str(env *ergo__Env) json__tok {
 	}
 }
 
-const json__kBool int = int(1)
+func (r codegraph__Rows) fileOf(id int) int {
+	var n int = id
+	for n >= int(0) {
+		if r.Nodes[n].Kind == "file" {
+			return n
+		}
+		n = r.Nodes[n].Parent
+	}
+	return int(-1)
+}
+
+func (r codegraph__Rows) topOf(id int) int {
+	var n int = id
+	for ((r.Nodes[n].Kind == "decl") && (r.Nodes[n].Parent >= int(0))) && (r.Nodes[r.Nodes[n].Parent].Kind == "decl") {
+		n = r.Nodes[n].Parent
+	}
+	return n
+}
 
 const json__kNull int = int(0)
 
@@ -6537,26 +15176,36 @@ type ergoDecl = struct {
 
 // ergoDecls lists the program's source declarations, in source order.
 var ergoDecls = [...]ergoDecl{
-	{Name: "Run", File: "tool.ergo", Line: 18, End: 31},
-	{Name: "noRows", File: "tool.ergo", Line: 34, End: 34},
-	{Name: "RunColumns", File: "tool.ergo", Line: 44, End: 48},
-	{Name: "columnsOf", File: "tool.ergo", Line: 53, End: 53},
-	{Name: "fromColumns", File: "tool.ergo", Line: 57, End: 73},
-	{Name: "runRows", File: "tool.ergo", Line: 77, End: 125},
-	{Name: "usage", File: "tool.ergo", Line: 128, End: 128},
-	{Name: "options", File: "tool.ergo", Line: 142, End: 192},
-	{Name: "names", File: "tool.ergo", Line: 195, End: 201},
-	{Name: "cycles", File: "tool.ergo", Line: 206, End: 219},
-	{Name: "stepsOut", File: "tool.ergo", Line: 224, End: 230},
-	{Name: "stepsText", File: "tool.ergo", Line: 232, End: 238},
-	{Name: "one", File: "tool.ergo", Line: 245, End: 254},
-	{Name: "why", File: "tool.ergo", Line: 256, End: 278},
-	{Name: "affected", File: "tool.ergo", Line: 284, End: 297},
-	{Name: "hidden", File: "tool.ergo", Line: 304, End: 317},
-	{Name: "chains", File: "tool.ergo", Line: 319, End: 332},
-	{Name: "fan", File: "tool.ergo", Line: 337, End: 350},
-	{Name: "layers", File: "tool.ergo", Line: 352, End: 358},
-	{Name: "ok", File: "tool.ergo", Line: 360, End: 360},
+	{Name: "Run", File: "tool.ergo", Line: 19, End: 32},
+	{Name: "noRows", File: "tool.ergo", Line: 35, End: 35},
+	{Name: "RunColumns", File: "tool.ergo", Line: 45, End: 49},
+	{Name: "columnsOf", File: "tool.ergo", Line: 54, End: 54},
+	{Name: "fromColumns", File: "tool.ergo", Line: 58, End: 74},
+	{Name: "runRows", File: "tool.ergo", Line: 78, End: 171},
+	{Name: "usage", File: "tool.ergo", Line: 174, End: 174},
+	{Name: "options", File: "tool.ergo", Line: 198, End: 361},
+	{Name: "names", File: "tool.ergo", Line: 364, End: 370},
+	{Name: "cycles", File: "tool.ergo", Line: 375, End: 388},
+	{Name: "stepsOut", File: "tool.ergo", Line: 393, End: 399},
+	{Name: "stepsText", File: "tool.ergo", Line: 401, End: 407},
+	{Name: "one", File: "tool.ergo", Line: 414, End: 423},
+	{Name: "why", File: "tool.ergo", Line: 425, End: 447},
+	{Name: "affected", File: "tool.ergo", Line: 453, End: 466},
+	{Name: "hidden", File: "tool.ergo", Line: 473, End: 486},
+	{Name: "chains", File: "tool.ergo", Line: 488, End: 501},
+	{Name: "fan", File: "tool.ergo", Line: 506, End: 519},
+	{Name: "selectedModules", File: "tool.ergo", Line: 536, End: 544},
+	{Name: "files", File: "tool.ergo", Line: 548, End: 566},
+	{Name: "directories", File: "tool.ergo", Line: 570, End: 588},
+	{Name: "fieldWrites", File: "tool.ergo", Line: 601, End: 625},
+	{Name: "testSupport", File: "tool.ergo", Line: 636, End: 657},
+	{Name: "seams", File: "tool.ergo", Line: 669, End: 691},
+	{Name: "folderCycles", File: "tool.ergo", Line: 700, End: 714},
+	{Name: "tangles", File: "tool.ergo", Line: 725, End: 749},
+	{Name: "compareLayout", File: "tool.ergo", Line: 751, End: 786},
+	{Name: "interfaces", File: "tool.ergo", Line: 788, End: 814},
+	{Name: "layers", File: "tool.ergo", Line: 816, End: 822},
+	{Name: "ok", File: "tool.ergo", Line: 824, End: 824},
 }
 
 // ergoInlines lists the program's inlined calls: each one's tag key, call
@@ -6566,115 +15215,228 @@ var ergoInlines = [...]struct {
 	Call   int
 	Parent string
 }{
-	{Key: "tool.ergo@198.20", Call: 35, Parent: ""},
-	{Key: "tool.ergo@227.48", Call: 45, Parent: ""},
-	{Key: "tool.ergo@227.81", Call: 46, Parent: ""},
-	{Key: "tool.ergo@287.120", Call: 61, Parent: ""},
-	{Key: "tool.ergo@287.37", Call: 60, Parent: ""},
-	{Key: "tool.ergo@307.105", Call: 69, Parent: ""},
-	{Key: "tool.ergo@307.169", Call: 70, Parent: ""},
-	{Key: "tool.ergo@307.36", Call: 67, Parent: ""},
-	{Key: "tool.ergo@307.69", Call: 68, Parent: ""},
-	{Key: "tool.ergo@340.33", Call: 83, Parent: ""},
+	{Key: "tool.ergo@367.20", Call: 65, Parent: ""},
+	{Key: "tool.ergo@396.48", Call: 75, Parent: ""},
+	{Key: "tool.ergo@396.81", Call: 76, Parent: ""},
+	{Key: "tool.ergo@456.120", Call: 91, Parent: ""},
+	{Key: "tool.ergo@456.37", Call: 90, Parent: ""},
+	{Key: "tool.ergo@476.105", Call: 99, Parent: ""},
+	{Key: "tool.ergo@476.169", Call: 100, Parent: ""},
+	{Key: "tool.ergo@476.36", Call: 97, Parent: ""},
+	{Key: "tool.ergo@476.69", Call: 98, Parent: ""},
+	{Key: "tool.ergo@509.33", Call: 113, Parent: ""},
+	{Key: "tool.ergo@605.43", Call: 136, Parent: ""},
+	{Key: "tool.ergo@608.20", Call: 138, Parent: ""},
+	{Key: "tool.ergo@610.20", Call: 139, Parent: ""},
+	{Key: "tool.ergo@642.14", Call: 148, Parent: ""},
+	{Key: "tool.ergo@798.51", Call: 186, Parent: ""},
+	{Key: "tool.ergo@802.54", Call: 188, Parent: ""},
 }
 
 // ergoCall is the Ergo identity of one lowered call (#230).
 type ergoCall = ergo.SourceCall
 
 var ergoCalls = [...]ergoCall{
-	{Func: 0, Callee: 1, File: 2, Line: 19, Column: 10},
-	{Func: 0, Callee: 3, File: 2, Line: 24, Column: 10},
-	{Func: 0, Callee: 4, File: 2, Line: 24, Column: 27},
-	{Func: 0, Callee: 1, File: 2, Line: 26, Column: 13},
-	{Func: 0, Callee: 3, File: 2, Line: 30, Column: 2},
-	{Func: 5, Callee: 6, File: 2, Line: 45, Column: 10},
-	{Func: 5, Callee: 6, File: 2, Line: 46, Column: 37},
-	{Func: 5, Callee: 7, File: 2, Line: 46, Column: 86},
-	{Func: 5, Callee: 4, File: 2, Line: 46, Column: 96},
-	{Func: 5, Callee: 3, File: 2, Line: 47, Column: 2},
-	{Func: 6, Callee: 8, File: 2, Line: 64, Column: 11},
-	{Func: 6, Callee: 9, File: 2, Line: 70, Column: 11},
-	{Func: 6, Callee: 7, File: 2, Line: 72, Column: 2},
-	{Func: 3, Callee: 10, File: 2, Line: 78, Column: 10},
-	{Func: 3, Callee: 11, File: 2, Line: 84, Column: 10},
-	{Func: 3, Callee: 11, File: 2, Line: 89, Column: 11},
-	{Func: 3, Callee: 12, File: 2, Line: 91, Column: 3},
-	{Func: 3, Callee: 11, File: 2, Line: 94, Column: 11},
-	{Func: 3, Callee: 13, File: 2, Line: 96, Column: 3},
-	{Func: 3, Callee: 11, File: 2, Line: 99, Column: 11},
-	{Func: 3, Callee: 14, File: 2, Line: 101, Column: 3},
-	{Func: 3, Callee: 15, File: 2, Line: 101, Column: 18},
-	{Func: 3, Callee: 11, File: 2, Line: 104, Column: 11},
-	{Func: 3, Callee: 16, File: 2, Line: 106, Column: 3},
-	{Func: 3, Callee: 11, File: 2, Line: 109, Column: 11},
-	{Func: 3, Callee: 17, File: 2, Line: 111, Column: 3},
-	{Func: 3, Callee: 11, File: 2, Line: 114, Column: 11},
-	{Func: 3, Callee: 18, File: 2, Line: 116, Column: 3},
-	{Func: 3, Callee: 11, File: 2, Line: 119, Column: 11},
-	{Func: 3, Callee: 19, File: 2, Line: 121, Column: 3},
-	{Func: 3, Callee: 11, File: 2, Line: 123, Column: 3},
-	{Func: 10, Callee: 20, File: 2, Line: 176, Column: 12},
-	{Func: 10, Callee: 21, File: 2, Line: 184, Column: 7},
-	{Func: 10, Callee: 22, File: 2, Line: 188, Column: 14},
-	{Func: 23, Callee: 22, File: 2, Line: 198, Column: 9},
-	{Func: 23, Callee: 24, File: 2, Line: 198, Column: 20},
-	{Func: 12, Callee: 25, File: 2, Line: 208, Column: 11},
-	{Func: 12, Callee: 26, File: 2, Line: 209, Column: 9},
-	{Func: 12, Callee: 23, File: 2, Line: 209, Column: 36},
-	{Func: 12, Callee: 23, File: 2, Line: 209, Column: 61},
-	{Func: 12, Callee: 27, File: 2, Line: 212, Column: 10},
-	{Func: 12, Callee: 28, File: 2, Line: 212, Column: 13},
-	{Func: 12, Callee: 29, File: 2, Line: 216, Column: 11},
-	{Func: 12, Callee: 27, File: 2, Line: 218, Column: 2},
-	{Func: 30, Callee: 31, File: 2, Line: 227, Column: 9},
-	{Func: 30, Callee: 24, File: 2, Line: 227, Column: 48},
-	{Func: 30, Callee: 24, File: 2, Line: 227, Column: 81},
-	{Func: 32, Callee: 33, File: 2, Line: 246, Column: 14},
-	{Func: 13, Callee: 32, File: 2, Line: 257, Column: 10},
-	{Func: 13, Callee: 32, File: 2, Line: 261, Column: 10},
-	{Func: 13, Callee: 34, File: 2, Line: 265, Column: 8},
-	{Func: 13, Callee: 30, File: 2, Line: 267, Column: 15},
-	{Func: 13, Callee: 27, File: 2, Line: 269, Column: 11},
-	{Func: 13, Callee: 28, File: 2, Line: 269, Column: 14},
-	{Func: 13, Callee: 27, File: 2, Line: 271, Column: 3},
-	{Func: 13, Callee: 35, File: 2, Line: 271, Column: 53},
-	{Func: 13, Callee: 27, File: 2, Line: 274, Column: 11},
-	{Func: 13, Callee: 27, File: 2, Line: 276, Column: 3},
-	{Func: 14, Callee: 36, File: 2, Line: 286, Column: 11},
-	{Func: 14, Callee: 37, File: 2, Line: 287, Column: 9},
-	{Func: 14, Callee: 24, File: 2, Line: 287, Column: 37},
-	{Func: 14, Callee: 24, File: 2, Line: 287, Column: 120},
-	{Func: 14, Callee: 27, File: 2, Line: 290, Column: 10},
-	{Func: 14, Callee: 28, File: 2, Line: 290, Column: 13},
-	{Func: 14, Callee: 27, File: 2, Line: 296, Column: 2},
-	{Func: 16, Callee: 38, File: 2, Line: 306, Column: 11},
-	{Func: 16, Callee: 39, File: 2, Line: 307, Column: 9},
-	{Func: 16, Callee: 24, File: 2, Line: 307, Column: 36},
-	{Func: 16, Callee: 24, File: 2, Line: 307, Column: 69},
-	{Func: 16, Callee: 24, File: 2, Line: 307, Column: 105},
-	{Func: 16, Callee: 24, File: 2, Line: 307, Column: 169},
-	{Func: 16, Callee: 27, File: 2, Line: 310, Column: 10},
-	{Func: 16, Callee: 28, File: 2, Line: 310, Column: 13},
-	{Func: 16, Callee: 27, File: 2, Line: 316, Column: 2},
-	{Func: 17, Callee: 40, File: 2, Line: 321, Column: 11},
-	{Func: 17, Callee: 41, File: 2, Line: 322, Column: 9},
-	{Func: 17, Callee: 23, File: 2, Line: 322, Column: 20},
-	{Func: 17, Callee: 27, File: 2, Line: 325, Column: 10},
-	{Func: 17, Callee: 28, File: 2, Line: 325, Column: 13},
-	{Func: 17, Callee: 29, File: 2, Line: 329, Column: 26},
-	{Func: 17, Callee: 27, File: 2, Line: 331, Column: 2},
-	{Func: 18, Callee: 42, File: 2, Line: 339, Column: 11},
-	{Func: 18, Callee: 43, File: 2, Line: 340, Column: 9},
-	{Func: 18, Callee: 24, File: 2, Line: 340, Column: 33},
-	{Func: 18, Callee: 27, File: 2, Line: 343, Column: 10},
-	{Func: 18, Callee: 28, File: 2, Line: 343, Column: 13},
-	{Func: 18, Callee: 27, File: 2, Line: 349, Column: 2},
-	{Func: 19, Callee: 30, File: 2, Line: 353, Column: 12},
-	{Func: 19, Callee: 44, File: 2, Line: 353, Column: 24},
-	{Func: 19, Callee: 27, File: 2, Line: 355, Column: 10},
-	{Func: 19, Callee: 28, File: 2, Line: 355, Column: 13},
-	{Func: 19, Callee: 27, File: 2, Line: 357, Column: 2},
-	{Func: 19, Callee: 35, File: 2, Line: 357, Column: 55},
+	{Func: 0, Callee: 1, File: 2, Line: 20, Column: 10},
+	{Func: 0, Callee: 3, File: 2, Line: 25, Column: 10},
+	{Func: 0, Callee: 4, File: 2, Line: 25, Column: 27},
+	{Func: 0, Callee: 1, File: 2, Line: 27, Column: 13},
+	{Func: 0, Callee: 3, File: 2, Line: 31, Column: 2},
+	{Func: 5, Callee: 6, File: 2, Line: 46, Column: 10},
+	{Func: 5, Callee: 6, File: 2, Line: 47, Column: 37},
+	{Func: 5, Callee: 7, File: 2, Line: 47, Column: 86},
+	{Func: 5, Callee: 4, File: 2, Line: 47, Column: 96},
+	{Func: 5, Callee: 3, File: 2, Line: 48, Column: 2},
+	{Func: 6, Callee: 8, File: 2, Line: 65, Column: 11},
+	{Func: 6, Callee: 9, File: 2, Line: 71, Column: 11},
+	{Func: 6, Callee: 7, File: 2, Line: 73, Column: 2},
+	{Func: 3, Callee: 10, File: 2, Line: 79, Column: 10},
+	{Func: 3, Callee: 11, File: 2, Line: 85, Column: 10},
+	{Func: 3, Callee: 11, File: 2, Line: 90, Column: 11},
+	{Func: 3, Callee: 12, File: 2, Line: 92, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 95, Column: 11},
+	{Func: 3, Callee: 13, File: 2, Line: 97, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 100, Column: 11},
+	{Func: 3, Callee: 14, File: 2, Line: 102, Column: 3},
+	{Func: 3, Callee: 15, File: 2, Line: 102, Column: 18},
+	{Func: 3, Callee: 11, File: 2, Line: 105, Column: 11},
+	{Func: 3, Callee: 16, File: 2, Line: 107, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 110, Column: 11},
+	{Func: 3, Callee: 17, File: 2, Line: 112, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 115, Column: 11},
+	{Func: 3, Callee: 18, File: 2, Line: 117, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 120, Column: 11},
+	{Func: 3, Callee: 19, File: 2, Line: 122, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 125, Column: 11},
+	{Func: 3, Callee: 20, File: 2, Line: 127, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 130, Column: 11},
+	{Func: 3, Callee: 21, File: 2, Line: 132, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 135, Column: 11},
+	{Func: 3, Callee: 22, File: 2, Line: 137, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 140, Column: 11},
+	{Func: 3, Callee: 23, File: 2, Line: 142, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 145, Column: 11},
+	{Func: 3, Callee: 24, File: 2, Line: 147, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 150, Column: 11},
+	{Func: 3, Callee: 25, File: 2, Line: 152, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 155, Column: 11},
+	{Func: 3, Callee: 26, File: 2, Line: 157, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 160, Column: 11},
+	{Func: 3, Callee: 27, File: 2, Line: 162, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 165, Column: 11},
+	{Func: 3, Callee: 28, File: 2, Line: 167, Column: 3},
+	{Func: 3, Callee: 11, File: 2, Line: 169, Column: 3},
+	{Func: 10, Callee: 29, File: 2, Line: 233, Column: 12},
+	{Func: 10, Callee: 29, File: 2, Line: 245, Column: 12},
+	{Func: 10, Callee: 30, File: 2, Line: 257, Column: 16},
+	{Func: 10, Callee: 31, File: 2, Line: 264, Column: 16},
+	{Func: 10, Callee: 32, File: 2, Line: 273, Column: 13},
+	{Func: 10, Callee: 31, File: 2, Line: 278, Column: 16},
+	{Func: 10, Callee: 33, File: 2, Line: 284, Column: 12},
+	{Func: 10, Callee: 34, File: 2, Line: 289, Column: 14},
+	{Func: 10, Callee: 33, File: 2, Line: 296, Column: 14},
+	{Func: 10, Callee: 29, File: 2, Line: 309, Column: 12},
+	{Func: 10, Callee: 29, File: 2, Line: 321, Column: 12},
+	{Func: 10, Callee: 29, File: 2, Line: 333, Column: 12},
+	{Func: 10, Callee: 29, File: 2, Line: 345, Column: 12},
+	{Func: 10, Callee: 35, File: 2, Line: 353, Column: 7},
+	{Func: 10, Callee: 30, File: 2, Line: 357, Column: 14},
+	{Func: 36, Callee: 30, File: 2, Line: 367, Column: 9},
+	{Func: 36, Callee: 37, File: 2, Line: 367, Column: 20},
+	{Func: 12, Callee: 38, File: 2, Line: 377, Column: 11},
+	{Func: 12, Callee: 39, File: 2, Line: 378, Column: 9},
+	{Func: 12, Callee: 36, File: 2, Line: 378, Column: 36},
+	{Func: 12, Callee: 36, File: 2, Line: 378, Column: 61},
+	{Func: 12, Callee: 40, File: 2, Line: 381, Column: 10},
+	{Func: 12, Callee: 41, File: 2, Line: 381, Column: 13},
+	{Func: 12, Callee: 42, File: 2, Line: 385, Column: 11},
+	{Func: 12, Callee: 40, File: 2, Line: 387, Column: 2},
+	{Func: 43, Callee: 44, File: 2, Line: 396, Column: 9},
+	{Func: 43, Callee: 37, File: 2, Line: 396, Column: 48},
+	{Func: 43, Callee: 37, File: 2, Line: 396, Column: 81},
+	{Func: 45, Callee: 46, File: 2, Line: 415, Column: 14},
+	{Func: 13, Callee: 45, File: 2, Line: 426, Column: 10},
+	{Func: 13, Callee: 45, File: 2, Line: 430, Column: 10},
+	{Func: 13, Callee: 47, File: 2, Line: 434, Column: 8},
+	{Func: 13, Callee: 43, File: 2, Line: 436, Column: 15},
+	{Func: 13, Callee: 40, File: 2, Line: 438, Column: 11},
+	{Func: 13, Callee: 41, File: 2, Line: 438, Column: 14},
+	{Func: 13, Callee: 40, File: 2, Line: 440, Column: 3},
+	{Func: 13, Callee: 48, File: 2, Line: 440, Column: 53},
+	{Func: 13, Callee: 40, File: 2, Line: 443, Column: 11},
+	{Func: 13, Callee: 40, File: 2, Line: 445, Column: 3},
+	{Func: 14, Callee: 49, File: 2, Line: 455, Column: 11},
+	{Func: 14, Callee: 50, File: 2, Line: 456, Column: 9},
+	{Func: 14, Callee: 37, File: 2, Line: 456, Column: 37},
+	{Func: 14, Callee: 37, File: 2, Line: 456, Column: 120},
+	{Func: 14, Callee: 40, File: 2, Line: 459, Column: 10},
+	{Func: 14, Callee: 41, File: 2, Line: 459, Column: 13},
+	{Func: 14, Callee: 40, File: 2, Line: 465, Column: 2},
+	{Func: 16, Callee: 51, File: 2, Line: 475, Column: 11},
+	{Func: 16, Callee: 52, File: 2, Line: 476, Column: 9},
+	{Func: 16, Callee: 37, File: 2, Line: 476, Column: 36},
+	{Func: 16, Callee: 37, File: 2, Line: 476, Column: 69},
+	{Func: 16, Callee: 37, File: 2, Line: 476, Column: 105},
+	{Func: 16, Callee: 37, File: 2, Line: 476, Column: 169},
+	{Func: 16, Callee: 40, File: 2, Line: 479, Column: 10},
+	{Func: 16, Callee: 41, File: 2, Line: 479, Column: 13},
+	{Func: 16, Callee: 40, File: 2, Line: 485, Column: 2},
+	{Func: 17, Callee: 53, File: 2, Line: 490, Column: 11},
+	{Func: 17, Callee: 54, File: 2, Line: 491, Column: 9},
+	{Func: 17, Callee: 36, File: 2, Line: 491, Column: 20},
+	{Func: 17, Callee: 40, File: 2, Line: 494, Column: 10},
+	{Func: 17, Callee: 41, File: 2, Line: 494, Column: 13},
+	{Func: 17, Callee: 42, File: 2, Line: 498, Column: 26},
+	{Func: 17, Callee: 40, File: 2, Line: 500, Column: 2},
+	{Func: 18, Callee: 55, File: 2, Line: 508, Column: 11},
+	{Func: 18, Callee: 56, File: 2, Line: 509, Column: 9},
+	{Func: 18, Callee: 37, File: 2, Line: 509, Column: 33},
+	{Func: 18, Callee: 40, File: 2, Line: 512, Column: 10},
+	{Func: 18, Callee: 41, File: 2, Line: 512, Column: 13},
+	{Func: 18, Callee: 40, File: 2, Line: 518, Column: 2},
+	{Func: 57, Callee: 58, File: 2, Line: 539, Column: 55},
+	{Func: 57, Callee: 59, File: 2, Line: 539, Column: 94},
+	{Func: 57, Callee: 60, File: 2, Line: 540, Column: 14},
+	{Func: 20, Callee: 57, File: 2, Line: 549, Column: 16},
+	{Func: 20, Callee: 61, File: 2, Line: 551, Column: 11},
+	{Func: 20, Callee: 62, File: 2, Line: 552, Column: 28},
+	{Func: 20, Callee: 63, File: 2, Line: 556, Column: 9},
+	{Func: 20, Callee: 40, File: 2, Line: 559, Column: 10},
+	{Func: 20, Callee: 41, File: 2, Line: 559, Column: 13},
+	{Func: 20, Callee: 40, File: 2, Line: 565, Column: 2},
+	{Func: 21, Callee: 57, File: 2, Line: 571, Column: 16},
+	{Func: 21, Callee: 64, File: 2, Line: 573, Column: 11},
+	{Func: 21, Callee: 65, File: 2, Line: 574, Column: 28},
+	{Func: 21, Callee: 66, File: 2, Line: 578, Column: 9},
+	{Func: 21, Callee: 40, File: 2, Line: 581, Column: 10},
+	{Func: 21, Callee: 41, File: 2, Line: 581, Column: 13},
+	{Func: 21, Callee: 40, File: 2, Line: 587, Column: 2},
+	{Func: 22, Callee: 57, File: 2, Line: 602, Column: 16},
+	{Func: 22, Callee: 67, File: 2, Line: 604, Column: 11},
+	{Func: 22, Callee: 37, File: 2, Line: 605, Column: 43},
+	{Func: 22, Callee: 68, File: 2, Line: 606, Column: 9},
+	{Func: 22, Callee: 37, File: 2, Line: 608, Column: 20},
+	{Func: 22, Callee: 37, File: 2, Line: 610, Column: 20},
+	{Func: 22, Callee: 36, File: 2, Line: 613, Column: 20},
+	{Func: 22, Callee: 40, File: 2, Line: 618, Column: 10},
+	{Func: 22, Callee: 41, File: 2, Line: 618, Column: 13},
+	{Func: 22, Callee: 42, File: 2, Line: 622, Column: 55},
+	{Func: 22, Callee: 40, File: 2, Line: 624, Column: 2},
+	{Func: 23, Callee: 57, File: 2, Line: 637, Column: 16},
+	{Func: 23, Callee: 69, File: 2, Line: 639, Column: 11},
+	{Func: 23, Callee: 70, File: 2, Line: 640, Column: 9},
+	{Func: 23, Callee: 37, File: 2, Line: 642, Column: 14},
+	{Func: 23, Callee: 40, File: 2, Line: 650, Column: 10},
+	{Func: 23, Callee: 41, File: 2, Line: 650, Column: 13},
+	{Func: 23, Callee: 40, File: 2, Line: 656, Column: 2},
+	{Func: 24, Callee: 57, File: 2, Line: 670, Column: 16},
+	{Func: 24, Callee: 71, File: 2, Line: 672, Column: 11},
+	{Func: 24, Callee: 72, File: 2, Line: 673, Column: 9},
+	{Func: 24, Callee: 40, File: 2, Line: 684, Column: 10},
+	{Func: 24, Callee: 41, File: 2, Line: 684, Column: 13},
+	{Func: 24, Callee: 40, File: 2, Line: 690, Column: 2},
+	{Func: 25, Callee: 57, File: 2, Line: 701, Column: 16},
+	{Func: 25, Callee: 73, File: 2, Line: 703, Column: 11},
+	{Func: 25, Callee: 74, File: 2, Line: 704, Column: 9},
+	{Func: 25, Callee: 40, File: 2, Line: 707, Column: 10},
+	{Func: 25, Callee: 41, File: 2, Line: 707, Column: 13},
+	{Func: 25, Callee: 42, File: 2, Line: 711, Column: 29},
+	{Func: 25, Callee: 40, File: 2, Line: 713, Column: 2},
+	{Func: 26, Callee: 57, File: 2, Line: 726, Column: 16},
+	{Func: 26, Callee: 75, File: 2, Line: 728, Column: 11},
+	{Func: 26, Callee: 76, File: 2, Line: 729, Column: 21},
+	{Func: 26, Callee: 77, File: 2, Line: 732, Column: 9},
+	{Func: 26, Callee: 36, File: 2, Line: 734, Column: 15},
+	{Func: 26, Callee: 36, File: 2, Line: 735, Column: 15},
+	{Func: 26, Callee: 36, File: 2, Line: 736, Column: 15},
+	{Func: 26, Callee: 40, File: 2, Line: 742, Column: 10},
+	{Func: 26, Callee: 41, File: 2, Line: 742, Column: 13},
+	{Func: 26, Callee: 42, File: 2, Line: 746, Column: 79},
+	{Func: 26, Callee: 40, File: 2, Line: 748, Column: 2},
+	{Func: 27, Callee: 57, File: 2, Line: 752, Column: 17},
+	{Func: 27, Callee: 57, File: 2, Line: 753, Column: 17},
+	{Func: 27, Callee: 78, File: 2, Line: 766, Column: 12},
+	{Func: 27, Callee: 40, File: 2, Line: 768, Column: 10},
+	{Func: 27, Callee: 41, File: 2, Line: 768, Column: 13},
+	{Func: 27, Callee: 40, File: 2, Line: 785, Column: 2},
+	{Func: 19, Callee: 57, File: 2, Line: 789, Column: 16},
+	{Func: 19, Callee: 79, File: 2, Line: 791, Column: 11},
+	{Func: 19, Callee: 80, File: 2, Line: 792, Column: 28},
+	{Func: 19, Callee: 81, File: 2, Line: 798, Column: 14},
+	{Func: 19, Callee: 37, File: 2, Line: 798, Column: 51},
+	{Func: 19, Callee: 82, File: 2, Line: 802, Column: 13},
+	{Func: 19, Callee: 37, File: 2, Line: 802, Column: 54},
+	{Func: 19, Callee: 83, File: 2, Line: 804, Column: 9},
+	{Func: 19, Callee: 36, File: 2, Line: 804, Column: 162},
+	{Func: 19, Callee: 40, File: 2, Line: 807, Column: 10},
+	{Func: 19, Callee: 41, File: 2, Line: 807, Column: 13},
+	{Func: 19, Callee: 40, File: 2, Line: 813, Column: 2},
+	{Func: 28, Callee: 43, File: 2, Line: 817, Column: 12},
+	{Func: 28, Callee: 84, File: 2, Line: 817, Column: 24},
+	{Func: 28, Callee: 40, File: 2, Line: 819, Column: 10},
+	{Func: 28, Callee: 41, File: 2, Line: 819, Column: 13},
+	{Func: 28, Callee: 40, File: 2, Line: 821, Column: 2},
+	{Func: 28, Callee: 48, File: 2, Line: 821, Column: 55},
 }
 
 var ergoCallNames = [...]string{
@@ -6697,10 +15459,23 @@ var ergoCallNames = [...]string{
 	"hidden",
 	"chains",
 	"fan",
+	"interfaces",
+	"files",
+	"directories",
+	"fieldWrites",
+	"testSupport",
+	"seams",
+	"folderCycles",
+	"tangles",
+	"compareLayout",
 	"layers",
 	"strconv.Atoi",
-	"strings.HasPrefix",
 	"[]string.Append",
+	"[]codegraph.SupportEntry.Append",
+	"strings.Index",
+	"json.Decode",
+	"[]codegraph.SeamSpec.Append",
+	"strings.HasPrefix",
 	"names",
 	"codegraph.NameOf",
 	"codegraph.Cycles",
@@ -6722,6 +15497,33 @@ var ergoCallNames = [...]string{
 	"[][]string.Append",
 	"codegraph.Fan",
 	"[]main.FanOut.Append",
+	"selectedModules",
+	"strings.Contains",
+	"slices.Contains",
+	"[]int.Append",
+	"codegraph.PhysicalLines",
+	"codegraph.LongFile",
+	"[]main.FileLengthOut.Append",
+	"codegraph.Directories",
+	"codegraph.WideDirectory",
+	"[]main.DirectoryOut.Append",
+	"codegraph.ForeignRecordFieldWrites",
+	"[]main.FieldWriteOut.Append",
+	"codegraph.ProductionUsesTestSupport",
+	"[]main.TestSupportOut.Append",
+	"codegraph.SeamEntrypoints",
+	"[]main.SeamViolationOut.Append",
+	"codegraph.SiblingFolderCycles",
+	"[]main.FolderCycleOut.Append",
+	"codegraph.DeclarationTanglesOf",
+	"codegraph.TangleReported",
+	"[]main.TangleOut.Append",
+	"codegraph.CompareLayout",
+	"codegraph.ObservedInterfaces",
+	"codegraph.Wide",
+	"[]main.EntryOut.Append",
+	"[]main.GroupOut.Append",
+	"[]main.InterfaceOut.Append",
 	"codegraph.Up",
 }
 
@@ -6730,1546 +15532,3371 @@ func init() {
 	ergo.RegisterInlines(ergoInlines[:])
 }
 
-//line tool.ergo:18:1
+//line tool.ergo:19:1
 func ergo__Run_1(env *ergo__Env, args []string, rows string, old string) []string {
-//line tool.ergo:18:1
+//line tool.ergo:19:1
 	env.task.Check()
-//line tool.ergo:19:2
-//line tool.ergo:19:10
+//line tool.ergo:20:2
+//line tool.ergo:20:10
 	v, err := codegraph__Decode(env, rows)
-//line tool.ergo:19:2
+//line tool.ergo:20:2
 	if err != nil {
-		/*line tool.ergo:19:2*/ switch caught := err.(type) {
-		/*line tool.ergo:19:2*/ case codegraph__BadRows:
-			/*line tool.ergo:19:2*/ b := caught
-//line tool.ergo:21:3
+		/*line tool.ergo:20:2*/ switch caught := err.(type) {
+		/*line tool.ergo:20:2*/ case codegraph__BadRows:
+			/*line tool.ergo:20:2*/ b := caught
+//line tool.ergo:22:3
 			return []string{"1", "", ("ergo graph: " + b.Reason + "\n")}
-			/*line tool.ergo:21:3*/
+			/*line tool.ergo:22:3*/
 		default:
-			/*line tool.ergo:21:3*/ _ = caught
-			/*line tool.ergo:21:3*/ panic(err)
-			/*line tool.ergo:21:3*/
+			/*line tool.ergo:22:3*/ _ = caught
+			/*line tool.ergo:22:3*/ panic(err)
+			/*line tool.ergo:22:3*/
 		}
-		/*line tool.ergo:21:3*/
+		/*line tool.ergo:22:3*/
 	}
-//line tool.ergo:23:2
+//line tool.ergo:24:2
 	if old == "" {
-//line tool.ergo:24:3
+//line tool.ergo:25:3
 		t := args
-		/*line tool.ergo:24:3*/ t_1 := v
-//line tool.ergo:24:27
+		/*line tool.ergo:25:3*/ t_1 := v
+//line tool.ergo:25:27
 		v_1 := noRows()
-//line tool.ergo:24:3
-//line tool.ergo:24:10
+//line tool.ergo:25:3
+//line tool.ergo:25:10
 		v_2 := runRows(env, t, t_1, v_1)
-//line tool.ergo:24:3
+//line tool.ergo:25:3
 		return v_2
-		/*line tool.ergo:24:3*/
+		/*line tool.ergo:25:3*/
 	}
-//line tool.ergo:26:2
-//line tool.ergo:26:13
+//line tool.ergo:27:2
+//line tool.ergo:27:13
 	v_3, err_1 := codegraph__Decode(env, old)
-//line tool.ergo:26:2
+//line tool.ergo:27:2
 	if err_1 != nil {
-		/*line tool.ergo:26:2*/ switch caught_1 := err_1.(type) {
-		/*line tool.ergo:26:2*/ case codegraph__BadRows:
-			/*line tool.ergo:26:2*/ b_1 := caught_1
-//line tool.ergo:28:3
+		/*line tool.ergo:27:2*/ switch caught_1 := err_1.(type) {
+		/*line tool.ergo:27:2*/ case codegraph__BadRows:
+			/*line tool.ergo:27:2*/ b_1 := caught_1
+//line tool.ergo:29:3
 			return []string{"1", "", ("ergo graph: the base's rows: " + b_1.Reason + "\n")}
-			/*line tool.ergo:28:3*/
+			/*line tool.ergo:29:3*/
 		default:
-			/*line tool.ergo:28:3*/ _ = caught_1
-			/*line tool.ergo:28:3*/ panic(err_1)
-			/*line tool.ergo:28:3*/
+			/*line tool.ergo:29:3*/ _ = caught_1
+			/*line tool.ergo:29:3*/ panic(err_1)
+			/*line tool.ergo:29:3*/
 		}
-		/*line tool.ergo:28:3*/
+		/*line tool.ergo:29:3*/
 	}
-//line tool.ergo:30:2
+//line tool.ergo:31:2
 	v_4 := runRows(env, args, v, v_3)
-	/*line tool.ergo:30:2*/ return v_4
-	/*line tool.ergo:30:2*/
+	/*line tool.ergo:31:2*/ return v_4
+	/*line tool.ergo:31:2*/
 }
 
-//line tool.ergo:34:1
+//line tool.ergo:35:1
 func noRows() codegraph__Rows {
-//line tool.ergo:34:32
-	return codegraph__Rows{Version: int(1), Nodes: []codegraph__NodeRow{}, Edges: []codegraph__EdgeRow{}}
-	/*line tool.ergo:34:32*/
+//line tool.ergo:35:32
+	return codegraph__Rows{Version: int(2), Nodes: []codegraph__NodeRow{}, Edges: []codegraph__EdgeRow{}}
+	/*line tool.ergo:35:32*/
 }
 
-//line tool.ergo:44:1
+//line tool.ergo:45:1
 func ergo__RunColumns_1(env *ergo__Env, args []string, strs []string, ints []int) []string {
-//line tool.ergo:44:1
+//line tool.ergo:45:1
 	env.task.Check()
-//line tool.ergo:45:2
-//line tool.ergo:45:10
-	v := fromColumns(strs, ints, int(0), int(0))
-//line tool.ergo:45:2
 //line tool.ergo:46:2
-	var v_1 ergo__Columns
-//line tool.ergo:46:13
-	if v.Ints < len(ints) {
-//line tool.ergo:46:37
-		v_2 := fromColumns(strs, ints, v.Strs, v.Ints)
-		/*line tool.ergo:46:37*/ v_1 = v_2
-		/*line tool.ergo:46:37*/
-	} else {
-//line tool.ergo:46:86
-//line tool.ergo:46:96
-		v_3 := noRows()
-//line tool.ergo:46:86
-		v_4 := columnsOf(v_3, int(0), int(0))
-		/*line tool.ergo:46:86*/ v_1 = v_4
-		/*line tool.ergo:46:86*/
-	}
-	/*line tool.ergo:46:86*/ var base ergo__Columns = v_1
+//line tool.ergo:46:10
+	v := fromColumns(strs, ints, int(0), int(0))
+//line tool.ergo:46:2
 //line tool.ergo:47:2
+	var v_1 ergo__Columns
+//line tool.ergo:47:13
+	if v.Ints < len(ints) {
+//line tool.ergo:47:37
+		v_2 := fromColumns(strs, ints, v.Strs, v.Ints)
+		/*line tool.ergo:47:37*/ v_1 = v_2
+		/*line tool.ergo:47:37*/
+	} else {
+//line tool.ergo:47:86
+//line tool.ergo:47:96
+		v_3 := noRows()
+//line tool.ergo:47:86
+		v_4 := columnsOf(v_3, int(0), int(0))
+		/*line tool.ergo:47:86*/ v_1 = v_4
+		/*line tool.ergo:47:86*/
+	}
+	/*line tool.ergo:47:86*/ var base ergo__Columns = v_1
+//line tool.ergo:48:2
 	v_5 := runRows(env, args, v.Rows, base.Rows)
-	/*line tool.ergo:47:2*/ return v_5
-	/*line tool.ergo:47:2*/
+	/*line tool.ergo:48:2*/ return v_5
+	/*line tool.ergo:48:2*/
 }
 
-//line tool.ergo:51:1
+//line tool.ergo:52:1
 type ergo__Columns struct {
-	/*line tool.ergo:51:1*/ Rows codegraph__Rows
-	/*line tool.ergo:51:1*/ Strs int
-	/*line tool.ergo:51:1*/ Ints int
-	/*line tool.ergo:51:1*/
+	/*line tool.ergo:52:1*/ Rows codegraph__Rows
+	/*line tool.ergo:52:1*/ Strs int
+	/*line tool.ergo:52:1*/ Ints int
+	/*line tool.ergo:52:1*/
 }
 
-//line tool.ergo:53:1
+//line tool.ergo:54:1
 func columnsOf(r codegraph__Rows, s int, i int) ergo__Columns {
-//line tool.ergo:53:58
+//line tool.ergo:54:58
 	return ergo__Columns{Rows: r, Strs: s, Ints: i}
-	/*line tool.ergo:53:58*/
+	/*line tool.ergo:54:58*/
 }
 
-//line tool.ergo:57:1
+//line tool.ergo:58:1
 func fromColumns(strs []string, ints []int, s int, i int) ergo__Columns {
-//line tool.ergo:58:2
-	var n int = /*line tool.ergo:58:10*/ ints[i]
 //line tool.ergo:59:2
-	var m int = /*line tool.ergo:59:10*/ ints[(i + int(1))]
+	var n int = /*line tool.ergo:59:10*/ ints[i]
 //line tool.ergo:60:2
-	var nodes []codegraph__NodeRow = []codegraph__NodeRow{}
+	var m int = /*line tool.ergo:60:10*/ ints[(i + int(1))]
 //line tool.ergo:61:2
+	var nodes []codegraph__NodeRow = []codegraph__NodeRow{}
+//line tool.ergo:62:2
 	t := (ergo__Range[int]{Start: int(0), End: n})
-	/*line tool.ergo:61:2*/ for i_1 := t.Start; i_1 < t.End; i_1++ {
-		/*line tool.ergo:61:2*/ var k int = i_1
-//line tool.ergo:62:3
-		var at int = (s + (int(4) * k))
+	/*line tool.ergo:62:2*/ for i_1 := t.Start; i_1 < t.End; i_1++ {
+		/*line tool.ergo:62:2*/ var k int = i_1
 //line tool.ergo:63:3
-		var p int = ((i + int(2)) + (int(2) * k))
+		var at int = (s + (int(4) * k))
 //line tool.ergo:64:3
-//line tool.ergo:64:3
-		nodes = /*line tool.ergo:64:11*/ ergo__Append[codegraph__NodeRow](nodes, codegraph__NodeRow{Id: k, Kind: /*line tool.ergo:64:55*/ strs[at], Sub: /*line tool.ergo:64:70*/ strs[(at + int(1))], Parent: /*line tool.ergo:64:92*/ ints[p], Name: /*line tool.ergo:64:107*/ strs[(at + int(2))], Digest: /*line tool.ergo:64:129*/ strs[(at + int(3))], Subject: /*line tool.ergo:64:152*/ ints[(p + int(1))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
-		/*line tool.ergo:64:3*/
+		var p int = ((i + int(2)) + (int(3) * k))
+//line tool.ergo:65:3
+//line tool.ergo:65:3
+		nodes = /*line tool.ergo:65:11*/ ergo__Append[codegraph__NodeRow](nodes, codegraph__NodeRow{Id: k, Kind: /*line tool.ergo:65:55*/ strs[at], Sub: /*line tool.ergo:65:70*/ strs[(at + int(1))], Parent: /*line tool.ergo:65:90*/ ints[p], Name: /*line tool.ergo:65:105*/ strs[(at + int(2))], Digest: /*line tool.ergo:65:125*/ strs[(at + int(3))], Subject: /*line tool.ergo:65:146*/ ints[(p + int(1))], Lines: /*line tool.ergo:65:164*/ ints[(p + int(2))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
+		/*line tool.ergo:65:3*/
 	}
-//line tool.ergo:66:2
-	var edges []codegraph__EdgeRow = []codegraph__EdgeRow{}
 //line tool.ergo:67:2
+	var edges []codegraph__EdgeRow = []codegraph__EdgeRow{}
+//line tool.ergo:68:2
 	t_1 := (ergo__Range[int]{Start: int(0), End: m})
-	/*line tool.ergo:67:2*/ for i_2 := t_1.Start; i_2 < t_1.End; i_2++ {
-		/*line tool.ergo:67:2*/ var k_1 int = i_2
-//line tool.ergo:68:3
-		var at_1 int = ((s + (int(4) * n)) + (int(2) * k_1))
+	/*line tool.ergo:68:2*/ for i_2 := t_1.Start; i_2 < t_1.End; i_2++ {
+		/*line tool.ergo:68:2*/ var k_1 int = i_2
 //line tool.ergo:69:3
-		var p_1 int = (((i + int(2)) + (int(2) * n)) + (int(2) * k_1))
+		var at_1 int = ((s + (int(4) * n)) + (int(2) * k_1))
 //line tool.ergo:70:3
-//line tool.ergo:70:3
-		edges = /*line tool.ergo:70:11*/ ergo__Append[codegraph__EdgeRow](edges, codegraph__EdgeRow{Kind: /*line tool.ergo:70:48*/ strs[at_1], How: /*line tool.ergo:70:63*/ strs[(at_1 + int(1))], From: /*line tool.ergo:70:83*/ ints[p_1], To: /*line tool.ergo:70:96*/ ints[(p_1 + int(1))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
-		/*line tool.ergo:70:3*/
+		var p_1 int = (((i + int(2)) + (int(3) * n)) + (int(2) * k_1))
+//line tool.ergo:71:3
+//line tool.ergo:71:3
+		edges = /*line tool.ergo:71:11*/ ergo__Append[codegraph__EdgeRow](edges, codegraph__EdgeRow{Kind: /*line tool.ergo:71:48*/ strs[at_1], How: /*line tool.ergo:71:63*/ strs[(at_1 + int(1))], From: /*line tool.ergo:71:81*/ ints[p_1], To: /*line tool.ergo:71:94*/ ints[(p_1 + int(1))], File: int(-1), Offset: int(0), Line: int(0), Column: int(0)})
+		/*line tool.ergo:71:3*/
 	}
-//line tool.ergo:72:2
-	v_4 := columnsOf(codegraph__Rows{Version: int(1), Nodes: nodes, Edges: edges}, ((s + (int(4) * n)) + (int(2) * m)), (((i + int(2)) + (int(2) * n)) + (int(2) * m)))
-	/*line tool.ergo:72:2*/ return v_4
-	/*line tool.ergo:72:2*/
+//line tool.ergo:73:2
+	v_4 := columnsOf(codegraph__Rows{Version: int(2), Nodes: nodes, Edges: edges}, ((s + (int(4) * n)) + (int(2) * m)), (((i + int(2)) + (int(3) * n)) + (int(2) * m)))
+	/*line tool.ergo:73:2*/ return v_4
+	/*line tool.ergo:73:2*/
 }
 
-//line tool.ergo:77:1
+//line tool.ergo:78:1
 func runRows(env *ergo__Env, args []string, r codegraph__Rows, base codegraph__Rows) []string {
-//line tool.ergo:77:1
+//line tool.ergo:78:1
 	env.task.Check()
-//line tool.ergo:78:2
-//line tool.ergo:78:10
-	v := options(args)
-//line tool.ergo:78:2
 //line tool.ergo:79:2
+//line tool.ergo:79:10
+	v := options(env, args)
+//line tool.ergo:79:2
+//line tool.ergo:80:2
 	if v.Bad != "" {
-//line tool.ergo:80:3
+//line tool.ergo:81:3
 		return []string{"2", "", ("ergo graph: " + v.Bad + "\n")}
-		/*line tool.ergo:80:3*/
+		/*line tool.ergo:81:3*/
 	}
-//line tool.ergo:82:2
-	var words []string = v.Words
 //line tool.ergo:83:2
+	var words []string = v.Words
+//line tool.ergo:84:2
 	if len(words) == int(0) {
-//line tool.ergo:84:3
-//line tool.ergo:84:10
-		v_1 := usage("supply a command: export, cycles, why, affected, hidden, chains, fan, layers")
-//line tool.ergo:84:3
+//line tool.ergo:85:3
+//line tool.ergo:85:10
+		v_1 := usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, tangles, compare, layers")
+//line tool.ergo:85:3
 		return v_1
-		/*line tool.ergo:84:3*/
+		/*line tool.ergo:85:3*/
 	}
-//line tool.ergo:86:2
-	switch /*line tool.ergo:86:8*/ words[int(0)] {
-	/*line tool.ergo:86:2*/ case "cycles":
-//line tool.ergo:88:3
+//line tool.ergo:87:2
+	switch /*line tool.ergo:87:8*/ words[int(0)] {
+	/*line tool.ergo:87:2*/ case "cycles":
+//line tool.ergo:89:3
 		if len(words) != int(1) {
-//line tool.ergo:89:4
-//line tool.ergo:89:11
+//line tool.ergo:90:4
+//line tool.ergo:90:11
 			v_2 := usage("cycles takes no argument")
-//line tool.ergo:89:4
+//line tool.ergo:90:4
 			return v_2
-			/*line tool.ergo:89:4*/
+			/*line tool.ergo:90:4*/
 		}
-//line tool.ergo:91:3
+//line tool.ergo:92:3
 		v_3 := cycles(env, r, v)
-		/*line tool.ergo:91:3*/ return v_3
-		/*line tool.ergo:91:3*/
+		/*line tool.ergo:92:3*/ return v_3
+		/*line tool.ergo:92:3*/
 	case "why":
-//line tool.ergo:93:3
+//line tool.ergo:94:3
 		if len(words) != int(3) {
-//line tool.ergo:94:4
-//line tool.ergo:94:11
+//line tool.ergo:95:4
+//line tool.ergo:95:11
 			v_4 := usage("why takes two names: why A B")
-//line tool.ergo:94:4
+//line tool.ergo:95:4
 			return v_4
-			/*line tool.ergo:94:4*/
+			/*line tool.ergo:95:4*/
 		}
-//line tool.ergo:96:3
-		v_5 := why(env, r, v /*line tool.ergo:96:13*/, words[int(1)] /*line tool.ergo:96:23*/, words[int(2)])
-		/*line tool.ergo:96:3*/ return v_5
-		/*line tool.ergo:96:3*/
+//line tool.ergo:97:3
+		v_5 := why(env, r, v /*line tool.ergo:97:13*/, words[int(1)] /*line tool.ergo:97:23*/, words[int(2)])
+		/*line tool.ergo:97:3*/ return v_5
+		/*line tool.ergo:97:3*/
 	case "affected":
-//line tool.ergo:98:3
+//line tool.ergo:99:3
 		if len(words) != int(2) {
-//line tool.ergo:99:4
-//line tool.ergo:99:11
+//line tool.ergo:100:4
+//line tool.ergo:100:11
 			v_6 := usage("affected takes one base: affected BASE")
-//line tool.ergo:99:4
+//line tool.ergo:100:4
 			return v_6
-			/*line tool.ergo:99:4*/
+			/*line tool.ergo:100:4*/
 		}
-//line tool.ergo:101:3
+//line tool.ergo:102:3
 		t := r
-		/*line tool.ergo:101:3*/ t_1 := v
-//line tool.ergo:101:18
+		/*line tool.ergo:102:3*/ t_1 := v
+//line tool.ergo:102:18
 		v_7 := (base).Changed(r)
-//line tool.ergo:101:3
+//line tool.ergo:102:3
 		v_8 := affected(env, t, t_1, v_7)
-		/*line tool.ergo:101:3*/ return v_8
-		/*line tool.ergo:101:3*/
+		/*line tool.ergo:102:3*/ return v_8
+		/*line tool.ergo:102:3*/
 	case "hidden":
-//line tool.ergo:103:3
+//line tool.ergo:104:3
 		if len(words) != int(1) {
-//line tool.ergo:104:4
-//line tool.ergo:104:11
+//line tool.ergo:105:4
+//line tool.ergo:105:11
 			v_9 := usage("hidden takes no argument")
-//line tool.ergo:104:4
+//line tool.ergo:105:4
 			return v_9
-			/*line tool.ergo:104:4*/
+			/*line tool.ergo:105:4*/
 		}
-//line tool.ergo:106:3
+//line tool.ergo:107:3
 		v_10 := hidden(env, r, v)
-		/*line tool.ergo:106:3*/ return v_10
-		/*line tool.ergo:106:3*/
+		/*line tool.ergo:107:3*/ return v_10
+		/*line tool.ergo:107:3*/
 	case "chains":
-//line tool.ergo:108:3
+//line tool.ergo:109:3
 		if len(words) != int(1) {
-//line tool.ergo:109:4
-//line tool.ergo:109:11
+//line tool.ergo:110:4
+//line tool.ergo:110:11
 			v_11 := usage("chains takes no argument; the length is --min N")
-//line tool.ergo:109:4
+//line tool.ergo:110:4
 			return v_11
-			/*line tool.ergo:109:4*/
+			/*line tool.ergo:110:4*/
 		}
-//line tool.ergo:111:3
+//line tool.ergo:112:3
 		v_12 := chains(env, r, v)
-		/*line tool.ergo:111:3*/ return v_12
-		/*line tool.ergo:111:3*/
+		/*line tool.ergo:112:3*/ return v_12
+		/*line tool.ergo:112:3*/
 	case "fan":
-//line tool.ergo:113:3
+//line tool.ergo:114:3
 		if len(words) != int(1) {
-//line tool.ergo:114:4
-//line tool.ergo:114:11
+//line tool.ergo:115:4
+//line tool.ergo:115:11
 			v_13 := usage("fan takes no argument")
-//line tool.ergo:114:4
+//line tool.ergo:115:4
 			return v_13
-			/*line tool.ergo:114:4*/
+			/*line tool.ergo:115:4*/
 		}
-//line tool.ergo:116:3
+//line tool.ergo:117:3
 		v_14 := fan(env, r, v)
-		/*line tool.ergo:116:3*/ return v_14
-		/*line tool.ergo:116:3*/
-	case "layers":
-//line tool.ergo:118:3
-		if len(words) < int(2) {
-//line tool.ergo:119:4
-//line tool.ergo:119:11
-			v_15 := usage("layers takes the layering, from the top down: layers PATTERN...")
-//line tool.ergo:119:4
+		/*line tool.ergo:117:3*/ return v_14
+		/*line tool.ergo:117:3*/
+	case "interfaces":
+//line tool.ergo:119:3
+		if len(words) != int(1) {
+//line tool.ergo:120:4
+//line tool.ergo:120:11
+			v_15 := usage("interfaces takes no argument; the list max is --max N, the modules --module PATH")
+//line tool.ergo:120:4
 			return v_15
-			/*line tool.ergo:119:4*/
+			/*line tool.ergo:120:4*/
 		}
-//line tool.ergo:121:3
-		v_16 := layers(env, r, v /*line tool.ergo:121:16*/, words[int(1):len(words)])
-		/*line tool.ergo:121:3*/ return v_16
-		/*line tool.ergo:121:3*/
-	default:
-//line tool.ergo:123:3
-		v_17 := usage(("unknown command " + /*line tool.ergo:123:28*/ words[int(0)]))
-		/*line tool.ergo:123:3*/ return v_17
-		/*line tool.ergo:123:3*/
-	}
-	/*line tool.ergo:123:3*/
-}
-
-//line tool.ergo:128:1
-func usage(why_1 string) []string {
-//line tool.ergo:128:35
-	return []string{"2", "", ("ergo graph: " + why_1 + "\n")}
-	/*line tool.ergo:128:35*/
-}
-
-//line tool.ergo:131:1
-type ergo__Options struct {
-	/*line tool.ergo:131:1*/ Level codegraph__Level
-	/*line tool.ergo:131:1*/ Words []string
-	/*line tool.ergo:131:1*/ Bad string
-	/*line tool.ergo:131:1*/ Min int
-	/*line tool.ergo:131:1*/ Json bool
-	/*line tool.ergo:131:1*/ Tests bool
-	/*line tool.ergo:131:1*/
-}
-
-//line tool.ergo:142:1
-func options(args []string) ergo__Options {
-//line tool.ergo:143:2
-	var o ergo__Options = ergo__Options{Json: false, Tests: false, Level: (codegraph__Level{tag: 0}), Min: int(2), Words: []string{}, Bad: ""}
-//line tool.ergo:144:2
-	var i int = int(0)
-//line tool.ergo:145:2
-	for i < len(args) {
-//line tool.ergo:146:3
-		var a string = /*line tool.ergo:146:11*/ args[i]
+//line tool.ergo:122:3
+		v_16 := interfaces(env, r, v)
+		/*line tool.ergo:122:3*/ return v_16
+		/*line tool.ergo:122:3*/
+	case "files":
+//line tool.ergo:124:3
+		if len(words) != int(1) {
+//line tool.ergo:125:4
+//line tool.ergo:125:11
+			v_17 := usage("files takes no argument; the line max is --max N, the modules --module PATH")
+//line tool.ergo:125:4
+			return v_17
+			/*line tool.ergo:125:4*/
+		}
+//line tool.ergo:127:3
+		v_18 := files(env, r, v)
+		/*line tool.ergo:127:3*/ return v_18
+		/*line tool.ergo:127:3*/
+	case "directories":
+//line tool.ergo:129:3
+		if len(words) != int(1) {
+//line tool.ergo:130:4
+//line tool.ergo:130:11
+			v_19 := usage("directories takes no argument; the member max is --max N, the modules --module PATH")
+//line tool.ergo:130:4
+			return v_19
+			/*line tool.ergo:130:4*/
+		}
+//line tool.ergo:132:3
+		v_20 := directories(env, r, v)
+		/*line tool.ergo:132:3*/ return v_20
+		/*line tool.ergo:132:3*/
+	case "field-writes":
+//line tool.ergo:134:3
+		if len(words) != int(1) {
+//line tool.ergo:135:4
+//line tool.ergo:135:11
+			v_21 := usage("field-writes takes no argument; the modules are --module PATH")
+//line tool.ergo:135:4
+			return v_21
+			/*line tool.ergo:135:4*/
+		}
+//line tool.ergo:137:3
+		v_22 := fieldWrites(env, r, v)
+		/*line tool.ergo:137:3*/ return v_22
+		/*line tool.ergo:137:3*/
+	case "test-support":
+//line tool.ergo:139:3
+		if len(words) != int(1) {
+//line tool.ergo:140:4
+//line tool.ergo:140:11
+			v_23 := usage("test-support takes no argument; supply --support PATH or --support-seam SEAM=PATH")
+//line tool.ergo:140:4
+			return v_23
+			/*line tool.ergo:140:4*/
+		}
+//line tool.ergo:142:3
+		v_24 := testSupport(env, r, v)
+		/*line tool.ergo:142:3*/ return v_24
+		/*line tool.ergo:142:3*/
+	case "seams":
+//line tool.ergo:144:3
+		if len(words) != int(1) {
+//line tool.ergo:145:4
+//line tool.ergo:145:11
+			v_25 := usage("seams takes no argument; supply --seam JSON")
+//line tool.ergo:145:4
+			return v_25
+			/*line tool.ergo:145:4*/
+		}
 //line tool.ergo:147:3
-		i = (i + int(1))
-//line tool.ergo:148:3
-		switch a {
-		/*line tool.ergo:148:3*/ case "--json":
+		v_26 := seams(env, r, v)
+		/*line tool.ergo:147:3*/ return v_26
+		/*line tool.ergo:147:3*/
+	case "folder-cycles":
+//line tool.ergo:149:3
+		if len(words) != int(1) {
 //line tool.ergo:150:4
-			o.Json = true
+//line tool.ergo:150:11
+			v_27 := usage("folder-cycles takes no argument; the modules are --module PATH")
+//line tool.ergo:150:4
+			return v_27
 			/*line tool.ergo:150:4*/
-		case "--tests":
-//line tool.ergo:152:4
-			o.Tests = true
-			/*line tool.ergo:152:4*/
-		case "--level":
-//line tool.ergo:154:4
-			if i >= len(args) {
-//line tool.ergo:155:5
-				o.Bad = "--level takes package, file or decl"
-//line tool.ergo:156:5
-				return o
-				/*line tool.ergo:156:5*/
-			}
-//line tool.ergo:158:4
-			var v string = /*line tool.ergo:158:12*/ args[i]
-//line tool.ergo:159:4
-			i = (i + int(1))
+		}
+//line tool.ergo:152:3
+		v_28 := folderCycles(env, r, v)
+		/*line tool.ergo:152:3*/ return v_28
+		/*line tool.ergo:152:3*/
+	case "tangles":
+//line tool.ergo:154:3
+		if len(words) != int(1) {
+//line tool.ergo:155:4
+//line tool.ergo:155:11
+			v_29 := usage("tangles takes no argument; the member max is --max N, the modules --module PATH")
+//line tool.ergo:155:4
+			return v_29
+			/*line tool.ergo:155:4*/
+		}
+//line tool.ergo:157:3
+		v_30 := tangles(env, r, v)
+		/*line tool.ergo:157:3*/ return v_30
+		/*line tool.ergo:157:3*/
+	case "compare":
+//line tool.ergo:159:3
+		if len(words) != int(2) {
 //line tool.ergo:160:4
-			switch v {
-			/*line tool.ergo:160:4*/ case "package":
-//line tool.ergo:162:5
-				o.Level = (codegraph__Level{tag: 0})
-				/*line tool.ergo:162:5*/
-			case "file":
-//line tool.ergo:164:5
-				o.Level = (codegraph__Level{tag: 1})
-				/*line tool.ergo:164:5*/
-			case "decl":
-//line tool.ergo:166:5
-				o.Level = (codegraph__Level{tag: 2})
-				/*line tool.ergo:166:5*/
-			default:
-//line tool.ergo:168:5
-				o.Bad = ("--level takes package, file or decl, not " + v)
-//line tool.ergo:169:5
-				return o
-				/*line tool.ergo:169:5*/
-			}
-			/*line tool.ergo:169:5*/
-		case "--min":
-//line tool.ergo:172:4
-			if i >= len(args) {
-//line tool.ergo:173:5
-				o.Bad = "--min takes a number"
-//line tool.ergo:174:5
-				return o
-				/*line tool.ergo:174:5*/
-			}
-//line tool.ergo:176:4
-//line tool.ergo:176:12
-			v_1, err := ergo.StrconvAtoi( /*line tool.ergo:176:25*/ args[i])
-//line tool.ergo:176:4
-			var v_2 int
-			/*line tool.ergo:176:4*/ if err != nil {
-//line tool.ergo:178:5
-				o.Bad = ("--min takes a number, not " + /*line tool.ergo:178:42*/ args[i])
-//line tool.ergo:179:5
-				return o
-				/*line tool.ergo:179:5*/
-			} else {
-				/*line tool.ergo:179:5*/ v_2 = v_1
-				/*line tool.ergo:179:5*/
-			}
-			/*line tool.ergo:179:5*/ var n int = v_2
-//line tool.ergo:181:4
-			i = (i + int(1))
-//line tool.ergo:182:4
-			o.Min = n
-			/*line tool.ergo:182:4*/
-		default:
-//line tool.ergo:184:4
-//line tool.ergo:184:7
-			v_3 := strings__HasPrefix(a, "-")
-//line tool.ergo:184:4
-			if v_3 {
-//line tool.ergo:185:5
-				o.Bad = ("unknown option " + a)
-//line tool.ergo:186:5
-				return o
-				/*line tool.ergo:186:5*/
-			}
-//line tool.ergo:188:4
-//line tool.ergo:188:4
-			o.Words = /*line tool.ergo:188:14*/ ergo__Append[string](o.Words, a)
-			/*line tool.ergo:188:4*/
+//line tool.ergo:160:11
+			v_31 := usage("compare takes one base: compare BASE")
+//line tool.ergo:160:4
+			return v_31
+			/*line tool.ergo:160:4*/
 		}
-		/*line tool.ergo:188:4*/
-	}
-//line tool.ergo:191:2
-	return o
-	/*line tool.ergo:191:2*/
-}
-
-//line tool.ergo:195:1
-func names(r codegraph__Rows, ids []int) []string {
-//line tool.ergo:196:2
-	var out []string = []string{}
-//line tool.ergo:197:2
-	out = ergo.Reserve(out, len(ids))
-	/*line tool.ergo:197:2*/ for _, v := range ids {
-		/*line tool.ergo:197:2*/ var i int = v
-//line tool.ergo:198:3
-		t := out
-//line tool.ergo:198:20
-		var v_1 string
-		/*line tool.ergo:198:20*/ {
-			/*line tool.ergo:198:20*/ var n codegraph__NodeRow = r.Nodes[i]
-			/*line tool.ergo:198:20*/ if n.Kind != "decl" {
-				/*line tool.ergo:198:20*/ v_1 = n.Name
-				/*line tool.ergo:198:20*/ goto inl
-				/*line tool.ergo:198:20*/
-			}
-			/*line tool.ergo:198:20*/ v_2 := (r).packageOf(i)
-			/*line tool.ergo:198:20*/ if v_2 < int(0) {
-				/*line tool.ergo:198:20*/ v_1 = n.Name
-				/*line tool.ergo:198:20*/ goto inl
-				/*line tool.ergo:198:20*/
-			} else {
-				/*line tool.ergo:198:20*/ v_1 = (r.Nodes[v_2].Name + "." + n.Name)
-				/*line tool.ergo:198:20*/ goto inl
-				/*line tool.ergo:198:20*/
-			}
-			/*line tool.ergo:198:20*/
+//line tool.ergo:162:3
+		v_32 := compareLayout(env, r, base, v)
+		/*line tool.ergo:162:3*/ return v_32
+		/*line tool.ergo:162:3*/
+	case "layers":
+//line tool.ergo:164:3
+		if len(words) < int(2) {
+//line tool.ergo:165:4
+//line tool.ergo:165:11
+			v_33 := usage("layers takes the layering, from the top down: layers PATTERN...")
+//line tool.ergo:165:4
+			return v_33
+			/*line tool.ergo:165:4*/
 		}
-		/*line tool.ergo:198:20*/ inl:
-		/*line tool.ergo:198:20*/ _ = 0
-//line tool.ergo:198:9
-		v_3 := ergo__Append[string](t, v_1)
-//line tool.ergo:198:20
-		out = v_3
-		/*line tool.ergo:198:20*/
-	}
-//line tool.ergo:200:2
-	return out
-	/*line tool.ergo:200:2*/
-}
-
-//line tool.ergo:204:1
-type ergo__CycleOut struct {
-	/*line tool.ergo:204:1*/ Nodes []string
-	/*line tool.ergo:204:1*/ Path []string
-	/*line tool.ergo:204:1*/
-}
-
-//line tool.ergo:206:1
-func cycles(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
-//line tool.ergo:206:1
-	env.task.Check()
-//line tool.ergo:207:2
-	var out []ergo__CycleOut = []ergo__CycleOut{}
-//line tool.ergo:208:2
-//line tool.ergo:208:11
-	v := (r).Cycles(o.Level, o.Tests)
-//line tool.ergo:208:2
-	out = ergo.Reserve(out, len(v))
-	/*line tool.ergo:208:2*/ for _, v_1 := range v {
-		/*line tool.ergo:208:2*/ var c codegraph__Cycle = v_1
-//line tool.ergo:209:3
-		t := out
-//line tool.ergo:209:36
-		v_2 := names(r, c.Nodes)
-//line tool.ergo:209:3
-		t_1 := v_2
-//line tool.ergo:209:61
-		v_3 := names(r, c.Path)
-//line tool.ergo:209:3
-//line tool.ergo:209:9
-		v_4 := ergo__Append[ergo__CycleOut](t, ergo__CycleOut{Nodes: t_1, Path: v_3})
-//line tool.ergo:209:3
-		out = v_4
-//line tool.ergo:208:2
-		env.task.Check()
-		/*line tool.ergo:208:2*/
-	}
-//line tool.ergo:211:2
-	if o.Json {
-//line tool.ergo:212:3
-//line tool.ergo:212:13
-		v_7 := json__EncodeMono_i3749910856(env, struct {
-			/*line tool.ergo:212:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__CycleOut) (struct{}, error)
-			/*line tool.ergo:212:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__CycleOut, error)
-			/*line tool.ergo:212:13*/ Direct0 func(*ergo__Env, json__text, []ergo__CycleOut) json__text
-			/*line tool.ergo:212:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__CycleOut, error)
-			/*line tool.ergo:212:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__CycleOut, error)
-			/*line tool.ergo:212:13*/ Field *struct {
-				/*line tool.ergo:212:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__CycleOut) (struct{}, error)
-				/*line tool.ergo:212:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__CycleOut, error)
-				/*line tool.ergo:212:13*/ Direct0 func(*ergo__Env, json__text, []ergo__CycleOut) json__text
-				/*line tool.ergo:212:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__CycleOut, error)
-				/*line tool.ergo:212:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__CycleOut, error)
-				/*line tool.ergo:212:13*/ Absent func([]ergo__CycleOut) bool
-				/*line tool.ergo:212:13*/ Empty []ergo__CycleOut
-				/*line tool.ergo:212:13*/
-			}
-			/*line tool.ergo:212:13*/
-		}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 []ergo__CycleOut) (struct{}, error) {
-			/*line tool.ergo:212:13*/ ergo__EncodeSlice_9(e, w, v_5)
-			/*line tool.ergo:212:13*/ return struct{}{}, nil
-			/*line tool.ergo:212:13*/
-		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__CycleOut, error) {
-			/*line tool.ergo:212:13*/ x, err := ergo__DecodeSlice_9(e_1, r_1)
-			/*line tool.ergo:212:13*/ if err != nil {
-				/*line tool.ergo:212:13*/ return *new([]ergo__CycleOut), err
-				/*line tool.ergo:212:13*/
-			}
-			/*line tool.ergo:212:13*/ return x, nil
-			/*line tool.ergo:212:13*/
-		}, Direct0: ergo__WriteSlice_9, Read0: ergo__ReadSlice_9, Read1: ergo__ReadSlice_24, Field: nil}, json__Codec[[]ergo__CycleOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
-//line tool.ergo:212:3
-//line tool.ergo:212:10
-		v_8 := ok((v_7 + "\n"))
-//line tool.ergo:212:3
-		return v_8
-		/*line tool.ergo:212:3*/
-	}
-//line tool.ergo:214:2
-	var b_1 string = ""
-//line tool.ergo:215:2
-	for _, v_9 := range out {
-		/*line tool.ergo:215:2*/ var c_1 ergo__CycleOut = v_9
-//line tool.ergo:216:3
-		t_2 := b_1
-//line tool.ergo:216:11
-		v_10 := ergo.StringsJoin(c_1.Path, " -> ")
-//line tool.ergo:216:3
-		b_1 = ((t_2 + v_10) + "\n")
-//line tool.ergo:215:2
-		env.task.Check()
-		/*line tool.ergo:215:2*/
-	}
-//line tool.ergo:218:2
-	var v_11 string
-//line tool.ergo:218:5
-	if len(out) == int(0) {
-//line tool.ergo:218:24
-		v_11 = "no cycle\n"
-		/*line tool.ergo:218:24*/
-	} else {
-//line tool.ergo:218:46
-		v_11 = b_1
-		/*line tool.ergo:218:46*/
-	}
-//line tool.ergo:218:2
-	v_12 := ok(v_11)
-//line tool.ergo:218:46
-	return v_12
-	/*line tool.ergo:218:46*/
-}
-
-//line tool.ergo:222:1
-type ergo__StepOut struct {
-	/*line tool.ergo:222:1*/ Kind string
-	/*line tool.ergo:222:1*/ From string
-	/*line tool.ergo:222:1*/ To string
-	/*line tool.ergo:222:1*/
-}
-
-//line tool.ergo:224:1
-func stepsOut(r codegraph__Rows, steps []codegraph__Step) []ergo__StepOut {
-//line tool.ergo:225:2
-	var out []ergo__StepOut = []ergo__StepOut{}
-//line tool.ergo:226:2
-	out = ergo.Reserve(out, len(steps))
-	/*line tool.ergo:226:2*/ for _, v := range steps {
-		/*line tool.ergo:226:2*/ var s codegraph__Step = v
-//line tool.ergo:227:3
-		t := out
-		/*line tool.ergo:227:3*/ t_1 := s.Kind
-//line tool.ergo:227:48
-		var v_1 string
-		/*line tool.ergo:227:48*/ {
-			/*line tool.ergo:227:48*/ var id int = s.From
-			/*line tool.ergo:227:48*/ var n codegraph__NodeRow = r.Nodes[id]
-			/*line tool.ergo:227:48*/ if n.Kind != "decl" {
-				/*line tool.ergo:227:48*/ v_1 = n.Name
-				/*line tool.ergo:227:48*/ goto inl
-				/*line tool.ergo:227:48*/
-			}
-			/*line tool.ergo:227:48*/ v_2 := (r).packageOf(id)
-			/*line tool.ergo:227:48*/ if v_2 < int(0) {
-				/*line tool.ergo:227:48*/ v_1 = n.Name
-				/*line tool.ergo:227:48*/ goto inl
-				/*line tool.ergo:227:48*/
-			} else {
-				/*line tool.ergo:227:48*/ v_1 = (r.Nodes[v_2].Name + "." + n.Name)
-				/*line tool.ergo:227:48*/ goto inl
-				/*line tool.ergo:227:48*/
-			}
-			/*line tool.ergo:227:48*/
-		}
-		/*line tool.ergo:227:48*/ inl:
-		/*line tool.ergo:227:48*/ _ = 0
-		/*line tool.ergo:227:48*/ t_2 := v_1
-//line tool.ergo:227:81
-		var v_3 string
-		/*line tool.ergo:227:81*/ {
-			/*line tool.ergo:227:81*/ var id_1 int = s.To
-			/*line tool.ergo:227:81*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
-			/*line tool.ergo:227:81*/ if n_1.Kind != "decl" {
-				/*line tool.ergo:227:81*/ v_3 = n_1.Name
-				/*line tool.ergo:227:81*/ goto inl_1
-				/*line tool.ergo:227:81*/
-			}
-			/*line tool.ergo:227:81*/ v_4 := (r).packageOf(id_1)
-			/*line tool.ergo:227:81*/ if v_4 < int(0) {
-				/*line tool.ergo:227:81*/ v_3 = n_1.Name
-				/*line tool.ergo:227:81*/ goto inl_1
-				/*line tool.ergo:227:81*/
-			} else {
-				/*line tool.ergo:227:81*/ v_3 = (r.Nodes[v_4].Name + "." + n_1.Name)
-				/*line tool.ergo:227:81*/ goto inl_1
-				/*line tool.ergo:227:81*/
-			}
-			/*line tool.ergo:227:81*/
-		}
-		/*line tool.ergo:227:81*/ inl_1:
-		/*line tool.ergo:227:81*/ _ = 0
-//line tool.ergo:227:9
-		v_5 := ergo__Append[ergo__StepOut](t, ergo__StepOut{Kind: t_1, From: t_2, To: v_3})
-//line tool.ergo:227:81
-		out = v_5
-		/*line tool.ergo:227:81*/
-	}
-//line tool.ergo:229:2
-	return out
-	/*line tool.ergo:229:2*/
-}
-
-//line tool.ergo:232:1
-func stepsText(steps []ergo__StepOut) string {
-//line tool.ergo:233:2
-	var b string = ""
-//line tool.ergo:234:2
-	for _, v := range steps {
-		/*line tool.ergo:234:2*/ var s ergo__StepOut = v
-//line tool.ergo:235:3
-		b = (b + (s.From + " " + s.Kind + " " + s.To + "\n"))
-		/*line tool.ergo:235:3*/
-	}
-//line tool.ergo:237:2
-	return b
-	/*line tool.ergo:237:2*/
-}
-
-//line tool.ergo:242:1
-type ergo__Missing struct {
-	/*line tool.ergo:242:1*/ Out []string
-	/*line tool.ergo:242:1*/
-}
-
-/*line tool.ergo:242:1*/
-func (e ergo__Missing) Error() string {
-	/*line tool.ergo:242:1*/ return "Missing" + ergo__textergo__Missing(e)
-	/*line tool.ergo:242:1*/
-}
-
-//line tool.ergo:245:1
-func one(r codegraph__Rows, a string) (int, error) {
-//line tool.ergo:246:2
-//line tool.ergo:246:14
-	v := (r).Find(a)
-//line tool.ergo:246:2
-//line tool.ergo:247:2
-	if len(v) == int(0) {
-//line tool.ergo:248:3
-		return 0, ergo__Missing{Out: []string{"1", "", ("ergo graph: no node is named " + a + "\n")}}
-		/*line tool.ergo:248:3*/
-	}
-//line tool.ergo:250:2
-	if len(v) > int(1) {
-//line tool.ergo:251:3
-		return 0, ergo__Missing{Out: []string{"1", "", ("ergo graph: " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v)), 10)) + " nodes are named " + a + "\n")}}
-		/*line tool.ergo:251:3*/
-	}
-//line tool.ergo:253:2
-	return /*line tool.ergo:253:2*/ v[int(0)], nil
-	/*line tool.ergo:253:2*/
-}
-
-//line tool.ergo:256:1
-func why(env *ergo__Env, r codegraph__Rows, o ergo__Options, a string, b string) []string {
-//line tool.ergo:256:1
-	env.task.Check()
-//line tool.ergo:257:2
-//line tool.ergo:257:10
-	v, err := one(r, a)
-//line tool.ergo:257:2
-	if err != nil {
-		/*line tool.ergo:257:2*/ switch caught := err.(type) {
-		/*line tool.ergo:257:2*/ case ergo__Missing:
-			/*line tool.ergo:257:2*/ m := caught
-//line tool.ergo:259:3
-			return m.Out
-			/*line tool.ergo:259:3*/
-		default:
-			/*line tool.ergo:259:3*/ _ = caught
-			/*line tool.ergo:259:3*/ panic(err)
-			/*line tool.ergo:259:3*/
-		}
-		/*line tool.ergo:259:3*/
-	}
-//line tool.ergo:261:2
-//line tool.ergo:261:10
-	v_1, err_1 := one(r, b)
-//line tool.ergo:261:2
-	if err_1 != nil {
-		/*line tool.ergo:261:2*/ switch caught_1 := err_1.(type) {
-		/*line tool.ergo:261:2*/ case ergo__Missing:
-			/*line tool.ergo:261:2*/ m_1 := caught_1
-//line tool.ergo:263:3
-			return m_1.Out
-			/*line tool.ergo:263:3*/
-		default:
-			/*line tool.ergo:263:3*/ _ = caught_1
-			/*line tool.ergo:263:3*/ panic(err_1)
-			/*line tool.ergo:263:3*/
-		}
-		/*line tool.ergo:263:3*/
-	}
-//line tool.ergo:265:2
-//line tool.ergo:265:8
-	v_2 := (r).Why(v, v_1)
-//line tool.ergo:265:2
-	s := v_2
-	/*line tool.ergo:265:2*/ switch s.tag {
-	/*line tool.ergo:265:2*/ case 0:
-		/*line tool.ergo:265:2*/ w := s.as0()
-//line tool.ergo:267:3
-//line tool.ergo:267:15
-		v_3 := stepsOut(r, w.Value)
-//line tool.ergo:267:3
-//line tool.ergo:268:3
-		if o.Json {
-//line tool.ergo:269:4
-//line tool.ergo:269:14
-			v_6 := json__EncodeMono_i1577938236(env, struct {
-				/*line tool.ergo:269:14*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
-				/*line tool.ergo:269:14*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
-				/*line tool.ergo:269:14*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
-				/*line tool.ergo:269:14*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
-				/*line tool.ergo:269:14*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
-				/*line tool.ergo:269:14*/ Field *struct {
-					/*line tool.ergo:269:14*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
-					/*line tool.ergo:269:14*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
-					/*line tool.ergo:269:14*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
-					/*line tool.ergo:269:14*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
-					/*line tool.ergo:269:14*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
-					/*line tool.ergo:269:14*/ Absent func([]ergo__StepOut) bool
-					/*line tool.ergo:269:14*/ Empty []ergo__StepOut
-					/*line tool.ergo:269:14*/
-				}
-				/*line tool.ergo:269:14*/
-			}{Enc: func(e *ergo__Env, w_1 ergo__Writer, v_4 []ergo__StepOut) (struct{}, error) {
-				/*line tool.ergo:269:14*/ ergo__EncodeSlice_13(e, w_1, v_4)
-				/*line tool.ergo:269:14*/ return struct{}{}, nil
-				/*line tool.ergo:269:14*/
-			}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__StepOut, error) {
-				/*line tool.ergo:269:14*/ x, err_2 := ergo__DecodeSlice_13(e_1, r_1)
-				/*line tool.ergo:269:14*/ if err_2 != nil {
-					/*line tool.ergo:269:14*/ return *new([]ergo__StepOut), err_2
-					/*line tool.ergo:269:14*/
-				}
-				/*line tool.ergo:269:14*/ return x, nil
-				/*line tool.ergo:269:14*/
-			}, Direct0: ergo__WriteSlice_13, Read0: ergo__ReadSlice_13, Read1: ergo__ReadSlice_28, Field: nil}, json__Codec[[]ergo__StepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_3)
-//line tool.ergo:269:4
-//line tool.ergo:269:11
-			v_7 := ok((v_6 + "\n"))
-//line tool.ergo:269:4
-			return v_7
-			/*line tool.ergo:269:4*/
-		}
-//line tool.ergo:271:3
-		var v_8 string
-//line tool.ergo:271:6
-		if len(v_3) == int(0) {
-//line tool.ergo:271:27
-			v_8 = (a + " is " + b + "\n")
-			/*line tool.ergo:271:27*/
-		} else {
-//line tool.ergo:271:53
-			v_9 := stepsText(v_3)
-			/*line tool.ergo:271:53*/ v_8 = v_9
-			/*line tool.ergo:271:53*/
-		}
-//line tool.ergo:271:3
-		v_10 := ok(v_8)
-//line tool.ergo:271:53
-		return v_10
-		/*line tool.ergo:271:53*/
-	case 1:
-//line tool.ergo:273:3
-		if o.Json {
-//line tool.ergo:274:4
-//line tool.ergo:274:11
-			v_11 := ok("null\n")
-//line tool.ergo:274:4
-			return v_11
-			/*line tool.ergo:274:4*/
-		}
-//line tool.ergo:276:3
-		v_12 := ok((a + " does not depend on " + b + "\n"))
-		/*line tool.ergo:276:3*/ return v_12
-		/*line tool.ergo:276:3*/
+//line tool.ergo:167:3
+		v_34 := layers(env, r, v /*line tool.ergo:167:16*/, words[int(1):len(words)])
+		/*line tool.ergo:167:3*/ return v_34
+		/*line tool.ergo:167:3*/
 	default:
-		/*line tool.ergo:276:3*/ panic("ergo: defect: no case of the match at 265:2 matched")
-		/*line tool.ergo:276:3*/
+//line tool.ergo:169:3
+		v_35 := usage(("unknown command " + /*line tool.ergo:169:28*/ words[int(0)]))
+		/*line tool.ergo:169:3*/ return v_35
+		/*line tool.ergo:169:3*/
 	}
-	/*line tool.ergo:276:3*/
+	/*line tool.ergo:169:3*/
 }
 
-//line tool.ergo:282:1
-type ergo__ReachedOut struct {
-	/*line tool.ergo:282:1*/ Node string
-	/*line tool.ergo:282:1*/ Kind string
-	/*line tool.ergo:282:1*/ By string
-	/*line tool.ergo:282:1*/
+//line tool.ergo:174:1
+func usage(why_1 string) []string {
+//line tool.ergo:174:35
+	return []string{"2", "", ("ergo graph: " + why_1 + "\n")}
+	/*line tool.ergo:174:35*/
 }
 
-//line tool.ergo:284:1
-func affected(env *ergo__Env, r codegraph__Rows, o ergo__Options, changed []int) []string {
-//line tool.ergo:284:1
+//line tool.ergo:177:1
+type ergo__Options struct {
+	/*line tool.ergo:177:1*/ Level codegraph__Level
+	/*line tool.ergo:177:1*/ Modules []string
+	/*line tool.ergo:177:1*/ Support []codegraph__SupportEntry
+	/*line tool.ergo:177:1*/ Seams []codegraph__SeamSpec
+	/*line tool.ergo:177:1*/ Policy codegraph__LayoutPolicy
+	/*line tool.ergo:177:1*/ Words []string
+	/*line tool.ergo:177:1*/ Bad string
+	/*line tool.ergo:177:1*/ Min int
+	/*line tool.ergo:177:1*/ Max int
+	/*line tool.ergo:177:1*/ MaxSurface int
+	/*line tool.ergo:177:1*/ MaxLines int
+	/*line tool.ergo:177:1*/ MaxDir int
+	/*line tool.ergo:177:1*/ MaxTangle int
+	/*line tool.ergo:177:1*/ Json bool
+	/*line tool.ergo:177:1*/ Tests bool
+	/*line tool.ergo:177:1*/ HasPolicy bool
+	/*line tool.ergo:177:1*/
+}
+
+//line tool.ergo:198:1
+func options(env *ergo__Env, args []string) ergo__Options {
+//line tool.ergo:198:1
 	env.task.Check()
-//line tool.ergo:285:2
-	var out []ergo__ReachedOut = []ergo__ReachedOut{}
-//line tool.ergo:286:2
-//line tool.ergo:286:11
-	v := (r).Affected(changed)
-//line tool.ergo:286:2
-	out = ergo.Reserve(out, len(v))
-	/*line tool.ergo:286:2*/ for _, v_1 := range v {
-		/*line tool.ergo:286:2*/ var x codegraph__Reached = v_1
-//line tool.ergo:287:3
-		t := out
-//line tool.ergo:287:37
-		var v_2 string
-		/*line tool.ergo:287:37*/ {
-			/*line tool.ergo:287:37*/ var id int = x.Node
-			/*line tool.ergo:287:37*/ var n codegraph__NodeRow = r.Nodes[id]
-			/*line tool.ergo:287:37*/ if n.Kind != "decl" {
-				/*line tool.ergo:287:37*/ v_2 = n.Name
-				/*line tool.ergo:287:37*/ goto inl
-				/*line tool.ergo:287:37*/
+//line tool.ergo:199:2
+	var emptyPolicy codegraph__LayoutPolicy = codegraph__LayoutPolicy{MaxSurfaceList: int(0), MaxFileLines: int(0), MaxDirectoryMembers: int(0), MaxTangleMembers: int(0), Support: []codegraph__SupportEntry{}, Seams: []codegraph__SeamSpec{}}
+//line tool.ergo:200:2
+	var o ergo__Options = ergo__Options{Json: false, Tests: false, Level: (codegraph__Level{tag: 0}), Min: int(2), Max: int(-1), MaxSurface: int(0), MaxLines: int(0), MaxDir: int(0), MaxTangle: int(0), Modules: []string{}, Support: []codegraph__SupportEntry{}, Seams: []codegraph__SeamSpec{}, Policy: emptyPolicy, HasPolicy: false, Words: []string{}, Bad: ""}
+//line tool.ergo:201:2
+	var i int = int(0)
+//line tool.ergo:202:2
+	for i < len(args) {
+//line tool.ergo:203:3
+		var a string = /*line tool.ergo:203:11*/ args[i]
+//line tool.ergo:204:3
+		i = (i + int(1))
+//line tool.ergo:205:3
+		switch a {
+		/*line tool.ergo:205:3*/ case "--json":
+//line tool.ergo:207:4
+			o.Json = true
+			/*line tool.ergo:207:4*/
+		case "--tests":
+//line tool.ergo:209:4
+			o.Tests = true
+			/*line tool.ergo:209:4*/
+		case "--level":
+//line tool.ergo:211:4
+			if i >= len(args) {
+//line tool.ergo:212:5
+				o.Bad = "--level takes package, file or decl"
+//line tool.ergo:213:5
+				return o
+				/*line tool.ergo:213:5*/
 			}
-			/*line tool.ergo:287:37*/ v_3 := (r).packageOf(id)
-			/*line tool.ergo:287:37*/ if v_3 < int(0) {
-				/*line tool.ergo:287:37*/ v_2 = n.Name
-				/*line tool.ergo:287:37*/ goto inl
-				/*line tool.ergo:287:37*/
+//line tool.ergo:215:4
+			var v string = /*line tool.ergo:215:12*/ args[i]
+//line tool.ergo:216:4
+			i = (i + int(1))
+//line tool.ergo:217:4
+			switch v {
+			/*line tool.ergo:217:4*/ case "package":
+//line tool.ergo:219:5
+				o.Level = (codegraph__Level{tag: 0})
+				/*line tool.ergo:219:5*/
+			case "file":
+//line tool.ergo:221:5
+				o.Level = (codegraph__Level{tag: 1})
+				/*line tool.ergo:221:5*/
+			case "decl":
+//line tool.ergo:223:5
+				o.Level = (codegraph__Level{tag: 2})
+				/*line tool.ergo:223:5*/
+			default:
+//line tool.ergo:225:5
+				o.Bad = ("--level takes package, file or decl, not " + v)
+//line tool.ergo:226:5
+				return o
+				/*line tool.ergo:226:5*/
+			}
+			/*line tool.ergo:226:5*/
+		case "--min":
+//line tool.ergo:229:4
+			if i >= len(args) {
+//line tool.ergo:230:5
+				o.Bad = "--min takes a number"
+//line tool.ergo:231:5
+				return o
+				/*line tool.ergo:231:5*/
+			}
+//line tool.ergo:233:4
+//line tool.ergo:233:12
+			v_1, err := ergo.StrconvAtoi( /*line tool.ergo:233:25*/ args[i])
+//line tool.ergo:233:4
+			var v_2 int
+			/*line tool.ergo:233:4*/ if err != nil {
+//line tool.ergo:235:5
+				o.Bad = ("--min takes a number, not " + /*line tool.ergo:235:42*/ args[i])
+//line tool.ergo:236:5
+				return o
+				/*line tool.ergo:236:5*/
 			} else {
-				/*line tool.ergo:287:37*/ v_2 = (r.Nodes[v_3].Name + "." + n.Name)
-				/*line tool.ergo:287:37*/ goto inl
-				/*line tool.ergo:287:37*/
+				/*line tool.ergo:236:5*/ v_2 = v_1
+				/*line tool.ergo:236:5*/
 			}
-			/*line tool.ergo:287:37*/
-		}
-		/*line tool.ergo:287:37*/ inl:
-		/*line tool.ergo:287:37*/ _ = 0
-		/*line tool.ergo:287:37*/ t_1 := v_2
-		/*line tool.ergo:287:37*/ t_2 := x.By.Kind
-		/*line tool.ergo:287:37*/ var v_4 string
-//line tool.ergo:287:87
-		if x.By.Kind == "" {
-//line tool.ergo:287:108
-			v_4 = ""
-			/*line tool.ergo:287:108*/
-		} else {
-//line tool.ergo:287:120
-//line tool.ergo:287:120
-			var v_5 string
-			/*line tool.ergo:287:120*/ {
-				/*line tool.ergo:287:120*/ var id_1 int = x.By.To
-				/*line tool.ergo:287:120*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
-				/*line tool.ergo:287:120*/ if n_1.Kind != "decl" {
-					/*line tool.ergo:287:120*/ v_5 = n_1.Name
-					/*line tool.ergo:287:120*/ goto inl_1
-					/*line tool.ergo:287:120*/
-				}
-				/*line tool.ergo:287:120*/ v_6 := (r).packageOf(id_1)
-				/*line tool.ergo:287:120*/ if v_6 < int(0) {
-					/*line tool.ergo:287:120*/ v_5 = n_1.Name
-					/*line tool.ergo:287:120*/ goto inl_1
-					/*line tool.ergo:287:120*/
-				} else {
-					/*line tool.ergo:287:120*/ v_5 = (r.Nodes[v_6].Name + "." + n_1.Name)
-					/*line tool.ergo:287:120*/ goto inl_1
-					/*line tool.ergo:287:120*/
-				}
-				/*line tool.ergo:287:120*/
+			/*line tool.ergo:236:5*/ var n int = v_2
+//line tool.ergo:238:4
+			i = (i + int(1))
+//line tool.ergo:239:4
+			o.Min = n
+			/*line tool.ergo:239:4*/
+		case "--max":
+//line tool.ergo:241:4
+			if i >= len(args) {
+//line tool.ergo:242:5
+				o.Bad = "--max takes a number"
+//line tool.ergo:243:5
+				return o
+				/*line tool.ergo:243:5*/
 			}
-			/*line tool.ergo:287:120*/ inl_1:
-			/*line tool.ergo:287:120*/ _ = 0
-			/*line tool.ergo:287:120*/ v_4 = v_5
-			/*line tool.ergo:287:120*/
-		}
-//line tool.ergo:287:9
-		v_7 := ergo__Append[ergo__ReachedOut](t, ergo__ReachedOut{Node: t_1, Kind: t_2, By: v_4})
-//line tool.ergo:287:120
-		out = v_7
-//line tool.ergo:286:2
-		env.task.Check()
-		/*line tool.ergo:286:2*/
-	}
-//line tool.ergo:289:2
-	if o.Json {
-//line tool.ergo:290:3
-//line tool.ergo:290:13
-		v_10 := json__EncodeMono_i4029314156(env, struct {
-			/*line tool.ergo:290:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__ReachedOut) (struct{}, error)
-			/*line tool.ergo:290:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__ReachedOut, error)
-			/*line tool.ergo:290:13*/ Direct0 func(*ergo__Env, json__text, []ergo__ReachedOut) json__text
-			/*line tool.ergo:290:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__ReachedOut, error)
-			/*line tool.ergo:290:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__ReachedOut, error)
-			/*line tool.ergo:290:13*/ Field *struct {
-				/*line tool.ergo:290:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__ReachedOut) (struct{}, error)
-				/*line tool.ergo:290:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__ReachedOut, error)
-				/*line tool.ergo:290:13*/ Direct0 func(*ergo__Env, json__text, []ergo__ReachedOut) json__text
-				/*line tool.ergo:290:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__ReachedOut, error)
-				/*line tool.ergo:290:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__ReachedOut, error)
-				/*line tool.ergo:290:13*/ Absent func([]ergo__ReachedOut) bool
-				/*line tool.ergo:290:13*/ Empty []ergo__ReachedOut
-				/*line tool.ergo:290:13*/
-			}
-			/*line tool.ergo:290:13*/
-		}{Enc: func(e *ergo__Env, w ergo__Writer, v_8 []ergo__ReachedOut) (struct{}, error) {
-			/*line tool.ergo:290:13*/ ergo__EncodeSlice_12(e, w, v_8)
-			/*line tool.ergo:290:13*/ return struct{}{}, nil
-			/*line tool.ergo:290:13*/
-		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__ReachedOut, error) {
-			/*line tool.ergo:290:13*/ x_1, err := ergo__DecodeSlice_12(e_1, r_1)
-			/*line tool.ergo:290:13*/ if err != nil {
-				/*line tool.ergo:290:13*/ return *new([]ergo__ReachedOut), err
-				/*line tool.ergo:290:13*/
-			}
-			/*line tool.ergo:290:13*/ return x_1, nil
-			/*line tool.ergo:290:13*/
-		}, Direct0: ergo__WriteSlice_12, Read0: ergo__ReadSlice_12, Read1: ergo__ReadSlice_27, Field: nil}, json__Codec[[]ergo__ReachedOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
-//line tool.ergo:290:3
-//line tool.ergo:290:10
-		v_11 := ok((v_10 + "\n"))
-//line tool.ergo:290:3
-		return v_11
-		/*line tool.ergo:290:3*/
-	}
-//line tool.ergo:292:2
-	var b_1 string = ""
-//line tool.ergo:293:2
-	for _, v_12 := range out {
-		/*line tool.ergo:293:2*/ var x_2 ergo__ReachedOut = v_12
-//line tool.ergo:294:3
-		t_3 := b_1
-		/*line tool.ergo:294:3*/ var v_13 string
-//line tool.ergo:294:12
-		if x_2.Kind == "" {
-//line tool.ergo:294:30
-			v_13 = (x_2.Node + " changed\n")
-			/*line tool.ergo:294:30*/
-		} else {
-//line tool.ergo:294:61
-			v_13 = (x_2.Node + " " + x_2.Kind + " " + x_2.By + "\n")
-			/*line tool.ergo:294:61*/
-		}
-		/*line tool.ergo:294:61*/ b_1 = (t_3 + v_13)
-//line tool.ergo:293:2
-		env.task.Check()
-		/*line tool.ergo:293:2*/
-	}
-//line tool.ergo:296:2
-	var v_14 string
-//line tool.ergo:296:5
-	if len(out) == int(0) {
-//line tool.ergo:296:24
-		v_14 = "nothing changed\n"
-		/*line tool.ergo:296:24*/
-	} else {
-//line tool.ergo:296:53
-		v_14 = b_1
-		/*line tool.ergo:296:53*/
-	}
-//line tool.ergo:296:2
-	v_15 := ok(v_14)
-//line tool.ergo:296:53
-	return v_15
-	/*line tool.ergo:296:53*/
-}
-
-//line tool.ergo:302:1
-type ergo__HiddenOut struct {
-	/*line tool.ergo:302:1*/ From string
-	/*line tool.ergo:302:1*/ To string
-	/*line tool.ergo:302:1*/ Package string
-	/*line tool.ergo:302:1*/ Via string
-	/*line tool.ergo:302:1*/ How string
-	/*line tool.ergo:302:1*/
-}
-
-//line tool.ergo:304:1
-func hidden(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
-//line tool.ergo:304:1
-	env.task.Check()
-//line tool.ergo:305:2
-	var out []ergo__HiddenOut = []ergo__HiddenOut{}
-//line tool.ergo:306:2
-//line tool.ergo:306:11
-	v := (r).Hidden()
-//line tool.ergo:306:2
-	out = ergo.Reserve(out, len(v))
-	/*line tool.ergo:306:2*/ for _, v_1 := range v {
-		/*line tool.ergo:306:2*/ var h codegraph__HiddenUse = v_1
-//line tool.ergo:307:3
-		t := out
-//line tool.ergo:307:36
-		var v_2 string
-		/*line tool.ergo:307:36*/ {
-			/*line tool.ergo:307:36*/ var id int = h.From
-			/*line tool.ergo:307:36*/ var n codegraph__NodeRow = r.Nodes[id]
-			/*line tool.ergo:307:36*/ if n.Kind != "decl" {
-				/*line tool.ergo:307:36*/ v_2 = n.Name
-				/*line tool.ergo:307:36*/ goto inl
-				/*line tool.ergo:307:36*/
-			}
-			/*line tool.ergo:307:36*/ v_3 := (r).packageOf(id)
-			/*line tool.ergo:307:36*/ if v_3 < int(0) {
-				/*line tool.ergo:307:36*/ v_2 = n.Name
-				/*line tool.ergo:307:36*/ goto inl
-				/*line tool.ergo:307:36*/
+//line tool.ergo:245:4
+//line tool.ergo:245:12
+			v_3, err_1 := ergo.StrconvAtoi( /*line tool.ergo:245:25*/ args[i])
+//line tool.ergo:245:4
+			var v_4 int
+			/*line tool.ergo:245:4*/ if err_1 != nil {
+//line tool.ergo:247:5
+				o.Bad = ("--max takes a number, not " + /*line tool.ergo:247:42*/ args[i])
+//line tool.ergo:248:5
+				return o
+				/*line tool.ergo:248:5*/
 			} else {
-				/*line tool.ergo:307:36*/ v_2 = (r.Nodes[v_3].Name + "." + n.Name)
-				/*line tool.ergo:307:36*/ goto inl
-				/*line tool.ergo:307:36*/
+				/*line tool.ergo:248:5*/ v_4 = v_3
+				/*line tool.ergo:248:5*/
 			}
-			/*line tool.ergo:307:36*/
-		}
-		/*line tool.ergo:307:36*/ inl:
-		/*line tool.ergo:307:36*/ _ = 0
-		/*line tool.ergo:307:36*/ t_1 := v_2
-//line tool.ergo:307:69
-		var v_4 string
-		/*line tool.ergo:307:69*/ {
-			/*line tool.ergo:307:69*/ var id_1 int = h.To
-			/*line tool.ergo:307:69*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
-			/*line tool.ergo:307:69*/ if n_1.Kind != "decl" {
-				/*line tool.ergo:307:69*/ v_4 = n_1.Name
-				/*line tool.ergo:307:69*/ goto inl_1
-				/*line tool.ergo:307:69*/
+			/*line tool.ergo:248:5*/ var n_1 int = v_4
+//line tool.ergo:250:4
+			i = (i + int(1))
+//line tool.ergo:251:4
+			o.Max = n_1
+			/*line tool.ergo:251:4*/
+		case "--module":
+//line tool.ergo:253:4
+			if i >= len(args) {
+//line tool.ergo:254:5
+				o.Bad = "--module takes a module path"
+//line tool.ergo:255:5
+				return o
+				/*line tool.ergo:255:5*/
 			}
-			/*line tool.ergo:307:69*/ v_5 := (r).packageOf(id_1)
-			/*line tool.ergo:307:69*/ if v_5 < int(0) {
-				/*line tool.ergo:307:69*/ v_4 = n_1.Name
-				/*line tool.ergo:307:69*/ goto inl_1
-				/*line tool.ergo:307:69*/
-			} else {
-				/*line tool.ergo:307:69*/ v_4 = (r.Nodes[v_5].Name + "." + n_1.Name)
-				/*line tool.ergo:307:69*/ goto inl_1
-				/*line tool.ergo:307:69*/
+//line tool.ergo:257:4
+//line tool.ergo:257:4
+			o.Modules = /*line tool.ergo:257:16*/ ergo__Append[string](o.Modules /*line tool.ergo:257:33*/, args[i])
+//line tool.ergo:258:4
+			i = (i + int(1))
+			/*line tool.ergo:258:4*/
+		case "--support":
+//line tool.ergo:260:4
+			if i >= len(args) {
+//line tool.ergo:261:5
+				o.Bad = "--support takes a package path"
+//line tool.ergo:262:5
+				return o
+				/*line tool.ergo:262:5*/
 			}
-			/*line tool.ergo:307:69*/
-		}
-		/*line tool.ergo:307:69*/ inl_1:
-		/*line tool.ergo:307:69*/ _ = 0
-		/*line tool.ergo:307:69*/ t_2 := v_4
-//line tool.ergo:307:105
-		var v_6 string
-		/*line tool.ergo:307:105*/ {
-			/*line tool.ergo:307:105*/ var id_2 int = h.Package
-			/*line tool.ergo:307:105*/ var n_2 codegraph__NodeRow = r.Nodes[id_2]
-			/*line tool.ergo:307:105*/ if n_2.Kind != "decl" {
-				/*line tool.ergo:307:105*/ v_6 = n_2.Name
-				/*line tool.ergo:307:105*/ goto inl_2
-				/*line tool.ergo:307:105*/
+//line tool.ergo:264:4
+//line tool.ergo:264:4
+			o.Support = /*line tool.ergo:264:16*/ ergo__Append[codegraph__SupportEntry](o.Support, codegraph__SupportEntry{Package: /*line tool.ergo:264:65*/ args[i], Seam: ""})
+//line tool.ergo:265:4
+			i = (i + int(1))
+			/*line tool.ergo:265:4*/
+		case "--support-seam":
+//line tool.ergo:267:4
+			if i >= len(args) {
+//line tool.ergo:268:5
+				o.Bad = "--support-seam takes SEAM=PATH"
+//line tool.ergo:269:5
+				return o
+				/*line tool.ergo:269:5*/
 			}
-			/*line tool.ergo:307:105*/ v_7 := (r).packageOf(id_2)
-			/*line tool.ergo:307:105*/ if v_7 < int(0) {
-				/*line tool.ergo:307:105*/ v_6 = n_2.Name
-				/*line tool.ergo:307:105*/ goto inl_2
-				/*line tool.ergo:307:105*/
-			} else {
-				/*line tool.ergo:307:105*/ v_6 = (r.Nodes[v_7].Name + "." + n_2.Name)
-				/*line tool.ergo:307:105*/ goto inl_2
-				/*line tool.ergo:307:105*/
+//line tool.ergo:271:4
+			var raw string = /*line tool.ergo:271:14*/ args[i]
+//line tool.ergo:272:4
+			i = (i + int(1))
+//line tool.ergo:273:4
+//line tool.ergo:273:13
+			v_7 := strings__Index(raw, "=")
+//line tool.ergo:273:4
+//line tool.ergo:274:4
+			if (v_7 <= int(0)) || (v_7 == (len(raw) - int(1))) {
+//line tool.ergo:275:5
+				o.Bad = ("--support-seam takes SEAM=PATH, not " + raw)
+//line tool.ergo:276:5
+				return o
+				/*line tool.ergo:276:5*/
 			}
-			/*line tool.ergo:307:105*/
-		}
-		/*line tool.ergo:307:105*/ inl_2:
-		/*line tool.ergo:307:105*/ _ = 0
-		/*line tool.ergo:307:105*/ t_3 := v_6
-		/*line tool.ergo:307:105*/ var v_8 string
-//line tool.ergo:307:142
-		if h.Via < int(0) {
-//line tool.ergo:307:157
-			v_8 = ""
-			/*line tool.ergo:307:157*/
-		} else {
-//line tool.ergo:307:169
-//line tool.ergo:307:169
-			var v_9 string
-			/*line tool.ergo:307:169*/ {
-				/*line tool.ergo:307:169*/ var id_3 int = h.Via
-				/*line tool.ergo:307:169*/ var n_3 codegraph__NodeRow = r.Nodes[id_3]
-				/*line tool.ergo:307:169*/ if n_3.Kind != "decl" {
-					/*line tool.ergo:307:169*/ v_9 = n_3.Name
-					/*line tool.ergo:307:169*/ goto inl_3
-					/*line tool.ergo:307:169*/
+//line tool.ergo:278:4
+//line tool.ergo:278:4
+			o.Support = /*line tool.ergo:278:16*/ ergo__Append[codegraph__SupportEntry](o.Support, codegraph__SupportEntry{Package: /*line tool.ergo:278:65*/ raw[(v_7 + int(1)):len(raw)], Seam: /*line tool.ergo:278:93*/ raw[int(0):v_7]})
+			/*line tool.ergo:278:4*/
+		case "--seam":
+//line tool.ergo:280:4
+			if i >= len(args) {
+//line tool.ergo:281:5
+				o.Bad = "--seam takes a JSON seam object"
+//line tool.ergo:282:5
+				return o
+				/*line tool.ergo:282:5*/
+			}
+//line tool.ergo:284:4
+//line tool.ergo:284:12
+			v_11, err_3 := json__DecodeMono_i2624676259(env, struct {
+				/*line tool.ergo:284:12*/ Enc func(*ergo__Env, ergo__Writer, codegraph__SeamSpec) (struct{}, error)
+				/*line tool.ergo:284:12*/ Dec func(*ergo__Env, ergo__Reader) (codegraph__SeamSpec, error)
+				/*line tool.ergo:284:12*/ Direct0 func(*ergo__Env, json__text, codegraph__SeamSpec) json__text
+				/*line tool.ergo:284:12*/ Read0 func(*ergo__Env, json__Reader_1) (codegraph__SeamSpec, error)
+				/*line tool.ergo:284:12*/ Read1 func(*ergo__Env, json__Stream) (codegraph__SeamSpec, error)
+				/*line tool.ergo:284:12*/ Field *struct {
+					/*line tool.ergo:284:12*/ Enc func(*ergo__Env, ergo__Writer, codegraph__SeamSpec) (struct{}, error)
+					/*line tool.ergo:284:12*/ Dec func(*ergo__Env, ergo__Reader) (codegraph__SeamSpec, error)
+					/*line tool.ergo:284:12*/ Direct0 func(*ergo__Env, json__text, codegraph__SeamSpec) json__text
+					/*line tool.ergo:284:12*/ Read0 func(*ergo__Env, json__Reader_1) (codegraph__SeamSpec, error)
+					/*line tool.ergo:284:12*/ Read1 func(*ergo__Env, json__Stream) (codegraph__SeamSpec, error)
+					/*line tool.ergo:284:12*/ Absent func(codegraph__SeamSpec) bool
+					/*line tool.ergo:284:12*/ Empty codegraph__SeamSpec
+					/*line tool.ergo:284:12*/
 				}
-				/*line tool.ergo:307:169*/ v_10 := (r).packageOf(id_3)
-				/*line tool.ergo:307:169*/ if v_10 < int(0) {
-					/*line tool.ergo:307:169*/ v_9 = n_3.Name
-					/*line tool.ergo:307:169*/ goto inl_3
-					/*line tool.ergo:307:169*/
-				} else {
-					/*line tool.ergo:307:169*/ v_9 = (r.Nodes[v_10].Name + "." + n_3.Name)
-					/*line tool.ergo:307:169*/ goto inl_3
-					/*line tool.ergo:307:169*/
+				/*line tool.ergo:284:12*/
+			}{Enc: func(e *ergo__Env, w ergo__Writer, v_9 codegraph__SeamSpec) (struct{}, error) {
+				/*line tool.ergo:284:12*/ ergo__EncodeSeamSpec(e, w, v_9)
+				/*line tool.ergo:284:12*/ return struct{}{}, nil
+				/*line tool.ergo:284:12*/
+			}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (codegraph__SeamSpec, error) {
+				/*line tool.ergo:284:12*/ x, err_2 := ergo__DecodeSeamSpec(e_1, r)
+				/*line tool.ergo:284:12*/ if err_2 != nil {
+					/*line tool.ergo:284:12*/ return *new(codegraph__SeamSpec), err_2
+					/*line tool.ergo:284:12*/
 				}
-				/*line tool.ergo:307:169*/
+				/*line tool.ergo:284:12*/ return x, nil
+				/*line tool.ergo:284:12*/
+			}, Direct0: ergo__WriteSeamSpec, Read0: ergo__ReadSeamSpec, Read1: ergo__ReadSeamSpec_1, Field: nil}, json__Codec[codegraph__SeamSpec]{MaxBytes: int(1048576), MaxDepth: int(8)} /*line tool.ergo:284:88*/, args[i])
+//line tool.ergo:284:4
+			var v_12 codegraph__SeamSpec
+			/*line tool.ergo:284:4*/ if err_3 != nil {
+//line tool.ergo:286:5
+				o.Bad = "--seam takes a JSON seam object"
+//line tool.ergo:287:5
+				return o
+				/*line tool.ergo:287:5*/
+			} else {
+				/*line tool.ergo:287:5*/ v_12 = v_11
+				/*line tool.ergo:287:5*/
 			}
-			/*line tool.ergo:307:169*/ inl_3:
-			/*line tool.ergo:307:169*/ _ = 0
-			/*line tool.ergo:307:169*/ v_8 = v_9
-			/*line tool.ergo:307:169*/
-		}
-//line tool.ergo:307:9
-		v_11 := ergo__Append[ergo__HiddenOut](t, ergo__HiddenOut{From: t_1, To: t_2, Package: t_3, Via: v_8, How: h.How})
-//line tool.ergo:307:169
-		out = v_11
-//line tool.ergo:306:2
-		env.task.Check()
-		/*line tool.ergo:306:2*/
-	}
-//line tool.ergo:309:2
-	if o.Json {
-//line tool.ergo:310:3
-//line tool.ergo:310:13
-		v_14 := json__EncodeMono_i3088017158(env, struct {
-			/*line tool.ergo:310:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__HiddenOut) (struct{}, error)
-			/*line tool.ergo:310:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__HiddenOut, error)
-			/*line tool.ergo:310:13*/ Direct0 func(*ergo__Env, json__text, []ergo__HiddenOut) json__text
-			/*line tool.ergo:310:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__HiddenOut, error)
-			/*line tool.ergo:310:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__HiddenOut, error)
-			/*line tool.ergo:310:13*/ Field *struct {
-				/*line tool.ergo:310:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__HiddenOut) (struct{}, error)
-				/*line tool.ergo:310:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__HiddenOut, error)
-				/*line tool.ergo:310:13*/ Direct0 func(*ergo__Env, json__text, []ergo__HiddenOut) json__text
-				/*line tool.ergo:310:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__HiddenOut, error)
-				/*line tool.ergo:310:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__HiddenOut, error)
-				/*line tool.ergo:310:13*/ Absent func([]ergo__HiddenOut) bool
-				/*line tool.ergo:310:13*/ Empty []ergo__HiddenOut
-				/*line tool.ergo:310:13*/
+			/*line tool.ergo:287:5*/ var s codegraph__SeamSpec = v_12
+//line tool.ergo:289:4
+//line tool.ergo:289:4
+			o.Seams = /*line tool.ergo:289:14*/ ergo__Append[codegraph__SeamSpec](o.Seams, ergo__CloneSeamSpec(s))
+//line tool.ergo:290:4
+			i = (i + int(1))
+			/*line tool.ergo:290:4*/
+		case "--policy":
+//line tool.ergo:292:4
+			if i >= len(args) {
+//line tool.ergo:293:5
+				o.Bad = "--policy takes a JSON policy object"
+//line tool.ergo:294:5
+				return o
+				/*line tool.ergo:294:5*/
 			}
-			/*line tool.ergo:310:13*/
-		}{Enc: func(e *ergo__Env, w ergo__Writer, v_12 []ergo__HiddenOut) (struct{}, error) {
-			/*line tool.ergo:310:13*/ ergo__EncodeSlice_11(e, w, v_12)
-			/*line tool.ergo:310:13*/ return struct{}{}, nil
-			/*line tool.ergo:310:13*/
-		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__HiddenOut, error) {
-			/*line tool.ergo:310:13*/ x, err := ergo__DecodeSlice_11(e_1, r_1)
-			/*line tool.ergo:310:13*/ if err != nil {
-				/*line tool.ergo:310:13*/ return *new([]ergo__HiddenOut), err
-				/*line tool.ergo:310:13*/
+//line tool.ergo:296:4
+//line tool.ergo:296:14
+			v_16, err_5 := json__DecodeMono_i521860722(env, struct {
+				/*line tool.ergo:296:14*/ Enc func(*ergo__Env, ergo__Writer, codegraph__LayoutPolicy) (struct{}, error)
+				/*line tool.ergo:296:14*/ Dec func(*ergo__Env, ergo__Reader) (codegraph__LayoutPolicy, error)
+				/*line tool.ergo:296:14*/ Direct0 func(*ergo__Env, json__text, codegraph__LayoutPolicy) json__text
+				/*line tool.ergo:296:14*/ Read0 func(*ergo__Env, json__Reader_1) (codegraph__LayoutPolicy, error)
+				/*line tool.ergo:296:14*/ Read1 func(*ergo__Env, json__Stream) (codegraph__LayoutPolicy, error)
+				/*line tool.ergo:296:14*/ Field *struct {
+					/*line tool.ergo:296:14*/ Enc func(*ergo__Env, ergo__Writer, codegraph__LayoutPolicy) (struct{}, error)
+					/*line tool.ergo:296:14*/ Dec func(*ergo__Env, ergo__Reader) (codegraph__LayoutPolicy, error)
+					/*line tool.ergo:296:14*/ Direct0 func(*ergo__Env, json__text, codegraph__LayoutPolicy) json__text
+					/*line tool.ergo:296:14*/ Read0 func(*ergo__Env, json__Reader_1) (codegraph__LayoutPolicy, error)
+					/*line tool.ergo:296:14*/ Read1 func(*ergo__Env, json__Stream) (codegraph__LayoutPolicy, error)
+					/*line tool.ergo:296:14*/ Absent func(codegraph__LayoutPolicy) bool
+					/*line tool.ergo:296:14*/ Empty codegraph__LayoutPolicy
+					/*line tool.ergo:296:14*/
+				}
+				/*line tool.ergo:296:14*/
+			}{Enc: func(e_3 *ergo__Env, w_1 ergo__Writer, v_14 codegraph__LayoutPolicy) (struct{}, error) {
+				/*line tool.ergo:296:14*/ ergo__EncodeLayoutPolicy(e_3, w_1, v_14)
+				/*line tool.ergo:296:14*/ return struct{}{}, nil
+				/*line tool.ergo:296:14*/
+			}, Dec: func(e_4 *ergo__Env, r_1 ergo__Reader) (codegraph__LayoutPolicy, error) {
+				/*line tool.ergo:296:14*/ x_1, err_4 := ergo__DecodeLayoutPolicy(e_4, r_1)
+				/*line tool.ergo:296:14*/ if err_4 != nil {
+					/*line tool.ergo:296:14*/ return *new(codegraph__LayoutPolicy), err_4
+					/*line tool.ergo:296:14*/
+				}
+				/*line tool.ergo:296:14*/ return x_1, nil
+				/*line tool.ergo:296:14*/
+			}, Direct0: ergo__WriteLayoutPolicy, Read0: ergo__ReadLayoutPolicy, Read1: ergo__ReadLayoutPolicy_1, Field: nil}, json__Codec[codegraph__LayoutPolicy]{MaxBytes: int(1048576), MaxDepth: int(8)} /*line tool.ergo:296:94*/, args[i])
+//line tool.ergo:296:4
+			var v_17 codegraph__LayoutPolicy
+			/*line tool.ergo:296:4*/ if err_5 != nil {
+//line tool.ergo:298:5
+				o.Bad = "--policy takes a JSON policy object"
+//line tool.ergo:299:5
+				return o
+				/*line tool.ergo:299:5*/
+			} else {
+				/*line tool.ergo:299:5*/ v_17 = v_16
+				/*line tool.ergo:299:5*/
 			}
-			/*line tool.ergo:310:13*/ return x, nil
-			/*line tool.ergo:310:13*/
-		}, Direct0: ergo__WriteSlice_11, Read0: ergo__ReadSlice_11, Read1: ergo__ReadSlice_26, Field: nil}, json__Codec[[]ergo__HiddenOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
-//line tool.ergo:310:3
-//line tool.ergo:310:10
-		v_15 := ok((v_14 + "\n"))
-//line tool.ergo:310:3
-		return v_15
-		/*line tool.ergo:310:3*/
-	}
-//line tool.ergo:312:2
-	var b_1 string = ""
-//line tool.ergo:313:2
-	for _, v_16 := range out {
-		/*line tool.ergo:313:2*/ var h_1 ergo__HiddenOut = v_16
-//line tool.ergo:314:3
-		t_4 := (b_1 + (h_1.From + " uses " + h_1.To + " (" + h_1.How + ") without importing " + h_1.Package))
-		/*line tool.ergo:314:3*/ var v_17 string
-//line tool.ergo:314:81
-		if h_1.Via == "" {
-//line tool.ergo:314:98
-			v_17 = ""
-			/*line tool.ergo:314:98*/
-		} else {
-//line tool.ergo:314:110
-			v_17 = (" (through " + h_1.Via + ")")
-			/*line tool.ergo:314:110*/
-		}
-		/*line tool.ergo:314:110*/ b_1 = ((t_4 + v_17) + "\n")
-//line tool.ergo:313:2
-		env.task.Check()
-		/*line tool.ergo:313:2*/
-	}
-//line tool.ergo:316:2
-	var v_18 string
-//line tool.ergo:316:5
-	if len(out) == int(0) {
-//line tool.ergo:316:24
-		v_18 = "no hidden use\n"
-		/*line tool.ergo:316:24*/
-	} else {
-//line tool.ergo:316:51
-		v_18 = b_1
-		/*line tool.ergo:316:51*/
-	}
-//line tool.ergo:316:2
-	v_19 := ok(v_18)
-//line tool.ergo:316:51
-	return v_19
-	/*line tool.ergo:316:51*/
-}
-
-//line tool.ergo:319:1
-func chains(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
-//line tool.ergo:319:1
-	env.task.Check()
-//line tool.ergo:320:2
-	var out [][]string = [][]string{}
-//line tool.ergo:321:2
-//line tool.ergo:321:11
-	v := (r).Chains(o.Min)
-//line tool.ergo:321:2
-	out = ergo.Reserve(out, len(v))
-	/*line tool.ergo:321:2*/ for _, v_1 := range v {
-		/*line tool.ergo:321:2*/ var c []int = v_1
-//line tool.ergo:322:3
-		t := out
-//line tool.ergo:322:20
-		v_2 := names(r, c)
-//line tool.ergo:322:3
-//line tool.ergo:322:9
-		v_3 := ergo__Append[[]string](t, v_2)
-//line tool.ergo:322:3
-		out = v_3
-//line tool.ergo:321:2
-		env.task.Check()
-		/*line tool.ergo:321:2*/
-	}
-//line tool.ergo:324:2
-	if o.Json {
-//line tool.ergo:325:3
-//line tool.ergo:325:13
-		v_6 := json__EncodeMono_i2956508152(env, struct {
-			/*line tool.ergo:325:13*/ Enc func(*ergo__Env, ergo__Writer, [][]string) (struct{}, error)
-			/*line tool.ergo:325:13*/ Dec func(*ergo__Env, ergo__Reader) ([][]string, error)
-			/*line tool.ergo:325:13*/ Direct0 func(*ergo__Env, json__text, [][]string) json__text
-			/*line tool.ergo:325:13*/ Read0 func(*ergo__Env, json__Reader_1) ([][]string, error)
-			/*line tool.ergo:325:13*/ Read1 func(*ergo__Env, json__Stream) ([][]string, error)
-			/*line tool.ergo:325:13*/ Field *struct {
-				/*line tool.ergo:325:13*/ Enc func(*ergo__Env, ergo__Writer, [][]string) (struct{}, error)
-				/*line tool.ergo:325:13*/ Dec func(*ergo__Env, ergo__Reader) ([][]string, error)
-				/*line tool.ergo:325:13*/ Direct0 func(*ergo__Env, json__text, [][]string) json__text
-				/*line tool.ergo:325:13*/ Read0 func(*ergo__Env, json__Reader_1) ([][]string, error)
-				/*line tool.ergo:325:13*/ Read1 func(*ergo__Env, json__Stream) ([][]string, error)
-				/*line tool.ergo:325:13*/ Absent func([][]string) bool
-				/*line tool.ergo:325:13*/ Empty [][]string
-				/*line tool.ergo:325:13*/
+			/*line tool.ergo:299:5*/ var pol codegraph__LayoutPolicy = v_17
+//line tool.ergo:301:4
+			o.Policy = ergo__CloneLayoutPolicy(pol)
+//line tool.ergo:302:4
+			o.HasPolicy = true
+//line tool.ergo:303:4
+			i = (i + int(1))
+			/*line tool.ergo:303:4*/
+		case "--max-surface":
+//line tool.ergo:305:4
+			if i >= len(args) {
+//line tool.ergo:306:5
+				o.Bad = "--max-surface takes a number"
+//line tool.ergo:307:5
+				return o
+				/*line tool.ergo:307:5*/
 			}
-			/*line tool.ergo:325:13*/
-		}{Enc: func(e *ergo__Env, w ergo__Writer, v_4 [][]string) (struct{}, error) {
-			/*line tool.ergo:325:13*/ ergo__EncodeSlice_1(e, w, v_4)
-			/*line tool.ergo:325:13*/ return struct{}{}, nil
-			/*line tool.ergo:325:13*/
-		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([][]string, error) {
-			/*line tool.ergo:325:13*/ x, err := ergo__DecodeSlice_1(e_1, r_1)
-			/*line tool.ergo:325:13*/ if err != nil {
-				/*line tool.ergo:325:13*/ return *new([][]string), err
-				/*line tool.ergo:325:13*/
+//line tool.ergo:309:4
+//line tool.ergo:309:12
+			v_18, err_6 := ergo.StrconvAtoi( /*line tool.ergo:309:25*/ args[i])
+//line tool.ergo:309:4
+			var v_19 int
+			/*line tool.ergo:309:4*/ if err_6 != nil {
+//line tool.ergo:311:5
+				o.Bad = ("--max-surface takes a number, not " + /*line tool.ergo:311:50*/ args[i])
+//line tool.ergo:312:5
+				return o
+				/*line tool.ergo:312:5*/
+			} else {
+				/*line tool.ergo:312:5*/ v_19 = v_18
+				/*line tool.ergo:312:5*/
 			}
-			/*line tool.ergo:325:13*/ return x, nil
-			/*line tool.ergo:325:13*/
-		}, Direct0: ergo__WriteSlice_1, Read0: ergo__ReadSlice_1, Read1: ergo__ReadSlice_16, Field: nil}, json__Codec[[][]string]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
-//line tool.ergo:325:3
-//line tool.ergo:325:10
-		v_7 := ok((v_6 + "\n"))
-//line tool.ergo:325:3
-		return v_7
-		/*line tool.ergo:325:3*/
-	}
-//line tool.ergo:327:2
-	var b_1 string = ""
-//line tool.ergo:328:2
-	for _, v_8 := range out {
-		/*line tool.ergo:328:2*/ var c_1 []string = v_8
-//line tool.ergo:329:3
-		t_1 := (b_1 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(len(c_1)), 10)) + " "))
-//line tool.ergo:329:26
-		v_9 := ergo.StringsJoin(c_1, " -> ")
-//line tool.ergo:329:3
-		b_1 = ((t_1 + v_9) + "\n")
-//line tool.ergo:328:2
-		env.task.Check()
-		/*line tool.ergo:328:2*/
-	}
-//line tool.ergo:331:2
-	var v_10 string
+			/*line tool.ergo:312:5*/ var n_2 int = v_19
+//line tool.ergo:314:4
+			o.MaxSurface = n_2
+//line tool.ergo:315:4
+			i = (i + int(1))
+			/*line tool.ergo:315:4*/
+		case "--max-lines":
+//line tool.ergo:317:4
+			if i >= len(args) {
+//line tool.ergo:318:5
+				o.Bad = "--max-lines takes a number"
+//line tool.ergo:319:5
+				return o
+				/*line tool.ergo:319:5*/
+			}
+//line tool.ergo:321:4
+//line tool.ergo:321:12
+			v_20, err_7 := ergo.StrconvAtoi( /*line tool.ergo:321:25*/ args[i])
+//line tool.ergo:321:4
+			var v_21 int
+			/*line tool.ergo:321:4*/ if err_7 != nil {
+//line tool.ergo:323:5
+				o.Bad = ("--max-lines takes a number, not " + /*line tool.ergo:323:48*/ args[i])
+//line tool.ergo:324:5
+				return o
+				/*line tool.ergo:324:5*/
+			} else {
+				/*line tool.ergo:324:5*/ v_21 = v_20
+				/*line tool.ergo:324:5*/
+			}
+			/*line tool.ergo:324:5*/ var n_3 int = v_21
+//line tool.ergo:326:4
+			o.MaxLines = n_3
+//line tool.ergo:327:4
+			i = (i + int(1))
+			/*line tool.ergo:327:4*/
+		case "--max-dir":
+//line tool.ergo:329:4
+			if i >= len(args) {
+//line tool.ergo:330:5
+				o.Bad = "--max-dir takes a number"
 //line tool.ergo:331:5
-	if len(out) == int(0) {
-//line tool.ergo:331:24
-		v_10 = ("no chain of " + string(strconv.AppendInt(make([]byte, 0, 20), int64(o.Min), 10)) + "\n")
-		/*line tool.ergo:331:24*/
-	} else {
-//line tool.ergo:331:58
-		v_10 = b_1
-		/*line tool.ergo:331:58*/
-	}
-//line tool.ergo:331:2
-	v_11 := ok(v_10)
-//line tool.ergo:331:58
-	return v_11
-	/*line tool.ergo:331:58*/
-}
-
-//line tool.ergo:335:1
-type ergo__FanOut struct {
-	/*line tool.ergo:335:1*/ Node string
-	/*line tool.ergo:335:1*/ In int
-	/*line tool.ergo:335:1*/ Out int
-	/*line tool.ergo:335:1*/
-}
-
-//line tool.ergo:337:1
-func fan(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
-//line tool.ergo:337:1
-	env.task.Check()
-//line tool.ergo:338:2
-	var out []ergo__FanOut = []ergo__FanOut{}
-//line tool.ergo:339:2
-//line tool.ergo:339:11
-	v := (r).Fan(o.Level, o.Tests)
-//line tool.ergo:339:2
-	out = ergo.Reserve(out, len(v))
-	/*line tool.ergo:339:2*/ for _, v_1 := range v {
-		/*line tool.ergo:339:2*/ var f codegraph__FanRow = v_1
-//line tool.ergo:340:3
-		t := out
-//line tool.ergo:340:33
-		var v_2 string
-		/*line tool.ergo:340:33*/ {
-			/*line tool.ergo:340:33*/ var id int = f.Node
-			/*line tool.ergo:340:33*/ var n codegraph__NodeRow = r.Nodes[id]
-			/*line tool.ergo:340:33*/ if n.Kind != "decl" {
-				/*line tool.ergo:340:33*/ v_2 = n.Name
-				/*line tool.ergo:340:33*/ goto inl
-				/*line tool.ergo:340:33*/
+				return o
+				/*line tool.ergo:331:5*/
 			}
-			/*line tool.ergo:340:33*/ v_3 := (r).packageOf(id)
-			/*line tool.ergo:340:33*/ if v_3 < int(0) {
-				/*line tool.ergo:340:33*/ v_2 = n.Name
-				/*line tool.ergo:340:33*/ goto inl
-				/*line tool.ergo:340:33*/
+//line tool.ergo:333:4
+//line tool.ergo:333:12
+			v_22, err_8 := ergo.StrconvAtoi( /*line tool.ergo:333:25*/ args[i])
+//line tool.ergo:333:4
+			var v_23 int
+			/*line tool.ergo:333:4*/ if err_8 != nil {
+//line tool.ergo:335:5
+				o.Bad = ("--max-dir takes a number, not " + /*line tool.ergo:335:46*/ args[i])
+//line tool.ergo:336:5
+				return o
+				/*line tool.ergo:336:5*/
 			} else {
-				/*line tool.ergo:340:33*/ v_2 = (r.Nodes[v_3].Name + "." + n.Name)
-				/*line tool.ergo:340:33*/ goto inl
-				/*line tool.ergo:340:33*/
+				/*line tool.ergo:336:5*/ v_23 = v_22
+				/*line tool.ergo:336:5*/
 			}
-			/*line tool.ergo:340:33*/
+			/*line tool.ergo:336:5*/ var n_4 int = v_23
+//line tool.ergo:338:4
+			o.MaxDir = n_4
+//line tool.ergo:339:4
+			i = (i + int(1))
+			/*line tool.ergo:339:4*/
+		case "--max-tangle":
+//line tool.ergo:341:4
+			if i >= len(args) {
+//line tool.ergo:342:5
+				o.Bad = "--max-tangle takes a number"
+//line tool.ergo:343:5
+				return o
+				/*line tool.ergo:343:5*/
+			}
+//line tool.ergo:345:4
+//line tool.ergo:345:12
+			v_24, err_9 := ergo.StrconvAtoi( /*line tool.ergo:345:25*/ args[i])
+//line tool.ergo:345:4
+			var v_25 int
+			/*line tool.ergo:345:4*/ if err_9 != nil {
+//line tool.ergo:347:5
+				o.Bad = ("--max-tangle takes a number, not " + /*line tool.ergo:347:49*/ args[i])
+//line tool.ergo:348:5
+				return o
+				/*line tool.ergo:348:5*/
+			} else {
+				/*line tool.ergo:348:5*/ v_25 = v_24
+				/*line tool.ergo:348:5*/
+			}
+			/*line tool.ergo:348:5*/ var n_5 int = v_25
+//line tool.ergo:350:4
+			o.MaxTangle = n_5
+//line tool.ergo:351:4
+			i = (i + int(1))
+			/*line tool.ergo:351:4*/
+		default:
+//line tool.ergo:353:4
+//line tool.ergo:353:7
+			v_26 := strings__HasPrefix(a, "-")
+//line tool.ergo:353:4
+			if v_26 {
+//line tool.ergo:354:5
+				o.Bad = ("unknown option " + a)
+//line tool.ergo:355:5
+				return o
+				/*line tool.ergo:355:5*/
+			}
+//line tool.ergo:357:4
+//line tool.ergo:357:4
+			o.Words = /*line tool.ergo:357:14*/ ergo__Append[string](o.Words, a)
+			/*line tool.ergo:357:4*/
 		}
-		/*line tool.ergo:340:33*/ inl:
-		/*line tool.ergo:340:33*/ _ = 0
-//line tool.ergo:340:9
-		v_4 := ergo__Append[ergo__FanOut](t, ergo__FanOut{Node: v_2, In: f.In, Out: f.Out})
-//line tool.ergo:340:33
-		out = v_4
-//line tool.ergo:339:2
+//line tool.ergo:202:2
 		env.task.Check()
-		/*line tool.ergo:339:2*/
+		/*line tool.ergo:202:2*/
 	}
-//line tool.ergo:342:2
-	if o.Json {
-//line tool.ergo:343:3
-//line tool.ergo:343:13
-		v_7 := json__EncodeMono_i2903857829(env, struct {
-			/*line tool.ergo:343:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FanOut) (struct{}, error)
-			/*line tool.ergo:343:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FanOut, error)
-			/*line tool.ergo:343:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FanOut) json__text
-			/*line tool.ergo:343:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FanOut, error)
-			/*line tool.ergo:343:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FanOut, error)
-			/*line tool.ergo:343:13*/ Field *struct {
-				/*line tool.ergo:343:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FanOut) (struct{}, error)
-				/*line tool.ergo:343:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FanOut, error)
-				/*line tool.ergo:343:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FanOut) json__text
-				/*line tool.ergo:343:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FanOut, error)
-				/*line tool.ergo:343:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FanOut, error)
-				/*line tool.ergo:343:13*/ Absent func([]ergo__FanOut) bool
-				/*line tool.ergo:343:13*/ Empty []ergo__FanOut
-				/*line tool.ergo:343:13*/
-			}
-			/*line tool.ergo:343:13*/
-		}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 []ergo__FanOut) (struct{}, error) {
-			/*line tool.ergo:343:13*/ ergo__EncodeSlice_10(e, w, v_5)
-			/*line tool.ergo:343:13*/ return struct{}{}, nil
-			/*line tool.ergo:343:13*/
-		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__FanOut, error) {
-			/*line tool.ergo:343:13*/ x, err := ergo__DecodeSlice_10(e_1, r_1)
-			/*line tool.ergo:343:13*/ if err != nil {
-				/*line tool.ergo:343:13*/ return *new([]ergo__FanOut), err
-				/*line tool.ergo:343:13*/
-			}
-			/*line tool.ergo:343:13*/ return x, nil
-			/*line tool.ergo:343:13*/
-		}, Direct0: ergo__WriteSlice_10, Read0: ergo__ReadSlice_10, Read1: ergo__ReadSlice_25, Field: nil}, json__Codec[[]ergo__FanOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
-//line tool.ergo:343:3
-//line tool.ergo:343:10
-		v_8 := ok((v_7 + "\n"))
-//line tool.ergo:343:3
-		return v_8
-		/*line tool.ergo:343:3*/
-	}
-//line tool.ergo:345:2
-	var b_1 string = ""
-//line tool.ergo:346:2
-	for _, v_9 := range out {
-		/*line tool.ergo:346:2*/ var f_1 ergo__FanOut = v_9
-//line tool.ergo:347:3
-		b_1 = (b_1 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(f_1.In), 10)) + " " + string(strconv.AppendInt(make([]byte, 0, 20), int64(f_1.Out), 10)) + " " + f_1.Node + "\n"))
-//line tool.ergo:346:2
-		env.task.Check()
-		/*line tool.ergo:346:2*/
-	}
-//line tool.ergo:349:2
-	v_10 := ok(b_1)
-	/*line tool.ergo:349:2*/ return v_10
-	/*line tool.ergo:349:2*/
+//line tool.ergo:360:2
+	return o
+	/*line tool.ergo:360:2*/
 }
 
-//line tool.ergo:352:1
-func layers(env *ergo__Env, r codegraph__Rows, o ergo__Options, patterns []string) []string {
-//line tool.ergo:352:1
+//line tool.ergo:364:1
+func names(r codegraph__Rows, ids []int) []string {
+//line tool.ergo:365:2
+	var out []string = []string{}
+//line tool.ergo:366:2
+	out = ergo.Reserve(out, len(ids))
+	/*line tool.ergo:366:2*/ for _, v := range ids {
+		/*line tool.ergo:366:2*/ var i int = v
+//line tool.ergo:367:3
+		t := out
+//line tool.ergo:367:20
+		var v_1 string
+		/*line tool.ergo:367:20*/ {
+			/*line tool.ergo:367:20*/ var n codegraph__NodeRow = r.Nodes[i]
+			/*line tool.ergo:367:20*/ if n.Kind != "decl" {
+				/*line tool.ergo:367:20*/ v_1 = n.Name
+				/*line tool.ergo:367:20*/ goto inl
+				/*line tool.ergo:367:20*/
+			}
+			/*line tool.ergo:367:20*/ v_2 := (r).packageOf(i)
+			/*line tool.ergo:367:20*/ if v_2 < int(0) {
+				/*line tool.ergo:367:20*/ v_1 = n.Name
+				/*line tool.ergo:367:20*/ goto inl
+				/*line tool.ergo:367:20*/
+			} else {
+				/*line tool.ergo:367:20*/ v_1 = (r.Nodes[v_2].Name + "." + n.Name)
+				/*line tool.ergo:367:20*/ goto inl
+				/*line tool.ergo:367:20*/
+			}
+			/*line tool.ergo:367:20*/
+		}
+		/*line tool.ergo:367:20*/ inl:
+		/*line tool.ergo:367:20*/ _ = 0
+//line tool.ergo:367:9
+		v_3 := ergo__Append[string](t, v_1)
+//line tool.ergo:367:20
+		out = v_3
+		/*line tool.ergo:367:20*/
+	}
+//line tool.ergo:369:2
+	return out
+	/*line tool.ergo:369:2*/
+}
+
+//line tool.ergo:373:1
+type ergo__CycleOut struct {
+	/*line tool.ergo:373:1*/ Nodes []string
+	/*line tool.ergo:373:1*/ Path []string
+	/*line tool.ergo:373:1*/
+}
+
+//line tool.ergo:375:1
+func cycles(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:375:1
 	env.task.Check()
-//line tool.ergo:353:2
-	t := r
-//line tool.ergo:353:24
-	v := (r).Up(patterns)
-//line tool.ergo:353:2
-//line tool.ergo:353:12
-	v_1 := stepsOut(t, v)
-//line tool.ergo:353:2
-//line tool.ergo:354:2
+//line tool.ergo:376:2
+	var out []ergo__CycleOut = []ergo__CycleOut{}
+//line tool.ergo:377:2
+//line tool.ergo:377:11
+	v := (r).Cycles(o.Level, o.Tests)
+//line tool.ergo:377:2
+	out = ergo.Reserve(out, len(v))
+	/*line tool.ergo:377:2*/ for _, v_1 := range v {
+		/*line tool.ergo:377:2*/ var c codegraph__Cycle = v_1
+//line tool.ergo:378:3
+		t := out
+//line tool.ergo:378:36
+		v_2 := names(r, c.Nodes)
+//line tool.ergo:378:3
+		t_1 := v_2
+//line tool.ergo:378:61
+		v_3 := names(r, c.Path)
+//line tool.ergo:378:3
+//line tool.ergo:378:9
+		v_4 := ergo__Append[ergo__CycleOut](t, ergo__CycleOut{Nodes: t_1, Path: v_3})
+//line tool.ergo:378:3
+		out = v_4
+//line tool.ergo:377:2
+		env.task.Check()
+		/*line tool.ergo:377:2*/
+	}
+//line tool.ergo:380:2
 	if o.Json {
-//line tool.ergo:355:3
-//line tool.ergo:355:13
-		v_4 := json__EncodeMono_i1577938236(env, struct {
-			/*line tool.ergo:355:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
-			/*line tool.ergo:355:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
-			/*line tool.ergo:355:13*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
-			/*line tool.ergo:355:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
-			/*line tool.ergo:355:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
-			/*line tool.ergo:355:13*/ Field *struct {
-				/*line tool.ergo:355:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
-				/*line tool.ergo:355:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
-				/*line tool.ergo:355:13*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
-				/*line tool.ergo:355:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
-				/*line tool.ergo:355:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
-				/*line tool.ergo:355:13*/ Absent func([]ergo__StepOut) bool
-				/*line tool.ergo:355:13*/ Empty []ergo__StepOut
-				/*line tool.ergo:355:13*/
+//line tool.ergo:381:3
+//line tool.ergo:381:13
+		v_7 := json__EncodeMono_i3749910856(env, struct {
+			/*line tool.ergo:381:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__CycleOut) (struct{}, error)
+			/*line tool.ergo:381:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__CycleOut, error)
+			/*line tool.ergo:381:13*/ Direct0 func(*ergo__Env, json__text, []ergo__CycleOut) json__text
+			/*line tool.ergo:381:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__CycleOut, error)
+			/*line tool.ergo:381:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__CycleOut, error)
+			/*line tool.ergo:381:13*/ Field *struct {
+				/*line tool.ergo:381:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__CycleOut) (struct{}, error)
+				/*line tool.ergo:381:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__CycleOut, error)
+				/*line tool.ergo:381:13*/ Direct0 func(*ergo__Env, json__text, []ergo__CycleOut) json__text
+				/*line tool.ergo:381:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__CycleOut, error)
+				/*line tool.ergo:381:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__CycleOut, error)
+				/*line tool.ergo:381:13*/ Absent func([]ergo__CycleOut) bool
+				/*line tool.ergo:381:13*/ Empty []ergo__CycleOut
+				/*line tool.ergo:381:13*/
 			}
-			/*line tool.ergo:355:13*/
-		}{Enc: func(e *ergo__Env, w ergo__Writer, v_2 []ergo__StepOut) (struct{}, error) {
-			/*line tool.ergo:355:13*/ ergo__EncodeSlice_13(e, w, v_2)
-			/*line tool.ergo:355:13*/ return struct{}{}, nil
-			/*line tool.ergo:355:13*/
-		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__StepOut, error) {
-			/*line tool.ergo:355:13*/ x, err := ergo__DecodeSlice_13(e_1, r_1)
-			/*line tool.ergo:355:13*/ if err != nil {
-				/*line tool.ergo:355:13*/ return *new([]ergo__StepOut), err
-				/*line tool.ergo:355:13*/
+			/*line tool.ergo:381:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 []ergo__CycleOut) (struct{}, error) {
+			/*line tool.ergo:381:13*/ ergo__EncodeSlice_14(e, w, v_5)
+			/*line tool.ergo:381:13*/ return struct{}{}, nil
+			/*line tool.ergo:381:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__CycleOut, error) {
+			/*line tool.ergo:381:13*/ x, err := ergo__DecodeSlice_14(e_1, r_1)
+			/*line tool.ergo:381:13*/ if err != nil {
+				/*line tool.ergo:381:13*/ return *new([]ergo__CycleOut), err
+				/*line tool.ergo:381:13*/
 			}
-			/*line tool.ergo:355:13*/ return x, nil
-			/*line tool.ergo:355:13*/
-		}, Direct0: ergo__WriteSlice_13, Read0: ergo__ReadSlice_13, Read1: ergo__ReadSlice_28, Field: nil}, json__Codec[[]ergo__StepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_1)
-//line tool.ergo:355:3
-//line tool.ergo:355:10
-		v_5 := ok((v_4 + "\n"))
-//line tool.ergo:355:3
-		return v_5
-		/*line tool.ergo:355:3*/
+			/*line tool.ergo:381:13*/ return x, nil
+			/*line tool.ergo:381:13*/
+		}, Direct0: ergo__WriteSlice_14, Read0: ergo__ReadSlice_14, Read1: ergo__ReadSlice_44, Field: nil}, json__Codec[[]ergo__CycleOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:381:3
+//line tool.ergo:381:10
+		v_8 := ok((v_7 + "\n"))
+//line tool.ergo:381:3
+		return v_8
+		/*line tool.ergo:381:3*/
 	}
-//line tool.ergo:357:2
-	var v_6 string
-//line tool.ergo:357:5
-	if len(v_1) == int(0) {
-//line tool.ergo:357:24
-		v_6 = "no import goes up\n"
-		/*line tool.ergo:357:24*/
+//line tool.ergo:383:2
+	var b_1 string = ""
+//line tool.ergo:384:2
+	for _, v_9 := range out {
+		/*line tool.ergo:384:2*/ var c_1 ergo__CycleOut = v_9
+//line tool.ergo:385:3
+		t_2 := b_1
+//line tool.ergo:385:11
+		v_10 := ergo.StringsJoin(c_1.Path, " -> ")
+//line tool.ergo:385:3
+		b_1 = ((t_2 + v_10) + "\n")
+//line tool.ergo:384:2
+		env.task.Check()
+		/*line tool.ergo:384:2*/
+	}
+//line tool.ergo:387:2
+	var v_11 string
+//line tool.ergo:387:5
+	if len(out) == int(0) {
+//line tool.ergo:387:24
+		v_11 = "no cycle\n"
+		/*line tool.ergo:387:24*/
 	} else {
-//line tool.ergo:357:55
-		v_7 := stepsText(v_1)
-		/*line tool.ergo:357:55*/ v_6 = v_7
-		/*line tool.ergo:357:55*/
+//line tool.ergo:387:46
+		v_11 = b_1
+		/*line tool.ergo:387:46*/
 	}
-//line tool.ergo:357:2
-	v_8 := ok(v_6)
-//line tool.ergo:357:55
-	return v_8
-	/*line tool.ergo:357:55*/
+//line tool.ergo:387:2
+	v_12 := ok(v_11)
+//line tool.ergo:387:46
+	return v_12
+	/*line tool.ergo:387:46*/
 }
 
-//line tool.ergo:360:1
+//line tool.ergo:391:1
+type ergo__StepOut struct {
+	/*line tool.ergo:391:1*/ Kind string
+	/*line tool.ergo:391:1*/ From string
+	/*line tool.ergo:391:1*/ To string
+	/*line tool.ergo:391:1*/
+}
+
+//line tool.ergo:393:1
+func stepsOut(r codegraph__Rows, steps []codegraph__Step) []ergo__StepOut {
+//line tool.ergo:394:2
+	var out []ergo__StepOut = []ergo__StepOut{}
+//line tool.ergo:395:2
+	out = ergo.Reserve(out, len(steps))
+	/*line tool.ergo:395:2*/ for _, v := range steps {
+		/*line tool.ergo:395:2*/ var s codegraph__Step = v
+//line tool.ergo:396:3
+		t := out
+		/*line tool.ergo:396:3*/ t_1 := s.Kind
+//line tool.ergo:396:48
+		var v_1 string
+		/*line tool.ergo:396:48*/ {
+			/*line tool.ergo:396:48*/ var id int = s.From
+			/*line tool.ergo:396:48*/ var n codegraph__NodeRow = r.Nodes[id]
+			/*line tool.ergo:396:48*/ if n.Kind != "decl" {
+				/*line tool.ergo:396:48*/ v_1 = n.Name
+				/*line tool.ergo:396:48*/ goto inl
+				/*line tool.ergo:396:48*/
+			}
+			/*line tool.ergo:396:48*/ v_2 := (r).packageOf(id)
+			/*line tool.ergo:396:48*/ if v_2 < int(0) {
+				/*line tool.ergo:396:48*/ v_1 = n.Name
+				/*line tool.ergo:396:48*/ goto inl
+				/*line tool.ergo:396:48*/
+			} else {
+				/*line tool.ergo:396:48*/ v_1 = (r.Nodes[v_2].Name + "." + n.Name)
+				/*line tool.ergo:396:48*/ goto inl
+				/*line tool.ergo:396:48*/
+			}
+			/*line tool.ergo:396:48*/
+		}
+		/*line tool.ergo:396:48*/ inl:
+		/*line tool.ergo:396:48*/ _ = 0
+		/*line tool.ergo:396:48*/ t_2 := v_1
+//line tool.ergo:396:81
+		var v_3 string
+		/*line tool.ergo:396:81*/ {
+			/*line tool.ergo:396:81*/ var id_1 int = s.To
+			/*line tool.ergo:396:81*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
+			/*line tool.ergo:396:81*/ if n_1.Kind != "decl" {
+				/*line tool.ergo:396:81*/ v_3 = n_1.Name
+				/*line tool.ergo:396:81*/ goto inl_1
+				/*line tool.ergo:396:81*/
+			}
+			/*line tool.ergo:396:81*/ v_4 := (r).packageOf(id_1)
+			/*line tool.ergo:396:81*/ if v_4 < int(0) {
+				/*line tool.ergo:396:81*/ v_3 = n_1.Name
+				/*line tool.ergo:396:81*/ goto inl_1
+				/*line tool.ergo:396:81*/
+			} else {
+				/*line tool.ergo:396:81*/ v_3 = (r.Nodes[v_4].Name + "." + n_1.Name)
+				/*line tool.ergo:396:81*/ goto inl_1
+				/*line tool.ergo:396:81*/
+			}
+			/*line tool.ergo:396:81*/
+		}
+		/*line tool.ergo:396:81*/ inl_1:
+		/*line tool.ergo:396:81*/ _ = 0
+//line tool.ergo:396:9
+		v_5 := ergo__Append[ergo__StepOut](t, ergo__StepOut{Kind: t_1, From: t_2, To: v_3})
+//line tool.ergo:396:81
+		out = v_5
+		/*line tool.ergo:396:81*/
+	}
+//line tool.ergo:398:2
+	return out
+	/*line tool.ergo:398:2*/
+}
+
+//line tool.ergo:401:1
+func stepsText(steps []ergo__StepOut) string {
+//line tool.ergo:402:2
+	var b string = ""
+//line tool.ergo:403:2
+	for _, v := range steps {
+		/*line tool.ergo:403:2*/ var s ergo__StepOut = v
+//line tool.ergo:404:3
+		b = (b + (s.From + " " + s.Kind + " " + s.To + "\n"))
+		/*line tool.ergo:404:3*/
+	}
+//line tool.ergo:406:2
+	return b
+	/*line tool.ergo:406:2*/
+}
+
+//line tool.ergo:411:1
+type ergo__Missing struct {
+	/*line tool.ergo:411:1*/ Out []string
+	/*line tool.ergo:411:1*/
+}
+
+/*line tool.ergo:411:1*/
+func (e ergo__Missing) Error() string {
+	/*line tool.ergo:411:1*/ return "Missing" + ergo__textergo__Missing(e)
+	/*line tool.ergo:411:1*/
+}
+
+//line tool.ergo:414:1
+func one(r codegraph__Rows, a string) (int, error) {
+//line tool.ergo:415:2
+//line tool.ergo:415:14
+	v := (r).Find(a)
+//line tool.ergo:415:2
+//line tool.ergo:416:2
+	if len(v) == int(0) {
+//line tool.ergo:417:3
+		return 0, ergo__Missing{Out: []string{"1", "", ("ergo graph: no node is named " + a + "\n")}}
+		/*line tool.ergo:417:3*/
+	}
+//line tool.ergo:419:2
+	if len(v) > int(1) {
+//line tool.ergo:420:3
+		return 0, ergo__Missing{Out: []string{"1", "", ("ergo graph: " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v)), 10)) + " nodes are named " + a + "\n")}}
+		/*line tool.ergo:420:3*/
+	}
+//line tool.ergo:422:2
+	return /*line tool.ergo:422:2*/ v[int(0)], nil
+	/*line tool.ergo:422:2*/
+}
+
+//line tool.ergo:425:1
+func why(env *ergo__Env, r codegraph__Rows, o ergo__Options, a string, b string) []string {
+//line tool.ergo:425:1
+	env.task.Check()
+//line tool.ergo:426:2
+//line tool.ergo:426:10
+	v, err := one(r, a)
+//line tool.ergo:426:2
+	if err != nil {
+		/*line tool.ergo:426:2*/ switch caught := err.(type) {
+		/*line tool.ergo:426:2*/ case ergo__Missing:
+			/*line tool.ergo:426:2*/ m := caught
+//line tool.ergo:428:3
+			return m.Out
+			/*line tool.ergo:428:3*/
+		default:
+			/*line tool.ergo:428:3*/ _ = caught
+			/*line tool.ergo:428:3*/ panic(err)
+			/*line tool.ergo:428:3*/
+		}
+		/*line tool.ergo:428:3*/
+	}
+//line tool.ergo:430:2
+//line tool.ergo:430:10
+	v_1, err_1 := one(r, b)
+//line tool.ergo:430:2
+	if err_1 != nil {
+		/*line tool.ergo:430:2*/ switch caught_1 := err_1.(type) {
+		/*line tool.ergo:430:2*/ case ergo__Missing:
+			/*line tool.ergo:430:2*/ m_1 := caught_1
+//line tool.ergo:432:3
+			return m_1.Out
+			/*line tool.ergo:432:3*/
+		default:
+			/*line tool.ergo:432:3*/ _ = caught_1
+			/*line tool.ergo:432:3*/ panic(err_1)
+			/*line tool.ergo:432:3*/
+		}
+		/*line tool.ergo:432:3*/
+	}
+//line tool.ergo:434:2
+//line tool.ergo:434:8
+	v_2 := (r).Why(v, v_1)
+//line tool.ergo:434:2
+	s := v_2
+	/*line tool.ergo:434:2*/ switch s.tag {
+	/*line tool.ergo:434:2*/ case 0:
+		/*line tool.ergo:434:2*/ w := s.as0()
+//line tool.ergo:436:3
+//line tool.ergo:436:15
+		v_3 := stepsOut(r, w.Value)
+//line tool.ergo:436:3
+//line tool.ergo:437:3
+		if o.Json {
+//line tool.ergo:438:4
+//line tool.ergo:438:14
+			v_6 := json__EncodeMono_i1577938236(env, struct {
+				/*line tool.ergo:438:14*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
+				/*line tool.ergo:438:14*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
+				/*line tool.ergo:438:14*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
+				/*line tool.ergo:438:14*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
+				/*line tool.ergo:438:14*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
+				/*line tool.ergo:438:14*/ Field *struct {
+					/*line tool.ergo:438:14*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
+					/*line tool.ergo:438:14*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
+					/*line tool.ergo:438:14*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
+					/*line tool.ergo:438:14*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
+					/*line tool.ergo:438:14*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
+					/*line tool.ergo:438:14*/ Absent func([]ergo__StepOut) bool
+					/*line tool.ergo:438:14*/ Empty []ergo__StepOut
+					/*line tool.ergo:438:14*/
+				}
+				/*line tool.ergo:438:14*/
+			}{Enc: func(e *ergo__Env, w_1 ergo__Writer, v_4 []ergo__StepOut) (struct{}, error) {
+				/*line tool.ergo:438:14*/ ergo__EncodeSlice_26(e, w_1, v_4)
+				/*line tool.ergo:438:14*/ return struct{}{}, nil
+				/*line tool.ergo:438:14*/
+			}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__StepOut, error) {
+				/*line tool.ergo:438:14*/ x, err_2 := ergo__DecodeSlice_26(e_1, r_1)
+				/*line tool.ergo:438:14*/ if err_2 != nil {
+					/*line tool.ergo:438:14*/ return *new([]ergo__StepOut), err_2
+					/*line tool.ergo:438:14*/
+				}
+				/*line tool.ergo:438:14*/ return x, nil
+				/*line tool.ergo:438:14*/
+			}, Direct0: ergo__WriteSlice_26, Read0: ergo__ReadSlice_26, Read1: ergo__ReadSlice_56, Field: nil}, json__Codec[[]ergo__StepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_3)
+//line tool.ergo:438:4
+//line tool.ergo:438:11
+			v_7 := ok((v_6 + "\n"))
+//line tool.ergo:438:4
+			return v_7
+			/*line tool.ergo:438:4*/
+		}
+//line tool.ergo:440:3
+		var v_8 string
+//line tool.ergo:440:6
+		if len(v_3) == int(0) {
+//line tool.ergo:440:27
+			v_8 = (a + " is " + b + "\n")
+			/*line tool.ergo:440:27*/
+		} else {
+//line tool.ergo:440:53
+			v_9 := stepsText(v_3)
+			/*line tool.ergo:440:53*/ v_8 = v_9
+			/*line tool.ergo:440:53*/
+		}
+//line tool.ergo:440:3
+		v_10 := ok(v_8)
+//line tool.ergo:440:53
+		return v_10
+		/*line tool.ergo:440:53*/
+	case 1:
+//line tool.ergo:442:3
+		if o.Json {
+//line tool.ergo:443:4
+//line tool.ergo:443:11
+			v_11 := ok("null\n")
+//line tool.ergo:443:4
+			return v_11
+			/*line tool.ergo:443:4*/
+		}
+//line tool.ergo:445:3
+		v_12 := ok((a + " does not depend on " + b + "\n"))
+		/*line tool.ergo:445:3*/ return v_12
+		/*line tool.ergo:445:3*/
+	default:
+		/*line tool.ergo:445:3*/ panic("ergo: defect: no case of the match at 434:2 matched")
+		/*line tool.ergo:445:3*/
+	}
+	/*line tool.ergo:445:3*/
+}
+
+//line tool.ergo:451:1
+type ergo__ReachedOut struct {
+	/*line tool.ergo:451:1*/ Node string
+	/*line tool.ergo:451:1*/ Kind string
+	/*line tool.ergo:451:1*/ By string
+	/*line tool.ergo:451:1*/
+}
+
+//line tool.ergo:453:1
+func affected(env *ergo__Env, r codegraph__Rows, o ergo__Options, changed []int) []string {
+//line tool.ergo:453:1
+	env.task.Check()
+//line tool.ergo:454:2
+	var out []ergo__ReachedOut = []ergo__ReachedOut{}
+//line tool.ergo:455:2
+//line tool.ergo:455:11
+	v := (r).Affected(changed)
+//line tool.ergo:455:2
+	out = ergo.Reserve(out, len(v))
+	/*line tool.ergo:455:2*/ for _, v_1 := range v {
+		/*line tool.ergo:455:2*/ var x codegraph__Reached = v_1
+//line tool.ergo:456:3
+		t := out
+//line tool.ergo:456:37
+		var v_2 string
+		/*line tool.ergo:456:37*/ {
+			/*line tool.ergo:456:37*/ var id int = x.Node
+			/*line tool.ergo:456:37*/ var n codegraph__NodeRow = r.Nodes[id]
+			/*line tool.ergo:456:37*/ if n.Kind != "decl" {
+				/*line tool.ergo:456:37*/ v_2 = n.Name
+				/*line tool.ergo:456:37*/ goto inl
+				/*line tool.ergo:456:37*/
+			}
+			/*line tool.ergo:456:37*/ v_3 := (r).packageOf(id)
+			/*line tool.ergo:456:37*/ if v_3 < int(0) {
+				/*line tool.ergo:456:37*/ v_2 = n.Name
+				/*line tool.ergo:456:37*/ goto inl
+				/*line tool.ergo:456:37*/
+			} else {
+				/*line tool.ergo:456:37*/ v_2 = (r.Nodes[v_3].Name + "." + n.Name)
+				/*line tool.ergo:456:37*/ goto inl
+				/*line tool.ergo:456:37*/
+			}
+			/*line tool.ergo:456:37*/
+		}
+		/*line tool.ergo:456:37*/ inl:
+		/*line tool.ergo:456:37*/ _ = 0
+		/*line tool.ergo:456:37*/ t_1 := v_2
+		/*line tool.ergo:456:37*/ t_2 := x.By.Kind
+		/*line tool.ergo:456:37*/ var v_4 string
+//line tool.ergo:456:87
+		if x.By.Kind == "" {
+//line tool.ergo:456:108
+			v_4 = ""
+			/*line tool.ergo:456:108*/
+		} else {
+//line tool.ergo:456:120
+//line tool.ergo:456:120
+			var v_5 string
+			/*line tool.ergo:456:120*/ {
+				/*line tool.ergo:456:120*/ var id_1 int = x.By.To
+				/*line tool.ergo:456:120*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
+				/*line tool.ergo:456:120*/ if n_1.Kind != "decl" {
+					/*line tool.ergo:456:120*/ v_5 = n_1.Name
+					/*line tool.ergo:456:120*/ goto inl_1
+					/*line tool.ergo:456:120*/
+				}
+				/*line tool.ergo:456:120*/ v_6 := (r).packageOf(id_1)
+				/*line tool.ergo:456:120*/ if v_6 < int(0) {
+					/*line tool.ergo:456:120*/ v_5 = n_1.Name
+					/*line tool.ergo:456:120*/ goto inl_1
+					/*line tool.ergo:456:120*/
+				} else {
+					/*line tool.ergo:456:120*/ v_5 = (r.Nodes[v_6].Name + "." + n_1.Name)
+					/*line tool.ergo:456:120*/ goto inl_1
+					/*line tool.ergo:456:120*/
+				}
+				/*line tool.ergo:456:120*/
+			}
+			/*line tool.ergo:456:120*/ inl_1:
+			/*line tool.ergo:456:120*/ _ = 0
+			/*line tool.ergo:456:120*/ v_4 = v_5
+			/*line tool.ergo:456:120*/
+		}
+//line tool.ergo:456:9
+		v_7 := ergo__Append[ergo__ReachedOut](t, ergo__ReachedOut{Node: t_1, Kind: t_2, By: v_4})
+//line tool.ergo:456:120
+		out = v_7
+//line tool.ergo:455:2
+		env.task.Check()
+		/*line tool.ergo:455:2*/
+	}
+//line tool.ergo:458:2
+	if o.Json {
+//line tool.ergo:459:3
+//line tool.ergo:459:13
+		v_10 := json__EncodeMono_i4029314156(env, struct {
+			/*line tool.ergo:459:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__ReachedOut) (struct{}, error)
+			/*line tool.ergo:459:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__ReachedOut, error)
+			/*line tool.ergo:459:13*/ Direct0 func(*ergo__Env, json__text, []ergo__ReachedOut) json__text
+			/*line tool.ergo:459:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__ReachedOut, error)
+			/*line tool.ergo:459:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__ReachedOut, error)
+			/*line tool.ergo:459:13*/ Field *struct {
+				/*line tool.ergo:459:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__ReachedOut) (struct{}, error)
+				/*line tool.ergo:459:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__ReachedOut, error)
+				/*line tool.ergo:459:13*/ Direct0 func(*ergo__Env, json__text, []ergo__ReachedOut) json__text
+				/*line tool.ergo:459:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__ReachedOut, error)
+				/*line tool.ergo:459:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__ReachedOut, error)
+				/*line tool.ergo:459:13*/ Absent func([]ergo__ReachedOut) bool
+				/*line tool.ergo:459:13*/ Empty []ergo__ReachedOut
+				/*line tool.ergo:459:13*/
+			}
+			/*line tool.ergo:459:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_8 []ergo__ReachedOut) (struct{}, error) {
+			/*line tool.ergo:459:13*/ ergo__EncodeSlice_24(e, w, v_8)
+			/*line tool.ergo:459:13*/ return struct{}{}, nil
+			/*line tool.ergo:459:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__ReachedOut, error) {
+			/*line tool.ergo:459:13*/ x_1, err := ergo__DecodeSlice_24(e_1, r_1)
+			/*line tool.ergo:459:13*/ if err != nil {
+				/*line tool.ergo:459:13*/ return *new([]ergo__ReachedOut), err
+				/*line tool.ergo:459:13*/
+			}
+			/*line tool.ergo:459:13*/ return x_1, nil
+			/*line tool.ergo:459:13*/
+		}, Direct0: ergo__WriteSlice_24, Read0: ergo__ReadSlice_24, Read1: ergo__ReadSlice_54, Field: nil}, json__Codec[[]ergo__ReachedOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:459:3
+//line tool.ergo:459:10
+		v_11 := ok((v_10 + "\n"))
+//line tool.ergo:459:3
+		return v_11
+		/*line tool.ergo:459:3*/
+	}
+//line tool.ergo:461:2
+	var b_1 string = ""
+//line tool.ergo:462:2
+	for _, v_12 := range out {
+		/*line tool.ergo:462:2*/ var x_2 ergo__ReachedOut = v_12
+//line tool.ergo:463:3
+		t_3 := b_1
+		/*line tool.ergo:463:3*/ var v_13 string
+//line tool.ergo:463:12
+		if x_2.Kind == "" {
+//line tool.ergo:463:30
+			v_13 = (x_2.Node + " changed\n")
+			/*line tool.ergo:463:30*/
+		} else {
+//line tool.ergo:463:61
+			v_13 = (x_2.Node + " " + x_2.Kind + " " + x_2.By + "\n")
+			/*line tool.ergo:463:61*/
+		}
+		/*line tool.ergo:463:61*/ b_1 = (t_3 + v_13)
+//line tool.ergo:462:2
+		env.task.Check()
+		/*line tool.ergo:462:2*/
+	}
+//line tool.ergo:465:2
+	var v_14 string
+//line tool.ergo:465:5
+	if len(out) == int(0) {
+//line tool.ergo:465:24
+		v_14 = "nothing changed\n"
+		/*line tool.ergo:465:24*/
+	} else {
+//line tool.ergo:465:53
+		v_14 = b_1
+		/*line tool.ergo:465:53*/
+	}
+//line tool.ergo:465:2
+	v_15 := ok(v_14)
+//line tool.ergo:465:53
+	return v_15
+	/*line tool.ergo:465:53*/
+}
+
+//line tool.ergo:471:1
+type ergo__HiddenOut struct {
+	/*line tool.ergo:471:1*/ From string
+	/*line tool.ergo:471:1*/ To string
+	/*line tool.ergo:471:1*/ Package string
+	/*line tool.ergo:471:1*/ Via string
+	/*line tool.ergo:471:1*/ How string
+	/*line tool.ergo:471:1*/
+}
+
+//line tool.ergo:473:1
+func hidden(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:473:1
+	env.task.Check()
+//line tool.ergo:474:2
+	var out []ergo__HiddenOut = []ergo__HiddenOut{}
+//line tool.ergo:475:2
+//line tool.ergo:475:11
+	v := (r).Hidden()
+//line tool.ergo:475:2
+	out = ergo.Reserve(out, len(v))
+	/*line tool.ergo:475:2*/ for _, v_1 := range v {
+		/*line tool.ergo:475:2*/ var h codegraph__HiddenUse = v_1
+//line tool.ergo:476:3
+		t := out
+//line tool.ergo:476:36
+		var v_2 string
+		/*line tool.ergo:476:36*/ {
+			/*line tool.ergo:476:36*/ var id int = h.From
+			/*line tool.ergo:476:36*/ var n codegraph__NodeRow = r.Nodes[id]
+			/*line tool.ergo:476:36*/ if n.Kind != "decl" {
+				/*line tool.ergo:476:36*/ v_2 = n.Name
+				/*line tool.ergo:476:36*/ goto inl
+				/*line tool.ergo:476:36*/
+			}
+			/*line tool.ergo:476:36*/ v_3 := (r).packageOf(id)
+			/*line tool.ergo:476:36*/ if v_3 < int(0) {
+				/*line tool.ergo:476:36*/ v_2 = n.Name
+				/*line tool.ergo:476:36*/ goto inl
+				/*line tool.ergo:476:36*/
+			} else {
+				/*line tool.ergo:476:36*/ v_2 = (r.Nodes[v_3].Name + "." + n.Name)
+				/*line tool.ergo:476:36*/ goto inl
+				/*line tool.ergo:476:36*/
+			}
+			/*line tool.ergo:476:36*/
+		}
+		/*line tool.ergo:476:36*/ inl:
+		/*line tool.ergo:476:36*/ _ = 0
+		/*line tool.ergo:476:36*/ t_1 := v_2
+//line tool.ergo:476:69
+		var v_4 string
+		/*line tool.ergo:476:69*/ {
+			/*line tool.ergo:476:69*/ var id_1 int = h.To
+			/*line tool.ergo:476:69*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
+			/*line tool.ergo:476:69*/ if n_1.Kind != "decl" {
+				/*line tool.ergo:476:69*/ v_4 = n_1.Name
+				/*line tool.ergo:476:69*/ goto inl_1
+				/*line tool.ergo:476:69*/
+			}
+			/*line tool.ergo:476:69*/ v_5 := (r).packageOf(id_1)
+			/*line tool.ergo:476:69*/ if v_5 < int(0) {
+				/*line tool.ergo:476:69*/ v_4 = n_1.Name
+				/*line tool.ergo:476:69*/ goto inl_1
+				/*line tool.ergo:476:69*/
+			} else {
+				/*line tool.ergo:476:69*/ v_4 = (r.Nodes[v_5].Name + "." + n_1.Name)
+				/*line tool.ergo:476:69*/ goto inl_1
+				/*line tool.ergo:476:69*/
+			}
+			/*line tool.ergo:476:69*/
+		}
+		/*line tool.ergo:476:69*/ inl_1:
+		/*line tool.ergo:476:69*/ _ = 0
+		/*line tool.ergo:476:69*/ t_2 := v_4
+//line tool.ergo:476:105
+		var v_6 string
+		/*line tool.ergo:476:105*/ {
+			/*line tool.ergo:476:105*/ var id_2 int = h.Package
+			/*line tool.ergo:476:105*/ var n_2 codegraph__NodeRow = r.Nodes[id_2]
+			/*line tool.ergo:476:105*/ if n_2.Kind != "decl" {
+				/*line tool.ergo:476:105*/ v_6 = n_2.Name
+				/*line tool.ergo:476:105*/ goto inl_2
+				/*line tool.ergo:476:105*/
+			}
+			/*line tool.ergo:476:105*/ v_7 := (r).packageOf(id_2)
+			/*line tool.ergo:476:105*/ if v_7 < int(0) {
+				/*line tool.ergo:476:105*/ v_6 = n_2.Name
+				/*line tool.ergo:476:105*/ goto inl_2
+				/*line tool.ergo:476:105*/
+			} else {
+				/*line tool.ergo:476:105*/ v_6 = (r.Nodes[v_7].Name + "." + n_2.Name)
+				/*line tool.ergo:476:105*/ goto inl_2
+				/*line tool.ergo:476:105*/
+			}
+			/*line tool.ergo:476:105*/
+		}
+		/*line tool.ergo:476:105*/ inl_2:
+		/*line tool.ergo:476:105*/ _ = 0
+		/*line tool.ergo:476:105*/ t_3 := v_6
+		/*line tool.ergo:476:105*/ var v_8 string
+//line tool.ergo:476:142
+		if h.Via < int(0) {
+//line tool.ergo:476:157
+			v_8 = ""
+			/*line tool.ergo:476:157*/
+		} else {
+//line tool.ergo:476:169
+//line tool.ergo:476:169
+			var v_9 string
+			/*line tool.ergo:476:169*/ {
+				/*line tool.ergo:476:169*/ var id_3 int = h.Via
+				/*line tool.ergo:476:169*/ var n_3 codegraph__NodeRow = r.Nodes[id_3]
+				/*line tool.ergo:476:169*/ if n_3.Kind != "decl" {
+					/*line tool.ergo:476:169*/ v_9 = n_3.Name
+					/*line tool.ergo:476:169*/ goto inl_3
+					/*line tool.ergo:476:169*/
+				}
+				/*line tool.ergo:476:169*/ v_10 := (r).packageOf(id_3)
+				/*line tool.ergo:476:169*/ if v_10 < int(0) {
+					/*line tool.ergo:476:169*/ v_9 = n_3.Name
+					/*line tool.ergo:476:169*/ goto inl_3
+					/*line tool.ergo:476:169*/
+				} else {
+					/*line tool.ergo:476:169*/ v_9 = (r.Nodes[v_10].Name + "." + n_3.Name)
+					/*line tool.ergo:476:169*/ goto inl_3
+					/*line tool.ergo:476:169*/
+				}
+				/*line tool.ergo:476:169*/
+			}
+			/*line tool.ergo:476:169*/ inl_3:
+			/*line tool.ergo:476:169*/ _ = 0
+			/*line tool.ergo:476:169*/ v_8 = v_9
+			/*line tool.ergo:476:169*/
+		}
+//line tool.ergo:476:9
+		v_11 := ergo__Append[ergo__HiddenOut](t, ergo__HiddenOut{From: t_1, To: t_2, Package: t_3, Via: v_8, How: h.How})
+//line tool.ergo:476:169
+		out = v_11
+//line tool.ergo:475:2
+		env.task.Check()
+		/*line tool.ergo:475:2*/
+	}
+//line tool.ergo:478:2
+	if o.Json {
+//line tool.ergo:479:3
+//line tool.ergo:479:13
+		v_14 := json__EncodeMono_i3088017158(env, struct {
+			/*line tool.ergo:479:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__HiddenOut) (struct{}, error)
+			/*line tool.ergo:479:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__HiddenOut, error)
+			/*line tool.ergo:479:13*/ Direct0 func(*ergo__Env, json__text, []ergo__HiddenOut) json__text
+			/*line tool.ergo:479:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__HiddenOut, error)
+			/*line tool.ergo:479:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__HiddenOut, error)
+			/*line tool.ergo:479:13*/ Field *struct {
+				/*line tool.ergo:479:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__HiddenOut) (struct{}, error)
+				/*line tool.ergo:479:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__HiddenOut, error)
+				/*line tool.ergo:479:13*/ Direct0 func(*ergo__Env, json__text, []ergo__HiddenOut) json__text
+				/*line tool.ergo:479:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__HiddenOut, error)
+				/*line tool.ergo:479:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__HiddenOut, error)
+				/*line tool.ergo:479:13*/ Absent func([]ergo__HiddenOut) bool
+				/*line tool.ergo:479:13*/ Empty []ergo__HiddenOut
+				/*line tool.ergo:479:13*/
+			}
+			/*line tool.ergo:479:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_12 []ergo__HiddenOut) (struct{}, error) {
+			/*line tool.ergo:479:13*/ ergo__EncodeSlice_22(e, w, v_12)
+			/*line tool.ergo:479:13*/ return struct{}{}, nil
+			/*line tool.ergo:479:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__HiddenOut, error) {
+			/*line tool.ergo:479:13*/ x, err := ergo__DecodeSlice_22(e_1, r_1)
+			/*line tool.ergo:479:13*/ if err != nil {
+				/*line tool.ergo:479:13*/ return *new([]ergo__HiddenOut), err
+				/*line tool.ergo:479:13*/
+			}
+			/*line tool.ergo:479:13*/ return x, nil
+			/*line tool.ergo:479:13*/
+		}, Direct0: ergo__WriteSlice_22, Read0: ergo__ReadSlice_22, Read1: ergo__ReadSlice_52, Field: nil}, json__Codec[[]ergo__HiddenOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:479:3
+//line tool.ergo:479:10
+		v_15 := ok((v_14 + "\n"))
+//line tool.ergo:479:3
+		return v_15
+		/*line tool.ergo:479:3*/
+	}
+//line tool.ergo:481:2
+	var b_1 string = ""
+//line tool.ergo:482:2
+	for _, v_16 := range out {
+		/*line tool.ergo:482:2*/ var h_1 ergo__HiddenOut = v_16
+//line tool.ergo:483:3
+		t_4 := (b_1 + (h_1.From + " uses " + h_1.To + " (" + h_1.How + ") without importing " + h_1.Package))
+		/*line tool.ergo:483:3*/ var v_17 string
+//line tool.ergo:483:81
+		if h_1.Via == "" {
+//line tool.ergo:483:98
+			v_17 = ""
+			/*line tool.ergo:483:98*/
+		} else {
+//line tool.ergo:483:110
+			v_17 = (" (through " + h_1.Via + ")")
+			/*line tool.ergo:483:110*/
+		}
+		/*line tool.ergo:483:110*/ b_1 = ((t_4 + v_17) + "\n")
+//line tool.ergo:482:2
+		env.task.Check()
+		/*line tool.ergo:482:2*/
+	}
+//line tool.ergo:485:2
+	var v_18 string
+//line tool.ergo:485:5
+	if len(out) == int(0) {
+//line tool.ergo:485:24
+		v_18 = "no hidden use\n"
+		/*line tool.ergo:485:24*/
+	} else {
+//line tool.ergo:485:51
+		v_18 = b_1
+		/*line tool.ergo:485:51*/
+	}
+//line tool.ergo:485:2
+	v_19 := ok(v_18)
+//line tool.ergo:485:51
+	return v_19
+	/*line tool.ergo:485:51*/
+}
+
+//line tool.ergo:488:1
+func chains(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:488:1
+	env.task.Check()
+//line tool.ergo:489:2
+	var out [][]string = [][]string{}
+//line tool.ergo:490:2
+//line tool.ergo:490:11
+	v := (r).Chains(o.Min)
+//line tool.ergo:490:2
+	out = ergo.Reserve(out, len(v))
+	/*line tool.ergo:490:2*/ for _, v_1 := range v {
+		/*line tool.ergo:490:2*/ var c []int = v_1
+//line tool.ergo:491:3
+		t := out
+//line tool.ergo:491:20
+		v_2 := names(r, c)
+//line tool.ergo:491:3
+//line tool.ergo:491:9
+		v_3 := ergo__Append[[]string](t, v_2)
+//line tool.ergo:491:3
+		out = v_3
+//line tool.ergo:490:2
+		env.task.Check()
+		/*line tool.ergo:490:2*/
+	}
+//line tool.ergo:493:2
+	if o.Json {
+//line tool.ergo:494:3
+//line tool.ergo:494:13
+		v_6 := json__EncodeMono_i2956508152(env, struct {
+			/*line tool.ergo:494:13*/ Enc func(*ergo__Env, ergo__Writer, [][]string) (struct{}, error)
+			/*line tool.ergo:494:13*/ Dec func(*ergo__Env, ergo__Reader) ([][]string, error)
+			/*line tool.ergo:494:13*/ Direct0 func(*ergo__Env, json__text, [][]string) json__text
+			/*line tool.ergo:494:13*/ Read0 func(*ergo__Env, json__Reader_1) ([][]string, error)
+			/*line tool.ergo:494:13*/ Read1 func(*ergo__Env, json__Stream) ([][]string, error)
+			/*line tool.ergo:494:13*/ Field *struct {
+				/*line tool.ergo:494:13*/ Enc func(*ergo__Env, ergo__Writer, [][]string) (struct{}, error)
+				/*line tool.ergo:494:13*/ Dec func(*ergo__Env, ergo__Reader) ([][]string, error)
+				/*line tool.ergo:494:13*/ Direct0 func(*ergo__Env, json__text, [][]string) json__text
+				/*line tool.ergo:494:13*/ Read0 func(*ergo__Env, json__Reader_1) ([][]string, error)
+				/*line tool.ergo:494:13*/ Read1 func(*ergo__Env, json__Stream) ([][]string, error)
+				/*line tool.ergo:494:13*/ Absent func([][]string) bool
+				/*line tool.ergo:494:13*/ Empty [][]string
+				/*line tool.ergo:494:13*/
+			}
+			/*line tool.ergo:494:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_4 [][]string) (struct{}, error) {
+			/*line tool.ergo:494:13*/ ergo__EncodeSlice_1(e, w, v_4)
+			/*line tool.ergo:494:13*/ return struct{}{}, nil
+			/*line tool.ergo:494:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([][]string, error) {
+			/*line tool.ergo:494:13*/ x, err := ergo__DecodeSlice_1(e_1, r_1)
+			/*line tool.ergo:494:13*/ if err != nil {
+				/*line tool.ergo:494:13*/ return *new([][]string), err
+				/*line tool.ergo:494:13*/
+			}
+			/*line tool.ergo:494:13*/ return x, nil
+			/*line tool.ergo:494:13*/
+		}, Direct0: ergo__WriteSlice_1, Read0: ergo__ReadSlice_1, Read1: ergo__ReadSlice_31, Field: nil}, json__Codec[[][]string]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:494:3
+//line tool.ergo:494:10
+		v_7 := ok((v_6 + "\n"))
+//line tool.ergo:494:3
+		return v_7
+		/*line tool.ergo:494:3*/
+	}
+//line tool.ergo:496:2
+	var b_1 string = ""
+//line tool.ergo:497:2
+	for _, v_8 := range out {
+		/*line tool.ergo:497:2*/ var c_1 []string = v_8
+//line tool.ergo:498:3
+		t_1 := (b_1 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(len(c_1)), 10)) + " "))
+//line tool.ergo:498:26
+		v_9 := ergo.StringsJoin(c_1, " -> ")
+//line tool.ergo:498:3
+		b_1 = ((t_1 + v_9) + "\n")
+//line tool.ergo:497:2
+		env.task.Check()
+		/*line tool.ergo:497:2*/
+	}
+//line tool.ergo:500:2
+	var v_10 string
+//line tool.ergo:500:5
+	if len(out) == int(0) {
+//line tool.ergo:500:24
+		v_10 = ("no chain of " + string(strconv.AppendInt(make([]byte, 0, 20), int64(o.Min), 10)) + "\n")
+		/*line tool.ergo:500:24*/
+	} else {
+//line tool.ergo:500:58
+		v_10 = b_1
+		/*line tool.ergo:500:58*/
+	}
+//line tool.ergo:500:2
+	v_11 := ok(v_10)
+//line tool.ergo:500:58
+	return v_11
+	/*line tool.ergo:500:58*/
+}
+
+//line tool.ergo:504:1
+type ergo__FanOut struct {
+	/*line tool.ergo:504:1*/ Node string
+	/*line tool.ergo:504:1*/ In int
+	/*line tool.ergo:504:1*/ Out int
+	/*line tool.ergo:504:1*/
+}
+
+//line tool.ergo:506:1
+func fan(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:506:1
+	env.task.Check()
+//line tool.ergo:507:2
+	var out []ergo__FanOut = []ergo__FanOut{}
+//line tool.ergo:508:2
+//line tool.ergo:508:11
+	v := (r).Fan(o.Level, o.Tests)
+//line tool.ergo:508:2
+	out = ergo.Reserve(out, len(v))
+	/*line tool.ergo:508:2*/ for _, v_1 := range v {
+		/*line tool.ergo:508:2*/ var f codegraph__FanRow = v_1
+//line tool.ergo:509:3
+		t := out
+//line tool.ergo:509:33
+		var v_2 string
+		/*line tool.ergo:509:33*/ {
+			/*line tool.ergo:509:33*/ var id int = f.Node
+			/*line tool.ergo:509:33*/ var n codegraph__NodeRow = r.Nodes[id]
+			/*line tool.ergo:509:33*/ if n.Kind != "decl" {
+				/*line tool.ergo:509:33*/ v_2 = n.Name
+				/*line tool.ergo:509:33*/ goto inl
+				/*line tool.ergo:509:33*/
+			}
+			/*line tool.ergo:509:33*/ v_3 := (r).packageOf(id)
+			/*line tool.ergo:509:33*/ if v_3 < int(0) {
+				/*line tool.ergo:509:33*/ v_2 = n.Name
+				/*line tool.ergo:509:33*/ goto inl
+				/*line tool.ergo:509:33*/
+			} else {
+				/*line tool.ergo:509:33*/ v_2 = (r.Nodes[v_3].Name + "." + n.Name)
+				/*line tool.ergo:509:33*/ goto inl
+				/*line tool.ergo:509:33*/
+			}
+			/*line tool.ergo:509:33*/
+		}
+		/*line tool.ergo:509:33*/ inl:
+		/*line tool.ergo:509:33*/ _ = 0
+//line tool.ergo:509:9
+		v_4 := ergo__Append[ergo__FanOut](t, ergo__FanOut{Node: v_2, In: f.In, Out: f.Out})
+//line tool.ergo:509:33
+		out = v_4
+//line tool.ergo:508:2
+		env.task.Check()
+		/*line tool.ergo:508:2*/
+	}
+//line tool.ergo:511:2
+	if o.Json {
+//line tool.ergo:512:3
+//line tool.ergo:512:13
+		v_7 := json__EncodeMono_i2903857829(env, struct {
+			/*line tool.ergo:512:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FanOut) (struct{}, error)
+			/*line tool.ergo:512:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FanOut, error)
+			/*line tool.ergo:512:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FanOut) json__text
+			/*line tool.ergo:512:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FanOut, error)
+			/*line tool.ergo:512:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FanOut, error)
+			/*line tool.ergo:512:13*/ Field *struct {
+				/*line tool.ergo:512:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FanOut) (struct{}, error)
+				/*line tool.ergo:512:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FanOut, error)
+				/*line tool.ergo:512:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FanOut) json__text
+				/*line tool.ergo:512:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FanOut, error)
+				/*line tool.ergo:512:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FanOut, error)
+				/*line tool.ergo:512:13*/ Absent func([]ergo__FanOut) bool
+				/*line tool.ergo:512:13*/ Empty []ergo__FanOut
+				/*line tool.ergo:512:13*/
+			}
+			/*line tool.ergo:512:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 []ergo__FanOut) (struct{}, error) {
+			/*line tool.ergo:512:13*/ ergo__EncodeSlice_17(e, w, v_5)
+			/*line tool.ergo:512:13*/ return struct{}{}, nil
+			/*line tool.ergo:512:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__FanOut, error) {
+			/*line tool.ergo:512:13*/ x, err := ergo__DecodeSlice_17(e_1, r_1)
+			/*line tool.ergo:512:13*/ if err != nil {
+				/*line tool.ergo:512:13*/ return *new([]ergo__FanOut), err
+				/*line tool.ergo:512:13*/
+			}
+			/*line tool.ergo:512:13*/ return x, nil
+			/*line tool.ergo:512:13*/
+		}, Direct0: ergo__WriteSlice_17, Read0: ergo__ReadSlice_17, Read1: ergo__ReadSlice_47, Field: nil}, json__Codec[[]ergo__FanOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:512:3
+//line tool.ergo:512:10
+		v_8 := ok((v_7 + "\n"))
+//line tool.ergo:512:3
+		return v_8
+		/*line tool.ergo:512:3*/
+	}
+//line tool.ergo:514:2
+	var b_1 string = ""
+//line tool.ergo:515:2
+	for _, v_9 := range out {
+		/*line tool.ergo:515:2*/ var f_1 ergo__FanOut = v_9
+//line tool.ergo:516:3
+		b_1 = (b_1 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(f_1.In), 10)) + " " + string(strconv.AppendInt(make([]byte, 0, 20), int64(f_1.Out), 10)) + " " + f_1.Node + "\n"))
+//line tool.ergo:515:2
+		env.task.Check()
+		/*line tool.ergo:515:2*/
+	}
+//line tool.ergo:518:2
+	v_10 := ok(b_1)
+	/*line tool.ergo:518:2*/ return v_10
+	/*line tool.ergo:518:2*/
+}
+
+//line tool.ergo:521:1
+type ergo__EntryOut struct {
+	/*line tool.ergo:521:1*/ Name string
+	/*line tool.ergo:521:1*/ Id int
+	/*line tool.ergo:521:1*/ Site int
+	/*line tool.ergo:521:1*/
+}
+
+//line tool.ergo:523:1
+type ergo__GroupOut struct {
+	/*line tool.ergo:523:1*/ Name string
+	/*line tool.ergo:523:1*/ Entries []int
+	/*line tool.ergo:523:1*/ Id int
+	/*line tool.ergo:523:1*/
+}
+
+//line tool.ergo:525:1
+type ergo__InterfaceOut struct {
+	/*line tool.ergo:525:1*/ Package string
+	/*line tool.ergo:525:1*/ Entries []ergo__EntryOut
+	/*line tool.ergo:525:1*/ Groups []ergo__GroupOut
+	/*line tool.ergo:525:1*/ Backing []string
+	/*line tool.ergo:525:1*/ PackageId int
+	/*line tool.ergo:525:1*/ Widest int
+	/*line tool.ergo:525:1*/ Unresolved int
+	/*line tool.ergo:525:1*/ Wide bool
+	/*line tool.ergo:525:1*/
+}
+
+//line tool.ergo:536:1
+func selectedModules(r codegraph__Rows, o ergo__Options) []int {
+//line tool.ergo:537:2
+	var modules []int = []int{}
+//line tool.ergo:538:2
+	for k, v := range r.Nodes {
+		/*line tool.ergo:538:2*/ var i int = k
+		/*line tool.ergo:538:2*/ var n codegraph__NodeRow = v
+//line tool.ergo:539:3
+		b := (n.Kind == "module")
+		/*line tool.ergo:539:3*/ if b {
+			/*line tool.ergo:539:3*/ var v_1 bool
+//line tool.ergo:539:29
+			if len(o.Modules) == int(0) {
+//line tool.ergo:539:54
+//line tool.ergo:539:55
+				v_2 := strings__Contains(n.Name, "@")
+//line tool.ergo:539:54
+				v_1 = (!v_2)
+				/*line tool.ergo:539:54*/
+			} else {
+//line tool.ergo:539:94
+				v_3 := slices__ContainsMono_i398550328(o.Modules, n.Name)
+				/*line tool.ergo:539:94*/ v_1 = v_3
+				/*line tool.ergo:539:94*/
+			}
+			/*line tool.ergo:539:94*/ b = v_1
+			/*line tool.ergo:539:94*/
+		}
+		/*line tool.ergo:539:94*/ if b {
+//line tool.ergo:540:4
+//line tool.ergo:540:4
+			modules = /*line tool.ergo:540:14*/ ergo__Append[int](modules, i)
+			/*line tool.ergo:540:4*/
+		}
+		/*line tool.ergo:540:4*/
+	}
+//line tool.ergo:543:2
+	return modules
+	/*line tool.ergo:543:2*/
+}
+
+//line tool.ergo:546:1
+type ergo__FileLengthOut struct {
+	/*line tool.ergo:546:1*/ File string
+	/*line tool.ergo:546:1*/ FileId int
+	/*line tool.ergo:546:1*/ Lines int
+	/*line tool.ergo:546:1*/ Long bool
+	/*line tool.ergo:546:1*/
+}
+
+//line tool.ergo:548:1
+func files(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:548:1
+	env.task.Check()
+//line tool.ergo:549:2
+//line tool.ergo:549:16
+	v := selectedModules(r, o)
+//line tool.ergo:549:2
+//line tool.ergo:550:2
+	var out []ergo__FileLengthOut = []ergo__FileLengthOut{}
+//line tool.ergo:551:2
+//line tool.ergo:551:11
+	v_1 := (r).PhysicalLines(v)
+//line tool.ergo:551:2
+	for _, v_2 := range v_1.Files {
+		/*line tool.ergo:551:2*/ var f codegraph__FileLength = v_2
+		/*line tool.ergo:551:2*/ {
+//line tool.ergo:552:3
+			b := (o.Max >= int(0))
+			/*line tool.ergo:552:3*/ if b {
+//line tool.ergo:552:28
+				v_3 := (f).LongFile(o.Max)
+//line tool.ergo:552:3
+				b = v_3
+				/*line tool.ergo:552:3*/
+			}
+			/*line tool.ergo:552:3*/ var long bool = b
+//line tool.ergo:553:3
+			if (o.Max >= int(0)) && (!long) {
+//line tool.ergo:554:4
+				goto next
+				/*line tool.ergo:554:4*/
+			}
+//line tool.ergo:556:3
+//line tool.ergo:556:3
+			out = /*line tool.ergo:556:9*/ ergo__Append[ergo__FileLengthOut](out, ergo__FileLengthOut{FileId: f.File, File: /*line tool.ergo:556:56*/ r.Nodes[f.File].Name, Lines: f.Lines, Long: long})
+			/*line tool.ergo:556:3*/
+		}
+		/*line tool.ergo:556:3*/ next:
+//line tool.ergo:551:2
+		env.task.Check()
+		/*line tool.ergo:551:2*/
+	}
+//line tool.ergo:558:2
+	if o.Json {
+//line tool.ergo:559:3
+//line tool.ergo:559:13
+		v_7 := json__EncodeMono_i2628906324(env, struct {
+			/*line tool.ergo:559:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FileLengthOut) (struct{}, error)
+			/*line tool.ergo:559:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FileLengthOut, error)
+			/*line tool.ergo:559:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FileLengthOut) json__text
+			/*line tool.ergo:559:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FileLengthOut, error)
+			/*line tool.ergo:559:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FileLengthOut, error)
+			/*line tool.ergo:559:13*/ Field *struct {
+				/*line tool.ergo:559:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FileLengthOut) (struct{}, error)
+				/*line tool.ergo:559:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FileLengthOut, error)
+				/*line tool.ergo:559:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FileLengthOut) json__text
+				/*line tool.ergo:559:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FileLengthOut, error)
+				/*line tool.ergo:559:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FileLengthOut, error)
+				/*line tool.ergo:559:13*/ Absent func([]ergo__FileLengthOut) bool
+				/*line tool.ergo:559:13*/ Empty []ergo__FileLengthOut
+				/*line tool.ergo:559:13*/
+			}
+			/*line tool.ergo:559:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 []ergo__FileLengthOut) (struct{}, error) {
+			/*line tool.ergo:559:13*/ ergo__EncodeSlice_19(e, w, v_5)
+			/*line tool.ergo:559:13*/ return struct{}{}, nil
+			/*line tool.ergo:559:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__FileLengthOut, error) {
+			/*line tool.ergo:559:13*/ x, err := ergo__DecodeSlice_19(e_1, r_1)
+			/*line tool.ergo:559:13*/ if err != nil {
+				/*line tool.ergo:559:13*/ return *new([]ergo__FileLengthOut), err
+				/*line tool.ergo:559:13*/
+			}
+			/*line tool.ergo:559:13*/ return x, nil
+			/*line tool.ergo:559:13*/
+		}, Direct0: ergo__WriteSlice_19, Read0: ergo__ReadSlice_19, Read1: ergo__ReadSlice_49, Field: nil}, json__Codec[[]ergo__FileLengthOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:559:3
+//line tool.ergo:559:10
+		v_8 := ok((v_7 + "\n"))
+//line tool.ergo:559:3
+		return v_8
+		/*line tool.ergo:559:3*/
+	}
+//line tool.ergo:561:2
+	var b_2 string = ""
+//line tool.ergo:562:2
+	for _, v_9 := range out {
+		/*line tool.ergo:562:2*/ var f_1 ergo__FileLengthOut = v_9
+//line tool.ergo:563:3
+		b_2 = (b_2 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(f_1.Lines), 10)) + " " + f_1.File + "\n"))
+//line tool.ergo:562:2
+		env.task.Check()
+		/*line tool.ergo:562:2*/
+	}
+//line tool.ergo:565:2
+	var v_10 string
+//line tool.ergo:565:5
+	if len(out) == int(0) {
+//line tool.ergo:565:24
+		v_10 = "no file\n"
+		/*line tool.ergo:565:24*/
+	} else {
+//line tool.ergo:565:45
+		v_10 = b_2
+		/*line tool.ergo:565:45*/
+	}
+//line tool.ergo:565:2
+	v_11 := ok(v_10)
+//line tool.ergo:565:45
+	return v_11
+	/*line tool.ergo:565:45*/
+}
+
+//line tool.ergo:568:1
+type ergo__DirectoryOut struct {
+	/*line tool.ergo:568:1*/ Path string
+	/*line tool.ergo:568:1*/ Members []string
+	/*line tool.ergo:568:1*/ Anchor int
+	/*line tool.ergo:568:1*/ Wide bool
+	/*line tool.ergo:568:1*/
+}
+
+//line tool.ergo:570:1
+func directories(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:570:1
+	env.task.Check()
+//line tool.ergo:571:2
+//line tool.ergo:571:16
+	v := selectedModules(r, o)
+//line tool.ergo:571:2
+//line tool.ergo:572:2
+	var out []ergo__DirectoryOut = []ergo__DirectoryOut{}
+//line tool.ergo:573:2
+//line tool.ergo:573:11
+	v_1 := (r).Directories(v)
+//line tool.ergo:573:2
+	for _, v_2 := range v_1.Directories {
+		/*line tool.ergo:573:2*/ var d codegraph__Directory = v_2
+		/*line tool.ergo:573:2*/ {
+//line tool.ergo:574:3
+			b := (o.Max >= int(0))
+			/*line tool.ergo:574:3*/ if b {
+//line tool.ergo:574:28
+				v_3 := (d).WideDirectory(o.Max)
+//line tool.ergo:574:3
+				b = v_3
+				/*line tool.ergo:574:3*/
+			}
+			/*line tool.ergo:574:3*/ var wide bool = b
+//line tool.ergo:575:3
+			if (o.Max >= int(0)) && (!wide) {
+//line tool.ergo:576:4
+				goto next
+				/*line tool.ergo:576:4*/
+			}
+//line tool.ergo:578:3
+//line tool.ergo:578:3
+			out = /*line tool.ergo:578:9*/ ergo__Append[ergo__DirectoryOut](out, ergo__DirectoryOut{Path: d.Path, Members: slices.Clone(d.Members), Anchor: d.Anchor, Wide: wide})
+			/*line tool.ergo:578:3*/
+		}
+		/*line tool.ergo:578:3*/ next:
+//line tool.ergo:573:2
+		env.task.Check()
+		/*line tool.ergo:573:2*/
+	}
+//line tool.ergo:580:2
+	if o.Json {
+//line tool.ergo:581:3
+//line tool.ergo:581:13
+		v_7 := json__EncodeMono_i2720617043(env, struct {
+			/*line tool.ergo:581:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__DirectoryOut) (struct{}, error)
+			/*line tool.ergo:581:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__DirectoryOut, error)
+			/*line tool.ergo:581:13*/ Direct0 func(*ergo__Env, json__text, []ergo__DirectoryOut) json__text
+			/*line tool.ergo:581:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__DirectoryOut, error)
+			/*line tool.ergo:581:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__DirectoryOut, error)
+			/*line tool.ergo:581:13*/ Field *struct {
+				/*line tool.ergo:581:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__DirectoryOut) (struct{}, error)
+				/*line tool.ergo:581:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__DirectoryOut, error)
+				/*line tool.ergo:581:13*/ Direct0 func(*ergo__Env, json__text, []ergo__DirectoryOut) json__text
+				/*line tool.ergo:581:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__DirectoryOut, error)
+				/*line tool.ergo:581:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__DirectoryOut, error)
+				/*line tool.ergo:581:13*/ Absent func([]ergo__DirectoryOut) bool
+				/*line tool.ergo:581:13*/ Empty []ergo__DirectoryOut
+				/*line tool.ergo:581:13*/
+			}
+			/*line tool.ergo:581:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 []ergo__DirectoryOut) (struct{}, error) {
+			/*line tool.ergo:581:13*/ ergo__EncodeSlice_15(e, w, v_5)
+			/*line tool.ergo:581:13*/ return struct{}{}, nil
+			/*line tool.ergo:581:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__DirectoryOut, error) {
+			/*line tool.ergo:581:13*/ x, err := ergo__DecodeSlice_15(e_1, r_1)
+			/*line tool.ergo:581:13*/ if err != nil {
+				/*line tool.ergo:581:13*/ return *new([]ergo__DirectoryOut), err
+				/*line tool.ergo:581:13*/
+			}
+			/*line tool.ergo:581:13*/ return x, nil
+			/*line tool.ergo:581:13*/
+		}, Direct0: ergo__WriteSlice_15, Read0: ergo__ReadSlice_15, Read1: ergo__ReadSlice_45, Field: nil}, json__Codec[[]ergo__DirectoryOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:581:3
+//line tool.ergo:581:10
+		v_8 := ok((v_7 + "\n"))
+//line tool.ergo:581:3
+		return v_8
+		/*line tool.ergo:581:3*/
+	}
+//line tool.ergo:583:2
+	var b_2 string = ""
+//line tool.ergo:584:2
+	for _, v_9 := range out {
+		/*line tool.ergo:584:2*/ var d_1 ergo__DirectoryOut = v_9
+//line tool.ergo:585:3
+		b_2 = (b_2 + (string(strconv.AppendInt(make([]byte, 0, 20), int64(len(d_1.Members)), 10)) + " " + d_1.Path + "/\n"))
+//line tool.ergo:584:2
+		env.task.Check()
+		/*line tool.ergo:584:2*/
+	}
+//line tool.ergo:587:2
+	var v_10 string
+//line tool.ergo:587:5
+	if len(out) == int(0) {
+//line tool.ergo:587:24
+		v_10 = "no directory\n"
+		/*line tool.ergo:587:24*/
+	} else {
+//line tool.ergo:587:50
+		v_10 = b_2
+		/*line tool.ergo:587:50*/
+	}
+//line tool.ergo:587:2
+	v_11 := ok(v_10)
+//line tool.ergo:587:50
+	return v_11
+	/*line tool.ergo:587:50*/
+}
+
+//line tool.ergo:590:1
+type ergo__FieldWriteOut struct {
+	/*line tool.ergo:590:1*/ Field string
+	/*line tool.ergo:590:1*/ Record string
+	/*line tool.ergo:590:1*/ PrivateField string
+	/*line tool.ergo:590:1*/ Callers []string
+	/*line tool.ergo:590:1*/ Sites []int
+	/*line tool.ergo:590:1*/ FieldId int
+	/*line tool.ergo:590:1*/ RecordId int
+	/*line tool.ergo:590:1*/ PrivateFieldId int
+	/*line tool.ergo:590:1*/
+}
+
+//line tool.ergo:601:1
+func fieldWrites(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:601:1
+	env.task.Check()
+//line tool.ergo:602:2
+//line tool.ergo:602:16
+	v := selectedModules(r, o)
+//line tool.ergo:602:2
+//line tool.ergo:603:2
+	var out []ergo__FieldWriteOut = []ergo__FieldWriteOut{}
+//line tool.ergo:604:2
+//line tool.ergo:604:11
+	v_1 := (r).ForeignRecordFieldWrites(v)
+//line tool.ergo:604:2
+	for _, v_2 := range v_1.Writes {
+		/*line tool.ergo:604:2*/ var w codegraph__ForeignFieldWrite = v_2
+//line tool.ergo:605:3
+		var v_3 string
+//line tool.ergo:605:18
+		if w.PrivateField >= int(0) {
+//line tool.ergo:605:43
+//line tool.ergo:605:43
+			var v_4 string
+			/*line tool.ergo:605:43*/ {
+				/*line tool.ergo:605:43*/ var id int = w.PrivateField
+				/*line tool.ergo:605:43*/ var n codegraph__NodeRow = r.Nodes[id]
+				/*line tool.ergo:605:43*/ if n.Kind != "decl" {
+					/*line tool.ergo:605:43*/ v_4 = n.Name
+					/*line tool.ergo:605:43*/ goto inl
+					/*line tool.ergo:605:43*/
+				}
+				/*line tool.ergo:605:43*/ v_5 := (r).packageOf(id)
+				/*line tool.ergo:605:43*/ if v_5 < int(0) {
+					/*line tool.ergo:605:43*/ v_4 = n.Name
+					/*line tool.ergo:605:43*/ goto inl
+					/*line tool.ergo:605:43*/
+				} else {
+					/*line tool.ergo:605:43*/ v_4 = (r.Nodes[v_5].Name + "." + n.Name)
+					/*line tool.ergo:605:43*/ goto inl
+					/*line tool.ergo:605:43*/
+				}
+				/*line tool.ergo:605:43*/
+			}
+			/*line tool.ergo:605:43*/ inl:
+			/*line tool.ergo:605:43*/ _ = 0
+			/*line tool.ergo:605:43*/ v_3 = v_4
+			/*line tool.ergo:605:43*/
+		} else {
+//line tool.ergo:605:88
+			v_3 = ""
+			/*line tool.ergo:605:88*/
+		}
+		/*line tool.ergo:605:88*/ var privName string = v_3
+//line tool.ergo:606:3
+		t := out
+		/*line tool.ergo:606:3*/ t_1 := w.Field
+//line tool.ergo:608:20
+		var v_6 string
+		/*line tool.ergo:608:20*/ {
+			/*line tool.ergo:608:20*/ var id_1 int = w.Field
+			/*line tool.ergo:608:20*/ var n_1 codegraph__NodeRow = r.Nodes[id_1]
+			/*line tool.ergo:608:20*/ if n_1.Kind != "decl" {
+				/*line tool.ergo:608:20*/ v_6 = n_1.Name
+				/*line tool.ergo:608:20*/ goto inl_1
+				/*line tool.ergo:608:20*/
+			}
+			/*line tool.ergo:608:20*/ v_7 := (r).packageOf(id_1)
+			/*line tool.ergo:608:20*/ if v_7 < int(0) {
+				/*line tool.ergo:608:20*/ v_6 = n_1.Name
+				/*line tool.ergo:608:20*/ goto inl_1
+				/*line tool.ergo:608:20*/
+			} else {
+				/*line tool.ergo:608:20*/ v_6 = (r.Nodes[v_7].Name + "." + n_1.Name)
+				/*line tool.ergo:608:20*/ goto inl_1
+				/*line tool.ergo:608:20*/
+			}
+			/*line tool.ergo:608:20*/
+		}
+		/*line tool.ergo:608:20*/ inl_1:
+		/*line tool.ergo:608:20*/ _ = 0
+		/*line tool.ergo:608:20*/ t_2 := v_6
+		/*line tool.ergo:608:20*/ t_3 := w.Record
+//line tool.ergo:610:20
+		var v_8 string
+		/*line tool.ergo:610:20*/ {
+			/*line tool.ergo:610:20*/ var id_2 int = w.Record
+			/*line tool.ergo:610:20*/ var n_2 codegraph__NodeRow = r.Nodes[id_2]
+			/*line tool.ergo:610:20*/ if n_2.Kind != "decl" {
+				/*line tool.ergo:610:20*/ v_8 = n_2.Name
+				/*line tool.ergo:610:20*/ goto inl_2
+				/*line tool.ergo:610:20*/
+			}
+			/*line tool.ergo:610:20*/ v_9 := (r).packageOf(id_2)
+			/*line tool.ergo:610:20*/ if v_9 < int(0) {
+				/*line tool.ergo:610:20*/ v_8 = n_2.Name
+				/*line tool.ergo:610:20*/ goto inl_2
+				/*line tool.ergo:610:20*/
+			} else {
+				/*line tool.ergo:610:20*/ v_8 = (r.Nodes[v_9].Name + "." + n_2.Name)
+				/*line tool.ergo:610:20*/ goto inl_2
+				/*line tool.ergo:610:20*/
+			}
+			/*line tool.ergo:610:20*/
+		}
+		/*line tool.ergo:610:20*/ inl_2:
+		/*line tool.ergo:610:20*/ _ = 0
+		/*line tool.ergo:610:20*/ t_4 := v_8
+		/*line tool.ergo:610:20*/ t_5 := w.PrivateField
+		/*line tool.ergo:610:20*/ t_6 := privName
+//line tool.ergo:613:20
+		v_10 := names(r, w.Callers)
+//line tool.ergo:610:20
+//line tool.ergo:606:9
+		v_11 := ergo__Append[ergo__FieldWriteOut](t, ergo__FieldWriteOut{FieldId: t_1, Field: t_2, RecordId: t_3, Record: t_4, PrivateFieldId: t_5, PrivateField: t_6, Callers: v_10, Sites: slices.Clone(w.Sites)})
+//line tool.ergo:610:20
+		out = v_11
+//line tool.ergo:604:2
+		env.task.Check()
+		/*line tool.ergo:604:2*/
+	}
+//line tool.ergo:617:2
+	if o.Json {
+//line tool.ergo:618:3
+//line tool.ergo:618:13
+		v_14 := json__EncodeMono_i628892963(env, struct {
+			/*line tool.ergo:618:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FieldWriteOut) (struct{}, error)
+			/*line tool.ergo:618:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FieldWriteOut, error)
+			/*line tool.ergo:618:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FieldWriteOut) json__text
+			/*line tool.ergo:618:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FieldWriteOut, error)
+			/*line tool.ergo:618:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FieldWriteOut, error)
+			/*line tool.ergo:618:13*/ Field *struct {
+				/*line tool.ergo:618:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FieldWriteOut) (struct{}, error)
+				/*line tool.ergo:618:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FieldWriteOut, error)
+				/*line tool.ergo:618:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FieldWriteOut) json__text
+				/*line tool.ergo:618:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FieldWriteOut, error)
+				/*line tool.ergo:618:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FieldWriteOut, error)
+				/*line tool.ergo:618:13*/ Absent func([]ergo__FieldWriteOut) bool
+				/*line tool.ergo:618:13*/ Empty []ergo__FieldWriteOut
+				/*line tool.ergo:618:13*/
+			}
+			/*line tool.ergo:618:13*/
+		}{Enc: func(e *ergo__Env, w_1 ergo__Writer, v_12 []ergo__FieldWriteOut) (struct{}, error) {
+			/*line tool.ergo:618:13*/ ergo__EncodeSlice_18(e, w_1, v_12)
+			/*line tool.ergo:618:13*/ return struct{}{}, nil
+			/*line tool.ergo:618:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__FieldWriteOut, error) {
+			/*line tool.ergo:618:13*/ x, err := ergo__DecodeSlice_18(e_1, r_1)
+			/*line tool.ergo:618:13*/ if err != nil {
+				/*line tool.ergo:618:13*/ return *new([]ergo__FieldWriteOut), err
+				/*line tool.ergo:618:13*/
+			}
+			/*line tool.ergo:618:13*/ return x, nil
+			/*line tool.ergo:618:13*/
+		}, Direct0: ergo__WriteSlice_18, Read0: ergo__ReadSlice_18, Read1: ergo__ReadSlice_48, Field: nil}, json__Codec[[]ergo__FieldWriteOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:618:3
+//line tool.ergo:618:10
+		v_15 := ok((v_14 + "\n"))
+//line tool.ergo:618:3
+		return v_15
+		/*line tool.ergo:618:3*/
+	}
+//line tool.ergo:620:2
+	var b_1 string = ""
+//line tool.ergo:621:2
+	for _, v_16 := range out {
+		/*line tool.ergo:621:2*/ var w_2 ergo__FieldWriteOut = v_16
+//line tool.ergo:622:3
+		t_7 := b_1
+		/*line tool.ergo:622:3*/ t_8 := w_2.Field
+		/*line tool.ergo:622:3*/ t_9 := len(w_2.Callers)
+//line tool.ergo:622:55
+		v_17 := ergo.StringsJoin(w_2.Callers, ", ")
+//line tool.ergo:622:3
+		b_1 = (t_7 + (t_8 + " <- " + string(strconv.AppendInt(make([]byte, 0, 20), int64(t_9), 10)) + " callers (" + v_17 + ")\n"))
+//line tool.ergo:621:2
+		env.task.Check()
+		/*line tool.ergo:621:2*/
+	}
+//line tool.ergo:624:2
+	var v_18 string
+//line tool.ergo:624:5
+	if len(out) == int(0) {
+//line tool.ergo:624:24
+		v_18 = "no foreign record field write\n"
+		/*line tool.ergo:624:24*/
+	} else {
+//line tool.ergo:624:67
+		v_18 = b_1
+		/*line tool.ergo:624:67*/
+	}
+//line tool.ergo:624:2
+	v_19 := ok(v_18)
+//line tool.ergo:624:67
+	return v_19
+	/*line tool.ergo:624:67*/
+}
+
+//line tool.ergo:627:1
+type ergo__TestSupportOut struct {
+	/*line tool.ergo:627:1*/ Caller string
+	/*line tool.ergo:627:1*/ Target string
+	/*line tool.ergo:627:1*/ CallerId int
+	/*line tool.ergo:627:1*/ TargetId int
+	/*line tool.ergo:627:1*/ Site int
+	/*line tool.ergo:627:1*/ Import int
+	/*line tool.ergo:627:1*/
+}
+
+//line tool.ergo:636:1
+func testSupport(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:636:1
+	env.task.Check()
+//line tool.ergo:637:2
+//line tool.ergo:637:16
+	v := selectedModules(r, o)
+//line tool.ergo:637:2
+//line tool.ergo:638:2
+	var out []ergo__TestSupportOut = []ergo__TestSupportOut{}
+//line tool.ergo:639:2
+//line tool.ergo:639:11
+	v_1 := (r).ProductionUsesTestSupport(v, o.Support)
+//line tool.ergo:639:2
+	for _, v_2 := range v_1.Uses {
+		/*line tool.ergo:639:2*/ var u codegraph__TestSupportUse = v_2
+//line tool.ergo:640:3
+		t := out
+		/*line tool.ergo:640:3*/ t_1 := u.Caller
+//line tool.ergo:642:14
+		var v_3 string
+		/*line tool.ergo:642:14*/ {
+			/*line tool.ergo:642:14*/ var id int = u.Caller
+			/*line tool.ergo:642:14*/ var n codegraph__NodeRow = r.Nodes[id]
+			/*line tool.ergo:642:14*/ if n.Kind != "decl" {
+				/*line tool.ergo:642:14*/ v_3 = n.Name
+				/*line tool.ergo:642:14*/ goto inl
+				/*line tool.ergo:642:14*/
+			}
+			/*line tool.ergo:642:14*/ v_4 := (r).packageOf(id)
+			/*line tool.ergo:642:14*/ if v_4 < int(0) {
+				/*line tool.ergo:642:14*/ v_3 = n.Name
+				/*line tool.ergo:642:14*/ goto inl
+				/*line tool.ergo:642:14*/
+			} else {
+				/*line tool.ergo:642:14*/ v_3 = (r.Nodes[v_4].Name + "." + n.Name)
+				/*line tool.ergo:642:14*/ goto inl
+				/*line tool.ergo:642:14*/
+			}
+			/*line tool.ergo:642:14*/
+		}
+		/*line tool.ergo:642:14*/ inl:
+		/*line tool.ergo:642:14*/ _ = 0
+//line tool.ergo:640:9
+		v_5 := ergo__Append[ergo__TestSupportOut](t, ergo__TestSupportOut{CallerId: t_1, Caller: v_3, TargetId: u.Target, Target: /*line tool.ergo:644:14*/ r.Nodes[u.Target].Name, Site: u.Site, Import: u.Import})
+//line tool.ergo:642:14
+		out = v_5
+//line tool.ergo:639:2
+		env.task.Check()
+		/*line tool.ergo:639:2*/
+	}
+//line tool.ergo:649:2
+	if o.Json {
+//line tool.ergo:650:3
+//line tool.ergo:650:13
+		v_8 := json__EncodeMono_i3595107923(env, struct {
+			/*line tool.ergo:650:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__TestSupportOut) (struct{}, error)
+			/*line tool.ergo:650:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__TestSupportOut, error)
+			/*line tool.ergo:650:13*/ Direct0 func(*ergo__Env, json__text, []ergo__TestSupportOut) json__text
+			/*line tool.ergo:650:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__TestSupportOut, error)
+			/*line tool.ergo:650:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__TestSupportOut, error)
+			/*line tool.ergo:650:13*/ Field *struct {
+				/*line tool.ergo:650:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__TestSupportOut) (struct{}, error)
+				/*line tool.ergo:650:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__TestSupportOut, error)
+				/*line tool.ergo:650:13*/ Direct0 func(*ergo__Env, json__text, []ergo__TestSupportOut) json__text
+				/*line tool.ergo:650:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__TestSupportOut, error)
+				/*line tool.ergo:650:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__TestSupportOut, error)
+				/*line tool.ergo:650:13*/ Absent func([]ergo__TestSupportOut) bool
+				/*line tool.ergo:650:13*/ Empty []ergo__TestSupportOut
+				/*line tool.ergo:650:13*/
+			}
+			/*line tool.ergo:650:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_6 []ergo__TestSupportOut) (struct{}, error) {
+			/*line tool.ergo:650:13*/ ergo__EncodeSlice_28(e, w, v_6)
+			/*line tool.ergo:650:13*/ return struct{}{}, nil
+			/*line tool.ergo:650:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__TestSupportOut, error) {
+			/*line tool.ergo:650:13*/ x, err := ergo__DecodeSlice_28(e_1, r_1)
+			/*line tool.ergo:650:13*/ if err != nil {
+				/*line tool.ergo:650:13*/ return *new([]ergo__TestSupportOut), err
+				/*line tool.ergo:650:13*/
+			}
+			/*line tool.ergo:650:13*/ return x, nil
+			/*line tool.ergo:650:13*/
+		}, Direct0: ergo__WriteSlice_28, Read0: ergo__ReadSlice_28, Read1: ergo__ReadSlice_58, Field: nil}, json__Codec[[]ergo__TestSupportOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:650:3
+//line tool.ergo:650:10
+		v_9 := ok((v_8 + "\n"))
+//line tool.ergo:650:3
+		return v_9
+		/*line tool.ergo:650:3*/
+	}
+//line tool.ergo:652:2
+	var b_1 string = ""
+//line tool.ergo:653:2
+	for _, v_10 := range out {
+		/*line tool.ergo:653:2*/ var u_1 ergo__TestSupportOut = v_10
+//line tool.ergo:654:3
+		b_1 = (b_1 + (u_1.Caller + " uses " + u_1.Target + "\n"))
+//line tool.ergo:653:2
+		env.task.Check()
+		/*line tool.ergo:653:2*/
+	}
+//line tool.ergo:656:2
+	var v_11 string
+//line tool.ergo:656:5
+	if len(out) == int(0) {
+//line tool.ergo:656:24
+		v_11 = "no production use of test support\n"
+		/*line tool.ergo:656:24*/
+	} else {
+//line tool.ergo:656:71
+		v_11 = b_1
+		/*line tool.ergo:656:71*/
+	}
+//line tool.ergo:656:2
+	v_12 := ok(v_11)
+//line tool.ergo:656:71
+	return v_12
+	/*line tool.ergo:656:71*/
+}
+
+//line tool.ergo:659:1
+type ergo__SeamViolationOut struct {
+	/*line tool.ergo:659:1*/ CallerPkg string
+	/*line tool.ergo:659:1*/ TargetPkg string
+	/*line tool.ergo:659:1*/ TestSites []int
+	/*line tool.ergo:659:1*/ Seam int
+	/*line tool.ergo:659:1*/ Import int
+	/*line tool.ergo:659:1*/ File int
+	/*line tool.ergo:659:1*/ Inside bool
+	/*line tool.ergo:659:1*/
+}
+
+//line tool.ergo:669:1
+func seams(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:669:1
+	env.task.Check()
+//line tool.ergo:670:2
+//line tool.ergo:670:16
+	v := selectedModules(r, o)
+//line tool.ergo:670:2
+//line tool.ergo:671:2
+	var out []ergo__SeamViolationOut = []ergo__SeamViolationOut{}
+//line tool.ergo:672:2
+//line tool.ergo:672:11
+	v_1 := (r).SeamEntrypoints(v, o.Seams)
+//line tool.ergo:672:2
+	for _, v_2 := range v_1.Violations {
+		/*line tool.ergo:672:2*/ var v_3 codegraph__SeamViolation = v_2
+//line tool.ergo:673:3
+//line tool.ergo:673:3
+		out = /*line tool.ergo:673:9*/ ergo__Append[ergo__SeamViolationOut](out, ergo__SeamViolationOut{Seam: v_3.Seam, Import: v_3.Import, File: v_3.File, CallerPkg: /*line tool.ergo:677:15*/ r.Nodes[v_3.CallerPkg].Name, TargetPkg: /*line tool.ergo:678:15*/ r.Nodes[v_3.TargetPkg].Name, Inside: v_3.Inside, TestSites: slices.Clone(v_3.TestSites)})
+//line tool.ergo:672:2
+		env.task.Check()
+		/*line tool.ergo:672:2*/
+	}
+//line tool.ergo:683:2
+	if o.Json {
+//line tool.ergo:684:3
+//line tool.ergo:684:13
+		v_7 := json__EncodeMono_i2291527153(env, struct {
+			/*line tool.ergo:684:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__SeamViolationOut) (struct{}, error)
+			/*line tool.ergo:684:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__SeamViolationOut, error)
+			/*line tool.ergo:684:13*/ Direct0 func(*ergo__Env, json__text, []ergo__SeamViolationOut) json__text
+			/*line tool.ergo:684:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__SeamViolationOut, error)
+			/*line tool.ergo:684:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__SeamViolationOut, error)
+			/*line tool.ergo:684:13*/ Field *struct {
+				/*line tool.ergo:684:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__SeamViolationOut) (struct{}, error)
+				/*line tool.ergo:684:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__SeamViolationOut, error)
+				/*line tool.ergo:684:13*/ Direct0 func(*ergo__Env, json__text, []ergo__SeamViolationOut) json__text
+				/*line tool.ergo:684:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__SeamViolationOut, error)
+				/*line tool.ergo:684:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__SeamViolationOut, error)
+				/*line tool.ergo:684:13*/ Absent func([]ergo__SeamViolationOut) bool
+				/*line tool.ergo:684:13*/ Empty []ergo__SeamViolationOut
+				/*line tool.ergo:684:13*/
+			}
+			/*line tool.ergo:684:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_5 []ergo__SeamViolationOut) (struct{}, error) {
+			/*line tool.ergo:684:13*/ ergo__EncodeSlice_25(e, w, v_5)
+			/*line tool.ergo:684:13*/ return struct{}{}, nil
+			/*line tool.ergo:684:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__SeamViolationOut, error) {
+			/*line tool.ergo:684:13*/ x, err := ergo__DecodeSlice_25(e_1, r_1)
+			/*line tool.ergo:684:13*/ if err != nil {
+				/*line tool.ergo:684:13*/ return *new([]ergo__SeamViolationOut), err
+				/*line tool.ergo:684:13*/
+			}
+			/*line tool.ergo:684:13*/ return x, nil
+			/*line tool.ergo:684:13*/
+		}, Direct0: ergo__WriteSlice_25, Read0: ergo__ReadSlice_25, Read1: ergo__ReadSlice_55, Field: nil}, json__Codec[[]ergo__SeamViolationOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:684:3
+//line tool.ergo:684:10
+		v_8 := ok((v_7 + "\n"))
+//line tool.ergo:684:3
+		return v_8
+		/*line tool.ergo:684:3*/
+	}
+//line tool.ergo:686:2
+	var b_1 string = ""
+//line tool.ergo:687:2
+	for _, v_9 := range out {
+		/*line tool.ergo:687:2*/ var v_10 ergo__SeamViolationOut = v_9
+//line tool.ergo:688:3
+		b_1 = (b_1 + (v_10.CallerPkg + " imports " + v_10.TargetPkg + "\n"))
+//line tool.ergo:687:2
+		env.task.Check()
+		/*line tool.ergo:687:2*/
+	}
+//line tool.ergo:690:2
+	var v_11 string
+//line tool.ergo:690:5
+	if len(out) == int(0) {
+//line tool.ergo:690:24
+		v_11 = "no seam violation\n"
+		/*line tool.ergo:690:24*/
+	} else {
+//line tool.ergo:690:55
+		v_11 = b_1
+		/*line tool.ergo:690:55*/
+	}
+//line tool.ergo:690:2
+	v_12 := ok(v_11)
+//line tool.ergo:690:55
+	return v_12
+	/*line tool.ergo:690:55*/
+}
+
+//line tool.ergo:693:1
+type ergo__FolderCycleOut struct {
+	/*line tool.ergo:693:1*/ Parent string
+	/*line tool.ergo:693:1*/ Members []string
+	/*line tool.ergo:693:1*/ Path []string
+	/*line tool.ergo:693:1*/ Sites []int
+	/*line tool.ergo:693:1*/
+}
+
+//line tool.ergo:700:1
+func folderCycles(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:700:1
+	env.task.Check()
+//line tool.ergo:701:2
+//line tool.ergo:701:16
+	v := selectedModules(r, o)
+//line tool.ergo:701:2
+//line tool.ergo:702:2
+	var out []ergo__FolderCycleOut = []ergo__FolderCycleOut{}
+//line tool.ergo:703:2
+//line tool.ergo:703:11
+	v_1 := (r).SiblingFolderCycles(v)
+//line tool.ergo:703:2
+	for _, v_2 := range v_1.Cycles {
+		/*line tool.ergo:703:2*/ var c codegraph__FolderCycle = v_2
+//line tool.ergo:704:3
+//line tool.ergo:704:3
+		out = /*line tool.ergo:704:9*/ ergo__Append[ergo__FolderCycleOut](out, ergo__FolderCycleOut{Parent: c.Parent, Members: slices.Clone(c.Members), Path: slices.Clone(c.Path), Sites: slices.Clone(c.Sites)})
+//line tool.ergo:703:2
+		env.task.Check()
+		/*line tool.ergo:703:2*/
+	}
+//line tool.ergo:706:2
+	if o.Json {
+//line tool.ergo:707:3
+//line tool.ergo:707:13
+		v_6 := json__EncodeMono_i2267674688(env, struct {
+			/*line tool.ergo:707:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FolderCycleOut) (struct{}, error)
+			/*line tool.ergo:707:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FolderCycleOut, error)
+			/*line tool.ergo:707:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FolderCycleOut) json__text
+			/*line tool.ergo:707:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FolderCycleOut, error)
+			/*line tool.ergo:707:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FolderCycleOut, error)
+			/*line tool.ergo:707:13*/ Field *struct {
+				/*line tool.ergo:707:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__FolderCycleOut) (struct{}, error)
+				/*line tool.ergo:707:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__FolderCycleOut, error)
+				/*line tool.ergo:707:13*/ Direct0 func(*ergo__Env, json__text, []ergo__FolderCycleOut) json__text
+				/*line tool.ergo:707:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__FolderCycleOut, error)
+				/*line tool.ergo:707:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__FolderCycleOut, error)
+				/*line tool.ergo:707:13*/ Absent func([]ergo__FolderCycleOut) bool
+				/*line tool.ergo:707:13*/ Empty []ergo__FolderCycleOut
+				/*line tool.ergo:707:13*/
+			}
+			/*line tool.ergo:707:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_4 []ergo__FolderCycleOut) (struct{}, error) {
+			/*line tool.ergo:707:13*/ ergo__EncodeSlice_20(e, w, v_4)
+			/*line tool.ergo:707:13*/ return struct{}{}, nil
+			/*line tool.ergo:707:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__FolderCycleOut, error) {
+			/*line tool.ergo:707:13*/ x, err := ergo__DecodeSlice_20(e_1, r_1)
+			/*line tool.ergo:707:13*/ if err != nil {
+				/*line tool.ergo:707:13*/ return *new([]ergo__FolderCycleOut), err
+				/*line tool.ergo:707:13*/
+			}
+			/*line tool.ergo:707:13*/ return x, nil
+			/*line tool.ergo:707:13*/
+		}, Direct0: ergo__WriteSlice_20, Read0: ergo__ReadSlice_20, Read1: ergo__ReadSlice_50, Field: nil}, json__Codec[[]ergo__FolderCycleOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:707:3
+//line tool.ergo:707:10
+		v_7 := ok((v_6 + "\n"))
+//line tool.ergo:707:3
+		return v_7
+		/*line tool.ergo:707:3*/
+	}
+//line tool.ergo:709:2
+	var b_1 string = ""
+//line tool.ergo:710:2
+	for _, v_8 := range out {
+		/*line tool.ergo:710:2*/ var c_1 ergo__FolderCycleOut = v_8
+//line tool.ergo:711:3
+		t := (b_1 + (c_1.Parent + ": "))
+//line tool.ergo:711:29
+		v_9 := ergo.StringsJoin(c_1.Path, " -> ")
+//line tool.ergo:711:3
+		b_1 = ((t + v_9) + "\n")
+//line tool.ergo:710:2
+		env.task.Check()
+		/*line tool.ergo:710:2*/
+	}
+//line tool.ergo:713:2
+	var v_10 string
+//line tool.ergo:713:5
+	if len(out) == int(0) {
+//line tool.ergo:713:24
+		v_10 = "no sibling folder cycle\n"
+		/*line tool.ergo:713:24*/
+	} else {
+//line tool.ergo:713:61
+		v_10 = b_1
+		/*line tool.ergo:713:61*/
+	}
+//line tool.ergo:713:2
+	v_11 := ok(v_10)
+//line tool.ergo:713:61
+	return v_11
+	/*line tool.ergo:713:61*/
+}
+
+//line tool.ergo:716:1
+type ergo__TangleOut struct {
+	/*line tool.ergo:716:1*/ Package string
+	/*line tool.ergo:716:1*/ Members []string
+	/*line tool.ergo:716:1*/ Files []string
+	/*line tool.ergo:716:1*/ Path []string
+	/*line tool.ergo:716:1*/ Sites []int
+	/*line tool.ergo:716:1*/ CrossFile bool
+	/*line tool.ergo:716:1*/
+}
+
+//line tool.ergo:725:1
+func tangles(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:725:1
+	env.task.Check()
+//line tool.ergo:726:2
+//line tool.ergo:726:16
+	v := selectedModules(r, o)
+//line tool.ergo:726:2
+//line tool.ergo:727:2
+	var out []ergo__TangleOut = []ergo__TangleOut{}
+//line tool.ergo:728:2
+//line tool.ergo:728:11
+	v_1 := (r).DeclarationTanglesOf(v)
+//line tool.ergo:728:2
+	for _, v_2 := range v_1.Tangles {
+		/*line tool.ergo:728:2*/ var t codegraph__DeclarationTangle = v_2
+		/*line tool.ergo:728:2*/ {
+//line tool.ergo:729:3
+			b := (o.Max >= int(0))
+			/*line tool.ergo:729:3*/ if b {
+//line tool.ergo:729:21
+				v_3 := (t).TangleReported(o.Max)
+//line tool.ergo:729:3
+				b = (!v_3)
+				/*line tool.ergo:729:3*/
+			}
+			/*line tool.ergo:729:3*/ if b {
+//line tool.ergo:730:4
+				goto next
+				/*line tool.ergo:730:4*/
+			}
+//line tool.ergo:732:3
+			t_1 := out
+			/*line tool.ergo:732:3*/ t_2 := /*line tool.ergo:733:15*/ r.Nodes[t.Package].Name
+//line tool.ergo:734:15
+			v_4 := names(r, t.Members)
+//line tool.ergo:732:3
+			t_3 := v_4
+//line tool.ergo:735:15
+			v_5 := names(r, t.Files)
+//line tool.ergo:732:3
+			t_4 := v_5
+//line tool.ergo:736:15
+			v_6 := names(r, t.Path)
+//line tool.ergo:732:3
+//line tool.ergo:732:9
+			v_7 := ergo__Append[ergo__TangleOut](t_1, ergo__TangleOut{Package: t_2, Members: t_3, Files: t_4, Path: v_6, Sites: slices.Clone(t.Sites), CrossFile: (len(t.Files) > int(1))})
+//line tool.ergo:732:3
+			out = v_7
+			/*line tool.ergo:732:3*/
+		}
+		/*line tool.ergo:732:3*/ next:
+//line tool.ergo:728:2
+		env.task.Check()
+		/*line tool.ergo:728:2*/
+	}
+//line tool.ergo:741:2
+	if o.Json {
+//line tool.ergo:742:3
+//line tool.ergo:742:13
+		v_10 := json__EncodeMono_i3625328035(env, struct {
+			/*line tool.ergo:742:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__TangleOut) (struct{}, error)
+			/*line tool.ergo:742:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__TangleOut, error)
+			/*line tool.ergo:742:13*/ Direct0 func(*ergo__Env, json__text, []ergo__TangleOut) json__text
+			/*line tool.ergo:742:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__TangleOut, error)
+			/*line tool.ergo:742:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__TangleOut, error)
+			/*line tool.ergo:742:13*/ Field *struct {
+				/*line tool.ergo:742:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__TangleOut) (struct{}, error)
+				/*line tool.ergo:742:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__TangleOut, error)
+				/*line tool.ergo:742:13*/ Direct0 func(*ergo__Env, json__text, []ergo__TangleOut) json__text
+				/*line tool.ergo:742:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__TangleOut, error)
+				/*line tool.ergo:742:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__TangleOut, error)
+				/*line tool.ergo:742:13*/ Absent func([]ergo__TangleOut) bool
+				/*line tool.ergo:742:13*/ Empty []ergo__TangleOut
+				/*line tool.ergo:742:13*/
+			}
+			/*line tool.ergo:742:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_8 []ergo__TangleOut) (struct{}, error) {
+			/*line tool.ergo:742:13*/ ergo__EncodeSlice_27(e, w, v_8)
+			/*line tool.ergo:742:13*/ return struct{}{}, nil
+			/*line tool.ergo:742:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__TangleOut, error) {
+			/*line tool.ergo:742:13*/ x, err := ergo__DecodeSlice_27(e_1, r_1)
+			/*line tool.ergo:742:13*/ if err != nil {
+				/*line tool.ergo:742:13*/ return *new([]ergo__TangleOut), err
+				/*line tool.ergo:742:13*/
+			}
+			/*line tool.ergo:742:13*/ return x, nil
+			/*line tool.ergo:742:13*/
+		}, Direct0: ergo__WriteSlice_27, Read0: ergo__ReadSlice_27, Read1: ergo__ReadSlice_57, Field: nil}, json__Codec[[]ergo__TangleOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:742:3
+//line tool.ergo:742:10
+		v_11 := ok((v_10 + "\n"))
+//line tool.ergo:742:3
+		return v_11
+		/*line tool.ergo:742:3*/
+	}
+//line tool.ergo:744:2
+	var b_2 string = ""
+//line tool.ergo:745:2
+	for _, v_12 := range out {
+		/*line tool.ergo:745:2*/ var t_5 ergo__TangleOut = v_12
+//line tool.ergo:746:3
+		t_6 := (b_2 + (t_5.Package + " (" + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(t_5.Members)), 10)) + " decls, " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(t_5.Files)), 10)) + " files): "))
+//line tool.ergo:746:79
+		v_13 := ergo.StringsJoin(t_5.Path, " -> ")
+//line tool.ergo:746:3
+		b_2 = ((t_6 + v_13) + "\n")
+//line tool.ergo:745:2
+		env.task.Check()
+		/*line tool.ergo:745:2*/
+	}
+//line tool.ergo:748:2
+	var v_14 string
+//line tool.ergo:748:5
+	if len(out) == int(0) {
+//line tool.ergo:748:24
+		v_14 = "no declaration tangle\n"
+		/*line tool.ergo:748:24*/
+	} else {
+//line tool.ergo:748:59
+		v_14 = b_2
+		/*line tool.ergo:748:59*/
+	}
+//line tool.ergo:748:2
+	v_15 := ok(v_14)
+//line tool.ergo:748:59
+	return v_15
+	/*line tool.ergo:748:59*/
+}
+
+//line tool.ergo:751:1
+func compareLayout(env *ergo__Env, head codegraph__Rows, base codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:751:1
+	env.task.Check()
+//line tool.ergo:752:2
+//line tool.ergo:752:17
+	v := selectedModules(head, o)
+//line tool.ergo:752:2
+//line tool.ergo:753:2
+//line tool.ergo:753:17
+	v_1 := selectedModules(base, o)
+//line tool.ergo:753:2
+//line tool.ergo:754:2
+	var v_2 codegraph__LayoutPolicy
+//line tool.ergo:754:15
+	if o.HasPolicy {
+//line tool.ergo:755:3
+		v_2 = o.Policy
+		/*line tool.ergo:755:3*/
+	} else {
+//line tool.ergo:757:3
+		v_2 = codegraph__LayoutPolicy{MaxSurfaceList: o.MaxSurface, MaxFileLines: o.MaxLines, MaxDirectoryMembers: o.MaxDir, MaxTangleMembers: o.MaxTangle, Support: o.Support, Seams: o.Seams}
+		/*line tool.ergo:757:3*/
+	}
+	/*line tool.ergo:757:3*/ var policy codegraph__LayoutPolicy = v_2
+//line tool.ergo:766:2
+//line tool.ergo:766:12
+	v_3 := (base).CompareLayout(head, v_1, v, policy)
+//line tool.ergo:766:2
+//line tool.ergo:767:2
+	if o.Json {
+//line tool.ergo:768:3
+//line tool.ergo:768:13
+		v_6 := json__EncodeMono_i2246012281(env, struct {
+			/*line tool.ergo:768:13*/ Enc func(*ergo__Env, ergo__Writer, codegraph__LayoutComparison) (struct{}, error)
+			/*line tool.ergo:768:13*/ Dec func(*ergo__Env, ergo__Reader) (codegraph__LayoutComparison, error)
+			/*line tool.ergo:768:13*/ Direct0 func(*ergo__Env, json__text, codegraph__LayoutComparison) json__text
+			/*line tool.ergo:768:13*/ Read0 func(*ergo__Env, json__Reader_1) (codegraph__LayoutComparison, error)
+			/*line tool.ergo:768:13*/ Read1 func(*ergo__Env, json__Stream) (codegraph__LayoutComparison, error)
+			/*line tool.ergo:768:13*/ Field *struct {
+				/*line tool.ergo:768:13*/ Enc func(*ergo__Env, ergo__Writer, codegraph__LayoutComparison) (struct{}, error)
+				/*line tool.ergo:768:13*/ Dec func(*ergo__Env, ergo__Reader) (codegraph__LayoutComparison, error)
+				/*line tool.ergo:768:13*/ Direct0 func(*ergo__Env, json__text, codegraph__LayoutComparison) json__text
+				/*line tool.ergo:768:13*/ Read0 func(*ergo__Env, json__Reader_1) (codegraph__LayoutComparison, error)
+				/*line tool.ergo:768:13*/ Read1 func(*ergo__Env, json__Stream) (codegraph__LayoutComparison, error)
+				/*line tool.ergo:768:13*/ Absent func(codegraph__LayoutComparison) bool
+				/*line tool.ergo:768:13*/ Empty codegraph__LayoutComparison
+				/*line tool.ergo:768:13*/
+			}
+			/*line tool.ergo:768:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_4 codegraph__LayoutComparison) (struct{}, error) {
+			/*line tool.ergo:768:13*/ ergo__EncodeLayoutComparison(e, w, v_4)
+			/*line tool.ergo:768:13*/ return struct{}{}, nil
+			/*line tool.ergo:768:13*/
+		}, Dec: func(e_1 *ergo__Env, r ergo__Reader) (codegraph__LayoutComparison, error) {
+			/*line tool.ergo:768:13*/ x, err := ergo__DecodeLayoutComparison(e_1, r)
+			/*line tool.ergo:768:13*/ if err != nil {
+				/*line tool.ergo:768:13*/ return *new(codegraph__LayoutComparison), err
+				/*line tool.ergo:768:13*/
+			}
+			/*line tool.ergo:768:13*/ return x, nil
+			/*line tool.ergo:768:13*/
+		}, Direct0: ergo__WriteLayoutComparison, Read0: ergo__ReadLayoutComparison, Read1: ergo__ReadLayoutComparison_1, Field: nil}, json__Codec[codegraph__LayoutComparison]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_3)
+//line tool.ergo:768:3
+//line tool.ergo:768:10
+		v_7 := ok((v_6 + "\n"))
+//line tool.ergo:768:3
+		return v_7
+		/*line tool.ergo:768:3*/
+	}
+//line tool.ergo:770:2
+	var b_1 string = "advisory layout comparison: "
+//line tool.ergo:771:2
+	t := b_1
+	/*line tool.ergo:771:2*/ var v_8 string
+//line tool.ergo:771:11
+	if v_3.Regressed {
+//line tool.ergo:771:30
+		v_8 = "regressed"
+		/*line tool.ergo:771:30*/
+	} else {
+//line tool.ergo:771:51
+		v_8 = "clean"
+		/*line tool.ergo:771:51*/
+	}
+	/*line tool.ergo:771:51*/ b_1 = (t + v_8)
+//line tool.ergo:772:2
+	b_1 = (b_1 + (" (" + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v_3.Added)), 10)) + " added, " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v_3.Grown)), 10)) + " grown, " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v_3.Unchanged)), 10)) + " unchanged, " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(v_3.Removed)), 10)) + " removed)\n"))
+//line tool.ergo:773:2
+	for _, v_9 := range v_3.Added {
+		/*line tool.ergo:773:2*/ var a codegraph__EvidenceDelta = v_9
+//line tool.ergo:774:3
+		b_1 = (b_1 + ("+ [" + a.Rule + "] " + a.Detail + "\n"))
+//line tool.ergo:773:2
+		env.task.Check()
+		/*line tool.ergo:773:2*/
+	}
+//line tool.ergo:776:2
+	for _, v_10 := range v_3.Grown {
+		/*line tool.ergo:776:2*/ var g codegraph__EvidenceDelta = v_10
+//line tool.ergo:777:3
+		b_1 = (b_1 + ("^ [" + g.Rule + "] " + g.Detail + " (" + string(strconv.AppendInt(make([]byte, 0, 20), int64(g.BaseCount), 10)) + " -> " + string(strconv.AppendInt(make([]byte, 0, 20), int64(g.HeadCount), 10)) + ")\n"))
+//line tool.ergo:776:2
+		env.task.Check()
+		/*line tool.ergo:776:2*/
+	}
+//line tool.ergo:779:2
+	for _, v_11 := range v_3.Unchanged {
+		/*line tool.ergo:779:2*/ var u codegraph__EvidenceItem = v_11
+//line tool.ergo:780:3
+		b_1 = (b_1 + ("= [" + u.Rule + "] " + u.Detail + "\n"))
+//line tool.ergo:779:2
+		env.task.Check()
+		/*line tool.ergo:779:2*/
+	}
+//line tool.ergo:782:2
+	for _, v_12 := range v_3.Removed {
+		/*line tool.ergo:782:2*/ var r_1 codegraph__EvidenceItem = v_12
+//line tool.ergo:783:3
+		b_1 = (b_1 + ("- [" + r_1.Rule + "] " + r_1.Detail + "\n"))
+//line tool.ergo:782:2
+		env.task.Check()
+		/*line tool.ergo:782:2*/
+	}
+//line tool.ergo:785:2
+	v_13 := ok(b_1)
+	/*line tool.ergo:785:2*/ return v_13
+	/*line tool.ergo:785:2*/
+}
+
+//line tool.ergo:788:1
+func interfaces(env *ergo__Env, r codegraph__Rows, o ergo__Options) []string {
+//line tool.ergo:788:1
+	env.task.Check()
+//line tool.ergo:789:2
+//line tool.ergo:789:16
+	v := selectedModules(r, o)
+//line tool.ergo:789:2
+//line tool.ergo:790:2
+	var out []ergo__InterfaceOut = []ergo__InterfaceOut{}
+//line tool.ergo:791:2
+//line tool.ergo:791:11
+	v_1 := (r).ObservedInterfaces(v)
+//line tool.ergo:791:2
+	for _, v_2 := range v_1.Packages {
+		/*line tool.ergo:791:2*/ var p codegraph__Interface = v_2
+		/*line tool.ergo:791:2*/ {
+//line tool.ergo:792:3
+			b := (o.Max >= int(0))
+			/*line tool.ergo:792:3*/ if b {
+//line tool.ergo:792:28
+				v_3 := (p).Wide(o.Max)
+//line tool.ergo:792:3
+				b = v_3
+				/*line tool.ergo:792:3*/
+			}
+			/*line tool.ergo:792:3*/ var wide bool = b
+//line tool.ergo:793:3
+			if (o.Max >= int(0)) && (!wide) {
+//line tool.ergo:794:4
+				goto next
+				/*line tool.ergo:794:4*/
+			}
+//line tool.ergo:796:3
+			var entries []ergo__EntryOut = []ergo__EntryOut{}
+//line tool.ergo:797:3
+			entries = ergo.Reserve(entries, len(p.Entries))
+			/*line tool.ergo:797:3*/ for k, v_4 := range p.Entries {
+				/*line tool.ergo:797:3*/ var k_1 int = k
+				/*line tool.ergo:797:3*/ var e int = v_4
+//line tool.ergo:798:4
+				t := entries
+				/*line tool.ergo:798:4*/ t_1 := e
+//line tool.ergo:798:51
+				var v_5 string
+				/*line tool.ergo:798:51*/ {
+					/*line tool.ergo:798:51*/ var n codegraph__NodeRow = r.Nodes[e]
+					/*line tool.ergo:798:51*/ if n.Kind != "decl" {
+						/*line tool.ergo:798:51*/ v_5 = n.Name
+						/*line tool.ergo:798:51*/ goto inl
+						/*line tool.ergo:798:51*/
+					}
+					/*line tool.ergo:798:51*/ v_6 := (r).packageOf(e)
+					/*line tool.ergo:798:51*/ if v_6 < int(0) {
+						/*line tool.ergo:798:51*/ v_5 = n.Name
+						/*line tool.ergo:798:51*/ goto inl
+						/*line tool.ergo:798:51*/
+					} else {
+						/*line tool.ergo:798:51*/ v_5 = (r.Nodes[v_6].Name + "." + n.Name)
+						/*line tool.ergo:798:51*/ goto inl
+						/*line tool.ergo:798:51*/
+					}
+					/*line tool.ergo:798:51*/
+				}
+				/*line tool.ergo:798:51*/ inl:
+				/*line tool.ergo:798:51*/ _ = 0
+//line tool.ergo:798:14
+				v_7 := ergo__Append[ergo__EntryOut](t, ergo__EntryOut{Id: t_1, Name: v_5, Site: /*line tool.ergo:798:81*/ p.Sites[k_1]})
+//line tool.ergo:798:51
+				entries = v_7
+//line tool.ergo:797:3
+				env.task.Check()
+				/*line tool.ergo:797:3*/
+			}
+//line tool.ergo:800:3
+			var groups []ergo__GroupOut = []ergo__GroupOut{}
+//line tool.ergo:801:3
+			groups = ergo.Reserve(groups, len(p.Groups))
+			/*line tool.ergo:801:3*/ for _, v_8 := range p.Groups {
+				/*line tool.ergo:801:3*/ var g codegraph__InterfaceGroup = v_8
+//line tool.ergo:802:4
+				t_2 := groups
+				/*line tool.ergo:802:4*/ t_3 := g.Node
+//line tool.ergo:802:54
+				var v_9 string
+				/*line tool.ergo:802:54*/ {
+					/*line tool.ergo:802:54*/ var id int = g.Node
+					/*line tool.ergo:802:54*/ var n_1 codegraph__NodeRow = r.Nodes[id]
+					/*line tool.ergo:802:54*/ if n_1.Kind != "decl" {
+						/*line tool.ergo:802:54*/ v_9 = n_1.Name
+						/*line tool.ergo:802:54*/ goto inl_1
+						/*line tool.ergo:802:54*/
+					}
+					/*line tool.ergo:802:54*/ v_10 := (r).packageOf(id)
+					/*line tool.ergo:802:54*/ if v_10 < int(0) {
+						/*line tool.ergo:802:54*/ v_9 = n_1.Name
+						/*line tool.ergo:802:54*/ goto inl_1
+						/*line tool.ergo:802:54*/
+					} else {
+						/*line tool.ergo:802:54*/ v_9 = (r.Nodes[v_10].Name + "." + n_1.Name)
+						/*line tool.ergo:802:54*/ goto inl_1
+						/*line tool.ergo:802:54*/
+					}
+					/*line tool.ergo:802:54*/
+				}
+				/*line tool.ergo:802:54*/ inl_1:
+				/*line tool.ergo:802:54*/ _ = 0
+//line tool.ergo:802:13
+				v_11 := ergo__Append[ergo__GroupOut](t_2, ergo__GroupOut{Id: t_3, Name: v_9, Entries: slices.Clone(g.Entries)})
+//line tool.ergo:802:54
+				groups = v_11
+//line tool.ergo:801:3
+				env.task.Check()
+				/*line tool.ergo:801:3*/
+			}
+//line tool.ergo:804:3
+			t_4 := out
+			/*line tool.ergo:804:3*/ t_5 := p.Package
+			/*line tool.ergo:804:3*/ t_6 := /*line tool.ergo:804:64*/ r.Nodes[p.Package].Name
+			/*line tool.ergo:804:3*/ t_7 := entries
+			/*line tool.ergo:804:3*/ t_8 := groups
+			/*line tool.ergo:804:3*/ t_9 := p.Widest
+			/*line tool.ergo:804:3*/ t_10 := wide
+//line tool.ergo:804:162
+			v_12 := names(r, p.Backing)
+//line tool.ergo:804:3
+//line tool.ergo:804:9
+			v_13 := ergo__Append[ergo__InterfaceOut](t_4, ergo__InterfaceOut{PackageId: t_5, Package: t_6, Entries: t_7, Groups: t_8, Widest: t_9, Wide: t_10, Backing: v_12, Unresolved: p.Unresolved})
+//line tool.ergo:804:3
+			out = v_13
+			/*line tool.ergo:804:3*/
+		}
+		/*line tool.ergo:804:3*/ next:
+//line tool.ergo:791:2
+		env.task.Check()
+		/*line tool.ergo:791:2*/
+	}
+//line tool.ergo:806:2
+	if o.Json {
+//line tool.ergo:807:3
+//line tool.ergo:807:13
+		v_16 := json__EncodeMono_i1016977051(env, struct {
+			/*line tool.ergo:807:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__InterfaceOut) (struct{}, error)
+			/*line tool.ergo:807:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__InterfaceOut, error)
+			/*line tool.ergo:807:13*/ Direct0 func(*ergo__Env, json__text, []ergo__InterfaceOut) json__text
+			/*line tool.ergo:807:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__InterfaceOut, error)
+			/*line tool.ergo:807:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__InterfaceOut, error)
+			/*line tool.ergo:807:13*/ Field *struct {
+				/*line tool.ergo:807:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__InterfaceOut) (struct{}, error)
+				/*line tool.ergo:807:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__InterfaceOut, error)
+				/*line tool.ergo:807:13*/ Direct0 func(*ergo__Env, json__text, []ergo__InterfaceOut) json__text
+				/*line tool.ergo:807:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__InterfaceOut, error)
+				/*line tool.ergo:807:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__InterfaceOut, error)
+				/*line tool.ergo:807:13*/ Absent func([]ergo__InterfaceOut) bool
+				/*line tool.ergo:807:13*/ Empty []ergo__InterfaceOut
+				/*line tool.ergo:807:13*/
+			}
+			/*line tool.ergo:807:13*/
+		}{Enc: func(e_1 *ergo__Env, w ergo__Writer, v_14 []ergo__InterfaceOut) (struct{}, error) {
+			/*line tool.ergo:807:13*/ ergo__EncodeSlice_23(e_1, w, v_14)
+			/*line tool.ergo:807:13*/ return struct{}{}, nil
+			/*line tool.ergo:807:13*/
+		}, Dec: func(e_2 *ergo__Env, r_1 ergo__Reader) ([]ergo__InterfaceOut, error) {
+			/*line tool.ergo:807:13*/ x, err := ergo__DecodeSlice_23(e_2, r_1)
+			/*line tool.ergo:807:13*/ if err != nil {
+				/*line tool.ergo:807:13*/ return *new([]ergo__InterfaceOut), err
+				/*line tool.ergo:807:13*/
+			}
+			/*line tool.ergo:807:13*/ return x, nil
+			/*line tool.ergo:807:13*/
+		}, Direct0: ergo__WriteSlice_23, Read0: ergo__ReadSlice_23, Read1: ergo__ReadSlice_53, Field: nil}, json__Codec[[]ergo__InterfaceOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, out)
+//line tool.ergo:807:3
+//line tool.ergo:807:10
+		v_17 := ok((v_16 + "\n"))
+//line tool.ergo:807:3
+		return v_17
+		/*line tool.ergo:807:3*/
+	}
+//line tool.ergo:809:2
+	var b_2 string = ""
+//line tool.ergo:810:2
+	for _, v_18 := range out {
+		/*line tool.ergo:810:2*/ var p_1 ergo__InterfaceOut = v_18
+//line tool.ergo:811:3
+		b_2 = (b_2 + (p_1.Package + ": clients use " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(p_1.Entries)), 10)) + " callable entries, the longest list " + string(strconv.AppendInt(make([]byte, 0, 20), int64(p_1.Widest), 10)) + "; " + string(strconv.AppendInt(make([]byte, 0, 20), int64(len(p_1.Backing)), 10)) + " private functions reached, " + string(strconv.AppendInt(make([]byte, 0, 20), int64(p_1.Unresolved), 10)) + " entries unresolved\n"))
+//line tool.ergo:810:2
+		env.task.Check()
+		/*line tool.ergo:810:2*/
+	}
+//line tool.ergo:813:2
+	var v_19 string
+//line tool.ergo:813:5
+	if len(out) == int(0) {
+//line tool.ergo:813:24
+		v_19 = "no observed interface\n"
+		/*line tool.ergo:813:24*/
+	} else {
+//line tool.ergo:813:59
+		v_19 = b_2
+		/*line tool.ergo:813:59*/
+	}
+//line tool.ergo:813:2
+	v_20 := ok(v_19)
+//line tool.ergo:813:59
+	return v_20
+	/*line tool.ergo:813:59*/
+}
+
+//line tool.ergo:816:1
+func layers(env *ergo__Env, r codegraph__Rows, o ergo__Options, patterns []string) []string {
+//line tool.ergo:816:1
+	env.task.Check()
+//line tool.ergo:817:2
+	t := r
+//line tool.ergo:817:24
+	v := (r).Up(patterns)
+//line tool.ergo:817:2
+//line tool.ergo:817:12
+	v_1 := stepsOut(t, v)
+//line tool.ergo:817:2
+//line tool.ergo:818:2
+	if o.Json {
+//line tool.ergo:819:3
+//line tool.ergo:819:13
+		v_4 := json__EncodeMono_i1577938236(env, struct {
+			/*line tool.ergo:819:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
+			/*line tool.ergo:819:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
+			/*line tool.ergo:819:13*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
+			/*line tool.ergo:819:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
+			/*line tool.ergo:819:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
+			/*line tool.ergo:819:13*/ Field *struct {
+				/*line tool.ergo:819:13*/ Enc func(*ergo__Env, ergo__Writer, []ergo__StepOut) (struct{}, error)
+				/*line tool.ergo:819:13*/ Dec func(*ergo__Env, ergo__Reader) ([]ergo__StepOut, error)
+				/*line tool.ergo:819:13*/ Direct0 func(*ergo__Env, json__text, []ergo__StepOut) json__text
+				/*line tool.ergo:819:13*/ Read0 func(*ergo__Env, json__Reader_1) ([]ergo__StepOut, error)
+				/*line tool.ergo:819:13*/ Read1 func(*ergo__Env, json__Stream) ([]ergo__StepOut, error)
+				/*line tool.ergo:819:13*/ Absent func([]ergo__StepOut) bool
+				/*line tool.ergo:819:13*/ Empty []ergo__StepOut
+				/*line tool.ergo:819:13*/
+			}
+			/*line tool.ergo:819:13*/
+		}{Enc: func(e *ergo__Env, w ergo__Writer, v_2 []ergo__StepOut) (struct{}, error) {
+			/*line tool.ergo:819:13*/ ergo__EncodeSlice_26(e, w, v_2)
+			/*line tool.ergo:819:13*/ return struct{}{}, nil
+			/*line tool.ergo:819:13*/
+		}, Dec: func(e_1 *ergo__Env, r_1 ergo__Reader) ([]ergo__StepOut, error) {
+			/*line tool.ergo:819:13*/ x, err := ergo__DecodeSlice_26(e_1, r_1)
+			/*line tool.ergo:819:13*/ if err != nil {
+				/*line tool.ergo:819:13*/ return *new([]ergo__StepOut), err
+				/*line tool.ergo:819:13*/
+			}
+			/*line tool.ergo:819:13*/ return x, nil
+			/*line tool.ergo:819:13*/
+		}, Direct0: ergo__WriteSlice_26, Read0: ergo__ReadSlice_26, Read1: ergo__ReadSlice_56, Field: nil}, json__Codec[[]ergo__StepOut]{MaxBytes: int(1099511627776), MaxDepth: int(16)}, v_1)
+//line tool.ergo:819:3
+//line tool.ergo:819:10
+		v_5 := ok((v_4 + "\n"))
+//line tool.ergo:819:3
+		return v_5
+		/*line tool.ergo:819:3*/
+	}
+//line tool.ergo:821:2
+	var v_6 string
+//line tool.ergo:821:5
+	if len(v_1) == int(0) {
+//line tool.ergo:821:24
+		v_6 = "no import goes up\n"
+		/*line tool.ergo:821:24*/
+	} else {
+//line tool.ergo:821:55
+		v_7 := stepsText(v_1)
+		/*line tool.ergo:821:55*/ v_6 = v_7
+		/*line tool.ergo:821:55*/
+	}
+//line tool.ergo:821:2
+	v_8 := ok(v_6)
+//line tool.ergo:821:55
+	return v_8
+	/*line tool.ergo:821:55*/
+}
+
+//line tool.ergo:824:1
 func ok(text string) []string {
-//line tool.ergo:360:33
+//line tool.ergo:824:33
 	return []string{"0", text, ""}
-	/*line tool.ergo:360:33*/
+	/*line tool.ergo:824:33*/
 }
 
 // ergoInit runs the package-level lets in Go's initialization order,
 // inside the program's root task.
-/*line tool.ergo:360:33*/
+/*line tool.ergo:824:33*/
 func ergoInit(env *ergo__Env) {
 //line std/json/stream.ergo:397:5
 	{

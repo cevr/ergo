@@ -9,7 +9,6 @@
 
 import jobq/jobs
 import jobq/sched
-import machines
 import queue
 import slices
 import task
@@ -34,37 +33,33 @@ func pace(tokens queue.Queue[token], every duration) needs Scheduler {
 	}
 }
 
-// work runs jobs from js until the queue is closed and empty, and pushes
-// a report of each.
 func work(w int, js queue.Queue[jobs.Job], tokens queue.Queue[token], out queue.Queue[Report], p jobs.Policy) fails queue.Closed needs jobs.Worker | Scheduler {
 	for j in js.Values() {
-		let mut phase = jobs.Fresh(0s)
+		let mut queued = jobs.Queued{N: 1, Ready: 0s}
 		let mut now = 0s
 		for {
 			let _ = try tokens.Pop()
-			phase = machines.Next(phase, jobs.Step(phase, jobs.Start{At: now, Takes: j.Takes}))
+			let running = jobs.StartJob(queued, now, j.Takes) catch {
+			case jobs.TooEarly:
+				try out.Push(Report{ID: j.ID, Worker: w, Out: jobs.GaveUp{N: queued.N, At: now, Why: "the queue sent a wrong signal"}})
+				break
+			}
 			Scheduler.Sleep(j.Takes)
 			now = now + j.Takes
-			let n = match phase {
-			case jobs.Running as r:
-				r.N
-			case jobs.Queued as q:
-				q.N
+			let res = jobs.FinishJob(running, now, jobs.Worker.Do(j, running.N), p) catch {
+			case jobs.TooEarly:
+				try out.Push(Report{ID: j.ID, Worker: w, Out: jobs.GaveUp{N: running.N, At: now, Why: "the queue sent a wrong signal"}})
+				break
 			}
-			match jobs.Step(phase, jobs.Finish{At: now, R: jobs.Worker.Do(j, n), P: p}) {
-			case Done[jobs.Outcome] as d:
+			match res {
+			case jobs.Finished as d:
 				try out.Push(Report{ID: j.ID, Worker: w, Out: d.Output})
 				break
-			case Enter[jobs.Phase] as e:
-				phase = e.Next
-				let wait = jobs.Backoff(p, n)
+			case jobs.Retry as rt:
+				queued = rt.Next
+				let wait = jobs.Backoff(p, running.N)
 				Scheduler.Sleep(wait)
 				now = now + wait
-			case Emit[jobs.Phase, jobs.Outcome], Tell[jobs.Phase, jobs.Outcome]:
-				Unreachable("jobs.Step never emits")
-			case Stay[jobs.Phase], Ignore, Reject:
-				try out.Push(Report{ID: j.ID, Worker: w, Out: jobs.GaveUp{N: n, At: now, Why: "the queue sent a wrong signal"}})
-				break
 			}
 		}
 	}

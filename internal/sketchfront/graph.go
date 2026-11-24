@@ -13,7 +13,8 @@ import (
 func (a Analysis) Graph() *graphrows.Table { return GraphOf([]Analysis{a}) }
 
 // GraphOf is the graph rows of the checked programs as, one table: their
-// packages in the loader's order, a package two programs share once, each
+// packages in the loader's order, a package two programs share (the same
+// path in the same module, at the same version) once, each
 // with its files, the checker's package (also a partial one, whose rows
 // are what the checker resolved) and, when it and its imports check, its
 // tasks. A package of a program's own module sits under that module (its
@@ -24,14 +25,20 @@ func GraphOf(as []Analysis) *graphrows.Table { return graphrows.Build(sourcePack
 // sourcePackages is the packages of as for the graph rows, GraphOf's.
 func sourcePackages(as []Analysis) []graphrows.SourcePackage {
 	var pkgs []graphrows.SourcePackage
-	seen := map[string]bool{}
+	seen := map[[2]string]bool{}
 	for _, a := range as {
-		for _, p := range a.packagesOrRoot() {
-			if seen[p.Path] {
+		ps := a.packagesOrRoot()
+		modules := make(map[string]string, len(ps))
+		for _, p := range ps {
+			modules[p.Path] = a.ModuleOf(p)
+		}
+		for _, p := range ps {
+			key := [2]string{modules[p.Path], p.Path}
+			if seen[key] {
 				continue
 			}
-			seen[p.Path] = true
-			sp := graphrows.SourcePackage{Path: p.Path, Module: a.ModuleOf(p), Info: p.Partial, Checked: p.Package}
+			seen[key] = true
+			sp := graphrows.SourcePackage{Path: p.Path, Module: key[0], Modules: modules, Info: p.Partial, Checked: p.Package}
 			if sp.Info == nil {
 				sp.Info = p.Package
 			}

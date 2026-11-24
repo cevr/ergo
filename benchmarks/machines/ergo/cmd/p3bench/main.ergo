@@ -59,73 +59,73 @@ func flips() []charts.Flip {
 	out
 }
 
-func foldS1(n int, sig []charts.Press) int {
+func foldS1(n int, sig []charts.Press) int fails os.Exit {
 	let m = charts.S1{}
 	let mut s = machines.Initial(m)
 	for _ in 0..n/Chunk {
 		let r = machines.From(m, s, sig) catch {
 		case machines.Rejected:
-			Unreachable("s1 rejects no signal")
+			return os.Exit{Code: 1, Message: "p3bench: s1 rejected a signal"}
 		}
 		match r {
 		case machines.Running[charts.Light, int] as run:
 			s = run.State
 		case machines.Finished[charts.Light, int]:
-			Unreachable("s1 never ends")
+			return os.Exit{Code: 1, Message: "p3bench: s1 finished early"}
 		}
 	}
 	charts.LightProbe(s)
 }
 
-func foldS2(n int, sig []charts.Inc) int {
+func foldS2(n int, sig []charts.Inc) int fails os.Exit {
 	let m = charts.S2{}
 	let mut s = machines.Initial(m)
 	for _ in 0..n/Chunk {
 		let r = machines.From(m, s, sig) catch {
 		case machines.Rejected:
-			Unreachable("s2 rejects no signal")
+			return os.Exit{Code: 1, Message: "p3bench: s2 rejected a signal"}
 		}
 		match r {
 		case machines.Running[charts.Counter, int] as run:
 			s = run.State
 		case machines.Finished[charts.Counter, int]:
-			Unreachable("s2 never ends")
+			return os.Exit{Code: 1, Message: "p3bench: s2 finished early"}
 		}
 	}
 	s.Count
 }
 
-func foldS3(n int, sig []charts.Jump) int {
+func foldS3(n int, sig []charts.Jump) int fails os.Exit {
 	let m = charts.S3{}
 	let mut s = machines.Initial(m)
 	for _ in 0..n/Chunk {
 		let r = machines.From(m, s, sig) catch {
 		case machines.Rejected:
-			Unreachable("s3 rejects no signal")
+			return os.Exit{Code: 1, Message: "p3bench: s3 rejected a signal"}
 		}
 		match r {
 		case machines.Running[charts.Tree, int] as run:
 			s = run.State
 		case machines.Finished[charts.Tree, int]:
-			Unreachable("s3 never ends")
+			return os.Exit{Code: 1, Message: "p3bench: s3 finished early"}
 		}
 	}
 	charts.TreeProbe(s)
 }
 
-func foldS4(n int, sig []charts.Flip) int {
+func foldS4(n int, sig []charts.Flip) int fails os.Exit {
 	let m = charts.S4{}
 	let mut s = machines.Initial(m)
 	for _ in 0..n/Chunk {
 		let r = machines.From(m, s, sig) catch {
 		case machines.Rejected:
-			Unreachable("s4 rejects no signal")
+			return os.Exit{Code: 1, Message: "p3bench: s4 rejected a signal"}
 		}
 		match r {
 		case machines.Running[charts.Both, int] as run:
 			s = run.State
 		case machines.Finished[charts.Both, int]:
-			Unreachable("s4 never ends")
+			return os.Exit{Code: 1, Message: "p3bench: s4 finished early"}
 		}
 	}
 	charts.BothProbe(s)
@@ -163,29 +163,26 @@ func stepS4(n int, sig []charts.Flip) int {
 	charts.BothProbe(s)
 }
 
-// timedS7 fires n timers: the run has no outside signal and ends at n
-// seconds, and each entry's timer of one second enters the other phase.
-func timedS7(n int) int needs time.Clock | Scheduler {
+func timedS7(n int) int fails os.Exit needs time.Clock | Scheduler {
 	let end = duration(int64(n) * 1000000000)
 	let r = machines.RunTimed(charts.S7{}, []machines.Timed[charts.Due]{}, end) catch {
 	case machines.Rejected:
-		Unreachable("s7 rejects no signal")
+		return os.Exit{Code: 1, Message: "p3bench: s7 rejected a signal"}
 	}
 	match r {
 	case machines.Running[charts.Phase, int] as run:
 		charts.PhaseProbe(run.State)
 	case machines.Finished[charts.Phase, int]:
-		Unreachable("s7 never ends")
+		os.Exit{Code: 1, Message: "p3bench: s7 finished early"}
 	}
 }
 
-// actorS1 asks the live runner (actor.StartMachine) for each of n signals.
-func actorS1(n int) int needs Scheduler {
+func actorS1(n int) int fails os.Exit needs Scheduler {
 	let a = actor.StartMachine(charts.S1{}, 16, func(o int) {})
 	for _ in 0..n {
 		let _ = a.Ask(charts.Press) catch {
 		case actor.Stopped:
-			Unreachable("s1 runs until it is stopped")
+			return os.Exit{Code: 1, Message: "p3bench: s1 stopped early"}
 		}
 	}
 	let s = a.State()
@@ -193,8 +190,6 @@ func actorS1(n int) int needs Scheduler {
 	charts.LightProbe(s)
 }
 
-// actorS7 runs S7 on the live runner and moves a manual clock one second
-// n times: each move fires the entry's timer.
 func actorS7(n int, clock time.Manual) int needs Scheduler {
 	let a = actor.StartMachine(charts.S7{}, 16, func(o int) {})
 	for _ in 0..n {
@@ -205,16 +200,12 @@ func actorS7(n int, clock time.Manual) int needs Scheduler {
 	charts.PhaseProbe(s)
 }
 
-// onManual runs an actor mode on a time.Manual made for it alone. A
-// time.Manual made beside the testing.VirtualClock of the timed mode,
-// unused, makes machines.RunTimed on the VirtualClock end in a Go deadlock
-// ("all goroutines are asleep") at any N past 0 (measured; see README).
-func onManual(n int, timers bool) int {
+func onManual(n int, timers bool) int fails os.Exit {
 	let manual = time.NewManual(0)
 	if timers {
 		return with context { time.Clock: manual, Scheduler: manual } { actorS7(n, manual) }
 	}
-	with context { Scheduler: manual } { actorS1(n) }
+	with context { Scheduler: manual } { try actorS1(n) }
 }
 
 func main() fails os.Exit needs Console | Ambient {
@@ -236,13 +227,13 @@ func main() fails os.Exit needs Console | Ambient {
 	let c = testing.NewVirtualClock(0)
 	let probe = match (args[0], args[1]) {
 	case ("s1", "fold"):
-		foldS1(n, p)
+		try foldS1(n, p)
 	case ("s2", "fold"):
-		foldS2(n, i)
+		try foldS2(n, i)
 	case ("s3", "fold"):
-		foldS3(n, j)
+		try foldS3(n, j)
 	case ("s4", "fold"):
-		foldS4(n, f)
+		try foldS4(n, f)
 	case ("s1", "step"):
 		stepS1(n, p)
 	case ("s2", "step"):
@@ -252,11 +243,11 @@ func main() fails os.Exit needs Console | Ambient {
 	case ("s4", "step"):
 		stepS4(n, f)
 	case ("s7", "timed"):
-		with context { time.Clock: c, Scheduler: c } { timedS7(n) }
+		with context { time.Clock: c, Scheduler: c } { try timedS7(n) }
 	case ("s1", "actor"):
-		onManual(n, false)
+		try onManual(n, false)
 	case ("s7", "actor"):
-		onManual(n, true)
+		try onManual(n, true)
 	case (_, _):
 		return os.Exit{Code: 2, Message: "p3bench: no scenario \(args[0]) \(args[1])"}
 	}

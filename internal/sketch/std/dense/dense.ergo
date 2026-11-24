@@ -129,16 +129,31 @@ law TableIDsStops(xs []int) {
 // New is an empty table.
 func New[T]() Table[T] { Table[T]{rows: []T{}} }
 
-// WithCap is an empty table with room for n rows: the first n Puts
-// allocate nothing. It behaves as New in every other way. A negative n is
-// a defect, as Go's make panics, and so is room for more rows than ids
-// exist: a table's room never passes that, so Put checks for a full store
-// only when it grows (SL2b).
-func WithCap[T](n int) Table[T] {
-	if n > int(limit) {
-		Unreachable(full)
+type Capacity {}
+
+type Room { count int }
+
+func Reserve(n int) Room fails Capacity {
+	if uint64(n) > uint64(limit) {
+		return Capacity
 	}
-	Table[T]{rows: slices.WithCapacity[T](n)}
+	Room{count: n}
+}
+
+law ReserveRejectsOutOfRange(seed int) {
+	let shift = seed & 255
+	for n in []int{-1 - shift, 4294967296 + shift} {
+		let _ = Reserve(n) catch {
+		case Capacity:
+			continue
+		}
+		return false
+	}
+	true
+}
+
+func WithCap[T](room Room) Table[T] {
+	Table[T]{rows: slices.WithCapacity[T](room.count)}
 }
 
 // Len is the count of rows.
@@ -205,7 +220,11 @@ type flat {}
 law FlatRowsKeepIDs(k int, c int) {
 	let n = (k%300 + 300) % 300
 	let mut a = New[flat]()
-	let mut b = WithCap[flat]((c%40 + 40) % 40)
+	let room = Reserve((c%40 + 40) % 40) catch {
+	case Capacity:
+		return false
+	}
+	let mut b = WithCap[flat](room)
 	let mut ok = true
 	for i in 0..n {
 		let ia = a.Put(flat)
@@ -631,7 +650,11 @@ law PutSinceIsPutList(before []int, below []int, above []int) {
 law WithCapIsNew(xs []int, n int) {
 	let c = (n%64 + 64) % 64
 	let mut a = New[int]()
-	let mut b = WithCap[int](c)
+	let room = Reserve(c) catch {
+	case Capacity:
+		return false
+	}
+	let mut b = WithCap[int](room)
 	let mut ca = NewCol[int, int]()
 	let mut cb = ColWithCap[int, int](c)
 	let mut pa = NewPool[int]()

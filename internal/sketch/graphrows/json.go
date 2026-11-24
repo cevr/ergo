@@ -25,6 +25,7 @@ type (
 		Name    string `json:"name"`
 		Digest  string `json:"digest"`
 		Subject int64  `json:"subject"`
+		Lines   uint32 `json:"lines"`
 		jsonPos
 	}
 	jsonEdge struct {
@@ -76,7 +77,11 @@ func (t *Table) SubName(n Node) string {
 func (t *Table) MarshalJSON() ([]byte, error) {
 	out := jsonTable{Version: Version, Nodes: make([]jsonNode, len(t.Nodes)), Edges: make([]jsonEdge, 0, len(t.Edges))}
 	for i, n := range t.Nodes {
-		out.Nodes[i] = jsonNode{ID: uint32(i), Kind: n.Kind.String(), Sub: t.SubName(n), Parent: id(n.Parent), Name: t.Str(n.Name), Digest: t.Str(n.Digest), Subject: id(n.Subject), jsonPos: posJSON(t.NodeAt[i])}
+		var lines uint32
+		if i < len(t.NodeLines) {
+			lines = t.NodeLines[i]
+		}
+		out.Nodes[i] = jsonNode{ID: uint32(i), Kind: n.Kind.String(), Sub: t.SubName(n), Parent: id(n.Parent), Name: t.Str(n.Name), Digest: t.Str(n.Digest), Subject: id(n.Subject), Lines: lines, jsonPos: posJSON(t.NodeAt[i])}
 	}
 	for _, i := range t.Sorted() {
 		e := t.Edges[i]
@@ -98,8 +103,12 @@ func (t *Table) MarshalJSON() ([]byte, error) {
 func (t *Table) AppendColumns(strs []string, ints []int) ([]string, []int) {
 	order := t.Sorted()
 	ints = append(ints, len(t.Nodes), len(order))
-	for _, n := range t.Nodes {
-		ints = append(ints, int(id(n.Parent)), int(id(n.Subject)))
+	for i, n := range t.Nodes {
+		var lines int
+		if i < len(t.NodeLines) {
+			lines = int(t.NodeLines[i])
+		}
+		ints = append(ints, int(id(n.Parent)), int(id(n.Subject)), lines)
 		strs = append(strs, n.Kind.String(), t.SubName(n), t.Str(n.Name), t.Str(n.Digest))
 	}
 	for _, i := range order {

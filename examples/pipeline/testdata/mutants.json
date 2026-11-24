@@ -100,8 +100,8 @@
     {
       "name": "px1-desk-last-first", "origin": "wf10/domain PX1",
       "file": "examples/pipeline/pipeline/desk.ergo",
-      "from": "\t\treturn Enter[Desk]{Next: try apply(d, b.Queue[0], run.Start)}\n",
-      "to": "\t\treturn Enter[Desk]{Next: try apply(d, b.Queue[len(b.Queue)-1], run.Start)}\n",
+      "from": "\t\treturn Entered{Next: try apply(d, b.Queue[0], run.Start)}\n",
+      "to": "\t\treturn Entered{Next: try apply(d, b.Queue[len(b.Queue)-1], run.Start)}\n",
       "rule": "Runs start in the order they were submitted: SceneAgreesWithStory.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },
@@ -204,8 +204,8 @@
     {
       "name": "dk5-evolve-failure-keeps-busy", "origin": "wf10/domain DK5",
       "file": "examples/pipeline/pipeline/log.ergo",
-      "from": "\t\tcase Enter[retry.Attempt] as n:\n\t\t\tWaiting{Book: b, Job: Job{..j, Attempt: n.Next}}\n",
-      "to": "\t\tcase Enter[retry.Attempt]:\n\t\t\twithin(d, b)\n",
+      "from": "\t\tcase retry.Wait as w:\n\t\t\tWaiting{Book: b, Job: Job{..j, Attempt: w.Next}}\n",
+      "to": "\t\tcase retry.Wait:\n\t\t\twithin(d, b)\n",
       "rule": "A failed try the saga retries waits: RecoverAgrees.",
       "anchor": {"tests": ["examples:pipeline"]}, "killers": ["examples:pipeline"]
     },

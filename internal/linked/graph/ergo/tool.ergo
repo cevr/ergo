@@ -8,6 +8,7 @@
 
 import codegraph
 import json
+import slices
 import strconv
 import strings
 
@@ -31,7 +32,7 @@ func Run(args []string, rows string, old string) []string {
 }
 
 // noRows is the rows of no program.
-func noRows() codegraph.Rows { codegraph.Rows{Version: 1, Nodes: []codegraph.NodeRow{}, Edges: []codegraph.EdgeRow{}} }
+func noRows() codegraph.Rows { codegraph.Rows{Version: 2, Nodes: []codegraph.NodeRow{}, Edges: []codegraph.EdgeRow{}} }
 
 // RunColumns is Run over the rows as columns, the form the ergo binary
 // hands over with no JSON written or read (GRAPH-FAST; a Go caller can
@@ -56,20 +57,20 @@ func columnsOf(r codegraph.Rows, s int, i int) Columns { Columns{Rows: r, Strs: 
 // ints (RunColumns' layout).
 func fromColumns(strs []string, ints []int, s int, i int) Columns {
 	let n = ints[i]
-	let m = ints[i + 1]
+	let m = ints[i+1]
 	let mut nodes = []codegraph.NodeRow{}
 	for k in 0..n {
-		let at = s + 4 * k
-		let p = i + 2 + 2 * k
-		nodes = nodes.Append(codegraph.NodeRow{Id: k, Kind: strs[at], Sub: strs[at + 1], Parent: ints[p], Name: strs[at + 2], Digest: strs[at + 3], Subject: ints[p + 1], File: -1, Offset: 0, Line: 0, Column: 0})
+		let at = s + 4*k
+		let p = i + 2 + 3*k
+		nodes = nodes.Append(codegraph.NodeRow{Id: k, Kind: strs[at], Sub: strs[at+1], Parent: ints[p], Name: strs[at+2], Digest: strs[at+3], Subject: ints[p+1], Lines: ints[p+2], File: -1, Offset: 0, Line: 0, Column: 0})
 	}
 	let mut edges = []codegraph.EdgeRow{}
 	for k in 0..m {
-		let at = s + 4 * n + 2 * k
-		let p = i + 2 + 2 * n + 2 * k
-		edges = edges.Append(codegraph.EdgeRow{Kind: strs[at], How: strs[at + 1], From: ints[p], To: ints[p + 1], File: -1, Offset: 0, Line: 0, Column: 0})
+		let at = s + 4*n + 2*k
+		let p = i + 2 + 3*n + 2*k
+		edges = edges.Append(codegraph.EdgeRow{Kind: strs[at], How: strs[at+1], From: ints[p], To: ints[p+1], File: -1, Offset: 0, Line: 0, Column: 0})
 	}
-	columnsOf(codegraph.Rows{Version: 1, Nodes: nodes, Edges: edges}, s + 4 * n + 2 * m, i + 2 + 2 * n + 2 * m)
+	columnsOf(codegraph.Rows{Version: 2, Nodes: nodes, Edges: edges}, s+4*n+2*m, i+2+3*n+2*m)
 }
 
 // runRows is Run over rows already read: r, and for affected the rows at
@@ -81,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, tangles, compare, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -114,6 +115,51 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("fan takes no argument")
 		}
 		fan(r, o)
+	case "interfaces":
+		if len(words) != 1 {
+			return usage("interfaces takes no argument; the list max is --max N, the modules --module PATH")
+		}
+		interfaces(r, o)
+	case "files":
+		if len(words) != 1 {
+			return usage("files takes no argument; the line max is --max N, the modules --module PATH")
+		}
+		files(r, o)
+	case "directories":
+		if len(words) != 1 {
+			return usage("directories takes no argument; the member max is --max N, the modules --module PATH")
+		}
+		directories(r, o)
+	case "field-writes":
+		if len(words) != 1 {
+			return usage("field-writes takes no argument; the modules are --module PATH")
+		}
+		fieldWrites(r, o)
+	case "test-support":
+		if len(words) != 1 {
+			return usage("test-support takes no argument; supply --support PATH or --support-seam SEAM=PATH")
+		}
+		testSupport(r, o)
+	case "seams":
+		if len(words) != 1 {
+			return usage("seams takes no argument; supply --seam JSON")
+		}
+		seams(r, o)
+	case "folder-cycles":
+		if len(words) != 1 {
+			return usage("folder-cycles takes no argument; the modules are --module PATH")
+		}
+		folderCycles(r, o)
+	case "tangles":
+		if len(words) != 1 {
+			return usage("tangles takes no argument; the member max is --max N, the modules --module PATH")
+		}
+		tangles(r, o)
+	case "compare":
+		if len(words) != 2 {
+			return usage("compare takes one base: compare BASE")
+		}
+		compareLayout(r, base, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -129,18 +175,29 @@ func usage(why string) []string { []string{"2", "", "ergo graph: \(why)\n"} }
 
 // Options are the flags of a command and its other words.
 type Options {
-	Json  bool,
-	Tests bool,
-	Level codegraph.Level,
-	Min   int,
-	Words []string,
-	Bad   string,
+	Json       bool,
+	Tests      bool,
+	Level      codegraph.Level,
+	Min        int,
+	Max        int,
+	MaxSurface int,
+	MaxLines   int,
+	MaxDir     int,
+	MaxTangle  int,
+	Modules    []string,
+	Support    []codegraph.SupportEntry,
+	Seams      []codegraph.SeamSpec,
+	Policy     codegraph.LayoutPolicy,
+	HasPolicy  bool,
+	Words      []string,
+	Bad        string,
 }
 
 // options reads --json, --tests, --level package|file|decl and --min N
 // from args; every other argument is a word.
 func options(args []string) Options {
-	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Words: []string{}, Bad: ""}
+	let emptyPolicy = codegraph.LayoutPolicy{MaxSurfaceList: 0, MaxFileLines: 0, MaxDirectoryMembers: 0, MaxTangleMembers: 0, Support: []codegraph.SupportEntry{}, Seams: []codegraph.SeamSpec{}}
+	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Max: -1, MaxSurface: 0, MaxLines: 0, MaxDir: 0, MaxTangle: 0, Modules: []string{}, Support: []codegraph.SupportEntry{}, Seams: []codegraph.SeamSpec{}, Policy: emptyPolicy, HasPolicy: false, Words: []string{}, Bad: ""}
 	let mut i = 0
 	for i < len(args) {
 		let a = args[i]
@@ -180,6 +237,118 @@ func options(args []string) Options {
 			}
 			i = i + 1
 			o.Min = n
+		case "--max":
+			if i >= len(args) {
+				o.Bad = "--max takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max takes a number, not \(args[i])"
+				return o
+			}
+			i = i + 1
+			o.Max = n
+		case "--module":
+			if i >= len(args) {
+				o.Bad = "--module takes a module path"
+				return o
+			}
+			o.Modules = o.Modules.Append(args[i])
+			i = i + 1
+		case "--support":
+			if i >= len(args) {
+				o.Bad = "--support takes a package path"
+				return o
+			}
+			o.Support = o.Support.Append(codegraph.SupportEntry{Package: args[i], Seam: ""})
+			i = i + 1
+		case "--support-seam":
+			if i >= len(args) {
+				o.Bad = "--support-seam takes SEAM=PATH"
+				return o
+			}
+			let raw = args[i]
+			i = i + 1
+			let eq = strings.Index(raw, "=")
+			if eq <= 0 || eq == len(raw)-1 {
+				o.Bad = "--support-seam takes SEAM=PATH, not \(raw)"
+				return o
+			}
+			o.Support = o.Support.Append(codegraph.SupportEntry{Package: raw[eq+1 : len(raw)], Seam: raw[0:eq]})
+		case "--seam":
+			if i >= len(args) {
+				o.Bad = "--seam takes a JSON seam object"
+				return o
+			}
+			let s = json.Decode(json.Codec[codegraph.SeamSpec]{MaxBytes: 1 << 20, MaxDepth: 8}, args[i]) catch {
+			case _:
+				o.Bad = "--seam takes a JSON seam object"
+				return o
+			}
+			o.Seams = o.Seams.Append(s)
+			i = i + 1
+		case "--policy":
+			if i >= len(args) {
+				o.Bad = "--policy takes a JSON policy object"
+				return o
+			}
+			let pol = json.Decode(json.Codec[codegraph.LayoutPolicy]{MaxBytes: 1 << 20, MaxDepth: 8}, args[i]) catch {
+			case _:
+				o.Bad = "--policy takes a JSON policy object"
+				return o
+			}
+			o.Policy = pol
+			o.HasPolicy = true
+			i = i + 1
+		case "--max-surface":
+			if i >= len(args) {
+				o.Bad = "--max-surface takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-surface takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxSurface = n
+			i = i + 1
+		case "--max-lines":
+			if i >= len(args) {
+				o.Bad = "--max-lines takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-lines takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxLines = n
+			i = i + 1
+		case "--max-dir":
+			if i >= len(args) {
+				o.Bad = "--max-dir takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-dir takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxDir = n
+			i = i + 1
+		case "--max-tangle":
+			if i >= len(args) {
+				o.Bad = "--max-tangle takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-tangle takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxTangle = n
+			i = i + 1
 		case _:
 			if strings.HasPrefix(a, "-") {
 				o.Bad = "unknown option \(a)"
@@ -347,6 +516,301 @@ func fan(r codegraph.Rows, o Options) []string {
 		b = b + "\(f.In) \(f.Out) \(f.Node)\n"
 	}
 	ok(b)
+}
+
+type EntryOut { Id int, Name string, Site int }
+
+type GroupOut { Id int, Name string, Entries []int }
+
+type InterfaceOut {
+	PackageId  int,
+	Package    string,
+	Entries    []EntryOut,
+	Groups     []GroupOut,
+	Widest     int,
+	Wide       bool,
+	Backing    []string,
+	Unresolved int,
+}
+
+func selectedModules(r codegraph.Rows, o Options) []int {
+	let mut modules = []int{}
+	for i, n in r.Nodes {
+		if n.Kind == "module" && (if len(o.Modules) == 0 { !strings.Contains(n.Name, "@") } else { slices.Contains(o.Modules, n.Name) }) {
+			modules = modules.Append(i)
+		}
+	}
+	modules
+}
+
+type FileLengthOut { FileId int, File string, Lines int, Long bool }
+
+func files(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []FileLengthOut{}
+	for f in codegraph.PhysicalLines(r, modules).Files {
+		let long = o.Max >= 0 && codegraph.LongFile(f, o.Max)
+		if o.Max >= 0 && !long {
+			continue
+		}
+		out = out.Append(FileLengthOut{FileId: f.File, File: r.Nodes[f.File].Name, Lines: f.Lines, Long: long})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FileLengthOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for f in out {
+		b = b + "\(f.Lines) \(f.File)\n"
+	}
+	ok(if len(out) == 0 { "no file\n" } else { b })
+}
+
+type DirectoryOut { Path string, Members []string, Anchor int, Wide bool }
+
+func directories(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []DirectoryOut{}
+	for d in codegraph.Directories(r, modules).Directories {
+		let wide = o.Max >= 0 && codegraph.WideDirectory(d, o.Max)
+		if o.Max >= 0 && !wide {
+			continue
+		}
+		out = out.Append(DirectoryOut{Path: d.Path, Members: d.Members, Anchor: d.Anchor, Wide: wide})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]DirectoryOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for d in out {
+		b = b + "\(len(d.Members)) \(d.Path)/\n"
+	}
+	ok(if len(out) == 0 { "no directory\n" } else { b })
+}
+
+type FieldWriteOut {
+	FieldId        int,
+	Field          string,
+	RecordId       int,
+	Record         string,
+	PrivateFieldId int,
+	PrivateField   string,
+	Callers        []string,
+	Sites          []int,
+}
+
+func fieldWrites(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []FieldWriteOut{}
+	for w in codegraph.ForeignRecordFieldWrites(r, modules).Writes {
+		let privName = if w.PrivateField >= 0 { codegraph.NameOf(r, w.PrivateField) } else { "" }
+		out = out.Append(FieldWriteOut{
+			FieldId:        w.Field,
+			Field:          codegraph.NameOf(r, w.Field),
+			RecordId:       w.Record,
+			Record:         codegraph.NameOf(r, w.Record),
+			PrivateFieldId: w.PrivateField,
+			PrivateField:   privName,
+			Callers:        names(r, w.Callers),
+			Sites:          w.Sites,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FieldWriteOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for w in out {
+		b = b + "\(w.Field) <- \(len(w.Callers)) callers (\(strings.Join(w.Callers, ", ")))\n"
+	}
+	ok(if len(out) == 0 { "no foreign record field write\n" } else { b })
+}
+
+type TestSupportOut {
+	CallerId int,
+	Caller   string,
+	TargetId int,
+	Target   string,
+	Site     int,
+	Import   int,
+}
+
+func testSupport(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []TestSupportOut{}
+	for u in codegraph.ProductionUsesTestSupport(r, modules, o.Support).Uses {
+		out = out.Append(TestSupportOut{
+			CallerId: u.Caller,
+			Caller:   codegraph.NameOf(r, u.Caller),
+			TargetId: u.Target,
+			Target:   r.Nodes[u.Target].Name,
+			Site:     u.Site,
+			Import:   u.Import,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]TestSupportOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for u in out {
+		b = b + "\(u.Caller) uses \(u.Target)\n"
+	}
+	ok(if len(out) == 0 { "no production use of test support\n" } else { b })
+}
+
+type SeamViolationOut {
+	Seam      int,
+	Import    int,
+	File      int,
+	CallerPkg string,
+	TargetPkg string,
+	Inside    bool,
+	TestSites []int,
+}
+
+func seams(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []SeamViolationOut{}
+	for v in codegraph.SeamEntrypoints(r, modules, o.Seams).Violations {
+		out = out.Append(SeamViolationOut{
+			Seam:      v.Seam,
+			Import:    v.Import,
+			File:      v.File,
+			CallerPkg: r.Nodes[v.CallerPkg].Name,
+			TargetPkg: r.Nodes[v.TargetPkg].Name,
+			Inside:    v.Inside,
+			TestSites: v.TestSites,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]SeamViolationOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for v in out {
+		b = b + "\(v.CallerPkg) imports \(v.TargetPkg)\n"
+	}
+	ok(if len(out) == 0 { "no seam violation\n" } else { b })
+}
+
+type FolderCycleOut {
+	Parent  string,
+	Members []string,
+	Path    []string,
+	Sites   []int,
+}
+
+func folderCycles(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []FolderCycleOut{}
+	for c in codegraph.SiblingFolderCycles(r, modules).Cycles {
+		out = out.Append(FolderCycleOut{Parent: c.Parent, Members: c.Members, Path: c.Path, Sites: c.Sites})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FolderCycleOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for c in out {
+		b = b + "\(c.Parent): " + strings.Join(c.Path, " -> ") + "\n"
+	}
+	ok(if len(out) == 0 { "no sibling folder cycle\n" } else { b })
+}
+
+type TangleOut {
+	Package   string,
+	Members   []string,
+	Files     []string,
+	Path      []string,
+	Sites     []int,
+	CrossFile bool,
+}
+
+func tangles(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []TangleOut{}
+	for t in codegraph.DeclarationTanglesOf(r, modules).Tangles {
+		if o.Max >= 0 && !codegraph.TangleReported(t, o.Max) {
+			continue
+		}
+		out = out.Append(TangleOut{
+			Package:   r.Nodes[t.Package].Name,
+			Members:   names(r, t.Members),
+			Files:     names(r, t.Files),
+			Path:      names(r, t.Path),
+			Sites:     t.Sites,
+			CrossFile: len(t.Files) > 1,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]TangleOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for t in out {
+		b = b + "\(t.Package) (\(len(t.Members)) decls, \(len(t.Files)) files): " + strings.Join(t.Path, " -> ") + "\n"
+	}
+	ok(if len(out) == 0 { "no declaration tangle\n" } else { b })
+}
+
+func compareLayout(head codegraph.Rows, base codegraph.Rows, o Options) []string {
+	let headMods = selectedModules(head, o)
+	let baseMods = selectedModules(base, o)
+	let policy = if o.HasPolicy {
+		o.Policy
+	} else {
+		codegraph.LayoutPolicy{
+			MaxSurfaceList:      o.MaxSurface,
+			MaxFileLines:        o.MaxLines,
+			MaxDirectoryMembers: o.MaxDir,
+			MaxTangleMembers:    o.MaxTangle,
+			Support:             o.Support,
+			Seams:               o.Seams,
+		}
+	}
+	let cmp = codegraph.CompareLayout(base, head, baseMods, headMods, policy)
+	if o.Json {
+		return ok(json.Encode(json.Codec[codegraph.LayoutComparison]{MaxBytes: 1 << 40, MaxDepth: 16}, cmp) + "\n")
+	}
+	let mut b = "advisory layout comparison: "
+	b = b + (if cmp.Regressed { "regressed" } else { "clean" })
+	b = b + " (\(len(cmp.Added)) added, \(len(cmp.Grown)) grown, \(len(cmp.Unchanged)) unchanged, \(len(cmp.Removed)) removed)\n"
+	for a in cmp.Added {
+		b = b + "+ [\(a.Rule)] \(a.Detail)\n"
+	}
+	for g in cmp.Grown {
+		b = b + "^ [\(g.Rule)] \(g.Detail) (\(g.BaseCount) -> \(g.HeadCount))\n"
+	}
+	for u in cmp.Unchanged {
+		b = b + "= [\(u.Rule)] \(u.Detail)\n"
+	}
+	for r in cmp.Removed {
+		b = b + "- [\(r.Rule)] \(r.Detail)\n"
+	}
+	ok(b)
+}
+
+func interfaces(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []InterfaceOut{}
+	for p in codegraph.ObservedInterfaces(r, modules).Packages {
+		let wide = o.Max >= 0 && codegraph.Wide(p, o.Max)
+		if o.Max >= 0 && !wide {
+			continue
+		}
+		let mut entries = []EntryOut{}
+		for k, e in p.Entries {
+			entries = entries.Append(EntryOut{Id: e, Name: codegraph.NameOf(r, e), Site: p.Sites[k]})
+		}
+		let mut groups = []GroupOut{}
+		for g in p.Groups {
+			groups = groups.Append(GroupOut{Id: g.Node, Name: codegraph.NameOf(r, g.Node), Entries: g.Entries})
+		}
+		out = out.Append(InterfaceOut{PackageId: p.Package, Package: r.Nodes[p.Package].Name, Entries: entries, Groups: groups, Widest: p.Widest, Wide: wide, Backing: names(r, p.Backing), Unresolved: p.Unresolved})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]InterfaceOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for p in out {
+		b = b + "\(p.Package): clients use \(len(p.Entries)) callable entries, the longest list \(p.Widest); \(len(p.Backing)) private functions reached, \(p.Unresolved) entries unresolved\n"
+	}
+	ok(if len(out) == 0 { "no observed interface\n" } else { b })
 }
 
 func layers(r codegraph.Rows, o Options, patterns []string) []string {

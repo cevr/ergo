@@ -9,18 +9,20 @@ func Run() Ending needs Console | io.Stdin {
 	Console.Println(Intro)
 	tell(Describe(GameOf(s)))
 	for line in io.Stdin.Lines() {
-		let d = Step(s, Said{Line: line}) catch {
+		let d = Advance(s, Said{Line: line}) catch {
 		case Refusal as r:
 			Console.Println(Failure(r))
-			Reject
+			continue
 		}
 		tell(Say(s, line, d))
 		match d {
-		case Done[Ending] as done:
+		case Finished as done:
 			return done.Output
-		case Enter[State], Stay[State], Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
+		case Entered as e:
+			s = e.Next
+		case Stayed as st:
+			s = st.Next
 		}
-		s = machines.Next(s, d)
 	}
 	// The end of the input is Step(s, Ended), Done with this Stopped; the
 	// call would need a catch of failures it cannot fail and a match of

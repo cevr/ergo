@@ -790,31 +790,31 @@ type dense__Count[K any] struct {
 }
 
 func (c dense__Count[K]) Total() int {
-	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
+	/*line std/dense/dense.ergo:388:32*/ return int(c.n)
 }
 
 //line compiler.go:649
 
 func dense__CountTotalMono_i2427209043(c dense__Count[compiler_ssyntax__Tok]) int {
-	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
+	/*line std/dense/dense.ergo:388:32*/ return int(c.n)
 }
 
 //line compiler.go:651
 
 func (c dense__Count[K]) IDAt(i int) dense__ID[K] {
-	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
-		/*line std/dense/dense.ergo:376:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+	/*line std/dense/dense.ergo:394:1*/ if i < 0 || i >= int(c.n) {
+		/*line std/dense/dense.ergo:395:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 	}
-	/*line std/dense/dense.ergo:378:1*/ return dense__ID[K]{n: uint32(i)}
+	/*line std/dense/dense.ergo:397:1*/ return dense__ID[K]{n: uint32(i)}
 }
 
 //line compiler.go:653
 
 func dense__CountIDAtMono_i2427209043(c dense__Count[compiler_ssyntax__Tok], i int) dense__ID[compiler_ssyntax__Tok] {
-	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
-		/*line std/dense/dense.ergo:376:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+	/*line std/dense/dense.ergo:394:1*/ if i < 0 || i >= int(c.n) {
+		/*line std/dense/dense.ergo:395:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 	}
-	/*line std/dense/dense.ergo:378:1*/ return dense__ID[compiler_ssyntax__Tok]{n: uint32(i)}
+	/*line std/dense/dense.ergo:397:1*/ return dense__ID[compiler_ssyntax__Tok]{n: uint32(i)}
 }
 
 //line compiler.go:655
@@ -832,28 +832,28 @@ func dense__IDIndexMono_i2427209043(id dense__ID[compiler_ssyntax__Tok]) int {
 //line compiler.go:659
 
 func dense__CountTotalMono_i1278758797(c dense__Count[compiler_ssyntax__Cmt]) int {
-	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
+	/*line std/dense/dense.ergo:388:32*/ return int(c.n)
 }
 
 //line compiler.go:661
 
 func dense__CountIDAtMono_i1278758797(c dense__Count[compiler_ssyntax__Cmt], i int) dense__ID[compiler_ssyntax__Cmt] {
-	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
-		/*line std/dense/dense.ergo:376:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+	/*line std/dense/dense.ergo:394:1*/ if i < 0 || i >= int(c.n) {
+		/*line std/dense/dense.ergo:395:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 	}
-	/*line std/dense/dense.ergo:378:1*/ return dense__ID[compiler_ssyntax__Cmt]{n: uint32(i)}
+	/*line std/dense/dense.ergo:397:1*/ return dense__ID[compiler_ssyntax__Cmt]{n: uint32(i)}
 }
 
 //line compiler.go:663
 
 func (c dense__Col[K, V]) Of(id dense__ID[K]) V {
-	/*line std/dense/dense.ergo:413:41*/ return c.xs[int(id.n)]
+	/*line std/dense/dense.ergo:432:41*/ return c.xs[int(id.n)]
 }
 
 //line compiler.go:665
 
 func dense__ColOfMono_i2843391274(c dense__Col[compiler_ssyntax__Cmt, uint32], id dense__ID[compiler_ssyntax__Cmt]) uint32 {
-	/*line std/dense/dense.ergo:413:41*/ return c.xs[int(id.n)]
+	/*line std/dense/dense.ergo:432:41*/ return c.xs[int(id.n)]
 }
 
 //line compiler.go:667
@@ -865,10 +865,10 @@ func strings__IndexByte(s string, c uint8) int {
 //line compiler.go:669
 
 func dense__CountIDAtMono_i1428406671(c dense__Count[compiler_ssyntax__Node], i int) dense__ID[compiler_ssyntax__Node] {
-	/*line std/dense/dense.ergo:375:1*/ if i < 0 || i >= int(c.n) {
-		/*line std/dense/dense.ergo:376:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+	/*line std/dense/dense.ergo:394:1*/ if i < 0 || i >= int(c.n) {
+		/*line std/dense/dense.ergo:395:2*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 	}
-	/*line std/dense/dense.ergo:378:1*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(i)}
+	/*line std/dense/dense.ergo:397:1*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(i)}
 }
 
 //line compiler.go:671
@@ -1009,19 +1009,19 @@ func cmp__CompareMono_i2515107422(a int, b int) int {
 //line compiler.go:701
 
 func dense__NewCount[K any]() dense__Count[K] {
-	/*line std/dense/dense.ergo:338:30*/ return dense__Count[K]{n: uint32(0)}
+	/*line std/dense/dense.ergo:357:30*/ return dense__Count[K]{n: uint32(0)}
 }
 
 //line compiler.go:703
 
 func dense__NewCountMono_i2427209043() dense__Count[compiler_ssyntax__Tok] {
-	/*line std/dense/dense.ergo:338:30*/ return dense__Count[compiler_ssyntax__Tok]{n: uint32(0)}
+	/*line std/dense/dense.ergo:357:30*/ return dense__Count[compiler_ssyntax__Tok]{n: uint32(0)}
 }
 
 //line compiler.go:705
 
 func dense__NewCountMono_i1428406671() dense__Count[compiler_ssyntax__Node] {
-	/*line std/dense/dense.ergo:338:30*/ return dense__Count[compiler_ssyntax__Node]{n: uint32(0)}
+	/*line std/dense/dense.ergo:357:30*/ return dense__Count[compiler_ssyntax__Node]{n: uint32(0)}
 }
 
 //line compiler.go:707
@@ -1147,19 +1147,19 @@ func slices__RepeatMono_i848563180(xs []uint32, n int) []uint32 {
 //line compiler.go:785
 
 func dense__NewCountMono_i1278758797() dense__Count[compiler_ssyntax__Cmt] {
-	/*line std/dense/dense.ergo:338:30*/ return dense__Count[compiler_ssyntax__Cmt]{n: uint32(0)}
+	/*line std/dense/dense.ergo:357:30*/ return dense__Count[compiler_ssyntax__Cmt]{n: uint32(0)}
 }
 
 //line compiler.go:787
 
 func dense__ColWithCap[K any, V any](n int) dense__Col[K, V] {
-	/*line std/dense/dense.ergo:404:41*/ return dense__Col[K, V]{xs: slices__WithCapacity[V](n)}
+	/*line std/dense/dense.ergo:423:41*/ return dense__Col[K, V]{xs: slices__WithCapacity[V](n)}
 }
 
 //line compiler.go:789
 
 func dense__ColWithCapMono_i2843391274(n int) dense__Col[compiler_ssyntax__Cmt, uint32] {
-	/*line std/dense/dense.ergo:404:41*/ return dense__Col[compiler_ssyntax__Cmt, uint32]{xs: slices__WithCapacityMono_i848563180(n)}
+	/*line std/dense/dense.ergo:423:41*/ return dense__Col[compiler_ssyntax__Cmt, uint32]{xs: slices__WithCapacityMono_i848563180(n)}
 }
 
 //line compiler.go:791
@@ -1232,31 +1232,31 @@ func (t compiler_ssyntax__Tree) children(x uint32, out []uint32) []uint32 {
 //line compiler.go:842
 
 func (c *dense__Count[K]) Next() dense__ID[K] {
-	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[K]
-	/*line std/dense/dense.ergo:342:1*/ {
-		/*line std/dense/dense.ergo:342:18*/ p0_inls0 := int(c.n)
-		/*line std/dense/dense.ergo:342:10*/ if p0_inls0 >= 4294967295 {
-			/*line std/dense/dense.ergo:342:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
+	/*line std/dense/dense.ergo:361:1*/ var id dense__ID[K]
+	/*line std/dense/dense.ergo:361:1*/ {
+		/*line std/dense/dense.ergo:361:18*/ p0_inls0 := int(c.n)
+		/*line std/dense/dense.ergo:361:10*/ if p0_inls0 >= 4294967295 {
+			/*line std/dense/dense.ergo:361:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
 		}
-		/*line std/dense/dense.ergo:342:10*/ id = dense__ID[K]{n: uint32(p0_inls0)}
+		/*line std/dense/dense.ergo:361:10*/ id = dense__ID[K]{n: uint32(p0_inls0)}
 	}
-	/*line std/dense/dense.ergo:343:1*/ c.n = c.n + uint32(1)
-	/*line std/dense/dense.ergo:344:1*/ return id
+	/*line std/dense/dense.ergo:362:1*/ c.n = c.n + uint32(1)
+	/*line std/dense/dense.ergo:363:1*/ return id
 }
 
 //line compiler.go:844
 
 func dense__CountNextMono_i2427209043(c *dense__Count[compiler_ssyntax__Tok]) dense__ID[compiler_ssyntax__Tok] {
-	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[compiler_ssyntax__Tok]
-	/*line std/dense/dense.ergo:342:1*/ {
-		/*line std/dense/dense.ergo:342:18*/ p0_inls0 := int(c.n)
-		/*line std/dense/dense.ergo:342:10*/ if p0_inls0 >= 4294967295 {
-			/*line std/dense/dense.ergo:342:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
+	/*line std/dense/dense.ergo:361:1*/ var id dense__ID[compiler_ssyntax__Tok]
+	/*line std/dense/dense.ergo:361:1*/ {
+		/*line std/dense/dense.ergo:361:18*/ p0_inls0 := int(c.n)
+		/*line std/dense/dense.ergo:361:10*/ if p0_inls0 >= 4294967295 {
+			/*line std/dense/dense.ergo:361:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
 		}
-		/*line std/dense/dense.ergo:342:10*/ id = dense__ID[compiler_ssyntax__Tok]{n: uint32(p0_inls0)}
+		/*line std/dense/dense.ergo:361:10*/ id = dense__ID[compiler_ssyntax__Tok]{n: uint32(p0_inls0)}
 	}
-	/*line std/dense/dense.ergo:343:1*/ c.n = c.n + uint32(1)
-	/*line std/dense/dense.ergo:344:1*/ return id
+	/*line std/dense/dense.ergo:362:1*/ c.n = c.n + uint32(1)
+	/*line std/dense/dense.ergo:363:1*/ return id
 }
 
 //line compiler.go:846
@@ -1296,22 +1296,22 @@ func ergo__compiler_ssyntax__tabdigitValueFill(i int, a0 uint8) int {
 }
 
 func dense__CountTotalMono_i1428406671(c dense__Count[compiler_ssyntax__Node]) int {
-	/*line std/dense/dense.ergo:369:32*/ return int(c.n)
+	/*line std/dense/dense.ergo:388:32*/ return int(c.n)
 }
 
 //line compiler.go:878
 
 func dense__CountNextMono_i1428406671(c *dense__Count[compiler_ssyntax__Node]) dense__ID[compiler_ssyntax__Node] {
-	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[compiler_ssyntax__Node]
-	/*line std/dense/dense.ergo:342:1*/ {
-		/*line std/dense/dense.ergo:342:18*/ p0_inls0 := int(c.n)
-		/*line std/dense/dense.ergo:342:10*/ if p0_inls0 >= 4294967295 {
-			/*line std/dense/dense.ergo:342:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
+	/*line std/dense/dense.ergo:361:1*/ var id dense__ID[compiler_ssyntax__Node]
+	/*line std/dense/dense.ergo:361:1*/ {
+		/*line std/dense/dense.ergo:361:18*/ p0_inls0 := int(c.n)
+		/*line std/dense/dense.ergo:361:10*/ if p0_inls0 >= 4294967295 {
+			/*line std/dense/dense.ergo:361:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
 		}
-		/*line std/dense/dense.ergo:342:10*/ id = dense__ID[compiler_ssyntax__Node]{n: uint32(p0_inls0)}
+		/*line std/dense/dense.ergo:361:10*/ id = dense__ID[compiler_ssyntax__Node]{n: uint32(p0_inls0)}
 	}
-	/*line std/dense/dense.ergo:343:1*/ c.n = c.n + uint32(1)
-	/*line std/dense/dense.ergo:344:1*/ return id
+	/*line std/dense/dense.ergo:362:1*/ c.n = c.n + uint32(1)
+	/*line std/dense/dense.ergo:363:1*/ return id
 }
 
 //line compiler.go:880
@@ -1361,28 +1361,28 @@ func dense__nextMono_i2427209043(n int) dense__ID[compiler_ssyntax__Tok] {
 //line compiler.go:902
 
 func dense__CountNextMono_i1278758797(c *dense__Count[compiler_ssyntax__Cmt]) dense__ID[compiler_ssyntax__Cmt] {
-	/*line std/dense/dense.ergo:342:1*/ var id dense__ID[compiler_ssyntax__Cmt]
-	/*line std/dense/dense.ergo:342:1*/ {
-		/*line std/dense/dense.ergo:342:18*/ p0_inls0 := int(c.n)
-		/*line std/dense/dense.ergo:342:10*/ if p0_inls0 >= 4294967295 {
-			/*line std/dense/dense.ergo:342:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
+	/*line std/dense/dense.ergo:361:1*/ var id dense__ID[compiler_ssyntax__Cmt]
+	/*line std/dense/dense.ergo:361:1*/ {
+		/*line std/dense/dense.ergo:361:18*/ p0_inls0 := int(c.n)
+		/*line std/dense/dense.ergo:361:10*/ if p0_inls0 >= 4294967295 {
+			/*line std/dense/dense.ergo:361:10*/ panic(ergo.UnreachableAt("dense: a store holds at most 4294967295 rows", "std/dense/dense.ergo:83:3"))
 		}
-		/*line std/dense/dense.ergo:342:10*/ id = dense__ID[compiler_ssyntax__Cmt]{n: uint32(p0_inls0)}
+		/*line std/dense/dense.ergo:361:10*/ id = dense__ID[compiler_ssyntax__Cmt]{n: uint32(p0_inls0)}
 	}
-	/*line std/dense/dense.ergo:343:1*/ c.n = c.n + uint32(1)
-	/*line std/dense/dense.ergo:344:1*/ return id
+	/*line std/dense/dense.ergo:362:1*/ c.n = c.n + uint32(1)
+	/*line std/dense/dense.ergo:363:1*/ return id
 }
 
 //line compiler.go:904
 
 func (c *dense__Col[K, V]) Push(v V) {
-	/*line std/dense/dense.ergo:407:40*/ c.xs = append(c.xs, v)
+	/*line std/dense/dense.ergo:426:40*/ c.xs = append(c.xs, v)
 }
 
 //line compiler.go:906
 
 func dense__ColPushMono_i2843391274(c *dense__Col[compiler_ssyntax__Cmt, uint32], v uint32) {
-	/*line std/dense/dense.ergo:407:40*/ c.xs = append(c.xs, v)
+	/*line std/dense/dense.ergo:426:40*/ c.xs = append(c.xs, v)
 }
 
 //line compiler.go:908
@@ -13833,7 +13833,7 @@ func compiler_ssyntax_sdump__Scan(env *ergo__Env, src string) string {
 			/*line syntax/dump/scan.ergo:13:2*/ {
 				/*line syntax/token.ergo#ergo-inline-syntax/dump/scan.ergo@13.12:144:55*/ p0_inl1 := t.ids
 				/*line syntax/dump/scan.ergo:13:2*/ if i < 0 || i >= int(p0_inl1.n) {
-					/*line syntax/token.ergo#ergo-inline-syntax/dump/scan.ergo@13.12:144:42*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/token.ergo#ergo-inline-syntax/dump/scan.ergo@13.12:144:42*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/token.ergo#ergo-inline-syntax/dump/scan.ergo@13.12:144:42*/ id = dense__ID[compiler_ssyntax__Tok]{n: uint32(i)}
 				/*line syntax/token.ergo#ergo-inline-syntax/dump/scan.ergo@13.12:144:42*/ goto inl0
@@ -13860,7 +13860,7 @@ func compiler_ssyntax_sdump__Scan(env *ergo__Env, src string) string {
 			/*line syntax/dump/scan.ergo:20:2*/ {
 				/*line syntax/comments.ergo#ergo-inline-syntax/dump/scan.ergo@20.12:32:63*/ p0_inl5 := c.ids
 				/*line syntax/dump/scan.ergo:20:2*/ if i_1 < 0 || i_1 >= int(p0_inl5.n) {
-					/*line syntax/comments.ergo#ergo-inline-syntax/dump/scan.ergo@20.12:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/comments.ergo#ergo-inline-syntax/dump/scan.ergo@20.12:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/comments.ergo#ergo-inline-syntax/dump/scan.ergo@20.12:32:50*/ id_1 = dense__ID[compiler_ssyntax__Cmt]{n: uint32(i_1)}
 				/*line syntax/comments.ergo#ergo-inline-syntax/dump/scan.ergo@20.12:32:50*/ goto inl4
@@ -13949,7 +13949,7 @@ func compiler_ssyntax_sdump__Tokens(src string) []uint32 {
 			/*line syntax/dump/columns.ergo:23:2*/ {
 				/*line syntax/token.ergo#ergo-inline-syntax/dump/columns.ergo@23.12:144:55*/ p0_inl4 := t.ids
 				/*line syntax/dump/columns.ergo:23:2*/ if i < 0 || i >= int(p0_inl4.n) {
-					/*line syntax/token.ergo#ergo-inline-syntax/dump/columns.ergo@23.12:144:42*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/token.ergo#ergo-inline-syntax/dump/columns.ergo@23.12:144:42*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/token.ergo#ergo-inline-syntax/dump/columns.ergo@23.12:144:42*/ id = dense__ID[compiler_ssyntax__Tok]{n: uint32(i)}
 				/*line syntax/token.ergo#ergo-inline-syntax/dump/columns.ergo@23.12:144:42*/ goto inl3
@@ -14963,7 +14963,7 @@ func (t compiler_ssyntax__Toks) TokAt(i int) dense__ID[compiler_ssyntax__Tok] {
 	/*line syntax/token.ergo:144:42*/ {
 		/*line syntax/token.ergo:144:55*/ p0_inl0 := t.ids
 		/*line syntax/token.ergo:144:42*/ if i < 0 || i >= int(p0_inl0.n) {
-			/*line syntax/token.ergo:144:42*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+			/*line syntax/token.ergo:144:42*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 		}
 		/*line syntax/token.ergo:144:42*/ return dense__ID[compiler_ssyntax__Tok]{n: uint32(i)}
 	}
@@ -15075,7 +15075,7 @@ func (c compiler_ssyntax__Comments) CommentAt(i int) dense__ID[compiler_ssyntax_
 	/*line syntax/comments.ergo:32:50*/ {
 		/*line syntax/comments.ergo:32:63*/ p0_inl0 := c.ids
 		/*line syntax/comments.ergo:32:50*/ if i < 0 || i >= int(p0_inl0.n) {
-			/*line syntax/comments.ergo:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+			/*line syntax/comments.ergo:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 		}
 		/*line syntax/comments.ergo:32:50*/ return dense__ID[compiler_ssyntax__Cmt]{n: uint32(i)}
 	}
@@ -16041,7 +16041,7 @@ func (t compiler_ssyntax__Tree) Root() dense__ID[compiler_ssyntax__Node] {
 		/*line syntax/tree.ergo:123:48*/ p0_inl0 := t.ids
 		/*line syntax/tree.ergo:123:56*/ p1_inl0 := t.n - 1
 		/*line syntax/tree.ergo:123:35*/ if p1_inl0 < 0 || p1_inl0 >= int(p0_inl0.n) {
-			/*line syntax/tree.ergo:123:35*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+			/*line syntax/tree.ergo:123:35*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 		}
 		/*line syntax/tree.ergo:123:35*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(p1_inl0)}
 	}
@@ -16123,7 +16123,7 @@ func (p compiler_ssyntax__Parsed) Columns() []uint32 {
 			/*line syntax/columns.ergo:47:2*/ {
 				/*line syntax/comments.ergo#ergo-inline-syntax/columns.ergo@47.12:32:63*/ p0_inl4 := p0_inl3.ids
 				/*line syntax/columns.ergo:47:2*/ if c < 0 || c >= int(p0_inl4.n) {
-					/*line syntax/comments.ergo#ergo-inline-syntax/columns.ergo@47.12:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/comments.ergo#ergo-inline-syntax/columns.ergo@47.12:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/comments.ergo#ergo-inline-syntax/columns.ergo@47.12:32:50*/ id = dense__ID[compiler_ssyntax__Cmt]{n: uint32(c)}
 				/*line syntax/comments.ergo#ergo-inline-syntax/columns.ergo@47.12:32:50*/ goto inl3
@@ -16431,7 +16431,7 @@ func (p *compiler_sformat__Printer) load() {
 			/*line format/printer.ergo:61:2*/ {
 				/*line syntax/comments.ergo#ergo-inline-format/printer.ergo@61.11:32:63*/ p0_inl6 := cs.ids
 				/*line format/printer.ergo:61:2*/ if i < 0 || i >= int(p0_inl6.n) {
-					/*line syntax/comments.ergo#ergo-inline-format/printer.ergo@61.11:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/comments.ergo#ergo-inline-format/printer.ergo@61.11:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/comments.ergo#ergo-inline-format/printer.ergo@61.11:32:50*/ c = dense__ID[compiler_ssyntax__Cmt]{n: uint32(i)}
 				/*line syntax/comments.ergo#ergo-inline-format/printer.ergo@61.11:32:50*/ goto inl5
@@ -19421,7 +19421,7 @@ func (d *compiler_ssyntax_sdump__dumper) listWhere(depth int, l compiler_ssyntax
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@76.12:10:63*/ p0_inl2 := p0_inl1.ids
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@76.12:10:68*/ p1_inl2 := int(p0_inl1.extra[int(l.at)+i_1])
 				/*line syntax/dump/parse.ergo:76:2*/ if p1_inl2 < 0 || p1_inl2 >= int(p0_inl2.n) {
-					/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@76.12:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@76.12:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@76.12:10:50*/ id = dense__ID[compiler_ssyntax__Node]{n: uint32(p1_inl2)}
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@76.12:10:50*/ goto inl1
@@ -19460,7 +19460,7 @@ func (d *compiler_ssyntax_sdump__dumper) typeTerms(depth int, l compiler_ssyntax
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@119.12:10:63*/ p0_inl2 := p0_inl1.ids
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@119.12:10:68*/ p1_inl2 := int(p0_inl1.extra[int(l.at)+i_1])
 				/*line syntax/dump/parse.ergo:119:2*/ if p1_inl2 < 0 || p1_inl2 >= int(p0_inl2.n) {
-					/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@119.12:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@119.12:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@119.12:10:50*/ id = dense__ID[compiler_ssyntax__Node]{n: uint32(p1_inl2)}
 				/*line syntax/view.ergo#ergo-inline-syntax/dump/parse.ergo@119.12:10:50*/ goto inl1
@@ -19552,7 +19552,7 @@ func (t compiler_ssyntax__Tree) Item(l compiler_ssyntax__List, i int) dense__ID[
 		/*line syntax/view.ergo:10:63*/ p0_inl0 := t.ids
 		/*line syntax/view.ergo:10:68*/ p1_inl0 := int(t.extra[int(l.at)+i])
 		/*line syntax/view.ergo:10:50*/ if p1_inl0 < 0 || p1_inl0 >= int(p0_inl0.n) {
-			/*line syntax/view.ergo:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+			/*line syntax/view.ergo:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 		}
 		/*line syntax/view.ergo:10:50*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(p1_inl0)}
 	}
@@ -20703,7 +20703,7 @@ func (p *compiler_sformat__Printer) nth(l compiler_ssyntax__List, i int) dense__
 			/*line syntax/view.ergo#ergo-inline-format/nodes.ergo@24.71:10:63*/ p0_inl1 := p0_inl0.ids
 			/*line syntax/view.ergo#ergo-inline-format/nodes.ergo@24.71:10:68*/ p1_inl1 := int(p0_inl0.extra[int(l.at)+i])
 			/*line format/nodes.ergo:24:70*/ if p1_inl1 < 0 || p1_inl1 >= int(p0_inl1.n) {
-				/*line syntax/view.ergo#ergo-inline-format/nodes.ergo@24.71:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+				/*line syntax/view.ergo#ergo-inline-format/nodes.ergo@24.71:10:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 			}
 			/*line syntax/view.ergo#ergo-inline-format/nodes.ergo@24.71:10:50*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(p1_inl1)}
 		}
@@ -20745,7 +20745,7 @@ func compiler_sformat__Comments(p compiler_ssyntax__Parsed) []string {
 			/*line format/laws.ergo:107:2*/ {
 				/*line syntax/comments.ergo#ergo-inline-format/laws.ergo@107.11:32:63*/ p0_inl1 := cs.ids
 				/*line format/laws.ergo:107:2*/ if i < 0 || i >= int(p0_inl1.n) {
-					/*line syntax/comments.ergo#ergo-inline-format/laws.ergo@107.11:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+					/*line syntax/comments.ergo#ergo-inline-format/laws.ergo@107.11:32:50*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 				}
 				/*line syntax/comments.ergo#ergo-inline-format/laws.ergo@107.11:32:50*/ c = dense__ID[compiler_ssyntax__Cmt]{n: uint32(i)}
 				/*line syntax/comments.ergo#ergo-inline-format/laws.ergo@107.11:32:50*/ goto inl0
@@ -37057,7 +37057,7 @@ func (t compiler_ssyntax__Tree) nid(w uint32) dense__ID[compiler_ssyntax__Node] 
 		/*line syntax/view.ergo:149:57*/ p0_inl0 := t.ids
 		/*line syntax/view.ergo:149:62*/ p1_inl0 := int(w)
 		/*line syntax/view.ergo:149:44*/ if p1_inl0 < 0 || p1_inl0 >= int(p0_inl0.n) {
-			/*line syntax/view.ergo:149:44*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+			/*line syntax/view.ergo:149:44*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 		}
 		/*line syntax/view.ergo:149:44*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(p1_inl0)}
 	}
@@ -58608,7 +58608,7 @@ func (t compiler_ssyntax__Tree) NodeAt(i int) dense__ID[compiler_ssyntax__Node] 
 	/*line syntax/tree.ergo:120:44*/ {
 		/*line syntax/tree.ergo:120:57*/ p0_inl0 := t.ids
 		/*line syntax/tree.ergo:120:44*/ if i < 0 || i >= int(p0_inl0.n) {
-			/*line syntax/tree.ergo:120:44*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:376:3"))
+			/*line syntax/tree.ergo:120:44*/ panic(ergo.UnreachableAt("dense: IDAt of a position outside the count", "std/dense/dense.ergo:395:3"))
 		}
 		/*line syntax/tree.ergo:120:44*/ return dense__ID[compiler_ssyntax__Node]{n: uint32(i)}
 	}
