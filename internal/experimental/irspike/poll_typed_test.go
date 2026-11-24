@@ -9,7 +9,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// TestIRTypedPollBound requests a stop just after the first 1024 back
+// TestIRTypedPollBound requests a stop after one and after 1,025 back
 // edges of a loop with no source exit. Its body calls an env-free helper
 // that can return a typed failure. The default must amortize, not check
 // at each edge, but must still observe the pending stop within PollEvery
@@ -21,24 +21,28 @@ func TestIRTypedPollBound(t *testing.T) {
 	const seed = 1
 	text := pollTypedProgram(seed)
 	u := loadText(t, t.TempDir(), text)
-	requestAt := lower.PollEvery + 1
 	amort, each := pollFuncs(t, u, "", seed, text), pollFuncs(t, u, "each", seed, text)
 	for _, name := range []string{"spin", "sum"} {
 		for _, n := range []int{1, 2} {
-			optimized := &pollEval{t: t, funcs: amort, requestAt: requestAt, edgeLimit: requestAt + lower.PollEvery + 1}
-			reference := &pollEval{t: t, funcs: each, requestAt: requestAt, edgeLimit: optimized.edgeLimit}
 			args := []any{pollEnv{}, n}
-			want := 2*lower.PollEvery - 1 // Check precedes completion of that edge.
 			if name == "sum" {
 				args = []any{pollEnv{}, pollTypedSize(seed), n}
-				want++ // The index checks from zero, one edge earlier each group.
 			}
-			a, r := optimized.callBody(name, args), reference.callBody(name, args)
-			if a.k != "stop" || r.k != "stop" ||
-				optimized.run.edges != want || reference.run.edges != requestAt ||
-				2*optimized.run.checks >= reference.run.checks {
-				t.Fatalf("seed %d: %s%v: optimized ends %q, %+v; each ends %q, %+v\nreplay: go test -run '^TestIRTypedPollBound$' ./internal/experimental/irspike\n%s",
-					seed, name, args[1:], a.k, optimized.run, r.k, reference.run, text)
+			for _, group := range []int{1, 2} {
+				requestAt := (group-1)*lower.PollEvery + 1
+				optimized := &pollEval{t: t, funcs: amort, requestAt: requestAt, edgeLimit: requestAt + lower.PollEvery + 1}
+				reference := &pollEval{t: t, funcs: each, requestAt: requestAt, edgeLimit: optimized.edgeLimit}
+				want := group * lower.PollEvery
+				if name == "spin" {
+					want-- // The counter checks before completing the group's last edge.
+				}
+				a, r := optimized.callBody(name, args), reference.callBody(name, args)
+				if a.k != "stop" || r.k != "stop" ||
+					optimized.run.edges != want || reference.run.edges != requestAt ||
+					group > 1 && 2*optimized.run.checks >= reference.run.checks {
+					t.Fatalf("seed %d: %s%v: stop requested after %d edges; optimized ends %q, %+v; each ends %q, %+v\nreplay: go test -run '^TestIRTypedPollBound$' ./internal/experimental/irspike\n%s",
+						seed, name, args[1:], requestAt, a.k, optimized.run, r.k, reference.run, text)
+				}
 			}
 		}
 	}
@@ -51,6 +55,7 @@ func TestIRFlatEmptyLoopResults(t *testing.T) {
 	const seed = 1
 	text := pollTypedProgram(seed)
 	u := loadText(t, t.TempDir(), text)
+	defer lower.SetFlatLoweringForTest("")()
 	got := pollFuncs(t, u, "", seed, text)
 	if got["sumOne"] == nil || got["sumOneFlat"] != nil || got["admitOneFlat"] == nil {
 		t.Fatalf("sumOne must have an IR body and no flat worker; admitOne must have one\n%s", text)
