@@ -1138,12 +1138,13 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		// Go's several results, one per element, are adapted.
 		irNo("std call with an adapted result")
 	}
+	subst := b.recvTypeSubst(n)
 	convs := map[int]string{} // by index of the receiver-first vals
 	for i, q := range body.Params {
 		if adapted(q) {
 			continue // adaptOperands, ir_adapt.go
 		}
-		conv, ok := b.operandConv(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) // ir_operand.go
+		conv, ok := b.operandConv(x.Args[i], q.Type, subst, body.Package) // ir_operand.go
 		if !ok {
 			irNo("std call with a converted operand")
 		}
@@ -1155,7 +1156,7 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 		irNo("fallible call with an empty row at its site")
 	}
 	resConv := "" // the Go conversion the result takes (ir_operand.go basicOver)
-	if goValue(body) && !b.sameGo(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0])) && !b.sameRT(b.l.info.Types[x], b.recvTypeArgs(n, body.Results[0]), nil, body.Package) {
+	if goValue(body) && !b.sameGo(b.l.info.Types[x], body.Results[0]) && !b.sameRT(b.l.info.Types[x], body.Results[0], subst, body.Package) {
 		// A runtime type over the method's basic result (Mapped.Text's
 		// string for fs.Text) is the result converted, when the call is
 		// a single value (CONV-OPERAND).
@@ -1189,10 +1190,10 @@ func (b *irBuilder) boundOpOperands(x *syntax.CallExpr, c *check.Call, recv *irE
 	return pre, append([]*irExpr{recv}, vals...)
 }
 
-// recvTypeArgs is the Go type s of a runtime method of n's Go type with
-// the method's type parameters (the receiver's: Ref[T]'s T) replaced by
-// n's Go type arguments, so sameGo compares the instance's types.
-func (b *irBuilder) recvTypeArgs(n *check.Named, s string) string {
+// recvTypeSubst maps the runtime method's receiver formals (Ref[T]'s T)
+// to the Go spellings of their actual types. sameRT inserts them into
+// compound types too: Script's Op[A,F].Calls() returns []A.
+func (b *irBuilder) recvTypeSubst(n *check.Named) map[string]string {
 	args := typeArgs(n)
 	if n.Orig == nil && len(n.TParams) != 0 {
 		// A bare operation in a generic member law uses the formals
@@ -1207,17 +1208,21 @@ func (b *irBuilder) recvTypeArgs(n *check.Named, s string) string {
 	if n.Orig != nil {
 		origin = n.Orig
 	}
+	var subst map[string]string
 	i := 0
 	for _, tp := range origin.TParams {
 		if tp.Kind != check.KindType {
 			continue
 		}
-		if i < len(args) && s == tp.Name {
-			return b.fc.goType(args[i])
+		if i < len(args) {
+			if subst == nil {
+				subst = make(map[string]string, len(args))
+			}
+			subst[tp.Name] = b.fc.goType(args[i])
 		}
 		i++
 	}
-	return s
+	return subst
 }
 
 // sameGo reports whether the Ergo type t lowers to the Go type a

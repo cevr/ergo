@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -46,6 +47,9 @@ func TestIRStdMatchesSource(t *testing.T) {
 		const reason = "std call that adapts a function of another shape"
 		if n := rep.Fallback[reason]; n != 0 {
 			t.Errorf("seed %d: %d bodies keep %q\n%s\n%s", seed, n, reason, replay, text)
+		}
+		if !slices.Contains(rep.IR, "scriptArgs") {
+			t.Errorf("seed %d: scriptArgs has no IR body (fallback %v)\n%s\n%s", seed, rep.Fallback, replay, text)
 		}
 		if seed%6 == 0 && (a.exit == 0 || !strings.Contains(a.stderr, "predicate defect")) {
 			t.Errorf("seed %d: the predicate did not propagate its defect: %+v\n%s", seed, a, replay)
