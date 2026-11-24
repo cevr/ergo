@@ -26,8 +26,10 @@ type funcPlan struct {
 	// owned the indexes of those the package owns (Info.OwnedVars).
 	params []*check.Var
 	owned  []int
-	owner  check.FactOwner
-	tab    factTable
+	// closeParts is the receiver's generated cleanup after a written Close.
+	closeParts *check.Drop
+	owner      check.FactOwner
+	tab        factTable
 	// collection is a prelude collection call (collectionCall); takes a
 	// bodiless std function that takes an owned argument (holdTaken).
 	collection, takes bool
@@ -135,6 +137,7 @@ func (in *interp) planOf(fn *check.Func) *funcPlan {
 			ice("the package of %s has no Info", fn.Name)
 		}
 		p.params = in.paramsOf(fn)
+		p.closeParts = fn.Pkg.Info.CloseParts[fn]
 		p.owner = in.ownerOf(fn.Pkg, fn.Decl)
 		p.tab = in.table(fn.Pkg.Info)
 		if owned := fn.Pkg.Info.OwnedVars; len(owned) > 0 {

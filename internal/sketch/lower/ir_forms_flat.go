@@ -283,8 +283,8 @@ func (b *irBuilder) flatCatch(x *syntax.CatchExpr, partial bool, call *syntax.Ca
 	ifs := &irStmt{K: "if", Pos: p, End: end, X: failed, Then: then}
 	if result >= 0 && !fl.unit {
 		ifs.ElsePos, ifs.ElseEnd = end, end
-		val := b.variantInto(b.l.info.Types[call], m.Result, flatField(r, "Val", end), call)
-		ifs.Else = []*irStmt{{K: "set", Pos: end, Local: result, X: val}}
+		hold, val := b.catchValue(call, flatField(r, "Val", end), m.Result)
+		ifs.Else = append(hold, &irStmt{K: "set", Pos: end, Local: result, X: val})
 	}
 	pre = append(pre, ifs)
 	if result < 0 {
