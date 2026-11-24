@@ -63,7 +63,11 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 			// Go's append(xs, ys...): keep ys as lowered by operands.
 			// The value walk treats it as a read only when its elements
 			// hold no slice or Map (values.go).
-			return pre, &irExpr{K: "builtin", Pos: p, Name: name, Args: args}, false
+			e := &irExpr{K: "builtin", Pos: p, Name: name, Args: args}
+			if stmt {
+				return append(pre, &irStmt{K: "discard", Pos: p, X: e}), nil, false
+			}
+			return pre, e, false
 		}
 		return pre, &irExpr{K: "append", Pos: p, Args: args}, false
 	case "len":

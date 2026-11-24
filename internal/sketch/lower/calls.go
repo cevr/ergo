@@ -493,7 +493,11 @@ func (fc *funcCtx) builtinCall(x *syntax.CallExpr, c *check.Call, args []syntax.
 		if builtinLowering == "call" {
 			return fc.l.builtinHelper("appendAll", x) + "(" + vals[0] + ", " + vals[1] + ")"
 		}
-		return "append(" + vals[0] + ", " + vals[1] + "...)"
+		text := "append(" + vals[0] + ", " + vals[1] + "...)"
+		if fc.stmtCall == x {
+			return "_ = " + text // Go's append is not an expression statement.
+		}
+		return text
 	}
 	if builtinLowering == "call" {
 		return fc.l.builtinHelper(b, x) + "(" + strings.Join(vals, ", ") + ")"

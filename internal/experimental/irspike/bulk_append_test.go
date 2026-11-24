@@ -10,8 +10,8 @@ import (
 )
 
 // TestIRBulkAppendMatchesSource checks a user binding of Go's bulk
-// append on live and owned slices, and in a generic body and its copies
-// on integers and records with a slice field.
+// append on live and owned slices, in a generic body and its copies on
+// integers and records with a slice field, and with a dropped result.
 //
 // It builds Go because only the patched decoder selects Go's variadic
 // append and runs the IR bodies, rather than the text bodies, at runtime.
@@ -27,7 +27,7 @@ func TestIRBulkAppendMatchesSource(t *testing.T) {
 			return fmt.Sprintf("missing IR monomorphic bodies for int and Row (IR bodies: %v)", r.IR)
 		}
 		return ""
-	}, true, "merge", "owned", "live", "records")
+	}, true, "merge", "owned", "live", "records", "dropped")
 }
 
 func bulkAppendProgram(seed uint64) string {
@@ -39,6 +39,7 @@ import slices
 extern go append func spread[T](xs []T, ys []T) []T
 
 type Row { Data []int }
+type Trace { Seen int }
 
 func merge[T](xs []T, ys []T) []T { spread(xs, ys) }
 
@@ -68,12 +69,23 @@ func records(a int, b int, c int) int {
 	joined[0].Data[0] * 10000 + joined[1].Data[0] * 100 + joined[2].Data[0] + ys[0].Data[0]
 }
 
+func mark(t mut Trace, x int) []int {
+	t.Seen = t.Seen * 100 + x
+	[]int{x}
+}
+
+func dropped(x int) int {
+	let mut t = Trace{Seen: 0}
+	let _ = spread(mark(&t, x), mark(&t, x + 1))
+	t.Seen
+}
+
 func main() needs Console {
 	let xs = []int{%d}
 	let ys = []int{%d, %d}
 	let a = merge(xs, ys)
 	let b = owned(xs[0], ys)
-	Console.Println("\(a[0]) \(a[1]) \(a[2]) \(b[0]) \(b[1]) \(b[2]) \(live(3, ys)) \(records(%d, %d, %d))")
+	Console.Println("\(a[0]) \(a[1]) \(a[2]) \(b[0]) \(b[1]) \(b[2]) \(live(3, ys)) \(records(%d, %d, %d)) \(dropped(xs[0]))")
 }
 `, n(), n()+1, n(), n(), n(), n())
 }
