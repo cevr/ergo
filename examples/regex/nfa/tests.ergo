@@ -72,6 +72,32 @@ test ByteStepAndEndHaveSeparateResults {
 	}
 }
 
+test TaggedEndKeepsCapture {
+	let b = Begin{P: Build(syntax.Group{Name: "A", Of: syntax.Literal("a")}), At: 0, Find: false}
+	let mut r Running = StartTags(b)
+	r.StepTags(Read{C: 'a'})
+	let done Tagged = FinishTags(r)
+	let want = " (A@0 )A@1"
+	match done.Match {
+	case Some[Best] as found:
+		assert syntax.ShowEvents(syntax.Events(found.Value.H)) == want
+	case None:
+		assert false
+	}
+	let initial Tags = StartTags(b)
+	match try machines.From(machines.Start(Tagger{}, b), initial, []Signal{Read{C: 'a'}, End}) {
+	case machines.Finished[Tags, Tagged] as f:
+		match f.Output.Match {
+		case Some[Best] as found:
+			assert syntax.ShowEvents(syntax.Events(found.Value.H)) == want
+		case None:
+			assert false
+		}
+	case machines.Running[Tags, Tagged]:
+		assert false
+	}
+}
+
 // checked is the checked pattern of text.
 func checked(text string) syntax.Pattern fails syntax.SyntaxError | syntax.CaptureError {
 	try syntax.Check(try syntax.Parse(text))
