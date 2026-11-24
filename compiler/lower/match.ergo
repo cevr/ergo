@@ -228,7 +228,8 @@ func matchEmit(st fnb, b mut ir.Builder, p controlPlan, s controlStmt, arms []ma
 			let i = uint32(arm.binding)
 			let narrowed = if arm.payload {
 				let rec = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), cp, []uint32{slot})
-				try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), cp, []uint32{rec, ir.Text(b, "as" + strconv.Itoa(arm.tags[0])), 0})
+				let method = "as" + strconv.Itoa(arm.tags[0])
+				try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), cp, []uint32{rec, ir.Text(b, method), 0})
 			} else {
 				try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), cp, []uint32{ir.Text(b, arm.variant)})
 			}
@@ -249,7 +250,7 @@ func matchEmit(st fnb, b mut ir.Builder, p controlPlan, s controlStmt, arms []ma
 	if !hasDefault && s.assign == "return" {
 		let where = syntax.PositionOf(st.lines, s.offset)
 		let label = strconv.Itoa(where.Line) + ":" + strconv.Itoa(where.Column)
-		let msg = try constRow(b, end, "string", "ergo: defect: no case of the match at " + label + " matched")
+		let msg = try constRow(b, end, "string", "ergo: defect: no case of the match at "+label+" matched")
 		fallback = fallback.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "panic"), end, []uint32{msg}))
 	}
 	let endAt = ir.PosAt(b, end)

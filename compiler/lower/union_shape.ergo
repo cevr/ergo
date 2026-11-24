@@ -354,6 +354,7 @@ func unionEmitReturn(st fnb, b mut ir.Builder, j unionInjection, at ir.Pos) uint
 		try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), p, []uint32{ir.Text(b, j.variant)})
 	}
 	let receiver = try ir.Row(b, ir.KindCode(ir.TExpr, "zero"), p, []uint32{ir.Text(b, j.typ)})
-	let injected = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), p, []uint32{receiver, ir.Text(b, "of" + strconv.Itoa(j.tag)), ir.List(b, []uint32{variant})})
+	let method = "of" + strconv.Itoa(j.tag)
+	let injected = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), p, []uint32{receiver, ir.Text(b, method), ir.List(b, []uint32{variant})})
 	try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{injected})
 }
