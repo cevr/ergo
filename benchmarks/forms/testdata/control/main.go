@@ -365,7 +365,7 @@ func benchMapClose(n int) int {
 // ---- slotmatch ----
 
 type shape struct {
-	kind    uint8
+	kind          uint8
 	a, b, c, d, e int
 }
 

@@ -1,10 +1,3 @@
-// irforms holds the IR-FORMS plan's probes: one small program per Ergo
-// form, each with a hand Go twin in ../../testdata/control; a workload
-// per kind in ../../KIND (go run ./scripts/opcount -control -rounds 5
-// benchmarks/forms/KIND).
-//
-//	irforms bench KIND N
-
 import fs
 import irforms/view
 import os
@@ -12,8 +5,6 @@ import slices
 import strconv
 import sync
 import ui
-
-// ---- step: a machine's step, driven in a loop ----
 
 type Light = Red{Ticks int} | Green{Ticks int} | Amber{Ticks int} | Off{}
 
@@ -75,9 +66,9 @@ func Step(k Light, s Sig) Decision[Light, Note] {
 }
 
 func sigOf(i int) Sig {
-	if i % 64 == 33 {
+	if i%64 == 33 {
 		Trip
-	} else if i % 64 == 40 {
+	} else if i%64 == 40 {
 		Reset
 	} else {
 		Tick
@@ -104,8 +95,6 @@ func benchStep(n int) int {
 	out
 }
 
-// ---- opt: a small function that gives an Option, matched at once ----
-
 func find(keys []int, k int) Option[int] {
 	let i = k & 63
 	if keys[i] == k {
@@ -118,11 +107,11 @@ func find(keys []int, k int) Option[int] {
 func benchOpt(n int) int {
 	let mut keys = []int{}
 	for i in 0..64 {
-		keys = keys.Append(if i % 4 == 0 { 0 - 1 } else { i })
+		keys = keys.Append(if i%4 == 0 { 0 - 1 } else { i })
 	}
 	let mut sum = 0
 	for i in 0..n {
-		match find(keys, i & 127) {
+		match find(keys, i&127) {
 		case Some[int] as s:
 			sum = sum + s.Value
 		case None:
@@ -132,12 +121,10 @@ func benchOpt(n int) int {
 	sum
 }
 
-// ---- fail: a typed failure through two tries and a catch ----
-
 type Bad { At int }
 
 func digit(c int) int fails Bad {
-	if c % 8 == 7 {
+	if c%8 == 7 {
 		Bad{At: c}
 	} else {
 		c % 10
@@ -147,13 +134,13 @@ func digit(c int) int fails Bad {
 func pair(a int, b int) int fails Bad {
 	let x = try digit(a)
 	let y = try digit(b)
-	x * 10 + y
+	x*10 + y
 }
 
 func benchFail(n int) int {
 	let mut sum = 0
 	for i in 0..n {
-		let v = pair(i, i + 3) catch {
+		let v = pair(i, i+3) catch {
 		case Bad as b:
 			b.At % 5
 		}
@@ -162,24 +149,20 @@ func benchFail(n int) int {
 	sum
 }
 
-// ---- pipe: Transform, Filter and Fold of std slices, with closures ----
-
 func benchPipe(n int) int {
 	let mut xs = slices.WithCapacity[int](n)
 	for i in 0..n {
 		xs = xs.Append(i)
 	}
-	let ys = slices.Transform(xs, func(x int) int { x * 3 + 1 })
-	let zs = slices.Filter(ys, func(x int) bool { x % 4 != 0 })
-	slices.Fold(zs, 0, func(acc int, x int) int { acc + x % 7 })
+	let ys = slices.Transform(xs, func(x int) int { x*3 + 1 })
+	let zs = slices.Filter(ys, func(x int) bool { x%4 != 0 })
+	slices.Fold(zs, 0, func(acc int, x int) int { acc + x%7 })
 }
-
-// ---- update: a record update of a six-field record, in a loop ----
 
 type Stats { A int, B int, C int, D int, E int, F int }
 
 func bump(s Stats, x int) Stats {
-	if x & 1 == 0 {
+	if x&1 == 0 {
 		Stats{..s, A: s.A + (x & 7)}
 	} else {
 		Stats{..s, E: s.E + 1, F: s.F ^ x}
@@ -193,8 +176,6 @@ func benchUpdate(n int) int {
 	}
 	s.A + s.B + s.C + s.D + s.E + (s.F & 1023)
 }
-
-// ---- view: a match on a view call, in this package and in another ----
 
 type Tree { Kind []int, A []int, B []int, Extra []int, W int }
 
@@ -263,15 +244,11 @@ func walkCross(t view.Tree, passes int) int {
 
 func benchViewLocal(n int) int {
 	let v = view.Build(4096)
-	walkLocal(Tree{Kind: v.Kind, A: v.A, B: v.B, Extra: v.Extra, W: v.W}, n / 4096)
+	walkLocal(Tree{Kind: v.Kind, A: v.A, B: v.B, Extra: v.Extra, W: v.W}, n/4096)
 }
 
-func benchViewCross(n int) int { walkCross(view.Build(4096), n / 4096) }
+func benchViewCross(n int) int { walkCross(view.Build(4096), n/4096) }
 
-// ---- segpath: a path of std's ui.Seg built and read (FLAT-STD) ----
-
-// segPath is dash-gui's chart stroke: eight columns, a MoveTo and a LineTo
-// each, appended to a path of room for them.
 func segPath(i int) ui.Path {
 	let mut segs = slices.WithCapacity[ui.Seg](16)
 	for j in 0..8 {
@@ -282,7 +259,6 @@ func segPath(i int) ui.Path {
 	ui.Path{Segs: segs}
 }
 
-// benchSegPath builds n paths and reads each segment as a painter does.
 func benchSegPath(n int) int {
 	let mut acc = 0
 	for i in 0..n {
@@ -301,20 +277,18 @@ func benchSegPath(n int) int {
 	acc
 }
 
-// ---- ctx: an operation of a capability, bound once, called in a loop ----
-
 type Meter {
 	Add(x int) int,
 }
 
 type Plain { Scale int } implements Meter
 
-func Add(p Plain, x int) int { x * p.Scale + 1 }
+func Add(p Plain, x int) int { x*p.Scale + 1 }
 
 func total(n int) int needs Meter {
 	let mut s = 0
 	for i in 0..n {
-		s = s + Meter.Add(i & 1023)
+		s = s + Meter.Add(i&1023)
 	}
 	s
 }
@@ -323,34 +297,29 @@ func benchCtx(n int) int {
 	with context { Meter: Plain{Scale: 3} } { total(n) }
 }
 
-// ---- provspill: a known provider's copy whose provider a later operand
-// spills (ir_known.go provArg) ----
-
 type Tally {
 	Bump(x int) int,
 }
 
 type Stride { k int } implements Tally
 
-func Bump(s Stride, x int) int { x * s.k + 1 }
+func Bump(s Stride, x int) int { x*s.k + 1 }
 
 func bumps(t Tally, from int, n int) int {
 	let mut s = 0
 	for i in 0..n {
-		s = s + t.Bump((i + from) & 1023)
+		s = s + t.Bump((i+from)&1023)
 	}
 	s
 }
 
 func benchProvSpill(n int) int {
 	let mut s = 0
-	for i in 0..n / 64 {
+	for i in 0..n/64 {
 		s = s + bumps(Stride{k: 3}, bumps(Stride{k: 2}, i, 1), 63)
 	}
 	s
 }
-
-// ---- mapclose: a checked Close of a runtime-bound type (fs's Mapped) ----
 
 func benchMapClose(h fs.Host, n int) int {
 	let mut k = 0
@@ -365,15 +334,13 @@ func benchMapClose(h fs.Host, n int) int {
 	k
 }
 
-// ---- ownwith: a with that owns a resource, built in place per call ----
-
 type Gauge {
 	Read(x int) int,
 }
 
 type Counter { k int } implements Gauge, Closer
 
-func Read(c Counter, x int) int { x * c.k + 1 }
+func Read(c Counter, x int) int { x*c.k + 1 }
 
 func Close(_ Counter) {}
 
@@ -386,27 +353,21 @@ func gauged(x int) int {
 func benchOwnWith(n int) int {
 	let mut s = 0
 	for i in 0..n {
-		s = s + gauged(i & 1023)
+		s = s + gauged(i&1023)
 	}
 	s
 }
 
-// ---- slotmatch: a union result its caller only matches (UNI2) ----
-
-// Nested holds a Shape by value, so Shape is a Go interface, the form
-// the slot variant is for (flatunion.go, rule 3); no call builds one.
 type Shape = Circle{R int} | Rect{W int, H int} | Tri{A int, B int, C int, D int, E int} | Nested{S Shape}
 
-// shapeOf recurses d times first, so neither Go nor the IR inlines it,
-// as a lookup through scopes (ssg's find) is not.
 func shapeOf(i int, d int) Shape {
 	if d > 0 {
-		return shapeOf(i, d - 1)
+		return shapeOf(i, d-1)
 	}
-	if i % 3 == 0 {
+	if i%3 == 0 {
 		return Circle{R: i & 7}
 	}
-	if i % 3 == 1 {
+	if i%3 == 1 {
 		return Rect{W: i & 7, H: 3}
 	}
 	Tri{A: 1, B: 2, C: i & 7, D: 4, E: 5}
@@ -433,8 +394,6 @@ func benchSlotMatch(n int) int {
 	s
 }
 
-// ---- ref: a shared cell's Modify with a closure ----
-
 func benchRef(n int) int {
 	let cell = sync.NewRef[int](0)
 	let mut sum = 0
@@ -445,8 +404,6 @@ func benchRef(n int) int {
 	sum
 }
 
-// ---- floors: the same work written by hand in Ergo ----
-
 func benchPipeLoops(n int) int {
 	let mut xs = slices.WithCapacity[int](n)
 	for i in 0..n {
@@ -454,17 +411,17 @@ func benchPipeLoops(n int) int {
 	}
 	let mut ys = slices.WithCapacity[int](len(xs))
 	for x in xs {
-		ys = ys.Append(x * 3 + 1)
+		ys = ys.Append(x*3 + 1)
 	}
 	let mut zs = []int{}
 	for y in ys {
-		if y % 4 != 0 {
+		if y%4 != 0 {
 			zs = zs.Append(y)
 		}
 	}
 	let mut acc = 0
 	for z in zs {
-		acc = acc + z % 7
+		acc = acc + z%7
 	}
 	acc
 }
@@ -476,9 +433,9 @@ func benchPipeFused(n int) int {
 	}
 	let mut acc = 0
 	for x in xs {
-		let y = x * 3 + 1
-		if y % 4 != 0 {
-			acc = acc + y % 7
+		let y = x*3 + 1
+		if y%4 != 0 {
+			acc = acc + y%7
 		}
 	}
 	acc
@@ -487,7 +444,7 @@ func benchPipeFused(n int) int {
 func totalDirect(p Plain, n int) int {
 	let mut s = 0
 	for i in 0..n {
-		s = s + p.Add(i & 1023)
+		s = s + p.Add(i&1023)
 	}
 	s
 }
@@ -505,7 +462,7 @@ func benchUpdateFields(n int) int {
 	let mut e = 0
 	let mut f = 0
 	for i in 0..n {
-		if i & 1 == 0 {
+		if i&1 == 0 {
 			a = a + (i & 7)
 		} else {
 			e = e + 1
@@ -515,14 +472,11 @@ func benchUpdateFields(n int) int {
 	a + 1 + 2 + 3 + e + (f & 1023)
 }
 
-// ---- widen and rebuild: a sub-union's value into its union (UNION-FLAT) ----
-
 type Settled = Asked{Q int} | Shown{N int}
 type Quiz = Calculating{Next int} | Settled
 
 func widenQ(s Settled) Quiz { s }
 
-// rebuildQ is the hand rebuild that widening replaces.
 func rebuildQ(s Settled) Quiz {
 	match s {
 	case Asked as a:
@@ -544,7 +498,7 @@ func score(q Quiz) int {
 }
 
 func settledOf(i int) Settled {
-	if i % 3 == 0 {
+	if i%3 == 0 {
 		Asked{Q: i & 7}
 	} else {
 		Shown{N: i & 3}
