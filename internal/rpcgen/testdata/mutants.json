@@ -22,6 +22,26 @@
       "killers": ["benchmarks/apifirst/cli/ergo/counter/countercli:PeerSuccessDoesNotBoxTheOutcome"]
     },
     {
+      "name": "nou-mcp-wrong-tag-accepted",
+      "origin": "wf10 NOU-TRANSPORT",
+      "file": "benchmarks/apifirst/mcp/ergo/counter/countermcp/mcp.ergo",
+      "decl": "ReadAnswer",
+      "from": "\t\t\tcase _:\n\t\t\t\treturn rpc.Transport{Reason: \"the tool add answered an undeclared failure: \" + text}",
+      "to": "\t\t\tcase \"Unknown\":\n\t\t\t\tlet e = try rpc.Decode[counter.Unknown](\"failure\", text)\n\t\t\t\tcounterapi.Rejected{Failure: counterapi.Unknown{E: e}}\n\t\t\tcase _:\n\t\t\t\treturn rpc.Transport{Reason: \"the tool add answered an undeclared failure: \" + text}",
+      "rule": "The MCP reader rejects a legitimate sibling operation's failure tag as transport failure, and still accepts it for its own operation.",
+      "killers": ["benchmarks/apifirst/mcp/ergo/counter/countermcp:PeerReplyKeepsTransportSeparate"]
+    },
+    {
+      "name": "nou-mcp-transport-success-box",
+      "origin": "wf10 NOU-TRANSPORT",
+      "file": "benchmarks/apifirst/mcp/ergo/counter/countermcp/mcp.ergo",
+      "decl": "ReadAnswer",
+      "from": "\t\t\tcounterapi.Done{Reply: counterapi.GetReply{Value: v}}",
+      "to": "\t\t\tlet box = rpc.Encode([]int{v})\n\t\t\tlet values = try rpc.Decode[[]int](\"success box\", box)\n\t\t\tcounterapi.Done{Reply: counterapi.GetReply{Value: values[0]}}",
+      "rule": "Delivery failure does not box the successful MCP reply or add success allocations.",
+      "killers": ["benchmarks/apifirst/mcp/ergo/counter/countermcp:PeerSuccessDoesNotBoxTheOutcome"]
+    },
+    {
       "name": "rpc-answer-buffers",
       "anchor": {"tests": ["internal/rpcgen:TestRpcFramedExitFlowsWhileHeld"]},
       "origin": "wf10 Rm",

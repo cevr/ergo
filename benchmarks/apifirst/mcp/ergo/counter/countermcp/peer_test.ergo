@@ -1,0 +1,55 @@
+import mcp
+import rpc
+import testing
+import mcpbench/counter
+import mcpbench/counter/counterapi
+
+test PeerReplyKeepsTransportSeparate {
+	let read func(r Request, result mcp.Called) counterapi.Outcome fails rpc.Transport = ReadAnswer
+	let add = counterapi.AddRequest{Entry: counter.Entry{Key: "abc", N: -3}}
+	let get = counterapi.GetRequest{Key: "abc"}
+	let unknown = mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "{\"_tag\":\"Unknown\",\"key\":\"abc\"}"}}, IsError: true}
+	assert isTransport(read, add, mcp.Called{Content: []mcp.Content{}, IsError: false})
+	assert isTransport(read, add, mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "1"}, mcp.Content{Type: "text", Text: "2"}}, IsError: false})
+	assert isTransport(read, add, mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "\"not an int\""}}, IsError: false})
+	assert isTransport(read, add, unknown)
+	assert isTransport(read, add, mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "{\"_tag\":\"Negative\",\"n\":\"not an int\"}"}}, IsError: true})
+	assert isTransport(read, add, mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "{\"_tag\":\"Other\"}"}}, IsError: true})
+
+	assert hasOutcome(read, get, unknown, counterapi.Rejected{Failure: counterapi.Unknown{E: counter.Unknown{Key: "abc"}}})
+	assert hasOutcome(read, add, mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "{\"_tag\":\"Negative\",\"n\":-3}"}}, IsError: true},
+		counterapi.Rejected{Failure: counterapi.Negative{E: counter.Negative{N: -3}}})
+	assert hasOutcome(read, get, mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "3"}}, IsError: false},
+		counterapi.Done{Reply: counterapi.GetReply{Value: 3}})
+}
+
+func hasOutcome(read func(r Request, result mcp.Called) counterapi.Outcome fails rpc.Transport, r Request, result mcp.Called, want counterapi.Outcome) bool {
+	let got = read(r, result) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want
+}
+
+func isTransport(read func(r Request, result mcp.Called) counterapi.Outcome fails rpc.Transport, r Request, result mcp.Called) bool {
+	let _ = read(r, result) catch {
+	case rpc.Transport:
+		return true
+	}
+	false
+}
+
+let peerCounts = context needs TestAmbient { testing.Allocs: testing.NewAllocCounter() }
+
+test PeerSuccessDoesNotBoxTheOutcome {
+	let read func(r Request, result mcp.Called) counterapi.Outcome fails rpc.Transport = ReadAnswer
+	let r = counterapi.GetRequest{Key: "abc"}
+	let called = mcp.Called{Content: []mcp.Content{mcp.Content{Type: "text", Text: "733"}}, IsError: false}
+	let want = counterapi.Done{Reply: counterapi.GetReply{Value: 733}}
+	let mut same = false
+	let n = with peerCounts {
+		testing.Allocs.PerRun(64, func() { same = hasOutcome(read, r, called, want) })
+	}
+	assert n <= 4
+	assert same
+}

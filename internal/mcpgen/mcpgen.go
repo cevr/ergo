@@ -302,38 +302,50 @@ func (g *gen) file(ops []rpcgen.Op, tools []*tool) string {
 
 	fmt.Fprintf(&b, "// Answer answers r through the hub's Call on the bound %s (Show).\nfunc Answer(r Request) json.Value fails mcp.ToolError needs %s {\ntry Show(%sCall(r))\n}\n\n", capName, capName, g.rq)
 
-	fmt.Fprintf(&b, "// ReadAnswer is the outcome of r that a tool's result says: its value's\n// JSON, or, when it is an error, its failure's tagged JSON. Any other\n// result is not an answer to r, a defect.\nfunc ReadAnswer(r Request, result mcp.Called) %sOutcome {\n", g.rq)
-	b.WriteString("if len(result.Content) != 1 {\nUnreachable(\"a tool answered \\(len(result.Content)) blocks, not one\")\n}\nlet text = result.Content[0].Text\nif !result.IsError {\nmatch r {\n")
+	fmt.Fprintf(&b, "// ReadAnswer is the outcome of r that a tool's result says: its value's\n// JSON, or, when it is an error, an admitted failure's tagged JSON.\n// Invalid or missing replies fail Transport, outside the operation's own row.\nfunc ReadAnswer(r Request, result mcp.Called) %sOutcome fails rpc.Transport {\n", g.rq)
+	b.WriteString("if len(result.Content) != 1 {\nreturn rpc.Transport{Reason: \"a tool answered \\(len(result.Content)) blocks, not one\"}\n}\nlet text = result.Content[0].Text\nif !result.IsError {\nmatch r {\n")
 	for _, t := range tools {
 		op := t.op
 		req := g.rq + op.Name + "Request"
 		reply := g.rq + op.Name + "Reply"
 		if op.Result == nil {
-			fmt.Fprintf(&b, "case %s:\nif text != \"null\" {\nUnreachable(\"the tool %s answered \" + text + \", not null\")\n}\n%sDone{Reply: %s}\n", req, t.name, g.rq, reply)
+			fmt.Fprintf(&b, "case %s:\nif text != \"null\" {\nreturn rpc.Transport{Reason: \"the tool %s answered \" + text + \", not null\"}\n}\n%sDone{Reply: %s}\n", req, t.name, g.rq, reply)
 			continue
 		}
-		fmt.Fprintf(&b, "case %s:\nlet v = rpc.Decode[%s](\"value\", text) catch {\ncase rpc.Transport as e:\nUnreachable(\"the tool %s answered a value it cannot read: \" + e.Reason)\n}\n%sDone{Reply: %s{Value: v}}\n", req, g.expr(op.Result), t.name, g.rq, reply)
+		fmt.Fprintf(&b, "case %s:\nlet v = try rpc.Decode[%s](\"value\", text)\n%sDone{Reply: %s{Value: v}}\n", req, g.expr(op.Result), g.rq, reply)
 	}
-	b.WriteString("}\n} else {\nmatch rpc.TagOf(text) {\n")
-	for _, f := range fails {
-		var quoted []string
-		for _, tag := range rpcgen.FailTags(unalias(f)) {
-			quoted = append(quoted, fmt.Sprintf("%q", tag))
+	b.WriteString("}\n} else {\nmatch r {\n")
+	for _, t := range tools {
+		op := t.op
+		fmt.Fprintf(&b, "case %s%sRequest:\n", g.rq, op.Name)
+		if len(op.Fails) != 0 {
+			b.WriteString("match rpc.TagOf(text) {\n")
+			for _, f := range op.Fails {
+				var quoted []string
+				for _, tag := range rpcgen.FailTags(unalias(f)) {
+					quoted = append(quoted, fmt.Sprintf("%q", tag))
+				}
+				fmt.Fprintf(&b, "case %s:\nlet e = try rpc.Decode[%s](\"failure\", text)\n%sRejected{Failure: %s%s{E: e}}\n", strings.Join(quoted, ", "), g.expr(f), g.rq, g.rq, rpcgen.FailureVariant(ops, f))
+			}
+			b.WriteString("case _:\n")
 		}
-		fmt.Fprintf(&b, "case %s:\nlet e = rpc.Decode[%s](\"failure\", text) catch {\ncase rpc.Transport as x:\nUnreachable(\"a tool answered a failure it cannot read: \" + x.Reason)\n}\n%sRejected{Failure: %s%s{E: e}}\n", strings.Join(quoted, ", "), g.expr(f), g.rq, g.rq, rpcgen.FailureVariant(ops, f))
+		fmt.Fprintf(&b, "return rpc.Transport{Reason: \"the tool %s answered an undeclared failure: \" + text}\n", t.name)
+		if len(op.Fails) != 0 {
+			b.WriteString("}\n")
+		}
 	}
-	b.WriteString("case _:\nUnreachable(\"a tool answered an error no operation has: \" + text)\n}\n}\n}\n\n")
+	b.WriteString("}\n}\n}\n\n")
 
 	fmt.Fprintf(&b, "// toolOver is the tool name answered by answer: it reads its arguments\n// (Call) and shows answer's outcome (Show).\nfunc toolOver(name string, answer own func(r Request) %sOutcome) mcp.Tool {\nmcp.Tool{Name: name, Description: Description(name), Input: Input(name), Call: func(arguments json.Value) json.Value fails mcp.ToolError {\nlet r = Call(name, arguments) catch {\ncase mcp.ToolError as e:\nreturn e\ncase mcp.UnknownTool as e:\nreturn mcp.ToolError{Message: \"no tool is named \" + e.Name}\n}\ntry Show(answer(r))\n}}\n}\n\n", g.rq)
 	fmt.Fprintf(&b, "// toolsOver makes one tool per operation, in declaration order.\nfunc toolsOver(answer own func(r Request) %sOutcome) []mcp.Tool {\nlet mut out = []mcp.Tool{}\nfor name in Names {\nout = out.Append(toolOver(name, answer))\n}\nout\n}\n\n", g.rq)
 	fmt.Fprintf(&b, "// Tools are the tools of the %s in force, one per operation, in its order.\nfunc Tools() []mcp.Tool needs %s {\nlet held = InForce[%s]()\ntoolsOver(func(r Request) %sOutcome {\nwith held { %sCall(r) }\n})\n}\n\n", capName, capName, capName, g.rq, g.rq)
 
-	fmt.Fprintf(&b, "// carry is c through the protocol: the tools/call message of its tool,\n// answered by module mcp's Handle over tools whose answer is answer, and\n// the result read back (ReadAnswer).\nfunc carry(c Request, answer own func(c Request) %sOutcome) %sOutcome {\n", g.rq, g.rq)
+	fmt.Fprintf(&b, "// carry is c through the protocol: the tools/call message of its tool,\n// answered by module mcp's Handle over tools whose answer is answer, and\n// the result read back (ReadAnswer). Delivery can fail separately from\n// answer's outcome.\nfunc carry(c Request, answer own func(c Request) %sOutcome) %sOutcome fails rpc.Transport {\n", g.rq, g.rq)
 	b.WriteString("let server = mcp.Server{Name: \"carry\", Version: \"1\", Tools: toolsOver(answer)}\nlet (name, arguments) = Arguments(c)\nlet message = \"{\\\"jsonrpc\\\":\\\"2.0\\\",\\\"id\\\":1,\\\"method\\\":\\\"tools/call\\\",\\\"params\\\":{\\\"name\\\":\" + rpc.Encode(name) + \",\\\"arguments\\\":\" + textOf(arguments) + \"}}\"\n")
-	b.WriteString("match mcp.Handle(server, message) {\ncase mcp.Answered as a:\nlet result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {\ncase _:\nUnreachable(\"a tool's result is not one: \" + a.Result)\n}\nReadAnswer(c, result)\ncase mcp.Refused as e:\nUnreachable(\"the server refused the call: \" + e.Message)\ncase mcp.Silent:\nUnreachable(\"the server did not answer the call\")\n}\n}\n\n")
-	fmt.Fprintf(&b, "// Wire is the protocol as a transport of the hub's calls.\ntype Wire {} implements %s.Transport[Request, %sOutcome]\n\n", g.stdAPI, g.rq)
-	fmt.Fprintf(&b, "// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) %sOutcome) %sOutcome { carry(c, answer) }\n\n", g.rq, g.rq)
-	fmt.Fprintf(&b, "// Agrees: the protocol carries every call and every outcome the call\n// can have unchanged.\nlaw Agrees(r Request, g %sGiven) { %s.Agrees(Wire, r, %sOutcomeOf(r, g)) }\n\n", g.rq, g.stdAPI, g.rq)
+	b.WriteString("match mcp.Handle(server, message) {\ncase mcp.Answered as a:\nlet result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {\ncase _:\nreturn rpc.Transport{Reason: \"a tool's result is not one: \" + a.Result}\n}\ntry ReadAnswer(c, result)\ncase mcp.Refused as e:\nreturn rpc.Transport{Reason: \"the server refused the call: \" + e.Message}\ncase mcp.Silent:\nreturn rpc.Transport{Reason: \"the server did not answer the call\"}\n}\n}\n\n")
+	fmt.Fprintf(&b, "// Wire is the protocol as a transport of the hub's calls.\ntype Wire {} implements %s.Transport[Request, %sOutcome, rpc.Transport]\n\n", g.stdAPI, g.rq)
+	fmt.Fprintf(&b, "// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) %sOutcome) %sOutcome fails rpc.Transport { try carry(c, answer) }\n\n", g.rq, g.rq)
+	fmt.Fprintf(&b, "// Agrees: the protocol carries every call and every outcome the call\n// can have unchanged.\nlaw Agrees(r Request, g %sGiven) { %s.Agrees[Request, %sOutcome, rpc.Transport](Wire, r, %sOutcomeOf(r, g)) }\n\n", g.rq, g.stdAPI, g.rq, g.rq)
 
 	b.WriteString("// RoundTrips reports whether Call reads what Arguments writes of r as r.\nfunc RoundTrips(r Request) bool {\nlet (name, arguments) = Arguments(r)\nlet back = Call(name, arguments) catch {\ncase mcp.ToolError, mcp.UnknownTool:\nreturn false\n}\nback == r\n}\n\n")
 	b.WriteString("// FitsSchema reports whether the arguments that ask for r fit the\n// schema their tool lists.\nfunc FitsSchema(r Request) bool {\nlet (name, arguments) = Arguments(r)\nmcp.Conforms(Input(name), arguments)\n}\n\n")
