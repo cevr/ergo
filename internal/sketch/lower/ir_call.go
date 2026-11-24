@@ -347,6 +347,11 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 	} else {
 		pre, irArgs = b.operands(args) // a row parameter's operand goes in by implicit (ir_rowgap.go)
 	}
+	if c.ReadsClaimReceiver() {
+		if _, borrowed := b.l.info.Types[c.Recv].(*check.Pointer); borrowed {
+			irArgs[0] = &irExpr{K: "deref", Pos: p, X: irArgs[0]}
+		}
+	}
 	b.valueSource(x, c, args, irArgs)   // ir_pkg.go
 	b.l.intMapCall(x, c.Recv, f, false) // intmap.go: a generic signature's Map is Go's
 	if x.Trailing != nil {
@@ -368,10 +373,14 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 	if wc := b.witnessCopy(x, c); wc != "" && known == "" { // ir_witness.go
 		return pre, mark(&irExpr{K: "call", Pos: p, Name: wc, Args: irArgs}), !fd.envFree
 	}
-	if known == "" && b.copyTakesNoWitness(x, c, fd) {
+	var mono *specCopy
+	if known == "" && b.copyCall(x, c) == "" {
+		mono = b.fc.monoAt(x, c, f, c.TypeArgs)
+	}
+	if mono != nil && mono.wits != nil {
 		// A copy for an instance whose witnesses are known (mono.go
 		// monoWitnesses): its operations are its own.
-	} else if wits := b.witnessArgs(f, x, p); len(wits) > 0 { // ir_witness.go
+	} else if wits := b.witnessArgs(f, x, p, mono.claimParams()); len(wits) > 0 { // ir_witness.go
 		// After the environment, before the operands (witnessArgs).
 		at := 0
 		if !fd.envFree {
@@ -383,19 +392,17 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 	// callText's does: a plain function, which Go compiles once, in
 	// the copy's package, where an instance of the generic is
 	// compiled again in each package that names it (MONO-HOOKS-MIN).
-	// It takes the instance's witnesses, as callText's copy does.
-	if known == "" && b.copyCall(x, c) == "" {
-		if mono := b.fc.monoAt(x, c, f, c.TypeArgs); mono != nil {
-			if fd.method != nil && !fd.envFree {
-				// The copy of a method takes the environment
-				// before its receiver (callText).
-				irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
-			}
-			// The copy's own IR body is the inliner's to copy, as
-			// the text path's OPT4a writes the instance's body at
-			// its call (lru's Churn: Cache.Get; IR-GETMATCH).
-			return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
+	// Its operand list keeps only the witnesses the copy still needs.
+	if mono != nil {
+		if fd.method != nil && !fd.envFree {
+			// The copy of a method takes the environment
+			// before its receiver (callText).
+			irArgs = append([]*irExpr{irArgs[1], irArgs[0]}, irArgs[2:]...)
 		}
+		// The copy's own IR body is the inliner's to copy, as
+		// the text path's OPT4a writes the instance's body at
+		// its call (lru's Churn: Cache.Get; IR-GETMATCH).
+		return pre, b.inlineMark(x, c, fd, mark(&irExpr{K: "call", Pos: p, Name: mono.name, Args: irArgs})), !fd.envFree // ir_forms_inline.go
 	}
 	if known != "" && fd.method != nil {
 		return pre, mark(&irExpr{K: "mcall", Pos: p, Name: known, X: irArgs[0], Args: irArgs[1:]}), !fd.envFree

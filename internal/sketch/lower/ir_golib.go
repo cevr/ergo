@@ -26,9 +26,13 @@ import (
 // hostBind, which converts its error; hostResult converts a Go result (a
 // go.Ref checked for nil, an Option, a slice or Map copied).
 func (b *irBuilder) goTarget(x *syntax.CallExpr, c *check.Call, f *check.Func, p irPos) ([]*irStmt, *irExpr) {
+	argc := len(x.Args)
+	if c.RecvIsParam() {
+		argc++
+	}
 	switch {
 	case f.Decl == nil || f.Decl.Extern == nil || f.Decl.Extern.Target == nil, hostGeneric(f), // ir_gocall.go
-		len(x.Args) != len(f.Sig.Params):
+		argc != len(f.Sig.Params):
 		irNo("call of a Go package function")
 	case f.Sig.Fallible && !failsHere(c):
 		irNo("Go call whose site drops its failure")

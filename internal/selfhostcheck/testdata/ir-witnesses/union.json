@@ -1,0 +1,6 @@
+[
+  {"fixture": "port_union.ergo", "declaration": "func PortUnionMakeMode(", "symbol": "PortUnionMakeMode"},
+  {"fixture": "port_union.ergo", "declaration": "func PortUnionMakeReading(", "symbol": "PortUnionMakeReading"},
+  {"fixture": "port_union.ergo", "declaration": "func PortUnionModeRank(", "symbol": "PortUnionModeRank"},
+  {"fixture": "port_union.ergo", "declaration": "func PortUnionRead(", "symbol": "PortUnionRead"}
+]

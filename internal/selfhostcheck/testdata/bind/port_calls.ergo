@@ -1,0 +1,35 @@
+func PortCallLength(s string) int { len(s) + 1 }
+
+func PortCallBuiltin(s string) int { PortCallLength(s) }
+
+func PortCallStep(a int, b int) int { a - b }
+
+func PortCallLoop(high int, low int) int {
+	let mut n = high
+	for n > low {
+		n = PortCallStep(n, 1)
+	}
+	n
+}
+
+func PortCallOrdered(a int, b int) int { PortCallLoop(a / b, b / a) }
+
+func PortCallCycleLeft(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	PortCallCycleRight(n - 1)
+}
+
+func PortCallCycleRight(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	PortCallCycleLeft(n - 1)
+}
+
+func PortCallCycle(n int) int { PortCallCycleLeft(n) }
+
+func portCallSmall(a int, b int) int { PortCallStep(a, b) }
+
+func PortCallMustInline(a int, b int) int { portCallSmall(a, b) }

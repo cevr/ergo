@@ -1,0 +1,5 @@
+type Mappable[T] { Map[U](f func(x T) U) Self[U] }
+
+func Map[U](xs []byte, f func(x byte) U) []U implements Mappable[byte] {
+	[]U{}
+}

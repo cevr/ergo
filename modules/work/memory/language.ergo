@@ -269,7 +269,7 @@ func Check(l Lines, base work.Snapshot, layer []work.FileEdit) []work.Diagnostic
 	out
 }
 
-// Serving answers a plugin's requests in process: its standard output is
+// Serving answers the lines plugin's requests in process: its standard output is
 // work.Serve of its standard input over the three providers, or nothing
 // with status when status is not 0 (a plugin that died) or when silent (a
 // plugin that ends well and answers nothing).
@@ -288,7 +288,7 @@ func Started(sv Serving) int { sv.runs.Get() }
 func Env(_ Serving) Map[string, string] { Map[string, string]{} }
 
 func Run(sv Serving, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
-	if StatesItsStatus(c) {
+	if c.Name != "lines" || len(c.Args) != 0 {
 		return exec.NotFound{Name: c.Name}
 	}
 	sv.runs.Set(sv.runs.Get() + 1)
