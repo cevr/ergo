@@ -1,0 +1,326 @@
+import rand
+import strings
+
+func genDirective(index int) string {
+	match index {
+	case 0:
+		"// @ts-expect-error"
+	case 1:
+		"// @ts-ignore"
+	case 2:
+		"// @ts-nocheck"
+	case 3:
+		"// @ts-check"
+	case 4:
+		"/// <reference types=\"node\" />"
+	case 5:
+		"///<reference path=\"./a.d.ts\" />"
+	case 6:
+		"// oxlint-disable-next-line"
+	case 7:
+		"/* eslint-disable no-console */"
+	case 8:
+		"// prettier-ignore"
+	case 9:
+		"// oxfmt-ignore"
+	case 10:
+		"/* v8 ignore next */"
+	case 11:
+		"/* #__PURE__ */"
+	case 12:
+		"/** @jsxImportSource react */"
+	case 13:
+		"//# sourceMappingURL=out.js.map"
+	case _:
+		"//@ sourceURL=out.ts"
+	}
+}
+
+func genProse(index int) string {
+	match index {
+	case 0:
+		"// prose explanation"
+	case 1:
+		"/* inline note */"
+	case 2:
+		"/**\n * Docstring summary.\n * @param x number\n */"
+	case 3:
+		"/**\n * Mentions @ts-ignore later in prose.\n */"
+	case 4:
+		"/*\n * multi-line\n * block prose\n */"
+	case 5:
+		"///"
+	case 6:
+		"/**/"
+	case _:
+		"/* */"
+	}
+}
+
+func genTS(seed int) string {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let nl = if Random.IntN(3) == 0 { "\r\n" } else { "\n" }
+		let mut parts = []string{}
+		if Random.IntN(2) == 0 {
+			parts = parts.Append("#!/usr/bin/env bun")
+		}
+		let count = 3 + Random.IntN(8)
+		for i in 0..count {
+			let kind = Random.IntN(12)
+			match kind {
+			case 0:
+				parts = parts.Append(genDirective(Random.IntN(15)))
+			case 1:
+				parts = parts.Append(genProse(Random.IntN(8)))
+			case 2:
+				parts = parts.Append("const a\(i) = 1 // trailing note")
+			case 3:
+				parts = parts.Append("function f\(i)(x: number) { return/* gap */x }")
+			case 4:
+				parts = parts.Append("const c\(i) = call(/* arg */a\(i)/* end */, 2)")
+			case 5:
+				parts = parts.Append("const s\(i) = \"http://a.b /* not comment */\"")
+			case 6:
+				parts = parts.Append("const t\(i) = `url // ok ${/* inner */ 1} /* ok */`")
+			case 7:
+				parts = parts.Append("const r\(i) = /https?:\\/\\//g.test(\"x\") // regex")
+			case 8:
+				parts = parts.Append("const sum\(i) = a +/* sep */+ b")
+			case 9:
+				parts = parts.Append("class Box\(i)<T> { /* empty */ }")
+			case 10:
+				parts = parts.Append("const fn\(i) = <T,>(x: T) => { /* noop */ return x }")
+			case _:
+				parts = parts.Append("const p\(i) = /* @__PURE__ */ make(\(i))")
+			}
+		}
+		strings.Join(parts, nl) + nl
+	}
+}
+
+func genTSX(seed int) string {
+	with context { Random: rand.Seeded(uint64(seed)) } {
+		let nl = if Random.IntN(3) == 0 { "\r\n" } else { "\n" }
+		let mut lines = []string{}
+		if Random.IntN(2) == 0 {
+			lines = lines.Append("/** @jsxImportSource react */")
+		}
+		lines = lines.Append("export function View() {")
+		lines = lines.Append("  // build tree")
+		lines = lines.Append("  return (")
+		lines = lines.Append("    <section /* attr note */ id=\"root\">")
+		let count = 2 + Random.IntN(6)
+		for i in 0..count {
+			match Random.IntN(8) {
+			case 0:
+				lines = lines.Append("      {/* jsx comment \(i) */}")
+			case 1:
+				lines = lines.Append("      { /* spaced jsx comment \(i) */ }")
+			case 2:
+				lines = lines.Append("      {/* @ts-expect-error */}")
+			case 3:
+				lines = lines.Append("      {/* @ts-expect-error */ /* extra prose */}")
+			case 4:
+				lines = lines.Append("      <p>Visit https://example.com /* keep */ don't</p>")
+			case 5:
+				lines = lines.Append("      <div>{/* inline */}<span>item \(i)</span></div>")
+			case 6:
+				lines = lines.Append("      <div>{() => { /* noop */ }}</div>")
+			case _:
+				lines = lines.Append("      <>{/* frag */}<span>\(i)</span></>")
+			}
+		}
+		lines = lines.Append("    </section>")
+		lines = lines.Append("  )")
+		lines = lines.Append("} // done")
+		strings.Join(lines, nl) + nl
+	}
+}
+
+func directiveSnapshot(src string) string {
+	let mut out = []string{}
+	for c in Comments(src) {
+		if c.Form != Prose {
+			out = out.Append("\(c.Form):" + strings.Slice(src, c.From, c.To))
+		}
+	}
+	strings.Join(out, "\x00")
+}
+
+func codeTokens(src string) []string {
+	let mut out = []string{}
+	for t in Scan(src) {
+		if IsComment(t) {
+			continue
+		}
+		out = out.Append(strings.Slice(src, t.From, t.To))
+	}
+	out
+}
+
+func sameStrings(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i in 0..len(a) {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	true
+}
+
+law FixIsIdempotentTS(seed int) {
+	let s = genTS(seed)
+	let f = Fix(s)
+	Fix(f) == f
+}
+
+law FixIsIdempotentTSX(seed int) {
+	let s = genTSX(seed)
+	let f = Fix(s)
+	Fix(f) == f
+}
+
+law FixRemovesAllProseTS(seed int) {
+	let f = Fix(genTS(seed))
+	for c in Comments(f) {
+		if c.Form == Prose {
+			return false
+		}
+	}
+	true
+}
+
+law FixRemovesAllProseTSX(seed int) {
+	let f = Fix(genTSX(seed))
+	for c in Comments(f) {
+		if c.Form == Prose {
+			return false
+		}
+	}
+	true
+}
+
+law FixPreservesDirectivesVerbatimTS(seed int) {
+	let s = genTS(seed)
+	directiveSnapshot(s) == directiveSnapshot(Fix(s))
+}
+
+law FixPreservesDirectivesVerbatimTSX(seed int) {
+	let s = genTSX(seed)
+	directiveSnapshot(s) == directiveSnapshot(Fix(s))
+}
+
+func tsxCodeTokens(src string) []string {
+	let scanned = scanNoComments(src)
+	let mut out = []string{}
+	for t in scanned.Tokens {
+		if IsComment(t) {
+			continue
+		}
+		let mut stripped = false
+		for jc in scanned.JsxContainers {
+			if t.From >= jc.From && t.To <= jc.To {
+				stripped = true
+			}
+		}
+		if stripped {
+			continue
+		}
+		let piece = strings.TrimSpace(strings.Slice(src, t.From, t.To))
+		if piece != "" {
+			out = out.Append(piece)
+		}
+	}
+	out
+}
+
+law FixPreservesCodeTokensTS(seed int) {
+	let s = genTS(seed)
+	sameStrings(codeTokens(s), codeTokens(Fix(s)))
+}
+
+law FixPreservesCodeTokensTSX(seed int) {
+	let s = genTSX(seed)
+	sameStrings(tsxCodeTokens(s), tsxCodeTokens(Fix(s)))
+}
+
+test EveryDirectiveFormPreserved {
+	let shebang = "#!/usr/bin/env bun\nconst x = 1\n"
+	let sc = Comments(shebang)
+	assert len(sc) == 1 && sc[0].Form == 0 && Fix(shebang) == shebang
+	for i in 1..len(DirectiveForms) {
+		for o in DirectiveForms[i].Openings {
+			let lineSrc = "//" + o + " payload\nconst x = 1\n"
+			let lc = Comments(lineSrc)
+			assert len(lc) == 1 && lc[0].Form == i && Fix(lineSrc) == lineSrc
+			if DirectiveForms[i].Name != "triple-slash" {
+				let blockSrc = "/* " + o + " payload */\nconst x = 1\n"
+				let bc = Comments(blockSrc)
+				assert len(bc) == 1 && bc[0].Form == i && Fix(blockSrc) == blockSrc
+			}
+			let proseSrc = "// note about " + o + "\nconst x = 1\n"
+			let pc = Comments(proseSrc)
+			assert len(pc) == 1 && pc[0].Form == Prose && Fix(proseSrc) == "const x = 1\n"
+		}
+	}
+}
+
+test BlockCommentAndInlineSpacing {
+	assert Fix("foo(/* x */bar)") == "foo(bar)"
+	assert Fix("foo(/* x */ bar)") == "foo(bar)"
+	assert Fix("foo(bar/* x */)") == "foo(bar)"
+	assert Fix("foo(a /* x */, b)") == "foo(a, b)"
+	assert Fix("return/* x */1") == "return 1"
+	assert Fix("return/* x */x") == "return x"
+	assert Fix("a +/* x */+ b") == "a + + b"
+	assert Fix("a -/* x */- b") == "a - - b"
+	assert Fix("const r = /a//* x *//b") == "const r = /a/ /b"
+	assert Fix("const r = /a//* x */*b") == "const r = /a/ *b"
+	assert Fix("const a = 1 /* start\nend */ const b = 2") == "const a = 1\nconst b = 2"
+	assert Fix("const x = { /* empty */ }") == "const x = {}"
+	assert Fix("class C<T> { /* empty */ }") == "class C<T> {}"
+	assert Fix("interface I<T> { /* empty */ }") == "interface I<T> {}"
+	assert Fix("const f = <T,>(x: T) => { /* noop */ return x }") == "const f = <T,>(x: T) => { return x }"
+}
+
+test JSDocDirectivesVsProse {
+	assert Fix("/**\n * Docstring.\n * @param x number\n */\nexport const x = 1\n") == "export const x = 1\n"
+	assert Fix("/** @jsxImportSource react */\nexport const x = 1\n") == "/** @jsxImportSource react */\nexport const x = 1\n"
+	assert Fix("/**\n * @jsx h\n */\nexport const x = 1\n") == "/**\n * @jsx h\n */\nexport const x = 1\n"
+	assert Fix("/**\n * Talks about @ts-ignore later.\n */\nexport const x = 1\n") == "export const x = 1\n"
+	assert Fix("/* /<reference types=\"node\" /> */\nconst x = 1\n") == "const x = 1\n"
+}
+
+test CRLFEmptyAndCommentOnly {
+	assert Fix("") == ""
+	assert Fix("// only\n") == ""
+	assert Fix("// only") == ""
+	assert Fix("/* a */\n// b\n") == ""
+	assert Fix("const a = 1 // hi\r\n// whole\r\nconst b = 2\r\n") == "const a = 1\r\nconst b = 2\r\n"
+}
+
+test StringsTemplatesRegexesUntouched {
+	let s = "const u = \"https://a.b /* c */\"\nconst t = `a // b ${/* d */ 1} /* e */`\nconst r = /https?:\\/\\//g\n"
+	assert Fix(s) == "const u = \"https://a.b /* c */\"\nconst t = `a // b ${1} /* e */`\nconst r = /https?:\\/\\//g\n"
+	assert Fix("return /* c */ /a\\/\\*b/g\n") == "return /a\\/\\*b/g\n"
+}
+
+test TSXCommentsAndText {
+	assert Fix("<div>\n  {/* comment */}\n  <span>hi</span>\n</div>\n") == "<div>\n  <span>hi</span>\n</div>\n"
+	assert Fix("<div>{/* a */}</div>") == "<div></div>"
+	assert Fix("<div>{ /* a */ }</div>") == "<div></div>"
+	assert Fix("<div>{\n  // line\n}</div>") == "<div>\n</div>"
+	assert Fix("<div>\n  {\n    // line\n  }\n</div>") == "<div>\n</div>"
+	assert Fix("<div>{/* a */ /* b */}</div>") == "<div></div>"
+	assert Fix("<div>{/* @ts-expect-error */}<Bad /></div>") == "<div>{/* @ts-expect-error */}<Bad /></div>"
+	assert Fix("<div>{/* @ts-expect-error */ /* prose */}<Bad /></div>") == "<div>{/* @ts-expect-error */}<Bad /></div>"
+	assert Fix("<p>Visit https://example.com /* not comment */ don't</p>") == "<p>Visit https://example.com /* not comment */ don't</p>"
+	assert Fix("<div>Don't {/* c */} panic</div>") == "<div>Don't panic</div>"
+	assert Fix("<div>a</div> // trailing\n") == "<div>a</div>\n"
+	assert Fix("<div /* c */ id=\"a\" data-x={/* d */ 1} />") == "<div id=\"a\" data-x={1} />"
+	assert Fix("<>{/* c */}<span>ok</span></>") == "<><span>ok</span></>"
+	assert Fix("<div>{() => { /* noop */ }}</div>") == "<div>{() => {}}</div>"
+	assert Fix("<List<Item> items={xs}>{/* c */}{xs}</List>") == "<List<Item> items={xs}>{xs}</List>"
+}
