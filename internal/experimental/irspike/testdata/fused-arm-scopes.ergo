@@ -1,0 +1,32 @@
+import queue
+
+type Choice = One{} | Two{}
+
+func choose(n int) Choice {
+	if n == 0 { return One }
+	Two
+}
+
+func work(input queue.Queue[int], out queue.Queue[int]) fails queue.Closed {
+	for i in input.Values() {
+		match choose(i) {
+		case One:
+			try out.Push(1)
+		case Two:
+			try out.Push(2)
+		}
+	}
+}
+
+func main() fails queue.Closed needs Console {
+	let input = queue.New[int](2)
+	let out = queue.New[int](2)
+	try input.Push(0)
+	try input.Push(1)
+	input.End()
+	try work(input, out)
+	out.End()
+	for n in out.Values() {
+		Console.Println("\(n)")
+	}
+}
