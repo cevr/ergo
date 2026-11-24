@@ -1,0 +1,22 @@
+func PortUnitEmpty() {}
+
+func PortUnitBare() { return }
+
+func PortUnitTail(n int) {
+	let mut total = n
+	total += n
+	if total < 0 {
+		return
+	}
+}
+
+func PortUnitCall(n int) {
+	let next = n + 1
+	PortUnitTail(next)
+}
+
+func PortUnitBranchCall(n int) {
+	if n < 0 {
+		PortUnitEmpty()
+	}
+}
