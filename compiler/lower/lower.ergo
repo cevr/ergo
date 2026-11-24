@@ -66,13 +66,16 @@ type Unported { Cause string }
 
 // fnb is the state of one function's build.
 type fnb {
-	k      expr.Pkg,
-	s      store.Store,
-	types  dense.Side[store.PNode, dense.Opt[store.TKey]],
-	file   int,
-	p      syntax.Parsed,
-	lines  syntax.Lines,
-	fileIx uint32,
+	// Root's transitive imports, including the prelude. None means the
+	// driver could not prove complete coverage; not a lexical search path.
+	rootImports Option[[]expr.Dep],
+	k           expr.Pkg,
+	s           store.Store,
+	types       dense.Side[store.PNode, dense.Opt[store.TKey]],
+	file        int,
+	p           syntax.Parsed,
+	lines       syntax.Lines,
+	fileIx      uint32,
 	// params are the parameters' name rows and their locals.
 	params []dense.ID[store.PNode],
 	locals []int,
@@ -92,7 +95,7 @@ type fnb {
 // are its files' paths, File.Files' entries, path its import path, and root
 // whether it is the build's root package (a program's main package, or the
 // package a test build tests), whose declarations Go spells bare.
-func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool) Out {
+func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports Option[[]expr.Dep]) Out {
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
@@ -138,7 +141,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt}
+		let mut st = fnb{rootImports: imports, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt}
 		let built = function(&st, &b, f, paths[f.File]) catch {
 		case Unported as u:
 			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
@@ -601,6 +604,12 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if basicGo(*st, ops[n]) == "" && plainRecord(*st, ops[n]) < 0 {
 		sig = "result: " + typeCause(*st, ops[n])
 	}
+	let unit = store.KindOfType(st.s, ops[n]) == store.KTuple && len(store.OperandsOf(st.s, ops[n])) == 0 && controlUnitAdmitted(*st, f, body)
+	if unit {
+		// The opted-in unit profile has no result slot. Parameter
+		// admission below still checks every formal.
+		sig = ""
+	}
 	for i in 0..n {
 		if sig == "" && basicGo(*st, ops[i]) == "" && plainRecord(*st, ops[i]) < 0 {
 			sig = "parameter: " + typeCause(*st, ops[i])
@@ -625,7 +634,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case _:
 		return stop("body that is no block")
 	}
-	let (lets, tailX) = statements(st, list, n) catch {
+	let prepared = statements(st, body, list, f.Names, n, ops[n], unit) catch {
 	case Unported as u:
 		if sig != "" {
 			return stop(sig + " / body: " + u.Cause)
@@ -640,18 +649,9 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	let fp = pos(*st, syntax.TokPos(p, d.Func))
 	let end = pos(*st, syntax.TokPos(p, rbrace))
 	try ir.Begin(b, gname, fp, end)
-	let mut roots = []uint32{}
-	for l in lets {
-		// A let is its local and its def. Every let is read (S110), so
-		// lower's irUseLocals discards none.
-		try ir.AddLocal(b, l.name, l.typ, pos(*st, syntax.NodePos(p, l.at)))
-		let at = pos(*st, syntax.TokPos(p, l.tok))
-		let x = try value(*st, b, l.value)
-		roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{uint32(l.local), x}))
-	}
-	let x = try value(*st, b, tailX)
-	roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x}))
-	try ir.End(b, ir.List(b, roots))
+	let roots = try controlEmit(*st, b, prepared, end)
+	let rows = if len(roots) == 0 { uint32(0) } else { ir.List(b, roots) }
+	try ir.End(b, rows)
 	let _ = lbrace
 	true
 }
@@ -659,54 +659,9 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 // aLet is a let the slice builds: `let name = value` of a basic type.
 type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int }
 
-// statements checks the body list whole before the builder writes a row
-// (a stop leaves the builder as it was): its lets, each a local of the
-// function after its n parameters' slots, and its tail expression.
-func statements(st mut fnb, list syntax.List, n int) ([]aLet, dense.ID[syntax.Node]) fails Unported {
-	let p = st.p
-	let count = syntax.Len(list)
-	if count == 0 {
-		return stop("empty body")
-	}
-	let mut lets = []aLet{}
-	for i in 0..count-1 {
-		let l = try letOf(*st, syntax.Item(p.Tree, list, i), n+i)
-		for e in lets {
-			if e.name == l.name {
-				return stop("let name taken (local name_N)")
-			}
-		}
-		st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, l.at))
-		st.locals = st.locals.Append(l.local)
-		lets = lets.Append(l)
-	}
-	let tailX = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, count-1)) {
-	case syntax.ExprStmt as es:
-		es.X
-	case _:
-		return stop("statement form")
-	}
-	try check(*st, tailX)
-	// Two calls of one callee: lower's merge pass may read the first's
-	// local for the second (ir_merge.go), which the slice does not port.
-	let mut callees = calleeNames(*st, tailX, []string{})
-	for l in lets {
-		callees = calleeNames(*st, l.value, callees)
-	}
-	for i in 0..len(callees) {
-		if has(callees[i+1:len(callees)], callees[i]) {
-			return stop("call twice of one callee (merge)")
-		}
-	}
-	(lets, tailX)
-}
-
-// letOf checks the statement s as a let the slice builds, its local the
-// function's local'th: no extern, no mut, one name and a value, not _,
-// of a basic type, and a Go name of its own (lower's localName: its
-// spelling unless Go, the lowering's fixed names, the prelude or its own
-// package hold it, which takes name_N: a stop).
-func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
+// letOf checks one initialized scalar let, and records whether it can be
+// reassigned. The control plan allocates its slot and Go name.
+func letOf(st fnb, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unported {
 	let p = st.p
 	let vd = match syntax.ViewOf(p.Tree, s) {
 	case syntax.DeclStmt as ds:
@@ -721,9 +676,6 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
 	}
 	if dense.Unpack(vd.Extern) != None {
 		return stop("extern let")
-	}
-	if vd.Mut >= 0 {
-		return stop("mut let")
 	}
 	let spec = match syntax.ViewOf(p.Tree, vd.Spec) {
 	case syntax.VarSpec as sp:
@@ -750,10 +702,7 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
 		return stop("let of " + typeCause(st, try typeOf(st, value, "let value")))
 	}
 	try check(st, value)
-	if goReserved(name) || has(fixedNames, name) || has(st.prelude, name) || pkgDecl(st, name) {
-		return stop("let name taken (local name_N)")
-	}
-	aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}
+	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}, vd.Mut >= 0)
 }
 
 // aCall is a call the slice builds: the callee's Go name, whether it is

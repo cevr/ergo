@@ -1,0 +1,7 @@
+[
+  {"fixture": "port_control.ergo", "declaration": "func ControlTail(", "symbol": "ControlTail"},
+  {"fixture": "port_control.ergo", "declaration": "func ControlReturn(", "symbol": "ControlReturn"},
+  {"fixture": "port_control.ergo", "declaration": "func ControlShadow(", "symbol": "ControlShadow"},
+  {"fixture": "port_control.ergo", "declaration": "func ControlRange(", "symbol": "ControlRange"},
+  {"fixture": "port_control.ergo", "declaration": "func ControlWhile(", "symbol": "ControlWhile"}
+]
