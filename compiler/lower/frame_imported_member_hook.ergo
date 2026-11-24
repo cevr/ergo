@@ -3,4 +3,12 @@ import dense
 
 // Called after shapeGo spells an imported failure member. SHAPES may
 // prove it is a non-generic ordinary record, not a union or variant.
-func frameImportedMemberAdmitted(st fnb, member dense.ID[store.TKey]) bool { false }
+func frameImportedMemberAdmitted(st fnb, member dense.ID[store.TKey]) bool {
+	match importedShapeOf(st, member, shapeDeps(st)) {
+	case Some{Value: src}:
+		let (owner, t) = importedOwner(st, src)
+		ordinaryRecord(owner, t) >= 0
+	case None:
+		false
+	}
+}
