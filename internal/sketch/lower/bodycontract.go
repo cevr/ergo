@@ -76,11 +76,12 @@ func runtimeBody(name string) (v1.Body, error) {
 	return v1.BodyOf(name)
 }
 
-// runtimeCloseShape is the release method ABI the static owner slot can
-// call directly: no values in or out, and at most a caller task.
-func runtimeCloseShape(name string) (callerTask, ok bool) {
+// runtimeOwnerMethodShape is the ABI the ownership lowerings can call
+// directly: no visible operands, the expected number of results, and at
+// most a caller task. The Go method declaration supplies all three facts.
+func runtimeOwnerMethodShape(name string, results int) (callerTask, ok bool) {
 	body, err := runtimeBody(name)
-	if err != nil || len(body.Params) != 0 || len(body.Results) != 0 {
+	if err != nil || len(body.Params) != 0 || len(body.Results) != results {
 		return false, false
 	}
 	if len(body.Hidden) == 0 {

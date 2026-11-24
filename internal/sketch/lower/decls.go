@@ -1238,7 +1238,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	}
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
-	for _, tp := range witnessParams(f.Sig) {
+	witnesses := witnessParams(f.Sig)
+	var wireHead wireProjectHead
+	for _, tp := range witnesses {
 		if fc.claims[tp] {
 			continue
 		}
@@ -1261,7 +1263,13 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			fc.static[tp] = sp.wits[tp]
 			continue
 		}
-		parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		if l.ir != nil && l.ir.projectsWireWitnesses() && sp != nil && len(witnesses) == 1 && isWireParam(tp) {
+			fields := fc.wireCodecFields(tp)
+			wireHead = wireProjectHead{pkg: f.Pkg, slot: len(parts), local: fc.witness[tp], fields: fields}
+			parts = append(parts, wireHead.local+" "+fc.wireCodecTypeWith(tp, fields))
+		} else {
+			parts = append(parts, fc.witness[tp]+" "+fc.witnessType(tp, tp))
+		}
 		args = append(args, fc.witness[tp])
 	}
 	for i, p := range f.Sig.Params {
@@ -1379,6 +1387,10 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			// A generic declaration takes the placeholder body (ir_placeholder.go).
 			b.WriteString(directive + head.String() + irHeadEnd(fc.goGeneric) + "\n\n")
+			if wireHead.fields != nil && !needsFrame {
+				wireHead.directive, wireHead.parts, wireHead.results = directive, parts, results
+				l.ir.keepWireHead(sp.name, wireHead)
+			}
 
 			if owned && !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site) { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
 				l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))

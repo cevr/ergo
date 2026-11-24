@@ -379,99 +379,117 @@ func Show(o codeapi.Outcome, asJSON bool, p Policy) Output {
 	}
 }
 
-// Read is the outcome of r that the Output of Run with --json says: its
-// value's JSON on standard output with status 0, or its failure's tagged
-// JSON with status 1. Any other Output is not an answer to r, a defect.
-func Read(r Request, out Output) codeapi.Outcome {
+// Read is the outcome of r that the Output of Run with --json and its
+// default status policy says: its value's JSON on standard output with
+// status 0, or an admitted failure's tagged JSON with status 1. Invalid
+// or missing replies fail Transport, outside the operation's own row.
+func Read(r Request, out Output) codeapi.Outcome fails rpc.Transport {
 	let text = strings.TrimSuffix(out.Out, "\n")
 	if out.Code == 0 {
 		match r {
 		case codeapi.DescribeRequest:
-			let v = rpc.Decode[code.Summary]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Describe with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.Summary]("value", text)
 			codeapi.Done{Reply: codeapi.DescribeReply{Value: v}}
 		case codeapi.SymbolsRequest:
-			let v = rpc.Decode[code.SymbolPage]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Symbols with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.SymbolPage]("value", text)
 			codeapi.Done{Reply: codeapi.SymbolsReply{Value: v}}
 		case codeapi.SymbolRequest:
-			let v = rpc.Decode[code.Decl]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Symbol with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.Decl]("value", text)
 			codeapi.Done{Reply: codeapi.SymbolReply{Value: v}}
 		case codeapi.ReferencesRequest:
-			let v = rpc.Decode[code.SitePage]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered References with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.SitePage]("value", text)
 			codeapi.Done{Reply: codeapi.ReferencesReply{Value: v}}
 		case codeapi.CallsRequest:
-			let v = rpc.Decode[code.CallPage]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Calls with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.CallPage]("value", text)
 			codeapi.Done{Reply: codeapi.CallsReply{Value: v}}
 		case codeapi.ApiRequest:
-			let v = rpc.Decode[code.ApiView]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Api with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.ApiView]("value", text)
 			codeapi.Done{Reply: codeapi.ApiReply{Value: v}}
 		case codeapi.ReachRequest:
-			let v = rpc.Decode[code.ReachPage]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Reach with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.ReachPage]("value", text)
 			codeapi.Done{Reply: codeapi.ReachReply{Value: v}}
 		case codeapi.MachineOfRequest:
-			let v = rpc.Decode[code.MachineView]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered MachineOf with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[code.MachineView]("value", text)
 			codeapi.Done{Reply: codeapi.MachineOfReply{Value: v}}
 		}
 	} else if out.Code == 1 {
-		match rpc.TagOf(text) {
-		case "NoSymbol":
-			let e = rpc.Decode[code.NoSymbol]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		match r {
+		case codeapi.DescribeRequest:
+			return rpc.Transport{Reason: "the command line answered Describe with an undeclared failure: " + text}
+		case codeapi.SymbolsRequest:
+			return rpc.Transport{Reason: "the command line answered Symbols with an undeclared failure: " + text}
+		case codeapi.SymbolRequest:
+			match rpc.TagOf(text) {
+			case "NoSymbol":
+				let e = try rpc.Decode[code.NoSymbol]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NoSymbol{E: e}}
+			case "Ambiguous":
+				let e = try rpc.Decode[code.Ambiguous]("failure", text)
+				codeapi.Rejected{Failure: codeapi.Ambiguous{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Symbol with an undeclared failure: " + text}
 			}
-			codeapi.Rejected{Failure: codeapi.NoSymbol{E: e}}
-		case "Ambiguous":
-			let e = rpc.Decode[code.Ambiguous]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case codeapi.ReferencesRequest:
+			match rpc.TagOf(text) {
+			case "NoSymbol":
+				let e = try rpc.Decode[code.NoSymbol]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NoSymbol{E: e}}
+			case "Ambiguous":
+				let e = try rpc.Decode[code.Ambiguous]("failure", text)
+				codeapi.Rejected{Failure: codeapi.Ambiguous{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered References with an undeclared failure: " + text}
 			}
-			codeapi.Rejected{Failure: codeapi.Ambiguous{E: e}}
-		case "NotCallable":
-			let e = rpc.Decode[code.NotCallable]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case codeapi.CallsRequest:
+			match rpc.TagOf(text) {
+			case "NoSymbol":
+				let e = try rpc.Decode[code.NoSymbol]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NoSymbol{E: e}}
+			case "Ambiguous":
+				let e = try rpc.Decode[code.Ambiguous]("failure", text)
+				codeapi.Rejected{Failure: codeapi.Ambiguous{E: e}}
+			case "NotCallable":
+				let e = try rpc.Decode[code.NotCallable]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NotCallable{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Calls with an undeclared failure: " + text}
 			}
-			codeapi.Rejected{Failure: codeapi.NotCallable{E: e}}
-		case "NoPackage":
-			let e = rpc.Decode[code.NoPackage]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case codeapi.ApiRequest:
+			match rpc.TagOf(text) {
+			case "NoPackage":
+				let e = try rpc.Decode[code.NoPackage]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NoPackage{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Api with an undeclared failure: " + text}
 			}
-			codeapi.Rejected{Failure: codeapi.NoPackage{E: e}}
-		case "NotMachine":
-			let e = rpc.Decode[code.NotMachine]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case codeapi.ReachRequest:
+			match rpc.TagOf(text) {
+			case "NoSymbol":
+				let e = try rpc.Decode[code.NoSymbol]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NoSymbol{E: e}}
+			case "Ambiguous":
+				let e = try rpc.Decode[code.Ambiguous]("failure", text)
+				codeapi.Rejected{Failure: codeapi.Ambiguous{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Reach with an undeclared failure: " + text}
 			}
-			codeapi.Rejected{Failure: codeapi.NotMachine{E: e}}
-		case _:
-			Unreachable("the command line answered a failure no operation has: " + text)
+		case codeapi.MachineOfRequest:
+			match rpc.TagOf(text) {
+			case "NoSymbol":
+				let e = try rpc.Decode[code.NoSymbol]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NoSymbol{E: e}}
+			case "Ambiguous":
+				let e = try rpc.Decode[code.Ambiguous]("failure", text)
+				codeapi.Rejected{Failure: codeapi.Ambiguous{E: e}}
+			case "NotMachine":
+				let e = try rpc.Decode[code.NotMachine]("failure", text)
+				codeapi.Rejected{Failure: codeapi.NotMachine{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered MachineOf with an undeclared failure: " + text}
+			}
 		}
 	} else {
-		Unreachable("the command line answered status \(out.Code): " + out.Err)
+		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
 	}
 }
 
@@ -569,23 +587,23 @@ func Completion(shell api.Shell) string {
 	api.Completion("code", shell, []api.Entry{api.Entry{Name: codeapi.Name(codeapi.DescribeOp), Doc: codeapi.Doc(codeapi.DescribeOp)}, api.Entry{Name: codeapi.Name(codeapi.SymbolsOp), Doc: codeapi.Doc(codeapi.SymbolsOp)}, api.Entry{Name: codeapi.Name(codeapi.SymbolOp), Doc: codeapi.Doc(codeapi.SymbolOp)}, api.Entry{Name: codeapi.Name(codeapi.ReferencesOp), Doc: codeapi.Doc(codeapi.ReferencesOp)}, api.Entry{Name: codeapi.Name(codeapi.CallsOp), Doc: codeapi.Doc(codeapi.CallsOp)}, api.Entry{Name: codeapi.Name(codeapi.ApiOp), Doc: codeapi.Doc(codeapi.ApiOp)}, api.Entry{Name: codeapi.Name(codeapi.ReachOp), Doc: codeapi.Doc(codeapi.ReachOp)}, api.Entry{Name: codeapi.Name(codeapi.MachineOfOp), Doc: codeapi.Doc(codeapi.MachineOfOp)}})
 }
 
-func carry(c Request, answer func(c Request) codeapi.Outcome) codeapi.Outcome {
+// Wire is the command line as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, codeapi.Outcome, rpc.Transport]
+
+// Carry prints c with --json, runs it against answer using the default
+// status policy, and reads back the reply. Delivery can fail separately
+// from answer's outcome.
+func Carry(w Wire, c Request, answer own func(c Request) codeapi.Outcome) codeapi.Outcome fails rpc.Transport {
 	let mut args = []string{"--json"}
 	for a in Print(c) {
 		args = args.Append(a)
 	}
-	Read(c, runOver(args, Defaults(), answer))
+	try Read(c, runOver(args, Defaults(), answer))
 }
-
-// Wire is the command line as a transport of the hub's calls.
-type Wire {} implements api.Transport[Request, codeapi.Outcome]
-
-// Carry is carry.
-func Carry(w Wire, c Request, answer own func(c Request) codeapi.Outcome) codeapi.Outcome { carry(c, answer) }
 
 // Agrees: the command line carries every call and every outcome the
 // call can have unchanged.
-law Agrees(r Request, g codeapi.Given) { api.Agrees(Wire, r, codeapi.OutcomeOf(r, g)) }
+law Agrees(r Request, g codeapi.Given) { api.Agrees[Request, codeapi.Outcome, rpc.Transport](Wire, r, codeapi.OutcomeOf(r, g)) }
 
 // CodeIsThePolicy: a call's status is 0 for a value and the policy's
 // Code for a typed failure.

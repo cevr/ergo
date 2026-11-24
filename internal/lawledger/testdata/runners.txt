@@ -115,6 +115,7 @@ civil PartsAddUp	TestStdCivilLawsRun
 civil PatternAgreesWithLayout	TestStdCivilLawsRun
 civil PeriodAndDurationTextsApart	TestStdCivilLawsRun
 civil PeriodTextRoundTrips	TestStdCivilLawsRun
+civil RFC3339SecondsAgreesWithPattern	none
 civil SpanDatesStops	TestStdCivilLawsRun
 civil SpanDaysCount	TestStdCivilLawsRun
 civil SpanSplitStops	TestStdCivilLawsRun
@@ -305,6 +306,8 @@ flag RenderParseTreeRoundTrip	TestFlagTreeLaws
 flag RepeatedIntsKeepOrder	TestFlagTreeLaws
 flag RepeatedKeepsOrder	TestFlagTreeLaws
 flag ShortAndLongAgree	TestFlagLaws
+flag ShortNameWhere	none
+flag ShortNamesMatchASCII	none
 flag UnknownCommandNamesItsGroup	TestFlagTreeLaws
 flag UnknownNamesTheFlag	TestFlagLaws
 fs Files.LstatDirIsStatDir	TestFSMemoryAgreesWithHost

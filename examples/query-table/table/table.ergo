@@ -20,7 +20,7 @@ law UrlIsAFunctionOfTheControls(q query.Query, lost bool, sig Signal) {
 	let shown = if lost { query.Default } else { q }
 	let want = match sig {
 	case Navigated as n:
-		return Step(r, sig) == Enter[query.Route]{Next: query.Decode(n.Path)}
+		return Step(r, sig) == AddressChanged{Next: query.Decode(n.Path)}
 	case Searched as s:
 		query.Query{..shown, Search: s.Text}
 	case Clicked as c:
@@ -31,9 +31,9 @@ law UrlIsAFunctionOfTheControls(q query.Query, lost bool, sig Signal) {
 		query.Query{..shown, Period: p.Period}
 	}
 	match Step(r, sig) {
-	case Emit[query.Route, Replace] as e:
-		e.Next == r && query.Decode(e.Output.Path) == query.Browse{Query: want}
-	case Enter[query.Route], Stay[query.Route], Tell[query.Route, Replace], Ignore, Reject, Done[Replace]:
+	case Replace as e:
+		query.Decode(e.Path) == query.Browse{Query: want}
+	case AddressChanged:
 		false
 	}
 }
@@ -42,6 +42,10 @@ law UrlIsAFunctionOfTheControls(q query.Query, lost bool, sig Signal) {
 // the host does, then tells the table Navigated; the history gets no new
 // entry.
 type Replace { Path string }
+
+// Action is either a new address from the host or a request for the host
+// to replace it. A request does not change the route.
+type Action = AddressChanged{Next query.Route} | Replace
 
 // Open is the table at the address path.
 func Open(path string) query.Route { query.Decode(path) }
@@ -60,26 +64,35 @@ func Controls(r query.Route) query.Query {
 // Step is the table's transition. A new address is the state. A control
 // asks for the address of the controls with that one changed, and leaves
 // the state to the address.
-func Step(r query.Route, sig Signal) Decision[query.Route, Replace] {
-	let q = Controls(r)
+func Step(r query.Route, sig Signal) Action {
 	match sig {
 	case Navigated as n:
-		Enter[query.Route]{Next: query.Decode(n.Path)}
+		AddressChanged{Next: Open(n.Path)}
 	case Searched as s:
-		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Search: s.Text})}}
+		Replace{Path: query.Encode(query.Query{..Controls(r), Search: s.Text})}
 	case Clicked as c:
-		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Sorting: query.Next(q.Sorting, c.Column)})}}
+		let q = Controls(r)
+		Replace{Path: query.Encode(query.Query{..q, Sorting: query.Next(q.Sorting, c.Column)})}
 	case ChoseDiet as d:
-		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Diet: d.Diet})}}
+		Replace{Path: query.Encode(query.Query{..Controls(r), Diet: d.Diet})}
 	case ChosePeriod as p:
-		Emit[query.Route, Replace]{Next: r, Output: Replace{Path: query.Encode(query.Query{..q, Period: p.Period})}}
+		Replace{Path: query.Encode(query.Query{..Controls(r), Period: p.Period})}
+	}
+}
+
+func decide(r query.Route, sig Signal) Decision[query.Route, Replace] {
+	match Step(r, sig) {
+	case AddressChanged as a:
+		Enter[query.Route]{Next: a.Next}
+	case Replace as request:
+		Emit[query.Route, Replace]{Next: r, Output: request}
 	}
 }
 
 // Table is the table as a machine; its input is the address it opens at.
 type Table machine[query.Route, Signal] {
 	initial: Open,
-	step:    Step,
+	step:    decide,
 }
 
 // Matches is whether d passes q's search (a part of its name, in any

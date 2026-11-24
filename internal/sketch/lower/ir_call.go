@@ -58,15 +58,16 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	if e != nil {
 		b.callFacts(x, e, stmt) // ir_rewrite_pass.go: the rewrite passes read them
 	}
-	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x))) {
+	if e != nil && (e.K == "vcall" && !b.plainCallee(x) || b.dropsErr[e] && (!stmt || b.hasValue(x) || e.UnitPair)) {
 		// A function value returns its (value, error) pair (ir_closure.go;
 		// a known callback's is plain, ir_kcb.go),
 		// as a fallible function does where its row is empty (dropErr): the
 		// value is bound and the error, nil, dropped. A statement binds
 		// both to blanks, as the emitter's `_, _ = f(…)` does: Go reads
 		// no call statement of a pair (I-FLIP red #14, lru's
-		// `let _ = m.Get(k, Square)`). A fallible call with no value
-		// returns the error alone, which a call statement drops.
+		// `let _ = m.Get(k, Square)`). This includes a Go pair whose
+		// first result represents no Ergo value. A call statement can
+		// drop a single error result without binding it.
 		vpre, v := b.valueResult(x, e, stmt)
 		return append(pre, vpre...), v
 	}
@@ -76,8 +77,7 @@ func (b *irBuilder) call(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irExpr) {
 	return pre, e
 }
 
-// hasValue reports a call x with a value, whose Go form returns it beside
-// the error.
+// hasValue reports whether x produces a success value in Ergo.
 func (b *irBuilder) hasValue(x *syntax.CallExpr) bool {
 	t := b.l.info.Types[x]
 	return t != nil && !isNoValue(t) && !b.fc.noValue(x)

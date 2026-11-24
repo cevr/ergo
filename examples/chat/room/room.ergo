@@ -209,13 +209,6 @@ func Members(s State) []string {
 	}
 }
 
-// clock is the time of a said line, HH:mm:ss in UTC, built once: the
-// pattern is read here, not at each line.
-let clock = civil.Pattern("HH:mm:ss") catch {
-case civil.BadPattern:
-	Unreachable("HH:mm:ss is a pattern")
-}
-
 // Render is the line that every member reads for e.
 func Render(e Event) string {
 	match e {
@@ -224,7 +217,7 @@ func Render(e Event) string {
 	case Left as l:
 		"* \(l.Name) left"
 	case Said as s:
-		"[\(civil.FormatDateTime(civil.DateTimeOf(s.At), clock))] \(s.From): \(s.Text)"
+		"[\(civil.FormatDateTime(civil.DateTimeOf(s.At), civil.ClockSeconds))] \(s.From): \(s.Text)"
 	case Closed as c:
 		"* \(c.By) closed the room"
 	}

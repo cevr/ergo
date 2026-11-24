@@ -2,6 +2,26 @@
   "about": "The mutant ledger of internal/rpcgen's tests, started by Rm (wf10, 2026-11-10): edits of std rpc and its runtime/v1 bodies that only a built rpc server observes. Each mutant names the rule it breaks and the test that kills it, as SUITE:NAME in the shared ledger format.",
   "mutants": [
     {
+      "name": "nou-peer-wrong-tag-accepted",
+      "origin": "wf10 NOU-TRANSPORT",
+      "file": "benchmarks/apifirst/cli/ergo/counter/countercli/cli.ergo",
+      "decl": "Read",
+      "from": "\t\t\tcase _:\n\t\t\t\treturn rpc.Transport{Reason: \"the command line answered Add with an undeclared failure: \" + text}",
+      "to": "\t\t\tcase \"Unknown\":\n\t\t\t\tlet e = try rpc.Decode[counter.Unknown](\"failure\", text)\n\t\t\t\tcounterapi.Rejected{Failure: counterapi.Unknown{E: e}}\n\t\t\tcase _:\n\t\t\t\treturn rpc.Transport{Reason: \"the command line answered Add with an undeclared failure: \" + text}",
+      "rule": "The CLI reader rejects a legitimate sibling operation's failure tag as transport failure, and still accepts it for its own operation.",
+      "killers": ["benchmarks/apifirst/cli/ergo/counter/countercli:PeerReplyKeepsTransportSeparate"]
+    },
+    {
+      "name": "nou-transport-success-box",
+      "origin": "wf10 NOU-TRANSPORT",
+      "file": "benchmarks/apifirst/cli/ergo/counter/countercli/cli.ergo",
+      "decl": "Read",
+      "from": "\t\t\tcounterapi.Done{Reply: counterapi.GetReply{Value: v}}",
+      "to": "\t\t\tlet box = rpc.Encode([]int{v})\n\t\t\tlet values = try rpc.Decode[[]int](\"success box\", box)\n\t\t\tcounterapi.Done{Reply: counterapi.GetReply{Value: values[0]}}",
+      "rule": "Delivery failure does not box the successful CLI reply or add success allocations.",
+      "killers": ["benchmarks/apifirst/cli/ergo/counter/countercli:PeerSuccessDoesNotBoxTheOutcome"]
+    },
+    {
       "name": "rpc-answer-buffers",
       "anchor": {"tests": ["internal/rpcgen:TestRpcFramedExitFlowsWhileHeld"]},
       "origin": "wf10 Rm",

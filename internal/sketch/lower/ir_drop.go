@@ -6,7 +6,6 @@ import (
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
-	v1 "ergo.local/prototype/runtime/v1"
 )
 
 // dropRelease is the callback for OwningParts. The owner supplies the
@@ -221,18 +220,14 @@ func (g *irDrop) drain(d *check.Drop, x *irExpr) *irExpr {
 	if n, ok := d.Type.(*check.Named); ok && b.l.runtimeType(n, g.site) != "" {
 		method := strings.ToUpper(op.Name[:1]) + op.Name[1:]
 		name := check.RuntimeTypeName(n) + "." + method
-		rb, err := runtimeBody(name)
-		if err != nil || len(rb.Params) != 0 || len(rb.Results) != 1 {
+		callerTask, ok := runtimeOwnerMethodShape(name, 1)
+		if !ok {
 			irNo("owned local")
 		}
-		switch {
-		case len(rb.Hidden) == 0:
-			return g.method(method, x)
-		case len(rb.Hidden) == 1 && rb.Hidden[0] == v1.CallerTask:
+		if callerTask {
 			return g.method(method, x, task)
-		default:
-			irNo("owned local")
 		}
+		return g.method(method, x)
 	}
 	return g.method(memberName(op.Name), x, task)
 }

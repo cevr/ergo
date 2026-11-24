@@ -138,33 +138,21 @@ func Step(p Page, sig Signal) Decision[Page, []Command] {
 	}
 }
 
-// fromTable is the table's decision d as the page's.
-func fromTable(p Page, d Decision[query.Route, table.Replace]) Decision[Page, []Command] {
-	match d {
-	case Emit[query.Route, table.Replace] as e:
-		Emit[Page, []Command]{Next: Page{..p, Route: e.Next}, Output: []Command{Replace{Path: e.Output.Path}}}
-	case Enter[query.Route] as e:
+// fromTable applies a host navigation or forwards a replacement request.
+func fromTable(p Page, a table.Action) Decision[Page, []Command] {
+	match a {
+	case table.AddressChanged as e:
 		Enter[Page]{Next: Page{..p, Route: e.Next}}
-	case Stay[query.Route] as s:
-		Stay[Page]{Next: Page{..p, Route: s.Next}}
-	case Tell[query.Route, table.Replace] as t:
-		Tell[Page, []Command]{Next: Page{..p, Route: t.Next}, Output: []Command{Replace{Path: t.Output.Path}}}
-	case Ignore:
-		Ignore
-	case Reject:
-		Reject
-	case Done[table.Replace]:
-		Unreachable("explorer: the table never ends")
+	case table.Replace as e:
+		Emit[Page, []Command]{Next: p, Output: []Command{Replace{Path: e.Path}}}
 	}
 }
 
-func commandsOf(d Decision[query.Route, table.Replace]) []Command {
-	match d {
-	case Emit[query.Route, table.Replace] as e:
-		[]Command{Replace{Path: e.Output.Path}}
-	case Tell[query.Route, table.Replace] as t:
-		[]Command{Replace{Path: t.Output.Path}}
-	case Enter[query.Route], Stay[query.Route], Ignore, Reject, Done[table.Replace]:
+func commandsOf(a table.Action) []Command {
+	match a {
+	case table.Replace as e:
+		[]Command{Replace{Path: e.Path}}
+	case table.AddressChanged:
 		[]Command{}
 	}
 }

@@ -1171,6 +1171,7 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	adapters, _ := b.adaptOperands(body.Params, x, x.Args, vals, 1, p) // ir_adapt.go
 	pre = append(pre, adapters...)
 	e := &irExpr{K: "mcall", Pos: p, Name: memberName(c.Op.Name), X: vals[0], Args: append(hidden, vals[1:]...)}
+	e.UnitPair = goFallible(body) && len(body.Results) == 2 && !b.hasValue(x)
 	if goFallible(body) && !failsHere(c) {
 		e = b.dropErr(e) // ir_call.go: the row is empty here
 	}

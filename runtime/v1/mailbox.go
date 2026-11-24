@@ -2,6 +2,7 @@ package v1
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"ergo.local/prototype/runtime/rt"
 )
@@ -20,8 +21,8 @@ import (
 //   - The runner parks on its task's park word (rt park.go; PARK3), and a
 //     Push that finds it parked resumes it; a stop resumes it too (rt's
 //     Interrupt). A wake-up meant for another wait of the task only makes
-//     the runner look again. Queue makes a channel at each park and
-//     closes it.
+//     the runner look again; only an inbox notification or a stop can
+//     end the wait the clock sees.
 //   - A Push that must wait takes a sender and parks on its own task's
 //     word. The mailbox keeps one spare sender and the senders' slice
 //     keeps its room, so a steady rendezvous (one Push waiting at a time)
@@ -40,18 +41,14 @@ type mailbox[T any] struct {
 	senders  []*mailSender[T] // the Pushes waiting for room, oldest first
 	spare    *mailSender[T]   // a sender no Push holds, for the next wait
 	closed   bool
-	// waiting is true while a Pop is parked; waiter is its task, which
-	// notify resumes.
-	waiting bool
-	waiter  *rt.Task
+	// waiter names the parked Pop until notify makes its wake visible.
+	// The taker reads it without mu after parking on its task's word.
+	waiter atomic.Pointer[rt.Task]
 	// taker is the runner's task once bound (bindTaker): its stop resumes
 	// it (Wake), besides rt's own resume at the stop.
 	taker *rt.Task
 	// parked counts the operations parked: the runner and the senders.
 	parked int
-	// domainTaker is the runner while it waits in a clock's domain (rt
-	// idle.go): notify unparks it before it wakes it (fua-b).
-	domainTaker *rt.Task
 }
 
 // actorReference selects the reference runner for the actors started
@@ -62,22 +59,29 @@ var actorReference bool
 
 // mailSender is a Push waiting for room.
 type mailSender[T any] struct {
-	v        T
-	accepted bool
-	rejected bool
-	task     *rt.Task // the Push's task, parked on its word
+	v      T
+	result atomic.Uint32 // the sender reads it without the mailbox's mu
+	task   *rt.Task      // the Push's task, parked on its word
 	// domain says the Push waits in a clock's domain.
 	domain bool
 }
 
-// signal wakes s; in a clock's domain its task is unparked first (rt
-// idle.go), so no window shows it parked while it can run. The mailbox's
-// mu is held, and accepted or rejected is set.
-func (s *mailSender[T]) signal() {
+const (
+	mailPending uint32 = iota
+	mailAccepted
+	mailRejected
+)
+
+// signal makes the acceptance or rejection visible after clearing the
+// sender's parked flag in its clock's domain. The mailbox's mu is held.
+func (s *mailSender[T]) signal(result uint32) {
+	var wake rt.Waker
 	if s.domain {
-		rt.Waking(s.task, s).Done()
+		wake = rt.Waking(s.task, s)
 	}
+	s.result.Store(result)
 	s.task.Resume()
+	wake.Done()
 }
 
 // newMailbox is the inbox of an actor with the given capacity (not
@@ -132,7 +136,7 @@ func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
 	m.notify() // at capacity 0 the runner takes v straight from s
 	stop := t.Done()
 	s.domain = t.InDomain()
-	for !s.accepted && !s.rejected {
+	for s.result.Load() == mailPending {
 		if t.Stopped() {
 			m.dropSender(s)
 			m.mu.Unlock()
@@ -145,13 +149,15 @@ func (m *mailbox[T]) pushWait(t *rt.Task, v T) error {
 		}
 		m.mu.Unlock()
 		rt.Block(t)
-		t.Suspend()
+		for s.result.Load() == mailPending && !t.Stopped() {
+			t.Suspend()
+		}
 		rt.Unblock(t)
 		m.mu.Lock()
 		p.Unpark()
 		m.parked--
 	}
-	rejected := s.rejected
+	rejected := s.result.Load() == mailRejected
 	// Nobody holds s now: the runner or Close took it out of senders and
 	// signaled it under m.mu. It waits, emptied, for the next Push that
 	// must wait.
@@ -190,14 +196,13 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 			m.mu.Unlock()
 			return Closed{}
 		}
-		m.waiting, m.waiter = true, t
+		m.waiter.Store(t)
 		m.parked++
 		// In a clock's domain the runner parks under m.mu, so notify, which
 		// runs under m.mu too, unparks it before it wakes it; its stop
 		// unparks it in rt's Interrupt (fua-b).
 		var p rt.Parked
 		if t.InDomain() {
-			m.domainTaker = t
 			p = rt.Park(t, m, t.Done(), nil)
 		} else if t != m.taker {
 			t.Waits() // as Done did; the taker's wait never read Done
@@ -206,12 +211,13 @@ func (m *mailbox[T]) popInto(t *rt.Task, dst *T) error {
 		// A value, a close and a stop each resume t's word (notify, rt's
 		// Interrupt); another wake-up of t only makes it look again.
 		rt.Block(t)
-		t.Suspend()
+		for m.waiter.Load() != nil && !t.Stopped() {
+			t.Suspend()
+		}
 		rt.Unblock(t)
 		m.mu.Lock()
 		p.Unpark()
-		m.domainTaker = nil
-		m.waiting, m.waiter = false, nil
+		m.waiter.Store(nil)
 		m.parked--
 		if t.Stopped() {
 			m.mu.Unlock()
@@ -287,8 +293,7 @@ func (m *mailbox[T]) Close() {
 	if !m.closed {
 		m.closed = true
 		for i, s := range m.senders {
-			s.rejected = true
-			s.signal()
+			s.signal(mailRejected)
 			m.senders[i] = nil
 		}
 		m.senders = nil
@@ -321,14 +326,14 @@ func (m *mailbox[T]) isClosed() bool {
 	return m.closed
 }
 
-// notify wakes the parked runner. m.mu is held.
+// notify clears the domain's parked flag before the wake is visible to
+// the runner, which may already be looking again. m.mu is held.
 func (m *mailbox[T]) notify() {
-	if m.waiting {
-		m.waiting = false
-		if m.domainTaker != nil {
-			rt.Waking(m.domainTaker, m).Done()
-		}
-		m.waiter.Resume()
+	if waiter := m.waiter.Load(); waiter != nil {
+		wake := rt.Waking(waiter, m)
+		m.waiter.Store(nil)
+		waiter.Resume()
+		wake.Done()
 	}
 }
 
@@ -371,15 +376,13 @@ func (m *mailbox[T]) frontInto(dst *T) bool {
 		if len(m.senders) > 0 {
 			s := m.popSender()
 			m.put(s.v)
-			s.accepted = true
-			s.signal()
+			s.signal(mailAccepted)
 		}
 		return true
 	}
 	if len(m.senders) > 0 {
 		s := m.popSender()
-		s.accepted = true
-		s.signal()
+		s.signal(mailAccepted)
 		*dst = s.v
 		return true
 	}
