@@ -129,14 +129,10 @@ law TableIDsStops(xs []int) {
 // New is an empty table.
 func New[T]() Table[T] { Table[T]{rows: []T{}} }
 
-// Capacity is a reservation outside the range of representable row
-// counts.
 type Capacity {}
 
-// Room is a checked reservation in rows. Only Reserve constructs it.
 type Room { count int }
 
-// Reserve validates a requested row count without allocating.
 func Reserve(n int) Room fails Capacity {
 	if uint64(n) > uint64(limit) {
 		return Capacity
@@ -144,8 +140,6 @@ func Reserve(n int) Room fails Capacity {
 	Room{count: n}
 }
 
-// ReserveRejectsOutOfRange: a count just above the 32-bit limit does not
-// wrap into a small reservation, and a negative count cannot allocate.
 law ReserveRejectsOutOfRange(seed int) {
 	let shift = seed & 255
 	for n in []int{-1 - shift, 4294967296 + shift} {
@@ -158,8 +152,6 @@ law ReserveRejectsOutOfRange(seed int) {
 	true
 }
 
-// WithCap is an empty table with the reserved room. Its first writes up
-// to that capacity allocate nothing.
 func WithCap[T](room Room) Table[T] {
 	Table[T]{rows: slices.WithCapacity[T](room.count)}
 }
