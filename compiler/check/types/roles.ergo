@@ -10,6 +10,20 @@ type Bracket { Name string, Cons string }
 type RoleMember { Name string, Own []Bracket, Mut bool, Sig dense.ID[store.TKey], Positions []int }
 type Role { Name string, Params []Bracket, Members []RoleMember, Self int, Includes []dense.ID[store.TKey] }
 
+// ConstraintOnlyRole is a role with no operation values: it names Self
+// or has a generic operation.
+func ConstraintOnlyRole(r Role) bool {
+	if r.Self != 0 {
+		return true
+	}
+	for m in r.Members {
+		if len(m.Own) != 0 {
+			return true
+		}
+	}
+	false
+}
+
 func Brackets(p syntax.Parsed, list dense.Opt[syntax.Node]) []Bracket {
 	let mut out = []Bracket{}
 	match dense.Unpack(list) {

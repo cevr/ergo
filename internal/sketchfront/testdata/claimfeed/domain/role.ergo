@@ -1,0 +1,13 @@
+type Stable[T] {
+	Reading() int,
+
+	law FreshReading(x Self) { x.Reading() == x.Reading() },
+}
+
+type Source {
+	Read() int,
+}
+
+type View {
+	View() int,
+}

@@ -2,6 +2,7 @@ package lower
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,7 +28,11 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 	fmtPkg := l.helper("fmt")
 	at := strconv.Quote(l.siteText(law.Decl))
 	for _, lc := range lr.Contexts {
-		label := "law " + l.lawTitle(law) + " under " + lc.Title()
+		label := ContextLabel(l.pkg, law, &lc)
+		claimAt := at
+		if lc.Claim != nil {
+			claimAt = strconv.Quote(l.siteText(law.Decl) + lc.Claim.ClaimBlame())
+		}
 		if lc.Unrun != "" {
 			b.WriteString("\t" + fmtPkg + ".Println(" + strconv.Quote("skip "+label+": "+lc.Unrun) + ")\n")
 			b.WriteString("\t" + l.helper("Record") + "(" + strconv.Quote(label) + ", nil, " + strconv.Quote(lc.Unrun) + ")\n")
@@ -45,7 +50,7 @@ func (l *lowerer) lawContextRuns(b *strings.Builder, lr check.LawRun, scope *nam
 		// A run whose verdict ergo test found in its store (--cached;
 		// lawcache) prints it, marked, and does not run.
 		b.WriteString("\tif !" + l.helper("CachedRun") + "(" + strconv.Quote(label) + ") {\n")
-		l.skippable(b, func() { l.lawContextRun(b, law, lc, label, scope, env, task, seed, failed, at) })
+		l.skippable(b, func() { l.lawContextRun(b, law, lc, label, scope, env, task, seed, failed, claimAt) })
 		b.WriteString("\t}\n")
 	}
 }
@@ -58,6 +63,10 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 	if !isNamed {
 		ice(law.Decl, "a law run under %s whose owner is no capability", lc.Context.Name)
 	}
+	claimInput := -1
+	if lc.Claim != nil {
+		claimInput = lc.Claim.ClaimFeed - 1
+	}
 	// body is a case's function body: it copies the runner's
 	// environment, opens the case's folder for a context that needs
 	// TestAmbient, builds the context and calls the law with vals. When
@@ -67,6 +76,15 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 		e, held, err := inner.alloc("e"), inner.alloc("held"), inner.alloc("err")
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
+		capture, declareCapture := "", ""
+		var captureType check.Type
+		if claimInput >= 0 {
+			capture = inner.alloc("self")
+			captureType = lc.Claim.At
+			declareCapture = "var " + capture + " " + (&typeCtx{l: l, site: law.Decl}).goType(captureType) + "; "
+			vals = slices.Insert(slices.Clone(vals), claimInput, capture)
+			callee = l.claimLawCallee(law, *lc.Claim)
+		}
 		if lawGenericOwner(law) != nil {
 			// The law of a generic operation type takes its provider after
 			// the environment, at the instance the context binds (lawDecl).
@@ -81,23 +99,29 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 			callee = l.lawCallee(law, lawGenericOwner(law), cap.TArgs) // mono.go
 		}
 		args = append(args, vals...)
-		folder := ""
+		folder := declareCapture
 		if ta := lc.Context.TestAmbient; ta != nil {
 			// The case's own folder, removed when the case returns
 			// (rows.md, Test's ambient).
-			folder = testAmbientOpen(l, e, inner.alloc("dir"), ta) + "; "
+			folder += testAmbientOpen(l, e, inner.alloc("dir"), ta) + "; "
 		}
 		if tl := lc.Context.TestLoopback; tl != nil {
 			folder += testLoopbackGrant(l, e, tl) + "; "
 		}
-		build := l.contextBuilder(lc.With, law.Decl)
-		built := func(args string) string { return build + "(" + args + "); " }
+		build := l.contextBuilderCapturing(lc.With, law.Decl, captureType)
+		buildCall := func(args string) string {
+			if capture != "" {
+				args += ", &" + capture
+			}
+			return build + "(" + args + ")"
+		}
+		built := func(args string) string { return buildCall(args) + "; " }
 		if fallibleBuild(lc.With) {
 			// A case whose build fails is a failed case, never a skip or a
 			// refutation (FALLIBLE-CONTEXT Design 4): its error names the
 			// context, and the run prints the case and its replay line.
 			built = func(args string) string {
-				return "if " + err + " := " + build + "(" + args + "); " + err + " != nil { return " + fmtPkg + ".Errorf(" + strconv.Quote("law context "+lc.Context.Name+" could not be built: %v") + ", " + err + ") }; "
+				return "if " + err + " := " + buildCall(args) + "; " + err + " != nil { return " + fmtPkg + ".Errorf(" + strconv.Quote("law context "+lc.Context.Name+" could not be built: %v") + ", " + err + ") }; "
 			}
 		}
 		call := held + ", " + err + " := " + callee + "(" + strings.Join(args, ", ") + "); if " + err + " != nil { return " + err + " }; if !" + held + " { " + l.helper("Refuted") + "(" + at + ") }; return nil"
@@ -111,12 +135,16 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 	// so a run's values are the law's parameters alone. A law with none
 	// has one case, and one whose parameters can all be listed takes
 	// every value; only the others draw testCases cases.
-	vals := make([]listedValue, len(law.Params))
+	var vals []listedValue
 	for k, v := range law.Params {
-		vals[k] = listedValue{v.Name, v.Type}
-		if lc.Params != nil {
-			vals[k].t = lc.Params[k]
+		if k == claimInput {
+			continue
 		}
+		t := v.Type
+		if lc.Params != nil {
+			t = lc.Params[k]
+		}
+		vals = append(vals, listedValue{v.Name, t})
 	}
 	if l.listedRun(b, label, law.Decl, vals, true, scope, env, failed, l.replayLine(law, `""`), body) {
 		return
@@ -133,16 +161,16 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 	shown := []string{strconv.Quote("case "), conv + ".Itoa(" + i + ")", strconv.Quote(" of " + strconv.Itoa(testCases) + ", seed "), conv + ".FormatUint(" + seed + ", 10)", strconv.Quote(", size "), conv + ".Itoa(" + i + " / 4)"}
 	sep := ": "
 	var args []string
-	for k, v := range law.Params {
-		vt := vals[k].t
-		base := v.Name
+	for _, v := range vals {
+		vt := v.t
+		base := v.name
 		if base == "_" {
 			base = "arg"
 		}
 		a := inner.alloc(base)
 		b.WriteString("\t\t\t" + a + " := " + l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
 		args = append(args, a)
-		shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
+		shown = append(shown, strconv.Quote(sep+v.name+" = "), l.litExpr(vt, a, law.Decl))
 		sep = ", "
 	}
 	b.WriteString("\t\t\treturn func() string { return " + strings.Join(shown, " + ") + " }, func() error { " + body(inner, args) + " }\n\t\t\t})\n")
