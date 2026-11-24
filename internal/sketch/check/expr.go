@@ -428,6 +428,10 @@ func (c *checker) localTypeCtx() *typeCtx {
 	}
 	if c.fn != nil {
 		ctx.scope = c.fn.scope
+		if law := c.fn.law; law != nil && law.Owner != nil {
+			ctx.self, _ = law.Owner.Type.(*Named)
+			ctx.selfUses, ctx.selfSource = &law.selfUses, law.Name
+		}
 	}
 	return ctx
 }
@@ -1233,10 +1237,10 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			c.errorf(x, CodeType, "an operation type is already a reference; call it on the value")
 			return bad(x)
 		}
-		if tp, ok := t.(*TypeParam); ok && m == nil {
+		if op := c.receiverOperationType(t); op != nil && m == nil {
 			// An operation of a type parameter's method-set constraint: the
 			// lowering calls it through the function's witness (D-E1).
-			if it := asInterface(tp.Constraint); it != nil {
+			if it := asInterface(op); it != nil {
 				m = it.method(x.Sel.Name)
 				if text := c.hiddenOperation(it, x.Sel.Name); m != nil && text != "" {
 					c.errorf(x.Sel, CodeUnknown, "%s (grammar.md, Visibility 3)", text)
@@ -1246,7 +1250,7 @@ func (c *checker) selector(x *syntax.SelectorExpr) operand {
 			if m != nil && m.Sig != nil && m.Sig.MutSelf && !isPointer(base.typ) {
 				// A mut operation writes its receiver: a value of T is
 				// read, so the call needs a mut T (types.md, Generics 2).
-				c.errorf(x.Sel, CodeType, "%s is a mut operation, which writes its receiver, and %s is a read %s; write %s mut %s where it is declared (types.md, Generics 2)", x.Sel.Name, exprText(x.X), tp.Name, exprText(x.X), tp.Name)
+				c.errorf(x.Sel, CodeType, "%s is a mut operation, which writes its receiver, and %s is a read %s; write %s mut %s where it is declared (types.md, Generics 2)", x.Sel.Name, exprText(x.X), t, exprText(x.X), t)
 				return bad(x)
 			}
 		}

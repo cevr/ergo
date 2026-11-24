@@ -181,6 +181,7 @@ case examples/gent/memory
 case examples/gent/screen
 case examples/gointerop/checksum
 case examples/gointerop/cmd/gointerop
+case examples/gointerop/cmd/uptime
 case examples/gointerop/index
 case examples/gointerop/sha256
 case examples/gointerop/stats
@@ -823,6 +824,12 @@ case flow seed 99
 case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/imported-resource/cmd
 case internal/selfhostcheck/testdata/agree/imported-resource/res
+case internal/selfhostcheck/testdata/agree/self-imports/bad
+case internal/selfhostcheck/testdata/agree/self-imports/box
+case internal/selfhostcheck/testdata/agree/self-imports/cmd
+case internal/selfhostcheck/testdata/agree/self-imports/role
+case internal/selfhostcheck/testdata/agree/self-include
+case internal/selfhostcheck/testdata/agree/self_type
 case internal/selfhostcheck/testdata/bind
 case internal/sketch/check/testdata/fixtures/negative/argument-mismatch.ergo
 case internal/sketch/check/testdata/fixtures/negative/ascending-is-the-only-way-in.ergo
@@ -893,6 +900,13 @@ case internal/sketch/check/testdata/fixtures/negative/provider-wider-row.ergo
 case internal/sketch/check/testdata/fixtures/negative/recursive-struct.ergo
 case internal/sketch/check/testdata/fixtures/negative/refinement-ways-in.ergo
 case internal/sketch/check/testdata/fixtures/negative/return-mismatch.ergo
+case internal/sketch/check/testdata/fixtures/negative/self-claim-bounds.ergo
+case internal/sketch/check/testdata/fixtures/negative/self-claim-concrete.ergo
+case internal/sketch/check/testdata/fixtures/negative/self-include-claim-concrete.ergo
+case internal/sketch/check/testdata/fixtures/negative/self-not-value.ergo
+case internal/sketch/check/testdata/fixtures/negative/self-outside.ergo
+case internal/sketch/check/testdata/fixtures/negative/self-parameter-no-reapply.ergo
+case internal/sketch/check/testdata/fixtures/negative/self-reapp-no-inference.ergo
 case internal/sketch/check/testdata/fixtures/negative/timeout-is-a-library-function.ergo
 case internal/sketch/check/testdata/fixtures/negative/try-infallible.ergo
 case internal/sketch/check/testdata/fixtures/negative/type-argument-not-inferred.ergo
@@ -1228,6 +1242,7 @@ case unused examples/weather/weather/forecast.ergo
 case unused examples/wire-config/config/config.ergo
 case unused examples/wtcache/settings/settings.ergo
 case unused internal/selfhostcheck/testdata/bind/a.ergo
+case unused internal/selfhostcheck/testdata/bind/calls.ergo
 case unused internal/selfhostcheck/testdata/bind/conv.ergo
 case unused internal/selfhostcheck/testdata/bind/elide.ergo
 case unused internal/selfhostcheck/testdata/bind/genop.ergo

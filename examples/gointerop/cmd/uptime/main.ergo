@@ -1,0 +1,18 @@
+// uptime prints nanoseconds since its entry sampled the host clock.
+import go time
+import gointerop/uptime
+
+type clock {
+	Now() time.Time,
+}
+
+type hostClock {} implements clock
+
+func Now(_ hostClock) time.Time needs Ambient { time.Now() }
+
+func main() needs Console | Ambient | go.Foreign {
+	with context { clock: hostClock, uptime.Elapsed: uptime.GoElapsed } {
+		let elapsed = uptime.Elapsed.Nanos(0, int64(time.Since(clock.Now())))
+		Console.Println("\(elapsed) ns")
+	}
+}

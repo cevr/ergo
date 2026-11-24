@@ -1,0 +1,11 @@
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+}
+
+type Box[T] { Value T } implements Mappable[T]
+
+func Map[T, U](b Box[T], f func(x T) U) Box[U] { Box[U]{Value: f(b.Value)} }
+
+func F[M Mappable[string]](x M[int]) {}
+
+func G(x Box[int]) { F(x) }

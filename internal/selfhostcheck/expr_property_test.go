@@ -193,7 +193,7 @@ func genBad(seed uint32) (string, int) {
 
 // exprForms are the syntax forms (and inferred generic calls) the cases
 // must get typed.
-var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation", "variant argument", "tuple let", "tuple pattern", "generic variant argument", "plain variant of a generic union", "bare record variant", "IfStmt", "SwitchStmt", "TypeSwitchStmt", "CatchExpr", "package let"}
+var exprForms = []string{"Ident", "BasicLit", "BinaryExpr", "UnaryExpr", "ParenExpr", "CallExpr", "CompositeLit", "SelectorExpr", "IndexExpr", "InterpolatedString", "FuncLit", "generic call", "slice operation", "string operation", "[]byte operation", "rune operation", "variant argument", "tuple let", "tuple pattern", "generic variant argument", "plain variant of a generic union", "bare record variant", "IfStmt", "SwitchStmt", "TypeSwitchStmt", "CatchExpr", "package let", "inherited law operation"}
 
 // operationCall is a call of the language's operations the generator
 // writes (case 30), and the receiver it reaches the operation from.
@@ -211,8 +211,8 @@ var tupleName = regexp.MustCompile(`^v[0-9]+([tp])[ab]$`)
 // variant argument" (Some) or "plain variant of a generic union" (None),
 // []Shape's Append(Dot) as "bare record variant",
 // and a use of a name a tuple let
-// binds by names as "tuple let" and by a pattern as "tuple pattern"; else
-// "".
+// binds by names as "tuple let" and by a pattern as "tuple pattern"; the law's
+// Prior(n) call is an inherited operation. Otherwise it returns "".
 func operationOf(src, l string) string {
 	f := strings.Fields(l)
 	if len(f) < 3 {
@@ -222,6 +222,9 @@ func operationOf(src, l string) string {
 	end, err2 := strconv.Atoi(f[2])
 	if err1 != nil || err2 != nil || start < 0 || end > len(src) || start >= end {
 		return ""
+	}
+	if src[start:end] == "Prior(n)" {
+		return "inherited law operation"
 	}
 	if m := tupleName.FindStringSubmatch(src[start:end]); m != nil {
 		return map[string]string{"t": "tuple let", "p": "tuple pattern"}[m[1]]
@@ -287,12 +290,24 @@ func genExpr(seed uint32) string {
 		// law calls its operations by their bare names.
 		"type Pos int where it > 0",
 		"",
+		"type History[T] { Prior(n T) Option[T] }",
+		"",
 		"type Counter {",
+		"\t..History[int],",
 		"\tNext(n int) int,",
 		"",
 		"\tlaw Grows(n int) {",
 		"\t\tlet m = if n > 0 { Next(n) } else { 0 }",
 		"\t\tm >= 0 || n < 0",
+		"\t},",
+		"",
+		"\tlaw PriorIsNonnegative(n int) {",
+		"\t\tmatch Prior(n) {",
+		"\t\tcase Some{Value: x}:",
+		"\t\t\tx >= 0",
+		"\t\tcase None:",
+		"\t\t\ttrue",
+		"\t\t}",
 		"\t},",
 		"}",
 		"",

@@ -1,11 +1,3 @@
-# work.Tool is the Api over providers the binary chooses; package work
-# sees no provider of its contracts. The Api's law runs in package memory
-# under overTool (a Tool over the memory providers) and overClient.
-# workapi's Client is the Api over a send function, which no generator
-# builds; the law runs in memory under overClient (a Client whose send is
-# Call on a memory Tool). A workapi test cannot bind one: memory imports workapi.
-skip law work.Api.NewIsListedOnce for Client: Client is built only by its constructor NewClient, which takes a value a case cannot draw; a value drawn from its fields may be one NewClient refuses
-skip law Api.NewIsListedOnce for Tool: Tool is built only by its constructor NewTool, which takes a value a case cannot draw; a value drawn from its fields may be one NewTool refuses
 # The host Cloners (btrfs, reflink, clonefile, copy) run system commands
 # through an exec.Runner, which no generator builds. Their laws run under
 # each package's onHost context instead, over exec.NewTestHost in a folder
@@ -38,31 +30,3 @@ skip law work.Hooks.ExitIsAFailure for Hooks: its values have no generator: exec
 # runtime/v1 TestFSLockFileExcludes holds the lock's exclusion, and
 # scripts/workrace races two processes on it.
 skip law work.Lock.HoldExcludes for Lock: its values have no generator: fs.Host has an unexported field, so only package fs builds it; use fs.NewTestHost or fs.NewHost; a func NewLock() Lock with no rows would build one for each case
-# work.Plugin is a language plugin over an exec.Runner, which no
-# generator builds. The contracts' laws run through it in package memory,
-# under the context overPlugin (a Plugin over memory.Serving: its
-# protocol with no process), and PluginIsTransparent holds it to the provider in process.
-skip law Splitter.UnitsAreTheFile for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-skip law Splitter.KeysAreUnique for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-skip law Splitter.EditStaysInItsUnit for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-skip law Indexer.ChangesOfSameIsEmpty for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-skip law Indexer.CommentEditIsNoChange for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-skip law Indexer.SitesAreInTheSnapshot for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-skip law Checker.CheckIsPure for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-skip law Checker.EmptyLayerIsTheBase for Plugin: Plugin is built only by its constructor PluginOf, which takes a value a case cannot draw; a value drawn from its fields may be one PluginOf refuses
-# memory.Watching decorates a Cloner with a Lock supplied by the test,
-# and memory.Marked builds a filesystem view over a Memory and a Cloner.
-# The memory tests construct both explicitly to exercise work's protocol.
-skip law work.Cloner.CloneMakesTheTree for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
-skip law work.Cloner.SecondCloneIsExists for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
-skip law work.Cloner.FailedCloneLeavesNothing for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
-skip law work.Cloner.FreshCloneSharesItsBlocks for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
-skip law work.Cloner.MoveMoves for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
-skip law work.Cloner.PlaceMoves for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
-skip law work.Cloner.DiscardDiscards for Watching: Watching is built only by its constructor Watch, which takes a value a case cannot draw; a value drawn from its fields may be one Watch refuses
-skip law fs.Files.LstatDirIsStatDir for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
-skip law fs.Files.ReadIsRepeatable for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
-skip law fs.Writes.MkdirThenExists for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
-skip law fs.Writes.MkdirAllIsIdempotent for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
-skip law fs.Writes.RemoveThenNotFound for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
-skip law fs.Writes.RenameMoves for Marked: Marked is built only by its constructor MarkedOver, which takes a value a case cannot draw; a value drawn from its fields may be one MarkedOver refuses
