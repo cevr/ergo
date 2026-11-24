@@ -33,6 +33,7 @@ type LawContext struct {
 	// Witnesses are the generic owner's witnesses at the instance the
 	// context binds (lawWitnesses; LawProvider.Witnesses).
 	Witnesses []Witness
+	Claim     *LawProvider
 }
 
 // Title names the context in transcripts and run keys. Qualify it with
@@ -79,9 +80,10 @@ func (c *checker) planLawContexts() {
 		pkgs = append(pkgs, q)
 	}
 	sort.Slice(pkgs, func(i, j int) bool { return pkgs[i].Path < pkgs[j].Path })
+	c.planClaimContexts(names, pkgs, runs)
 	for _, q := range pkgs {
 		for _, law := range q.Laws {
-			if law.Unrun != "" || law.Owner == nil || len(law.Slots) != 1 || law.Slots[0].Param >= 0 {
+			if law.Unrun != "" || law.Owner == nil || law.Claimed() || len(law.Slots) != 1 || law.Slots[0].Param >= 0 {
 				continue
 			}
 			var under []LawContext
@@ -116,6 +118,111 @@ func (c *checker) planLawContexts() {
 			c.pkg.LawRuns = append(c.pkg.LawRuns, LawRun{Law: law, Contexts: under})
 		}
 	}
+}
+
+// planClaimContexts uses the actual selected entry of a named context,
+// not its advertised operation type, to feed a private Self input.
+func (c *checker) planClaimContexts(names []string, pkgs []*Package, runs map[*Law]int) {
+	type candidate struct {
+		law *Law
+		p   *LawProvider
+	}
+	var want []candidate
+	fed := map[*LawProvider]bool{}
+	for i := range c.pkg.LawRuns {
+		r := &c.pkg.LawRuns[i]
+		if !r.Law.Claimed() {
+			continue
+		}
+		for _, b := range r.Bindings {
+			if b[0].ClaimFeed != 0 {
+				want = append(want, candidate{r.Law, &b[0]})
+			}
+		}
+	}
+	for _, p := range pkgs {
+		if p == c.pkg || p.module != c.pkg.module {
+			continue
+		}
+		for _, u := range p.unfed {
+			if u.claim != nil && u.claim.ClaimFeed != 0 {
+				want = append(want, candidate{u.law, u.claim})
+			}
+		}
+	}
+	for _, it := range want {
+		for _, name := range names {
+			w := c.pkg.Contexts[name]
+			c.readContextHeader(w)
+			if !w.needs.Empty() {
+				continue
+			}
+			c.contextOwners.add(w)
+			var feed LawContext
+			w.binds.each(&contextMeter{limit: 1 << 30}, func(key *capNode) bool {
+				e := key.entry
+				owner := c.contextOwners.of[e]
+				info := providerInfo(owner)
+				if info == nil || e.Provider == nil || !c.identical(info.Types[e.Provider], it.p.At) || !claimEntryBuilt(info, e.Provider, it.p.At) {
+					return true
+				}
+				fact := &With{Contexts: []*Context{w}, Discharged: []Type{key.t}, Entries: []*ContextEntry{e}}
+				fact.Acquired = c.acquire(w, fact.Entries, c.contextOwners.of)
+				if c.lawRelease(fact) != "" {
+					return true
+				}
+				feed = LawContext{Context: w, With: fact, Params: it.p.Params, Claim: it.p}
+				return false
+			})
+			if feed.Claim == nil {
+				continue
+			}
+			i, ok := runs[it.law]
+			if !ok {
+				i = len(c.pkg.LawRuns)
+				runs[it.law] = i
+				c.pkg.LawRuns = append(c.pkg.LawRuns, LawRun{Law: it.law})
+			}
+			c.pkg.LawRuns[i].Contexts = append(c.pkg.LawRuns[i].Contexts, feed)
+			c.pkg.fed = append(c.pkg.fed, fedBinding{law: it.law, provider: it.p.At, claim: it.p.ClaimSlot})
+			// The first admissible named context feeds the one obligation.
+			fed[it.p] = true
+			break
+		}
+	}
+	for i := range c.pkg.LawRuns {
+		r := &c.pkg.LawRuns[i]
+		if !r.Law.Claimed() {
+			continue
+		}
+		r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
+			return fed[&b[0]]
+		})
+	}
+}
+
+// A local let holding a claimant is not a construction. A context entry
+// may build it using a checked result call, including an inferred
+// generic instance.
+func claimEntryBuilt(info *Info, x syntax.Expr, at *Named) bool {
+	call, ok := unwrapTry(x).(*syntax.CallExpr)
+	if !ok {
+		return false
+	}
+	checked := info.Calls[call]
+	if checked == nil || checked.Kind != CallFunc || checked.Func == nil {
+		return false
+	}
+	for _, op := range checked.Operands(call) {
+		t := info.Types[op]
+		if p, ok := t.(*Pointer); ok {
+			t = p.Elem
+		}
+		if n, ok := t.(*Named); ok && n.origin() == at.origin() {
+			return false // requires a claimant before the context can build it
+		}
+	}
+	return true
 }
 
 // builtByContext reports whether a context of under builds the provider p

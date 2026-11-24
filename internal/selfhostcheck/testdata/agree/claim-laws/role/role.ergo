@@ -1,0 +1,11 @@
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+	Size() int,
+
+	law IdentityKeepsSize(x Self) { x.Map(func(v T) T { v }).Size() == x.Size() },
+}
+
+type Included[N, T] {
+	..Mappable[T],
+	Note() N,
+}
