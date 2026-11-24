@@ -1,0 +1,462 @@
+import maps
+import slices
+import strings
+
+type LayoutPolicy {
+	MaxSurfaceList      int,
+	MaxFileLines        int,
+	MaxDirectoryMembers int,
+	MaxTangleMembers    int,
+	Support             []SupportEntry,
+	Seams               []SeamSpec,
+}
+
+type EvidenceItem {
+	Rule    string,
+	Subject string,
+	Key     string,
+	Count   int,
+	Detail  string,
+}
+
+type EvidenceDelta {
+	Rule      string,
+	Subject   string,
+	Key       string,
+	BaseCount int,
+	HeadCount int,
+	Detail    string,
+}
+
+type LayoutComparison {
+	Advisory  bool,
+	Regressed bool,
+	Added     []EvidenceDelta,
+	Grown     []EvidenceDelta,
+	Unchanged []EvidenceItem,
+	Removed   []EvidenceItem,
+}
+
+func cycleEvidenceKey(rule string, scope string, members string, edgeKey string) string {
+	"\(rule)|\(scope)|\(edgeKey)"
+}
+
+func addEvidenceOnce(items []EvidenceItem, seen Map[string, int], item EvidenceItem) ([]EvidenceItem, Map[string, int]) {
+	if seen.Get(item.Key) != None {
+		return (items, seen)
+	}
+	let mut nextSeen = seen
+	nextSeen[item.Key] = len(items)
+	(items.Append(item), nextSeen)
+}
+
+func LayoutEvidence(r Rows, modules []int, policy LayoutPolicy) []EvidenceItem {
+	let mut items = []EvidenceItem{}
+	let mut seen = Map[string, int]{}
+	let mut chosen = Map[int, bool]{}
+	for m in modules {
+		chosen[m] = true
+	}
+	let mut places = []place{}
+	let mut modOf = []int{}
+	let mut fileFolders = Map[int, []string]{}
+	for i, row in r.Nodes {
+		let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+		let mut mid = -1
+		if row.Kind == "module" {
+			mid = i
+		} else if row.Parent >= 0 {
+			if row.Parent < i {
+				at = places[row.Parent]
+				mid = modOf[row.Parent]
+			} else {
+				at = placeOf(r, row.Parent, chosen)
+				let mut p = row.Parent
+				let mut steps = 0
+				for p >= 0 && steps <= len(r.Nodes) {
+					if r.Nodes[p].Kind == "module" {
+						mid = p
+						break
+					}
+					p = r.Nodes[p].Parent
+					steps = steps + 1
+				}
+			}
+		}
+		let here = placed(r, i, at, chosen)
+		places = places.Append(here)
+		modOf = modOf.Append(mid)
+		if row.Kind == "file" && here.InScope {
+			fileFolders[i] = folderParts(row.Name)
+		}
+	}
+	let fc = SiblingFolderCycles(r, modules).Cycles
+	if len(fc) > 0 {
+		let mut folderScc = Map[string, int]{}
+		let mut sccMembers = []string{}
+		for ci, c in fc {
+			sccMembers = sccMembers.Append(strings.Join(c.Members, ","))
+			for m in c.Members {
+				folderScc["\(c.Module)\n\(c.Parent)\n\(m)"] = ci
+			}
+		}
+		for e in r.Edges {
+			if e.Kind != "uses" || !places[e.From].Ordinary || !places[e.To].Ordinary {
+				continue
+			}
+			let a = places[e.From]
+			let b = places[e.To]
+			if !a.InScope || !b.InScope || modOf[e.From] != modOf[e.To] || a.Package < 0 || b.Package < 0 || a.Package == b.Package || a.File < 0 || b.File < 0 {
+				continue
+			}
+			let ad = maps.GetOr(fileFolders, a.File, []string{})
+			let bd = maps.GetOr(fileFolders, b.File, []string{})
+			let lim = if len(ad) < len(bd) { len(ad) } else { len(bd) }
+			let mut common = 0
+			for common < lim && ad[common] == bd[common] {
+				common = common + 1
+			}
+			if common >= lim {
+				continue
+			}
+			let parent = if common == 0 { "." } else { strings.Join(ad[0:common], "/") }
+			let ca = folderChild(ad, common)
+			let cb = folderChild(bd, common)
+			if ca == cb {
+				continue
+			}
+			let ka = "\(modOf[e.From])\n\(parent)\n\(ca)"
+			let kb = "\(modOf[e.From])\n\(parent)\n\(cb)"
+			let ia = maps.GetOr(folderScc, ka, -1)
+			let ib = maps.GetOr(folderScc, kb, -2)
+			if ia >= 0 && ia == ib {
+				let fromName = NameOf(r, e.From)
+				let toName = NameOf(r, e.To)
+				let ek = "\(ca)->\(cb)|\(fromName)->\(toName)|\(e.How)"
+				let key = cycleEvidenceKey("sibling-folder-cycle", parent, sccMembers[ia], ek)
+				let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+					Rule:    "sibling-folder-cycle",
+					Subject: parent,
+					Key:     key,
+					Count:   1,
+					Detail:  "\(ca) -> \(cb): \(fromName) -> \(toName) (\(e.How))",
+				})
+				items = ni
+				seen = ns
+			}
+		}
+	}
+	let tans = DeclarationTanglesOf(r, modules).Tangles
+	if len(tans) > 0 {
+		let mut declScc = Map[int, int]{}
+		let mut tMembers = []string{}
+		let mut tPkg = []string{}
+		for ti, t in tans {
+			let mut mNames = []string{}
+			for m in t.Members {
+				mNames = mNames.Append(NameOf(r, m))
+			}
+			tMembers = tMembers.Append(strings.Join(slices.Sort(mNames), ","))
+			tPkg = tPkg.Append(r.Nodes[t.Package].Name)
+			if TangleReported(t, policy.MaxTangleMembers) {
+				for m in t.Members {
+					declScc[m] = ti
+				}
+			}
+		}
+		if len(declScc) > 0 {
+			let mut aliases = Map[int, int]{}
+			for e in r.Edges {
+				if e.Kind == "reexports" {
+					aliases[e.From] = e.To
+				}
+			}
+			let mut resolvedCache = Map[int, int]{}
+			for e in r.Edges {
+				if e.Kind != "uses" || !places[e.From].Ordinary || !places[e.To].Ordinary {
+					continue
+				}
+				let a = places[e.From]
+				if !a.InScope || a.Package < 0 || a.File < 0 {
+					continue
+				}
+				let mut target = e.To
+				if maps.GetOr(aliases, e.From, -1) != e.To {
+					match resolvedCache.Get(e.To) {
+					case Some[int] as cached:
+						target = cached.Value
+					case None:
+						let (res, _) = resolve(aliases, e.To)
+						resolvedCache[e.To] = res
+						target = res
+					}
+				}
+				if target < 0 {
+					continue
+				}
+				let b = places[target]
+				if !b.InScope || b.Package != a.Package || b.File < 0 {
+					continue
+				}
+				let u = tangleNode(a)
+				let v = tangleNode(b)
+				if u < 0 || v < 0 || u == v {
+					continue
+				}
+				let iu = maps.GetOr(declScc, u, -1)
+				let iv = maps.GetOr(declScc, v, -2)
+				if iu >= 0 && iu == iv {
+					let uf = r.Nodes[places[u].File].Name
+					let vf = r.Nodes[places[v].File].Name
+					let un = NameOf(r, u)
+					let vn = NameOf(r, v)
+					let ek = "\(uf):\(un)->\(vf):\(vn)|\(e.How)"
+					let key = cycleEvidenceKey("declaration-tangle", tPkg[iu], tMembers[iu], ek)
+					let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+						Rule:    "declaration-tangle",
+						Subject: tPkg[iu],
+						Key:     key,
+						Count:   1,
+						Detail:  "\(uf):\(un) -> \(vf):\(vn) (\(e.How))",
+					})
+					items = ni
+					seen = ns
+				}
+			}
+		}
+	}
+	let fw = ForeignRecordFieldWrites(r, modules).Writes
+	if len(fw) > 0 {
+		let mut violatingFields = Map[int, bool]{}
+		for w in fw {
+			violatingFields[w.Field] = true
+		}
+		let mut writeCounts = Map[string, int]{}
+		let mut writeOrder = []string{}
+		let mut writeField = Map[string, string]{}
+		let mut writeDetail = Map[string, string]{}
+		for e in r.Edges {
+			if e.Kind != "uses" || !isFieldWrite(e.How) || !places[e.From].Ordinary || !places[e.To].Ordinary {
+				continue
+			}
+			if violatingFields.Get(e.To) == None {
+				continue
+			}
+			let a = places[e.From]
+			let b = places[e.To]
+			if !a.InScope || !b.InScope || a.Package == b.Package {
+				continue
+			}
+			let fn = NameOf(r, e.To)
+			let cn = NameOf(r, e.From)
+			let key = "foreign-record-field-write|\(fn)|\(cn)|\(e.How)"
+			if writeCounts.Get(key) == None {
+				writeOrder = writeOrder.Append(key)
+				writeField[key] = fn
+				writeDetail[key] = "\(cn) writes \(fn)"
+			}
+			writeCounts[key] = maps.GetOr(writeCounts, key, 0) + 1
+		}
+		for key in slices.Sort(writeOrder) {
+			let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+				Rule:    "foreign-record-field-write",
+				Subject: maps.GetOr(writeField, key, ""),
+				Key:     key,
+				Count:   maps.GetOr(writeCounts, key, 1),
+				Detail:  maps.GetOr(writeDetail, key, ""),
+			})
+			items = ni
+			seen = ns
+		}
+	}
+	if policy.MaxSurfaceList > 0 {
+		for p in ObservedInterfaces(r, modules).Packages {
+			if !Wide(p, policy.MaxSurfaceList) {
+				continue
+			}
+			let pkg = r.Nodes[p.Package].Name
+			let allGroupsWide = len(p.Groups) > policy.MaxSurfaceList
+			let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+				Rule:    "wide-observed-interface",
+				Subject: pkg,
+				Key:     "wide-observed-interface|widest|\(pkg)",
+				Count:   p.Widest,
+				Detail:  "\(pkg): widest list \(p.Widest) (max \(policy.MaxSurfaceList))",
+			})
+			items = ni
+			seen = ns
+			for g in p.Groups {
+				if !allGroupsWide && len(g.Entries) <= policy.MaxSurfaceList {
+					continue
+				}
+				let gn = NameOf(r, g.Node)
+				for eid in g.Entries {
+					let en = NameOf(r, eid)
+					let (ni2, ns2) = addEvidenceOnce(items, seen, EvidenceItem{
+						Rule:    "wide-observed-interface",
+						Subject: pkg,
+						Key:     "wide-observed-interface|entry|\(pkg)|\(gn)|\(en)",
+						Count:   1,
+						Detail:  "\(pkg) group \(gn) entry \(en)",
+					})
+					items = ni2
+					seen = ns2
+				}
+			}
+		}
+	}
+	if policy.MaxFileLines > 0 {
+		for f in PhysicalLines(r, modules).Files {
+			if !LongFile(f, policy.MaxFileLines) {
+				continue
+			}
+			let name = r.Nodes[f.File].Name
+			let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+				Rule:    "long-file",
+				Subject: name,
+				Key:     "long-file|\(name)",
+				Count:   f.Lines - policy.MaxFileLines,
+				Detail:  "\(name): \(f.Lines) lines (max \(policy.MaxFileLines))",
+			})
+			items = ni
+			seen = ns
+		}
+	}
+	if policy.MaxDirectoryMembers > 0 {
+		for d in Directories(r, modules).Directories {
+			if !WideDirectory(d, policy.MaxDirectoryMembers) {
+				continue
+			}
+			let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+				Rule:    "wide-directory",
+				Subject: d.Path,
+				Key:     "wide-directory|\(d.Path)",
+				Count:   len(d.Members) - policy.MaxDirectoryMembers,
+				Detail:  "\(d.Path)/: \(len(d.Members)) entries (max \(policy.MaxDirectoryMembers))",
+			})
+			items = ni
+			seen = ns
+		}
+	}
+	if len(policy.Support) > 0 {
+		for u in ProductionUsesTestSupport(r, modules, policy.Support).Uses {
+			let caller = NameOf(r, u.Caller)
+			let target = r.Nodes[u.Target].Name
+			let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+				Rule:    "production-uses-test-support",
+				Subject: caller,
+				Key:     "production-uses-test-support|\(caller)|\(target)|ordinary",
+				Count:   1,
+				Detail:  "\(caller) uses test support \(target)",
+			})
+			items = ni
+			seen = ns
+		}
+	}
+	if len(policy.Seams) > 0 {
+		for v in SeamEntrypoints(r, modules, policy.Seams).Violations {
+			let s = policy.Seams[v.Seam]
+			let scope = if s.Root != "" { s.Root } else if len(s.Entries) > 0 { s.Entries[0] } else { "" }
+			let caller = r.Nodes[v.CallerPkg].Name
+			let target = r.Nodes[v.TargetPkg].Name
+			let role = if v.Inside { "inside-test" } else { "outside" }
+			let (ni, ns) = addEvidenceOnce(items, seen, EvidenceItem{
+				Rule:    "seam-entrypoints",
+				Subject: caller,
+				Key:     "seam-entrypoints|\(scope)|\(caller)|\(target)|\(role)",
+				Count:   1,
+				Detail:  "\(caller) -> \(target) (\(role) in \(scope))",
+			})
+			items = ni
+			seen = ns
+		}
+	}
+	let mut keys = []string{}
+	let mut byKey = Map[string, EvidenceItem]{}
+	for it in items {
+		keys = keys.Append(it.Key)
+		byKey[it.Key] = it
+	}
+	let mut sorted = []EvidenceItem{}
+	for k in slices.Sort(keys) {
+		match byKey.Get(k) {
+		case Some[EvidenceItem] as v:
+			sorted = sorted.Append(v.Value)
+		case None:
+		}
+	}
+	sorted
+}
+
+func CompareLayout(base Rows, head Rows, baseModules []int, headModules []int, policy LayoutPolicy) LayoutComparison {
+	let baseItems = LayoutEvidence(base, baseModules, policy)
+	let headItems = LayoutEvidence(head, headModules, policy)
+	let mut baseByKey = Map[string, EvidenceItem]{}
+	for b in baseItems {
+		baseByKey[b.Key] = b
+	}
+	let mut headByKey = Map[string, EvidenceItem]{}
+	for h in headItems {
+		headByKey[h.Key] = h
+	}
+	let mut added = []EvidenceDelta{}
+	let mut grown = []EvidenceDelta{}
+	let mut unchanged = []EvidenceItem{}
+	let mut removed = []EvidenceItem{}
+	for h in headItems {
+		match baseByKey.Get(h.Key) {
+		case None:
+			added = added.Append(EvidenceDelta{
+				Rule:      h.Rule,
+				Subject:   h.Subject,
+				Key:       h.Key,
+				BaseCount: 0,
+				HeadCount: h.Count,
+				Detail:    h.Detail,
+			})
+		case Some[EvidenceItem] as b:
+			if h.Count > b.Value.Count {
+				grown = grown.Append(EvidenceDelta{
+					Rule:      h.Rule,
+					Subject:   h.Subject,
+					Key:       h.Key,
+					BaseCount: b.Value.Count,
+					HeadCount: h.Count,
+					Detail:    h.Detail,
+				})
+			} else {
+				unchanged = unchanged.Append(h)
+			}
+		}
+	}
+	for b in baseItems {
+		if headByKey.Get(b.Key) == None {
+			removed = removed.Append(b)
+		}
+	}
+	LayoutComparison{
+		Advisory:  true,
+		Regressed: len(added) > 0 || len(grown) > 0,
+		Added:     added,
+		Grown:     grown,
+		Unchanged: unchanged,
+		Removed:   removed,
+	}
+}
+
+law CompareLayoutSelfHasNoRegression(seed int, size int) { compareLayoutSelfHasNoRegression(seed, size) }
+
+func compareLayoutSelfHasNoRegression(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let policy = LayoutPolicy{
+		MaxSurfaceList:      1,
+		MaxFileLines:        10,
+		MaxDirectoryMembers: 1,
+		MaxTangleMembers:    1,
+		Support:             []SupportEntry{SupportEntry{Package: "m/p0", Seam: ""}},
+		Seams:               []SeamSpec{SeamSpec{Root: "m", Packages: []string{}, Entries: []string{"m/p0"}, TestSupport: []string{}, TestThroughEntries: true}},
+	}
+	let cmp = CompareLayout(r, r, []int{0}, []int{0}, policy)
+	let ev = LayoutEvidence(r, []int{0}, policy)
+	cmp.Advisory && !cmp.Regressed && len(cmp.Added) == 0 && len(cmp.Grown) == 0 && len(cmp.Removed) == 0 && len(cmp.Unchanged) == len(ev)
+}
