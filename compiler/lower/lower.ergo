@@ -606,7 +606,7 @@ type aCall { name string, method bool, args []dense.ID[syntax.Node] }
 // of the package on a record of its own (x.f(…), the receiver first), or
 // of another Ergo package of the program (pkg.f(…), lower's useFunc: a
 // function of the one Go package, alias__name), not the prelude's; no
-// trailing block; a direct leaf (leafCallee), with operands not all
+// trailing block; a proved pure call that remains direct (directCallee), with operands not all
 // constants (lower's fold evaluates a call on constants) and none a call or a literal
 // (lower's template), with no rewrite law over it (rewritePass). The
 // callee is a Go method when its first parameter is a record of its
@@ -633,6 +633,7 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	let to = st.calls[ci-1]
 	let mut cst = st
 	let mut i = -1
+	let mut local = true
 	let mut args = []dense.ID[syntax.Node]{}
 	if to.Recv {
 		let se = match syntax.ViewOf(p.Tree, ce.Fun) {
@@ -651,12 +652,15 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 		case syntax.Name:
 			match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
 			case bind.Declared as d:
-				i = expr.FnAt(st.k, d.At)
+				if d.At == bind.PNodeOf(st.k.Ps, to.Callee.File, to.Callee.Name) {
+					i = expr.FnAt(st.k, d.At)
+				}
 			case _:
 			}
 		case syntax.SelectorExpr as se:
 			cst = try depOf(st, se.Sel)
 			i = expr.FnAt(cst.k, bind.PNodeOf(cst.k.Ps, to.Callee.File, to.Callee.Name))
+			local = false
 		case _:
 		}
 	}
@@ -665,12 +669,18 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	}
 	let f = cst.k.Fns[i]
 	let name = nameText(cst.k.Parsed[f.File], f.Name)
-	let first = try leafCallee(cst, i, name)
+	let target = try callHeader(cst, i, name)
+	let first = target.receiver
+	let nonleaf = callsIn(cst.k.Parsed[f.File], target.body)
+	if nonleaf {
+		try directCallee(cst, i, target, local)
+	}
 	let n = syntax.Len(ce.Args)
 	for j in 0..n {
 		args = args.Append(syntax.Item(p.Tree, ce.Args, j))
 	}
 	let mut closed = true
+	let mut dynamic = false
 	for j, a in args {
 		match syntax.ViewOf(p.Tree, unparen(st, a)) {
 		case syntax.CallExpr:
@@ -680,12 +690,15 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 		case _:
 		}
 		closed = closed && isConst(st, a)
+		if nonleaf {
+			dynamic = dynamic || callReadsLocal(st, a)
+		}
 		let at = try typeOf(st, a, "call operand")
 		if basicGo(st, at) == "" && (j > 0 || !first || plainRecord(st, at) < 0) {
 			return stop("call operand of a non-basic type")
 		}
 	}
-	if closed {
+	if closed || nonleaf && !dynamic {
 		return stop("call on constants (fold)")
 	}
 	if basicGo(st, try typeOf(st, x, "CallExpr")) == "" {
@@ -693,6 +706,9 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	}
 	if lawOver(st, name) || lawOver(cst, name) {
 		return stop("call under a rewrite law")
+	}
+	if nonleaf {
+		try noImportedRewrite(st, name)
 	}
 	let ops = store.OperandsOf(cst.s, f.Sig)
 	let recv = if first { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None }
@@ -799,21 +815,10 @@ func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
 	}
 }
 
-// leafCallee checks the package's i-th function as a callee the slice
-// calls: a function lower calls pure (pure.go: an Ergo body, no row, no
-// witness, not main or Close) with basic parameters and result that calls
-// nothing and holds no function literal, so its footprint is empty and
-// its purity needs no fixed point; its name is the package's once. Its
-// first parameter may be a plain record (plainRecord), whose function is
-// then a Go method (goName); the result tells which.
-//
-// This is also the inline decision for this domain. No type parameters
-// and no calls imply Go's goLeaf; one basic result rules out boxedResult.
-// inlineRule's positive-budget inlineSlotBody therefore rejects the
-// callee before inlineMark makes a site. pays never runs, regardless of
-// body size, loop hotness, or source directives. A negative-budget fold
-// is a separate decision: callee still stops at fold and template operands.
-func leafCallee(st fnb, i int, name string) bool fails Unported {
+// callHeader proves the existing ordinary direct-call ABI: a nongeneric
+// Ergo body, two empty rows, scalar input/output except for the optional
+// plain-record receiver, and no owned formal or overloaded name.
+func callHeader(st fnb, i int, name string) ordinaryCallee fails Unported {
 	let f = st.k.Fns[i]
 	let p = st.k.Parsed[f.File]
 	let d = match syntax.ViewOf(p.Tree, f.Decl) {
@@ -825,7 +830,7 @@ func leafCallee(st fnb, i int, name string) bool fails Unported {
 	if dense.Unpack(d.Extern) != None || dense.Unpack(d.Recv) != None || dense.Unpack(d.TypeParams) != None {
 		return stop("callee: extern, method or generic")
 	}
-	if name == "main" || name == "Close" || declCount(st, name) > 1 {
+	if name == "main" || name == "Close" || f.Close || declCount(st, name) > 1 {
 		return stop("callee: main, Close or a shared name")
 	}
 	let body = match dense.Unpack(d.Body) {
@@ -848,10 +853,12 @@ func leafCallee(st fnb, i int, name string) bool fails Unported {
 			return stop("callee: a type not basic")
 		}
 	}
-	if callsIn(p, body) {
-		return stop("callee: calls (purity)")
+	for takes in f.Takes {
+		if takes {
+			return stop("callee: takes a formal")
+		}
 	}
-	first
+	ordinaryCallee{body: body, receiver: first}
 }
 
 // callsIn reports a call or a function literal in x.

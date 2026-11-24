@@ -1,0 +1,206 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/syntax
+import dense
+
+type ordinaryCallee { body dense.ID[syntax.Node], receiver bool }
+
+// callClosure is the worklist for pure.go restricted to checked local
+// scalar functions. A row is queued once by its package declaration ID.
+// A cycle is pure if every member and every outgoing edge is eligible.
+type callClosure {
+	queue []int,
+	seen dense.Side[store.PNode, bool],
+	start int,
+	recursive bool,
+}
+
+type callBody { edges int, loop bool, decision bool, sizeFloor int }
+type callWalk { pending []uint32, facts callBody }
+
+func directCallee(st fnb, i int, target ordinaryCallee, local bool) fails Unported {
+	if !local {
+		return stop("callee: imported purity facts")
+	}
+	if target.receiver {
+		return stop("callee: receiver purity facts")
+	}
+	let f = st.k.Fns[i]
+	let mut graph = callClosure{queue: []int{i}, seen: dense.NewSide[store.PNode, bool](false), start: i, recursive: false}
+	dense.SideSet(&graph.seen, bind.PNodeOf(st.k.Ps, f.File, f.Decl), true)
+	let root = try scanCallBody(st, i, target.body, &graph)
+	let mut head = 1
+	for head < len(graph.queue) {
+		let next = graph.queue[head]
+		head = head + 1
+		let dep = st.k.Fns[next]
+		let header = try callHeader(st, next, nameText(st.k.Parsed[dep.File], dep.Name))
+		if header.receiver {
+			return stop("callee: receiver purity facts")
+		}
+		let _ = try scanCallBody(st, next, header.body, &graph)
+	}
+	try keepDirectCall(st, f, root, graph.recursive)
+}
+
+func scanCallBody(st fnb, i int, body dense.ID[syntax.Node], graph mut callClosure) callBody fails Unported {
+	let mut at = st
+	at.file = st.k.Fns[i].File
+	at.p = st.k.Parsed[at.file]
+	let mut walk = callWalk{pending: []uint32{uint32(dense.Index(body))}, facts: callBody{edges: 0, loop: false, decision: false, sizeFloor: 0}}
+	let mut head = 0
+	for head < len(walk.pending) {
+		let x = syntax.NodeAt(at.p.Tree, int(walk.pending[head]))
+		head = head + 1
+		try scanPureNode(at, x, graph, &walk)
+	}
+	walk.facts
+}
+
+// Without a footprint side table, prove a subdomain in which a footprint
+// cannot arise. All values read or written are typed scalars; unknown
+// expressions, implicit adapters, indirect calls, and resource forms do
+// not count as pure merely because the declaration's rows are empty.
+func scanPureNode(st fnb, x dense.ID[syntax.Node], graph mut callClosure, walk mut callWalk) fails Unported {
+	let p = st.p
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.Name, syntax.BasicLit, syntax.ParenExpr:
+		try pureScalar(st, x)
+		// These each contribute exactly one Go syntax node; other
+		// nodes may also contribute, so this is a lower bound.
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+	case syntax.UnaryExpr as u:
+		let op = syntax.TokText(p, u.Op)
+		if op != "!" && op != "-" && op != "+" && op != "^" {
+			return stop("callee: unary form (purity)")
+		}
+		try pureScalar(st, x)
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+	case syntax.BinaryExpr as v:
+		if !isIROp(syntax.TokText(p, v.Op)) {
+			return stop("callee: binary form (purity)")
+		}
+		try pureScalar(st, x)
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+	case syntax.CallExpr as ce:
+		try pureScalar(st, x)
+		if try pureEdge(st, x, ce, graph) {
+			walk.facts.edges = walk.facts.edges + 1
+		}
+		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
+		for j in 0..syntax.Len(ce.Args) {
+			walk.pending = walk.pending.Append(uint32(dense.Index(syntax.Item(p.Tree, ce.Args, j))))
+		}
+		return
+	case syntax.ForStmt:
+		walk.facts.loop = true
+	case syntax.RangeStmt as r:
+		let bound = try compactBound(st, r)
+		walk.facts.loop = true
+		walk.pending = walk.pending.Append(uint32(dense.Index(bound)))
+		walk.pending = walk.pending.Append(uint32(dense.Index(r.Body)))
+		return
+	case syntax.IfStmt:
+		walk.facts.decision = true
+	case syntax.BlockStmt, syntax.ExprStmt, syntax.ReturnStmt, syntax.DeclStmt, syntax.BranchStmt, syntax.AssignStmt:
+	case syntax.VarDecl as d:
+		if dense.Unpack(d.Extern) != None {
+			return stop("callee: local extern")
+		}
+	case syntax.VarSpec as s:
+		if dense.Unpack(s.Pattern) != None || syntax.Len(s.Names) != 1 || dense.Unpack(s.Type) != None {
+			return stop("callee: local shape (purity)")
+		}
+		match dense.Unpack(s.Value) {
+		case Some{Value: v}:
+			walk.pending = walk.pending.Append(uint32(dense.Index(v)))
+			return
+		case None:
+			return stop("callee: local without initializer (purity)")
+		}
+	case _:
+		return stop("callee: body form (purity)")
+	}
+	walk.pending = syntax.Children(p.Tree, x, walk.pending)
+}
+
+func pureScalar(st fnb, node dense.ID[syntax.Node]) fails Unported {
+	if basicGo(st, try typeOf(st, node, "callee value")) == "" {
+		return stop("callee: non-scalar value (purity)")
+	}
+}
+
+func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, graph mut callClosure) bool fails Unported {
+	if dense.Unpack(ce.Trailing) != None {
+		return stop("callee: trailing block (purity)")
+	}
+	let ix = dense.SideOf(st.callAt, bind.PNodeOf(st.k.Ps, st.file, x))
+	if ix == 0 {
+		match try builtinOf(st, x, ce) {
+		case Some[aBuiltin]:
+			return false
+		case None:
+			return stop("callee: unresolved call (purity)")
+		}
+	}
+	let to = st.calls[ix-1]
+	if to.Recv || syntax.KindOf(st.p.Tree, ce.Fun) != syntax.KIdent {
+		return stop("callee: nonlocal or method edge (purity)")
+	}
+	let declared = match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
+	case bind.Declared as d:
+		d.At
+	case _:
+		return stop("callee: nonlocal edge (purity)")
+	}
+	let name = bind.PNodeOf(st.k.Ps, to.Callee.File, to.Callee.Name)
+	let next = expr.FnAt(st.k, declared)
+	if name != declared || next < 0 {
+		return stop("callee: unresolved target (purity)")
+	}
+	graph.recursive = graph.recursive || next == graph.start
+	let dep = st.k.Fns[next]
+	let at = bind.PNodeOf(st.k.Ps, dep.File, dep.Decl)
+	if !dense.SideOf(graph.seen, at) {
+		dense.SideSet(&graph.seen, at, true)
+		graph.queue = graph.queue.Append(next)
+	}
+	true
+}
+
+// Go's closed query cannot call-fold an operand that reads a local.
+func callReadsLocal(st fnb, x dense.ID[syntax.Node]) bool {
+	match syntax.ViewOf(st.p.Tree, x) {
+	case syntax.Name:
+		let local = paramLocal(st, x) catch { case Unported: -1 }
+		return local >= 0
+	case syntax.ParenExpr as pe:
+		callReadsLocal(st, pe.X)
+	case syntax.UnaryExpr as u:
+		callReadsLocal(st, u.X)
+	case syntax.BinaryExpr as b:
+		callReadsLocal(st, b.X) || callReadsLocal(st, b.Y)
+	case syntax.SelectorExpr as se:
+		callReadsLocal(st, se.X)
+	case syntax.IndexExpr as ie:
+		callReadsLocal(st, ie.X)
+	case _:
+		false
+	}
+}
+
+func noImportedRewrite(st fnb, name string) fails Unported {
+	match st.rootImports {
+	case Some[[]expr.Dep] as deps:
+		for dep in deps.Value {
+			let mut other = st
+			other.k = dep.K
+			if lawOver(other, name) {
+				return stop("call under an imported rewrite law")
+			}
+		}
+	case None:
+		return stop("call: rewrite scope not known")
+	}
+}
