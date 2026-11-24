@@ -56,10 +56,8 @@ var hiddenDependency = &Rule{
 	SafeFix: true,
 }
 
-// rowsOf is the program's rows, built once per rule and run.
-func rowsOf(p *Pass) *layoutRows {
-	return p.Memo(func() any { return layoutRowsOf(p.Program()) }).(*layoutRows)
-}
+// rowsOf is the program's rows, built once per run for every graph rule.
+func rowsOf(p *Pass) *layoutRows { return p.run.shared.layoutRows(p.Program()) }
 
 func checkFileCycle(p *Pass) {
 	lr := rowsOf(p)
@@ -67,7 +65,7 @@ func checkFileCycle(p *Pass) {
 		return
 	}
 	seen := map[uint32]bool{}
-	lr.edgesIn(p.Rel(), graphrows.Uses, func(e graphrows.Edge, off syntax.Pos) {
+	lr.edgesIn(lr.fileOf(p), graphrows.Uses, func(e graphrows.Edge, off syntax.Pos) {
 		a, b := lr.file[e.From], lr.file[e.To]
 		if b == graphrows.NoNode || a == b || seen[b] || lr.pkg[a] != lr.pkg[b] || !lr.fileReaches(b, a) {
 			return
@@ -83,7 +81,7 @@ func checkLayer(p *Pass) {
 	if lr.testCode(p) {
 		return
 	}
-	lr.edgesIn(p.Rel(), graphrows.Imports, func(e graphrows.Edge, off syntax.Pos) {
+	lr.edgesIn(lr.fileOf(p), graphrows.Imports, func(e graphrows.Edge, off syntax.Pos) {
 		from, to := lr.path(lr.pkg[e.From]), lr.path(e.To)
 		la, lb := layerOf(layers, from), layerOf(layers, to)
 		if la >= 0 && lb >= 0 && lb < la {
@@ -101,7 +99,7 @@ func checkDomainImportsImplementation(p *Pass) {
 	if p.Package.Entry() != nil || lr.testCode(p) || !declaresOperation(p.Package) {
 		return
 	}
-	lr.edgesIn(p.Rel(), graphrows.Imports, func(e graphrows.Edge, off syntax.Pos) {
+	lr.edgesIn(lr.fileOf(p), graphrows.Imports, func(e graphrows.Edge, off syntax.Pos) {
 		if to := lr.path(e.To); lr.impls[to] {
 			p.Report(off, off+1, "this package declares an operation type and imports "+to+", an implementation of another package's operation type")
 		}
@@ -113,7 +111,7 @@ func checkHiddenDependency(p *Pass) {
 	if lr.testCode(p) {
 		return
 	}
-	lr.edgesIn(p.Rel(), graphrows.Uses, func(e graphrows.Edge, off syntax.Pos) {
+	lr.edgesIn(lr.fileOf(p), graphrows.Uses, func(e graphrows.Edge, off syntax.Pos) {
 		pkg, decl, ok := lr.hiddenReexport(e)
 		if !ok {
 			return

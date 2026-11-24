@@ -26,22 +26,12 @@ func sourcePackages(as []Analysis) []graphrows.SourcePackage {
 	var pkgs []graphrows.SourcePackage
 	seen := map[string]bool{}
 	for _, a := range as {
-		own := "main"
-		if a.program != nil {
-			own = a.program.module
-			if own == "" {
-				own = a.program.dir
-			}
-		}
 		for _, p := range a.packagesOrRoot() {
 			if seen[p.Path] {
 				continue
 			}
 			seen[p.Path] = true
-			sp := graphrows.SourcePackage{Path: p.Path, Module: own, Info: p.Partial, Checked: p.Package}
-			if p.Module != "" {
-				sp.Module = p.Module
-			}
+			sp := graphrows.SourcePackage{Path: p.Path, Module: a.ModuleOf(p), Info: p.Partial, Checked: p.Package}
 			if sp.Info == nil {
 				sp.Info = p.Package
 			}
@@ -52,6 +42,23 @@ func sourcePackages(as []Analysis) []graphrows.SourcePackage {
 		}
 	}
 	return pkgs
+}
+
+// ModuleOf is the module that holds p, as the graph rows name it: a
+// required module's PATH@VERSION, else the program's own module, its
+// folder when there is no ergo.mod, or "main" for one source text. Lint
+// and the graph export read this one identity, so a file's
+// module-relative name is never taken for another module's.
+func (a Analysis) ModuleOf(p CheckedPackage) string {
+	switch {
+	case p.Module != "":
+		return p.Module
+	case a.program == nil:
+		return "main"
+	case a.program.module != "":
+		return a.program.module
+	}
+	return a.program.dir
 }
 
 // packagesOrRoot is Packages, or the one root package of a source text.
