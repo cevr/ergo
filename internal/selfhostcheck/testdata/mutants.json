@@ -425,6 +425,46 @@
       ]
     },
     {
+      "name": "lower-union-injects-tag-zero",
+      "origin": "wf10/selfhost/S4-PORT UNION & MATCH (not-run-crunch)",
+      "file": "compiler/lower/union_shape.ergo",
+      "from": "\"of\" + strconv.Itoa(j.tag)",
+      "to": "\"of\" + strconv.Itoa(0)",
+      "rule": "A bare empty variant is injected by its declaration tag, not tag zero (PortUnionMakeMode).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-union-payload-field-key-lost",
+      "origin": "wf10/selfhost/S4-PORT UNION & MATCH (not-run-crunch)",
+      "file": "compiler/lower/union_shape.ergo",
+      "from": "ir.List(b, []uint32{ir.Text(b, j.field)})",
+      "to": "ir.List(b, []uint32{ir.Text(b, \"\")})",
+      "rule": "Injection preserves the checked payload literal's Go field key (PortUnionMakeReading).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-match-case-tag-is-case-index",
+      "origin": "wf10/selfhost/S4-PORT UNION & MATCH (not-run-crunch)",
+      "file": "compiler/lower/match.ergo",
+      "from": "strconv.Itoa(k)))",
+      "to": "strconv.Itoa(len(cases))))",
+      "rule": "Switch cases are in source order but compare the variant's declaration tag, not the case index (PortUnionModeRank).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-match-payload-reads-wrong-tag",
+      "origin": "wf10/selfhost/S4-PORT UNION & MATCH (not-run-crunch)",
+      "file": "compiler/lower/match.ergo",
+      "from": "\"as\" + strconv.Itoa(arm.tags[0])",
+      "to": "\"as\" + strconv.Itoa(0)",
+      "rule": "Narrowing reads the active variant's shared-slot reconstruction (PortUnionRead).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "ir-invalid-utf8-kept",
       "origin": "wf10/selfhost/S4a",
       "file": "compiler/ir/json.ergo",
