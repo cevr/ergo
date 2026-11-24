@@ -1,0 +1,7 @@
+import flattree/dense
+import flattree/flat
+
+// An unfinished builder cannot be read as a parsed document.
+func RootOfEmpty(src string) dense.ID[flat.Node] {
+	flat.Root(flat.Empty(src))
+}
