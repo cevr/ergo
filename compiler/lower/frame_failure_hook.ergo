@@ -1,0 +1,19 @@
+import compiler/syntax
+import dense
+
+// FRAME may prove a checked failure value and return its scalar operand
+// nodes for liveness. None keeps ordinary return preparation.
+func frameFailureOperands(st fnb, x dense.ID[syntax.Node]) Option[[]dense.ID[syntax.Node]] fails Unported {
+	match st.frame.fallible {
+	case Some{Value: plan}:
+		match plan.exit {
+		case Some{Value: exit}:
+			if exit.at == x {
+				return Some[[]dense.ID[syntax.Node]]{Value: exit.operands}
+			}
+		case None:
+		}
+	case None:
+	}
+	None
+}

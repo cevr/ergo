@@ -502,10 +502,12 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if errs && uses {
 		return stop("signature: fails and needs rows")
 	}
-	if errs {
-		return stop("signature: fails row")
-	}
-	st.frame = if uses {
+	st.frame = if errs {
+		envFreeFallibleFrame(*st, f, body, name, ops, n) catch {
+		case Unported as u:
+			return stop("signature: fails row / frame: " + u.Cause)
+		}
+	} else if uses {
 		needsFrame(*st, f, body, name, ops, n) catch {
 		case Unported as u:
 			return stop("signature: needs row / frame: " + u.Cause)
@@ -529,7 +531,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	for i in 0..n {
 		if sig == "" && shapeGo(*st, ops[i]) == "" {
 			sig = "parameter: " + typeCause(*st, ops[i])
-			if admittedBorrowParam(*st, f, i, ops[i], !uses) {
+			if admittedBorrowParam(*st, f, i, ops[i], !errs && !uses) {
 				sig = ""
 			}
 		}
@@ -549,7 +551,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	match st.frame.op {
 	case Some[directOp] as op:
 		try check(*st, op.Value.tail)
-		let gname = try frameName(*st, f, name, ops[0:n], !uses)
+		let gname = try frameName(*st, f, name, ops[0:n], false)
 		st.fileIx = ir.FileOf(b, path)
 		let fp = pos(*st, syntax.TokPos(p, d.Func))
 		try ir.Begin(b, gname, fp, pos(*st, syntax.TokPos(p, rbrace)))
@@ -567,7 +569,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if sig != "" {
 		return stop(sig + " / body passes")
 	}
-	let gname = try frameName(*st, f, name, ops[0:n], !uses)
+	let gname = try frameName(*st, f, name, ops[0:n], !errs && !uses)
 	st.fileIx = ir.FileOf(b, path)
 	let fp = pos(*st, syntax.TokPos(p, d.Func))
 	let end = pos(*st, syntax.TokPos(p, rbrace))

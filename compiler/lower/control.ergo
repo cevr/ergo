@@ -13,6 +13,7 @@ type controlOp =
 	| CSet{}
 	| CPlaceWrite{Write borrowWrite, RHS dense.ID[syntax.Node]}
 	| CRet{}
+	| CFail{}
 	| CUnionRet{}
 	| CDiscard{}
 	| CBorrowInvoke{Invoke borrowInvoke}
@@ -341,6 +342,18 @@ func controlOperand(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 }
 
 func controlPrepareReturn(st mut fnb, p mut controlPlan, row mut controlStmt, x dense.ID[syntax.Node]) fails Unported {
+	match try frameFailureOperands(*st, x) {
+	case Some{Value: operands}:
+		let nonScalar = p.nonScalar
+		for operand in operands {
+			try controlObserve(*st, p, operand)
+		}
+		p.nonScalar = nonScalar
+		row.op = CFail
+		row.x = dense.OptOf(x)
+		return
+	case None:
+	}
 	match try unionReturn(st, p, x, p.result) {
 	case Some{Value: injection}:
 		row.op = CUnionRet
@@ -509,6 +522,8 @@ func controlTerminates(row controlStmt) bool {
 	match row.op {
 	case CRet:
 		true
+	case CFail:
+		true
 	case CUnionRet:
 		true
 	case CMatch:
@@ -611,6 +626,8 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			try emitBorrowWrite(st, b, w.Write, w.RHS)
 		case CRet:
 			try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{x})
+		case CFail:
+			try ir.Row(b, ir.KindCode(ir.TStmt, "fail"), at, []uint32{x})
 		case CUnionRet:
 			try unionEmitReturn(st, b, p.injections[s.slot], at)
 		case CMatch:
