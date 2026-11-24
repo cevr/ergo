@@ -15,6 +15,8 @@ import (
 // plan's initial state (firstA, through std machines.Initial); main folds
 // each plan over seeded signals with std machines.Run, so the step, the
 // initial value and the start function of the generated Machine all run.
+// A machine with a slice-holding state also calls an owned step while
+// retaining the original state.
 func GenerateMachine(seed uint64) string {
 	g := &ggen{r: rand.New(rand.NewPCG(seed, seed^0x6c796d6163680a02))}
 	var b strings.Builder
@@ -38,6 +40,33 @@ func GenerateMachine(seed uint64) string {
 	b.WriteString("func planA() Machine[St, Sig, int] { A{} }\n\n")
 	b.WriteString("func planB(i int) Machine[St, Sig, int] { machines.Start(B{}, i) }\n\n")
 	b.WriteString("func firstA() int { machines.Initial(A{}).n }\n\n")
+	b.WriteString(`type OwnedState { Items []int }
+
+func ownedStep(s OwnedState, sig Sig) Decision[OwnedState, int] {
+	let mut next = s
+	next.Items[0] = next.Items[0] + sig.v
+	Enter[OwnedState]{Next: next}
+}
+
+type OwnedMachine machine[OwnedState, Sig] {
+	initial: OwnedState{Items: []int{0}},
+	step:    ownedStep,
+}
+
+func planOwned() Machine[OwnedState, Sig, int] { OwnedMachine{} }
+
+func keptState(n int, by int) string {
+	let initial = OwnedState{Items: []int{n}}
+	let plan = planOwned()
+	match plan.Step(initial, Sig{v: by}) {
+	case Enter[OwnedState] as step:
+		"\(initial.Items[0]) \(step.Next.Items[0])"
+	case _:
+		Unreachable("owned step did not enter")
+	}
+}
+
+`)
 	b.WriteString("func show(m Machine[St, Sig, int], signals []Sig) string {\n\tlet o = machines.Run(m, signals) catch {\n\tcase machines.Rejected as r:\n\t\treturn \"rejected at \\(r.At)\"\n\t}\n\tmatch o {\n\tcase machines.Finished[St, int] as f:\n\t\t\"finished \\(f.State.n) \\(f.Output) \\(len(f.Emitted))\"\n\tcase machines.Running[St, int] as r:\n\t\t\"running \\(r.State.n) \\(len(r.Emitted))\"\n\t}\n}\n\n")
 	b.WriteString("func main() needs Console | Ambient {\n")
 	b.WriteString("\twith context { Scheduler: NewLiveScheduler() } {\n\t\tConsole.Println(planC())\n\t}\n")
@@ -49,6 +78,7 @@ func GenerateMachine(seed uint64) string {
 		fmt.Fprintf(&b, "\tlet s%d = []Sig{%s}\n", i, strings.Join(sig, ", "))
 		fmt.Fprintf(&b, "\tConsole.Println(\"%d: \\(firstA()) \\(show(planA(), s%d)) \\(show(planB(%d), s%d))\")\n", i, i, g.n(20), i)
 	}
+	fmt.Fprintf(&b, "\tConsole.Println(keptState(%d, %d))\n", g.n(50), 1+g.n(80))
 	if seed%3 == 0 {
 		// The timer whose In is not positive: a defect that names C,
 		// the state and the duration, the same under both lowerings.

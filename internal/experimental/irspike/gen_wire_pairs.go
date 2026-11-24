@@ -68,7 +68,11 @@ func GenerateWirePairs(seed uint64) string {
 // pairDecls are GenerateWirePairs's types: two by-name pairs, Level and
 // Tags, two refined ints, and E, which holds them, std's time.Time and
 // lists of both pairs.
-const pairDecls = `type Level = Debug | Info | Warn
+const pairDecls = pairTypes + `type E { L Level, T Tags, At time.Time, S Small, W Wide, Ls []Level, Ts []time.Time }
+
+`
+
+const pairTypes = `type Level = Debug | Info | Warn
 
 type Debug {}
 
@@ -111,7 +115,5 @@ func Wire(t Tags) []string { t.xs }
 type Small int where 0 <= it && it <= 99
 
 type Wide int64 where -1000 <= it && it <= 1000
-
-type E { L Level, T Tags, At time.Time, S Small, W Wide, Ls []Level, Ts []time.Time }
 
 `
