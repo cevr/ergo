@@ -36,7 +36,7 @@ type typeCtx struct {
 // boundType is t with a type parameter that bound names replaced by its
 // type; t itself otherwise.
 func (tc *typeCtx) boundType(t check.Type) check.Type {
-	if tc.readCopy != nil || tc.claim != nil {
+	if tc.readCopy != nil {
 		return tc.readCopy(t)
 	}
 	if p, ok := t.(*check.TypeParam); ok && tc.bound[p] != nil {
@@ -50,7 +50,7 @@ func (tc *typeCtx) boundType(t check.Type) check.Type {
 // type-kinded arguments; a function type is the uniform function value
 // (funcType).
 func (tc *typeCtx) goType(t check.Type) string {
-	if tc.readCopy != nil {
+	if tc.readCopy != nil || tc.claim != nil {
 		t = tc.boundType(t)
 	}
 	if t == check.NoValue {

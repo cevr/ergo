@@ -1050,7 +1050,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 	// A value can widen an existing instance's row without a new provider
 	// claim. The subset check still refuses a narrowing.
 	source := asInterface(v)
-	sameErasedABI := declared == nil && !native && source != nil && it.obj != nil && source.obj == it.obj
+	sameOperation := declared == nil && !native && source != nil && it.obj != nil && source.obj == it.obj
 	var self selfReader
 	if len(it.selfUses) > 0 {
 		if n, ok := v.(*Named); ok && asInterface(n) == nil {
@@ -1153,7 +1153,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 		if why := c.releaseWider(v, m); why != "" {
 			return why
 		}
-		if got.Fallible != m.Sig.Fallible && !sameErasedABI {
+		if got.Fallible != m.Sig.Fallible && !sameOperation {
 			return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, m.Name)
 		}
 		// At a direct Go argument, the enclosing Go function's clause

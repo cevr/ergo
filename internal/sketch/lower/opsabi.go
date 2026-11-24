@@ -21,10 +21,7 @@ func opsABIOrigin(n *check.Named) *check.Named {
 	if n.Orig != nil {
 		n = n.Orig
 	}
-	if n.Obj.Pkg.Host() || check.ConstraintOnly(n) {
-		return nil
-	}
-	if _, ok := check.GoTypeOf(n); ok {
+	if n.Obj == nil || n.Obj.Pkg.Host() || n.Obj.BindsGoType() || check.ConstraintOnly(n) {
 		return nil
 	}
 	if _, ok := n.Underlying().(*check.Interface); !ok {
