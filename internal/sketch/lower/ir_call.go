@@ -428,7 +428,7 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 		if fd.envFree {
 			env = 0
 		}
-		return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env)}), !fd.envFree
+		return pre, mark(&irExpr{K: "call", Pos: p, Name: sp, Args: b.provArg(x, c, irArgs, env, pre)}), !fd.envFree
 	}
 	if sp := b.instanceCopy(x, c); sp != "" {
 		// The copy for the instance (ir_instance.go): no type

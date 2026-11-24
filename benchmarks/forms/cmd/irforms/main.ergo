@@ -322,6 +322,33 @@ func benchCtx(n int) int {
 	with context { Meter: Plain{Scale: 3} } { total(n) }
 }
 
+// ---- provspill: a known provider's copy whose provider a later operand
+// spills (ir_known.go provArg) ----
+
+type Tally {
+	Bump(x int) int,
+}
+
+type Stride { k int } implements Tally
+
+func Bump(s Stride, x int) int { x * s.k + 1 }
+
+func bumps(t Tally, from int, n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + t.Bump((i + from) & 1023)
+	}
+	s
+}
+
+func benchProvSpill(n int) int {
+	let mut s = 0
+	for i in 0..n / 64 {
+		s = s + bumps(Stride{k: 3}, bumps(Stride{k: 2}, i, 1), 63)
+	}
+	s
+}
+
 // ---- ref: a shared cell's Modify with a closure ----
 
 func benchRef(n int) int {
@@ -491,6 +518,8 @@ func run(kind string, n int) int {
 		benchCtx(n)
 	} else if kind == "ref" {
 		benchRef(n)
+	} else if kind == "provspill" {
+		benchProvSpill(n)
 	} else {
 		0 - 1
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/lower/provgen"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 var provSeed = flag.Uint64("providers.seed", 0, "run TestKnownProvidersAgree on this seed alone")
@@ -88,13 +89,53 @@ func TestKnownProvidersAgree(t *testing.T) {
 	}
 	if *provSeed == 0 {
 		var missing []string
-		for _, k := range []string{"take", "pass on", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect", "keep: other instance", "capture: literal", "capture: nested", "capture: std callback", "capture: task", "capture: pass on", "capture: returned", "capture: known callback"} {
+		for _, k := range []string{"take", "pass on", "pass on: spilled", "provider spilled", "kept: store", "kept: let", "kept: generic", "provider Counter", "provider Log", "provider Fixed", "call kept", "defect", "keep: other instance", "capture: literal", "capture: nested", "capture: std callback", "capture: task", "capture: pass on", "capture: returned", "capture: known callback"} {
 			if !reached[k] {
 				missing = append(missing, k)
 			}
 		}
 		if len(missing) > 0 {
 			t.Errorf("the fixed seeds do not reach %v", missing)
+		}
+	}
+}
+
+// TestKnownProviderCopiesTakeTheIR is the in-process half of the copies'
+// IR leg (PORT-INSTCOPY; ir_known.go provArg): on the IR path every copy
+// the generator's model names (TestKnownProvidersAgree's programs) is an
+// IR body, and no body keeps its source body for "argument for a known
+// provider's copy", including a call whose provider a later operand's
+// statements spilled to a temporary (the shapes "pass on: spilled" and
+// "provider spilled"): the temporary holds the adapter's pointer, as the
+// emitter's does. TestIRProvidersMatchSource (irspike) runs them.
+//
+// Mutant (testdata/mutants.json): ir-provider-spilled-arg-refused.
+func TestKnownProviderCopiesTakeTheIR(t *testing.T) {
+	seeds := []uint64{1, 2, 3, 4, 5, 6}
+	if *provSeed != 0 {
+		seeds = []uint64{*provSeed}
+	}
+	const reason = "argument for a known provider's copy"
+	for _, seed := range seeds {
+		src, copies, _ := provgen.Program(seed, map[string]bool{})
+		replay := fmt.Sprintf("Replay: go test -run '^TestKnownProviderCopiesTakeTheIR$' ./internal/sketch/lower -args -providers.seed=%d", seed)
+		o := mustLower(t, fmt.Sprintf("providers%d", seed), src)
+		u := Unit{Package: o.pkg, Files: []*syntax.File{o.file}, Sources: []Source{{Path: testSourcePath, Text: src}}}
+		_, rep, err := LowerIR(u)
+		if err != nil {
+			t.Fatalf("seed %d: LowerIR: %v\n%s", seed, err, replay)
+		}
+		if n := rep.Fallback[reason]; n != 0 {
+			t.Errorf("seed %d: %d bodies keep their source body for %q\n%s\n%s", seed, n, reason, replay, src)
+		}
+		built := 0
+		for _, f := range rep.IR {
+			if strings.HasSuffix(f, "AsSink") {
+				built++
+			}
+		}
+		if built != copies {
+			t.Errorf("seed %d: %d copies for a known provider are IR bodies, the model names %d (fallbacks %v)\n%s\n%s", seed, built, copies, rep.Fallback, replay, src)
 		}
 	}
 }
