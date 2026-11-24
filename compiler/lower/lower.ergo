@@ -92,9 +92,9 @@ type fnb {
 	calls  []expr.CallTo,
 	callAt dense.Side[store.PNode, int],
 	// capAt is the typer's resolved capability by call node.
-	capAt dense.Side[store.PNode, dense.Opt[store.TKey]],
+	capAt     dense.Side[store.PNode, dense.Opt[store.TKey]],
 	frameRoot bool,
-	frame framePlan,
+	frame     framePlan,
 }
 
 // Package builds the IR of every function of the checked package k; paths
