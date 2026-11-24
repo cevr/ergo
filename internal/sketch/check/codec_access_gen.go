@@ -38,6 +38,8 @@ type Codec_branch = branch
 
 type Codec_branchKind = branchKind
 
+type Codec_callbackDiagKey = callbackDiagKey
+
 type Codec_capBinding = capBinding
 
 type Codec_capCall = capCall
@@ -794,13 +796,18 @@ func CodecFieldsOf_bodySum(v *bodySum) CodecFields_bodySum {
 }
 
 type CodecFields_borrowWalk struct {
-	F_c     **checker
-	F_info  **Info
-	F_stack *[]syntax.Node
+	F_c             **checker
+	F_info          **Info
+	F_stack         *[]syntax.Node
+	F_varFrame      *map[*Var]int
+	F_paramSig      *map[*Var]*Signature
+	F_aliasPlaces   *map[*Var][]place
+	F_localLits     *map[*Var][]*syntax.FuncLit
+	F_nonEscOrigins *map[*Var][]*Var
 }
 
 func CodecFieldsOf_borrowWalk(v *borrowWalk) CodecFields_borrowWalk {
-	return CodecFields_borrowWalk{F_c: &v.c, F_info: &v.info, F_stack: &v.stack}
+	return CodecFields_borrowWalk{F_c: &v.c, F_info: &v.info, F_stack: &v.stack, F_varFrame: &v.varFrame, F_paramSig: &v.paramSig, F_aliasPlaces: &v.aliasPlaces, F_localLits: &v.localLits, F_nonEscOrigins: &v.nonEscOrigins}
 }
 
 type CodecFields_branch struct {
@@ -809,6 +816,15 @@ type CodecFields_branch struct {
 
 func CodecFieldsOf_branch(v *branch) CodecFields_branch {
 	return CodecFields_branch{F_kind: &v.kind}
+}
+
+type CodecFields_callbackDiagKey struct {
+	F_line *int
+	F_root *Object
+}
+
+func CodecFieldsOf_callbackDiagKey(v *callbackDiagKey) CodecFields_callbackDiagKey {
+	return CodecFields_callbackDiagKey{F_line: &v.line, F_root: &v.root}
 }
 
 type CodecFields_capBinding struct {

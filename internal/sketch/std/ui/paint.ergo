@@ -185,9 +185,9 @@ func paintFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 		}
 		Canvas(f, "rest", 120, 80) func(p mut Paint) {
 			paintProg(p, prog, s+1)
-			Canvas(f, "inner", 40, 40) func(q mut Paint) {
-				paintProg(q, prog, s+2)
-			}
+		}
+		Canvas(f, "inner", 40, 40) func(q mut Paint) {
+			paintProg(q, prog, s+2)
 		}
 	}
 	let a = actor.StartMachine(dialMachine(), 1, func(o int) {})
