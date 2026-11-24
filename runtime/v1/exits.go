@@ -38,7 +38,6 @@ const exitsInline = 4
 // Exits is the exit actions of a frame in the static exit form.
 type Exits struct {
 	t      *rt.Task
-	s      rt.Scope // the frame's own, made at Begin as NewScope makes it
 	n      int
 	inline [exitsInline]func()
 	more   []func()
@@ -49,7 +48,7 @@ type Exits struct {
 // Begin starts the exit actions of a frame that runs on task t.
 //
 //ergo:wait none
-func (x *Exits) Begin(t *rt.Task) { x.t, x.s = t, rt.NewScope(t) }
+func (x *Exits) Begin(t *rt.Task) { x.t = t }
 
 // ExitsOnExit is scope.OnExit() { body } in a frame in the static exit
 // form: it registers body on x, as OnExit registers it on the frame's
@@ -100,8 +99,7 @@ func (x *Exits) end(e error) error {
 	if len(x.exits.Reasons) > 0 {
 		e = join(e, x.exits.Err())
 	}
-	x.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
-	return e
+	return x.t.ScopeExit(e) // stop wins (Exit causes 5)
 }
 
 // run is one action, as OnExit's entry runs it: masked, through the
@@ -112,31 +110,20 @@ func (x *Exits) run(body func()) {
 		x.Run(body)
 		return
 	}
-	// The action's frame is made before the boundary, as OnExit's entry
-	// makes it (a traced tree records its depth there).
-	action := rt.NewScope(x.t)
 	ended := false
 	var nested error
 	release(x.t, &x.exits, func() {
 		body()
 		ended = true
-		nested = actionEnd(&action, nil)
+		nested = x.t.ScopeExit(nil)
 	}, func(carried error) error {
 		if ended {
 			return carried // the frame's end itself panicked
 		}
 		ended = true
-		return actionEnd(&action, carried)
+		return x.t.ScopeExit(carried)
 	})
 	x.exits.Add(nested)
-}
-
-// actionEnd is the end of an action's frame s, which holds no entry: the
-// exit so far, with a stop the task can observe winning (Scope.end of an
-// empty scope that is not plain).
-func actionEnd(s *rt.Scope, e error) error {
-	s.End(&e)
-	return e
 }
 
 // The defer form (FLIP F7 STATIC-EXIT2). A frame in the static exit form

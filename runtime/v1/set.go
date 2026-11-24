@@ -130,7 +130,7 @@ func TasksNewSet(s *Scope, kind, limit int) *Set {
 	if limit < 0 {
 		panic("tasks.Restart: a negative limit " + strconv.Itoa(limit))
 	}
-	return &Set{owner: s.s.Task(), kind: kind, limit: limit}
+	return &Set{owner: s.t, kind: kind, limit: limit}
 }
 
 // own panics unless t is the owner task (rule 1).
