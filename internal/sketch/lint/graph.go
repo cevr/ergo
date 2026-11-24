@@ -82,8 +82,12 @@ func (s *runShared) programGraph() *programGraph {
 func programGraphOf(units []Unit) *programGraph {
 	pkgs := make([]graphrows.SourcePackage, len(units))
 	g := &programGraph{first: make([]int, len(units)+1)}
+	modules := make(map[string]string, len(units))
+	for _, unit := range units {
+		modules[unitPath(unit)] = unit.Module
+	}
 	for u, unit := range units {
-		sp := graphrows.SourcePackage{Path: unitPath(unit), Module: unit.Module, Info: unit.Package}
+		sp := graphrows.SourcePackage{Path: unitPath(unit), Module: unit.Module, Modules: modules, Info: unit.Package}
 		for _, f := range unit.Files {
 			sp.Files = append(sp.Files, graphrows.SourceFile{Name: f.Rel, Syntax: f.Syntax})
 		}
