@@ -1,6 +1,15 @@
 {
   "about": "The mutant ledger of internal/selfhostcheck and the self-hosting pilot it tests (testdata/selfhost): edits of the Go adapter and of the Ergo tree decoder that TestSelfhostBridgeAgrees, or the adapter's TestFamiliesCoverSyntax, must kill. scripts/mutants judges only check and lower today, and the pilot is a nested Go module; until it has a suite, a unit that changes these files applies each edit by hand and runs the killer (wf10 SH0).",
   "mutants": [
+    {
+      "name": "lower-agree-record-differing-body",
+      "origin": "wf10/selfhost/S4-PORT DRIVER",
+      "file": "internal/selfhostcheck/irbuild_test.go",
+      "from": "if match >= 0 && receipt != nil {\n\t\tfmt.Fprintf(receipt, \"F %s %s %s\\n\", site.path, site.offset, wants[match].name)\n\t}",
+      "to": "if receipt != nil {\n\t\tfmt.Fprintf(receipt, \"F %s %s %s\\n\", site.path, site.offset, wants[max(match, 0)].name)\n\t}",
+      "rule": "A match receipt records byte equality, not merely the existence of a Go candidate.",
+      "killers": ["internal/selfhostcheck:TestIRAgreementMatchesReceipt"]
+    },
     {"name":"claim-law-permits-bare-self-call","origin":"wf10 CLAIM-LAWS","file":"compiler/check/expr/call.ergo","from":"if selected.NeedsReceiver {","to":"if false {","rule":"A constraint-only law has no ambient value for a bare operation call.","killers":["internal/selfhostcheck:TestCompilerCheckAgrees"],"regenerate":{"dir":".","argv":["go","run","./scripts/linked","-bootstrap"]},"gap":"not-run-crunch"},
     {
       "name": "lower-agree-guess-field-export",
