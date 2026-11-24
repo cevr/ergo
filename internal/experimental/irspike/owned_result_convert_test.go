@@ -331,5 +331,59 @@ test CheckDropCallback {
 	assert log.Get() == id
 }
 `, 1+seed%7)
+	names = append(names, "DropReplace")
+	fmt.Fprintf(&src, `
+func replacement(log sync.Ref[int], id int, reject bool) dropTicket fails Bad {
+	if reject { return Bad }
+	dropTicket{id: id, log: log, crash: false}
+}
+
+func DropReplace(log sync.Ref[int], id int, reject bool, defect bool) int fails Bad {
+	if id > 0 {
+		let mut owner = dropTicket{id: id, log: log, crash: defect}
+		let sibling = dropTicket{id: id+1, log: log, crash: false}
+		owner = try replacement(log, id+2, reject)
+		if owner.log.Get() != id || sibling.log.Get() != id { Unreachable("released out of order") }
+	}
+	log.Get()
+}
+
+test CheckDropReplace {
+	let log = sync.NewRef(0)
+	let id = %d
+	let observed = DropReplace(log, id, false, false) catch { case Bad: 0 }
+	assert observed == 111*id+21
+	assert log.Get() == observed
+	log.Set(0)
+	let rejected = DropReplace(log, id, true, false) catch { case Bad: -1 }
+	assert rejected == -1
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let child = task.Go() { try DropReplace(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 111*id+21
+}
+`, 1+seed%7)
+	names = append(names, "DropReplacePlace")
+	fmt.Fprintf(&src, `
+func DropReplacePlace(log sync.Ref[int], id int) {
+	let mut pair = dropPair{left: dropTicket{id: id, log: log, crash: false}, right: dropTicket{id: id+1, log: log, crash: false}}
+	pair.left.Close()
+	pair = dropPair{left: dropTicket{id: id+2, log: log, crash: false}, right: dropTicket{id: id+3, log: log, crash: false}}
+	if pair.right.log.Get() != 11*id+1 { Unreachable("replacement not live") }
+	pair.right.id = id+4
+}
+
+test CheckDropReplacePlace {
+	let log = sync.NewRef(0)
+	let id = %d
+	DropReplacePlace(log, id)
+	assert log.Get() == 1111*id+142
+}
+`, 1+seed%5)
 	return src.String(), names
 }

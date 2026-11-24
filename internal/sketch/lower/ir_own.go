@@ -265,27 +265,10 @@ func (b *irBuilder) ownsLocals(body *syntax.BlockStmt) bool {
 // openList starts the list form of the frame scope of body, whose node is
 // site (a declaration or a function literal) (the
 // emitter's own, owning, handoff and releaseAt on a frame that is not in
-// the static form): the checks a static frame runs (ownBodyChecks), and
-// an assignment to an owned local stops it (R41 registers the new value
-// and releases the old, which this form does not write).
+// the static form). It records the releases the body must reach.
 func (b *irBuilder) openList(body *syntax.BlockStmt, site syntax.Node, p irPos) {
 	o := &irOwn{list: true, kept: -1, live: -1, handle: map[*check.Var]int{}, bit: map[*check.Var]int{}, site: site, p: p, keys: map[syntax.Node]bool{}, pending: map[*check.Var]bool{}}
 	b.ownBodyChecks(body, o)
-	syntax.Inspect(body, func(n syntax.Node) bool {
-		if _, lit := n.(*syntax.FuncLit); lit || n == nil {
-			return false
-		}
-		if s, ok := n.(*syntax.AssignStmt); ok {
-			for _, x := range s.Lhs {
-				if id, ok := unparen(x).(*syntax.Ident); ok {
-					if v, ok := b.l.info.Uses[id].(*check.Var); ok && b.l.info.OwnedVars[v] != nil {
-						irNo("owned local") // R41: the list form's reassignment
-					}
-				}
-			}
-		}
-		return true
-	})
 	delete(o.keys, body) // the body's own scope ends at the frame's End
 	b.own = o
 }
@@ -296,30 +279,68 @@ func (b *irBuilder) openList(body *syntax.BlockStmt, site syntax.Node, p irPos) 
 func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node, value syntax.Expr) []*irStmt {
 	o := b.own
 	p := b.pos(site, site.Pos())
-	typ := b.goType(v.Type, site)
 	if _, seen := o.handle[v]; seen {
 		irNo("owned local") // a local bound twice
 	}
 	// The handle is defined where the local is: its scope is the local's.
 	owner, h := b.listOwner(p)
 	o.handle[v] = owner.Local
-	here := b.listReleaseHere(v.Type, site, value)
-	name, at, release := "Owning", "OwningAt", func() *irExpr {
-		return b.listRelease(d, v.Type, typ, p, here)
-	}
-	if d.Glue() {
-		name, at, release = "OwningParts", "OwningPartsAt", func() *irExpr {
-			return b.dropRelease(d, typ, site, p)
-		}
-	}
-	out := []*irStmt{
-		owner,
-		{K: "expr", Pos: p, X: b.ownCall(name, typ, p, h, &irExpr{K: "local", Pos: p, I: i}, release())},
-	}
+	reg := b.listRegistration(v, d, site, value, h, i, false)
+	out := []*irStmt{owner, reg}
 	if b.l.writtenInPlace(v) {
-		// A local the code writes in place is released with its writes
-		// (v1.OwningAt; the emitter's ownAt).
-		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall(at, typ, p, h, b.addrOf(i, p), release())})
+		out = append(out, b.listRegistration(v, d, site, value, h, i, true))
+	}
+	return out
+}
+
+// listRegistration writes the initial registration and, for a place
+// updated in place, the change to release the value at that address.
+// Both a fresh binding and a reassignment use the same drop contract.
+func (b *irBuilder) listRegistration(v *check.Var, d *check.Drop, site syntax.Node, value syntax.Expr, h *irExpr, i int, at bool) *irStmt {
+	p := b.pos(site, site.Pos())
+	typ := b.goType(v.Type, site)
+	name := "Owning"
+	var release *irExpr
+	if d.Glue() {
+		name = "OwningParts"
+		release = b.dropRelease(d, typ, site, p)
+	} else {
+		release = b.listRelease(d, v.Type, typ, p, b.listReleaseHere(v.Type, site, value))
+	}
+	x := &irExpr{K: "local", Pos: p, I: i}
+	if at {
+		name += "At"
+		x = b.addrOf(i, p)
+	}
+	return &irStmt{K: "expr", Pos: p, X: b.ownCall(name, typ, p, h, x, release)}
+}
+
+// reassignList implements R41: acquire the replacement before releasing
+// the old value, so the frame still owns it if that release defects.
+// Do not make it an in-place registration until the actual place has
+// the new value.
+func (b *irBuilder) reassignList(v *check.Var, i int, id *syntax.Ident, x *irExpr) []*irStmt {
+	o := b.own
+	if o == nil || !o.list {
+		irNo("owned local")
+	}
+	h, ok := o.handle[v]
+	if !ok {
+		irNo("owned local")
+	}
+	p := b.pos(id, id.Pos())
+	tmp := b.temp("replacement", b.goType(v.Type, id), p)
+	owner, next := b.listOwner(p)
+	d := b.l.info.OwnedVars[v]
+	reg := b.listRegistration(v, d, id, nil, next, tmp, false)
+	out := []*irStmt{{K: "var", Pos: p, Local: tmp}, {K: "set", Pos: p, Local: tmp, X: x}, owner, reg}
+	out = append(out, b.releaseAt(id, p)...)
+	out = append(out,
+		&irStmt{K: "set", Pos: p, Local: i, X: &irExpr{K: "local", Pos: p, I: tmp}},
+		&irStmt{K: "set", Pos: p, Local: h, X: next},
+	)
+	if b.l.writtenInPlace(v) {
+		out = append(out, b.listRegistration(v, d, id, nil, next, i, true))
 	}
 	return out
 }
@@ -839,6 +860,8 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 		delete(o.keys, key)
 	}
 	var out []*irStmt
+	var handles []*irExpr
+	latest := false
 	for _, r := range rs {
 		if r.Var == nil {
 			if b.l.info.OwnedTemps[r.Temp] == nil {
@@ -870,7 +893,8 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 			if !ok {
 				irNo("statement that releases owned values") // not registered on this path
 			}
-			out = append(out, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "Release", X: &irExpr{K: "local", Pos: p, I: h}}})
+			handles = append(handles, &irExpr{K: "local", Pos: p, I: h})
+			latest = latest || b.l.reassigned(r.Var)
 			continue
 		}
 		k, ok := o.bit[r.Var]
@@ -878,6 +902,14 @@ func (b *irBuilder) releaseAt(key syntax.Node, p irPos) []*irStmt {
 			irNo("statement that releases owned values") // not registered on this path
 		}
 		out = append(out, b.slotRelease(k, p))
+	}
+	if latest && len(handles) > 1 {
+		b.keepImport("var _ = " + b.l.rt() + ".ReleaseLatestFirst")
+		owners := &irExpr{K: "lit", Pos: p, T: b.spelling("[]*" + b.l.rt() + ".Owned"), Elems: handles}
+		return append(out, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "ReleaseLatestFirst", Op: "...", Args: []*irExpr{owners}}})
+	}
+	for _, h := range handles {
+		out = append(out, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "Release", X: h}})
 	}
 	return out
 }
