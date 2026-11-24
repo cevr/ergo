@@ -723,29 +723,41 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 
 	// Read: the Output of --json read back as r's Outcome, the reader of
 	// the transport's answer.
-	b.WriteString("\n// Read is the outcome of r that the Output of Run with --json says: its\n// value's JSON on standard output with status 0, or its failure's tagged\n// JSON with status 1. Any other Output is not an answer to r, a defect.\n")
-	fmt.Fprintf(&b, "func Read(r Request, out Output) %s.Outcome {\n", g.api)
+	b.WriteString("\n// Read is the outcome of r that the Output of Run with --json and its\n// default status policy says: its value's JSON on standard output with\n// status 0, or an admitted failure's tagged JSON with status 1. Invalid\n// or missing replies fail Transport, outside the operation's own row.\n")
+	fmt.Fprintf(&b, "func Read(r Request, out Output) %s.Outcome fails rpc.Transport {\n", g.api)
 	b.WriteString("let text = strings.TrimSuffix(out.Out, \"\\n\")\nif out.Code == 0 {\nmatch r {\n")
 	for _, c := range cmds {
 		op := c.op
 		req := g.reqQual + op.Name + "Request"
 		reply := g.reqQual + op.Name + "Reply"
 		if op.Result == nil {
-			fmt.Fprintf(&b, "case %s:\nif text != \"null\" {\nUnreachable(\"the command line answered %s with \" + text + \", not null\")\n}\n%s.Done{Reply: %s}\n", req, op.Name, g.api, reply)
+			fmt.Fprintf(&b, "case %s:\nif text != \"null\" {\nreturn rpc.Transport{Reason: \"the command line answered %s with \" + text + \", not null\"}\n}\n%s.Done{Reply: %s}\n", req, op.Name, g.api, reply)
 			continue
 		}
-		fmt.Fprintf(&b, "case %s:\nlet v = rpc.Decode[%s](\"value\", text) catch {\ncase rpc.Transport as t:\nUnreachable(\"the command line answered %s with a value it cannot read: \" + t.Reason)\n}\n%s.Done{Reply: %s{Value: v}}\n", req, g.expr(op.Result), op.Name, g.api, reply)
+		fmt.Fprintf(&b, "case %s:\nlet v = try rpc.Decode[%s](\"value\", text)\n%s.Done{Reply: %s{Value: v}}\n", req, g.expr(op.Result), g.api, reply)
 	}
-	b.WriteString("}\n} else if out.Code == 1 {\nmatch rpc.TagOf(text) {\n")
-	for _, f := range fails {
-		tags := rpcgen.FailTags(unalias(f))
-		var quoted []string
-		for _, t := range tags {
-			quoted = append(quoted, fmt.Sprintf("%q", t))
+	b.WriteString("}\n} else if out.Code == 1 {\nmatch r {\n")
+	for _, c := range cmds {
+		op := c.op
+		fmt.Fprintf(&b, "case %s%sRequest:\n", g.reqQual, op.Name)
+		if len(op.Fails) != 0 {
+			b.WriteString("match rpc.TagOf(text) {\n")
+			for _, f := range op.Fails {
+				tags := rpcgen.FailTags(unalias(f))
+				var quoted []string
+				for _, t := range tags {
+					quoted = append(quoted, fmt.Sprintf("%q", t))
+				}
+				fmt.Fprintf(&b, "case %s:\nlet e = try rpc.Decode[%s](\"failure\", text)\n%s.Rejected{Failure: %s%s{E: e}}\n", strings.Join(quoted, ", "), g.expr(f), g.api, g.reqQual, rpcgen.FailureVariant(ops, f))
+			}
+			b.WriteString("case _:\n")
 		}
-		fmt.Fprintf(&b, "case %s:\nlet e = rpc.Decode[%s](\"failure\", text) catch {\ncase rpc.Transport as t:\nUnreachable(\"the command line answered a failure it cannot read: \" + t.Reason)\n}\n%s.Rejected{Failure: %s%s{E: e}}\n", strings.Join(quoted, ", "), g.expr(f), g.api, g.reqQual, rpcgen.FailureVariant(ops, f))
+		fmt.Fprintf(&b, "return rpc.Transport{Reason: \"the command line answered %s with an undeclared failure: \" + text}\n", op.Name)
+		if len(op.Fails) != 0 {
+			b.WriteString("}\n")
+		}
 	}
-	b.WriteString("case _:\nUnreachable(\"the command line answered a failure no operation has: \" + text)\n}\n} else {\nUnreachable(\"the command line answered status \\(out.Code): \" + out.Err)\n}\n}\n")
+	b.WriteString("}\n} else {\nreturn rpc.Transport{Reason: \"the command line answered status \\(out.Code): \" + out.Err}\n}\n}\n")
 
 	// The host loop, written once over its answer.
 	b.WriteString("\n// front is a command line read up to its call: the call and the global\n// flags before it (--json, --yes), or the Output that ends the run first\n// (the help, status 0; a usage error, status 2, which no policy changes).\ntype front = asked{R Request, JSON bool, Yes bool} | ended{O Output}\n")
@@ -774,11 +786,10 @@ func (g *gen) file(pkgName string, ops []rpcgen.Op, cmds []*command) string {
 	fmt.Fprintf(&b, "\n// Completion is the script that completes %s's commands in shell.\nfunc Completion(shell %s.Shell) string {\n%s.Completion(%q, shell, []%s.Entry{%s})\n}\n", pkgName, g.stdAPI, g.stdAPI, pkgName, g.stdAPI, strings.Join(entries, ", "))
 
 	// The transport: carry, Wire and its laws.
-	fmt.Fprintf(&b, "\n// carry is c through the command line: printed with --json, read back\n// by Run's own reader, answered by answer, shown under Defaults, and read\n// back (Read).\nfunc carry(c Request, answer func(c Request) %s.Outcome) %s.Outcome {\n", g.api, g.api)
-	b.WriteString("let mut args = []string{\"--json\"}\nfor a in Print(c) {\nargs = args.Append(a)\n}\nRead(c, runOver(args, Defaults(), answer))\n}\n")
-	fmt.Fprintf(&b, "\n// Wire is the command line as a transport of the hub's calls.\ntype Wire {} implements %s.Transport[Request, %s.Outcome]\n", g.stdAPI, g.api)
-	fmt.Fprintf(&b, "\n// Carry is carry.\nfunc Carry(w Wire, c Request, answer own func(c Request) %s.Outcome) %s.Outcome { carry(c, answer) }\n", g.api, g.api)
-	fmt.Fprintf(&b, "\n// Agrees: the command line carries every call and every outcome the\n// call can have unchanged.\nlaw Agrees(r Request, g %s.Given) { %s.Agrees(Wire, r, %s.OutcomeOf(r, g)) }\n", g.api, g.stdAPI, g.api)
+	fmt.Fprintf(&b, "\n// Wire is the command line as a transport of the hub's calls.\ntype Wire {} implements %s.Transport[Request, %s.Outcome, rpc.Transport]\n", g.stdAPI, g.api)
+	fmt.Fprintf(&b, "\n// Carry prints c with --json, runs it against answer using the default\n// status policy, and reads back the reply. Delivery can fail separately\n// from answer's outcome.\nfunc Carry(w Wire, c Request, answer own func(c Request) %s.Outcome) %s.Outcome fails rpc.Transport {\n", g.api, g.api)
+	b.WriteString("let mut args = []string{\"--json\"}\nfor a in Print(c) {\nargs = args.Append(a)\n}\ntry Read(c, runOver(args, Defaults(), answer))\n}\n")
+	fmt.Fprintf(&b, "\n// Agrees: the command line carries every call and every outcome the\n// call can have unchanged.\nlaw Agrees(r Request, g %s.Given) { %s.Agrees[Request, %s.Outcome, rpc.Transport](Wire, r, %s.OutcomeOf(r, g)) }\n", g.api, g.stdAPI, g.api, g.api)
 	fmt.Fprintf(&b, "\n// CodeIsThePolicy: a call's status is 0 for a value and the policy's\n// Code for a typed failure.\nlaw CodeIsThePolicy(r Request, g %s.Given, k int) {\nlet status = 1 + ((k%%125)+125)%%125\nlet d = Defaults()\nlet p = Policy{..d, Code: func(f %s.Failure) int { status }}\nlet o = %s.OutcomeOf(r, g)\nlet out = runOver(Print(r), p, func(c Request) %s.Outcome { o })\nmatch o {\ncase %s.Done:\nout.Code == 0\ncase %s.Rejected:\nout.Code == status\n}\n}\n", g.api, g.api, g.api, g.api, g.api, g.api)
 	fmt.Fprintf(&b, "\n// TextIsThePolicy: without --json a value prints as the policy's Text;\n// with --json every outcome prints as the wire's JSON, whatever Text says.\nlaw TextIsThePolicy(r Request, g %s.Given, t string) {\nlet d = Defaults()\nlet p = Policy{..d, Text: func(reply %s.Reply) Option[string] { Some[string]{Value: t} }}\nlet o = %s.OutcomeOf(r, g)\nlet same = Show(o, true, p) == Show(o, true, d)\nmatch o {\ncase %s.Done:\nsame && Show(o, false, p).Out == line(t)\ncase %s.Rejected:\nsame && Show(o, false, p) == Show(o, false, d)\n}\n}\n", g.api, g.api, g.api, g.api, g.api)
 	return b.String()

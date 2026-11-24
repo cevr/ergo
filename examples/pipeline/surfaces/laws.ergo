@@ -225,37 +225,31 @@ law SurfacesAgree(acts []int, failing int) {
 	byScreen == byModel
 }
 
-// Through is the Api over the transport t to the Pipeline in force: each
-// call carried by t's Wire to the hub's Call on the providers held where
-// it was made, and its outcome carried back. It holds them no longer
-// than the with that made it.
-func Through(t Transport) pipelineapi.Client needs pipeline.Pipeline {
-	let held = InForce[pipeline.Pipeline]()
-	pipelineapi.NewClient(func(r Request) pipelineapi.Outcome {
-		with held {
-			match t {
-			case Line:
-				carried(pipelinecli.Wire, r)
-			case Tools:
-				carried(pipelinemcp.Wire, r)
-			case Wire:
-				carried(pipelinerpc.Wire, r)
-			}
-		}
-	})
+// through carries r to the Pipeline in force. A failure to deliver is
+// separate from a rejection by Pipeline itself.
+func through(t Transport, r Request) pipelineapi.Outcome fails rpc.Transport needs pipeline.Pipeline {
+	match t {
+	case Line:
+		try carried[rpc.Transport](pipelinecli.Wire, r)
+	case Tools:
+		carried(pipelinemcp.Wire, r)
+	case Wire:
+		carried(pipelinerpc.Wire, r)
+	}
 }
 
 // carried is r carried by w to the hub's Call on the Pipeline in force.
-func carried(w api.Transport[Request, pipelineapi.Outcome], r Request) pipelineapi.Outcome needs pipeline.Pipeline {
+func carried[F](w api.Transport[Request, pipelineapi.Outcome, F], r Request) pipelineapi.Outcome fails F needs pipeline.Pipeline {
 	let held = InForce[pipeline.Pipeline]()
-	w.Carry(r, func(c Request) pipelineapi.Outcome {
+	try w.Carry(r, func(c Request) pipelineapi.Outcome {
 		with held { pipelineapi.Call(c) }
 	})
 }
 
 // TransportsTakeEachCommandOnce: Pipeline.DuplicateIsNoop holds through
 // each generated transport (the command line, the MCP tools, the Effect
-// RPC wire): a command sent twice is taken once.
+// RPC wire): a command sent twice is taken once. A failure of delivery
+// refutes the law rather than appearing as a rejection by Pipeline.
 law TransportsTakeEachCommandOnce(c pipeline.SubmitRun, t Transport) {
 	with context { Scheduler: time.NewManual(0), pipeline.Runner: runners.NewFlaky() } {
 		let m = pipeline.Open(memory.New[pipeline.Entry]()) catch {
@@ -263,8 +257,21 @@ law TransportsTakeEachCommandOnce(c pipeline.SubmitRun, t Transport) {
 			return false
 		}
 		with context { pipeline.Pipeline: m } {
-			let client = Through(t)
-			with context { pipeline.Pipeline: client } { pipeline.DuplicateIsNoop(c) }
+			let once = pipeline.SubmitRun{..c, Stages: 1 + ((c.Stages%3)+3)%3}
+			let request = pipelineapi.SubmitRequest{C: once}
+			let first = try through(t, request)
+			match first {
+			case pipelineapi.Done as done:
+				match done.Reply {
+				case pipelineapi.SubmitReply:
+					let again = try through(t, request)
+					again == first
+				case _:
+					false
+				}
+			case pipelineapi.Rejected:
+				true
+			}
 		}
 	}
 }
