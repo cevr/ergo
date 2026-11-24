@@ -22,7 +22,8 @@ func FrameEvery[S, E, D, F](d mut Driver[S, E, D, F], period duration) {
 // animates. A pass that stops animating stops the frames: the rest of by
 // passes with no Tick, and nothing is owed. While an Area holds the
 // pointer near an edge of the list inside it, each period also scrolls
-// the list (edgeFrame), and frames run while it moves.
+// the list (edgeFrame), and frames run while it moves. A step can fail
+// with actor.Stopped, ui.BadPatch, or ScreenFailed.
 func Advance[E comparable, S, D, F](d mut Driver[S, E, D, F], by duration) fails actor.Stopped | ui.BadPatch | ScreenFailed needs go.Foreign {
 	let mut left = by
 	for (ui.SessionAnimates(&d.session) || edgeMoves(d)) && left >= d.period-d.owed {

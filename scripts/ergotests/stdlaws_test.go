@@ -53,7 +53,7 @@ func TestStdRedGuard(t *testing.T) {
 // a provider's failure is the declaring law's failure
 // (LAW-RUNS-CREDIT-PROVIDERS). Mutant: nl-provider-run-uncredited.
 func TestStdRedCreditsProviders(t *testing.T) {
-	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, declared: map[string]string{"w Store.Kept": "w", "w Store.Unrun": "w", "w Store.Broken": "w", "prelude Hashing.Kept": "prelude", "a Hashing.Own": "a"}}
+	run := stdRun{verdicts: map[string][]eval.Status{}, failed: map[string]string{}, declared: map[string]string{"w Store.Kept": "w", "w Store.Unrun": "w", "w Store.Broken": "w", "prelude Hashing.Kept": "prelude", "a Hashing.Own": "a"}, unqualified: map[string]string{"Hashing.Kept": "prelude"}}
 	for _, v := range []struct {
 		pkg, law string
 		status   eval.Status

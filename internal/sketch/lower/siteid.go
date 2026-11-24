@@ -31,8 +31,8 @@ import (
 // sitePkgNames), so the text of every other package stays byte-equal
 // when another package's site numbering changes (TestSitesStayInTheirPackage).
 // The packages are numbered by their last path element, then their path,
-// then std before the program's, so a std package and its copy as a user
-// package (stdlib's TestStdCopyAgrees) take one number.
+// then embedded files before files admitted by the unit, so a package
+// and its copy (stdlib's TestStdCopyAgrees) take one number.
 //
 // Prior art: Compose's compiler keys a group by an integer it derives from
 // the call's source position (a hash of the file and offset), so the
@@ -61,6 +61,9 @@ type sitePkg struct {
 	base  string
 	order string
 	used  bool
+	// An empty span denotes a package whose files come from the library
+	// rather than the unit. Each admitted package's files are contiguous.
+	first, end int
 }
 
 // sitePackages are the program's packages in the numbering's order, the
@@ -72,24 +75,30 @@ func (l *lowerer) sitePackages() []sitePkg {
 	}
 	var out []sitePkg
 	seen := map[*check.Package]bool{}
-	add := func(p *check.Package) {
+	add := func(p *check.Package, first, end int) {
 		if p == nil || seen[p] {
 			return
 		}
 		seen[p] = true
 		kind, base := "0", "ergoSitePkg_"
-		if l.isSourced(p) {
-			// The two source namespaces can contain the same import path.
+		if first != end {
+			// An admitted and an embedded package can share an import path.
 			// '__' cannot occur in pkgAlias's encoding of a path.
 			kind, base = "1", "ergoSitePkg_src__"
 		}
-		out = append(out, sitePkg{pkg: p, key: kind + ":" + p.Path, base: base + pkgAlias(p.Path), order: path.Base(p.Path) + "\x00" + p.Path + "\x00" + kind})
+		out = append(out, sitePkg{pkg: p, key: kind + ":" + p.Path, base: base + pkgAlias(p.Path), order: path.Base(p.Path) + "\x00" + p.Path + "\x00" + kind, first: first, end: end})
 	}
-	for _, s := range l.srcs {
-		add(s.pkg)
+	for first := 0; first < len(l.srcs); {
+		p := l.srcs[first].pkg
+		end := first + 1
+		for end < len(l.srcs) && l.srcs[end].pkg == p {
+			end++
+		}
+		add(p, first, end)
+		first = end
 	}
 	for _, p := range l.libraries() {
-		add(p)
+		add(p, 0, 0)
 	}
 	slices.SortFunc(out, func(a, b sitePkg) int { return strings.Compare(a.order, b.order) })
 	l.sitePkgs = out
@@ -162,11 +171,9 @@ func (l *lowerer) numberSites() map[siteKey]siteNum {
 	ids := make(map[siteKey]siteNum)
 	for i, p := range pkgs {
 		files = files[:0]
-		if l.isSourced(p.pkg) {
-			for _, s := range l.srcs {
-				if s.pkg == p.pkg {
-					files = append(files, siteFile{s.path, s.file})
-				}
+		if p.first != p.end {
+			for _, s := range l.srcs[p.first:p.end] {
+				files = append(files, siteFile{s.path, s.file})
 			}
 		} else {
 			for _, f := range p.pkg.Files() {

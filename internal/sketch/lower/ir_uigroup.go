@@ -96,7 +96,7 @@ func (b *irBuilder) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func, 
 	// The body: the call itself, built where the maker's locals and
 	// environment are in scope, reading the preset locals.
 	lit := &irExpr{K: "func", Pos: p, T: b.sigType(bodySig, x), End: &p}
-	lit.Params = []int{b.temp("env", "*"+b.l.env(), p)}
+	lit.Params = []int{b.temp("env", b.envPointer(), p)}
 	old, oldPreset := b.fc.inGroup, b.preset
 	b.fc.inGroup, b.preset = x, preset
 	callPre, call := b.call(x, true)
@@ -137,7 +137,7 @@ func (b *irBuilder) groupCall(x *syntax.CallExpr, c *check.Call, g *check.Func, 
 // values of ctypes (one, or fields F0, F1, …), the emitter's sameLit: each
 // compared by Go's == or its generated structural equality (equal.go).
 func (b *irBuilder) sameLit(argType string, ctypes []check.Type, x *syntax.CallExpr, p irPos) *irExpr {
-	env := "*" + b.l.env()
+	env := b.envPointer()
 	lit := &irExpr{K: "func", Pos: p, T: "func(" + env + ", " + argType + ", " + argType + ") (bool, error)", End: &p}
 	ga, gb := b.temp("ga", argType, p), b.temp("gb", argType, p)
 	lit.Params = []int{b.temp("env", env, p), ga, gb}
@@ -180,7 +180,7 @@ func (b *irBuilder) sameLit(argType string, ctypes []check.Type, x *syntax.CallE
 // the arguments that Go's == compares (groupArg), each by ==, and true
 // when there are none.
 func (b *irBuilder) cheapLit(argType string, ctypes []check.Type, p irPos) *irExpr {
-	env := "*" + b.l.env()
+	env := b.envPointer()
 	lit := &irExpr{K: "func", Pos: p, T: "func(" + env + ", " + argType + ", " + argType + ") (bool, error)", End: &p}
 	ga, gb := b.temp("ga", argType, p), b.temp("gb", argType, p)
 	lit.Params = []int{b.temp("env", env, p), ga, gb}
@@ -212,7 +212,7 @@ func (b *irBuilder) cheapLit(argType string, ctypes []check.Type, p irPos) *irEx
 // arguments that shares no slice or Map with them (the value rule's copy,
 // copyOf).
 func (b *irBuilder) keepLit(argType string, ctypes []check.Type, x *syntax.CallExpr, p irPos) *irExpr {
-	env := "*" + b.l.env()
+	env := b.envPointer()
 	lit := &irExpr{K: "func", Pos: p, T: "func(" + env + ", " + argType + ") (" + argType + ", error)", End: &p}
 	ga := b.temp("ga", argType, p)
 	lit.Params = []int{b.temp("env", env, p), ga}

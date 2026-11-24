@@ -46,14 +46,20 @@ func (s *Screen) draw(req *ot.SceneFrameRequest) error {
 		if !ok {
 			continue
 		}
+		if err := check(CallLayout, n); err != nil {
+			return err
+		}
 		s.calls++
 		l, err := ot.SceneGetLayout(s.ctx, h, ot.OT_LAYOUT_PAINT)
 		if err != nil {
-			return fmt.Errorf("screen: layout of %d: %w", n, err)
+			return fail(CallLayout, n, fmt.Errorf("screen: layout of %d: %w", n, err))
+		}
+		if err := check(CallPaint, n); err != nil {
+			return err
 		}
 		s.calls++
 		if err := ot.BufferDrawSupersample(s.ctx, s.session, req, p.data, int32(math.Round(l.ScreenX)), int32(math.Round(l.ScreenY)), 1, uint32(4*p.width)); err != nil {
-			return fmt.Errorf("screen: draw %d: %w", n, err)
+			return fail(CallPaint, n, fmt.Errorf("screen: draw %d: %w", n, err))
 		}
 	}
 	return nil

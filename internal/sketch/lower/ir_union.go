@@ -162,11 +162,10 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 	case check.ConvRow:
 		// The row value (a Go error) holds one of the union's error
 		// variants, which implement its sealed interface (the emitter's
-		// convert, D-C3). A flat union (MSB3) is no interface: the emitter
-		// builds its variant by a type switch, which the IR does not write
-		// yet (I22: FLIP's IR x MSB3).
+		// convert, D-C3). A flat union (MSB3) is no interface: a type
+		// switch builds its variant (ir_flatconv.go).
 		if b.l.flatUnionOf(conv.To) != nil {
-			irNo("row into a flat union")
+			return b.flatInto(conv, e, x)
 		}
 		return &irExpr{K: "assert", Pos: e.Pos, T: b.goType(conv.To, x), X: e}
 	case check.ConvOperations:
@@ -175,7 +174,7 @@ func (b *irBuilder) convert(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 		// A sub-union's value into a union that holds its variants (the
 		// emitter's widen): an assertion between two sealed interfaces.
 		if b.l.flatUnionOf(conv.From) != nil || b.l.flatUnionOf(conv.To) != nil {
-			irNo("sub-union into a flat union")
+			return b.flatInto(conv, e, x) // ir_flatconv.go
 		}
 		if b.goType(conv.From, x) == b.goType(conv.To, x) {
 			return e
@@ -225,10 +224,28 @@ func (b *irBuilder) variantInto(from, to check.Type, e *irExpr, site syntax.Node
 		}
 		return b.variantForm(e, gt, k, layoutFlat, ofName(k)) // ir_forms.go
 	}
+	if funcInto(from, to) {
+		// A function value into a type defined over a function type (a
+		// function literal a Seq returns): the emitter leaves it to Go's
+		// assignability; the IR spells Go's conversion.
+		return &irExpr{K: "conv", Pos: e.Pos, T: gt, X: e}
+	}
 	if n, ok := to.(*check.Named); !ok || b.l.typeDecl(n.Obj, site).kind != kindUnion {
 		irNo("value of another type")
 	}
 	return b.variantForm(e, gt, unionTag(to, from), layoutIface, "")
+}
+
+// funcInto reports a function value from into to, a named type whose
+// underlying type is a function type.
+func funcInto(from, to check.Type) bool {
+	n, ok := to.(*check.Named)
+	if !ok {
+		return false
+	}
+	_, toFunc := n.Underlying().(*check.Signature)
+	_, fromFunc := from.(*check.Signature)
+	return toFunc && fromFunc
 }
 
 // bareRecord is the value of a record with no fields written bare, `A`,
