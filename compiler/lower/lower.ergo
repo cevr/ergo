@@ -223,7 +223,8 @@ func plainRecord(st fnb, t dense.ID[store.TKey]) int {
 
 // structDecl reports a declaration of the package `type name { ... }`:
 // a record of its own (no union's variant, no extern Go type), with no
-// where, derive or implements clause.
+// where or derive clause. An implements claim does not change the
+// record's value shape or the package that owns its Go methods.
 func structDecl(st fnb, name string) bool {
 	let d = match store.Lookup(st.s, name) {
 	case Some{Value: id}:
@@ -246,7 +247,7 @@ func structDecl(st fnb, name string) bool {
 	let i = dense.Index(parent) - dense.Index(pn) + int(d.Node)
 	match syntax.ViewOf(p.Tree, syntax.NodeAt(p.Tree, i)) {
 	case syntax.TypeDecl as td:
-		if td.Name != n || dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None || syntax.Len(td.Implements) > 0 {
+		if td.Name != n || dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None {
 			return false
 		}
 		match dense.Unpack(td.Spec) {
