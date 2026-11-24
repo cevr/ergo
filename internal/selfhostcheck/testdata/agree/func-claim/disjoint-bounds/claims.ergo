@@ -1,0 +1,6 @@
+type Words { ~string }
+type Integers { ~int }
+type Sized { Size() int }
+
+func Size[T Words](xs []T) int implements Sized    { len(xs) }
+func Size[T Integers](xs []T) int implements Sized { len(xs) }

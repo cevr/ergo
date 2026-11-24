@@ -810,6 +810,8 @@ sync ReleaseOnInterrupt	TestSyncLaws
 sync UpdateComposes	TestSyncLaws
 sync UpdateIsAtomic	TestSyncLaws
 sync WaitSeesTheValue	TestSyncLaws
+task AlarmOutlivesItsTask	TestStdLawsRun
+task CancelBeforeFireNeverStops	TestStdLawsRun
 task DefectIsObservedOnce	TestStdLawsRun
 task ExitOfAnywhere	TestStdLawsRun
 task ExitOfWaitsForCleanup	TestStdLawsRun
@@ -848,6 +850,7 @@ testing ScriptAnswersByTheLastAnswer	TestStdLawsRun
 testing ScriptNamesTheHeldCall	TestStdLawsRun
 testing ScriptRecordsEachCall	TestStdLawsRun
 testing SleepAdvancesExactly	none
+testing StopAfterStopsAtD	TestStdLawsRun
 testing Stage.SettleIsIdempotent	TestStdActorLawsRun
 testing Stage.ShowIsStable	TestStdActorLawsRun
 testing WorldSharesEachPair	TestStdLawsRun

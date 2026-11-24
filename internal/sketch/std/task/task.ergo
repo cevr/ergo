@@ -28,16 +28,24 @@ type Failed[E] { Error E }
 // "unreachable at a.ergo:9:3: no route"), the text actor.Defected holds.
 type Defected { Reason string }
 
-// Exit is how a task ended: its value, its typed failure, or a defect.
-type Exit[T own, E] = Done[T] | Failed[E] | Defected
+// Stopped is a task that a stop ended which was not its waiter's: any stop
+// that did not come from the task that called ExitOf, such as a StopAfter
+// alarm, or a stop of the task that started it while another task waits.
+// A block that returned before the stop reached it is Done, never Stopped.
+type Stopped {}
+
+// Exit is how a task ended: its value, its typed failure, a defect, or a
+// stop that was not its waiter's.
+type Exit[T own, E] = Done[T] | Failed[E] | Defected | Stopped
 
 // ExitOf waits for t to end, as Wait does, and is how it ended
 // (docs/spec/runtime.md, Tasks 13). It consumes t. A defect it gives as
 // Defected is contained: neither this call nor t's owner raises it again.
 // The task's exit actions have run before it returns. A stop of the
 // waiting task is Wait's: t is stopped and drained, and the waiter's exit
-// is the interruption with t's defects. A Go fatal error (out of memory, a
-// stack overflow) is no defect, and ends the program.
+// is the interruption with t's defects; any other stop that ended t is
+// Stopped. A Go fatal error (out of memory, a stack overflow) is no
+// defect, and ends the program.
 func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
 	let k = exitOf(t) catch {
 	case err:
@@ -47,13 +55,44 @@ func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
 	if k == 2 {
 		return Defected{Reason: exitReason(t)}
 	}
+	if k == 3 {
+		let _ = exitReason(t)
+		return Stopped
+	}
 	Done[T]{Value: exitValue(t)}
 }
 
 // exitOf waits for t and gives how it ended: 0 the block's value, 2 a
-// defect, whose text exitReason gives; a lone typed failure is its
-// failure. It consumes t, and leaves the value in it for exitValue.
+// defect, whose text exitReason gives, 3 a stop that was not the
+// waiter's; a lone typed failure is its failure. It consumes t, and
+// leaves the value in it for exitValue.
 extern go ergo.local/prototype/runtime/v1.TaskExit func exitOf[T own, E](t Task[T, E]) int fails E
+
+// Alarm is what StopAfter armed: one alarm on the Scheduler's clock that
+// stops a task. It is a resource: its release disarms it.
+// law-exempt: a member law has no Scheduler to arm on and no clock to move; its laws bind a clock and run beside it (CancelBeforeFireNeverStops, AlarmOutlivesItsTask) or in testing, which may import both clocks (testing.StopAfterStopsAtD).
+extern go ergo.local/prototype/runtime/v1.TaskAlarm type Alarm {
+	runtimeOnly(),
+	..Closer,
+	// Cancel disarms the alarm and reports whether it was still armed:
+	// false once it fired, after a Cancel, and for an alarm that armed
+	// nothing (a d of zero or less).
+	Cancel() bool,
+}
+
+// StopAfter arms one alarm on the Scheduler's clock that stops t once d
+// has passed, as t.Stop would, without waiting for t or consuming it: the
+// task that waits for t sees ExitOf give Stopped. It starts no task: one
+// host timer, or one alarm on a time.Manual, which Advance fires. A d of
+// zero or less arms nothing. At the alarm's instant every other event of
+// that instant comes first: a block whose sleep ends then has woken, and
+// one that returns before its next wait is Done. A fire after t ended, or
+// after a Wait, Stop or ExitOf consumed it, stops nothing. The Alarm may
+// outlive t: process.Run's join consumes t and then releases the Alarm.
+// A Wait on t that the alarm stops raises the stop in the waiter, as
+// Wait raises any interruption of its task; ExitOf is the call that sees
+// it as a value.
+extern go ergo.local/prototype/runtime/v1.TaskStopAfter func StopAfter[T own, E](t Task[T, E], d duration) Alarm needs Scheduler
 
 // exitReason takes t after exitOf, on a path that gives no value (no
 // value is left in t), and is the text of the defect exitOf gave as 2,
@@ -63,6 +102,105 @@ extern go ergo.local/prototype/runtime/v1.TaskReason func exitReason[T own, E](t
 
 // exitValue takes the value t's block returned, after exitOf gave 0.
 extern go ergo.local/prototype/runtime/v1.TaskValue func exitValue[T own, E](t own Task[T, E]) T
+
+// CancelBeforeFireNeverStops: an alarm of d ms cancelled c ms after it was
+// armed reports true when c < d, and then never stops its task, which
+// sleeps w ms and returns; when c >= d it fired and reports false, and the
+// task is Stopped when w > d.
+law CancelBeforeFireNeverStops(w int, d int, c int) {
+	let wait = 1 + ((w % 6) + 6) % 6
+	let limit = 1 + ((d % 6) + 6) % 6
+	let after = ((c % 7) + 7) % 7
+	let m = time.NewManual(0)
+	let marks = queue.New[int](1)
+	let gate = queue.New[int](1)
+	with context { Scheduler: m } {
+		let t = Go() { try slept(0, marks, gate, time.Times(1ms, wait)) }
+		let a = try armed(t, gate, m, false, time.Times(1ms, limit))
+		m.Advance(time.Times(1ms, after))
+		let armedStill = a.Cancel()
+		for _ in 0..7 {
+			m.Advance(1ms)
+		}
+		let stopped = after >= limit && wait > limit
+		let ended = match ExitOf(t) {
+		case Done[int]:
+			!stopped
+		case Stopped:
+			stopped
+		case _:
+			false
+		}
+		ended && armedStill == (after < limit)
+	}
+}
+
+// AlarmOutlivesItsTask: an alarm whose task ended before d (ended, then
+// consumed by ExitOf, Wait or Stop, by how) fires as a no-op: no defect,
+// and it stops no other task: a task that sleeps past it still sleeps.
+// The type cannot rule this out: an Alarm outliving its task is the
+// normal case (process.Run consumes the task, then releases the Alarm).
+law AlarmOutlivesItsTask(how int, d int) {
+	let limit = 1 + ((d % 6) + 6) % 6
+	let m = time.NewManual(0)
+	with context { Scheduler: m } {
+		let other = Go() {
+			Scheduler.Sleep(1h)
+			0
+		}
+		let t = Go() { 1 }
+		let a = StopAfter(t, time.Times(1ms, limit))
+		let h = ((how % 3) + 3) % 3
+		let gave = if h == 0 {
+			match ExitOf(t) {
+			case Done[int] as v:
+				v.Value == 1
+			case _:
+				false
+			}
+		} else if h == 1 {
+			t.Wait() == 1
+		} else {
+			t.Stop()
+			true
+		}
+		for m.Sleepers() < 2 {
+		}
+		m.Advance(time.Times(1ms, limit + 1))
+		let asleep = m.Sleepers() == 1
+		other.Stop()
+		gave && asleep && !a.Cancel()
+	}
+}
+
+// slept is the block of the StopAfter laws: n exit actions, each pushing
+// its mark, then one value from gate, a sleep of wait, and 1.
+func slept(n int, marks queue.Queue[int], gate queue.Queue[int], wait duration) int fails queue.Closed needs Scheduler {
+	for i in 0..n {
+		scope.OnExit() {
+			marks.Push(i) catch {
+			case queue.Closed:
+			}
+		}
+	}
+	try gate.Pop()
+	Scheduler.Sleep(wait)
+	1
+}
+
+// armed arms StopAfter(t, d) before t sleeps (first) or once it sleeps:
+// the two arming orders of the alarm and t's sleep on m's timeline.
+func armed(t Task[int, queue.Closed], gate queue.Queue[int], m time.Manual, first bool, d duration) Alarm fails queue.Closed needs Scheduler {
+	if first {
+		let a = StopAfter(t, d)
+		try gate.Push(0)
+		return a
+	}
+	try gate.Push(0)
+	for m.Sleepers() == 0 {
+	}
+	StopAfter(t, d)
+}
 
 // DefectIsObservedOnce: a defect of a task's block reaches ExitOf as
 // Defected with the report's text, and nothing raises it again: not
@@ -78,6 +216,8 @@ law DefectIsObservedOnce(n int) {
 		k == 1 && f.Error.N == n
 	case Done[int] as v:
 		k == 2 && v.Value == n
+	case Stopped:
+		false
 	}
 }
 

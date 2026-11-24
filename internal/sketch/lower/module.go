@@ -182,7 +182,7 @@ func (l *lowerer) pkgName(key pkgKey, base string) string {
 	if name, ok := l.pkgNames[key]; ok {
 		return name
 	}
-	if l.prenamed {
+	if l.prenamed && key.kind != "ops ABI" && !(key.kind == "adapter" && l.copyFacts != nil) {
 		unreachable(l.file, ruleNamingPass, "the package-scope name %s (%s) has no name from the naming pass", base, key.kind)
 	}
 	name := l.packageScopeName(key, base) // pkgnames.go

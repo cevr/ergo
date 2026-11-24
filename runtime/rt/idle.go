@@ -335,9 +335,14 @@ func (v *Virtual) move() {
 	}
 	v.steps++
 	schedTick(v)
-	for len(v.timers) > 0 && v.timers[0].when == when {
-		v.fire(v.timers[0])
-		v.popFirst()
+	v.fireAt(when) // a settled timer waits for the domain's next idle
+	if len(v.timers) > 0 && v.timers[0].when == when {
+		// Settled timers stay at when. If the step woke no member and
+		// started no alarm, the domain is idle already and no park or
+		// leave will call idle again: their step is now.
+		if d := v.d; d.parked >= d.live && d.running == 0 {
+			v.fireAt(when)
+		}
 	}
 	v.armed.Broadcast()
 }

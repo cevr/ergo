@@ -1,8 +1,0 @@
-import compiler/check/store
-import dense
-
-// borrowParamGo gives an admitted borrowed formal's Go spelling.
-func borrowParamGo(_ fnb, _ dense.ID[store.TKey]) string { "" }
-
-// borrowParamBase gives the checked record type a borrowed receiver names.
-func borrowParamBase(_ fnb, _ dense.ID[store.TKey]) Option[dense.ID[store.TKey]] { None }

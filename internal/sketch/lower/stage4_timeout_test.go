@@ -83,16 +83,17 @@ func early() int needs Scheduler {
 // TestTimeoutDeadlineIsTheProgramScheduler is the Q-S4-7 witness. A Go
 // driver in the emitted module binds its own Scheduler, as a test
 // Scheduler provider is bound, and calls the lowered functions:
-//   - a Scheduler whose Sleep ends at once makes the hour's deadline pass
+//   - a Scheduler whose alarms fire at once makes the hour's deadline pass
 //     at once, so late() is -1 without an hour of wall time, and the
 //     Scheduler was asked for exactly the hour the source names;
-//   - a Scheduler whose Sleep waits until its task is stopped never makes
-//     the deadline pass, so early() is 42, and After stops that sleep
-//     before it returns: no deadline child outlives the call.
+//   - a Scheduler whose alarms never fire never makes the deadline pass,
+//     so early() is 42, and After disarms that alarm before it returns:
+//     no deadline outlives the call.
 //
 // A host timer in After would leave late() waiting an hour (the test's
 // watchdog fails it), and a deadline that ignores the Scheduler would never
-// ask it for the hour.
+// ask it for the hour. The deadline is the Scheduler's AlarmClock, one
+// alarm and no task (runtime.md, Timeouts 8).
 // Builds Go because only executing the deadline with distinct Scheduler
 // providers checks which clock wins and that its child is drained.
 func TestTimeoutDeadlineIsTheProgramScheduler(t *testing.T) {
@@ -145,10 +146,48 @@ func (s *never) Sleep(t *rt.Task, d time.Duration) {
 	panic(rt.Interrupted)
 }
 
-// Alarms completes the Scheduler interface (HTTP-FAST-b); After never
-// arms an alarm, so neither fake is asked for one.
-func (*instant) Alarms(*rt.Task) *ergo.AlarmClock { return ergo.HostAlarms() }
-func (*never) Alarms(*rt.Task) *ergo.AlarmClock   { return ergo.HostAlarms() }
+// Alarms is the Scheduler's AlarmClock, where After arms its deadline
+// (PROC-RUN-FLOOR): instant's records the span and fires at once, never's
+// counts its armed alarms and never fires.
+func (s *instant) Alarms(*rt.Task) *ergo.AlarmClock {
+	return ergo.NewAlarmClock(func() time.Duration { return 0 }, func(d time.Duration, f func()) ergo.Alarm {
+		s.Sleep(nil, d)
+		go f()
+		return fired{}
+	})
+}
+
+func (s *never) Alarms(*rt.Task) *ergo.AlarmClock {
+	return ergo.NewAlarmClock(func() time.Duration { return 0 }, func(d time.Duration, f func()) ergo.Alarm {
+		s.mu.Lock()
+		s.open++
+		s.all++
+		s.mu.Unlock()
+		return &held{s: s}
+	})
+}
+
+// fired is an alarm that has fired: Stop disarms nothing.
+type fired struct{}
+
+func (fired) Stop() bool { return false }
+
+// held is an armed alarm of never: Stop disarms it.
+type held struct {
+	s    *never
+	done bool
+}
+
+func (h *held) Stop() bool {
+	h.s.mu.Lock()
+	defer h.s.mu.Unlock()
+	if h.done {
+		return false
+	}
+	h.done = true
+	h.s.open--
+	return true
+}
 
 // within runs f and waits for its end, an event: an After whose deadline
 // is not the program's Scheduler sleeps an hour, and go test's -timeout
@@ -189,7 +228,7 @@ func TestDeadline(t *testing.T) {
 		}
 	})
 	if n.all != 1 || n.open != 0 {
-		t.Errorf("deadline sleeps: %d started, %d open after After returned; want 1, 0", n.all, n.open)
+		t.Errorf("deadline alarms: %d armed, %d armed still after After returned; want 1, 0", n.all, n.open)
 	}
 }
 `

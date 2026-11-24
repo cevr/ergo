@@ -908,11 +908,21 @@ func parseFuncDecl(p mut parser, doc uint32) uint32 {
 		expected(p, "expected \"(\", found ")
 	}
 	let ty = parseSignature(p, none, ctxDecl, false)
+	let impl = parseFunctionClaim(p)
 	if p.tk != LBrace {
 		expected(p, "expected the function body \"{\", found ")
 	}
 	let body = parseBlock(p)
-	mkFuncDecl(&p.t, mark(p.t), doc, none, fn, none, name, tparams, ty, some(body))
+	mkFuncDecl(&p.t, mark(p.t), doc, none, fn, none, name, tparams, ty, some(body), impl.Pos, impl.Type)
+}
+
+type functionClaim { Pos uint32, Type uint32 }
+
+func parseFunctionClaim(p mut parser) functionClaim {
+	if !atImplements(p) { return functionClaim{Pos: none, Type: none} }
+	let keyword = someTok(p.i)
+	next(p)
+	functionClaim{Pos: keyword, Type: some(parseTypeName(p, "implements"))}
 }
 
 // isGoBuiltin reports Go's builtins an extern func may bind by name.
@@ -1032,7 +1042,8 @@ func parseExternDecl(p mut parser, doc uint32) uint32 {
 		expected(p, "expected \"(\", found ")
 	}
 	let ty = parseSignature(p, none, ctxDecl, false)
-	mkFuncDecl(&p.t, mark(p.t), doc, some(spec), fn, recv, fname, tparams, ty, none)
+	let impl = parseFunctionClaim(p)
+	mkFuncDecl(&p.t, mark(p.t), doc, some(spec), fn, recv, fname, tparams, ty, none, impl.Pos, impl.Type)
 }
 
 // parseTestDecl parses `test Name { … }` or `test Name(x T) { … }`.

@@ -1,0 +1,4 @@
+[
+  {"fixture": "port_union.ergo", "declaration": "func PortUnionOptionValues(", "symbol": "PortUnionOptionValues"},
+  {"fixture": "port_union.ergo", "declaration": "func PortUnionDecisionValues(", "symbol": "PortUnionDecisionValues"}
+]

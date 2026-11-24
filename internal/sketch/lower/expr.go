@@ -1499,6 +1499,13 @@ func (fc *funcCtx) catch(x *syntax.CatchExpr, partial bool) operand {
 	if m.Partial != partial {
 		ice(x, "a catch whose Partial fact disagrees with its try")
 	}
+	if fc.readCopy != nil {
+		if call, ok := unparen(x.X).(*syntax.CallExpr); ok {
+			if c := fc.l.info.Calls[call]; c != nil && !failsHere(c) {
+				return fc.expr(x.X)
+			}
+		}
+	}
 	plain := fc.plainCatch(x, m)
 	if plain && catchBinding(fc.l.info, x) == nil {
 		fc.rawErr = x.X

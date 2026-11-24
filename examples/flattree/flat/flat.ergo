@@ -15,8 +15,8 @@
 //     id order sees every child before its parent (StatsOf).
 //
 // A reader matches on a View, a small union, so every read is an
-// exhaustive match. Parse fails once, at its boundary, with the first row
-// of its problems table: the failure package tree gives at the same byte.
+// exhaustive match. Parse returns a document with a root or the failure
+// package tree gives at the same byte.
 // The laws hold the flat tree to package tree, the plain twin.
 
 import flattree/dense
@@ -64,6 +64,12 @@ type Keys { ids Map[string, dense.ID[Key]], texts dense.Table[Key] }
 // Tree is a document read flat. Its fields are the package's: a reader
 // goes through Root, ViewOf, KeyText and the printers.
 type Tree {
+	data rows,
+	root dense.ID[Node],
+}
+
+// rows is the scratch builder. Only Parse seals it with a root.
+type rows {
 	src     string,
 	ids     dense.Count[Node],
 	kind    dense.Col[Node, uint8],
@@ -74,15 +80,13 @@ type Tree {
 	arrays  dense.Table[dense.Run[dense.ID[Node]]],
 	objects dense.Table[dense.Run[Member]],
 	keys    Keys,
-	root    dense.Opt[Node],
 }
 
-// Empty is a tree over src that holds no value yet.
-func Empty(src string) Tree {
+func empty(src string) rows {
 	// About one value per 6 bytes of a typical document, as the control
 	// sizes its columns; a column grows past it as a slice does.
 	let n = len(src)/6 + 8
-	Tree{
+	rows{
 		src:     src,
 		ids:     dense.NewCount[Node](),
 		kind:    dense.ColWithCap[Node, uint8](n),
@@ -93,26 +97,17 @@ func Empty(src string) Tree {
 		arrays:  dense.New[dense.Run[dense.ID[Node]]](),
 		objects: dense.New[dense.Run[Member]](),
 		keys:    Keys{ids: Map[string, dense.ID[Key]]{}, texts: dense.New[Key]()},
-		root:    dense.NoID[Node](),
 	}
 }
 
-// Root is the document's value: the last row put. A tree with no row is
-// a defect, which Parse never returns.
-func Root(t Tree) dense.ID[Node] {
-	match dense.Unpack(t.root) {
-	case Some[dense.ID[Node]] as id:
-		id.Value
-	case None:
-		Unreachable("flat: an empty tree has no root")
-	}
-}
+// Root is the document's value: the last row put.
+func Root(t Tree) dense.ID[Node] { t.root }
 
 // Size is the count of the tree's values.
-func Size(t Tree) int { dense.Total(t.ids) }
+func Size(t Tree) int { dense.Total(t.data.ids) }
 
-// Intern is the id of text in t's keys, put there when it is new.
-func Intern(t mut Tree, text string) dense.ID[Key] {
+// intern is the id of text in t's keys, put there when it is new.
+func intern(t mut rows, text string) dense.ID[Key] {
 	match t.keys.ids.Get(text) {
 	case Some[dense.ID[Key]] as id:
 		id.Value
@@ -124,28 +119,27 @@ func Intern(t mut Tree, text string) dense.ID[Key] {
 }
 
 // Lookup is the id of text when t has interned it.
-func Lookup(t Tree, text string) Option[dense.ID[Key]] { t.keys.ids.Get(text) }
+func Lookup(t Tree, text string) Option[dense.ID[Key]] { t.data.keys.ids.Get(text) }
 
 // KeyText is the text of an interned id.
-func KeyText(t Tree, id dense.ID[Key]) string { dense.At(t.keys.texts, id).Text }
+func KeyText(t Tree, id dense.ID[Key]) string { dense.At(t.data.keys.texts, id).Text }
 
-// put adds a value; it becomes the root, the last value put.
-func put(t mut Tree, r cell) dense.ID[Node] {
+// put adds a value and returns its ID.
+func put(t mut rows, r cell) dense.ID[Node] {
 	let id = dense.Next(&t.ids)
 	dense.Push(&t.kind, r.kind)
 	dense.Push(&t.a, r.a)
 	dense.Push(&t.b, r.b)
-	t.root = dense.OptOf(id)
 	id
 }
 
-func putArray(t mut Tree, items []dense.ID[Node]) dense.ID[Node] {
+func putArray(t mut rows, items []dense.ID[Node]) dense.ID[Node] {
 	let run = dense.PutList(&t.items, items)
 	let at = dense.Index(dense.Put(&t.arrays, run))
 	put(t, cell{kind: kArray, a: uint32(at), b: 0})
 }
 
-func putObject(t mut Tree, members []Member) dense.ID[Node] {
+func putObject(t mut rows, members []Member) dense.ID[Node] {
 	let run = dense.PutList(&t.members, members)
 	let at = dense.Index(dense.Put(&t.objects, run))
 	put(t, cell{kind: kObject, a: uint32(at), b: 0})
@@ -165,7 +159,7 @@ type View =
 // object of the words as keys over the leaves.
 law ViewRoundTrips(words []string, digits int) {
 	let src = "\(if digits < 0 { -digits } else { digits })"
-	let mut t = Empty(src)
+	let mut t = empty(src)
 	let mut leaves = []View{Null, Bool{B: true}, Bool{B: false}, Number{At: 0, Len: len(src)}}
 	for w in words {
 		leaves = leaves.Append(Str{S: w})
@@ -173,20 +167,20 @@ law ViewRoundTrips(words []string, digits int) {
 	let mut ids = []dense.ID[Node]{}
 	let mut views = []View{}
 	for leaf in leaves {
-		ids = ids.Append(Encode(&t, leaf))
+		ids = ids.Append(encode(&t, leaf))
 		views = views.Append(leaf)
 	}
 	let mut members = []Member{}
 	for i, w in words {
-		members = members.Append(Member{Key: Intern(&t, w), Value: ids[i]})
+		members = members.Append(Member{Key: intern(&t, w), Value: ids[i]})
 	}
 	let containers = []View{Array{Items: ids}, Object{Members: members}, Array{Items: []dense.ID[Node]{}}, Object{Members: []Member{}}}
 	for c in containers {
-		ids = ids.Append(Encode(&t, c))
+		ids = ids.Append(encode(&t, c))
 		views = views.Append(c)
 	}
 	for i, id in ids {
-		if !same(ViewOf(t, id), views[i]) {
+		if !same(viewOf(t, id), views[i]) {
 			return false
 		}
 	}
@@ -229,10 +223,10 @@ func same(a View, b View) bool {
 	}
 }
 
-// Encode puts the value v views and is its id. Every id in an Array or
+// encode puts the value v views and is its id. Every id in an Array or
 // an Object must be a value of t, and every key a key of t: they are its
 // children, so they come first.
-func Encode(t mut Tree, v View) dense.ID[Node] {
+func encode(t mut rows, v View) dense.ID[Node] {
 	match v {
 	case Null:
 		put(t, cell{kind: kNull, a: 0, b: 0})
@@ -241,7 +235,7 @@ func Encode(t mut Tree, v View) dense.ID[Node] {
 	case Number as n:
 		put(t, cell{kind: kNumber, a: uint32(n.At), b: uint32(n.Len)})
 	case Str as s:
-		let k = Intern(t, s.S)
+		let k = intern(t, s.S)
 		put(t, cell{kind: kText, a: uint32(dense.Index(k)), b: 0})
 	case Array as a:
 		putArray(t, a.Items)
@@ -251,7 +245,9 @@ func Encode(t mut Tree, v View) dense.ID[Node] {
 }
 
 // ViewOf is the value id names.
-func ViewOf(t Tree, id dense.ID[Node]) View {
+func ViewOf(t Tree, id dense.ID[Node]) View { viewOf(t.data, id) }
+
+func viewOf(t rows, id dense.ID[Node]) View {
 	let r = cellAt(t, id)
 	let k = r.kind
 	if k == kNull {
@@ -276,12 +272,12 @@ func ViewOf(t Tree, id dense.ID[Node]) View {
 }
 
 // cellAt is the columns of id.
-func cellAt(t Tree, id dense.ID[Node]) cell {
+func cellAt(t rows, id dense.ID[Node]) cell {
 	cell{kind: dense.Of(t.kind, id), a: dense.Of(t.a, id), b: dense.Of(t.b, id)}
 }
 
 // NumberText is the text of the number n views.
-func NumberText(t Tree, n Number) string { strings.Slice(t.src, n.At, n.At+n.Len) }
+func NumberText(t Tree, n Number) string { strings.Slice(t.data.src, n.At, n.At+n.Len) }
 
 // ToTree is the value at id as package tree's Value.
 func ToTree(t Tree, id dense.ID[Node]) tree.Value {
@@ -313,12 +309,13 @@ func ToTree(t Tree, id dense.ID[Node]) tree.Value {
 // order: a child comes before its parent, so its depth is known when the
 // parent's is taken.
 func StatsOf(t Tree) tree.Stats {
-	let n = Size(t)
+	let data = t.data
+	let n = dense.Total(data.ids)
 	let mut s = tree.Stats{Values: n, Depth: 0, Nulls: 0, Bools: 0, Numbers: 0, Strings: 0, Arrays: 0, Objects: 0, Keys: 0}
 	let mut depth = slices.Repeat([]int{0}, n)
-	let mut seen = slices.Repeat([]bool{false}, dense.Len(t.keys.texts))
+	let mut seen = slices.Repeat([]bool{false}, dense.Len(data.keys.texts))
 	for i in 0..n {
-		let r = cellAt(t, dense.IDAt(t.ids, i))
+		let r = cellAt(data, dense.IDAt(data.ids, i))
 		let k = r.kind
 		if k == kNull {
 			s.Nulls += 1
@@ -331,7 +328,7 @@ func StatsOf(t Tree) tree.Stats {
 		} else if k == kArray {
 			s.Arrays += 1
 			let mut d = 0
-			for x in dense.List(t.items, dense.At(t.arrays, dense.IDOf(t.arrays, int(r.a)))) {
+			for x in dense.List(data.items, dense.At(data.arrays, dense.IDOf(data.arrays, int(r.a)))) {
 				let e = depth[dense.Index(x)]
 				if e > d {
 					d = e
@@ -341,7 +338,7 @@ func StatsOf(t Tree) tree.Stats {
 		} else {
 			s.Objects += 1
 			let mut d = 0
-			for m in dense.List(t.members, dense.At(t.objects, dense.IDOf(t.objects, int(r.a)))) {
+			for m in dense.List(data.members, dense.At(data.objects, dense.IDOf(data.objects, int(r.a)))) {
 				let e = depth[dense.Index(m.Value)]
 				if e > d {
 					d = e

@@ -120,7 +120,11 @@ func emitAggregate(st fnb, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.
 
 // field selects a checked field, not a method value or a package member.
 func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails Unported {
-	try fieldOn(st, x, se, try typeOf(st, se.X, "selector operand"))
+	let t = try typeOf(st, se.X, "selector operand")
+	if ordinaryRecord(st, t) < 0 {
+		return try unionField(st, x, se)
+	}
+	try fieldOn(st, x, se, t)
 }
 
 // fieldOn also serves a place whose caller has checked and peeled one

@@ -1,0 +1,4 @@
+type Sized { Size() int }
+type Local { Count int }
+
+func Size(x Local) int implements Sized { x.Count }
