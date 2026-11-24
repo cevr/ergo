@@ -42,6 +42,7 @@ package lower
 import (
 	"strconv"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
@@ -76,20 +77,68 @@ type pollAmort struct {
 // quietLoop reports whether a loop body meets an env-free function
 // body's rules (pure.go): none of its calls, conversions, or releases
 // needs the task or the environment.
-func (b *irBuilder) quietLoop(body *syntax.BlockStmt) bool {
+func (b *irBuilder) quietLoop(body *syntax.BlockStmt) (quiet, newlyQuiet bool) {
 	info := b.l.info
 	callees, ok := pureCalls(info, body)
 	if !ok || ownsValues(info, body) {
-		return false
+		return false, false
 	}
 	for _, f := range callees {
 		if pollAmortLowering == "pure" {
 			if !b.l.isPure(f) {
-				return false
+				return false, false
 			}
 		} else if !b.l.isEnvFree(f) {
-			return false
+			return false, false
+		} else {
+			newlyQuiet = newlyQuiet || !b.l.isPure(f)
 		}
+	}
+	return true, newlyQuiet
+}
+
+// pollRangeIndex uses the existing iteration index as the counter of a
+// standalone native `for i := range n`. A separate live integer in a
+// caller with typed outcomes spills across calls in the loop. The index
+// starts at zero and a continue still advances it, so low bits all zero
+// check on the first edge and every PollEvery edges after that. There
+// must be no nested loop contributing its own back edges to this nest.
+// The caller has already excluded a containing quiet nest.
+func (b *irBuilder) pollRangeIndex(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt, sites []*irStmt) bool {
+	// PollEvery is a power of two for the mask below.
+	if st.K != "range" || st.Key == nil || st.Val != nil || pollEvery&(pollEvery-1) != 0 {
+		return false
+	}
+	r, ok := s.(*syntax.RangeStmt)
+	if !ok {
+		return false
+	}
+	lp := b.l.info.Loops[r]
+	if lp == nil || lp.Domain != check.LoopRange {
+		return false // no map keys, slice indices or byte offsets
+	}
+	nested := false
+	syntax.Inspect(body, func(n syntax.Node) bool {
+		switch n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.ForStmt, *syntax.RangeStmt:
+			nested = true
+		}
+		return !nested
+	})
+	if nested {
+		return false
+	}
+	for _, s := range sites {
+		p := s.Pos
+		check := *s
+		mask := &irExpr{K: "const", Pos: p, T: "int", V: strconv.Itoa(pollEvery - 1)}
+		index := &irExpr{K: "local", Pos: p, I: *st.Key}
+		bits := &irExpr{K: "bin", Pos: p, Op: "&", X: index, Y: mask}
+		zero := &irExpr{K: "const", Pos: p, T: "int", V: "0"}
+		*s = irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "bin", Pos: p, Op: "==", X: bits, Y: zero},
+			Then: []*irStmt{&check}}
 	}
 	return true
 }

@@ -13,25 +13,52 @@ import (
 // edges of a loop with no source exit. Its body calls an env-free helper
 // that can return a typed failure. The default must amortize, not check
 // at each edge, but must still observe the pending stop within PollEvery
-// more back edges. Mutant poll-typed-requires-pure checks every edge.
+// more back edges. The finite zero-based range exercises the same rule
+// when the lowering reuses its index instead of maintaining a counter.
+// Mutants: poll-typed-requires-pure checks every edge;
+// poll-typed-index-doubled misses the next required check in a range.
 func TestIRTypedPollBound(t *testing.T) {
 	const seed = 1
 	text := pollTypedProgram(seed)
 	u := loadText(t, t.TempDir(), text)
 	requestAt := lower.PollEvery + 1
-	const name = "spin"
 	amort, each := pollFuncs(t, u, "", seed, text), pollFuncs(t, u, "each", seed, text)
-	for _, n := range []int{1, 2} {
-		optimized := &pollEval{t: t, funcs: amort, requestAt: requestAt, edgeLimit: requestAt + lower.PollEvery + 1}
-		reference := &pollEval{t: t, funcs: each, requestAt: requestAt, edgeLimit: optimized.edgeLimit}
-		args := []any{pollEnv{}, n}
-		a, r := optimized.callBody(name, args), reference.callBody(name, args)
-		if a.k != "stop" || r.k != "stop" ||
-			optimized.run.edges-requestAt >= lower.PollEvery || reference.run.edges != requestAt ||
-			2*optimized.run.checks >= reference.run.checks {
-			t.Fatalf("seed %d: spin(%d): optimized ends %q, %+v; each ends %q, %+v\nreplay: go test -run '^TestIRTypedPollBound$' ./internal/experimental/irspike\n%s",
-				seed, n, a.k, optimized.run, r.k, reference.run, text)
+	for _, name := range []string{"spin", "sum"} {
+		for _, n := range []int{1, 2} {
+			optimized := &pollEval{t: t, funcs: amort, requestAt: requestAt, edgeLimit: requestAt + lower.PollEvery + 1}
+			reference := &pollEval{t: t, funcs: each, requestAt: requestAt, edgeLimit: optimized.edgeLimit}
+			args := []any{pollEnv{}, n}
+			want := 2*lower.PollEvery - 1 // Check precedes completion of that edge.
+			if name == "sum" {
+				args = []any{pollEnv{}, pollTypedSize(seed), n}
+				want++ // The index checks from zero, one edge earlier each group.
+			}
+			a, r := optimized.callBody(name, args), reference.callBody(name, args)
+			if a.k != "stop" || r.k != "stop" ||
+				optimized.run.edges != want || reference.run.edges != requestAt ||
+				2*optimized.run.checks >= reference.run.checks {
+				t.Fatalf("seed %d: %s%v: optimized ends %q, %+v; each ends %q, %+v\nreplay: go test -run '^TestIRTypedPollBound$' ./internal/experimental/irspike\n%s",
+					seed, name, args[1:], a.k, optimized.run, r.k, reference.run, text)
+			}
 		}
+	}
+}
+
+// TestIRFlatEmptyLoopResults kills flat-empty-loop-adds-pointer: a
+// loop returning a value and an empty failure keeps Go's register
+// results, but the leaf it calls still gets a flat worker.
+func TestIRFlatEmptyLoopResults(t *testing.T) {
+	const seed = 1
+	text := pollTypedProgram(seed)
+	u := loadText(t, t.TempDir(), text)
+	got := pollFuncs(t, u, "", seed, text)
+	if got["sumOne"] == nil || got["sumOneFlat"] != nil || got["admitOneFlat"] == nil {
+		t.Fatalf("sumOne must have an IR body and no flat worker; admitOne must have one\n%s", text)
+	}
+	defer lower.SetFlatLoweringForTest("signature")()
+	ref := pollFuncs(t, u, "", seed, text)
+	if ref["sumOneFlat"] == nil {
+		t.Fatalf("signature-only reference must keep sumOne's worker\n%s", text)
 	}
 }
 
@@ -58,6 +85,7 @@ func TestIRTypedPollAgrees(t *testing.T) {
 			legacy := filepath.Join(dir, "legacy")
 			func() {
 				defer lower.SetPollAmortLoweringForTest("pure")()
+				defer lower.SetFlatLoweringForTest("signature")()
 				if _, err := Emit(u, IR, legacy); err != nil {
 					t.Fatal(err)
 				}
@@ -68,7 +96,7 @@ func TestIRTypedPollAgrees(t *testing.T) {
 			}
 			a, b, c := run(t, irBin), run(t, refBin), run(t, srcBin)
 			n := pollTypedSize(seed)
-			want := outcome{stdout: fmt.Sprintf("sum %d\n%d -1 -2\n", n*(n-1)/2, n*(n-1)/2)}
+			want := outcome{stdout: fmt.Sprintf("sum %d\n%d -1 -2 %d -3\n", n*(n-1)/2, n*(n-1)/2, n*(n-1)/2+1)}
 			if a != b || a != c || a != want {
 				t.Fatalf("optimized: %+v\nlegacy: %+v\nsource: %+v\nwant: %+v", a, b, c, want)
 			}
@@ -102,9 +130,24 @@ func sum(n int, offset int) int fails Rejected | Empty needs Console {
 	for i in 0..n {
 		try admit(i+offset)
 		acc += i
+		if offset > 1 { continue }
 	}
 	Console.Println("sum \(acc)")
 	if offset == -999 { try spin(offset) }
+	acc
+}
+
+func admitOne(n int) fails Empty {
+	if n < 0 { return Empty }
+	return
+}
+
+func sumOne(n int, offset int) int fails Empty {
+	let mut acc = offset
+	for i in 0..n {
+		try admitOne(i+offset)
+		acc += i
+	}
 	acc
 }
 
@@ -112,7 +155,9 @@ func main() needs Console {
 	let a = sum(%[1]d, 1) catch { case Rejected: -1; case Empty: -2 }
 	let b = sum(%[1]d, -1) catch { case Rejected: -1; case Empty: -2 }
 	let c = sum(%[1]d, 0) catch { case Rejected: -1; case Empty: -2 }
-	Console.Println("\(a) \(b) \(c)")
+	let d = sumOne(%[1]d, 1) catch { case Empty: -3 }
+	let e = sumOne(%[1]d, -1) catch { case Empty: -3 }
+	Console.Println("\(a) \(b) \(c) \(d) \(e)")
 }
 `, pollTypedSize(seed))
 }

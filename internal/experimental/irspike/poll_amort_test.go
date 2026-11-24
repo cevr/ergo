@@ -142,8 +142,8 @@ func runPoll(t *testing.T, funcs map[string]*pollFunc, name string, n int) pollR
 type pollEnv struct{}
 
 // pollEval evaluates the IR of GeneratePoll's functions: int and bool
-// locals, a Range literal, count, integer range and while loops, if, block, break,
-// continue and return, calls of the program's functions, the task's
+// locals, Range literals, count, integer range and while loops, if,
+// block, break, continue and return, calls of the program's functions, the task's
 // Check (counted) and Console calls (no effect). Any other form fails the
 // test, naming it.
 type pollEval struct {
@@ -412,6 +412,8 @@ func pollBin(t *testing.T, op string, a, b any) any {
 			return a * b
 		case "%":
 			return a % b
+		case "&":
+			return a & b
 		case "/":
 			return a / b
 		case "==":
