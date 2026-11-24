@@ -15,9 +15,8 @@ import github.com/cevr/ergo/modules/work/work
 // version: the tool is missing); `drv FILE` writes text into FILE and
 // ends with status (127 writes nothing); `chk FILE` prints FILE when its
 // text holds "BAD" (a file that does not parse, as `gofmt -l` prints a
-// file it would change) and nothing else. A script that states its own
-// exit status is exec.NotFound (StatesItsStatus); every other command
-// ends with status 0. It records "driver" and "check" for each run of either.
+// file it would change) and nothing else. Any other command is not found.
+// It records "driver" and "check" for each run of either.
 type Driver { disk fstest.Memory, text string, status int, version string, ran sync.Ref[[]string] } implements exec.Runner
 
 // NewDriver is a Driver on disk that ran nothing.
@@ -29,10 +28,7 @@ func NewDriver(disk fstest.Memory, text string, status int, version string) Driv
 func Env(_ Driver) Map[string, string] { Map[string, string]{} }
 
 func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied | exec.Failed {
-	if StatesItsStatus(c) {
-		return exec.NotFound{Name: c.Name}
-	}
-	let command = if c.Name == "sh" && len(c.Args) == 2 { c.Args[1] } else { "" }
+	let command = shellScript(c)
 	if command == "drv --version" {
 		if d.version == "" {
 			return exec.Result{Status: 127, Stdout: "", Stderr: "drv: not found\n"}
@@ -59,14 +55,12 @@ func Run(d Driver, c exec.Command) exec.Result fails exec.NotFound | exec.Denied
 		}
 		return exec.Result{Status: 0, Stdout: if strings.Contains(text, "BAD") { file + "\n" } else { "" }, Stderr: ""}
 	}
-	exec.Result{Status: 0, Stdout: "", Stderr: ""}
+	exec.NotFound{Name: c.Name}
 }
 
 func Start(d Driver, c exec.Command, s exec.Streams) exec.Running fails exec.NotFound | exec.Denied | exec.Failed {
-	if StatesItsStatus(c) {
-		return exec.NotFound{Name: c.Name}
-	}
-	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): exec.Result{Status: 0, Stdout: "", Stderr: ""}}}.Start(c, s)
+	let r = try d.Run(c)
+	try exec.Script{Results: Map[string, exec.Result]{exec.Key(c): r}}.Start(c, s)
 }
 
 // unquoted is a word quoted for sh (with no quote inside) bare.
