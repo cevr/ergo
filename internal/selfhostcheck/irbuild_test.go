@@ -77,6 +77,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	}
 	paths := irPathIDs{}
 	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
+	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"))...)
 	goFuncs, unlowered, rootDirs := goIRFuncs(t, paths, importFixture)
 	for dir, err := range unlowered {
 		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)

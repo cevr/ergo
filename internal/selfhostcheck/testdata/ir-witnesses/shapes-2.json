@@ -1,0 +1,10 @@
+[
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImported(", "symbol": "PortShapeImported"},
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImportedField(", "symbol": "PortShapeImportedField"},
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImportedLiteral(", "symbol": "PortShapeImportedLiteral"},
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImportedEmpty(", "symbol": "PortShapeImportedEmpty"},
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImportedUnion(", "symbol": "PortShapeImportedUnion"},
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImportedRuntime(", "symbol": "PortShapeImportedRuntime"},
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImportedFailure(", "symbol": "Source.PortShapeImportedFailure"},
+  {"fixture": "port_shapes_import/reader/reader.ergo", "declaration": "func PortShapeImportedRuntimeFailure(", "symbol": "Source.PortShapeImportedRuntimeFailure"}
+]
