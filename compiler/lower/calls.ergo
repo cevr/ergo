@@ -202,9 +202,9 @@ func callCycles(spans []callRange, next []int, rev callReverseRows, flags []uint
 // scalar functions. A row is queued once by its package declaration ID.
 // A cycle is pure if every member and every outgoing edge is eligible.
 type callClosure {
-	queue []int,
-	seen dense.Side[store.PNode, bool],
-	start int,
+	queue     []int,
+	seen      dense.Side[store.PNode, bool],
+	start     int,
 	recursive bool,
 }
 
@@ -391,7 +391,10 @@ func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, imports []Imp
 func callReadsLocal(st fnb, x dense.ID[syntax.Node]) bool {
 	match syntax.ViewOf(st.p.Tree, x) {
 	case syntax.Name:
-		let local = paramLocal(st, x) catch { case Unported: -1 }
+		let local = paramLocal(st, x) catch {
+		case Unported:
+			-1
+		}
 		return local >= 0
 	case syntax.ParenExpr as pe:
 		callReadsLocal(st, pe.X)
