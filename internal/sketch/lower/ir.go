@@ -928,6 +928,9 @@ type irBuilder struct {
 	frame int
 	// slotOut is a slot variant body's slots (ir_slot.go), or nil.
 	slotOut *irSlotOut
+	// snapshotted is the literal node whose ValueCaptures snapshotCaptures
+	// has bound to snapshot locals in the enclosing frame (ir_closure.go).
+	snapshotted syntax.Node
 	// with is 1 + the local of the innermost owning with's scope
 	// (v1.Scope.OpenWith, ir_with.go), or 0: inside one, frameArg is it,
 	// as the emitter's frameScope reads frame.with.

@@ -536,7 +536,11 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		vals := b.inOrder(x.Elts)         // ir_order.go
 		return b.tupleLit(tt, vals, x, p) // ir_tuple.go
 	case *syntax.FuncLit:
-		return b.closureLit(x, nil) // ir_closure.go
+		pre, restore := b.snapshotCaptures(x, p) // ir_closure.go
+		b.runFirst(pre)
+		lit := b.closureLit(x, nil)
+		restore()
+		return lit
 	case *syntax.CallExpr:
 		pre, e := b.call(x, false)
 		b.runFirst(pre) // ir_order.go: before the expression that holds it

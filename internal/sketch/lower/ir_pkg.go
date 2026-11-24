@@ -751,9 +751,16 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 		return pre, &irExpr{K: "builtin", Pos: p, Name: "make", T: b.goType(b.l.info.Types[x], x),
 			Args: []*irExpr{zero, args[0]}}, false
 	}
+	var restoreCaptures func()
+	if x.Trailing != nil {
+		var cpre []*irStmt
+		cpre, restoreCaptures = b.snapshotCaptures(x.Trailing, p)
+		pre = append(pre, cpre...)
+	}
 	mark := b.next // the block's locals and its adapter's are numbered from here (spawnWith)
 	if x.Trailing != nil {
 		args = append(args, b.closureLit(nil, x)) // the block, the last operand
+		restoreCaptures()
 	}
 	adapters, frame := b.adaptOperands(body.Params, x, ops, args, 0, p) // ir_adapt.go
 	pre = append(pre, adapters...)

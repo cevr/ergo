@@ -355,7 +355,10 @@ func (b *irBuilder) funcCall(x *syntax.CallExpr, c *check.Call, p irPos, stmt bo
 	b.valueSource(x, c, args, irArgs)   // ir_pkg.go
 	b.l.intMapCall(x, c.Recv, f, false) // intmap.go: a generic signature's Map is Go's
 	if x.Trailing != nil {
-		irArgs = append(irArgs, b.closureLit(nil, x)) // ir_closure.go
+		cpre, restore := b.snapshotCaptures(x.Trailing, p) // ir_closure.go
+		pre = append(pre, cpre...)
+		irArgs = append(irArgs, b.closureLit(nil, x))
+		restore()
 	}
 	if c.Site != nil {
 		irArgs = append(irArgs, b.siteValue(x, c.Site, p))
