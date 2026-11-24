@@ -26,6 +26,7 @@ func (c *checker) run(files []*syntax.File) *Package {
 		return pkg
 	}
 	n := newChecker(c.pkg.Path, c.imp, c.universe)
+	n.testAuthorities = c.testAuthorities
 	n.pkg.std = c.pkg.std
 	n.opts, n.derive = c.opts, c.derive
 	n.pkg.module, n.pkg.trusted = c.pkg.module, c.pkg.trusted
@@ -401,7 +402,7 @@ func (c *checker) collect() {
 				}
 				c.importSpec(fi, d.Specs[0])
 			case *syntax.TypeDecl:
-				tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID()}
+				tn := &TypeName{Name: d.Name.Name, Pkg: c.pkg, Pos: d.Name.Pos(), Decl: d, file: fi, id: newID(), testAuthority: c.testAuthorities[d.Name.Name]}
 				tn.Type = &Named{Obj: tn}
 				if prev, ok := c.pkg.Scope.names[d.Name.Name].(*Func); ok && len(prev.same) == 0 && memberShaped(prev.Decl) {
 					// A function declared first that may be a member of
@@ -1256,6 +1257,7 @@ func (c *checker) opTypeParams(ft *syntax.FuncType, ctx *typeCtx, owner string) 
 // the only place the decided parser builds an operation type (typExpr).
 func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner string, self *Named) *Interface {
 	it := &Interface{}
+	native := self.Obj.BindsGoType()
 	seen := map[string]bool{}
 	c.interfaceIncludes(spec, ctx, it, seen)
 	it.ConstraintOnly = it.ConstraintOnly || c.lawsMentionSelf(spec, self)
@@ -1274,7 +1276,7 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 			continue
 		}
 		name := m.Names[0]
-		mctx := &typeCtx{method: true, binding: c.pkg.Host()}
+		mctx := &typeCtx{method: true, binding: native}
 		if ctx != nil {
 			// A package var's type has no context (FuzzCheck found
 			// var A interface{A()} dereferencing it).
@@ -1295,10 +1297,9 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 		if m.Mut != nil {
 			sig.MutSelf = true // mut Bump(): the operation writes its receiver
 		}
-		if c.pkg.Host() {
+		if native {
 			c.hostClauses(c.pkg.Path+"."+owner+"."+name.Name, sig, m)
-		}
-		if c.pkg.host == nil {
+		} else {
 			c.closeOpTakes(name.Name, sig)
 		}
 		if seen[name.Name] {
@@ -1316,7 +1317,7 @@ func (c *checker) interfaceType(spec *syntax.InterfaceType, ctx *typeCtx, owner 
 		c.defParams(ft, sig)
 	}
 	it.ConstraintOnly = it.ConstraintOnly || len(it.selfUses) != 0
-	if !it.ConstraintOnly && !c.pkg.Host() {
+	if !it.ConstraintOnly && !native {
 		for i, ft := range needs {
 			if ft.Needs != nil {
 				c.errorf(ft.Needs, CodeType, "an interface method writes no capability row: a provider's requirements are captured when it is built (types.md, Capabilities 4; README Gap 17)")
@@ -1786,7 +1787,7 @@ func (c *checker) typeName(x *syntax.Ident, ctx *typeCtx) Type {
 			c.errorf(x, CodeUnknown, "Ergo has no any; use a type parameter or a union (types.md, Basic types)")
 			return invalid
 		}
-		if x.Name == "Self" {
+		if isSelfName(x.Name) {
 			c.errorf(x, CodeUnknown, "unknown type Self; Self names the claiming type, inside an operation type")
 			return invalid
 		}
@@ -2667,7 +2668,7 @@ func (c *checker) funcSig(f *Func) *Signature {
 	c.cur = f.file
 	defer func() { c.cur = saved }()
 	d := f.Decl
-	ctx := &typeCtx{params: map[string]*TypeParam{}, binding: c.pkg.Host() || d.Extern != nil}
+	ctx := &typeCtx{params: map[string]*TypeParam{}, binding: f.CallsGo() || d.Extern != nil}
 	if c.pkg.Host() && d.Recv != nil && len(d.Recv.List) > 0 && len(d.Recv.List[0].Names) > 0 {
 		ctx.hostRecv = d.Recv.List[0].Names[0].Name
 		ctx.method = true

@@ -2925,10 +2925,10 @@ index 0000000..4d8201c
 +}
 diff --git a/src/cmd/compile/internal/ergoir/ergoir_types.go b/src/cmd/compile/internal/ergoir/ergoir_types.go
 new file mode 100644
-index 0000000..ad3ea0e
+index 0000000..83e4030
 --- /dev/null
 +++ b/src/cmd/compile/internal/ergoir/ergoir_types.go
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,412 @@
 +// Copyright 2026 The Go Authors. All rights reserved.
 +// Use of this source code is governed by a BSD-style
 +// license that can be found in the LICENSE file.
@@ -3149,12 +3149,22 @@ index 0000000..ad3ea0e
 +	return nil
 +}
 +
-+// typeExpr is a type expression of t, for a conversion's function: a name
-+// of the universe or of the package, or a qualified name.
++// typeExpr spells a type for a conversion, assertion, or type-switch case.
 +func (c *ergoChecker) typeExpr(p ergoPos, t types2.Type) syntax.Expr {
 +	pos := c.pos(p)
 +	var obj *types2.TypeName
 +	switch t := t.(type) {
++	case *types2.Pointer:
++		elem := c.typeExpr(p, t.Elem())
++		if elem == nil {
++			return nil
++		}
++		x := &syntax.Operation{Op: syntax.Mul, X: elem}
++		x.SetPos(pos)
++		tv := syntax.TypeAndValue{Type: t}
++		tv.SetIsType()
++		x.SetTypeInfo(tv)
++		return x
 +	case *types2.Basic:
 +		obj, _ = types2.Universe.Lookup(t.Name()).(*types2.TypeName)
 +	case *types2.Named:

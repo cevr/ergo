@@ -105,7 +105,11 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			t = n.Underlying()
 		}
 		sig, _ := t.(*check.Signature)
-		bind, e, _ := b.adaptOperand(sig, list[i], args[i], v1.Param{Func: shape}, p)
+		written := i
+		if c.RecvIsParam() {
+			written-- // ParamNonEscaping takes written operand indices; -1 is the receiver.
+		}
+		bind, e, _ := b.adaptOperand(sig, list[i], args[i], v1.Param{Func: shape}, p, check.ParamNonEscaping(b.l.info, x, written))
 		pre, args[i] = append(pre, bind...), e
 	}
 	return pre, recv, args

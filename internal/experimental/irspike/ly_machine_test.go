@@ -16,5 +16,5 @@ import (
 // shows only when the compiled program folds it over signals.
 func TestIRMachinesMatchSource(t *testing.T) {
 	lyProperty(t, "TestIRMachinesMatchSource", GenerateMachine, []string{lower.HelperSpelling("", "ergoMachineA"), lower.HelperSpelling("", "ergoMachineB"), lower.HelperSpelling("", "ergoMachineC"), "MachineTimerPanic"},
-		"planA", "planB", "firstA", "planC", lower.HelperSpelling("", "ergoMachineA"), lower.HelperSpelling("", "ergoMachineB"), lower.HelperSpelling("", "ergoMachineC"))
+		"planA", "planB", "firstA", "planC", "planOwned", lower.HelperSpelling("", "ergoMachineA"), lower.HelperSpelling("", "ergoMachineB"), lower.HelperSpelling("", "ergoMachineC"), lower.HelperSpelling("", "ergoMachineOwnedMachine"))
 }
