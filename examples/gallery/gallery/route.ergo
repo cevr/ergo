@@ -65,7 +65,7 @@ func saved(ops []int) []string {
 	let clock = time.NewManual(0)
 	let store = kept{saved: sync.NewRef[[]string]([]string{})}
 	with context { time.Clock: clock, Scheduler: clock, Drafts: store } {
-		let site = actor.StartMachine(Gallerist{}, 16, func(cs []Command) {})
+		let site = actor.StartMachine(Gallerist{}, 16, func(cs []Action) {})
 		for i, o in ops {
 			match drawn(o) {
 			case Some[Signal] as s:

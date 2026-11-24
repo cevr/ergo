@@ -35,7 +35,7 @@ law StayRefetchesOnlyOnIdChange(a int where 1 <= a && a <= 9, b int where 1 <= b
 	asked == (a != b) && after == want
 }
 
-func has(cs []Command, c Command) bool {
+func has(cs []Load, c Load) bool {
 	for x in cs {
 		if x == c {
 			return true
@@ -56,23 +56,15 @@ type Site { Route Option[Route], Log []Logged, Catalog Catalog, Painting Shown, 
 
 // Job is a load the site asked for: its number, the command,
 // and when it answers, once the work has read the clock.
-type Job { Seq int, Do Command, Due Option[time.Time] }
+type Job { Seq int, Do Load, Due Option[time.Time] }
 
-// Link is a link the user follows: one of the site's own paths, or a page
-// elsewhere.
 type Link = Internal{URL string} | External{Href string}
 
-// Signal is what the site reads: a URL the page is at (the first one is
-// the cold load), a link clicked, the answers of the two loads, and a
-// key in the studio's field; and from the work, a job's due time and its
-// end, which gives the job's answer, and in the studio the draft last
-// saved.
-type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | Recalled{Draft Option[string]} | Dated{Seq int, At time.Time} | Answered{Seq int, Job Command}
+type Signal = Arrived{URL string} | Clicked{Link Link} | CatalogLoaded{} | PaintingLoaded{ID int} | Drafted{Text string} | Recalled{Draft Option[string]} | Dated{Seq int, At time.Time} | Answered{Seq int, Job Load}
 
-// Command is what the site asks for: load the catalog or a painting (a
-// job of the work), push a URL of the site, or leave for a page elsewhere
-// (the step's output, the host's). The host answers a push with Arrived.
-type Command = LoadCatalog{} | LoadPainting{ID int} | Push{URL string} | Leave{Href string}
+type Load = LoadCatalog{} | LoadPainting{ID int}
+
+type Action = Push{URL string} | Leave{Href string}
 
 // LogSize is how many navigations the log keeps.
 let LogSize = 20
@@ -115,13 +107,13 @@ func routeOf(k int, id int) Route {
 	ks[((k%len(ks))+len(ks))%len(ks)]
 }
 
-func catalogLoads(cs []Command) int {
+func catalogLoads(cs []Load) int {
 	let mut n = 0
 	for c in cs {
 		match c {
 		case LoadCatalog:
 			n = n + 1
-		case LoadPainting, Push, Leave:
+		case LoadPainting:
 		}
 	}
 	n
@@ -155,18 +147,16 @@ type Gallerist machine[Site, Signal] {
 }
 
 // Step is the site's transition.
-func Step(s Site, sig Signal) Decision[Site, []Command] {
+func Step(s Site, sig Signal) Decision[Site, []Action] {
 	match sig {
 	case Arrived as a:
 		arrive(s, Parse(a.URL))
 	case Clicked as c:
-		// A click asks the host for a push or a leave and keeps the entry:
-		// the navigation it causes (Arrived) is what ends the studio's.
 		match c.Link {
 		case Internal as i:
-			Tell[Site, []Command]{Next: s, Output: []Command{Push{URL: i.URL}}}
+			Tell[Site, []Action]{Next: s, Output: []Action{Push{URL: i.URL}}}
 		case External as e:
-			Tell[Site, []Command]{Next: s, Output: []Command{Leave{Href: e.Href}}}
+			Tell[Site, []Action]{Next: s, Output: []Action{Leave{Href: e.Href}}}
 		}
 	case CatalogLoaded:
 		Stay[Site]{Next: Site{..s, Catalog: Ready}}
@@ -187,9 +177,6 @@ func Step(s Site, sig Signal) Decision[Site, []Command] {
 		}
 		Stay[Site]{Next: Site{..s, Jobs: js}}
 	case Answered as a:
-		// The job is done; its answer is then the site's, which may ignore
-		// it (a stale painting): the site keeps its entry either way, so the
-		// work runs on to the next job.
 		let mut js = []Job{}
 		for j in s.Jobs {
 			if j.Seq != a.Seq {
@@ -202,11 +189,11 @@ func Step(s Site, sig Signal) Decision[Site, []Command] {
 			Stay[Site]{Next: st.Next}
 		case Enter[Site] as e:
 			Stay[Site]{Next: e.Next}
-		case Emit[Site, []Command] as e:
+		case Emit[Site, []Action] as e:
 			Stay[Site]{Next: e.Next}
-		case Tell[Site, []Command] as t:
+		case Tell[Site, []Action] as t:
 			Stay[Site]{Next: t.Next}
-		case Ignore, Reject, Done[[]Command]:
+		case Ignore, Reject, Done[[]Action]:
 			Stay[Site]{Next: done}
 		}
 	case Drafted as d:
@@ -216,9 +203,7 @@ func Step(s Site, sig Signal) Decision[Site, []Command] {
 	}
 }
 
-// arrive is the navigation to next: it is logged, and what it means
-// comes from the route before and the route after.
-func arrive(s Site, next Route) Decision[Site, []Command] {
+func arrive(s Site, next Route) Decision[Site, []Action] {
 	let seq = if len(s.Log) == 0 { 1 } else { s.Log[0].Seq + 1 }
 	let mut log = []Logged{Logged{Seq: seq, From: s.Route, To: next}}
 	for l in s.Log {
@@ -227,7 +212,7 @@ func arrive(s Site, next Route) Decision[Site, []Command] {
 		}
 	}
 	let mut at = Site{..s, Route: Some[Route]{Value: next}, Log: log}
-	let mut out = []Command{}
+	let mut out = []Load{}
 	// A cold load comes from no page; as a path the site does not have, it
 	// enters every page of the site.
 	let before = match s.Route {
@@ -308,15 +293,8 @@ func paintingID(r Route) int {
 
 // Commands is what the decision d from s asks for: its output (a push or
 // a leave), then the jobs it adds, in the order asked.
-func Commands(s Site, d Decision[Site, []Command]) []Command {
-	let mut out = match d {
-	case Emit[Site, []Command] as e:
-		e.Output
-	case Tell[Site, []Command] as t:
-		t.Output
-	case Enter[Site], Stay[Site], Ignore, Reject, Done[[]Command]:
-		[]Command{}
-	}
+func Commands(s Site, d Decision[Site, []Action]) []Load {
+	let mut out = []Load{}
 	for j in After(s, d).Jobs {
 		if j.Seq > s.Asked {
 			out = out.Append(j.Do)
@@ -325,31 +303,21 @@ func Commands(s Site, d Decision[Site, []Command]) []Command {
 	out
 }
 
-// Answer is the signal a job's end gives: the catalog or the painting
-// loaded. A push or a leave is never a job.
-func Answer(c Command) Signal {
+func Answer(c Load) Signal {
 	match c {
 	case LoadCatalog:
 		CatalogLoaded
 	case LoadPainting as p:
 		PaintingLoaded{ID: p.ID}
-	case Push as p:
-		Arrived{URL: p.URL}
-	case Leave:
-		Unreachable("gallery: a leave is never a job")
 	}
 }
 
-// Takes is how long a job takes: the catalog 600 ms, a painting 400 ms.
-// The save is the studio's exit action and the store takes no time (memory).
-func Takes(c Command) duration {
+func Takes(c Load) duration {
 	match c {
 	case LoadCatalog:
 		600ms
 	case LoadPainting:
 		400ms
-	case Push, Leave:
-		0s
 	}
 }
 
@@ -404,17 +372,17 @@ func jobs(s Site) Option[machines.Work[Signal, time.Clock | Scheduler | Drafts]]
 type due { At time.Time, Job Job, Done bool }
 
 // After is the site after the decision d from s.
-func After(s Site, d Decision[Site, []Command]) Site {
+func After(s Site, d Decision[Site, []Action]) Site {
 	match d {
-	case Emit[Site, []Command] as e:
+	case Emit[Site, []Action] as e:
 		e.Next
 	case Enter[Site] as e:
 		e.Next
 	case Stay[Site] as st:
 		st.Next
-	case Tell[Site, []Command] as t:
+	case Tell[Site, []Action] as t:
 		t.Next
-	case Ignore, Reject, Done[[]Command]:
+	case Ignore, Reject, Done[[]Action]:
 		s
 	}
 }
