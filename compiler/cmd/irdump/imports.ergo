@@ -1,6 +1,7 @@
 import compiler/check/expr
 import compiler/check/load
 import compiler/check/store
+import compiler/syntax
 import slices
 
 // exactLoadedUnits indexes only unambiguous loaded units. Equal paths
@@ -21,6 +22,37 @@ func exactLoadedUnit(exact Map[string, int], path string) int {
 	case None:
 		-1
 	}
+}
+
+// shapeLoadedUnits selects the very first loaded store, as load.TypeAt
+// does, for repeated presentations of the same checked package. Prove
+// they are repeats with the full ordered source inputs and both tables,
+// not just a path or file list. Conflicting inputs prove no store.
+func shapeLoadedUnits(p load.Program, units []load.Unit, inputs []InputTables) Map[string, int] {
+	let mut byPath = Map[string, int]{}
+	for i, dep in p.Loaded {
+		match byPath.Get(dep.Path) {
+		case Some[int] as first:
+			if first.Value >= 0 && !sameShapeInputs(units, inputs, p.Units[first.Value], p.Units[i]) {
+				byPath = byPath.Put(dep.Path, -1)
+			}
+		case None:
+			byPath = byPath.Put(dep.Path, i)
+		}
+	}
+	byPath
+}
+
+func sameShapeInputs(units []load.Unit, inputs []InputTables, a int, b int) bool {
+	if inputs[a].Ext != inputs[b].Ext || inputs[a].Foreign != inputs[b].Foreign || !slices.Equal(units[a].Paths, units[b].Paths) {
+		return false
+	}
+	for i, file in units[a].Files {
+		if syntax.SourceOf(file.Parsed) != syntax.SourceOf(units[b].Files[i].Parsed) {
+			return false
+		}
+	}
+	true
 }
 
 // importUnits indexes the loaded stores by import path, preserving
