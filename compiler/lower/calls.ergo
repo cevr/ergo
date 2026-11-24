@@ -7,20 +7,10 @@ import slices
 
 type ordinaryCallee { body dense.ID[syntax.Node], receiver bool }
 
-// CallFacts is the compact lowering proof of one loaded package, indexed
-// by its checked function row. It retains no syntax or typer state.
-type CallFacts { flags []uint8 }
-
-// ImportCallFacts is the proof for exactly the loaded dependency that
-// supplied a package's bound import. Ambiguous imports carry no proof.
-type ImportCallFacts { Path string, Facts CallFacts }
-
 let noCallFact = uint8(0)
 let pureCallFact = uint8(1)
 let directCallFact = uint8(2)
 let unprovedCallFact = uint8(3)
-
-func EmptyCallFacts() CallFacts { CallFacts{flags: []uint8{}} }
 
 func importedCallFact(imports []ImportCallFacts, path string, i int) uint8 {
 	for dep in imports {

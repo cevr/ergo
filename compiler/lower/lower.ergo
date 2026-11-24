@@ -690,9 +690,9 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	let nonleaf = callsIn(cst.k.Parsed[f.File], target.body)
 	if nonleaf {
 		if dependency == "" {
-			try directCallee(cst, i, target, []ImportCallFacts{})
+			try directCallee(cst, i, target, st.importCalls)
 		} else {
-			try requireImportedDirect([]ImportCallFacts{}, dependency, i)
+			try requireImportedDirect(st.importCalls, dependency, i)
 		}
 	}
 	let n = syntax.Len(ce.Args)
