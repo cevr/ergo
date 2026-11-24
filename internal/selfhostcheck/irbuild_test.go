@@ -73,14 +73,15 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
 	}
 	paths := irPathIDs{}
-	goFuncs, unlowered, rootDirs := goIRFuncs(t, paths)
+	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
+	goFuncs, unlowered, rootDirs := goIRFuncs(t, paths, importFixture)
 	for dir, err := range unlowered {
 		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
 	}
 
 	// The Ergo side: exprdump's manifest, one line per corpus folder.
 	tmp := t.TempDir()
-	dirs := corpusDirs(t)
+	dirs := append(corpusDirs(t), importFixture...)
 	type side struct {
 		ok           bool
 		path         string
@@ -92,6 +93,11 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		_, foreign := goTypes(pkg)
 		sides[i] = side{ok: true, path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
 	})
+	for i := len(dirs) - len(importFixture); i < len(dirs); i++ {
+		if !sides[i].ok || unlowered[dirs[i]] != "" {
+			t.Fatalf("imported-call IR fixture did not check and lower: %s (%s)", rel(dirs[i]), unlowered[dirs[i]])
+		}
+	}
 	var manifest, roots []string
 	for i, s := range sides {
 		if !s.ok {
@@ -208,6 +214,28 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	if differEvents > 0 {
 		t.Fatalf("%d comparison events differ", differEvents)
 	}
+}
+
+// irImportFixtureDirs enrolls the CALLS-owned two-package fixture in IR
+// agreement only. Once present it must be complete. Reader is first:
+// its test build reaches producer as an import, not a second root build.
+func irImportFixtureDirs(t *testing.T, root string) []string {
+	t.Helper()
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(root, "ergo.mod")); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("imported-call IR fixture needs ergo.mod: %v", err)
+	}
+	dirs := []string{filepath.Join(root, "reader"), filepath.Join(root, "producer")}
+	for _, dir := range dirs {
+		if len(ergoFiles(t, dir)) == 0 {
+			t.Fatalf("imported-call IR fixture has no Ergo sources in %s", rel(dir))
+		}
+	}
+	return dirs
 }
 
 // irWitnessSite uses irdump's declaration byte offset, not the function
@@ -491,7 +519,7 @@ func (x irGoIndex) at(k irKey, name string) ([]irGoFunc, string) {
 // indexes its IR files' functions by declaration position, file indices
 // mapped to source paths.
 // The folders of the builds' root packages are the third result.
-func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map[string]bool) {
+func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex, map[string]string, map[string]bool) {
 	t.Helper()
 	idx := irGoIndex{}
 	std := stdDir()
@@ -521,7 +549,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 	// The corpus's own fixture (testdata/bind) is lowered alike; a folder
 	// the Go front end does not load is logged as one it does not lower.
 	fixture := filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind")
-	for _, dir := range append(targets, fixture) {
+	for _, dir := range append(append(targets, fixture), importFixture...) {
 		if covered[dir] || filepath.Base(filepath.Dir(dir)) == "cmd" {
 			continue
 		}
