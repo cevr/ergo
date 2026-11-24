@@ -205,7 +205,7 @@ func ApplyEnqueue[J](s own State[J], job J, at time.Time) (int, State[J]) {
 
 func ApplyReserve[J](p Policy, s own State[J], now time.Time) (Option[Lease[J]], State[J], bool) {
 	let (expired, after) = expire(p, s, now)
-	reserveLease(p, after, now, expired)
+	reserve(p, after, now, expired)
 }
 
 func Apply[J](p Policy, s own State[J], op Op[J]) (Outcome[J], State[J], bool) {
@@ -440,7 +440,7 @@ func isHeld[J](s State[J], t Ticket, now time.Time) bool {
 // reserve is Apply's Reserve at now on s, whose ended leases expire has
 // failed (expired: whether any was): the earliest ready job leased, or
 // None and s.
-func reserveLease[J](p Policy, s own State[J], now time.Time, expired bool) (Option[Lease[J]], State[J], bool) {
+func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (Option[Lease[J]], State[J], bool) {
 	let mut st = s
 	if st.head >= len(st.ready) || st.ready[st.head].at.After(now) {
 		return (None, st, expired)

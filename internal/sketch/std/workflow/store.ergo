@@ -625,26 +625,24 @@ func ApplyAdmit(s State, runID RunID, key string, signal string, value string, n
 	(Kept{At: cursorOf(len(r.events))}, st, true)
 }
 
+type bestRun { id RunID, r run }
+
 func ApplyClaim(s State, now time.Time, lease duration) (Option[Grant], State, bool) {
 	let mut st = s
 	let at = wall(now)
 	let mut best Option[RunID] = None
+	let mut found Option[bestRun] = None
 	for id, r in st.runs {
 		if claimable(r, at) && earlier(st, id, best) {
 			best = Some[RunID]{Value: id}
+			found = Some[bestRun]{Value: bestRun{id: id, r: r}}
 		}
 	}
-	match best {
-	case Some{Value: id}:
-		let r = match st.runs.Get(id) {
-		case Some{Value: x}:
-			x
-		case None:
-			Unreachable("the best run is in the store")
-		}
+	match found {
+	case Some{Value: b}:
 		let until = wall(at.Add(lease))
-		let g = Grant{Run: id, Rev: revOf(r.wake), Epoch: r.epoch + 1, Until: until}
-		st.runs[id] = run{..r, epoch: r.epoch + 1, held: true, until: until}
+		let g = Grant{Run: b.id, Rev: revOf(b.r.wake), Epoch: b.r.epoch + 1, Until: until}
+		st.runs[b.id] = run{..b.r, epoch: b.r.epoch + 1, held: true, until: until}
 		(Some[Grant]{Value: g}, st, true)
 	case None:
 		(None, st, false)

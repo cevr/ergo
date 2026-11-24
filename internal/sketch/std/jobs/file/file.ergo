@@ -95,7 +95,7 @@ func Open[J](files fs.Files, writes fs.Writes, path string, p jobs.Policy, codec
 
 // apply runs op under the lock: it applies op to the state, and appends
 // op's line when the state changed.
-func applyStep[J, R](q Queue[J], line string, fn func(s jobs.State[J]) (R, jobs.State[J], bool)) R fails jobs.Failed {
+func apply[J, R](q Queue[J], line string, fn func(s jobs.State[J]) (R, jobs.State[J], bool)) R fails jobs.Failed {
 	q.lock.Push(0) catch {
 	case queue.Closed:
 		Unreachable("the lock is never closed")
@@ -109,9 +109,9 @@ func applyStep[J, R](q Queue[J], line string, fn func(s jobs.State[J]) (R, jobs.
 	o
 }
 
-func apply[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] fails jobs.Failed {
+func applyOp[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] fails jobs.Failed {
 	let p = q.policy
-	try applyStep(q, lineOf(op, q.codec), func(s jobs.State[J]) (jobs.Outcome[J], jobs.State[J], bool) {
+	try apply(q, lineOf(op, q.codec), func(s jobs.State[J]) (jobs.Outcome[J], jobs.State[J], bool) {
 		jobs.Apply(p, s, op)
 	})
 }
@@ -149,7 +149,7 @@ func stepWith[J, R](q Queue[J], line string, fn func(s jobs.State[J]) (R, jobs.S
 
 func EnqueueAt[J](q Queue[J], job J, at time.Time) int fails jobs.Failed {
 	let line = lineOf(jobs.Enqueue[J]{Job: job, At: at}, q.codec)
-	try applyStep(q, line, func(s jobs.State[J]) (int, jobs.State[J], bool) {
+	try apply(q, line, func(s jobs.State[J]) (int, jobs.State[J], bool) {
 		let (id, next) = jobs.ApplyEnqueue(s, job, at)
 		(id, next, true)
 	})
@@ -158,19 +158,19 @@ func EnqueueAt[J](q Queue[J], job J, at time.Time) int fails jobs.Failed {
 func ReserveAt[J](q Queue[J], now time.Time) Option[jobs.Lease[J]] fails jobs.Failed {
 	let p = q.policy
 	let line = lineOf(jobs.Reserve{Now: now}, q.codec)
-	try applyStep(q, line, func(s jobs.State[J]) (Option[jobs.Lease[J]], jobs.State[J], bool) {
+	try apply(q, line, func(s jobs.State[J]) (Option[jobs.Lease[J]], jobs.State[J], bool) {
 		jobs.ApplyReserve(p, s, now)
 	})
 }
 
 // AckAt ends the lease of t as done.
 func AckAt[J](q Queue[J], t jobs.Ticket, now time.Time) fails jobs.Unknown | jobs.Failed {
-	settle(try apply(q, jobs.Ack{Ticket: t, Now: now}))
+	settle(try applyOp(q, jobs.Ack{Ticket: t, Now: now}))
 }
 
 // FailAt ends the lease of t as a failure.
 func FailAt[J](q Queue[J], t jobs.Ticket, why string, now time.Time) fails jobs.Unknown | jobs.Failed {
-	settle(try apply(q, jobs.Fail{Ticket: t, Why: why, Now: now}))
+	settle(try applyOp(q, jobs.Fail{Ticket: t, Why: why, Now: now}))
 }
 
 // settle is the failure of an ack's or a fail's outcome.

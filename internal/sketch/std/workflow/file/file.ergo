@@ -99,7 +99,7 @@ func Crashing(files fs.Files, writes fs.Writes, path string, cut int) Store fail
 
 // apply runs op under the lock: it applies op to the state, and appends
 // op's line when the state changed.
-func applyStep[R](s Store, op workflow.Op, fn func(st workflow.State) (R, workflow.State, bool)) R fails workflow.Failed {
+func apply[R](s Store, op workflow.Op, fn func(st workflow.State) (R, workflow.State, bool)) R fails workflow.Failed {
 	s.lock.Push(0) catch {
 	case queue.Closed:
 		Unreachable("the lock is never closed")
@@ -113,8 +113,8 @@ func applyStep[R](s Store, op workflow.Op, fn func(st workflow.State) (R, workfl
 	o
 }
 
-func apply(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
-	try applyStep(s, op, func(st workflow.State) (workflow.Outcome, workflow.State, bool) {
+func applyOp(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
+	try apply(s, op, func(st workflow.State) (workflow.Outcome, workflow.State, bool) {
 		workflow.Apply(st, op)
 	})
 }
@@ -169,14 +169,14 @@ func write(s Store, line string) fails workflow.Failed {
 // Create starts run.
 func Create(s Store, run workflow.RunID, first workflow.Event, now time.Time) bool fails workflow.Failed {
 	let op = workflow.Creating{Run: run, First: first, Now: now}
-	try applyStep(s, op, func(st workflow.State) (bool, workflow.State, bool) {
+	try apply(s, op, func(st workflow.State) (bool, workflow.State, bool) {
 		workflow.ApplyCreate(st, run, first, now)
 	})
 }
 
 func Admit(s Store, run workflow.RunID, key string, signal string, value string, now time.Time) workflow.Admission fails workflow.Failed {
 	let op = workflow.Admitting{Run: run, Key: key, Signal: signal, Value: value, Now: now}
-	try applyStep(s, op, func(st workflow.State) (workflow.Admission, workflow.State, bool) {
+	try apply(s, op, func(st workflow.State) (workflow.Admission, workflow.State, bool) {
 		workflow.ApplyAdmit(st, run, key, signal, value, now)
 	})
 }
@@ -190,7 +190,7 @@ func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fai
 
 func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails workflow.Failed {
 	let op = workflow.Claiming{Now: now, Lease: lease}
-	try applyStep(s, op, func(st workflow.State) (Option[workflow.Grant], workflow.State, bool) {
+	try apply(s, op, func(st workflow.State) (Option[workflow.Grant], workflow.State, bool) {
 		workflow.ApplyClaim(st, now, lease)
 	})
 }
@@ -198,7 +198,7 @@ func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails 
 func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
 	let grant = workflow.GrantOf(c)
 	let op = workflow.Committing{Grant: grant, Expected: expected, Events: events, Next: next}
-	match try applyStep(s, op, func(st workflow.State) (workflow.CommitResult, workflow.State, bool) {
+	match try apply(s, op, func(st workflow.State) (workflow.CommitResult, workflow.State, bool) {
 		workflow.ApplyCommit(st, grant, expected, events, next)
 	}) {
 	case workflow.CommitOK as k:
@@ -212,7 +212,7 @@ func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []work
 
 // Settle ends c.
 func Settle(s Store, c own workflow.Claimed) fails workflow.Fenced | workflow.Failed {
-	match try apply(s, workflow.Settling{Grant: workflow.GrantOf(c)}) {
+	match try applyOp(s, workflow.Settling{Grant: workflow.GrantOf(c)}) {
 	case workflow.Unfenced as u:
 		return workflow.Fenced{Run: u.Run}
 	case _:
@@ -221,7 +221,7 @@ func Settle(s Store, c own workflow.Claimed) fails workflow.Fenced | workflow.Fa
 
 // GiveBack gives back the lease of g.
 func GiveBack(s Store, g workflow.Grant) fails workflow.Failed {
-	let _ = try apply(s, workflow.GivingBack{Grant: g})
+	let _ = try applyOp(s, workflow.GivingBack{Grant: g})
 }
 
 // Close does nothing: each write is in the file once it returns.

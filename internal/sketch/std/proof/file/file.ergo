@@ -99,7 +99,7 @@ func openOnMemory() Store {
 
 // apply runs op under the lock: it applies op to the state, and appends
 // op's line when the state changed.
-func applyStep[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State, bool)) R fails proof.Failed {
+func apply[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State, bool)) R fails proof.Failed {
 	s.lock.Push(0) catch {
 	case queue.Closed:
 		Unreachable("the lock is never closed")
@@ -113,8 +113,8 @@ func applyStep[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State,
 	o
 }
 
-func apply(s Store, op proof.Op) proof.Outcome fails proof.Failed {
-	try applyStep(s, op, func(st proof.State) (proof.Outcome, proof.State, bool) {
+func applyOp(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+	try apply(s, op, func(st proof.State) (proof.Outcome, proof.State, bool) {
 		proof.Apply(st, op)
 	})
 }
@@ -151,7 +151,7 @@ func stepWith[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State, 
 }
 
 func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed {
-	match try apply(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
+	match try applyOp(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
 	case proof.Refused:
 		return proof.Conflict
 	case _:
@@ -160,7 +160,7 @@ func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) 
 
 func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed {
 	let op = proof.RedeemOp{ID: id, Digest: d, Now: now}
-	match try applyStep(s, op, func(st proof.State) (proof.RedeemResult, proof.State, bool) {
+	match try apply(s, op, func(st proof.State) (proof.RedeemResult, proof.State, bool) {
 		proof.ApplyRedeem(st, id, d, now)
 	}) {
 	case proof.RedeemOK:
@@ -179,7 +179,7 @@ func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unkno
 
 // Claim marks key used until until.
 func Claim(s Store, key string, until time.Time, now time.Time) fails proof.Spent | proof.Failed {
-	match try apply(s, proof.ClaimOp{Key: key, Until: until, Now: now}) {
+	match try applyOp(s, proof.ClaimOp{Key: key, Until: until, Now: now}) {
 	case proof.Used:
 		return proof.Spent
 	case _:
