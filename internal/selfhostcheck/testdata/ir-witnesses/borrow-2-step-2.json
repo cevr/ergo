@@ -1,0 +1,3 @@
+[
+  {"fixture": "port_borrow2_record.ergo", "declaration": "func ChangeCount(", "symbol": "BorrowImplementedCounter.ChangeCount"}
+]

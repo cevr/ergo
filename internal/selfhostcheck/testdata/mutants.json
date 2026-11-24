@@ -1284,6 +1284,25 @@
       ]
     },
     {
+      "name": "lower-record-implements-refused",
+      "origin": "wf10/selfhost/S4-PORT BORROW-2 step 2 (not-run-crunch)",
+      "file": "compiler/lower/lower.ergo",
+      "from": "if td.Name != n || dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None {",
+      "to": "if td.Name != n || dense.Unpack(td.Extern) != None || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None || syntax.Len(td.Implements) > 0 {",
+      "rule": "A local record implementing an operation type remains a record; its mut formal makes a pointer receiver (ChangeCount).",
+      "regenerate": {
+        "dir": ".",
+        "argv": [
+          "go",
+          "run",
+          "./scripts/linked"
+        ]
+      },
+      "killers": [
+        "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
+      ]
+    },
+    {
       "name": "lower-shapes2-imported-identity-refused",
       "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
       "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",

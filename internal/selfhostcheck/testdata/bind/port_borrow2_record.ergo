@@ -1,0 +1,6 @@
+type BorrowCounterOps { mut ChangeCount(delta int) }
+type BorrowImplementedCounter { Value int } implements BorrowCounterOps
+
+func ChangeCount(c mut BorrowImplementedCounter, delta int) {
+	c.Value = c.Value + delta
+}
