@@ -138,7 +138,7 @@ type Capacity {}
 // negative or greater than the number of ids.
 func WithCap[T](n int) Table[T] fails Capacity {
 	if uint64(n) > uint64(limit) {
-		return Capacity{}
+		return Capacity
 	}
 	Table[T]{rows: slices.WithCapacity[T](n)}
 }
