@@ -1,0 +1,3 @@
+import hex
+
+type Transitive { Failure hex.Malformed, Count int }

@@ -10,7 +10,7 @@ type importedShape { dep expr.Dep, decl dense.ID[store.Decl] }
 // Shape traversal may cross into another checked pool. Never look up a
 // type by the alias its importer wrote, or use a declaration row from
 // one pool in another.
-func importedShapeOf(st fnb, t dense.ID[store.TKey], deps []expr.Dep) Option[importedShape] {
+func importedShapeOf(st fnb, t dense.ID[store.TKey], deps Map[string, expr.Dep]) Option[importedShape] {
 	let kind = store.KindOfType(st.s, t)
 	if kind != store.KForeign && kind != store.KInstance {
 		return None
@@ -19,34 +19,41 @@ func importedShapeOf(st fnb, t dense.ID[store.TKey], deps []expr.Dep) Option[imp
 	if path == "" || path == "-" || path == "prelude" || len(args) != 0 {
 		return None
 	}
-	let mut result Option[importedShape] = None
-	for dep in deps {
-		if dep.Path != path {
-			continue
-		}
-		if result != None || len(dep.K.Parsed) == 0 || declCount(fnb{..st, k: dep.K, s: dep.S}, name) != 1 {
-			return None
-		}
-		match store.Lookup(dep.S, name) {
-		case Some{Value: d}:
-			if store.KindName(int(store.DeclOf(dep.S, d).Kind)) != "type" {
-				return None
-			}
-			result = Some{Value: importedShape{dep: dep, decl: d}}
-		case None:
-			return None
-		}
+	let dep = match deps.Get(path) {
+	case Some{Value: exact}:
+		exact
+	case None:
+		return None
 	}
-	result
+	if dep.Path != path || len(dep.K.Parsed) == 0 || declCount(fnb{..st, k: dep.K, s: dep.S}, name) != 1 {
+		return None
+	}
+	match store.Lookup(dep.S, name) {
+	case Some{Value: d}:
+		if store.KindName(int(store.DeclOf(dep.S, d).Kind)) != "type" {
+			return None
+		}
+		Some{Value: importedShape{dep: dep, decl: d}}
+	case None:
+		None
+	}
 }
 
-func shapeDeps(st fnb) []expr.Dep {
-	match st.rootImports {
-	case Some{Value: deps}:
-		deps
-	case None:
-		st.k.Deps
+func shapeDeps(st fnb) Map[string, expr.Dep] { st.shapeImports }
+
+func missingShapeStore(st fnb, t dense.ID[store.TKey]) string {
+	if store.KindOfType(st.s, t) != store.KInstance {
+		return ""
 	}
+	let o = store.OriginOfType(st.s, t)
+	if o.Import == uint32(0) || int(o.Import) == store.ForeignBit {
+		return ""
+	}
+	let (path, _, args) = expr.ImportedRec(st.s, st.k, t)
+	if path != "" && len(args) == 0 && st.shapeImports.Get(path) == None {
+		return "DRIVER: no exact imported shape store for " + path
+	}
+	""
 }
 
 // Project declaration queries into the defining package. Ergo sources
