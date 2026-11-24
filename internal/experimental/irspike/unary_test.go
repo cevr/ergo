@@ -90,6 +90,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 		{name: "appender", fns: []string{"shared"}},
 		{name: "mapkey", fns: mapKeyIRBodies()},
 		{name: "fused-arm-scopes", fns: []string{"work"}},
+		{name: "stdclose", fns: []string{"size", "chunks", "io__File"}, wantStdout: "read true same true missing -2\n"},
 		{name: "taskwait", fns: []string{"wait", "tryWait", "tailWait"}, wantStdout: "try success: true; try rejected: true; tail rejected: true\n"},
 	} {
 		t.Run(r.name, func(t *testing.T) {
