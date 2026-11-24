@@ -482,7 +482,15 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case syntax.FuncDecl as d:
 		d
 	case syntax.LawDecl:
-		return stop("law (test and law lowering)")
+		match plannedGeneratedBody(st.plan, st.file, syntax.NodePos(p, f.Decl), f.Decl) {
+		case Some[GeneratedBody]:
+			return stop("law (test and law lowering)")
+		case None:
+			if isTestMode(st.plan.Mode) && st.plan.Root && (f.SelfArity != 0 || dense.Unpack(f.SelfRole) != None) {
+				return stop("law: member or provider law")
+			}
+			return false
+		}
 	case syntax.TestDecl as td:
 		match plannedGeneratedBody(st.plan, st.file, syntax.NodePos(p, f.Decl), f.Decl) {
 		case Some[GeneratedBody] as planned:
