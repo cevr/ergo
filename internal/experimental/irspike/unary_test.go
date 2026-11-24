@@ -86,6 +86,9 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - wiretuple (IR-FALLBACK-REMAINDER r6): tuple codec writers lower on
 //     the IR for both the reference Writer and cell writers (mutant
 //     ir-wire-tuple-writer-refused);
+//   - wireownwrite (IR-FALLBACK-REMAINDER r6): codec writers for types
+//     with WireWrite hooks dispatch through the adapter type switch on
+//     the IR reference Writer (mutant ir-wire-own-write-refused);
 //   - taskwait: a task with no success value still returns a Go pair.
 //     A closed-row wait discards both results; try and a tail return
 //     preserve the typed failure (mutant ir-bound-unit-result-pair-lost).
@@ -116,6 +119,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 		{name: "valuecapture", fns: []string{"makeAdder", "makeLookup", "nestedCapture", "trailingCapture"}},
 		{name: "opswitness", fns: []string{"makeScaled", "makeDynScaled", "makeNested", "withScaled"}},
 		{name: "wiretuple", fns: []string{"writePair", "writeNested"}},
+		{name: "wireownwrite", fns: []string{"writeRaw", "writeAttr"}},
 		{name: "stdclose", fns: []string{"size", "chunks", "io__File"}, wantStdout: "read true same true missing -2\n"},
 		{name: "taskwait", fns: []string{"wait", "tryWait", "tailWait"}, wantStdout: "try success: true; try rejected: true; tail rejected: true\n"},
 	} {

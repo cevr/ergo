@@ -1,0 +1,44 @@
+import json
+import sync
+import xml
+
+type Trace { log sync.Ref[string] } implements Writer
+
+func add(t Trace, s string) { sync.Modify(t.log, func(cur string) (string, string) { (cur, cur + s + ";") }) }
+
+func Null(t Trace)                  { add(t, "null") }
+func Bool(t Trace, b bool)          { add(t, "bool:\(b)") }
+func Int(t Trace, n int64)          { add(t, "int:\(n)") }
+func Uint(t Trace, n uint64)        { add(t, "uint:\(n)") }
+func Float(t Trace, f float64)      { add(t, "float:\(f)") }
+func String(t Trace, s string)      { add(t, "str:"+s) }
+func StringBytes(t Trace, b []byte) { add(t, "bytes:\(len(b))") }
+func Number(t Trace, s string)      { add(t, "num:"+s) }
+func BeginList(t Trace, n int)      { add(t, "[\(n)") }
+func EndList(t Trace)               { add(t, "]") }
+func BeginObject(t Trace, n int)    { add(t, "{\(n)") }
+func EndObject(t Trace)             { add(t, "}") }
+func Tag(t Trace, name string)      { add(t, "tag:"+name) }
+func Key(t Trace, k string)         { add(t, "key:"+k) }
+
+type TagItem { Id xml.Attribute, Body string }
+
+func writeRaw(r json.Raw, w Writer)       { encode(r, w) }
+func writeAttr(a xml.Attribute, w Writer) { encode(a, w) }
+
+func main() needs Console {
+	let raw = json.RawOf("[1, 2]") catch {
+	case json.Malformed:
+		return
+	}
+	Console.Println(json.Encode(json.Codec[json.Raw]{MaxBytes: 0, MaxDepth: 0}, raw))
+	let t1 = Trace{log: sync.NewRef[string]("")}
+	writeRaw(raw, t1)
+	Console.Println(t1.log.Get())
+
+	let item = TagItem{Id: xml.Attribute{Value: "k1"}, Body: "hi"}
+	Console.Println(xml.Encode(xml.Codec[TagItem]{Root: "item", MaxBytes: 0, MaxDepth: 0}, item))
+	let t2 = Trace{log: sync.NewRef[string]("")}
+	writeAttr(xml.Attribute{Value: "k2"}, t2)
+	Console.Println(t2.log.Get())
+}

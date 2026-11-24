@@ -192,12 +192,6 @@ func (st *irState) wireWrite(l *lowerer, name string, t check.Type, em wireEvent
 		st.codecText(name, path+": a type that holds type parameters")
 		return false
 	}
-	if hook, own := check.WireWriteOf(t); own && em.via < 0 {
-		if _, _, _, adapter := l.ownWriteAdapter(hook); adapter {
-			st.codecText(name, path+": an own write")
-			return false
-		}
-	}
 	scope := newNamer(params)
 	fc := newFuncCtx(l, scope, false)
 	fc.site = site
@@ -223,7 +217,7 @@ func (st *irState) wireWrite(l *lowerer, name string, t check.Type, em wireEvent
 	}()
 	g := &wireGen{b: b, em: em, site: site, env: 0, wv: 1, writer: true}
 	g.p = b.pos(site, site.Pos())
-	steps := g.plan(t, g.local(2))
+	steps := append(g.ownWrite(t, g.local(2)), g.plan(t, g.local(2))...)
 	body := append(g.decls, g.plain(steps)...)
 	b.fn.Pos, b.fn.End = g.p, g.p
 	b.fn.Body = irScopesIncrease(irUseLocals(body), b.fn.Pos) // ir_end.go
@@ -273,6 +267,38 @@ func (g *wireGen) writerEvent(op string, args ...*irExpr) wireStep {
 }
 
 func (g *wireGen) local(i int) *irExpr { return &irExpr{K: "local", Pos: g.p, I: i} }
+
+// ownWrite prepends the operations-adapter type switch of wireOwnWrite
+// (wirewrite.go) when t declares a WireWrite hook whose provider adapter
+// exists in this program, so a Writer that wraps that provider's cell
+// calls hook.Func and returns before t's ordinary form runs.
+func (g *wireGen) ownWrite(t check.Type, v *irExpr) []wireStep {
+	hook, ok := check.WireWriteOf(t)
+	if !ok || !g.writer || g.em.via >= 0 {
+		return nil
+	}
+	b, l := g.b, g.b.l
+	conv, key, name, ok := l.ownWriteAdapter(hook)
+	if !ok {
+		return nil
+	}
+	if _, emitted := l.adapters[key]; !emitted {
+		newFuncCtx(l, newNamer(l.names), false).operations(conv, "nil", g.site)
+	}
+	typ := "*" + name
+	a := b.temp("own", typ, g.p)
+	head := []*irStmt{{K: "def", Pos: g.p, Local: a, X: &irExpr{K: "assert", Pos: g.p, T: typ, X: g.local(g.wv)}}}
+	cell := &irExpr{K: "field", Pos: g.p, Name: "v", X: g.local(a)}
+	if _, ptr := conv.From.(*check.Pointer); !ptr {
+		cell = &irExpr{K: "addr", Pos: g.p, X: cell}
+	}
+	arm := []wireStep{
+		{own: &irStmt{K: "expr", Pos: g.p, X: g.funcCall(hook.Func, []*irExpr{v, cell})}},
+		{own: &irStmt{K: "ret", Pos: g.p}},
+	}
+	sw := &irStmt{K: "tswitch", Pos: g.p, End: g.p, ElsePos: g.p, X: g.local(g.wv), Cases: []*irCase{{Pos: g.p, Types: []string{typ}}}}
+	return []wireStep{{sw: sw, arms: [][]wireStep{arm}, heads: [][]*irStmt{head}}}
+}
 
 // plan is the steps that write v, of type t (wireEncodeBody's forms).
 func (g *wireGen) plan(t check.Type, v *irExpr) []wireStep {
