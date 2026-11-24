@@ -58,8 +58,8 @@ type Site { File int, At int }
 
 // Out is a package's IR: the file the builder wrote (its Files are the
 // package's file paths, in the order given), each built function's site,
-// and each stop.
-type Out { File ir.File, Sites []Site, Stops []Stop }
+// each stop, and the package's independent checked call projection.
+type Out { File ir.File, Sites []Site, Stops []Stop, CallFacts CallFacts }
 
 // Unported is a function the builder stops at.
 type Unported { Cause string }
@@ -99,7 +99,7 @@ type fnb {
 // are its files' paths, File.Files' entries, path its import path, and root
 // whether it is the build's root package (a program's main package, or the
 // package a test build tests), whose declarations Go spells bare.
-func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports Option[[]expr.Dep]) Out {
+func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports Option[[]expr.Dep], direct []ImportCallFacts) Out {
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
@@ -143,10 +143,16 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	}
 	let mut sites = []Site{}
 	let mut stops = []Stop{}
-	for f in k.Fns {
+	let mut facts = EmptyCallFacts()
+	for i, f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
 		let mut st = fnb{rootImports: imports, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0)}
+		// Read the package-wide columns once, before building any body.
+		// A body that stops during lowering can still have a call proof.
+		if i == 0 {
+			facts = summarizeCalls(st, direct)
+		}
 		let built = function(&st, &b, f, paths[f.File]) catch {
 		case Unported as u:
 			stops = stops.Append(Stop{File: f.File, At: at, Cause: u.Cause})
@@ -163,7 +169,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	case ir.Malformed:
 		ir.File{V: 1, Files: []string{}, FilesNil: true, Funcs: []ir.Func{}, FuncsNil: true, Shared: []string{}, Strs: []string{""}}
 	}
-	Out{File: file, Sites: sites, Stops: stops}
+	Out{File: file, Sites: sites, Stops: stops, CallFacts: facts}
 }
 
 func stop(cause string) Unported { Unported{Cause: cause} }

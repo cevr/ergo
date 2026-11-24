@@ -73,14 +73,15 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		t.Fatalf("ergo build ./cmd/irdump: %v\n%s", err, o)
 	}
 	paths := irPathIDs{}
-	goFuncs, unlowered, rootDirs := goIRFuncs(t, paths)
+	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
+	goFuncs, unlowered, rootDirs := goIRFuncs(t, paths, importFixture)
 	for dir, err := range unlowered {
 		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
 	}
 
 	// The Ergo side: exprdump's manifest, one line per corpus folder.
 	tmp := t.TempDir()
-	dirs := corpusDirs(t)
+	dirs := append(corpusDirs(t), importFixture...)
 	type side struct {
 		ok           bool
 		path         string
@@ -92,6 +93,11 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		_, foreign := goTypes(pkg)
 		sides[i] = side{ok: true, path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
 	})
+	for i := len(dirs) - len(importFixture); i < len(dirs); i++ {
+		if !sides[i].ok || unlowered[dirs[i]] != "" {
+			t.Fatalf("imported-call IR fixture did not check and lower: %s (%s)", rel(dirs[i]), unlowered[dirs[i]])
+		}
+	}
 	var manifest, roots []string
 	for i, s := range sides {
 		if !s.ok {
@@ -208,6 +214,28 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	if differEvents > 0 {
 		t.Fatalf("%d comparison events differ", differEvents)
 	}
+}
+
+// irImportFixtureDirs enrolls the CALLS-owned two-package fixture in IR
+// agreement only. Once present it must be complete. Reader is first:
+// its test build reaches producer as an import, not a second root build.
+func irImportFixtureDirs(t *testing.T, root string) []string {
+	t.Helper()
+	if _, err := os.Stat(root); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(filepath.Join(root, "ergo.mod")); err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("imported-call IR fixture needs ergo.mod: %v", err)
+	}
+	dirs := []string{filepath.Join(root, "reader"), filepath.Join(root, "producer")}
+	for _, dir := range dirs {
+		if len(ergoFiles(t, dir)) == 0 {
+			t.Fatalf("imported-call IR fixture has no Ergo sources in %s", rel(dir))
+		}
+	}
+	return dirs
 }
 
 // irWitnessSite uses irdump's declaration byte offset, not the function
@@ -327,6 +355,7 @@ func (x irGoIndex) functionCount() int {
 // Declarations' names follow NAME-LOCAL (S4c/naming.md) and compare
 // under irSplitName alone.
 var irProgramName = regexp.MustCompile(`^X+([a-z_])|_[0-9]+$|_[0-9]+(\.)`)
+var irCollisionSuffix = regexp.MustCompile(`_[0-9]+$`)
 
 var irMethodExport = regexp.MustCompile(`\.X+([a-z_])`)
 
@@ -344,9 +373,10 @@ func irSplitName(name string) string {
 	return irMethodExport.ReplaceAllString(irSplitExport.ReplaceAllString(name, "${1}"), ".${1}")
 }
 
-// irBaseFields removes program-wide spelling from the Go side. Literal
-// types and method calls undo only exports recorded by this build's split.
-func irBaseFields(fn *irFunc, originals map[string]string) {
+// irBaseFields removes program-wide spelling from the Go side. Field
+// and method exports come from this split; qualified type heads come
+// from this IR file's split declarations, never a host import.
+func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 	var walk func(v reflect.Value)
 	walk = func(v reflect.Value) {
 		switch v.Kind() {
@@ -362,7 +392,10 @@ func irBaseFields(fn *irFunc, originals map[string]string) {
 			if e, ok := v.Addr().Interface().(*irExpr); ok {
 				switch e.K {
 				case "field":
-					e.Name = irBaseName(e.Name)
+					if name, ok := originals[e.Name]; ok {
+						e.Name = name
+					}
+					e.Name = irCollisionSuffix.ReplaceAllString(e.Name, "")
 				case "mcall":
 					if name, ok := originals[e.Name]; ok {
 						e.Name = name
@@ -372,7 +405,11 @@ func irBaseFields(fn *irFunc, originals map[string]string) {
 					for strings.HasPrefix(elem, "[]") {
 						elem = elem[2:]
 					}
-					if name, ok := originals[elem]; ok {
+					if head, args, generic := strings.Cut(elem, "["); generic {
+						if name, ok := typeHeads[head]; ok {
+							e.T = e.T[:len(e.T)-len(elem)] + name + "[" + args
+						}
+					} else if name, ok := originals[elem]; ok {
 						e.T = e.T[:len(e.T)-len(elem)] + name
 					}
 					for i, k := range e.Keys {
@@ -408,10 +445,42 @@ func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := body(tc.typ, tc.member)
-			irBaseFields(got, exports)
+			irBaseFields(got, exports, nil)
 			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
 				call := got.Body[0].X
 				t.Errorf("normalized %s.%s, equality = %v, want %v", call.X.T, call.Name, equal, tc.equal)
+			}
+		})
+	}
+}
+
+// TestIRAgreementKeepsUnprovenSplitNames kills lower-agree-guess-field-export
+// and lower-agree-guess-qualified-type: a different field or generic type
+// must not compare equal just because it has the same unqualified spelling.
+func TestIRAgreementKeepsUnprovenSplitNames(t *testing.T) {
+	body := func(field, typ string) *irFunc {
+		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{
+			K: "field", Name: field, X: &irExpr{K: "lit", T: typ},
+		}}}}
+	}
+	want := body("tag", "[]Choice[int, bool]")
+	members := map[string]string{"Xtag": "tag"}
+	heads := map[string]string{"example.com/generated/model.Choice": "Choice"}
+	for _, tc := range []struct {
+		name, field, typ string
+		equal            bool
+	}{
+		{"proven field and type", "Xtag", "[]example.com/generated/model.Choice[int, bool]", true},
+		{"unrenamed field", "XXtag", "[]example.com/generated/model.Choice[int, bool]", false},
+		{"host type with same suffix", "Xtag", "[]example.com/host/model.Choice[int, bool]", false},
+		{"different type arguments", "Xtag", "[]example.com/generated/model.Choice[bool, int]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := body(tc.field, tc.typ)
+			irBaseFields(got, members, heads)
+			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
+				x := got.Body[0].X
+				t.Errorf("normalized field %q, type %q; equality = %v, want %v", x.Name, x.X.T, equal, tc.equal)
 			}
 		})
 	}
@@ -450,7 +519,7 @@ func (x irGoIndex) at(k irKey, name string) ([]irGoFunc, string) {
 // indexes its IR files' functions by declaration position, file indices
 // mapped to source paths.
 // The folders of the builds' root packages are the third result.
-func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map[string]bool) {
+func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex, map[string]string, map[string]bool) {
 	t.Helper()
 	idx := irGoIndex{}
 	std := stdDir()
@@ -480,7 +549,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 	// The corpus's own fixture (testdata/bind) is lowered alike; a folder
 	// the Go front end does not load is logged as one it does not lower.
 	fixture := filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind")
-	for _, dir := range append(targets, fixture) {
+	for _, dir := range append(append(targets, fixture), importFixture...) {
 		if covered[dir] || filepath.Base(filepath.Dir(dir)) == "cmd" {
 			continue
 		}
@@ -549,7 +618,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 				}
 				raw := fn.Name
 				fn.Name = irSplitName(raw)
-				irBaseFields(fn, originals)
+				irBaseFields(fn, originals, split.IRTypeHeads[file.Path])
 				data, err := json.Marshal(fn)
 				if err != nil {
 					t.Fatal(err)
