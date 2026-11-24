@@ -18,13 +18,12 @@ package lower
 // loop that runs fewer than pollEvery iterations per outer iteration
 // never poll.
 //
-// A loop is quiet when its body meets a pure function body's rules
-// (pure.go, quietLoop): every call in it, outside the bodies of function
-// literals, is a pure call (len, a conversion, a pure std body, a pure
-// function), so none takes the environment, waits, starts a task or has
-// an interruption point of its own; it converts no value into a Go
-// interface; and it owns no value, whose release its iterations would run
-// through their task.
+// A loop is quiet when its body meets an env-free function body's rules
+// (pure.go, quietLoop): its calls outside function literals take no
+// environment, cannot wait or start a task, and have no interruption
+// point of their own. A typed failure is a returned outcome, not an
+// effect on the task. The body converts no value into a Go interface
+// and owns no value whose release it would run through the task.
 //
 // Any other loop keeps a Check at every back edge, as the reference
 // lowering pollAmortLowering "each" gives every loop. The emitter's text body
@@ -46,14 +45,14 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// pollAmortLowering selects the back-edge poll of a quiet loop: "amortized"
-// (one Check every pollEvery back edges) or "each", the reference: a
-// Check at every back edge. A test sets it; a whole build selects it with
-// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.pollAmortLowering=each.
+// pollAmortLowering selects the back-edge poll: "amortized" uses the
+// env-free proof, "pure" is the former pure-only admission, and "each"
+// writes Check at every back edge. A test sets it; a whole build selects
+// it with -ldflags=-X=ergo.local/prototype/internal/sketch/lower.pollAmortLowering=each.
 var pollAmortLowering = "amortized"
 
-// SetPollAmortLoweringForTest selects pollAmortLowering ("amortized" or "each") and
-// returns a function that restores the previous choice.
+// SetPollAmortLoweringForTest selects pollAmortLowering and returns a
+// function that restores the previous choice.
 func SetPollAmortLoweringForTest(mode string) func() {
 	old := pollAmortLowering
 	pollAmortLowering = mode
@@ -74,10 +73,9 @@ type pollAmort struct {
 	pos irPos // the outermost loop's position, where the counter is defined
 }
 
-// quietLoop reports a loop body that meets a pure function's body rules
-// (pure.go): every call in it is a pure call, it converts no value into a
-// Go interface, and it owns no value, which its iterations would release
-// through their task.
+// quietLoop reports whether a loop body meets an env-free function
+// body's rules (pure.go): none of its calls, conversions, or releases
+// needs the task or the environment.
 func (b *irBuilder) quietLoop(body *syntax.BlockStmt) bool {
 	info := b.l.info
 	callees, ok := pureCalls(info, body)
@@ -85,7 +83,11 @@ func (b *irBuilder) quietLoop(body *syntax.BlockStmt) bool {
 		return false
 	}
 	for _, f := range callees {
-		if !b.l.isPure(f) {
+		if pollAmortLowering == "pure" {
+			if !b.l.isPure(f) {
+				return false
+			}
+		} else if !b.l.isEnvFree(f) {
 			return false
 		}
 	}

@@ -599,7 +599,7 @@ func (b *irBuilder) stmt(s syntax.Stmt) []*irStmt {
 // (ir_poll.go); the outermost loop of a quiet nest returns its counter's
 // definition, which the caller puts before the loop.
 func (b *irBuilder) loopBody(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt) []*irStmt {
-	quiet := pollAmortLowering == "amortized" && b.loopPolls() && b.quietLoop(body) // ir_poll.go
+	quiet := (pollAmortLowering == "amortized" || pollAmortLowering == "pure") && b.loopPolls() && b.quietLoop(body) // ir_poll.go
 	var own *pollAmort
 	outer := b.amort
 	if quiet && b.amort == nil {
