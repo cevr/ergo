@@ -159,7 +159,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
-	{"TestAmbient", "ergoTestAmbient"},
+	{"TestAmbient", "ergoTestAmbient"}, {"TestLoopback", "ergoTestLoopback"},
 	{"SkipOf", "ergoSkipOf"}, {"Skipping", "ergoSkipping"}, {"Skipped", "ergoSkipped"}, {"Skippable", "ergoSkippable"}, {"SkipRun", "ergoSkipRun"}, {"SkipNow", "ergoSkipNow"}, {"SkipNote", "ergoSkipNote"},
 }
 
@@ -279,9 +279,7 @@ func (l *lowerer) nameTests() {
 						reserveLit(lt)
 						reserveLit(rt)
 					}
-					if l.ir != nil {
-						l.pkgName(assertShowKey(x), "ergoAssertShow")
-					}
+					l.pkgName(assertShowKey(x), "ergoAssertShow")
 				}
 			}
 			return true
@@ -787,6 +785,27 @@ func (l *lowerer) siteText(n syntax.Node) string {
 		file = path.Base(strings.ReplaceAll(file, "\\", "/"))
 	}
 	return file + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+}
+
+// testFile is the file as the harness reports it, without line or column.
+func (l *lowerer) testFile(n syntax.Node) string {
+	site := l.siteText(n)
+	for range 2 {
+		site = site[:strings.LastIndexByte(site, ':')]
+	}
+	return site
+}
+
+// testShown uses the same report helper as the IR for a rewritten assert.
+func (fc *funcCtx) testShown(x *syntax.CallExpr) operand {
+	l := fc.l
+	lt, lok := l.typedExpr(x.Args[0])
+	rt, rok := l.typedExpr(x.Args[1])
+	if !lok || !rok || !l.printable(lt) || !l.printable(rt) {
+		ice(x, "ergo·shown of an operand that does not print")
+	}
+	vals := fc.callArgs(x.Args, x)
+	return operand{val: l.assertShowFunc(x, lt, rt, x) + "(" + strings.Join(vals, ", ") + ")"}
 }
 
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
@@ -1360,12 +1379,16 @@ func (l *lowerer) harness() string {
 const harnessGo = `// $TestAmbient is the test runner's provider of TestAmbient (rows.md,
 // Test's ambient): the folder of one case, which the with or the law case that
 // builds the context made and removes when the case ends.
-type $TestAmbient struct{ dir string }
+type $TestAmbient struct{ dir *$Runtime.TestDirectory }
 
-func (a $TestAmbient) folder(_ *$Task.Task) string { return a.dir }
+func (a $TestAmbient) folder(_ *$Task.Task) *$Runtime.TestDirectory { return a.dir }
 
-// end removes the case's folder: the IR defers it (ir_with.go testAmbient).
-func (a $TestAmbient) end() { $Runtime.TestFolderRemove(a.dir) }
+// end releases the case's folder: the IR defers it (ir_with.go testAmbient).
+func (a $TestAmbient) end() { a.dir.End() }
+
+type $TestLoopback struct{}
+
+func ($TestLoopback) loopbackOnly(_ *$Task.Task) {}
 
 // $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".

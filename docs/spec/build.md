@@ -311,7 +311,7 @@ leaves out `testdata`, hidden and `_` folders and, since WS1, also
 which `import go` reads and no walk checks as a package
 ([interop](interop.md#go-modules) 2). It is one rule,
 `sketchfront.AdmitFolder`, for every walk: `check`, `test`, `fmt`,
-`lint`, the task runner's members and `ergo gate`'s key (which still hashes
+`lint`, the task runner's members and the gate task's key (which still hashes
 the root's `ergo.bind` files, as inputs). A package named by its folder
 (`ergo check app/vendor/x`) still checks: the rule chooses what a
 pattern walks, never what a named folder is.
@@ -346,7 +346,10 @@ file    = version { key } .
 version = "version" N .          // the first line; N = 1, 2, ...
 key     = "skip" FOLDER          // version 1 knows this key only
         | "gen" NAME WORD { WORD }      // version 2 (Generators)
-        | "reads" NAME PATH { PATH } .  // version 2 (Generators)
+        | "reads" NAME PATH { PATH }    // version 2 (Generators)
+        | "task" NAME STEP              // version 3 (Tasks)
+        | "after" NAME TASK { TASK }    // version 3 (Tasks)
+        | "env" NAME VAR { VAR } .      // version 3 (Tasks)
 ```
 
 `FOLDER` is a clean, slash-separated folder below the root (no `..`, no
@@ -395,7 +398,7 @@ transitively), and the identity of the `ergo` binary; its class is
 `derived`, since nothing in the key is declared by hand. Members come in
 the workspace's order (each after the members it requires), so a first
 run already respects the requires edges; after it, their order is by
-what they read, as for every generator. A package whose header names a
+what they read, as for every generator. A package whose marker names a
 contract other than the folder above it was not written by `ergo gen` in
 place (the `linked` generator writes std `code`'s Reader hub and command
 line into `codetool`): it is no member's, and some generator's last run
@@ -486,3 +489,118 @@ generator once and in order, a second `gen` runs none, and `--check
 file after a merge; for a file a `gen` line writes, the line's `by` is
 `ergo task gen NAME`, so the merge tool and the runner run one
 declaration.
+
+### Tasks
+
+A **task** is a list of steps that `ergo task NAME [DIR]` runs over the
+workspace at `DIR` (default `.`; `cmd/ergo/task.go`, `taskgate.go`,
+`gate.go`; the runner is `internal/task`, `verdict.go`). There is no
+`ergo gate` command: `ergo task gate` is one task. Version 3 of
+`ergo.work` declares tasks in three keys:
+
+- `task NAME STEP` is one step of task `NAME`; a task has one line per
+  step, in order. A step is a built-in verb (`check`, `fmt --check`,
+  `lint`, `test`, `gen --check`), the name of a `gen` line (that
+  generator runs, writing), `gen` (every generator runs, writing), or
+  another task's name (that task's steps). No task is named `gen`, nor
+  after a `gen` line.
+- `after NAME TASK...` starts `NAME` once each `TASK` has passed: for an
+  order no file shows.
+- `env NAME VAR...` names host variables `NAME`'s steps read; their
+  values are in each of its steps' keys, and its generators' children get
+  them.
+
+A name, a step or a variable the version does not define, a task that
+waits for itself through steps or `after` lines, and an `after` or
+`env` line of no task are errors naming the line. Every workspace has
+`gate`, written or not: with no `task gate` line its steps are `check`,
+`fmt --check`, `lint`, `test` and `gen --check`, and a written `task
+gate` line replaces the default whole. There is no syntax for edges
+between members: a member's edges are its `go.mod` replace lines, which
+discovery reads, and each step's key holds what it reads of the members
+it reaches.
+
+- **Plan.** A task runs the tasks of its `after` lines first, then its
+  steps in order, a step naming a task standing for that task's plan; a
+  task runs once per run. A built-in step but `gen --check` runs once at
+  each member, in the workspace's order (each member after the members
+  it reaches); `gen --check` and the generator steps run once over the
+  workspace (Generators). A step two tasks plan runs once and is
+  reported for each. If a task fails, the steps that wait on it do not
+  run and report which prerequisite blocked them. `ergo task --list
+  [--json]` prints each task's plan.
+- **Keys.** Each built-in step states what it reads (`gate.go`):
+  `check`, `lint` and `test` at a member read every file of the member
+  and of every folder its `go.mod` replaces a module with, transitively;
+  its law ledger as the run left it; the toolchain, the options and the
+  `GO*`, `CGO_*` and `ERGO_*` environment; and the task's `env`
+  variables. `fmt --check` reads the formatter's identity and the names
+  and bytes of the member's `.ergo` files outside generated trees with a
+  current marker. A step whose key holds a pass that the runner kept (the
+  law-verdict store, under `internal/task`'s identity) replays it and
+  does not run; a failed or flaky verdict is never kept. A verdict is kept
+  under the key as the run left the tree when only the law ledger moved
+  (`test` writes it, `check` and `lint` read it). `gen --check`
+  keeps no verdict of its own: the generators' store replays each
+  generator whose inputs hold. Each miss names the first input that moved
+  (`--why` prints it), never none.
+- **`--affected BASE`** runs only the steps whose inputs hold a path that
+  `git diff --name-only BASE` lists or that is untracked and not ignored
+  (a folder of the key standing for every path below it; `fmt --check`'s
+  inputs include `.ergo` files, marker paths, and all files a present
+  marker covers): selection by the step's inputs, not by member. The others
+  print `unaffected` and count as passed against `BASE`. Among the
+  selected steps the keys decide, as in a plain run.
+- **`--fresh`** ignores kept verdicts: every selected step runs; a kept
+  pass that the fresh run fails is a contradiction (the step's key misses
+  an input) and fails the run. Landings run `ergo task gate --fresh`.
+- **Flaky.** A `test` step that fails runs once more; a pass then is
+  `flaky`: never kept, appended to `task/flaky.txt` under the cache root
+  with its failing seed (when its output names one) and its log. A plain
+  run passes a flaky step and lists it; `--fresh` counts it a failure, so
+  no flaky step reaches main as a pass.
+- **The child's environment.** The runner starts every child (a
+  generator's `go` command, `go list`, `go env`, `git` for
+  `--affected`) through one helper (`internal/task/child.go`;
+  `TestChildrenStartInOnePlace`) with an environment it states, and
+  nothing else: the host's `GO*` and `CGO_*` variables, `PATH`, `HOME`
+  and `TMPDIR`, the variables of the task's `env` lines, and the
+  budget's `GOMAXPROCS` and lent grant. Every entry is in the key of the
+  generator that starts the child (the lent grant by its presence: its
+  value is this run's lease, not an input); a host variable no line names
+  never reaches a child. The program is looked up on the host's `PATH`,
+  which the stated `PATH` repeats, until std exec's lookup on the
+  child's own `PATH` replaces it (STD-EXEC-ENV; row TASK-GATE-EXEC-POINT).
+  Built-in steps run in the `ergo` process, not as children.
+- **Output.** A step's whole output goes to a log file under the cache
+  root (`task/logs`). In text, one line per failed step (`FAIL check
+  app: <first diagnostic>`) or flaky one, then the summary `gate: 118
+  passed (97 replayed, 21 unaffected), 1 failed, 1 flaky`. `--json`
+  prints one object per step, `{"task", "step", "member", "verdict":
+  "pass|fail|flaky|unaffected", "replay": "hit|miss", "why", "class",
+  "ms", "log", "seed", "first"}`, and last `{"summary": {"verdict",
+  "passed", "failed", "flaky", "replayed", "unaffected"}}`, its `failed`
+  and `flaky` lists carrying each step with its seed and log.
+- **Exit.** 0 when every step passed (a flaky one too, but with
+  `--fresh`); 1 when a step failed or a kept pass was contradicted; 2 for
+  an invalid invocation or an `ergo.work` that does not read.
+
+`TestTaskGateAgreesWithRunningEverything` (`cmd/ergo`) holds this over
+seeded workspaces of 3 to 6 members with random edges and seeded edits
+(a layout break, a comment, a body, a signature, a law broken, a file no
+package reads): each step's verdict equals the reference "run every
+step on every member with no store", the steps that run are exactly
+those whose inputs moved since they passed, and `--affected` selects
+exactly the steps whose inputs hold a changed path.
+`TestVerdictsAgreeWithRunningEverything` (`internal/task`) holds the
+runner's kept verdicts, flaky retries, `--fresh` contradictions and
+`--affected` selection against a reference model.
+
+*Prior art:* Turborepo's `dependsOn` with `^` and declared `inputs`
+globs, whose `affectedUsingTaskInputs` selects as `--affected` does
+here; Nx's merged targets and `namedInputs`; Bazel's `test_suite`,
+hermetic actions and `--flaky_test_attempts`; mise's `run` steps and
+`depends`; go test's cache keyed on the files and environment a test
+read. Each declares what a step reads, or keys on mtimes; here the
+compiler states it, so no declaration can miss an input but a `gen`
+line's `reads`.

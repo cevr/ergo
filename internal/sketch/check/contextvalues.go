@@ -176,10 +176,12 @@ func (c *checker) valueOperand(arg syntax.Expr) (*capSet, bool, *Context, *Conte
 func (c *checker) contextValueOwnership(owners map[*ContextEntry]*Context) {
 	for _, s := range c.contextValueSites {
 		w := s.w
-		if len(w.Contexts) > 0 && c.contextTestAmbient(w.Contexts[0]) {
-			c.cur = s.file
-			c.errorf(s.x, CodeType, "a Context value cannot hold context %s, which needs TestAmbient: its folder lives for one with of it; bind it with with in a test (rows.md, Test's ambient)", w.Contexts[0].Name)
-			continue
+		if len(w.Contexts) > 0 {
+			if name, life, section := c.contextTestGrant(w.Contexts[0]); name != "" {
+				c.cur = s.file
+				c.errorf(s.x, CodeType, "a Context value cannot hold context %s, which needs %s: %s; bind it with with in a test (rows.md, %s)", w.Contexts[0].Name, name, life, section)
+				continue
+			}
 		}
 		if len(w.Entries) == 0 {
 			continue

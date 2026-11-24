@@ -32,7 +32,7 @@ import (
 // handed off (Hand) or released, so the list holds only what the frame
 // still owns.
 type Scope struct {
-	s     rt.Scope
+	t     *rt.Task
 	ended bool
 	// last is the newest entry; n counts the entries.
 	last *entry
@@ -101,12 +101,12 @@ type selfOwned interface {
 }
 
 // NewScope is the frame scope of a frame that runs on task t.
-func NewScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t)} }
+func NewScope(t *rt.Task) Scope { return Scope{t: t} }
 
 // NewOwnerScope is the frame scope of a frame that opens one only to own
 // values (L8 B1): it releases them on every exit, and a stop pending
 // at its end stays pending for the caller's next checkpoint.
-func NewOwnerScope(t *rt.Task) Scope { return Scope{s: rt.NewScope(t), plain: true} }
+func NewOwnerScope(t *rt.Task) Scope { return Scope{t: t, plain: true} }
 
 // current is the frame that owns what the code at s starts now: the frame
 // of the running exit action, followed down through nested ones, else s.
@@ -157,7 +157,7 @@ func (s *Scope) End(err *error) {
 		e = *err
 	}
 	if p != nil {
-		e = join(e, capture(s.s.Task(), p))
+		e = join(e, capture(s.t, p))
 	}
 	settle(err, s.end(e))
 }
@@ -166,7 +166,7 @@ func (s *Scope) End(err *error) {
 func (s *Scope) end(e error) error {
 	e = s.close(e)
 	if !s.plain {
-		s.s.End(&e) // stop wins (Exit causes 5); rt holds no entry of this frame
+		e = s.t.ScopeExit(e) // stop wins (Exit causes 5)
 	}
 	if s.kept != nil {
 		e = s.settleKept(e)
@@ -211,7 +211,7 @@ func (s *Scope) OpenWith() *Scope {
 	if s.ended {
 		panic("with: the frame that would own this with's providers has returned")
 	}
-	w := &Scope{s: rt.NewScope(s.s.Task()), parent: s}
+	w := &Scope{t: s.t, parent: s}
 	s.withs = append(s.withs, w)
 	return w
 }
@@ -230,7 +230,7 @@ func (s *Scope) OpenWith() *Scope {
 //
 //ergo:wait none
 func (w *Scope) WithAcquire(open func() (func(), error)) error {
-	t := w.s.Task()
+	t := w.t
 	t.Check()
 	_, err := rt.AcquireInto(t, open, func(close func()) {
 		if close != nil {
@@ -247,7 +247,7 @@ func (w *Scope) WithAcquire(open func() (func(), error)) error {
 // after it still run and every cause stays. It is unexported: emitted code
 // registers a release only through WithAcquire's masked step (R8).
 func (w *Scope) ownRelease(close func()) {
-	t := w.s.Task()
+	t := w.t
 	w.push(&entry{action: func() {
 		defer func() {
 			if p := recover(); p != nil {
@@ -365,9 +365,9 @@ type exitAction struct {
 // run runs the exit action at the end of s, the frame it was registered
 // on (Scope.release).
 func (a *exitAction) run(s *Scope) {
-	t := s.s.Task()
+	t := s.t
 	action := &a.frame // zero: the action runs once
-	action.s.Begin(t)
+	action.t = t
 	prev := s.action
 	s.action = action
 	// The route to the action's frame stays through the block and
@@ -463,7 +463,7 @@ func Go[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
 	// the handle on no scope (rt.Start), and the Task itself is the body,
 	// so no closure carries it.
 	t := &Task[T]{body: body}
-	rt.Start(&t.h, s.s.Task(), string(span), (*taskBody[T])(t))
+	rt.Start(&t.h, s.t, string(span), (*taskBody[T])(t))
 	return t
 }
 
@@ -496,7 +496,7 @@ func GoWith[T, C any](s *Scope, span Site, c C, body func(*rt.Task, *C) (T, erro
 		panic("task.Go: the frame that would own this task has returned (law R9)")
 	}
 	x := &taskWith[T, C]{c: c, fn: body}
-	rt.Start(&x.t.h, s.s.Task(), string(span), x)
+	rt.Start(&x.t.h, s.t, string(span), x)
 	return &x.t
 }
 
@@ -534,7 +534,7 @@ func GoWithFrame[T, C, F any](s *Scope, span Site, c C, body func(*rt.Task, *C, 
 		panic("task.Go: the frame that would own this task has returned (law R9)")
 	}
 	x := &taskWithFrame[T, C, F]{c: c, fn: body}
-	rt.Start(&x.t.h, s.s.Task(), string(span), x)
+	rt.Start(&x.t.h, s.t, string(span), x)
 	return &x.t
 }
 
@@ -1108,7 +1108,7 @@ type Drop struct {
 // Drop starts the generated release of a value owned at s.
 //
 //ergo:wait none
-func (s *Scope) Drop() *Drop { return &Drop{t: s.s.Task()} }
+func (s *Scope) Drop() *Drop { return &Drop{t: s.t} }
 
 // NewDrop starts the generated release of a value on t outside a frame:
 // the release a std body runs for a result it drops (Releaser; Gap 47).
@@ -1162,7 +1162,7 @@ func (s *Scope) add(e *entry) *Scope {
 // does.
 func OwnErr(s *Scope, site Site, rel func() error) *Owned {
 	return s.own(func() {
-		t := s.s.Task()
+		t := s.t
 		var c rt.Cause
 		release(t, &c, func() { CloseFailed(string(site), rel()) }, nil)
 		if err := c.Err(); err != nil {
@@ -1288,7 +1288,7 @@ func ReleaseLatestFirst(hs ...*Owned) {
 // runOwn is the frame's release of an owned value at its End: a defect
 // joins the frame's exits, and the releases after it still run (R9).
 func (s *Scope) runOwn(e *entry) {
-	t := s.s.Task()
+	t := s.t
 	defer func() {
 		if p := recover(); p != nil {
 			s.exits.Add(capture(t, p))

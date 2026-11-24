@@ -45,7 +45,7 @@ func TestMainHelper(t *testing.T) {
 			return bad{"main"}
 		case "defect":
 			return frame(root, func(s *Scope) error {
-				_, err := ownedGo(s, "worker at w.ergo:7:3", func(*rt.Task) (int, error) { return explode(), nil }).Wait(s.s.Task())
+				_, err := ownedGo(s, "worker at w.ergo:7:3", func(*rt.Task) (int, error) { return explode(), nil }).Wait(s.t)
 				return err
 			})
 		case "interrupted":

@@ -1,0 +1,14 @@
+{
+  "mutants": [
+    {
+      "name": "gointerop-elapsed-reverses-instants",
+      "origin": "wf10 LAW-UNFED-BUILT-ONLY-PROVIDERS (q6; not-run-crunch)",
+      "file": "examples/gointerop/uptime/uptime.ergo",
+      "from": "int64(later.Sub(earlier))",
+      "to": "int64(earlier.Sub(later))",
+      "rule": "Elapsed.DifferenceOfReadings compares Go's duration to end minus start, with saturation.",
+      "anchor": {"tests": ["examples:gointerop"]},
+      "killers": ["examples:gointerop"]
+    }
+  ]
+}

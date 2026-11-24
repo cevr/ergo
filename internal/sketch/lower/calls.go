@@ -58,6 +58,14 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.patternCall(x, c) // refinematch.go
 	case check.CallHash:
 		return fc.hashCall(x) // ir_mapprovider.go
+	case check.CallTestSeed:
+		return operand{val: fc.l.rt() + ".TestSeed()"}
+	case check.CallTestFile:
+		return operand{val: strconv.Quote(fc.l.testFile(x))}
+	case check.CallTestSource:
+		return operand{val: fc.l.rt() + ".TestSource(" + fc.value(x.Args[0]) + ")"}
+	case check.CallTestShown:
+		return fc.testShown(x)
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -223,6 +231,8 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		args = append(append([]syntax.Expr{}, args...), nil) // the trailing block, lowered below
 	}
 	switch c.Kind {
+	case check.CallTestReport:
+		return fc.l.helper("Reported") + "(" + fc.value(x.Args[0]) + ")", false, false
 	case check.CallFunc:
 		if g := fc.uiGroup(x, c); g != nil {
 			return fc.groupCall(x, c, g) // a component call (uigroup.go)
@@ -1254,6 +1264,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if ta := w.Contexts[0].TestAmbient; ta != nil {
 		fc.testAmbient(env, ta)
 	}
+	if tl := w.Contexts[0].TestLoopback; tl != nil {
+		fc.line(testLoopbackGrant(fc.l, env, tl))
+	}
 	if lit {
 		// An empty inline context and a pure body may read no capability.
 		fc.line("_ = " + env)
@@ -1322,8 +1335,12 @@ func (fc *funcCtx) testAmbient(env string, ta *check.Named) {
 // provider of the test's ambient ta into the environment env.
 func testAmbientOpen(l *lowerer, env, dir string, ta *check.Named) string {
 	rt := l.rt()
-	return dir + " := " + rt + ".TestFolderOpen(); defer " + rt + ".TestFolderRemove(" + dir + "); " +
+	return dir + " := " + rt + ".OpenTestDirectory(); defer " + dir + ".End(); " +
 		env + "." + l.envField(ta) + " = " + l.helper("TestAmbient") + "{dir: " + dir + "}"
+}
+
+func testLoopbackGrant(l *lowerer, env string, tl *check.Named) string {
+	return env + "." + l.envField(tl) + " = " + l.helper("TestLoopback") + "{}"
 }
 
 // scopeCall writes a call of the with scope's method name on recv through
@@ -1848,7 +1865,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 // mentionsTypeParam reports a type that names a type parameter.
 func mentionsTypeParam(t check.Type) bool {
 	switch t := t.(type) {
-	case *check.TypeParam:
+	case *check.TypeParam, *check.Reapplied, *check.SelfType:
 		return true
 	case *check.Named:
 		for _, a := range t.TArgs {

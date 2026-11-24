@@ -1,0 +1,14 @@
+import fs
+import unfedconstructor/session
+
+type Disk { host fs.Host } implements session.Sessions
+
+func New(host fs.Host) Disk { Disk{host: host} }
+
+func Ready(d Disk) bool {
+	d.host.Stat(".") catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		return false
+	}
+	true
+}

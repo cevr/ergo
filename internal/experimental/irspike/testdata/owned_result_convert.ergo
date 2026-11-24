@@ -1,0 +1,51 @@
+import sync
+
+type View {
+	..Closer,
+	Reads() int,
+}
+
+type ticket { releases sync.Ref[int] } implements Closer
+
+func Close(t ticket) { t.releases.Set(t.releases.Get() + 1) }
+
+type wrapped { item ticket } implements View
+
+func Close(_ wrapped) {}
+
+func Reads(w wrapped) int { w.item.releases.Get() }
+
+func direct(releases sync.Ref[int]) View {
+	let t = ticket{releases: releases}
+	wrapped{item: t}
+}
+
+func named(releases sync.Ref[int]) View {
+	let t = ticket{releases: releases}
+	let w View = wrapped{item: t}
+	return w
+}
+
+func main() needs Console {
+	let releases = sync.NewRef(0)
+	let v = direct(releases)
+	Console.Println("\(v.Reads()) releases before caller closed")
+	v.Close()
+	Console.Println("\(releases.Get()) releases after caller closed")
+}
+
+test DirectReturnStaysOpen {
+	let releases = sync.NewRef(0)
+	let v = direct(releases)
+	assert v.Reads() == 0
+	v.Close()
+	assert releases.Get() == 1
+}
+
+test NamedReturnStaysOpen {
+	let releases = sync.NewRef(0)
+	let v = named(releases)
+	assert v.Reads() == 0
+	v.Close()
+	assert releases.Get() == 1
+}

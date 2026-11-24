@@ -18,7 +18,7 @@ import (
 const WorkFile = "ergo.work"
 
 // workVersion is the newest ergo.work format this binary reads.
-const workVersion = 2
+const workVersion = 3
 
 // Workspace is the modules below a root (docs/spec/build.md, Workspace):
 // every folder with an ergo.mod that source admission reaches, and the
@@ -302,27 +302,122 @@ type WorkGen struct {
 	Line int
 }
 
+// WorkTask is a task of ergo.work (version 3; docs/spec/build.md,
+// Tasks): its steps in order, the tasks it starts after, and the host
+// variables its children get.
+type WorkTask struct {
+	Name string
+	// Steps are the task's steps, one per task line, in order.
+	Steps []WorkStep
+	// After are the tasks it starts after, from its after lines.
+	After []string
+	// Env are the host variables its children get (its env lines); their
+	// values are in every step's key.
+	Env []string
+	// Line is the line of its first task line; 0 for the default gate.
+	Line int
+}
+
+// WorkStep is one step of a task: a built-in verb (Verb, with Words its
+// words: check, fmt --check, lint, test, gen --check), a gen line's
+// name (Gen) or another task's (Task).
+type WorkStep struct {
+	Words []string
+	Verb  string
+	Gen   string
+	Task  string
+	Line  int
+}
+
+// WorkDecl is what ergo.work declares for ergo task: its generators and its
+// tasks, in the order the file names them, the default gate among them
+// when the file writes no task gate line.
+type WorkDecl struct {
+	Gens  []WorkGen
+	Tasks []WorkTask
+}
+
+// Task is the task named name, if the file declares it (or it is the
+// default gate).
+func (w WorkDecl) Task(name string) (WorkTask, bool) {
+	for _, t := range w.Tasks {
+		if t.Name == name {
+			return t, true
+		}
+	}
+	return WorkTask{}, false
+}
+
+// GateTask is the task every workspace has with no line written: check,
+// fmt --check, lint, test and gen --check, in that order. Writing any
+// task gate line replaces it whole.
+const GateTask = "gate"
+
+// GenTask is the task whose steps are the generators (ergo task gen); no
+// task line may declare it.
+const GenTask = "gen"
+
+// builtinSteps are the built-in verbs a step may name, by their words.
+var builtinSteps = map[string]string{
+	"check":       "check",
+	"fmt --check": "fmt",
+	"lint":        "lint",
+	"test":        "test",
+	"gen --check": "gen",
+}
+
+// defaultGate is GateTask's steps when no task gate line is written.
+func defaultGate() WorkTask {
+	t := WorkTask{Name: GateTask}
+	for _, words := range []string{"check", "fmt --check", "lint", "test", "gen --check"} {
+		t.Steps = append(t.Steps, WorkStep{Words: strings.Fields(words), Verb: builtinSteps[words]})
+	}
+	return t
+}
+
 // workFile is what an ergo.work holds.
 type workFile struct {
 	skips []workSkip
 	gens  []WorkGen
+	tasks []WorkTask
 }
 
 // ReadWorkFile reads the ergo.work at root: its generators, none when
 // root holds no ergo.work.
 func ReadWorkFile(root string) ([]WorkGen, error) {
+	w, err := ReadWork(root)
+	return w.Gens, err
+}
+
+// ReadWork reads the ergo.work at root: its generators and tasks, the
+// default gate among them; with no ergo.work, the default gate alone.
+func ReadWork(root string) (WorkDecl, error) {
 	data, err := hostFS{}.ReadFile(filepath.Join(root, WorkFile))
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return WorkDecl{Tasks: []WorkTask{defaultGate()}}, nil
 	}
 	if err != nil {
-		return nil, err
+		return WorkDecl{}, err
 	}
 	wf, err := parseWorkFile(string(data))
 	if err != nil {
-		return nil, err
+		return WorkDecl{}, err
 	}
-	return wf.gens, nil
+	return WorkDecl{Gens: wf.gens, Tasks: wf.tasks}, nil
+}
+
+// envName reports whether s is a host variable's name: upper-case
+// letters, digits and '_', not starting with a digit.
+func envName(s string) bool {
+	if s == "" || s[0] >= '0' && s[0] <= '9' {
+		return false
+	}
+	for _, r := range s {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' {
+			return false
+		}
+	}
+	return true
 }
 
 // genName reports whether s is a generator name: lower-case letters,
@@ -349,13 +444,16 @@ func cleanBelow(p string) bool {
 // lines and // comments; first the line `version N`; then lines of a key
 // and its arguments. Version 1 knows one key, `skip DIR`, a folder below
 // the root, slash-separated; version 2 adds `gen NAME COMMAND...` and
-// `reads NAME PATH...`. A key the file's version does not know, or a
+// `reads NAME PATH...`; version 3 adds `task NAME STEP...`, `after NAME
+// TASK...` and `env NAME VAR...` (resolveTasks). A key the file's
+// version does not know, or a
 // newer version, is an error, never ignored: a later key changes what a
 // run does, so a binary that cannot read it must not run as if it were
 // absent.
 func parseWorkFile(text string) (workFile, error) {
 	var wf workFile
 	gens := map[string]int{}
+	var lines []taskLine
 	version := 0
 	for i, raw := range strings.Split(text, "\n") {
 		line := i + 1
@@ -390,6 +488,11 @@ func parseWorkFile(text string) (workFile, error) {
 				return workFile{}, fmt.Errorf("%s:%d: skip %s is not a clean slash-separated folder below the workspace root", WorkFile, line, dir)
 			}
 			wf.skips = append(wf.skips, workSkip{dir: dir, line: line})
+		case (words[0] == "task" || words[0] == "after" || words[0] == "env") && version >= 3:
+			if len(words) < 3 || !genName(words[1]) {
+				return workFile{}, fmt.Errorf("%s:%d: %s takes a task name (a-z, 0-9, -) and %s", WorkFile, line, words[0], map[string]string{"task": "a step", "after": "tasks", "env": "variables"}[words[0]])
+			}
+			lines = append(lines, taskLine{key: words[0], name: words[1], args: words[2:], line: line})
 		case words[0] == "gen" && version >= 2:
 			if len(words) < 3 || !genName(words[1]) {
 				return workFile{}, fmt.Errorf("%s:%d: gen takes a name (a-z, 0-9, -) and a command", WorkFile, line)
@@ -415,14 +518,142 @@ func parseWorkFile(text string) (workFile, error) {
 			}
 		case version == 1:
 			return workFile{}, fmt.Errorf("%s:%d: unknown key %s; version 1 knows skip", WorkFile, line, words[0])
+		case version == 2:
+			return workFile{}, fmt.Errorf("%s:%d: unknown key %s; version 2 knows skip, gen and reads", WorkFile, line, words[0])
 		default:
-			return workFile{}, fmt.Errorf("%s:%d: unknown key %s; version %d knows skip, gen and reads", WorkFile, line, words[0], version)
+			return workFile{}, fmt.Errorf("%s:%d: unknown key %s; version %d knows skip, gen, reads, task, after and env", WorkFile, line, words[0], version)
 		}
 	}
 	if version == 0 {
 		return workFile{}, fmt.Errorf("%s: the first line is version N", WorkFile)
 	}
+	tasks, err := resolveTasks(lines, gens)
+	if err != nil {
+		return workFile{}, err
+	}
+	wf.tasks = tasks
 	return wf, nil
+}
+
+// taskLine is a task, after or env line, read before the tasks resolve
+// (a step may name a task or gen declared further down).
+type taskLine struct {
+	key, name string
+	args      []string
+	line      int
+}
+
+// resolveTasks makes the tasks of the file's task, after and env lines,
+// in the order their first task lines come, the default gate first when
+// no task gate line is written. A step is a built-in verb's words, or one
+// word naming a gen line or a task (GenTask included: the generators).
+// After and env lines name a task the file declares or GateTask. A name
+// declared as both a gen and a task, a task named GenTask, an unknown
+// step, a repeated variable, and a cycle of tasks (through steps or after
+// lines) are errors naming the line.
+func resolveTasks(lines []taskLine, gens map[string]int) ([]WorkTask, error) {
+	var tasks []WorkTask
+	index := map[string]int{}
+	for _, l := range lines {
+		if l.key != "task" {
+			continue
+		}
+		if l.name == GenTask {
+			return nil, fmt.Errorf("%s:%d: task gen is the generators' task (ergo task gen); name this task otherwise", WorkFile, l.line)
+		}
+		if _, ok := gens[l.name]; ok {
+			return nil, fmt.Errorf("%s:%d: task %s: a gen line has that name", WorkFile, l.line, l.name)
+		}
+		if _, ok := index[l.name]; !ok {
+			index[l.name] = len(tasks)
+			tasks = append(tasks, WorkTask{Name: l.name, Line: l.line})
+		}
+	}
+	if _, ok := index[GateTask]; !ok {
+		tasks = append([]WorkTask{defaultGate()}, tasks...)
+		for n := range index {
+			index[n]++
+		}
+		index[GateTask] = 0
+	}
+	// edges[i] are the tasks task i waits for, with the line saying so.
+	type edge struct{ to, line int }
+	edges := make([][]edge, len(tasks))
+	for _, l := range lines {
+		i, ok := index[l.name]
+		if !ok {
+			return nil, fmt.Errorf("%s:%d: %s %s names no task (a task line declares one; gate is always one)", WorkFile, l.line, l.key, l.name)
+		}
+		t := &tasks[i]
+		switch l.key {
+		case "task":
+			words := strings.Join(l.args, " ")
+			step := WorkStep{Words: l.args, Line: l.line}
+			if verb, ok := builtinSteps[words]; ok {
+				step.Verb = verb
+			} else if j, ok := index[words]; ok && len(l.args) == 1 {
+				step.Task = words
+				edges[i] = append(edges[i], edge{j, l.line})
+			} else if _, ok := gens[words]; ok && len(l.args) == 1 {
+				step.Gen = words
+			} else if words == GenTask {
+				step.Task = GenTask
+			} else {
+				return nil, fmt.Errorf("%s:%d: task %s: step %q is no built-in verb (check, fmt --check, lint, test, gen --check), gen line or task", WorkFile, l.line, l.name, words)
+			}
+			t.Steps = append(t.Steps, step)
+		case "after":
+			for _, a := range l.args {
+				j, ok := index[a]
+				if !ok && a != GenTask {
+					return nil, fmt.Errorf("%s:%d: after %s: %s names no task", WorkFile, l.line, l.name, a)
+				}
+				if slices.Contains(t.After, a) {
+					return nil, fmt.Errorf("%s:%d: after %s: %s is named twice", WorkFile, l.line, l.name, a)
+				}
+				t.After = append(t.After, a)
+				if ok {
+					edges[i] = append(edges[i], edge{j, l.line})
+				}
+			}
+		case "env":
+			for _, v := range l.args {
+				if !envName(v) {
+					return nil, fmt.Errorf("%s:%d: env %s: %s is not a variable name (A-Z, 0-9, _)", WorkFile, l.line, l.name, v)
+				}
+				if slices.Contains(t.Env, v) {
+					return nil, fmt.Errorf("%s:%d: env %s: %s is named twice", WorkFile, l.line, l.name, v)
+				}
+				t.Env = append(t.Env, v)
+			}
+		}
+	}
+	// A cycle of tasks never starts: the line that closes it is named.
+	state := make([]int, len(tasks))
+	var visit func(i int) error
+	visit = func(i int) error {
+		state[i] = 1
+		for _, e := range edges[i] {
+			switch state[e.to] {
+			case 1:
+				return fmt.Errorf("%s:%d: task %s waits for %s, which waits for it (a cycle of tasks)", WorkFile, e.line, tasks[i].Name, tasks[e.to].Name)
+			case 0:
+				if err := visit(e.to); err != nil {
+					return err
+				}
+			}
+		}
+		state[i] = 2
+		return nil
+	}
+	for i := range tasks {
+		if state[i] == 0 {
+			if err := visit(i); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return tasks, nil
 }
 
 // pathClean is path.Clean of a slash-separated path.

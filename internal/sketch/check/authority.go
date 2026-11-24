@@ -25,8 +25,28 @@ func isAmbient(t Type) bool {
 // isTestAmbient reports whether t is the prelude's TestAmbient, the test's
 // ambient (testambient.go): the authority the test runner provides.
 func isTestAmbient(t Type) bool {
-	n, ok := t.(*Named)
-	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "TestAmbient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == stdlib.PreludePath
+	return testAuthorityOf(t) == testAuthorityAmbient
+}
+
+func isTestLoopback(t Type) bool {
+	return testAuthorityOf(t) == testAuthorityLoopback
+}
+
+type testAuthority uint8
+
+const (
+	testAuthorityNone testAuthority = iota
+	testAuthorityAmbient
+	testAuthorityLoopback
+)
+
+func testAuthorityOf(t Type) testAuthority {
+	if n, ok := t.(*Named); ok {
+		if obj := n.origin().Obj; obj != nil {
+			return obj.testAuthority
+		}
+	}
+	return testAuthorityNone
 }
 
 // Construction authority and member visibility across packages
@@ -432,6 +452,16 @@ func (m *mentioner) walk(t Type) {
 		m.walk(u.Signal)
 	case *TypeParam:
 		m.walk(u.Constraint)
+	case *SelfType:
+		// The claimant is unknown here; the arguments may name types.
+		for _, a := range u.Args {
+			m.walk(a)
+		}
+	case *Reapplied:
+		m.walk(u.Param)
+		for _, a := range u.Args {
+			m.walk(a)
+		}
 	case *RowArg:
 		m.row(u.Row)
 	case *Wired:

@@ -51,8 +51,6 @@ debt	internal/sketch/check/aspattern.go:checker.refusedRest	flag	"preludeObject"
 language	internal/sketch/check/authority.go:authorityText	mark	"stdlib.PreludePath"	a prelude constructor is named unqualified in a diagnostic	-
 language	internal/sketch/check/authority.go:isAmbient	mark	"stdlib.PreludePath"	Ambient, the host authority	-
 language	internal/sketch/check/authority.go:isAmbient	name	"Ambient"	Ambient, the host authority	-
-language	internal/sketch/check/authority.go:isTestAmbient	mark	"stdlib.PreludePath"	TestAmbient, the test's host authority	-
-language	internal/sketch/check/authority.go:isTestAmbient	name	"TestAmbient"	TestAmbient, the test's host authority	-
 debt	internal/sketch/check/body.go:checker.runtimeTypeRefusal	mark	".trusted"	checker.runtimeTypeRefusal: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/borrowconv.go:escWalk.checkBorrowConv	flag	"goArgument"	escWalk.checkBorrowConv: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/borrowconv.go:escWalk.goArgument	mark	"Host()"	escWalk.goArgument: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
@@ -90,20 +88,15 @@ seam	internal/sketch/check/check.go:stdImporter.testOf	mark	"stdlib.Package"	fin
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_Package	mark	".trusted"	CodecFieldsOf_Package: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_checker	flag	"hostCall"	CodecFieldsOf_checker: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_hand	flag	"hostLend"	CodecFieldsOf_hand: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/codec_access_gen.go:CodecFieldsOf_typeCtx	flag	"binding"	CodecFieldsOf_typeCtx: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/context.go:checker.contextEntry	flag	"isTestAmbient"	checker.contextEntry: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-language	internal/sketch/check/contextneeds.go:checker.readContextHeader	flag	"isTestAmbient"	TestAmbient, the test runner's, in a named context's needs row	-
 language	internal/sketch/check/contextvalues.go:contextRow	mark	"stdlib.PreludePath"	Context, the predeclared row value	-
 language	internal/sketch/check/contextvalues.go:contextRow	name	"Context"	Context, the predeclared row value	-
 debt	internal/sketch/check/decl.go:checker.funcSig	mark	"Host()"	checker.funcSig: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/check/decl.go:checker.importSpec	mark	"stdlib.Package"	a std path always names std (no shadowing)	-
-debt	internal/sketch/check/decl.go:checker.interfaceType	mark	"Host()"	checker.interfaceType: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/decl.go:checker.resolveNamed	flag	"emptyUnion"	checker.resolveNamed: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 seam	internal/sketch/check/decl.go:checker.run	mark	".std"	the second check of a package keeps its std mark	-
 debt	internal/sketch/check/decl.go:checker.run	mark	".trusted"	checker.run: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/decl.go:checker.structType	mark	"Host()"	checker.structType: a mark key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
-debt	internal/sketch/check/decl.go:checker.typExpr0	flag	"binding"	checker.typExpr0: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 debt	internal/sketch/check/discard.go:checker.raisesByName	flag	"IsUnreachable"	checker.raisesByName: a flag key the function-level rule did not see (PRIVILEGE-KEYS per-key scan)	PK-NP
 language	internal/sketch/check/durable.go:pureSeer.step	name	"Step"	Machine, a machine literal whose Step a pure parameter sees	-
 language	internal/sketch/check/durable.go:pureSeer.stepValue	name	"Step"	Machine's Step	-

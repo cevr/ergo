@@ -234,6 +234,11 @@ func nify(s mut store.Store, f mut Frame, u Unions, c Call, x0 dense.ID[store.TK
 		return false
 	}
 	let d = depth + 1
+	if store.KindOfType(*s, x) == store.KReapplied {
+		// The expected type is checked after inference, never used to
+		// infer its receiver or replacement arguments.
+		return true
+	}
 	if k >= 0 {
 		if f.slots[c.at+k].row {
 			// A row parameter in a type position. The Go checker accepts

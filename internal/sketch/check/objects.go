@@ -49,6 +49,8 @@ type TypeName struct {
 	// as read from a binding. A runtime-backed Ergo type still has Ergo's
 	// operation ABI.
 	goType bool
+	// testAuthority is nonzero only on a declaration the test runner supplies.
+	testAuthority testAuthority
 	// Provider is the resolved plan of a derived provider (script.go), or
 	// nil.
 	Provider *ProviderTypes
@@ -251,7 +253,9 @@ type Context struct {
 	// runner provides, so only a test's with or a law run builds it.
 	// headerRead marks the header read (contextTestAmbient).
 	TestAmbient *Named
-	headerRead  bool
+	// TestLoopback is the runner's separate loopback grant, when listed.
+	TestLoopback *Named
+	headerRead   bool
 }
 
 func (o *TypeName) name() string { return o.Name }

@@ -63,7 +63,8 @@ func BenchmarkHTTPServer(b *testing.B) {
 					el = ergonet.ListenerOn(ln)
 				}
 				if mode == "ergo" || mode == "ergo-pipe" {
-					s := v1.NewScope(rt.Root("HTTP benchmark"))
+					root := rt.Root("HTTP benchmark")
+					s := v1.NewScope(root)
 					h := v1.Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
 						return struct{}{}, HTTPServe("request", ct, liveSleeper{}, el, serveLimits(4096, 4096), func(_ *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 							if tooLarge || readError != "" {
@@ -72,7 +73,7 @@ func BenchmarkHTTPServer(b *testing.B) {
 							return HTTPResponse{Status: 200, Body: body}
 						})
 					})
-					b.Cleanup(h.Stop)
+					b.Cleanup(func() { h.Stop(root) })
 				} else {
 					ctx, cancel := context.WithCancel(context.Background())
 					var mu sync.Mutex

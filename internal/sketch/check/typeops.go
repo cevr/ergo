@@ -3,6 +3,7 @@ package check
 import (
 	"fmt"
 	"math/big"
+	"slices"
 
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -13,33 +14,53 @@ import (
 // binding is a RowArg, flattened into the row it occurs in; a result-position
 // parameter bound to no value drops out of the result list (Q3).
 func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
-	if len(m) == 0 || t == nil {
+	return c.substWith(t, m, nil)
+}
+
+type selfReader func(*SelfType, []Type) Type
+
+func (c *checker) substWith(t Type, m map[*TypeParam]Type, self selfReader) Type {
+	if t == nil || len(m) == 0 && self == nil {
 		return t
 	}
+	read := func(t Type) Type { return c.substWith(t, m, self) }
+	row := func(r *Row) *Row { return c.substRowWith(r, read, self != nil) }
 	switch t := t.(type) {
 	case *TypeParam:
 		if b, ok := m[t]; ok && b != nil {
 			return b
 		}
 		return t
-	case *Named:
-		if len(t.TArgs) == 0 {
+	case *SelfType:
+		args := mapTypes(t.Args, read)
+		if self != nil {
+			return self(t, args)
+		}
+		if slices.Equal(args, t.Args) {
 			return t
 		}
-		args := make([]Type, len(t.TArgs))
-		changed := false
-		for i, a := range t.TArgs {
-			args[i] = c.subst(a, m)
-			if args[i] != a {
-				changed = true
-			}
+		out := *t
+		out.Args = args
+		return &out
+	case *Reapplied:
+		args := mapTypes(t.Args, read)
+		p := read(t.Param)
+		if p == t.Param && slices.Equal(args, t.Args) {
+			return t
 		}
-		if !changed {
+		return c.reapply(p, t.Param, args)
+	case *Named:
+		args := mapTypes(t.TArgs, read)
+		if slices.Equal(args, t.TArgs) {
 			return t
 		}
 		return c.instantiate(t.origin(), args)
 	case *RowArg:
-		return &RowArg{Row: c.substRow(t.Row, m)}
+		r := row(t.Row)
+		if r == t.Row {
+			return t
+		}
+		return &RowArg{Row: r}
 	case *Wired:
 		// wired[T] at T's argument is the argument's wire row, which
 		// flattens into the row it occurs in (Row.with).
@@ -67,7 +88,7 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 			if b, ok := t.m[tp]; ok {
 				cur = b
 			}
-			nb := c.subst(cur, m)
+			nb := read(cur)
 			changed = changed || nb != cur
 			if nb != Type(tp) {
 				if nm == nil {
@@ -84,69 +105,120 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 		}
 		return &RowVar{of: root, m: nm, ctx: c}
 	case *Struct:
-		s := &Struct{Fields: make([]*Field, len(t.Fields)), obj: t.obj}
+		s := *t
+		s.Fields = make([]*Field, len(t.Fields))
+		changed := false
 		for i, f := range t.Fields {
-			s.Fields[i] = &Field{Name: f.Name, Type: c.subst(f.Type, m), Pos: f.Pos, origin: f.Origin()}
+			typ := read(f.Type)
+			r := *f
+			r.Type, r.origin = typ, f.Origin()
+			s.Fields[i] = &r
+			changed = changed || typ != f.Type
 		}
-		return s
+		if self != nil && !changed {
+			return t
+		}
+		return &s
 	case *Interface:
-		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj, Generic: t.Generic}
+		it := &Interface{Set: t.Set, Methods: make([]*Method, len(t.Methods)), obj: t.obj, ConstraintOnly: t.ConstraintOnly}
+		changed := false
+		for _, use := range t.selfUses {
+			if use, ok := read(use).(*SelfType); ok {
+				it.selfUses = append(it.selfUses, use)
+			}
+		}
 		if t.Terms != nil {
 			it.Terms = make([]*Term, len(t.Terms))
 			for i, term := range t.Terms {
-				it.Terms[i] = &Term{Tilde: term.Tilde, Type: c.subst(term.Type, m)}
+				typ := read(term.Type)
+				it.Terms[i] = &Term{Tilde: term.Tilde, Type: typ}
+				changed = changed || typ != term.Type
 			}
 		}
 		newOf := make(map[*Method]*Method, len(t.Methods))
 		for i, mt := range t.Methods {
-			it.Methods[i] = &Method{Name: mt.Name, Sig: c.subst(mt.Sig, m).(*Signature), Pos: mt.Pos, pkg: mt.pkg}
+			sig := read(mt.Sig).(*Signature)
+			it.Methods[i] = &Method{Name: mt.Name, Sig: sig, Pos: mt.Pos, pkg: mt.pkg}
 			newOf[mt] = it.Methods[i]
+			changed = changed || sig != mt.Sig
 		}
 		// The order sorted at resolution carries over (no sort here).
 		for _, mt := range t.byName {
 			it.byName = append(it.byName, newOf[mt])
 		}
 		for _, inc := range t.includes {
-			if n, ok := c.subst(inc, m).(*Named); ok {
+			if n, ok := read(inc).(*Named); ok {
 				it.includes = append(it.includes, n)
+				changed = changed || n != inc
 			}
+		}
+		if self != nil && !changed {
+			return t
 		}
 		return it
 	case *Union:
 		if t.Row != nil {
 			// A row value's members are a row: a row parameter's binding
 			// (a RowArg) flattens into it, as in substRow (q47).
-			return c.rowValue(c.substRow(t.Row, m))
+			r := row(t.Row)
+			if r == t.Row {
+				return t
+			}
+			return c.rowValue(r)
 		}
-		u := &Union{Variants: make([]Type, len(t.Variants)), Bad: t.Bad}
-		for i, v := range t.Variants {
-			u.Variants[i] = c.subst(v, m)
+		vs := mapTypes(t.Variants, read)
+		if self != nil && slices.Equal(vs, t.Variants) {
+			return t
 		}
-		return u
+		return &Union{Variants: vs, Bad: t.Bad}
 	case *MachineType:
-		return &MachineType{State: c.subst(t.State, m), Signal: c.subst(t.Signal, m)}
+		state, signal := read(t.State), read(t.Signal)
+		if self != nil && state == t.State && signal == t.Signal {
+			return t
+		}
+		return &MachineType{State: state, Signal: signal}
 	case *Slice:
-		return &Slice{Elem: c.subst(t.Elem, m)}
+		elem := read(t.Elem)
+		if self != nil && elem == t.Elem {
+			return t
+		}
+		return &Slice{Elem: elem}
 	case *Array:
-		return &Array{Len: t.Len, Elem: c.subst(t.Elem, m)}
+		elem := read(t.Elem)
+		if self != nil && elem == t.Elem {
+			return t
+		}
+		return &Array{Len: t.Len, Elem: elem}
 	case *Map:
-		return &Map{Key: c.subst(t.Key, m), Elem: c.subst(t.Elem, m)}
+		key, elem := read(t.Key), read(t.Elem)
+		if self != nil && key == t.Key && elem == t.Elem {
+			return t
+		}
+		return &Map{Key: key, Elem: elem}
 	case *Pointer:
-		return &Pointer{Elem: c.subst(t.Elem, m)}
+		elem := read(t.Elem)
+		if self != nil && elem == t.Elem {
+			return t
+		}
+		return &Pointer{Elem: elem}
 	case *Signature:
 		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Entry: t.Entry, Takes: t.Takes, TakesSelf: t.TakesSelf, MutSelf: t.MutSelf}
+		changed := false
 		for _, p := range t.Params {
-			s.Params = append(s.Params, &Var{Name: p.Name, Type: c.subst(p.Type, m), Pos: p.Pos, id: p.id, param: true})
+			typ := read(p.Type)
+			s.Params = append(s.Params, &Var{Name: p.Name, Type: typ, Pos: p.Pos, id: p.id, param: true})
+			changed = changed || typ != p.Type
 		}
 		for _, r := range t.Results {
-			r2 := c.subst(r, m)
+			r2 := read(r)
+			changed = changed || r2 != r
 			if r2 == NoValue {
 				continue
 			}
 			s.Results = append(s.Results, r2)
 		}
-		s.Errors = c.substRow(t.Errors, m)
-		s.Uses = c.substRow(t.Uses, m)
+		s.Errors = row(t.Errors)
+		s.Uses = row(t.Uses)
 		// Type parameters that stay unbound remain the signature's own.
 		for _, tp := range t.TParams {
 			if _, bound := m[tp]; !bound {
@@ -157,25 +229,40 @@ func (c *checker) subst(t Type, m map[*TypeParam]Type) Type {
 			// None bound, as a generic operation's own at an instance of
 			// its type: they stay written ones (GENERIC-OP).
 			s.NBracket = t.NBracket
+			if self != nil && !changed && s.Errors == t.Errors && s.Uses == t.Uses {
+				return t
+			}
 		}
 		return s
 	case *Tuple:
-		out := &Tuple{}
-		for _, x := range t.Types {
-			out.Types = append(out.Types, c.subst(x, m))
+		ts := mapTypes(t.Types, read)
+		if self != nil && slices.Equal(ts, t.Types) {
+			return t
 		}
-		return out
+		return &Tuple{Types: ts}
 	}
 	return t
 }
 
 func (c *checker) substRow(r *Row, m map[*TypeParam]Type) *Row {
+	return c.substRowWith(r, func(t Type) Type { return c.subst(t, m) }, false)
+}
+
+func (c *checker) substRowWith(r *Row, read func(Type) Type, share bool) *Row {
+	if share {
+		elems := r.Elems()
+		replaced := mapTypes(elems, read)
+		if slices.Equal(replaced, elems) {
+			return r
+		}
+		return c.types.row(replaced...)
+	}
 	if r.Empty() {
 		return newRow()
 	}
 	out := newRow()
 	for _, e := range r.Elems() {
-		out = out.with(c.types, c.subst(e, m))
+		out = out.with(c.types, read(e))
 	}
 	return out
 }
@@ -666,9 +753,16 @@ func (c *checker) methodOf(t Type, name string) (*Signature, *Func) {
 		}
 	case *Pointer:
 		return c.methodOf(t.Elem, name)
-	case *TypeParam:
-		if it := asInterface(t.Constraint); it != nil {
+	case *TypeParam, *Reapplied, *SelfType:
+		op := c.receiverOperationType(t)
+		if op == nil {
+			break
+		}
+		if it := asInterface(op); it != nil {
 			if m := it.method(name); m != nil {
+				if it.ConstraintOnly {
+					return c.substWith(m.Sig, nil, c.abstractSelf(t)).(*Signature), nil
+				}
 				return m.Sig, nil
 			}
 		}
@@ -942,7 +1036,27 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 	// Native Go conversion uses the Go method set, not the shape an
 	// Ergo caller sees. Keep the binding's rows and lifetime checks.
 	native := isHostNamed(v) && it.obj.BindsGoType()
-	for _, m := range it.Methods {
+	var self selfReader
+	if len(it.selfUses) > 0 {
+		if n, ok := v.(*Named); ok && asInterface(n) == nil {
+			op, _ := declared.(*Named)
+			if op == nil && it.obj != nil {
+				op, _ = it.obj.Type.(*Named)
+			}
+			if op != nil {
+				_, self, _ = c.claimSubst(n, op)
+			}
+		} else if c.receiverOperationType(v) != nil {
+			self = c.abstractSelf(v)
+		}
+	}
+	for _, mt := range it.Methods {
+		m := mt
+		if self != nil {
+			at := *mt
+			at.Sig = c.substWith(mt.Sig, nil, self).(*Signature)
+			m = &at
+		}
 		got, fn := c.methodOf(v, m.Name)
 		if got == nil {
 			return fmt.Sprintf("%s has no method %s", v, m.Name)
@@ -992,7 +1106,7 @@ func (c *checker) implementsAt(v Type, it *Interface, checkReceiver bool, captur
 				got = c.subst(got, rename).(*Signature)
 			}
 		}
-		if sigHasInvalid(got) {
+		if sigHasInvalid(got) || self != nil && sigHasInvalid(m.Sig) {
 			// The invalid part has its own diagnostic; comparing it would
 			// cascade (D3; stage D1 fuzz triage, fuzz-check-C-r4-f8314ece).
 			continue

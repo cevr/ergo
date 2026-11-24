@@ -26,6 +26,11 @@ type SecureHost { live hostOnly } implements Secure
 // stdlib.md, Host packages).
 func NewSecureHost() SecureHost needs Ambient { SecureHost{live: hostOnly} }
 
+// testSecure tests the length of a host draw without asserting its bytes.
+func testSecure() SecureHost needs TestAmbient { SecureHost{live: hostOnly} }
+
+let onTestSecure = context needs TestAmbient { Secure: testSecure() }
+
 // Bytes is n bytes of the host's secure source (Go's crypto/rand.Read).
 func Bytes(_ SecureHost, n int) string { secureBytes(n) }
 
