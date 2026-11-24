@@ -1,0 +1,151 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+
+// borrowParamBase is the named record behind a checked mut parameter.
+// Only the parameter/receiver ABI uses it, never ordinary value spelling.
+func borrowParamBase(st fnb, t dense.ID[store.TKey]) Option[dense.ID[store.TKey]] {
+	if store.KindOfType(st.s, t) != store.KPointer {
+		return None
+	}
+	let elem = store.OperandsOf(st.s, t)[0]
+	if ordinaryRecord(st, elem) < 0 {
+		return None
+	}
+	Some[dense.ID[store.TKey]]{Value: elem}
+}
+
+func borrowParamGo(st fnb, t dense.ID[store.TKey]) string {
+	match borrowParamBase(st, t) {
+	case Some{Value: elem}:
+		let gt = shapeGo(st, elem)
+		if gt == "" { "" } else { "*" + gt }
+	case None:
+		""
+	}
+}
+
+// The first unit frame is scoped to one place write or one invocation,
+// with a borrowed formal and no taken parameters. CONTROL plans the
+// actual statement; this predicate does not admit its operands.
+func controlUnitAdmitted(st fnb, f expr.Fn, body dense.ID[syntax.Node]) bool {
+	let ops = store.OperandsOf(st.s, f.Sig)
+	let formals = len(f.Names)
+	if formals == 0 || len(ops) != formals+3 || len(f.Takes) != formals {
+		return false
+	}
+	let mut borrowed = false
+	for i in 0..formals {
+		if f.Takes[i] {
+			return false
+		}
+		borrowed = borrowed || borrowParamGo(st, ops[i]) != ""
+	}
+	if !borrowed {
+		return false
+	}
+	let p = st.p
+	match syntax.ViewOf(p.Tree, body) {
+	case syntax.BlockStmt as block:
+		if syntax.Len(block.List) != 1 {
+			return false
+		}
+		let node = syntax.Item(p.Tree, block.List, 0)
+		match syntax.ViewOf(p.Tree, node) {
+		case syntax.AssignStmt as a:
+			syntax.KindOf(p.Tree, unparen(st, a.Lhs)) == syntax.KSelectorExpr
+		case syntax.ExprStmt as e:
+			syntax.KindOf(p.Tree, unparen(st, e.X)) == syntax.KCallExpr
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+}
+
+// fixedBorrowField is a checked addressable field through a fixed formal
+// slot. The root is the borrow itself, not a loaded copy of its record.
+type fixedBorrowField { slot int, rootAt int, fieldAt int, member string, t dense.ID[store.TKey] }
+
+func planBorrowField(st fnb, x dense.ID[syntax.Node], formals int) fixedBorrowField fails Unported {
+	let p = st.p
+	let q = unparen(st, x)
+	let se = match syntax.ViewOf(p.Tree, q) {
+	case syntax.SelectorExpr as sel:
+		sel
+	case _:
+		return stop("borrow place: expected a record field")
+	}
+	let root = unparen(st, se.X)
+	if syntax.KindOf(p.Tree, root) != syntax.KIdent {
+		return stop("borrow place: computed root")
+	}
+	let slot = try paramLocal(st, root)
+	if slot < 0 || slot >= formals {
+		return stop("borrow place: root is not a formal slot")
+	}
+	let rec = match borrowParamBase(st, try typeOf(st, root, "borrow root")) {
+	case Some{Value: r}:
+		r
+	case None:
+		return stop("borrow place: root is not a borrowed record")
+	}
+	fixedBorrowField{
+		slot:    slot,
+		rootAt:  syntax.NodePos(p, root),
+		fieldAt: syntax.NodePos(p, se.Sel),
+		member:  try fieldOn(st, q, se, rec),
+		t:       try typeOf(st, q, "borrow field"),
+	}
+}
+
+type borrowWrite { place fixedBorrowField, at int, op string }
+
+// planBorrowWrite checks the store's proof domain in addition to
+// CONTROL's ordinary RHS check. An admitted RHS has no operand prelude,
+// so the oracle has no old-value temp or address operands to fix.
+func planBorrowWrite(st fnb, node dense.ID[syntax.Node], a syntax.AssignStmt, formals int) borrowWrite fails Unported {
+	let place = try planBorrowField(st, a.Lhs, formals)
+	let gt = basicGo(st, place.t)
+	if gt == "" {
+		return stop("borrow store: non-scalar field")
+	}
+	let text = syntax.TokText(st.p, a.Tok)
+	let op = if text == "=" { "" } else { text[:len(text)-1] }
+	if op != "" && !isIROp(op) {
+		return stop("borrow store: operator")
+	}
+	if op == "*" && (gt == "float32" || gt == "float64") {
+		return stop("borrow store: rounded float product")
+	}
+	if callsIn(st.p, a.Rhs) {
+		return stop("borrow store: RHS call decision")
+	}
+	borrowWrite{place: place, at: syntax.NodePos(st.p, node), op: op}
+}
+
+func emitBorrowField(st fnb, b mut ir.Builder, fieldPlace fixedBorrowField) uint32 fails ir.Malformed {
+	let root = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), pos(st, fieldPlace.rootAt), []uint32{uint32(fieldPlace.slot)})
+	try ir.Row(b, ir.KindCode(ir.TExpr, "field"), pos(st, fieldPlace.fieldAt), []uint32{root, ir.Text(b, fieldPlace.member)})
+}
+
+func emitBorrowWrite(st fnb, b mut ir.Builder, w borrowWrite, rhs dense.ID[syntax.Node]) uint32 fails Unported | ir.Malformed {
+	let to = try emitBorrowField(st, b, w.place)
+	let x = try value(st, b, rhs)
+	try ir.Row(b, ir.KindCode(ir.TStmt, "store"), pos(st, w.at), []uint32{to, ir.Text(b, w.op), x})
+}
+
+// borrowInvoke is a resolved unit method on a fixed record field. CALLS
+// proves the target and the absence of call transforms before storing it.
+type borrowInvoke { recv fixedBorrowField, recvAt int, callAt int, name string }
+
+func emitBorrowInvoke(st fnb, b mut ir.Builder, call borrowInvoke) uint32 fails ir.Malformed {
+	let place = try emitBorrowField(st, b, call.recv)
+	let recv = try ir.Row(b, ir.KindCode(ir.TExpr, "addr"), pos(st, call.recvAt), []uint32{place})
+	let at = pos(st, call.callAt)
+	let e = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), at, []uint32{recv, ir.Text(b, call.name), 0})
+	try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{e})
+}
