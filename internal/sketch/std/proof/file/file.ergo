@@ -99,12 +99,12 @@ func openOnMemory() Store {
 
 // apply runs op under the lock: it applies op to the state, and appends
 // op's line when the state changed.
-func apply(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+func applyStep[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State, bool)) R fails proof.Failed {
 	s.lock.Push(0) catch {
 	case queue.Closed:
 		Unreachable("the lock is never closed")
 	}
-	let o = step(s, op) catch {
+	let o = stepWith(s, op, fn) catch {
 	case proof.Failed as f:
 		unlock(s)
 		return f
@@ -113,7 +113,12 @@ func apply(s Store, op proof.Op) proof.Outcome fails proof.Failed {
 	o
 }
 
-// unlock lets the next change run.
+func apply(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+	try applyStep(s, op, func(st proof.State) (proof.Outcome, proof.State, bool) {
+		proof.Apply(st, op)
+	})
+}
+
 func unlock(s Store) {
 	let _ = s.lock.Pop() catch {
 	case queue.Closed:
@@ -121,13 +126,12 @@ func unlock(s Store) {
 	}
 }
 
-// step is apply's work, under the lock.
-func step(s Store, op proof.Op) proof.Outcome fails proof.Failed {
+func stepWith[R](s Store, op proof.Op, fn func(st proof.State) (R, proof.State, bool)) R fails proof.Failed {
 	if s.broken.Get() {
 		return proof.Failed{Reason: "\(s.path): a write failed; open the store again"}
 	}
-	let (o, changed) = sync.Modify(s.state, func(st proof.State) ((proof.Outcome, bool), proof.State) {
-		let (o, next, changed) = proof.Apply(st, op)
+	let (o, changed) = sync.Modify(s.state, func(st proof.State) ((R, bool), proof.State) {
+		let (o, next, changed) = fn(st)
 		((o, changed), next)
 	})
 	if changed {
@@ -146,7 +150,6 @@ func step(s Store, op proof.Op) proof.Outcome fails proof.Failed {
 	o
 }
 
-// Issue keeps a proof under id.
 func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) fails proof.Conflict | proof.Failed {
 	match try apply(s, proof.IssueOp{ID: id, Digest: d, Expires: expires, Attempts: attempts}) {
 	case proof.Refused:
@@ -155,22 +158,22 @@ func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) 
 	}
 }
 
-// Redeem spends the proof under id.
 func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed {
-	match try apply(s, proof.RedeemOp{ID: id, Digest: d, Now: now}) {
-	case proof.Redeemed:
-	case proof.Missing:
+	let op = proof.RedeemOp{ID: id, Digest: d, Now: now}
+	match try applyStep(s, op, func(st proof.State) (proof.RedeemResult, proof.State, bool) {
+		proof.ApplyRedeem(st, id, d, now)
+	}) {
+	case proof.RedeemOK:
+	case proof.RedeemUnknown:
 		return proof.Unknown
-	case proof.Late:
+	case proof.RedeemExpired:
 		return proof.Expired
-	case proof.Used:
+	case proof.RedeemSpent:
 		return proof.Spent
-	case proof.Exhausted:
+	case proof.RedeemExhausted:
 		return proof.TooManyAttempts
-	case proof.Mismatch as m:
-		return proof.Wrong{Left: m.Left}
-	case proof.Kept, proof.Refused:
-		Unreachable("a redeem is not kept or refused")
+	case proof.RedeemWrong as w:
+		return proof.Wrong{Left: w.Left}
 	}
 }
 
@@ -202,20 +205,20 @@ law FileIsMemory(steps []script, torn string) {
 		match st {
 		case issue as i:
 			now = later(now, i.Wait)
-			let id = "p\t\"\(((i.Pick%4)+4)%4)"
+			let id = "p\t\"\(((i.Pick % 4) + 4) % 4)"
 			if try issued(want, id, now) != try issued(got, id, now) {
 				return false
 			}
 		case redeem as r:
 			now = later(now, r.Wait)
-			let id = "p\t\"\(((r.Pick%4)+4)%4)"
+			let id = "p\t\"\(((r.Pick % 4) + 4) % 4)"
 			let d = proof.DigestOf("p", if r.Right { "123456" } else { "654321" })
 			if try redeemed(want, id, d, now) != try redeemed(got, id, d, now) {
 				return false
 			}
 		case claim as c:
 			now = later(now, c.Wait)
-			let key = "k\(((c.Pick%3)+3)%3)"
+			let key = "k\(((c.Pick % 3) + 3) % 3)"
 			if try claimed(want, key, now) != try claimed(got, key, now) {
 				return false
 			}
@@ -223,7 +226,7 @@ law FileIsMemory(steps []script, torn string) {
 			got = try Open(disk, disk, "proofs.log")
 		}
 	}
-	let edge = time.Unix(time.UnixSeconds(now) + 1, 999)
+	let edge = time.Unix(time.UnixSeconds(now)+1, 999)
 	let e = proof.DigestOf("p", "edge")
 	try want.Issue("edge", e, edge, 1) catch {
 	case proof.Conflict:
@@ -233,9 +236,9 @@ law FileIsMemory(steps []script, torn string) {
 	case proof.Conflict:
 		return false
 	}
-	try disk.AppendFile("proofs.log", "red\t" + strings.ReplaceAll(torn, "\n", ""))
+	try disk.AppendFile("proofs.log", "red\t"+strings.ReplaceAll(torn, "\n", ""))
 	let back = try Open(disk, disk, "proofs.log")
-	let justBefore = time.Unix(time.UnixSeconds(now) + 1, 500)
+	let justBefore = time.Unix(time.UnixSeconds(now)+1, 500)
 	if try redeemed(want, "edge", e, justBefore) != try redeemed(back, "edge", e, justBefore) {
 		return false
 	}
@@ -256,7 +259,7 @@ law FileIsMemory(steps []script, torn string) {
 
 // later is t plus sec seconds, with no monotonic reading, as a time read
 // back from the log is: == of two outcomes compares it.
-func later(t time.Time, sec int) time.Time { time.Unix(time.UnixSeconds(t) + int64(((sec%20)+20)%20), time.Nanosecond(t) + 1000) }
+func later(t time.Time, sec int) time.Time { time.Unix(time.UnixSeconds(t)+int64(((sec%20)+20)%20), time.Nanosecond(t)+1000) }
 
 // issued is whether s kept a proof of code 123456 under id for 30 seconds
 // and two wrong codes, or found it a Conflict.
@@ -304,7 +307,7 @@ law OpenRefusesABrokenLine(id string, line string) {
 	case proof.Conflict:
 		return false
 	}
-	try disk.AppendFile("proofs.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n")
+	try disk.AppendFile("proofs.log", "x"+strings.ReplaceAll(line, "\n", "")+"\n")
 	let _ = Open(disk, disk, "proofs.log") catch {
 	case proof.Failed:
 		return true

@@ -105,12 +105,12 @@ type Queue[J] {
 				return true
 			}
 			let held = try Count()
-			if held.Leased != before.Leased + 1 || held.Waiting != before.Waiting - 1 {
+			if held.Leased != before.Leased+1 || held.Waiting != before.Waiting-1 {
 				return false
 			}
 			try AckAt(l.Value.Ticket, now)
 			let done = try Count()
-			if done.Done != held.Done + 1 || done.Leased != held.Leased - 1 {
+			if done.Done != held.Done+1 || done.Leased != held.Leased-1 {
 				return false
 			}
 			AckAt(l.Value.Ticket, now) catch {
@@ -194,18 +194,29 @@ func DeadOf[J](s State[J]) []Dead[J] { s.dead }
 // Apply runs op on s with policy p: the outcome, the state after it, and
 // whether the state changed (a Reserve that found no job and ended no
 // lease, and an Unknown ticket, change nothing).
+func ApplyEnqueue[J](s own State[J], job J, at time.Time) (int, State[J]) {
+	let mut st = s
+	let id = st.next
+	st.next = id + 1
+	st.entries[id] = entry[J]{job: job, attempts: 0, first: at, leased: false, until: at}
+	st.ready = place(st.ready, st.head, slot{at: at, id: id, attempt: 0})
+	(id, st)
+}
+
+func ApplyReserve[J](p Policy, s own State[J], now time.Time) (Option[Lease[J]], State[J], bool) {
+	let (expired, after) = expire(p, s, now)
+	reserveLease(p, after, now, expired)
+}
+
 func Apply[J](p Policy, s own State[J], op Op[J]) (Outcome[J], State[J], bool) {
 	let mut st = s
 	match op {
 	case Enqueue[J] as e:
-		let id = st.next
-		st.next = id + 1
-		st.entries[id] = entry[J]{job: e.Job, attempts: 0, first: e.At, leased: false, until: e.At}
-		st.ready = place(st.ready, st.head, slot{at: e.At, id: id, attempt: 0})
-		(Enqueued{ID: id}, st, true)
+		let (id, next) = ApplyEnqueue(st, e.Job, e.At)
+		(Enqueued{ID: id}, next, true)
 	case Reserve as r:
-		let (expired, after) = expire(p, st, r.Now)
-		reserve(p, after, r.Now, expired)
+		let (lease, next, changed) = ApplyReserve(p, st, r.Now)
+		(Reserved[J]{Lease: lease}, next, changed)
 	case Ack as a:
 		if !isHeld(st, a.Ticket, a.Now) {
 			return (NotLeased{Ticket: a.Ticket}, st, false)
@@ -260,14 +271,14 @@ law NoneLost(steps []step) {
 		s = next
 		match o {
 		case Enqueued as e:
-			if e.ID != enqueued + 1 {
+			if e.ID != enqueued+1 {
 				return false
 			}
 			enqueued = enqueued + 1
 		case Reserved[int] as r:
 			match r.Lease {
 			case Some[Lease[int]] as l:
-				if l.Value.Job != (l.Value.Ticket.ID - 1) * 7 {
+				if l.Value.Job != (l.Value.Ticket.ID-1)*7 {
 					return false
 				}
 				for t in tickets {
@@ -281,7 +292,7 @@ law NoneLost(steps []step) {
 		case Settled, NotLeased:
 		}
 		let c = CountOf(s)
-		if c.Waiting + c.Leased + c.Done + c.Dead != enqueued || c.Waiting < 0 || c.Leased < 0 {
+		if c.Waiting+c.Leased+c.Done+c.Dead != enqueued || c.Waiting < 0 || c.Leased < 0 {
 			return false
 		}
 	}
@@ -296,7 +307,7 @@ law NoneLost(steps []step) {
 // milliseconds, retries at most retries times, and stops past limit
 // milliseconds from the first attempt.
 law AttemptsFollowTheSchedule(base int, retries int, limit int) {
-	let n = ((retries%5)+5)%5
+	let n = ((retries % 5) + 5) % 5
 	let backoff = schedule.Exponential(time.Times(1ms, 1+((base%10)+10)%10), 2.0, 50ms)
 	let p = Policy{Retry: schedule.UpTo(schedule.And(backoff, schedule.Recurs(n)), time.Times(1ms, ((limit%80)+80)%80)), Lease: 1s}
 	let start = time.Unix(1000, 0)
@@ -407,7 +418,7 @@ law EarliestFirst(offsets []int) {
 		}
 		let at = start.Add(time.Times(1ms, ((offsets[l.Job]%5)+5)%5))
 		let c = at.Compare(prevAt)
-		if c < 0 || (c == 0 && l.Ticket.ID < prevID) || l.Ticket.ID != l.Job + 1 {
+		if c < 0 || (c == 0 && l.Ticket.ID < prevID) || l.Ticket.ID != l.Job+1 {
 			return false
 		}
 		prevAt = at
@@ -429,10 +440,10 @@ func isHeld[J](s State[J], t Ticket, now time.Time) bool {
 // reserve is Apply's Reserve at now on s, whose ended leases expire has
 // failed (expired: whether any was): the earliest ready job leased, or
 // None and s.
-func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (Outcome[J], State[J], bool) {
+func reserveLease[J](p Policy, s own State[J], now time.Time, expired bool) (Option[Lease[J]], State[J], bool) {
 	let mut st = s
 	if st.head >= len(st.ready) || st.ready[st.head].at.After(now) {
-		return (Reserved[J]{Lease: None}, st, expired)
+		return (None, st, expired)
 	}
 	let at = st.ready[st.head]
 	st.head = st.head + 1
@@ -449,7 +460,7 @@ func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (Outcome[
 	st.entries[at.id] = entry[J]{job: e.job, attempts: attempt, first: first, leased: true, until: until}
 	st.leases = place(st.leases, st.lhead, slot{at: until, id: at.id, attempt: attempt})
 	let t = Ticket{ID: at.id, Attempt: attempt}
-	(Reserved[J]{Lease: Some[Lease[J]]{Value: Lease[J]{Ticket: t, Job: e.job, Until: until}}}, st, true)
+	(Some[Lease[J]]{Value: Lease[J]{Ticket: t, Job: e.job, Until: until}}, st, true)
 }
 
 // held is the entry that t leases at now: leased, of t's attempt, and

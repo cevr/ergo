@@ -31,50 +31,42 @@ func apply(s Store, op workflow.Op) workflow.Outcome {
 
 // Create starts run.
 func Create(s Store, run workflow.RunID, first workflow.Event, now time.Time) bool fails workflow.Failed {
-	match apply(s, workflow.Creating{Run: run, First: first, Now: now}) {
-	case workflow.Created as c:
-		c.New
-	case _:
-		Unreachable("a create is Created")
-	}
+	sync.Modify(s.state, func(st workflow.State) (bool, workflow.State) {
+		let (isNew, next, _) = workflow.ApplyCreate(st, run, first, now)
+		(isNew, next)
+	})
 }
 
-// Admit keeps a signal for run.
 func Admit(s Store, run workflow.RunID, key string, signal string, value string, now time.Time) workflow.Admission fails workflow.Failed {
-	match apply(s, workflow.Admitting{Run: run, Key: key, Signal: signal, Value: value, Now: now}) {
-	case workflow.Admitted as a:
-		a.As
-	case _:
-		Unreachable("an admit is Admitted")
-	}
+	sync.Modify(s.state, func(st workflow.State) (workflow.Admission, workflow.State) {
+		let (adm, next, _) = workflow.ApplyAdmit(st, run, key, signal, value, now)
+		(adm, next)
+	})
 }
 
-// Load is run's events from from.
 func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fails workflow.Failed {
 	sync.Modify(s.state, func(st workflow.State) (workflow.Loaded, workflow.State) { (workflow.LoadOf(st, run, from), st) })
 }
 
-// Claim leases the earliest due wake.
 func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails workflow.Failed {
-	match apply(s, workflow.Claiming{Now: now, Lease: lease}) {
-	case workflow.Granted as g:
-		g.Grant
-	case _:
-		Unreachable("a claim is Granted")
-	}
+	sync.Modify(s.state, func(st workflow.State) (Option[workflow.Grant], workflow.State) {
+		let (g, next, _) = workflow.ApplyClaim(st, now, lease)
+		(g, next)
+	})
 }
 
-// Commit records events and the next wake under c.
 func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
-	match apply(s, workflow.Committing{Grant: workflow.GrantOf(c), Expected: expected, Events: events, Next: next}) {
-	case workflow.Committed as k:
+	let res = sync.Modify(s.state, func(st workflow.State) (workflow.CommitResult, workflow.State) {
+		let (r, updated, _) = workflow.ApplyCommit(st, workflow.GrantOf(c), expected, events, next)
+		(r, updated)
+	})
+	match res {
+	case workflow.CommitOK as k:
 		k.Next
-	case workflow.Behind as b:
+	case workflow.CommitConflict as b:
 		workflow.Conflict{Expected: b.Expected, Actual: b.Actual}
-	case workflow.Unfenced as u:
+	case workflow.CommitFenced as u:
 		workflow.Fenced{Run: u.Run}
-	case _:
-		Unreachable("a commit is Committed, Behind or Unfenced")
 	}
 }
 

@@ -43,20 +43,22 @@ func Issue(s Store, id string, d proof.Digest, expires time.Time, attempts int) 
 
 // Redeem spends the proof under id.
 func Redeem(s Store, id string, d proof.Digest, now time.Time) fails proof.Unknown | proof.Expired | proof.Spent | proof.TooManyAttempts | proof.Wrong | proof.Failed {
-	match apply(s, proof.RedeemOp{ID: id, Digest: d, Now: now}) {
-	case proof.Redeemed:
-	case proof.Missing:
+	let res = sync.Modify(s.state, func(st proof.State) (proof.RedeemResult, proof.State) {
+		let (r, next, _) = proof.ApplyRedeem(st, id, d, now)
+		(r, next)
+	})
+	match res {
+	case proof.RedeemOK:
+	case proof.RedeemUnknown:
 		return proof.Unknown
-	case proof.Late:
+	case proof.RedeemExpired:
 		return proof.Expired
-	case proof.Used:
+	case proof.RedeemSpent:
 		return proof.Spent
-	case proof.Exhausted:
+	case proof.RedeemExhausted:
 		return proof.TooManyAttempts
-	case proof.Mismatch as m:
-		return proof.Wrong{Left: m.Left}
-	case proof.Kept, proof.Refused:
-		Unreachable("a redeem is not kept or refused")
+	case proof.RedeemWrong as w:
+		return proof.Wrong{Left: w.Left}
 	}
 }
 
@@ -109,7 +111,7 @@ law SentCodeRedeems(seed uint64, dest string) {
 law StepIsUsedOnce(secret string, sec int64) {
 	let s = New()
 	let p = totp.Default()
-	let m = time.NewManual(((sec%1000000000)+1000000000)%1000000000)
+	let m = time.NewManual(((sec % 1000000000) + 1000000000) % 1000000000)
 	with context { time.Clock: m } {
 		let code = totp.Code(p, secret, m.Now())
 		proof.VerifyCode(s, p, "a", secret, code) catch {

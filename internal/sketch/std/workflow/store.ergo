@@ -586,85 +586,119 @@ func ended(events []Event) bool {
 // signal, a refused commit or settle (Behind, Unfenced), and a give-back
 // of a claim that is no longer the run's change nothing). The times it keeps
 // have no monotonic reading (wall).
+type CommitResult = CommitOK{Next Cursor} | CommitConflict{Expected Cursor, Actual Cursor} | CommitFenced{Run RunID}
+
+func ApplyCreate(s State, runID RunID, first Event, now time.Time) (bool, State, bool) {
+	let mut st = s
+	if st.runs.Get(runID) != None {
+		return (false, st, false)
+	}
+	let at = wall(now)
+	st.runs[runID] = run{events: []Event{wallEvent(first)}, keys: Map[string, bool]{}, wake: Some[Wake]{Value: Wake{Due: at, Rev: 1}}, rev: 1, epoch: 0, held: false, until: at}
+	(true, st, true)
+}
+
+func ApplyAdmit(s State, runID RunID, key string, signal string, value string, now time.Time) (Admission, State, bool) {
+	let mut st = s
+	let r = match st.runs.Get(runID) {
+	case Some{Value: x}:
+		x
+	case None:
+		return (NoSuchRun, st, false)
+	}
+	if r.keys.Get(key) != None {
+		return (Duplicate, st, false)
+	}
+	if ended(r.events) {
+		return (RunEnded, st, false)
+	}
+	let at = wall(now)
+	let due = match r.wake {
+	case Some{Value: w}:
+		if w.Due.Before(at) { w.Due } else { at }
+	case None:
+		at
+	}
+	let mut keys = r.keys
+	keys[key] = true
+	st.runs[runID] = run{..r, events: r.events.Append(SignalIn{Signal: signal, Value: value}), keys: keys, wake: Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
+	(Kept{At: cursorOf(len(r.events))}, st, true)
+}
+
+func ApplyClaim(s State, now time.Time, lease duration) (Option[Grant], State, bool) {
+	let mut st = s
+	let at = wall(now)
+	let mut best Option[RunID] = None
+	for id, r in st.runs {
+		if claimable(r, at) && earlier(st, id, best) {
+			best = Some[RunID]{Value: id}
+		}
+	}
+	match best {
+	case Some{Value: id}:
+		let r = match st.runs.Get(id) {
+		case Some{Value: x}:
+			x
+		case None:
+			Unreachable("the best run is in the store")
+		}
+		let until = wall(at.Add(lease))
+		let g = Grant{Run: id, Rev: revOf(r.wake), Epoch: r.epoch + 1, Until: until}
+		st.runs[id] = run{..r, epoch: r.epoch + 1, held: true, until: until}
+		(Some[Grant]{Value: g}, st, true)
+	case None:
+		(None, st, false)
+	}
+}
+
+func ApplyCommit(s State, grant Grant, expected Cursor, events []Event, next Option[time.Time]) (CommitResult, State, bool) {
+	let mut st = s
+	let r = match st.runs.Get(grant.Run) {
+	case Some{Value: x}:
+		x
+	case None:
+		return (CommitFenced{Run: grant.Run}, st, false)
+	}
+	if r.epoch != grant.Epoch || !r.held {
+		return (CommitFenced{Run: grant.Run}, st, false)
+	}
+	if len(r.events) != int(expected) {
+		return (CommitConflict{Expected: expected, Actual: cursorOf(len(r.events))}, st, false)
+	}
+	let all = r.events.Concat(wallEvents(events))
+	let updated = match next {
+	case Some{Value: due}:
+		run{..r, events: all, wake: Some[Wake]{Value: Wake{Due: wall(due), Rev: r.rev + 1}}, rev: r.rev + 1}
+	case None:
+		run{..r, events: all}
+	}
+	st.runs[grant.Run] = updated
+	(CommitOK{Next: cursorOf(len(all))}, st, true)
+}
+
 func Apply(s State, op Op) (Outcome, State, bool) {
 	let mut st = s
 	match op {
 	case Creating as c:
-		if st.runs.Get(c.Run) != None {
-			return (Created{New: false}, st, false)
-		}
-		let now = wall(c.Now)
-		st.runs[c.Run] = run{events: []Event{wallEvent(c.First)}, keys: Map[string, bool]{}, wake: Some[Wake]{Value: Wake{Due: now, Rev: 1}}, rev: 1, epoch: 0, held: false, until: now}
-		(Created{New: true}, st, true)
+		let (isNew, next, changed) = ApplyCreate(st, c.Run, c.First, c.Now)
+		(Created{New: isNew}, next, changed)
 	case Admitting as a:
-		let r = match st.runs.Get(a.Run) {
-		case Some{Value: x}:
-			x
-		case None:
-			return (Admitted{As: NoSuchRun}, st, false)
-		}
-		if r.keys.Get(a.Key) != None {
-			return (Admitted{As: Duplicate}, st, false)
-		}
-		if ended(r.events) {
-			return (Admitted{As: RunEnded}, st, false)
-		}
-		let now = wall(a.Now)
-		let due = match r.wake {
-		case Some{Value: w}:
-			if w.Due.Before(now) { w.Due } else { now }
-		case None:
-			now
-		}
-		let mut keys = r.keys
-		keys[a.Key] = true
-		st.runs[a.Run] = run{..r, events: r.events.Append(SignalIn{Signal: a.Signal, Value: a.Value}), keys: keys, wake: Some[Wake]{Value: Wake{Due: due, Rev: r.rev + 1}}, rev: r.rev + 1}
-		(Admitted{As: Kept{At: cursorOf(len(r.events))}}, st, true)
+		let (adm, next, changed) = ApplyAdmit(st, a.Run, a.Key, a.Signal, a.Value, a.Now)
+		(Admitted{As: adm}, next, changed)
 	case Claiming as c:
-		let now = wall(c.Now)
-		let mut best Option[RunID] = None
-		for id, r in st.runs {
-			if claimable(r, now) && earlier(st, id, best) {
-				best = Some[RunID]{Value: id}
-			}
-		}
-		match best {
-		case Some{Value: id}:
-			let r = match st.runs.Get(id) {
-			case Some{Value: x}:
-				x
-			case None:
-				Unreachable("the best run is in the store")
-			}
-			let until = wall(now.Add(c.Lease))
-			let g = Grant{Run: id, Rev: revOf(r.wake), Epoch: r.epoch + 1, Until: until}
-			st.runs[id] = run{..r, epoch: r.epoch + 1, held: true, until: until}
-			(Granted{Grant: Some[Grant]{Value: g}}, st, true)
-		case None:
-			(Granted{Grant: None}, st, false)
-		}
+		let (g, next, changed) = ApplyClaim(st, c.Now, c.Lease)
+		(Granted{Grant: g}, next, changed)
 	case Committing as c:
-		let r = match st.runs.Get(c.Grant.Run) {
-		case Some{Value: x}:
-			x
-		case None:
-			return (Unfenced{Run: c.Grant.Run}, st, false)
+		let (res, next, changed) = ApplyCommit(st, c.Grant, c.Expected, c.Events, c.Next)
+		let o Outcome = match res {
+		case CommitOK as k:
+			Committed{Next: k.Next}
+		case CommitConflict as b:
+			Behind{Expected: b.Expected, Actual: b.Actual}
+		case CommitFenced as u:
+			Unfenced{Run: u.Run}
 		}
-		if r.epoch != c.Grant.Epoch || !r.held {
-			return (Unfenced{Run: c.Grant.Run}, st, false)
-		}
-		if len(r.events) != int(c.Expected) {
-			return (Behind{Expected: c.Expected, Actual: cursorOf(len(r.events))}, st, false)
-		}
-		let events = r.events.Concat(wallEvents(c.Events))
-		let next = match c.Next {
-		case Some{Value: due}:
-			run{..r, events: events, wake: Some[Wake]{Value: Wake{Due: wall(due), Rev: r.rev + 1}}, rev: r.rev + 1}
-		case None:
-			run{..r, events: events}
-		}
-		st.runs[c.Grant.Run] = next
-		(Committed{Next: cursorOf(len(events))}, st, true)
+		(o, next, changed)
 	case Settling as e:
 		let r = match st.runs.Get(e.Grant.Run) {
 		case Some{Value: x}:

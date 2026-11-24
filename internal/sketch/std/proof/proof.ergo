@@ -98,7 +98,7 @@ type Store {
 	// RedeemOnce: a proof redeems with its code once; a second Redeem is
 	// Spent.
 	law RedeemOnce(id string, purpose string, code string, sec int64) {
-		let now = time.Unix(sec % 1000000000, 0)
+		let now = time.Unix(sec%1000000000, 0)
 		let d = DigestOf(purpose, code)
 		try Issue(id, d, now.Add(1m), 3) catch {
 		case Conflict:
@@ -120,17 +120,17 @@ type Store {
 	// ExpiredFails: a proof does not redeem at or after its expiry, and
 	// redeems just before it.
 	law ExpiredFails(id string, code string, sec int64) {
-		let now = time.Unix(sec % 1000000000, 0)
+		let now = time.Unix(sec%1000000000, 0)
 		let d = DigestOf("p", code)
 		try Issue(id, d, now, 3) catch {
 		case Conflict:
 			return true
 		}
-		try Issue(id + "'", d, now, 3) catch {
+		try Issue(id+"'", d, now, 3) catch {
 		case Conflict:
 			return true
 		}
-		try Redeem(id + "'", d, now.Add(-1ns)) catch {
+		try Redeem(id+"'", d, now.Add(-1ns)) catch {
 		case Unknown, Expired, Spent, TooManyAttempts, Wrong:
 			return false
 		}
@@ -155,9 +155,9 @@ type Store {
 			return true
 		}
 		for i in 0..limit {
-			try Redeem(id, DigestOf("p", code + "x"), now) catch {
+			try Redeem(id, DigestOf("p", code+"x"), now) catch {
 			case Wrong as w:
-				if w.Left != limit - i - 1 {
+				if w.Left != limit-i-1 {
 					return false
 				}
 			case Unknown, Expired, Spent, TooManyAttempts:
@@ -195,7 +195,7 @@ type Store {
 
 	// ClaimOnce: a key claims once until its end, and again after it.
 	law ClaimOnce(key string, sec int64) {
-		let now = time.Unix(sec % 1000000000, 0)
+		let now = time.Unix(sec%1000000000, 0)
 		try Claim(key, now.Add(1m), now) catch {
 		case Spent:
 			return true
@@ -257,6 +257,33 @@ func Empty() State { State{proofs: Map[string, pending]{}, claims: Map[string, t
 
 // Apply runs op on s: the outcome, the state after it, and whether the
 // state changed.
+type RedeemResult = RedeemOK{} | RedeemUnknown{} | RedeemExpired{} | RedeemSpent{} | RedeemExhausted{} | RedeemWrong{Left int}
+
+func ApplyRedeem(s State, id string, d Digest, now time.Time) (RedeemResult, State, bool) {
+	let mut st = s
+	match st.proofs.Get(id) {
+	case None:
+		(RedeemUnknown, st, false)
+	case Some[pending] as found:
+		let p = found.Value
+		if p.spent {
+			return (RedeemSpent, st, false)
+		}
+		if p.left <= 0 {
+			return (RedeemExhausted, st, false)
+		}
+		if !now.Before(p.expires) {
+			return (RedeemExpired, st, false)
+		}
+		if p.digest != d {
+			st.proofs[id] = pending{digest: p.digest, expires: p.expires, left: p.left - 1, spent: false}
+			return (RedeemWrong{Left: p.left - 1}, st, true)
+		}
+		st.proofs[id] = pending{digest: p.digest, expires: p.expires, left: p.left, spent: true}
+		(RedeemOK, st, true)
+	}
+}
+
 func Apply(s State, op Op) (Outcome, State, bool) {
 	let mut st = s
 	match op {
@@ -267,27 +294,22 @@ func Apply(s State, op Op) (Outcome, State, bool) {
 		st.proofs[i.ID] = pending{digest: i.Digest, expires: i.Expires, left: i.Attempts, spent: false}
 		(Kept, st, true)
 	case RedeemOp as r:
-		match st.proofs.Get(r.ID) {
-		case None:
-			(Missing, st, false)
-		case Some[pending] as found:
-			let p = found.Value
-			if p.spent {
-				return (Used, st, false)
-			}
-			if p.left <= 0 {
-				return (Exhausted, st, false)
-			}
-			if !r.Now.Before(p.expires) {
-				return (Late, st, false)
-			}
-			if p.digest != r.Digest {
-				st.proofs[r.ID] = pending{digest: p.digest, expires: p.expires, left: p.left - 1, spent: false}
-				return (Mismatch{Left: p.left - 1}, st, true)
-			}
-			st.proofs[r.ID] = pending{digest: p.digest, expires: p.expires, left: p.left, spent: true}
-			(Redeemed, st, true)
+		let (res, next, changed) = ApplyRedeem(st, r.ID, r.Digest, r.Now)
+		let o Outcome = match res {
+		case RedeemOK:
+			Redeemed
+		case RedeemUnknown:
+			Missing
+		case RedeemExpired:
+			Late
+		case RedeemSpent:
+			Used
+		case RedeemExhausted:
+			Exhausted
+		case RedeemWrong as w:
+			Mismatch{Left: w.Left}
 		}
+		(o, next, changed)
 	case ClaimOp as c:
 		match st.claims.Get(c.Key) {
 		case Some[time.Time] as until:
@@ -311,10 +333,10 @@ func codeOf() string needs rand.Secure {
 	let mut n = 4294000000
 	for n >= 4294000000 {
 		let b = strings.Bytes(rand.Secure.Bytes(4))
-		n = int(b[0]) << 24 | int(b[1]) << 16 | int(b[2]) << 8 | int(b[3])
+		n = int(b[0])<<24 | int(b[1])<<16 | int(b[2])<<8 | int(b[3])
 	}
 	let text = strconv.Itoa(n % 1000000)
-	strings.Repeat("0", 6 - len(text)) + text
+	strings.Repeat("0", 6-len(text)) + text
 }
 
 // SendCode issues a proof for purpose, good for ttl and attempts wrong codes,
@@ -339,7 +361,7 @@ func VerifyCode(s Store, p totp.Params, subject string, secret string, code stri
 	let now = time.Clock.Now()
 	match totp.Verify(p, secret, code, now) {
 	case Some[int64] as step:
-		try s.Claim("totp\t" + strconv.Quote(subject) + "\t\(step.Value)", now.Add(time.Times(totp.Period(p), totp.Window(p) * 2 + 2)), now)
+		try s.Claim("totp\t"+strconv.Quote(subject)+"\t\(step.Value)", now.Add(time.Times(totp.Period(p), totp.Window(p)*2+2)), now)
 	case None:
 		return Wrong{Left: 0}
 	}

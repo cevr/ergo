@@ -99,12 +99,12 @@ func Crashing(files fs.Files, writes fs.Writes, path string, cut int) Store fail
 
 // apply runs op under the lock: it applies op to the state, and appends
 // op's line when the state changed.
-func apply(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
+func applyStep[R](s Store, op workflow.Op, fn func(st workflow.State) (R, workflow.State, bool)) R fails workflow.Failed {
 	s.lock.Push(0) catch {
 	case queue.Closed:
 		Unreachable("the lock is never closed")
 	}
-	let o = step(s, op) catch {
+	let o = stepWith(s, op, fn) catch {
 	case workflow.Failed as f:
 		unlock(s)
 		return f
@@ -113,7 +113,12 @@ func apply(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
 	o
 }
 
-// unlock lets the next operation run.
+func apply(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
+	try applyStep(s, op, func(st workflow.State) (workflow.Outcome, workflow.State, bool) {
+		workflow.Apply(st, op)
+	})
+}
+
 func unlock(s Store) {
 	let _ = s.lock.Pop() catch {
 	case queue.Closed:
@@ -121,13 +126,12 @@ func unlock(s Store) {
 	}
 }
 
-// step is apply's work, under the lock.
-func step(s Store, op workflow.Op) workflow.Outcome fails workflow.Failed {
+func stepWith[R](s Store, op workflow.Op, fn func(st workflow.State) (R, workflow.State, bool)) R fails workflow.Failed {
 	if s.broken.Get() {
 		return workflow.Failed{Reason: "\(s.path): a write failed; open the store again"}
 	}
-	let (o, changed) = sync.Modify(s.state, func(st workflow.State) ((workflow.Outcome, bool), workflow.State) {
-		let (o, next, changed) = workflow.Apply(st, op)
+	let (o, changed) = sync.Modify(s.state, func(st workflow.State) ((R, bool), workflow.State) {
+		let (o, next, changed) = fn(st)
 		((o, changed), next)
 	})
 	if changed {
@@ -164,25 +168,19 @@ func write(s Store, line string) fails workflow.Failed {
 
 // Create starts run.
 func Create(s Store, run workflow.RunID, first workflow.Event, now time.Time) bool fails workflow.Failed {
-	match try apply(s, workflow.Creating{Run: run, First: first, Now: now}) {
-	case workflow.Created as c:
-		c.New
-	case _:
-		Unreachable("a create is Created")
-	}
+	let op = workflow.Creating{Run: run, First: first, Now: now}
+	try applyStep(s, op, func(st workflow.State) (bool, workflow.State, bool) {
+		workflow.ApplyCreate(st, run, first, now)
+	})
 }
 
-// Admit keeps a signal for run.
 func Admit(s Store, run workflow.RunID, key string, signal string, value string, now time.Time) workflow.Admission fails workflow.Failed {
-	match try apply(s, workflow.Admitting{Run: run, Key: key, Signal: signal, Value: value, Now: now}) {
-	case workflow.Admitted as a:
-		a.As
-	case _:
-		Unreachable("an admit is Admitted")
-	}
+	let op = workflow.Admitting{Run: run, Key: key, Signal: signal, Value: value, Now: now}
+	try applyStep(s, op, func(st workflow.State) (workflow.Admission, workflow.State, bool) {
+		workflow.ApplyAdmit(st, run, key, signal, value, now)
+	})
 }
 
-// Load is run's events from from.
 func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fails workflow.Failed {
 	if s.broken.Get() {
 		return workflow.Failed{Reason: "\(s.path): a write failed; open the store again"}
@@ -190,27 +188,25 @@ func Load(s Store, run workflow.RunID, from workflow.Cursor) workflow.Loaded fai
 	sync.Modify(s.state, func(st workflow.State) (workflow.Loaded, workflow.State) { (workflow.LoadOf(st, run, from), st) })
 }
 
-// Claim leases the earliest due wake.
 func Claim(s Store, now time.Time, lease duration) Option[workflow.Grant] fails workflow.Failed {
-	match try apply(s, workflow.Claiming{Now: now, Lease: lease}) {
-	case workflow.Granted as g:
-		g.Grant
-	case _:
-		Unreachable("a claim is Granted")
-	}
+	let op = workflow.Claiming{Now: now, Lease: lease}
+	try applyStep(s, op, func(st workflow.State) (Option[workflow.Grant], workflow.State, bool) {
+		workflow.ApplyClaim(st, now, lease)
+	})
 }
 
-// Commit records events and the next wake under c, in one line.
 func Commit(s Store, c workflow.Claimed, expected workflow.Cursor, events []workflow.Event, next Option[time.Time]) workflow.Cursor fails workflow.Conflict | workflow.Fenced | workflow.Failed {
-	match try apply(s, workflow.Committing{Grant: workflow.GrantOf(c), Expected: expected, Events: events, Next: next}) {
-	case workflow.Committed as k:
+	let grant = workflow.GrantOf(c)
+	let op = workflow.Committing{Grant: grant, Expected: expected, Events: events, Next: next}
+	match try applyStep(s, op, func(st workflow.State) (workflow.CommitResult, workflow.State, bool) {
+		workflow.ApplyCommit(st, grant, expected, events, next)
+	}) {
+	case workflow.CommitOK as k:
 		k.Next
-	case workflow.Behind as b:
+	case workflow.CommitConflict as b:
 		workflow.Conflict{Expected: b.Expected, Actual: b.Actual}
-	case workflow.Unfenced as u:
+	case workflow.CommitFenced as u:
 		workflow.Fenced{Run: u.Run}
-	case _:
-		Unreachable("a commit is Committed, Behind or Unfenced")
 	}
 }
 

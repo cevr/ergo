@@ -95,12 +95,12 @@ func Open[J](files fs.Files, writes fs.Writes, path string, p jobs.Policy, codec
 
 // apply runs op under the lock: it applies op to the state, and appends
 // op's line when the state changed.
-func apply[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] fails jobs.Failed {
+func applyStep[J, R](q Queue[J], line string, fn func(s jobs.State[J]) (R, jobs.State[J], bool)) R fails jobs.Failed {
 	q.lock.Push(0) catch {
 	case queue.Closed:
 		Unreachable("the lock is never closed")
 	}
-	let o = step(q, op) catch {
+	let o = stepWith(q, line, fn) catch {
 	case jobs.Failed as f:
 		unlock(q)
 		return f
@@ -109,7 +109,13 @@ func apply[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] fails jobs.Failed {
 	o
 }
 
-// unlock lets the next operation run.
+func apply[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] fails jobs.Failed {
+	let p = q.policy
+	try applyStep(q, lineOf(op, q.codec), func(s jobs.State[J]) (jobs.Outcome[J], jobs.State[J], bool) {
+		jobs.Apply(p, s, op)
+	})
+}
+
 func unlock[J](q Queue[J]) {
 	let _ = q.lock.Pop() catch {
 	case queue.Closed:
@@ -117,15 +123,12 @@ func unlock[J](q Queue[J]) {
 	}
 }
 
-// step is apply's work, under the lock.
-func step[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] fails jobs.Failed {
+func stepWith[J, R](q Queue[J], line string, fn func(s jobs.State[J]) (R, jobs.State[J], bool)) R fails jobs.Failed {
 	if q.broken.Get() {
 		return jobs.Failed{Reason: "\(q.path): a write failed; open the queue again"}
 	}
-	let line = lineOf(op, q.codec)
-	let p = q.policy
-	let (o, changed) = sync.Modify(q.state, func(s jobs.State[J]) ((jobs.Outcome[J], bool), jobs.State[J]) {
-		let (o, next, changed) = jobs.Apply(p, s, op)
+	let (o, changed) = sync.Modify(q.state, func(s jobs.State[J]) ((R, bool), jobs.State[J]) {
+		let (o, next, changed) = fn(s)
 		((o, changed), next)
 	})
 	if changed {
@@ -144,24 +147,20 @@ func step[J](q Queue[J], op jobs.Op[J]) jobs.Outcome[J] fails jobs.Failed {
 	o
 }
 
-// EnqueueAt adds job, ready at at.
 func EnqueueAt[J](q Queue[J], job J, at time.Time) int fails jobs.Failed {
-	match try apply(q, jobs.Enqueue[J]{Job: job, At: at}) {
-	case jobs.Enqueued as e:
-		e.ID
-	case _:
-		Unreachable("an enqueue is Enqueued")
-	}
+	let line = lineOf(jobs.Enqueue[J]{Job: job, At: at}, q.codec)
+	try applyStep(q, line, func(s jobs.State[J]) (int, jobs.State[J], bool) {
+		let (id, next) = jobs.ApplyEnqueue(s, job, at)
+		(id, next, true)
+	})
 }
 
-// ReserveAt leases the earliest ready job.
 func ReserveAt[J](q Queue[J], now time.Time) Option[jobs.Lease[J]] fails jobs.Failed {
-	match try apply(q, jobs.Reserve{Now: now}) {
-	case jobs.Reserved[J] as r:
-		r.Lease
-	case _:
-		Unreachable("a reserve is Reserved")
-	}
+	let p = q.policy
+	let line = lineOf(jobs.Reserve{Now: now}, q.codec)
+	try applyStep(q, line, func(s jobs.State[J]) (Option[jobs.Lease[J]], jobs.State[J], bool) {
+		jobs.ApplyReserve(p, s, now)
+	})
 }
 
 // AckAt ends the lease of t as done.
@@ -258,7 +257,7 @@ law FileIsMemory(steps []script, torn string) {
 	if try got.Count() != try want.Count() || try got.DeadLetters() != try want.DeadLetters() {
 		return false
 	}
-	try disk.AppendFile("jobs.log", "enq\t" + strings.ReplaceAll(torn, "\n", ""))
+	try disk.AppendFile("jobs.log", "enq\t"+strings.ReplaceAll(torn, "\n", ""))
 	let back = try Open(disk, disk, "jobs.log", p, Text)
 	if try back.Count() != try want.Count() || try back.DeadLetters() != try want.DeadLetters() {
 		return false
@@ -294,7 +293,7 @@ law OpenRefusesABrokenLine(job string, line string) {
 	let disk = fstest.NewMemory()
 	let q = try Open(disk, disk, "jobs.log", p, Text)
 	let _ = try q.EnqueueAt(job, time.Unix(0, 0))
-	try disk.AppendFile("jobs.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n")
+	try disk.AppendFile("jobs.log", "x"+strings.ReplaceAll(line, "\n", "")+"\n")
 	let _ = Open(disk, disk, "jobs.log", p, Text) catch {
 	case jobs.Failed:
 		return true
