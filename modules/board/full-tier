@@ -1,0 +1,11 @@
+# Model-search packages run by the gate's full tier (scripts/examples -full-tier);
+# the fast tier checks their formatting and types without exhaustive state search.
+models/ask       # exhaustive BFS state-machine model search
+models/digest    # exhaustive BFS state-machine model search
+models/eventlog  # exhaustive BFS state-machine model search
+models/grants    # exhaustive BFS state-machine model search
+models/retry     # exhaustive BFS state-machine model search
+models/schedule  # exhaustive BFS state-machine model search
+models/signin    # exhaustive BFS state-machine model search
+models/syncflow  # exhaustive BFS state-machine model search
+models/tasks     # exhaustive BFS state-machine model search

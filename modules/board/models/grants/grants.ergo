@@ -1,0 +1,178 @@
+// The package grants is the design model of grants that change while
+// requests run (spec.md, Grant; machines.md, M6): a write lands and an
+// event is given only under the grants as they are at that moment in the
+// log, never under what a request saw when it began.
+//
+// Scope: one caller, one private channel, a grant that an admin revokes
+// and gives back (at most MaxChanges changes), one write request by the
+// caller, one long wait by the caller, at most MaxEvents events appended
+// to the channel by others.
+//
+// Allowed is the grant now. A write is Begin (the request arrives and its
+// access is read) and Commit (the store's one write). A wait is Subscribe
+// and then Deliver for each event after it.
+//
+// The design: the store's writer decides access inside the write, against
+// the grants at that position of the log, so Commit reads Allowed again;
+// and a subscription is judged at each delivery, so an event is given only
+// while the caller can read the channel at that moment. An event the wait
+// passed while the caller could not read is skipped by that wait; after a
+// later grant a read shows it, as it shows any history the caller can now
+// read. So "nothing missed" (models/eventlog) is about the events the
+// caller could read when the wait evaluated them.
+//
+// Ghosts: Leak is set when a write landed or an event was given while the
+// grant was revoked; Wrote counts landed writes; Got counts given events.
+type Act = Revoke{} | Give{} | Begin{} | Commit{} | Subscribe{} | Append{} | Deliver{}
+
+type World {
+	Allowed bool,
+	Changes int,
+	Req     int,
+	Wrote   int,
+	Refused bool,
+	Sub     bool,
+	Events  []bool,
+	Next    int,
+	Got     int,
+	Leak    bool,
+	Skipped int,
+}
+
+let MaxChanges = 3
+let MaxEvents = 2
+
+let NoMutant = 0
+let SnapshotWriteMutant = 1
+let SnapshotWaitMutant = 2
+
+func first() World {
+	World{Allowed: true, Changes: 0, Req: 0, Wrote: 0, Refused: false, Sub: false,
+		Events: []bool{}, Next: 0, Got: 0, Leak: false, Skipped: 0}
+}
+
+func count(w World) int {
+	let mut n = 0
+	for _ in w.Events {
+		n = n + 1
+	}
+	n
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Revoke:
+		if !w.Allowed || w.Changes >= MaxChanges {
+			return Ignore
+		}
+		w.Allowed = false
+		w.Changes = w.Changes + 1
+		return Enter{w}
+	case Give:
+		if w.Allowed || w.Changes >= MaxChanges {
+			return Ignore
+		}
+		w.Allowed = true
+		w.Changes = w.Changes + 1
+		return Enter{w}
+	case Begin:
+		if w.Req != 0 || !w.Allowed {
+			return Ignore
+		}
+		w.Req = 1
+		return Enter{w}
+	case Commit:
+		if w.Req != 1 {
+			return Ignore
+		}
+		w.Req = 2
+		let mut ok = w.Allowed
+		if mutant == SnapshotWriteMutant {
+			ok = true
+		}
+		if !ok {
+			w.Refused = true
+			return Enter{w}
+		}
+		w.Wrote = w.Wrote + 1
+		if !w.Allowed {
+			w.Leak = true
+		}
+		return Enter{w}
+	case Subscribe:
+		if w.Sub || !w.Allowed {
+			return Ignore
+		}
+		w.Sub = true
+		w.Next = count(w)
+		return Enter{w}
+	case Append:
+		if count(w) >= MaxEvents {
+			return Ignore
+		}
+		w.Events = w.Events.Append(w.Allowed)
+		return Enter{w}
+	case Deliver:
+		if !w.Sub || w.Next >= count(w) {
+			return Ignore
+		}
+		w.Next = w.Next + 1
+		let mut ok = w.Allowed
+		if mutant == SnapshotWaitMutant {
+			ok = true
+		}
+		if !ok {
+			w.Skipped = w.Skipped + 1
+			return Enter{w}
+		}
+		w.Got = w.Got + 1
+		if !w.Allowed {
+			w.Leak = true
+		}
+		return Enter{w}
+	}
+}
+
+func noLeak(w World) bool { !w.Leak }
+
+func oneOutcome(w World) bool {
+	if w.Wrote > 1 {
+		return false
+	}
+	!(w.Wrote == 1 && w.Refused)
+}
+
+func leaked(w World) bool { w.Leak }
+
+func refusedAfterRevoke(w World) bool { w.Refused && w.Wrote == 0 }
+func landed(w World) bool             { w.Wrote == 1 }
+func skippedThenGot(w World) bool     { w.Skipped == 1 && w.Got == 1 }
+
+func design(s World, a Act) Decision[World, string]        { return step(s, a, NoMutant) }
+func snapshotWrite(s World, a Act) Decision[World, string] { return step(s, a, SnapshotWriteMutant) }
+func snapshotWait(s World, a Act) Decision[World, string]  { return step(s, a, SnapshotWaitMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law NoLeak always noLeak,
+	law OneOutcome always oneOutcome,
+
+	law RefusesAfterRevoke sometimes refusedAfterRevoke,
+	law Lands sometimes landed,
+	law SkipsThenGives sometimes skippedThenGot,
+}
+
+type SnapshotWrite machine[World, Act] {
+	initial: first(),
+	step:    snapshotWrite,
+	law Breaks sometimes leaked,
+}
+
+type SnapshotWait machine[World, Act] {
+	initial: first(),
+	step:    snapshotWait,
+	law Breaks sometimes leaked,
+}

@@ -1,0 +1,348 @@
+// Period identifies one of the two digest periods in scope.
+type Period = P0{} | P1{}
+
+// Act is an action in the digest coverage model.
+type Act = Append{Visible bool} | EndPeriod{} | BeginRun{P Period} | CommitRun{} | Crash{}
+
+// Digest records one committed digest entry: its period, covered range
+// (From, To], and visible event count.
+type Digest {
+	Period int,
+	From   int,
+	To     int,
+	Count  int,
+}
+
+// World is the state of one digest scope across at most two periods and
+// three log events.
+type World {
+	Log           []bool,
+	CurPeriod     int,
+	Start         []int,
+	Cut           []int,
+	LastTo        int,
+	Digests       []Digest,
+	Posted        []bool,
+	PostedCount   []int,
+	Runs          []int,
+	InFlight      int,
+	PendingFrom   int,
+	PendingTo     int,
+	PendingCount  int,
+	PendingLeaked bool,
+	Crashes       int,
+	Leaked        bool,
+	RerunIgnored  bool,
+	HiddenSeen    bool,
+}
+
+// MaxEvents bounds the log length in scope.
+let MaxEvents = 3
+
+// MaxPeriods bounds the number of periods in scope.
+let MaxPeriods = 2
+
+// MaxRunsPerPeriod bounds run attempts per period in scope.
+let MaxRunsPerPeriod = 2
+
+// MaxCrashes bounds read-to-write crashes in scope.
+let MaxCrashes = 1
+
+let noMutant = 0
+let readFromPeriodStartMutant = 1
+let readHeadMutant = 2
+let noIdempotencyMutant = 3
+let countHiddenMutant = 4
+let advanceBeforeWriteMutant = 5
+
+func pi(p Period) int {
+	match p {
+	case P0:
+		return 0
+	case P1:
+		return 1
+	}
+}
+
+func first() World {
+	World{
+		Log:           []bool{},
+		CurPeriod:     0,
+		Start:         []int{0, 0},
+		Cut:           []int{0, 0},
+		LastTo:        0,
+		Digests:       []Digest{},
+		Posted:        []bool{false, false},
+		PostedCount:   []int{0, 0},
+		Runs:          []int{0, 0},
+		InFlight:      -1,
+		PendingFrom:   0,
+		PendingTo:     0,
+		PendingCount:  0,
+		PendingLeaked: false,
+		Crashes:       0,
+		Leaked:        false,
+		RerunIgnored:  false,
+		HiddenSeen:    false,
+	}
+}
+
+func head(log []bool) int {
+	let mut n = 0
+	for _ in log {
+		n = n + 1
+	}
+	n
+}
+
+func countVisible(log []bool, from int, to int) int {
+	let mut n = 0
+	for i, vis in log {
+		let seq = i + 1
+		if seq > from && seq <= to && vis {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func countAll(log []bool, from int, to int) int {
+	let mut n = 0
+	for i, _ in log {
+		let seq = i + 1
+		if seq > from && seq <= to {
+			n = n + 1
+		}
+	}
+	n
+}
+
+func hasHidden(log []bool, from int, to int) bool {
+	for i, vis in log {
+		let seq = i + 1
+		if seq > from && seq <= to && !vis {
+			return true
+		}
+	}
+	false
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Append as a:
+		if head(w.Log) >= MaxEvents {
+			return Ignore
+		}
+		w.Log = w.Log.Append(a.Visible)
+		return Enter{w}
+	case EndPeriod:
+		if w.CurPeriod >= MaxPeriods {
+			return Ignore
+		}
+		let h = head(w.Log)
+		let p = w.CurPeriod
+		w.Cut[p] = h
+		if p+1 < MaxPeriods {
+			w.Start[p+1] = h
+		}
+		w.CurPeriod = p + 1
+		return Enter{w}
+	case BeginRun as a:
+		let p = pi(a.P)
+		if w.InFlight >= 0 || p >= w.CurPeriod || w.Runs[p] >= MaxRunsPerPeriod {
+			return Ignore
+		}
+		if !w.Posted[p] && w.LastTo > w.Cut[p] {
+			return Ignore
+		}
+		w.Runs[p] = w.Runs[p] + 1
+		let mut from = w.LastTo
+		if mutant == readFromPeriodStartMutant {
+			from = w.Start[p]
+		}
+		let mut to = w.Cut[p]
+		if mutant == readHeadMutant {
+			to = head(w.Log)
+		}
+		let mut cnt = countVisible(w.Log, from, to)
+		let mut leaked = false
+		if mutant == countHiddenMutant {
+			cnt = countAll(w.Log, from, to)
+			leaked = hasHidden(w.Log, from, to)
+		}
+		w.InFlight = p
+		w.PendingFrom = from
+		w.PendingTo = to
+		w.PendingCount = cnt
+		w.PendingLeaked = leaked
+		if mutant == advanceBeforeWriteMutant && !w.Posted[p] {
+			w.LastTo = to
+		}
+		return Enter{w}
+	case Crash:
+		if w.InFlight < 0 || w.Crashes >= MaxCrashes {
+			return Ignore
+		}
+		w.InFlight = -1
+		w.Crashes = w.Crashes + 1
+		return Enter{w}
+	case CommitRun:
+		if w.InFlight < 0 {
+			return Ignore
+		}
+		let p = w.InFlight
+		w.InFlight = -1
+		if w.Posted[p] && mutant != noIdempotencyMutant {
+			w.RerunIgnored = true
+			return Enter{w}
+		}
+		w.Digests = w.Digests.Append(Digest{
+			Period: p,
+			From:   w.PendingFrom,
+			To:     w.PendingTo,
+			Count:  w.PendingCount,
+		})
+		w.Posted[p] = true
+		w.PostedCount[p] = w.PostedCount[p] + 1
+		w.LastTo = w.PendingTo
+		if w.PendingLeaked {
+			w.Leaked = true
+		}
+		if hasHidden(w.Log, w.PendingFrom, w.PendingTo) {
+			w.HiddenSeen = true
+		}
+		return Enter{w}
+	}
+}
+
+func noGapNoOverlap(w World) bool {
+	let h = head(w.Log)
+	let mut n = 0
+	let mut prev = 0
+	for d in w.Digests {
+		if d.From != prev || d.From > d.To || d.To > h {
+			return false
+		}
+		prev = d.To
+		n = n + 1
+	}
+	if n == 0 {
+		return w.LastTo == 0
+	}
+	prev == w.LastTo
+}
+
+func oncePerPeriod(w World) bool {
+	for c in w.PostedCount {
+		if c > 1 {
+			return false
+		}
+	}
+	true
+}
+
+func countsAreTheFold(w World) bool {
+	for d in w.Digests {
+		if d.To != w.Cut[d.Period] {
+			return false
+		}
+		if d.Count != countVisible(w.Log, d.From, d.To) {
+			return false
+		}
+	}
+	true
+}
+
+func nothingHidden(w World) bool { !w.Leaked }
+
+func gapOrOverlap(w World) bool    { !noGapNoOverlap(w) }
+func duplicatePeriod(w World) bool { !oncePerPeriod(w) }
+func wrongFold(w World) bool       { !countsAreTheFold(w) }
+func leakedHidden(w World) bool    { !nothingHidden(w) }
+
+func digestLen(w World) int {
+	let mut n = 0
+	for _ in w.Digests {
+		n = n + 1
+	}
+	n
+}
+
+func coversTwoPeriods(w World) bool {
+	digestLen(w) == 2 && w.LastTo >= 2 && w.Digests[0].Count >= 1 && w.Digests[1].Count >= 1
+}
+
+func recoversAfterCrash(w World) bool {
+	w.Crashes >= 1 && digestLen(w) >= 1 && w.LastTo >= 1
+}
+
+func skipsHiddenEvents(w World) bool {
+	w.HiddenSeen && digestLen(w) >= 1 && w.Digests[0].Count >= 1
+}
+
+func rerunIsIdempotent(w World) bool { w.RerunIgnored }
+
+func design(s World, a Act) Decision[World, string]              { return step(s, a, noMutant) }
+func readFromPeriodStart(s World, a Act) Decision[World, string] { return step(s, a, readFromPeriodStartMutant) }
+func readHead(s World, a Act) Decision[World, string]            { return step(s, a, readHeadMutant) }
+func noIdempotency(s World, a Act) Decision[World, string]       { return step(s, a, noIdempotencyMutant) }
+func countHidden(s World, a Act) Decision[World, string]         { return step(s, a, countHiddenMutant) }
+func advanceBeforeWrite(s World, a Act) Decision[World, string]  { return step(s, a, advanceBeforeWriteMutant) }
+
+// Design is the digest coverage model: digests for a scope partition the log
+// prefix up to LastTo without gap or overlap, each period posts at most once,
+// counts equal the fold of visible events in (From, Cut[Period]], and no
+// unreadable channel event is ever counted.
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law NoGapNoOverlap always noGapNoOverlap,
+	law OncePerPeriod always oncePerPeriod,
+	law CountsAreTheFold always countsAreTheFold,
+	law NothingTheReadersCannotRead always nothingHidden,
+
+	law CoversTwoPeriods sometimes coversTwoPeriods,
+	law RecoversAfterCrash sometimes recoversAfterCrash,
+	law SkipsHiddenEvents sometimes skipsHiddenEvents,
+	law RerunIsIdempotent sometimes rerunIsIdempotent,
+}
+
+// ReadFromPeriodStart reads from the period's start cursor instead of LastTo,
+// leaving a gap when an earlier period was not yet digested.
+type ReadFromPeriodStart machine[World, Act] {
+	initial: first(),
+	step:    readFromPeriodStart,
+	law Breaks sometimes gapOrOverlap,
+}
+
+// ReadHead reads up to the live log head instead of the period's cut cursor,
+// pulling later period events into an earlier digest.
+type ReadHead machine[World, Act] {
+	initial: first(),
+	step:    readHead,
+	law Breaks sometimes wrongFold,
+}
+
+// NoIdempotency posts a second digest when an already-digested period reruns.
+type NoIdempotency machine[World, Act] {
+	initial: first(),
+	step:    noIdempotency,
+	law Breaks sometimes duplicatePeriod,
+}
+
+// CountHidden includes restricted-channel events in digest counts.
+type CountHidden machine[World, Act] {
+	initial: first(),
+	step:    countHidden,
+	law Breaks sometimes leakedHidden,
+}
+
+// AdvanceBeforeWrite moves LastTo during the read before the digest commits,
+// leaving a gap if the service crashes between read and write.
+type AdvanceBeforeWrite machine[World, Act] {
+	initial: first(),
+	step:    advanceBeforeWrite,
+	law Breaks sometimes gapOrOverlap,
+}

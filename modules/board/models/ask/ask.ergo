@@ -1,0 +1,200 @@
+// The package ask is the design model of a question and its answer, with
+// the mention that carries it (spec.md, Ask and Mention; machines.md, M5).
+//
+// Scope: one question, asked of one actor by a mention; two responders X
+// and Y who may answer at once; the asker, who may wait and time out, and
+// reads later; at most MaxEdits edits of the question's text.
+//
+// Q: 0 open, 1 answered, 2 withdrawn, 3 expired. A reply is two actions,
+// ReplyRead (the responder sees the question open) and ReplyWrite (the
+// store's one write), so both responders can have seen it open. The
+// store's write sets the answer only while the question is open, as one
+// conditional write; a reply that loses stays a plain reply in the thread.
+//
+// Notes: the mentioned actor is told of the mention once, when the
+// message that first mentions it is written; an edit that keeps the
+// mention tells no one again. The asker is told of the answer once.
+// A wait that times out leaves the question open: the answer that comes
+// later is still the asker's to read.
+type Who = X{} | Y{}
+
+type Act = ReplyRead{R Who} | ReplyWrite{R Who} | Withdraw{} | Expire{} | Edit{} | WaitTimeout{} | AskerRead{}
+
+type World {
+	Q            int,
+	AnswerBy     int,
+	Replies      int,
+	Saw          []bool,
+	Changed      bool,
+	MentionNotes int,
+	AnswerNotes  int,
+	Edits        int,
+	TimedOut     bool,
+	Read         bool,
+	Closed       bool,
+}
+
+let MaxEdits = 2
+
+let NoMutant = 0
+let LastReplyWinsMutant = 1
+let RenotifyOnEditMutant = 2
+let AnswerAfterCloseMutant = 3
+let TimeoutClosesMutant = 4
+
+func ri(r Who) int {
+	match r {
+	case X:
+		return 0
+	case Y:
+		return 1
+	}
+}
+
+func first() World {
+	World{Q: 0, AnswerBy: -1, Replies: 0, Saw: []bool{false, false}, Changed: false,
+		MentionNotes: 1, AnswerNotes: 0, Edits: 0, TimedOut: false, Read: false, Closed: false}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case ReplyRead as a:
+		let r = ri(a.R)
+		if w.Q != 0 || w.Saw[r] {
+			return Ignore
+		}
+		w.Saw[r] = true
+		return Enter{w}
+	case ReplyWrite as a:
+		let r = ri(a.R)
+		if !w.Saw[r] {
+			return Ignore
+		}
+		w.Saw[r] = false
+		w.Replies = w.Replies + 1
+		let mut wins = w.Q == 0
+		if mutant == LastReplyWinsMutant {
+			wins = w.Q == 0 || w.Q == 1
+		}
+		if mutant == AnswerAfterCloseMutant {
+			wins = w.Q != 1
+		}
+		if wins {
+			if w.AnswerBy >= 0 && w.AnswerBy != r {
+				w.Changed = true
+			}
+			w.Q = 1
+			w.AnswerBy = r
+			w.AnswerNotes = w.AnswerNotes + 1
+		}
+		return Enter{w}
+	case Withdraw:
+		if w.Q != 0 {
+			return Ignore
+		}
+		w.Q = 2
+		w.Closed = true
+		return Enter{w}
+	case Expire:
+		if w.Q != 0 {
+			return Ignore
+		}
+		w.Q = 3
+		w.Closed = true
+		return Enter{w}
+	case Edit:
+		if w.Edits >= MaxEdits || w.Q != 0 {
+			return Ignore
+		}
+		w.Edits = w.Edits + 1
+		if mutant == RenotifyOnEditMutant {
+			w.MentionNotes = w.MentionNotes + 1
+		}
+		return Enter{w}
+	case WaitTimeout:
+		if w.TimedOut || w.Q != 0 {
+			return Ignore
+		}
+		w.TimedOut = true
+		if mutant == TimeoutClosesMutant {
+			w.Q = 3
+			w.Closed = true
+		}
+		return Enter{w}
+	case AskerRead:
+		if w.Q != 1 || w.Read {
+			return Ignore
+		}
+		w.Read = true
+		return Enter{w}
+	}
+}
+
+func oneAnswer(w World) bool {
+	if (w.Q == 1) != (w.AnswerBy >= 0) {
+		return false
+	}
+	!w.Changed && w.AnswerNotes <= 1
+}
+
+func mentionedOnce(w World) bool {
+	w.MentionNotes == 1
+}
+
+func closedStaysClosed(w World) bool {
+	!(w.Closed && w.Q == 1)
+}
+
+func answerMoved(w World) bool        { !oneAnswer(w) }
+func answeredAfterClose(w World) bool { !closedStaysClosed(w) }
+func toldAgain(w World) bool          { !mentionedOnce(w) }
+
+func loserIsAReply(w World) bool        { w.Q == 1 && w.Replies == 2 }
+func answeredAfterTimeout(w World) bool { w.TimedOut && w.Q == 1 && w.Read }
+func closedUnanswered(w World) bool     { w.Q == 2 && w.Replies == 1 }
+
+func design(s World, a Act) Decision[World, string]           { return step(s, a, NoMutant) }
+func lastReplyWins(s World, a Act) Decision[World, string]    { return step(s, a, LastReplyWinsMutant) }
+func renotifyOnEdit(s World, a Act) Decision[World, string]   { return step(s, a, RenotifyOnEditMutant) }
+func answerAfterClose(s World, a Act) Decision[World, string] { return step(s, a, AnswerAfterCloseMutant) }
+func timeoutCloses(s World, a Act) Decision[World, string]    { return step(s, a, TimeoutClosesMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneAnswer always oneAnswer,
+	law MentionedOnce always mentionedOnce,
+	law ClosedStaysClosed always closedStaysClosed,
+
+	law LoserIsAReply sometimes loserIsAReply,
+	law AnsweredAfterTimeout sometimes answeredAfterTimeout,
+	law ClosedUnanswered sometimes closedUnanswered,
+}
+
+type LastReplyWins machine[World, Act] {
+	initial: first(),
+	step:    lastReplyWins,
+	law Breaks sometimes answerMoved,
+}
+
+type RenotifyOnEdit machine[World, Act] {
+	initial: first(),
+	step:    renotifyOnEdit,
+	law Breaks sometimes toldAgain,
+}
+
+type AnswerAfterClose machine[World, Act] {
+	initial: first(),
+	step:    answerAfterClose,
+	law Breaks sometimes answeredAfterClose,
+}
+
+func neverAnsweredAfterTimeout(w World) bool { !(w.TimedOut && w.Q == 1) }
+
+type TimeoutCloses machine[World, Act] {
+	initial: first(),
+	step:    timeoutCloses,
+	law Breaks always neverAnsweredAfterTimeout,
+}

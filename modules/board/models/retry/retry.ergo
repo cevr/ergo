@@ -1,0 +1,264 @@
+// Payload identifies one of two distinct post payloads sent under one key.
+type Payload = P0{} | P1{}
+
+// Writer identifies one of two writers racing on a conditional label write.
+type Writer = W0{} | W1{}
+
+// Act is an action in the idempotent and conditional write retry model.
+type Act = SendPost{P Payload, Lost bool} | OtherPost{} | LabelRead{W Writer} | LabelWrite{W Writer, Lost bool}
+
+// World is the state of one idempotency key with retries and lost answers,
+// alongside two writers racing on one conditional label precondition.
+type World {
+	NextMsgId        int,
+	OtherPosts       int,
+	Attempts         int,
+	KeyUsed          bool,
+	KeyPayload       int,
+	KeyResult        int,
+	MsgCount         int,
+	FirstAnswer      int,
+	SawLost          bool,
+	ReplayReturned   bool,
+	ReplayAfterOther bool,
+	SawConflict      bool,
+	WrongAnswer      bool,
+	ConflictMissed   bool,
+	Label            int,
+	Saw              []bool,
+	LabelTries       []int,
+	LabelWins        int,
+	SawLabelConflict bool,
+}
+
+// MaxAttempts bounds post attempts under the shared idempotency key.
+let MaxAttempts = 3
+
+// MaxOtherPosts bounds intervening posts from other actors.
+let MaxOtherPosts = 1
+
+// MaxLabelTries bounds conditional label attempts per writer.
+let MaxLabelTries = 2
+
+let noMutant = 0
+let noIdempotencyMutant = 1
+let ignoreDigestMutant = 2
+let nonAtomicLabelMutant = 3
+let freshIdOnReplayMutant = 4
+
+func pi(p Payload) int {
+	match p {
+	case P0:
+		return 0
+	case P1:
+		return 1
+	}
+}
+
+func wi(w Writer) int {
+	match w {
+	case W0:
+		return 0
+	case W1:
+		return 1
+	}
+}
+
+func first() World {
+	World{
+		NextMsgId:        1,
+		OtherPosts:       0,
+		Attempts:         0,
+		KeyUsed:          false,
+		KeyPayload:       -1,
+		KeyResult:        0,
+		MsgCount:         0,
+		FirstAnswer:      0,
+		SawLost:          false,
+		ReplayReturned:   false,
+		ReplayAfterOther: false,
+		SawConflict:      false,
+		WrongAnswer:      false,
+		ConflictMissed:   false,
+		Label:            0,
+		Saw:              []bool{false, false},
+		LabelTries:       []int{0, 0},
+		LabelWins:        0,
+		SawLabelConflict: false,
+	}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case OtherPost:
+		if w.OtherPosts >= MaxOtherPosts {
+			return Ignore
+		}
+		w.OtherPosts = w.OtherPosts + 1
+		w.NextMsgId = w.NextMsgId + 1
+		return Enter{w}
+	case SendPost as a:
+		if w.Attempts >= MaxAttempts {
+			return Ignore
+		}
+		w.Attempts = w.Attempts + 1
+		let p = pi(a.P)
+		if !w.KeyUsed {
+			let id = w.NextMsgId
+			w.NextMsgId = w.NextMsgId + 1
+			w.MsgCount = w.MsgCount + 1
+			w.KeyUsed = true
+			w.KeyPayload = p
+			w.KeyResult = id
+			if a.Lost {
+				w.SawLost = true
+			} else {
+				w.FirstAnswer = id
+			}
+			return Enter{w}
+		}
+		if mutant == noIdempotencyMutant {
+			let id = w.NextMsgId
+			w.NextMsgId = w.NextMsgId + 1
+			w.MsgCount = w.MsgCount + 1
+			if !a.Lost && id != w.KeyResult {
+				w.WrongAnswer = true
+			}
+			return Enter{w}
+		}
+		if p != w.KeyPayload {
+			if mutant == ignoreDigestMutant {
+				w.ConflictMissed = true
+				return Enter{w}
+			}
+			w.SawConflict = true
+			return Enter{w}
+		}
+		let mut answer = w.KeyResult
+		if mutant == freshIdOnReplayMutant {
+			answer = w.NextMsgId
+		}
+		if a.Lost {
+			w.SawLost = true
+		} else {
+			w.ReplayReturned = true
+			if w.OtherPosts >= 1 {
+				w.ReplayAfterOther = true
+			}
+			if answer != w.KeyResult || (w.FirstAnswer != 0 && answer != w.FirstAnswer) {
+				w.WrongAnswer = true
+			}
+			if w.FirstAnswer == 0 {
+				w.FirstAnswer = answer
+			}
+		}
+		return Enter{w}
+	case LabelRead as a:
+		let i = wi(a.W)
+		if w.Label != 0 || w.Saw[i] || w.LabelTries[i] > 0 {
+			return Ignore
+		}
+		w.Saw[i] = true
+		return Enter{w}
+	case LabelWrite as a:
+		let i = wi(a.W)
+		if !w.Saw[i] || w.LabelTries[i] >= MaxLabelTries {
+			return Ignore
+		}
+		w.LabelTries[i] = w.LabelTries[i] + 1
+		let mut ok = w.Label == 0
+		if mutant == nonAtomicLabelMutant {
+			ok = true
+		}
+		if ok {
+			w.Label = i + 1
+			w.LabelWins = w.LabelWins + 1
+			if !a.Lost {
+				w.Saw[i] = false
+			}
+			return Enter{w}
+		}
+		w.SawLabelConflict = true
+		if !a.Lost {
+			w.Saw[i] = false
+		}
+		return Enter{w}
+	}
+}
+
+func landsOnce(w World) bool { w.MsgCount <= 1 }
+
+func sameAnswer(w World) bool { !w.WrongAnswer }
+
+func conflictOnDifferentPayload(w World) bool { !w.ConflictMissed }
+
+func oneOfTwoLands(w World) bool { w.LabelWins <= 1 }
+
+func landedTwice(w World) bool         { !landsOnce(w) }
+func answeredDifferently(w World) bool { !sameAnswer(w) }
+func missedConflict(w World) bool      { !conflictOnDifferentPayload(w) }
+func bothLabelsLanded(w World) bool    { !oneOfTwoLands(w) }
+
+func retryAfterLostAnswer(w World) bool     { w.SawLost && w.ReplayReturned && w.MsgCount == 1 }
+func sameAnswerAfterOtherPost(w World) bool { w.ReplayAfterOther && !w.WrongAnswer }
+func conflictRefused(w World) bool          { w.SawConflict && w.MsgCount == 1 }
+func racingConditionalLabels(w World) bool  { w.LabelTries[0] >= 1 && w.LabelTries[1] >= 1 && w.LabelWins == 1 && w.SawLabelConflict }
+
+func design(s World, a Act) Decision[World, string]          { return step(s, a, noMutant) }
+func noIdempotency(s World, a Act) Decision[World, string]   { return step(s, a, noIdempotencyMutant) }
+func ignoreDigest(s World, a Act) Decision[World, string]    { return step(s, a, ignoreDigestMutant) }
+func nonAtomicLabel(s World, a Act) Decision[World, string]  { return step(s, a, nonAtomicLabelMutant) }
+func freshIdOnReplay(s World, a Act) Decision[World, string] { return step(s, a, freshIdOnReplayMutant) }
+
+// Design is the retry model for idempotent posts and conditional label writes:
+// a key lands at most one message across lost answers and retries, matching
+// retries return the original result even after intervening traffic, different
+// payloads fail idempotency_conflict, and at most one of two racing
+// conditional label sets lands.
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law LandsOnce always landsOnce,
+	law SameAnswer always sameAnswer,
+	law ConflictOnDifferentPayload always conflictOnDifferentPayload,
+	law OneOfTwoLands always oneOfTwoLands,
+
+	law RetryAfterLostAnswer sometimes retryAfterLostAnswer,
+	law SameAnswerAfterOtherPost sometimes sameAnswerAfterOtherPost,
+	law ConflictRefused sometimes conflictRefused,
+	law RacingConditionalLabels sometimes racingConditionalLabels,
+}
+
+// NoIdempotency ignores the stored idempotency record and lands a second
+// message on retry.
+type NoIdempotency machine[World, Act] {
+	initial: first(),
+	step:    noIdempotency,
+	law Breaks sometimes landedTwice,
+}
+
+// IgnoreDigest accepts a retry whose payload differs from the original request
+// instead of refusing it as idempotency_conflict.
+type IgnoreDigest machine[World, Act] {
+	initial: first(),
+	step:    ignoreDigest,
+	law Breaks sometimes missedConflict,
+}
+
+// NonAtomicLabel trusts the writer's read snapshot instead of re-checking the
+// label precondition inside the write.
+type NonAtomicLabel machine[World, Act] {
+	initial: first(),
+	step:    nonAtomicLabel,
+	law Breaks sometimes bothLabelsLanded,
+}
+
+// FreshIdOnReplay avoids duplicating the message on retry but returns a fresh
+// identifier instead of the recorded first result.
+type FreshIdOnReplay machine[World, Act] {
+	initial: first(),
+	step:    freshIdOnReplay,
+	law Breaks sometimes answeredDifferently,
+}

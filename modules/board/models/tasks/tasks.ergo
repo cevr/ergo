@@ -1,0 +1,315 @@
+// The package tasks is the design model of the board's task lifecycle
+// (spec.md, Task; machines.md, M1 and M2): claims, leases, prerequisites and
+// the fence that keeps an ended claim from changing a task.
+//
+// Scope (the claim: "proved" means proved in this scope): two workers A and
+// B, two tasks T0 and T1, T1 needs T0, at most MaxEpoch claims a task.
+// Time is abstract: Expire is "the lease of the claim ran out", enabled
+// whenever a task is claimed, so every placement of the expiry against the
+// other actions is explored.
+//
+// Status: 0 waiting, 1 ready, 2 claimed, 3 blocked, 4 completed, 5 failed,
+// 6 cancelled. A claim is two actions, ClaimRead (the worker sees a ready
+// task) and ClaimWrite (the store's one write), so two workers can both
+// have seen the task ready before either writes: the claim race.
+//
+// Epoch counts the claims of a task; a claim's token is the epoch it was
+// given. Tok is what each worker remembers (index worker*2+task); the
+// store never clears it on Expire or Cancel, since the worker is not told.
+//
+// Ghosts: Wins counts the claims answered "yours" since the task last
+// became ready; Done counts completions; Stale is set when an action
+// changed a task under a token that is not the current epoch; Lost is set
+// when the store refused a holder's action as claim_lost (a witness).
+type Worker = A{} | B{}
+type Task = T0{} | T1{}
+
+type Act = ClaimRead{W Worker, T Task} | ClaimWrite{W Worker, T Task} | Renew{W Worker, T Task} | Complete{W Worker, T Task} | Fail{W Worker, T Task} | Release{W Worker, T Task} | Block{W Worker, T Task} | Expire{T Task} | Unblock{T Task} | Cancel{T Task} | Reopen{T Task}
+
+type World {
+	Status []int,
+	Holder []int,
+	Epoch  []int,
+	Saw    []bool,
+	Tok    []int,
+	Wins   []int,
+	Done   []int,
+	Stale  bool,
+	Lost   bool,
+}
+
+let MaxEpoch = 3
+
+let NoMutant = 0
+let BlindClaimMutant = 1
+let NoFenceMutant = 2
+let FailedReadiesMutant = 3
+let ReopenCompletedMutant = 4
+
+func wi(w Worker) int {
+	match w {
+	case A:
+		return 0
+	case B:
+		return 1
+	}
+}
+
+func ti(t Task) int {
+	match t {
+	case T0:
+		return 0
+	case T1:
+		return 1
+	}
+}
+
+func first() World {
+	World{
+		Status: []int{1, 0},
+		Holder: []int{-1, -1},
+		Epoch:  []int{0, 0},
+		Saw:    []bool{false, false, false, false},
+		Tok:    []int{0, 0, 0, 0},
+		Wins:   []int{0, 0},
+		Done:   []int{0, 0},
+		Stale:  false,
+		Lost:   false,
+	}
+}
+
+func requeue(w World, t int) World {
+	let mut out = w
+	out.Holder[t] = -1
+	out.Wins[t] = 0
+	if t == 1 && out.Status[0] != 4 {
+		out.Status[t] = 0
+	} else {
+		out.Status[t] = 1
+	}
+	out
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case ClaimRead as a:
+		let t = ti(a.T)
+		let k = wi(a.W)*2 + t
+		if w.Status[t] != 1 || w.Saw[k] {
+			return Ignore
+		}
+		w.Saw[k] = true
+		return Enter{w}
+	case ClaimWrite as a:
+		let t = ti(a.T)
+		let k = wi(a.W)*2 + t
+		if !w.Saw[k] {
+			return Ignore
+		}
+		if w.Epoch[t] >= MaxEpoch {
+			return Ignore
+		}
+		w.Saw[k] = false
+		let mut ok = w.Status[t] == 1
+		if mutant == BlindClaimMutant {
+			ok = w.Status[t] == 1 || w.Status[t] == 2
+		}
+		if !ok {
+			return Enter{w}
+		}
+		w.Epoch[t] = w.Epoch[t] + 1
+		w.Status[t] = 2
+		w.Holder[t] = wi(a.W)
+		w.Tok[k] = w.Epoch[t]
+		w.Wins[t] = w.Wins[t] + 1
+		return Enter{w}
+	case Renew as a:
+		return settle(w, wi(a.W), ti(a.T), 0, mutant)
+	case Complete as a:
+		return settle(w, wi(a.W), ti(a.T), 1, mutant)
+	case Fail as a:
+		return settle(w, wi(a.W), ti(a.T), 2, mutant)
+	case Release as a:
+		return settle(w, wi(a.W), ti(a.T), 3, mutant)
+	case Block as a:
+		return settle(w, wi(a.W), ti(a.T), 4, mutant)
+	case Expire as a:
+		let t = ti(a.T)
+		if w.Status[t] != 2 {
+			return Ignore
+		}
+		return Enter{requeue(w, t)}
+	case Unblock as a:
+		let t = ti(a.T)
+		if w.Status[t] != 3 {
+			return Ignore
+		}
+		return Enter{requeue(w, t)}
+	case Cancel as a:
+		let t = ti(a.T)
+		if w.Status[t] >= 4 {
+			return Ignore
+		}
+		w.Status[t] = 6
+		w.Holder[t] = -1
+		return Enter{w}
+	case Reopen as a:
+		let t = ti(a.T)
+		let mut can = w.Status[t] == 5
+		if mutant == ReopenCompletedMutant {
+			can = w.Status[t] == 5 || w.Status[t] == 4
+		}
+		if !can {
+			return Ignore
+		}
+		return Enter{requeue(w, t)}
+	}
+}
+
+func settle(s World, wk int, t int, kind int, mutant int) Decision[World, string] {
+	let mut w = s
+	let k = wk*2 + t
+	if w.Tok[k] == 0 {
+		return Ignore
+	}
+	let mut held = w.Status[t] == 2 && w.Tok[k] == w.Epoch[t]
+	if mutant == NoFenceMutant {
+		held = w.Status[t] == 2
+	}
+	if !held {
+		w.Tok[k] = 0
+		w.Lost = true
+		return Enter{w}
+	}
+	if w.Tok[k] != w.Epoch[t] {
+		w.Stale = true
+	}
+	if kind == 0 {
+		return Enter{w}
+	}
+	w.Tok[k] = 0
+	w.Holder[t] = -1
+	if kind == 1 {
+		w.Status[t] = 4
+		w.Done[t] = w.Done[t] + 1
+		if t == 0 && w.Status[1] == 0 {
+			w.Status[1] = 1
+			w.Wins[1] = 0
+		}
+		return Enter{w}
+	}
+	if kind == 2 {
+		w.Status[t] = 5
+		if mutant == FailedReadiesMutant && t == 0 && w.Status[1] == 0 {
+			w.Status[1] = 1
+			w.Wins[1] = 0
+		}
+		return Enter{w}
+	}
+	if kind == 3 {
+		return Enter{requeue(w, t)}
+	}
+	w.Status[t] = 3
+	return Enter{w}
+}
+
+func oneHolder(w World) bool {
+	for t, s in w.Status {
+		if (s == 2) != (w.Holder[t] >= 0) {
+			return false
+		}
+	}
+	true
+}
+
+func oneWinner(w World) bool {
+	for n in w.Wins {
+		if n > 1 {
+			return false
+		}
+	}
+	true
+}
+
+func claimLostChangesNothing(w World) bool {
+	!w.Stale
+}
+
+func completedOnce(w World) bool {
+	for t, n in w.Done {
+		if n > 1 {
+			return false
+		}
+		if n == 1 && w.Status[t] != 4 {
+			return false
+		}
+	}
+	true
+}
+
+func prerequisiteFirst(w World) bool {
+	let s = w.Status[1]
+	if s == 1 || s == 2 || s == 4 {
+		return w.Status[0] == 4
+	}
+	true
+}
+
+func twoWinners(w World) bool   { !oneWinner(w) }
+func staleChanged(w World) bool { w.Stale }
+func outOfOrder(w World) bool   { !prerequisiteFirst(w) }
+func doneTwice(w World) bool    { !completedOnce(w) }
+
+func bothDone(w World) bool       { w.Status[0] == 4 && w.Status[1] == 4 }
+func reclaimed(w World) bool      { w.Epoch[0] >= 2 && w.Status[0] == 2 }
+func lostSeen(w World) bool       { w.Lost }
+func heldForAPerson(w World) bool { w.Status[1] == 3 }
+func waitsOnFailed(w World) bool  { w.Status[0] == 5 && w.Status[1] == 0 }
+
+func design(s World, a Act) Decision[World, string]          { return step(s, a, NoMutant) }
+func blindClaim(s World, a Act) Decision[World, string]      { return step(s, a, BlindClaimMutant) }
+func noFence(s World, a Act) Decision[World, string]         { return step(s, a, NoFenceMutant) }
+func failedReadies(s World, a Act) Decision[World, string]   { return step(s, a, FailedReadiesMutant) }
+func reopenCompleted(s World, a Act) Decision[World, string] { return step(s, a, ReopenCompletedMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law OneHolder always oneHolder,
+	law OneWinner always oneWinner,
+	law ClaimLostChangesNothing always claimLostChangesNothing,
+	law CompletedOnce always completedOnce,
+	law PrerequisiteFirst always prerequisiteFirst,
+
+	law BothComplete sometimes bothDone,
+	law Reclaims sometimes reclaimed,
+	law RefusesALostClaim sometimes lostSeen,
+	law HoldsForAPerson sometimes heldForAPerson,
+	law KeepsWaitingOnAFailure sometimes waitsOnFailed,
+}
+
+type BlindClaim machine[World, Act] {
+	initial: first(),
+	step:    blindClaim,
+	law Breaks sometimes twoWinners,
+}
+
+type NoFence machine[World, Act] {
+	initial: first(),
+	step:    noFence,
+	law Breaks sometimes staleChanged,
+}
+
+type FailedReadies machine[World, Act] {
+	initial: first(),
+	step:    failedReadies,
+	law Breaks sometimes outOfOrder,
+}
+
+type ReopenCompleted machine[World, Act] {
+	initial: first(),
+	step:    reopenCompleted,
+	law Breaks sometimes doneTwice,
+}

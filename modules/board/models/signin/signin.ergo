@@ -1,0 +1,231 @@
+// The package signin is the design model of one sign-in and the session
+// it gives (spec.md, Sign-in; machines.md, M7): the authorization code,
+// PKCE, refresh-token rotation with reuse detection, revocation and the
+// end of every session when a person leaves the workspace.
+//
+// Scope: one person's one sign-in from one client (Legit), and a Thief
+// who can see the authorization code and can copy the client's refresh
+// token once, but never has the PKCE verifier; at most MaxGen refresh
+// generations.
+//
+// Code: 0 none, 1 issued, 2 redeemed. Gen is the family's current refresh
+// generation (0: none yet). Held is what each party holds (index 0 Legit,
+// 1 Thief; 0 nothing). Live: the family is alive.
+//
+//   - Authorize: the person signed in at Google, the board checked the id
+//     token and issued its own code, bound to the client's PKCE challenge.
+//   - Redeem{W}: the token request. One use, and only with the verifier.
+//   - Steal: the Thief copies the token Legit holds now.
+//   - Refresh{W}: the current generation's token moves the family to the
+//     next one. An older generation's token is a reuse: the family ends.
+//   - Use{W}: an access check. The board's tokens are opaque and looked
+//     up on every request, so a dead family's token is refused at once.
+//   - Revoke: sign-out, or an admin's revoke. Leave: the person left the
+//     workspace, which ends every session of theirs.
+//
+// Ghosts: Redeems counts successful redeems; ThiefIn is set when the
+// Thief redeemed the code; AfterEnd is set when a request was accepted
+// for a dead family; Reused is set when an old generation's token was
+// presented; Forked is set when such a token was accepted.
+type Party = Legit{} | Thief{}
+
+type Act = Authorize{} | Redeem{W Party} | Steal{} | Refresh{W Party} | Use{W Party} | Revoke{} | Leave{}
+
+type World {
+	Code     int,
+	Redeems  int,
+	Gen      int,
+	Held     []int,
+	Live     bool,
+	Stolen   bool,
+	ThiefIn  bool,
+	AfterEnd bool,
+	Reused   bool,
+	Forked   bool,
+	Ended    bool,
+	Accepts  int,
+}
+
+let MaxGen = 4
+
+let NoMutant = 0
+let CodeReplayMutant = 1
+let NoPKCEMutant = 2
+let NoReuseDetectionMutant = 3
+let StatelessAccessMutant = 4
+
+func pi(p Party) int {
+	match p {
+	case Legit:
+		return 0
+	case Thief:
+		return 1
+	}
+}
+
+func first() World {
+	World{Code: 0, Redeems: 0, Gen: 0, Held: []int{0, 0}, Live: false, Stolen: false,
+		ThiefIn: false, AfterEnd: false, Reused: false, Forked: false, Ended: false, Accepts: 0}
+}
+
+func step(s World, act Act, mutant int) Decision[World, string] {
+	let mut w = s
+	match act {
+	case Authorize:
+		if w.Code != 0 {
+			return Ignore
+		}
+		w.Code = 1
+		return Enter{w}
+	case Redeem as a:
+		let p = pi(a.W)
+		let mut open = w.Code == 1
+		if mutant == CodeReplayMutant {
+			open = w.Code == 1 || w.Code == 2
+		}
+		let mut verifier = p == 0
+		if mutant == NoPKCEMutant {
+			verifier = true
+		}
+		if !open || !verifier || w.Ended || w.Gen >= MaxGen || w.Redeems >= 2 {
+			return Ignore
+		}
+		w.Code = 2
+		w.Redeems = w.Redeems + 1
+		w.Gen = w.Gen + 1
+		w.Held[p] = w.Gen
+		w.Live = true
+		if p == 1 {
+			w.ThiefIn = true
+		}
+		return Enter{w}
+	case Steal:
+		if w.Stolen || w.Held[0] == 0 {
+			return Ignore
+		}
+		w.Stolen = true
+		w.Held[1] = w.Held[0]
+		return Enter{w}
+	case Refresh as a:
+		let p = pi(a.W)
+		let h = w.Held[p]
+		if h == 0 || !w.Live || w.Gen >= MaxGen {
+			return Ignore
+		}
+		if h == w.Gen {
+			w.Gen = w.Gen + 1
+			w.Held[p] = w.Gen
+			return Enter{w}
+		}
+		w.Reused = true
+		if mutant == NoReuseDetectionMutant {
+			w.Forked = true
+			w.Gen = w.Gen + 1
+			w.Held[p] = w.Gen
+			return Enter{w}
+		}
+		w.Live = false
+		return Enter{w}
+	case Use as a:
+		let p = pi(a.W)
+		if w.Held[p] == 0 || w.Accepts >= 1 {
+			return Ignore
+		}
+		let mut ok = w.Live
+		if mutant == StatelessAccessMutant {
+			ok = true
+		}
+		if !ok {
+			return Ignore
+		}
+		w.Accepts = w.Accepts + 1
+		if !w.Live {
+			w.AfterEnd = true
+		}
+		return Enter{w}
+	case Revoke:
+		if !w.Live {
+			return Ignore
+		}
+		w.Live = false
+		return Enter{w}
+	case Leave:
+		if w.Ended {
+			return Ignore
+		}
+		w.Ended = true
+		w.Live = false
+		return Enter{w}
+	}
+}
+
+func codeOnce(w World) bool {
+	w.Redeems <= 1 && !w.ThiefIn
+}
+
+func deadIsDead(w World) bool {
+	!w.AfterEnd
+}
+
+func reuseEndsTheFamily(w World) bool {
+	if w.Forked {
+		return false
+	}
+	!(w.Reused && w.Live)
+}
+
+func goneStaysOut(w World) bool {
+	!(w.Ended && w.Live)
+}
+
+func codeBroken(w World) bool   { !codeOnce(w) }
+func acceptedDead(w World) bool { !deadIsDead(w) }
+func forked(w World) bool       { !reuseEndsTheFamily(w) }
+
+func rotates(w World) bool         { w.Live && w.Held[0] == 3 && !w.Stolen }
+func theftDetected(w World) bool   { w.Stolen && w.Reused && !w.Live }
+func signedInAndUsed(w World) bool { w.Live && w.Accepts == 1 }
+
+func design(s World, a Act) Decision[World, string]           { return step(s, a, NoMutant) }
+func codeReplay(s World, a Act) Decision[World, string]       { return step(s, a, CodeReplayMutant) }
+func noPKCE(s World, a Act) Decision[World, string]           { return step(s, a, NoPKCEMutant) }
+func noReuseDetection(s World, a Act) Decision[World, string] { return step(s, a, NoReuseDetectionMutant) }
+func statelessAccess(s World, a Act) Decision[World, string]  { return step(s, a, StatelessAccessMutant) }
+
+type Design machine[World, Act] {
+	initial: first(),
+	step:    design,
+
+	law CodeOnce always codeOnce,
+	law DeadIsDead always deadIsDead,
+	law ReuseEndsTheFamily always reuseEndsTheFamily,
+	law GoneStaysOut always goneStaysOut,
+
+	law Rotates sometimes rotates,
+	law TheftDetected sometimes theftDetected,
+	law SignedInAndUsed sometimes signedInAndUsed,
+}
+
+type CodeReplay machine[World, Act] {
+	initial: first(),
+	step:    codeReplay,
+	law Breaks sometimes codeBroken,
+}
+
+type NoPKCE machine[World, Act] {
+	initial: first(),
+	step:    noPKCE,
+	law Breaks sometimes codeBroken,
+}
+
+type NoReuseDetection machine[World, Act] {
+	initial: first(),
+	step:    noReuseDetection,
+	law Breaks sometimes forked,
+}
+
+type StatelessAccess machine[World, Act] {
+	initial: first(),
+	step:    statelessAccess,
+	law Breaks sometimes acceptedDead,
+}
