@@ -110,7 +110,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 	}
 	let p = load.LoadAll(units, load.Outside(units, std), 4)
 	let available = importUnits(p, units)
-	let exact = callUnits(p)
+	let exact = exactLoadedUnits(p)
 	let order = orderCalls(p, exact)
 	let mut summaries = []Option[lower.CallFacts]{}
 	let mut blocks = []string{}
@@ -133,8 +133,8 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			io.Stdout.Print("@typed \(ui) \(typed[i])\n")
 		}
 		let depFacts = if j < order.Ready { directCallFacts(d.K.Deps, exact, summaries) } else { []lower.ImportCallFacts{} }
-		let out = lower.Package(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, imports, depFacts)
-		if j < order.Ready && exactCallUnit(exact, p.Loaded[i].Path) == i && hasSources(p.Loaded[i]) && lower.HasCallFacts(out.CallFacts) {
+		let out = lower.Package(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, imports, depFacts, shapeImports(p, i, exact))
+		if j < order.Ready && exactLoadedUnit(exact, p.Loaded[i].Path) == i && hasSources(p.Loaded[i]) && lower.HasCallFacts(out.CallFacts) {
 			summaries[i] = Some[lower.CallFacts]{Value: out.CallFacts}
 		}
 		blocks[i] = write(ui, units[ui], out)
