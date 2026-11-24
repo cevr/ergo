@@ -365,6 +365,32 @@ func benchMapClose(h fs.Host, n int) int {
 	k
 }
 
+// ---- ownwith: a with that owns a resource, built in place per call ----
+
+type Gauge {
+	Read(x int) int,
+}
+
+type Counter { k int } implements Gauge, Closer
+
+func Read(c Counter, x int) int { x * c.k + 1 }
+
+func Close(_ Counter) {}
+
+func gauged(x int) int {
+	with context { Gauge: Counter{k: 3} } {
+		Gauge.Read(x)
+	}
+}
+
+func benchOwnWith(n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + gauged(i & 1023)
+	}
+	s
+}
+
 // ---- ref: a shared cell's Modify with a closure ----
 
 func benchRef(n int) int {
@@ -502,6 +528,8 @@ func benchRebuild(n int) int {
 func run(kind string, n int, h fs.Host) int {
 	if kind == "mapclose" {
 		benchMapClose(h, n)
+	} else if kind == "ownwith" {
+		benchOwnWith(n)
 	} else if kind == "widen" {
 		benchWiden(n)
 	} else if kind == "rebuild" {

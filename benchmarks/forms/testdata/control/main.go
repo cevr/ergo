@@ -362,6 +362,33 @@ func benchMapClose(n int) int {
 	return k
 }
 
+// ---- ownwith ----
+
+type gauge interface{ read(x int) int }
+
+type counter struct{ k int }
+
+func (c counter) read(x int) int { return x*c.k + 1 }
+
+//go:noinline
+func (c counter) close() {}
+
+//go:noinline
+func gauged(x int) int {
+	c := counter{3}
+	defer c.close()
+	var g gauge = c
+	return g.read(x)
+}
+
+func benchOwnWith(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += gauged(i & 1023)
+	}
+	return s
+}
+
 // ---- ref ----
 
 type cell struct {
@@ -471,6 +498,8 @@ func main() {
 		out = benchRef(n)
 	case "mapclose":
 		out = benchMapClose(n)
+	case "ownwith":
+		out = benchOwnWith(n)
 	case "provspill":
 		out = benchProvSpill(n)
 	case "widen", "rebuild":
