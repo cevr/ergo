@@ -308,9 +308,9 @@ func benchCtx(n int) int { return total(plain{3}, n) }
 
 type tally interface{ bump(x int) int }
 
-type step struct{ k int }
+type provStep struct{ k int }
 
-func (s step) bump(x int) int { return x*s.k + 1 }
+func (s provStep) bump(x int) int { return x*s.k + 1 }
 
 //go:noinline
 func bumps(t tally, from, n int) int {
@@ -324,7 +324,7 @@ func bumps(t tally, from, n int) int {
 func benchProvSpill(n int) int {
 	s := 0
 	for i := 0; i < n/64; i++ {
-		s += bumps(step{3}, bumps(step{2}, i, 1), 63)
+		s += bumps(provStep{3}, bumps(provStep{2}, i, 1), 63)
 	}
 	return s
 }

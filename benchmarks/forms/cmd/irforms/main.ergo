@@ -329,9 +329,9 @@ type Tally {
 	Bump(x int) int,
 }
 
-type Step { k int } implements Tally
+type Stride { k int } implements Tally
 
-func Bump(s Step, x int) int { x * s.k + 1 }
+func Bump(s Stride, x int) int { x * s.k + 1 }
 
 func bumps(t Tally, from int, n int) int {
 	let mut s = 0
@@ -344,7 +344,7 @@ func bumps(t Tally, from int, n int) int {
 func benchProvSpill(n int) int {
 	let mut s = 0
 	for i in 0..n / 64 {
-		s = s + bumps(Step{k: 3}, bumps(Step{k: 2}, i, 1), 63)
+		s = s + bumps(Stride{k: 3}, bumps(Stride{k: 2}, i, 1), 63)
 	}
 	s
 }
