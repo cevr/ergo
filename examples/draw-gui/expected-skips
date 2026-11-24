@@ -1,6 +1,0 @@
-# Skip lines `ergo test` prints for this program's packages (fs4, law-xpkg).
-# files.Disk holds an fs.Host, which only fs.NewHost builds (with the
-# Ambient capability), so no generator builds one: SaveThenLoad runs on
-# memory.Shelf, and the host's files are written by the cases and by
-# cmd/ergo TestDrawGuiAgreesWithControl.
-skip law canvas.Store.SaveThenLoad for Disk: Disk is built only by its constructor New, which takes a value a case cannot draw; a value drawn from its fields may be one New refuses

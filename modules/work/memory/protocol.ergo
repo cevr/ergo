@@ -35,6 +35,8 @@ type Watching { c Cloner, lock Lock, locked sync.Ref[bool], calls sync.Ref[int],
 // Discard calls, and the next refuse Discards fail.
 func Watch(c Cloner, lock Lock) Watching { Watching{c: c, lock: lock, locked: sync.NewRef(false), calls: sync.NewRef(0), refuse: sync.NewRef(0)} }
 
+let watching = context { work.Cloner: Watch(NewCloner(), NewLock()) }
+
 func Name(w Watching) string { w.c.Name() }
 
 func Shares(w Watching) bool { w.c.Shares() }
