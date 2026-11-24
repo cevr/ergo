@@ -632,7 +632,7 @@ func (l *lowerer) wireFunc(dir string, t check.Type, site syntax.Node) string {
 	if l.ir != nil && l.ir.wireRead(l, name, t, tc, scope, site) {
 		// The IR builds the body (ir_wire_read.go): the Go declaration
 		// has none.
-		l.gen.WriteString(head + "\n\n")
+		l.gen.WriteString(head + irHeadEnd(tlist != "") + "\n\n")
 		return name
 	}
 	// A decoder the IR does not build keeps this text; wireRead counted

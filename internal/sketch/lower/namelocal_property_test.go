@@ -27,9 +27,11 @@ var nameLocalPool = []string{"x", "count", "total", "item", "acc", "step", "live
 // text (D's default holding a Map keeps D off the IR); H calls a Go
 // package (a host import); G, which only the reach form calls, takes
 // another copy of id and inlines it before E does. K's call of chk is an
-// inline site on the IR whose callee fails with a local (INLINE-FAIL-LOCAL),
-// and J, which the reach form calls first, inlines chk too: the tag of
-// each copy's lines is its site's key (rule 7), so K's IR does not move. nameLocalHelperNames are the
+// inline site on the IR whose callee fails with a local (INLINE-FAIL-LOCAL).
+// Its failure is a generic record so the flat result ABI does not take
+// that call instead. J, which the reach form calls first, inlines chk
+// too: the tag of each copy's lines is its site's key (rule 7), so K's
+// IR does not move. nameLocalHelperNames are the
 // spellings of D's default without rule 3's ergo__ and alias, and the host
 // import's: every added declaration set holds them, so a helper or an
 // import spelled outside "__" meets one.
@@ -38,9 +40,9 @@ const nameLocalDefault = "import go strings\n\ntype Reg (int, Map[int, int])\n\n
 	"func E(k int) int {\n\tlet q = id(k)\n\tq + 1\n}\n\n" +
 	"func D(k int) int {\n\tlet r Reg\n\tlet (_, m) = r\n\tlet mut w = m\n\tlet q = id(k)\n\tw[two(q, 1)] = 5\n\tlen(w)\n}\n\n" +
 	"func H(s string) int needs go.Foreign { strings.Count(s, \"a\") }\n\n" +
-	"type Bad { n int }\n\nfunc chk(a int) int fails Bad {\n\tif a < 0 {\n\t\tlet b = Bad{n: a}\n\t\treturn b\n\t}\n\ta + 1\n}\n\n" +
-	"func J(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 9) catch {\n\t\tcase Bad as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt * 2\n}\n\n" +
-	"func K(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 1) catch {\n\t\tcase Bad as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt + 3\n}\n\n"
+	"type Bad[T] { n T }\n\nfunc chk(a int) int fails Bad[int] {\n\tif a < 0 {\n\t\tlet b = Bad[int]{n: a}\n\t\treturn b\n\t}\n\ta + 1\n}\n\n" +
+	"func J(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 9) catch {\n\t\tcase Bad[int] as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt * 2\n}\n\n" +
+	"func K(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 1) catch {\n\t\tcase Bad[int] as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt + 3\n}\n\n"
 
 var nameLocalHelperNames = []string{"DefaultReg", "ergoDefaultReg", "strings"}
 
@@ -86,8 +88,8 @@ func genNameLocal(seed uint64) nameLocalProgram {
 	// K's call of chk is an inline site on the IR whose callee fails with
 	// a local (INLINE-FAIL-LOCAL): its copy's lines carry the site's key
 	// (rule 7), which must not move when a package is added.
-	h.WriteString("\ntype Bad { n int }\n\nfunc chk(a int) int fails Bad {\n\tif a < 0 {\n\t\tlet b = Bad{n: a}\n\t\treturn b\n\t}\n\ta + 1\n}\n\n")
-	h.WriteString("func K(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 1) catch {\n\t\tcase Bad as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt + 3\n}\n")
+	h.WriteString("\ntype Bad[T] { n T }\n\nfunc chk(a int) int fails Bad[int] {\n\tif a < 0 {\n\t\tlet b = Bad[int]{n: a}\n\t\treturn b\n\t}\n\ta + 1\n}\n\n")
+	h.WriteString("func K(k int) int {\n\tlet mut t = 0\n\tfor i in 0..k {\n\t\tt = t + (chk(i - 1) catch {\n\t\tcase Bad[int] as b:\n\t\t\tb.n\n\t\t})\n\t}\n\tt + 3\n}\n")
 	p.helper = h.String()
 
 	var noise strings.Builder

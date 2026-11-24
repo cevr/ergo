@@ -46,9 +46,9 @@ func GenerateGoCalls(seed uint64) string {
 	// A Go value that is a resource (*os.File), owned by a taken
 	// parameter: hold's frame releases it with Go's Close on each exit.
 	hk := 1 + r.IntN(3)
-	fmt.Fprintf(&b, "func hold(f own go.Ref[os.File], k int) int needs Console | go.Foreign {\n\tConsole.Println(\"held \\(k)\")\n\tif k > %d {\n\t\treturn k\n\t}\n\tk + %d\n}\n\n", hk, hk)
-	b.WriteString("func opened(k int) int fails go.Error needs Console | go.Foreign {\n\tlet f = try os.Open(\"/dev/null\")\n\thold(f, k)\n}\n\n")
-	b.WriteString("func main() needs Console | go.Foreign {\n")
+	fmt.Fprintf(&b, "func hold(f own go.Ref[os.File], k int) int needs Console | Ambient {\n\tConsole.Println(\"held \\(k)\")\n\tif k > %d {\n\t\treturn k\n\t}\n\tk + %d\n}\n\n", hk, hk)
+	b.WriteString("func opened(k int) int fails go.Error needs Console | Ambient {\n\tlet f = try os.Open(\"/dev/null\")\n\thold(f, k)\n}\n\n")
+	b.WriteString("func main() needs Console | Ambient {\n")
 	for k := 0; k < 4; k += 1 + r.IntN(2) {
 		fmt.Fprintf(&b, "\tlet h%d = opened(%d) catch {\n\tcase go.Error:\n\t\t0\n\t}\n\tConsole.Println(\"hold \\(h%d)\")\n", k, k, k)
 	}
