@@ -148,7 +148,7 @@ func (p *program) mcpProbeSource() string {
 		q := c.pkg() + "."
 		fmt.Fprintf(&b, "\nlaw C%dArgumentsRoundTrip(r %s.Request) { %s.RoundTrips(r) }\n", c.i, m, m)
 		fmt.Fprintf(&b, "\nlaw C%dArgumentsFitTheSchema(r %s.Request) { %s.FitsSchema(r) }\n", c.i, m, m)
-		fmt.Fprintf(&b, "\nlaw C%dAgrees(r %s.Request, g %sapi.Given) { api.Agrees(%s.Wire, r, %sapi.OutcomeOf(r, g)) }\n", c.i, m, c.pkg(), m, c.pkg())
+		fmt.Fprintf(&b, "\nlaw C%dAgrees(r %s.Request, g %sapi.Given) { api.Agrees[%s.Request, %sapi.Outcome, rpc.Transport](%s.Wire, r, %sapi.OutcomeOf(r, g)) }\n", c.i, m, c.pkg(), m, c.pkg(), m, c.pkg())
 		fmt.Fprintf(&b, "\n// C%dText is Answer's value as JSON text, or \"error: \" and a ToolError's message.\nfunc C%dText(r %s.Request) string needs %sSvc {\n\tlet v = %s.Answer(r) catch {\n\tcase mcp.ToolError as e:\n\t\treturn \"error: \" + e.Message\n\t}\n\tjson.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)\n}\n", c.i, c.i, m, q, m)
 		for _, o := range c.ops {
 			req := c.pkg() + "api." + o.name + "Request"

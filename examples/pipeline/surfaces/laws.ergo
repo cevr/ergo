@@ -232,7 +232,7 @@ func through(t Transport, r Request) pipelineapi.Outcome fails rpc.Transport nee
 	case Line:
 		try carried[rpc.Transport](pipelinecli.Wire, r)
 	case Tools:
-		carried(pipelinemcp.Wire, r)
+		try carried[rpc.Transport](pipelinemcp.Wire, r)
 	case Wire:
 		carried(pipelinerpc.Wire, r)
 	}
