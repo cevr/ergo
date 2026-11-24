@@ -172,6 +172,13 @@ func lowerSplit(u Unit, tests bool, base string, sh *shardOpts) ([]File, SplitRe
 // no //line directive, so this is how the split finds its package.
 func (l *lowerer) stdOrigins() map[string]*check.Package {
 	out := map[string]*check.Package{}
+	if l.ir != nil {
+		for name, p := range l.ir.wireOrigins {
+			if p.Std() {
+				out[name] = p
+			}
+		}
+	}
 	for key, name := range l.pkgNames {
 		var p *check.Package
 		switch o := key.obj.(type) {

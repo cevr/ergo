@@ -565,6 +565,10 @@ type irState struct {
 	flat         map[*check.Func]*flatRes
 	flatType     string
 	flatWrappers map[*check.Func]flatWrapper
+	// wireHeads are the concrete codec-witness signatures the field
+	// projection pass can specialize; wireOrigins places its workers.
+	wireHeads   map[string]wireProjectHead
+	wireOrigins map[string]*check.Package
 	// opFuncs are the implementing functions of closed types' operations
 	// (ir_instance.go staticOpFunc), filled on first use.
 	opFuncs map[opFuncKey]*check.WitnessOp
