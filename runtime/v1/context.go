@@ -53,7 +53,7 @@ func (s *Scope) OpenContext(pkg, key, text string) *Context {
 	if s.ended {
 		panic("with: the frame that would hold this context value has returned")
 	}
-	c := &Context{s: s, saved: s.s.Task().WithValue(contextKey{pkg, key}, text)}
+	c := &Context{s: s, saved: s.t.WithValue(contextKey{pkg, key}, text)}
 	s.withs = append(s.withs, c)
 	return c
 }

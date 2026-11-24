@@ -27,6 +27,32 @@ type acquired struct {
 	v Value
 }
 
+// runClosingFrame runs a written Close and then its generated part releases
+// (R3). This is the function's cleanup, whether called directly, through an
+// operation type, or by another release.
+func (in *interp) runClosingFrame(fr *frame, at *syntax.CallExpr, callee *frame, p *funcPlan, body fastBody, recv Value) (Value, *abrupt) {
+	in.mask(1)
+	defer in.mask(-1)
+	f := p.fn
+	v, ab := in.runFrameBody(fr, at, callee, f.Name, f.Decl.Body.List, body)
+	if stops(ab) {
+		return v, ab
+	}
+	if ptr, ok := recv.(*ptrV); ok {
+		// A borrowing Close may change its receiver before releasing it.
+		var read *abrupt
+		recv, read = in.read(callee, ptr.root.v, ptr.path)
+		if read != nil {
+			return nil, read
+		}
+	}
+	rel := in.drop(callee, f.Decl, recv, p.closeParts, 0)
+	if stops(rel) || (rel != nil && (ab == nil || ab.kind != ctlDefect)) {
+		return nil, rel
+	}
+	return v, ab
+}
+
 // releaseAll releases built, last first, with the capabilities outer
 // bound (the environment outside the with), and joins their defects with
 // the block's outcome ab.
