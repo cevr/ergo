@@ -94,6 +94,16 @@ func NewPolicy(renewAfter duration, idle duration, maxAge duration) Policy fails
 	Policy{renewAfter: renewAfter, idle: idle, maxAge: maxAge}
 }
 
+type PositiveMillis int where 1 <= it && it <= 31536000000
+
+type NonNegativeMillis int where 0 <= it && it <= 31536000000
+
+func PolicyMillis(renewAfter PositiveMillis, extraIdle PositiveMillis, extraMaxAge NonNegativeMillis) Policy {
+	let renew = int(renewAfter)
+	let idle = renew + int(extraIdle)
+	Policy{renewAfter: time.Times(1ms, renew), idle: time.Times(1ms, idle), maxAge: time.Times(1ms, idle+int(extraMaxAge))}
+}
+
 // Verdict is what a store says of a digest at a time: Valid, Renew (valid,
 // and due to be rotated to a new token), or Invalid (no session, ended,
 // revoked, or of an old revision).
@@ -151,7 +161,7 @@ type Store {
 		if !try Revoke(d) || try Verify(d, now) != Invalid {
 			return false
 		}
-		let _ = try Rotate(d, DigestOf(TokenOf(key + "'")), now) catch {
+		let _ = try Rotate(d, DigestOf(TokenOf(key+"'")), now) catch {
 		case Conflict:
 			return !try Revoke(d)
 		}
@@ -176,7 +186,7 @@ type Store {
 		if r != (Record{Subject: subject, Revision: 0, Created: now, Renewed: now}) || try Verify(new, now) != (Valid{Record: r}) || try Verify(old, now) != Invalid {
 			return false
 		}
-		let _ = try Rotate(old, DigestOf(TokenOf(key + "''")), now) catch {
+		let _ = try Rotate(old, DigestOf(TokenOf(key+"''")), now) catch {
 		case Conflict:
 			return true
 		}
@@ -188,7 +198,7 @@ type Store {
 	// and keeps one at revision.
 	law RevisionEndsEverySession(key string, subject string, revision int, sec int64) {
 		let now = time.Unix(sec, 0)
-		let rev = ((revision%1000)+1000)%1000
+		let rev = ((revision % 1000) + 1000) % 1000
 		let old = DigestOf(TokenOf(key + "old"))
 		let late = DigestOf(TokenOf(key + "late"))
 		let kept = DigestOf(TokenOf(key + "kept"))
@@ -196,12 +206,12 @@ type Store {
 		case Conflict:
 			return true
 		}
-		try RevokeAll(subject, rev + 1)
+		try RevokeAll(subject, rev+1)
 		try Establish(late, subject, rev, now) catch {
 		case Conflict:
 			return true
 		}
-		try Establish(kept, subject, rev + 1, now) catch {
+		try Establish(kept, subject, rev+1, now) catch {
 		case Conflict:
 			return true
 		}
@@ -496,7 +506,7 @@ func expiredAt(k Keyring, token string, at time.Time) bool {
 // changed is Tampered.
 law SignedTamperFails(subject string, sec int64, at int, by int) {
 	let k = ring("k1", "seed", []Key{}, 0)
-	let expires = time.Unix(((sec%1000000)+1000000)%1000000 + 10, 0)
+	let expires = time.Unix(((sec%1000000)+1000000)%1000000+10, 0)
 	let token = Sign(k, subject, expires)
 	let now = time.Unix(0, 0)
 	let c = Open(k, token, now) catch {
@@ -506,7 +516,7 @@ law SignedTamperFails(subject string, sec int64, at int, by int) {
 	if c != (Claims{Subject: subject, Expires: expires, Generation: 0}) || !expiredAt(k, token, expires) {
 		return false
 	}
-	let i = ((at%len(token))+len(token))%len(token)
+	let i = ((at % len(token)) + len(token)) % len(token)
 	let b = 1 + ((by%255)+255)%255
 	let mut bs = strings.Bytes(token)
 	bs[i] = byte((int(bs[i]) + b) % 256)
@@ -544,9 +554,9 @@ law OldKeyStillVerifies(subject string) {
 // GenerationBumpEndsTokens: a keyring of a later generation refuses the
 // tokens of earlier ones as Retired, with the same keys.
 law GenerationBumpEndsTokens(subject string, gen int) {
-	let g = ((gen%100)+100)%100
+	let g = ((gen % 100) + 100) % 100
 	let token = Sign(ring("k1", "one", []Key{}, g), subject, time.Unix(100, 0))
-	let _ = Open(ring("k1", "one", []Key{}, g + 1), token, time.Unix(0, 0)) catch {
+	let _ = Open(ring("k1", "one", []Key{}, g+1), token, time.Unix(0, 0)) catch {
 	case Retired as r:
 		return r.Generation == g
 	case Tampered, Expired:
