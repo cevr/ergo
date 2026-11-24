@@ -1,8 +1,7 @@
 import flag
 import routecli/routing
 
-let routeName = "name"
-let name = flag.Arg(routeName, "the route name")
+let name = flag.Arg("name", "the route name")
 let note = flag.OptionalString("note", "an optional note").WithAlias("n")
 let priority = flag.OptionalInt("priority", "an optional priority").WithAlias("p")
 let targets = flag.String("target", "", "a target").Repeated().WithAlias("t")
@@ -19,12 +18,7 @@ law AddRequiresName() {
 }
 
 func add(v flag.Values) routing.Command fails flag.Missing {
-	let route = match name.Get(v) {
-	case Some as n:
-		n.Value
-	case None:
-		return flag.Missing{Name: routeName}
-	}
+	let route = try name.Require(v)
 	routing.Add{Name: route, Note: note.Get(v), Priority: priority.Get(v), Targets: targets.Get(v)}
 }
 
