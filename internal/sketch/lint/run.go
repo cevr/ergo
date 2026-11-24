@@ -16,6 +16,7 @@ import (
 // runs, and each known directive is not-evaluated: unchecked-source.
 func (c *Configuration) Run(in Input) Result {
 	res := Result{Checked: in.Checked, Complete: in.Checked}
+	shared := &runShared{in: in}
 	var findings []Finding
 	for _, rule := range c.registry.rules {
 		severity := c.severity[rule.Name]
@@ -29,7 +30,7 @@ func (c *Configuration) Run(in Input) Result {
 			options, err := c.optionsOf(rule)
 			var found []Finding
 			if err == nil {
-				found, err = runRule(rule, options, in)
+				found, err = runRule(rule, options, in, shared)
 			}
 			if err != nil {
 				st.Status = StatusFailed
@@ -241,23 +242,24 @@ func (r Result) InDiff(in Input, added Added) Result {
 	return out
 }
 
-// runRule runs one rule over every file of every checked package.
-func runRule(rule *Rule, options any, in Input) (found []Finding, err error) {
+// runRule runs one rule over every file of every checked package, with
+// the facts the run's rules share.
+func runRule(rule *Rule, options any, in Input, shared *runShared) (found []Finding, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			found, err = nil, fmt.Errorf("panic: %v", r)
 		}
 	}()
-	run := &ruleRun{in: in}
-	for _, unit := range in.Units {
+	run := &ruleRun{in: in, shared: shared}
+	for u, unit := range in.Units {
 		if unit.Package == nil || unit.Package.Info == nil || unit.Dependency {
 			continue
 		}
-		for _, file := range unit.Files {
+		for i, file := range unit.Files {
 			if file.Syntax == nil {
 				continue
 			}
-			pass := &Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, Options: options, rel: file.Rel, run: run}
+			pass := &Pass{Package: unit.Package, Info: unit.Package.Info, File: file.Syntax, Options: options, rel: file.Rel, unit: u, index: i, run: run}
 			rule.Check(pass)
 			if pass.bad != nil {
 				return nil, pass.bad
