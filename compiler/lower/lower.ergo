@@ -1107,6 +1107,11 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 		let _ = try constText(st, t, try fold(st, x))
 		return
 	}
+	match borrowScalarRead(st, x) {
+	case Some[fixedBorrowField]:
+		return
+	case None:
+	}
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:
 		let t = try typeOf(st, x, "Ident")
@@ -1196,6 +1201,11 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		let t = try typeOf(st, x, "constant")
 		let v = try constText(st, t, try fold(st, x))
 		return try constRow(b, at, basicGo(st, t), v)
+	}
+	match borrowScalarRead(st, x) {
+	case Some{Value: place}:
+		return try emitBorrowField(st, b, place)
+	case None:
 	}
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name:

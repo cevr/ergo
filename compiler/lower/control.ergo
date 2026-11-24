@@ -432,6 +432,12 @@ func controlPrepareSet(st fnb, p mut controlPlan, row mut controlStmt, a syntax.
 // statement, so pruning it also prunes its local reads. Selector fields
 // and keyed literal labels are not local reads.
 func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Unported {
+	match borrowScalarRead(st, x) {
+	case Some{Value: place}:
+		p.reads = p.reads.Append(place.slot)
+		return
+	case None:
+	}
 	let parsed = st.p
 	match syntax.ViewOf(parsed.Tree, x) {
 	case syntax.Name:
