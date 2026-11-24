@@ -1261,6 +1261,7 @@ case unused examples/weather/weather/forecast.ergo
 case unused examples/wire-config/config/config.ergo
 case unused examples/wtcache/settings/settings.ergo
 case unused internal/selfhostcheck/testdata/bind/a.ergo
+case unused internal/selfhostcheck/testdata/bind/calls.ergo
 case unused internal/selfhostcheck/testdata/bind/conv.ergo
 case unused internal/selfhostcheck/testdata/bind/elide.ergo
 case unused internal/selfhostcheck/testdata/bind/genop.ergo
