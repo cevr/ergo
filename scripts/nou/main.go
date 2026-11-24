@@ -192,6 +192,12 @@ func writeLedger(w io.Writer, rows map[siteID]allowance, counts map[siteID]int) 
 
 func sourceScope(file string) string {
 	switch {
+	case path.Ext(file) == ".go":
+		if strings.HasSuffix(file, "_test.go") ||
+			strings.HasPrefix(file, "internal/experimental/irspike/gen_") {
+			return "embedded Go tests/property source"
+		}
+		return "generator template"
 	case strings.Contains(file, ".txtar::"):
 		return "archive fixture"
 	case strings.Contains(file, "/testdata/"):
