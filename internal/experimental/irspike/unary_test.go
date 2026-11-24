@@ -63,15 +63,18 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - mapkey (FLIP F7 PORT-TEMP, pipeline's failing): a Map key or a
 //     slice index whose calls run statements runs them after the map or
 //     slice and before the value's, and the element is fixed before the
-//     value's (mutants port-temp-key-after-value, port-temp-elem-unbound).
+//     value's (mutants port-temp-key-after-value, port-temp-elem-unbound);
+//   - fused-arm-scopes (jobq): a fused match inside range-over-function
+//     keeps its scopes in source order (mutant fused-arm-ends-at-match).
 //
-// It builds Go for the reason TestIRUnaryOperandsMatchSource does.
+// It builds Go because only the compiler writer marks the scopes, and
+// only executing both binaries reveals a miscompile.
 func TestIRReprosMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	for _, r := range []struct {
 		name string
 		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}, {"mapkey", mapKeyIRBodies()}} {
+	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}, {"mapkey", mapKeyIRBodies()}, {"fused-arm-scopes", []string{"work"}}} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
