@@ -162,6 +162,53 @@ func cut(text string, k int) string {
 	take(codec.NewReplay(evs[0:k % (len(evs) + 1)]))
 }
 
+type Packet[T] { Value T, Items []T }
+
+func packet[T wire](r Reader) Packet[T] fails wired[Packet[T]] needs wired[T] {
+	decode[Packet[T]](r)
+}
+
+func packetDirect[T wire](r json.Reader) Packet[T] fails wired[Packet[T]] needs wired[T] {
+	decode[Packet[T]](r)
+}
+
+func showPackets(text string) string {
+	let r = json.Open(text, 0, 0) catch {
+	case _:
+		return "malformed"
+	}
+	if text == "{\"items\":[]}" || text == "{\"items\":[],\"value\":4}" {
+		let p = packet[json.Optional[int]](r) catch {
+		case _:
+			return "optional interface failure"
+		}
+		let r2 = json.Open(text, 0, 0) catch {
+		case _:
+			return "malformed"
+		}
+		let d = packetDirect[json.Optional[int]](r2) catch {
+		case _:
+			return "optional direct failure"
+		}
+		return showExtra(p.Value) + " " + showExtra(d.Value)
+	}
+	let p = packet[int](r) catch {
+	case WireMissingField as m:
+		return "packet missing \(m.Path) \(m.Field)"
+	case WireWrongKind as w:
+		return "packet kind \(w.Path) \(w.Want)"
+	}
+	let r2 = json.Open(text, 0, 0) catch {
+	case _:
+		return "malformed"
+	}
+	let d = packetDirect[int](r2) catch {
+	case _:
+		return "direct packet failure"
+	}
+	"\(p.Value) \(d.Value) \(p.Items[0]) \(d.Items[0])"
+}
+
 `
 
 // GenerateWireReaders is a program that decodes drawn JSON texts into Ev
@@ -318,6 +365,15 @@ func GenerateWireReaders(seed uint64) string {
 		for j := 0; j < 3; j++ {
 			fmt.Fprintf(&b, "\tConsole.Println(cut(\"%s\", %d))\n", t, n(60))
 		}
+	}
+	for _, row := range []string{
+		`{\"items\":[]}`,
+		`{\"items\":[],\"value\":4}`,
+		`{\"items\":[3]}`,
+		`{\"items\":[\"bad\"],\"value\":3}`,
+		fmt.Sprintf(`{\"items\":[%d],\"value\":%d}`, n(10), n(10)),
+	} {
+		fmt.Fprintf(&b, "\tConsole.Println(showPackets(\"%s\"))\n", row)
 	}
 	b.WriteString("}\n")
 	return b.String()

@@ -19,6 +19,7 @@ package lower
 
 import (
 	"strconv"
+	"strings"
 
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
@@ -33,7 +34,7 @@ var wireReadLowering = ""
 func wireReadForms(form string) bool {
 	switch form {
 	case "basic", "record", "list", "map", "union", "pair", "refined", "nullable", "tuple",
-		"append pair", "bare", "members", "number text":
+		"append pair", "bare", "members", "number text", "generic":
 		return true
 	default:
 		return false
@@ -55,8 +56,10 @@ func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, 
 	scope := newNamer(params)
 	fc := newFuncCtx(l, scope, false)
 	fc.site = site
+	fc.params = tc.params
 	b := st.newBuilder(fc, nil) // a codec decoder: no source statements
-	b.env, b.next, b.fn, b.names = 0, 2, &irFunc{Name: name}, scope
+	free := freeTypeParams(t)
+	b.env, b.next, b.fn, b.names = 0, len(free)+2, &irFunc{Name: name}, scope
 	files := len(st.out.Files)
 	defer func() {
 		if r := recover(); r != nil {
@@ -75,7 +78,7 @@ func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, 
 			ok = false
 		}
 	}()
-	d := &wireReader{b: b, tc: tc, site: site, p: b.pos(site, site.Pos())}
+	d := &wireReader{b: b, tc: tc, site: site, p: b.pos(site, site.Pos()), free: free}
 	body, complete := d.ownRead(t)
 	if !complete {
 		body = append(body, d.body(t)...)
@@ -87,13 +90,26 @@ func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, 
 	return true
 }
 
-// wireReader builds one decoder's body: locals 0 and 1 are the
-// environment and the reader.
+// wireReader builds one decoder's body: the environment is local 0,
+// followed by the codec witnesses, then the reader.
 type wireReader struct {
 	b    *irBuilder
 	tc   *typeCtx
 	site syntax.Node
 	p    irPos
+	free []*check.TypeParam
+}
+
+func (d *wireReader) reader() *irExpr { return d.local(1 + len(d.free)) }
+
+func (d *wireReader) witness(tp *check.TypeParam) *irExpr {
+	for i, p := range d.free {
+		if p == tp {
+			return d.local(i + 1)
+		}
+	}
+	ice(d.site, "the wire type parameter %s has no codec witness here", tp.Name)
+	return nil
 }
 
 // ownRead selects a format's own decoder statically for concrete readers
@@ -121,7 +137,7 @@ func (d *wireReader) ownRead(t check.Type) ([]*irStmt, bool) {
 		if !sameDecl(l.directReaders[d.tc.readVia-1].t, hook.Reader) {
 			return nil, false
 		}
-		return read(d.local(1)), true
+		return read(d.reader()), true
 	}
 	key := l.typeKey(hook.Reader) + " => " + l.typeKey(check.PreludeType(check.WireReaderName))
 	name, ok := l.pkgNames[pkgKey{"adapter", key}]
@@ -136,9 +152,9 @@ func (d *wireReader) ownRead(t check.Type) ([]*irStmt, bool) {
 		newFuncCtx(l, newNamer(l.names), false).operations(conv, "nil", d.site)
 	}
 	typ := "*" + name
-	a := &irExpr{K: "assert", Pos: d.p, T: typ, X: d.local(1)}
+	a := &irExpr{K: "assert", Pos: d.p, T: typ, X: d.reader()}
 	reader := &irExpr{K: "field", Pos: d.p, Name: "v", X: a}
-	sw := &irStmt{K: "tswitch", Pos: d.p, End: d.p, X: d.local(1),
+	sw := &irStmt{K: "tswitch", Pos: d.p, End: d.p, X: d.reader(),
 		Cases: []*irCase{{Pos: d.p, Types: []string{typ}, Body: read(reader)}}}
 	return []*irStmt{sw}, false
 }
@@ -152,10 +168,10 @@ func (d *wireReader) local(i int) *irExpr { return &irExpr{K: "local", Pos: d.p,
 func (d *wireReader) op(name string, args ...*irExpr) *irExpr {
 	if d.tc.readVia > 0 {
 		f := d.b.l.directReaders[d.tc.readVia-1].conv.Table[name]
-		return d.b.machineCall(f, 0, append([]*irExpr{d.local(1)}, args...), d.p, d.site)
+		return d.b.machineCall(f, 0, append([]*irExpr{d.reader()}, args...), d.p, d.site)
 	}
 	task := &irExpr{K: "field", Pos: d.p, Name: envTask, X: d.local(0)}
-	return &irExpr{K: "mcall", Pos: d.p, Name: name, X: d.local(1), Args: append([]*irExpr{task}, args...)}
+	return &irExpr{K: "mcall", Pos: d.p, Name: name, X: d.reader(), Args: append([]*irExpr{task}, args...)}
 }
 
 // failIf is `if cond { return zero, failure }`.
@@ -229,12 +245,27 @@ func (d *wireReader) value(t check.Type) ([]*irStmt, *irExpr) {
 		}
 		return pre, &irExpr{K: "conv", Pos: d.p, T: b.goType(t, d.site), X: d.local(v)}
 	}
-	if _, param := t.(*check.TypeParam); param || len(freeTypeParams(t)) > 0 {
-		irNo("codec reader: generic")
+	if tp, param := t.(*check.TypeParam); param {
+		return d.readWitness(tp, d.witness(tp))
 	}
 	name := l.wireFunc(d.tc.decodeDir(), t, d.site)
-	pre, v := d.checked(&irExpr{K: "call", Pos: d.p, Name: name, Args: []*irExpr{d.local(0), d.local(1)}}, b.goType(t, d.site))
+	args := []*irExpr{d.local(0)}
+	var types []string
+	for _, tp := range freeTypeParams(t) {
+		args = append(args, d.witness(tp))
+		types = append(types, b.goType(tp, d.site))
+	}
+	args = append(args, d.reader())
+	pre, v := d.checked(&irExpr{K: "call", Pos: d.p, Name: name, T: strings.Join(types, ", "), Args: args}, b.goType(t, d.site))
 	return pre, d.local(v)
+}
+
+// readWitness calls the selected reader path through the parameter's
+// codec or, for its omittable record-field form, through its Field.
+func (d *wireReader) readWitness(tp *check.TypeParam, witness *irExpr) ([]*irStmt, *irExpr) {
+	dec := &irExpr{K: "field", Pos: d.p, Name: d.tc.decodeField(), X: witness}
+	pre, x := d.checked(&irExpr{K: "vcall", Pos: d.p, X: dec, Args: []*irExpr{d.local(0), d.reader()}}, d.b.goType(tp, d.site))
+	return pre, d.local(x)
 }
 
 // body is the decoder's statements (wireDecodeBody).
@@ -452,12 +483,9 @@ func (d *wireReader) wrap(t, variant check.Type, payload *check.Field, value *ir
 func (d *wireReader) record(td *typeDecl, s *check.Struct, out int) []*irStmt {
 	b := d.b
 	var pre []*irStmt
-	seen := make([]int, len(s.Fields))
+	var after []*irStmt
 	sw := &irStmt{K: "switch", Pos: d.p, End: d.p, ElsePos: d.p, X: d.op("Key")}
-	for i, f := range s.Fields {
-		if _, param := f.Type.(*check.TypeParam); param {
-			irNo("codec reader: record")
-		}
+	for _, f := range s.Fields {
 		field := &irExpr{K: "field", Pos: d.p, Name: td.fieldName[f.Name], X: d.local(out)}
 		store := func(e *irExpr) *irStmt {
 			return &irStmt{K: "store", Pos: d.p, X: field, Y: e}
@@ -467,25 +495,45 @@ func (d *wireReader) record(td *typeDecl, s *check.Struct, out int) []*irStmt {
 			empty, present, payload := d.tc.wrapperParts(f.Type)
 			// The empty alternative is not the interface's zero value.
 			pre = append(pre, store(d.wrap(f.Type, empty, nil, nil)))
-			seen[i] = -1
 			vpre, e := d.value(payload.Type)
 			body = append(vpre, store(d.wrap(f.Type, present, payload, e)))
 		} else {
-			seen[i] = b.temp("seen", "bool", d.p)
-			pre = append(pre, &irStmt{K: "var", Pos: d.p, Local: seen[i]})
-			vpre, e := d.value(f.Type)
-			body = append(vpre, store(e), &irStmt{K: "set", Pos: d.p, Local: seen[i], X: &irExpr{K: "const", Pos: d.p, T: "bool", V: "true"}})
+			seen := b.temp("seen", "bool", d.p)
+			pre = append(pre, &irStmt{K: "var", Pos: d.p, Local: seen})
+			noKey := &irExpr{K: "un", Pos: d.p, Op: "!", X: d.local(seen)}
+			missing := d.failure(check.WireMissingName, d.op("Path"), irStringConst(d.p, "string", check.WireFieldName(f)))
+			if tp, param := f.Type.(*check.TypeParam); param {
+				read, absent := d.recordParam(tp, field, noKey, missing)
+				body = []*irStmt{read}
+				after = append(after, absent)
+			} else {
+				vpre, e := d.value(f.Type)
+				body = append(vpre, store(e))
+				after = append(after, d.failIf(noKey, missing))
+			}
+			body = append(body, &irStmt{K: "set", Pos: d.p, Local: seen, X: &irExpr{K: "const", Pos: d.p, T: "bool", V: "true"}})
 		}
 		sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Vals: []*irExpr{irStringConst(d.p, "string", check.WireFieldName(f))}, Body: body})
 	}
 	sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Def: true, Body: []*irStmt{{K: "expr", Pos: d.p, X: d.op("Skip")}}})
 	pre = append(pre, &irStmt{K: "while", Pos: d.p, End: d.p, X: d.op("More"), Body: []*irStmt{sw}}, &irStmt{K: "expr", Pos: d.p, X: d.op("End")})
-	for i, f := range s.Fields {
-		if seen[i] < 0 {
-			continue
-		}
-		missing := d.failure(check.WireMissingName, d.op("Path"), irStringConst(d.p, "string", check.WireFieldName(f)))
-		pre = append(pre, d.failIf(&irExpr{K: "un", Pos: d.p, Op: "!", X: d.local(seen[i])}, missing))
-	}
-	return pre
+	return append(pre, after...)
+}
+
+// recordParam handles a type parameter instantiated with either a
+// required or an omittable field. The witness decides which reader to
+// call and whether a missing key fails or supplies the empty value.
+func (d *wireReader) recordParam(tp *check.TypeParam, field, noKey, missing *irExpr) (read, absent *irStmt) {
+	store := func(x *irExpr) *irStmt { return &irStmt{K: "store", Pos: d.p, X: field, Y: x} }
+	wit := d.witness(tp)
+	fieldWit := &irExpr{K: "field", Pos: d.p, Name: "Field", X: wit}
+	zero := &irExpr{K: "zero", Pos: d.p, T: "*" + d.b.spelling(d.tc.wireFieldType(tp))}
+	withField := &irExpr{K: "bin", Pos: d.p, Op: "!=", X: fieldWit, Y: zero}
+	fp, fv := d.readWitness(tp, fieldWit)
+	wp, wv := d.readWitness(tp, wit)
+	read = &irStmt{K: "if", Pos: d.p, End: d.p, X: withField, Then: append(fp, store(fv)), Else: append(wp, store(wv))}
+	noField := &irExpr{K: "un", Pos: d.p, Op: "!", X: withField}
+	empty := &irExpr{K: "field", Pos: d.p, Name: "Empty", X: fieldWit}
+	absent = &irStmt{K: "if", Pos: d.p, End: d.p, X: noKey, Then: []*irStmt{d.failIf(noField, missing), store(empty)}}
+	return read, absent
 }
