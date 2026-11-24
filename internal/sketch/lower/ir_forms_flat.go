@@ -30,8 +30,11 @@ import (
 // hand Go probe of the three forms, IRF-2 state.md: three results 60
 // instructions a call, the struct 70, the flag and out struct 64).
 //
-// The choice reads the callee's signature alone (flatResOf), never its
-// body or its name, so a call site knows it before the callee is built.
+// The choice reads the callee's checked declaration (flatFailure), so
+// a call site knows it before the callee is built. A value-returning
+// loop with an empty failure record keeps the Go results: boxing that
+// failure needs no allocation, and the extra out pointer can lengthen
+// the hot loop and keep its calls out of Go's inlining budget.
 // The worker is the callee's own IR body with each return rewritten
 // (flatWorker); where the callee has no IR body, or a return the rewrite
 // does not know, the worker calls the wrapper and converts its error
@@ -39,10 +42,18 @@ import (
 // reference is flatLowering "off": no worker, every call returns Go's
 // error, as before this unit.
 
-// flatLowering selects the flat convention: "" (on) or "off" (the
-// reference), set by
+// flatLowering selects the flat convention: "" (on), "signature" (the
+// former signature-only policy) or "off" (no workers), set by
 // -ldflags=-X=ergo.local/prototype/internal/sketch/lower.flatLowering=off.
 var flatLowering string
+
+// SetFlatLoweringForTest selects a result convention for an agreement
+// comparison and returns a function that restores the old choice.
+func SetFlatLoweringForTest(mode string) func() {
+	old := flatLowering
+	flatLowering = mode
+	return func() { flatLowering = old }
+}
 
 // FlatOn reports that the flat convention is on (flatLowering), for the
 // properties that check its reach.
@@ -82,7 +93,7 @@ func (st *irState) keepFlatWrapper(fd *funcDecl, directive string, parts, names 
 	st.flatWrappers[fd.fn] = flatWrapper{directive: directive, parts: parts, names: names}
 }
 
-// flatFailure filters declarations by their checked signature, before
+// flatFailure filters checked declarations, before
 // either a wrapper or a call site needs the worker's Go types.
 func flatFailure(f *check.Func) *check.Named {
 	if f.Decl == nil || f.Decl.Body == nil || f.Decl.Extern != nil || f.Decl.Recv != nil || f.Sig == nil || nativeOf(f) != nil {
@@ -110,17 +121,38 @@ func flatFailure(f *check.Func) *check.Named {
 	if !ok || len(e.TArgs) > 0 || len(e.TParams) > 0 {
 		return nil
 	}
-	if _, record := e.Underlying().(*check.Struct); !record {
+	record, ok := e.Underlying().(*check.Struct)
+	if !ok {
+		return nil
+	}
+	if flatLowering != "signature" && len(f.Sig.Results) == 1 && len(record.Fields) == 0 && flatBodyLoops(f.Decl.Body) {
 		return nil
 	}
 	return e
 }
 
+// flatBodyLoops ignores function literals, whose loops do not hold the
+// containing function's result convention live.
+func flatBodyLoops(body *syntax.BlockStmt) bool {
+	loop := false
+	syntax.Inspect(body, func(n syntax.Node) bool {
+		switch n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.ForStmt, *syntax.RangeStmt:
+			loop = true
+		}
+		return !loop
+	})
+	return loop
+}
+
 // flatResOf is f's flat convention, or nil: f is a declared function of
 // the program or std with a body, not a method, not generic, every
 // parameter named and none a function or taken, at most one result, and a
-// failure row of exactly one non-generic record type. The Go spellings
-// are b's.
+// failure row of exactly one non-generic record type. flatFailure also
+// excludes loops for which the out pointer would save no boxing. The Go
+// spellings are b's.
 func (b *irBuilder) flatResOf(f *check.Func) (fl *flatRes) {
 	st := b.st
 	if flatLowering == "off" || st == nil || st.census != nil || f == nil {

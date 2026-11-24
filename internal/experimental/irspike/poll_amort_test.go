@@ -142,8 +142,8 @@ func runPoll(t *testing.T, funcs map[string]*pollFunc, name string, n int) pollR
 type pollEnv struct{}
 
 // pollEval evaluates the IR of GeneratePoll's functions: int and bool
-// locals, a Range literal, count and while loops, if, block, break,
-// continue and return, calls of the program's functions, the task's
+// locals, Range literals, count, integer range and while loops, if,
+// block, break, continue and return, calls of the program's functions, the task's
 // Check (counted) and Console calls (no effect). Any other form fails the
 // test, naming it.
 type pollEval struct {
@@ -151,6 +151,11 @@ type pollEval struct {
 	funcs map[string]*pollFunc
 	run   pollRun
 	gap   int
+
+	// A pending stop is observed only at Check. edgeLimit makes a
+	// missing Check a counted test failure instead of a hung test.
+	requestAt, edgeLimit int
+	stopped              bool
 }
 
 type pollFlow struct {
@@ -162,6 +167,14 @@ type pollFlow struct {
 type pollFrame struct{ locals map[int]any }
 
 func (e *pollEval) call(name string, args []any) any {
+	fl := e.callBody(name, args)
+	if fl.k != "ret" {
+		e.t.Fatalf("pollEval: %s ends with %q, not a return", name, fl.k)
+	}
+	return fl.v
+}
+
+func (e *pollEval) callBody(name string, args []any) pollFlow {
 	f := e.funcs[name]
 	if f == nil {
 		e.t.Fatalf("pollEval: no IR body for %s", name)
@@ -170,11 +183,7 @@ func (e *pollEval) call(name string, args []any) any {
 	for i, a := range args {
 		fr.locals[i] = a
 	}
-	fl := e.list(fr, f.Body)
-	if fl.k != "ret" {
-		e.t.Fatalf("pollEval: %s ends without a return", name)
-	}
-	return fl.v
+	return e.list(fr, f.Body)
 }
 
 func (e *pollEval) list(fr *pollFrame, ss []map[string]any) pollFlow {
@@ -212,6 +221,9 @@ func (e *pollEval) stmt(fr *pollFrame, s map[string]any) pollFlow {
 		fr.locals[localOf(s)] = 0
 	case "expr":
 		e.expr(fr, s["x"])
+		if e.stopped {
+			return pollFlow{k: "stop"}
+		}
 	case "if":
 		if e.expr(fr, s["x"]).(bool) {
 			return e.list(fr, stmts(s["then"]))
@@ -227,8 +239,11 @@ func (e *pollEval) stmt(fr *pollFrame, s map[string]any) pollFlow {
 		l, _ := s["label"].(string)
 		return pollFlow{k: s["k"].(string), label: l}
 	case "ret":
+		if s["x"] == nil {
+			return pollFlow{k: "ret"}
+		}
 		return pollFlow{k: "ret", v: e.expr(fr, s["x"])}
-	case "count", "while":
+	case "count", "range", "while":
 		return e.loop(fr, s)
 	default:
 		e.t.Fatalf("pollEval: statement %v", s["k"])
@@ -267,21 +282,30 @@ func (e *pollEval) loop(fr *pollFrame, s map[string]any) pollFlow {
 		e.run.loud = true
 	}
 	i, end := 0, 0
-	if s["k"] == "count" {
+	k := s["k"]
+	index := localOf(s)
+	if k == "count" {
 		i, end = e.expr(fr, s["x"]).(int), e.expr(fr, s["y"]).(int)
+	} else if k == "range" {
+		end = e.expr(fr, s["x"]).(int)
+		key, ok := s["key"].(float64)
+		if !ok {
+			e.t.Fatal("pollEval: integer range has no binding")
+		}
+		index = int(key)
 	}
 	for {
-		if s["k"] == "count" {
+		if k == "count" || k == "range" {
 			if i >= end {
 				return pollFlow{}
 			}
-			fr.locals[localOf(s)] = i
+			fr.locals[index] = i
 		} else if s["x"] != nil && !e.expr(fr, s["x"]).(bool) {
 			return pollFlow{}
 		}
 		fl := e.list(fr, body)
 		switch {
-		case fl.k == "ret":
+		case fl.k == "ret" || fl.k == "stop" || fl.k == "edge limit":
 			return fl
 		case fl.k == "break" && (fl.label == "" || fl.label == label):
 			return pollFlow{}
@@ -292,6 +316,9 @@ func (e *pollEval) loop(fr *pollFrame, s map[string]any) pollFlow {
 		}
 		// the back edge
 		e.run.edges++
+		if e.edgeLimit != 0 && e.run.edges >= e.edgeLimit {
+			return pollFlow{k: "edge limit"}
+		}
 		e.gap++
 		if loud {
 			e.run.loudGap = max(e.run.loudGap, e.gap)
@@ -307,6 +334,8 @@ func (e *pollEval) expr(fr *pollFrame, v any) any {
 		e.t.Fatalf("pollEval: no expression")
 	}
 	switch x["k"] {
+	case "nil":
+		return nil
 	case "local":
 		f, _ := x["i"].(float64)
 		return fr.locals[int(f)]
@@ -359,6 +388,7 @@ func (e *pollEval) expr(fr *pollFrame, v any) any {
 		if x["name"] == "Check" {
 			e.run.checks++
 			e.gap = 0
+			e.stopped = e.requestAt != 0 && e.run.edges >= e.requestAt
 		}
 		return nil // Console.Println: no effect here
 	}
@@ -367,6 +397,9 @@ func (e *pollEval) expr(fr *pollFrame, v any) any {
 }
 
 func pollBin(t *testing.T, op string, a, b any) any {
+	if a == nil && b == nil && (op == "==" || op == "!=") {
+		return op == "=="
+	}
 	switch a := a.(type) {
 	case int:
 		b := b.(int)
@@ -379,6 +412,8 @@ func pollBin(t *testing.T, op string, a, b any) any {
 			return a * b
 		case "%":
 			return a % b
+		case "&":
+			return a & b
 		case "/":
 			return a / b
 		case "==":
