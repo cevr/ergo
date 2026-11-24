@@ -1,0 +1,7 @@
+import selfsupport/role
+
+type Box[T, E] { Value T, Note E } implements role.Mappable[T]
+
+func Map[T, E, U](b Box[T, E], f func(x T) U) Box[U, E] {
+	Box[U, E]{Value: f(b.Value), Note: b.Note}
+}

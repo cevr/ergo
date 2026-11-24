@@ -481,21 +481,23 @@ func CodecFieldsOf_Info(v *Info) CodecFields_Info {
 }
 
 type CodecFields_Interface struct {
+	F_selfUses *[]*SelfType
 	F_byName   *[]*Method
 	F_obj      **TypeName
 	F_includes *[]*Named
 }
 
 func CodecFieldsOf_Interface(v *Interface) CodecFields_Interface {
-	return CodecFields_Interface{F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
+	return CodecFields_Interface{F_selfUses: &v.selfUses, F_byName: &v.byName, F_obj: &v.obj, F_includes: &v.includes}
 }
 
 type CodecFields_Law struct {
-	F_file **fileInfo
+	F_selfUses *[]*SelfType
+	F_file     **fileInfo
 }
 
 func CodecFieldsOf_Law(v *Law) CodecFields_Law {
-	return CodecFields_Law{F_file: &v.file}
+	return CodecFields_Law{F_selfUses: &v.selfUses, F_file: &v.file}
 }
 
 type CodecFields_LawProvider struct {
@@ -554,10 +556,11 @@ type CodecFields_Package struct {
 	F_collFuncs  *map[collKey]*Func
 	F_testBuilds *map[*TypeName][]*Builder
 	F_testOf     **Package
+	F_lawSelf    **checker
 }
 
 func CodecFieldsOf_Package(v *Package) CodecFields_Package {
-	return CodecFields_Package{F_cellConvs: &v.cellConvs, F_qualify: &v.qualify, F_module: &v.module, F_trusted: &v.trusted, F_host: &v.host, F_owners: &v.owners, F_files: &v.files, F_collFuncs: &v.collFuncs, F_testBuilds: &v.testBuilds, F_testOf: &v.testOf}
+	return CodecFields_Package{F_cellConvs: &v.cellConvs, F_qualify: &v.qualify, F_module: &v.module, F_trusted: &v.trusted, F_host: &v.host, F_owners: &v.owners, F_files: &v.files, F_collFuncs: &v.collFuncs, F_testBuilds: &v.testBuilds, F_testOf: &v.testOf, F_lawSelf: &v.lawSelf}
 }
 
 type CodecFields_PkgName struct {
@@ -605,6 +608,15 @@ type CodecFields_Scope struct {
 
 func CodecFieldsOf_Scope(v *Scope) CodecFields_Scope {
 	return CodecFields_Scope{F_parent: &v.parent, F_names: &v.names, F_frame: &v.frame, F_barrier: &v.barrier}
+}
+
+type CodecFields_SelfType struct {
+	F_owner  **Named
+	F_source *string
+}
+
+func CodecFieldsOf_SelfType(v *SelfType) CodecFields_SelfType {
+	return CodecFields_SelfType{F_owner: &v.owner, F_source: &v.source}
 }
 
 type CodecFields_Struct struct {
@@ -2571,20 +2583,23 @@ func CodecFieldsOf_tryCover(v *tryCover) CodecFields_tryCover {
 }
 
 type CodecFields_typeCtx struct {
-	F_params   *map[string]*TypeParam
-	F_method   *bool
-	F_hostRecv *string
-	F_decl     *bool
-	F_field    *bool
-	F_param    *bool
-	F_binding  *bool
-	F_textTop  *syntax.Expr
-	F_scope    **Scope
-	F_lit      **litParams
+	F_params     *map[string]*TypeParam
+	F_method     *bool
+	F_hostRecv   *string
+	F_decl       *bool
+	F_field      *bool
+	F_param      *bool
+	F_binding    *bool
+	F_textTop    *syntax.Expr
+	F_scope      **Scope
+	F_lit        **litParams
+	F_self       **Named
+	F_selfUses   **[]*SelfType
+	F_selfSource *string
 }
 
 func CodecFieldsOf_typeCtx(v *typeCtx) CodecFields_typeCtx {
-	return CodecFields_typeCtx{F_params: &v.params, F_method: &v.method, F_hostRecv: &v.hostRecv, F_decl: &v.decl, F_field: &v.field, F_param: &v.param, F_binding: &v.binding, F_textTop: &v.textTop, F_scope: &v.scope, F_lit: &v.lit}
+	return CodecFields_typeCtx{F_params: &v.params, F_method: &v.method, F_hostRecv: &v.hostRecv, F_decl: &v.decl, F_field: &v.field, F_param: &v.param, F_binding: &v.binding, F_textTop: &v.textTop, F_scope: &v.scope, F_lit: &v.lit, F_self: &v.self, F_selfUses: &v.selfUses, F_selfSource: &v.selfSource}
 }
 
 type CodecFields_typeEnv struct {

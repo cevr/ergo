@@ -22,7 +22,7 @@ const (
 // binding whose provider p calls Go, which only the test binary's law case
 // builds (types.md, Laws 10; owner q277).
 func NativeReason(p string) string {
-	return p + "'s operations call Go, so only the test binary's law case builds it: ergo test runs this law natively (README Gap 17)"
+	return "building " + p + " requires go.Foreign, so only the test binary's law case builds it: ergo test runs this law natively (README Gap 17)"
 }
 
 func RewriteVerdict() string {

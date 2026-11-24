@@ -1,0 +1,22 @@
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+}
+
+type Chainable[Note, Value] {
+	..Mappable[Value],
+	Note() Note,
+}
+
+type Bag[T, E] { Value T, Label E } implements Chainable[E, T]
+
+func Map[T, E, U](b Bag[T, E], f func(x T) U) Bag[U, E] {
+	Bag[U, E]{Value: f(b.Value), Label: b.Label}
+}
+
+func Note[T, E](b Bag[T, E]) E { b.Label }
+
+func Lengths[M Chainable[bool, string]](b M) M[bool, int] {
+	b.Map(func(s string) int { len(s) })
+}
+
+func Example() Bag[int, bool] { Lengths(Bag[string, bool]{Value: "read", Label: true}) }

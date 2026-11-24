@@ -221,6 +221,9 @@ func (l *lowerer) keyPkg(key pkgKey) *check.Package {
 // infoPkg is the package whose facts the lowering reads now (l.info): a
 // let is named while its package's declarations are (declareName).
 func (l *lowerer) infoPkg() *check.Package {
+	if l.copyFacts != nil && l.info == l.copyFacts {
+		return l.copyPkg
+	}
 	if l.info == l.pkg.Info {
 		return l.pkg
 	}

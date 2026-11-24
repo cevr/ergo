@@ -45,7 +45,7 @@ func Pull(l Leases, by replica.ClientID, from int) Frame fails replica.Unavailab
 // the same envelope, so each try carries the command's own id, and after
 // the retries every pending command is in the log once at its id.
 law RetryResendsTheSameID(drops int, n int) {
-	let f = Flaky{..newFlaky(), left: sync.NewRef((drops%4 + 4) % 4)}
+	let f = newFlaky((drops%4 + 4) % 4)
 	let k = (n%4+4)%4 + 1
 	let mut pending = []domain.Envelope[lease.Cmd]{}
 	for i in 1..k+1 {
@@ -91,7 +91,7 @@ law RetryResendsTheSameID(drops int, n int) {
 // before they reach it; it records the id of each push it is given.
 type Flaky { inner Leases, left sync.Ref[int], seen sync.Ref[[]domain.CommandID] } implements replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]
 
-func newFlaky() Flaky { Flaky{inner: NewLeases(), left: sync.NewRef(2), seen: sync.NewRef([]domain.CommandID{})} }
+func newFlaky(drops int) Flaky { Flaky{inner: NewLeases(), left: sync.NewRef(drops), seen: sync.NewRef([]domain.CommandID{})} }
 
 func Push(f Flaky, m domain.Envelope[lease.Cmd]) domain.Receipt fails replica.Unavailable | replica.Unauthorized | replica.OutOfOrder | replica.IDConflict {
 	f.seen.Update(func(s []domain.CommandID) []domain.CommandID { s.Append(m.ID) })
