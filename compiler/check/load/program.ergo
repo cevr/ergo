@@ -157,7 +157,10 @@ func LoadAll(units []Unit, have0 []types.Iface, threads int) Program {
 				let k = expr.Load(&s, units[i].Files, c.Uses, c.Parents, units[i].Tab.Ext, units[i].Tab.Foreign, deps, units[i].Tab.PkgName == "")
 				// Its importers read it by its import path, which its
 				// types print with (a checked root's own path is main).
-				let mut at = s
+				// Freeze from the bound declarations, not the separately
+				// loaded checker facts, so one package publishes each
+				// function provider at its import path exactly once.
+				let mut at = stores[i]
 				store.SetPath(&at, units[i].Path)
 				have = have.Append(types.Interface(at, k.Parsed, k.Kinds, k.Ext, units[i].Tab.Foreign, deps))
 				done[i] = true

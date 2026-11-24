@@ -1,0 +1,307 @@
+import dense
+import slices
+
+type FunctionClaim {}
+// FunctionMember's path, file and source node always belong to the
+// declaring package, even when an include crosses several package edges.
+type FunctionMember { Path string, File uint32, Decl uint32, Line int, Column int }
+type ClaimTerm { Type dense.ID[TKey], Under bool }
+type ClaimHead {
+	Role      dense.ID[TKey],
+	Receiver  dense.ID[TKey],
+	Binds     []bool,
+	Positions []int,
+	Bounds    [][]ClaimTerm,
+	Members   []FunctionMember,
+}
+
+type FunctionClaims {
+	count     dense.Count[FunctionClaim],
+	roles     dense.Col[FunctionClaim, dense.ID[TKey]],
+	receivers dense.Col[FunctionClaim, dense.ID[TKey]],
+	binds     dense.Col[FunctionClaim, []bool],
+	positions dense.Col[FunctionClaim, []int],
+	bounds    dense.Col[FunctionClaim, [][]ClaimTerm],
+	members   dense.Col[FunctionClaim, []FunctionMember],
+	byRole    dense.Side[TKey, []dense.ID[FunctionClaim]],
+}
+
+func newFunctionClaims() FunctionClaims {
+	FunctionClaims{
+		count:     dense.NewCount[FunctionClaim](),
+		roles:     dense.NewCol[FunctionClaim, dense.ID[TKey]](),
+		receivers: dense.NewCol[FunctionClaim, dense.ID[TKey]](),
+		binds:     dense.NewCol[FunctionClaim, []bool](),
+		positions: dense.NewCol[FunctionClaim, []int](),
+		bounds:    dense.NewCol[FunctionClaim, [][]ClaimTerm](),
+		members:   dense.NewCol[FunctionClaim, []FunctionMember](),
+		byRole:    dense.NewSide[TKey, []dense.ID[FunctionClaim]]([]dense.ID[FunctionClaim]{}),
+	}
+}
+
+func FunctionClaimCount(s Store) int { dense.Total(s.pool.functionClaims.count) }
+
+func FunctionClaimAt(s Store, at int) ClaimHead {
+	functionClaimOf(s.pool.functionClaims, dense.IDAt(s.pool.functionClaims.count, at))
+}
+
+func HasFunctionClaimRole(s mut Store, ref XRef) bool {
+	let key = TInstance(s, ref, []dense.ID[TKey]{})
+	len(dense.SideOf(s.pool.functionClaims.byRole, key)) != 0
+}
+
+func functionClaimOf(cs FunctionClaims, id dense.ID[FunctionClaim]) ClaimHead {
+	ClaimHead{
+		Role:    dense.Of(cs.roles, id), Receiver: dense.Of(cs.receivers, id),
+		Binds:   dense.Of(cs.binds, id), Positions: dense.Of(cs.positions, id),
+		Bounds:  dense.Of(cs.bounds, id),
+		Members: dense.Of(cs.members, id),
+	}
+}
+
+func AddFunctionClaim(s mut Store, role XRef, g ClaimHead) {
+	let key = TInstance(s, role, []dense.ID[TKey]{})
+	let old = dense.SideOf(s.pool.functionClaims.byRole, key)
+	for row in old {
+		let prior = functionClaimOf(s.pool.functionClaims, row)
+		if prior.Role == g.Role && prior.Receiver == g.Receiver && slices.Equal(prior.Binds, g.Binds) &&
+			slices.Equal(prior.Members, g.Members) {
+			return
+		}
+	}
+	let id = dense.Next(&s.pool.functionClaims.count)
+	dense.Push(&s.pool.functionClaims.roles, g.Role)
+	dense.Push(&s.pool.functionClaims.receivers, g.Receiver)
+	dense.Push(&s.pool.functionClaims.binds, g.Binds)
+	dense.Push(&s.pool.functionClaims.positions, g.Positions)
+	dense.Push(&s.pool.functionClaims.bounds, g.Bounds)
+	dense.Push(&s.pool.functionClaims.members, g.Members)
+	dense.SideSet(&s.pool.functionClaims.byRole, key, old.Append(id))
+}
+
+// ReceiverBinders marks the function's parameters mentioned by its first
+// parameter type, including a row nested in a function receiver.
+func ReceiverBinders(s Store, receiver dense.ID[TKey], params int) []bool {
+	let mut out = []bool{}
+	for _ in 0..params { out = out.Append(false) }
+	markClaimBinders(s.pool, receiver, &out)
+	out
+}
+
+func markClaimBinders(p Pool, t dense.ID[TKey], out mut []bool) {
+	if !Open(p, t) { return }
+	let k = Key(p, t)
+	if int(k.k) == tParam {
+		if int(k.a) < len(*out) { (*out)[int(k.a)] = true }
+		return
+	}
+	for a in Operands(p, t) { markClaimBinders(p, a, out) }
+}
+
+// ShapeBindings matches a receiver template against an actual type. The
+// result uses the declaration's indices, never the caller's name spelling.
+func ShapeBindings(s mut Store, g ClaimHead, receiver dense.ID[TKey]) Option[[]dense.ID[TKey]] {
+	shapeBindings(&s.pool, g, receiver)
+}
+
+func shapeBindings(p mut Pool, g ClaimHead, receiver dense.ID[TKey]) Option[[]dense.ID[TKey]] {
+	let mut args = []dense.ID[TKey]{}
+	for i in 0..len(g.Binds) { args = args.Append(Param(p, i)) }
+	let mut seen = []bool{}
+	for _ in g.Binds { seen = seen.Append(false) }
+	if shapeBind(*p, g.Receiver, receiver, g.Binds, &args, &seen) {
+		Some{Value: args}
+	} else {
+		None
+	}
+}
+
+func shapeBind(p Pool, shape dense.ID[TKey], actual dense.ID[TKey], binds []bool, args mut []dense.ID[TKey], seen mut []bool) bool {
+	let k = Key(p, shape)
+	let a = Key(p, actual)
+	if int(k.k) == tParam && int(k.a) < len(binds) && binds[int(k.a)] {
+		let i = int(k.a)
+		if (*seen)[i] { return (*args)[i] == actual }
+		(*seen)[i] = true
+		(*args)[i] = actual
+		return true
+	}
+	if !Open(p, shape) { return shape == actual }
+	if k.k != a.k || k.b != a.b { return false }
+	if int(k.k) == tInstance && OriginOf(p, shape) != OriginOf(p, actual) { return false }
+	for i, x in Operands(p, shape) {
+		if !shapeBind(p, x, operandAt(p, actual, i), binds, args, seen) { return false }
+	}
+	true
+}
+
+// ClaimIntersection solves equality of the two receiver and role shapes
+// together. Neither declaration's binders are rigid: []([T] etc.) on one
+// side can make a different part of the other side concrete.
+func ClaimIntersection(s mut Store, a ClaimHead, b ClaimHead) bool {
+	let mut bindings = []dense.ID[TKey]{}
+	let mut moved = []dense.ID[TKey]{}
+	for i in 0..len(a.Binds)+len(b.Binds) {
+		let t = TParam(s, i)
+		bindings = bindings.Append(t)
+		if i >= len(a.Binds) { moved = moved.Append(t) }
+	}
+	let recv = TSubst(s, b.Receiver, moved)
+	let role = TSubst(s, b.Role, moved)
+	if !intersect(s.pool, a.Receiver, recv, &bindings) || !intersect(s.pool, a.Role, role, &bindings) {
+		return false
+	}
+	let bounds = a.Bounds.Concat(b.Bounds)
+	let mut domains = [][]ClaimTerm{}
+	for _ in bindings { domains = domains.Append([]ClaimTerm{}) }
+	for i, terms in bounds {
+		if len(terms) == 0 { continue }
+		let bound = intersectionRead(s.pool, bindings[i], bindings)
+		let k = Key(s.pool, bound)
+		if int(k.k) == tParam {
+			let slot = int(k.a)
+			let previous = domains[slot]
+			if len(previous) == 0 {
+				domains[slot] = terms
+				continue
+			}
+			let mut common = []ClaimTerm{}
+			for left in previous {
+				for right in terms {
+					if left.Type == right.Type {
+						common = common.Append(ClaimTerm{..left, Under: left.Under && right.Under})
+					} else if looseTerm(s.pool, left, right.Type) {
+						common = common.Append(right)
+					} else if looseTerm(s.pool, right, left.Type) {
+						common = common.Append(left)
+					}
+				}
+			}
+			if len(common) == 0 { return false }
+			domains[slot] = common
+		} else if !claimBoundFits(s.pool, terms, bound) {
+			return false
+		}
+	}
+	true
+}
+
+// A nominal underlying type may not be visible in this pool. Do not
+// prove two patterns disjoint on the strength of that missing fact.
+func looseTerm(p Pool, term ClaimTerm, other dense.ID[TKey]) bool {
+	let kind = int(Key(p, other).k)
+	term.Under && (kind == tNamed || kind == tForeign || kind == tInstance)
+}
+
+func claimBoundFits(p Pool, terms []ClaimTerm, t dense.ID[TKey]) bool {
+	if len(terms) == 0 || Open(p, t) { return true }
+	for term in terms {
+		if term.Type == t || looseTerm(p, term, t) { return true }
+	}
+	false
+}
+
+func claimBoundsFit(p Pool, g ClaimHead, args []dense.ID[TKey]) bool {
+	for i, terms in g.Bounds {
+		if !claimBoundFits(p, terms, args[i]) { return false }
+	}
+	true
+}
+
+func intersectionRead(p Pool, t dense.ID[TKey], bindings []dense.ID[TKey]) dense.ID[TKey] {
+	let mut current = t
+	for {
+		let k = Key(p, current)
+		if int(k.k) != tParam || int(k.a) >= len(bindings) { return current }
+		let next = bindings[int(k.a)]
+		if next == current { return current }
+		current = next
+	}
+}
+
+func intersectionOccurs(p Pool, v dense.ID[TKey], t dense.ID[TKey], bindings []dense.ID[TKey]) bool {
+	let r = intersectionRead(p, t, bindings)
+	if v == r { return true }
+	if !Open(p, r) { return false }
+	for item in Operands(p, r) {
+		if intersectionOccurs(p, v, item, bindings) { return true }
+	}
+	false
+}
+
+func intersect(p Pool, a dense.ID[TKey], b dense.ID[TKey], bindings mut []dense.ID[TKey]) bool {
+	let x = intersectionRead(p, a, *bindings)
+	let y = intersectionRead(p, b, *bindings)
+	if x == y { return true }
+	let kx = Key(p, x)
+	let ky = Key(p, y)
+	if int(kx.k) == tParam {
+		if int(kx.a) >= len(*bindings) || intersectionOccurs(p, x, y, *bindings) { return false }
+		(*bindings)[int(kx.a)] = y
+		return true
+	}
+	if int(ky.k) == tParam { return intersect(p, y, x, bindings) }
+	if !Open(p, x) && !Open(p, y) || kx.k != ky.k || kx.b != ky.b { return false }
+	if int(kx.k) == tInstance && OriginOf(p, x) != OriginOf(p, y) { return false }
+	for i, item in Operands(p, x) {
+		if !intersect(p, item, operandAt(p, y, i), bindings) { return false }
+	}
+	true
+}
+
+// FunctionClaimBindings selects a claim by its full nominal contract and
+// receiver pattern. Reapplication uses the same row as provision checks.
+func FunctionClaimBindings(s mut Store, role dense.ID[TKey], ref XRef, receiver dense.ID[TKey]) Option[ClaimHead] {
+	match selectFunctionClaim(&s.pool, role, ref, receiver) {
+	case Some{Value: (g, _)}:
+		Some{Value: g}
+	case None:
+		None
+	}
+}
+
+func selectFunctionClaim(p mut Pool, role dense.ID[TKey], ref XRef, receiver dense.ID[TKey]) Option[(ClaimHead, []dense.ID[TKey])] {
+	let key = Instance(p, ref, []dense.ID[TKey]{})
+	let mut selected Option[(ClaimHead, []dense.ID[TKey])] = None
+	for id in dense.SideOf(p.functionClaims.byRole, key) {
+		let g = functionClaimOf(p.functionClaims, id)
+		match shapeBindings(p, g, receiver) {
+		case Some{Value: args}:
+			let read = Subst(p, g.Role, args)
+			if !sameClaimRole(*p, read, role) || !claimBoundsFit(*p, g, args) { continue }
+			match selected {
+			case Some{Value: (prior, _)}:
+				if !slices.Equal(prior.Members, g.Members) { return None }
+			case None:
+				selected = Some{Value: (g, args)}
+			}
+		case None:
+		}
+	}
+	selected
+}
+
+func sameClaimRole(p Pool, a dense.ID[TKey], b dense.ID[TKey]) bool {
+		a == b || int(Key(p, a).k) == tInstance && int(Key(p, b).k) == tInstance &&
+		OriginOf(p, a) == OriginOf(p, b) && slices.Equal(Operands(p, a), Operands(p, b))
+}
+
+func reapplyFunctionClaim(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID[TKey]) Option[dense.ID[TKey]] {
+	if int(Key(*p, op).k) != tInstance { return None }
+	match selectFunctionClaim(p, op, OriginOf(*p, op), recv) {
+	case Some{Value: (g, slots)}:
+		if len(g.Positions) != len(args) { return None }
+		let mut to = slices.Clone(slots)
+		for i, at in g.Positions { to[at] = args[i] }
+		if !claimBoundsFit(*p, g, to) { return Some{Value: Basic(p, 0)} }
+		Some{Value: Subst(p, g.Receiver, to)}
+	case None:
+		None
+	}
+}
+
+// ReadFunctionSelf applies a signature to the receiver template, not to a
+// synthetic nominal type. Positions maps Self's arguments to its binders.
+func ReadFunctionSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], g ClaimHead) dense.ID[TKey] {
+	substAt(&s.pool, t, args, dense.OptOf(g.Receiver), dense.NoID[TKey](), g.Positions, g.Binds)
+}
