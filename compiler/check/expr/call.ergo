@@ -154,10 +154,15 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 		match dense.Unpack(k.Fns[t.fn].SelfRole) {
 		case Some{Value: op}:
 			if !shadowsMember(k, *t, fun) {
-				match roleMember(s, k, op, nameAt(k, *t, fun)) {
-				case Some{Value: member}:
+				let name = nameAt(k, *t, fun)
+				match roleMember(s, k, op, name, true) {
+				case Some{Value: selected}:
+					if selected.NeedsReceiver {
+						t.BareSelfCalls = t.BareSelfCalls.Append(BareSelfCall{File: t.file, At: fun, Name: name})
+						return None
+					}
 					let recv = store.TSelf(s, store.OperandsOf(*s, op))
-					return callMember(s, k, t, x, c, c.Fun, written, recv, op, member)
+					return callMember(s, k, t, x, c, c.Fun, written, recv, op, selected.Member)
 				case None:
 				}
 			}
@@ -361,12 +366,16 @@ func roleOf(s mut store.Store, k Pkg, t Typer, recv dense.ID[store.TKey]) Option
 	None
 }
 
-func roleMember(s mut store.Store, k Pkg, op dense.ID[store.TKey], name string) Option[types.RoleMember] {
+type RoleSelection { Member types.RoleMember, NeedsReceiver bool }
+
+// roleMember resolves both dot calls and member-law calls through the
+// same flattened nominal role. Only the bare spelling can lack a receiver.
+func roleMember(s mut store.Store, k Pkg, op dense.ID[store.TKey], name string, bare bool) Option[RoleSelection] {
 	match types.ReadRole(s, k.Ifaces, k.Foreign, k.Roles, op) {
 	case Some{Value: role}:
 		for m in role.Members {
 			if m.Name == name {
-				return Some{Value: m}
+				return Some{Value: RoleSelection{Member: m, NeedsReceiver: bare && types.ConstraintOnlyRole(role)}}
 			}
 		}
 	case None:
@@ -413,9 +422,9 @@ func rowSlot(s store.Store, typ dense.ID[store.TKey], slot int) bool {
 }
 
 func roleCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], written []dense.ID[syntax.Node], recv dense.ID[store.TKey], op dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
-	match roleMember(s, k, op, name) {
-	case Some{Value: m}:
-		callMember(s, k, t, x, c, fun, written, recv, op, m)
+	match roleMember(s, k, op, name, false) {
+	case Some{Value: selected}:
+		callMember(s, k, t, x, c, fun, written, recv, op, selected.Member)
 	case None:
 		args(s, k, t, c, []dense.ID[store.TKey]{})
 		None

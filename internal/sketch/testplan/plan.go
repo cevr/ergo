@@ -109,11 +109,13 @@ func domain(t check.Type, seen map[*check.Named]bool) ([]Value, bool) {
 // Provider is nil for an ordinary parameter. Constructors are called anew in
 // each case; they never make a finite proof over their output type.
 type Input struct {
-	Name     string
-	Type     check.Type
-	Param    int
-	Provider *check.LawProvider
-	Where    *check.Refinement
+	Name      string
+	Type      check.Type
+	Param     int
+	Provider  *check.LawProvider
+	Where     *check.Refinement
+	ClaimCtor *check.LawProvider
+	Callback  *check.Signature
 }
 
 type Plan struct {
@@ -175,6 +177,9 @@ func Tie[V any](p Plan, r *testgen.Stream, i int, vals []V, gen func() V) V {
 func makePlan(inputs []Input) Plan {
 	p := Plan{Inputs: inputs, Count: 1, Listed: true}
 	for _, in := range inputs {
+		if in.ClaimCtor != nil {
+			p.Listed = false
+		}
 		if in.Provider != nil {
 			if in.Provider.Unrun != "" {
 				p.Reason = in.Provider.Unrun
@@ -219,10 +224,13 @@ func Test(t *check.Test) Plan {
 // drawn, at types (the context's instance of them), by the one rule ergo
 // test follows: one case for none, every value when all can be listed,
 // Cases cases otherwise.
-func Context(params []*check.Var, types []check.Type) Plan {
-	ins := make([]Input, len(params))
+func Context(params []*check.Var, types []check.Type, supplied ...int) Plan {
+	var ins []Input
 	for i, v := range params {
-		ins[i] = Input{Name: v.Name, Type: types[i], Param: i}
+		if len(supplied) != 0 && supplied[0] == i {
+			continue
+		}
+		ins = append(ins, Input{Name: v.Name, Type: types[i], Param: i})
 	}
 	return makePlan(ins)
 }
@@ -230,6 +238,33 @@ func Context(params []*check.Var, types []check.Type) Plan {
 func Law(l *check.Law, bd []check.LawProvider) Plan {
 	if len(bd) != len(l.Slots) {
 		return Plan{Reason: "no binding of the law runs in this package"}
+	}
+	if l.Claimed() {
+		p := bd[0]
+		if p.Unrun != "" {
+			return Plan{Reason: p.Unrun}
+		}
+		ins := make([]Input, len(l.Params))
+		for i, v := range l.Params {
+			ins[i] = Input{Name: v.Name, Type: p.Params[i], Param: i}
+			if p.ClaimCtor != nil && p.Params[i] == p.At {
+				ins[i].ClaimCtor = &p
+			}
+			if sig, ok := p.Params[i].(*check.Signature); ok && check.ClaimCallback(sig) {
+				ins[i].Callback = sig
+				if p.ClaimCtor != nil && sig.Results[0] == p.At {
+					ins[i].ClaimCtor = &p
+				}
+			}
+			if i < len(l.Where) {
+				ins[i].Where = l.Where[i]
+			}
+		}
+		out := makePlan(ins).withTies(l.Ties, 0)
+		if p.Native {
+			out.Native = p.Type.Obj.Name
+		}
+		return out
 	}
 	bound := map[int]*check.LawProvider{}
 	var ins []Input
@@ -261,8 +296,24 @@ func Law(l *check.Law, bd []check.LawProvider) Plan {
 	return p
 }
 
+// CallbackVariants choose among two independently generated results.
+// The value and its provenance are chosen before a callback executes.
+const CallbackVariants = 4
+
+func CallbackSecond(k int, x int64) bool {
+	switch k {
+	case 1:
+		return true
+	case 2:
+		return x%2 != 0
+	case 3:
+		return x < 0
+	}
+	return false
+}
+
 func GenericOwner(l *check.Law) *check.Named {
-	if len(l.Slots) > 0 && l.Slots[0].Param < 0 && len(l.Slots[0].Type.TParams) > 0 {
+	if !l.Claimed() && len(l.Slots) > 0 && l.Slots[0].Param < 0 && len(l.Slots[0].Type.TParams) > 0 {
 		return l.Slots[0].Type
 	}
 	return nil
