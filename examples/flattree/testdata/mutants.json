@@ -1,6 +1,18 @@
 {
   "about": "flattree's mutants (wf10 DOD DF1): each law's mutant, killed by `ergo test` of its package or by a case, and the edits no law or case sees, which TestFlatTreeAgreesWithControl in cmd/ergo (JSONTestSuite, generated documents and the workload, three sides against a reference on encoding/json) kills. Package tree is examples/jsonparse's package json under a new name: its law-killed mutants are kept here; the ones only TestJSONParseAgreesWithControl kills stay in examples/jsonparse's ledger, which judges the same code.",
+  "commands": {
+    "unrooted": ["sh", "{root}/examples/flattree/testdata/unrooted/check.sh", "{bin:ergo}"]
+  },
   "mutants": [
+    {
+      "name": "nou-flattree-exposes-empty-root",
+      "origin": "wf10 NOU-DATA-REP (not-run-crunch)",
+      "file": "examples/flattree/flat/flat.ergo",
+      "from": "func Root(t Tree) dense.ID[Node] { t.root }",
+      "to": "func Root(t Tree) dense.ID[Node] { t.root }\n\nfunc Empty(src string) Tree {\n\tlet mut ids = dense.NewCount[Node]()\n\tTree{data: empty(src), root: dense.Next(&ids)}\n}",
+      "rule": "An empty builder is not a document and does not supply a root. Positive parsing and round-trip laws cannot detect an exported invalid constructor.",
+      "killers": ["command:unrooted"]
+    },
     {
       "name": "flattree-tree-pointer-escapes-slash-first",
       "origin": "wf10 DF1 (from PA1)",
@@ -137,8 +149,8 @@
       "name": "flattree-flat-object-keeps-last-member",
       "origin": "wf10 DF1",
       "file": "examples/flattree/flat/parse.ergo",
-      "from": "members = members.Append(Member{Key: k, Value: lastRead(*r)})",
-      "to": "members = []Member{Member{Key: k, Value: lastRead(*r)}}",
+      "from": "members = members.Append(Member{Key: k, Value: id})",
+      "to": "members = []Member{Member{Key: k, Value: id}}",
       "rule": "An object keeps every member, in order (law flat.FlatEqualsTree).",
       "killers": [
         "examples:flattree"
@@ -148,8 +160,8 @@
       "name": "flattree-flat-array-keeps-last-item",
       "origin": "wf10 DF1",
       "file": "examples/flattree/flat/parse.ergo",
-      "from": "items = items.Append(lastRead(*r))",
-      "to": "items = []dense.ID[Node]{lastRead(*r)}",
+      "from": "items = items.Append(id)",
+      "to": "items = []dense.ID[Node]{id}",
       "rule": "An array keeps every item, in order (law flat.FlatEqualsTree).",
       "killers": [
         "examples:flattree"
@@ -202,9 +214,9 @@
     {
       "name": "flattree-flat-root-is-first",
       "origin": "wf10 DF1",
-      "file": "examples/flattree/flat/flat.ergo",
-      "from": "t.root = dense.OptOf(id)",
-      "to": "t.root = dense.OptOf(dense.Or(t.root, id))",
+      "file": "examples/flattree/flat/parse.ergo",
+      "from": "Tree{data: r.t, root: root}",
+      "to": "Tree{data: r.t, root: if dense.Index(root) > 0 { dense.IDAt(r.t.ids, 0) } else { root }}",
       "rule": "The root is the last value put: children come first (law flat.ChildrenStayInside).",
       "killers": [
         "examples:flattree"
