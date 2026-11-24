@@ -66,7 +66,8 @@ func BenchmarkHTTPServeRaw(b *testing.B) {
 				b.Cleanup(func() { engineWatcher = true })
 			}
 			if mode != "go" && mode != "floor" {
-				s := v1.NewScope(rt.Root("HTTP raw benchmark"))
+				root := rt.Root("HTTP raw benchmark")
+				s := v1.NewScope(root)
 				h := v1.Go(&s, "Serve", func(ct *rt.Task) (struct{}, error) {
 					return struct{}{}, httpServe("request", ct, liveSleeper{}, ergonet.ListenerOn(ln), serveLimits(4096, 4096), func(ct *rt.Task, _ *Exchange, _, _, _ string, _, _ []HTTPField, body string, tooLarge bool, readError string) HTTPResponse {
 						if entryPoll {
@@ -78,7 +79,7 @@ func BenchmarkHTTPServeRaw(b *testing.B) {
 						return HTTPResponse{Status: 200, Body: body}
 					}, mode != "ergo-nethttp")
 				})
-				b.Cleanup(h.Stop)
+				b.Cleanup(func() { h.Stop(root) })
 			} else if mode == "go" {
 				b.Cleanup(rawControl(ln))
 			} else {

@@ -1,0 +1,9 @@
+type Clonable[T] {
+	Clone() Self,
+}
+
+type Box[T] { Value T } implements Clonable[T]
+
+func Clone[T](b Box[T]) Box[T] { b }
+
+func F(x Box[int]) { let s Clonable[int] = x }

@@ -160,6 +160,9 @@ func (in *inferer) nify(x, y Type, mode unifyMode, depth int) bool {
 		return false
 	}
 	depth++
+	if _, ok := x.(*Reapplied); ok {
+		return true // Check it after inference, regardless of argument order.
+	}
 	// A parameter of the call: bound, its binding must match; free, it
 	// binds.
 	if px, ok := x.(*TypeParam); ok && in.set[px] {

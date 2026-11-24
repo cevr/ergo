@@ -159,7 +159,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
-	{"TestAmbient", "ergoTestAmbient"},
+	{"TestAmbient", "ergoTestAmbient"}, {"TestLoopback", "ergoTestLoopback"},
 	{"SkipOf", "ergoSkipOf"}, {"Skipping", "ergoSkipping"}, {"Skipped", "ergoSkipped"}, {"Skippable", "ergoSkippable"}, {"SkipRun", "ergoSkipRun"}, {"SkipNow", "ergoSkipNow"}, {"SkipNote", "ergoSkipNote"},
 }
 
@@ -196,7 +196,7 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
-		if lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil {
+		if r.Law.Claimed() || lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil {
 			l.reserveLawMono(r.Law) // mono.go
 		}
 		for _, adm := range r.Law.Admit {
@@ -279,9 +279,7 @@ func (l *lowerer) nameTests() {
 						reserveLit(lt)
 						reserveLit(rt)
 					}
-					if l.ir != nil {
-						l.pkgName(assertShowKey(x), "ergoAssertShow")
-					}
+					l.pkgName(assertShowKey(x), "ergoAssertShow")
 				}
 			}
 			return true
@@ -312,6 +310,14 @@ func (l *lowerer) genRoots(f func(check.Type)) {
 	for _, r := range l.runLaws() {
 		law := r.Law
 		if !lawLowered(r) {
+			continue
+		}
+		if law.Claimed() {
+			for _, b := range r.Bindings {
+				for _, in := range testplan.Law(law, b).Inputs {
+					f(in.Type)
+				}
+			}
 			continue
 		}
 		// A law of a generic operation type draws its parameters at each
@@ -540,6 +546,18 @@ func (l *lowerer) lawDecl(law *check.Law, sp *specCopy) {
 	parts := []string{fc.env + " *" + l.env()}
 	tparams := ""
 	name := l.lawFunc(law)
+	if sp != nil && sp.claim != nil {
+		var why string
+		fc.mono, fc.claim, name = true, sp.claim, sp.name
+		fc.readCopy, why = sp.claim.Subst(law)
+		if why != "" {
+			ice(d, "claim law %s: %s", law.Name, why)
+		}
+		l.info, why = sp.claim.ClaimInfo(law)
+		if why != "" {
+			ice(d, "claim law %s: %s", law.Name, why)
+		}
+	}
 	if own := lawGenericOwner(law); own != nil {
 		// A law of a generic operation type takes the provider under
 		// test after the environment: its instance is no environment
@@ -789,6 +807,27 @@ func (l *lowerer) siteText(n syntax.Node) string {
 	return file + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
+// testFile is the file as the harness reports it, without line or column.
+func (l *lowerer) testFile(n syntax.Node) string {
+	site := l.siteText(n)
+	for range 2 {
+		site = site[:strings.LastIndexByte(site, ':')]
+	}
+	return site
+}
+
+// testShown uses the same report helper as the IR for a rewritten assert.
+func (fc *funcCtx) testShown(x *syntax.CallExpr) operand {
+	l := fc.l
+	lt, lok := l.typedExpr(x.Args[0])
+	rt, rok := l.typedExpr(x.Args[1])
+	if !lok || !rok || !l.printable(lt) || !l.printable(rt) {
+		ice(x, "ergo·shown of an operand that does not print")
+	}
+	vals := fc.callArgs(x.Args, x)
+	return operand{val: l.assertShowFunc(x, lt, rt, x) + "(" + strings.Join(vals, ", ") + ")"}
+}
+
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
 func (l *lowerer) testEntry(b *strings.Builder) {
 	rt := l.rt()
@@ -806,6 +845,9 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 	for _, r := range l.runLaws() {
 		if !lawLowered(r) || r.Law.Decl.Reach != nil {
 			continue
+		}
+		if r.Law.Claimed() {
+			continue // no body exists outside a concrete claim
 		}
 		copies := l.monoTaken()
 		for _, adm := range r.Law.Admit {
@@ -1046,6 +1088,9 @@ func lawSlotParam(law *check.Law, i int) bool {
 // assert fails it as a test's case does.
 func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, seed, failed string) {
 	law := lr.Law
+	if law.ClaimEquation() {
+		return // reported by the licence runner
+	}
 	fmtPkg := l.helper("fmt")
 	title := l.lawTitle(law)
 	if byLicence(law) {
@@ -1069,6 +1114,9 @@ func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env
 		return
 	}
 	if len(lr.Bindings) == 0 {
+		if law.Claimed() {
+			return
+		}
 		var types []string
 		for _, s := range law.Slots {
 			types = append(types, s.Type.Obj.Name)
@@ -1187,6 +1235,10 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		var copyArgs []check.Type // the instance a generic law runs at (lawCallee)
 		generic := lawGenericOwner(law) != nil
 		for k, s := range law.Slots {
+			if s.Param < 0 && law.Claimed() {
+				callee = l.claimLawCallee(law, tg.b[k])
+				continue
+			}
 			if s.Param < 0 && generic {
 				// A law of a generic operation type takes its provider
 				// after the environment, at the instance the provider
@@ -1222,6 +1274,40 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				continue
 			}
 			a := inner.alloc(base)
+			draw := func(dst string, t check.Type) {
+				if build := input.ClaimCtor; build != nil {
+					l.drawClaimCtor(b, fc, law.Decl, dst, env, r, build, t)
+				} else {
+					b.WriteString("\t\t\t" + dst + " := " + l.genExpr(t, r, strconv.Itoa(testDepth), inner, law.Decl) + "\n")
+				}
+			}
+			if sig := input.Callback; sig != nil {
+				t := sig.Results[0]
+				kind, x := inner.alloc("callbackClass"), inner.alloc("x")
+				first, second := inner.alloc("firstResult"), inner.alloc("secondResult")
+				b.WriteString("\t\t\t" + kind + " := " + r + ".stream.Intn(" + strconv.Itoa(testplan.CallbackVariants) + ")\n")
+				draw(first, t)
+				draw(second, t)
+				formals := "_ *" + l.env() + ", "
+				if len(sig.Params) == 2 {
+					formals += "_ int, "
+				}
+				formals += x + " int"
+				b.WriteString("\t\t\t" + a + " := func(" + formals + ") (" + fc.goType(t) + ", error) { " +
+					"if " + kind + " == 1 || " + kind + " == 2 && " + x + "%2 != 0 || " + kind + " == 3 && " + x + " < 0 { return " + second +
+					", nil }; return " + first + ", nil }\n")
+				args = append(args, a)
+				shown = append(shown, strconv.Quote(sep+v.Name+" = callback class "), conv+".Itoa("+kind+")")
+				sep = ", "
+				continue
+			}
+			if input.ClaimCtor != nil {
+				draw(a, vt)
+				args = append(args, a)
+				shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
+				sep = ", "
+				continue
+			}
 			gen := l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl)
 			if input.Where != nil {
 				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
@@ -1283,6 +1369,24 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 	}
 }
 
+func (l *lowerer) drawClaimCtor(b *strings.Builder, fc *funcCtx, site syntax.Node, dst, env, r string, build *check.LawProvider, result check.Type) {
+	ctor := build.ClaimCtor
+	sig := *ctor.Sig
+	sig.Params = make([]*check.Var, len(build.ClaimCtorParams))
+	for i, t := range build.ClaimCtorParams {
+		p := *ctor.Sig.Params[i]
+		p.Type = t
+		sig.Params[i] = &p
+	}
+	sig.Results = []check.Type{result}
+	call := fc.funcValue(ctor, &sig, site, &check.Instance{Func: ctor, TypeArgs: build.ClaimCtorArgs})
+	args := []string{env}
+	for _, t := range build.ClaimCtorParams {
+		args = append(args, l.genExpr(t, r, strconv.Itoa(testDepth), fc.scope, site))
+	}
+	b.WriteString("\t\t\t" + dst + ", _ := " + call + "(" + strings.Join(args, ", ") + ")\n")
+}
+
 // replayLine is the Go statement that prints the command that reruns the
 // law alone, with flags, a Go string expression: the seed of its generated
 // cases, or none when its values were listed.
@@ -1307,7 +1411,7 @@ func byLicence(law *check.Law) bool {
 // the runs it skips: one per binding of its slots, and one per context it
 // runs under.
 func lawCounts(r check.LawRun) (runs, skips int) {
-	if byLicence(r.Law) {
+	if r.Law.ClaimEquation() || byLicence(r.Law) {
 		return 0, 0
 	}
 	if r.Law.Unrun != "" {
@@ -1360,12 +1464,16 @@ func (l *lowerer) harness() string {
 const harnessGo = `// $TestAmbient is the test runner's provider of TestAmbient (rows.md,
 // Test's ambient): the folder of one case, which the with or the law case that
 // builds the context made and removes when the case ends.
-type $TestAmbient struct{ dir string }
+type $TestAmbient struct{ dir *$Runtime.TestDirectory }
 
-func (a $TestAmbient) folder(_ *$Task.Task) string { return a.dir }
+func (a $TestAmbient) folder(_ *$Task.Task) *$Runtime.TestDirectory { return a.dir }
 
-// end removes the case's folder: the IR defers it (ir_with.go testAmbient).
-func (a $TestAmbient) end() { $Runtime.TestFolderRemove(a.dir) }
+// end releases the case's folder: the IR defers it (ir_with.go testAmbient).
+func (a $TestAmbient) end() { a.dir.End() }
+
+type $TestLoopback struct{}
+
+func ($TestLoopback) loopbackOnly(_ *$Task.Task) {}
 
 // $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".

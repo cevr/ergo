@@ -20,6 +20,9 @@ extern go ergo.local/prototype/runtime/v1/net.NetListenFailed type ListenFailed 
 // address with no listener. Reason is the host's text for it.
 extern go ergo.local/prototype/runtime/v1/net.NetDialFailed type DialFailed { Addr string, Reason string }
 
+// Denied is an address outside the provider's loopback grant.
+type Denied { Addr string }
+
 // Failed is the failure of a read, a write or an accept of an open
 // connection or listener, such as a write to a peer that closed or a read
 // from one that reset. Reason is the host's text for it.
@@ -68,18 +71,18 @@ extern go ergo.local/prototype/runtime/v1/net.Listener type Listener {
 // Network binds addresses and connects to them. An address is
 // "host:port"; port 0 asks for a free port, which Listener.Addr gives.
 type Network {
-	Listen(addr string) Listener fails ListenFailed,
-	Dial(addr string) Conn fails DialFailed,
+	Listen(addr string) Listener fails ListenFailed | Denied,
+	Dial(addr string) Conn fails DialFailed | Denied,
 
 	// WriteThenReadRoundTrips: bytes the dialer writes are what the
 	// accepted end reads, and the reply reaches the dialer.
 	law WriteThenReadRoundTrips(data string, reply string) {
 		let l = Listen("127.0.0.1:0") catch {
-		case ListenFailed:
+		case ListenFailed, Denied:
 			return false
 		}
 		let c = Dial(l.Addr()) catch {
-		case DialFailed:
+		case DialFailed, Denied:
 			return false
 		}
 		let s = l.Accept() catch {
@@ -93,11 +96,11 @@ type Network {
 	// data and then the end.
 	law CloseEndsReads(data string) {
 		let l = Listen("127.0.0.1:0") catch {
-		case ListenFailed:
+		case ListenFailed, Denied:
 			return false
 		}
 		let c = Dial(l.Addr()) catch {
-		case DialFailed:
+		case DialFailed, Denied:
 			return false
 		}
 		let s = l.Accept() catch {
@@ -120,7 +123,7 @@ type Network {
 	// fails, and the address can be bound again.
 	law DialAfterCloseFails() {
 		let l = Listen("127.0.0.1:0") catch {
-		case ListenFailed:
+		case ListenFailed, Denied:
 			return false
 		}
 		let addr = l.Addr()
@@ -128,6 +131,8 @@ type Network {
 		let c = Dial(addr) catch {
 		case DialFailed:
 			return true
+		case Denied:
+			return false
 		}
 		c.Close()
 		false
@@ -137,15 +142,15 @@ type Network {
 	// accepted end reads what its dialer wrote.
 	law AcceptsInDialOrder(a string, b string) {
 		let l = Listen("127.0.0.1:0") catch {
-		case ListenFailed:
+		case ListenFailed, Denied:
 			return false
 		}
 		let first = Dial(l.Addr()) catch {
-		case DialFailed:
+		case DialFailed, Denied:
 			return false
 		}
 		let second = Dial(l.Addr()) catch {
-		case DialFailed:
+		case DialFailed, Denied:
 			return false
 		}
 		let x = l.Accept() catch {
@@ -156,19 +161,21 @@ type Network {
 		case Failed:
 			return false
 		}
-		sends(first, x, a + "1") && sends(second, y, b + "2")
+		sends(first, x, a+"1") && sends(second, y, b+"2")
 	},
 
 	// ListenTakenFails: an address bound by an open listener cannot be
 	// bound again.
 	law ListenTakenFails() {
 		let l = Listen("127.0.0.1:0") catch {
-		case ListenFailed:
+		case ListenFailed, Denied:
 			return false
 		}
 		let again = Listen(l.Addr()) catch {
 		case ListenFailed:
 			return true
+		case Denied:
+			return false
 		}
 		again.Close()
 		false
@@ -207,20 +214,64 @@ func ReadAll(c Conn) string fails Failed {
 	out
 }
 
-// Host is the host's Network: TCP sockets. Only NewHost makes one.
-type Host { live hostOnly } implements Network
+// Host is the host's Network. The private field seals its authority.
+type Host { loopback bool } implements Network, loopbackNetwork
 
-// hostOnly is the unexported field that keeps a Host from being built
-// outside this package.
-type hostOnly {}
+type loopbackNetwork {
+	..Network,
+	loopbackLawOnly(),
+	law OutsideIsDenied() {
+		for addr in []string{"localhost:0", "0.0.0.0:0", "[::]:0", "127.0.0.2:0", "[::1%lo]:0", "127.0.0.1:http"} {
+			if !denyListen(addr) || !denyDial(addr) { return false }
+		}
+		true
+	},
+}
+
+func denyListen(addr string) bool needs loopbackNetwork {
+	let l = loopbackNetwork.Listen(addr) catch {
+	case Denied as d:
+		return d.Addr == addr
+	case ListenFailed:
+		return false
+	}
+	l.Close()
+	false
+}
+
+func denyDial(addr string) bool needs loopbackNetwork {
+	let c = loopbackNetwork.Dial(addr) catch {
+	case Denied as d:
+		return d.Addr == addr
+	case DialFailed:
+		return false
+	}
+	c.Close()
+	false
+}
+
+func loopbackLawOnly(_ Host) {}
+
+let onTestHost = context needs TestLoopback { Network, loopbackNetwork: NewTestHost() }
 
 // NewHost is the host's Network. It needs Ambient: only the entry, or a
 // function main gives Ambient to, reaches the host's sockets.
-func NewHost() Host needs Ambient { Host{live: hostOnly} }
+func NewHost() Host needs Ambient { Host{loopback: false} }
 
-func Listen(_ Host, addr string) Listener fails ListenFailed { try hostListen(addr) }
+// NewTestHost supplies TCP on the two literal loopback addresses.
+func NewTestHost() Host needs TestLoopback { Host{loopback: true} }
 
-func Dial(_ Host, addr string) Conn fails DialFailed { try hostDial(addr) }
+func Listen(h Host, addr string) Listener fails ListenFailed | Denied {
+	if h.loopback && !loopbackAddress(addr) { return Denied{Addr: addr} }
+	try hostListen(addr)
+}
+
+func Dial(h Host, addr string) Conn fails DialFailed | Denied {
+	if h.loopback && !loopbackAddress(addr) { return Denied{Addr: addr} }
+	try hostDial(addr)
+}
+
+extern go ergo.local/prototype/runtime/v1/net.LoopbackAddress func loopbackAddress(addr string) bool
 
 extern go ergo.local/prototype/runtime/v1/net.NetListen func hostListen(addr string) Listener fails ListenFailed
 

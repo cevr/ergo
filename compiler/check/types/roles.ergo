@@ -1,0 +1,445 @@
+// Operation facts shared by providing, receiver typing and frozen interfaces.
+// Signatures stay in the declaring store's pool. Each member is read in the
+// outer role's parameters followed by its own parameters.
+
+import compiler/check/store
+import compiler/syntax
+import dense
+
+type Bracket { Name string, Cons string }
+type RoleMember { Name string, Own []Bracket, Mut bool, Sig dense.ID[store.TKey], Positions []int }
+type Role { Name string, Params []Bracket, Members []RoleMember, Self int, Includes []dense.ID[store.TKey] }
+
+// ConstraintOnlyRole is a role with no operation values: it names Self
+// or has a generic operation.
+func ConstraintOnlyRole(r Role) bool {
+	if r.Self != 0 {
+		return true
+	}
+	for m in r.Members {
+		if len(m.Own) != 0 {
+			return true
+		}
+	}
+	false
+}
+
+func Brackets(p syntax.Parsed, list dense.Opt[syntax.Node]) []Bracket {
+	let mut out = []Bracket{}
+	match dense.Unpack(list) {
+	case Some{Value: node}:
+		let fs = syntax.FieldListOf(p.Tree, node).List
+		for i in 0..syntax.Len(fs) {
+			let f = syntax.FieldOf(p.Tree, syntax.Item(p.Tree, fs, i))
+			let cons = match dense.Unpack(f.Type) {
+			case Some{Value: t}:
+				let text = syntax.SourceOf(p)
+				text[syntax.NodePos(p, t):syntax.NodeEnd(p, t)]
+			case None:
+				""
+			}
+			for j in 0..syntax.Len(f.Names) {
+				out = out.Append(Bracket{Name: NameText(p, syntax.Item(p.Tree, f.Names, j)), Cons: cons})
+			}
+		}
+	case None:
+	}
+	out
+}
+
+func roleNames(ps []Bracket) []string {
+	let mut out = []string{}
+	for p in ps {
+		out = out.Append(p.Name)
+	}
+	out
+}
+
+// Nominal is the type's declaration reference, for either pool encoding
+// of a named type. Import zero means the local store's declaration row.
+func Nominal(s store.Store, t dense.ID[store.TKey]) Option[store.XRef] {
+	let k = store.KindOfType(s, t)
+	if k == store.KInstance {
+		let o = store.OriginOfType(s, t)
+		return if int(o.Import) == store.ForeignBit { None } else { Some{Value: o} }
+	}
+	if k == store.KNamed {
+		match store.Lookup(s, store.TypeNameText(s, store.ArgOf(s, t))) {
+		case Some{Value: id}:
+			return Some{Value: store.XRef{Import: uint32(0), Decl: uint32(dense.Index(id))}}
+		case None:
+		}
+	}
+	None
+}
+
+// RoleAt is the nominal role's facts and the pool that owns their ids.
+// The local case and the imported case name a row the same way.
+func RoleAt(s store.Store, roles []Role, deps []Iface, t dense.ID[store.TKey]) Option[Role] {
+	match Nominal(s, t) {
+	case Some{Value: o}:
+		let rs = if o.Import == uint32(0) { roles } else if int(o.Import) <= len(deps) { deps[int(o.Import)-1].Roles } else { []Role{} }
+		if int(o.Decl) < len(rs) && rs[int(o.Decl)].Name != "" {
+			return Some{Value: rs[int(o.Decl)]}
+		}
+	case None:
+	}
+	None
+}
+
+// Positions reads a written claim or include at its declaring parameters.
+// Runtime equality of two type arguments cannot determine this map.
+func Positions(s store.Store, args []dense.ID[store.TKey], count int) Option[[]int] {
+	let mut out = []int{}
+	for a in args {
+		let i = DeclSlot(s, a)
+		if i < 0 || i >= count {
+			return None
+		}
+		for seen in out {
+			if i == seen {
+				return None
+			}
+		}
+		out = out.Append(i)
+	}
+	Some{Value: out}
+}
+
+// DeclSlot is a single declaration parameter, including a row containing
+// just its row variable. Resolved named arguments encode rows that way.
+func DeclSlot(s store.Store, t dense.ID[store.TKey]) int {
+	let mut a = t
+	if store.KindOfType(s, a) == store.KRow {
+		let row = store.OperandsOf(s, a)
+		if len(row) == 1 { a = row[0] }
+	}
+	if store.KindOfType(s, a) == store.KParam { store.ArgOf(s, a) } else { -1 }
+}
+func rawRole(s mut store.Store, e Env, id dense.ID[store.Decl]) Role {
+	let d = store.DeclOf(*s, id)
+	let mut info = Role{Name: "", Params: []Bracket{}, Members: []RoleMember{}, Self: 0, Includes: []dense.ID[store.TKey]{}}
+	if store.KindName(int(d.Kind)) != "type" || int(d.File) >= len(e.files) {
+		return info
+	}
+	let p = e.files[int(d.File)]
+	let node = match dense.Unpack(parentDecl(p, int(d.Node))) {
+	case Some{Value: n}:
+		n
+	case None:
+		return info
+	}
+	let td = syntax.TypeDeclOf(p.Tree, node)
+	let spec = match dense.Unpack(td.Spec) {
+	case Some{Value: n}:
+		n
+	case None:
+		return info
+	}
+	let written = match syntax.ViewOf(p.Tree, spec) {
+	case syntax.InterfaceType as it:
+		if it.Lbrace < 0 { return info }
+		it.Members
+	case syntax.StructType as st:
+		// An include-only body is parsed as a record. The included
+		// declaration tells which namespace it actually belongs to.
+		syntax.FieldListOf(p.Tree, st.Fields).List
+	case _:
+		return info
+	}
+	info.Params = Brackets(p, td.TypeParams)
+	let bases = roleNames(info.Params)
+	info.Self = if shadowsSelf(p, td.TypeParams) { 0 } else { SelfSites(p, spec) }
+	let env = Env{..e, p: p, params: bases}
+	let mut positions = []int{}
+	for i in 0..len(bases) {
+		positions = positions.Append(i)
+	}
+	for j in 0..syntax.Len(written) {
+		let m = syntax.Item(p.Tree, written, j)
+		match syntax.ViewOf(p.Tree, m) {
+		case syntax.Field as f:
+			match dense.Unpack(f.Type) {
+			case Some{Value: ft}:
+				if f.Dots >= 0 {
+					info.Includes = info.Includes.Append(Resolve(s, env, ft))
+				} else if syntax.KindOf(p.Tree, spec) == syntax.KInterfaceType && syntax.Len(f.Names) == 1 && syntax.KindOf(p.Tree, ft) == syntax.KFuncType {
+					let own = Brackets(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams)
+					let inner = WithSelf(Env{..env, params: bases.Concat(roleNames(own))}, len(bases))
+					info.Members = info.Members.Append(RoleMember{Name: NameText(p, syntax.Item(p.Tree, f.Names, 0)), Own: own, Mut: f.Mut >= 0, Sig: Resolve(s, inner, ft), Positions: positions})
+				} else {
+					return Role{Name: "", Params: []Bracket{}, Members: []RoleMember{}, Self: 0, Includes: []dense.ID[store.TKey]{}}
+				}
+			case None:
+			}
+		case _:
+		}
+	}
+	if len(info.Members) != 0 || len(info.Includes) != 0 {
+		info.Name = NameText(p, td.Name)
+	}
+	info
+}
+
+// Roles reads every role once, then flattens includes in declaration order.
+// A member keeps the projection used to replace Self’s arguments.
+func Roles(s mut store.Store, e Env) []Role {
+	let mut raw = []Role{}
+	let mut out = []Role{}
+	for i in 0..store.NumDecls(*s) {
+		let d = rawRole(s, e, store.DeclAt(*s, i))
+		raw = raw.Append(d)
+		out = out.Append(d)
+	}
+	let mut states = []int{}
+	for _ in out {
+		states = states.Append(0)
+	}
+	for i in 0..len(out) {
+		flattenRole(s, e, raw, &out, &states, i)
+	}
+	out
+}
+
+func flattenRole(s mut store.Store, e Env, raw []Role, out mut []Role, states mut []int, at int) {
+	if (*states)[at] != 0 {
+		return
+	}
+	(*states)[at] = 1
+	let mut role = raw[at]
+	let mut members = []RoleMember{}
+	let mut includes = []dense.ID[store.TKey]{}
+	let mut inherited = false
+	for inc in role.Includes {
+		let r = match Nominal(*s, inc) {
+		case Some{Value: o}:
+			if o.Import == uint32(0) && int(o.Decl) < len(raw) {
+				flattenRole(s, e, raw, out, states, int(o.Decl))
+				(*out)[int(o.Decl)]
+			} else {
+				match ReadRole(s, e.deps, e.foreign, []Role{}, inc) {
+				case Some{Value: dep}:
+					dep
+				case None:
+					continue
+				}
+			}
+		case None:
+			continue
+		}
+		role.Self = maxSelfSite(role.Self, r.Self)
+		inherited = inherited || r.Name != ""
+		let args = store.OperandsOf(*s, inc)
+		if r.Name != "" {
+			includes = includes.Append(inc)
+			for parent in r.Includes {
+				includes = includes.Append(store.TSubst(s, parent, args))
+			}
+		}
+		for m in r.Members {
+			let mut bindings = args
+			for j in 0..len(m.Own) {
+				bindings = bindings.Append(store.TParam(s, len(role.Params)+j))
+			}
+			let mut projected = []int{}
+			for pos in m.Positions {
+				let mut slot = -1
+				if pos >= 0 && pos < len(args) {
+					slot = DeclSlot(*s, args[pos])
+				}
+				projected = projected.Append(slot)
+			}
+			members = members.Append(RoleMember{..m, Sig: store.TSubst(s, m.Sig, bindings), Positions: projected})
+		}
+	}
+	role.Members = members.Concat(role.Members)
+	role.Includes = includes
+	if !inherited && len(role.Members) == 0 {
+		role.Name = ""
+	}
+	(*out)[at] = role
+	(*states)[at] = 2
+}
+
+// ReadRole ports a dependency's signature templates into the caller's pool.
+func ReadRole(s mut store.Store, deps []Iface, foreign []Foreign, roles []Role, t dense.ID[store.TKey]) Option[Role] {
+	let role = match RoleAt(*s, roles, deps, t) {
+	case Some{Value: r}:
+		r
+	case None:
+		return None
+	}
+	let o = store.OriginOfType(*s, t)
+	if store.KindOfType(*s, t) != store.KInstance || o.Import == uint32(0) {
+		return Some{Value: role}
+	}
+	let from = deps[int(o.Import)-1]
+	let mut members = []RoleMember{}
+	let lookup = func(ref store.XRef) Option[DeclIdentity] { roleRef(from.Refs, ref) }
+	for m in role.Members {
+		match Port(s, deps, foreign, from.Types, from.Path, lookup, from.Foreign, m.Sig) {
+		case Some{Value: sig}:
+			members = members.Append(RoleMember{..m, Sig: sig})
+		case None:
+			return None
+		}
+	}
+	let mut includes = []dense.ID[store.TKey]{}
+	for inc in role.Includes {
+		match Port(s, deps, foreign, from.Types, from.Path, lookup, from.Foreign, inc) {
+		case Some{Value: moved}:
+			includes = includes.Append(moved)
+		case None:
+		}
+	}
+	Some{Value: Role{..role, Members: members, Includes: includes}}
+}
+
+func appendLayout(s store.Store, layouts mut []store.ClaimLayout, typ dense.ID[store.TKey], count int) {
+	match (Nominal(s, typ), Positions(s, store.OperandsOf(s, typ), count)) {
+	case (Some{Value: op}, Some{Value: positions}):
+		*layouts = (*layouts).Append(store.ClaimLayout{Op: op, Positions: positions})
+	case _:
+	}
+}
+
+// LayoutsOf includes the nominal layouts inherited by a claim. The
+// included role is read at the outer role's written arguments first.
+func LayoutsOf(s mut store.Store, roles []Role, deps []Iface, foreign []Foreign, typ dense.ID[store.TKey], count int) []store.ClaimLayout {
+	let mut layouts = []store.ClaimLayout{}
+	match ReadRole(s, deps, foreign, roles, typ) {
+	case Some{Value: role}:
+		if role.Self == 2 {
+			appendLayout(*s, &layouts, typ, count)
+			let args = store.OperandsOf(*s, typ)
+			for inc in role.Includes {
+				let parent = store.TSubst(s, inc, args)
+				match RoleAt(*s, roles, deps, parent) {
+				case Some{Value: included}:
+					if included.Self == 2 {
+						appendLayout(*s, &layouts, parent, count)
+					}
+				case None:
+				}
+			}
+		}
+	case None:
+	}
+	layouts
+}
+
+// LocalClaimLayouts publishes the stable positions of the module's
+// claims at their declarations, before any application has arguments.
+func LocalClaimLayouts(s mut store.Store, e Env, roles []Role) [][]store.ClaimLayout {
+	let mut out = [][]store.ClaimLayout{}
+	for i in 0..store.NumDecls(*s) {
+		let d = store.DeclOf(*s, store.DeclAt(*s, i))
+		let mut layouts = []store.ClaimLayout{}
+		if store.KindName(int(d.Kind)) == "type" && int(d.File) < len(e.files) {
+			let p = e.files[int(d.File)]
+			match dense.Unpack(parentDecl(p, int(d.Node))) {
+			case Some{Value: node}:
+				let td = syntax.TypeDeclOf(p.Tree, node)
+				let params = roleNames(Brackets(p, td.TypeParams))
+				let env = Env{..e, p: p, params: params}
+				for j in 0..syntax.Len(td.Implements) {
+					let typ = Resolve(s, env, syntax.Item(p.Tree, td.Implements, j))
+					layouts = layouts.Concat(LayoutsOf(s, roles, e.deps, e.foreign, typ, len(params)))
+				}
+			case None:
+			}
+		}
+		out = out.Append(layouts)
+	}
+	out
+}
+
+// ImportClaimLayouts rebases the two declaration references that name a
+// layout; it never reads the arguments of a concrete claimant.
+func ImportClaimLayouts(s mut store.Store, deps []Iface) {
+	for i, d in deps {
+		for j, claims in d.Claims {
+			let claimant = store.XRef{Import: uint32(i + 1), Decl: uint32(j)}
+			for lay in claims {
+				let id = if lay.Op.Import == uint32(0) {
+					DeclIdentity{Path: d.Path, Name: d.Decls[int(lay.Op.Decl)].Name}
+				} else {
+					match roleRef(d.Refs, lay.Op) {
+					case Some{Value: ref}:
+						ref
+					case None:
+						continue
+					}
+				}
+				let o = if id.Path == store.PathOf(*s) {
+					match store.Lookup(*s, id.Name) {
+					case Some{Value: local}:
+						Some{Value: store.XRef{Import: uint32(0), Decl: uint32(dense.Index(local))}}
+					case None:
+						None
+					}
+				} else {
+					ImportRef(*s, deps, id.Path, id.Name)
+				}
+				match o {
+				case Some{Value: role}:
+					store.AddClaimLayout(s, claimant, store.ClaimLayout{Op: role, Positions: lay.Positions})
+				case None:
+				}
+			}
+		}
+	}
+}
+
+// RoleRef relocates one non-local declaration a template names. An
+// interface keeps only these references, not recursively copied imports.
+type RoleRef { Ref store.XRef, Decl DeclIdentity }
+
+func roleRef(refs []RoleRef, ref store.XRef) Option[DeclIdentity] {
+	for r in refs {
+		if r.Ref == ref {
+			return Some{Value: r.Decl}
+		}
+	}
+	None
+}
+
+func addRoleRef(out mut []RoleRef, deps []Iface, ref store.XRef) {
+	match roleRef(*out, ref) {
+	case Some:
+		return
+	case None:
+		match DepIdentity(deps, ref) {
+		case Some{Value: id}:
+			*out = (*out).Append(RoleRef{Ref: ref, Decl: id})
+		case None:
+		}
+	}
+}
+
+func roleTypeRefs(s store.Store, out mut []RoleRef, deps []Iface, t dense.ID[store.TKey]) {
+	if store.KindOfType(s, t) == store.KInstance {
+		addRoleRef(out, deps, store.OriginOfType(s, t))
+	}
+	for o in store.OperandsOf(s, t) {
+		roleTypeRefs(s, out, deps, o)
+	}
+}
+
+func RoleRefs(s store.Store, deps []Iface, roles []Role, claims [][]store.ClaimLayout) []RoleRef {
+	let mut out = []RoleRef{}
+	for role in roles {
+		for inc in role.Includes {
+			roleTypeRefs(s, &out, deps, inc)
+		}
+		for m in role.Members {
+			roleTypeRefs(s, &out, deps, m.Sig)
+		}
+	}
+	for row in claims {
+		for lay in row {
+			addRoleRef(&out, deps, lay.Op)
+		}
+	}
+	out
+}

@@ -59,7 +59,7 @@ test Wd {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !strings.Contains(string(body), `"TestFolderOpen"`) {
+			if !strings.Contains(string(body), `"OpenTestDirectory"`) {
 				t.Fatalf("the test's with of a context that needs TestAmbient does not open the case's folder:\n%s", body)
 			}
 			return

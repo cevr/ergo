@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -42,8 +43,10 @@ import (
 // check/expr left untyped, or a form or a decider it has not ported (the
 // S4c plan's slices). The reach is logged by cause, never pinned: it
 // grows as compiler/check types more and compiler/lower ports more, with
-// no change here. A function built where the Go builder wrote no IR body
-// (it left the body to the emitter: a gate compiler/lower lacks) fails:
+// no change here. Every emission is still compared, but equal reach
+// counts distinct Go identities (source position and split-normalized
+// name), not repeated emissions. A function built where the Go builder
+// wrote no IR body (it left the body to the emitter) fails:
 // the Ergo builder builds only what the Go builder builds. A Go function
 // is named per declaration and package (NAME-LOCAL, lower's pkgnames.go):
 // bare in a build's root package, alias__name in any other, so irdump is
@@ -58,6 +61,8 @@ import (
 // Mutants it alone catches: testdata/mutants.json, rows lower-*.
 func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	needsBuild(t)
+	witnesses := readIRWitnesses(t)
+	required := len(witnesses)
 	ctx, cancel := testwait.Context(t, context.Background())
 	defer cancel()
 	bin := filepath.Join(t.TempDir(), "irdump")
@@ -103,7 +108,8 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	writeLines(t, rf, roots)
 
 	reach := map[string]int{}
-	built, failed := 0, 0
+	equal := map[irIdentity]struct{}{}
+	equalEvents, differEvents := 0, 0
 	var files []string
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-corpus", m) {
 		kind, rest, _ := strings.Cut(l, " ")
@@ -141,8 +147,8 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 				continue
 			}
 			if cause != "" {
-				failed++
-				if failed <= 10 {
+				differEvents++
+				if differEvents <= 10 {
 					t.Errorf("%s:%s %s: compiler/lower builds a body where the Go builder writes none (%s; Go names there: %s)\n ergo: %s", rel(f[0]), f[1], fn.Name, cause, goFuncs.names(key), got)
 				}
 				continue
@@ -151,8 +157,8 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			// forms differ by program) agrees with one of them.
 			i := slices.IndexFunc(wants, func(w irGoFunc) bool { return bytes.Equal(got, w.data) })
 			if i < 0 {
-				failed++
-				if failed <= 10 {
+				differEvents++
+				if differEvents <= 10 {
 					t.Errorf("%s:%s %s: compiler/lower builds another IR body\n ergo: %s\n   go: %s", rel(f[0]), f[1], fn.Name, got, wants[0].data)
 				}
 				continue
@@ -163,8 +169,9 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			if len(wants) > 1 {
 				reach["built, one of the Go bodies the programs differ in"]++
 			}
-			built++
-			reach["built, equal"]++
+			equal[irIdentity{key, wants[i].name}] = struct{}{}
+			equalEvents++
+			delete(witnesses, irWitnessSite{filepath.Clean(f[0]), f[1], wants[i].name})
 		}
 	}
 	var lines []string
@@ -172,10 +179,83 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		lines = append(lines, fmt.Sprintf("%7d %s", n, cause))
 	}
 	sort.Strings(lines)
-	t.Logf("compiler/lower built %d functions equal to the Go builder's; %d differ:\n%s", built, failed, strings.Join(lines, "\n"))
-	if failed > 0 {
-		t.Fatalf("%d functions differ", failed)
+	t.Logf("compiler/lower built %d distinct functions equal to the Go builder's (%d equal comparison events); %d comparison events differ:\n%s", len(equal), equalEvents, differEvents, strings.Join(lines, "\n"))
+	t.Logf("Go comparison corpus: %d distinct IR function identities (source position and split-normalized name)", goFuncs.functionCount())
+	t.Logf("IR witnesses: %d/%d reached matching bodies", required-len(witnesses), required)
+	var missing []string
+	for k, group := range witnesses {
+		missing = append(missing, fmt.Sprintf("%s: %s:%s %s did not reach a matching IR body", group, rel(k.path), k.offset, k.symbol))
 	}
+	slices.Sort(missing)
+	for _, msg := range missing {
+		t.Error(msg)
+	}
+	if differEvents > 0 {
+		t.Fatalf("%d comparison events differ", differEvents)
+	}
+}
+
+// irWitnessSite uses irdump's declaration byte offset, not the function
+// body's position, so a generated symbol can be tied to its declaration.
+type irWitnessSite struct{ path, offset, symbol string }
+
+// readIRWitnesses loads one JSON file per group. A declaration is the
+// exact prefix of a unique source line, ignoring indentation. It stays
+// stable when unrelated lines move and resolves to irdump's byte offset.
+func readIRWitnesses(t *testing.T) map[irWitnessSite]string {
+	t.Helper()
+	dir := filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata")
+	groups, err := filepath.Glob(filepath.Join(dir, "ir-witnesses", "*.json"))
+	if err != nil || len(groups) == 0 {
+		t.Fatalf("IR witness registry: expected group files, got %v (%v)", groups, err)
+	}
+	witnesses := map[irWitnessSite]string{}
+	for _, path := range groups {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		group := filepath.Base(path)
+		var rows []struct {
+			Fixture     string `json:"fixture"`
+			Declaration string `json:"declaration"`
+			Symbol      string `json:"symbol"`
+		}
+		if err := json.Unmarshal(data, &rows); err != nil || len(rows) == 0 {
+			t.Fatalf("%s: expected an array of IR witnesses (%v)", group, err)
+		}
+		for _, row := range rows {
+			file, err := filepath.Localize(row.Fixture)
+			if err != nil || filepath.Ext(file) != ".ergo" || row.Symbol == "" || row.Declaration == "" || row.Declaration != strings.TrimSpace(row.Declaration) || strings.ContainsAny(row.Declaration, "\r\n") {
+				t.Fatalf("%s: invalid IR witness: %+v", group, row)
+			}
+			file = filepath.Join(dir, "bind", file)
+			src, err := os.ReadFile(file)
+			if err != nil {
+				t.Fatalf("%s: %v", group, err)
+			}
+			at, start := -1, 0
+			for line := range strings.SplitSeq(string(src), "\n") {
+				decl := strings.TrimLeft(line, " \t")
+				if strings.HasPrefix(decl, row.Declaration) {
+					if at >= 0 {
+						t.Fatalf("%s: %s: declaration prefix %q matches more than one line", group, rel(file), row.Declaration)
+					}
+					at = start + len(line) - len(decl)
+				}
+				start += len(line) + 1
+			}
+			if at < 0 {
+				t.Fatalf("%s: %s: declaration prefix %q not found", group, rel(file), row.Declaration)
+			}
+			k := irWitnessSite{file, strconv.Itoa(at), row.Symbol}
+			if existing, ok := witnesses[k]; ok {
+				t.Fatalf("%s: duplicate witness %s:%d %s (already in %s)", group, rel(file), at, row.Symbol, existing)
+			}
+			witnesses[k] = group
+		}
+	}
+	return witnesses
 }
 
 // irPathIDs gives each source path one id, the file index both sides'
@@ -192,6 +272,11 @@ func (p irPathIDs) id(path string) int {
 
 type irKey struct{ file, line, col int }
 
+type irIdentity struct {
+	at   irKey
+	name string
+}
+
 // irGoFunc is one Go function: its name unexported (irSplitName), its
 // name in the program, and its text under the unexported names.
 type irGoFunc struct {
@@ -202,6 +287,23 @@ type irGoFunc struct {
 // irGoIndex is the Go builder's functions by declaration position, each
 // the distinct texts written there across the programs.
 type irGoIndex map[irKey][]irGoFunc
+
+func (x irGoIndex) functionCount() int {
+	n := 0
+	names := map[string]struct{}{}
+	for _, fs := range x {
+		if len(fs) == 1 {
+			n++
+			continue
+		}
+		clear(names)
+		for _, f := range fs {
+			names[f.name] = struct{}{}
+		}
+		n += len(names)
+	}
+	return n
+}
 
 // irProgramName is the Go builder's names that are program-wide rather
 // than the function's: the split's export of a name two Go packages use

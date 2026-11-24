@@ -180,10 +180,19 @@ func (l *lowerer) declareName(d syntax.Decl) {
 			if w, ok := l.info.Defs[d.Name].(*check.Context); ok {
 				// One builder for each distinct set of providers a with of
 				// this context acquires, in the withs' source order.
-				for _, with := range l.withsOf(w) {
-					l.pkgName(pkgKey{"context", l.acquiredSet(with)}, "build"+w.Name)
-				}
+				l.nameContextBuilders(w)
 			}
+		}
+	}
+}
+
+func (l *lowerer) nameContextBuilders(w *check.Context) {
+	for _, with := range l.withsOf(w) {
+		l.pkgName(pkgKey{"context", l.contextBuildKey(with, false)}, "build"+w.Name)
+	}
+	for _, lc := range l.lawContexts() {
+		if lc.Context == w && lc.Claim != nil {
+			l.pkgName(pkgKey{"context", l.contextBuildKey(lc.With, true)}, "build"+w.Name)
 		}
 	}
 }
@@ -610,7 +619,7 @@ func (l *lowerer) emitType(td *typeDecl) {
 			l.errorMethod(b, td)
 		}
 	case kindOps:
-		if it, ok := td.named.Underlying().(*check.Interface); ok && it.Generic {
+		if check.ConstraintOnly(td.named) {
 			// A constraint only by a generic operation has no Go type:
 			// its functions are copies, which call providers directly
 			// (types.md, Interface assignability 8).
@@ -1190,6 +1199,18 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
+		if copiesOnly(f) {
+			fc.readCopy = check.CopyReader(f.Pkg, sp.bound)
+			saved := l.info
+			facts, why := check.CopyInfo(saved, f.Decl, fc.readCopy)
+			if why != "" {
+				ice(site, "%s", why)
+			}
+			oldFacts, oldPkg := l.copyFacts, l.copyPkg
+			l.copyFacts, l.copyPkg = facts, f.Pkg
+			l.info = facts
+			defer func() { l.info, l.copyFacts, l.copyPkg = saved, oldFacts, oldPkg }()
+		}
 		head.WriteString("func " + sp.name + "(")
 	} else {
 		list, tps := l.typeParams(own, scope, site)

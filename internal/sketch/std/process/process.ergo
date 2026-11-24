@@ -46,8 +46,10 @@ type Exit = OverTime | Crashed
 func Run[A, E, R](l Limits, f own func() A fails E needs R) A fails E | OverTime | Crashed needs R | Scheduler {
 	let t = task.Go() { try f() }
 	let exit = if l.Time > 0ns {
-		let limit = task.StopAfter(t, l.Time)
-		task.ExitOf(t)
+		let alarm = task.StopAfter(t, l.Time)
+		let observed = task.ExitOf(t)
+		alarm.Close()
+		observed
 	} else {
 		task.ExitOf(t)
 	}

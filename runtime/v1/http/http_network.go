@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math/rand/v2"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"os"
@@ -16,6 +17,7 @@ import (
 
 	"ergo.local/prototype/runtime/rt"
 	v1 "ergo.local/prototype/runtime/v1"
+	v1net "ergo.local/prototype/runtime/v1/net"
 )
 
 // HTTPSinkFailed is http.SinkFailed: a sink that refused a part of a body.
@@ -128,6 +130,10 @@ func HTTPIntoFile(t *rt.Task, root *v1.HostRoot, name string, fetch func(*rt.Tas
 type HTTPOriginRefused struct{ Origin string }
 
 func (e HTTPOriginRefused) Error() string { return "http.OriginRefused: " + e.Origin }
+
+type HTTPDenied struct{ Origin string }
+
+func (e HTTPDenied) Error() string { return "http.Denied: " + e.Origin }
 
 type HTTPRedirectLimit struct {
 	URL   string
@@ -412,8 +418,20 @@ func originAllowed(origin string, origins []string, anyOrigin bool) bool {
 //ergo:host
 //ergo:wait caller
 func HTTPFetch(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
+	return HTTPFetchRemote(t, origins, anyOrigin, false, limits, hops, method, rawURL, header, owners, credentials, body)
+}
+
+// HTTPFetchRemote shares policy and redirects between live and confined clients.
+//
+//ergo:host
+//ergo:wait caller
+func HTTPFetchRemote(t *rt.Task, origins []string, anyOrigin, loopback bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string) (HTTPResponse, error) {
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
-		return httpDoURL(t, u, limits, method, fields, body)
+		tr, err := httpRemoteTransport(u, limits.MaxHeaderBytes, loopback)
+		if err != nil {
+			return HTTPResponse{}, err
+		}
+		return httpDoVia(t, tr, nil, u, limits, method, fields, body)
 	})
 }
 
@@ -428,10 +446,34 @@ func HTTPFetch(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, 
 //ergo:host
 //ergo:wait caller
 func HTTPFetchInto(t *rt.Task, origins []string, anyOrigin bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
+	return HTTPFetchRemoteInto(t, origins, anyOrigin, false, limits, hops, method, rawURL, header, owners, credentials, body, accepts, put)
+}
+
+// HTTPFetchRemoteInto applies the same destination check before each exchange.
+//
+//ergo:host
+//ergo:wait caller
+func HTTPFetchRemoteInto(t *rt.Task, origins []string, anyOrigin, loopback bool, limits HTTPLimits, hops int, method, rawURL string, header []HTTPField, owners []string, credentials []HTTPField, body string, accepts func(int) bool, put func(*rt.Task, string) error) (HTTPResponse, error) {
 	follow := func(r HTTPResponse) bool { return hops != -1 && httpLocation(r) != "" }
 	return httpFetch(t, origins, anyOrigin, hops, method, rawURL, header, owners, credentials, body, func(u *url.URL, method string, fields []HTTPField, body string) (HTTPResponse, error) {
-		return httpStreamURL(t, u, limits, method, fields, body, follow, accepts, put)
+		tr, err := httpRemoteTransport(u, limits.MaxHeaderBytes, loopback)
+		if err != nil {
+			return HTTPResponse{}, err
+		}
+		return httpStreamVia(t, tr, nil, u, limits, method, fields, body, follow, accepts, put)
 	})
+}
+
+// httpRemoteTransport admits a confined destination before creating any
+// request or starting DNS, and again in the transport's dial hook.
+func httpRemoteTransport(u *url.URL, maxHeader int, loopback bool) (*http.Transport, error) {
+	if !loopback {
+		return httpTransportFor(maxHeader), nil
+	}
+	if !v1net.LiteralLoopback(u.Hostname()) {
+		return nil, HTTPDenied{Origin: (&url.URL{Scheme: u.Scheme, Host: u.Host}).String()}
+	}
+	return httpLoopbackTransportFor(maxHeader), nil
 }
 
 // httpLocation is the Location of a redirect response, or "" when r is not

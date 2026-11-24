@@ -285,8 +285,11 @@ func (c *checker) planMachineLaw(law *Law) {
 // q234), as a function's are declared (funcSig): each is a type, never a
 // row, since a rewrite's function parameters fail nothing and need
 // nothing (funcrewrite.go, rule 4).
-func (c *checker) lawTypeParams(list *syntax.FieldList) []*TypeParam {
+func (c *checker) lawTypeParams(list *syntax.FieldList, owner ...*TypeParam) []*TypeParam {
 	ctx := &typeCtx{params: map[string]*TypeParam{}}
+	for _, p := range owner {
+		ctx.params[p.Name] = p
+	}
 	var out []*TypeParam
 	type pending struct {
 		tp *TypeParam
@@ -319,7 +322,7 @@ func (l *Law) typeParams() []*TypeParam {
 		return l.TParams
 	}
 	if n, ok := l.Owner.Type.(*Named); ok {
-		return n.TParams
+		return slices.Concat(n.TParams, l.TParams)
 	}
 	return nil
 }
@@ -333,7 +336,7 @@ func (l *Law) capability() *Named {
 		return nil
 	}
 	n, ok := l.Owner.Type.(*Named)
-	if !ok || len(n.TParams) > 0 {
+	if !ok || len(n.TParams) > 0 || copiesOnly(n) {
 		return nil
 	}
 	if _, isOps := n.Underlying().(*Interface); !isOps {
@@ -358,7 +361,7 @@ func (c *checker) planLaws() {
 	c.cur = saved
 	c.pkg.LawRuns = c.lawRuns()
 	for _, r := range c.pkg.LawRuns {
-		if r.Law.Decl.Rewrite == nil {
+		if r.Law.Decl.Rewrite == nil || r.Law.Claimed() {
 			continue
 		}
 		// A rewrite law runs each side on a fresh provider (Laws 14): its
@@ -400,6 +403,14 @@ func (c *checker) pairUngeneratable(t Type) string {
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
 func (c *checker) planLaw(law *Law) {
+	if law.Claimed() {
+		law.Slots = []LawSlot{{Param: -1, Type: law.Owner.Type.(*Named)}}
+		return // Its parameter generators are checked after reading the claim.
+	}
+	if law.Owner != nil && len(law.TParams) != 0 {
+		law.Unrun = "a member law's own parameters need a constraint-only claim"
+		return
+	}
 	if len(law.TParams) > 0 {
 		// A rewrite over functions (owner q234): the property run has no
 		// instantiation and no generator of functions; ergo test's licence
@@ -565,6 +576,13 @@ func (c *checker) lawRuns() []LawRun {
 	for _, q := range pkgs {
 		for _, law := range q.Laws {
 			own := q == c.pkg
+			if law.Claimed() {
+				run := LawRun{Law: law, Bindings: c.claimBindings(law)}
+				if own || len(run.Bindings) > 0 {
+					runs = append(runs, run)
+				}
+				continue
+			}
 			if law.Unrun != "" || len(law.Slots) == 0 {
 				if own {
 					run := LawRun{Law: law}
@@ -784,10 +802,12 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: held.foreign}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
-	} else if ctor := c.nativeConstructor(p, held.foreign); ctor != nil {
+	} else if ctor := c.nativeConstructor(p); ctor != nil {
 		lp.Ctor = ctor
+		lp.Native = true
 	} else if why := c.builtOnlyBy(p); why != "" {
 		lp.Unrun = why
+		lp.noGenerator = true
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
 		lp.Unrun = "its values have no generator: " + why
 		lp.noGenerator = true
@@ -802,9 +822,9 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 // ratelimit/memory's New refuses a rule with a negative time; fstest's
 // NewFolder makes files and writes from one host). A law run in p's own
 // package sees the private fields, and a value drawn from them may be one
-// no program can hold (INPLACE-REFUTED), so the law is not run, never
-// refuted, until the constructor is one a case can call (planConstructor,
-// nativeConstructor).
+// no program can hold (INPLACE-REFUTED). If a case cannot call the
+// constructor (planConstructor, nativeConstructor), a named context
+// must build the provider, or the binding is unfed.
 func (c *checker) builtOnlyBy(p *Named) string {
 	st, ok := p.Underlying().(*Struct)
 	tn := p.Obj
@@ -843,15 +863,13 @@ func (c *checker) builtOnlyBy(p *Named) string {
 	return ""
 }
 
-// nativeConstructor is the constructor a law case of the test binary
-// calls for p, a provider whose operations call Go (captured, README Gap
-// 17): the function New<P> of p's package that planConstructor would take
-// but for its capability row, which is go.Foreign alone. The case holds
-// go.Foreign (types.md, Laws 10; owner q277); nothing else may treat the
-// function as p's constructor, so tn.ctor stays unset.
-func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
+// nativeConstructor is the constructor a law case of the test binary can
+// call even if the operations themselves do not call Go: the New<P>
+// that planConstructor would take but for its go.Foreign row. Only the
+// harness holds that authority for this build (types.md, Laws 10).
+func (c *checker) nativeConstructor(p *Named) *Func {
 	tn := p.Obj
-	if !captured || tn == nil || tn.Pkg == nil || p.Orig != nil || len(p.TArgs) > 0 || len(p.TParams) > 0 {
+	if tn == nil || tn.Pkg == nil || p.Orig != nil || len(p.TArgs) > 0 || len(p.TParams) > 0 {
 		return nil
 	}
 	for _, f := range tn.Pkg.Funcs {
@@ -876,8 +894,8 @@ func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
 }
 
 // reportUnfedProviders reports each law binding whose provider, or whose
-// parameter at the provider's instance, has no generator (LAW-UNFED): a
-// law no case can feed is an error, not a skip (types.md, Laws 10). It
+// parameter at the provider's instance, no case can build (LAW-UNFED):
+// a law no case can feed is an error, not a skip (types.md, Laws 10). It
 // runs after the law contexts, so a provider a named context of this
 // package builds is fed by that context and its binding is gone
 // (builtByContext). The error sits at the provider's implements entry
@@ -890,8 +908,8 @@ func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
 func (c *checker) reportUnfedProviders() {
 	saved := c.cur
 	defer func() { c.cur = saved }()
-	seen := map[[2]any]bool{}
-	drop := map[[2]any]bool{}
+	seen := map[[3]any]bool{}
+	drop := map[[3]any]bool{}
 	for _, r := range c.pkg.LawRuns {
 		for _, b := range r.Bindings {
 			for k := range b {
@@ -901,10 +919,10 @@ func (c *checker) reportUnfedProviders() {
 				}
 				p.noGenerator = false
 				fix := ""
-				if strings.HasPrefix(p.Unrun, "its values") {
+				if !strings.HasPrefix(p.Unrun, "its parameter ") {
 					fix = c.lawProviderFix(r.Law, *p)
 				}
-				key := [2]any{r.Law, p.Type.Obj}
+				key := [3]any{r.Law, p.Type.Obj, p.ClaimSlot}
 				if seen[key] {
 					p.Unrun += fix
 					continue
@@ -921,6 +939,9 @@ func (c *checker) reportUnfedProviders() {
 					// where the law is declared.
 					c.cur = tn.file
 					at, name = implementsEntry(p.Type, p.Slot, tn), tn.Name
+					if p.ClaimExpr != nil {
+						at = p.ClaimExpr
+					}
 					law += ", declared at " + c.lawSite(r.Law) + ","
 				case r.Law.Pkg == c.pkg && r.Law.file != nil:
 					c.cur = r.Law.file
@@ -945,6 +966,11 @@ func (c *checker) reportUnfedProviders() {
 				// skip here, and the module's judgment reports the error
 				// prepared here when no package of the module feeds it.
 				u := unfedBinding{law: r.Law, provider: p.Type}
+				if p.Claim != nil {
+					u.provider = p.At
+					copy := *p
+					u.claim = &copy
+				}
 				u.diag = c.prepared(func() {
 					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.pkg.module)
 				})
@@ -956,7 +982,7 @@ func (c *checker) reportUnfedProviders() {
 	for i := range c.pkg.LawRuns {
 		r := &c.pkg.LawRuns[i]
 		r.Bindings = slices.DeleteFunc(r.Bindings, func(b []LawProvider) bool {
-			return slices.ContainsFunc(b, func(p LawProvider) bool { return p.Type != nil && drop[[2]any{r.Law, p.Type.Obj}] })
+			return slices.ContainsFunc(b, func(p LawProvider) bool { return p.Type != nil && drop[[3]any{r.Law, p.Type.Obj, p.ClaimSlot}] })
 		})
 	}
 	c.prepareUnprovided()
@@ -1112,8 +1138,8 @@ func (c *checker) checkLaw(law *Law) {
 		return
 	}
 	defer c.beginBodyCheck(law)()
-	if law.Owner == nil && d.TypeParams != nil && law.TParams == nil {
-		law.TParams = c.lawTypeParams(d.TypeParams)
+	if d.TypeParams != nil && law.TParams == nil {
+		law.TParams = c.lawTypeParams(d.TypeParams, law.typeParams()...)
 	}
 	tparams := law.typeParams()
 	defer c.monoOwner(tparams)()
@@ -1146,15 +1172,13 @@ func (c *checker) checkLaw(law *Law) {
 	prev := c.fn
 	c.fn = fc
 	defer func() { c.fn = prev }()
-	params := map[string]*TypeParam{}
-	for _, tp := range tparams {
-		params[tp.Name] = tp
-	}
+	ctx := c.localTypeCtx()
+	ctx.param = true
 	if d.Params != nil {
 		// A law's parameters parse as a function's (paramPlain), so each
 		// field has a type: a lone name is one (S104 when no type has it).
 		for _, field := range d.Params.List {
-			typ := writtenParamType(field, c.typExpr(field.Type, &typeCtx{param: true, params: params}))
+			typ := writtenParamType(field, c.typExpr(field.Type, ctx))
 			if len(field.Names) == 0 {
 				law.Params = append(law.Params, &Var{Name: "_", Type: typ, Pos: field.Type.Pos(), param: true, used: true})
 				continue
@@ -1204,7 +1228,9 @@ func (c *checker) checkLaw(law *Law) {
 			law.Ties[i] = nil
 		}
 	}
-	if d.Rewrite != nil {
+	if law.ClaimEquation() {
+		c.checkClaimEquation(law)
+	} else if d.Rewrite != nil {
 		c.rewriteLaw(law, tg)
 	} else {
 		c.lawBody(d.Body)
@@ -1266,6 +1292,10 @@ func (c *checker) lawOpCall(x *syntax.CallExpr) (operand, bool) {
 		return operand{}, false
 	}
 	c.recordUse(id, m)
+	if law := c.fn.law; law != nil && law.Owner != nil && copiesOnly(law.Owner.Type) {
+		c.errorf(id, CodeType, "%s needs a value: write x.%s(…)", m.Name, m.Name)
+		return bad(x), true
+	}
 	fun := operand{mode: modeValue, typ: m.Sig, method: m}
 	// The callee and each parenthesis around it have the operation's type.
 	for e := x.Fun; ; {

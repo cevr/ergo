@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketchfront"
 	"ergo.local/prototype/internal/testwait"
 )
 
@@ -161,8 +162,9 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	}
 	var cases []agreeCase
 	// The corpus, one folder at a time (eachGoPackage), and the folders of
-	// testdata/agree: the smallest programs of gaps found elsewhere, each
-	// a package the Go checker accepts.
+	// testdata/agree: the smallest programs of gaps found elsewhere.
+	// A folder with a .neg.ergo file is checked with its real imports,
+	// unlike the single-file negative fixtures below.
 	dirs := corpusDirs(t)
 	err := filepath.WalkDir(filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "agree"), func(p string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -183,8 +185,33 @@ func TestCompilerCheckAgrees(t *testing.T) {
 		corpus[i] = &agreeCase{name: rel(dirs[i]), path: importPath(dirs[i], pkg), ext: ext, foreign: foreign}
 	})
 	for i, c := range corpus {
+		files := ergoFiles(t, dirs[i])
+		if negativePackage(files) {
+			// A refused package need not produce a checked Go package.
+			// Load it for diagnostics even when eachGoPackage skipped it.
+			a, err := sketchfront.CheckDir(dirs[i])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c == nil {
+				c = &agreeCase{name: rel(dirs[i]), path: sourceImportPath(dirs[i], "main")}
+			}
+			names := make(map[string]bool, len(files))
+			for _, p := range files {
+				names[filepath.Base(p)] = true
+			}
+			for _, d := range a.Diagnostics {
+				name := filepath.Base(d.File)
+				if names[name] {
+					c.want = append(c.want, checkLine{File: name, Line: d.Span.Line, Col: d.Span.Column, Code: d.Code, Message: d.Message})
+				}
+			}
+			if len(c.want) == 0 {
+				t.Fatalf("%s: negative agreement fixture has no Go diagnostic", c.name)
+			}
+		}
 		if c != nil {
-			c.files = ergoFiles(t, dirs[i])
+			c.files = files
 			cases = append(cases, *c)
 		}
 	}
@@ -364,6 +391,15 @@ func TestCompilerCheckAgrees(t *testing.T) {
 	if len(fewer) > 0 {
 		t.Logf("%d sites of the ratchet are gone; regenerate: %s", len(fewer), ratchetCommand)
 	}
+}
+
+func negativePackage(files []string) bool {
+	for _, f := range files {
+		if strings.HasSuffix(f, ".neg.ergo") {
+			return true
+		}
+	}
+	return false
 }
 
 // firstDifference is the first line where a and b differ, with its index.

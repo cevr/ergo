@@ -29,6 +29,7 @@ import (
 type unfedBinding struct {
 	law      *Law
 	provider *Named
+	claim    *LawProvider
 	diag     *Diagnostic
 }
 
@@ -37,6 +38,7 @@ type unfedBinding struct {
 type fedBinding struct {
 	law      *Law
 	provider Type
+	claim    *Named
 }
 
 // StdModule is the module the standard library's packages are in, as the
@@ -91,10 +93,10 @@ func (c *checker) prepared(report func()) *Diagnostic {
 // nothing, so the caller passes its own module's packages and no others.
 // A load of part of a module decides nothing and does not call it.
 func ReportUnfed(pkgs []*Package) map[*Package][]Diagnostic {
-	fed := map[*Law][]Type{}
+	fed := map[*Law][]fedBinding{}
 	for _, p := range pkgs {
 		for _, f := range p.fed {
-			fed[f.law] = append(fed[f.law], f.provider)
+			fed[f.law] = append(fed[f.law], f)
 		}
 	}
 	out := map[*Package][]Diagnostic{}
@@ -120,7 +122,12 @@ func ReportUnfed(pkgs []*Package) map[*Package][]Diagnostic {
 	}
 	for _, p := range pkgs {
 		for _, u := range p.unfed {
-			if u.diag == nil || slices.ContainsFunc(fed[u.law], func(t Type) bool { return sameProvider(t, u.provider) }) {
+			if u.diag == nil || slices.ContainsFunc(fed[u.law], func(f fedBinding) bool {
+				if u.claim != nil && f.claim != u.claim.ClaimSlot || u.claim == nil && f.claim != nil {
+					return false
+				}
+				return u.provider != nil && sameProvider(f.provider, u.provider)
+			}) {
 				continue
 			}
 			out[p] = append(out[p], *u.diag)

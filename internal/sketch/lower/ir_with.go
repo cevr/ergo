@@ -130,6 +130,10 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	if ta := w.Contexts[0].TestAmbient; ta != nil {
 		out = append(out, b.testAmbient(ptr, ta, p, arg)...)
 	}
+	if tl := w.Contexts[0].TestLoopback; tl != nil {
+		value := &irExpr{K: "lit", Pos: p, T: b.l.helper("TestLoopback")}
+		out = append(out, &irStmt{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: b.l.envField(tl), X: &irExpr{K: "local", Pos: p, I: ptr}}, Y: &irExpr{K: "toiface", Pos: p, T: b.goType(tl, arg), X: value}})
+	}
 	if lit {
 		b.l.localContext(w.Contexts[0], arg)
 		out = append(out, b.publish(w, ptr, b.env, arg)...)
@@ -361,7 +365,7 @@ func (b *irBuilder) publish(w *check.With, ptr, outer int, site syntax.Node) []*
 func (b *irBuilder) testAmbient(ptr int, ta *check.Named, p irPos, site syntax.Node) []*irStmt {
 	at := b.l.helper("TestAmbient")
 	amb := b.temp("ambient", at, p)
-	open := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "TestFolderOpen"}
+	open := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "OpenTestDirectory"}
 	return []*irStmt{
 		{K: "def", Pos: p, Local: amb, X: &irExpr{K: "lit", Pos: p, T: at, Keys: []string{"dir"}, Elems: []*irExpr{open}}},
 		{K: "defer", Pos: p, X: &irExpr{K: "mcall", Pos: p, Name: "end", X: &irExpr{K: "local", Pos: p, I: amb}}},

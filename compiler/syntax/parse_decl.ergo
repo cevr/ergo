@@ -1059,11 +1059,10 @@ func parseTestDecl(p mut parser, doc uint32) uint32 {
 func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	let lawTok = want(p, Law)
 	let name = parseIdent(p)
-	// Only a rewrite law over functions takes type parameters (owner
-	// q234): its sides are stated once for every instance a site has.
+	// Member laws and top-level rewrites have their own brackets.
 	let mut tparams = none
 	let tparamPos = pos(p)
-	if top && p.tk == LBrack {
+	if p.tk == LBrack {
 		tparams = some(parseTypeParams(p))
 	}
 	let params = parseParameters(p, true, false)
@@ -1079,7 +1078,7 @@ func parseLawDecl(p mut parser, doc uint32, top bool) uint32 {
 	}
 	let lhs = parseBlock(p)
 	if p.tk != Eql && when == none {
-		if tparams != none {
+		if top && tparams != none {
 			errorAt(p, tparamPos, 1, "only a rewrite law over functions has type parameters, law L[T](x T) { f(g(x)) } == { x }; state a property at concrete types, or as a member of the protocol's operation type")
 		}
 		return mkLawDecl(&p.t, mark(p.t), doc, lawTok, name, tparams, some(params), some(lhs), none, uint32(0), none, none)
