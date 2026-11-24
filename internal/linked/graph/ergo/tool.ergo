@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -145,6 +145,11 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("seams takes no argument; supply --seam JSON")
 		}
 		seams(r, o)
+	case "folder-cycles":
+		if len(words) != 1 {
+			return usage("folder-cycles takes no argument; the modules are --module PATH")
+		}
+		folderCycles(r, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -605,6 +610,29 @@ func seams(r codegraph.Rows, o Options) []string {
 		b = b + "\(v.CallerPkg) imports \(v.TargetPkg)\n"
 	}
 	ok(if len(out) == 0 { "no seam violation\n" } else { b })
+}
+
+type FolderCycleOut {
+	Parent  string,
+	Members []string,
+	Path    []string,
+	Sites   []int,
+}
+
+func folderCycles(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []FolderCycleOut{}
+	for c in codegraph.SiblingFolderCycles(r, modules).Cycles {
+		out = out.Append(FolderCycleOut{Parent: c.Parent, Members: c.Members, Path: c.Path, Sites: c.Sites})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FolderCycleOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for c in out {
+		b = b + "\(c.Parent): " + strings.Join(c.Path, " -> ") + "\n"
+	}
+	ok(if len(out) == 0 { "no sibling folder cycle\n" } else { b })
 }
 
 func interfaces(r codegraph.Rows, o Options) []string {

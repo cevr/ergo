@@ -83,6 +83,9 @@ Commands:
   seams [--seam JSON]... [--module PATH]...
                                   each import entering a configured seam at a
                                   non-entry package
+  folder-cycles [--module PATH]...
+                                  each cycle among sibling folders under a
+                                  common parent in one module
   layers PATTERN...               each import that goes up the layering
                                   PATTERN... names from the top down (a
                                   path, or a prefix ending /...)
@@ -109,13 +112,13 @@ func graphCommand(args []string) error {
 		}
 	}
 	if len(args) == 0 {
-		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, layers"))
+		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, layers"))
 	}
 	if args[0] == "export" {
 		return graphExport(dir, args[1:])
 	}
 	switch args[0] {
-	case "cycles", "why", "affected", "hidden", "chains", "fan", "interfaces", "files", "directories", "field-writes", "test-support", "seams", "layers":
+	case "cycles", "why", "affected", "hidden", "chains", "fan", "interfaces", "files", "directories", "field-writes", "test-support", "seams", "folder-cycles", "layers":
 	default:
 		return invalidInvocation(fmt.Errorf("ergo graph: unknown command %s", args[0]))
 	}

@@ -1,0 +1,184 @@
+import graph
+import maps
+import slices
+import strings
+
+type FolderCycle {
+	Module  int,
+	Parent  string,
+	Members []string,
+	Path    []string,
+	Sites   []int,
+}
+
+type FolderCycles { Cycles []FolderCycle, Work int }
+
+func folderParts(path string) []string {
+	let raw = strings.Split(path, "/")
+	let mut parts = []string{}
+	for p in raw {
+		if p != "" && p != "." {
+			parts = parts.Append(p)
+		}
+	}
+	if len(parts) <= 1 {
+		return []string{}
+	}
+	parts[0 : len(parts)-1]
+}
+
+func folderChild(parts []string, common int) string { parts[common] }
+
+type folderEdge { From string, To string, Site int }
+
+func SiblingFolderCycles(r Rows, modules []int) FolderCycles {
+	let mut work = 0
+	let mut chosen = Map[int, bool]{}
+	for m in modules {
+		chosen[m] = true
+	}
+	let mut places = []place{}
+	let mut modOf = []int{}
+	let mut fileFolders = Map[int, []string]{}
+	for i, row in r.Nodes {
+		work = work + 1
+		let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+		let mut mid = -1
+		if row.Kind == "module" {
+			mid = i
+		} else if row.Parent >= 0 {
+			if row.Parent < i {
+				at = places[row.Parent]
+				mid = modOf[row.Parent]
+			} else {
+				at = placeOf(r, row.Parent, chosen)
+				let mut p = row.Parent
+				let mut steps = 0
+				for p >= 0 && steps <= len(r.Nodes) {
+					if r.Nodes[p].Kind == "module" {
+						mid = p
+						break
+					}
+					p = r.Nodes[p].Parent
+					steps = steps + 1
+				}
+			}
+		}
+		let here = placed(r, i, at, chosen)
+		places = places.Append(here)
+		modOf = modOf.Append(mid)
+		if row.Kind == "file" && here.InScope {
+			fileFolders[i] = folderParts(row.Name)
+		}
+	}
+	let mut groupKeys = []string{}
+	let mut groupMod = Map[string, int]{}
+	let mut groupParent = Map[string, string]{}
+	let mut groupEdges = Map[string, []folderEdge]{}
+	let mut edgeSeen = Map[string, int]{}
+	for k, e in r.Edges {
+		work = work + 1
+		if e.Kind != "uses" || !places[e.From].Ordinary || !places[e.To].Ordinary {
+			continue
+		}
+		let a = places[e.From]
+		let b = places[e.To]
+		if !a.InScope || !b.InScope || modOf[e.From] != modOf[e.To] || a.Package < 0 || b.Package < 0 || a.Package == b.Package || a.File < 0 || b.File < 0 {
+			continue
+		}
+		let ad = maps.GetOr(fileFolders, a.File, []string{})
+		let bd = maps.GetOr(fileFolders, b.File, []string{})
+		let lim = if len(ad) < len(bd) { len(ad) } else { len(bd) }
+		let mut common = 0
+		for common < lim && ad[common] == bd[common] {
+			common = common + 1
+			work = work + 1
+		}
+		if common >= lim {
+			continue
+		}
+		let parent = if common == 0 { "." } else { strings.Join(ad[0:common], "/") }
+		let ca = folderChild(ad, common)
+		let cb = folderChild(bd, common)
+		if ca == cb {
+			continue
+		}
+		let gKey = "\(modOf[e.From])\n\(parent)"
+		let eKey = "\(gKey)\n\(ca)\n\(cb)"
+		if edgeSeen.Get(eKey) == None {
+			edgeSeen[eKey] = k
+			if groupMod.Get(gKey) == None {
+				groupKeys = groupKeys.Append(gKey)
+				groupMod[gKey] = modOf[e.From]
+				groupParent[gKey] = parent
+			}
+			groupEdges[gKey] = maps.GetOr(groupEdges, gKey, []folderEdge{}).Append(folderEdge{From: ca, To: cb, Site: k})
+		}
+	}
+	let mut out = []FolderCycle{}
+	for gKey in slices.Sort(groupKeys) {
+		let es = maps.GetOr(groupEdges, gKey, []folderEdge{})
+		let mut childSet = Map[string, bool]{}
+		let mut children = []string{}
+		for fe in es {
+			if childSet.Get(fe.From) == None {
+				childSet[fe.From] = true
+				children = children.Append(fe.From)
+			}
+			if childSet.Get(fe.To) == None {
+				childSet[fe.To] = true
+				children = children.Append(fe.To)
+			}
+		}
+		let sortedChildren = slices.Sort(children)
+		let mut idOf = Map[string, int]{}
+		for idx, name in sortedChildren {
+			idOf[name] = idx
+		}
+		let mut gEdges = []graph.Edge{}
+		for fe in es {
+			work = work + 1
+			gEdges = gEdges.Append(graph.Edge{From: maps.GetOr(idOf, fe.From, -1), To: maps.GetOr(idOf, fe.To, -1)})
+		}
+		let g = graph.Of(len(sortedChildren), gEdges)
+		for c in graph.Cycles(g) {
+			if len(c.Nodes) < 2 {
+				continue
+			}
+			let mut members = []string{}
+			for n in c.Nodes {
+				members = members.Append(sortedChildren[n])
+			}
+			let mut path = []string{}
+			for n in c.Path {
+				path = path.Append(sortedChildren[n])
+			}
+			let mut sites = []int{}
+			for j in 1..len(path) {
+				let eKey = "\(gKey)\n\(path[j-1])\n\(path[j])"
+				sites = sites.Append(maps.GetOr(edgeSeen, eKey, -1))
+			}
+			out = out.Append(FolderCycle{
+				Module:  maps.GetOr(groupMod, gKey, -1),
+				Parent:  maps.GetOr(groupParent, gKey, "."),
+				Members: members,
+				Path:    path,
+				Sites:   sites,
+			})
+		}
+	}
+	FolderCycles{Cycles: out, Work: work}
+}
+
+law SiblingFolderCyclesWorkIsLinear(seed int, size int) { siblingFolderCyclesWorkIsLinear(seed, size) }
+
+func siblingFolderCyclesWorkIsLinear(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let got = SiblingFolderCycles(r, []int{0})
+	for c in got.Cycles {
+		if len(c.Members) < 2 || len(c.Path) != len(c.Sites)+1 || c.Path[0] != c.Path[len(c.Path)-1] {
+			return false
+		}
+	}
+	got.Work <= 8*(len(r.Nodes)+len(r.Edges))+4
+}
