@@ -21,6 +21,16 @@ func dayNanos() int64 { 86400000000000 }
 // Midnight is 00:00, the first TimeOfDay.
 func Midnight() TimeOfDay { TimeOfDay{ns: 0} }
 
+type ClockHour int where 0 <= it && it <= 23
+
+type ClockMinute int where 0 <= it && it <= 59
+
+func At(hour ClockHour, minute ClockMinute) TimeOfDay {
+	TimeOfDay{ns: (int64(int(hour))*60 + int64(int(minute))) * 60000000000}
+}
+
+func TruncateMinute(t TimeOfDay) TimeOfDay { TimeOfDay{ns: (t.ns / 60000000000) * 60000000000} }
+
 // NewTimeOfDay is hour:minute:second.nanosecond, or NoSuchTime when the
 // hour is not 0 to 23, the minute or second not 0 to 59, or the
 // nanosecond not 0 to 999,999,999.
@@ -112,7 +122,7 @@ func Parts(d duration) DurationParts {
 law PartsAddUp(d duration) {
 	let p = Parts(d)
 	let n = int64(d)
-	let sum = int64(p.Days) * 86400000000000 + int64(p.Hours) * 3600000000000 + int64(p.Minutes) * 60000000000 + int64(p.Seconds) * 1000000000 + int64(p.Nanoseconds)
+	let sum = int64(p.Days)*86400000000000 + int64(p.Hours)*3600000000000 + int64(p.Minutes)*60000000000 + int64(p.Seconds)*1000000000 + int64(p.Nanoseconds)
 	let small = p.Hours > -24 && p.Hours < 24 && p.Minutes > -60 && p.Minutes < 60 && p.Seconds > -60 && p.Seconds < 60 && p.Nanoseconds > -1000000000 && p.Nanoseconds < 1000000000
 	let signed = if n < 0 { p.Days <= 0 && p.Hours <= 0 && p.Minutes <= 0 && p.Seconds <= 0 && p.Nanoseconds <= 0 } else { p.Days >= 0 && p.Hours >= 0 && p.Minutes >= 0 && p.Seconds >= 0 && p.Nanoseconds >= 0 }
 	sum == n && small && signed

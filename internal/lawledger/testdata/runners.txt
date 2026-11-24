@@ -100,6 +100,8 @@ civil AppendIsFormat	TestStdCivilLawsRun
 civil ArithmeticSaturates	TestStdCivilLawsRun
 civil BetweenInvertsAdd	TestStdCivilLawsRun
 civil CivilAgreesWithCalendar	TestStdCivilLawsRun
+civil ClockHourWhere	none
+civil ClockMinuteWhere	none
 civil CompareIsTotalOrder	TestStdCivilLawsRun
 civil DateRoundTrips	TestStdCivilLawsRun
 civil DistanceDatesCountsDates	TestStdCivilLawsRun

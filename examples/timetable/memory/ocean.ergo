@@ -22,18 +22,10 @@ func NewTimetable() Timetable {
 			timetable.Stop{Name: "Montreal", Zone: "America/Toronto", After: 20h + 30m},
 		}},
 		services: []timetable.Service{
-			timetable.Service{Number: "14", Leaves: at(13, 0), Days: []time.Weekday{time.Wednesday, time.Friday, time.Sunday}},
-			timetable.Service{Number: "16", Leaves: at(2, 30), Days: []time.Weekday{time.Sunday}},
-			timetable.Service{Number: "18", Leaves: at(1, 30), Days: []time.Weekday{time.Sunday}},
+			timetable.Service{Number: "14", Leaves: civil.At(13, 0), Days: []time.Weekday{time.Wednesday, time.Friday, time.Sunday}},
+			timetable.Service{Number: "16", Leaves: civil.At(2, 30), Days: []time.Weekday{time.Sunday}},
+			timetable.Service{Number: "18", Leaves: civil.At(1, 30), Days: []time.Weekday{time.Sunday}},
 		},
-	}
-}
-
-// at is the time of day hour:minute.
-func at(hour int, minute int) civil.TimeOfDay {
-	civil.NewTimeOfDay(hour, minute, 0, 0) catch {
-	case civil.NoSuchTime:
-		Unreachable("the timetable's times are times of day")
 	}
 }
 
