@@ -176,8 +176,19 @@ law CapturesAgree(seed int, text string) {
 		return false
 	}
 	let c = NewCapturing(p)
-	let w = syntax.Witness(tree, seed)
-	let texts = []string{w, syntax.Witness(tree, seed+1), text, "", syntax.SampleText(seed), "b" + w + "a", w + w, w}
+	let w = match syntax.Witness(tree, seed) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return false
+	}
+	let w2 = match syntax.Witness(tree, seed+1) {
+	case Some[string] as s:
+		s.Value
+	case None:
+		return false
+	}
+	let texts = []string{w, w2, text, "", syntax.SampleText(seed), "b" + w + "a", w + w, w}
 	for t in texts {
 		let description = "source=\(syntax.Print(tree)) text=\(t) "
 		let got = syntax.ShowParse(c.ParseCaptures(t))
@@ -241,7 +252,13 @@ law TagWorkIsBounded(seed int) {
 		}
 		let c = NewCapturing(p)
 		let size = c.program.Len()
-		for t in []string{strings.Repeat("a", n), syntax.Witness(tree, seed)} {
+		let w = match syntax.Witness(tree, seed) {
+		case Some[string] as s:
+			s.Value
+		case None:
+			return false
+		}
+		for t in []string{strings.Repeat("a", n), w} {
 			let work = c.MeasureCaptures(t)
 			let description = "source=\(syntax.Print(tree)) text=\(t) size=\(size) "
 			assert description+"steps=\(work.Steps <= len(t)*size)" == description+"steps=true"
