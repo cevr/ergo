@@ -57,7 +57,7 @@ func TestSiblingFolderCycleAgreesWithReference(t *testing.T) {
 			"b/p/p.ergo":        bp,
 			"sub/leaf/l.ergo":   "func L() int { 4 }\n",
 			"sub/top.ergo":      "import app/sub/leaf\n\nfunc T() int { leaf.L() }\n",
-			"cmd/app/main.ergo": "import ap app/a/p\nimport bp app/b/p\nimport app/sub\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(ap.P() + bp.P() + sub.T())\")\n}\n",
+			"cmd/app/main.ergo": "import app/a/p\nimport bp app/b/p\nimport app/sub\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(p.P() + bp.P() + sub.T())\")\n}\n",
 		}
 		for name, text := range files {
 			path := filepath.Join(dir, filepath.FromSlash(name))

@@ -62,12 +62,12 @@ func TestDeclarationTangleAgreesWithReference(t *testing.T) {
 			"law BoxLaw(n int) { Box{V: n}.V == n }",
 		}, "\n") + "\n"
 
-		// Package `parse`: optional cross-file mutual recursion (via a re-exporting let alias)
+		// Package `parse`: optional cross-file mutual recursion
 		// and optional same-file 3-member mutual recursion.
 		parseA := "func Start(n int) int { n }\n"
 		parseB := "func Helper(n int) int { n + 1 }\n"
 		if splitCycle {
-			parseA = "let nextStep = Node\n\nfunc Parse(n int) int {\n\tif n <= 0 {\n\t\treturn 0\n\t}\n\tnextStep(n - 1)\n}\n"
+			parseA = "func Parse(n int) int {\n\tif n <= 0 {\n\t\treturn 0\n\t}\n\tNode(n - 1)\n}\n"
 			parseB = "func Node(n int) int {\n\tif n <= 0 {\n\t\treturn 1\n\t}\n\tParse(n - 1)\n}\n"
 		}
 		sameFile := "func Together(n int) int { n }\n"
