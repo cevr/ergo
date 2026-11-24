@@ -15,6 +15,16 @@ func (t *Task) settle(c *Cause, p any) {
 	}
 }
 
+// ScopeExit settles an exit after the scope's caller has recovered the body
+// panic and run all releases. It observes a pending stop after the release
+// mask closes, like Scope.End, without carrying a second release list.
+func (t *Task) ScopeExit(err error) error {
+	if !t.Stopped() {
+		return err
+	}
+	return t.exitOf(err, nil)
+}
+
 // Run runs body as the body of task t on the calling goroutine, inside the
 // task boundary every child started by Go also runs in: a panic becomes a
 // defect with t's chain, a stop beats success, and the exit comes back in

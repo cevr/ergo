@@ -1,0 +1,210 @@
+package irspike
+
+import (
+	_ "embed"
+	"fmt"
+	"math/rand/v2"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+
+	"ergo.local/prototype/internal/sketch/eval"
+	"ergo.local/prototype/internal/sketch/lower"
+)
+
+//go:embed testdata/owned_result_convert.ergo
+var ownedResultRepro string
+
+// TestIROwnedResultConversionAgrees compares the exact early-release repro
+// across the evaluator and both native paths. It builds Go because Go
+// executes the deferred releases; type checking cannot observe their order.
+func TestIROwnedResultConversionAgrees(t *testing.T) {
+	src, ir := needsBuild(t)
+	dir := t.TempDir()
+	u := loadText(t, dir, ownedResultRepro)
+	rep, err := eval.Run(u.Package, eval.DefaultBudget())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var passed []string
+	for _, r := range rep.Results {
+		if r.Status != eval.Passed {
+			t.Errorf("evaluator: %+v\n%s", r, ownedResultRepro)
+		} else {
+			passed = append(passed, r.Name)
+		}
+	}
+	for _, name := range []string{"DirectReturnStaysOpen", "NamedReturnStaysOpen"} {
+		if !slices.Contains(passed, name) {
+			t.Errorf("evaluator did not pass %s", name)
+		}
+	}
+	a := ownedResultRun(t, u, src, Source, "", filepath.Join(dir, "source"))
+	b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "ir"), "direct", "named")
+	if a != b || a.exit != 0 || !strings.Contains(a.stdout, "ok DirectReturnStaysOpen\nok NamedReturnStaysOpen\n") {
+		t.Fatalf("source: %+v\nIR: %+v\n%s", a, b, ownedResultRepro)
+	}
+}
+
+// TestIROwnedResultShapesAgree checks all sources of a converted result
+// (literal, local and call) in plain and fallible returns. The caller's
+// scope, not the conversion or the callee's defer, releases the result.
+// It builds Go because the static and list frames must actually unwind.
+//
+// Mutant: converted result keeps the callee's static release.
+func TestIROwnedResultShapesAgree(t *testing.T) {
+	_, ir := needsBuild(t)
+	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
+	for seed := first; seed < first+count; seed++ {
+		t.Run(itoa(seed), func(t *testing.T) {
+			dir := t.TempDir()
+			text, lowered := ownedResultProgram(seed)
+			t.Cleanup(func() {
+				if t.Failed() {
+					t.Logf("replay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test ./internal/experimental/irspike -run '^TestIROwnedResultShapesAgree$'\n%s", seed, text)
+				}
+			})
+			u := loadText(t, dir, text)
+			a := ownedResultRun(t, u, ir, IR, "scope", filepath.Join(dir, "list"), lowered...)
+			b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "static"), lowered...)
+			if a != b || a.exit != 0 {
+				t.Fatalf("list: %+v\nstatic: %+v", a, b)
+			}
+			for _, name := range lowered {
+				if !strings.Contains(a.stdout, "ok Check"+name+"\n") {
+					t.Errorf("no passing ownership check for %s: %+v", name, a)
+				}
+			}
+		})
+	}
+}
+
+func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, releaseMode, dir string, wantIR ...string) outcome {
+	t.Helper()
+	mod := filepath.Join(dir, "mod")
+	if path == IR {
+		prev := lower.SetReleaseLoweringForTest(releaseMode)
+		files, rep, err := lower.LowerIRTests(u)
+		lower.SetReleaseLoweringForTest(prev)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range wantIR {
+			if !slices.Contains(rep.IR, name) {
+				t.Fatalf("mode %q: no IR body for %s (IR %v, fallback %v)", releaseMode, name, rep.IR, rep.Fallback)
+			}
+			helper := `"name":"` + lower.HelperSpelling("", name+"Release") + `"`
+			static := slices.ContainsFunc(files, func(f lower.File) bool {
+				return f.Path == lower.IRFileName && strings.Contains(string(f.Data), helper)
+			})
+			if static != (releaseMode == "") {
+				t.Errorf("mode %q: %s static cleanup = %v", releaseMode, name, static)
+			}
+		}
+		if err := writeModule(mod, files); err != nil {
+			t.Fatal(err)
+		}
+	} else if err := emitTests(u, path, mod); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "test")
+	if _, err := Build(tc, path, mod, bin, BuildOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	return runCase(t, bin, caseRun{args: []string{"--source", dir}})
+}
+
+func ownedResultProgram(seed uint64) (string, []string) {
+	r := rand.New(rand.NewPCG(seed, seed^0x56b32d170da8cbf1))
+	prelude, _, _ := strings.Cut(ownedResultRepro, "func direct(")
+	var src strings.Builder
+	src.WriteString("import task\n")
+	src.WriteString(prelude)
+	src.WriteString(`type Bad {}
+
+type guardTicket { releases sync.Ref[int] } implements Closer
+
+func Close(g guardTicket) {
+	let n = g.releases.Get()
+	g.releases.Set(n + 1)
+	if n < 0 { Unreachable("guard cleanup") }
+}
+
+func makeResult(releases sync.Ref[int]) wrapped {
+	wrapped{item: ticket{releases: releases}}
+}
+
+func makeFallible(releases sync.Ref[int], reject bool) wrapped fails Bad {
+	if reject { return Bad }
+	makeResult(releases)
+}
+
+func firstUse(v own View) int { v.Reads() }
+
+func main() {}
+`)
+	forms := []struct{ name, setup, result string }{
+		{"Literal", "let item = ticket{releases: releases}\n", "wrapped{item: item}"},
+		{"Local", "let item = makeResult(releases)\n", "item"},
+		{"Call", "", "makeResult(releases)"},
+	}
+	type shape struct {
+		name, setup, result string
+		fallible            bool
+	}
+	var shapes []shape
+	for _, f := range forms {
+		shapes = append(shapes, shape{"Plain" + f.name, f.setup, f.result, false},
+			shape{"Fallible" + f.name, f.setup, f.result, true})
+	}
+	shapes = append(shapes,
+		shape{"FallibleCallTail", "", "makeFallible(releases, reject)", true},
+		shape{"FallibleTryTail", "", "try makeFallible(releases, reject)", true},
+		shape{"FallibleCatchTail", "", "makeFallible(releases, reject) catch {\ncase Bad: return Bad\n}", true})
+	r.Shuffle(len(shapes), func(i, j int) { shapes[i], shapes[j] = shapes[j], shapes[i] })
+	var lowered []string
+	for _, s := range shapes {
+		lowered = append(lowered, s.name)
+		row, extra, recover, rejected := "", "", "", ""
+		if s.fallible {
+			row, extra = " fails Bad", ", reject bool"
+			recover = " catch { case Bad: Unreachable(\"unexpected failure\") }"
+			rejected = "false"
+		}
+		fmt.Fprintf(&src, "\nfunc %s(releases sync.Ref[int], guard sync.Ref[int]%s) View%s {\n", s.name, extra, row)
+		src.WriteString("let cleanup = guardTicket{releases: guard}\n")
+		if s.fallible && !strings.Contains(s.result, "makeFallible(") {
+			src.WriteString("if reject { return Bad }\n")
+		}
+		src.WriteString(s.setup)
+		if r.IntN(2) == 0 {
+			src.WriteString("return ")
+		}
+		src.WriteString(s.result + "\n}\n")
+		if s.fallible {
+			rejected = ", " + rejected
+		}
+		start := 10 + r.IntN(1000)
+		fmt.Fprintf(&src, "\ntest Check%s {\nlet releases = sync.NewRef(%d)\nlet guard = sync.NewRef(0)\n", s.name, start)
+		fmt.Fprintf(&src, "let v = %s(releases, guard%s)%s\n", s.name, rejected, recover)
+		fmt.Fprintf(&src, "assert guard.Get() == 1\nassert firstUse(v) == %d\nassert releases.Get() == %d\n", start, start+1)
+		// A defect while leaving the producer must release the value that
+		// it was about to return; ownership has not reached the caller.
+		src.WriteString("guard.Set(-1)\nlet child = task.Go() {\n")
+		try := ""
+		if s.fallible {
+			try = "try "
+		}
+		fmt.Fprintf(&src, "let childValue = %s%s(releases, guard%s)\nfirstUse(childValue)\n}\n", try, s.name, rejected)
+		src.WriteString("let crashed = match task.ExitOf(child) {\ncase task.Defected: true\ncase _: false\n}\n")
+		fmt.Fprintf(&src, "assert crashed\nassert guard.Get() == 0\nassert releases.Get() == %d\n", start+2)
+		if s.fallible {
+			fmt.Fprintf(&src, "let unexpected = %s(releases, guard, true) catch {\ncase Bad:\n", s.name)
+			fmt.Fprintf(&src, "assert guard.Get() == 1\nassert releases.Get() == %d\nreturn\n}\n", start+2)
+			src.WriteString("let _ = firstUse(unexpected)\nassert false\n")
+		}
+		src.WriteString("}\n")
+	}
+	return src.String(), lowered
+}
