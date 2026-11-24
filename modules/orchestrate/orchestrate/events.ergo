@@ -1,0 +1,471 @@
+// OpenUnit opens a new orchestrated work unit.
+type OpenUnit { ID string, Title string, Area string }
+
+// ClaimUnit claims an open or handed-back unit for an owner, lane, and harness.
+type ClaimUnit { ID string, Owner string, Lane string, Harness string }
+
+// AdvanceUnitRound advances a unit to the next round and optionally attaches request or findings paths.
+type AdvanceUnitRound {
+	ID           string,
+	Owner        Option[string],
+	Round        int,
+	RequestPath  Option[string],
+	FindingsPath Option[string],
+}
+
+// HandBackUnit hands back a claimed unit with its commit head, summary, and artifact paths.
+type HandBackUnit {
+	ID           string,
+	Owner        string,
+	HeadSHA      string,
+	Summary      string,
+	RequestPath  Option[string],
+	FindingsPath Option[string],
+}
+
+// LandUnit marks a handed-back unit as landed at a commit SHA.
+type LandUnit { ID string, HeadSHA string }
+
+// CloseUnit closes a non-terminal unit with an optional summary note.
+type CloseUnit { ID string, Summary Option[string] }
+
+// RecordReceipt records structured verification evidence pointing to an external log file and digest.
+type RecordReceipt {
+	ID             string,
+	UnitID         string,
+	Round          int,
+	Kind           string,
+	Command        string,
+	CommitSHA      string,
+	ExitCode       int,
+	SummaryMetrics string,
+	LogPath        string,
+	LogSHA256      string,
+}
+
+// AddCommitment registers a new tracked commitment.
+type AddCommitment { ID string, Title string, Kind string }
+
+// AssignCommitment assigns an open or assigned commitment to an owner and lane.
+type AssignCommitment { ID string, Owner string, Lane string }
+
+// LandCommitment marks a commitment as landed at a commit SHA.
+type LandCommitment { ID string, LandedSHA string }
+
+// DecideCommitment resolves or withdraws an open or assigned commitment with a note.
+type DecideCommitment { ID string, Note string, Withdraw bool }
+
+// UpsertQueueItem inserts or replaces a prioritized queue entry by key.
+type UpsertQueueItem {
+	Key      string,
+	Priority int,
+	Title    string,
+	Body     string,
+	Status   string,
+	Tags     []string,
+}
+
+// RemoveQueueItem deletes an existing queue entry by key.
+type RemoveQueueItem { Key string }
+
+// AskQuestion opens an async question with a default assumption and concrete action.
+type AskQuestion {
+	ID             Option[int],
+	Prompt         string,
+	Assumption     string,
+	ConcreteAction string,
+}
+
+// AnswerQuestion answers or withdraws an open async question.
+type AnswerQuestion { ID int, Answer string, Withdraw bool }
+
+// Command is the closed union of all pure orchestrate state-changing commands.
+type Command = OpenUnit | ClaimUnit | AdvanceUnitRound | HandBackUnit | LandUnit | CloseUnit | RecordReceipt | AddCommitment | AssignCommitment | LandCommitment | DecideCommitment | UpsertQueueItem | RemoveQueueItem | AskQuestion | AnswerQuestion
+
+// Envelope carries a Command together with all explicit caller context required for zero-I/O decisions.
+type Envelope { ID CommandID, Actor string, At string, Command Command }
+
+// CommandAccepted records that a CommandID was accepted with a specific Command payload.
+type CommandAccepted { ID CommandID, Actor string, At string, Command Command }
+
+// UnitOpened records that a unit was opened.
+type UnitOpened { ID string, Title string, Area string, At string }
+
+// UnitWasClaimed records that a unit was claimed by an owner in a lane and harness.
+type UnitWasClaimed { ID string, Owner string, Lane string, Harness string, Round int, At string }
+
+// UnitRoundAdvanced records that a unit advanced to a new round.
+type UnitRoundAdvanced {
+	ID           string,
+	Round        int,
+	RequestPath  Option[string],
+	FindingsPath Option[string],
+	At           string,
+}
+
+// UnitWasHandedBack records that a claimed unit was handed back.
+type UnitWasHandedBack {
+	ID           string,
+	HeadSHA      string,
+	Summary      string,
+	RequestPath  Option[string],
+	FindingsPath Option[string],
+	At           string,
+}
+
+// UnitWasLanded records that a handed-back unit landed.
+type UnitWasLanded { ID string, HeadSHA string, At string }
+
+// UnitWasClosed records that a unit closed without landing.
+type UnitWasClosed { ID string, Summary Option[string], At string }
+
+// ReceiptRecorded records structured evidence pointing to an external log file and digest.
+type ReceiptRecorded { Receipt Receipt }
+
+// CommitmentAdded records that a new commitment was registered.
+type CommitmentAdded { ID string, Title string, Kind string, At string }
+
+// CommitmentWasAssigned records that a commitment was assigned.
+type CommitmentWasAssigned { ID string, Owner string, Lane string, At string }
+
+// CommitmentWasLanded records that a commitment landed at a commit SHA.
+type CommitmentWasLanded { ID string, LandedSHA string, At string }
+
+// CommitmentWasDecided records that a commitment was closed by an explicit decision.
+type CommitmentWasDecided { ID string, Note string, At string }
+
+// CommitmentWasWithdrawn records that a commitment was withdrawn.
+type CommitmentWasWithdrawn { ID string, Note string, At string }
+
+// QueueUpserted records an inserted or updated queue entry.
+type QueueUpserted { Item QueueItem }
+
+// QueueRemoved records deletion of a queue entry.
+type QueueRemoved { Key string }
+
+// QuestionAsked records a newly opened async question and the CommandID that created it.
+type QuestionAsked { CommandID CommandID, Question Question }
+
+// QuestionWasAnswered records an answer to an open question.
+type QuestionWasAnswered { ID int, Answer string, AnsweredBy string, AnsweredAt string }
+
+// QuestionWasWithdrawn records withdrawal of an open question.
+type QuestionWasWithdrawn { ID int, Answer Option[string], AnsweredBy string, AnsweredAt string }
+
+// Event is the closed union of all immutable domain events persisted by orchestrate.
+type Event = CommandAccepted | UnitOpened | UnitWasClaimed | UnitRoundAdvanced | UnitWasHandedBack | UnitWasLanded | UnitWasClosed | ReceiptRecorded | CommitmentAdded | CommitmentWasAssigned | CommitmentWasLanded | CommitmentWasDecided | CommitmentWasWithdrawn | QueueUpserted | QueueRemoved | QuestionAsked | QuestionWasAnswered | QuestionWasWithdrawn
+
+// Apply evolves State purely by one Event.
+func Apply(state State, ev Event) State {
+	match ev {
+	case CommandAccepted as e:
+		State{..state, Commands: state.Commands.Put(e.ID, e.Command)}
+	case UnitOpened as e:
+		let u = Unit{
+			ID:           e.ID,
+			Title:        e.Title,
+			Area:         e.Area,
+			Status:       UnitOpen,
+			Owner:        None,
+			Lane:         None,
+			Harness:      None,
+			Round:        0,
+			HeadSHA:      None,
+			Summary:      None,
+			RequestPath:  None,
+			FindingsPath: None,
+			CreatedAt:    e.At,
+			UpdatedAt:    e.At,
+		}
+		State{..state, Units: state.Units.Put(e.ID, u)}
+	case UnitWasClaimed as e:
+		match state.Units.Get(e.ID) {
+		case Some[Unit] as cur:
+			let next = Unit{
+				..cur.Value,
+				Status:    UnitClaimed,
+				Owner:     Some[string]{Value: e.Owner},
+				Lane:      Some[string]{Value: e.Lane},
+				Harness:   Some[string]{Value: e.Harness},
+				Round:     e.Round,
+				UpdatedAt: e.At,
+			}
+			State{..state, Units: state.Units.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case UnitRoundAdvanced as e:
+		match state.Units.Get(e.ID) {
+		case Some[Unit] as cur:
+			let req = keepOption(e.RequestPath, cur.Value.RequestPath)
+			let find = keepOption(e.FindingsPath, cur.Value.FindingsPath)
+			let next = Unit{
+				..cur.Value,
+				Round:        e.Round,
+				RequestPath:  req,
+				FindingsPath: find,
+				UpdatedAt:    e.At,
+			}
+			State{..state, Units: state.Units.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case UnitWasHandedBack as e:
+		match state.Units.Get(e.ID) {
+		case Some[Unit] as cur:
+			let req = keepOption(e.RequestPath, cur.Value.RequestPath)
+			let find = keepOption(e.FindingsPath, cur.Value.FindingsPath)
+			let next = Unit{
+				..cur.Value,
+				Status:       UnitHandedBack,
+				HeadSHA:      Some[string]{Value: e.HeadSHA},
+				Summary:      Some[string]{Value: e.Summary},
+				RequestPath:  req,
+				FindingsPath: find,
+				UpdatedAt:    e.At,
+			}
+			State{..state, Units: state.Units.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case UnitWasLanded as e:
+		match state.Units.Get(e.ID) {
+		case Some[Unit] as cur:
+			let next = Unit{
+				..cur.Value,
+				Status:    UnitLanded,
+				HeadSHA:   Some[string]{Value: e.HeadSHA},
+				UpdatedAt: e.At,
+			}
+			State{..state, Units: state.Units.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case UnitWasClosed as e:
+		match state.Units.Get(e.ID) {
+		case Some[Unit] as cur:
+			let summary = keepOption(e.Summary, cur.Value.Summary)
+			let next = Unit{
+				..cur.Value,
+				Status:    UnitClosed,
+				Summary:   summary,
+				UpdatedAt: e.At,
+			}
+			State{..state, Units: state.Units.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case ReceiptRecorded as e:
+		let r = e.Receipt
+		let order = match state.Receipts.Get(r.ID) {
+		case Some[Receipt]:
+			state.ReceiptOrder
+		case None:
+			state.ReceiptOrder.Append(r.ID)
+		}
+		State{..state, Receipts: state.Receipts.Put(r.ID, r), ReceiptOrder: order}
+	case CommitmentAdded as e:
+		let c = Commitment{
+			ID:           e.ID,
+			Title:        e.Title,
+			Kind:         e.Kind,
+			Status:       CommitOpen,
+			Owner:        None,
+			Lane:         None,
+			LandedSHA:    None,
+			DecisionNote: None,
+			CreatedAt:    e.At,
+			UpdatedAt:    e.At,
+		}
+		State{..state, Commitments: state.Commitments.Put(e.ID, c)}
+	case CommitmentWasAssigned as e:
+		match state.Commitments.Get(e.ID) {
+		case Some[Commitment] as cur:
+			let next = Commitment{
+				..cur.Value,
+				Status:    CommitAssigned,
+				Owner:     Some[string]{Value: e.Owner},
+				Lane:      Some[string]{Value: e.Lane},
+				UpdatedAt: e.At,
+			}
+			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case CommitmentWasLanded as e:
+		match state.Commitments.Get(e.ID) {
+		case Some[Commitment] as cur:
+			let next = Commitment{
+				..cur.Value,
+				Status:    CommitLanded,
+				LandedSHA: Some[string]{Value: e.LandedSHA},
+				UpdatedAt: e.At,
+			}
+			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case CommitmentWasDecided as e:
+		match state.Commitments.Get(e.ID) {
+		case Some[Commitment] as cur:
+			let next = Commitment{
+				..cur.Value,
+				Status:       CommitDecided,
+				DecisionNote: Some[string]{Value: e.Note},
+				UpdatedAt:    e.At,
+			}
+			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case CommitmentWasWithdrawn as e:
+		match state.Commitments.Get(e.ID) {
+		case Some[Commitment] as cur:
+			let next = Commitment{
+				..cur.Value,
+				Status:       CommitWithdrawn,
+				DecisionNote: Some[string]{Value: e.Note},
+				UpdatedAt:    e.At,
+			}
+			State{..state, Commitments: state.Commitments.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case QueueUpserted as e:
+		State{..state, Queue: state.Queue.Put(e.Item.Key, e.Item)}
+	case QueueRemoved as e:
+		State{..state, Queue: state.Queue.Delete(e.Key)}
+	case QuestionAsked as e:
+		let q = e.Question
+		let nextID = if q.ID >= state.NextQuestionID { q.ID + 1 } else { state.NextQuestionID }
+		State{
+			..state,
+			Questions:         state.Questions.Put(q.ID, q),
+			QuestionByCommand: state.QuestionByCommand.Put(e.CommandID, q.ID),
+			NextQuestionID:    nextID,
+		}
+	case QuestionWasAnswered as e:
+		match state.Questions.Get(e.ID) {
+		case Some[Question] as cur:
+			let next = Question{
+				..cur.Value,
+				Status:     QuestionAnswered,
+				Answer:     Some[string]{Value: e.Answer},
+				AnsweredBy: Some[string]{Value: e.AnsweredBy},
+				AnsweredAt: Some[string]{Value: e.AnsweredAt},
+			}
+			State{..state, Questions: state.Questions.Put(e.ID, next)}
+		case None:
+			state
+		}
+	case QuestionWasWithdrawn as e:
+		match state.Questions.Get(e.ID) {
+		case Some[Question] as cur:
+			let next = Question{
+				..cur.Value,
+				Status:     QuestionWithdrawn,
+				Answer:     e.Answer,
+				AnsweredBy: Some[string]{Value: e.AnsweredBy},
+				AnsweredAt: Some[string]{Value: e.AnsweredAt},
+			}
+			State{..state, Questions: state.Questions.Put(e.ID, next)}
+		case None:
+			state
+		}
+	}
+}
+
+func keepOption(next Option[string], prev Option[string]) Option[string] {
+	match next {
+	case Some[string]:
+		next
+	case None:
+		prev
+	}
+}
+
+// ApplyAll folds a slice of events onto an existing State in order.
+func ApplyAll(state State, events []Event) State {
+	let mut cur = state
+	for ev in events {
+		cur = Apply(cur, ev)
+	}
+	cur
+}
+
+// Fold reconstructs State from scratch by applying all events in order.
+func Fold(events []Event) State {
+	ApplyAll(EmptyState(), events)
+}
+
+// ReplayMatchesIncremental verifies that folding all emitted events from scratch produces the exact same State as applying them incrementally across generated command sequences.
+law ReplayMatchesIncremental(steps []int) {
+	let mut incremental = EmptyState()
+	let mut all = []Event{}
+	for i, code in steps {
+		let env = generatedEnvelope(i, code)
+		let evs = Decide(incremental, env) catch {
+		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+			[]Event{}
+		}
+		for ev in evs {
+			incremental = Apply(incremental, ev)
+			all = all.Append(ev)
+		}
+	}
+	Fold(all) == incremental
+}
+
+func generatedEnvelope(index int, code int) Envelope {
+	let kind = ((code % 15) + 15) % 15
+	let slot = (((code / 15) % 3) + 3) % 3
+	let id = CommandID("gen-\(index)")
+	let at = "2026-11-24T00:00:\(index)Z"
+	let unitID = "u-\(slot)"
+	let commitID = "c-\(slot)"
+	let queueKey = "q-\(slot)"
+	let cmd Command = match kind {
+	case 0:
+		OpenUnit{ID: unitID, Title: "Unit \(slot)", Area: "core"}
+	case 1:
+		ClaimUnit{ID: unitID, Owner: "owner-\(slot)", Lane: "lane-\(slot)", Harness: "agy"}
+	case 2:
+		AdvanceUnitRound{ID: unitID, Owner: Some[string]{Value: "owner-\(slot)"}, Round: 2, RequestPath: Some[string]{Value: "/tmp/r2.md"}, FindingsPath: None}
+	case 3:
+		HandBackUnit{ID: unitID, Owner: "owner-\(slot)", HeadSHA: "abcdef12", Summary: "done", RequestPath: None, FindingsPath: None}
+	case 4:
+		LandUnit{ID: unitID, HeadSHA: "abcdef12"}
+	case 5:
+		CloseUnit{ID: unitID, Summary: Some[string]{Value: "closed"}}
+	case 6:
+		RecordReceipt{
+			ID:             "rec-\(index)",
+			UnitID:         unitID,
+			Round:          1,
+			Kind:           "gate",
+			Command:        "ergo test",
+			CommitSHA:      "abcdef12",
+			ExitCode:       0,
+			SummaryMetrics: "ok=1",
+			LogPath:        "/tmp/rec-\(index).log",
+			LogSHA256:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		}
+	case 7:
+		AddCommitment{ID: commitID, Title: "Commit \(slot)", Kind: "plan-part"}
+	case 8:
+		AssignCommitment{ID: commitID, Owner: "owner-\(slot)", Lane: "lane-\(slot)"}
+	case 9:
+		LandCommitment{ID: commitID, LandedSHA: "1234abcd"}
+	case 10:
+		DecideCommitment{ID: commitID, Note: "decided", Withdraw: slot == 2}
+	case 11:
+		UpsertQueueItem{Key: queueKey, Priority: slot, Title: "Queue \(slot)", Body: "body", Status: "open", Tags: []string{"t1"}}
+	case 12:
+		RemoveQueueItem{Key: queueKey}
+	case 13:
+		AskQuestion{ID: None, Prompt: "Question \(index)?", Assumption: "default", ConcreteAction: "reply yes"}
+	case _:
+		AnswerQuestion{ID: slot + 1, Answer: "yes", Withdraw: slot == 2}
+	}
+	Envelope{ID: id, Actor: "actor-\(slot)", At: at, Command: cmd}
+}

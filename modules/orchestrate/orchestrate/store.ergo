@@ -1,0 +1,265 @@
+import strconv
+
+// StoredEvent is one persisted event in the global ordered log with its monotonic 1-based sequence number.
+type StoredEvent { Seq int, Event Event }
+
+// ExecuteResult is the outcome of one transactional command execution.
+type ExecuteResult { Seq int, Events []Event, Duplicate bool }
+
+// EventList extracts the raw Event sequence from a slice of StoredEvents.
+func EventList(stored []StoredEvent) []Event {
+	let mut out = []Event{}
+	for item in stored {
+		out = out.Append(item.Event)
+	}
+	out
+}
+
+// Store is the transactional persistence contract shared by memory and SQLite providers.
+// Execute must run Decide, append events, and update all projections atomically in one transaction.
+type Store {
+	// Execute validates and persists one Envelope atomically with all projections.
+	Execute(env Envelope) ExecuteResult fails NotFound | AlreadyExists | InvalidTransition | StaleClaim | CommandReused | InvalidInput | StoreFailed,
+
+	// Snapshot returns the complete projected State read from projection storage.
+	Snapshot() State fails StoreFailed,
+
+	// Events returns all persisted events with Seq strictly greater than fromSeq in ascending Seq order.
+	Events(fromSeq int) []StoredEvent fails StoreFailed,
+
+	// Unit looks up one unit projection by ID.
+	Unit(id string) Option[Unit] fails StoreFailed,
+
+	// ListUnits returns unit projections optionally filtered by status, sorted by ID.
+	ListUnits(status Option[UnitStatus]) []Unit fails StoreFailed,
+
+	// Receipts returns receipt projections for unitID, optionally filtered by round, in recorded order.
+	Receipts(unitID string, round Option[int]) []Receipt fails StoreFailed,
+
+	// Commitment looks up one commitment projection by ID.
+	Commitment(id string) Option[Commitment] fails StoreFailed,
+
+	// ListCommitments returns commitment projections optionally filtered by status and owner, sorted by ID.
+	ListCommitments(status Option[CommitmentStatus], owner Option[string]) []Commitment fails StoreFailed,
+
+	// ListQueue returns queue projections optionally filtered by status, ordered by priority then key.
+	ListQueue(status Option[string]) []QueueItem fails StoreFailed,
+
+	// Question looks up one async question projection by monotonic ID.
+	Question(id int) Option[Question] fails StoreFailed,
+
+	// ListQuestions returns question projections (all or open-only), sorted by ascending ID.
+	ListQuestions(openOnly bool) []Question fails StoreFailed,
+
+	// StoreReplayMatchesSnapshot verifies that folding all persisted events reproduces Snapshot identically and sequence numbers are dense 1..N.
+	law StoreReplayMatchesSnapshot(steps []int) {
+		for i, code in steps {
+			let env = generatedEnvelope(i, code)
+			let _ = Execute(env) catch {
+			case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+				ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+			case StoreFailed:
+				return true
+			}
+		}
+		let stored = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		let snap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		denseStoredEvents(stored) && Fold(EventList(stored)) == snap
+	},
+
+	// StoreIdempotentExecute verifies that resending an accepted Envelope is a duplicate no-op while reusing its CommandID with a different payload fails CommandReused.
+	law StoreIdempotentExecute(tag int) {
+		let cid = CommandID("store-idem-\(tag)")
+		let uid = "store-u-\(tag)"
+		let env = Envelope{
+			ID:      cid,
+			Actor:   "worker",
+			At:      "2026-11-24T08:00:00Z",
+			Command: OpenUnit{ID: uid, Title: "Title", Area: "store"},
+		}
+		let first = Execute(env) catch {
+		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let snap1 = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let evs1 = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		let second = Execute(env) catch {
+		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let snap2 = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let evs2 = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		let mut reused = false
+		let _ = Execute(Envelope{
+			ID:      cid,
+			Actor:   "worker",
+			At:      "2026-11-24T08:01:00Z",
+			Command: OpenUnit{ID: uid, Title: "Different", Area: "store"},
+		}) catch {
+		case CommandReused:
+			reused = true
+			ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+		case NotFound, AlreadyExists, InvalidTransition, StaleClaim, InvalidInput:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let snap3 = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		!first.Duplicate && len(first.Events) > 0 && second.Duplicate && len(second.Events) == 0 && second.Seq == first.Seq && snap1 == snap2 && evs1 == evs2 && reused && snap3 == snap1
+	},
+
+	// StoreRefusedLeavesStateUnchanged verifies that a refused command appends no events and leaves Snapshot unchanged.
+	law StoreRefusedLeavesStateUnchanged(tag int) {
+		let beforeSnap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let beforeEvents = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		let mut refused = false
+		let _ = Execute(Envelope{
+			ID:      CommandID("store-refuse-\(tag)"),
+			Actor:   "worker",
+			At:      "2026-11-24T08:10:00Z",
+			Command: HandBackUnit{ID: "missing-\(tag)", Owner: "worker", HeadSHA: "aaa", Summary: "s", RequestPath: None, FindingsPath: None},
+		}) catch {
+		case NotFound:
+			refused = true
+			ExecuteResult{Seq: 0, Events: []Event{}, Duplicate: false}
+		case AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+			return false
+		case StoreFailed:
+			return true
+		}
+		let afterSnap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let afterEvents = Events(0) catch {
+		case StoreFailed:
+			return true
+		}
+		refused && afterSnap == beforeSnap && afterEvents == beforeEvents
+	},
+
+	// StoreQueriesMatchSnapshot verifies that every indexed Store query agrees with the pure query functions over Snapshot.
+	law StoreQueriesMatchSnapshot(tag int) {
+		let uid = "sq-u-\(tag)"
+		let cid = "sq-c-\(tag)"
+		let qkey = "sq-q-\(tag)"
+		let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		let cmds = []Envelope{
+			Envelope{ID: CommandID("sq1-\(tag)"), Actor: "root", At: "2026-11-24T09:00:00Z", Command: OpenUnit{ID: uid, Title: "Unit", Area: "a"}},
+			Envelope{ID: CommandID("sq2-\(tag)"), Actor: "w1", At: "2026-11-24T09:01:00Z", Command: ClaimUnit{ID: uid, Owner: "w1", Lane: "l1", Harness: "agy"}},
+			Envelope{ID: CommandID("sq3-\(tag)"), Actor: "w1", At: "2026-11-24T09:02:00Z", Command: RecordReceipt{ID: "sq-r-\(tag)", UnitID: uid, Round: 1, Kind: "test", Command: "ergo test", CommitSHA: "abc", ExitCode: 0, SummaryMetrics: "ok", LogPath: "/tmp/t.log", LogSHA256: digest}},
+			Envelope{ID: CommandID("sq4-\(tag)"), Actor: "root", At: "2026-11-24T09:03:00Z", Command: AddCommitment{ID: cid, Title: "Commit", Kind: "plan-part"}},
+			Envelope{ID: CommandID("sq5-\(tag)"), Actor: "root", At: "2026-11-24T09:04:00Z", Command: AssignCommitment{ID: cid, Owner: "w1", Lane: "l1"}},
+			Envelope{ID: CommandID("sq6-\(tag)"), Actor: "root", At: "2026-11-24T09:05:00Z", Command: UpsertQueueItem{Key: qkey, Priority: 2, Title: "Q", Body: "B", Status: "open", Tags: []string{"t"}}},
+			Envelope{ID: CommandID("sq7-\(tag)"), Actor: "w1", At: "2026-11-24T09:06:00Z", Command: AskQuestion{ID: None, Prompt: "P?", Assumption: "A", ConcreteAction: "Do X"}},
+		}
+		for env in cmds {
+			let _ = Execute(env) catch {
+			case NotFound, AlreadyExists, InvalidTransition, StaleClaim, CommandReused, InvalidInput:
+				return false
+			case StoreFailed:
+				return true
+			}
+		}
+		let snap = Snapshot() catch {
+		case StoreFailed:
+			return true
+		}
+		let u = Unit(uid) catch {
+		case StoreFailed:
+			return true
+		}
+		let us = ListUnits(Some[UnitStatus]{Value: UnitClaimed}) catch {
+		case StoreFailed:
+			return true
+		}
+		let recs = Receipts(uid, Some[int]{Value: 1}) catch {
+		case StoreFailed:
+			return true
+		}
+		let cm = Commitment(cid) catch {
+		case StoreFailed:
+			return true
+		}
+		let cms = ListCommitments(Some[CommitmentStatus]{Value: CommitAssigned}, Some[string]{Value: "w1"}) catch {
+		case StoreFailed:
+			return true
+		}
+		let qs = ListQueue(Some[string]{Value: "open"}) catch {
+		case StoreFailed:
+			return true
+		}
+		let q1 = Question(1) catch {
+		case StoreFailed:
+			return true
+		}
+		let qlist = ListQuestions(true) catch {
+		case StoreFailed:
+			return true
+		}
+		queriesMatchSnapshot(snap, uid, cid, u, us, recs, cm, cms, qs, q1, qlist) && strconv.Itoa(len(recs)) == "1"
+	},
+}
+
+func queriesMatchSnapshot(
+	snap State,
+	uid string,
+	cid string,
+	u Option[Unit],
+	us []Unit,
+	recs []Receipt,
+	cm Option[Commitment],
+	cms []Commitment,
+	qs []QueueItem,
+	q1 Option[Question],
+	qlist []Question,
+) bool {
+		u == UnitByID(snap, uid) &&
+		us == ListUnits(snap, Some[UnitStatus]{Value: UnitClaimed}) &&
+		recs == ReceiptsOf(snap, uid, Some[int]{Value: 1}) &&
+		cm == CommitmentByID(snap, cid) &&
+		cms == ListCommitments(snap, Some[CommitmentStatus]{Value: CommitAssigned}, Some[string]{Value: "w1"}) &&
+		qs == ListQueue(snap, Some[string]{Value: "open"}) &&
+		q1 == QuestionByID(snap, 1) &&
+		qlist == ListQuestions(snap, true)
+}
+
+func denseStoredEvents(stored []StoredEvent) bool {
+	for i, item in stored {
+		if item.Seq != i+1 {
+			return false
+		}
+	}
+	true
+}

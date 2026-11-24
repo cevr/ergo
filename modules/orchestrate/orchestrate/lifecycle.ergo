@@ -1,0 +1,209 @@
+import machines
+
+// ActClaim claims an open or handed-back unit for active work.
+type ActClaim {}
+
+// ActAdvanceRound advances the round counter on a claimed or handed-back unit.
+type ActAdvanceRound {}
+
+// ActHandBack hands back a claimed unit with its head commit and summary.
+type ActHandBack {}
+
+// ActLand marks a handed-back unit as landed.
+type ActLand {}
+
+// ActClose closes a non-terminal unit without landing.
+type ActClose {}
+
+// UnitAction is a lifecycle transition action on a unit.
+type UnitAction = ActClaim | ActAdvanceRound | ActHandBack | ActLand | ActClose
+
+// UnitActionName is the canonical name of a UnitAction.
+func UnitActionName(a UnitAction) string {
+	match a {
+	case ActClaim:
+		"claim"
+	case ActAdvanceRound:
+		"round"
+	case ActHandBack:
+		"hand-back"
+	case ActLand:
+		"land"
+	case ActClose:
+		"close"
+	}
+}
+
+// UnitFinal reports whether a unit status is terminal and admits no further transitions.
+func UnitFinal(s UnitStatus) bool {
+	match s {
+	case UnitLanded, UnitClosed:
+		true
+	case UnitOpen, UnitClaimed, UnitHandedBack:
+		false
+	}
+}
+
+// StepUnit is the pure unit lifecycle transition function.
+func StepUnit(s UnitStatus, a UnitAction) Decision[UnitStatus, Never] {
+	match (s, a) {
+	case (UnitOpen, ActClaim):
+		Enter[UnitStatus]{Next: UnitClaimed}
+	case (UnitOpen, ActClose):
+		Enter[UnitStatus]{Next: UnitClosed}
+	case (UnitOpen, ActAdvanceRound | ActHandBack | ActLand):
+		Reject
+	case (UnitClaimed, ActAdvanceRound):
+		Stay[UnitStatus]{Next: UnitClaimed}
+	case (UnitClaimed, ActHandBack):
+		Enter[UnitStatus]{Next: UnitHandedBack}
+	case (UnitClaimed, ActClose):
+		Enter[UnitStatus]{Next: UnitClosed}
+	case (UnitClaimed, ActClaim | ActLand):
+		Reject
+	case (UnitHandedBack, ActClaim):
+		Enter[UnitStatus]{Next: UnitClaimed}
+	case (UnitHandedBack, ActAdvanceRound):
+		Stay[UnitStatus]{Next: UnitHandedBack}
+	case (UnitHandedBack, ActLand):
+		Enter[UnitStatus]{Next: UnitLanded}
+	case (UnitHandedBack, ActClose):
+		Enter[UnitStatus]{Next: UnitClosed}
+	case (UnitHandedBack, ActHandBack):
+		Reject
+	case (UnitLanded | UnitClosed, ActClaim | ActAdvanceRound | ActHandBack | ActLand | ActClose):
+		Reject
+	}
+}
+
+// HandBackRequiresClaim verifies that only a claimed unit can be handed back.
+law HandBackRequiresClaim(s UnitStatus) {
+	match StepUnit(s, ActHandBack) {
+	case Enter[UnitStatus]:
+		s == UnitClaimed
+	case Stay[UnitStatus]:
+		false
+	case Ignore, Reject:
+		s != UnitClaimed
+	}
+}
+
+// LandRequiresHandBack verifies that only a handed-back unit can be landed.
+law LandRequiresHandBack(s UnitStatus) {
+	match StepUnit(s, ActLand) {
+	case Enter[UnitStatus]:
+		s == UnitHandedBack
+	case Stay[UnitStatus]:
+		false
+	case Ignore, Reject:
+		s != UnitHandedBack
+	}
+}
+
+// FinalUnitTakesNoAction verifies that terminal unit statuses reject every action.
+law FinalUnitTakesNoAction(s UnitStatus, a UnitAction) {
+	if !UnitFinal(s) {
+		return true
+	}
+	match StepUnit(s, a) {
+	case Reject:
+		true
+	case Enter[UnitStatus], Stay[UnitStatus], Ignore:
+		false
+	}
+}
+
+func unitCanClose(s UnitStatus) bool {
+	if UnitFinal(s) {
+		return true
+	}
+	match machines.Next(s, StepUnit(s, ActClose)) {
+	case UnitClosed:
+		true
+	case UnitOpen, UnitClaimed, UnitHandedBack, UnitLanded:
+		false
+	}
+}
+
+func unitIsLanded(s UnitStatus) bool {
+	s == UnitLanded
+}
+
+// UnitLifecycle is the formal finite-state machine of one unit's status transitions.
+type UnitLifecycle machine[UnitStatus, UnitAction] {
+	initial: UnitOpen,
+	step:    StepUnit,
+
+	// AlwaysClosableUnlessFinal verifies every reachable non-final unit can still be closed.
+	law AlwaysClosableUnlessFinal always unitCanClose,
+
+	// ReachableLanding verifies a unit can progress from open to landed.
+	law ReachableLanding sometimes unitIsLanded,
+
+	// ReachableTerminal verifies a unit can reach a terminal state.
+	law ReachableTerminal sometimes UnitFinal,
+}
+
+// ActAnswer resolves an open question with an answer.
+type ActAnswer {}
+
+// ActWithdraw withdraws an open question without an answer.
+type ActWithdraw {}
+
+// QuestionAction is a lifecycle transition action on an async question.
+type QuestionAction = ActAnswer | ActWithdraw
+
+// QuestionFinal reports whether a question status is terminal.
+func QuestionFinal(s QuestionStatus) bool {
+	match s {
+	case QuestionAnswered, QuestionWithdrawn:
+		true
+	case QuestionOpen:
+		false
+	}
+}
+
+// StepQuestion is the pure question lifecycle transition function.
+func StepQuestion(s QuestionStatus, a QuestionAction) Decision[QuestionStatus, Never] {
+	match (s, a) {
+	case (QuestionOpen, ActAnswer):
+		Enter[QuestionStatus]{Next: QuestionAnswered}
+	case (QuestionOpen, ActWithdraw):
+		Enter[QuestionStatus]{Next: QuestionWithdrawn}
+	case (QuestionAnswered | QuestionWithdrawn, ActAnswer | ActWithdraw):
+		Reject
+	}
+}
+
+// FinalQuestionTakesNoAction verifies that answered or withdrawn questions reject every action.
+law FinalQuestionTakesNoAction(s QuestionStatus, a QuestionAction) {
+	if !QuestionFinal(s) {
+		return true
+	}
+	match StepQuestion(s, a) {
+	case Reject:
+		true
+	case Enter[QuestionStatus], Stay[QuestionStatus], Ignore:
+		false
+	}
+}
+
+func questionIsAnswered(s QuestionStatus) bool {
+	s == QuestionAnswered
+}
+
+func questionIsWithdrawn(s QuestionStatus) bool {
+	s == QuestionWithdrawn
+}
+
+// QuestionLifecycle is the formal finite-state machine of one question's status transitions.
+type QuestionLifecycle machine[QuestionStatus, QuestionAction] {
+	initial: QuestionOpen,
+	step:    StepQuestion,
+
+	// ReachableAnswered verifies an open question can be answered.
+	law ReachableAnswered sometimes questionIsAnswered,
+
+	// ReachableWithdrawn verifies an open question can be withdrawn.
+	law ReachableWithdrawn sometimes questionIsWithdrawn,
+}
