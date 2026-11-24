@@ -7,11 +7,14 @@ test PeerReplyKeepsTransportSeparate {
 	let read func(r Request, out Output) counterapi.Outcome fails rpc.Transport = Read
 	let add = counterapi.AddRequest{Entry: counter.Entry{Key: "abc", N: -3}}
 	let get = counterapi.GetRequest{Key: "abc"}
+	let unknown = Output{Out: "{\"_tag\":\"Unknown\",\"Key\":\"abc\"}\n", Err: "", Code: 1}
 	assert isTransport(read, add, Output{Out: "\"not an int\"\n", Err: "", Code: 0})
-	assert isTransport(read, add, Output{Out: "{\"_tag\":\"Unknown\",\"Key\":\"abc\"}\n", Err: "", Code: 1})
+	assert isTransport(read, add, unknown)
+	assert isTransport(read, add, Output{Out: "{\"_tag\":\"Negative\",\"N\":\"not an int\"}\n", Err: "", Code: 1})
 	assert isTransport(read, add, Output{Out: "{\"_tag\":\"Other\"}\n", Err: "", Code: 1})
 	assert isTransport(read, add, Output{Out: "", Err: "no answer\n", Code: 2})
 
+	assert hasOutcome(read, get, unknown, counterapi.Rejected{Failure: counterapi.Unknown{E: counter.Unknown{Key: "abc"}}})
 	assert hasOutcome(read, add, Output{Out: "{\"_tag\":\"Negative\",\"N\":-3}\n", Err: "", Code: 1},
 		counterapi.Rejected{Failure: counterapi.Negative{E: counter.Negative{N: -3}}})
 	assert hasOutcome(read, get, Output{Out: "3\n", Err: "", Code: 0},

@@ -936,453 +936,768 @@ func Show(o workapi.Outcome, asJSON bool, p Policy) Output {
 	}
 }
 
-// Read is the outcome of r that the Output of Run with --json says: its
-// value's JSON on standard output with status 0, or its failure's tagged
-// JSON with status 1. Any other Output is not an answer to r, a defect.
-func Read(r Request, out Output) workapi.Outcome {
+// Read is the outcome of r that the Output of Run with --json and its
+// default status policy says: its value's JSON on standard output with
+// status 0, or an admitted failure's tagged JSON with status 1. Invalid
+// or missing replies fail Transport, outside the operation's own row.
+func Read(r Request, out Output) workapi.Outcome fails rpc.Transport {
 	let text = strings.TrimSuffix(out.Out, "\n")
 	if out.Code == 0 {
 		match r {
 		case workapi.VersionRequest:
-			let v = rpc.Decode[string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Version with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[string]("value", text)
 			workapi.Done{Reply: workapi.VersionReply{Value: v}}
 		case workapi.InitRequest:
-			let v = rpc.Decode[string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Init with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[string]("value", text)
 			workapi.Done{Reply: workapi.InitReply{Value: v}}
 		case workapi.NewRequest:
-			let v = rpc.Decode[work.Created]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered New with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Created]("value", text)
 			workapi.Done{Reply: workapi.NewReply{Value: v}}
 		case workapi.AdoptRequest:
-			let v = rpc.Decode[work.Workspace]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Adopt with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Workspace]("value", text)
 			workapi.Done{Reply: workapi.AdoptReply{Value: v}}
 		case workapi.AdoptRiftRequest:
-			let v = rpc.Decode[work.RiftAdopted]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered AdoptRift with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.RiftAdopted]("value", text)
 			workapi.Done{Reply: workapi.AdoptRiftReply{Value: v}}
 		case workapi.ListRequest:
-			let v = rpc.Decode[[]work.Listed]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered List with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[[]work.Listed]("value", text)
 			workapi.Done{Reply: workapi.ListReply{Value: v}}
 		case workapi.RmRequest:
-			let v = rpc.Decode[[]work.Removed]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Rm with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[[]work.Removed]("value", text)
 			workapi.Done{Reply: workapi.RmReply{Value: v}}
 		case workapi.GcRequest:
-			let v = rpc.Decode[work.Collected]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Gc with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Collected]("value", text)
 			workapi.Done{Reply: workapi.GcReply{Value: v}}
 		case workapi.PinRequest:
-			let v = rpc.Decode[work.Workspace]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Pin with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Workspace]("value", text)
 			workapi.Done{Reply: workapi.PinReply{Value: v}}
 		case workapi.UnpinRequest:
-			let v = rpc.Decode[work.Workspace]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Unpin with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Workspace]("value", text)
 			workapi.Done{Reply: workapi.UnpinReply{Value: v}}
 		case workapi.DuRequest:
-			let v = rpc.Decode[[]work.Space]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Du with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[[]work.Space]("value", text)
 			workapi.Done{Reply: workapi.DuReply{Value: v}}
 		case workapi.ReadyRequest:
-			let v = rpc.Decode[work.Handed]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Ready with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Handed]("value", text)
 			workapi.Done{Reply: workapi.ReadyReply{Value: v}}
 		case workapi.RecordRequest:
-			let v = rpc.Decode[work.LaneRecord]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Record with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.LaneRecord]("value", text)
 			workapi.Done{Reply: workapi.RecordReply{Value: v}}
 		case workapi.SyncRequest:
-			let v = rpc.Decode[work.Synced]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Sync with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Synced]("value", text)
 			workapi.Done{Reply: workapi.SyncReply{Value: v}}
 		case workapi.EnvRequest:
-			let v = rpc.Decode[string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Env with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[string]("value", text)
 			workapi.Done{Reply: workapi.EnvReply{Value: v}}
 		case workapi.MergeFileRequest:
-			let v = rpc.Decode[work.FileMerged]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered MergeFile with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.FileMerged]("value", text)
 			workapi.Done{Reply: workapi.MergeFileReply{Value: v}}
 		case workapi.MergeFoldersRequest:
-			let v = rpc.Decode[work.TreeMerged]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered MergeFolders with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.TreeMerged]("value", text)
 			workapi.Done{Reply: workapi.MergeFoldersReply{Value: v}}
 		case workapi.DeriveRequest:
-			let v = rpc.Decode[work.Derived]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Derive with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Derived]("value", text)
 			workapi.Done{Reply: workapi.DeriveReply{Value: v}}
 		case workapi.DepsRequest:
-			let v = rpc.Decode[work.DepsDone]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Deps with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.DepsDone]("value", text)
 			workapi.Done{Reply: workapi.DepsReply{Value: v}}
 		case workapi.TrustRequest:
-			let v = rpc.Decode[work.Trusted]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Trust with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Trusted]("value", text)
 			workapi.Done{Reply: workapi.TrustReply{Value: v}}
 		case workapi.DoctorRequest:
-			let v = rpc.Decode[work.Report]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Doctor with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.Report]("value", text)
 			workapi.Done{Reply: workapi.DoctorReply{Value: v}}
 		case workapi.PluginTestRequest:
-			let v = rpc.Decode[work.PluginAdmitted]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered PluginTest with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.PluginAdmitted]("value", text)
 			workapi.Done{Reply: workapi.PluginTestReply{Value: v}}
 		case workapi.RefreshRequest:
-			let v = rpc.Decode[int]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Refresh with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[int]("value", text)
 			workapi.Done{Reply: workapi.RefreshReply{Value: v}}
 		case workapi.CloneRequest:
-			let v = rpc.Decode[work.TreeCloned]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Clone with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[work.TreeCloned]("value", text)
 			workapi.Done{Reply: workapi.CloneReply{Value: v}}
 		case workapi.BasesRequest:
-			let v = rpc.Decode[[]string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Bases with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[[]string]("value", text)
 			workapi.Done{Reply: workapi.BasesReply{Value: v}}
 		case workapi.ForgetBaseRequest:
-			let v = rpc.Decode[[]string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered ForgetBase with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[[]string]("value", text)
 			workapi.Done{Reply: workapi.ForgetBaseReply{Value: v}}
 		case workapi.PruneBasesRequest:
-			let v = rpc.Decode[[]string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered PruneBases with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[[]string]("value", text)
 			workapi.Done{Reply: workapi.PruneBasesReply{Value: v}}
 		case workapi.ShellInitRequest:
-			let v = rpc.Decode[string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered ShellInit with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[string]("value", text)
 			workapi.Done{Reply: workapi.ShellInitReply{Value: v}}
 		case workapi.ImportRiftRequest:
-			let v = rpc.Decode[string]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered ImportRift with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[string]("value", text)
 			workapi.Done{Reply: workapi.ImportRiftReply{Value: v}}
 		}
 	} else if out.Code == 1 {
-		match rpc.TagOf(text) {
-		case "Unkept":
-			let e = rpc.Decode[work.Unkept]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		match r {
+		case workapi.VersionRequest:
+			return rpc.Transport{Reason: "the command line answered Version with an undeclared failure: " + text}
+		case workapi.InitRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "Denied":
+				let e = try rpc.Decode[fs.Denied]("failure", text)
+				workapi.Rejected{Failure: workapi.Denied{E: e}}
+			case "Failed":
+				let e = try rpc.Decode[fs.Failed]("failure", text)
+				workapi.Rejected{Failure: workapi.Failed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Init with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Unkept{E: e}}
-		case "BadConfig":
-			let e = rpc.Decode[work.BadConfig]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.NewRequest:
+			match rpc.TagOf(text) {
+			case "HookFailed":
+				let e = try rpc.Decode[work.HookFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.HookFailed{E: e}}
+			case "Missing":
+				let e = try rpc.Decode[work.Missing]("failure", text)
+				workapi.Rejected{Failure: workapi.Missing{E: e}}
+			case "CloneFailed":
+				let e = try rpc.Decode[work.CloneFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "BadName":
+				let e = try rpc.Decode[work.BadName]("failure", text)
+				workapi.Rejected{Failure: workapi.BadName{E: e}}
+			case "NameTaken":
+				let e = try rpc.Decode[work.NameTaken]("failure", text)
+				workapi.Rejected{Failure: workapi.NameTaken{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "NoRevision":
+				let e = try rpc.Decode[work.NoRevision]("failure", text)
+				workapi.Rejected{Failure: workapi.NoRevision{E: e}}
+			case "Diverged":
+				let e = try rpc.Decode[work.Diverged]("failure", text)
+				workapi.Rejected{Failure: workapi.Diverged{E: e}}
+			case "CopyRefused":
+				let e = try rpc.Decode[work.CopyRefused]("failure", text)
+				workapi.Rejected{Failure: workapi.CopyRefused{E: e}}
+			case "NotSameVolume":
+				let e = try rpc.Decode[work.NotSameVolume]("failure", text)
+				workapi.Rejected{Failure: workapi.NotSameVolume{E: e}}
+			case "Unsupported":
+				let e = try rpc.Decode[work.Unsupported]("failure", text)
+				workapi.Rejected{Failure: workapi.Unsupported{E: e}}
+			case "Exists":
+				let e = try rpc.Decode[work.Exists]("failure", text)
+				workapi.Rejected{Failure: workapi.Exists{E: e}}
+			case "NoSpace":
+				let e = try rpc.Decode[work.NoSpace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoSpace{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "Busy":
+				let e = try rpc.Decode[work.Busy]("failure", text)
+				workapi.Rejected{Failure: workapi.Busy{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered New with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.BadConfig{E: e}}
-		case "Denied":
-			let e = rpc.Decode[fs.Denied]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.AdoptRequest:
+			match rpc.TagOf(text) {
+			case "Missing":
+				let e = try rpc.Decode[work.Missing]("failure", text)
+				workapi.Rejected{Failure: workapi.Missing{E: e}}
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "BadName":
+				let e = try rpc.Decode[work.BadName]("failure", text)
+				workapi.Rejected{Failure: workapi.BadName{E: e}}
+			case "NameTaken":
+				let e = try rpc.Decode[work.NameTaken]("failure", text)
+				workapi.Rejected{Failure: workapi.NameTaken{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Adopt with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Denied{E: e}}
-		case "Failed":
-			let e = rpc.Decode[fs.Failed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.AdoptRiftRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "RiftUnread":
+				let e = try rpc.Decode[work.RiftUnread]("failure", text)
+				workapi.Rejected{Failure: workapi.RiftUnread{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered AdoptRift with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Failed{E: e}}
-		case "HookFailed":
-			let e = rpc.Decode[work.HookFailed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.ListRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered List with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.HookFailed{E: e}}
-		case "Missing":
-			let e = rpc.Decode[work.Missing]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.RmRequest:
+			match rpc.TagOf(text) {
+			case "HookFailed":
+				let e = try rpc.Decode[work.HookFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.HookFailed{E: e}}
+			case "Missing":
+				let e = try rpc.Decode[work.Missing]("failure", text)
+				workapi.Rejected{Failure: workapi.Missing{E: e}}
+			case "CloneFailed":
+				let e = try rpc.Decode[work.CloneFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "Exists":
+				let e = try rpc.Decode[work.Exists]("failure", text)
+				workapi.Rejected{Failure: workapi.Exists{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "Busy":
+				let e = try rpc.Decode[work.Busy]("failure", text)
+				workapi.Rejected{Failure: workapi.Busy{E: e}}
+			case "NotHeld":
+				let e = try rpc.Decode[work.NotHeld]("failure", text)
+				workapi.Rejected{Failure: workapi.NotHeld{E: e}}
+			case "IdMismatch":
+				let e = try rpc.Decode[work.IdMismatch]("failure", text)
+				workapi.Rejected{Failure: workapi.IdMismatch{E: e}}
+			case "HasDescendants":
+				let e = try rpc.Decode[work.HasDescendants]("failure", text)
+				workapi.Rejected{Failure: workapi.HasDescendants{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Rm with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Missing{E: e}}
-		case "CloneFailed":
-			let e = rpc.Decode[work.CloneFailed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.GcRequest:
+			match rpc.TagOf(text) {
+			case "HookFailed":
+				let e = try rpc.Decode[work.HookFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.HookFailed{E: e}}
+			case "Missing":
+				let e = try rpc.Decode[work.Missing]("failure", text)
+				workapi.Rejected{Failure: workapi.Missing{E: e}}
+			case "CloneFailed":
+				let e = try rpc.Decode[work.CloneFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "Exists":
+				let e = try rpc.Decode[work.Exists]("failure", text)
+				workapi.Rejected{Failure: workapi.Exists{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "BadAge":
+				let e = try rpc.Decode[work.BadAge]("failure", text)
+				workapi.Rejected{Failure: workapi.BadAge{E: e}}
+			case "BadRequest":
+				let e = try rpc.Decode[work.BadRequest]("failure", text)
+				workapi.Rejected{Failure: workapi.BadRequest{E: e}}
+			case "GcFailed":
+				let e = try rpc.Decode[work.GcFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.GcFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Gc with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
-		case "Locked":
-			let e = rpc.Decode[work.Locked]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.PinRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Pin with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Locked{E: e}}
-		case "NoBase":
-			let e = rpc.Decode[work.NoBase]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.UnpinRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Unpin with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.NoBase{E: e}}
-		case "BadName":
-			let e = rpc.Decode[work.BadName]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.DuRequest:
+			match rpc.TagOf(text) {
+			case "Missing":
+				let e = try rpc.Decode[work.Missing]("failure", text)
+				workapi.Rejected{Failure: workapi.Missing{E: e}}
+			case "CloneFailed":
+				let e = try rpc.Decode[work.CloneFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "Unsupported":
+				let e = try rpc.Decode[work.Unsupported]("failure", text)
+				workapi.Rejected{Failure: workapi.Unsupported{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Du with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.BadName{E: e}}
-		case "NameTaken":
-			let e = rpc.Decode[work.NameTaken]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.ReadyRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "Busy":
+				let e = try rpc.Decode[work.Busy]("failure", text)
+				workapi.Rejected{Failure: workapi.Busy{E: e}}
+			case "BadRequest":
+				let e = try rpc.Decode[work.BadRequest]("failure", text)
+				workapi.Rejected{Failure: workapi.BadRequest{E: e}}
+			case "NotHere":
+				let e = try rpc.Decode[work.NotHere]("failure", text)
+				workapi.Rejected{Failure: workapi.NotHere{E: e}}
+			case "Detached":
+				let e = try rpc.Decode[work.Detached]("failure", text)
+				workapi.Rejected{Failure: workapi.Detached{E: e}}
+			case "NotFastForward":
+				let e = try rpc.Decode[work.NotFastForward]("failure", text)
+				workapi.Rejected{Failure: workapi.NotFastForward{E: e}}
+			case "Moved":
+				let e = try rpc.Decode[work.Moved]("failure", text)
+				workapi.Rejected{Failure: workapi.Moved{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Ready with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.NameTaken{E: e}}
-		case "NoWorkspace":
-			let e = rpc.Decode[work.NoWorkspace]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.RecordRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoRevision":
+				let e = try rpc.Decode[work.NoRevision]("failure", text)
+				workapi.Rejected{Failure: workapi.NoRevision{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "NoRecord":
+				let e = try rpc.Decode[work.NoRecord]("failure", text)
+				workapi.Rejected{Failure: workapi.NoRecord{E: e}}
+			case "BadRecord":
+				let e = try rpc.Decode[work.BadRecord]("failure", text)
+				workapi.Rejected{Failure: workapi.BadRecord{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Record with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
-		case "NoRevision":
-			let e = rpc.Decode[work.NoRevision]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.SyncRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "Busy":
+				let e = try rpc.Decode[work.Busy]("failure", text)
+				workapi.Rejected{Failure: workapi.Busy{E: e}}
+			case "NotHere":
+				let e = try rpc.Decode[work.NotHere]("failure", text)
+				workapi.Rejected{Failure: workapi.NotHere{E: e}}
+			case "Detached":
+				let e = try rpc.Decode[work.Detached]("failure", text)
+				workapi.Rejected{Failure: workapi.Detached{E: e}}
+			case "Dirty":
+				let e = try rpc.Decode[work.Dirty]("failure", text)
+				workapi.Rejected{Failure: workapi.Dirty{E: e}}
+			case "Conflicted":
+				let e = try rpc.Decode[work.Conflicted]("failure", text)
+				workapi.Rejected{Failure: workapi.Conflicted{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Sync with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.NoRevision{E: e}}
-		case "Diverged":
-			let e = rpc.Decode[work.Diverged]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.EnvRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "NotHere":
+				let e = try rpc.Decode[work.NotHere]("failure", text)
+				workapi.Rejected{Failure: workapi.NotHere{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Env with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Diverged{E: e}}
-		case "CopyRefused":
-			let e = rpc.Decode[work.CopyRefused]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.MergeFileRequest:
+			match rpc.TagOf(text) {
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "Denied":
+				let e = try rpc.Decode[fs.Denied]("failure", text)
+				workapi.Rejected{Failure: workapi.Denied{E: e}}
+			case "Failed":
+				let e = try rpc.Decode[fs.Failed]("failure", text)
+				workapi.Rejected{Failure: workapi.Failed{E: e}}
+			case "BadClass":
+				let e = try rpc.Decode[work.BadClass]("failure", text)
+				workapi.Rejected{Failure: workapi.BadClass{E: e}}
+			case "MergeConflict":
+				let e = try rpc.Decode[work.MergeConflict]("failure", text)
+				workapi.Rejected{Failure: workapi.MergeConflict{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[fs.NotFound]("failure", text)
+				workapi.Rejected{Failure: workapi.NotFound{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered MergeFile with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.CopyRefused{E: e}}
-		case "NotSameVolume":
-			let e = rpc.Decode[work.NotSameVolume]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.MergeFoldersRequest:
+			match rpc.TagOf(text) {
+			case "Untrusted":
+				let e = try rpc.Decode[work.Untrusted]("failure", text)
+				workapi.Rejected{Failure: workapi.Untrusted{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "Denied":
+				let e = try rpc.Decode[fs.Denied]("failure", text)
+				workapi.Rejected{Failure: workapi.Denied{E: e}}
+			case "Failed":
+				let e = try rpc.Decode[fs.Failed]("failure", text)
+				workapi.Rejected{Failure: workapi.Failed{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[fs.NotFound]("failure", text)
+				workapi.Rejected{Failure: workapi.NotFound{E: e}}
+			case "DeriveFailed":
+				let e = try rpc.Decode[work.DeriveFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.DeriveFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered MergeFolders with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.NotSameVolume{E: e}}
-		case "Unsupported":
-			let e = rpc.Decode[work.Unsupported]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.DeriveRequest:
+			match rpc.TagOf(text) {
+			case "Untrusted":
+				let e = try rpc.Decode[work.Untrusted]("failure", text)
+				workapi.Rejected{Failure: workapi.Untrusted{E: e}}
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "NotHere":
+				let e = try rpc.Decode[work.NotHere]("failure", text)
+				workapi.Rejected{Failure: workapi.NotHere{E: e}}
+			case "DeriveFailed":
+				let e = try rpc.Decode[work.DeriveFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.DeriveFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Derive with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Unsupported{E: e}}
-		case "Exists":
-			let e = rpc.Decode[work.Exists]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.DepsRequest:
+			match rpc.TagOf(text) {
+			case "Untrusted":
+				let e = try rpc.Decode[work.Untrusted]("failure", text)
+				workapi.Rejected{Failure: workapi.Untrusted{E: e}}
+			case "DepsFailed":
+				let e = try rpc.Decode[work.DepsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.DepsFailed{E: e}}
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NoWorkspace":
+				let e = try rpc.Decode[work.NoWorkspace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoWorkspace{E: e}}
+			case "NotHere":
+				let e = try rpc.Decode[work.NotHere]("failure", text)
+				workapi.Rejected{Failure: workapi.NotHere{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Deps with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Exists{E: e}}
-		case "NoSpace":
-			let e = rpc.Decode[work.NoSpace]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.TrustRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "Denied":
+				let e = try rpc.Decode[fs.Denied]("failure", text)
+				workapi.Rejected{Failure: workapi.Denied{E: e}}
+			case "Failed":
+				let e = try rpc.Decode[fs.Failed]("failure", text)
+				workapi.Rejected{Failure: workapi.Failed{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[fs.NotFound]("failure", text)
+				workapi.Rejected{Failure: workapi.NotFound{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Trust with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.NoSpace{E: e}}
-		case "VcsFailed":
-			let e = rpc.Decode[work.VcsFailed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.DoctorRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Locked":
+				let e = try rpc.Decode[work.Locked]("failure", text)
+				workapi.Rejected{Failure: workapi.Locked{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "RiftUnread":
+				let e = try rpc.Decode[work.RiftUnread]("failure", text)
+				workapi.Rejected{Failure: workapi.RiftUnread{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Doctor with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
-		case "Busy":
-			let e = rpc.Decode[work.Busy]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.PluginTestRequest:
+			match rpc.TagOf(text) {
+			case "Untrusted":
+				let e = try rpc.Decode[work.Untrusted]("failure", text)
+				workapi.Rejected{Failure: workapi.Untrusted{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case "PluginRefused":
+				let e = try rpc.Decode[work.PluginRefused]("failure", text)
+				workapi.Rejected{Failure: workapi.PluginRefused{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PluginTest with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.Busy{E: e}}
-		case "RiftUnread":
-			let e = rpc.Decode[work.RiftUnread]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.RefreshRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "NoBase":
+				let e = try rpc.Decode[work.NoBase]("failure", text)
+				workapi.Rejected{Failure: workapi.NoBase{E: e}}
+			case "VcsFailed":
+				let e = try rpc.Decode[work.VcsFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.VcsFailed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Refresh with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.RiftUnread{E: e}}
-		case "NotHeld":
-			let e = rpc.Decode[work.NotHeld]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.CloneRequest:
+			match rpc.TagOf(text) {
+			case "Missing":
+				let e = try rpc.Decode[work.Missing]("failure", text)
+				workapi.Rejected{Failure: workapi.Missing{E: e}}
+			case "CloneFailed":
+				let e = try rpc.Decode[work.CloneFailed]("failure", text)
+				workapi.Rejected{Failure: workapi.CloneFailed{E: e}}
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "Unsupported":
+				let e = try rpc.Decode[work.Unsupported]("failure", text)
+				workapi.Rejected{Failure: workapi.Unsupported{E: e}}
+			case "Exists":
+				let e = try rpc.Decode[work.Exists]("failure", text)
+				workapi.Rejected{Failure: workapi.Exists{E: e}}
+			case "NoSpace":
+				let e = try rpc.Decode[work.NoSpace]("failure", text)
+				workapi.Rejected{Failure: workapi.NoSpace{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Clone with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.NotHeld{E: e}}
-		case "IdMismatch":
-			let e = rpc.Decode[work.IdMismatch]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.BasesRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Bases with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.IdMismatch{E: e}}
-		case "HasDescendants":
-			let e = rpc.Decode[work.HasDescendants]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.ForgetBaseRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Denied":
+				let e = try rpc.Decode[fs.Denied]("failure", text)
+				workapi.Rejected{Failure: workapi.Denied{E: e}}
+			case "Failed":
+				let e = try rpc.Decode[fs.Failed]("failure", text)
+				workapi.Rejected{Failure: workapi.Failed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ForgetBase with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.HasDescendants{E: e}}
-		case "BadAge":
-			let e = rpc.Decode[work.BadAge]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.PruneBasesRequest:
+			match rpc.TagOf(text) {
+			case "Unkept":
+				let e = try rpc.Decode[work.Unkept]("failure", text)
+				workapi.Rejected{Failure: workapi.Unkept{E: e}}
+			case "Denied":
+				let e = try rpc.Decode[fs.Denied]("failure", text)
+				workapi.Rejected{Failure: workapi.Denied{E: e}}
+			case "Failed":
+				let e = try rpc.Decode[fs.Failed]("failure", text)
+				workapi.Rejected{Failure: workapi.Failed{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered PruneBases with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.BadAge{E: e}}
-		case "BadRequest":
-			let e = rpc.Decode[work.BadRequest]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case workapi.ShellInitRequest:
+			return rpc.Transport{Reason: "the command line answered ShellInit with an undeclared failure: " + text}
+		case workapi.ImportRiftRequest:
+			match rpc.TagOf(text) {
+			case "BadConfig":
+				let e = try rpc.Decode[work.BadConfig]("failure", text)
+				workapi.Rejected{Failure: workapi.BadConfig{E: e}}
+			case "Denied":
+				let e = try rpc.Decode[fs.Denied]("failure", text)
+				workapi.Rejected{Failure: workapi.Denied{E: e}}
+			case "Failed":
+				let e = try rpc.Decode[fs.Failed]("failure", text)
+				workapi.Rejected{Failure: workapi.Failed{E: e}}
+			case "NotFound":
+				let e = try rpc.Decode[fs.NotFound]("failure", text)
+				workapi.Rejected{Failure: workapi.NotFound{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered ImportRift with an undeclared failure: " + text}
 			}
-			workapi.Rejected{Failure: workapi.BadRequest{E: e}}
-		case "GcFailed":
-			let e = rpc.Decode[work.GcFailed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.GcFailed{E: e}}
-		case "NotHere":
-			let e = rpc.Decode[work.NotHere]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.NotHere{E: e}}
-		case "Detached":
-			let e = rpc.Decode[work.Detached]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.Detached{E: e}}
-		case "NotFastForward":
-			let e = rpc.Decode[work.NotFastForward]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.NotFastForward{E: e}}
-		case "Moved":
-			let e = rpc.Decode[work.Moved]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.Moved{E: e}}
-		case "NoRecord":
-			let e = rpc.Decode[work.NoRecord]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.NoRecord{E: e}}
-		case "BadRecord":
-			let e = rpc.Decode[work.BadRecord]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.BadRecord{E: e}}
-		case "Dirty":
-			let e = rpc.Decode[work.Dirty]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.Dirty{E: e}}
-		case "Conflicted":
-			let e = rpc.Decode[work.Conflicted]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.Conflicted{E: e}}
-		case "BadClass":
-			let e = rpc.Decode[work.BadClass]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.BadClass{E: e}}
-		case "MergeConflict":
-			let e = rpc.Decode[work.MergeConflict]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.MergeConflict{E: e}}
-		case "NotFound":
-			let e = rpc.Decode[fs.NotFound]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.NotFound{E: e}}
-		case "Untrusted":
-			let e = rpc.Decode[work.Untrusted]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.Untrusted{E: e}}
-		case "DeriveFailed":
-			let e = rpc.Decode[work.DeriveFailed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.DeriveFailed{E: e}}
-		case "DepsFailed":
-			let e = rpc.Decode[work.DepsFailed]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.DepsFailed{E: e}}
-		case "PluginRefused":
-			let e = rpc.Decode[work.PluginRefused]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
-			}
-			workapi.Rejected{Failure: workapi.PluginRefused{E: e}}
-		case _:
-			Unreachable("the command line answered a failure no operation has: " + text)
 		}
 	} else {
-		Unreachable("the command line answered status \(out.Code): " + out.Err)
+		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
 	}
 }
 
@@ -1480,23 +1795,23 @@ func Completion(shell api.Shell) string {
 	api.Completion("work", shell, []api.Entry{api.Entry{Name: workapi.Name(workapi.VersionOp), Doc: workapi.Doc(workapi.VersionOp)}, api.Entry{Name: workapi.Name(workapi.InitOp), Doc: workapi.Doc(workapi.InitOp)}, api.Entry{Name: workapi.Name(workapi.NewOp), Doc: workapi.Doc(workapi.NewOp)}, api.Entry{Name: workapi.Name(workapi.AdoptOp), Doc: workapi.Doc(workapi.AdoptOp)}, api.Entry{Name: workapi.Name(workapi.AdoptRiftOp), Doc: workapi.Doc(workapi.AdoptRiftOp)}, api.Entry{Name: workapi.Name(workapi.ListOp), Doc: workapi.Doc(workapi.ListOp)}, api.Entry{Name: workapi.Name(workapi.RmOp), Doc: workapi.Doc(workapi.RmOp)}, api.Entry{Name: workapi.Name(workapi.GcOp), Doc: workapi.Doc(workapi.GcOp)}, api.Entry{Name: workapi.Name(workapi.PinOp), Doc: workapi.Doc(workapi.PinOp)}, api.Entry{Name: workapi.Name(workapi.UnpinOp), Doc: workapi.Doc(workapi.UnpinOp)}, api.Entry{Name: workapi.Name(workapi.DuOp), Doc: workapi.Doc(workapi.DuOp)}, api.Entry{Name: workapi.Name(workapi.ReadyOp), Doc: workapi.Doc(workapi.ReadyOp)}, api.Entry{Name: workapi.Name(workapi.RecordOp), Doc: workapi.Doc(workapi.RecordOp)}, api.Entry{Name: workapi.Name(workapi.SyncOp), Doc: workapi.Doc(workapi.SyncOp)}, api.Entry{Name: workapi.Name(workapi.EnvOp), Doc: workapi.Doc(workapi.EnvOp)}, api.Entry{Name: workapi.Name(workapi.MergeFileOp), Doc: workapi.Doc(workapi.MergeFileOp)}, api.Entry{Name: workapi.Name(workapi.MergeFoldersOp), Doc: workapi.Doc(workapi.MergeFoldersOp)}, api.Entry{Name: workapi.Name(workapi.DeriveOp), Doc: workapi.Doc(workapi.DeriveOp)}, api.Entry{Name: workapi.Name(workapi.DepsOp), Doc: workapi.Doc(workapi.DepsOp)}, api.Entry{Name: workapi.Name(workapi.TrustOp), Doc: workapi.Doc(workapi.TrustOp)}, api.Entry{Name: workapi.Name(workapi.DoctorOp), Doc: workapi.Doc(workapi.DoctorOp)}, api.Entry{Name: workapi.Name(workapi.PluginTestOp), Doc: workapi.Doc(workapi.PluginTestOp)}, api.Entry{Name: workapi.Name(workapi.RefreshOp), Doc: workapi.Doc(workapi.RefreshOp)}, api.Entry{Name: workapi.Name(workapi.CloneOp), Doc: workapi.Doc(workapi.CloneOp)}, api.Entry{Name: workapi.Name(workapi.BasesOp), Doc: workapi.Doc(workapi.BasesOp)}, api.Entry{Name: workapi.Name(workapi.ForgetBaseOp), Doc: workapi.Doc(workapi.ForgetBaseOp)}, api.Entry{Name: workapi.Name(workapi.PruneBasesOp), Doc: workapi.Doc(workapi.PruneBasesOp)}, api.Entry{Name: workapi.Name(workapi.ShellInitOp), Doc: workapi.Doc(workapi.ShellInitOp)}, api.Entry{Name: workapi.Name(workapi.ImportRiftOp), Doc: workapi.Doc(workapi.ImportRiftOp)}})
 }
 
-func carry(c Request, answer func(c Request) workapi.Outcome) workapi.Outcome {
+// Wire is the command line as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, workapi.Outcome, rpc.Transport]
+
+// Carry prints c with --json, runs it against answer using the default
+// status policy, and reads back the reply. Delivery can fail separately
+// from answer's outcome.
+func Carry(w Wire, c Request, answer own func(c Request) workapi.Outcome) workapi.Outcome fails rpc.Transport {
 	let mut args = []string{"--json"}
 	for a in Print(c) {
 		args = args.Append(a)
 	}
-	Read(c, runOver(args, Defaults(), answer))
+	try Read(c, runOver(args, Defaults(), answer))
 }
-
-// Wire is the command line as a transport of the hub's calls.
-type Wire {} implements api.Transport[Request, workapi.Outcome]
-
-// Carry is carry.
-func Carry(w Wire, c Request, answer own func(c Request) workapi.Outcome) workapi.Outcome { carry(c, answer) }
 
 // Agrees: the command line carries every call and every outcome the
 // call can have unchanged.
-law Agrees(r Request, g workapi.Given) { api.Agrees(Wire, r, workapi.OutcomeOf(r, g)) }
+law Agrees(r Request, g workapi.Given) { api.Agrees[Request, workapi.Outcome, rpc.Transport](Wire, r, workapi.OutcomeOf(r, g)) }
 
 // CodeIsThePolicy: a call's status is 0 for a value and the policy's
 // Code for a typed failure.

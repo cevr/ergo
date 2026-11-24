@@ -2,4 +2,4 @@ kind cli
 generator ergo gen cli
 subject clibench/counter.Counter
 contract sha256:5792144027580f0a19bee6b738889674c8f586fa72032869bd8042c096c18a99
-digest sha256:0b45bb4b3268c8fe20f4cfead21bdf57f269a183a3ef1ce941cea3755c1dc949
+digest sha256:7f63fdc0eb34005537743a7f9fcff0a3a617bcdc95029a4676c72f87c2148fa5

@@ -164,45 +164,42 @@ func Show(o counterapi.Outcome, asJSON bool, p Policy) Output {
 	}
 }
 
-// Read is the outcome of r that the Output of Run with --json says: its
-// value's JSON on standard output with status 0, or its failure's tagged
-// JSON with status 1. Any other Output is not an answer to r, a defect.
-func Read(r Request, out Output) counterapi.Outcome {
+// Read is the outcome of r that the Output of Run with --json and its
+// default status policy says: its value's JSON on standard output with
+// status 0, or an admitted failure's tagged JSON with status 1. Invalid
+// or missing replies fail Transport, outside the operation's own row.
+func Read(r Request, out Output) counterapi.Outcome fails rpc.Transport {
 	let text = strings.TrimSuffix(out.Out, "\n")
 	if out.Code == 0 {
 		match r {
 		case counterapi.AddRequest:
-			let v = rpc.Decode[int]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Add with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[int]("value", text)
 			counterapi.Done{Reply: counterapi.AddReply{Value: v}}
 		case counterapi.GetRequest:
-			let v = rpc.Decode[int]("value", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered Get with a value it cannot read: " + t.Reason)
-			}
+			let v = try rpc.Decode[int]("value", text)
 			counterapi.Done{Reply: counterapi.GetReply{Value: v}}
 		}
 	} else if out.Code == 1 {
-		match rpc.TagOf(text) {
-		case "Negative":
-			let e = rpc.Decode[counter.Negative]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		match r {
+		case counterapi.AddRequest:
+			match rpc.TagOf(text) {
+			case "Negative":
+				let e = try rpc.Decode[counter.Negative]("failure", text)
+				counterapi.Rejected{Failure: counterapi.Negative{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Add with an undeclared failure: " + text}
 			}
-			counterapi.Rejected{Failure: counterapi.Negative{E: e}}
-		case "Unknown":
-			let e = rpc.Decode[counter.Unknown]("failure", text) catch {
-			case rpc.Transport as t:
-				Unreachable("the command line answered a failure it cannot read: " + t.Reason)
+		case counterapi.GetRequest:
+			match rpc.TagOf(text) {
+			case "Unknown":
+				let e = try rpc.Decode[counter.Unknown]("failure", text)
+				counterapi.Rejected{Failure: counterapi.Unknown{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the command line answered Get with an undeclared failure: " + text}
 			}
-			counterapi.Rejected{Failure: counterapi.Unknown{E: e}}
-		case _:
-			Unreachable("the command line answered a failure no operation has: " + text)
 		}
 	} else {
-		Unreachable("the command line answered status \(out.Code): " + out.Err)
+		return rpc.Transport{Reason: "the command line answered status \(out.Code): " + out.Err}
 	}
 }
 
@@ -300,23 +297,23 @@ func Completion(shell api.Shell) string {
 	api.Completion("counter", shell, []api.Entry{api.Entry{Name: counterapi.Name(counterapi.AddOp), Doc: counterapi.Doc(counterapi.AddOp)}, api.Entry{Name: counterapi.Name(counterapi.GetOp), Doc: counterapi.Doc(counterapi.GetOp)}})
 }
 
-func carry(c Request, answer func(c Request) counterapi.Outcome) counterapi.Outcome {
+// Wire is the command line as a transport of the hub's calls.
+type Wire {} implements api.Transport[Request, counterapi.Outcome, rpc.Transport]
+
+// Carry prints c with --json, runs it against answer using the default
+// status policy, and reads back the reply. Delivery can fail separately
+// from answer's outcome.
+func Carry(w Wire, c Request, answer own func(c Request) counterapi.Outcome) counterapi.Outcome fails rpc.Transport {
 	let mut args = []string{"--json"}
 	for a in Print(c) {
 		args = args.Append(a)
 	}
-	Read(c, runOver(args, Defaults(), answer))
+	try Read(c, runOver(args, Defaults(), answer))
 }
-
-// Wire is the command line as a transport of the hub's calls.
-type Wire {} implements api.Transport[Request, counterapi.Outcome]
-
-// Carry is carry.
-func Carry(w Wire, c Request, answer own func(c Request) counterapi.Outcome) counterapi.Outcome { carry(c, answer) }
 
 // Agrees: the command line carries every call and every outcome the
 // call can have unchanged.
-law Agrees(r Request, g counterapi.Given) { api.Agrees(Wire, r, counterapi.OutcomeOf(r, g)) }
+law Agrees(r Request, g counterapi.Given) { api.Agrees[Request, counterapi.Outcome, rpc.Transport](Wire, r, counterapi.OutcomeOf(r, g)) }
 
 // CodeIsThePolicy: a call's status is 0 for a value and the policy's
 // Code for a typed failure.
