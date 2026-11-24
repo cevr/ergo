@@ -218,12 +218,22 @@ func (c *ergoChecker) imported(p ergoPos, path string) *types2.Package {
 	return nil
 }
 
-// typeExpr is a type expression of t, for a conversion's function: a name
-// of the universe or of the package, or a qualified name.
+// typeExpr spells a type for a conversion, assertion, or type-switch case.
 func (c *ergoChecker) typeExpr(p ergoPos, t types2.Type) syntax.Expr {
 	pos := c.pos(p)
 	var obj *types2.TypeName
 	switch t := t.(type) {
+	case *types2.Pointer:
+		elem := c.typeExpr(p, t.Elem())
+		if elem == nil {
+			return nil
+		}
+		x := &syntax.Operation{Op: syntax.Mul, X: elem}
+		x.SetPos(pos)
+		tv := syntax.TypeAndValue{Type: t}
+		tv.SetIsType()
+		x.SetTypeInfo(tv)
+		return x
 	case *types2.Basic:
 		obj, _ = types2.Universe.Lookup(t.Name()).(*types2.TypeName)
 	case *types2.Named:

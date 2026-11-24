@@ -94,6 +94,7 @@ type specCopy struct {
 	// bound is each type parameter's type argument, when the call names
 	// one with no type parameter of its own (scalar.go reads it).
 	bound map[*check.TypeParam]check.Type
+	claim *check.LawProvider
 	// inst spells the Go type arguments of a copy made by specAt, in f's
 	// type-parameter order: the one instance the copy is.
 	inst string

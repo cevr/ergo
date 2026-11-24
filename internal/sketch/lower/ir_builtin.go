@@ -15,8 +15,9 @@ import (
 //
 // The IR's form is one kind, "builtin", named by Go's builtin, which the
 // decoder checks and writes as Go's call of it (ergoir_builtin.go), so Go
-// sees its own ODELETE, OCOPY, OCLEAR, OMIN, OMAX and OCAP. append of one
-// element keeps F3's "append" kind, and len the "len" kind.
+// sees its own ODELETE, OCOPY, OCLEAR, OMIN, OMAX and OCAP. A spread
+// append uses "builtin"; append of one element keeps the "append" kind,
+// and len the "len" kind.
 //
 // Delete's value is the Map it wrote (check/builtin.go): a statement call
 // (m = m.Delete(k) in place, mapStore, or a call whose value is dropped)
@@ -30,11 +31,6 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 	list := x.Args
 	if c.Recv != nil {
 		list = append([]syntax.Expr{c.Recv}, list...)
-	}
-	if check.AppendSpreads(f) {
-		// The decoder admits append's string shape only (ergoir_builtin.go),
-		// so a bulk append (SL2) keeps its function's Go body.
-		irNo("bulk append (SL2) on the IR")
 	}
 	pre, args := b.operands(list) // ir_fail.go
 	if check.AppendsString(f) {
@@ -63,13 +59,15 @@ func (b *irBuilder) goBuiltinCall(x *syntax.CallExpr, c *check.Call, f *check.Fu
 		if len(args) != 2 {
 			irNo("append form")
 		}
-		if len(f.Sig.Params) == 2 {
-			if _, ok := underEqual(f.Sig.Params[1].Type).(*check.Slice); ok {
-				// slices.AppendAll is Go's append(xs, ys...), which the IR
-				// kind "append" (one element) and "builtin" append (a
-				// string's bytes) do not spell (toolchain/ir builtinExpr). (I22)
-				irNo("append of a slice's elements")
+		if check.AppendSpreads(f) {
+			// Go's append(xs, ys...): keep ys as lowered by operands.
+			// The value walk treats it as a read only when its elements
+			// hold no slice or Map (values.go).
+			e := &irExpr{K: "builtin", Pos: p, Name: name, Args: args}
+			if stmt {
+				return append(pre, &irStmt{K: "discard", Pos: p, X: e}), nil, false
 			}
+			return pre, e, false
 		}
 		return pre, &irExpr{K: "append", Pos: p, Args: args}, false
 	case "len":

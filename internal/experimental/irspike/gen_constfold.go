@@ -27,7 +27,7 @@ func GenerateConstFold(seed uint64) (string, bool) {
 	r := rand.New(rand.NewPCG(seed, seed^0x51ed270b2f3a9c4d))
 	g := &cfGen{r: r}
 	var b strings.Builder
-	b.WriteString("import code\nimport html\n\n")
+	b.WriteString("import code\nimport html\nimport json\nimport toml\n\n")
 	b.WriteString("type Circle { R int }\n\ntype Square { S int }\n\ntype Shape = Circle | Square\n\n")
 	b.WriteString("type Pt { X int, Y float64, Name string, Tags []string, On bool, Shape Shape }\n\n")
 	k := 1 + r.IntN(9)
@@ -36,6 +36,7 @@ func GenerateConstFold(seed uint64) (string, bool) {
 	fmt.Fprintf(&b, "func pt(k int, name string) Pt {\n\tlet mut tags = []string{name}\n\tfor i in 0..k %% 4 {\n\t\ttags = tags.Append(\"t\\(i)\")\n\t}\n\tPt{X: k * %d, Y: float64(k) / 4.0, Name: name + \"!\", Tags: tags, On: k > 3, Shape: mk(k)}\n}\n\n", k)
 	b.WriteString("func show(p Pt) string {\n\tlet mut s = \"\\(p.X) \\(p.Y) \\(p.Name) \\(p.On) \\(area(p.Shape))\"\n\tfor t in p.Tags {\n\t\ts = s + \",\" + t\n\t}\n\ts\n}\n\n")
 	b.WriteString("func pick(xs []int, i int) int { xs[i] }\n\n")
+	b.WriteString(foldRowDecls)
 	// Impure calls inside list and record literals (the IR's spill):
 	// noisy prints, so the order of the elements' calls is in the output.
 	b.WriteString("func noisy(n int) int needs Console {\n\tConsole.Println(\"noisy \\(n)\")\n\tn\n}\n\n")
@@ -53,6 +54,7 @@ func GenerateConstFold(seed uint64) (string, bool) {
 		fmt.Fprintf(&b, "func dyn%d(s string, xs []string) html.Node {\n\t%s\n}\n\n", i, g.tree(3, true))
 	}
 	b.WriteString("func main() needs Console {\n")
+	writeFoldRowCases(&b, r)
 	for i := 0; i < pages; i++ {
 		fmt.Fprintf(&b, "\tConsole.Println(html.Render(static%d()))\n", i)
 		fmt.Fprintf(&b, "\tConsole.Println(html.Render(%s))\n", g.tree(2, false))
@@ -79,6 +81,72 @@ func GenerateConstFold(seed uint64) (string, bool) {
 	fmt.Fprintf(&b, "\tConsole.Println(\"\\(pick([]int{4, 5, 6}, %d))\")\n", idx)
 	b.WriteString("}\n")
 	return b.String(), defect
+}
+
+const foldRowDecls = `type FoldNumber { N int }
+type FoldWord { Word string }
+type FoldRow = FoldNumber | FoldWord
+
+func foldRowLabel(row FoldRow) string {
+	match row {
+	case FoldNumber as n:
+		"number \(n.N)"
+	case FoldWord as w:
+		"word \(w.Word)"
+	}
+}
+
+func foldRowJSON(text string) string {
+	let v = json.Decode(json.Codec[FoldNumber | FoldWord]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case WireUnknownTag as e:
+		return "json tag \(e.Tag)"
+	case _:
+		return "json failure"
+	}
+	foldRowLabel(v)
+}
+
+func foldRowTOML(text string) string {
+	let v = toml.Decode(json.Codec[FoldNumber | FoldWord]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case WireUnknownTag as e:
+		return "toml tag \(e.Tag)"
+	case _:
+		return "toml failure"
+	}
+	foldRowLabel(v)
+}
+
+func foldRowForward[T](x T, stop bool) T fails FoldNumber {
+	if stop {
+		return FoldNumber{N: -1}
+	}
+	return x
+}
+
+func foldRowGeneric(n int, stop bool) string {
+	let v = foldRowForward(FoldNumber{N: n}, stop) catch {
+	case FoldNumber as f:
+		return "caught \(f.N)"
+	}
+	"returned \(v.N)"
+}
+
+`
+
+func writeFoldRowCases(b *strings.Builder, r *rand.Rand) {
+	n := r.IntN(2001) - 1000
+	word := fmt.Sprintf("maple-%d", r.IntN(1000))
+	for _, row := range []struct{ call, text string }{
+		{"foldRowJSON", fmt.Sprintf(`{"_tag":"FoldNumber","n":%d}`, n)},
+		{"foldRowJSON", fmt.Sprintf(`{"word":%q,"_tag":"FoldWord"}`, word)},
+		{"foldRowJSON", `{"_tag":"Foreign"}`},
+		{"foldRowTOML", fmt.Sprintf("_tag = \"FoldNumber\"\nn = %d\n", n)},
+		{"foldRowTOML", fmt.Sprintf("_tag = \"FoldWord\"\nword = %q\n", word)},
+		{"foldRowTOML", "_tag = \"Foreign\"\n"},
+	} {
+		fmt.Fprintf(b, "\tConsole.Println(%s(%s))\n", row.call, strconv.Quote(row.text))
+	}
+	fmt.Fprintf(b, "\tConsole.Println(foldRowGeneric(%d, false))\n\tConsole.Println(foldRowGeneric(%d, true))\n", n, n)
 }
 
 // cfGen writes GenerateConstFold's page trees.

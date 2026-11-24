@@ -1,0 +1,5 @@
+# Reads the same input as omittable, through a generic record's witness.
+unit read
+sizes 20000 120000
+args bench generic {n}
+control benchmarks/wirereaders/testdata/control

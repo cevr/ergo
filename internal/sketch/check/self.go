@@ -8,8 +8,12 @@ import (
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
+// isSelfName recognizes the contextual spelling; the caller still decides
+// whether the spelling is shadowed in its scope.
+func isSelfName(name string) bool { return name == "Self" }
+
 func (c *checker) isContextualSelf(name string, ctx *typeCtx) bool {
-	return name == "Self" && ctx != nil && ctx.self != nil && ctx.params[name] == nil
+	return isSelfName(name) && ctx != nil && ctx.self != nil && ctx.params[name] == nil
 }
 
 func (c *checker) selfType(at syntax.Expr, args []syntax.Expr, ctx *typeCtx) Type {
@@ -65,7 +69,7 @@ func (c *checker) lawsMentionSelf(spec *syntax.InterfaceType, owner *Named) bool
 // lawSelfSites records declaration-time use, before law bodies are checked:
 // 1 names contextual Self, and 2 re-applies it.
 func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
-	if owner == nil || slices.ContainsFunc(owner.TParams, func(p *TypeParam) bool { return p.Name == "Self" }) {
+	if owner == nil || slices.ContainsFunc(owner.TParams, func(p *TypeParam) bool { return isSelfName(p.Name) }) {
 		return 0
 	}
 	sites := 0
@@ -73,7 +77,7 @@ func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
 		shadowed := false
 		if law.TypeParams != nil {
 			for _, f := range law.TypeParams.List {
-				if slices.ContainsFunc(f.Names, func(id *syntax.Ident) bool { return id.Name == "Self" }) {
+				if slices.ContainsFunc(f.Names, func(id *syntax.Ident) bool { return isSelfName(id.Name) }) {
 					shadowed = true
 					break
 				}
@@ -84,12 +88,12 @@ func lawSelfSites(spec *syntax.InterfaceType, owner *Named) int {
 		}
 		w := typeWalker{
 			f: func(id *syntax.Ident, _ Kind) {
-				if id.Name == "Self" {
+				if isSelfName(id.Name) {
 					sites = max(sites, 1)
 				}
 			},
 			index: func(ix *syntax.IndexExpr) bool {
-				if id, ok := unparen(ix.X).(*syntax.Ident); ok && id.Name == "Self" {
+				if id, ok := unparen(ix.X).(*syntax.Ident); ok && isSelfName(id.Name) {
 					sites = 2
 				}
 				return false
@@ -203,18 +207,19 @@ func (c *checker) claimSubst(claimant, op *Named) (map[*TypeParam]Type, selfRead
 	if why != "" {
 		return nil, nil, why
 	}
+	m, read := c.claimSubstAt(claimant, claim)
+	return m, read, ""
+}
+
+func (c *checker) claimSubstAt(claimant, claim *Named) (map[*TypeParam]Type, selfReader) {
 	actual := c.readClaim(claimant, claim)
-	m := paramMap(op.origin().TParams, actual.TArgs)
+	m := paramMap(claim.origin().TParams, actual.TArgs)
 	return m, func(s *SelfType, args []Type) Type {
 		if len(args) == 0 {
 			return claimant
 		}
-		ownerClaim := c.selfClaim(actual, s.owner)
-		if ownerClaim == nil {
-			return invalid
-		}
-		template, why := c.claimTemplate(claimant, ownerClaim)
-		if why != "" {
+		template := c.selfClaim(claim, s.owner)
+		if template == nil {
 			return invalid
 		}
 		positions, why := selfPositions(claimant, template)
@@ -222,7 +227,7 @@ func (c *checker) claimSubst(claimant, op *Named) (map[*TypeParam]Type, selfRead
 			return invalid
 		}
 		return c.replaceClaimArgs(claimant, positions, args)
-	}, ""
+	}
 }
 
 func (c *checker) selfClaim(op, owner *Named) *Named {
@@ -482,6 +487,33 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 	out := *base
 	out.Types = make(map[syntax.Expr]Type)
 	out.Calls = make(map[*syntax.CallExpr]*Call)
+	out.Tails = make(map[syntax.Stmt]Type)
+	out.Literals = make(map[syntax.Node]*Signature)
+	out.Instances = make(map[syntax.Expr]*Instance)
+	out.Implicit = make(map[syntax.Expr]Conversion)
+	out.ImplicitElems = make(map[syntax.Expr][]Conversion)
+	out.Patterns = make(map[syntax.Expr]*Pattern)
+	out.Matches = make(map[syntax.Node]*Match)
+	var pattern func(*Pattern) *Pattern
+	pattern = func(p *Pattern) *Pattern {
+		if p == nil {
+			return nil
+		}
+		next := *p
+		next.Type = read(p.Type)
+		next.Elems, next.Fields = slices.Clone(p.Elems), slices.Clone(p.Fields)
+		for i := range next.Elems {
+			next.Elems[i] = pattern(next.Elems[i])
+		}
+		for i := range next.Fields {
+			next.Fields[i].Pattern = pattern(next.Fields[i].Pattern)
+		}
+		return &next
+	}
+	conv := func(v Conversion) Conversion {
+		v.From, v.To = read(v.From), read(v.To)
+		return v
+	}
 	why := ""
 	syntax.Inspect(root, func(n syntax.Node) bool {
 		if why != "" {
@@ -491,6 +523,35 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 			if t := base.Types[x]; t != nil {
 				out.Types[x] = read(t)
 			}
+			if inst := base.Instances[x]; inst != nil {
+				copy := *inst
+				copy.TypeArgs = mapTypes(inst.TypeArgs, read)
+				out.Instances[x] = &copy
+			}
+			if v, ok := base.Implicit[x]; ok {
+				out.Implicit[x] = conv(v)
+			}
+			if vs := base.ImplicitElems[x]; len(vs) != 0 {
+				cp := make([]Conversion, len(vs))
+				for i, v := range vs {
+					cp[i] = conv(v)
+				}
+				out.ImplicitElems[x] = cp
+			}
+			if p := base.Patterns[x]; p != nil {
+				out.Patterns[x] = pattern(p)
+			}
+		}
+		if s, ok := n.(syntax.Stmt); ok && base.Tails[s] != nil {
+			out.Tails[s] = read(base.Tails[s])
+		}
+		if sig := base.Literals[n]; sig != nil {
+			out.Literals[n] = read(sig).(*Signature)
+		}
+		if m := base.Matches[n]; m != nil {
+			cp := *m
+			cp.Subjects, cp.Result = mapTypes(m.Subjects, read), read(m.Result)
+			out.Matches[n] = &cp
 		}
 		x, ok := n.(*syntax.CallExpr)
 		if !ok || base.Calls[x] == nil {
@@ -517,7 +578,8 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 			if r, ok := recv.(*Reapplied); ok {
 				tp = r.Param
 			}
-			if tp != nil && ConstraintOnly(tp.Constraint) {
+			_, symbolicSelf := recv.(*SelfType)
+			if symbolicSelf || tp != nil && ConstraintOnly(tp.Constraint) {
 				self := read(recv)
 				f := ProvidingFunc(self, src.Op.Name)
 				if f == nil {
@@ -526,6 +588,9 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 				}
 				next.Kind, next.Func, next.Op = CallFunc, f, nil
 				next.TypeArgs = ProviderTypeArgs(self, f, next.TypeArgs)
+				if len(next.TypeArgs) != 0 {
+					out.Instances[x] = &Instance{Func: f, TypeArgs: next.TypeArgs}
+				}
 			}
 		}
 		out.Calls[x] = &next
@@ -536,7 +601,7 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 
 // SubstSelf reads a member law's types at a named claimant. It does not run
 // the law or look up the functions that provide its operations.
-func SubstSelf(law *Law, claimant *Named) (func(Type) Type, string) {
+func SubstSelf(law *Law, claimant *Named, projection ...*Named) (func(Type) Type, string) {
 	if law == nil || law.Owner == nil || claimant == nil || claimant.Obj == nil || claimant.Obj.Pkg == nil {
 		return nil, "Self needs a member law and a named claimant"
 	}
@@ -548,9 +613,16 @@ func SubstSelf(law *Law, claimant *Named) (func(Type) Type, string) {
 	lawSelfMu.Lock()
 	defer lawSelfMu.Unlock()
 	c := pkg.claimReader()
-	m, self, why := c.claimSubst(claimant, op)
-	if why != "" {
-		return nil, why
+	var m map[*TypeParam]Type
+	var self selfReader
+	if len(projection) == 1 && projection[0] != nil && projection[0].origin() == op {
+		m, self = c.claimSubstAt(claimant, projection[0])
+	} else {
+		var why string
+		m, self, why = c.claimSubst(claimant, op)
+		if why != "" {
+			return nil, why
+		}
 	}
 	for _, s := range law.selfUses {
 		if n, ok := c.substWith(s, m, self).(*Named); !ok {

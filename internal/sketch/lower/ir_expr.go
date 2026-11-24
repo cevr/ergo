@@ -299,6 +299,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 		b.goType(t, x)
 		return &irExpr{K: "deref", Pos: p, X: b.expr(x.X)}
 	case *syntax.SelectorExpr:
+		b.takeField(x, p) // ir_drop.go: a moved field leaves its owner's drop plan
 		if b.l.info.MethodValues[x] != nil {
 			// Outside a value position (valueOf takes the others,
 			// ir_methodvalue.go) there is no statement to spill the
@@ -520,6 +521,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if len(names) != len(s.Fields) {
 				b.omittedFields(lit, td, s, names, x, p)
 			}
+			return b.handRecordParts(values, lit) // ir_own.go
 		default:
 			irNo("literal of %T", t)
 		}
