@@ -51,7 +51,7 @@ var orderForms = sync.OnceValue(func() []orderForm {
 		{"catch arm whose value is an if", 9, map[string]int{"try9": 1, "try9loop": 1}},
 		{"positional record literal", 2, map[string]int{"calls2": 0}},
 		{"fallible call with an empty row", 2, map[string]int{"calls2": 1}},
-		{"call of gate", 7, map[string]int{"try7": 0}},
+		{"call of a unit fallible function", 7, map[string]int{"try7": 0}},
 		{"catch of a match", 9, map[string]int{"try9": 0}},
 		{"op-assignment of a value with statements", 3, map[string]int{"calls3": 0}},
 	}
@@ -110,9 +110,9 @@ func (g *fgen) orderDecls() {
 	// whose row is empty at the site (E is no failure), whose Go error the
 	// caller drops.
 	g.b.WriteString("func app[E](n int, f func(int) int fails E) int fails E {\n\treturn (try f(n)) + 1\n}\n\n")
-	// gate has no value and ends in branches, two of whose tails are an
-	// error value: each fails the frame there.
-	g.b.WriteString("func gate(n int) fails E1 needs Console {\n\tConsole.Println(\"gate \\(n)\")\n\tif n % 3 == 0 {\n\t\tE1{Code: n}\n\t} else if n % 3 == 1 {\n\t\tConsole.Println(\"gate one\")\n\t} else {\n\t\tif n > 4 {\n\t\t\tConsole.Println(\"gate two\")\n\t\t\tE1{Code: n + 100}\n\t\t} else {\n\t\t\tConsole.Println(\"gate small\")\n\t\t}\n\t}\n}\n\n")
+	// gateUnit has no result, unlike the shared generator's value-returning
+	// gate. Two branch tails are error values that fail this frame.
+	g.b.WriteString("func gateUnit(n int) fails E1 needs Console {\n\tConsole.Println(\"gate \\(n)\")\n\tif n % 3 == 0 {\n\t\tE1{Code: n}\n\t} else if n % 3 == 1 {\n\t\tConsole.Println(\"gate one\")\n\t} else {\n\t\tif n > 4 {\n\t\t\tConsole.Println(\"gate two\")\n\t\t\tE1{Code: n + 100}\n\t\t} else {\n\t\t\tConsole.Println(\"gate small\")\n\t\t}\n\t}\n}\n\n")
 	// settle is a machine step that gives no output: its result type
 	// holds the prelude's Never, and settled matches on it.
 	g.b.WriteString("func settle(n int) Decision[Pt, Never] {\n\tif n > 2 {\n\t\tEnter[Pt]{Next: Pt{A: n, B: 1}}\n\t} else if n < -2 {\n\t\tStay[Pt]{Next: Pt{A: 1, B: n}}\n\t} else if n == 0 {\n\t\tIgnore\n\t} else {\n\t\tReject\n\t}\n}\n\n")
@@ -241,7 +241,7 @@ func (g *fgen) tryStmt(in string, budget, k int) bool {
 	switch {
 	case k == 7 && f.fails("E1"):
 		if slices.Contains(f.needs, "Console") && g.sub("try7", 3) == 0 {
-			fmt.Fprintf(&g.b, "%stry gate(%s)\n", in, g.expr(1))
+			fmt.Fprintf(&g.b, "%stry gateUnit(%s)\n", in, g.expr(1))
 			return true
 		}
 		g.shown(in, fmt.Sprintf("try %s * 2 + %s", chk(), chk()))
