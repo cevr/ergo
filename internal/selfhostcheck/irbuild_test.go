@@ -329,11 +329,9 @@ func irSplitName(name string) string {
 	return irMethodExport.ReplaceAllString(irSplitExport.ReplaceAllString(name, "${1}"), ".${1}")
 }
 
-// irBaseFields gives each field the Go builder reads in fn its base name:
-// the split exports an unexported field two Go packages read (X + name),
-// a program-wide decision too; so are a record literal's keys, and its
-// type's export (irSplitName).
-func irBaseFields(fn *irFunc) {
+// irBaseFields removes program-wide spelling from the Go side. Literal
+// types and method calls undo only exports recorded by this build's split.
+func irBaseFields(fn *irFunc, originals map[string]string) {
 	var walk func(v reflect.Value)
 	walk = func(v reflect.Value) {
 		switch v.Kind() {
@@ -346,15 +344,25 @@ func irBaseFields(fn *irFunc) {
 				walk(v.Index(i))
 			}
 		case reflect.Struct:
-			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "field" {
-				e.Name = irBaseName(e.Name)
-			}
-			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "lit" {
-				// A literal's record type and keys (the type's Go name is
-				// the program's too: pkgName).
-				e.T = irSplitName(e.T)
-				for i, k := range e.Keys {
-					e.Keys[i] = irBaseName(k)
+			if e, ok := v.Addr().Interface().(*irExpr); ok {
+				switch e.K {
+				case "field":
+					e.Name = irBaseName(e.Name)
+				case "mcall":
+					if name, ok := originals[e.Name]; ok {
+						e.Name = name
+					}
+				case "lit":
+					elem := e.T
+					for strings.HasPrefix(elem, "[]") {
+						elem = elem[2:]
+					}
+					if name, ok := originals[elem]; ok {
+						e.T = e.T[:len(e.T)-len(elem)] + name
+					}
+					for i, k := range e.Keys {
+						e.Keys[i] = irBaseName(k)
+					}
 				}
 			}
 			for i := range v.NumField() {
@@ -363,6 +371,35 @@ func irBaseFields(fn *irFunc) {
 		}
 	}
 	walk(reflect.ValueOf(fn))
+}
+
+// TestIRAgreementKeepsUnrenamedOperands kills lower-agree-guess-split-export:
+// a difference in either operand is real unless that build exported it.
+func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
+	body := func(typ, member string) *irFunc {
+		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{
+			K: "mcall", Name: member, X: &irExpr{K: "lit", T: typ},
+		}}}}
+	}
+	want := body("[][]pkg__cell", "read")
+	exports := map[string]string{"XXpkg__cell": "pkg__cell", "Xread": "read"}
+	for _, tc := range []struct {
+		name, typ, member string
+		equal             bool
+	}{
+		{"proven exports", "[][]XXpkg__cell", "Xread", true},
+		{"real element difference", "[][]Xpkg__cell", "Xread", false},
+		{"real method difference", "[][]XXpkg__cell", "XXread", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := body(tc.typ, tc.member)
+			irBaseFields(got, exports)
+			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
+				call := got.Body[0].X
+				t.Errorf("normalized %s.%s, equality = %v, want %v", call.X.T, call.Name, equal, tc.equal)
+			}
+		})
+	}
 }
 
 // names is the names of the Go functions at k.
@@ -459,7 +496,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 		roots[filepath.Dir(pr.u.Sources[0].Path)] = true
 	}
 	for _, pr := range programs {
-		out, _, _, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
+		out, _, split, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
 		if err != nil && pr.tests {
 			// A test build the Go lowerer refuses (an internal compiler
 			// error of its own) has no IR to compare; it is logged.
@@ -468,6 +505,10 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 		}
 		if err != nil {
 			t.Fatalf("%s: %v", pr.module, err)
+		}
+		originals := make(map[string]string, len(split.IRExports))
+		for original, exported := range split.IRExports {
+			originals[exported] = original
 		}
 		module := pr.module
 		for _, file := range out {
@@ -493,7 +534,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 				}
 				raw := fn.Name
 				fn.Name = irSplitName(raw)
-				irBaseFields(fn)
+				irBaseFields(fn, originals)
 				data, err := json.Marshal(fn)
 				if err != nil {
 					t.Fatal(err)
