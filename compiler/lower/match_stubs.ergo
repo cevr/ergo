@@ -1,0 +1,29 @@
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+
+// A standalone CONTROL build keeps MATCH unsupported. UNION supplies
+// these implementations and the full arm and injection plan types.
+type matchArm { span controlSpan }
+type unionInjection {}
+
+func matchPrepare(_ mut fnb, _ mut controlPlan, _ syntax.TypeSwitchStmt, _ controlStmt, tail bool, _ int) (controlStmt, []matchArm) fails Unported {
+	stop(if tail { "statement form" } else { "statement form before the tail" })
+}
+
+func matchEmit(_ fnb, _ mut ir.Builder, _ controlPlan, _ controlStmt, _ []matchArm, _ []bool) []uint32 fails Unported | ir.Malformed {
+	stop("control: unprepared match")
+}
+
+func matchTerminates(s controlStmt) bool { s.second.terminates }
+
+func matchBoundField(_ fnb, _ dense.ID[syntax.Node], _ syntax.SelectorExpr) bool { false }
+
+func unionReturn(_ mut fnb, _ mut controlPlan, _ dense.ID[syntax.Node], _ dense.ID[store.TKey]) Option[unionInjection] fails Unported {
+	None
+}
+
+func unionEmitReturn(_ fnb, _ mut ir.Builder, _ unionInjection, _ ir.Pos) uint32 fails Unported | ir.Malformed {
+	stop("control: unprepared result injection")
+}

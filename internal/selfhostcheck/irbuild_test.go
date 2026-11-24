@@ -54,6 +54,9 @@ import (
 // split's X export (irSplitName) is compared under its unexported name;
 // that export is the program's, not the function's (NL-3).
 //
+// Set ERGO_IR_AGREE_STOPS to a receipt path to save this run's raw stop
+// lines (including duplicate sites), even if IR comparisons differ.
+//
 // It builds compiler/cmd/irdump and runs Go binaries because the Ergo
 // side is a whole compiled program over the corpus (as the other
 // agreement tests of this package); full tier only.
@@ -110,6 +113,8 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	reach := map[string]int{}
 	equal := map[irIdentity]struct{}{}
 	equalEvents, differEvents := 0, 0
+	stopPath := os.Getenv("ERGO_IR_AGREE_STOPS")
+	var stopLines strings.Builder
 	var files []string
 	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-corpus", m) {
 		kind, rest, _ := strings.Cut(l, " ")
@@ -120,6 +125,10 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			_, path, _ := strings.Cut(rest, " ")
 			files = append(files, path)
 		case "S":
+			if stopPath != "" {
+				stopLines.WriteString(l)
+				stopLines.WriteByte('\n')
+			}
 			f := strings.SplitN(rest, " ", 3)
 			if len(f) == 3 {
 				reach["stop: "+f[2]]++
@@ -173,6 +182,12 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			equalEvents++
 			delete(witnesses, irWitnessSite{filepath.Clean(f[0]), f[1], wants[i].name})
 		}
+	}
+	if stopPath != "" {
+		if err := os.WriteFile(stopPath, []byte(stopLines.String()), 0o644); err != nil {
+			t.Fatalf("write IR agreement stops: %v", err)
+		}
+		t.Logf("raw IR stop lines: %s", stopPath)
 	}
 	var lines []string
 	for cause, n := range reach {
@@ -312,6 +327,7 @@ func (x irGoIndex) functionCount() int {
 // Declarations' names follow NAME-LOCAL (S4c/naming.md) and compare
 // under irSplitName alone.
 var irProgramName = regexp.MustCompile(`^X+([a-z_])|_[0-9]+$|_[0-9]+(\.)`)
+var irCollisionSuffix = regexp.MustCompile(`_[0-9]+$`)
 
 var irMethodExport = regexp.MustCompile(`\.X+([a-z_])`)
 
@@ -329,11 +345,10 @@ func irSplitName(name string) string {
 	return irMethodExport.ReplaceAllString(irSplitExport.ReplaceAllString(name, "${1}"), ".${1}")
 }
 
-// irBaseFields gives each field the Go builder reads in fn its base name:
-// the split exports an unexported field two Go packages read (X + name),
-// a program-wide decision too; so are a record literal's keys, and its
-// type's export (irSplitName).
-func irBaseFields(fn *irFunc) {
+// irBaseFields removes program-wide spelling from the Go side. Field
+// and method exports come from this split; qualified type heads come
+// from this IR file's split declarations, never a host import.
+func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 	var walk func(v reflect.Value)
 	walk = func(v reflect.Value) {
 		switch v.Kind() {
@@ -346,15 +361,32 @@ func irBaseFields(fn *irFunc) {
 				walk(v.Index(i))
 			}
 		case reflect.Struct:
-			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "field" {
-				e.Name = irBaseName(e.Name)
-			}
-			if e, ok := v.Addr().Interface().(*irExpr); ok && e.K == "lit" {
-				// A literal's record type and keys (the type's Go name is
-				// the program's too: pkgName).
-				e.T = irSplitName(e.T)
-				for i, k := range e.Keys {
-					e.Keys[i] = irBaseName(k)
+			if e, ok := v.Addr().Interface().(*irExpr); ok {
+				switch e.K {
+				case "field":
+					if name, ok := originals[e.Name]; ok {
+						e.Name = name
+					}
+					e.Name = irCollisionSuffix.ReplaceAllString(e.Name, "")
+				case "mcall":
+					if name, ok := originals[e.Name]; ok {
+						e.Name = name
+					}
+				case "lit":
+					elem := e.T
+					for strings.HasPrefix(elem, "[]") {
+						elem = elem[2:]
+					}
+					if head, args, generic := strings.Cut(elem, "["); generic {
+						if name, ok := typeHeads[head]; ok {
+							e.T = e.T[:len(e.T)-len(elem)] + name + "[" + args
+						}
+					} else if name, ok := originals[elem]; ok {
+						e.T = e.T[:len(e.T)-len(elem)] + name
+					}
+					for i, k := range e.Keys {
+						e.Keys[i] = irBaseName(k)
+					}
 				}
 			}
 			for i := range v.NumField() {
@@ -363,6 +395,67 @@ func irBaseFields(fn *irFunc) {
 		}
 	}
 	walk(reflect.ValueOf(fn))
+}
+
+// TestIRAgreementKeepsUnrenamedOperands kills lower-agree-guess-split-export:
+// a difference in either operand is real unless that build exported it.
+func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
+	body := func(typ, member string) *irFunc {
+		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{
+			K: "mcall", Name: member, X: &irExpr{K: "lit", T: typ},
+		}}}}
+	}
+	want := body("[][]pkg__cell", "read")
+	exports := map[string]string{"XXpkg__cell": "pkg__cell", "Xread": "read"}
+	for _, tc := range []struct {
+		name, typ, member string
+		equal             bool
+	}{
+		{"proven exports", "[][]XXpkg__cell", "Xread", true},
+		{"real element difference", "[][]Xpkg__cell", "Xread", false},
+		{"real method difference", "[][]XXpkg__cell", "XXread", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := body(tc.typ, tc.member)
+			irBaseFields(got, exports, nil)
+			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
+				call := got.Body[0].X
+				t.Errorf("normalized %s.%s, equality = %v, want %v", call.X.T, call.Name, equal, tc.equal)
+			}
+		})
+	}
+}
+
+// TestIRAgreementKeepsUnprovenSplitNames kills lower-agree-guess-field-export
+// and lower-agree-guess-qualified-type: a different field or generic type
+// must not compare equal just because it has the same unqualified spelling.
+func TestIRAgreementKeepsUnprovenSplitNames(t *testing.T) {
+	body := func(field, typ string) *irFunc {
+		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{
+			K: "field", Name: field, X: &irExpr{K: "lit", T: typ},
+		}}}}
+	}
+	want := body("tag", "[]Choice[int, bool]")
+	members := map[string]string{"Xtag": "tag"}
+	heads := map[string]string{"example.com/generated/model.Choice": "Choice"}
+	for _, tc := range []struct {
+		name, field, typ string
+		equal            bool
+	}{
+		{"proven field and type", "Xtag", "[]example.com/generated/model.Choice[int, bool]", true},
+		{"unrenamed field", "XXtag", "[]example.com/generated/model.Choice[int, bool]", false},
+		{"host type with same suffix", "Xtag", "[]example.com/host/model.Choice[int, bool]", false},
+		{"different type arguments", "Xtag", "[]example.com/generated/model.Choice[bool, int]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := body(tc.field, tc.typ)
+			irBaseFields(got, members, heads)
+			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
+				x := got.Body[0].X
+				t.Errorf("normalized field %q, type %q; equality = %v, want %v", x.Name, x.X.T, equal, tc.equal)
+			}
+		})
+	}
 }
 
 // names is the names of the Go functions at k.
@@ -459,7 +552,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 		roots[filepath.Dir(pr.u.Sources[0].Path)] = true
 	}
 	for _, pr := range programs {
-		out, _, _, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
+		out, _, split, err := lower.LowerIRSplitReaching(pr.u, pr.tests, pr.reach)
 		if err != nil && pr.tests {
 			// A test build the Go lowerer refuses (an internal compiler
 			// error of its own) has no IR to compare; it is logged.
@@ -468,6 +561,10 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 		}
 		if err != nil {
 			t.Fatalf("%s: %v", pr.module, err)
+		}
+		originals := make(map[string]string, len(split.IRExports))
+		for original, exported := range split.IRExports {
+			originals[exported] = original
 		}
 		module := pr.module
 		for _, file := range out {
@@ -493,7 +590,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 				}
 				raw := fn.Name
 				fn.Name = irSplitName(raw)
-				irBaseFields(fn)
+				irBaseFields(fn, originals, split.IRTypeHeads[file.Path])
 				data, err := json.Marshal(fn)
 				if err != nil {
 					t.Fatal(err)
