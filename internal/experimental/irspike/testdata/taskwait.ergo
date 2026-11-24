@@ -25,16 +25,20 @@ func tailWait(ok bool) fails Problem {
 
 func main() needs Console {
 	wait()
+	let mut tryOK = true
 	tryWait(true) catch {
 	case Problem:
-		Unreachable("successful task wait")
+		tryOK = false
 	}
+	let mut tryRejects = false
 	tryWait(false) catch {
 	case Problem:
-		Console.Println("try preserved Problem")
+		tryRejects = true
 	}
+	let mut tailRejects = false
 	tailWait(false) catch {
 	case Problem:
-		Console.Println("tail preserved Problem")
+		tailRejects = true
 	}
+	Console.Println("try success: \(tryOK); try rejected: \(tryRejects); tail rejected: \(tailRejects)")
 }
