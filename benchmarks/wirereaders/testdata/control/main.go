@@ -70,9 +70,9 @@ func readTagged(text string) (int, bool) {
 		return 0, false
 	}
 	switch e.Tag {
-	case "Unlabelled":
+	case "Unlabelled", "PlainEntry":
 		return e.Count.value, true
-	case "Labelled":
+	case "Labelled", "NoteItem":
 		if e.Label != nil {
 			return e.Count.value + len(*e.Label), true
 		}
@@ -155,9 +155,9 @@ func readValue(text string) (map[string]any, bool) {
 }
 
 func main() {
-	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true, "parsed": true, "nullable": true, "wire-leaves": true, "generic": true}
+	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true, "row": true, "parsed": true, "nullable": true, "wire-leaves": true, "generic": true}
 	if len(os.Args) != 4 || os.Args[1] != "bench" || !kinds[os.Args[2]] {
-		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged|parsed|nullable|wire-leaves|generic N")
+		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged|row|parsed|nullable|wire-leaves|generic N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])
@@ -196,10 +196,16 @@ func main() {
 				return
 			}
 			sum += got
-		case "tagged":
+		case "tagged", "row":
 			text := `{"count":12,"_tag":"Unlabelled"}`
 			if i%2 != 0 {
 				text = `{"_tag":"Labelled","label":"wood","count":3}`
+			}
+			if os.Args[2] == "row" {
+				text = `{"count":12,"_tag":"PlainEntry"}`
+				if i%2 != 0 {
+					text = `{"_tag":"NoteItem","label":"wood","count":3}`
+				}
 			}
 			got, ok := readTagged(text)
 			if !ok {

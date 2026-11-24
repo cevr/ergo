@@ -164,6 +164,40 @@ func cut(text string, k int) string {
 
 type Packet[T] { Value T, Items []T }
 
+type WireLeft { N int }
+type WireRight { S string }
+
+func rowTag(left bool) int fails WireLeft | WireRight {
+	if left {
+		return WireLeft{N: 0}
+	}
+	return WireRight{S: ""}
+}
+
+func readWireRow[T wire](_ json.Codec[T], r json.Reader) (T, bool) fails wired[T] needs wired[T] {
+	let member = try decode[T](r)
+	(member, true)
+}
+
+func showWireRow(text string) string {
+	let r = json.Open(text, 0, 0) catch {
+	case _:
+		return "row malformed"
+	}
+	let (row, _) = readWireRow(json.Codec[WireLeft | WireRight]{MaxBytes: 0, MaxDepth: 0}, r) catch {
+	case WireUnknownTag as u:
+		return "row tag \(u.Tag)"
+	case _:
+		return "row failure"
+	}
+	match row {
+	case WireLeft as left:
+		"row left \(left.N)"
+	case WireRight as right:
+		"row right \(right.S)"
+	}
+}
+
 func packet[T wire](r Reader) Packet[T] fails wired[Packet[T]] needs wired[T] {
 	decode[Packet[T]](r)
 }
@@ -374,6 +408,13 @@ func GenerateWireReaders(seed uint64) string {
 		fmt.Sprintf(`{\"items\":[%d],\"value\":%d}`, n(10), n(10)),
 	} {
 		fmt.Fprintf(&b, "\tConsole.Println(showPackets(\"%s\"))\n", row)
+	}
+	for _, row := range []string{
+		fmt.Sprintf(`{\"_tag\":\"WireLeft\",\"n\":%d}`, n(10)),
+		`{\"s\":\"cedar\",\"_tag\":\"WireRight\"}`,
+		`{\"_tag\":\"Foreign\"}`,
+	} {
+		fmt.Fprintf(&b, "\tConsole.Println(showWireRow(\"%s\"))\n", row)
 	}
 	b.WriteString("}\n")
 	return b.String()

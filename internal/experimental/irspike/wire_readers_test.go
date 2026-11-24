@@ -31,6 +31,8 @@ import (
 // pwr-r3-members-key-lost, pwr-r3-number-text-lost and pwr-r3-append-prefix.
 // pwr-r3-pointer-assertion-unavailable removes pointer assertions; the
 // generic record uses pwr-r3-generic-field-reader-lost.
+// pwr-r3-row-variant-refused sends a row value through the named-union
+// conversion, leaving the error-row reader on text.
 //
 // It builds Go because the other side of the agreement is the built
 // program, by both paths.

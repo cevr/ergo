@@ -447,7 +447,14 @@ func (d *wireReader) union(t check.Type, u *check.Union) []*irStmt {
 		out := b.temp("out", b.goType(v, d.site), d.p)
 		body := []*irStmt{{K: "var", Pos: d.p, Local: out}}
 		body = append(body, d.record(b.l.typeDecl(n.Obj, d.site), s, out)...)
-		result := b.variantInto(v, t, d.local(out), d.site)
+		result := d.local(out)
+		// An anonymous error row lowers to Go's error. Box the variant
+		// as the successful value, without a named union constructor.
+		if _, row := t.(*check.Union); !row {
+			result = b.variantInto(v, t, result, d.site)
+		} else {
+			result = &irExpr{K: "toiface", Pos: d.p, T: "error", X: result}
+		}
 		body = append(body, &irStmt{K: "ret", Pos: d.p, X: result})
 		sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Vals: []*irExpr{irStringConst(d.p, "string", n.Obj.Name)}, Body: body})
 	}

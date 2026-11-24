@@ -62,6 +62,16 @@ type Labelled { Count int, Label string }
 
 type Unlabelled { Count int }
 
+type PlainEntry { Count int }
+type NoteItem { Count int, Label string }
+
+func markRow(plain bool) int fails PlainEntry | NoteItem {
+	if plain {
+		return PlainEntry{Count: 0}
+	}
+	return NoteItem{Count: 0, Label: ""}
+}
+
 type Mode = Low | High
 type Low {}
 type High {}
@@ -165,6 +175,37 @@ func taggedSum(n int) int {
 		case Unlabelled as x:
 			sum = sum + x.Count
 		case Labelled as x:
+			sum = sum + x.Count + len(x.Label)
+		}
+	}
+	sum
+}
+
+func readRow[T wire](_ json.Codec[T], r json.Reader) (T, bool) fails wired[T] needs wired[T] {
+	let member = try decode[T](r)
+	(member, true)
+}
+
+func rowSum(n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 {
+			"{\"count\":12,\"_tag\":\"PlainEntry\"}"
+		} else {
+			"{\"_tag\":\"NoteItem\",\"label\":\"wood\",\"count\":3}"
+		}
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let (e, _) = readRow(json.Codec[PlainEntry | NoteItem]{MaxBytes: 0, MaxDepth: 0}, r) catch {
+		case _:
+			return -1
+		}
+		match e {
+		case PlainEntry as x:
+			sum = sum + x.Count
+		case NoteItem as x:
 			sum = sum + x.Count + len(x.Label)
 		}
 	}
@@ -300,6 +341,9 @@ func bench(kind string, n int) int {
 	}
 	if kind == "tagged" {
 		return taggedSum(n)
+	}
+	if kind == "row" {
+		return rowSum(n)
 	}
 	if kind == "omittable" {
 		return omittableSum(n, false)
