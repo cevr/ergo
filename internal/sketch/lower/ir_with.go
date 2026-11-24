@@ -130,6 +130,10 @@ func (b *irBuilder) withOperand(x *syntax.CallExpr, i int, w *check.With, ret bo
 	if ta := w.Contexts[0].TestAmbient; ta != nil {
 		out = append(out, b.testAmbient(ptr, ta, p, arg)...)
 	}
+	if tl := w.Contexts[0].TestLoopback; tl != nil {
+		value := &irExpr{K: "lit", Pos: p, T: b.l.helper("TestLoopback")}
+		out = append(out, &irStmt{K: "store", Pos: p, X: &irExpr{K: "field", Pos: p, Name: b.l.envField(tl), X: &irExpr{K: "local", Pos: p, I: ptr}}, Y: &irExpr{K: "toiface", Pos: p, T: b.goType(tl, arg), X: value}})
+	}
 	if lit {
 		b.l.localContext(w.Contexts[0], arg)
 		out = append(out, b.publish(w, ptr, b.env, arg)...)

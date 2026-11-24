@@ -1,0 +1,174 @@
+import compiler/ir
+
+type body { slots uint32, nslots uint32, ops uint32, nops uint32, sig uint32 }
+type op { k uint32, lo uint32, n uint32 }
+
+func arg(p Image, o op, j uint32) uint32 { operand(p, o.lo, j) }
+
+func slot(b body, s uint32) bool { s > 0 && s <= b.nslots }
+
+func slotType(p Image, b body, s uint32) uint32 { word(p, ir.HSlots, int(b.slots+s)-1, 0) }
+
+func signatureType(p Image, sig uint32, j uint32) uint32 {
+	operand(p, word(p, ir.HTypes, int(sig)-1, 2), j)
+}
+
+func matchesSlot(p Image, b body, s uint32, t uint32) bool {
+	slot(b, s) && slotType(p, b, s) == t
+}
+
+func call(p Image, b body, o op) bool {
+	if o.n < 2 {
+		return false
+	}
+	let target = arg(p, o, 0)
+	let t = if o.k == ir.HOCall {
+		if !symKind(p, target, ir.HSFunc) { return false }
+		let t = word(p, ir.HSymbols, int(target)-1, 3)
+		if typeKind(p, t) == ir.HTGeneric { return false }
+		t
+	} else if o.k == ir.HOCallClosure {
+		if !slot(b, target) { return false }
+		slotType(p, b, target)
+	} else {
+		if !ref(p, ir.HInstances, target) { return false }
+		let t = word(p, ir.HInstances, int(target)-1, 1)
+		if !ref(p, ir.HTypes, t) { return false }
+		t
+	}
+	let sig = signature(p, t)
+	if sig == 0 {
+		return false
+	}
+	let (nparam, nresult) = signatureSize(p, sig)
+	if arg(p, o, 1) != nresult || o.n-2 != nparam+nresult {
+		return false
+	}
+	for i in 0..int(nparam) {
+		let j = uint32(i)
+		if !matchesSlot(p, b, arg(p, o, 2+nresult+j), signatureType(p, sig, j)) {
+			return false
+		}
+	}
+	for i in 0..int(nresult) {
+		let j = uint32(i)
+		if !matchesSlot(p, b, arg(p, o, 2+j), signatureType(p, sig, nparam+j)) {
+			return false
+		}
+	}
+	true
+}
+
+// Checked refs first, then exact type identities for calls, results and
+// globals. These are shape checks, not a replacement for the source
+// checker or the backend's own capability and proof checks.
+func opValid(p Image, b body, o op) bool {
+	let k = o.k
+	if k == ir.HOConst {
+		return o.n == 3 && slot(b, arg(p, o, 0))
+	}
+	if k == ir.HOAdd || k == ir.HOSub || k == ir.HOMul || k == ir.HOXor {
+		return o.n == 3 && slot(b, arg(p, o, 0)) &&
+			matchesSlot(p, b, arg(p, o, 1), slotType(p, b, arg(p, o, 0))) &&
+			matchesSlot(p, b, arg(p, o, 2), slotType(p, b, arg(p, o, 0)))
+	}
+	if k == ir.HOLoad || k == ir.HOStore || k == ir.HOAddrOf || k == ir.HOConvert {
+		return o.n == 2 && slot(b, arg(p, o, 0)) && slot(b, arg(p, o, 1))
+	}
+	if k == ir.HOGetGlobal || k == ir.HOSetGlobal {
+		if o.n != 2 { return false }
+		let load = o.k == ir.HOGetGlobal
+		let sym = arg(p, o, if load { 1 } else { 0 })
+		let s = arg(p, o, if load { 0 } else { 1 })
+		return symKind(p, sym, ir.HSVar) && matchesSlot(p, b, s, word(p, ir.HSymbols, int(sym)-1, 3))
+	}
+	if k == ir.HOCall || k == ir.HOCallClosure || k == ir.HOCallInstance {
+		return call(p, b, o)
+	}
+	if k == ir.HOJump {
+		return o.n == 1 && arg(p, o, 0) > 0 && arg(p, o, 0) <= b.nops
+	}
+	if k == ir.HOBranch {
+		return o.n == 5 && arg(p, o, 0) >= ir.HCLess && arg(p, o, 0) <= ir.HCAtLeast &&
+			slot(b, arg(p, o, 1)) && matchesSlot(p, b, arg(p, o, 2), slotType(p, b, arg(p, o, 1))) &&
+			arg(p, o, 3) > 0 && arg(p, o, 3) <= b.nops && arg(p, o, 4) > 0 && arg(p, o, 4) <= b.nops
+	}
+	let (nparam, nresult) = signatureSize(p, b.sig)
+	if k != ir.HOReturn || o.n != nresult { return false }
+	for i in 0..int(nresult) {
+		let j = uint32(i)
+		if !matchesSlot(p, b, arg(p, o, j), signatureType(p, b.sig, nparam+j)) {
+			return false
+		}
+	}
+	true
+}
+
+func facts(p Image, b body, first int) int fails Malformed {
+	let mut i = first
+	let mut last = uint32(0)
+	let mut kind = uint32(0)
+	for i < Rows(p, ir.HFacts) {
+		let x = word(p, ir.HFacts, i, 0)
+		let k = word(p, ir.HFacts, i, 1)
+		if x > b.ops+b.nops {
+			return i
+		}
+		let proof = word(p, ir.HFacts, i, 4)
+		if x <= b.ops || x < last || (x == last && k <= kind) || k != ir.HFBounds ||
+			!slot(b, word(p, ir.HFacts, i, 2)) || !slot(b, word(p, ir.HFacts, i, 3)) || proof <= b.ops || proof >= x {
+			return bad(ir.HFacts, i, "fact identity, scope, or proof reference")
+		}
+		last = x
+		kind = k
+		i = i + 1
+	}
+	i
+}
+
+func bodies(p Image, start uint32) uint32 fails Malformed {
+	let mut sl = uint32(0)
+	let mut row = uint32(0)
+	let mut w = start
+	let mut bi = 0
+	let mut f = 0
+	for si in 0..Rows(p, ir.HSymbols) {
+		if word(p, ir.HSymbols, si, 0) != 0 || word(p, ir.HSymbols, si, 2) != ir.HSFunc {
+			continue
+		}
+		if bi >= Rows(p, ir.HBodies) || word(p, ir.HBodies, bi, 0) != uint32(si+1) {
+			return bad(ir.HBodies, bi, "each local function must own exactly one body")
+		}
+		let sig = signature(p, word(p, ir.HSymbols, si, 3))
+		let b = body{sig: sig, slots: word(p, ir.HBodies, bi, 1), nslots: word(p, ir.HBodies, bi, 2),
+			ops: word(p, ir.HBodies, bi, 3), nops: word(p, ir.HBodies, bi, 4)}
+		if b.sig == 0 || b.nops == 0 || !run(p, ir.HSlots, sl, b.slots, b.nslots) || !run(p, ir.HOps, row, b.ops, b.nops) {
+			return bad(ir.HBodies, bi, "function signature or body run")
+		}
+		let (nparam, _) = signatureSize(p, sig)
+		if nparam > b.nslots {
+			return bad(ir.HBodies, bi, "missing parameter slots")
+		}
+		for j in 0..int(b.nslots) {
+			let t = slotType(p, b, uint32(j)+1)
+			if !ref(p, ir.HTypes, t) || (uint32(j) < nparam && t != signatureType(p, sig, uint32(j))) {
+				return bad(ir.HSlots, int(sl)+j, "slot type")
+			}
+		}
+		for j in int(row)..int(row+b.nops) {
+			let o = op{k: word(p, ir.HOps, j, 0), lo: word(p, ir.HOps, j, 2), n: word(p, ir.HOps, j, 3)}
+			if !ref(p, ir.HSpans, word(p, ir.HOps, j, 1)) || !run(p, ir.HOperands, w, o.lo, o.n) || !opValid(p, b, o) {
+				return bad(ir.HOps, j, "opcode, span or operands")
+			}
+			w = o.lo + o.n
+		}
+		f = try facts(p, b, f)
+		sl = sl + b.nslots
+		row = row + b.nops
+		bi = bi + 1
+	}
+	if bi != Rows(p, ir.HBodies) || f != Rows(p, ir.HFacts) || sl != uint32(Rows(p, ir.HSlots)) || row != uint32(Rows(p, ir.HOps)) {
+		return bad(ir.HBodies, -1, "unowned body, slot, op or fact")
+	}
+	w
+}

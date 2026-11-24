@@ -803,6 +803,8 @@ A std extern whose `runtime/v1` Go body is marked pure is transparent in footpri
 
 ## http
 
+`http.NewTestNet(limits, redirects)` makes a `Remote` under [`TestLoopback`](rows.md#test-loopback). `SendURL` and `SendURLInto` check every destination before an exchange and fail `http.Denied{Origin}` when its host is not a literal loopback address. The test transport does not consult a proxy or DNS. The ordinary `NewNet` retains its explicit origin policy and its `OriginRefused` failure.
+
 G1's buffered HTTP server uses Go `net/http`; a response body may also be
 streamed (Rm, item 9). TLS and HTTP/2 configuration are outside this core.
 Since HTTP-FAST-c1, Serve reads the common request itself: an HTTP/1.1
@@ -3127,7 +3129,9 @@ The prelude services. `testing.VirtualClock` provides `time.Clock` and `Schedule
 
 ### net
 
-Std `net` makes stream connections (NET1). It follows Go's `net` for its names (`Listen`, `Dial`, `Accept`, `"host:port"` addresses, port 0 for a free port) and Effect platform's `Socket` and `SocketServer` for what a provider promises. `net.Network` is the capability, an operation type of two operations: `Listen(addr) Listener fails ListenFailed` and `Dial(addr) Conn fails DialFailed`. `net.Host` is the host's provider over TCP; only `NewHost()`, which needs the prelude's `Ambient`, makes one, so `main` binds `context { net.Network: net.NewHost() }`. `nettest.Pipe` (`NewPipe()`) is the memory provider for tests: its listeners and connections stay in the process and need no `Ambient`.
+`net.NewTestHost()` makes a `Host` under [`TestLoopback`](rows.md#test-loopback). Its `Listen` and `Dial` require an explicit port and a literal loopback address; they fail `net.Denied{Addr}` before touching a socket for any other address. The `Network` operation rows include `Denied` as well as `ListenFailed` or `DialFailed`.
+
+Std `net` makes stream connections (NET1). It follows Go's `net` for its names (`Listen`, `Dial`, `Accept`, `"host:port"` addresses, port 0 for a free port) and Effect platform's `Socket` and `SocketServer` for what a provider promises. `net.Network` is the TCP capability. `NewHost()` needs `Ambient` and gives the unrestricted host provider, so `main` binds `context { net.Network: net.NewHost() }`. `nettest.Pipe` (`NewPipe()`) is the memory provider for tests: its listeners and connections stay in the process and need no `Ambient`.
 
 ```go
 import net
