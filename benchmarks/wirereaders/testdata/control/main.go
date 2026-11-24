@@ -66,6 +66,25 @@ func readTagged(text string) (int, bool) {
 	return 0, false
 }
 
+//go:noinline
+func readParsed(text string) (int, bool) {
+	var r struct {
+		Mode  string      `json:"mode"`
+		Limit optionalInt `json:"limit"`
+	}
+	if err := json.Unmarshal([]byte(text), &r); err != nil || !r.Limit.present || r.Limit.value < 0 || r.Limit.value > 99 {
+		return 0, false
+	}
+	switch r.Mode {
+	case "low":
+		return r.Limit.value, true
+	case "high":
+		return r.Limit.value + 1, true
+	default:
+		return 0, false
+	}
+}
+
 const one = `{"label":"crate","count":12,"tags":["wood","heavy"],"weight":30.5}`
 
 const four = "[" + one + "," + one + "," + one + "," + one + "]"
@@ -109,9 +128,9 @@ func readValue(text string) (map[string]any, bool) {
 }
 
 func main() {
-	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true}
+	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true, "parsed": true}
 	if len(os.Args) != 4 || os.Args[1] != "bench" || !kinds[os.Args[2]] {
-		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged N")
+		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged|parsed N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])
@@ -121,6 +140,17 @@ func main() {
 	sum := 0
 	for i := 0; i < n; i++ {
 		switch os.Args[2] {
+		case "parsed":
+			text := `{"mode":"low","limit":12}`
+			if i%2 != 0 {
+				text = `{"limit":3,"mode":"high"}`
+			}
+			got, ok := readParsed(text)
+			if !ok {
+				fmt.Println(-1)
+				return
+			}
+			sum += got
 		case "tagged":
 			text := `{"count":12,"_tag":"Unlabelled"}`
 			if i%2 != 0 {

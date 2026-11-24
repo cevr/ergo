@@ -5,7 +5,7 @@ package lower
 // text emitter writes it (wireDecodeBody); on the IR path the same
 // function is built here as an IR body, statement for statement, in the
 // supported forms: a basic value, a concrete record or tagged union,
-// a list and a map.
+// a list, a map and a value read by its parser.
 // Each read is
 // the reader's operation as readOp writes it: the Reader interface's
 // method, the task first, or the direct reader type's own function, the
@@ -29,7 +29,12 @@ var wireReadLowering = ""
 
 // wireReadForms are the forms wireRead builds (wireReadForm's names).
 func wireReadForms(form string) bool {
-	return form == "basic" || form == "record" || form == "list" || form == "map" || form == "union"
+	switch form {
+	case "basic", "record", "list", "map", "union", "pair", "refined":
+		return true
+	default:
+		return false
+	}
 }
 
 // wireRead builds the decoder name of t on the Reader interface as an IR
@@ -186,6 +191,12 @@ func (d *wireReader) value(t check.Type) ([]*irStmt, *irExpr) {
 func (d *wireReader) body(t check.Type) []*irStmt {
 	b, l := d.b, d.b.l
 	ret := func(x *irExpr) *irStmt { return &irStmt{K: "ret", Pos: d.p, X: x} }
+	if pair := l.info.WirePairOf(t); pair != nil {
+		return d.parsed(pair.Base, pair.Parse)
+	}
+	if parse := check.RefinedParse(t); parse != nil {
+		return d.parsed(parse.Sig.Params[0].Type, parse)
+	}
 	if l.wireInline(t) {
 		pre, x := d.value(t)
 		return append(pre, ret(x))
@@ -230,6 +241,14 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 	}
 	irNo("codec reader: %s", l.wireReadForm(t))
 	return nil
+}
+
+// parsed reads the base and returns the parser's result. Returning the
+// call passes through its failure ABI, with a nil error for a pure value.
+func (d *wireReader) parsed(base check.Type, parse *check.Func) []*irStmt {
+	pre, x := d.value(base)
+	call := d.b.machineCall(parse, 0, []*irExpr{x}, d.p, d.site)
+	return append(pre, &irStmt{K: "ret", Pos: d.p, X: call})
 }
 
 // union dispatches by the wire tag before reading the selected record.

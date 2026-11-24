@@ -14,7 +14,8 @@
 // json.Reader, a json.Stream and a codec.Replay; the workloads are
 // ../../map, ../../mapstream and ../../mapreplay. KIND omittable reads
 // a record with a missing or present optional field. KIND tagged reads
-// a union with the tag first or last in the object.
+// a union with the tag first or last in the object. KIND parsed reads a
+// by-name pair and a refinement.
 
 import codec
 import io
@@ -32,6 +33,59 @@ type Entry = Labelled | Unlabelled
 type Labelled { Count int, Label string }
 
 type Unlabelled { Count int }
+
+type Mode = Low | High
+type Low {}
+type High {}
+type BadMode { Value string }
+type Limit int where 0 <= it && it <= 99
+type Parsed { Mode Mode, Limit Limit }
+
+func ParseMode(s string) Mode fails BadMode {
+	match s {
+	case "low":
+		Low
+	case "high":
+		High
+	case _:
+		BadMode{Value: s}
+	}
+}
+
+func Wire(m Mode) string {
+	match m {
+	case Low:
+		"low"
+	case High:
+		"high"
+	}
+}
+
+func takeParsed(r Reader) Parsed fails wired[Parsed] {
+	decode[Parsed](r)
+}
+
+func parsedSum(n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 { "{\"mode\":\"low\",\"limit\":12}" } else { "{\"limit\":3,\"mode\":\"high\"}" }
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let p = takeParsed(r) catch {
+		case _:
+			return -1
+		}
+		sum = sum + int(p.Limit)
+		match p.Mode {
+		case Low:
+		case High:
+			sum = sum + 1
+		}
+	}
+	sum
+}
 
 func takeEntry(r Reader) Entry fails wired[Entry] {
 	decode[Entry](r)
@@ -170,6 +224,9 @@ func valueSum(n int) int {
 
 // bench is the sum of the counts of N reads, or -1 when a read fails.
 func bench(kind string, n int) int {
+	if kind == "parsed" {
+		return parsedSum(n)
+	}
 	if kind == "tagged" {
 		return taggedSum(n)
 	}
