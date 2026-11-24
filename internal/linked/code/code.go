@@ -33476,7 +33476,7 @@ func flag__Describe(f flag__Failure) string {
 		}
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:777:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:773:2 matched")
 	}
 }
 
@@ -35819,7 +35819,7 @@ func flag__nameOf(f flag__Flag) string {
 		return c_1.base.name
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:548:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:544:2 matched")
 	}
 }
 
@@ -37031,12 +37031,12 @@ func flag__sameHandle(a flag__Flag, b flag__Flag) bool {
 		}
 	default:
 		_ = v
-		panic("ergo: defect: no case of the match at std/flag/flag.ergo:591:2 matched")
+		panic("ergo: defect: no case of the match at std/flag/flag.ergo:587:2 matched")
 	}
 }
 
 func flag__notInSet(name string) string {
-	panic(ergo.UnreachableAt((("flag -" + name) + " is not a flag of the parsed set"), "std/flag/flag.ergo:682:2"))
+	panic(ergo.UnreachableAt((("flag -" + name) + " is not a flag of the parsed set"), "std/flag/flag.ergo:678:2"))
 }
 
 func flag__commandHelp[C any](name string, prefix string, commands []flag__Command[C]) string {
@@ -37060,8 +37060,8 @@ func flag__commandHelp[C any](name string, prefix string, commands []flag__Comma
 		} else {
 			v_2 = path
 		}
-		var shown_1 string = v_2
-		out = (((((out + "  ") + shown_1) + "\n    \t") + c.Usage) + "\n")
+		var shown string = v_2
+		out = (((((out + "  ") + shown) + "\n    \t") + c.Usage) + "\n")
 		t := out
 		v_3 := flag__commandHelp[C](name, path, c.Commands)
 		out = (t + v_3)
