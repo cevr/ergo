@@ -1,6 +1,7 @@
 import compiler/check/bind
 import compiler/check/expr
 import compiler/check/store
+import compiler/check/types
 import compiler/ir
 import compiler/syntax
 import dense
@@ -82,6 +83,44 @@ func operationIn(st fnb, tail dense.ID[syntax.Node], cap dense.ID[store.TKey]) d
 	}
 }
 
+// localRole rejects foreign-bodied and inherited operation declarations
+// before reading their members out of the checked local role row.
+func localRole(st fnb, cap dense.ID[store.TKey]) types.Role fails Unported {
+	let origin = match types.Nominal(st.s, cap) {
+	case Some[store.XRef] as r:
+		r.Value
+	case None:
+		return stop("no checked local operation type")
+	}
+	if origin.Import != 0 {
+		return stop("operation type is not local")
+	}
+	let decl = store.DeclOf(st.s, store.DeclAt(st.s, int(origin.Decl)))
+	let file = int(decl.File)
+	let p = st.k.Parsed[file]
+	let nameAt = bind.PNodeOf(st.k.Ps, file, syntax.NodeAt(p.Tree, int(decl.Node)))
+	match dense.Unpack(bind.ParentOf(st.k.Ps, nameAt)) {
+	case Some{Value: parent}:
+		let (_, row) = bind.RowOf(st.k.Ps, parent)
+		let node = syntax.NodeAt(p.Tree, row)
+		if syntax.KindOf(p.Tree, node) != syntax.KTypeDecl || dense.Unpack(syntax.TypeDeclOf(p.Tree, node).Extern) != None {
+			return stop("operation type has no local declaration body")
+		}
+	case None:
+		return stop("operation type has no local declaration body")
+	}
+	let role = match types.RoleAt(st.s, st.k.Roles, st.k.Ifaces, cap) {
+	case Some[types.Role] as r:
+		r.Value
+	case None:
+		return stop("no checked local operation type")
+	}
+	if len(role.Params) != 0 || len(role.Includes) != 0 || role.Self != 0 {
+		return stop("operation type is not closed and direct")
+	}
+	role
+}
+
 func directOperation(st fnb, x dense.ID[syntax.Node], c syntax.CallExpr, cap dense.ID[store.TKey]) directOp fails Unported {
 	let at = bind.PNodeOf(st.k.Ps, st.file, x)
 	let required = dense.OptOf(cap)
@@ -103,19 +142,14 @@ func directOperation(st fnb, x dense.ID[syntax.Node], c syntax.CallExpr, cap den
 		return stop("operation temporary name taken")
 	}
 	let sig = try typeOf(st, fun, "operation signature")
-	let capName = store.TypeNameText(st.s, store.ArgOf(st.s, cap))
 	// CapCall proves which capability was resolved. Match the selector's
 	// checked signature to the corresponding declared operation; a same
 	// spelling on another capability or a generic specialization is not
 	// a target receipt.
+	let role = try localRole(st, cap)
 	let mut found = false
-	for o in st.k.OpSigs {
-		if o.Name != member || o.Sig != sig {
-			continue
-		}
-		let p = st.k.Parsed[o.File]
-		let td = syntax.TypeDeclOf(p.Tree, o.Decl)
-		if nameText(p, td.Name) == capName && dense.Unpack(td.Extern) == None && dense.Unpack(td.TypeParams) == None && !lawOver(st, member) {
+	for o in role.Members {
+		if o.Name == member && o.Sig == sig && len(o.Own) == 0 && !o.Mut {
 			found = true
 			break
 		}
