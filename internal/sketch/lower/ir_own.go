@@ -295,9 +295,6 @@ func (b *irBuilder) openList(body *syntax.BlockStmt, site syntax.Node, p irPos) 
 // release (the emitter's own and owning).
 func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node, value syntax.Expr) []*irStmt {
 	o := b.own
-	if d.Glue() {
-		irNo("owned local") // OwningParts: a generated release
-	}
 	p := b.pos(site, site.Pos())
 	typ := b.goType(v.Type, site)
 	if _, seen := o.handle[v]; seen {
@@ -307,16 +304,22 @@ func (b *irBuilder) listLet(v *check.Var, i int, d *check.Drop, site syntax.Node
 	owner, h := b.listOwner(p)
 	o.handle[v] = owner.Local
 	here := b.listReleaseHere(v.Type, site, value)
-	rel := b.listRelease(d, v.Type, typ, p, here)
+	name, at, release := "Owning", "OwningAt", func() *irExpr {
+		return b.listRelease(d, v.Type, typ, p, here)
+	}
+	if d.Glue() {
+		name, at, release = "OwningParts", "OwningPartsAt", func() *irExpr {
+			return b.dropRelease(d, typ, site, p)
+		}
+	}
 	out := []*irStmt{
 		owner,
-		{K: "expr", Pos: p, X: b.ownCall("Owning", typ, p, h, &irExpr{K: "local", Pos: p, I: i}, rel)},
+		{K: "expr", Pos: p, X: b.ownCall(name, typ, p, h, &irExpr{K: "local", Pos: p, I: i}, release())},
 	}
 	if b.l.writtenInPlace(v) {
 		// A local the code writes in place is released with its writes
 		// (v1.OwningAt; the emitter's ownAt).
-		at := b.listRelease(d, v.Type, typ, p, here)
-		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("OwningAt", typ, p, h, b.addrOf(i, p), at)})
+		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall(at, typ, p, h, b.addrOf(i, p), release())})
 	}
 	return out
 }

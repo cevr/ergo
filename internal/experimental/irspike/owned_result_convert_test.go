@@ -40,8 +40,8 @@ func TestIROwnedResultConversionAgrees(t *testing.T) {
 			t.Errorf("evaluator did not pass %s", name)
 		}
 	}
-	a := ownedResultRun(t, u, src, Source, "", filepath.Join(dir, "source"))
-	b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "ir"), "direct", "named")
+	a := ownedResultRun(t, u, src, Source, "", filepath.Join(dir, "source"), nil)
+	b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "ir"), nil, "direct", "named")
 	if a != b || a.exit != 0 || !strings.Contains(a.stdout, "ok DirectReturnStaysOpen\nok NamedReturnStaysOpen\n") {
 		t.Fatalf("source: %+v\nIR: %+v\n%s", a, b, ownedResultRepro)
 	}
@@ -54,20 +54,23 @@ func TestIROwnedResultConversionAgrees(t *testing.T) {
 //
 // Mutant: converted result keeps the callee's static release.
 func TestIROwnedResultShapesAgree(t *testing.T) {
-	_, ir := needsBuild(t)
+	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
 		t.Run(itoa(seed), func(t *testing.T) {
 			dir := t.TempDir()
 			text, lowered := ownedResultProgram(seed)
+			drop, dropBodies := ownedDropProgram(seed)
+			text += drop
+			lowered = append(lowered, dropBodies...)
 			t.Cleanup(func() {
 				if t.Failed() {
 					t.Logf("replay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test ./internal/experimental/irspike -run '^TestIROwnedResultShapesAgree$'\n%s", seed, text)
 				}
 			})
 			u := loadText(t, dir, text)
-			a := ownedResultRun(t, u, ir, IR, "scope", filepath.Join(dir, "list"), lowered...)
-			b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "static"), lowered...)
+			a := ownedResultRun(t, u, ir, IR, "scope", filepath.Join(dir, "list"), dropBodies, lowered...)
+			b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "static"), dropBodies, lowered...)
 			if a != b || a.exit != 0 {
 				t.Fatalf("list: %+v\nstatic: %+v", a, b)
 			}
@@ -76,17 +79,26 @@ func TestIROwnedResultShapesAgree(t *testing.T) {
 					t.Errorf("no passing ownership check for %s: %+v", name, a)
 				}
 			}
+			// The frozen emitter releases the older FallibleCatchTail form
+			// early. Compare only the new generated drops to that emitter;
+			// the whole program still agrees under both IR owner strategies.
+			ownedResultRunSelected(t, u, src, Source, "scope", filepath.Join(dir, "source"), dropBodies, nil)
 		})
 	}
 }
 
-func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, releaseMode, dir string, wantIR ...string) outcome {
+func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, releaseMode, dir string, listOnly []string, wantIR ...string) outcome {
+	t.Helper()
+	return ownedResultRunSelected(t, u, tc, path, releaseMode, dir, nil, listOnly, wantIR...)
+}
+
+func ownedResultRunSelected(t *testing.T, u lower.Unit, tc Toolchain, path Path, releaseMode, dir string, selected, listOnly []string, wantIR ...string) outcome {
 	t.Helper()
 	mod := filepath.Join(dir, "mod")
+	prev := lower.SetReleaseLoweringForTest(releaseMode)
+	defer lower.SetReleaseLoweringForTest(prev)
 	if path == IR {
-		prev := lower.SetReleaseLoweringForTest(releaseMode)
 		files, rep, err := lower.LowerIRTests(u)
-		lower.SetReleaseLoweringForTest(prev)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +110,7 @@ func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, release
 			static := slices.ContainsFunc(files, func(f lower.File) bool {
 				return f.Path == lower.IRFileName && strings.Contains(string(f.Data), helper)
 			})
-			if static != (releaseMode == "") {
+			if static != (releaseMode == "" && !slices.Contains(listOnly, name)) {
 				t.Errorf("mode %q: %s static cleanup = %v", releaseMode, name, static)
 			}
 		}
@@ -112,6 +124,15 @@ func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, release
 	if _, err := Build(tc, path, mod, bin, BuildOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	if len(selected) > 0 {
+		for _, name := range selected {
+			got := runCase(t, bin, caseRun{args: []string{"--source", dir, "--run", "Check" + name}})
+			if got.exit != 0 || !strings.Contains(got.stdout, "ok Check"+name+"\n") {
+				t.Fatalf("source list, Check%s: %+v", name, got)
+			}
+		}
+		return outcome{}
+	}
 	return runCase(t, bin, caseRun{args: []string{"--source", dir}})
 }
 
@@ -119,7 +140,7 @@ func ownedResultProgram(seed uint64) (string, []string) {
 	r := rand.New(rand.NewPCG(seed, seed^0x56b32d170da8cbf1))
 	prelude, _, _ := strings.Cut(ownedResultRepro, "func direct(")
 	var src strings.Builder
-	src.WriteString("import task\n")
+	src.WriteString("import queue\nimport task\n")
 	src.WriteString(prelude)
 	src.WriteString(`type Bad {}
 
@@ -207,4 +228,75 @@ func main() {}
 		src.WriteString("}\n")
 	}
 	return src.String(), lowered
+}
+
+// ownedDropProgram adds generated releases to the same seeded agreement
+// program. Each producer observes that its live members have not closed,
+// including before a typed rejection or a defect. The caller independently
+// asserts the release order and detects missing or repeated releases.
+func ownedDropProgram(seed uint64) (string, []string) {
+	var src strings.Builder
+	src.WriteString(`
+type dropTicket { id int, log sync.Ref[int], crash bool } implements Closer
+
+func Close(t dropTicket) {
+	t.log.Set(t.log.Get()*10 + t.id)
+	if t.crash { Unreachable("release defect") }
+}
+
+type dropPair { left dropTicket, right dropTicket }
+type DropVariant = DropFull | DropEmpty
+type DropFull { pair dropPair }
+type DropEmpty {}
+type dropNode { item dropTicket, more []dropNode }
+`)
+	forms := []struct{ name, body, live, released string }{
+		{"Record", `let pair = dropPair{left: l, right: r}`, "0", "11*id+10"},
+		{"Tuple", `let pair = (l, r)`, "0", "11*id+10"},
+		{"Slice", `let pair = []dropTicket{l, r}`, "0", "11*id+10"},
+		{"Array", `let pair = [2]dropTicket{l, r}`, "0", "11*id+10"},
+		{"Map", `let pair = Map[string, dropTicket]{"l": l, "r": r}`, "0", "11*id+10 || log.Get() == 11*id+1"},
+		{"Union", `let pair DropVariant = DropFull{pair: dropPair{left: l, right: r}}`, "0", "11*id+10"},
+		{"Recursive", `let pair = dropNode{item: l, more: []dropNode{dropNode{item: r, more: []dropNode{}}}}`, "0", "11*id+10"},
+		{"Drain", `let pair = queue.New[dropTicket](2)
+		pair.Push(l) catch { case queue.Closed: Unreachable("open queue") }
+		pair.Push(r) catch { case queue.Closed: Unreachable("open queue") }`, "0", "11*id+10"},
+		{"Taken", `let pair = dropPair{left: l, right: r}
+		pair.left.Close()`, "id", "11*id+1"},
+	}
+	var names []string
+	for _, f := range forms {
+		name := "Drop" + f.name
+		names = append(names, name)
+		fmt.Fprintf(&src, `
+func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let l = dropTicket{id: id, log: log, crash: false}
+	let r = dropTicket{id: id+1, log: log, crash: defect}
+	%[2]s
+	if log.Get() != %[3]s { Unreachable("early release") }
+	if reject { return Bad }
+	false
+}
+
+test Check%[1]s {
+	let log = sync.NewRef(0)
+	let id = %[4]d
+	%[1]s(log, id, false, false) catch { case Bad: Unreachable("unexpected failure") }
+	assert log.Get() == %[5]s
+	log.Set(0)
+	let rejected = %[1]s(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == %[5]s
+	log.Set(0)
+	let child = task.Go() { try %[1]s(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == %[5]s
+}
+`, name, f.body, f.live, 1+seed%7, f.released)
+	}
+	return src.String(), names
 }
