@@ -182,6 +182,16 @@
       "to": "for img in []string{\"image/png\", \"image/gif\", \"image/jpeg\", \"image/webp\", \"text/\"} {",
       "rule": "A safe Url is no data: link other than an image (law html.HrefIsSafe).",
       "killers": ["examples:mdhtml"]
+    },
+    {
+      "name": "nou-mdhtml-entity-accepts-bad-hex",
+      "origin": "wf10 NOU-DATA-REP r3",
+      "file": "examples/mdhtml/markdown/entity.ergo",
+      "from": "\t\t\tif !hexDigit(code[i]) {\n\t\t\t\treturn None\n\t\t\t}",
+      "to": "\t\t\tif false && !hexDigit(code[i]) {\n\t\t\t\treturn None\n\t\t\t}",
+      "rule": "parseEntityCodes refuses non-hex code points with None rather than decoding garbage.",
+      "anchor": {"tests": ["examples:mdhtml"]},
+      "killers": ["examples:mdhtml"]
     }
   ]
 }
