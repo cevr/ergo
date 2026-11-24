@@ -1275,6 +1275,7 @@ case unused internal/selfhostcheck/testdata/bind/port_frame.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame_fails.ergo
 case unused internal/selfhostcheck/testdata/bind/port_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_union.ergo
+case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
 case unused internal/selfhostcheck/testdata/bind/wired.ergo
 case unused internal/sketch/std/ansi/ansi.ergo
 case unused internal/sketch/std/api/api.ergo
