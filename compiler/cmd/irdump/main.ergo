@@ -21,6 +21,7 @@
 // TestCompilerIRAgreesWithBuilder.
 
 import compiler/check/bind
+import compiler/check/expr
 import compiler/check/load
 import compiler/ir
 import compiler/lower
@@ -60,9 +61,9 @@ func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
 }
 
 // write prints one typed package's IR lines after its "@pkg I" line.
-func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool) {
+func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool, imports Option[[]expr.Dep]) {
 	b.WriteString("@pkg \(i)\n")
-	let out = lower.Package(d.S, d.K, d.T, u.Paths, u.Path, root)
+	let out = lower.Package(d.S, d.K, d.T, u.Paths, u.Path, root, imports)
 	for j, path in out.File.Files {
 		b.WriteString("P \(j) \(path)\n")
 	}
@@ -103,6 +104,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		}
 	}
 	let p = load.LoadAll(units, load.Outside(units, std), 4)
+	let available = importUnits(p, units)
 	let mut b = strings.NewBuilder()
 	for i in 0..len(p.Loaded) {
 		let ui = p.Units[i]
@@ -110,7 +112,8 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		for r in roots {
 			root = root || r == units[ui].Path
 		}
-		write(&b, ui, units[ui], load.TypeAt(p, i), root)
+		let imports = if root { rootImports(p, i, available) } else { None }
+		write(&b, ui, units[ui], load.TypeAt(p, i), root, imports)
 	}
 	io.Stdout.Print(b.String())
 }

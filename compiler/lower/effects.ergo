@@ -185,38 +185,16 @@ func envMember(st fnb, cap dense.ID[store.TKey]) string fails Unported {
 	if name == "" || name == "task" || name == "with" || name == "from" || goKeyword(name) || strings.Contains(name, "_") {
 		return stop("environment field spelling not proved")
 	}
-	let mut paths = store.ImportPaths(st.s).Append("prelude")
-	let mut i = 0
-	for i < len(paths) {
-		let path = paths[i]
-		let mut found = false
-		for d in st.k.Deps {
-			if d.Path != path {
-				continue
-			}
-			found = true
-			if len(d.K.Parsed) == 0 {
-				return stop("environment name inventory has no dependency sources")
-			}
-			for parsed in d.K.Parsed {
-				if parsed.Failed {
-					return stop("environment name inventory has an unparsed dependency")
-				}
-			}
-			if store.Lookup(d.S, name) != None {
-				return stop("environment field collision")
-			}
-			for p in store.ImportPaths(d.S) {
-				if !has(paths, p) {
-					paths = paths.Append(p)
-				}
-			}
-			break
+	let deps = match st.rootImports {
+	case Some[[]expr.Dep] as all:
+		all.Value
+	case None:
+		return stop("complete environment name inventory unavailable")
+	}
+	for d in deps {
+		if store.Lookup(d.S, name) != None {
+			return stop("environment field collision")
 		}
-		if !found {
-			return stop("complete environment name inventory unavailable")
-		}
-		i = i + 1
 	}
 	name
 }
