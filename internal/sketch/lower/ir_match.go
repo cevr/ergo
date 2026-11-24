@@ -101,6 +101,14 @@ func (b *irBuilder) typeMatch(s *syntax.TypeSwitchStmt, ret bool, to *yieldTo) [
 	subj := -1
 	fu := b.flatOf(st)
 	sc := b.scalarIdent(x) // ir_scalar.go
+	if sc == nil && fu == nil && irSlotLowering != "off" && b.fc.isInterface(st) {
+		// A call whose result the match alone reads: its slot variant
+		// writes the variant into a slot and returns its tag (ir_slot.go).
+		if spre, ssc, ok := b.slotSubject(x, st); ok {
+			pre, sc = spre, ssc
+			p = past(p, pre)
+		}
+	}
 	if sc == nil {
 		var sx *irExpr
 		pre, sx = b.value(x)

@@ -1,0 +1,124 @@
+// The slot variant (UNI2) on the IR: a match whose subject is a call of a
+// function that returns a union calls its slot variant, which writes the
+// variant into the caller's slot and returns its tag. The variants hold
+// each payload shape the census's slot variants hold: a string, a Map, a
+// slice, a record of several fields, and none. Each return form of a slot
+// variant appears: a variant's value, another slot variant's call passed
+// on (plain and fallible), a union value taken apart, and a failure.
+
+type Bad {}
+
+// Wrapped holds a Value by value, so Value is a Go interface, the form
+// the slot variant is for (flatunion.go, rule 3).
+type Value = Text{S string} | Record{Fields Map[string, Value]} | List{Items []Value} | Point{X int, Y int, Label string} | Empty{} | Wrapped{V Value}
+
+// leaf is a variant by i, or a Value it gets passed.
+func leaf(i int, v Value) Value {
+	if i % 6 == 0 {
+		return Text{S: "t\(i)"}
+	}
+	if i % 6 == 1 {
+		return Record{Fields: Map[string, Value]{"k": Text{S: "r"}}}
+	}
+	if i % 6 == 2 {
+		return List{Items: []Value{Empty, Text{S: "l"}}}
+	}
+	if i % 6 == 3 {
+		return Point{X: i, Y: 2, Label: "p"}
+	}
+	if i % 6 == 4 {
+		return v
+	}
+	if i % 6 == 5 && i > 100 {
+		return Wrapped{V: Text{S: "w"}}
+	}
+	Empty
+}
+
+// pick passes leaf's slots on, or matches on a value it builds.
+func pick(i int) Value {
+	if i > 100 {
+		return pick(i - 100)
+	}
+	match i % 2 {
+	case 0:
+		leaf(i, Point{X: 0 - i, Y: 0, Label: "passed"})
+	case _:
+		leaf(i, Text{S: "odd"})
+	}
+}
+
+// tryPick fails on 7 and passes pick's slots on otherwise.
+func tryPick(i int) Value fails Bad {
+	if i == 7 {
+		return Bad
+	}
+	if i > 50 {
+		return try tryPick(i - 50)
+	}
+	pick(i)
+}
+
+func show(v Value) string {
+	match v {
+	case Text as t:
+		"text \(t.S)"
+	case Record as r:
+		"record \(len(r.Fields))"
+	case List as l:
+		"list \(len(l.Items))"
+	case Point as p:
+		"point \(p.X) \(p.Y) \(p.Label)"
+	case Empty:
+		"empty"
+	case Wrapped as w:
+		"wrapped " + show(w.V)
+	}
+}
+
+func describe(i int) string {
+	match pick(i) {
+	case Text as t:
+		"text \(t.S)"
+	case Record as r:
+		"record \(len(r.Fields))"
+	case List as l:
+		"list \(len(l.Items)) \(show(l.Items[1]))"
+	case Point as p:
+		"point \(p.X) \(p.Y) \(p.Label)"
+	case Empty:
+		"empty"
+	case Wrapped as w:
+		"wrapped " + show(w.V)
+	}
+}
+
+func attempt(i int) string fails Bad {
+	match try tryPick(i) {
+	case Text as t:
+		"text \(t.S)"
+	case Point as p:
+		"point \(p.X)"
+	case Record:
+		"record"
+	case List:
+		"list"
+	case Empty:
+		"empty"
+	case Wrapped:
+		"wrapped"
+	}
+}
+
+func main() needs Console {
+	for i in 0..8 {
+		Console.Println(describe(i) + " / " + describe(i + 100))
+	}
+	for i in []int{3, 7, 60, 57} {
+		let s = attempt(i) catch {
+		case Bad:
+			"bad"
+		}
+		Console.Println(s)
+	}
+}

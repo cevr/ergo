@@ -80,6 +80,9 @@ func (b *irBuilder) ret(x syntax.Expr, p irPos) []*irStmt {
 
 // retOf is ret's statements before a law's check.
 func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
+	if b.slotOut != nil && x != nil && !b.isFailure(x) {
+		return b.slotRet(x, p) // a slot variant's return (ir_slot.go)
+	}
 	if x == nil {
 		if b.result != nil {
 			irNo("bare return")
