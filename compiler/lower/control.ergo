@@ -17,6 +17,7 @@ type controlOp =
 	| CUnionRet{}
 	| CDiscard{}
 	| CBorrowInvoke{Invoke borrowInvoke}
+	| CUnitCall{Call aCall, At int, Returns bool}
 	| CIf{}
 	| CMatch{}
 	| CWhile{}
@@ -178,10 +179,11 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		p.extended = true
 		match dense.Unpack(r.Result) {
 		case Some{Value: x}:
-			if p.unit {
+			if !p.unit {
+				try controlPrepareReturn(st, p, &row, x)
+			} else if !try controlPrepareUnitCall(*st, p, &row, x, true) {
 				return stop("control: unit return with operand")
 			}
-			try controlPrepareReturn(st, p, &row, x)
 		case None:
 			if !p.unit {
 				return stop("control: bare return")
@@ -379,9 +381,30 @@ func controlPrepareDiscard(st fnb, p mut controlPlan, row mut controlStmt, x den
 		case _:
 		}
 	}
+	if try controlPrepareUnitCall(st, p, row, x, false) {
+		return
+	}
 	try controlOperand(st, p, x)
 	row.op = CDiscard
 	row.x = dense.OptOf(x)
+}
+
+func controlPrepareUnitCall(st fnb, p mut controlPlan, row mut controlStmt, x dense.ID[syntax.Node], returns bool) bool fails Unported {
+	let call = unparen(st, x)
+	match syntax.ViewOf(st.p.Tree, call) {
+	case syntax.CallExpr as ce:
+		match try planUnitCall(st, call, ce) {
+		case Some{Value: prepared}:
+			for arg in prepared.args {
+				try controlOperand(st, p, arg)
+			}
+			row.op = CUnitCall{Call: prepared, At: syntax.NodePos(st.p, call), Returns: returns}
+			return true
+		case None:
+		}
+	case _:
+	}
+	false
 }
 
 func controlPrepareSet(st fnb, p mut controlPlan, row mut controlStmt, a syntax.AssignStmt, lhs dense.ID[syntax.Node], loops int) fails Unported {
@@ -526,6 +549,8 @@ func controlTerminates(row controlStmt) bool {
 		true
 	case CUnionRet:
 		true
+	case CUnitCall as c:
+		c.Returns
 	case CMatch:
 		matchTerminates(row)
 	case CIf:
@@ -600,6 +625,19 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			}
 			i = s.next
 			continue
+		case CUnitCall as c:
+			let at = pos(st, c.At)
+			let mut args = []uint32{}
+			for arg in c.Call.args {
+				args = args.Append(try value(st, b, arg))
+			}
+			let call = try ir.Row(b, ir.KindCode(ir.TExpr, "call"), at, []uint32{0, ir.Text(b, c.Call.name), ir.List(b, args)})
+			rows = rows.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{call}))
+			if c.Returns {
+				return rows.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(st, s.offset), []uint32{0}))
+			}
+			i = s.next
+			continue
 		case _:
 		}
 		let at = pos(st, s.offset)
@@ -636,6 +674,8 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			try ir.Row(b, ir.KindCode(ir.TStmt, "discard"), at, []uint32{x})
 		case CBorrowInvoke as invoke:
 			try emitBorrowInvoke(st, b, invoke.Invoke)
+		case CUnitCall:
+			return ir.Malformed{At: i, Why: "unit call outside multirow emission"}
 		case CIf:
 			let then = try controlEmitSpan(st, b, p, s.first, read)
 			let els = try controlEmitSpan(st, b, p, s.second, read)

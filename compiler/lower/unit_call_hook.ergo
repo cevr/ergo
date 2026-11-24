@@ -1,0 +1,8 @@
+import compiler/syntax
+import dense
+
+// planUnitCall decides whether a checked no-result call keeps its direct
+// Go call form. None leaves the existing operand path in charge.
+func planUnitCall(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) Option[aCall] fails Unported {
+	None
+}
