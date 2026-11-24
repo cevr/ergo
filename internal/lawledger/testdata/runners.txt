@@ -244,6 +244,7 @@ dense PutKeepsOthers	TestStdDenseLawsRun
 dense PutSinceIsPutList	TestStdDenseLawsRun
 dense PutThenAt	TestStdDenseLawsRun
 dense ReleaseThenReuse	TestStdDenseLawsRun
+dense ReserveRejectsOutOfRange	none
 dense SetThenAt	TestStdDenseLawsRun
 dense SideDefaults	TestStdDenseLawsRun
 dense SparseAgreesWithSet	TestStdDenseLawsRun
@@ -251,7 +252,6 @@ dense TableEachStops	TestStdDenseLawsRun
 dense TableIDsStops	TestStdDenseLawsRun
 dense ValueOfIntern	TestStdDenseLawsRun
 dense WithCapIsNew	TestStdDenseLawsRun
-dense WithCapRejectsOutOfRange	none
 embed EmptyHasNoFiles	TestStdLawsRun
 embed FS.ReadIsRepeatable	TestStdLawsRun
 exec InterleavesMatchesModel	TestExecLaws

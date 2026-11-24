@@ -133,28 +133,35 @@ func New[T]() Table[T] { Table[T]{rows: []T{}} }
 // counts.
 type Capacity {}
 
-// WithCap is an empty table with room for n rows. The first n Puts
-// allocate nothing. It fails with Capacity before allocating when n is
-// negative or greater than the number of ids.
-func WithCap[T](n int) Table[T] fails Capacity {
+// Room is a checked reservation in rows. Only Reserve constructs it.
+type Room { count int }
+
+// Reserve validates a requested row count without allocating.
+func Reserve(n int) Room fails Capacity {
 	if uint64(n) > uint64(limit) {
 		return Capacity
 	}
-	Table[T]{rows: slices.WithCapacity[T](n)}
+	Room{count: n}
 }
 
-// WithCapRejectsOutOfRange: a count just above the 32-bit limit does not
+// ReserveRejectsOutOfRange: a count just above the 32-bit limit does not
 // wrap into a small reservation, and a negative count cannot allocate.
-law WithCapRejectsOutOfRange(seed int) {
+law ReserveRejectsOutOfRange(seed int) {
 	let shift = seed & 255
 	for n in []int{-1 - shift, 4294967296 + shift} {
-		let _ = WithCap[flat](n) catch {
+		let _ = Reserve(n) catch {
 		case Capacity:
 			continue
 		}
 		return false
 	}
 	true
+}
+
+// WithCap is an empty table with the reserved room. Its first writes up
+// to that capacity allocate nothing.
+func WithCap[T](room Room) Table[T] {
+	Table[T]{rows: slices.WithCapacity[T](room.count)}
 }
 
 // Len is the count of rows.
@@ -221,10 +228,11 @@ type flat {}
 law FlatRowsKeepIDs(k int, c int) {
 	let n = (k%300 + 300) % 300
 	let mut a = New[flat]()
-	let mut b = WithCap[flat]((c%40 + 40) % 40) catch {
+	let room = Reserve((c%40 + 40) % 40) catch {
 	case Capacity:
 		return false
 	}
+	let mut b = WithCap[flat](room)
 	let mut ok = true
 	for i in 0..n {
 		let ia = a.Put(flat)
@@ -650,10 +658,11 @@ law PutSinceIsPutList(before []int, below []int, above []int) {
 law WithCapIsNew(xs []int, n int) {
 	let c = (n%64 + 64) % 64
 	let mut a = New[int]()
-	let mut b = WithCap[int](c) catch {
+	let room = Reserve(c) catch {
 	case Capacity:
 		return false
 	}
+	let mut b = WithCap[int](room)
 	let mut ca = NewCol[int, int]()
 	let mut cb = ColWithCap[int, int](c)
 	let mut pa = NewPool[int]()
