@@ -1123,8 +1123,10 @@ func (b *irBuilder) boundOpCall(x *syntax.CallExpr, c *check.Call, n *check.Name
 	switch {
 	case commaOk(body) && !option:
 		irNo("std call with an adapted result")
-	case b.l.info.Closes[x] != nil:
-		irNo("std Close")
+	case b.l.info.Closes[x] != nil && runtimeBindings()[name].wait != noWait:
+		// A checked Close whose binding waits needs a release route
+		// that masks it; the emitter refuses it too (runtimeCall).
+		irNo("std Close that waits")
 	}
 	if option {
 		return b.commaOkOpCall(x, c, n, body, p, recv)

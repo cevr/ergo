@@ -1,0 +1,54 @@
+import fs
+import io
+
+// A checked Close of a value whose type binds a runtime Go type (fs's
+// Mapped): the call is the Go method, with no poll before it, on the IR
+// as on the text path. The file read is this fixture itself (the test
+// runs the program in its package folder).
+
+// size maps the file at path, copies its text and closes the mapping.
+func size(h fs.Host, path string) int fails fs.NotFound | fs.Denied | fs.Failed {
+	let m = try fs.MapFile(h, path)
+	let t = fs.Clone(m.Text())
+	m.Close()
+	len(t)
+}
+
+// chunks reads the file through io.File, whose body closes its mapping,
+// and counts its chunks of 64 bytes.
+func chunks(h fs.Host, path string) int fails fs.NotFound | fs.Denied | fs.Failed {
+	let m = try io.File(h, path, 64)
+	let mut n = 0
+	for {
+		let c = m.Read() catch {
+		case io.ReadFailed:
+			return n
+		}
+		match c {
+		case Some[string]:
+			n = n + 1
+		case None:
+			return n
+		}
+	}
+}
+
+func main() needs Console | Ambient {
+	let h = fs.NewHost()
+	let path = "testdata/stdclose.ergo"
+	let s = size(h, path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		0 - 1
+	}
+	let n = chunks(h, path) catch {
+	case fs.NotFound, fs.Denied, fs.Failed:
+		0 - 1
+	}
+	let missing = size(h, "testdata/no-such-file") catch {
+	case fs.NotFound:
+		0 - 2
+	case fs.Denied, fs.Failed:
+		0 - 3
+	}
+	Console.Println("read \(s > 0) same \(n == (s + 63) / 64) missing \(missing)")
+}

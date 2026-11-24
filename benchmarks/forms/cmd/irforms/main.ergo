@@ -5,6 +5,7 @@
 //
 //	irforms bench KIND N
 
+import fs
 import irforms/view
 import os
 import slices
@@ -349,6 +350,21 @@ func benchProvSpill(n int) int {
 	s
 }
 
+// ---- mapclose: a checked Close of a runtime-bound type (fs's Mapped) ----
+
+func benchMapClose(h fs.Host, n int) int {
+	let mut k = 0
+	for _ in 0..n {
+		let m = fs.MapFile(h, "/proc/self/exe") catch {
+		case fs.NotFound, fs.Denied, fs.Failed:
+			return 0 - 1
+		}
+		m.Close()
+		k = k + 1
+	}
+	k
+}
+
 // ---- ref: a shared cell's Modify with a closure ----
 
 func benchRef(n int) int {
@@ -483,8 +499,10 @@ func benchRebuild(n int) int {
 	s
 }
 
-func run(kind string, n int) int {
-	if kind == "widen" {
+func run(kind string, n int, h fs.Host) int {
+	if kind == "mapclose" {
+		benchMapClose(h, n)
+	} else if kind == "widen" {
 		benchWiden(n)
 	} else if kind == "rebuild" {
 		benchRebuild(n)
@@ -535,6 +553,6 @@ func main() fails os.Exit needs Console | Ambient {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "irforms: N is not a count"}
 		}
-		Console.Println("\(run(args[1], n))")
+		Console.Println("\(run(args[1], n, fs.NewHost()))")
 	}
 }
