@@ -1,7 +1,7 @@
 {
   "about": "The mutant ledger of internal/selfhostcheck and the self-hosting pilot it tests (testdata/selfhost): edits of the Go adapter and of the Ergo tree decoder that TestSelfhostBridgeAgrees, or the adapter's TestFamiliesCoverSyntax, must kill. scripts/mutants judges only check and lower today, and the pilot is a nested Go module; until it has a suite, a unit that changes these files applies each edit by hand and runs the killer (wf10 SH0).",
   "mutants": [
-    {"name":"claim-law-permits-bare-self-call","origin":"wf10 CLAIM-LAWS","file":"compiler/check/expr/call.ergo","from":"if types.ConstraintOnlyRole(role) {","to":"if false {","rule":"A constraint-only law has no ambient value for a bare operation call.","killers":["internal/selfhostcheck:TestCompilerCheckAgrees"],"regenerate":{"dir":".","argv":["go","run","./scripts/linked","-bootstrap"]},"gap":"not-run-crunch"},
+    {"name":"claim-law-permits-bare-self-call","origin":"wf10 CLAIM-LAWS","file":"compiler/check/expr/call.ergo","from":"if selected.NeedsReceiver {","to":"if false {","rule":"A constraint-only law has no ambient value for a bare operation call.","killers":["internal/selfhostcheck:TestCompilerCheckAgrees"],"regenerate":{"dir":".","argv":["go","run","./scripts/linked","-bootstrap"]},"gap":"not-run-crunch"},
     {
       "name": "pool-case-silently-dropped",
       "origin": "wf10 LAW-UNFED (878 r5)",
