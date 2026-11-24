@@ -43,10 +43,7 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 	s.offset = start
 	s.end = syntax.TokPos(st.p, m.Rbrace)
 	s.slot = subject
-	// For a match these otherwise unused column words hold the checked
-	// source slot and its operand position, not an else block.
-	s.elseAt = src
-	s.elseEnd = syntax.NodePos(st.p, m.Subject)
+	s.x = dense.OptOf(m.Subject)
 	s.assign = if tail { "return" } else { "" }
 	p.extended = true
 	p.reads = p.reads.Append(src)
@@ -219,7 +216,13 @@ func matchEmit(st fnb, b mut ir.Builder, p controlPlan, s controlStmt, arms []ma
 	let at = pos(st, s.offset)
 	let end = pos(st, s.end)
 	let slot = uint32(s.slot)
-	let src = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), pos(st, s.elseEnd), []uint32{uint32(s.elseAt)})
+	let operand = match dense.Unpack(s.x) {
+	case Some{Value: id}:
+		id
+	case None:
+		return stop("match: prepared subject missing")
+	}
+	let src = try value(st, b, operand)
 	let subject = try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{slot, src})
 	let use = try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{slot})
 	let tag = try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{use, ir.Text(b, "tag")})
