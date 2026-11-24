@@ -185,7 +185,8 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	// The corpus keeps a law's cases while its package declares it in
 	// the rewrite's scope, by the ledger's pruning rule.
 	for k := range cases {
-		if !src.declares(lower.LedgerEntry{Law: k}) {
+		law, claimant, _ := strings.Cut(k, " for ")
+		if !src.declares(lower.LedgerEntry{Law: law, Provider: claimant}) {
 			delete(cases, k)
 		}
 	}
@@ -237,8 +238,21 @@ func (s ledgerSource) declares(e lower.LedgerEntry) bool {
 	if e.Provider == "" {
 		return true
 	}
-	if p, known := s.pkg(provPkg); known && (p == nil || !slices.ContainsFunc(p.Types, func(t *check.TypeName) bool { return t.Name == prov })) {
-		return false
+	if p, known := s.pkg(provPkg); known {
+		if p == nil || !slices.ContainsFunc(p.Types, func(t *check.TypeName) bool { return t.Name == prov }) {
+			return false
+		}
+		if contract, ok := s.pkg(lawPkg); ok && contract != nil {
+			isClaim := slices.ContainsFunc(contract.Laws, func(l *check.Law) bool {
+				return l.ClaimEquation() && l.Owner.Name+"."+l.Name == law
+			})
+			if isClaim && !slices.ContainsFunc(p.FunctionRewrites(), func(l *check.Law) bool {
+				b := l.ClaimRewriteBinding()
+				return b != nil && b.Type.Obj.Name == prov && s.names.Of(l.Pkg) == lawPkg && l.Owner.Name+"."+l.Name == law
+			}) {
+				return false
+			}
+		}
 	}
 	return true
 }

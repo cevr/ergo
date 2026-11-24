@@ -51,7 +51,7 @@ func (b *irBuilder) bindAt(law *check.Law, x *syntax.CallExpr) (rwBinding, map[*
 	for _, tp := range law.TParams {
 		tps[tp] = true
 	}
-	linfo, sinfo := law.Pkg.Info, b.l.info
+	linfo, sinfo := law.RewriteInfo(), b.l.info
 	param := map[*check.Var]bool{}
 	for _, v := range law.Params {
 		param[v] = true
@@ -65,23 +65,27 @@ func (b *irBuilder) bindAt(law *check.Law, x *syntax.CallExpr) (rwBinding, map[*
 					return false
 				}
 				ops[v] = s
-				return b.unify(v.Type, sinfo.Types[s], tps, bind)
+				return b.unify(law.RewriteType(v.Type), sinfo.Types[s], tps, bind)
 			}
 		}
 		pc, ok1 := p.(*syntax.CallExpr)
 		sc, ok2 := s.(*syntax.CallExpr)
-		if !ok1 || !ok2 || len(pc.Args) != len(sc.Args) {
+		if !ok1 || !ok2 {
 			return false
 		}
 		lc, scall := linfo.Calls[pc], sinfo.Calls[sc]
-		if lc == nil || scall == nil || lc.Kind != check.CallFunc || scall.Kind != check.CallFunc || lc.Func == nil || scall.Func != lc.Func || lc.Recv != nil || scall.Recv != nil {
+		if lc == nil || scall == nil || lc.Kind != check.CallFunc || scall.Kind != check.CallFunc || lc.Func == nil || scall.Func != lc.Func {
+			return false
+		}
+		pa, sa := lc.Operands(pc), scall.Operands(sc)
+		if len(pa) != len(sa) {
 			return false
 		}
 		if !b.unify(linfo.Types[pc], sinfo.Types[sc], tps, bind) {
 			return false
 		}
-		for i := range pc.Args {
-			if !walk(pc.Args[i], sc.Args[i]) {
+		for i := range pa {
+			if !walk(pa[i], sa[i]) {
 				return false
 			}
 		}
@@ -243,7 +247,7 @@ func (b *irBuilder) fuseSite(law *check.Law, bind rwBinding, ops map[*check.Var]
 		for len(m.holes) <= j {
 			m.holes, m.vals = append(m.holes, nil), append(m.vals, nil)
 		}
-		m.holes[j] = &irExpr{K: "hole", I: j, T: b.goType(v.Type, law.TopRewrite().Lhs)}
+		m.holes[j] = &irExpr{K: "hole", I: j, T: b.goType(law.RewriteType(v.Type), law.TopRewrite().Lhs)}
 		m.vals[j] = e
 		m.order = append(m.order, j)
 	}
@@ -266,7 +270,7 @@ func lawOrder(law *check.Law) []*check.Var {
 	var out []*check.Var
 	syntax.Inspect(law.TopRewrite().Lhs, func(n syntax.Node) bool {
 		if id, ok := n.(*syntax.Ident); ok {
-			if v, isVar := law.Pkg.Info.Uses[id].(*check.Var); isVar && param[v] && !slices.Contains(out, v) {
+			if v, isVar := law.RewriteInfo().Uses[id].(*check.Var); isVar && param[v] && !slices.Contains(out, v) {
 				out = append(out, v)
 			}
 		}

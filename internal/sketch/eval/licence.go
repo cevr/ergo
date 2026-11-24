@@ -188,6 +188,18 @@ type licenceClass struct {
 func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []string, order mapOrder, goBodies GoBodies) (l Licence, ranged bool, err error) {
 	in := &interp{budget: b, root: pkg, files: map[syntax.Decl]*syntax.File{}, initials: map[*check.TypeName]Value{}, mapOrder: order, goBodies: goBodies}
 	l.Name = lawName(law)
+	if claim := law.ClaimRewriteBinding(); claim != nil {
+		l.Name = "law " + law.Title(pkg) + " for " + claim.Type.Obj.Name
+		if claim.Unrun != "" {
+			l.Verdict, l.Reason = "skipped", claim.Unrun+claim.ClaimBlame()
+			return l, false, nil
+		}
+		defer func() {
+			if l.Verdict == "refuted" || l.Verdict == "skipped" {
+				l.Reason += claim.ClaimBlame()
+			}
+		}()
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			ie, ok := r.(internalError)
@@ -214,6 +226,20 @@ func licenceOrdered(pkg *check.Package, law *check.Law, b Budget, corpus []strin
 func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	rw := law.TopRewrite()
 	fr := in.newFrame(law.Pkg, law.Decl)
+	claim := law.ClaimRewriteBinding()
+	if claim != nil {
+		// The rewrite view also names the claimant's declaration
+		// parameters for matching; only the law's own parameters need
+		// instantiation in the concrete licence body.
+		original := *law
+		original.TParams = law.TParams[len(claim.Type.TParams):]
+		info, why := claim.ClaimInfo(&original)
+		if why != "" {
+			l.Verdict, l.Reason = "skipped", why
+			return
+		}
+		fr.info, fr.tab = info, in.table(info)
+	}
 	in.atInt = map[*check.TypeParam]bool{}
 	for _, tp := range law.TParams {
 		in.atInt[tp] = true
@@ -225,8 +251,13 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 	families := make([][]licenceClass, n)
 	for i, v := range law.Params {
 		types[i] = lawParamType(law, v.Type)
-		if _, isFunc := v.Type.(*check.Signature); isFunc {
-			if families[i] = funcFamily(law, v.Type); families[i] == nil {
+		paramType := v.Type
+		if claim != nil {
+			paramType = claim.Params[i]
+			types[i] = paramType
+		}
+		if _, isFunc := paramType.(*check.Signature); isFunc {
+			if families[i] = funcFamily(law, paramType); families[i] == nil {
 				l.Verdict, l.Reason = "skipped", "the run has no family of pure functions for "+v.Name+" "+v.Type.String()
 				return
 			}
@@ -242,9 +273,16 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 			return
 		}
 	}
-	if why := pre.body(fr, fr.decl, law.Decl.Body, nil, map[*check.Var]check.Conversion{}); why != "" {
-		l.Verdict, l.Reason = "skipped", why
-		return
+	bodies := []*syntax.BlockStmt{law.Decl.Body}
+	if claim != nil {
+		left, right := law.Decl.RewriteSides()
+		bodies = []*syntax.BlockStmt{left, right}
+	}
+	for _, body := range bodies {
+		if why := pre.body(fr, fr.decl, body, nil, map[*check.Var]check.Conversion{}); why != "" {
+			l.Verdict, l.Reason = "skipped", why
+			return
+		}
 	}
 	for i := range law.Params {
 		if families[i] != nil {
@@ -395,6 +433,7 @@ func (in *interp) licence(law *check.Law, l *Licence, corpus []string) {
 		}
 		frameAt := func() *frame {
 			cf := in.newFrame(law.Pkg, law.Decl)
+			cf.info, cf.tab = fr.info, fr.tab
 			for i, v := range law.Params {
 				cf.bind(v, vals[i])
 			}

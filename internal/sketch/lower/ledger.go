@@ -689,6 +689,9 @@ func BindingLabel(pkg *check.Package, law *check.Law, b []check.LawProvider) str
 	for k, s := range law.Slots {
 		if s.Param < 0 {
 			label += " for " + providerTitleIn(pkg, b[k])
+			if b[k].Claim != nil && b[k].At != b[k].Type {
+				label += " at " + b[k].InstanceTitle()
+			}
 			continue
 		}
 		with = append(with, law.Params[s.Param].Name+" = "+providerTitleIn(pkg, b[k]))

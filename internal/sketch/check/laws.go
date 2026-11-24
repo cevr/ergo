@@ -361,7 +361,7 @@ func (c *checker) planLaws() {
 	c.cur = saved
 	c.pkg.LawRuns = c.lawRuns()
 	for _, r := range c.pkg.LawRuns {
-		if r.Law.Decl.Rewrite == nil {
+		if r.Law.Decl.Rewrite == nil || r.Law.Claimed() {
 			continue
 		}
 		// A rewrite law runs each side on a fresh provider (Laws 14): its
@@ -403,9 +403,13 @@ func (c *checker) pairUngeneratable(t Type) string {
 
 // planLaw sets the law's slots, or why it does not run (rules 7 and 8).
 func (c *checker) planLaw(law *Law) {
-	if law.Owner != nil && (len(law.selfUses) != 0 || len(law.TParams) != 0) {
-		law.Unrun = "a member law with Self or its own parameters needs a claimant-specific run (CLAIM-LAWS)"
-		return // CLAIM-LAWS plans the claimant-specific runs.
+	if law.Claimed() {
+		law.Slots = []LawSlot{{Param: -1, Type: law.Owner.Type.(*Named)}}
+		return // Its parameter generators are checked after reading the claim.
+	}
+	if law.Owner != nil && len(law.TParams) != 0 {
+		law.Unrun = "a member law's own parameters need a constraint-only claim"
+		return
 	}
 	if len(law.TParams) > 0 {
 		// A rewrite over functions (owner q234): the property run has no
@@ -572,6 +576,13 @@ func (c *checker) lawRuns() []LawRun {
 	for _, q := range pkgs {
 		for _, law := range q.Laws {
 			own := q == c.pkg
+			if law.Claimed() {
+				run := LawRun{Law: law, Bindings: c.claimBindings(law)}
+				if own || len(run.Bindings) > 0 {
+					runs = append(runs, run)
+				}
+				continue
+			}
 			if law.Unrun != "" || len(law.Slots) == 0 {
 				if own {
 					run := LawRun{Law: law}
@@ -928,6 +939,9 @@ func (c *checker) reportUnfedProviders() {
 					// where the law is declared.
 					c.cur = tn.file
 					at, name = implementsEntry(p.Type, p.Slot, tn), tn.Name
+					if p.ClaimExpr != nil {
+						at = p.ClaimExpr
+					}
 					law += ", declared at " + c.lawSite(r.Law) + ","
 				case r.Law.Pkg == c.pkg && r.Law.file != nil:
 					c.cur = r.Law.file
@@ -952,6 +966,11 @@ func (c *checker) reportUnfedProviders() {
 				// skip here, and the module's judgment reports the error
 				// prepared here when no package of the module feeds it.
 				u := unfedBinding{law: r.Law, provider: p.Type}
+				if p.Claim != nil {
+					u.provider = p.At
+					copy := *p
+					u.claim = &copy
+				}
 				u.diag = c.prepared(func() {
 					c.errorf(at, CodeType, "law %s cannot run at %s: %s%s; no named context of a package of module %s builds one (types.md, Laws 10)", law, name, p.Unrun, fix, c.pkg.module)
 				})
@@ -1209,7 +1228,9 @@ func (c *checker) checkLaw(law *Law) {
 			law.Ties[i] = nil
 		}
 	}
-	if d.Rewrite != nil {
+	if law.ClaimEquation() {
+		c.checkClaimEquation(law)
+	} else if d.Rewrite != nil {
 		c.rewriteLaw(law, tg)
 	} else {
 		c.lawBody(d.Body)

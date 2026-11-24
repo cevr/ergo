@@ -149,6 +149,9 @@ func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 	held := b.temp("held", "bool", p)
 	site := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(unparen(at))}
 	decl := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(b.law.Decl)}
+	if b.fc.claim != nil {
+		decl.V += b.fc.claim.ClaimBlame()
+	}
 	refute := &irExpr{K: "call", Pos: p, Name: l.refutedFunc(), Args: []*irExpr{site, decl}}
 	h := &irExpr{K: "local", Pos: p, I: held}
 	return append(out[:len(out)-1],

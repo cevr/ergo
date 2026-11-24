@@ -85,13 +85,17 @@ func (c *checker) checkFuncRewrites() {
 			c.errorf(at, CodeType, "law %s is no rewrite: %s; write { lhs == rhs } for a property", law.Name, why)
 		}
 	}
+	c.checkClaimRewrites()
 }
 
 // funcRewrite is law's checked form, or the node and the reason of the
 // first rule it breaks.
 func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
-	info := c.pkg.Info
-	lhs, rhs, _ := law.Decl.EquationSides()
+	info := law.RewriteInfo()
+	lhs, rhs := law.rewriteSides()
+	if lhs == nil || rhs == nil {
+		return nil, law.Decl, "each side is one expression"
+	}
 	param := map[*Var]bool{}
 	for _, v := range law.Params {
 		param[v] = true
@@ -178,12 +182,7 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 				return e, "its sides call declared functions, conversions and len only, not an operation, a function value or another built-in form"
 			}
 			calls = append(calls, e)
-			if call.Recv != nil {
-				if bad, why := side(call.Recv, left); bad != nil {
-					return bad, why
-				}
-			}
-			for _, a := range e.Args {
+			for _, a := range call.Operands(e) {
 				if bad, why := side(a, left); bad != nil {
 					return bad, why
 				}
@@ -206,7 +205,7 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 			return nil, v.id, fmt.Sprintf("parameter %s does not occur in its left side, which binds every parameter", v.Name)
 		}
 	}
-	rw := &FuncRewrite{Lhs: lhs, Rhs: rhs, LhsCalls: len(lhsCalls), RhsCalls: len(rhsCalls), OverFuncs: len(law.TParams) > 0 || len(local) > 0 || literal}
+	rw := &FuncRewrite{Lhs: lhs, Rhs: rhs, LhsCalls: len(lhsCalls), RhsCalls: len(rhsCalls), OverFuncs: law.ClaimEquation() || len(law.TParams) > 0 || len(local) > 0 || literal}
 	for _, v := range law.Params {
 		if _, ok := under(v.Type).(*Signature); ok {
 			rw.OverFuncs = true
@@ -240,7 +239,7 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 	// (owner q234), so a site's function is pure and a fused loop may run
 	// it in another order.
 	for _, v := range law.Params {
-		if sig, ok := under(v.Type).(*Signature); ok && (sig.Errors != nil && !sig.Errors.Empty() || sig.Uses != nil && !sig.Uses.Empty()) {
+		if sig, ok := under(law.RewriteType(v.Type)).(*Signature); ok && (sig.Errors != nil && !sig.Errors.Empty() || sig.Uses != nil && !sig.Uses.Empty()) {
 			return nil, v.id, fmt.Sprintf("parameter %s is a function that fails or needs, and a rewrite's functions are pure: write its type with no fails and no needs", v.Name)
 		}
 	}
@@ -259,7 +258,19 @@ func (c *checker) funcRewrite(law *Law) (*FuncRewrite, syntax.Node, string) {
 		// A law's own type parameter is the type a site gives it: the
 		// class is the law's at value types (int here), and the site's
 		// types are checked where it is matched.
-		if len(law.TParams) > 0 {
+		if claim := law.ClaimRewriteBinding(); claim != nil {
+			// Read the original law's own parameters before closing Self.
+			original := *law
+			original.TParams = law.TParams[len(claim.Type.TParams):]
+			read, why := claim.Subst(&original)
+			if why != "" {
+				return nil, lhs, why
+			}
+			t = read(law.Pkg.Info.Types[unwrapTry(lhs)])
+			if r := read(law.Pkg.Info.Types[unwrapTry(rhs)]); !c.identical(t, r) {
+				return nil, rhs, fmt.Sprintf("its sides have different types %s and %s", t, r)
+			}
+		} else if len(law.TParams) > 0 {
 			m := map[*TypeParam]Type{}
 			for _, tp := range law.TParams {
 				m[tp] = Typ[Int]
@@ -377,11 +388,12 @@ func pureOverArgs(info *Info, call *Call, e *syntax.CallExpr) bool {
 	if !ok || len(fp.Caps) > 0 || fp.Tasks || fp.OpaqueRest {
 		return false
 	}
+	args := call.Operands(e)
 	for _, i := range fp.Params {
-		if i >= len(e.Args) {
+		if i >= len(args) {
 			return false
 		}
-		sig, ok := under(info.Types[e.Args[i]]).(*Signature)
+		sig, ok := under(info.Types[args[i]]).(*Signature)
 		if !ok || sig.Errors != nil && !sig.Errors.Empty() || sig.Uses != nil && !sig.Uses.Empty() {
 			return false
 		}

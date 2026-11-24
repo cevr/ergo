@@ -196,7 +196,7 @@ func (l *lowerer) nameTests() {
 	}
 	for _, r := range l.runLaws() {
 		l.lawFunc(r.Law)
-		if lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil {
+		if r.Law.Claimed() || lawGenericOwner(r.Law) != nil && r.Law.Rewrite == nil {
 			l.reserveLawMono(r.Law) // mono.go
 		}
 		for _, adm := range r.Law.Admit {
@@ -312,6 +312,14 @@ func (l *lowerer) genRoots(f func(check.Type)) {
 	for _, r := range l.runLaws() {
 		law := r.Law
 		if !lawLowered(r) {
+			continue
+		}
+		if law.Claimed() {
+			for _, b := range r.Bindings {
+				for _, in := range testplan.Law(law, b).Inputs {
+					f(in.Type)
+				}
+			}
 			continue
 		}
 		// A law of a generic operation type draws its parameters at each
@@ -540,6 +548,18 @@ func (l *lowerer) lawDecl(law *check.Law, sp *specCopy) {
 	parts := []string{fc.env + " *" + l.env()}
 	tparams := ""
 	name := l.lawFunc(law)
+	if sp != nil && sp.claim != nil {
+		var why string
+		fc.mono, fc.claim, name = true, sp.claim, sp.name
+		fc.readCopy, why = sp.claim.Subst(law)
+		if why != "" {
+			ice(d, "claim law %s: %s", law.Name, why)
+		}
+		l.info, why = sp.claim.ClaimInfo(law)
+		if why != "" {
+			ice(d, "claim law %s: %s", law.Name, why)
+		}
+	}
 	if own := lawGenericOwner(law); own != nil {
 		// A law of a generic operation type takes the provider under
 		// test after the environment: its instance is no environment
@@ -807,6 +827,9 @@ func (l *lowerer) testEntry(b *strings.Builder) {
 		if !lawLowered(r) || r.Law.Decl.Reach != nil {
 			continue
 		}
+		if r.Law.Claimed() {
+			continue // no body exists outside a concrete claim
+		}
 		copies := l.monoTaken()
 		for _, adm := range r.Law.Admit {
 			if adm != nil && !(lawGenericOwner(adm) != nil && copies) {
@@ -1046,6 +1069,9 @@ func lawSlotParam(law *check.Law, i int) bool {
 // assert fails it as a test's case does.
 func (l *lowerer) lawRuns(b *strings.Builder, lr check.LawRun, scope *namer, env, seed, failed string) {
 	law := lr.Law
+	if law.ClaimEquation() {
+		return // reported by the licence runner
+	}
 	fmtPkg := l.helper("fmt")
 	title := l.lawTitle(law)
 	if byLicence(law) {
@@ -1187,6 +1213,10 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 		var copyArgs []check.Type // the instance a generic law runs at (lawCallee)
 		generic := lawGenericOwner(law) != nil
 		for k, s := range law.Slots {
+			if s.Param < 0 && law.Claimed() {
+				callee = l.claimLawCallee(law, tg.b[k])
+				continue
+			}
 			if s.Param < 0 && generic {
 				// A law of a generic operation type takes its provider
 				// after the environment, at the instance the provider
@@ -1222,7 +1252,29 @@ func (l *lowerer) lawTarget(b *strings.Builder, law *check.Law, label string, bd
 				continue
 			}
 			a := inner.alloc(base)
-			gen := l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl)
+			var gen string
+			if build := input.ClaimCtor; build != nil {
+				ctor := build.ClaimCtor
+				sig := *ctor.Sig
+				sig.Params = make([]*check.Var, len(build.ClaimCtorParams))
+				for i, t := range build.ClaimCtorParams {
+					p := *ctor.Sig.Params[i]
+					p.Type = t
+					sig.Params[i] = &p
+				}
+				sig.Results = []check.Type{vt}
+				call := fc.funcValue(ctor, &sig, law.Decl, &check.Instance{Func: ctor, TypeArgs: build.ClaimCtorArgs})
+				cargs := []string{env}
+				for _, t := range build.ClaimCtorParams {
+					cargs = append(cargs, l.genExpr(t, r, strconv.Itoa(testDepth), inner, law.Decl))
+				}
+				b.WriteString("\t\t\t" + a + ", _ := " + call + "(" + strings.Join(cargs, ", ") + ")\n")
+				args = append(args, a)
+				shown = append(shown, strconv.Quote(sep+v.Name+" = "), l.litExpr(vt, a, law.Decl))
+				sep = ", "
+				continue
+			}
+			gen = l.genExpr(vt, r, strconv.Itoa(testDepth), inner, law.Decl)
 			if input.Where != nil {
 				gen = l.genRefined(vt, input.Where, r, strconv.Itoa(testDepth), inner, law.Decl)
 			}
@@ -1307,7 +1359,7 @@ func byLicence(law *check.Law) bool {
 // the runs it skips: one per binding of its slots, and one per context it
 // runs under.
 func lawCounts(r check.LawRun) (runs, skips int) {
-	if byLicence(r.Law) {
+	if r.Law.ClaimEquation() || byLicence(r.Law) {
 		return 0, 0
 	}
 	if r.Law.Unrun != "" {

@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"ergo.local/prototype/internal/sketch/check"
+	"ergo.local/prototype/internal/sketch/syntax"
 )
 
 // The ledger side of a top-level rewrite law over functions (LAWFFI LF6a;
@@ -33,7 +34,23 @@ func FuncLawDigest(law *check.Law, keys ForeignKeys) (digest, with, build string
 func funcLawDigest(names LedgerNames, law *check.Law, keys ForeignKeys) (digest, with, build string) {
 	d := newDigester()
 	d.names = names
-	d.decl("law "+d.names.Of(law.Pkg)+"."+law.Name, law.Pkg, law.Decl)
+	if claim := law.ClaimRewriteBinding(); claim != nil {
+		d.derived = true
+		d.typ(law.Owner) // includes the declaration's member law tokens
+		d.typ(claim.Type.Obj)
+		info := law.RewriteInfo()
+		syntax.Inspect(law.Decl, func(n syntax.Node) bool {
+			if call, ok := n.(*syntax.CallExpr); ok {
+				if c := info.Calls[call]; c != nil && c.Func != nil {
+					d.fn(c.Func)
+				}
+			}
+			return true
+		})
+		d.walk(law.Pkg, law.Decl)
+	} else {
+		d.decl("law "+d.names.Of(law.Pkg)+"."+law.Name, law.Pkg, law.Decl)
+	}
 	decls := make([]string, 0, len(d.decls))
 	for k := range d.decls {
 		decls = append(decls, k)
@@ -51,7 +68,21 @@ func funcLawDigest(names LedgerNames, law *check.Law, keys ForeignKeys) (digest,
 // funcLaw is a top-level law's entry name: its package's module-wide
 // name and its own.
 func (n LedgerNames) funcLaw(law *check.Law) string {
+	if law.ClaimRewriteBinding() != nil {
+		return n.Of(law.Pkg) + "." + law.Owner.Name + "." + law.Name
+	}
 	return n.Of(law.Pkg) + "." + law.Name
+}
+
+func (n LedgerNames) funcProvider(law *check.Law) string {
+	if p := law.ClaimRewriteBinding(); p != nil {
+		return n.Of(p.Type.Obj.Pkg) + "." + p.Type.Obj.Name
+	}
+	return ""
+}
+
+func (n LedgerNames) funcKey(law *check.Law) string {
+	return ledgerKey(n.funcLaw(law), n.funcProvider(law), "", "")
 }
 
 // FuncLawEntry is the ledger entry of the top-level law law with verdict,
@@ -67,7 +98,7 @@ func FuncLawEntry(law *check.Law, names LedgerNames, verdict string, keys Foreig
 	if verdict == "skipped" {
 		by = ""
 	}
-	return LedgerEntry{Law: names.funcLaw(law), Build: build, Verdict: verdict, By: by, With: with, Digest: d}
+	return LedgerEntry{Law: names.funcLaw(law), Provider: names.funcProvider(law), Build: build, Verdict: verdict, By: by, With: with, Digest: d}
 }
 
 // AdmitFunc admits the top-level rewrite law law at a site: the law is in
@@ -96,7 +127,7 @@ type funcEvidence interface {
 }
 
 func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
-	key := e.names.funcLaw(law)
+	key := e.names.funcKey(law)
 	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}
@@ -115,7 +146,7 @@ func (e *LedgerEvidence) funcVerdict(law *check.Law) funcVerdict {
 // ledger, against the shipped foreign keys. A refuted shipped entry
 // refuses the rewrite and stops nothing: the compiler shipped it.
 func (e *shippedEvidence) funcVerdict(law *check.Law) funcVerdict {
-	key := LedgerNames(nil).funcLaw(law)
+	key := LedgerNames(nil).funcKey(law)
 	if law.TopRewrite() == nil {
 		return funcVerdict{Key: key, Why: "law " + key + " is not in the scope of a rewrite"}
 	}

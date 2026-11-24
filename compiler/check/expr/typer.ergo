@@ -53,6 +53,9 @@ type Diag { At dense.ID[store.PNode], Fn int }
 // SelfInference is a call which left a re-applied receiver unbound.
 type SelfInference { File int, At dense.ID[syntax.Node], Param string, Example string }
 
+// BareSelfCall is an operation of a constraint-only law called without a receiver.
+type BareSelfCall { File int, At dense.ID[syntax.Node], Name string }
+
 // CapCall is a call of an operation on the capability T named as the
 // call's receiver.
 type CapCall { Call dense.ID[store.PNode], T dense.ID[store.TKey] }
@@ -70,6 +73,7 @@ type Typer {
 	Entries       []Entry,
 	Diags         []Diag,
 	SelfInference []SelfInference,
+	BareSelfCalls []BareSelfCall,
 	Insts         []Inst,
 	Calls         []CallTo,
 	// Caps is each call of an operation on a capability named as its
@@ -213,7 +217,7 @@ func checkAll(s mut store.Store, k Pkg, record bool) Typer {
 	for _ in lets {
 		states = states.Append(0)
 	}
-	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, SelfInference: []SelfInference{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Caps: []CapCall{}, Lits: []LitRows{}, Decodes: []DecodeRow{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
+	let mut t = Typer{Entries: slices.WithCapacity[Entry](entries), Diags: []Diag{}, SelfInference: []SelfInference{}, BareSelfCalls: []BareSelfCall{}, Insts: slices.WithCapacity[Inst](calls), Calls: []CallTo{}, Caps: []CapCall{}, Lits: []LitRows{}, Decodes: []DecodeRow{}, Outside: []dense.ID[store.PNode]{}, defs: defs, lets: lets, letState: states, letAt: letAt, frame: infer.NewFrame(), boolT: store.TBasic(s, bBool), file: 0, fn: 0, res: None, steps: 0, typed: 0, record: record, reserved: entries + rows + calls}
 	// An operation type's operations, by name in its laws.
 	for o in k.Ops {
 		t.file = o.File

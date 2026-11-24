@@ -23,12 +23,21 @@ type lawTarget struct {
 
 func lawTargets(pkg *check.Package, run check.LawRun) []lawTarget {
 	var out []lawTarget
+	if run.Law.ClaimEquation() {
+		return out // the licence run reports the claim equation
+	}
 	for _, b := range run.Bindings {
 		out = append(out, lawTarget{name: bindingName(pkg, run.Law, b), binding: b})
 	}
 	for i := range run.Contexts {
 		c := &run.Contexts[i]
-		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law) + " under " + c.Title(), why: c.Unrun, ctx: c})
+		t := lawTarget{name: qualifiedLaw(pkg, run.Law), why: c.Unrun, ctx: c}
+		if c.Claim != nil {
+			t.binding = []check.LawProvider{*c.Claim}
+			t.name = bindingName(pkg, run.Law, t.binding)
+		}
+		t.name += " under " + c.Title()
+		out = append(out, t)
 	}
 	if len(out) == 0 {
 		out = append(out, lawTarget{name: qualifiedLaw(pkg, run.Law), why: "no binding of the law runs in this package"})
@@ -53,6 +62,9 @@ func bindingName(pkg *check.Package, law *check.Law, b []check.LawProvider) stri
 		}
 		if slot.Param < 0 {
 			n += " for " + p
+			if b[k].Claim != nil && b[k].At != b[k].Type {
+				n += " at " + b[k].InstanceTitle()
+			}
 		} else {
 			with = append(with, law.Params[slot.Param].Name+" = "+p)
 		}
@@ -182,6 +194,13 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 		if out.Status == Refuted {
 			site := in.site(law.Pkg, law.Decl, law.Decl.Pos())
 			out.Declaration = &site
+			if law.Claimed() && len(tg.binding) != 0 {
+				suffix := tg.binding[0].ClaimBlame()
+				out.Reason += suffix
+				if out.Message != "" {
+					out.Message += suffix
+				}
+			}
 		}
 	}()
 	why := tg.why
@@ -203,6 +222,13 @@ func (in *interp) runLawTarget(law *check.Law, tg lawTarget, res Result) (out Re
 		return in.contextLaw(law, tg.ctx, res)
 	}
 	fr := in.newFrame(law.Pkg, law.Decl)
+	if law.Claimed() && tg.binding[0].Unrun == "" {
+		info, why := tg.binding[0].ClaimInfo(law)
+		if why != "" {
+			ice("claim law %s: %s", law.Name, why)
+		}
+		fr.info, fr.tab = info, in.table(info)
+	}
 	if own := testplan.GenericOwner(law); own != nil {
 		fr.env = &tenv{}
 		for i, tp := range own.TParams {
@@ -276,6 +302,7 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 	run := func(k int) (Result, []func() Argument) {
 		cf := in.newFrame(fr.pkg, fr.decl)
 		cf.env = fr.env
+		cf.info, cf.tab = fr.info, fr.tab
 		var listed []testplan.Value
 		if p.Listed {
 			listed = p.At(k)
@@ -290,6 +317,12 @@ func (in *interp) cases(fr *frame, body *syntax.BlockStmt, law bool, params []*c
 			var v Value
 			if p.Listed {
 				v = in.listValue(cf, listed[i])
+			} else if build := input.ClaimCtor; build != nil {
+				var args []Value
+				for _, t := range build.ClaimCtorParams {
+					args = append(args, in.generate(cf, r, t, testplan.Depth, nil))
+				}
+				v = mustValue(in.call(cf, nil, build.ClaimCtor, build.ClaimCtorArgs, args))
 			} else if input.Provider != nil && input.Provider.Ctor != nil {
 				ctor := input.Provider.Ctor
 				var vs []Value

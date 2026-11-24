@@ -1,0 +1,39 @@
+import claimlaws/role
+
+type Leaf[T] { Value T }
+type Empty {}
+type Tree[T] = Leaf[T] | Empty implements role.Left[T], role.Right[T]
+
+func Map[T, U](x Tree[T], f func(v T) U) Tree[U] {
+	match x {
+	case Leaf[T] as node:
+		Leaf[U]{Value: f(node.Value)}
+	case Empty:
+		Empty
+	}
+}
+
+func Count[T](x Tree[T]) int {
+	match x {
+	case Leaf[T]:
+		1
+	case Empty:
+		0
+	}
+}
+
+func Length(v string) int { len(v) }
+func Double(v int) int { 2 * v }
+
+func Dot(x Tree[string]) int { x.Map(Length).Map(Double).Count() }
+
+func Ordinary(x Tree[string]) int { Count(Map(Map(x, Length), Double)) }
+
+func Effectful(x Tree[string]) int {
+	let mut calls = 0
+	let n = x.Map(func(v string) int {
+		calls += 1
+		len(v)
+	}).Map(Double).Count()
+	n + calls
+}

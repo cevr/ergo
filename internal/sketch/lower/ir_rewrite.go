@@ -117,8 +117,8 @@ func (l *lowerer) scopeLaws() []*check.Law {
 				continue
 			}
 			seen[p] = true
-			for _, law := range p.Laws {
-				if rw := law.TopRewrite(); rw != nil && !lawFallible(law) {
+			for _, law := range p.FunctionRewrites() {
+				if rw := law.TopRewrite(); rw.Root != nil && !lawFallible(law) {
 					r.laws = append(r.laws, law)
 				}
 			}
@@ -146,21 +146,22 @@ func lawFallible(law *check.Law) bool {
 // law of a package of the module, the shipped ledger for any other.
 func (l *lowerer) funcVerdictOf(law *check.Law) funcVerdict {
 	r := l.canon.funcRw
-	if !l.isSourced(law.Pkg) {
+	p := law.RewritePackage()
+	if !l.isSourced(p) {
 		if r.shipped == nil {
 			r.shipped = map[*check.Package]*shippedEvidence{}
 		}
-		e := r.shipped[law.Pkg]
+		e := r.shipped[p]
 		if e == nil {
-			e = newShippedEvidence(law.Pkg)
-			r.shipped[law.Pkg] = e
+			e = newShippedEvidence(p)
+			r.shipped[p] = e
 		}
 		return e.funcVerdict(law)
 	}
 	if e, ok := r.ev.(funcEvidence); ok {
 		return e.funcVerdict(law)
 	}
-	key := LedgerNames(nil).funcLaw(law)
+	key := LedgerNames(nil).funcKey(law)
 	return funcVerdict{Key: key, State: "missing", Why: "the build reads no ergo.laws for " + key}
 }
 
@@ -394,7 +395,7 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 	for v, e := range vals {
 		b.lawArgs[v] = e
 	}
-	b.l.info, b.fc.directives = law.Pkg.Info, false
+	b.l.info, b.fc.directives = law.RewriteInfo(), false
 	// A side's own binders (a function literal's parameter, in a law over
 	// function parameters) are the side's: each lowering of it declares
 	// them again (two sites, or both sides under FuseOr).
@@ -428,7 +429,7 @@ func (b *irBuilder) lawSide(law *check.Law, side syntax.Expr, vals map[*check.Va
 
 // lawType is the type of law's sides.
 func (b *irBuilder) lawType(law *check.Law) check.Type {
-	t := law.Pkg.Info.Types[law.TopRewrite().Lhs]
+	t := law.RewriteInfo().Types[law.TopRewrite().Lhs]
 	if t == nil {
 		irNo("rewrite law side without a type")
 	}
@@ -450,10 +451,10 @@ func (b *irBuilder) shadow(x *syntax.CallExpr, m rwMatch, at string, place *rwAt
 	pre = append(pre, &irStmt{K: "def", Pos: p, Local: lt, X: left})
 	rpre, right := b.lawSide(m.law, m.law.TopRewrite().Rhs, vals, true)
 	pre = append(pre, rpre...)
-	key := LedgerNames(nil).funcLaw(m.law)
-	if b.l.isSourced(m.law.Pkg) {
+	key := LedgerNames(nil).funcKey(m.law)
+	if b.l.isSourced(m.law.RewritePackage()) {
 		if e, ok := b.l.canon.funcRw.ev.(*LedgerEvidence); ok {
-			key = e.names.funcLaw(m.law)
+			key = e.names.funcKey(m.law)
 		}
 	}
 	str := func(s string) *irExpr { return irStringConst(p, "string", s) }

@@ -1,0 +1,11 @@
+import agreeclaimlaws/role
+
+type Box[T, E] { Value T, Label E } implements role.Included[E, T]
+
+func Map[T, E, U](x Box[T, E], f func(v T) U) Box[U, E] {
+	Box[U, E]{Value: f(x.Value), Label: x.Label}
+}
+
+func Size[T, E](_ Box[T, E]) int { 1 }
+
+func Note[T, E](x Box[T, E]) E { x.Label }

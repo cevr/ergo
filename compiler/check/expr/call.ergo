@@ -150,6 +150,25 @@ func call(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c synt
 			}
 		}
 	}
+	if t.fn >= 0 && !indexed && syntax.KindOf(tr, fun) == syntax.KIdent {
+		match dense.Unpack(k.Fns[t.fn].SelfRole) {
+		case Some{Value: op}:
+			match types.RoleAt(*s, k.Roles, k.Ifaces, op) {
+			case Some{Value: role}:
+				if types.ConstraintOnlyRole(role) {
+					let name = types.NameText(k.Parsed[t.file], fun)
+					for m in role.Members {
+						if m.Name == name {
+							t.BareSelfCalls = t.BareSelfCalls.Append(BareSelfCall{File: t.file, At: fun, Name: name})
+							return None
+						}
+					}
+				}
+			case None:
+			}
+		case None:
+		}
+	}
 	if c.Trailing == dense.NoID[syntax.Node]() && indexed && n == 1 && len(written) == 1 && isBuiltin(k, *t, fun, "decode") {
 		decodeCall(s, k, t, x, written[0])
 	}

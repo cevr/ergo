@@ -1,0 +1,20 @@
+type Mappable[T] {
+	Map[U](f func(x T) U) Self[U],
+	Count() int,
+
+	law MapIdentity(x Self) { x.Map(func(v T) T { v }).Count() == x.Count() },
+
+	law MapKeepsCount[U, V](x Self, f func(v T) U, g func(v U) V) {
+		x.Map(f).Map(g).Count()
+	} == {
+		x.Map(func(v T) V { g(f(v)) }).Count()
+	},
+}
+
+type Left[T] {
+	..Mappable[T],
+}
+
+type Right[T] {
+	..Mappable[T],
+}
