@@ -995,9 +995,10 @@ both against net/http's `DetectContentType`.
    failures. `SuccessUsesRoute` holds this rule. `FailureStatus{Tag, Status}`
    tables give each nominal contract failure exactly one status (400..599).
    `StatusOf(table, tag)` is None for missing, repeated or invalid entries.
-   `Failure(table, taggedJson)` preserves the body with application/json and
-   reads the status from that table; invalid JSON, a missing tag or an absent
-   status is a defect, not a default 500. Use the ordinary codec for a closed
+   `Failure(table, taggedJson)` fails `Malformed` on invalid JSON, a non-object
+   body, a missing `_tag`, or an absent/ambiguous/out-of-range status in the
+   table (never inventing a 500 response); otherwise it preserves the body with
+   `application/json` and the table's status. Use the ordinary codec for a closed
    union or row value so the failure body has its nominal `_tag` and fields.
    The TypeScript HTTP projection checks exported literal tables against the
    contract's actual failure rows. `FailureUsesTable` tests lookup and response

@@ -374,8 +374,28 @@ test HttpFailureUsesTable(pick int, tag string) {
 	let other = http.FailureStatus{Tag: tag+"!", Status: if status == 400 { 599 } else { 400 }}
 	let table = []http.FailureStatus{other, entry}
 	let body = "{\"_tag\":"+json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag)+"}"
-	let response = http.Failure(table, body)
-	assert response.Status == status && response.Body == body && http.Header(response.Header, "Content-Type") == Some{"application/json"} && http.StatusOf([]http.FailureStatus{other}, tag) == None && http.StatusOf([]http.FailureStatus{entry, entry}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 200}}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 600}}, tag) == None
+	let response = http.Failure(table, body) catch {
+	case http.Malformed:
+		assert false
+		http.Response{Status: 0, Header: []http.Field{}, Body: ""}
+	}
+	let badJson = http.Failure(table, "{") catch {
+	case http.Malformed:
+		http.Response{Status: 0, Header: []http.Field{}, Body: ""}
+	}
+	let badObject = http.Failure(table, "1") catch {
+	case http.Malformed:
+		http.Response{Status: 0, Header: []http.Field{}, Body: ""}
+	}
+	let badTag = http.Failure(table, "{}") catch {
+	case http.Malformed:
+		http.Response{Status: 0, Header: []http.Field{}, Body: ""}
+	}
+	let badStatus = http.Failure([]http.FailureStatus{other}, body) catch {
+	case http.Malformed:
+		http.Response{Status: 0, Header: []http.Field{}, Body: ""}
+	}
+	assert response.Status == status && response.Body == body && http.Header(response.Header, "Content-Type") == Some{"application/json"} && badJson.Status == 0 && badObject.Status == 0 && badTag.Status == 0 && badStatus.Status == 0 && http.StatusOf([]http.FailureStatus{other}, tag) == None && http.StatusOf([]http.FailureStatus{entry, entry}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 200}}, tag) == None && http.StatusOf([]http.FailureStatus{http.FailureStatus{Tag: tag, Status: 600}}, tag) == None
 }
 
 test HttpSuccessUsesRoute(pick int, body string) {
@@ -766,7 +786,7 @@ const httpAllowStatement = `AllowIsWhatMatches(picks []int, asked int) { let met
 
 const httpSuccessStatement = `SuccessUsesRoute(pick int, body string) { let status = 200 + ((pick%100)+100)%100 let route = Route{Value: "reply", Method: "POST", Path: "/", Status: status} let response = Success(route, body) response.Status == status && if status == 204 || status == 205 { response.Body == "" && len(response.Header) == 0 } else { response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} } }`
 
-const httpFailureStatement = `FailureUsesTable(pick int, tag string) { let status = 400 + ((pick%200)+200)%200 let entry = FailureStatus{Tag: tag, Status: status} let other = FailureStatus{Tag: tag + "!", Status: if status == 400 { 599 } else { 400 }} let table = []FailureStatus{other, entry} let body = "{\"_tag\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag) + "}" let response = Failure(table, body) response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None }`
+const httpFailureStatement = `FailureUsesTable(pick int, tag string) { let status = 400 + ((pick%200)+200)%200 let entry = FailureStatus{Tag: tag, Status: status} let other = FailureStatus{Tag: tag + "!", Status: if status == 400 { 599 } else { 400 }} let table = []FailureStatus{other, entry} let body = "{\"_tag\":" + json.Encode(json.Codec[string]{MaxBytes: 0, MaxDepth: 0}, tag) + "}" let response = Failure(table, body) catch { case Malformed: return false } let badJson = Failure(table, "{") catch { case Malformed: Response{Status: 0, Header: []Field{}, Body: ""} } let badObject = Failure(table, "1") catch { case Malformed: Response{Status: 0, Header: []Field{}, Body: ""} } let badTag = Failure(table, "{}") catch { case Malformed: Response{Status: 0, Header: []Field{}, Body: ""} } let badStatus = Failure([]FailureStatus{other}, body) catch { case Malformed: Response{Status: 0, Header: []Field{}, Body: ""} } response.Status == status && response.Body == body && Header(response.Header, "Content-Type") == Some{"application/json"} && badJson.Status == 0 && badObject.Status == 0 && badTag.Status == 0 && badStatus.Status == 0 && StatusOf([]FailureStatus{other}, tag) == None && StatusOf([]FailureStatus{entry, entry}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 200}}, tag) == None && StatusOf([]FailureStatus{FailureStatus{Tag: tag, Status: 600}}, tag) == None }`
 
 // TestStdHTTPLawsRun runs the construction law and public pure handler
 // checks. It builds Go because the native property runner executes the
