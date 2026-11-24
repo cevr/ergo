@@ -19,7 +19,32 @@ type Claim { File int, Decl dense.ID[syntax.Node], At dense.ID[syntax.Node], T d
 // OpSig is one operation of an operation type: the file, the type's
 // declaration, the operation's name and its signature, read at the type's
 // parameters and then the operation's own.
-type OpSig { File int, Decl dense.ID[syntax.Node], Name string, Sig dense.ID[store.TKey] }
+type OpSig {
+	File int,
+	Decl dense.ID[syntax.Node],
+	Name string,
+	Sig  dense.ID[store.TKey],
+	Own  []string,
+}
+
+// ClaimPositions uses the written claim arguments, not arguments of a
+// concrete instance (two concrete arguments may be equal).
+func ClaimPositions(s store.Store, args []dense.ID[store.TKey], count int) Option[[]int] {
+	let mut out = []int{}
+	for a in args {
+		if store.KindOfType(s, a) != store.KParam || store.ArgOf(s, a) >= count {
+			return None
+		}
+		let i = store.ArgOf(s, a)
+		for seen in out {
+			if i == seen {
+				return None
+			}
+		}
+		out = out.Append(i)
+	}
+	Some{Value: out}
+}
 
 // bracketList is the names of the bracket list l, in order.
 func bracketList(p syntax.Parsed, l dense.Opt[syntax.Node]) []string {
@@ -62,7 +87,15 @@ func claimsOf(s mut store.Store, parsed []syntax.Parsed, kinds types.Kinds, ext 
 					let env = types.NewEnv(*s, parsed, p, params, kinds, ext, foreign, deps)
 					for j in 0..syntax.Len(td.Implements) {
 						let x = syntax.Item(p.Tree, td.Implements, j)
-						claims = claims.Append(Claim{File: file, Decl: d, At: x, T: types.Resolve(s, env, x)})
+						let op = types.Resolve(s, env, x)
+						claims = claims.Append(Claim{File: file, Decl: d, At: x, T: op})
+						if types.SelfInBound(*s, parsed, op) == 2 {
+							match (store.Lookup(*s, types.NameText(p, td.Name)), ClaimPositions(*s, store.OperandsOf(*s, op), len(params))) {
+							case (Some{Value: decl}, Some{Value: positions}):
+								store.AddClaimLayout(s, decl, store.ClaimLayout{Op: store.OriginOfType(*s, op), Positions: positions})
+							case _:
+							}
+						}
 					}
 					match dense.Unpack(td.Spec) {
 					case Some{Value: sp}:
@@ -78,11 +111,12 @@ func claimsOf(s mut store.Store, parsed []syntax.Parsed, kinds types.Kinds, ext 
 											for o in params {
 												all = all.Append(o)
 											}
-											for o in bracketList(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams) {
+											let own = bracketList(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams)
+											for o in own {
 												all = all.Append(o)
 											}
-											let oenv = types.NewEnv(*s, parsed, p, all, kinds, ext, foreign, deps)
-											sigs = sigs.Append(OpSig{File: file, Decl: d, Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), Sig: types.Resolve(s, oenv, ft)})
+											let oenv = types.WithSelf(types.NewEnv(*s, parsed, p, all, kinds, ext, foreign, deps), len(params))
+											sigs = sigs.Append(OpSig{File: file, Decl: d, Name: types.NameText(p, syntax.Item(p.Tree, fd.Names, 0)), Sig: types.Resolve(s, oenv, ft), Own: own})
 										}
 									case None:
 									}

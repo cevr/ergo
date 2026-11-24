@@ -226,15 +226,12 @@ func typeSetOnly(t Type) bool {
 	return ok && it.Terms != nil
 }
 
-// genericOpOnly reports whether t is a constraint only by a generic
-// operation (types.md, Interface assignability, Generic operations): no
-// Go interface or function field takes a type parameter, so no value has
-// it as its type. Read on the origin, as typeSetOnly reads.
-func genericOpOnly(t Type) bool {
+// copiesOnly reads the origin, as typeSetOnly does.
+func copiesOnly(t Type) bool {
 	n, ok := t.(*Named)
 	if !ok {
 		return false
 	}
 	it, ok := n.origin().under.(*Interface)
-	return ok && it.Generic
+	return ok && it.ConstraintOnly
 }
