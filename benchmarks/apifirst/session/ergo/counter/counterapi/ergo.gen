@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject sessionbench/counter.Counter
 contract sha256:e77eb8a32baf682d1375d3528c719428331b18b41b5a0678e09b7de46f9a6d26
-digest sha256:877235b0a6dc5852e3c75c0ed4bd090f4897a69fab55313ca08514f78543533a
+digest sha256:464a36371648c16ff6fbef4830c074006f770d6c271f8031064b0c46ff5331b8

@@ -2,4 +2,4 @@ kind api
 generator ergo gen api
 subject mcpbench/counter.Counter
 contract sha256:819a907d04c41f6c5a54126430323ff146f1e746e1c0176934fda7596c711726
-digest sha256:ed1412f628a16a5783b59597dd850fb418fbaebd2e06c86a6863bfd7f9eab2da
+digest sha256:81645663e457055acaacc45b1f3d4bc51de9c06a6c7ce9f34f0fe25bd4b1d65c

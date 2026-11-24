@@ -1,5 +1,6 @@
 import fs
 import json
+import rpc
 import sync
 import github.com/cevr/ergo/modules/work/work
 
@@ -754,38 +755,341 @@ func Call(r Request) Outcome needs work.Api {
 	}
 }
 
-// Client provides work.Api over send, any way to carry a Request to a
-// Call and its Outcome back. An Outcome that is not the operation's (the
-// value of another, a failure outside its row) is a defect.
-type Client { send func(r Request) Outcome } implements work.Api
+// Client provides work.Api by invoking inner directly per operation: a direct
+// call returns its exact value or declared failure row with no Outcome boxing.
+type Client { inner work.Api } implements work.Api
 
-// NewClient is the work.Api that send answers.
-func NewClient(send own func(r Request) Outcome) Client { Client{send: send} }
+// NewClient is the work.Api that invokes inner directly per operation.
+func NewClient(inner work.Api) Client { Client{inner: inner} }
 
-// Version sends work.Api's Version and answers its Outcome.
+// Version invokes work.Api's Version directly.
 func Version(client Client) string {
-	match client.send(VersionRequest) {
+	client.inner.Version()
+}
+
+// Init invokes work.Api's Init directly.
+func Init(client Client) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
+	try client.inner.Init()
+}
+
+// New invokes work.Api's New directly.
+func New(client Client, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
+	try client.inner.New(name, o)
+}
+
+// Adopt invokes work.Api's Adopt directly.
+func Adopt(client Client, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
+	try client.inner.Adopt(dir, o)
+}
+
+// AdoptRift invokes work.Api's AdoptRift directly.
+func AdoptRift(client Client, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
+	try client.inner.AdoptRift(o)
+}
+
+// List invokes work.Api's List directly.
+func List(client Client, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
+	try client.inner.List(o)
+}
+
+// Rm invokes work.Api's Rm directly.
+func Rm(client Client, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
+	try client.inner.Rm(name, o)
+}
+
+// Gc invokes work.Api's Gc directly.
+func Gc(client Client, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
+	try client.inner.Gc(o)
+}
+
+// Pin invokes work.Api's Pin directly.
+func Pin(client Client, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+	try client.inner.Pin(name)
+}
+
+// Unpin invokes work.Api's Unpin directly.
+func Unpin(client Client, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+	try client.inner.Unpin(name)
+}
+
+// Du invokes work.Api's Du directly.
+func Du(client Client) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
+	try client.inner.Du()
+}
+
+// Ready invokes work.Api's Ready directly.
+func Ready(client Client, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
+	try client.inner.Ready(o)
+}
+
+// Record invokes work.Api's Record directly.
+func Record(client Client, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
+	try client.inner.Record(tip)
+}
+
+// Sync invokes work.Api's Sync directly.
+func Sync(client Client, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
+	try client.inner.Sync(o)
+}
+
+// Env invokes work.Api's Env directly.
+func Env(client Client, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+	try client.inner.Env(o)
+}
+
+// MergeFile invokes work.Api's MergeFile directly.
+func MergeFile(client Client, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
+	try client.inner.MergeFile(class, base, ours, theirs, o)
+}
+
+// MergeFolders invokes work.Api's MergeFolders directly.
+func MergeFolders(client Client, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
+	try client.inner.MergeFolders(base, ours, theirs, out)
+}
+
+// Derive invokes work.Api's Derive directly.
+func Derive(client Client, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
+	try client.inner.Derive(o)
+}
+
+// Deps invokes work.Api's Deps directly.
+func Deps(client Client, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+	try client.inner.Deps(o)
+}
+
+// Trust invokes work.Api's Trust directly.
+func Trust(client Client) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
+	try client.inner.Trust()
+}
+
+// Doctor invokes work.Api's Doctor directly.
+func Doctor(client Client, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
+	try client.inner.Doctor(o)
+}
+
+// PluginTest invokes work.Api's PluginTest directly.
+func PluginTest(client Client, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
+	try client.inner.PluginTest(command, o)
+}
+
+// Refresh invokes work.Api's Refresh directly.
+func Refresh(client Client) int fails work.Unkept | work.NoBase | work.VcsFailed {
+	try client.inner.Refresh()
+}
+
+// Clone invokes work.Api's Clone directly.
+func Clone(client Client, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
+	try client.inner.Clone(src, dst, o)
+}
+
+// Bases invokes work.Api's Bases directly.
+func Bases(client Client) []string fails work.Unkept {
+	try client.inner.Bases()
+}
+
+// ForgetBase invokes work.Api's ForgetBase directly.
+func ForgetBase(client Client, base string) []string fails work.Unkept | fs.Denied | fs.Failed {
+	try client.inner.ForgetBase(base)
+}
+
+// PruneBases invokes work.Api's PruneBases directly.
+func PruneBases(client Client) []string fails work.Unkept | fs.Denied | fs.Failed {
+	try client.inner.PruneBases()
+}
+
+// ShellInit invokes work.Api's ShellInit directly.
+func ShellInit(client Client) string {
+	client.inner.ShellInit()
+}
+
+// ImportRift invokes work.Api's ImportRift directly.
+func ImportRift(client Client, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
+	try client.inner.ImportRift(o)
+}
+
+// BoundClient provides work.Api over a held Context captured by ClientInForce.
+type BoundClient { held Context[work.Api] } implements work.Api
+
+// ClientInForce is the work.Api that invokes the provider currently in force.
+func ClientInForce() BoundClient needs work.Api { BoundClient{held: InForce[work.Api]()} }
+
+// Version invokes work.Api's Version on the held context.
+func Version(client BoundClient) string {
+	with client.held { work.Api.Version() }
+}
+
+// Init invokes work.Api's Init on the held context.
+func Init(client BoundClient) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
+	with client.held { try work.Api.Init() }
+}
+
+// New invokes work.Api's New on the held context.
+func New(client BoundClient, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
+	with client.held { try work.Api.New(name, o) }
+}
+
+// Adopt invokes work.Api's Adopt on the held context.
+func Adopt(client BoundClient, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
+	with client.held { try work.Api.Adopt(dir, o) }
+}
+
+// AdoptRift invokes work.Api's AdoptRift on the held context.
+func AdoptRift(client BoundClient, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
+	with client.held { try work.Api.AdoptRift(o) }
+}
+
+// List invokes work.Api's List on the held context.
+func List(client BoundClient, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
+	with client.held { try work.Api.List(o) }
+}
+
+// Rm invokes work.Api's Rm on the held context.
+func Rm(client BoundClient, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
+	with client.held { try work.Api.Rm(name, o) }
+}
+
+// Gc invokes work.Api's Gc on the held context.
+func Gc(client BoundClient, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
+	with client.held { try work.Api.Gc(o) }
+}
+
+// Pin invokes work.Api's Pin on the held context.
+func Pin(client BoundClient, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+	with client.held { try work.Api.Pin(name) }
+}
+
+// Unpin invokes work.Api's Unpin on the held context.
+func Unpin(client BoundClient, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+	with client.held { try work.Api.Unpin(name) }
+}
+
+// Du invokes work.Api's Du on the held context.
+func Du(client BoundClient) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
+	with client.held { try work.Api.Du() }
+}
+
+// Ready invokes work.Api's Ready on the held context.
+func Ready(client BoundClient, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
+	with client.held { try work.Api.Ready(o) }
+}
+
+// Record invokes work.Api's Record on the held context.
+func Record(client BoundClient, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
+	with client.held { try work.Api.Record(tip) }
+}
+
+// Sync invokes work.Api's Sync on the held context.
+func Sync(client BoundClient, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
+	with client.held { try work.Api.Sync(o) }
+}
+
+// Env invokes work.Api's Env on the held context.
+func Env(client BoundClient, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+	with client.held { try work.Api.Env(o) }
+}
+
+// MergeFile invokes work.Api's MergeFile on the held context.
+func MergeFile(client BoundClient, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
+	with client.held { try work.Api.MergeFile(class, base, ours, theirs, o) }
+}
+
+// MergeFolders invokes work.Api's MergeFolders on the held context.
+func MergeFolders(client BoundClient, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
+	with client.held { try work.Api.MergeFolders(base, ours, theirs, out) }
+}
+
+// Derive invokes work.Api's Derive on the held context.
+func Derive(client BoundClient, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
+	with client.held { try work.Api.Derive(o) }
+}
+
+// Deps invokes work.Api's Deps on the held context.
+func Deps(client BoundClient, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+	with client.held { try work.Api.Deps(o) }
+}
+
+// Trust invokes work.Api's Trust on the held context.
+func Trust(client BoundClient) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
+	with client.held { try work.Api.Trust() }
+}
+
+// Doctor invokes work.Api's Doctor on the held context.
+func Doctor(client BoundClient, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
+	with client.held { try work.Api.Doctor(o) }
+}
+
+// PluginTest invokes work.Api's PluginTest on the held context.
+func PluginTest(client BoundClient, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
+	with client.held { try work.Api.PluginTest(command, o) }
+}
+
+// Refresh invokes work.Api's Refresh on the held context.
+func Refresh(client BoundClient) int fails work.Unkept | work.NoBase | work.VcsFailed {
+	with client.held { try work.Api.Refresh() }
+}
+
+// Clone invokes work.Api's Clone on the held context.
+func Clone(client BoundClient, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
+	with client.held { try work.Api.Clone(src, dst, o) }
+}
+
+// Bases invokes work.Api's Bases on the held context.
+func Bases(client BoundClient) []string fails work.Unkept {
+	with client.held { try work.Api.Bases() }
+}
+
+// ForgetBase invokes work.Api's ForgetBase on the held context.
+func ForgetBase(client BoundClient, base string) []string fails work.Unkept | fs.Denied | fs.Failed {
+	with client.held { try work.Api.ForgetBase(base) }
+}
+
+// PruneBases invokes work.Api's PruneBases on the held context.
+func PruneBases(client BoundClient) []string fails work.Unkept | fs.Denied | fs.Failed {
+	with client.held { try work.Api.PruneBases() }
+}
+
+// ShellInit invokes work.Api's ShellInit on the held context.
+func ShellInit(client BoundClient) string {
+	with client.held { work.Api.ShellInit() }
+}
+
+// ImportRift invokes work.Api's ImportRift on the held context.
+func ImportRift(client BoundClient, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
+	with client.held { try work.Api.ImportRift(o) }
+}
+
+// CheckedClient carries erased work.Api requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// VersionChecked sends work.Api's Version over send and validates its Outcome.
+func VersionChecked(client CheckedClient) string fails rpc.Transport {
+	match try client.send(VersionRequest) {
 	case Done as done:
 		match done.Reply {
 		case VersionReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Version was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Version was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("workapi: Version was answered with a failure outside its row")
+		return rpc.Transport{Reason: "workapi: Version was answered with a failure outside its row"}
 	}
 }
 
-// Init sends work.Api's Init and answers its Outcome.
-func Init(client Client) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
-	match client.send(InitRequest) {
+// InitChecked sends work.Api's Init over send and validates its Outcome.
+func InitChecked(client CheckedClient) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | rpc.Transport {
+	match try client.send(InitRequest) {
 	case Done as done:
 		match done.Reply {
 		case InitReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Init was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Init was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -798,20 +1102,20 @@ func Init(client Client) string fails work.Unkept | work.BadConfig | fs.Denied |
 		case Failed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Init was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Init was answered with a failure outside its row"}
 		}
 	}
 }
 
-// New sends work.Api's New and answers its Outcome.
-func New(client Client, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
-	match client.send(NewRequest{Name: name, O: o}) {
+// NewChecked sends work.Api's New over send and validates its Outcome.
+func NewChecked(client CheckedClient, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy | rpc.Transport {
+	match try client.send(NewRequest{Name: name, O: o}) {
 	case Done as done:
 		match done.Reply {
 		case NewReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: New was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: New was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -854,20 +1158,20 @@ func New(client Client, name string, o work.NewOptions) work.Created fails work.
 		case Busy as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: New was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: New was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Adopt sends work.Api's Adopt and answers its Outcome.
-func Adopt(client Client, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
-	match client.send(AdoptRequest{Dir: dir, O: o}) {
+// AdoptChecked sends work.Api's Adopt over send and validates its Outcome.
+func AdoptChecked(client CheckedClient, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed | rpc.Transport {
+	match try client.send(AdoptRequest{Dir: dir, O: o}) {
 	case Done as done:
 		match done.Reply {
 		case AdoptReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Adopt was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Adopt was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -886,20 +1190,20 @@ func Adopt(client Client, dir string, o work.AdoptOptions) work.Workspace fails 
 		case VcsFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Adopt was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Adopt was answered with a failure outside its row"}
 		}
 	}
 }
 
-// AdoptRift sends work.Api's AdoptRift and answers its Outcome.
-func AdoptRift(client Client, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
-	match client.send(AdoptRiftRequest{O: o}) {
+// AdoptRiftChecked sends work.Api's AdoptRift over send and validates its Outcome.
+func AdoptRiftChecked(client CheckedClient, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread | rpc.Transport {
+	match try client.send(AdoptRiftRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case AdoptRiftReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: AdoptRift was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: AdoptRift was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -914,20 +1218,20 @@ func AdoptRift(client Client, o work.RiftOptions) work.RiftAdopted fails work.Un
 		case RiftUnread as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: AdoptRift was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: AdoptRift was answered with a failure outside its row"}
 		}
 	}
 }
 
-// List sends work.Api's List and answers its Outcome.
-func List(client Client, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
-	match client.send(ListRequest{O: o}) {
+// ListChecked sends work.Api's List over send and validates its Outcome.
+func ListChecked(client CheckedClient, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase | rpc.Transport {
+	match try client.send(ListRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case ListReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: List was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: List was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -936,20 +1240,20 @@ func List(client Client, o work.ListOptions) []work.Listed fails work.Unkept | w
 		case NoBase as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: List was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: List was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Rm sends work.Api's Rm and answers its Outcome.
-func Rm(client Client, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
-	match client.send(RmRequest{Name: name, O: o}) {
+// RmChecked sends work.Api's Rm over send and validates its Outcome.
+func RmChecked(client CheckedClient, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants | rpc.Transport {
+	match try client.send(RmRequest{Name: name, O: o}) {
 	case Done as done:
 		match done.Reply {
 		case RmReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Rm was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Rm was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -982,20 +1286,20 @@ func Rm(client Client, name string, o work.RmOptions) []work.Removed fails work.
 		case HasDescendants as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Rm was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Rm was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Gc sends work.Api's Gc and answers its Outcome.
-func Gc(client Client, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
-	match client.send(GcRequest{O: o}) {
+// GcChecked sends work.Api's Gc over send and validates its Outcome.
+func GcChecked(client CheckedClient, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed | rpc.Transport {
+	match try client.send(GcRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case GcReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Gc was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Gc was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1026,20 +1330,20 @@ func Gc(client Client, o work.GcOptions) work.Collected fails work.HookFailed | 
 		case GcFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Gc was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Gc was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Pin sends work.Api's Pin and answers its Outcome.
-func Pin(client Client, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	match client.send(PinRequest{Name: name}) {
+// PinChecked sends work.Api's Pin over send and validates its Outcome.
+func PinChecked(client CheckedClient, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | rpc.Transport {
+	match try client.send(PinRequest{Name: name}) {
 	case Done as done:
 		match done.Reply {
 		case PinReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Pin was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Pin was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1052,20 +1356,20 @@ func Pin(client Client, name string) work.Workspace fails work.Unkept | work.Loc
 		case NoWorkspace as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Pin was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Pin was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Unpin sends work.Api's Unpin and answers its Outcome.
-func Unpin(client Client, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
-	match client.send(UnpinRequest{Name: name}) {
+// UnpinChecked sends work.Api's Unpin over send and validates its Outcome.
+func UnpinChecked(client CheckedClient, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | rpc.Transport {
+	match try client.send(UnpinRequest{Name: name}) {
 	case Done as done:
 		match done.Reply {
 		case UnpinReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Unpin was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Unpin was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1078,20 +1382,20 @@ func Unpin(client Client, name string) work.Workspace fails work.Unkept | work.L
 		case NoWorkspace as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Unpin was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Unpin was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Du sends work.Api's Du and answers its Outcome.
-func Du(client Client) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
-	match client.send(DuRequest) {
+// DuChecked sends work.Api's Du over send and validates its Outcome.
+func DuChecked(client CheckedClient) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported | rpc.Transport {
+	match try client.send(DuRequest) {
 	case Done as done:
 		match done.Reply {
 		case DuReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Du was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Du was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1106,20 +1410,20 @@ func Du(client Client) []work.Space fails work.Missing | work.CloneFailed | work
 		case Unsupported as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Du was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Du was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Ready sends work.Api's Ready and answers its Outcome.
-func Ready(client Client, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
-	match client.send(ReadyRequest{O: o}) {
+// ReadyChecked sends work.Api's Ready over send and validates its Outcome.
+func ReadyChecked(client CheckedClient, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved | rpc.Transport {
+	match try client.send(ReadyRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case ReadyReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Ready was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Ready was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1146,20 +1450,20 @@ func Ready(client Client, o work.ReadyOptions) work.Handed fails work.Unkept | w
 		case Moved as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Ready was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Ready was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Record sends work.Api's Record and answers its Outcome.
-func Record(client Client, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
-	match client.send(RecordRequest{Tip: tip}) {
+// RecordChecked sends work.Api's Record over send and validates its Outcome.
+func RecordChecked(client CheckedClient, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord | rpc.Transport {
+	match try client.send(RecordRequest{Tip: tip}) {
 	case Done as done:
 		match done.Reply {
 		case RecordReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Record was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Record was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1176,20 +1480,20 @@ func Record(client Client, tip string) work.LaneRecord fails work.Unkept | work.
 		case BadRecord as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Record was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Record was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Sync sends work.Api's Sync and answers its Outcome.
-func Sync(client Client, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
-	match client.send(SyncRequest{O: o}) {
+// SyncChecked sends work.Api's Sync over send and validates its Outcome.
+func SyncChecked(client CheckedClient, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted | rpc.Transport {
+	match try client.send(SyncRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case SyncReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Sync was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Sync was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1216,20 +1520,20 @@ func Sync(client Client, o work.SyncOptions) work.Synced fails work.Unkept | wor
 		case Conflicted as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Sync was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Sync was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Env sends work.Api's Env and answers its Outcome.
-func Env(client Client, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	match client.send(EnvRequest{O: o}) {
+// EnvChecked sends work.Api's Env over send and validates its Outcome.
+func EnvChecked(client CheckedClient, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | rpc.Transport {
+	match try client.send(EnvRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case EnvReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Env was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Env was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1244,20 +1548,20 @@ func Env(client Client, o work.EnvOptions) string fails work.Unkept | work.BadCo
 		case NotHere as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Env was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Env was answered with a failure outside its row"}
 		}
 	}
 }
 
-// MergeFile sends work.Api's MergeFile and answers its Outcome.
-func MergeFile(client Client, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
-	match client.send(MergeFileRequest{Class: class, Base: base, Ours: ours, Theirs: theirs, O: o}) {
+// MergeFileChecked sends work.Api's MergeFile over send and validates its Outcome.
+func MergeFileChecked(client CheckedClient, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound | rpc.Transport {
+	match try client.send(MergeFileRequest{Class: class, Base: base, Ours: ours, Theirs: theirs, O: o}) {
 	case Done as done:
 		match done.Reply {
 		case MergeFileReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: MergeFile was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: MergeFile was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1274,20 +1578,20 @@ func MergeFile(client Client, class string, base string, ours string, theirs str
 		case NotFound as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: MergeFile was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: MergeFile was answered with a failure outside its row"}
 		}
 	}
 }
 
-// MergeFolders sends work.Api's MergeFolders and answers its Outcome.
-func MergeFolders(client Client, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
-	match client.send(MergeFoldersRequest{Base: base, Ours: ours, Theirs: theirs, Out: out}) {
+// MergeFoldersChecked sends work.Api's MergeFolders over send and validates its Outcome.
+func MergeFoldersChecked(client CheckedClient, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed | rpc.Transport {
+	match try client.send(MergeFoldersRequest{Base: base, Ours: ours, Theirs: theirs, Out: out}) {
 	case Done as done:
 		match done.Reply {
 		case MergeFoldersReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: MergeFolders was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: MergeFolders was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1304,20 +1608,20 @@ func MergeFolders(client Client, base string, ours string, theirs string, out st
 		case DeriveFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: MergeFolders was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: MergeFolders was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Derive sends work.Api's Derive and answers its Outcome.
-func Derive(client Client, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
-	match client.send(DeriveRequest{O: o}) {
+// DeriveChecked sends work.Api's Derive over send and validates its Outcome.
+func DeriveChecked(client CheckedClient, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed | rpc.Transport {
+	match try client.send(DeriveRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case DeriveReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Derive was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Derive was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1336,20 +1640,20 @@ func Derive(client Client, o work.DeriveOptions) work.Derived fails work.Untrust
 		case DeriveFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Derive was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Derive was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Deps sends work.Api's Deps and answers its Outcome.
-func Deps(client Client, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
-	match client.send(DepsRequest{O: o}) {
+// DepsChecked sends work.Api's Deps over send and validates its Outcome.
+func DepsChecked(client CheckedClient, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | rpc.Transport {
+	match try client.send(DepsRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case DepsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Deps was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Deps was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1370,20 +1674,20 @@ func Deps(client Client, o work.DepsOptions) work.DepsDone fails work.Untrusted 
 		case NotHere as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Deps was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Deps was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Trust sends work.Api's Trust and answers its Outcome.
-func Trust(client Client) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
-	match client.send(TrustRequest) {
+// TrustChecked sends work.Api's Trust over send and validates its Outcome.
+func TrustChecked(client CheckedClient) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound | rpc.Transport {
+	match try client.send(TrustRequest) {
 	case Done as done:
 		match done.Reply {
 		case TrustReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Trust was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Trust was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1400,20 +1704,20 @@ func Trust(client Client) work.Trusted fails work.Unkept | work.BadConfig | fs.D
 		case NotFound as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Trust was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Trust was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Doctor sends work.Api's Doctor and answers its Outcome.
-func Doctor(client Client, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
-	match client.send(DoctorRequest{O: o}) {
+// DoctorChecked sends work.Api's Doctor over send and validates its Outcome.
+func DoctorChecked(client CheckedClient, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread | rpc.Transport {
+	match try client.send(DoctorRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case DoctorReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Doctor was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Doctor was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1430,20 +1734,20 @@ func Doctor(client Client, o work.DoctorOptions) work.Report fails work.Unkept |
 		case RiftUnread as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Doctor was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Doctor was answered with a failure outside its row"}
 		}
 	}
 }
 
-// PluginTest sends work.Api's PluginTest and answers its Outcome.
-func PluginTest(client Client, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
-	match client.send(PluginTestRequest{Command: command, O: o}) {
+// PluginTestChecked sends work.Api's PluginTest over send and validates its Outcome.
+func PluginTestChecked(client CheckedClient, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused | rpc.Transport {
+	match try client.send(PluginTestRequest{Command: command, O: o}) {
 	case Done as done:
 		match done.Reply {
 		case PluginTestReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: PluginTest was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: PluginTest was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1458,20 +1762,20 @@ func PluginTest(client Client, command string, o work.PluginTestOptions) work.Pl
 		case PluginRefused as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: PluginTest was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: PluginTest was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Refresh sends work.Api's Refresh and answers its Outcome.
-func Refresh(client Client) int fails work.Unkept | work.NoBase | work.VcsFailed {
-	match client.send(RefreshRequest) {
+// RefreshChecked sends work.Api's Refresh over send and validates its Outcome.
+func RefreshChecked(client CheckedClient) int fails work.Unkept | work.NoBase | work.VcsFailed | rpc.Transport {
+	match try client.send(RefreshRequest) {
 	case Done as done:
 		match done.Reply {
 		case RefreshReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Refresh was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Refresh was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1482,20 +1786,20 @@ func Refresh(client Client) int fails work.Unkept | work.NoBase | work.VcsFailed
 		case VcsFailed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Refresh was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Refresh was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Clone sends work.Api's Clone and answers its Outcome.
-func Clone(client Client, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
-	match client.send(CloneRequest{Src: src, Dst: dst, O: o}) {
+// CloneChecked sends work.Api's Clone over send and validates its Outcome.
+func CloneChecked(client CheckedClient, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace | rpc.Transport {
+	match try client.send(CloneRequest{Src: src, Dst: dst, O: o}) {
 	case Done as done:
 		match done.Reply {
 		case CloneReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Clone was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Clone was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1512,40 +1816,40 @@ func Clone(client Client, src string, dst string, o work.CloneOptions) work.Tree
 		case NoSpace as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Clone was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Clone was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Bases sends work.Api's Bases and answers its Outcome.
-func Bases(client Client) []string fails work.Unkept {
-	match client.send(BasesRequest) {
+// BasesChecked sends work.Api's Bases over send and validates its Outcome.
+func BasesChecked(client CheckedClient) []string fails work.Unkept | rpc.Transport {
+	match try client.send(BasesRequest) {
 	case Done as done:
 		match done.Reply {
 		case BasesReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: Bases was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: Bases was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
 		case Unkept as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: Bases was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: Bases was answered with a failure outside its row"}
 		}
 	}
 }
 
-// ForgetBase sends work.Api's ForgetBase and answers its Outcome.
-func ForgetBase(client Client, base string) []string fails work.Unkept | fs.Denied | fs.Failed {
-	match client.send(ForgetBaseRequest{Base: base}) {
+// ForgetBaseChecked sends work.Api's ForgetBase over send and validates its Outcome.
+func ForgetBaseChecked(client CheckedClient, base string) []string fails work.Unkept | fs.Denied | fs.Failed | rpc.Transport {
+	match try client.send(ForgetBaseRequest{Base: base}) {
 	case Done as done:
 		match done.Reply {
 		case ForgetBaseReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: ForgetBase was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: ForgetBase was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1556,20 +1860,20 @@ func ForgetBase(client Client, base string) []string fails work.Unkept | fs.Deni
 		case Failed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: ForgetBase was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: ForgetBase was answered with a failure outside its row"}
 		}
 	}
 }
 
-// PruneBases sends work.Api's PruneBases and answers its Outcome.
-func PruneBases(client Client) []string fails work.Unkept | fs.Denied | fs.Failed {
-	match client.send(PruneBasesRequest) {
+// PruneBasesChecked sends work.Api's PruneBases over send and validates its Outcome.
+func PruneBasesChecked(client CheckedClient) []string fails work.Unkept | fs.Denied | fs.Failed | rpc.Transport {
+	match try client.send(PruneBasesRequest) {
 	case Done as done:
 		match done.Reply {
 		case PruneBasesReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: PruneBases was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: PruneBases was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1580,35 +1884,35 @@ func PruneBases(client Client) []string fails work.Unkept | fs.Denied | fs.Faile
 		case Failed as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: PruneBases was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: PruneBases was answered with a failure outside its row"}
 		}
 	}
 }
 
-// ShellInit sends work.Api's ShellInit and answers its Outcome.
-func ShellInit(client Client) string {
-	match client.send(ShellInitRequest) {
+// ShellInitChecked sends work.Api's ShellInit over send and validates its Outcome.
+func ShellInitChecked(client CheckedClient) string fails rpc.Transport {
+	match try client.send(ShellInitRequest) {
 	case Done as done:
 		match done.Reply {
 		case ShellInitReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: ShellInit was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: ShellInit was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("workapi: ShellInit was answered with a failure outside its row")
+		return rpc.Transport{Reason: "workapi: ShellInit was answered with a failure outside its row"}
 	}
 }
 
-// ImportRift sends work.Api's ImportRift and answers its Outcome.
-func ImportRift(client Client, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
-	match client.send(ImportRiftRequest{O: o}) {
+// ImportRiftChecked sends work.Api's ImportRift over send and validates its Outcome.
+func ImportRiftChecked(client CheckedClient, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | rpc.Transport {
+	match try client.send(ImportRiftRequest{O: o}) {
 	case Done as done:
 		match done.Reply {
 		case ImportRiftReply as reply:
 			reply.Value
 		case _:
-			Unreachable("workapi: ImportRift was answered with the value of another operation")
+			return rpc.Transport{Reason: "workapi: ImportRift was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -1621,7 +1925,7 @@ func ImportRift(client Client, o work.ImportRiftOptions) string fails work.BadCo
 		case NotFound as failure:
 			return failure.E
 		case _:
-			Unreachable("workapi: ImportRift was answered with a failure outside its row")
+			return rpc.Transport{Reason: "workapi: ImportRift was answered with a failure outside its row"}
 		}
 	}
 }
@@ -1899,11 +2203,1161 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
-	NewClient(func(q Request) Outcome {
-		sent.Update(func(rs []Request) []Request { rs.Append(q) })
-		want
-	})
+type scripted { g Given, sent sync.Ref[[]Request] } implements work.Api
+
+func Version(client scripted) string {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(VersionRequest) })
+	client.g.Values.Version
+}
+
+func Init(client scripted) string fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(InitRequest) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case Denied as err:
+			return err.E
+		case Failed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Init
+}
+
+func New(client scripted, name string, o work.NewOptions) work.Created fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.BadName | work.NameTaken | work.NoWorkspace | work.NoRevision | work.Diverged | work.CopyRefused | work.NotSameVolume | work.Unsupported | work.Exists | work.NoSpace | work.VcsFailed | work.Busy {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(NewRequest{Name: name, O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case HookFailed as err:
+			return err.E
+		case Missing as err:
+			return err.E
+		case CloneFailed as err:
+			return err.E
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case BadName as err:
+			return err.E
+		case NameTaken as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case NoRevision as err:
+			return err.E
+		case Diverged as err:
+			return err.E
+		case CopyRefused as err:
+			return err.E
+		case NotSameVolume as err:
+			return err.E
+		case Unsupported as err:
+			return err.E
+		case Exists as err:
+			return err.E
+		case NoSpace as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case Busy as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.New
+}
+
+func Adopt(client scripted, dir string, o work.AdoptOptions) work.Workspace fails work.Missing | work.Unkept | work.Locked | work.NoBase | work.BadName | work.NameTaken | work.VcsFailed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(AdoptRequest{Dir: dir, O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Missing as err:
+			return err.E
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case BadName as err:
+			return err.E
+		case NameTaken as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Adopt
+}
+
+func AdoptRift(client scripted, o work.RiftOptions) work.RiftAdopted fails work.Unkept | work.Locked | work.NoBase | work.VcsFailed | work.RiftUnread {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(AdoptRiftRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case RiftUnread as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.AdoptRift
+}
+
+func List(client scripted, o work.ListOptions) []work.Listed fails work.Unkept | work.NoBase {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ListRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.List
+}
+
+func Rm(client scripted, name string, o work.RmOptions) []work.Removed fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.Busy | work.NotHeld | work.IdMismatch | work.HasDescendants {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(RmRequest{Name: name, O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case HookFailed as err:
+			return err.E
+		case Missing as err:
+			return err.E
+		case CloneFailed as err:
+			return err.E
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case Exists as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case Busy as err:
+			return err.E
+		case NotHeld as err:
+			return err.E
+		case IdMismatch as err:
+			return err.E
+		case HasDescendants as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Rm
+}
+
+func Gc(client scripted, o work.GcOptions) work.Collected fails work.HookFailed | work.Missing | work.CloneFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.Exists | work.VcsFailed | work.BadAge | work.BadRequest | work.GcFailed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(GcRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case HookFailed as err:
+			return err.E
+		case Missing as err:
+			return err.E
+		case CloneFailed as err:
+			return err.E
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case Exists as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case BadAge as err:
+			return err.E
+		case BadRequest as err:
+			return err.E
+		case GcFailed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Gc
+}
+
+func Pin(client scripted, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(PinRequest{Name: name}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Pin
+}
+
+func Unpin(client scripted, name string) work.Workspace fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(UnpinRequest{Name: name}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Unpin
+}
+
+func Du(client scripted) []work.Space fails work.Missing | work.CloneFailed | work.Unkept | work.NoBase | work.Unsupported {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(DuRequest) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Missing as err:
+			return err.E
+		case CloneFailed as err:
+			return err.E
+		case Unkept as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case Unsupported as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Du
+}
+
+func Ready(client scripted, o work.ReadyOptions) work.Handed fails work.Unkept | work.Locked | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.BadRequest | work.NotHere | work.Detached | work.NotFastForward | work.Moved {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ReadyRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case Busy as err:
+			return err.E
+		case BadRequest as err:
+			return err.E
+		case NotHere as err:
+			return err.E
+		case Detached as err:
+			return err.E
+		case NotFastForward as err:
+			return err.E
+		case Moved as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Ready
+}
+
+func Record(client scripted, tip string) work.LaneRecord fails work.Unkept | work.NoBase | work.NoRevision | work.VcsFailed | work.NoRecord | work.BadRecord {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(RecordRequest{Tip: tip}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoRevision as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case NoRecord as err:
+			return err.E
+		case BadRecord as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Record
+}
+
+func Sync(client scripted, o work.SyncOptions) work.Synced fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.VcsFailed | work.Busy | work.NotHere | work.Detached | work.Dirty | work.Conflicted {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(SyncRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case Busy as err:
+			return err.E
+		case NotHere as err:
+			return err.E
+		case Detached as err:
+			return err.E
+		case Dirty as err:
+			return err.E
+		case Conflicted as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Sync
+}
+
+func Env(client scripted, o work.EnvOptions) string fails work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(EnvRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case NotHere as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Env
+}
+
+func MergeFile(client scripted, class string, base string, ours string, theirs string, o work.MergeFileOptions) work.FileMerged fails work.BadConfig | fs.Denied | fs.Failed | work.BadClass | work.MergeConflict | fs.NotFound {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(MergeFileRequest{Class: class, Base: base, Ours: ours, Theirs: theirs, O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case BadConfig as err:
+			return err.E
+		case Denied as err:
+			return err.E
+		case Failed as err:
+			return err.E
+		case BadClass as err:
+			return err.E
+		case MergeConflict as err:
+			return err.E
+		case NotFound as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.MergeFile
+}
+
+func MergeFolders(client scripted, base string, ours string, theirs string, out string) work.TreeMerged fails work.Untrusted | work.BadConfig | fs.Denied | fs.Failed | fs.NotFound | work.DeriveFailed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(MergeFoldersRequest{Base: base, Ours: ours, Theirs: theirs, Out: out}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Untrusted as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case Denied as err:
+			return err.E
+		case Failed as err:
+			return err.E
+		case NotFound as err:
+			return err.E
+		case DeriveFailed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.MergeFolders
+}
+
+func Derive(client scripted, o work.DeriveOptions) work.Derived fails work.Untrusted | work.Unkept | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere | work.DeriveFailed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(DeriveRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Untrusted as err:
+			return err.E
+		case Unkept as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case NotHere as err:
+			return err.E
+		case DeriveFailed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Derive
+}
+
+func Deps(client scripted, o work.DepsOptions) work.DepsDone fails work.Untrusted | work.DepsFailed | work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.NoWorkspace | work.NotHere {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(DepsRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Untrusted as err:
+			return err.E
+		case DepsFailed as err:
+			return err.E
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NoWorkspace as err:
+			return err.E
+		case NotHere as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Deps
+}
+
+func Trust(client scripted) work.Trusted fails work.Unkept | work.BadConfig | fs.Denied | fs.Failed | work.NoBase | fs.NotFound {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(TrustRequest) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case Denied as err:
+			return err.E
+		case Failed as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case NotFound as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Trust
+}
+
+func Doctor(client scripted, o work.DoctorOptions) work.Report fails work.Unkept | work.Locked | work.BadConfig | work.NoBase | work.VcsFailed | work.RiftUnread {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(DoctorRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Locked as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case RiftUnread as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Doctor
+}
+
+func PluginTest(client scripted, command string, o work.PluginTestOptions) work.PluginAdmitted fails work.Untrusted | work.BadConfig | work.NoBase | work.VcsFailed | work.PluginRefused {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(PluginTestRequest{Command: command, O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Untrusted as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case PluginRefused as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.PluginTest
+}
+
+func Refresh(client scripted) int fails work.Unkept | work.NoBase | work.VcsFailed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(RefreshRequest) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case NoBase as err:
+			return err.E
+		case VcsFailed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Refresh
+}
+
+func Clone(client scripted, src string, dst string, o work.CloneOptions) work.TreeCloned fails work.Missing | work.CloneFailed | work.BadConfig | work.Unsupported | work.Exists | work.NoSpace {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(CloneRequest{Src: src, Dst: dst, O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Missing as err:
+			return err.E
+		case CloneFailed as err:
+			return err.E
+		case BadConfig as err:
+			return err.E
+		case Unsupported as err:
+			return err.E
+		case Exists as err:
+			return err.E
+		case NoSpace as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Clone
+}
+
+func Bases(client scripted) []string fails work.Unkept {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(BasesRequest) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Bases
+}
+
+func ForgetBase(client scripted, base string) []string fails work.Unkept | fs.Denied | fs.Failed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ForgetBaseRequest{Base: base}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Denied as err:
+			return err.E
+		case Failed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.ForgetBase
+}
+
+func PruneBases(client scripted) []string fails work.Unkept | fs.Denied | fs.Failed {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(PruneBasesRequest) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case Unkept as err:
+			return err.E
+		case Denied as err:
+			return err.E
+		case Failed as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.PruneBases
+}
+
+func ShellInit(client scripted) string {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ShellInitRequest) })
+	client.g.Values.ShellInit
+}
+
+func ImportRift(client scripted, o work.ImportRiftOptions) string fails work.BadConfig | fs.Denied | fs.Failed | fs.NotFound {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ImportRiftRequest{O: o}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case BadConfig as err:
+			return err.E
+		case Denied as err:
+			return err.E
+		case Failed as err:
+			return err.E
+		case NotFound as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.ImportRift
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case VersionRequest:
+		let v = VersionChecked(client) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: VersionReply{Value: v}}
+	case InitRequest:
+		let v = InitChecked(client) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case fs.Denied as e:
+			return Rejected{Failure: Denied{E: e}}
+		case fs.Failed as e:
+			return Rejected{Failure: Failed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: InitReply{Value: v}}
+	case NewRequest as x:
+		let v = NewChecked(client, x.Name, x.O) catch {
+		case work.HookFailed as e:
+			return Rejected{Failure: HookFailed{E: e}}
+		case work.Missing as e:
+			return Rejected{Failure: Missing{E: e}}
+		case work.CloneFailed as e:
+			return Rejected{Failure: CloneFailed{E: e}}
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.BadName as e:
+			return Rejected{Failure: BadName{E: e}}
+		case work.NameTaken as e:
+			return Rejected{Failure: NameTaken{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.NoRevision as e:
+			return Rejected{Failure: NoRevision{E: e}}
+		case work.Diverged as e:
+			return Rejected{Failure: Diverged{E: e}}
+		case work.CopyRefused as e:
+			return Rejected{Failure: CopyRefused{E: e}}
+		case work.NotSameVolume as e:
+			return Rejected{Failure: NotSameVolume{E: e}}
+		case work.Unsupported as e:
+			return Rejected{Failure: Unsupported{E: e}}
+		case work.Exists as e:
+			return Rejected{Failure: Exists{E: e}}
+		case work.NoSpace as e:
+			return Rejected{Failure: NoSpace{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.Busy as e:
+			return Rejected{Failure: Busy{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: NewReply{Value: v}}
+	case AdoptRequest as x:
+		let v = AdoptChecked(client, x.Dir, x.O) catch {
+		case work.Missing as e:
+			return Rejected{Failure: Missing{E: e}}
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.BadName as e:
+			return Rejected{Failure: BadName{E: e}}
+		case work.NameTaken as e:
+			return Rejected{Failure: NameTaken{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: AdoptReply{Value: v}}
+	case AdoptRiftRequest as x:
+		let v = AdoptRiftChecked(client, x.O) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.RiftUnread as e:
+			return Rejected{Failure: RiftUnread{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: AdoptRiftReply{Value: v}}
+	case ListRequest as x:
+		let v = ListChecked(client, x.O) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ListReply{Value: v}}
+	case RmRequest as x:
+		let v = RmChecked(client, x.Name, x.O) catch {
+		case work.HookFailed as e:
+			return Rejected{Failure: HookFailed{E: e}}
+		case work.Missing as e:
+			return Rejected{Failure: Missing{E: e}}
+		case work.CloneFailed as e:
+			return Rejected{Failure: CloneFailed{E: e}}
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.Exists as e:
+			return Rejected{Failure: Exists{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.Busy as e:
+			return Rejected{Failure: Busy{E: e}}
+		case work.NotHeld as e:
+			return Rejected{Failure: NotHeld{E: e}}
+		case work.IdMismatch as e:
+			return Rejected{Failure: IdMismatch{E: e}}
+		case work.HasDescendants as e:
+			return Rejected{Failure: HasDescendants{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: RmReply{Value: v}}
+	case GcRequest as x:
+		let v = GcChecked(client, x.O) catch {
+		case work.HookFailed as e:
+			return Rejected{Failure: HookFailed{E: e}}
+		case work.Missing as e:
+			return Rejected{Failure: Missing{E: e}}
+		case work.CloneFailed as e:
+			return Rejected{Failure: CloneFailed{E: e}}
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.Exists as e:
+			return Rejected{Failure: Exists{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.BadAge as e:
+			return Rejected{Failure: BadAge{E: e}}
+		case work.BadRequest as e:
+			return Rejected{Failure: BadRequest{E: e}}
+		case work.GcFailed as e:
+			return Rejected{Failure: GcFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: GcReply{Value: v}}
+	case PinRequest as x:
+		let v = PinChecked(client, x.Name) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: PinReply{Value: v}}
+	case UnpinRequest as x:
+		let v = UnpinChecked(client, x.Name) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: UnpinReply{Value: v}}
+	case DuRequest:
+		let v = DuChecked(client) catch {
+		case work.Missing as e:
+			return Rejected{Failure: Missing{E: e}}
+		case work.CloneFailed as e:
+			return Rejected{Failure: CloneFailed{E: e}}
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.Unsupported as e:
+			return Rejected{Failure: Unsupported{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: DuReply{Value: v}}
+	case ReadyRequest as x:
+		let v = ReadyChecked(client, x.O) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.Busy as e:
+			return Rejected{Failure: Busy{E: e}}
+		case work.BadRequest as e:
+			return Rejected{Failure: BadRequest{E: e}}
+		case work.NotHere as e:
+			return Rejected{Failure: NotHere{E: e}}
+		case work.Detached as e:
+			return Rejected{Failure: Detached{E: e}}
+		case work.NotFastForward as e:
+			return Rejected{Failure: NotFastForward{E: e}}
+		case work.Moved as e:
+			return Rejected{Failure: Moved{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ReadyReply{Value: v}}
+	case RecordRequest as x:
+		let v = RecordChecked(client, x.Tip) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoRevision as e:
+			return Rejected{Failure: NoRevision{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.NoRecord as e:
+			return Rejected{Failure: NoRecord{E: e}}
+		case work.BadRecord as e:
+			return Rejected{Failure: BadRecord{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: RecordReply{Value: v}}
+	case SyncRequest as x:
+		let v = SyncChecked(client, x.O) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.Busy as e:
+			return Rejected{Failure: Busy{E: e}}
+		case work.NotHere as e:
+			return Rejected{Failure: NotHere{E: e}}
+		case work.Detached as e:
+			return Rejected{Failure: Detached{E: e}}
+		case work.Dirty as e:
+			return Rejected{Failure: Dirty{E: e}}
+		case work.Conflicted as e:
+			return Rejected{Failure: Conflicted{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: SyncReply{Value: v}}
+	case EnvRequest as x:
+		let v = EnvChecked(client, x.O) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.NotHere as e:
+			return Rejected{Failure: NotHere{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: EnvReply{Value: v}}
+	case MergeFileRequest as x:
+		let v = MergeFileChecked(client, x.Class, x.Base, x.Ours, x.Theirs, x.O) catch {
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case fs.Denied as e:
+			return Rejected{Failure: Denied{E: e}}
+		case fs.Failed as e:
+			return Rejected{Failure: Failed{E: e}}
+		case work.BadClass as e:
+			return Rejected{Failure: BadClass{E: e}}
+		case work.MergeConflict as e:
+			return Rejected{Failure: MergeConflict{E: e}}
+		case fs.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: MergeFileReply{Value: v}}
+	case MergeFoldersRequest as x:
+		let v = MergeFoldersChecked(client, x.Base, x.Ours, x.Theirs, x.Out) catch {
+		case work.Untrusted as e:
+			return Rejected{Failure: Untrusted{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case fs.Denied as e:
+			return Rejected{Failure: Denied{E: e}}
+		case fs.Failed as e:
+			return Rejected{Failure: Failed{E: e}}
+		case fs.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case work.DeriveFailed as e:
+			return Rejected{Failure: DeriveFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: MergeFoldersReply{Value: v}}
+	case DeriveRequest as x:
+		let v = DeriveChecked(client, x.O) catch {
+		case work.Untrusted as e:
+			return Rejected{Failure: Untrusted{E: e}}
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.NotHere as e:
+			return Rejected{Failure: NotHere{E: e}}
+		case work.DeriveFailed as e:
+			return Rejected{Failure: DeriveFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: DeriveReply{Value: v}}
+	case DepsRequest as x:
+		let v = DepsChecked(client, x.O) catch {
+		case work.Untrusted as e:
+			return Rejected{Failure: Untrusted{E: e}}
+		case work.DepsFailed as e:
+			return Rejected{Failure: DepsFailed{E: e}}
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.NoWorkspace as e:
+			return Rejected{Failure: NoWorkspace{E: e}}
+		case work.NotHere as e:
+			return Rejected{Failure: NotHere{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: DepsReply{Value: v}}
+	case TrustRequest:
+		let v = TrustChecked(client) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case fs.Denied as e:
+			return Rejected{Failure: Denied{E: e}}
+		case fs.Failed as e:
+			return Rejected{Failure: Failed{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case fs.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: TrustReply{Value: v}}
+	case DoctorRequest as x:
+		let v = DoctorChecked(client, x.O) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.Locked as e:
+			return Rejected{Failure: Locked{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.RiftUnread as e:
+			return Rejected{Failure: RiftUnread{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: DoctorReply{Value: v}}
+	case PluginTestRequest as x:
+		let v = PluginTestChecked(client, x.Command, x.O) catch {
+		case work.Untrusted as e:
+			return Rejected{Failure: Untrusted{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case work.PluginRefused as e:
+			return Rejected{Failure: PluginRefused{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: PluginTestReply{Value: v}}
+	case RefreshRequest:
+		let v = RefreshChecked(client) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case work.NoBase as e:
+			return Rejected{Failure: NoBase{E: e}}
+		case work.VcsFailed as e:
+			return Rejected{Failure: VcsFailed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: RefreshReply{Value: v}}
+	case CloneRequest as x:
+		let v = CloneChecked(client, x.Src, x.Dst, x.O) catch {
+		case work.Missing as e:
+			return Rejected{Failure: Missing{E: e}}
+		case work.CloneFailed as e:
+			return Rejected{Failure: CloneFailed{E: e}}
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case work.Unsupported as e:
+			return Rejected{Failure: Unsupported{E: e}}
+		case work.Exists as e:
+			return Rejected{Failure: Exists{E: e}}
+		case work.NoSpace as e:
+			return Rejected{Failure: NoSpace{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CloneReply{Value: v}}
+	case BasesRequest:
+		let v = BasesChecked(client) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: BasesReply{Value: v}}
+	case ForgetBaseRequest as x:
+		let v = ForgetBaseChecked(client, x.Base) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case fs.Denied as e:
+			return Rejected{Failure: Denied{E: e}}
+		case fs.Failed as e:
+			return Rejected{Failure: Failed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ForgetBaseReply{Value: v}}
+	case PruneBasesRequest:
+		let v = PruneBasesChecked(client) catch {
+		case work.Unkept as e:
+			return Rejected{Failure: Unkept{E: e}}
+		case fs.Denied as e:
+			return Rejected{Failure: Denied{E: e}}
+		case fs.Failed as e:
+			return Rejected{Failure: Failed{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: PruneBasesReply{Value: v}}
+	case ShellInitRequest:
+		let v = ShellInitChecked(client) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ShellInitReply{Value: v}}
+	case ImportRiftRequest as x:
+		let v = ImportRiftChecked(client, x.O) catch {
+		case work.BadConfig as e:
+			return Rejected{Failure: BadConfig{E: e}}
+		case fs.Denied as e:
+			return Rejected{Failure: Denied{E: e}}
+		case fs.Failed as e:
+			return Rejected{Failure: Failed{E: e}}
+		case fs.NotFound as e:
+			return Rejected{Failure: NotFound{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ImportRiftReply{Value: v}}
+	}
 }
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
@@ -1911,19 +3365,26 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { work.Api: scripted(want, sent) } { Call(r) }
+	let got = with context { work.Api: scripted{g: g, sent: sent} } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
-// ClientIsCall: a Client whose send is Call answers each call as the
-// provider Call is bound to does.
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted(want, sent)
-	let outer = NewClient(func(q Request) Outcome {
-		with context { work.Api: inner } { Call(q) }
-	})
+	let inner = scripted{g: g, sent: sent}
+	let outer = NewClient(inner)
 	let got = with context { work.Api: outer } { Call(r) }
-	got == want && sent.Get() == []Request{r}
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted{g: g, sent: sentChecked}
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { work.Api: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
 }

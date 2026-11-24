@@ -1,5 +1,6 @@
 import code
 import json
+import rpc
 import sync
 
 // Request is one call of code.Reader: a variant per operation, whose fields
@@ -179,53 +180,146 @@ func Call(r Request) Outcome needs code.Reader {
 	}
 }
 
-// Client provides code.Reader over send, any way to carry a Request to a
-// Call and its Outcome back. An Outcome that is not the operation's (the
-// value of another, a failure outside its row) is a defect.
-type Client { send func(r Request) Outcome } implements code.Reader
+// Client provides code.Reader by invoking inner directly per operation: a direct
+// call returns its exact value or declared failure row with no Outcome boxing.
+type Client { inner code.Reader } implements code.Reader
 
-// NewClient is the code.Reader that send answers.
-func NewClient(send own func(r Request) Outcome) Client { Client{send: send} }
+// NewClient is the code.Reader that invokes inner directly per operation.
+func NewClient(inner code.Reader) Client { Client{inner: inner} }
 
-// Describe sends code.Reader's Describe and answers its Outcome.
+// Describe invokes code.Reader's Describe directly.
 func Describe(client Client) code.Summary {
-	match client.send(DescribeRequest) {
+	client.inner.Describe()
+}
+
+// Symbols invokes code.Reader's Symbols directly.
+func Symbols(client Client, q code.SymbolQuery) code.SymbolPage {
+	client.inner.Symbols(q)
+}
+
+// Symbol invokes code.Reader's Symbol directly.
+func Symbol(client Client, a string) code.Decl fails code.NoSymbol | code.Ambiguous {
+	try client.inner.Symbol(a)
+}
+
+// References invokes code.Reader's References directly.
+func References(client Client, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous {
+	try client.inner.References(q)
+}
+
+// Calls invokes code.Reader's Calls directly.
+func Calls(client Client, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable {
+	try client.inner.Calls(q)
+}
+
+// Api invokes code.Reader's Api directly.
+func Api(client Client, q code.ApiQuery) code.ApiView fails code.NoPackage {
+	try client.inner.Api(q)
+}
+
+// Reach invokes code.Reader's Reach directly.
+func Reach(client Client, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous {
+	try client.inner.Reach(q)
+}
+
+// MachineOf invokes code.Reader's MachineOf directly.
+func MachineOf(client Client, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine {
+	try client.inner.MachineOf(a)
+}
+
+// BoundClient provides code.Reader over a held Context captured by ClientInForce.
+type BoundClient { held Context[code.Reader] } implements code.Reader
+
+// ClientInForce is the code.Reader that invokes the provider currently in force.
+func ClientInForce() BoundClient needs code.Reader { BoundClient{held: InForce[code.Reader]()} }
+
+// Describe invokes code.Reader's Describe on the held context.
+func Describe(client BoundClient) code.Summary {
+	with client.held { code.Reader.Describe() }
+}
+
+// Symbols invokes code.Reader's Symbols on the held context.
+func Symbols(client BoundClient, q code.SymbolQuery) code.SymbolPage {
+	with client.held { code.Reader.Symbols(q) }
+}
+
+// Symbol invokes code.Reader's Symbol on the held context.
+func Symbol(client BoundClient, a string) code.Decl fails code.NoSymbol | code.Ambiguous {
+	with client.held { try code.Reader.Symbol(a) }
+}
+
+// References invokes code.Reader's References on the held context.
+func References(client BoundClient, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous {
+	with client.held { try code.Reader.References(q) }
+}
+
+// Calls invokes code.Reader's Calls on the held context.
+func Calls(client BoundClient, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable {
+	with client.held { try code.Reader.Calls(q) }
+}
+
+// Api invokes code.Reader's Api on the held context.
+func Api(client BoundClient, q code.ApiQuery) code.ApiView fails code.NoPackage {
+	with client.held { try code.Reader.Api(q) }
+}
+
+// Reach invokes code.Reader's Reach on the held context.
+func Reach(client BoundClient, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous {
+	with client.held { try code.Reader.Reach(q) }
+}
+
+// MachineOf invokes code.Reader's MachineOf on the held context.
+func MachineOf(client BoundClient, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine {
+	with client.held { try code.Reader.MachineOf(a) }
+}
+
+// CheckedClient carries erased code.Reader requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// DescribeChecked sends code.Reader's Describe over send and validates its Outcome.
+func DescribeChecked(client CheckedClient) code.Summary fails rpc.Transport {
+	match try client.send(DescribeRequest) {
 	case Done as done:
 		match done.Reply {
 		case DescribeReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: Describe was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: Describe was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("codeapi: Describe was answered with a failure outside its row")
+		return rpc.Transport{Reason: "codeapi: Describe was answered with a failure outside its row"}
 	}
 }
 
-// Symbols sends code.Reader's Symbols and answers its Outcome.
-func Symbols(client Client, q code.SymbolQuery) code.SymbolPage {
-	match client.send(SymbolsRequest{Q: q}) {
+// SymbolsChecked sends code.Reader's Symbols over send and validates its Outcome.
+func SymbolsChecked(client CheckedClient, q code.SymbolQuery) code.SymbolPage fails rpc.Transport {
+	match try client.send(SymbolsRequest{Q: q}) {
 	case Done as done:
 		match done.Reply {
 		case SymbolsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: Symbols was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: Symbols was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("codeapi: Symbols was answered with a failure outside its row")
+		return rpc.Transport{Reason: "codeapi: Symbols was answered with a failure outside its row"}
 	}
 }
 
-// Symbol sends code.Reader's Symbol and answers its Outcome.
-func Symbol(client Client, a string) code.Decl fails code.NoSymbol | code.Ambiguous {
-	match client.send(SymbolRequest{A: a}) {
+// SymbolChecked sends code.Reader's Symbol over send and validates its Outcome.
+func SymbolChecked(client CheckedClient, a string) code.Decl fails code.NoSymbol | code.Ambiguous | rpc.Transport {
+	match try client.send(SymbolRequest{A: a}) {
 	case Done as done:
 		match done.Reply {
 		case SymbolReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: Symbol was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: Symbol was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -234,20 +328,20 @@ func Symbol(client Client, a string) code.Decl fails code.NoSymbol | code.Ambigu
 		case Ambiguous as failure:
 			return failure.E
 		case _:
-			Unreachable("codeapi: Symbol was answered with a failure outside its row")
+			return rpc.Transport{Reason: "codeapi: Symbol was answered with a failure outside its row"}
 		}
 	}
 }
 
-// References sends code.Reader's References and answers its Outcome.
-func References(client Client, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous {
-	match client.send(ReferencesRequest{Q: q}) {
+// ReferencesChecked sends code.Reader's References over send and validates its Outcome.
+func ReferencesChecked(client CheckedClient, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous | rpc.Transport {
+	match try client.send(ReferencesRequest{Q: q}) {
 	case Done as done:
 		match done.Reply {
 		case ReferencesReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: References was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: References was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -256,20 +350,20 @@ func References(client Client, q code.RefQuery) code.SitePage fails code.NoSymbo
 		case Ambiguous as failure:
 			return failure.E
 		case _:
-			Unreachable("codeapi: References was answered with a failure outside its row")
+			return rpc.Transport{Reason: "codeapi: References was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Calls sends code.Reader's Calls and answers its Outcome.
-func Calls(client Client, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable {
-	match client.send(CallsRequest{Q: q}) {
+// CallsChecked sends code.Reader's Calls over send and validates its Outcome.
+func CallsChecked(client CheckedClient, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable | rpc.Transport {
+	match try client.send(CallsRequest{Q: q}) {
 	case Done as done:
 		match done.Reply {
 		case CallsReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: Calls was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: Calls was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -280,40 +374,40 @@ func Calls(client Client, q code.CallQuery) code.CallPage fails code.NoSymbol | 
 		case NotCallable as failure:
 			return failure.E
 		case _:
-			Unreachable("codeapi: Calls was answered with a failure outside its row")
+			return rpc.Transport{Reason: "codeapi: Calls was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Api sends code.Reader's Api and answers its Outcome.
-func Api(client Client, q code.ApiQuery) code.ApiView fails code.NoPackage {
-	match client.send(ApiRequest{Q: q}) {
+// ApiChecked sends code.Reader's Api over send and validates its Outcome.
+func ApiChecked(client CheckedClient, q code.ApiQuery) code.ApiView fails code.NoPackage | rpc.Transport {
+	match try client.send(ApiRequest{Q: q}) {
 	case Done as done:
 		match done.Reply {
 		case ApiReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: Api was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: Api was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
 		case NoPackage as failure:
 			return failure.E
 		case _:
-			Unreachable("codeapi: Api was answered with a failure outside its row")
+			return rpc.Transport{Reason: "codeapi: Api was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Reach sends code.Reader's Reach and answers its Outcome.
-func Reach(client Client, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous {
-	match client.send(ReachRequest{Q: q}) {
+// ReachChecked sends code.Reader's Reach over send and validates its Outcome.
+func ReachChecked(client CheckedClient, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous | rpc.Transport {
+	match try client.send(ReachRequest{Q: q}) {
 	case Done as done:
 		match done.Reply {
 		case ReachReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: Reach was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: Reach was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -322,20 +416,20 @@ func Reach(client Client, q code.ReachQuery) code.ReachPage fails code.NoSymbol 
 		case Ambiguous as failure:
 			return failure.E
 		case _:
-			Unreachable("codeapi: Reach was answered with a failure outside its row")
+			return rpc.Transport{Reason: "codeapi: Reach was answered with a failure outside its row"}
 		}
 	}
 }
 
-// MachineOf sends code.Reader's MachineOf and answers its Outcome.
-func MachineOf(client Client, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine {
-	match client.send(MachineOfRequest{A: a}) {
+// MachineOfChecked sends code.Reader's MachineOf over send and validates its Outcome.
+func MachineOfChecked(client CheckedClient, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine | rpc.Transport {
+	match try client.send(MachineOfRequest{A: a}) {
 	case Done as done:
 		match done.Reply {
 		case MachineOfReply as reply:
 			reply.Value
 		case _:
-			Unreachable("codeapi: MachineOf was answered with the value of another operation")
+			return rpc.Transport{Reason: "codeapi: MachineOf was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -346,7 +440,7 @@ func MachineOf(client Client, a string) code.MachineView fails code.NoSymbol | c
 		case NotMachine as failure:
 			return failure.E
 		case _:
-			Unreachable("codeapi: MachineOf was answered with a failure outside its row")
+			return rpc.Transport{Reason: "codeapi: MachineOf was answered with a failure outside its row"}
 		}
 	}
 }
@@ -435,11 +529,181 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
-	NewClient(func(q Request) Outcome {
-		sent.Update(func(rs []Request) []Request { rs.Append(q) })
-		want
-	})
+type scripted { g Given, sent sync.Ref[[]Request] } implements code.Reader
+
+func Describe(client scripted) code.Summary {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(DescribeRequest) })
+	client.g.Values.Describe
+}
+
+func Symbols(client scripted, q code.SymbolQuery) code.SymbolPage {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(SymbolsRequest{Q: q}) })
+	client.g.Values.Symbols
+}
+
+func Symbol(client scripted, a string) code.Decl fails code.NoSymbol | code.Ambiguous {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(SymbolRequest{A: a}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case NoSymbol as err:
+			return err.E
+		case Ambiguous as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Symbol
+}
+
+func References(client scripted, q code.RefQuery) code.SitePage fails code.NoSymbol | code.Ambiguous {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ReferencesRequest{Q: q}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case NoSymbol as err:
+			return err.E
+		case Ambiguous as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.References
+}
+
+func Calls(client scripted, q code.CallQuery) code.CallPage fails code.NoSymbol | code.Ambiguous | code.NotCallable {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(CallsRequest{Q: q}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case NoSymbol as err:
+			return err.E
+		case Ambiguous as err:
+			return err.E
+		case NotCallable as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Calls
+}
+
+func Api(client scripted, q code.ApiQuery) code.ApiView fails code.NoPackage {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ApiRequest{Q: q}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case NoPackage as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Api
+}
+
+func Reach(client scripted, q code.ReachQuery) code.ReachPage fails code.NoSymbol | code.Ambiguous {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ReachRequest{Q: q}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case NoSymbol as err:
+			return err.E
+		case Ambiguous as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Reach
+}
+
+func MachineOf(client scripted, a string) code.MachineView fails code.NoSymbol | code.Ambiguous | code.NotMachine {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(MachineOfRequest{A: a}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case NoSymbol as err:
+			return err.E
+		case Ambiguous as err:
+			return err.E
+		case NotMachine as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.MachineOf
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case DescribeRequest:
+		let v = DescribeChecked(client) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: DescribeReply{Value: v}}
+	case SymbolsRequest as x:
+		let v = SymbolsChecked(client, x.Q) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: SymbolsReply{Value: v}}
+	case SymbolRequest as x:
+		let v = SymbolChecked(client, x.A) catch {
+		case code.NoSymbol as e:
+			return Rejected{Failure: NoSymbol{E: e}}
+		case code.Ambiguous as e:
+			return Rejected{Failure: Ambiguous{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: SymbolReply{Value: v}}
+	case ReferencesRequest as x:
+		let v = ReferencesChecked(client, x.Q) catch {
+		case code.NoSymbol as e:
+			return Rejected{Failure: NoSymbol{E: e}}
+		case code.Ambiguous as e:
+			return Rejected{Failure: Ambiguous{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ReferencesReply{Value: v}}
+	case CallsRequest as x:
+		let v = CallsChecked(client, x.Q) catch {
+		case code.NoSymbol as e:
+			return Rejected{Failure: NoSymbol{E: e}}
+		case code.Ambiguous as e:
+			return Rejected{Failure: Ambiguous{E: e}}
+		case code.NotCallable as e:
+			return Rejected{Failure: NotCallable{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CallsReply{Value: v}}
+	case ApiRequest as x:
+		let v = ApiChecked(client, x.Q) catch {
+		case code.NoPackage as e:
+			return Rejected{Failure: NoPackage{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ApiReply{Value: v}}
+	case ReachRequest as x:
+		let v = ReachChecked(client, x.Q) catch {
+		case code.NoSymbol as e:
+			return Rejected{Failure: NoSymbol{E: e}}
+		case code.Ambiguous as e:
+			return Rejected{Failure: Ambiguous{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ReachReply{Value: v}}
+	case MachineOfRequest as x:
+		let v = MachineOfChecked(client, x.A) catch {
+		case code.NoSymbol as e:
+			return Rejected{Failure: NoSymbol{E: e}}
+		case code.Ambiguous as e:
+			return Rejected{Failure: Ambiguous{E: e}}
+		case code.NotMachine as e:
+			return Rejected{Failure: NotMachine{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: MachineOfReply{Value: v}}
+	}
 }
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
@@ -447,19 +711,26 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { code.Reader: scripted(want, sent) } { Call(r) }
+	let got = with context { code.Reader: scripted{g: g, sent: sent} } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
-// ClientIsCall: a Client whose send is Call answers each call as the
-// provider Call is bound to does.
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted(want, sent)
-	let outer = NewClient(func(q Request) Outcome {
-		with context { code.Reader: inner } { Call(q) }
-	})
+	let inner = scripted{g: g, sent: sent}
+	let outer = NewClient(inner)
 	let got = with context { code.Reader: outer } { Call(r) }
-	got == want && sent.Get() == []Request{r}
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted{g: g, sent: sentChecked}
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { code.Reader: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
 }

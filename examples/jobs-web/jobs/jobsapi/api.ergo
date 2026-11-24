@@ -1,4 +1,5 @@
 import json
+import rpc
 import sync
 import jobsweb/jobs
 
@@ -122,42 +123,105 @@ func Call(r Request) Outcome needs jobs.Jobs {
 	}
 }
 
-// Client provides jobs.Jobs over send, any way to carry a Request to a
-// Call and its Outcome back. An Outcome that is not the operation's (the
-// value of another, a failure outside its row) is a defect.
-type Client { send func(r Request) Outcome } implements jobs.Jobs
+// Client provides jobs.Jobs by invoking inner directly per operation: a direct
+// call returns its exact value or declared failure row with no Outcome boxing.
+type Client { inner jobs.Jobs } implements jobs.Jobs
 
-// NewClient is the jobs.Jobs that send answers.
-func NewClient(send own func(r Request) Outcome) Client { Client{send: send} }
+// NewClient is the jobs.Jobs that invokes inner directly per operation.
+func NewClient(inner jobs.Jobs) Client { Client{inner: inner} }
 
-// Submit sends jobs.Jobs's Submit and answers its Outcome.
+// Submit invokes jobs.Jobs's Submit directly.
 func Submit(client Client, spec jobs.Spec) int fails jobs.Rejected {
-	match client.send(SubmitRequest{Spec: spec}) {
+	try client.inner.Submit(spec)
+}
+
+// Cancel invokes jobs.Jobs's Cancel directly.
+func Cancel(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
+	try client.inner.Cancel(id)
+}
+
+// Status invokes jobs.Jobs's Status directly.
+func Status(client Client, id int) Option[jobs.Job] {
+	client.inner.Status(id)
+}
+
+// List invokes jobs.Jobs's List directly.
+func List(client Client) []jobs.Job {
+	client.inner.List()
+}
+
+// Work invokes jobs.Jobs's Work directly.
+func Work(client Client, ticks int) {
+	client.inner.Work(ticks)
+}
+
+// BoundClient provides jobs.Jobs over a held Context captured by ClientInForce.
+type BoundClient { held Context[jobs.Jobs] } implements jobs.Jobs
+
+// ClientInForce is the jobs.Jobs that invokes the provider currently in force.
+func ClientInForce() BoundClient needs jobs.Jobs { BoundClient{held: InForce[jobs.Jobs]()} }
+
+// Submit invokes jobs.Jobs's Submit on the held context.
+func Submit(client BoundClient, spec jobs.Spec) int fails jobs.Rejected {
+	with client.held { try jobs.Jobs.Submit(spec) }
+}
+
+// Cancel invokes jobs.Jobs's Cancel on the held context.
+func Cancel(client BoundClient, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
+	with client.held { try jobs.Jobs.Cancel(id) }
+}
+
+// Status invokes jobs.Jobs's Status on the held context.
+func Status(client BoundClient, id int) Option[jobs.Job] {
+	with client.held { jobs.Jobs.Status(id) }
+}
+
+// List invokes jobs.Jobs's List on the held context.
+func List(client BoundClient) []jobs.Job {
+	with client.held { jobs.Jobs.List() }
+}
+
+// Work invokes jobs.Jobs's Work on the held context.
+func Work(client BoundClient, ticks int) {
+	with client.held { jobs.Jobs.Work(ticks) }
+}
+
+// CheckedClient carries erased jobs.Jobs requests over send and validates each
+// Outcome against the requested operation, failing rpc.Transport on a
+// sibling reply or a failure outside the operation's row.
+type CheckedClient { send func(r Request) Outcome fails rpc.Transport }
+
+// NewCheckedClient is the CheckedClient that send answers.
+func NewCheckedClient(send own func(r Request) Outcome fails rpc.Transport) CheckedClient { CheckedClient{send: send} }
+
+// SubmitChecked sends jobs.Jobs's Submit over send and validates its Outcome.
+func SubmitChecked(client CheckedClient, spec jobs.Spec) int fails jobs.Rejected | rpc.Transport {
+	match try client.send(SubmitRequest{Spec: spec}) {
 	case Done as done:
 		match done.Reply {
 		case SubmitReply as reply:
 			reply.Value
 		case _:
-			Unreachable("jobsapi: Submit was answered with the value of another operation")
+			return rpc.Transport{Reason: "jobsapi: Submit was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
 		case RejectedFailure as failure:
 			return failure.E
 		case _:
-			Unreachable("jobsapi: Submit was answered with a failure outside its row")
+			return rpc.Transport{Reason: "jobsapi: Submit was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Cancel sends jobs.Jobs's Cancel and answers its Outcome.
-func Cancel(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
-	match client.send(CancelRequest{Id: id}) {
+// CancelChecked sends jobs.Jobs's Cancel over send and validates its Outcome.
+func CancelChecked(client CheckedClient, id int) fails jobs.NoSuchJob | jobs.AlreadyDone | rpc.Transport {
+	match try client.send(CancelRequest{Id: id}) {
 	case Done as done:
 		match done.Reply {
 		case CancelReply:
 		case _:
-			Unreachable("jobsapi: Cancel was answered with the value of another operation")
+			return rpc.Transport{Reason: "jobsapi: Cancel was answered with the value of another operation"}
 		}
 	case Rejected as rejected:
 		match rejected.Failure {
@@ -166,52 +230,52 @@ func Cancel(client Client, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
 		case AlreadyDone as failure:
 			return failure.E
 		case _:
-			Unreachable("jobsapi: Cancel was answered with a failure outside its row")
+			return rpc.Transport{Reason: "jobsapi: Cancel was answered with a failure outside its row"}
 		}
 	}
 }
 
-// Status sends jobs.Jobs's Status and answers its Outcome.
-func Status(client Client, id int) Option[jobs.Job] {
-	match client.send(StatusRequest{Id: id}) {
+// StatusChecked sends jobs.Jobs's Status over send and validates its Outcome.
+func StatusChecked(client CheckedClient, id int) Option[jobs.Job] fails rpc.Transport {
+	match try client.send(StatusRequest{Id: id}) {
 	case Done as done:
 		match done.Reply {
 		case StatusReply as reply:
 			reply.Value
 		case _:
-			Unreachable("jobsapi: Status was answered with the value of another operation")
+			return rpc.Transport{Reason: "jobsapi: Status was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("jobsapi: Status was answered with a failure outside its row")
+		return rpc.Transport{Reason: "jobsapi: Status was answered with a failure outside its row"}
 	}
 }
 
-// List sends jobs.Jobs's List and answers its Outcome.
-func List(client Client) []jobs.Job {
-	match client.send(ListRequest) {
+// ListChecked sends jobs.Jobs's List over send and validates its Outcome.
+func ListChecked(client CheckedClient) []jobs.Job fails rpc.Transport {
+	match try client.send(ListRequest) {
 	case Done as done:
 		match done.Reply {
 		case ListReply as reply:
 			reply.Value
 		case _:
-			Unreachable("jobsapi: List was answered with the value of another operation")
+			return rpc.Transport{Reason: "jobsapi: List was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("jobsapi: List was answered with a failure outside its row")
+		return rpc.Transport{Reason: "jobsapi: List was answered with a failure outside its row"}
 	}
 }
 
-// Work sends jobs.Jobs's Work and answers its Outcome.
-func Work(client Client, ticks int) {
-	match client.send(WorkRequest{Ticks: ticks}) {
+// WorkChecked sends jobs.Jobs's Work over send and validates its Outcome.
+func WorkChecked(client CheckedClient, ticks int) fails rpc.Transport {
+	match try client.send(WorkRequest{Ticks: ticks}) {
 	case Done as done:
 		match done.Reply {
 		case WorkReply:
 		case _:
-			Unreachable("jobsapi: Work was answered with the value of another operation")
+			return rpc.Transport{Reason: "jobsapi: Work was answered with the value of another operation"}
 		}
 	case Rejected:
-		Unreachable("jobsapi: Work was answered with a failure outside its row")
+		return rpc.Transport{Reason: "jobsapi: Work was answered with a failure outside its row"}
 	}
 }
 
@@ -265,11 +329,86 @@ func OutcomeOf(r Request, g Given) Outcome {
 	}
 }
 
-func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
-	NewClient(func(q Request) Outcome {
-		sent.Update(func(rs []Request) []Request { rs.Append(q) })
-		want
-	})
+type scripted { g Given, sent sync.Ref[[]Request] } implements jobs.Jobs
+
+func Submit(client scripted, spec jobs.Spec) int fails jobs.Rejected {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(SubmitRequest{Spec: spec}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case RejectedFailure as err:
+			return err.E
+		case _:
+		}
+	}
+	client.g.Values.Submit
+}
+
+func Cancel(client scripted, id int) fails jobs.NoSuchJob | jobs.AlreadyDone {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(CancelRequest{Id: id}) })
+	if client.g.Failing {
+		match client.g.Failure {
+		case NoSuchJob as err:
+			return err.E
+		case AlreadyDone as err:
+			return err.E
+		case _:
+		}
+	}
+}
+
+func Status(client scripted, id int) Option[jobs.Job] {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(StatusRequest{Id: id}) })
+	client.g.Values.Status
+}
+
+func List(client scripted) []jobs.Job {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(ListRequest) })
+	client.g.Values.List
+}
+
+func Work(client scripted, ticks int) {
+	client.sent.Update(func(rs []Request) []Request { rs.Append(WorkRequest{Ticks: ticks}) })
+}
+
+func callChecked(client CheckedClient, r Request) Outcome fails rpc.Transport {
+	match r {
+	case SubmitRequest as x:
+		let v = SubmitChecked(client, x.Spec) catch {
+		case jobs.Rejected as e:
+			return Rejected{Failure: RejectedFailure{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: SubmitReply{Value: v}}
+	case CancelRequest as x:
+		CancelChecked(client, x.Id) catch {
+		case jobs.NoSuchJob as e:
+			return Rejected{Failure: NoSuchJob{E: e}}
+		case jobs.AlreadyDone as e:
+			return Rejected{Failure: AlreadyDone{E: e}}
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: CancelReply}
+	case StatusRequest as x:
+		let v = StatusChecked(client, x.Id) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: StatusReply{Value: v}}
+	case ListRequest:
+		let v = ListChecked(client) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: ListReply{Value: v}}
+	case WorkRequest as x:
+		WorkChecked(client, x.Ticks) catch {
+		case rpc.Transport as t:
+			return t
+		}
+		Done{Reply: WorkReply}
+	}
 }
 
 // CallIsTheOperation: Call(r) calls r's operation once, with r's
@@ -277,19 +416,26 @@ func scripted(want Outcome, sent sync.Ref[[]Request]) Client {
 law CallIsTheOperation(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let got = with context { jobs.Jobs: scripted(want, sent) } { Call(r) }
+	let got = with context { jobs.Jobs: scripted{g: g, sent: sent} } { Call(r) }
 	got == want && sent.Get() == []Request{r}
 }
 
-// ClientIsCall: a Client whose send is Call answers each call as the
-// provider Call is bound to does.
+// ClientIsCall: a direct Client and a CheckedClient over Call both
+// answer each call as the provider Call is bound to does.
 law ClientIsCall(r Request, g Given) {
 	let want = OutcomeOf(r, g)
 	let sent = sync.NewRef[[]Request]([]Request{})
-	let inner = scripted(want, sent)
-	let outer = NewClient(func(q Request) Outcome {
-		with context { jobs.Jobs: inner } { Call(q) }
-	})
+	let inner = scripted{g: g, sent: sent}
+	let outer = NewClient(inner)
 	let got = with context { jobs.Jobs: outer } { Call(r) }
-	got == want && sent.Get() == []Request{r}
+	let sentChecked = sync.NewRef[[]Request]([]Request{})
+	let innerChecked = scripted{g: g, sent: sentChecked}
+	let checked = NewCheckedClient(func(q Request) Outcome fails rpc.Transport {
+		with context { jobs.Jobs: innerChecked } { Call(q) }
+	})
+	let gotChecked = callChecked(checked, r) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want && sent.Get() == []Request{r} && gotChecked == want && sentChecked.Get() == []Request{r}
 }
