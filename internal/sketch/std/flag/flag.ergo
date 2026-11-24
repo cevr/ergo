@@ -198,20 +198,6 @@ func Get(a ArgSpec, v Values) Option[string] {
 	None
 }
 
-// Require reads the positional argument. A Values that does not hold it
-// fails Missing; a present empty string is still an argument.
-func Require(a ArgSpec, v Values) string fails Missing {
-	for i, spec in v.set.Args {
-		if spec.name == a.name {
-			if v.args[i].given > 0 {
-				return v.args[i].last.text
-			}
-			break
-		}
-	}
-	Missing{Name: a.name}
-}
-
 // position is the index of the flag of flags whose long name is name, or
 // -1.
 func position(flags []Flag, name string) int {

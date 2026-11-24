@@ -4,10 +4,9 @@
     {
       "name": "nou-required-name-default",
       "origin": "wf10 NOU-DOMAIN-BOUNDARIES",
-      "file": "internal/sketch/std/flag/flag.ergo",
-      "decl": "Require",
-      "from": "\tMissing{Name: a.name}\n",
-      "to": "\t\"\"\n",
+      "file": "examples/routecli/cli/command.ergo",
+      "from": "return flag.Missing{Name: routeName}",
+      "to": "\"\"",
       "rule": "A command cannot fabricate a route when Values contains no required name.",
       "killers": ["examples/routecli/cli:law:AddRequiresName"],
       "gap": "not-run-crunch"
