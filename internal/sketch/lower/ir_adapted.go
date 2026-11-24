@@ -52,8 +52,9 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 		ice(x, "the prelude's Some is not a record of one field")
 	}
 	elem := t.(*check.Named).TArgs[0]
-	goElem := b.recvTypeArgs(n, body.Results[0])
-	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, nil, body.Package) {
+	subst := b.recvTypeSubst(n)
+	goElem := body.Results[0]
+	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	convs := map[int]string{} // by index of the receiver-first vals
@@ -61,7 +62,7 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 		if adapted(q) {
 			irNo("std call with an adapted result") // a function operand: the plain form's adapter (adaptOperands)
 		}
-		conv, ok := b.operandConv(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) // ir_operand.go
+		conv, ok := b.operandConv(x.Args[i], q.Type, subst, body.Package) // ir_operand.go
 		if !ok {
 			irNo("std call with a converted operand")
 		}
@@ -107,8 +108,9 @@ func (b *irBuilder) commaOkOpCall(x *syntax.CallExpr, c *check.Call, n *check.Na
 // returns it; a change that lets a yield fail fails here, loudly.
 func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named, body v1.Body, p irPos, recv *irExpr) ([]*irStmt, *irExpr, bool) {
 	elem := b.seqElem(x, c, body)
-	goElem := b.recvTypeArgs(n, strings.TrimSuffix(strings.TrimPrefix(body.Results[0], "iter.Seq["), "]"))
-	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, nil, body.Package) {
+	subst := b.recvTypeSubst(n)
+	goElem := strings.TrimSuffix(strings.TrimPrefix(body.Results[0], "iter.Seq["), "]")
+	if !b.sameGo(elem, goElem) && !b.sameRT(elem, goElem, subst, body.Package) {
 		irNo("std call with a converted result")
 	}
 	convs := map[int]string{} // by index of the receiver-first vals
@@ -116,7 +118,7 @@ func (b *irBuilder) seqOpCall(x *syntax.CallExpr, c *check.Call, n *check.Named,
 		if adapted(q) {
 			irNo("std call with an adapted result") // a function operand: the plain form's adapter (adaptOperands)
 		}
-		conv, ok := b.operandConv(x.Args[i], b.recvTypeArgs(n, q.Type), nil, body.Package) // ir_operand.go
+		conv, ok := b.operandConv(x.Args[i], q.Type, subst, body.Package) // ir_operand.go
 		if !ok {
 			irNo("std call with a converted operand")
 		}
