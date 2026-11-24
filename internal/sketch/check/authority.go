@@ -25,8 +25,16 @@ func isAmbient(t Type) bool {
 // isTestAmbient reports whether t is the prelude's TestAmbient, the test's
 // ambient (testambient.go): the authority the test runner provides.
 func isTestAmbient(t Type) bool {
+	return isPreludeAuthority(t, "TestAmbient")
+}
+
+func isTestLoopback(t Type) bool {
+	return isPreludeAuthority(t, "TestLoopback")
+}
+
+func isPreludeAuthority(t Type, name string) bool {
 	n, ok := t.(*Named)
-	return ok && n.origin().Obj != nil && n.origin().Obj.Name == "TestAmbient" && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == stdlib.PreludePath
+	return ok && n.origin().Obj != nil && n.origin().Obj.Name == name && n.origin().Obj.Pkg != nil && n.origin().Obj.Pkg.Path == stdlib.PreludePath
 }
 
 // Construction authority and member visibility across packages

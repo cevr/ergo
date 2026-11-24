@@ -159,7 +159,7 @@ var testHelpers = []struct{ key, base string }{
 	{"Goal", "ergoGoal"}, {"Witness", "ergoWitness"}, {"Broken", "ergoBroken"}, {"testgen", "testgen"},
 	{"Flag", "ergoFlag"}, {"Source", "ergoSource"}, {"Replay", "ergoReplay"},
 	{"Cached", "ergoCached"}, {"CachedRun", "ergoCachedRun"},
-	{"TestAmbient", "ergoTestAmbient"},
+	{"TestAmbient", "ergoTestAmbient"}, {"TestLoopback", "ergoTestLoopback"},
 	{"SkipOf", "ergoSkipOf"}, {"Skipping", "ergoSkipping"}, {"Skipped", "ergoSkipped"}, {"Skippable", "ergoSkippable"}, {"SkipRun", "ergoSkipRun"}, {"SkipNow", "ergoSkipNow"}, {"SkipNote", "ergoSkipNote"},
 }
 
@@ -1366,6 +1366,10 @@ func (a $TestAmbient) folder(_ *$Task.Task) *$Runtime.TestDirectory { return a.d
 
 // end releases the case's folder: the IR defers it (ir_with.go testAmbient).
 func (a $TestAmbient) end() { a.dir.End() }
+
+type $TestLoopback struct{}
+
+func ($TestLoopback) loopbackOnly(_ *$Task.Task) {}
 
 // $Assertion is a failed assert, the panic that ends its case (196l).
 // A refuted law is one too: its what is "law refuted", not "assert failed".
