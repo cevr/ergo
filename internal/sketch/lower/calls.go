@@ -1374,8 +1374,9 @@ func ownsResources(w *check.With) bool {
 // acquire the same entries share one builder. A position is no identity:
 // two files' providers can start at one offset (196b).
 type contextSet struct {
-	w   *check.Context
-	set string
+	w       *check.Context
+	set     string
+	capture *check.ContextEntry
 }
 
 func (l *lowerer) acquiredSet(w *check.With) contextSet {
@@ -1384,7 +1385,7 @@ func (l *lowerer) acquiredSet(w *check.With) contextSet {
 		b.WriteString(strconv.Itoa(l.nodeID(a.Entry.Provider)))
 		b.WriteByte(' ')
 	}
-	return contextSet{w.Contexts[0], b.String()}
+	return contextSet{w: w.Contexts[0], set: b.String()}
 }
 
 // contextBuilder is the Go function that builds the providers a with acquires
@@ -1395,14 +1396,28 @@ func (l *lowerer) acquiredSet(w *check.With) contextSet {
 // unreached provider never runs (Context 7), and an entry whose provider uses
 // a capability of this context is built after that capability's entry.
 func (l *lowerer) contextBuilder(w *check.With, site syntax.Node) string {
-	key := l.acquiredSet(w)
+	return l.contextBuilderCapturing(w, site, nil)
+}
+
+// contextBuilderCapturing also writes the selected raw entry before its
+// operation conversions. It is still built and released exactly once.
+func (l *lowerer) contextBuilderCapturing(w *check.With, site syntax.Node, t check.Type) string {
+	key := l.contextBuildKey(w, t != nil)
 	if name, ok := l.contexts[key]; ok {
 		return name
 	}
 	name := l.pkgName(pkgKey{"context", key}, "build"+key.w.Name)
 	l.contexts[key] = name
-	l.queue(key.w.Decl, func() { l.emitContext(w, name, site) })
+	l.queue(key.w.Decl, func() { l.emitContext(w, name, site, t) })
 	return name
+}
+
+func (l *lowerer) contextBuildKey(w *check.With, capture bool) contextSet {
+	key := l.acquiredSet(w)
+	if capture {
+		key.capture = w.Entries[0]
+	}
+	return key
 }
 
 // context checks a named context declaration. Its builders are written at the
@@ -1427,7 +1442,7 @@ func fallibleBuild(w *check.With) bool {
 // it registers that provider's release in the scope, so a later
 // provider's defect still closes it. The release runs in the outer
 // environment, where the checker charged its needs (With.Acquired).
-func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
+func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node, capture check.Type) {
 	w := with.Contexts[0]
 	if !l.declaredContext(w) {
 		ice(site, "a builder of the context %s, which no source file of the program declares", w.Name)
@@ -1467,9 +1482,14 @@ func (l *lowerer) emitContext(with *check.With, name string, site syntax.Node) {
 		// acquires it uses this scope and registers its release here.
 		fc.frame.with = ws
 	}
+	raw := ""
+	if capture != nil {
+		raw = fc.scope.alloc("raw")
+		params += ", " + raw + " *" + fc.goType(capture)
+	}
 	fc.entryPoll(l.info, w.Decl)
 	l.analyzeValues(w.Decl, l.info)
-	fc.buildProviders(with, fc.env, outer, ws)
+	fc.buildProvidersCapturing(with, fc.env, outer, ws, raw)
 	decl := "func " + name + "(" + params + ") {\n" + fc.out.String() + "}\n\n"
 	if fallible {
 		decl = "func " + name + "(" + params + ") error {\n" + fc.out.String() + "\treturn nil\n}\n\n"
@@ -1512,6 +1532,10 @@ func (l *lowerer) localContext(w *check.Context, site syntax.Node) {
 // checker charged what they use (rows.md, Context 3 and 9); embedded named
 // entries see the partially built context, as their checked Uses require.
 func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
+	fc.buildProvidersCapturing(with, target, outer, ws, "")
+}
+
+func (fc *funcCtx) buildProvidersCapturing(with *check.With, target, outer, ws, capture string) {
 	local := map[*check.ContextEntry]bool{}
 	var lexical func(*check.Context)
 	lexical = func(w *check.Context) {
@@ -1544,7 +1568,11 @@ func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 	}
 	owners(with.Contexts[0])
 	for _, a := range with.Acquired {
-		fc.buildProvider(a, target, outer, ws, local[a.Entry], pkgs[a.Entry])
+		raw := ""
+		if capture != "" && a.Entry == with.Entries[0] {
+			raw = capture
+		}
+		fc.buildProvider(a, target, outer, ws, local[a.Entry], pkgs[a.Entry], raw)
 	}
 }
 
@@ -1555,7 +1583,7 @@ func (fc *funcCtx) buildProviders(with *check.With, target, outer, ws string) {
 // An entry of a std context, pkg std, reads its std package's Info and
 // writes no //line directive and no call identity, as a std body does
 // (lower-gaps G2, batch 11).
-func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string, local bool, pkg *check.Package) {
+func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string, local bool, pkg *check.Package, raw string) {
 	e := a.Entry
 	defer fc.l.leave(fc.l.enter(e.Provider, nil))
 	if pkg != nil && pkg.Std() {
@@ -1574,18 +1602,21 @@ func (fc *funcCtx) buildProvider(a *check.Acquisition, target, outer, ws string,
 		// A lent provider is a place: its value cannot fail, and the
 		// with registers no release for it (R11), so it is published
 		// in place like a plain one.
-		fc.withClose(a, target, outer, ws, e.Provider)
+		fc.withClose(a, target, outer, ws, e.Provider, raw)
 	} else {
-		fc.publishProvider(a, target)
+		fc.publishProvider(a, target, raw)
 	}
 	fc.env = saved
 }
 
-func (fc *funcCtx) publishProvider(a *check.Acquisition, target string) string {
+func (fc *funcCtx) publishProvider(a *check.Acquisition, target, raw string) string {
 	e := a.Entry
 	val := fc.value(e.Provider)
-	if len(a.Caps) > 1 || a.Releases() {
+	if len(a.Caps) > 1 || a.Releases() || raw != "" {
 		val = fc.spill(val)
+	}
+	if raw != "" {
+		fc.line("*" + raw + " = " + val)
 	}
 	for _, i := range a.Caps {
 		cap, ok := e.Caps[i].(*check.Named)

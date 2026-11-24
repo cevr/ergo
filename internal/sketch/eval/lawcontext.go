@@ -44,6 +44,15 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			fr.env.bind(tp, rtype{t: cap.TArgs[i]})
 		}
 	}
+	claimInput := -1
+	if lc.Claim != nil {
+		info, why := lc.Claim.ClaimInfo(law)
+		if why != "" {
+			ice("claim law %s: %s", law.Name, why)
+		}
+		fr.info, fr.tab = info, in.table(info)
+		claimInput = lc.Claim.ClaimFeed - 1
+	}
 	pre := preflight{in: in, seen: map[syntax.Node]bool{}}
 	if why := pre.body(fr, fr.decl, law.Decl.Body, nil, nil); why != "" {
 		out.Status, out.Reason = Skipped, why
@@ -55,13 +64,16 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 		if lc.Params != nil {
 			types[k] = lc.Params[k]
 		}
+		if k == claimInput {
+			continue
+		}
 		if why := pre.generator(fr, types[k], nil, map[check.Type]bool{}); why != "" {
 			out.Status, out.Reason = Skipped, why
 			return
 		}
 	}
 	// The one rule, as ergo test runs it (lawContextRun's listedRun).
-	p := testplan.Context(law.Params, types)
+	p := testplan.Context(law.Params, types, claimInput)
 	out.TotalCases = p.Count
 	out.Evidence, out.Seed, out.form = "tested", in.budget.Seed, formDrawn
 	if p.Listed {
@@ -74,20 +86,26 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 	run := func(k int) (Result, []func() Argument) {
 		cf := in.newFrame(fr.pkg, fr.decl)
 		cf.env = fr.env
+		cf.info, cf.tab = fr.info, fr.tab
 		var listed []testplan.Value
 		if p.Listed {
 			listed = p.At(k)
 		}
 		shows := make([]func() Argument, 0, len(law.Params))
-		for i, v := range law.Params {
+		for i, j := 0, 0; i < len(law.Params); i++ {
+			if i == claimInput {
+				continue
+			}
+			v := law.Params[i]
 			var a Value
 			if p.Listed {
-				a = in.listValue(cf, listed[i])
+				a = in.listValue(cf, listed[j])
 			} else {
 				a = in.generate(cf, r, types[i], testplan.Depth, nil)
 			}
 			shows = append(shows, func() Argument { return Argument{Name: v.Name, Value: in.argument(cf, types[i], a)} })
 			cf.bind(v, a)
+			j++
 		}
 		caps, built, ab := in.acquire(cf, law.Decl, lc.With)
 		if ab != nil {
@@ -99,7 +117,21 @@ func (in *interp) contextLaw(law *check.Law, lc *check.LawContext, res Result) (
 			ice("the context %s does not bind %s", lc.Context.Name, cap)
 		}
 		outer := cf.caps
-		cf.lawOwn, cf.caps = own, caps
+		cf.caps = caps
+		if claimInput < 0 {
+			cf.lawOwn = own
+		} else {
+			entry := lc.With.Entries[0]
+			for _, a := range built {
+				if a.a.Entry == entry {
+					cf.bind(law.Params[claimInput], a.v)
+					shows = append(shows, func() Argument {
+						return Argument{Name: law.Params[claimInput].Name, Value: in.argument(cf, lc.Claim.At, a.v)}
+					})
+					break
+				}
+			}
+		}
 		result := in.runBodyFrame(cf, law.Decl.Body, true, res)
 		// The case owns what its build acquired: it releases them after
 		// the law's last operation, last built first, each once; a

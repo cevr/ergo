@@ -27,6 +27,7 @@ type typeCtx struct {
 	// (record.go), where it names no type parameter itself.
 	bound    map[*check.TypeParam]check.Type
 	readCopy func(check.Type) check.Type
+	claim    *check.LawProvider
 	// readVia is the reader a codec body reads from: 0 the prelude's
 	// Reader interface, i+1 direct reader i (wirereader.go).
 	readVia int
@@ -49,6 +50,9 @@ func (tc *typeCtx) boundType(t check.Type) check.Type {
 // type-kinded arguments; a function type is the uniform function value
 // (funcType).
 func (tc *typeCtx) goType(t check.Type) string {
+	if tc.claim != nil {
+		t = tc.boundType(t)
+	}
 	if t == check.NoValue {
 		// A type parameter bound by a block with no value stands for no
 		// value, lowered to struct{} (types.md, Inference): task.Go's T in
