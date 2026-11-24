@@ -1865,7 +1865,7 @@ func (fc *funcCtx) operations(conv check.Conversion, val string, site syntax.Nod
 // mentionsTypeParam reports a type that names a type parameter.
 func mentionsTypeParam(t check.Type) bool {
 	switch t := t.(type) {
-	case *check.TypeParam:
+	case *check.TypeParam, *check.Reapplied, *check.SelfType:
 		return true
 	case *check.Named:
 		for _, a := range t.TArgs {

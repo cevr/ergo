@@ -72,7 +72,7 @@ func inScope(s store.Store, text string) bool {
 // error, the go package, and Map, which the syntax spells.
 func universeName(text string) bool {
 	match text {
-	case "true", "false", "len", "with", "within", "encode", "decode", "embedded", "wired", "go", "Map", "byte", "rune", "error", "lent", "wire", "comparable", "ordered", "number":
+	case "true", "false", "len", "hash", "with", "within", "encode", "decode", "embedded", "wired", "go", "Map", "byte", "rune", "error", "lent", "wire", "comparable", "ordered", "number":
 		true
 	case _:
 		false

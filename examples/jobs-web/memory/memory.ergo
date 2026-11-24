@@ -23,6 +23,8 @@ func New() Memory {
 	Memory{runs: sync.NewRef[Map[int, job.Run]](Map[int, job.Run]{}), last: sync.NewRef[int](0)}
 }
 
+let emptyJobs = context { jobs.Jobs: New() }
+
 // Submit queues a job of spec and is its number. A spec with no name, with
 // fewer than 1 or more than 100 steps, or failing at a step it never
 // reaches is Rejected.

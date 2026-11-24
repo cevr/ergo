@@ -1,0 +1,6 @@
+import lease-sync/lease
+import lease-sync/replica
+
+// The Authority laws exercise the forwarded calls; the retry law
+// separately makes the transport drop pushes.
+let withNoDrops = context { replica.Authority[lease.Pool, lease.Cmd, lease.Event, lease.Refusal]: newFlaky(0) }

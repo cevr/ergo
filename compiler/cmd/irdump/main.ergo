@@ -60,9 +60,9 @@ func unitOf(g []string) load.Unit fails os.Exit needs fs.Files {
 }
 
 // write prints one typed package's IR lines after its "@pkg I" line.
-func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool, sourced bool) {
+func write(b mut strings.Builder, i int, u load.Unit, d load.Typed, root bool) {
 	b.WriteString("@pkg \(i)\n")
-	let out = lower.Package(d.S, d.K, d.T, u.Paths, u.Path, root, sourced)
+	let out = lower.Package(d.S, d.K, d.T, u.Paths, u.Path, root)
 	for j, path in out.File.Files {
 		b.WriteString("P \(j) \(path)\n")
 	}
@@ -110,9 +110,7 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		for r in roots {
 			root = root || r == units[ui].Path
 		}
-		// A std package is a library, lowered with no //line directives.
-		let sourced = std == "" || len(units[ui].Paths) == 0 || !strings.HasPrefix(units[ui].Paths[0], std+"/")
-		write(&b, ui, units[ui], load.TypeAt(p, i), root, sourced)
+		write(&b, ui, units[ui], load.TypeAt(p, i), root)
 	}
 	io.Stdout.Print(b.String())
 }

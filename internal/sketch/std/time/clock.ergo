@@ -46,6 +46,11 @@ type hostOnly {}
 // stdlib.md, Host packages).
 func NewHost() Host needs Ambient { Host{live: hostOnly} }
 
+// testClock reads the real host clocks, without ambient process I/O.
+func testClock() Host needs TestAmbient { Host{live: hostOnly} }
+
+let onTestClock = context needs TestAmbient { Clock: testClock() }
+
 // Now is one read of the host's clock, with its monotonic reading.
 func Now(_ Host) Time {
 	let r = hostNow()

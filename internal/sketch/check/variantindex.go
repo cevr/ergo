@@ -396,7 +396,7 @@ func rowHasParam(r *Row, steps *int) bool {
 func hasParam(t Type, steps *int) bool {
 	*steps++
 	switch t := t.(type) {
-	case *TypeParam:
+	case *TypeParam, *SelfType, *Reapplied:
 		return true
 	case *Named:
 		for _, a := range t.TArgs {

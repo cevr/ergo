@@ -140,11 +140,10 @@ type Interface struct {
 	// Generics 2), nil when the operation type has none. An operation
 	// type with one is a constraint only.
 	Terms []*Term
-	// Generic is true when an operation takes type parameters of its own
-	// (Method.Sig.TParams; types.md, Interface assignability, Generic
-	// operations). Such an operation type is a constraint only, too: no
-	// Go interface holds a generic method, so it lowers by copies only.
-	Generic bool
+	// ConstraintOnly operation types lower by copies: a generic operation
+	// or a type referring to its claimant has no dynamic representation.
+	ConstraintOnly bool
+	selfUses       []*SelfType
 	// byName holds the methods sorted by name, once, when the type is
 	// resolved (go/types NewInterfaceType): identity reads it and never
 	// sorts (round 11 M3).
@@ -338,6 +337,22 @@ type TypeParam struct {
 	id       int
 }
 
+// SelfType names the claimant within an operation type or its member law.
+// Args is nil for bare Self. The owner gives the meaning of the positions,
+// including when an operation is inherited through an include.
+type SelfType struct {
+	Args   []Type
+	owner  *Named
+	source string // operation or law, for a failed reapplication
+}
+
+// Reapplied is a type parameter's claimant with its claim arguments
+// replaced by Args. It becomes a named type in a concrete copy.
+type Reapplied struct {
+	Param *TypeParam
+	Args  []Type
+}
+
 // RowVar is the inferred row of a function that writes no row (class F):
 // the error row or the capability row of an unexported function, one
 // variable each, as the only element of the signature's row. Types never
@@ -422,6 +437,8 @@ func (*Map) aType()         {}
 func (*Pointer) aType()     {}
 func (*Signature) aType()   {}
 func (*TypeParam) aType()   {}
+func (*SelfType) aType()    {}
+func (*Reapplied) aType()   {}
 func (*RowArg) aType()      {}
 func (*Wired) aType()       {}
 func (*Tuple) aType()       {}
@@ -547,6 +564,19 @@ func (t *Signature) String() string {
 	return b.String()
 }
 func (t *TypeParam) String() string { return t.Name }
+func (t *SelfType) String() string  { return selfTypeText("Self", t.Args) }
+func (t *Reapplied) String() string { return selfTypeText(t.Param.Name, t.Args) }
+
+func selfTypeText(name string, args []Type) string {
+	if len(args) == 0 {
+		return name
+	}
+	text := make([]string, len(args))
+	for i, a := range args {
+		text[i] = a.String()
+	}
+	return name + "[" + strings.Join(text, ", ") + "]"
+}
 func (v *RowVar) String() string {
 	if sol := v.Solution(); sol != nil {
 		return sol.String()
@@ -1053,7 +1083,7 @@ func isCapability(t Type) bool {
 		}
 	}
 	i, ok := n.underlying().(*Interface)
-	return ok && len(i.Methods) > 0
+	return ok && !i.ConstraintOnly && len(i.Methods) > 0
 }
 
 // isStructNamed reports whether t is a named struct type: a possible error
