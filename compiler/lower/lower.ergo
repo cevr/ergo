@@ -98,6 +98,8 @@ type fnb {
 	capAt     dense.Side[store.PNode, dense.Opt[store.TKey]],
 	frameRoot bool,
 	frame     framePlan,
+	plan      GeneratedBodyPlan,
+	filePath  string,
 }
 
 // Package builds the IR of every function of the checked package k; paths
@@ -105,6 +107,10 @@ type fnb {
 // whether it is the build's root package (a program's main package, or the
 // package a test build tests), whose declarations Go spells bare.
 func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports Option[[]expr.Dep], direct []ImportCallFacts, shapeImports Map[string, expr.Dep]) Out {
+	PackageWithPlan(s, k, t, paths, path, root, imports, direct, shapeImports, ProductionPlan())
+}
+
+func PackageWithPlan(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path string, root bool, imports Option[[]expr.Dep], direct []ImportCallFacts, shapeImports Map[string, expr.Dep], plan GeneratedBodyPlan) Out {
 	let alias = if root || path == "prelude" { "" } else { pkgAlias(path) }
 	let mut prelude = []string{}
 	if path != "prelude" {
@@ -152,7 +158,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for i, f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0)}
+		let mut st = fnb{rootImports: imports, shapeImports: shapeImports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0), plan: plan, filePath: paths[f.File]}
 		// Read the package-wide columns once, before building any body.
 		// A body that stops during lowering can still have a call proof.
 		if i == 0 {
@@ -477,8 +483,13 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 		d
 	case syntax.LawDecl:
 		return stop("law (test and law lowering)")
-	case syntax.TestDecl:
-		return stop("test (test and law lowering)")
+	case syntax.TestDecl as td:
+		match plannedGeneratedBody(st.plan, st.file, syntax.NodePos(p, f.Decl), f.Decl) {
+		case Some[GeneratedBody] as planned:
+			return try testFunction(st, b, f, td, planned.Value, path)
+		case None:
+			return false
+		}
 	case _:
 		return stop("no function declaration")
 	}

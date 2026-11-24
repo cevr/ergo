@@ -24,6 +24,8 @@ type controlOp =
 	| CRange{}
 	| CBreak{}
 	| CContinue{}
+	| CAssert{Site string, Text string}
+	| CSkip{Reason string}
 type controlSpan { lo int, hi int, terminates bool, breaks bool }
 type controlStmt {
 	op      controlOp,
@@ -63,6 +65,7 @@ type controlPlan {
 	counted       bool,
 	nested        bool,
 	borrowInvoked bool,
+	inTest        bool,
 }
 type controlLocal { name string, typ string, at int, mutable bool }
 type controlBody { plan controlPlan, body controlSpan }
@@ -81,12 +84,24 @@ func controlRow(op controlOp, offset int, p controlPlan) controlStmt {
 // statements prepares the whole body before Begin, including statements
 // that Go removes later. A refused body never touches the shared builder.
 func statements(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey], unit bool, borrowUnit bool) controlBody fails Unported {
+	try statementsWithMode(st, body, list, names, n, result, unit, borrowUnit, false)
+}
+
+func statementsTest(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey]) controlBody fails Unported {
+	try statementsWithMode(st, body, list, names, n, result, true, false, true)
+}
+
+func statementsWithMode(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey], unit bool, borrowUnit bool, inTest bool) controlBody fails Unported {
 	let mut p = controlPlan{
 		stmts:    []controlStmt{}, locals: []controlLocal{}, reads: []int{}, callees: []string{},
 		matches:  []matchArm{}, injections: []unionInjection{},
 		taken:    []string{}, sourceNames: []string{}, scannedNames: false, body: body, formals: n,
 		result:   result, unit: unit, borrowUnit: borrowUnit,
 		extended: false, nonScalar: false, counted: false, nested: false, borrowInvoked: false,
+		inTest:   inTest,
+	}
+	if st.frame.env >= 0 {
+		p.taken = p.taken.Append("env")
 	}
 	for name in names {
 		match dense.Unpack(name) {
@@ -273,6 +288,25 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 			return stop("control: loop branch")
 		}
 		row.op = if tk == syntax.Break { CBreak } else { CContinue }
+	case syntax.AssertStmt as a:
+		if !p.inTest {
+			return stop("assert outside test")
+		}
+		if assertShownCheck(*st, a.X) {
+			return stop("test: shown assertion")
+		}
+		try controlOperand(*st, p, a.X)
+		let at = syntax.TokPos(parsed, a.Assert)
+		row.op = CAssert{Site: assertSiteText(*st, at), Text: try assertSourceText(*st, a.X)}
+		row.offset = at
+		row.x = dense.OptOf(a.X)
+	case syntax.SkipStmt as sk:
+		if !p.inTest {
+			return stop("skip outside test")
+		}
+		let at = syntax.TokPos(parsed, sk.Skip)
+		row.op = CSkip{Reason: try skipReason(*st, sk)}
+		row.offset = at
 	case _:
 		return stop(if tail { "statement form" } else { "statement form before the tail" })
 	}
@@ -691,6 +725,10 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			try ir.Row(b, ir.KindCode(ir.TStmt, "break"), at, []uint32{0})
 		case CContinue:
 			try ir.Row(b, ir.KindCode(ir.TStmt, "continue"), at, []uint32{})
+		case CAssert as a:
+			try emitAssertStmt(b, at, x, a.Site, a.Text)
+		case CSkip as sk:
+			try emitSkipStmt(b, at, sk.Reason)
 		}
 		rows = rows.Append(row)
 		match s.op {

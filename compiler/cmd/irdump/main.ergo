@@ -97,12 +97,17 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		roots = strings.Fields(try read(argv[1]))
 		argv = argv[2:len(argv)]
 	}
+	let mut tests = []string{}
+	if len(argv) > 1 && argv[0] == "-tests" {
+		tests = strings.Fields(try read(argv[1]))
+		argv = argv[2:len(argv)]
+	}
 	let counts = len(argv) > 0 && argv[0] == "-type-counts"
 	if counts {
 		argv = argv[1:len(argv)]
 	}
 	if len(argv) != 2 || argv[0] != "-corpus" {
-		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] [-roots FILE] [-type-counts] -corpus MANIFEST"}
+		return os.Exit{Code: 2, Message: "usage: irdump [-std DIR] [-roots FILE] [-tests FILE] [-type-counts] -corpus MANIFEST"}
 	}
 	let mut units = []load.Unit{}
 	let mut inputs = []InputTables{}
@@ -135,6 +140,10 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 		for r in roots {
 			root = root || r == units[ui].Path
 		}
+		let mut testMode = false
+		for tp in tests {
+			testMode = testMode || tp == units[ui].Path
+		}
 		let imports = if root { rootImports(p, i, available) } else { None }
 		let d = load.TypeAt(p, i)
 		if counts {
@@ -142,7 +151,9 @@ func run(argv0 []string) fails os.Exit needs fs.Files | io.Stdout {
 			io.Stdout.Print("@typed \(ui) \(typed[i])\n")
 		}
 		let depFacts = if j < order.Ready { directCallFacts(d.K.Deps, exact, summaries) } else { []lower.ImportCallFacts{} }
-		let out = lower.Package(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, imports, depFacts, shapeImports(p, i, shapeUnits))
+		let mode = if testMode { lower.Test } else { lower.Production }
+		let plan = lower.PlanGeneratedBodies(d.K, mode, root)
+		let out = lower.PackageWithPlan(d.S, d.K, d.T, units[ui].Paths, units[ui].Path, root, imports, depFacts, shapeImports(p, i, shapeUnits), plan)
 		if j < order.Ready && exactLoadedUnit(exact, p.Loaded[i].Path) == i && hasSources(p.Loaded[i]) && lower.HasCallFacts(out.CallFacts) {
 			summaries[i] = Some[lower.CallFacts]{Value: out.CallFacts}
 		}

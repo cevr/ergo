@@ -1,0 +1,125 @@
+import compiler/check/expr
+import compiler/syntax
+import dense
+import strings
+
+type BuildMode =
+	| Production{}
+	| Test{}
+
+type GeneratedKind = GenTest{}
+
+type GeneratedBody {
+	Kind   GeneratedKind,
+	File   int,
+	At     int,
+	Decl   dense.ID[syntax.Node],
+	Symbol string,
+}
+
+type GeneratedBodyPlan {
+	Mode   BuildMode,
+	Bodies []GeneratedBody,
+}
+
+let reservedTestSymbols = []string{"ergo__Tests", "ergo__TestAmbient", "ergo__TestLoopback"}
+
+func ProductionPlan() GeneratedBodyPlan {
+	GeneratedBodyPlan{Mode: Production, Bodies: []GeneratedBody{}}
+}
+
+func isTestMode(mode BuildMode) bool {
+	match mode {
+	case Test:
+		true
+	case Production:
+		false
+	}
+}
+
+func HelperSpelling(base string) string {
+	let mut stem = base
+	if strings.HasPrefix(base, "ergo") && len(base) > 4 {
+		let c = base[4]
+		if c >= 'A' && c <= 'Z' {
+			stem = base[4:len(base)]
+		}
+	}
+	"ergo__" + stem
+}
+
+func testDeclCount(k expr.Pkg, name string) int {
+	let mut count = 0
+	for p in k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, decls, i)) {
+			case syntax.TestDecl as td:
+				if nameText(p, td.Name) == name {
+					count = count + 1
+				}
+			case _:
+			}
+		}
+	}
+	count
+}
+
+func PlanGeneratedBodies(k expr.Pkg, mode BuildMode, root bool) GeneratedBodyPlan {
+	if !root || !isTestMode(mode) {
+		return GeneratedBodyPlan{Mode: mode, Bodies: []GeneratedBody{}}
+	}
+	let mut bodies = []GeneratedBody{}
+	for file, p in k.Parsed {
+		let decls = match syntax.ViewOf(p.Tree, syntax.Root(p.Tree)) {
+		case syntax.File as pf:
+			pf.Decls
+		case _:
+			continue
+		}
+		for i in 0..syntax.Len(decls) {
+			let d = syntax.Item(p.Tree, decls, i)
+			match syntax.ViewOf(p.Tree, d) {
+			case syntax.TestDecl as td:
+				let name = nameText(p, td.Name)
+				let mut sym = ""
+				if name != "" && testDeclCount(k, name) == 1 {
+					let candidate = HelperSpelling("ergoTest" + name)
+					if !has(reservedTestSymbols, candidate) {
+						sym = candidate
+					}
+				}
+				bodies = bodies.Append(GeneratedBody{
+					Kind:   GenTest,
+					File:   file,
+					At:     syntax.NodePos(p, d),
+					Decl:   d,
+					Symbol: sym,
+				})
+			case _:
+			}
+		}
+	}
+	GeneratedBodyPlan{Mode: mode, Bodies: bodies}
+}
+
+func plannedGeneratedBody(plan GeneratedBodyPlan, file int, at int, decl dense.ID[syntax.Node]) Option[GeneratedBody] {
+	for body in plan.Bodies {
+		if body.File == file && body.At == at && body.Decl == decl {
+			return Some[GeneratedBody]{Value: body}
+		}
+	}
+	None
+}
+
+test HelperSpellingMatchesGo {
+	assert HelperSpelling("ergoTestAlpha") == "ergo__TestAlpha"
+	assert HelperSpelling("ergoAssertFail") == "ergo__AssertFail"
+	assert HelperSpelling("ergoSkipNow") == "ergo__SkipNow"
+	assert HelperSpelling("plain") == "ergo__plain"
+}

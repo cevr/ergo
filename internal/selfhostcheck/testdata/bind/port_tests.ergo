@@ -1,0 +1,13 @@
+test PortTestAssert {
+	let n = 2
+	let ok = n > 0
+	assert ok
+}
+
+test PortTestSkipBranch {
+	let done = false
+	if done {
+		skip "already done"
+	}
+	assert !done
+}

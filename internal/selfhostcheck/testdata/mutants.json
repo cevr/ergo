@@ -1500,6 +1500,36 @@
       "rule": "A non-root package can admit a nested imported record only by following the exact transitive loaded shape inventory.",
       "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
       "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-tests-t1-erase-env-slot",
+      "origin": "wf10/selfhost/S4-PORT TESTS-T1",
+      "file": "compiler/lower/tests.ergo", "decl": "testFrame",
+      "from": "framePlan{env: 0, slots: 1, pure: false, fallible: None, pollEntry: false, op: None}",
+      "to": "framePlan{env: -1, slots: 0, pure: false, fallible: None, pollEntry: false, op: None}",
+      "rule": "A test body reserves leading env slot 0 so body locals start at slot 1.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl", "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-tests-t1-omit-assert-negation",
+      "origin": "wf10/selfhost/S4-PORT TESTS-T1",
+      "file": "compiler/lower/tests.ergo", "decl": "emitAssertStmt",
+      "from": "let notCond = try ir.Row(b, ir.KindCode(ir.TExpr, \"un\"), at, []uint32{ir.Text(b, \"!\"), condRow})",
+      "to": "let notCond = condRow",
+      "rule": "An assert statement negates its condition before branching to AssertFail.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
+    },
+    {
+      "name": "lower-tests-t1-emit-in-production",
+      "origin": "wf10/selfhost/S4-PORT TESTS-T1",
+      "file": "compiler/lower/build_plan.ergo", "decl": "PlanGeneratedBodies",
+      "from": "if !root || !isTestMode(mode) {",
+      "to": "if !root {",
+      "rule": "Production builds admit no generated test bodies.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestIRTestBuildAndProductionControl"]
     }
   ]
 }
