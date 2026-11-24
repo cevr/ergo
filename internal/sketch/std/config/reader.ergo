@@ -35,13 +35,13 @@ func newReader(root node) reader {
 
 func top(r reader) frame {
 	let st = r.stack.Get()
-	st[len(st) - 1]
+	st[len(st)-1]
 }
 
 func setTop(r reader, f frame) {
 	r.stack.Update(func(st []frame) []frame {
 		let mut out = st
-		out[len(out) - 1] = f
+		out[len(out)-1] = f
 		out
 	})
 }
@@ -86,7 +86,7 @@ func wrong(r reader, n node, want string) WireWrongKind {
 
 // last is the text a scalar read takes: a repeated flag's last.
 func last(t texts) string {
-	if len(t.Items) == 0 { "" } else { t.Items[len(t.Items) - 1] }
+	if len(t.Items) == 0 { "" } else { t.Items[len(t.Items)-1] }
 }
 
 func TakeNull(r reader) bool {
@@ -115,17 +115,26 @@ func Peek(r reader) WireKind {
 		WireEnd
 	case Some as n:
 		match n.Value {
-		case texts: WireString
-		case branch: WireObject
-		case items: WireList
+		case texts:
+			WireString
+		case branch:
+			WireObject
+		case items:
+			WireList
 		case scalar as s:
 			match s.Value {
-			case json.Null: WireNull
-			case json.Boolean: WireBool
-			case json.Num: WireNumber
-			case json.Str: WireString
-			case json.Array: WireList
-			case json.Object: WireObject
+			case json.Null:
+				WireNull
+			case json.Boolean:
+				WireBool
+			case json.Num:
+				WireNumber
+			case json.Str:
+				WireString
+			case json.Array:
+				WireList
+			case json.Object:
+				WireObject
 			}
 		}
 	}
@@ -175,8 +184,10 @@ func numberText(n node) Option[string] {
 	match n {
 	case scalar as s:
 		match s.Value {
-		case json.Num as v: Some{Value: v.Wire()}
-		case _: None
+		case json.Num as v:
+			Some{Value: v.Wire()}
+		case _:
+			None
 		}
 	case texts as t:
 		Some{Value: last(t)}
@@ -258,8 +269,7 @@ func String(r reader) string fails WireWrongKind {
 	wrong(r, n, "string")
 }
 
-// StringBytes is into with the bytes of the string String reads (GX12).
-func StringBytes(r reader, into []byte) []byte fails WireWrongKind { appendText(into, try String(r)) }
+func StringBytes(r reader, into []byte) []byte fails WireWrongKind { appendText(into, try r.String()) }
 
 // ReaderStringBytesReadsString: a config reader's StringBytes adds to into
 // the bytes String reads from the same tree (GX12b).
@@ -359,6 +369,6 @@ func Skip(r reader) { let _ = take(r) }
 
 func End(r reader) {
 	r.stack.Update(func(st []frame) []frame {
-		if len(st) > 1 { st[:len(st) - 1] } else { st }
+		if len(st) > 1 { st[:len(st)-1] } else { st }
 	})
 }

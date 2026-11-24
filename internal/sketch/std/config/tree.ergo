@@ -1,8 +1,9 @@
-import codec
 import flag
 import json
 import strconv
 import strings
+import sync
+import utf8
 
 // The layers, as trees (docs/spec/stdlib.md, config 3). A file is a tree
 // of JSON values; a flag and a variable are text, which the reader reads
@@ -19,10 +20,14 @@ type member { Key string, Value node }
 // sourceOf is the source of n.
 func sourceOf(n node) Source {
 	match n {
-	case scalar as s: s.From
-	case texts as t: t.From
-	case branch as b: b.From
-	case items as l: l.From
+	case scalar as s:
+		s.From
+	case texts as t:
+		t.From
+	case branch as b:
+		b.From
+	case items as l:
+		l.From
 	}
 }
 
@@ -112,78 +117,142 @@ func fromValue(v json.Value, from Source) node {
 	}
 }
 
-// fromEvents is the tree of the events of one encoded value, from the
-// event at i on, and the index after it.
-func fromEvents(evs []codec.Event, i int, from Source) (node, int) {
-	if i >= len(evs) {
-		return (scalar{Value: json.Null, From: from}, i)
+type listBuild { elems []node }
+type objectBuild { members []member, key Option[string] }
+type buildFrame = listBuild | objectBuild
+type buildState { frames []buildFrame, root Option[node] }
+type treeWriter { state sync.Ref[buildState], from Source } implements Writer
+
+func newTreeWriter(from Source) treeWriter {
+	treeWriter{state: sync.NewRef[buildState](buildState{frames: []buildFrame{}, root: None}), from: from}
+}
+
+func finish(w treeWriter) Option[node] { w.state.Get().root }
+
+func putNode(w treeWriter, v node) {
+	w.state.Update(func(st buildState) buildState {
+		let n = len(st.frames)
+		if n == 0 {
+			return buildState{frames: st.frames, root: Some[node]{Value: v}}
+		}
+		let mut frames = st.frames
+		match frames[n-1] {
+		case listBuild as l:
+			frames[n-1] = listBuild{elems: l.elems.Append(v)}
+		case objectBuild as o:
+			match o.key {
+			case Some as k:
+				frames[n-1] = objectBuild{members: o.members.Append(member{Key: k.Value, Value: v}), key: None}
+			case None:
+			}
+		}
+		buildState{frames: frames, root: st.root}
+	})
+}
+
+func pushFrame(w treeWriter, f buildFrame) {
+	w.state.Update(func(st buildState) buildState {
+		buildState{frames: st.frames.Append(f), root: st.root}
+	})
+}
+
+func numNode(w treeWriter, text string) node {
+	let n = json.ParseNum(text) catch {
+	case json.Malformed:
+		return scalar{Value: json.Str{Value: text}, From: w.from}
 	}
-	let num = func(text string) node {
-		let n = json.ParseNum(text) catch {
-		case json.Malformed:
-			return scalar{Value: json.Str{Value: text}, From: from}
-		}
-		scalar{Value: n, From: from}
+	scalar{Value: n, From: w.from}
+}
+
+func Null(w treeWriter)                { putNode(w, scalar{Value: json.Null, From: w.from}) }
+func Number(w treeWriter, text string) { putNode(w, numNode(w, text)) }
+func Bool(w treeWriter, b bool)        { putNode(w, scalar{Value: json.Boolean{Value: b}, From: w.from}) }
+func Int(w treeWriter, n int64)        { putNode(w, scalar{Value: json.IntNumber(n), From: w.from}) }
+
+func Uint(w treeWriter, n uint64) {
+	if n > 9223372036854775807 {
+		putNode(w, numNode(w, strconv.FormatFloat(float64(n), 'f', -1)))
+		return
 	}
-	match evs[i] {
-	case codec.NullEvent:
-		(scalar{Value: json.Null, From: from}, i + 1)
-	case codec.BoolEvent as b:
-		(scalar{Value: json.Boolean{Value: b.V}, From: from}, i + 1)
-	case codec.IntEvent as n:
-		(scalar{Value: json.IntNumber(n.V), From: from}, i + 1)
-	case codec.UintEvent as n:
-		if n.V > 9223372036854775807 {
-			return (num(strconv.FormatFloat(float64(n.V), 'f', -1)), i + 1)
+	putNode(w, numNode(w, strconv.FormatInt(int64(n), 10)))
+}
+
+func Float(w treeWriter, f float64)      { putNode(w, numNode(w, floatText(f))) }
+func String(w treeWriter, s string)      { putNode(w, scalar{Value: json.Str{Value: s}, From: w.from}) }
+func StringBytes(w treeWriter, b []byte) { putNode(w, scalar{Value: json.Str{Value: utf8.String(b)}, From: w.from}) }
+func BeginList(w treeWriter, n int)      { pushFrame(w, listBuild{elems: []node{}}) }
+
+func EndList(w treeWriter) {
+	let done = sync.Modify(w.state, func(st buildState) (Option[node], buildState) {
+		let n = len(st.frames)
+		if n == 0 {
+			return (None, st)
 		}
-		(num(strconv.FormatInt(int64(n.V), 10)), i + 1)
-	case codec.FloatEvent as f:
-		(num(floatText(f.V)), i + 1)
-	case codec.NumberEvent as n:
-		(num(n.Text), i + 1)
-	case codec.StringEvent as s:
-		(scalar{Value: json.Str{Value: s.V}, From: from}, i + 1)
-	case codec.BeginListEvent:
-		let mut out = []node{}
-		let mut j = i + 1
-		for _ in 0..len(evs) {
-			if j >= len(evs) {
-				break
-			}
-			match evs[j] {
-			case codec.EndListEvent:
-				return (items{Elems: out, From: from}, j + 1)
-			case _:
-				let (x, next) = fromEvents(evs, j, from)
-				out = out.Append(x)
-				j = next
-			}
+		match st.frames[n-1] {
+		case listBuild as l:
+			(Some[node]{Value: items{Elems: l.elems, From: w.from}}, buildState{frames: st.frames[:n-1], root: st.root})
+		case objectBuild:
+			(None, st)
 		}
-		(items{Elems: out, From: from}, j)
-	case codec.BeginObjectEvent:
-		let mut out = []member{}
-		let mut j = i + 1
-		for _ in 0..len(evs) {
-			if j >= len(evs) {
-				break
-			}
-			match evs[j] {
-			case codec.EndObjectEvent:
-				return (branch{Members: out, From: from}, j + 1)
-			case codec.TagEvent as t:
-				out = out.Append(member{Key: "_tag", Value: scalar{Value: json.Str{Value: t.Name}, From: from}})
-				j = j + 1
-			case codec.KeyEvent as k:
-				let (x, next) = fromEvents(evs, j + 1, from)
-				out = out.Append(member{Key: k.K, Value: x})
-				j = next
-			case _:
-				Unreachable("config: an object's events are keys and values")
-			}
+	})
+	match done {
+	case Some as v:
+		putNode(w, v.Value)
+	case None:
+	}
+}
+
+func BeginObject(w treeWriter, n int) { pushFrame(w, objectBuild{members: []member{}, key: None}) }
+
+func Tag(w treeWriter, name string) {
+	w.state.Update(func(st buildState) buildState {
+		let n = len(st.frames)
+		if n == 0 {
+			return st
 		}
-		(branch{Members: out, From: from}, j)
-	case codec.EndListEvent, codec.EndObjectEvent, codec.TagEvent, codec.KeyEvent:
-		Unreachable("config: a value starts with a value event")
+		let mut frames = st.frames
+		match frames[n-1] {
+		case objectBuild as o:
+			frames[n-1] = objectBuild{members: o.members.Append(member{Key: "_tag", Value: scalar{Value: json.Str{Value: name}, From: w.from}}), key: o.key}
+		case listBuild:
+		}
+		buildState{frames: frames, root: st.root}
+	})
+}
+
+func Key(w treeWriter, k string) {
+	w.state.Update(func(st buildState) buildState {
+		let n = len(st.frames)
+		if n == 0 {
+			return st
+		}
+		let mut frames = st.frames
+		match frames[n-1] {
+		case objectBuild as o:
+			frames[n-1] = objectBuild{members: o.members, key: Some[string]{Value: k}}
+		case listBuild:
+		}
+		buildState{frames: frames, root: st.root}
+	})
+}
+
+func EndObject(w treeWriter) {
+	let done = sync.Modify(w.state, func(st buildState) (Option[node], buildState) {
+		let n = len(st.frames)
+		if n == 0 {
+			return (None, st)
+		}
+		match st.frames[n-1] {
+		case objectBuild as o:
+			(Some[node]{Value: branch{Members: o.members, From: w.from}}, buildState{frames: st.frames[:n-1], root: st.root})
+		case listBuild:
+			(None, st)
+		}
+	})
+	match done {
+	case Some as v:
+		putNode(w, v.Value)
+	case None:
 	}
 }
 
@@ -218,7 +287,7 @@ func fromFlags(given []flag.Given) node {
 func fromEnv(vars []Variable, prefix string) node {
 	let mut t = empty(FromEnv{Name: ""})
 	for v in vars {
-		let rest = strings.TrimPrefix(v.Name, prefix + "_")
+		let rest = strings.TrimPrefix(v.Name, prefix+"_")
 		if rest != "" {
 			t = put(t, strings.Split(envKey(rest), "."), texts{Items: []string{v.Text}, From: FromEnv{Name: v.Name}})
 		}
