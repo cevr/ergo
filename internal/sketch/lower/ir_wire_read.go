@@ -226,7 +226,7 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 		pre = append(pre, d.record(l.typeDecl(n.Obj, d.site), u, out)...)
 		return append(pre, ret(d.local(out)))
 	case *check.Union:
-		return append(begin("Object"), d.union(t, u, gt)...)
+		return append(begin("Object"), d.union(t, u)...)
 	}
 	irNo("codec reader: %s", l.wireReadForm(t))
 	return nil
@@ -234,27 +234,17 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 
 // union dispatches by the wire tag before reading the selected record.
 // A failed Tag and an unrecognised tag are distinct failures.
-func (d *wireReader) union(t check.Type, u *check.Union, gt string) []*irStmt {
+func (d *wireReader) union(t check.Type, u *check.Union) []*irStmt {
 	b := d.b
 	pre, tag := d.checked(d.op("Tag"), "string")
 	sw := &irStmt{K: "switch", Pos: d.p, End: d.p, X: d.local(tag)}
-	fu := b.flatOf(t)
-	for k, v := range u.Variants {
+	for _, v := range u.Variants {
 		n := v.(*check.Named)
 		s := n.Underlying().(*check.Struct)
 		out := b.temp("out", b.goType(v, d.site), d.p)
 		body := []*irStmt{{K: "var", Pos: d.p, Local: out}}
 		body = append(body, d.record(b.l.typeDecl(n.Obj, d.site), s, out)...)
-		var result *irExpr
-		if fu == nil {
-			result = b.variantForm(d.local(out), gt, k, layoutIface, "")
-		} else {
-			own := fu.own()
-			result = b.variantInto(v, own, d.local(out), d.site)
-			if b.goType(own, d.site) != gt {
-				result = &irExpr{K: "conv", Pos: d.p, T: gt, X: result}
-			}
-		}
+		result := b.variantInto(v, t, d.local(out), d.site)
 		body = append(body, &irStmt{K: "ret", Pos: d.p, X: result})
 		sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Vals: []*irExpr{irStringConst(d.p, "string", n.Obj.Name)}, Body: body})
 	}
