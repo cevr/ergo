@@ -34,10 +34,19 @@ func aggregateLiteral(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) a
 		return aggregate{typ: gt, record: -1, keys: []string{}, values: values}
 	}
 	let r = ordinaryRecord(st, t)
-	if gt == "" || !checked || r < 0 {
+	if gt == "" || !checked {
 		return stop("literal of no plain record")
 	}
-	let fields = st.k.Recs[r].Fields
+	let fields = if r >= 0 {
+		st.k.Recs[r].Fields
+	} else {
+		match importedFields(st, t) {
+		case Some{Value: fields}:
+			fields
+		case None:
+			return stop("literal of no plain record")
+		}
+	}
 	let n = syntax.Len(cl.Elts)
 	match dense.Unpack(cl.Base) {
 	case Some{Value: base}:
@@ -122,6 +131,17 @@ func emitAggregate(st fnb, b mut ir.Builder, x dense.ID[syntax.Node], cl syntax.
 func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails Unported {
 	let t = try typeOf(st, se.X, "selector operand")
 	if ordinaryRecord(st, t) < 0 {
+		match importedFields(st, t) {
+		case Some{Value: fields}:
+			// The selector's type is checked in the consumer's pool.
+			let name = nameText(st.p, se.Sel)
+			let i = fieldIndex(fields, name)
+			if i < 0 || fields[i].T != (try typeOf(st, x, "SelectorExpr")) {
+				return stop("selector that is no imported field")
+			}
+			return name
+		case None:
+		}
 		return try unionField(st, x, se)
 	}
 	try fieldOn(st, x, se, t)

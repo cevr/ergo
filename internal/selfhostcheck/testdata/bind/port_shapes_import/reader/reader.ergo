@@ -1,0 +1,30 @@
+import hex
+import portshapesdemo/producer
+
+type Source { Tag int }
+
+func PortShapeImported(x producer.Payload) producer.Payload { x }
+
+func PortShapeImportedField(x producer.Report) int { x.Body.Code }
+
+func PortShapeImportedLiteral(n int) producer.Payload { producer.Payload{Code: n} }
+
+func PortShapeImportedEmpty(x producer.Empty) producer.Empty { x }
+
+func PortShapeImportedUnion(x producer.Outcome) producer.Outcome { x }
+
+func PortShapeImportedRuntime(n int) hex.Malformed { hex.Malformed{Offset: n} }
+
+func PortShapeImportedFailure(s Source, n int) int fails producer.Payload {
+	if n < 0 {
+		return producer.Payload{Code: n}
+	}
+	n
+}
+
+func PortShapeImportedRuntimeFailure(s Source, n int, text string) int fails producer.FailureText {
+	if n < 0 {
+		return producer.FailureText{Text: text}
+	}
+	n
+}
