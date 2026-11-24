@@ -379,9 +379,18 @@ func GivenFlags(v Values) []Given {
 func Render(v Values) []string {
 	let mut out = []string{}
 	for f in v.set.Flags {
-		if cardinality(f) == 0 {
-			out = out.Append("-" + nameOf(f) + "=" + shown(f, v))
-		} else {
+		match f {
+		case StringFlag as s:
+			out = out.Append("-" + s.name + "=" + s.Get(v))
+		case IntFlag as n:
+			out = out.Append("-" + n.name + "=" + strconv.Itoa(n.Get(v)))
+		case BoolFlag as b:
+			out = out.Append("-" + b.name + "=" + strconv.FormatBool(b.Get(v)))
+		case ChoiceFlag as c:
+			out = out.Append("-" + c.name + "=" + c.Get(v))
+		case DurationFlag as d:
+			out = out.Append("-" + d.name + "=" + time.DurationText(d.Get(v)))
+		case OptionalStringFlag, OptionalIntFlag, RepeatedStringFlag, RepeatedIntFlag, RepeatedBoolFlag, RepeatedDurationFlag, RepeatedChoiceFlag:
 			for x in stored(f, v) {
 				out = out.Append("-" + nameOf(f) + "=" + shownValue(x))
 			}
@@ -478,16 +487,21 @@ func sameStrings(x []string, y []string) bool {
 }
 
 // sameValue reports whether a and b hold one value for f.
-func sameValue(f Flag, a Values, b Values) bool {
-	if cardinality(f) != 0 {
-		let x = stored(f, a)
-		let y = stored(f, b)
-		if len(x) != len(y) { return false }
-		for i, v in x {
-			if shownValue(v) != shownValue(y[i]) { return false }
-		}
-		return true
+func sameStored(f Flag, a Values, b Values) bool {
+	let x = stored(f, a)
+	let y = stored(f, b)
+	if len(x) != len(y) {
+		return false
 	}
+	for i, v in x {
+		if shownValue(v) != shownValue(y[i]) {
+			return false
+		}
+	}
+	true
+}
+
+func sameValue(f Flag, a Values, b Values) bool {
 	match f {
 	case StringFlag as s:
 		s.Get(a) == s.Get(b)
@@ -499,8 +513,8 @@ func sameValue(f Flag, a Values, b Values) bool {
 		c.Get(a) == c.Get(b)
 	case DurationFlag as d:
 		d.Get(a) == d.Get(b)
-	case _:
-		Unreachable("flag: unknown cardinality")
+	case OptionalStringFlag, OptionalIntFlag, RepeatedStringFlag, RepeatedIntFlag, RepeatedBoolFlag, RepeatedDurationFlag, RepeatedChoiceFlag:
+		sameStored(f, a, b)
 	}
 }
 
@@ -521,24 +535,6 @@ func sameArg(x Option[string], y Option[string]) bool {
 		case None:
 			true
 		}
-	}
-}
-
-// shown is the text of f's value in v, as Render writes it.
-func shown(f Flag, v Values) string {
-	match f {
-	case StringFlag as s:
-		s.Get(v)
-	case IntFlag as n:
-		strconv.Itoa(n.Get(v))
-	case BoolFlag as b:
-		strconv.FormatBool(b.Get(v))
-	case ChoiceFlag as c:
-		c.Get(v)
-	case DurationFlag as d:
-		time.DurationText(d.Get(v))
-	case _:
-		Unreachable("flag: a scalar value was required")
 	}
 }
 

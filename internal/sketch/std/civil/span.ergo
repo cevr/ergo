@@ -19,6 +19,8 @@ func NewSpan(from Date, to Date) Span fails Reversed {
 	Span{from: from, to: to}
 }
 
+func UnitSpan(d Date, u Unit) Span { Span{from: StartOf(d, u), to: EndOf(d, u)} }
+
 // From is the first date of s; To its last.
 func From(s Span) Date { s.from }
 
@@ -144,7 +146,7 @@ law SpanSplitStops(x int64, k int64, u int64, w int64, stop int64) {
 // date, and the intersection is inside both.
 law SpansOverlapIffIntersect(x int64, a int64, y int64, b int64) {
 	let p = anySpan(x, a)
-	let q = anySpan(UnixDays(From(p)) + within(y, -20, 20), b)
+	let q = anySpan(UnixDays(From(p))+within(y, -20, 20), b)
 	let agrees = match Intersect(p, q) {
 	case Some[Span] as r:
 		Overlaps(p, q) && Contains(p, From(r.Value)) && Contains(q, From(r.Value)) && Contains(p, To(r.Value)) && Contains(q, To(r.Value))

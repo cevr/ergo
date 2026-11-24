@@ -7,22 +7,17 @@ import time
 // Monday is the day an ISO week starts on.
 let Monday = civil.Weeks{First: time.Monday}
 
-// WeekOf is the ISO week that holds d, Monday to Sunday.
-func WeekOf(d civil.Date) civil.Span {
-	civil.NewSpan(civil.StartOf(d, Monday), civil.EndOf(d, Monday)) catch {
-	case civil.Reversed:
-		Unreachable("a week starts on or before its end")
-	}
-}
+func WeekOf(d civil.Date) civil.Span { civil.UnitSpan(d, Monday) }
 
-// Weeks is the ISO weeks from the one that holds from, n of them, each
-// whole: a picker's rows.
 func Weeks(from civil.Date, n int) Seq[civil.Span] {
+	if n <= 0 {
+		return Seq[civil.Span](func(_ func(w civil.Span) bool) {})
+	}
 	let first = civil.StartOf(from, Monday)
 	let last = civil.EndOf(civil.AddWeeks(from, n-1), Monday)
 	let all = civil.NewSpan(first, last) catch {
 	case civil.Reversed:
-		Unreachable("n is at least 1")
+		return Seq[civil.Span](func(_ func(w civil.Span) bool) {})
 	}
 	civil.Split(all, Monday)
 }

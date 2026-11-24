@@ -177,12 +177,11 @@ law ZonedAddKeepsWall(i int64, s int64, n int64) {
 
 // anyZoned is a zoned time at the instant s names in the zone i names,
 // or, when fixed, in the fixed zone of an offset of up to 18 hours.
-func anyZoned(i int64, s int64, ns int64, fixed bool) Zoned {
-	let z = if fixed {
-		FixedOffset(int(within(i, -64800, 64800))) catch {
-		case BadOffset:
-			Unreachable("an offset of 18 hours or less is fixed")
-		}
+func anyZoned(i int64, s int64, ns int64, useFixed bool) Zoned {
+	let z = if useFixed {
+		let sec = int(within(i, -64800, 64800))
+		let text = offsetText(sec)
+		fixed(text, Offset{Seconds: sec, DST: false, Abbreviation: text})
 	} else {
 		anyZone(i)
 	}

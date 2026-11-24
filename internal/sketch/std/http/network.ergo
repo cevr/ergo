@@ -28,15 +28,7 @@ func ForOrigin(origin string, name string, value config.Redacted[string]) Creden
 
 // originOf is origin as the network policy reads it (scheme://host[:port],
 // normalized), or InvalidClient.
-func originOf(origin string) string fails InvalidClient {
-	let checked = checkNetwork([]string{origin}, Limits{MaxBodyBytes: 1, MaxHeaderBytes: 1, IdleTimeout: 1s, ReadHeaderTimeout: 1s, ReadBodyTimeout: 1s}) catch {
-	case InvalidLimits:
-		Unreachable("Origin uses positive limits")
-	case InvalidClient as e:
-		return e
-	}
-	checked[0]
-}
+func originOf(origin string) string fails InvalidClient { try parseOrigin(origin) }
 
 // revealed is c's header as the transport sends it: the one place a
 // credential's secret is revealed.

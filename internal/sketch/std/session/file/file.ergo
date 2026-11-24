@@ -92,10 +92,7 @@ let onMemoryDisk = context { session.Store: openOnMemory() }
 // memory disk, which it reads as empty, under a valid policy: neither
 // fails.
 func openOnMemory() Store {
-	let p = session.NewPolicy(10ms, 30ms, 100ms) catch {
-	case session.BadPolicy as b:
-		Unreachable(b.Reason)
-	}
+	let p = session.PolicyMillis(10, 20, 70)
 	let disk = fstest.NewMemory()
 	Open(disk, disk, "sessions.log", p) catch {
 	case session.Failed as f:
@@ -225,8 +222,8 @@ law FileIsMemory(steps []script, torn string) {
 			now = later(now, ((e.Wait%20)+20)%20)
 			n = n + 1
 			let d = session.DigestOf(session.TokenOf("t\(n)"))
-			let subject = "s\t\"\(((e.Subject%3)+3)%3)"
-			let rev = ((e.Revision%3)+3)%3
+			let subject = "s\t\"\(((e.Subject % 3) + 3) % 3)"
+			let rev = ((e.Revision % 3) + 3) % 3
 			if try established(want, d, subject, rev, now) != try established(got, d, subject, rev, now) {
 				return false
 			}
@@ -252,15 +249,15 @@ law FileIsMemory(steps []script, torn string) {
 				return false
 			}
 		case revokeAll as a:
-			let subject = "s\t\"\(((a.Subject%3)+3)%3)"
-			let rev = ((a.Revision%4)+4)%4
+			let subject = "s\t\"\(((a.Subject % 3) + 3) % 3)"
+			let rev = ((a.Revision % 4) + 4) % 4
 			try want.RevokeAll(subject, rev)
 			try got.RevokeAll(subject, rev)
 		case reopen:
 			got = try Open(disk, disk, "sessions.log", p)
 		}
 	}
-	try disk.AppendFile("sessions.log", "est\t" + strings.ReplaceAll(torn, "\n", ""))
+	try disk.AppendFile("sessions.log", "est\t"+strings.ReplaceAll(torn, "\n", ""))
 	let back = try Open(disk, disk, "sessions.log", p)
 	for d in digests {
 		if try want.Verify(d, now) != try back.Verify(d, now) {
@@ -272,7 +269,7 @@ law FileIsMemory(steps []script, torn string) {
 
 // later is t plus ms milliseconds, with no monotonic reading, as a time
 // read back from the log is: == of two records compares it.
-func later(t time.Time, ms int) time.Time { time.Unix(time.UnixSeconds(t), time.Nanosecond(t) + int64(ms)*1000000) }
+func later(t time.Time, ms int) time.Time { time.Unix(time.UnixSeconds(t), time.Nanosecond(t)+int64(ms)*1000000) }
 
 // established is whether s kept the session, or found it a Conflict.
 func established(s session.Store, d session.Digest, subject string, revision int, now time.Time) bool fails session.Failed {
@@ -305,7 +302,7 @@ law OpenRefusesABrokenLine(key string, line string) {
 	case session.Conflict:
 		return false
 	}
-	try disk.AppendFile("sessions.log", "x" + strings.ReplaceAll(line, "\n", "") + "\n")
+	try disk.AppendFile("sessions.log", "x"+strings.ReplaceAll(line, "\n", "")+"\n")
 	let _ = Open(disk, disk, "sessions.log", p) catch {
 	case session.Failed:
 		return true

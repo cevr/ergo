@@ -100,6 +100,8 @@ civil AppendIsFormat	TestStdCivilLawsRun
 civil ArithmeticSaturates	TestStdCivilLawsRun
 civil BetweenInvertsAdd	TestStdCivilLawsRun
 civil CivilAgreesWithCalendar	TestStdCivilLawsRun
+civil ClockHourWhere	none
+civil ClockMinuteWhere	none
 civil CompareIsTotalOrder	TestStdCivilLawsRun
 civil DateRoundTrips	TestStdCivilLawsRun
 civil DistanceDatesCountsDates	TestStdCivilLawsRun
@@ -683,7 +685,9 @@ semver CompareIsTransitive	TestStdSemverLaws
 semver OneComparatorHolds	TestStdSemverLaws
 semver ParseInvertsFormat	TestStdSemverLaws
 session GenerationBumpEndsTokens	TestStdSessionLawsRun
+session NonNegativeMillisWhere	none
 session OldKeyStillVerifies	TestStdSessionLawsRun
+session PositiveMillisWhere	none
 session RenewalStaysUnderMaxAge	TestStdSessionLawsRun
 session SignedTamperFails	TestStdSessionLawsRun
 session Store.RevisionEndsEverySession	TestStdSessionLawsRun
