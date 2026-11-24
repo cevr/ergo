@@ -635,7 +635,7 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	let to = st.calls[ci-1]
 	let mut cst = st
 	let mut i = -1
-	let mut local = true
+	let mut dependency = ""
 	let mut args = []dense.ID[syntax.Node]{}
 	if to.Recv {
 		let se = match syntax.ViewOf(p.Tree, ce.Fun) {
@@ -660,10 +660,10 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 			case _:
 			}
 		case syntax.SelectorExpr as se:
-			let (other, _) = try depOf(st, se.Sel)
+			let (other, path) = try depOf(st, se.Sel)
 			cst = other
 			i = expr.FnAt(cst.k, bind.PNodeOf(cst.k.Ps, to.Callee.File, to.Callee.Name))
-			local = false
+			dependency = path
 		case _:
 		}
 	}
@@ -676,7 +676,11 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	let first = target.receiver
 	let nonleaf = callsIn(cst.k.Parsed[f.File], target.body)
 	if nonleaf {
-		try directCallee(cst, i, target, local)
+		if dependency == "" {
+			try directCallee(cst, i, target, []ImportCallFacts{})
+		} else {
+			try requireImportedDirect([]ImportCallFacts{}, dependency, i)
+		}
 	}
 	let n = syntax.Len(ce.Args)
 	for j in 0..n {

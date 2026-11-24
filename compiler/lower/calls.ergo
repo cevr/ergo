@@ -18,6 +18,7 @@ type ImportCallFacts { Path string, Facts CallFacts }
 let noCallFact = uint8(0)
 let pureCallFact = uint8(1)
 let directCallFact = uint8(2)
+let unprovedCallFact = uint8(3)
 
 func EmptyCallFacts() CallFacts { CallFacts{flags: []uint8{}} }
 
@@ -28,6 +29,19 @@ func importedCallFact(imports []ImportCallFacts, path string, i int) uint8 {
 		}
 	}
 	noCallFact
+}
+
+func requireImportedDirect(imports []ImportCallFacts, path string, i int) fails Unported {
+	let flag = importedCallFact(imports, path, i)
+	if flag == noCallFact {
+		return stop("callee: imported purity facts")
+	}
+	if flag == unprovedCallFact {
+		return stop("callee: imported body outside purity profile")
+	}
+	if flag != directCallFact {
+		return stop("call of a pure imported nonleaf (inline or tabulation decision)")
+	}
 }
 
 type callRange { start int, end int }
@@ -88,6 +102,7 @@ func summarizeCalls(st fnb, imports []ImportCallFacts) CallFacts {
 	let cycles = callCycles(spans, next, reverse, flags)
 	for i, body in bodies {
 		if flags[i] != pureCallFact {
+			flags[i] = unprovedCallFact
 			continue
 		}
 		let direct = directWithoutCopy(st, st.k.Fns[i], body, cycles[i])
@@ -206,17 +221,14 @@ type callClosure {
 type callBody { edges int, loop bool, decision bool, sizeFloor int }
 type callWalk { pending []uint32, targets []int, facts callBody }
 
-func directCallee(st fnb, i int, target ordinaryCallee, local bool) fails Unported {
-	if !local {
-		return stop("callee: imported purity facts")
-	}
+func directCallee(st fnb, i int, target ordinaryCallee, imports []ImportCallFacts) fails Unported {
 	if target.receiver {
 		return stop("callee: receiver purity facts")
 	}
 	let f = st.k.Fns[i]
 	let mut graph = callClosure{queue: []int{i}, seen: dense.NewSide[store.PNode, bool](false), start: i, recursive: false}
 	dense.SideSet(&graph.seen, bind.PNodeOf(st.k.Ps, f.File, f.Decl), true)
-	let root = try scanCallBody(st, i, target.body, &graph)
+	let root = try scanCallBody(st, i, target.body, imports, &graph)
 	let mut head = 1
 	for head < len(graph.queue) {
 		let next = graph.queue[head]
@@ -226,13 +238,13 @@ func directCallee(st fnb, i int, target ordinaryCallee, local bool) fails Unport
 		if header.receiver {
 			return stop("callee: receiver purity facts")
 		}
-		let _ = try scanCallBody(st, next, header.body, &graph)
+		let _ = try scanCallBody(st, next, header.body, imports, &graph)
 	}
 	try keepDirectCall(st, f, root, graph.recursive)
 }
 
-func scanCallBody(st fnb, i int, body dense.ID[syntax.Node], graph mut callClosure) callBody fails Unported {
-	let (facts, targets) = try scanScalarBody(st, i, body, []ImportCallFacts{})
+func scanCallBody(st fnb, i int, body dense.ID[syntax.Node], imports []ImportCallFacts, graph mut callClosure) callBody fails Unported {
+	let (facts, targets) = try scanScalarBody(st, i, body, imports)
 	for next in targets {
 		graph.recursive = graph.recursive || next == graph.start
 		let dep = st.k.Fns[next]
@@ -363,7 +375,7 @@ func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, imports []Imp
 		let (other, path) = try depOf(st, sel.Sel)
 		let at = bind.PNodeOf(other.k.Ps, to.Callee.File, to.Callee.Name)
 		let flag = importedCallFact(imports, path, expr.FnAt(other.k, at))
-		if flag == noCallFact {
+		if flag != pureCallFact && flag != directCallFact {
 			return stop("callee: imported purity facts")
 		}
 		return importEdge
