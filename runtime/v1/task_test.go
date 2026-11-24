@@ -51,7 +51,7 @@ func frameNoRow(t *rt.Task, body func(s *Scope)) {
 // owned value of the code at s, registered in the step that receives it
 // (Owning, R8), and its owner's end releases it with Close.
 func ownedGo[T any](s *Scope, span Site, body func(*rt.Task) (T, error)) *Task[T] {
-	return Owning(s.Owner(), Go(s, span, body), func(c *Task[T]) { c.Close(s.current().s.Task()) })
+	return Owning(s.Owner(), Go(s, span, body), func(c *Task[T]) { c.Close(s.current().t) })
 }
 
 // ownedSet is tasks.NewSet as the lowering emits it: an owned value of the
@@ -146,10 +146,10 @@ func TestWait(t *testing.T) {
 		return frame(root, func(s *Scope) error {
 			a := ownedGo(s, "a", func(*rt.Task) (int, error) { return 7, nil })
 			b := ownedGo(s, "b", func(*rt.Task) (int, error) { return 0, bad{"b"} })
-			if v, err := a.Wait(s.s.Task()); v != 7 || err != nil {
+			if v, err := a.Wait(s.t); v != 7 || err != nil {
 				t.Errorf("a.Wait() = %d, %v; want 7, nil", v, err)
 			}
-			if v, err := b.Wait(s.s.Task()); v != 0 || err != (bad{"b"}) {
+			if v, err := b.Wait(s.t); v != 0 || err != (bad{"b"}) {
 				t.Errorf("b.Wait() = %d, %v; want 0, bad b", v, err)
 			}
 			return nil
@@ -173,7 +173,7 @@ func TestWaitRaisesDefect(t *testing.T) {
 					return explode(), nil
 				})
 			})
-			v, err := c.Wait(s.s.Task())
+			v, err := c.Wait(s.t)
 			t.Errorf("Wait returned %d, %v; want it to raise the defect", v, err)
 			return nil
 		})
@@ -208,10 +208,10 @@ func TestDefectChainAcrossTasks(t *testing.T) {
 			c := ownedGo(s, "child", func(ct *rt.Task) (int, error) {
 				return frameValue(ct, func(s *Scope) (int, error) {
 					g := ownedGo(s, "grandchild", func(*rt.Task) (int, error) { return explode(), nil })
-					return g.Wait(s.s.Task())
+					return g.Wait(s.t)
 				})
 			})
-			_, err := c.Wait(s.s.Task())
+			_, err := c.Wait(s.t)
 			return err
 		})
 	})
@@ -257,7 +257,7 @@ func TestWaitInterrupted(t *testing.T) {
 				})
 			})
 			p := recovered(func() {
-				v, err := c.Wait(s.s.Task())
+				v, err := c.Wait(s.t)
 				t.Errorf("Wait returned %d, %v; want it to raise the interruption", v, err)
 			})
 			if p != rt.Interrupted {
@@ -296,16 +296,16 @@ func TestStop(t *testing.T) {
 				})
 			})
 			awaitClosed(root, started)
-			c.Stop(s.s.Task())
+			c.Stop(s.t)
 			if !cleaned.Load() {
 				t.Error("Stop returned before the task's exit action ended")
 			}
-			c.Stop(s.s.Task()) // a second Stop does nothing
+			c.Stop(s.t) // a second Stop does nothing
 			d := ownedGo(s, "defect", func(dt *rt.Task) (int, error) {
 				_ = untilStopped(dt)
 				return explode(), nil
 			})
-			p := recovered(func() { d.Stop(s.s.Task()) })
+			p := recovered(func() { d.Stop(s.t) })
 			x, ok := p.(*exit)
 			if !ok || len(reasons(x.err)) != 1 || reasons(x.err)[0].Kind != rt.KindDefect {
 				t.Errorf("Stop of a task that panics raised %#v; want its defect", p)
@@ -456,7 +456,7 @@ func TestExitCauses(t *testing.T) {
 		p := recovered(func() {
 			frameNoRow(rt.Root("main"), func(s *Scope) {
 				c := ownedGo(s, "child", func(*rt.Task) (int, error) { return explode(), nil })
-				OnExit(s, func() { _, _ = c.Wait(s.s.Task()) })
+				OnExit(s, func() { _, _ = c.Wait(s.t) })
 			})
 		})
 		x, ok := p.(*exit)
@@ -557,7 +557,7 @@ func TestTaskReturn(t *testing.T) {
 		var werr error
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
-				v, werr = start(root, s, func(*rt.Task) (int, error) { return 7, nil }).Wait(s.s.Task())
+				v, werr = start(root, s, func(*rt.Task) (int, error) { return 7, nil }).Wait(s.t)
 				return nil
 			})
 		})
@@ -620,7 +620,7 @@ func TestGoInExitAction(t *testing.T) {
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
-					v, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { ran = true; return 1, nil }).Wait(s.s.Task())
+					v, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { ran = true; return 1, nil }).Wait(s.t)
 				})
 				return nil
 			})
@@ -675,7 +675,7 @@ func TestGoInExitAction(t *testing.T) {
 		err := runMain(func(root *rt.Task) error {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
-					_, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { return explode(), nil }).Wait(s.s.Task())
+					_, _ = ownedGo(s, "cleanup", func(*rt.Task) (int, error) { return explode(), nil }).Wait(s.t)
 				})
 				return nil
 			})
@@ -695,7 +695,7 @@ func TestGoInExitAction(t *testing.T) {
 			return frame(root, func(s *Scope) error {
 				OnExit(s, func() {
 					OnExit(s, func() {
-						v, _ = ownedGo(s, "inner", func(*rt.Task) (int, error) { return 1, nil }).Wait(s.s.Task())
+						v, _ = ownedGo(s, "inner", func(*rt.Task) (int, error) { return 1, nil }).Wait(s.t)
 					})
 				})
 				return nil
@@ -748,8 +748,8 @@ func TestGoOnEndedFrame(t *testing.T) {
 func TestSecondWait(t *testing.T) {
 	frameNoRow(rt.Root("main"), func(s *Scope) {
 		c := ownedGo(s, "child", func(*rt.Task) (int, error) { return 1, nil })
-		_, _ = c.Wait(s.s.Task())
-		p := recovered(func() { _, _ = c.Wait(s.s.Task()) })
+		_, _ = c.Wait(s.t)
+		p := recovered(func() { _, _ = c.Wait(s.t) })
 		if s, _ := p.(string); !strings.Contains(s, "already waited") {
 			t.Errorf("second Wait raised %#v; want the defect", p)
 		}

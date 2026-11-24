@@ -58,6 +58,14 @@ func (fc *funcCtx) call(x *syntax.CallExpr) operand {
 		return fc.patternCall(x, c) // refinematch.go
 	case check.CallHash:
 		return fc.hashCall(x) // ir_mapprovider.go
+	case check.CallTestSeed:
+		return operand{val: fc.l.rt() + ".TestSeed()"}
+	case check.CallTestFile:
+		return operand{val: strconv.Quote(fc.l.testFile(x))}
+	case check.CallTestSource:
+		return operand{val: fc.l.rt() + ".TestSource(" + fc.value(x.Args[0]) + ")"}
+	case check.CallTestShown:
+		return fc.testShown(x)
 	}
 	if check.IsUnreachable(c) {
 		return fc.unreachableValue(x)
@@ -223,6 +231,8 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		args = append(append([]syntax.Expr{}, args...), nil) // the trailing block, lowered below
 	}
 	switch c.Kind {
+	case check.CallTestReport:
+		return fc.l.helper("Reported") + "(" + fc.value(x.Args[0]) + ")", false, false
 	case check.CallFunc:
 		if g := fc.uiGroup(x, c); g != nil {
 			return fc.groupCall(x, c, g) // a component call (uigroup.go)

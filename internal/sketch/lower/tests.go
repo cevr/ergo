@@ -279,9 +279,7 @@ func (l *lowerer) nameTests() {
 						reserveLit(lt)
 						reserveLit(rt)
 					}
-					if l.ir != nil {
-						l.pkgName(assertShowKey(x), "ergoAssertShow")
-					}
+					l.pkgName(assertShowKey(x), "ergoAssertShow")
 				}
 			}
 			return true
@@ -807,6 +805,27 @@ func (l *lowerer) siteText(n syntax.Node) string {
 		file = path.Base(strings.ReplaceAll(file, "\\", "/"))
 	}
 	return file + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(column)
+}
+
+// testFile is the file as the harness reports it, without line or column.
+func (l *lowerer) testFile(n syntax.Node) string {
+	site := l.siteText(n)
+	for range 2 {
+		site = site[:strings.LastIndexByte(site, ':')]
+	}
+	return site
+}
+
+// testShown uses the same report helper as the IR for a rewritten assert.
+func (fc *funcCtx) testShown(x *syntax.CallExpr) operand {
+	l := fc.l
+	lt, lok := l.typedExpr(x.Args[0])
+	rt, rok := l.typedExpr(x.Args[1])
+	if !lok || !rok || !l.printable(lt) || !l.printable(rt) {
+		ice(x, "ergo·shown of an operand that does not print")
+	}
+	vals := fc.callArgs(x.Args, x)
+	return operand{val: l.assertShowFunc(x, lt, rt, x) + "(" + strings.Join(vals, ", ") + ")"}
 }
 
 // testEntry writes the test build's Go main and harness (Test mode, rule 2).
