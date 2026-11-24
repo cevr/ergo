@@ -730,16 +730,16 @@ func (g *hubGen) laws(b *strings.Builder, capName string, ops []Op) {
 		}
 		b.WriteString(call + " catch {\n")
 		for _, f := range op.Fails {
-			fmt.Fprintf(b, "case %s as e:\nreturn Rejected{Failure: %s{E: e}}\n", g.expr(f), g.variant(f))
+			b.WriteString("case " + g.expr(f) + " as e:\nreturn Rejected{Failure: " + g.variant(f) + "{E: e}}\n")
 		}
 		if !g.hasTransport(op) {
 			b.WriteString("case rpc.Transport as t:\nreturn t\n")
 		}
 		b.WriteString("}\n")
 		if op.Result != nil {
-			fmt.Fprintf(b, "Done{Reply: %s{Value: v}}\n", ReplyName(op.Name))
+			b.WriteString("Done{Reply: " + ReplyName(op.Name) + "{Value: v}}\n")
 		} else {
-			fmt.Fprintf(b, "Done{Reply: %s}\n", ReplyName(op.Name))
+			b.WriteString("Done{Reply: " + ReplyName(op.Name) + "}\n")
 		}
 	}
 	b.WriteString("}\n}\n\n")
