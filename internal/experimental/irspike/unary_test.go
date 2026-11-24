@@ -73,6 +73,10 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - slotmatch (IR-FALLBACK-REMAINDER r4): a match on a call takes the
 //     callee's slot variant, whose returns write the slots, for each
 //     payload shape (mutant ir-slot-site-refused);
+//   - subunionmatch (IR-FALLBACK-REMAINDER r5): a match whose arm tests
+//     a declared sub-union expands its variants in the IR decision tree,
+//     for flat and interface unions, overlapping arms, and tuples
+//     (mutant ir-subunion-match-refused);
 //   - taskwait: a task with no success value still returns a Go pair.
 //     A closed-row wait discards both results; try and a tail return
 //     preserve the typed failure (mutant ir-bound-unit-result-pair-lost).
@@ -99,6 +103,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 		{name: "fused-arm-scopes", fns: []string{"work"}},
 		{name: "owningwith", fns: []string{"inline", "midway", "lent", "nested", "valued", "tail"}, wantStdout: "inline log db\nclose db\nclose log\nend inline\nmidway log db\nclose db\nclose log\nmidway failed\nlent db plain\nend lent\nclose db\nnested log db\nclose log\nafter inner\nclose db\nend nested\nvalued db\nclose db\nvalued 7\nvalued db\nclose db\nvalued -1\ntail log db\nclose db\nclose log\ntail failed\n"},
 		{name: "slotmatch", fns: []string{"describe", "attempt", "ergo__leafSlot", "ergo__pickSlot", "ergo__tryPickSlot"}},
+		{name: "subunionmatch", fns: []string{"settle", "noBind", "firstWins", "nodeLeaf", "nodeBranch", "ergo__nodeBranchSlot", "describeNode"}},
 		{name: "stdclose", fns: []string{"size", "chunks", "io__File"}, wantStdout: "read true same true missing -2\n"},
 		{name: "taskwait", fns: []string{"wait", "tryWait", "tailWait"}, wantStdout: "try success: true; try rejected: true; tail rejected: true\n"},
 	} {
