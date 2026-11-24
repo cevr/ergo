@@ -22,6 +22,7 @@
 // is removed after a pass and kept after a failure (--keep keeps it
 // always). Exit status: 0 the round trip holds, 1 it does not, 2 usage.
 
+import compiler/ir/handoff
 import compiler/nativeobj
 import exec
 import fs
@@ -73,10 +74,20 @@ func read(path string) string fails os.Exit needs fs.Files {
 	}
 }
 
-type Stock { Root string }
+type Stock { Root string, Path string, TmpDir string, GoCache string, Home string }
+
+func withOptEnv(c exec.Command, key string, val string) exec.Command {
+	if val == "" { c } else { c.WithEnv(key, val) }
+}
+
+func hostCmd(s Stock, name string, args []string) exec.Command {
+	let c = exec.New(name, args).WithEnv("PATH", s.Path)
+	withOptEnv(c, "TMPDIR", s.TmpDir)
+}
 
 func command(s Stock, args []string) exec.Command {
-	exec.New(s.Root+"/bin/go", args).WithEnv("GOROOT", s.Root).WithEnv("GOTOOLCHAIN", "local")
+	let c = exec.New(s.Root+"/bin/go", args).WithEnv("GOROOT", s.Root).WithEnv("GOTOOLCHAIN", "local").WithEnv("PATH", s.Path)
+	withOptEnv(withOptEnv(withOptEnv(c, "TMPDIR", s.TmpDir), "GOCACHE", s.GoCache), "HOME", s.Home)
 }
 
 func goTool(s Stock, args []string) exec.Command { s.command([]string{"tool"}.Concat(args)) }
@@ -115,7 +126,7 @@ func childCommand(bin string, phase RuntimePhase, callbackFile string) exec.Comm
 		// (runtime/runtime1.go). The call-free loop must run separately.
 		("preempt", "gccheckmark=0")
 	}
-	exec.New("prlimit", []string{"--as=8589934592", "--", "timeout", "--foreground", "-s", "QUIT", "-k", "5", hangSeconds, bin, mode, callbackFile}).WithEnv("GODEBUG", debug)
+	exec.New("prlimit", []string{"--as=8589934592", "--", "timeout", "--foreground", "-s", "QUIT", "-k", "5", hangSeconds, bin, mode, callbackFile}).WithEnv("PATH", "/usr/local/bin:/usr/bin:/bin").WithEnv("GODEBUG", debug)
 }
 
 // execute waits for the bounded fixture to exit, and requires its final
@@ -163,7 +174,7 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 	if env != []string{nativeobj.PinGo, nativeobj.PinGOOS, nativeobj.PinGOARCH} {
 		return fail("GOROOT_STOCK is \(strings.Join(env, " ")), not the pin \(nativeobj.PinGo) \(nativeobj.PinGOOS) \(nativeobj.PinGOARCH)")
 	}
-	let dir = strings.TrimSpace(try run(exec.New("mktemp", []string{"-d"}), "mktemp"))
+	let dir = strings.TrimSpace(try run(stock.hostCmd("mktemp", []string{"-d"}), "mktemp"))
 	let (k1, k2) = constants(seed)
 	io.Stdout.Println("seed \(seed): K1 \(k1) K2 \(k2), work \(dir)")
 	let std = try run(stock.command([]string{"list", "-export", "-deps", "-f", "{{if .Export}}packagefile {{.ImportPath}}={{.Export}}{{end}}", "fmt", "os", "path/filepath", "runtime", "weak", "sync/atomic"}), "stock go list -export")
@@ -185,9 +196,34 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 		return fail("dep.a export data: " + b.Why)
 	}
 	let dep = nativeobj.Import{Path: nativeobj.DepPath, Name: "dep", Fingerprint: depExp.Fingerprint, HasInit: depExp.HasInit}
-	// The producer: the archive from the checked input alone.
-	let p = nativeobj.Tiny(k1, k2, dep)
-	let built = nativeobj.Archive(p, header) catch {
+	let eirBytes = nativeobj.TinyHandoff(k1, k2, dep) catch {
+	case handoff.Malformed as m:
+		return fail("eir handoff pack: " + m.Why)
+	}
+	let expect = nativeobj.TinyHandoffExpect(dep)
+	let p = nativeobj.FromHandoff(eirBytes, expect) catch {
+	case handoff.UnknownVersion as u:
+		return fail("eir unknown version \(u.Version)")
+	case handoff.Malformed as m:
+		return fail("eir malformed: " + m.Why)
+	case handoff.WrongTarget:
+		return fail("eir wrong target")
+	case handoff.StaleImport as s:
+		return fail("eir stale import " + s.Path)
+	case nativeobj.Refused as r:
+		return fail("refused: " + r.Why)
+	case nativeobj.Malformed as m:
+		return fail("malformed input: " + m.Why)
+	}
+	let built = nativeobj.ArchiveFromHandoff(eirBytes, expect, header) catch {
+	case handoff.UnknownVersion as u:
+		return fail("eir unknown version \(u.Version)")
+	case handoff.Malformed as m:
+		return fail("eir malformed: " + m.Why)
+	case handoff.WrongTarget:
+		return fail("eir wrong target")
+	case handoff.StaleImport as s:
+		return fail("eir stale import " + s.Path)
 	case nativeobj.Refused as r:
 		return fail("refused: " + r.Why)
 	case nativeobj.Malformed as m:
@@ -197,6 +233,7 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 	}
 	let tinyA = dir + "/tiny.a"
 	try write(tinyA, built.Archive)
+	io.Stdout.Println("handoff: EIR v1 \(len(eirBytes)) bytes, sha256 \(hex.Encode(sha256.Sum(eirBytes))[0:16])")
 	io.Stdout.Println("producer: tiny.a \(len(built.Archive)) bytes, sha256 \(hex.Encode(sha256.Sum(built.Archive))[0:16]), fingerprint \(hex.Encode(built.Fingerprint))")
 	let problems = nativeobj.Verify(p, header, built.Archive)
 	if len(problems) > 0 {
@@ -222,7 +259,7 @@ func verify(stock Stock, seed int, keep bool) fails os.Exit needs exec.Runner | 
 	if keep {
 		io.Stdout.Println("kept \(dir)")
 	} else {
-		try run(exec.New("rm", []string{"-r", dir}), "removing the work folder")
+		try run(stock.hostCmd("rm", []string{"-r", dir}), "removing the work folder")
 	}
 }
 
@@ -263,7 +300,31 @@ func main() fails os.Exit needs Ambient {
 		if !strings.HasPrefix(root, "/") {
 			return fail("GOROOT_STOCK must be an absolute path")
 		}
-		verify(Stock{Root: root}, seed, keep) catch {
+		let hostPath = match os.Process.Getenv("PATH") {
+		case Some as p:
+			p.Value
+		case None:
+			"/usr/local/bin:/usr/bin:/bin"
+		}
+		let tmpDir = match os.Process.Getenv("TMPDIR") {
+		case Some as p:
+			p.Value
+		case None:
+			""
+		}
+		let goCache = match os.Process.Getenv("GOCACHE") {
+		case Some as p:
+			p.Value
+		case None:
+			""
+		}
+		let homeDir = match os.Process.Getenv("HOME") {
+		case Some as p:
+			p.Value
+		case None:
+			""
+		}
+		verify(Stock{Root: root, Path: hostPath, TmpDir: tmpDir, GoCache: goCache, Home: homeDir}, seed, keep) catch {
 		case os.Exit as e:
 			return os.Exit{Code: e.Code, Message: e.Message + "\nreplay from compiler/: GOROOT_STOCK=\"$GOROOT_STOCK\" ergo run ./cmd/nativeobj -- verify --seed \(seed) --keep"}
 		}
