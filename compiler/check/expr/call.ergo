@@ -355,28 +355,15 @@ func roleOf(s mut store.Store, k Pkg, t Typer, recv dense.ID[store.TKey]) Option
 	None
 }
 
-func roleMember(s store.Store, k Pkg, op dense.ID[store.TKey], name string) Option[OpSig] {
-	let kind = store.KindOfType(s, op)
-	let mut at = -1
-	if kind == store.KInstance {
-		let o = store.OriginOfType(s, op)
-		if o.Import == uint32(0) {
-			at = int(o.Decl)
-		}
-	} else if kind == store.KNamed {
-		match store.Lookup(s, store.TypeNameText(s, store.ArgOf(s, op))) {
-		case Some{Value: id}:
-			at = dense.Index(id)
-		case None:
-		}
-	}
-	if at >= 0 {
-		let d = store.DeclOf(s, store.DeclAt(s, at))
-		for m in k.OpSigs {
-			if m.Name == name && m.File == int(d.File) && dense.Index(syntax.TypeDeclOf(k.Parsed[m.File].Tree, m.Decl).Name) == int(d.Node) {
+func roleMember(s mut store.Store, k Pkg, op dense.ID[store.TKey], name string) Option[types.RoleMember] {
+	match types.ReadRole(s, k.Ifaces, k.Foreign, k.Roles, op) {
+	case Some{Value: role}:
+		for m in role.Members {
+			if m.Name == name {
 				return Some{Value: m}
 			}
 		}
+	case None:
 	}
 	None
 }
@@ -392,7 +379,7 @@ func rowSlot(s store.Store, typ dense.ID[store.TKey], slot int) bool {
 }
 
 func roleCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c syntax.CallExpr, fun dense.ID[syntax.Node], written []dense.ID[syntax.Node], recv dense.ID[store.TKey], op dense.ID[store.TKey], name string) Option[dense.ID[store.TKey]] {
-	let m = match roleMember(*s, k, op, name) {
+	let m = match roleMember(s, k, op, name) {
 	case Some{Value: m}:
 		m
 	case None:
@@ -409,7 +396,7 @@ func roleCall(s mut store.Store, k Pkg, t mut Typer, x dense.ID[syntax.Node], c 
 		subst = subst.Append(store.TParam(s, base+i))
 		rows = rows.Append(rowSlot(*s, m.Sig, len(actual)+i))
 	}
-	let sig = store.ReadAbstractSelf(s, m.Sig, subst, recv, op)
+	let sig = store.ReadAbstractSelf(s, m.Sig, subst, recv, op, m.Positions)
 	let (params, result) = sigParts(*s, k, sig, n)
 	arity(k, t, x, n, len(params))
 	if len(m.Own) == 0 {

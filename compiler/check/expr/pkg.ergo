@@ -86,10 +86,9 @@ type Pkg {
 	// (ParsePort for Port): each named by its type's name node, where
 	// bind declares it.
 	Parses []OpName,
-	// Claims and OpSigs are the package's implements clauses and its
-	// operation types' operations, resolved (claims.ergo).
+	// Claims are implements clauses at their declaration's parameters.
 	Claims []Claim,
-	OpSigs []OpSig,
+	Roles  []types.Role,
 	Deps   []Dep,
 	// Unions is the unions a call's inference may meet, the package's
 	// and its imports' (types.UnionsOf).
@@ -426,7 +425,9 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	}
 	let foreign = types.WithAliases(foreign0, *s, deps)
 	let kinds = types.SolveKinds(*s, parsed, ext)
-	let (claims, opSigs) = claimsOf(s, parsed, kinds, ext, foreign, deps)
+	let roles = if len(parsed) == 0 { []types.Role{} } else { types.Roles(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) }
+	types.ImportClaimLayouts(s, deps)
+	let claims = claimsOf(s, parsed, kinds, ext, foreign, deps, roles)
 	let mut fns = []Fn{}
 	let closers = closerNames(parsed)
 	for f in types.SolveFuncKinds(*s, parsed, ext, kinds) {
@@ -437,7 +438,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 			if writesWired(p, fd.Type) && types.WiredOfType(*s, env, fd.Type) {
 				continue
 			}
-			let bounds = types.SelfBounds(s, env, fd.TypeParams)
+			let bounds = types.SelfBounds(s, env, roles, fd.TypeParams)
 			let sig = types.Resolve(s, types.WithSelfBounds(env, bounds), fd.Type)
 			let mut rows = []bool{}
 			for k in f.Kinds {
@@ -617,7 +618,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	// The unions a call meets, read once: inference looks one up per
 	// union argument, not per declaration.
 	let unions = if len(parsed) > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Claims: claims, OpSigs: opSigs, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Ops: ops, Parses: parses, Claims: claims, Roles: roles, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
 }
 
 // parseFn is the parse function the refined type named at the package
