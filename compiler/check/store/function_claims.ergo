@@ -45,6 +45,11 @@ func FunctionClaimAt(s Store, at int) ClaimHead {
 	functionClaimOf(s.pool.functionClaims, dense.IDAt(s.pool.functionClaims.count, at))
 }
 
+func HasFunctionClaimRole(s mut Store, ref XRef) bool {
+	let key = TInstance(s, ref, []dense.ID[TKey]{})
+	len(dense.SideOf(s.pool.functionClaims.byRole, key)) != 0
+}
+
 func functionClaimOf(cs FunctionClaims, id dense.ID[FunctionClaim]) ClaimHead {
 	ClaimHead{
 		Role:    dense.Of(cs.roles, id), Receiver: dense.Of(cs.receivers, id),

@@ -37,7 +37,7 @@ func TestFunctionClaims(t *testing.T) {
 		{dir: "overlap", code: "S106", text: "overlaps"},
 		{dir: "crossing", code: "S106", text: "overlaps"},
 		{dir: "wrong-signature", code: "S106", text: "has signature"},
-		{dir: "wrong-row", code: "S106", text: "requires {Console}"},
+		{dir: "wrong-row", code: "S106", text: "requires {Output}"},
 		{dir: "wrong-result"},
 		{dir: "include-overlap", code: "S106", text: "overlaps"},
 		{dir: "foreign-include", code: "S106", text: "in its declaring package"},
@@ -151,7 +151,7 @@ func checkNativeClaimResult(t *testing.T, ctx context.Context, root string) {
 		writeLines(t, f, foreign)
 		manifest = append(manifest, strings.Join(append([]string{importPath(dir, pkg), e, f}, ergoFiles(t, dir)...), " "))
 		if name == "wrong-result" {
-			const call = "roles.MapValue(xs, func(s string) int { len(s) })"
+			const call = "roles.MapValue(xs, Length)"
 			src, err := os.ReadFile(filepath.Join(dir, "use.ergo"))
 			if err != nil {
 				t.Fatal(err)

@@ -1,6 +1,8 @@
 import functionclaims/roles
 
+func Length(s string) int { len(s) }
+
 func Check(xs []string) []int {
-	let ys = roles.MapValue(xs, func(s string) int { len(s) })
+	let ys = roles.MapValue(xs, Length)
 	ys
 }
