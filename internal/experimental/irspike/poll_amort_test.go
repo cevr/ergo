@@ -142,7 +142,7 @@ func runPoll(t *testing.T, funcs map[string]*pollFunc, name string, n int) pollR
 type pollEnv struct{}
 
 // pollEval evaluates the IR of GeneratePoll's functions: int and bool
-// locals, a Range literal, count and while loops, if, block, break,
+// locals, a Range literal, count, integer range and while loops, if, block, break,
 // continue and return, calls of the program's functions, the task's
 // Check (counted) and Console calls (no effect). Any other form fails the
 // test, naming it.
@@ -243,7 +243,7 @@ func (e *pollEval) stmt(fr *pollFrame, s map[string]any) pollFlow {
 			return pollFlow{k: "ret"}
 		}
 		return pollFlow{k: "ret", v: e.expr(fr, s["x"])}
-	case "count", "while":
+	case "count", "range", "while":
 		return e.loop(fr, s)
 	default:
 		e.t.Fatalf("pollEval: statement %v", s["k"])
@@ -282,15 +282,24 @@ func (e *pollEval) loop(fr *pollFrame, s map[string]any) pollFlow {
 		e.run.loud = true
 	}
 	i, end := 0, 0
-	if s["k"] == "count" {
+	k := s["k"]
+	index := localOf(s)
+	if k == "count" {
 		i, end = e.expr(fr, s["x"]).(int), e.expr(fr, s["y"]).(int)
+	} else if k == "range" {
+		end = e.expr(fr, s["x"]).(int)
+		key, ok := s["key"].(float64)
+		if !ok {
+			e.t.Fatal("pollEval: integer range has no binding")
+		}
+		index = int(key)
 	}
 	for {
-		if s["k"] == "count" {
+		if k == "count" || k == "range" {
 			if i >= end {
 				return pollFlow{}
 			}
-			fr.locals[localOf(s)] = i
+			fr.locals[index] = i
 		} else if s["x"] != nil && !e.expr(fr, s["x"]).(bool) {
 			return pollFlow{}
 		}

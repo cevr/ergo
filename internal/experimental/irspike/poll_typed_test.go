@@ -20,15 +20,18 @@ func TestIRTypedPollBound(t *testing.T) {
 	u := loadText(t, t.TempDir(), text)
 	requestAt := lower.PollEvery + 1
 	const name = "spin"
-	optimized := &pollEval{t: t, funcs: pollFuncs(t, u, "", seed, text), requestAt: requestAt, edgeLimit: requestAt + lower.PollEvery + 1}
-	reference := &pollEval{t: t, funcs: pollFuncs(t, u, "each", seed, text), requestAt: requestAt, edgeLimit: optimized.edgeLimit}
-	args := []any{pollEnv{}, 2}
-	a, r := optimized.callBody(name, args), reference.callBody(name, args)
-	if a.k != "stop" || r.k != "stop" ||
-		optimized.run.edges-requestAt >= lower.PollEvery || reference.run.edges != requestAt ||
-		2*optimized.run.checks >= reference.run.checks {
-		t.Fatalf("seed %d: optimized ends %q, %+v; each ends %q, %+v\nreplay: go test -run '^TestIRTypedPollBound$' ./internal/experimental/irspike\n%s",
-			seed, a.k, optimized.run, r.k, reference.run, text)
+	amort, each := pollFuncs(t, u, "", seed, text), pollFuncs(t, u, "each", seed, text)
+	for _, n := range []int{1, 2} {
+		optimized := &pollEval{t: t, funcs: amort, requestAt: requestAt, edgeLimit: requestAt + lower.PollEvery + 1}
+		reference := &pollEval{t: t, funcs: each, requestAt: requestAt, edgeLimit: optimized.edgeLimit}
+		args := []any{pollEnv{}, n}
+		a, r := optimized.callBody(name, args), reference.callBody(name, args)
+		if a.k != "stop" || r.k != "stop" ||
+			optimized.run.edges-requestAt >= lower.PollEvery || reference.run.edges != requestAt ||
+			2*optimized.run.checks >= reference.run.checks {
+			t.Fatalf("seed %d: spin(%d): optimized ends %q, %+v; each ends %q, %+v\nreplay: go test -run '^TestIRTypedPollBound$' ./internal/experimental/irspike\n%s",
+				seed, n, a.k, optimized.run, r.k, reference.run, text)
+		}
 	}
 }
 
@@ -90,6 +93,7 @@ func spin(n int) fails Rejected | Empty needs Console {
 	Console.Println("spin")
 	for {
 		try admit(n)
+		if n > 1 { continue }
 	}
 }
 
