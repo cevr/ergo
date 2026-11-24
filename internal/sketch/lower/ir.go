@@ -340,6 +340,19 @@ func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 // TestSplitTextKeepsPositions compares the two.
 var splitFormatLowering string
 
+// irTextBodies names the functions whose bodies stay the emitter's Go text
+// in an IR build, comma-separated (their IR names, as LowerIR reports
+// them): the reference a measurement compares an IR caller with (the
+// text path's caller; IR-FALLBACK-REMAINDER r4, the slot sites). Set with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.irTextBodies=NAME,…
+// on the ergo binary that builds the program (opcount -ergo).
+var irTextBodies string
+
+// keptText reports a body irTextBodies keeps as Go text.
+func keptText(name string) bool {
+	return irTextBodies != "" && slices.Contains(strings.Split(irTextBodies, ","), name)
+}
+
 // LowerIRSplitReaching is LowerIRSplit (of the test build with tests) with
 // every function of funcs lowered too, as a library body within u that
 // its program need not call (CensusStd's reach), each with the IR body it
@@ -1034,6 +1047,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		}
 	}
 	defer st.finish(b, pkg, census, f.Decl, f.Pkg.Std(), &ok)
+	if keptText(name) {
+		irNo("kept as text (irTextBodies)")
+	}
 	if drop {
 		defer func() {
 			if ok {

@@ -391,6 +391,48 @@ func benchOwnWith(n int) int {
 	s
 }
 
+// ---- slotmatch: a union result its caller only matches (UNI2) ----
+
+// Nested holds a Shape by value, so Shape is a Go interface, the form
+// the slot variant is for (flatunion.go, rule 3); no call builds one.
+type Shape = Circle{R int} | Rect{W int, H int} | Tri{A int, B int, C int, D int, E int} | Nested{S Shape}
+
+// shapeOf recurses d times first, so neither Go nor the IR inlines it,
+// as a lookup through scopes (ssg's find) is not.
+func shapeOf(i int, d int) Shape {
+	if d > 0 {
+		return shapeOf(i, d - 1)
+	}
+	if i % 3 == 0 {
+		return Circle{R: i & 7}
+	}
+	if i % 3 == 1 {
+		return Rect{W: i & 7, H: 3}
+	}
+	Tri{A: 1, B: 2, C: i & 7, D: 4, E: 5}
+}
+
+func area(i int) int {
+	match shapeOf(i, 2) {
+	case Circle as c:
+		c.R * c.R * 3
+	case Rect as r:
+		r.W * r.H
+	case Tri as t:
+		t.A + t.B + t.C + t.D + t.E
+	case Nested:
+		0
+	}
+}
+
+func benchSlotMatch(n int) int {
+	let mut s = 0
+	for i in 0..n {
+		s = s + area(i)
+	}
+	s
+}
+
 // ---- ref: a shared cell's Modify with a closure ----
 
 func benchRef(n int) int {
@@ -528,6 +570,8 @@ func benchRebuild(n int) int {
 func run(kind string, n int, h fs.Host) int {
 	if kind == "mapclose" {
 		benchMapClose(h, n)
+	} else if kind == "slotmatch" {
+		benchSlotMatch(n)
 	} else if kind == "ownwith" {
 		benchOwnWith(n)
 	} else if kind == "widen" {

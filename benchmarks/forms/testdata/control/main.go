@@ -362,6 +362,45 @@ func benchMapClose(n int) int {
 	return k
 }
 
+// ---- slotmatch ----
+
+type shape struct {
+	kind    uint8
+	a, b, c, d, e int
+}
+
+func shapeOf(i, d int) shape {
+	if d > 0 {
+		return shapeOf(i, d-1)
+	}
+	if i%3 == 0 {
+		return shape{kind: 0, a: i & 7}
+	}
+	if i%3 == 1 {
+		return shape{kind: 1, a: i & 7, b: 3}
+	}
+	return shape{kind: 2, a: 1, b: 2, c: i & 7, d: 4, e: 5}
+}
+
+func area(i int) int {
+	s := shapeOf(i, 2)
+	switch s.kind {
+	case 0:
+		return s.a * s.a * 3
+	case 1:
+		return s.a * s.b
+	}
+	return s.a + s.b + s.c + s.d + s.e
+}
+
+func benchSlotMatch(n int) int {
+	s := 0
+	for i := 0; i < n; i++ {
+		s += area(i)
+	}
+	return s
+}
+
 // ---- ownwith ----
 
 type gauge interface{ read(x int) int }
@@ -498,6 +537,8 @@ func main() {
 		out = benchRef(n)
 	case "mapclose":
 		out = benchMapClose(n)
+	case "slotmatch":
+		out = benchSlotMatch(n)
 	case "ownwith":
 		out = benchOwnWith(n)
 	case "provspill":
