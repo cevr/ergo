@@ -601,6 +601,26 @@
       ]
     },
     {
+      "name": "lower-borrow-store-plain-assignment",
+      "origin": "wf10/selfhost/S4-PORT BORROW & OWN (not-run-crunch)",
+      "file": "compiler/lower/places.ergo",
+      "from": "[]uint32{to, ir.Text(b, w.op), x}",
+      "to": "[]uint32{to, ir.Text(b, \"\"), x}",
+      "rule": "Inc's compound store updates the existing field in the borrowed place; it does not overwrite with the right operand.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-borrow-receiver-passes-value",
+      "origin": "wf10/selfhost/S4-PORT BORROW & OWN (not-run-crunch)",
+      "file": "compiler/lower/places.ergo",
+      "from": "let recv = try ir.Row(b, ir.KindCode(ir.TExpr, \"addr\"), pos(st, call.recvAt), []uint32{place})",
+      "to": "let recv = place",
+      "rule": "BorrowedIncrement passes the address of the selected field as the receiver, not the field value.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "lower-lit-keys-dropped",
       "origin": "wf10/selfhost/S4c4",
       "file": "compiler/lower/lower.ergo",
