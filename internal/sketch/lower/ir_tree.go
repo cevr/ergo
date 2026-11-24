@@ -68,6 +68,9 @@ type treeIR struct {
 	prefix []*irStmt
 	// shared are the labels of the arms that several leaves reach.
 	shared map[int]string
+	// remap maps synthetic per-variant binding vars created when expanding
+	// a sub-union pattern back to the arm's original binding var.
+	remap map[*check.Var]*check.Var
 }
 
 type treeHead struct {
@@ -122,7 +125,7 @@ func (b *irBuilder) treeMatch(s syntax.Stmt, subjects []syntax.Expr, clauses []*
 // matches every value), the match ending at ep.
 func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*irStmt {
 	b, s, p := t.b, t.s, t.p
-	t.heads, t.types, t.consts = map[string]treeHead{}, map[string]check.Type{}, map[string]*check.Pattern{}
+	t.heads, t.types, t.consts, t.remap = map[string]treeHead{}, map[string]check.Type{}, map[string]*check.Pattern{}, map[*check.Var]*check.Var{}
 	vals := make([]string, len(cols))
 	types := make([]check.Type, len(cols))
 	for i, c := range cols {
@@ -130,6 +133,7 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 		types[i] = c.t
 		t.heads[vals[i]] = c
 	}
+	alts = t.expandSubUnions(cols, alts)
 	arms := make([]treeArm, len(alts))
 	for k, a := range alts {
 		arms[k].alts = a
@@ -165,11 +169,12 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 		b.labels++
 		t.shared[arm] = "arm" + strconv.Itoa(b.labels)
 		for _, bd := range first[arm].binds {
-			if _, dup := b.locals[bd.v]; dup {
+			orig := t.origVar(bd.v)
+			if _, dup := b.locals[orig]; dup {
 				irNo("local declared twice")
 			}
-			l := b.named(bd.v.Name, b.goType(bd.v.Type, s), p)
-			b.locals[bd.v] = l
+			l := b.named(orig.Name, b.goType(orig.Type, s), p)
+			b.locals[orig] = l
 			decls = append(decls, &irStmt{K: "var", Pos: p, Local: l})
 		}
 	}
@@ -206,6 +211,178 @@ func (t *treeIR) write(cols []treeHead, alts [][]*check.Pattern, ep irPos) []*ir
 			body = append(body, &irStmt{K: "block", Pos: ep, End: ep, Label: exit})
 		}
 		out = []*irStmt{{K: "block", Pos: p, End: ep, Body: body}}
+	}
+	return out
+}
+
+// origVar returns the source variable that v represents (v itself, or
+// the arm's original binding var if v is a synthetic variant var from
+// expandSubUnions).
+func (t *treeIR) origVar(v *check.Var) *check.Var {
+	if orig, ok := t.remap[v]; ok {
+		return orig
+	}
+	return v
+}
+
+// expandSubUnions rewrites any pattern matching a declared sub-union of a
+// union column into one alternative per variant of that sub-union, so
+// matchTree builds a single switch on concrete variants while t.binding
+// widens each variant back into the sub-union's Go representation.
+func (t *treeIR) expandSubUnions(cols []treeHead, alts [][]*check.Pattern) [][]*check.Pattern {
+	out := make([][]*check.Pattern, len(alts))
+	for k, a := range alts {
+		if len(a) == 0 {
+			continue
+		}
+		var expanded []*check.Pattern
+		for _, pt := range a {
+			if len(cols) == 1 {
+				expanded = append(expanded, t.expandPat(pt, cols[0].t)...)
+			} else if pt.Kind == check.PatTuple && len(pt.Elems) == len(cols) {
+				ts := make([]check.Type, len(cols))
+				for i, c := range cols {
+					ts[i] = c.t
+				}
+				expanded = append(expanded, t.expandTuple(pt, ts)...)
+			} else {
+				expanded = append(expanded, pt)
+			}
+		}
+		out[k] = expanded
+	}
+	return out
+}
+
+const maxSubUnionExpand = 64
+
+func (t *treeIR) expandPat(p *check.Pattern, colType check.Type) []*check.Pattern {
+	if p == nil || colType == nil {
+		return []*check.Pattern{p}
+	}
+	switch p.Kind {
+	case check.PatTypeTest:
+		if declaredUnion(p.Type) && t.b.fc.isSum(colType) && t.b.fc.goType(p.Type) != t.b.fc.goType(colType) {
+			vs := unionVariants(p.Type)
+			var out []*check.Pattern
+			colIsUnion := declaredUnion(colType)
+			for _, vt := range vs {
+				if colIsUnion && !subUnionHolds(colType, vt) {
+					continue
+				}
+				out = append(out, &check.Pattern{Kind: check.PatTypeTest, Type: vt})
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+	case check.PatAs:
+		if len(p.Elems) != 1 {
+			return []*check.Pattern{p}
+		}
+		subs := t.expandPat(p.Elems[0], colType)
+		if len(subs) == 1 && subs[0] == p.Elems[0] {
+			return []*check.Pattern{p}
+		}
+		out := make([]*check.Pattern, len(subs))
+		for i, sub := range subs {
+			v := p.Var
+			if v != nil && sub.Kind == check.PatTypeTest && sub.Type != nil && t.b.fc.goType(v.Type) != t.b.fc.goType(sub.Type) {
+				fresh := &check.Var{Name: v.Name, Type: sub.Type}
+				t.remap[fresh] = v
+				v = fresh
+			}
+			out[i] = &check.Pattern{Kind: check.PatAs, Var: v, Type: sub.Type, Elems: []*check.Pattern{sub}}
+		}
+		return out
+	case check.PatTuple:
+		tup, ok := underlying(colType).(*check.Tuple)
+		if !ok || len(tup.Types) != len(p.Elems) {
+			return []*check.Pattern{p}
+		}
+		return t.expandTuple(p, tup.Types)
+	case check.PatRecord:
+		named, ok := p.Type.(*check.Named)
+		if !ok {
+			return []*check.Pattern{p}
+		}
+		st, ok := named.Underlying().(*check.Struct)
+		if !ok {
+			return []*check.Pattern{p}
+		}
+		fieldTypes := make(map[string]check.Type, len(st.Fields))
+		for _, sf := range st.Fields {
+			fieldTypes[sf.Name] = sf.Type
+		}
+		changed := false
+		parts := make([][]*check.Pattern, len(p.Fields))
+		total := 1
+		for i, f := range p.Fields {
+			sub := t.expandPat(f.Pattern, fieldTypes[f.Name])
+			if len(sub) != 1 || sub[0] != f.Pattern {
+				changed = true
+			}
+			total *= len(sub)
+			if total > maxSubUnionExpand {
+				return []*check.Pattern{p}
+			}
+			parts[i] = sub
+		}
+		if !changed {
+			return []*check.Pattern{p}
+		}
+		combos := [][]check.FieldPattern{{}}
+		for i, f := range p.Fields {
+			var next [][]check.FieldPattern
+			for _, cur := range combos {
+				for _, sub := range parts[i] {
+					row := append(append([]check.FieldPattern(nil), cur...), check.FieldPattern{Name: f.Name, Pattern: sub})
+					next = append(next, row)
+				}
+			}
+			combos = next
+		}
+		out := make([]*check.Pattern, len(combos))
+		for i, fields := range combos {
+			out[i] = &check.Pattern{Kind: check.PatRecord, Type: p.Type, Fields: fields}
+		}
+		return out
+	}
+	return []*check.Pattern{p}
+}
+
+func (t *treeIR) expandTuple(p *check.Pattern, ts []check.Type) []*check.Pattern {
+	changed := false
+	parts := make([][]*check.Pattern, len(p.Elems))
+	total := 1
+	for i, e := range p.Elems {
+		sub := t.expandPat(e, ts[i])
+		if len(sub) != 1 || sub[0] != e {
+			changed = true
+		}
+		total *= len(sub)
+		if total > maxSubUnionExpand {
+			return []*check.Pattern{p}
+		}
+		parts[i] = sub
+	}
+	if !changed {
+		return []*check.Pattern{p}
+	}
+	combos := [][]*check.Pattern{{}}
+	for _, subs := range parts {
+		var next [][]*check.Pattern
+		for _, cur := range combos {
+			for _, sub := range subs {
+				row := append(append([]*check.Pattern(nil), cur...), sub)
+				next = append(next, row)
+			}
+		}
+		combos = next
+	}
+	out := make([]*check.Pattern, len(combos))
+	for i, elems := range combos {
+		out[i] = &check.Pattern{Kind: check.PatTuple, Type: p.Type, Elems: elems}
 	}
 	return out
 }
@@ -375,7 +552,8 @@ func (t *treeIR) leaf(lf *mleaf) []*irStmt {
 	var out []*irStmt
 	if label, ok := t.shared[lf.arm]; ok {
 		for _, bd := range lf.binds {
-			l, ok := b.locals[bd.v]
+			orig := t.origVar(bd.v)
+			l, ok := b.locals[orig]
 			if !ok {
 				irNo("shared arm binding that its first leaf does not make")
 			}
@@ -384,11 +562,12 @@ func (t *treeIR) leaf(lf *mleaf) []*irStmt {
 		return append(out, &irStmt{K: "goto", Pos: t.p, Label: label})
 	}
 	for _, bd := range lf.binds {
-		if _, dup := b.locals[bd.v]; dup {
+		orig := t.origVar(bd.v)
+		if _, dup := b.locals[orig]; dup {
 			irNo("local declared twice")
 		}
-		l := b.named(bd.v.Name, b.goType(bd.v.Type, t.s), t.p)
-		b.locals[bd.v] = l
+		l := b.named(orig.Name, b.goType(orig.Type, t.s), t.p)
+		b.locals[orig] = l
 		out = append(out, &irStmt{K: "def", Pos: t.p, Local: l, X: t.binding(bd)})
 	}
 	return append(out, t.body(lf.arm)...)
@@ -401,7 +580,7 @@ func (t *treeIR) leaf(lf *mleaf) []*irStmt {
 func (t *treeIR) binding(bd patBind) *irExpr {
 	b := t.b
 	e, from := t.value(bd.val)
-	to := bd.v.Type
+	to := t.origVar(bd.v).Type
 	gf, gt := b.goType(from, t.s), b.goType(to, t.s)
 	switch {
 	case gf == gt:

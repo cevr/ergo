@@ -1,0 +1,115 @@
+type Pending { N int }
+type Active { Label string }
+type Done { Code int }
+
+type Ready = Active | Done
+type State = Pending | Ready
+
+type Num { V int }
+type Text { S string }
+type Wrap { Child Node }
+type Loop { Next Branch }
+
+type Leaf = Num | Text
+type Branch = Loop | Text
+type Node = Wrap | Loop | Leaf
+
+func settle(s State) Ready {
+	match s {
+	case Pending as p:
+		if p.N > 0 {
+			Active{Label: "p\(p.N)"}
+		} else {
+			Done{Code: p.N}
+		}
+	case Ready as r:
+		r
+	}
+}
+
+func showReady(r Ready) string {
+	match r {
+	case Active as a:
+		"active:" + a.Label
+	case Done as d:
+		"done:\(d.Code)"
+	}
+}
+
+func noBind(s State) string {
+	match s {
+	case Pending as p:
+		"pending:\(p.N)"
+	case Ready:
+		"ready"
+	}
+}
+
+func firstWins(s State) string {
+	match s {
+	case Active as a:
+		"first:" + a.Label
+	case Ready as r:
+		"rest:" + showReady(r)
+	case Pending as p:
+		"pend:\(p.N)"
+	}
+}
+
+func showLeaf(l Leaf) string {
+	match l {
+	case Num as n:
+		"num:\(n.V)"
+	case Text as t:
+		"text:" + t.S
+	}
+}
+
+func nodeLeaf(n Node) Leaf {
+	match n {
+	case Wrap as w:
+		nodeLeaf(w.Child)
+	case Loop:
+		Text{S: "loop"}
+	case Leaf as l:
+		l
+	}
+}
+
+func nodeBranch(n Node) Branch {
+	match n {
+	case Wrap as w:
+		nodeBranch(w.Child)
+	case Num as k:
+		Text{S: "n\(k.V)"}
+	case Branch as b:
+		b
+	}
+}
+
+func describeNode(n Node) string {
+	let a = match nodeLeaf(n) {
+	case Num as k:
+		"N:\(k.V)"
+	case Text as t:
+		"T:" + t.S
+	}
+	let b = match nodeBranch(n) {
+	case Loop:
+		"loop"
+	case Text as t:
+		"txt:" + t.S
+	}
+	a + "/" + b
+}
+
+func main() needs Console {
+	let states = []State{Pending{N: 3}, Pending{N: 0}, Active{Label: "go"}, Done{Code: 7}}
+	for s in states {
+		Console.Println(showReady(settle(s)) + "|" + noBind(s) + "|" + firstWins(s))
+	}
+	let nodes = []Node{Num{V: 4}, Text{S: "hi"}, Wrap{Child: Num{V: 9}}, Loop{Next: Text{S: "deep"}}, Wrap{Child: Loop{Next: Text{S: "w"}}}}
+	for n in nodes {
+		Console.Println(showLeaf(nodeLeaf(n)) + "|" + describeNode(n))
+	}
+}

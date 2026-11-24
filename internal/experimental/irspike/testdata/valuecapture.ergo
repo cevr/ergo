@@ -1,0 +1,53 @@
+func makeAdder(n int) func(int) int {
+	let mut acc = 0
+	for i in 1..n+1 {
+		acc = acc + i
+	}
+	func(x int) int { acc + x }
+}
+
+func makeLookup(n int) func(int) int {
+	let mut xs = []int{}
+	for i in 0..n {
+		xs = xs.Append(i * 3)
+	}
+	let mut bonus = 1
+	bonus = bonus + n
+	func(i int) int {
+		if i < len(xs) {
+			xs[i] + bonus
+		} else {
+			bonus
+		}
+	}
+}
+
+func nestedCapture(n int) func() func(int) int {
+	let mut base = 10
+	for i in 0..n {
+		base = base + i
+	}
+	func() func(int) int {
+		let mut shift = base
+		shift = shift + 2
+		func(k int) int { base + shift + k }
+	}
+}
+
+func keepBlock(f own func() int) func() int { f }
+
+func trailingCapture(n int) func() int {
+	let mut sum = 0
+	for i in 0..n {
+		sum = sum + i*2
+	}
+	keepBlock() { sum + 1 }
+}
+
+func main() needs Console {
+	let add = makeAdder(5)
+	let look = makeLookup(4)
+	let nest = nestedCapture(4)()
+	let trail = trailingCapture(5)
+	Console.Println("\(add(10)) \(look(2)) \(look(9)) \(nest(3)) \(trail())")
+}

@@ -1,0 +1,45 @@
+type Counter {
+	Step(x int) int,
+	Tag() string,
+}
+
+type Linear { Mul int } implements Counter
+
+func Step(l Linear, x int) int { x * l.Mul }
+
+func Tag(l Linear) string { "lin\(l.Mul)" }
+
+type Scaled[C Counter] { Inner C, Offset int } implements Counter
+
+func NewScaled[C Counter](inner C, offset int) Scaled[C] {
+	Scaled[C]{Inner: inner, Offset: offset}
+}
+
+func Step[C Counter](s Scaled[C], x int) int { s.Inner.Step(x) + s.Offset }
+
+func Tag[C Counter](s Scaled[C]) string { "sc(" + s.Inner.Tag() + "+\(s.Offset))" }
+
+func baseCounter(k int) Counter { Linear{Mul: k} }
+
+func makeScaled(k int, off int) Counter { NewScaled(Linear{Mul: k}, off) }
+
+func makeDynScaled(k int, off int) Counter { NewScaled(baseCounter(k), off) }
+
+func makeNested(k int, a int, b int) Counter { NewScaled(NewScaled(Linear{Mul: k}, a), b) }
+
+func runWith(x int) string needs Counter { "\(Counter.Tag())=\(Counter.Step(x))" }
+
+func withScaled(k int, off int, x int) string {
+	with context { Counter: NewScaled(baseCounter(k), off) } {
+		runWith(x)
+	}
+}
+
+func passScaled(c Counter, x int) string { "\(c.Tag())=\(c.Step(x))" }
+
+func main() needs Console {
+	Console.Println(passScaled(makeScaled(3, 5), 4))
+	Console.Println(passScaled(makeDynScaled(2, 7), 6))
+	Console.Println(passScaled(makeNested(4, 1, 2), 3))
+	Console.Println(withScaled(5, 9, 2))
+}

@@ -80,11 +80,98 @@ func hasSig(t check.Type) bool {
 	}
 }
 
+// snapshotCaptures binds each let mut the literal n captures by value
+// (Info.ValueCaptures, excluding resource captures moved or borrowed by
+// TaskCaptures, as the emitter's snapshot in closures.go does) to a fresh
+// local in the enclosing frame before n is lowered, and swaps b.locals so
+// the literal reads those immutable copies. The caller must invoke the
+// returned restore function after closureLit finishes.
+func (b *irBuilder) snapshotCaptures(n syntax.Node, p irPos) ([]*irStmt, func()) {
+	prevSnap := b.snapshotted
+	vars := b.l.info.ValueCaptures[n]
+	if captureLowering == "reference" || len(vars) == 0 {
+		b.snapshotted = n
+		return nil, func() { b.snapshotted = prevSnap }
+	}
+	if capture := b.l.info.TaskCaptures[n]; capture != nil {
+		moved := map[*check.Var]bool{}
+		for _, v := range capture.Vars {
+			moved[v] = true
+		}
+		for _, v := range capture.Borrowed {
+			moved[v] = true
+		}
+		var plain []*check.Var
+		for _, v := range vars {
+			if !moved[v] {
+				plain = append(plain, v)
+			}
+		}
+		vars = plain
+	}
+	type savedVar struct {
+		v        *check.Var
+		local    int
+		hadLocal bool
+		scalar   *irScalar
+	}
+	var pre []*irStmt
+	saved := make([]savedVar, 0, len(vars))
+	for _, v := range vars {
+		orig, hadLocal := b.locals[v]
+		var sc *irScalar
+		if b.scalars != nil {
+			sc = b.scalars[v]
+		}
+		var rhs *irExpr
+		if sc != nil {
+			gpre, ge := b.gather(sc, n, p)
+			pre = append(pre, gpre...)
+			rhs = ge
+		} else if hadLocal {
+			rhs = &irExpr{K: "local", Pos: p, I: orig}
+		} else {
+			for i := len(saved) - 1; i >= 0; i-- {
+				sv := saved[i]
+				if sv.hadLocal {
+					b.locals[sv.v] = sv.local
+				} else {
+					delete(b.locals, sv.v)
+				}
+				if sv.scalar != nil {
+					b.scalars[sv.v] = sv.scalar
+				}
+			}
+			irNo("function literal that copies an unbound capture")
+		}
+		cp := b.temp(v.Name, b.goType(v.Type, n), p)
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: cp, X: rhs})
+		saved = append(saved, savedVar{v: v, local: orig, hadLocal: hadLocal, scalar: sc})
+		b.locals[v] = cp
+		if sc != nil {
+			delete(b.scalars, v)
+		}
+	}
+	b.snapshotted = n
+	return pre, func() {
+		for i := len(saved) - 1; i >= 0; i-- {
+			sv := saved[i]
+			if sv.hadLocal {
+				b.locals[sv.v] = sv.local
+			} else {
+				delete(b.locals, sv.v)
+			}
+			if sv.scalar != nil {
+				b.scalars[sv.v] = sv.scalar
+			}
+		}
+		b.snapshotted = prevSnap
+	}
+}
+
 // closureLit is the function literal x, or with x nil the trailing block of
-// the call site (its block): the emitter's funcLit. A literal that copies
-// or moves what it captures, that is a frame of its own (an owned
-// parameter, a body that needs a frame) or that a known callback takes
-// stays the emitter's.
+// the call site (its block): the emitter's funcLit. Value captures are
+// snapshotted by the caller (snapshotCaptures) before closureLit runs.
 func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr {
 	l := b.l
 	var n syntax.Node = x
@@ -105,7 +192,7 @@ func (b *irBuilder) closureLit(x *syntax.FuncLit, site *syntax.CallExpr) *irExpr
 	if len(sig.Results) > 1 {
 		irNo("function type with several results")
 	}
-	if captureLowering != "reference" && len(l.info.ValueCaptures[n]) > 0 {
+	if captureLowering != "reference" && len(l.info.ValueCaptures[n]) > 0 && b.snapshotted != n {
 		irNo("function literal that copies what it captures")
 	}
 	capture := l.info.TaskCaptures[n]
