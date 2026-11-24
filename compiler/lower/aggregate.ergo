@@ -127,11 +127,6 @@ func field(st fnb, x dense.ID[syntax.Node], se syntax.SelectorExpr) string fails
 	try fieldOn(st, x, se, t)
 }
 
-// The union lane replaces this refusal with a checked match payload read.
-func unionField(_ fnb, _ dense.ID[syntax.Node], _ syntax.SelectorExpr) string fails Unported {
-	stop("selector on no plain record")
-}
-
 // fieldOn also serves a place whose caller has checked and peeled one
 // borrow marker. It only resolves the member; it does not admit the place
 // or say how to read or write it.
