@@ -742,7 +742,7 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irP
 	if _, bound := runtimeBindings()[name]; !bound {
 		return nil, false
 	}
-	callerTask, ok := runtimeCloseShape(name)
+	callerTask, ok := runtimeOwnerMethodShape(name, 0)
 	if !ok {
 		return nil, false
 	}

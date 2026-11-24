@@ -115,6 +115,13 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 			return out
 		}
 		pre, e := b.rawCall(call)
+		if e != nil && e.UnitPair && b.result == nil {
+			// The caller returns only its error; the Go callee returns
+			// a pair. Discard its unit result as a try would.
+			pre, _, err := b.bindCall(pre, e, call)
+			pre = append(pre, b.propagate(err, p))
+			return append(pre, b.formed(&irStmt{K: "ret", Pos: p}, "unit"))
+		}
 		return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e, Pair: true}, "tuple"))
 	}
 	if b.isFailure(x) {
@@ -326,10 +333,9 @@ func (b *irBuilder) bindCall(pre []*irStmt, x *irExpr, call *syntax.CallExpr) (_
 		tpre, tv := b.tupleErrBind(x, tt, e, call, p)
 		return append(pre, tpre...), tv, e
 	}
-	if (x.K == "vcall" || b.unitPair(call)) && (t == nil || isNoValue(t) || b.fc.noValue(call)) {
-		// A function value with no value returns struct{} first
-		// (ir_closure.go), as a generic whose result is no value does
-		// (unitPair).
+	if x.UnitPair || (x.K == "vcall" || b.unitPair(call)) && !b.hasValue(call) {
+		// A Go pair's first result may stand for no Ergo value, as
+		// with some runtime methods, function values and generics.
 		u := b.temp("unit", "struct{}", p)
 		return append(pre, &irStmt{K: "def2", Pos: p, Local: u, Val: &e, X: x}), -1, e
 	}

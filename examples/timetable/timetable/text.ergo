@@ -19,18 +19,6 @@ case civil.BadPattern:
 	Unreachable("the day's pattern is LDML")
 }
 
-// week is an ISO week: "2027-W10".
-let week = civil.DatePattern("YYYY-'W'ww") catch {
-case civil.BadPattern:
-	Unreachable("the week's pattern is LDML")
-}
-
-// hhmm is a wall time of day: "02:30".
-let hhmm = civil.Pattern("HH:mm") catch {
-case civil.BadPattern:
-	Unreachable("the time's pattern is LDML")
-}
-
 // ClockText is z on its zone's wall clock.
 func ClockText(z tz.Zoned) string { tz.FormatZoned(z, clock) }
 
@@ -38,7 +26,7 @@ func ClockText(z tz.Zoned) string { tz.FormatZoned(z, clock) }
 func DayText(d civil.Date) string { civil.FormatDate(d, day) }
 
 // WeekText is the ISO week of d.
-func WeekText(d civil.Date) string { civil.FormatDate(d, week) }
+func WeekText(d civil.Date) string { civil.FormatDate(d, civil.ISOWeekFormat) }
 
 // Until is how far t is from now in words: "in 3 hours", "2 days ago".
 func Until(now time.Time, t time.Time) string { civil.Phrase(civil.Distance(now, t), civil.EnglishWords()) }
@@ -50,7 +38,7 @@ func LeavingText(l Leaving) string {
 	case OnTime:
 		""
 	case Skipped as s:
-		" (the clock skipped \(civil.FormatDateTime(civil.DateTime{Date: civil.MinDate(), Time: s.Wall}, hhmm)); leaves as the clock springs forward)"
+		" (the clock skipped \(civil.FormatDateTime(civil.DateTime{Date: civil.MinDate(), Time: s.Wall}, civil.ClockMinutes)); leaves as the clock springs forward)"
 	case Twice:
 		" (the clock shows this time twice; leaves the first time)"
 	}

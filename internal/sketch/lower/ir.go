@@ -565,6 +565,10 @@ type irState struct {
 	flat         map[*check.Func]*flatRes
 	flatType     string
 	flatWrappers map[*check.Func]flatWrapper
+	// wireHeads are the concrete codec-witness signatures the field
+	// projection pass can specialize; wireOrigins places its workers.
+	wireHeads   map[string]wireProjectHead
+	wireOrigins map[string]*check.Package
 	// opFuncs are the implementing functions of closed types' operations
 	// (ir_instance.go staticOpFunc), filled on first use.
 	opFuncs map[opFuncKey]*check.WitnessOp
@@ -701,6 +705,9 @@ type irExpr struct {
 	// (ir_rewrite_pass.go): the source call it lowers and whether it is
 	// kept as written. (I-FLIP: LF6w's C, renamed beside LF3's C.)
 	CF *irCallFacts `json:"-"`
+	// UnitPair marks a runtime call whose Go result is (struct{}, error)
+	// although Ergo has no success value. Only the builder needs it.
+	UnitPair bool `json:"-"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.

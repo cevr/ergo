@@ -2,4 +2,4 @@ kind cli
 generator ergo gen cli
 subject github.com/cevr/ergo/modules/work/work.Api
 contract sha256:718b078ff86883bf0f29216d1a570cb1a5dce467ffeff1be40f2cdf3b74e17fa
-digest sha256:150e775cf9410ecdf70e2314429176bec86411029660e5ebdb2af33b99821d3f
+digest sha256:07ef7640ce7b8e9036c6aa925881b440b298826c954153abf8f1956f21b535e2

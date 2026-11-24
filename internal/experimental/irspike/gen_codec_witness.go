@@ -8,10 +8,8 @@ import (
 
 // codecWitnessSites are GenerateCodecWitness's generic functions whose IR
 // bodies read a codec witness parameter (PORT-WITNESS): each has an IR body
-// in every seed. The ...Mono_i1 sites are the monomorphic copies (mono.go)
-// that viaText's calls go to: a codec witness parameter on a copy, the
-// port's largest case (PORT-COPY x PORT-WITNESS).
-var codecWitnessSites = []string{"enc", "dec", "back", "one", "many", "encMono_i1", "decMono_i1", "backMono_i1"}
+// in every seed. The test also checks the copies invoked by viaText.
+var codecWitnessSites = []string{"enc", "dec", "back", "one", "many"}
 
 // GenerateCodecWitness is a program of generic functions over type
 // parameters under the codec constraint, whose codec witnesses are parameters of their bodies

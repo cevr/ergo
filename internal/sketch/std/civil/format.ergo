@@ -122,6 +122,23 @@ func ISODateTime() DateTimeFormat {
 	DateTimeFormat{fields: []Field{YearNumber{Digits: FourDigits}, Literal{Text: "-"}, MonthNumber{Pad: ZeroPad}, Literal{Text: "-"}, DayOfMonth{Pad: ZeroPad}, Literal{Text: "T"}, Hour24{Pad: ZeroPad}, Literal{Text: ":"}, MinuteNumber{Pad: ZeroPad}, Literal{Text: ":"}, SecondNumber{Pad: ZeroPad}}, names: English()}
 }
 
+// ISOWeekFormat is the ISO 8601 week without a weekday: YYYY-'W'ww.
+let ISOWeekFormat = DateFormat{fields: []Field{ISOWeekYear, Literal{Text: "-W"}, ISOWeekNumber{Pad: ZeroPad}}, names: English()}
+
+// ClockMinutes and ClockSeconds are HH:mm and HH:mm:ss, respectively.
+let ClockMinutes = DateTimeFormat{fields: []Field{Hour24{Pad: ZeroPad}, Literal{Text: ":"}, MinuteNumber{Pad: ZeroPad}}, names: English()}
+
+let ClockSeconds = DateTimeFormat{fields: ClockMinutes.fields.Append(Literal{Text: ":"}).Append(SecondNumber{Pad: ZeroPad}), names: English()}
+
+// DateTimeMinutes is a calendar date and clock time to the minute,
+// separated by a space: yyyy-MM-dd HH:mm.
+let DateTimeMinutes = DateTimeFormat{fields: ISODate().fields.Append(Literal{Text: " "}).Concat(ClockMinutes.fields), names: English()}
+
+// WithWeekday appends a space and a weekday name to f.
+func WithWeekday(f DateTimeFormat, width Width) DateTimeFormat {
+	DateTimeFormat{fields: f.fields.Append(Literal{Text: " "}).Append(WeekdayName{Width: width}), names: f.names}
+}
+
 // FormatFields is the fields of f, in order.
 func FormatFields(f DateTimeFormat) []Field { f.fields }
 

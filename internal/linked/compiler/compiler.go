@@ -13608,8 +13608,8 @@ func ergo__ReportTarget_1(target string) string {
 		/*line api/report.ergo:62:1*/ {
 			/*line api/report.ergo:63:2*/ return d_1.Value.Code + " " + d_1.Value.Message
 		}
-		/*line api/report.ergo:66:1*/ fuse2:
-		/*line api/report.ergo:66:1*/ {
+		/*line api/report.ergo:64:1*/ fuse2:
+		/*line api/report.ergo:64:1*/ {
 			/*line api/report.ergo:65:2*/ return ""
 		}
 	}
@@ -14709,10 +14709,10 @@ func compiler_sreport__Project(env *ergo__Env, text string, files map[string]str
 				/*line report/report.ergo:265:3*/ {
 					/*line report/report.ergo:266:4*/ f.Located = true
 					/*line report/report.ergo:267:4*/ f.Range = r_1.Value
-					/*line report/report.ergo:269:3*/ goto fuse3
+					/*line report/report.ergo:267:21*/ goto fuse3
 				}
-				/*line report/report.ergo:269:3*/ fuse2:
-				/*line report/report.ergo:269:3*/ {
+				/*line report/report.ergo:268:3*/ fuse2:
+				/*line report/report.ergo:268:3*/ {
 				}
 				/*line report/report.ergo:269:3*/ fuse3:
 				/*line report/report.ergo:269:3*/ {
@@ -19350,8 +19350,8 @@ func compiler_ssyntax_sdump__isSome(o dense__Opt[compiler_ssyntax__Node]) bool {
 		/*line syntax/dump/parse.ergo:51:1*/ {
 			/*line syntax/dump/parse.ergo:52:2*/ return true
 		}
-		/*line syntax/dump/parse.ergo:55:1*/ fuse2:
-		/*line syntax/dump/parse.ergo:55:1*/ {
+		/*line syntax/dump/parse.ergo:53:1*/ fuse2:
+		/*line syntax/dump/parse.ergo:53:1*/ {
 			/*line syntax/dump/parse.ergo:54:2*/ return false
 		}
 	}
@@ -27882,8 +27882,8 @@ func compiler_sformat__some(o dense__Opt[compiler_ssyntax__Node]) bool {
 		/*line format/nodes.ergo:39:1*/ {
 			/*line format/nodes.ergo:40:2*/ return true
 		}
-		/*line format/nodes.ergo:43:1*/ fuse2:
-		/*line format/nodes.ergo:43:1*/ {
+		/*line format/nodes.ergo:41:1*/ fuse2:
+		/*line format/nodes.ergo:41:1*/ {
 			/*line format/nodes.ergo:42:2*/ return false
 		}
 	}
@@ -28261,8 +28261,8 @@ func compiler_sformat__the(o dense__Opt[compiler_ssyntax__Node]) dense__ID[compi
 		/*line format/nodes.ergo:48:1*/ {
 			/*line format/nodes.ergo:49:2*/ return s_1.Value
 		}
-		/*line format/nodes.ergo:52:1*/ fuse2:
-		/*line format/nodes.ergo:52:1*/ {
+		/*line format/nodes.ergo:50:1*/ fuse2:
+		/*line format/nodes.ergo:50:1*/ {
 			/*line format/nodes.ergo:51:2*/ panic(ergo.UnreachableAt("an optional node read where the parser always sets one", "nodes.ergo:51:3"))
 		}
 	}
