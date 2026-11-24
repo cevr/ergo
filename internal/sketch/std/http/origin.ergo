@@ -58,32 +58,36 @@ func shapeRefusal(scheme string, host string, user bool, path string, rawQuery s
 
 // checkNetwork is each origin checked as checkOrigin does, in its
 // canonical form (canonicalOrigin), or the first failure.
+func parseOrigin(origin string) string fails InvalidClient {
+	let u = url.Parse(origin) catch {
+	case go.Error as e:
+		return InvalidClient{Origin: origin, Reason: e.Text}
+	}
+	let user = match u.User {
+	case Some:
+		true
+	case None:
+		false
+	}
+	let reason = shapeRefusal(u.Scheme, u.Host, user, u.Path, u.RawQuery, u.Fragment, u.ForceQuery)
+	if reason != "" {
+		return InvalidClient{Origin: origin, Reason: reason}
+	}
+	match canonicalOrigin(u.Scheme, u.Hostname(), u.Port(), user, u.Opaque) {
+	case Some as c:
+		c.Value
+	case None:
+		InvalidClient{Origin: origin, Reason: "the origin is not valid"}
+	}
+}
+
 func checkNetwork(origins []string, limits Limits) []string fails InvalidClient | InvalidLimits {
 	if !limitsValid(limits) {
 		return limitsRefused(limits)
 	}
 	let mut out = []string{}
 	for origin in origins {
-		let u = url.Parse(origin) catch {
-		case go.Error as e:
-			return InvalidClient{Origin: origin, Reason: e.Text}
-		}
-		let user = match u.User {
-		case Some:
-			true
-		case None:
-			false
-		}
-		let reason = shapeRefusal(u.Scheme, u.Host, user, u.Path, u.RawQuery, u.Fragment, u.ForceQuery)
-		if reason != "" {
-			return InvalidClient{Origin: origin, Reason: reason}
-		}
-		match canonicalOrigin(u.Scheme, u.Hostname(), u.Port(), user, u.Opaque) {
-		case Some as c:
-			out = out.Append(c.Value)
-		case None:
-			return InvalidClient{Origin: origin, Reason: "the origin is not valid"}
-		}
+		out = out.Append(try parseOrigin(origin))
 	}
 	out
 }
