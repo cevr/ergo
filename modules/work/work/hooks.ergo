@@ -295,7 +295,7 @@ func branchProblem(t Tool, w Workspace) string {
 	if w.Branch == "" || branch != w.Branch {
 		return "\(why); found " + (if branch == "" { "detached HEAD or unreadable branch" } else { branch })
 	}
-	let ref = t.vcs.Ref(w.Path, "refs/heads/" + w.Branch) catch {
+	let ref = t.vcs.Ref(w.Path, "refs/heads/"+w.Branch) catch {
 	case VcsFailed as e:
 		return "\(why); \(e.Reason)"
 	}

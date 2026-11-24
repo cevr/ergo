@@ -306,7 +306,7 @@ law RetryKeepsFirstStderr() {
 law SuccessfulRmThatLeavesThePathIsAFailure() {
 	let root = "/old dir"
 	let run = exec.Script{Results: Map[string, exec.Result]{
-		exec.Key(exec.New("test", []string{"-e", root})): exec.Result{Status: 0, Stdout: "", Stderr: ""},
+		exec.Key(exec.New("test", []string{"-e", root})):      exec.Result{Status: 0, Stdout: "", Stderr: ""},
 		exec.Key(exec.New("rm", []string{"-rf", "--", root})): exec.Result{Status: 0, Stdout: "", Stderr: ""},
 	}}
 	Discard(New(run, func(name string) string { "/bin/" + name }), "copy", root) catch {
@@ -338,10 +338,10 @@ func discarded(t Trees, who string, root string, r exec.Result) fails work.Clone
 // names its command, status, and target; an error with stderr keeps it.
 law DiscardNamesTheFailedCommand(n int, silent bool) {
 	let root = "/test/old dir"
-	let status = if n % 2 == 0 { 1 } else { 137 }
+	let status = if n%2 == 0 { 1 } else { 137 }
 	let stderr = if silent { " \n" } else { "write denied\n" }
 	let run = exec.Script{Results: Map[string, exec.Result]{
-		exec.Key(exec.New("test", []string{"-e", root})): exec.Result{Status: 0, Stdout: "", Stderr: ""},
+		exec.Key(exec.New("test", []string{"-e", root})):      exec.Result{Status: 0, Stdout: "", Stderr: ""},
 		exec.Key(exec.New("rm", []string{"-rf", "--", root})): exec.Result{Status: status, Stdout: "", Stderr: stderr},
 	}}
 	Discard(New(run, func(name string) string { "/bin/" + name }), "copy", root) catch {

@@ -129,7 +129,7 @@ func appendLine(r Registry, line string) fails work.Unkept {
 func appendChecked(r Registry, text string, versioned bool, line string) fails work.Unkept {
 	if !versioned || !strings.HasSuffix(text, "\n") {
 		let complete = strings.Slice(text, 0, strings.LastIndex(text, "\n")+1)
-		try replace(r, (if versioned { "" } else { formatLine(r.writer) }) + complete + line)
+		try replace(r, (if versioned { "" } else { formatLine(r.writer) })+complete+line)
 		return
 	}
 	r.writes.AppendFile(r.path, line) catch {
@@ -147,7 +147,7 @@ func appendChecked(r Registry, text string, versioned bool, line string) fails w
 // its journal, even if each individual workspace row has the same shape.
 let RegistryFormat = "1"
 
-func formatLine(writer string) string { "format\t"+RegistryFormat+"\t"+strconv.Quote(writer)+"\n" }
+func formatLine(writer string) string { "format\t" + RegistryFormat + "\t" + strconv.Quote(writer) + "\n" }
 
 func checkFormat(text string) bool fails work.Unkept {
 	let end = strings.IndexByte(text, '\n')
@@ -274,35 +274,53 @@ func bad(i int, why string) work.Unkept { work.Unkept{Reason: "registry line \(i
 test RegistryFormatFencesEveryOperation {
 	let r = NewRegistry()
 	let writer = "work future-commit built tomorrow"
-	let text = "format\t99\t"+strconv.Quote(writer)+"\nnot-a-known-record\n"
+	let text = "format\t99\t" + strconv.Quote(writer) + "\nnot-a-known-record\n"
 	try r.writes.WriteFile(r.path, text)
 	let row = work.Workspace{Name: "one", Path: "/one", Parent: "/base", Branch: "one", Cloner: "", State: work.Active, Since: 1, Base: "", Latest: "", Id: "id-one", Deps: "", Token: "", Moving: "", Pinned: false, Until: 0}
 	let diagnostic = func(reason string) bool {
 		strings.Contains(reason, "format 99") && strings.Contains(reason, writer) && strings.Contains(reason, "use Work") && !strings.Contains(reason, "not-a-known-record")
 	}
 	let list = func() bool {
-		let _ = r.All() catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		let _ = r.All() catch {
+		case work.Unkept as e:
+			return diagnostic(e.Reason)
+		}
 		false
 	}
 	let tombs = func() bool {
-		let _ = r.Tombs() catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		let _ = r.Tombs() catch {
+		case work.Unkept as e:
+			return diagnostic(e.Reason)
+		}
 		false
 	}
 	assert list() && tombs()
 	let put = func() bool {
-		r.Put(row) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		r.Put(row) catch {
+		case work.Unkept as e:
+			return diagnostic(e.Reason)
+		}
 		false
 	}
 	let drop = func() bool {
-		r.Drop(row.Name) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		r.Drop(row.Name) catch {
+		case work.Unkept as e:
+			return diagnostic(e.Reason)
+		}
 		false
 	}
 	let bury = func() bool {
-		r.Bury(row.Name, 5) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		r.Bury(row.Name, 5) catch {
+		case work.Unkept as e:
+			return diagnostic(e.Reason)
+		}
 		false
 	}
 	let compact = func() bool {
-		r.Compact(0) catch { case work.Unkept as e: return diagnostic(e.Reason) }
+		r.Compact(0) catch {
+		case work.Unkept as e:
+			return diagnostic(e.Reason)
+		}
 		false
 	}
 	assert put() && drop() && bury() && compact()
