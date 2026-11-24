@@ -952,6 +952,7 @@ func (e *encoder) encFieldsContext(v *check.Context) {
 	e.encT140(v.Entries)
 	e.encT141(v.Overrides)
 	e.encPtrNamed(v.TestAmbient)
+	e.encPtrNamed(v.TestLoopback)
 	e.encT14(*f.F_headerRead)
 }
 
@@ -12310,6 +12311,7 @@ func (d *decoder) decFieldsContext(v *check.Context) {
 	v.Entries = d.decT140()
 	v.Overrides = d.decT141()
 	v.TestAmbient = d.decPtrNamed()
+	v.TestLoopback = d.decPtrNamed()
 	*f.F_headerRead = d.decT14()
 }
 

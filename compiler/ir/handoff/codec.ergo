@@ -1,0 +1,247 @@
+// Package handoff reads and writes the compiler's checked-package image.
+import compiler/ir
+import dense
+import sha256
+import slices
+import strings
+
+// UnknownVersion is a recognized checked package with a schema version
+// this reader does not speak. No section of that version is interpreted.
+type UnknownVersion { Version uint32 }
+
+// Malformed identifies a refused relation by section and zero-based row.
+// A section or row of -1 describes the framing rather than a row.
+type Malformed { Section int, Row int, Why string }
+
+type section { start int, count int }
+
+// Image is one structurally validated wire value. Its sections borrow
+// immutable text; Decode builds no second tree or word pool.
+type Image { wire string, dir []section }
+
+// Draft is a producer's dense columns and interned text pool. Columns
+// contains HandoffSections-1 entries in ordinal order. It is not retained
+// by Pack. Unchecked or noncanonical input never becomes an Image.
+type Draft { Columns [][]uint32, Text string }
+
+let prefix = 12
+let header = prefix + ir.HandoffSections*4
+
+func le(v uint32) string {
+	let mut b = strings.NewBuilder()
+	put32(&b, v)
+	b.String()
+}
+
+func put32(b mut strings.Builder, v uint32) {
+	b.WriteByte(byte(v & 255))
+	b.WriteByte(byte((v >> 8) & 255))
+	b.WriteByte(byte((v >> 16) & 255))
+	b.WriteByte(byte(v >> 24))
+}
+
+func u32(s string, at int) uint32 {
+	uint32(s[at]) | uint32(s[at+1])<<8 | uint32(s[at+2])<<16 | uint32(s[at+3])<<24
+}
+
+func bad(s int, r int, why string) Malformed { Malformed{Section: s, Row: r, Why: why} }
+
+// Pack encodes the producer's columns and checks the result with exactly
+// the same admission rules as Decode.
+func Pack(d Draft) Image fails Malformed {
+	if len(d.Columns) != ir.HText || len(d.Text) > ir.HandoffMaxBytes-header {
+		return bad(-1, -1, "column directory or size")
+	}
+	let mut size = header + len(d.Text)
+	for s, col in d.Columns {
+		let w = ir.HandoffWidth(s)
+		if len(col)%w != 0 || len(col) > (ir.HandoffMaxBytes-size)/4 {
+			return bad(s, -1, "column width or size")
+		}
+		size = size + len(col)*4
+	}
+	let mut b = strings.NewBuilder()
+	b.Grow(size)
+	b.WriteString(ir.HandoffMagic)
+	put32(&b, ir.HandoffVersion)
+	for s, col in d.Columns {
+		put32(&b, uint32(len(col)/ir.HandoffWidth(s)))
+	}
+	put32(&b, uint32(len(d.Text)))
+	writeColumns(&b, d.Columns)
+	b.WriteString(d.Text)
+	try decodeV1(b.String())
+}
+
+func writeColumns(b mut strings.Builder, columns [][]uint32) {
+	for col in columns {
+		for v in col {
+			put32(b, v)
+		}
+	}
+}
+
+// Encode returns the canonical bytes for the validated image.
+func Encode(p Image) string { p.wire }
+
+// Digest covers the entire image, including the version, import identities
+// and body words. A build key also includes producer and backend identity.
+func Digest(p Image) string { sha256.Sum(p.wire) }
+
+// Decode checks the magic and version before it reads a V1 section. The
+// recognized prefix is enough to refuse an unknown version by type.
+func Decode(s string) Image fails UnknownVersion | Malformed {
+	if len(s) < prefix || s[0:8] != ir.HandoffMagic {
+		return bad(-1, -1, "magic or truncated version")
+	}
+	let v = u32(s, 8)
+	if v != ir.HandoffVersion {
+		return UnknownVersion{Version: v}
+	}
+	try decodeV1(s)
+}
+
+law UnknownVersionIsRefused(v uint32) {
+	let x = v | uint32(0x80000000)
+	let _ = Decode(ir.HandoffMagic + le(x)) catch {
+	case UnknownVersion as e:
+		return e.Version == x
+	case Malformed:
+		return false
+	}
+	false
+}
+
+func decodeV1(s string) Image fails Malformed {
+	if len(s) < header || len(s) > ir.HandoffMaxBytes {
+		return bad(-1, -1, "image size")
+	}
+	let mut dir = slices.WithCapacity[section](ir.HandoffSections)
+	let mut at = header
+	for i in 0..ir.HandoffSections {
+		let width = if i == ir.HText { 1 } else { 4 * ir.HandoffWidth(i) }
+		let n = u32(s, prefix+i*4)
+		if n > uint32((len(s)-at)/width) {
+			return bad(i, -1, "section extends past end")
+		}
+		dir = dir.Append(section{start: at, count: int(n)})
+		at = at + int(n)*width
+	}
+	if at != len(s) || dir[ir.HPackage].count != 1 {
+		return bad(-1, -1, "trailing bytes or package row count")
+	}
+	let p = Image{wire: s, dir: dir}
+	try validate(p)
+	p
+}
+
+// Rows is the count of a section of a validated image; zero for an
+// ordinal outside the schema.
+func Rows(p Image, s int) int {
+	if s < 0 || s >= len(p.dir) { 0 } else { p.dir[s].count }
+}
+
+func word(p Image, s int, i int, col int) uint32 {
+	let r = p.dir[s]
+	u32(p.wire, r.start+(col*r.count+i)*4)
+}
+
+// Word projects a checked column value. Section, row and column are
+// zero-based. Text is read with Name, not with Word.
+func Word(p Image, s int, i int, col int) Option[uint32] {
+	if s < 0 || s >= ir.HText || i < 0 || i >= Rows(p, s) || col < 0 || col >= ir.HandoffWidth(s) {
+		return None
+	}
+	Some[uint32]{Value: word(p, s, i, col)}
+}
+
+func ref(p Image, s int, v uint32) bool { v > 0 && v <= uint32(Rows(p, s)) }
+
+func text(p Image, i int) string {
+	let lo = if i == 0 { 0 } else { int(word(p, ir.HNames, i-1, 0)) }
+	let hi = int(word(p, ir.HNames, i, 0))
+	let base = p.dir[ir.HText].start
+	p.wire[base+lo : base+hi]
+}
+
+// Name reads a wire name reference (one-based). Wrong or absent ids
+// produce None; the image's sorted interned names are nonempty.
+func Name(p Image, id uint32) Option[string] {
+	if !ref(p, ir.HNames, id) {
+		return None
+	}
+	Some[string]{Value: text(p, int(id)-1)}
+}
+
+// NameAt uses the name pool's typed id inside the compiler.
+func NameAt(p Image, id ir.HandoffRef[dense.Str]) Option[string] { Name(p, ir.HandoffWord(id)) }
+
+func roundTrips(seed uint32) bool {
+	let d = specimen(seed)
+	let p = Pack(d) catch {
+	case Malformed:
+		return false
+	}
+	let q = Decode(Encode(p)) catch {
+	case Malformed, UnknownVersion:
+		return false
+	}
+	let bytes = Encode(p)
+	if Encode(q) != bytes || bytes[0:16] != "ERGOEIR\n\x01\x00\x00\x00\x01\x00\x00\x00" {
+		return false
+	}
+	for s, col in d.Columns {
+		let width = ir.HandoffWidth(s)
+		let count = len(col) / width
+		if Rows(q, s) != count {
+			return false
+		}
+		for j, v in col {
+			if Word(q, s, j%count, j/count) != (Some[uint32]{Value: v}) {
+				return false
+			}
+		}
+	}
+	let mut names = dense.NewCount[dense.Str]()
+	for _ in 0..10 {
+		let _ = names.Next()
+	}
+		NameAt(q, ir.HandoffID(names.Next())) == Some[string]{Value: "main.ergo"} &&
+		Word(q, ir.HInit, 0, 0) == Some[uint32]{Value: uint32(4)} &&
+		Word(q, ir.HInit, 1, 0) == Some[uint32]{Value: uint32(3)}
+}
+
+law ImageRoundTrips(seed uint32) { roundTrips(seed) }
+
+law BodyBytesChangeTheDigest(seed uint32) {
+	let before = sample(seed) catch {
+	case Malformed:
+		return false
+	}
+	let after = sample(seed ^ uint32(1)) catch {
+	case Malformed:
+		return false
+	}
+	Digest(before) != Digest(after)
+}
+
+law SectionLengthsCannotWrap(seed uint32) {
+	let p = sample(seed) catch {
+	case Malformed:
+		return false
+	}
+	let bytes = Encode(p)
+	let at = prefix + ir.HTypes*4
+		refuses(bytes[0:at]+le(uint32(0xffffffff))+bytes[at+4:len(bytes)], ir.HTypes) &&
+		refuses(bytes[0:len(bytes)-1], ir.HText) && refuses(bytes+"x", -1)
+}
+
+func refuses(bytes string, s int) bool {
+	let _ = Decode(bytes) catch {
+	case Malformed as m:
+		return m.Section == s
+	case UnknownVersion:
+		return false
+	}
+	false
+}

@@ -46,6 +46,8 @@ An entry defines a term and carries no status; a construct's status is in [docs/
 
 **Test's ambient**: The prelude capability `TestAmbient`, the authority a test has to reach the host, confined to a fresh folder per case. Its one provider is the test runner, for a named context whose header says `needs TestAmbient`, built by a `with` in a test or by a law case; the runner removes the folder when the case ends. Its providers, `fs.NewTestHost`, `exec.NewTestHost` and `os.NewTestHost`, refuse a path out of the folder with their `Denied`. It is never the host's `Ambient`, which a test never holds. See [rows](docs/spec/rows.md#tests-ambient).
 
+**Test loopback**: The prelude capability `TestLoopback`, the test runner's separate grant to a named context to open TCP listeners and connections on the literals `127.0.0.1` and `::1` only. It does not grant access to the case's folder or to unrestricted host I/O. See [rows](docs/spec/rows.md#test-loopback).
+
 **Host package**: A reviewed standard-library package, such as `os`, `fs`, `net` or `sql`, that calls Go. Only host packages and `import go` reach the host, so every effect appears in some footprint. Its host provider `Host` has construction authority, and its one constructor `NewHost` needs `Ambient`.
 
 **Error type**: A named struct type that an error row names: in a package, one named by an error row of that package or of the package that declares it. Returning a value of an error type is a failure, never an ordinary result.
