@@ -3,27 +3,6 @@ import compiler/check/load
 import compiler/check/store
 import compiler/lower
 
-// callUnits indexes only unambiguous loaded units. Unlike the source
-// inventory, summaries are indexed by a declaration row in a particular
-// typing. Equal paths (even of equal file lists) do not prove equal rows.
-func callUnits(p load.Program) Map[string, int] {
-	let mut byPath = Map[string, int]{}
-	for i, dep in p.Loaded {
-		let at = if byPath.Get(dep.Path) == None { i } else { -1 }
-		byPath = byPath.Put(dep.Path, at)
-	}
-	byPath
-}
-
-func exactCallUnit(exact Map[string, int], path string) int {
-	match exact.Get(path) {
-	case Some[int] as at:
-		at.Value
-	case None:
-		-1
-	}
-}
-
 // callOrder walks the exact import graph once. Ready imports are visited
 // first, with input-ordered roots and edges. Cycles and packages transitively
 // blocked by a cycle are typed in input order without importing or publishing
@@ -43,7 +22,7 @@ func orderCalls(p load.Program, exact Map[string, int]) CallOrder {
 			paths = paths.Append("prelude")
 		}
 		for path in paths {
-			let at = exactCallUnit(exact, path)
+			let at = exactLoadedUnit(exact, path)
 			if at >= 0 {
 				users[at] = users[at].Append(i)
 				pending[i] = pending[i] + 1
@@ -81,7 +60,7 @@ func orderCalls(p load.Program, exact Map[string, int]) CallOrder {
 func directCallFacts(deps []expr.Dep, exact Map[string, int], summaries []Option[lower.CallFacts]) []lower.ImportCallFacts {
 	let mut out = []lower.ImportCallFacts{}
 	for d in deps {
-		let at = exactCallUnit(exact, d.Path)
+		let at = exactLoadedUnit(exact, d.Path)
 		if at >= 0 {
 			match summaries[at] {
 			case Some[lower.CallFacts] as proven:

@@ -3,6 +3,26 @@ import compiler/check/load
 import compiler/check/store
 import slices
 
+// exactLoadedUnits indexes only unambiguous loaded units. Equal paths
+// (even of equal file lists) do not prove equal declaration rows.
+func exactLoadedUnits(p load.Program) Map[string, int] {
+	let mut byPath = Map[string, int]{}
+	for i, dep in p.Loaded {
+		let at = if byPath.Get(dep.Path) == None { i } else { -1 }
+		byPath = byPath.Put(dep.Path, at)
+	}
+	byPath
+}
+
+func exactLoadedUnit(exact Map[string, int], path string) int {
+	match exact.Get(path) {
+	case Some[int] as at:
+		at.Value
+	case None:
+		-1
+	}
+}
+
 // importUnits indexes the loaded stores by import path, preserving
 // LoadAll's order. A corpus can list the same source package twice, but a
 // path with two different source sets cannot prove a root's inventory.
@@ -31,6 +51,40 @@ func hasSources(dep expr.Dep) bool {
 		}
 	}
 	true
+}
+
+// shapeImports is the declaration inventory of a unit, including a
+// non-root. Follow exact loaded edges only: a missing, ambiguous or
+// unparsed unit proves neither its own declarations nor its imports.
+// An unavailable edge does not invalidate the other reachable stores.
+func shapeImports(p load.Program, unit int, exact Map[string, int]) Map[string, expr.Dep] {
+	let source = p.Loaded[unit]
+	let mut deps = Map[string, expr.Dep]{}
+	if !hasSources(source) {
+		return deps
+	}
+	let mut paths = store.ImportPaths(source.S)
+	if source.Path != "prelude" {
+		paths = paths.Append("prelude")
+	}
+	let mut i = 0
+	for i < len(paths) {
+		let path = paths[i]
+		i = i + 1
+		if path == source.Path || deps.Get(path) != None {
+			continue
+		}
+		let at = exactLoadedUnit(exact, path)
+		if at < 0 || !hasSources(p.Loaded[at]) {
+			continue
+		}
+		let dep = p.Loaded[at]
+		deps = deps.Put(dep.Path, dep)
+		for imported in store.ImportPaths(dep.S) {
+			paths = paths.Append(imported)
+		}
+	}
+	deps
 }
 
 // rootImports is the root's read-only import closure. ImportPaths is
