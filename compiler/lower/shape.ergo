@@ -18,9 +18,21 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 	if basic != "" {
 		return basic
 	}
-	if store.KindOfType(st.s, t) == store.KSlice {
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KSlice {
 		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[0], trail)
 		return if elem == "" { "" } else { "[]" + elem }
+	}
+	if kind == store.KMap {
+		let kv = store.OperandsOf(st.s, t)
+		let key = shapeWithin(st, kv[0], trail)
+		// intMap's integer-key decision is program-wide and may change
+		// after a refused body. Basic non-integer keys are always native.
+		if key == "" || nativeMapKey(st, kv[0]) == false {
+			return ""
+		}
+		let elem = shapeWithin(st, kv[1], trail)
+		return if elem == "" { "" } else { "map[" + key + "]" + elem }
 	}
 	match importedShapeOf(st, t, trail.deps) {
 	case Some{Value: imported}:
@@ -47,6 +59,11 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 		return ""
 	}
 	recordShape(st, t, rec.Fields, gt, trail)
+}
+
+func nativeMapKey(st fnb, t dense.ID[store.TKey]) bool {
+	let basic = basicGo(st, t)
+	basic == "bool" || basic == "string" || basic == "float32" || basic == "float64"
 }
 
 func recordShape(st fnb, t dense.ID[store.TKey], fields []expr.Field, gt string, trail shapeTrail) string {
