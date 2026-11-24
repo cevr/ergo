@@ -1274,6 +1274,7 @@ case unused internal/selfhostcheck/testdata/bind/port_calls.ergo
 case unused internal/selfhostcheck/testdata/bind/port_control.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame_fails.ergo
+case unused internal/selfhostcheck/testdata/bind/port_frame_results.ergo
 case unused internal/selfhostcheck/testdata/bind/port_shapes.ergo
 case unused internal/selfhostcheck/testdata/bind/port_union.ergo
 case unused internal/selfhostcheck/testdata/bind/port_unit.ergo
