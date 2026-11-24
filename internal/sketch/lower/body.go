@@ -175,6 +175,7 @@ type funcCtx struct {
 	// static is the known witness of a copy for one (witspec.go): its
 	// operations are called directly.
 	static map[*check.TypeParam]*check.Witness
+	claims map[*check.TypeParam]bool
 	// header counts the statement headers being lowered (header.go): inside
 	// one, a composite literal of the TypeName form is parenthesized.
 	header int

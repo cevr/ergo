@@ -435,6 +435,9 @@ func (in *inferer) declaredInstance(op, v Type) Type {
 			return d
 		}
 	}
+	if g, m := in.c.functionClaim(v, opn.origin()); g != nil {
+		return in.c.subst(g.role, m)
+	}
 	return nil
 }
 

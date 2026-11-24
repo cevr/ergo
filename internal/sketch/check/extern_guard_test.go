@@ -108,6 +108,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"ContextDecl.Fails":    {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nlet W = context fails @Upper { C: P }\n"},
 	"ContextLit.Fails":     {guardType, "type C { M() }\ntype P {} implements C\nfunc M(_ P) {}\nfunc main() {\n\twith context fails @Upper { C: P } { C.M() }\n}\n"},
 	"Field.Type":           {guardType, "func f(x @Upper) {}\n"},
+	"FuncDecl.Implements":  {guardType, "func f(_ []int) implements @Upper {}\n"},
 	"FuncDecl.Type":        {guardType, "func f(x @Upper) {}\n"},
 	"FuncLit.Type":         {guardType, "func main() {\n\t_ = func(x @Upper) {}\n}\n"},
 	"InterfaceType.Union":  {guardType, "type A {}\ntype U = A | @Upper\n"},

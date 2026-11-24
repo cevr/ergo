@@ -83,9 +83,10 @@ type Pkg {
 	// bind declares it.
 	Parses []ParseName,
 	// Claims are implements clauses at their declaration's parameters.
-	Claims []Claim,
-	Roles  []types.Role,
-	Deps   []Dep,
+	Claims              []Claim,
+	FunctionClaimIssues []types.ClaimIssue,
+	Roles               []types.Role,
+	Deps                []Dep,
 	// Unions is the unions a call's inference may meet, the package's
 	// and its imports' (types.UnionsOf).
 	Unions infer.Unions,
@@ -424,9 +425,16 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	let roles = if len(parsed) == 0 { []types.Role{} } else { types.Roles(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) }
 	types.ImportClaimLayouts(s, deps)
 	let claims = claimsOf(s, parsed, kinds, ext, foreign, deps, roles)
+	types.ImportFunctionClaims(s, deps, foreign)
+	let solved = types.SolveFuncKinds(*s, parsed, ext, kinds)
+	let functionClaims = if len(parsed) != 0 {
+		types.FunctionClaimFacts(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps), roles, solved)
+	} else {
+		[]types.ClaimIssue{}
+	}
 	let mut fns = []Fn{}
 	let closers = closerNames(parsed)
-	for f in types.SolveFuncKinds(*s, parsed, ext, kinds) {
+	for f in solved {
 		let p = parsed[f.File]
 		match syntax.ViewOf(p.Tree, f.Decl) {
 		case syntax.FuncDecl as fd:
@@ -595,7 +603,7 @@ func Load(s mut store.Store, files []bind.File, u bind.Uses, ps bind.Parents, ex
 	// The unions a call meets, read once: inference looks one up per
 	// union argument, not per declaration.
 	let unions = if len(parsed) > 0 { types.UnionsOf(s, types.NewEnv(*s, parsed, parsed[0], []string{}, kinds, ext, foreign, deps)) } else { infer.NoUnions() }
-	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Parses: parses, Claims: claims, Roles: roles, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
+	Pkg{Files: files, Parsed: parsed, U: u, Ps: ps, Kinds: kinds, Ext: ext, Foreign: foreign, Ifaces: deps, Fns: fns, Recs: recs, Parses: parses, Claims: claims, FunctionClaimIssues: functionClaims, Roles: roles, Deps: []Dep{}, Unions: unions, fnBy: fnBy, named: named, sameName: sameName, recBy: recBy}
 }
 
 // parseFn is the parse function the refined type named at the package

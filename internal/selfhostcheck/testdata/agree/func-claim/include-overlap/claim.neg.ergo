@@ -1,0 +1,15 @@
+type Base { Count() int }
+type Left {
+	..Base,
+	A() bool,
+}
+type Right {
+	..Base,
+	B() bool,
+}
+
+func Count(xs []int) int implements Left { len(xs) }
+func A(xs []int) bool implements Left    { len(xs) != 0 }
+
+func Count(xs []int) int implements Right { 1 + len(xs) }
+func B(xs []int) bool implements Right    { len(xs) == 0 }

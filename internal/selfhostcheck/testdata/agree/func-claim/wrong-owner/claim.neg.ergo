@@ -1,0 +1,3 @@
+import functionclaims/roles
+
+func Size(xs []int) int implements roles.Sized { len(xs) }
