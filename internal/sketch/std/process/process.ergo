@@ -2,20 +2,21 @@
 // one typed value, never the caller's crash (docs/spec/stdlib.md, Process).
 // A defect of the block is the typed failure Crashed, and a block that
 // outlives its time limit is stopped, its cleanup run, and fails OverTime.
-// It is plain Ergo over task.Go, task.ExitOf and timeout.After.
+// It is plain Ergo over task.Go, task.StopAfter and task.ExitOf: one
+// child task, and for a time limit one alarm on the Scheduler's clock.
 
 import queue
 import scope
 import strings
 import task
 import time
-import timeout
 
 // Limits bound one process. A zero field is no bound. Build one from
 // Unlimited, so a bound added later leaves the literal valid:
 // process.Limits{..process.Unlimited, Time: 2s}.
 type Limits {
-	// Time is the longest the block may run, on the Scheduler.
+	// Time is the longest the block may run, on the Scheduler. A
+	// nonpositive Time sets no deadline.
 	Time duration,
 }
 
@@ -43,42 +44,23 @@ type Exit = OverTime | Crashed
 // own: a generic body cannot yet release a resource value it drops
 // (GEN9-GAP42), so a block gives plain data.
 func Run[A, E, R](l Limits, f own func() A fails E needs R) A fails E | OverTime | Crashed needs R | Scheduler {
-	let t = task.Go() { try settle(l, f) }
-	match task.ExitOf(t) {
-	case task.Done[attempt[A, E]] as d:
-		match d.Value {
-		case gave[A] as g:
-			g.Value
-		case raised[E] as r:
-			return r.Error
-		}
-	case task.Failed[timeout.Expired]:
-		return OverTime{Limit: l.Time}
+	let t = task.Go() { try f() }
+	let exit = if l.Time > 0ns {
+		let limit task.Alarm = task.StopAfter(t, l.Time)
+		task.ExitOf(t)
+	} else {
+		task.ExitOf(t)
+	}
+	match exit {
+	case task.Done[A] as d:
+		d.Value
+	case task.Failed[E] as e:
+		return e.Error
 	case task.Defected as c:
 		return Crashed{Reason: c.Reason}
+	case task.Stopped:
+		return OverTime{Limit: l.Time}
 	}
-}
-
-// attempt is f's end as a value: its value or its typed failure. It
-// keeps f's own failures apart from the time limit's timeout.Expired,
-// which f may fail with too.
-type attempt[A, E] = gave[A]{Value A} | raised[E]{Error E}
-
-// settle runs f under l's time limit, on the process's task.
-func settle[A, E, R](l Limits, f own func() A fails E needs R) attempt[A, E] fails timeout.Expired needs R | Scheduler {
-	if l.Time > 0s {
-		return try timeout.After(l.Time) { tried(f) }
-	}
-	tried(f)
-}
-
-// tried is f's end as an attempt.
-func tried[A, E, R](f own func() A fails E needs R) attempt[A, E] needs R {
-	let v = f() catch {
-	case err:
-		return raised[E]{Error: err}
-	}
-	gave[A]{Value: v}
 }
 
 // Runner is the contract of a process provider: Play runs a script, data
@@ -120,9 +102,10 @@ type Runner {
 	},
 
 	// TimeIsExpired: on a manual clock, a block that waits w ms under a
-	// limit of t ms gives its value when w < t, and fails OverTime at t,
-	// its exit actions run, when w > t (time is the input; a tie is
-	// either).
+	// limit of t ms gives its value when w <= t, and fails OverTime at t,
+	// its exit actions run, when w > t (time is the input). A tie gives
+	// the value: the limit's alarm acts after every other event of its
+	// instant, so the block's sleep wakes first (task.StopAfter).
 	law TimeIsExpired(w int, t int, k int) {
 		let wait = 1 + ((w % 20) + 20) % 20
 		let limit = 1 + ((t % 20) + 20) % 20
@@ -131,7 +114,7 @@ type Runner {
 		let r = timed(func(on Scheduler) Report needs Runner { Play(l, Script{Cleanups: n, Waits: time.Times(1ms, wait), End: Gives{Value: 1}}, on) })
 		let gave = agrees(r, Report{Ended: Gives{Value: 1}, Cleaned: n})
 		let over = agrees(r, Report{Ended: OverTime{Limit: l.Time}, Cleaned: n})
-		r.Cleaned == n && (if wait < limit { gave } else if wait > limit { over } else { gave || over })
+		r.Cleaned == n && (if wait <= limit { gave } else { over })
 	},
 
 	// CleanupRunsBeforeReturn: whatever ends the process (value, failure,
@@ -160,7 +143,7 @@ type Runner {
 			x = next(x)
 			let s = drawn(x)
 			x = next(x)
-			let l = drawnLimits(x, s)
+			let l = drawnLimits(x)
 			let r = timed(func(on Scheduler) Report needs Runner { Play(l, s, on) })
 			let m = expected(l, s)
 			agree = agree && agrees(r, m)
@@ -276,11 +259,11 @@ func drawn(x int) Script {
 	Script{Cleanups: c, Waits: time.Times(1ms, w), End: end}
 }
 
-// drawnLimits are limits drawn from x for s: no time limit, or one that
-// never ties with s's wait.
-func drawnLimits(x int, s Script) Limits {
+// drawnLimits are limits drawn from x: no time limit, or one of 1 to 6
+// ms, which may tie with a script's wait (a tie gives the value).
+func drawnLimits(x int) Limits {
 	let t = (x / 13) % 7
-	if t == 0 || time.Times(1ms, t) == s.Waits {
+	if t == 0 {
 		return Unlimited
 	}
 	Limits{..Unlimited, Time: time.Times(1ms, t)}

@@ -1,0 +1,25 @@
+{
+  "about": "Manifest line and finish contracts. A malformed ordinary line remains a typed BadLine; finishing returns all data accumulated by line steps.",
+  "mutants": [
+    {
+      "name": "nou-end-loses-result",
+      "origin": "wf10 NOU-MACHINE-STEP; not-run-crunch",
+      "file": "examples/deps/manifest/manifest.ergo",
+      "from": "\tm\n}\n\n// decide",
+      "to": "\tManifest{..m, Root: []resolve.Requirement{}}\n}\n\n// decide",
+      "rule": "Finish returns the accumulated manifest, including the project's requirements, through the narrow callable contract.",
+      "anchor": {"tests": ["examples/deps/manifest:LineAndFinishHaveSeparateContracts"]},
+      "killers": ["examples/deps/manifest:LineAndFinishHaveSeparateContracts"]
+    },
+    {
+      "name": "nou-step-suppresses-reject",
+      "origin": "wf10 NOU-MACHINE-STEP; not-run-crunch",
+      "file": "examples/deps/manifest/manifest.ergo",
+      "from": "BadLine{No: l.No, Text: l.Text, Reason: \"a needs line belongs under a project or package line\"}",
+      "to": "(b, Skipped)",
+      "rule": "A needs line before the first project/package is a typed BadLine with the original line number, not an ignored line.",
+      "anchor": {"tests": ["examples/deps/manifest:BadLinesNameTheirNumber"]},
+      "killers": ["examples/deps/manifest:BadLinesNameTheirNumber"]
+    }
+  ]
+}
