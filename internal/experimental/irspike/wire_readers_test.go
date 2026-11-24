@@ -8,21 +8,12 @@ import (
 	"ergo.local/prototype/internal/sketch/lower"
 )
 
-// TestIRWireReadersMatchSource is PORT-WIRE-READERS R1's and R2a's
-// property: Ev's decoder functions on the prelude's Reader interface
-// (ergoDecode*) and on json's Reader, a direct reader (ergoRead*: a
-// record of basics with narrow integers, a nested record, a list of
-// records, a map, a list of ints, an omittable field, a tagged union,
-// a refined bound, fallible and infallible by-name pairs, and a tuple
-// containing a nullable)
-// take IR bodies.
-// None keeps its text, and each program prints what the source path prints, with the
-// build-time fold on and off. take decodes on the interface and direct on
-// json's Reader itself, so both decoders run on every text.
-// GenerateWireReaders's texts reach every failure the decoder gives (a
-// missing field, the wrong kind, an integer out of its range), an unknown
-// key, a key given twice and a text cut short mid-decode (on a second
-// reader, codec's Replay), and print each failure's value and place.
+// TestIRWireReadersMatchSource checks decoder bodies on both the prelude
+// Reader interface (ergoDecode*) and json's direct reader (ergoRead*).
+// No decoder keeps its text, and the program agrees with the source path
+// with the build-time fold on and off. GenerateWireReaders reaches
+// concrete and generic codecs, introduced wire forms, and failures
+// including texts cut short mid-decode on codec's Replay.
 //
 // Mutants: pwr-reader-text (no decoder takes the IR), pwr-reader-range
 // (the range check of a narrow integer dropped), pwr-reader-skip (an
@@ -38,6 +29,8 @@ import (
 // pwr-r3-tuple-extra-ignored (a tuple ignores trailing elements).
 // The small forms add pwr-r3-own-read-ignored, pwr-r3-bare-null-not-taken,
 // pwr-r3-members-key-lost, pwr-r3-number-text-lost and pwr-r3-append-prefix.
+// pwr-r3-pointer-assertion-unavailable removes pointer assertions; the
+// generic record uses pwr-r3-generic-field-reader-lost.
 //
 // It builds Go because the other side of the agreement is the built
 // program, by both paths.

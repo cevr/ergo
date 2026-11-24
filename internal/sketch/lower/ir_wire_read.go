@@ -1,18 +1,9 @@
 package lower
 
-// IR builder: a codec decoder function on the prelude's Reader
-// (PORT-WIRE-READERS R1) or on a direct reader (wirereader.go; R2a). The
-// text emitter writes it (wireDecodeBody); on the IR path the same
-// function is built here as an IR body, statement for statement, in the
-// supported forms: a basic value, a concrete record or tagged union,
-// a list, a map and a value read by its parser.
-// Each read is
-// the reader's operation as readOp writes it: the Reader interface's
-// method, the task first, or the direct reader type's own function, the
-// reader first; a failure returns as wireDecodeBody's `return zero, err`
-// does, the same value at the same read. Any other form, or a type that
-// holds type parameters, keeps its text body and its census reason
-// "codec reader: <form>" (wireReadForm).
+// IR builder for codec decoder functions. Each read uses the Reader
+// interface's method, the direct reader's function, or a type parameter's
+// codec witness. A failure returns the same value at the same read as
+// wireDecodeBody's `return zero, err`.
 //
 // The text form stays selectable as a test oracle only: wireReadLowering
 // "text" keeps every decoder's text, and goes with the text path.
@@ -41,8 +32,8 @@ func wireReadForms(form string) bool {
 	}
 }
 
-// wireRead builds the decoder name of t on the Reader interface as an IR
-// body and reports whether it did; tc is the decoder's type context.
+// wireRead builds t's decoder as an IR body and reports whether it did;
+// tc is the decoder's type context and selects the reader path.
 func (st *irState) wireRead(l *lowerer, name string, t check.Type, tc *typeCtx, params *namer, site syntax.Node) (ok bool) {
 	// Under a census it builds too: a decoder it takes is not counted as
 	// a text body, one it refuses is, by its reason (codecText).
