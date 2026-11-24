@@ -3,6 +3,7 @@
 
 import regex/syntax
 import regex/engine
+import machines
 import strings
 
 let Fast = context { engine.Engine: Engine }
@@ -53,6 +54,48 @@ test MatchesWholeTexts {
 	assert try matches("a.c", "a\nc")
 	assert try matches("[]|x", "x")
 	assert !try matches("[]", "")
+}
+
+test ByteStepAndEndHaveSeparateResults {
+	let p = Build(syntax.Literal("a"))
+	let at []int = Step(p, Start(p).At, Read{C: 'a'})
+	assert Finish(p, at)
+	for c in []byte{'a', 'z'} {
+		let initial Scan = Start(p)
+		let signals = if c == 'a' { []Signal{Read{C: c}, End} } else { []Signal{Read{C: c}} }
+		match try machines.From(machines.Start(Simulation{}, p), initial, signals) {
+		case machines.Finished[Scan, bool] as f:
+			assert f.Output == (c == 'a')
+		case machines.Running[Scan, bool]:
+			assert false
+		}
+	}
+}
+
+test TaggedEndKeepsCapture {
+	let b = Begin{P: Build(syntax.Group{Name: "A", Of: syntax.Literal("a")}), At: 0, Find: false}
+	let mut r Running = StartTags(b)
+	r.StepTags(Read{C: 'a'})
+	let done Tagged = FinishTags(r)
+	let want = " (A@0 )A@1"
+	match done.Match {
+	case Some[Best] as found:
+		assert syntax.ShowEvents(syntax.Events(found.Value.H)) == want
+	case None:
+		assert false
+	}
+	let initial Tags = StartTags(b)
+	match try machines.From(machines.Start(Tagger{}, b), initial, []Signal{Read{C: 'a'}, End}) {
+	case machines.Finished[Tags, Tagged] as f:
+		match f.Output.Match {
+		case Some[Best] as found:
+			assert syntax.ShowEvents(syntax.Events(found.Value.H)) == want
+		case None:
+			assert false
+		}
+	case machines.Running[Tags, Tagged]:
+		assert false
+	}
 }
 
 // checked is the checked pattern of text.
