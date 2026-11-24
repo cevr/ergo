@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -22,7 +23,7 @@ const stdDir = "internal/sketch/std"
 // the commit, but not ignored build output. It checks a real package once,
 // rather than treating each of its source files as an independent program.
 func inventory(root string) ([]site, error) {
-	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.ergo", "*.txtar")
+	cmd := exec.Command("git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "*.ergo", "*.txtar", "*.go")
 	cmd.Dir = root
 	index, err := cmd.Output()
 	if err != nil {
@@ -30,6 +31,7 @@ func inventory(root string) ([]site, error) {
 	}
 	dirs := map[string]map[string]string{}
 	var all []site
+	var broken []error
 	for _, file := range strings.Split(string(index), "\x00") {
 		if file == "" {
 			continue
@@ -40,6 +42,17 @@ func inventory(root string) ([]site, error) {
 		}
 		if err != nil {
 			return nil, err
+		}
+		if path.Ext(file) == ".go" {
+			// Decode before looking for a name: adjacent literals, escape
+			// sequences and raw strings can all carry fixture source.
+			sites, err := embeddedSites(file, string(data))
+			if err != nil {
+				broken = append(broken, err)
+				continue
+			}
+			all = append(all, sites...)
+			continue
 		}
 		if !bytes.Contains(data, []byte(legacyName)) {
 			continue
@@ -82,7 +95,7 @@ func inventory(root string) ([]site, error) {
 			}
 		}
 	}
-	return all, nil
+	return all, errors.Join(broken...)
 }
 
 func checkedFiles(root, dir string, cache *sketchfront.CheckCache) (map[string]*syntax.File, *check.Package, error) {

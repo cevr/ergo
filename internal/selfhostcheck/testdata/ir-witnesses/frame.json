@@ -1,0 +1,4 @@
+[
+  {"fixture": "port_frame.ergo", "declaration": "func UseMeter(", "symbol": "UseMeter"},
+  {"fixture": "port_frame.ergo", "declaration": "func UseMeterOn(", "symbol": "MeterOwner.UseMeterOn"}
+]

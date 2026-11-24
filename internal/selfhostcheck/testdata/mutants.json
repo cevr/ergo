@@ -1078,6 +1078,36 @@
       ]
     },
     {
+      "name": "lower-frame-env-before-receiver",
+      "origin": "wf10/selfhost/S4-PORT FRAME-1 (not-run-crunch)",
+      "file": "compiler/lower/frame.ergo",
+      "from": "let env = if method { 1 } else { 0 }",
+      "to": "let env = if method { 0 } else { 1 }",
+      "rule": "The environment follows a Go receiver; a receiver-free function takes it first (UseMeterOn and UseMeter).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-operation-site-poll-late",
+      "origin": "wf10/selfhost/S4-PORT FRAME-1 (not-run-crunch)",
+      "file": "compiler/lower/effects.ergo",
+      "from": "[]uint32{poll, def}",
+      "to": "[]uint32{def, poll}",
+      "rule": "A provider-operation call checks interruption before evaluating its operands and executing the operation (UseMeter).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-task-argument-last",
+      "origin": "wf10/selfhost/S4-PORT FRAME-1 (not-run-crunch)",
+      "file": "compiler/lower/effects.ergo",
+      "from": "args = args.Append(try value(st, b, a))",
+      "to": "args = []uint32{try value(st, b, a)}.Append(args[0])",
+      "rule": "A provider operation takes the running task before its source arguments (UseMeter).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
       "name": "report-crlf-two-lines",
       "origin": "wf10/selfhost/S5-PURE",
       "file": "compiler/report/report.ergo",

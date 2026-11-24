@@ -91,6 +91,10 @@ type fnb {
 	// call's row to its index in calls plus one (0: none).
 	calls  []expr.CallTo,
 	callAt dense.Side[store.PNode, int],
+	// capAt is the typer's resolved capability by call node.
+	capAt     dense.Side[store.PNode, dense.Opt[store.TKey]],
+	frameRoot bool,
+	frame     framePlan,
 }
 
 // Package builds the IR of every function of the checked package k; paths
@@ -133,6 +137,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for i, c in t.Calls {
 		dense.SideSet(&callAt, c.Call, i+1)
 	}
+	let capAt = capTypes(t.Caps)
 	let mut b = ir.NewBuilder(1)
 	let mut lines = []syntax.Lines{}
 	for p in k.Parsed {
@@ -144,7 +149,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for i, f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{rootImports: imports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt}
+		let mut st = fnb{rootImports: imports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt, capAt: capAt, frameRoot: root && path != "prelude", frame: rowlessFrame(0)}
 		// Read the package-wide columns once, before building any body.
 		// A body that stops during lowering can still have a call proof.
 		if i == 0 {
@@ -500,8 +505,13 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if errs {
 		return stop("signature: fails row")
 	}
-	if uses {
-		return stop("signature: needs row")
+	st.frame = if uses {
+		needsFrame(*st, f, body, name, ops, n) catch {
+		case Unported as u:
+			return stop("signature: needs row / frame: " + u.Cause)
+		}
+	} else {
+		rowlessFrame(n)
 	}
 	// A signature type the slice does not lower stops the function after
 	// its body is checked too, so the stop says what the body would meet
@@ -529,21 +539,25 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	if len(f.Names) != n {
 		return stop("parameter names")
 	}
-	// Go parameter order, a pure function: each parameter its local, an
-	// unnamed one its slot (lower's irState.body).
-	for i in 0..n {
-		match dense.Unpack(f.Names[i]) {
-		case Some[dense.ID[syntax.Node]] as x:
-			st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, x.Value))
-			st.locals = st.locals.Append(i)
-		case None:
-		}
-	}
-	let (lbrace, list, rbrace) = match syntax.ViewOf(p.Tree, body) {
+	parameterSlots(st, f)
+	let (list, rbrace) = match syntax.ViewOf(p.Tree, body) {
 	case syntax.BlockStmt as bl:
-		(bl.Lbrace, bl.List, bl.Rbrace)
+		(bl.List, bl.Rbrace)
 	case _:
 		return stop("body that is no block")
+	}
+	// The direct operation already has a proved one-tail evaluation
+	// order; the ordinary statement planner cannot observe that callee.
+	match st.frame.op {
+	case Some[directOp] as op:
+		try check(*st, op.Value.tail)
+		let gname = try frameName(*st, f, name, ops[0:n], !uses)
+		st.fileIx = ir.FileOf(b, path)
+		let fp = pos(*st, syntax.TokPos(p, d.Func))
+		try ir.Begin(b, gname, fp, pos(*st, syntax.TokPos(p, rbrace)))
+		try frameBody(*st, b, fp, op.Value)
+		return true
+	case None:
 	}
 	let prepared = statements(st, body, list, f.Names, n, ops[n], unit, borrowUnit) catch {
 	case Unported as u:
@@ -563,7 +577,6 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	let roots = try controlEmit(*st, b, prepared, end)
 	let rows = if len(roots) == 0 { uint32(0) } else { ir.List(b, roots) }
 	try ir.End(b, rows)
-	let _ = lbrace
 	true
 }
 
@@ -1133,6 +1146,14 @@ func check(st fnb, x dense.ID[syntax.Node]) fails Unported {
 		try check(st, be.X)
 		try check(st, be.Y)
 	case syntax.CallExpr as ce:
+		match scheduledOp(st, x) {
+		case Some[directOp] as op:
+			for i in 0..syntax.Len(op.Value.args) {
+				try check(st, syntax.Item(p.Tree, op.Value.args, i))
+			}
+			return
+		case None:
+		}
 		match try builtinOf(st, x, ce) {
 		case Some[aBuiltin] as bi:
 			try check(st, bi.Value.arg)
@@ -1209,6 +1230,11 @@ func value(st fnb, b mut ir.Builder, x dense.ID[syntax.Node]) uint32 fails Unpor
 		}
 		e
 	case syntax.CallExpr as ce:
+		match scheduledOp(st, x) {
+		case Some[directOp]:
+			return try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(st.frame.slots)})
+		case None:
+		}
 		// lower's call: the Go function by its name, the operands in order
 		// (each a value with no statements before it), no type arguments;
 		// a method's mcall on its receiver.

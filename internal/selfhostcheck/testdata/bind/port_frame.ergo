@@ -1,0 +1,4 @@
+type Meter { Read(n int) int }
+func UseMeter(n int) int needs Meter { Meter.Read(n) + n }
+type MeterOwner { Offset int }
+func UseMeterOn(x MeterOwner, n int) int needs Meter { Meter.Read(n) + x.Offset }
