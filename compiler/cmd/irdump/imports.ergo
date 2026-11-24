@@ -1,0 +1,78 @@
+import compiler/check/expr
+import compiler/check/load
+import compiler/check/store
+import slices
+
+// importUnits indexes the loaded stores by import path, preserving
+// LoadAll's order. A corpus can list the same source package twice, but a
+// path with two different source sets cannot prove a root's inventory.
+func importUnits(p load.Program, units []load.Unit) Map[string, int] {
+	let mut byPath = Map[string, int]{}
+	for i, dep in p.Loaded {
+		match byPath.Get(dep.Path) {
+		case Some[int] as previous:
+			if previous.Value >= 0 && !slices.Equal(units[p.Units[i]].Paths, units[p.Units[previous.Value]].Paths) {
+				byPath = byPath.Put(dep.Path, -1)
+			}
+		case None:
+			byPath = byPath.Put(dep.Path, i)
+		}
+	}
+	byPath
+}
+
+func hasSources(dep expr.Dep) bool {
+	if len(dep.K.Parsed) == 0 {
+		return false
+	}
+	for parsed in dep.K.Parsed {
+		if parsed.Failed {
+			return false
+		}
+	}
+	true
+}
+
+// rootImports is the root's read-only import closure. ImportPaths is
+// sorted and LoadAll rejoins in input order, so neither the closure's
+// contents nor its order depend on task width. An interface without
+// sources cannot certify that the package has no private declarations.
+func rootImports(p load.Program, root int, available Map[string, int]) Option[[]expr.Dep] {
+	let first = p.Loaded[root]
+	if !hasSources(first) {
+		return None
+	}
+	let mut paths = []string{"prelude"}
+	for path in store.ImportPaths(first.S) {
+		paths = paths.Append(path)
+	}
+	let mut seen = Map[string, bool]{first.Path: true}
+	let mut deps = []expr.Dep{}
+	let mut i = 0
+	for i < len(paths) {
+		let path = paths[i]
+		i = i + 1
+		if seen.Get(path) != None {
+			continue
+		}
+		seen = seen.Put(path, true)
+		let at = match available.Get(path) {
+		case Some[int] as loaded:
+			loaded.Value
+		case None:
+			return None
+		}
+		if at < 0 {
+			return None
+		}
+		let dep = p.Loaded[at]
+		if !hasSources(dep) {
+			return None
+		}
+		deps = deps.Append(dep)
+		for imported in store.ImportPaths(dep.S) {
+			paths = paths.Append(imported)
+		}
+	}
+	Some[[]expr.Dep]{Value: deps}
+}

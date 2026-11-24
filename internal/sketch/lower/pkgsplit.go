@@ -93,6 +93,9 @@ type SplitReport struct {
 	// names IR bodies use that another package declares, which their own
 	// package declares again (pkgsplit_ir.go).
 	IRPackages, IRForeign int
+	// IRExports records the original and exported spellings chosen by the
+	// split that wrote the IR. It is nil when no IR split took place.
+	IRExports map[string]string
 	// Shards counts the Go packages that declaration shards made below
 	// the packages of the program (pkgshard.go).
 	Shards int
@@ -1122,6 +1125,7 @@ func splitMain(u Unit, src []byte, base string, origins map[string]*check.Packag
 		}
 		outFiles = append(outFiles, files...)
 		rep.IRPackages = withIR
+		rep.IRExports = rename
 		for _, names := range irs.uses {
 			rep.IRForeign += len(names)
 		}
