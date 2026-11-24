@@ -696,22 +696,26 @@ func (in *interp) retValue(fr *frame, x syntax.Expr) (Value, *abrupt) {
 	return v, nil
 }
 
-// returnsError reports that x, a returned expression, gives a value of an
-// error type the declared result does not make the success value. Outside
-// a generic body the answer is the same at every return of x: the frame
-// that returns x runs the body that holds x, whose fact owner is x's, so
-// x's facts keep it (ORACLE O34): the checker's IsErrorType ranges over a
-// map of sets.
+// returnsError caches the checker's return decision for the frame's
+// source expression.
 func (in *interp) returnsError(fr *frame, x syntax.Expr) bool {
 	if !fr.forms() || fr.tab == nil {
-		return fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+		return fr.returnIsFailure(x)
 	}
 	f := in.fx(fr, x)
 	if !f.errSeen {
-		f.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+		f.errIs = fr.returnIsFailure(x)
 		f.errSeen = true
 	}
 	return f.errIs
+}
+
+// returnIsFailure reads the checker's decision, not the instantiated type
+// of x. A generic function returning T succeeds even if T is later
+// instantiated with an error type. An absent entry is not a failure.
+func (fr *frame) returnIsFailure(x syntax.Expr) bool {
+	value, recorded := fr.info.ReturnedValues[x]
+	return recorded && !value
 }
 
 // resultExpr retains the chosen tail of a result-position control
@@ -734,25 +738,4 @@ func (in *interp) resultExpr(fr *frame, x syntax.Expr) (Value, *abrupt) {
 		fr.resultPos = origin.Pos()
 	}
 	return v, ab
-}
-
-// isErrorValue reports a value of an error type in this frame's view: the
-// checker's IsErrorType of its package for the body's owner, or of the
-// type's own package (lower/owners.go reads the same facts).
-func (fr *frame) isErrorValue(t check.Type) bool {
-	if u, ok := t.(*check.Union); ok && u.Row != nil {
-		return true
-	}
-	n, ok := t.(*check.Named)
-	if !ok {
-		return false
-	}
-	if n.Orig != nil {
-		n = n.Orig
-	}
-	if fr.pkg.IsErrorType(n, fr.owner) {
-		return true
-	}
-	p := n.Obj.Pkg
-	return p != nil && p != fr.pkg && p.IsErrorType(n, check.OwnerProduction)
 }

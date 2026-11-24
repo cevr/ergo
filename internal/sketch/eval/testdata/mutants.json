@@ -161,10 +161,19 @@
       "name": "returned-error-is-value",
       "origin": "wf10/l7-eval/EV1",
       "file": "internal/sketch/eval/interp.go",
-      "from": "\t\tf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
-      "to": "\t\tf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "from": "\t\tf.errIs = fr.returnIsFailure(x)\n",
+      "to": "\t\tf.errIs = false\n",
       "rule": "Returning a value of an error type is a failure (types.md, Error types 2).",
       "killers": ["internal/sketch/eval:TestEvalAgreesWithReference"]
+    },
+    {
+      "name": "fold-return-rechecks-instantiated-type",
+      "origin": "wf10 FOLD-JSON-DECODE-ROW-CATCH (not-run-crunch)",
+      "file": "internal/sketch/eval/interp.go",
+      "from": "\treturn recorded && !value\n",
+      "to": "\tu, union := fr.rtypeOf(x).t.(*check.Union)\n\treturn (recorded || (union && u.Row != nil)) && !value\n",
+      "rule": "Substituting an error row for an ordinary type parameter does not turn a checked successful return into a failure.",
+      "killers": ["internal/experimental/irspike:TestConstFoldAgrees"]
     },
     {
       "name": "absent-fact-pure",
@@ -1826,8 +1835,8 @@
       "name": "oracle-o37-compiled-error-is-value",
       "origin": "wf10 ORACLE O37",
       "file": "internal/sketch/eval/compile_yield.go",
-      "from": "\t\t\txf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
-      "to": "\t\t\txf.errIs = false && fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]\n",
+      "from": "\t\t\txf.errIs = fr.returnIsFailure(x)\n",
+      "to": "\t\t\txf.errIs = false\n",
       "rule": "A compiled return of a value of an error type is a failure (types.md, Error types 2).",
       "killers": ["internal/sketch/eval:TestPreparedEvalAgrees"]
     },
