@@ -1,0 +1,18 @@
+type TextActions {
+	Apply(f func(v string) string) Self,
+	Inspect() string,
+
+	law ApplyTwice(x Self, f func(v string) string) {
+		x.Apply(f).Apply(f).Inspect()
+	} == {
+		x.Apply(func(v string) string { f(f(v)) }).Inspect()
+	},
+}
+
+type Word { Text string } implements TextActions
+
+func Apply(w Word, f func(v string) string) Word {
+	Word{Text: f(w.Text)}
+}
+
+func Inspect(w Word) string { w.Text }
