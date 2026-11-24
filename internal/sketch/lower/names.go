@@ -3,6 +3,7 @@ package lower
 import (
 	"fmt"
 	"go/token"
+	"strings"
 	"sync"
 )
 
@@ -83,6 +84,7 @@ func (n *namer) taken(name string) bool {
 // alloc returns base when it is free in this scope and every enclosing one,
 // else base_N for the smallest free N, and marks it used here.
 func (n *namer) alloc(base string) string {
+	base = goNameBase(base)
 	if base == "" {
 		base = "x"
 	}
@@ -106,6 +108,10 @@ func (n *namer) alloc(base string) string {
 	n.used[name] = true
 	return name
 }
+
+// goNameBase spells the checker's synthetic bindings in Go. The middle
+// dot makes them unspellable in Ergo; its replacement is reserved there.
+func goNameBase(name string) string { return strings.ReplaceAll(name, "·", "__") }
 
 // memberName is the Go name of a record field or an operation: its source
 // name, unless that is a Go keyword, which no selector may be. A keyword
