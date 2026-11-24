@@ -772,6 +772,7 @@ func (l *lowerer) program() ([]byte, error) {
 	if l.ir != nil {
 		l.ir.inlineBodies(l) // ir_forms_inline.go: before the call table, which writes the inline table
 		l.guard(func() { l.ir.flatEnd(l) })
+		l.ir.projectWireWitnesses(l)
 		if len(l.refusals) > 0 {
 			return nil, &Refused{Refusals: sortedRefusals(l.refusals)}
 		}

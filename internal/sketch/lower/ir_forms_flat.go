@@ -35,6 +35,9 @@ import (
 // loop with an empty failure record keeps the Go results: boxing that
 // failure needs no allocation, and the extra out pointer can lengthen
 // the hot loop and keep its calls out of Go's inlining budget.
+// A success already represented as a Go interface also keeps normal
+// results: the payload is already boxed, and Go can return both
+// interfaces in registers without an address-taken caller slot.
 // The worker is the callee's own IR body with each return rewritten
 // (flatWorker); where the callee has no IR body, or a return the rewrite
 // does not know, the worker calls the wrapper and converts its error
@@ -179,6 +182,9 @@ func (b *irBuilder) flatResOf(f *check.Func) (fl *flatRes) {
 	}
 	fd := b.l.funcDecl(f)
 	if fd.method != nil || fd.extern != "" || !fd.fallible {
+		return nil
+	}
+	if flatLowering != "signature" && len(f.Sig.Results) == 1 && b.fc.isInterface(f.Sig.Results[0]) {
 		return nil
 	}
 	fl = &flatRes{f: f, name: fd.name, val: "struct{}", unit: len(f.Sig.Results) == 0, params: len(f.Sig.Params)}

@@ -1375,6 +1375,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			fd.lowered, fd.readsEnv = true, fc.env != ""
 			// A generic declaration takes the placeholder body (ir_placeholder.go).
 			b.WriteString(directive + head.String() + irHeadEnd(fc.goGeneric) + "\n\n")
+			if sp != nil && !fc.goGeneric && fd.method == nil && !needsFrame {
+				l.ir.keepWireHead(fc, f, sp.name, directive, parts, results)
+			}
 
 			if owned && !l.ir.ownedWrapper(fc, fd, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site) { // the IR body is bodyName's (ir_own.go ownedBodyName); f's name copies into it
 				l.gen.WriteString(fc.ownedWrapper(f, wrapHead, wrapParams, results, bodyName, typeArgs, args, recvName, site))
