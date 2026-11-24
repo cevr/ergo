@@ -1,0 +1,218 @@
+import compiler/check/bind
+import compiler/check/expr
+import compiler/check/store
+import compiler/ir
+import compiler/syntax
+import dense
+import strings
+
+type directOp { call dense.ID[syntax.Node], args syntax.List, member string, cap string, result string, tail dense.ID[syntax.Node] }
+
+// scheduledOp is a call whose checked plan supplies its temporary.
+func scheduledOp(st fnb, x dense.ID[syntax.Node]) Option[directOp] {
+	match st.frame.op {
+	case Some[directOp] as o:
+		if o.Value.call == x { st.frame.op } else { None }
+	case None:
+		None
+	}
+}
+
+func capTypes(caps []expr.CapCall) dense.Side[store.PNode, dense.Opt[store.TKey]] {
+	let mut out = dense.NewSide[store.PNode, dense.Opt[store.TKey]](dense.NoID[store.TKey]())
+	for c in caps {
+		dense.SideSet(&out, c.Call, dense.OptOf(c.T))
+	}
+	out
+}
+
+func frameTail(st fnb, body dense.ID[syntax.Node]) dense.ID[syntax.Node] fails Unported {
+	let tr = st.p.Tree
+	match syntax.ViewOf(tr, body) {
+	case syntax.BlockStmt as b:
+		if syntax.Len(b.List) == 1 {
+			match syntax.ViewOf(tr, syntax.Item(tr, b.List, 0)) {
+			case syntax.ExprStmt as e:
+				return e.X
+			case _:
+			}
+		}
+	case _:
+	}
+	stop("operation needs one tail expression")
+}
+
+// frameAtom has no hidden statements, objects that need a context
+// conversion, or calls. The ordinary expression check still verifies that
+// each leaf resolves to an admitted local, constant or plain record field.
+func frameAtom(st fnb, x dense.ID[syntax.Node]) bool {
+	let p = st.p
+	let y = unparen(st, x)
+	match syntax.ViewOf(p.Tree, y) {
+	case syntax.Name:
+		nameText(p, y) != "v"
+	case syntax.BasicLit:
+		true
+	case syntax.SelectorExpr as s:
+		syntax.KindOf(p.Tree, s.X) == syntax.KIdent && nameText(p, s.X) != "v" && nameText(p, s.Sel) != "v"
+	case _:
+		false
+	}
+}
+
+// operationIn proves the operation is the only effect and no operand is
+// evaluated before it. Right operands and operation arguments are scalar
+// leaves, so there is no need to spill or move control-dependent work.
+func operationIn(st fnb, tail dense.ID[syntax.Node], cap dense.ID[store.TKey]) directOp fails Unported {
+	let mut x = unparen(st, tail)
+	for {
+		match syntax.ViewOf(st.p.Tree, x) {
+		case syntax.CallExpr as c:
+			return try directOperation(st, x, c, cap)
+		case syntax.BinaryExpr as be:
+			if !frameAtom(st, be.Y) {
+				return stop("operation tail has a non-leaf right operand")
+			}
+			x = unparen(st, be.X)
+		case syntax.UnaryExpr as ue:
+			x = unparen(st, ue.X)
+		case _:
+			return stop("tail does not start with an operation")
+		}
+	}
+}
+
+func directOperation(st fnb, x dense.ID[syntax.Node], c syntax.CallExpr, cap dense.ID[store.TKey]) directOp fails Unported {
+	let at = bind.PNodeOf(st.k.Ps, st.file, x)
+	let required = dense.OptOf(cap)
+	if dense.SideOf(st.capAt, at) != required {
+		return stop("no checked operation on the required capability")
+	}
+	if dense.Unpack(c.Trailing) != None {
+		return stop("operation with trailing block")
+	}
+	let fun = unparen(st, c.Fun)
+	let sel = match syntax.ViewOf(st.p.Tree, fun) {
+	case syntax.SelectorExpr as s:
+		s
+	case _:
+		return stop("operation without selector")
+	}
+	let member = nameText(st.p, sel.Sel)
+	if member == "v" {
+		return stop("operation temporary name taken")
+	}
+	let sig = try typeOf(st, fun, "operation signature")
+	let capName = store.TypeNameText(st.s, store.ArgOf(st.s, cap))
+	// CapCall proves which capability was resolved. Match the selector's
+	// checked signature to the corresponding declared operation; a same
+	// spelling on another capability or a generic specialization is not
+	// a target receipt.
+	let mut found = false
+	for o in st.k.OpSigs {
+		if o.Name != member || o.Sig != sig {
+			continue
+		}
+		let p = st.k.Parsed[o.File]
+		let td = syntax.TypeDeclOf(p.Tree, o.Decl)
+		if nameText(p, td.Name) == capName && dense.Unpack(td.Extern) == None && dense.Unpack(td.TypeParams) == None && !lawOver(st, member) {
+			found = true
+			break
+		}
+	}
+	if !found || store.KindOfType(st.s, sig) != store.KSig {
+		return stop("no checked local operation signature")
+	}
+	let args = store.OperandsOf(st.s, sig)
+	let n = syntax.Len(c.Args)
+	if len(args) != n+3 || !emptyRow(st, args[n+1]) || !emptyRow(st, args[n+2]) {
+		return stop("operation has an unsupported arity or row")
+	}
+	let result = basicGo(st, args[n])
+	let actual = try typeOf(st, x, "operation result")
+	if result == "" || actual != args[n] {
+		return stop("operation does not have an exact scalar result")
+	}
+	for i in 0..n {
+		let a = syntax.Item(st.p.Tree, c.Args, i)
+		let argType = try typeOf(st, a, "operation operand")
+		if !frameAtom(st, a) || basicGo(st, args[i]) == "" || argType != args[i] {
+			return stop("operation operand is not an exact scalar leaf")
+		}
+	}
+	directOp{call: x, args: c.Args, member: if goKeyword(member) { member + "_" } else { member }, cap: "", result: result, tail: x}
+}
+
+// envMember admits the unsuffixed member only when nothing in the
+// complete program closure can compete for it. The Go allocator may add
+// a _N suffix, so this profile excludes all underscored capability names.
+func envMember(st fnb, cap dense.ID[store.TKey]) string fails Unported {
+	let name = store.TypeNameText(st.s, store.ArgOf(st.s, cap))
+	if name == "" || name == "task" || name == "with" || name == "from" || goKeyword(name) || strings.Contains(name, "_") {
+		return stop("environment field spelling not proved")
+	}
+	let mut paths = store.ImportPaths(st.s).Append("prelude")
+	let mut i = 0
+	for i < len(paths) {
+		let path = paths[i]
+		let mut found = false
+		for d in st.k.Deps {
+			if d.Path != path {
+				continue
+			}
+			found = true
+			if len(d.K.Parsed) == 0 {
+				return stop("environment name inventory has no dependency sources")
+			}
+			for parsed in d.K.Parsed {
+				if parsed.Failed {
+					return stop("environment name inventory has an unparsed dependency")
+				}
+			}
+			if store.Lookup(d.S, name) != None {
+				return stop("environment field collision")
+			}
+			for p in store.ImportPaths(d.S) {
+				if !has(paths, p) {
+					paths = paths.Append(p)
+				}
+			}
+			break
+		}
+		if !found {
+			return stop("complete environment name inventory unavailable")
+		}
+		i = i + 1
+	}
+	name
+}
+
+func envLocal(st fnb, b mut ir.Builder, at ir.Pos) uint32 fails ir.Malformed {
+	try ir.Row(b, ir.KindCode(ir.TExpr, "local"), at, []uint32{uint32(st.frame.env)})
+}
+
+func envField(b mut ir.Builder, at ir.Pos, env uint32, name string) uint32 fails ir.Malformed {
+	try ir.Row(b, ir.KindCode(ir.TExpr, "field"), at, []uint32{env, ir.Text(b, name)})
+}
+
+func framePoll(st fnb, b mut ir.Builder, at ir.Pos) uint32 fails ir.Malformed {
+	let task = try envField(b, at, try envLocal(st, b, at), "task")
+	let check = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), at, []uint32{task, ir.Text(b, "Check"), 0})
+	try ir.Row(b, ir.KindCode(ir.TStmt, "expr"), at, []uint32{check})
+}
+
+func operationRows(st fnb, b mut ir.Builder, op directOp) []uint32 fails Unported | ir.Malformed {
+	let at = pos(st, syntax.NodePos(st.p, op.call))
+	let poll = try framePoll(st, b, at)
+	let env = try envLocal(st, b, at)
+	let cap = try envField(b, at, env, op.cap)
+	let mut args = []uint32{try envField(b, at, env, "task")}
+	for i in 0..syntax.Len(op.args) {
+		let a = syntax.Item(st.p.Tree, op.args, i)
+		args = args.Append(try value(st, b, a))
+	}
+	let call = try ir.Row(b, ir.KindCode(ir.TExpr, "mcall"), at, []uint32{cap, ir.Text(b, op.member), ir.List(b, args)})
+	try ir.AddLocal(b, "v", op.result, at)
+	let def = try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{uint32(st.frame.slots), call})
+	[]uint32{poll, def}
+}
