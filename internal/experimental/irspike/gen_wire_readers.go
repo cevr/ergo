@@ -16,9 +16,18 @@ var wireReaderSites = []string{"take", "cut", "direct"}
 // a map and a list of ints (PORT-WIRE-READERS R1's forms).
 const wireReaderDecls = `type In { A int8, B uint8, S string, F bool, X float64 }
 
-type Ev { N int, Name string, In In, Xs []In, M Map[string, int], Ts []int }
+type Ev { N int, Name string, In In, Xs []In, M Map[string, int], Ts []int, Extra json.Optional[int] }
 
 func showIn(i In) string { "(\(i.A) \(i.B) \(i.S) \(i.F) \(i.X))" }
+
+func showExtra(extra json.Optional[int]) string {
+	match extra {
+	case json.Absent:
+		"absent"
+	case json.Present[int] as x:
+		"extra \(x.Value)"
+	}
+}
 
 func show(e Ev) string {
 	let mut s = "\(e.N) \(e.Name) \(showIn(e.In)) ["
@@ -33,7 +42,7 @@ func show(e Ev) string {
 	for t in e.Ts {
 		ts = ts * 3 + t
 	}
-	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts)"
+	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts) \(showExtra(e.Extra))"
 }
 
 // take decodes on the Reader interface: Ev's decoder function and the
@@ -44,6 +53,8 @@ func take(r Reader) string {
 		return "kind \(w.Path) \(w.Want)"
 	case WireMissingField as m:
 		return "missing \(m.Path) \(m.Field)"
+	case WireUnknownTag as u:
+		return "tag \(u.Path) \(u.Tag)"
 	}
 	show(e)
 }
@@ -69,6 +80,8 @@ func direct(text string) string {
 		return "kind \(w.Path) \(w.Want)"
 	case WireMissingField as m:
 		return "missing \(m.Path) \(m.Field)"
+	case WireUnknownTag as u:
+		return "tag \(u.Path) \(u.Tag)"
 	}
 	show(e)
 }
@@ -151,6 +164,12 @@ func GenerateWireReaders(seed uint64) string {
 			fields[0] = q("n") + ": [1]"
 		case 6: // a map value of the wrong kind
 			fields[4] = q("m") + ": {" + q("k") + ": " + q("v") + "}"
+		case 8: // an omittable key whose payload is present (zero is present too)
+			fields = append(fields, q("extra")+": "+fmt.Sprint(n(2)))
+		case 9: // null is not absence for Optional[int]
+			fields = append(fields, q("extra")+": null")
+		case 10: // the last omittable key wins
+			fields = append(fields, q("extra")+": 3", q("extra")+": 5")
 		}
 		r.Shuffle(len(fields), func(i, j int) { fields[i], fields[j] = fields[j], fields[i] })
 		s := "{" + strings.Join(fields, ", ") + "}"
@@ -169,7 +188,7 @@ func GenerateWireReaders(seed uint64) string {
 	// the nested record's four (two out of range), and two texts that
 	// read, in a drawn order.
 	var cases [][2]int
-	for bad := 0; bad < 8; bad++ {
+	for bad := 0; bad <= 10; bad++ {
 		if bad != 1 {
 			cases = append(cases, [2]int{bad, 0})
 		}

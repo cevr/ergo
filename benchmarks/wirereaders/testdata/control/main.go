@@ -20,6 +20,31 @@ type box struct {
 	Weight float64  `json:"weight"`
 }
 
+type optionalInt struct {
+	present bool
+	value   int
+}
+
+func (o *optionalInt) UnmarshalJSON(b []byte) error {
+	n, err := strconv.Atoi(string(b))
+	if err == nil {
+		*o = optionalInt{present: true, value: n}
+	}
+	return err
+}
+
+type crate struct {
+	Count optionalInt `json:"count"`
+	Extra optionalInt `json:"extra"`
+}
+
+//go:noinline
+func readCrate(text string) (crate, bool) {
+	var c crate
+	err := json.Unmarshal([]byte(text), &c)
+	return c, err == nil && c.Count.present
+}
+
 const one = `{"label":"crate","count":12,"tags":["wood","heavy"],"weight":30.5}`
 
 const four = "[" + one + "," + one + "," + one + "," + one + "]"
@@ -63,9 +88,9 @@ func readValue(text string) (map[string]any, bool) {
 }
 
 func main() {
-	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true}
+	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true}
 	if len(os.Args) != 4 || os.Args[1] != "bench" || !kinds[os.Args[2]] {
-		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value N")
+		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])
@@ -75,6 +100,20 @@ func main() {
 	sum := 0
 	for i := 0; i < n; i++ {
 		switch os.Args[2] {
+		case "omittable":
+			text := `{"count":12}`
+			if i%2 != 0 {
+				text = `{"count":12,"extra":3}`
+			}
+			c, ok := readCrate(text)
+			if !ok {
+				fmt.Println(-1)
+				return
+			}
+			sum += c.Count.value
+			if c.Extra.present {
+				sum += c.Extra.value
+			}
 		case "list":
 			bs, ok := readFour(four)
 			if !ok {

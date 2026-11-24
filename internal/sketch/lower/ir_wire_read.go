@@ -4,8 +4,8 @@ package lower
 // (PORT-WIRE-READERS R1) or on a direct reader (wirereader.go; R2a). The
 // text emitter writes it (wireDecodeBody); on the IR path the same
 // function is built here as an IR body, statement for statement, in the
-// forms R1 takes: a basic value, a record whose fields are neither
-// omittable nor typed by a type parameter, a list and a map. Each read is
+// supported forms: a basic value, a concrete record, a list and a map.
+// Each read is
 // the reader's operation as readOp writes it: the Reader interface's
 // method, the task first, or the direct reader type's own function, the
 // reader first; a failure returns as wireDecodeBody's `return zero, err`
@@ -229,30 +229,56 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 	return nil
 }
 
-// record reads the fields of s into out, after BeginObject: each key's
-// field, an unknown key skipped, then End and a missing field's failure,
-// in the field order (wireDecodeBody's record).
+// wrap constructs an empty or a single-payload alternative of a wire union.
+func (d *wireReader) wrap(t, variant check.Type, payload *check.Field, value *irExpr) *irExpr {
+	b := d.b
+	e := &irExpr{K: "zero", Pos: d.p, T: b.goType(variant, d.site)}
+	if payload != nil {
+		e.K = "lit"
+		e.Keys = []string{b.goField(variant, payload.Name, d.site)}
+		e.Elems = []*irExpr{value}
+	}
+	return b.variantInto(variant, t, e, d.site)
+}
+
+// record reads fields into out after BeginObject. Omittable fields start
+// absent and take their present alternative on each occurrence; only
+// required fields need a seen flag and a missing-field check after End.
 func (d *wireReader) record(td *typeDecl, s *check.Struct, out int) []*irStmt {
 	b := d.b
 	var pre []*irStmt
 	seen := make([]int, len(s.Fields))
-	for i := range s.Fields {
-		seen[i] = b.temp("seen", "bool", d.p)
-		pre = append(pre, &irStmt{K: "var", Pos: d.p, Local: seen[i]})
-	}
 	sw := &irStmt{K: "switch", Pos: d.p, End: d.p, ElsePos: d.p, X: d.op("Key")}
 	for i, f := range s.Fields {
-		if _, _, param := d.tc.paramField(f.Type); param || check.WireFormOf(f.Type) == check.WireOmittable {
+		if _, param := f.Type.(*check.TypeParam); param {
 			irNo("codec reader: record")
 		}
-		vpre, e := d.value(f.Type)
 		field := &irExpr{K: "field", Pos: d.p, Name: td.fieldName[f.Name], X: d.local(out)}
-		body := append(vpre, &irStmt{K: "store", Pos: d.p, X: field, Y: e}, &irStmt{K: "set", Pos: d.p, Local: seen[i], X: &irExpr{K: "const", Pos: d.p, T: "bool", V: "true"}})
+		store := func(e *irExpr) *irStmt {
+			return &irStmt{K: "store", Pos: d.p, X: field, Y: e}
+		}
+		var body []*irStmt
+		if check.WireFormOf(f.Type) == check.WireOmittable {
+			empty, present, payload := d.tc.wrapperParts(f.Type)
+			// The empty alternative is not the interface's zero value.
+			pre = append(pre, store(d.wrap(f.Type, empty, nil, nil)))
+			seen[i] = -1
+			vpre, e := d.value(payload.Type)
+			body = append(vpre, store(d.wrap(f.Type, present, payload, e)))
+		} else {
+			seen[i] = b.temp("seen", "bool", d.p)
+			pre = append(pre, &irStmt{K: "var", Pos: d.p, Local: seen[i]})
+			vpre, e := d.value(f.Type)
+			body = append(vpre, store(e), &irStmt{K: "set", Pos: d.p, Local: seen[i], X: &irExpr{K: "const", Pos: d.p, T: "bool", V: "true"}})
+		}
 		sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Vals: []*irExpr{irStringConst(d.p, "string", check.WireFieldName(f))}, Body: body})
 	}
 	sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Def: true, Body: []*irStmt{{K: "expr", Pos: d.p, X: d.op("Skip")}}})
 	pre = append(pre, &irStmt{K: "while", Pos: d.p, End: d.p, X: d.op("More"), Body: []*irStmt{sw}}, &irStmt{K: "expr", Pos: d.p, X: d.op("End")})
 	for i, f := range s.Fields {
+		if seen[i] < 0 {
+			continue
+		}
 		missing := d.failure(check.WireMissingName, d.op("Path"), irStringConst(d.p, "string", check.WireFieldName(f)))
 		pre = append(pre, d.failIf(&irExpr{K: "un", Pos: d.p, Op: "!", X: d.local(seen[i])}, missing))
 	}

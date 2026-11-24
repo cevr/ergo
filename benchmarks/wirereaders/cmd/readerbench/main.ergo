@@ -12,7 +12,8 @@
 // one json.Decode takes. One unit is one read. KIND map, mapstream and
 // mapreplay read a Map of four keys N times (JSON-CURSOR-ALLOC), from a
 // json.Reader, a json.Stream and a codec.Replay; the workloads are
-// ../../map, ../../mapstream and ../../mapreplay.
+// ../../map, ../../mapstream and ../../mapreplay. KIND omittable reads
+// a record with a missing or present optional field.
 
 import codec
 import io
@@ -22,6 +23,34 @@ import strconv
 import strings
 
 type box { Label string, Count int, Tags []string, Weight float64 }
+
+type crate { Count int, Extra json.Optional[int] }
+
+func takeCrate(r Reader) crate fails wired[crate] {
+	decode[crate](r)
+}
+
+func omittableSum(n int) int {
+	let mut sum = 0
+	for i in 0..n {
+		let text = if i % 2 == 0 { "{\"count\":12}" } else { "{\"count\":12,\"extra\":3}" }
+		let r = json.Open(text, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let c = takeCrate(r) catch {
+		case _:
+			return -1
+		}
+		sum = sum + c.Count
+		match c.Extra {
+		case json.Absent:
+		case json.Present[int] as x:
+			sum = sum + x.Value
+		}
+	}
+	sum
+}
 
 let one = "{\"label\":\"crate\",\"count\":12,\"tags\":[\"wood\",\"heavy\"],\"weight\":30.5}"
 
@@ -104,6 +133,9 @@ func valueSum(n int) int {
 
 // bench is the sum of the counts of N reads, or -1 when a read fails.
 func bench(kind string, n int) int {
+	if kind == "omittable" {
+		return omittableSum(n)
+	}
 	if kind == "value" {
 		return valueSum(n)
 	}
