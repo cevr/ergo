@@ -147,6 +147,34 @@ func funcFamily(law *check.Law, t check.Type) []licenceClass {
 	return nil
 }
 
+// claimResultFamily draws bounded, independent concrete Self results
+// before callback execution. A callback is a pure function of its
+// argument, never of the active stream, task, or capability environment.
+func claimResultFamily(t check.Type, self *check.Named, draw func(check.Type) Value) []licenceClass {
+	sig, ok := t.(*check.Signature)
+	if !ok || len(sig.Params) != 1 || sig.Params[0].Type != check.Typ[check.Int] || len(sig.Results) != 1 || sig.Results[0] != self {
+		return nil
+	}
+	var out []licenceClass
+	for k, name := range []string{"a constant Self", "Self by parity", "Self by sign", "Self with a defect at odd x"} {
+		out = append(out, licenceClass{name: name, value: func(_ *interp, _ *frame) Value {
+			a, b := draw(self), draw(self)
+			return &nativeFunc{name: name, call: func(in *interp, fr *frame, at syntax.Node, args []Value) (Value, *abrupt) {
+				mustCharge(in, fr, 1)
+				x := args[0].(int64)
+				if k == 3 && x%2 != 0 {
+					return nil, fr.defect(at, "odd %d", x)
+				}
+				if k == 1 && x%2 != 0 || k == 2 && x < 0 {
+					return b, nil
+				}
+				return a, nil
+			}}
+		}})
+	}
+	return out
+}
+
 // fusedOutcome is what a site placed under v1.FuseOr gives, from its two
 // sides' outcomes: the right side's, or the left side's where the right
 // side raised a defect (FuseOr runs the left side again).

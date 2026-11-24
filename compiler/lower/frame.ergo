@@ -71,23 +71,17 @@ func parameterSlots(st mut fnb, f expr.Fn) {
 // expression have been checked. Other bodies belong to the statement
 // walker. A direct operation is scheduled before the expression only
 // when it has been proved to supply the leftmost operand.
-func frameBody(st fnb, b mut ir.Builder, fp ir.Pos) bool fails Unported | ir.Malformed {
-	match st.frame.op {
-	case Some[directOp] as op:
-		let mut out = []uint32{}
-		if st.frame.pollEntry {
-			out = out.Append(try framePoll(st, b, fp))
-		}
-		let rows = try operationRows(st, b, op.Value)
-		for x in rows {
-			out = out.Append(x)
-		}
-		let x = try value(st, b, op.Value.tail)
-		let at = pos(st, syntax.NodePos(st.p, op.Value.tail))
-		out = out.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{x}))
-		try ir.End(b, ir.List(b, out))
-		return true
-	case None:
+func frameBody(st fnb, b mut ir.Builder, fp ir.Pos, op directOp) fails Unported | ir.Malformed {
+	let mut out = []uint32{}
+	if st.frame.pollEntry {
+		out = out.Append(try framePoll(st, b, fp))
 	}
-	false
+	let rows = try operationRows(st, b, op)
+	for x in rows {
+		out = out.Append(x)
+	}
+	let x = try value(st, b, op.tail)
+	let at = pos(st, syntax.NodePos(st.p, op.tail))
+	out = out.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{x}))
+	try ir.End(b, ir.List(b, out))
 }

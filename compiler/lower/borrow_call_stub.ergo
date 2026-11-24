@@ -1,0 +1,7 @@
+import compiler/syntax
+import dense
+
+// CALLS replaces this default when its checked direct-method decision lands.
+func planBorrowInvoke(_ fnb, _ dense.ID[syntax.Node], _ syntax.CallExpr, _ int) Option[borrowInvoke] fails Unported {
+	None
+}
