@@ -2,6 +2,10 @@
 
 This file is the dated log of the owner's decisions for Ergo, newest first. A decision applies the principles to one feature, construct, stage or tool; [NORTH_STAR.md](../NORTH_STAR.md) holds the principles: what Ergo is for, the pillars, the north stars, the tiebreaks, the owner rules and the rejected directions. Each entry keeps the owner's words, the decision, and its tickets and links as NORTH_STAR.md recorded them; only relative link targets changed, so that they resolve from `docs/`. An entry with two or more dates sorts by its latest date, and entries with the same date keep their order from NORTH_STAR.md. Entries with no date are in the [Undated](#undated) group at the end. Where a moved passage says "above" or "below" and the new order changes what it means, a bracketed note names the entry.
 
+## Owner direction, 2026-11-23
+
+- **Test loopback (q371).** Asked whether tests may reach loopback under `TestAmbient`, under a separate capability, or not at all, the owner answered: “Yes, as its own capability”. [`TestLoopback`](spec/rows.md#test-loopback) grants only the named loopback addresses through the confined providers. The filesystem grant is unchanged.
+
 ## Owner direction, 2026-11-20
 
 - **Performance: reach the Go floor, then lower it (2026-11-20).** The owner: "Let me restate the one aspect of the North Star when it comes to performance. The goal is to reach the floor, the go floor, and then lower it with whatever levers that we have available via the fork or the IR path." Decided: the Go floor (no slower than hand-written Go, an unused feature costs nothing) is the required minimum of every unit. Past it, the Go fork and the IR path are the levers that go below hand Go. A lever never changes a result (the program stays correct on stock Go), and each is licensed by a law or a property ([NORTH_STAR.md](../NORTH_STAR.md), pillar 7).

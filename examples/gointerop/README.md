@@ -18,7 +18,7 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 - **Go's errors arrive typed where std adapts them**: `stats.Read` reads numbers with std `strconv.ParseFloat`, whose Go `*NumError` is two failures, `Malformed` and `OutOfRange`; `Read` turns them into `NotANumber{Line, Text}` and `TooLarge{Line, Text}`. A user extern of a Go function that returns an `error` now declares `fails go.Error` (its `Text` is the error's message); this program has no such extern: std's typed failures say more.
 - **A Go search on a live index is not a copy** (`index/`): `Rank` is `sort.SearchInts(ix.keys, k)` through `import go sort`. The binding carries `// ergo:reads a`, which Go's own escape analysis derives, so the run build passes the index to Go as it is (`ergo build -report copies` prints `no copy` at the call); a query costs a binary search, not a copy of every key. `ergo test` copies the index at each call and checks that Go left it as it was.
 - **Extern functions are values**: a user or std extern can be passed where a function is expected (a Go callback of an unnamed function type).
-- **A provider that calls Go stays under its laws** (`uptime/`): `GoClock` reads Go's monotonic clock (`time.Since`), so its operation needs `go.Foreign` and `ergo check` cannot run its law: it reports the law `native`. `ergo test` runs it natively, because the test binary's law case holds `go.Foreign` (types.md Laws 10; owner q277). Its constructor `NewGoClock` reads the start with `time.Now`, a host row of the host's clock, so it needs `Ambient`, which only `main` holds to give (interop.md, Purity and authority; HOST-ROW). This package is deliberately Go: our other examples use std instead (q278), and this one is the native run's example.
+- **A provider that calls Go stays under its laws** (`uptime/`): `GoElapsed` subtracts two supplied nanosecond readings with Go's `time.Time.Sub`. `ergo check` reports the law as `native`, and `ergo test` runs it because the native law harness holds `go.Foreign` for the provider build (types.md, Laws 10). Only `cmd/uptime` samples a real clock: the entry takes `Ambient` for `time.Now` and binds a clock whose readings use Go's monotonic `time.Since`.
 
 ## Layout
 
@@ -26,7 +26,8 @@ A Go version imports `crypto/sha256`, `encoding/hex` and `bufio`, and maps `strc
 - `sha256/`: `Hasher`, the SHA-256 provider of `checksum.Hasher`, and its tests (vectors and block edges; `ergo test cmd/gointerop` runs the `Hasher` laws against it).
 - `stats/`: `Read`, `Summarize` (Welford's update; fails `Empty`), `Text`, `Lines`; the laws `MeanIsBetween`, `ShiftKeepsSpread`, `GeoMeanAtMostMean`.
 - `index/`: `Index`, `Build`, `Read` (fails `NotAnInt`), `Rank`, `Has`, `Size`; the laws `RankCountsTheLess` and `HoldsWhatItWasGiven`.
-- `uptime/`: the operation type `Elapsed` (`Nanos`) with the law `NeverBackwards`, and `GoClock`, its Go-backed provider built by `NewGoClock`.
+- `uptime/`: the operation type `Elapsed` (`Nanos`) with the law `DifferenceOfReadings` and its Go-backed provider, `GoElapsed`.
+- `cmd/uptime/main.ergo`: prints the elapsed nanoseconds since the entry took its first clock reading. Run it with `ergo run cmd/uptime`.
 - `cmd/gointerop/main.ergo`: the binary; it binds `checksum.Hasher` to `sha256.Hasher`, `fs.Files` and the standard input to the host. Its tests run on an `fstest.Memory` disk.
 - `testdata/`: `a.txt`, `b.txt` and a `list` with one good, one wrong and one missing entry.
 

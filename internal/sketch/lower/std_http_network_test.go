@@ -22,7 +22,7 @@ import sync
 // through the fixed-origin Client), given to a put by FetchInto (DoInto),
 // or written to out.txt below the root args[6] by FetchFile (DoFile) and
 // read back.
-func body(request http.URLRequest, fixed http.Request, args []string) string fails http.RequestFailed | http.OriginRefused | http.RedirectLimit | http.StatusRefused | http.SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs http.Network | http.Net | Ambient {
+func body(request http.URLRequest, fixed http.Request, args []string) string fails http.RequestFailed | http.OriginRefused | http.Denied | http.RedirectLimit | http.StatusRefused | http.SinkFailed | fs.NotFound | fs.Denied | fs.Failed | fs.Escapes needs http.Network | http.Net | Ambient {
 	if args[5] == "into" || args[5] == "dointo" {
 		let got = sync.NewRef[string]("")
 		let put = func(part string) fails http.SinkFailed { got.Update(func(s string) string { s + part }) }
@@ -56,6 +56,7 @@ func main() fails http.InvalidClient | http.InvalidLimits needs Ambient | Consol
 	let fixed = http.Request{Method: "GET", Path: path, RawPath: path, Query: []http.Field{}, Header: []http.Field{}, Body: http.Buffered{Text: ""}}
 	let text = with context { http.Network: net, http.Net: client } { body(request, fixed, args) } catch {
 	case http.OriginRefused as o: Console.Println("origin " + o.Origin); return
+	case http.Denied: Console.Println("request denied"); return
 	case http.RedirectLimit as l: Console.Println("limit " + strconv.Itoa(l.Limit)); return
 	case http.RequestFailed: Console.Println("request failed"); return
 	case http.StatusRefused as s: Console.Println("refused " + strconv.Itoa(s.Status) + " [" + s.Prefix + "]"); return

@@ -1367,8 +1367,8 @@ type LawRun struct {
 // built as any provider's is (by Ctor, or generated), and the run binds
 // its address; Conv converts from *Type.
 //
-// Native is a provider whose operations call Go (README Gap 17): its
-// build holds go.Foreign, which the test binary's law case holds and
+// Native is a provider whose constructor or operations call Go (README
+// Gap 17): its build holds go.Foreign, which the test binary's law case holds and
 // nothing else under a test does (types.md, Laws 10; owner q277). The
 // native run builds it; the check-time evaluator, which runs no Go,
 // reports the binding native, never passed.
@@ -1405,8 +1405,9 @@ type LawProvider struct {
 	// ClaimFeed is the one private input a named context must supply, plus one.
 	ClaimFeed int
 
-	// noGenerator marks an Unrun that says the values have no generator;
-	// lawRuns adds the fix the law's shape admits (lawProviderFix).
+	// noGenerator marks a missing input to a generated case: a provider
+	// it cannot build honestly, or a parameter with no generator.
+	// reportUnfedProviders records the binding for LAW-UNFED.
 	noGenerator bool
 }
 

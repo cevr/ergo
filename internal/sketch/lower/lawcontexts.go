@@ -106,6 +106,9 @@ func (l *lowerer) lawContextRun(b *strings.Builder, law *check.Law, lc check.Law
 			// (rows.md, Test's ambient).
 			folder += testAmbientOpen(l, e, inner.alloc("dir"), ta) + "; "
 		}
+		if tl := lc.Context.TestLoopback; tl != nil {
+			folder += testLoopbackGrant(l, e, tl) + "; "
+		}
 		build := l.contextBuilderCapturing(lc.With, law.Decl, captureType)
 		buildCall := func(args string) string {
 			if capture != "" {

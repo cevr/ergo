@@ -57,6 +57,12 @@ func TestFolderHandle() TestDirectory needs TestAmbient { TestAmbient.folder() }
 // links resolved. It exists and is empty when the case starts.
 func TestFolder() string needs TestAmbient { TestFolderHandle().Name() }
 
+// TestLoopback is the runner's separate grant of literal loopback sockets.
+// law-exempt: only the runner can supply this sealed grant.
+type TestLoopback {
+	loopbackOnly(),
+}
+
 // Scheduler suspends the calling task. Alarms is the same time as the
 // runtime's own waits use it: an AlarmClock, on which a wait that runs no
 // Ergo code (http.Serve's bound on each read phase) arms a deadline with

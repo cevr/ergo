@@ -802,10 +802,12 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 	lp := LawProvider{Type: p, Conv: a.conv, Slot: slot, Ptr: ptr, Value: value, Native: held.foreign}
 	if _, built := c.constructorWhy(p); built && p.Obj.ctor != nil {
 		lp.Ctor = p.Obj.ctor
-	} else if ctor := c.nativeConstructor(p, held.foreign); ctor != nil {
+	} else if ctor := c.nativeConstructor(p); ctor != nil {
 		lp.Ctor = ctor
+		lp.Native = true
 	} else if why := c.builtOnlyBy(p); why != "" {
 		lp.Unrun = why
+		lp.noGenerator = true
 	} else if why := c.ungeneratableFrom(p, p.Obj.Pkg); why != "" {
 		lp.Unrun = "its values have no generator: " + why
 		lp.noGenerator = true
@@ -820,9 +822,9 @@ func (c *checker) lawProvider(tn *TypeName, own *Named) (LawProvider, bool) {
 // ratelimit/memory's New refuses a rule with a negative time; fstest's
 // NewFolder makes files and writes from one host). A law run in p's own
 // package sees the private fields, and a value drawn from them may be one
-// no program can hold (INPLACE-REFUTED), so the law is not run, never
-// refuted, until the constructor is one a case can call (planConstructor,
-// nativeConstructor).
+// no program can hold (INPLACE-REFUTED). If a case cannot call the
+// constructor (planConstructor, nativeConstructor), a named context
+// must build the provider, or the binding is unfed.
 func (c *checker) builtOnlyBy(p *Named) string {
 	st, ok := p.Underlying().(*Struct)
 	tn := p.Obj
@@ -861,15 +863,13 @@ func (c *checker) builtOnlyBy(p *Named) string {
 	return ""
 }
 
-// nativeConstructor is the constructor a law case of the test binary
-// calls for p, a provider whose operations call Go (captured, README Gap
-// 17): the function New<P> of p's package that planConstructor would take
-// but for its capability row, which is go.Foreign alone. The case holds
-// go.Foreign (types.md, Laws 10; owner q277); nothing else may treat the
-// function as p's constructor, so tn.ctor stays unset.
-func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
+// nativeConstructor is the constructor a law case of the test binary can
+// call even if the operations themselves do not call Go: the New<P>
+// that planConstructor would take but for its go.Foreign row. Only the
+// harness holds that authority for this build (types.md, Laws 10).
+func (c *checker) nativeConstructor(p *Named) *Func {
 	tn := p.Obj
-	if !captured || tn == nil || tn.Pkg == nil || p.Orig != nil || len(p.TArgs) > 0 || len(p.TParams) > 0 {
+	if tn == nil || tn.Pkg == nil || p.Orig != nil || len(p.TArgs) > 0 || len(p.TParams) > 0 {
 		return nil
 	}
 	for _, f := range tn.Pkg.Funcs {
@@ -894,8 +894,8 @@ func (c *checker) nativeConstructor(p *Named, captured bool) *Func {
 }
 
 // reportUnfedProviders reports each law binding whose provider, or whose
-// parameter at the provider's instance, has no generator (LAW-UNFED): a
-// law no case can feed is an error, not a skip (types.md, Laws 10). It
+// parameter at the provider's instance, no case can build (LAW-UNFED):
+// a law no case can feed is an error, not a skip (types.md, Laws 10). It
 // runs after the law contexts, so a provider a named context of this
 // package builds is fed by that context and its binding is gone
 // (builtByContext). The error sits at the provider's implements entry
@@ -919,7 +919,7 @@ func (c *checker) reportUnfedProviders() {
 				}
 				p.noGenerator = false
 				fix := ""
-				if strings.HasPrefix(p.Unrun, "its values") {
+				if !strings.HasPrefix(p.Unrun, "its parameter ") {
 					fix = c.lawProviderFix(r.Law, *p)
 				}
 				key := [2]any{r.Law, p.Type.Obj}

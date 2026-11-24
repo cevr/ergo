@@ -1254,6 +1254,9 @@ func (fc *funcCtx) with(x *syntax.CallExpr, i int, w *check.With, d dest) {
 	if ta := w.Contexts[0].TestAmbient; ta != nil {
 		fc.testAmbient(env, ta)
 	}
+	if tl := w.Contexts[0].TestLoopback; tl != nil {
+		fc.line(testLoopbackGrant(fc.l, env, tl))
+	}
 	if lit {
 		// An empty inline context and a pure body may read no capability.
 		fc.line("_ = " + env)
@@ -1324,6 +1327,10 @@ func testAmbientOpen(l *lowerer, env, dir string, ta *check.Named) string {
 	rt := l.rt()
 	return dir + " := " + rt + ".OpenTestDirectory(); defer " + dir + ".End(); " +
 		env + "." + l.envField(ta) + " = " + l.helper("TestAmbient") + "{dir: " + dir + "}"
+}
+
+func testLoopbackGrant(l *lowerer, env string, tl *check.Named) string {
+	return env + "." + l.envField(tl) + " = " + l.helper("TestLoopback") + "{}"
 }
 
 // scopeCall writes a call of the with scope's method name on recv through

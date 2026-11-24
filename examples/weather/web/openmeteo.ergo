@@ -108,6 +108,8 @@ func ask(n http.Network, origin string, path string, query []http.Field) http.Re
 		return weather.Unavailable{Reason: reason(f.Cause)}
 	case http.OriginRefused as r:
 		return weather.Unavailable{Reason: "the origin \(r.Origin) is not one of the services"}
+	case http.Denied as r:
+		return weather.Unavailable{Reason: "the origin \(r.Origin) is outside test loopback"}
 	case http.RedirectLimit as l:
 		return weather.Unavailable{Reason: "\(l.URL) redirects"}
 	}
