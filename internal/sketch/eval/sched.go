@@ -117,6 +117,9 @@ type scheduler struct {
 	fatal    *abrupt
 	panicked any
 	switches int64 // tasks resumed, for the census
+	// alarmLines are the auto timelines (testing.VirtualClock) a
+	// StopAfter armed an alarm on, which idle moves to as to a sleeper.
+	alarmLines []*timelineV
 }
 
 // scheduleSeed is the seed of an obligation's case schedule: the run's
