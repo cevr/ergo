@@ -1,0 +1,40 @@
+import task
+
+type Problem {}
+
+func step(ok bool) fails Problem {
+	if !ok {
+		return Problem
+	}
+}
+
+func wait() {
+	let t = task.Go() {}
+	t.Wait()
+}
+
+func tryWait(ok bool) fails Problem {
+	let t = task.Go() { try step(ok) }
+	try t.Wait()
+}
+
+func tailWait(ok bool) fails Problem {
+	let t = task.Go() { try step(ok) }
+	return t.Wait()
+}
+
+func main() needs Console {
+	wait()
+	tryWait(true) catch {
+	case Problem:
+		Unreachable("successful task wait")
+	}
+	tryWait(false) catch {
+	case Problem:
+		Console.Println("try preserved Problem")
+	}
+	tailWait(false) catch {
+	case Problem:
+		Console.Println("tail preserved Problem")
+	}
+}

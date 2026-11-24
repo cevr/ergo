@@ -701,6 +701,9 @@ type irExpr struct {
 	// (ir_rewrite_pass.go): the source call it lowers and whether it is
 	// kept as written. (I-FLIP: LF6w's C, renamed beside LF3's C.)
 	CF *irCallFacts `json:"-"`
+	// UnitPair marks a runtime call whose Go result is (struct{}, error)
+	// although Ergo has no success value. Only the builder needs it.
+	UnitPair bool `json:"-"`
 }
 
 // irUnsupported stops an IR body: the function keeps its source body.
