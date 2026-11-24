@@ -1,0 +1,5 @@
+[
+  {"fixture":"calls.ergo","declaration":"func S4CallMethod(","symbol":"CallPoint.S4CallMethod"},
+  {"fixture":"calls.ergo","declaration":"func S4CallDependency(","symbol":"S4CallDependency"},
+  {"fixture":"calls.ergo","declaration":"func S4CallLeaf(","symbol":"S4CallLeaf"}
+]
