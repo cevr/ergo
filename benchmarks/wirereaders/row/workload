@@ -1,0 +1,5 @@
+# Reads the tagged records of an anonymous error row as data.
+unit read
+sizes 20000 120000
+args bench row {n}
+control benchmarks/wirereaders/testdata/control

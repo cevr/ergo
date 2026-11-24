@@ -76,6 +76,21 @@ func runtimeBody(name string) (v1.Body, error) {
 	return v1.BodyOf(name)
 }
 
+// runtimeOwnerMethodShape is the ABI the ownership lowerings can call
+// directly: no visible operands, the expected number of results, and at
+// most a caller task. The Go method declaration supplies all three facts.
+func runtimeOwnerMethodShape(name string, results int) (callerTask, ok bool) {
+	body, err := runtimeBody(name)
+	if err != nil || len(body.Params) != 0 || len(body.Results) != results {
+		return false, false
+	}
+	if len(body.Hidden) == 0 {
+		return false, true
+	}
+	task := len(body.Hidden) == 1 && body.Hidden[0] == v1.CallerTask
+	return task, task
+}
+
 // bodyView is the view form (v1.Body.View, //ergo:view) of the body the
 // extern f binds, for an extern of any package (check.BodyOf), or ""
 // (LAWFFI LF2b, view.go).

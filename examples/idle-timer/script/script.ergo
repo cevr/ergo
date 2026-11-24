@@ -149,7 +149,7 @@ func Upto(m Machine[display.Display, display.Signal, display.Event], trace []mac
 // change of state and each event, at the time of the signal it follows,
 // and returns the exit status: 0, or 1 when the script or the policy is
 // refused.
-func Run() int needs Console | io.Stdin | display.Policies | time.Clock | Scheduler {
+func Run() Status needs Console | io.Stdin | display.Policies | time.Clock | Scheduler {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
@@ -197,6 +197,9 @@ func Run() int needs Console | io.Stdin | display.Policies | time.Clock | Schedu
 	show(s.End, shown, Upto(m, trace, len(trace), s.End))
 	0
 }
+
+// Status is 0 for a completed replay or 1 if the script could not run.
+type Status int where 0 <= it && it <= 1
 
 // show prints what changed from was to now, at the time t.
 func show(t duration, was View, now View) needs Console {

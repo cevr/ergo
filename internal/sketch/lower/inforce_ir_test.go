@@ -32,7 +32,12 @@ func inforceIRSeeds() []uint64 {
 // InForce caller panicked when it ran: the text leg alone built the
 // property's programs.
 //
-// Mutant (testdata/mutants.json): ir-inforce-ordinary-call.
+// Ordinary generic calls pass the same copier as a Go type argument:
+// holdVia forwards the caller's row, holdMore joins it with a concrete
+// capability, and holdBoth joins two caller rows. None keeps a text body.
+//
+// Mutants (testdata/mutants.json): ir-inforce-ordinary-call,
+// ir-held-row-call-refused.
 func TestInForceTakesTheIR(t *testing.T) {
 	for _, seed := range inforceIRSeeds() {
 		src, _, _ := inforceProgram(seed)
@@ -42,6 +47,15 @@ func TestInForceTakesTheIR(t *testing.T) {
 		files, rep, err := LowerIR(u)
 		if err != nil {
 			t.Fatalf("seed %d: LowerIR: %v\n%s", seed, err, replay)
+		}
+		const rowReason = "generic call with a row type argument of the caller"
+		if n := rep.Fallback[rowReason]; n != 0 {
+			t.Fatalf("seed %d: %d bodies still have fallback %q\n%s\n%s", seed, n, rowReason, replay, src)
+		}
+		for _, name := range []string{"holdVia", "holdMore", "holdBoth"} {
+			if !slices.Contains(rep.IR, name) {
+				t.Fatalf("seed %d: %s has no IR body (fallbacks %v)\n%s\n%s", seed, name, rep.Fallback, replay, src)
+			}
 		}
 		for _, name := range []string{"hold", "holdC"} {
 			if !slices.Contains(rep.IR, name) {

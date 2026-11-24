@@ -149,8 +149,10 @@ func TimeAsleep[T any](l *Timeline, tk *Task[T]) bool {
 //
 //ergo:wait none
 func (l *Timeline) Alarms() *AlarmClock {
-	return NewAlarmClock(func() time.Duration { return time.Duration(l.v.Now()) },
+	c := NewAlarmClock(func() time.Duration { return time.Duration(l.v.Now()) },
 		func(d time.Duration, f func()) Alarm { return l.v.AfterFunc(rt.Span(d), f) })
+	c.settled = func(d time.Duration, f func()) Alarm { return l.v.AfterSettledFunc(rt.Span(d), f) }
+	return c
 }
 
 // AlarmClock is the prelude's AlarmClock, the result of Scheduler.Alarms:
@@ -166,6 +168,8 @@ type AlarmClock struct {
 	now    func() time.Duration
 	arm    func(d time.Duration, f func()) Alarm
 	report func(d time.Duration) // Reporting's, nil otherwise
+	// settled is AfterSettled's arm, a timeline's; nil elsewhere.
+	settled func(d time.Duration, f func()) Alarm
 }
 
 // Alarm is one armed deadline of an AlarmClock. Stop disarms it and
@@ -207,6 +211,19 @@ func (c *AlarmClock) Began(d time.Duration) {
 // After arms f to run on a goroutine of its own once d has passed on the
 // clock. A d of zero or less starts it at once.
 func (c *AlarmClock) After(d time.Duration, f func()) Alarm { return c.arm(d, f) }
+
+// AfterSettled is After for an alarm that acts after every other event of
+// its instant: on a timeline (time.Manual, testing.VirtualClock) it fires
+// once each timer due at that instant has fired and every task those woke
+// has run to its next wait, whichever was armed first, and before the
+// time moves on (rt.Virtual.AfterSettledFunc). On the host it is After:
+// no two events share an instant there (task.StopAfter, timeout.After).
+func (c *AlarmClock) AfterSettled(d time.Duration, f func()) Alarm {
+	if c.settled != nil {
+		return c.settled(d, f)
+	}
+	return c.arm(d, f)
+}
 
 // hostAlarms is the host's AlarmClock: the monotonic clock, and
 // time.AfterFunc.

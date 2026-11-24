@@ -453,12 +453,17 @@ func (b *irBuilder) fuseBuild(s *syntax.TypeSwitchStmt, call *syntax.CallExpr, c
 	}
 	for k, cl := range reached {
 		cp := b.pos(cl, cl.Case)
+		// Each join block closes at its own arm, before the next
+		// arm. Go's range-over-func rewrite adds scopes at branch
+		// statements, so bumping the next block's start to the
+		// whole match's end would leave those new scopes behind it.
+		armEnd := b.pos(cl, cl.End())
 		arm := b.arm(cl.Body, ret, to)
 		if k < len(reached)-1 && !(len(arm) > 0 && irTerminates(arm[len(arm)-1])) && !(ret && to == nil) {
-			arm = append(arm, &irStmt{K: "goto", Pos: end, Label: exit})
+			arm = append(arm, &irStmt{K: "goto", Pos: armEnd, Label: exit})
 			jumps++
 		}
-		outer = append(outer, &irStmt{K: "block", Pos: cp, End: end, Label: fz.label[cl], Body: arm})
+		outer = append(outer, &irStmt{K: "block", Pos: cp, End: armEnd, Label: fz.label[cl], Body: arm})
 	}
 	if jumps > 0 {
 		outer = append(outer, &irStmt{K: "block", Pos: end, End: end, Label: exit})

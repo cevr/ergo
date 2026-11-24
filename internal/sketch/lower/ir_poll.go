@@ -18,13 +18,12 @@ package lower
 // loop that runs fewer than pollEvery iterations per outer iteration
 // never poll.
 //
-// A loop is quiet when its body meets a pure function body's rules
-// (pure.go, quietLoop): every call in it, outside the bodies of function
-// literals, is a pure call (len, a conversion, a pure std body, a pure
-// function), so none takes the environment, waits, starts a task or has
-// an interruption point of its own; it converts no value into a Go
-// interface; and it owns no value, whose release its iterations would run
-// through their task.
+// A loop is quiet when its body meets an env-free function body's rules
+// (pure.go, quietLoop): its calls outside function literals take no
+// environment, cannot wait or start a task, and have no interruption
+// point of their own. A typed failure is a returned outcome, not an
+// effect on the task. The body converts no value into a Go interface
+// and owns no value whose release it would run through the task.
 //
 // Any other loop keeps a Check at every back edge, as the reference
 // lowering pollAmortLowering "each" gives every loop. The emitter's text body
@@ -43,17 +42,18 @@ package lower
 import (
 	"strconv"
 
+	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
 
-// pollAmortLowering selects the back-edge poll of a quiet loop: "amortized"
-// (one Check every pollEvery back edges) or "each", the reference: a
-// Check at every back edge. A test sets it; a whole build selects it with
-// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.pollAmortLowering=each.
+// pollAmortLowering selects the back-edge poll: "amortized" uses the
+// env-free proof, "pure" is the former pure-only admission, and "each"
+// writes Check at every back edge. A test sets it; a whole build selects
+// it with -ldflags=-X=ergo.local/prototype/internal/sketch/lower.pollAmortLowering=each.
 var pollAmortLowering = "amortized"
 
-// SetPollAmortLoweringForTest selects pollAmortLowering ("amortized" or "each") and
-// returns a function that restores the previous choice.
+// SetPollAmortLoweringForTest selects pollAmortLowering and returns a
+// function that restores the previous choice.
 func SetPollAmortLoweringForTest(mode string) func() {
 	old := pollAmortLowering
 	pollAmortLowering = mode
@@ -74,20 +74,71 @@ type pollAmort struct {
 	pos irPos // the outermost loop's position, where the counter is defined
 }
 
-// quietLoop reports a loop body that meets a pure function's body rules
-// (pure.go): every call in it is a pure call, it converts no value into a
-// Go interface, and it owns no value, which its iterations would release
-// through their task.
-func (b *irBuilder) quietLoop(body *syntax.BlockStmt) bool {
+// quietLoop reports whether a loop body meets an env-free function
+// body's rules (pure.go): none of its calls, conversions, or releases
+// needs the task or the environment.
+func (b *irBuilder) quietLoop(body *syntax.BlockStmt) (quiet, newlyQuiet bool) {
 	info := b.l.info
 	callees, ok := pureCalls(info, body)
 	if !ok || ownsValues(info, body) {
-		return false
+		return false, false
 	}
 	for _, f := range callees {
-		if !b.l.isPure(f) {
-			return false
+		if pollAmortLowering == "pure" {
+			if !b.l.isPure(f) {
+				return false, false
+			}
+		} else if !b.l.isEnvFree(f) {
+			return false, false
+		} else {
+			newlyQuiet = newlyQuiet || !b.l.isPure(f)
 		}
+	}
+	return true, newlyQuiet
+}
+
+// pollRangeIndex uses the existing iteration index as the counter of a
+// standalone native `for i := range n`. A separate live integer in a
+// caller with typed outcomes spills across calls in the loop. The index
+// starts at zero and a continue still advances it, so low bits all zero
+// check on the first edge and every PollEvery edges after that. There
+// must be no nested loop contributing its own back edges to this nest.
+// The caller has already excluded a containing quiet nest.
+func (b *irBuilder) pollRangeIndex(st *irStmt, s syntax.Stmt, body *syntax.BlockStmt, sites []*irStmt) bool {
+	// PollEvery is a power of two for the mask below.
+	if st.K != "range" || st.Key == nil || st.Val != nil || pollEvery&(pollEvery-1) != 0 {
+		return false
+	}
+	r, ok := s.(*syntax.RangeStmt)
+	if !ok {
+		return false
+	}
+	lp := b.l.info.Loops[r]
+	if lp == nil || lp.Domain != check.LoopRange {
+		return false // no map keys, slice indices or byte offsets
+	}
+	nested := false
+	syntax.Inspect(body, func(n syntax.Node) bool {
+		switch n.(type) {
+		case *syntax.FuncLit:
+			return false
+		case *syntax.ForStmt, *syntax.RangeStmt:
+			nested = true
+		}
+		return !nested
+	})
+	if nested {
+		return false
+	}
+	for _, s := range sites {
+		p := s.Pos
+		check := *s
+		mask := &irExpr{K: "const", Pos: p, T: "int", V: strconv.Itoa(pollEvery - 1)}
+		index := &irExpr{K: "local", Pos: p, I: *st.Key}
+		bits := &irExpr{K: "bin", Pos: p, Op: "&", X: index, Y: mask}
+		zero := &irExpr{K: "const", Pos: p, T: "int", V: "0"}
+		*s = irStmt{K: "if", Pos: p, End: p, X: &irExpr{K: "bin", Pos: p, Op: "==", X: bits, Y: zero},
+			Then: []*irStmt{&check}}
 	}
 	return true
 }

@@ -96,7 +96,7 @@ func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, q v1.Param, p irPos)
 	f := b.temp("f", b.goType(s.Elem, site), p)
 	i := b.temp("i", "int", p)
 	q.Func, q.Funcs = q.Funcs, nil // each element takes the slice's shape
-	bind, lit, _ := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, q, p)
+	bind, lit, _ := b.adaptOperand(sig, site, &irExpr{K: "local", Pos: p, I: f}, q, p, false)
 	out := b.temp("blocks", "[]"+lit.T, p)
 	mk := &irExpr{K: "builtin", Pos: p, Name: "make", T: "[]" + lit.T, Args: []*irExpr{{K: "len", Pos: p, X: &irExpr{K: "local", Pos: p, I: fs}}}}
 	body := append(bind, &irStmt{K: "store", Pos: p, X: &irExpr{K: "index", Pos: p, X: &irExpr{K: "local", Pos: p, I: out}, Y: &irExpr{K: "local", Pos: p, I: i}}, Y: lit})
@@ -111,8 +111,9 @@ func (b *irBuilder) adaptSlice(site syntax.Node, e *irExpr, q v1.Param, p irPos)
 // signature sig (the operand at site), to the Go parameter q of a std
 // body. It returns the binding statements, the adapted value, and the
 // child environment definition for a single task callback. Each adapter
-// in a slice keeps its own child environment.
-func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos) ([]*irStmt, *irExpr, *irStmt) {
+// in a slice keeps its own child environment. syncHost marks a reviewed
+// non-escaping Go callback that reads the environment on the calling task.
+func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irExpr, q v1.Param, p irPos, syncHost bool) ([]*irStmt, *irExpr, *irStmt) {
 	shape := q.Func
 	if q.Funcs != nil {
 		pre, slice := b.adaptSlice(site, e, q, p)
@@ -150,9 +151,9 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 		// adaptTaskFunc: the Go values are the Ergo function's.
 		ok = ok && values == len(sig.Results)
 	default:
-		// adaptPlainFunc: one Go result that is not error; the Ergo
-		// parameter's type has an empty row, so the value never fails.
-		ok = ok && values == 1 && !fallible && len(sig.Results) == 1 && len(rowElems(sig.Errors)) == 0 && len(rowElems(sig.Uses)) == 0
+		// A plain Go result cannot carry a typed failure. A reviewed
+		// synchronous host callback can forward the caller's needs.
+		ok = ok && values == 1 && !fallible && len(sig.Results) == 1 && len(rowElems(sig.Errors)) == 0 && (syncHost || len(rowElems(sig.Uses)) == 0)
 	}
 	if !ok {
 		irNo("std call that adapts a function of another shape")
@@ -271,7 +272,7 @@ func (b *irBuilder) adaptOperands(params []v1.Param, x *syntax.CallExpr, ops []s
 		} else {
 			site, sig = x.Trailing, b.l.info.Literals[x.Trailing]
 		}
-		bind, e, child := b.adaptOperand(sig, site, args[skip+i], q, p)
+		bind, e, child := b.adaptOperand(sig, site, args[skip+i], q, p, false)
 		pre, args[skip+i] = append(pre, bind...), e
 		if i >= len(ops) {
 			frame = child

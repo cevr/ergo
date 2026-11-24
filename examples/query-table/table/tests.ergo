@@ -1,0 +1,23 @@
+import machines
+import querytable/query
+
+test TableOnlyNavigatesOrRequests {
+	let initial = Open("/")
+	let sig = Searched{Text: "raptor"}
+	let action Action = Step(initial, sig)
+	let want = query.Browse{Query: query.Query{..query.Default, Search: "raptor"}}
+	match action {
+	case Replace as r:
+		assert query.Decode(r.Path) == want
+	case AddressChanged:
+		assert false
+	}
+	let m = machines.Start(Table{}, "/")
+	match try machines.Run(m, []Signal{sig}) {
+	case machines.Running[query.Route, Replace] as r:
+		assert r.State == initial && len(r.Emitted) == 1
+		assert query.Decode(r.Emitted[0].Path) == want
+	case machines.Finished[query.Route, Replace]:
+		assert false
+	}
+}

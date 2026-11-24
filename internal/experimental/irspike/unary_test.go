@@ -63,26 +63,46 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - mapkey (FLIP F7 PORT-TEMP, pipeline's failing): a Map key or a
 //     slice index whose calls run statements runs them after the map or
 //     slice and before the value's, and the element is fixed before the
-//     value's (mutants port-temp-key-after-value, port-temp-elem-unbound).
+//     value's (mutants port-temp-key-after-value, port-temp-elem-unbound);
+//   - fused-arm-scopes (jobq): a fused match inside range-over-function
+//     keeps its scopes in source order (mutant fused-arm-ends-at-match);
 //   - taskwait: a task with no success value still returns a Go pair.
 //     A closed-row wait discards both results; try and a tail return
 //     preserve the typed failure (mutant ir-bound-unit-result-pair-lost).
 //
-// It builds Go for the reason TestIRUnaryOperandsMatchSource does.
+// It builds Go because only the compiler writer marks the scopes, and
+// only executing both binaries reveals a miscompile.
 func TestIRReprosMatchSource(t *testing.T) {
 	src, ir := needsBuild(t)
 	for _, r := range []struct {
-		name string
-		fns  []string
-	}{{"notand", []string{"pick"}}, {"rowslot", []string{"held", "run"}}, {"byteindex", []string{"hex", "pick", "tail"}}, {"gocalls", []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}}, {"gonil", []string{"name"}}, {"sleeper", []string{"pop"}}, {"substr", []string{"tail", "cut", "head"}}, {"update", []string{"bump", "Store.moved"}}, {"appender", []string{"shared"}}, {"mapkey", mapKeyIRBodies()}, {"taskwait", []string{"wait", "tryWait", "tailWait"}}} {
+		name       string
+		fns        []string
+		wantStdout string // when nonempty, require a successful run with this output
+	}{
+		{name: "notand", fns: []string{"pick"}},
+		{name: "rowslot", fns: []string{"held", "run"}},
+		{name: "byteindex", fns: []string{"hex", "pick", "tail"}},
+		{name: "gocalls", fns: []string{"show", "pattern", "host", "stored", "split", "zone", "classify", "kept", "eof", "params", "cookie", "limited"}},
+		{name: "gonil", fns: []string{"name"}},
+		{name: "sleeper", fns: []string{"pop"}},
+		{name: "substr", fns: []string{"tail", "cut", "head"}},
+		{name: "update", fns: []string{"bump", "Store.moved"}},
+		{name: "appender", fns: []string{"shared"}},
+		{name: "mapkey", fns: mapKeyIRBodies()},
+		{name: "fused-arm-scopes", fns: []string{"work"}},
+		{name: "taskwait", fns: []string{"wait", "tryWait", "tailWait"}, wantStdout: "try success: true; try rejected: true; tail rejected: true\n"},
+	} {
 		t.Run(r.name, func(t *testing.T) {
 			text, err := os.ReadFile(filepath.Join("testdata", r.name+".ergo"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			rep := checkBoth(t, src, ir, string(text), func() string {
+			rep, got := compareBoth(t, src, ir, string(text), func() string {
 				return "replay: go test -run 'TestIRReprosMatchSource/" + r.name + "' ./internal/experimental/irspike"
 			})
+			if want := (outcome{stdout: r.wantStdout}); r.wantStdout != "" && got != want {
+				t.Fatalf("%s: both paths gave %+v; want %+v", r.name, got, want)
+			}
 			for _, fn := range r.fns {
 				if !slices.Contains(rep, fn) {
 					t.Fatalf("%s: %s has no IR body (IR bodies: %v)", r.name, fn, rep)
@@ -95,6 +115,12 @@ func TestIRReprosMatchSource(t *testing.T) {
 // checkBoth builds the program text by both paths, runs both and fails
 // when their outcomes differ; it returns the functions with IR bodies.
 func checkBoth(t *testing.T, src, ir Toolchain, text string, replay func() string) []string {
+	t.Helper()
+	bodies, _ := compareBoth(t, src, ir, text, replay)
+	return bodies
+}
+
+func compareBoth(t *testing.T, src, ir Toolchain, text string, replay func() string) ([]string, outcome) {
 	t.Helper()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "p.ergo")
@@ -110,5 +136,5 @@ func checkBoth(t *testing.T, src, ir Toolchain, text string, replay func() strin
 	if a != b {
 		t.Fatalf("the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", a, b, replay(), text)
 	}
-	return rep.IR
+	return rep.IR, a
 }

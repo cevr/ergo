@@ -92,7 +92,7 @@ func signalOf(n int, words []string) search.Signal fails BadLine {
 // Run reads the script from io.Stdin, plays it against the search with an
 // no pins (the machine's input) on clock, and shows its timeline. It
 // returns the exit status: 0, or 1 when the script is refused.
-func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.Index {
+func Run(clock time.Manual) Status needs Console | io.Stdin | Scheduler | search.Index {
 	let mut lines = []string{}
 	for line in io.Stdin.Lines() {
 		lines = lines.Append(line)
@@ -107,6 +107,9 @@ func Run(clock time.Manual) int needs Console | io.Stdin | Scheduler | search.In
 	}
 	0
 }
+
+// Status is 0 for a completed replay or 1 if the script could not run.
+type Status int where 0 <= it && it <= 1
 
 // Play runs the search as an actor on clock, which only Play moves, and
 // is its timeline: each state the actor commits and then each output it
