@@ -521,6 +521,7 @@ func (b *irBuilder) exprOf(x syntax.Expr) *irExpr {
 			if len(names) != len(s.Fields) {
 				b.omittedFields(lit, td, s, names, x, p)
 			}
+			return b.handRecordParts(values, lit) // ir_own.go
 		default:
 			irNo("literal of %T", t)
 		}

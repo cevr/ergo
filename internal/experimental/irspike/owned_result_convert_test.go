@@ -685,5 +685,42 @@ test Check%[1]s {
 }
 `, f.name, f.body, 1+seed%7, f.expected)
 	}
+	names = append(names, "DropPartTemp")
+	fmt.Fprintf(&src, `
+func DropPartTemp(log sync.Ref[int], id int, reject bool, defect bool) int fails Bad {
+	let left = dropTicket{id: id, log: log, crash: false}
+	let pair = dropPair{left: left, right: try nextPart(log, id+1, reject, defect)}
+	if pair.left.log.Get() != 0 || pair.right.log.Get() != 0 {
+		Unreachable("a constructed record's parts are not live")
+	}
+	pair.right.id
+}
+
+func nextPart(log sync.Ref[int], id int, reject bool, defect bool) dropTicket fails Bad {
+	if defect { Unreachable("later field defects") }
+	if reject { return Bad }
+	dropTicket{id: id, log: log, crash: false}
+}
+
+test CheckDropPartTemp {
+	let id = %d
+	let log = sync.NewRef(0)
+	let used = DropPartTemp(log, id, false, false) catch { case Bad: -1 }
+	assert used == id+1
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let rejected = DropPartTemp(log, id, true, false) catch { case Bad: -1 }
+	assert rejected == -1
+	assert log.Get() == id
+	log.Set(0)
+	let child = task.Go() { try DropPartTemp(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == id
+}
+`, 1+seed%7)
 	return src.String(), names
 }

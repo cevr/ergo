@@ -50,11 +50,12 @@ type irOwn struct {
 	// temporary registered so far. The statement's release plan names
 	// the temporary by its checked expression (R43).
 	tbit                   map[syntax.Expr]int
-	deferred               *irStmt         // the frame's deferred release, filled by ownDone
-	returned               *syntax.Ident   // the local a return hands off (returning)
-	held                   []*syntax.Ident // operands whose owner stays live through the call
-	hasHeld                bool            // a call can leave the frame with no live slots
-	helperDecl, helperArgs string          // generic forms of the release and Free helpers
+	recordParts            map[syntax.Expr]bool // moved operands whose parent record lowers the transfer
+	deferred               *irStmt              // the frame's deferred release, filled by ownDone
+	returned               *syntax.Ident        // the local a return hands off (returning)
+	held                   []*syntax.Ident      // operands whose owner stays live through the call
+	hasHeld                bool                 // a call can leave the frame with no live slots
+	helperDecl, helperArgs string               // generic forms of the release and Free helpers
 	site                   syntax.Node
 	p                      irPos
 	// keys are the places of the body whose planned releases the builder
@@ -754,10 +755,10 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irP
 	return &irExpr{K: "mcall", Pos: p, Name: memberName(cl.Op.Name), X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}, Args: args}, true
 }
 
-// ownBodyChecks stops a static frame this form does not build: an owned
-// temporary or arm value, a record
-// update's replaced fields, a
-// match pattern that owns outside the admitted list-owned type switch.
+// ownBodyChecks admits checked ownership plans this frame implements.
+// Conditional arm values, replaced fields of record updates, and
+// ownership patterns outside a simple list-owned type switch are not
+// built here.
 // It records in o the places with planned releases (Info.Releases),
 // which the builder must each reach.
 func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
@@ -784,6 +785,19 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 		case *syntax.CompositeLit:
 			if len(info.Replaced[n]) > 0 {
 				irNo("owned temporary")
+			}
+			if _, record := underOf(info.Types[n]).(*check.Struct); o.list && record && n.Base == nil && n.Type != nil {
+				for _, field := range n.Elts {
+					if kv, ok := field.(*syntax.KeyValueExpr); ok {
+						field = kv.Value
+					}
+					if info.PartHands[field] {
+						if o.recordParts == nil {
+							o.recordParts = map[syntax.Expr]bool{}
+						}
+						o.recordParts[field] = true
+					}
+				}
 			}
 		}
 		if x, ok := n.(syntax.Expr); ok && (info.OwnedTemps[x] != nil && !b.tempOwnable(x, o) || info.ArmValues[x] != nil) {
@@ -1054,15 +1068,47 @@ func (b *irBuilder) ownLet(v *check.Var, i int, site syntax.Node, value syntax.E
 
 // tempOwnable reports an owned temporary the frame can register.
 // The list accepts generated releases; the static form still uses
-// one checked Close per slot. Moved parts and conditional arm values
-// have their own transfer protocols, not this one.
+// one checked Close per slot. A moved part needs a consumer that
+// transfers its entry after building the aggregate.
 func (b *irBuilder) tempOwnable(x syntax.Expr, o *irOwn) bool {
 	info := b.l.info
 	d := info.OwnedTemps[x]
 	if d == nil || o == nil || !o.list && d.Glue() {
 		return false
 	}
-	return !info.PartHands[x] && !info.ArmHeld[x] && info.HeldIn[x] == nil
+	return (!info.PartHands[x] || o.recordParts[x]) && !info.ArmHeld[x] && info.HeldIn[x] == nil
+}
+
+// handRecordParts transfers already-acquired field temps into the
+// completed record. If a later field leaves the statement, the earlier
+// fields are still registered for unwind.
+func (b *irBuilder) handRecordParts(values []syntax.Expr, lit *irExpr) *irExpr {
+	var parts []int
+	for _, x := range values {
+		if !b.l.info.PartHands[x] {
+			continue
+		}
+		if b.own == nil || !b.own.list || !b.own.recordParts[x] {
+			irNo("owned temporary")
+		}
+		h, found := b.own.tbit[x]
+		if !found {
+			irNo("owned temporary")
+		}
+		parts = append(parts, h)
+	}
+	if len(parts) == 0 {
+		return lit
+	}
+	p := lit.Pos
+	i := b.temp("record", lit.T, p)
+	pre := []*irStmt{{K: "def", Pos: p, Local: i, X: lit}}
+	for _, h := range parts {
+		pre = append(pre, &irStmt{K: "expr", Pos: p, X: b.ownCall("Hand", "struct{}", p,
+			&irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "zero", Pos: p, T: "struct{}"})})
+	}
+	b.runFirst(pre)
+	return &irExpr{K: "local", Pos: p, I: i}
 }
 
 // ownTemp registers e, the value of x, a temporary its statement owns
