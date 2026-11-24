@@ -1,13 +1,27 @@
 import compiler/check/bind
+import compiler/check/store
 import compiler/ir
 import compiler/syntax
 import dense
 import strconv
 
 // A body plan is a flat source-order list. Each statement's descendants
-// follow it, and next skips to its next sibling. The two arms of an if
-// and the body of a loop are spans of the same list.
-type controlOp = CDef{} | CSet{} | CRet{} | CDiscard{} | CIf{} | CWhile{} | CRange{} | CBreak{} | CContinue{}
+// follow it, and next skips to its next sibling. If, loop, and match
+// bodies are spans of the same list.
+type controlOp =
+	| CDef{}
+	| CSet{}
+	| CPlaceWrite{Write borrowWrite, RHS dense.ID[syntax.Node]}
+	| CRet{}
+	| CUnionRet{}
+	| CDiscard{}
+	| CBorrowInvoke{Invoke borrowInvoke}
+	| CIf{}
+	| CMatch{}
+	| CWhile{}
+	| CRange{}
+	| CBreak{}
+	| CContinue{}
 type controlSpan { lo int, hi int, terminates bool, breaks bool }
 type controlStmt {
 	op      controlOp,
@@ -23,22 +37,29 @@ type controlStmt {
 	second  controlSpan,
 	readLo  int,
 	readHi  int,
+	matchLo int,
+	matchHi int,
 	next    int,
 }
 type controlPlan {
-	stmts        []controlStmt,
-	locals       []controlLocal,
-	reads        []int,
-	callees      []string,
-	taken        []string,
-	sourceNames  []string,
-	scannedNames bool,
-	body         dense.ID[syntax.Node],
-	formals      int,
-	extended     bool,
-	nonScalar    bool,
-	counted      bool,
-	nested       bool,
+	stmts         []controlStmt,
+	locals        []controlLocal,
+	reads         []int,
+	matches       []matchArm,
+	injections    []unionInjection,
+	callees       []string,
+	taken         []string,
+	sourceNames   []string,
+	scannedNames  bool,
+	body          dense.ID[syntax.Node],
+	formals       int,
+	result        dense.ID[store.TKey],
+	unit          bool,
+	extended      bool,
+	nonScalar     bool,
+	counted       bool,
+	nested        bool,
+	borrowInvoked bool,
 }
 type controlLocal { name string, typ string, at int, mutable bool }
 type controlBody { plan controlPlan, body controlSpan }
@@ -47,16 +68,18 @@ func controlEmpty(i int) controlSpan { controlSpan{lo: i, hi: i, terminates: fal
 
 func controlRow(op controlOp, offset int, p controlPlan) controlStmt {
 	let span = controlEmpty(len(p.stmts))
-	controlStmt{op: op, offset: offset, end: -1, elseAt: -1, elseEnd: -1, x: dense.NoID[syntax.Node](), slot: 0, assign: "", round: "", first: span, second: span, readLo: len(p.reads), readHi: len(p.reads), next: len(p.stmts)}
+	controlStmt{op: op, offset: offset, end: -1, elseAt: -1, elseEnd: -1, x: dense.NoID[syntax.Node](), slot: 0, assign: "", round: "", first: span, second: span, readLo: len(p.reads), readHi: len(p.reads), matchLo: 0, matchHi: 0, next: len(p.stmts)}
 }
 
 // statements prepares the whole body before Begin, including statements
 // that Go removes later. A refused body never touches the shared builder.
-func statements(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int) controlBody fails Unported {
+func statements(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names []dense.Opt[syntax.Node], n int, result dense.ID[store.TKey], unit bool) controlBody fails Unported {
 	let mut p = controlPlan{
 		stmts:    []controlStmt{}, locals: []controlLocal{}, reads: []int{}, callees: []string{},
+		matches:  []matchArm{}, injections: []unionInjection{},
 		taken:    []string{}, sourceNames: []string{}, scannedNames: false, body: body, formals: n,
-		extended: false, nonScalar: false, counted: false, nested: false,
+		result:   result, unit: unit,
+		extended: false, nonScalar: false, counted: false, nested: false, borrowInvoked: false,
 	}
 	for name in names {
 		match dense.Unpack(name) {
@@ -65,7 +88,10 @@ func statements(st mut fnb, body dense.ID[syntax.Node], list syntax.List, names 
 		case None:
 		}
 	}
-	let span = try controlList(st, &p, list, true, 0)
+	let span = try controlList(st, &p, list, !unit, 0)
+	if p.borrowInvoked && len(p.stmts) != 1 {
+		return stop("control: borrowed invocation must be the sole statement")
+	}
 	if p.extended && p.nonScalar {
 		return stop("control: non-scalar operand")
 	}
@@ -140,19 +166,25 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		row.slot = try controlBind(st, p, l.at, l.name, l.typ, mutable)
 	case syntax.ExprStmt as es:
 		let x = if tail { es.X } else { unparen(*st, es.X) }
-		try controlOperand(*st, p, x)
-		row.op = if tail { CRet } else { CDiscard }
+		if tail {
+			try controlPrepareReturn(st, p, &row, x)
+		} else {
+			try controlPrepareDiscard(*st, p, &row, x)
+		}
 		p.extended = p.extended || !tail
 		row.offset = syntax.NodePos(parsed, x)
-		row.x = dense.OptOf(x)
 	case syntax.ReturnStmt as r:
 		p.extended = true
 		match dense.Unpack(r.Result) {
 		case Some{Value: x}:
-			try controlOperand(*st, p, x)
-			row.x = dense.OptOf(x)
+			if p.unit {
+				return stop("control: unit return with operand")
+			}
+			try controlPrepareReturn(st, p, &row, x)
 		case None:
-			return stop("control: bare return")
+			if !p.unit {
+				return stop("control: bare return")
+			}
 		}
 		row.offset = syntax.TokPos(parsed, r.Return)
 	case syntax.AssignStmt as a:
@@ -162,29 +194,11 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		p.extended = true
 		let l = unparen(*st, a.Lhs)
 		if syntax.KindOf(parsed.Tree, l) != syntax.KIdent {
-			return stop("control: assignment place")
-		}
-		let slot = try paramLocal(*st, l)
-		if slot < p.formals || !p.locals[slot-p.formals].mutable {
-			return stop("control: assignment to non-mutable local")
-		}
-		let text = syntax.TokText(parsed, a.Tok)
-		let op = if text == "=" { "" } else { text[:len(text)-1] }
-		if op != "" && !isIROp(op) {
-			return stop("control: assignment operator")
-		}
-		let gt = p.locals[slot-p.formals].typ
-		if loops > 0 && gt == "string" {
-			return stop("control: loop-carried string decision")
-		}
-		try controlOperand(*st, p, a.Rhs)
-		row.op = CSet
-		row.x = dense.OptOf(a.Rhs)
-		row.slot = slot
-		row.assign = op
-		if op == "*" && (gt == "float32" || gt == "float64") {
-			row.round = gt
-			p.reads = p.reads.Append(slot)
+			let write = try planBorrowWrite(*st, node, a, p.formals)
+			try controlOperand(*st, p, a.Rhs)
+			row.op = CPlaceWrite{Write: write, RHS: a.Rhs}
+		} else {
+			try controlPrepareSet(*st, p, &row, a, l, loops)
 		}
 	case syntax.IfStmt as iff:
 		p.extended = true
@@ -209,6 +223,15 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 			}
 		case None:
 		}
+	case syntax.TypeSwitchStmt as m:
+		let (prepared, arms) = try matchPrepare(st, p, m, row, tail, loops)
+		row = prepared
+		p.extended = true
+		row.matchLo = len(p.matches)
+		for arm in arms {
+			p.matches = p.matches.Append(arm)
+		}
+		row.matchHi = len(p.matches)
 	case syntax.ForStmt as f:
 		p.extended = true
 		p.nested = p.nested || loops > 0
@@ -248,6 +271,7 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 	}
 	match row.op {
 	case CIf:
+	case CMatch:
 	case CWhile:
 	case CRange:
 	case _:
@@ -316,6 +340,62 @@ func controlOperand(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 	try controlObserve(st, p, x)
 }
 
+func controlPrepareReturn(st mut fnb, p mut controlPlan, row mut controlStmt, x dense.ID[syntax.Node]) fails Unported {
+	match try unionReturn(st, p, x, p.result) {
+	case Some{Value: injection}:
+		row.op = CUnionRet
+		row.slot = len(p.injections)
+		p.injections = p.injections.Append(injection)
+	case None:
+		try controlOperand(*st, p, x)
+		row.x = dense.OptOf(x)
+	}
+}
+
+func controlPrepareDiscard(st fnb, p mut controlPlan, row mut controlStmt, x dense.ID[syntax.Node]) fails Unported {
+	if p.unit {
+		match syntax.ViewOf(st.p.Tree, x) {
+		case syntax.CallExpr as ce:
+			match try planBorrowInvoke(st, x, ce, p.formals) {
+			case Some{Value: invoke}:
+				row.op = CBorrowInvoke{Invoke: invoke}
+				p.borrowInvoked = true
+				return
+			case None:
+			}
+		case _:
+		}
+	}
+	try controlOperand(st, p, x)
+	row.op = CDiscard
+	row.x = dense.OptOf(x)
+}
+
+func controlPrepareSet(st fnb, p mut controlPlan, row mut controlStmt, a syntax.AssignStmt, lhs dense.ID[syntax.Node], loops int) fails Unported {
+	let slot = try paramLocal(st, lhs)
+	if slot < p.formals || !p.locals[slot-p.formals].mutable {
+		return stop("control: assignment to non-mutable local")
+	}
+	let text = syntax.TokText(st.p, a.Tok)
+	let op = if text == "=" { "" } else { text[:len(text)-1] }
+	if op != "" && !isIROp(op) {
+		return stop("control: assignment operator")
+	}
+	let gt = p.locals[slot-p.formals].typ
+	if loops > 0 && gt == "string" {
+		return stop("control: loop-carried string decision")
+	}
+	try controlOperand(st, p, a.Rhs)
+	row.op = CSet
+	row.x = dense.OptOf(a.Rhs)
+	row.slot = slot
+	row.assign = op
+	if op == "*" && (gt == "float32" || gt == "float64") {
+		row.round = gt
+		p.reads = p.reads.Append(slot)
+	}
+}
+
 // Collect use edges while preparing the operand. These edges belong to a
 // statement, so pruning it also prunes its local reads. Selector fields
 // and keyed literal labels are not local reads.
@@ -329,9 +409,14 @@ func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 		}
 	case syntax.CompositeLit as cl:
 		p.nonScalar = true
-		let (_, _, fields) = try recordLit(st, x, cl)
-		for v in fields {
-			try controlObserve(st, p, v)
+		for i in 0..syntax.Len(cl.Elts) {
+			let elt = syntax.Item(parsed.Tree, cl.Elts, i)
+			match syntax.ViewOf(parsed.Tree, elt) {
+			case syntax.KeyValueExpr as kv:
+				try controlObserve(st, p, kv.Value)
+			case _:
+				try controlObserve(st, p, elt)
+			}
 		}
 		match dense.Unpack(cl.Base) {
 		case Some{Value: base}:
@@ -339,8 +424,21 @@ func controlObserve(st fnb, p mut controlPlan, x dense.ID[syntax.Node]) fails Un
 		case None:
 		}
 	case syntax.SelectorExpr as se:
+		if matchBoundField(st, x, se) {
+			// MATCH proved this is one scalar payload read from its binder.
+			p.reads = p.reads.Append(try paramLocal(st, se.X))
+		} else {
+			p.nonScalar = true
+			try controlObserve(st, p, se.X)
+		}
+	case syntax.IndexExpr as ix:
+		// The checked shape already admitted this index (sliceIndex in
+		// the shape lowerer). Observe its operands, not its admission.
 		p.nonScalar = true
-		p.reads = p.reads.Append(try paramLocal(st, se.X))
+		try controlObserve(st, p, ix.X)
+		for i in 0..syntax.Len(ix.Indices) {
+			try controlObserve(st, p, syntax.Item(parsed.Tree, ix.Indices, i))
+		}
 	case syntax.ParenExpr as pe:
 		try controlObserve(st, p, pe.X)
 	case syntax.UnaryExpr as un:
@@ -411,6 +509,10 @@ func controlTerminates(row controlStmt) bool {
 	match row.op {
 	case CRet:
 		true
+	case CUnionRet:
+		true
+	case CMatch:
+		matchTerminates(row)
 	case CIf:
 		row.first.terminates && row.second.terminates
 	case CWhile:
@@ -440,6 +542,9 @@ func controlLive(p controlPlan, span controlSpan, read mut []bool) {
 		}
 		controlLive(p, stmt.first, read)
 		controlLive(p, stmt.second, read)
+		for j in stmt.matchLo..stmt.matchHi {
+			controlLive(p, p.matches[j].span, read)
+		}
 		if controlTerminates(stmt) {
 			return
 		}
@@ -458,7 +563,7 @@ func controlEmit(st fnb, b mut ir.Builder, body controlBody, end ir.Pos) []uint3
 		try ir.AddLocal(b, local.name, local.typ, pos(st, local.at))
 	}
 	let mut roots = try controlEmitSpan(st, b, p, body.body, read)
-	if len(roots) > 0 && !body.body.terminates {
+	if !p.unit && len(roots) > 0 && !body.body.terminates {
 		let msg = try constRow(b, end, "string", "ergo: unreachable: the function's end")
 		roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "panic"), end, []uint32{msg}))
 	}
@@ -470,6 +575,18 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 	let mut i = span.lo
 	for i < span.hi {
 		let s = p.stmts[i]
+		match s.op {
+		case CMatch:
+			for row in try matchEmit(st, b, p, s, p.matches[s.matchLo:s.matchHi], read) {
+				rows = rows.Append(row)
+			}
+			if controlTerminates(s) {
+				return rows
+			}
+			i = s.next
+			continue
+		case _:
+		}
 		let at = pos(st, s.offset)
 		let x = match dense.Unpack(s.x) {
 		case Some{Value: operand}:
@@ -490,10 +607,18 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			} else {
 				try ir.Row(b, ir.KindCode(ir.TStmt, "set"), at, []uint32{slot, x, ir.Text(b, s.assign)})
 			}
+		case CPlaceWrite as w:
+			try emitBorrowWrite(st, b, w.Write, w.RHS)
 		case CRet:
 			try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), at, []uint32{x})
+		case CUnionRet:
+			try unionEmitReturn(st, b, p.injections[s.slot], at)
+		case CMatch:
+			return ir.Malformed{At: i, Why: "match outside multirow emission"}
 		case CDiscard:
 			try ir.Row(b, ir.KindCode(ir.TStmt, "discard"), at, []uint32{x})
+		case CBorrowInvoke as invoke:
+			try emitBorrowInvoke(st, b, invoke.Invoke)
 		case CIf:
 			let then = try controlEmitSpan(st, b, p, s.first, read)
 			let els = try controlEmitSpan(st, b, p, s.second, read)
