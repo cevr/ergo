@@ -81,3 +81,94 @@ func TestGraphAffectedReadsTheBaseRevision(t *testing.T) {
 		t.Fatalf("affected by the edit of lib.Size: %v", names)
 	}
 }
+
+// TestGraphCompareReadsBaseRevision exercises `ergo graph --in DIR/...
+// compare HEAD --json` end-to-end on a git repository: self-comparison
+// reports no regression; adding a long file reports advisory regressed
+// true with exit 0 (non-blocking); breaking type-checking in head refuses
+// the comparison with an error.
+func TestGraphCompareReadsBaseRevision(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	repo := t.TempDir()
+	write := func(name, text string) {
+		p := filepath.Join(repo, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("ergo.mod", "module app\n")
+	write("pkg/pkg.ergo", "func A() int { 1 }\nfunc B() int { 2 }\n")
+	write("cmd/app/main.ergo", "import app/pkg\n\nfunc main() needs Console {\n\tConsole.Println(\"\\(pkg.A() + pkg.B())\")\n}\n")
+	git := func(args ...string) {
+		cmd := exec.Command("git", append([]string{"--no-optional-locks"}, args...)...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("init", "-q")
+	git("add", ".")
+	git("commit", "-q", "-m", "base")
+
+	target := repo + "/..."
+	// 1. Self-comparison: no regression.
+	headRows, err := graphRowsChecked(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRows, _, err := baseRowsChecked(target, "HEAD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	strs, ints := headRows.AppendColumns(nil, nil)
+	strs, ints = oldRows.AppendColumns(strs, ints)
+	out, err := lgraph.RunColumns(context.Background(), []string{"compare", "HEAD", "--max-lines", "3", "--json"}, strs, ints)
+	if err != nil || len(out) != 3 || out[0] != "0" {
+		t.Fatalf("self compare: %v %q", err, out)
+	}
+	var cmp struct {
+		Advisory  bool
+		Regressed bool
+		Added     []struct{ Rule, Subject, Key string }
+		Grown     []struct{ Rule, Subject, Key string }
+		Unchanged []struct{ Rule, Subject, Key string }
+		Removed   []struct{ Rule, Subject, Key string }
+	}
+	if err := json.Unmarshal([]byte(out[1]), &cmp); err != nil {
+		t.Fatalf("%v: %s", err, out[1])
+	}
+	if !cmp.Advisory || cmp.Regressed || len(cmp.Added) != 0 || len(cmp.Grown) != 0 || len(cmp.Removed) != 0 {
+		t.Fatalf("self compare unexpected: %+v", cmp)
+	}
+
+	// 2. Regression: lengthen pkg/pkg.ergo beyond 3 lines; advisory exit stays 0.
+	write("pkg/pkg.ergo", "func A() int { 1 }\nfunc B() int { 2 }\nfunc C() int { 3 }\nfunc D() int { 4 }\n")
+	headRows, err = graphRowsChecked(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	strs, ints = headRows.AppendColumns(nil, nil)
+	strs, ints = oldRows.AppendColumns(strs, ints)
+	out, err = lgraph.RunColumns(context.Background(), []string{"compare", "HEAD", "--max-lines", "3", "--json"}, strs, ints)
+	if err != nil || len(out) != 3 || out[0] != "0" {
+		t.Fatalf("regressed compare must stay advisory (exit 0): %v %q", err, out)
+	}
+	if err := json.Unmarshal([]byte(out[1]), &cmp); err != nil {
+		t.Fatalf("%v: %s", err, out[1])
+	}
+	if !cmp.Advisory || !cmp.Regressed || len(cmp.Added) != 1 || cmp.Added[0].Rule != "long-file" {
+		t.Fatalf("regressed compare unexpected: %+v", cmp)
+	}
+
+	// 3. Unchecked head must be refused.
+	write("pkg/pkg.ergo", "func A() int { \"not an int\" }\n")
+	if _, err := graphRowsChecked(target); err == nil {
+		t.Fatal("expected unchecked head to be refused by graphRowsChecked")
+	}
+}

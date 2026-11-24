@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, tangles, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, tangles, compare, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -155,6 +155,11 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("tangles takes no argument; the member max is --max N, the modules --module PATH")
 		}
 		tangles(r, o)
+	case "compare":
+		if len(words) != 2 {
+			return usage("compare takes one base: compare BASE")
+		}
+		compareLayout(r, base, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -170,22 +175,29 @@ func usage(why string) []string { []string{"2", "", "ergo graph: \(why)\n"} }
 
 // Options are the flags of a command and its other words.
 type Options {
-	Json    bool,
-	Tests   bool,
-	Level   codegraph.Level,
-	Min     int,
-	Max     int,
-	Modules []string,
-	Support []codegraph.SupportEntry,
-	Seams   []codegraph.SeamSpec,
-	Words   []string,
-	Bad     string,
+	Json       bool,
+	Tests      bool,
+	Level      codegraph.Level,
+	Min        int,
+	Max        int,
+	MaxSurface int,
+	MaxLines   int,
+	MaxDir     int,
+	MaxTangle  int,
+	Modules    []string,
+	Support    []codegraph.SupportEntry,
+	Seams      []codegraph.SeamSpec,
+	Policy     codegraph.LayoutPolicy,
+	HasPolicy  bool,
+	Words      []string,
+	Bad        string,
 }
 
 // options reads --json, --tests, --level package|file|decl and --min N
 // from args; every other argument is a word.
 func options(args []string) Options {
-	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Max: -1, Modules: []string{}, Support: []codegraph.SupportEntry{}, Seams: []codegraph.SeamSpec{}, Words: []string{}, Bad: ""}
+	let emptyPolicy = codegraph.LayoutPolicy{MaxSurfaceList: 0, MaxFileLines: 0, MaxDirectoryMembers: 0, MaxTangleMembers: 0, Support: []codegraph.SupportEntry{}, Seams: []codegraph.SeamSpec{}}
+	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Max: -1, MaxSurface: 0, MaxLines: 0, MaxDir: 0, MaxTangle: 0, Modules: []string{}, Support: []codegraph.SupportEntry{}, Seams: []codegraph.SeamSpec{}, Policy: emptyPolicy, HasPolicy: false, Words: []string{}, Bad: ""}
 	let mut i = 0
 	for i < len(args) {
 		let a = args[i]
@@ -275,6 +287,67 @@ func options(args []string) Options {
 				return o
 			}
 			o.Seams = o.Seams.Append(s)
+			i = i + 1
+		case "--policy":
+			if i >= len(args) {
+				o.Bad = "--policy takes a JSON policy object"
+				return o
+			}
+			let pol = json.Decode(json.Codec[codegraph.LayoutPolicy]{MaxBytes: 1 << 20, MaxDepth: 8}, args[i]) catch {
+			case _:
+				o.Bad = "--policy takes a JSON policy object"
+				return o
+			}
+			o.Policy = pol
+			o.HasPolicy = true
+			i = i + 1
+		case "--max-surface":
+			if i >= len(args) {
+				o.Bad = "--max-surface takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-surface takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxSurface = n
+			i = i + 1
+		case "--max-lines":
+			if i >= len(args) {
+				o.Bad = "--max-lines takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-lines takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxLines = n
+			i = i + 1
+		case "--max-dir":
+			if i >= len(args) {
+				o.Bad = "--max-dir takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-dir takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxDir = n
+			i = i + 1
+		case "--max-tangle":
+			if i >= len(args) {
+				o.Bad = "--max-tangle takes a number"
+				return o
+			}
+			let n = strconv.Atoi(args[i]) catch {
+			case _:
+				o.Bad = "--max-tangle takes a number, not \(args[i])"
+				return o
+			}
+			o.MaxTangle = n
 			i = i + 1
 		case _:
 			if strings.HasPrefix(a, "-") {
@@ -673,6 +746,43 @@ func tangles(r codegraph.Rows, o Options) []string {
 		b = b + "\(t.Package) (\(len(t.Members)) decls, \(len(t.Files)) files): " + strings.Join(t.Path, " -> ") + "\n"
 	}
 	ok(if len(out) == 0 { "no declaration tangle\n" } else { b })
+}
+
+func compareLayout(head codegraph.Rows, base codegraph.Rows, o Options) []string {
+	let headMods = selectedModules(head, o)
+	let baseMods = selectedModules(base, o)
+	let policy = if o.HasPolicy {
+		o.Policy
+	} else {
+		codegraph.LayoutPolicy{
+			MaxSurfaceList:      o.MaxSurface,
+			MaxFileLines:        o.MaxLines,
+			MaxDirectoryMembers: o.MaxDir,
+			MaxTangleMembers:    o.MaxTangle,
+			Support:             o.Support,
+			Seams:               o.Seams,
+		}
+	}
+	let cmp = codegraph.CompareLayout(base, head, baseMods, headMods, policy)
+	if o.Json {
+		return ok(json.Encode(json.Codec[codegraph.LayoutComparison]{MaxBytes: 1 << 40, MaxDepth: 16}, cmp) + "\n")
+	}
+	let mut b = "advisory layout comparison: "
+	b = b + (if cmp.Regressed { "regressed" } else { "clean" })
+	b = b + " (\(len(cmp.Added)) added, \(len(cmp.Grown)) grown, \(len(cmp.Unchanged)) unchanged, \(len(cmp.Removed)) removed)\n"
+	for a in cmp.Added {
+		b = b + "+ [\(a.Rule)] \(a.Detail)\n"
+	}
+	for g in cmp.Grown {
+		b = b + "^ [\(g.Rule)] \(g.Detail) (\(g.BaseCount) -> \(g.HeadCount))\n"
+	}
+	for u in cmp.Unchanged {
+		b = b + "= [\(u.Rule)] \(u.Detail)\n"
+	}
+	for r in cmp.Removed {
+		b = b + "- [\(r.Rule)] \(r.Detail)\n"
+	}
+	ok(b)
 }
 
 func interfaces(r codegraph.Rows, o Options) []string {

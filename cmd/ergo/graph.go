@@ -91,6 +91,14 @@ Commands:
                                   declarations within one package (with --max
                                   0 cross-file only; with --max N also SCCs
                                   over N declarations)
+  compare BASE [--policy JSON] [--max-surface N] [--max-lines N] [--max-dir N]
+          [--max-tangle N] [--support PATH]... [--support-seam SEAM=PATH]...
+          [--seam JSON]... [--module PATH]...
+                                  advisory monotone evidence comparison of the
+                                  eight organization layout rules against BASE
+                                  (a git revision or a rows JSON file); refuses
+                                  an unchecked base or head, never fails on
+                                  advisory findings
   layers PATTERN...               each import that goes up the layering
                                   PATTERN... names from the top down (a
                                   path, or a prefix ending /...)
@@ -117,36 +125,44 @@ func graphCommand(args []string) error {
 		}
 	}
 	if len(args) == 0 {
-		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, tangles, layers"))
+		return invalidInvocation(fmt.Errorf("ergo graph: supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, folder-cycles, tangles, compare, layers"))
 	}
 	if args[0] == "export" {
 		return graphExport(dir, args[1:])
 	}
 	switch args[0] {
-	case "cycles", "why", "affected", "hidden", "chains", "fan", "interfaces", "files", "directories", "field-writes", "test-support", "seams", "folder-cycles", "tangles", "layers":
+	case "cycles", "why", "affected", "hidden", "chains", "fan", "interfaces", "files", "directories", "field-writes", "test-support", "seams", "folder-cycles", "tangles", "compare", "layers":
 	default:
 		return invalidInvocation(fmt.Errorf("ergo graph: unknown command %s", args[0]))
 	}
-	t, err := graphRows(dir)
+	var (
+		t   *graphrows.Table
+		err error
+	)
+	if args[0] == "compare" {
+		t, err = graphRowsChecked(dir)
+	} else {
+		t, err = graphRows(dir)
+	}
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo graph: " + err.Error()}
 	}
 	strs, ints := t.AppendColumns(nil, nil)
 	var old []byte
-	if args[0] == "affected" {
-		base := ""
-		for _, a := range args[1:] {
-			if !strings.HasPrefix(a, "-") {
-				base = a
-				break
-			}
-		}
+	if args[0] == "affected" || args[0] == "compare" {
+		base := baseArg(args[1:])
 		if base == "" {
-			return invalidInvocation(fmt.Errorf("ergo graph affected: supply a base: a git revision or a rows file"))
+			return invalidInvocation(fmt.Errorf("ergo graph %s: supply a base: a git revision or a rows file", args[0]))
 		}
-		bt, data, err := baseRows(dir, base)
+		var bt *graphrows.Table
+		var data []byte
+		if args[0] == "compare" {
+			bt, data, err = baseRowsChecked(dir, base)
+		} else {
+			bt, data, err = baseRows(dir, base)
+		}
 		if err != nil {
-			return exitStatusError{code: 1, message: "ergo graph affected: " + err.Error()}
+			return exitStatusError{code: 1, message: "ergo graph " + args[0] + ": " + err.Error()}
 		}
 		if bt != nil {
 			strs, ints = bt.AppendColumns(strs, ints)
@@ -225,6 +241,14 @@ func graphExport(dir string, args []string) error {
 // it for dir/...; at a workspace root, with a node for each module and an
 // edge for each module another resolves locally.
 func graphRows(dir string) (*graphrows.Table, error) {
+	return graphRowsMode(dir, false)
+}
+
+func graphRowsChecked(dir string) (*graphrows.Table, error) {
+	return graphRowsMode(dir, true)
+}
+
+func graphRowsMode(dir string, requireChecked bool) (*graphrows.Table, error) {
 	var as []sketchfront.Analysis
 	recursive := recursivePattern(dir)
 	if recursive {
@@ -237,14 +261,11 @@ func graphRows(dir string) (*graphrows.Table, error) {
 	if err != nil {
 		return nil, err
 	}
+	var ws *sketchfront.Workspace
 	if recursive {
-		var ws *sketchfront.Workspace
 		as, ws, err = sketchfront.CheckTree(dir)
 		if err != nil {
 			return nil, err
-		}
-		if ws != nil {
-			return sketchfront.GraphOfWorkspace(*ws, as), nil
 		}
 	} else {
 		a, err := sketchfront.CheckDir(dir)
@@ -253,7 +274,33 @@ func graphRows(dir string) (*graphrows.Table, error) {
 		}
 		as = append(as, a)
 	}
+	if requireChecked {
+		for _, a := range as {
+			if len(a.Diagnostics) > 0 || a.Checked() == nil {
+				return nil, fmt.Errorf("unchecked source: %d checker diagnostics", len(a.Diagnostics))
+			}
+		}
+	}
+	if ws != nil {
+		return sketchfront.GraphOfWorkspace(*ws, as), nil
+	}
 	return sketchfront.GraphOf(as), nil
+}
+
+// baseArg returns the first positional argument in args, skipping known
+// flag values.
+func baseArg(args []string) string {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--level", "--min", "--max", "--module", "--support", "--support-seam", "--seam", "--policy", "--max-surface", "--max-lines", "--max-dir", "--max-tangle":
+			i++
+		default:
+			if !strings.HasPrefix(args[i], "-") {
+				return args[i]
+			}
+		}
+	}
+	return ""
 }
 
 // baseRows is the rows of the program in dir at base: the JSON text of the
@@ -261,6 +308,14 @@ func graphRows(dir string) (*graphrows.Table, error) {
 // whose tree (the folders baseFolders names) is unpacked into a temporary
 // folder and checked there.
 func baseRows(dir, base string) (*graphrows.Table, []byte, error) {
+	return baseRowsMode(dir, base, false)
+}
+
+func baseRowsChecked(dir, base string) (*graphrows.Table, []byte, error) {
+	return baseRowsMode(dir, base, true)
+}
+
+func baseRowsMode(dir, base string, requireChecked bool) (*graphrows.Table, []byte, error) {
 	if st, err := os.Stat(base); err == nil && !st.IsDir() {
 		data, err := os.ReadFile(base)
 		return nil, data, err
@@ -306,7 +361,7 @@ func baseRows(dir, base string) (*graphrows.Table, []byte, error) {
 	if recursive {
 		at += "/..."
 	}
-	t, err := graphRows(at)
+	t, err := graphRowsMode(at, requireChecked)
 	if err != nil {
 		return nil, nil, fmt.Errorf("the program at %s: %w", base, err)
 	}
