@@ -443,15 +443,14 @@ func (b *irBuilder) frameArg(p irPos) *irExpr {
 
 // closeMasked is the body of a checked Close f, built: the whole of it
 // (its frame, entry poll and statements) runs as the function literal
-// that v1.Release runs masked, with the caller's task first (the
-// emitter's closeBody). A return in the body returns from the literal,
-// and so from the Close. A Close with a generated release of its
-// receiver's parts after it (CloseParts, glueWith) keeps its source body.
-func (b *irBuilder) closeMasked(f *check.Func, body []*irStmt) []*irStmt {
+// that v1.Release runs masked (the emitter's closeBody). A written
+// Close with parts runs that masked body as the first part, so its
+// receiver's parts still release after a defect.
+func (b *irBuilder) closeMasked(f *check.Func, params []*check.Var, body []*irStmt) []*irStmt {
 	if !isClose(f) {
 		return body
 	}
-	if f.Pkg.Info.CloseParts[f] != nil || b.env < 0 {
+	if b.env < 0 {
 		irNo("checked Close (closeBody masks it)")
 	}
 	const name = "Release"
@@ -464,7 +463,26 @@ func (b *irBuilder) closeMasked(f *check.Func, body []*irStmt) []*irStmt {
 	lit := &irExpr{K: "func", Pos: p, T: "func()", Body: body, End: &end}
 	task := &irExpr{K: "field", Pos: p, Name: envTask, X: &irExpr{K: "local", Pos: p, I: b.env}}
 	b.keepImport("var _ = " + b.l.rt() + "." + name)
-	return []*irStmt{{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: []*irExpr{task, lit}}}}
+	call := &irStmt{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: name, Args: []*irExpr{task, lit}}}
+	if d := f.Pkg.Info.CloseParts[f]; d != nil {
+		if len(d.Fields) == 0 || len(params) == 0 {
+			irNo("checked Close (closeBody masks it)")
+		}
+		i, ok := b.locals[params[0]]
+		if !ok {
+			irNo("checked Close (closeBody masks it)")
+		}
+		g := irDrop{b: b, site: f.Decl, p: p}
+		recv := g.local(i)
+		if _, ptr := f.Sig.Params[0].Type.(*check.Pointer); ptr {
+			recv = &irExpr{K: "deref", Pos: p, X: recv}
+		}
+		b.keepImport("var _ = " + b.l.rt() + ".NewDrop")
+		drop := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "NewDrop", Args: []*irExpr{task}}
+		first := &irExpr{K: "func", Pos: p, T: "func()", Body: []*irStmt{call}, End: &end}
+		return g.body(drop, d, recv, nil, first)
+	}
+	return []*irStmt{call}
 }
 
 // releaseFuncs writes the static frame's release helpers as IR functions

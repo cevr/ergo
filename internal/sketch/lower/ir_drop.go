@@ -19,7 +19,7 @@ func (b *irBuilder) dropRelease(d *check.Drop, typ string, site syntax.Node, p i
 	b.keepImport("var _ = " + b.l.rt() + ".NewDrop")
 	drop := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "NewDrop", Args: []*irExpr{task}}
 	return &irExpr{K: "func", Pos: p, T: "func(" + typ + ", uint64)", Params: []int{val, taken}, End: &p,
-		Body: g.body(drop, d, g.local(val), g.local(taken))}
+		Body: g.body(drop, d, g.local(val), g.local(taken), nil)}
 }
 
 // takeField mirrors the checked move in release.go. The mask belongs
@@ -70,12 +70,15 @@ func (g *irDrop) method(name string, recv *irExpr, args ...*irExpr) *irExpr {
 	return &irExpr{K: "mcall", Pos: g.p, Name: name, X: recv, Args: args}
 }
 
-func (g *irDrop) body(ctor *irExpr, d *check.Drop, x, taken *irExpr) []*irStmt {
+func (g *irDrop) body(ctor *irExpr, d *check.Drop, x, taken, first *irExpr) []*irStmt {
 	g.drop = g.b.temp("drop", "*"+g.b.spelling(g.b.l.rt()+".Drop"), g.p)
 	g.nested = map[*check.Drop]int{}
 	top := g.parts(d, x, taken)
 	out := append([]*irStmt{{K: "def", Pos: g.p, Local: g.drop, X: ctor}}, g.defs...)
 	out = append(out, g.work...)
+	if first != nil {
+		out = append(out, g.expr(g.method("Part", g.local(g.drop), first)))
+	}
 	out = append(out, top...)
 	return append(out, g.expr(g.method("End", g.local(g.drop))))
 }

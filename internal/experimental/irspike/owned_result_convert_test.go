@@ -117,6 +117,13 @@ func ownedResultRunSelected(t *testing.T, u lower.Unit, tc Toolchain, path Path,
 				t.Errorf("mode %q: %s static cleanup = %v", releaseMode, name, static)
 			}
 		}
+		if slices.Contains(wantIR, "DropCheckedClose") {
+			for _, name := range []string{"closePartsTicket.Close", "refClosePartsTicket.Close"} {
+				if !slices.Contains(rep.IR, name) {
+					t.Fatalf("checked Close with parts has no IR body for %s: %v", name, rep.Fallback)
+				}
+			}
+		}
 		if err := writeModule(mod, files); err != nil {
 			t.Fatal(err)
 		}
@@ -627,6 +634,56 @@ test Check%[1]s {
 	assert log.Get() == %[4]s
 }
 `, f.name, f.body, 1+seed%7, f.released)
+	}
+	names = append(names, "DropCheckedClose", "DropCheckedClosePlace")
+	src.WriteString(`
+type closePartsTicket { part dropTicket, log sync.Ref[int], id int, crash bool } implements Closer
+type wrapCloseParts { item closePartsTicket }
+func Close(x closePartsTicket) {
+	x.log.Set(x.log.Get()*10 + x.id)
+	if x.crash { Unreachable("release defect") }
+}
+
+type refClosePartsTicket { part dropTicket, log sync.Ref[int], id int, crash bool } implements Closer
+func Close(x mut refClosePartsTicket) {
+	x.log.Set(x.log.Get()*10 + x.id)
+	x.part.id = x.id+2
+	if x.crash { Unreachable("release defect") }
+}
+`)
+	for _, f := range []struct{ name, body, expected string }{
+		{"DropCheckedClose", `let x = wrapCloseParts{item: closePartsTicket{part: dropTicket{id: id+1, log: log, crash: false}, log: log, id: id, crash: defect}}
+			if x.item.log.Get() != 0 { Unreachable("released too soon") }`, "11*id+1"},
+		{"DropCheckedClosePlace", `let mut x = refClosePartsTicket{part: dropTicket{id: id+1, log: log, crash: false}, log: log, id: id, crash: defect}
+			x.Close()
+			if log.Get() != 11*id+2 { Unreachable("parts did not observe the Close's write") }`, "11*id+2"},
+	} {
+		fmt.Fprintf(&src, `
+func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	%[2]s
+	if reject { return Bad }
+	false
+}
+test Check%[1]s {
+	let id = %[3]d
+	let log = sync.NewRef(0)
+	let used = %[1]s(log, id, false, false) catch { case Bad: true }
+	assert !used
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let rejected = %[1]s(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let child = task.Go() { try %[1]s(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == %[4]s
+}
+`, f.name, f.body, 1+seed%7, f.expected)
 	}
 	return src.String(), names
 }
