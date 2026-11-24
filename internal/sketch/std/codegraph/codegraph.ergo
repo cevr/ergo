@@ -91,7 +91,8 @@ func Decode(text string) Rows fails BadRows {
 }
 
 // Node is a node row's view: what it is, with its names.
-type Node = Module{Path string}
+type Node =
+	| Module{Path string}
 	| Package{Path string}
 	| File{Path string}
 	| Decl{Package int, Name string, Kind string}
@@ -212,13 +213,13 @@ func LevelOf(r Rows, level Level, tests bool) LevelGraph {
 	let mut edges = []graph.Edge{}
 	for e in r.Edges {
 		let (a, b) = levelPair(r, level, e)
-		if a < 0 || b < 0 || a == b && kind != "decl" || seen.Get(a * len(r.Nodes) + b) != None {
+		if a < 0 || b < 0 || a == b && kind != "decl" || seen.Get(a*len(r.Nodes)+b) != None {
 			continue
 		}
 		if kind == "package" && !tests && testOnly(r, a, b) {
 			continue
 		}
-		seen[a * len(r.Nodes) + b] = true
+		seen[a*len(r.Nodes)+b] = true
 		edges = edges.Append(graph.Edge{From: index[a], To: index[b]})
 	}
 	LevelGraph{Graph: graph.Of(len(nodes), edges), Nodes: nodes}
@@ -346,7 +347,7 @@ func cyclesAreImportCycles(seed int, size int) bool {
 	let cycles = Cycles(r, Packages, true)
 	for c in cycles {
 		for i in 1..len(c.Path) {
-			if !imports(r, c.Path[i - 1], c.Path[i]) {
+			if !imports(r, c.Path[i-1], c.Path[i]) {
 				return false
 			}
 		}
@@ -435,7 +436,7 @@ func Why(r Rows, a int, b int) Option[[]Step] {
 	case Some[[]int] as p:
 		let mut out = []Step{}
 		for i in 1..len(p.Value) {
-			out = out.Append(stepOf(d, p.Value[i - 1], p.Value[i]))
+			out = out.Append(stepOf(d, p.Value[i-1], p.Value[i]))
 		}
 		Some[[]Step]{Value: out}
 	case None:
@@ -452,8 +453,8 @@ func whyIsAPath(seed int, size int, x int, y int) bool {
 	if len(r.Nodes) == 0 {
 		return true
 	}
-	let a = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
-	let b = (y % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let a = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let b = (y%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
 	match Why(r, a, b) {
 	case Some[[]Step] as w:
 		let mut at = a
@@ -528,8 +529,8 @@ func affectedGrowsWithChanges(seed int, size int, x int, y int) bool {
 	if len(r.Nodes) == 0 {
 		return true
 	}
-	let a = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
-	let b = (y % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let a = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let b = (y%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
 	let small = Affected(r, []int{a})
 	let large = Affected(r, []int{a, b})
 	let mut inLarge = Map[int, bool]{}
@@ -556,7 +557,7 @@ func whyExistsIffAffected(seed int, size int, x int) bool {
 	if len(r.Nodes) == 0 {
 		return true
 	}
-	let c = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let c = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
 	let mut reached = Map[int, bool]{}
 	for a in Affected(r, []int{c}) {
 		reached[a.Node] = true
@@ -598,7 +599,7 @@ func changedIsTheEdit(seed int, size int, x int) bool {
 	if len(Changed(r, r)) != 0 {
 		return false
 	}
-	let k = (x % len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
+	let k = (x%len(r.Nodes) + len(r.Nodes)) % len(r.Nodes)
 	if r.Nodes[k].Kind != "decl" || r.Nodes[k].Digest == "" {
 		return true
 	}
@@ -626,7 +627,7 @@ func Hidden(r Rows) []HiddenUse {
 	let mut reexport = Map[int, int]{}
 	for e in r.Edges {
 		if e.Kind == "imports" {
-			imported[packageOf(r, e.From) * width + e.To] = true
+			imported[packageOf(r, e.From)*width+e.To] = true
 		}
 		if e.Kind == "reexports" {
 			reexport[e.From] = e.To
@@ -639,13 +640,13 @@ func Hidden(r Rows) []HiddenUse {
 		}
 		let a = packageOf(r, e.From)
 		let c = packageOf(r, e.To)
-		if a >= 0 && c >= 0 && a != c && imported.Get(a * width + c) == None {
+		if a >= 0 && c >= 0 && a != c && imported.Get(a*width+c) == None {
 			out = out.Append(HiddenUse{From: e.From, To: e.To, Package: c, Via: -1, How: e.How})
 		}
 		match reexport.Get(e.To) {
 		case Some[int] as t:
 			let d = packageOf(r, t.Value)
-			if a >= 0 && d >= 0 && a != d && imported.Get(a * width + d) == None {
+			if a >= 0 && d >= 0 && a != d && imported.Get(a*width+d) == None {
 				out = out.Append(HiddenUse{From: e.From, To: t.Value, Package: d, Via: e.To, How: e.How})
 			}
 		case None:
@@ -701,13 +702,13 @@ law ChainsAreImports(seed int, size int, min int) { chainsAreImports(seed, size,
 
 func chainsAreImports(seed int, size int, min int) bool {
 	let r = drawnRows(seed, size)
-	let atLeast = (min % 4 + 4) % 4
+	let atLeast = (min%4 + 4) % 4
 	for c in Chains(r, atLeast) {
 		if len(c) < atLeast {
 			return false
 		}
 		for i in 1..len(c) {
-			if !imports(r, c[i - 1], c[i]) {
+			if !imports(r, c[i-1], c[i]) {
 				return false
 			}
 		}
@@ -907,9 +908,9 @@ func cohesionIsBounded(seed int, size int) bool {
 // across packages with no import, some of a member); a task per test with
 // inputs; and a re-export from a let.
 func drawnRows(seed int, size int) Rows {
-	let mut x = (seed % 2147483648 + 2147483648) % 2147483648
+	let mut x = (seed%2147483648 + 2147483648) % 2147483648
 	let mut nodes = []NodeRow{nodeRow(0, "module", "", -1, "m")}
-	let pkgs = (size % 4 + 4) % 4 + 1
+	let pkgs = (size%4+4)%4 + 1
 	let mut decls = []int{}
 	let mut files = []int{}
 	let mut packages = []int{}
@@ -918,7 +919,7 @@ func drawnRows(seed int, size int) Rows {
 		packages = packages.Append(pid)
 		nodes = nodes.Append(nodeRow(pid, "package", "", 0, "m/p\(p)"))
 		x = next(x)
-		for f in 0..(x / 16) % 2 + 1 {
+		for f in 0..(x/16)%2+1 {
 			let fid = len(nodes)
 			files = files.Append(fid)
 			let mut frow = nodeRow(fid, "file", "", pid, "p\(p)/f\(f).ergo")
@@ -926,16 +927,16 @@ func drawnRows(seed int, size int) Rows {
 			frow.Lines = (x / 16) % 50
 			nodes = nodes.Append(frow)
 			x = next(x)
-			for d in 0..(x / 16) % 3 + 1 {
+			for d in 0..(x/16)%3+1 {
 				x = next(x)
-				let sub = []string{"func", "test", "let"}[(x / 16) % 3]
+				let sub = []string{"func", "test", "let"}[(x/16)%3]
 				let did = len(nodes)
 				decls = decls.Append(did)
 				let mut row = nodeRow(did, "decl", sub, fid, "D\(d)")
 				row.Digest = "t\(x % 97)"
 				nodes = nodes.Append(row)
 				x = next(x)
-				if (x / 16) % 3 == 0 {
+				if (x/16)%3 == 0 {
 					let mid = len(nodes)
 					decls = decls.Append(mid)
 					nodes = nodes.Append(nodeRow(mid, "decl", "field", did, "D\(d).M"))
@@ -947,17 +948,17 @@ func drawnRows(seed int, size int) Rows {
 	for f in files {
 		for p in packages {
 			x = next(x)
-			if p != packageOf(Rows{Version: 2, Nodes: nodes, Edges: edges}, f) && (x / 16) % 3 == 0 {
+			if p != packageOf(Rows{Version: 2, Nodes: nodes, Edges: edges}, f) && (x/16)%3 == 0 {
 				edges = edges.Append(edgeRow("imports", "", f, p))
 			}
 		}
 	}
 	x = next(x)
-	for _ in 0..(x / 16) % (2 * len(decls) + 1) {
+	for _ in 0..(x/16)%(2*len(decls)+1) {
 		x = next(x)
-		let a = decls[(x / 16) % len(decls)]
+		let a = decls[(x/16)%len(decls)]
 		x = next(x)
-		let b = decls[(x / 16) % len(decls)]
+		let b = decls[(x/16)%len(decls)]
 		edges = edges.Append(edgeRow("uses", "call", a, b))
 	}
 	for d in decls {
@@ -968,12 +969,12 @@ func drawnRows(seed int, size int) Rows {
 			nodes = nodes.Append(task)
 			edges = edges.Append(edgeRow("input", "", tid, d))
 			x = next(x)
-			edges = edges.Append(edgeRow("input", "", tid, decls[(x / 16) % len(decls)]))
+			edges = edges.Append(edgeRow("input", "", tid, decls[(x/16)%len(decls)]))
 		}
 		if nodes[d].Sub == "let" {
 			x = next(x)
-			if (x / 16) % 2 == 0 {
-				edges = edges.Append(edgeRow("reexports", "", d, decls[(x / 16) % len(decls)]))
+			if (x/16)%2 == 0 {
+				edges = edges.Append(edgeRow("reexports", "", d, decls[(x/16)%len(decls)]))
 			}
 		}
 	}
@@ -981,7 +982,7 @@ func drawnRows(seed int, size int) Rows {
 }
 
 // next is the generator's next state.
-func next(x int) int { (x * 1103515245 + 12345) % 2147483648 }
+func next(x int) int { (x*1103515245 + 12345) % 2147483648 }
 
 func nodeRow(id int, kind string, sub string, parent int, name string) NodeRow {
 	NodeRow{Id: id, Kind: kind, Sub: sub, Parent: parent, Name: name, Digest: "", Subject: -1, Lines: 0, File: -1, Offset: 0, Line: 0, Column: 0}

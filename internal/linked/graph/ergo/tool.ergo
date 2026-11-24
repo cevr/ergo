@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -130,6 +130,11 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("directories takes no argument; the member max is --max N, the modules --module PATH")
 		}
 		directories(r, o)
+	case "field-writes":
+		if len(words) != 1 {
+			return usage("field-writes takes no argument; the modules are --module PATH")
+		}
+		fieldWrites(r, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -453,6 +458,43 @@ func directories(r codegraph.Rows, o Options) []string {
 		b = b + "\(len(d.Members)) \(d.Path)/\n"
 	}
 	ok(if len(out) == 0 { "no directory\n" } else { b })
+}
+
+type FieldWriteOut {
+	FieldId        int,
+	Field          string,
+	RecordId       int,
+	Record         string,
+	PrivateFieldId int,
+	PrivateField   string,
+	Callers        []string,
+	Sites          []int,
+}
+
+func fieldWrites(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []FieldWriteOut{}
+	for w in codegraph.ForeignRecordFieldWrites(r, modules).Writes {
+		let privName = if w.PrivateField >= 0 { codegraph.NameOf(r, w.PrivateField) } else { "" }
+		out = out.Append(FieldWriteOut{
+			FieldId:        w.Field,
+			Field:          codegraph.NameOf(r, w.Field),
+			RecordId:       w.Record,
+			Record:         codegraph.NameOf(r, w.Record),
+			PrivateFieldId: w.PrivateField,
+			PrivateField:   privName,
+			Callers:        names(r, w.Callers),
+			Sites:          w.Sites,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FieldWriteOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for w in out {
+		b = b + "\(w.Field) <- \(len(w.Callers)) callers (\(strings.Join(w.Callers, ", ")))\n"
+	}
+	ok(if len(out) == 0 { "no foreign record field write\n" } else { b })
 }
 
 func interfaces(r codegraph.Rows, o Options) []string {
