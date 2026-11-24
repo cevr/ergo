@@ -1,0 +1,135 @@
+import sql
+import strconv
+import strings
+
+// BusyCode is SQLite's primary result code SQLITE_BUSY (5).
+let BusyCode = 5
+
+// LockedCode is SQLite's primary result code SQLITE_LOCKED (6).
+let LockedCode = 6
+
+// InterruptCode is SQLite's primary result code SQLITE_INTERRUPT (9).
+let InterruptCode = 9
+
+// ForeignKeyCode is SQLite's extended code SQLITE_CONSTRAINT_FOREIGNKEY (787).
+let ForeignKeyCode = 787
+
+// PrimaryKeyCode is SQLite's extended code SQLITE_CONSTRAINT_PRIMARYKEY (1555).
+let PrimaryKeyCode = 1555
+
+// UniqueCode is SQLite's extended code SQLITE_CONSTRAINT_UNIQUE (2067).
+let UniqueCode = 2067
+
+// Dialect classifies SQLite integer result codes carried in sql.HostError
+// into std sql.Failure values.
+type Dialect {} implements sql.Dialect
+
+// Classify converts a sql.HostError whose Code is a decimal SQLite result code
+// into a typed sql.Failure.
+func Classify(_ Dialect, e sql.HostError) sql.Failure {
+	let code = strconv.Atoi(e.Code) catch {
+	case strconv.Malformed, strconv.OutOfRange:
+		return sql.Other{Code: e.Code, Message: e.Message}
+	}
+	let f = ClassifyCode(code, e.Message, false, false)
+	match f {
+	case sql.Unique as u:
+		if e.Constraint != "" {
+			sql.Unique{Constraint: e.Constraint}
+		} else {
+			u
+		}
+	case _:
+		f
+	}
+}
+
+// ClassifyCode maps a SQLite extended result code and driver error state to
+// a std sql.Failure: closed handles map to Closed, UNIQUE and PRIMARYKEY
+// violations to Unique, interrupts and context timeouts to Timeout, BUSY and
+// LOCKED codes to Serialization, and every other code to Other.
+func ClassifyCode(code int, message string, closed bool, timeout bool) sql.Failure {
+	if closed {
+		return sql.Closed{Message: message}
+	}
+	if code == UniqueCode || code == PrimaryKeyCode {
+		return sql.Unique{Constraint: constraintOf(message)}
+	}
+	let primary = code % 256
+	if timeout || primary == InterruptCode {
+		return sql.Timeout{Message: message}
+	}
+	if primary == BusyCode || primary == LockedCode {
+		return sql.Serialization{Message: message}
+	}
+	sql.Other{Code: codeText(code), Message: message}
+}
+
+func codeText(code int) string {
+	if code == 0 {
+		""
+	} else {
+		strconv.Itoa(code)
+	}
+}
+
+func constraintOf(message string) string {
+	match strings.Cut(message, "UNIQUE constraint failed: ") {
+	case Some as h:
+		stripTrailingCode(h.Value.After)
+	case None:
+		match strings.Cut(message, "PRIMARY KEY constraint failed: ") {
+		case Some as h:
+			stripTrailingCode(h.Value.After)
+		case None:
+			stripTrailingCode(message)
+		}
+	}
+}
+
+func stripTrailingCode(text string) string {
+	match strings.Cut(text, " (") {
+	case Some as h:
+		strings.TrimSpace(h.Value.Before)
+	case None:
+		strings.TrimSpace(text)
+	}
+}
+
+// ClassifyUniqueCodes: SQLITE_CONSTRAINT_UNIQUE (2067) and
+// SQLITE_CONSTRAINT_PRIMARYKEY (1555) classify as sql.Unique.
+law ClassifyUniqueCodes(col string) {
+	let u = ClassifyCode(UniqueCode, "constraint failed: UNIQUE constraint failed: "+col+" (2067)", false, false)
+	let p = ClassifyCode(PrimaryKeyCode, "constraint failed: PRIMARY KEY constraint failed: "+col+" (1555)", false, false)
+	let want = stripTrailingCode(col)
+	u == sql.Unique{Constraint: want} && p == sql.Unique{Constraint: want}
+}
+
+// ClassifyBusyAndLocked: SQLITE_BUSY, SQLITE_LOCKED and their extended codes
+// classify as sql.Serialization.
+law ClassifyBusyAndLocked(message string) {
+	let codes = []int{5, 261, 517, 773, 6, 262}
+	let mut ok = true
+	for c in codes {
+		ok = ok && ClassifyCode(c, message, false, false) == sql.Serialization{Message: message}
+	}
+	ok
+}
+
+// ClassifyTimeoutAndClosed: closed takes precedence as sql.Closed, and
+// SQLITE_INTERRUPT or a timeout flag classifies as sql.Timeout.
+law ClassifyTimeoutAndClosed(code int, message string) {
+	let c = ClassifyCode(code, message, true, true)
+	let i = ClassifyCode(InterruptCode, message, false, false)
+	let t = ClassifyCode(0, message, false, true)
+	c == sql.Closed{Message: message} && i == sql.Timeout{Message: message} && t == sql.Timeout{Message: message}
+}
+
+// ClassifyOtherPreservesCode: non-special SQLite codes such as
+// SQLITE_CONSTRAINT_FOREIGNKEY (787) classify as sql.Other with their decimal
+// code and message intact.
+law ClassifyOtherPreservesCode(message string) {
+	let fk = ClassifyCode(ForeignKeyCode, message, false, false)
+	let d = Dialect.Classify(sql.HostError{Code: "787", Constraint: "", Message: message})
+	fk == sql.Other{Code: "787", Message: message} && d == fk
+}
