@@ -8,14 +8,22 @@ import compiler/check/store
 // means the later pays/splice/return decisions cannot change this call.
 // A small acyclic nonleaf is not assumed to be a direct call.
 func keepDirectCall(st fnb, f expr.Fn, body callBody, recursive bool) fails Unported {
+	let cause = directWithoutCopy(st, f, body, recursive)
+	if cause != "" {
+		return stop(cause)
+	}
+}
+
+func directWithoutCopy(st fnb, f expr.Fn, body callBody, recursive bool) string {
 	if body.edges > 0 && !body.loop && !recursive && body.sizeFloor <= 120 {
-		return stop("call of a pure nonleaf (inline decision)")
+		return "call of a pure nonleaf (inline decision)"
 	}
 	// findTab can turn a decision with only finite scalar parameters
 	// into a table read. A non-finite formal proves it cannot.
 	if body.decision && tabDomain(st, f) {
-		return stop("call of a pure decision (tabulation)")
+		return "call of a pure decision (tabulation)"
 	}
+	""
 }
 
 func tabDomain(st fnb, f expr.Fn) bool {

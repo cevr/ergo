@@ -3,8 +3,195 @@ import compiler/check/expr
 import compiler/check/store
 import compiler/syntax
 import dense
+import slices
 
 type ordinaryCallee { body dense.ID[syntax.Node], receiver bool }
+
+// CallFacts is the compact lowering proof of one loaded package, indexed
+// by its checked function row. It retains no syntax or typer state.
+type CallFacts { flags []uint8 }
+
+// ImportCallFacts is the proof for exactly the loaded dependency that
+// supplied a package's bound import. Ambiguous imports carry no proof.
+type ImportCallFacts { Path string, Facts CallFacts }
+
+let noCallFact = uint8(0)
+let pureCallFact = uint8(1)
+let directCallFact = uint8(2)
+
+func EmptyCallFacts() CallFacts { CallFacts{flags: []uint8{}} }
+
+func importedCallFact(imports []ImportCallFacts, path string, i int) uint8 {
+	for dep in imports {
+		if dep.Path == path && i >= 0 && i < len(dep.Facts.flags) {
+			return dep.Facts.flags[i]
+		}
+	}
+	noCallFact
+}
+
+type callRange { start int, end int }
+type inspectedCall { valid bool, body callBody, next []int }
+
+func inspectCall(st fnb, i int, imports []ImportCallFacts) inspectedCall fails Unported {
+	let f = st.k.Fns[i]
+	let name = nameText(st.k.Parsed[f.File], f.Name)
+	// Overloaded Go names are a call-site decision, not a purity fact.
+	let h = try callHeader(st, i, name, false)
+	if h.receiver {
+		return stop("callee: receiver purity facts")
+	}
+	let (body, edges) = try scanScalarBody(st, i, h.body, imports)
+	inspectedCall{valid: true, body: body, next: edges}
+}
+
+// summarizeCalls checks each candidate body once. Its flat edges support
+// propagation from non-candidates to callers, then cycle marking among
+// the remaining pure candidates. A non-inline verdict is independent
+// from purity: an imported inline candidate can still prove an edge pure.
+func summarizeCalls(st fnb, imports []ImportCallFacts) CallFacts {
+	let n = len(st.k.Fns)
+	let mut flags = slices.Repeat[uint8]([]uint8{noCallFact}, n)
+	let mut next = []int{}
+	let mut spans = slices.WithCapacity[callRange](n)
+	let mut bodies = slices.WithCapacity[callBody](n)
+	let mut rejected = []int{}
+	for i in 0..n {
+		let start = len(next)
+		let inspected = inspectCall(st, i, imports) catch {
+		case Unported:
+			inspectedCall{valid: false, body: callBody{edges: 0, loop: false, decision: false, sizeFloor: 0}, next: []int{}}
+		}
+		for edge in inspected.next {
+			next = next.Append(edge)
+		}
+		if inspected.valid {
+			flags[i] = pureCallFact
+		} else {
+			rejected = rejected.Append(i)
+		}
+		spans = spans.Append(callRange{start: start, end: len(next)})
+		bodies = bodies.Append(inspected.body)
+	}
+	let reverse = callReverse(spans, next)
+	let mut head = 0
+	for head < len(rejected) {
+		let rejectedFn = rejected[head]
+		head = head + 1
+		for caller in callersOf(reverse, rejectedFn) {
+			if flags[caller] == pureCallFact {
+				flags[caller] = noCallFact
+				rejected = rejected.Append(caller)
+			}
+		}
+	}
+	let cycles = callCycles(spans, next, reverse, flags)
+	for i, body in bodies {
+		if flags[i] != pureCallFact {
+			continue
+		}
+		let direct = directWithoutCopy(st, st.k.Fns[i], body, cycles[i])
+		if direct == "" {
+			flags[i] = directCallFact
+		}
+	}
+	CallFacts{flags: flags}
+}
+
+type callReverseRows { starts []int, callers []int }
+
+func callReverse(spans []callRange, next []int) callReverseRows {
+	let mut starts = slices.Repeat[int]([]int{0}, len(spans)+1)
+	for to in next {
+		starts[to+1] = starts[to+1] + 1
+	}
+	for i in 0..len(spans) {
+		starts[i+1] = starts[i+1] + starts[i]
+	}
+	let mut cursor = slices.WithCapacity[int](len(spans))
+	for i in 0..len(spans) {
+		cursor = cursor.Append(starts[i])
+	}
+	let mut callers = slices.Repeat[int]([]int{0}, len(next))
+	for i, out in spans {
+		for edge in out.start..out.end {
+			let to = next[edge]
+			callers[cursor[to]] = i
+			cursor[to] = cursor[to] + 1
+		}
+	}
+	callReverseRows{starts: starts, callers: callers}
+}
+
+func callersOf(rev callReverseRows, i int) []int {
+	rev.callers[rev.starts[i]:rev.starts[i+1]]
+}
+
+type callVisit { f int, edge int }
+
+// Finish the forward graph, then take components in reverse finish order
+// through the caller table. A singleton needs a real self-edge to be a
+// cycle; an upstream function that merely reaches a cycle is not recursive.
+func callCycles(spans []callRange, next []int, rev callReverseRows, flags []uint8) []bool {
+	let n = len(flags)
+	let mut seen = slices.Repeat[bool]([]bool{false}, n)
+	let mut order = slices.WithCapacity[int](n)
+	let mut stack = []callVisit{}
+	for i, flag in flags {
+		if flag == noCallFact || seen[i] {
+			continue
+		}
+		stack = stack.Append(callVisit{f: i, edge: spans[i].start})
+		seen[i] = true
+		for len(stack) > 0 {
+			let top = len(stack) - 1
+			let visit = stack[top]
+			if visit.edge == spans[visit.f].end {
+				order = order.Append(visit.f)
+				stack = stack[:top]
+			} else {
+				let to = next[visit.edge]
+				stack[top].edge = visit.edge + 1
+				if !seen[to] {
+					seen[to] = true
+					stack = stack.Append(callVisit{f: to, edge: spans[to].start})
+				}
+			}
+		}
+	}
+	let mut walked = slices.Repeat[bool]([]bool{false}, n)
+	let mut cycles = slices.Repeat[bool]([]bool{false}, n)
+	let mut component = slices.Repeat[int]([]int{0}, n)
+	for j in 0..len(order) {
+		let f = order[len(order)-1-j]
+		if walked[f] {
+			continue
+		}
+		walked[f] = true
+		component[0] = f
+		let mut end = 1
+		let mut head = 0
+		for head < end {
+			let g = component[head]
+			head = head + 1
+			for caller in callersOf(rev, g) {
+				if caller == g {
+					cycles[g] = true
+				} else if flags[caller] != noCallFact && !walked[caller] {
+					walked[caller] = true
+					component[end] = caller
+					end = end + 1
+				}
+			}
+		}
+		if end > 1 {
+			for i in 0..end {
+				cycles[component[i]] = true
+			}
+		}
+	}
+	cycles
+}
 
 // callClosure is the worklist for pure.go restricted to checked local
 // scalar functions. A row is queued once by its package declaration ID.
@@ -17,7 +204,7 @@ type callClosure {
 }
 
 type callBody { edges int, loop bool, decision bool, sizeFloor int }
-type callWalk { pending []uint32, facts callBody }
+type callWalk { pending []uint32, targets []int, facts callBody }
 
 func directCallee(st fnb, i int, target ordinaryCallee, local bool) fails Unported {
 	if !local {
@@ -35,7 +222,7 @@ func directCallee(st fnb, i int, target ordinaryCallee, local bool) fails Unport
 		let next = graph.queue[head]
 		head = head + 1
 		let dep = st.k.Fns[next]
-		let header = try callHeader(st, next, nameText(st.k.Parsed[dep.File], dep.Name))
+		let header = try callHeader(st, next, nameText(st.k.Parsed[dep.File], dep.Name), true)
 		if header.receiver {
 			return stop("callee: receiver purity facts")
 		}
@@ -45,24 +232,38 @@ func directCallee(st fnb, i int, target ordinaryCallee, local bool) fails Unport
 }
 
 func scanCallBody(st fnb, i int, body dense.ID[syntax.Node], graph mut callClosure) callBody fails Unported {
+	let (facts, targets) = try scanScalarBody(st, i, body, []ImportCallFacts{})
+	for next in targets {
+		graph.recursive = graph.recursive || next == graph.start
+		let dep = st.k.Fns[next]
+		let at = bind.PNodeOf(st.k.Ps, dep.File, dep.Decl)
+		if !dense.SideOf(graph.seen, at) {
+			dense.SideSet(&graph.seen, at, true)
+			graph.queue = graph.queue.Append(next)
+		}
+	}
+	facts
+}
+
+func scanScalarBody(st fnb, i int, body dense.ID[syntax.Node], imports []ImportCallFacts) (callBody, []int) fails Unported {
 	let mut at = st
 	at.file = st.k.Fns[i].File
 	at.p = st.k.Parsed[at.file]
-	let mut walk = callWalk{pending: []uint32{uint32(dense.Index(body))}, facts: callBody{edges: 0, loop: false, decision: false, sizeFloor: 0}}
+	let mut walk = callWalk{pending: []uint32{uint32(dense.Index(body))}, targets: []int{}, facts: callBody{edges: 0, loop: false, decision: false, sizeFloor: 0}}
 	let mut head = 0
 	for head < len(walk.pending) {
 		let x = syntax.NodeAt(at.p.Tree, int(walk.pending[head]))
 		head = head + 1
-		try scanPureNode(at, x, graph, &walk)
+		try scanPureNode(at, x, imports, &walk)
 	}
-	walk.facts
+	(walk.facts, walk.targets)
 }
 
 // Without a footprint side table, prove a subdomain in which a footprint
 // cannot arise. All values read or written are typed scalars; unknown
 // expressions, implicit adapters, indirect calls, and resource forms do
 // not count as pure merely because the declaration's rows are empty.
-func scanPureNode(st fnb, x dense.ID[syntax.Node], graph mut callClosure, walk mut callWalk) fails Unported {
+func scanPureNode(st fnb, x dense.ID[syntax.Node], imports []ImportCallFacts, walk mut callWalk) fails Unported {
 	let p = st.p
 	match syntax.ViewOf(p.Tree, x) {
 	case syntax.Name, syntax.BasicLit, syntax.ParenExpr:
@@ -85,8 +286,12 @@ func scanPureNode(st fnb, x dense.ID[syntax.Node], graph mut callClosure, walk m
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
 	case syntax.CallExpr as ce:
 		try pureScalar(st, x)
-		if try pureEdge(st, x, ce, graph) {
+		let next = try pureEdge(st, x, ce, imports)
+		if next != builtinEdge {
 			walk.facts.edges = walk.facts.edges + 1
+		}
+		if next >= 0 {
+			walk.targets = walk.targets.Append(next)
 		}
 		walk.facts.sizeFloor = walk.facts.sizeFloor + 1
 		for j in 0..syntax.Len(ce.Args) {
@@ -131,7 +336,12 @@ func pureScalar(st fnb, node dense.ID[syntax.Node]) fails Unported {
 	}
 }
 
-func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, graph mut callClosure) bool fails Unported {
+let builtinEdge = -1
+let importEdge = -2
+
+// A local edge names its target index. A checked imported edge contributes
+// to Go's nonleaf rule but cannot form a cycle back into this package.
+func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, imports []ImportCallFacts) int fails Unported {
 	if dense.Unpack(ce.Trailing) != None {
 		return stop("callee: trailing block (purity)")
 	}
@@ -139,13 +349,26 @@ func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, graph mut cal
 	if ix == 0 {
 		match try builtinOf(st, x, ce) {
 		case Some[aBuiltin]:
-			return false
+			return builtinEdge
 		case None:
 			return stop("callee: unresolved call (purity)")
 		}
 	}
 	let to = st.calls[ix-1]
-	if to.Recv || syntax.KindOf(st.p.Tree, ce.Fun) != syntax.KIdent {
+	if to.Recv {
+		return stop("callee: nonlocal or method edge (purity)")
+	}
+	match syntax.ViewOf(st.p.Tree, ce.Fun) {
+	case syntax.SelectorExpr as sel:
+		let (other, path) = try depOf(st, sel.Sel)
+		let at = bind.PNodeOf(other.k.Ps, to.Callee.File, to.Callee.Name)
+		let flag = importedCallFact(imports, path, expr.FnAt(other.k, at))
+		if flag == noCallFact {
+			return stop("callee: imported purity facts")
+		}
+		return importEdge
+	case syntax.Name:
+	case _:
 		return stop("callee: nonlocal or method edge (purity)")
 	}
 	let declared = match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, ce.Fun)) {
@@ -159,14 +382,7 @@ func pureEdge(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr, graph mut cal
 	if name != declared || next < 0 {
 		return stop("callee: unresolved target (purity)")
 	}
-	graph.recursive = graph.recursive || next == graph.start
-	let dep = st.k.Fns[next]
-	let at = bind.PNodeOf(st.k.Ps, dep.File, dep.Decl)
-	if !dense.SideOf(graph.seen, at) {
-		dense.SideSet(&graph.seen, at, true)
-		graph.queue = graph.queue.Append(next)
-	}
-	true
+	next
 }
 
 // Go's closed query cannot call-fold an operand that reads a local.

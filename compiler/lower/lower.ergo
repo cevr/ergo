@@ -660,7 +660,8 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 			case _:
 			}
 		case syntax.SelectorExpr as se:
-			cst = try depOf(st, se.Sel)
+			let (other, _) = try depOf(st, se.Sel)
+			cst = other
 			i = expr.FnAt(cst.k, bind.PNodeOf(cst.k.Ps, to.Callee.File, to.Callee.Name))
 			local = false
 		case _:
@@ -671,7 +672,7 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 	}
 	let f = cst.k.Fns[i]
 	let name = nameText(cst.k.Parsed[f.File], f.Name)
-	let target = try callHeader(cst, i, name)
+	let target = try callHeader(cst, i, name, true)
 	let first = target.receiver
 	let nonleaf = callsIn(cst.k.Parsed[f.File], target.body)
 	if nonleaf {
@@ -725,7 +726,7 @@ func callee(st fnb, x dense.ID[syntax.Node], ce syntax.CallExpr) aCall fails Unp
 // selector's name sel names a function of (pkg.f): its checked package,
 // pool and alias. The prelude's functions are its intrinsics and Go
 // helpers (lower's intrinsic), which the slice does not call.
-func depOf(st fnb, sel dense.ID[syntax.Node]) fnb fails Unported {
+func depOf(st fnb, sel dense.ID[syntax.Node]) (fnb, string) fails Unported {
 	match bind.ResolutionOf(st.k.U, st.k.Ps, bind.PNodeOf(st.k.Ps, st.file, sel)) {
 	case bind.Imported as im:
 		let ix = int(im.Ref.Import) - 1
@@ -742,7 +743,7 @@ func depOf(st fnb, sel dense.ID[syntax.Node]) fnb fails Unported {
 				out.k = d.K
 				out.s = d.S
 				out.alias = pkgAlias(d.Path)
-				return out
+				return (out, d.Path)
 			}
 		}
 		return stop("call of a package not read")
@@ -820,7 +821,7 @@ func unparen(st fnb, x dense.ID[syntax.Node]) dense.ID[syntax.Node] {
 // callHeader proves the existing ordinary direct-call ABI: a nongeneric
 // Ergo body, two empty rows, scalar input/output except for the optional
 // plain-record receiver, and no owned formal or overloaded name.
-func callHeader(st fnb, i int, name string) ordinaryCallee fails Unported {
+func callHeader(st fnb, i int, name string, unique bool) ordinaryCallee fails Unported {
 	let f = st.k.Fns[i]
 	let p = st.k.Parsed[f.File]
 	let d = match syntax.ViewOf(p.Tree, f.Decl) {
@@ -832,7 +833,7 @@ func callHeader(st fnb, i int, name string) ordinaryCallee fails Unported {
 	if dense.Unpack(d.Extern) != None || dense.Unpack(d.Recv) != None || dense.Unpack(d.TypeParams) != None {
 		return stop("callee: extern, method or generic")
 	}
-	if name == "main" || name == "Close" || f.Close || declCount(st, name) > 1 {
+	if name == "main" || name == "Close" || f.Close || unique && declCount(st, name) > 1 {
 		return stop("callee: main, Close or a shared name")
 	}
 	let body = match dense.Unpack(d.Body) {
