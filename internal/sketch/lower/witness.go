@@ -76,17 +76,24 @@ func selfSig(self check.Type, sig *check.Signature) *check.Signature {
 // witnessArgs are the witnesses a call of f at the instance inst passes,
 // one per witness parameter of f, in order.
 func (fc *funcCtx) witnessArgs(f *check.Func, inst *check.Instance, site syntax.Node) []string {
+	return fc.witnessArgsExcept(f, inst, site, nil)
+}
+
+func (fc *funcCtx) witnessArgsExcept(f *check.Func, inst *check.Instance, site syntax.Node, skip map[*check.TypeParam]bool) []string {
 	params := witnessParams(f.Sig)
-	if len(params) == 0 {
+	if !hasWitnessArgs(params, skip) {
 		return nil
 	}
 	if inst == nil || inst.Func != f {
 		ice(site, "a use of %s, whose type parameter %s a method set constrains, has no Instances entry", f.Name, params[0].Name)
 	}
-	out := make([]string, len(params))
-	for i, tp := range params {
+	out := make([]string, 0, len(params))
+	for _, tp := range params {
+		if skip[tp] {
+			continue
+		}
 		if isWireParam(tp) {
-			out[i] = fc.wireWitness(instArg(f, inst, tp, site), site)
+			out = append(out, fc.wireWitness(instArg(f, inst, tp, site), site))
 			continue
 		}
 		var w *check.Witness
@@ -98,9 +105,18 @@ func (fc *funcCtx) witnessArgs(f *check.Func, inst *check.Instance, site syntax.
 		if w == nil {
 			ice(site, "the instance of %s has no witness for %s", f.Name, tp.Name)
 		}
-		out[i] = fc.witnessValue(w, site)
+		out = append(out, fc.witnessValue(w, site))
 	}
 	return out
+}
+
+func hasWitnessArgs(params []*check.TypeParam, skip map[*check.TypeParam]bool) bool {
+	for _, tp := range params {
+		if !skip[tp] {
+			return true
+		}
+	}
+	return false
 }
 
 // witnessValue builds the witness w at a call: a struct literal of the

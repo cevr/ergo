@@ -97,8 +97,9 @@ func ParseFiles(srcs []string) (files []*File, errs []error) {
 // 4's six fields byte for byte (failureOf; VET-CHECK-VAR), so both read
 // alike. 6: a test row's body is optional (the harness
 // member `test H` of an operation type has none), so its word holds the
-// id + 1.
-const ColumnsVersion = 6
+// id + 1. 7: a function declaration has two extra fixed words for its
+// optional implements token and contract type.
+const ColumnsVersion = 7
 
 // PreviousColumnsVersion is the layout before ColumnsVersion, which this
 // decoder still reads: the linked parser writes it until scripts/linked
@@ -106,7 +107,7 @@ const ColumnsVersion = 6
 // bootstrapped in two stages (go run ./scripts/linked -bootstrap): stage 1
 // regenerates with the linked parser one layout behind, stage 2 with the
 // parser stage 1 wrote.
-const PreviousColumnsVersion = 5
+const PreviousColumnsVersion = 6
 
 // LayoutError is a parse whose rows have a layout this decoder cannot
 // read: the linked parser is more than one layout behind or ahead.
@@ -371,29 +372,33 @@ func (d *rowDecoder) node(r uint32) Node {
 			Implements:    list[Expr](d, r, 0, d.items(r, 10)),
 		}
 	case kFuncDecl:
-		return &FuncDecl{
-			Doc:        d.doc(d.fixed(r, 7, 0)),
-			Extern:     opt[*ExternSpec](d, d.fixed(r, 7, 1)),
-			Func:       d.pos(t),
-			Recv:       opt[*FieldList](d, d.fixed(r, 7, 2)),
-			Name:       one[*Ident](d, d.fixed(r, 7, 3)),
-			TypeParams: opt[*FieldList](d, d.fixed(r, 7, 4)),
-			Type:       one[*FuncType](d, d.fixed(r, 7, 5)),
-			Body:       opt[*BlockStmt](d, d.fixed(r, 7, 6)),
+		w := 9
+		if d.layout == PreviousColumnsVersion {
+			w = 7
 		}
+		f := &FuncDecl{
+			Doc:        d.doc(d.fixed(r, w, 0)),
+			Extern:     opt[*ExternSpec](d, d.fixed(r, w, 1)),
+			Func:       d.pos(t),
+			Recv:       opt[*FieldList](d, d.fixed(r, w, 2)),
+			Name:       one[*Ident](d, d.fixed(r, w, 3)),
+			TypeParams: opt[*FieldList](d, d.fixed(r, w, 4)),
+			Type:       one[*FuncType](d, d.fixed(r, w, 5)),
+			Body:       opt[*BlockStmt](d, d.fixed(r, w, 6)),
+		}
+		if w == 9 {
+			f.ImplementsPos = d.zpos(d.fixed(r, w, 7))
+			f.Implements = opt[Expr](d, d.fixed(r, w, 8))
+		}
+		return f
 	case kContextDecl:
 		// Layouts 5 and 6 put Fails at word 4 (layout 3, which had no such
 		// word, is no longer read).
 		return &ContextDecl{Doc: d.doc(d.fixed(r, 7, 0)), Let: d.pos(t), Context: d.pos(d.fixed(r, 7, 1)), Name: one[*Ident](d, d.fixed(r, 7, 2)), Provides: opt[*ProvidesClause](d, d.fixed(r, 7, 3)), Fails: opt[*ErrorRow](d, d.fixed(r, 7, 4)), Needs: opt[*NeedsClause](d, d.fixed(r, 7, 5)), Body: one[*ContextBody](d, d.fixed(r, 7, 6))}
 	case kTestDecl:
 		x := &TestDecl{Doc: d.doc(d.fixed(r, 4, 0)), Test: d.pos(t), Name: one[*Ident](d, d.fixed(r, 4, 1)), Params: opt[*FieldList](d, d.fixed(r, 4, 2))}
-		// Layout 6 made the body optional (the harness member `test H` has
-		// none), so its word holds the id + 1; layout 5 holds the id.
-		if d.layout == PreviousColumnsVersion {
-			x.Body = one[*BlockStmt](d, d.fixed(r, 4, 3))
-		} else {
-			x.Body = opt[*BlockStmt](d, d.fixed(r, 4, 3))
-		}
+		// The harness member `test H` has no body.
+		x.Body = opt[*BlockStmt](d, d.fixed(r, 4, 3))
 		return x
 	case kLawDecl:
 		// Layouts 5 and 6 hold TypeParams at word 2 (layout 2, which had

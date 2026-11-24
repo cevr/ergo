@@ -91,6 +91,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"ContextLit.Fails":     {guardType, "func main() {\n\t$W\n\t_ = with context fails @w { Greeter: Plain } { Greeter.Greet(\"x\") }\n}\n"},
 	"Field.Type":           {guardType, "func f(x @w) {}\n"},
 	"FuncDecl.Type":        {guardType, "func f(x @w) {}\n"},
+	"FuncDecl.Implements":  {guardType, "func f(_ []int) implements @w {}\n"},
 	"FuncLit.Type":         {guardType, "func main() {\n\t$W\n\t_ = func(x @w) {}\n}\n"},
 	"InterfaceType.Union":  {guardType, "type A {}\ntype U = A | @w\n"},
 	"TypeTerm.Type":        {guardType, "type S { int | @w }\n"},

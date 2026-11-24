@@ -139,11 +139,11 @@ func AddClaimLayout(s mut Store, claimant XRef, layout ClaimLayout) {
 // ReadSelf substitutes a contract's arguments and claimant in a signature
 // or a member law type, keeping the declaration's positional layout.
 func ReadSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], recv dense.ID[TKey], positions []int) dense.ID[TKey] {
-	substAt(&s.pool, t, args, dense.OptOf(recv), dense.NoID[TKey](), positions)
+	substAt(&s.pool, t, args, dense.OptOf(recv), dense.NoID[TKey](), positions, []bool{})
 }
 
 func ReadAbstractSelf(s mut Store, t dense.ID[TKey], args []dense.ID[TKey], recv dense.ID[TKey], op dense.ID[TKey], positions []int) dense.ID[TKey] {
-	substAt(&s.pool, t, args, dense.OptOf(recv), dense.OptOf(op), positions)
+	substAt(&s.pool, t, args, dense.OptOf(recv), dense.OptOf(op), positions, []bool{})
 }
 
 // TArray is [n]e: its operands are the length, as a marked basic, and e.

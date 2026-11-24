@@ -1,0 +1,16 @@
+import functionclaims/foreign
+import functionclaims/roles
+
+func Check(xs []string, f own func(x int) int, v foreign.Value) ([]int, int, int, string) {
+	(roles.MapValue(xs, func(s string) int { len(s) }), roles.SizeOf(f), roles.ScoreOf(v), roles.TrimValue(" centered "))
+}
+
+func Measure(xs []int) (int, bool) {
+	roles.Measure(xs)
+}
+
+func Mutate() int {
+	let mut xs = []int{0}
+	roles.BumpValue(&xs)
+	xs[0]
+}

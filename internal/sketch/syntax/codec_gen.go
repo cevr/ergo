@@ -476,6 +476,8 @@ func (e *encoder) encFieldsFuncDecl(v *FuncDecl) {
 	e.encPtrFieldList(v.TypeParams)
 	e.encPtrFuncType(v.Type)
 	e.encPtrBlockStmt(v.Body)
+	e.encPos(v.ImplementsPos)
+	e.encExpr(v.Implements)
 	e.encPtrTypeDecl(v.Derived)
 }
 
@@ -2342,6 +2344,8 @@ func (d *decoder) decFieldsFuncDecl(v *FuncDecl) {
 	v.TypeParams = d.decPtrFieldList()
 	v.Type = d.decPtrFuncType()
 	v.Body = d.decPtrBlockStmt()
+	v.ImplementsPos = d.decPos()
+	v.Implements = d.decExpr()
 	v.Derived = d.decPtrTypeDecl()
 }
 
