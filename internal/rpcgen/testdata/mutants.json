@@ -2,6 +2,26 @@
   "about": "The mutant ledger of internal/rpcgen's tests, started by Rm (wf10, 2026-11-10): edits of std rpc and its runtime/v1 bodies that only a built rpc server observes. Each mutant names the rule it breaks and the test that kills it, as SUITE:NAME in the shared ledger format.",
   "mutants": [
     {
+      "name": "nou-invoke-wrong-operation",
+      "origin": "wf10 NOU-TYPED-INVOKE",
+      "file": "benchmarks/apifirst/cli/ergo/counter/counterapi/api.ergo",
+      "decl": "AddChecked",
+      "from": "\t\tcase _:\n\t\t\treturn rpc.Transport{Reason: \"counterapi: Add was answered with the value of another operation\"}",
+      "to": "\t\tcase GetReply as reply:\n\t\t\treply.Value",
+      "rule": "CheckedClient rejects a sibling operation's valid Reply as rpc.Transport instead of returning its value.",
+      "killers": ["benchmarks/apifirst/cli/ergo/counter/counterapi:CheckedClientRefusesWrongOperationAndOutsideRow"]
+    },
+    {
+      "name": "nou-api-outside-row",
+      "origin": "wf10 NOU-TYPED-INVOKE",
+      "file": "benchmarks/apifirst/cli/ergo/counter/counterapi/api.ergo",
+      "decl": "AddChecked",
+      "from": "\t\tcase _:\n\t\t\treturn rpc.Transport{Reason: \"counterapi: Add was answered with a failure outside its row\"}",
+      "to": "\t\tcase Unknown:\n\t\t\treturn counter.Negative{N: 0}",
+      "rule": "CheckedClient rejects a sibling operation's Failure outside the requested operation's row as rpc.Transport.",
+      "killers": ["benchmarks/apifirst/cli/ergo/counter/counterapi:CheckedClientRefusesOutsideRow"]
+    },
+    {
       "name": "nou-peer-wrong-tag-accepted",
       "origin": "wf10 NOU-TRANSPORT",
       "file": "benchmarks/apifirst/cli/ergo/counter/countercli/cli.ergo",

@@ -18,9 +18,7 @@ let overClient = context { work.Api: clientOf(world(true).tool) }
 
 // clientOf is the Client that sends each request to tool.
 func clientOf(tool work.Tool) workapi.Client {
-	workapi.NewClient(func(q workapi.Request) workapi.Outcome {
-		with context { work.Api: tool } { workapi.Call(q) }
-	})
+	workapi.NewClient(tool)
 }
 
 // Providers is the memory providers over the trees of c, the registry r,

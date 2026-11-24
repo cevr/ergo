@@ -25,7 +25,5 @@ func NewLoopback(inner domains.Registry) domainsrpc.Client {
 // NewHub is the hub client of inner: each Request is a Call with inner
 // bound, so its laws hold exactly when inner's and Call's do.
 func NewHub(inner domains.Registry) domainsapi.Client {
-	domainsapi.NewClient(func(r domainsapi.Request) domainsapi.Outcome {
-		with context { domains.Registry: inner } { domainsapi.Call(r) }
-	})
+	domainsapi.NewClient(inner)
 }

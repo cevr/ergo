@@ -25,7 +25,5 @@ func NewLoopback(inner limits.Limiter) limitsrpc.Client {
 // NewHub is the hub client of inner: each Request is a Call with inner
 // bound, so its laws hold exactly when inner's and Call's do.
 func NewHub(inner limits.Limiter) limitsapi.Client {
-	limitsapi.NewClient(func(r limitsapi.Request) limitsapi.Outcome {
-		with context { limits.Limiter: inner } { limitsapi.Call(r) }
-	})
+	limitsapi.NewClient(inner)
 }
