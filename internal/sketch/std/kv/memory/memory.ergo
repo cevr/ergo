@@ -18,6 +18,8 @@ type Store { entries sync.Ref[Map[string, string]] } implements kv.Store
 // New is an empty store.
 func New() Store { Store{entries: sync.NewRef(Map[string, string]{})} }
 
+let emptyStore = context { kv.Store: New() }
+
 // Get is the value key holds. It reads the map inside the Ref's step, so
 // the Ref never hands the map out and a later put changes it in place.
 func Get(s Store, key string) Option[string] fails kv.Failed {

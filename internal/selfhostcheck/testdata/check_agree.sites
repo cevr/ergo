@@ -181,6 +181,7 @@ case examples/gent/memory
 case examples/gent/screen
 case examples/gointerop/checksum
 case examples/gointerop/cmd/gointerop
+case examples/gointerop/cmd/uptime
 case examples/gointerop/index
 case examples/gointerop/sha256
 case examples/gointerop/stats
@@ -820,6 +821,9 @@ case flow seed 96
 case flow seed 97
 case flow seed 98
 case flow seed 99
+case internal/selfhostcheck/testdata/agree/claim-laws/box
+case internal/selfhostcheck/testdata/agree/claim-laws/refused
+case internal/selfhostcheck/testdata/agree/claim-laws/role
 case internal/selfhostcheck/testdata/agree/context-fails-import
 case internal/selfhostcheck/testdata/agree/func-claim/client
 case internal/selfhostcheck/testdata/agree/func-claim/crossing

@@ -1,0 +1,5 @@
+type Sessions {
+	Ready() bool,
+
+	law FreshCrossPackage() { Ready() },
+}

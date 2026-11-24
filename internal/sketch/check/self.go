@@ -203,18 +203,19 @@ func (c *checker) claimSubst(claimant, op *Named) (map[*TypeParam]Type, selfRead
 	if why != "" {
 		return nil, nil, why
 	}
+	m, read := c.claimSubstAt(claimant, claim)
+	return m, read, ""
+}
+
+func (c *checker) claimSubstAt(claimant, claim *Named) (map[*TypeParam]Type, selfReader) {
 	actual := c.readClaim(claimant, claim)
-	m := paramMap(op.origin().TParams, actual.TArgs)
+	m := paramMap(claim.origin().TParams, actual.TArgs)
 	return m, func(s *SelfType, args []Type) Type {
 		if len(args) == 0 {
 			return claimant
 		}
-		ownerClaim := c.selfClaim(actual, s.owner)
-		if ownerClaim == nil {
-			return invalid
-		}
-		template, why := c.claimTemplate(claimant, ownerClaim)
-		if why != "" {
+		template := c.selfClaim(claim, s.owner)
+		if template == nil {
 			return invalid
 		}
 		positions, why := selfPositions(claimant, template)
@@ -222,7 +223,7 @@ func (c *checker) claimSubst(claimant, op *Named) (map[*TypeParam]Type, selfRead
 			return invalid
 		}
 		return c.replaceClaimArgs(claimant, positions, args)
-	}, ""
+	}
 }
 
 func (c *checker) selfClaim(op, owner *Named) *Named {
@@ -487,6 +488,33 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 	out := *base
 	out.Types = make(map[syntax.Expr]Type)
 	out.Calls = make(map[*syntax.CallExpr]*Call)
+	out.Tails = make(map[syntax.Stmt]Type)
+	out.Literals = make(map[syntax.Node]*Signature)
+	out.Instances = make(map[syntax.Expr]*Instance)
+	out.Implicit = make(map[syntax.Expr]Conversion)
+	out.ImplicitElems = make(map[syntax.Expr][]Conversion)
+	out.Patterns = make(map[syntax.Expr]*Pattern)
+	out.Matches = make(map[syntax.Node]*Match)
+	var pattern func(*Pattern) *Pattern
+	pattern = func(p *Pattern) *Pattern {
+		if p == nil {
+			return nil
+		}
+		next := *p
+		next.Type = read(p.Type)
+		next.Elems, next.Fields = slices.Clone(p.Elems), slices.Clone(p.Fields)
+		for i := range next.Elems {
+			next.Elems[i] = pattern(next.Elems[i])
+		}
+		for i := range next.Fields {
+			next.Fields[i].Pattern = pattern(next.Fields[i].Pattern)
+		}
+		return &next
+	}
+	conv := func(v Conversion) Conversion {
+		v.From, v.To = read(v.From), read(v.To)
+		return v
+	}
 	why := ""
 	syntax.Inspect(root, func(n syntax.Node) bool {
 		if why != "" {
@@ -496,6 +524,35 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 			if t := base.Types[x]; t != nil {
 				out.Types[x] = read(t)
 			}
+			if inst := base.Instances[x]; inst != nil {
+				copy := *inst
+				copy.TypeArgs = mapTypes(inst.TypeArgs, read)
+				out.Instances[x] = &copy
+			}
+			if v, ok := base.Implicit[x]; ok {
+				out.Implicit[x] = conv(v)
+			}
+			if vs := base.ImplicitElems[x]; len(vs) != 0 {
+				cp := make([]Conversion, len(vs))
+				for i, v := range vs {
+					cp[i] = conv(v)
+				}
+				out.ImplicitElems[x] = cp
+			}
+			if p := base.Patterns[x]; p != nil {
+				out.Patterns[x] = pattern(p)
+			}
+		}
+		if s, ok := n.(syntax.Stmt); ok && base.Tails[s] != nil {
+			out.Tails[s] = read(base.Tails[s])
+		}
+		if sig := base.Literals[n]; sig != nil {
+			out.Literals[n] = read(sig).(*Signature)
+		}
+		if m := base.Matches[n]; m != nil {
+			cp := *m
+			cp.Subjects, cp.Result = mapTypes(m.Subjects, read), read(m.Result)
+			out.Matches[n] = &cp
 		}
 		x, ok := n.(*syntax.CallExpr)
 		if !ok || base.Calls[x] == nil {
@@ -522,26 +579,35 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 			if r, ok := recv.(*Reapplied); ok {
 				tp = r.Param
 			}
-			if tp != nil {
+			_, symbolicSelf := recv.(*SelfType)
+			if symbolicSelf || tp != nil {
 				self := read(recv)
-				op, _ := read(tp.Constraint).(*Named)
-				if r, ok := recv.(*Reapplied); ok && op != nil {
-					op = closedClaimRole(op, mapTypes(r.Args, read))
+				var f *Func
+				var args []Type
+				if tp != nil {
+					op, _ := read(tp.Constraint).(*Named)
+					if r, ok := recv.(*Reapplied); ok && op != nil {
+						op = closedClaimRole(op, mapTypes(r.Args, read))
+					}
+					f, args = closedClaimProvider(self, op, src.Op.Name, next.TypeArgs)
 				}
-				f, args := closedClaimProvider(self, op, src.Op.Name, next.TypeArgs)
-				if f == nil && ConstraintOnly(tp.Constraint) {
+				required := symbolicSelf || ConstraintOnly(tp.Constraint)
+				if f == nil && required {
 					f = ProvidingFunc(self, src.Op.Name)
 					if f != nil {
 						args = ProviderTypeArgs(self, f, next.TypeArgs)
 					}
 				}
-				if f == nil && ConstraintOnly(tp.Constraint) {
+				if f == nil && required {
 					why = fmt.Sprintf("closed constraint %s has no implementation of %s", self, src.Op.Name)
 					return false
 				}
 				if f != nil {
 					next.Kind, next.Func, next.Op = CallFunc, f, nil
 					next.TypeArgs = args
+					if len(args) != 0 {
+						out.Instances[x] = &Instance{Func: f, TypeArgs: args}
+					}
 				}
 			}
 		}
@@ -583,7 +649,7 @@ func ClosedFunctionClaim(pkg *Package, recv Type, constraint Type, name string, 
 
 // SubstSelf reads a member law's types at a checked claimant. It does not run
 // the law or look up the functions that provide its operations.
-func SubstSelf(law *Law, claimant Type) (func(Type) Type, string) {
+func SubstSelf(law *Law, claimant Type, projection ...*Named) (func(Type) Type, string) {
 	if law == nil || law.Owner == nil || claimant == nil {
 		return nil, "Self needs a member law and a claimant"
 	}
@@ -597,12 +663,21 @@ func SubstSelf(law *Law, claimant Type) (func(Type) Type, string) {
 	var m map[*TypeParam]Type
 	var self selfReader
 	var why string
-	if g, args := c.functionClaim(claimant, op); g != nil {
+	selected := op
+	projected := len(projection) == 1 && projection[0] != nil && projection[0].origin() == op
+	if projected {
+		selected = projection[0]
+	}
+	if g, args := c.functionClaim(claimant, selected); g != nil {
 		actual := c.subst(g.role, args).(*Named)
 		m, self = paramMap(op.TParams, actual.TArgs), c.functionClaimSelf(g, args)
 	} else if n, ok := claimant.(*Named); ok && n.Obj != nil && n.Obj.Pkg != nil {
 		c = n.Obj.Pkg.claimReader()
-		m, self, why = c.claimSubst(n, op)
+		if projected {
+			m, self = c.claimSubstAt(n, selected)
+		} else {
+			m, self, why = c.claimSubst(n, op)
+		}
 	} else {
 		return nil, fmt.Sprintf("%s does not claim %s", claimant, op)
 	}

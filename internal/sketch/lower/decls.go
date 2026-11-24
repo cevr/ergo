@@ -180,10 +180,19 @@ func (l *lowerer) declareName(d syntax.Decl) {
 			if w, ok := l.info.Defs[d.Name].(*check.Context); ok {
 				// One builder for each distinct set of providers a with of
 				// this context acquires, in the withs' source order.
-				for _, with := range l.withsOf(w) {
-					l.pkgName(pkgKey{"context", l.acquiredSet(with)}, "build"+w.Name)
-				}
+				l.nameContextBuilders(w)
 			}
+		}
+	}
+}
+
+func (l *lowerer) nameContextBuilders(w *check.Context) {
+	for _, with := range l.withsOf(w) {
+		l.pkgName(pkgKey{"context", l.contextBuildKey(with, false)}, "build"+w.Name)
+	}
+	for _, lc := range l.lawContexts() {
+		if lc.Context == w && lc.Claim != nil {
+			l.pkgName(pkgKey{"context", l.contextBuildKey(lc.With, true)}, "build"+w.Name)
 		}
 	}
 }

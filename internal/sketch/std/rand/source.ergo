@@ -94,6 +94,11 @@ type hostOnly {}
 // stdlib.md, Host packages).
 func NewHost() Host needs Ambient { Host{live: hostOnly} }
 
+// testRandom reads the host's random stream, not a seeded substitute.
+func testRandom() Host needs TestAmbient { Host{live: hostOnly} }
+
+let onTestRandom = context needs TestAmbient { Random: testRandom() }
+
 // Uint64 is 64 random bits from the host (Go's rand.Uint64).
 func Uint64(_ Host) uint64 { hostUint64() }
 

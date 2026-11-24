@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand/v2"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -15,6 +16,81 @@ import (
 )
 
 var unfedSeed = flag.Int64("unfed.seed", -1, "TestUnfedLawIsJudgedOverTheModule: replay this seed alone")
+
+// TestConstructorOnlyLawIsFedAcrossPackages reduces the model-paths
+// probe (599144e439): the provider has a private fs.Host and its package's
+// New takes a host that a generated case cannot draw. The module root's
+// onDisk context does construct it. The runnable context replaces the
+// direct binding rather than adding a second verdict that says it skipped.
+func TestConstructorOnlyLawIsFedAcrossPackages(t *testing.T) {
+	root, err := filepath.Abs("testdata/unfedconstructor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	as, err := CheckPackages([]string{root, filepath.Join(root, "disk"), filepath.Join(root, "session")}, gobind.Platform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contexts []string
+	for _, a := range as {
+		if len(a.Diagnostics) > 0 {
+			t.Fatalf("%s: unexpected diagnostics: %v", a.Root().Path, a.Diagnostics)
+		}
+		for _, run := range a.Root().Package.LawRuns {
+			if run.Law.Name != "FreshCrossPackage" {
+				continue
+			}
+			for _, b := range run.Bindings {
+				t.Errorf("%s: unwanted direct binding for %s (unrun: %q)", a.Root().Path, b[0].Type, b[0].Unrun)
+			}
+			for _, c := range run.Contexts {
+				if c.Unrun != "" {
+					t.Errorf("%s: context %s cannot run: %s", a.Root().Path, c.Context.Name, c.Unrun)
+				}
+				contexts = append(contexts, c.Context.Name)
+			}
+		}
+	}
+	if !slices.Equal(contexts, []string{"onDisk"}) {
+		t.Errorf("contexts: got %v, want one run under onDisk", contexts)
+	}
+
+	// Leave out the module root's context; do not change either package.
+	tree := map[string]string{}
+	for _, name := range []string{"ergo.mod", "disk/disk.ergo", "session/session.ergo"} {
+		src, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		tree[name] = string(src)
+	}
+	unfed := writeTree(t, tree)
+	disk := filepath.Join(unfed, "disk")
+	session := filepath.Join(unfed, "session")
+	alone, err := CheckDir(disk)
+	if err != nil || len(alone.Diagnostics) != 0 {
+		t.Fatalf("disk alone cannot judge its whole module: %v, %v", err, alone.Diagnostics)
+	}
+	for _, r := range alone.Root().Package.LawRuns {
+		if r.Law.Name == "FreshCrossPackage" && len(r.Bindings) != 0 {
+			t.Errorf("disk alone still has direct bindings for %s", r.Law.Name)
+		}
+	}
+	uncovered, err := CheckPackages([]string{disk, session}, gobind.Platform{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds := uncovered[0].Diagnostics
+	if len(ds) != 1 || ds[0].Code != check.CodeType || ds[0].Span.Line != 4 || ds[0].Span.Column != 39 ||
+		!strings.Contains(ds[0].Message, "cannot run at Disk: Disk is built only by its constructor New") ||
+		!strings.Contains(ds[0].Message, "context { session.Sessions: … }") ||
+		!strings.Contains(ds[0].Message, "no named context of a package of module unfedconstructor builds one") {
+		t.Errorf("missing S108 at Disk's implements entry with the context hint: %v", ds)
+	}
+	if ds := uncovered[1].Diagnostics; len(ds) != 0 {
+		t.Errorf("unexpected diagnostic in the contract package: %v", ds)
+	}
+}
 
 // TestUnfedLawIsJudgedOverTheModule is the module rule of LAW-UNFED
 // (types.md, Laws 10), a seeded property over generated two-package

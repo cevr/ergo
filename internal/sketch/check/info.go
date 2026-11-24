@@ -1354,6 +1354,12 @@ type Law struct {
 	// one outside the rewrite's scope.
 	FuncRewrite *FuncRewrite
 
+	// A transient projection of a checked claim rewrite, not kept on
+	// the declaration. The checked binding holds its persisted inputs.
+	rewriteClaim *LawProvider
+	rewriteInfo  *Info
+	rewriteRead  func(Type) Type
+
 	file *fileInfo // the declaring file, selected while the law is checked
 }
 
@@ -1397,8 +1403,8 @@ type LawRun struct {
 // built as any provider's is (by Ctor, or generated), and the run binds
 // its address; Conv converts from *Type.
 //
-// Native is a provider whose operations call Go (README Gap 17): its
-// build holds go.Foreign, which the test binary's law case holds and
+// Native is a provider whose constructor or operations call Go (README
+// Gap 17): its build holds go.Foreign, which the test binary's law case holds and
 // nothing else under a test does (types.md, Laws 10; owner q277). The
 // native run builds it; the check-time evaluator, which runs no Go,
 // reports the binding native, never passed.
@@ -1419,8 +1425,25 @@ type LawProvider struct {
 	// at the provider's instance (lawWitnesses), in order.
 	Witnesses []Witness
 
-	// noGenerator marks an Unrun that says the values have no generator;
-	// lawRuns adds the fix the law's shape admits (lawProviderFix).
+	// A constraint-only contract is not a value to build. The claim is the
+	// written root, Slot is its projection to the law's declaring contract,
+	// and At is the concrete type whose operations and values the law uses.
+	Claim        *Named
+	ClaimExpr    syntax.Expr
+	At           *Named
+	LawTypeArgs  []Type
+	ClaimSlot    *Named
+	ClaimRewrite *FuncRewrite
+	// ClaimCtor is the result-inferred constructor for concrete Self inputs.
+	ClaimCtor       *Func
+	ClaimCtorArgs   []Type
+	ClaimCtorParams []Type
+	// ClaimFeed is the one private input a named context must supply, plus one.
+	ClaimFeed int
+
+	// noGenerator marks a missing input to a generated case: a provider
+	// it cannot build honestly, or a parameter with no generator.
+	// reportUnfedProviders records the binding for LAW-UNFED.
 	noGenerator bool
 }
 

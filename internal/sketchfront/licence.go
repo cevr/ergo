@@ -35,10 +35,7 @@ func (a Analysis) AdviseLicences(e *report.Evaluation, fsys FS, path string) err
 		return err
 	}
 	names, keys := ledgerNames(a), foreignKeys(a, fsys)
-	for _, law := range a.pkg.Laws {
-		if law.TopRewrite() == nil || law.Pkg != a.pkg {
-			continue
-		}
+	for _, law := range a.pkg.FunctionRewrites() {
 		want := lower.FuncLawEntry(law, names, "", keys)
 		prev, found := entries[want.Key()]
 		var state string
@@ -80,15 +77,16 @@ func (a Analysis) AdviseLicences(e *report.Evaluation, fsys FS, path string) err
 // reason is this run's.
 func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]lower.LedgerEntry, keys lower.ForeignKeys, w io.Writer, cases corpus, tc build.Toolchain) (out []lower.LedgerEntry, skipped []SkippedLicence, err error) {
 	var driver *goBodyDriver
+	var refuted []string
 	started := false
 	defer func() { driver.Close() }()
-	for _, law := range pkg.Laws {
-		if law.TopRewrite() == nil {
-			continue
-		}
+	for _, law := range pkg.FunctionRewrites() {
 		stub := lower.FuncLawEntry(law, names, "", keys)
 		if prev, ok := old[stub.Key()]; ok && prev.Digest == stub.Digest && prev.Verdict != "skipped" {
 			out = append(out, prev)
+			if p := law.ClaimRewriteBinding(); p != nil && prev.Verdict == "refuted" {
+				refuted = append(refuted, "licence law "+stub.Key()+": refuted"+p.ClaimBlame())
+			}
 			continue
 		}
 		if !started && tc.Go != "" {
@@ -113,13 +111,25 @@ func licenceEntries(pkg *check.Package, names lower.LedgerNames, old map[string]
 		if l.Verdict == "refuted" && l.Case != "" && cases != nil && !slices.Contains(cases[stub.Key()], l.Case) {
 			cases[stub.Key()] = append(cases[stub.Key()], l.Case)
 		}
+		if l.Verdict == "refuted" && law.ClaimRewriteBinding() != nil {
+			refuted = append(refuted, l.Line())
+		}
 		if l.Verdict == "skipped" {
-			skipped = append(skipped, SkippedLicence{Law: stub.Law, Package: pkg.Path, Reason: l.Reason})
+			skipped = append(skipped, SkippedLicence{Law: stub.Key(), Package: pkg.Path, Reason: l.Reason})
 		}
 		out = append(out, lower.FuncLawEntry(law, names, l.Verdict, keys))
 	}
+	if len(refuted) != 0 {
+		return out, skipped, &ClaimLicenceRefutedError{Lines: refuted}
+	}
 	return out, skipped, nil
 }
+
+// ClaimLicenceRefutedError follows the committed ledger write. The
+// declaration's property report cannot hide a refuted claimant equation.
+type ClaimLicenceRefutedError struct{ Lines []string }
+
+func (e *ClaimLicenceRefutedError) Error() string { return strings.Join(e.Lines, "\n") }
 
 // SkippedLicence is a rewrite law whose licence run did not run (AC10):
 // a rewrite law in scope must have a verdict, so its test fails.

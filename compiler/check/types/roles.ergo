@@ -30,6 +30,20 @@ func WrittenFails(p syntax.Parsed, typ dense.ID[syntax.Node]) bool {
 	false
 }
 
+// ConstraintOnlyRole is a role with no operation values: it names Self
+// or has a generic operation.
+func ConstraintOnlyRole(r Role) bool {
+	if r.Self != 0 {
+		return true
+	}
+	for m in r.Members {
+		if len(m.Own) != 0 {
+			return true
+		}
+	}
+	false
+}
+
 func Brackets(p syntax.Parsed, list dense.Opt[syntax.Node]) []Bracket {
 	let mut out = []Bracket{}
 	match dense.Unpack(list) {

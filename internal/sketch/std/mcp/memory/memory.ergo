@@ -14,6 +14,8 @@ type Transport { Input []string, sent sync.Ref[[]string] } implements mcp.Transp
 // New is a session whose client sends input.
 func New(input []string) Transport { Transport{Input: input, sent: sync.NewRef([]string{})} }
 
+let withMessages = context { mcp.Transport: New([]string{"first", "second"}) }
+
 // Messages is Input, in order.
 func Messages(t Transport) Seq[string] {
 	let input = t.Input
