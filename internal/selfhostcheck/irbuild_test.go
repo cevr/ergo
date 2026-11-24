@@ -80,7 +80,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	paths := irPathIDs{}
 	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
 	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"), "leaf")...)
-	goFuncs, unlowered, rootDirs, testOracle := goIRFuncs(t, paths, importFixture)
+	goFuncs, unlowered, rootDirs, testDirs, testOracle := goIRFuncs(t, paths, importFixture)
 	for dir, err := range unlowered {
 		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
 	}
@@ -104,13 +104,16 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 			t.Fatalf("imported-call IR fixture did not check and lower: %s (%s)", rel(dirs[i]), unlowered[dirs[i]])
 		}
 	}
-	var manifest, roots []string
+	var manifest, roots, tests []string
 	for i, s := range sides {
 		if !s.ok {
 			continue
 		}
 		if rootDirs[dirs[i]] {
 			roots = append(roots, s.path)
+		}
+		if testDirs[dirs[i]] {
+			tests = append(tests, s.path)
 		}
 		e, f := filepath.Join(tmp, fmt.Sprintf("ext%d", i)), filepath.Join(tmp, fmt.Sprintf("foreign%d", i))
 		writeLines(t, e, s.ext)
@@ -121,6 +124,8 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	writeLines(t, m, manifest)
 	rf := filepath.Join(tmp, "roots")
 	writeLines(t, rf, roots)
+	tf := filepath.Join(tmp, "tests")
+	writeLines(t, tf, tests)
 
 	reach := map[string]int{}
 	equal := map[irIdentity]struct{}{}
@@ -134,7 +139,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 		matchLines = new(strings.Builder)
 	}
 	var files []string
-	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-corpus", m) {
+	for _, l := range runDump(t, ctx, bin, "-std", stdDir(), "-roots", rf, "-tests", tf, "-corpus", m) {
 		kind, rest, _ := strings.Cut(l, " ")
 		switch kind {
 		case "@pkg":
@@ -680,7 +685,7 @@ test ReachesInTest { assert InTest(2) == 3 }
 // indexes its IR files' functions by declaration position, file indices
 // mapped to source paths.
 // The folders of the builds' root packages are the third result.
-func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex, map[string]string, map[string]bool, irGoTestOracle) {
+func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex, map[string]string, map[string]bool, map[string]bool, irGoTestOracle) {
 	t.Helper()
 	idx := irGoIndex{}
 	unlowered := map[string]string{}
@@ -732,8 +737,16 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 	}
 	programs = append(programs, irGoProgram{u: su, module: filepath.Dir(su.Sources[0].Path), reach: funcs})
 	roots := map[string]bool{}
+	tests := map[string]bool{}
 	for _, pr := range programs[:len(programs)-1] { // the std program's root is no corpus folder
-		roots[filepath.Dir(pr.u.Sources[0].Path)] = true
+		dir := filepath.Dir(pr.u.Sources[0].Path)
+		roots[dir] = true
+		if pr.tests {
+			tests[dir] = true
+		}
+	}
+	for dir := range testOracle.roots {
+		tests[dir] = true
 	}
 	for _, pr := range programs {
 		err := indexGoIR(t, paths, idx, pr)
@@ -747,7 +760,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs, importFixture []string) (irGoIndex
 			t.Fatalf("%s: %v", pr.module, err)
 		}
 	}
-	return idx, unlowered, roots, testOracle
+	return idx, unlowered, roots, tests, testOracle
 }
 
 func indexGoIR(t *testing.T, paths irPathIDs, idx irGoIndex, pr irGoProgram) error {
