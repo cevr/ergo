@@ -24,10 +24,37 @@ import json
 import os
 import strconv
 import strings
+import time
 
 type box { Label string, Count int, Tags []string, Weight float64 }
 
 type crate { Count int, Extra json.Optional[int] }
+
+type parcel[T] { Count int, Extra T }
+
+func takeParcel[T wire](r Reader) parcel[T] fails wired[parcel[T]] needs wired[T] {
+	decode[parcel[T]](r)
+}
+
+type reading { At time.Time, Data json.Raw }
+
+let readingText = "{\"at\":\"2026-11-23T00:12:00Z\",\"data\":{ \"x\": [1, 2] }}"
+
+func wireLeafSum(n int) int64 {
+	let mut total int64 = 0
+	for _ in 0..n {
+		let r = json.Open(readingText, 0, 0) catch {
+		case _:
+			return -1
+		}
+		let v = decode[reading](r) catch {
+		case _:
+			return -1
+		}
+		total = total + v.At.UnixSeconds() % 1000 + int64(len(v.Data.String()))
+	}
+	total
+}
 
 type Entry = Labelled | Unlabelled
 
@@ -148,7 +175,7 @@ func takeCrate(r Reader) crate fails wired[crate] {
 	decode[crate](r)
 }
 
-func omittableSum(n int) int {
+func omittableSum(n int, generic bool) int {
 	let mut sum = 0
 	for i in 0..n {
 		let text = if i % 2 == 0 { "{\"count\":12}" } else { "{\"count\":12,\"extra\":3}" }
@@ -156,9 +183,17 @@ func omittableSum(n int) int {
 		case _:
 			return -1
 		}
-		let c = takeCrate(r) catch {
-		case _:
-			return -1
+		let c = if generic {
+			let p = takeParcel[json.Optional[int]](r) catch {
+			case _:
+				return -1
+			}
+			crate{Count: p.Count, Extra: p.Extra}
+		} else {
+			takeCrate(r) catch {
+			case _:
+				return -1
+			}
 		}
 		sum = sum + c.Count
 		match c.Extra {
@@ -251,6 +286,12 @@ func valueSum(n int) int {
 
 // bench is the sum of the counts of N reads, or -1 when a read fails.
 func bench(kind string, n int) int {
+	if kind == "wire-leaves" {
+		return int(wireLeafSum(n))
+	}
+	if kind == "generic" {
+		return omittableSum(n, true)
+	}
 	if kind == "nullable" {
 		return nullableSum(n)
 	}
@@ -261,7 +302,7 @@ func bench(kind string, n int) int {
 		return taggedSum(n)
 	}
 	if kind == "omittable" {
-		return omittableSum(n)
+		return omittableSum(n, false)
 	}
 	if kind == "value" {
 		return valueSum(n)

@@ -1,0 +1,5 @@
+# Reads an append-form RFC3339 parser and keeps a raw JSON span.
+unit read
+sizes 20000 120000
+args bench wire-leaves {n}
+control benchmarks/wirereaders/testdata/control

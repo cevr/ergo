@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type box struct {
@@ -43,6 +44,19 @@ func readCrate(text string) (crate, bool) {
 	var c crate
 	err := json.Unmarshal([]byte(text), &c)
 	return c, err == nil && c.Count.present
+}
+
+//go:noinline
+func readWireLeaves() (int, bool) {
+	const text = `{"at":"2026-11-23T00:12:00Z","data":{ "x": [1, 2] }}`
+	var r struct {
+		At   *time.Time      `json:"at"`
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(text), &r); err != nil || r.At == nil || r.Data == nil {
+		return 0, false
+	}
+	return int(r.At.Unix()%1000) + len(r.Data), true
 }
 
 //go:noinline
@@ -141,9 +155,9 @@ func readValue(text string) (map[string]any, bool) {
 }
 
 func main() {
-	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true, "parsed": true, "nullable": true}
+	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true, "parsed": true, "nullable": true, "wire-leaves": true, "generic": true}
 	if len(os.Args) != 4 || os.Args[1] != "bench" || !kinds[os.Args[2]] {
-		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged|parsed|nullable N")
+		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged|parsed|nullable|wire-leaves|generic N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])
@@ -153,6 +167,13 @@ func main() {
 	sum := 0
 	for i := 0; i < n; i++ {
 		switch os.Args[2] {
+		case "wire-leaves":
+			got, ok := readWireLeaves()
+			if !ok {
+				fmt.Println(-1)
+				return
+			}
+			sum += got
 		case "nullable":
 			text := `[null,12]`
 			if i%2 != 0 {
@@ -186,7 +207,7 @@ func main() {
 				return
 			}
 			sum += got
-		case "omittable":
+		case "omittable", "generic":
 			text := `{"count":12}`
 			if i%2 != 0 {
 				text = `{"count":12,"extra":3}`
