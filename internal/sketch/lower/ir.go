@@ -340,6 +340,19 @@ func LowerIRShards(u Unit, tests bool) ([]File, IRReport, SplitReport, error) {
 // TestSplitTextKeepsPositions compares the two.
 var splitFormatLowering string
 
+// irTextBodies names the functions whose bodies stay the emitter's Go text
+// in an IR build, comma-separated (their IR names, as LowerIR reports
+// them): the reference a measurement compares an IR caller with (the
+// text path's caller; IR-FALLBACK-REMAINDER r4, the slot sites). Set with
+// -ldflags=-X=ergo.local/prototype/internal/sketch/lower.irTextBodies=NAME,…
+// on the ergo binary that builds the program (opcount -ergo).
+var irTextBodies string
+
+// keptText reports a body irTextBodies keeps as Go text.
+func keptText(name string) bool {
+	return irTextBodies != "" && slices.Contains(strings.Split(irTextBodies, ","), name)
+}
+
 // LowerIRSplitReaching is LowerIRSplit (of the test build with tests) with
 // every function of funcs lowered too, as a library body within u that
 // its program need not call (CensusStd's reach), each with the IR body it
@@ -913,6 +926,8 @@ type irBuilder struct {
 	// frame is 1 + the local of the body's frame scope (ir_own.go
 	// openScope), or 0; frameArg reads it (GP-FRAME; OPC-TASK's hook).
 	frame int
+	// slotOut is a slot variant body's slots (ir_slot.go), or nil.
+	slotOut *irSlotOut
 	// with is 1 + the local of the innermost owning with's scope
 	// (v1.Scope.OpenWith, ir_with.go), or 0: inside one, frameArg is it,
 	// as the emitter's frameScope reads frame.with.
@@ -1002,6 +1017,10 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if drop {
 		name = fd.dropped
 	}
+	slot := fc.frame.slot != nil && fd.emitSlot // the slot variant (ir_slot.go)
+	if slot {
+		name = fd.slot // a body of its own: the census names it apart (IR-RED-2)
+	}
 	name = b.ownedBodyName(fd, name, drop) // ir_own.go
 	if n := b.knownVariantName(fd); n != "" {
 		name = n // a known-callback variant (ir_kcb.go)
@@ -1034,6 +1053,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 		}
 	}
 	defer st.finish(b, pkg, census, f.Decl, f.Pkg.Std(), &ok)
+	if keptText(name) {
+		irNo("kept as text (irTextBodies)")
+	}
 	if drop {
 		defer func() {
 			if ok {
@@ -1102,6 +1124,9 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	if len(params) == 0 {
 		b.witnessSlots(f) // ir_witness.go
 	}
+	if slot {
+		b.part(func() { b.slotBody(fc) }) // its slot pointers, last (ir_slot.go)
+	}
 	b.slots = b.next
 	if b.result != nil {
 		b.part(func() { b.goType(b.result, f.Decl) })
@@ -1132,13 +1157,20 @@ func (st *irState) body(fc *funcCtx, fd *funcDecl, params []*check.Var, gates []
 	b.part(func() { b.fn.Body = b.closeMasked(f, params, b.fn.Body) }) // ir_own.go
 	b.fn.Body = b.deferExits(b.fn.Body)                                // ir_exits.go (STATIC-EXIT2)
 	b.fn.Body = irScopesIncrease(irUseLocals(b.fn.Body), b.fn.Pos)     // ir_end.go
+	if b.slotOut != nil {
+		b.part(func() { b.slotRetsOnly(b.fn.Body) }) // ir_slot.go
+	}
 	if st.census != nil {
 		return false
 	}
-	b.flatSplit(f, name, slots) // ir_forms_flat.go
-	b.ownDone(name)             // ir_own.go
+	if !slot {
+		b.flatSplit(f, name, slots) // ir_forms_flat.go
+	}
+	b.ownDone(name) // ir_own.go
 	st.out.Funcs = append(st.out.Funcs, *b.fn)
-	st.inlineCallee(b, fd, params) // ir_forms_inline.go
+	if !slot {
+		st.inlineCallee(b, fd, params) // ir_forms_inline.go
+	}
 	st.report.IR = append(st.report.IR, name)
 	st.report.Folds.add(b.foldCounts) // ir_constfold.go
 	st.report.Memo += b.memoSites

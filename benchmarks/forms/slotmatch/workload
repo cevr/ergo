@@ -1,0 +1,6 @@
+# scripts/opcount: `irforms bench slotmatch N` runs N units of the probe slotmatch;
+# the cost of one unit is the slope between the two sizes (IR-FORMS §2).
+unit op
+sizes 200000 1200000
+args bench slotmatch {n}
+control benchmarks/forms/testdata/control
