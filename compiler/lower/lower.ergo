@@ -69,6 +69,8 @@ type fnb {
 	// Root's transitive imports, including the prelude. None means the
 	// driver could not prove complete coverage; not a lexical search path.
 	rootImports Option[[]expr.Dep],
+	// Checked call projections of exact direct imports; absent is not proof.
+	importCalls []ImportCallFacts,
 	k           expr.Pkg,
 	s           store.Store,
 	types       dense.Side[store.PNode, dense.Opt[store.TKey]],
@@ -142,7 +144,7 @@ func Package(s store.Store, k expr.Pkg, t expr.Typer, paths []string, path strin
 	for i, f in k.Fns {
 		let p = k.Parsed[f.File]
 		let at = syntax.NodePos(p, f.Decl)
-		let mut st = fnb{rootImports: imports, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt}
+		let mut st = fnb{rootImports: imports, importCalls: direct, k: k, s: s, types: types, file: f.File, p: p, lines: lines[f.File], fileIx: uint32(0), params: []dense.ID[store.PNode]{}, locals: []int{}, alias: alias, prelude: prelude, calls: t.Calls, callAt: callAt}
 		// Read the package-wide columns once, before building any body.
 		// A body that stops during lowering can still have a call proof.
 		if i == 0 {
