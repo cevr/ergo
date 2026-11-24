@@ -1,0 +1,52 @@
+import rpc
+import testing
+import clibench/counter
+import clibench/counter/counterapi
+
+test PeerReplyKeepsTransportSeparate {
+	let read func(r Request, out Output) counterapi.Outcome fails rpc.Transport = Read
+	let add = counterapi.AddRequest{Entry: counter.Entry{Key: "abc", N: -3}}
+	let get = counterapi.GetRequest{Key: "abc"}
+	assert isTransport(read, add, Output{Out: "\"not an int\"\n", Err: "", Code: 0})
+	assert isTransport(read, add, Output{Out: "{\"_tag\":\"Unknown\",\"Key\":\"abc\"}\n", Err: "", Code: 1})
+	assert isTransport(read, add, Output{Out: "{\"_tag\":\"Other\"}\n", Err: "", Code: 1})
+	assert isTransport(read, add, Output{Out: "", Err: "no answer\n", Code: 2})
+
+	assert hasOutcome(read, add, Output{Out: "{\"_tag\":\"Negative\",\"N\":-3}\n", Err: "", Code: 1},
+		counterapi.Rejected{Failure: counterapi.Negative{E: counter.Negative{N: -3}}})
+	assert hasOutcome(read, get, Output{Out: "3\n", Err: "", Code: 0},
+		counterapi.Done{Reply: counterapi.GetReply{Value: 3}})
+}
+
+func hasOutcome(read func(r Request, out Output) counterapi.Outcome fails rpc.Transport, r Request, out Output, want counterapi.Outcome) bool {
+	let got = read(r, out) catch {
+	case rpc.Transport:
+		return false
+	}
+	got == want
+}
+
+func isTransport(read func(r Request, out Output) counterapi.Outcome fails rpc.Transport, r Request, out Output) bool {
+	let _ = read(r, out) catch {
+	case rpc.Transport:
+		return true
+	}
+	false
+}
+
+let peerCounts = context needs TestAmbient { testing.Allocs: testing.NewAllocCounter() }
+
+test PeerSuccessDoesNotBoxTheOutcome {
+	let read func(r Request, out Output) counterapi.Outcome fails rpc.Transport = Read
+	let r = counterapi.GetRequest{Key: "abc"}
+	let out = Output{Out: "733\n", Err: "", Code: 0}
+	let want = counterapi.Done{Reply: counterapi.GetReply{Value: 733}}
+	let mut same = false
+	let n = with peerCounts {
+		testing.Allocs.PerRun(64, func() { same = hasOutcome(read, r, out, want) })
+	}
+	// The same checked reply cost four allocations before delivery became
+	// a failure row. The row must not introduce another success box.
+	assert n <= 4
+	assert same
+}
