@@ -636,6 +636,10 @@ func (c *checker) contextEntry(e *syntax.ContextEntry, made *ContextEntry) ([]Ty
 			c.errorf(e.Value, CodeProvider, "%s", testAmbientEntryText)
 			continue
 		}
+		if isTestLoopback(cap) {
+			c.errorf(e.Value, CodeProvider, "no context binds TestLoopback: its one provider is the test runner (rows.md, Test loopback)")
+			continue
+		}
 		if n, ok := cap.(*Named); ok && n.foreign {
 			// go.Foreign is a language protocol, as Ambient: its one
 			// provider is the entry (rows.md, Entry 4; owner q33).
