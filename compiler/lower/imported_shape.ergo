@@ -1,0 +1,172 @@
+import compiler/check/expr
+import compiler/check/store
+import compiler/check/types
+import compiler/syntax
+import dense
+import strings
+
+type importedShape { dep expr.Dep, decl dense.ID[store.Decl] }
+
+// Shape traversal may cross into another checked pool. Never look up a
+// type by the alias its importer wrote, or use a declaration row from
+// one pool in another.
+func importedShapeOf(st fnb, t dense.ID[store.TKey], deps []expr.Dep) Option[importedShape] {
+	let kind = store.KindOfType(st.s, t)
+	if kind != store.KForeign && kind != store.KInstance {
+		return None
+	}
+	let (path, name, args) = expr.ImportedRec(st.s, st.k, t)
+	if path == "" || path == "-" || path == "prelude" || len(args) != 0 {
+		return None
+	}
+	let mut result Option[importedShape] = None
+	for dep in deps {
+		if dep.Path != path {
+			continue
+		}
+		if result != None || len(dep.K.Parsed) == 0 || declCount(fnb{..st, k: dep.K, s: dep.S}, name) != 1 {
+			return None
+		}
+		match store.Lookup(dep.S, name) {
+		case Some{Value: d}:
+			if store.KindName(int(store.DeclOf(dep.S, d).Kind)) != "type" {
+				return None
+			}
+			result = Some{Value: importedShape{dep: dep, decl: d}}
+		case None:
+			return None
+		}
+	}
+	result
+}
+
+func shapeDeps(st fnb) []expr.Dep {
+	match st.rootImports {
+	case Some{Value: deps}:
+		deps
+	case None:
+		st.k.Deps
+	}
+}
+
+// Project declaration queries into the defining package. Ergo sources
+// share the oracle's joined name in the pre-split comparison; this is
+// not the spelling of a genuine host Go import.
+func importedOwner(st fnb, src importedShape) (fnb, dense.ID[store.TKey]) {
+	let mut s = src.dep.S
+	let t = store.TNamed(&s, src.decl)
+	(fnb{..st, k: src.dep.K, s: s, alias: pkgAlias(src.dep.Path)}, t)
+}
+
+type importedRecordType { typ string, fields []expr.Field }
+
+func importedRecord(owner fnb, t dense.ID[store.TKey]) Option[importedRecordType] {
+	let r = ordinaryRecord(owner, t)
+	if r >= 0 {
+		let rec = owner.k.Recs[r]
+		let typ = declName(owner, rec.Name) catch {
+		case Unported:
+			return None
+		}
+		return Some{Value: importedRecordType{typ: typ, fields: rec.Fields}}
+	}
+	let name = store.TypeNameText(owner.s, store.ArgOf(owner.s, t))
+	let typ = runtimeRecordType(owner, name)
+	if typ != "" {
+		for rec in owner.k.Recs {
+			if rec.Name == name && !rec.Op && len(rec.Params) == 0 {
+				return Some{Value: importedRecordType{typ: typ, fields: rec.Fields}}
+			}
+		}
+	}
+	None
+}
+
+// The Go checker validates the runtime package, exported declaration,
+// arity and struct fields. Go's spelling uses the real import path, not
+// the Ergo package prefix nor the alias spelling of that import.
+func runtimeRecordType(owner fnb, name string) string {
+	let (p, parent, at) = match unionDeclParent(owner, name) {
+	case Some{Value: decl}:
+		decl
+	case None:
+		return ""
+	}
+	let td = match syntax.ViewOf(p.Tree, parent) {
+	case syntax.TypeDecl as d:
+		d
+	case _:
+		return ""
+	}
+	if td.Name != at || dense.Unpack(td.TypeParams) != None || dense.Unpack(td.Where) != None || dense.Unpack(td.Derive) != None || syntax.Len(td.Implements) != 0 {
+		return ""
+	}
+	match dense.Unpack(td.Spec) {
+	case Some{Value: spec}:
+		if syntax.KindOf(p.Tree, spec) != syntax.KStructType {
+			return ""
+		}
+	case None:
+		return ""
+	}
+	let target = match dense.Unpack(td.Extern) {
+	case Some{Value: ext}:
+		syntax.TokText(p, syntax.BasicLitOf(p.Tree, syntax.ExternSpecOf(p.Tree, ext).Target).Tok)
+	case None:
+		return ""
+	}
+	let dot = strings.LastIndex(target, ".")
+	if dot < 0 {
+		return ""
+	}
+	let path = target[:dot]
+	let rt = "ergo.local/prototype/runtime/v1"
+	if path == rt || strings.HasPrefix(path, rt+"/") { target } else { "" }
+}
+
+// Verify and port only the fields of a declared, admitted record. The
+// checked owner type and the consumer's expression types are in different
+// pools, even when their printed spellings happen to be identical.
+func importedFields(st fnb, t dense.ID[store.TKey]) Option[[]expr.Field] {
+	let deps = shapeDeps(st)
+	let src = match importedShapeOf(st, t, deps) {
+	case Some{Value: proof}:
+		proof
+	case None:
+		return None
+	}
+	let (owner, named) = importedOwner(st, src)
+	let rec = match importedRecord(owner, named) {
+	case Some{Value: rec}:
+		rec
+	case None:
+		return None
+	}
+	if recordShape(owner, named, rec.fields, rec.typ, shapeTrail{seen: []shapeVisit{}, deps: deps}) == "" {
+		return None
+	}
+	let mut fields = []expr.Field{}
+	let mut local = st.s
+	for f in rec.fields {
+		match types.Port(&local, st.k.Ifaces, st.k.Foreign, owner.s, src.dep.Path, func(ref store.XRef) Option[types.DeclIdentity] { types.DepIdentity(owner.k.Ifaces, ref) }, owner.k.Foreign, f.T) {
+		case Some{Value: ft}:
+			fields = fields.Append(expr.Field{Name: f.Name, T: ft})
+		case None:
+			return None
+		}
+	}
+	Some{Value: fields}
+}
+
+func importedGenericUnion(st fnb, t dense.ID[store.TKey]) bool {
+	if store.KindOfType(st.s, t) != store.KInstance || len(store.OperandsOf(st.s, t)) == 0 {
+		return false
+	}
+	let o = store.OriginOfType(st.s, t)
+	let i = int(o.Import)
+	let d = int(o.Decl)
+	if i == store.ForeignBit {
+		return d < len(st.k.Foreign) && st.k.Foreign[d].Path != "prelude" && len(st.k.Foreign[d].Variants) != 0
+	}
+	i > 0 && i <= len(st.k.Ifaces) && d < len(st.k.Ifaces[i-1].Decls) && len(st.k.Ifaces[i-1].Decls[d].Variants) != 0
+}

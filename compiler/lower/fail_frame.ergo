@@ -65,6 +65,9 @@ func frameFailureMembers(st fnb, row dense.ID[store.TKey]) []dense.ID[store.TKey
 			if shapeGo(st, member) == "" {
 				return stop("SHAPES: imported failure spelling")
 			}
+			if frameImportedMemberAdmitted(st, member) {
+				continue
+			}
 			// Native generic union spelling is not a proof that the
 			// checker's row has expanded that instance to its variants.
 			return stop("UNION: unexpanded generic failure row")

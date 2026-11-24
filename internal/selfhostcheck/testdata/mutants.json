@@ -1282,6 +1282,86 @@
       "killers": [
         "internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"
       ]
+    },
+    {
+      "name": "lower-shapes2-imported-identity-refused",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "from": "match importedShapeOf(st, t, trail.deps) {",
+      "to": "match importedShapeOf(st, t, []expr.Dep{}) {",
+      "rule": "Values of an admitted imported record retain their direct signature and local reference.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes2-imported-field-renamed",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/aggregate.ergo", "decl": "field",
+      "from": "\t\t\t\treturn stop(\"selector that is no imported field\")\n\t\t\t}\n\t\t\treturn name",
+      "to": "\t\t\t\treturn stop(\"selector that is no imported field\")\n\t\t\t}\n\t\t\treturn name + \"_\"",
+      "rule": "A nested imported field retains the checked Go name in the consumer's IR.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes2-imported-literal-root-spelling",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/imported_shape.ergo", "decl": "importedOwner",
+      "from": "alias: pkgAlias(src.dep.Path)",
+      "to": "alias: \"\"",
+      "rule": "An imported Ergo literal uses the defining package's joined Go spelling, not the root's.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes2-imported-empty-refused",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/imported_shape.ergo", "decl": "importedRecord",
+      "from": "\tif r >= 0 {\n\t\tlet rec = owner.k.Recs[r]",
+      "to": "\tif r >= 0 && len(owner.k.Recs[r].Fields) != 0 {\n\t\tlet rec = owner.k.Recs[r]",
+      "rule": "A checked empty imported record is still an admitted named type for direct value moves.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes2-imported-union-descriptor-skipped",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/shape.ergo", "decl": "shapeWithin",
+      "from": "return unionGo(owner, named)",
+      "to": "return \"\"",
+      "rule": "A non-generic imported union can move directly when its defining package supplies the UNION descriptor.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes2-imported-runtime-leaf-path-dropped",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/imported_shape.ergo", "decl": "runtimeRecordType",
+      "from": "strings.HasPrefix(path, rt+\"/\") { target }",
+      "to": "strings.HasPrefix(path, rt+\"/\") { rt + target[dot:len(target)] }",
+      "rule": "The IR literal spells the runtime's exact Go package, including a leaf path.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes2-ordinary-imported-failure-refused",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/frame_imported_member_hook.ergo", "decl": "frameImportedMemberAdmitted",
+      "from": "importedRecord(owner, t) != None",
+      "to": "importedRecord(owner, t) != None && ordinaryRecord(owner, t) < 0",
+      "rule": "A closed failure row may charge an ordinary imported record whose exact shape is admitted.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-shapes2-user-runtime-failure-refused",
+      "origin": "wf10/selfhost/S4-PORT SHAPES-2 (not-run-crunch)",
+      "file": "compiler/lower/frame_imported_member_hook.ergo", "decl": "frameImportedMemberAdmitted",
+      "from": "importedRecord(owner, t) != None",
+      "to": "ordinaryRecord(owner, t) >= 0",
+      "rule": "The same correctly bound runtime record is admissible in a closed failure row when declared by a user package.",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     }
   ]
 }

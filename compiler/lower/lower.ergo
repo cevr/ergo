@@ -370,6 +370,9 @@ func typeCause(st fnb, t dense.ID[store.TKey]) string {
 		return "row"
 	}
 	if k == store.KInstance {
+		if importedGenericUnion(st, t) {
+			return "UNION: unproved imported generic layout for " + originName(st, store.OriginOfType(st.s, t))
+		}
 		return "instance " + originName(st, store.OriginOfType(st.s, t))
 	}
 	if k == store.KPointer {

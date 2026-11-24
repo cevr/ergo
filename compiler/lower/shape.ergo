@@ -1,23 +1,38 @@
+import compiler/check/expr
 import compiler/check/store
 import dense
 import strings
 
-// shapeGo spells the admitted value shapes. A named type here is a local
-// declaration (the checker represents imported types separately). Its
-// declaration spells bare in the root and with its package prefix elsewhere.
+// shapeGo spells the admitted value shapes. Names in the root are bare;
+// imported Ergo declarations use their defining package's joined name.
 // Unsupported types do not acquire a spelling.
 func shapeGo(st fnb, t dense.ID[store.TKey]) string {
-	shapeWithin(st, t, []dense.ID[store.TKey]{})
+	shapeWithin(st, t, shapeTrail{seen: []shapeVisit{}, deps: shapeDeps(st)})
 }
 
-func shapeWithin(st fnb, t dense.ID[store.TKey], seen []dense.ID[store.TKey]) string {
+type shapeVisit { owner string, t dense.ID[store.TKey] }
+type shapeTrail { seen []shapeVisit, deps []expr.Dep }
+
+func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 	let basic = basicGo(st, t)
 	if basic != "" {
 		return basic
 	}
 	if store.KindOfType(st.s, t) == store.KSlice {
-		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[0], seen)
+		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[0], trail)
 		return if elem == "" { "" } else { "[]" + elem }
+	}
+	match importedShapeOf(st, t, trail.deps) {
+	case Some{Value: imported}:
+		let (owner, named) = importedOwner(st, imported)
+		match importedRecord(owner, named) {
+		case Some{Value: rec}:
+			return recordShape(owner, named, rec.fields, rec.typ, trail)
+		case None:
+			// UNION owns which named declarations and layouts it describes.
+			return unionGo(owner, named)
+		}
+	case None:
 	}
 	let r = ordinaryRecord(st, t)
 	if r < 0 {
@@ -31,15 +46,20 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], seen []dense.ID[store.TKey]) st
 	case Unported:
 		return ""
 	}
+	recordShape(st, t, rec.Fields, gt, trail)
+}
+
+func recordShape(st fnb, t dense.ID[store.TKey], fields []expr.Field, gt string, trail shapeTrail) string {
 	// By declaration identity, not spelling. The Go admit walk similarly
 	// visits a declaration once (e.g. a record containing a slice of itself).
-	for id in seen {
-		if id == t {
+	let visit = shapeVisit{owner: store.PathOf(st.s), t: t}
+	for id in trail.seen {
+		if id.owner == visit.owner && id.t == visit.t {
 			return gt
 		}
 	}
-	let path = seen.Append(t)
-	for f in rec.Fields {
+	let path = shapeTrail{..trail, seen: trail.seen.Append(visit)}
+	for f in fields {
 		if !ordinaryFieldName(f.Name) || shapeWithin(st, f.T, path) == "" {
 			return ""
 		}
