@@ -1,0 +1,5 @@
+type Same {
+	Each() Self,
+}
+
+func F[M Same](x M) M[int] { x }

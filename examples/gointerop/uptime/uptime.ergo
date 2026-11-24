@@ -1,40 +1,34 @@
-// Package uptime is the time since a start, read from Go's monotonic
-// clock with time.Now and time.Since. It is gointerop's deliberately
-// Go-backed provider: its operation calls Go's time.Since, which needs
-// go.Foreign, so the check-time evaluator cannot run its law. ergo test
-// runs it natively: the test binary's law case holds go.Foreign
-// (docs/spec/types.md, Laws 10; owner q277). Its start comes from
-// time.Now, a host row that reads the host's clock and so needs Ambient
-// (docs/spec/interop.md, Purity and authority; HOST-ROW): NewGoClock
-// declares it, and only main provides it. A program would
-// use std's time.Clock instead; this package exists to keep that path
-// under its laws.
+// Package uptime computes elapsed nanoseconds between explicit instants.
+// Its Go provider runs under the native law harness. Only cmd/uptime
+// reads a live clock; the law needs no host clock.
 
 import go time
 
-// Elapsed is a clock that counts from its own start.
+// Elapsed computes a signed difference between two nanosecond readings
+// from the same clock. It saturates at the ends of int64.
 type Elapsed {
-	// Nanos is the time since the start, in nanoseconds.
-	Nanos() int64,
+	Nanos(start int64, end int64) int64,
 
-	// NeverBackwards: a reading is never negative and never less than an
-	// earlier one. Go's time.Since reads the monotonic clock, so this
-	// holds on every schedule and across wall-clock changes.
-	law NeverBackwards() {
-		let a = Nanos()
-		let b = Nanos()
-		a >= 0 && b >= a
+	law DifferenceOfReadings(start int64, end int64) {
+		let max = int64(9223372036854775807)
+		let min = -max - 1
+		let elapsed = Nanos(start, end)
+		if start < 0 && end > max+start {
+			return elapsed == max
+		}
+		if start > 0 && end < min+start {
+			return elapsed == min
+		}
+		elapsed == end-start
 	},
 }
 
-// GoClock is Elapsed over Go's time.Time of its start.
-type GoClock { start time.Time } implements Elapsed
+// GoElapsed implements Elapsed with Go's time.Time.Sub.
+type GoElapsed {} implements Elapsed
 
-// NewGoClock is a clock started now: Go's time.Now, which carries the
-// monotonic reading time.Since subtracts from. time.Now reads the host's
-// clock: a host row, so the capability it needs is Ambient; go.Foreign is
-// not that.
-func NewGoClock() GoClock needs Ambient { GoClock{start: time.Now()} }
-
-// Nanos is Go's time.Since the start.
-func Nanos(c GoClock) int64 needs go.Foreign { int64(time.Since(c.start)) }
+// Nanos uses the same origin for both readings; it does not read a clock.
+func Nanos(_ GoElapsed, start int64, end int64) int64 needs go.Foreign {
+	let earlier = time.Unix(0, start)
+	let later = time.Unix(0, end)
+	int64(later.Sub(earlier))
+}

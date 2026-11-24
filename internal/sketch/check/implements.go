@@ -166,7 +166,8 @@ func (c *checker) interfaceIncludes(spec *syntax.InterfaceType, ctx *typeCtx, it
 			seen[m.Name] = true
 			it.Methods = append(it.Methods, m)
 		}
-		it.Generic = it.Generic || inc.Generic
+		it.ConstraintOnly = it.ConstraintOnly || inc.ConstraintOnly
+		it.selfUses = append(it.selfUses, inc.selfUses...)
 	}
 }
 
@@ -282,6 +283,10 @@ func (c *checker) declaredOpsOf(t Type) []*Named {
 		}
 	case *TypeParam:
 		if n, ok := t.Constraint.(*Named); ok && asInterface(n) != nil {
+			add(n)
+		}
+	case *SelfType, *Reapplied:
+		if n := c.receiverOperationType(t); n != nil {
 			add(n)
 		}
 	}
@@ -485,6 +490,10 @@ func (c *checker) checkImplementsClauses() {
 				continue
 			}
 			if c.clauseBounds(n, op, n.implExprs[i]) {
+				continue
+			}
+			if why := c.selfClaimWhy(self, op, n.implExprs[i]); why != "" {
+				c.errorf(n.implExprs[i], CodeProvider, "%s cannot claim %s: %s", n.Obj.Name, c.writtenType(n.implExprs[i], op), why)
 				continue
 			}
 			if op.origin() == c.closer() || isGoCloser(op) {

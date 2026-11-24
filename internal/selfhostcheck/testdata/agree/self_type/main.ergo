@@ -1,0 +1,87 @@
+type One[T] { Value T }
+type Empty {}
+type Maybe[T] = One[T] | Empty implements Same[T], Mappable[T]
+
+type Good[T] { Value T }
+type Bad[E] { Error E }
+type Result[T, E] = Good[T] | Bad[E] implements Mappable[T]
+
+type Tree[T] { Value T, Children []Tree[T] } implements Mappable[T]
+
+type Same[T] {
+	Each(f func(x T) T) Self,
+}
+
+type Mappable[T] {
+	Map[U, E, R](f func(x T) U fails E needs R) Self[U] fails E needs R,
+
+	law Changes[U](before Self, after Self[U], sample T, mapped U) {
+		let _ Self[U] = before.Map(func(_ T) U { mapped })
+		true
+	},
+}
+
+func Each[T](m Maybe[T], f func(x T) T) Maybe[T] {
+	match m {
+	case One[T] as j:
+		One[T]{Value: f(j.Value)}
+	case Empty:
+		Empty
+	}
+}
+
+func Map[T, U, E, R](m Maybe[T], f func(x T) U fails E needs R) Maybe[U] fails E needs R {
+	match m {
+	case One[T] as j:
+		One[U]{Value: try f(j.Value)}
+	case Empty:
+		Empty
+	}
+}
+
+func Map[T, X, U, E, R](r Result[T, X], f func(x T) U fails E needs R) Result[U, X] fails E needs R {
+	match r {
+	case Good[T] as g:
+		Good[U]{Value: try f(g.Value)}
+	case Bad[X] as b:
+		b
+	}
+}
+
+func Map[T, U, E, R](t Tree[T], f func(x T) U fails E needs R) Tree[U] fails E needs R {
+	let mut children = []Tree[U]{}
+	for child in t.Children {
+		children = children.Append(try child.Map(f))
+	}
+	Tree[U]{Value: try f(t.Value), Children: children}
+}
+
+func Lengths[M Mappable[string]](m M) M[int] {
+	let mapped = m.Map(func(s string) int { len(s) })
+	let copies = []M[int]{mapped.Map(func(n int) int { n })}
+	copies[0]
+}
+
+func SameValue[M Same[string]](m M) M {
+	m.Each(func(s string) string { s })
+}
+
+func main() needs Console {
+	let m Maybe[string] = One[string]{Value: "cat"}
+	let r Result[string, bool] = Bad[bool]{Error: true}
+	let t = Tree[string]{Value: "roots", Children: []Tree[string]{Tree[string]{Value: "twig", Children: []Tree[string]{}}}}
+	let a = match Lengths(SameValue(m)) {
+	case One[int] as v:
+		v.Value
+	case Empty:
+		0
+	}
+	let b = match Lengths(r) {
+	case Good[int]:
+		false
+	case Bad[bool] as v:
+		v.Error
+	}
+	let c = Lengths(t)
+	Console.Println("\(a) \(b) \(c.Value) \(c.Children[0].Value)")
+}

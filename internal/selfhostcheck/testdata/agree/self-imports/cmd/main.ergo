@@ -1,0 +1,11 @@
+import selfsupport/box
+import selfsupport/role
+
+func Lengths[M role.Mappable[string]](x M) M[int] {
+	x.Map(func(s string) int { len(s) })
+}
+
+func main() needs Console {
+	let got = Lengths(box.Box[string, bool]{Value: "read", Note: true})
+	Console.Println("\(got.Value) \(got.Note)")
+}
