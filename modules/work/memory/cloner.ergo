@@ -541,7 +541,7 @@ func Files(c Cloner, root string) Map[string, string] {
 // owner's, the Mac's WK-BASES); a second run adopts nothing; and doctor
 // -rift's list is then exactly the copies it left.
 law AdoptRiftKeepsTheTree(parents []int, bad []int) {
-	let w = riftWorldOf(parents, bad)
+	let w = try riftWorldOf(parents, bad)
 	let mut before = Map[string, Map[string, string]]{}
 	for c in w.copies {
 		before[c.Path] = Files(w.trees, c.Path)
@@ -605,11 +605,12 @@ let riftFile = "/rift/rift.sqlite"
 // Copy i's marker names it unless bad holds i (then another id).
 type riftWorld { tool work.Tool, trees Cloner, disk fstest.Memory, copies []work.RiftCopy, registry work.Registry }
 
-func riftWorldOf(parents []int, bad []int) riftWorld {
+func riftWorldOf(parents []int, bad []int) riftWorld fails fstest.BadFixture | work.BadConfig | work.Unkept | fs.Denied | fs.Failed {
 	let trees = NewCloner()
 	let vcs = VcsOver(trees)
 	Repo(vcs, theBase, "main", Map[string, string]{"main.ergo": "func main() {}\n"}, "c0")
-	let disk = fstest.NewMemory()
+	let mut dirs = []string{theBase, "/rift"}
+	let mut files = Map[string, string]{riftFile: "SQLite format 3"}
 	let mut rows = []work.RiftCopy{work.RiftCopy{Id: "root", Parent: "", Path: theBase}, work.RiftCopy{Id: "other", Parent: "", Path: otherBase}, work.RiftCopy{Id: "otherkid", Parent: "other", Path: "/w/rifts/otherkid"}}
 	let mut copies = []work.RiftCopy{}
 	for i in 0..(if len(parents) < 5 { len(parents) } else { 5 }) {
@@ -617,40 +618,19 @@ func riftWorldOf(parents []int, bad []int) riftWorld {
 		let c = work.RiftCopy{Id: "r\(i)", Parent: if p == 0 { "root" } else { "r\(p - 1)" }, Path: "/w/rifts/c\(i)"}
 		Repo(vcs, c.Path, "b\(i)", Map[string, string]{"main.ergo": "func main() {}\n", "f\(i).txt": "\(i)\n"}, "k\(i)")
 		let _ = Write(trees, c.Path, "draft.txt", "not committed\n")
-		disk.MkdirAll(c.Path) catch {
-		case fs.Denied, fs.Failed:
-			Unreachable("a folder of a memory disk")
-		}
-		disk.WriteFile(c.Path+"/"+work.RiftMarker, if slices.Contains(bad, i) { "r9\n" } else { c.Id + "\n" }) catch {
-		case fs.NotFound, fs.Denied, fs.Failed:
-			Unreachable("a file of a memory disk")
-		}
+		dirs = dirs.Append(c.Path)
+		files[c.Path+"/"+work.RiftMarker] = if slices.Contains(bad, i) { "r9\n" } else { c.Id + "\n" }
 		copies = copies.Append(c)
 		rows = rows.Append(c)
 	}
-	disk.MkdirAll(theBase) catch {
-	case fs.Denied, fs.Failed:
-		Unreachable("a folder of a memory disk")
-	}
-	disk.MkdirAll("/rift") catch {
-	case fs.Denied, fs.Failed:
-		Unreachable("a folder of a memory disk")
-	}
-	disk.WriteFile(riftFile, "SQLite format 3") catch {
-	case fs.NotFound, fs.Denied, fs.Failed:
-		Unreachable("a file of a memory disk")
-	}
+	let disk = fstest.MemoryOf(try fstest.NewFixture(dirs, files))
 	let answer = json.Encode(json.Codec[[]work.RiftCopy]{MaxBytes: 1 << 20, MaxDepth: 8}, rows)
 	let runner = exec.Script{Results: Map[string, exec.Result]{exec.Key(exec.New("sqlite3", []string{"-readonly", "-json", riftFile, work.RiftQuery})): exec.Result{Status: 0, Stdout: answer, Stderr: ""}}}
 	let lock = NewLock()
 	let registry = NewRegistry()
 	let p = work.Providers{Cloners: []work.Cloner{trees}, Copier: Beside(trees, false), Registry: registry, Lock: lock, Hooks: Recording(lock, ""), Vcs: vcs, Files: MarkedOver(disk, trees), Writes: MarkedOver(disk, trees), Runner: runner, Clock: time.NewManual(1000)}
 	let tool = work.NewTool(theBase, work.Home(theBase, ""), "/data", p, "/")
-	let _ = tool.Init() catch {
-	case _:
-		Unreachable("init of a memory base")
-		""
-	}
+	let _ = try tool.Init()
 	riftWorld{tool: tool, trees: trees, disk: disk, copies: copies, registry: registry}
 }
 
@@ -672,7 +652,7 @@ func outside(files Map[string, string]) Map[string, string] {
 // build output), with its text, and the base is unchanged: the default
 // leaves nothing out and new writes nothing into its source.
 law CloneCarriesEverything(tree Map[string, string], sharing bool) {
-	let w = worldWith(sharing, tree, "", "")
+	let w = try worldWith(sharing, tree, "", "")
 	let before = Files(w.trees, theBase)
 	let made = w.tool.New("a", fresh(true)) catch {
 	case _:
@@ -691,7 +671,7 @@ law LeaveOutLeavesOnlyThose(tree Map[string, string], modules bool, dist bool) {
 	if dist {
 		out = out.Append("\"dist\"")
 	}
-	let w = worldWith(true, tree, "[work]\nleave_out = [\(strings.Join(out, ", "))]\n", "")
+	let w = try worldWith(true, tree, "[work]\nleave_out = [\(strings.Join(out, ", "))]\n", "")
 	let made = w.tool.New("a", fresh(false)) catch {
 	case _:
 		return false
@@ -729,7 +709,7 @@ func entriesOf(files Map[string, string]) int {
 // taken. Into a folder that is not there it is Missing with that folder,
 // and writes nothing.
 law CloneIsTheSource(tree Map[string, string], leave bool, noParent bool) {
-	let w = worldWith(true, tree, "", "")
+	let w = try worldWith(true, tree, "", "")
 	Plant(w.trees, outRoot, Map[string, string]{})
 	let before = Files(w.trees, theBase)
 	let roots = Roots(w.trees)
@@ -771,7 +751,7 @@ law CloneIsTheSource(tree Map[string, string], leave bool, noParent bool) {
 law CopyIsAnAnswer(tree Map[string, string], across bool, room int) {
 	// across: a sharing Cloner, refused by the other volume; else one
 	// that refuses every clone.
-	let w = worldWith(across, tree, "", "")
+	let w = try worldWith(across, tree, "", "")
 	Plant(w.trees, outRoot, Map[string, string]{})
 	if across {
 		Mount(w.trees, outRoot, "far")

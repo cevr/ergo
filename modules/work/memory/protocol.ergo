@@ -7,6 +7,8 @@
 // (models/registry) on what is left; it is the law of every other rule
 // of the protocol (a refused parent, a refused id, a stopped writer).
 
+import fs
+import fstest
 import github.com/cevr/ergo/modules/work/work
 import json
 import slices
@@ -82,7 +84,7 @@ func Entries(w Watching, root string) int fails work.Missing | work.CloneFailed 
 // GcKeepsGoingAfterFailures: the first two discards fail, but the third
 // tree and its record must still be removed.
 law GcKeepsGoingAfterFailures() {
-	let w = world(true)
+	let w = try world(true)
 	let watch = Watch(w.trees, w.lock)
 	let t = toolOf(w, w.lock, []work.Cloner{watch})
 	let mut paths = []string{}
@@ -114,7 +116,7 @@ law GcKeepsGoingAfterFailures() {
 }
 
 law GcPreviewDoesNotDiscard() {
-	let w = world(true)
+	let w = try world(true)
 	let watch = Watch(w.trees, w.lock)
 	let t = toolOf(w, w.lock, []work.Cloner{watch})
 	let _ = t.New("a", fresh(false)) catch {
@@ -150,7 +152,7 @@ law GcPreviewDoesNotDiscard() {
 // NoCopyUnderTheLock: new clones with the registry's lock free, for a
 // workspace of the base and one made on it.
 law NoCopyUnderTheLock(stack bool) {
-	let w = world(true)
+	let w = try world(true)
 	let watch = Watch(w.trees, w.lock)
 	let t = toolOf(w, w.lock, []work.Cloner{watch})
 	let _ = t.New("a", fresh(false)) catch {
@@ -238,9 +240,8 @@ func callerOf(w World, c Call, owner int, first string) Caller {
 	Caller{steps: steps.run, cuts: steps.cut, parts: parts, decides: decides, lock: lock, pc: sync.NewRef(0), dead: sync.NewRef(false), stamps: sync.NewRef([]int{}), answers: answers, wrong: wrong, expects: expects}
 }
 
-// scheduled is a world with x made, and the callers of calls; and x's id.
-func scheduled(calls []Call) (World, string, []Caller) {
-	let w = world(true)
+func scheduled(calls []Call) (World, string, []Caller) fails fstest.BadFixture | work.BadConfig | work.Unkept | fs.Denied | fs.Failed {
+	let w = try world(true)
 	let x = w.tool.New("x", fresh(false)) catch {
 	case _:
 		nothing()
@@ -252,10 +253,11 @@ func scheduled(calls []Call) (World, string, []Caller) {
 	(w, x.Id, callers)
 }
 
-// scheduleHolds runs one schedule of mine drawn from seed and holds the
-// invariants on it.
 func scheduleHolds(mine []Call, seed int, dies bool) bool {
-	let (w, first, callers) = scheduled(mine)
+	let (w, first, callers) = scheduled(mine) catch {
+	case _:
+		return false
+	}
 	let mut clock = 0
 	let mut stopped = false
 	let mut s = small(seed, 2147483647)
@@ -312,7 +314,11 @@ func scheduleHolds(mine []Call, seed int, dies bool) bool {
 	if stopped || !held || reuses(mine) {
 		return held
 	}
-	sameRecords(all, serially(mine, callers))
+	let serial = serially(mine, callers) catch {
+	case _:
+		return false
+	}
+	sameRecords(all, serial)
 }
 
 // nextSettles runs the next command k of another process (a gc, a new
@@ -394,8 +400,8 @@ func sameRecords(a []work.Workspace, b []work.Workspace) bool {
 
 // serially is the records of the same calls run one by one, each part
 // whole, in the order their deciding steps ran, then the same recovery.
-func serially(calls []Call, ran []Caller) []work.Workspace {
-	let (w, _, callers) = scheduled(calls)
+func serially(calls []Call, ran []Caller) []work.Workspace fails fstest.BadFixture | work.BadConfig | work.Unkept | fs.Denied | fs.Failed {
+	let (w, _, callers) = try scheduled(calls)
 	let mut order = []Stamp{}
 	for i, c in ran {
 		for j, s in c.stamps.Get() {
@@ -704,7 +710,7 @@ func stranded(w World, name string, owner int, at int) work.Making fails work.No
 // that is not there, settles it: a placed clone is active at its path,
 // any other is gone, its staging folder with it.
 law ListShowsAStrandedReservation(at int) {
-	let w = world(true)
+	let w = try world(true)
 	let cut = small(at, 4)
 	let m = stranded(w, "a", 2, cut) catch {
 	case _:
@@ -736,7 +742,7 @@ law ListShowsAStrandedReservation(at int) {
 // a record with no id is given), and its maker then places and
 // activates it.
 law SettleNeverTakesALiveMaker(next int) {
-	let w = world(true)
+	let w = try world(true)
 	let maker = Sharing(w.lock, 2)
 	let t = toolOf(w, maker, []work.Cloner{w.trees})
 	let m = match (t.Reserve("a", fresh(false)) catch {
@@ -801,7 +807,7 @@ law SettleNeverTakesALiveMaker(next int) {
 // staging folder and the home, not the workspace's folder), and leaves no
 // record, no tree under the home and no lock.
 law PlaceNeverCopies(copy bool) {
-	let w = world(!copy)
+	let w = try world(!copy)
 	let home = work.Home(theBase, "")
 	Mount(w.trees, work.StagingFolder(home), "other")
 	let mut refused = false
@@ -827,7 +833,7 @@ law PlaceNeverCopies(copy bool) {
 // gc and the rm leave it too. After that command no record, staging
 // folder or tomb is left, and no lock is held.
 law NoDeleteUnderTheLock(at int, renamed bool, refused bool, by int) {
-	let w = world(true)
+	let w = try world(true)
 	let home = work.Home(theBase, "")
 	let m = stranded(w, "a", 2, 1+small(at, 2)) catch {
 	case _:
@@ -902,7 +908,7 @@ func poked(t work.Tool, k int) bool {
 // other record: a pin in a registry of active workspaces and stranded
 // reservations makes no more.
 law SettleCostsAtMost(actives int, strands int, at int) {
-	let w = world(true)
+	let w = try world(true)
 	let a = 1 + small(actives, 6)
 	let c = small(strands, 4)
 	for i in 0..a {

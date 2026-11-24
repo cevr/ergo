@@ -94,13 +94,9 @@ func main() fails os.Exit needs Ambient {
 // The tests run run over scripted input, a Recorder and an fstest.Memory
 // of one file, with no host.
 
-func ran(args []string, input string) string {
+func ran(args []string, input string) string fails fstest.BadFixture {
 	let out = io.NewRecorder()
-	let disk = fstest.NewMemory()
-	disk.WriteFile("notes.md", "# Notes\n\n- *a*\n") catch {
-	case fs.NotFound, fs.Denied, fs.Failed:
-		Unreachable("a new Memory has the folder .")
-	}
+	let disk = fstest.MemoryOf(try fstest.NewFixture([]string{}, Map[string, string]{"notes.md": "# Notes\n\n- *a*\n"}))
 	with context { io.Stdout: out, io.Stdin: io.Input{Text: input}, fs.Files: disk } {
 		run(args) catch {
 		case os.Exit as e:
@@ -111,23 +107,23 @@ func ran(args []string, input string) string {
 }
 
 test ReadsStandardInput {
-	assert ran([]string{}, "hi *there*\n") == "<p>hi <em>there</em></p>\n"
+	assert try ran([]string{}, "hi *there*\n") == "<p>hi <em>there</em></p>\n"
 }
 
 test ReadsTheFile {
-	assert ran([]string{"notes.md"}, "not read") == "<h1>Notes</h1>\n<ul>\n<li><em>a</em></li>\n</ul>\n"
-	assert ran([]string{"gone.md"}, "") == "exit 1: mdhtml: no file gone.md\n"
+	assert try ran([]string{"notes.md"}, "not read") == "<h1>Notes</h1>\n<ul>\n<li><em>a</em></li>\n</ul>\n"
+	assert try ran([]string{"gone.md"}, "") == "exit 1: mdhtml: no file gone.md\n"
 }
 
 test TitleMakesAPage {
-	assert ran([]string{"-title", "A & B"}, "x\n") == "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>A &amp; B</title>\n</head>\n<body>\n<p>x</p>\n</body>\n</html>\n"
+	assert try ran([]string{"-title", "A & B"}, "x\n") == "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>A &amp; B</title>\n</head>\n<body>\n<p>x</p>\n</body>\n</html>\n"
 }
 
 test HighlightChoosesKeywords {
-	assert ran([]string{"-highlight"}, "```go\nif x\n```\n") == "<pre><code class=\"language-go\"><span class=\"kw\">if</span> x\n</code></pre>\n"
+	assert try ran([]string{"-highlight"}, "```go\nif x\n```\n") == "<pre><code class=\"language-go\"><span class=\"kw\">if</span> x\n</code></pre>\n"
 }
 
 test UnsafeTrustsTheAuthor {
-	assert ran([]string{}, "<b>[x](javascript:go)</b>\n") == "<p><!-- raw HTML omitted --><a href=\"\">x</a><!-- raw HTML omitted --></p>\n"
-	assert ran([]string{"-unsafe"}, "<b>[x](javascript:go)</b>\n") == "<p><b><a href=\"javascript:go\">x</a></b></p>\n"
+	assert try ran([]string{}, "<b>[x](javascript:go)</b>\n") == "<p><!-- raw HTML omitted --><a href=\"\">x</a><!-- raw HTML omitted --></p>\n"
+	assert try ran([]string{"-unsafe"}, "<b>[x](javascript:go)</b>\n") == "<p><b><a href=\"javascript:go\">x</a></b></p>\n"
 }

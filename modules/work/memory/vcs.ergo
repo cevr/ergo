@@ -770,7 +770,7 @@ func Land(v Vcs, root string, parent string) bool {
 // BranchAtHeadWritesNoIndex: a new workspace that starts at its base's
 // head makes its branch by ref writes alone: no index is written.
 law BranchAtHeadWritesNoIndex(tree Map[string, string]) {
-	let w = worldWith(true, tree, "", "")
+	let w = try worldWith(true, tree, "", "")
 	let before = IndexWrites(w.vcs)
 	let _ = w.tool.New("a", fresh(false)) catch {
 	case _:
@@ -782,7 +782,7 @@ law BranchAtHeadWritesNoIndex(tree Map[string, string]) {
 // InitRefreshesTheIndex: init leaves the base's index with no stale
 // stat, so the clones made after it start fresh.
 law InitRefreshesTheIndex(n int) {
-	let w = world(true)
+	let w = try world(true)
 	Touch(w.vcs, theBase, (n%5+5)%5+1)
 	let _ = w.tool.Init() catch {
 	case _:

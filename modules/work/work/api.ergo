@@ -321,6 +321,10 @@ type Api {
 	// NewIsListedOnce: a workspace new made is listed once, active, at the
 	// folder new printed; a second new of the name is NameTaken.
 	law NewIsListedOnce(name string) {
+		let _ = Init() catch {
+		case _:
+			return false
+		}
 		let made = New(name, NewOptions{Copy: true, From: None, Branch: None, On: None, Token: None}) catch {
 		case _:
 			return true
