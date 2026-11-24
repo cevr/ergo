@@ -125,15 +125,21 @@ func (b *irBuilder) callbackShape(cb *check.Signature, site syntax.Node) *v1.Bod
 }
 
 // hostCloseCall is the release of a Go value at slot (the emitter's
-// hostRelease): Go's Close inside v1.Release's boundary with the caller's
-// task, its error, when Close returns one, a defect naming the site where
-// the slot took the value (v1.CloseFailed; staticOwn's site). A Go value that is not a pointer (a value whose
-// Close may need Go's implicit address) keeps the Go-text release.
+// hostRelease): the checked Go method takes no operands; the caller's
+// task goes to v1.Release instead. An error becomes a defect naming the
+// acquisition (v1.CloseFailed). A concrete Go value that may need an
+// implicit address keeps the Go-text release.
 func (b *irBuilder) hostCloseCall(cl *check.Close, s irSlot, env, slot int, p irPos) (*irExpr, bool) {
-	if !strings.HasPrefix(b.fc.goType(s.t), "*") {
+	if cl.Op == nil && !strings.HasPrefix(b.fc.goType(s.t), "*") {
 		return nil, false
 	}
-	call := &irExpr{K: "mcall", Pos: p, Name: "Close", X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}
+	var name string
+	if cl.Op != nil {
+		name = cl.Op.Name
+	} else {
+		name = cl.Func.Name
+	}
+	call := &irExpr{K: "mcall", Pos: p, Name: name, X: &irExpr{K: "deref", Pos: p, X: &irExpr{K: "local", Pos: p, I: slot}}}
 	if cl.HostFallible() {
 		site := s.site
 		src, line, column := b.l.locate(site, site.Pos())

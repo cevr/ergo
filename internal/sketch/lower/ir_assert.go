@@ -269,7 +269,7 @@ func (b *irBuilder) skip(s *syntax.SkipStmt) []*irStmt {
 // operands (assertCompare's failure text after the source text):
 // `: left L, right R`, each an Ergo literal of its type, and the line
 // diff of two strings. It is emitted once per assert s, whose name the
-// naming pass reserves (nameTests, under LowerIR and CensusIR only).
+// naming pass reserves (nameTests).
 func (l *lowerer) assertShowFunc(s syntax.Node, lt, rt check.Type, site syntax.Node) string {
 	tc := &typeCtx{l: l, site: site}
 	lg, rg := tc.goType(lt), tc.goType(rt)

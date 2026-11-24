@@ -293,7 +293,7 @@ func (b *irBuilder) listReleaseValue(d *check.Drop, t check.Type, typ string, si
 	if d.Glue() {
 		return "OwningParts", b.dropRelease(d, typ, site, p)
 	}
-	return "Owning", b.listRelease(d, t, typ, p, b.listReleaseHere(t, site, value))
+	return "Owning", b.listRelease(d, t, typ, site, p, b.listReleaseHere(t, site, value))
 }
 
 // reassignList implements R41: acquire the replacement before releasing
@@ -347,7 +347,7 @@ func (b *irBuilder) listReleaseHere(t check.Type, site syntax.Node, value syntax
 // is v1.ReleaseTask[here], Close on the
 // task that started it, which is the frame's, so the literal captures
 // nothing and Go allocates no closure for it (PARK2's release closure).
-func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, p irPos, here string) *irExpr {
+func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, site syntax.Node, p irPos, here string) *irExpr {
 	owned := b.temp("owned", typ, p)
 	end := p
 	lit := &irExpr{K: "func", Pos: p, T: "func(" + typ + ")", Params: []int{owned}, End: &end}
@@ -360,7 +360,7 @@ func (b *irBuilder) listRelease(d *check.Drop, t check.Type, typ string, p irPos
 	}
 	// closeCall reads the value through a pointer local (a static slot's).
 	ptr := b.temp("ptr", "*"+typ, p)
-	c, ok := b.closeCall(irSlot{t: t, d: d}, b.env, ptr, p)
+	c, ok := b.closeCall(irSlot{t: t, d: d, site: site}, b.env, ptr, p)
 	if !ok {
 		irNo("owned local")
 	}
@@ -609,11 +609,13 @@ func (b *irBuilder) releaseFuncs(name, helper string, params []string) bool {
 // call: a std or extern function (the checker refuses it, C26).
 func (b *irBuilder) closeCall(s irSlot, env, slot int, p irPos) (*irExpr, bool) {
 	cl := s.d.Close
+	// A Go interface method is an operation in the checker but uses
+	// the Go ABI, not the task-taking Ergo interface ABI.
+	if cl.HostClose() {
+		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
+	}
 	if cl != nil && cl.Func == nil && cl.Op != nil {
 		return b.closeOpCall(cl, s, env, slot, p)
-	}
-	if cl != nil && cl.HostClose() {
-		return b.hostCloseCall(cl, s, env, slot, p) // ir_gocall.go
 	}
 	if cl == nil || cl.Func == nil || !isClose(cl.Func) || len(cl.Func.Sig.Params) != 1 {
 		return nil, false

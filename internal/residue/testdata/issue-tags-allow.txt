@@ -6,7 +6,7 @@ GLOSSARY.md	4	GLOSSARY
 cmd/ergo/ctxreach_test.go	1	ISSUE-TAGS (comments and test texts)
 cmd/ergo/main.go	1	ISSUE-TAGS (comments and test texts)
 cmd/ergo/packages_test.go	1	ISSUE-TAGS (comments and test texts)
-cmd/ergo/readme_smoke_test.go	2	ISSUE-TAGS (comments and test texts)
+cmd/ergo/readme_smoke_test.go	1	ISSUE-TAGS (comments and test texts)
 compiler/README.md	1	PKG-README
 compiler/check/expr/call.ergo	1	ISSUE-TAGS (comments and test texts)
 compiler/check/expr/methods.ergo	1	ISSUE-TAGS (comments and test texts)
