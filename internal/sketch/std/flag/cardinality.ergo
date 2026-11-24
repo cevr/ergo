@@ -1,5 +1,6 @@
 import slices
 import strconv
+import strings
 import time
 
 // Optional flags distinguish absence from an explicit empty string or zero.
@@ -163,27 +164,52 @@ func Get(f RepeatedDurationFlag, v Values) []duration {
 	out
 }
 
-// WithAlias declares one ASCII short name. It replaces the previous alias.
-// An invalid declaration is a defect, not a failure of user input.
-func shortName(a string) string {
-	if len(a) != 1 || !((a >= "a" && a <= "z") || (a >= "A" && a <= "Z") || (a >= "0" && a <= "9")) {
-		return Unreachable("flag: an alias is one short name")
+// ShortNamesMatchASCII compares alias admission with the ASCII alphanumeric
+// spelling set, including raw non-ASCII bytes and trailing characters.
+law ShortNamesMatchASCII(suffix string) {
+	let ascii = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+	for i in 0..256 {
+		let raw = strings.FromBytes([]byte{byte(i)})
+		let want = strings.Contains(ascii, raw)
+		let name = ParseShortName(raw) catch {
+		case Unsatisfied:
+			if want {
+				return false
+			}
+			continue
+		}
+		if !want || string(name) != raw {
+			return false
+		}
 	}
-	a
+	rejectsShortName("") && rejectsShortName("a-" + suffix)
 }
 
-func WithAlias(f StringFlag, a string) StringFlag                     { StringFlag{..f, alias: shortName(a)} }
-func WithAlias(f IntFlag, a string) IntFlag                           { IntFlag{..f, alias: shortName(a)} }
-func WithAlias(f BoolFlag, a string) BoolFlag                         { BoolFlag{..f, alias: shortName(a)} }
-func WithAlias(f DurationFlag, a string) DurationFlag                 { DurationFlag{..f, alias: shortName(a)} }
-func WithAlias(f ChoiceFlag, a string) ChoiceFlag                     { ChoiceFlag{..f, alias: shortName(a)} }
-func WithAlias(f OptionalStringFlag, a string) OptionalStringFlag     { OptionalStringFlag{base: f.base.WithAlias(a)} }
-func WithAlias(f OptionalIntFlag, a string) OptionalIntFlag           { OptionalIntFlag{base: f.base.WithAlias(a)} }
-func WithAlias(f RepeatedStringFlag, a string) RepeatedStringFlag     { RepeatedStringFlag{base: f.base.WithAlias(a)} }
-func WithAlias(f RepeatedIntFlag, a string) RepeatedIntFlag           { RepeatedIntFlag{base: f.base.WithAlias(a)} }
-func WithAlias(f RepeatedBoolFlag, a string) RepeatedBoolFlag         { RepeatedBoolFlag{base: f.base.WithAlias(a)} }
-func WithAlias(f RepeatedDurationFlag, a string) RepeatedDurationFlag { RepeatedDurationFlag{base: f.base.WithAlias(a)} }
-func WithAlias(f RepeatedChoiceFlag, a string) RepeatedChoiceFlag     { RepeatedChoiceFlag{base: f.base.WithAlias(a)} }
+func rejectsShortName(raw string) bool {
+	let _ = ParseShortName(raw) catch {
+	case Unsatisfied:
+		return true
+	}
+	false
+}
+
+// ShortName is one ASCII letter or digit. ParseShortName validates a
+// computed string; a literal is checked at compile time.
+type ShortName string where len(it) == 1 && matches(it, `[0-9A-Za-z]`)
+
+// WithAlias replaces the previous alias with a checked short name.
+func WithAlias(f StringFlag, a ShortName) StringFlag                     { StringFlag{..f, alias: string(a)} }
+func WithAlias(f IntFlag, a ShortName) IntFlag                           { IntFlag{..f, alias: string(a)} }
+func WithAlias(f BoolFlag, a ShortName) BoolFlag                         { BoolFlag{..f, alias: string(a)} }
+func WithAlias(f DurationFlag, a ShortName) DurationFlag                 { DurationFlag{..f, alias: string(a)} }
+func WithAlias(f ChoiceFlag, a ShortName) ChoiceFlag                     { ChoiceFlag{..f, alias: string(a)} }
+func WithAlias(f OptionalStringFlag, a ShortName) OptionalStringFlag     { OptionalStringFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f OptionalIntFlag, a ShortName) OptionalIntFlag           { OptionalIntFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedStringFlag, a ShortName) RepeatedStringFlag     { RepeatedStringFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedIntFlag, a ShortName) RepeatedIntFlag           { RepeatedIntFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedBoolFlag, a ShortName) RepeatedBoolFlag         { RepeatedBoolFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedDurationFlag, a ShortName) RepeatedDurationFlag { RepeatedDurationFlag{base: f.base.WithAlias(a)} }
+func WithAlias(f RepeatedChoiceFlag, a ShortName) RepeatedChoiceFlag     { RepeatedChoiceFlag{base: f.base.WithAlias(a)} }
 
 func aliasOf(f Flag) string {
 	match f {
