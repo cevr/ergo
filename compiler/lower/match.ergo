@@ -97,13 +97,15 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 			}
 		}
 		a.tags = tags[tagsStart:len(tags)]
-		for j in 0..syntax.Len(clause.Body) {
-			if !matchArmSupported(st.p, syntax.Item(st.p.Tree, clause.Body, j)) {
-				return stop("match: loop or break in case")
-			}
-		}
 		let lo = len(p.reads)
 		a.span = try controlList(st, p, clause.Body, tail, 0)
+		for j in a.span.lo..a.span.hi {
+			match p.stmts[j].op {
+			case CWhile, CRange:
+				return stop("match: loop in case")
+			case _:
+			}
+		}
 		if a.binding >= 0 {
 			let mut uses = 0
 			for j in lo..len(p.reads) {
@@ -127,19 +129,6 @@ func matchPrepare(st mut fnb, p mut controlPlan, m syntax.TypeSwitchStmt, row co
 	}
 	s.second.terminates = complete && (tail || fallback)
 	(s, arms)
-}
-
-func matchArmSupported(p syntax.Parsed, x dense.ID[syntax.Node]) bool {
-	let k = syntax.KindOf(p.Tree, x)
-	if k == syntax.KForStmt || k == syntax.KRangeStmt || k == syntax.KBranchStmt {
-		return false
-	}
-	for child in syntax.Children(p.Tree, x, []uint32{}) {
-		if !matchArmSupported(p, syntax.NodeAt(p.Tree, int(child))) {
-			return false
-		}
-	}
-	true
 }
 
 func matchTemp(st fnb, p mut controlPlan, typ string, at int) int fails Unported {
