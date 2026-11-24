@@ -2,6 +2,26 @@
   "about": "R1 search and R2 iterator-workspace mutants, owned by nfa. WorkspaceReusesStorage catches per-line storage setup invisible to Boolean agreement; WorkspaceAgreesWithReferences catches stale frontier/marks, frontier overwrite, lost epsilon branches and wrong acceptance mode. Matcher.LinesAgree and LinesStop cover iterator ordering and consumer stop. RC1 capture mutants: CapturesAgree compares the tagged machine with the reference for Parse and Find event for event; TagWorkIsBounded counts thread steps; DateCaptures guards the Occurrences/Last projections; ParsesCountsAndGroups and CaptureFailuresAreNamed guard grammar and Check rows no law reads.",
   "mutants": [
     {
+      "name": "nou-end-loses-result",
+      "origin": "wf10 NOU-MACHINE-STEP byte frontier; not-run-crunch",
+      "file": "examples/regex/nfa/machine.ergo",
+      "from": "Done[bool]{Output: Finish(l.P, l.At)}",
+      "to": "Done[bool]{Output: false}",
+      "rule": "The generic Simulation reports the accepted frontier at End; direct-read and workspace laws do not call this adapter.",
+      "anchor": {"tests": ["examples/regex/nfa:ByteStepAndEndHaveSeparateResults"]},
+      "killers": ["examples/regex/nfa:ByteStepAndEndHaveSeparateResults"]
+    },
+    {
+      "name": "nou-step-suppresses-reject",
+      "origin": "wf10 NOU-MACHINE-STEP byte frontier; not-run-crunch",
+      "file": "examples/regex/nfa/machine.ergo",
+      "from": "return Done[bool]{Output: false}",
+      "to": "return Enter[Scan]{Next: Live{P: l.P, At: at}}",
+      "rule": "The generic Simulation completes with no match as soon as an ordinary byte kills the frontier, before End.",
+      "anchor": {"tests": ["examples/regex/nfa:ByteStepAndEndHaveSeparateResults"]},
+      "killers": ["examples/regex/nfa:ByteStepAndEndHaveSeparateResults"]
+    },
+    {
       "name": "RC1-priority-reversed",
       "file": "examples/regex/nfa/capture.ergo",
       "from": "\t\tv.add(p, s.X, h, at)\n\t\tv.add(p, s.Y, h, at)",

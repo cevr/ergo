@@ -3,6 +3,7 @@
 
 import regex/syntax
 import regex/engine
+import machines
 import strings
 
 let Fast = context { engine.Engine: Engine }
@@ -53,6 +54,22 @@ test MatchesWholeTexts {
 	assert try matches("a.c", "a\nc")
 	assert try matches("[]|x", "x")
 	assert !try matches("[]", "")
+}
+
+test ByteStepAndEndHaveSeparateResults {
+	let p = Build(syntax.Literal("a"))
+	let at []int = Step(p, Start(p).At, Read{C: 'a'})
+	assert Finish(p, at)
+	for c in []byte{'a', 'z'} {
+		let initial Scan = Start(p)
+		let signals = if c == 'a' { []Signal{Read{C: c}, End} } else { []Signal{Read{C: c}} }
+		match try machines.From(machines.Start(Simulation{}, p), initial, signals) {
+		case machines.Finished[Scan, bool] as f:
+			assert f.Output == (c == 'a')
+		case machines.Running[Scan, bool]:
+			assert false
+		}
+	}
 }
 
 // checked is the checked pattern of text.
