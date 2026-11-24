@@ -40,6 +40,9 @@ func TestForeignRecordFieldWriteAgreesWithReference(t *testing.T) {
 		writeDirect := r.IntN(2) == 0
 		writeIndexed := r.IntN(2) == 0
 		writeViaThird := r.IntN(2) == 0
+		if seed%4 == 0 {
+			writeDirect, writeIndexed, writeViaThird = false, false, false
+		}
 		dir := t.TempDir()
 
 		var sched strings.Builder
