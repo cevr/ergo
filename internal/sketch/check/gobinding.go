@@ -550,7 +550,7 @@ func (h *hostPkg) refusal(name string) string {
 // isHostNamed reports a type of a Go package.
 func isHostNamed(t Type) bool {
 	n, ok := t.(*Named)
-	return ok && n.Obj != nil && n.Obj.Pkg.Host()
+	return ok && n.Obj.BindsGoType()
 }
 
 // refElem is T for go.Ref[T], else nil.

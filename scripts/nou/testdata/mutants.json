@@ -1,0 +1,23 @@
+{
+  "about": "The legacy binding inventory rejects additions by site, not count or spelling.",
+  "mutants": [
+    {
+      "name": "nou-ratchet-count-only",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/inventory.go",
+      "from": "if left[s.id] > 0 {",
+      "to": "if len(current) <= len(baseline) {",
+      "rule": "Deleting a different site does not authorize a new legacy call.",
+      "killers": ["scripts/nou:TestRatchetRejectsReplacementNotShadow"]
+    },
+    {
+      "name": "nou-ratchet-name-only",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/inventory.go",
+      "from": "\t\tinfo := pkg.Info.Calls[call]\n\t\treturn check.IsUnreachable(info) && info.Func.Pkg.Prelude()",
+      "to": "\t\treturn bareLegacyCall(call.Fun)",
+      "rule": "The prelude binding, not a user shadow with the same spelling, is inventoried.",
+      "killers": ["scripts/nou:TestRatchetRejectsReplacementNotShadow"]
+    }
+  ]
+}
