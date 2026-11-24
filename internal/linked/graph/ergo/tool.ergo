@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, test-support, seams, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -140,6 +140,11 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("test-support takes no argument; supply --support PATH or --support-seam SEAM=PATH")
 		}
 		testSupport(r, o)
+	case "seams":
+		if len(words) != 1 {
+			return usage("seams takes no argument; supply --seam JSON")
+		}
+		seams(r, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -162,6 +167,7 @@ type Options {
 	Max     int,
 	Modules []string,
 	Support []codegraph.SupportEntry,
+	Seams   []codegraph.SeamSpec,
 	Words   []string,
 	Bad     string,
 }
@@ -169,7 +175,7 @@ type Options {
 // options reads --json, --tests, --level package|file|decl and --min N
 // from args; every other argument is a word.
 func options(args []string) Options {
-	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Max: -1, Modules: []string{}, Support: []codegraph.SupportEntry{}, Words: []string{}, Bad: ""}
+	let mut o = Options{Json: false, Tests: false, Level: codegraph.Packages, Min: 2, Max: -1, Modules: []string{}, Support: []codegraph.SupportEntry{}, Seams: []codegraph.SeamSpec{}, Words: []string{}, Bad: ""}
 	let mut i = 0
 	for i < len(args) {
 		let a = args[i]
@@ -248,6 +254,18 @@ func options(args []string) Options {
 				return o
 			}
 			o.Support = o.Support.Append(codegraph.SupportEntry{Package: raw[eq+1 : len(raw)], Seam: raw[0:eq]})
+		case "--seam":
+			if i >= len(args) {
+				o.Bad = "--seam takes a JSON seam object"
+				return o
+			}
+			let s = json.Decode(json.Codec[codegraph.SeamSpec]{MaxBytes: 1 << 20, MaxDepth: 8}, args[i]) catch {
+			case _:
+				o.Bad = "--seam takes a JSON seam object"
+				return o
+			}
+			o.Seams = o.Seams.Append(s)
+			i = i + 1
 		case _:
 			if strings.HasPrefix(a, "-") {
 				o.Bad = "unknown option \(a)"
@@ -553,6 +571,40 @@ func testSupport(r codegraph.Rows, o Options) []string {
 		b = b + "\(u.Caller) uses \(u.Target)\n"
 	}
 	ok(if len(out) == 0 { "no production use of test support\n" } else { b })
+}
+
+type SeamViolationOut {
+	Seam      int,
+	Import    int,
+	File      int,
+	CallerPkg string,
+	TargetPkg string,
+	Inside    bool,
+	TestSites []int,
+}
+
+func seams(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []SeamViolationOut{}
+	for v in codegraph.SeamEntrypoints(r, modules, o.Seams).Violations {
+		out = out.Append(SeamViolationOut{
+			Seam:      v.Seam,
+			Import:    v.Import,
+			File:      v.File,
+			CallerPkg: r.Nodes[v.CallerPkg].Name,
+			TargetPkg: r.Nodes[v.TargetPkg].Name,
+			Inside:    v.Inside,
+			TestSites: v.TestSites,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]SeamViolationOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for v in out {
+		b = b + "\(v.CallerPkg) imports \(v.TargetPkg)\n"
+	}
+	ok(if len(out) == 0 { "no seam violation\n" } else { b })
 }
 
 func interfaces(r codegraph.Rows, o Options) []string {

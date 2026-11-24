@@ -121,3 +121,154 @@ func productionUsesTestSupportWorkIsLinear(seed int, size int) bool {
 	}
 	got.Work <= len(r.Nodes)+2*len(r.Edges)+4
 }
+
+type SeamSpec {
+	Root               string,
+	Packages           []string,
+	Entries            []string,
+	TestSupport        []string,
+	TestThroughEntries bool,
+}
+
+type SeamViolation {
+	Seam      int,
+	Import    int,
+	File      int,
+	CallerPkg int,
+	TargetPkg int,
+	Inside    bool,
+	TestSites []int,
+}
+
+type SeamViolations { Violations []SeamViolation, Work int }
+
+func inSeam(pkg string, s SeamSpec) bool {
+	slices.Contains(s.Packages, pkg) || (s.Root != "" && (pkg == s.Root || strings.HasPrefix(pkg, s.Root+"/")))
+}
+
+func insideTestViolates(hasTest bool, hasOrdinary bool) bool { hasTest }
+
+func roleOf(r Rows, i int, roles []string) string {
+	let row = r.Nodes[i]
+	if row.Sub == "test" {
+		return "test"
+	}
+	if row.Sub == "law" {
+		return "law"
+	}
+	if row.Parent < 0 {
+		return "ordinary"
+	}
+	if row.Parent < i {
+		return roles[row.Parent]
+	}
+	let mut n = row.Parent
+	let mut steps = 0
+	for n >= 0 && steps <= len(r.Nodes) {
+		if r.Nodes[n].Sub == "test" {
+			return "test"
+		}
+		if r.Nodes[n].Sub == "law" {
+			return "law"
+		}
+		n = r.Nodes[n].Parent
+		steps = steps + 1
+	}
+	"ordinary"
+}
+
+func SeamEntrypoints(r Rows, modules []int, seams []SeamSpec) SeamViolations {
+	if len(seams) == 0 {
+		return SeamViolations{Violations: []SeamViolation{}, Work: 0}
+	}
+	let mut work = 0
+	let mut chosen = Map[int, bool]{}
+	for m in modules {
+		chosen[m] = true
+	}
+	let mut places = []place{}
+	let mut roles = []string{}
+	for i, row in r.Nodes {
+		work = work + 1
+		let mut at = place{Package: -1, File: -1, Top: -1, Ordinary: true, InScope: false}
+		if row.Parent >= 0 {
+			at = if row.Parent < i { places[row.Parent] } else { placeOf(r, row.Parent, chosen) }
+		}
+		places = places.Append(placed(r, i, at, chosen))
+		roles = roles.Append(roleOf(r, i, roles))
+	}
+	let width = len(r.Nodes)
+	let mut hasOrdinary = Map[int, bool]{}
+	let mut hasTestOrLaw = Map[int, bool]{}
+	let mut testSites = Map[int, []int]{}
+	for k, e in r.Edges {
+		work = work + 1
+		if e.Kind != "uses" {
+			continue
+		}
+		let a = places[e.From]
+		let b = places[e.To]
+		if !a.InScope || a.File < 0 || b.Package < 0 {
+			continue
+		}
+		let key = a.File*width + b.Package
+		match roles[e.From] {
+		case "test":
+			hasTestOrLaw[key] = true
+			testSites[key] = maps.GetOr(testSites, key, []int{}).Append(k)
+		case "law":
+			hasTestOrLaw[key] = true
+		case _:
+			hasOrdinary[key] = true
+		}
+	}
+	let mut out = []SeamViolation{}
+	for k, e in r.Edges {
+		work = work + 1
+		if e.Kind != "imports" {
+			continue
+		}
+		let a = places[e.From]
+		let b = places[e.To]
+		if !a.InScope || !b.InScope || a.Package < 0 {
+			continue
+		}
+		let callerName = r.Nodes[a.Package].Name
+		let targetName = r.Nodes[e.To].Name
+		let key = e.From*width + e.To
+		let ord = hasOrdinary.Get(key) != None
+		let tl = hasTestOrLaw.Get(key) != None
+		let testOnly = tl && !ord
+		let tSites = maps.GetOr(testSites, key, []int{})
+		for si, seam in seams {
+			work = work + 1
+			if !inSeam(targetName, seam) || slices.Contains(seam.Entries, targetName) {
+				continue
+			}
+			let fromInside = inSeam(callerName, seam)
+			let allowedSupport = slices.Contains(seam.TestSupport, targetName)
+			if !fromInside {
+				if !(allowedSupport && testOnly) {
+					out = out.Append(SeamViolation{Seam: si, Import: k, File: e.From, CallerPkg: a.Package, TargetPkg: e.To, Inside: false, TestSites: tSites})
+				}
+			} else if seam.TestThroughEntries && !allowedSupport && insideTestViolates(len(tSites) > 0, ord) {
+				out = out.Append(SeamViolation{Seam: si, Import: k, File: e.From, CallerPkg: a.Package, TargetPkg: e.To, Inside: true, TestSites: tSites})
+			}
+		}
+	}
+	SeamViolations{Violations: out, Work: work}
+}
+
+law SeamEntrypointsWorkIsLinear(seed int, size int) { seamEntrypointsWorkIsLinear(seed, size) }
+
+func seamEntrypointsWorkIsLinear(seed int, size int) bool {
+	let r = drawnRows(seed, size)
+	let seam = SeamSpec{Root: "m", Packages: []string{}, Entries: []string{"m/p0"}, TestSupport: []string{}, TestThroughEntries: true}
+	let got = SeamEntrypoints(r, []int{0}, []SeamSpec{seam})
+	for v in got.Violations {
+		if r.Nodes[v.TargetPkg].Name == "m/p0" || v.Import < 0 {
+			return false
+		}
+	}
+	got.Work <= len(r.Nodes)+3*len(r.Edges)+4
+}
