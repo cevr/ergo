@@ -1,0 +1,11 @@
+import claimfeed/domain
+
+type Device[T] { key T, reading int } implements domain.Stable[T], domain.View
+
+func NewDevice[T](key T, source domain.Source) Device[T] {
+	Device[T]{key: key, reading: source.Read()}
+}
+
+func Reading[T](x Device[T]) int { x.reading }
+
+func View[T](x Device[T]) int { x.reading }

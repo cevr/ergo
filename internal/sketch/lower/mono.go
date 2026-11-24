@@ -439,6 +439,18 @@ func (l *lowerer) lawCallee(law *check.Law, own *check.Named, targs []check.Type
 	return l.lawFunc(law) + "[" + strings.Join(spelled, ", ") + "]"
 }
 
+// claimLawCallee is keyed by the actual claimant and its declaring slot,
+// never just by the role's type arguments: two types may claim one role.
+func (l *lowerer) claimLawCallee(law *check.Law, p check.LawProvider) string {
+	base := l.pkgNames[monoLaw{law}.base()]
+	sp, made := l.monoCopy(monoLaw{law}, base, []string{l.semanticTypeKey(p.At), l.semanticTypeKey(p.ClaimSlot)}, law.Decl)
+	if made {
+		sp.claim = &p
+		l.pending = append(l.pending, func() { l.lawDecl(law, sp) })
+	}
+	return sp.name
+}
+
 // isMonoName reports a name of the form base_iN for a reserved copy base:
 // the namer gives such a name to no local and no package entity.
 func (n *namer) isMonoName(name string) bool {

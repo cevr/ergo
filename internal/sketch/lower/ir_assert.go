@@ -149,6 +149,9 @@ func (b *irBuilder) lawResult(x syntax.Expr, out []*irStmt) []*irStmt {
 	held := b.temp("held", "bool", p)
 	site := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(unparen(at))}
 	decl := &irExpr{K: "const", Pos: p, T: "string", V: l.siteText(b.law.Decl)}
+	if b.fc.claim != nil {
+		decl.V += b.fc.claim.ClaimBlame()
+	}
 	refute := &irExpr{K: "call", Pos: p, Name: l.refutedFunc(), Args: []*irExpr{site, decl}}
 	h := &irExpr{K: "local", Pos: p, I: held}
 	return append(out[:len(out)-1],
@@ -269,7 +272,7 @@ func (b *irBuilder) skip(s *syntax.SkipStmt) []*irStmt {
 // operands (assertCompare's failure text after the source text):
 // `: left L, right R`, each an Ergo literal of its type, and the line
 // diff of two strings. It is emitted once per assert s, whose name the
-// naming pass reserves (nameTests, under LowerIR and CensusIR only).
+// naming pass reserves (nameTests).
 func (l *lowerer) assertShowFunc(s syntax.Node, lt, rt check.Type, site syntax.Node) string {
 	tc := &typeCtx{l: l, site: site}
 	lg, rg := tc.goType(lt), tc.goType(rt)

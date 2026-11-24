@@ -185,7 +185,9 @@ func (l *lowerer) listedRuns(b *strings.Builder, law *check.Law, label string, b
 		}
 		args := []string{"&" + e}
 		callee := l.lawFunc(law)
-		if owner >= 0 {
+		if law.Claimed() {
+			callee = l.claimLawCallee(law, bd[owner])
+		} else if owner >= 0 {
 			pv := provide(bd[owner], vs[0])
 			if generic {
 				args = append(args, pv)
