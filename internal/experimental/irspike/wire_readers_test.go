@@ -36,6 +36,8 @@ import (
 // pwr-r3-parser-bypassed (a decoded base bypasses its parser),
 // pwr-r3-null-not-read (a null is sent to the payload reader), and
 // pwr-r3-tuple-extra-ignored (a tuple ignores trailing elements).
+// The small forms add pwr-r3-own-read-ignored, pwr-r3-bare-null-not-taken,
+// pwr-r3-members-key-lost, pwr-r3-number-text-lost and pwr-r3-append-prefix.
 //
 // It builds Go because the other side of the agreement is the built
 // program, by both paths.
