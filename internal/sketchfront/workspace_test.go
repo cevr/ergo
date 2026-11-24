@@ -301,7 +301,20 @@ func TestWorkspaceDiscoveryAgrees(t *testing.T) {
 func TestWorkFileRefusesWhatItCannotRead(t *testing.T) {
 	for _, c := range []struct{ text, want string }{
 		{"version 1\nskip a\ntasks build\n", "ergo.work:3: unknown key tasks"},
-		{"version 3\nskip a\n", "ergo.work:1: version 3 needs a newer ergo"},
+		{"version 4\nskip a\n", "ergo.work:1: version 4 needs a newer ergo"},
+		{"version 2\ntask gate check\n", "ergo.work:2: unknown key task; version 2 knows skip, gen and reads"},
+		{"version 3\ntask gate\n", "ergo.work:2: task takes a task name"},
+		{"version 3\ntask gen check\n", "ergo.work:2: task gen is the generators' task"},
+		{"version 3\ngen a go run ./x\ntask a check\n", "ergo.work:3: task a: a gen line has that name"},
+		{"version 3\ntask ci build\n", "ergo.work:2: task ci: step \"build\" is no built-in verb"},
+		{"version 3\ntask ci fmt\n", "ergo.work:2: task ci: step \"fmt\" is no built-in verb"},
+		{"version 3\nafter ci gate\n", "ergo.work:2: after ci names no task"},
+		{"version 3\ntask ci check\nafter ci nope\n", "ergo.work:3: after ci: nope names no task"},
+		{"version 3\nenv gate go_flags\n", "ergo.work:2: env gate: go_flags is not a variable name"},
+		{"version 3\nenv gate A A\n", "ergo.work:2: env gate: A is named twice"},
+		{"version 3\ntask a b\ntask b a\n", "ergo.work:3: task b waits for a, which waits for it"},
+		{"version 3\ntask a check\nafter gate a\nafter a gate\n", "ergo.work:4: task a waits for gate, which waits for it"},
+		{"version 3\ntask a a\n", "ergo.work:2: task a waits for a, which waits for it"},
 		{"version 1\ngen a go run ./x\n", "ergo.work:2: unknown key gen; version 1 knows skip"},
 		{"version 2\ngen a go run ./x\nenv a X\n", "ergo.work:3: unknown key env"},
 		{"version 2\nreads a x\ngen a go run ./x\n", "ergo.work:2: reads a names no gen above it"},
@@ -325,7 +338,32 @@ func TestWorkFileRefusesWhatItCannotRead(t *testing.T) {
 	if err != nil || len(wf.gens) != 1 || strings.Join(wf.gens[0].Command, " ") != "go run ./s -w" || strings.Join(wf.gens[0].Reads, " ") != "d/e f g" {
 		t.Errorf("a valid version 2 file read as %+v, %v", wf, err)
 	}
+	// Version 3: a written task gate replaces the default whole; a step
+	// names a built-in verb, a gen line, a task or the generators.
+	wf, err = parseWorkFile("version 3\ngen linked go run ./l\ntask ci gate\ntask ci linked\ntask gate test\ntask gate fmt --check\nafter ci gen\nenv ci HOME LANG\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, task := range wf.tasks {
+		var steps []string
+		for _, s := range task.Steps {
+			steps = append(steps, s.Verb+"/"+s.Gen+"/"+s.Task+"/"+strings.Join(s.Words, " "))
+		}
+		got = append(got, fmt.Sprintf("%s:%d[%s] after %v env %v", task.Name, task.Line, strings.Join(steps, ","), task.After, task.Env))
+	}
+	want := "ci:3[//gate/gate,/linked//linked] after [gen] env [HOME LANG]; gate:5[test///test,fmt///fmt --check] after [] env []"
+	if strings.Join(got, "; ") != want {
+		t.Errorf("a version 3 file read as\n%s\nwant\n%s", strings.Join(got, "; "), want)
+	}
+	wf, err = parseWorkFile("version 3\ntask ci gate\n")
+	if err != nil || len(wf.tasks) != 2 || wf.tasks[0].Name != GateTask || len(wf.tasks[0].Steps) != 5 || wf.tasks[0].Steps[4].Verb != "gen" {
+		t.Errorf("with no task gate line the default gate is the first task, check to gen --check: %+v, %v", wf.tasks, err)
+	}
 	root := t.TempDir()
+	if w, err := ReadWork(root); err != nil || len(w.Tasks) != 1 || w.Tasks[0].Name != GateTask {
+		t.Errorf("no ergo.work: the default gate alone, got %+v, %v", w, err)
+	}
 	if err := os.WriteFile(filepath.Join(root, WorkFile), []byte("version 1\nskip gone\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

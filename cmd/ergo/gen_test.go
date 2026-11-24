@@ -9,7 +9,6 @@ import (
 
 	"ergo.local/prototype/internal/genmark"
 	"ergo.local/prototype/internal/sketch/fix"
-	"ergo.local/prototype/internal/sketchfront"
 )
 
 // TestGenCheckReadsThePackage catches r3b-spell (the generated marker
@@ -167,6 +166,16 @@ func TestGenSidecarKeepsSchemasAndOnlySkipsGeneratedFolders(t *testing.T) {
 			t.Errorf("fmt %s skipped hand-written file with a copied marker %s", operand, copied)
 		}
 	}
+	var taskFiles []string
+	if err := walkGateSources(root, nil, func(file string) error {
+		taskFiles = append(taskFiles, file)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(taskFiles, copied) || slices.Contains(taskFiles, file) {
+		t.Errorf("task fmt must skip the held marker but not a copied one: %v", taskFiles)
+	}
 	// Put a real, stamped binding tree under a non-reserved name so the
 	// traversal itself, not binding-folder name policy, must skip it.
 	writeFiles(t, root, map[string]string{"bindings/go/probe.ergo": "// binding header\n\nlet x = 1\n"})
@@ -195,8 +204,8 @@ func TestGenSidecarKeepsSchemasAndOnlySkipsGeneratedFolders(t *testing.T) {
 }
 
 // TestGenSidecarGateReadsTheContract catches genmark-gate-ignores-sidecar:
-// a generated package with no header would otherwise leave ergo gate
-// with no generation check. It uses the in-process gate's selection seam.
+// a generated package with no header would otherwise leave the gate
+// task with no generation check. Use its shared member selection seam.
 func TestGenSidecarGateReadsTheContract(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
@@ -207,18 +216,16 @@ func TestGenSidecarGateReadsTheContract(t *testing.T) {
 	if err := genCommand([]string{"rpc", "api.API"}); err != nil {
 		t.Fatal(err)
 	}
-	pkgs, err := sketchfront.DiscoverPackages(root)
+	var elsewhere []Elsewhere
+	generated, err := memberGens(root, ".", nil, &elsewhere)
 	if err != nil {
 		t.Fatal(err)
 	}
-	generated, err := gateGenerated(pkgs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := generated[filepath.Join(root, "api")]
 	for _, kind := range []string{"api", "rpc"} {
-		if !slices.ContainsFunc(got, func(g gateGen) bool { return g.kind == kind && g.op == "API" }) {
-			t.Errorf("gate found no %s.API in the generated markers: %v", kind, got)
+		if !slices.ContainsFunc(generated, func(g memberGen) bool {
+			return g.kind == kind && g.name == "API" && g.contract == "api"
+		}) {
+			t.Errorf("gate found no %s.API in the generated markers: %v", kind, generated)
 		}
 	}
 }

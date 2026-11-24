@@ -40,12 +40,22 @@ type Ambient {
 // implements it and no context entry binds it.
 // law-exempt: its one operation is unexported, so no law can call it; the confinement it gives is stated by the laws of fstest.Confined, which run over fstest.NewFolder, the Host of fs.NewTestHost in the same folder.
 type TestAmbient {
-	folder() string,
+	folder() TestDirectory,
 }
+
+// TestDirectory is the runner's folder, sealed against user construction.
+// law-exempt: only the test runner makes one.
+extern go ergo.local/prototype/runtime/v1.TestDirectory type TestDirectory {
+	Name() string,
+	caseFolderOnly(),
+}
+
+// TestFolderHandle is the enclosing case's folder and acquisition owner.
+func TestFolderHandle() TestDirectory needs TestAmbient { TestAmbient.folder() }
 
 // TestFolder is the absolute path of the case's folder, with its symbolic
 // links resolved. It exists and is empty when the case starts.
-func TestFolder() string needs TestAmbient { TestAmbient.folder() }
+func TestFolder() string needs TestAmbient { TestFolderHandle().Name() }
 
 // Scheduler suspends the calling task. Alarms is the same time as the
 // runtime's own waits use it: an AlarmClock, on which a wait that runs no
@@ -388,8 +398,8 @@ func NormalKey[K comparable](_ Structural[K], k K) K { k }
 // the empty Map, with H's zero value as its provider; maps.Using gives
 // another one.
 type hashTable[K comparable, H Hashing[K], V] {
-	by H,
-	norm Map[K, keyEntry[K, V]],
+	by    H,
+	norm  Map[K, keyEntry[K, V]],
 	slots []Option[keyEntry[K, V]],
 	count int,
 }
@@ -403,13 +413,15 @@ type keyEntry[K, V] {
 
 // home is the slot a key of hash sum starts its probe at, in a table of
 // size slots (a power of two).
-func home(sum uint64, size int) int { int(sum & uint64(size - 1)) }
+func home(sum uint64, size int) int { int(sum & uint64(size-1)) }
 
 // isFree reports a free slot.
 func isFree[T](s Option[T]) bool {
 	match s {
-		case Some: false
-		case None: true
+	case Some:
+		false
+	case None:
+		true
 	}
 }
 
@@ -420,12 +432,12 @@ func find[K comparable, H Hashing[K], V](t hashTable[K, H, V], k K) (int, bool) 
 	let mut j = home(t.by.Hash(k), len(t.slots))
 	for {
 		match t.slots[j] {
-			case Some{Value}:
-				if t.by.Equal(Value.key, k) {
-					return (j, true)
-				}
-			case None:
-				return (j, false)
+		case Some{Value}:
+			if t.by.Equal(Value.key, k) {
+				return (j, true)
+			}
+		case None:
+			return (j, false)
 		}
 		j = (j + 1) & mask
 	}
@@ -435,11 +447,11 @@ func find[K comparable, H Hashing[K], V](t hashTable[K, H, V], k K) (int, bool) 
 // than three quarters of the slots, the keys move to twice the slots (8
 // at first), each to the first free slot from its home on.
 func grown[K comparable, H Hashing[K], V](t hashTable[K, H, V]) hashTable[K, H, V] {
-	if (t.count + 1) * 4 <= len(t.slots) * 3 {
+	if (t.count+1)*4 <= len(t.slots)*3 {
 		return t
 	}
 	let mut size = 8
-	for size * 3 < (t.count + 1) * 4 {
+	for size*3 < (t.count+1)*4 {
 		size = size * 2
 	}
 	// Append, not MakeSlice: Append is a pure body and MakeSlice is not
@@ -452,13 +464,13 @@ func grown[K comparable, H Hashing[K], V](t hashTable[K, H, V]) hashTable[K, H, 
 	let mask = size - 1
 	for s in t.slots {
 		match s {
-			case Some{Value}:
-				let mut j = home(t.by.Hash(Value.key), size)
-				for !isFree(slots[j]) {
-					j = (j + 1) & mask
-				}
-				slots[j] = s
-			case None:
+		case Some{Value}:
+			let mut j = home(t.by.Hash(Value.key), size)
+			for !isFree(slots[j]) {
+				j = (j + 1) & mask
+			}
+			slots[j] = s
+		case None:
 		}
 	}
 	hashTable[K, H, V]{by: t.by, norm: t.norm, slots: slots, count: t.count}
@@ -469,8 +481,10 @@ func grown[K comparable, H Hashing[K], V](t hashTable[K, H, V]) hashTable[K, H, 
 func Get[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) Option[V] {
 	if m.by.NormalForm() {
 		return match m.norm.Get(m.by.NormalKey(k)) {
-			case Some{Value}: Some[V]{Value: Value.val}
-			case None: None
+		case Some{Value}:
+			Some[V]{Value: Value.val}
+		case None:
+			None
 		}
 	}
 	if m.count == 0 {
@@ -481,8 +495,10 @@ func Get[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) Option[V] {
 		return None
 	}
 	match m.slots[j] {
-		case Some{Value}: Some[V]{Value: Value.val}
-		case None: None
+	case Some{Value}:
+		Some[V]{Value: Value.val}
+	case None:
+		None
 	}
 }
 
@@ -492,8 +508,10 @@ func Put[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K, v V) hashTabl
 	if m.by.NormalForm() {
 		let n = m.by.NormalKey(k)
 		let first = match m.norm.Get(n) {
-			case Some{Value}: Value.key
-			case None: k
+		case Some{Value}:
+			Value.key
+		case None:
+			k
 		}
 		let mut t = m
 		t.norm[n] = keyEntry[K, V]{key: first, val: v}
@@ -502,8 +520,10 @@ func Put[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K, v V) hashTabl
 	let mut t = grown(m)
 	let (j, found) = find(t, k)
 	let first = match t.slots[j] {
-		case Some{Value}: Value.key
-		case None: k
+	case Some{Value}:
+		Value.key
+	case None:
+		k
 	}
 	t.slots[j] = Some[keyEntry[K, V]]{Value: keyEntry[K, V]{key: first, val: v}}
 	if !found {
@@ -535,16 +555,16 @@ func Delete[K comparable, H Hashing[K], V](m hashTable[K, H, V], k K) hashTable[
 	let mut j = (i + 1) & mask
 	for {
 		match t.slots[j] {
-			case None:
-				t.slots[i] = None
-				t.count = t.count - 1
-				return t
-			case Some{Value}:
-				let h = home(t.by.Hash(Value.key), len(t.slots))
-				if (j - h) & mask >= (j - i) & mask {
-					t.slots[i] = t.slots[j]
-					i = j
-				}
+		case None:
+			t.slots[i] = None
+			t.count = t.count - 1
+			return t
+		case Some{Value}:
+			let h = home(t.by.Hash(Value.key), len(t.slots))
+			if (j-h)&mask >= (j-i)&mask {
+				t.slots[i] = t.slots[j]
+				i = j
+			}
 		}
 		j = (j + 1) & mask
 	}
@@ -597,8 +617,9 @@ func Stored[K comparable, H Hashing[K], V](m hashTable[K, H, V]) Map[K, V] {
 	}
 	for s in m.slots {
 		match s {
-			case Some{Value}: out[Value.key] = Value.val
-			case None:
+		case Some{Value}:
+			out[Value.key] = Value.val
+		case None:
 		}
 	}
 	out
@@ -612,8 +633,10 @@ func Equal[K comparable, H Hashing[K], V comparable](m hashTable[K, H, V], o has
 	}
 	for k, v in m.Stored() {
 		let same = match o.Get(k) {
-			case Some{Value}: Value == v
-			case None: false
+		case Some{Value}:
+			Value == v
+		case None:
+			false
 		}
 		if !same {
 			return false

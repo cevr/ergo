@@ -110,12 +110,14 @@ func main() {}
 let (a, b) = (1, undefinedName)
 func main() {}
 `, []string{"S104:2"}},
-	{"context declaration", "let W = context", `
+	{"context declaration", "a named context's fails row covers a fallible provider", `
+type Missing {}
 type Ticker { Now() int64 }
 type Fixed { t int64 } implements Ticker
 func Now(f Fixed) int64 { return f.t }
-let W = context { Ticker: Fixed{t: 1} }
-func f() int64 { return with W { Ticker.Now() } }
+func open() Fixed fails Missing { return Fixed{t: 1} }
+let W = context fails Missing { Ticker: try open() }
+func f() int64 fails Missing { return with try W { Ticker.Now() } }
 func main() {}
 `, nil},
 	{"context header", "a named context's provides and needs", `
@@ -145,6 +147,10 @@ func Now(f Fixed) int64 { return f.t }
 func f() int64 { return with context provides Ticker { Ticker: Fixed{t: 1} } { Ticker.Now() } }
 func main() {}
 `, []string{"S109:5"}},
+	{"inline context header", "an inline context's fails clause is refused", `
+type Missing {}
+func f() { with context fails Missing {} {} }
+`, []string{"S109:3"}},
 	{"context entries", "an entry of two keys, an embedding and a replace", `
 type Ticker { Now() int64 }
 type Timer { Now() int64 }
@@ -211,6 +217,7 @@ type Count { ~int | int64 }
 func Sum[T Count](a T, b T) T { a + b }
 func main() { _ = Sum(1, 2) }
 `, nil},
+	{"operation type", "a documented test harness member", harnessLib, nil},
 	{"law", "a law in an operation type", `
 type Monoid {
 	Combine(a int, b int) int,
