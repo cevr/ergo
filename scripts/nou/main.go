@@ -5,6 +5,14 @@
 //	go run ./scripts/nou check --base BASE
 //	go run ./scripts/nou prune > /tmp/nou-sites.tsv
 //
+// For the one landing that activates Go fixture coverage, regenerate from
+// the accepted pre-merge main (not the candidate), then prune any sites
+// retired by the merge and check it:
+//
+//	go run ./scripts/nou bootstrap-go --base BASE --write
+//	go run ./scripts/nou prune > /tmp/nou-sites.tsv  # replace ledger on success
+//	go run ./scripts/nou check
+//
 // Review the deletions before replacing scripts/nou/testdata/sites.tsv.
 // Prune refuses to add a site, even when another site has disappeared.
 package main
@@ -24,6 +32,7 @@ import (
 )
 
 const ledger = "scripts/nou/testdata/sites.tsv"
+const goLedgerSeal = "# Go fixture and template scopes active"
 
 type allowance struct {
 	family, scope string
@@ -31,11 +40,15 @@ type allowance struct {
 }
 
 func main() {
-	const usage = "usage: nou check [--base REV] | prune | inventory"
+	const usage = "usage: nou check [--base REV] | prune | inventory | bootstrap-go --base REV --write"
 	var baseRef string
-	if len(os.Args) == 4 && os.Args[1] == "check" && os.Args[2] == "--base" && os.Args[3] != "" {
+	switch {
+	case len(os.Args) == 5 && os.Args[1] == "bootstrap-go" && os.Args[2] == "--base" && os.Args[3] != "" && os.Args[4] == "--write":
 		baseRef = os.Args[3]
-	} else if len(os.Args) != 2 {
+	case len(os.Args) == 4 && os.Args[1] == "check" && os.Args[2] == "--base" && os.Args[3] != "":
+		baseRef = os.Args[3]
+	case len(os.Args) == 2 && os.Args[1] != "bootstrap-go":
+	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
 	}
@@ -43,7 +56,7 @@ func main() {
 	case "-h", "--help":
 		fmt.Println(usage)
 		return
-	case "check", "prune", "inventory":
+	case "check", "prune", "inventory", "bootstrap-go":
 	default:
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
@@ -58,6 +71,9 @@ func run(cmd, baseRef string, out, diagnostics io.Writer) error {
 	root, err := filepath.Abs(".")
 	if err != nil {
 		return err
+	}
+	if cmd == "bootstrap-go" {
+		return bootstrapGo(root, baseRef, diagnostics)
 	}
 	current, err := inventory(root)
 	if err != nil {
@@ -123,9 +139,7 @@ func run(cmd, baseRef string, out, diagnostics io.Writer) error {
 }
 
 func checkParent(root, ref string, rows map[siteID]allowance, diagnostics io.Writer) error {
-	git := exec.Command("git", "show", "--no-ext-diff", "--end-of-options", ref+":"+ledger)
-	git.Dir = root
-	raw, err := git.Output()
+	raw, err := gitOutput(root, "show", "--no-ext-diff", "--end-of-options", ref+":"+ledger)
 	if err != nil {
 		return fmt.Errorf("read baseline at %s: %w", ref, err)
 	}
@@ -148,6 +162,12 @@ func checkParent(root, ref string, rows map[siteID]allowance, diagnostics io.Wri
 		return fmt.Errorf("%d baseline rows increased or changed owner relative to %s", len(excess), ref)
 	}
 	return nil
+}
+
+func gitOutput(root string, args ...string) ([]byte, error) {
+	git := exec.Command("git", args...)
+	git.Dir = root
+	return git.Output()
 }
 
 func readLedger(r io.Reader) (map[siteID]allowance, error) {
@@ -176,6 +196,7 @@ func readLedger(r io.Reader) (map[siteID]allowance, error) {
 func writeLedger(w io.Writer, rows map[siteID]allowance, counts map[siteID]int) error {
 	b := bufio.NewWriter(w)
 	fmt.Fprintln(b, "# family\tsource scope\tpath\tdeclaration/local anchor\tcount")
+	fmt.Fprintln(b, goLedgerSeal)
 	ids := slices.Collect(maps.Keys(counts))
 	slices.SortFunc(ids, func(a, b siteID) int {
 		if n := strings.Compare(a.file, b.file); n != 0 {

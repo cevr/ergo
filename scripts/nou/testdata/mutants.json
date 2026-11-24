@@ -45,6 +45,24 @@
       "to": "if false && damagedCall.MatchString(text[covered:]) {",
       "rule": "A lexical failure before a candidate cannot silently drop the fixture from the inventory.",
       "killers": ["scripts/nou:TestInventoryExtractsEmbeddedErgo"]
+    },
+    {
+      "name": "nou-bootstrap-reads-working-tree",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/bootstrap.go",
+      "from": "sites, err := committedGoSites(root, commit)",
+      "to": "sites, err := inventory(root)",
+      "rule": "Only branches already accepted into the supplied revision may seed new Go identities.",
+      "killers": ["scripts/nou:TestBootstrapUsesAcceptedTree"]
+    },
+    {
+      "name": "nou-bootstrap-reopens-empty-scope",
+      "origin": "wf10 NO-UNREACHABLE NOU-RATCHET",
+      "file": "scripts/nou/bootstrap.go",
+      "from": "if bytes.HasPrefix(pinned, []byte(goLedgerSeal+\"\\n\")) ||\n\t\tbytes.Contains(pinned, []byte(\"\\n\"+goLedgerSeal+\"\\n\")) {",
+      "to": "if false {",
+      "rule": "Once activated, the Go scope stays sealed even after every existing call is removed.",
+      "killers": ["scripts/nou:TestBootstrapUsesAcceptedTree"]
     }
   ]
 }
