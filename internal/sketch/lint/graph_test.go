@@ -103,7 +103,7 @@ func rowsText(t *graphrows.Table) []string {
 	var out []string
 	for i, n := range t.Nodes {
 		if n.Kind != graphrows.Task {
-			out = append(out, fmt.Sprintf("node %s sub=%d digest=%s %s", name(uint32(i)), n.Sub, t.Str(n.Digest), at(t.NodeAt[i])))
+			out = append(out, fmt.Sprintf("node %s sub=%d digest=%s lines=%d %s", name(uint32(i)), n.Sub, t.Str(n.Digest), t.NodeLines[i], at(t.NodeAt[i])))
 		}
 	}
 	for i, e := range t.Edges {

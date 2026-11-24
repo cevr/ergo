@@ -32,7 +32,7 @@ func Run(args []string, rows string, old string) []string {
 }
 
 // noRows is the rows of no program.
-func noRows() codegraph.Rows { codegraph.Rows{Version: 1, Nodes: []codegraph.NodeRow{}, Edges: []codegraph.EdgeRow{}} }
+func noRows() codegraph.Rows { codegraph.Rows{Version: 2, Nodes: []codegraph.NodeRow{}, Edges: []codegraph.EdgeRow{}} }
 
 // RunColumns is Run over the rows as columns, the form the ergo binary
 // hands over with no JSON written or read (GRAPH-FAST; a Go caller can
@@ -61,16 +61,16 @@ func fromColumns(strs []string, ints []int, s int, i int) Columns {
 	let mut nodes = []codegraph.NodeRow{}
 	for k in 0..n {
 		let at = s + 4*k
-		let p = i + 2 + 2*k
-		nodes = nodes.Append(codegraph.NodeRow{Id: k, Kind: strs[at], Sub: strs[at+1], Parent: ints[p], Name: strs[at+2], Digest: strs[at+3], Subject: ints[p+1], File: -1, Offset: 0, Line: 0, Column: 0})
+		let p = i + 2 + 3*k
+		nodes = nodes.Append(codegraph.NodeRow{Id: k, Kind: strs[at], Sub: strs[at+1], Parent: ints[p], Name: strs[at+2], Digest: strs[at+3], Subject: ints[p+1], Lines: ints[p+2], File: -1, Offset: 0, Line: 0, Column: 0})
 	}
 	let mut edges = []codegraph.EdgeRow{}
 	for k in 0..m {
 		let at = s + 4*n + 2*k
-		let p = i + 2 + 2*n + 2*k
+		let p = i + 2 + 3*n + 2*k
 		edges = edges.Append(codegraph.EdgeRow{Kind: strs[at], How: strs[at+1], From: ints[p], To: ints[p+1], File: -1, Offset: 0, Line: 0, Column: 0})
 	}
-	columnsOf(codegraph.Rows{Version: 1, Nodes: nodes, Edges: edges}, s+4*n+2*m, i+2+2*n+2*m)
+	columnsOf(codegraph.Rows{Version: 2, Nodes: nodes, Edges: edges}, s+4*n+2*m, i+2+3*n+2*m)
 }
 
 // runRows is Run over rows already read: r, and for affected the rows at
@@ -82,7 +82,7 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 	}
 	let words = o.Words
 	if len(words) == 0 {
-		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, layers")
+		return usage("supply a command: export, cycles, why, affected, hidden, chains, fan, interfaces, files, directories, field-writes, layers")
 	}
 	match words[0] {
 	case "cycles":
@@ -120,6 +120,21 @@ func runRows(args []string, r codegraph.Rows, base codegraph.Rows) []string {
 			return usage("interfaces takes no argument; the list max is --max N, the modules --module PATH")
 		}
 		interfaces(r, o)
+	case "files":
+		if len(words) != 1 {
+			return usage("files takes no argument; the line max is --max N, the modules --module PATH")
+		}
+		files(r, o)
+	case "directories":
+		if len(words) != 1 {
+			return usage("directories takes no argument; the member max is --max N, the modules --module PATH")
+		}
+		directories(r, o)
+	case "field-writes":
+		if len(words) != 1 {
+			return usage("field-writes takes no argument; the modules are --module PATH")
+		}
+		fieldWrites(r, o)
 	case "layers":
 		if len(words) < 2 {
 			return usage("layers takes the layering, from the top down: layers PATTERN...")
@@ -391,13 +406,99 @@ type InterfaceOut {
 	Unresolved int,
 }
 
-func interfaces(r codegraph.Rows, o Options) []string {
+func selectedModules(r codegraph.Rows, o Options) []int {
 	let mut modules = []int{}
 	for i, n in r.Nodes {
 		if n.Kind == "module" && (if len(o.Modules) == 0 { !strings.Contains(n.Name, "@") } else { slices.Contains(o.Modules, n.Name) }) {
 			modules = modules.Append(i)
 		}
 	}
+	modules
+}
+
+type FileLengthOut { FileId int, File string, Lines int, Long bool }
+
+func files(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []FileLengthOut{}
+	for f in codegraph.PhysicalLines(r, modules).Files {
+		let long = o.Max >= 0 && codegraph.LongFile(f, o.Max)
+		if o.Max >= 0 && !long {
+			continue
+		}
+		out = out.Append(FileLengthOut{FileId: f.File, File: r.Nodes[f.File].Name, Lines: f.Lines, Long: long})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FileLengthOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for f in out {
+		b = b + "\(f.Lines) \(f.File)\n"
+	}
+	ok(if len(out) == 0 { "no file\n" } else { b })
+}
+
+type DirectoryOut { Path string, Members []string, Anchor int, Wide bool }
+
+func directories(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []DirectoryOut{}
+	for d in codegraph.Directories(r, modules).Directories {
+		let wide = o.Max >= 0 && codegraph.WideDirectory(d, o.Max)
+		if o.Max >= 0 && !wide {
+			continue
+		}
+		out = out.Append(DirectoryOut{Path: d.Path, Members: d.Members, Anchor: d.Anchor, Wide: wide})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]DirectoryOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for d in out {
+		b = b + "\(len(d.Members)) \(d.Path)/\n"
+	}
+	ok(if len(out) == 0 { "no directory\n" } else { b })
+}
+
+type FieldWriteOut {
+	FieldId        int,
+	Field          string,
+	RecordId       int,
+	Record         string,
+	PrivateFieldId int,
+	PrivateField   string,
+	Callers        []string,
+	Sites          []int,
+}
+
+func fieldWrites(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
+	let mut out = []FieldWriteOut{}
+	for w in codegraph.ForeignRecordFieldWrites(r, modules).Writes {
+		let privName = if w.PrivateField >= 0 { codegraph.NameOf(r, w.PrivateField) } else { "" }
+		out = out.Append(FieldWriteOut{
+			FieldId:        w.Field,
+			Field:          codegraph.NameOf(r, w.Field),
+			RecordId:       w.Record,
+			Record:         codegraph.NameOf(r, w.Record),
+			PrivateFieldId: w.PrivateField,
+			PrivateField:   privName,
+			Callers:        names(r, w.Callers),
+			Sites:          w.Sites,
+		})
+	}
+	if o.Json {
+		return ok(json.Encode(json.Codec[[]FieldWriteOut]{MaxBytes: 1 << 40, MaxDepth: 16}, out) + "\n")
+	}
+	let mut b = ""
+	for w in out {
+		b = b + "\(w.Field) <- \(len(w.Callers)) callers (\(strings.Join(w.Callers, ", ")))\n"
+	}
+	ok(if len(out) == 0 { "no foreign record field write\n" } else { b })
+}
+
+func interfaces(r codegraph.Rows, o Options) []string {
+	let modules = selectedModules(r, o)
 	let mut out = []InterfaceOut{}
 	for p in codegraph.ObservedInterfaces(r, modules).Packages {
 		let wide = o.Max >= 0 && codegraph.Wide(p, o.Max)
