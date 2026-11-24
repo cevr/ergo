@@ -1,6 +1,8 @@
 import compiler/check/expr
+import compiler/check/infer
 import compiler/check/store
 import dense
+import strconv
 import strings
 
 // shapeGo spells the admitted value shapes. Names in the root are bare;
@@ -11,16 +13,32 @@ func shapeGo(st fnb, t dense.ID[store.TKey]) string {
 }
 
 type shapeVisit { owner string, t dense.ID[store.TKey] }
-type shapeTrail { seen []shapeVisit, deps []expr.Dep }
+type shapeTrail { seen []shapeVisit, deps Map[string, expr.Dep] }
 
 func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 	let basic = basicGo(st, t)
 	if basic != "" {
 		return basic
 	}
-	if store.KindOfType(st.s, t) == store.KSlice {
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KSlice {
 		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[0], trail)
 		return if elem == "" { "" } else { "[]" + elem }
+	}
+	if kind == store.KArray {
+		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[1], trail)
+		return if elem == "" { "" } else { "[" + strconv.Itoa(store.ArrayLen(st.s, t)) + "]" + elem }
+	}
+	if kind == store.KMap {
+		let kv = store.OperandsOf(st.s, t)
+		let key = shapeWithin(st, kv[0], trail)
+		// intMap's integer-key decision is program-wide and may change
+		// after a refused body. Basic non-integer keys are always native.
+		if key == "" || nativeMapKey(st, kv[0]) == false {
+			return ""
+		}
+		let elem = shapeWithin(st, kv[1], trail)
+		return if elem == "" { "" } else { "map[" + key + "]" + elem }
 	}
 	match importedShapeOf(st, t, trail.deps) {
 	case Some{Value: imported}:
@@ -49,10 +67,72 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 	recordShape(st, t, rec.Fields, gt, trail)
 }
 
+func nativeMapKey(st fnb, t dense.ID[store.TKey]) bool {
+	let basic = basicGo(st, t)
+	basic == "bool" || basic == "string" || basic == "float32" || basic == "float64"
+}
+
+// A stopped shape can identify the exact missing declaration needed by
+// the walker. Other refusals still use the caller's ordinary type cause.
+func shapeIssue(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
+	let visit = shapeVisit{owner: st.alias, t: t}
+	for id in trail.seen {
+		if id.owner == visit.owner && id.t == visit.t {
+			return ""
+		}
+	}
+	let next = shapeTrail{..trail, seen: trail.seen.Append(visit)}
+	let kind = store.KindOfType(st.s, t)
+	if kind == store.KSlice || kind == store.KArray {
+		let elem = store.OperandsOf(st.s, t)[if kind == store.KSlice { 0 } else { 1 }]
+		return shapeIssue(st, elem, next)
+	}
+	let missing = missingShapeStore(st, t)
+	if missing != "" {
+		return missing
+	}
+	match importedShapeOf(st, t, trail.deps) {
+	case Some{Value: src}:
+		let (owner, named) = importedOwner(st, src)
+		match importedRecord(owner, named) {
+		case Some{Value: rec}:
+			return fieldShapeIssue(owner, rec.fields, next)
+		case None:
+			return shapeIssue(owner, named, next)
+		}
+	case None:
+	}
+	if kind == store.KNamed && shapeWithin(st, t, trail) == "" {
+		let r = ordinaryRecord(st, t)
+		if r >= 0 {
+			return fieldShapeIssue(st, st.k.Recs[r].Fields, next)
+		}
+		let mut s = st.s
+		if len(infer.VariantsOf(&s, st.k.Unions, t)) > 0 {
+			return "UNION: no admitted named union descriptor"
+		}
+	}
+	""
+}
+
+func fieldShapeIssue(st fnb, fields []expr.Field, trail shapeTrail) string {
+	for f in fields {
+		if !ordinaryFieldName(f.Name) {
+			return ""
+		}
+		if shapeWithin(st, f.T, trail) == "" {
+			return shapeIssue(st, f.T, trail)
+		}
+	}
+	""
+}
+
 func recordShape(st fnb, t dense.ID[store.TKey], fields []expr.Field, gt string, trail shapeTrail) string {
 	// By declaration identity, not spelling. The Go admit walk similarly
 	// visits a declaration once (e.g. a record containing a slice of itself).
-	let visit = shapeVisit{owner: store.PathOf(st.s), t: t}
+	// The joined alias is an injective package key within this walk;
+	// store.PathOf can be "main" for several checked manifest packages.
+	let visit = shapeVisit{owner: st.alias, t: t}
 	for id in trail.seen {
 		if id.owner == visit.owner && id.t == visit.t {
 			return gt
