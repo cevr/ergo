@@ -3,6 +3,24 @@
   "mutants": [
     {"name":"claim-law-permits-bare-self-call","origin":"wf10 CLAIM-LAWS","file":"compiler/check/expr/call.ergo","from":"if selected.NeedsReceiver {","to":"if false {","rule":"A constraint-only law has no ambient value for a bare operation call.","killers":["internal/selfhostcheck:TestCompilerCheckAgrees"],"regenerate":{"dir":".","argv":["go","run","./scripts/linked","-bootstrap"]},"gap":"not-run-crunch"},
     {
+      "name": "lower-agree-guess-field-export",
+      "origin": "wf10/selfhost/S4-PORT DRIVER",
+      "file": "internal/selfhostcheck/irbuild_test.go",
+      "from": "case \"field\":\n\t\t\t\t\tif name, ok := originals[e.Name]; ok {\n\t\t\t\t\t\te.Name = name\n\t\t\t\t\t}",
+      "to": "case \"field\":\n\t\t\t\t\te.Name = irSplitName(e.Name)",
+      "rule": "An unrenamed field with an X prefix remains different from the field named without that prefix.",
+      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnprovenSplitNames"]
+    },
+    {
+      "name": "lower-agree-guess-qualified-type",
+      "origin": "wf10/selfhost/S4-PORT DRIVER",
+      "file": "internal/selfhostcheck/irbuild_test.go",
+      "from": "if name, ok := typeHeads[head]; ok {\n\t\t\t\t\t\t\te.T = e.T[:len(e.T)-len(elem)] + name + \"[\" + args\n\t\t\t\t\t\t}",
+      "to": "e.T = e.T[:len(e.T)-len(elem)] + head[strings.LastIndex(head, \".\")+1:] + \"[\" + args",
+      "rule": "A host-qualified generic head remains different even when its suffix and type arguments match.",
+      "killers": ["internal/selfhostcheck:TestIRAgreementKeepsUnprovenSplitNames"]
+    },
+    {
       "name": "lower-agree-guess-split-export",
       "origin": "wf10/selfhost/S4-PORT DRIVER (not-run-crunch)",
       "file": "internal/selfhostcheck/irbuild_test.go",

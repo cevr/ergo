@@ -327,6 +327,7 @@ func (x irGoIndex) functionCount() int {
 // Declarations' names follow NAME-LOCAL (S4c/naming.md) and compare
 // under irSplitName alone.
 var irProgramName = regexp.MustCompile(`^X+([a-z_])|_[0-9]+$|_[0-9]+(\.)`)
+var irCollisionSuffix = regexp.MustCompile(`_[0-9]+$`)
 
 var irMethodExport = regexp.MustCompile(`\.X+([a-z_])`)
 
@@ -344,9 +345,10 @@ func irSplitName(name string) string {
 	return irMethodExport.ReplaceAllString(irSplitExport.ReplaceAllString(name, "${1}"), ".${1}")
 }
 
-// irBaseFields removes program-wide spelling from the Go side. Literal
-// types and method calls undo only exports recorded by this build's split.
-func irBaseFields(fn *irFunc, originals map[string]string) {
+// irBaseFields removes program-wide spelling from the Go side. Field
+// and method exports come from this split; qualified type heads come
+// from this IR file's split declarations, never a host import.
+func irBaseFields(fn *irFunc, originals, typeHeads map[string]string) {
 	var walk func(v reflect.Value)
 	walk = func(v reflect.Value) {
 		switch v.Kind() {
@@ -362,7 +364,10 @@ func irBaseFields(fn *irFunc, originals map[string]string) {
 			if e, ok := v.Addr().Interface().(*irExpr); ok {
 				switch e.K {
 				case "field":
-					e.Name = irBaseName(e.Name)
+					if name, ok := originals[e.Name]; ok {
+						e.Name = name
+					}
+					e.Name = irCollisionSuffix.ReplaceAllString(e.Name, "")
 				case "mcall":
 					if name, ok := originals[e.Name]; ok {
 						e.Name = name
@@ -372,7 +377,11 @@ func irBaseFields(fn *irFunc, originals map[string]string) {
 					for strings.HasPrefix(elem, "[]") {
 						elem = elem[2:]
 					}
-					if name, ok := originals[elem]; ok {
+					if head, args, generic := strings.Cut(elem, "["); generic {
+						if name, ok := typeHeads[head]; ok {
+							e.T = e.T[:len(e.T)-len(elem)] + name + "[" + args
+						}
+					} else if name, ok := originals[elem]; ok {
 						e.T = e.T[:len(e.T)-len(elem)] + name
 					}
 					for i, k := range e.Keys {
@@ -408,10 +417,42 @@ func TestIRAgreementKeepsUnrenamedOperands(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := body(tc.typ, tc.member)
-			irBaseFields(got, exports)
+			irBaseFields(got, exports, nil)
 			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
 				call := got.Body[0].X
 				t.Errorf("normalized %s.%s, equality = %v, want %v", call.X.T, call.Name, equal, tc.equal)
+			}
+		})
+	}
+}
+
+// TestIRAgreementKeepsUnprovenSplitNames kills lower-agree-guess-field-export
+// and lower-agree-guess-qualified-type: a different field or generic type
+// must not compare equal just because it has the same unqualified spelling.
+func TestIRAgreementKeepsUnprovenSplitNames(t *testing.T) {
+	body := func(field, typ string) *irFunc {
+		return &irFunc{Body: []*irStmt{{K: "ret", X: &irExpr{
+			K: "field", Name: field, X: &irExpr{K: "lit", T: typ},
+		}}}}
+	}
+	want := body("tag", "[]Choice[int, bool]")
+	members := map[string]string{"Xtag": "tag"}
+	heads := map[string]string{"example.com/generated/model.Choice": "Choice"}
+	for _, tc := range []struct {
+		name, field, typ string
+		equal            bool
+	}{
+		{"proven field and type", "Xtag", "[]example.com/generated/model.Choice[int, bool]", true},
+		{"unrenamed field", "XXtag", "[]example.com/generated/model.Choice[int, bool]", false},
+		{"host type with same suffix", "Xtag", "[]example.com/host/model.Choice[int, bool]", false},
+		{"different type arguments", "Xtag", "[]example.com/generated/model.Choice[bool, int]", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := body(tc.field, tc.typ)
+			irBaseFields(got, members, heads)
+			if equal := reflect.DeepEqual(got, want); equal != tc.equal {
+				x := got.Body[0].X
+				t.Errorf("normalized field %q, type %q; equality = %v, want %v", x.Name, x.X.T, equal, tc.equal)
 			}
 		})
 	}
@@ -549,7 +590,7 @@ func goIRFuncs(t *testing.T, paths irPathIDs) (irGoIndex, map[string]string, map
 				}
 				raw := fn.Name
 				fn.Name = irSplitName(raw)
-				irBaseFields(fn, originals)
+				irBaseFields(fn, originals, split.IRTypeHeads[file.Path])
 				data, err := json.Marshal(fn)
 				if err != nil {
 					t.Fatal(err)
