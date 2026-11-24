@@ -1,6 +1,7 @@
 import compiler/check/expr
 import compiler/check/store
 import dense
+import strconv
 import strings
 
 // shapeGo spells the admitted value shapes. Names in the root are bare;
@@ -22,6 +23,10 @@ func shapeWithin(st fnb, t dense.ID[store.TKey], trail shapeTrail) string {
 	if kind == store.KSlice {
 		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[0], trail)
 		return if elem == "" { "" } else { "[]" + elem }
+	}
+	if kind == store.KArray {
+		let elem = shapeWithin(st, store.OperandsOf(st.s, t)[1], trail)
+		return if elem == "" { "" } else { "[" + strconv.Itoa(store.ArrayLen(st.s, t)) + "]" + elem }
 	}
 	if kind == store.KMap {
 		let kv = store.OperandsOf(st.s, t)

@@ -1,0 +1,7 @@
+type ArrayHolder { A [2]int, N int }
+
+func PortArrayKeep(x [2]int) [2]int { x }
+
+func PortArrayReadCount(x ArrayHolder) int { x.N }
+
+func PortArraySlice(x [2]int) [][2]int { [][2]int{x} }
