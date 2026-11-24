@@ -259,7 +259,7 @@ func TestPollerEnds(t *testing.T) {
 					return flushFailed{}
 				}
 			}
-			_, err := producer.Wait(s.s.Task())
+			_, err := producer.Wait(s.t)
 			return err
 		})
 	}

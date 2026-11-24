@@ -250,6 +250,9 @@ func TestMachinePlanValues(t *testing.T) {
 	src.WriteString("type Bad {}\n\nfunc bad() fails Bad { Bad }\n\n")
 	src.WriteString(greeterSource)
 	src.WriteString("type Slot[T] = Full[T]{V T} | Hole{}\n\ntype Poke = Put{} | Take{}\n\n")
+	// Construct the event in Ergo: its Go name can differ from Put when the
+	// prelude reserves the same spelling.
+	src.WriteString("func putSignal() Poke { Put }\n\n")
 	src.WriteString("func slot(s Slot[int], p Poke) Decision[Slot[int], int] {\n\tmatch p {\n\tcase Put:\n\t\tEnter[Slot[int]]{Next: Full[int]{V: 7}}\n\tcase Take:\n\t\tEnter[Slot[int]]{Next: Hole}\n\t}\n}\n\n")
 	src.WriteString("type G machine[Slot[int], Poke] {\n\tinitial: Hole,\n\tstep:    slot,\n}\n\n")
 	src.WriteString("type Unused machine[Slot[int], Poke] {\n\tinitial: Full[int]{V: 1},\n\tstep:    slot,\n}\n\n")
@@ -267,7 +270,7 @@ func TestMachinePlanValues(t *testing.T) {
 	driver.WriteString("package main\n\nimport (\n\t\"fmt\"\n\t\"reflect\"\n\t\"testing\"\n\t\"time\"\n\n\trt \"ergo.local/prototype/runtime/rt\"\n\tergo \"ergo.local/prototype/runtime/v1\"\n)\n\n")
 	driver.WriteString("type driverScheduler struct{ sleeps *int }\n\nfunc (d driverScheduler) Sleep(*rt.Task, time.Duration) { *d.sleeps++ }\n\nfunc (driverScheduler) Alarms(*rt.Task) *ergo.AlarmClock { return ergo.HostAlarms() }\n\n")
 	driver.WriteString("func TestPlans(t *testing.T) {\n\tsleeps := 0\n\t_, err := rt.Run(rt.Root(\"plans\"), func(task *rt.Task) (struct{}, error) {\n\t\tenv := &Env{task: task, Scheduler: driverScheduler{&sleeps}}\n\t\tergoInit(env)\n")
-	driver.WriteString("\t\tvar g G\n\t\tif _, ok := g.Initial().(Hole); !ok {\n\t\t\tt.Errorf(\"G starts at %T\", g.Initial())\n\t\t}\n\t\tif full, ok := g.Step(g.Initial(), Put{}).(Enter[Slot[int]]); !ok || full.Next != (Full[int]{V: 7}) {\n\t\t\tt.Errorf(\"G.Step(Hole, Put) is %v\", g.Step(g.Initial(), Put{}))\n\t\t}\n")
+	driver.WriteString("\t\tvar g G\n\t\tif _, ok := g.Initial().(Hole); !ok {\n\t\t\tt.Errorf(\"G starts at %T\", g.Initial())\n\t\t}\n\t\tdecision := g.Step(g.Initial(), putSignal())\n\t\tif full, ok := decision.(Enter[Slot[int]]); !ok || full.Next != (Full[int]{V: 7}) {\n\t\t\tt.Errorf(\"G.Step(Hole, Put) is %v\", decision)\n\t\t}\n")
 	driver.WriteString("\t\tif u, ok := (Unused{}).Initial().(Full[int]); !ok || u.V != 1 {\n\t\t\tt.Errorf(\"Unused starts at %v\", (Unused{}).Initial())\n\t\t}\n")
 	for _, m := range machines {
 		fmt.Fprintf(&driver, "\t\tcheck%d(t, env)\n", m.k)
