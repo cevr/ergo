@@ -300,5 +300,36 @@ test Check%[1]s {
 }
 `, name, f.body, f.live, 1+seed%7, f.released)
 	}
+	names = append(names, "DropCallback")
+	fmt.Fprintf(&src, `
+func DropCallback(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let receive = func(t own dropTicket) bool fails Bad {
+		if t.log.Get() != 0 { Unreachable("early release") }
+		if defect { Unreachable("body defect") }
+		if reject { return Bad }
+		false
+	}
+	try receive(dropTicket{id: id, log: log, crash: false})
+}
+
+test CheckDropCallback {
+	let log = sync.NewRef(0)
+	let id = %d
+	DropCallback(log, id, false, false) catch { case Bad: Unreachable("unexpected failure") }
+	assert log.Get() == id
+	log.Set(0)
+	let rejected = DropCallback(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == id
+	log.Set(0)
+	let child = task.Go() { try DropCallback(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == id
+}
+`, 1+seed%7)
 	return src.String(), names
 }

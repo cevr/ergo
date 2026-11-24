@@ -24,10 +24,16 @@ func (b *irBuilder) reserve(v *check.Var) {
 }
 
 func (b *irBuilder) local(v *check.Var, id *syntax.Ident) int {
+	b.ownable(v) // ir_own.go
+	return b.bindLocal(v, id)
+}
+
+// bindLocal declares a Go local without registering ownership. A
+// parameter's owner frame registers it after binding all its parameters.
+func (b *irBuilder) bindLocal(v *check.Var, id *syntax.Ident) int {
 	if _, dup := b.locals[v]; dup {
 		irNo("local declared twice")
 	}
-	b.ownable(v) // ir_own.go
 	i := b.named(v.Name, b.goType(v.Type, id), b.pos(id, id.Pos()))
 	b.locals[v] = i
 	return i
