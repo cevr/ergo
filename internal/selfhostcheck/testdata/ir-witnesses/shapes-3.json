@@ -1,0 +1,7 @@
+[
+  {"fixture": "port_shapes_import/reader/port_shape3_map.ergo", "declaration": "func PortMapReadCount(", "symbol": "MapHolder.PortMapReadCount"},
+  {"fixture": "port_shapes_import/reader/port_shape3_map.ergo", "declaration": "func PortMapSlice(", "symbol": "PortMapSlice"},
+  {"fixture": "port_shapes_import/reader/port_shape3_array.ergo", "declaration": "func PortArrayReadCount(", "symbol": "ArrayHolder.PortArrayReadCount"},
+  {"fixture": "port_shapes_import/reader/port_shape3_array.ergo", "declaration": "func PortArraySlice(", "symbol": "PortArraySlice"},
+  {"fixture": "port_shapes_import/producer/transitive.ergo", "declaration": "func PortTransitiveRead(", "symbol": "portshapesdemo_sproducer__TransitiveHolder.PortTransitiveRead"}
+]

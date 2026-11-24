@@ -344,6 +344,10 @@ func has(names []string, name string) bool {
 // lower yet: its kind, an instance's or a foreign type's name, and why a
 // record is no plain one.
 func typeCause(st fnb, t dense.ID[store.TKey]) string {
+	let missing = shapeIssue(st, t, shapeTrail{seen: []shapeVisit{}, deps: shapeDeps(st)})
+	if missing != "" {
+		return missing
+	}
 	let k = store.KindOfType(st.s, t)
 	if k == store.KBasic {
 		return if store.ArgOf(st.s, t) == 0 { "unset" } else { "duration or complex" }

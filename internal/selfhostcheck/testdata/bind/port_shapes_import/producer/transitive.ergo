@@ -1,0 +1,5 @@
+import portshapesdemo/leaf
+
+type TransitiveHolder { Remote leaf.Transitive, Code int }
+
+func PortTransitiveRead(x TransitiveHolder) int { x.Code }

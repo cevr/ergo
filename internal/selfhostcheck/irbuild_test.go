@@ -79,7 +79,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 	}
 	paths := irPathIDs{}
 	importFixture := irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_calls_import"))
-	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"))...)
+	importFixture = append(importFixture, irImportFixtureDirs(t, filepath.Join(repoRoot(), "internal", "selfhostcheck", "testdata", "bind", "port_shapes_import"), "leaf")...)
 	goFuncs, unlowered, rootDirs, testOracle := goIRFuncs(t, paths, importFixture)
 	for dir, err := range unlowered {
 		t.Logf("%s: the Go builder does not lower its test build (its functions are not compared): %s", rel(dir), err)
@@ -239,7 +239,7 @@ func TestCompilerIRAgreesWithBuilder(t *testing.T) {
 // irImportFixtureDirs enrolls the CALLS-owned two-package fixture in IR
 // agreement only. Once present it must be complete. Reader is first:
 // its test build reaches producer as an import, not a second root build.
-func irImportFixtureDirs(t *testing.T, root string) []string {
+func irImportFixtureDirs(t *testing.T, root string, extra ...string) []string {
 	t.Helper()
 	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return nil
@@ -250,6 +250,9 @@ func irImportFixtureDirs(t *testing.T, root string) []string {
 		t.Fatalf("imported-call IR fixture needs ergo.mod: %v", err)
 	}
 	dirs := []string{filepath.Join(root, "reader"), filepath.Join(root, "producer")}
+	for _, dir := range extra {
+		dirs = append(dirs, filepath.Join(root, dir))
+	}
 	for _, dir := range dirs {
 		if len(ergoFiles(t, dir)) == 0 {
 			t.Fatalf("imported-call IR fixture has no Ergo sources in %s", rel(dir))
