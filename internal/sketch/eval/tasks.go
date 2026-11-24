@@ -3,6 +3,7 @@ package eval
 import (
 	"fmt"
 	"math"
+	"slices"
 	"time"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -63,6 +64,41 @@ func registerTasks(t nativeTables) {
 		}
 		v.delivered = true
 		return v.t.val, nil
+	}
+	// task.StopAfter(t, d) (runtime/v1 TaskStopAfter): one alarm on the
+	// timeline of the run's Scheduler (a time.Manual's, whose Advance
+	// fires it, or a testing.VirtualClock's, whose idle does), which stops
+	// t's tree at d. A d of zero or less arms nothing. A Scheduler with no
+	// timeline (a provider written in Ergo) is beyond the evaluator.
+	t.reads["task.StopAfter"] = "host:prelude.Task int64"
+	natives["task.StopAfter"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		v, ok := args[0].(*taskV)
+		if !ok {
+			return nil, fr.unsupported(at, "a Task the evaluator did not start")
+		}
+		d := time.Duration(args[1].(int64))
+		if d <= 0 {
+			return &alarmV{}, nil
+		}
+		sched, ok := fr.caps.lookup(typeKey(rtype{t: check.PreludeType("Scheduler")}))
+		if !ok {
+			return nil, fr.unsupported(at, "a StopAfter whose Scheduler no with of the run binds")
+		}
+		l := timelineOf(sched)
+		if l == nil {
+			return nil, fr.unsupported(at, "a StopAfter on a Scheduler that is no time.Manual or testing.VirtualClock")
+		}
+		if l.auto {
+			if in.sched == nil {
+				return nil, fr.unsupported(at, "a StopAfter on a testing.VirtualClock outside a scheduled run")
+			}
+			if !slices.Contains(in.sched.alarmLines, l) {
+				in.sched.alarmLines = append(in.sched.alarmLines, l)
+			}
+		}
+		a := &alarmV{tl: l, at: l.deadline(d), target: v.t, armed: true}
+		l.alarms = append(l.alarms, a)
+		return a, nil
 	}
 	t.reads["scope.OnExit"] = "func/0"
 	natives["scope.OnExit"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -274,8 +310,9 @@ type taskV struct {
 func (v *taskV) describe() string { return fmt.Sprintf("a Task (task #%d)", v.t.id) }
 
 // exitOf is task.ExitOf's wait (Tasks 13): Wait's, but a defect-only exit
-// is 2, contained, its text kept for exitReason, and a value is 0, left in
-// the task for exitValue.
+// is 2, contained, its text kept for exitReason, a value is 0, left in
+// the task for exitValue, and an interruption that was not the waiter's
+// (a StopAfter alarm) is 3, or 0 when the block had returned.
 func (v *taskV) exitOf(in *interp, fr *frame, at syntax.Node) (Value, *abrupt) {
 	if ab := in.charge(fr, at, 1); ab != nil {
 		return nil, ab
@@ -306,8 +343,13 @@ func (v *taskV) exitOf(in *interp, fr *frame, at syntax.Node) (Value, *abrupt) {
 	case t.exit.kind == ctlDefect:
 		v.why = t.exit.msg
 		return int64(2), nil
+	case t.exit.kind == ctlInterrupt && t.ended:
+		// A stop that was not the waiter's came after the block returned:
+		// the value stays the task's (Gap 47).
+		return int64(0), nil
 	case t.exit.kind == ctlInterrupt:
-		return nil, fr.interrupt(at)
+		// A stop that was not the waiter's ended it (a StopAfter alarm).
+		return int64(3), nil
 	}
 	return nil, t.exit
 }
@@ -604,6 +646,95 @@ type timelineV struct {
 	now       time.Duration
 	sleepers  []*sleeper
 	advancing bool
+	// alarms are the armed StopAfter alarms (alarmV), in arming order.
+	alarms []*alarmV
+}
+
+// alarmV is a task.Alarm on a time.Manual (runtime/v1 TaskStopAfter): at
+// at it stops target's tree. Advance fires it at its instant after the
+// sleepers of that instant woke and ran to their next wait, as the
+// runtime's Timeline.Advance fires a settled alarm (AlarmClock.
+// AfterSettled). armed is false once it fired or was cancelled.
+type alarmV struct {
+	tl     *timelineV
+	at     time.Duration
+	target *etask
+	armed  bool
+}
+
+func (a *alarmV) describe() string { return "a task.Alarm" }
+
+// timelineOf is the timeline of a Scheduler value: a time.Manual record's
+// line, or nil.
+func timelineOf(v Value) *timelineV {
+	switch x := v.(type) {
+	case *timelineV:
+		return x
+	case *operation:
+		// a Manual converted to the Scheduler it implements
+		return timelineOf(x.value)
+	case *record:
+		for _, f := range x.fields {
+			if l, ok := f.(*timelineV); ok {
+				return l
+			}
+		}
+	}
+	return nil
+}
+
+func (a *alarmV) opCall(in *interp, fr *frame, at syntax.Node, name string, args []Value) (Value, *abrupt) {
+	switch name {
+	case "Cancel", "Close":
+		was := a.armed
+		a.disarm()
+		if name == "Close" {
+			return unit{}, nil
+		}
+		return was, nil
+	}
+	ice("the Alarm operation %s", name)
+	return nil, nil
+}
+
+// disarm takes a off its timeline.
+func (a *alarmV) disarm() {
+	if !a.armed {
+		return
+	}
+	a.armed = false
+	l := a.tl
+	for i, x := range l.alarms {
+		if x == a {
+			l.alarms = append(l.alarms[:i:i], l.alarms[i+1:]...)
+			break
+		}
+	}
+}
+
+// fireAlarms fires the alarms due by now, in arming order: each stops its
+// target's tree; on an ended task that stops nothing.
+func (l *timelineV) fireAlarms() bool {
+	fired := false
+	for len(l.alarms) > 0 {
+		i := -1
+		for j, a := range l.alarms {
+			if a.at <= l.now {
+				i = j
+				break
+			}
+		}
+		if i < 0 {
+			break
+		}
+		a := l.alarms[i]
+		a.disarm()
+		if a.target.state != done {
+			stopTree(a.target)
+		}
+		fired = true
+	}
+	return fired
 }
 
 // sleeper is one Wait on a timeline: it wakes when now reaches at.
@@ -697,10 +828,21 @@ func (l *timelineV) opCall(in *interp, fr *frame, at syntax.Node, name string, a
 		// One deadline at a time, in deadline order, each woken task
 		// running to its next wait before the next (rt.AdvanceSettled).
 		for {
+			// The domain settles before the time moves, as
+			// rt.AdvanceSettled does: a task made ready before the
+			// Advance sleeps from the time it reads now.
+			if ab := in.settle(fr, at); ab != nil {
+				return nil, ab
+			}
 			next, found := time.Duration(0), false
 			for _, s := range l.sleepers {
 				if s.at <= target && (!found || s.at < next) {
 					next, found = s.at, true
+				}
+			}
+			for _, a := range l.alarms {
+				if a.at <= target && (!found || a.at < next) {
+					next, found = a.at, true
 				}
 			}
 			if !found {
@@ -711,6 +853,13 @@ func (l *timelineV) opCall(in *interp, fr *frame, at syntax.Node, name string, a
 			if ab := in.settle(fr, at); ab != nil {
 				return nil, ab
 			}
+			// The instant's alarms act after its sleepers woke and ran
+			// to their next wait.
+			if l.fireAlarms() {
+				if ab := in.settle(fr, at); ab != nil {
+					return nil, ab
+				}
+			}
 		}
 		l.now = target
 		if ab := in.settle(fr, at); ab != nil {
@@ -718,7 +867,7 @@ func (l *timelineV) opCall(in *interp, fr *frame, at syntax.Node, name string, a
 		}
 		return unit{}, nil
 	case "Sleepers":
-		return int64(len(l.sleepers)), nil
+		return int64(len(l.sleepers) + len(l.alarms)), nil
 	}
 	ice("the Timeline operation %s", name)
 	return nil, nil
@@ -728,23 +877,40 @@ func (l *timelineV) opCall(in *interp, fr *frame, at syntax.Node, name string, a
 // sleeper's deadline, when no task can go on (testing.VirtualClock); it
 // reports whether one moved.
 func (s *scheduler) idle() bool {
-	var best *sleeper
-	var gap time.Duration
+	var best *timelineV
+	var when, gap time.Duration
+	consider := func(l *timelineV, at time.Duration) {
+		if g := at - l.now; best == nil || g < gap {
+			best, when, gap = l, at, g
+		}
+	}
 	for _, t := range s.tasks {
 		if t.state != blocked || t.sleep == nil || !t.sleep.tl.auto || t.sleep.woke {
 			continue
 		}
-		g := t.sleep.at - t.sleep.tl.now
-		if best == nil || g < gap {
-			best, gap = t.sleep, g
+		consider(t.sleep.tl, t.sleep.at)
+	}
+	for _, l := range s.alarmLines {
+		for _, a := range l.alarms {
+			consider(l, a.at)
 		}
 	}
 	if best == nil {
 		return false
 	}
-	best.tl.now = best.at
-	best.tl.wake()
-	return true
+	if when > best.now {
+		best.now = when
+	}
+	// The instant's sleepers wake first; its alarms (StopAfter's settled
+	// alarms) fire at the next idle of the same instant, once the woken
+	// tasks ran to their next wait (rt.Virtual.AfterSettledFunc).
+	for _, sl := range best.sleepers {
+		if sl.at <= best.now {
+			best.wake()
+			return true
+		}
+	}
+	return best.fireAlarms()
 }
 
 // setV is a tasks.Set (runtime.md, G4): its members, its policy, and

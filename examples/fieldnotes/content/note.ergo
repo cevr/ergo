@@ -17,7 +17,6 @@
 
 import fieldnotes/journal
 import fs
-import machines
 import strconv
 import strings
 
@@ -34,33 +33,57 @@ type Signal = Line{No int, Text string} | End{}
 
 // Reader reads a note one line at a time.
 type Reader machine[Part, Signal] {
-	initial: Head{E: journal.Entry{Slug: "", Title: "", Day: "", Body: []string{}, Related: []string{}}},
-	step:    Step,
+	initial: start(""),
+	step:    decide,
 }
 
-// Step reads one signal in part p. In the head a key line Stays with its
-// field set and a blank line Enters the body once the head has a title
-// and a day; in the body a text line Stays with one more line of its
-// paragraph and a blank line ends the paragraph; the end is Done with the
-// entry.
-func Step(p Part, s Signal) Decision[Part, journal.Entry] fails BadLine {
-	match (p, s) {
-	case (Head as h, End):
-		try headDone(h.E, 0)
-		Done[journal.Entry]{Output: h.E}
-	case (Head as h, Line as l):
-		if strings.TrimSpace(l.Text) == "" {
+func start(slug string) Part {
+	Head{E: journal.Entry{Slug: slug, Title: "", Day: "", Body: []string{}, Related: []string{}}}
+}
+
+// Step reads one line. A blank line after a complete head opens the
+// body; within the body a blank line ends the current paragraph.
+func Step(p Part, l Line) Part fails BadLine {
+	let text = strings.TrimSpace(l.Text)
+	match p {
+	case Head as h:
+		if text == "" {
 			try headDone(h.E, l.No)
-			return Enter[Part]{Next: Body{E: h.E, Lines: []string{}}}
+			return Body{E: h.E, Lines: []string{}}
 		}
-		Stay[Part]{Next: Head{E: try field(h.E, l)}}
-	case (Body as b, End):
-		Done[journal.Entry]{Output: paragraph(b.E, b.Lines)}
-	case (Body as b, Line as l):
-		if strings.TrimSpace(l.Text) == "" {
-			return Stay[Part]{Next: Body{E: paragraph(b.E, b.Lines), Lines: []string{}}}
+		Head{E: try field(h.E, l)}
+	case Body as b:
+		if text == "" {
+			return Body{E: paragraph(b.E, b.Lines), Lines: []string{}}
 		}
-		Stay[Part]{Next: Body{E: b.E, Lines: b.Lines.Append(strings.TrimSpace(l.Text))}}
+		Body{E: b.E, Lines: b.Lines.Append(text)}
+	}
+}
+
+// Finish returns the entry, keeping the final paragraph even without a
+// blank line. A note that ends in its head still needs a title and a day.
+func Finish(p Part) journal.Entry fails BadLine {
+	match p {
+	case Head as h:
+		try headDone(h.E, 0)
+		h.E
+	case Body as b:
+		paragraph(b.E, b.Lines)
+	}
+}
+
+func decide(p Part, s Signal) Decision[Part, journal.Entry] fails BadLine {
+	match s {
+	case End:
+		Done[journal.Entry]{Output: try Finish(p)}
+	case Line as l:
+		let next = try Step(p, l)
+		match (p, next) {
+		case (Head, Head), (Body, Body):
+			Stay[Part]{Next: next}
+		case (Head, Body), (Body, Head):
+			Enter[Part]{Next: next}
+		}
 	}
 }
 
@@ -136,20 +159,13 @@ func IsDay(s string) bool {
 
 // Read is the entry of slug that text holds.
 func Read(slug string, text string) journal.Entry fails BadLine {
-	let mut signals = []Signal{}
+	let mut p = start(slug)
+	let mut no = 0
 	for l in strings.Lines(text) {
-		signals = signals.Append(Line{No: len(signals) + 1, Text: l})
+		no = no + 1
+		p = try Step(p, Line{No: no, Text: l})
 	}
-	let o = try machines.Run(Reader{}, signals.Append(End)) catch {
-	case machines.Rejected:
-		Unreachable("Step never rejects: a bad line fails BadLine")
-	}
-	match o {
-	case machines.Finished[Part, journal.Entry] as f:
-		journal.Entry{..f.Output, Slug: slug}
-	case machines.Running[Part, journal.Entry]:
-		Unreachable("the last signal is End, and Step ends every End with Done or BadLine")
-	}
+	try Finish(p)
 }
 
 // Format is e as a note: Read(e.Slug, Format(e)) is e when e's title,

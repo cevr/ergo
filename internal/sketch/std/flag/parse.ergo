@@ -301,19 +301,19 @@ func doubled(flags []Flag) Option[string] {
 // twice. The spellings come from a small alphabet so that they collide.
 law DoubledSpellingIsFound(picks []int) {
 	let longs = []string{"a", "b", "ab", "c"}
-	let shorts = []string{"", "a", "b", "c"}
+	let shorts = []Option[ShortName]{None, Some[ShortName]{Value: "a"}, Some[ShortName]{Value: "b"}, Some[ShortName]{Value: "c"}}
 	let mut flags = []Flag{}
 	let mut all = []string{}
 	for p in picks {
 		let k = if p < 0 { -(p + 1) } else { p }
 		let long = longs[k%4]
-		let short = shorts[(k/4)%4]
 		all = all.Append(long)
-		if short == "" {
+		match shorts[(k/4)%4] {
+		case None:
 			flags = flags.Append(String(long, "", "u"))
-		} else {
-			flags = flags.Append(String(long, "", "u").WithAlias(short))
-			all = all.Append(short)
+		case Some[ShortName] as short:
+			flags = flags.Append(String(long, "", "u").WithAlias(short.Value))
+			all = all.Append(string(short.Value))
 		}
 	}
 	match doubled(flags) {
