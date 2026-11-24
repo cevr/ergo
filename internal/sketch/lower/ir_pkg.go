@@ -780,12 +780,22 @@ func (b *irBuilder) stdCall(x *syntax.CallExpr, c *check.Call, f *check.Func, p 
 	pkg := v1.PackageOf(name)
 	switch {
 	case pkg != "" && pkg != runtimeImport && targs != "":
-		// A leaf's generic function is kept as an instance (I-FLIP:
-		// examples/pipeline's ergorpc.RPCDie).
-		if b.namesTypeParam(targs) {
-			irNo("runtime leaf's generic function in a generic body")
+		// A keep lives at package scope, where the caller's type
+		// parameters cannot be named. A closed, zero-size instance keeps
+		// the import for every call; the IR call keeps its actual types.
+		anchors := make([]string, len(body.TypeParams))
+		for i, tp := range body.TypeParams {
+			switch tp.Constraint {
+			case "any", "comparable":
+				anchors[i] = "struct{}"
+			default:
+				anchors[i] = subst[tp.Name]
+				if b.namesTypeParam(anchors[i]) {
+					irNo("runtime leaf's generic function in a generic body")
+				}
+			}
 		}
-		b.keepImport("var _ = " + b.l.rtRef(name) + "[" + targs + "]")
+		b.keepImport("var _ = " + b.l.rtRef(name) + "[" + strings.Join(anchors, ", ") + "]")
 	case pkg != "" && pkg != runtimeImport:
 		b.keepImport("var _ = " + b.l.rtRef(name))
 	case targs != "":
