@@ -12,7 +12,8 @@ import (
 // property: Ev's decoder functions on the prelude's Reader interface
 // (ergoDecode*) and on json's Reader, a direct reader (ergoRead*: a
 // record of basics with narrow integers, a nested record, a list of
-// records, a map, a list of ints, and an omittable field) take IR bodies.
+// records, a map, a list of ints, an omittable field and a tagged union)
+// take IR bodies.
 // None keeps its text, and each program prints what the source path prints, with the
 // build-time fold on and off. take decodes on the interface and direct on
 // json's Reader itself, so both decoders run on every text.
@@ -28,7 +29,8 @@ import (
 // IR) and r2a-direct-via-iface (a direct decoder's nested value read by
 // the interface's decoder function), pwr-r3-absent-not-initialized (a
 // missing optional key does not produce the explicit empty alternative),
-// and pwr-r3-wrapper-loses-payload (the present alternative loses its value).
+// pwr-r3-wrapper-loses-payload (the present alternative loses its value),
+// and pwr-r3-unknown-tag-lost (the rejected tag is missing from its failure).
 //
 // It builds Go because the other side of the agreement is the built
 // program, by both paths.

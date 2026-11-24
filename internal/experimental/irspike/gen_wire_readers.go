@@ -16,7 +16,13 @@ var wireReaderSites = []string{"take", "cut", "direct"}
 // a map and a list of ints (PORT-WIRE-READERS R1's forms).
 const wireReaderDecls = `type In { A int8, B uint8, S string, F bool, X float64 }
 
-type Ev { N int, Name string, In In, Xs []In, M Map[string, int], Ts []int, Extra json.Optional[int] }
+type Shape = Point | Arc
+
+type Point { X int }
+
+type Arc { Radius int, Label json.Optional[string] }
+
+type Ev { N int, Name string, In In, Xs []In, M Map[string, int], Ts []int, Extra json.Optional[int], Shape Shape }
 
 func showIn(i In) string { "(\(i.A) \(i.B) \(i.S) \(i.F) \(i.X))" }
 
@@ -26,6 +32,20 @@ func showExtra(extra json.Optional[int]) string {
 		"absent"
 	case json.Present[int] as x:
 		"extra \(x.Value)"
+	}
+}
+
+func showShape(s Shape) string {
+	match s {
+	case Point as p:
+		"point \(p.X)"
+	case Arc as a:
+		match a.Label {
+		case json.Absent:
+			"arc \(a.Radius) unlabelled"
+		case json.Present[string] as x:
+			"arc \(a.Radius) \(x.Value)"
+		}
 	}
 }
 
@@ -42,7 +62,7 @@ func show(e Ev) string {
 	for t in e.Ts {
 		ts = ts * 3 + t
 	}
-	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts) \(showExtra(e.Extra))"
+	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts) \(showExtra(e.Extra)) \(showShape(e.Shape))"
 }
 
 // take decodes on the Reader interface: Ev's decoder function and the
@@ -145,6 +165,22 @@ func GenerateWireReaders(seed uint64) string {
 		for i := n(3); i > 0; i-- {
 			xs = append(xs, in(0))
 		}
+		tag := q("_tag") + ": "
+		shape := "{" + q("x") + ": " + fmt.Sprint(n(9)) + ", " + tag + q("Point") + "}"
+		switch bad {
+		case 11:
+			shape = "{" + tag + q("Arc") + ", " + q("radius") + ": " + fmt.Sprint(n(9)) + ", " + q("label") + ": " + q("arc") + "}"
+		case 12:
+			shape = "{" + tag + q("Unknown") + "}"
+		case 13:
+			shape = "{}"
+		case 14:
+			shape = "{" + tag + q("Point") + "}"
+		case 15:
+			shape = "[]"
+		case 16:
+			shape = "{" + tag + q("Arc") + ", " + q("radius") + ": " + q("not an int") + "}"
+		}
 		fields := []string{
 			q("n") + ": " + fmt.Sprint(n(100)),
 			q("name") + ": " + q([]string{"p", "", "q r"}[n(3)]),
@@ -152,6 +188,7 @@ func GenerateWireReaders(seed uint64) string {
 			q("xs") + ": [" + strings.Join(xs, ", ") + "]",
 			q("m") + ": {" + q("k") + ": " + fmt.Sprint(n(9)) + ", " + q("kk") + ": " + fmt.Sprint(n(9)) + "}",
 			q("ts") + ": [" + fmt.Sprint(n(5)) + ", " + fmt.Sprint(n(5)) + "]",
+			q("shape") + ": " + shape,
 		}
 		switch bad {
 		case 2: // a field missing at the top
@@ -188,7 +225,7 @@ func GenerateWireReaders(seed uint64) string {
 	// the nested record's four (two out of range), and two texts that
 	// read, in a drawn order.
 	var cases [][2]int
-	for bad := 0; bad <= 10; bad++ {
+	for bad := 0; bad <= 16; bad++ {
 		if bad != 1 {
 			cases = append(cases, [2]int{bad, 0})
 		}

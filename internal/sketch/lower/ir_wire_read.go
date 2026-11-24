@@ -4,7 +4,8 @@ package lower
 // (PORT-WIRE-READERS R1) or on a direct reader (wirereader.go; R2a). The
 // text emitter writes it (wireDecodeBody); on the IR path the same
 // function is built here as an IR body, statement for statement, in the
-// supported forms: a basic value, a concrete record, a list and a map.
+// supported forms: a basic value, a concrete record or tagged union,
+// a list and a map.
 // Each read is
 // the reader's operation as readOp writes it: the Reader interface's
 // method, the task first, or the direct reader type's own function, the
@@ -28,7 +29,7 @@ var wireReadLowering = ""
 
 // wireReadForms are the forms wireRead builds (wireReadForm's names).
 func wireReadForms(form string) bool {
-	return form == "basic" || form == "record" || form == "list" || form == "map"
+	return form == "basic" || form == "record" || form == "list" || form == "map" || form == "union"
 }
 
 // wireRead builds the decoder name of t on the Reader interface as an IR
@@ -181,7 +182,7 @@ func (d *wireReader) value(t check.Type) ([]*irStmt, *irExpr) {
 	return pre, d.local(v)
 }
 
-// body is the decoder's statements (wireDecodeBody's forms R1 takes).
+// body is the decoder's statements (wireDecodeBody).
 func (d *wireReader) body(t check.Type) []*irStmt {
 	b, l := d.b, d.b.l
 	ret := func(x *irExpr) *irStmt { return &irStmt{K: "ret", Pos: d.p, X: x} }
@@ -224,9 +225,42 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 		pre := append(begin("Object"), &irStmt{K: "var", Pos: d.p, Local: out})
 		pre = append(pre, d.record(l.typeDecl(n.Obj, d.site), u, out)...)
 		return append(pre, ret(d.local(out)))
+	case *check.Union:
+		return append(begin("Object"), d.union(t, u, gt)...)
 	}
 	irNo("codec reader: %s", l.wireReadForm(t))
 	return nil
+}
+
+// union dispatches by the wire tag before reading the selected record.
+// A failed Tag and an unrecognised tag are distinct failures.
+func (d *wireReader) union(t check.Type, u *check.Union, gt string) []*irStmt {
+	b := d.b
+	pre, tag := d.checked(d.op("Tag"), "string")
+	sw := &irStmt{K: "switch", Pos: d.p, End: d.p, X: d.local(tag)}
+	fu := b.flatOf(t)
+	for k, v := range u.Variants {
+		n := v.(*check.Named)
+		s := n.Underlying().(*check.Struct)
+		out := b.temp("out", b.goType(v, d.site), d.p)
+		body := []*irStmt{{K: "var", Pos: d.p, Local: out}}
+		body = append(body, d.record(b.l.typeDecl(n.Obj, d.site), s, out)...)
+		var result *irExpr
+		if fu == nil {
+			result = b.variantForm(d.local(out), gt, k, layoutIface, "")
+		} else {
+			own := fu.own()
+			result = b.variantInto(v, own, d.local(out), d.site)
+			if b.goType(own, d.site) != gt {
+				result = &irExpr{K: "conv", Pos: d.p, T: gt, X: result}
+			}
+		}
+		body = append(body, &irStmt{K: "ret", Pos: d.p, X: result})
+		sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Vals: []*irExpr{irStringConst(d.p, "string", n.Obj.Name)}, Body: body})
+	}
+	unknown := d.failure(check.WireTagName, d.op("Path"), d.local(tag))
+	sw.Cases = append(sw.Cases, &irCase{Pos: d.p, Def: true, Body: []*irStmt{{K: "fail", Pos: d.p, X: unknown}}})
+	return append(pre, sw)
 }
 
 // wrap constructs an empty or a single-payload alternative of a wire union.

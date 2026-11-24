@@ -45,6 +45,27 @@ func readCrate(text string) (crate, bool) {
 	return c, err == nil && c.Count.present
 }
 
+//go:noinline
+func readTagged(text string) (int, bool) {
+	var e struct {
+		Tag   string      `json:"_tag"`
+		Count optionalInt `json:"count"`
+		Label *string     `json:"label"`
+	}
+	if err := json.Unmarshal([]byte(text), &e); err != nil || !e.Count.present {
+		return 0, false
+	}
+	switch e.Tag {
+	case "Unlabelled":
+		return e.Count.value, true
+	case "Labelled":
+		if e.Label != nil {
+			return e.Count.value + len(*e.Label), true
+		}
+	}
+	return 0, false
+}
+
 const one = `{"label":"crate","count":12,"tags":["wood","heavy"],"weight":30.5}`
 
 const four = "[" + one + "," + one + "," + one + "," + one + "]"
@@ -88,9 +109,9 @@ func readValue(text string) (map[string]any, bool) {
 }
 
 func main() {
-	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true}
+	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true}
 	if len(os.Args) != 4 || os.Args[1] != "bench" || !kinds[os.Args[2]] {
-		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable N")
+		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])
@@ -100,6 +121,17 @@ func main() {
 	sum := 0
 	for i := 0; i < n; i++ {
 		switch os.Args[2] {
+		case "tagged":
+			text := `{"count":12,"_tag":"Unlabelled"}`
+			if i%2 != 0 {
+				text = `{"_tag":"Labelled","label":"wood","count":3}`
+			}
+			got, ok := readTagged(text)
+			if !ok {
+				fmt.Println(-1)
+				return
+			}
+			sum += got
 		case "omittable":
 			text := `{"count":12}`
 			if i%2 != 0 {

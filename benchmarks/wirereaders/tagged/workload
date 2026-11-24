@@ -1,0 +1,5 @@
+# Reads both union alternatives, with the tag first and last.
+unit read
+sizes 20000 120000
+args bench tagged {n}
+control benchmarks/wirereaders/testdata/control
