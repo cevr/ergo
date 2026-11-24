@@ -119,44 +119,40 @@ func Answer(r Request) json.Value fails mcp.ToolError needs counter.Counter {
 }
 
 // ReadAnswer is the outcome of r that a tool's result says: its value's
-// JSON, or, when it is an error, its failure's tagged JSON. Any other
-// result is not an answer to r, a defect.
-func ReadAnswer(r Request, result mcp.Called) counterapi.Outcome {
+// JSON, or, when it is an error, an admitted failure's tagged JSON.
+// Invalid or missing replies fail Transport, outside the operation's own row.
+func ReadAnswer(r Request, result mcp.Called) counterapi.Outcome fails rpc.Transport {
 	if len(result.Content) != 1 {
-		Unreachable("a tool answered \(len(result.Content)) blocks, not one")
+		return rpc.Transport{Reason: "a tool answered \(len(result.Content)) blocks, not one"}
 	}
 	let text = result.Content[0].Text
 	if !result.IsError {
 		match r {
 		case counterapi.AddRequest:
-			let v = rpc.Decode[int]("value", text) catch {
-			case rpc.Transport as e:
-				Unreachable("the tool add answered a value it cannot read: " + e.Reason)
-			}
+			let v = try rpc.Decode[int]("value", text)
 			counterapi.Done{Reply: counterapi.AddReply{Value: v}}
 		case counterapi.GetRequest:
-			let v = rpc.Decode[int]("value", text) catch {
-			case rpc.Transport as e:
-				Unreachable("the tool get answered a value it cannot read: " + e.Reason)
-			}
+			let v = try rpc.Decode[int]("value", text)
 			counterapi.Done{Reply: counterapi.GetReply{Value: v}}
 		}
 	} else {
-		match rpc.TagOf(text) {
-		case "Negative":
-			let e = rpc.Decode[counter.Negative]("failure", text) catch {
-			case rpc.Transport as x:
-				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+		match r {
+		case counterapi.AddRequest:
+			match rpc.TagOf(text) {
+			case "Negative":
+				let e = try rpc.Decode[counter.Negative]("failure", text)
+				counterapi.Rejected{Failure: counterapi.Negative{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool add answered an undeclared failure: " + text}
 			}
-			counterapi.Rejected{Failure: counterapi.Negative{E: e}}
-		case "Unknown":
-			let e = rpc.Decode[counter.Unknown]("failure", text) catch {
-			case rpc.Transport as x:
-				Unreachable("a tool answered a failure it cannot read: " + x.Reason)
+		case counterapi.GetRequest:
+			match rpc.TagOf(text) {
+			case "Unknown":
+				let e = try rpc.Decode[counter.Unknown]("failure", text)
+				counterapi.Rejected{Failure: counterapi.Unknown{E: e}}
+			case _:
+				return rpc.Transport{Reason: "the tool get answered an undeclared failure: " + text}
 			}
-			counterapi.Rejected{Failure: counterapi.Unknown{E: e}}
-		case _:
-			Unreachable("a tool answered an error no operation has: " + text)
 		}
 	}
 }
@@ -189,7 +185,7 @@ func Tools() []mcp.Tool needs counter.Counter {
 	})
 }
 
-func carry(c Request, answer own func(c Request) counterapi.Outcome) counterapi.Outcome {
+func carry(c Request, answer own func(c Request) counterapi.Outcome) counterapi.Outcome fails rpc.Transport {
 	let server = mcp.Server{Name: "carry", Version: "1", Tools: toolsOver(answer)}
 	let (name, arguments) = Arguments(c)
 	let message = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":" + rpc.Encode(name) + ",\"arguments\":" + textOf(arguments) + "}}"
@@ -197,25 +193,25 @@ func carry(c Request, answer own func(c Request) counterapi.Outcome) counterapi.
 	case mcp.Answered as a:
 		let result = json.Decode(json.Codec[mcp.Called]{MaxBytes: 0, MaxDepth: 0}, a.Result) catch {
 		case _:
-			Unreachable("a tool's result is not one: " + a.Result)
+			return rpc.Transport{Reason: "a tool's result is not one: " + a.Result}
 		}
-		ReadAnswer(c, result)
+		try ReadAnswer(c, result)
 	case mcp.Refused as e:
-		Unreachable("the server refused the call: " + e.Message)
+		return rpc.Transport{Reason: "the server refused the call: " + e.Message}
 	case mcp.Silent:
-		Unreachable("the server did not answer the call")
+		return rpc.Transport{Reason: "the server did not answer the call"}
 	}
 }
 
 // Wire is the protocol as a transport of the hub's calls.
-type Wire {} implements api.Transport[Request, counterapi.Outcome]
+type Wire {} implements api.Transport[Request, counterapi.Outcome, rpc.Transport]
 
 // Carry is carry.
-func Carry(w Wire, c Request, answer own func(c Request) counterapi.Outcome) counterapi.Outcome { carry(c, answer) }
+func Carry(w Wire, c Request, answer own func(c Request) counterapi.Outcome) counterapi.Outcome fails rpc.Transport { try carry(c, answer) }
 
 // Agrees: the protocol carries every call and every outcome the call
 // can have unchanged.
-law Agrees(r Request, g counterapi.Given) { api.Agrees(Wire, r, counterapi.OutcomeOf(r, g)) }
+law Agrees(r Request, g counterapi.Given) { api.Agrees[Request, counterapi.Outcome, rpc.Transport](Wire, r, counterapi.OutcomeOf(r, g)) }
 
 // RoundTrips reports whether Call reads what Arguments writes of r as r.
 func RoundTrips(r Request) bool {
