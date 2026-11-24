@@ -14,18 +14,52 @@ var StdBodies = [][2]string{
 	{"time", "Before"}, {"time", "After"}, {"time", "Equal"}, {"time", "Sub"},
 	{"time", "LayoutText"},
 	{"base64", "Encode"}, {"base64", "Decode"},
+	{"strings", "FieldsFunc"}, {"strings", "TrimFunc"},
 }
 
 // GenerateStd is a program that calls StdBodies with seeded operands:
 // instants with nanoseconds outside a second (Unix carries them), equal
 // and ordered pairs, every layout's text, and base64 texts in both
 // alphabets, some of them malformed (Decode fails, a catch reads its
-// offset). main prints every result.
+// offset). Predicates read a capability; a final predicate may defect.
+// A Script operation returns a slice of its instantiated argument type.
+// main prints every result.
 func GenerateStd(seed uint64) string {
 	r := rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15))
 	var b strings.Builder
-	b.WriteString("import base64\nimport time\n\n")
+	b.WriteString("import base64\nimport strings\nimport testing\nimport time\n\n")
 	b.WriteString("func decoded(e base64.Encoding, s string) string {\n\tbase64.Decode(e, s) catch {\n\tcase base64.Malformed as m:\n\t\t\"bad \\(m.Offset)\"\n\t}\n}\n\n")
+	b.WriteString(`type RuneProbe { Split(r rune) bool }
+
+type Separator { Mark rune } implements RuneProbe
+
+func Split(p Separator, r rune) bool {
+	if r == '!' {
+		Unreachable("predicate defect")
+	}
+	r == p.Mark
+}
+
+func splitAt(r rune) bool needs RuneProbe { RuneProbe.Split(r) }
+
+func splitText(s string) string {
+	with context { RuneProbe: Separator{Mark: 'x'} } {
+		let fields = strings.FieldsFunc(s, splitAt)
+		"\(len(fields)) \(strings.TrimFunc(s, splitAt))"
+	}
+}
+
+type Key { N int }
+type Recorder { Seen(k Key) }
+
+func scriptArgs(i int) int {
+	let s = testing.Script[Recorder]{}
+	with context { Recorder: s } { Recorder.Seen(Key{N: i}) }
+	let read = s.Seen.Calls()
+	read[0].N
+}
+
+`)
 	b.WriteString("func main() needs Console {\n")
 	nsec := func() int64 {
 		switch r.IntN(4) {
@@ -68,6 +102,11 @@ func GenerateStd(seed uint64) string {
 			junk.WriteByte(letters[r.IntN(len(letters))])
 		}
 		fmt.Fprintf(&b, "\tConsole.Println(\"junk %d \\(decoded(%s, %q))\")\n", i, enc, junk.String())
+	}
+	fmt.Fprintf(&b, "\tConsole.Println(splitText(%q))\n", fmt.Sprintf("xx%dx%dx", r.IntN(10), r.IntN(10)))
+	fmt.Fprintf(&b, "\tConsole.Println(\"recorded \\(scriptArgs(%d))\")\n", r.IntN(100))
+	if seed%6 == 0 {
+		b.WriteString("\tConsole.Println(splitText(\"!\"))\n")
 	}
 	b.WriteString("}\n")
 	return b.String()

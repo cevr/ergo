@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -36,11 +37,18 @@ func TestIRDefectsMatchSource(t *testing.T) {
 			t.Fatalf("the program does not check: %v\n%s", err, text)
 		}
 		sb, ib, rep := both(t, u, src, ir, dir, BuildOptions{})
+		const reason = "runtime leaf's generic function in a generic body"
+		if n := rep.Fallback[reason]; n != 0 {
+			t.Errorf("seed %d: %d bodies fallback with %q\n%s\n%s", seed, n, reason, replay, text)
+		}
 		a, b := run(t, sb), run(t, ib)
 		if a != b {
 			t.Fatalf("seed %d: the paths differ\nsource: %+v\nir:     %+v\n%s\n%s", seed, a, b, replay, text)
 		}
-		for _, f := range []string{"classify", "half", "guard", "capped", "caught"} {
+		if site == 6 && (a.exit == 0 || !strings.Contains(a.stderr, "lost at the leaf")) {
+			t.Errorf("seed %d did not report the leaf defect: %+v\n%s", seed, a, replay)
+		}
+		for _, f := range []string{"classify", "half", "guard", "capped", "caught", "keep"} {
 			if !slices.Contains(rep.IR, f) {
 				t.Errorf("seed %d: %s has no IR body (IR bodies: %v)\n%s\n%s", seed, f, rep.IR, replay, text)
 			}

@@ -62,7 +62,7 @@ func (b *irBuilder) litParam(v *check.Var, id *syntax.Ident, t check.Type, site 
 	if v == nil {
 		return b.temp("p", b.goType(t, site), p)
 	}
-	return b.local(v, id)
+	return b.bindLocal(v, id) // openScopeOf registers it in the literal's frame
 }
 
 // hasSig reports a slice type whose elements are, at some depth, function
