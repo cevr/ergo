@@ -15,24 +15,23 @@ import (
 // program, the same rows std codegraph and `ergo graph` read, never a
 // second walk of the checker's structures (§12.8 Risk 1).
 
-// layoutRows is the rows of a program with the indexes the rules read.
+// layoutRows is the run's graph rows with the indexes the layout rules
+// read, built once per run (runShared.layoutRows).
 type layoutRows struct {
-	t *graphrows.Table
-	// pkg and file are each node's package and file node, NoNode for
-	// none.
-	pkg, file []uint32
-	// fileNode is each file node by its module-relative name.
-	fileNode map[string]uint32
+	*programGraph
 	// imports holds each package -> package import.
 	imports map[[2]uint32]bool
-	// reexport is a let's re-exported declaration.
+	// reexport is a let's re-exported declaration, for the lets of the
+	// linted module's own packages.
 	reexport map[uint32]uint32
 	// names is each program package's name, by path.
 	names map[string]string
 	// impls is the program's implementation packages (implementations).
 	impls map[string]bool
-	// paths is each program package's import path (unitPath).
-	paths map[*check.Package]string
+	// reach lists, by file index, the other files of its package whose
+	// declarations the file's own use (fileReaches); built on first use.
+	reach      rowLists
+	reachBuilt bool
 }
 
 // unitPath is u's import path: the loader's, else the checker's.
@@ -43,49 +42,31 @@ func unitPath(u Unit) string {
 	return u.Package.Path
 }
 
-// layoutRowsOf builds the rows of units, the program's packages.
-func layoutRowsOf(units []Unit) *layoutRows {
-	var pkgs []graphrows.SourcePackage
+// layoutRows is the run's layout rows, built on first use; units are the
+// program's packages (Pass.Program).
+func (s *runShared) layoutRows(units []Unit) *layoutRows {
+	if s.layout == nil {
+		s.layout = layoutRowsOf(s.programGraph(), units)
+	}
+	return s.layout
+}
+
+// layoutRowsOf indexes g for the layout rules; units are the program's
+// packages.
+func layoutRowsOf(g *programGraph, units []Unit) *layoutRows {
 	names := map[string]string{}
-	paths := map[*check.Package]string{}
 	for _, u := range units {
-		paths[u.Package] = unitPath(u)
-		sp := graphrows.SourcePackage{Path: unitPath(u), Info: u.Package}
-		for _, f := range u.Files {
-			sp.Files = append(sp.Files, graphrows.SourceFile{Name: f.Rel, Syntax: f.Syntax})
-		}
-		pkgs = append(pkgs, sp)
 		names[unitPath(u)] = u.Package.Name
 	}
-	t := graphrows.Build(pkgs)
-	lr := &layoutRows{t: t, fileNode: map[string]uint32{}, imports: map[[2]uint32]bool{}, reexport: map[uint32]uint32{}, names: names, impls: implementations(units), paths: paths}
-	lr.pkg = make([]uint32, len(t.Nodes))
-	lr.file = make([]uint32, len(t.Nodes))
-	for i := range t.Nodes {
-		lr.pkg[i], lr.file[i] = graphrows.NoNode, graphrows.NoNode
-		for n := uint32(i); n != graphrows.NoNode; n = t.Nodes[n].Parent {
-			switch t.Nodes[n].Kind {
-			case graphrows.File:
-				if lr.file[i] == graphrows.NoNode {
-					lr.file[i] = n
-				}
-			case graphrows.Package:
-				lr.pkg[i] = n
-			}
-			if lr.pkg[i] != graphrows.NoNode {
-				break
-			}
-		}
-		if t.Nodes[i].Kind == graphrows.File {
-			lr.fileNode[t.Str(t.Nodes[i].Name)] = uint32(i)
-		}
-	}
-	for _, e := range t.Edges {
+	lr := &layoutRows{programGraph: g, imports: map[[2]uint32]bool{}, reexport: map[uint32]uint32{}, names: names, impls: implementations(units)}
+	for _, e := range g.t.Edges {
 		switch e.Kind {
 		case graphrows.Imports:
 			lr.imports[[2]uint32{lr.pkg[e.From], e.To}] = true
 		case graphrows.ReExports:
-			lr.reexport[e.From] = e.To
+			if lr.subject[lr.pkg[e.From]] {
+				lr.reexport[e.From] = e.To
+			}
 		}
 	}
 	return lr
@@ -93,20 +74,6 @@ func layoutRowsOf(units []Unit) *layoutRows {
 
 // path is a package node's path.
 func (lr *layoutRows) path(pkg uint32) string { return lr.t.Str(lr.t.Nodes[pkg].Name) }
-
-// edgesIn calls visit with each edge of kind whose position is in the
-// file rel, and its offset there.
-func (lr *layoutRows) edgesIn(rel string, kind graphrows.EdgeKind, visit func(e graphrows.Edge, off syntax.Pos)) {
-	f, ok := lr.fileNode[rel]
-	if !ok {
-		return
-	}
-	for i, e := range lr.t.Edges {
-		if e.Kind == kind && lr.t.EdgeAt[i].File == f {
-			visit(e, syntax.Pos(lr.t.EdgeAt[i].Off))
-		}
-	}
-}
 
 // layerOf is the index of the first layer that names path: the path
 // itself, or with a trailing "/..." every path under its prefix (std
@@ -129,15 +96,19 @@ type layerOptions struct {
 // fileReaches reports whether file node from reaches file node to by uses
 // between files of one package.
 func (lr *layoutRows) fileReaches(from, to uint32) bool {
-	next := map[uint32][]uint32{}
-	for _, e := range lr.t.Edges {
-		if e.Kind != graphrows.Uses {
-			continue
-		}
-		a, b := lr.file[e.From], lr.file[e.To]
-		if a != graphrows.NoNode && b != graphrows.NoNode && a != b && lr.pkg[a] == lr.pkg[b] {
-			next[a] = append(next[a], b)
-		}
+	if !lr.reachBuilt {
+		lr.reach = rowListsOf(lr.t, len(lr.files), func(i int) int {
+			e := lr.t.Edges[i]
+			if e.Kind != graphrows.Uses {
+				return -1
+			}
+			a, b := lr.file[e.From], lr.file[e.To]
+			if a == graphrows.NoNode || b == graphrows.NoNode || a == b || lr.pkg[a] != lr.pkg[b] || !lr.subject[lr.pkg[a]] {
+				return -1
+			}
+			return int(lr.fileIndex[a])
+		})
+		lr.reachBuilt = true
 	}
 	seen := map[uint32]bool{from: true}
 	work := []uint32{from}
@@ -147,8 +118,8 @@ func (lr *layoutRows) fileReaches(from, to uint32) bool {
 		if n == to {
 			return true
 		}
-		for _, m := range next[n] {
-			if !seen[m] {
+		for _, i := range lr.reach.of(int(lr.fileIndex[n])) {
+			if m := lr.file[lr.t.Edges[i].To]; !seen[m] {
 				seen[m] = true
 				work = append(work, m)
 			}
@@ -174,15 +145,13 @@ func (lr *layoutRows) testCode(p *Pass) bool {
 			ctors[c] = true
 		}
 	}
-	f, ok := lr.fileNode[p.Rel()]
-	if !ok {
-		return false
-	}
+	f := lr.fileOf(p)
 	// used is each top-level declaration of the file that code outside
 	// it, not a test or a law, uses, by name.
 	used := map[string]bool{}
-	for _, e := range lr.t.Edges {
-		if e.Kind != graphrows.Uses || lr.file[e.To] != f || lr.file[e.From] == f {
+	for _, i := range lr.into.of(int(lr.fileIndex[f])) {
+		e := lr.t.Edges[i]
+		if lr.file[e.From] == f {
 			continue
 		}
 		if k := graphrows.DeclKind(lr.t.Nodes[lr.top(e.From)].Sub); k != graphrows.Test && k != graphrows.Law {
