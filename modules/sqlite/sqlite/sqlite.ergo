@@ -1,0 +1,285 @@
+import go github.com/cevr/ergo/modules/sqlite/driver
+import sql
+import time
+
+// DB is a pure-Go SQLite database pool implementing std sql.DB. Every
+// connection is configured with WAL mode (on file databases), busy_timeout,
+// foreign_keys=ON, and synchronous=NORMAL. Begin starts a BEGIN IMMEDIATE
+// transaction by default so sql.Transaction serializes concurrent writers
+// across tasks and processes without mid-transaction SQLITE_BUSY upgrade
+// failures. Use ReadOnly(db) for a deferred read-only transaction view.
+type DB { raw go.Ref[driver.DB], deferred bool } implements sql.DB
+
+// Tx is an open SQLite transaction implementing std sql.Conn, including
+// nested SAVEPOINT / RELEASE / ROLLBACK TO support.
+type Tx { raw go.Ref[driver.DB], id int64 } implements sql.Conn
+
+// Open opens a SQLite database at path with DefaultOptions (WAL on file
+// databases, 5000 ms busy_timeout, foreign_keys=ON, synchronous=NORMAL, and
+// BEGIN IMMEDIATE write transactions).
+func Open(path string) DB fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	try OpenWith(path, DefaultOptions())
+}
+
+// OpenWith opens a SQLite database at path with explicit Options.
+func OpenWith(path string, opts Options) DB fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let dsn = BuildDSN(path, opts)
+	let raw = driver.Open(dsn, IsMemoryPath(path)) catch {
+	case go.Error as e:
+		try raiseStatement[go.Ref[driver.DB]](classifyGoError(e))
+	}
+	DB{raw: raw, deferred: false}
+}
+
+// OpenMemory opens a private in-memory SQLite database sharing a single
+// connection across all statements and transactions.
+func OpenMemory() DB fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	try Open(":memory:")
+}
+
+// ReadOnly returns a sql.DB view over db whose Begin starts BEGIN DEFERRED
+// read-only transactions instead of BEGIN IMMEDIATE write transactions.
+func ReadOnly(db DB) DB { DB{raw: db.raw, deferred: true} }
+
+// Close closes the underlying SQLite connection pool.
+func Close(db DB) fails sql.Closed | sql.Other needs go.Foreign {
+	db.raw.Shutdown() catch {
+	case go.Error as e:
+		match classifyGoError(e) {
+		case sql.Closed as c:
+			return c
+		case sql.Other as o:
+			return o
+		case _:
+			return sql.Other{Code: "", Message: e.Text}
+		}
+	}
+}
+
+// Exec executes a statement returning no rows on db.
+func Exec(db DB, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let r = db.raw.Exec(stmt, toDriverArgs(args)) catch {
+	case go.Error as e:
+		try raiseStatement[driver.Result](classifyGoError(e))
+	}
+	sql.Result{Affected: r.Affected}
+}
+
+// Query executes a query returning rows on db.
+func Query(db DB, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let r = db.raw.Query(stmt, toDriverArgs(args)) catch {
+	case go.Error as e:
+		try raiseStatement[driver.Result](classifyGoError(e))
+	}
+	fromDriverResult(r)
+}
+
+// Begin starts a transaction on db: BEGIN IMMEDIATE by default, or BEGIN
+// DEFERRED on a ReadOnly view.
+func Begin(db DB) sql.Conn fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	if db.deferred {
+		let id = db.raw.BeginDeferred() catch {
+		case go.Error as e:
+			try raiseBegin[int64](classifyGoError(e))
+		}
+		return Tx{raw: db.raw, id: id}
+	}
+	try BeginImmediate(db)
+}
+
+// BeginImmediate starts a BEGIN IMMEDIATE write transaction on db, acquiring
+// SQLite's RESERVED write lock up front under busy_timeout.
+func BeginImmediate(db DB) Tx fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let id = db.raw.BeginImmediate() catch {
+	case go.Error as e:
+		try raiseBegin[int64](classifyGoError(e))
+	}
+	Tx{raw: db.raw, id: id}
+}
+
+// WriteTransaction runs body inside a std sql.Transaction. When sql.DB is a
+// sqlite.DB returned by Open, OpenWith, or OpenMemory, Begin acquires a
+// BEGIN IMMEDIATE write lock before body runs so read-modify-write workflows
+// serialize cleanly across concurrent tasks and OS processes.
+func WriteTransaction[T, E, R](body func() T fails E needs R | sql.Tx | sql.DB) T fails E | sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs R | sql.DB {
+	try sql.Transaction(body)
+}
+
+// Exec executes a statement returning no rows inside t.
+func Exec(t Tx, stmt string, args []sql.Value) sql.Result fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let r = t.raw.TxExec(t.id, stmt, toDriverArgs(args)) catch {
+	case go.Error as e:
+		try raiseStatement[driver.Result](classifyGoError(e))
+	}
+	sql.Result{Affected: r.Affected}
+}
+
+// Query executes a query returning rows inside t.
+func Query(t Tx, stmt string, args []sql.Value) []sql.Row fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	let r = t.raw.TxQuery(t.id, stmt, toDriverArgs(args)) catch {
+	case go.Error as e:
+		try raiseStatement[driver.Result](classifyGoError(e))
+	}
+	fromDriverResult(r)
+}
+
+// Commit commits t.
+func Commit(t Tx) fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	t.raw.TxCommit(t.id) catch {
+	case go.Error as e:
+		let _ = try raiseStatement[bool](classifyGoError(e))
+	}
+}
+
+// Rollback rolls back t, ignoring transactions that have already ended.
+func Rollback(t Tx) needs go.Foreign { t.raw.TxRollback(t.id) }
+
+// Savepoint marks a nested savepoint inside t.
+func Savepoint(t Tx, name string) fails sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	t.raw.TxSavepoint(t.id, name) catch {
+	case go.Error as e:
+		let _ = try raiseControl[bool](classifyGoError(e))
+	}
+}
+
+// Release releases a nested savepoint inside t.
+func Release(t Tx, name string) fails sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	t.raw.TxRelease(t.id, name) catch {
+	case go.Error as e:
+		let _ = try raiseControl[bool](classifyGoError(e))
+	}
+}
+
+// RollbackTo rolls back t to the named savepoint.
+func RollbackTo(t Tx, name string) fails sql.Timeout | sql.Closed | sql.Other needs go.Foreign {
+	t.raw.TxRollbackTo(t.id, name) catch {
+	case go.Error as e:
+		let _ = try raiseControl[bool](classifyGoError(e))
+	}
+}
+
+func classifyGoError(e go.Error) sql.Failure {
+	match go.As[driver.Failure](e) {
+	case Some as f:
+		ClassifyCode(f.Value.Code, f.Value.Message, f.Value.Closed, f.Value.Timeout)
+	case None:
+		sql.Other{Code: "", Message: e.Text}
+	}
+}
+
+func raiseStatement[T](f sql.Failure) T fails sql.Unique | sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	match f {
+	case sql.Unique as x:
+		x
+	case sql.Serialization as x:
+		x
+	case sql.Deadlock as x:
+		x
+	case sql.Timeout as x:
+		x
+	case sql.Closed as x:
+		x
+	case sql.Other as x:
+		x
+	case sql.NoRows as n:
+		sql.Other{Code: "", Message: "no rows: " + n.Statement}
+	}
+}
+
+func raiseBegin[T](f sql.Failure) T fails sql.Serialization | sql.Deadlock | sql.Timeout | sql.Closed | sql.Other {
+	match f {
+	case sql.Serialization as x:
+		x
+	case sql.Deadlock as x:
+		x
+	case sql.Timeout as x:
+		x
+	case sql.Closed as x:
+		x
+	case sql.Other as x:
+		x
+	case sql.Unique as x:
+		sql.Other{Code: "2067", Message: x.Constraint}
+	case sql.NoRows as n:
+		sql.Other{Code: "", Message: "no rows: " + n.Statement}
+	}
+}
+
+func raiseControl[T](f sql.Failure) T fails sql.Timeout | sql.Closed | sql.Other {
+	match f {
+	case sql.Timeout as x:
+		x
+	case sql.Closed as x:
+		x
+	case sql.Other as x:
+		x
+	case sql.Unique as x:
+		sql.Other{Code: "2067", Message: x.Constraint}
+	case sql.Serialization as x:
+		sql.Other{Code: "5", Message: x.Message}
+	case sql.Deadlock as x:
+		sql.Other{Code: "6", Message: x.Message}
+	case sql.NoRows as n:
+		sql.Other{Code: "", Message: "no rows: " + n.Statement}
+	}
+}
+
+func toDriverArgs(args []sql.Value) []driver.Arg {
+	let mut out = []driver.Arg{}
+	for a in args {
+		let mut h = driver.Arg{Kind: driver.KindNull, N: 0, F: 0.0, B: false, S: "", Data: []byte{}, Sec: 0, Nsec: 0}
+		match a {
+		case sql.Null:
+		case sql.Int as v:
+			h = driver.Arg{..h, Kind: driver.KindInt, N: v.N}
+		case sql.Float as v:
+			h = driver.Arg{..h, Kind: driver.KindFloat, F: v.F}
+		case sql.Bool as v:
+			h = driver.Arg{..h, Kind: driver.KindBool, B: v.B}
+		case sql.Text as v:
+			h = driver.Arg{..h, Kind: driver.KindText, S: v.S}
+		case sql.Bytes as v:
+			h = driver.Arg{..h, Kind: driver.KindBytes, Data: v.B}
+		case sql.Stamp as v:
+			h = driver.Arg{..h, Kind: driver.KindStamp, Sec: v.At.UnixSeconds(), Nsec: v.At.Nanosecond()}
+		}
+		out = out.Append(h)
+	}
+	out
+}
+
+func fromDriverResult(r driver.Result) []sql.Row {
+	let width = len(r.Columns)
+	let mut rows = []sql.Row{}
+	if width == 0 {
+		return rows
+	}
+	let mut values = []sql.Value{}
+	for h in r.Cells {
+		values = values.Append(fromDriverArg(h))
+		if len(values) == width {
+			rows = rows.Append(sql.Row{Columns: r.Columns, Values: values})
+			values = []sql.Value{}
+		}
+	}
+	rows
+}
+
+func fromDriverArg(h driver.Arg) sql.Value {
+	match h.Kind {
+	case 1:
+		sql.Int{N: h.N}
+	case 2:
+		sql.Float{F: h.F}
+	case 3:
+		sql.Bool{B: h.B}
+	case 4:
+		sql.Text{S: h.S}
+	case 5:
+		sql.Bytes{B: h.Data}
+	case 6:
+		sql.Stamp{At: time.Unix(h.Sec, h.Nsec)}
+	case _:
+		sql.Null
+	}
+}
