@@ -5,8 +5,8 @@
       "name": "tomlparse-set-twice-is-a-clash",
       "origin": "wf10 PA2",
       "file": "examples/tomlparse/toml/define.ergo",
-      "from": "\tcase (_, Set):\n\t\tDone[Refusal]{Output: Twice}",
-      "to": "\tcase (_, Set):\n\t\tDone[Refusal]{Output: Conflict{Why: \"is defined\"}}",
+      "from": "\tcase (_, Set):\n\t\tTwice",
+      "to": "\tcase (_, Set):\n\t\tConflict{Why: \"is defined\"}",
       "rule": "A key given a value once more is defined twice (laws Definition.SetOnlyOnce and toml.RedefinedKeysFail).",
       "killers": [
         "examples:tomlparse"
@@ -71,8 +71,8 @@
       "name": "tomlparse-header-twice-accepted",
       "origin": "wf10 PA2",
       "file": "examples/tomlparse/toml/define.ergo",
-      "from": "\tcase (Header, Open):\n\t\tDone[Refusal]{Output: Twice}",
-      "to": "\tcase (Header, Open):\n\t\tStay[Shape]{Next: s}",
+      "from": "\tcase (Header, Open):\n\t\tTwice",
+      "to": "\tcase (Header, Open):\n\t\ts",
       "rule": "A [table] header defines its table once (case twice; toml-test invalid/table/duplicate-*).",
       "killers": [
         "examples:tomlparse"
@@ -82,8 +82,8 @@
       "name": "tomlparse-dotted-keys-extend-a-header-table",
       "origin": "wf10 PA2",
       "file": "examples/tomlparse/toml/define.ergo",
-      "from": "\tcase (Header, Dot):\n\t\tDone[Refusal]{Output: Conflict{Why: \"is a table a header defined, which dotted keys cannot extend\"}}",
-      "to": "\tcase (Header, Dot):\n\t\tStay[Shape]{Next: s}",
+      "from": "\tcase (Header, Dot):\n\t\tConflict{Why: \"is a table a header defined, which dotted keys cannot extend\"}",
+      "to": "\tcase (Header, Dot):\n\t\ts",
       "rule": "Dotted keys cannot extend a table a header defined (toml-test invalid/table/append-with-dotted-keys-*).",
       "killers": [
         "cmd/ergo:TestTOMLParseAgreesWithControl"

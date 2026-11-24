@@ -51,42 +51,52 @@ type Refusal = Twice | Conflict{Why string}
 
 type Twice {}
 
-// DefineStep is TOML's rule for a use of a key in a shape.
-func DefineStep(s Shape, u Use) Decision[Shape, Refusal] {
+func Define(s Shape, u Use) Shape fails Refusal {
 	match (s, u) {
 	case (Absent, Pass):
-		Enter[Shape]{Next: Implicit}
+		Implicit
 	case (Absent, Open):
-		Enter[Shape]{Next: Header}
+		Header
 	case (Absent, Append):
-		Enter[Shape]{Next: Tables}
+		Tables
 	case (Absent, Dot):
-		Enter[Shape]{Next: Dotted}
+		Dotted
 	case (Absent, Set):
-		Enter[Shape]{Next: Closed}
+		Closed
 	case (_, Set):
-		Done[Refusal]{Output: Twice}
+		Twice
 	case (Implicit, Pass), (Header, Pass), (Dotted, Pass), (Tables, Pass), (Tables, Append), (Dotted, Dot):
-		Stay[Shape]{Next: s}
+		s
 	case (Implicit, Open):
-		Enter[Shape]{Next: Header}
+		Header
 	case (Implicit, Dot):
-		Enter[Shape]{Next: Dotted}
+		Dotted
 	case (Header, Open):
-		Done[Refusal]{Output: Twice}
+		Twice
 	case (Implicit, Append), (Header, Append), (Dotted, Append):
-		Done[Refusal]{Output: Conflict{Why: "is a table, not an array of tables"}}
+		Conflict{Why: "is a table, not an array of tables"}
 	case (Header, Dot):
-		Done[Refusal]{Output: Conflict{Why: "is a table a header defined, which dotted keys cannot extend"}}
+		Conflict{Why: "is a table a header defined, which dotted keys cannot extend"}
 	case (Dotted, Open):
-		Done[Refusal]{Output: Conflict{Why: "is a table dotted keys defined, which a header cannot define"}}
+		Conflict{Why: "is a table dotted keys defined, which a header cannot define"}
 	case (Tables, Open):
-		Done[Refusal]{Output: Conflict{Why: "is an array of tables, not a table"}}
+		Conflict{Why: "is an array of tables, not a table"}
 	case (Tables, Dot):
-		Done[Refusal]{Output: Conflict{Why: "is an array of tables, which dotted keys cannot extend"}}
+		Conflict{Why: "is an array of tables, which dotted keys cannot extend"}
 	case (Closed, Open), (Closed, Append), (Closed, Pass), (Closed, Dot):
-		Done[Refusal]{Output: Conflict{Why: "is a value, so nothing can be added to it"}}
+		Conflict{Why: "is a value, so nothing can be added to it"}
 	}
+}
+
+func DefineStep(s Shape, u Use) Decision[Shape, Refusal] {
+	let next = Define(s, u) catch {
+	case Refusal as r:
+		return Done[Refusal]{Output: r}
+	}
+	if next == s {
+		return Stay[Shape]{Next: next}
+	}
+	Enter[Shape]{Next: next}
 }
 
 // Definition is a key's definition as a machine.
@@ -123,4 +133,29 @@ type Definition machine[Shape, Use] {
 			false
 		}
 	},
+}
+
+test DefineSeparatesTransitionAndRefusal {
+	let a Shape = try Define(Absent, Pass)
+	assert a == Implicit
+	let b Shape = try Define(a, Open)
+	assert b == Header
+	let c Shape = try Define(b, Pass)
+	assert c == Header
+	assert DefineStep(b, Pass) == Stay[Shape]{Next: Header}
+	assert DefineStep(Absent, Open) == Enter[Shape]{Next: Header}
+	let dup = Define(b, Open) catch {
+	case Twice:
+		Absent
+	case Conflict:
+		Closed
+	}
+	assert dup == Absent
+	let clash = Define(b, Dot) catch {
+	case Twice:
+		Absent
+	case Conflict:
+		Closed
+	}
+	assert clash == Closed
 }
