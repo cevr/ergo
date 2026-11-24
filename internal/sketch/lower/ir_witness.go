@@ -51,6 +51,7 @@ package lower
 // per-instantiation dictionary that the linker lays out statically.
 
 import (
+	"maps"
 	"slices"
 
 	"ergo.local/prototype/internal/sketch/check"
@@ -113,6 +114,29 @@ func (l *lowerer) reserveWitnessValues() {
 	for _, s := range sites {
 		for i := 0; i < s.n; i++ {
 			l.pkgName(pkgKey{"witness value", witnessSite{s.x, i}}, "ergoWitness")
+		}
+	}
+	for _, key := range slices.Sorted(maps.Keys(l.adapterConvs)) {
+		c := l.adapterConvs[key]
+		if len(convParams(c)) > 0 {
+			continue
+		}
+		to, ok := c.To.(*check.Named)
+		if !ok {
+			continue
+		}
+		iface, ok := to.Underlying().(*check.Interface)
+		if !ok {
+			continue
+		}
+		wi := 0
+		for _, op := range iface.Methods {
+			if f := c.Table[op.Name]; f != nil {
+				wi += len(witnessParams(f.Sig))
+			}
+		}
+		for i := 0; i < wi; i++ {
+			l.pkgName(pkgKey{"ops witness", opsWitnessKey{adapter: key, idx: i}}, "ergoOpsWitness")
 		}
 	}
 }

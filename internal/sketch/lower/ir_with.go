@@ -240,14 +240,77 @@ func (b *irBuilder) withRest(x *syntax.CallExpr, i int, w *check.With, ptr int, 
 	return b.scoped(x.Trailing, b.tailTo(x.Trailing.List, ret && to == nil, to), b.pos(x.Trailing, x.Trailing.Rbrace)) // ir_own.go
 }
 
+type opsWitnessKey struct {
+	adapter string
+	idx     int
+}
+
+// opsWitnesses builds the witness field entries (w0, w1, ...) for an
+// operations conversion adapter, matching calls.go's operations.
+func (b *irBuilder) opsWitnesses(conv check.Conversion, key string, x syntax.Expr, p irPos) ([]string, []*irExpr) {
+	to, ok := conv.To.(*check.Named)
+	if !ok {
+		irNo("operations conversion with witnesses")
+	}
+	iface, ok := to.Underlying().(*check.Interface)
+	if !ok {
+		irNo("operations conversion with witnesses")
+	}
+	var keys []string
+	var elems []*irExpr
+	wi := 0
+	for _, op := range iface.Methods {
+		f := conv.Table[op.Name]
+		if f == nil || len(witnessParams(f.Sig)) == 0 {
+			continue
+		}
+		inst := conv.Instances[op.Name]
+		if inst == nil || inst.Func != f {
+			irNo("operations conversion with witnesses")
+		}
+		open := false
+		for _, t := range inst.TypeArgs {
+			if len(freeTypeParams(t)) > 0 {
+				open = true
+			}
+		}
+		if open {
+			ws := b.passedWitnesses(f, inst, witnessParams(f.Sig), p)
+			for _, w := range ws {
+				keys = append(keys, fmt.Sprintf("w%d", wi))
+				elems = append(elems, w)
+				wi++
+			}
+			continue
+		}
+		texts := b.fc.witnessArgs(f, inst, x)
+		for _, text := range texts {
+			field := fmt.Sprintf("w%d", wi)
+			wkey := pkgKey{"ops witness", opsWitnessKey{adapter: key, idx: wi}}
+			wname, ok := b.l.pkgNames[wkey]
+			if !ok {
+				irNo("operations conversion witness without its reserved name")
+			}
+			if b.st.census == nil && !b.l.texts[wkey] {
+				b.l.texts[wkey] = true
+				b.l.gen.WriteString("var " + wname + " = " + text + "\n\n")
+			}
+			keys = append(keys, field)
+			elems = append(elems, &irExpr{K: "global", Pos: p, Name: wname})
+			wi++
+		}
+	}
+	return keys, elems
+}
+
 // opsConv is e, the value of x, through the operations conversion conv:
 // the emitter's adapter (operations, sealedOperations), &A{v: e, env: env}
-// for a value of the program whose type's functions provide the
-// operations, &A{v: e} for a sealed std value, as the operation type.
-// The emitter declares the adapter; the IR builds its literal. A value
-// whose type is already an interface is itself; a Script's is &A{v: e}.
-// A type parameter's, a generic adapter's and one with witnesses stay the
-// emitter's.
+// (plus any table-function witness fields w0, w1, ...) for a value of the
+// program whose type's functions provide the operations, &A{v: e} for a
+// sealed std value, as the operation type. The emitter declares the
+// adapter; the IR builds its literal. A value whose type is already an
+// interface is itself; a Script's is &A{v: e}. A type parameter's and a
+// generic adapter's stay the emitter's.
 func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *irExpr {
 	l := b.l
 	if to, ok := conv.To.(*check.Named); ok && to.Obj.Pkg.Host() && !goAdapterConv(conv) {
@@ -305,10 +368,15 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 	if len(convParams(conv)) > 0 {
 		irNo("generic operations conversion")
 	}
+	hasWitnesses := false
 	for _, f := range conv.Table {
 		if f != nil && len(witnessParams(f.Sig)) > 0 {
-			irNo("operations conversion with witnesses")
+			hasWitnesses = true
+			break
 		}
+	}
+	if hasWitnesses && sealed {
+		irNo("operations conversion with witnesses")
 	}
 	// The emitter declares the adapter (its text is the emitter's form
 	// of this same value, unused here).
@@ -326,6 +394,10 @@ func (b *irBuilder) opsConv(conv check.Conversion, e *irExpr, x syntax.Expr) *ir
 			env = &irExpr{K: "local", Pos: p, I: b.env}
 		}
 		lit.Keys, lit.Elems = append(lit.Keys, "env"), append(lit.Elems, env)
+	}
+	if hasWitnesses {
+		wk, we := b.opsWitnesses(conv, key, x, p)
+		lit.Keys, lit.Elems = append(lit.Keys, wk...), append(lit.Elems, we...)
 	}
 	return &irExpr{K: "toiface", Pos: p, T: b.goType(conv.To, x), X: &irExpr{K: "addr", Pos: p, X: lit}}
 }

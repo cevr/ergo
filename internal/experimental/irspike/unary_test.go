@@ -80,6 +80,9 @@ func TestIRUnaryOperandsMatchSource(t *testing.T) {
 //   - valuecapture (IR-FALLBACK-REMAINDER r5): escaping function literals
 //     and trailing blocks snapshot captured let mut locals by value on
 //     the IR (mutant ir-value-capture-refused);
+//   - opswitness (IR-FALLBACK-REMAINDER r5): operations conversions whose
+//     table functions take witnesses populate the adapter's witness fields
+//     on the IR (mutant ir-ops-conv-witness-refused);
 //   - taskwait: a task with no success value still returns a Go pair.
 //     A closed-row wait discards both results; try and a tail return
 //     preserve the typed failure (mutant ir-bound-unit-result-pair-lost).
@@ -108,6 +111,7 @@ func TestIRReprosMatchSource(t *testing.T) {
 		{name: "slotmatch", fns: []string{"describe", "attempt", "ergo__leafSlot", "ergo__pickSlot", "ergo__tryPickSlot"}},
 		{name: "subunionmatch", fns: []string{"settle", "noBind", "firstWins", "nodeLeaf", "nodeBranch", "ergo__nodeBranchSlot", "describeNode"}},
 		{name: "valuecapture", fns: []string{"makeAdder", "makeLookup", "nestedCapture", "trailingCapture"}},
+		{name: "opswitness", fns: []string{"makeScaled", "makeDynScaled", "makeNested", "withScaled"}},
 		{name: "stdclose", fns: []string{"size", "chunks", "io__File"}, wantStdout: "read true same true missing -2\n"},
 		{name: "taskwait", fns: []string{"wait", "tryWait", "tailWait"}, wantStdout: "try success: true; try rejected: true; tail rejected: true\n"},
 	} {
