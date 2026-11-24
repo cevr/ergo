@@ -13,10 +13,3 @@ func EmptyCallFacts() CallFacts { CallFacts{flags: []uint8{}} }
 // HasCallFacts tells the driver whether the package produced a projection
 // at all. A verdict can still explicitly withhold proof for a function.
 func HasCallFacts(facts CallFacts) bool { len(facts.flags) > 0 }
-
-// summarizeCalls projects one fresh typing from Package's existing
-// columns, using only summaries of already-typed direct imports. The
-// default proves nothing until CALLS enables the projection.
-func summarizeCalls(_ fnb, _ []ImportCallFacts) CallFacts {
-	EmptyCallFacts()
-}
