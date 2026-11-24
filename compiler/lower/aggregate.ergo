@@ -11,6 +11,13 @@ type aggregate {
 	values []dense.ID[syntax.Node],
 }
 
+// recordLit exposes the written value nodes to the control planner. The
+// planner uses these for liveness on both record and slice literals.
+func recordLit(st fnb, x dense.ID[syntax.Node], cl syntax.CompositeLit) (int, []string, []dense.ID[syntax.Node]) fails Unported {
+	let lit = try aggregateLiteral(st, x, cl)
+	(lit.record, lit.keys, lit.values)
+}
+
 // aggregateLiteral resolves the literal's operands in source order. A
 // new slice has no seeded capacity in an immutable binding or tail; an
 // ordinary record with every field set has no default or slot adapter.
