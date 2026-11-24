@@ -30,10 +30,12 @@ func WidthOrLost(t Transport[string, int, Lost], c string) int fails Lost {
 	try t.Carry(c, width)
 }
 
+func Widen(t Transport[string, int]) Transport[string, int, Lost] { t }
+
 test TransportCarriesItsInstanceRow {
 	assert DirectWidth("abc") == 3
 	assert EchoWidth("abcd") == 4
-	let carried = WidthOrLost(dropping, "abcde") catch {
+	let carried = WidthOrLost(Widen(echo), "abcde") catch {
 	case Lost:
 		-1
 	}

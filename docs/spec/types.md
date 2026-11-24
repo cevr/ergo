@@ -348,6 +348,8 @@ func NewStore() Store  { return Mem{} } // Mem declares Store
    - its error row is a subset of `I`'s method's error row;
    - its `needs` row is a subset of `I`'s method's `needs` row.
 
+   Instances of the same operation type share a Go interface ABI. An existing value can widen its empty failure row through that interface when the method types and row subsets match. This does not let an infallible implementation claim the nonempty instance directly.
+
    This is method-row compatibility: an implementation may fail less and require less, never more. A clause that fails it is S106 at the clause, and a use of the type adds nothing. The prelude's `Closer` is met by the release shape, `Close(x T)` with no result and an empty failure row ([resources.md](resources.md) R1, R2); in a Go binding `Close() error` meets it. `ergo fix [--dry-run] [--go] PATH…` writes the clauses that the old method-set rule admitted. A value that holds a `Task` is not assignable to an operation type that holds none, which would erase its ownership (S108; [runtime.md](runtime.md#tasks) rule 3); a `Task` keeps its own type. *Prior art:* Java, C# and Hylo declare conformance on the type; Rust declares it apart and allows only the trait's or the type's crate; Elixir's `@behaviour` is checked at compile time in the module; ReScript checks a module against a signature where it is declared; Go stays structural and asserts by hand (`var _ io.Closer = T{}`).
 2. A union type is not an interface in this sense; it is assignable only by the variant rule (clause 4).
 3. Resources keep their rules: assigning a resource to an interface without `Close` is an error (R22), and assigning it to one with `Close` moves it (R23) ([resources.md](resources.md#conversions)).
