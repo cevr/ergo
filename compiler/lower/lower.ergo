@@ -526,7 +526,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	case _:
 		return stop("body that is no block")
 	}
-	let (lets, tailX) = statements(st, list, n) catch {
+	let prepared = statements(st, body, list, f.Names, n) catch {
 	case Unported as u:
 		if sig != "" {
 			return stop(sig + " / body: " + u.Cause)
@@ -541,17 +541,7 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	let fp = pos(*st, syntax.TokPos(p, d.Func))
 	let end = pos(*st, syntax.TokPos(p, rbrace))
 	try ir.Begin(b, gname, fp, end)
-	let mut roots = []uint32{}
-	for l in lets {
-		// A let is its local and its def. Every let is read (S110), so
-		// lower's irUseLocals discards none.
-		try ir.AddLocal(b, l.name, l.typ, pos(*st, syntax.NodePos(p, l.at)))
-		let at = pos(*st, syntax.TokPos(p, l.tok))
-		let x = try value(*st, b, l.value)
-		roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "def"), at, []uint32{uint32(l.local), x}))
-	}
-	let x = try value(*st, b, tailX)
-	roots = roots.Append(try ir.Row(b, ir.KindCode(ir.TStmt, "ret"), pos(*st, syntax.NodePos(p, tailX)), []uint32{x}))
+	let roots = try controlEmit(*st, b, prepared, end)
 	try ir.End(b, ir.List(b, roots))
 	let _ = lbrace
 	true
@@ -560,54 +550,9 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 // aLet is a let the slice builds: `let name = value` of a basic type.
 type aLet { tok int, at dense.ID[syntax.Node], name string, typ string, value dense.ID[syntax.Node], local int }
 
-// statements checks the body list whole before the builder writes a row
-// (a stop leaves the builder as it was): its lets, each a local of the
-// function after its n parameters' slots, and its tail expression.
-func statements(st mut fnb, list syntax.List, n int) ([]aLet, dense.ID[syntax.Node]) fails Unported {
-	let p = st.p
-	let count = syntax.Len(list)
-	if count == 0 {
-		return stop("empty body")
-	}
-	let mut lets = []aLet{}
-	for i in 0..count-1 {
-		let l = try letOf(*st, syntax.Item(p.Tree, list, i), n+i)
-		for e in lets {
-			if e.name == l.name {
-				return stop("let name taken (local name_N)")
-			}
-		}
-		st.params = st.params.Append(bind.PNodeOf(st.k.Ps, st.file, l.at))
-		st.locals = st.locals.Append(l.local)
-		lets = lets.Append(l)
-	}
-	let tailX = match syntax.ViewOf(p.Tree, syntax.Item(p.Tree, list, count-1)) {
-	case syntax.ExprStmt as es:
-		es.X
-	case _:
-		return stop("statement form")
-	}
-	try check(*st, tailX)
-	// Two calls of one callee: lower's merge pass may read the first's
-	// local for the second (ir_merge.go), which the slice does not port.
-	let mut callees = calleeNames(*st, tailX, []string{})
-	for l in lets {
-		callees = calleeNames(*st, l.value, callees)
-	}
-	for i in 0..len(callees) {
-		if has(callees[i+1:len(callees)], callees[i]) {
-			return stop("call twice of one callee (merge)")
-		}
-	}
-	(lets, tailX)
-}
-
-// letOf checks the statement s as a let the slice builds, its local the
-// function's local'th: no extern, no mut, one name and a value, not _,
-// of a basic type, and a Go name of its own (lower's localName: its
-// spelling unless Go, the lowering's fixed names, the prelude or its own
-// package hold it, which takes name_N: a stop).
-func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
+// letOf checks one initialized scalar let, and records whether it can be
+// reassigned. The control plan allocates its slot and Go name.
+func letOf(st fnb, s dense.ID[syntax.Node], local int) (aLet, bool) fails Unported {
 	let p = st.p
 	let vd = match syntax.ViewOf(p.Tree, s) {
 	case syntax.DeclStmt as ds:
@@ -622,9 +567,6 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
 	}
 	if dense.Unpack(vd.Extern) != None {
 		return stop("extern let")
-	}
-	if vd.Mut >= 0 {
-		return stop("mut let")
 	}
 	let spec = match syntax.ViewOf(p.Tree, vd.Spec) {
 	case syntax.VarSpec as sp:
@@ -651,10 +593,7 @@ func letOf(st fnb, s dense.ID[syntax.Node], local int) aLet fails Unported {
 		return stop("let of " + typeCause(st, try typeOf(st, value, "let value")))
 	}
 	try check(st, value)
-	if goReserved(name) || has(fixedNames, name) || has(st.prelude, name) || pkgDecl(st, name) {
-		return stop("let name taken (local name_N)")
-	}
-	aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}
+	(aLet{tok: vd.Var, at: at, name: name, typ: gt, value: value, local: local}, vd.Mut >= 0)
 }
 
 // aCall is a call the slice builds: the callee's Go name, whether it is
