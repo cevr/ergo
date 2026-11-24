@@ -180,7 +180,7 @@ func registerRunner(t nativeTables) {
 	}
 	// OnEnd is ActorOnEnd: f runs when the actor ends (rule 14b); after
 	// the end took its actions it fails Stopped.
-	t.reads["actor.OnEnd"] = "host:actor.Actor"
+	t.reads["actor.OnEnd"] = "host:actor.Actor func/0"
 	natives["actor.OnEnd"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])
 		if a.endTaken {
