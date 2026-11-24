@@ -43,5 +43,8 @@ func archiveSites(file, text string) ([]site, error) {
 		}
 		offset = after
 	}
-	return all, readMember(len(text))
+	if err := readMember(len(text)); err != nil {
+		return nil, err
+	}
+	return all, nil
 }
