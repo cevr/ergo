@@ -142,14 +142,15 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	}
 	before := cases.format()
 	fresh, skipped, err := licenceEntries(unit.Package, names, old, keys, req.Stderr, cases, req.Toolchain)
-	if err != nil {
+	var refuted *ClaimLicenceRefutedError
+	if err != nil && !errors.As(err, &refuted) {
 		return 0, err
 	}
 	// A skipped licence fails the test once the ledger is written
 	// (AC10): the entry records it, and the error names the fix.
-	var skip error
+	verdict := err
 	if len(skipped) > 0 {
-		skip = &LicenceSkippedError{Skipped: skipped}
+		verdict = errors.Join(verdict, &LicenceSkippedError{Skipped: skipped})
 	}
 	if HasMain(unit.Package) {
 		// RewriteChecks runs nothing when neither the root nor an import
@@ -185,7 +186,8 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 	// The corpus keeps a law's cases while its package declares it in
 	// the rewrite's scope, by the ledger's pruning rule.
 	for k := range cases {
-		if !src.declares(lower.LedgerEntry{Law: k}) {
+		law, claimant, _ := strings.Cut(k, " for ")
+		if !src.declares(lower.LedgerEntry{Law: law, Provider: claimant}) {
 			delete(cases, k)
 		}
 	}
@@ -196,12 +198,12 @@ func UpdateLedger(a Analysis, req BuildRequest) (int, error) {
 		}
 	}
 	if changed == 0 {
-		return 0, skip
+		return 0, verdict
 	}
 	if err := writeFileAtomic(req.Ledger, []byte(lower.FormatLedger(next))); err != nil {
 		return 0, err
 	}
-	return changed, skip
+	return changed, verdict
 }
 
 // ledgerSource answers whether the module's sources still declare a
@@ -237,8 +239,21 @@ func (s ledgerSource) declares(e lower.LedgerEntry) bool {
 	if e.Provider == "" {
 		return true
 	}
-	if p, known := s.pkg(provPkg); known && (p == nil || !slices.ContainsFunc(p.Types, func(t *check.TypeName) bool { return t.Name == prov })) {
-		return false
+	if p, known := s.pkg(provPkg); known {
+		if p == nil || !slices.ContainsFunc(p.Types, func(t *check.TypeName) bool { return t.Name == prov }) {
+			return false
+		}
+		if contract, ok := s.pkg(lawPkg); ok && contract != nil {
+			isClaim := slices.ContainsFunc(contract.Laws, func(l *check.Law) bool {
+				return l.ClaimEquation() && l.Owner.Name+"."+l.Name == law
+			})
+			if isClaim && !slices.ContainsFunc(p.FunctionRewrites(), func(l *check.Law) bool {
+				b := l.ClaimRewriteBinding()
+				return b != nil && b.Type.Obj.Name == prov && s.names.Of(l.Pkg) == lawPkg && l.Owner.Name+"."+l.Name == law
+			}) {
+				return false
+			}
+		}
 	}
 	return true
 }

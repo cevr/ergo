@@ -1,0 +1,5 @@
+type Sized {
+	Size() int,
+
+	law NoAmbientReceiver(_ Self) { Size() == 0 },
+}

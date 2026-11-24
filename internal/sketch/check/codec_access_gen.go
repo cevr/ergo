@@ -492,12 +492,15 @@ func CodecFieldsOf_Interface(v *Interface) CodecFields_Interface {
 }
 
 type CodecFields_Law struct {
-	F_selfUses *[]*SelfType
-	F_file     **fileInfo
+	F_selfUses     *[]*SelfType
+	F_rewriteClaim **LawProvider
+	F_rewriteInfo  **Info
+	F_rewriteRead  *func(Type) Type
+	F_file         **fileInfo
 }
 
 func CodecFieldsOf_Law(v *Law) CodecFields_Law {
-	return CodecFields_Law{F_selfUses: &v.selfUses, F_file: &v.file}
+	return CodecFields_Law{F_selfUses: &v.selfUses, F_rewriteClaim: &v.rewriteClaim, F_rewriteInfo: &v.rewriteInfo, F_rewriteRead: &v.rewriteRead, F_file: &v.file}
 }
 
 type CodecFields_LawProvider struct {
@@ -1281,10 +1284,11 @@ func CodecFieldsOf_explicitArgs(v *explicitArgs) CodecFields_explicitArgs {
 type CodecFields_fedBinding struct {
 	F_law      **Law
 	F_provider *Type
+	F_claim    **Named
 }
 
 func CodecFieldsOf_fedBinding(v *fedBinding) CodecFields_fedBinding {
-	return CodecFields_fedBinding{F_law: &v.law, F_provider: &v.provider}
+	return CodecFields_fedBinding{F_law: &v.law, F_provider: &v.provider, F_claim: &v.claim}
 }
 
 type CodecFields_fileInfo struct {
@@ -2652,11 +2656,12 @@ func CodecFieldsOf_unassignedLocal(v *unassignedLocal) CodecFields_unassignedLoc
 type CodecFields_unfedBinding struct {
 	F_law      **Law
 	F_provider **Named
+	F_claim    **LawProvider
 	F_diag     **Diagnostic
 }
 
 func CodecFieldsOf_unfedBinding(v *unfedBinding) CodecFields_unfedBinding {
-	return CodecFields_unfedBinding{F_law: &v.law, F_provider: &v.provider, F_diag: &v.diag}
+	return CodecFields_unfedBinding{F_law: &v.law, F_provider: &v.provider, F_claim: &v.claim, F_diag: &v.diag}
 }
 
 type CodecFields_universeState struct {
