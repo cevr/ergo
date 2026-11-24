@@ -8,16 +8,11 @@ import civil
 import time
 import tz
 
-// minuteLayout is how the program writes and reads a minute.
-func minuteLayout() civil.DateTimeFormat {
-	civil.FromLayout("2006-01-02 15:04 Mon") catch {
-	case civil.BadPattern:
-		Unreachable("a layout of Go's elements")
-	}
-}
+// minuteWithWeekday is the minute label printed for a firing.
+let minuteWithWeekday = civil.WithWeekday(civil.DateTimeMinutes, civil.Short)
 
 // Text is the minute of t in z as "2006-01-02 15:04 Mon".
-func Text(t time.Time, z tz.Zone) string { civil.FormatDateTime(tz.Civil(z, t), minuteLayout()) }
+func Text(t time.Time, z tz.Zone) string { civil.FormatDateTime(tz.Civil(z, t), minuteWithWeekday) }
 
 // BadMinute is a text that is not a minute written "2006-01-02 15:04".
 type BadMinute { Text string }
@@ -26,11 +21,7 @@ type BadMinute { Text string }
 // 15:04", in z. A minute z skips is read a gap later, and a minute z shows
 // twice at its first showing (tz.Compatible), as std cron fires them.
 func MinuteIn(text string, z tz.Zone) time.Time fails BadMinute {
-	let f = civil.FromLayout("2006-01-02 15:04") catch {
-	case civil.BadPattern:
-		Unreachable("a layout of Go's elements")
-	}
-	let dt = civil.ParseDateTime(f, text) catch {
+	let dt = civil.ParseDateTime(civil.DateTimeMinutes, text) catch {
 	case civil.ParseError:
 		return BadMinute{Text: text}
 	}
