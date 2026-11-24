@@ -1269,6 +1269,7 @@ case unused internal/selfhostcheck/testdata/bind/elide.ergo
 case unused internal/selfhostcheck/testdata/bind/genop.ergo
 case unused internal/selfhostcheck/testdata/bind/lets.ergo
 case unused internal/selfhostcheck/testdata/bind/port_borrow.ergo
+case unused internal/selfhostcheck/testdata/bind/port_borrow2.ergo
 case unused internal/selfhostcheck/testdata/bind/port_calls.ergo
 case unused internal/selfhostcheck/testdata/bind/port_control.ergo
 case unused internal/selfhostcheck/testdata/bind/port_frame.ergo
