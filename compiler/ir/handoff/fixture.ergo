@@ -1,0 +1,108 @@
+import compiler/ir
+import slices
+import strings
+
+// columns builds the test input from human-readable records. The producer
+// already has dense columns and does not use this helper.
+func columns(width int, rows [][]uint32) []uint32 {
+	let mut out = []uint32{}
+	for c in 0..width {
+		for row in rows {
+			out = out.Append(row[c])
+		}
+	}
+	out
+}
+
+// The specimen calls an imported generic using a local dictionary,
+// defines two init functions in non-symbol order, and keeps the same
+// package identity when the checked body's first literal changes.
+func specimen(seed uint32) Draft {
+	let names = []string{"Apply", "Generic", "a/dep", "amd64", "d.Gen", "dep", "go1.27.4",
+		"init.0", "init.1", "linux", "main.ergo", "plain", "tiny", "z/tiny"}
+	let mut ends = []uint32{}
+	let mut off = uint32(0)
+	for n in names {
+		off = off + uint32(len(n))
+		ends = ends.Append(off)
+	}
+	let ty = columns(4, [][]uint32{
+		[]uint32{ir.HTBasic, ir.HBasicInt, 0, 0},
+		[]uint32{ir.HTBasic, ir.HBasicAny, 0, 0},
+		[]uint32{ir.HTSignature, 0, 0, 0},
+		[]uint32{ir.HTSignature, 0, 0, 1},
+		[]uint32{ir.HTParameter, 5, 1, 1},
+		[]uint32{ir.HTSignature, 1, 2, 2},
+		[]uint32{ir.HTGeneric, 6, 4, 1},
+		[]uint32{ir.HTSignature, 1, 5, 2},
+	})
+	let sy = columns(5, [][]uint32{
+		[]uint32{0, 1, ir.HSFunc, 4, 1},
+		[]uint32{0, 5, ir.HSDictionary, 8, 1},
+		[]uint32{0, 8, ir.HSFunc, 3, 2},
+		[]uint32{0, 9, ir.HSFunc, 3, 2},
+		[]uint32{1, 2, ir.HSFunc, 7, 0},
+	})
+	let bs = columns(5, [][]uint32{
+		[]uint32{1, 0, 2, 0, 3},
+		[]uint32{3, 2, 0, 3, 1},
+		[]uint32{4, 2, 0, 4, 1},
+	})
+	let os = columns(4, [][]uint32{
+		[]uint32{ir.HOConst, 1, 7, 3},
+		[]uint32{ir.HOCallInstance, 1, 10, 4},
+		[]uint32{ir.HOReturn, 1, 14, 1},
+		[]uint32{ir.HOReturn, 2, 15, 0},
+		[]uint32{ir.HOReturn, 2, 15, 0},
+	})
+	Draft{Text: strings.Join(names, ""), Columns: [][]uint32{
+		[]uint32{14, 13, 10, 4, 7, 12}, ends,
+		[]uint32{3, 6, 1, 0x04030201, 0x08070605},
+		[]uint32{11, 100, 0, 2, 0x12345678, 0, 0, 0, 0, 0, 0, 0},
+		[]uint32{0, 30},
+		columns(3, [][]uint32{[]uint32{1, 2, 4}, []uint32{1, 40, 43}}),
+		ty, sy, bs, []uint32{1, 1}, os,
+		[]uint32{5, 8, 2, 15, 1}, []uint32{}, []uint32{4, 3},
+		[]uint32{1, 2, 5, 5, 5, 1, 1, 1, seed, 0, 1, 1, 2, 1, 2, 1},
+	}}
+}
+
+func sample(seed uint32) Image fails Malformed { try Pack(specimen(seed)) }
+
+// VerifyFixture exercises the public codec over the selected specimen
+// and returns that image for independent readers. The laws quantify
+// over seeds; this entry provides an exact wire artifact for replay.
+func VerifyFixture(seed uint32) Image fails Malformed {
+	if !roundTrips(seed) {
+		return bad(-1, -1, "round-trip columns disagree with the specimen")
+	}
+	try sample(seed)
+}
+
+func recursiveSpecimen(seed uint32) Draft {
+	let d = specimen(seed)
+	let mut cols = slices.Clone(d.Columns)
+	let depth = int(seed%12) + 2
+	let mut rows = [][]uint32{}
+	let mut words = []uint32{}
+	for i in 0..depth-1 {
+		rows = rows.Append([]uint32{ir.HTArray, 1 + seed%64, uint32(i), 1})
+		words = words.Append(uint32(i + 2))
+	}
+	rows = rows.Append([]uint32{ir.HTPointer, 0, uint32(depth - 1), 1})
+	words = words.Append(1)
+	cols[ir.HTypes] = columns(4, rows)
+	for s in ir.HSymbols..ir.HOperands {
+		cols[s] = []uint32{}
+	}
+	cols[ir.HOperands] = words
+	Draft{..d, Columns: cols}
+}
+
+// editWord mutates the real wire, not the checked producer. Its edited
+// column can reach Decode even if Pack would have refused to emit it.
+func editWord(p Image, s int, i int, c int, v uint32) string {
+	let bytes = Encode(p)
+	let at = p.dir[s].start + (Rows(p, s)*c+i)*4
+	bytes[0:at] + le(v) + bytes[at+4:len(bytes)]
+}
