@@ -1,5 +1,6 @@
 import compiler/check/bind
 import compiler/check/expr
+import compiler/check/infer
 import compiler/check/store
 import compiler/syntax
 import dense
@@ -8,14 +9,14 @@ import strings
 type failureExit { at dense.ID[syntax.Node], operands []dense.ID[syntax.Node] }
 type falliblePlan { exit Option[failureExit] }
 
-// envFreeFallibleFrame proves a no-call scalar frame. Go excludes a
+// envFreeFallibleFrame proves a no-call frame. Go excludes a
 // method or a row with several distinct failures from flat lowering.
 // No borrowed/owned operand, dynamic witness or other effect is admitted.
 func envFreeFallibleFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops []dense.ID[store.TKey], n int) framePlan fails Unported {
 	let row = ops[n+1]
 	let members = try frameFailureMembers(st, row)
-	if basicGo(st, ops[n]) == "" {
-		return stop("scalar success result required")
+	if shapeGo(st, ops[n]) == "" {
+		return stop("SHAPES: unspelled success result")
 	}
 	let leading = if n != 0 { plainRecord(st, ops[0]) >= 0 } else { false }
 	let first = if n != 0 { Some[dense.ID[store.TKey]]{Value: ops[0]} } else { None }
@@ -123,28 +124,48 @@ func fallibleTail(st fnb, body dense.ID[syntax.Node], success dense.ID[store.TKe
 	case syntax.BlockStmt as b:
 		b.List
 	case _:
-		return stop("fallible body must have a scalar tail")
+		return stop("fallible body must have a value tail")
 	}
 	let n = syntax.Len(list)
 	if n != 1 && n != 2 {
-		return stop("fallible body must have a scalar tail")
+		return stop("fallible body must have a value tail")
 	}
-	match syntax.ViewOf(tr, syntax.Item(tr, list, n-1)) {
+	let tail = match syntax.ViewOf(tr, syntax.Item(tr, list, n-1)) {
 	case syntax.ExprStmt as e:
-		if (try typeOf(st, e.X, "success tail")) != success || !exitScalar(st, e.X) {
-			return stop("success tail is not an exact scalar")
+		e.X
+	case syntax.ReturnStmt as r:
+		match dense.Unpack(r.Result) {
+		case Some{Value: x}:
+			x
+		case None:
+			return stop("fallible value frame has a bare return")
 		}
 	case _:
-		return stop("fallible body must have a scalar tail")
+		return stop("fallible body must have a value tail")
 	}
+	let actual = try typeOf(st, unparen(st, tail), "fallible tail")
+	if actual != success && failureMember(members, actual) {
+		if n != 1 {
+			return stop("fallible frame with several failure exits")
+		}
+		return Some[failureExit]{Value: try recordFailure(st, tail, success, members)}
+	}
+	if callsIn(st.p, tail) {
+		return stop("CALLS: fallible frame value tail contains a call")
+	}
+	if actual != success && unionGo(st, success) == "" {
+		return stop("SHAPES/UNION: fallible tail needs a success conversion")
+	}
+	// CONTROL owns value admission and source-order emission, including
+	// UNION's return injection when a checked variant joins the result.
 	if n == 1 {
 		None
 	} else {
-		Some[failureExit]{Value: try earlyFailure(st, syntax.Item(tr, list, 0), members)}
+		Some[failureExit]{Value: try earlyFailure(st, syntax.Item(tr, list, 0), success, members)}
 	}
 }
 
-func earlyFailure(st fnb, node dense.ID[syntax.Node], members []dense.ID[store.TKey]) failureExit fails Unported {
+func earlyFailure(st fnb, node dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) failureExit fails Unported {
 	let tr = st.p.Tree
 	match syntax.ViewOf(tr, node) {
 	case syntax.IfStmt as branch:
@@ -156,7 +177,7 @@ func earlyFailure(st fnb, node dense.ID[syntax.Node], members []dense.ID[store.T
 					case syntax.ReturnStmt as r:
 						match dense.Unpack(r.Result) {
 						case Some{Value: x}:
-							return try recordFailure(st, x, members)
+							return try recordFailure(st, x, success, members)
 						case None:
 						}
 					case _:
@@ -170,15 +191,17 @@ func earlyFailure(st fnb, node dense.ID[syntax.Node], members []dense.ID[store.T
 	stop("typed failure must be the early return of one scalar branch")
 }
 
-func recordFailure(st fnb, x dense.ID[syntax.Node], members []dense.ID[store.TKey]) failureExit fails Unported {
+func recordFailure(st fnb, x dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) failureExit fails Unported {
 	let y = unparen(st, x)
 	let t = try typeOf(st, y, "failure return")
-	let mut admitted = false
-	for member in members {
-		admitted = admitted || member == t
-	}
-	if !admitted {
+	if !failureMember(members, t) {
 		return stop("return does not build a declared failure")
+	}
+	// An error value can also be a success type (including a variant of
+	// an all-error union). Do not guess which channel the checker chose.
+	let mut s = st.s
+	if t == success || failureMember(infer.VariantsOf(&s, st.k.Unions, success), t) {
+		return stop("checker: failure also inhabits the success result")
 	}
 	if store.KindOfType(st.s, t) == store.KNamed && failureVariant(st, t) != None {
 		return stop("UNION: direct failure variant value")
@@ -195,6 +218,15 @@ func recordFailure(st fnb, x dense.ID[syntax.Node], members []dense.ID[store.TKe
 	case _:
 	}
 	stop("failure value needs a fresh record literal")
+}
+
+func failureMember(members []dense.ID[store.TKey], t dense.ID[store.TKey]) bool {
+	for member in members {
+		if member == t {
+			return true
+		}
+	}
+	false
 }
 
 // Fresh aggregates need no ownership/copy decision. Leave a reference
