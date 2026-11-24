@@ -722,5 +722,58 @@ test CheckDropPartTemp {
 	assert log.Get() == id
 }
 `, 1+seed%7)
+	names = append(names, "DropSliceTask")
+	src.WriteString(`
+func DropSliceTask(owned own []Task[bool], at int, reject bool) bool fails Bad {
+	let chosen, rest = owned.TakeAt(at)
+	if reject { return Bad }
+	chosen.Stop()
+	true
+}
+
+func startBlocked(log sync.Ref[int]) Task[bool] {
+	let started = queue.New[bool](1)
+	let t = task.Go() {
+		let idle = queue.New[bool](1)
+		scope.OnExit() { log.Set(log.Get()+1) }
+		started.Push(true) catch { case queue.Closed: Unreachable("start queue closed") }
+		idle.Pop() catch { case queue.Closed: false }
+	}
+	let _ = started.Pop() catch { case queue.Closed: Unreachable("start queue closed") }
+	t
+}
+
+test CheckDropSliceTask {
+	let a = sync.NewRef(0)
+	let b = sync.NewRef(0)
+	let x = startBlocked(a)
+	let y = startBlocked(b)
+	assert a.Get() == 0 && b.Get() == 0
+	let ok = DropSliceTask([]Task[bool]{x, y}, 0, false) catch { case Bad: false }
+	assert ok
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let x2 = startBlocked(a)
+	let y2 = startBlocked(b)
+	assert a.Get() == 0 && b.Get() == 0
+	let rejected = DropSliceTask([]Task[bool]{x2, y2}, 1, true) catch { case Bad: true }
+	assert rejected
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let crash = task.Go() {
+		let x3 = startBlocked(a)
+		let y3 = startBlocked(b)
+		try DropSliceTask([]Task[bool]{x3, y3}, 2, false)
+	}
+	let defected = match task.ExitOf(crash) {
+	case task.Defected: true
+	case _: false
+	}
+	assert defected
+	assert a.Get() == 1 && b.Get() == 1
+}
+`)
 	return src.String(), names
 }
