@@ -759,8 +759,9 @@ func (b *irBuilder) stdCloseCall(cl *check.Close, s irSlot, env, slot int, p irP
 // ownBodyChecks stops a static frame this form does not build: an owned
 // temporary or arm value, a record
 // update's replaced fields, a taking receiver passed by its address, a
-// match pattern that owns. It records in o the places with planned
-// releases (Info.Releases), which the builder must each reach.
+// match pattern that owns outside the admitted list-owned type switch.
+// It records in o the places with planned releases (Info.Releases),
+// which the builder must each reach.
 func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 	info := b.l.info
 	syntax.Inspect(body, func(n syntax.Node) bool {
@@ -778,9 +779,9 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 		// what the frame holds then (the live bits, or the scope's list),
 		// as the source path's does (OWNED-LOCAL-2).
 		switch n := n.(type) {
-		case *syntax.CaseClause:
-			if po, ok := info.PatternOwners[n]; ok && (len(po.Sources) > 0 || len(po.Bindings) > 0) {
-				irNo("owned local") // patternOwners registers them
+		case *syntax.TypeSwitchStmt:
+			if b.hasPatternOwners(n) && (!o.list || !b.fc.simpleTypeMatch(n)) {
+				irNo("owned local")
 			}
 		case *syntax.CompositeLit:
 			if len(info.Replaced[n]) > 0 {
@@ -798,6 +799,48 @@ func (b *irBuilder) ownBodyChecks(body *syntax.BlockStmt, o *irOwn) {
 		}
 		return true
 	})
+}
+
+func (b *irBuilder) hasPatternOwners(s *syntax.TypeSwitchStmt) bool {
+	for _, cl := range s.Clauses {
+		po := b.l.info.PatternOwners[cl]
+		if len(po.Sources) > 0 || len(po.Bindings) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// bindPatternOwners is the checked transfer, after the selected case
+// binds its values and before it executes the arm. Non-consuming cases
+// leave the subject's original registration intact. Only local subjects
+// are admitted; a temporary's owner needs the temporary release plan.
+func (b *irBuilder) bindPatternOwners(cl *syntax.CaseClause, p irPos) []*irStmt {
+	plan := b.l.info.PatternOwners[cl]
+	if len(plan.Sources) == 0 && len(plan.Bindings) == 0 {
+		return nil
+	}
+	o := b.own
+	if o == nil || !o.list {
+		irNo("owned local")
+	}
+	var out []*irStmt
+	for _, s := range plan.Sources {
+		h, found := o.handle[s.Var]
+		if s.Var == nil || !found {
+			irNo("owned local")
+		}
+		out = append(out, &irStmt{K: "expr", Pos: p, X: b.ownCall("Hand", "struct{}", p,
+			&irExpr{K: "local", Pos: p, I: h}, &irExpr{K: "zero", Pos: p, T: "struct{}"})})
+	}
+	for _, v := range plan.Bindings {
+		i, found := b.locals[v]
+		if !found {
+			irNo("owned local")
+		}
+		out = append(out, b.ownLet(v, i, cl, nil)...)
+	}
+	return out
 }
 
 // releasesAtExit reports a statement s of a static frame whose planned

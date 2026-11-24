@@ -103,10 +103,13 @@ func ownedResultRunSelected(t *testing.T, u lower.Unit, tc Toolchain, path Path,
 			t.Fatal(err)
 		}
 		for _, name := range wantIR {
-			if !slices.Contains(rep.IR, name) {
+			at := slices.IndexFunc(rep.IR, func(body string) bool {
+				return body == name || strings.HasSuffix(body, "."+name) // a method's receiver qualifies it
+			})
+			if at < 0 {
 				t.Fatalf("mode %q: no IR body for %s (IR %v, fallback %v)", releaseMode, name, rep.IR, rep.Fallback)
 			}
-			helper := `"name":"` + lower.HelperSpelling("", name+"Release") + `"`
+			helper := `"name":"` + lower.HelperSpelling("", strings.ReplaceAll(rep.IR[at], ".", "_")+"Release") + `"`
 			static := slices.ContainsFunc(files, func(f lower.File) bool {
 				return f.Path == lower.IRFileName && strings.Contains(string(f.Data), helper)
 			})
@@ -140,7 +143,7 @@ func ownedResultProgram(seed uint64) (string, []string) {
 	r := rand.New(rand.NewPCG(seed, seed^0x56b32d170da8cbf1))
 	prelude, _, _ := strings.Cut(ownedResultRepro, "func direct(")
 	var src strings.Builder
-	src.WriteString("import queue\nimport task\n")
+	src.WriteString("import queue\nimport scope\nimport task\n")
 	src.WriteString(prelude)
 	src.WriteString(`type Bad {}
 
@@ -385,5 +388,124 @@ test CheckDropReplacePlace {
 	assert log.Get() == 1111*id+142
 }
 `, 1+seed%5)
+	names = append(names, "DropTask", "DropPattern", "DropPatternChoice")
+	fmt.Fprintf(&src, `
+type pendingOwnedTasks { jobs Map[int, Task[bool]] }
+
+func DropTask(p mut pendingOwnedTasks, id int, reject bool, defect bool) bool fails Bad {
+	let found, rest = p.jobs.Take(id)
+	p.jobs = rest
+	match found {
+	case Some[Task[bool]] as child:
+		if defect { Unreachable("body defect") }
+		if reject { return Bad }
+		child.Value.Stop()
+		true
+	case None:
+		false
+	}
+}
+
+func exercisingTask(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let started = queue.New[bool](1)
+	let idle = queue.New[bool](1)
+	let child = task.Go() {
+		scope.OnExit() { log.Set(log.Get()+1) }
+		started.Push(true) catch { case queue.Closed: Unreachable("start queue closed") }
+		idle.Pop() catch { case queue.Closed: false }
+	}
+	let _ = started.Pop() catch { case queue.Closed: Unreachable("start queue closed") }
+	let mut p = pendingOwnedTasks{jobs: Map[int, Task[bool]]{id: child}}
+	try DropTask(&p, id, reject, defect)
+}
+
+func DropPattern(found own Option[dropTicket], reject bool, defect bool) bool fails Bad {
+	match found {
+	case Some[dropTicket] as part:
+		if part.Value.log.Get() != 0 { Unreachable("early release") }
+		if defect { Unreachable("body defect") }
+		if reject { return Bad }
+		part.Value.Close()
+		true
+	case None:
+		false
+	}
+}
+
+type DropChoice = DropKeep | DropMove
+type DropKeep { item dropTicket }
+type DropMove { item dropTicket }
+
+func DropPatternChoice(found own DropChoice, log sync.Ref[int]) bool {
+	match found {
+	case DropMove as part:
+		if part.item.log.Get() != 0 { Unreachable("early release") }
+		part.item.Close()
+		true
+	case DropKeep:
+		if log.Get() != 0 { Unreachable("early release") }
+		false
+	}
+}
+
+test CheckDropTask {
+	let id = %d
+	let log = sync.NewRef(0)
+	let mut empty = pendingOwnedTasks{jobs: Map[int, Task[bool]]{}}
+	let absent = DropTask(&empty, id, false, false) catch { case Bad: true }
+	assert !absent
+	let stopped = exercisingTask(log, id, false, false) catch { case Bad: false }
+	assert stopped
+	assert log.Get() == 1
+	log.Set(0)
+	let rejected = exercisingTask(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == 1
+	log.Set(0)
+	let crashing = task.Go() { try exercisingTask(log, id, false, true) }
+	let crashed = match task.ExitOf(crashing) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 1
+}
+
+test CheckDropPattern {
+	let id = %d
+	let log = sync.NewRef(0)
+	let empty = DropPattern(None, false, false) catch { case Bad: true }
+	assert !empty
+	let closed = DropPattern(Some[dropTicket]{Value: dropTicket{id: id, log: log, crash: false}}, false, false) catch { case Bad: false }
+	assert closed
+	assert log.Get() == id
+	log.Set(0)
+	let rejected = DropPattern(Some[dropTicket]{Value: dropTicket{id: id, log: log, crash: false}}, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == id
+	log.Set(0)
+	let crashing = task.Go() {
+		try DropPattern(Some[dropTicket]{Value: dropTicket{id: id, log: log, crash: false}}, false, true)
+	}
+	let crashed = match task.ExitOf(crashing) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == id
+}
+
+test CheckDropPatternChoice {
+	let id = %d
+	let log = sync.NewRef(0)
+	let kept = DropPatternChoice(DropKeep{item: dropTicket{id: id, log: log, crash: false}}, log)
+	assert !kept
+	assert log.Get() == id
+	log.Set(0)
+	let moved = DropPatternChoice(DropMove{item: dropTicket{id: id, log: log, crash: false}}, log)
+	assert moved
+	assert log.Get() == id
+}
+`, 1+seed%7, 1+seed%7, 1+seed%7)
 	return src.String(), names
 }
