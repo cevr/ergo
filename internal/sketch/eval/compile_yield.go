@@ -139,7 +139,7 @@ func (in *interp) compileRet(fr *frame, x syntax.Expr) fastExpr {
 			return nil, escape(ab)
 		}
 		if !xf.errSeen {
-			xf.errIs = fr.isErrorValue(fr.rtypeOf(x).t) && !fr.info.ReturnedValues[x]
+			xf.errIs = fr.returnIsFailure(x)
 			xf.errSeen = true
 		}
 		if xf.errIs {

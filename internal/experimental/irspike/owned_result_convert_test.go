@@ -40,8 +40,8 @@ func TestIROwnedResultConversionAgrees(t *testing.T) {
 			t.Errorf("evaluator did not pass %s", name)
 		}
 	}
-	a := ownedResultRun(t, u, src, Source, "", filepath.Join(dir, "source"))
-	b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "ir"), "direct", "named")
+	a := ownedResultRun(t, u, src, Source, "", filepath.Join(dir, "source"), nil)
+	b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "ir"), nil, "direct", "named")
 	if a != b || a.exit != 0 || !strings.Contains(a.stdout, "ok DirectReturnStaysOpen\nok NamedReturnStaysOpen\n") {
 		t.Fatalf("source: %+v\nIR: %+v\n%s", a, b, ownedResultRepro)
 	}
@@ -54,20 +54,23 @@ func TestIROwnedResultConversionAgrees(t *testing.T) {
 //
 // Mutant: converted result keeps the callee's static release.
 func TestIROwnedResultShapesAgree(t *testing.T) {
-	_, ir := needsBuild(t)
+	src, ir := needsBuild(t)
 	first, count := envInt("ERGO_IRSPIKE_SEED", 1), envInt("ERGO_IRSPIKE_SEEDS", 4)
 	for seed := first; seed < first+count; seed++ {
 		t.Run(itoa(seed), func(t *testing.T) {
 			dir := t.TempDir()
 			text, lowered := ownedResultProgram(seed)
+			drop, dropBodies := ownedDropProgram(seed)
+			text += drop
+			lowered = append(lowered, dropBodies...)
 			t.Cleanup(func() {
 				if t.Failed() {
 					t.Logf("replay: ERGO_IRSPIKE_SEED=%d ERGO_IRSPIKE_SEEDS=1 go test ./internal/experimental/irspike -run '^TestIROwnedResultShapesAgree$'\n%s", seed, text)
 				}
 			})
 			u := loadText(t, dir, text)
-			a := ownedResultRun(t, u, ir, IR, "scope", filepath.Join(dir, "list"), lowered...)
-			b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "static"), lowered...)
+			a := ownedResultRun(t, u, ir, IR, "scope", filepath.Join(dir, "list"), dropBodies, lowered...)
+			b := ownedResultRun(t, u, ir, IR, "", filepath.Join(dir, "static"), dropBodies, lowered...)
 			if a != b || a.exit != 0 {
 				t.Fatalf("list: %+v\nstatic: %+v", a, b)
 			}
@@ -76,30 +79,49 @@ func TestIROwnedResultShapesAgree(t *testing.T) {
 					t.Errorf("no passing ownership check for %s: %+v", name, a)
 				}
 			}
+			// The frozen emitter releases the older FallibleCatchTail form
+			// early. Compare only the new generated drops to that emitter;
+			// the whole program still agrees under both IR owner strategies.
+			ownedResultRunSelected(t, u, src, Source, "scope", filepath.Join(dir, "source"), dropBodies, nil)
 		})
 	}
 }
 
-func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, releaseMode, dir string, wantIR ...string) outcome {
+func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, releaseMode, dir string, listOnly []string, wantIR ...string) outcome {
+	t.Helper()
+	return ownedResultRunSelected(t, u, tc, path, releaseMode, dir, nil, listOnly, wantIR...)
+}
+
+func ownedResultRunSelected(t *testing.T, u lower.Unit, tc Toolchain, path Path, releaseMode, dir string, selected, listOnly []string, wantIR ...string) outcome {
 	t.Helper()
 	mod := filepath.Join(dir, "mod")
+	prev := lower.SetReleaseLoweringForTest(releaseMode)
+	defer lower.SetReleaseLoweringForTest(prev)
 	if path == IR {
-		prev := lower.SetReleaseLoweringForTest(releaseMode)
 		files, rep, err := lower.LowerIRTests(u)
-		lower.SetReleaseLoweringForTest(prev)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, name := range wantIR {
-			if !slices.Contains(rep.IR, name) {
+			at := slices.IndexFunc(rep.IR, func(body string) bool {
+				return body == name || strings.HasSuffix(body, "."+name) // a method's receiver qualifies it
+			})
+			if at < 0 {
 				t.Fatalf("mode %q: no IR body for %s (IR %v, fallback %v)", releaseMode, name, rep.IR, rep.Fallback)
 			}
-			helper := `"name":"` + lower.HelperSpelling("", name+"Release") + `"`
+			helper := `"name":"` + lower.HelperSpelling("", strings.ReplaceAll(rep.IR[at], ".", "_")+"Release") + `"`
 			static := slices.ContainsFunc(files, func(f lower.File) bool {
 				return f.Path == lower.IRFileName && strings.Contains(string(f.Data), helper)
 			})
-			if static != (releaseMode == "") {
+			if static != (releaseMode == "" && !slices.Contains(listOnly, name)) {
 				t.Errorf("mode %q: %s static cleanup = %v", releaseMode, name, static)
+			}
+		}
+		if slices.Contains(wantIR, "DropCheckedClose") {
+			for _, name := range []string{"closePartsTicket.Close", "refClosePartsTicket.Close"} {
+				if !slices.Contains(rep.IR, name) {
+					t.Fatalf("checked Close with parts has no IR body for %s: %v", name, rep.Fallback)
+				}
 			}
 		}
 		if err := writeModule(mod, files); err != nil {
@@ -112,6 +134,15 @@ func ownedResultRun(t *testing.T, u lower.Unit, tc Toolchain, path Path, release
 	if _, err := Build(tc, path, mod, bin, BuildOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	if len(selected) > 0 {
+		for _, name := range selected {
+			got := runCase(t, bin, caseRun{args: []string{"--source", dir, "--run", "Check" + name}})
+			if got.exit != 0 || !strings.Contains(got.stdout, "ok Check"+name+"\n") {
+				t.Fatalf("source list, Check%s: %+v", name, got)
+			}
+		}
+		return outcome{}
+	}
 	return runCase(t, bin, caseRun{args: []string{"--source", dir}})
 }
 
@@ -119,7 +150,7 @@ func ownedResultProgram(seed uint64) (string, []string) {
 	r := rand.New(rand.NewPCG(seed, seed^0x56b32d170da8cbf1))
 	prelude, _, _ := strings.Cut(ownedResultRepro, "func direct(")
 	var src strings.Builder
-	src.WriteString("import task\n")
+	src.WriteString("import queue\nimport scope\nimport task\n")
 	src.WriteString(prelude)
 	src.WriteString(`type Bad {}
 
@@ -207,4 +238,585 @@ func main() {}
 		src.WriteString("}\n")
 	}
 	return src.String(), lowered
+}
+
+// ownedDropProgram adds generated releases to the same seeded agreement
+// program. Each producer observes that its live members have not closed,
+// including before a typed rejection or a defect. The caller independently
+// asserts the release order and detects missing or repeated releases.
+func ownedDropProgram(seed uint64) (string, []string) {
+	var src strings.Builder
+	src.WriteString(`
+type dropTicket { id int, log sync.Ref[int], crash bool } implements Closer
+
+func Close(t dropTicket) {
+	t.log.Set(t.log.Get()*10 + t.id)
+	if t.crash { Unreachable("release defect") }
+}
+
+type dropPair { left dropTicket, right dropTicket }
+type DropVariant = DropFull | DropEmpty
+type DropFull { pair dropPair }
+type DropEmpty {}
+type dropNode { item dropTicket, more []dropNode }
+`)
+	forms := []struct{ name, body, live, released string }{
+		{"Record", `let pair = dropPair{left: l, right: r}`, "0", "11*id+10"},
+		{"InPlace", `let mut pair = dropPair{left: l, right: r}
+		pair.left.id = id+2`, "0", "11*id+12"},
+		{"Tuple", `let pair = (l, r)`, "0", "11*id+10"},
+		{"Slice", `let pair = []dropTicket{l, r}`, "0", "11*id+10"},
+		{"Array", `let pair = [2]dropTicket{l, r}`, "0", "11*id+10"},
+		{"Map", `let pair = Map[string, dropTicket]{"l": l, "r": r}`, "0", "11*id+10 || log.Get() == 11*id+1"},
+		{"Union", `let pair DropVariant = DropFull{pair: dropPair{left: l, right: r}}`, "0", "11*id+10"},
+		{"Recursive", `let pair = dropNode{item: l, more: []dropNode{dropNode{item: r, more: []dropNode{}}}}`, "0", "11*id+10"},
+		{"Drain", `let pair = queue.New[dropTicket](2)
+		pair.Push(l) catch { case queue.Closed: Unreachable("open queue") }
+		pair.Push(r) catch { case queue.Closed: Unreachable("open queue") }`, "0", "11*id+10"},
+		{"Taken", `let pair = dropPair{left: l, right: r}
+		pair.left.Close()`, "id", "11*id+1"},
+	}
+	var names []string
+	for _, f := range forms {
+		name := "Drop" + f.name
+		names = append(names, name)
+		fmt.Fprintf(&src, `
+func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let l = dropTicket{id: id, log: log, crash: false}
+	let r = dropTicket{id: id+1, log: log, crash: defect}
+	%[2]s
+	if log.Get() != %[3]s { Unreachable("early release") }
+	if reject { return Bad }
+	false
+}
+
+test Check%[1]s {
+	let log = sync.NewRef(0)
+	let id = %[4]d
+	%[1]s(log, id, false, false) catch { case Bad: Unreachable("unexpected failure") }
+	assert log.Get() == %[5]s
+	log.Set(0)
+	let rejected = %[1]s(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == %[5]s
+	log.Set(0)
+	let child = task.Go() { try %[1]s(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == %[5]s
+}
+`, name, f.body, f.live, 1+seed%7, f.released)
+	}
+	names = append(names, "DropCallback")
+	fmt.Fprintf(&src, `
+func DropCallback(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let receive = func(t own dropTicket) bool fails Bad {
+		if t.log.Get() != 0 { Unreachable("early release") }
+		if defect { Unreachable("body defect") }
+		if reject { return Bad }
+		false
+	}
+	try receive(dropTicket{id: id, log: log, crash: false})
+}
+
+test CheckDropCallback {
+	let log = sync.NewRef(0)
+	let id = %d
+	DropCallback(log, id, false, false) catch { case Bad: Unreachable("unexpected failure") }
+	assert log.Get() == id
+	log.Set(0)
+	let rejected = DropCallback(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == id
+	log.Set(0)
+	let child = task.Go() { try DropCallback(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == id
+}
+`, 1+seed%7)
+	names = append(names, "DropReplace")
+	fmt.Fprintf(&src, `
+func replacement(log sync.Ref[int], id int, reject bool) dropTicket fails Bad {
+	if reject { return Bad }
+	dropTicket{id: id, log: log, crash: false}
+}
+
+func DropReplace(log sync.Ref[int], id int, reject bool, defect bool) int fails Bad {
+	if id > 0 {
+		let mut owner = dropTicket{id: id, log: log, crash: defect}
+		let sibling = dropTicket{id: id+1, log: log, crash: false}
+		owner = try replacement(log, id+2, reject)
+		if owner.log.Get() != id || sibling.log.Get() != id { Unreachable("released out of order") }
+	}
+	log.Get()
+}
+
+test CheckDropReplace {
+	let log = sync.NewRef(0)
+	let id = %d
+	let observed = DropReplace(log, id, false, false) catch { case Bad: 0 }
+	assert observed == 111*id+21
+	assert log.Get() == observed
+	log.Set(0)
+	let rejected = DropReplace(log, id, true, false) catch { case Bad: -1 }
+	assert rejected == -1
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let child = task.Go() { try DropReplace(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 111*id+21
+}
+`, 1+seed%7)
+	names = append(names, "DropReplacePlace")
+	fmt.Fprintf(&src, `
+func DropReplacePlace(log sync.Ref[int], id int) {
+	let mut pair = dropPair{left: dropTicket{id: id, log: log, crash: false}, right: dropTicket{id: id+1, log: log, crash: false}}
+	pair.left.Close()
+	pair = dropPair{left: dropTicket{id: id+2, log: log, crash: false}, right: dropTicket{id: id+3, log: log, crash: false}}
+	if pair.right.log.Get() != 11*id+1 { Unreachable("replacement not live") }
+	pair.right.id = id+4
+}
+
+test CheckDropReplacePlace {
+	let log = sync.NewRef(0)
+	let id = %d
+	DropReplacePlace(log, id)
+	assert log.Get() == 1111*id+142
+}
+`, 1+seed%5)
+	names = append(names, "DropTask", "DropPattern", "DropPatternChoice")
+	fmt.Fprintf(&src, `
+type pendingOwnedTasks { jobs Map[int, Task[bool]] }
+
+func DropTask(p mut pendingOwnedTasks, id int, reject bool, defect bool) bool fails Bad {
+	let found, rest = p.jobs.Take(id)
+	p.jobs = rest
+	match found {
+	case Some[Task[bool]] as child:
+		if defect { Unreachable("body defect") }
+		if reject { return Bad }
+		child.Value.Stop()
+		true
+	case None:
+		false
+	}
+}
+
+func exercisingTask(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let started = queue.New[bool](1)
+	let idle = queue.New[bool](1)
+	let child = task.Go() {
+		scope.OnExit() { log.Set(log.Get()+1) }
+		started.Push(true) catch { case queue.Closed: Unreachable("start queue closed") }
+		idle.Pop() catch { case queue.Closed: false }
+	}
+	let _ = started.Pop() catch { case queue.Closed: Unreachable("start queue closed") }
+	let mut p = pendingOwnedTasks{jobs: Map[int, Task[bool]]{id: child}}
+	try DropTask(&p, id, reject, defect)
+}
+
+func DropPattern(found own Option[dropTicket], reject bool, defect bool) bool fails Bad {
+	match found {
+	case Some[dropTicket] as part:
+		if part.Value.log.Get() != 0 { Unreachable("early release") }
+		if defect { Unreachable("body defect") }
+		if reject { return Bad }
+		part.Value.Close()
+		true
+	case None:
+		false
+	}
+}
+
+type DropChoice = DropKeep | DropMove
+type DropKeep { item dropTicket }
+type DropMove { item dropTicket }
+
+func DropPatternChoice(found own DropChoice, log sync.Ref[int]) bool {
+	match found {
+	case DropMove as part:
+		if part.item.log.Get() != 0 { Unreachable("early release") }
+		part.item.Close()
+		true
+	case DropKeep:
+		if log.Get() != 0 { Unreachable("early release") }
+		false
+	}
+}
+
+test CheckDropTask {
+	let id = %d
+	let log = sync.NewRef(0)
+	let mut empty = pendingOwnedTasks{jobs: Map[int, Task[bool]]{}}
+	let absent = DropTask(&empty, id, false, false) catch { case Bad: true }
+	assert !absent
+	let stopped = exercisingTask(log, id, false, false) catch { case Bad: false }
+	assert stopped
+	assert log.Get() == 1
+	log.Set(0)
+	let rejected = exercisingTask(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == 1
+	log.Set(0)
+	let crashing = task.Go() { try exercisingTask(log, id, false, true) }
+	let crashed = match task.ExitOf(crashing) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 1
+}
+
+test CheckDropPattern {
+	let id = %d
+	let log = sync.NewRef(0)
+	let empty = DropPattern(None, false, false) catch { case Bad: true }
+	assert !empty
+	let closed = DropPattern(Some[dropTicket]{Value: dropTicket{id: id, log: log, crash: false}}, false, false) catch { case Bad: false }
+	assert closed
+	assert log.Get() == id
+	log.Set(0)
+	let rejected = DropPattern(Some[dropTicket]{Value: dropTicket{id: id, log: log, crash: false}}, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == id
+	log.Set(0)
+	let crashing = task.Go() {
+		try DropPattern(Some[dropTicket]{Value: dropTicket{id: id, log: log, crash: false}}, false, true)
+	}
+	let crashed = match task.ExitOf(crashing) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == id
+}
+
+test CheckDropPatternChoice {
+	let id = %d
+	let log = sync.NewRef(0)
+	let kept = DropPatternChoice(DropKeep{item: dropTicket{id: id, log: log, crash: false}}, log)
+	assert !kept
+	assert log.Get() == id
+	log.Set(0)
+	let moved = DropPatternChoice(DropMove{item: dropTicket{id: id, log: log, crash: false}}, log)
+	assert moved
+	assert log.Get() == id
+}
+`, 1+seed%7, 1+seed%7, 1+seed%7)
+	names = append(names, "DropReturned", "DropLentTemp")
+	fmt.Fprintf(&src, `
+func DropReturned(log sync.Ref[int], id int, reject bool, defect bool) (dropPair, int) fails Bad {
+	let guard = dropTicket{id: id, log: log, crash: defect}
+	if guard.log.Get() != 0 { Unreachable("early release") }
+	if reject { return Bad }
+	(dropPair{left: dropTicket{id: id+1, log: log, crash: false}, right: dropTicket{id: id+2, log: log, crash: false}}, id)
+}
+
+func useReturned(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	let pair, tag = try DropReturned(log, id, reject, defect)
+	if pair.right.log.Get() != id { Unreachable("returned owner is no longer live") }
+	tag == id
+}
+
+test CheckDropReturned {
+	let id = %d
+	let log = sync.NewRef(0)
+	let used = useReturned(log, id, false, false) catch { case Bad: false }
+	assert used
+	assert log.Get() == 111*id+21
+	log.Set(0)
+	let rejected = useReturned(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == id
+	log.Set(0)
+	let child = task.Go() { try useReturned(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 111*id+21
+}
+
+func lendTemp(pair dropPair, tag int) int {
+	if pair.left.log.Get() != 0 || pair.right.log.Get() != 0 { Unreachable("borrow not live") }
+	tag
+}
+
+func tempTag(id int, reject bool, defect bool) int fails Bad {
+	if defect { Unreachable("later argument defects") }
+	if reject { return Bad }
+	id
+}
+
+func DropLentTemp(log sync.Ref[int], id int, reject bool, defect bool) int fails Bad {
+	let n = lendTemp(dropPair{left: dropTicket{id: id, log: log, crash: false}, right: dropTicket{id: id+1, log: log, crash: false}}, try tempTag(id, reject, defect))
+	if log.Get() != 11*id+10 { Unreachable("statement did not release its borrow") }
+	n
+}
+
+test CheckDropLentTemp {
+	let id = %d
+	let log = sync.NewRef(0)
+	let n = DropLentTemp(log, id, false, false) catch { case Bad: -1 }
+	assert n == id
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let rejected = DropLentTemp(log, id, true, false) catch { case Bad: -1 }
+	assert rejected == -1
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let child = task.Go() { try DropLentTemp(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == 11*id+10
+}
+`, 1+seed%7, 1+seed%7)
+	src.WriteString(`
+type refCloseTicket { id int, log sync.Ref[int], crash bool } implements Closer
+
+func Close(t mut refCloseTicket) {
+	t.log.Set(t.log.Get()*10 + t.id)
+	t.id = 0
+	if t.crash { Unreachable("release defect") }
+}
+
+type refClosePair { left refCloseTicket, right refCloseTicket }
+`)
+	for _, f := range []struct{ name, body, released string }{
+		{"DropAddr", `let mut t = refCloseTicket{id: id, log: log, crash: defect}
+			(&t).Close()`, "id"},
+		{"DropAddrReceiver", `let mut t = refCloseTicket{id: id, log: log, crash: defect}
+			t.Close()`, "id"},
+		{"DropAddrField", `let mut t = refClosePair{left: refCloseTicket{id: id, log: log, crash: defect}, right: refCloseTicket{id: id+1, log: log, crash: false}}
+			t.left.Close()`, "11*id+1"},
+	} {
+		names = append(names, f.name)
+		fmt.Fprintf(&src, `
+func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	%[2]s
+	if log.Get() != id { Unreachable("close has not run") }
+	if reject { return Bad }
+	false
+}
+
+test Check%[1]s {
+	let id = %[3]d
+	let log = sync.NewRef(0)
+	let ok = %[1]s(log, id, false, false) catch { case Bad: true }
+	assert !ok
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let rejected = %[1]s(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let child = task.Go() { try %[1]s(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == %[4]s
+}
+`, f.name, f.body, 1+seed%7, f.released)
+	}
+	names = append(names, "DropCheckedClose", "DropCheckedClosePlace")
+	src.WriteString(`
+type closePartsTicket { part dropTicket, log sync.Ref[int], id int, crash bool } implements Closer
+type wrapCloseParts { item closePartsTicket }
+func Close(x closePartsTicket) {
+	x.log.Set(x.log.Get()*10 + x.id)
+	if x.crash { Unreachable("release defect") }
+}
+
+type refClosePartsTicket { part dropTicket, log sync.Ref[int], id int, crash bool } implements Closer
+func Close(x mut refClosePartsTicket) {
+	x.log.Set(x.log.Get()*10 + x.id)
+	x.part.id = x.id+2
+	if x.crash { Unreachable("release defect") }
+}
+`)
+	for _, f := range []struct{ name, body, expected string }{
+		{"DropCheckedClose", `let x = wrapCloseParts{item: closePartsTicket{part: dropTicket{id: id+1, log: log, crash: false}, log: log, id: id, crash: defect}}
+			if x.item.log.Get() != 0 { Unreachable("released too soon") }`, "11*id+1"},
+		{"DropCheckedClosePlace", `let mut x = refClosePartsTicket{part: dropTicket{id: id+1, log: log, crash: false}, log: log, id: id, crash: defect}
+			x.Close()
+			if log.Get() != 11*id+2 { Unreachable("parts did not observe the Close's write") }`, "11*id+2"},
+	} {
+		fmt.Fprintf(&src, `
+func %[1]s(log sync.Ref[int], id int, reject bool, defect bool) bool fails Bad {
+	%[2]s
+	if reject { return Bad }
+	false
+}
+test Check%[1]s {
+	let id = %[3]d
+	let log = sync.NewRef(0)
+	let used = %[1]s(log, id, false, false) catch { case Bad: true }
+	assert !used
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let rejected = %[1]s(log, id, true, false) catch { case Bad: true }
+	assert rejected
+	assert log.Get() == %[4]s
+	log.Set(0)
+	let child = task.Go() { try %[1]s(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == %[4]s
+}
+`, f.name, f.body, 1+seed%7, f.expected)
+	}
+	names = append(names, "DropPartTemp")
+	fmt.Fprintf(&src, `
+func DropPartTemp(log sync.Ref[int], id int, reject bool, defect bool) int fails Bad {
+	let left = dropTicket{id: id, log: log, crash: false}
+	let pair = dropPair{left: left, right: try nextPart(log, id+1, reject, defect)}
+	if pair.left.log.Get() != 0 || pair.right.log.Get() != 0 {
+		Unreachable("a constructed record's parts are not live")
+	}
+	pair.right.id
+}
+
+func nextPart(log sync.Ref[int], id int, reject bool, defect bool) dropTicket fails Bad {
+	if defect { Unreachable("later field defects") }
+	if reject { return Bad }
+	dropTicket{id: id, log: log, crash: false}
+}
+
+test CheckDropPartTemp {
+	let id = %d
+	let log = sync.NewRef(0)
+	let used = DropPartTemp(log, id, false, false) catch { case Bad: -1 }
+	assert used == id+1
+	assert log.Get() == 11*id+10
+	log.Set(0)
+	let rejected = DropPartTemp(log, id, true, false) catch { case Bad: -1 }
+	assert rejected == -1
+	assert log.Get() == id
+	log.Set(0)
+	let child = task.Go() { try DropPartTemp(log, id, false, true) }
+	let crashed = match task.ExitOf(child) {
+	case task.Defected: true
+	case _: false
+	}
+	assert crashed
+	assert log.Get() == id
+}
+`, 1+seed%7)
+	names = append(names, "DropSliceTask")
+	src.WriteString(`
+func DropSliceTask(owned own []Task[bool], at int, reject bool) bool fails Bad {
+	let chosen, rest = owned.TakeAt(at)
+	if reject { return Bad }
+	chosen.Stop()
+	true
+}
+
+func startBlocked(log sync.Ref[int]) Task[bool] {
+	let started = queue.New[bool](1)
+	let t = task.Go() {
+		let idle = queue.New[bool](1)
+		scope.OnExit() { log.Set(log.Get()+1) }
+		started.Push(true) catch { case queue.Closed: Unreachable("start queue closed") }
+		idle.Pop() catch { case queue.Closed: false }
+	}
+	let _ = started.Pop() catch { case queue.Closed: Unreachable("start queue closed") }
+	t
+}
+
+test CheckDropSliceTask {
+	let a = sync.NewRef(0)
+	let b = sync.NewRef(0)
+	let x = startBlocked(a)
+	let y = startBlocked(b)
+	assert a.Get() == 0 && b.Get() == 0
+	let ok = DropSliceTask([]Task[bool]{x, y}, 0, false) catch { case Bad: false }
+	assert ok
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let x2 = startBlocked(a)
+	let y2 = startBlocked(b)
+	assert a.Get() == 0 && b.Get() == 0
+	let rejected = DropSliceTask([]Task[bool]{x2, y2}, 1, true) catch { case Bad: true }
+	assert rejected
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let crash = task.Go() {
+		let x3 = startBlocked(a)
+		let y3 = startBlocked(b)
+		try DropSliceTask([]Task[bool]{x3, y3}, 2, false)
+	}
+	let defected = match task.ExitOf(crash) {
+	case task.Defected: true
+	case _: false
+	}
+	assert defected
+	assert a.Get() == 1 && b.Get() == 1
+}
+`)
+	names = append(names, "DropAppendTask")
+	src.WriteString(`
+func DropAppendTask(original own []Task[bool], next own Task[bool], a sync.Ref[int], b sync.Ref[int], reject bool, defect bool) bool fails Bad {
+	let mut owners = original
+	owners = owners.Append(next)
+	if a.Get() != 0 || b.Get() != 0 { Unreachable("a task was stopped during append") }
+	if defect { Unreachable("after append") }
+	if reject { return Bad }
+	let chosen, rest = owners.TakeAt(1)
+	chosen.Stop()
+	true
+}
+
+test CheckDropAppendTask {
+	let a = sync.NewRef(0)
+	let b = sync.NewRef(0)
+	let x = startBlocked(a)
+	let y = startBlocked(b)
+	let ok = DropAppendTask([]Task[bool]{x}, y, a, b, false, false) catch { case Bad: false }
+	assert ok
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let x2 = startBlocked(a)
+	let y2 = startBlocked(b)
+	let rejected = DropAppendTask([]Task[bool]{x2}, y2, a, b, true, false) catch { case Bad: true }
+	assert rejected
+	assert a.Get() == 1 && b.Get() == 1
+	a.Set(0)
+	b.Set(0)
+	let crash = task.Go() {
+		let x3 = startBlocked(a)
+		let y3 = startBlocked(b)
+		try DropAppendTask([]Task[bool]{x3}, y3, a, b, false, true)
+	}
+	let defected = match task.ExitOf(crash) {
+	case task.Defected: true
+	case _: false
+	}
+	assert defected
+	assert a.Get() == 1 && b.Get() == 1
+}
+`)
+	return src.String(), names
 }

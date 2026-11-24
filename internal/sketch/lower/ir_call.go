@@ -136,10 +136,12 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 	// read); an extern that binds the Ergo runtime adapts it (stdCall,
 	// ir_adapt.go: timeout.After { … }; OPC-ADAPT2). An extern whose
 	// target is Go's library (hostCall) takes none.
-	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.Pkg.Host() || userExtern(c.Func)) {
+	if x.Trailing != nil && (c.Kind != check.CallFunc || c.Func == nil || c.Func.CallsGo()) {
 		irNo("trailing block")
 	}
-	if c.StartsTask && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
+	// These collection operations transfer already running values.
+	// They do not start a task even when their result bears one.
+	if op := check.CollOpOf(c.Func); c.StartsTask && op != check.CollTake && op != check.CollTakeAt && op != check.CollAppend && !b.startsOnFrame(c) && !ergoBodyCall(c) { // ir_own.go
 		irNo("task call")
 	}
 	if len(c.TypeArgs) > 0 && c.Kind != check.CallFunc && !(c.Kind == check.CallOp && c.Op != nil && len(c.Op.Sig.TParams) > 0) {
@@ -149,10 +151,10 @@ func (b *irBuilder) callPartsRaw(x *syntax.CallExpr, stmt bool) ([]*irStmt, *irE
 		irNo("call without a value")
 	}
 	p := b.pos(x, x.Pos())
-	if check.IsUnreachable(c) {
+	switch check.PrimitiveOf(c) {
+	case check.PrimitiveDefect:
 		return b.unreachableValue(x) // ir_defect.go (FLIP OPC-unreach)
-	}
-	if check.IsInForce(c) {
+	case check.PrimitiveCaptureContext:
 		// Written at each call, never called (ir_inforce.go).
 		return b.inForce(x, c, p)
 	}

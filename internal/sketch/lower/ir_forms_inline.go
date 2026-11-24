@@ -976,27 +976,6 @@ func (b *irBuilder) localTypeOf(i int) string {
 	return ""
 }
 
-// irArmsLeave reports a catch's type switch sw whose arms and default all
-// leave (return, fail, panic or jump) and never name result, the local a
-// yielding arm would set (ir_fail.go, catch).
-func irArmsLeave(sw *irStmt, result int) bool {
-	if !irListTerminates(sw.Else) {
-		return false
-	}
-	for _, c := range sw.Cases {
-		if !irListTerminates(c.Body) || irBreaks(c.Body, "") {
-			return false
-		}
-	}
-	named := false
-	irWalk([]*irStmt{sw}, false, func(s *irStmt, _ bool) {
-		named = named || (s.Local == result && (s.K == "def" || s.K == "set" || s.K == "var" || s.K == "def2"))
-	}, func(e *irExpr, _ bool) {
-		named = named || (e.K == "local" && e.I == result)
-	})
-	return !named
-}
-
 // irFailField reports a failure that is a field of a local, at any depth
 // (`return e.Error` of a variant whose field holds a Slot row's value):
 // read where the copy fails, as the callee reads it, and converted to

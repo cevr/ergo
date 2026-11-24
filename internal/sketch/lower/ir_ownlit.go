@@ -113,7 +113,7 @@ func (b *irBuilder) ownedSiteCall(x *syntax.CallExpr, c *check.Call, s *refSite,
 			t = n.Underlying()
 		}
 		sig, _ := t.(*check.Signature)
-		bind, fn, _ := b.adaptOperand(sig, list[cb], args[cb], owned.Params[cb], p) // ir_adapt.go
+		bind, fn, _ := b.adaptOperand(sig, list[cb], args[cb], owned.Params[cb], p, false) // ir_adapt.go
 		pre, args[cb] = append(pre, bind...), fn
 	}
 	args = append(args, b.cellCopy(s, p), &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(s.fresh)}, &irExpr{K: "const", Pos: p, T: "bool", V: strconv.FormatBool(s.alone)})

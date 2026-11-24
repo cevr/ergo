@@ -1,0 +1,5 @@
+# Reads both alternatives of a nullable as the first element of a tuple.
+unit read
+sizes 20000 120000
+args bench nullable {n}
+control benchmarks/wirereaders/testdata/control
