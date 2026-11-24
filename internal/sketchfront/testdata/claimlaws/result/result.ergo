@@ -1,0 +1,28 @@
+import claimlaws/role
+
+type Good[T, E] { Value T, Note E }
+type Waiting[E] { Note E }
+type Bad[E] { Note E }
+type Result[T, E] = Good[T, E] | Waiting[E] | Bad[E] implements role.Left[T], role.Right[T]
+
+func Map[T, E, U](x Result[T, E], f func(v T) U) Result[U, E] {
+	match x {
+	case Good[T, E] as good:
+		Waiting[E]{Note: good.Note}
+	case Waiting[E] as waiting:
+		Bad[E]{Note: waiting.Note}
+	case Bad[E] as bad:
+		bad
+	}
+}
+
+func Count[T, E](x Result[T, E]) int {
+	match x {
+	case Good[T, E]:
+		1
+	case Waiting[E]:
+		2
+	case Bad[E]:
+		0
+	}
+}
