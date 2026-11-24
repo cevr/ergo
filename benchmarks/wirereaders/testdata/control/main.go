@@ -85,6 +85,19 @@ func readParsed(text string) (int, bool) {
 	}
 }
 
+//go:noinline
+func readNullable(text string) (int, bool) {
+	var r []*int
+	if err := json.Unmarshal([]byte(text), &r); err != nil || len(r) != 2 || r[1] == nil {
+		return 0, false
+	}
+	n := *r[1]
+	if r[0] != nil {
+		n += *r[0]
+	}
+	return n, true
+}
+
 const one = `{"label":"crate","count":12,"tags":["wood","heavy"],"weight":30.5}`
 
 const four = "[" + one + "," + one + "," + one + "," + one + "]"
@@ -128,9 +141,9 @@ func readValue(text string) (map[string]any, bool) {
 }
 
 func main() {
-	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true, "parsed": true}
+	kinds := map[string]bool{"record": true, "list": true, "map": true, "mapstream": true, "mapreplay": true, "value": true, "omittable": true, "tagged": true, "parsed": true, "nullable": true}
 	if len(os.Args) != 4 || os.Args[1] != "bench" || !kinds[os.Args[2]] {
-		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged|parsed N")
+		fmt.Fprintln(os.Stderr, "usage: control bench record|list|map|mapstream|mapreplay|value|omittable|tagged|parsed|nullable N")
 		os.Exit(2)
 	}
 	n, err := strconv.Atoi(os.Args[3])
@@ -140,6 +153,17 @@ func main() {
 	sum := 0
 	for i := 0; i < n; i++ {
 		switch os.Args[2] {
+		case "nullable":
+			text := `[null,12]`
+			if i%2 != 0 {
+				text = `[3,12]`
+			}
+			got, ok := readNullable(text)
+			if !ok {
+				fmt.Println(-1)
+				return
+			}
+			sum += got
 		case "parsed":
 			text := `{"mode":"low","limit":12}`
 			if i%2 != 0 {

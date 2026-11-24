@@ -18,6 +18,8 @@ package lower
 // "text" keeps every decoder's text, and goes with the text path.
 
 import (
+	"strconv"
+
 	"ergo.local/prototype/internal/sketch/check"
 	"ergo.local/prototype/internal/sketch/syntax"
 )
@@ -30,7 +32,7 @@ var wireReadLowering = ""
 // wireReadForms are the forms wireRead builds (wireReadForm's names).
 func wireReadForms(form string) bool {
 	switch form {
-	case "basic", "record", "list", "map", "union", "pair", "refined":
+	case "basic", "record", "list", "map", "union", "pair", "refined", "nullable", "tuple":
 		return true
 	default:
 		return false
@@ -191,6 +193,9 @@ func (d *wireReader) value(t check.Type) ([]*irStmt, *irExpr) {
 func (d *wireReader) body(t check.Type) []*irStmt {
 	b, l := d.b, d.b.l
 	ret := func(x *irExpr) *irStmt { return &irStmt{K: "ret", Pos: d.p, X: x} }
+	if check.WireFormOf(t) == check.WireNullable {
+		return d.nullable(t)
+	}
 	if pair := l.info.WirePairOf(t); pair != nil {
 		return d.parsed(pair.Base, pair.Parse)
 	}
@@ -238,9 +243,37 @@ func (d *wireReader) body(t check.Type) []*irStmt {
 		return append(pre, ret(d.local(out)))
 	case *check.Union:
 		return append(begin("Object"), d.union(t, u)...)
+	case *check.Tuple:
+		return append(begin("List"), d.tuple(u, gt)...)
 	}
 	irNo("codec reader: %s", l.wireReadForm(t))
 	return nil
+}
+
+// nullable reads null itself, or reads the present variant's payload.
+func (d *wireReader) nullable(t check.Type) []*irStmt {
+	empty, present, payload := d.tc.wrapperParts(t)
+	null := &irStmt{K: "ret", Pos: d.p, X: d.wrap(t, empty, nil, nil)}
+	body := []*irStmt{{K: "if", Pos: d.p, End: d.p, X: d.op("TakeNull"), Then: []*irStmt{null}}}
+	pre, x := d.value(payload.Type)
+	return append(append(body, pre...), &irStmt{K: "ret", Pos: d.p, X: d.wrap(t, present, payload, x)})
+}
+
+// tuple reads exactly the arity of t, testing More before each element
+// and again before End. A wrong arity fails at the cursor's current path.
+func (d *wireReader) tuple(t *check.Tuple, gt string) []*irStmt {
+	want := "a list of " + strconv.Itoa(len(t.Types))
+	result := &irExpr{K: "lit", Pos: d.p, T: gt}
+	var body []*irStmt
+	for i, typ := range t.Types {
+		noMore := &irExpr{K: "un", Pos: d.p, Op: "!", X: d.op("More")}
+		body = append(body, d.failIf(noMore, d.wrongKind(want)))
+		pre, x := d.value(typ)
+		body = append(body, pre...)
+		result.Keys = append(result.Keys, tupleField(i))
+		result.Elems = append(result.Elems, x)
+	}
+	return append(body, d.failIf(d.op("More"), d.wrongKind(want)), &irStmt{K: "expr", Pos: d.p, X: d.op("End")}, &irStmt{K: "ret", Pos: d.p, X: result})
 }
 
 // parsed reads the base and returns the parser's result. Returning the

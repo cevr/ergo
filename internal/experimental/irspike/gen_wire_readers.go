@@ -22,7 +22,11 @@ type Point { X int }
 
 type Arc { Radius int, Label json.Optional[string] }
 
-type Ev { N int, Name string, In In, Xs []In, M Map[string, int], Ts []int, Extra json.Optional[int], Shape Shape, Level Level, Tags Tags, Limit Small }
+type Ev {
+	N int, Name string, In In, Xs []In, M Map[string, int], Ts []int,
+	Extra json.Optional[int], Shape Shape, Level Level, Tags Tags, Limit Small,
+	Duo (json.Nullable[int], int),
+}
 
 func showIn(i In) string { "(\(i.A) \(i.B) \(i.S) \(i.F) \(i.X))" }
 
@@ -49,6 +53,16 @@ func showShape(s Shape) string {
 	}
 }
 
+func showDuo(duo (json.Nullable[int], int)) string {
+	let (first, second) = duo
+	match first {
+	case json.Null:
+		"null \(second)"
+	case json.NonNull[int] as x:
+		"\(x.Value) \(second)"
+	}
+}
+
 func show(e Ev) string {
 	let mut s = "\(e.N) \(e.Name) \(showIn(e.In)) ["
 	for x in e.Xs {
@@ -66,7 +80,7 @@ func show(e Ev) string {
 	for t in e.Tags.xs {
 		tags = tags + "[" + t + "]"
 	}
-	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts) \(showExtra(e.Extra)) \(showShape(e.Shape)) \(e.Level.Wire()) \(tags) \(int(e.Limit))"
+	s + " ] \(len(e.M)) \(sum) \(len(e.Ts)) \(ts) \(showExtra(e.Extra)) \(showShape(e.Shape)) \(e.Level.Wire()) \(tags) \(int(e.Limit)) \(showDuo(e.Duo))"
 }
 
 // take decodes on the Reader interface: Ev's decoder function and the
@@ -204,6 +218,19 @@ func GenerateWireReaders(seed uint64) string {
 		case 20:
 			tags = "[" + q("ok") + ",1]"
 		}
+		duo := fmt.Sprintf("[null,%d]", n(100))
+		switch bad {
+		case 21:
+			duo = fmt.Sprintf("[%d,%d]", n(100), n(100))
+		case 22:
+			duo = "[" + q("bad nullable payload") + ",4]"
+		case 23:
+			duo = "[null]"
+		case 24:
+			duo = "[null,4,5]"
+		case 25:
+			duo = "{}"
+		}
 		fields := []string{
 			q("n") + ": " + fmt.Sprint(n(100)),
 			q("name") + ": " + q([]string{"p", "", "q r"}[n(3)]),
@@ -215,6 +242,7 @@ func GenerateWireReaders(seed uint64) string {
 			q("level") + ": " + level,
 			q("tags") + ": " + tags,
 			q("limit") + ": " + limit,
+			q("duo") + ": " + duo,
 		}
 		switch bad {
 		case 2: // a field missing at the top
@@ -252,7 +280,7 @@ func GenerateWireReaders(seed uint64) string {
 	// the nested record's four (two out of range), and two texts that
 	// read, in a drawn order.
 	var cases [][2]int
-	for bad := 0; bad <= 20; bad++ {
+	for bad := 0; bad <= 25; bad++ {
 		if bad != 1 {
 			cases = append(cases, [2]int{bad, 0})
 		}
