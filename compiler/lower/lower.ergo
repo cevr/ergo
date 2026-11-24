@@ -601,9 +601,14 @@ func function(st mut fnb, b mut ir.Builder, f expr.Fn, path string) bool fails U
 	// its body is checked too, so the stop says what the body would meet
 	// (" / body: <cause>", or " / body passes"): the next slice's reach.
 	let mut sig = ""
-	let unit = store.KindOfType(st.s, ops[n]) == store.KTuple && len(store.OperandsOf(st.s, ops[n])) == 0 && controlUnitAdmitted(*st, f, body)
-	if !unit && basicGo(*st, ops[n]) == "" && plainRecord(*st, ops[n]) < 0 {
+	if basicGo(*st, ops[n]) == "" && plainRecord(*st, ops[n]) < 0 {
 		sig = "result: " + typeCause(*st, ops[n])
+	}
+	let unit = store.KindOfType(st.s, ops[n]) == store.KTuple && len(store.OperandsOf(st.s, ops[n])) == 0 && controlUnitAdmitted(*st, f, body)
+	if unit {
+		// The opted-in unit profile has no result slot. Parameter
+		// admission below still checks every formal.
+		sig = ""
 	}
 	for i in 0..n {
 		if sig == "" && basicGo(*st, ops[i]) == "" && plainRecord(*st, ops[i]) < 0 {
