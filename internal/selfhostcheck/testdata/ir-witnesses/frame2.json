@@ -1,0 +1,4 @@
+[
+  {"fixture": "port_frame_fails.ergo", "declaration": "func FrameSafe(", "symbol": "FrameInput.FrameSafe"},
+  {"fixture": "port_frame_fails.ergo", "declaration": "func FrameValidate(", "symbol": "FrameInput.FrameValidate"}
+]

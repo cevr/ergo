@@ -1215,6 +1215,26 @@
       "killers": [
         "internal/selfhostcheck:TestSourceInputsAreKeyedByName"
       ]
+    },
+    {
+      "name": "lower-frame-fallible-adds-env-slot",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 (not-run-crunch)",
+      "file": "compiler/lower/fail_frame.ergo",
+      "from": "framePlan{env: -1, slots: n, pure: false, fallible: Some[falliblePlan]{Value: failure}, pollEntry: false, op: None}",
+      "to": "framePlan{env: 1, slots: n + 1, pure: false, fallible: Some[falliblePlan]{Value: failure}, pollEntry: false, op: None}",
+      "rule": "A fallible method with no environment keeps scalar source parameters at their existing slots (FrameSafe).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
+    },
+    {
+      "name": "lower-frame-failure-returns-success",
+      "origin": "wf10/selfhost/S4-PORT FRAME-2 (not-run-crunch)",
+      "file": "compiler/lower/control.ergo",
+      "from": "try ir.Row(b, ir.KindCode(ir.TStmt, \"fail\"), at, []uint32{x})",
+      "to": "try ir.Row(b, ir.KindCode(ir.TStmt, \"ret\"), at, []uint32{x})",
+      "rule": "The exact typed failure leaves through the failure channel, not the ordinary success return (FrameValidate).",
+      "regenerate": {"dir":".","argv":["go","run","./scripts/linked"]},
+      "killers": ["internal/selfhostcheck:TestCompilerIRAgreesWithBuilder"]
     }
   ]
 }

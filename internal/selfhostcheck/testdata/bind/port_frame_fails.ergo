@@ -1,0 +1,11 @@
+type FrameInput { Tag int }
+type FrameBad { Value int }
+
+func FrameSafe(input FrameInput, n int) int fails FrameBad { n + 1 }
+
+func FrameValidate(input FrameInput, n int) int fails FrameBad {
+	if n < 0 {
+		return FrameBad{Value: n}
+	}
+	n + 1
+}
