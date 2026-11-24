@@ -913,6 +913,10 @@ type irBuilder struct {
 	// frame is 1 + the local of the body's frame scope (ir_own.go
 	// openScope), or 0; frameArg reads it (GP-FRAME; OPC-TASK's hook).
 	frame int
+	// with is 1 + the local of the innermost owning with's scope
+	// (v1.Scope.OpenWith, ir_with.go), or 0: inside one, frameArg is it,
+	// as the emitter's frameScope reads frame.with.
+	with int
 	// exits marks a frame in the static exit form (ir_exits.go); exitsFC
 	// is its own function's context, exitRegs its registrations, and
 	// exitsSlots marks one made off that function or in a loop.
