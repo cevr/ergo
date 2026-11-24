@@ -87,6 +87,11 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 		return []*irStmt{b.formed(&irStmt{K: "ret", Pos: p}, "unit")}
 	}
 	if call := b.fallibleCall(x); call != nil {
+		if w, ok := b.isWith(call); ok && call == unparen(x) && !implicitAt(b.l.info, x) {
+			// A with whose block's tail fails, returned: its block's tail
+			// returns (ir_with.go), as a with that is the body's tail.
+			return b.withStmt(w, true, nil)
+		}
 		if _, implicit := b.l.info.Implicit[x]; implicit || b.l.info.ReturnedTemps[call] {
 			// A converted or kept result needs a success edge of its
 			// own. A failed call produces no value to own or convert.
@@ -140,6 +145,13 @@ func (b *irBuilder) retOf(x syntax.Expr, p irPos) []*irStmt {
 	pre, e := b.value(x)
 	e = b.assignedTo(x, e, b.result) // a variant joins the result's union (ir_union.go)
 	return append(pre, b.formed(&irStmt{K: "ret", Pos: p, X: e}, "val"))
+}
+
+// implicitAt reports an expression the checker converts where it is
+// used (Info.Implicit).
+func implicitAt(info *check.Info, x syntax.Expr) bool {
+	_, ok := info.Implicit[x]
+	return ok
 }
 
 // isFailure reports a value x of an error type that the frame does not

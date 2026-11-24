@@ -42,7 +42,7 @@ func (b *irBuilder) contextValue(x syntax.Expr, w *check.With, p irPos) *irExpr 
 		if outer < 0 {
 			outer = ptr // the emitter's outer (&snap) in a pure function
 		}
-		pre = append(pre, b.publish(w, ptr, outer, x)...) // ir_with.go
+		pre = append(pre, b.publish(w, ptr, outer, -1, x)...) // ir_with.go
 	} else {
 		// A named context has a declaration, whichever package holds it;
 		// its builder is emitted with it (contextBuilder). The IR asks

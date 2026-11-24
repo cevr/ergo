@@ -436,6 +436,9 @@ func ergoBodyCall(c *check.Call) bool {
 // address of the body's frame scope (openScope; the emitter's
 // frameScope). A call outside one keeps its source body.
 func (b *irBuilder) frameArg(p irPos) *irExpr {
+	if b.with != 0 {
+		return &irExpr{K: "local", Pos: p, I: b.with - 1}
+	}
 	if b.frame == 0 {
 		irNo("std call with hidden argument frame")
 	}
