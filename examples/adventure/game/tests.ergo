@@ -1,6 +1,7 @@
 // The game's tests drive Run with a scripted io.Input and record what it
 // tells with an io.Recorder, with no host. Its laws run under ergo test.
 
+import adventure/world
 import io
 import strings
 
@@ -37,4 +38,16 @@ test FailuresAreToldAndChangeNothing {
 	let text, e = session("dance\ngo\ngo sideways\ntake\ntake lamp\ndrop key\nsouth\n")
 	assert e == Stopped{Moves: 0, At: "gate"}
 	assert strings.Contains(text, "I do not know the word \"dance\".\nGo what?\n\"sideways\" is not a direction.\nTake what?\nThere is no lamp here.\nYou do not carry the key.\nYou cannot go south from here.\n")
+}
+
+test AdvanceUsesNarrowTransition {
+	let start = Exploring{G: New(world.Castle())}
+	let t Transition = try Advance(start, Said{Line: "look"})
+	assert t == Stayed{Next: start}
+	assert Say(start, "look", t) == Describe(GameOf(start))
+	let ask Transition = try Advance(start, Said{Line: "quit"})
+	assert ask == Entered{Next: Asking{G: GameOf(start)}}
+	assert Say(start, "quit", ask) == []string{"Really quit? (y/n)"}
+	let end Transition = try Advance(start, Ended)
+	assert end == Finished{Output: Stopped{Moves: 0, At: "gate"}}
 }

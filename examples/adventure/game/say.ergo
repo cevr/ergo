@@ -77,12 +77,11 @@ func Failure(r Refusal) string {
 	}
 }
 
-// Say is what the player is told after line moved s by d.
-func Say(s State, line string, d Decision[State, Ending]) []string {
+func Say(s State, line string, d Transition) []string {
 	match d {
-	case Done[Ending] as done:
+	case Finished as done:
 		[]string{EndText(done.Output)}
-	case Enter[State] as e:
+	case Entered as e:
 		match (s, e.Next) {
 		case (_, Asking):
 			[]string{"Really quit? (y/n)"}
@@ -91,7 +90,7 @@ func Say(s State, line string, d Decision[State, Ending]) []string {
 		case (Exploring, Exploring as x):
 			Describe(x.G)
 		}
-	case Stay[State] as st:
+	case Stayed as st:
 		let g = GameOf(st.Next)
 		let c = Parse(line) catch {
 		case Unknown, Missing, NoWay:
@@ -111,9 +110,5 @@ func Say(s State, line string, d Decision[State, Ending]) []string {
 		case Go, Quit, Blank:
 			[]string{}
 		}
-	case Emit[State, Ending], Tell[State, Ending]:
-		Unreachable("Step never emits: what a step tells is worked out here")
-	case Ignore, Reject:
-		[]string{}
 	}
 }

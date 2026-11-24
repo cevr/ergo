@@ -167,55 +167,61 @@ type Play machine[State, Signal] {
 	step:    Step,
 }
 
-// Step is the machine's transition. Exploring, a move Enters the next
-// room, or is Done with Won on the goal; a take or a drop Stays with the
-// item moved; look, inventory, help and a blank line Stay as they are,
-// since only the output changes; quit Enters Asking. Asking, yes is Done
-// with Stopped and any other line Enters Exploring again. The end of the
-// input is Done with Stopped in either state.
-func Step(s State, sig Signal) Decision[State, Ending] fails Refusal {
+type Transition = Entered{Next State} | Stayed{Next State} | Finished{Output Ending}
+
+func Advance(s State, sig Signal) Transition fails Refusal {
 	let g = GameOf(s)
 	match (s, sig) {
 	case (_, Ended):
-		Done[Ending]{Output: Stopped{Moves: g.Moves, At: g.At}}
+		Finished{Output: Stopped{Moves: g.Moves, At: g.At}}
 	case (Asking, Said as said):
 		if IsYes(said.Line) {
-			return Done[Ending]{Output: Stopped{Moves: g.Moves, At: g.At}}
+			return Finished{Output: Stopped{Moves: g.Moves, At: g.At}}
 		}
-		Enter[State]{Next: Exploring{G: g}}
+		Entered{Next: Exploring{G: g}}
 	case (Exploring, Said as said):
 		try explore(g, try Parse(said.Line))
 	}
 }
 
-// IsYes reports whether line answers yes: y or yes, in any case.
+func Step(s State, sig Signal) Decision[State, Ending] fails Refusal {
+	match try Advance(s, sig) {
+	case Entered as e:
+		Enter[State]{Next: e.Next}
+	case Stayed as st:
+		Stay[State]{Next: st.Next}
+	case Finished as f:
+		Done[Ending]{Output: f.Output}
+	}
+}
+
 func IsYes(line string) bool {
 	let word = strings.ToLower(strings.TrimSpace(line))
 	word == "y" || word == "yes"
 }
 
-func explore(g Game, c Command) Decision[State, Ending] fails NoExit | Barred | NotHere | NotCarried {
+func explore(g Game, c Command) Transition fails NoExit | Barred | NotHere | NotCarried {
 	match c {
 	case Go as m:
 		let next = try Moved(g, m.Way)
 		if next.At == g.World.Goal {
-			return Done[Ending]{Output: Won{Moves: next.Moves}}
+			return Finished{Output: Won{Moves: next.Moves}}
 		}
-		Enter[State]{Next: Exploring{G: next}}
+		Entered{Next: Exploring{G: next}}
 	case Take as t:
 		if Where(g, t.Item) != g.At {
 			return NotHere{Item: t.Item}
 		}
-		Stay[State]{Next: Exploring{G: Placed(g, t.Item, world.Carried)}}
+		Stayed{Next: Exploring{G: Placed(g, t.Item, world.Carried)}}
 	case Drop as d:
 		if Where(g, d.Item) != world.Carried {
 			return NotCarried{Item: d.Item}
 		}
-		Stay[State]{Next: Exploring{G: Placed(g, d.Item, g.At)}}
+		Stayed{Next: Exploring{G: Placed(g, d.Item, g.At)}}
 	case Quit:
-		Enter[State]{Next: Asking{G: g}}
+		Entered{Next: Asking{G: g}}
 	case Look, Inventory, Help, Blank:
-		Stay[State]{Next: Exploring{G: g}}
+		Stayed{Next: Exploring{G: g}}
 	}
 }
 
