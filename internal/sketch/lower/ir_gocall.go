@@ -63,6 +63,11 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	if receiver != nil {
 		recv, args = args[0], args[1:]
 	}
+	if c.ReadsClaimReceiver() {
+		if _, borrowed := b.l.info.Types[c.Recv].(*check.Pointer); borrowed {
+			args[0] = &irExpr{K: "deref", Pos: p, X: args[0]}
+		}
+	}
 	for i, q := range f.Sig.Params {
 		if e, ok := b.goErrorArg(q.Type, args[i], p); ok { // ir_golib.go
 			args[i] = e

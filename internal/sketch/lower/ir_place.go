@@ -209,7 +209,7 @@ func (b *irBuilder) storeOld(s *syntax.AssignStmt, op string, to *irExpr, pre []
 // addrRecv reports whether c calls a *T function on a T receiver, which
 // passes the receiver's address (calls.go: addr).
 func (b *irBuilder) addrRecv(c *check.Call) bool {
-	if c.Recv == nil || !c.Func.Ptr {
+	if !c.BorrowsReceiver() {
 		return false
 	}
 	// In a copy, a type parameter is its bound type: a witness copy's S

@@ -87,10 +87,10 @@ type Pkg {
 	// bind declares it.
 	Parses []OpName,
 	// Claims are implements clauses at their declaration's parameters.
-	Claims []Claim,
+	Claims              []Claim,
 	FunctionClaimIssues []types.ClaimIssue,
-	Roles  []types.Role,
-	Deps   []Dep,
+	Roles               []types.Role,
+	Deps                []Dep,
 	// Unions is the unions a call's inference may meet, the package's
 	// and its imports' (types.UnionsOf).
 	Unions infer.Unions,

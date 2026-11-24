@@ -4,34 +4,38 @@ import slices
 type FunctionClaim {}
 // FunctionMember's path, file and source node always belong to the
 // declaring package, even when an include crosses several package edges.
-type FunctionMember { Path string, File uint32, Decl uint32 }
+type FunctionMember { Path string, File uint32, Decl uint32, Line int, Column int }
+type ClaimTerm { Type dense.ID[TKey], Under bool }
 type ClaimHead {
-	Role dense.ID[TKey],
-	Receiver dense.ID[TKey],
-	Binds []bool,
+	Role      dense.ID[TKey],
+	Receiver  dense.ID[TKey],
+	Binds     []bool,
 	Positions []int,
-	Members []FunctionMember,
+	Bounds    [][]ClaimTerm,
+	Members   []FunctionMember,
 }
 
 type FunctionClaims {
-	count dense.Count[FunctionClaim],
-	roles dense.Col[FunctionClaim, dense.ID[TKey]],
+	count     dense.Count[FunctionClaim],
+	roles     dense.Col[FunctionClaim, dense.ID[TKey]],
 	receivers dense.Col[FunctionClaim, dense.ID[TKey]],
-	binds dense.Col[FunctionClaim, []bool],
+	binds     dense.Col[FunctionClaim, []bool],
 	positions dense.Col[FunctionClaim, []int],
-	members dense.Col[FunctionClaim, []FunctionMember],
-	byRole dense.Side[TKey, []dense.ID[FunctionClaim]],
+	bounds    dense.Col[FunctionClaim, [][]ClaimTerm],
+	members   dense.Col[FunctionClaim, []FunctionMember],
+	byRole    dense.Side[TKey, []dense.ID[FunctionClaim]],
 }
 
 func newFunctionClaims() FunctionClaims {
 	FunctionClaims{
-		count: dense.NewCount[FunctionClaim](),
-		roles: dense.NewCol[FunctionClaim, dense.ID[TKey]](),
+		count:     dense.NewCount[FunctionClaim](),
+		roles:     dense.NewCol[FunctionClaim, dense.ID[TKey]](),
 		receivers: dense.NewCol[FunctionClaim, dense.ID[TKey]](),
-		binds: dense.NewCol[FunctionClaim, []bool](),
+		binds:     dense.NewCol[FunctionClaim, []bool](),
 		positions: dense.NewCol[FunctionClaim, []int](),
-		members: dense.NewCol[FunctionClaim, []FunctionMember](),
-		byRole: dense.NewSide[TKey, []dense.ID[FunctionClaim]]([]dense.ID[FunctionClaim]{}),
+		bounds:    dense.NewCol[FunctionClaim, [][]ClaimTerm](),
+		members:   dense.NewCol[FunctionClaim, []FunctionMember](),
+		byRole:    dense.NewSide[TKey, []dense.ID[FunctionClaim]]([]dense.ID[FunctionClaim]{}),
 	}
 }
 
@@ -43,8 +47,9 @@ func FunctionClaimAt(s Store, at int) ClaimHead {
 
 func functionClaimOf(cs FunctionClaims, id dense.ID[FunctionClaim]) ClaimHead {
 	ClaimHead{
-		Role: dense.Of(cs.roles, id), Receiver: dense.Of(cs.receivers, id),
-		Binds: dense.Of(cs.binds, id), Positions: dense.Of(cs.positions, id),
+		Role:    dense.Of(cs.roles, id), Receiver: dense.Of(cs.receivers, id),
+		Binds:   dense.Of(cs.binds, id), Positions: dense.Of(cs.positions, id),
+		Bounds:  dense.Of(cs.bounds, id),
 		Members: dense.Of(cs.members, id),
 	}
 }
@@ -55,13 +60,16 @@ func AddFunctionClaim(s mut Store, role XRef, g ClaimHead) {
 	for row in old {
 		let prior = functionClaimOf(s.pool.functionClaims, row)
 		if prior.Role == g.Role && prior.Receiver == g.Receiver && slices.Equal(prior.Binds, g.Binds) &&
-			slices.Equal(prior.Members, g.Members) { return }
+			slices.Equal(prior.Members, g.Members) {
+			return
+		}
 	}
 	let id = dense.Next(&s.pool.functionClaims.count)
 	dense.Push(&s.pool.functionClaims.roles, g.Role)
 	dense.Push(&s.pool.functionClaims.receivers, g.Receiver)
 	dense.Push(&s.pool.functionClaims.binds, g.Binds)
 	dense.Push(&s.pool.functionClaims.positions, g.Positions)
+	dense.Push(&s.pool.functionClaims.bounds, g.Bounds)
 	dense.Push(&s.pool.functionClaims.members, g.Members)
 	dense.SideSet(&s.pool.functionClaims.byRole, key, old.Append(id))
 }
@@ -125,7 +133,7 @@ func shapeBind(p Pool, shape dense.ID[TKey], actual dense.ID[TKey], binds []bool
 // ClaimIntersection solves equality of the two receiver and role shapes
 // together. Neither declaration's binders are rigid: []([T] etc.) on one
 // side can make a different part of the other side concrete.
-func ClaimIntersection(s mut Store, a ClaimHead, b ClaimHead) Option[[]dense.ID[TKey]] {
+func ClaimIntersection(s mut Store, a ClaimHead, b ClaimHead) bool {
 	let mut bindings = []dense.ID[TKey]{}
 	let mut moved = []dense.ID[TKey]{}
 	for i in 0..len(a.Binds)+len(b.Binds) {
@@ -136,11 +144,63 @@ func ClaimIntersection(s mut Store, a ClaimHead, b ClaimHead) Option[[]dense.ID[
 	let recv = TSubst(s, b.Receiver, moved)
 	let role = TSubst(s, b.Role, moved)
 	if !intersect(s.pool, a.Receiver, recv, &bindings) || !intersect(s.pool, a.Role, role, &bindings) {
-		return None
+		return false
 	}
-	let mut out = []dense.ID[TKey]{}
-	for t in bindings { out = out.Append(intersectionRead(s.pool, t, bindings)) }
-	Some{Value: out}
+	let bounds = a.Bounds.Concat(b.Bounds)
+	let mut domains = [][]ClaimTerm{}
+	for _ in bindings { domains = domains.Append([]ClaimTerm{}) }
+	for i, terms in bounds {
+		if len(terms) == 0 { continue }
+		let bound = intersectionRead(s.pool, bindings[i], bindings)
+		let k = Key(s.pool, bound)
+		if int(k.k) == tParam {
+			let slot = int(k.a)
+			let previous = domains[slot]
+			if len(previous) == 0 {
+				domains[slot] = terms
+				continue
+			}
+			let mut common = []ClaimTerm{}
+			for left in previous {
+				for right in terms {
+					if left.Type == right.Type {
+						common = common.Append(ClaimTerm{..left, Under: left.Under && right.Under})
+					} else if looseTerm(s.pool, left, right.Type) {
+						common = common.Append(right)
+					} else if looseTerm(s.pool, right, left.Type) {
+						common = common.Append(left)
+					}
+				}
+			}
+			if len(common) == 0 { return false }
+			domains[slot] = common
+		} else if !claimBoundFits(s.pool, terms, bound) {
+			return false
+		}
+	}
+	true
+}
+
+// A nominal underlying type may not be visible in this pool. Do not
+// prove two patterns disjoint on the strength of that missing fact.
+func looseTerm(p Pool, term ClaimTerm, other dense.ID[TKey]) bool {
+	let kind = int(Key(p, other).k)
+	term.Under && (kind == tNamed || kind == tForeign || kind == tInstance)
+}
+
+func claimBoundFits(p Pool, terms []ClaimTerm, t dense.ID[TKey]) bool {
+	if len(terms) == 0 || Open(p, t) { return true }
+	for term in terms {
+		if term.Type == t || looseTerm(p, term, t) { return true }
+	}
+	false
+}
+
+func claimBoundsFit(p Pool, g ClaimHead, args []dense.ID[TKey]) bool {
+	for i, terms in g.Bounds {
+		if !claimBoundFits(p, terms, args[i]) { return false }
+	}
+	true
 }
 
 func intersectionRead(p Pool, t dense.ID[TKey], bindings []dense.ID[TKey]) dense.ID[TKey] {
@@ -187,41 +247,52 @@ func intersect(p Pool, a dense.ID[TKey], b dense.ID[TKey], bindings mut []dense.
 // FunctionClaimBindings selects a claim by its full nominal contract and
 // receiver pattern. Reapplication uses the same row as provision checks.
 func FunctionClaimBindings(s mut Store, role dense.ID[TKey], ref XRef, receiver dense.ID[TKey]) Option[ClaimHead] {
-	let key = TInstance(s, ref, []dense.ID[TKey]{})
-	for id in dense.SideOf(s.pool.functionClaims.byRole, key) {
-		let g = functionClaimOf(s.pool.functionClaims, id)
-		match shapeBindings(&s.pool, g, receiver) {
+	match selectFunctionClaim(&s.pool, role, ref, receiver) {
+	case Some{Value: (g, _)}:
+		Some{Value: g}
+	case None:
+		None
+	}
+}
+
+func selectFunctionClaim(p mut Pool, role dense.ID[TKey], ref XRef, receiver dense.ID[TKey]) Option[(ClaimHead, []dense.ID[TKey])] {
+	let key = Instance(p, ref, []dense.ID[TKey]{})
+	let mut selected Option[(ClaimHead, []dense.ID[TKey])] = None
+	for id in dense.SideOf(p.functionClaims.byRole, key) {
+		let g = functionClaimOf(p.functionClaims, id)
+		match shapeBindings(p, g, receiver) {
 		case Some{Value: args}:
-			let read = Subst(&s.pool, g.Role, args)
-			if sameClaimRole(s.pool, read, role) { return Some{Value: g} }
+			let read = Subst(p, g.Role, args)
+			if !sameClaimRole(*p, read, role) || !claimBoundsFit(*p, g, args) { continue }
+			match selected {
+			case Some{Value: (prior, _)}:
+				if !slices.Equal(prior.Members, g.Members) { return None }
+			case None:
+				selected = Some{Value: (g, args)}
+			}
 		case None:
 		}
 	}
-	None
+	selected
 }
 
 func sameClaimRole(p Pool, a dense.ID[TKey], b dense.ID[TKey]) bool {
-	a == b || int(Key(p, a).k) == tInstance && int(Key(p, b).k) == tInstance &&
+		a == b || int(Key(p, a).k) == tInstance && int(Key(p, b).k) == tInstance &&
 		OriginOf(p, a) == OriginOf(p, b) && slices.Equal(Operands(p, a), Operands(p, b))
 }
 
 func reapplyFunctionClaim(p mut Pool, recv dense.ID[TKey], op dense.ID[TKey], args []dense.ID[TKey]) Option[dense.ID[TKey]] {
 	if int(Key(*p, op).k) != tInstance { return None }
-	let key = Instance(p, OriginOf(*p, op), []dense.ID[TKey]{})
-	for id in dense.SideOf(p.functionClaims.byRole, key) {
-		let g = functionClaimOf(p.functionClaims, id)
-		if len(g.Positions) != len(args) { continue }
-		match shapeBindings(p, g, recv) {
-		case Some{Value: slots}:
-			let read = Subst(p, g.Role, slots)
-			if !sameClaimRole(*p, read, op) { continue }
-			let mut to = slices.Clone(slots)
-			for i, at in g.Positions { to[at] = args[i] }
-			return Some{Value: Subst(p, g.Receiver, to)}
-		case None:
-		}
+	match selectFunctionClaim(p, op, OriginOf(*p, op), recv) {
+	case Some{Value: (g, slots)}:
+		if len(g.Positions) != len(args) { return None }
+		let mut to = slices.Clone(slots)
+		for i, at in g.Positions { to[at] = args[i] }
+		if !claimBoundsFit(*p, g, to) { return Some{Value: Basic(p, 0)} }
+		Some{Value: Subst(p, g.Receiver, to)}
+	case None:
+		None
 	}
-	None
 }
 
 // ReadFunctionSelf applies a signature to the receiver template, not to a

@@ -461,16 +461,16 @@ func FuncDeclOf(t Tree, id dense.ID[Node]) FuncDecl {
 	let i = uint32(dense.Index(id))
 	let tok = t.tok[int(i)]
 	return FuncDecl{
-		Doc:        otok(fixed(t, i, 9, 0)),
-		Extern:     onid(t, fixed(t, i, 9, 1)),
-		Func:       int(tok),
-		Recv:       onid(t, fixed(t, i, 9, 2)),
-		Name:       nid(t, fixed(t, i, 9, 3)),
-		TypeParams: onid(t, fixed(t, i, 9, 4)),
-		Type:       nid(t, fixed(t, i, 9, 5)),
-		Body:       onid(t, fixed(t, i, 9, 6)),
+		Doc:           otok(fixed(t, i, 9, 0)),
+		Extern:        onid(t, fixed(t, i, 9, 1)),
+		Func:          int(tok),
+		Recv:          onid(t, fixed(t, i, 9, 2)),
+		Name:          nid(t, fixed(t, i, 9, 3)),
+		TypeParams:    onid(t, fixed(t, i, 9, 4)),
+		Type:          nid(t, fixed(t, i, 9, 5)),
+		Body:          onid(t, fixed(t, i, 9, 6)),
 		ImplementsPos: otok(fixed(t, i, 9, 7)),
-		Implements: onid(t, fixed(t, i, 9, 8)),
+		Implements:    onid(t, fixed(t, i, 9, 8)),
 	}
 }
 

@@ -967,6 +967,30 @@ func (c *Call) RecvIsParam() bool {
 	return c.Func == nil || c.Func.Decl == nil || c.Func.Decl.Recv == nil
 }
 
+// BorrowsReceiver is a declared function call that passes its receiver
+// through a mutable borrow, including a structural function claim.
+func (c *Call) BorrowsReceiver() bool {
+	if c == nil || c.Recv == nil || c.Func == nil {
+		return false
+	}
+	if c.Func.Ptr {
+		return true
+	}
+	f := c.Func
+	if f.Decl == nil || f.Decl.Implements == nil || len(f.Sig.Params) == 0 {
+		return false
+	}
+	_, ptr := f.Sig.Params[0].Type.(*Pointer)
+	return ptr
+}
+
+// ReadsClaimReceiver is a function-form receiver passed by value. A mut
+// operation can use it, but its caller then reads the borrowed value.
+func (c *Call) ReadsClaimReceiver() bool {
+	return c.RecvIsParam() && c.Func != nil && c.Func.Decl != nil &&
+		c.Func.Decl.Implements != nil && !c.BorrowsReceiver()
+}
+
 // ConversionKind is an implicit conversion's kind.
 type ConversionKind int
 

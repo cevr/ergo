@@ -17,11 +17,36 @@ type functionClaim struct {
 	ops  map[string]*Func
 }
 
-// StaticClaimConstraint reports a contract with function-form claimants.
-// The contract stays available as a value through ordinary type claims.
-func StaticClaimConstraint(t Type) bool {
+func staticClaimConstraint(t Type) bool {
 	op, ok := t.(*Named)
 	return ok && op.Obj != nil && op.Obj.Pkg != nil && len(op.Obj.Pkg.functionClaims[op.origin()]) > 0
+}
+
+// FunctionClaimParams reports the parameters of a concrete copy that use
+// a function-form claim. Other copies of the same declaration (including
+// copies at a runtime operation type) keep their normal witness behavior.
+func FunctionClaimParams(f *Func, bound map[*TypeParam]Type) map[*TypeParam]bool {
+	if f == nil || f.Pkg == nil {
+		return nil
+	}
+	var out map[*TypeParam]bool
+	for tp, arg := range bound {
+		if !staticClaimConstraint(tp.Constraint) {
+			continue
+		}
+		lawSelfMu.Lock()
+		c := f.Pkg.claimReader()
+		role, _ := c.subst(tp.Constraint, bound).(*Named)
+		g, _ := c.functionClaim(arg, role)
+		lawSelfMu.Unlock()
+		if g != nil {
+			if out == nil {
+				out = make(map[*TypeParam]bool)
+			}
+			out[tp] = true
+		}
+	}
+	return out
 }
 
 func receiverBinders(sig *Signature) []*TypeParam {
@@ -36,6 +61,13 @@ func receiverBinders(sig *Signature) []*TypeParam {
 		}
 	}
 	return out
+}
+
+func functionReceiver(t Type) Type {
+	if p, ok := t.(*Pointer); ok {
+		return p.Elem
+	}
+	return t
 }
 
 func (c *checker) claimMatch(pattern, recv Type, bind []*TypeParam) (map[*TypeParam]Type, bool) {
@@ -283,11 +315,8 @@ func (c *checker) functionClaimHead(f *Func) *functionClaim {
 		c.errorf(x, CodeType, "a function claim is written in the contract's package")
 		return nil
 	}
-	recv := f.Sig.Params[0].Type
+	recv := functionReceiver(f.Sig.Params[0].Type)
 	base := recv
-	if p, ok := recv.(*Pointer); ok {
-		base = p.Elem
-	}
 	if n, ok := base.(*Named); ok && n.Obj.Pkg == c.pkg {
 		c.errorf(x, CodeType, "a function claim for a type of this package is written on the type")
 		return nil
@@ -309,6 +338,7 @@ func (c *checker) functionClaimHead(f *Func) *functionClaim {
 		c.errorf(x, CodeProvider, "%s claims %s, and %s's %s must satisfy %s: %s", recv, op, op.Obj.Name, p.Name, constraintText(p), why)
 		return nil
 	}
+	c.pkg.Info.Types[x] = op
 	return g
 }
 
@@ -495,7 +525,7 @@ func (c *checker) checkFunctionClaims() {
 		if op == nil || len(f.Sig.Params) == 0 {
 			continue
 		}
-		recv := f.Sig.Params[0].Type
+		recv := functionReceiver(f.Sig.Params[0].Type)
 		g, m := c.functionClaim(recv, op)
 		if g == nil || g.ops[f.Name] != f {
 			continue
@@ -528,7 +558,7 @@ func (c *checker) checkFunctionClaims() {
 			}
 			if why == "" {
 				got = c.subst(got, rename).(*Signature)
-				if _, mut := recv.(*Pointer); mut && !want.MutSelf {
+				if _, mut := f.Sig.Params[0].Type.(*Pointer); mut && !want.MutSelf {
 					why = fmt.Sprintf("%s writes its receiver, and the operation does not", f.Name)
 				} else {
 					why = c.operationShape(recv, f.Name, got, want, got.Results, want.Results, nil, nil)
@@ -550,7 +580,7 @@ func (c *checker) functionProvider(recv Type, role *Named, name string, own []Ty
 		return nil, nil
 	}
 	f := g.ops[name]
-	m, ok := c.claimMatch(f.Sig.Params[0].Type, recv, receiverBinders(f.Sig))
+	m, ok := c.claimMatch(functionReceiver(f.Sig.Params[0].Type), recv, receiverBinders(f.Sig))
 	if !ok {
 		return nil, nil
 	}

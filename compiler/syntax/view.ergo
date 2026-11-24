@@ -41,16 +41,16 @@ type View =
 		Implements    List,
 	}
 	| FuncDecl{
-		Doc        int,
-		Extern     dense.Opt[Node],
-		Func       int,
-		Recv       dense.Opt[Node],
-		Name       dense.ID[Node],
-		TypeParams dense.Opt[Node],
-		Type       dense.ID[Node],
-		Body       dense.Opt[Node],
+		Doc           int,
+		Extern        dense.Opt[Node],
+		Func          int,
+		Recv          dense.Opt[Node],
+		Name          dense.ID[Node],
+		TypeParams    dense.Opt[Node],
+		Type          dense.ID[Node],
+		Body          dense.Opt[Node],
 		ImplementsPos int,
-		Implements dense.Opt[Node],
+		Implements    dense.Opt[Node],
 	}
 	| ContextDecl{Doc int, Let int, Context int, Name dense.ID[Node], Provides dense.Opt[Node], Fails dense.Opt[Node], Needs dense.Opt[Node], Body dense.ID[Node]}
 	| TestDecl{Doc int, Test int, Name dense.ID[Node], Params dense.Opt[Node], Body dense.Opt[Node]}

@@ -8,3 +8,9 @@ func Check(xs []string, f own func(x int) int, v foreign.Value) ([]int, int, int
 func Measure(xs []int) (int, bool) {
 	roles.Measure(xs)
 }
+
+func Mutate() int {
+	let mut xs = []int{0}
+	roles.BumpValue(&xs)
+	xs[0]
+}

@@ -1019,7 +1019,7 @@ func copiesOnly(f *check.Func) bool {
 		return false
 	}
 	for _, tp := range f.Sig.TParams {
-		if tp.Kind == check.KindType && (check.ConstraintOnly(tp.Constraint) || check.StaticClaimConstraint(tp.Constraint)) {
+		if tp.Kind == check.KindType && check.ConstraintOnly(tp.Constraint) {
 			return true
 		}
 	}
@@ -1190,7 +1190,8 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 			ice(site, "the copy of %s is not a plain function", f.Name)
 		}
 		fc.params, fc.mono, fc.bound = sp.typeArgs, true, sp.bound
-		if copiesOnly(f) {
+		fc.claims = sp.claims
+		if copiesOnly(f) || len(sp.claims) > 0 {
 			fc.readCopy = check.CopyReader(f.Pkg, sp.bound)
 			saved := l.info
 			facts, why := check.CopyInfo(saved, f.Decl, fc.readCopy)
@@ -1229,6 +1230,9 @@ func (l *lowerer) emitBody(fd *funcDecl, known bool, sp *specCopy, drop bool) {
 	// A type parameter a method set constrains takes its operations as a
 	// witness, after the environment and the destination (witness.go).
 	for _, tp := range witnessParams(f.Sig) {
+		if fc.claims[tp] {
+			continue
+		}
 		if fd.method != nil {
 			ice(site, "the Go method %s has a witness for %s; methodReceiver keeps such a function a Go function", f.Name, tp.Name)
 		}

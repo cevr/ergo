@@ -7,8 +7,28 @@ import compiler/syntax
 import dense
 
 type Bracket { Name string, Cons string }
-type RoleMember { Name string, Own []Bracket, Mut bool, Sig dense.ID[store.TKey], Positions []int }
+type RoleMember { Name string, Own []Bracket, Mut bool, Fallible bool, Sig dense.ID[store.TKey], Positions []int }
 type Role { Name string, Params []Bracket, Members []RoleMember, Self int, Includes []dense.ID[store.TKey] }
+
+func WrittenFails(p syntax.Parsed, typ dense.ID[syntax.Node]) bool {
+	if syntax.KindOf(p.Tree, typ) != syntax.KFuncType { return false }
+	match dense.Unpack(syntax.FuncTypeOf(p.Tree, typ).Results) {
+	case Some{Value: rs}:
+		if syntax.KindOf(p.Tree, rs) != syntax.KFieldList { return false }
+		let fs = syntax.FieldListOf(p.Tree, rs).List
+		for i in 0..syntax.Len(fs) {
+			let f = syntax.Item(p.Tree, fs, i)
+			if syntax.KindOf(p.Tree, f) != syntax.KField { continue }
+			match dense.Unpack(syntax.FieldOf(p.Tree, f).Type) {
+			case Some{Value: ft}:
+				if syntax.KindOf(p.Tree, ft) == syntax.KErrorRow { return true }
+			case None:
+			}
+		}
+	case None:
+	}
+	false
+}
 
 func Brackets(p syntax.Parsed, list dense.Opt[syntax.Node]) []Bracket {
 	let mut out = []Bracket{}
@@ -152,7 +172,7 @@ func rawRole(s mut store.Store, e Env, id dense.ID[store.Decl]) Role {
 				} else if syntax.KindOf(p.Tree, spec) == syntax.KInterfaceType && syntax.Len(f.Names) == 1 && syntax.KindOf(p.Tree, ft) == syntax.KFuncType {
 					let own = Brackets(p, syntax.FuncTypeOf(p.Tree, ft).TypeParams)
 					let inner = WithSelf(Env{..env, params: bases.Concat(roleNames(own))}, len(bases))
-					info.Members = info.Members.Append(RoleMember{Name: NameText(p, syntax.Item(p.Tree, f.Names, 0)), Own: own, Mut: f.Mut >= 0, Sig: Resolve(s, inner, ft), Positions: positions})
+					info.Members = info.Members.Append(RoleMember{Name: NameText(p, syntax.Item(p.Tree, f.Names, 0)), Own: own, Mut: f.Mut >= 0, Fallible: WrittenFails(p, ft), Sig: Resolve(s, inner, ft), Positions: positions})
 				} else {
 					return Role{Name: "", Params: []Bracket{}, Members: []RoleMember{}, Self: 0, Includes: []dense.ID[store.TKey]{}}
 				}
@@ -432,6 +452,9 @@ func RoleRefs(s store.Store, deps []Iface, roles []Role, claims [][]store.ClaimL
 		if !namedInStore(s, g.Role) { continue }
 		roleTypeRefs(s, &out, deps, g.Role)
 		roleTypeRefs(s, &out, deps, g.Receiver)
+		for row in g.Bounds {
+			for term in row { roleTypeRefs(s, &out, deps, term.Type) }
+		}
 	}
 	out
 }

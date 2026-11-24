@@ -257,7 +257,7 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// address where the receiver is evaluated, so a later argument's
 		// spill keeps the place, never a copy (types.md, Methods 1 and 5).
 		addr := false
-		if c.Recv != nil && c.Func.Ptr {
+		if c.BorrowsReceiver() {
 			_, isPtr := fc.typeOf(c.Recv).(*check.Pointer)
 			addr = !isPtr
 		}
@@ -282,6 +282,11 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		// value binds needs no adapter: a function value with no result
 		// and the instance's func(…) struct{} are one Go shape (C11).
 		vals := fc.callArgsAddr(list, x, addr)
+		if c.ReadsClaimReceiver() {
+			if _, borrowed := fc.typeOf(c.Recv).(*check.Pointer); borrowed {
+				vals[0] = "*(" + vals[0] + ")"
+			}
+		}
 		vals = fc.valueSource(x, c, vals)
 		if fd.method == nil && !known {
 			if text := fc.handoverAppend(x, c, vals); text != "" {
@@ -349,12 +354,13 @@ func (fc *funcCtx) callText(x *syntax.CallExpr, c *check.Call) (string, bool, bo
 		}
 		// A pure function takes no environment (pure.go): no Task result
 		// and no witness either, so its call passes its operands alone.
-		lead := fc.witnessArgs(c.Func, fc.l.info.Instances[x], x)
+		var lead []string
 		if sp != nil && sp.wit != nil && !known || mono != nil && mono.wits != nil {
 			// The copy for a known witness takes none (witspec.go), nor
 			// does a copy for an instance whose witnesses are known
 			// (mono.go monoWitnesses).
-			lead = nil
+		} else {
+			lead = fc.witnessArgsExcept(c.Func, fc.l.info.Instances[x], x, mono.claimParams())
 		}
 		if !fd.envFree {
 			lead = append(fc.taskDestArgs(x, c, c.Func.Sig), lead...)
@@ -579,6 +585,12 @@ func (fc *funcCtx) hostCall(x *syntax.CallExpr, c *check.Call, args []syntax.Exp
 		ice(x, "a call of the user extern %s outside its checked domain", f.Name)
 	}
 	vals := fc.callArgs(args, x)
+	if c.RecvIsParam() {
+		_, borrowed := fc.typeOf(c.Recv).(*check.Pointer)
+		if c.ReadsClaimReceiver() && borrowed {
+			vals[0] = "*(" + vals[0] + ")"
+		}
+	}
 	for i, p := range f.Sig.Params {
 		if cb, ok := p.Type.(*check.Signature); ok {
 			// The adapter is bound once, so hostStmt's check and the call
@@ -1078,23 +1090,24 @@ func (fc *funcCtx) declaredValue(f *check.Func, fd *funcDecl, sig *check.Signatu
 		}
 		// An instance's witnesses, from its operations (witness.go): a
 		// struct value passed on each call of the value.
-		wits := fc.witnessArgs(f, inst, site)
+		var mono *specCopy
 		var head string
 		switch {
 		case fd.method != nil:
 			head, args = args[0]+"."+fd.name, args[1:]
 		case inst != nil:
 			head = fd.name + fc.typeArgs(f.Sig, inst.TypeArgs, site)
-			if mono := fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
+			if mono = fc.monoAt(nil, nil, f, inst.TypeArgs); mono != nil {
 				head = mono.name // the instance's plain copy (mono.go)
-				if fc.monoWitnesses(mono, inst); mono.wits != nil {
-					wits = nil // its witnesses are known: it takes none
-				}
+				fc.monoWitnesses(mono, inst)
 			}
 		default:
 			head = fd.name
 		}
-		args = append(append(lead, wits...), args...)
+		if mono == nil || mono.wits == nil {
+			lead = append(lead, fc.witnessArgsExcept(f, inst, site, mono.claimParams())...)
+		}
+		args = append(lead, args...)
 		call := head + "(" + strings.Join(args, ", ") + ")"
 		var result check.Type
 		if len(sig.Results) == 1 {

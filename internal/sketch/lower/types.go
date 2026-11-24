@@ -133,8 +133,10 @@ func (tc *typeCtx) goType(t check.Type) string {
 		}
 		ice(tc.site, "the type parameter %s appears outside its declaration", t.Name)
 	case *check.Reapplied:
-		if n, ok := tc.boundType(t).(*check.Named); ok {
-			return tc.goType(n)
+		if bound := tc.boundType(t); bound != t {
+			if _, open := bound.(*check.Reapplied); !open {
+				return tc.goType(bound)
+			}
 		}
 		ice(tc.site, "a re-applied type reached lowering outside its copy: %s", t)
 	case *check.SelfType:

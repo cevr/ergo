@@ -16,6 +16,10 @@ type Trimmed {
 	Trim() Self,
 }
 
+type Bumped {
+	mut Bump(),
+}
+
 type Measured {
 	..foreign.Counted,
 	Nonempty() bool,
@@ -40,6 +44,14 @@ func Score(v foreign.Value) int implements Scored {
 extern go strings.TrimSpace func Trim(s string) string implements Trimmed
 
 func Nonempty(xs []int) bool implements Measured { len(xs) != 0 }
+
+func Bump(xs mut []int) implements Bumped {
+	(*xs)[0] = 8
+}
+
+func BumpValue[M Bumped](m mut M) {
+	m.Bump()
+}
 
 func MapValue[T, U any, M Mappable[T]](m M, f func(x T) U) M[U] {
 	m.Map(f)

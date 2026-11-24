@@ -1,4 +1,4 @@
 type Sized { Size() int }
 
-func Size[T](xs [](T, int)) int implements Sized { len(xs) }
+func Size[T](xs [](T, int)) int implements Sized    { len(xs) }
 func Size[U](xs [](string, U)) int implements Sized { len(xs) }

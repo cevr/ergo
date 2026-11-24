@@ -529,13 +529,13 @@ func CopyInfo(base *Info, root syntax.Node, read func(Type) Type) (*Info, string
 					op = closedClaimRole(op, mapTypes(r.Args, read))
 				}
 				f, args := closedClaimProvider(self, op, src.Op.Name, next.TypeArgs)
-				if f == nil && (ConstraintOnly(tp.Constraint) || StaticClaimConstraint(tp.Constraint)) {
+				if f == nil && ConstraintOnly(tp.Constraint) {
 					f = ProvidingFunc(self, src.Op.Name)
 					if f != nil {
 						args = ProviderTypeArgs(self, f, next.TypeArgs)
 					}
 				}
-				if f == nil && (ConstraintOnly(tp.Constraint) || StaticClaimConstraint(tp.Constraint)) {
+				if f == nil && ConstraintOnly(tp.Constraint) {
 					why = fmt.Sprintf("closed constraint %s has no implementation of %s", self, src.Op.Name)
 					return false
 				}
@@ -564,6 +564,21 @@ func closedClaimProvider(recv Type, role *Named, name string, own []Type) (*Func
 	lawSelfMu.Lock()
 	defer lawSelfMu.Unlock()
 	return role.Obj.Pkg.claimReader().functionProvider(recv, role, name, own)
+}
+
+// ClosedFunctionClaim is the function-form implementation at a concrete
+// receiver and the caller's closed bindings. The evaluator and the
+// lowering both read the same claim group; neither searches method names
+// on the receiver's package or in the caller's imports.
+func ClosedFunctionClaim(pkg *Package, recv Type, constraint Type, name string, own []Type, bound map[*TypeParam]Type) (*Func, []Type) {
+	if pkg == nil || !staticClaimConstraint(constraint) {
+		return nil, nil
+	}
+	lawSelfMu.Lock()
+	defer lawSelfMu.Unlock()
+	c := pkg.claimReader()
+	role, _ := c.subst(constraint, bound).(*Named)
+	return c.functionProvider(recv, role, name, own)
 }
 
 // SubstSelf reads a member law's types at a checked claimant. It does not run

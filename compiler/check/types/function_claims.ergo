@@ -5,13 +5,14 @@ import dense
 type ClaimIssue { File int, At dense.ID[syntax.Node], Code string, Message string }
 
 type functionHead {
-	file int,
-	node dense.ID[syntax.Node],
-	at dense.ID[syntax.Node],
-	name string,
-	params []Bracket,
-	sig dense.ID[store.TKey],
-	claim store.ClaimHead,
+	file     int,
+	node     dense.ID[syntax.Node],
+	at       dense.ID[syntax.Node],
+	name     string,
+	params   []Bracket,
+	sig      dense.ID[store.TKey],
+	fallible bool,
+	claim    store.ClaimHead,
 }
 
 type functionGroup { head functionHead, members []functionHead }
@@ -51,9 +52,21 @@ func ImportFunctionClaims(s mut store.Store, deps []Iface, foreign []Foreign) {
 			case None:
 				continue
 			}
+			let mut bounds = [][]store.ClaimTerm{}
+			for group in g.Bounds {
+				let mut terms = []store.ClaimTerm{}
+				for term in group {
+					match Port(s, deps, foreign, source, dep.Path, lookup, dep.Foreign, term.Type) {
+					case Some{Value: moved}:
+						terms = terms.Append(store.ClaimTerm{..term, Type: moved})
+					case None:
+					}
+				}
+				bounds = bounds.Append(if len(terms) == len(group) { terms } else { []store.ClaimTerm{} })
+			}
 			match Nominal(*s, role) {
 			case Some{Value: ref}:
-				store.AddFunctionClaim(s, ref, store.ClaimHead{..g, Role: role, Receiver: recv})
+				store.AddFunctionClaim(s, ref, store.ClaimHead{..g, Role: role, Receiver: recv, Bounds: bounds})
 			case None:
 			}
 		}
@@ -160,12 +173,7 @@ func sameFunctionGroup(s mut store.Store, a functionHead, b functionHead) bool {
 }
 
 func functionOverlap(s mut store.Store, a functionHead, b functionHead) bool {
-	match store.ClaimIntersection(s, a.claim, b.claim) {
-	case Some:
-		true
-	case None:
-		false
-	}
+	store.ClaimIntersection(s, a.claim, b.claim)
 }
 
 func overlapIssue(s store.Store, e Env, h functionHead, prev functionHead) ClaimIssue {
@@ -193,8 +201,8 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 		let sig = Resolve(s, env, fd.Type)
 		let op = Resolve(s, env, at)
 		let parts = store.OperandsOf(*s, sig)
-		let head = store.ClaimHead{Role: op, Receiver: if len(parts) > 3 { parts[0] } else { store.TBasic(s, 0) }, Binds: []bool{}, Positions: []int{}, Members: []store.FunctionMember{}}
-		let mut h = functionHead{file: f.File, node: f.Decl, at: at, name: f.Name, params: Brackets(p, fd.TypeParams), sig: sig, claim: head}
+		let head = store.ClaimHead{Role: op, Receiver: if len(parts) > 3 { parts[0] } else { store.TBasic(s, 0) }, Binds: []bool{}, Positions: []int{}, Bounds: [][]store.ClaimTerm{}, Members: []store.FunctionMember{}}
+		let mut h = functionHead{file: f.File, node: f.Decl, at: at, name: f.Name, params: Brackets(p, fd.TypeParams), sig: sig, fallible: WrittenFails(p, fd.Type), claim: head}
 		if len(parts) <= 3 {
 			out = out.Append(localClaimIssue(h, "S108", "a function claim needs its receiver as the first parameter"))
 			continue
@@ -220,7 +228,7 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 			out = out.Append(localClaimIssue(h, "S108", "a function claim needs a concrete receiver shape in its first parameter"))
 			continue
 		}
-		let receiver = if store.KindOfType(*s, head.Receiver) == store.KOwn { store.OperandsOf(*s, head.Receiver)[0] } else { head.Receiver }
+		let receiver = base
 		let binds = store.ReceiverBinders(*s, receiver, len(f.Params))
 		let positions = match claimPositions(*s, store.OperandsOf(*s, op), binds) {
 		case Some{Value: ps}:
@@ -228,7 +236,11 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 		case None:
 			[]int{}
 		}
-		h.claim = store.ClaimHead{..head, Receiver: receiver, Binds: binds, Positions: positions}
+		let mut bounds = [][]store.ClaimTerm{}
+		for i, param in h.params {
+			bounds = bounds.Append(if binds[i] { functionClaimTerms(s, e, param.Cons) } else { []store.ClaimTerm{} })
+		}
+		h.claim = store.ClaimHead{..head, Receiver: receiver, Binds: binds, Positions: positions, Bounds: bounds}
 		let member = match claimsMember(role, f.Name) {
 		case None:
 			out = out.Append(localClaimIssue(h, "S106", "\(role.Name) has no operation named \(f.Name)"))
@@ -269,8 +281,14 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 		let h = g.head
 		let mut overlap = false
 		for j in 0..i {
-			let old = groups[j].head
+			let prior = groups[j]
+			let old = prior.head
 			if functionOverlap(s, old, h) {
+				out = out.Append(overlapIssue(*s, e, h, old))
+				overlap = true
+				break
+			}
+			if projectedOverlap(s, e, roles, prior, g) {
 				out = out.Append(overlapIssue(*s, e, h, old))
 				overlap = true
 				break
@@ -280,6 +298,98 @@ func FunctionClaimFacts(s mut store.Store, e Env, roles []Role, fns []FuncKinds)
 		out = out.Concat(publishFunctionGroup(s, e, roles, g, groups))
 	}
 	out
+}
+
+func projectedHeads(s mut store.Store, e Env, roles []Role, h functionHead) []functionHead {
+	let mut out = []functionHead{h}
+	match ReadRole(s, e.deps, e.foreign, roles, h.claim.Role) {
+	case Some{Value: root}:
+		let args = store.OperandsOf(*s, h.claim.Role)
+		for inc in root.Includes {
+			let op = store.TSubst(s, inc, args)
+			if namedInStore(*s, op) {
+				out = out.Append(functionHead{..h, claim: store.ClaimHead{..h.claim, Role: op}})
+			}
+		}
+	case None:
+	}
+	out
+}
+
+func projectedOverlap(s mut store.Store, e Env, roles []Role, a functionGroup, b functionGroup) bool {
+	let left = projectedHeads(s, e, roles, a.head)
+	let right = projectedHeads(s, e, roles, b.head)
+	for i, old in left {
+		for j, next in right {
+			if i == 0 && j == 0 || !functionOverlap(s, old, next) { continue }
+			if !sameFunctionGroup(s, old, next) { return true }
+			match ReadRole(s, e.deps, e.foreign, roles, old.claim.Role) {
+			case Some{Value: shared}:
+				for slot in shared.Members {
+					for x in a.members {
+						if x.name != slot.Name { continue }
+						for y in b.members {
+							if y.name == slot.Name && (x.file != y.file || x.node != y.node) { return true }
+						}
+					}
+				}
+			case None:
+			}
+		}
+	}
+	false
+}
+
+// Read a finite set from its declaring interface body. A bound that
+// carries only operations has no finite set to intersect here.
+func functionClaimTerms(s mut store.Store, e Env, name string) []store.ClaimTerm {
+	let mut terms = []store.ClaimTerm{}
+	if name == "ordered" || name == "number" {
+		for n in (if name == "ordered" { 2 } else { 3 })..17 {
+			terms = terms.Append(store.ClaimTerm{Type: store.TBasic(s, n), Under: true})
+		}
+		return if name == "ordered" { terms.Append(store.ClaimTerm{Type: store.TBasic(s, 19), Under: true}) } else { terms }
+	}
+	let d = match store.Lookup(*s, name) {
+	case Some{Value: id}:
+		store.DeclOf(*s, id)
+	case None:
+		return terms
+	}
+	if store.KindName(int(d.Kind)) != "type" || int(d.File) >= len(e.files) { return terms }
+	let p = e.files[int(d.File)]
+	let at = match dense.Unpack(parentDecl(p, int(d.Node))) {
+	case Some{Value: node}:
+		node
+	case None:
+		return terms
+	}
+	let td = syntax.TypeDeclOf(p.Tree, at)
+	let members = match dense.Unpack(td.Spec) {
+	case Some{Value: spec}:
+		if syntax.KindOf(p.Tree, spec) != syntax.KInterfaceType { return terms }
+		syntax.InterfaceTypeOf(p.Tree, spec).Members
+	case None:
+		return terms
+	}
+	let env = Env{..e, p: p, params: []string{}}
+	for j in 0..syntax.Len(members) {
+		let item = syntax.Item(p.Tree, members, j)
+		let term = match syntax.ViewOf(p.Tree, item) {
+		case syntax.Field:
+			continue
+		case syntax.LawDecl:
+			continue
+		case syntax.TestDecl:
+			continue
+		case syntax.UnaryExpr as un:
+			store.ClaimTerm{Type: Resolve(s, env, un.X), Under: true}
+		case _:
+			store.ClaimTerm{Type: Resolve(s, env, item), Under: false}
+		}
+		if !isInvalid(*s, term.Type) { terms = terms.Append(term) }
+	}
+	terms
 }
 
 func signatureShape(s store.Store, n Names, params []dense.ID[store.TKey], result dense.ID[store.TKey]) string {
@@ -303,7 +413,10 @@ func claimRowExtra(s store.Store, got dense.ID[store.TKey], want dense.ID[store.
 	for item in store.OperandsOf(s, got) {
 		let mut found = false
 		for x in allowed {
-			if x == item { found = true; break }
+			if x == item {
+				found = true
+				break
+			}
 		}
 		if !found { extra = extra.Append(item) }
 	}
@@ -338,7 +451,7 @@ func functionMemberWhy(s mut store.Store, e Env, h functionHead, role Role, mem 
 	if len(w) < 3 { return "" }
 	let gn = len(g) - 3
 	let wn = len(w) - 3
-	if store.KindOfType(*s, h.claim.Receiver) == store.KPointer && !mem.Mut {
+	if store.KindOfType(*s, g[0]) == store.KPointer && !mem.Mut {
 		return "\(h.name) writes its receiver, and the operation does not"
 	}
 	let mut same = gn-1 == wn && g[gn] == w[wn]
@@ -355,6 +468,9 @@ func functionMemberWhy(s mut store.Store, e Env, h functionHead, role Role, mem 
 	let uses = claimRowExtra(*s, g[gn+2], w[wn+2])
 	if len(uses) > 0 {
 		return "\(recv).\(h.name) requires {\(RowText(*s, n, uses))}, which the interface's method does not (README Gap 17: a provider's build holds go.Foreign or Ambient for it; any other capability stays with context construction)"
+	}
+	if h.fallible != mem.Fallible && (h.fallible || len(store.OperandsOf(*s, w[wn+1])) > 0) {
+		return "\(recv).\(h.name) differs in fallibility from the interface's method"
 	}
 	""
 }
@@ -394,31 +510,23 @@ func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGrou
 	let mut members = []store.FunctionMember{}
 	let mut names = []string{}
 	for m in role.Members {
-		match groupMember(s, g, includes, groups, m.Name) {
-		case Some{Value: f}:
-			members = members.Append(store.FunctionMember{Path: store.PathOf(*s), File: uint32(f.file), Decl: uint32(dense.Index(f.node))})
+		let written = groupMember(s, g, includes, groups, m.Name)
+		let inherited = importedFunctionMember(s, e, roles, foreign, m.Name)
+		match (written, inherited) {
+		case (Some, Some{Value: existing}):
+			let n = claimNames(e, h)
+			out = out.Append(localClaimIssue(h, "S106", "function claim of \(Text(*s, n, op)) for \(Text(*s, n, h.claim.Receiver)) overlaps the clause at \(existing.Line):\(existing.Column)"))
+		case (Some{Value: f}, None):
+			let p = e.files[f.file]
+			let pos = syntax.PositionOf(syntax.LinesOf(syntax.SourceOf(p)), syntax.NodePos(p, f.at))
+			members = members.Append(store.FunctionMember{Path: store.PathOf(*s), File: uint32(f.file), Decl: uint32(dense.Index(f.node)), Line: pos.Line, Column: pos.Column})
 			names = names.Append(m.Name)
-		case None:
-			let mut fed = false
-			for other in foreign {
-				match ReadRole(s, e.deps, e.foreign, roles, other.Role) {
-				case Some{Value: r}:
-					for j, slot in r.Members {
-						if slot.Name == m.Name && j < len(other.Members) {
-							members = members.Append(other.Members[j])
-							names = names.Append(m.Name)
-							fed = true
-							break
-						}
-					}
-				case None:
-				}
-				if fed { break }
-			}
-			if !fed {
-				let n = claimNames(e, h)
-				out = out.Append(localClaimIssue(h, "S106", "\(Text(*s, n, h.claim.Receiver)) claims \(Text(*s, n, op)), but no function provides \(m.Name)"))
-			}
+		case (None, Some{Value: existing}):
+			members = members.Append(existing)
+			names = names.Append(m.Name)
+		case (None, None):
+			let n = claimNames(e, h)
+			out = out.Append(localClaimIssue(h, "S106", "\(Text(*s, n, h.claim.Receiver)) claims \(Text(*s, n, op)), but no function provides \(m.Name)"))
 		}
 	}
 	if len(out) > 0 { return out }
@@ -436,7 +544,10 @@ func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGrou
 				let mut selected = []store.FunctionMember{}
 				for slot in r.Members {
 					for j, n in names {
-						if n == slot.Name { selected = selected.Append(members[j]); break }
+						if n == slot.Name {
+							selected = selected.Append(members[j])
+							break
+						}
 					}
 				}
 				let positions = match claimPositions(*s, store.OperandsOf(*s, at), h.claim.Binds) {
@@ -452,6 +563,21 @@ func publishFunctionGroup(s mut store.Store, e Env, roles []Role, g functionGrou
 		}
 	}
 	out
+}
+
+func importedFunctionMember(s mut store.Store, e Env, roles []Role, claims []store.ClaimHead, name string) Option[store.FunctionMember] {
+	for other in claims {
+		match ReadRole(s, e.deps, e.foreign, roles, other.Role) {
+		case Some{Value: r}:
+			for j, slot in r.Members {
+				if slot.Name == name && j < len(other.Members) {
+					return Some{Value: other.Members[j]}
+				}
+			}
+		case None:
+		}
+	}
+	None
 }
 
 func groupMember(s mut store.Store, g functionGroup, includes []dense.ID[store.TKey], groups []functionGroup, name string) Option[functionHead] {
