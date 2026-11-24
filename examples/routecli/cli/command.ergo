@@ -1,17 +1,29 @@
 import flag
 import routecli/routing
 
-let name = flag.Arg("name", "the route name")
+let routeName = "name"
+let name = flag.Arg(routeName, "the route name")
 let note = flag.OptionalString("note", "an optional note").WithAlias("n")
 let priority = flag.OptionalInt("priority", "an optional priority").WithAlias("p")
 let targets = flag.String("target", "", "a target").Repeated().WithAlias("t")
 
-func add(v flag.Values) routing.Command {
+// AddRequiresName: parsed values without the route name cannot build an Add.
+law AddRequiresName() {
+	let v = try flag.Parse(flag.Set{Name: "empty", Usage: "", Flags: []flag.Flag{}, Args: []flag.ArgSpec{}}, []string{})
+	let build func(flag.Values) routing.Command fails flag.Missing = add
+	let _ = build(v) catch {
+	case flag.Missing as m:
+		return m.Name == "name"
+	}
+	false
+}
+
+func add(v flag.Values) routing.Command fails flag.Missing {
 	let route = match name.Get(v) {
 	case Some as n:
 		n.Value
 	case None:
-		Unreachable("Parse checked the required name")
+		return flag.Missing{Name: routeName}
 	}
 	routing.Add{Name: route, Note: note.Get(v), Priority: priority.Get(v), Targets: targets.Get(v)}
 }
