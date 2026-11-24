@@ -104,23 +104,17 @@ func apply(d Desk, id string, c run.Command) Desk fails run.WrongState | run.Wro
 	}
 }
 
-// settle is d with no job to go on with: it starts the first run of the
-// queue (Evolve keeps only queued runs there), or is idle.
-func settle(d Desk) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+type Move = Entered{Next Desk} | Stayed{Next Desk} | Ignored{}
+
+func settle(d Desk) Move fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
 	let b = BookOf(d)
 	if len(b.Queue) > 0 {
-		return Enter[Desk]{Next: try apply(d, b.Queue[0], run.Start)}
+		return Entered{Next: try apply(d, b.Queue[0], run.Start)}
 	}
-	Enter[Desk]{Next: Idle{Book: b}}
+	Entered{Next: Idle{Book: b}}
 }
 
-// ask is the desk after the command env. A command for a run that does
-// not exist (other than a submit) is NoSuchRun; a command the run refuses
-// fails with its rejection, and the desk does not change. (Hosted answers
-// a command whose ID was taken before it asks.) A command keeps the
-// current try or wait unless it ends the job's run (settle) or retries
-// the waiting job (a new try).
-func ask(d Desk, env Envelope) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+func ask(d Desk, env Envelope) Move fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
 	match (RunIn(BookOf(d), env.Run), env.Command) {
 	case (run.Unsubmitted, run.Submit):
 	case (run.Unsubmitted, _):
@@ -136,58 +130,51 @@ func ask(d Desk, env Envelope) Decision[Desk, []Entry] fails run.WrongState | ru
 		if w.Job.Run == env.Run && run.IsDone(now) {
 			return try settle(next)
 		}
-		Stay[Desk]{Next: next}
+		Stayed{Next: next}
 	case Waiting as w:
 		if w.Job.Run != env.Run {
-			return Stay[Desk]{Next: next}
+			return Stayed{Next: next}
 		}
 		match now {
 		case run.Running:
-			Enter[Desk]{Next: next}
+			Entered{Next: next}
 		case run.Done:
 			try settle(next)
 		case run.Unsubmitted, run.Queued, run.Failing:
-			Stay[Desk]{Next: next}
+			Stayed{Next: next}
 		}
 	}
 }
 
-// ran is the desk d after its job's try ended: passed (ok) or failed. A
-// failure the saga gives up on abandons the run.
-func ran(d Desk, j Job, ok bool) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+func ran(d Desk, j Job, ok bool) Move fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
 	let next = try apply(d, j.Run, run.Finish{Stage: j.Stage, OK: ok})
 	match RunIn(BookOf(next), j.Run) {
 	case run.Running:
-		Enter[Desk]{Next: next}
+		Entered{Next: next}
 	case run.Failing:
-		match retry.Step(j.Attempt, retry.Failed) {
-		case Enter[retry.Attempt]:
-			Enter[Desk]{Next: next}
-		case Done[retry.Order]:
+		match retry.OnFailed(j.Attempt) {
+		case retry.Wait:
+			Entered{Next: next}
+		case retry.Exhausted:
 			try settle(try apply(next, j.Run, run.GiveUp{Stage: j.Stage}))
-		case Stay[retry.Attempt], Emit[retry.Attempt, retry.Order], Tell[retry.Attempt, retry.Order], Ignore, Reject:
-			Unreachable("a failed try either waits or gives up")
+		case retry.AlreadyWaiting:
+			Ignored
 		}
 	case run.Unsubmitted, run.Queued, run.Done:
 		try settle(next)
 	}
 }
 
-// due is the desk d after its job's wait ended: the saga orders the next
-// try, and the run retries the stage.
-func due(d Desk, j Job) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
-	match retry.Step(j.Attempt, retry.Due) {
-	case Emit[retry.Attempt, retry.Order]:
-		Enter[Desk]{Next: try apply(d, j.Run, run.Retry{Stage: j.Stage})}
-	case Enter[retry.Attempt], Stay[retry.Attempt], Tell[retry.Attempt, retry.Order], Done[retry.Order], Ignore, Reject:
-		Ignore
+func due(d Desk, j Job) Move fails run.WrongState | run.WrongStage | run.Closed | run.BadLength {
+	match retry.OnDue(j.Attempt) {
+	case Some[retry.Trying]:
+		Entered{Next: try apply(d, j.Run, run.Retry{Stage: j.Stage})}
+	case None:
+		Ignored
 	}
 }
 
-// Step is the desk's transition. A try's end or a wait's end in a state
-// that has none is Ignore (the runner drops a signal of an ended entry
-// anyway).
-func Step(d Desk, s Signal) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+func Decide(d Desk, s Signal) Move fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
 	match (d, s) {
 	case (_, Ask as a):
 		try ask(d, a.Env)
@@ -196,6 +183,17 @@ func Step(d Desk, s Signal) Decision[Desk, []Entry] fails run.WrongState | run.W
 	case (Waiting as w, Due):
 		try due(d, w.Job)
 	case (_, _):
+		Ignored
+	}
+}
+
+func Step(d Desk, s Signal) Decision[Desk, []Entry] fails run.WrongState | run.WrongStage | run.Closed | run.BadLength | NoSuchRun {
+	match try Decide(d, s) {
+	case Entered as e:
+		Enter[Desk]{Next: e.Next}
+	case Stayed as st:
+		Stay[Desk]{Next: st.Next}
+	case Ignored:
 		Ignore
 	}
 }
@@ -249,16 +247,14 @@ func Hosted(l Ledger, s Signal) Decision[Ledger, domain.Receipt] fails run.Wrong
 		return Ignore
 	}
 	let before = len(BookOf(l.State).Log)
-	let d = try Step(l.State, s)
+	let d = try Decide(l.State, s)
 	match d {
-	case Enter[Desk] as e:
+	case Entered as e:
 		domain.Commit(l, id, e.Next, slices.Slice(BookOf(e.Next).Log, before, len(BookOf(e.Next).Log)))
-	case Stay[Desk] as k:
+	case Stayed as k:
 		domain.Keep(l, id, k.Next, slices.Slice(BookOf(k.Next).Log, before, len(BookOf(k.Next).Log)))
-	case Ignore:
+	case Ignored:
 		Ignore
-	case Emit[Desk, []Entry], Tell[Desk, []Entry], Reject, Done[[]Entry]:
-		Unreachable("the desk enters, stays or ignores")
 	}
 }
 

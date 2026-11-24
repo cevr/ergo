@@ -96,21 +96,47 @@ func Delay(p Policy, n int) duration {
 	d
 }
 
-// Step is the saga's transition. A failed try waits, unless it was the
-// last; a wait's end orders the next try.
-func Step(a Attempt, s Signal) Decision[Attempt, Order] {
-	match (a, s) {
-	case (Trying as t, Failed):
+type FailedOutcome = Wait{Next Backoff} | Exhausted{Order GiveUp} | AlreadyWaiting{}
+
+func OnFailed(a Attempt) FailedOutcome {
+	match a {
+	case Trying as t:
 		if t.Try >= t.P.Attempts {
-			return Done[Order]{Output: GiveUp{Tries: t.Try}}
+			return Exhausted{Order: GiveUp{Tries: t.Try}}
 		}
-		Enter[Attempt]{Next: Backoff{P: t.P, Try: t.Try}}
-	case (Backoff as b, Due):
-		Emit[Attempt, Order]{Next: Trying{P: b.P, Try: b.Try + 1}, Output: Again{Try: b.Try + 1}}
-	case (Trying, Due):
-		Ignore
-	case (Backoff, Failed):
-		Ignore
+		Wait{Next: Backoff{P: t.P, Try: t.Try}}
+	case Backoff:
+		AlreadyWaiting
+	}
+}
+
+func OnDue(a Attempt) Option[Trying] {
+	match a {
+	case Backoff as b:
+		Some[Trying]{Value: Trying{P: b.P, Try: b.Try + 1}}
+	case Trying:
+		None
+	}
+}
+
+func Step(a Attempt, s Signal) Decision[Attempt, Order] {
+	match s {
+	case Failed:
+		match OnFailed(a) {
+		case Exhausted as e:
+			Done[Order]{Output: e.Order}
+		case Wait as w:
+			Enter[Attempt]{Next: w.Next}
+		case AlreadyWaiting:
+			Ignore
+		}
+	case Due:
+		match a {
+		case Backoff as b:
+			Emit[Attempt, Order]{Next: Trying{P: b.P, Try: b.Try + 1}, Output: Again{Try: b.Try + 1}}
+		case Trying:
+			Ignore
+		}
 	}
 }
 

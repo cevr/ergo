@@ -256,35 +256,29 @@ func touch(b mut builder, parent int, seg Seg, u Use, shown string) int fails Du
 		s = b.nodes[id].shape
 	case None:
 	}
-	match DefineStep(s, u) {
-	case Enter[Shape] as e:
-		if id < 0 {
-			let form = match u {
-			case Append:
-				Elements
-			case Set:
-				Leaf
-			case Pass, Open, Dot:
-				Keys
-			}
-			id = add(b, parent, seg.Name, e.Next, form)
-			b.index = b.index.Put(at, id)
-		} else {
-			let mut n = b.nodes[id]
-			n.shape = e.Next
-			b.nodes[id] = n
-		}
-	case Stay[Shape]:
-	case Done[Refusal] as d:
+	let next = Define(s, u) catch {
+	case Twice:
 		let where = Locate(b.src, seg.At, "")
-		match d.Output {
-		case Twice:
-			return Duplicate{Offset: seg.At, Line: where.Line, Col: where.Col, Key: shown}
-		case Conflict as c:
-			return Clash{Offset: seg.At, Line: where.Line, Col: where.Col, Key: shown, Why: c.Why}
+		return Duplicate{Offset: seg.At, Line: where.Line, Col: where.Col, Key: shown}
+	case Conflict as c:
+		let where = Locate(b.src, seg.At, "")
+		return Clash{Offset: seg.At, Line: where.Line, Col: where.Col, Key: shown, Why: c.Why}
+	}
+	if id < 0 {
+		let form = match u {
+		case Append:
+			Elements
+		case Set:
+			Leaf
+		case Pass, Open, Dot:
+			Keys
 		}
-	case Emit[Shape, Refusal], Tell[Shape, Refusal], Ignore, Reject:
-		Unreachable("the machine Definition neither emits, ignores nor rejects")
+		id = add(b, parent, seg.Name, next, form)
+		b.index = b.index.Put(at, id)
+	} else if next != s {
+		let mut n = b.nodes[id]
+		n.shape = next
+		b.nodes[id] = n
 	}
 	match u {
 	case Append:

@@ -13,33 +13,57 @@ type Outcome = Succeeded{N int, At duration} | GaveUp{N int, At duration, Why st
 // Fresh is a job just queued at the time at, for its first try.
 func Fresh(at duration) Phase { Queued{N: 1, Ready: at} }
 
-// Step is the job's transition. A start before the job is ready, a start
-// of a running job and a finish of a queued one are refused: the queue
-// that sends them is wrong. A transient failure queues the next try after
-// its backoff, until the attempts run out.
+type TooEarly {}
+
+type FinishOutcome = Retry{Next Queued} | Finished{Output Outcome}
+
+func StartJob(q Queued, at duration, cost duration) Running fails TooEarly {
+	if at < q.Ready {
+		return TooEarly
+	}
+	Running{N: q.N, Ends: at + cost}
+}
+
+func FinishJob(r Running, at duration, res Result, p Policy) FinishOutcome fails TooEarly {
+	if at < r.Ends {
+		return TooEarly
+	}
+	match res {
+	case Ok:
+		Finished{Output: Succeeded{N: r.N, At: at}}
+	case Fatal as e:
+		Finished{Output: GaveUp{N: r.N, At: at, Why: e.Reason}}
+	case Transient as t:
+		if r.N >= p.Attempts {
+			Finished{Output: GaveUp{N: r.N, At: at, Why: "\(t.Reason); no tries left"}}
+		} else {
+			Retry{Next: Queued{N: r.N + 1, Ready: at + Backoff(p, r.N)}}
+		}
+	}
+}
+
 func Step(p Phase, s Signal) Decision[Phase, Outcome] {
 	match (p, s) {
 	case (Queued as q, Start as st):
-		if st.At < q.Ready { Reject } else { Enter[Phase]{Next: Running{N: q.N, Ends: st.At + st.Takes}} }
+		let next = StartJob(q, st.At, st.Takes) catch {
+		case TooEarly:
+			return Reject
+		}
+		Enter[Phase]{Next: next}
 	case (Running, Start):
 		Reject
 	case (Queued, Finish):
 		Reject
 	case (Running as r, Finish as f):
-		if f.At < r.Ends {
+		let res = FinishJob(r, f.At, f.R, f.P) catch {
+		case TooEarly:
 			return Reject
 		}
-		match f.R {
-		case Ok:
-			Done[Outcome]{Output: Succeeded{N: r.N, At: f.At}}
-		case Fatal as e:
-			Done[Outcome]{Output: GaveUp{N: r.N, At: f.At, Why: e.Reason}}
-		case Transient as t:
-			if r.N >= f.P.Attempts {
-				Done[Outcome]{Output: GaveUp{N: r.N, At: f.At, Why: "\(t.Reason); no tries left"}}
-			} else {
-				Enter[Phase]{Next: Queued{N: r.N + 1, Ready: f.At + Backoff(f.P, r.N)}}
-			}
+		match res {
+		case Finished as d:
+			Done[Outcome]{Output: d.Output}
+		case Retry as rt:
+			Enter[Phase]{Next: rt.Next}
 		}
 	}
 }
