@@ -7,7 +7,7 @@ func frameImportedMemberAdmitted(st fnb, member dense.ID[store.TKey]) bool {
 	match importedShapeOf(st, member, shapeDeps(st)) {
 	case Some{Value: src}:
 		let (owner, t) = importedOwner(st, src)
-		ordinaryRecord(owner, t) >= 0
+		importedRecord(owner, t) != None
 	case None:
 		false
 	}
