@@ -36,13 +36,13 @@ flattree: malformed.json:3:19: expected a value, found ","
 - **Runs in pools.** An array's items are a `dense.Run` in one `dense.Pool[dense.ID[Node]]`. An object's members are a run in a `dense.Pool[Member]`, where `Member { Key dense.ID[Key], Value dense.ID[Node] }`. While a container is open, it gathers its children's ids in a slice of its own. When it closes, they move into the pool in one `PutList`. (A scratch stack shared by all containers, as the control has, would need `slices.Slice` of a field that is written later, and today that clones the whole stack at every close.)
 - **Keys interned.** Every key, and every string with an escape or a byte outside ASCII, is interned in `flat.Keys`: one id per distinct text. Two members name one key exactly when their key ids are equal, so `flat.Get` looks a pointer's token up once and then compares ids, not text. A string with no escape and only ASCII is a span of the source, not a copy.
 - **Children before parents.** A value is put when it closes, so a child's id is less than its parent's. The tree has no cycle by construction, the root is the last id, and `flat.StatsOf` is one loop over the ids in order with no recursion: a child's depth is known before its parent's is taken.
-- **Diagnostics as rows.** A problem is a row of a `dense.Table[tree.Malformed]`, and each rule stops at the first one. `flat.Parse` fails once, at its boundary, with the first row. It is the failure `tree.Parse` gives at the same byte.
+- **Completed values and diagnostics.** Each rule returns the completed value's ID or the same `tree.Malformed` failure as `tree.Parse`. `flat.Parse` returns a `Tree` only after reading the root and checking for trailing input. The scratch rows are not a `Tree`.
 
-A reader never sees the columns. `flat.ViewOf(t, id)` is a `View`, a small union (`Null`, `Bool`, `Number { At, Len }`, `Str { S }`, `Array { Items }`, `Object { Members }`), so every read is an exhaustive `match`. `flat.Encode` is its inverse.
+A reader never sees the columns. `flat.ViewOf(t, id)` is a `View`, a small union (`Null`, `Bool`, `Number { At, Len }`, `Str { S }`, `Array { Items }`, `Object { Members }`), so every read is an exhaustive `match`.
 
 ## What it shows
 
-- **A dense form with its plain form beside it** (NORTH_STAR, laws). `flat/laws.ergo` holds the flat tree to package `tree`:
+- **A dense form with its plain form beside it** (NORTH_STAR, laws). `flat/parse.ergo` holds the flat tree to package `tree`:
   - `FlatEqualsTree`: both printed forms of every generated value read flat as `tree` reads them, with the same stats.
   - `FailsWhereTheTreeFails`: a text with a byte changed fails flat where it fails in the tree, with the same failure.
   - `PrintRoundTrips`.

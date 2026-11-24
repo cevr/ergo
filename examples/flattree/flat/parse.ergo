@@ -4,34 +4,26 @@ import slices
 import strconv
 import strings
 
-// reader is the tree being read and the place in its text. Parse owns
-// it. A value it reads leaves its id in last; a container gathers its
-// children's ids as they come and puts them in its pool when it closes.
-// A problem is a row of problems, and every rule stops at the first one.
+// reader is the tree being built and the place in its text. A container
+// gathers each child's returned id and puts those ids in its pool when
+// it closes.
 type reader {
-	t        Tree,
-	pos      int,
-	depth    int,
-	last     dense.Opt[Node],
-	problems dense.Table[tree.Malformed],
+	t     rows,
+	pos   int,
+	depth int,
 }
 
 // Parse is the flat tree of the JSON text src. It fails where tree.Parse
-// fails, with the same failure: the first row of its problems.
+// fails, with the same failure.
 func Parse(src string) Tree fails tree.Malformed {
-	let mut r = reader{t: Empty(src), pos: 0, depth: 0, last: dense.NoID[Node](), problems: dense.New[tree.Malformed]()}
+	let mut r = reader{t: empty(src), pos: 0, depth: 0}
 	skip(&r)
-	value(&r)
-	if ok(r) {
-		skip(&r)
-		if r.pos < len(src) {
-			problem(&r, r.pos, "expected the end, found "+found(r))
-		}
+	let root = try value(&r)
+	skip(&r)
+	if r.pos < len(src) {
+		return tree.Locate(src, r.pos, "expected the end, found "+found(r))
 	}
-	if !ok(r) {
-		return dense.At(r.problems, dense.IDOf(r.problems, 0))
-	}
-	r.t
+	Tree{data: r.t, root: root}
 }
 
 // FlatEqualsTree: for the samples of seed, both printed forms read flat
@@ -144,7 +136,7 @@ law ChildrenStayInside(seed int) {
 		let mut items = 0
 		let mut members = 0
 		for i in 0..Size(t) {
-			let id = dense.IDAt(t.ids, i)
+			let id = dense.IDAt(t.data.ids, i)
 			match ViewOf(t, id) {
 			case Array as a:
 				items += len(a.Items)
@@ -163,7 +155,7 @@ law ChildrenStayInside(seed int) {
 			case Null, Bool, Number, Str:
 			}
 		}
-		if items != dense.Items(t.items) || members != dense.Items(t.members) || dense.Index(Root(t)) != Size(t)-1 {
+		if items != dense.Items(t.data.items) || members != dense.Items(t.data.members) || dense.Index(Root(t)) != Size(t)-1 {
 			return false
 		}
 	}
@@ -180,7 +172,7 @@ law KeysAreInterned(seed int) {
 		}
 		let mut all = []Member{}
 		for i in 0..Size(t) {
-			match ViewOf(t, dense.IDAt(t.ids, i)) {
+			match ViewOf(t, dense.IDAt(t.data.ids, i)) {
 			case Object as o:
 				for m in o.Members {
 					all = all.Append(m)
@@ -197,12 +189,6 @@ law KeysAreInterned(seed int) {
 		}
 	}
 	true
-}
-
-func ok(r reader) bool { dense.Len(r.problems) == 0 }
-
-func problem(r mut reader, at int, reason string) {
-	let _ = dense.Put(&r.problems, tree.Locate(r.t.src, at, reason))
 }
 
 func found(r reader) string {
@@ -223,75 +209,59 @@ func skip(r mut reader) {
 	}
 }
 
-// push leaves id as the value read last.
-func push(r mut reader, id dense.ID[Node]) { r.last = dense.OptOf(id) }
-
-// lastRead is the id of the value read last; value leaves one when it reads
-// one, and a caller asks only then.
-func lastRead(r reader) dense.ID[Node] {
-	match dense.Unpack(r.last) {
-	case Some[dense.ID[Node]] as id:
-		id.Value
-	case None:
-		Unreachable("flat: no value was read")
-	}
-}
-
-func value(r mut reader) {
+func value(r mut reader) dense.ID[Node] fails tree.Malformed {
 	let src = r.t.src
 	if r.pos >= len(src) {
-		problem(r, r.pos, "expected a value, found the end")
-		return
+		return tree.Locate(src, r.pos, "expected a value, found the end")
 	}
 	let c = src[r.pos]
 	if c == '{' {
-		object(r)
+		try object(r)
 	} else if c == '[' {
-		array(r)
+		try array(r)
 	} else if c == '"' {
-		str(r)
+		try str(r)
 	} else if c == 't' {
-		word(r, "true", kTrue)
+		try word(r, "true", kTrue)
 	} else if c == 'f' {
-		word(r, "false", kFalse)
+		try word(r, "false", kFalse)
 	} else if c == 'n' {
-		word(r, "null", kNull)
+		try word(r, "null", kNull)
 	} else if c == '-' || (c >= '0' && c <= '9') {
-		numeral(r)
+		try numeral(r)
 	} else {
-		problem(r, r.pos, "expected a value, found "+found(*r))
+		return tree.Locate(src, r.pos, "expected a value, found "+found(*r))
 	}
 }
 
-func word(r mut reader, w string, kind uint8) {
+func word(r mut reader, w string, kind uint8) dense.ID[Node] fails tree.Malformed {
 	let src = r.t.src
 	for k in 0..len(w) {
 		if r.pos >= len(src) || src[r.pos] != w[k] {
-			problem(r, r.pos, "expected \(w), found "+found(*r))
-			return
+			return tree.Locate(src, r.pos, "expected \(w), found "+found(*r))
 		}
 		r.pos += 1
 	}
-	push(r, put(&r.t, cell{kind: kind, a: 0, b: 0}))
+	put(&r.t, cell{kind: kind, a: 0, b: 0})
 }
 
 // numeral reads a number with tree's machine and keeps its span.
-func numeral(r mut reader) {
+func numeral(r mut reader) dense.ID[Node] fails tree.Malformed {
 	let start = r.pos
 	let (n, broken) = tree.Scan(strings.Slice(r.t.src, start, len(r.t.src)))
 	match broken {
 	case Some[string] as why:
-		problem(r, start+n, why.Value)
+		return tree.Locate(r.t.src, start+n, why.Value)
 	case None:
 		r.pos = start + n
-		push(r, put(&r.t, cell{kind: kNumber, a: uint32(start), b: uint32(n)}))
+		put(&r.t, cell{kind: kNumber, a: uint32(start), b: uint32(n)})
 	}
 }
 
 // text reads a string literal: a span of the source when it has no
 // escape and only ASCII, else tree's decoding, interned. It is the row
-// the string would have and whether it read one.
-func text(r mut reader) Option[cell] {
+// the string has, or the first malformed byte.
+func text(r mut reader) cell fails tree.Malformed {
 	let src = r.t.src
 	let start = r.pos + 1
 	let mut i = start
@@ -299,61 +269,46 @@ func text(r mut reader) Option[cell] {
 		let c = src[i]
 		if c == '"' {
 			r.pos = i + 1
-			return Some[cell]{Value: cell{kind: kSpan, a: uint32(start), b: uint32(i - start)}}
+			return cell{kind: kSpan, a: uint32(start), b: uint32(i - start)}
 		}
 		if c == '\\' || c < 0x20 || c >= 0x80 {
 			break
 		}
 		i += 1
 	}
-	let d = tree.ReadString(src, r.pos) catch {
-	case tree.Malformed as m:
-		let _ = dense.Put(&r.problems, m)
-		return None
-	}
+	let d = try tree.ReadString(src, r.pos)
 	r.pos = d.End
-	let k = Intern(&r.t, d.Text)
-	Some[cell]{Value: cell{kind: kText, a: uint32(dense.Index(k)), b: 0}}
+	let k = intern(&r.t, d.Text)
+	cell{kind: kText, a: uint32(dense.Index(k)), b: 0}
 }
 
-func str(r mut reader) {
-	match text(r) {
-	case Some[cell] as row:
-		push(r, put(&r.t, row.Value))
-	case None:
-	}
+func str(r mut reader) dense.ID[Node] fails tree.Malformed {
+	let row = try text(r)
+	put(&r.t, row)
 }
 
 // key reads a member's key and is its interned id.
-func key(r mut reader) Option[dense.ID[Key]] {
-	match text(r) {
-	case Some[cell] as row:
-		if row.Value.kind == kText {
-			return Some[dense.ID[Key]]{Value: dense.IDOf(r.t.keys.texts, int(row.Value.a))}
-		}
-		let s = strings.Slice(r.t.src, int(row.Value.a), int(row.Value.a)+int(row.Value.b))
-		Some[dense.ID[Key]]{Value: Intern(&r.t, s)}
-	case None:
-		None
+func key(r mut reader) dense.ID[Key] fails tree.Malformed {
+	let row = try text(r)
+	if row.kind == kText {
+		return dense.IDOf(r.t.keys.texts, int(row.a))
 	}
+	let s = strings.Slice(r.t.src, int(row.a), int(row.a)+int(row.b))
+	intern(&r.t, s)
 }
 
 // enter opens a container: one level deeper, at most tree.MaxDepth.
-func enter(r mut reader) bool {
+func enter(r mut reader) fails tree.Malformed {
 	r.depth += 1
 	if r.depth > tree.MaxDepth {
-		problem(r, r.pos, "nesting deeper than \(tree.MaxDepth)")
-		return false
+		return tree.Locate(r.t.src, r.pos, "nesting deeper than \(tree.MaxDepth)")
 	}
 	r.pos += 1
 	skip(r)
-	true
 }
 
-func array(r mut reader) {
-	if !enter(r) {
-		return
-	}
+func array(r mut reader) dense.ID[Node] fails tree.Malformed {
+	try enter(r)
 	let src = r.t.src
 	// Room for a typical container's children: gathering them grows no
 	// slice. (dense.Stack with marks, a scratch stack shared by every
@@ -362,15 +317,11 @@ func array(r mut reader) {
 	if r.pos < len(src) && src[r.pos] == ']' {
 		r.pos += 1
 		r.depth -= 1
-		push(r, putArray(&r.t, []dense.ID[Node]{}))
-		return
+		return putArray(&r.t, []dense.ID[Node]{})
 	}
 	for {
-		value(r)
-		if !ok(*r) {
-			return
-		}
-		items = items.Append(lastRead(*r))
+		let id = try value(r)
+		items = items.Append(id)
 		skip(r)
 		if r.pos < len(src) {
 			let c = src[r.pos]
@@ -382,51 +333,36 @@ func array(r mut reader) {
 			if c == ']' {
 				r.pos += 1
 				r.depth -= 1
-				push(r, putArray(&r.t, items))
-				return
+				return putArray(&r.t, items)
 			}
 		}
-		problem(r, r.pos, "expected ',' or ']', found "+found(*r))
-		return
+		return tree.Locate(src, r.pos, "expected ',' or ']', found "+found(*r))
 	}
 }
 
-func object(r mut reader) {
-	if !enter(r) {
-		return
-	}
+func object(r mut reader) dense.ID[Node] fails tree.Malformed {
+	try enter(r)
 	let src = r.t.src
 	// Room for a typical object's members, as array's items.
 	let mut members = slices.WithCapacity[Member](8)
 	if r.pos < len(src) && src[r.pos] == '}' {
 		r.pos += 1
 		r.depth -= 1
-		push(r, putObject(&r.t, []Member{}))
-		return
+		return putObject(&r.t, []Member{})
 	}
 	for {
 		if r.pos >= len(src) || src[r.pos] != '"' {
-			problem(r, r.pos, "expected a string key, found "+found(*r))
-			return
+			return tree.Locate(src, r.pos, "expected a string key, found "+found(*r))
 		}
-		let k = match key(r) {
-		case Some[dense.ID[Key]] as k:
-			k.Value
-		case None:
-			return
-		}
+		let k = try key(r)
 		skip(r)
 		if r.pos >= len(src) || src[r.pos] != ':' {
-			problem(r, r.pos, "expected ':', found "+found(*r))
-			return
+			return tree.Locate(src, r.pos, "expected ':', found "+found(*r))
 		}
 		r.pos += 1
 		skip(r)
-		value(r)
-		if !ok(*r) {
-			return
-		}
-		members = members.Append(Member{Key: k, Value: lastRead(*r)})
+		let id = try value(r)
+		members = members.Append(Member{Key: k, Value: id})
 		skip(r)
 		if r.pos < len(src) {
 			let c = src[r.pos]
@@ -438,11 +374,9 @@ func object(r mut reader) {
 			if c == '}' {
 				r.pos += 1
 				r.depth -= 1
-				push(r, putObject(&r.t, members))
-				return
+				return putObject(&r.t, members)
 			}
 		}
-		problem(r, r.pos, "expected ',' or '}', found "+found(*r))
-		return
+		return tree.Locate(src, r.pos, "expected ',' or '}', found "+found(*r))
 	}
 }
