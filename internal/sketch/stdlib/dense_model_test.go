@@ -67,7 +67,11 @@ func genDense(seed int, reach map[string]bool) denseCase {
 	newTable, newCol, newPool, newStack := "P.New[int]()", "P.NewCol[int, int]()", "P.NewPool[int]()", "P.NewStack[int]()"
 	if seed%2 == 1 {
 		k := r.IntN(80)
-		newTable, newCol, newPool, newStack = fmt.Sprintf("P.WithCap[int](%d)", k), fmt.Sprintf("P.ColWithCap[int, int](%d)", k), fmt.Sprintf("P.PoolWithCap[int](%d)", k), fmt.Sprintf("P.StackWithCap[int](%d)", k)
+		newTable, newCol, newPool, newStack = fmt.Sprintf(`P.WithCap[int](%d) catch {
+	case P.Capacity:
+		Console.Println("unexpected table capacity failure")
+		return
+	}`, k), fmt.Sprintf("P.ColWithCap[int, int](%d)", k), fmt.Sprintf("P.PoolWithCap[int](%d)", k), fmt.Sprintf("P.StackWithCap[int](%d)", k)
 		reach["with a capacity"] = true
 	}
 	c.body = append(c.body,

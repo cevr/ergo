@@ -251,6 +251,7 @@ dense TableEachStops	TestStdDenseLawsRun
 dense TableIDsStops	TestStdDenseLawsRun
 dense ValueOfIntern	TestStdDenseLawsRun
 dense WithCapIsNew	TestStdDenseLawsRun
+dense WithCapRejectsOutOfRange	none
 embed EmptyHasNoFiles	TestStdLawsRun
 embed FS.ReadIsRepeatable	TestStdLawsRun
 exec InterleavesMatchesModel	TestExecLaws

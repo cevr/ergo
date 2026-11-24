@@ -129,16 +129,32 @@ law TableIDsStops(xs []int) {
 // New is an empty table.
 func New[T]() Table[T] { Table[T]{rows: []T{}} }
 
-// WithCap is an empty table with room for n rows: the first n Puts
-// allocate nothing. It behaves as New in every other way. A negative n is
-// a defect, as Go's make panics, and so is room for more rows than ids
-// exist: a table's room never passes that, so Put checks for a full store
-// only when it grows (SL2b).
-func WithCap[T](n int) Table[T] {
-	if n > int(limit) {
-		Unreachable(full)
+// Capacity is a reservation outside the range of representable row
+// counts.
+type Capacity {}
+
+// WithCap is an empty table with room for n rows. The first n Puts
+// allocate nothing. It fails with Capacity before allocating when n is
+// negative or greater than the number of ids.
+func WithCap[T](n int) Table[T] fails Capacity {
+	if uint64(n) > uint64(limit) {
+		return Capacity{}
 	}
 	Table[T]{rows: slices.WithCapacity[T](n)}
+}
+
+// WithCapRejectsOutOfRange: a count just above the 32-bit limit does not
+// wrap into a small reservation, and a negative count cannot allocate.
+law WithCapRejectsOutOfRange(seed int) {
+	let shift = seed & 255
+	for n in []int{-1 - shift, 4294967296 + shift} {
+		let _ = WithCap[flat](n) catch {
+		case Capacity:
+			continue
+		}
+		return false
+	}
+	true
 }
 
 // Len is the count of rows.
@@ -205,7 +221,10 @@ type flat {}
 law FlatRowsKeepIDs(k int, c int) {
 	let n = (k%300 + 300) % 300
 	let mut a = New[flat]()
-	let mut b = WithCap[flat]((c%40 + 40) % 40)
+	let mut b = WithCap[flat]((c%40 + 40) % 40) catch {
+	case Capacity:
+		return false
+	}
 	let mut ok = true
 	for i in 0..n {
 		let ia = a.Put(flat)
@@ -631,7 +650,10 @@ law PutSinceIsPutList(before []int, below []int, above []int) {
 law WithCapIsNew(xs []int, n int) {
 	let c = (n%64 + 64) % 64
 	let mut a = New[int]()
-	let mut b = WithCap[int](c)
+	let mut b = WithCap[int](c) catch {
+	case Capacity:
+		return false
+	}
 	let mut ca = NewCol[int, int]()
 	let mut cb = ColWithCap[int, int](c)
 	let mut pa = NewPool[int]()
