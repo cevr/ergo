@@ -46,7 +46,7 @@ func unionInstanceGo(st fnb, t dense.ID[store.TKey]) string {
 		return ""
 	}
 	let f = st.k.Foreign[i]
-	if f.Qual != "-" || len(f.Variants) == 0 || f.Arity != len(args) || !has(st.prelude, f.Name) {
+	if f.Qual != "-" || f.Path != "prelude" || len(f.Variants) == 0 || f.Arity != len(args) || !has(st.prelude, f.Name) {
 		return ""
 	}
 	let mut name = f.Name + "["
@@ -194,6 +194,23 @@ func unionFlat(st fnb, shape unionShape) bool {
 			if k == syntax.KExternSpec || k == syntax.KIdent && nameText(p, n) == "WireForm" {
 				return false
 			}
+			match syntax.ViewOf(p.Tree, n) {
+			case syntax.TypeDecl as td:
+				// Another declaration can hide a row head behind an
+				// alias, or use this union in a different wire shape.
+				if nameText(p, td.Name) != shape.name && unionNames(p, n, shape) {
+					return false
+				}
+			case syntax.IndexExpr as ix:
+				// A written generic row argument also charges its
+				// members as error types (collectRowArgs).
+				for j in 0..syntax.Len(ix.Indices) {
+					if unionNames(p, syntax.Item(p.Tree, ix.Indices, j), shape) {
+						return false
+					}
+				}
+			case _:
+			}
 			if k == syntax.KErrorRow || k == syntax.KCaseClause || k == syntax.KCatchArm {
 				let list = match syntax.ViewOf(p.Tree, n) {
 				case syntax.ErrorRow as r:
@@ -212,18 +229,26 @@ func unionFlat(st fnb, shape unionShape) bool {
 					if names(p, site, shape.name) {
 						return false
 					}
-					if k != syntax.KCaseClause {
-						for v in shape.variants {
-							if names(p, site, v.name) {
-								return false
-							}
-						}
+					if k != syntax.KCaseClause && unionNames(p, site, shape) {
+						return false
 					}
 				}
 			}
 		}
 	}
 	true
+}
+
+func unionNames(p syntax.Parsed, site dense.ID[syntax.Node], shape unionShape) bool {
+	if names(p, site, shape.name) {
+		return true
+	}
+	for v in shape.variants {
+		if names(p, site, v.name) {
+			return true
+		}
+	}
+	false
 }
 
 func unionTagOfType(shape unionShape, t dense.ID[store.TKey]) int {

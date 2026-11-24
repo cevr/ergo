@@ -22,13 +22,21 @@ func PortUnionModeRank(mode PortUnionMode) int {
 func PortUnionRead(mode PortUnionMode, reading PortUnionReading) int {
 	match mode {
 	case PortUnionOff:
-		-2
+		13
 	case PortUnionOn:
 		match reading {
 		case PortUnionPresent as present:
 			present.N
 		case PortUnionMissing:
-			-1
+			17
 		}
 	}
+}
+
+func PortUnionOptionValues(o Option[int]) []Option[int] {
+	[]Option[int]{o}
+}
+
+func PortUnionDecisionValues(d Decision[int, bool]) []Decision[int, bool] {
+	[]Decision[int, bool]{d}
 }
