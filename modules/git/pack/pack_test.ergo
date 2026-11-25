@@ -1,0 +1,469 @@
+import exec
+import filepath
+import fs
+import fstest
+import os
+import sha1dc
+import slices
+import strconv
+import strings
+import sync
+import zlib
+import github.com/cevr/ergo/modules/git/delta
+import github.com/cevr/ergo/modules/git/oid
+import github.com/cevr/ergo/modules/git/oracle
+import github.com/cevr/ergo/modules/git/packidx
+import github.com/cevr/ergo/modules/git/root
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+let onMemorySha1 = context {
+	ObjectStore: NewMemoryODB(oid.Sha1),
+}
+
+let onMemorySha256 = context {
+	ObjectStore: NewMemoryODB(oid.Sha256),
+}
+
+let onDiskSha1 = context needs TestAmbient {
+	ObjectStore: makeLawDiskODB(filepath.Join([]string{fstest.TestFolder(), "law-disk-pack-odb"}), fs.NewTestHost()),
+}
+
+func makeLawDiskODB(dir string, host fs.Host) DiskODB {
+	let odb = with context { fs.Files: host } {
+		Open(oid.Sha1, dir, []string{}, delta.DefaultLimits()) catch {
+		case Corrupt, MismatchedPair, IOFailed:
+			ODB{Format: oid.Sha1, ObjectsDir: dir, Alternates: []string{}, Limits: delta.DefaultLimits(), catalog: emptyCatalogRef()}
+		}
+	}
+	NewDiskODB(odb, host)
+}
+
+func emptyCatalogRef() sync.Ref[packCatalog] {
+	sync.NewRef(packCatalog{packs: []PackPair{}})
+}
+
+type testFail {
+	reason string,
+}
+
+func runGitOk(dir string, args []string, stdin string, pathEnv Map[string, string], step int) string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(dir, args, pathEnv, oracle.StepEpoch(step))
+	let cmd = if stdin == "" { base } else { exec.WithStdin(base, stdin) }
+	let res = try exec.Runner.Run(cmd)
+	if res.Status != 0 {
+		return testFail{reason: "git failed: " + res.Stderr}
+	}
+	res.Stdout
+}
+
+func makeRevisionText(rev int, lines int) string {
+	let mut out = []string{}
+	for i in 0..lines {
+		if i == rev*7+3 {
+			out = out.Append("line-\(i)-changed-rev-\(rev)-payload-alpha-beta-0123456789")
+		} else {
+			out = out.Append("line-\(i)-shared-body-for-pack-delta-compression-0123456789abcdef")
+		}
+	}
+	strings.Join(out, "\n") + "\n"
+}
+
+func makeBinaryPayload(seed int, size int) []byte {
+	let mut out = slices.WithCapacity[byte](size)
+	for i in 0..size {
+		out = out.Append(byte((i*37 + seed*13 + 5) % 256))
+	}
+	out
+}
+
+func collectAllObjectHexes(repoDir string, pathEnv Map[string, string], step int) []string fails testFail | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let raw = try runGitOk(repoDir, []string{"rev-list", "--objects", "--all"}, "", pathEnv, step)
+	let mut seen = Map[string, bool]{}
+	let mut out = []string{}
+	for line in strings.Split(strings.TrimSpace(raw), "\n") {
+		let fields = strings.Fields(line)
+		if len(fields) > 0 {
+			let h = fields[0]
+			if seen.Get(h) == None {
+				seen[h] = true
+				out = out.Append(h)
+			}
+		}
+	}
+	out
+}
+
+func verifyAllAgainstBatch(repoDir string, odb ODB, hexIds []string, pathEnv Map[string, string], step int) fails testFail | Missing | Corrupt | MismatchedPair | Collision | LimitExceeded | DepthExceeded | IOFailed | oid.BadHex | oid.WrongLength | exec.NotFound | exec.Denied | exec.Failed needs exec.Runner | fs.Files {
+	let stdin = strings.Join(hexIds, "\n") + "\n"
+
+	let batchCheckOut = try runGitOk(repoDir, []string{"cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"}, stdin, pathEnv, step)
+	let checkLines = strings.Split(strings.TrimSpace(batchCheckOut), "\n")
+	if len(checkLines) != len(hexIds) {
+		return testFail{reason: "batch-check line count mismatch"}
+	}
+	for line in checkLines {
+		let parts = strings.Fields(line)
+		if len(parts) != 3 {
+			return testFail{reason: "unexpected batch-check line: " + line}
+		}
+		let id = try oid.ParseHex(odb.Format, parts[0])
+		let wantKind = parts[1]
+		let wantSize = strconv.Atoi(parts[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return testFail{reason: "bad size in batch-check: " + parts[2]}
+		}
+		if !ContainsObject(odb, id) {
+			return testFail{reason: "ContainsObject false for " + parts[0]}
+		}
+		let hdr = try StatObject(odb, id, 16777216)
+		if oid.KindName(hdr.Kind) != wantKind || hdr.Size != wantSize {
+			return testFail{reason: "StatObject mismatch for " + parts[0]}
+		}
+	}
+
+	let batchRaw = (try runGitOk(repoDir, []string{"cat-file", "--batch"}, stdin, pathEnv, step)).Bytes()
+	let mut pos = 0
+	let totalLen = len(batchRaw)
+	let mut count = 0
+	for pos < totalLen {
+		let mut nl = pos
+		for nl < totalLen && batchRaw[nl] != byte('\n') {
+			nl = nl + 1
+		}
+		if nl >= totalLen {
+			return testFail{reason: "unterminated batch header"}
+		}
+		let hdrLine = batchRaw[pos:nl].Text()
+		let parts = strings.Fields(hdrLine)
+		if len(parts) != 3 {
+			return testFail{reason: "unexpected batch header: " + hdrLine}
+		}
+		let id = try oid.ParseHex(odb.Format, parts[0])
+		let wantKind = parts[1]
+		let wantSize = strconv.Atoi(parts[2]) catch {
+		case strconv.Malformed, strconv.OutOfRange:
+			return testFail{reason: "bad size in batch header"}
+		}
+		let bodyStart = nl + 1
+		let bodyEnd = bodyStart + wantSize
+		if bodyEnd >= totalLen {
+			return testFail{reason: "truncated batch body for " + parts[0]}
+		}
+		let wantBody = batchRaw[bodyStart:bodyEnd]
+		let obj = try ReadObject(odb, id, 16777216)
+		if oid.KindName(obj.Kind) != wantKind || obj.Size != wantSize || !slices.Equal(obj.Data, wantBody) {
+			return testFail{reason: "ReadObject mismatch for " + parts[0]}
+		}
+		pos = bodyEnd + 1
+		count = count + 1
+	}
+	if count != len(hexIds) {
+		return testFail{reason: "batch object count mismatch"}
+	}
+}
+
+func appendU32BE(out []byte, v uint32) []byte {
+	let mut res = out
+	res = res.Append(byte((v >> uint32(24)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(16)) & uint32(0xff)))
+	res = res.Append(byte((v >> uint32(8)) & uint32(0xff)))
+	res = res.Append(byte(v & uint32(0xff)))
+	res
+}
+
+func sha1Bytes(data []byte) []byte fails testFail {
+	let d = sha1dc.Sum(data) catch {
+	case sha1dc.CollisionDetected:
+		return testFail{reason: "unexpected sha1 collision"}
+	}
+	let mut out = slices.WithCapacity[byte](20)
+	for i in 0..20 {
+		out = out.Append(d[i])
+	}
+	out
+}
+
+func buildSyntheticSingleBlobPackAndIdx(indexedOid oid.OID, actualPayload []byte) ([]byte, []byte) fails testFail {
+	let mut packBody = "PACK".Bytes()
+	packBody = appendU32BE(packBody, uint32(2))
+	packBody = appendU32BE(packBody, uint32(1))
+	let n = len(actualPayload)
+	packBody = packBody.Append(byte(0x30 | (n & 0x0f)))
+	packBody = slices.AppendAll(packBody, zlib.Deflate(actualPayload))
+	let packSum = try sha1Bytes(packBody)
+	let packRaw = slices.AppendAll(packBody, packSum)
+
+	let mut idxBody = []byte{byte(0xff), byte(0x74), byte(0x4f), byte(0x63)}
+	idxBody = appendU32BE(idxBody, uint32(2))
+	let firstByte = int(indexedOid.Raw[0])
+	for b in 0..256 {
+		let count = if b < firstByte { uint32(0) } else { uint32(1) }
+		idxBody = appendU32BE(idxBody, count)
+	}
+	idxBody = slices.AppendAll(idxBody, indexedOid.Raw)
+	idxBody = appendU32BE(idxBody, uint32(0))
+	idxBody = appendU32BE(idxBody, uint32(12))
+	idxBody = slices.AppendAll(idxBody, packSum)
+	let idxSum = try sha1Bytes(idxBody)
+	let idxRaw = slices.AppendAll(idxBody, idxSum)
+	(packRaw, idxRaw)
+}
+
+func verifyFormatLifecycle(base string, cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv Map[string, string]) fails testFail | Missing | Corrupt | MismatchedPair | Collision | LimitExceeded | DepthExceeded | IOFailed | oid.BadHex | oid.WrongLength | oracle.Missing | oracle.Corrupt | oracle.Ambiguous | oracle.InvalidRef | oracle.Conflict | oracle.CommandFailed | root.NotARepository | root.BadGitDirFile | root.BadCommonDir | root.UnsupportedVersion | root.UnsupportedExtension | root.UntrustedPath | root.PathEscape | root.AlternateCycle | root.AlternateDepthExceeded | root.ConfigSyntax | root.ConfigBadValue | root.IncludeCycle | root.IncludeDepthExceeded | root.IncludeRefused | exec.NotFound | exec.Denied | exec.Failed | fs.NotFound | fs.Denied | fs.Failed needs exec.Runner | fs.Files | fs.Writes {
+	let label = oracle.FormatName(oFmt)
+	let repoDir = try oracle.InitRepo(filepath.Join([]string{base, "main-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+
+	for rev in 0..6 {
+		try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "multi.txt"}), makeRevisionText(rev, 120))
+		if rev == 0 || rev == 3 || rev == 5 {
+			try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "large.txt"}), makeRevisionText(rev, 1200))
+		}
+		if rev == 1 {
+			try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "bin.dat"}), makeBinaryPayload(rev, 2048).Text())
+		}
+		let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, rev*2)
+		let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "rev \(rev)"}, "", pathEnv, rev*2+1)
+	}
+	let _ = try runGitOk(repoDir, []string{"tag", "-a", "v1", "-m", "annotated pack tag"}, "", pathEnv, 20)
+
+	let layout = try root.Discover(repoDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+	let odb = try FromLayout(layout)
+
+	let phase1All = try collectAllObjectHexes(repoDir, pathEnv, 21)
+	let tag1Hex = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "refs/tags/v1"}, "", pathEnv, 21))
+	let mut hasTag1 = false
+	for h in phase1All {
+		if h == tag1Hex {
+			hasTag1 = true
+		}
+	}
+	if !hasTag1 {
+		return testFail{reason: "tag1 missing from rev-list --objects --all"}
+	}
+	try verifyAllAgainstBatch(repoDir, odb, phase1All, pathEnv, 22)
+
+	let _ = try runGitOk(repoDir, []string{"repack", "-ad", "-q"}, "", pathEnv, 23)
+	try verifyAllAgainstBatch(repoDir, odb, phase1All, pathEnv, 24)
+	if PackCount(odb) == 0 {
+		return testFail{reason: "expected odb to refresh pack catalog after repack -ad"}
+	}
+
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "multi.txt"}), makeRevisionText(8, 120))
+	try fs.Writes.WriteFile(filepath.Join([]string{repoDir, "fresh.txt"}), "created after first repack\r\n")
+	let _ = try runGitOk(repoDir, []string{"add", "."}, "", pathEnv, 25)
+	let _ = try runGitOk(repoDir, []string{"commit", "-q", "-m", "post-repack commit"}, "", pathEnv, 26)
+	let _ = try runGitOk(repoDir, []string{"repack", "-ad", "-q"}, "", pathEnv, 27)
+
+	let phase2All = try collectAllObjectHexes(repoDir, pathEnv, 28)
+	try verifyAllAgainstBatch(repoDir, odb, phase2All, pathEnv, 29)
+
+	let refOdbDir = filepath.Join([]string{base, "refonly-" + label})
+	let refPackDir = filepath.Join([]string{refOdbDir, "pack"})
+	try fs.Writes.MkdirAll(refPackDir)
+	let refStdin = strings.Join(phase2All, "\n") + "\n"
+	let refPackHash = strings.TrimSpace(try runGitOk(repoDir, []string{"pack-objects", "-q", filepath.Join([]string{refPackDir, "pack"})}, refStdin, pathEnv, 30))
+	if refPackHash == "" {
+		return testFail{reason: "failed to create REF_DELTA pack"}
+	}
+	let refPackBytes = (try fs.Files.ReadFile(filepath.Join([]string{refPackDir, "pack-" + refPackHash + ".pack"}))).Bytes()
+	let refScanned = delta.ScanPackEntries(refPackBytes, fmt, delta.DefaultLimits()) catch {
+	case delta.Truncated, delta.BadPackHeader, delta.BadOfsDistance, delta.ZlibFailed, delta.LimitExceeded:
+		return testFail{reason: "failed to scan REF_DELTA pack"}
+	}
+	let mut sawRefDelta = false
+	for e in refScanned {
+		match e.Entry {
+		case delta.RawRefDelta:
+			sawRefDelta = true
+		case delta.RawBase, delta.RawOfsDelta:
+		}
+	}
+	if !sawRefDelta {
+		return testFail{reason: "expected at least one REF_DELTA in ref-only pack"}
+	}
+	let refOdb = try Open(fmt, refOdbDir, []string{}, delta.DefaultLimits())
+	try verifyAllAgainstBatch(repoDir, refOdb, phase2All, pathEnv, 31)
+
+	let samplePrefix = phase2All[0][:10]
+	let prefixMatches = try FindPrefix(odb, samplePrefix)
+	if len(prefixMatches) == 0 {
+		return testFail{reason: "FindPrefix returned empty for " + samplePrefix}
+	}
+	let listed = try ListObjects(odb)
+	if len(listed) < len(phase2All) {
+		return testFail{reason: "ListObjects missed packed objects"}
+	}
+
+	let altDir = try oracle.InitRepo(filepath.Join([]string{base, "alt-" + label}), oracle.RepoSpec{Format: oFmt, Layout: oracle.Alternates, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+	let upstreamDir = filepath.Join([]string{base, "alt-" + label, "upstream"})
+	for rev in 0..4 {
+		try fs.Writes.WriteFile(filepath.Join([]string{upstreamDir, "up.txt"}), makeRevisionText(rev, 80))
+		let _ = try runGitOk(upstreamDir, []string{"add", "."}, "", pathEnv, 40+rev*2)
+		let _ = try runGitOk(upstreamDir, []string{"commit", "-q", "-m", "up \(rev)"}, "", pathEnv, 41+rev*2)
+	}
+	let _ = try runGitOk(upstreamDir, []string{"repack", "-ad", "-q"}, "", pathEnv, 50)
+	let upstreamHexes = try collectAllObjectHexes(upstreamDir, pathEnv, 51)
+
+	let _ = try runGitOk(altDir, []string{"hash-object", "-w", "--stdin"}, "downstream loose blob\n", pathEnv, 52)
+	let altLayout = try root.Discover(altDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
+	let altOdb = try FromLayout(altLayout)
+	try verifyAllAgainstBatch(altDir, altOdb, upstreamHexes, pathEnv, 53)
+}
+
+test UnifiedODBMatchesGitCatFileBatch {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "pack-oracle"})
+		try verifyFormatLifecycle(base, cwd, oracle.Sha1, oid.Sha1, pathEnv)
+		try verifyFormatLifecycle(base, cwd, oracle.Sha256, oid.Sha256, pathEnv)
+	}
+}
+
+func findSinglePackPair(packDir string) (string, string) fails testFail | fs.NotFound | fs.Denied | fs.Failed needs fs.Files {
+	let entries = try fs.Files.ReadDir(packDir)
+	for name in entries {
+		if strings.HasPrefix(name, "pack-") && strings.HasSuffix(name, ".idx") {
+			let idxPath = filepath.Join([]string{packDir, name})
+			let packPath = filepath.Join([]string{packDir, strings.TrimSuffix(name, ".idx") + ".pack"})
+			return (idxPath, packPath)
+		}
+	}
+	return testFail{reason: "no pack pair found in " + packDir}
+}
+
+test RejectsMismatchedPairAndCorruptPack {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let cwd = try os.Process.Getwd()
+		let base = filepath.Join([]string{cwd, "pack-corrupt"})
+
+		let repoA = try oracle.InitRepo(filepath.Join([]string{base, "repo-a"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoA, "a.txt"}), "repo A payload for pack checksum mismatch test\n")
+		let _ = try runGitOk(repoA, []string{"add", "."}, "", pathEnv, 1)
+		let _ = try runGitOk(repoA, []string{"commit", "-q", "-m", "a"}, "", pathEnv, 2)
+		let _ = try runGitOk(repoA, []string{"repack", "-ad", "-q"}, "", pathEnv, 3)
+
+		let repoB = try oracle.InitRepo(filepath.Join([]string{base, "repo-b"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, oracle.BaseEpoch)
+		try fs.Writes.WriteFile(filepath.Join([]string{repoB, "b.txt"}), "repo B distinct payload for pack checksum mismatch test\n")
+		let _ = try runGitOk(repoB, []string{"add", "."}, "", pathEnv, 4)
+		let _ = try runGitOk(repoB, []string{"commit", "-q", "-m", "b"}, "", pathEnv, 5)
+		let _ = try runGitOk(repoB, []string{"repack", "-ad", "-q"}, "", pathEnv, 6)
+
+		let packDirA = filepath.Join([]string{repoA, ".git", "objects", "pack"})
+		let packDirB = filepath.Join([]string{repoB, ".git", "objects", "pack"})
+		let (idxA, packA) = try findSinglePackPair(packDirA)
+		let (_, packB) = try findSinglePackPair(packDirB)
+		let origPackA = try fs.Files.ReadFile(packA)
+		let origPackB = try fs.Files.ReadFile(packB)
+
+		let swapOdbDir = filepath.Join([]string{base, "swap-odb"})
+		let swapPackDir = filepath.Join([]string{swapOdbDir, "pack"})
+		try fs.Writes.MkdirAll(swapPackDir)
+		try fs.Writes.WriteFile(filepath.Join([]string{swapPackDir, filepath.Base(idxA)}), try fs.Files.ReadFile(idxA))
+		try fs.Writes.WriteFile(filepath.Join([]string{swapPackDir, filepath.Base(packA)}), origPackB)
+
+		let mut sawMismatch = false
+		let _ = Open(oid.Sha1, swapOdbDir, []string{}, delta.DefaultLimits()) catch {
+		case MismatchedPair:
+			sawMismatch = true
+			ODB{Format: oid.Sha1, ObjectsDir: swapOdbDir, Alternates: []string{}, Limits: delta.DefaultLimits(), catalog: emptyCatalogRef()}
+		case Corrupt, IOFailed:
+			ODB{Format: oid.Sha1, ObjectsDir: swapOdbDir, Alternates: []string{}, Limits: delta.DefaultLimits(), catalog: emptyCatalogRef()}
+		}
+		assert sawMismatch
+
+		let orphanOdbDir = filepath.Join([]string{base, "orphan-odb"})
+		let orphanPackDir = filepath.Join([]string{orphanOdbDir, "pack"})
+		try fs.Writes.MkdirAll(orphanPackDir)
+		try fs.Writes.WriteFile(filepath.Join([]string{orphanPackDir, filepath.Base(idxA)}), try fs.Files.ReadFile(idxA))
+		let mut sawOrphan = false
+		let _ = Open(oid.Sha1, orphanOdbDir, []string{}, delta.DefaultLimits()) catch {
+		case MismatchedPair:
+			sawOrphan = true
+			ODB{Format: oid.Sha1, ObjectsDir: orphanOdbDir, Alternates: []string{}, Limits: delta.DefaultLimits(), catalog: emptyCatalogRef()}
+		case Corrupt, IOFailed:
+			ODB{Format: oid.Sha1, ObjectsDir: orphanOdbDir, Alternates: []string{}, Limits: delta.DefaultLimits(), catalog: emptyCatalogRef()}
+		}
+		assert sawOrphan
+
+		let corruptOdbDir = filepath.Join([]string{base, "corrupt-entry-odb"})
+		let corruptPackDir = filepath.Join([]string{corruptOdbDir, "pack"})
+		try fs.Writes.MkdirAll(corruptPackDir)
+		let idxBytes = (try fs.Files.ReadFile(idxA)).Bytes()
+		let parsedIdx = try packidx.Parse(oid.Sha1, idxBytes)
+		assert parsedIdx.Count() > 0
+		let firstEntry = match parsedIdx.At(0) {
+		case Some[packidx.Entry] as e:
+			e.Value
+		case None:
+			packidx.Entry{OID: oid.Zero(oid.Sha1), Offset: uint64(0), CRC32: uint32(0)}
+		}
+		let mut damagedPack = slices.WithCapacity[byte](len(origPackA.Bytes()))
+		for b in origPackA.Bytes() {
+			damagedPack = damagedPack.Append(b)
+		}
+		let flipPos = int(firstEntry.Offset) + 2
+		damagedPack[flipPos] = damagedPack[flipPos] ^ byte(0xff)
+		try fs.Writes.WriteFile(filepath.Join([]string{corruptPackDir, filepath.Base(idxA)}), idxBytes.Text())
+		try fs.Writes.WriteFile(filepath.Join([]string{corruptPackDir, filepath.Base(packA)}), damagedPack.Text())
+
+		let corruptOdb = try Open(oid.Sha1, corruptOdbDir, []string{}, delta.DefaultLimits())
+		let mut sawCorrupt = false
+		let _ = ReadObject(corruptOdb, firstEntry.OID, 1048576) catch {
+		case Corrupt:
+			sawCorrupt = true
+			Object{Kind: oid.Blob, OID: firstEntry.OID, Size: 0, Data: []byte{}}
+		case Missing, MismatchedPair, Collision, LimitExceeded, DepthExceeded, IOFailed:
+			Object{Kind: oid.Blob, OID: firstEntry.OID, Size: 0, Data: []byte{}}
+		}
+		assert sawCorrupt
+
+		let synthOdbDir = filepath.Join([]string{base, "tampered-oid-odb"})
+		let synthPackDir = filepath.Join([]string{synthOdbDir, "pack"})
+		try fs.Writes.MkdirAll(synthPackDir)
+		let claimedOid = try oid.HashObject(oid.Sha1, oid.Blob, "original".Bytes())
+		let (synthPack, synthIdx) = try buildSyntheticSingleBlobPackAndIdx(claimedOid, "tampered".Bytes())
+		try fs.Writes.WriteFile(filepath.Join([]string{synthPackDir, "pack-synth.pack"}), synthPack.Text())
+		try fs.Writes.WriteFile(filepath.Join([]string{synthPackDir, "pack-synth.idx"}), synthIdx.Text())
+
+		let synthOdb = try Open(oid.Sha1, synthOdbDir, []string{}, delta.DefaultLimits())
+		let mut sawRehashFail = false
+		let _ = ReadObject(synthOdb, claimedOid, 4096) catch {
+		case Corrupt:
+			sawRehashFail = true
+			Object{Kind: oid.Blob, OID: claimedOid, Size: 0, Data: []byte{}}
+		case Missing, MismatchedPair, Collision, LimitExceeded, DepthExceeded, IOFailed:
+			Object{Kind: oid.Blob, OID: claimedOid, Size: 0, Data: []byte{}}
+		}
+		assert sawRehashFail
+
+		let goodOdb = try Open(oid.Sha1, filepath.Join([]string{repoA, ".git", "objects"}), []string{}, delta.DefaultLimits())
+		let mut sawLimit = false
+		let _ = ReadObject(goodOdb, firstEntry.OID, 1) catch {
+		case LimitExceeded:
+			sawLimit = true
+			Object{Kind: oid.Blob, OID: firstEntry.OID, Size: 0, Data: []byte{}}
+		case Missing, Corrupt, MismatchedPair, Collision, DepthExceeded, IOFailed:
+			Object{Kind: oid.Blob, OID: firstEntry.OID, Size: 0, Data: []byte{}}
+		}
+		assert sawLimit
+
+		let absentId = try oid.HashObject(oid.Sha1, oid.Blob, "definitely-not-in-good-odb".Bytes())
+		let mut sawMissing = false
+		let _ = ReadObject(goodOdb, absentId, 4096) catch {
+		case Missing as e:
+			sawMissing = oid.Equal(e.OID, absentId)
+			Object{Kind: oid.Blob, OID: absentId, Size: 0, Data: []byte{}}
+		case Corrupt, MismatchedPair, Collision, LimitExceeded, DepthExceeded, IOFailed:
+			Object{Kind: oid.Blob, OID: absentId, Size: 0, Data: []byte{}}
+		}
+		assert sawMissing
+	}
+}
