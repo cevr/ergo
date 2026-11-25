@@ -70,6 +70,16 @@
       "to": "\t\t\tlet _ = exp.Value\n\t\t\tlet _ = act.Value",
       "rule": "Step comparison checks full typed error payloads rather than only matching presence or variant tag.",
       "killers": ["internal/sketch/std/explore:law:CheckPathsObservesPrefixes"]
+    },
+    {
+      "name": "paths-credit-on-observe",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P5",
+      "file": "internal/sketch/std/explore/checkpaths.ergo",
+      "decl": "recordStepCounts",
+      "from": "\tif matched {\n\t\tcounts.MatchedSteps = counts.MatchedSteps + 1",
+      "to": "\tif matched || !matched {\n\t\tcounts.MatchedSteps = counts.MatchedSteps + 1",
+      "rule": "An observed mismatch increments checked counts only and never credits matched step or edge counts.",
+      "killers": ["internal/sketch/std/explore:law:CoverageStatesAgreeWithReference"]
     }
   ]
 }
