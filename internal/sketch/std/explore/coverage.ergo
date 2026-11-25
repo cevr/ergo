@@ -1,0 +1,578 @@
+import strconv
+import strings
+import sync
+
+// EdgeCoverageStatus classifies one concrete edge or declared coverage target.
+type EdgeCoverageStatus = EdgeCovered{} | EdgeUncovered{} | EdgeUnreachable{} | EdgeUnknown{}
+
+// EdgeCoverageRow holds digest-stable reach and execution counts for one
+// concrete edge ID in scope.
+type EdgeCoverageRow {
+	EdgeID  int,
+	Source  int,
+	Signal  int,
+	EventID int,
+	Target  EdgeTarget,
+	Checked int,
+	Matched int,
+	Status  EdgeCoverageStatus,
+}
+
+// DeclaredTarget names an explicitly declared coverage candidate. It is marked
+// EdgeUnreachable only when absent from a closed exhaustive search with zero
+// frontier states.
+type DeclaredTarget {
+	Source  int,
+	Signal  int,
+	EventID int,
+	Target  EdgeTarget,
+}
+
+// DeclaredTargetStatus pairs a declared coverage candidate with its resolved
+// coverage status.
+type DeclaredTargetStatus {
+	Target DeclaredTarget,
+	Status EdgeCoverageStatus,
+}
+
+// ScopeCompleteness records whether a campaign closed exhaustively, completed a
+// depth-bounded scope with a known frontier, ran a selected subset, or stopped
+// in preflight.
+type ScopeCompleteness =
+	| ScopeCompleteExhaustive{}
+	| ScopeCompleteDepthBounded{Depth int, FrontierStates int}
+	| ScopeSelectedOnly{Strategy SelectedStrategy}
+	| ScopeIncomplete{Stop PathStop}
+
+// CoverageReport is the digest-stable per-binding coverage data produced from
+// a CheckResult, kept separate from human display formatting.
+type CoverageReport {
+	Binding           string,
+	ProjectionName    Option[string],
+	Completeness      ScopeCompleteness,
+	Stop              PathStop,
+	StatesInScope     int,
+	EdgesInScope      int,
+	DisabledAttempts  int,
+	FrontierStates    int,
+	Planned           int,
+	Opened            int,
+	InitialReads      int,
+	PathsCompleted    int,
+	CheckedSteps      int,
+	MatchedSteps      int,
+	DistinctChecked   int,
+	DistinctMatched   int,
+	DistinctUncovered int,
+	Edges             []EdgeCoverageRow,
+	Declared          []DeclaredTargetStatus,
+	Limitations       []string,
+}
+
+func resolveCompleteness(promise CoveragePromise, scope PathScope, stats PathStats, stop PathStop, incomplete bool) ScopeCompleteness {
+	if incomplete {
+		return ScopeIncomplete{Stop: stop}
+	}
+	match promise {
+	case SelectedSubset as sel:
+		ScopeSelectedOnly{Strategy: sel.Strategy}
+	case ExhaustiveScope:
+		match scope {
+		case ToDepth as d:
+			if stats.Frontier > 0 {
+				ScopeCompleteDepthBounded{Depth: d.Depth, FrontierStates: stats.Frontier}
+			} else {
+				ScopeCompleteExhaustive
+			}
+		case All:
+			if stats.Frontier > 0 {
+				ScopeCompleteDepthBounded{Depth: stats.MaxDepth, FrontierStates: stats.Frontier}
+			} else {
+				ScopeCompleteExhaustive
+			}
+		}
+	}
+}
+
+func edgeStatusOf(matched int, incomplete bool) EdgeCoverageStatus {
+	if incomplete {
+		return EdgeUnknown
+	}
+	if matched > 0 {
+		return EdgeCovered
+	}
+	EdgeUncovered
+}
+
+func targetMatchesRow(t DeclaredTarget, r EdgeCoverageRow) bool {
+	t.Source == r.Source && t.Signal == r.Signal && t.EventID == r.EventID && t.Target == r.Target
+}
+
+// BuildCoverageReport constructs a digest-stable CoverageReport from one
+// provider binding's CheckResult without pooling or inheriting counts across
+// bindings.
+func BuildCoverageReport[S, E, V, O, Err, OpenErr, DriveErr](
+	binding string,
+	res CheckResult[S, E, V, O, Err, OpenErr, DriveErr],
+	declared []DeclaredTarget,
+) CoverageReport {
+	let (incomplete, stop, refuted) = match res.Verdict {
+	case CampaignIncomplete as inc:
+		(true, inc.Stop, false)
+	case CampaignRefuted:
+		(false, PathComplete, true)
+	case CampaignPassed:
+		(false, PathComplete, false)
+	}
+	let comp = resolveCompleteness(res.Promise, res.Scope, res.PlanStats, stop, incomplete)
+
+	let mut rows = []EdgeCoverageRow{}
+	let mut distinctChecked = 0
+	let mut distinctMatched = 0
+	let mut distinctUncovered = 0
+
+	for eIdx in 0..len(res.Graph.Edges) {
+		let e = res.Graph.Edges[eIdx]
+		let ch = if eIdx < len(res.EdgeChecked) { res.EdgeChecked[eIdx] } else { 0 }
+		let ma = if eIdx < len(res.EdgeMatched) { res.EdgeMatched[eIdx] } else { 0 }
+		let status = edgeStatusOf(ma, incomplete)
+		if ch > 0 {
+			distinctChecked = distinctChecked + 1
+		}
+		if ma > 0 {
+			distinctMatched = distinctMatched + 1
+		}
+		match status {
+		case EdgeUncovered:
+			distinctUncovered = distinctUncovered + 1
+		case _:
+		}
+		rows = rows.Append(EdgeCoverageRow{
+			EdgeID:  eIdx,
+			Source:  e.Source,
+			Signal:  e.Signal,
+			EventID: e.EventID,
+			Target:  e.Target,
+			Checked: ch,
+			Matched: ma,
+			Status:  status,
+		})
+	}
+
+	let closedExhaustive = match comp {
+	case ScopeCompleteExhaustive:
+		true
+	case _:
+		false
+	}
+	let mut declaredOut = []DeclaredTargetStatus{}
+	for dt in declared {
+		let mut found = false
+		let mut status EdgeCoverageStatus = if closedExhaustive { EdgeUnreachable } else { EdgeUnknown }
+		for r in rows {
+			if targetMatchesRow(dt, r) {
+				found = true
+				status = r.Status
+				break
+			}
+		}
+		let _ = found
+		declaredOut = declaredOut.Append(DeclaredTargetStatus{Target: dt, Status: status})
+	}
+
+	let mut limits = []string{}
+	match comp {
+	case ScopeCompleteExhaustive:
+	case ScopeCompleteDepthBounded as db:
+		limits = limits.Append("depth-bounded scope (depth " + strconv.Itoa(db.Depth) + "); " + strconv.Itoa(db.FrontierStates) + " frontier states beyond limit are unknown")
+	case ScopeSelectedOnly:
+		limits = limits.Append("selected subset strategy; not exhaustive")
+	case ScopeIncomplete:
+		limits = limits.Append("planning stopped before completion; no replay executed")
+	}
+	match res.ProjectionName {
+	case Some as p:
+		limits = limits.Append("compared projection: " + p.Value)
+	case None:
+	}
+	if refuted {
+		limits = limits.Append("stopped on first failure; remaining planned paths were not run")
+	}
+
+	CoverageReport{
+		Binding:           binding,
+		ProjectionName:    res.ProjectionName,
+		Completeness:      comp,
+		Stop:              stop,
+		StatesInScope:     res.PlanStats.States,
+		EdgesInScope:      res.PlanStats.Edges,
+		DisabledAttempts:  res.PlanStats.Disabled,
+		FrontierStates:    res.PlanStats.Frontier,
+		Planned:           res.Counts.Planned,
+		Opened:            res.Counts.Opened,
+		InitialReads:      res.Counts.InitialReads,
+		PathsCompleted:    res.Counts.PathsCompleted,
+		CheckedSteps:      res.Counts.CheckedSteps,
+		MatchedSteps:      res.Counts.MatchedSteps,
+		DistinctChecked:   distinctChecked,
+		DistinctMatched:   distinctMatched,
+		DistinctUncovered: distinctUncovered,
+		Edges:             rows,
+		Declared:          declaredOut,
+		Limitations:       limits,
+	}
+}
+
+// FormatCoverageReport renders a human-readable summary of a CoverageReport.
+func FormatCoverageReport(r CoverageReport) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("binding ")
+	b.WriteString(r.Binding)
+	b.WriteString(": ")
+	b.WriteString(strconv.Itoa(r.DistinctMatched))
+	b.WriteString("/")
+	b.WriteString(strconv.Itoa(r.EdgesInScope))
+	b.WriteString(" in-scope edges matched; ")
+	b.WriteString(strconv.Itoa(r.PathsCompleted))
+	b.WriteString("/")
+	b.WriteString(strconv.Itoa(r.Planned))
+	b.WriteString(" paths completed, ")
+	b.WriteString(strconv.Itoa(r.MatchedSteps))
+	b.WriteString("/")
+	b.WriteString(strconv.Itoa(r.CheckedSteps))
+	b.WriteString(" checked steps matched")
+	if r.FrontierStates > 0 {
+		b.WriteString("; frontier=")
+		b.WriteString(strconv.Itoa(r.FrontierStates))
+	}
+	if len(r.Limitations) > 0 {
+		b.WriteString(" [")
+		for i in 0..len(r.Limitations) {
+			if i > 0 {
+				b.WriteString("; ")
+			}
+			b.WriteString(r.Limitations[i])
+		}
+		b.WriteString("]")
+	}
+	b.String()
+}
+
+type cvState { Tag uint8, Val int }
+
+type cvEvent = cvStepA{} | cvStepB{} | cvBack{} | cvEnd{}
+
+type cvOpenErr { Why string }
+
+type cvDriveErr { Why string }
+
+type cvSess {
+	state       sync.Ref[cvState],
+	corruptBack bool,
+} implements PathSession[cvEvent, Observed[cvState, int, Never], cvDriveErr]
+
+func Read(s cvSess) Observed[cvState, int, Never] fails cvDriveErr {
+	InitialRead[cvState]{State: s.state.Get()}
+}
+
+func Apply(s cvSess, e cvEvent) Observed[cvState, int, Never] fails cvDriveErr {
+	let cur = s.state.Get()
+	let next = match cur.Tag {
+	case 0:
+		match e {
+		case cvStepA:
+			cvState{Tag: uint8(1), Val: cur.Val}
+		case cvStepB:
+			cvState{Tag: uint8(2), Val: cur.Val}
+		case _:
+			cur
+		}
+	case 1:
+		match e {
+		case cvBack:
+			if s.corruptBack {
+				cvState{Tag: uint8(1), Val: cur.Val + 55}
+			} else {
+				cvState{Tag: uint8(0), Val: cur.Val}
+			}
+		case cvEnd:
+			return StepResult[cvState, int, Never]{Step: StepObs[cvState, int, Never]{
+				Kind:     DisDone,
+				State:    None,
+				Outputs:  []int{cur.Val},
+				Error:    None,
+				Terminal: true,
+			}}
+		case _:
+			cur
+		}
+	case _:
+		match e {
+		case cvStepA:
+			cvState{Tag: uint8(1), Val: cur.Val}
+		case cvEnd:
+			return StepResult[cvState, int, Never]{Step: StepObs[cvState, int, Never]{
+				Kind:     DisDone,
+				State:    None,
+				Outputs:  []int{cur.Val + 1},
+				Error:    None,
+				Terminal: true,
+			}}
+		case _:
+			cur
+		}
+	}
+	s.state.Set(next)
+	StepResult[cvState, int, Never]{Step: StepObs[cvState, int, Never]{
+		Kind:     DisEnter,
+		State:    Some[cvState]{Value: next},
+		Outputs:  []int{},
+		Error:    None,
+		Terminal: false,
+	}}
+}
+
+func Close(s cvSess) {
+	let _ = s.state.Get()
+}
+
+func cvTwoStartModel(seed uint64, cyclic bool) PathModel[cvState, cvEvent, cvState, int, Never] {
+	let v = int(seed % uint64(4))
+	let starts = []cvState{cvState{Tag: uint8(0), Val: v}, cvState{Tag: uint8(2), Val: v}}
+	let sigs = []cvEvent{cvStepA, cvStepB, cvBack, cvEnd}
+	PathModel[cvState, cvEvent, cvState, int, Never]{
+		Graph: ConcreteGraph[cvState, cvEvent, StepObs[cvState, int, Never]]{
+			Starts:  starts,
+			Signals: sigs,
+			Step:    func(s cvState, e cvEvent) EdgeOutcome[cvState, StepObs[cvState, int, Never]] {
+				match s.Tag {
+				case 0:
+					match e {
+					case cvStepA:
+						let next = cvState{Tag: uint8(1), Val: s.Val}
+						Continue[cvState, StepObs[cvState, int, Never]]{
+							Next: next,
+							Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+						}
+					case cvStepB:
+						let next = cvState{Tag: uint8(2), Val: s.Val}
+						Continue[cvState, StepObs[cvState, int, Never]]{
+							Next: next,
+							Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+						}
+					case _:
+						Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+					}
+				case 1:
+					match e {
+					case cvBack:
+						if cyclic {
+							let next = cvState{Tag: uint8(0), Val: s.Val}
+							Continue[cvState, StepObs[cvState, int, Never]]{
+								Next: next,
+								Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+							}
+						} else {
+							Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+						}
+					case cvEnd:
+						Terminal[StepObs[cvState, int, Never]]{
+							Obs: StepObs[cvState, int, Never]{Kind: DisDone, State: None, Outputs: []int{s.Val}, Error: None, Terminal: true},
+						}
+					case _:
+						Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+					}
+				case _:
+					match e {
+					case cvStepA:
+						let next = cvState{Tag: uint8(1), Val: s.Val}
+						Continue[cvState, StepObs[cvState, int, Never]]{
+							Next: next,
+							Obs:  StepObs[cvState, int, Never]{Kind: DisEnter, State: Some[cvState]{Value: next}, Outputs: []int{}, Error: None, Terminal: false},
+						}
+					case cvEnd:
+						Terminal[StepObs[cvState, int, Never]]{
+							Obs: StepObs[cvState, int, Never]{Kind: DisDone, State: None, Outputs: []int{s.Val + 1}, Error: None, Terminal: true},
+						}
+					case _:
+						Disabled[StepObs[cvState, int, Never]]{Obs: StepObs[cvState, int, Never]{Kind: DisIgnore, State: None, Outputs: []int{}, Error: None, Terminal: false}}
+					}
+				}
+			},
+		},
+		InitialObs:     func(s cvState) cvState { s },
+		ProjectionName: None,
+	}
+}
+
+func cvOpen(corruptBack bool) func(start cvState) PathSession[cvEvent, Observed[cvState, int, Never], cvDriveErr] fails cvOpenErr {
+	func(start cvState) PathSession[cvEvent, Observed[cvState, int, Never], cvDriveErr] fails cvOpenErr {
+		let st = sync.NewRef(start)
+		cvSess{state: st, corruptBack: corruptBack}
+	}
+}
+
+func cvCountEdgeHits[O](plan PathPlan[O]) []int {
+	let mut hits = zeroInts(len(plan.Graph.Edges))
+	match OpenPaths(plan) {
+	case None:
+		hits
+	case Some as cur:
+		let mut c = cur.Value
+		for {
+			match NextPath(plan, &c) {
+			case None:
+				break
+			case Some as item:
+				for eID in item.Value.Edges {
+					hits[eID] = hits[eID] + 1
+				}
+			}
+		}
+		hits
+	}
+}
+
+// CoverageStatesAgreeWithReference runs a two-start model once selected, once
+// fully scoped, once failing mid-path, and once hitting a planning cap, and
+// compares planned, checked, matched edge IDs/occurrences, statuses, frontier
+// handling, and per-binding isolation against an independent enumerator.
+law CoverageStatesAgreeWithReference(seed uint64) {
+	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 512, MaxSteps: 2048, MaxWork: 200000, MaxBytes: 1048576}
+	let cycModel = cvTwoStartModel(seed, true)
+	let absentTarget = DeclaredTarget{Source: 99, Signal: 0, EventID: 0, Target: Ended}
+	let declared = []DeclaredTarget{absentTarget}
+
+	let selRes = CheckSelectedPaths(cycModel, SelectedShortest, All, big, cvOpen(false))
+	let selRep = BuildCoverageReport("selected", selRes, declared)
+	let selOK = match selRep.Completeness {
+	case ScopeSelectedOnly:
+		true
+	case _:
+		false
+	}
+	if !selOK || selRep.Opened != selRep.Planned || selRep.DistinctUncovered <= 0 || selRep.MatchedSteps != selRep.CheckedSteps {
+		return false
+	}
+	match selRep.Declared[0].Status {
+	case EdgeUnknown:
+	case _:
+		return false
+	}
+
+	let fullPlan = PlanPaths(cycModel.Graph, ToDepth{Depth: 2}, big)
+	let refHits = cvCountEdgeHits(fullPlan)
+	let fullRes = CheckPaths(cycModel, ToDepth{Depth: 2}, big, cvOpen(false))
+	let fullRep = BuildCoverageReport("full-depth-2", fullRes, declared)
+	let fullRep2 = BuildCoverageReport("full-depth-2", fullRes, declared)
+	if fullRep != fullRep2 || FormatCoverageReport(fullRep) != FormatCoverageReport(fullRep2) {
+		return false
+	}
+	if fullRep.Planned != fullPlan.Stats.Paths || fullRep.Opened != fullPlan.Stats.Paths || fullRep.PathsCompleted != fullPlan.Stats.Paths {
+		return false
+	}
+	if fullRep.CheckedSteps != fullPlan.Stats.Steps || fullRep.MatchedSteps != fullPlan.Stats.Steps {
+		return false
+	}
+	for i in 0..len(fullRep.Edges) {
+		if fullRep.Edges[i].Checked != refHits[i] || fullRep.Edges[i].Matched != refHits[i] {
+			return false
+		}
+		if refHits[i] > 0 {
+			match fullRep.Edges[i].Status {
+			case EdgeCovered:
+			case _:
+				return false
+			}
+		}
+	}
+
+	let failRes = CheckPaths(cycModel, ToDepth{Depth: 2}, big, cvOpen(true))
+	let failRep = BuildCoverageReport("broken-back", failRes, declared)
+	let mut sawMismatchEdge = false
+	let failEdgeID = match failRes.Verdict {
+	case CampaignRefuted as ref:
+		match ref.Failure {
+		case StepMismatch as sm:
+			sm.EdgeID
+		case _:
+			-1
+		}
+	case _:
+		-1
+	}
+	if failEdgeID < 0 || failRep.CheckedSteps != failRep.MatchedSteps+1 {
+		return false
+	}
+	for row in failRep.Edges {
+		if row.EdgeID == failEdgeID {
+			let isUncovered = match row.Status {
+			case EdgeUncovered:
+				true
+			case _:
+				false
+			}
+			if row.Checked != 1 || row.Matched != 0 || !isUncovered {
+				return false
+			}
+			sawMismatchEdge = true
+		}
+	}
+	if !sawMismatchEdge {
+		return false
+	}
+
+	let cleanAfterFailRes = CheckPaths(cycModel, ToDepth{Depth: 1}, big, cvOpen(false))
+	let cleanAfterFailRep = BuildCoverageReport("clean-second", cleanAfterFailRes, declared)
+	if cleanAfterFailRep.CheckedSteps != cleanAfterFailRep.MatchedSteps || cleanAfterFailRep.FrontierStates <= 0 {
+		return false
+	}
+	match cleanAfterFailRep.Completeness {
+	case ScopeCompleteDepthBounded:
+	case _:
+		return false
+	}
+	match cleanAfterFailRep.Declared[0].Status {
+	case EdgeUnknown:
+	case _:
+		return false
+	}
+
+	let capRes = CheckPaths(cycModel, ToDepth{Depth: 2}, PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 1, MaxSteps: 2048, MaxWork: 200000, MaxBytes: 1048576}, cvOpen(false))
+	let capRep = BuildCoverageReport("capped", capRes, declared)
+	match capRep.Completeness {
+	case ScopeIncomplete:
+	case _:
+		return false
+	}
+	if capRep.Opened != 0 || capRep.InitialReads != 0 || capRep.CheckedSteps != 0 || capRep.MatchedSteps != 0 {
+		return false
+	}
+	for row in capRep.Edges {
+		match row.Status {
+		case EdgeUnknown:
+		case _:
+			return false
+		}
+	}
+	match capRep.Declared[0].Status {
+	case EdgeUnknown:
+	case _:
+		return false
+	}
+
+	let acyclicModel = cvTwoStartModel(seed, false)
+	let closedRes = CheckPaths(acyclicModel, All, big, cvOpen(false))
+	let closedRep = BuildCoverageReport("closed-acyclic", closedRes, declared)
+	match closedRep.Completeness {
+	case ScopeCompleteExhaustive:
+	case _:
+		return false
+	}
+	match closedRep.Declared[0].Status {
+	case EdgeUnreachable:
+		true
+	case _:
+		false
+	}
+}

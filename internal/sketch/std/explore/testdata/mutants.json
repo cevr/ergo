@@ -60,6 +60,36 @@
       "to": "\tlet s = open(start) catch {\n\tcase err:\n\t\treturn publish(SessionOpenFailed[OpenErr]{Err: err})\n\t}\n\tlet initial = s.Read() catch {\n\tcase err:\n\t\treturn publish(SessionDriveFailed[DriveErr]{Step: 0, Err: err})\n\t}\n\tmatch checkInitial(initial) {\n\tcase Some as m:\n\t\treturn publish(SessionMismatch[Obs, Mismatch]{Step: 0, Observed: initial, Detail: m.Value})\n\tcase None:\n\t}\n\tlet mut observed = []Obs{}\n\tfor i in 0..len(inputs) {\n\t\tlet input = inputs[i]\n\t\tlet obs = s.Apply(input) catch {\n\t\tcase err:\n\t\t\treturn publish(SessionDriveFailed[DriveErr]{Step: i + 1, Err: err})\n\t\t}\n\t\tmatch checkStep(i+1, input, obs) {\n\t\tcase Some as m:\n\t\t\treturn publish(SessionMismatch[Obs, Mismatch]{Step: i + 1, Observed: obs, Detail: m.Value})\n\t\tcase None:\n\t\t}\n\t\tobserved = observed.Append(obs)\n\t}\n\ts.Close()\n\tpublish(SessionMatched[Obs]{Initial: initial, Observed: observed})",
       "rule": "RunPathSession closes its acquired PathSession on every exit (including mismatch and drive failure) before publishing SessionOutcome.",
       "killers": ["internal/sketch/std/explore:law:SessionReleasesOnEveryExit"]
+    },
+    {
+      "name": "paths-reject-tag-only",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P4",
+      "file": "internal/sketch/std/explore/checkpaths.ergo",
+      "decl": "compareError",
+      "from": "\t\t\tif exp.Value != act.Value {\n\t\t\t\treturn Some[DiffField]{Value: DiffErrorPayload}\n\t\t\t}",
+      "to": "\t\t\tlet _ = exp.Value\n\t\t\tlet _ = act.Value",
+      "rule": "Step comparison checks full typed error payloads rather than only matching presence or variant tag.",
+      "killers": ["internal/sketch/std/explore:law:CheckPathsObservesPrefixes"]
+    },
+    {
+      "name": "paths-credit-on-observe",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P5",
+      "file": "internal/sketch/std/explore/checkpaths.ergo",
+      "decl": "recordStepCounts",
+      "from": "\tif matched {\n\t\tcounts.MatchedSteps = counts.MatchedSteps + 1",
+      "to": "\tif matched || !matched {\n\t\tcounts.MatchedSteps = counts.MatchedSteps + 1",
+      "rule": "An observed mismatch increments checked counts only and never credits matched step or edge counts.",
+      "killers": ["internal/sketch/std/explore:law:CoverageStatesAgreeWithReference"]
+    },
+    {
+      "name": "paths-replay-variant-only",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P6",
+      "file": "internal/sketch/std/explore/replay.ergo",
+      "decl": "BuildReplayFixture",
+      "from": "\tfor inp in rawInputs {\n\t\texact = exact.Append(inp)\n\t}",
+      "to": "\tfor inp in rawInputs {\n\t\tlet inpTag = match valueOf(inp) {\n\t\tcase json.Object as o:\n\t\t\tlet mut t = \"\"\n\t\t\tfor m in o.Members {\n\t\t\t\tif m.Key == \"_tag\" {\n\t\t\t\t\tmatch m.Value {\n\t\t\t\t\tcase json.Str as s:\n\t\t\t\t\t\tt = s.Value\n\t\t\t\t\tcase _:\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t\tt\n\t\tcase _:\n\t\t\t\"\"\n\t\t}\n\t\tlet mut picked = inp\n\t\tif inpTag != \"\" {\n\t\t\tfor sig in model.Graph.Signals {\n\t\t\t\tlet sigTag = match valueOf(sig) {\n\t\t\t\tcase json.Object as o:\n\t\t\t\t\tlet mut t = \"\"\n\t\t\t\t\tfor m in o.Members {\n\t\t\t\t\t\tif m.Key == \"_tag\" {\n\t\t\t\t\t\t\tmatch m.Value {\n\t\t\t\t\t\t\tcase json.Str as s:\n\t\t\t\t\t\t\t\tt = s.Value\n\t\t\t\t\t\t\tcase _:\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\tt\n\t\t\t\tcase _:\n\t\t\t\t\t\"\"\n\t\t\t\t}\n\t\t\t\tif sigTag == inpTag {\n\t\t\t\t\tpicked = sig\n\t\t\t\t\tbreak\n\t\t\t\t}\n\t\t\t}\n\t\t}\n\t\texact = exact.Append(picked)\n\t}",
+      "rule": "BuildReplayFixture preserves the exact typed input payloads rather than substituting the first alphabet event of the same variant tag.",
+      "killers": ["internal/sketch/std/explore:law:ExactReplayKeepsTypedInput"]
     }
   ]
 }

@@ -1,0 +1,611 @@
+import json
+import strconv
+import strings
+import sync
+
+// ReplayFixtureVersion is the current wire schema version of ReplayFixture.
+let ReplayFixtureVersion = 1
+
+// ReplayFixture is a versioned, exact typed witness input for ReplayPath.
+// Inputs holds the shortest failing prefix within scope with no shrink phase.
+type ReplayFixture[S, E] {
+	Version  int,
+	Source   string,
+	Revision string,
+	TypeKey  string,
+	Binding  string,
+	StartIdx int,
+	Start    S,
+	Inputs   []E,
+}
+
+// ReplayCodecError reports why a serialized ReplayFixture could not be decoded
+// or rejected a version, revision, or type compatibility check.
+type ReplayCodecError =
+	| ReplayMalformed{Reason string}
+	| ReplayUnsupportedVersion{Got int, Want int}
+	| ReplayRevisionMismatch{Got string, Want string}
+	| ReplayTypeMismatch{Got string, Want string}
+
+// PayloadVisibility controls whether failure diagnostics include raw values
+// and the exact ReplayFixture payload or redact them for non-public suites.
+type PayloadVisibility = PublicPayload{} | RedactedPayload{}
+
+// ReplayDiagnosticSpec configures failure diagnostics and the law rerun command.
+type ReplayDiagnosticSpec {
+	Package       string,
+	QualifiedLaw  string,
+	Seed          uint64,
+	ExecutionMode string,
+	ScheduleToken string,
+	ScopeSummary  string,
+	Visibility    PayloadVisibility,
+}
+
+type replayEnvelope {
+	Version  int,
+	Source   string,
+	Revision string,
+	TypeKey  string,
+	Binding  string,
+	StartIdx int,
+	Start    json.Value,
+	Inputs   []json.Value,
+}
+
+// BuildReplayFixture constructs a versioned ReplayFixture preserving the exact
+// start and typed input prefix from a CheckFailure with no shrink phase.
+func BuildReplayFixture[S, E wire, V, O, Err, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	source string,
+	revision string,
+	typeKey string,
+	binding string,
+	failure CheckFailure[S, E, V, O, Err, OpenErr, DriveErr],
+) ReplayFixture[S, E] needs wired[E] {
+	let _ = len(model.Graph.Signals)
+	let (startIdx, start, rawInputs) = match failure {
+	case InitialMismatch as im:
+		(im.StartIndex, im.Start, []E{})
+	case StepMismatch as sm:
+		(sm.StartIndex, sm.Start, sm.Inputs)
+	case OpenFailure as of:
+		(of.StartIndex, of.Start, of.Inputs)
+	case DriveFailure as df:
+		(df.StartIndex, df.Start, df.Inputs)
+	}
+	let mut exact = []E{}
+	for inp in rawInputs {
+		exact = exact.Append(inp)
+	}
+	ReplayFixture[S, E]{
+		Version:  ReplayFixtureVersion,
+		Source:   source,
+		Revision: revision,
+		TypeKey:  typeKey,
+		Binding:  binding,
+		StartIdx: startIdx,
+		Start:    start,
+		Inputs:   exact,
+	}
+}
+
+// EncodeReplayFixture serializes f as versioned JSON preserving exact typed
+// start and input payloads.
+func EncodeReplayFixture[S, E wire](f ReplayFixture[S, E]) string needs wired[S] | wired[E] {
+	let mut encInputs = []json.Value{}
+	for inp in f.Inputs {
+		encInputs = encInputs.Append(valueOf(inp))
+	}
+	let env = replayEnvelope{
+		Version:  f.Version,
+		Source:   f.Source,
+		Revision: f.Revision,
+		TypeKey:  f.TypeKey,
+		Binding:  f.Binding,
+		StartIdx: f.StartIdx,
+		Start:    valueOf(f.Start),
+		Inputs:   encInputs,
+	}
+	json.Encode(json.Codec[replayEnvelope]{MaxBytes: 0, MaxDepth: 0}, env)
+}
+
+// DecodeReplayFixture decodes a versioned JSON ReplayFixture and validates its
+// schema version, expected revision (when non-empty), and expected type key
+// (when non-empty).
+func DecodeReplayFixture[S, E wire](text string, wantRevision string, wantTypeKey string) ReplayFixture[S, E] fails ReplayCodecError needs wired[S] | wired[E] {
+	let env = json.Decode[replayEnvelope](json.Codec[replayEnvelope]{MaxBytes: 0, MaxDepth: 0}, text) catch {
+	case json.Malformed as m:
+		return ReplayMalformed{Reason: m.Reason}
+	case _:
+		return ReplayMalformed{Reason: "invalid replay fixture envelope"}
+	}
+	if env.Version != ReplayFixtureVersion {
+		return ReplayUnsupportedVersion{Got: env.Version, Want: ReplayFixtureVersion}
+	}
+	if wantRevision != "" && env.Revision != wantRevision {
+		return ReplayRevisionMismatch{Got: env.Revision, Want: wantRevision}
+	}
+	if wantTypeKey != "" && env.TypeKey != wantTypeKey {
+		return ReplayTypeMismatch{Got: env.TypeKey, Want: wantTypeKey}
+	}
+	let startText = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, env.Start)
+	let start = json.Decode[S](json.Codec[S]{MaxBytes: 0, MaxDepth: 0}, startText) catch {
+	case json.Malformed as m:
+		return ReplayMalformed{Reason: "start: " + m.Reason}
+	case _:
+		return ReplayMalformed{Reason: "start does not match expected type"}
+	}
+	let mut inputs = []E{}
+	for v in env.Inputs {
+		let inText = json.Encode(json.Codec[json.Value]{MaxBytes: 0, MaxDepth: 0}, v)
+		let inp = json.Decode[E](json.Codec[E]{MaxBytes: 0, MaxDepth: 0}, inText) catch {
+		case json.Malformed as m:
+			return ReplayMalformed{Reason: "input: " + m.Reason}
+		case _:
+			return ReplayMalformed{Reason: "input does not match expected type"}
+		}
+		inputs = inputs.Append(inp)
+	}
+	ReplayFixture[S, E]{
+		Version:  env.Version,
+		Source:   env.Source,
+		Revision: env.Revision,
+		TypeKey:  env.TypeKey,
+		Binding:  env.Binding,
+		StartIdx: env.StartIdx,
+		Start:    start,
+		Inputs:   inputs,
+	}
+}
+
+// ReplayFromFixture replays fixture directly against model and open using the
+// same comparator and release bracket as CheckPaths without re-generating paths.
+func ReplayFromFixture[S, E any, V, O, Err comparable, OpenErr, DriveErr](
+	model PathModel[S, E, V, O, Err],
+	fixture ReplayFixture[S, E],
+	open own func(start S) PathSession[E, Observed[V, O, Err], DriveErr] fails OpenErr,
+) ReplayOutcome[S, E, V, O, Err, OpenErr, DriveErr] {
+	ReplayPath(model, fixture.StartIdx, fixture.Start, fixture.Inputs, open)
+}
+
+func isShellSafeByte(c byte) bool {
+	if c >= byte('a') && c <= byte('z') {
+		return true
+	}
+	if c >= byte('A') && c <= byte('Z') {
+		return true
+	}
+	if c >= byte('0') && c <= byte('9') {
+		return true
+	}
+	c == byte('.') || c == byte('/') || c == byte('_') || c == byte('-') || c == byte(':') || c == byte('=') || c == byte('+')
+}
+
+// ShellQuote quotes s for safe POSIX shell execution, leaving plain safe
+// tokens unquoted and single-quoting tokens containing whitespace, globs, or
+// shell metacharacters.
+func ShellQuote(s string) string {
+	if len(s) == 0 {
+		return "''"
+	}
+	let mut safe = true
+	for i in 0..len(s) {
+		if !isShellSafeByte(s[i]) {
+			safe = false
+			break
+		}
+	}
+	if safe {
+		return s
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteByte(byte('\''))
+	for i in 0..len(s) {
+		if s[i] == byte('\'') {
+			b.WriteString("'\\''")
+		} else {
+			b.WriteByte(s[i])
+		}
+	}
+	b.WriteByte(byte('\''))
+	b.String()
+}
+
+func formatUint64(n uint64) string {
+	if n == uint64(0) {
+		return "0"
+	}
+	let mut digits = []byte{}
+	let mut x = n
+	for x > uint64(0) {
+		let d = byte(x%uint64(10)) + byte('0')
+		digits = digits.Append(d)
+		x = x / uint64(10)
+	}
+	let mut b = strings.NewBuilder()
+	let mut i = len(digits) - 1
+	for i >= 0 {
+		b.WriteByte(digits[i])
+		i = i - 1
+	}
+	b.String()
+}
+
+// FormatReplayCommand formats the shell-quoted `ergo test` command to rerun the
+// law at the same seed, execution mode, and optional schedule token.
+func FormatReplayCommand(spec ReplayDiagnosticSpec) string {
+	let mut b = strings.NewBuilder()
+	b.WriteString("ergo test ")
+	b.WriteString(ShellQuote(spec.Package))
+	if spec.ExecutionMode == "native" {
+		b.WriteString(" --native")
+	}
+	if spec.QualifiedLaw != "" {
+		b.WriteString(" --law ")
+		b.WriteString(ShellQuote(spec.QualifiedLaw))
+	}
+	b.WriteString(" --seed ")
+	b.WriteString(formatUint64(spec.Seed))
+	b.WriteString(" --count 1")
+	if spec.ScheduleToken != "" {
+		b.WriteString(" --schedule ")
+		b.WriteString(ShellQuote(spec.ScheduleToken))
+	}
+	b.String()
+}
+
+func diffFieldName(f DiffField) string {
+	match f {
+	case DiffInitial:
+		"initial"
+	case DiffDisposition:
+		"disposition"
+	case DiffTerminal:
+		"terminal"
+	case DiffState:
+		"state"
+	case DiffOutputs:
+		"outputs"
+	case DiffErrorTag:
+		"error_tag"
+	case DiffErrorPayload:
+		"error_payload"
+	}
+}
+
+type stepObsEnvelope {
+	Kind     string,
+	State    Option[json.Value],
+	Outputs  []json.Value,
+	Error    Option[json.Value],
+	Terminal bool,
+}
+
+func dispositionName(d Disposition) string {
+	match d {
+	case DisEnter:
+		"enter"
+	case DisStay:
+		"stay"
+	case DisEmit:
+		"emit"
+	case DisTell:
+		"tell"
+	case DisIgnore:
+		"ignore"
+	case DisReject:
+		"reject"
+	case DisDone:
+		"done"
+	}
+}
+
+func encodeStepObs[V, O, Err wire](s StepObs[V, O, Err]) string needs wired[V] | wired[O] | wired[Err] {
+	let st = match s.State {
+	case Some as x:
+		Some[json.Value]{Value: valueOf(x.Value)}
+	case None:
+		None
+	}
+	let mut outs = []json.Value{}
+	for o in s.Outputs {
+		outs = outs.Append(valueOf(o))
+	}
+	let errVal = match s.Error {
+	case Some as x:
+		Some[json.Value]{Value: valueOf(x.Value)}
+	case None:
+		None
+	}
+	let env = stepObsEnvelope{
+		Kind:     dispositionName(s.Kind),
+		State:    st,
+		Outputs:  outs,
+		Error:    errVal,
+		Terminal: s.Terminal,
+	}
+	json.Encode(json.Codec[stepObsEnvelope]{MaxBytes: 0, MaxDepth: 0}, env)
+}
+
+// FormatFailureDiagnostic formats a structured diagnostic for a CheckFailure,
+// including source/revision, binding, scope, stage, step, first differing field,
+// shell-quoted law rerun command, and either the exact ReplayFixture (when
+// PublicPayload) or a redacted withholding notice (when RedactedPayload).
+func FormatFailureDiagnostic[S, E, V, O, Err wire, OpenErr, DriveErr](
+	spec ReplayDiagnosticSpec,
+	fixture ReplayFixture[S, E],
+	failure CheckFailure[S, E, V, O, Err, OpenErr, DriveErr],
+) string needs wired[S] | wired[E] | wired[V] | wired[O] | wired[Err] {
+	let isPublic = match spec.Visibility {
+	case PublicPayload:
+		true
+	case RedactedPayload:
+		false
+	}
+	let mut b = strings.NewBuilder()
+	b.WriteString("FAIL ")
+	b.WriteString(fixture.Source)
+	b.WriteString(" rev=")
+	b.WriteString(fixture.Revision)
+	b.WriteString(" binding=")
+	b.WriteString(fixture.Binding)
+	if spec.ScopeSummary != "" {
+		b.WriteString(" scope=")
+		b.WriteString(spec.ScopeSummary)
+	}
+	b.WriteString("\n")
+
+	match failure {
+	case InitialMismatch as im:
+		b.WriteString("  stage=initial step=0 field=")
+		b.WriteString(diffFieldName(im.Field))
+		if isPublic {
+			b.WriteString(" expected=")
+			b.WriteString(json.Encode(json.Codec[V]{MaxBytes: 0, MaxDepth: 0}, im.Expected))
+			b.WriteString(" actual=")
+			match im.Actual {
+			case Some as a:
+				b.WriteString(json.Encode(json.Codec[V]{MaxBytes: 0, MaxDepth: 0}, a.Value))
+			case None:
+				b.WriteString("<wrong-observation-kind>")
+			}
+		} else {
+			b.WriteString(" values=withheld")
+		}
+		b.WriteString("\n")
+	case StepMismatch as sm:
+		b.WriteString("  stage=step step=")
+		b.WriteString(strconv.Itoa(sm.Step))
+		b.WriteString(" field=")
+		b.WriteString(diffFieldName(sm.Field))
+		if isPublic {
+			b.WriteString(" expected=")
+			b.WriteString(encodeStepObs(sm.Expected))
+			b.WriteString(" actual=")
+			match sm.Actual {
+			case Some as a:
+				b.WriteString(encodeStepObs(a.Value))
+			case None:
+				b.WriteString("<wrong-observation-kind>")
+			}
+		} else {
+			b.WriteString(" values=withheld")
+		}
+		b.WriteString("\n")
+	case OpenFailure:
+		b.WriteString("  stage=open step=0 reason=open_failed\n")
+	case DriveFailure as df:
+		b.WriteString("  stage=drive step=")
+		b.WriteString(strconv.Itoa(df.Step))
+		b.WriteString(" reason=drive_failed\n")
+	}
+
+	b.WriteString("  replay: ")
+	b.WriteString(FormatReplayCommand(spec))
+	b.WriteString("\n")
+	if isPublic {
+		b.WriteString("  fixture: ")
+		b.WriteString(EncodeReplayFixture(fixture))
+	} else {
+		b.WriteString("  fixture: withheld (non-public payload)")
+	}
+	b.String()
+}
+
+type rpState { Tag uint8, Val int, Secret string }
+
+type rpEvent = rpPush{Payload int} | rpFlush{}
+
+type rpErr { Code int }
+
+type rpOpenErr { Why string }
+
+type rpDriveErr { Why string }
+
+type rpSess {
+	state sync.Ref[rpState],
+} implements PathSession[rpEvent, Observed[rpState, int, rpErr], rpDriveErr]
+
+func Read(s rpSess) Observed[rpState, int, rpErr] fails rpDriveErr {
+	InitialRead[rpState]{State: s.state.Get()}
+}
+
+func Apply(s rpSess, e rpEvent) Observed[rpState, int, rpErr] fails rpDriveErr {
+	let cur = s.state.Get()
+	match e {
+	case rpPush as p:
+		let next = rpState{Tag: cur.Tag, Val: cur.Val + p.Payload, Secret: cur.Secret}
+		s.state.Set(next)
+		let outs = if cur.Tag == uint8(1) && p.Payload == 2 {
+			[]int{next.Val, p.Payload}
+		} else {
+			[]int{p.Payload, next.Val}
+		}
+		StepResult[rpState, int, rpErr]{Step: StepObs[rpState, int, rpErr]{
+			Kind:     DisEmit,
+			State:    Some[rpState]{Value: next},
+			Outputs:  outs,
+			Error:    None,
+			Terminal: false,
+		}}
+	case rpFlush:
+		StepResult[rpState, int, rpErr]{Step: StepObs[rpState, int, rpErr]{
+			Kind:     DisDone,
+			State:    None,
+			Outputs:  []int{cur.Val, cur.Val + 1},
+			Error:    None,
+			Terminal: true,
+		}}
+	}
+}
+
+func Close(s rpSess) {
+	let _ = s.state.Get()
+}
+
+func rpModel(seed uint64) PathModel[rpState, rpEvent, rpState, int, rpErr] {
+	let base = int(seed % uint64(4))
+	PathModel[rpState, rpEvent, rpState, int, rpErr]{
+		Graph: ConcreteGraph[rpState, rpEvent, StepObs[rpState, int, rpErr]]{
+			Starts: []rpState{
+				rpState{Tag: uint8(0), Val: base, Secret: "SECRET_TOKEN_99"},
+				rpState{Tag: uint8(1), Val: base + 10, Secret: "SECRET_TOKEN_99"},
+			},
+			Signals: []rpEvent{
+				rpPush{Payload: 1},
+				rpPush{Payload: 2},
+				rpFlush,
+			},
+			Step: func(s rpState, e rpEvent) EdgeOutcome[rpState, StepObs[rpState, int, rpErr]] {
+				match e {
+				case rpPush as p:
+					let next = rpState{Tag: s.Tag, Val: s.Val + p.Payload, Secret: s.Secret}
+					Continue[rpState, StepObs[rpState, int, rpErr]]{
+						Next: next,
+						Obs:  StepObs[rpState, int, rpErr]{
+							Kind:     DisEmit,
+							State:    Some[rpState]{Value: next},
+							Outputs:  []int{p.Payload, next.Val},
+							Error:    None,
+							Terminal: false,
+						},
+					}
+				case rpFlush:
+					Terminal[StepObs[rpState, int, rpErr]]{
+						Obs: StepObs[rpState, int, rpErr]{
+							Kind:     DisDone,
+							State:    None,
+							Outputs:  []int{s.Val, s.Val + 1},
+							Error:    None,
+							Terminal: true,
+						},
+					}
+				}
+			},
+		},
+		InitialObs:     func(s rpState) rpState { s },
+		ProjectionName: None,
+	}
+}
+
+func rpOpen(start rpState) PathSession[rpEvent, Observed[rpState, int, rpErr], rpDriveErr] fails rpOpenErr {
+	let st = sync.NewRef(start)
+	rpSess{state: st}
+}
+
+// ExactReplayKeepsTypedInput verifies that ReplayFixture preserves non-first
+// starts, distinct payloads of one variant, and stable output order across JSON
+// round-trip and direct ReplayFromFixture execution, validates version/revision/
+// type compatibility, shell-quotes rerun commands, and redacts non-public payloads.
+law ExactReplayKeepsTypedInput(seed uint64) {
+	let model = rpModel(seed)
+	let big = PathBounds{MaxStates: 64, MaxEdges: 256, MaxPaths: 256, MaxSteps: 1024, MaxWork: 200000, MaxBytes: 1048576}
+	let res = CheckPaths(model, ToDepth{Depth: 2}, big, rpOpen)
+	let fail = match res.Verdict {
+	case CampaignRefuted as r:
+		r.Failure
+	case _:
+		return false
+	}
+
+	let fix = BuildReplayFixture(model, "explore/replay", "rev-abc", "rpModel/v1", "inMemory", fail)
+	let encoded = EncodeReplayFixture(fix)
+	let decoded = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-abc", "rpModel/v1") catch {
+	case _:
+		return false
+	}
+	if decoded.StartIdx != 1 || decoded.Start != model.Graph.Starts[1] || decoded.Inputs != []rpEvent{rpPush{Payload: 2}} {
+		return false
+	}
+
+	let badRev = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-other", "rpModel/v1") catch {
+	case ReplayRevisionMismatch:
+		decoded
+	case _:
+		return false
+	}
+	let _ = badRev
+
+	let badType = DecodeReplayFixture[rpState, rpEvent](encoded, "rev-abc", "other/v1") catch {
+	case ReplayTypeMismatch:
+		decoded
+	case _:
+		return false
+	}
+	let _ = badType
+
+	let badVer = DecodeReplayFixture[rpState, rpEvent]("{\"version\":99,\"source\":\"x\",\"revision\":\"r\",\"typeKey\":\"t\",\"binding\":\"b\",\"startIdx\":0,\"start\":null,\"inputs\":[]}", "", "") catch {
+	case ReplayUnsupportedVersion:
+		decoded
+	case _:
+		return false
+	}
+	let _ = badVer
+
+	let replayed = ReplayFromFixture(model, decoded, rpOpen)
+	let sameFailure = match (fail, replayed) {
+	case (StepMismatch as cf, ReplayFailed as rf):
+		match rf.Failure {
+		case StepMismatch as rsm:
+			rsm.StartIndex == cf.StartIndex && rsm.Step == cf.Step && rsm.Field == cf.Field && rsm.Expected == cf.Expected && rsm.Actual == cf.Actual && rsm.Field == DiffOutputs
+		case _:
+			false
+		}
+	case _:
+		false
+	}
+	if !sameFailure {
+		return false
+	}
+
+	let pubSpec = ReplayDiagnosticSpec{
+		Package:       "./pkg with space",
+		QualifiedLaw:  "Sessions.MatchesMachine",
+		Seed:          seed,
+		ExecutionMode: "native",
+		ScheduleToken: "0*1'2",
+		ScopeSummary:  "depth <= 2",
+		Visibility:    PublicPayload,
+	}
+	let cmd = FormatReplayCommand(pubSpec)
+	if !strings.Contains(cmd, "'./pkg with space'") || !strings.Contains(cmd, "--native") || !strings.Contains(cmd, "'0*1'\\''2'") {
+		return false
+	}
+	let pubDiag = FormatFailureDiagnostic(pubSpec, decoded, fail)
+	if !strings.Contains(pubDiag, "field=outputs") || !strings.Contains(pubDiag, "fixture: {") {
+		return false
+	}
+
+	let redSpec = ReplayDiagnosticSpec{
+		Package:       "./pkg",
+		QualifiedLaw:  "Sessions.MatchesMachine",
+		Seed:          seed,
+		ExecutionMode: "native",
+		ScheduleToken: "",
+		ScopeSummary:  "depth <= 2",
+		Visibility:    RedactedPayload,
+	}
+	let redDiag = FormatFailureDiagnostic(redSpec, decoded, fail)
+	strings.Contains(redDiag, "field=outputs") && strings.Contains(redDiag, "withheld") && !strings.Contains(redDiag, "SECRET_TOKEN_99")
+}
