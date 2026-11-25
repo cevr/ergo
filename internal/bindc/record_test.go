@@ -66,13 +66,15 @@ func TestRecordKinds(t *testing.T) {
 	if err := checkGoPackage(t, std, b.Contract.Go.ImportPath, "amd64", srcs); err != nil {
 		t.Fatalf("the fixture package with every kind as a ShapeHeaderRecord:\n%v", err)
 	}
-	// The Ergo text: the extern takes the union of the kinds.
+	// The Ergo text: the extern takes the record-kind interface and every kind implements its marker.
 	ergo, err := ErgoText(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, w := range []string{"type ShapeHeaderRecord =\n\t| ShapeHeader\n\t| ShapeDot\n\t| ShapeRect\n",
-		"func ShapeArea(contextArg *fixture.Context, shape ShapeHeaderRecord) int64"} {
+	for _, w := range []string{
+		"extern go ergo.local/bind/fixture.ShapeHeaderRecord type ShapeHeaderRecord {\n\tIsShapeHeaderRecord() needs go.Foreign,\n}\n",
+		"func ShapeArea(contextArg *Context, shape ShapeHeaderRecord) int64 fails go.Error needs go.Foreign",
+	} {
 		if !strings.Contains(string(ergo), w) {
 			t.Errorf("the Ergo text has no %q", w)
 		}

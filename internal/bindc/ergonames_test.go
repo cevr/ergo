@@ -252,11 +252,11 @@ func TestErgoNameRegressions(t *testing.T) {
 		{"predeclared-parameter", "uint32_t fx_probe(uint32_t len, uint32_t len_arg, uint32_t string);",
 			"func Probe(lenArg uint32, lenArg2 uint32, stringArg uint32) uint32", false},
 		{"import-parameter", "uint32_t fx_probe(uint32_t fixture, fx_context *ctx);",
-			"func Probe(fixture2 uint32, ctx *fixture.Context) uint32", false},
+			"func Probe(fixture2 uint32, ctx *Context) uint32", false},
 		{"go-word-parameter", "uint32_t fx_probe(uint32_t nil, uint32_t make, uint32_t any);",
 			"func Probe(nil uint32, make uint32, any uint32) uint32", false},
 		{"unnamed-keyword-type", "typedef uint32_t fx_match;\nuint32_t fx_probe(fx_match, fx_match, uint32_t match_arg);",
-			"func Probe(matchArg fixture.Match, matchArg2 fixture.Match, matchArg3 uint32) uint32", false},
+			"func Probe(matchArg Match, matchArg2 Match, matchArg3 uint32) uint32", false},
 		// M2: a package-level name of two kinds, or a predeclared one.
 		{"function-union", "uint32_t fx_call_error(void);",
 			"the CallError union and function fx_call_error have the Ergo name CallError", true},
@@ -306,13 +306,13 @@ func TestErgoNameRegressions(t *testing.T) {
 }
 
 // TestErgoGoAgreement (the wave 1d verifier's TestReviewAgreement): for
-// both golden headers, every extern of the Ergo text has the parameter
-// and result types of the typed Go function of its name in the golden Go
-// package, in order, the error result and the import qualifier removed and
-// fixed array lengths erased (the Ergo text has []T until 196y).
+// both golden headers, every extern function of the Ergo text has the
+// parameter and result types of the typed Go function of its name in the
+// golden Go package, in order, with error removed, own/go.Ref/Option[go.Ref]
+// mapped back to Go's *T, and any prepended // ergo:writes slice stripped.
 func TestErgoGoAgreement(t *testing.T) {
-	dims := regexp.MustCompile(`\[[0-9]+\]`)
-	optional := regexp.MustCompile(`^Option\[(\w+)\]$`)
+	optionalRef := regexp.MustCompile(`^Option\[go\.Ref\[(\w+)\]\]$`)
+	goRef := regexp.MustCompile(`^go\.Ref\[(\w+)\]$`)
 	for _, h := range headers {
 		t.Run(h.header, func(t *testing.T) {
 			b := bindHeader(t, h.dir, h.header, parseHeader(t, h.dir, h.header))
@@ -325,8 +325,21 @@ func TestErgoGoAgreement(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			writesAtLine := map[int]string{}
+			for _, g := range ef.Comments {
+				for _, cm := range g.List {
+					if rest, ok := strings.CutPrefix(cm.Text, "// ergo:writes "); ok {
+						line, _ := ef.Position(cm.Pos())
+						writesAtLine[line] = strings.TrimSpace(rest)
+					}
+				}
+			}
 			norm := func(s string) string {
-				return dims.ReplaceAllString(strings.ReplaceAll(s, b.Contract.Go.Package+".", ""), "[]")
+				s = strings.TrimPrefix(s, "own ")
+				s = strings.ReplaceAll(s, b.Contract.Go.Package+".", "")
+				s = optionalRef.ReplaceAllString(s, "*$1")
+				s = goRef.ReplaceAllString(s, "*$1")
+				return s
 			}
 			goSigs := map[string][]string{}
 			for name, gsrc := range goldenGoFiles(t, h.dir) {
@@ -368,31 +381,37 @@ func TestErgoGoAgreement(t *testing.T) {
 			count := 0
 			for _, d := range ef.Decls {
 				fn, ok := d.(*syntax.FuncDecl)
-				if !ok {
+				if !ok || fn.Recv != nil {
 					continue
 				}
 				count++
+				line, _ := ef.Position(fn.Pos())
+				hasWrites := writesAtLine[line-1] != ""
 				var types []string
 				for _, p := range fn.Type.Params.List {
 					for range max(1, len(p.Names)) {
-						// An optional value: Ergo's Option[S] is Go's *S, nil for None.
-						types = append(types, optional.ReplaceAllString(at(p.Type), "*$1"))
+						types = append(types, at(p.Type))
 					}
 				}
 				types = append(types, "->")
+				var resTypes []string
 				if fn.Type.Results != nil {
 					for _, r := range fn.Type.Results.List {
 						switch rt := r.Type.(type) {
 						case *syntax.ErrorRow:
 						case *syntax.TupleExpr:
 							for _, e := range rt.Elts {
-								types = append(types, at(e))
+								resTypes = append(resTypes, at(e))
 							}
 						default:
-							types = append(types, at(rt))
+							resTypes = append(resTypes, at(rt))
 						}
 					}
 				}
+				if hasWrites && len(resTypes) > 0 {
+					resTypes = resTypes[1:]
+				}
+				types = append(types, resTypes...)
 				if want, ok := goSigs[fn.Name.Name]; !ok || strings.Join(types, " ") != strings.Join(want, " ") {
 					t.Errorf("%s: Ergo %v, Go %v", fn.Name.Name, types, want)
 				}
@@ -664,17 +683,32 @@ func ergoDeclared(t *testing.T, src string) (imp string, decls, params map[strin
 		t.Fatalf("the Ergo text does not parse: %v\n%s", err, src)
 	}
 	decls, params = map[string]bool{}, map[string]bool{}
-	imps := 0
+	for _, line := range strings.SplitN(src, "\n", 6) {
+		if rest, ok := strings.CutPrefix(line, "// ergo:bind c "); ok {
+			if fields := strings.Fields(rest); len(fields) >= 1 {
+				p := fields[0]
+				imp = p[strings.LastIndex(p, "/")+1:]
+			}
+			break
+		}
+	}
+	if imp == "" {
+		t.Fatalf("the Ergo text has no // ergo:bind c header:\n%s", src)
+	}
+	for _, g := range ergoGenerated {
+		decls[g.name] = true
+	}
 	for _, d := range f.Decls {
 		switch d := d.(type) {
 		case *syntax.ImportDecl:
-			for _, s := range d.Specs {
-				imps++
-				if s.Kind != syntax.ImportGo || s.Name != nil {
-					t.Fatalf("the Ergo text has an import that is not `import go <path>`:\n%s", src)
+			t.Fatalf("the Ergo text has an unexpected import:\n%s", src)
+		case *syntax.VarDecl:
+			for _, sp := range d.Specs {
+				for _, n := range sp.Names {
+					if v, ok := strings.CutPrefix(n.Name, "Status"); ok && v != "" {
+						decls[v] = true
+					}
 				}
-				p := s.Path.Value
-				imp = p[strings.LastIndex(p, "/")+1:]
 			}
 		case *syntax.TypeDecl:
 			decls[d.Name.Name] = true
@@ -686,6 +720,12 @@ func ergoDeclared(t *testing.T, src string) (imp string, decls, params map[strin
 				}
 			}
 		case *syntax.FuncDecl:
+			if d.Recv != nil {
+				continue
+			}
+			if d.Name.Name == "Load" {
+				continue
+			}
 			decls[d.Name.Name] = true
 			if d.Type.Params != nil {
 				for _, p := range d.Type.Params.List {
@@ -695,9 +735,6 @@ func ergoDeclared(t *testing.T, src string) (imp string, decls, params map[strin
 				}
 			}
 		}
-	}
-	if imps != 1 {
-		t.Fatalf("the Ergo text has %d imports, want 1:\n%s", imps, src)
 	}
 	return imp, decls, params
 }

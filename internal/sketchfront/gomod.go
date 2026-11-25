@@ -322,7 +322,9 @@ func bindingPlatform(path, src string, platform gobind.Platform) string {
 	for _, line := range lines[:min(3, len(lines))] {
 		if rest, ok := strings.CutPrefix(line, "// ergo:bind "); ok {
 			fields := strings.Fields(rest)
-			if len(fields) >= 2 && fields[0] == path {
+			if len(fields) >= 5 && fields[0] == "c" && fields[1] == path {
+				platforms = fields[4:]
+			} else if len(fields) >= 2 && fields[0] == path {
 				platforms = fields[2:]
 			}
 			break

@@ -15,12 +15,13 @@ import (
 	"ergo.local/prototype/internal/sketchfront"
 )
 
-const bindHelp = "usage: ergo bind go [-o DIR] PACKAGE...\n\n" +
-	"Writes the Ergo binding of each Go package: its exported declarations with\n" +
-	"their Ergo signatures and rows, and the reason for each one that does not\n" +
-	"map (docs/spec/interop.md).\n\n" +
-	"Inside an Ergo module (an ergo.mod in the current folder or above), it runs\n" +
-	"go list in the module root, against the go.mod and go.sum beside ergo.mod,\n" +
+const bindHelp = "usage: ergo bind go [-o DIR] PACKAGE...\n" +
+	"       ergo bind c [-o DIR] HEADER CONTRACT\n\n" +
+	"Writes the Ergo binding of each Go package (ergo bind go) or generates the\n" +
+	"CGO_ENABLED=0 Go package and checked Ergo binding of a C header and contract\n" +
+	"(ergo bind c).\n\n" +
+	"Inside an Ergo module (an ergo.mod in the current folder or above), ergo bind go\n" +
+	"runs go list in the module root, against the go.mod and go.sum beside ergo.mod,\n" +
 	"and writes each binding to <module root>/ergo.bind/<import path>/<last\n" +
 	"element>.ergo, stamped with the Go module's version, with the binding of\n" +
 	"every package outside Go's standard library that one names. A package of\n" +
@@ -28,12 +29,21 @@ const bindHelp = "usage: ergo bind go [-o DIR] PACKAGE...\n\n" +
 	"Outside a module, it runs go list in the current folder and prints the\n" +
 	"bindings. With -o, each binding is written to DIR/<import path>/<last\n" +
 	"element>.ergo instead.\n\n" +
+	"ergo bind c parses HEADER with CONTRACT (JSON), generates the purego Go\n" +
+	"package and checked Ergo binding under ergo.bind/<import path>/<package>.ergo\n" +
+	"(or under DIR when -o DIR is given).\n\n" +
 	"Exit codes: 0 written; 1 go list or a binding failed; 2 invalid invocation.\n"
 
-// bindCommand is `ergo bind go [-o DIR] PACKAGE...` (IG7).
+// bindCommand dispatches `ergo bind go` (IG7) and `ergo bind c` (CFFI-2).
 func bindCommand(args []string) error {
-	if len(args) == 0 || args[0] != "go" {
-		return usageError{message: "ergo bind binds Go packages: ergo bind go [-o DIR] PACKAGE..."}
+	if len(args) == 0 {
+		return usageError{message: "ergo bind binds Go or C packages: ergo bind go [-o DIR] PACKAGE... | ergo bind c [-o DIR] HEADER CONTRACT"}
+	}
+	if args[0] == "c" {
+		return bindCCommand(args[1:])
+	}
+	if args[0] != "go" {
+		return usageError{message: "ergo bind binds Go or C packages: ergo bind go [-o DIR] PACKAGE... | ergo bind c [-o DIR] HEADER CONTRACT"}
 	}
 	fs := flag.NewFlagSet("bind", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

@@ -1248,6 +1248,9 @@ type Context struct {
 	t uintptr
 }
 
+// Close destroys the ot_context handle by calling ContextDestroy.
+func (h *Context) Close() error { return ContextDestroy(h) }
+
 // Handle is ot_handle (16 bytes, alignment 8).
 type Handle struct {
 	ContextId  uint64
@@ -3564,9 +3567,14 @@ var (
 // A function that takes one passes C the whole record, with its header's
 // autofill fields set and the record's size in its size field.
 type BufferDrawHeaderRecord interface {
+	// IsBufferDrawHeaderRecord marks the concrete record kinds for Ergo/Go interface checking.
+	IsBufferDrawHeaderRecord()
 	// record returns the address of a filled copy of the record.
 	record() unsafe.Pointer
 }
+
+// IsBufferDrawHeaderRecord marks BufferDrawHeader as a BufferDrawHeaderRecord.
+func (BufferDrawHeader) IsBufferDrawHeaderRecord() {}
 
 // record makes BufferDrawHeader a BufferDrawHeaderRecord.
 func (s BufferDrawHeader) record() unsafe.Pointer {
@@ -3595,6 +3603,9 @@ var (
 	_ [1]struct{} = [unsafe.Offsetof(BufferDrawClear{}.Background) - 16 + 1]struct{}{}
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawClear{}.Background) - 8 + 1]struct{}{}
 )
+
+// IsBufferDrawHeaderRecord marks BufferDrawClear as a BufferDrawHeaderRecord.
+func (BufferDrawClear) IsBufferDrawHeaderRecord() {}
 
 // record makes BufferDrawClear a BufferDrawHeaderRecord.
 func (s BufferDrawClear) record() unsafe.Pointer {
@@ -3635,6 +3646,9 @@ var (
 	_ [1]struct{} = [unsafe.Offsetof(BufferDrawFill{}.Background) - 32 + 1]struct{}{}
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawFill{}.Background) - 8 + 1]struct{}{}
 )
+
+// IsBufferDrawHeaderRecord marks BufferDrawFill as a BufferDrawHeaderRecord.
+func (BufferDrawFill) IsBufferDrawHeaderRecord() {}
 
 // record makes BufferDrawFill a BufferDrawHeaderRecord.
 func (s BufferDrawFill) record() unsafe.Pointer {
@@ -3679,6 +3693,9 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawTextRecord{}.MaxWidth) - 4 + 1]struct{}{}
 )
 
+// IsBufferDrawHeaderRecord marks BufferDrawTextRecord as a BufferDrawHeaderRecord.
+func (BufferDrawTextRecord) IsBufferDrawHeaderRecord() {}
+
 // record makes BufferDrawTextRecord a BufferDrawHeaderRecord.
 func (s BufferDrawTextRecord) record() unsafe.Pointer {
 	s.fill()
@@ -3721,6 +3738,9 @@ var (
 	_ [1]struct{} = [unsafe.Offsetof(BufferDrawCell{}.Background) - 40 + 1]struct{}{}
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawCell{}.Background) - 8 + 1]struct{}{}
 )
+
+// IsBufferDrawHeaderRecord marks BufferDrawCell as a BufferDrawHeaderRecord.
+func (BufferDrawCell) IsBufferDrawHeaderRecord() {}
 
 // record makes BufferDrawCell a BufferDrawHeaderRecord.
 func (s BufferDrawCell) record() unsafe.Pointer {
@@ -3774,6 +3794,9 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawBox{}.BorderChars) - 44 + 1]struct{}{}
 )
 
+// IsBufferDrawHeaderRecord marks BufferDrawBox as a BufferDrawHeaderRecord.
+func (BufferDrawBox) IsBufferDrawHeaderRecord() {}
+
 // record makes BufferDrawBox a BufferDrawHeaderRecord.
 func (s BufferDrawBox) record() unsafe.Pointer {
 	s.fill()
@@ -3817,6 +3840,9 @@ var (
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawCompose{}.SourceHeight) - 4 + 1]struct{}{}
 )
 
+// IsBufferDrawHeaderRecord marks BufferDrawCompose as a BufferDrawHeaderRecord.
+func (BufferDrawCompose) IsBufferDrawHeaderRecord() {}
+
 // record makes BufferDrawCompose a BufferDrawHeaderRecord.
 func (s BufferDrawCompose) record() unsafe.Pointer {
 	s.fill()
@@ -3844,6 +3870,9 @@ var (
 	_ [1]struct{} = [unsafe.Offsetof(BufferDrawAlpha{}.Enabled) - 16 + 1]struct{}{}
 	_ [1]struct{} = [unsafe.Sizeof(BufferDrawAlpha{}.Enabled) - 4 + 1]struct{}{}
 )
+
+// IsBufferDrawHeaderRecord marks BufferDrawAlpha as a BufferDrawHeaderRecord.
+func (BufferDrawAlpha) IsBufferDrawHeaderRecord() {}
 
 // record makes BufferDrawAlpha a BufferDrawHeaderRecord.
 func (s BufferDrawAlpha) record() unsafe.Pointer {

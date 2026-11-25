@@ -254,6 +254,9 @@ type Context struct {
 	t uintptr
 }
 
+// Close destroys the fx_context handle by calling ContextDestroy.
+func (h *Context) Close() error { return ContextDestroy(h) }
+
 // Node is fx_node (16 bytes, alignment 8).
 type Node struct {
 	ContextId  uint64
@@ -442,9 +445,14 @@ var (
 // A function that takes one passes C the whole record, with its header's
 // autofill fields set and the record's size in its size field.
 type ShapeHeaderRecord interface {
+	// IsShapeHeaderRecord marks the concrete record kinds for Ergo/Go interface checking.
+	IsShapeHeaderRecord()
 	// record returns the address of a filled copy of the record.
 	record() unsafe.Pointer
 }
+
+// IsShapeHeaderRecord marks ShapeHeader as a ShapeHeaderRecord.
+func (ShapeHeader) IsShapeHeaderRecord() {}
 
 // record makes ShapeHeader a ShapeHeaderRecord.
 func (s ShapeHeader) record() unsafe.Pointer {
@@ -473,6 +481,9 @@ var (
 	_ [1]struct{} = [unsafe.Offsetof(ShapeDot{}.Weight) - 12 + 1]struct{}{}
 	_ [1]struct{} = [unsafe.Sizeof(ShapeDot{}.Weight) - 4 + 1]struct{}{}
 )
+
+// IsShapeHeaderRecord marks ShapeDot as a ShapeHeaderRecord.
+func (ShapeDot) IsShapeHeaderRecord() {}
 
 // record makes ShapeDot a ShapeHeaderRecord.
 func (s ShapeDot) record() unsafe.Pointer {
@@ -504,6 +515,9 @@ var (
 	_ [1]struct{} = [unsafe.Offsetof(ShapeRect{}.Height) - 16 + 1]struct{}{}
 	_ [1]struct{} = [unsafe.Sizeof(ShapeRect{}.Height) - 4 + 1]struct{}{}
 )
+
+// IsShapeHeaderRecord marks ShapeRect as a ShapeHeaderRecord.
+func (ShapeRect) IsShapeHeaderRecord() {}
 
 // record makes ShapeRect a ShapeHeaderRecord.
 func (s ShapeRect) record() unsafe.Pointer {

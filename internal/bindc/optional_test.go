@@ -48,7 +48,7 @@ func TestOptionalValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w := "func BoxZ(contextArg *fixture.Context, clip Option[Box]) int64"; !strings.Contains(string(ergo), w) {
+	if w := "func BoxZ(contextArg *Context, clip Option[go.Ref[Box]]) int64 fails go.Error needs go.Foreign"; !strings.Contains(string(ergo), w) {
 		t.Errorf("the Ergo text has no %q", w)
 	}
 }

@@ -407,6 +407,9 @@ func (b *Binding) ergoNames() error {
 	b.unions = map[string]bool{}
 	b.records = b.recordStructs()
 	for _, d := range b.Model.Types {
+		if d.Kind == DeclScalar && d.Name != b.Contract.Status.Type {
+			claim(b.GoTypes[d.Name], "typedef "+d.Name)
+		}
 		if b.records[d.Name] {
 			claim(b.GoTypes[d.Name], "struct "+d.Name)
 		}
