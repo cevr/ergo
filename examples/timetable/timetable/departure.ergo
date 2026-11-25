@@ -92,7 +92,7 @@ func insert(out []Departure, d Departure) []Departure {
 law LeavesOnItsDay(i int64, n int64, k int64) {
 	let l = lawLine(i)
 	let s = lawService(k)
-	let d = lawDay(n)
+	let d = try lawDay(n)
 	let asked = civil.DateTime{Date: d, Time: s.Leaves}
 	let (at, how) = Leaves(l, s, d)
 	let zone = l.Stations[0].Zone
@@ -113,7 +113,7 @@ law LeavesOnItsDay(i int64, n int64, k int64) {
 law CallsKeepTheRunningTimes(i int64, n int64, k int64) {
 	let l = lawLine(i)
 	let s = lawService(k)
-	let d = lawDay(n)
+	let d = try lawDay(n)
 	let calls = Calls(l, s, d)
 	for j, stop in l.Stations {
 		if time.Sub(calls[j], calls[0]) != stop.After {
@@ -129,7 +129,7 @@ law DeparturesAreOnTheDay(i int64, n int64, k int64, j int64) {
 	let l = lawLine(i)
 	let services = []Service{lawService(k), lawService(k/7 + 1)}
 	let stop = l.Stations[int(within(j, 0, int64(len(l.Stations)-1)))]
-	let day = lawDay(n)
+	let day = try lawDay(n)
 	let all = Departures(l, services, stop.Name, day) catch {
 	case UnknownStop:
 		return false
@@ -147,7 +147,7 @@ law DeparturesAreOnTheDay(i int64, n int64, k int64, j int64) {
 law EveryCallIsListed(i int64, n int64, k int64, j int64) {
 	let l = lawLine(i)
 	let s = lawService(k)
-	let d = lawDay(n)
+	let d = try lawDay(n)
 	if !RunsOn(s, d) {
 		return true
 	}
@@ -211,23 +211,17 @@ func lawLine(i int64) Route {
 // lawDay is a date from 1970 to 2099, a Sunday the clocks change on in
 // three draws of four: North America's in March and in November (since
 // 2007), the European Union's in March.
-func lawDay(n int64) civil.Date {
+func lawDay(n int64) civil.Date fails civil.NoSuchDate {
 	let year = int(within(n/4, 2007, 2099))
-	let on = func(month time.Month, day int) civil.Date {
-		civil.NewDate(year, month, day) catch {
-		case civil.NoSuchDate:
-			Unreachable("the law's dates are dates")
-		}
-	}
 	match within(n, 0, 3) {
 	case 0:
 		civil.FromUnixDays(within(n/4, 0, 47481))
 	case 1:
-		civil.Next(on(time.March, 7), time.Sunday)
+		civil.Next(try civil.NewDate(year, time.March, 7), time.Sunday)
 	case 2:
-		civil.Next(on(time.October, 31), time.Sunday)
+		civil.Next(try civil.NewDate(year, time.October, 31), time.Sunday)
 	case _:
-		civil.Previous(on(time.April, 1), time.Sunday)
+		civil.Previous(try civil.NewDate(year, time.April, 1), time.Sunday)
 	}
 }
 

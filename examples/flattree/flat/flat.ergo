@@ -19,7 +19,7 @@
 // package tree gives at the same byte.
 // The laws hold the flat tree to package tree, the plain twin.
 
-import flattree/dense
+import dense
 import flattree/tree
 import slices
 import strings

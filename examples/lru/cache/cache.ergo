@@ -128,7 +128,10 @@ func Len[K comparable, V](c Cache[K, V]) int { len(c.index) }
 func Get[K comparable, V](c mut Cache[K, V], k K) Option[V] {
 	match c.index.Get(k) {
 	case Some[arena.Ref[node[K, V]]] as at:
-		let n = c.nodeAt(at.Value)
+		let n = c.nodes.Get(at.Value) catch {
+		case arena.Stale:
+			return None
+		}
 		c.touch(at.Value, n.prev, n.next)
 		Some{n.value}
 	case None:
@@ -156,7 +159,11 @@ law GetAfterPut(n int, keys []int, seed int, k int, v int) {
 func Peek[K comparable, V](c mut Cache[K, V], k K) Option[V] {
 	match c.index.Get(k) {
 	case Some[arena.Ref[node[K, V]]] as at:
-		Some{c.nodeAt(at.Value).value}
+		let n = c.nodes.Get(at.Value) catch {
+		case arena.Stale:
+			return None
+		}
+		Some{n.value}
 	case None:
 		None
 	}
@@ -168,10 +175,13 @@ func Peek[K comparable, V](c mut Cache[K, V], k K) Option[V] {
 func Put[K comparable, V](c mut Cache[K, V], k K, v V) Option[Entry[K, V]] {
 	match c.index.Get(k) {
 	case Some[arena.Ref[node[K, V]]] as at:
-		let n = c.nodeAt(at.Value)
+		let n = c.nodes.Get(at.Value) catch {
+		case arena.Stale:
+			return None
+		}
 		c.nodes.Update(at.Value, func(p mut node[K, V]) { p.value = v }) catch {
 		case arena.Stale:
-			Unreachable("the cache holds a link to a freed node")
+			return None
 		}
 		c.touch(at.Value, n.prev, n.next)
 		return None
@@ -179,7 +189,11 @@ func Put[K comparable, V](c mut Cache[K, V], k K, v V) Option[Entry[K, V]] {
 	}
 	let mut evicted Option[Entry[K, V]] = None
 	if len(c.index) == c.capacity {
-		let old = c.release(c.tail)
+		let old = c.nodes.Free(c.tail) catch {
+		case arena.Stale:
+			return None
+		}
+		c.unlink(old.prev, old.next)
 		c.index = c.index.Delete(old.key)
 		evicted = Some{Entry[K, V]{Key: old.key, Value: old.value}}
 	}
@@ -193,8 +207,12 @@ func Put[K comparable, V](c mut Cache[K, V], k K, v V) Option[Entry[K, V]] {
 func Remove[K comparable, V](c mut Cache[K, V], k K) bool {
 	match c.index.Get(k) {
 	case Some[arena.Ref[node[K, V]]] as at:
-		let _ = c.release(at.Value)
 		c.index = c.index.Delete(k)
+		let n = c.nodes.Free(at.Value) catch {
+		case arena.Stale:
+			return false
+		}
+		c.unlink(n.prev, n.next)
 		true
 	case None:
 		false
@@ -206,7 +224,10 @@ func Entries[K comparable, V](c mut Cache[K, V]) []Entry[K, V] {
 	let mut out = []Entry[K, V]{}
 	let mut at = c.head
 	for at != arena.Null[node[K, V]]() {
-		let n = c.nodeAt(at)
+		let n = c.nodes.Get(at) catch {
+		case arena.Stale:
+			break
+		}
 		out = out.Append(Entry[K, V]{Key: n.key, Value: n.value})
 		at = n.next
 	}
@@ -240,15 +261,6 @@ func Sorted[K ordered, V](c mut Cache[K, V]) []Entry[K, V] {
 	slices.SortFunc(c.Entries(), func(a Entry[K, V], b Entry[K, V]) int { cmp.Compare(a.Key, b.Key) })
 }
 
-// nodeAt is the node at names. Every link the cache holds names a node
-// in its arena, so a stale one is a bug of this package.
-func nodeAt[K comparable, V](c mut Cache[K, V], at arena.Ref[node[K, V]]) node[K, V] {
-	c.nodes.Get(at) catch {
-	case arena.Stale:
-		Unreachable("the cache holds a link to a freed node")
-	}
-}
-
 // touch moves the node at, whose links are prev and next, to the front
 // of the recency list.
 func touch[K comparable, V](c mut Cache[K, V], at own arena.Ref[node[K, V]], prev own arena.Ref[node[K, V]], next own arena.Ref[node[K, V]]) {
@@ -262,21 +274,9 @@ func touch[K comparable, V](c mut Cache[K, V], at own arena.Ref[node[K, V]], pre
 		p.next = head
 	}) catch {
 	case arena.Stale:
-		Unreachable("the cache holds a link to a freed node")
+		return
 	}
 	c.pushed(at)
-}
-
-// release takes the node at off the recency list, frees it and returns
-// it. Free returns the node with its links, so one arena access reads
-// and frees it.
-func release[K comparable, V](c mut Cache[K, V], at arena.Ref[node[K, V]]) node[K, V] {
-	let n = c.nodes.Free(at) catch {
-	case arena.Stale:
-		Unreachable("the cache holds a link to a freed node")
-	}
-	c.unlink(n.prev, n.next)
-	n
 }
 
 // unlink joins prev and next, the neighbours of a node on the recency
@@ -287,7 +287,6 @@ func unlink[K comparable, V](c mut Cache[K, V], prev own arena.Ref[node[K, V]], 
 	} else {
 		c.nodes.Update(prev, func(p mut node[K, V]) { p.next = next }) catch {
 		case arena.Stale:
-			Unreachable("the cache holds a link to a freed node")
 		}
 	}
 	if next == arena.Null[node[K, V]]() {
@@ -295,7 +294,6 @@ func unlink[K comparable, V](c mut Cache[K, V], prev own arena.Ref[node[K, V]], 
 	} else {
 		c.nodes.Update(next, func(p mut node[K, V]) { p.prev = prev }) catch {
 		case arena.Stale:
-			Unreachable("the cache holds a link to a freed node")
 		}
 	}
 }
@@ -308,7 +306,6 @@ func pushed[K comparable, V](c mut Cache[K, V], at own arena.Ref[node[K, V]]) {
 	} else {
 		c.nodes.Update(c.head, func(p mut node[K, V]) { p.prev = at }) catch {
 		case arena.Stale:
-			Unreachable("the cache holds a link to a freed node")
 		}
 	}
 	c.head = at
