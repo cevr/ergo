@@ -1,0 +1,35 @@
+{
+  "about": "Concrete transition graph and exact key interner mutants (MODEL-BASED-PATH-TESTS P1).",
+  "mutants": [
+    {
+      "name": "paths-fingerprint-is-identity",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P1",
+      "file": "internal/sketch/std/explore/concrete.ergo",
+      "decl": "InternWithHash",
+      "from": "\t\t\tif t.hashes[at] == h && t.keys[at] == key {",
+      "to": "\t\t\tif t.hashes[at] == h {",
+      "rule": "KeyTable uses the hash only to locate a dense bucket; exact canonical wire-key byte equality decides identity even under hash collision.",
+      "killers": ["internal/sketch/std/explore:law:EdgesKeepIdentity"]
+    },
+    {
+      "name": "paths-drop-visited-edge",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P1",
+      "file": "internal/sketch/std/explore/concrete.ergo",
+      "decl": "BuildConcrete",
+      "from": "\t\t\t\t\tedges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: ToState{State: dstID}, Obs: cont.Obs})\n\t\t\t\t\tst.Edges = st.Edges + 1\n\t\t\t\t\tif fresh {",
+      "to": "\t\t\t\t\tif fresh {\n\t\t\t\t\t\tedges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: ToState{State: dstID}, Obs: cont.Obs})\n\t\t\t\t\t\tst.Edges = st.Edges + 1",
+      "rule": "BuildConcrete records every attempted concrete edge before deduplicating its successor state, preserving cycles and joins.",
+      "killers": ["internal/sketch/std/explore:law:EdgesKeepIdentity"]
+    },
+    {
+      "name": "paths-merge-ignore-reject",
+      "origin": "wf10 MODEL-BASED-PATH-TESTS P1",
+      "file": "internal/sketch/std/explore/concrete.ergo",
+      "decl": "ConcreteOf",
+      "from": "\t\t\tcase Reject:\n\t\t\t\tContinue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisReject, Output: None}}",
+      "to": "\t\t\tcase Reject:\n\t\t\t\tContinue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisIgnore, Output: None}}",
+      "rule": "ConcreteOf preserves Reject distinct from Ignore even though both keep the state unchanged.",
+      "killers": ["internal/sketch/std/explore:law:EdgesKeepIdentity"]
+    }
+  ]
+}

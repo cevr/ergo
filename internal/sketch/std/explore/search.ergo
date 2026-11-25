@@ -239,20 +239,31 @@ type Run { Start int, Signals []int }
 // from the node parent by Signals[sig].
 type Result { Found int, Stats Stats, parent []int32, sig []int32 }
 
-// RunTo is the run to the node i of r.
-func RunTo(r Result, i int) Run {
+func floatBits(f float64) uint64 { math.Float64bits(f) }
+
+func reconstructRun(parent []int32, sig []int32, i int) Run {
 	let mut back = []int{}
 	let mut at = i
-	for r.parent[at] >= int32(0) {
-		back = back.Append(int(r.sig[at]))
-		at = int(r.parent[at])
+	for parent[at] >= int32(0) {
+		back = back.Append(int(sig[at]))
+		at = int(parent[at])
 	}
 	let mut sigs = []int{}
 	for j in 0..len(back) {
 		sigs = sigs.Append(back[len(back)-1-j])
 	}
-	Run{Start: int(r.sig[at]), Signals: sigs}
+	Run{Start: int(sig[at]), Signals: sigs}
 }
+
+func pushKept[S](kept []Option[S], held int, s S, words int) ([]Option[S], int) {
+	if words <= SmallWords {
+		return (kept.Append(Some[S]{Value: s}), held + 1)
+	}
+	(kept.Append(None), held)
+}
+
+// RunTo is the run to the node i of r.
+func RunTo(r Result, i int) Run { reconstructRun(r.parent, r.sig, i) }
 
 // ReplayRun is the state at the end of run, stepped from its start. A step
 // that ends the run keeps the state.
@@ -303,12 +314,9 @@ func Search[S wire, E](g Graph[S, E], target func(s S) bool, budget int) Result 
 		if target(s) {
 			return Result{Found: len(parent) - 1, Stats: st, parent: parent, sig: sig}
 		}
-		if words <= SmallWords {
-			kept = kept.Append(Some[S]{Value: s})
-			held = held + 1
-		} else {
-			kept = kept.Append(None)
-		}
+		let (k2, h2) = pushKept(kept, held, s, words)
+		kept = k2
+		held = h2
 		st.Frontier = larger(st.Frontier, held)
 		ids = ids.Append(len(parent) - 1)
 	}
@@ -338,12 +346,9 @@ func Search[S wire, E](g Graph[S, E], target func(s S) bool, budget int) Result 
 						if target(t) {
 							return Result{Found: len(parent) - 1, Stats: st, parent: parent, sig: sig}
 						}
-						if words <= SmallWords {
-							nextKept = nextKept.Append(Some[S]{Value: t})
-							nextHeld = nextHeld + 1
-						} else {
-							nextKept = nextKept.Append(None)
-						}
+						let (nk2, nh2) = pushKept(nextKept, nextHeld, t, words)
+						nextKept = nk2
+						nextHeld = nh2
 						st.Frontier = larger(st.Frontier, held+nextHeld)
 						next = next.Append(len(parent) - 1)
 					}
@@ -367,7 +372,7 @@ func frontierState[S, E](g Graph[S, E], parent []int32, sig []int32, kept Option
 	case Some[S] as s:
 		s.Value
 	case None:
-		ReplayRun(g, RunTo(Result{Found: id, Stats: Stats{States: 0, Edges: 0, Depth: 0, Checked: 0, Complete: false, Frontier: 0}, parent: parent, sig: sig}, id))
+		ReplayRun(g, reconstructRun(parent, sig, id))
 	}
 }
 
@@ -399,12 +404,9 @@ func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) 
 				}
 				parent = parent.Append(int32(-1))
 				sig = sig.Append(int32(i))
-				if words <= SmallWords {
-					kept = kept.Append(Some[S]{Value: s})
-					held = held + 1
-				} else {
-					kept = kept.Append(None)
-				}
+				let (k2, h2) = pushKept(kept, held, s, words)
+				kept = k2
+				held = h2
 				st.Frontier = larger(st.Frontier, held)
 				ids = ids.Append(len(parent) - 1)
 			}
@@ -433,12 +435,9 @@ func PathSearch[S wire, E](g Graph[S, E], targets []func(s S) bool, budget int) 
 							}
 							parent = parent.Append(int32(ids[f]))
 							sig = sig.Append(int32(e))
-							if words <= SmallWords {
-								nextKept = nextKept.Append(Some[S]{Value: t})
-								nextHeld = nextHeld + 1
-							} else {
-								nextKept = nextKept.Append(None)
-							}
+							let (nk2, nh2) = pushKept(nextKept, nextHeld, t, words)
+							nextKept = nk2
+							nextHeld = nh2
 							st.Frontier = larger(st.Frontier, held+nextHeld)
 							next = next.Append(len(parent) - 1)
 						}
@@ -476,4 +475,301 @@ func Moves[S wire, E](g Graph[S, E], s S) []int needs wired[S] {
 		}
 	}
 	out
+}
+
+type ceState { Tag uint8, Val int }
+
+type ceEvent = ceBump{Delta int} | ceProbe{Kind uint8} | ceFinish{Code int}
+
+type ceOut { Code int, At int }
+
+type ceOracleEdge { Source int, Signal int, EventID int, Target EdgeTarget, Obs MachineObs[ceOut] }
+
+func ceMachine(seed uint64) Machine[ceState, ceEvent, ceOut] {
+	let mod = 3 + int(seed%uint64(3))
+	let bonus = int((seed >> uint64(4)) % uint64(5))
+	Machine[ceState, ceEvent, ceOut]{
+		Initial: ceState{Tag: uint8(0), Val: 0},
+		Step:    func(s ceState, e ceEvent) Decision[ceState, ceOut] {
+			match e {
+			case ceBump as b:
+				let nextVal = (s.Val + b.Delta) % mod
+				let nextTag = if nextVal == 0 { uint8(1) } else { s.Tag }
+				let next = ceState{Tag: nextTag, Val: nextVal}
+				if b.Delta == 1 {
+					Enter[ceState]{Next: next}
+				} else {
+					Emit[ceState, ceOut]{Next: next, Output: ceOut{Code: b.Delta + bonus, At: s.Val}}
+				}
+			case ceProbe as p:
+				if p.Kind == uint8(0) {
+					Ignore
+				} else {
+					Reject
+				}
+			case ceFinish as f:
+				Done[ceOut]{Output: ceOut{Code: f.Code, At: s.Val}}
+			}
+		},
+		After: func(_ ceState) Option[Timeout[ceEvent]] { None },
+		Work:  func(_ ceState) Option[func(send func(e ceEvent))] { None },
+		Exit:  func(_ ceState) Option[func()] { None },
+	}
+}
+
+func ceOracleFindState(xs []ceState, x ceState) int {
+	for i in 0..len(xs) {
+		if xs[i] == x {
+			return i
+		}
+	}
+	-1
+}
+
+func ceOracleFindEvent(xs []ceEvent, x ceEvent) int {
+	for i in 0..len(xs) {
+		if xs[i] == x {
+			return i
+		}
+	}
+	-1
+}
+
+func ceOracleBuild(m Machine[ceState, ceEvent, ceOut], rawSignals []ceEvent) (int, []ceOracleEdge, int) {
+	let mut sigs = []ceEvent{}
+	let mut sigIdx = []int{}
+	for i in 0..len(rawSignals) {
+		if ceOracleFindEvent(sigs, rawSignals[i]) < 0 {
+			sigs = sigs.Append(rawSignals[i])
+			sigIdx = sigIdx.Append(i)
+		}
+	}
+	let mut states = []ceState{m.Initial}
+	let mut frontier = []int{0}
+	let mut edges = []ceOracleEdge{}
+	let mut depth = 0
+	let mut d = 1
+	for len(frontier) > 0 {
+		let mut next = []int{}
+		for src in frontier {
+			let s = states[src]
+			for evID in 0..len(sigs) {
+				let dec = m.Step(s, sigs[evID])
+				match dec {
+				case Done[ceOut] as done:
+					edges = edges.Append(ceOracleEdge{
+						Source:  src,
+						Signal:  sigIdx[evID],
+						EventID: evID,
+						Target:  Ended,
+						Obs:     MachineObs[ceOut]{Kind: DisDone, Output: Some[ceOut]{Value: done.Output}},
+					})
+				case Ignore:
+					edges = edges.Append(ceOracleEdge{
+						Source:  src,
+						Signal:  sigIdx[evID],
+						EventID: evID,
+						Target:  ToState{State: src},
+						Obs:     MachineObs[ceOut]{Kind: DisIgnore, Output: None},
+					})
+				case Reject:
+					edges = edges.Append(ceOracleEdge{
+						Source:  src,
+						Signal:  sigIdx[evID],
+						EventID: evID,
+						Target:  ToState{State: src},
+						Obs:     MachineObs[ceOut]{Kind: DisReject, Output: None},
+					})
+				case Enter[ceState] as en:
+					let mut dst = ceOracleFindState(states, en.Next)
+					if dst < 0 {
+						dst = len(states)
+						states = states.Append(en.Next)
+						next = next.Append(dst)
+						depth = d
+					}
+					edges = edges.Append(ceOracleEdge{
+						Source:  src,
+						Signal:  sigIdx[evID],
+						EventID: evID,
+						Target:  ToState{State: dst},
+						Obs:     MachineObs[ceOut]{Kind: DisEnter, Output: None},
+					})
+				case Stay[ceState] as st:
+					let mut dst = ceOracleFindState(states, st.Next)
+					if dst < 0 {
+						dst = len(states)
+						states = states.Append(st.Next)
+						next = next.Append(dst)
+						depth = d
+					}
+					edges = edges.Append(ceOracleEdge{
+						Source:  src,
+						Signal:  sigIdx[evID],
+						EventID: evID,
+						Target:  ToState{State: dst},
+						Obs:     MachineObs[ceOut]{Kind: DisStay, Output: None},
+					})
+				case Emit[ceState, ceOut] as em:
+					let mut dst = ceOracleFindState(states, em.Next)
+					if dst < 0 {
+						dst = len(states)
+						states = states.Append(em.Next)
+						next = next.Append(dst)
+						depth = d
+					}
+					edges = edges.Append(ceOracleEdge{
+						Source:  src,
+						Signal:  sigIdx[evID],
+						EventID: evID,
+						Target:  ToState{State: dst},
+						Obs:     MachineObs[ceOut]{Kind: DisEmit, Output: Some[ceOut]{Value: em.Output}},
+					})
+				case Tell[ceState, ceOut] as tl:
+					let mut dst = ceOracleFindState(states, tl.Next)
+					if dst < 0 {
+						dst = len(states)
+						states = states.Append(tl.Next)
+						next = next.Append(dst)
+						depth = d
+					}
+					edges = edges.Append(ceOracleEdge{
+						Source:  src,
+						Signal:  sigIdx[evID],
+						EventID: evID,
+						Target:  ToState{State: dst},
+						Obs:     MachineObs[ceOut]{Kind: DisTell, Output: Some[ceOut]{Value: tl.Output}},
+					})
+				}
+			}
+		}
+		frontier = next
+		d = d + 1
+	}
+	(len(states), edges, depth)
+}
+
+func checkForcedCollision(seed uint64) bool {
+	let ka = CanonicalKeyOf(ceState{Tag: uint8(0), Val: int(seed % uint64(97))}) catch {
+	case Keyless:
+		return false
+	}
+	let kb = CanonicalKeyOf(ceState{Tag: uint8(1), Val: int(seed % uint64(97))}) catch {
+	case Keyless:
+		return false
+	}
+	let zero = if seed == uint64(0) { 0.0 } else { 0.0 }
+	let negOne = if seed == uint64(0) { -1.0 } else { -1.0 }
+	let kPosZero = CanonicalKeyOf(zero) catch {
+	case Keyless:
+		return false
+	}
+	let floatNeg = CanonicalKeyOf(negOne * zero) catch {
+	case Keyless:
+		return false
+	}
+	let forced = Hash{Hi: seed, Lo: seed ^ uint64(0x55aa)}
+	let mut kt = NewKeyTable()
+	let (idA, freshA, _) = InternWithHash(&kt, ka.Bytes, forced)
+	let (idB, freshB, _) = InternWithHash(&kt, kb.Bytes, forced)
+	let (idA2, freshA2, _) = InternWithHash(&kt, ka.Bytes, forced)
+	let (idB2, freshB2, _) = InternWithHash(&kt, kb.Bytes, forced)
+	let mut ft = NewKeyTable()
+	let (f0, ff0, _) = InternWithHash(&ft, kPosZero.Bytes, forced)
+	let (f1, ff1, _) = InternWithHash(&ft, floatNeg.Bytes, forced)
+	idA == 0 && freshA && idB == 1 && freshB && idA2 == 0 && !freshA2 && idB2 == 1 && !freshB2 && KeyTableLen(kt) == 2 && f0 == 0 && ff0 && f1 == 1 && ff1
+}
+
+// EdgesKeepIdentity checks that BuildConcrete agrees with an independent table
+// oracle on concrete states and attempted edges (including back-edges to visited
+// nodes, distinct Ignore vs Reject self-loops, distinct payload aliases under one
+// tag, Done with output, Disabled work charging, and reachability agreement) and
+// that KeyTable keeps distinct canonical keys separate even under hash collision.
+law EdgesKeepIdentity(seed uint64) {
+	if !checkForcedCollision(seed) {
+		return false
+	}
+	let m = ceMachine(seed)
+	let finishCode = 1 + int(seed%uint64(11))
+	let signals = []ceEvent{
+		ceBump{Delta: 1},
+		ceBump{Delta: 2},
+		ceBump{Delta: 1},
+		ceProbe{Kind: uint8(0)},
+		ceProbe{Kind: uint8(1)},
+		ceFinish{Code: finishCode},
+	}
+	let bounds = ConcreteBounds{MaxStates: 64, MaxEdges: 256, MaxWork: 100000, MaxBytes: 65536}
+	let res = BuildConcrete(ConcreteOfMachine(m, signals), bounds)
+	match res.Stop {
+	case ConcreteComplete:
+	case OverStates, OverEdges, OverWork, OverBytes, InvalidBounds, Unkeyable:
+		return false
+	}
+	let (wantStates, wantEdges, wantDepth) = ceOracleBuild(m, signals)
+	if res.Stats.States != wantStates || res.Stats.Edges != len(wantEdges) || res.Stats.Depth != wantDepth || len(res.Edges) != len(wantEdges) || res.Roots != []int{0} {
+		return false
+	}
+	let mut sawVisited = false
+	let mut sawIgnore = false
+	let mut sawReject = false
+	let mut sawDone = false
+	let mut sawAlias1 = false
+	let mut sawAlias2 = false
+	for i in 0..len(wantEdges) {
+		let got = res.Edges[i]
+		let want = wantEdges[i]
+		if got.Source != want.Source || got.Signal != want.Signal || got.EventID != want.EventID || got.Target != want.Target || got.Obs != want.Obs {
+			return false
+		}
+		match got.Target {
+		case ToState as ts:
+			if ts.State <= got.Source && got.Obs.Kind != DisIgnore && got.Obs.Kind != DisReject {
+				sawVisited = true
+			}
+		case Ended:
+			let wantDone = Some[ceOut]{Value: ceOut{Code: finishCode, At: 0}}
+			if got.Obs.Kind == DisDone && got.Obs.Output == wantDone {
+				sawDone = true
+			}
+		}
+		if got.Source == 0 && got.Obs.Kind == DisIgnore {
+			sawIgnore = true
+		}
+		if got.Source == 0 && got.Obs.Kind == DisReject {
+			sawReject = true
+		}
+		if got.Source == 0 && got.Signal == 0 && got.Obs.Kind == DisEnter {
+			sawAlias1 = true
+		}
+		if got.Source == 0 && got.Signal == 1 && got.Obs.Kind == DisEmit {
+			sawAlias2 = true
+		}
+	}
+	if !sawVisited || !sawIgnore || !sawReject || !sawDone || !sawAlias1 || !sawAlias2 {
+		return false
+	}
+	let disabledGraph = ConcreteGraph[int, int, int]{
+		Starts:  []int{0},
+		Signals: []int{0, 1},
+		Step:    func(s int, e int) EdgeOutcome[int, int] {
+			if e == 0 {
+				Disabled[int]{Obs: -1}
+			} else {
+				Terminal[int]{Obs: s + 1}
+			}
+		},
+	}
+	let disRes = BuildConcrete(disabledGraph, bounds)
+	let disOK = disRes.Stop == ConcreteComplete && disRes.Stats.Disabled == 1 && disRes.Stats.Edges == 1 && disRes.Stats.Work > 2
+	let tightEdges = BuildConcrete(ConcreteOfMachine(m, signals), ConcreteBounds{MaxStates: 64, MaxEdges: 1, MaxWork: 100000, MaxBytes: 65536})
+	let tightOK = tightEdges.Stop == OverEdges && len(tightEdges.Edges) == 1
+	let reach = Always(OfMachine(m, signals), func(s ceState) bool { s.Val >= 0 }, 64)
+	let reachOK = match reach {
+	case Proved as pr:
+		pr.Stats.States == wantStates
+	case NotProved, Refuted, Witness, Absent:
+		false
+	}
+	disOK && tightOK && reachOK
 }

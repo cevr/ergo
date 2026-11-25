@@ -278,6 +278,7 @@ exec WithEnvOverrides	TestExecLaws
 explore AlwaysAgreesWithReference	TestStdExploreLawsRun
 explore ConformAgreesWithReference	TestStdExploreLawsRun
 explore ConformBreaksWithReference	TestStdExploreLawsRun
+explore EdgesKeepIdentity	TestStdExploreLawsRun
 explore FitFastAgreesWithDecode	TestStdExploreLawsRun
 explore KeyIsEquality	TestStdExploreLawsRun
 explore LimitNeverConforms	TestStdExploreLawsRun

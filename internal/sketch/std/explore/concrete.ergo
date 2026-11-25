@@ -1,0 +1,544 @@
+import strings
+
+// Keyless reports that a value's wire representation cannot serve as an exact key.
+type Keyless { Reason string }
+
+// CanonicalKey is the exact canonical wire-event byte sequence of a value,
+// paired with its 128-bit fingerprint and wire word count.
+type CanonicalKey { Bytes string, Hash Hash, Words int }
+
+type canonSink {
+	..Writer,
+	sealCanon() (CanonicalKey, bool),
+}
+
+type canonWriter {
+	buf    strings.Builder,
+	h      hasher,
+	events int,
+	depth  int,
+	bad    bool,
+} implements canonSink
+
+func newCanonWriter() canonWriter {
+	canonWriter{buf: strings.NewBuilder(), h: newHasher(), events: 0, depth: 0, bad: false}
+}
+
+func writeU64(b mut strings.Builder, x uint64) {
+	b.WriteByte(byte(x & uint64(255)))
+	b.WriteByte(byte((x >> uint64(8)) & uint64(255)))
+	b.WriteByte(byte((x >> uint64(16)) & uint64(255)))
+	b.WriteByte(byte((x >> uint64(24)) & uint64(255)))
+	b.WriteByte(byte((x >> uint64(32)) & uint64(255)))
+	b.WriteByte(byte((x >> uint64(40)) & uint64(255)))
+	b.WriteByte(byte((x >> uint64(48)) & uint64(255)))
+	b.WriteByte(byte((x >> uint64(56)) & uint64(255)))
+}
+
+func writeLenStr(b mut strings.Builder, tag uint8, s string) {
+	b.WriteByte(byte(tag))
+	writeU64(b, uint64(len(s)))
+	b.WriteString(s)
+}
+
+func Null(w mut canonWriter) {
+	w.events = w.events + 1
+	w.buf.WriteByte(byte(1))
+	w.h.Null()
+}
+
+func Number(w mut canonWriter, text string) {
+	w.events = w.events + 1
+	writeLenStr(&w.buf, uint8(2), text)
+	w.h.Number(text)
+}
+
+func Bool(w mut canonWriter, b bool) {
+	w.events = w.events + 1
+	w.buf.WriteByte(if b { byte(4) } else { byte(3) })
+	w.h.Bool(b)
+}
+
+func Int(w mut canonWriter, n int64) {
+	w.events = w.events + 1
+	w.buf.WriteByte(byte(5))
+	writeU64(&w.buf, uint64(n))
+	w.h.Int(n)
+}
+
+func Uint(w mut canonWriter, n uint64) {
+	w.events = w.events + 1
+	w.buf.WriteByte(byte(6))
+	writeU64(&w.buf, n)
+	w.h.Uint(n)
+}
+
+func Float(w mut canonWriter, f float64) {
+	w.events = w.events + 1
+	let bits = floatBits(f)
+	w.buf.WriteByte(byte(7))
+	writeU64(&w.buf, bits)
+	w.h.Float(f)
+}
+
+func String(w mut canonWriter, s string) {
+	w.events = w.events + 1
+	writeLenStr(&w.buf, uint8(8), s)
+	w.h.String(s)
+}
+
+func StringBytes(w mut canonWriter, b []byte) {
+	w.events = w.events + 1
+	w.buf.WriteByte(byte(8))
+	writeU64(&w.buf, uint64(len(b)))
+	for i in 0..len(b) {
+		w.buf.WriteByte(b[i])
+	}
+	w.h.StringBytes(b)
+}
+
+func BeginList(w mut canonWriter, n int) {
+	w.events = w.events + 1
+	if n < 0 {
+		w.bad = true
+	}
+	w.depth = w.depth + 1
+	w.buf.WriteByte(byte(9))
+	writeU64(&w.buf, uint64(n))
+	w.h.BeginList(n)
+}
+
+func EndList(w mut canonWriter) {
+	w.events = w.events + 1
+	w.depth = w.depth - 1
+	if w.depth < 0 {
+		w.bad = true
+	}
+	w.buf.WriteByte(byte(10))
+	w.h.EndList()
+}
+
+func BeginObject(w mut canonWriter, n int) {
+	w.events = w.events + 1
+	if n < 0 {
+		w.bad = true
+	}
+	w.depth = w.depth + 1
+	w.buf.WriteByte(byte(11))
+	writeU64(&w.buf, uint64(n))
+	w.h.BeginObject(n)
+}
+
+func Tag(w mut canonWriter, name string) {
+	w.events = w.events + 1
+	writeLenStr(&w.buf, uint8(12), name)
+	w.h.Tag(name)
+}
+
+func Key(w mut canonWriter, k string) {
+	w.events = w.events + 1
+	writeLenStr(&w.buf, uint8(13), k)
+	w.h.Key(k)
+}
+
+func EndObject(w mut canonWriter) {
+	w.events = w.events + 1
+	w.depth = w.depth - 1
+	if w.depth < 0 {
+		w.bad = true
+	}
+	w.buf.WriteByte(byte(14))
+	w.h.EndObject()
+}
+
+func sealCanon(w canonWriter) (CanonicalKey, bool) {
+	let ck = CanonicalKey{Bytes: w.buf.String(), Hash: w.h.Sum(), Words: w.h.size()}
+	(ck, !w.bad && w.events > 0 && w.depth == 0)
+}
+
+// CanonicalKeyOf encodes v as exact canonical wire events, rejecting empty or
+// unbalanced encodings. Floats are encoded by IEEE 754 bits.
+func CanonicalKeyOf[T wire](v T) CanonicalKey fails Keyless needs wired[T] {
+	let w canonSink = newCanonWriter()
+	encode(v, w)
+	let (ck, ok) = w.sealCanon()
+	if !ok {
+		return Keyless{Reason: "wire representation is empty or unbalanced"}
+	}
+	ck
+}
+
+// KeyTable is an exact canonical-key interner indexed by a dense hash bucket
+// table. The hash selects a bucket; canonical byte equality decides identity.
+type KeyTable {
+	keys   []string,
+	hashes []Hash,
+	head   []int32,
+	next   []int32,
+	bytes  int,
+}
+
+// NewKeyTable returns an empty exact key interner.
+func NewKeyTable() KeyTable {
+	KeyTable{keys: []string{}, hashes: []Hash{}, head: []int32{}, next: []int32{}, bytes: 0}
+}
+
+// KeyTableLen returns the number of distinct canonical keys in t.
+func KeyTableLen(t KeyTable) int { len(t.keys) }
+
+// KeyTableBytes returns the retained canonical key bytes in t.
+func KeyTableBytes(t KeyTable) int { t.bytes }
+
+// KeyTableKey returns the canonical bytes stored at id.
+func KeyTableKey(t KeyTable, id int) string { t.keys[id] }
+
+let maxIntVal = 9223372036854775807
+
+func satAdd(a int, b int) int {
+	if b <= 0 {
+		return a
+	}
+	if a >= maxIntVal-b {
+		return maxIntVal
+	}
+	a + b
+}
+
+func bucketOf(h Hash, mask int) int { int(h.Lo) & mask }
+
+func growKeyTable(t mut KeyTable) {
+	let n = if len(t.head) < 8 { 16 } else { len(t.head) * 2 }
+	let mut head = []int32{}
+	for _ in 0..n {
+		head = head.Append(int32(-1))
+	}
+	let mask = n - 1
+	for id in 0..len(t.hashes) {
+		let slot = bucketOf(t.hashes[id], mask)
+		t.next[id] = head[slot]
+		head[slot] = int32(id)
+	}
+	t.head = head
+}
+
+// InternWithHash interns exact canonical key bytes under fingerprint h and
+// returns (id, isNew, probes). Equal hashes with distinct key bytes stay distinct.
+func InternWithHash(t mut KeyTable, key string, h Hash) (int, bool, int) {
+	let mut probes = 1
+	if len(t.head) > 0 {
+		let slot = bucketOf(h, len(t.head)-1)
+		let mut at = int(t.head[slot])
+		for at >= 0 {
+			probes = satAdd(probes, 1)
+			if t.hashes[at] == h && t.keys[at] == key {
+				return (at, false, probes)
+			}
+			at = int(t.next[at])
+		}
+	}
+	if (len(t.keys)+1)*4 > len(t.head)*3 {
+		growKeyTable(t)
+	}
+	let id = len(t.keys)
+	let slot = bucketOf(h, len(t.head)-1)
+	t.keys = t.keys.Append(key)
+	t.hashes = t.hashes.Append(h)
+	t.next = t.next.Append(t.head[slot])
+	t.head[slot] = int32(id)
+	t.bytes = satAdd(t.bytes, len(key))
+	(id, true, probes)
+}
+
+// Intern encodes v canonically and interns it in t, returning (id, isNew, words, probes).
+func Intern[T wire](t mut KeyTable, v T) (int, bool, int, int) fails Keyless needs wired[T] {
+	let ck = try CanonicalKeyOf(v)
+	let (id, fresh, probes) = InternWithHash(t, ck.Bytes, ck.Hash)
+	(id, fresh, ck.Words, probes)
+}
+
+// EdgeOutcome is the typed step result of a concrete graph adapter.
+type EdgeOutcome[S, O] = Disabled{Obs O} | Continue{Next S, Obs O} | Terminal{Obs O}
+
+// Disposition identifies the machine decision kind observed on a concrete edge.
+type Disposition = DisEnter{} | DisStay{} | DisEmit{} | DisTell{} | DisIgnore{} | DisReject{} | DisDone{}
+
+// MachineObs is the typed observation produced by ConcreteOf for a machine step.
+type MachineObs[O] { Kind Disposition, Output Option[O] }
+
+// ConcreteGraph describes a concrete state-and-edge graph with typed observations.
+type ConcreteGraph[S, E, O] {
+	Starts  []S,
+	Signals []E,
+	Step    func(s S, e E) EdgeOutcome[S, O],
+}
+
+// ConcreteOf adapts a machine step function to a ConcreteGraph, keeping Ignore,
+// Reject, Stay, Enter, Emit, Tell, and Done with output distinct.
+func ConcreteOf[S, E, O](starts []S, signals []E, step own func(s S, e E) Decision[S, O]) ConcreteGraph[S, E, MachineObs[O]] {
+	ConcreteGraph[S, E, MachineObs[O]]{
+		Starts:  starts,
+		Signals: signals,
+		Step:    func(s S, e E) EdgeOutcome[S, MachineObs[O]] {
+			match step(s, e) {
+			case Enter[S] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisEnter, Output: None}}
+			case Stay[S] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisStay, Output: None}}
+			case Emit[S, O] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisEmit, Output: Some[O]{Value: d.Output}}}
+			case Tell[S, O] as d:
+				Continue[S, MachineObs[O]]{Next: d.Next, Obs: MachineObs[O]{Kind: DisTell, Output: Some[O]{Value: d.Output}}}
+			case Ignore:
+				Continue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisIgnore, Output: None}}
+			case Reject:
+				Continue[S, MachineObs[O]]{Next: s, Obs: MachineObs[O]{Kind: DisReject, Output: None}}
+			case Done[O] as d:
+				Terminal[MachineObs[O]]{Obs: MachineObs[O]{Kind: DisDone, Output: Some[O]{Value: d.Output}}}
+			}
+		},
+	}
+}
+
+// ConcreteOfMachine adapts a Machine value and concrete signal alphabet to a ConcreteGraph.
+func ConcreteOfMachine[S, E, O](m Machine[S, E, O], signals []E) ConcreteGraph[S, E, MachineObs[O]] {
+	ConcreteOf([]S{m.Initial}, signals, m.Step)
+}
+
+// ConcreteBounds sets hard saturating limits checked before extending storage.
+type ConcreteBounds {
+	MaxStates int,
+	MaxEdges  int,
+	MaxWork   int,
+	MaxBytes  int,
+}
+
+// EdgeTarget is the destination of a recorded concrete edge.
+type EdgeTarget = ToState{State int} | Ended{}
+
+// ConcreteEdge records one attempted non-disabled concrete transition before
+// deduplicating its successor state.
+type ConcreteEdge[O] {
+	Source  int,
+	Signal  int,
+	EventID int,
+	Target  EdgeTarget,
+	Obs     O,
+}
+
+// ConcreteStop reports why BuildConcrete stopped.
+type ConcreteStop = ConcreteComplete{} | OverStates{} | OverEdges{} | OverWork{} | OverBytes{} | InvalidBounds{Reason string} | Unkeyable{Reason string}
+
+// ConcreteStats counts states, concrete edges, disabled attempts, work, key bytes,
+// max BFS depth, and peak frontier size.
+type ConcreteStats {
+	States   int,
+	Edges    int,
+	Disabled int,
+	Work     int,
+	Bytes    int,
+	Depth    int,
+	Frontier int,
+}
+
+// ConcreteResult is the dense concrete transition graph built by BuildConcrete.
+type ConcreteResult[O] {
+	Stop     ConcreteStop,
+	Stats    ConcreteStats,
+	Roots    []int,
+	Signals  []int,
+	OutStart []int,
+	Edges    []ConcreteEdge[O],
+	parent   []int32,
+	sig      []int32,
+}
+
+// ConcreteRunTo returns a shortest discovery run to node id in r.
+func ConcreteRunTo[O](r ConcreteResult[O], id int) Run {
+	reconstructRun(r.parent, r.sig, id)
+}
+
+func concreteFrontierState[S, E, O](g ConcreteGraph[S, E, O], parent []int32, sig []int32, kept Option[S], id int) (S, int) {
+	match kept {
+	case Some[S] as s:
+		(s.Value, 0)
+	case None:
+		let run = reconstructRun(parent, sig, id)
+		let mut s = g.Starts[run.Start]
+		for e in run.Signals {
+			match g.Step(s, g.Signals[e]) {
+			case Continue[S, O] as c:
+				s = c.Next
+			case Terminal[O]:
+			case Disabled[O]:
+			}
+		}
+		(s, len(run.Signals))
+	}
+}
+
+func stopConcrete[O](stop ConcreteStop, st ConcreteStats, roots []int, signals []int, outStart []int, edges []ConcreteEdge[O], parent []int32, sig []int32) ConcreteResult[O] {
+	ConcreteResult[O]{Stop: stop, Stats: st, Roots: roots, Signals: signals, OutStart: outStart, Edges: edges, parent: parent, sig: sig}
+}
+
+// BuildConcrete explores g breadth-first with exact canonical key interning,
+// deduplicating concrete signals by exact identity and recording every attempted
+// concrete edge before deduplicating its successor state.
+func BuildConcrete[S wire, E wire, O](g ConcreteGraph[S, E, O], bounds ConcreteBounds) ConcreteResult[O] needs wired[S] | wired[E] {
+	let mut st = ConcreteStats{States: 0, Edges: 0, Disabled: 0, Work: 0, Bytes: 0, Depth: 0, Frontier: 0}
+	let mut roots = []int{}
+	let mut sigIndex = []int{}
+	let mut outStart = []int{}
+	let mut edges = []ConcreteEdge[O]{}
+	let mut parent = []int32{}
+	let mut sig = []int32{}
+
+	if bounds.MaxStates < 0 || bounds.MaxEdges < 0 || bounds.MaxWork < 0 || bounds.MaxBytes < 0 {
+		return stopConcrete(InvalidBounds{Reason: "bounds must be non-negative"}, st, roots, sigIndex, outStart, edges, parent, sig)
+	}
+
+	let mut eventTable = NewKeyTable()
+	for e in 0..len(g.Signals) {
+		let ck = CanonicalKeyOf(g.Signals[e]) catch {
+		case Keyless as k:
+			return stopConcrete(Unkeyable{Reason: k.Reason}, st, roots, sigIndex, outStart, edges, parent, sig)
+		}
+		st.Work = satAdd(st.Work, satAdd(1, ck.Words))
+		if st.Work > bounds.MaxWork {
+			return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+		}
+		let nextBytes = satAdd(KeyTableBytes(eventTable), len(ck.Bytes))
+		let (_, fresh, probes) = InternWithHash(&eventTable, ck.Bytes, ck.Hash)
+		st.Work = satAdd(st.Work, probes)
+		st.Bytes = KeyTableBytes(eventTable)
+		if fresh {
+			if nextBytes > bounds.MaxBytes {
+				return stopConcrete(OverBytes, st, roots, sigIndex, outStart, edges, parent, sig)
+			}
+			sigIndex = sigIndex.Append(e)
+		}
+		if st.Work > bounds.MaxWork {
+			return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+		}
+	}
+
+	let mut stateTable = NewKeyTable()
+	let mut ids = []int{}
+	let mut kept = []Option[S]{}
+	let mut held = 0
+
+	for i in 0..len(g.Starts) {
+		let s = g.Starts[i]
+		let ck = CanonicalKeyOf(s) catch {
+		case Keyless as k:
+			return stopConcrete(Unkeyable{Reason: k.Reason}, st, roots, sigIndex, outStart, edges, parent, sig)
+		}
+		st.Work = satAdd(st.Work, satAdd(1, ck.Words))
+		if st.Work > bounds.MaxWork {
+			return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+		}
+		let (id, fresh, probes) = InternWithHash(&stateTable, ck.Bytes, ck.Hash)
+		st.Work = satAdd(st.Work, probes)
+		st.Bytes = satAdd(KeyTableBytes(eventTable), KeyTableBytes(stateTable))
+		if st.Work > bounds.MaxWork {
+			return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+		}
+		if fresh {
+			if st.Bytes > bounds.MaxBytes {
+				return stopConcrete(OverBytes, st, roots, sigIndex, outStart, edges, parent, sig)
+			}
+			if len(parent) >= bounds.MaxStates {
+				return stopConcrete(OverStates, st, roots, sigIndex, outStart, edges, parent, sig)
+			}
+			parent = parent.Append(int32(-1))
+			sig = sig.Append(int32(i))
+			st.States = st.States + 1
+			let (k2, h2) = pushKept(kept, held, s, ck.Words)
+			kept = k2
+			held = h2
+			st.Frontier = larger(st.Frontier, held)
+			ids = ids.Append(id)
+		}
+		roots = roots.Append(id)
+	}
+
+	let mut depth = 1
+	for len(ids) > 0 {
+		let mut next = []int{}
+		let mut nextKept = []Option[S]{}
+		let mut nextHeld = 0
+		for f in 0..len(ids) {
+			let srcID = ids[f]
+			outStart = outStart.Append(len(edges))
+			let (s, rebuildSteps) = concreteFrontierState(g, parent, sig, kept[f], srcID)
+			if rebuildSteps > 0 {
+				st.Work = satAdd(st.Work, rebuildSteps)
+				if st.Work > bounds.MaxWork {
+					return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+				}
+			}
+			for evID in 0..len(sigIndex) {
+				let eIdx = sigIndex[evID]
+				st.Work = satAdd(st.Work, 1)
+				if st.Work > bounds.MaxWork {
+					return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+				}
+				match g.Step(s, g.Signals[eIdx]) {
+				case Disabled[O]:
+					st.Disabled = st.Disabled + 1
+				case Terminal[O] as term:
+					if len(edges) >= bounds.MaxEdges {
+						return stopConcrete(OverEdges, st, roots, sigIndex, outStart, edges, parent, sig)
+					}
+					edges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: Ended, Obs: term.Obs})
+					st.Edges = st.Edges + 1
+				case Continue[S, O] as cont:
+					let t = cont.Next
+					let ck = CanonicalKeyOf(t) catch {
+					case Keyless as k:
+						return stopConcrete(Unkeyable{Reason: k.Reason}, st, roots, sigIndex, outStart, edges, parent, sig)
+					}
+					st.Work = satAdd(st.Work, ck.Words)
+					if st.Work > bounds.MaxWork {
+						return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+					}
+					let (dstID, fresh, probes) = InternWithHash(&stateTable, ck.Bytes, ck.Hash)
+					st.Work = satAdd(st.Work, probes)
+					st.Bytes = satAdd(KeyTableBytes(eventTable), KeyTableBytes(stateTable))
+					if st.Work > bounds.MaxWork {
+						return stopConcrete(OverWork, st, roots, sigIndex, outStart, edges, parent, sig)
+					}
+					if fresh {
+						if st.Bytes > bounds.MaxBytes {
+							return stopConcrete(OverBytes, st, roots, sigIndex, outStart, edges, parent, sig)
+						}
+						if len(parent) >= bounds.MaxStates {
+							return stopConcrete(OverStates, st, roots, sigIndex, outStart, edges, parent, sig)
+						}
+					}
+					if len(edges) >= bounds.MaxEdges {
+						return stopConcrete(OverEdges, st, roots, sigIndex, outStart, edges, parent, sig)
+					}
+					edges = edges.Append(ConcreteEdge[O]{Source: srcID, Signal: eIdx, EventID: evID, Target: ToState{State: dstID}, Obs: cont.Obs})
+					st.Edges = st.Edges + 1
+					if fresh {
+						parent = parent.Append(int32(srcID))
+						sig = sig.Append(int32(eIdx))
+						st.States = st.States + 1
+						st.Depth = depth
+						let (k2, h2) = pushKept(nextKept, nextHeld, t, ck.Words)
+						nextKept = k2
+						nextHeld = h2
+						st.Frontier = larger(st.Frontier, held+nextHeld)
+						next = next.Append(dstID)
+					}
+				}
+			}
+		}
+		ids = next
+		kept = nextKept
+		held = nextHeld
+		depth = depth + 1
+	}
+	outStart = outStart.Append(len(edges))
+	ConcreteResult[O]{Stop: ConcreteComplete, Stats: st, Roots: roots, Signals: sigIndex, OutStart: outStart, Edges: edges, parent: parent, sig: sig}
+}
