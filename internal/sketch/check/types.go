@@ -466,7 +466,11 @@ var Typ = func() []*Basic {
 var invalid = Typ[Invalid]
 
 func (t *Basic) String() string { return t.Name }
-func isTransitionalPreludeType(o *TypeName) bool {
+
+// IsTransitionalPreludeType reports whether o is currently re-exported in the
+// transitional prelude scope (such as option.Option/Some/None or collections.Seq
+// until NO-PRELUDE removes prelude re-exports).
+func IsTransitionalPreludeType(o *TypeName) bool {
 	return o != nil && preludeOnce.r.scope != nil && preludeOnce.r.scope.names[o.Name] == o
 }
 
@@ -475,7 +479,7 @@ func (t *Named) String() string {
 		return mapTypeString(t) // mapprovider.go
 	}
 	name := t.Obj.Name
-	if t.Obj.Pkg != nil && t.Obj.Pkg.qualify && !isTransitionalPreludeType(t.Obj) {
+	if t.Obj.Pkg != nil && t.Obj.Pkg.qualify && !IsTransitionalPreludeType(t.Obj) {
 		name = t.Obj.Pkg.Name + "." + name
 	}
 	if len(t.TArgs) > 0 {

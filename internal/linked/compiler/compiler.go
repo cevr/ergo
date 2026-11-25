@@ -444,7 +444,7 @@ func ergo__CloneFunc(v compiler_sir__Func) compiler_sir__Func {
 	return c
 }
 
-func ergo__CloneSlice_5(v []compiler_sir__Func) []compiler_sir__Func {
+func ergo__CloneSlice_6(v []compiler_sir__Func) []compiler_sir__Func {
 	if v == nil {
 		return nil
 	}
@@ -458,7 +458,7 @@ func ergo__CloneSlice_5(v []compiler_sir__Func) []compiler_sir__Func {
 func ergo__CloneFile(v compiler_sir__File) compiler_sir__File {
 	c := v
 	c.Files = slices.Clone(v.Files)
-	c.Funcs = ergo__CloneSlice_5(v.Funcs)
+	c.Funcs = ergo__CloneSlice_6(v.Funcs)
 	c.Shared = slices.Clone(v.Shared)
 	c.Strs = slices.Clone(v.Strs)
 	return c

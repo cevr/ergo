@@ -142,8 +142,10 @@ func (g *gen) expr(t check.Type) string {
 			return g.expr(a)
 		}
 		name := u.Obj.Name
-		if q := g.importOf(u.Obj.Pkg); q != "" {
-			name = q + "." + name
+		if !check.IsTransitionalPreludeType(u.Obj) {
+			if q := g.importOf(u.Obj.Pkg); q != "" {
+				name = q + "." + name
+			}
 		}
 		if len(u.TArgs) > 0 {
 			var args []string
@@ -224,10 +226,13 @@ func convert(kind, conv, e string) string {
 	return e
 }
 
-// optionOf is T when t is the prelude's Option[T].
+// optionOf is T when t is Option[T] (canonical std/option or legacy prelude).
 func optionOf(t check.Type) (check.Type, bool) {
 	n, ok := unalias(t).(*check.Named)
-	if !ok || n.Obj == nil || n.Obj.Name != "Option" || n.Obj.Pkg == nil || n.Obj.Pkg.Path != stdlib.PreludePath || len(n.TArgs) != 1 {
+	if !ok || n.Obj == nil || n.Obj.Name != "Option" || n.Obj.Pkg == nil || len(n.TArgs) != 1 {
+		return nil, false
+	}
+	if n.Obj.Pkg.Path != stdlib.PreludePath && !check.IsTransitionalPreludeType(n.Obj) {
 		return nil, false
 	}
 	return n.TArgs[0], true

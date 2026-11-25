@@ -2,7 +2,6 @@ import api
 import code
 import flag
 import io
-import json
 import prompt
 import rpc
 import slices
@@ -30,14 +29,15 @@ func commandDescribe() flag.Command[Request] {
 }
 
 func commandSymbols() flag.Command[Request] {
-	let f0 = flag.RequiredString("q-json", "q (code.SymbolQuery, as JSON)")
+	let f0 = flag.OptionalString("name", "q.Name (Option[string])")
+	let f1 = flag.OptionalString("match", "q.Match (Option[string])")
+	let f2 = flag.OptionalString("kind", "q.Kind (Option[string])")
+	let f3 = flag.OptionalString("package", "q.Package (Option[string])")
+	let f4 = flag.OptionalInt("offset", "q.Offset (Option[int])")
+	let f5 = flag.OptionalInt("limit", "q.Limit (Option[int])")
 	let usage = codeapi.Doc(codeapi.SymbolsOp)
-	flag.Command[Request]{Name: "symbols", Usage: usage, Set: flag.Set{Name: "symbols", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		let j1 = json.Decode(json.Codec[code.SymbolQuery]{MaxBytes: 1048576, MaxDepth: 64}, f0.Get(v)) catch {
-		case _:
-			return flag.Invalid{Name: "q-json", Text: f0.Get(v), Reason: "not the JSON of a code.SymbolQuery"}
-		}
-		codeapi.SymbolsRequest{Q: j1}
+	flag.Command[Request]{Name: "symbols", Usage: usage, Set: flag.Set{Name: "symbols", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4, f5}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		codeapi.SymbolsRequest{Q: code.SymbolQuery{Name: f0.Get(v), Match: f1.Get(v), Kind: f2.Get(v), Package: f3.Get(v), Offset: f4.Get(v), Limit: f5.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -51,50 +51,43 @@ func commandSymbol() flag.Command[Request] {
 }
 
 func commandReferences() flag.Command[Request] {
-	let f0 = flag.RequiredString("q-json", "q (code.RefQuery, as JSON)")
+	let f0 = flag.RequiredString("of", "q.Of (string)")
+	let f1 = flag.String("kinds", "", "q.Kinds ([]string)").Repeated()
+	let f2 = flag.OptionalInt("offset", "q.Offset (Option[int])")
+	let f3 = flag.OptionalInt("limit", "q.Limit (Option[int])")
 	let usage = codeapi.Doc(codeapi.ReferencesOp)
-	flag.Command[Request]{Name: "references", Usage: usage, Set: flag.Set{Name: "references", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		let j1 = json.Decode(json.Codec[code.RefQuery]{MaxBytes: 1048576, MaxDepth: 64}, f0.Get(v)) catch {
-		case _:
-			return flag.Invalid{Name: "q-json", Text: f0.Get(v), Reason: "not the JSON of a code.RefQuery"}
-		}
-		codeapi.ReferencesRequest{Q: j1}
+	flag.Command[Request]{Name: "references", Usage: usage, Set: flag.Set{Name: "references", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		codeapi.ReferencesRequest{Q: code.RefQuery{Of: f0.Get(v), Kinds: f1.Get(v), Offset: f2.Get(v), Limit: f3.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 func commandCalls() flag.Command[Request] {
-	let f0 = flag.RequiredString("q-json", "q (code.CallQuery, as JSON)")
+	let f0 = flag.RequiredString("of", "q.Of (string)")
+	let f1 = flag.OptionalString("direction", "q.Direction (Option[string])")
+	let f2 = flag.OptionalInt("depth", "q.Depth (Option[int])")
+	let f3 = flag.OptionalInt("offset", "q.Offset (Option[int])")
+	let f4 = flag.OptionalInt("limit", "q.Limit (Option[int])")
 	let usage = codeapi.Doc(codeapi.CallsOp)
-	flag.Command[Request]{Name: "calls", Usage: usage, Set: flag.Set{Name: "calls", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		let j1 = json.Decode(json.Codec[code.CallQuery]{MaxBytes: 1048576, MaxDepth: 64}, f0.Get(v)) catch {
-		case _:
-			return flag.Invalid{Name: "q-json", Text: f0.Get(v), Reason: "not the JSON of a code.CallQuery"}
-		}
-		codeapi.CallsRequest{Q: j1}
+	flag.Command[Request]{Name: "calls", Usage: usage, Set: flag.Set{Name: "calls", Usage: usage, Flags: []flag.Flag{f0, f1, f2, f3, f4}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		codeapi.CallsRequest{Q: code.CallQuery{Of: f0.Get(v), Direction: f1.Get(v), Depth: f2.Get(v), Offset: f3.Get(v), Limit: f4.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 func commandApi() flag.Command[Request] {
-	let f0 = flag.RequiredString("q-json", "q (code.ApiQuery, as JSON)")
+	let f0 = flag.OptionalString("package", "q.Package (Option[string])")
 	let usage = codeapi.Doc(codeapi.ApiOp)
 	flag.Command[Request]{Name: "api", Usage: usage, Set: flag.Set{Name: "api", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		let j1 = json.Decode(json.Codec[code.ApiQuery]{MaxBytes: 1048576, MaxDepth: 64}, f0.Get(v)) catch {
-		case _:
-			return flag.Invalid{Name: "q-json", Text: f0.Get(v), Reason: "not the JSON of a code.ApiQuery"}
-		}
-		codeapi.ApiRequest{Q: j1}
+		codeapi.ApiRequest{Q: code.ApiQuery{Package: f0.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
 func commandReach() flag.Command[Request] {
-	let f0 = flag.RequiredString("q-json", "q (code.ReachQuery, as JSON)")
+	let f0 = flag.RequiredString("of", "q.Of (string)")
+	let f1 = flag.OptionalInt("offset", "q.Offset (Option[int])")
+	let f2 = flag.OptionalInt("limit", "q.Limit (Option[int])")
 	let usage = codeapi.Doc(codeapi.ReachOp)
-	flag.Command[Request]{Name: "reach", Usage: usage, Set: flag.Set{Name: "reach", Usage: usage, Flags: []flag.Flag{f0}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
-		let j1 = json.Decode(json.Codec[code.ReachQuery]{MaxBytes: 1048576, MaxDepth: 64}, f0.Get(v)) catch {
-		case _:
-			return flag.Invalid{Name: "q-json", Text: f0.Get(v), Reason: "not the JSON of a code.ReachQuery"}
-		}
-		codeapi.ReachRequest{Q: j1}
+	flag.Command[Request]{Name: "reach", Usage: usage, Set: flag.Set{Name: "reach", Usage: usage, Flags: []flag.Flag{f0, f1, f2}, Args: []flag.ArgSpec{}}, Build: func(v flag.Values) Request fails flag.Failure {
+		codeapi.ReachRequest{Q: code.ReachQuery{Of: f0.Get(v), Offset: f1.Get(v), Limit: f2.Get(v)}}
 	}, Commands: []flag.Command[Request]{}}
 }
 
@@ -167,7 +160,36 @@ func Print(r Request) []string {
 		[]string{"describe"}
 	case codeapi.SymbolsRequest as x:
 		let mut out = []string{"symbols"}
-		out = out.Append("-q-json=" + json.Encode(json.Codec[code.SymbolQuery]{MaxBytes: 0, MaxDepth: 0}, x.Q))
+		match x.Q.Name {
+		case Some[string] as s:
+			out = out.Append("-name=\(s.Value)")
+		case None:
+		}
+		match x.Q.Match {
+		case Some[string] as s:
+			out = out.Append("-match=\(s.Value)")
+		case None:
+		}
+		match x.Q.Kind {
+		case Some[string] as s:
+			out = out.Append("-kind=\(s.Value)")
+		case None:
+		}
+		match x.Q.Package {
+		case Some[string] as s:
+			out = out.Append("-package=\(s.Value)")
+		case None:
+		}
+		match x.Q.Offset {
+		case Some[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case None:
+		}
+		match x.Q.Limit {
+		case Some[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case None:
+		}
 		out
 	case codeapi.SymbolRequest as x:
 		let mut out = []string{"symbol"}
@@ -176,19 +198,66 @@ func Print(r Request) []string {
 		out
 	case codeapi.ReferencesRequest as x:
 		let mut out = []string{"references"}
-		out = out.Append("-q-json=" + json.Encode(json.Codec[code.RefQuery]{MaxBytes: 0, MaxDepth: 0}, x.Q))
+		out = out.Append("-of=\(x.Q.Of)")
+		for e in x.Q.Kinds {
+			out = out.Append("-kinds=\(e)")
+		}
+		match x.Q.Offset {
+		case Some[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case None:
+		}
+		match x.Q.Limit {
+		case Some[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case None:
+		}
 		out
 	case codeapi.CallsRequest as x:
 		let mut out = []string{"calls"}
-		out = out.Append("-q-json=" + json.Encode(json.Codec[code.CallQuery]{MaxBytes: 0, MaxDepth: 0}, x.Q))
+		out = out.Append("-of=\(x.Q.Of)")
+		match x.Q.Direction {
+		case Some[string] as s:
+			out = out.Append("-direction=\(s.Value)")
+		case None:
+		}
+		match x.Q.Depth {
+		case Some[int] as s:
+			out = out.Append("-depth=\(s.Value)")
+		case None:
+		}
+		match x.Q.Offset {
+		case Some[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case None:
+		}
+		match x.Q.Limit {
+		case Some[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case None:
+		}
 		out
 	case codeapi.ApiRequest as x:
 		let mut out = []string{"api"}
-		out = out.Append("-q-json=" + json.Encode(json.Codec[code.ApiQuery]{MaxBytes: 0, MaxDepth: 0}, x.Q))
+		match x.Q.Package {
+		case Some[string] as s:
+			out = out.Append("-package=\(s.Value)")
+		case None:
+		}
 		out
 	case codeapi.ReachRequest as x:
 		let mut out = []string{"reach"}
-		out = out.Append("-q-json=" + json.Encode(json.Codec[code.ReachQuery]{MaxBytes: 0, MaxDepth: 0}, x.Q))
+		out = out.Append("-of=\(x.Q.Of)")
+		match x.Q.Offset {
+		case Some[int] as s:
+			out = out.Append("-offset=\(s.Value)")
+		case None:
+		}
+		match x.Q.Limit {
+		case Some[int] as s:
+			out = out.Append("-limit=\(s.Value)")
+		case None:
+		}
 		out
 	case codeapi.MachineOfRequest as x:
 		let mut out = []string{"machine-of"}
