@@ -165,16 +165,36 @@ func registerTasks(t nativeTables) {
 	natives["time.newTimeline"] = timeline(false)
 	t.reads["testing.newLine"] = "int64 int64"
 	natives["testing.newLine"] = timeline(true)
-	t.reads["tasks.newSet"] = "int64 int64"
-	natives["tasks.newSet"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+	t.reads["tasks.newSetPolicy"] = "int64 int64 func/1"
+	natives["tasks.newSetPolicy"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		kind, limit := args[0].(int64), args[1].(int64)
 		if kind == 1 {
 			return nil, fr.unsupported(at, "a tasks.Set that logs its failures to standard error yet")
 		}
+		if limit < 0 {
+			return nil, fr.defect(at, "tasks.Restart: a negative limit %d", limit)
+		}
 		if in.sched == nil {
 			return nil, fr.unsupported(at, "a tasks.Set outside an obligation's body")
 		}
-		return &setV{restart: kind == 2, limit: limit, owner: in.cur, closed: stdRecord(fn, "Closed", nil).t}, nil
+		var decide Value
+		if kind == 2 && limit > 0 {
+			fr.escaped = true
+			decide = args[2]
+		}
+		return &setV{restart: kind == 2, decide: decide, home: fr, at: at, owner: in.cur, closed: stdRecord(fn, "Closed", nil).t}, nil
+	}
+	t.reads["tasks.newSupervisedSet"] = "func/1"
+	natives["tasks.newSupervisedSet"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if in.sched == nil {
+			return nil, fr.unsupported(at, "a tasks.Set outside an obligation's body")
+		}
+		sched, ok := fr.caps.lookup(typeKey(rtype{t: check.PreludeType("Scheduler")}))
+		if !ok {
+			return nil, fr.unsupported(at, "a supervised tasks.Set whose Scheduler no with of the run binds")
+		}
+		fr.escaped = true
+		return &setV{restart: true, decide: args[0], sched: sched, home: fr, at: at, owner: in.cur, closed: stdRecord(fn, "Closed", nil).t}, nil
 	}
 	t.reads["tasks.Go"] = "host:tasks.Set func/0"
 	natives["tasks.Go"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
@@ -197,10 +217,12 @@ func registerTasks(t nativeTables) {
 			}
 			return nil, fr.abrupt(ctlFail, at, &record{t: set.closed}, "")
 		}
+		id := set.nextID
+		set.nextID++
 		run, newRoot := in.taskBody(fr, at, c)
 		t := in.start(in.siteOf(fr, at, "tasks.Go"), func(t *etask) (Value, *abrupt) {
 			root := newRoot()
-			ab := set.runMember(in, t, func() *abrupt {
+			ab := set.runMember(in, t, id, func() *abrupt {
 				_, ab := run(root)
 				return ab
 			})
@@ -941,7 +963,11 @@ func (s *scheduler) idle() bool {
 // what ended it.
 type setV struct {
 	restart bool
-	limit   int64
+	decide  Value
+	sched   Value
+	home    *frame
+	at      syntax.Node
+	nextID  int64
 	owner   *etask
 	members []*etask
 	// isClosed ends admission; failure is the typed failure that ended
@@ -955,19 +981,44 @@ type setV struct {
 
 func (s *setV) describe() string { return "a tasks.Set" }
 
-// runMember runs a member's body under the Set's policy: a defect runs it
-// again under Restart, up to the limit; a typed failure or a defect past
-// it closes the Set and stops the other members (FailFast). A member's
-// root owns its moved captures across its runs, each run lending them
-// (G4 3, 4).
-func (s *setV) runMember(in *interp, t *etask, run func() *abrupt) *abrupt {
+func (s *setV) frame() *frame {
+	h := s.home
+	return &frame{pkg: h.pkg, info: h.info, decl: h.decl, key: h.key, vars: newVars(), env: h.env, owner: h.owner, caps: h.caps}
+}
+
+// runMember runs a member's body under the Set's policy: a defect asks
+// decide (tasks.Decide), sleeping any positive backoff on sched; a typed
+// failure or a defect past the policy closes the Set and stops the other
+// members (FailFast). A member's root owns its moved captures across its
+// runs, each run lending them (G4 3, 4).
+func (s *setV) runMember(in *interp, t *etask, id int64, run func() *abrupt) *abrupt {
 	var ab *abrupt
-	for runs := int64(0); ; runs++ {
+	for {
 		ab = run()
-		if ab != nil && ab.kind == ctlDefect && s.restart && runs < s.limit && !t.stopped {
-			continue
+		if ab == nil || ab.kind != ctlDefect || !s.restart || s.decide == nil || t.stopped || s.isClosed {
+			break
 		}
-		break
+		dfr := s.frame()
+		wv, dab := in.callValue(dfr, s.at, s.decide, []Value{id})
+		if dab != nil {
+			ab = dab
+			break
+		}
+		wait := wv.(int64)
+		if wait < 0 {
+			break
+		}
+		if wait > 0 && s.sched != nil {
+			call, _ := s.at.(*syntax.CallExpr)
+			if _, sab := in.dispatch(dfr, call, s.sched, "Sleep", []Value{wait}); sab != nil {
+				ab = sab
+				break
+			}
+			if t.stopped || s.isClosed {
+				ab = nil
+				break
+			}
+		}
 	}
 	switch {
 	case ab == nil, stops(ab), ab.kind == ctlInterrupt:

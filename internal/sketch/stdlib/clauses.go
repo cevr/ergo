@@ -28,6 +28,7 @@ var ArgClauses = []ArgClause{
 	// function of the machine and calls it on the actor's task, after
 	// start or child returned, while the caller runs on.
 	{"actor.start", "fresh", "escaping", "MachineSupervise keeps it and calls it on the actor's task at each restart, after start returned"},
+	{"actor.start", "decide", "escaping", "MachineSupervise keeps it and calls it on the actor's task after a crash, after start returned"},
 	{"actor.start", "step", "escaping", "MachineSupervise keeps it and calls it on the actor's task for each signal, after start returned"},
 	{"actor.start", "fire", "escaping", "MachineSupervise keeps it and calls it on the actor's task for each timer, after start returned"},
 	{"actor.start", "delay", "escaping", "MachineSupervise keeps it and calls it on the actor's task at each entry, after start returned"},
@@ -100,6 +101,8 @@ var ArgClauses = []ArgClause{
 	{"task.StopAfter", "t", "lent", "TaskStopAfter reads t's rt task on the caller's goroutine and arms an alarm that may Interrupt that rt task later; it never waits for t, takes its value, consumes it or releases it, so t's owner keeps t whole. The alarm keeps only the rt task's identity: an Interrupt after the task ended stops nothing, and a task.Go handle's rt task is never reused (law AlarmOutlivesItsTask)"},
 	{"task.exitReason", "t", "takes", "TaskReason reads the defect text TaskExit left in t (why), on the caller's goroutine, and keeps nothing; the handle was consumed by exitOf and holds no value on the paths that call it (ExitOf calls it only when exitOf failed or gave 2 or 3), so its owner's release drains nothing after it, and the call is ExitOf's last use of t"},
 	{"task.exitValue", "t", "takes", "TaskValue moves the value out of t (out) and clears it, so the caller owns the value; t was consumed by exitOf (used), so its owner's release drains nothing after it, and the call is ExitOf's last use of t"},
+	{"tasks.newSetPolicy", "decide", "escaping", "TasksNewSetPolicy keeps it in the Set and calls it on a member's task after a defect, after newSetPolicy returned"},
+	{"tasks.newSupervisedSet", "decide", "escaping", "TasksNewSupervisedSet keeps it in the Set and calls it on a member's task after a defect, after newSupervisedSet returned"},
 	{"tasks.Transform", "f", "escaping", "TasksTransform calls f on child tasks, up to limit of them at once (lang audit B, F1, probes race and race2); it waits for every call before it returns, but the calls run at the same time"},
 	{"tasks.Go", "set", "lent", "TasksGo adds a member to set under its lock and keeps set only in that member's task, which set's own Wait, Stop or Close drains (v1.DrainsLends) before set is released"},
 	{"tasks.Go", "body", "escaping", "TasksGo runs body as a member of set, on a task of its own, after Go returned"},

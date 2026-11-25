@@ -303,7 +303,7 @@ law StrategiesNest(failed int, j int) {
 // restart, so Max applies to nothing and every restart is allowed only
 // when Max is above zero.
 type Intensity {
-	Max int,
+	Max    int,
 	Period duration,
 }
 
@@ -389,9 +389,9 @@ law RecentKeepsTheVerdict(gaps []int, k int, p int, later int) {
 // and how long it waits before each (Backoff, decided with the restarts
 // still in the window as its runs, so a quiet Period resets the backoff).
 type Supervision {
-	Strategy Strategy,
+	Strategy  Strategy,
 	Intensity Intensity,
-	Backoff schedule.Schedule,
+	Backoff   schedule.Schedule,
 }
 
 // RestartAfter is Decide's answer: restart after Wait.
@@ -493,15 +493,35 @@ extern go ergo.local/prototype/runtime/v1.Set type Set[E] {
 func NewSet[E](p Policy) Set[E] {
 	match p {
 	case FailFast:
-		newSet(0, 0)
+		newSetPolicy(0, 0, func(id int) duration { -1ns })
 	case LogFailures:
-		newSet(1, 0)
+		newSetPolicy(1, 0, func(id int) duration { -1ns })
 	case Restart as r:
-		newSet(2, r.Limit)
+		let sup = LimitPolicy(r.Limit)
+		let hist = sync.NewRef[Map[int, []duration]](Map[int, []duration]{})
+		newSetPolicy(2, r.Limit, func(id int) duration {
+			waitOrGiveUp(nextRestartFor(sup, hist, id, 0s))
+		})
 	}
 }
 
-extern go ergo.local/prototype/runtime/v1.TasksNewSet func newSet[E](kind int, limit int) Set[E]
+// NewSupervisedSet is an empty Set whose members restart after a defect
+// according to s (Intensity and Backoff through Decide), sleeping any
+// positive backoff on Scheduler before running the member again. A typed
+// failure, or a defect that Decide answers GiveUp, ends the Set as under
+// FailFast.
+func NewSupervisedSet[E](s Supervision) Set[E] needs Scheduler | time.Clock {
+	let origin = time.Clock.Now()
+	let hist = sync.NewRef[Map[int, []duration]](Map[int, []duration]{})
+	newSupervisedSet(func(id int) duration needs time.Clock {
+		let now = time.Clock.Now().Sub(origin)
+		waitOrGiveUp(nextRestartFor(s, hist, id, now))
+	})
+}
+
+extern go ergo.local/prototype/runtime/v1.TasksNewSetPolicy func newSetPolicy[E, R](kind int, limit int, decide own func(id int) duration needs R) Set[E] needs R
+
+extern go ergo.local/prototype/runtime/v1.TasksNewSupervisedSet func newSupervisedSet[E, R](decide own func(id int) duration needs R) Set[E] needs R | Scheduler
 
 // Go starts body as a member of set, on a task of its own below the
 // caller's, and returns at once. The body keeps running after Go returns,

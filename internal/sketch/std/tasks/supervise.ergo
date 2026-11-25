@@ -6,6 +6,56 @@ import task
 import testing
 import time
 
+// LimitPolicy is a Supervision that allows at most limit restarts with no
+// delay, expressing tasks.Restart in terms of Decide.
+func LimitPolicy(limit int) Supervision {
+	Supervision{Strategy: OneForOne, Intensity: Intensity{Max: limit, Period: 1s}, Backoff: schedule.Forever()}
+}
+
+// NextRestart answers a crash at now under s, recording now in past and
+// pruning instants outside the window when Decide returns RestartAfter.
+func NextRestart(s Supervision, past sync.Ref[[]duration], now duration) Verdict {
+	sync.Modify(past, func(xs []duration) (Verdict, []duration) {
+		let v = Decide(s, xs, now)
+		match v {
+		case RestartAfter:
+			(v, Recent(s.Intensity, xs.Append(now), now))
+		case GiveUp:
+			(v, xs)
+		}
+	})
+}
+
+func waitOrGiveUp(v Verdict) duration {
+	match v {
+	case RestartAfter as r:
+		if r.Wait < 0ns {
+			return 0ns
+		}
+		r.Wait
+	case GiveUp:
+		-1ns
+	}
+}
+
+func nextRestartFor(s Supervision, hist sync.Ref[Map[int, []duration]], id int, now duration) Verdict {
+	sync.Modify(hist, func(m Map[int, []duration]) (Verdict, Map[int, []duration]) {
+		let past = match m.Get(id) {
+		case Some[[]duration] as xs:
+			xs.Value
+		case None:
+			[]duration{}
+		}
+		let v = Decide(s, past, now)
+		match v {
+		case RestartAfter:
+			(v, m.Put(id, Recent(s.Intensity, past.Append(now), now)))
+		case GiveUp:
+			(v, m)
+		}
+	})
+}
+
 // GaveUp is the failure of Supervise when the supervision policy refuses
 // another restart: Member is the crashed member's index in start order,
 // and Reason is the defect's text.
@@ -639,4 +689,105 @@ law CallerStopDrainsCleanup() {
 		t.Stop()
 		cleaned.Get() == 3
 	}
+}
+
+law SetRestartUsesDecide(k int) {
+	let limit = 1 + (k%3+3)%3
+	let r0 = sync.NewRef[int](0)
+	let r1 = sync.NewRef[int](0)
+	let set = NewSet(Restart{Limit: limit})
+	Go(set, func() {
+		let run = incRef(r0)
+		if run <= limit {
+			triggerDefect()
+		}
+	}) catch {
+	case Closed:
+	}
+	Go(set, func() {
+		let run = incRef(r1)
+		if run < limit {
+			triggerDefect()
+		}
+	}) catch {
+	case Closed:
+	}
+	set.Wait()
+	let rOver = sync.NewRef[int](0)
+	let over = task.Go() {
+		let s = NewSet(Restart{Limit: limit})
+		Go(s, func() {
+			let _ = incRef(rOver)
+			triggerDefect()
+		}) catch {
+		case Closed:
+		}
+		s.Wait()
+		0
+	}
+	let defected = match task.ExitOf(over) {
+	case task.Defected:
+		true
+	case _:
+		false
+	}
+	r0.Get() == limit+1 && r1.Get() == limit && defected && rOver.Get() == limit+1
+}
+
+law SetSupervisedFollowsDecide(k int) {
+	let _ = k
+	let policy = Supervision{Strategy: OneForOne, Intensity: Intensity{Max: 2, Period: 10s}, Backoff: schedule.Exponential(1s, 2.0, 10s)}
+	let c1 = testing.NewVirtualClock(0)
+	let times = sync.NewRef[[]duration]([]duration{})
+	let runs = sync.NewRef[int](0)
+	let slid = with context { Scheduler: c1, time.Clock: c1 } {
+		let start = time.Clock.Now()
+		let set = NewSupervisedSet(policy)
+		Go(set, func() needs Scheduler | time.Clock {
+			let run = incRef(runs)
+			let at = time.Clock.Now().Sub(start)
+			times.Update(func(xs []duration) []duration { xs.Append(at) })
+			if run == 1 || run == 2 {
+				triggerDefect()
+			}
+			if run == 3 {
+				Scheduler.Sleep(10s)
+				triggerDefect()
+			}
+		}) catch {
+		case Closed:
+		}
+		set.Wait()
+		times.Get() == []duration{0s, 1s, 3s, 14s} && time.Clock.Now().Sub(start) == 14s
+	}
+	let c2 = testing.NewVirtualClock(0)
+	let burstRuns = sync.NewRef[int](0)
+	let siblingCleaned = sync.NewRef[int](0)
+	let gaveUp = with context { Scheduler: c2, time.Clock: c2 } {
+		let start = time.Clock.Now()
+		let t = task.Go() {
+			let set = NewSupervisedSet(policy)
+			Go(set, func() needs Scheduler {
+				scope.OnExit() { let _ = incRef(siblingCleaned) }
+				Scheduler.Sleep(1h)
+			}) catch {
+			case Closed:
+			}
+			Go(set, func() {
+				let _ = incRef(burstRuns)
+				triggerDefect()
+			}) catch {
+			case Closed:
+			}
+			set.Wait()
+			0
+		}
+		match task.ExitOf(t) {
+		case task.Defected:
+			burstRuns.Get() == 3 && siblingCleaned.Get() == 1 && time.Clock.Now().Sub(start) == 3s
+		case _:
+			false
+		}
+	}
+	slid && gaveUp
 }

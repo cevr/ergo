@@ -84,7 +84,7 @@ type actorV struct {
 	home  *frame // the starter's frame: the callbacks' caps
 	sched Value  // the starter's Scheduler provider
 
-	initial, fresh                                 Value
+	initial, fresh, decide                         Value
 	step, fire, delay, workOf, hasWork, work, kind Value
 	next, out                                      Value
 	hasExit, leave                                 Value // a state's exit action (rule 18)
@@ -150,7 +150,7 @@ func (a *actorV) describe() string { return "an actor.Actor" }
 
 func registerRunner(t nativeTables) {
 	natives := t.std
-	t.reads["actor.start"] = "T func/0 int64 func/2 func/2 func/1 func/1 func/1 func/2 func/1 func/1 func/1 func/2 func/1 int64"
+	t.reads["actor.start"] = "T func/0 int64 func/0 func/2 func/2 func/1 func/1 func/1 func/2 func/1 func/1 func/1 func/2 func/1 int64"
 	natives["actor.start"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		return in.actorStart(fr, at, fn, args)
 	}
@@ -267,7 +267,7 @@ func registerRunner(t nativeTables) {
 // actorStart is std actor's start: the actor, once its runner has
 // opened the first entry (its timer armed, its work started).
 func (in *interp) actorStart(fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
-	if len(args) != 15 {
+	if len(args) != 16 {
 		ice("actor.start with %d arguments", len(args))
 	}
 	limit := args[2].(int64)
@@ -275,12 +275,12 @@ func (in *interp) actorStart(fr *frame, at syntax.Node, fn *check.Func, args []V
 		return nil, fr.defect(at, "actor.Supervise: a negative restart limit %d", limit)
 	}
 	a := &actorV{
-		initial: args[0], fresh: args[1], limit: limit,
-		step: args[3], fire: args[4], delay: args[5], workOf: args[6], hasWork: args[7], work: args[8],
-		hasExit: args[9], leave: args[10],
-		kind: args[11], next: args[12], out: args[13],
+		initial: args[0], fresh: args[1], limit: limit, decide: args[3],
+		step: args[4], fire: args[5], delay: args[6], workOf: args[7], hasWork: args[8], work: args[9],
+		hasExit: args[10], leave: args[11],
+		kind: args[12], next: args[13], out: args[14],
 	}
-	if ab := in.launch(fr, at, fn, a, args[14].(int64)); ab != nil {
+	if ab := in.launch(fr, at, fn, a, args[15].(int64)); ab != nil {
 		return nil, ab
 	}
 	return a, nil
@@ -345,8 +345,19 @@ func (a *actorV) runner(in *interp) *abrupt {
 			a.ready = true
 			return exit
 		}
-		restart := a.fresh != nil && a.limit > 0 && endedByDefect(exit) && !a.task.stopped && runs <= a.limit && !a.inbox.ended
-		if !restart {
+		if !endedByDefect(exit) || a.fresh == nil || a.limit <= 0 || a.decide == nil || a.task.stopped || a.inbox.ended {
+			break
+		}
+		wv, dab := a.call(in, fr, a.decide)
+		if dab != nil {
+			if stops(dab) {
+				return dab
+			}
+			exit = dab
+			break
+		}
+		wait := wv.(int64)
+		if wait < 0 {
 			break
 		}
 		if ab := a.crash(in, fr); ab != nil {
@@ -355,6 +366,20 @@ func (a *actorV) runner(in *interp) *abrupt {
 			}
 			exit = ab
 			break
+		}
+		if wait > 0 {
+			call, _ := a.at.(*syntax.CallExpr)
+			if _, sab := in.dispatch(fr, call, a.sched, "Sleep", []Value{wait}); sab != nil {
+				if stops(sab) {
+					return sab
+				}
+				exit = sab
+				break
+			}
+			if a.task.stopped || a.inbox.ended {
+				exit = nil
+				break
+			}
 		}
 		a.restarts++
 	}
@@ -836,10 +861,6 @@ func (a *actorV) crash(in *interp, fr *frame) *abrupt {
 	if ab := a.leaveEntry(in, fr, a.state); stops(ab) {
 		return ab
 	}
-	if a.cur != nil {
-		a.release(a.cur)
-		a.cur = nil
-	}
 	for n := len(a.inbox.buf) + len(a.inbox.pushers); n > 0; n-- {
 		v, ok := a.inbox.take()
 		if !ok {
@@ -856,6 +877,10 @@ func (a *actorV) crash(in *interp, fr *frame) *abrupt {
 		}
 	}
 	a.epoch++
+	if a.cur != nil {
+		a.release(a.cur)
+		a.cur = nil
+	}
 	return nil
 }
 

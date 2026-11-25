@@ -261,10 +261,11 @@ type Actor[S, E, D any] struct {
 	feedQ   map[uint64]func(*rt.Task, func(E))
 
 	// Supervision (rule 16): fresh gives each new incarnation's first
-	// state, nil for an actor that is not supervised; limit is the
-	// restart budget; restarts counts the restarts made (Restarts).
+	// state, nil for an actor that is not supervised; decide answers each
+	// crash with a non-negative backoff duration or a negative value to
+	// give up; restarts counts the restarts made (Restarts).
 	fresh    func(*rt.Task) (S, error)
-	limit    int
+	decide   func(*rt.Task) time.Duration
 	restarts atomic.Int64
 
 	// The runner's own fields: only its goroutine reads or writes them.
@@ -368,19 +369,19 @@ func MachineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 	work func(*rt.Task, W, func(E)), kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int) *Actor[S, E, D] {
 	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, nil, nil, kind, next,
-		out, capacity, nil, nil, 0)
+		out, capacity, nil, nil, nil)
 }
 
 // MachineSupervise is std actor's start: MachineStart for an actor that
-// restarts after a defect (rule 16), at most limit times, each new
-// incarnation from fresh's state; initial is the first incarnation's.
-// StartMachine passes limit 0, which restarts none and never calls fresh. A
-// typed failure of fresh is a defect of the incarnation (ActorFreshDefect).
-// A negative limit is a defect, as tasks.Restart's is.
+// restarts after a defect (rule 16) according to decide (tasks.Decide), each
+// new incarnation from fresh's state; initial is the first incarnation's.
+// StartMachine passes limit 0, which restarts none and never calls fresh or
+// decide. A typed failure of fresh is a defect of the incarnation
+// (ActorFreshDefect). A negative limit is a defect, as tasks.Restart's is.
 //
 //ergo:wait child
 func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph GraphOf, initial S,
-	fresh func(*rt.Task) (S, error), limit int,
+	fresh func(*rt.Task) (S, error), limit int, decide func(*rt.Task) time.Duration,
 	step func(*rt.Task, S, E) (D, error), fire func(*rt.Task, S, S) (D, error),
 	delay func(S) time.Duration, workOf func(S) W, hasWork func(W) bool,
 	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
@@ -389,12 +390,13 @@ func MachineSupervise[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph G
 	if limit < 0 {
 		panic("actor.Supervise: a negative restart limit " + strconv.Itoa(limit))
 	}
-	if limit == 0 {
+	if limit == 0 || decide == nil {
 		// No restart: the runner of MachineStart, which never calls fresh.
 		fresh = nil
+		decide = nil
 	}
 	return machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
-		out, capacity, nil, fresh, limit)
+		out, capacity, nil, fresh, decide)
 }
 
 // ActorFreshDefect is the defect of a supervised actor whose fresh state
@@ -445,7 +447,7 @@ func MachineChild[S, E, D, W, P any](span Site, t *rt.Task, sl Sleeper, graph Gr
 	}
 	adopted, hostOK := owner.adopt(cell, func(report func(*rt.Task, error) bool, deliver func(*rt.Task, P)) func(*rt.Task) error {
 		c = machineStart(span, t, sl, graph, initial, step, fire, delay, workOf, hasWork, work, hasExit, leave, kind, next,
-			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, 0)
+			func(ct *rt.Task, d D) { out(ct, d, func(p P) { deliver(ct, p) }) }, capacity, report, nil, nil)
 		return c.halt
 	}, func() { host.fill(c) })
 	if !hostOK {
@@ -505,7 +507,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 	work func(*rt.Task, W, func(E)), hasExit func(S) bool, leave func(*rt.Task, S),
 	kind func(D) int, next func(S, D) S,
 	out func(*rt.Task, D), capacity int, report func(*rt.Task, error) bool,
-	fresh func(*rt.Task) (S, error), limit int) *Actor[S, E, D] {
+	fresh func(*rt.Task) (S, error), decide func(*rt.Task) time.Duration) *Actor[S, E, D] {
 	if capacity < 0 {
 		panic("actor.StartMachine: negative capacity " + strconv.Itoa(capacity))
 	}
@@ -514,7 +516,7 @@ func machineStart[S, E, D, W any](span Site, t *rt.Task, sl Sleeper, graph Graph
 		step: step, fire: fire, delay: delay, kind: kind, next: next, out: out,
 		hasExit: hasExit, leave: leave,
 		done: make(chan struct{}), state: initial, version: 1,
-		report: report, fresh: fresh, limit: limit,
+		report: report, fresh: fresh, decide: decide,
 		// A durable start's recovered hosts (DH1): this actor's first
 		// entry binds or closes them.
 		recovered: handedHosts(t),
@@ -595,8 +597,9 @@ func (a *Actor[S, E, D]) runner(at *rt.Task) (struct{}, error) {
 }
 
 // supervise runs a supervised actor's incarnations (rule 16): each one is
-// a loop, and one that ends with a restartable defect while admission is
-// open is cleaned up (crash) and followed by the next, from a fresh state.
+// a loop, and one that ends with a defect while admission is open is
+// answered by decide (tasks.Decide), cleaned up (crash), backed off if
+// wait is positive, and followed by the next incarnation from a fresh state.
 func (a *Actor[S, E, D]) supervise(at *rt.Task) (struct{}, error) {
 	for runs := 1; ; runs++ {
 		_, err := guarded(at, func(at *rt.Task) (struct{}, error) {
@@ -605,10 +608,20 @@ func (a *Actor[S, E, D]) supervise(at *rt.Task) (struct{}, error) {
 			}
 			return a.loop(at)
 		})
-		if !restartable(at, err, runs, a.limit) || a.inbox.isClosed() {
+		if err == nil || at.StopRequested() || !hasDefect(err) || a.inbox.isClosed() {
+			return struct{}{}, err
+		}
+		wait := a.decide(at)
+		if wait < 0 {
 			return struct{}{}, err
 		}
 		a.crash(at)
+		if wait > 0 {
+			a.sleeper.Sleep(at, wait)
+			if at.StopRequested() || a.inbox.isClosed() {
+				return struct{}{}, nil
+			}
+		}
 		a.restarts.Add(1)
 	}
 }
@@ -658,10 +671,9 @@ func (a *Actor[S, E, D]) crash(at *rt.Task) {
 	// The open entry's exit action (rule 18); its defect is the crash's,
 	// as the children's are.
 	_ = a.leaveEntry(at, a.state)
-	if a.cur != nil {
-		a.release(a.cur)
-		a.cur = nil
-	}
+	// Drain envelopes queued before the crash and advance the epoch before
+	// releasing a.cur so a caller that sends a new Ask after receiving
+	// Stopped from the crashing Ask never has it swallowed by this drain.
 	for n := a.inbox.Len(); n > 0; n-- {
 		env, ok := a.inbox.Poll()
 		if !ok {
@@ -680,6 +692,10 @@ func (a *Actor[S, E, D]) crash(at *rt.Task) {
 		}
 	}
 	a.epoch++
+	if a.cur != nil {
+		a.release(a.cur)
+		a.cur = nil
+	}
 }
 
 // endRunner ends the runner task after its loop returned or raised.
