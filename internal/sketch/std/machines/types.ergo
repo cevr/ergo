@@ -1,0 +1,54 @@
+// Enter moves a machine to Next and opens a new entry.
+//
+// ergo:alias Enter
+type Enter {}
+
+// Stay moves a machine to Next and keeps the current entry.
+//
+// ergo:alias Stay
+type Stay {}
+
+// Emit moves a machine to Next, opens a new entry, and delivers Output.
+//
+// ergo:alias Emit
+type Emit {}
+
+// Ignore keeps the current state and entry unchanged.
+//
+// ergo:alias Ignore
+type Ignore {}
+
+// Reject refuses the signal for the current state.
+//
+// ergo:alias Reject
+type Reject {}
+
+// Done ends the machine with Output.
+//
+// ergo:alias Done
+type Done {}
+
+// Tell moves a machine to Next, keeps the current entry, and delivers Output.
+//
+// ergo:alias Tell
+type Tell {}
+
+// Decision is the closed union of outcomes returned by a machine's step.
+//
+// ergo:alias Decision
+type Decision {}
+
+// Timeout is a state entry's timer: after In, the runner delivers Signal.
+//
+// ergo:alias Timeout
+type Timeout {}
+
+// Machine is a state machine value with initial state, step, after, work, and exit.
+//
+// ergo:alias Machine
+type Machine {}
+
+// InputMachine is a parameterized state machine whose initial state is computed from input.
+//
+// ergo:alias InputMachine
+type InputMachine {}

@@ -17,7 +17,7 @@ import (
 	"ergo.local/prototype/internal/sketch/lint"
 )
 
-const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--len|--global-funcs|--std-types] [--std DIR] [--go] PATH..."
+const fixUsage = "usage: ergo fix [--check|--dry-run] [--json] [--lint] [--comments|--len|--global-funcs|--std-types|--machines] [--std DIR] [--go] PATH..."
 
 const fixHelp = fixUsage + `
 
@@ -76,6 +76,12 @@ first. Other diagnostics are printed, and the exit status is then 1.
                  NoMatch) into their std-package forms, adding missing imports
                  in sorted order and leaving user shadows untouched; with
                  --json it lists every rewrite
+  --machines     only rewrite, under each PATH and the --std DIR, references
+                 to Unit-9 prelude machine types (Enter, Stay, Emit, Ignore,
+                 Reject, Done, Tell, Decision, Timeout, Machine, InputMachine)
+                 into their qualified machines.* forms, adding import machines
+                 in sorted order and leaving user shadows untouched; with
+                 --json it lists every rewrite
 
 Exit codes: 0 done; 1 a file could not be read or written, a diagnostic
 remains, or --check found a change; 2 invalid invocation.
@@ -93,7 +99,7 @@ type fixReport struct {
 // clause pass over each PATH that is a program.
 func fixCommand(args []string) error {
 	var paths []string
-	var check, dry, asJSON, goLits, withLint, comments, rewriteLen, globalFuncs, stdTypes bool
+	var check, dry, asJSON, goLits, withLint, comments, rewriteLen, globalFuncs, stdTypes, machinesFlag bool
 	stdRoot := ""
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; a {
@@ -115,6 +121,8 @@ func fixCommand(args []string) error {
 			globalFuncs = true
 		case "--std-types":
 			stdTypes = true
+		case "--machines":
+			machinesFlag = true
 		case "--std":
 			if i+1 == len(args) {
 				return usageError{message: fixUsage}
@@ -141,6 +149,9 @@ func fixCommand(args []string) error {
 	if stdTypes {
 		specials++
 	}
+	if machinesFlag {
+		specials++
+	}
 	if len(paths) == 0 && stdRoot == "" || check && dry || specials > 1 {
 		return usageError{message: fixUsage}
 	}
@@ -156,6 +167,9 @@ func fixCommand(args []string) error {
 	}
 	if stdTypes {
 		return fixStdTypes(fixFolders(paths), stdRoot, write, check, asJSON)
+	}
+	if machinesFlag {
+		return fixMachines(fixFolders(paths), stdRoot, write, check, asJSON)
 	}
 	// The respells come first: they are syntactic, so they read a file
 	// that does not check, and every checked pass below reads the new
@@ -524,7 +538,15 @@ type fixStdTypesReport struct {
 }
 
 func fixStdTypes(paths []string, stdRoot string, write, check, asJSON bool) error {
-	rep, err := fix.RunStdTypes(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write})
+	return runTypeFix(fix.RunStdTypes, "std type", paths, stdRoot, write, check, asJSON)
+}
+
+func fixMachines(paths []string, stdRoot string, write, check, asJSON bool) error {
+	return runTypeFix(fix.RunMachines, "machine type", paths, stdRoot, write, check, asJSON)
+}
+
+func runTypeFix(runner func(fix.Options) (fix.StdTypesReport, error), kind string, paths []string, stdRoot string, write, check, asJSON bool) error {
+	rep, err := runner(fix.Options{Paths: paths, StdRoot: stdRoot, Write: write})
 	if err != nil {
 		return exitStatusError{code: 1, message: "ergo fix: " + err.Error()}
 	}
@@ -547,9 +569,9 @@ func fixStdTypes(paths []string, stdRoot string, write, check, asJSON bool) erro
 	}
 	switch {
 	case len(rep.Errs) > 0:
-		return exitStatusError{code: 1, message: "fix: std type references left in files it could not change", handled: true}
+		return exitStatusError{code: 1, message: fmt.Sprintf("fix: %s references left in files it could not change", kind), handled: true}
 	case check && len(rep.Files) > 0:
-		return exitStatusError{code: 1, message: "fix: std type references would be rewritten", handled: true}
+		return exitStatusError{code: 1, message: fmt.Sprintf("fix: %s references would be rewritten", kind), handled: true}
 	}
 	return nil
 }

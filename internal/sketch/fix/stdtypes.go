@@ -102,6 +102,10 @@ func stdTypeFor(name string) (stdTypeSpec, bool) {
 // parameters, or locals (PRELUDE SHADOW) are left untouched. When src is
 // already formatted, the returned text is formatted to a fixpoint.
 func StdTypesSource(src, name string) (string, []StdTypeRewrite, error) {
+	return stdTypesSourceWith(src, name, stdTypeFor)
+}
+
+func stdTypesSourceWith(src, name string, lookup func(string) (stdTypeSpec, bool)) (string, []StdTypeRewrite, error) {
 	pkg, _ := check.CheckSource(src)
 	if pkg == nil || pkg.Info == nil {
 		return src, nil, nil
@@ -110,7 +114,7 @@ func StdTypesSource(src, name string) (string, []StdTypeRewrite, error) {
 	if len(files) != 1 {
 		return src, nil, nil
 	}
-	out, rewrites, err := rewriteStdTypeFiles(map[string]string{name: src}, []string{name}, files, pkg.Info, "")
+	out, rewrites, err := rewriteStdTypeFiles(map[string]string{name: src}, []string{name}, files, pkg.Info, "", lookup)
 	if err != nil {
 		return src, nil, err
 	}
@@ -121,6 +125,10 @@ func StdTypesSource(src, name string) (string, []StdTypeRewrite, error) {
 // at dir over texts (keyed by absolute file path). Rewrites are kept only when
 // the rewritten package checks with the same diagnostics.
 func StdTypesPackage(dir string, texts map[string]string) (map[string]string, []StdTypeRewrite, error) {
+	return stdTypesPackageWith(dir, texts, stdTypeFor)
+}
+
+func stdTypesPackageWith(dir string, texts map[string]string, lookup func(string) (stdTypeSpec, bool)) (map[string]string, []StdTypeRewrite, error) {
 	abs, err := filepath.Abs(dir)
 	if err != nil {
 		return texts, nil, err
@@ -137,7 +145,7 @@ func StdTypesPackage(dir string, texts map[string]string) (map[string]string, []
 	if len(paths) != len(files) {
 		return texts, nil, fmt.Errorf("%s: checked file count %d does not match texts", abs, len(files))
 	}
-	out, rewrites, err := rewriteStdTypeFiles(texts, paths, files, pkg.Info, "")
+	out, rewrites, err := rewriteStdTypeFiles(texts, paths, files, pkg.Info, "", lookup)
 	if err != nil || len(rewrites) == 0 {
 		return out, rewrites, err
 	}
@@ -160,6 +168,10 @@ func StdTypesPackage(dir string, texts map[string]string) (map[string]string, []
 // Generated folders, gostd, and unadmitted folders (e.g. testdata) are skipped
 // when walking a parent folder. Files are written only when opts.Write.
 func RunStdTypes(opts Options) (StdTypesReport, error) {
+	return runStdTypesWith(opts, stdTypeFor)
+}
+
+func runStdTypesWith(opts Options, lookup func(string) (stdTypeSpec, bool)) (StdTypesReport, error) {
 	rep := StdTypesReport{Files: map[string]string{}}
 	stdRoot := ""
 	if opts.StdRoot != "" {
@@ -168,7 +180,7 @@ func RunStdTypes(opts Options) (StdTypesReport, error) {
 			return rep, err
 		}
 		stdRoot = abs
-		if err := runStdTypesStd(&rep, stdRoot); err != nil {
+		if err := runStdTypesStd(&rep, stdRoot, lookup); err != nil {
 			return rep, err
 		}
 	}
@@ -201,7 +213,7 @@ func RunStdTypes(opts Options) (StdTypesReport, error) {
 			}
 			texts[f] = string(b)
 		}
-		out, rewrites, err := StdTypesPackage(abs, texts)
+		out, rewrites, err := stdTypesPackageWith(abs, texts, lookup)
 		if err != nil {
 			rep.Errs = append(rep.Errs, err.Error())
 			return nil
@@ -234,7 +246,7 @@ func RunStdTypes(opts Options) (StdTypesReport, error) {
 			return err
 		}
 		src := string(b)
-		out, rewrites, err := StdTypesSource(src, abs)
+		out, rewrites, err := stdTypesSourceWith(src, abs, lookup)
 		if err != nil {
 			rep.Errs = append(rep.Errs, err.Error())
 			return nil
@@ -275,7 +287,7 @@ func RunStdTypes(opts Options) (StdTypesReport, error) {
 				for _, p := range stdlib.Packages() {
 					doneDir[filepath.Join(stdRoot, filepath.FromSlash(p))] = true
 				}
-				return runStdTypesStd(&rep, stdRoot)
+				return runStdTypesStd(&rep, stdRoot, lookup)
 			}
 			targets, err := sketchfront.DiscoverPackages(mod)
 			if err != nil {
@@ -305,7 +317,7 @@ func RunStdTypes(opts Options) (StdTypesReport, error) {
 	return rep, nil
 }
 
-func runStdTypesStd(rep *StdTypesReport, stdRoot string) error {
+func runStdTypesStd(rep *StdTypesReport, stdRoot string, lookup func(string) (stdTypeSpec, bool)) error {
 	for _, pkgPath := range stdlib.Packages() {
 		dir := filepath.Join(stdRoot, filepath.FromSlash(pkgPath))
 		if genmark.Held(dir) {
@@ -347,7 +359,7 @@ func runStdTypesStd(rep *StdTypesReport, stdRoot string) error {
 				continue
 			}
 			matched := matchGlobalFuncFiles(dir, texts, cfiles)
-			out, rewrites, err := rewriteStdTypeFiles(texts, matched, cfiles, pkg.Info, pkgPath)
+			out, rewrites, err := rewriteStdTypeFiles(texts, matched, cfiles, pkg.Info, pkgPath, lookup)
 			if err != nil {
 				rep.Errs = append(rep.Errs, err.Error())
 				continue
@@ -379,7 +391,7 @@ func runStdTypesStd(rep *StdTypesReport, stdRoot string) error {
 		if pkg == nil || pkg.Info == nil {
 			continue
 		}
-		out, rewrites, err := rewriteStdTypeFiles(texts, files, parsed, pkg.Info, pkgPath)
+		out, rewrites, err := rewriteStdTypeFiles(texts, files, parsed, pkg.Info, pkgPath, lookup)
 		if err != nil {
 			rep.Errs = append(rep.Errs, err.Error())
 			continue
@@ -473,7 +485,7 @@ func wouldCycleStd(currentStdPkg, targetPkg string) bool {
 	return stdTransitiveDeps()[targetPkg][currentStdPkg]
 }
 
-func rewriteStdTypeFiles(texts map[string]string, filePaths []string, files []*syntax.File, info *check.Info, currentStdPkg string) (map[string]string, []StdTypeRewrite, error) {
+func rewriteStdTypeFiles(texts map[string]string, filePaths []string, files []*syntax.File, info *check.Info, currentStdPkg string, lookup func(string) (stdTypeSpec, bool)) (map[string]string, []StdTypeRewrite, error) {
 	out := make(map[string]string, len(texts))
 	for k, v := range texts {
 		out[k] = v
@@ -483,7 +495,7 @@ func rewriteStdTypeFiles(texts map[string]string, filePaths []string, files []*s
 	for i, f := range files {
 		p := filePaths[i]
 		src := texts[p]
-		eds, needImports, rewrites := collectStdTypeEdits(src, p, f, info, currentStdPkg, pkgNames)
+		eds, needImports, rewrites := collectStdTypeEdits(src, p, f, info, currentStdPkg, pkgNames, lookup)
 		if len(eds) == 0 {
 			continue
 		}
@@ -504,12 +516,12 @@ func rewriteStdTypeFiles(texts map[string]string, filePaths []string, files []*s
 	return out, allRewrites, nil
 }
 
-// collectStdTypeEdits finds every unqualified reference to a Unit-8 prelude
-// type in f (type positions, rows, capability calls, context literals,
-// implements clauses, composite literals, patterns, and generic constraints),
-// replacing only the type identifier span (preserving `[T]` type arguments and
-// `.Method` selectors) and recording missing std imports.
-func collectStdTypeEdits(src, filePath string, f *syntax.File, info *check.Info, currentStdPkg string, pkgNames map[string]bool) ([]edit, []neededImport, []StdTypeRewrite) {
+// collectStdTypeEdits finds every unqualified reference to a prelude type
+// selected by lookup in f (type positions, rows, capability calls, context
+// literals, implements clauses, composite literals, patterns, and generic
+// constraints), replacing only the type identifier span (preserving `[T]`
+// type arguments and `.Method` selectors) and recording missing std imports.
+func collectStdTypeEdits(src, filePath string, f *syntax.File, info *check.Info, currentStdPkg string, pkgNames map[string]bool, lookup func(string) (stdTypeSpec, bool)) ([]edit, []neededImport, []StdTypeRewrite) {
 	imported := fileImports(f)
 	usedQuals := map[string]bool{}
 	for name := range pkgNames {
@@ -549,7 +561,7 @@ func collectStdTypeEdits(src, filePath string, f *syntax.File, info *check.Info,
 			if !ok || selectorSels[id] {
 				return true
 			}
-			spec, ok := resolvedStdTypeIdent(id, info)
+			spec, ok := resolvedStdTypeIdent(id, info, lookup)
 			if !ok {
 				return true
 			}
@@ -671,11 +683,11 @@ func declLocalNames(decl syntax.Decl, info *check.Info) map[string]bool {
 // resolvedStdTypeIdent returns the target std-package spec when id resolves to
 // a canonical Unit-8 prelude type (or collections.Seq re-exported in prelude),
 // never a user-declared type, local variable, or type parameter.
-func resolvedStdTypeIdent(id *syntax.Ident, info *check.Info) (stdTypeSpec, bool) {
+func resolvedStdTypeIdent(id *syntax.Ident, info *check.Info, lookup func(string) (stdTypeSpec, bool)) (stdTypeSpec, bool) {
 	if id == nil || info == nil {
 		return stdTypeSpec{}, false
 	}
-	spec, ok := stdTypeFor(id.Name)
+	spec, ok := lookup(id.Name)
 	if !ok {
 		return stdTypeSpec{}, false
 	}
