@@ -483,11 +483,8 @@ func Open(k Keyring, token string, now time.Time) Claims fails Tampered | Expire
 
 // ring is the keyring of the signed-token laws: key "k1" of 32 bytes made
 // from seed, older keys from older, at generation.
-func ring(id string, seed string, older []Key, generation int) Keyring {
-	NewKeyring(Key{ID: id, Secret: sha256.Sum(seed)}, older, generation) catch {
-	case BadKeyring:
-		Unreachable("a ring of the laws is good")
-	}
+func ring(id string, seed string, older []Key, generation int) Keyring fails BadKeyring {
+	try NewKeyring(Key{ID: id, Secret: sha256.Sum(seed)}, older, generation)
 }
 
 // expiredAt is whether token opens under k at at as Expired at at.
@@ -505,7 +502,7 @@ func expiredAt(k Keyring, token string, at time.Time) bool {
 // expires and is Expired at its expiry, and a token with any one byte
 // changed is Tampered.
 law SignedTamperFails(subject string, sec int64, at int, by int) {
-	let k = ring("k1", "seed", []Key{}, 0)
+	let k = try ring("k1", "seed", []Key{}, 0)
 	let expires = time.Unix(((sec%1000000)+1000000)%1000000+10, 0)
 	let token = Sign(k, subject, expires)
 	let now = time.Unix(0, 0)
@@ -534,10 +531,10 @@ law SignedTamperFails(subject string, sec int64, at int, by int) {
 // keeps among its older keys opens under that keyring; one whose key it
 // dropped is Tampered.
 law OldKeyStillVerifies(subject string) {
-	let first = ring("k1", "one", []Key{}, 0)
+	let first = try ring("k1", "one", []Key{}, 0)
 	let token = Sign(first, subject, time.Unix(100, 0))
-	let kept = ring("k2", "two", []Key{Key{ID: "k1", Secret: sha256.Sum("one")}}, 0)
-	let dropped = ring("k2", "two", []Key{}, 0)
+	let kept = try ring("k2", "two", []Key{Key{ID: "k1", Secret: sha256.Sum("one")}}, 0)
+	let dropped = try ring("k2", "two", []Key{}, 0)
 	let c = Open(kept, token, time.Unix(0, 0)) catch {
 	case Tampered, Expired, Retired:
 		return false
@@ -555,8 +552,8 @@ law OldKeyStillVerifies(subject string) {
 // tokens of earlier ones as Retired, with the same keys.
 law GenerationBumpEndsTokens(subject string, gen int) {
 	let g = ((gen % 100) + 100) % 100
-	let token = Sign(ring("k1", "one", []Key{}, g), subject, time.Unix(100, 0))
-	let _ = Open(ring("k1", "one", []Key{}, g+1), token, time.Unix(0, 0)) catch {
+	let token = Sign(try ring("k1", "one", []Key{}, g), subject, time.Unix(100, 0))
+	let _ = Open(try ring("k1", "one", []Key{}, g+1), token, time.Unix(0, 0)) catch {
 	case Retired as r:
 		return r.Generation == g
 	case Tampered, Expired:

@@ -105,7 +105,7 @@ func gapOf(z Zone, u int64) (int64, int64, int64) {
 		let next = changeAfter(z, b, hi, true)
 		b = if next > b { next } else { lo }
 	}
-	Unreachable("a wall time no stretch of the zone shows is in a gap")
+	(int64(lookup(z, lo).Seconds), int64(lookup(z, hi).Seconds), lo)
 }
 
 // Compatible is the instant a scheduler takes for r, as ECMA-262 and

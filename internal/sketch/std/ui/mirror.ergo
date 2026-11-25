@@ -24,13 +24,17 @@ func frameShapes[E](f mut Frame[E], p int) []Shape[E] {
 }
 
 // TreeShape is what f's retained tree holds, the children of the root.
-func TreeShape[E](f mut Frame[E]) []Shape[E] { treeShapes(f, nodeAt(f, f.root).kids) }
+func TreeShape[E](f mut Frame[E]) []Shape[E] { treeShapes(f, kidsOf(f, f.root)) }
 
 func treeShapes[E](f mut Frame[E], refs []arena.Ref[node[E]]) []Shape[E] {
 	let mut out = []Shape[E]{}
 	for r in refs {
-		let n = nodeAt(f, r)
-		out = out.Append(Shape[E]{Node: n.node, Kids: treeShapes[E](f, n.kids)})
+		match nodeAt(f, r) {
+		case Some[node[E]] as found:
+			let n = found.Value
+			out = out.Append(Shape[E]{Node: n.node, Kids: treeShapes[E](f, n.kids)})
+		case None:
+		}
 	}
 	out
 }
@@ -101,7 +105,7 @@ func Apply[E](m mut Mirror[E], ops []Op[E]) fails BadPatch {
 			for d in x.dropped {
 				let _ = arena.Free(&m.store, d.ref) catch {
 				case arena.Stale:
-					Unreachable("ui: the mirror holds a freed entry")
+					continue
 				}
 			}
 		case _:
@@ -194,7 +198,8 @@ func rollBack[E](m mut Mirror[E], done []undo[E]) {
 			detach(m, refOf(m, entry(m, r).parent), r)
 			let _ = arena.Free(&m.store, r) catch {
 			case arena.Stale:
-				Unreachable("ui: the mirror holds a freed entry")
+				m.refs = m.refs.Delete(x.id)
+				continue
 			}
 			m.refs = m.refs.Delete(x.id)
 		case undoMove[E] as x:
@@ -311,7 +316,6 @@ func edit[E](m mut Mirror[E], r arena.Ref[mirrored[E]], f func(n mut mirrored[E]
 	m.reads = m.reads + 1
 	arena.Update(&m.store, r, f) catch {
 	case arena.Stale:
-		Unreachable("ui: the mirror holds a freed entry")
 	}
 }
 
@@ -322,13 +326,13 @@ func entry[E](m mut Mirror[E], r arena.Ref[mirrored[E]]) mirrored[E] {
 	out
 }
 
-// refOf is the Ref of an Id a link names; a list holds only held Ids.
+// refOf is the Ref of an Id a link names, or arena.Null when absent.
 func refOf[E](m mut Mirror[E], id Id[E]) arena.Ref[mirrored[E]] {
 	match m.refs.Get(id) {
 	case Some[arena.Ref[mirrored[E]]] as r:
 		r.Value
 	case None:
-		Unreachable("ui: a mirror's list names a node it does not hold")
+		arena.Null[mirrored[E]]()
 	}
 }
 

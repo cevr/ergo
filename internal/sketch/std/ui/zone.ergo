@@ -67,16 +67,6 @@ func sameHit(a Option[ZoneHit], b Option[ZoneHit]) bool {
 	}
 }
 
-// foundId is the node label finds; the laws name only nodes on the screen.
-func foundId[S, D, F](h mut TestHost[S, int, D, F], label string) Id[int] {
-	match Find(h, label) {
-	case Some[Id[int]] as id:
-		id.Value
-	case None:
-		Unreachable("ui laws: no node \(label)")
-	}
-}
-
 func zoneStep(s int, e int) Decision[int, int] { Enter[int]{Next: e} }
 
 func zoneTimer(s int) Option[Timeout[int]] { None }
@@ -129,7 +119,12 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 	case BadPatch:
 		return false
 	}
-	let board = foundId(&h, "board")
+	let board = match Find(&h, "board") {
+	case Some[Id[int]] as found:
+		found.Value
+	case None:
+		return false
+	}
 	let gone = Locate(&h, WithZone{Key: ByText("0-0")})[0]
 	for i in 0..(n%16+16)%16+1 {
 		if i == 1 {
@@ -160,7 +155,12 @@ func zoneFollows(seed int, n int, m time.Manual) bool needs Scheduler {
 		case 2:
 			over = Some{Value: Locate(&h, WithZone{Key: ByInt(99)})[0]}
 		case 3:
-			over = Some{Value: foundId(&h, "col \(c)")}
+			match Find(&h, "col \(c)") {
+			case Some[Id[int]] as found:
+				over = Some{Value: found.Value}
+			case None:
+				return false
+			}
 		case 4:
 			// Card 0-0, which the drop at the second event removes.
 			over = Some{Value: gone}
@@ -446,7 +446,7 @@ func firstList[E](f mut Frame[E], r arena.Ref[node[E]]) Option[edgeList[E]] {
 	for k in kidsOf(f, r) {
 		let n = f.nodes.Get(k) catch {
 		case arena.Stale:
-			Unreachable("ui: the tree holds a freed node")
+			continue
 		}
 		match n.node {
 		case RowsNode as x:

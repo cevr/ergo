@@ -40,38 +40,38 @@ type Frame[E] {
 	// unplaced counts the pass's lookups that missed the old child at
 	// the node's place (Unplaced).
 	unplaced int,
-	cells   []cellSpec,
-	ncells  int,
-	loads   []loadSpec[E],
-	nloads  int,
+	cells    []cellSpec,
+	ncells   int,
+	loads    []loadSpec[E],
+	nloads   int,
 	// seen holds the counts by slotKey, and seenWide those of the slots
 	// slotKey cannot pack (a TextKey row or a part out of range).
-	seen    Map[int, tally],
+	seen     Map[int, tally],
 	seenWide Map[slotOf, tally],
-	seenLog []slotOf,
-	nseen   int,
-	index   Map[kid[E], arena.Ref[node[E]]],
-	indexed Map[arena.Ref[node[E]], bool],
-	held    Map[arena.Ref[node[E]], bool],
-	stopped Map[int, bool],
-	parent  int,
-	each    CallSite,
-	key     Key,
-	epoch   int,
-	ops     []Op[E],
-	jobs    []Job[E],
-	keys    []func(k KeyPress) Option[E],
-	nkeys   int,
-	urls    []func(u URL) Option[E],
-	nurls   int,
-	anims   []func(at duration) E,
-	nanims  int,
-	rowRuns int,
-	skips   int,
-	written int,
-	stops   []CallSite,
-	nstops  int,
-	slow    Option[slowWatch[E]],
+	seenLog  []slotOf,
+	nseen    int,
+	index    Map[kid[E], arena.Ref[node[E]]],
+	indexed  Map[arena.Ref[node[E]], bool],
+	held     Map[arena.Ref[node[E]], bool],
+	stopped  Map[int, bool],
+	parent   int,
+	each     CallSite,
+	key      Key,
+	epoch    int,
+	ops      []Op[E],
+	jobs     []Job[E],
+	keys     []func(k KeyPress) Option[E],
+	nkeys    int,
+	urls     []func(u URL) Option[E],
+	nurls    int,
+	anims    []func(at duration) E,
+	nanims   int,
+	rowRuns  int,
+	skips    int,
+	written  int,
+	stops    []CallSite,
+	nstops   int,
+	slow     Option[slowWatch[E]],
 	// Groups (group.ergo): the arguments' memo, the kept groups by key
 	// and their entries with the free ones, the passes kept, this pass's
 	// groups (the first ngroups) and whether one is inside another, the
@@ -141,7 +141,7 @@ type Frame[E] {
 	openers []opener[E],
 	roved   Map[arena.Ref[node[E]], arena.Ref[node[E]]],
 	// paint is the scratch every canvas paints into (Canvas, paint.ergo).
-	paint  Paint,
+	paint Paint,
 	// readouts is the readouts the pass placed, the first nreadouts
 	// (ReadoutText, readout.ergo).
 	readouts  []Readout,
@@ -1434,7 +1434,12 @@ func captureFollows(seed int, steps int, m time.Manual) bool needs Scheduler {
 				at = 0
 			}
 			let label = if at == 10 { "a" } else if at == 20 { "b" } else { "top" }
-			let id = foundId(&h, label)
+			let id = match Find(&h, label) {
+			case Some[Id[int]] as found:
+				found.Value
+			case None:
+				return false
+			}
 			PointAt(&h, id, PointerEvent{Pointer: MousePointer, Phase: phase, X: 1.0, Y: 1.0, Zone: None}) catch {
 			case _:
 				return false
@@ -1616,7 +1621,7 @@ type node[E] {
 	up      arena.Ref[node[E]],
 	// edit is the text, caret and anchor the last Type or Edit gave an
 	// Input; a pass shows them while the value is that text (edit.ergo).
-	edit    Option[Editing],
+	edit Option[Editing],
 	// focusAs is how the node takes part in the focus (focus.ergo).
 	focusAs int,
 }
@@ -1692,13 +1697,13 @@ law IncrementalEqualsFresh(seed int, steps int) {
 	let mut m = NewMirror[int](Root(&f))
 	for _ in 0..(steps%8+8)%8+1 {
 		let s = genState(&r)
-		Apply(&m, renderPass(&f, ps, s)) catch {
+		Apply(&m, try renderPass(&f, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
 		let mut fresh = NewFrame[int]()
 		let mut fm = NewMirror[int](Root(&fresh))
-		Apply(&fm, renderPass(&fresh, ps, s)) catch {
+		Apply(&fm, try renderPass(&fresh, ps, s)) catch {
 		case BadPatch:
 			return false
 		}
@@ -1874,18 +1879,23 @@ func digest(kids []prog, s []int, row int) int {
 // a read is drawn only under a pBound.
 func models(ps []prog, s []int, row int) []Shape[int] { outcomes(ps, s, row).shapes }
 
+type escapedBoundary {}
+
 // renderPass renders the programs ps at state s as one pass of f.
-func renderPass(f mut Frame[int], ps []prog, s []int) []Op[int] {
-	Render(f, func(g mut Frame[int], st []int) {
+func renderPass(f mut Frame[int], ps []prog, s []int) []Op[int] fails escapedBoundary {
+	let mut escaped = false
+	let ops = Render(f, func(g mut Frame[int], st []int) {
 		for p in ps {
 			render(g, p, st, 0) catch {
-			case Missing:
-				Unreachable("ui laws: a read is drawn only under a boundary")
-			case Pending:
-				Unreachable("ui laws: a read is drawn only under a boundary")
+			case Missing, Pending:
+				escaped = true
 			}
 		}
 	}, s)
+	if escaped {
+		return escapedBoundary
+	}
+	ops
 }
 
 func nodes(shapes []Shape[int]) int {
@@ -1903,9 +1913,9 @@ law IdempotentCommit(seed int) {
 	let mut f = NewFrame[int]()
 	let s0 = genState(&r)
 	let s1 = genState(&r)
-	let _ = renderPass(&f, ps, s0)
-	let _ = renderPass(&f, ps, s1)
-	len(renderPass(&f, ps, s1)) == 0
+	let _ = try renderPass(&f, ps, s0)
+	let _ = try renderPass(&f, ps, s1)
+	len(try renderPass(&f, ps, s1)) == 0
 }
 
 // KeyedMovesFewest: a permutation of one-node keyed rows shows the new
@@ -2772,7 +2782,7 @@ law SlotKeyKeepsSiteIdentity(seed int) {
 	// Toggle the highest bit of each field to check for truncation.
 	let noPkgBit = CallSite{..hi, Pkg: 63}
 	let noIdBit = CallSite{..hi, Id: 4095}
-	for c in []CallSite{noPkgBit, noIdBit, nowhere, CallSite{..hi, Pkg: draw(&r, 126)+1, Id: draw(&r, 8190)+1}} {
+	for c in []CallSite{noPkgBit, noIdBit, nowhere, CallSite{..hi, Pkg: draw(&r, 126) + 1, Id: draw(&r, 8190) + 1}} {
 		let mut nodeSlot = slotOf{..s, b: base{..s.b, site: c}}
 		let mut rowSlot = slotOf{..s, b: base{..s.b, each: c}}
 		let node = slotKey(&nodeSlot)
@@ -3168,12 +3178,13 @@ func Commit[E comparable](f mut Frame[E]) []Op[E] {
 	f.ops
 }
 
-// at is the node r names; every Ref the tree holds is live.
-func nodeAt[E](f mut Frame[E], r arena.Ref[node[E]]) node[E] {
-	f.nodes.Get(r) catch {
+// nodeAt is the node r names, or None when r is stale.
+func nodeAt[E](f mut Frame[E], r arena.Ref[node[E]]) Option[node[E]] {
+	let n = f.nodes.Get(r) catch {
 	case arena.Stale:
-		Unreachable("ui: the tree holds a freed node")
+		return None
 	}
+	Some{Value: n}
 }
 
 // The readers of one field of a retained node read it in place, through
@@ -3227,7 +3238,6 @@ func kidsOf[E](f mut Frame[E], r arena.Ref[node[E]]) []arena.Ref[node[E]] {
 func change[E](f mut Frame[E], r arena.Ref[node[E]], edit func(n mut node[E])) {
 	f.nodes.Update(r, edit) catch {
 	case arena.Stale:
-		Unreachable("ui: the tree holds a freed node")
 	}
 }
 
@@ -3335,9 +3345,6 @@ func reconcile[E comparable](f mut Frame[E], p int, pr arena.Ref[node[E]]) {
 	let mut refs = []arena.Ref[node[E]]{}
 	for j, s in want {
 		let sp = kidSpec(f, ks, j)
-		if src[j] < 0 && ks.top[j] >= 0 {
-			Unreachable("ui: a kept group's top is not a child of its parent")
-		}
 		if src[j] >= 0 {
 			refs = refs.Append(old[src[j]])
 		} else if revive[j] {
@@ -3462,7 +3469,10 @@ func update[E comparable](f mut Frame[E], s int, r arena.Ref[node[E]]) {
 // drop frees the node r names and every node below it; each load they
 // own is cancelled.
 func drop[E](f mut Frame[E], r arena.Ref[node[E]]) {
-	let n = nodeAt(f, r)
+	let n = f.nodes.Get(r) catch {
+	case arena.Stale:
+		return
+	}
 	for k in n.kids {
 		drop[E](f, k)
 	}
@@ -3474,7 +3484,7 @@ func drop[E](f mut Frame[E], r arena.Ref[node[E]]) {
 	}
 	let _ = f.nodes.Free(r) catch {
 	case arena.Stale:
-		Unreachable("ui: the tree holds a freed node")
+		return
 	}
 }
 

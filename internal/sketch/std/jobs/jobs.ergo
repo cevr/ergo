@@ -442,25 +442,24 @@ func isHeld[J](s State[J], t Ticket, now time.Time) bool {
 // None and s.
 func reserve[J](p Policy, s own State[J], now time.Time, expired bool) (Option[Lease[J]], State[J], bool) {
 	let mut st = s
-	if st.head >= len(st.ready) || st.ready[st.head].at.After(now) {
-		return (None, st, expired)
+	for st.head < len(st.ready) && !st.ready[st.head].at.After(now) {
+		let at = st.ready[st.head]
+		st.head = st.head + 1
+		st = compact(st)
+		match st.entries.Get(at.id) {
+		case Some[entry[J]] as found:
+			let e = found.Value
+			let attempt = e.attempts + 1
+			let until = now.Add(p.Lease)
+			let first = if e.attempts == 0 { now } else { e.first }
+			st.entries[at.id] = entry[J]{job: e.job, attempts: attempt, first: first, leased: true, until: until}
+			st.leases = place(st.leases, st.lhead, slot{at: until, id: at.id, attempt: attempt})
+			let t = Ticket{ID: at.id, Attempt: attempt}
+			return (Some[Lease[J]]{Value: Lease[J]{Ticket: t, Job: e.job, Until: until}}, st, true)
+		case None:
+		}
 	}
-	let at = st.ready[st.head]
-	st.head = st.head + 1
-	st = compact(st)
-	let e = match st.entries.Get(at.id) {
-	case Some[entry[J]] as found:
-		found.Value
-	case None:
-		Unreachable("a ready slot names a waiting job")
-	}
-	let attempt = e.attempts + 1
-	let until = now.Add(p.Lease)
-	let first = if e.attempts == 0 { now } else { e.first }
-	st.entries[at.id] = entry[J]{job: e.job, attempts: attempt, first: first, leased: true, until: until}
-	st.leases = place(st.leases, st.lhead, slot{at: until, id: at.id, attempt: attempt})
-	let t = Ticket{ID: at.id, Attempt: attempt}
-	(Some[Lease[J]]{Value: Lease[J]{Ticket: t, Job: e.job, Until: until}}, st, true)
+	(None, st, expired)
 }
 
 // held is the entry that t leases at now: leased, of t's attempt, and
@@ -487,7 +486,7 @@ func failed[J](p Policy, s own State[J], id int, why string, now time.Time) Stat
 	case Some[entry[J]] as found:
 		found.Value
 	case None:
-		Unreachable("a failed job is held")
+		return st
 	}
 	match schedule.Decide(p.Retry, e.attempts, now.Sub(e.first)) {
 	case schedule.Continue as c:

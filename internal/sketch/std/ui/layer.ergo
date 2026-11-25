@@ -159,7 +159,13 @@ func shift(x Length, size Length, lo Length, hi Length) Length {
 
 // layerOf is r's Layered when r is a layer.
 func layerOf[E](f mut Frame[E], r arena.Ref[node[E]]) Option[LayerNode[E]] {
-	match nodeAt(f, r).node {
+	let n = match nodeAt(f, r) {
+	case Some[node[E]] as found:
+		found.Value
+	case None:
+		return None
+	}
+	match n.node {
 	case LayerNode[E] as l:
 		Some{Value: l}
 	case _:
