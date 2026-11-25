@@ -3,6 +3,7 @@
 
 import logstat/access
 import logstat/stats
+import option
 
 let lines = []string{
 	"203.0.113.9 - - [08/Nov/2026:10:00:00 +0000] \"GET /api/users?id=7 HTTP/1.1\" 200 512 0.120",
@@ -47,9 +48,9 @@ test KeysCount {
 	assert Summarize(rs, 0, ByMethod, 1).Top[0] == stats.Count{Key: "GET", N: 4}
 	assert Summarize(rs, 0, ByPath, 5).Top[3] == stats.Count{Key: "/api/orders", N: 1}
 	match KeyNamed("host") {
-	case Some:
+	case option.Some:
 		assert false
-	case None:
+	case option.None:
 	}
 }
 

@@ -22,7 +22,7 @@ func View(origin string, p Page) html.Node {
 				html.Time([]html.Child{html.Text(e.Entry.Day)}),
 				html.Each(e.Entry.Body, func(para string) html.Node { html.P([]html.Child{html.Text(para)}) }),
 			}),
-			html.When(len(e.Related) > 0, html.Nav([]html.Child{
+			html.When(e.Related.Len() > 0, html.Nav([]html.Child{
 				html.H2([]html.Child{html.Text("See also")}),
 				html.Ul([]html.Child{html.Each(e.Related, func(r journal.Entry) html.Node { html.Li([]html.Child{link(r)}) })}),
 			})),

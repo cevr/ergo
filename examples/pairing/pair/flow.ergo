@@ -4,6 +4,7 @@
 // screen returns to the start after 30 s).
 
 import machines
+import option
 import pairing/pad
 import slices
 
@@ -21,7 +22,7 @@ law ThreeStrikes(n int, serial []int, code []int) {
 	let _, early = fold(Start(on), script)
 	let _, end = fold(Start(on), slices.Concat(script, attempt))
 	match (early, end) {
-	case (None, Some[Result] as r):
+	case (option.None, option.Some[Result] as r):
 		match r.Value {
 		case Locked:
 			true
@@ -38,30 +39,30 @@ law ThreeStrikes(n int, serial []int, code []int) {
 // fold steps s over the signals as the actor would, with the work's
 // results given as signals; it stops at Done. A Reject keeps the state,
 // as the live actor does; machines.Run would fail Rejected there.
-func fold(s Flow, signals []Signal) (Flow, Option[Result]) {
+func fold(s Flow, signals []Signal) (Flow, option.Option[Result]) {
 	let mut at = s
 	for e in signals {
 		match Step(at, e) {
-		case Done[Result] as d:
-			return (at, Some{d.Output})
-		case Enter[Flow] as x:
+		case machines.Done[Result] as d:
+			return (at, option.Some{d.Output})
+		case machines.Enter[Flow] as x:
 			at = x.Next
-		case Stay[Flow] as x:
+		case machines.Stay[Flow] as x:
 			at = x.Next
-		case Emit[Flow, Result] as x:
+		case machines.Emit[Flow, Result] as x:
 			at = x.Next
-		case Ignore, Tell[Flow, Result]:
-		case Reject:
+		case machines.Ignore, machines.Tell[Flow, Result]:
+		case machines.Reject:
 		}
 	}
-	(at, None)
+	(at, option.None)
 }
 
 // presses is n digit presses, from digits and then 1s.
 func presses(n int, digits []int) []Signal {
 	let mut out = []Signal{}
 	for i in 0..n {
-		let d = if i < len(digits) { (digits[i]%10 + 10) % 10 } else { 1 }
+		let d = if i < digits.Len() { (digits[i]%10 + 10) % 10 } else { 1 }
 		out = out.Append(Press{Key: pad.Digit{D: d}})
 	}
 	out
@@ -125,20 +126,20 @@ func signalOf(n int, text string) Signal {
 }
 
 // enters is the state a decision moves to, if it moves.
-func enters(d Decision[Flow, Result]) Option[Flow] {
+func enters(d machines.Decision[Flow, Result]) option.Option[Flow] {
 	match d {
-	case Enter[Flow] as x:
-		Some{x.Next}
-	case Stay[Flow] as x:
-		Some{x.Next}
-	case Emit[Flow, Result] as x:
-		Some{x.Next}
-	case Ignore, Tell[Flow, Result]:
-		None
-	case Reject:
-		None
-	case Done[Result]:
-		None
+	case machines.Enter[Flow] as x:
+		option.Some{x.Next}
+	case machines.Stay[Flow] as x:
+		option.Some{x.Next}
+	case machines.Emit[Flow, Result] as x:
+		option.Some{x.Next}
+	case machines.Ignore, machines.Tell[Flow, Result]:
+		option.None
+	case machines.Reject:
+		option.None
+	case machines.Done[Result]:
+		option.None
 	}
 }
 
@@ -146,7 +147,7 @@ func enters(d Decision[Flow, Result]) Option[Flow] {
 // comes from a sent code, a wrong code, or a key on the pad.
 func codeOpensRightly(s Flow, e Signal) bool {
 	match enters(Step(s, e)) {
-	case Some[Flow] as next:
+	case option.Some[Flow] as next:
 		match next.Value {
 		case EnteringCode:
 			match (s, e) {
@@ -162,7 +163,7 @@ func codeOpensRightly(s Flow, e Signal) bool {
 		case _:
 			true
 		}
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -181,9 +182,9 @@ law FailedReturns(n int, why string) {
 	let on = methodsOf(n)
 	let f = Failed{On: on, Why: why}
 	match timer(f) {
-	case Some[Timeout[Signal]] as t:
-		t.Value.In == 30s && enters(Step(f, t.Value.Signal)) == Some[Flow]{Start(on)}
-	case None:
+	case option.Some[machines.Timeout[Signal]] as t:
+		t.Value.In == 30s && enters(Step(f, t.Value.Signal)) == option.Some[Flow]{Start(on)}
+	case option.None:
 		false
 	}
 }
@@ -206,17 +207,17 @@ type Signal =
 // CancelAlwaysEnds: Cancel ends the flow with Cancelled from every state.
 law CancelAlwaysEnds(n int, digits []int, text string) {
 	match Step(sample(n, digits, text), Cancel) {
-	case Done[Result] as d:
+	case machines.Done[Result] as d:
 		d.Output == Cancelled
-	case Enter[Flow]:
+	case machines.Enter[Flow]:
 		false
-	case Stay[Flow]:
+	case machines.Stay[Flow]:
 		false
-	case Emit[Flow, Result], Tell[Flow, Result]:
+	case machines.Emit[Flow, Result], machines.Tell[Flow, Result]:
 		false
-	case Ignore:
+	case machines.Ignore:
 		false
-	case Reject:
+	case machines.Reject:
 		false
 	}
 }
@@ -232,7 +233,7 @@ func padOf(max int, digits []int) pad.Pad {
 	for d in digits {
 		p = pad.Press(p, pad.Digit{D: if d < 0 { -d % 10 } else { d % 10 }})
 	}
-	if len(digits)%2 == 0 {
+	if digits.Len()%2 == 0 {
 		for _ in 0..max {
 			p = pad.Press(p, pad.Digit{D: 7})
 		}
@@ -350,7 +351,7 @@ func Waits(s Flow) bool {
 // verifies the tag at once, whatever was typed.
 law TagSkipsSerial(n int, digits []int, tag string) {
 	let s = sample(n, digits, tag)
-	!Waits(s) || !methodsIn(s).Tag || enters(Step(s, Tapped{Tag: tag})) == Some[Flow]{Verifying{On: methodsIn(s), Via: ByTag{Tag: tag}}}
+	!Waits(s) || !methodsIn(s).Tag || enters(Step(s, Tapped{Tag: tag})) == option.Some[Flow]{Verifying{On: methodsIn(s), Via: ByTag{Tag: tag}}}
 }
 
 // methodsIn is the methods of a state.
@@ -372,112 +373,112 @@ func methodsIn(s Flow) Methods {
 }
 
 // into enters next, settled.
-func into(next Flow) Decision[Flow, Result] { Enter[Flow]{Next: Settle(next)} }
+func into(next Flow) machines.Decision[Flow, Result] { machines.Enter[Flow]{Next: Settle(next)} }
 
 // tap is a tag tap in a state that waits for the operator: it skips the
 // serial and verifies the tag, when the screen takes tags.
-func tap(on Methods, tag string) Decision[Flow, Result] {
+func tap(on Methods, tag string) machines.Decision[Flow, Result] {
 	if on.Tag {
 		into(Verifying{On: on, Via: ByTag{Tag: tag}})
 	} else {
-		Reject
+		machines.Reject
 	}
 }
 
 // wrong is a wrong code: the code pad again, or Locked at the last try.
-func wrong(v Verifying) Decision[Flow, Result] {
+func wrong(v Verifying) machines.Decision[Flow, Result] {
 	match v.Via {
 	case ByCode as b:
 		if b.Tries+1 >= MaxTries() {
-			Done[Result]{Output: Locked{Serial: b.Serial}}
+			machines.Done[Result]{Output: Locked{Serial: b.Serial}}
 		} else {
 			into(EnteringCode{On: v.On, Serial: b.Serial, Pad: pad.Empty(CodeDigits()), Tries: b.Tries + 1})
 		}
 	case ByTag:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // Step is the flow's step. Cancel ends it from every state; each state
 // then lists what it takes, and ignores the rest.
-func Step(s Flow, e Signal) Decision[Flow, Result] {
+func Step(s Flow, e Signal) machines.Decision[Flow, Result] {
 	match (s, e) {
 	case (_, Cancel):
-		Done[Result]{Output: Cancelled}
+		machines.Done[Result]{Output: Cancelled}
 	case (Options as o, UseSerial):
 		if o.On.Serial {
 			into(EnteringSerial{On: o.On, Pad: pad.Empty(SerialDigits())})
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (Options as o, Tapped as c):
 		tap(o.On, c.Tag)
 	case (Options, _):
-		Ignore
+		machines.Ignore
 	case (EnteringSerial as p, Press as k):
-		Stay[Flow]{Next: EnteringSerial{..p, Pad: pad.Press(p.Pad, k.Key)}}
+		machines.Stay[Flow]{Next: EnteringSerial{..p, Pad: pad.Press(p.Pad, k.Key)}}
 	case (EnteringSerial as p, Submit):
 		if pad.Full(p.Pad) {
 			into(SendingCode{On: p.On, Serial: p.Pad.Text})
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (EnteringSerial as p, Tapped as c):
 		tap(p.On, c.Tag)
 	case (EnteringSerial, _):
-		Ignore
+		machines.Ignore
 	case (SendingCode as w, CodeSent):
 		into(EnteringCode{On: w.On, Serial: w.Serial, Pad: pad.Empty(CodeDigits()), Tries: 0})
 	case (SendingCode as w, SendFailed as f):
 		into(Failed{On: w.On, Why: f.Why})
 	case (SendingCode, _):
-		Ignore
+		machines.Ignore
 	case (EnteringCode as c, Press as k):
-		Stay[Flow]{Next: EnteringCode{..c, Pad: pad.Press(c.Pad, k.Key)}}
+		machines.Stay[Flow]{Next: EnteringCode{..c, Pad: pad.Press(c.Pad, k.Key)}}
 	case (EnteringCode as c, Submit):
 		if pad.Full(c.Pad) {
 			into(Verifying{On: c.On, Via: ByCode{Serial: c.Serial, Code: c.Pad.Text, Tries: c.Tries}})
 		} else {
-			Reject
+			machines.Reject
 		}
 	case (EnteringCode as c, Tapped as sc):
 		tap(c.On, sc.Tag)
 	case (EnteringCode, _):
-		Ignore
+		machines.Ignore
 	case (Verifying, Accepted as a):
-		Done[Result]{Output: Paired{Who: a.Who}}
+		machines.Done[Result]{Output: Paired{Who: a.Who}}
 	case (Verifying as v, WrongCode):
 		wrong(v)
 	case (Verifying as v, UnknownTag):
 		into(Failed{On: v.On, Why: "unknown tag"})
 	case (Verifying, _):
-		Ignore
+		machines.Ignore
 	case (Failed as f, Back):
 		into(Options{On: f.On})
 	case (Failed as f, Tapped as c):
 		tap(f.On, c.Tag)
 	case (Failed, _):
-		Ignore
+		machines.Ignore
 	}
 }
 
 // timer is each state's timer: an error screen returns to the start after
 // 30 s. The runner owns it: a re-entry restarts it, and it never fires
 // after its entry ended.
-func timer(s Flow) Option[Timeout[Signal]] {
+func timer(s Flow) option.Option[machines.Timeout[Signal]] {
 	match s {
 	case Failed:
-		Some{Timeout[Signal]{In: 30s, Signal: Back}}
+		option.Some{machines.Timeout[Signal]{In: 30s, Signal: Back}}
 	case Options:
-		None
+		option.None
 	case EnteringSerial:
-		None
+		option.None
 	case SendingCode:
-		None
+		option.None
 	case EnteringCode:
-		None
+		option.None
 	case Verifying:
-		None
+		option.None
 	}
 }
 
@@ -485,10 +486,10 @@ func timer(s Flow) Option[Timeout[Signal]] {
 // state's entry commits and interrupts it when the entry ends, so a Cancel
 // during a verify drops its answer. WrongCode and UnknownTag are signals
 // and need no map; DeviceUnreachable is mapped to SendFailed.
-func work(s Flow) Option[machines.Work[Signal, Devices]] {
+func work(s Flow) option.Option[machines.Work[Signal, Devices]] {
 	match s {
 	case SendingCode as w:
-		Some{machines.Attempt(func() Signal fails DeviceUnreachable needs Devices {
+		option.Some{machines.Attempt(func() Signal fails DeviceUnreachable needs Devices {
 			try Devices.Send(w.Serial)
 			CodeSent
 		}, func(sent Signal) Signal { sent }, func(f) {
@@ -500,23 +501,23 @@ func work(s Flow) Option[machines.Work[Signal, Devices]] {
 	case Verifying as v:
 		match v.Via {
 		case ByCode as b:
-			Some{machines.Attempt(func() Device fails WrongCode needs Devices { try Devices.Check(b.Serial, b.Code) }, func(m Device) Signal { Accepted{Who: m} }, func(failure) {
+			option.Some{machines.Attempt(func() Device fails WrongCode needs Devices { try Devices.Check(b.Serial, b.Code) }, func(m Device) Signal { Accepted{Who: m} }, func(failure) {
 				let wrong Signal = failure
 				wrong
 			})}
 		case ByTag as c:
-			Some{machines.Attempt(func() Device fails UnknownTag needs Devices { try Devices.Tag(c.Tag) }, func(m Device) Signal { Accepted{Who: m} }, func(failure) {
+			option.Some{machines.Attempt(func() Device fails UnknownTag needs Devices { try Devices.Tag(c.Tag) }, func(m Device) Signal { Accepted{Who: m} }, func(failure) {
 				let unknown Signal = failure
 				unknown
 			})}
 		}
 	case Options:
-		None
+		option.None
 	case EnteringSerial:
-		None
+		option.None
 	case EnteringCode:
-		None
+		option.None
 	case Failed:
-		None
+		option.None
 	}
 }

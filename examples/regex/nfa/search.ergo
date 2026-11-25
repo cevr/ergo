@@ -150,7 +150,7 @@ func Measure(c SearchCompiled, text string) Work {
 	}
 	let mut i = next
 	let mut at = []int{}
-	for i <= len(text) {
+	for i <= text.Len() {
 		if i == next {
 			// Union this candidate with earlier live configurations. Resetting
 			// here loses earlier matches; rescanning each suffix is quadratic.
@@ -164,10 +164,10 @@ func Measure(c SearchCompiled, text string) Work {
 			work.Matched = true
 			return work
 		}
-		if i == len(text) {
+		if i == text.Len() {
 			return work
 		}
-		if len(at) == 0 {
+		if at.Len() == 0 {
 			if next < 0 {
 				return work
 			}

@@ -1,3 +1,4 @@
+import time
 import timeout
 
 type NotFound { Name string }
@@ -24,11 +25,11 @@ func Answered(answer Answer, name string) bool {
 }
 
 // A signature lists every expected failure and every service the caller must supply.
-func Lookup(name string) Answer fails NotFound | timeout.Expired needs Resolver | Scheduler {
+func Lookup(name string) Answer fails NotFound | timeout.Expired needs Resolver | time.Scheduler {
 	timeout.After(2s) { Resolver.Resolve(name) } // the block runs as a child task; at 2s it is stopped
 }
 
-func Address(name string) string needs Resolver | Scheduler {
+func Address(name string) string needs Resolver | time.Scheduler {
 	let answer = Lookup(name) catch {
 	case NotFound:
 		Answer{Name: name, Addr: "unknown"}

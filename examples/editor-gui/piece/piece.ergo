@@ -29,8 +29,8 @@ type Buffer {
 
 // New is the buffer of text.
 func New(text string) Buffer {
-	let pieces = if text == "" { []Piece{} } else { []Piece{Piece{Origin: Original, Start: 0, Size: len(text)}} }
-	Buffer{original: text, added: "", pieces: pieces, size: len(text), originalBreaks: breaks([]int{}, text, 0), addedBreaks: []int{}}
+	let pieces = if text == "" { []Piece{} } else { []Piece{Piece{Origin: Original, Start: 0, Size: text.Len()}} }
+	Buffer{original: text, added: "", pieces: pieces, size: text.Len(), originalBreaks: breaks([]int{}, text, 0), addedBreaks: []int{}}
 }
 
 // breaks is into with the offsets of text's line breaks appended, each
@@ -39,7 +39,7 @@ func breaks(into []int, text string, base int) []int {
 	let mut out = into
 	let mut at = 0
 	for {
-		let i = strings.Index(strings.Slice(text, at, len(text)), "\n")
+		let i = strings.Index(strings.Slice(text, at, text.Len()), "\n")
 		if i < 0 {
 			break
 		}
@@ -52,7 +52,7 @@ func breaks(into []int, text string, base int) []int {
 // below is how many of the ascending offsets are below v.
 func below(offsets []int, v int) int {
 	let mut lo = 0
-	let mut hi = len(offsets)
+	let mut hi = offsets.Len()
 	for lo < hi {
 		let mid = (lo + hi) / 2
 		if offsets[mid] < v {
@@ -128,10 +128,10 @@ func Lines(b Buffer) int { LineOf(b, b.size) }
 func Len(b Buffer) int { b.size }
 
 // Pieces is how many pieces hold the text.
-func Pieces(b Buffer) int { len(b.pieces) }
+func Pieces(b Buffer) int { b.pieces.Len() }
 
 // AddedLen is the length of the added buffer, which only grows.
-func AddedLen(b Buffer) int { len(b.added) }
+func AddedLen(b Buffer) int { b.added.Len() }
 
 func source(b Buffer, p Piece) string {
 	match p.Origin {
@@ -189,7 +189,7 @@ func Matches(b Buffer, query string) []int {
 	let mut h = seek(b, query, 0, 0, 0)
 	for h.at >= 0 {
 		out = out.Append(h.at)
-		h = seek(b, query, h.at+len(query), h.k, h.offset)
+		h = seek(b, query, h.at+query.Len(), h.k, h.offset)
 	}
 	out
 }
@@ -203,7 +203,7 @@ func Count(b Buffer, query string) int {
 	let mut h = seek(b, query, 0, 0, 0)
 	for h.at >= 0 {
 		n = n + 1
-		h = seek(b, query, h.at+len(query), h.k, h.offset)
+		h = seek(b, query, h.at+query.Len(), h.k, h.offset)
 	}
 	n
 }
@@ -221,7 +221,7 @@ func seek(b Buffer, query string, from int, k int, offset int) hit {
 	}
 	let mut at = offset
 	let mut i = k
-	for i < len(b.pieces) {
+	for i < b.pieces.Len() {
 		let p = b.pieces[i]
 		let end = at + p.Size
 		if end > lo {
@@ -232,8 +232,8 @@ func seek(b Buffer, query string, from int, k int, offset int) hit {
 			}
 			// No match lies inside the piece, so one that starts in it
 			// ends past it, and starts in the query's length before end.
-			let w = if end-len(query)+1 > lo { end - len(query) + 1 } else { lo }
-			let across = strings.Index(Slice(b, w, end+len(query)-1), query)
+			let w = if end-query.Len()+1 > lo { end - query.Len() + 1 } else { lo }
+			let across = strings.Index(Slice(b, w, end+query.Len()-1), query)
 			if across >= 0 {
 				return hit{at: w + across, k: i, offset: at}
 			}
@@ -252,7 +252,7 @@ func Insert(b Buffer, at int, text string) Buffer {
 		return b
 	}
 	let pos = clampTo(at, 0, b.size)
-	let start = len(b.added)
+	let start = b.added.Len()
 	let added = b.added + text
 	let mut out = []Piece{}
 	let mut done = false
@@ -264,14 +264,14 @@ func Insert(b Buffer, at int, text string) Buffer {
 		}
 		let end = offset + p.Size
 		if pos == end && isAdded(p) && p.Start+p.Size == start {
-			out = out.Append(Piece{..p, Size: p.Size + len(text)})
+			out = out.Append(Piece{..p, Size: p.Size + text.Len()})
 			done = true
 		} else if pos >= offset && pos < end {
 			let left = pos - offset
 			if left > 0 {
 				out = out.Append(Piece{..p, Size: left})
 			}
-			out = out.Append(Piece{Origin: Added, Start: start, Size: len(text)})
+			out = out.Append(Piece{Origin: Added, Start: start, Size: text.Len()})
 			out = out.Append(Piece{..p, Start: p.Start + left, Size: p.Size - left})
 			done = true
 		} else {
@@ -280,9 +280,9 @@ func Insert(b Buffer, at int, text string) Buffer {
 		offset = end
 	}
 	if !done {
-		out = out.Append(Piece{Origin: Added, Start: start, Size: len(text)})
+		out = out.Append(Piece{Origin: Added, Start: start, Size: text.Len()})
 	}
-	Buffer{..b, added: added, pieces: out, size: b.size + len(text), addedBreaks: breaks(b.addedBreaks, text, start)}
+	Buffer{..b, added: added, pieces: out, size: b.size + text.Len(), addedBreaks: breaks(b.addedBreaks, text, start)}
 }
 
 // Delete is b without the n bytes from at (both clamped to the text).
@@ -338,12 +338,12 @@ type Op = Put{At int, Text string} | Cut{At int, N int}
 func model(text string, op Op) string {
 	match op {
 	case Put as p:
-		let at = mod(p.At, len(text)+1)
-		strings.Slice(text, 0, at) + p.Text + strings.Slice(text, at, len(text))
+		let at = mod(p.At, text.Len()+1)
+		strings.Slice(text, 0, at) + p.Text + strings.Slice(text, at, text.Len())
 	case Cut as c:
-		let at = mod(c.At, len(text)+1)
-		let end = clampTo(at+clampTo(c.N, 0, len(text)), at, len(text))
-		strings.Slice(text, 0, at) + strings.Slice(text, end, len(text))
+		let at = mod(c.At, text.Len()+1)
+		let end = clampTo(at+clampTo(c.N, 0, text.Len()), at, text.Len())
+		strings.Slice(text, 0, at) + strings.Slice(text, end, text.Len())
 	}
 }
 
@@ -367,12 +367,12 @@ law BufferEqualsModel(base string, ops []Op, from int, to int) {
 	for op in ops {
 		b = edit(b, op)
 		text = model(text, op)
-		if Text(b) != text || Len(b) != len(text) {
+		if Text(b) != text || Len(b) != text.Len() {
 			return false
 		}
 	}
-	let lo = mod(from, len(text)+1)
-	let hi = mod(to, len(text)+1)
+	let lo = mod(from, text.Len()+1)
+	let hi = mod(to, text.Len()+1)
 	let want = if lo < hi { strings.Slice(text, lo, hi) } else { "" }
 	Slice(b, lo, hi) == want
 }
@@ -388,18 +388,18 @@ law LinesEqualModel(base string, ops []Op, at int) {
 		text = model(text, op)
 	}
 	let lines = strings.Split(text, "\n")
-	if Lines(b) != len(lines) {
+	if Lines(b) != lines.Len() {
 		return false
 	}
 	let mut start = 0
-	for i in 0..len(lines) {
-		let end = start + len(lines[i])
+	for i in 0..lines.Len() {
+		let end = start + lines[i].Len()
 		if LineStart(b, i+1) != start || LineEnd(b, i+1) != end {
 			return false
 		}
 		start = end + 1
 	}
-	let pos = mod(at, len(text)+1)
+	let pos = mod(at, text.Len()+1)
 	LineOf(b, pos) == strings.Count(strings.Slice(text, 0, pos), "\n")+1
 }
 
@@ -416,8 +416,8 @@ law SearchEqualsModel(base string, unit string, ops []Op, from int, start int, s
 		b = edit(b, op)
 		text = model(text, op)
 	}
-	let lo = mod(start, len(text)+1)
-	let hi = clampTo(lo+mod(size, 6)+1, lo, len(text))
+	let lo = mod(start, text.Len()+1)
+	let hi = clampTo(lo+mod(size, 6)+1, lo, text.Len())
 	let query = match mod(pick, 3) {
 	case 0:
 		strings.Slice(text, lo, hi)
@@ -426,15 +426,15 @@ law SearchEqualsModel(base string, unit string, ops []Op, from int, start int, s
 	case _:
 		other
 	}
-	let at = mod(from, len(text)+1)
-	let i = strings.Index(strings.Slice(text, at, len(text)), query)
+	let at = mod(from, text.Len()+1)
+	let i = strings.Index(strings.Slice(text, at, text.Len()), query)
 	let want = if i >= 0 { at + i } else { -1 }
 	let found = Matches(b, query)
 	let plain = matchesIn(text, query)
-	if Index(b, query, at) != want || Count(b, query) != len(plain) || len(found) != len(plain) {
+	if Index(b, query, at) != want || Count(b, query) != plain.Len() || found.Len() != plain.Len() {
 		return false
 	}
-	for k in 0..len(plain) {
+	for k in 0..plain.Len() {
 		if found[k] != plain[k] {
 			return false
 		}
@@ -451,12 +451,12 @@ func matchesIn(text string, query string) []int {
 	}
 	let mut at = 0
 	for {
-		let i = strings.Index(strings.Slice(text, at, len(text)), query)
+		let i = strings.Index(strings.Slice(text, at, text.Len()), query)
 		if i < 0 {
 			break
 		}
 		out = out.Append(at + i)
-		at = at + i + len(query)
+		at = at + i + query.Len()
 	}
 	out
 }
@@ -470,7 +470,7 @@ law InsertThenDeleteRestores(base string, ops []Op, at int, text string) {
 	}
 	let before = Text(b)
 	let pos = mod(at, Len(b)+1)
-	Text(Delete(Insert(b, pos, text), pos, len(text))) == before
+	Text(Delete(Insert(b, pos, text), pos, text.Len())) == before
 }
 
 // AddedOnlyGrows: no edit writes the added buffer below its end, so a

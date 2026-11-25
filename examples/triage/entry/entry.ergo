@@ -24,7 +24,7 @@ type Bad { Line int, Text string }
 // and a host, separated by spaces.
 func Parse(text string, n int) Entry fails Bad {
 	let fields = strings.Fields(text)
-	if len(fields) != 2 {
+	if fields.Len() != 2 {
 		return Bad{Line: n, Text: text}
 	}
 	let severity = rank(fields[0])
@@ -36,7 +36,7 @@ func Parse(text string, n int) Entry fails Bad {
 
 // rank is the rank of the severity name, or -1 when it names none.
 func rank(name string) int {
-	for i in 0..len(Severities) {
+	for i in 0..Severities.Len() {
 		if Severities[i] == name {
 			return i
 		}

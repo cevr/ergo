@@ -7,6 +7,7 @@
 import actor
 import io
 import machines
+import option
 import strconv
 import strings
 import time
@@ -15,61 +16,61 @@ import shards/shards
 // Command is a line of the script.
 type Command = Send{S shards.Signal} | Wait{} | Unknown{Line string}
 
-func numeral(s string) Option[int] {
+func numeral(s string) option.Option[int] {
 	let n = strconv.Atoi(s) catch {
 	case strconv.Malformed:
-		return None
+		return option.None
 	case strconv.OutOfRange:
-		return None
+		return option.None
 	}
-	Some{n}
+	option.Some{n}
 }
 
 // share reads disk:DEVICE:SIZE or tape:LABEL:SIZE.
-func share(word string) Option[shards.Share] {
+func share(word string) option.Option[shards.Share] {
 	let parts = strings.Split(word, ":")
-	if len(parts) != 3 {
-		return None
+	if parts.Len() != 3 {
+		return option.None
 	}
 	match numeral(parts[2]) {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		match parts[0] {
 		case "disk":
-			Some[shards.Share]{shards.Disk{Device: parts[1], Size: n.Value}}
+			option.Some[shards.Share]{shards.Disk{Device: parts[1], Size: n.Value}}
 		case "tape":
-			Some[shards.Share]{shards.Tape{Label: parts[1], Size: n.Value}}
+			option.Some[shards.Share]{shards.Tape{Label: parts[1], Size: n.Value}}
 		case _:
-			None
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
 // Parse reads a line.
 func Parse(line string) Command {
 	let words = strings.Fields(line)
-	if len(words) == 0 {
+	if words.Len() == 0 {
 		return Unknown{Line: line}
 	}
 	match words[0] {
 	case "add":
-		if len(words) != 3 {
+		if words.Len() != 3 {
 			return Unknown{Line: line}
 		}
 		match numeral(words[2]) {
-		case Some[int] as n:
+		case option.Some[int] as n:
 			Send{S: shards.Add{Name: words[1], Size: n.Value}}
-		case None:
+		case option.None:
 			Unknown{Line: line}
 		}
 	case "place":
 		let mut shares = []shards.Share{}
-		for i in 1..len(words) {
+		for i in 1..words.Len() {
 			match share(words[i]) {
-			case Some[shards.Share] as t:
+			case option.Some[shards.Share] as t:
 				shares = shares.Append(t.Value)
-			case None:
+			case option.None:
 				return Unknown{Line: line}
 			}
 		}
@@ -104,9 +105,9 @@ func Show(s shards.Job) string {
 	match s {
 	case shards.Staging as b:
 		let note = if b.Note == "" { "" } else { " (\(b.Note))" }
-		"staging: \(len(b.Parts)) parts, \(Fixed(shards.Total(b.Parts)))\(note)"
+		"staging: \(b.Parts.Len()) parts, \(Fixed(shards.Total(b.Parts)))\(note)"
 	case shards.Writing as p:
-		"writing \(Fixed(shards.Total(p.Parts))) to \(len(p.Shares)) shares"
+		"writing \(Fixed(shards.Total(p.Parts))) to \(p.Shares.Len()) shares"
 	case shards.RollingBack as v:
 		"erasing \(refs(v.Refs))"
 	case shards.Summary as r:
@@ -164,20 +165,20 @@ func onSummary(s shards.Job) bool {
 
 // Run plays the script on standard input against a write that covers
 // through the Targets in the context, on clock.
-func Run(clock time.Manual) needs Console | io.Stdin | shards.Targets | Scheduler {
+func Run(clock time.Manual) needs io.Console | io.Stdin | shards.Targets | time.Scheduler {
 	let a = actor.StartMachine(machines.Start(shards.Shards{}, []shards.Part{}), 8, func(r shards.Result) {})
-	Console.Println("screen: \(Show(a.State()))")
+	io.Console.Println("screen: \(Show(a.State()))")
 	let mut ended = false
 	for line in io.Stdin.Lines() {
-		Console.Println("> \(line)")
+		io.Console.Println("> \(line)")
 		if ended {
-			Console.Println("(the write has ended)")
+			io.Console.Println("(the write has ended)")
 			continue
 		}
 		let mut waited = false
 		match Parse(line) {
 		case Unknown as u:
-			Console.Println("? unknown command: \(u.Line)")
+			io.Console.Println("? unknown command: \(u.Line)")
 			continue
 		case Wait:
 			// The summary's timer sleeps from its commit on, so the clock
@@ -188,15 +189,15 @@ func Run(clock time.Manual) needs Console | io.Stdin | shards.Targets | Schedule
 			let d = a.Ask(cmd.S) catch {
 			case actor.Stopped:
 				ended = true
-				Reject
+				machines.Reject
 			}
 			match d {
-			case Reject:
-				Console.Println("(refused)")
-			case Ignore:
-				Console.Println("(ignored)")
-			case Done[shards.Result] as r:
-				Console.Println(Told(r.Output))
+			case machines.Reject:
+				io.Console.Println("(refused)")
+			case machines.Ignore:
+				io.Console.Println("(ignored)")
+			case machines.Done[shards.Result] as r:
+				io.Console.Println(Told(r.Output))
 				ended = true
 			case _:
 			}
@@ -208,14 +209,14 @@ func Run(clock time.Manual) needs Console | io.Stdin | shards.Targets | Schedule
 		// writes have answered, an erase is done, a waited summary shown.
 		let s = actor.WaitFor(a, func(s shards.Job) bool { !busy(s) && !(waited && onSummary(s)) }) catch {
 		case actor.Stopped:
-			Console.Println(Ending(actor.ExitOf(a)))
+			io.Console.Println(Ending(actor.ExitOf(a)))
 			ended = true
 			continue
 		}
-		Console.Println("screen: \(Show(s))")
+		io.Console.Println("screen: \(Show(s))")
 	}
 	a.Stop()
 	if !ended {
-		Console.Println(Ending(actor.ExitOf(a)))
+		io.Console.Println(Ending(actor.ExitOf(a)))
 	}
 }

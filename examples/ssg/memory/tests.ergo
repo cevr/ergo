@@ -15,7 +15,7 @@ test SourceListsSorted {
 
 test SourceListedPagesRead {
 	for p in src.Pages() {
-		assert len(try src.ReadPage(p)) == 1
+		assert (try src.ReadPage(p)).Len() == 1
 	}
 }
 

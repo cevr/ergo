@@ -1,5 +1,6 @@
 import json
 import deploys/deploys
+import option
 import strings
 
 // Handle answers r from the Store in the context. Each route is matched
@@ -68,10 +69,10 @@ func createThenShowHolds(store deploys.Store, d deploys.Draft) bool {
 			return created.Status == 422
 		}
 		match HeaderOf(created.Headers, "Location") {
-		case Some[string] as at:
+		case option.Some[string] as at:
 			let shown = Handle(Request{Method: "GET", Path: at.Value, Headers: []Header{}, Body: ""})
 			created.Status == 201 && shown.Status == 200 && shown.Body == created.Body
-		case None:
+		case option.None:
 			false
 		}
 	}
@@ -84,12 +85,12 @@ type Unsupported { Type string }
 // there is one, is application/json, with any parameters.
 func draftOf(r Request) deploys.Draft fails Unsupported | json.Malformed | BadBody {
 	match HeaderOf(r.Headers, "Content-Type") {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		let media = strings.TrimSpace(strings.Split(t.Value, ";")[0])
 		if !strings.EqualFold(media, "application/json") {
 			return Unsupported{Type: media}
 		}
-	case None:
+	case option.None:
 	}
 	try DraftOf(r.Body)
 }

@@ -58,13 +58,13 @@ func Screenshot[S Screen](s mut S) []string {
 	let mut rows = []string{}
 	for line in 0..s.History()+s.Rows() {
 		let r = Row(s, line, true)
-		let mut end = len(r)
+		let mut end = r.Len()
 		for end > 0 && r[end-1] == ' ' {
 			end -= 1
 		}
 		rows = rows.Append(r[0:end])
 	}
-	let mut n = len(rows)
+	let mut n = rows.Len()
 	for n > 0 && rows[n-1] == "" {
 		n -= 1
 	}

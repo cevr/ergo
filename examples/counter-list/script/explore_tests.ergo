@@ -1,4 +1,5 @@
 import actor
+import core
 import counterlist/rows
 import counterlist/screen
 import gen
@@ -19,8 +20,8 @@ func keysStrictlyIncreasing(r rows.Rows) bool {
 
 func exploreCounterList(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
-		let app = actor.StartMachine(rows.Counters{}, 16, func(o Never) { let _ = o })
+	with context { time.Scheduler: clock } {
+		let app = actor.StartMachine(rows.Counters{}, 16, func(o core.Never) { let _ = o })
 		let mut h = ui.NewTestHost(app, screen.Screen, clock, 64) catch {
 		case ui.BadPatch as bp:
 			app.Stop()
@@ -39,7 +40,7 @@ func exploreCounterList(steps int) ui.Finding needs gen.Draws {
 			),
 			temporal.Always[ui.ExploreSnapshot[rows.Rows, rows.Signal]](
 				temporal.Named[ui.ExploreSnapshot[rows.Rows, rows.Signal]]("next-key-at-least-initial", func(s ui.ExploreSnapshot[rows.Rows, rows.Signal]) bool {
-					s.State.Next >= 3 && len(s.State.Items) <= s.State.Next
+					s.State.Next >= 3 && s.State.Items.Len() <= s.State.Next
 				}),
 			),
 		}

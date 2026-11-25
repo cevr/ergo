@@ -7,6 +7,7 @@
 
 import http
 import maps
+import option
 import slices
 import strconv
 import strings
@@ -30,7 +31,7 @@ type Signer {
 	law SignKeepsTheRequest(method string, path string, query []http.Field, header []http.Field, body string) {
 		let r = http.Request{Method: method, Path: path, RawPath: path, Query: query, Header: header, Body: http.Buffered{Text: body}}
 		let s = Sign(r)
-		s.Method == r.Method && s.Path == r.Path && s.RawPath == r.RawPath && s.Query == r.Query && s.Body == r.Body && len(s.Header) >= len(r.Header) && s.Header[0:len(r.Header)] == r.Header
+		s.Method == r.Method && s.Path == r.Path && s.RawPath == r.RawPath && s.Query == r.Query && s.Body == r.Body && s.Header.Len() >= r.Header.Len() && s.Header[0:r.Header.Len()] == r.Header
 	},
 }
 
@@ -147,43 +148,43 @@ func IntText(n int) string { strconv.Itoa(n) }
 func BoolText(b bool) string { strconv.FormatBool(b) }
 
 // TextIn is the first value of the header name, or None.
-func TextIn(h []http.Field, name string) Option[string] { http.Header(h, name) }
+func TextIn(h []http.Field, name string) option.Option[string] { http.Header(h, name) }
 
 // IntIn reads the header name as a number.
-func IntIn(h []http.Field, name string) Option[int] fails Malformed {
+func IntIn(h []http.Field, name string) option.Option[int] fails Malformed {
 	match http.Header(h, name) {
-	case Some as v:
+	case option.Some as v:
 		let n = strconv.Atoi(v.Value) catch {
 		case _:
 			return Malformed{Reason: "header \(name) is not a number: \(v.Value)"}
 		}
-		Some{n}
-	case None:
-		None
+		option.Some{n}
+	case option.None:
+		option.None
 	}
 }
 
 // BoolIn reads the header name as a flag.
-func BoolIn(h []http.Field, name string) Option[bool] fails Malformed {
+func BoolIn(h []http.Field, name string) option.Option[bool] fails Malformed {
 	match http.Header(h, name) {
-	case Some as v:
+	case option.Some as v:
 		let b = strconv.ParseBool(v.Value) catch {
 		case _:
 			return Malformed{Reason: "header \(name) is not a flag: \(v.Value)"}
 		}
-		Some{b}
-	case None:
-		None
+		option.Some{b}
+	case option.None:
+		option.None
 	}
 }
 
 // TimeIn reads the header name as a timestamp written in f.
-func TimeIn(h []http.Field, name string, f Format) Option[time.Time] fails Malformed {
+func TimeIn(h []http.Field, name string, f Format) option.Option[time.Time] fails Malformed {
 	match http.Header(h, name) {
-	case Some as v:
-		Some[time.Time]{try timeOf(v.Value, f, name)}
-	case None:
-		None
+	case option.Some as v:
+		option.Some[time.Time]{try timeOf(v.Value, f, name)}
+	case option.None:
+		option.None
 	}
 }
 
@@ -228,9 +229,9 @@ func PutPrefixed(h []http.Field, prefix string, m Map[string, string]) []http.Fi
 	let mut out = h
 	for k in slices.Sorted(maps.Keys(m)) {
 		match m.Get(k) {
-		case Some as v:
+		case option.Some as v:
 			out = out.Append(http.Field{Name: prefix + k, Value: v.Value})
-		case None:
+		case option.None:
 		}
 	}
 	out

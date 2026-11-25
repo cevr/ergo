@@ -1,6 +1,7 @@
 import io
 import deploys/api
 import deploys/deploys
+import option
 import strings
 
 // Serve answers each request of text in order on standard output, from
@@ -10,9 +11,9 @@ import strings
 func Serve(text string) int needs deploys.Store | io.Stdout {
 	let mut at = 0
 	let mut served = 0
-	for _ in 0..len(text)+1 {
+	for _ in 0..text.Len()+1 {
 		at = blankLines(text, at)
-		if at >= len(text) {
+		if at >= text.Len() {
 			break
 		}
 		let r, next = ReadRequest(text, at) catch {
@@ -37,9 +38,9 @@ func Serve(text string) int needs deploys.Store | io.Stdout {
 // Connection: close header.
 func WantsClose(r api.Request) bool {
 	match api.HeaderOf(r.Headers, "Connection") {
-	case Some[string] as c:
+	case option.Some[string] as c:
 		strings.EqualFold(strings.TrimSpace(c.Value), "close")
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -53,7 +54,7 @@ func Closing(r api.Response) api.Response {
 // send a line end after a body (RFC 9112, 2.2).
 func blankLines(text string, at int) int {
 	let mut i = at
-	for _ in at..len(text) {
+	for _ in at..text.Len() {
 		if text[i] == '\r' || text[i] == '\n' {
 			i = i + 1
 		} else {

@@ -4,6 +4,7 @@
 
 import machines
 import math
+import option
 import raytrace/geom
 
 // Material is how a surface turns light: a diffuse surface scatters it
@@ -26,16 +27,16 @@ type Ended = Over{Bounces int}
 
 // PathStep is the transition: the sky, a light or an absorbing surface
 // ends the path; a scattering surface goes on, up to MaxBounces.
-func PathStep(p Path, e Event) Decision[Path, Ended] {
+func PathStep(p Path, e Event) machines.Decision[Path, Ended] {
 	match (p, e) {
 	case (Bouncing as b, Scattered):
 		if b.Bounce+1 >= MaxBounces {
-			Done[Ended]{Output: Over{Bounces: b.Bounce + 1}}
+			machines.Done[Ended]{Output: Over{Bounces: b.Bounce + 1}}
 		} else {
-			Stay[Path]{Next: Bouncing{Bounce: b.Bounce + 1}}
+			machines.Stay[Path]{Next: Bouncing{Bounce: b.Bounce + 1}}
 		}
 	case (Bouncing as b, Escaped), (Bouncing as b, Emitted), (Bouncing as b, Absorbed):
-		Done[Ended]{Output: Over{Bounces: b.Bounce + 1}}
+		machines.Done[Ended]{Output: Over{Bounces: b.Bounce + 1}}
 	}
 }
 
@@ -114,9 +115,9 @@ func Trace(sc Scene, r geom.Ray, s mut Stream) geom.Vec {
 		case Absorbed, Scattered:
 		}
 		match PathStep(p, e) {
-		case Stay[Path] as st:
+		case machines.Stay[Path] as st:
 			p = st.Next
-		case Done[Ended], Enter[Path], Emit[Path, Ended], Tell[Path, Ended], Ignore, Reject:
+		case machines.Done[Ended], machines.Enter[Path], machines.Emit[Path, Ended], machines.Tell[Path, Ended], machines.Ignore, machines.Reject:
 			return color
 		}
 	}
@@ -127,10 +128,10 @@ func Trace(sc Scene, r geom.Ray, s mut Stream) geom.Vec {
 func bounce(sc Scene, ray mut geom.Ray, through mut geom.Vec, s mut Stream) Event {
 	let r = *ray
 	match geom.Nearest(sc.Tree, r, Near, Far) {
-	case None:
+	case option.None:
 		let t = 0.5 * (geom.Unit(r.Dir).Y + 1.0)
 		Escaped{Sky: geom.Add(geom.Scale(geom.V(1.0, 1.0, 1.0), 1.0-t), geom.Scale(geom.V(0.5, 0.7, 1.0), t))}
-	case Some[geom.Hit] as h:
+	case option.Some[geom.Hit] as h:
 		let shape = sc.Tree.Shapes[h.Value.Shape]
 		let at = geom.At(r, h.Value.T)
 		let outward = geom.Normal(shape, at)

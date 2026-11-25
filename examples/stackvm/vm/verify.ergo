@@ -10,6 +10,7 @@
 // ties the two loops: on every program that Verify accepts, Exec gives
 // Checked's result or Checked's trap, for any fuel.
 
+import option
 import slices
 
 // Verified is a program that Verify accepted, with the room Exec
@@ -74,27 +75,27 @@ type verifier { program []Instr, entries []int, fn []int, sums []summary, at []i
 
 // Verify is program as a Verified program, or None when Exec cannot run
 // it.
-func Verify(program []Instr) Option[Verified] {
-	let size = len(program)
+func Verify(program []Instr) option.Option[Verified] {
+	let size = program.Len()
 	let mut v = verifier{program: program, entries: []int{0}, fn: slices.Repeat([]int{-1}, size+1), sums: []summary{summary{returns: false, delta: 0, need: 0}}, at: []int{}, work: []int{}, high: 0, calls: false, changed: false}
 	for i in program {
 		if i == Ret {
 			v.calls = true
 		}
 		match Target(i) {
-		case Some[int] as t:
+		case option.Some[int] as t:
 			if t.Value < 0 || t.Value > size {
-				return None
+				return option.None
 			}
 			if i == (Call{To: t.Value}) {
 				v.calls = true
 				if v.fn[t.Value] == -1 {
-					v.fn[t.Value] = len(v.sums)
+					v.fn[t.Value] = v.sums.Len()
 					v.entries = v.entries.Append(t.Value)
 					v.sums = v.sums.Append(summary{returns: false, delta: 0, need: 0})
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	// A round walks every subroutine with what is known of the others. A
@@ -103,20 +104,20 @@ func Verify(program []Instr) Option[Verified] {
 	let mut rounds = 0
 	v.changed = true
 	for v.changed {
-		if rounds > (Reach+2)*len(v.entries) {
-			return None
+		if rounds > (Reach+2)*v.entries.Len() {
+			return option.None
 		}
 		rounds += 1
 		v.changed = false
 		v.high = 0
-		for f in 0..len(v.entries) {
+		for f in 0..v.entries.Len() {
 			if !v.walk(f) {
-				return None
+				return option.None
 			}
 		}
 	}
 	if v.sums[0].need > 0 {
-		return None
+		return option.None
 	}
 	let bound = if v.calls { (MaxFrames+1)*v.high + MaxFrames } else { v.high }
 	let mut room = 1
@@ -125,20 +126,20 @@ func Verify(program []Instr) Option[Verified] {
 	}
 	let flat = if !v.calls && room <= 64 {
 		match toFlat(program) {
-		case Some[[]flatInstr] as fs:
+		case option.Some[[]flatInstr] as fs:
 			fs.Value
-		case None:
+		case option.None:
 			v.calls = true
 			[]flatInstr{}
 		}
 	} else {
 		[]flatInstr{}
 	}
-	Some{Verified{code: program, flat: flat, room: room, calls: v.calls}}
+	option.Some{Verified{code: program, flat: flat, room: room, calls: v.calls}}
 }
 
-func toFlat(program []Instr) Option[[]flatInstr] {
-	let mut out = slices.WithCapacity[flatInstr](len(program))
+func toFlat(program []Instr) option.Option[[]flatInstr] {
+	let mut out = slices.WithCapacity[flatInstr](program.Len())
 	for i in program {
 		match i {
 		case Push as p:
@@ -178,24 +179,24 @@ func toFlat(program []Instr) Option[[]flatInstr] {
 		case Halt:
 			out = out.Append(Halt)
 		case Call, Ret:
-			return None
+			return option.None
 		}
 	}
-	Some{out}
+	option.Some{out}
 }
 
 // walk visits subroutine f from its start, and is false when the program
 // must be refused.
 func walk(v mut verifier, f int) bool {
-	let size = len(v.program)
+	let size = v.program.Len()
 	v.at = slices.Repeat([]int{Reach + 1}, size)
 	v.work = []int{}
 	if !v.reach(v.entries[f], 0) {
 		return false
 	}
-	for len(v.work) > 0 {
-		let pc = v.work[len(v.work)-1]
-		v.work = v.work[0 : len(v.work)-1]
+	for v.work.Len() > 0 {
+		let pc = v.work[v.work.Len()-1]
+		v.work = v.work[0 : v.work.Len()-1]
 		let d = v.at[pc]
 		let i = v.program[pc]
 		let need = match i {
@@ -250,7 +251,7 @@ func walk(v mut verifier, f int) bool {
 // with another depth. The program's end takes any depth: the run ends
 // there.
 func reach(v mut verifier, pc int, d int) bool {
-	let size = len(v.program)
+	let size = v.program.Len()
 	if pc < 0 || pc > size || d > Reach || d < -Reach {
 		return false
 	}
@@ -328,12 +329,12 @@ func Exec(v Verified, fuel int) Result fails Trap {
 
 // execCalls is Exec's loop for any Verified program.
 func execCalls(code []Instr, room int, fuel int) Result fails Trap {
-	let end = len(code)
+	let end = code.Len()
 	let mut mem = slices.Repeat([]int{0}, room)
-	if fuel <= end || len(mem) == 0 {
+	if fuel <= end || mem.Len() == 0 {
 		return try Checked(code, fuel)
 	}
-	let top = len(mem) - 1
+	let top = mem.Len() - 1
 	let mut sp = 0
 	let mut fp = 0
 	let mut printed = []int{}
@@ -459,7 +460,7 @@ func held(mem []int, n int) []int {
 func opened(mem []int, n int) []int {
 	let mut out = []int{}
 	for i in 0..n {
-		out = out.Append(mem[len(mem)-1-i])
+		out = out.Append(mem[mem.Len()-1-i])
 	}
 	out
 }
@@ -467,7 +468,7 @@ func opened(mem []int, n int) []int {
 // execFlat is Exec's loop for a program with no call whose stack stays
 // under 64 values: its stack is a [64]int, indexed under the mask 63.
 func execFlat(code []Instr, flat []flatInstr, fuel int) Result fails Trap {
-	let end = len(flat)
+	let end = flat.Len()
 	if fuel <= end {
 		return try Checked(code, fuel)
 	}
@@ -607,7 +608,7 @@ law ExecAgreesWithChecked(seed int, fuel int) {
 	let calls = Called(seed)
 	let mut bent = Called(seed)
 	let mut d = Seed(seed + 5)
-	bent[d.Next(len(bent))] = Program(seed+11, len(bent))[d.Next(len(bent))]
+	bent[d.Next(bent.Len())] = Program(seed+11, bent.Len())[d.Next(bent.Len())]
 	for p in [][]Instr{Stacked(seed, 16), Bent(seed, 16), Program(seed, 16), countdown(seed % 8), Joined(n % 2), calls, bent, Down(n % 4), Uneven(n % 2), Short(n)} {
 		if !agrees(p, f) {
 			return false
@@ -684,9 +685,9 @@ func Printing(k int) []Instr {
 // agrees is the check of ExecAgreesWithChecked for one program.
 func agrees(p []Instr, f int) bool {
 	match Verify(p) {
-	case Some[Verified] as v:
+	case option.Some[Verified] as v:
 		execEnded(v.Value, f) == checkedEnded(p, f)
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -695,7 +696,7 @@ func agrees(p []Instr, f int) bool {
 // Down, is verified, so ExecAgreesWithChecked reaches Exec, with and
 // without calls, on every seed.
 law VerifyAcceptsStacked(seed int) {
-	Verify(Stacked(seed, 16)) != None && Verify(Called(seed)) != None && Verify(Down(seed%50)) != None
+	Verify(Stacked(seed, 16)) != option.None && Verify(Called(seed)) != option.None && Verify(Down(seed%50)) != option.None
 }
 
 // Stacked is size instructions drawn from seed that Verify accepts: each
@@ -713,14 +714,14 @@ func Stacked(seed int, size int) []Instr {
 		let k = d.Next(8)
 		let one = []Instr{Pop, Dup, Not, Print}
 		let two = []Instr{Swap, Over, Add, Sub, Mul, Div, Mod, Less, Same}
-		let back = earlier(depths, if k == 5 { depth - 1 } else { depth }, d.Next(len(depths)))
+		let back = earlier(depths, if k == 5 { depth - 1 } else { depth }, d.Next(depths.Len()))
 		let i Instr = match k {
 		case 0, 1:
 			if depth < 8 { Push{N: d.Next(21) - 10} } else { Pop }
 		case 2:
-			if depth >= 2 { two[d.Next(len(two))] } else { Push{N: d.Next(5)} }
+			if depth >= 2 { two[d.Next(two.Len())] } else { Push{N: d.Next(5)} }
 		case 3:
-			if depth >= 1 { one[d.Next(len(one))] } else { Push{N: d.Next(5)} }
+			if depth >= 1 { one[d.Next(one.Len())] } else { Push{N: d.Next(5)} }
 		case 4:
 			if back >= 0 { Jump{To: back} } else { Push{N: 1} }
 		case 5:

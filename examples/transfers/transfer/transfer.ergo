@@ -6,6 +6,8 @@
 // after the transfer arrived finds no entry to end and changes nothing, so
 // no registry of transfers and no "not found" answer exist.
 
+import core
+import option
 import time
 import machines
 import testing
@@ -27,7 +29,7 @@ let Files = []File{
 }
 
 // FileFor is the file of transfer id.
-func FileFor(id int) File { Files[id%len(Files)] }
+func FileFor(id int) File { Files[id%Files.Len()] }
 
 // Took is how long a file of mb megabytes takes.
 func Took(mb int) duration { time.Times(PerMB, mb) }
@@ -79,7 +81,7 @@ law ArrivesAfterTheWholeFile(n int, c int) {
 // fresh VirtualClock.
 func last(mb int, trace []machines.Timed[Signal], end duration) Transfer {
 	let c = testing.NewVirtualClock(0)
-	with context { Scheduler: c, time.Clock: c } {
+	with context { time.Scheduler: c, time.Clock: c } {
 		let o = machines.RunTimed(machines.Start(Sender{}, mb), trace, end) catch {
 		case machines.Rejected:
 			return Begin(mb)
@@ -95,26 +97,26 @@ func pick(n int, count int) int { ((n % count) + count) % count }
 // pair is ignored: a cancel of a sent or cancelled transfer, a restart of
 // one that sends or was sent, and an arrival of an ended entry, which the
 // runner drops before the step sees it.
-func Step(t Transfer, s Signal) Decision[Transfer, Never] {
+func Step(t Transfer, s Signal) machines.Decision[Transfer, core.Never] {
 	match (t, s) {
 	case (Sending as x, Cancel):
-		Enter[Transfer]{Next: Cancelled{MB: x.MB}}
+		machines.Enter[Transfer]{Next: Cancelled{MB: x.MB}}
 	case (Sending as x, Arrived):
-		Enter[Transfer]{Next: Sent{MB: x.MB}}
+		machines.Enter[Transfer]{Next: Sent{MB: x.MB}}
 	case (Cancelled as x, Restart):
-		Enter[Transfer]{Next: Sending{MB: x.MB}}
+		machines.Enter[Transfer]{Next: Sending{MB: x.MB}}
 	case (Sending, Restart), (Sent, _), (Cancelled, Cancel), (Cancelled, Arrived):
-		Ignore
+		machines.Ignore
 	}
 }
 
 // timer is the time a sending transfer owns: Arrived after the whole file.
-func timer(t Transfer) Option[Timeout[Signal]] {
+func timer(t Transfer) option.Option[machines.Timeout[Signal]] {
 	match t {
 	case Sending as x:
-		Some{Timeout[Signal]{In: Took(x.MB), Signal: Arrived}}
+		option.Some{machines.Timeout[Signal]{In: Took(x.MB), Signal: Arrived}}
 	case Sent, Cancelled:
-		None
+		option.None
 	}
 }
 

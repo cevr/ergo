@@ -12,7 +12,7 @@ func Line(t tasks.Task) string {
 
 // Lines is the text of a listing: a line per item, or "no tasks".
 func Lines(items []tasks.Task) string {
-	if len(items) == 0 {
+	if items.Len() == 0 {
 		return "no tasks\n"
 	}
 	let mut out = ""
@@ -64,11 +64,11 @@ law QuoteIsOneJSONString(s string) { oneJSONString(Quote(s)) && oneJSONString(Qu
 // oneJSONString reports whether q is one JSON string: quoted, with no
 // control byte and no unescaped quote inside.
 func oneJSONString(q string) bool {
-	if len(q) < 2 || q[0] != '"' || q[len(q)-1] != '"' {
+	if q.Len() < 2 || q[0] != '"' || q[q.Len()-1] != '"' {
 		return false
 	}
 	let mut escaped = false
-	for i in 1..len(q)-1 {
+	for i in 1..q.Len()-1 {
 		let c = q[i]
 		if c < 32 || (c == '"' && !escaped) {
 			return false

@@ -2,6 +2,7 @@ import filepath
 import fs
 import fstest
 import github.com/cevr/ergo/modules/work/work
+import option
 import slices
 import strings
 
@@ -20,24 +21,24 @@ let onMarkedDisk = context {
 }
 
 // markedTree is the root of the tree whose marker path is.
-func markedTree(m Marked, path string) Option[string] {
+func markedTree(m Marked, path string) option.Option[string] {
 	if !strings.HasSuffix(path, "/"+work.MarkerFile) {
-		return None
+		return option.None
 	}
 	let root = strings.TrimSuffix(path, "/"+work.MarkerFile)
-	if held(m.trees.disk.Get(), root) { Some[string]{Value: root} } else { None }
+	if held(m.trees.disk.Get(), root) { option.Some[string]{Value: root} } else { option.None }
 }
 
 func ReadFile(m Marked, path string) string fails fs.NotFound | fs.Denied | fs.Failed {
 	match markedTree(m, path) {
-	case Some[string] as root:
+	case option.Some[string] as root:
 		match Files(m.trees, root.Value).Get(work.MarkerFile) {
-		case Some[string] as text:
+		case option.Some[string] as text:
 			text.Value
-		case None:
+		case option.None:
 			return fs.NotFound{Path: path}
 		}
-	case None:
+	case option.None:
 		try m.disk.ReadFile(path)
 	}
 }
@@ -53,7 +54,7 @@ func ReadDir(m Marked, path string) []string fails fs.NotFound | fs.Denied | fs.
 	}
 	let names = m.disk.ReadDir(path) catch {
 	case fs.NotFound as e:
-		if len(trees) == 0 {
+		if trees.Len() == 0 {
 			return e
 		}
 		[]string{}
@@ -78,9 +79,9 @@ func Lstat(m Marked, path string) fs.Info fails fs.NotFound | fs.Denied | fs.Fai
 
 func WriteFile(m Marked, path string, text string) fails fs.NotFound | fs.Denied | fs.Failed {
 	match markedTree(m, path) {
-	case Some[string] as root:
+	case option.Some[string] as root:
 		let _ = Write(m.trees, root.Value, work.MarkerFile, text)
-	case None:
+	case option.None:
 		try folderOf(m, path)
 		try m.disk.WriteFile(path, text)
 	}

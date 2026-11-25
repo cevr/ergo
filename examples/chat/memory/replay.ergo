@@ -25,7 +25,7 @@ type Session { Log []string, Clients []string, Received [][]string }
 func Replay(steps []Step, clock time.Manual) Session fails queue.Closed {
 	let mut names = []string{}
 	let mut conns = []Client{}
-	let accept = queue.New[(server.Conn, server.Peer)](len(steps) + 1)
+	let accept = queue.New[(server.Conn, server.Peer)](steps.Len() + 1)
 	for s in steps {
 		match s {
 		case Speak as sp:

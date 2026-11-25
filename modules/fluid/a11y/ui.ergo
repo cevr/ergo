@@ -1,4 +1,5 @@
 import ergo.dev/fluid/part
+import option
 import ui
 
 // OfUI is the access tree of what a frame holds after a pass: each node as std ui reads it
@@ -23,7 +24,7 @@ func uiKids[E](f mut ui.Frame[E], id ui.Id[E]) []Tree {
 func uiNode[E](f mut ui.Frame[E], id ui.Id[E]) []Tree {
 	let kids = joined(uiKids[E](f, id))
 	match ui.NodeOf(f, id) {
-	case Some as n:
+	case option.Some as n:
 		match n.Value {
 		case ui.TextNode as t:
 			if t.Value == "" { []Tree{} } else { []Tree{leaf(t.Value)} }
@@ -40,7 +41,7 @@ func uiNode[E](f mut ui.Frame[E], id ui.Id[E]) []Tree {
 		case _:
 			kids
 		}
-	case None:
+	case option.None:
 		[]Tree{}
 	}
 }
@@ -58,82 +59,82 @@ func statesOfUI(a ui.Access) []part.State {
 		out = out.Append(part.Invalid)
 	}
 	match a.Checked {
-	case Some as c:
+	case option.Some as c:
 		out = out.Append(part.Checked{Value: if c.Value { part.On } else { part.Off }})
-	case None:
+	case option.None:
 	}
 	match a.Selected {
-	case Some as c:
+	case option.Some as c:
 		out = out.Append(part.Selected{Yes: c.Value})
-	case None:
+	case option.None:
 	}
 	match a.Expanded {
-	case Some as c:
+	case option.Some as c:
 		out = out.Append(part.Expanded{Yes: c.Value})
-	case None:
+	case option.None:
 	}
 	match a.Pressed {
-	case Some as c:
+	case option.Some as c:
 		out = out.Append(part.Pressed{Yes: c.Value})
-	case None:
+	case option.None:
 	}
 	out
 }
 
 // UIRole is the ui role of a part role, None for a role ui does not carry yet (UG2).
-func UIRole(r part.Role) Option[ui.Role] {
+func UIRole(r part.Role) option.Option[ui.Role] {
 	match r {
 	case part.Generic:
-		Some[ui.Role]{Value: ui.Generic}
+		option.Some[ui.Role]{Value: ui.Generic}
 	case part.Button:
-		Some[ui.Role]{Value: ui.Button}
+		option.Some[ui.Role]{Value: ui.Button}
 	case part.Link:
-		Some[ui.Role]{Value: ui.Link}
+		option.Some[ui.Role]{Value: ui.Link}
 	case part.Checkbox:
-		Some[ui.Role]{Value: ui.Checkbox}
+		option.Some[ui.Role]{Value: ui.Checkbox}
 	case part.Switch:
-		Some[ui.Role]{Value: ui.Switch}
+		option.Some[ui.Role]{Value: ui.Switch}
 	case part.TextBox:
-		Some[ui.Role]{Value: ui.TextBox}
+		option.Some[ui.Role]{Value: ui.TextBox}
 	case part.Tab:
-		Some[ui.Role]{Value: ui.Tab}
+		option.Some[ui.Role]{Value: ui.Tab}
 	case part.TabList:
-		Some[ui.Role]{Value: ui.TabList}
+		option.Some[ui.Role]{Value: ui.TabList}
 	case part.TabPanel:
-		Some[ui.Role]{Value: ui.TabPanel}
+		option.Some[ui.Role]{Value: ui.TabPanel}
 	case part.Dialog:
-		Some[ui.Role]{Value: ui.Dialog}
+		option.Some[ui.Role]{Value: ui.Dialog}
 	case part.Menu:
-		Some[ui.Role]{Value: ui.Menu}
+		option.Some[ui.Role]{Value: ui.Menu}
 	case part.MenuItem:
-		Some[ui.Role]{Value: ui.MenuItem}
+		option.Some[ui.Role]{Value: ui.MenuItem}
 	case part.Table:
-		Some[ui.Role]{Value: ui.Table}
+		option.Some[ui.Role]{Value: ui.Table}
 	case part.Row:
-		Some[ui.Role]{Value: ui.TableRow}
+		option.Some[ui.Role]{Value: ui.TableRow}
 	case part.GridCell:
-		Some[ui.Role]{Value: ui.TableCell}
+		option.Some[ui.Role]{Value: ui.TableCell}
 	case part.Group:
-		Some[ui.Role]{Value: ui.Group}
+		option.Some[ui.Role]{Value: ui.Group}
 	case part.Region:
-		Some[ui.Role]{Value: ui.Region}
+		option.Some[ui.Role]{Value: ui.Region}
 	case part.List:
-		Some[ui.Role]{Value: ui.List}
+		option.Some[ui.Role]{Value: ui.List}
 	case part.Status:
-		Some[ui.Role]{Value: ui.Status}
+		option.Some[ui.Role]{Value: ui.Status}
 	case part.Alert:
-		Some[ui.Role]{Value: ui.Alert}
+		option.Some[ui.Role]{Value: ui.Alert}
 	case part.Image:
-		Some[ui.Role]{Value: ui.Image}
+		option.Some[ui.Role]{Value: ui.Image}
 	case part.Heading:
-		Some[ui.Role]{Value: ui.Heading}
+		option.Some[ui.Role]{Value: ui.Heading}
 	case _:
-		None
+		option.None
 	}
 }
 
 // roleOfUI is the part role of a ui role (and a heading's level).
-func roleOfUI(r ui.Role, level Option[int]) part.Role {
+func roleOfUI(r ui.Role, level option.Option[int]) part.Role {
 	match r {
 	case ui.Button:
 		part.Button
@@ -177,9 +178,9 @@ func roleOfUI(r ui.Role, level Option[int]) part.Role {
 		part.Image
 	case ui.Heading:
 		match level {
-		case Some as l:
+		case option.Some as l:
 			part.Heading{Level: l.Value}
-		case None:
+		case option.None:
 			part.Heading{Level: 2}
 		}
 	case ui.RadioGroup:

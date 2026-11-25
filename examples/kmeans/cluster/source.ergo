@@ -59,10 +59,10 @@ func Explain(f Flaw) string {
 
 // Parse is the points of text.
 func Parse(text string) []Point fails Malformed {
-	let mut points = slices.WithCapacity[Point](len(text) / 32)
+	let mut points = slices.WithCapacity[Point](text.Len() / 32)
 	let mut i = 0
 	let mut line = 1
-	for i < len(text) {
+	for i < text.Len() {
 		let mut p = Point{}
 		let mut d = 0
 		for {
@@ -71,7 +71,7 @@ func Parse(text string) []Point fails Malformed {
 			}
 			let mut v = 0
 			let start = i
-			for i < len(text) && text[i] >= '0' && text[i] <= '9' {
+			for i < text.Len() && text[i] >= '0' && text[i] <= '9' {
 				v = v*10 + int(text[i]-'0')
 				if v > MaxCoord {
 					return Malformed{Line: line, Reason: OutOfRange}
@@ -83,7 +83,7 @@ func Parse(text string) []Point fails Malformed {
 			}
 			p[d] = int32(v)
 			d += 1
-			if i == len(text) {
+			if i == text.Len() {
 				return Malformed{Line: line, Reason: NoNewline}
 			}
 			if text[i] == '\n' {

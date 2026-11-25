@@ -25,10 +25,10 @@ func Empty(k int) Sums {
 // against the same centroids.
 func Merge(a Sums, b Sums) Sums {
 	let mut s = a
-	for i in 0..len(s.Total) {
+	for i in 0..s.Total.Len() {
 		s.Total[i] += b.Total[i]
 	}
-	for j in 0..len(s.Count) {
+	for j in 0..s.Count.Len() {
 		s.Count[j] += b.Count[j]
 	}
 	s.Inertia += b.Inertia

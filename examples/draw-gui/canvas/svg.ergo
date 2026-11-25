@@ -3,6 +3,7 @@
 // ExportParsesBack). Parse reads this form only, and names the first line
 // it cannot read.
 
+import option
 import strconv
 import strings
 
@@ -63,16 +64,16 @@ func element(p Placed) string {
 // Parse is the picture of text in Export's form.
 func Parse(text string) Picture fails BadSvg {
 	let lines = strings.Split(strings.TrimSuffix(text, "\n"), "\n")
-	if len(lines) < 2 || lines[0] != Header {
+	if lines.Len() < 2 || lines[0] != Header {
 		return BadSvg{Line: 1, Want: "the svg header"}
 	}
-	if lines[len(lines)-1] != "</svg>" {
-		return BadSvg{Line: len(lines), Want: "</svg>"}
+	if lines[lines.Len()-1] != "</svg>" {
+		return BadSvg{Line: lines.Len(), Want: "</svg>"}
 	}
 	let mut pic = Empty()
 	let mut layer = -1
 	let mut last = -1
-	for i in 1..len(lines)-1 {
+	for i in 1..lines.Len()-1 {
 		let line = lines[i]
 		let n = i + 1
 		if layer < 0 {
@@ -89,13 +90,13 @@ func Parse(text string) Picture fails BadSvg {
 			continue
 		}
 		let p = try shapeOf(line, n, layer)
-		if p.Id < 1 || pic.Shapes.Get(p.Id) != None {
+		if p.Id < 1 || pic.Shapes.Get(p.Id) != option.None {
 			return BadSvg{Line: n, Want: "a new data-id of 1 or more"}
 		}
 		pic = Place(pic, p)
 	}
 	if layer >= 0 {
-		return BadSvg{Line: len(lines), Want: "</g>"}
+		return BadSvg{Line: lines.Len(), Want: "</g>"}
 	}
 	pic
 }
@@ -113,19 +114,19 @@ func groupOf(line string) int {
 // shapeOf reads the shape on line n of layer.
 func shapeOf(line string, n int, layer int) Placed fails BadSvg {
 	let parts = strings.Split(line, " ")
-	if len(parts) < 2 || !strings.HasSuffix(line, "\"/>") {
+	if parts.Len() < 2 || !strings.HasSuffix(line, "\"/>") {
 		return BadSvg{Line: n, Want: "an element <tag data-id=\"N\" ...\"/>"}
 	}
 	let tag = parts[0]
 	let mut values = []string{}
 	let mut names = []string{}
-	let body = strings.Split(strings.TrimSuffix(strings.Slice(line, len(tag)+1, len(line)), "/>"), "\" ")
+	let body = strings.Split(strings.TrimSuffix(strings.Slice(line, tag.Len()+1, line.Len()), "/>"), "\" ")
 	for a in body {
 		match strings.Cut(strings.TrimSuffix(a, "\""), "=\"") {
-		case Some[strings.Halves] as h:
+		case option.Some[strings.Halves] as h:
 			names = names.Append(h.Value.Before)
 			values = values.Append(h.Value.After)
-		case None:
+		case option.None:
 			return BadSvg{Line: n, Want: "name=\"value\" attributes"}
 		}
 	}
@@ -135,9 +136,9 @@ func shapeOf(line string, n int, layer int) Placed fails BadSvg {
 		let mut pts = []Point{}
 		for xy in strings.Split(values[1], " ") {
 			match strings.Cut(xy, ",") {
-			case Some[strings.Halves] as h:
+			case option.Some[strings.Halves] as h:
 				pts = pts.Append(Point{X: try coord(h.Value.Before, n), Y: try coord(h.Value.After, n)})
-			case None:
+			case option.None:
 				return BadSvg{Line: n, Want: "points X,Y"}
 			}
 		}

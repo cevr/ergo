@@ -1,6 +1,8 @@
 import backups/backup
+import core
 import explore
 import gen
+import option
 import temporal
 import testing
 
@@ -33,7 +35,7 @@ type bkOpenErr { Message string }
 
 type bkDriveErr { Message string }
 
-type bkSession { log Log } implements explore.PathSession[bkAct, explore.Observed[bkObs, bkOut, Never], bkDriveErr]
+type bkSession { log Log } implements explore.PathSession[bkAct, explore.Observed[bkObs, bkOut, core.Never], bkDriveErr]
 
 func bkStatusCode(s backup.State) int {
 	match s {
@@ -70,7 +72,7 @@ func readBkObs(l Log) bkObs {
 	let hist = l.History("b1")
 	bkObs{
 		Status:       bkStatusCode(cur),
-		Hist:         len(hist),
+		Hist:         hist.Len(),
 		ReplayAgrees: backup.Replay(hist) == cur,
 	}
 }
@@ -86,22 +88,22 @@ func applyBkAct(l Log, act bkAct) bkOut {
 	case backup.NotAllowed, backup.InvalidFile:
 		return BkOutNotAllowed
 	}
-	BkOutOk{Added: len(evs)}
+	BkOutOk{Added: evs.Len()}
 }
 
-func Read(s bkSession) explore.Observed[bkObs, bkOut, Never] fails bkDriveErr {
+func Read(s bkSession) explore.Observed[bkObs, bkOut, core.Never] fails bkDriveErr {
 	explore.InitialRead[bkObs]{State: readBkObs(s.log)}
 }
 
-func Apply(s bkSession, act bkAct) explore.Observed[bkObs, bkOut, Never] fails bkDriveErr {
+func Apply(s bkSession, act bkAct) explore.Observed[bkObs, bkOut, core.Never] fails bkDriveErr {
 	let out = applyBkAct(s.log, act)
 	let obs = readBkObs(s.log)
-	explore.StepResult[bkObs, bkOut, Never]{
-		Step: explore.StepObs[bkObs, bkOut, Never]{
+	explore.StepResult[bkObs, bkOut, core.Never]{
+		Step: explore.StepObs[bkObs, bkOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[bkObs]{Value: obs},
+			State:    option.Some[bkObs]{Value: obs},
 			Outputs:  []bkOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -166,21 +168,21 @@ func bkStep(st bkState, act bkAct) (bkState, bkOut) {
 	}
 }
 
-func bkModel() explore.PathModel[bkState, bkAct, bkObs, bkOut, Never] {
-	explore.PathModelProjected[bkState, bkAct, bkObs, bkOut, Never](
+func bkModel() explore.PathModel[bkState, bkAct, bkObs, bkOut, core.Never] {
+	explore.PathModelProjected[bkState, bkAct, bkObs, bkOut, core.Never](
 		[]bkState{bkState{Status: 0, Hist: 0}},
 		bkSignals,
 		"backups.log",
 		bkProject,
-		func(st bkState, act bkAct) explore.EdgeOutcome[bkState, explore.StepObs[bkObs, bkOut, Never]] {
+		func(st bkState, act bkAct) explore.EdgeOutcome[bkState, explore.StepObs[bkObs, bkOut, core.Never]] {
 			let (next, out) = bkStep(st, act)
-			explore.Continue[bkState, explore.StepObs[bkObs, bkOut, Never]]{
+			explore.Continue[bkState, explore.StepObs[bkObs, bkOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[bkObs, bkOut, Never]{
+				Obs:  explore.StepObs[bkObs, bkOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[bkObs]{Value: bkProject(next)},
+					State:    option.Some[bkObs]{Value: bkProject(next)},
 					Outputs:  []bkOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -199,7 +201,7 @@ type BackupLogPaths {
 			bkModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start bkState) explore.PathSession[bkAct, explore.Observed[bkObs, bkOut, Never], bkDriveErr] fails bkOpenErr {
+			func(start bkState) explore.PathSession[bkAct, explore.Observed[bkObs, bkOut, core.Never], bkDriveErr] fails bkOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),

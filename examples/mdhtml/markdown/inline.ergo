@@ -3,6 +3,7 @@
 // delimiter stack for emphasis and its bracket stack for links.
 
 import go unicode
+import option
 import slices
 import strings
 import utf8
@@ -76,7 +77,7 @@ func newInlines(refs Map[string, Ref]) inlines {
 
 func newNode(q mut inlines, k IKind, s string) int {
 	q.nodes = q.nodes.Append(inline{kind: k, text: s, dest: "", title: "", parent: -1, first: -1, last: -1, prev: -1, next: -1})
-	len(q.nodes) - 1
+	q.nodes.Len() - 1
 }
 
 func appendInline(q mut inlines, parent int, child int) {
@@ -127,7 +128,7 @@ func insertAfter(q mut inlines, at int, id int) {
 func addText(q mut inlines, parent int, s string) { appendInline(q, parent, newNode(q, Str, s)) }
 
 func peek(q mut inlines) int {
-	if q.pos < len(q.subject) { int(q.subject[q.pos]) } else { -1 }
+	if q.pos < q.subject.Len() { int(q.subject[q.pos]) } else { -1 }
 }
 
 // parseInlines reads content's inlines under a new root, and is the root.
@@ -195,7 +196,7 @@ func special(c byte) bool {
 
 func plainRun(q mut inlines, root int) bool {
 	let start = q.pos
-	for q.pos < len(q.subject) && !special(q.subject[q.pos]) {
+	for q.pos < q.subject.Len() && !special(q.subject[q.pos]) {
 		q.pos += 1
 	}
 	if q.pos == start {
@@ -210,7 +211,7 @@ func newline(q mut inlines, root int) {
 	let last = q.nodes[root].last
 	if last >= 0 && q.nodes[last].kind == Str && strings.HasSuffix(q.nodes[last].text, " ") {
 		let t = q.nodes[last].text
-		let hard = len(t) >= 2 && t[len(t)-2] == ' '
+		let hard = t.Len() >= 2 && t[t.Len()-2] == ' '
 		q.nodes[last].text = strings.TrimRight(t, " ")
 		appendInline(q, root, newNode(q, if hard { HardBreak } else { SoftBreak }, ""))
 	} else {
@@ -247,7 +248,7 @@ func backticks(q mut inlines, root int) {
 	}
 	let ticks = q.pos - start
 	let after = q.pos
-	for q.pos < len(q.subject) {
+	for q.pos < q.subject.Len() {
 		if q.subject[q.pos] != '`' {
 			q.pos += 1
 			continue
@@ -258,8 +259,8 @@ func backticks(q mut inlines, root int) {
 		}
 		if q.pos-run == ticks {
 			let mut contents = strings.ReplaceAll(strings.Slice(q.subject, after, run), "\n", " ")
-			if len(contents) >= 2 && contents[0] == ' ' && contents[len(contents)-1] == ' ' && strings.TrimLeft(contents, " ") != "" {
-				contents = strings.Slice(contents, 1, len(contents)-1)
+			if contents.Len() >= 2 && contents[0] == ' ' && contents[contents.Len()-1] == ' ' && strings.TrimLeft(contents, " ") != "" {
+				contents = strings.Slice(contents, 1, contents.Len()-1)
 			}
 			appendInline(q, root, newNode(q, CodeSpan, contents))
 			return
@@ -284,10 +285,10 @@ func runeBefore(s string, i int) rune {
 }
 
 func runeAfter(s string, i int) rune {
-	if i >= len(s) {
+	if i >= s.Len() {
 		return '\n'
 	}
-	utf8.DecodeRuneInString(strings.Slice(s, i, len(s))).Rune
+	utf8.DecodeRuneInString(strings.Slice(s, i, s.Len())).Rune
 }
 
 // UnicodeSpace is CommonMark's Unicode whitespace: Zs, tab, line feed,
@@ -329,7 +330,7 @@ func handleDelim(q mut inlines, cc byte, root int) {
 	appendInline(q, root, id)
 	if f.Open || f.Close {
 		q.delims = q.delims.Append(delim{cc: cc, num: n, orig: n, node: id, prev: q.top, next: -1, canOpen: f.Open, canClose: f.Close})
-		let d = len(q.delims) - 1
+		let d = q.delims.Len() - 1
 		if q.top >= 0 {
 			q.delims[q.top].next = d
 		}
@@ -389,8 +390,8 @@ func processEmphasis(q mut inlines, bottom int) {
 		let cn = c.node
 		q.delims[opener].num -= use
 		q.delims[closer].num -= use
-		q.nodes[on].text = strings.Slice(q.nodes[on].text, 0, len(q.nodes[on].text)-use)
-		q.nodes[cn].text = strings.Slice(q.nodes[cn].text, 0, len(q.nodes[cn].text)-use)
+		q.nodes[on].text = strings.Slice(q.nodes[on].text, 0, q.nodes[on].text.Len()-use)
+		q.nodes[cn].text = strings.Slice(q.nodes[cn].text, 0, q.nodes[cn].text.Len()-use)
 		let emph = newNode(q, if use == 2 { Strong } else { Emph }, "")
 		let mut t = q.nodes[on].next
 		for t >= 0 && t != cn {
@@ -421,56 +422,56 @@ func processEmphasis(q mut inlines, bottom int) {
 }
 
 func addBracket(q mut inlines, node int, index int, image bool) {
-	let n = len(q.brackets)
+	let n = q.brackets.Len()
 	if n > 0 {
 		q.brackets[n-1].bracketAfter = true
 	}
 	q.brackets = q.brackets.Append(bracket{node: node, prevDelim: q.top, index: index, image: image, active: true, bracketAfter: false})
 }
 
-func popBracket(q mut inlines) { q.brackets = slices.Slice(q.brackets, 0, len(q.brackets)-1) }
+func popBracket(q mut inlines) { q.brackets = slices.Slice(q.brackets, 0, q.brackets.Len()-1) }
 
 // Target is a link's destination and title.
 type Target { Dest string, Title string }
 
 // inlineTarget reads (destination "title") after a ], if it is there.
-func inlineTarget(q mut inlines) Option[Target] {
+func inlineTarget(q mut inlines) option.Option[Target] {
 	if peek(q) != '(' {
-		return None
+		return option.None
 	}
 	let save = q.pos
 	q.pos += 1
 	spnl(q)
 	match linkDestination(q) {
-	case Some as d:
+	case option.Some as d:
 		spnl(q)
 		let mut title = ""
 		if q.pos > 0 && isSpace(q.subject[q.pos-1]) {
 			match linkTitle(q) {
-			case Some as t:
+			case option.Some as t:
 				title = t.Value
-			case None:
+			case option.None:
 			}
 		}
 		spnl(q)
 		if peek(q) == ')' {
 			q.pos += 1
-			return Some[Target]{Value: Target{Dest: d.Value, Title: title}}
+			return option.Some[Target]{Value: Target{Dest: d.Value, Title: title}}
 		}
-	case None:
+	case option.None:
 	}
 	q.pos = save
-	None
+	option.None
 }
 
 func closeBracket(q mut inlines, root int) {
 	q.pos += 1
 	let start = q.pos
-	if len(q.brackets) == 0 {
+	if q.brackets.Len() == 0 {
 		addText(q, root, "]")
 		return
 	}
-	let opener = q.brackets[len(q.brackets)-1]
+	let opener = q.brackets[q.brackets.Len()-1]
 	if !opener.active {
 		addText(q, root, "]")
 		popBracket(q)
@@ -478,7 +479,7 @@ func closeBracket(q mut inlines, root int) {
 	}
 	let save = q.pos
 	let mut target = inlineTarget(q)
-	if target == None {
+	if target == option.None {
 		let before = q.pos
 		let n = linkLabel(q)
 		let label = if n > 2 { strings.Slice(q.subject, before, before+n) } else if !opener.bracketAfter { strings.Slice(q.subject, opener.index, start) } else { "" }
@@ -487,18 +488,18 @@ func closeBracket(q mut inlines, root int) {
 		}
 		if label != "" {
 			match q.refs.Get(NormalizeLabel(label)) {
-			case Some as r:
-				target = Some[Target]{Value: Target{Dest: r.Value.Dest, Title: r.Value.Title}}
-			case None:
+			case option.Some as r:
+				target = option.Some[Target]{Value: Target{Dest: r.Value.Dest, Title: r.Value.Title}}
+			case option.None:
 			}
 		}
 	}
 	match target {
-	case None:
+	case option.None:
 		popBracket(q)
 		q.pos = start
 		addText(q, root, "]")
-	case Some as t:
+	case option.Some as t:
 		let link = newNode(q, if opener.image { Image } else { Link }, "")
 		q.nodes[link].dest = t.Value.Dest
 		q.nodes[link].title = t.Value.Title
@@ -514,7 +515,7 @@ func closeBracket(q mut inlines, root int) {
 		popBracket(q)
 		unlinkInline(q, opener.node)
 		if !opener.image {
-			for i in 0..len(q.brackets) {
+			for i in 0..q.brackets.Len() {
 				if !q.brackets[i].image {
 					q.brackets[i].active = false
 				}
@@ -539,33 +540,33 @@ func spnl(q mut inlines) {
 
 // linkDestination reads a link destination: <…>, or a run with balanced
 // parentheses and no space.
-func linkDestination(q mut inlines) Option[string] {
+func linkDestination(q mut inlines) option.Option[string] {
 	let s = q.subject
 	if peek(q) == '<' {
 		let mut i = q.pos + 1
-		for i < len(s) {
+		for i < s.Len() {
 			let c = s[i]
-			if c == '\\' && i+1 < len(s) && Escapable(s[i+1]) {
+			if c == '\\' && i+1 < s.Len() && Escapable(s[i+1]) {
 				i += 2
 				continue
 			}
 			if c == '>' {
 				let d = NormalizeURI(UnescapeString(strings.Slice(s, q.pos+1, i)))
 				q.pos = i + 1
-				return Some[string]{Value: d}
+				return option.Some[string]{Value: d}
 			}
 			if c == '<' || c == '\n' {
-				return None
+				return option.None
 			}
 			i += 1
 		}
-		return None
+		return option.None
 	}
 	let start = q.pos
 	let mut open = 0
-	for q.pos < len(s) {
+	for q.pos < s.Len() {
 		let c = s[q.pos]
-		if c == '\\' && q.pos+1 < len(s) && Escapable(s[q.pos+1]) {
+		if c == '\\' && q.pos+1 < s.Len() && Escapable(s[q.pos+1]) {
 			q.pos += 2
 		} else if c == '(' {
 			q.pos += 1
@@ -583,44 +584,44 @@ func linkDestination(q mut inlines) Option[string] {
 		}
 	}
 	if q.pos == start && peek(q) != ')' {
-		return None
+		return option.None
 	}
 	if open != 0 {
 		q.pos = start
-		return None
+		return option.None
 	}
-	Some[string]{Value: NormalizeURI(UnescapeString(strings.Slice(s, start, q.pos)))}
+	option.Some[string]{Value: NormalizeURI(UnescapeString(strings.Slice(s, start, q.pos)))}
 }
 
 // linkTitle reads a link title in "", '' or ().
-func linkTitle(q mut inlines) Option[string] {
+func linkTitle(q mut inlines) option.Option[string] {
 	let s = q.subject
-	if q.pos >= len(s) {
-		return None
+	if q.pos >= s.Len() {
+		return option.None
 	}
 	let opening = s[q.pos]
 	if opening != '"' && opening != '\'' && opening != '(' {
-		return None
+		return option.None
 	}
 	let closing = if opening == '(' { byte(')') } else { opening }
 	let mut i = q.pos + 1
-	for i < len(s) {
+	for i < s.Len() {
 		let c = s[i]
-		if c == '\\' && i+1 < len(s) {
+		if c == '\\' && i+1 < s.Len() {
 			i += 2
 			continue
 		}
 		if c == closing {
 			let t = UnescapeString(strings.Slice(s, q.pos+1, i))
 			q.pos = i + 1
-			return Some[string]{Value: t}
+			return option.Some[string]{Value: t}
 		}
 		if opening == '(' && c == '(' {
-			return None
+			return option.None
 		}
 		i += 1
 	}
-	None
+	option.None
 }
 
 // linkLabel is the length of the link label at the position, or 0: [ ]
@@ -633,7 +634,7 @@ func linkLabel(q mut inlines) int {
 	let start = q.pos
 	let mut i = start + 1
 	let mut n = 0
-	for i < len(s) && n <= 1000 {
+	for i < s.Len() && n <= 1000 {
 		let c = s[i]
 		if c == ']' {
 			let length = i + 1 - start
@@ -646,7 +647,7 @@ func linkLabel(q mut inlines) int {
 		if c == '[' {
 			return 0
 		}
-		i += if c == '\\' && i+1 < len(s) { 2 } else { 1 }
+		i += if c == '\\' && i+1 < s.Len() { 2 } else { 1 }
 		n += 1
 	}
 	0
@@ -655,10 +656,10 @@ func linkLabel(q mut inlines) int {
 // NormalizeLabel is a link label's key: the text inside the brackets,
 // trimmed, its whitespace runs one space, case folded.
 func NormalizeLabel(label string) string {
-	let s = trimSpace(strings.Slice(label, 1, len(label)-1))
+	let s = trimSpace(strings.Slice(label, 1, label.Len()-1))
 	let mut b = strings.NewBuilder()
 	let mut space = false
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 			space = true
@@ -674,7 +675,7 @@ func NormalizeLabel(label string) string {
 }
 
 func autolink(q mut inlines, root int) bool {
-	let s = strings.Slice(q.subject, q.pos, len(q.subject))
+	let s = strings.Slice(q.subject, q.pos, q.subject.Len())
 	let e = emailAutolink(s)
 	if e > 0 {
 		let addr = strings.Slice(s, 1, e-1)
@@ -700,18 +701,18 @@ func autolink(q mut inlines, root int) bool {
 
 // uriAutolink is the length of <scheme:rest> at the start of s, or 0.
 func uriAutolink(s string) int {
-	if len(s) < 4 || s[0] != '<' || !asciiLetter(s[1]) {
+	if s.Len() < 4 || s[0] != '<' || !asciiLetter(s[1]) {
 		return 0
 	}
 	let mut i = 2
-	for i < len(s) && (asciiAlnum(s[i]) || s[i] == '.' || s[i] == '+' || s[i] == '-') {
+	for i < s.Len() && (asciiAlnum(s[i]) || s[i] == '.' || s[i] == '+' || s[i] == '-') {
 		i += 1
 	}
-	if i-1 < 2 || i-1 > 32 || i >= len(s) || s[i] != ':' {
+	if i-1 < 2 || i-1 > 32 || i >= s.Len() || s[i] != ':' {
 		return 0
 	}
 	i += 1
-	for i < len(s) {
+	for i < s.Len() {
 		let c = s[i]
 		if c == '>' {
 			return i + 1
@@ -730,40 +731,40 @@ func localByte(c byte) bool {
 
 // emailAutolink is the length of <address> at the start of s, or 0.
 func emailAutolink(s string) int {
-	if len(s) < 3 || s[0] != '<' {
+	if s.Len() < 3 || s[0] != '<' {
 		return 0
 	}
 	let mut i = 1
-	for i < len(s) && localByte(s[i]) {
+	for i < s.Len() && localByte(s[i]) {
 		i += 1
 	}
-	if i == 1 || i >= len(s) || s[i] != '@' {
+	if i == 1 || i >= s.Len() || s[i] != '@' {
 		return 0
 	}
 	i += 1
 	for {
-		if i >= len(s) || !asciiAlnum(s[i]) {
+		if i >= s.Len() || !asciiAlnum(s[i]) {
 			return 0
 		}
 		let mut j = i + 1
-		for j < len(s) && (asciiAlnum(s[j]) || s[j] == '-') && j-i < 63 {
+		for j < s.Len() && (asciiAlnum(s[j]) || s[j] == '-') && j-i < 63 {
 			j += 1
 		}
 		for j > i+1 && s[j-1] == '-' {
 			j -= 1
 		}
 		i = j
-		if i < len(s) && s[i] == '.' {
+		if i < s.Len() && s[i] == '.' {
 			i += 1
 			continue
 		}
 		break
 	}
-	if i < len(s) && s[i] == '>' { i + 1 } else { 0 }
+	if i < s.Len() && s[i] == '>' { i + 1 } else { 0 }
 }
 
 func htmlInline(q mut inlines, root int) bool {
-	let n = HtmlTag(strings.Slice(q.subject, q.pos, len(q.subject)))
+	let n = HtmlTag(strings.Slice(q.subject, q.pos, q.subject.Len()))
 	if n == 0 {
 		return false
 	}
@@ -773,12 +774,12 @@ func htmlInline(q mut inlines, root int) bool {
 }
 
 func entityInline(q mut inlines, root int) bool {
-	match EntityAt(strings.Slice(q.subject, q.pos, len(q.subject))) {
-	case Some as e:
+	match EntityAt(strings.Slice(q.subject, q.pos, q.subject.Len())) {
+	case option.Some as e:
 		addText(q, root, e.Value.Text)
 		q.pos += e.Value.Len
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
@@ -790,20 +791,20 @@ func UnescapeString(s string) string {
 	}
 	let mut b = strings.NewBuilder()
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		let c = s[i]
-		if c == '\\' && i+1 < len(s) && Escapable(s[i+1]) {
+		if c == '\\' && i+1 < s.Len() && Escapable(s[i+1]) {
 			b.WriteByte(s[i+1])
 			i += 2
 			continue
 		}
 		if c == '&' {
-			match EntityAt(strings.Slice(s, i, len(s))) {
-			case Some as e:
+			match EntityAt(strings.Slice(s, i, s.Len())) {
+			case option.Some as e:
 				b.WriteString(e.Value.Text)
 				i += e.Value.Len
 				continue
-			case None:
+			case option.None:
 			}
 		}
 		b.WriteByte(c)
@@ -818,11 +819,11 @@ let hexDigits = "0123456789ABCDEF"
 func NormalizeURI(s string) string {
 	let mut b = strings.NewBuilder()
 	let mut i = 0
-	for i < len(s) {
+	for i < s.Len() {
 		let c = s[i]
 		if asciiAlnum(c) || urlByte(c) {
 			b.WriteByte(c)
-		} else if c == '%' && i+2 < len(s) && hexDigit(s[i+1]) && hexDigit(s[i+2]) {
+		} else if c == '%' && i+2 < s.Len() && hexDigit(s[i+1]) && hexDigit(s[i+2]) {
 			b.WriteString(strings.Slice(s, i, i+3))
 			i += 2
 		} else {
@@ -848,53 +849,53 @@ type Def { Len int, Key string, Ref Ref }
 
 // ParseReference reads the link reference definition that s starts
 // with, if it is one.
-func ParseReference(s string) Option[Def] {
+func ParseReference(s string) option.Option[Def] {
 	let mut q = newInlines(Map[string, Ref]{})
 	q.subject = s
 	let n = linkLabel(&q)
 	if n == 0 {
-		return None
+		return option.None
 	}
 	let raw = strings.Slice(s, 0, n)
 	if peek(&q) != ':' {
-		return None
+		return option.None
 	}
 	q.pos += 1
 	spnl(&q)
 	match linkDestination(&q) {
-	case None:
-		None
-	case Some as d:
+	case option.None:
+		option.None
+	case option.Some as d:
 		let beforeTitle = q.pos
 		spnl(&q)
-		let mut title Option[string] = None
+		let mut title option.Option[string] = option.None
 		if q.pos != beforeTitle {
 			title = linkTitle(&q)
 		}
-		if title == None {
+		if title == option.None {
 			q.pos = beforeTitle
 		}
 		if !lineEnd(&q) {
-			if title == None {
-				return None
+			if title == option.None {
+				return option.None
 			}
-			title = None
+			title = option.None
 			q.pos = beforeTitle
 			if !lineEnd(&q) {
-				return None
+				return option.None
 			}
 		}
 		let key = NormalizeLabel(raw)
 		if key == "" {
-			return None
+			return option.None
 		}
 		let t = match title {
-		case Some as v:
+		case option.Some as v:
 			v.Value
-		case None:
+		case option.None:
 			""
 		}
-		Some[Def]{Value: Def{Len: q.pos, Key: key, Ref: Ref{Dest: d.Value, Title: t}}}
+		option.Some[Def]{Value: Def{Len: q.pos, Key: key, Ref: Ref{Dest: d.Value, Title: t}}}
 	}
 }
 
@@ -902,12 +903,12 @@ func ParseReference(s string) Option[Def] {
 // more on the line.
 func lineEnd(q mut inlines) bool {
 	let mut i = q.pos
-	for i < len(q.subject) && (q.subject[i] == ' ' || q.subject[i] == '\t') {
+	for i < q.subject.Len() && (q.subject[i] == ' ' || q.subject[i] == '\t') {
 		i += 1
 	}
-	if i < len(q.subject) && q.subject[i] != '\n' {
+	if i < q.subject.Len() && q.subject[i] != '\n' {
 		return false
 	}
-	q.pos = if i < len(q.subject) { i + 1 } else { i }
+	q.pos = if i < q.subject.Len() { i + 1 } else { i }
 	true
 }

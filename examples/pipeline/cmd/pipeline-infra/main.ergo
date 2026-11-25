@@ -13,6 +13,8 @@ import github.com/cevr/ergo/modules/infra-local/local
 import exec
 import fs
 import http
+import io
+import option
 import os
 import pipeline/deploy
 import strconv
@@ -20,16 +22,16 @@ import strconv
 // setting is the variable key, else fallback.
 func setting(key string, fallback string) string needs os.Process {
 	match os.Process.Getenv(key) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		if v.Value != "" {
 			return v.Value
 		}
-	case None:
+	case option.None:
 	}
 	fallback
 }
 
-func main() fails os.Exit needs Ambient | Console {
+func main() fails os.Exit needs os.Ambient | io.Console {
 	let host = fs.NewHost()
 	let proc = os.NewHost()
 	// The processes it starts are the user's programs: they see this

@@ -8,6 +8,7 @@
 // declarations of one Style can set one CSS property.
 
 import ergo.dev/fluid/token
+import option
 import slices
 import strconv
 import strings
@@ -366,23 +367,23 @@ func corner(c Corner) string {
 }
 
 // Ref is the colour token a declaration names, if any: what a sheet's check reads.
-func Ref(d Decl) Option[token.Ref] {
+func Ref(d Decl) option.Option[token.Ref] {
 	match d {
 	case Fill as x:
-		Some{x.V}
+		option.Some{x.V}
 	case Ink as x:
-		Some{x.V}
+		option.Some{x.V}
 	case EdgeColor as x:
-		Some{x.V}
+		option.Some{x.V}
 	case Shadow as x:
 		match x.V {
 		case Ring as r:
-			Some{r.Color}
+			option.Some{r.Color}
 		case Surface:
-			None
+			option.None
 		}
 	case Display, Direction, Wrap, Items, Content, GapX, GapY, Shrink, Grow, Position, Top, Right, Bottom, Left, Z, Isolate, Width, Height, MinHeight, MaxWidth, PadTop, PadRight, PadBottom, PadLeft, MarTop, MarRight, MarBottom, MarLeft, OverflowX, OverflowY, NoScrollbar, Gutter, MinWidth, RowStart, ColStart, EdgeTop, EdgeRight, EdgeBottom, EdgeLeft, RoundTL, RoundTR, RoundBR, RoundBL, Opacity, NoOutline, Translate, FontPx, LinePx, Axes, Nowrap, Mono, FadeX, Trim, Invisible:
-		None
+		option.None
 	}
 }
 
@@ -402,9 +403,9 @@ func Of(ds []Decl) Style {
 	let mut out = []Decl{}
 	for k in slices.Sort(keys) {
 		match byKey.Get(k) {
-		case Some as d:
+		case option.Some as d:
 			out = out.Append(d.Value)
-		case None:
+		case option.None:
 		}
 	}
 	Style{decls: out}
@@ -417,13 +418,13 @@ func Empty() Style { Style{decls: []Decl{}} }
 func Decls(s Style) []Decl { s.decls }
 
 // Get is the declaration s sets for property key, if any.
-func Get(s Style, key string) Option[Decl] {
+func Get(s Style, key string) option.Option[Decl] {
 	for d in s.decls {
 		if Key(d) == key {
-			return Some{d}
+			return option.Some{d}
 		}
 	}
-	None
+	option.None
 }
 
 // Merge is a then b: every property b sets is b's; every other property a sets is a's.
@@ -437,10 +438,10 @@ func Merge(a Style, b Style) Style {
 
 // Same reports whether two styles set the same properties to the same values.
 func Same(a Style, b Style) bool {
-	if len(a.decls) != len(b.decls) {
+	if a.decls.Len() != b.decls.Len() {
 		return false
 	}
-	for i in 0..len(a.decls) {
+	for i in 0..a.decls.Len() {
 		if Key(a.decls[i]) != Key(b.decls[i]) || Value(a.decls[i]) != Value(b.decls[i]) {
 			return false
 		}
@@ -588,12 +589,12 @@ law LastWins(a []Decl, b []Decl, k int) {
 	for d in b {
 		keys = keys.Append(Key(d))
 	}
-	let mut ok = len(Decls(m)) <= len(a)+len(b)
+	let mut ok = Decls(m).Len() <= a.Len()+b.Len()
 	for key in keys {
 		let want = match Get(sb, key) {
-		case Some as d:
-			Some{d.Value}
-		case None:
+		case option.Some as d:
+			option.Some{d.Value}
+		case option.None:
 			Get(sa, key)
 		}
 		ok = ok && sameDecl(Get(m, key), want)
@@ -602,16 +603,16 @@ law LastWins(a []Decl, b []Decl, k int) {
 }
 
 // sameDecl compares two optional declarations by property and value. (a law's helper)
-func sameDecl(a Option[Decl], b Option[Decl]) bool {
+func sameDecl(a option.Option[Decl], b option.Option[Decl]) bool {
 	match a {
-	case Some as x:
+	case option.Some as x:
 		match b {
-		case Some as y:
+		case option.Some as y:
 			Key(x.Value) == Key(y.Value) && Value(x.Value) == Value(y.Value)
-		case None:
+		case option.None:
 			false
 		}
-	case None:
-		b == None
+	case option.None:
+		b == option.None
 	}
 }

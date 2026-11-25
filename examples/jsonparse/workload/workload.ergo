@@ -12,7 +12,7 @@ let words = []string{"alpha", "beta", "gamma", "delta", "tab\\there", "quote \\\
 
 // Document is the workload of n records for seed.
 func Document(seed int, n int) string {
-	with context { Random: rand.Seeded(uint64(seed)) } {
+	with context { rand.Random: rand.Seeded(uint64(seed)) } {
 		write(n)
 	}
 }
@@ -27,22 +27,22 @@ law DocumentIsJSON(seed int) {
 	true
 }
 
-func word() string needs Random { words[Random.IntN(len(words))] }
+func word() string needs rand.Random { words[rand.Random.IntN(words.Len())] }
 
-func numeral() string needs Random {
-	match Random.IntN(4) {
+func numeral() string needs rand.Random {
+	match rand.Random.IntN(4) {
 	case 0:
-		"\(Random.IntN(1000000))"
+		"\(rand.Random.IntN(1000000))"
 	case 1:
-		"-\(Random.IntN(1000)).\(Random.IntN(1000))"
+		"-\(rand.Random.IntN(1000)).\(rand.Random.IntN(1000))"
 	case 2:
-		"\(Random.IntN(10)).\(Random.IntN(100))e-\(Random.IntN(20))"
+		"\(rand.Random.IntN(10)).\(rand.Random.IntN(100))e-\(rand.Random.IntN(20))"
 	case _:
-		"\(Random.IntN(100))E+\(Random.IntN(9))"
+		"\(rand.Random.IntN(100))E+\(rand.Random.IntN(9))"
 	}
 }
 
-func write(n int) string needs Random {
+func write(n int) string needs rand.Random {
 	let mut b = strings.NewBuilder()
 	b.WriteString("[")
 	for i in 0..n {
@@ -51,10 +51,10 @@ func write(n int) string needs Random {
 		}
 		b.WriteString("\n  {\n    \"id\": \(i),\n    \"name\": \"" + word() + "\",\n")
 		b.WriteString("    \"score\": " + numeral() + ",\n")
-		b.WriteString("    \"active\": " + (if Random.IntN(2) == 0 { "true" } else { "false" }) + ",\n")
-		b.WriteString("    \"parent\": " + (if Random.IntN(3) == 0 { "null" } else { "\(Random.IntN(i + 1))" }) + ",\n")
+		b.WriteString("    \"active\": " + (if rand.Random.IntN(2) == 0 { "true" } else { "false" }) + ",\n")
+		b.WriteString("    \"parent\": " + (if rand.Random.IntN(3) == 0 { "null" } else { "\(rand.Random.IntN(i + 1))" }) + ",\n")
 		b.WriteString("    \"tags\": [")
-		let tags = Random.IntN(4)
+		let tags = rand.Random.IntN(4)
 		for k in 0..tags {
 			if k > 0 {
 				b.WriteString(", ")

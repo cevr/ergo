@@ -5,6 +5,7 @@ import http
 import mcp
 import mcp/httpmcp
 import net
+import option
 import process
 import queue
 import rpc
@@ -75,14 +76,14 @@ type Server {
 	hub       WaitHub,
 	store     WriterStore,
 	clock     time.Clock,
-	trace     Option[TraceRecorder],
+	trace     option.Option[TraceRecorder],
 	boundAddr sync.Ref[string],
 	httpGen   sync.Ref[int],
 	httpReady queue.Queue[int],
 }
 
 // NewServer constructs a Server over any provider-neutral board.Store.
-func NewServer(cfg Config, store board.Store, clock time.Clock, trace Option[TraceRecorder]) Server {
+func NewServer(cfg Config, store board.Store, clock time.Clock, trace option.Option[TraceRecorder]) Server {
 	let hub = NewWaitHub()
 	let writer = NewWriter(store, hub, trace)
 	Server{
@@ -124,9 +125,9 @@ func WaitServerGeneration(s Server, minGen int) bool {
 
 func callerForHeader(defaultUser string, hdr []http.Field) board.Caller {
 	let auth = match http.Header(hdr, "Board-Auth") {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		strings.TrimSpace(v.Value)
-	case None:
+	case option.None:
 		""
 	}
 	if auth == "none" {
@@ -143,16 +144,16 @@ func callerForHeader(defaultUser string, hdr []http.Field) board.Caller {
 		}
 	}
 	let user = match http.Header(hdr, "Board-User") {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		let u = strings.TrimSpace(v.Value)
 		if u != "" { u } else { defaultUser }
-	case None:
+	case option.None:
 		defaultUser
 	}
 	let profile = match http.Header(hdr, "Board-Profile") {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		strings.TrimSpace(v.Value)
-	case None:
+	case option.None:
 		""
 	}
 	match user {
@@ -207,7 +208,7 @@ func dispatchRequest(s Server, req http.Request) http.Response needs http.Stream
 
 // HandleHTTP serves one HTTP request (/healthz, /mcp, /rpc) inside a
 // process.Run child bounded by s.cfg.RequestStepLimit and RequestTimeout.
-func HandleHTTP(s Server, req http.Request) http.Response needs Scheduler {
+func HandleHTTP(s Server, req http.Request) http.Response needs time.Scheduler {
 	let limits = process.Limits{
 		Time:  s.cfg.RequestTimeout,
 		Steps: s.cfg.RequestStepLimit,
@@ -241,8 +242,8 @@ func Serve(
 	s Server,
 	netw net.Network,
 	ready sync.Latch,
-	extraWorkers []func() needs Scheduler,
-) fails ServeError needs Scheduler | time.Clock {
+	extraWorkers []func() needs time.Scheduler,
+) fails ServeError needs time.Scheduler | time.Clock {
 	let addr = ValidateBindAddr(s.cfg.Addr) catch {
 	case BindRefused as e:
 		return ServeBindRefused{Err: e}
@@ -250,7 +251,7 @@ func Serve(
 	let writerReady = sync.NewLatch()
 	let hubReady = sync.NewLatch()
 
-	let httpWorker = func() fails ServeError needs Scheduler {
+	let httpWorker = func() fails ServeError needs time.Scheduler {
 		let l = ListenAllowed(netw, addr) catch {
 		case BindRefused as e:
 			return ServeBindRefused{Err: e}
@@ -265,7 +266,7 @@ func Serve(
 		case queue.Full, queue.Closed:
 		}
 		let _ = sync.Open(ready)
-		http.Serve(l, s.cfg.HttpLimits, func(req http.Request) http.Response needs Scheduler | http.Streaming {
+		http.Serve(l, s.cfg.HttpLimits, func(req http.Request) http.Response needs time.Scheduler | http.Streaming {
 			HandleHTTP(s, req)
 		}) catch {
 		case http.InvalidLimits:
@@ -273,11 +274,11 @@ func Serve(
 		}
 	}
 
-	let workerGroup = func() fails ServeError needs Scheduler | time.Clock {
-		let mut workers = []func() fails ServeError needs Scheduler{httpWorker}
+	let workerGroup = func() fails ServeError needs time.Scheduler | time.Clock {
+		let mut workers = []func() fails ServeError needs time.Scheduler{httpWorker}
 		for w in extraWorkers {
 			let run = w
-			workers = workers.Append(func() fails ServeError needs Scheduler {
+			workers = workers.Append(func() fails ServeError needs time.Scheduler {
 				run()
 			})
 		}
@@ -295,15 +296,15 @@ func Serve(
 		}
 	}
 
-	let members = []func() fails ServeError needs Scheduler | time.Clock{
-		func() fails ServeError needs Scheduler | time.Clock {
+	let members = []func() fails ServeError needs time.Scheduler | time.Clock{
+		func() fails ServeError needs time.Scheduler | time.Clock {
 			let t = task.Go() {
 				RunWriter(s.writer, writerReady)
 				0
 			}
 			let _ = t.Wait()
 		},
-		func() fails ServeError needs Scheduler | time.Clock {
+		func() fails ServeError needs time.Scheduler | time.Clock {
 			let t = task.Go() {
 				RunWaitHub(s.hub, hubReady)
 				0

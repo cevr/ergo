@@ -12,7 +12,7 @@ let hexDigits = "0123456789abcdef"
 // (the short escapes where both have one), every other byte as it is.
 func WriteQuoted(b mut strings.Builder, s string) {
 	b.WriteByte('"')
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		match c {
 		case '"':
@@ -168,7 +168,7 @@ func sections(v Value) bool {
 	case Table:
 		true
 	case Array as a:
-		if len(a.Items) == 0 {
+		if a.Items.Len() == 0 {
 			return false
 		}
 		for x in a.Items {

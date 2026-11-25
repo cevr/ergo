@@ -1,6 +1,7 @@
 import filepath
 import fs
 import hex
+import option
 import sha1dc
 import sha256
 import slices
@@ -27,10 +28,10 @@ func computeIndexDigest(format oid.Format, data []byte) []byte fails ChecksumMis
 
 func verifyIndexChecksum(format oid.Format, raw []byte) oid.OID fails Truncated | ChecksumMismatch {
 	let hashLen = oid.ByteLen(format)
-	if len(raw) < 12+hashLen {
-		return Truncated{Expected: 12 + hashLen, Got: len(raw)}
+	if raw.Len() < 12+hashLen {
+		return Truncated{Expected: 12 + hashLen, Got: raw.Len()}
 	}
-	let bodyEnd = len(raw) - hashLen
+	let bodyEnd = raw.Len() - hashLen
 	let want = raw[bodyEnd:]
 	let got = try computeIndexDigest(format, raw[:bodyEnd])
 	if !slices.Equal(got, want) {
@@ -88,22 +89,22 @@ func compareEntries(a Entry, b Entry) int {
 
 func parseSplitLink(format oid.Format, payload []byte) SplitLink fails Truncated {
 	let hashLen = oid.ByteLen(format)
-	if len(payload) < hashLen {
-		return Truncated{Expected: hashLen, Got: len(payload)}
+	if payload.Len() < hashLen {
+		return Truncated{Expected: hashLen, Got: payload.Len()}
 	}
 	let baseOID = oid.FromBytes(format, payload[:hashLen]) catch {
 	case oid.WrongLength:
 		oid.Zero(format)
 	}
-	if oid.IsZero(baseOID) || len(payload) == hashLen {
+	if oid.IsZero(baseOID) || payload.Len() == hashLen {
 		return SplitLink{
 			BaseOID:       baseOID,
 			DeleteBitmap:  []bool{},
 			ReplaceBitmap: []bool{},
 		}
 	}
-	let (delBits, nextPos) = try decodeEWAH(payload, hashLen, len(payload))
-	let (repBits, _) = try decodeEWAH(payload, nextPos, len(payload))
+	let (delBits, nextPos) = try decodeEWAH(payload, hashLen, payload.Len())
+	let (repBits, _) = try decodeEWAH(payload, nextPos, payload.Len())
 	SplitLink{
 		BaseOID:       baseOID,
 		DeleteBitmap:  delBits,
@@ -113,11 +114,11 @@ func parseSplitLink(format oid.Format, payload []byte) SplitLink fails Truncated
 
 func isMandatorySignature(sig string) bool {
 	let bs = sig.Bytes()
-	len(bs) == 4 && bs[0] >= byte('a') && bs[0] <= byte('z')
+	bs.Len() == 4 && bs[0] >= byte('a') && bs[0] <= byte('z')
 }
 
 func validateEntryOrder(entries []Entry) fails DuplicateStage | UnsortedEntries {
-	for i in 1..len(entries) {
+	for i in 1..entries.Len() {
 		let cmp = comparePathStage(entries[i-1].Path, entries[i-1].Stage, entries[i].Path, entries[i].Stage)
 		if cmp == 0 {
 			return DuplicateStage{Path: entries[i].Path, Stage: entries[i].Stage}
@@ -133,8 +134,8 @@ func validateEntryOrder(entries []Entry) fails DuplicateStage | UnsortedEntries 
 // (lowercase) extensions with UnsupportedMandatoryExtension.
 func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVersion | Truncated | ChecksumMismatch | CorruptEntry | BadPathCompression | UnsupportedMandatoryExtension | DuplicateStage | UnsortedEntries {
 	let hashLen = oid.ByteLen(format)
-	if len(raw) < 12 {
-		return Truncated{Expected: 12, Got: len(raw)}
+	if raw.Len() < 12 {
+		return Truncated{Expected: 12, Got: raw.Len()}
 	}
 	if raw[0] != byte('D') || raw[1] != byte('I') || raw[2] != byte('R') || raw[3] != byte('C') {
 		return BadMagic{Reason: "missing DIRC index signature"}
@@ -144,7 +145,7 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 		return UnsupportedVersion{Version: ver}
 	}
 	let checksum = try verifyIndexChecksum(format, raw)
-	let bodyEnd = len(raw) - hashLen
+	let bodyEnd = raw.Len() - hashLen
 	let entryCount = int(readU32BE(raw, 8))
 
 	let mut entries = slices.WithCapacity[Entry](entryCount)
@@ -196,7 +197,7 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 		let mut path = ""
 		if ver == uint32(4) {
 			let (stripLen, afterVarint) = try decodeVarint(raw, pos, bodyEnd, i)
-			if stripLen < 0 || stripLen > len(prevPath) {
+			if stripLen < 0 || stripLen > prevPath.Len() {
 				return BadPathCompression{Index: i, Reason: "strip length exceeds previous path"}
 			}
 			let mut nulPos = -1
@@ -210,7 +211,7 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 				return Truncated{Expected: afterVarint + 1, Got: bodyEnd}
 			}
 			let suffix = raw[afterVarint:nulPos].Text()
-			path = prevPath[:len(prevPath)-stripLen] + suffix
+			path = prevPath[:prevPath.Len()-stripLen] + suffix
 			prevPath = path
 			pos = nulPos + 1
 		} else {
@@ -225,11 +226,11 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 				return Truncated{Expected: pos + 1, Got: bodyEnd}
 			}
 			let nameBytes = raw[pos:nulPos]
-			if nameLenField < 0x0fff && len(nameBytes) != nameLenField {
+			if nameLenField < 0x0fff && nameBytes.Len() != nameLenField {
 				return CorruptEntry{Index: i, Why: "entry name length mismatch"}
 			}
 			path = nameBytes.Text()
-			let unpadded = (pos - entryStart) + len(nameBytes)
+			let unpadded = (pos - entryStart) + nameBytes.Len()
 			let padLen = 8 - (unpadded % 8)
 			let nextPos = entryStart + unpadded + padLen
 			if nextPos > bodyEnd {
@@ -260,7 +261,7 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 	}
 
 	let mut extensions = []Extension{}
-	let mut splitLink Option[SplitLink] = None
+	let mut splitLink option.Option[SplitLink] = option.None
 	for _ in 0..1024 {
 		if pos >= bodyEnd {
 			break
@@ -279,7 +280,7 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 
 		if isMandatorySignature(sig) {
 			if sig == "link" {
-				splitLink = Some[SplitLink]{Value: try parseSplitLink(format, payload)}
+				splitLink = option.Some[SplitLink]{Value: try parseSplitLink(format, payload)}
 			} else if sig == "sdir" {
 			} else {
 				return UnsupportedMandatoryExtension{Signature: sig}
@@ -288,7 +289,7 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 		extensions = extensions.Append(Extension{Signature: sig, Size: extLen})
 	}
 
-	if splitLink == None {
+	if splitLink == option.None {
 		try validateEntryOrder(entries)
 	}
 
@@ -305,10 +306,10 @@ func Parse(format oid.Format, raw []byte) Index fails BadMagic | UnsupportedVers
 func mergeSplitIndex(base Index, split Index, link SplitLink) Index fails DuplicateStage | UnsortedEntries {
 	let mut merged = []Entry{}
 	let mut splitCursor = 0
-	for i in 0..len(base.entries) {
-		let isDeleted = i < len(link.DeleteBitmap) && link.DeleteBitmap[i]
-		let isReplaced = i < len(link.ReplaceBitmap) && link.ReplaceBitmap[i]
-		if isReplaced && splitCursor < len(split.entries) {
+	for i in 0..base.entries.Len() {
+		let isDeleted = i < link.DeleteBitmap.Len() && link.DeleteBitmap[i]
+		let isReplaced = i < link.ReplaceBitmap.Len() && link.ReplaceBitmap[i]
+		if isReplaced && splitCursor < split.entries.Len() {
 			let se = split.entries[splitCursor]
 			splitCursor = splitCursor + 1
 			if !isDeleted {
@@ -337,7 +338,7 @@ func mergeSplitIndex(base Index, split Index, link SplitLink) Index fails Duplic
 			merged = merged.Append(base.entries[i])
 		}
 	}
-	for k in splitCursor..len(split.entries) {
+	for k in splitCursor..split.entries.Len() {
 		merged = merged.Append(split.entries[k])
 	}
 	let sorted = slices.SortFunc(merged, compareEntries)
@@ -366,9 +367,9 @@ func Open(format oid.Format, indexPath string) Index fails BadMagic | Unsupporte
 	}
 	let idx = try Parse(format, raw.Bytes())
 	match idx.splitLink {
-	case None:
+	case option.None:
 		idx
-	case Some[SplitLink] as sl:
+	case option.Some[SplitLink] as sl:
 		if oid.IsZero(sl.Value.BaseOID) {
 			try validateEntryOrder(idx.entries)
 			return idx
@@ -419,9 +420,9 @@ func Entries(idx Index) []Entry {
 
 // Lookup implements IndexReader.Lookup on Index using binary search over
 // canonical (Path, Stage) order.
-func Lookup(idx Index, path string, stage int) Option[Entry] {
+func Lookup(idx Index, path string, stage int) option.Option[Entry] {
 	let mut lo = 0
-	let mut hi = len(idx.entries)
+	let mut hi = idx.entries.Len()
 	for _ in 0..64 {
 		if lo >= hi {
 			break
@@ -429,7 +430,7 @@ func Lookup(idx Index, path string, stage int) Option[Entry] {
 		let mid = lo + (hi-lo)/2
 		let cmp = comparePathStage(idx.entries[mid].Path, idx.entries[mid].Stage, path, stage)
 		if cmp == 0 {
-			return Some[Entry]{Value: idx.entries[mid]}
+			return option.Some[Entry]{Value: idx.entries[mid]}
 		}
 		if cmp < 0 {
 			lo = mid + 1
@@ -437,14 +438,14 @@ func Lookup(idx Index, path string, stage int) Option[Entry] {
 			hi = mid
 		}
 	}
-	None
+	option.None
 }
 
 // LookupAllStages implements IndexReader.LookupAllStages on Index, returning
 // all stages (0..3) present for path in ascending stage order.
 func LookupAllStages(idx Index, path string) []Entry {
 	let mut lo = 0
-	let mut hi = len(idx.entries)
+	let mut hi = idx.entries.Len()
 	for _ in 0..64 {
 		if lo >= hi {
 			break
@@ -457,7 +458,7 @@ func LookupAllStages(idx Index, path string) []Entry {
 		}
 	}
 	let mut out = []Entry{}
-	for i in lo..len(idx.entries) {
+	for i in lo..idx.entries.Len() {
 		if idx.entries[i].Path != path {
 			break
 		}

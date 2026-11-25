@@ -1,5 +1,7 @@
 // The dispatch loop.
 
+import option
+
 // Trap is a run that stopped at the instruction PC for the reason Why.
 // One failure type with a union inside carries the PC once, and a match
 // on Why is exhaustive.
@@ -27,9 +29,9 @@ let MaxFrames = 10000
 // (verify.ergo).
 func Run(program []Instr, fuel int) Result fails Trap {
 	match Verify(program) {
-	case Some[Verified] as v:
+	case option.Some[Verified] as v:
 		try Exec(v.Value, fuel)
-	case None:
+	case option.None:
 		try Checked(program, fuel)
 	}
 }
@@ -48,13 +50,13 @@ type paused { stack []int, frames []int, printed []int, pc int, steps int }
 // resume runs program on the checked loop from where.
 func resume(program []Instr, fuel int, where paused) Result fails Trap {
 	let mut stack = where.stack
-	let mut sp = len(stack)
+	let mut sp = stack.Len()
 	let mut frames = where.frames
-	let mut fp = len(frames)
+	let mut fp = frames.Len()
 	let mut printed = where.printed
 	let mut pc = where.pc
 	let mut steps = where.steps
-	for pc < len(program) {
+	for pc < program.Len() {
 		if steps == fuel {
 			return Trap{PC: pc, Why: OutOfFuel}
 		}
@@ -63,7 +65,7 @@ func resume(program []Instr, fuel int, where paused) Result fails Trap {
 		pc += 1
 		match program[at] {
 		case Push as p:
-			if sp == len(stack) {
+			if sp == stack.Len() {
 				stack = stack.Append(p.N)
 			} else {
 				stack[sp] = p.N
@@ -78,7 +80,7 @@ func resume(program []Instr, fuel int, where paused) Result fails Trap {
 			if sp < 1 {
 				return Trap{PC: at, Why: Underflow}
 			}
-			if sp == len(stack) {
+			if sp == stack.Len() {
 				stack = stack.Append(stack[sp-1])
 			} else {
 				stack[sp] = stack[sp-1]
@@ -95,7 +97,7 @@ func resume(program []Instr, fuel int, where paused) Result fails Trap {
 			if sp < 2 {
 				return Trap{PC: at, Why: Underflow}
 			}
-			if sp == len(stack) {
+			if sp == stack.Len() {
 				stack = stack.Append(stack[sp-2])
 			} else {
 				stack[sp] = stack[sp-2]
@@ -155,14 +157,14 @@ func resume(program []Instr, fuel int, where paused) Result fails Trap {
 			}
 			stack[sp-1] = if stack[sp-1] == 0 { 1 } else { 0 }
 		case Jump as j:
-			pc = try jumpTo(at, j.To, len(program))
+			pc = try jumpTo(at, j.To, program.Len())
 		case JumpIf as j:
 			if sp < 1 {
 				return Trap{PC: at, Why: Underflow}
 			}
 			sp -= 1
 			if stack[sp] != 0 {
-				pc = try jumpTo(at, j.To, len(program))
+				pc = try jumpTo(at, j.To, program.Len())
 			}
 		case JumpIfNot as j:
 			if sp < 1 {
@@ -170,19 +172,19 @@ func resume(program []Instr, fuel int, where paused) Result fails Trap {
 			}
 			sp -= 1
 			if stack[sp] == 0 {
-				pc = try jumpTo(at, j.To, len(program))
+				pc = try jumpTo(at, j.To, program.Len())
 			}
 		case Call as c:
 			if fp == MaxFrames {
 				return Trap{PC: at, Why: TooDeep}
 			}
-			if fp == len(frames) {
+			if fp == frames.Len() {
 				frames = frames.Append(pc)
 			} else {
 				frames[fp] = pc
 			}
 			fp += 1
-			pc = try jumpTo(at, c.To, len(program))
+			pc = try jumpTo(at, c.To, program.Len())
 		case Ret:
 			if fp < 1 {
 				return Trap{PC: at, Why: NoFrame}

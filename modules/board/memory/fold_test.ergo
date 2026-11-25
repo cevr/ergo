@@ -1,4 +1,5 @@
 import github.com/cevr/ergo/modules/board/board
+import option
 
 func testAdmins() []board.Principal {
 	[]board.Principal{
@@ -115,7 +116,7 @@ test TestBoardAgreesWithFold {
 		From:           "",
 		IdempotencyKey: "req-1",
 	}, 1000)
-	assert len(e1) == 2
+	assert e1.Len() == 2
 	let (e2, _) = try board.Execute(store, board.PostMessage{
 		Caller:         aliceCaller(),
 		Board:          board.DefaultBoard,
@@ -126,7 +127,7 @@ test TestBoardAgreesWithFold {
 		From:           "",
 		IdempotencyKey: "req-1",
 	}, 1001)
-	assert len(e2) == 0
+	assert e2.Len() == 0
 	let mut secretRefused = false
 	let _ = board.Execute(store, board.PostMessage{
 		Caller:         aliceCaller(),
@@ -155,7 +156,7 @@ test TestBoardAgreesWithFold {
 		From:           "slack",
 		IdempotencyKey: "",
 	}, 1003)
-	assert len(e3) == 1
+	assert e3.Len() == 1
 	let (e4, _) = try board.Execute(store, board.ReactMessage{
 		Caller: bobCaller(),
 		Board:  board.DefaultBoard,
@@ -163,21 +164,21 @@ test TestBoardAgreesWithFold {
 		Emoji:  "rocket",
 		Remove: false,
 	}, 1004)
-	assert len(e4) == 1
+	assert e4.Len() == 1
 	let snap = try store.Snapshot()
 	let evts = try store.ReadEvents(board.DefaultBoard, 0)
 	assert snap == board.Fold(initial, evts)
 	match snap.Messages.Get("msg_1") {
-	case Some[board.Message] as m:
-		assert m.Value.Reactions.Get("rocket") == Some[[]board.ActorID]{Value: []board.ActorID{"google:bob"}}
-	case None:
+	case option.Some[board.Message] as m:
+		assert m.Value.Reactions.Get("rocket") == option.Some[[]board.ActorID]{Value: []board.ActorID{"google:bob"}}
+	case option.None:
 		assert false
 	}
 	match snap.Messages.Get("msg_2") {
-	case Some[board.Message] as m:
+	case option.Some[board.Message] as m:
 		assert m.Value.Text == "from slack [removed: github]"
-		assert m.Value.Labels.Get("board.redacted") == Some[string]{Value: "github"}
-	case None:
+		assert m.Value.Labels.Get("board.redacted") == option.Some[string]{Value: "github"}
+	case option.None:
 		assert false
 	}
 	let (ePlan, _) = try board.Execute(store, board.CreatePlan{
@@ -190,7 +191,7 @@ test TestBoardAgreesWithFold {
 		},
 		IdempotencyKey: "plan-1",
 	}, 2000)
-	assert len(ePlan) == 4
+	assert ePlan.Len() == 4
 	let _ = try board.Execute(store, board.ClaimTask{
 		Caller:  aliceAgentCaller(),
 		Board:   board.DefaultBoard,
@@ -240,15 +241,15 @@ test TestBoardAgreesWithFold {
 	let evts2 = try store.ReadEvents(board.DefaultBoard, 0)
 	assert snap2 == board.Fold(initial, evts2)
 	match snap2.Tasks.Get("msg_3") {
-	case Some[board.TaskRecord] as t3:
+	case option.Some[board.TaskRecord] as t3:
 		assert t3.Value.State == board.TaskCompleted && t3.Value.Epoch == 2
-	case None:
+	case option.None:
 		assert false
 	}
 	match snap2.Tasks.Get("msg_4") {
-	case Some[board.TaskRecord] as t4:
+	case option.Some[board.TaskRecord] as t4:
 		assert t4.Value.State == board.TaskReady
-	case None:
+	case option.None:
 		assert false
 	}
 }

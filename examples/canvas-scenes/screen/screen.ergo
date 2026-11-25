@@ -12,6 +12,7 @@ import canvasscenes/balls
 import canvasscenes/flow
 import canvasscenes/scene
 import math
+import option
 import strconv
 import ui
 
@@ -25,7 +26,7 @@ func Screen(f mut ui.Frame[app.Signal], p app.Program) {
 		ui.Animate(f, func(at duration) app.Signal { app.Framed{At: float64(int64(at)) / 1000000.0} })
 	}
 	ui.Column(f, ui.Plain()) {
-		ui.Semantic(f, named(ui.Group, "Scenes"), None, ui.Plain()) {
+		ui.Semantic(f, named(ui.Group, "Scenes"), option.None, ui.Plain()) {
 			button(f, "Balls", scene.ShowBalls)
 			button(f, "Flow", scene.ShowFlow)
 		}
@@ -41,12 +42,12 @@ func Screen(f mut ui.Frame[app.Signal], p app.Program) {
 func ballsView(f mut ui.Frame[app.Signal], b scene.Balls) {
 	heading(f, "Canvas Art")
 	ui.Text(f, "Click the canvas to spawn a ball.")
-	ui.Area(f, "Canvas", ui.Plain(), func(e ui.PointerEvent) Option[app.Signal] {
+	ui.Area(f, "Canvas", ui.Plain(), func(e ui.PointerEvent) option.Option[app.Signal] {
 		match e.Phase {
 		case ui.Down:
-			Some[app.Signal]{Value: app.On{Signal: scene.Pressed{X: e.X, Y: e.Y}}}
+			option.Some[app.Signal]{Value: app.On{Signal: scene.Pressed{X: e.X, Y: e.Y}}}
 		case ui.Moved, ui.Drag, ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
-			None
+			option.None
 		}
 	}) {
 		ui.Canvas(f, "Canvas", ui.Length(balls.Width), ui.Length(balls.Height)) func(pt mut ui.Paint) {
@@ -59,21 +60,21 @@ func ballsView(f mut ui.Frame[app.Signal], b scene.Balls) {
 	ui.Row(f, ui.Plain()) {
 		button(f, if b.Running { "Pause" } else { "Play" }, scene.Toggled)
 		button(f, "Clear", scene.Cleared)
-		ui.Text(f, "\(len(b.Field.Balls)) balls")
+		ui.Text(f, "\(b.Field.Balls.Len()) balls")
 	}
 }
 
 func flowView(f mut ui.Frame[app.Signal], fl flow.Field) {
 	heading(f, "Prism Field")
 	ui.Text(f, "Move to stir. Click to bloom.")
-	ui.Area(f, "Canvas", ui.Plain(), func(e ui.PointerEvent) Option[app.Signal] {
+	ui.Area(f, "Canvas", ui.Plain(), func(e ui.PointerEvent) option.Option[app.Signal] {
 		match e.Phase {
 		case ui.Down:
-			Some[app.Signal]{Value: app.On{Signal: scene.Pressed{X: e.X, Y: e.Y}}}
+			option.Some[app.Signal]{Value: app.On{Signal: scene.Pressed{X: e.X, Y: e.Y}}}
 		case ui.Moved, ui.Drag:
-			Some[app.Signal]{Value: app.On{Signal: scene.Moved{X: e.X, Y: e.Y}}}
+			option.Some[app.Signal]{Value: app.On{Signal: scene.Moved{X: e.X, Y: e.Y}}}
 		case ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
-			None
+			option.None
 		}
 	}) {
 		ui.Canvas(f, "Canvas", ui.Length(flow.Width), ui.Length(flow.Height)) func(pt mut ui.Paint) {
@@ -83,7 +84,7 @@ func flowView(f mut ui.Frame[app.Signal], fl flow.Field) {
 	ui.Row(f, ui.Plain()) {
 		button(f, if fl.Running { "Pause" } else { "Play" }, scene.Toggled)
 		button(f, "Reset", scene.Cleared)
-		ui.Text(f, "\(len(fl.Particles)) particles")
+		ui.Text(f, "\(fl.Particles.Len()) particles")
 	}
 	slider(f, "Turbulence", fl.Strength, flow.StrengthMin, flow.StrengthMax, func(v float64) scene.Signal { scene.SetStrength{Value: v} })
 	slider(f, "Noise scale", fl.Scale, flow.ScaleMin, flow.ScaleMax, func(v float64) scene.Signal { scene.SetScale{Value: v} })
@@ -94,12 +95,12 @@ func flowView(f mut ui.Frame[app.Signal], fl flow.Field) {
 // it in range and on its step). A move is no press: the Area cannot tell
 // a drag from a hover, so only a press sets the value (gap FK12-g1).
 func slider(f mut ui.Frame[app.Signal], label string, value float64, lo float64, hi float64, set own func(v float64) scene.Signal) {
-	ui.Area(f, label, ui.Plain(), func(e ui.PointerEvent) Option[app.Signal] {
+	ui.Area(f, label, ui.Plain(), func(e ui.PointerEvent) option.Option[app.Signal] {
 		match e.Phase {
 		case ui.Down:
-			Some[app.Signal]{Value: app.On{Signal: set(lo + (hi-lo)*e.X/SliderWidth)}}
+			option.Some[app.Signal]{Value: app.On{Signal: set(lo + (hi-lo)*e.X/SliderWidth)}}
 		case ui.Moved, ui.Drag, ui.Up, ui.Wheel, ui.PointerEnter, ui.PointerLeave:
-			None
+			option.None
 		}
 	}) {
 		ui.Text(f, Fixed2(value))
@@ -142,7 +143,7 @@ func paintFlow(pt mut ui.Paint, fl flow.Field) {
 		ui.Fill(pt, Circle(x, y, 280.0), glows[i])
 	}
 	for p in fl.Particles {
-		if len(p.Trail) < 2 {
+		if p.Trail.Len() < 2 {
 			continue
 		}
 		let fade = Fade(p)
@@ -155,10 +156,10 @@ func paintFlow(pt mut ui.Paint, fl flow.Field) {
 		ui.Stroke(pt, path, hsla(hue, 90.0, 78.0, 0.85*fade), coreWidth)
 	}
 	for p in fl.Particles {
-		if len(p.Trail) == 0 {
+		if p.Trail.Len() == 0 {
 			continue
 		}
-		let head = p.Trail[len(p.Trail)-1]
+		let head = p.Trail[p.Trail.Len()-1]
 		ui.Fill(pt, Circle(head.X, head.Y, headRadius), hsla(Hue(p, fl.Elapsed), 90.0, 92.0, 0.95*Fade(p)))
 	}
 	let strip = rgba(2, 1, 8, 0.55/4.0)
@@ -173,9 +174,9 @@ func paintFlow(pt mut ui.Paint, fl flow.Field) {
 		ui.Fill(pt, ui.RectPath(flow.Width-w, 0.0, w, flow.Height), strip)
 	}
 	match fl.Pointer {
-	case Some[flow.Point] as at:
+	case option.Some[flow.Point] as at:
 		ui.Fill(pt, Circle(at.Value.X, at.Value.Y, pointerRadius), rgba(255, 255, 255, 0.04))
-	case None:
+	case option.None:
 	}
 }
 
@@ -199,7 +200,7 @@ func minimum(a float64, b float64) float64 { if a < b { a } else { b } }
 
 func trail(points []flow.Point) ui.Path {
 	let mut segs = []ui.Seg{ui.MoveTo{X: points[0].X, Y: points[0].Y}}
-	for i in 1..len(points) {
+	for i in 1..points.Len() {
 		segs = segs.Append(ui.LineTo{X: points[i].X, Y: points[i].Y})
 	}
 	ui.Path{Segs: segs}
@@ -266,18 +267,18 @@ func channel(n float64, h float64, l float64, c float64) float64 {
 }
 
 func button(f mut ui.Frame[app.Signal], label string, sig scene.Signal) {
-	ui.Semantic(f, named(ui.Button, label), Some[app.Signal]{Value: app.On{Signal: sig}}, ui.Plain()) {
+	ui.Semantic(f, named(ui.Button, label), option.Some[app.Signal]{Value: app.On{Signal: sig}}, ui.Plain()) {
 		ui.Text(f, label)
 	}
 }
 
 func heading(f mut ui.Frame[app.Signal], text string) {
-	ui.Semantic(f, ui.Access{..named(ui.Heading, text), Level: Some[int]{Value: 1}}, None, ui.Plain()) {
+	ui.Semantic(f, ui.Access{..named(ui.Heading, text), Level: option.Some[int]{Value: 1}}, option.None, ui.Plain()) {
 		ui.Text(f, text)
 	}
 }
 
 // named is the access of a node with a role and a name.
 func named(role ui.Role, name string) ui.Access {
-	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: None, Value: None, Selected: None, Expanded: None, Pressed: None, Invalid: false, Busy: false, HasPopup: false, Level: None, Mixed: false, Current: None, Modal: false, MultiSelectable: false, Range: None, Key: ui.NoKey, Rels: []ui.Rel{}}
+	ui.Access{Role: role, Name: name, Disabled: false, Description: "", Checked: option.None, Value: option.None, Selected: option.None, Expanded: option.None, Pressed: option.None, Invalid: false, Busy: false, HasPopup: false, Level: option.None, Mixed: false, Current: option.None, Modal: false, MultiSelectable: false, Range: option.None, Key: ui.NoKey, Rels: []ui.Rel{}}
 }

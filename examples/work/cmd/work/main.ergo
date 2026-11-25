@@ -26,6 +26,7 @@
 // default ~/.local/share/work).
 
 import api
+import embed
 import exec
 import filepath
 import fs
@@ -39,13 +40,15 @@ import github.com/cevr/ergo/modules/work/sh
 import github.com/cevr/ergo/modules/work/system
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workcli
+import io
+import option
 import os
 import slices
 import strconv
 import strings
 import time
 
-let BuildStamp = embedded[string]("version.txt")
+let BuildStamp = embed.File[string]("version.txt")
 
 // baseOf is the base of the working folder cwd, as the head says; a
 // folder with a .git that a registered base's registry holds as a
@@ -91,20 +94,20 @@ func jsonFirst(args []string) []string {
 
 // clockOf is the clock: the host's, or a clock fixed at the Unix second
 // now says.
-func clockOf(now Option[string]) time.Clock fails os.Exit needs Ambient {
+func clockOf(now option.Option[string]) time.Clock fails os.Exit needs os.Ambient {
 	match now {
-	case Some[string] as text:
+	case option.Some[string] as text:
 		let sec = strconv.ParseInt(text.Value, 10, 64) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			return os.Exit{Code: 2, Message: "work: WORK_NOW is a Unix second, not \(text.Value)"}
 		}
 		time.NewManual(sec)
-	case None:
+	case option.None:
 		time.NewHost()
 	}
 }
 
-func main() fails os.Exit needs Ambient | Console {
+func main() fails os.Exit needs os.Ambient | io.Console {
 	let process = os.NewHost()
 	let cwd = process.Getwd() catch {
 	case os.NoWorkdir as n:
@@ -112,22 +115,22 @@ func main() fails os.Exit needs Ambient | Console {
 	}
 	let files = fs.NewHost()
 	let shared = match process.Getenv("XDG_DATA_HOME") {
-	case Some[string] as x:
+	case option.Some[string] as x:
 		filepath.Join([]string{x.Value, "work"})
-	case None:
+	case option.None:
 		match process.Getenv("HOME") {
-		case Some[string] as h:
+		case option.Some[string] as h:
 			filepath.Join([]string{h.Value, ".local", "share", "work"})
-		case None:
+		case option.None:
 			""
 		}
 	}
 	let base = match process.Getenv("WORK_BASE") {
-	case Some[string] as b:
+	case option.Some[string] as b:
 		// "." is the working folder: its storage beside it must not be
 		// inside it.
 		if filepath.Clean(b.Value) == "." { filepath.Clean(cwd) } else { filepath.Clean(b.Value) }
-	case None:
+	case option.None:
 		baseOf(files, cwd, shared)
 	}
 	let home = work.Home(base, work.StorageOf(files, base))

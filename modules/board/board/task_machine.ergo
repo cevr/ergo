@@ -1,3 +1,6 @@
+import machines
+import option
+
 // TaskWorker identifies one of two worker profiles racing on tasks in M1/M2.
 type TaskWorker = WorkerA{} | WorkerB{}
 
@@ -98,9 +101,9 @@ func taskApplyDecide(s State, cmd Command, now Timestamp) (State, []Event, bool)
 func taskOfSlot(s State, idx int) TaskRecord {
 	let id = if idx == 0 { "msg_1" } else { "msg_2" }
 	match s.Tasks.Get(id) {
-	case Some[TaskRecord] as tr:
+	case option.Some[TaskRecord] as tr:
 		tr.Value
-	case None:
+	case option.None:
 		TaskRecord{ID: "", Board: "", Channel: "", State: TaskWaiting, Owner: "", OwnerPrincipal: "", For: "", Needs: []MessageID{}, HasClaim: false, Claim: emptyClaim(), Epoch: 0, HoldKind: "", HoldReason: "", Result: "", Reason: "", CreatedAt: 0, ReadyAt: 0}
 	}
 }
@@ -130,14 +133,14 @@ func taskInitial() TaskWorld {
 	}
 }
 
-func taskStepSettle(s TaskWorld, w TaskWorker, t TaskSlot, kind int) Decision[TaskWorld, string] {
+func taskStepSettle(s TaskWorld, w TaskWorker, t TaskSlot, kind int) machines.Decision[TaskWorld, string] {
 	let mut out = s
 	let wi = taskWorkerIdx(w)
 	let ti = taskSlotIdx(t)
 	let k = wi*2 + ti
 	let tok = out.Tok[k]
 	if tok == 0 {
-		return Ignore
+		return machines.Ignore
 	}
 	let before = taskOfSlot(out.Board, ti)
 	let id = taskSlotID(t)
@@ -158,14 +161,14 @@ func taskStepSettle(s TaskWorld, w TaskWorker, t TaskSlot, kind int) Decision[Ta
 	if !ok {
 		out.Tok[k] = 0
 		out.Lost = true
-		return Enter{out}
+		return machines.Enter{out}
 	}
 	if before.State != TaskClaimed || tok != before.Epoch {
 		out.Stale = true
 	}
 	out.Board = nextBoard
 	if kind == 0 {
-		return Enter{out}
+		return machines.Enter{out}
 	}
 	out.Tok[k] = 0
 	if kind == 1 {
@@ -173,34 +176,34 @@ func taskStepSettle(s TaskWorld, w TaskWorker, t TaskSlot, kind int) Decision[Ta
 		if ti == 0 && taskOfSlot(nextBoard, 1).State == TaskReady {
 			out.Wins[1] = 0
 		}
-		return Enter{out}
+		return machines.Enter{out}
 	}
 	if kind == 3 {
 		out.Wins[ti] = 0
 	}
-	Enter{out}
+	machines.Enter{out}
 }
 
-func taskStep(s TaskWorld, act TaskAct) Decision[TaskWorld, string] {
+func taskStep(s TaskWorld, act TaskAct) machines.Decision[TaskWorld, string] {
 	let mut w = s
 	match act {
 	case TaskClaimRead as a:
 		let ti = taskSlotIdx(a.T)
 		let k = taskWorkerIdx(a.W)*2 + ti
 		if taskOfSlot(w.Board, ti).State != TaskReady || w.Saw[k] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Saw[k] = true
-		return Enter{w}
+		return machines.Enter{w}
 	case TaskClaimWrite as a:
 		let ti = taskSlotIdx(a.T)
 		let k = taskWorkerIdx(a.W)*2 + ti
 		if !w.Saw[k] {
-			return Ignore
+			return machines.Ignore
 		}
 		let before = taskOfSlot(w.Board, ti)
 		if before.Epoch >= taskMachineMaxEpoch {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Saw[k] = false
 		let (nextBoard, _, ok) = taskApplyDecide(w.Board, ClaimTask{
@@ -210,13 +213,13 @@ func taskStep(s TaskWorld, act TaskAct) Decision[TaskWorld, string] {
 			LeaseMs: MaxLeaseMs,
 		}, taskClaimNow)
 		if !ok {
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Board = nextBoard
 		let after = taskOfSlot(nextBoard, ti)
 		w.Tok[k] = after.Epoch
 		w.Wins[ti] = w.Wins[ti] + 1
-		return Enter{w}
+		return machines.Enter{w}
 	case TaskRenewAct as a:
 		taskStepSettle(w, a.W, a.T, 0)
 	case TaskCompleteAct as a:
@@ -230,46 +233,46 @@ func taskStep(s TaskWorld, act TaskAct) Decision[TaskWorld, string] {
 	case TaskExpireAct as a:
 		let ti = taskSlotIdx(a.T)
 		if taskOfSlot(w.Board, ti).State != TaskClaimed {
-			return Ignore
+			return machines.Ignore
 		}
 		let (nextBoard, _, ok) = taskApplyDecide(w.Board, ExpireTask{Board: DefaultBoard, ID: taskSlotID(a.T)}, taskExpireNow)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		let fixed = match nextBoard.Tasks.Get(taskSlotID(a.T)) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			State{..nextBoard, Tasks: nextBoard.Tasks.Put(taskSlotID(a.T), TaskRecord{..tr.Value, ReadyAt: taskClaimNow})}
-		case None:
+		case option.None:
 			nextBoard
 		}
 		w.Board = fixed
 		w.Wins[ti] = 0
-		return Enter{w}
+		return machines.Enter{w}
 	case TaskUnblockAct as a:
 		let ti = taskSlotIdx(a.T)
 		let (nextBoard, _, ok) = taskApplyDecide(w.Board, UnblockTask{Caller: taskOwnerCaller(), Board: DefaultBoard, ID: taskSlotID(a.T)}, taskClaimNow)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nextBoard
 		w.Wins[ti] = 0
-		return Enter{w}
+		return machines.Enter{w}
 	case TaskCancelAct as a:
 		let (nextBoard, _, ok) = taskApplyDecide(w.Board, CancelTask{Caller: taskOwnerCaller(), Board: DefaultBoard, ID: taskSlotID(a.T), Reason: "cancel"}, taskClaimNow)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nextBoard
-		return Enter{w}
+		return machines.Enter{w}
 	case TaskReopenAct as a:
 		let ti = taskSlotIdx(a.T)
 		let (nextBoard, _, ok) = taskApplyDecide(w.Board, ReopenTask{Caller: taskOwnerCaller(), Board: DefaultBoard, ID: taskSlotID(a.T)}, taskClaimNow)
 		if !ok {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Board = nextBoard
 		w.Wins[ti] = 0
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 

@@ -93,7 +93,7 @@ func TrustFile(home string) string { filepath.Join([]string{home, ".trusted"}) }
 // trusted reports whether c's commands may run: it runs none, or its
 // digest is the one work trust (or init) allowed.
 func trusted(t Tool, c Config) bool {
-	if len(Commands(c)) == 0 {
+	if Commands(c).Len() == 0 {
 		return true
 	}
 	let text = t.files.ReadFile(TrustFile(t.home)) catch {
@@ -117,7 +117,7 @@ func hookEnv(source string, path string, id string, parentId string) []Setting {
 // each caller releases before it.
 func runHook(t Tool, c Config, name string, dir string, env []Setting) Hooked {
 	let list = HookList(c.Hooks, name)
-	if len(list) == 0 {
+	if list.Len() == 0 {
 		return HooksRan{Count: 0}
 	}
 	if !trusted(t, c) {
@@ -382,7 +382,7 @@ func buried(t Tool, w Workspace) bool {
 // or a registry that does not write, leaves the records for the next
 // command, whose settle drops them (no staging folder, no tomb).
 func dropped(t Tool, gone []Workspace) {
-	if len(gone) == 0 {
+	if gone.Len() == 0 {
 		return
 	}
 	let mut held = true

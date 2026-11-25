@@ -7,6 +7,7 @@
 // not on amd64, so a float game could replay differently on the Mac and
 // the workbox; integers replay the same everywhere (survey gap G3).
 
+import option
 import ritmo/ecs
 
 // Unit is one unit of ritmo's world, in thousandths.
@@ -80,8 +81,8 @@ type World {
 	Total      int,
 	Facing     Dir,
 	Gait       Gait,
-	TurnQueued Option[Turn],
-	StepQueued Option[Stride],
+	TurnQueued option.Option[Turn],
+	StepQueued option.Option[Stride],
 	Queue      []ecs.Command[Draft],
 }
 
@@ -135,21 +136,21 @@ func Empty() World {
 		Input:      Idle,
 		Focus:      Nothing,
 		Collected:  0,
-		Total:      len(PickupLayout),
+		Total:      PickupLayout.Len(),
 		Facing:     Down,
 		Gait:       Standing,
-		TurnQueued: None,
-		StepQueued: None,
+		TurnQueued: option.None,
+		StepQueued: option.None,
 		Queue:      []ecs.Command[Draft]{},
 	}
 }
 
 // PlayerOf is the player entity, or None before Setup.
-func PlayerOf(w World) Option[ecs.Entity] {
-	if len(w.Players.Ents) == 0 {
-		return None
+func PlayerOf(w World) option.Option[ecs.Entity] {
+	if w.Players.Ents.Len() == 0 {
+		return option.None
 	}
-	Some[ecs.Entity]{Value: w.Players.Ents[0]}
+	option.Some[ecs.Entity]{Value: w.Players.Ents[0]}
 }
 
 // PositionOf is e's position, or the origin when e has none.
@@ -161,18 +162,18 @@ func VelocityOf(w World, e ecs.Entity) Vec { orZero(w.Vel.Get(e)) }
 // BoxOf is e's collider, or an empty box when e has none.
 func BoxOf(w World, e ecs.Entity) Size {
 	match w.Box.Get(e) {
-	case Some[Size] as s:
+	case option.Some[Size] as s:
 		s.Value
-	case None:
+	case option.None:
 		Size{W: 0, H: 0}
 	}
 }
 
-func orZero(v Option[Vec]) Vec {
+func orZero(v option.Option[Vec]) Vec {
 	match v {
-	case Some[Vec] as s:
+	case option.Some[Vec] as s:
 		s.Value
-	case None:
+	case option.None:
 		Vec{X: 0, Y: 0}
 	}
 }

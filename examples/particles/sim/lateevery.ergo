@@ -9,7 +9,7 @@ import time
 // box is a box of 3 to 20 columns from a seed, for tests.
 func box(seed uint64, n int) world.World {
 	let count = if n < 0 { -(n % 9) } else { n % 9 }
-	with context { Random: rand.Seeded(seed) } { world.Spawn(12, 5, count, 0) } catch {
+	with context { rand.Random: rand.Seeded(seed) } { world.Spawn(12, 5, count, 0) } catch {
 	case world.BadSize, world.BadLoss, world.TooMany:
 		world.Blank()
 	}
@@ -18,7 +18,7 @@ func box(seed uint64, n int) world.World {
 func drawnBox() world.World needs gen.Draws {
 	let count = gen.Named("particles", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 8) })
 	let s0 = gen.Below(uint64(0))
-	with context { Random: rand.Seeded(s0) } { world.Spawn(12, 5, count, 0) } catch {
+	with context { rand.Random: rand.Seeded(s0) } { world.Spawn(12, 5, count, 0) } catch {
 	case world.BadSize, world.BadLoss, world.TooMany:
 		world.Blank()
 	}
@@ -32,7 +32,7 @@ law StepsFollowTheClock() {
 		let w = drawnBox()
 		let k = gen.Named("frames", func(v int) string { "\(v)" }, func() int needs gen.Draws { gen.IntIn(0, 19) })
 		let m = time.NewManual(0)
-		let g = with context { Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: recorded() } {
+		let g = with context { time.Scheduler: lateEvery{m: m, every: 3}, time.Clock: m, Screen: recorded() } {
 			Play(w, "", k, Pace{Frame: 50ms, Dt: 20ms})
 		}
 		g.Steps == time.Count(m.Now().Sub(time.Unix(0, 0)), 20ms)
@@ -42,7 +42,7 @@ law StepsFollowTheClock() {
 
 // lateEvery is a Scheduler that sleeps on m with no wait, and a quarter
 // longer on each every-th sleep, as a late frame does.
-type lateEvery { m time.Manual, every int } implements Scheduler
+type lateEvery { m time.Manual, every int } implements time.Scheduler
 
 func Sleep(l lateEvery, d duration) {
 	let n = time.Count(l.m.Now().Sub(time.Unix(0, 0)), d)
@@ -51,7 +51,7 @@ func Sleep(l lateEvery, d duration) {
 }
 
 // Alarms is m's, with no lateness.
-func Alarms(l lateEvery) AlarmClock { l.m.Alarms() }
+func Alarms(l lateEvery) time.AlarmClock { l.m.Alarms() }
 
 // recorder is the package's own test provider of a capability, derived as
 // testing.Script is (patterns.md, Provider plans): recorder[Screen] has one
@@ -65,6 +65,6 @@ type recorder[S] derive Provider(Of[S](), Of[record.Op](), Of[record.NoArgs]())
 // them.
 func recorded() recorder[Screen] {
 	let s = recorder[Screen]{}
-	s.Shown.Answer(func() int { len(s.Show.Calls()) })
+	s.Shown.Answer(func() int { s.Show.Calls().Len() })
 	s
 }

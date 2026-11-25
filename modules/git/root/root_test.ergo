@@ -1,11 +1,13 @@
 import exec
 import filepath
 import fs
+import fstest
+import option
 import os
 import strings
 import github.com/cevr/ergo/modules/git/oracle
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner:     exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:        fs.NewTestHost(),
 	fs.Writes:       fs.NewTestHost(),
@@ -46,16 +48,16 @@ func assertMatchesRevParse(dir string, layout Layout, pathEnv Map[string, string
 			return false
 		}
 		match layout.WorkTree {
-		case Some[string] as wt:
+		case option.Some[string] as wt:
 			wt.Value == topLevel
-		case None:
+		case option.None:
 			false
 		}
 	} else {
 		match layout.WorkTree {
-		case Some[string]:
+		case option.Some[string]:
 			false
-		case None:
+		case option.None:
 			true
 		}
 	}
@@ -116,7 +118,7 @@ test DiscoverMatchesGitRevParse {
 		let altDir = try oracle.InitRepo(filepath.Join([]string{base, "alternates"}), oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Alternates, DefaultBranch: "main"}, pathEnv, int64(1700000000))
 		let lAlt = try Discover(altDir, opts)
 		assert try assertMatchesRevParse(altDir, lAlt, pathEnv)
-		assert len(lAlt.Alternates) == 1
+		assert lAlt.Alternates.Len() == 1
 		assert lAlt.Alternates[0] == filepath.Join([]string{base, "alternates", "upstream", ".git", "objects"})
 
 		let outsideDir = filepath.Join([]string{base, "not-a-repo", "sub"})
@@ -195,21 +197,21 @@ test ConfigMatchesGitConfigNull {
 		)
 		assert FormatNull(cfg) == gitNull
 
-		assert GetLast(cfg, "core", None, "sharedkey") == Some[string]{Value: "from-local"}
-		assert try GetBool(cfg, "core", None, "implicitflag") == Some[bool]{Value: true}
-		assert try GetBool(cfg, "core", None, "worktreeonly") == Some[bool]{Value: true}
-		assert try GetBool(cfg, "core", None, "bare") == Some[bool]{Value: false}
-		assert try GetInt(cfg, "core", None, "sizelimit") == Some[int64]{Value: int64(2097152)}
-		assert GetLast(cfg, "remote", Some[string]{Value: "Origin"}, "url") == Some[string]{Value: "https://example.com/a b#not-comment"}
-		assert GetLast(cfg, "remote", Some[string]{Value: "origin"}, "url") == Some[string]{Value: "https://example.com/lower"}
-		assert GetLast(cfg, "remote", Some[string]{Value: "Origin"}, "escaped") == Some[string]{Value: "line1\n\t\"quoted\"\\end"}
-		assert GetLast(cfg, "section", Some[string]{Value: "sub\"quote\\slash"}, "joined") == Some[string]{Value: "part1 part2"}
+		assert GetLast(cfg, "core", option.None, "sharedkey") == option.Some[string]{Value: "from-local"}
+		assert try GetBool(cfg, "core", option.None, "implicitflag") == option.Some[bool]{Value: true}
+		assert try GetBool(cfg, "core", option.None, "worktreeonly") == option.Some[bool]{Value: true}
+		assert try GetBool(cfg, "core", option.None, "bare") == option.Some[bool]{Value: false}
+		assert try GetInt(cfg, "core", option.None, "sizelimit") == option.Some[int64]{Value: int64(2097152)}
+		assert GetLast(cfg, "remote", option.Some[string]{Value: "Origin"}, "url") == option.Some[string]{Value: "https://example.com/a b#not-comment"}
+		assert GetLast(cfg, "remote", option.Some[string]{Value: "origin"}, "url") == option.Some[string]{Value: "https://example.com/lower"}
+		assert GetLast(cfg, "remote", option.Some[string]{Value: "Origin"}, "escaped") == option.Some[string]{Value: "line1\n\t\"quoted\"\\end"}
+		assert GetLast(cfg, "section", option.Some[string]{Value: "sub\"quote\\slash"}, "joined") == option.Some[string]{Value: "part1 part2"}
 
-		let multis = GetAll(cfg, "core", None, "multi")
-		assert len(multis) == 3
-		assert multis[0] == Some[string]{Value: "first"}
-		assert multis[1] == Some[string]{Value: "second"}
-		assert multis[2] == Some[string]{Value: "third"}
+		let multis = GetAll(cfg, "core", option.None, "multi")
+		assert multis.Len() == 3
+		assert multis[0] == option.Some[string]{Value: "first"}
+		assert multis[1] == option.Some[string]{Value: "second"}
+		assert multis[2] == option.Some[string]{Value: "third"}
 	}
 }
 
@@ -246,12 +248,12 @@ test TrustBoundaryAndExtensions {
 		try fs.Writes.WriteFile(mainCfg, "[user]\n\tname = Main\n[include]\n\tpath = extra.cfg\n")
 
 		let untrustedCfg = try LoadConfigFiles([]ConfigFile{ConfigFile{Scope: Local, Path: mainCfg}}, ConfinedTrust(cwd))
-		assert GetLast(untrustedCfg, "user", None, "name") == Some[string]{Value: "Main"}
-		assert len(untrustedCfg.SkippedIncludes) == 1
+		assert GetLast(untrustedCfg, "user", option.None, "name") == option.Some[string]{Value: "Main"}
+		assert untrustedCfg.SkippedIncludes.Len() == 1
 		assert untrustedCfg.SkippedIncludes[0] == "extra.cfg"
 
 		let strictTrust = TrustPolicy{
-			TrustedRoot:       Some[string]{Value: cwd},
+			TrustedRoot:       option.Some[string]{Value: cwd},
 			AllowIncludes:     false,
 			StrictIncludes:    true,
 			NoFollowSymlinks:  true,
@@ -270,7 +272,7 @@ test TrustBoundaryAndExtensions {
 		assert sawRefused == "extra.cfg"
 
 		let allowTrust = TrustPolicy{
-			TrustedRoot:       Some[string]{Value: cwd},
+			TrustedRoot:       option.Some[string]{Value: cwd},
 			AllowIncludes:     true,
 			StrictIncludes:    false,
 			NoFollowSymlinks:  true,
@@ -278,8 +280,8 @@ test TrustBoundaryAndExtensions {
 			MaxIncludeDepth:   10,
 		}
 		let trustedCfg = try LoadConfigFiles([]ConfigFile{ConfigFile{Scope: Local, Path: mainCfg}}, allowTrust)
-		assert GetLast(trustedCfg, "user", None, "name") == Some[string]{Value: "FromInclude"}
-		assert len(trustedCfg.SkippedIncludes) == 0
+		assert GetLast(trustedCfg, "user", option.None, "name") == option.Some[string]{Value: "FromInclude"}
+		assert trustedCfg.SkippedIncludes.Len() == 0
 
 		let escDir = filepath.Join([]string{base, "escape-wt"})
 		try fs.Writes.MkdirAll(escDir)
@@ -339,7 +341,7 @@ func sanitizeValue(s string) string {
 			out = out.Append(b)
 		}
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return "v"
 	}
 	out.Text()
@@ -357,12 +359,12 @@ law ConfigCaseAndScopeLaw(a string, b string) {
 	case ConfigSyntax:
 		return false
 	}
-	let gotUpper = GetLast(cfg, "SeC", Some[string]{Value: "Sub"}, "MYKEY")
-	let gotLower = GetLast(cfg, "sec", Some[string]{Value: "sub"}, "mykey")
-	let allUpper = GetAll(cfg, "sec", Some[string]{Value: "Sub"}, "mykey")
-		gotUpper == Some[string]{Value: vb} &&
-		gotLower == Some[string]{Value: "lower"} &&
-		len(allUpper) == 2 &&
-		allUpper[0] == Some[string]{Value: va} &&
-		allUpper[1] == Some[string]{Value: vb}
+	let gotUpper = GetLast(cfg, "SeC", option.Some[string]{Value: "Sub"}, "MYKEY")
+	let gotLower = GetLast(cfg, "sec", option.Some[string]{Value: "sub"}, "mykey")
+	let allUpper = GetAll(cfg, "sec", option.Some[string]{Value: "Sub"}, "mykey")
+		gotUpper == option.Some[string]{Value: vb} &&
+		gotLower == option.Some[string]{Value: "lower"} &&
+		allUpper.Len() == 2 &&
+		allUpper[0] == option.Some[string]{Value: va} &&
+		allUpper[1] == option.Some[string]{Value: vb}
 }

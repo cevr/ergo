@@ -13,7 +13,7 @@ import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/oracle
 import github.com/cevr/ergo/modules/git/root
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -28,7 +28,7 @@ let onMemorySha256 = context {
 	Objects: NewMemoryStore(oid.Sha256),
 }
 
-let onDiskSha1 = context needs TestAmbient {
+let onDiskSha1 = context needs fstest.TestAmbient {
 	Objects: NewDiskStore(
 		NewStore(oid.Sha1, filepath.Join([]string{fstest.TestFolder(), "law-disk-sha1-odb"}), []string{}),
 		fs.NewTestHost(),
@@ -76,7 +76,7 @@ func assertMatchesCatFile(repoDir string, store Store, hexId string, pathEnv Map
 	if wantKind == "blob" || wantKind == "commit" || wantKind == "tag" {
 		return slices.Equal(obj.Data, wantData.Bytes())
 	}
-	len(obj.Data) == wantSize
+	obj.Data.Len() == wantSize
 }
 
 // ReadMatchesGitCatFile: reads real C-Git-written loose objects (blobs, trees,
@@ -118,8 +118,8 @@ test ReadMatchesGitCatFile {
 			}
 
 			let listed = try ListObjects(store)
-			assert len(listed) == 6
-			for i in 1..len(listed) {
+			assert listed.Len() == 6
+			for i in 1..listed.Len() {
 				assert oid.Compare(listed[i-1], listed[i]) < 0
 			}
 		}
@@ -130,7 +130,7 @@ test ReadMatchesGitCatFile {
 		assert sAlt == 0
 		let altLayout = try root.Discover(altDir, root.DiscoverOptions{CeilingDirs: []string{cwd}, Trust: root.ConfinedTrust(cwd)})
 		let altStore = FromLayout(altLayout)
-		assert len(altStore.Alternates) == 1
+		assert altStore.Alternates.Len() == 1
 		assert try assertMatchesCatFile(altDir, altStore, strings.TrimSpace(altBlobHex), pathEnv)
 	}
 }
@@ -187,7 +187,7 @@ test InstallVerifiedByGitFsck {
 			assert sFsck == 0
 
 			let listed = try ListObjects(store)
-			assert len(listed) == 4
+			assert listed.Len() == 4
 		}
 	}
 }
@@ -232,17 +232,17 @@ test CorruptVsMissingDistinct {
 		let truncID = try oid.HashObject(oid.Sha1, oid.Blob, "case-truncated".Bytes())
 		let truncPath = FanoutPath(odb, truncID)
 		try fs.Writes.MkdirAll(filepath.Dir(truncPath))
-		try fs.Writes.WriteFile(truncPath, goodZlib[:len(goodZlib)-2].Text())
+		try fs.Writes.WriteFile(truncPath, goodZlib[:goodZlib.Len()-2].Text())
 		assert expectCorrupt(store, truncID, 4096)
 
 		let badTrailerID = try oid.HashObject(oid.Sha1, oid.Blob, "case-bad-trailer".Bytes())
 		let badTrailerPath = FanoutPath(odb, badTrailerID)
 		try fs.Writes.MkdirAll(filepath.Dir(badTrailerPath))
-		let mut flipped = slices.WithCapacity[byte](len(goodZlib))
+		let mut flipped = slices.WithCapacity[byte](goodZlib.Len())
 		for b in goodZlib {
 			flipped = flipped.Append(b)
 		}
-		flipped[len(flipped)-1] = flipped[len(flipped)-1] ^ byte(1)
+		flipped[flipped.Len()-1] = flipped[flipped.Len()-1] ^ byte(1)
 		try fs.Writes.WriteFile(badTrailerPath, flipped.Text())
 		assert expectCorrupt(store, badTrailerID, 4096)
 

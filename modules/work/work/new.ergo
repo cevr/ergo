@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import slices
 
 // Making is a workspace new is making, between its three steps: the
@@ -55,36 +56,36 @@ func Look(t Tool, name string, o NewOptions) Reserved fails NoBase | BadConfig |
 	try initialized(t)
 	try CheckName(name)
 	let branch = match o.Branch {
-	case Some[string] as b:
+	case option.Some[string] as b:
 		b.Value
-	case None:
+	case option.None:
 		name
 	}
 	try CheckName(branch)
 	let c = try config(t)
 	let token = match o.Token {
-	case Some[string] as k:
+	case option.Some[string] as k:
 		k.Value
-	case None:
+	case option.None:
 		""
 	}
 	match try byToken(t, token) {
-	case Some[Workspace] as w:
+	case option.Some[Workspace] as w:
 		return try answered(w.Value)
-	case None:
+	case option.None:
 	}
 	if try taken(t, name) {
 		return NameTaken{Name: name}
 	}
 	let (parent, parentId) = match o.On {
-	case Some[string] as on:
+	case option.Some[string] as on:
 		match try cloneable(t, on.Value) {
-		case Some[Workspace] as p:
+		case option.Some[Workspace] as p:
 			(p.Value.Path, p.Value.Id)
-		case None:
+		case option.None:
 			return NoWorkspace{Name: on.Value}
 		}
-	case None:
+	case option.None:
 		(t.base, "")
 	}
 	let path = filepath.Join([]string{t.home, FolderOf(name)})
@@ -104,11 +105,11 @@ func Begin(t Tool, m Making, o NewOptions) Making fails NoRevision | Diverged | 
 		return e
 	case VcsFailed as e:
 		match o.On {
-		case Some[string] as on:
-			if try cloneable(t, on.Value) == None {
+		case option.Some[string] as on:
+			if try cloneable(t, on.Value) == option.None {
 				return NoWorkspace{Name: on.Value}
 			}
-		case None:
+		case option.None:
 		}
 		return e
 	}
@@ -123,7 +124,7 @@ func Begin(t Tool, m Making, o NewOptions) Making fails NoRevision | Diverged | 
 // Claim is Reserve's last part, under the lock: the token, the name and
 // the parent read again (an rm may have taken it since Look), then the
 // reservation and its lock.
-func Claim(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoWorkspace | Busy | Unkept | Locked {
+func Claim(t Tool, m Making, on option.Option[string]) Reserved fails NameTaken | NoWorkspace | Busy | Unkept | Locked {
 	try hold(t)
 	let r = reserve(t, m, on) catch {
 	case NameTaken as e:
@@ -145,26 +146,26 @@ func Claim(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoWor
 
 // reserve is Reserve's step under the lock: the token, the name and the
 // parent read again, then the reservation and its lock.
-func reserve(t Tool, m Making, on Option[string]) Reserved fails NameTaken | NoWorkspace | Busy | Unkept {
+func reserve(t Tool, m Making, on option.Option[string]) Reserved fails NameTaken | NoWorkspace | Busy | Unkept {
 	match try byToken(t, m.Token) {
-	case Some[Workspace] as w:
+	case option.Some[Workspace] as w:
 		return try answered(w.Value)
-	case None:
+	case option.None:
 	}
 	if try taken(t, m.Name) {
 		return NameTaken{Name: m.Name}
 	}
 	match on {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		match try cloneable(t, p.Value) {
-		case Some[Workspace] as w:
+		case option.Some[Workspace] as w:
 			if w.Value.Path != m.Parent || w.Value.Id != m.ParentId {
 				return NoWorkspace{Name: p.Value}
 			}
-		case None:
+		case option.None:
 			return NoWorkspace{Name: p.Value}
 		}
-	case None:
+	case option.None:
 	}
 	try freeName(t, m.Name)
 	try t.registry.Put(Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: "", State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: "", Token: m.Token, Moving: "", Pinned: false, Until: 0})
@@ -354,7 +355,7 @@ func Activate(t Tool, m Making) Created fails Unkept | Locked {
 	// A clone carries its parent's installed packages, which the parent's
 	// lock describes, not the lock of the branch it now has: a branch whose
 	// lock differs installs, as one that left folders out does.
-	let installedAs = if len(m.Config.LeaveOut) == 0 { lockDigest(t, m.Parent, m.Config) } else { "" }
+	let installedAs = if m.Config.LeaveOut.Len() == 0 { lockDigest(t, m.Parent, m.Config) } else { "" }
 	let creating = Workspace{Name: m.Name, Id: m.Id, Path: m.Path, Parent: m.Parent, Branch: m.Branch, Cloner: m.Cloner, State: Creating, Since: now(t), Base: m.Start, Latest: "", Deps: installedAs, Token: m.Token, Moving: "", Pinned: false, Until: 0}
 	let active = activateCreating(creating, now(t))
 	try hold(t)
@@ -393,16 +394,16 @@ func discarded(by Cloner, path string) fails CloneFailed {
 }
 
 // byToken is the record a new with token made ("" is no token).
-func byToken(t Tool, token string) Option[Workspace] fails Unkept {
+func byToken(t Tool, token string) option.Option[Workspace] fails Unkept {
 	if token == "" {
-		return None
+		return option.None
 	}
 	for w in try t.registry.All() {
 		if w.Token == token {
-			return Some[Workspace]{Value: w}
+			return option.Some[Workspace]{Value: w}
 		}
 	}
-	None
+	option.None
 }
 
 // answered is new's answer for the workspace an earlier new with the same
@@ -418,16 +419,16 @@ func answered(w Workspace) Created fails Busy {
 }
 
 // cloneable is the active workspace named name, which new -on clones.
-func cloneable(t Tool, name string) Option[Workspace] fails Unkept {
+func cloneable(t Tool, name string) option.Option[Workspace] fails Unkept {
 	match try live(t, name) {
-	case Some[Workspace] as w:
+	case option.Some[Workspace] as w:
 		match w.Value.State {
 		case Active:
 			w
 		case Creating, Landing, Landed, Abandoned, Trashed:
-			None
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }

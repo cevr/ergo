@@ -4,6 +4,7 @@
 // the backing.
 
 import io
+import option
 import os
 import strconv
 import strings
@@ -13,7 +14,7 @@ import wtcache/settings
 // answer is the line that answers the command words, with the cache and
 // the backing.
 func answer(words []string, c settings.Cache, lines memory.Lines) string fails strconv.Malformed needs settings.Backing {
-	match (words[0], len(words)) {
+	match (words[0], words.Len()) {
 	case ("set", 3):
 		try settings.Set(c, words[1], words[2])
 		"ok"
@@ -29,22 +30,22 @@ func answer(words []string, c settings.Cache, lines memory.Lines) string fails s
 }
 
 // shown is a value's text, or "none".
-func shown(v Option[string]) string {
+func shown(v option.Option[string]) string {
 	match v {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		strconv.Quote(s.Value)
-	case None:
+	case option.None:
 		"none"
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let lines = memory.NewLines()
 	let c = settings.NewCache()
 	with context { io.Stdout: io.NewHost(), io.Stdin: io.NewStdin(), settings.Backing: lines } {
 		for line in io.Stdin.Lines() {
 			let words = strings.Fields(line)
-			if len(words) == 0 {
+			if words.Len() == 0 {
 				continue
 			}
 			let out = answer(words, c, lines) catch {

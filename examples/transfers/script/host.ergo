@@ -1,4 +1,6 @@
 import actor
+import core
+import machines
 import transfers/desk
 import transfers/screen
 import strings
@@ -6,7 +8,7 @@ import time
 import ui
 
 // Host is the desk on the test host.
-type Host = ui.TestHost[desk.Desk, desk.Signal, Decision[desk.Desk, Never]]
+type Host = ui.TestHost[desk.Desk, desk.Signal, machines.Decision[desk.Desk, core.Never]]
 
 // Frame is the screen read after a press:
 //
@@ -28,8 +30,8 @@ type Frame { Top []string, Rows []string, Actions []string, Counts ui.StepCounts
 // was not cancelled, an id with no row) clicks nothing: the button is not
 // there. Each frame goes to show as it is
 // read, so a long script keeps none.
-func PlayScreen[R](lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
-	let app = with context { time.Clock: clock } { actor.StartMachine(desk.Desks{}, 16, func(o Never) {}) }
+func PlayScreen[R](lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Scheduler {
+	let app = with context { time.Clock: clock } { actor.StartMachine(desk.Desks{}, 16, func(o core.Never) {}) }
 	played(app, lines, end, clock, show) catch {
 	case err:
 		app.Stop()
@@ -38,7 +40,7 @@ func PlayScreen[R](lines []Line, end duration, clock time.Manual, show func(f Fr
 	app.Stop()
 }
 
-func played[R](app actor.Actor[desk.Desk, desk.Signal, Decision[desk.Desk, Never]], lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | Scheduler {
+func played[R](app actor.Actor[desk.Desk, desk.Signal, machines.Decision[desk.Desk, core.Never]], lines []Line, end duration, clock time.Manual, show func(f Frame) needs R) fails actor.Stopped | ui.BadPatch needs R | time.Scheduler {
 	let mut h = try ui.NewTestHost(app, screen.Screen, clock, 16)
 	show(read(&h))
 	let mut now = 0s
@@ -73,7 +75,7 @@ func pressWork(n int) []int {
 	ls = ls.Append(Line{At: 1002ms, Press: Restart{ID: n / 2}})
 	let c = time.NewManual(0)
 	let mut visits = []int{}
-	with context { Scheduler: c } {
+	with context { time.Scheduler: c } {
 		PlayScreen(ls, 1002ms, c, func(f Frame) { visits = visits.Append(f.Counts.Visits) })
 	} catch {
 	case _:
@@ -88,7 +90,7 @@ test PressWorkIsFlat {
 	// ui.Same keyed by its state), so its work is the same at 4 and at 8
 	// transfers running.
 	let small = pressWork(4)
-	assert len(small) == 3 && small == pressWork(8)
+	assert small.Len() == 3 && small == pressWork(8)
 }
 
 // Label is the accessible name of the button a press clicks.
@@ -124,8 +126,8 @@ func walk(f mut Frame, shapes []ui.Shape[desk.Signal]) {
 			}
 			if strings.HasPrefix(g.Access.Name, screen.RowPrefix) {
 				let texts = textsOf(s.Kids)
-				let word = if len(texts) < 3 { "?" } else { wordOf(texts[2]) }
-				let name = if len(texts) < 1 { "?" } else { texts[0] }
+				let word = if texts.Len() < 3 { "?" } else { wordOf(texts[2]) }
+				let name = if texts.Len() < 1 { "?" } else { texts[0] }
 				f.Rows = f.Rows.Append("\(strings.TrimPrefix(g.Access.Name, screen.RowPrefix)) \(name) \(word)")
 				f.Actions = f.Actions.Append(strings.Join(buttonsOf(s.Kids), " "))
 				continue

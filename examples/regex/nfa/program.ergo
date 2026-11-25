@@ -15,7 +15,7 @@ type Inst = Byte{C byte, Next int} | AnyByte{Next int} | Set{Class syntax.Class,
 type Program { insts []Inst, start int }
 
 // Len is the number of instructions of p.
-func Len(p Program) int { len(p.insts) }
+func Len(p Program) int { p.insts.Len() }
 
 // ProgramIsLinear: a program has at most one instruction per node of
 // its pattern, and Accept.
@@ -30,7 +30,7 @@ type builder { insts []Inst }
 // add appends i to b and is its index.
 func add(b mut builder, i Inst) int {
 	b.insts = b.insts.Append(i)
-	len(b.insts) - 1
+	b.insts.Len() - 1
 }
 
 // Build is the program of n. (Not Compile: Engine's Compile takes the name, G-ex-e-1.)
@@ -55,8 +55,8 @@ func emit(b mut builder, n syntax.Node, next int) int {
 		b.add(Set{Class: c, Next: next})
 	case syntax.Cat as c:
 		let mut at = next
-		for i in 0..len(c.Parts) {
-			at = b.emit(c.Parts[len(c.Parts)-1-i], at)
+		for i in 0..c.Parts.Len() {
+			at = b.emit(c.Parts[c.Parts.Len()-1-i], at)
 		}
 		at
 	case syntax.Alt as a:

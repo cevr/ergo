@@ -1,6 +1,7 @@
 // Table and the generated registries that the laws and tests of resolve
 // run over.
 
+import option
 import semver
 import slices
 
@@ -18,7 +19,7 @@ func Versions(t Table, name string) []semver.Version fails UnknownPackage {
 			vs = vs.Append(r.V)
 		}
 	}
-	if len(vs) == 0 {
+	if vs.Len() == 0 {
 		return UnknownPackage{Name: name}
 	}
 	slices.SortFunc(vs, func(a semver.Version, b semver.Version) int { semver.Compare(b, a) })
@@ -74,21 +75,21 @@ law ResolutionIsSound(entries []Entry, root []Need) {
 }
 
 // pinned is the version pinned for name in p.
-func pinOf(p Plan, name string) Option[semver.Version] {
+func pinOf(p Plan, name string) option.Option[semver.Version] {
 	for pin in p.Pins {
 		if pin.Name == name {
-			return Some[semver.Version]{Value: pin.V}
+			return option.Some[semver.Version]{Value: pin.V}
 		}
 	}
-	None
+	option.None
 }
 
 // Keeps reports whether p pins r's package to a version that keeps r.
 func Keeps(p Plan, r Requirement) bool {
 	match pinOf(p, r.Name) {
-	case Some[semver.Version] as v:
+	case option.Some[semver.Version] as v:
 		Allows(r.Want, v.Value)
-	case None:
+	case option.None:
 		false
 	}
 }

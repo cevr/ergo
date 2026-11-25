@@ -16,7 +16,7 @@ law SimplifyWithinEpsilon(points []Point) {
 	let pts = bounded(points)
 	let keep = Kept(pts)
 	let mut last = 0
-	for i in 0..len(pts) {
+	for i in 0..pts.Len() {
 		if keep[i] {
 			last = i
 			continue
@@ -47,7 +47,7 @@ law SimplifyWithinEpsilon(points []Point) {
 func Simplify(points []Point) []Point {
 	let keep = Kept(points)
 	let mut out = []Point{}
-	for i in 0..len(points) {
+	for i in 0..points.Len() {
 		if keep[i] {
 			out = out.Append(points[i])
 		}
@@ -58,41 +58,41 @@ func Simplify(points []Point) []Point {
 // SimplifyKeepsEndpoints: a simplified stroke starts and ends where the
 // stroke did, and keeps its points in order.
 law SimplifyKeepsEndpoints(points []Point) {
-	if len(points) == 0 {
+	if points.Len() == 0 {
 		return true
 	}
 	let pts = bounded(points)
 	let out = Simplify(pts)
-	if out[0] != pts[0] || out[len(out)-1] != pts[len(pts)-1] {
+	if out[0] != pts[0] || out[out.Len()-1] != pts[pts.Len()-1] {
 		return false
 	}
 	let mut j = 0
 	for p in pts {
-		if j < len(out) && out[j] == p {
+		if j < out.Len() && out[j] == p {
 			j = j + 1
 		}
 	}
-	j == len(out)
+	j == out.Len()
 }
 
 // Kept is, for each point, whether Simplify keeps it.
 func Kept(points []Point) []bool {
 	let mut keep = []bool{}
-	if len(points) <= 2 {
+	if points.Len() <= 2 {
 		for _ in points {
 			keep = keep.Append(true)
 		}
 		return keep
 	}
-	for _ in 0..len(points) {
+	for _ in 0..points.Len() {
 		keep = keep.Append(false)
 	}
 	keep[0] = true
-	keep[len(points)-1] = true
-	let mut spans = [](int, int){(0, len(points) - 1)}
-	for len(spans) > 0 {
-		let (lo, hi) = spans[len(spans)-1]
-		spans = slices.Slice(spans, 0, len(spans)-1)
+	keep[points.Len()-1] = true
+	let mut spans = [](int, int){(0, points.Len() - 1)}
+	for spans.Len() > 0 {
+		let (lo, hi) = spans[spans.Len()-1]
+		spans = slices.Slice(spans, 0, spans.Len()-1)
 		let far = farthest(points, lo, hi)
 		if far > 0 {
 			keep[far] = true

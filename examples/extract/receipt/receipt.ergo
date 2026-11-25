@@ -5,6 +5,7 @@
 // JSON the program reads are one form.
 
 import json
+import option
 
 // Receipt is one purchase. Amounts are in cents, so a total is exact.
 type Receipt { Merchant string, Items []Item, Total int, Paid Payment, Note json.Optional[string] }
@@ -33,7 +34,7 @@ func Sum(items []Item) int {
 // that is not the items' sum.
 func Check(r Receipt) []Problem {
 	let mut ps = []Problem{}
-	if len(r.Items) == 0 {
+	if r.Items.Len() == 0 {
 		ps = ps.Append(NoItems)
 	}
 	let s = Sum(r.Items)
@@ -49,19 +50,19 @@ func Check(r Receipt) []Problem {
 law CheckFindsTheTotal(r Receipt, off int) {
 	let fixed = Receipt{Merchant: r.Merchant, Items: r.Items, Total: Sum(r.Items), Paid: r.Paid, Note: r.Note}
 	let moved = Receipt{Merchant: r.Merchant, Items: r.Items, Total: Sum(r.Items) + off, Paid: r.Paid, Note: r.Note}
-	mismatch(Check(fixed)) == None && (off == 0 || mismatch(Check(moved)) == Some{Value: TotalMismatch{Total: Sum(r.Items) + off, Sum: Sum(r.Items)}})
+	mismatch(Check(fixed)) == option.None && (off == 0 || mismatch(Check(moved)) == option.Some{Value: TotalMismatch{Total: Sum(r.Items) + off, Sum: Sum(r.Items)}})
 }
 
 // mismatch is the total mismatch among ps, if any.
-func mismatch(ps []Problem) Option[TotalMismatch] {
+func mismatch(ps []Problem) option.Option[TotalMismatch] {
 	for p in ps {
 		match p {
 		case TotalMismatch as m:
-			return Some{Value: m}
+			return option.Some{Value: m}
 		case NoItems:
 		}
 	}
-	None
+	option.None
 }
 
 // Describe is a problem as the program prints it.

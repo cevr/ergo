@@ -23,7 +23,7 @@ func next(r mut Rand) uint64 {
 func below(r mut Rand, n int) int { int(r.next() % uint64(n)) }
 
 // pick is one of xs; xs is not empty.
-func pick(r mut Rand, xs []string) string { xs[r.below(len(xs))] }
+func pick(r mut Rand, xs []string) string { xs[r.below(xs.Len())] }
 
 // words are the text of the plain runs.
 let words = []string{"the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "ls", "-la", "make", "test", "ok", "FAIL", "src/main.go:12:", "{", "}", "[x]", "~/work", "$", "#", "100%"}
@@ -90,7 +90,7 @@ func Gen(seed int, n int) string {
 	for size < n {
 		let part = r.piece()
 		parts = parts.Append(part)
-		size += len(part)
+		size += part.Len()
 	}
 	let all = strings.Join(parts, "")
 	all[0:n]

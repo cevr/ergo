@@ -35,7 +35,7 @@ func Expected(records []Named, nets []Named) string fails BadFile {
 		case Malformed as m:
 			return BadFile{Name: r.Name, Line: m.Line, Reason: m.Reason}
 		}
-		for i in 0..len(nets) {
+		for i in 0..nets.Len() {
 			for f in Run(parsed[i], features) {
 				b.WriteString("finding\t\(r.Name)\t\(nets[i].Name)\t\(f.Line)\t\(f.Score)\t\(f.Permille)\n")
 			}

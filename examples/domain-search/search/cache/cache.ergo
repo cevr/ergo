@@ -10,6 +10,7 @@
 // most recent; it never makes it fresher. When more than Capacity entries
 // are settled, the least recent goes. A pending entry is never evicted.
 
+import option
 import slices
 import strings
 
@@ -58,7 +59,7 @@ type Row { Key int, Pending bool, Gen int, Value int, At int, Used int }
 type Model { rows []Row, next int, step int }
 
 func find(m Model, k int) int {
-	for i in 0..len(m.rows) {
+	for i in 0..m.rows.Len() {
 		if m.rows[i].Key == k {
 			return i
 		}
@@ -135,9 +136,9 @@ func looks(l Look[int]) string {
 // holds is what the cache holds for k, without a read.
 func holds(c Cache[int, int], k int) string {
 	match Holds(c, k) {
-	case None:
+	case option.None:
 		"missing"
-	case Some[Entry[int]] as e:
+	case option.Some[Entry[int]] as e:
 		match e.Value {
 		case Pending as p:
 			"waiting \(p.Gen)"
@@ -295,9 +296,9 @@ type Begun[K comparable, V] { Cache Cache[K, V], Gen int }
 // is Fresh and becomes the most recent; an older one is Stale.
 func Get[K comparable, V](c Cache[K, V], k K, now int) Got[K, V] {
 	match c.entries.Get(k) {
-	case None:
+	case option.None:
 		Got[K, V]{Cache: c, Look: Missing}
-	case Some[Entry[V]] as e:
+	case option.Some[Entry[V]] as e:
 		match e.Value {
 		case Pending as p:
 			Got[K, V]{Cache: c, Look: Waiting{Gen: p.Gen}}
@@ -324,14 +325,14 @@ func Begin[K comparable, V](c Cache[K, V], k K) Begun[K, V] {
 // more than the capacity are settled.
 func Settle[K comparable, V](c Cache[K, V], k K, gen int, v V, now int) Cache[K, V] {
 	let live = match c.entries.Get(k) {
-	case Some[Entry[V]] as e:
+	case option.Some[Entry[V]] as e:
 		match e.Value {
 		case Pending as p:
 			p.Gen == gen
 		case Settled[V]:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 	if !live {
@@ -340,7 +341,7 @@ func Settle[K comparable, V](c Cache[K, V], k K, gen int, v V, now int) Cache[K,
 	let mut entries = c.entries
 	entries[k] = Settled[V]{Value: v, At: now}
 	let mut recent = c.recent.Append(k)
-	for len(recent) > c.capacity {
+	for recent.Len() > c.capacity {
 		entries = entries.Delete(recent[0])
 		recent = recent[1:]
 	}
@@ -360,14 +361,14 @@ law LateSettleRejected(v int, w int) {
 // comes, is not taken. A settled entry stays.
 func Cut[K comparable, V](c Cache[K, V], k K) Cache[K, V] {
 	match c.entries.Get(k) {
-	case Some[Entry[V]] as e:
+	case option.Some[Entry[V]] as e:
 		match e.Value {
 		case Pending:
 			Cache[K, V]{..c, entries: c.entries.Delete(k)}
 		case Settled[V]:
 			c
 		}
-	case None:
+	case option.None:
 		c
 	}
 }
@@ -381,7 +382,7 @@ law CutThenBeginIsNewGeneration(v int) {
 }
 
 // SettledCount is how many entries are settled.
-func SettledCount[K comparable, V](c Cache[K, V]) int { len(c.recent) }
+func SettledCount[K comparable, V](c Cache[K, V]) int { c.recent.Len() }
 
 // Holds is k's entry, if any.
-func Holds[K comparable, V](c Cache[K, V], k K) Option[Entry[V]] { c.entries.Get(k) }
+func Holds[K comparable, V](c Cache[K, V], k K) option.Option[Entry[V]] { c.entries.Get(k) }

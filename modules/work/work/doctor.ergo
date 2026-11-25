@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import json
+import option
 import slices
 import strings
 import toml
@@ -36,7 +37,7 @@ type Report {
 // or a workspace), so a lane's own gate fixes its clone and no other;
 // -repair activates a whole checkout left Creating by a maker that is
 // gone. It reports, but does not change, a checkout whose setup disagrees.
-type DoctorOptions { Rift bool, Registry Option[string], Unguard bool, Fix bool, Here bool, Repair bool }
+type DoctorOptions { Rift bool, Registry option.Option[string], Unguard bool, Fix bool, Here bool, Repair bool }
 
 // mountOf is the file system type and options of the mount that holds
 // path, from /proc/mounts (the longest mount point that is a prefix); on
@@ -57,12 +58,12 @@ func mountOf(t Tool, path string) (string, string) {
 	let mut opts = ""
 	for line in strings.Split(text, "\n") {
 		let f = strings.Fields(line)
-		if len(f) < 4 {
+		if f.Len() < 4 {
 			continue
 		}
 		let at = f[1]
 		let under = abs == at || at == "/" || strings.HasPrefix(abs, at+"/")
-		if under && len(at) >= len(best) {
+		if under && at.Len() >= best.Len() {
 			best = at
 			kind = f[2]
 			opts = f[3]
@@ -87,9 +88,9 @@ func mountedOf(text string, path string) (string, string) {
 			continue
 		}
 		let at = line[on+4 : paren]
-		let parts = strings.Split(line[paren+2:len(line)-1], ", ")
+		let parts = strings.Split(line[paren+2:line.Len()-1], ", ")
 		let under = abs == at || at == "/" || strings.HasPrefix(abs, at+"/")
-		if under && len(at) >= len(best) {
+		if under && at.Len() >= best.Len() {
 			best = at
 			kind = parts[0]
 			opts = strings.Join(parts[1:], ",")
@@ -155,21 +156,21 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 			notes = notes.Append(GoneNote(w))
 			continue
 		}
-		if w.Cloner == "adopted" && w.State == Active && len(try t.vcs.Guarded(w.Path)) > 0 {
+		if w.Cloner == "adopted" && w.State == Active && (try t.vcs.Guarded(w.Path)).Len() > 0 {
 			if o.Unguard {
 				try t.vcs.Unguard(w.Path)
 			}
 			guarded = guarded.Append(w.Path)
 		}
-		if w.State == Active && w.Cloner != "adopted" && w.Branch != "" && w.Id != "" && (!o.Here || len(holding([]string{w.Path}, t.here)) > 0) && markerOf(t, w.Path) == w.Id {
+		if w.State == Active && w.Cloner != "adopted" && w.Branch != "" && w.Id != "" && (!o.Here || holding([]string{w.Path}, t.here).Len() > 0) && markerOf(t, w.Path) == w.Id {
 			let why = branchProblem(t, w)
 			if why != "" {
 				notes = notes.Append(recoveryNote(w, why))
 			}
 		}
 	}
-	if len(guarded) > 0 {
-		notes = notes.Append(if o.Unguard { "dropped the push guard of \(len(guarded)) adopted workspaces" } else { "\(len(guarded)) adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard" })
+	if guarded.Len() > 0 {
+		notes = notes.Append(if o.Unguard { "dropped the push guard of \(guarded.Len()) adopted workspaces" } else { "\(guarded.Len()) adopted workspaces carry the push guard an older adopt wrote: run work doctor -unguard" })
 	}
 	notes = slices.Concat(notes, try driverNotes(t, o.Fix, o.Here))
 	notes = slices.Concat(notes, try repairNotes(t, o.Repair, o.Here))
@@ -177,8 +178,8 @@ func Doctor(t Tool, o DoctorOptions) Report fails NoBase | BadConfig | Unkept | 
 		notes = slices.Concat(notes, try strayNotes(t))
 	}
 	let rift = if o.Rift { try RiftLeft(t, RiftOptions{Registry: o.Registry}) } else { []string{} }
-	if len(rift) > 0 {
-		notes = notes.Append("\(len(rift)) Rift copies of the base are no workspace: run work adopt-rift")
+	if rift.Len() > 0 {
+		notes = notes.Append("\(rift.Len()) Rift copies of the base are no workspace: run work adopt-rift")
 	}
 	Report{Base: t.base, Storage: t.home, Cloners: names, LastCloner: last, FileSystem: kind, PurgeOneCall: oneCall, StaleIndex: stale, Trusted: ok, Notes: notes, Rift: rift}
 }
@@ -238,7 +239,7 @@ func repairNotes(t Tool, repair bool, here bool) []string fails Unkept | Locked 
 	let at = now(t)
 	let mut notes = []string{}
 	for w in all {
-		if here && len(holding([]string{w.Path}, t.here)) == 0 {
+		if here && holding([]string{w.Path}, t.here).Len() == 0 {
 			continue
 		}
 		if w.State != Creating || !t.copier.Has(w.Path+"/.git") {
@@ -313,7 +314,7 @@ func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed 
 		}
 	}
 	let roots = if here { holding(all, t.here) } else { all }
-	if here && len(roots) == 0 {
+	if here && roots.Len() == 0 {
 		return []string{"\(t.here) is in no checkout of the base \(t.base): doctor -here checks the one it runs in"}
 	}
 	let again = if here { "work doctor -here -fix" } else { "work doctor -fix" }
@@ -330,7 +331,7 @@ func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed 
 		case VcsFailed as e:
 			return e
 		}
-		if len(names) == 0 {
+		if names.Len() == 0 {
 			continue
 		}
 		if fix {
@@ -341,7 +342,7 @@ func driverNotes(t Tool, fix bool, here bool) []string fails Unkept | VcsFailed 
 			case VcsFailed as e:
 				return e
 			}
-			notes = notes.Append(if len(left) == 0 { "registered the merge drivers of \(root)" } else { "\(root) still lacks the merge drivers \(strings.Join(left, ", ")): work registers only its own" })
+			notes = notes.Append(if left.Len() == 0 { "registered the merge drivers of \(root)" } else { "\(root) still lacks the merge drivers \(strings.Join(left, ", ")): work registers only its own" })
 		} else {
 			notes = notes.Append("\(root): its attributes name merge drivers its Git config lacks (\(strings.Join(names, ", "))), so Git merges those files as text: run \(again)")
 		}
@@ -397,7 +398,7 @@ func rerereNote(root string) string {
 func holding(roots []string, dir string) []string {
 	let mut best = ""
 	for r in roots {
-		if (dir == r || strings.HasPrefix(dir, r+"/")) && len(r) > len(best) {
+		if (dir == r || strings.HasPrefix(dir, r+"/")) && r.Len() > best.Len() {
 			best = r
 		}
 	}
@@ -438,7 +439,7 @@ func ForgetBase(t Tool, base string) []string fails Unkept | fs.Denied | fs.Fail
 func PruneBases(t Tool) []string fails Unkept | fs.Denied | fs.Failed {
 	let all = try registered(t)
 	let gone = slices.Filter(all, func(b string) bool { !exists(t, b) })
-	if len(gone) > 0 {
+	if gone.Len() > 0 {
 		try rewriteBases(t, slices.Filter(all, func(b string) bool { exists(t, b) }))
 	}
 	gone
@@ -448,7 +449,7 @@ func PruneBases(t Tool) []string fails Unkept | fs.Denied | fs.Failed {
 // old list or the new one.
 func rewriteBases(t Tool, bases []string) fails fs.Denied | fs.Failed {
 	let file = BasesFile(t.data)
-	let text = if len(bases) == 0 { "" } else { strings.Join(bases, "\n") + "\n" }
+	let text = if bases.Len() == 0 { "" } else { strings.Join(bases, "\n") + "\n" }
 	t.writes.WriteFile(file+".tmp", text) catch {
 	case fs.NotFound:
 		return fs.Failed{Path: file, Reason: "the data folder is not there"}
@@ -496,7 +497,7 @@ func ShellInit(t Tool) string { ShellLines }
 
 // ImportRiftOptions name the .rift.toml to read (-file; the base's when
 // absent).
-type ImportRiftOptions { File Option[string] }
+type ImportRiftOptions { File option.Option[string] }
 
 type riftHook { Run json.Optional[string] "run" }
 
@@ -529,9 +530,9 @@ func riftRun(h json.Optional[riftHook]) []string {
 // what work's default changes. It writes nothing.
 func ImportRift(t Tool, o ImportRiftOptions) string fails BadConfig | fs.NotFound | fs.Denied | fs.Failed {
 	let file = match o.File {
-	case Some[string] as f:
+	case option.Some[string] as f:
 		f.Value
-	case None:
+	case option.None:
 		filepath.Join([]string{t.base, ".rift.toml"})
 	}
 	let text = try t.files.ReadFile(file)
@@ -556,7 +557,7 @@ func ImportRift(t Tool, o ImportRiftOptions) string fails BadConfig | fs.NotFoun
 }
 
 func hookLine(lines []string, name string, commands []string) []string {
-	if len(commands) == 0 {
+	if commands.Len() == 0 {
 		return lines
 	}
 	let mut quoted = []string{}

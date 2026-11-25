@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import hex
+import option
 import sha256
 
 // Installed is an install that ran: the digest of the lock it installed.
@@ -25,7 +26,7 @@ type DepsDone = Installed | Unchanged | NoDeps
 
 // DepsOptions name the workspace (-name); when absent it is the one the
 // working folder is in.
-type DepsOptions { Name Option[string] }
+type DepsOptions { Name option.Option[string] }
 
 // lockDigest is the digest of the workspace's lock file ("" when it has
 // none).

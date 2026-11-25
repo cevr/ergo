@@ -2,6 +2,8 @@
 // actor.StartMachine execution against an independent pure timed fold.
 import actor
 import explore
+import machines
+import option
 import sync
 import testing
 import time
@@ -50,36 +52,36 @@ type ActorOpenErr { Why string }
 // ActorDriveErr is an infrastructure failure driving a live actor session.
 type ActorDriveErr { Why string }
 
-func pilotStep(s MachineState, sig ActorSig) Decision[MachineState, int] fails StepErr {
+func pilotStep(s MachineState, sig ActorSig) machines.Decision[MachineState, int] fails StepErr {
 	match sig {
 	case SigProbe:
-		Ignore
+		machines.Ignore
 	case SigTell:
 		let next = MachineState{Phase: s.Phase, Count: s.Count + 1, Ticks: s.Ticks}
 		match s.Phase {
 		case PhaseArmed:
-			Tell[MachineState, int]{Next: next, Output: 10 + s.Count}
+			machines.Tell[MachineState, int]{Next: next, Output: 10 + s.Count}
 		case PhaseReentered:
-			Stay[MachineState]{Next: next}
+			machines.Stay[MachineState]{Next: next}
 		}
 	case SigFail:
 		return StepErr{Tag: "cmd-fail", Code: 700 + s.Count*10 + s.Ticks}
 	case SigTick:
-		Emit[MachineState, int]{
+		machines.Emit[MachineState, int]{
 			Next:   MachineState{Phase: PhaseReentered, Count: s.Count, Ticks: s.Ticks + 1},
 			Output: 200 + s.Ticks,
 		}
 	case SigFinish:
-		Done[int]{Output: 900 + s.Count*10 + s.Ticks}
+		machines.Done[int]{Output: 900 + s.Count*10 + s.Ticks}
 	}
 }
 
-func pilotAfter(_ MachineState) Option[Timeout[ActorSig]] {
-	Some[Timeout[ActorSig]]{Value: Timeout[ActorSig]{In: 1s, Signal: SigTick}}
+func pilotAfter(_ MachineState) option.Option[machines.Timeout[ActorSig]] {
+	option.Some[machines.Timeout[ActorSig]]{Value: machines.Timeout[ActorSig]{In: 1s, Signal: SigTick}}
 }
 
-func pilotWork(_ MachineState) Option[func(send func(e ActorSig))] {
-	None
+func pilotWork(_ MachineState) option.Option[func(send func(e ActorSig))] {
+	option.None
 }
 
 func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, explore.StepObs[ObsState, int, StepErr]] {
@@ -87,9 +89,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 		return explore.Disabled[explore.StepObs[ObsState, int, StepErr]]{
 			Obs: explore.StepObs[ObsState, int, StepErr]{
 				Kind:     explore.DisIgnore,
-				State:    Some[ObsState]{Value: ObsState{State: st.State, Exits: st.Exits, Alive: false}},
+				State:    option.Some[ObsState]{Value: ObsState{State: st.State, Exits: st.Exits, Alive: false}},
 				Outputs:  []int{},
-				Error:    None,
+				Error:    option.None,
 				Terminal: true,
 			},
 		}
@@ -102,9 +104,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 			Next: st,
 			Obs:  explore.StepObs[ObsState, int, StepErr]{
 				Kind:     explore.DisIgnore,
-				State:    Some[ObsState]{Value: obs},
+				State:    option.Some[ObsState]{Value: obs},
 				Outputs:  []int{},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
@@ -118,9 +120,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 				Next: next,
 				Obs:  explore.StepObs[ObsState, int, StepErr]{
 					Kind:     explore.DisTell,
-					State:    Some[ObsState]{Value: obs},
+					State:    option.Some[ObsState]{Value: obs},
 					Outputs:  []int{10 + s.Count},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -129,9 +131,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 				Next: next,
 				Obs:  explore.StepObs[ObsState, int, StepErr]{
 					Kind:     explore.DisStay,
-					State:    Some[ObsState]{Value: obs},
+					State:    option.Some[ObsState]{Value: obs},
 					Outputs:  []int{},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -143,9 +145,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 			Next: st,
 			Obs:  explore.StepObs[ObsState, int, StepErr]{
 				Kind:     explore.DisReject,
-				State:    Some[ObsState]{Value: obs},
+				State:    option.Some[ObsState]{Value: obs},
 				Outputs:  []int{},
-				Error:    Some[StepErr]{Value: err},
+				Error:    option.Some[StepErr]{Value: err},
 				Terminal: false,
 			},
 		}
@@ -158,9 +160,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 				Next: next,
 				Obs:  explore.StepObs[ObsState, int, StepErr]{
 					Kind:     explore.DisIgnore,
-					State:    Some[ObsState]{Value: obs},
+					State:    option.Some[ObsState]{Value: obs},
 					Outputs:  []int{},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -173,9 +175,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 			Next: next,
 			Obs:  explore.StepObs[ObsState, int, StepErr]{
 				Kind:     explore.DisEmit,
-				State:    Some[ObsState]{Value: obs},
+				State:    option.Some[ObsState]{Value: obs},
 				Outputs:  []int{200 + s.Ticks},
-				Error:    None,
+				Error:    option.None,
 				Terminal: false,
 			},
 		}
@@ -185,9 +187,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 		explore.Terminal[explore.StepObs[ObsState, int, StepErr]]{
 			Obs: explore.StepObs[ObsState, int, StepErr]{
 				Kind:     explore.DisDone,
-				State:    Some[ObsState]{Value: obs},
+				State:    option.Some[ObsState]{Value: obs},
 				Outputs:  []int{900 + s.Count*10 + s.Ticks},
-				Error:    None,
+				Error:    option.None,
 				Terminal: true,
 			},
 		}
@@ -197,9 +199,9 @@ func pureTimedStep(st TimedState, cmd ActorCmd) explore.EdgeOutcome[TimedState, 
 		explore.Terminal[explore.StepObs[ObsState, int, StepErr]]{
 			Obs: explore.StepObs[ObsState, int, StepErr]{
 				Kind:     explore.DisDone,
-				State:    Some[ObsState]{Value: obs},
+				State:    option.Some[ObsState]{Value: obs},
 				Outputs:  []int{},
-				Error:    None,
+				Error:    option.None,
 				Terminal: true,
 			},
 		}
@@ -220,25 +222,25 @@ func PilotModel() explore.PathModel[TimedState, ActorCmd, ObsState, int, StepErr
 		InitialObs: func(st TimedState) ObsState {
 			ObsState{State: st.State, Exits: st.Exits, Alive: st.Alive}
 		},
-		ProjectionName: Some[string]{Value: "actor-committed-state"},
+		ProjectionName: option.Some[string]{Value: "actor-committed-state"},
 	}
 }
 
-func decisionKind(d Decision[MachineState, int]) explore.Disposition {
+func decisionKind(d machines.Decision[MachineState, int]) explore.Disposition {
 	match d {
-	case Enter[MachineState]:
+	case machines.Enter[MachineState]:
 		explore.DisEnter
-	case Stay[MachineState]:
+	case machines.Stay[MachineState]:
 		explore.DisStay
-	case Emit[MachineState, int]:
+	case machines.Emit[MachineState, int]:
 		explore.DisEmit
-	case Tell[MachineState, int]:
+	case machines.Tell[MachineState, int]:
 		explore.DisTell
-	case Ignore:
+	case machines.Ignore:
 		explore.DisIgnore
-	case Reject:
+	case machines.Reject:
 		explore.DisReject
-	case Done[int]:
+	case machines.Done[int]:
 		explore.DisDone
 	}
 }
@@ -250,7 +252,7 @@ func failurePayload(err StepErr, unchanged int, lastCode int) StepErr {
 }
 
 type liveActorSess {
-	act       actor.Actor[MachineState, ActorSig, Decision[MachineState, int], StepErr],
+	act       actor.Actor[MachineState, ActorSig, machines.Decision[MachineState, int], StepErr],
 	clock     time.Manual,
 	outputs   sync.Ref[[]int],
 	seenOut   sync.Ref[int],
@@ -266,10 +268,10 @@ func takeNewOutputs(s liveActorSess) []int {
 	let all = s.outputs.Get()
 	let start = s.seenOut.Get()
 	let mut delta = []int{}
-	for i in start..len(all) {
+	for i in start..all.Len() {
 		delta = delta.Append(all[i])
 	}
-	s.seenOut.Set(len(all))
+	s.seenOut.Set(all.Len())
 	delta
 }
 
@@ -292,9 +294,9 @@ func Apply(s liveActorSess, cmd ActorCmd) explore.Observed[ObsState, int, StepEr
 		s.unchanged.Set(s.unchanged.Get() + 1)
 		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
 			Kind:     decisionKind(d),
-			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: true}},
+			State:    option.Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: true}},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case CmdTell:
@@ -310,9 +312,9 @@ func Apply(s liveActorSess, cmd ActorCmd) explore.Observed[ObsState, int, StepEr
 		s.lastCode.Set(st.Count)
 		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
 			Kind:     decisionKind(d),
-			State:    Some[ObsState]{Value: ObsState{State: st, Exits: s.exits.Get(), Alive: true}},
+			State:    option.Some[ObsState]{Value: ObsState{State: st, Exits: s.exits.Get(), Alive: true}},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case CmdFail:
@@ -328,9 +330,9 @@ func Apply(s liveActorSess, cmd ActorCmd) explore.Observed[ObsState, int, StepEr
 			s.lastCode.Set(reported.Code)
 			return explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
 				Kind:     explore.DisReject,
-				State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: true}},
+				State:    option.Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: true}},
 				Outputs:  outs,
-				Error:    Some[StepErr]{Value: reported},
+				Error:    option.Some[StepErr]{Value: reported},
 				Terminal: false,
 			}}
 		}
@@ -347,9 +349,9 @@ func Apply(s liveActorSess, cmd ActorCmd) explore.Observed[ObsState, int, StepEr
 		}
 		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
 			Kind:     kind,
-			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: afterExits, Alive: true}},
+			State:    option.Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: afterExits, Alive: true}},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		}}
 	case CmdFinish:
@@ -366,9 +368,9 @@ func Apply(s liveActorSess, cmd ActorCmd) explore.Observed[ObsState, int, StepEr
 		let outs = takeNewOutputs(s)
 		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
 			Kind:     decisionKind(d),
-			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: false}},
+			State:    option.Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: false}},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: true,
 		}}
 	case CmdStop:
@@ -379,9 +381,9 @@ func Apply(s liveActorSess, cmd ActorCmd) explore.Observed[ObsState, int, StepEr
 		let outs = takeNewOutputs(s)
 		explore.StepResult[ObsState, int, StepErr]{Step: explore.StepObs[ObsState, int, StepErr]{
 			Kind:     explore.DisDone,
-			State:    Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: false}},
+			State:    option.Some[ObsState]{Value: ObsState{State: s.act.State(), Exits: s.exits.Get(), Alive: false}},
 			Outputs:  outs,
-			Error:    None,
+			Error:    option.None,
 			Terminal: true,
 		}}
 	}
@@ -453,16 +455,16 @@ func Open(p LiveActorProvider, start TimedState) explore.PathSession[ActorCmd, e
 	let clock = time.NewManual(0)
 	let outputs = sync.NewRef[[]int]([]int{})
 	let exits = sync.NewRef(0)
-	let m = Machine[MachineState, ActorSig, int, StepErr]{
+	let m = machines.Machine[MachineState, ActorSig, int, StepErr]{
 		Initial: start.State,
 		Step:    pilotStep,
 		After:   pilotAfter,
 		Work:    pilotWork,
-		Exit:    func(_ MachineState) Option[func()] {
-			Some[func()]{Value: func() { exits.Set(exits.Get() + 1) }}
+		Exit:    func(_ MachineState) option.Option[func()] {
+			option.Some[func()]{Value: func() { exits.Set(exits.Get() + 1) }}
 		},
 	}
-	let a = with context { Scheduler: clock } {
+	let a = with context { time.Scheduler: clock } {
 		let spawned = actor.StartMachine(m, 4, func(o int) {
 			outputs.Set(outputs.Get().Append(o))
 		})

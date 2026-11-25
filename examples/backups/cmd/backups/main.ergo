@@ -33,40 +33,40 @@ type BadLine { Line int, Reason string }
 // Parse is the step of a line of the script.
 func Parse(n int, line string) Step fails BadLine {
 	let w = strings.Fields(line)
-	if len(w) == 0 || strings.HasPrefix(w[0], "#") {
+	if w.Len() == 0 || strings.HasPrefix(w[0], "#") {
 		return Blank
 	}
 	match w[0] {
 	case "plan":
-		if len(w) < 4 {
+		if w.Len() < 4 {
 			return BadLine{Line: n, Reason: "plan needs a backup, a host and a file"}
 		}
 		let mut files = []backup.File{}
-		for i in 3..len(w) {
+		for i in 3..w.Len() {
 			files = files.Append(try fileOf(n, w[i]))
 		}
 		Do{C: backup.Plan{Backup: w[1], Host: w[2], Files: files}}
 	case "store":
-		if len(w) != 3 {
+		if w.Len() != 3 {
 			return BadLine{Line: n, Reason: "store needs a backup and a size"}
 		}
 		Do{C: backup.Store{Backup: w[1], Size: int64(try whole(n, w[2]))}}
 	case "verify":
-		if len(w) != 2 {
+		if w.Len() != 2 {
 			return BadLine{Line: n, Reason: "verify needs a backup"}
 		}
 		Do{C: backup.Verify{Backup: w[1]}}
 	case "abort":
-		if len(w) < 3 {
+		if w.Len() < 3 {
 			return BadLine{Line: n, Reason: "abort needs a backup and a reason"}
 		}
 		let mut reason = w[2]
-		for i in 3..len(w) {
+		for i in 3..w.Len() {
 			reason = reason + " " + w[i]
 		}
 		Do{C: backup.Abort{Backup: w[1], Reason: reason}}
 	case "wait":
-		if len(w) != 2 {
+		if w.Len() != 2 {
 			return BadLine{Line: n, Reason: "wait needs minutes"}
 		}
 		Wait{Minutes: try whole(n, w[1])}
@@ -80,7 +80,7 @@ func Parse(n int, line string) Step fails BadLine {
 // fileOf is the backup file PATH:COUNT:SIZE.
 func fileOf(n int, text string) backup.File fails BadLine {
 	let parts = strings.Split(text, ":")
-	if len(parts) != 3 {
+	if parts.Len() != 3 {
 		return BadLine{Line: n, Reason: "a file is PATH:COUNT:SIZE, not " + text}
 	}
 	backup.File{Path: parts[0], Count: try whole(n, parts[1]), Size: int64(try whole(n, parts[2]))}
@@ -160,7 +160,7 @@ func run() fails os.Exit needs io.Stdin | io.Stdout | backup.Backups {
 	io.Stdout.Println(usage.Text(view))
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { io.Stdin: io.NewStdin(), io.Stdout: io.NewHost(), backup.Backups: memory.NewLog() } {
 		try run()
 	}

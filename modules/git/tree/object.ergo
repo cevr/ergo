@@ -1,10 +1,11 @@
+import option
 import strings
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/pack
 
 func parseInt64Decimal(s string) int64 fails CorruptSignature {
 	let bs = s.Bytes()
-	if len(bs) == 0 {
+	if bs.Len() == 0 {
 		return CorruptSignature{Reason: "empty epoch timestamp"}
 	}
 	let mut start = 0
@@ -13,11 +14,11 @@ func parseInt64Decimal(s string) int64 fails CorruptSignature {
 		neg = true
 		start = 1
 	}
-	if start >= len(bs) {
+	if start >= bs.Len() {
 		return CorruptSignature{Reason: "missing digits in epoch timestamp"}
 	}
 	let mut acc = int64(0)
-	for i in start..len(bs) {
+	for i in start..bs.Len() {
 		let b = bs[i]
 		if b < byte('0') || b > byte('9') {
 			return CorruptSignature{Reason: "non-digit in epoch timestamp"}
@@ -29,7 +30,7 @@ func parseInt64Decimal(s string) int64 fails CorruptSignature {
 
 func isValidTimezone(tz string) bool {
 	let bs = tz.Bytes()
-	if len(bs) != 5 {
+	if bs.Len() != 5 {
 		return false
 	}
 	if bs[0] != byte('+') && bs[0] != byte('-') {
@@ -49,7 +50,7 @@ func ParseSignature(raw string) Signature fails CorruptSignature {
 	let bs = raw.Bytes()
 	let mut lt = -1
 	let mut gt = -1
-	for i in 0..len(bs) {
+	for i in 0..bs.Len() {
 		if bs[i] == byte('\n') || bs[i] == byte(0) {
 			return CorruptSignature{Reason: "invalid control byte in signature"}
 		}
@@ -66,7 +67,7 @@ func ParseSignature(raw string) Signature fails CorruptSignature {
 	let email = raw[lt+1 : gt]
 	let tail = strings.TrimSpace(raw[gt+1:])
 	let parts = strings.Fields(tail)
-	if len(parts) != 2 {
+	if parts.Len() != 2 {
 		return CorruptSignature{Reason: "expected epoch and timezone after email"}
 	}
 	let epoch = try parseInt64Decimal(parts[0])
@@ -90,7 +91,7 @@ func splitHeadersAndMessage(raw string) ([]Header, string) {
 		hdrPart = raw[:sep]
 		msg = raw[sep+2:]
 	} else if strings.HasSuffix(raw, "\n") {
-		hdrPart = raw[:len(raw)-1]
+		hdrPart = raw[:raw.Len()-1]
 	}
 	let lines = strings.Split(hdrPart, "\n")
 	let mut headers = []Header{}
@@ -98,9 +99,9 @@ func splitHeadersAndMessage(raw string) ([]Header, string) {
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, " ") && len(headers) > 0 {
-			let prev = headers[len(headers)-1]
-			headers[len(headers)-1] = Header{Key: prev.Key, Value: prev.Value + "\n" + line[1:]}
+		if strings.HasPrefix(line, " ") && headers.Len() > 0 {
+			let prev = headers[headers.Len()-1]
+			headers[headers.Len()-1] = Header{Key: prev.Key, Value: prev.Value + "\n" + line[1:]}
 			continue
 		}
 		let sp = strings.Index(line, " ")
@@ -117,7 +118,7 @@ func splitHeadersAndMessage(raw string) ([]Header, string) {
 // supporting root, normal, and octopus-merge parents, multi-line continuation
 // headers, encoding, and message body.
 func ParseCommit(format oid.Format, raw []byte) Commit fails CorruptCommit | CorruptSignature {
-	if len(raw) == 0 {
+	if raw.Len() == 0 {
 		return CorruptCommit{Reason: "empty commit object"}
 	}
 	let (headers, msg) = splitHeadersAndMessage(raw.Text())
@@ -178,7 +179,7 @@ func ParseCommit(format oid.Format, raw []byte) Commit fails CorruptCommit | Cor
 
 // ParseTag parses a raw Git annotated tag object payload of the given OID format.
 func ParseTag(format oid.Format, raw []byte) Tag fails CorruptTag | CorruptSignature {
-	if len(raw) == 0 {
+	if raw.Len() == 0 {
 		return CorruptTag{Reason: "empty tag object"}
 	}
 	let (headers, msg) = splitHeadersAndMessage(raw.Text())
@@ -188,7 +189,7 @@ func ParseTag(format oid.Format, raw []byte) Tag fails CorruptTag | CorruptSigna
 	let mut targetKind oid.Kind = oid.Blob
 	let mut hasName = false
 	let mut tagName = ""
-	let mut tagger Option[Signature] = None
+	let mut tagger option.Option[Signature] = option.None
 
 	for h in headers {
 		if h.Key == "object" {
@@ -211,7 +212,7 @@ func ParseTag(format oid.Format, raw []byte) Tag fails CorruptTag | CorruptSigna
 			hasName = true
 		} else if h.Key == "tagger" {
 			let sig = try ParseSignature(h.Value)
-			tagger = Some[Signature]{Value: sig}
+			tagger = option.Some[Signature]{Value: sig}
 		}
 	}
 	if !hasObj {

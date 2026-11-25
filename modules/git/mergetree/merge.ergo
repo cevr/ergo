@@ -1,4 +1,5 @@
 import fs
+import option
 import slices
 import strings
 import github.com/cevr/ergo/modules/git/attrs
@@ -18,20 +19,20 @@ func sameStage(a StageEntry, b StageEntry) bool {
 	sameMode(a.Mode, b.Mode) && oid.Equal(a.OID, b.OID)
 }
 
-func sameOptStage(a Option[StageEntry], b Option[StageEntry]) bool {
+func sameOptStage(a option.Option[StageEntry], b option.Option[StageEntry]) bool {
 	match a {
-	case None:
+	case option.None:
 		match b {
-		case None:
+		case option.None:
 			true
-		case Some[StageEntry]:
+		case option.Some[StageEntry]:
 			false
 		}
-	case Some[StageEntry] as av:
+	case option.Some[StageEntry] as av:
 		match b {
-		case None:
+		case option.None:
 			false
-		case Some[StageEntry] as bv:
+		case option.Some[StageEntry] as bv:
 			sameStage(av.Value, bv.Value)
 		}
 	}
@@ -46,12 +47,12 @@ func isRegularOrExec(m tree.Mode) bool {
 	}
 }
 
-func walkToLeafMap(format oid.Format, rootOpt Option[oid.OID], opts MergeTreeOptions) Map[string, StageEntry] fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+func walkToLeafMap(format oid.Format, rootOpt option.Option[oid.OID], opts MergeTreeOptions) Map[string, StageEntry] fails TreeError | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
 	let mut out = Map[string, StageEntry]{}
 	match rootOpt {
-	case None:
+	case option.None:
 		out
-	case Some[oid.OID] as rt:
+	case option.Some[oid.OID] as rt:
 		let entries = tree.WalkTree(format, rt.Value, opts.MaxDepth, opts.MaxBytes) catch {
 		case tree.CorruptTree as e:
 			return TreeError{Detail: e.Reason}
@@ -107,7 +108,7 @@ func installObject(kind oid.Kind, data []byte) oid.OID fails StoreError needs pa
 }
 
 func resolveDriverForPath(format oid.Format, oursTree oid.OID, opts MergeTreeOptions, relPath string) attrs.MergeDriver fails UntrustedDriver needs pack.ObjectStore {
-	let resolved = attrs.LoadTreeAttrs(format, Some[oid.OID]{Value: oursTree}, opts.InfoAttributes, relPath, opts.MaxBytes)
+	let resolved = attrs.LoadTreeAttrs(format, option.Some[oid.OID]{Value: oursTree}, opts.InfoAttributes, relPath, opts.MaxBytes)
 	attrs.ResolveMergeDriver(resolved, opts.DriverPolicy) catch {
 	case attrs.UntrustedDriver as u:
 		return UntrustedDriver{Path: relPath, Driver: u.Name}
@@ -150,13 +151,13 @@ func mergeBlobWithDriver(driver attrs.MergeDriver, baseBytes []byte, oursBytes [
 	filemerge.MergeFiles(baseBytes, oursBytes, theirsBytes, baseOpts)
 }
 
-func resolveThreeWayFile(format oid.Format, oursTree oid.OID, path string, bOpt Option[StageEntry], o StageEntry, t StageEntry, isAddAdd bool, opts MergeTreeOptions) (StageEntry, Option[Conflict]) fails UntrustedDriver | MissingObject | StoreError needs pack.ObjectStore {
+func resolveThreeWayFile(format oid.Format, oursTree oid.OID, path string, bOpt option.Option[StageEntry], o StageEntry, t StageEntry, isAddAdd bool, opts MergeTreeOptions) (StageEntry, option.Option[Conflict]) fails UntrustedDriver | MissingObject | StoreError needs pack.ObjectStore {
 	let mut resolvedMode = o.Mode
 	let mut modeConflicted = false
 	if !sameMode(o.Mode, t.Mode) {
 		if isRegularOrExec(o.Mode) && isRegularOrExec(t.Mode) {
 			match bOpt {
-			case Some[StageEntry] as b:
+			case option.Some[StageEntry] as b:
 				if sameMode(o.Mode, b.Value.Mode) {
 					resolvedMode = t.Mode
 				} else if sameMode(t.Mode, b.Value.Mode) {
@@ -164,7 +165,7 @@ func resolveThreeWayFile(format oid.Format, oursTree oid.OID, path string, bOpt 
 				} else {
 					modeConflicted = true
 				}
-			case None:
+			case option.None:
 				modeConflicted = true
 			}
 		} else {
@@ -177,11 +178,11 @@ func resolveThreeWayFile(format oid.Format, oursTree oid.OID, path string, bOpt 
 			Path:   path,
 			Kind:   ModeConflict,
 			Stage1: bOpt,
-			Stage2: Some[StageEntry]{Value: o},
-			Stage3: Some[StageEntry]{Value: t},
+			Stage2: option.Some[StageEntry]{Value: o},
+			Stage3: option.Some[StageEntry]{Value: t},
 			Detail: "incompatible file modes: " + tree.ModeOctal(o.Mode) + " vs " + tree.ModeOctal(t.Mode),
 		}
-		return (o, Some[Conflict]{Value: conf})
+		return (o, option.Some[Conflict]{Value: conf})
 	}
 
 	match resolvedMode {
@@ -190,34 +191,34 @@ func resolveThreeWayFile(format oid.Format, oursTree oid.OID, path string, bOpt 
 			Path:   path,
 			Kind:   SymlinkConflict,
 			Stage1: bOpt,
-			Stage2: Some[StageEntry]{Value: o},
-			Stage3: Some[StageEntry]{Value: t},
+			Stage2: option.Some[StageEntry]{Value: o},
+			Stage3: option.Some[StageEntry]{Value: t},
 			Detail: "conflicting symlink targets",
 		}
-		return (StageEntry{Mode: resolvedMode, OID: o.OID}, Some[Conflict]{Value: conf})
+		return (StageEntry{Mode: resolvedMode, OID: o.OID}, option.Some[Conflict]{Value: conf})
 	case tree.ModeGitlink:
 		let conf = Conflict{
 			Path:   path,
 			Kind:   GitlinkConflict,
 			Stage1: bOpt,
-			Stage2: Some[StageEntry]{Value: o},
-			Stage3: Some[StageEntry]{Value: t},
+			Stage2: option.Some[StageEntry]{Value: o},
+			Stage3: option.Some[StageEntry]{Value: t},
 			Detail: "conflicting submodule gitlink commits",
 		}
-		return (StageEntry{Mode: resolvedMode, OID: o.OID}, Some[Conflict]{Value: conf})
+		return (StageEntry{Mode: resolvedMode, OID: o.OID}, option.Some[Conflict]{Value: conf})
 	case tree.ModeTree, tree.ModeRegular, tree.ModeExecutable:
 	}
 
 	let driver = try resolveDriverForPath(format, oursTree, opts, path)
 
 	if oid.Equal(o.OID, t.OID) {
-		return (StageEntry{Mode: resolvedMode, OID: o.OID}, None)
+		return (StageEntry{Mode: resolvedMode, OID: o.OID}, option.None)
 	}
 
 	let baseBytes = match bOpt {
-	case None:
+	case option.None:
 		[]byte{}
-	case Some[StageEntry] as b:
+	case option.Some[StageEntry] as b:
 		try readBlobBytes(b.Value.OID, opts.MaxBytes)
 	}
 	let oursBytes = try readBlobBytes(o.OID, opts.MaxBytes)
@@ -234,35 +235,35 @@ func resolveThreeWayFile(format oid.Format, oursTree oid.OID, path string, bOpt 
 		case filemerge.Clean, filemerge.Conflicted:
 			AddAdd
 		}
-		return (outEntry, Some[Conflict]{Value: Conflict{
+		return (outEntry, option.Some[Conflict]{Value: Conflict{
 			Path:   path,
 			Kind:   kind,
-			Stage1: None,
-			Stage2: Some[StageEntry]{Value: o},
-			Stage3: Some[StageEntry]{Value: t},
+			Stage1: option.None,
+			Stage2: option.Some[StageEntry]{Value: o},
+			Stage3: option.Some[StageEntry]{Value: t},
 			Detail: "add/add conflict",
 		}})
 	}
 
 	match merged.Status {
 	case filemerge.Clean:
-		(outEntry, None)
+		(outEntry, option.None)
 	case filemerge.BinaryConflict:
-		(StageEntry{Mode: resolvedMode, OID: o.OID}, Some[Conflict]{Value: Conflict{
+		(StageEntry{Mode: resolvedMode, OID: o.OID}, option.Some[Conflict]{Value: Conflict{
 			Path:   path,
 			Kind:   BinaryConflict,
 			Stage1: bOpt,
-			Stage2: Some[StageEntry]{Value: o},
-			Stage3: Some[StageEntry]{Value: t},
+			Stage2: option.Some[StageEntry]{Value: o},
+			Stage3: option.Some[StageEntry]{Value: t},
 			Detail: "binary file merge conflict",
 		}})
 	case filemerge.Conflicted:
-		(outEntry, Some[Conflict]{Value: Conflict{
+		(outEntry, option.Some[Conflict]{Value: Conflict{
 			Path:   path,
 			Kind:   ContentConflict,
 			Stage1: bOpt,
-			Stage2: Some[StageEntry]{Value: o},
-			Stage3: Some[StageEntry]{Value: t},
+			Stage2: option.Some[StageEntry]{Value: o},
+			Stage3: option.Some[StageEntry]{Value: t},
 			Detail: "content merge conflict",
 		}})
 	}
@@ -296,25 +297,25 @@ func collectRenames(format oid.Format, baseTree oid.OID, sideTree oid.OID, opts 
 		match ch.Status {
 		case diff.Renamed:
 			match ch.OldPath {
-			case Some[string] as op:
+			case option.Some[string] as op:
 				match ch.NewPath {
-				case Some[string] as np:
+				case option.Some[string] as np:
 					match ch.NewMode {
-					case Some[tree.Mode] as nm:
+					case option.Some[tree.Mode] as nm:
 						match ch.NewOID {
-						case Some[oid.OID] as nid:
+						case option.Some[oid.OID] as nid:
 							out = out.Put(op.Value, renameInfo{
 								oldPath:  op.Value,
 								newPath:  np.Value,
 								newEntry: StageEntry{Mode: nm.Value, OID: nid.Value},
 							})
-						case None:
+						case option.None:
 						}
-					case None:
+					case option.None:
 					}
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 		case diff.Added, diff.Deleted, diff.Modified, diff.TypeChanged:
 		}
@@ -336,7 +337,7 @@ func resolveFileDirConflicts(leaves Map[string, StageEntry], baseMap Map[string,
 	for p in sortedPaths {
 		let parts = strings.Split(p, "/")
 		let mut acc = ""
-		for i in 0..(len(parts) - 1) {
+		for i in 0..(parts.Len() - 1) {
 			acc = if acc == "" { parts[i] } else { acc + "/" + parts[i] }
 			dirPrefixes = dirPrefixes.Put(acc, true)
 		}
@@ -345,9 +346,9 @@ func resolveFileDirConflicts(leaves Map[string, StageEntry], baseMap Map[string,
 	let mut outLeaves = leaves
 	let mut outConflicts = conflicts
 	for p in sortedPaths {
-		if dirPrefixes.Get(p) != None {
+		if dirPrefixes.Get(p) != option.None {
 			match outLeaves.Get(p) {
-			case Some[StageEntry] as fe:
+			case option.Some[StageEntry] as fe:
 				outConflicts = outConflicts.Append(Conflict{
 					Path:   p,
 					Kind:   FileDirConflict,
@@ -365,7 +366,7 @@ func resolveFileDirConflicts(leaves Map[string, StageEntry], baseMap Map[string,
 				let relocated = p + "~file-dir-conflict"
 				filtered = filtered.Put(relocated, fe.Value)
 				outLeaves = filtered
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -432,23 +433,23 @@ func compareConflicts(a Conflict, b Conflict) int {
 // theirsTree), applying `.gitattributes` merge drivers under opts.DriverPolicy,
 // detecting renames and file/directory/mode/symlink/gitlink conflicts, and
 // writing the resulting canonical root tree into pack.ObjectStore.
-func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID, opts MergeTreeOptions) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
+func MergeTrees(format oid.Format, baseTree option.Option[oid.OID], oursTree oid.OID, theirsTree oid.OID, opts MergeTreeOptions) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded needs pack.ObjectStore {
 	if oid.Equal(oursTree, theirsTree) {
 		return MergeTreeResult{TreeOID: oursTree, Clean: true, Conflicts: []Conflict{}}
 	}
 
 	let baseMap = try walkToLeafMap(format, baseTree, opts)
-	let oursMap = try walkToLeafMap(format, Some[oid.OID]{Value: oursTree}, opts)
-	let theirsMap = try walkToLeafMap(format, Some[oid.OID]{Value: theirsTree}, opts)
+	let oursMap = try walkToLeafMap(format, option.Some[oid.OID]{Value: oursTree}, opts)
+	let theirsMap = try walkToLeafMap(format, option.Some[oid.OID]{Value: theirsTree}, opts)
 
 	let mut oursRenames = Map[string, renameInfo]{}
 	let mut theirsRenames = Map[string, renameInfo]{}
 	if opts.DetectRenames {
 		match baseTree {
-		case Some[oid.OID] as bt:
+		case option.Some[oid.OID] as bt:
 			oursRenames = try collectRenames(format, bt.Value, oursTree, opts)
 			theirsRenames = try collectRenames(format, bt.Value, theirsTree, opts)
-		case None:
+		case option.None:
 		}
 	}
 
@@ -461,16 +462,16 @@ func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, t
 		renameOldPaths = renameOldPaths.Append(op)
 	}
 	for op, _ in theirsRenames {
-		if oursRenames.Get(op) == None {
+		if oursRenames.Get(op) == option.None {
 			renameOldPaths = renameOldPaths.Append(op)
 		}
 	}
 	for oldP in slices.Sort(renameOldPaths) {
 		let bOpt = baseMap.Get(oldP)
 		match oursRenames.Get(oldP) {
-		case Some[renameInfo] as oRen:
+		case option.Some[renameInfo] as oRen:
 			match theirsRenames.Get(oldP) {
-			case Some[renameInfo] as tRen:
+			case option.Some[renameInfo] as tRen:
 				handled = handled.Put(oldP, true)
 				handled = handled.Put(oRen.Value.newPath, true)
 				handled = handled.Put(tRen.Value.newPath, true)
@@ -478,9 +479,9 @@ func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, t
 					let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, oRen.Value.newPath, bOpt, oRen.Value.newEntry, tRen.Value.newEntry, false, opts)
 					resultLeaves = resultLeaves.Put(oRen.Value.newPath, mergedEntry)
 					match confOpt {
-					case Some[Conflict] as c:
+					case option.Some[Conflict] as c:
 						conflicts = conflicts.Append(c.Value)
-					case None:
+					case option.None:
 					}
 				} else {
 					resultLeaves = resultLeaves.Put(oRen.Value.newPath, oRen.Value.newEntry)
@@ -489,61 +490,61 @@ func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, t
 						Path:   oldP,
 						Kind:   RenameRename,
 						Stage1: bOpt,
-						Stage2: Some[StageEntry]{Value: oRen.Value.newEntry},
-						Stage3: Some[StageEntry]{Value: tRen.Value.newEntry},
+						Stage2: option.Some[StageEntry]{Value: oRen.Value.newEntry},
+						Stage3: option.Some[StageEntry]{Value: tRen.Value.newEntry},
 						Detail: "rename/rename: " + oldP + " -> " + oRen.Value.newPath + " / " + tRen.Value.newPath,
 					})
 				}
-			case None:
+			case option.None:
 				handled = handled.Put(oldP, true)
 				handled = handled.Put(oRen.Value.newPath, true)
 				match theirsMap.Get(oldP) {
-				case None:
+				case option.None:
 					resultLeaves = resultLeaves.Put(oRen.Value.newPath, oRen.Value.newEntry)
 					conflicts = conflicts.Append(Conflict{
 						Path:   oRen.Value.newPath,
 						Kind:   RenameDelete,
 						Stage1: bOpt,
-						Stage2: Some[StageEntry]{Value: oRen.Value.newEntry},
-						Stage3: None,
+						Stage2: option.Some[StageEntry]{Value: oRen.Value.newEntry},
+						Stage3: option.None,
 						Detail: "rename/delete: renamed to " + oRen.Value.newPath + " in ours, deleted in theirs",
 					})
-				case Some[StageEntry] as tOld:
+				case option.Some[StageEntry] as tOld:
 					let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, oRen.Value.newPath, bOpt, oRen.Value.newEntry, tOld.Value, false, opts)
 					resultLeaves = resultLeaves.Put(oRen.Value.newPath, mergedEntry)
 					match confOpt {
-					case Some[Conflict] as c:
+					case option.Some[Conflict] as c:
 						conflicts = conflicts.Append(c.Value)
-					case None:
+					case option.None:
 					}
 				}
 			}
-		case None:
+		case option.None:
 			match theirsRenames.Get(oldP) {
-			case Some[renameInfo] as tRen:
+			case option.Some[renameInfo] as tRen:
 				handled = handled.Put(oldP, true)
 				handled = handled.Put(tRen.Value.newPath, true)
 				match oursMap.Get(oldP) {
-				case None:
+				case option.None:
 					resultLeaves = resultLeaves.Put(tRen.Value.newPath, tRen.Value.newEntry)
 					conflicts = conflicts.Append(Conflict{
 						Path:   tRen.Value.newPath,
 						Kind:   RenameDelete,
 						Stage1: bOpt,
-						Stage2: None,
-						Stage3: Some[StageEntry]{Value: tRen.Value.newEntry},
+						Stage2: option.None,
+						Stage3: option.Some[StageEntry]{Value: tRen.Value.newEntry},
 						Detail: "rename/delete: deleted in ours, renamed to " + tRen.Value.newPath + " in theirs",
 					})
-				case Some[StageEntry] as oOld:
+				case option.Some[StageEntry] as oOld:
 					let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, tRen.Value.newPath, bOpt, oOld.Value, tRen.Value.newEntry, false, opts)
 					resultLeaves = resultLeaves.Put(tRen.Value.newPath, mergedEntry)
 					match confOpt {
-					case Some[Conflict] as c:
+					case option.Some[Conflict] as c:
 						conflicts = conflicts.Append(c.Value)
-					case None:
+					case option.None:
 					}
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}
@@ -564,7 +565,7 @@ func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, t
 	}
 
 	for p in slices.Sort(allPaths) {
-		if handled.Get(p) != None {
+		if handled.Get(p) != option.None {
 			continue
 		}
 		let bOpt = baseMap.Get(p)
@@ -573,64 +574,64 @@ func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, t
 
 		if sameOptStage(oOpt, tOpt) {
 			match oOpt {
-			case Some[StageEntry] as e:
+			case option.Some[StageEntry] as e:
 				resultLeaves = resultLeaves.Put(p, e.Value)
-			case None:
+			case option.None:
 			}
 			continue
 		}
 		if sameOptStage(bOpt, oOpt) {
 			match tOpt {
-			case Some[StageEntry] as e:
+			case option.Some[StageEntry] as e:
 				resultLeaves = resultLeaves.Put(p, e.Value)
-			case None:
+			case option.None:
 			}
 			continue
 		}
 		if sameOptStage(bOpt, tOpt) {
 			match oOpt {
-			case Some[StageEntry] as e:
+			case option.Some[StageEntry] as e:
 				resultLeaves = resultLeaves.Put(p, e.Value)
-			case None:
+			case option.None:
 			}
 			continue
 		}
 
 		match oOpt {
-		case None:
+		case option.None:
 			match tOpt {
-			case None:
-			case Some[StageEntry] as tv:
+			case option.None:
+			case option.Some[StageEntry] as tv:
 				resultLeaves = resultLeaves.Put(p, tv.Value)
 				conflicts = conflicts.Append(Conflict{
 					Path:   p,
 					Kind:   ModifyDelete,
 					Stage1: bOpt,
-					Stage2: None,
-					Stage3: Some[StageEntry]{Value: tv.Value},
+					Stage2: option.None,
+					Stage3: option.Some[StageEntry]{Value: tv.Value},
 					Detail: "deleted in ours, modified in theirs",
 				})
 			}
-		case Some[StageEntry] as ov:
+		case option.Some[StageEntry] as ov:
 			match tOpt {
-			case None:
+			case option.None:
 				resultLeaves = resultLeaves.Put(p, ov.Value)
 				conflicts = conflicts.Append(Conflict{
 					Path:   p,
 					Kind:   ModifyDelete,
 					Stage1: bOpt,
-					Stage2: Some[StageEntry]{Value: ov.Value},
-					Stage3: None,
+					Stage2: option.Some[StageEntry]{Value: ov.Value},
+					Stage3: option.None,
 					Detail: "modified in ours, deleted in theirs",
 				})
-			case Some[StageEntry] as tv:
-				let isAddAdd = bOpt == None
+			case option.Some[StageEntry] as tv:
+				let isAddAdd = bOpt == option.None
 				let (mergedEntry, confOpt) = try resolveThreeWayFile(format, oursTree, p, bOpt, ov.Value, tv.Value, isAddAdd, opts)
 				resultLeaves = resultLeaves.Put(p, mergedEntry)
 				match confOpt {
-				case Some[Conflict] as c:
+				case option.Some[Conflict] as c:
 					conflicts = conflicts.Append(c.Value)
-				case None:
+				case option.None:
 				}
 			}
 		}
@@ -641,7 +642,7 @@ func MergeTrees(format oid.Format, baseTree Option[oid.OID], oursTree oid.OID, t
 	let sortedConflicts = slices.SortFunc(finalConflicts, compareConflicts)
 	MergeTreeResult{
 		TreeOID:   rootTreeOid,
-		Clean:     len(sortedConflicts) == 0,
+		Clean:     sortedConflicts.Len() == 0,
 		Conflicts: sortedConflicts,
 	}
 }
@@ -674,10 +675,10 @@ func mergeCommitsRec(format oid.Format, oursCommit oid.OID, theirsCommit oid.OID
 	case revisions.StoreError as e:
 		return RevError{Detail: e.Detail}
 	}
-	if len(bases) == 0 {
-		return try MergeTrees(format, None, oursNode.Tree, theirsNode.Tree, opts)
+	if bases.Len() == 0 {
+		return try MergeTrees(format, option.None, oursNode.Tree, theirsNode.Tree, opts)
 	}
-	if len(bases) == 1 {
+	if bases.Len() == 1 {
 		if oid.Equal(bases[0], oursCommit) {
 			return MergeTreeResult{TreeOID: theirsNode.Tree, Clean: true, Conflicts: []Conflict{}}
 		}
@@ -685,14 +686,14 @@ func mergeCommitsRec(format oid.Format, oursCommit oid.OID, theirsCommit oid.OID
 			return MergeTreeResult{TreeOID: oursNode.Tree, Clean: true, Conflicts: []Conflict{}}
 		}
 		let baseNode = try loadCommitNode(bases[0])
-		return try MergeTrees(format, Some[oid.OID]{Value: baseNode.Tree}, oursNode.Tree, theirsNode.Tree, opts)
+		return try MergeTrees(format, option.Some[oid.OID]{Value: baseNode.Tree}, oursNode.Tree, theirsNode.Tree, opts)
 	}
 	let mut virtualRes = try mergeCommitsRec(format, bases[0], bases[1], opts, depth+1)
-	for i in 2..len(bases) {
+	for i in 2..bases.Len() {
 		let nextBase = try loadCommitNode(bases[i])
-		virtualRes = try MergeTrees(format, None, virtualRes.TreeOID, nextBase.Tree, opts)
+		virtualRes = try MergeTrees(format, option.None, virtualRes.TreeOID, nextBase.Tree, opts)
 	}
-	try MergeTrees(format, Some[oid.OID]{Value: virtualRes.TreeOID}, oursNode.Tree, theirsNode.Tree, opts)
+	try MergeTrees(format, option.Some[oid.OID]{Value: virtualRes.TreeOID}, oursNode.Tree, theirsNode.Tree, opts)
 }
 
 // MergeCommits performs a recursive 3-way commit merge matching
@@ -746,7 +747,7 @@ func InstallTree(m MemoryMerger, entries []tree.Entry) oid.OID fails TreeError |
 }
 
 // Merge implements TreeMerger.Merge on MemoryMerger.
-func Merge(m MemoryMerger, baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded {
+func Merge(m MemoryMerger, baseTree option.Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded {
 	with context { pack.ObjectStore: m.store } {
 		try MergeTrees(m.format, baseTree, oursTree, theirsTree, DefaultOptions())
 	}
@@ -818,7 +819,7 @@ func InstallTree(d DiskMerger, entries []tree.Entry) oid.OID fails TreeError | S
 }
 
 // Merge implements TreeMerger.Merge on DiskMerger.
-func Merge(d DiskMerger, baseTree Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded {
+func Merge(d DiskMerger, baseTree option.Option[oid.OID], oursTree oid.OID, theirsTree oid.OID) MergeTreeResult fails TreeError | DiffError | UntrustedDriver | MissingObject | StoreError | DepthExceeded {
 	let store = try openDiskMergerODB(d)
 	with context { pack.ObjectStore: store } {
 		try MergeTrees(d.format, baseTree, oursTree, theirsTree, DefaultOptions())

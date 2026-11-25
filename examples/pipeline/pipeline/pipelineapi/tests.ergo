@@ -11,7 +11,7 @@ func apiOver() Client needs pipeline.Pipeline {
 }
 
 let overModel = context fails domain.Conflict | domain.Reused | domain.Unkept {
-	Scheduler:         time.NewManual(0),
+	time.Scheduler:    time.NewManual(0),
 	pipeline.Runner:   runners.New(Map[int, int]{}),
 	pipeline.Pipeline: try pipeline.Open(memory.New[pipeline.Entry]()),
 }

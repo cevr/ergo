@@ -1,12 +1,14 @@
 // The vm's tests: examples. The laws run under ergo test.
 
+import option
+
 // whyOf is the cause a run of program traps with, or None.
-func whyOf(program []Instr) Option[Cause] {
+func whyOf(program []Instr) option.Option[Cause] {
 	let _ = Run(program, 20000) catch {
 	case Trap as t:
-		return Some{t.Why}
+		return option.Some{t.Why}
 	}
-	None
+	option.None
 }
 
 test ArithmeticAndPrint {
@@ -18,7 +20,7 @@ test CountdownLoop {
 	// 3 2 1, by a loop: dup print; push 1 sub; dup jif 0
 	let p = []Instr{Push{N: 3}, Dup, Print, Push{N: 1}, Sub, Dup, JumpIf{To: 1}, Pop}
 	let r = try Run(p, 100)
-	assert r.Printed == []int{3, 2, 1} && len(r.Stack) == 0
+	assert r.Printed == []int{3, 2, 1} && r.Stack.Len() == 0
 }
 
 test CallAndReturn {
@@ -29,17 +31,17 @@ test CallAndReturn {
 
 test HaltStopsTheLoop {
 	let r = try Run([]Instr{Push{N: 1}, Halt, Print, Print}, 100)
-	assert len(r.Printed) == 0 && r.Stack == []int{1}
+	assert r.Printed.Len() == 0 && r.Stack == []int{1}
 }
 
 test TrapsAreTyped {
-	assert whyOf([]Instr{Add}) == Some[Cause]{Underflow}
-	assert whyOf([]Instr{Push{N: 1}, Push{N: 0}, Mod}) == Some[Cause]{DivideByZero}
-	assert whyOf([]Instr{Jump{To: 9}}) == Some[Cause]{BadTarget{To: 9}}
-	assert whyOf([]Instr{Ret}) == Some[Cause]{NoFrame}
-	assert whyOf([]Instr{Call{To: 0}}) == Some[Cause]{TooDeep}
-	assert whyOf([]Instr{Jump{To: 0}}) == Some[Cause]{OutOfFuel}
-	assert whyOf([]Instr{Jump{To: 1}}) == None
+	assert whyOf([]Instr{Add}) == option.Some[Cause]{Underflow}
+	assert whyOf([]Instr{Push{N: 1}, Push{N: 0}, Mod}) == option.Some[Cause]{DivideByZero}
+	assert whyOf([]Instr{Jump{To: 9}}) == option.Some[Cause]{BadTarget{To: 9}}
+	assert whyOf([]Instr{Ret}) == option.Some[Cause]{NoFrame}
+	assert whyOf([]Instr{Call{To: 0}}) == option.Some[Cause]{TooDeep}
+	assert whyOf([]Instr{Jump{To: 0}}) == option.Some[Cause]{OutOfFuel}
+	assert whyOf([]Instr{Jump{To: 1}}) == option.None
 }
 
 // describeOf is the text of the trap of a run of program, or "".

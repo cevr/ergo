@@ -47,7 +47,7 @@ law ReplyReadsBack(r receipt.Receipt, fence bool) {
 	let whole = reading(said, llm.Ended)
 	let read = match whole {
 	case Found as g:
-		g.Receipt == r && fence == (len(g.Fixes) > 0) && onlyFences(g.Fixes)
+		g.Receipt == r && fence == (g.Fixes.Len() > 0) && onlyFences(g.Fixes)
 	case Unfit, Failed:
 		false
 	}

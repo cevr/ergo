@@ -32,7 +32,7 @@ func gen(d mut vm.Draws, depth int) Expr {
 		Square{X: gen(d, depth-1)}
 	case _:
 		let ops = []Op{Plus, Minus, Times, Quot, Rem, Below, Equal}
-		Bin{Op: ops[d.Next(len(ops))], L: gen(d, depth-1), R: gen(d, depth-1)}
+		Bin{Op: ops[d.Next(ops.Len())], L: gen(d, depth-1), R: gen(d, depth-1)}
 	}
 }
 
@@ -57,7 +57,7 @@ func Agrees(e Expr) bool {
 	case vm.Trap:
 		return false
 	}
-	got.Stack == []int{want} && len(got.Printed) == 0
+	got.Stack == []int{want} && got.Printed.Len() == 0
 }
 
 // Op is a binary operator. Less and Equal give 1 or 0.
@@ -119,7 +119,7 @@ func Compile(e Expr) []vm.Instr {
 	let mut b = builder{code: []vm.Instr{}}
 	emit(&b, e)
 	b.code = b.code.Append(vm.Halt)
-	let square = len(b.code)
+	let square = b.code.Len()
 	b.code = b.code.Append(vm.Dup)
 	b.code = b.code.Append(vm.Mul)
 	b.code = b.code.Append(vm.Ret)
@@ -163,14 +163,14 @@ func emit(b mut builder, e Expr) {
 		})
 	case IfZero as i:
 		emit(b, i.Cond)
-		let toElse = len(b.code)
+		let toElse = b.code.Len()
 		b.code = b.code.Append(vm.JumpIf{To: 0})
 		emit(b, i.Then)
-		let toEnd = len(b.code)
+		let toEnd = b.code.Len()
 		b.code = b.code.Append(vm.Jump{To: 0})
-		b.code[toElse] = vm.JumpIf{To: len(b.code)}
+		b.code[toElse] = vm.JumpIf{To: b.code.Len()}
 		emit(b, i.Else)
-		b.code[toEnd] = vm.Jump{To: len(b.code)}
+		b.code[toEnd] = vm.Jump{To: b.code.Len()}
 	case Square as s:
 		emit(b, s.X)
 		b.code = b.code.Append(vm.Call{To: 0})

@@ -10,6 +10,7 @@
 
 import fs
 import go runtime
+import io
 import station-stats/mapped
 import station-stats/weather
 import os
@@ -23,7 +24,7 @@ type Command { Path string, Workers int }
 
 // Parse is the command of args; cores is the default worker count.
 func Parse(args []string, cores int) Command fails os.Exit {
-	match len(args) {
+	match args.Len() {
 	case 1:
 		Command{Path: args[0], Workers: cores}
 	case 2:
@@ -56,9 +57,9 @@ func Summary(c Command) string fails os.Exit needs weather.Readings {
 	weather.Report(stations)
 }
 
-func main() fails os.Exit needs Console | Ambient | go.Foreign {
+func main() fails os.Exit needs io.Console | os.Ambient | go.Foreign {
 	let host = os.NewHost()
 	let c = try Parse(host.Args(), runtime.NumCPU())
 	let readings = mapped.New(fs.NewHost())
-	Console.Println(try with context { weather.Readings: readings } { Summary(c) })
+	io.Console.Println(try with context { weather.Readings: readings } { Summary(c) })
 }

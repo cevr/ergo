@@ -2,6 +2,7 @@ import gen
 import github.com/cevr/ergo/modules/work/work
 import github.com/cevr/ergo/modules/work/work/workapi
 import github.com/cevr/ergo/modules/work/work/workcli
+import option
 import strings
 import testing
 
@@ -11,7 +12,7 @@ func drawWorkRequest() workapi.Request needs gen.Draws {
 	let name = gen.OneOf(workExploreNames)
 	match gen.IntIn(0, 5) {
 	case 0:
-		workapi.NewRequest{Name: name, O: work.NewOptions{Copy: false, From: None, Branch: None, On: None, Token: None}}
+		workapi.NewRequest{Name: name, O: work.NewOptions{Copy: false, From: option.None, Branch: option.None, On: option.None, Token: option.None}}
 	case 1:
 		workapi.ListRequest{O: work.ListOptions{Status: false}}
 	case 2:
@@ -19,7 +20,7 @@ func drawWorkRequest() workapi.Request needs gen.Draws {
 	case 3:
 		workapi.UnpinRequest{Name: name}
 	case 4:
-		workapi.RmRequest{Name: name, O: work.RmOptions{Abandon: true, Expect: None, Tree: false}}
+		workapi.RmRequest{Name: name, O: work.RmOptions{Abandon: true, Expect: option.None, Tree: false}}
 	case _:
 		workapi.VersionRequest
 	}

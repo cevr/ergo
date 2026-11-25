@@ -1,3 +1,5 @@
+import option
+
 // CommandID uniquely identifies one caller-submitted command for idempotency.
 type CommandID string
 
@@ -60,26 +62,26 @@ func UnitStatusName(s UnitStatus) string {
 }
 
 // ParseUnitStatus parses a canonical external unit status name.
-func ParseUnitStatus(text string) Option[UnitStatus] {
+func ParseUnitStatus(text string) option.Option[UnitStatus] {
 	match text {
 	case "open":
-		Some[UnitStatus]{Value: UnitOpen}
+		option.Some[UnitStatus]{Value: UnitOpen}
 	case "claimed":
-		Some[UnitStatus]{Value: UnitClaimed}
+		option.Some[UnitStatus]{Value: UnitClaimed}
 	case "handed-back":
-		Some[UnitStatus]{Value: UnitHandedBack}
+		option.Some[UnitStatus]{Value: UnitHandedBack}
 	case "landed":
-		Some[UnitStatus]{Value: UnitLanded}
+		option.Some[UnitStatus]{Value: UnitLanded}
 	case "closed":
-		Some[UnitStatus]{Value: UnitClosed}
+		option.Some[UnitStatus]{Value: UnitClosed}
 	case _:
-		None
+		option.None
 	}
 }
 
 // UnitStatusNameRoundTrips verifies that every UnitStatus survives formatting and parsing.
 law UnitStatusNameRoundTrips(s UnitStatus) {
-	ParseUnitStatus(UnitStatusName(s)) == Some[UnitStatus]{Value: s}
+	ParseUnitStatus(UnitStatusName(s)) == option.Some[UnitStatus]{Value: s}
 }
 
 // Unit is the projected state of one orchestrated work unit.
@@ -88,14 +90,14 @@ type Unit {
 	Title        string,
 	Area         string,
 	Status       UnitStatus,
-	Owner        Option[string],
-	Lane         Option[string],
-	Harness      Option[string],
+	Owner        option.Option[string],
+	Lane         option.Option[string],
+	Harness      option.Option[string],
 	Round        int,
-	HeadSHA      Option[string],
-	Summary      Option[string],
-	RequestPath  Option[string],
-	FindingsPath Option[string],
+	HeadSHA      option.Option[string],
+	Summary      option.Option[string],
+	RequestPath  option.Option[string],
+	FindingsPath option.Option[string],
 	CreatedAt    string,
 	UpdatedAt    string,
 }
@@ -151,26 +153,26 @@ func CommitmentStatusName(s CommitmentStatus) string {
 }
 
 // ParseCommitmentStatus parses a canonical external commitment status name.
-func ParseCommitmentStatus(text string) Option[CommitmentStatus] {
+func ParseCommitmentStatus(text string) option.Option[CommitmentStatus] {
 	match text {
 	case "open":
-		Some[CommitmentStatus]{Value: CommitOpen}
+		option.Some[CommitmentStatus]{Value: CommitOpen}
 	case "assigned":
-		Some[CommitmentStatus]{Value: CommitAssigned}
+		option.Some[CommitmentStatus]{Value: CommitAssigned}
 	case "landed":
-		Some[CommitmentStatus]{Value: CommitLanded}
+		option.Some[CommitmentStatus]{Value: CommitLanded}
 	case "decided":
-		Some[CommitmentStatus]{Value: CommitDecided}
+		option.Some[CommitmentStatus]{Value: CommitDecided}
 	case "withdrawn":
-		Some[CommitmentStatus]{Value: CommitWithdrawn}
+		option.Some[CommitmentStatus]{Value: CommitWithdrawn}
 	case _:
-		None
+		option.None
 	}
 }
 
 // CommitmentStatusNameRoundTrips verifies that every CommitmentStatus survives formatting and parsing.
 law CommitmentStatusNameRoundTrips(s CommitmentStatus) {
-	ParseCommitmentStatus(CommitmentStatusName(s)) == Some[CommitmentStatus]{Value: s}
+	ParseCommitmentStatus(CommitmentStatusName(s)) == option.Some[CommitmentStatus]{Value: s}
 }
 
 // Commitment is the projected state of a tracked obligation.
@@ -179,10 +181,10 @@ type Commitment {
 	Title        string,
 	Kind         string,
 	Status       CommitmentStatus,
-	Owner        Option[string],
-	Lane         Option[string],
-	LandedSHA    Option[string],
-	DecisionNote Option[string],
+	Owner        option.Option[string],
+	Lane         option.Option[string],
+	LandedSHA    option.Option[string],
+	DecisionNote option.Option[string],
 	CreatedAt    string,
 	UpdatedAt    string,
 }
@@ -223,22 +225,22 @@ func QuestionStatusName(s QuestionStatus) string {
 }
 
 // ParseQuestionStatus parses a canonical external question status name.
-func ParseQuestionStatus(text string) Option[QuestionStatus] {
+func ParseQuestionStatus(text string) option.Option[QuestionStatus] {
 	match text {
 	case "open":
-		Some[QuestionStatus]{Value: QuestionOpen}
+		option.Some[QuestionStatus]{Value: QuestionOpen}
 	case "answered":
-		Some[QuestionStatus]{Value: QuestionAnswered}
+		option.Some[QuestionStatus]{Value: QuestionAnswered}
 	case "withdrawn":
-		Some[QuestionStatus]{Value: QuestionWithdrawn}
+		option.Some[QuestionStatus]{Value: QuestionWithdrawn}
 	case _:
-		None
+		option.None
 	}
 }
 
 // QuestionStatusNameRoundTrips verifies that every QuestionStatus survives formatting and parsing.
 law QuestionStatusNameRoundTrips(s QuestionStatus) {
-	ParseQuestionStatus(QuestionStatusName(s)) == Some[QuestionStatus]{Value: s}
+	ParseQuestionStatus(QuestionStatusName(s)) == option.Some[QuestionStatus]{Value: s}
 }
 
 // Question is an async question with a monotonic integer ID and default assumption.
@@ -248,11 +250,11 @@ type Question {
 	Assumption     string,
 	ConcreteAction string,
 	Status         QuestionStatus,
-	Answer         Option[string],
+	Answer         option.Option[string],
 	AskedBy        string,
 	AskedAt        string,
-	AnsweredBy     Option[string],
-	AnsweredAt     Option[string],
+	AnsweredBy     option.Option[string],
+	AnsweredAt     option.Option[string],
 }
 
 // State is the complete pure projection folded from the orchestrate event log.

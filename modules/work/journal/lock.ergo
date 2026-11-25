@@ -1,5 +1,6 @@
 import fs
 import github.com/cevr/ergo/modules/work/work
+import option
 import sync
 
 // Lock is the journal's locks: a kernel file lock (fs.LockFile) per key
@@ -26,7 +27,7 @@ func LockFile(home string, key string) string {
 }
 
 func Hold(l Lock, key string) bool fails work.Unkept {
-	if l.held.Get().Get(key) != None {
+	if l.held.Get().Get(key) != option.None {
 		return false
 	}
 	let wait = if key == "" { l.wait } else { 0s }
@@ -40,19 +41,19 @@ func Hold(l Lock, key string) bool fails work.Unkept {
 		return work.Unkept{Reason: "\(file): \(f.Reason)"}
 	}
 	match taken {
-	case Some[fs.FileLock] as k:
+	case option.Some[fs.FileLock] as k:
 		let mut next = l.held.Get()
 		next[key] = k.Value
 		l.held.Set(next)
 		true
-	case None:
+	case option.None:
 		false
 	}
 }
 
 func Release(l Lock, key string) {
 	match l.held.Get().Get(key) {
-	case Some[fs.FileLock] as k:
+	case option.Some[fs.FileLock] as k:
 		if key != "" {
 			l.host.Remove(LockFile(l.home, key)) catch {
 			case fs.NotFound, fs.Denied, fs.Failed:
@@ -60,8 +61,8 @@ func Release(l Lock, key string) {
 		}
 		l.host.UnlockFile(k.Value)
 		l.held.Set(l.held.Get().Delete(key))
-	case None:
+	case option.None:
 	}
 }
 
-func Held(l Lock, key string) bool { l.held.Get().Get(key) != None }
+func Held(l Lock, key string) bool { l.held.Get().Get(key) != option.None }

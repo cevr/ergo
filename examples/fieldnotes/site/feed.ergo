@@ -14,7 +14,7 @@ func FeedText(origin string, entries []journal.Entry) string {
 	for e in entries {
 		let at = xmlText(origin + ui.Href(Href(Map, Entry{Slug: e.Slug})))
 		b.WriteString("<item><title>" + xmlText(e.Title) + "</title><link>" + at + "</link><guid>" + at + "</guid>")
-		if len(e.Body) > 0 {
+		if e.Body.Len() > 0 {
 			b.WriteString("<description>" + xmlText(e.Body[0]) + "</description>")
 		}
 		b.WriteString("</item>")
@@ -29,7 +29,7 @@ func FeedText(origin string, entries []journal.Entry) string {
 func xmlText(s string) string {
 	let valid = strings.ToValidUTF8(s, "�")
 	let mut b = strings.NewBuilder()
-	for i in 0..len(valid) {
+	for i in 0..valid.Len() {
 		let c = valid[i]
 		if c >= 0x20 || c == '\t' || c == '\n' || c == '\r' {
 			b.WriteByte(c)

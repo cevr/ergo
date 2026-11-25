@@ -1,5 +1,6 @@
 import fs
 import hex
+import option
 import sha1dc
 import sha256
 import slices
@@ -39,10 +40,10 @@ func computeDigest(format oid.Format, data []byte) []byte fails ChecksumMismatch
 func verifyTrailers(format oid.Format, raw []byte) (oid.OID, oid.OID) fails Truncated | ChecksumMismatch {
 	let hashLen = oid.ByteLen(format)
 	let trailerLen = 2 * hashLen
-	if len(raw) < trailerLen {
-		return Truncated{Expected: trailerLen, Got: len(raw)}
+	if raw.Len() < trailerLen {
+		return Truncated{Expected: trailerLen, Got: raw.Len()}
 	}
-	let bodyEnd = len(raw) - hashLen
+	let bodyEnd = raw.Len() - hashLen
 	let packStart = bodyEnd - hashLen
 	let wantIdx = raw[bodyEnd:]
 	let gotIdx = try computeDigest(format, raw[:bodyEnd])
@@ -80,8 +81,8 @@ func parseFanout(raw []byte, base int) []uint32 fails CorruptFanout {
 func parseV2(format oid.Format, raw []byte) Index fails Truncated | CorruptFanout | UnsortedOIDs | BadLargeOffset | ChecksumMismatch {
 	let hashLen = oid.ByteLen(format)
 	let minHeader = 8 + 1024 + 2*hashLen
-	if len(raw) < minHeader {
-		return Truncated{Expected: minHeader, Got: len(raw)}
+	if raw.Len() < minHeader {
+		return Truncated{Expected: minHeader, Got: raw.Len()}
 	}
 	let fanout = try parseFanout(raw, 8)
 	let n = int(fanout[255])
@@ -90,12 +91,12 @@ func parseV2(format oid.Format, raw []byte) Index fails Truncated | CorruptFanou
 	let off32Base = crcBase + n*4
 	let off64Base = off32Base + n*4
 	let minTotal = off64Base + 2*hashLen
-	if len(raw) < minTotal {
-		return Truncated{Expected: minTotal, Got: len(raw)}
+	if raw.Len() < minTotal {
+		return Truncated{Expected: minTotal, Got: raw.Len()}
 	}
-	let largeBytes = (len(raw) - 2*hashLen) - off64Base
+	let largeBytes = (raw.Len() - 2*hashLen) - off64Base
 	if largeBytes%8 != 0 {
-		return Truncated{Expected: off64Base + ((largeBytes/8)+1)*8 + 2*hashLen, Got: len(raw)}
+		return Truncated{Expected: off64Base + ((largeBytes/8)+1)*8 + 2*hashLen, Got: raw.Len()}
 	}
 	let largeCount = largeBytes / 8
 	let (packSum, idxSum) = try verifyTrailers(format, raw)
@@ -144,7 +145,7 @@ func parseV2(format oid.Format, raw []byte) Index fails Truncated | CorruptFanou
 
 func parseV1(raw []byte) Index fails Truncated | BadMagic | CorruptFanout | UnsortedOIDs | ChecksumMismatch {
 	let minV1 = 1024 + 40
-	if len(raw) < minV1 {
+	if raw.Len() < minV1 {
 		return BadMagic{Reason: "missing pack index magic and shorter than v1 minimum"}
 	}
 	let fanout = parseFanout(raw, 0) catch {
@@ -153,10 +154,10 @@ func parseV1(raw []byte) Index fails Truncated | BadMagic | CorruptFanout | Unso
 	}
 	let n = int(fanout[255])
 	let exactLen = 1024 + n*24 + 40
-	if len(raw) < exactLen {
-		return Truncated{Expected: exactLen, Got: len(raw)}
+	if raw.Len() < exactLen {
+		return Truncated{Expected: exactLen, Got: raw.Len()}
 	}
-	if len(raw) != exactLen {
+	if raw.Len() != exactLen {
 		return BadMagic{Reason: "unexpected length for pack index v1"}
 	}
 	let (packSum, idxSum) = try verifyTrailers(oid.Sha1, raw)
@@ -196,8 +197,8 @@ func parseV1(raw []byte) Index fails Truncated | BadMagic | CorruptFanout | Unso
 // Parse decodes and verifies a Git pack index (v2 for Sha1/Sha256, or v1 for
 // Sha1 only). Unknown v2+ versions fail with UnsupportedVersion without guessing.
 func Parse(format oid.Format, raw []byte) Index fails Truncated | BadMagic | UnsupportedVersion | CorruptFanout | UnsortedOIDs | BadLargeOffset | ChecksumMismatch | WrongFormat {
-	if len(raw) < 8 {
-		return Truncated{Expected: 8, Got: len(raw)}
+	if raw.Len() < 8 {
+		return Truncated{Expected: 8, Got: raw.Len()}
 	}
 	let hasV2Magic = raw[0] == byte(0xff) && raw[1] == byte(0x74) && raw[2] == byte(0x4f) && raw[3] == byte(0x63)
 	if hasV2Magic {
@@ -245,15 +246,15 @@ func Version(idx Index) int {
 
 // Count implements IndexReader.Count on Index.
 func Count(idx Index) int {
-	len(idx.entries)
+	idx.entries.Len()
 }
 
 // At implements IndexReader.At on Index.
-func At(idx Index, i int) Option[Entry] {
-	if i < 0 || i >= len(idx.entries) {
-		return None
+func At(idx Index, i int) option.Option[Entry] {
+	if i < 0 || i >= idx.entries.Len() {
+		return option.None
 	}
-	Some[Entry]{Value: idx.entries[i]}
+	option.Some[Entry]{Value: idx.entries[i]}
 }
 
 func sameFormat(a oid.Format, b oid.Format) bool {
@@ -277,9 +278,9 @@ func sameFormat(a oid.Format, b oid.Format) bool {
 
 // Lookup implements IndexReader.Lookup on Index using O(log N) fan-out bounded
 // binary search.
-func Lookup(idx Index, id oid.OID) Option[Entry] {
-	if !sameFormat(idx.format, id.Format) || len(id.Raw) != oid.ByteLen(idx.format) {
-		return None
+func Lookup(idx Index, id oid.OID) option.Option[Entry] {
+	if !sameFormat(idx.format, id.Format) || id.Raw.Len() != oid.ByteLen(idx.format) {
+		return option.None
 	}
 	let b = int(id.Raw[0])
 	let mut lo = if b == 0 { 0 } else { int(idx.fanout[b-1]) }
@@ -291,7 +292,7 @@ func Lookup(idx Index, id oid.OID) Option[Entry] {
 		let mid = lo + (hi-lo)/2
 		let cmp = oid.Compare(idx.entries[mid].OID, id)
 		if cmp == 0 {
-			return Some[Entry]{Value: idx.entries[mid]}
+			return option.Some[Entry]{Value: idx.entries[mid]}
 		}
 		if cmp < 0 {
 			lo = mid + 1
@@ -299,7 +300,7 @@ func Lookup(idx Index, id oid.OID) Option[Entry] {
 			hi = mid
 		}
 	}
-	None
+	option.None
 }
 
 func lowerHexNibble(b byte) int {
@@ -316,7 +317,7 @@ func lowerHexNibble(b byte) int {
 // table and binary search for short lowercase hexadecimal OID prefixes.
 func FindPrefix(idx Index, hexPrefix string) []Entry {
 	let pb = hexPrefix.Bytes()
-	if len(pb) > oid.HexLen(idx.format) {
+	if pb.Len() > oid.HexLen(idx.format) {
 		return []Entry{}
 	}
 	for c in pb {
@@ -324,16 +325,16 @@ func FindPrefix(idx Index, hexPrefix string) []Entry {
 			return []Entry{}
 		}
 	}
-	if len(pb) == 0 {
-		let mut all = slices.WithCapacity[Entry](len(idx.entries))
+	if pb.Len() == 0 {
+		let mut all = slices.WithCapacity[Entry](idx.entries.Len())
 		for e in idx.entries {
 			all = all.Append(e)
 		}
 		return all
 	}
 	let mut lo = 0
-	let mut hi = len(idx.entries)
-	if len(pb) >= 2 {
+	let mut hi = idx.entries.Len()
+	if pb.Len() >= 2 {
 		let b = (lowerHexNibble(pb[0]) << 4) | lowerHexNibble(pb[1])
 		lo = if b == 0 { 0 } else { int(idx.fanout[b-1]) }
 		hi = int(idx.fanout[b])

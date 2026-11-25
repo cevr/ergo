@@ -42,7 +42,7 @@ func MatchesSearchQuery(grants []Grant, m Message, q SearchQuery) bool {
 		return false
 	}
 	let words = strings.Fields(strings.ToLower(q.Query))
-	if len(words) == 0 {
+	if words.Len() == 0 {
 		return false
 	}
 	let lower = strings.ToLower(m.Text)
@@ -139,7 +139,7 @@ type Store {
 		}
 		let before = boardHead(snap, DefaultBoard)
 		let evts = samplePostEvents(snap, "hello-\(tag)", 1000)
-		if len(evts) == 0 {
+		if evts.Len() == 0 {
 			return false
 		}
 		let head = Commit(DefaultBoard, before, evts) catch {
@@ -152,7 +152,7 @@ type Store {
 		case StoreFailed:
 			return true
 		}
-		head == before+len(evts) && len(after) == len(evts) && after[len(after)-1].Seq == head
+		head == before+evts.Len() && after.Len() == evts.Len() && after[after.Len()-1].Seq == head
 	},
 
 	// PositionsAreDense verifies that committed events carry contiguous
@@ -176,7 +176,7 @@ type Store {
 		case StoreFailed:
 			return true
 		}
-		denseEvents(all) && len(all) >= count
+		denseEvents(all) && all.Len() >= count
 	},
 
 	// ReadAfterIsTheSuffix verifies that ReadEvents(board, after) is the exact
@@ -199,7 +199,7 @@ type Store {
 		case StoreFailed:
 			return true
 		}
-		let after = if len(all) == 0 { 0 } else { ((cut % (len(all) + 1)) + (len(all) + 1)) % (len(all) + 1) }
+		let after = if all.Len() == 0 { 0 } else { ((cut % (all.Len() + 1)) + (all.Len() + 1)) % (all.Len() + 1) }
 		let got = ReadEvents(DefaultBoard, after) catch {
 		case StoreFailed:
 			return true
@@ -288,7 +288,7 @@ type Store {
 		}
 		let mut added = []Event{}
 		for e in all {
-			if e.Seq > len(baseEvents) {
+			if e.Seq > baseEvents.Len() {
 				added = added.Append(e)
 			}
 		}
@@ -313,7 +313,7 @@ type Store {
 		case _:
 			[]Event{}
 		}
-		if len(chEvts) > 0 {
+		if chEvts.Len() > 0 {
 			Commit(DefaultBoard, boardHead(snap0, DefaultBoard), chEvts) catch {
 			case StalePosition, StoreFailed:
 				return true
@@ -360,7 +360,7 @@ type Store {
 		case StoreFailed:
 			return true
 		}
-		len(memberHits) == 0 && len(adminHits) >= 1 && len(pubHits) >= 1
+		memberHits.Len() == 0 && adminHits.Len() >= 1 && pubHits.Len() >= 1
 	},
 }
 
@@ -371,7 +371,7 @@ func Execute(store Store, cmd Command, now Timestamp) ([]Event, Cursor) fails Re
 	let b = BoardOfCommand(cmd)
 	let expected = boardHead(snap, b)
 	let events = try Decide(snap, cmd, now)
-	if len(events) == 0 {
+	if events.Len() == 0 {
 		return (events, expected)
 	}
 	let head = try store.Commit(b, expected, events)

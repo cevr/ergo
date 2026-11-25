@@ -13,6 +13,7 @@
 // its union driver, which keeps both sides' lines in no stated order;
 // Mergiraf, which merges by syntax only after a line merge fails.
 
+import option
 import strings
 
 // Class is how a file merges. Json's Sets are the key paths whose list
@@ -24,20 +25,20 @@ let ClassNames = []string{"rows", "measured", "lines", "derived", "json"}
 
 // ClassNamed is the class of a driver's name (rows, measured, lines,
 // derived, json).
-func ClassNamed(name string) Option[Class] {
+func ClassNamed(name string) option.Option[Class] {
 	match name {
 	case "rows":
-		Some[Class]{Value: Rows}
+		option.Some[Class]{Value: Rows}
 	case "measured":
-		Some[Class]{Value: Measured}
+		option.Some[Class]{Value: Measured}
 	case "lines":
-		Some[Class]{Value: Lines}
+		option.Some[Class]{Value: Lines}
 	case "derived":
-		Some[Class]{Value: Derived}
+		option.Some[Class]{Value: Derived}
 	case "json":
-		Some[Class]{Value: Json{Sets: []string{}}}
+		option.Some[Class]{Value: Json{Sets: []string{}}}
 	case _:
-		None
+		option.None
 	}
 }
 
@@ -75,7 +76,7 @@ law DerivedIsNeverMerged(base string, ours string, theirs string) {
 	}
 	let apart = ours != base && theirs != base && ours != theirs
 	let want = if ours == base { theirs } else { ours }
-	m.Text == want && m.Regenerate == apart && len(m.Conflicts) == 0
+	m.Text == want && m.Regenerate == apart && m.Conflicts.Len() == 0
 }
 
 // ByUnits is the merge of ours and theirs against base by the unit of c
@@ -94,7 +95,7 @@ func ByUnits(c Class, base string, ours string, theirs string) Merged fails Unre
 		// A derived file is never merged: a side the other did not change
 		// is taken whole, and two changed sides keep ours, to be made
 		// again from the merged inputs.
-		match Choose(Some[string]{Value: base}, Some[string]{Value: ours}, Some[string]{Value: theirs}, func(a string, b string) bool { a == b }) {
+		match Choose(option.Some[string]{Value: base}, option.Some[string]{Value: ours}, option.Some[string]{Value: theirs}, func(a string, b string) bool { a == b }) {
 		case Take as k:
 			Merged{Text: textOf(k.Value), Conflicts: []string{}, Regenerate: false}
 		case Clash:
@@ -106,10 +107,10 @@ func ByUnits(c Class, base string, ours string, theirs string) Merged fails Unre
 // Pick is the three-way choice of one unit, each side's value or None
 // when the side has no such unit: the side that changed it from the base
 // wins, two equal changes agree, and two different changes conflict.
-type Pick = Take{Value Option[string]} | Clash{}
+type Pick = Take{Value option.Option[string]} | Clash{}
 
 // Choose picks a unit's value; same says when two values are equal.
-func Choose(base Option[string], ours Option[string], theirs Option[string], same func(a string, b string) bool) Pick {
+func Choose(base option.Option[string], ours option.Option[string], theirs option.Option[string], same func(a string, b string) bool) Pick {
 	if equal(ours, base, same) {
 		return Take{Value: theirs}
 	}
@@ -119,11 +120,11 @@ func Choose(base Option[string], ours Option[string], theirs Option[string], sam
 	Clash
 }
 
-func equal(a Option[string], b Option[string], same func(x string, y string) bool) bool {
+func equal(a option.Option[string], b option.Option[string], same func(x string, y string) bool) bool {
 	match (a, b) {
-	case (Some[string] as x, Some[string] as y):
+	case (option.Some[string] as x, option.Some[string] as y):
 		same(x.Value, y.Value)
-	case (None, None):
+	case (option.None, option.None):
 		true
 	case _:
 		false
@@ -150,13 +151,13 @@ func MergeLines(base string, ours string, theirs string) Merged {
 		}
 		out = out.Append(line)
 	}
-	let mut after Option[string] = None
+	let mut after option.Option[string] = option.None
 	for line in t {
 		if line != "" && !has(b, line) && !has(out, line) {
 			out = inserted(out, after, line)
 		}
 		if has(out, line) {
-			after = Some[string]{Value: line}
+			after = option.Some[string]{Value: line}
 		}
 	}
 	Merged{Text: strings.Join(out, "\n"), Conflicts: []string{}, Regenerate: false}
@@ -173,16 +174,16 @@ func has(lines []string, line string) bool {
 
 // inserted is lines with line after the first line equal to after (at
 // the start when there is none).
-func inserted(lines []string, after Option[string], line string) []string {
+func inserted(lines []string, after option.Option[string], line string) []string {
 	let mut out = []string{}
 	let mut done = false
-	if after == None {
+	if after == option.None {
 		out = out.Append(line)
 		done = true
 	}
 	for l in lines {
 		out = out.Append(l)
-		if !done && after == (Some[string]{Value: l}) {
+		if !done && after == (option.Some[string]{Value: l}) {
 			out = out.Append(line)
 			done = true
 		}
@@ -218,12 +219,12 @@ func applied(units Map[int, int], script []Edit) Map[int, int] {
 	out
 }
 
-func valueAt(units Map[int, int], key int) Option[string] {
+func valueAt(units Map[int, int], key int) option.Option[string] {
 	match units.Get(key) {
-	case Some[int] as v:
-		Some[string]{Value: "\(v.Value)"}
-	case None:
-		None
+	case option.Some[int] as v:
+		option.Some[string]{Value: "\(v.Value)"}
+	case option.None:
+		option.None
 	}
 }
 
@@ -246,12 +247,12 @@ func reference(base Map[int, int], ours Map[int, int], theirs Map[int, int]) Ref
 			o
 		} else {
 			clashes = clashes.Append(key)
-			None
+			option.None
 		}
 		match picked {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			units[key] = v.Value
-		case None:
+		case option.None:
 		}
 	}
 	Reference{Units: units, Clashes: clashes}
@@ -279,7 +280,7 @@ law MergeOfEqualIsOne(units Map[int, int], edits []Edit) {
 		case Unreadable:
 			return false
 		}
-		ok = ok && equal.Text == other && theirs.Text == other && mine.Text == other && len(equal.Conflicts) == 0
+		ok = ok && equal.Text == other && theirs.Text == other && mine.Text == other && equal.Conflicts.Len() == 0
 	}
 	ok
 }
@@ -289,7 +290,7 @@ law MergeOfEqualIsOne(units Map[int, int], edits []Edit) {
 func lineSet(units Map[int, int]) string {
 	let mut lines = []string{}
 	for key in 0..6 {
-		if units.Get(key) != None {
+		if units.Get(key) != option.None {
 			lines = lines.Append("l\(key)")
 		}
 	}
@@ -309,9 +310,9 @@ law LinesAreTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit
 	}
 	let mut want = []string{}
 	for key in 0..6 {
-		let inB = base.Get(key) != None
-		let inO = ours.Get(key) != None
-		let inT = theirs.Get(key) != None
+		let inB = base.Get(key) != option.None
+		let inO = ours.Get(key) != option.None
+		let inT = theirs.Get(key) != option.None
 		if (inO && !(inB && !inT)) || (inT && !inB) {
 			want = want.Append("l\(key)")
 		}
@@ -322,11 +323,11 @@ law LinesAreTheReference(units Map[int, int], ourEdits []Edit, theirEdits []Edit
 			have = have.Append(line)
 		}
 	}
-	len(got.Conflicts) == 0 && sameStrings(have, want)
+	got.Conflicts.Len() == 0 && sameStrings(have, want)
 }
 
 func sameStrings(a []string, b []string) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for x in a {

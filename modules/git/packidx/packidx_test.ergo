@@ -1,6 +1,8 @@
 import exec
 import filepath
 import fs
+import fstest
+import option
 import os
 import sha1dc
 import sha256
@@ -11,7 +13,7 @@ import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/oracle
 import github.com/cevr/ergo/modules/git/root
 
-let onOracle = context needs TestAmbient {
+let onOracle = context needs fstest.TestAmbient {
 	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:    fs.NewTestHost(),
 	fs.Writes:   fs.NewTestHost(),
@@ -89,7 +91,7 @@ func buildSyntheticV2(format oid.Format, entries []Entry, packSum oid.OID) []byt
 	let mut large = []uint64{}
 	for e in sorted {
 		if e.Offset >= uint64(0x80000000) {
-			let lIdx = uint32(len(large))
+			let lIdx = uint32(large.Len())
 			large = large.Append(e.Offset)
 			buf = appendU32BE(buf, uint32(0x80000000)|lIdx)
 		} else {
@@ -182,13 +184,13 @@ func parseShowIndex(format oid.Format, raw string, expectCRC bool) []Entry fails
 			continue
 		}
 		let fields = strings.Fields(trimmed)
-		if len(fields) < 2 {
+		if fields.Len() < 2 {
 			continue
 		}
 		let off = uint64(try strconv.Atoi(fields[0]))
 		let id = try oid.ParseHex(format, fields[1])
 		let mut crc = uint32(0)
-		if expectCRC && len(fields) >= 3 {
+		if expectCRC && fields.Len() >= 3 {
 			let hexCrc = strings.TrimSuffix(strings.TrimPrefix(fields[2], "("), ")")
 			crc = parseHexU32(hexCrc)
 		}
@@ -262,27 +264,27 @@ test V2MatchesGitShowIndex {
 			let (sShow, showOut) = try runGitStdin(repoDir, []string{"show-index", "--object-format=" + label}, idxRaw, pathEnv)
 			assert sShow == 0
 			let want = try parseShowIndex(oidFmt, showOut, true)
-			assert len(want) == idx.Count()
+			assert want.Len() == idx.Count()
 
-			for i in 0..len(want) {
+			for i in 0..want.Len() {
 				match idx.At(i) {
-				case None:
+				case option.None:
 					assert false
-				case Some[Entry] as got:
+				case option.Some[Entry] as got:
 					assert oid.Equal(got.Value.OID, want[i].OID)
 					assert got.Value.Offset == want[i].Offset
 					assert got.Value.CRC32 == want[i].CRC32
 				}
 				match idx.Lookup(want[i].OID) {
-				case None:
+				case option.None:
 					assert false
-				case Some[Entry] as got:
+				case option.Some[Entry] as got:
 					assert got.Value.Offset == want[i].Offset
 					assert got.Value.CRC32 == want[i].CRC32
 				}
 				let pref = oid.ShortHex(want[i].OID, 7)
 				let hits = idx.FindPrefix(pref)
-				assert len(hits) >= 1
+				assert hits.Len() >= 1
 				let mut sawHit = false
 				for h in hits {
 					if oid.Equal(h.OID, want[i].OID) {
@@ -293,7 +295,7 @@ test V2MatchesGitShowIndex {
 			}
 
 			let absent = try oid.HashObject(oidFmt, oid.Blob, "definitely-not-in-this-pack".Bytes())
-			assert idx.Lookup(absent) == None
+			assert idx.Lookup(absent) == option.None
 		}
 	}
 }
@@ -335,12 +337,12 @@ test V1CompatMatchesGitShowIndex {
 		let (sShow, showOut) = try runGitStdin(repoDir, []string{"show-index"}, rawV1, pathEnv)
 		assert sShow == 0
 		let want = try parseShowIndex(oid.Sha1, showOut, false)
-		assert len(want) == idx.Count()
-		for i in 0..len(want) {
+		assert want.Len() == idx.Count()
+		for i in 0..want.Len() {
 			match idx.Lookup(want[i].OID) {
-			case None:
+			case option.None:
 				assert false
-			case Some[Entry] as got:
+			case option.Some[Entry] as got:
 				assert got.Value.Offset == want[i].Offset
 				assert got.Value.CRC32 == uint32(0)
 			}
@@ -371,21 +373,21 @@ test LargeOffsetsAndCorruptionMatrix {
 	assert oid.Equal(PackChecksum(idx), packSum)
 
 	match idx.Lookup(idA) {
-	case Some[Entry] as e:
+	case option.Some[Entry] as e:
 		assert e.Value.Offset == bigOff1 && e.Value.CRC32 == uint32(0x11223344)
-	case None:
+	case option.None:
 		assert false
 	}
 	match idx.Lookup(idB) {
-	case Some[Entry] as e:
+	case option.Some[Entry] as e:
 		assert e.Value.Offset == smallOff && e.Value.CRC32 == uint32(0x55667788)
-	case None:
+	case option.None:
 		assert false
 	}
 	match idx.Lookup(idC) {
-	case Some[Entry] as e:
+	case option.Some[Entry] as e:
 		assert e.Value.Offset == bigOff2 && e.Value.CRC32 == uint32(0x99aabbcc)
-	case None:
+	case option.None:
 		assert false
 	}
 
@@ -401,7 +403,7 @@ test LargeOffsetsAndCorruptionMatrix {
 	assert sawTrunc
 
 	let mut flipped = appendBytes([]byte{}, validRaw)
-	flipped[len(flipped)-1] = flipped[len(flipped)-1] ^ byte(1)
+	flipped[flipped.Len()-1] = flipped[flipped.Len()-1] ^ byte(1)
 	let mut sawChecksum = false
 	let _ = Parse(oid.Sha1, flipped) catch {
 	case ChecksumMismatch:
@@ -413,7 +415,7 @@ test LargeOffsetsAndCorruptionMatrix {
 	}
 	assert sawChecksum
 
-	let mut badVerBody = appendBytes([]byte{}, validRaw[:len(validRaw)-20])
+	let mut badVerBody = appendBytes([]byte{}, validRaw[:validRaw.Len()-20])
 	badVerBody[7] = byte(3)
 	let badVerRaw = signIndexTrailer(oid.Sha1, badVerBody)
 	let mut sawUnsupported = false
@@ -427,7 +429,7 @@ test LargeOffsetsAndCorruptionMatrix {
 	}
 	assert sawUnsupported
 
-	let mut badFanoutBody = appendBytes([]byte{}, validRaw[:len(validRaw)-20])
+	let mut badFanoutBody = appendBytes([]byte{}, validRaw[:validRaw.Len()-20])
 	badFanoutBody[8+3] = byte(9)
 	let badFanoutRaw = signIndexTrailer(oid.Sha1, badFanoutBody)
 	let mut sawFanout = false
@@ -471,7 +473,7 @@ test LargeOffsetsAndCorruptionMatrix {
 	assert sawUnsorted
 
 	let off32Base = 8 + 1024 + 3*20 + 3*4
-	let mut badLargeBody = appendBytes([]byte{}, validRaw[:len(validRaw)-20])
+	let mut badLargeBody = appendBytes([]byte{}, validRaw[:validRaw.Len()-20])
 	badLargeBody[off32Base] = byte(0x80)
 	badLargeBody[off32Base+1] = byte(0)
 	badLargeBody[off32Base+2] = byte(0)
@@ -501,13 +503,13 @@ law LookupAndPrefixAgreeWithLinearScan(seed string) {
 	let gotIdx = idx.Lookup(probe)
 	let gotMem = mem.Lookup(probe)
 	let lookupAgrees = match gotIdx {
-	case None:
-		gotMem == None
-	case Some[Entry] as a:
+	case option.None:
+		gotMem == option.None
+	case option.Some[Entry] as a:
 		match gotMem {
-		case None:
+		case option.None:
 			false
-		case Some[Entry] as b:
+		case option.Some[Entry] as b:
 			oid.Equal(a.Value.OID, b.Value.OID) && a.Value.Offset == b.Value.Offset && a.Value.CRC32 == b.Value.CRC32
 		}
 	}
@@ -517,5 +519,5 @@ law LookupAndPrefixAgreeWithLinearScan(seed string) {
 	let p1Mem = mem.FindPrefix(pref1)
 	let p2Idx = idx.FindPrefix(pref2)
 	let p2Mem = mem.FindPrefix(pref2)
-	lookupAgrees && len(p1Idx) == len(p1Mem) && len(p2Idx) == len(p2Mem)
+	lookupAgrees && p1Idx.Len() == p1Mem.Len() && p2Idx.Len() == p2Mem.Len()
 }

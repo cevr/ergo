@@ -4,6 +4,7 @@
 import actor
 import downloads/fetch
 import machines
+import option
 import strings
 import time
 
@@ -23,17 +24,17 @@ func Read(lines []string) []Line fails BadLine {
 	for i, line in lines {
 		let text = strings.TrimSpace(line)
 		let w = strings.Fields(text)
-		if len(w) == 0 || strings.HasPrefix(text, "#") {
+		if w.Len() == 0 || strings.HasPrefix(text, "#") {
 			continue
 		}
-		if len(w) == 1 && w[0] == "drain" {
+		if w.Len() == 1 && w[0] == "drain" {
 			out = out.Append(Drain)
 			continue
 		}
-		if w[0] != "get" || len(w) < 2 || len(w) > 3 || (len(w) == 3 && w[2] != "cancel") {
+		if w[0] != "get" || w.Len() < 2 || w.Len() > 3 || (w.Len() == 3 && w[2] != "cancel") {
 			return BadLine{Line: i + 1, Why: "a line is get URL, get URL cancel or drain"}
 		}
-		out = out.Append(Get{Url: w[1], Cancel: len(w) == 3})
+		out = out.Append(Get{Url: w[1], Cancel: w.Len() == 3})
 	}
 	out
 }
@@ -55,7 +56,7 @@ func ViewOf(s fetch.File) View {
 }
 
 // ManagerActor is the manager's address.
-type ManagerActor = actor.Actor[fetch.Manager, fetch.Order, Decision[fetch.Manager, fetch.Report], fetch.Closed]
+type ManagerActor = actor.Actor[fetch.Manager, fetch.Order, machines.Decision[fetch.Manager, fetch.Report], fetch.Closed]
 
 // Asked is what the manager answered to a line: the file at position At
 // of its runs, an add it refused, or the drain.
@@ -69,7 +70,7 @@ type Asked = Accepted{Get Get, At int} | Refused{Get Get} | Drained{}
 // the bytes, or a wait), then its end, which the manager records. When a
 // file waits, Play moves the clock by the wait, so its timer fires; a
 // file to cancel is cancelled at its first wait instead.
-func Play(lines []Line, clock time.Manual) []string needs fetch.Source | Scheduler {
+func Play(lines []Line, clock time.Manual) []string needs fetch.Source | time.Scheduler {
 	let m = actor.StartMachine(machines.Start(fetch.Downloader{}, []fetch.End{}), 8, func(r fetch.Report) {})
 	let mut asked = []Asked{}
 	let mut runs = 0
@@ -151,7 +152,7 @@ func watch(m ManagerActor, at int, cancel bool, clock time.Manual, now duration)
 	let mut begun = false
 	// Every state, as Select would give its views: each view once per
 	// change. Changes holds 64 at most and says how many it dropped.
-	let mut last Option[View] = None
+	let mut last option.Option[View] = option.None
 	for c in actor.Changes(f, 64) {
 		if !begun {
 			begun = true
@@ -166,10 +167,10 @@ func watch(m ManagerActor, at int, cancel bool, clock time.Manual, now duration)
 			lines = lines.Append("  ?? \(o.Missed) states dropped")
 			continue
 		}
-		if last == (Some{Value: v}) {
+		if last == (option.Some{Value: v}) {
 			continue
 		}
-		last = Some{Value: v}
+		last = option.Some{Value: v}
 		if v.Wait == 0s {
 			lines = lines.Append("  @\(ms(t)) \(v.Got) bytes")
 			continue
@@ -178,9 +179,9 @@ func watch(m ManagerActor, at int, cancel bool, clock time.Manual, now duration)
 		// A wait with no timer would never end: watch says so and
 		// cancels the file, instead of waiting for ever.
 		let timed = match fetch.Timer(f.State()) {
-		case Some[Timeout[fetch.Signal]]:
+		case option.Some[machines.Timeout[fetch.Signal]]:
 			true
-		case None:
+		case option.None:
 			false
 		}
 		if !timed {
@@ -203,7 +204,7 @@ func watch(m ManagerActor, at int, cancel bool, clock time.Manual, now duration)
 func runs(s fetch.Manager, at int) bool {
 	match s {
 	case fetch.Running as r:
-		len(r.Ends) == at
+		r.Ends.Len() == at
 	case fetch.Idle:
 		false
 	}
@@ -224,7 +225,7 @@ func hostOf(s fetch.Manager) actor.Host[fetch.FileActor] {
 // manager's state once it recorded it, or from its report when that end
 // was its last.
 func endAt(m ManagerActor, at int) string {
-	let st = actor.WaitFor(m, func(s fetch.Manager) bool { len(fetch.EndsOf(s)) > at }) catch {
+	let st = actor.WaitFor(m, func(s fetch.Manager) bool { fetch.EndsOf(s).Len() > at }) catch {
 	case actor.Stopped:
 		return reported(actor.ExitOf(m), at)
 	}
@@ -235,7 +236,7 @@ func endAt(m ManagerActor, at int) string {
 func reported[F](e actor.Exit[fetch.Manager, fetch.Report, F], at int) string {
 	match e {
 	case actor.Finished[fetch.Manager, fetch.Report] as f:
-		if at < len(f.Output.Ends) { fetch.EndText(f.Output.Ends[at]) } else { "?? no end" }
+		if at < f.Output.Ends.Len() { fetch.EndText(f.Output.Ends[at]) } else { "?? no end" }
 	case actor.Halted[fetch.Manager]:
 		"stopped"
 	case actor.Failed[F]:

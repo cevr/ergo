@@ -20,7 +20,7 @@ func IsPathEscape(name string) bool {
 // no component starting or ending with ".", and no component ending with ".lock".
 func ValidateRefName(name string) bool {
 	let bs = name.Bytes()
-	let n = len(bs)
+	let n = bs.Len()
 	if n == 0 || name == "@" {
 		return false
 	}
@@ -40,10 +40,10 @@ func ValidateRefName(name string) bool {
 	}
 	for part in strings.Split(name, "/") {
 		let pb = part.Bytes()
-		if len(pb) == 0 {
+		if pb.Len() == 0 {
 			return false
 		}
-		if pb[0] == byte('.') || pb[len(pb)-1] == byte('.') {
+		if pb[0] == byte('.') || pb[pb.Len()-1] == byte('.') {
 			return false
 		}
 		if strings.HasSuffix(part, ".lock") {

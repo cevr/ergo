@@ -6,6 +6,7 @@
 
 import actor
 import ergo.local/prototype/examples/cells/grid
+import option
 import strings
 import time
 import ui
@@ -58,19 +59,19 @@ func Before(a ui.Access) string {
 	let (open, _) = ends(a.Role)
 	let mut out = open
 	match a.Checked {
-	case Some[bool] as c:
+	case option.Some[bool] as c:
 		out = out + if c.Value { m.Checked } else { m.Unchecked }
-	case None:
+	case option.None:
 	}
 	match a.Pressed {
-	case Some[bool] as p:
+	case option.Some[bool] as p:
 		out = out + if p.Value { m.On } else { m.Off }
-	case None:
+	case option.None:
 	}
 	match a.Expanded {
-	case Some[bool] as e:
+	case option.Some[bool] as e:
 		out = out + if e.Value { m.Expanded } else { m.Collapsed }
-	case None:
+	case option.None:
 	}
 	out
 }
@@ -83,9 +84,9 @@ func After(a ui.Access) string {
 	let (_, close) = ends(a.Role)
 	let mut out = ""
 	match a.Value {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		out = out + " " + v.Value
-	case None:
+	case option.None:
 	}
 	if a.Invalid {
 		out = out + m.Invalid
@@ -106,14 +107,14 @@ func semanticPen(a ui.Access, off bool) grid.Pen {
 	if off {
 		return grid.Faint
 	}
-	if a.Selected == (Some{Value: true}) || strongRole(a.Role) {
+	if a.Selected == (option.Some{Value: true}) || strongRole(a.Role) {
 		return grid.Strong
 	}
 	grid.Normal
 }
 
 // cellsOf is how many cells text takes: a rune a cell.
-func cellsOf(text string) int { len(grid.Runes(text)) }
+func cellsOf(text string) int { grid.Runes(text).Len() }
 
 // markW is the width in cells of a Check's or a Toggle's mark.
 let markW = 4
@@ -149,18 +150,18 @@ func LeftOut() []Omission {
 
 // leftOutName is why the name of n does not show, when it does not:
 // None for a node whose name the host draws, or that has none.
-func leftOutName[E](n ui.Node[E], holdsText bool) Option[Left] {
+func leftOutName[E](n ui.Node[E], holdsText bool) option.Option[Left] {
 	match n {
 	case ui.AreaNode:
-		Some{Value: RegionLabel}
+		option.Some{Value: RegionLabel}
 	case ui.RowsNode:
-		Some{Value: ListLabel}
+		option.Some{Value: ListLabel}
 	case ui.PressableNode[E], ui.SemanticNode[E]:
-		if holdsText { Some{Value: LabelUnderText} } else { None }
+		if holdsText { option.Some{Value: LabelUnderText} } else { option.None }
 	case ui.InputNode as x:
-		if x.Value != "" { Some{Value: PlaceholderUnderValue} } else { None }
+		if x.Value != "" { option.Some{Value: PlaceholderUnderValue} } else { option.None }
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.TextNode, ui.CheckNode[E], ui.ToggleNode, ui.CanvasNode, ui.FieldsetNode, ui.ZoneNode, ui.LiveNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
-		None
+		option.None
 	}
 }
 
@@ -170,12 +171,12 @@ func leftOutName[E](n ui.Node[E], holdsText bool) Option[Left] {
 // (leftOutName); what a leaf control holds is left out with it.
 law CellsShowEveryName(seed int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		showsEveryName(seed)
 	}
 }
 
-func showsEveryName(seed int) bool needs Scheduler {
+func showsEveryName(seed int) bool needs time.Scheduler {
 	let a = actor.StartMachine(SampleMachine(seed), 4, func(o int) {})
 	let mut h = New(a, 140, 40, 4, SampleView) catch {
 	case ui.BadPatch:
@@ -189,20 +190,20 @@ func showsEveryName(seed int) bool needs Scheduler {
 func namesShown[S, E, D, F](h mut Host[S, E, D, F], id ui.Id[E]) bool {
 	for k in kidsOf(h, id) {
 		let n = match h.nodes.Get(k) {
-		case Some[held[E]] as x:
+		case option.Some[held[E]] as x:
 			x.Value.node
-		case None:
+		case option.None:
 			return false
 		}
 		let text = holdsText(h, k)
 		let name = ui.AccessOf(&h.mirror, k).Name
 		let d = match h.drawn.Get(k) {
-		case Some[drawnAt] as x:
+		case option.Some[drawnAt] as x:
 			x.Value
-		case None:
+		case option.None:
 			return false
 		}
-		if name != "" && d.vis.W > 0 && d.vis.H > 0 && leftOutName(n, text) == None {
+		if name != "" && d.vis.W > 0 && d.vis.H > 0 && leftOutName(n, text) == option.None {
 			if d.nameC < 0 || !strings.HasPrefix(strings.Join(strings.Fields(name), " "), d.name) {
 				return false
 			}
@@ -243,18 +244,18 @@ func rowOf(g grid.Grid, c int, w int, r int) string {
 // law's reading of the marks table, field by field).
 func showsStates(row string, a ui.Access) bool {
 	let m = TheMarks
-	let shows = func(o Option[bool], yes string, no string) bool {
+	let shows = func(o option.Option[bool], yes string, no string) bool {
 		match o {
-		case Some[bool] as v:
+		case option.Some[bool] as v:
 			strings.Contains(row, if v.Value { yes } else { no })
-		case None:
+		case option.None:
 			true
 		}
 	}
 	let value = match a.Value {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		strings.Contains(row, " "+v.Value)
-	case None:
+	case option.None:
 		true
 	}
 	shows(a.Checked, m.Checked, m.Unchecked) && shows(a.Pressed, m.On, m.Off) && shows(a.Expanded, m.Expanded, m.Collapsed) && value && (!a.Invalid || strings.Contains(row, m.Invalid)) && (!a.Busy || strings.Contains(row, m.Busy)) && (!a.HasPopup || strings.Contains(row, m.Popup))
@@ -355,7 +356,7 @@ func styleOf[E](n ui.Node[E], holdsText bool) layout.Style {
 	case ui.RowsNode:
 		let mut s = plainStyle()
 		s.Grow = 1
-		s.Self = Some{Value: layout.Stretch}
+		s.Self = option.Some{Value: layout.Stretch}
 		s
 	case ui.CanvasNode as x:
 		let mut s = textOf(plainStyle(), x.Label)
@@ -404,32 +405,32 @@ func styleOf[E](n ui.Node[E], holdsText bool) layout.Style {
 }
 
 // labelOf is the label a script names a node by, as ui.Find matches it.
-func labelOf[E](n ui.Node[E]) Option[string] {
+func labelOf[E](n ui.Node[E]) option.Option[string] {
 	match n {
 	case ui.PressableNode[E] as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.CanvasNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.RowsNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.CheckNode[E] as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.ToggleNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.AreaNode as x:
-		Some{Value: x.Label}
+		option.Some{Value: x.Label}
 	case ui.TextNode as x:
-		Some{Value: x.Value}
+		option.Some{Value: x.Value}
 	case ui.InputNode as x:
 		// A field's name, as ui.Find names it: its label, else its
 		// placeholder (FK9b's LabelledField).
-		Some{Value: if x.Label != "" { x.Label } else { x.Placeholder }}
+		option.Some{Value: if x.Label != "" { x.Label } else { x.Placeholder }}
 	case ui.LiveNode as x:
-		Some{Value: x.Text}
+		option.Some{Value: x.Text}
 	case ui.SemanticNode[E] as x:
-		Some{Value: x.Access.Name}
+		option.Some{Value: x.Access.Name}
 	case ui.BoxNode, ui.RowNode, ui.ColumnNode, ui.ScrollNode, ui.FieldsetNode, ui.ZoneNode, ui.TransitionNode, ui.ReadoutNode, ui.LayerNode[E], ui.TrackNode:
-		None
+		option.None
 	}
 }
 
@@ -460,11 +461,11 @@ func focusable[E](n ui.Node[E]) bool {
 }
 
 // declaresPress is whether a Semantic node declared a signal for a press.
-func declaresPress[E](on Option[E]) bool {
+func declaresPress[E](on option.Option[E]) bool {
 	match on {
-	case Some[E]:
+	case option.Some[E]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 }

@@ -18,20 +18,20 @@ type Span { Raw string, Start int, End int }
 // white space too, so a reader skips it and a merge keeps its bytes.
 func space(s string, i int) int {
 	let mut at = i
-	for at < len(s) {
+	for at < s.Len() {
 		let c = s[at]
 		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
 			at = at + 1
 			continue
 		}
-		if c == '/' && at+1 < len(s) && s[at+1] == '/' {
-			let end = strings.Index(strings.Slice(s, at, len(s)), "\n")
-			at = if end < 0 { len(s) } else { at + end + 1 }
+		if c == '/' && at+1 < s.Len() && s[at+1] == '/' {
+			let end = strings.Index(strings.Slice(s, at, s.Len()), "\n")
+			at = if end < 0 { s.Len() } else { at + end + 1 }
 			continue
 		}
-		if c == '/' && at+1 < len(s) && s[at+1] == '*' {
-			let end = strings.Index(strings.Slice(s, at+2, len(s)), "*/")
-			at = if end < 0 { len(s) } else { at + 2 + end + 2 }
+		if c == '/' && at+1 < s.Len() && s[at+1] == '*' {
+			let end = strings.Index(strings.Slice(s, at+2, s.Len()), "*/")
+			at = if end < 0 { s.Len() } else { at + 2 + end + 2 }
 			continue
 		}
 		return at
@@ -42,7 +42,7 @@ func space(s string, i int) int {
 // stringEnd is the index after the JSON string that starts at i.
 func stringEnd(s string, i int, side string) int fails Unreadable {
 	let mut at = i + 1
-	for at < len(s) {
+	for at < s.Len() {
 		if s[at] == '\\' {
 			at = at + 2
 			continue
@@ -57,7 +57,7 @@ func stringEnd(s string, i int, side string) int fails Unreadable {
 
 // valueEnd is the index after the JSON value that starts at i.
 func valueEnd(s string, i int, side string) int fails Unreadable {
-	if i >= len(s) {
+	if i >= s.Len() {
 		return Unreadable{Side: side, At: i, Why: "a value is missing"}
 	}
 	let c = s[i]
@@ -67,7 +67,7 @@ func valueEnd(s string, i int, side string) int fails Unreadable {
 	if c == '{' || c == '[' {
 		let mut depth = 0
 		let mut at = i
-		for at < len(s) {
+		for at < s.Len() {
 			let d = s[at]
 			if d == '"' {
 				at = try stringEnd(s, at, side)
@@ -86,7 +86,7 @@ func valueEnd(s string, i int, side string) int fails Unreadable {
 		return Unreadable{Side: side, At: i, Why: "an object or a list does not end"}
 	}
 	let mut at = i
-	for at < len(s) && s[at] != ',' && s[at] != '}' && s[at] != ']' && s[at] != ' ' && s[at] != '\n' && s[at] != '\t' && s[at] != '\r' {
+	for at < s.Len() && s[at] != ',' && s[at] != '}' && s[at] != ']' && s[at] != ' ' && s[at] != '\n' && s[at] != '\t' && s[at] != '\r' {
 		at = at + 1
 	}
 	if at == i {
@@ -98,22 +98,22 @@ func valueEnd(s string, i int, side string) int fails Unreadable {
 // unquote is the text of a JSON string's raw form (its escapes kept but
 // for \" and \\, which is enough for a key).
 func unquote(raw string) string {
-	strings.ReplaceAll(strings.ReplaceAll(strings.Slice(raw, 1, len(raw)-1), "\\\"", "\""), "\\\\", "\\")
+	strings.ReplaceAll(strings.ReplaceAll(strings.Slice(raw, 1, raw.Len()-1), "\\\"", "\""), "\\\\", "\\")
 }
 
 // Members is each member of the JSON object at the start of s (after
 // white space), in order, with offsets into s.
 func Members(s string, side string) []Entry fails Unreadable {
 	let mut at = space(s, 0)
-	if at >= len(s) || s[at] != '{' {
+	if at >= s.Len() || s[at] != '{' {
 		return Unreadable{Side: side, At: at, Why: "the text is not a JSON object"}
 	}
 	at = space(s, at+1)
 	let mut out = []Entry{}
-	if at < len(s) && s[at] == '}' {
+	if at < s.Len() && s[at] == '}' {
 		return out
 	}
-	for at < len(s) {
+	for at < s.Len() {
 		if s[at] != '"' {
 			return Unreadable{Side: side, At: at, Why: "a key is not a string"}
 		}
@@ -121,21 +121,21 @@ func Members(s string, side string) []Entry fails Unreadable {
 		let keyEnd = try stringEnd(s, at, side)
 		let key = unquote(strings.Slice(s, at, keyEnd))
 		at = space(s, keyEnd)
-		if at >= len(s) || s[at] != ':' {
+		if at >= s.Len() || s[at] != ':' {
 			return Unreadable{Side: side, At: at, Why: "a key has no colon"}
 		}
 		let start = space(s, at+1)
 		let end = try valueEnd(s, start, side)
 		out = out.Append(Entry{Key: key, Raw: strings.Slice(s, start, end), Start: start, End: end, KeyStart: keyStart, KeyRaw: strings.Slice(s, keyStart, keyEnd)})
 		at = space(s, end)
-		if at < len(s) && s[at] == ',' {
+		if at < s.Len() && s[at] == ',' {
 			at = space(s, at+1)
-			if at < len(s) && s[at] == '}' {
+			if at < s.Len() && s[at] == '}' {
 				return out
 			}
 			continue
 		}
-		if at < len(s) && s[at] == '}' {
+		if at < s.Len() && s[at] == '}' {
 			return out
 		}
 		return Unreadable{Side: side, At: at, Why: "a member is not followed by a comma or a brace"}
@@ -147,26 +147,26 @@ func Members(s string, side string) []Entry fails Unreadable {
 // into s.
 func Elements(s string, side string) []Span fails Unreadable {
 	let mut at = space(s, 0)
-	if at >= len(s) || s[at] != '[' {
+	if at >= s.Len() || s[at] != '[' {
 		return Unreadable{Side: side, At: at, Why: "the value is not a JSON list"}
 	}
 	at = space(s, at+1)
 	let mut out = []Span{}
-	if at < len(s) && s[at] == ']' {
+	if at < s.Len() && s[at] == ']' {
 		return out
 	}
-	for at < len(s) {
+	for at < s.Len() {
 		let end = try valueEnd(s, at, side)
 		out = out.Append(Span{Raw: strings.Slice(s, at, end), Start: at, End: end})
 		at = space(s, end)
-		if at < len(s) && s[at] == ',' {
+		if at < s.Len() && s[at] == ',' {
 			at = space(s, at+1)
-			if at < len(s) && s[at] == ']' {
+			if at < s.Len() && s[at] == ']' {
 				return out
 			}
 			continue
 		}
-		if at < len(s) && s[at] == ']' {
+		if at < s.Len() && s[at] == ']' {
 			return out
 		}
 		return Unreadable{Side: side, At: at, Why: "an element is not followed by a comma or a bracket"}
@@ -180,12 +180,12 @@ func Elements(s string, side string) []Span fails Unreadable {
 func Bare(raw string) string {
 	let mut b = strings.NewBuilder()
 	let mut i = 0
-	for i < len(raw) {
+	for i < raw.Len() {
 		let c = raw[i]
 		if c == '"' {
 			let end = stringEnd(raw, i, "") catch {
 			case Unreadable:
-				len(raw)
+				raw.Len()
 			}
 			b.WriteString(strings.Slice(raw, i, end))
 			i = end

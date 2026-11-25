@@ -3,6 +3,7 @@
 // the world's record types (ritmo's Snapshot, whose saved form its
 // schemas give), so the file's shape cannot drift from them.
 
+import stdcodec codec
 import fs
 import json
 import ritmo/topdown
@@ -59,11 +60,11 @@ func Get(f Folder, slot string) topdown.World fails topdown.Missing | topdown.Br
 	json.Decode(codec(), text) catch {
 	case json.Malformed as m:
 		return topdown.Broken{Slot: slot, Why: "offset \(m.Offset): \(m.Reason)"}
-	case WireMissingField as m:
+	case stdcodec.WireMissingField as m:
 		return topdown.Broken{Slot: slot, Why: m.Path + "." + m.Field + " is missing"}
-	case WireWrongKind as k:
+	case stdcodec.WireWrongKind as k:
 		return topdown.Broken{Slot: slot, Why: k.Path + " is not " + k.Want}
-	case WireUnknownTag as u:
+	case stdcodec.WireUnknownTag as u:
 		return topdown.Broken{Slot: slot, Why: u.Path + " has no case " + u.Tag}
 	}
 }

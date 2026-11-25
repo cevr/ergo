@@ -1,12 +1,13 @@
 // The arithmetic's tests. The laws run under ergo test.
 
+import option
 import slices
 
 func at(xs []int, p int) int {
 	match Percentile(slices.Ascend(xs), p) {
-	case Some as v:
+	case option.Some as v:
 		v.Value
-	case None:
+	case option.None:
 		-1
 	}
 }
@@ -26,23 +27,23 @@ test NearestRank {
 
 test PercentilesKeepTheirOrder {
 	let qs = Percentiles(slices.Ascend([]int{9, 1, 5, 3, 7, 2, 8, 4, 6, 10}), []int{50, 90, 99})
-	assert len(qs) == 3
+	assert qs.Len() == 3
 	assert qs[0] == Quantile{P: 50, Value: 5}
 	assert qs[1] == Quantile{P: 90, Value: 9}
 	assert qs[2] == Quantile{P: 99, Value: 10}
 }
 
 test MeanRoundsDown {
-	assert Mean([]int{1, 2}) == Some[int]{Value: 1}
-	assert Mean([]int{}) == None
+	assert Mean([]int{1, 2}) == option.Some[int]{Value: 1}
+	assert Mean([]int{}) == option.None
 }
 
 test RankBreaksTiesByKey {
 	let ranked = Rank(Tally([]string{"b", "a", "c", "b", "a", "d", "b"}), 3)
-	assert len(ranked) == 3
+	assert ranked.Len() == 3
 	assert ranked[0] == Count{Key: "b", N: 3}
 	assert ranked[1] == Count{Key: "a", N: 2}
 	assert ranked[2] == Count{Key: "c", N: 1}
-	assert len(Rank(Tally([]string{}), 5)) == 0
-	assert len(Rank(Tally([]string{"x"}), 0)) == 0
+	assert Rank(Tally([]string{}), 5).Len() == 0
+	assert Rank(Tally([]string{"x"}), 0).Len() == 0
 }

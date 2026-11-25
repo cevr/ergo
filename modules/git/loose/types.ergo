@@ -54,14 +54,14 @@ type Objects {
 		case Collision, IOFailed:
 			return false
 		}
-		let obj = Read(id, len(payload)+256) catch {
+		let obj = Read(id, payload.Len()+256) catch {
 		case Missing, Corrupt, Collision, LimitExceeded, IOFailed:
 			return false
 		}
 			Contains(id) &&
 			oid.Equal(obj.OID, id) &&
 			oid.KindName(obj.Kind) == "blob" &&
-			obj.Size == len(payload) &&
+			obj.Size == payload.Len() &&
 			slices.Equal(obj.Data, payload)
 	},
 
@@ -88,7 +88,7 @@ type Objects {
 		case Collision, IOFailed:
 			return false
 		}
-		let obj = Read(id, len(payload)+256) catch {
+		let obj = Read(id, payload.Len()+256) catch {
 		case Missing, Corrupt, Collision, LimitExceeded, IOFailed:
 			return false
 		}

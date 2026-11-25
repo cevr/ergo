@@ -39,7 +39,7 @@ law CommandKeepsTheWait(at int) {
 	let s = testing.Script[Runner]{}
 	s.Run.Answer(func(id string, stage int, attempt int) bool fails Offline { attempt > 1 })
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock, Runner: s } { keepsTheWait(at, clock) } catch {
+	with context { time.Scheduler: clock, Runner: s } { keepsTheWait(at, clock) } catch {
 	case domain.Conflict, domain.Reused, domain.Unkept, Unavailable:
 		false
 	}
@@ -48,7 +48,7 @@ law CommandKeepsTheWait(at int) {
 // keepsTheWait submits a run whose first try fails, submits another
 // part of the backoff later, lets the rest of the backoff pass, and is
 // whether the first run then passed.
-func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | Scheduler {
+func keepsTheWait(at int, clock time.Manual) bool fails domain.Conflict | domain.Reused | domain.Unkept | Unavailable needs Runner | time.Scheduler {
 	let m = try Open(memory.New[Entry]())
 	let wait = retry.Delay(retry.Standard, 1)
 	let part = duration(int64(1+((at%999)+999)%999) * int64(wait) / 1000)

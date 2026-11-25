@@ -14,7 +14,9 @@
 // press at that reading (FK1-g5,
 // orchestrator decision 2026-11-15).
 
+import core
 import machines
+import option
 import time
 
 // TickEvery is how often a running watch ticks.
@@ -89,7 +91,7 @@ type Press { Gap duration, Word int }
 func presses(gaps []int, words []int) []Press {
 	let mut out = []Press{}
 	for i, g in gaps {
-		let n = if i < len(words) { words[i] } else { i }
+		let n = if i < words.Len() { words[i] } else { i }
 		out = out.Append(Press{Gap: time.Times(1ms, pick(g, 2500)), Word: n})
 	}
 	out
@@ -193,16 +195,16 @@ func isReset(s Signal) bool {
 // reading; Reset is the initial watch from any state. A button that does
 // not apply (Start while running, Stop while stopped) is ignored and keeps
 // the entry, as a tick of a stopped watch is.
-func Step(w Watch, s Signal) Decision[Watch, Never] {
+func Step(w Watch, s Signal) machines.Decision[Watch, core.Never] {
 	match (w, s) {
 	case (_, Clicked as c):
 		click(w, c.Button)
 	case (_, Pressed as p):
 		press(w, p.Button, p.At)
 	case (Running as r, Ticked as t):
-		Enter[Watch]{Next: Running{Before: r.Before, Since: r.Since, Elapsed: r.Before + t.At.Sub(r.Since)}}
+		machines.Enter[Watch]{Next: Running{Before: r.Before, Since: r.Since, Elapsed: r.Before + t.At.Sub(r.Since)}}
 	case (Stopped, Ticked), (Starting, Ticked), (Stopping, Ticked):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -231,70 +233,70 @@ law ClickThenWorkIsThePress(gaps []int, words []int, button int, after int where
 	let clicked = machines.Next(w, Step(w, Clicked{Button: b}))
 	let pressed = machines.Next(w, Step(w, Pressed{Button: b, At: clock.Now()}))
 	match pressing(clicked) {
-	case Some[Button] as p:
+	case option.Some[Button] as p:
 		// The work sends one signal, pressAt's (pressNow); a law cannot
 		// run the work itself, since only a runner gives an entry's send.
 		let sent = with context { time.Clock: clock } { pressAt(p.Value) }
 		machines.Next(clicked, Step(clicked, sent)) == pressed
-	case None:
+	case option.None:
 		clicked == pressed
 	}
 }
 
 // click is the transition of a click of b in w.
-func click(w Watch, b Button) Decision[Watch, Never] {
+func click(w Watch, b Button) machines.Decision[Watch, core.Never] {
 	match (w, b) {
 	case (Stopped as st, Start):
-		Enter[Watch]{Next: Starting{Elapsed: st.Elapsed}}
+		machines.Enter[Watch]{Next: Starting{Elapsed: st.Elapsed}}
 	case (Running as r, Stop):
-		Enter[Watch]{Next: Stopping{Before: r.Before, Since: r.Since, Elapsed: r.Elapsed}}
+		machines.Enter[Watch]{Next: Stopping{Before: r.Before, Since: r.Since, Elapsed: r.Elapsed}}
 	case (_, Reset):
-		Enter[Watch]{Next: Initial()}
+		machines.Enter[Watch]{Next: Initial()}
 	case (Running, Start), (Stopped, Stop), (Starting, Start), (Starting, Stop), (Stopping, Start), (Stopping, Stop):
-		Ignore
+		machines.Ignore
 	}
 }
 
 // press is the transition of a press of b in w at the reading at. A
 // watch waiting for a reading takes it as the watch it waits from.
-func press(w Watch, b Button, at time.Time) Decision[Watch, Never] {
+func press(w Watch, b Button, at time.Time) machines.Decision[Watch, core.Never] {
 	match (w, b) {
 	case (Stopped as st, Start):
-		Enter[Watch]{Next: Running{Before: st.Elapsed, Since: at, Elapsed: st.Elapsed}}
+		machines.Enter[Watch]{Next: Running{Before: st.Elapsed, Since: at, Elapsed: st.Elapsed}}
 	case (Starting as st, Start):
-		Enter[Watch]{Next: Running{Before: st.Elapsed, Since: at, Elapsed: st.Elapsed}}
+		machines.Enter[Watch]{Next: Running{Before: st.Elapsed, Since: at, Elapsed: st.Elapsed}}
 	case (Running as r, Stop):
-		Enter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}
+		machines.Enter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}
 	case (Stopping as r, Stop):
-		Enter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}
+		machines.Enter[Watch]{Next: Stopped{Elapsed: r.Before + at.Sub(r.Since)}}
 	case (_, Reset):
-		Enter[Watch]{Next: Initial()}
+		machines.Enter[Watch]{Next: Initial()}
 	case (Running, Start), (Stopped, Stop), (Starting, Stop), (Stopping, Start):
-		Ignore
+		machines.Ignore
 	}
 }
 
 // read is the work of a watch waiting for a reading: read the clock and
 // send the press of the button it waits on (pressing).
-func read(w Watch) Option[machines.Work[Signal, time.Clock]] {
+func read(w Watch) option.Option[machines.Work[Signal, time.Clock]] {
 	match pressing(w) {
-	case Some[Button] as b:
-		Some{pressNow(b.Value)}
-	case None:
-		None
+	case option.Some[Button] as b:
+		option.Some{pressNow(b.Value)}
+	case option.None:
+		option.None
 	}
 }
 
 // pressing is the button whose press a watch waits for a reading of:
 // Start while Starting, Stop while Stopping, none otherwise.
-func pressing(w Watch) Option[Button] {
+func pressing(w Watch) option.Option[Button] {
 	match w {
 	case Starting:
-		Some{Start}
+		option.Some{Start}
 	case Stopping:
-		Some{Stop}
+		option.Some{Stop}
 	case Stopped, Running:
-		None
+		option.None
 	}
 }
 
@@ -317,7 +319,7 @@ type Stopwatch machine[Watch, Signal] { initial: Initial(), step: Step, after: t
 // at its time, read at the run's start plus its At, as the work would
 // read it at the click (a fold runs no work, so Replay sends the press
 // the work would send).
-func Replay(trace []machines.Timed[Button], end duration) Watch needs time.Clock | Scheduler {
+func Replay(trace []machines.Timed[Button], end duration) Watch needs time.Clock | time.Scheduler {
 	let start = time.Clock.Now()
 	let mut signals = []machines.Timed[Signal]{}
 	for p in trace {

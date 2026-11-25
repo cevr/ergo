@@ -1,17 +1,14 @@
 // Writing a plan's text. Every std and runtime name is written qualified
-// through its import (owner q298, design A), from the names below. The
-// exception is the prelude's Option, Some and None, which have no std
-// package to import yet: they are written bare from optionName and
-// someName, the one place a move of Option (NO-PRELUDE) changes.
+// through its import (owner q298, design A), from the names below.
 
 import github.com/cevr/ergo/modules/clientgen/smithy
 import json
 import strconv
 import strings
 
-let optionName = "Option"
-let someName = "Some"
-let noneName = "None"
+let optionName = "option.Option"
+let someName = "option.Some"
+let noneName = "option.None"
 
 // Emit is the client package p names, for the operations it keeps in m:
 // one file, or the first refusal.
@@ -36,6 +33,7 @@ func Emit(m smithy.Model, p Provider) []File fails Refused {
 	b = b.Append("")
 	b = b.Append("import " + p.Runtime)
 	b = b.Append("import http")
+	b = b.Append("import option")
 	b = b.Append("import time")
 	b = b.Append("")
 	b = b.Concat(service(plan, p))
@@ -62,23 +60,23 @@ func comment(text string, indent string) []string {
 	let mut out = []string{}
 	let mut line = ""
 	for w in strings.Fields(text) {
-		if len(line) > 0 && len(line)+1+len(w) > 74 {
+		if line.Len() > 0 && line.Len()+1+w.Len() > 74 {
 			out = out.Append(indent + "// " + line)
 			line = w
-		} else if len(line) == 0 {
+		} else if line.Len() == 0 {
 			line = w
 		} else {
 			line = line + " " + w
 		}
 	}
-	if len(line) > 0 {
+	if line.Len() > 0 {
 		out = out.Append(indent + "// " + line)
 	}
 	out
 }
 
 func lowerFirst(s string) string {
-	if len(s) == 0 { s } else { strings.ToLower(strings.Slice(s, 0, 1)) + strings.Slice(s, 1, len(s)) }
+	if s.Len() == 0 { s } else { strings.ToLower(strings.Slice(s, 0, 1)) + strings.Slice(s, 1, s.Len()) }
 }
 
 func quote(s string) string { strconv.Quote(s) }
@@ -402,7 +400,7 @@ func output(op Op, p Provider) []string {
 // literal is a keyed record literal, one field a line, its values aligned
 // as ergo fmt aligns them.
 func literal(name string, keys []string, values []string, indent string) []string {
-	if len(keys) == 0 {
+	if keys.Len() == 0 {
 		return []string{indent + name + "{}"}
 	}
 	let mut b = []string{indent + name + "{"}
@@ -414,13 +412,13 @@ func literal(name string, keys []string, values []string, indent string) []strin
 func aligned(keys []string, values []string, indent string, sep string, end string) []string {
 	let mut width = 0
 	for k in keys {
-		if len(k) > width {
-			width = len(k)
+		if k.Len() > width {
+			width = k.Len()
 		}
 	}
 	let mut out = []string{}
 	for i, k in keys {
-		out = out.Append(indent + k + sep + strings.Repeat(" ", width-len(k)+1) + values[i] + end)
+		out = out.Append(indent + k + sep + strings.Repeat(" ", width-k.Len()+1) + values[i] + end)
 	}
 	out
 }
@@ -487,7 +485,7 @@ func initial(f Field, req []Field) string {
 }
 
 func record(name string, fs []Field, rt string) []string {
-	if len(fs) == 0 {
+	if fs.Len() == 0 {
 		return []string{"type \(name) {}", ""}
 	}
 	let mut keys = []string{}
@@ -563,7 +561,7 @@ law EmitIsDeterministic(ins []int, outs []int) {
 		case Refused as r2:
 			return r2 == r
 		}
-		return len(again) < 0
+		return again.Len() < 0
 	}
 	try Emit(m, drawnProvider) == first
 }
@@ -590,7 +588,7 @@ test ListObjectsIsRefused {
 		assert strings.Contains(r.Reason, "Contents is in the XML body")
 		return
 	}
-	assert len(files) < 0
+	assert files.Len() < 0
 }
 
 // RequiredIsPlain: a required input member that is not a label (here a

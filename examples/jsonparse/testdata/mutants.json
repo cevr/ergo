@@ -2,188 +2,257 @@
   "about": "jsonparse's mutants (wf10 corpus wave 1, PA1): each law's mutant, killed by `ergo test` of its package, and the edits no law or case sees, which the Ergo tests of agree/ and agree/deep/ (JSONTestSuite, drawn documents and the depth limit; killer examples:jsonparse) kill. They replaced cmd/ergo's TestJSONParseAgreesWithControl (wf10 TP-BUILT); the examples suite runs them as the test leg of every package folder, and the TPROBE kill matrix (scripts/buildcost/testdata/tprobe/families.json, built) shows them killing each row at seeds 1, 2 and 3.",
   "mutants": [
     {
-      "name": "jsonparse-pointer-escapes-slash-first", "origin": "wf10 PA1",
+      "name": "jsonparse-pointer-escapes-slash-first",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/pointer.ergo",
       "from": "strings.ReplaceAll(strings.ReplaceAll(t, \"~\", \"~0\"), \"/\", \"~1\")",
       "to": "strings.ReplaceAll(strings.ReplaceAll(t, \"/\", \"~1\"), \"~\", \"~0\")",
       "rule": "A pointer escapes ~ before /, so a key with a / is written ~1, not ~01 (law json.PointersReachTheirPlaces).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-pointer-tilde-one-is-tilde", "origin": "wf10 PA1",
+      "name": "jsonparse-pointer-tilde-one-is-tilde",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/pointer.ergo",
       "from": "b.WriteByte('/')",
       "to": "b.WriteByte('~')",
       "rule": "In a pointer's token, ~1 stands for / (law json.PointersReachTheirPlaces).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-quote-keeps-backslash", "origin": "wf10 PA1",
+      "name": "jsonparse-quote-keeps-backslash",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/print.ergo",
       "from": "if c >= 0x20 && c != '\"' && c != '\\\\' && c != 0x7f {",
       "to": "if c >= 0x20 && c != '\"' && c != 0x7f {",
       "rule": "The printers escape a backslash, so the text reads back as the value (law json.PrintParsesBack).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-escape-b-is-form-feed", "origin": "wf10 PA1",
+      "name": "jsonparse-escape-b-is-form-feed",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/parse.ergo",
       "from": "b.WriteByte(0x08)",
       "to": "b.WriteByte(0x0c)",
       "rule": "The escape \\b is the byte 0x08 (law json.PrintParsesBack: the printer writes 0x08 as \\b).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-zero-takes-digits", "origin": "wf10 PA1",
+      "name": "jsonparse-zero-takes-digits",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/number.ergo",
       "from": "case (Whole, Nought), (Whole, Digit):",
       "to": "case (Whole, Nought), (Whole, Digit), (Zero, Nought), (Zero, Digit):",
       "rule": "No digit follows a leading 0 (law json.Numeral.ZeroEndsItsInteger).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-exponent-takes-no-sign", "origin": "wf10 PA1",
+      "name": "jsonparse-exponent-takes-no-sign",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/number.ergo",
       "from": "case (Mark, Dash), (Mark, Plus):",
       "to": "case (Sign, Dash), (Sign, Plus):",
       "rule": "An exponent may have a sign before its digits (law json.Numeral.ExponentTakesASign).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-zero-takes-no-fraction", "origin": "wf10 PA1",
+      "name": "jsonparse-zero-takes-no-fraction",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/number.ergo",
       "from": "case (Zero, Dot), (Whole, Dot):",
       "to": "case (Whole, Dot):",
       "rule": "0.5 is a number (law json.Numeral.FractionFollowsZero).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-workload-raw-tab", "origin": "wf10 PA1",
+      "name": "jsonparse-workload-raw-tab",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/workload/workload.ergo",
       "from": "\"tab\\\\there\"",
       "to": "\"tab\\there\"",
       "rule": "The workload is JSON: a tab in its strings is escaped (law workload.DocumentIsJSON; the bug the first receipt run found).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-depth-limit-one-short", "origin": "wf10 PA1",
+      "name": "jsonparse-depth-limit-one-short",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/parse.ergo",
       "from": "if p.depth > MaxDepth {",
       "to": "if p.depth >= MaxDepth {",
       "rule": "Arrays and objects nest 10000 deep, as in encoding/json, and the 10001st fails at its bracket.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-return-is-no-space", "origin": "wf10 PA1",
+      "name": "jsonparse-return-is-no-space",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/parse.ergo",
       "from": "if c != ' ' && c != '\\n' && c != '\\t' && c != '\\r' {",
       "to": "if c != ' ' && c != '\\n' && c != '\\t' {",
       "rule": "A carriage return is whitespace between tokens (RFC 8259, section 2).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-invalid-utf8-kept", "origin": "wf10 PA1",
+      "name": "jsonparse-invalid-utf8-kept",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/parse.ergo",
       "from": "if d.Size == 1 {",
       "to": "if d.Size == 0 {",
       "rule": "A byte of a string that is not UTF-8 reads as U+FFFD, as in encoding/json, so every printed text is UTF-8.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-newline-in-a-string", "origin": "wf10 PA1",
+      "name": "jsonparse-newline-in-a-string",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/parse.ergo",
       "from": "} else if c < 0x20 {",
       "to": "} else if c < 0x0a {",
       "rule": "A string holds no control byte unescaped: a raw newline in a string is not JSON.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-unknown-escape-at-backslash", "origin": "wf10 PA1",
+      "name": "jsonparse-unknown-escape-at-backslash",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/parse.ergo",
       "from": "return fail(p, i+1, \"an unknown escape\")",
       "to": "return fail(p, i, \"an unknown escape\")",
       "rule": "A failure names the first byte that is not JSON: after a backslash, the byte that is no escape.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "jsonparse-index-one-past-the-end", "origin": "wf10 PA1",
+      "name": "jsonparse-index-one-past-the-end",
+      "origin": "wf10 PA1",
       "file": "examples/jsonparse/json/pointer.ergo",
-      "from": "if i < 0 || i >= len(a.Items) {",
-      "to": "if i < 0 || i > len(a.Items) {",
+      "from": "if i < 0 || i >= a.Items.Len() {",
+      "to": "if i < 0 || i > a.Items.Len() {",
       "rule": "A pointer's index names an element only below the array's length.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-close-keeps-the-stack", "origin": "wf10 PA flat",
+      "name": "flat-close-keeps-the-stack",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/parse.ergo",
       "from": "\tb.top = mark",
       "to": "\tb.top = b.top",
       "rule": "A container that closes takes its children off the stack, so they are no children of its parent (law flat.PrintsAsTheTree).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-object-counts-ids-not-members", "origin": "wf10 PA flat",
+      "name": "flat-object-counts-ids-not-members",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/parse.ergo",
       "from": "let count = int32((b.top - mark) / 2)",
       "to": "let count = int32(b.top - mark)",
       "rule": "An object's B counts members, each a key id and a value id in Extras (law flat.PrintsAsTheTree).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-span-takes-the-quote", "origin": "wf10 PA flat",
+      "name": "flat-span-takes-the-quote",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/parse.ergo",
       "from": "B: int32(i - start)})",
       "to": "B: int32(i - start + 1)})",
       "rule": "A plain string's span ends before its closing quote (law flat.PrintsAsTheTree).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-pointer-gets-the-key", "origin": "wf10 PA flat",
+      "name": "flat-pointer-gets-the-key",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/pointer.ergo",
       "from": "return Child(t, n, 2*k+1)",
       "to": "return Child(t, n, 2*k)",
       "rule": "A member's value is the second id of its pair (law flat.PointersReachTheTreesPlaces).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-stack-entry-not-reused", "origin": "wf10 PA flat",
+      "name": "flat-stack-entry-not-reused",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/parse.ergo",
       "from": "b.stack[b.top] = id",
       "to": "b.stack[b.top] = b.stack[0]",
       "rule": "A push over a stack entry that a closed container left writes the new id (law flat.PrintsAsTheTree).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-return-is-no-space", "origin": "wf10 PA flat",
+      "name": "flat-return-is-no-space",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/parse.ergo",
       "from": "if c != ' ' && c != '\\n' && c != '\\t' && c != '\\r' {",
       "to": "if c != ' ' && c != '\\n' && c != '\\t' {",
       "rule": "The flat reader takes a carriage return as whitespace, as the tree reader does. The law FailsWhereTheTreeFails draws a byte for a place of compact text, where a return is rarely whitespace; the suite's and the generator's whitespace reach it.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-pool-id-one-past", "origin": "wf10 PA flat",
+      "name": "flat-pool-id-one-past",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/parse.ergo",
-      "from": "A: int32(len(b.pool) - 1)",
-      "to": "A: int32(len(b.pool))",
+      "from": "A: int32(b.pool.Len() - 1)",
+      "to": "A: int32(b.pool.Len())",
       "rule": "A Pooled node names the string just added to the pool (law flat.PrintsAsTheTree).",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-depth-limit-one-past", "origin": "wf10 PA flat",
+      "name": "flat-depth-limit-one-past",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/parse.ergo",
       "from": "if b.depth > json.MaxDepth {",
       "to": "if b.depth > json.MaxDepth+1 {",
       "rule": "The flat reader nests at most json.MaxDepth deep, as the tree reader and encoding/json do.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     },
     {
-      "name": "flat-index-one-past-the-end", "origin": "wf10 PA flat",
+      "name": "flat-index-one-past-the-end",
+      "origin": "wf10 PA flat",
       "file": "examples/jsonparse/flat/pointer.ergo",
       "from": "if i < 0 || i >= int(n.B) {",
       "to": "if i < 0 || i > int(n.B) {",
       "rule": "A pointer's index names an element of the flat tree only below the array's count.",
-      "killers": ["examples:jsonparse"]
+      "killers": [
+        "examples:jsonparse"
+      ]
     }
   ]
 }

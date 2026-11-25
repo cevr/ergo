@@ -8,10 +8,12 @@
 // export, save and hit read the app's state, as Play's do.
 
 import actor
+import core
 import ergo.local/prototype/examples/drawgui/canvas
 import ergo.local/prototype/examples/drawgui/window
 import io
 import machines
+import option
 import slices
 import strings
 import sync
@@ -19,7 +21,7 @@ import time
 import ui
 
 // Scene opens the window on picture pic, named name, and plays lines.
-func Scene(pic canvas.Picture, name string, lines Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs canvas.Store | Scheduler | io.Stdout {
+func Scene(pic canvas.Picture, name string, lines core.Seq[string], clock time.Manual) fails ui.BadPatch | actor.Stopped needs canvas.Store | time.Scheduler | io.Stdout {
 	let outputs = sync.NewRef[[]canvas.Output]([]canvas.Output{})
 	let a = actor.StartMachine(machines.Start(window.App{}, pic), 8, func(o canvas.Output) {
 		outputs.Update(func(old []canvas.Output) []canvas.Output { old.Append(o) })
@@ -73,11 +75,11 @@ func Scene(pic canvas.Picture, name string, lines Seq[string], clock time.Manual
 func Act(s canvas.Signal) ui.Act {
 	match s {
 	case canvas.Down as d:
-		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Down, X: float64(d.At.X), Y: float64(d.At.Y), Zone: option.None}}
 	case canvas.Drag as d:
-		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Moved, X: float64(d.At.X), Y: float64(d.At.Y), Zone: option.None}}
 	case canvas.Up as d:
-		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: float64(d.At.X), Y: float64(d.At.Y), Zone: None}}
+		ui.PointOn{Label: "picture", Pointer: ui.PointerEvent{Pointer: ui.MousePointer, Phase: ui.Up, X: float64(d.At.X), Y: float64(d.At.Y), Zone: option.None}}
 	case canvas.Pick as k:
 		ui.TapOn{Label: "tool " + canvas.ToolName(k.Tool)}
 	case canvas.Delete:
@@ -98,9 +100,9 @@ func Reported(c canvas.Canvas, o canvas.Output) string {
 	match o {
 	case canvas.Added as a:
 		match c.Pic.Shapes.Get(a.Id) {
-		case Some[canvas.Placed] as p:
+		case option.Some[canvas.Placed] as p:
 			"added " + canvas.Paint(c.View, p.Value)
-		case None:
+		case option.None:
 			"added \(a.Id)"
 		}
 	case canvas.Removed as r:

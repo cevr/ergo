@@ -3,6 +3,7 @@
 // rewrites one key. It declares the contract Store, which keeps a board
 // between runs; package memory and package file provide it.
 
+import option
 import taskboard/sortkey
 
 // Card is a card of the board. Key orders it in its column; its codec
@@ -14,15 +15,15 @@ type Column { ID string, Name string, Cards []Card }
 
 // Removed is a column without a card, and the card when the column had
 // it.
-type Removed { Column Column, Card Option[Card] }
+type Removed { Column Column, Card option.Option[Card] }
 
 // Remove takes the card id out of c.
 func Remove(c Column, id string) Removed {
 	let mut cards = []Card{}
-	let mut found Option[Card] = None
+	let mut found option.Option[Card] = option.None
 	for card in c.Cards {
 		if card.ID == id {
-			found = Some[Card]{Value: card}
+			found = option.Some[Card]{Value: card}
 		} else {
 			cards = cards.Append(card)
 		}
@@ -34,40 +35,40 @@ func Remove(c Column, id string) Removed {
 // key between its new neighbours'. (Clamping keeps the keys in order, where
 // a key made past the end as if the column were empty would not.)
 func Insert(c Column, card Card, at int) Column {
-	let i = if at < 0 { 0 } else if at > len(c.Cards) { len(c.Cards) } else { at }
-	let lo Option[string] = if i == 0 { None } else { Some[string]{Value: c.Cards[i-1].Key} }
-	let hi Option[string] = if i == len(c.Cards) { None } else { Some[string]{Value: c.Cards[i].Key} }
+	let i = if at < 0 { 0 } else if at > c.Cards.Len() { c.Cards.Len() } else { at }
+	let lo option.Option[string] = if i == 0 { option.None } else { option.Some[string]{Value: c.Cards[i-1].Key} }
+	let hi option.Option[string] = if i == c.Cards.Len() { option.None } else { option.Some[string]{Value: c.Cards[i].Key} }
 	let placed = Card{..card, Key: sortkey.Between(lo, hi)}
 	let mut cards = []Card{}
-	for j in 0..len(c.Cards) {
+	for j in 0..c.Cards.Len() {
 		if j == i {
 			cards = cards.Append(placed)
 		}
 		cards = cards.Append(c.Cards[j])
 	}
-	if i == len(c.Cards) {
+	if i == c.Cards.Len() {
 		cards = cards.Append(placed)
 	}
 	Column{..c, Cards: cards}
 }
 
 // Append puts card at the end of c.
-func Append(c Column, card Card) Column { Insert(c, card, len(c.Cards)) }
+func Append(c Column, card Card) Column { Insert(c, card, c.Cards.Len()) }
 
 // Reorder moves the card item from the column from to position at of the
 // column to (a position counted without the card). A card or a column
 // the board does not have leaves it as it is.
 func Reorder(columns []Column, item string, from string, to string, at int) []Column {
-	let mut card Option[Card] = None
+	let mut card option.Option[Card] = option.None
 	for c in columns {
 		if c.ID == from {
 			card = Remove(c, item).Card
 		}
 	}
 	let moving = match card {
-	case Some[Card] as m:
+	case option.Some[Card] as m:
 		m.Value
-	case None:
+	case option.None:
 		return columns
 	}
 	let mut landed = false
@@ -101,7 +102,7 @@ law ReorderIsAPermutation(moves []int) {
 		let to = pick(m/3, 3)
 		let at = pick(m/9, 9) - 1
 		let col = board[from].Cards
-		let item = if len(col) == 0 || pick(m/81, 8) == 0 { "card-none" } else { col[pick(m/648, len(col))].ID }
+		let item = if col.Len() == 0 || pick(m/81, 8) == 0 { "card-none" } else { col[pick(m/648, col.Len())].ID }
 		if pick(m, 13) == 12 {
 			// A column the board does not have changes nothing.
 			board = Reorder(board, item, board[from].ID, "column-none", at)
@@ -150,15 +151,15 @@ func moved(lists [][]string, item string, from int, to int, at int) [][]string {
 			}
 		}
 		if i == to {
-			let k = if at < 0 { 0 } else if at > len(rest) { len(rest) } else { at }
+			let k = if at < 0 { 0 } else if at > rest.Len() { rest.Len() } else { at }
 			let mut put = []string{}
-			for j in 0..len(rest) {
+			for j in 0..rest.Len() {
 				if j == k {
 					put = put.Append(item)
 				}
 				put = put.Append(rest[j])
 			}
-			if k == len(rest) {
+			if k == rest.Len() {
 				put = put.Append(item)
 			}
 			rest = put
@@ -206,7 +207,7 @@ func Step(columns []Column, item string, at Spot, way Way) Spot {
 		}
 		let next = match way {
 		case NextColumn:
-			if here+1 > len(columns)-1 { len(columns) - 1 } else { here + 1 }
+			if here+1 > columns.Len()-1 { columns.Len() - 1 } else { here + 1 }
 		case Back, Forward, PreviousColumn:
 			if here-1 < 0 { 0 } else { here - 1 }
 		}
@@ -218,15 +219,15 @@ func Step(columns []Column, item string, at Spot, way Way) Spot {
 }
 
 // Where is the spot of the card id, if the board has it.
-func Where(columns []Column, id string) Option[Spot] {
+func Where(columns []Column, id string) option.Option[Spot] {
 	for c in columns {
 		for i, card in c.Cards {
 			if card.ID == id {
-				return Some[Spot]{Value: Spot{Column: c.ID, Index: i}}
+				return option.Some[Spot]{Value: Spot{Column: c.ID, Index: i}}
 			}
 		}
 	}
-	None
+	option.None
 }
 
 // Title is the title of the card id, or the id when the board has no

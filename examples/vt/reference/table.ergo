@@ -5,6 +5,7 @@
 // of its own so that the parser's package has no initializer to run, and
 // its laws run at check time too.
 
+import embed
 import strconv
 import strings
 import vt/vt
@@ -18,7 +19,7 @@ type Byte int where 0 <= it && it <= 255
 // descriptions and the table from the other implementation, so each checks the
 // other.
 law StepMatchesTable(s vt.State, b Byte) {
-	len(Reference.Problems) == 0 && vt.Next(s, vt.ClassOf(byte(int(b)))) == Reference.Cells[index(s)*256+int(b)]
+	Reference.Problems.Len() == 0 && vt.Next(s, vt.ClassOf(byte(int(b)))) == Reference.Cells[index(s)*256+int(b)]
 }
 
 // Table is a transition table over every state and byte: Cells[i*256+b]
@@ -30,7 +31,7 @@ type Table { Cells []vt.Transition, Problems []string }
 let Reference = ReadTable(tableText)
 
 // tableText is the transcription of the table.
-let tableText = embedded[string]("testdata/parse_table.txt")
+let tableText = embed.File[string]("testdata/parse_table.txt")
 
 // states is every state, in the order of index.
 let states = []vt.State{vt.Ground, vt.Escape, vt.EscapeIntermediate, vt.CsiEntry, vt.CsiIntermediate, vt.CsiParam, vt.CsiIgnore, vt.DcsEntry, vt.DcsParam, vt.DcsIntermediate, vt.DcsPassthrough, vt.DcsIgnore, vt.OscString, vt.SosPmApcString}
@@ -83,10 +84,10 @@ func ReadTable(text string) Table {
 	let mut problems = []string{}
 	for line in strings.Split(text, "\n") {
 		let f = strings.Fields(line)
-		if len(f) == 0 || strings.HasPrefix(f[0], "#") {
+		if f.Len() == 0 || strings.HasPrefix(f[0], "#") {
 			continue
 		}
-		let ok = (f[0] == "single" && len(f) == 5) || (f[0] == "range" && len(f) == 6)
+		let ok = (f[0] == "single" && f.Len() == 5) || (f[0] == "range" && f.Len() == 6)
 		if !ok {
 			problems = problems.Append(line)
 			continue
@@ -96,7 +97,7 @@ func ReadTable(text string) Table {
 		let rest = if f[0] == "range" { 3 } else { 2 }
 		let into = stateNamed(f[rest+1])
 		let does = actNamed(f[rest+2])
-		if low < 0 || high < low || len(into) == 0 || len(does) == 0 || (f[rest] != "anywhere" && len(stateNamed(f[rest])) == 0) {
+		if low < 0 || high < low || into.Len() == 0 || does.Len() == 0 || (f[rest] != "anywhere" && stateNamed(f[rest]).Len() == 0) {
 			problems = problems.Append(line)
 			continue
 		}
@@ -125,7 +126,7 @@ func hexByte(t string) int {
 // stateNamed is the state of the table's name, as a list of one, or none.
 func stateNamed(name string) []vt.State {
 	let mut out = []vt.State{}
-	for i in 0..len(stateNames) {
+	for i in 0..stateNames.Len() {
 		if stateNames[i] == name {
 			out = out.Append(states[i])
 		}

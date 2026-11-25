@@ -3,6 +3,8 @@
 // and the views a listing shows. It knows nothing of flags, files or
 // JSON.
 
+import option
+
 // Priority is how soon a task matters, from Low to Urgent.
 type Priority = Low{} | Medium{} | High{} | Urgent{}
 
@@ -42,18 +44,18 @@ func PriorityName(p Priority) string {
 }
 
 // PriorityNamed is the priority of a name, or None.
-func PriorityNamed(name string) Option[Priority] {
+func PriorityNamed(name string) option.Option[Priority] {
 	match name {
 	case "low":
-		Some[Priority]{Value: Low}
+		option.Some[Priority]{Value: Low}
 	case "medium":
-		Some[Priority]{Value: Medium}
+		option.Some[Priority]{Value: Medium}
 	case "high":
-		Some[Priority]{Value: High}
+		option.Some[Priority]{Value: High}
 	case "urgent":
-		Some[Priority]{Value: Urgent}
+		option.Some[Priority]{Value: Urgent}
 	case _:
-		None
+		option.None
 	}
 }
 

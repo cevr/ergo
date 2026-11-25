@@ -35,7 +35,7 @@ law WorkflowsHandleFaultyDownloader() {
 		with context { Downloader: faulty } {
 			let body = Run("https://example.com/data")
 			let readFaults = faulty.Read.Faults()
-			if len(readFaults) > 0 {
+			if readFaults.Len() > 0 {
 				if inner.reads.Get() != 0 {
 					gen.Draws.Show("read-fault", "inner.Read invoked despite injected fault")
 					return false
@@ -60,7 +60,7 @@ law WorkflowsHandleFaultyDownloader() {
 
 			let saved = Store("https://example.com/data", "/tmp/out.bin")
 			let saveFaults = faulty.Save.Faults()
-			if len(saveFaults) > 0 {
+			if saveFaults.Len() > 0 {
 				if inner.saves.Get() != 0 {
 					gen.Draws.Show("save-fault", "inner.Save invoked despite injected fault")
 					return false

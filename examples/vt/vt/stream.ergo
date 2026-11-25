@@ -83,13 +83,13 @@ func replay(input string, cuts []int, fast bool) []string {
 	let mut p = NewStream(fast)
 	let mut at = 0
 	let mut k = 0
-	for at < len(input) {
-		let mut size = len(input) - at
-		if len(cuts) > 0 {
-			let c = cuts[k%len(cuts)] % 16
+	for at < input.Len() {
+		let mut size = input.Len() - at
+		if cuts.Len() > 0 {
+			let c = cuts[k%cuts.Len()] % 16
 			size = (if c < 0 { -c } else { c }) + 1
-			if at+size > len(input) {
-				size = len(input) - at
+			if at+size > input.Len() {
+				size = input.Len() - at
 			}
 		}
 		p.Feed(input[at : at+size])
@@ -120,7 +120,7 @@ func At(p Stream) State { p.parse.At }
 // UTF-8 character, and does not reach the machine: UTF-8 is decoded before
 // the parser, which takes no 8-bit control there.
 func Feed(p mut Stream, input string) {
-	let n = len(input)
+	let n = input.Len()
 	let mut i = 0
 	p.Tally.Bytes += n
 	for i < n {
@@ -190,7 +190,7 @@ func Feed(p mut Stream, input string) {
 // it. A sequence of any other shape, or one the piece cuts, returns i: the
 // machine takes it.
 func csiRun(p mut Stream, input string, i int) int {
-	let n = len(input)
+	let n = input.Len()
 	if i+2 >= n || input[i+1] != '[' {
 		return i
 	}
@@ -270,14 +270,14 @@ func lead(p mut Stream, b byte) {
 
 // keep adds data to the OSC string, up to OscLimit bytes.
 func keep(p mut Stream, data string) {
-	let room = OscLimit - len(p.osc)
-	if len(data) <= room {
+	let room = OscLimit - p.osc.Len()
+	if data.Len() <= room {
 		p.osc = p.osc + data
 	} else {
 		if room > 0 {
 			p.osc = p.osc + data[0:room]
 		}
-		p.Tally.OscCut += len(data) - room
+		p.Tally.OscCut += data.Len() - room
 	}
 }
 

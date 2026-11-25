@@ -4,13 +4,14 @@
 // call the laws' functions again on the program's own table, through one
 // Context value that both share.
 
+import core
 import idletimer/display
 
 let Tables = context { display.Policies: Fixed }
 
 // within runs check with the providers of w: a Context value carries the
 // tests' choice of policies to the helper, which needs nothing itself.
-func within(w Context[display.Policies], check func() bool needs display.Policies) bool {
+func within(w core.Context[display.Policies], check func() bool needs display.Policies) bool {
 	with w { check() }
 }
 

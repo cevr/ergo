@@ -1,3 +1,4 @@
+import option
 import slices
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/pack
@@ -6,7 +7,7 @@ import github.com/cevr/ergo/modules/git/tree
 // IsBinary classifies data using Git's buffer_is_binary rule: returns true if
 // any NUL (0x00) byte appears within the first 8000 bytes.
 func IsBinary(data []byte) bool {
-	let limit = if len(data) < 8000 { len(data) } else { 8000 }
+	let limit = if data.Len() < 8000 { data.Len() } else { 8000 }
 	for i in 0..limit {
 		if data[i] == byte(0) {
 			return true
@@ -18,7 +19,7 @@ func IsBinary(data []byte) bool {
 // SplitLines splits raw text bytes into lines, preserving trailing newlines so
 // missing-newline changes are distinguished identically to Git diff.
 func SplitLines(data []byte) []string {
-	let n = len(data)
+	let n = data.Len()
 	if n == 0 {
 		return []string{}
 	}
@@ -38,20 +39,20 @@ func SplitLines(data []byte) []string {
 
 func countLineEdits(oldLines []string, newLines []string) (int, int) {
 	let mut prefix = 0
-	let minLen = if len(oldLines) < len(newLines) { len(oldLines) } else { len(newLines) }
+	let minLen = if oldLines.Len() < newLines.Len() { oldLines.Len() } else { newLines.Len() }
 	for prefix < minLen && oldLines[prefix] == newLines[prefix] {
 		prefix = prefix + 1
 	}
-	let mut oldEnd = len(oldLines)
-	let mut newEnd = len(newLines)
+	let mut oldEnd = oldLines.Len()
+	let mut newEnd = newLines.Len()
 	for oldEnd > prefix && newEnd > prefix && oldLines[oldEnd-1] == newLines[newEnd-1] {
 		oldEnd = oldEnd - 1
 		newEnd = newEnd - 1
 	}
 	let a = oldLines[prefix:oldEnd]
 	let b = newLines[prefix:newEnd]
-	let n = len(a)
-	let m = len(b)
+	let n = a.Len()
+	let m = b.Len()
 	if n == 0 {
 		return (m, 0)
 	}
@@ -108,17 +109,17 @@ func Numstat(oldData []byte, newData []byte) NumstatResult {
 	NumstatResult{Binary: false, AddedLines: added, DeletedLines: deleted}
 }
 
-func changeSideBytes(modeOpt Option[tree.Mode], idOpt Option[oid.OID], maxBytes int) []byte fails MissingObject | StoreError needs pack.ObjectStore {
+func changeSideBytes(modeOpt option.Option[tree.Mode], idOpt option.Option[oid.OID], maxBytes int) []byte fails MissingObject | StoreError needs pack.ObjectStore {
 	match idOpt {
-	case None:
+	case option.None:
 		[]byte{}
-	case Some[oid.OID] as id:
+	case option.Some[oid.OID] as id:
 		match modeOpt {
-		case Some[tree.Mode] as m:
+		case option.Some[tree.Mode] as m:
 			if tree.IsGitlink(m.Value) {
 				return ("Subproject commit " + oid.Hex(id.Value) + "\n").Bytes()
 			}
-		case None:
+		case option.None:
 		}
 		try readStoreBytes(id.Value, maxBytes)
 	}
@@ -127,7 +128,7 @@ func changeSideBytes(modeOpt Option[tree.Mode], idOpt Option[oid.OID], maxBytes 
 // DiffNumstat computes binary classification and line insertion/deletion counts
 // for every Change in changes by reading blob payloads from pack.ObjectStore.
 func DiffNumstat(changes []Change, maxBytes int) []ChangeStat fails MissingObject | StoreError needs pack.ObjectStore {
-	let mut out = slices.WithCapacity[ChangeStat](len(changes))
+	let mut out = slices.WithCapacity[ChangeStat](changes.Len())
 	for c in changes {
 		let oldBytes = try changeSideBytes(c.OldMode, c.OldOID, maxBytes)
 		let newBytes = try changeSideBytes(c.NewMode, c.NewOID, maxBytes)

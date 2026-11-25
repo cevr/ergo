@@ -97,7 +97,7 @@ func runExecSummary(store board.Store, cmd board.Command, now board.Timestamp) (
 	case _:
 		return (0, 0, "refused")
 	}
-	(len(evts), head, "ok")
+	(evts.Len(), head, "ok")
 }
 
 type faultingDB {
@@ -174,7 +174,7 @@ func writeWithRetry(st Store, caller board.Caller, text string, now board.Timest
 		case _:
 			return false
 		}
-		if len(evts) > 0 {
+		if evts.Len() > 0 {
 			return true
 		}
 		return false
@@ -216,7 +216,7 @@ type SqliteSuite {
 			return false
 		}
 		let mut cmds = agreementCommands()
-		let limit = if len(steps) < 8 { len(steps) } else { 8 }
+		let limit = if steps.Len() < 8 { steps.Len() } else { 8 }
 		for i in 0..limit {
 			cmds = cmds.Append(generatedCommand(steps[i], i))
 		}
@@ -287,7 +287,7 @@ type SqliteSuite {
 			CleanUp()
 			return false
 		}
-		if sqPub != memPub || len(sqPrivM) != 0 || sqPrivA != memPrivA || len(sqDel) != 0 {
+		if sqPub != memPub || sqPrivM.Len() != 0 || sqPrivA != memPrivA || sqDel.Len() != 0 {
 			CleanUp()
 			return false
 		}
@@ -538,7 +538,7 @@ type SqliteSuite {
 			return false
 		}
 		CleanUp()
-		bkSnap == origSnap && bkEvts == origEvts && len(hits) == 1 && hits[0].Message.Text == "backup needle message"
+		bkSnap == origSnap && bkEvts == origEvts && hits.Len() == 1 && hits[0].Message.Text == "backup needle message"
 	},
 
 	// TestSqliteSchemaVersionFence verifies that reopening a database carrying

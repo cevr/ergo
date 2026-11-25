@@ -2,6 +2,7 @@ import exec
 import filepath
 import fs
 import fstest
+import option
 import os
 import strings
 import github.com/cevr/ergo/modules/git/delta
@@ -20,7 +21,7 @@ let onMemorySha256 = context {
 	RefWriter: NewMemoryRefWriter(oid.Sha256),
 }
 
-let onDiskSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs TestAmbient {
+let onDiskSha1 = context fails pack.Corrupt | pack.MismatchedPair | pack.IOFailed needs fstest.TestAmbient {
 	RefWriter: try makeLawDiskRefWriter(filepath.Join([]string{fstest.TestFolder(), "law-disk-wref"}), fs.NewTestHost()),
 }
 
@@ -78,14 +79,14 @@ func verifyFormatWRef(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 	let ident = ReflogIdentity{Name: "Oracle Author", Email: "oracle@example.com", Epoch: int64(1700000100), Offset: "+0000"}
 
 	with context { pack.ObjectStore: diskOdb } {
-		try UpdateRef(refStore, "refs/heads/feature", c1, None, Some[ReflogSpec]{Value: ReflogSpec{Ident: ident, Message: "branch: created feature"}}, locks.Durable)
+		try UpdateRef(refStore, "refs/heads/feature", c1, option.None, option.Some[ReflogSpec]{Value: ReflogSpec{Ident: ident, Message: "branch: created feature"}}, locks.Durable)
 		let got1 = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "refs/heads/feature"}, "", pathEnv, 7))
 		if got1 != c1Hex {
 			return testFail{reason: "git rev-parse mismatch after create: got \(got1), want \(c1Hex)"}
 		}
 
 		let mut sawDupCreate = false
-		UpdateRef(refStore, "refs/heads/feature", c2, None, None, locks.Durable) catch {
+		UpdateRef(refStore, "refs/heads/feature", c2, option.None, option.None, locks.Durable) catch {
 		case StaleExpected:
 			sawDupCreate = true
 		case InvalidRefName, PathEscape, ObjectMissing, DirectoryFileConflict, LockHeld, LockFailed, IOFailed:
@@ -95,7 +96,7 @@ func verifyFormatWRef(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 		}
 
 		let mut sawStale = false
-		UpdateRef(refStore, "refs/heads/feature", c2, Some[oid.OID]{Value: c2}, None, locks.Durable) catch {
+		UpdateRef(refStore, "refs/heads/feature", c2, option.Some[oid.OID]{Value: c2}, option.None, locks.Durable) catch {
 		case StaleExpected:
 			sawStale = true
 		case InvalidRefName, PathEscape, ObjectMissing, DirectoryFileConflict, LockHeld, LockFailed, IOFailed:
@@ -108,7 +109,7 @@ func verifyFormatWRef(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 		}
 
 		let mut sawMissing = false
-		UpdateRef(refStore, "refs/heads/broken", missingId, None, None, locks.Durable) catch {
+		UpdateRef(refStore, "refs/heads/broken", missingId, option.None, option.None, locks.Durable) catch {
 		case ObjectMissing as e:
 			sawMissing = oid.Equal(e.OID, missingId)
 		case InvalidRefName, PathEscape, StaleExpected, DirectoryFileConflict, LockHeld, LockFailed, IOFailed:
@@ -118,7 +119,7 @@ func verifyFormatWRef(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 		}
 
 		let mut sawDF = false
-		UpdateRef(refStore, "refs/heads/feature/child", c1, None, None, locks.Durable) catch {
+		UpdateRef(refStore, "refs/heads/feature/child", c1, option.None, option.None, locks.Durable) catch {
 		case DirectoryFileConflict:
 			sawDF = true
 		case InvalidRefName, PathEscape, StaleExpected, ObjectMissing, LockHeld, LockFailed, IOFailed:
@@ -127,7 +128,7 @@ func verifyFormatWRef(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 			return testFail{reason: "UpdateRef did not reject D/F conflict refs/heads/feature/child"}
 		}
 
-		try UpdateRef(refStore, "refs/heads/feature", c2, Some[oid.OID]{Value: c1}, Some[ReflogSpec]{Value: ReflogSpec{Ident: ident, Message: "fast-forward to c2"}}, locks.Durable)
+		try UpdateRef(refStore, "refs/heads/feature", c2, option.Some[oid.OID]{Value: c1}, option.Some[ReflogSpec]{Value: ReflogSpec{Ident: ident, Message: "fast-forward to c2"}}, locks.Durable)
 		let got2 = strings.TrimSpace(try runGitOk(repoDir, []string{"rev-parse", "refs/heads/feature"}, "", pathEnv, 8))
 		if got2 != c2Hex {
 			return testFail{reason: "git rev-parse mismatch after CAS update"}
@@ -137,17 +138,17 @@ func verifyFormatWRef(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 			return testFail{reason: "git reflog missing appended entries: " + reflogOut}
 		}
 
-		try UpdateSymbolicRef(refStore, "HEAD", "refs/heads/feature", None, locks.Durable)
+		try UpdateSymbolicRef(refStore, "HEAD", "refs/heads/feature", option.None, locks.Durable)
 		let symOut = strings.TrimSpace(try runGitOk(repoDir, []string{"symbolic-ref", "HEAD"}, "", pathEnv, 10))
 		if symOut != "refs/heads/feature" {
 			return testFail{reason: "git symbolic-ref HEAD mismatch: " + symOut}
 		}
-		try UpdateSymbolicRef(refStore, "HEAD", "refs/heads/main", None, locks.Durable)
+		try UpdateSymbolicRef(refStore, "HEAD", "refs/heads/main", option.None, locks.Durable)
 
 		let mut sawBatchAbort = false
 		let _ = PrepareBatch(refStore, []BatchOp{
-			BatchOp{RefName: "refs/heads/batch-ok", Kind: SetDirect{NewOID: c1, Expected: None}, Log: None},
-			BatchOp{RefName: "refs/heads/feature", Kind: SetDirect{NewOID: c1, Expected: Some[oid.OID]{Value: c1}}, Log: None},
+			BatchOp{RefName: "refs/heads/batch-ok", Kind: SetDirect{NewOID: c1, Expected: option.None}, Log: option.None},
+			BatchOp{RefName: "refs/heads/feature", Kind: SetDirect{NewOID: c1, Expected: option.Some[oid.OID]{Value: c1}}, Log: option.None},
 		}, locks.Durable) catch {
 		case StaleExpected:
 			sawBatchAbort = true
@@ -162,14 +163,14 @@ func verifyFormatWRef(cwd string, oFmt oracle.OidFormat, fmt oid.Format, pathEnv
 			return testFail{reason: "PrepareBatch leaked first op lock on failure"}
 		}
 		let batchStillAbsent = try readCurrentDirectOID(refStore, "refs/heads/batch-ok")
-		if batchStillAbsent != None {
+		if batchStillAbsent != option.None {
 			return testFail{reason: "PrepareBatch mutated first ref despite second op failing"}
 		}
 
 		let _ = try runGitOk(repoDir, []string{"pack-refs", "--all"}, "", pathEnv, 11)
 		try DeleteRef(refStore, "refs/heads/feature", c2, locks.Durable)
 		let afterDel = try readCurrentDirectOID(refStore, "refs/heads/feature")
-		if afterDel != None {
+		if afterDel != option.None {
 			return testFail{reason: "DeleteRef failed to remove packed ref refs/heads/feature"}
 		}
 		let _ = try runGitOk(repoDir, []string{"fsck", "--strict"}, "", pathEnv, 12)
@@ -194,7 +195,7 @@ type hostWrap { host fs.Host } implements hostBox
 
 func Get(w hostWrap) fs.Host { w.host }
 
-let onOracleWithHost = context needs TestAmbient {
+let onOracleWithHost = context needs fstest.TestAmbient {
 	exec.Runner:   exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
 	fs.Files:      fs.NewTestHost(),
 	fs.Writes:     fs.NewTestHost(),

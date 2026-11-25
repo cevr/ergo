@@ -1,4 +1,5 @@
 import lease-sync/domain
+import option
 import schedule
 import tasks
 import time
@@ -35,7 +36,7 @@ func ConnOf(t Trouble, attempt int) Conn {
 // answers it with its first receipt. It stops at the first trouble no
 // retry ends and is the connection that shows (Live when every command
 // was sent).
-func Send[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], pending []domain.Envelope[C], retry schedule.Schedule) Conn needs Scheduler | time.Clock {
+func Send[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], pending []domain.Envelope[C], retry schedule.Schedule) Conn needs time.Scheduler | time.Clock {
 	for m in pending {
 		let mut tries = 0
 		let conn = tasks.Retry(retry, func() Conn fails Unavailable {
@@ -65,7 +66,7 @@ func Send[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, 
 // Fetch is one turn of the pull loop: the frame a reads for by from the
 // position from, at the clock's time, or the connection a trouble shows
 // once retry gives up on Unavailable.
-func Fetch[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], by ClientID, from int, retry schedule.Schedule) Signal[S, C, E, F] needs Scheduler | time.Clock {
+func Fetch[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], by ClientID, from int, retry schedule.Schedule) Signal[S, C, E, F] needs time.Scheduler | time.Clock {
 	let mut tries = 0
 	let frame = tasks.Retry(retry, func() Frame[S, E, F] fails Unavailable | Unauthorized {
 		tries = tries + 1
@@ -83,13 +84,13 @@ func Fetch[S any, C comparable, E comparable, F comparable](a Authority[S, C, E,
 // each signal to apply, which steps the client and is the cursor to pull
 // from next, or None to stop. With a long-polling provider an idle log
 // costs one call per wait, not a loop of empty frames.
-func Follow[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], by ClientID, from int, retry schedule.Schedule, apply func(sig Signal[S, C, E, F]) Option[int]) needs Scheduler | time.Clock {
+func Follow[S any, C comparable, E comparable, F comparable](a Authority[S, C, E, F], by ClientID, from int, retry schedule.Schedule, apply func(sig Signal[S, C, E, F]) option.Option[int]) needs time.Scheduler | time.Clock {
 	let mut cursor = from
 	for {
 		match apply(Fetch(a, by, cursor, retry)) {
-		case Some[int] as next:
+		case option.Some[int] as next:
 			cursor = next.Value
-		case None:
+		case option.None:
 			return
 		}
 	}

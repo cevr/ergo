@@ -6,6 +6,7 @@
 // them.
 
 import machines
+import option
 
 // Chunk is a part of a file: its size in bytes, and whether it is the
 // last one.
@@ -40,7 +41,7 @@ func pick(n int, count int) int { ((n % count) + count) % count }
 // ChunksJoin is the law ChunksJoin of the Source in the context, as a
 // function: at most 64 chunks are read.
 func ChunksJoin(file int) bool needs Source {
-	let url = Files[pick(file, len(Files))]
+	let url = Files[pick(file, Files.Len())]
 	let mut at = 0
 	for _ in 0..64 {
 		let c = Source.Chunk(url, at) catch {
@@ -62,7 +63,7 @@ func ChunksJoin(file int) bool needs Source {
 
 // NotFoundIsFinal is the law NotFoundIsFinal as a function.
 func NotFoundIsFinal(file int, from int) bool needs Source {
-	let url = Files[pick(file, len(Files))]
+	let url = Files[pick(file, Files.Len())]
 	let _ = Source.Chunk(url, 0) catch {
 	case NotFound:
 		let _ = Source.Chunk(url, pick(from, 100000)) catch {
@@ -93,11 +94,11 @@ type Signal = Begin{} | Cancel{} | Got{Chunk Chunk} | NotFound | TimedOut | Retr
 // it had.
 law CancelAlwaysEnds(moves []int) {
 	let t = fold(moves)
-	if t.End != None {
+	if t.End != option.None {
 		return true
 	}
 	match Step(t.Last, Cancel) {
-	case Done[End] as d:
+	case machines.Done[End] as d:
 		d.Output == Cancelled{Url: UrlOf(t.Last), Got: GotOf(t.Last)}
 	case _:
 		false
@@ -112,7 +113,7 @@ type End = Saved{Url string, Bytes int} | Failed{Url string, Why string} | Cance
 law BytesAddUp(moves []int) {
 	let t = fold(moves)
 	match t.End {
-	case Some[End] as e:
+	case option.Some[End] as e:
 		match e.Value {
 		case Saved as s:
 			s.Bytes == t.Took
@@ -121,7 +122,7 @@ law BytesAddUp(moves []int) {
 		case Cancelled:
 			false
 		}
-	case None:
+	case option.None:
 		GotOf(t.Last) == t.Took
 	}
 }
@@ -137,14 +138,14 @@ law RetryWithinBudget(moves []int) {
 		return false
 	}
 	match t.End {
-	case Some[End] as e:
+	case option.Some[End] as e:
 		match e.Value {
 		case Failed as f:
 			f.Why == "not found" || (f.Why == "\(Budget + 1) timeouts" && tries(t.Last) == Budget)
 		case _:
 			true
 		}
-	case None:
+	case option.None:
 		true
 	}
 }
@@ -170,7 +171,7 @@ func signal(m int) Signal {
 
 // Trace is a fold of a file: its last state, the end if one came, the
 // most timeouts any state held, and the bytes of the chunks it took.
-type Trace { Last File, End Option[End], MostTry int, Took int }
+type Trace { Last File, End option.Option[End], MostTry int, Took int }
 
 // fold steps a started file over the signals of moves, until its end.
 func fold(moves []int) Trace {
@@ -181,14 +182,14 @@ func fold(moves []int) Trace {
 		let sig = signal(m)
 		let d = Step(s, sig)
 		match d {
-		case Done[End] as e:
+		case machines.Done[End] as e:
 			match (s, sig) {
 			case (Fetching, Got as g):
 				took = took + g.Chunk.Bytes
 			case (_, _):
 			}
-			return Trace{Last: s, End: Some[End]{Value: e.Output}, MostTry: most, Took: took}
-		case Enter[File] as e:
+			return Trace{Last: s, End: option.Some[End]{Value: e.Output}, MostTry: most, Took: took}
+		case machines.Enter[File] as e:
 			match (s, sig) {
 			case (Fetching, Got as g):
 				took = took + g.Chunk.Bytes
@@ -209,7 +210,7 @@ func fold(moves []int) Trace {
 		case Queued:
 		}
 	}
-	Trace{Last: s, End: None, MostTry: most, Took: took}
+	Trace{Last: s, End: option.None, MostTry: most, Took: took}
 }
 
 func tries(s File) int {
@@ -231,13 +232,13 @@ law BudgetIsExact(n int) {
 	let mut s File = Fetching{Url: "x", Got: 0, Try: 0}
 	for _ in 0..k {
 		match Step(s, TimedOut{Url: "x"}) {
-		case Enter[File] as e:
+		case machines.Enter[File] as e:
 			s = e.Next
 		case _:
 			return false
 		}
 		match Step(s, Retry) {
-		case Enter[File] as e:
+		case machines.Enter[File] as e:
 			s = e.Next
 		case _:
 			return false
@@ -245,9 +246,9 @@ law BudgetIsExact(n int) {
 	}
 	let last = Step(s, TimedOut{Url: "x"})
 	match last {
-	case Done[End] as d:
+	case machines.Done[End] as d:
 		k == Budget && d.Output == Failed{Url: "x", Why: "\(Budget + 1) timeouts"}
-	case Enter[File] as e:
+	case machines.Enter[File] as e:
 		k < Budget && tries(e.Next) == k+1
 	case _:
 		false
@@ -299,30 +300,30 @@ func GotOf(s File) int {
 // NotFound and TimedOut are failures of Source and signals, so the work
 // needs no failure map. The runner interrupts it when the entry ends, so
 // a cancel stops it and its chunk never reaches a later entry.
-func fetching(s File) Option[machines.Work[Signal, Source]] {
+func fetching(s File) option.Option[machines.Work[Signal, Source]] {
 	match s {
 	case Fetching as f:
-		Some{machines.Attempt(func() Chunk fails NotFound | TimedOut needs Source { try Source.Chunk(f.Url, f.Got) }, func(c Chunk) Signal { Got{Chunk: c} }, func(failure) {
+		option.Some{machines.Attempt(func() Chunk fails NotFound | TimedOut needs Source { try Source.Chunk(f.Url, f.Got) }, func(c Chunk) Signal { Got{Chunk: c} }, func(failure) {
 			let failed Signal = failure
 			failed
 		})}
 	case Queued:
-		None
+		option.None
 	case Waiting:
-		None
+		option.None
 	}
 }
 
 // Timer is the timer of each state: Waiting waits Backoff(Try), then
 // retries. The wait grows with the state's Try (a dynamic after).
-func Timer(s File) Option[Timeout[Signal]] {
+func Timer(s File) option.Option[machines.Timeout[Signal]] {
 	match s {
 	case Waiting as w:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Backoff(w.Try), Signal: Retry}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: Backoff(w.Try), Signal: Retry}}
 	case Queued:
-		None
+		option.None
 	case Fetching:
-		None
+		option.None
 	}
 }
 
@@ -331,62 +332,62 @@ func Timer(s File) Option[Timeout[Signal]] {
 // one; a timeout waits and retries, Budget times; NotFound ends it.
 // Cancel ends it from every state. A signal a state never gets (a chunk
 // in Waiting) is Ignore.
-func Step(s File, sig Signal) Decision[File, End] {
+func Step(s File, sig Signal) machines.Decision[File, End] {
 	match sig {
 	case Cancel:
-		Done[End]{Output: Cancelled{Url: UrlOf(s), Got: GotOf(s)}}
+		machines.Done[End]{Output: Cancelled{Url: UrlOf(s), Got: GotOf(s)}}
 	case Begin:
 		match s {
 		case Queued as q:
-			Enter[File]{Next: Fetching{Url: q.Url, Got: 0, Try: 0}}
+			machines.Enter[File]{Next: Fetching{Url: q.Url, Got: 0, Try: 0}}
 		case Fetching:
-			Ignore
+			machines.Ignore
 		case Waiting:
-			Ignore
+			machines.Ignore
 		}
 	case Got as g:
 		match s {
 		case Fetching as f:
 			if g.Chunk.Last {
-				Done[End]{Output: Saved{Url: f.Url, Bytes: f.Got + g.Chunk.Bytes}}
+				machines.Done[End]{Output: Saved{Url: f.Url, Bytes: f.Got + g.Chunk.Bytes}}
 			} else {
-				Enter[File]{Next: Fetching{Url: f.Url, Got: f.Got + g.Chunk.Bytes, Try: f.Try}}
+				machines.Enter[File]{Next: Fetching{Url: f.Url, Got: f.Got + g.Chunk.Bytes, Try: f.Try}}
 			}
 		case Queued:
-			Ignore
+			machines.Ignore
 		case Waiting:
-			Ignore
+			machines.Ignore
 		}
 	case NotFound as n:
 		match s {
 		case Fetching:
-			Done[End]{Output: Failed{Url: n.Url, Why: "not found"}}
+			machines.Done[End]{Output: Failed{Url: n.Url, Why: "not found"}}
 		case Queued:
-			Ignore
+			machines.Ignore
 		case Waiting:
-			Ignore
+			machines.Ignore
 		}
 	case TimedOut:
 		match s {
 		case Fetching as f:
 			if f.Try >= Budget {
-				Done[End]{Output: Failed{Url: f.Url, Why: "\(Budget + 1) timeouts"}}
+				machines.Done[End]{Output: Failed{Url: f.Url, Why: "\(Budget + 1) timeouts"}}
 			} else {
-				Enter[File]{Next: Waiting{Url: f.Url, Got: f.Got, Try: f.Try + 1}}
+				machines.Enter[File]{Next: Waiting{Url: f.Url, Got: f.Got, Try: f.Try + 1}}
 			}
 		case Queued:
-			Ignore
+			machines.Ignore
 		case Waiting:
-			Ignore
+			machines.Ignore
 		}
 	case Retry:
 		match s {
 		case Waiting as w:
-			Enter[File]{Next: Fetching{Url: w.Url, Got: w.Got, Try: w.Try}}
+			machines.Enter[File]{Next: Fetching{Url: w.Url, Got: w.Got, Try: w.Try}}
 		case Queued:
-			Ignore
+			machines.Ignore
 		case Fetching:
-			Ignore
+			machines.Ignore
 		}
 	}
 }

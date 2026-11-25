@@ -21,6 +21,7 @@ import ergo.local/prototype/examples/drawgui/script
 import flag
 import fs
 import io
+import option
 import os
 import rand
 import slices
@@ -40,10 +41,10 @@ let sceneSet = flag.Set{Name: "draw-gui scene", Usage: "", Flags: []flag.Flag{},
 
 // run is draw-gui on args.
 func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin {
-	if len(args) == 0 {
+	if args.Len() == 0 {
 		return os.Exit{Code: 2, Message: Usage}
 	}
-	let rest = slices.Slice(args, 1, len(args))
+	let rest = slices.Slice(args, 1, args.Len())
 	match args[0] {
 	case "gen":
 		let v = flag.Parse(genSet, rest) catch {
@@ -55,7 +56,7 @@ func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin 
 		if n < 0 {
 			return os.Exit{Code: 2, Message: "draw-gui: -n must not be negative\n" + Usage}
 		}
-		with context { Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
+		with context { rand.Random: rand.Seeded(uint64(seedFlag.Get(v))) } {
 			io.Stdout.Print(canvas.Generate(n))
 		}
 	case "play":
@@ -65,9 +66,9 @@ func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin 
 			return
 		}
 		let name = match fileArg.Get(v) {
-		case Some[string] as a:
+		case option.Some[string] as a:
 			a.Value
-		case None:
+		case option.None:
 			return os.Exit{Code: 2, Message: Usage}
 		}
 		let pic = canvas.OpenPicture(name) catch {
@@ -84,9 +85,9 @@ func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin 
 			return
 		}
 		let name = match fileArg.Get(v) {
-		case Some[string] as a:
+		case option.Some[string] as a:
 			a.Value
-		case None:
+		case option.None:
 			return os.Exit{Code: 2, Message: Usage}
 		}
 		let pic = canvas.OpenPicture(name) catch {
@@ -96,7 +97,7 @@ func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin 
 			return os.Exit{Code: 1, Message: "draw-gui: \(name): line \(b.Line): want \(b.Want)"}
 		}
 		let clock = time.NewManual(0)
-		with context { Scheduler: clock } {
+		with context { time.Scheduler: clock } {
 			script.Scene(pic, name, io.Stdin.Lines(), clock) catch {
 			case ui.BadPatch as b:
 				return os.Exit{Code: 1, Message: "draw-gui: the view's patch did not apply: " + b.Why}
@@ -109,7 +110,7 @@ func run(args []string) fails os.Exit needs canvas.Store | io.Stdout | io.Stdin 
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { canvas.Store: files.New(fs.NewHost()), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } {
 		try run(os.NewHost().Args())
 	}

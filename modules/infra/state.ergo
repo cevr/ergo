@@ -1,3 +1,5 @@
+import option
+
 // Status is a row's: Creating (written before the driver's Apply), Live
 // (after it), Deleting (written before the driver's Delete). A row that is
 // not Live is work a run does again.
@@ -11,7 +13,7 @@ type Row[P comparable] { ID string, Status Status, Props P, Seq int }
 // State is the state store of one kind of a stack's stage: a row per
 // object, by id. A write may fail (a crash, a disk); a read does not.
 type State[P comparable] {
-	Get(id string) Option[Row[P]],
+	Get(id string) option.Option[Row[P]],
 	Put(row Row[P]) fails Failed,
 	Remove(id string) fails Failed,
 	// List is every row, by id.
@@ -29,7 +31,7 @@ type State[P comparable] {
 				n = n + 1
 			}
 		}
-		Get(row.ID) == (Some[Row[P]]{Value: row}) && n == 1
+		Get(row.ID) == (option.Some[Row[P]]{Value: row}) && n == 1
 	},
 	// RemoveThenGet: after a Remove, Get gives None and List does not
 	// hold the id; a second Remove succeeds.
@@ -51,7 +53,7 @@ type State[P comparable] {
 				return false
 			}
 		}
-		Get(row.ID) == None
+		Get(row.ID) == option.None
 	},
 }
 
@@ -73,7 +75,7 @@ type Lock {
 	// not hold it.
 	Break(holder string) fails Held,
 	// Holder is who holds the lock, None when it is free.
-	Holder() Option[string],
+	Holder() option.Option[string],
 
 	// LockExcludes: while a holds the lock, b cannot acquire it; once a
 	// releases it, b can.
@@ -98,7 +100,7 @@ type Lock {
 		case Held:
 			return false
 		}
-		Holder() == (Some[string]{Value: b})
+		Holder() == (option.Some[string]{Value: b})
 	},
 	// BreakNamesTheHolder: a Break that names another than the holder
 	// fails and keeps the lock; one that names the holder frees it.
@@ -115,13 +117,13 @@ type Lock {
 		case Held:
 			refused = true
 		}
-		if !refused || Holder() != (Some[string]{Value: a}) {
+		if !refused || Holder() != (option.Some[string]{Value: a}) {
 			return false
 		}
 		Break(a) catch {
 		case Held:
 			return false
 		}
-		Holder() == None
+		Holder() == option.None
 	},
 }

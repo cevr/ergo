@@ -1,20 +1,21 @@
 // A generated text: the workload of the program at any size, drawn from
 // the Random in the context, so a seed replays it.
 
+import rand
 import strings
 
 // Generate is n lines of words drawn from Random, each line ending in a
 // line break; some words are beyond ASCII.
-func Generate(n int) string needs Random {
+func Generate(n int) string needs rand.Random {
 	let words = []string{"the", "a", "river", "stone", "light", "over", "under", "and", "slowly", "north", "café", "naïve", "über", "日本", "λόγος", "is", "was", "bright", "cold", "wind"}
 	let mut b = strings.NewBuilder()
 	for _ in 0..n {
-		let count = Random.IntN(12)
+		let count = rand.Random.IntN(12)
 		for i in 0..count {
 			if i > 0 {
 				b.WriteByte(' ')
 			}
-			b.WriteString(words[Random.IntN(len(words))])
+			b.WriteString(words[rand.Random.IntN(words.Len())])
 		}
 		b.WriteByte('\n')
 	}

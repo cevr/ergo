@@ -26,7 +26,7 @@ import time
 type Event = Pressed{Key term.Key} | Changed{State agent.State} | Redraw{}
 
 // Chat runs the session s at the terminal until it ends, and stops it.
-func Chat(s agent.Session) needs io.Stdout | term.Terminal | Scheduler | time.Clock {
+func Chat(s agent.Session) needs io.Stdout | term.Terminal | time.Scheduler | time.Clock {
 	let events = queue.New[Event](64)
 	let keys = task.Go() { readKeys(events) }
 	let states = task.Go() { follow(s, events) }
@@ -123,11 +123,11 @@ test SpinnerFollowsTheClock {
 	let c = testing.NewVirtualClock(0)
 	let asking = agent.Replay(agent.Recorded{Limits: agent.Limits{MaxSteps: 2, MaxRetries: 0}, Signals: []agent.Signal{agent.Submit{Text: "hi"}}})
 	let idle = agent.Start(agent.Limits{MaxSteps: 2, MaxRetries: 0})
-	let (first, later) = with context { Scheduler: c, time.Clock: c } {
+	let (first, later) = with context { time.Scheduler: c, time.Clock: c } {
 		let v = screen.View{State: idle, Line: screen.Line{Text: "", At: 0}, Scroll: screen.Stuck(), Detail: false, Since: time.Unix(0, 0), Now: time.Unix(0, 0)}
-		Scheduler.Sleep(1s)
+		time.Scheduler.Sleep(1s)
 		let began = Began(v, asking, time.Clock.Now())
-		Scheduler.Sleep(240ms)
+		time.Scheduler.Sleep(240ms)
 		let more = Began(began, agent.State{..asking, Phase: agent.Asking{Draft: "H", Try: 0}}, time.Clock.Now())
 		(screen.Spin(screen.View{..began, Now: time.Clock.Now()}), screen.Spin(screen.View{..more, Now: time.Clock.Now()}))
 	}
@@ -135,9 +135,9 @@ test SpinnerFollowsTheClock {
 }
 
 // redraws asks for a redraw every turn of the spinner, until events end.
-func redraws(events queue.Queue[Event]) needs Scheduler {
+func redraws(events queue.Queue[Event]) needs time.Scheduler {
 	for {
-		Scheduler.Sleep(screen.Turn)
+		time.Scheduler.Sleep(screen.Turn)
 		events.Push(Redraw) catch {
 		case queue.Closed:
 			return
@@ -157,14 +157,14 @@ test DrawsOnlyStatesThatExisted {
 	let world = memory.Scripted{Replies: []memory.Entry{memory.Says{Pieces: []string{"Hel", "lo"}, Calls: []agent.Call{}, End: agent.Finished}}}
 	let out = io.NewRecorder()
 	let c = testing.NewVirtualClock(0)
-	let record = with context { agent.Model: world, agent.Tools: memory.Tree{Files: Map[string, string]{}}, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, io.Stdout: out, term.Terminal: term.NewScript(keys, w), Scheduler: c, time.Clock: c } {
+	let record = with context { agent.Model: world, agent.Tools: memory.Tree{Files: Map[string, string]{}}, exec.Runner: exec.Script{Results: Map[string, exec.Result]{}}, io.Stdout: out, term.Terminal: term.NewScript(keys, w), time.Scheduler: c, time.Clock: c } {
 		let s = agent.Open(agent.Limits{MaxSteps: 2, MaxRetries: 0})
 		Chat(s)
 		agent.RecordOf(s)
 	}
 	let lines = []screen.Line{screen.Line{Text: "", At: 0}, screen.Line{Text: "h", At: 1}, screen.Line{Text: "hi", At: 2}}
 	let mut seen = []string{}
-	for k in 0..(len(record.Signals) + 1) {
+	for k in 0..(record.Signals.Len() + 1) {
 		let st = agent.Replay(agent.Recorded{Limits: record.Limits, Signals: record.Signals[0:k]})
 		for line in lines {
 			for spin in 0..4 {
@@ -195,7 +195,7 @@ func painted(a []string, rows int, p string) []string {
 	let parts = strings.Split(p, "\x1b[K")
 	for i, part in parts {
 		let at = strings.Index(part, ";1H")
-		if i == len(parts)-1 && part == "" {
+		if i == parts.Len()-1 && part == "" {
 			break
 		}
 		if !strings.HasPrefix(part, "\x1b[") || at <= 2 {
@@ -205,7 +205,7 @@ func painted(a []string, rows int, p string) []string {
 		case _:
 			return []string{"not a row: " + strconv.Quote(part)}
 		}
-		ws = ws.Append(screen.Write{Row: row - 1, Text: strings.Slice(part, at+3, len(part))})
+		ws = ws.Append(screen.Write{Row: row - 1, Text: strings.Slice(part, at+3, part.Len())})
 	}
 	screen.Apply(a, rows, ws)
 }
@@ -230,7 +230,7 @@ func paint(was Shown, v screen.View) Shown needs io.Stdout | term.Terminal {
 	let before = if w == was.Window { was.Lines } else { []string{} }
 	let lines = screen.Frame(v, w)
 	let ws = screen.Changes(before, lines)
-	if len(ws) > 0 {
+	if ws.Len() > 0 {
 		io.Stdout.Print("\x1b[H" + screen.PaintChanges(ws))
 	}
 	Shown{Window: w, Lines: lines}

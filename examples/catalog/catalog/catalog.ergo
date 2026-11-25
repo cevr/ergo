@@ -27,26 +27,26 @@ type Event = Publish{} | SellOut{} | Restock{} | Retire{}
 // and is restocked; any listing is retired, after which it takes no
 // event. A repeated event is ignored. The match names every pair, so a
 // new status or event stops the build until its row is written.
-func Step(s Status, e Event) Decision[Status, Status] {
+func Step(s Status, e Event) machines.Decision[Status, Status] {
 	match (s, e) {
 	case (Draft, Publish):
-		Enter[Status]{Next: Listed}
+		machines.Enter[Status]{Next: Listed}
 	case (Draft, SellOut), (Draft, Restock):
-		Reject
+		machines.Reject
 	case (Listed, Publish), (Listed, Restock):
-		Ignore
+		machines.Ignore
 	case (Listed, SellOut):
-		Enter[Status]{Next: SoldOut}
+		machines.Enter[Status]{Next: SoldOut}
 	case (SoldOut, Restock):
-		Enter[Status]{Next: Listed}
+		machines.Enter[Status]{Next: Listed}
 	case (SoldOut, SellOut):
-		Ignore
+		machines.Ignore
 	case (SoldOut, Publish):
-		Reject
+		machines.Reject
 	case (Draft, Retire), (Listed, Retire), (SoldOut, Retire):
-		Enter[Status]{Next: Retired}
+		machines.Enter[Status]{Next: Retired}
 	case (Retired, Publish), (Retired, SellOut), (Retired, Restock), (Retired, Retire):
-		Reject
+		machines.Reject
 	}
 }
 

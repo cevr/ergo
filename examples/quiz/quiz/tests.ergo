@@ -12,18 +12,18 @@ func trace(q Quiz, signals []Signal) string {
 	for s in signals {
 		let d = Tried(at, s)
 		match d {
-		case Done[Picked] as done:
+		case machines.Done[Picked] as done:
 			out = out.Append("picked " + done.Output.Name)
 			return strings.Join(out, "; ")
-		case Enter[Quiz] as e:
+		case machines.Enter[Quiz] as e:
 			out = out.Append(Key(e.Next))
-		case Stay[Quiz]:
+		case machines.Stay[Quiz]:
 			out = out.Append("stay")
-		case Emit[Quiz, Picked], Tell[Quiz, Picked]:
+		case machines.Emit[Quiz, Picked], machines.Tell[Quiz, Picked]:
 			out = out.Append("emit")
-		case Ignore:
+		case machines.Ignore:
 			out = out.Append("ignore")
-		case Reject:
+		case machines.Reject:
 			out = out.Append("reject")
 		}
 		at = machines.Next(at, d)

@@ -4,6 +4,7 @@
 // moves them and the step reads no clock.
 
 import machines
+import option
 import time
 
 // BoardingOpens is how long before it leaves a train takes passengers.
@@ -43,51 +44,51 @@ func Plan(calls []time.Time) Leg { Scheduled{Due: calls} }
 // leaves, it calls at each stop, it arrives at the last. A delay moves
 // every instant still to come; one of no time, or after arrival, is
 // rejected. A train is cancelled before it leaves, never on the way.
-func Step(l Leg, c Cue) Decision[Leg, Notice] {
+func Step(l Leg, c Cue) machines.Decision[Leg, Notice] {
 	match (l, c) {
 	case (Scheduled as s, Tick as t):
 		if time.Before(t.At, time.Add(s.Due[0], -BoardingOpens)) {
-			return Ignore
+			return machines.Ignore
 		}
-		Emit[Leg, Notice]{Next: Boarding{Due: s.Due}, Output: BoardingOpen{At: time.Add(s.Due[0], -BoardingOpens)}}
+		machines.Emit[Leg, Notice]{Next: Boarding{Due: s.Due}, Output: BoardingOpen{At: time.Add(s.Due[0], -BoardingOpens)}}
 	case (Boarding as b, Tick as t):
 		if time.Before(t.At, b.Due[0]) {
-			return Ignore
+			return machines.Ignore
 		}
-		Emit[Leg, Notice]{Next: Running{Next: 1, Due: b.Due[1:]}, Output: LeftFirst{At: b.Due[0]}}
+		machines.Emit[Leg, Notice]{Next: Running{Next: 1, Due: b.Due[1:]}, Output: LeftFirst{At: b.Due[0]}}
 	case (Running as r, Tick as t):
 		if time.Before(t.At, r.Due[0]) {
-			return Ignore
+			return machines.Ignore
 		}
-		if len(r.Due) == 1 {
-			return Emit[Leg, Notice]{Next: Arrived{At: r.Due[0]}, Output: Reached{At: r.Due[0]}}
+		if r.Due.Len() == 1 {
+			return machines.Emit[Leg, Notice]{Next: Arrived{At: r.Due[0]}, Output: Reached{At: r.Due[0]}}
 		}
-		Emit[Leg, Notice]{Next: Running{Next: r.Next + 1, Due: r.Due[1:]}, Output: Called{Stop: r.Next, At: r.Due[0]}}
+		machines.Emit[Leg, Notice]{Next: Running{Next: r.Next + 1, Due: r.Due[1:]}, Output: Called{Stop: r.Next, At: r.Due[0]}}
 	case (Scheduled as s, Delay as d):
 		if d.By <= 0s {
-			return Reject
+			return machines.Reject
 		}
-		Emit[Leg, Notice]{Next: Scheduled{Due: later(s.Due, d.By)}, Output: Late{By: d.By}}
+		machines.Emit[Leg, Notice]{Next: Scheduled{Due: later(s.Due, d.By)}, Output: Late{By: d.By}}
 	case (Boarding as b, Delay as d):
 		if d.By <= 0s {
-			return Reject
+			return machines.Reject
 		}
-		Emit[Leg, Notice]{Next: Boarding{Due: later(b.Due, d.By)}, Output: Late{By: d.By}}
+		machines.Emit[Leg, Notice]{Next: Boarding{Due: later(b.Due, d.By)}, Output: Late{By: d.By}}
 	case (Running as r, Delay as d):
 		if d.By <= 0s {
-			return Reject
+			return machines.Reject
 		}
-		Emit[Leg, Notice]{Next: Running{Next: r.Next, Due: later(r.Due, d.By)}, Output: Late{By: d.By}}
+		machines.Emit[Leg, Notice]{Next: Running{Next: r.Next, Due: later(r.Due, d.By)}, Output: Late{By: d.By}}
 	case (Scheduled, Cancel as x):
-		Emit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}
+		machines.Emit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}
 	case (Boarding, Cancel as x):
-		Emit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}
+		machines.Emit[Leg, Notice]{Next: Cancelled{Reason: x.Reason}, Output: Withdrawn{Reason: x.Reason}}
 	case (Running, Cancel):
-		Reject
+		machines.Reject
 	case (Arrived, Tick), (Cancelled, Tick):
-		Ignore
+		machines.Ignore
 	case (Arrived, Delay), (Arrived, Cancel), (Cancelled, Delay), (Cancelled, Cancel):
-		Reject
+		machines.Reject
 	}
 }
 
@@ -108,16 +109,16 @@ type Trip machine[Leg, Cue] {
 
 // Waits is the instant l waits for, the one a tick must reach to move it
 // on; an ended trip waits for none.
-func Waits(l Leg) Option[time.Time] {
+func Waits(l Leg) option.Option[time.Time] {
 	match l {
 	case Scheduled as s:
-		Some[time.Time]{Value: time.Add(s.Due[0], -BoardingOpens)}
+		option.Some[time.Time]{Value: time.Add(s.Due[0], -BoardingOpens)}
 	case Boarding as b:
-		Some[time.Time]{Value: b.Due[0]}
+		option.Some[time.Time]{Value: b.Due[0]}
 	case Running as r:
-		Some[time.Time]{Value: r.Due[0]}
+		option.Some[time.Time]{Value: r.Due[0]}
 	case Arrived, Cancelled:
-		None
+		option.None
 	}
 }
 
@@ -163,7 +164,7 @@ func lawCalls(s int64, legs []int64) []time.Time {
 		t = time.Add(t, time.Times(1m, int(within(m, 1, 1440))))
 		out = out.Append(t)
 	}
-	if len(out) == 1 {
+	if out.Len() == 1 {
 		out = out.Append(time.Add(t, 1h))
 	}
 	out
@@ -213,7 +214,7 @@ law TicksAtEachCallArrive(s int64, legs []int64) {
 	case machines.Running[Leg, Notice] as r:
 		match r.State {
 		case Arrived as a:
-			time.Equal(a.At, calls[len(calls)-1]) && len(r.Emitted) == len(calls)+1
+			time.Equal(a.At, calls[calls.Len()-1]) && r.Emitted.Len() == calls.Len()+1
 		case Scheduled, Boarding, Running, Cancelled:
 			false
 		}
@@ -228,7 +229,7 @@ law DelayMovesTheRest(s int64, legs []int64, k int64, m int64) {
 	let calls = lawCalls(s, legs)
 	let by = time.Times(1m, int(within(m, 1, 600)))
 	let mut l = Plan(calls)
-	let ticks = int(within(k, 0, int64(len(calls))))
+	let ticks = int(within(k, 0, int64(calls.Len())))
 	for i in 0..ticks {
 		l = machines.Next(l, Step(l, Tick{At: calls[i]}))
 	}
@@ -248,7 +249,7 @@ law DelayMovesTheRest(s int64, legs []int64, k int64, m int64) {
 	case (_, _):
 		return false
 	}
-	if len(before) != len(after) {
+	if before.Len() != after.Len() {
 		return false
 	}
 	for i, t in before {
@@ -264,16 +265,16 @@ law DelayMovesTheRest(s int64, legs []int64, k int64, m int64) {
 law CancelOnlyBeforeLeaving(s int64, legs []int64, k int64) {
 	let calls = lawCalls(s, legs)
 	let mut l = Plan(calls)
-	let ticks = int(within(k, 0, int64(len(calls))))
+	let ticks = int(within(k, 0, int64(calls.Len())))
 	for i in 0..ticks {
 		l = machines.Next(l, Step(l, Tick{At: calls[i]}))
 	}
 	match (l, Step(l, Cancel{Reason: "crew"})) {
-	case (Scheduled, Emit[Leg, Notice] as e):
+	case (Scheduled, machines.Emit[Leg, Notice] as e):
 		Name(e.Next) == "cancelled"
-	case (Boarding, Emit[Leg, Notice] as e):
+	case (Boarding, machines.Emit[Leg, Notice] as e):
 		Name(e.Next) == "cancelled"
-	case (Running, Reject), (Arrived, Reject):
+	case (Running, machines.Reject), (Arrived, machines.Reject):
 		true
 	case (_, _):
 		false

@@ -9,35 +9,35 @@ import time
 
 // Tried is Step(p, s), or Reject when the signal is refused: what the
 // board does with a signal, as the run loop decides it.
-func Tried(p Pad, s Signal) Decision[Pad, Output] {
+func Tried(p Pad, s Signal) machines.Decision[Pad, Output] {
 	Step(p, s) catch {
 	case NoSuchField:
-		Reject
+		machines.Reject
 	case LastField:
-		Reject
+		machines.Reject
 	case Duplicate:
-		Reject
+		machines.Reject
 	case BadSpec:
-		Reject
+		machines.Reject
 	case TooShort:
-		Reject
+		machines.Reject
 	}
 }
 
 // word names a decision.
-func word(d Decision[Pad, Output]) string {
+func word(d machines.Decision[Pad, Output]) string {
 	match d {
-	case Enter[Pad]:
+	case machines.Enter[Pad]:
 		"enter"
-	case Stay[Pad]:
+	case machines.Stay[Pad]:
 		"stay"
-	case Emit[Pad, Output], Tell[Pad, Output]:
+	case machines.Emit[Pad, Output], machines.Tell[Pad, Output]:
 		"emit"
-	case Ignore:
+	case machines.Ignore:
 		"ignore"
-	case Reject:
+	case machines.Reject:
 		"reject"
-	case Done[Output]:
+	case machines.Done[Output]:
 		"done"
 	}
 }
@@ -71,19 +71,19 @@ func pick(n int, count int) int { ((n % count) + count) % count }
 // letters beyond ASCII.
 func capOf(n int) string {
 	let caps = []string{"a", "q", "z", "A", "0", "7", " ", "é", "ß", "世"}
-	caps[pick(n, len(caps))]
+	caps[pick(n, caps.Len())]
 }
 
 // letterOf is a lower-case letter from n.
 func letterOf(n int) string {
 	let letters = []string{"a", "b", "k", "q", "y", "z", "é"}
-	letters[pick(n, len(letters))]
+	letters[pick(n, letters.Len())]
 }
 
 // focusedOn is the Alarm board focused on its field at pick(i).
 func focusedOn(i int) Pad {
 	let start = Start()
-	After(start, Focus{ID: Alarm()[pick(i, len(Alarm()))].ID})
+	After(start, Focus{ID: Alarm()[pick(i, Alarm().Len())].ID})
 }
 
 // pressed is p after the keys, one every 400 ms.
@@ -175,7 +175,7 @@ type Keypad machine[Pad, Signal] {
 	// FocusKept: removing a field that is not focused keeps the focus.
 	law FocusKept(i int, j int) {
 		let p = focusedOn(i)
-		let victim = Alarm()[pick(j, len(Alarm()))].ID
+		let victim = Alarm()[pick(j, Alarm().Len())].ID
 		if victim == BoardOf(p).Focus {
 			return true
 		}
@@ -196,7 +196,7 @@ type Keypad machine[Pad, Signal] {
 		let f = Focused(b)
 		let d = Step(b, Pressed{Key: Return, At: 0s}) catch {
 		case TooShort:
-			return len(f.Chars) < f.Spec.Min
+			return f.Chars.Len() < f.Spec.Min
 		case NoSuchField:
 			return false
 		case LastField:
@@ -207,24 +207,24 @@ type Keypad machine[Pad, Signal] {
 			return false
 		}
 		match d {
-		case Emit[Pad, Output] as e:
+		case machines.Emit[Pad, Output] as e:
 			match e.Output {
 			case Submitted as s:
-				len(f.Chars) >= f.Spec.Min && s.ID == f.Spec.ID && s.Text == Text(f)
+				f.Chars.Len() >= f.Spec.Min && s.ID == f.Spec.ID && s.Text == Text(f)
 			case Published:
 				false
 			case Closed:
 				false
 			}
-		case Enter[Pad]:
+		case machines.Enter[Pad]:
 			false
-		case Stay[Pad], Tell[Pad, Output]:
+		case machines.Stay[Pad], machines.Tell[Pad, Output]:
 			false
-		case Ignore:
+		case machines.Ignore:
 			false
-		case Reject:
+		case machines.Reject:
 			false
-		case Done[Output]:
+		case machines.Done[Output]:
 			false
 		}
 	},

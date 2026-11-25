@@ -18,7 +18,7 @@ func Inert(s string) bool {
 		return false
 	}
 	let parts = strings.Split(s, "&")
-	for i in 1..len(parts) {
+	for i in 1..parts.Len() {
 		let p = parts[i]
 		if !(strings.HasPrefix(p, "amp;") || strings.HasPrefix(p, "lt;") || strings.HasPrefix(p, "gt;") || strings.HasPrefix(p, "#34;") || strings.HasPrefix(p, "#39;")) {
 			return false

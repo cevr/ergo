@@ -5,6 +5,7 @@
 
 import limiter/limits
 import machines
+import option
 
 // Spec is a bucket's shape: how many tokens it holds and how fast one
 // comes back.
@@ -25,19 +26,19 @@ func Open(s Spec) Bucket { Bucket{Capacity: s.Capacity, RefillMs: s.RefillMs, To
 // Step moves a bucket. Time refills it, never past its capacity; a take it
 // can pay is Granted, one it cannot pay yet is Short with the exact wait;
 // a cost outside 1..Capacity is rejected, as no wait would pay it.
-func Step(b Bucket, s Signal) Decision[Bucket, Told] {
+func Step(b Bucket, s Signal) machines.Decision[Bucket, Told] {
 	match s {
 	case Elapse as e:
-		Stay[Bucket]{Next: elapse(b, e.Ms)}
+		machines.Stay[Bucket]{Next: elapse(b, e.Ms)}
 	case Spend as p:
 		if p.Cost < 1 || p.Cost > b.Capacity {
-			return Reject
+			return machines.Reject
 		}
 		if b.Tokens >= p.Cost {
 			let next = Bucket{Capacity: b.Capacity, RefillMs: b.RefillMs, Tokens: b.Tokens - p.Cost, Since: b.Since}
-			return Emit[Bucket, Told]{Next: next, Output: Granted{Remaining: next.Tokens}}
+			return machines.Emit[Bucket, Told]{Next: next, Output: Granted{Remaining: next.Tokens}}
 		}
-		Emit[Bucket, Told]{Next: b, Output: Short{RetryAfterMs: (p.Cost-b.Tokens)*b.RefillMs - b.Since}}
+		machines.Emit[Bucket, Told]{Next: b, Output: Short{RetryAfterMs: (p.Cost-b.Tokens)*b.RefillMs - b.Since}}
 	}
 }
 
@@ -99,7 +100,7 @@ type Tokens machine[Bucket, Signal] {
 		let b = drained(s, spent)
 		let k = 1 + pick(cost, s.Capacity)
 		match told(Step(b, Spend{Cost: k})) {
-		case Some[Told] as t:
+		case option.Some[Told] as t:
 			match t.Value {
 			case Granted:
 				true
@@ -108,7 +109,7 @@ type Tokens machine[Bucket, Signal] {
 				let late = elapse(b, w.RetryAfterMs)
 				isShort(Step(early, Spend{Cost: k})) && !isShort(Step(late, Spend{Cost: k}))
 			}
-		case None:
+		case option.None:
 			false
 		}
 	},
@@ -127,9 +128,9 @@ type Tokens machine[Bucket, Signal] {
 			}
 			let d = Step(b, Spend{Cost: k})
 			match d {
-			case Emit[Bucket, Told], Tell[Bucket, Told]:
+			case machines.Emit[Bucket, Told], machines.Tell[Bucket, Told]:
 				told = told + 1
-			case Enter[Bucket], Stay[Bucket], Ignore, Reject, Done[Told]:
+			case machines.Enter[Bucket], machines.Stay[Bucket], machines.Ignore, machines.Reject, machines.Done[Told]:
 			}
 			b = machines.Next(b, d)
 		}
@@ -164,25 +165,25 @@ func drained(s Spec, spent int) Bucket {
 	b
 }
 
-func told(d Decision[Bucket, Told]) Option[Told] {
+func told(d machines.Decision[Bucket, Told]) option.Option[Told] {
 	match d {
-	case Emit[Bucket, Told] as e:
-		Some[Told]{Value: e.Output}
-	case Enter[Bucket], Stay[Bucket], Tell[Bucket, Told], Ignore, Reject, Done[Told]:
-		None
+	case machines.Emit[Bucket, Told] as e:
+		option.Some[Told]{Value: e.Output}
+	case machines.Enter[Bucket], machines.Stay[Bucket], machines.Tell[Bucket, Told], machines.Ignore, machines.Reject, machines.Done[Told]:
+		option.None
 	}
 }
 
-func isShort(d Decision[Bucket, Told]) bool {
+func isShort(d machines.Decision[Bucket, Told]) bool {
 	match told(d) {
-	case Some[Told] as t:
+	case option.Some[Told] as t:
 		match t.Value {
 		case Short:
 			true
 		case Granted:
 			false
 		}
-	case None:
+	case option.None:
 		false
 	}
 }

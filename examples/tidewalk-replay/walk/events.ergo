@@ -63,7 +63,7 @@ func evolveWalk(w Walk, e Event) Game {
 	case Waited:
 		return Playing{W: Walk{..w, Turn: w.Turn + 1}}
 	case ShellCollected as s:
-		let k = s.At.Y*len(ground[0]) + s.At.X
+		let k = s.At.Y*ground[0].Len() + s.At.X
 		return Playing{W: Walk{..w, Shells: w.Shells + 1, Left: w.Left[0:k] + "." + w.Left[k+1:]}}
 	case TideRose as t:
 		return Playing{W: Walk{..w, Tide: t.Tide}}

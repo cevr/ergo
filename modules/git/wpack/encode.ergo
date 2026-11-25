@@ -1,4 +1,5 @@
 import hex
+import option
 import sha1dc
 import sha256
 import slices
@@ -190,8 +191,8 @@ func hashChunk16(buf []byte, off int) uint32 {
 // target, using 16-byte anchored copy windows (up to 64 KiB per copy) and
 // literal insert chunks.
 func EncodeDelta(base []byte, target []byte) []byte {
-	let blen = len(base)
-	let tlen = len(target)
+	let blen = base.Len()
+	let tlen = target.Len()
 	if blen < 16 || tlen < 16 {
 		return delta.EncodeLiteralDelta(blen, target)
 	}
@@ -199,7 +200,7 @@ func EncodeDelta(base []byte, target []byte) []byte {
 	let mut bp = 0
 	for bp+16 <= blen {
 		let h = hashChunk16(base, bp)
-		if index.Get(h) == None {
+		if index.Get(h) == option.None {
 			index[h] = bp
 		}
 		bp = bp + 16
@@ -214,7 +215,7 @@ func EncodeDelta(base []byte, target []byte) []byte {
 		if pos+16 <= tlen {
 			let h = hashChunk16(target, pos)
 			match index.Get(h) {
-			case Some[int] as bOffOpt:
+			case option.Some[int] as bOffOpt:
 				let bOff = bOffOpt.Value
 				let mut ml = 0
 				let maxL = if blen-bOff < tlen-pos { blen - bOff } else { tlen - pos }
@@ -231,7 +232,7 @@ func EncodeDelta(base []byte, target []byte) []byte {
 					litStart = pos
 					matched = true
 				}
-			case None:
+			case option.None:
 			}
 		}
 		if !matched {
@@ -262,7 +263,7 @@ type writtenBase {
 func dedupPackObjects(format oid.Format, objects []PackObject) ([]hashedPackObj, Map[int, string]) fails Collision {
 	let mut seen = Map[string, bool]{}
 	let mut origToHex = Map[int, string]{}
-	let mut unique = slices.WithCapacity[hashedPackObj](len(objects))
+	let mut unique = slices.WithCapacity[hashedPackObj](objects.Len())
 	for i, obj in objects {
 		let id = oid.HashObject(format, obj.Kind, obj.Data) catch {
 		case oid.Collision as c:
@@ -270,7 +271,7 @@ func dedupPackObjects(format oid.Format, objects []PackObject) ([]hashedPackObj,
 		}
 		let h = oid.Hex(id)
 		origToHex[i] = h
-		if seen.Get(h) != None {
+		if seen.Get(h) != option.None {
 			continue
 		}
 		seen[h] = true
@@ -315,7 +316,7 @@ func encodeIdxV2(format oid.Format, entries []packidx.Entry, packSumBytes []byte
 	let mut large = []uint64{}
 	for e in sorted {
 		if e.Offset >= uint64(0x80000000) {
-			let lIdx = uint32(len(large))
+			let lIdx = uint32(large.Len())
 			large = large.Append(e.Offset)
 			idxBuf = appendU32BE(idxBuf, uint32(0x80000000)|lIdx)
 		} else {
@@ -339,68 +340,68 @@ func BuildPackPair(format oid.Format, objects []PackObject) BuiltPack fails Coll
 	let (unique, origToHex) = try dedupPackObjects(format, objects)
 	let mut packBuf = "PACK".Bytes()
 	packBuf = appendU32BE(packBuf, uint32(2))
-	packBuf = appendU32BE(packBuf, uint32(len(unique)))
+	packBuf = appendU32BE(packBuf, uint32(unique.Len()))
 
 	let mut writtenByHex = Map[string, writtenBase]{}
 	let mut lastByKind = Map[int, writtenBase]{}
-	let mut idxEntries = slices.WithCapacity[packidx.Entry](len(unique))
+	let mut idxEntries = slices.WithCapacity[packidx.Entry](unique.Len())
 
 	for cur in unique {
-		let entryOffset = len(packBuf)
+		let entryOffset = packBuf.Len()
 		let mut wroteDelta = false
 
 		match cur.delta {
 		case DeltaNone:
 		case DeltaOfs as dof:
 			match origToHex.Get(dof.BaseIndex) {
-			case Some[string] as bh:
+			case option.Some[string] as bh:
 				match writtenByHex.Get(bh.Value) {
-				case Some[writtenBase] as baseObj:
+				case option.Some[writtenBase] as baseObj:
 					if sameKind(baseObj.Value.kind, cur.kind) && baseObj.Value.offset < entryOffset {
 						let dBytes = EncodeDelta(baseObj.Value.data, cur.data)
 						let dist = uint64(entryOffset - baseObj.Value.offset)
-						packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(6, len(dBytes)))
+						packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(6, dBytes.Len()))
 						packBuf = slices.AppendAll(packBuf, delta.EncodeOfsDistance(dist))
 						packBuf = slices.AppendAll(packBuf, zlib.Deflate(dBytes))
 						wroteDelta = true
 					}
-				case None:
+				case option.None:
 				}
-			case None:
+			case option.None:
 			}
 		case DeltaRef as dref:
 			match writtenByHex.Get(oid.Hex(dref.BaseOID)) {
-			case Some[writtenBase] as baseObj:
+			case option.Some[writtenBase] as baseObj:
 				if sameKind(baseObj.Value.kind, cur.kind) {
 					let dBytes = EncodeDelta(baseObj.Value.data, cur.data)
-					packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(7, len(dBytes)))
+					packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(7, dBytes.Len()))
 					packBuf = slices.AppendAll(packBuf, baseObj.Value.id.Raw)
 					packBuf = slices.AppendAll(packBuf, zlib.Deflate(dBytes))
 					wroteDelta = true
 				}
-			case None:
+			case option.None:
 			}
 		case DeltaAuto:
 			let kNum = packTypeOf(cur.kind)
 			match lastByKind.Get(kNum) {
-			case Some[writtenBase] as baseObj:
+			case option.Some[writtenBase] as baseObj:
 				if baseObj.Value.offset < entryOffset {
 					let dBytes = EncodeDelta(baseObj.Value.data, cur.data)
-					if len(dBytes) < len(cur.data) {
+					if dBytes.Len() < cur.data.Len() {
 						let dist = uint64(entryOffset - baseObj.Value.offset)
-						packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(6, len(dBytes)))
+						packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(6, dBytes.Len()))
 						packBuf = slices.AppendAll(packBuf, delta.EncodeOfsDistance(dist))
 						packBuf = slices.AppendAll(packBuf, zlib.Deflate(dBytes))
 						wroteDelta = true
 					}
 				}
-			case None:
+			case option.None:
 			}
 		}
 
 		if !wroteDelta {
 			let typeNum = packTypeOf(cur.kind)
-			packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(typeNum, len(cur.data)))
+			packBuf = slices.AppendAll(packBuf, EncodePackEntryHeader(typeNum, cur.data.Len()))
 			packBuf = slices.AppendAll(packBuf, zlib.Deflate(cur.data))
 		}
 
@@ -430,7 +431,7 @@ func BuildPackPair(format oid.Format, objects []PackObject) BuiltPack fails Coll
 		IdxChecksum:  idxSumOid,
 		PackBytes:    packBuf,
 		IdxBytes:     idxBuf,
-		Count:        len(sortedEntries),
+		Count:        sortedEntries.Len(),
 		Entries:      sortedEntries,
 	}
 }

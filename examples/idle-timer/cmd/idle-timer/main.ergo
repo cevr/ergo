@@ -17,10 +17,10 @@ import time
 
 let Live = context { display.Policies: memory.Fixed }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let c = testing.NewVirtualClock(0)
 	let status = with Live {
-		with context { io.Stdin: io.NewStdin(), time.Clock: c, Scheduler: c } {
+		with context { io.Stdin: io.NewStdin(), time.Clock: c, time.Scheduler: c } {
 			script.Run()
 		}
 	}

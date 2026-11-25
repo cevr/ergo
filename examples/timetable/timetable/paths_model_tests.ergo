@@ -1,6 +1,8 @@
+import core
 import explore
 import gen
 import machines
+import option
 import sync
 import temporal
 import testing
@@ -46,7 +48,7 @@ type tripDriveErr { Message string }
 
 type tripSession {
 	leg sync.Ref[Leg],
-} implements explore.PathSession[tripAct, explore.Observed[tripObs, tripOut, Never], tripDriveErr]
+} implements explore.PathSession[tripAct, explore.Observed[tripObs, tripOut, core.Never], tripDriveErr]
 
 let tripBase = time.Unix(1767261600, 0)
 
@@ -65,11 +67,11 @@ func tripMinsBetween(a time.Time, b time.Time) int {
 func tripHasDue(l Leg) bool {
 	match l {
 	case Scheduled as s:
-		len(s.Due) > 0
+		s.Due.Len() > 0
 	case Boarding as b:
-		len(b.Due) > 0
+		b.Due.Len() > 0
 	case Running as r:
-		len(r.Due) > 0
+		r.Due.Len() > 0
 	case Arrived, Cancelled:
 		true
 	}
@@ -78,11 +80,11 @@ func tripHasDue(l Leg) bool {
 func tripDelayMins(l Leg) int {
 	match l {
 	case Scheduled as s:
-		if len(s.Due) == 0 { 0 } else { tripMinsBetween(s.Due[0], tripBase) }
+		if s.Due.Len() == 0 { 0 } else { tripMinsBetween(s.Due[0], tripBase) }
 	case Boarding as b:
-		if len(b.Due) == 0 { 0 } else { tripMinsBetween(b.Due[0], tripBase) }
+		if b.Due.Len() == 0 { 0 } else { tripMinsBetween(b.Due[0], tripBase) }
 	case Running as r:
-		if len(r.Due) == 0 {
+		if r.Due.Len() == 0 {
 			0
 		} else {
 			let expected = time.Add(tripBase, time.Times(30m, r.Next))
@@ -109,9 +111,9 @@ func observeTrip(l Leg) tripObs {
 		return tripObs{Phase: Name(l), NextStop: 0, DelayMin: 0, HasWaits: false, Progress: progress(l)}
 	}
 	let hasWaits = match Waits(l) {
-	case Some[time.Time]:
+	case option.Some[time.Time]:
 		true
-	case None:
+	case option.None:
 		false
 	}
 	tripObs{
@@ -150,11 +152,11 @@ func applyTripLive(ref sync.Ref[Leg], act tripAct) tripOut {
 	let next = machines.Next(cur, dec)
 	ref.Set(next)
 	match dec {
-	case Ignore:
+	case machines.Ignore:
 		TripOutIgnored
-	case Reject:
+	case machines.Reject:
 		TripOutRejected
-	case Emit[Leg, Notice] as e:
+	case machines.Emit[Leg, Notice] as e:
 		match e.Output {
 		case BoardingOpen:
 			TripOutBoarding
@@ -169,24 +171,24 @@ func applyTripLive(ref sync.Ref[Leg], act tripAct) tripOut {
 		case Withdrawn:
 			TripOutWithdrawn
 		}
-	case Enter[Leg], Stay[Leg], Tell[Leg, Notice], Done[Notice]:
+	case machines.Enter[Leg], machines.Stay[Leg], machines.Tell[Leg, Notice], machines.Done[Notice]:
 		TripOutIgnored
 	}
 }
 
-func Read(s tripSession) explore.Observed[tripObs, tripOut, Never] fails tripDriveErr {
+func Read(s tripSession) explore.Observed[tripObs, tripOut, core.Never] fails tripDriveErr {
 	explore.InitialRead[tripObs]{State: observeTrip(s.leg.Get())}
 }
 
-func Apply(s tripSession, act tripAct) explore.Observed[tripObs, tripOut, Never] fails tripDriveErr {
+func Apply(s tripSession, act tripAct) explore.Observed[tripObs, tripOut, core.Never] fails tripDriveErr {
 	let out = applyTripLive(s.leg, act)
 	let obs = observeTrip(s.leg.Get())
-	explore.StepResult[tripObs, tripOut, Never]{
-		Step: explore.StepObs[tripObs, tripOut, Never]{
+	explore.StepResult[tripObs, tripOut, core.Never]{
+		Step: explore.StepObs[tripObs, tripOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[tripObs]{Value: obs},
+			State:    option.Some[tripObs]{Value: obs},
 			Outputs:  []tripOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -303,21 +305,21 @@ let tripPathSignals = []tripAct{
 	TripCancel,
 }
 
-func tripModel() explore.PathModel[tripState, tripAct, tripObs, tripOut, Never] {
-	explore.PathModelProjected[tripState, tripAct, tripObs, tripOut, Never](
+func tripModel() explore.PathModel[tripState, tripAct, tripObs, tripOut, core.Never] {
+	explore.PathModelProjected[tripState, tripAct, tripObs, tripOut, core.Never](
 		[]tripState{tripStart},
 		tripPathSignals,
 		"timetable.trip",
 		tripProject,
-		func(st tripState, act tripAct) explore.EdgeOutcome[tripState, explore.StepObs[tripObs, tripOut, Never]] {
+		func(st tripState, act tripAct) explore.EdgeOutcome[tripState, explore.StepObs[tripObs, tripOut, core.Never]] {
 			let (next, out) = tripStep(st, act)
-			explore.Continue[tripState, explore.StepObs[tripObs, tripOut, Never]]{
+			explore.Continue[tripState, explore.StepObs[tripObs, tripOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[tripObs, tripOut, Never]{
+				Obs:  explore.StepObs[tripObs, tripOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[tripObs]{Value: tripProject(next)},
+					State:    option.Some[tripObs]{Value: tripProject(next)},
 					Outputs:  []tripOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -336,7 +338,7 @@ type TripPaths {
 			tripModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start tripState) explore.PathSession[tripAct, explore.Observed[tripObs, tripOut, Never], tripDriveErr] fails tripOpenErr {
+			func(start tripState) explore.PathSession[tripAct, explore.Observed[tripObs, tripOut, core.Never], tripDriveErr] fails tripOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),

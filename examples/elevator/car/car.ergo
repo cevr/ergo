@@ -5,6 +5,7 @@
 
 import elevator/floors
 import machines
+import option
 import slices
 
 // Top is the highest floor; the lowest is 0.
@@ -41,10 +42,10 @@ type Car machine[State, Signal] {
 // starts toward the nearest, a moving car goes one floor and opens at a
 // floor it is called to, and an open car closes and goes on, or idles. Halt
 // is Done with where the car stands.
-func Step(s State, sig Signal) Decision[State, Stopped] fails floors.Full | NoFloor {
+func Step(s State, sig Signal) machines.Decision[State, Stopped] fails floors.Full | NoFloor {
 	match (s, sig) {
 	case (_, Halt):
-		Done[Stopped]{Output: Stopped{At: AtOf(s), Served: ServedOf(s)}}
+		machines.Done[Stopped]{Output: Stopped{At: AtOf(s), Served: ServedOf(s)}}
 	case (_, Call as c):
 		if c.Floor < 0 || c.Floor > Top {
 			return NoFloor{Floor: c.Floor}
@@ -60,47 +61,47 @@ func Step(s State, sig Signal) Decision[State, Stopped] fails floors.Full | NoFl
 }
 
 // called is s with a call to f.
-func called(s State, f int) Decision[State, Stopped] fails floors.Full {
+func called(s State, f int) machines.Decision[State, Stopped] fails floors.Full {
 	match s {
 	case Idle as i:
 		if f == i.At {
-			return Enter[State]{Next: Open{At: i.At, Up: true, Calls: i.Calls, Served: i.Served + 1}}
+			return machines.Enter[State]{Next: Open{At: i.At, Up: true, Calls: i.Calls, Served: i.Served + 1}}
 		}
-		Stay[State]{Next: Idle{..i, Calls: try floors.InsertCapped(i.Calls, f, Cap)}}
+		machines.Stay[State]{Next: Idle{..i, Calls: try floors.InsertCapped(i.Calls, f, Cap)}}
 	case Moving as m:
-		Stay[State]{Next: Moving{..m, Calls: try floors.InsertCapped(m.Calls, f, Cap)}}
+		machines.Stay[State]{Next: Moving{..m, Calls: try floors.InsertCapped(m.Calls, f, Cap)}}
 	case Open as o:
 		if f == o.At {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[State]{Next: Open{..o, Calls: try floors.InsertCapped(o.Calls, f, Cap)}}
+		machines.Stay[State]{Next: Open{..o, Calls: try floors.InsertCapped(o.Calls, f, Cap)}}
 	}
 }
 
 // started is an idle car's tick: it starts toward its nearest call.
-func started(i Idle) Decision[State, Stopped] {
+func started(i Idle) machines.Decision[State, Stopped] {
 	if floors.Len(i.Calls) == 0 {
-		return Ignore
+		return machines.Ignore
 	}
-	Enter[State]{Next: Moving{At: i.At, Up: Toward(i.Calls, i.At, true), Calls: i.Calls, Served: i.Served}}
+	machines.Enter[State]{Next: Moving{At: i.At, Up: Toward(i.Calls, i.At, true), Calls: i.Calls, Served: i.Served}}
 }
 
 // moved is a moving car's tick: one floor on, and open there when it is
 // called to it.
-func moved(m Moving) Decision[State, Stopped] {
+func moved(m Moving) machines.Decision[State, Stopped] {
 	let next = if m.Up { m.At + 1 } else { m.At - 1 }
 	if floors.Has(m.Calls, next) {
-		return Enter[State]{Next: Open{At: next, Up: m.Up, Calls: floors.Remove(m.Calls, next), Served: m.Served + 1}}
+		return machines.Enter[State]{Next: Open{At: next, Up: m.Up, Calls: floors.Remove(m.Calls, next), Served: m.Served + 1}}
 	}
-	Stay[State]{Next: Moving{..m, At: next}}
+	machines.Stay[State]{Next: Moving{..m, At: next}}
 }
 
 // closed is an open car's tick: it goes on to its calls, or idles.
-func closed(o Open) Decision[State, Stopped] {
+func closed(o Open) machines.Decision[State, Stopped] {
 	if floors.Len(o.Calls) == 0 {
-		return Enter[State]{Next: Idle{At: o.At, Calls: o.Calls, Served: o.Served}}
+		return machines.Enter[State]{Next: Idle{At: o.At, Calls: o.Calls, Served: o.Served}}
 	}
-	Enter[State]{Next: Moving{At: o.At, Up: Toward(o.Calls, o.At, o.Up), Calls: o.Calls, Served: o.Served}}
+	machines.Enter[State]{Next: Moving{At: o.At, Up: Toward(o.Calls, o.At, o.Up), Calls: o.Calls, Served: o.Served}}
 }
 
 // Toward is the way to the next call from at: on the way the car goes
@@ -108,9 +109,9 @@ func closed(o Open) Decision[State, Stopped] {
 func Toward(calls floors.Set, at int, up bool) bool {
 	let ahead = if up { floors.Above(calls, at) } else { floors.Below(calls, at) }
 	match ahead {
-	case Some[int]:
+	case option.Some[int]:
 		up
-	case None:
+	case option.None:
 		!up
 	}
 }
@@ -159,12 +160,12 @@ func Run(sigs []Signal) []State {
 	for sig in sigs {
 		let d = Step(s, sig) catch {
 		case floors.Full, NoFloor:
-			Reject
+			machines.Reject
 		}
 		match d {
-		case Done[Stopped]:
+		case machines.Done[Stopped]:
 			return seen
-		case Enter[State], Stay[State], Emit[State, Stopped], Tell[State, Stopped], Ignore, Reject:
+		case machines.Enter[State], machines.Stay[State], machines.Emit[State, Stopped], machines.Tell[State, Stopped], machines.Ignore, machines.Reject:
 		}
 		s = machines.Next(s, d)
 		seen = seen.Append(s)
@@ -201,7 +202,7 @@ func Ticks(n int) []Signal {
 law EveryCallIsServed(ns []int) {
 	let sigs = SignalsOf(ns)
 	let seen = Run(slices.Concat(sigs, Ticks(4*(Top+1)*(Cap+1))))
-	let last = seen[len(seen)-1]
+	let last = seen[seen.Len()-1]
 	match last {
 	case Idle as i:
 		floors.Len(i.Calls) == 0
@@ -234,11 +235,11 @@ law CallsStayInTheBuilding(ns []int) {
 // state kept before a step is the state it was.
 law StepKeepsTheOldState(ns []int, f int) {
 	let seen = Run(SignalsOf(ns))
-	let s = seen[len(seen)-1]
+	let s = seen[seen.Len()-1]
 	let before = slices.Clone(floors.Floors(CallsOf(s)))
 	let _ = Step(s, Call{Floor: (if f < 0 { -(f + 1) } else { f }) % 10}) catch {
 	case floors.Full, NoFloor:
-		Reject
+		machines.Reject
 	}
 	slices.Equal(floors.Floors(CallsOf(s)), before)
 }

@@ -5,6 +5,7 @@
 
 import gen
 import machines
+import option
 import particles/world
 
 // Game is the box and what happened to it since it was loaded: the steps
@@ -24,19 +25,19 @@ law PausedIgnoresTicks() {
 }
 
 // word names a decision.
-func word(d Decision[Phase, Game]) string {
+func word(d machines.Decision[Phase, Game]) string {
 	match d {
-	case Enter[Phase]:
+	case machines.Enter[Phase]:
 		"enter"
-	case Stay[Phase]:
+	case machines.Stay[Phase]:
 		"stay"
-	case Emit[Phase, Game], Tell[Phase, Game]:
+	case machines.Emit[Phase, Game], machines.Tell[Phase, Game]:
 		"emit"
-	case Ignore:
+	case machines.Ignore:
 		"ignore"
-	case Reject:
+	case machines.Reject:
 		"reject"
-	case Done[Game]:
+	case machines.Done[Game]:
 		"done"
 	}
 }
@@ -47,9 +48,9 @@ law RunningTicksStay() {
 	assert gen.Report(gen.Check(gen.Defaults(), func() bool fails gen.Rejected needs gen.Draws {
 		let g = Fresh(drawnBox())
 		match Step(Running{G: g}, Tick) {
-		case Stay[Phase] as s:
+		case machines.Stay[Phase] as s:
 			GameOf(s.Next).Steps == 1 && Name(s.Next) == "running"
-		case Enter[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject, Done[Game]:
+		case machines.Enter[Phase], machines.Emit[Phase, Game], machines.Tell[Phase, Game], machines.Ignore, machines.Reject, machines.Done[Game]:
 			false
 		}
 	})) == ""
@@ -66,11 +67,11 @@ law QuitIsDone() {
 		let g = Advance(Fresh(drawnBox()))
 		for p in []Phase{Running{G: g}, Paused{G: g}} {
 			match Step(p, Quit) {
-			case Done[Game] as d:
+			case machines.Done[Game] as d:
 				if d.Output.W != g.W || d.Output.Steps != 1 {
 					return false
 				}
-			case Enter[Phase], Stay[Phase], Emit[Phase, Game], Tell[Phase, Game], Ignore, Reject:
+			case machines.Enter[Phase], machines.Stay[Phase], machines.Emit[Phase, Game], machines.Tell[Phase, Game], machines.Ignore, machines.Reject:
 				return false
 			}
 		}
@@ -128,22 +129,22 @@ func Advance(g Game) Game {
 // stays; a paused box ignores it. Pause and Resume enter the other phase,
 // and are ignored in their own. Quit is Done with the game, in either
 // phase.
-func Step(p Phase, i Input) Decision[Phase, Game] {
+func Step(p Phase, i Input) machines.Decision[Phase, Game] {
 	match (p, i) {
 	case (Running as r, Tick):
-		Stay[Phase]{Next: Running{G: Advance(r.G)}}
+		machines.Stay[Phase]{Next: Running{G: Advance(r.G)}}
 	case (Paused, Tick):
-		Ignore
+		machines.Ignore
 	case (Running as r, Pause):
-		Enter[Phase]{Next: Paused{G: r.G}}
+		machines.Enter[Phase]{Next: Paused{G: r.G}}
 	case (Paused, Pause):
-		Ignore
+		machines.Ignore
 	case (Paused as s, Resume):
-		Enter[Phase]{Next: Running{G: s.G}}
+		machines.Enter[Phase]{Next: Running{G: s.G}}
 	case (Running, Resume):
-		Ignore
+		machines.Ignore
 	case (_, Quit):
-		Done[Game]{Output: GameOf(p)}
+		machines.Done[Game]{Output: GameOf(p)}
 	}
 }
 
@@ -155,15 +156,15 @@ type Sim machine[Phase, Input] {
 
 // Key is the input of a key the player types: p, r and q, or None for
 // any other key.
-func Key(k string) Option[Input] {
+func Key(k string) option.Option[Input] {
 	match k {
 	case "p":
-		Some[Input]{Value: Pause}
+		option.Some[Input]{Value: Pause}
 	case "r":
-		Some[Input]{Value: Resume}
+		option.Some[Input]{Value: Resume}
 	case "q":
-		Some[Input]{Value: Quit}
+		option.Some[Input]{Value: Quit}
 	case _:
-		None
+		option.None
 	}
 }

@@ -51,7 +51,7 @@ func whole(l Label) []Listing fails Down needs Registry {
 }
 
 func same(a []Listing, b []Listing) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, x in a {
@@ -76,8 +76,8 @@ func PageIsSliceOfWhole(pick Pick, offset Offset, limit Limit) bool needs Regist
 	}
 	let from = int(offset)
 	let mut to = from + int(limit)
-	if to > len(all) {
-		to = len(all)
+	if to > all.Len() {
+		to = all.Len()
 	}
 	from <= to && same(p, all[from:to])
 }
@@ -102,7 +102,7 @@ func FeaturedFirst(pick Pick) bool needs Registry {
 	case Down:
 		return true
 	}
-	if len(all) != len(Catalog) {
+	if all.Len() != Catalog.Len() {
 		return false
 	}
 	let l = labelOf(pick)
@@ -120,5 +120,5 @@ func AtMostLimit(pick Pick, offset Offset, limit Limit) bool needs Registry {
 	case Down:
 		return true
 	}
-	len(p) <= int(limit)
+	p.Len() <= int(limit)
 }

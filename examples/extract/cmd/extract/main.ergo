@@ -87,10 +87,10 @@ func failed(f llm.Failure) string {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		let args = os.Process.Args()
-		if len(args) != 2 {
+		if args.Len() != 2 {
 			return os.Exit{Code: 2, Message: "usage: extract RECORDING DOCUMENT"}
 		}
 		let exchanges = recorded.Read(try load(args[0])) catch {

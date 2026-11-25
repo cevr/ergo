@@ -10,6 +10,8 @@
 import civil
 import flag
 import io
+import machines
+import option
 import os
 import time
 import timetable/memory
@@ -64,9 +66,9 @@ let commands = []flag.Command[Cmd]{
 // argOf is the value of a required argument, which Parse has checked.
 func argOf(a flag.ArgSpec, v flag.Values) string {
 	match a.Get(v) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -99,7 +101,7 @@ func departures(t memory.Timetable, c DeparturesCmd) fails os.Exit needs io.Stdo
 	}
 	let now = time.Clock.Now()
 	io.Stdout.Println("\(c.Stop), \(timetable.DayText(day))")
-	if len(all) == 0 {
+	if all.Len() == 0 {
 		io.Stdout.Println("  no trains")
 	}
 	for d in all {
@@ -116,7 +118,7 @@ func week(t memory.Timetable, c WeekCmd) fails os.Exit needs io.Stdout {
 	for w in timetable.Weeks(day, c.Count) {
 		io.Stdout.Println("\(timetable.WeekText(civil.From(w)))  \(timetable.DayText(civil.From(w))) to \(timetable.DayText(civil.To(w)))")
 		for d in timetable.Days(w, memory.Services(t)) {
-			let trains = if len(d.Services) == 0 { "-" } else { join(d.Services) }
+			let trains = if d.Services.Len() == 0 { "-" } else { join(d.Services) }
 			io.Stdout.Println("  \(timetable.DayText(d.Date))  \(trains)")
 		}
 	}
@@ -152,9 +154,9 @@ func trip(t memory.Timetable, c TripCmd) fails os.Exit needs io.Stdout | tz.Zone
 	}
 	for {
 		let next = match timetable.Waits(l) {
-		case Some[time.Time] as w:
+		case option.Some[time.Time] as w:
 			w.Value
-		case None:
+		case option.None:
 			break
 		}
 		l = try say(r, now, l, timetable.Tick{At: next})
@@ -169,21 +171,21 @@ func trip(t memory.Timetable, c TripCmd) fails os.Exit needs io.Stdout | tz.Zone
 // say steps l by c and prints its notice.
 func say(r timetable.Route, now time.Time, l timetable.Leg, c timetable.Cue) timetable.Leg fails os.Exit needs io.Stdout {
 	match timetable.Step(l, c) {
-	case Emit[timetable.Leg, timetable.Notice] as e:
+	case machines.Emit[timetable.Leg, timetable.Notice] as e:
 		io.Stdout.Println(notice(r, now, e.Output))
 		e.Next
-	case Tell[timetable.Leg, timetable.Notice] as t:
+	case machines.Tell[timetable.Leg, timetable.Notice] as t:
 		io.Stdout.Println(notice(r, now, t.Output))
 		t.Next
-	case Enter[timetable.Leg] as e:
+	case machines.Enter[timetable.Leg] as e:
 		e.Next
-	case Stay[timetable.Leg] as e:
+	case machines.Stay[timetable.Leg] as e:
 		e.Next
-	case Ignore:
+	case machines.Ignore:
 		l
-	case Reject:
+	case machines.Reject:
 		return os.Exit{Code: 1, Message: "timetable: a \(timetable.Name(l)) train takes no such change"}
-	case Done[timetable.Notice]:
+	case machines.Done[timetable.Notice]:
 		l
 	}
 }
@@ -191,7 +193,7 @@ func say(r timetable.Route, now time.Time, l timetable.Leg, c timetable.Cue) tim
 // notice is n as a line: what happened, where, on that station's clock.
 func notice(r timetable.Route, now time.Time, n timetable.Notice) string {
 	let first = r.Stations[0]
-	let last = r.Stations[len(r.Stations)-1]
+	let last = r.Stations[r.Stations.Len()-1]
 	let at = func(st timetable.Station, t time.Time) string {
 		"\(st.Name) \(timetable.ClockText(tz.Zoned{At: t, Zone: st.Zone})) (\(timetable.Until(now, t)))"
 	}
@@ -245,7 +247,7 @@ func withNow(now string, f func() fails os.Exit needs io.Stdout | tz.Zones | tim
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), tz.Zones: iana.New(), time.Clock: time.NewHost() } {
 		try run(os.Process.Args())
 	}

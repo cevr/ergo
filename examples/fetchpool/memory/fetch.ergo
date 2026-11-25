@@ -1,12 +1,13 @@
 // Package memory supplies deterministic downloads and a recording release
 // sink. A missing endpoint and a failed source read are typed failures.
+import core
 import fetchpool/domain
 import sync
 
 type Recording { Log sync.Ref[[]string] } implements domain.Fetcher
 type Script {} implements domain.Fetcher
-type connection { id int, log sync.Ref[[]string] } implements domain.Conn, Closer
-type Limit { left sync.Ref[int], log sync.Ref[[]string] } implements domain.Limiter, Closer
+type connection { id int, log sync.Ref[[]string] } implements domain.Conn, core.Closer
+type Limit { left sync.Ref[int], log sync.Ref[[]string] } implements domain.Limiter, core.Closer
 
 func Open(s Recording, id int) domain.Conn fails domain.Offline {
 	if id < 0 {

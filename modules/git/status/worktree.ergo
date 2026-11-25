@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import slices
 import strings
 import github.com/cevr/ergo/modules/git/index
@@ -14,7 +15,7 @@ type WorktreeSnap {
 	IsSymlink bool,
 	Mode      uint32,
 	Size      int,
-	MTime     Option[StatTime],
+	MTime     option.Option[StatTime],
 	Content   []byte,
 }
 
@@ -22,7 +23,7 @@ type WorktreeSnap {
 type WorktreeChange {
 	Path     string,
 	WorkCode string,
-	ModeWork Option[tree.Mode],
+	ModeWork option.Option[tree.Mode],
 }
 
 func isStrictlyOlder(a StatTime, b StatTime) bool {
@@ -32,7 +33,7 @@ func isStrictlyOlder(a StatTime, b StatTime) bool {
 // IsStatCacheClean reports whether an index entry's stat cache proves the
 // working-tree file is unmodified without re-hashing. Equal or newer mtimes
 // relative to indexMTime are racy and MUST return false.
-func IsStatCacheClean(entry index.Entry, snap WorktreeSnap, indexMTime Option[StatTime]) bool {
+func IsStatCacheClean(entry index.Entry, snap WorktreeSnap, indexMTime option.Option[StatTime]) bool {
 	if !snap.Exists || snap.IsDir {
 		return false
 	}
@@ -40,15 +41,15 @@ func IsStatCacheClean(entry index.Entry, snap WorktreeSnap, indexMTime Option[St
 		return false
 	}
 	let wm = match snap.MTime {
-	case Some[StatTime] as t:
+	case option.Some[StatTime] as t:
 		t.Value
-	case None:
+	case option.None:
 		return false
 	}
 	let im = match indexMTime {
-	case Some[StatTime] as t:
+	case option.Some[StatTime] as t:
 		t.Value
-	case None:
+	case option.None:
 		return false
 	}
 	if wm.Sec != entry.MTimeSec || wm.Nsec != entry.MTimeNsec {
@@ -57,76 +58,76 @@ func IsStatCacheClean(entry index.Entry, snap WorktreeSnap, indexMTime Option[St
 	isStrictlyOlder(wm, im)
 }
 
-func indexModeToTreeMode(m uint32) Option[tree.Mode] {
+func indexModeToTreeMode(m uint32) option.Option[tree.Mode] {
 	if m == index.ModeRegular {
-		return Some[tree.Mode]{Value: tree.ModeRegular}
+		return option.Some[tree.Mode]{Value: tree.ModeRegular}
 	}
 	if m == index.ModeExecutable {
-		return Some[tree.Mode]{Value: tree.ModeExecutable}
+		return option.Some[tree.Mode]{Value: tree.ModeExecutable}
 	}
 	if m == index.ModeSymlink {
-		return Some[tree.Mode]{Value: tree.ModeSymlink}
+		return option.Some[tree.Mode]{Value: tree.ModeSymlink}
 	}
 	if m == index.ModeGitlink {
-		return Some[tree.Mode]{Value: tree.ModeGitlink}
+		return option.Some[tree.Mode]{Value: tree.ModeGitlink}
 	}
-	None
+	option.None
 }
 
 // CheckEntryAgainstSnap compares a single stage-0 index entry against a
 // working-tree snapshot, enforcing racy-git re-hashing and symlink/mode checks.
-func CheckEntryAgainstSnap(format oid.Format, entry index.Entry, snap WorktreeSnap, indexMTime Option[StatTime], subPolicy SubmodulePolicy) Option[WorktreeChange] fails StatusError {
+func CheckEntryAgainstSnap(format oid.Format, entry index.Entry, snap WorktreeSnap, indexMTime option.Option[StatTime], subPolicy SubmodulePolicy) option.Option[WorktreeChange] fails StatusError {
 	if entry.SkipWorktree {
-		return None
+		return option.None
 	}
 	if entry.IntentToAdd {
 		if !snap.Exists {
-			return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: None}}
+			return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: option.None}}
 		}
-		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "A", ModeWork: indexModeToTreeMode(snap.Mode)}}
+		return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "A", ModeWork: indexModeToTreeMode(snap.Mode)}}
 	}
 	if entry.Mode == index.ModeGitlink {
 		match subPolicy {
 		case IgnoreSubmodulesAll:
-			return None
+			return option.None
 		case IgnoreSubmodulesNone, IgnoreSubmodulesDirty:
 			if !snap.Exists {
-				return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: None}}
+				return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: option.None}}
 			}
 			if !snap.IsDir {
-				return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "T", ModeWork: indexModeToTreeMode(snap.Mode)}}
+				return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "T", ModeWork: indexModeToTreeMode(snap.Mode)}}
 			}
-			return None
+			return option.None
 		}
 	}
 	if !snap.Exists || snap.IsDir {
-		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: None}}
+		return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "D", ModeWork: option.None}}
 	}
 	let idxIsSym = entry.Mode == index.ModeSymlink
 	if idxIsSym != snap.IsSymlink {
-		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "T", ModeWork: indexModeToTreeMode(snap.Mode)}}
+		return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "T", ModeWork: indexModeToTreeMode(snap.Mode)}}
 	}
 	if IsStatCacheClean(entry, snap, indexMTime) {
-		return None
+		return option.None
 	}
 	if snap.Mode != entry.Mode {
-		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "M", ModeWork: indexModeToTreeMode(snap.Mode)}}
+		return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "M", ModeWork: indexModeToTreeMode(snap.Mode)}}
 	}
 	let wtOid = oid.HashObject(format, oid.Blob, snap.Content) catch {
 	case oid.Collision as c:
 		return StatusError{Op: "hash-worktree", Detail: "sha1 collision: " + c.Digest}
 	}
 	if !oid.Equal(wtOid, entry.OID) {
-		return Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "M", ModeWork: indexModeToTreeMode(snap.Mode)}}
+		return option.Some[WorktreeChange]{Value: WorktreeChange{Path: entry.Path, WorkCode: "M", ModeWork: indexModeToTreeMode(snap.Mode)}}
 	}
-	None
+	option.None
 }
 
 func readWorktreeSnap(host fs.Host, workTree string, relPath string) WorktreeSnap fails StatusError {
 	let absPath = filepath.Join([]string{workTree, relPath})
 	let isLink = fs.IsLink(host, absPath) catch {
 	case fs.NotFound:
-		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: option.None, Content: []byte{}}
 	case fs.Denied as e:
 		return StatusError{Op: "islink", Detail: e.Path}
 	case fs.Failed as e:
@@ -135,7 +136,7 @@ func readWorktreeSnap(host fs.Host, workTree string, relPath string) WorktreeSna
 	if isLink {
 		let target = fs.Readlink(host, absPath) catch {
 		case fs.NotFound:
-			return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+			return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: option.None, Content: []byte{}}
 		case fs.Denied as e:
 			return StatusError{Op: "readlink", Detail: e.Path}
 		case fs.Failed as e:
@@ -147,14 +148,14 @@ func readWorktreeSnap(host fs.Host, workTree string, relPath string) WorktreeSna
 			IsDir:     false,
 			IsSymlink: true,
 			Mode:      index.ModeSymlink,
-			Size:      len(tb),
-			MTime:     None,
+			Size:      tb.Len(),
+			MTime:     option.None,
 			Content:   tb,
 		}
 	}
 	let info = fs.Lstat(host, absPath) catch {
 	case fs.NotFound:
-		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: option.None, Content: []byte{}}
 	case fs.Denied as e:
 		return StatusError{Op: "lstat", Detail: e.Path}
 	case fs.Failed as e:
@@ -167,13 +168,13 @@ func readWorktreeSnap(host fs.Host, workTree string, relPath string) WorktreeSna
 			IsSymlink: false,
 			Mode:      index.ModeSparseDir,
 			Size:      0,
-			MTime:     None,
+			MTime:     option.None,
 			Content:   []byte{},
 		}
 	}
 	let raw = fs.ReadFile(host, absPath) catch {
 	case fs.NotFound:
-		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: None, Content: []byte{}}
+		return WorktreeSnap{Exists: false, IsDir: false, IsSymlink: false, Mode: uint32(0), Size: 0, MTime: option.None, Content: []byte{}}
 	case fs.Denied as e:
 		return StatusError{Op: "read-worktree", Detail: e.Path}
 	case fs.Failed as e:
@@ -186,8 +187,8 @@ func readWorktreeSnap(host fs.Host, workTree string, relPath string) WorktreeSna
 		IsDir:     false,
 		IsSymlink: false,
 		Mode:      mode,
-		Size:      len(bs),
-		MTime:     None,
+		Size:      bs.Len(),
+		MTime:     option.None,
 		Content:   bs,
 	}
 }
@@ -201,10 +202,10 @@ func DiffIndexToWorktree(format oid.Format, workTree string, idx index.Index, su
 			continue
 		}
 		let snap = try readWorktreeSnap(host, workTree, e.Path)
-		match try CheckEntryAgainstSnap(format, e, snap, None, subPolicy) {
-		case Some[WorktreeChange] as ch:
+		match try CheckEntryAgainstSnap(format, e, snap, option.None, subPolicy) {
+		case option.Some[WorktreeChange] as ch:
 			out[e.Path] = ch.Value
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -241,10 +242,10 @@ func loadIgnoreFile(host fs.Host, path string, baseDir string) []IgnoreRule {
 }
 
 func appendRules(base []IgnoreRule, extra []IgnoreRule) []IgnoreRule {
-	if len(extra) == 0 {
+	if extra.Len() == 0 {
 		return base
 	}
-	let mut out = slices.WithCapacity[IgnoreRule](len(base) + len(extra))
+	let mut out = slices.WithCapacity[IgnoreRule](base.Len() + extra.Len())
 	for r in base {
 		out = out.Append(r)
 	}
@@ -332,10 +333,10 @@ func collectUntrackedRec(host fs.Host, workTree string, relDir string, rules []I
 			isDir = info.Dir
 		}
 		if isDir {
-			if trackedFiles.Get(rel) != None {
+			if trackedFiles.Get(rel) != option.None {
 				continue
 			}
-			if trackedDirs.Get(rel) != None {
+			if trackedDirs.Get(rel) != option.None {
 				out = try collectUntrackedRec(host, workTree, rel, curRules, trackedFiles, trackedDirs, opts, out)
 				continue
 			}
@@ -343,15 +344,15 @@ func collectUntrackedRec(host fs.Host, workTree string, relDir string, rules []I
 				if opts.IncludeIgnored {
 					out = out.Append(Entry{
 						Path:        rel + "/",
-						OrigPath:    None,
+						OrigPath:    option.None,
 						IndexCode:   "!",
 						WorkCode:    "!",
 						RenameScore: 0,
-						ModeHead:    None,
-						ModeIndex:   None,
-						ModeWork:    None,
-						OIDHead:     None,
-						OIDIndex:    None,
+						ModeHead:    option.None,
+						ModeIndex:   option.None,
+						ModeWork:    option.None,
+						OIDHead:     option.None,
+						OIDIndex:    option.None,
 					})
 				}
 				continue
@@ -362,15 +363,15 @@ func collectUntrackedRec(host fs.Host, workTree string, relDir string, rules []I
 				if dirHasNonIgnoredFile(host, workTree, rel, curRules) {
 					out = out.Append(Entry{
 						Path:        rel + "/",
-						OrigPath:    None,
+						OrigPath:    option.None,
 						IndexCode:   "?",
 						WorkCode:    "?",
 						RenameScore: 0,
-						ModeHead:    None,
-						ModeIndex:   None,
-						ModeWork:    None,
-						OIDHead:     None,
-						OIDIndex:    None,
+						ModeHead:    option.None,
+						ModeIndex:   option.None,
+						ModeWork:    option.None,
+						OIDHead:     option.None,
+						OIDIndex:    option.None,
 					})
 				} else if opts.IncludeIgnored {
 					out = try collectUntrackedRec(host, workTree, rel, curRules, trackedFiles, trackedDirs, opts, out)
@@ -379,22 +380,22 @@ func collectUntrackedRec(host fs.Host, workTree string, relDir string, rules []I
 				out = try collectUntrackedRec(host, workTree, rel, curRules, trackedFiles, trackedDirs, opts, out)
 			}
 		} else {
-			if trackedFiles.Get(rel) != None {
+			if trackedFiles.Get(rel) != option.None {
 				continue
 			}
 			if MatchIgnored(curRules, rel, false) {
 				if opts.IncludeIgnored {
 					out = out.Append(Entry{
 						Path:        rel,
-						OrigPath:    None,
+						OrigPath:    option.None,
 						IndexCode:   "!",
 						WorkCode:    "!",
 						RenameScore: 0,
-						ModeHead:    None,
-						ModeIndex:   None,
-						ModeWork:    None,
-						OIDHead:     None,
-						OIDIndex:    None,
+						ModeHead:    option.None,
+						ModeIndex:   option.None,
+						ModeWork:    option.None,
+						OIDHead:     option.None,
+						OIDIndex:    option.None,
 					})
 				}
 			} else {
@@ -403,15 +404,15 @@ func collectUntrackedRec(host fs.Host, workTree string, relDir string, rules []I
 				case UntrackedNormal, UntrackedAll:
 					out = out.Append(Entry{
 						Path:        rel,
-						OrigPath:    None,
+						OrigPath:    option.None,
 						IndexCode:   "?",
 						WorkCode:    "?",
 						RenameScore: 0,
-						ModeHead:    None,
-						ModeIndex:   None,
-						ModeWork:    None,
-						OIDHead:     None,
-						OIDIndex:    None,
+						ModeHead:    option.None,
+						ModeIndex:   option.None,
+						ModeWork:    option.None,
+						OIDHead:     option.None,
+						OIDIndex:    option.None,
 					})
 				}
 			}
@@ -426,7 +427,7 @@ func collectAllRulesForPath(host fs.Host, gitDir string, commonDir string, workT
 	rules = appendRules(rules, loadIgnoreFile(host, filepath.Join([]string{workTree, ".gitignore"}), ""))
 	let parts = strings.Split(relPath, "/")
 	let mut dir = ""
-	for i in 0..len(parts)-1 {
+	for i in 0..parts.Len()-1 {
 		dir = if i == 0 { parts[i] } else { dir + "/" + parts[i] }
 		rules = appendRules(rules, loadIgnoreFile(host, filepath.Join([]string{workTree, dir, ".gitignore"}), dir))
 	}

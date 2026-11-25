@@ -137,7 +137,7 @@ func copyButton() html.Node {
 // sectionOf is a specimen's section.
 func sectionOf(s Section) html.Node {
 	let mut kids = []html.Child{html.Class(docKit.Section), html.H2([]html.Child{html.Class(docKit.SectionHeading), html.Text(s.Title)})}
-	if len(s.Lead) > 0 {
+	if s.Lead.Len() > 0 {
 		let mut runs = []html.Child{html.Class(docKit.InstallLead)}
 		for r in s.Lead {
 			match r {

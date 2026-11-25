@@ -11,11 +11,11 @@ type Span { Lo int, Hi int }
 // makes them. With fewer samples than columns, each sample is a column.
 func Downsample(xs []int, width int) []Span {
 	let w = if width < 1 { 1 } else { width }
-	let cols = if len(xs) < w { len(xs) } else { w }
+	let cols = if xs.Len() < w { xs.Len() } else { w }
 	let mut out = slices.WithCapacity[Span](cols)
 	for c in 0..cols {
-		let from = c * len(xs) / cols
-		let to = (c + 1) * len(xs) / cols
+		let from = c * xs.Len() / cols
+		let to = (c + 1) * xs.Len() / cols
 		let mut lo = xs[from]
 		let mut hi = xs[from]
 		for i in from+1..to {
@@ -34,7 +34,7 @@ func Downsample(xs []int, width int) []Span {
 // RingColumns is Downsample(Items(r), width), read from the ring in
 // place: a frame draws a chart of ChartLen samples with no copy of them.
 func RingColumns(r Ring[int], width int) []Span {
-	let n = len(r.items)
+	let n = r.items.Len()
 	let w = if width < 1 { 1 } else { width }
 	let cols = if n < w { n } else { w }
 	let mut out = slices.WithCapacity[Span](cols)
@@ -74,8 +74,8 @@ law RingColumnsReadInOrder(cap int, xs []int, width int) {
 law DownsampleKeepsMinMax(xs []int, width int) {
 	let w = 1 + ((width%64)+64)%64
 	let cols = Downsample(xs, w)
-	if len(xs) == 0 {
-		return len(cols) == 0
+	if xs.Len() == 0 {
+		return cols.Len() == 0
 	}
 	let mut lo = xs[0]
 	let mut hi = xs[0]
@@ -89,7 +89,7 @@ law DownsampleKeepsMinMax(xs []int, width int) {
 		clo = if c.Lo < clo { c.Lo } else { clo }
 		chi = if c.Hi > chi { c.Hi } else { chi }
 	}
-	clo == lo && chi == hi && len(cols) == (if len(xs) < w { len(xs) } else { w })
+	clo == lo && chi == hi && cols.Len() == (if xs.Len() < w { xs.Len() } else { w })
 }
 
 // EaseFrames is how many frames a gauge takes to reach a new target.
@@ -157,5 +157,5 @@ law HeatCountsEverySample(xs []int, lo int, span int) {
 	for c in Heat(xs, l, h) {
 		total = total + c
 	}
-	total == len(xs)
+	total == xs.Len()
 }

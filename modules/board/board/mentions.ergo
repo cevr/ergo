@@ -1,3 +1,4 @@
+import option
 import slices
 import strings
 
@@ -10,7 +11,7 @@ func isWordChar(b byte) bool {
 }
 
 func trimHandleEnd(s string) string {
-	let mut end = len(strings.Bytes(s))
+	let mut end = strings.Bytes(s).Len()
 	let bs = strings.Bytes(s)
 	for end > 0 {
 		let b = bs[end-1]
@@ -33,16 +34,16 @@ func SettleMentions(text string, visibleActors Map[string, ActorID]) ([]ActorID,
 	for h, id in visibleActors {
 		let k = strings.ToLower(h)
 		match lowerMap.Get(k) {
-		case Some[ActorID] as prev:
+		case option.Some[ActorID] as prev:
 			if prev.Value != id {
 				ambiguous = ambiguous.Put(k, true)
 			}
-		case None:
+		case option.None:
 			lowerMap = lowerMap.Put(k, id)
 		}
 	}
 	let bs = strings.Bytes(text)
-	let n = len(bs)
+	let n = bs.Len()
 	let mut i = 0
 	let mut inFence = false
 	let mut inInline = false
@@ -68,21 +69,21 @@ func SettleMentions(text string, visibleActors Map[string, ActorID]) ([]ActorID,
 					j = j + 1
 				}
 				let raw = trimHandleEnd(strings.Slice(text, start, j))
-				if len(strings.Bytes(raw)) > 0 {
+				if strings.Bytes(raw).Len() > 0 {
 					let key = strings.ToLower(raw)
 					let isAmb = match ambiguous.Get(key) {
-					case Some[bool] as b:
+					case option.Some[bool] as b:
 						b.Value
-					case None:
+					case option.None:
 						false
 					}
 					if !isAmb {
 						match lowerMap.Get(key) {
-						case Some[ActorID] as a:
+						case option.Some[ActorID] as a:
 							if !slices.Contains(mentioned, a.Value) {
 								mentioned = mentioned.Append(a.Value)
 							}
-						case None:
+						case option.None:
 							if !slices.Contains(unresolved, raw) {
 								unresolved = unresolved.Append(raw)
 							}
@@ -108,7 +109,7 @@ law MentionsInsideCodeIgnored(tag int) {
 	let vis = Map[string, ActorID]{}.Put("alice", "google:alice").Put("bob/fx", "google:bob+fx")
 	let msg = "see `@alice` and ```\n@bob/fx @ghost\(tag)\n``` and email user@alice.example"
 	let (mentioned, unresolved) = SettleMentions(msg, vis)
-	len(mentioned) == 0 && len(unresolved) == 0
+	mentioned.Len() == 0 && unresolved.Len() == 0
 }
 
 // MentionsSettleVisibleAndUnresolved verifies deduplication, case-insensitive

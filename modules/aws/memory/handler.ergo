@@ -8,6 +8,7 @@
 import github.com/cevr/ergo/modules/aws/aws
 import github.com/cevr/ergo/modules/aws/s3
 import http
+import option
 import strings
 import sync
 import time
@@ -54,10 +55,10 @@ func answer(m Memory, r http.Request) http.Response {
 			return failure(r.Method, 400, "IncompleteBody", "", "")
 		}
 		let class = match http.Header(r.Header, "x-amz-storage-class") {
-		case Some as v:
-			Some[s3.StorageClass]{classOf(v.Value)}
-		case None:
-			None
+		case option.Some as v:
+			option.Some[s3.StorageClass]{classOf(v.Value)}
+		case option.None:
+			option.None
 		}
 		let req = s3.PutObjectRequest{..s3.NewPutObjectRequest(bucket, key), Body: text, ContentType: http.Header(r.Header, "Content-Type"), Metadata: aws.Prefixed(r.Header, "x-amz-meta-"), StorageClass: class}
 		let o = m.PutObject(req) catch {
@@ -66,9 +67,9 @@ func answer(m Memory, r http.Request) http.Response {
 		}
 		let mut h = []http.Field{}
 		match o.ETag {
-		case Some as v:
+		case option.Some as v:
 			h = h.Append(http.Field{Name: "ETag", Value: v.Value})
-		case None:
+		case option.None:
 		}
 		return http.Response{Status: 200, Header: h, Body: ""}
 	}
@@ -87,7 +88,7 @@ func answer(m Memory, r http.Request) http.Response {
 func target(raw string) (string, string) fails url.Malformed {
 	let parts = strings.SplitN(strings.TrimPrefix(raw, "/"), "/", 2)
 	let bucket = try url.PathUnescape(parts[0])
-	if len(parts) < 2 {
+	if parts.Len() < 2 {
 		return (bucket, "")
 	}
 	let mut segs = []string{}
@@ -97,36 +98,36 @@ func target(raw string) (string, string) fails url.Malformed {
 	(bucket, strings.Join(segs, "/"))
 }
 
-func objectHeader(modified Option[time.Time], length Option[int], tag Option[string], contentType Option[string], meta Map[string, string], class Option[s3.StorageClass]) []http.Field {
+func objectHeader(modified option.Option[time.Time], length option.Option[int], tag option.Option[string], contentType option.Option[string], meta Map[string, string], class option.Option[s3.StorageClass]) []http.Field {
 	let mut h = []http.Field{}
 	match modified {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Last-Modified", Value: time.Format(v.Value, httpDate)})
-	case None:
+	case option.None:
 	}
 	match length {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-Length", Value: aws.IntText(v.Value)})
-	case None:
+	case option.None:
 	}
 	match tag {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "ETag", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match contentType {
-	case Some as v:
+	case option.Some as v:
 		h = h.Append(http.Field{Name: "Content-Type", Value: v.Value})
-	case None:
+	case option.None:
 	}
 	match class {
-	case Some as v:
+	case option.Some as v:
 		match v.Value {
 		case s3.StorageClassGlacier:
 			h = h.Append(http.Field{Name: "x-amz-storage-class", Value: "GLACIER"})
 		case s3.StorageClassStandard, s3.StorageClassReducedRedundancy, s3.StorageClassStandardIa, s3.StorageClassOnezoneIa, s3.StorageClassIntelligentTiering, s3.StorageClassDeepArchive, s3.StorageClassOutposts, s3.StorageClassGlacierIr, s3.StorageClassSnow, s3.StorageClassExpressOnezone, s3.StorageClassFsxOpenzfs, s3.StorageClassFsxOntap, s3.StorageClassAwsBackupWarm, s3.StorageClassAwsBackupLowCostWarm, s3.StorageClassOther:
 		}
-	case None:
+	case option.None:
 	}
 	aws.PutPrefixed(h, "x-amz-meta-", meta)
 }
@@ -162,8 +163,8 @@ law ApiIsTheFake(steps []int, bodies []string, notes []string) {
 	let api = s3.New(http.InMemory(Handler(NewMemory())), aws.Unsigned)
 	for i, n in steps {
 		if i < 8 {
-			let body = if i < len(bodies) { bodies[i] } else { "" }
-			let note = if i < len(notes) { notes[i] } else { "" }
+			let body = if i < bodies.Len() { bodies[i] } else { "" }
+			let note = if i < notes.Len() { notes[i] } else { "" }
 			if !agree(fake, api, n, body, note) {
 				return false
 			}
@@ -210,8 +211,8 @@ func agree(fake Memory, api s3.Api, n int, body string, note string) bool {
 		return got == want && gotBody.Get() == wantBody.Get()
 	}
 	if op == 2 || op == 3 {
-		let class = if op == 3 { Some[s3.StorageClass]{s3.StorageClassGlacier} } else { None }
-		let r = s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", key), Body: body, ContentType: Some[string]{"text/" + note}, Metadata: Map[string, string]{"Note": note}, StorageClass: class}
+		let class = if op == 3 { option.Some[s3.StorageClass]{s3.StorageClassGlacier} } else { option.None }
+		let r = s3.PutObjectRequest{..s3.NewPutObjectRequest("bk", key), Body: body, ContentType: option.Some[string]{"text/" + note}, Metadata: Map[string, string]{"Note": note}, StorageClass: class}
 		let want = fake.PutObject(r) catch {
 		case e:
 			let _ = api.PutObject(r) catch {

@@ -9,6 +9,7 @@ import flag
 import fs
 import fstest
 import io
+import option
 import quota/file
 import quota/quota
 import quota/memory
@@ -24,17 +25,17 @@ func Set() flag.Set {
 
 // read is the journal path of args ("" for memory), None after help, or
 // the end of the program.
-func read(args []string) Option[string] fails os.Exit needs io.Stdout {
+func read(args []string) option.Option[string] fails os.Exit needs io.Stdout {
 	let set = Set()
 	let v = flag.Parse(set, args) catch {
 	case err:
 		try flag.Exit(err, flag.UsageText(set))
-		return None
+		return option.None
 	}
-	Some[string]{Value: Journal.Get(v)}
+	option.Some[string]{Value: Journal.Get(v)}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let disk = fs.NewHost()
 	with context { os.Process: os.NewHost(), io.Stdout: io.NewHost(), io.Stdin: io.NewStdin() } { try run(os.Process.Args(), disk, disk) }
 }
@@ -44,9 +45,9 @@ func main() fails os.Exit needs Ambient {
 // gives an fstest.Memory.
 func run(args []string, disk fs.Files, writes fs.Writes) fails os.Exit needs io.Stdout | io.Stdin {
 	let path = match try read(args) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		return
 	}
 	let text = io.Stdin.ReadAll() catch {

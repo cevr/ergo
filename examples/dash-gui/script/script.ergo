@@ -4,6 +4,7 @@
 // the frames a window would show. The sources run as tasks for the whole
 // script and stop when it ends.
 
+import core
 import ergo.local/prototype/examples/dashgui/feed
 import ergo.local/prototype/examples/dashgui/panel
 import ergo.local/prototype/examples/dashgui/synth
@@ -36,7 +37,7 @@ type BadLine { Text string, Want string }
 //	drops                    how many samples each queue dropped
 func Parse(line string) Command fails BadLine {
 	let words = strings.Split(line, " ")
-	let args = len(words) - 1
+	let args = words.Len() - 1
 	match words[0] {
 	case "show", "drops":
 		if args != 0 {
@@ -141,9 +142,9 @@ func fits(c Command) bool {
 // hold frames is one request (a step the driver waits on, as a user
 // stepping the dashboard does): Play holds the pacing over it
 // (pace.Held), so its collection runs once, after its last frame.
-func Play(lines Seq[string], hold int) fails queue.Closed | tasks.Closed needs feed.Sensors | io.Stdout | pace.Pacing {
+func Play(lines core.Seq[string], hold int) fails queue.Closed | tasks.Closed needs feed.Sensors | io.Stdout | pace.Pacing {
 	let crew = tasks.NewSet[queue.Closed](tasks.FailFast)
-	let w = try feed.Start(len(feed.Kinds()), crew)
+	let w = try feed.Start(feed.Kinds().Len(), crew)
 	let mut b = feed.NewBoard()
 	for line in lines {
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -167,14 +168,14 @@ func Play(lines Seq[string], hold int) fails queue.Closed | tasks.Closed needs f
 		case Resume as r:
 			b = sent(b, r.Panel, panel.Resume, line)
 		case SetPolicy as s:
-			if s.Panel >= len(b.Panels) {
+			if s.Panel >= b.Panels.Len() {
 				io.Stdout.Println("? \"" + line + "\": no panel \(s.Panel)")
 				continue
 			}
 			b = feed.SetPolicy(b, s.Panel, s.Policy)
 		case Show:
 			io.Stdout.Println("frame \(b.Frame)")
-			for i in 0..len(b.Panels) {
+			for i in 0..b.Panels.Len() {
 				io.Stdout.Println(panel.Describe(i, b.Panels[i], b.Frame))
 			}
 		case Drops:

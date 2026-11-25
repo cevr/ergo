@@ -7,6 +7,8 @@
 // in any other state there is no engine to compute with, and Compute is
 // ignored.
 
+import core
+
 // Engine is a booted engine: its id.
 type Engine { ID string }
 
@@ -18,7 +20,7 @@ type BootFailed { Why string }
 
 // Lease is an engine held. It is a resource: its release (Close) gives the
 // engine back to the Engines that booted it.
-type Lease { Engine Engine, back func() } implements Closer
+type Lease { Engine Engine, back func() } implements core.Closer
 
 // NewLease is a lease of e whose release calls back.
 func NewLease(e Engine, back own func()) Lease { Lease{Engine: e, back: back} }

@@ -1,5 +1,6 @@
 import gen
 import html
+import option
 import strconv
 import sync
 import temporal
@@ -8,7 +9,7 @@ import testing
 type webStoreDown { Reason string }
 
 type webStore {
-	Get(id int) Option[string] fails webStoreDown,
+	Get(id int) option.Option[string] fails webStoreDown,
 	Put(id int, title string) fails webStoreDown,
 
 	// PutThenGet verifies a stored title reads back identically for the same id.
@@ -21,7 +22,7 @@ type webStore {
 		case webStoreDown:
 			return false
 		}
-		got == Some[string]{Value: title}
+		got == option.Some[string]{Value: title}
 	},
 }
 
@@ -35,7 +36,7 @@ func newMemWebStore() memWebStore {
 	memWebStore{rows: sync.NewRef(Map[int, string]{})}
 }
 
-func Get(s memWebStore, id int) Option[string] fails webStoreDown {
+func Get(s memWebStore, id int) option.Option[string] fails webStoreDown {
 	s.rows.Get().Get(id)
 }
 
@@ -61,7 +62,7 @@ func siteWithLoader(load own func(r lawRoute) string fails webLoadErr) Site[lawR
 	}
 }
 
-func readViaWebStore(id int) Option[string] fails webStoreDown needs webStore {
+func readViaWebStore(id int) option.Option[string] fails webStoreDown needs webStore {
 	try webStore.Get(id)
 }
 
@@ -88,20 +89,20 @@ law WebLoaderFaultsMapToDeclaredStatus() {
 					return webLoadErr{Code: 503, Detail: "down: " + d.Reason}
 				}
 				match found {
-				case Some[string] as title:
+				case option.Some[string] as title:
 					title.Value
-				case None:
+				case option.None:
 					webLoadErr{Code: 410, Detail: "gone " + strconv.Itoa(i.N)}
 				}
 			}
 		})
-		let before404 = len(faulty.Get.Faults())
+		let before404 = faulty.Get.Faults().Len()
 		let r404 = Fetch(site, Request("GET", "/no-such-route"))
 		let r405 = Fetch(site, Request("POST", "/item/1"))
-		always r404.Status == 404 && r405.Status == 405 && len(faulty.Get.Faults()) == before404
-		let beforeGet = len(faulty.Get.Faults())
+		always r404.Status == 404 && r405.Status == 405 && faulty.Get.Faults().Len() == before404
+		let beforeGet = faulty.Get.Faults().Len()
 		let rGet = Fetch(site, Request("GET", "/item/1"))
-		if len(faulty.Get.Faults()) > beforeGet {
+		if faulty.Get.Faults().Len() > beforeGet {
 			hit503 = true
 			if rGet.Status != 503 || rGet.Body == "" {
 				return false
@@ -112,9 +113,9 @@ law WebLoaderFaultsMapToDeclaredStatus() {
 				return false
 			}
 		}
-		let beforeHead = len(faulty.Get.Faults())
+		let beforeHead = faulty.Get.Faults().Len()
 		let rHead = Fetch(site, Request("HEAD", "/item/1"))
-		if len(faulty.Get.Faults()) > beforeHead {
+		if faulty.Get.Faults().Len() > beforeHead {
 			hit503 = true
 			sometimes hit503
 			return rHead.Status == 503 && rHead.Body == ""
@@ -201,9 +202,9 @@ func Show(st webModelStage) webModelObs {
 				return webLoadErr{Code: 503, Detail: "down: " + d.Reason}
 			}
 			match found {
-			case Some[string] as title:
+			case option.Some[string] as title:
 				title.Value
-			case None:
+			case option.None:
 				webLoadErr{Code: 410, Detail: "gone " + strconv.Itoa(i.N)}
 			}
 		}

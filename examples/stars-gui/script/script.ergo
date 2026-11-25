@@ -4,8 +4,11 @@
 // so the program's cases and its agreement property compare frames as
 // text.
 
+import core
 import io
 import ergo.local/prototype/examples/starsgui/catalog
+import machines
+import option
 import strconv
 import strings
 
@@ -117,9 +120,9 @@ func Line(c Command) string {
 // split is the first word of line and the rest after one space.
 func split(line string) (string, string) {
 	match strings.Cut(line, " ") {
-	case Some[strings.Halves] as h:
+	case option.Some[strings.Halves] as h:
 		(h.Value.Before, h.Value.After)
-	case None:
+	case option.None:
 		(line, "")
 	}
 }
@@ -143,9 +146,9 @@ func count(line string, rest string) int fails BadLine {
 
 func column(line string, rest string) catalog.Column fails BadLine {
 	match catalog.ColumnOf(rest) {
-	case Some[catalog.Column] as c:
+	case option.Some[catalog.Column] as c:
 		c.Value
-	case None:
+	case option.None:
 		BadLine{Text: line, Want: "a column: name constellation magnitude distance class ascension declination planets"}
 	}
 }
@@ -154,7 +157,7 @@ func column(line string, rest string) catalog.Column fails BadLine {
 // frame for show, a refusal for an edit the column does not take, and a
 // note for a line that is no command. A blank line and a line that
 // starts with # do nothing. It is the state after the last line.
-func Play(s catalog.State, lines Seq[string]) catalog.State needs io.Stdout {
+func Play(s catalog.State, lines core.Seq[string]) catalog.State needs io.Stdout {
 	let mut at = s
 	for line in lines {
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -185,13 +188,13 @@ func step(s catalog.State, sig catalog.Signal) catalog.State needs io.Stdout {
 		return s
 	}
 	match d {
-	case Enter[catalog.State] as e:
+	case machines.Enter[catalog.State] as e:
 		e.Next
-	case Stay[catalog.State] as t:
+	case machines.Stay[catalog.State] as t:
 		t.Next
-	case Emit[catalog.State, catalog.Refused] as m:
+	case machines.Emit[catalog.State, catalog.Refused] as m:
 		m.Next
-	case Ignore, Tell[catalog.State, catalog.Refused], Reject, Done[catalog.Refused]:
+	case machines.Ignore, machines.Tell[catalog.State, catalog.Refused], machines.Reject, machines.Done[catalog.Refused]:
 		s
 	}
 }

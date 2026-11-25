@@ -3,6 +3,7 @@
 // tests.
 
 import maps
+import option
 import slices
 import ssg/site
 
@@ -25,9 +26,9 @@ func ReadTemplate(s Source, name string) string fails site.Unreadable { try read
 
 func read(m Map[string, string], key string) string fails site.Unreadable {
 	match m.Get(key) {
-	case Some[string] as t:
+	case option.Some[string] as t:
 		t.Value
-	case None:
+	case option.None:
 		site.Unreadable{Path: key, Reason: "no such file"}
 	}
 }

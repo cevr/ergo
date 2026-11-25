@@ -5,7 +5,8 @@
 // it.
 
 import fs
+import fstest
 import lzpack/lz
 
 // onTestHost binds the source to Files over the test's folder.
-let onTestHost = context needs TestAmbient { lz.Source: New(fs.NewTestHost()) }
+let onTestHost = context needs fstest.TestAmbient { lz.Source: New(fs.NewTestHost()) }

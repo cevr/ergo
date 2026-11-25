@@ -38,7 +38,7 @@ type Journal {
 	// slug, and names each slug once.
 	law ListIsNewestFirst() {
 		let entries = List()
-		for i in 1..len(entries) {
+		for i in 1..entries.Len() {
 			if !Before(entries[i-1], entries[i]) {
 				return false
 			}
@@ -64,7 +64,7 @@ func Before(a Entry, b Entry) bool {
 func Slug(text string) string {
 	let mut b = strings.NewBuilder()
 	let mut dash = false
-	for i in 0..len(text) {
+	for i in 0..text.Len() {
 		let c = text[i]
 		let lower = if c >= 'A' && c <= 'Z' { c + ('a' - 'A') } else { c }
 		if (lower >= 'a' && lower <= 'z') || (lower >= '0' && lower <= '9') {
@@ -89,7 +89,7 @@ func Slug(text string) string {
 law SlugIsItsOwn(text string) {
 	let s = Slug(text + " Field Note")
 	let mut plain = true
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let c = s[i]
 		plain = plain && ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-')
 	}

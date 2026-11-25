@@ -6,6 +6,7 @@
 
 import github.com/cevr/ergo/modules/web
 import html
+import option
 import ui
 
 // Route is a place of the site: the index, an entry by its slug, or the
@@ -31,21 +32,21 @@ func Href(_ Map, r Route) ui.URL {
 
 // Parse reads /entries as the entry of the empty slug, which is where
 // Href puts it: ui.Segments skips the empty segment.
-func Parse(_ Map, u ui.URL) Option[Route] {
+func Parse(_ Map, u ui.URL) option.Option[Route] {
 	let s = ui.Segments(u)
-	if len(s) == 0 {
-		return Some[Route]{Value: Index}
+	if s.Len() == 0 {
+		return option.Some[Route]{Value: Index}
 	}
-	if len(s) == 1 && s[0] == "feed.xml" {
-		return Some[Route]{Value: Feed}
+	if s.Len() == 1 && s[0] == "feed.xml" {
+		return option.Some[Route]{Value: Feed}
 	}
-	if len(s) == 1 && s[0] == "entries" {
-		return Some[Route]{Value: Entry{Slug: ""}}
+	if s.Len() == 1 && s[0] == "entries" {
+		return option.Some[Route]{Value: Entry{Slug: ""}}
 	}
-	if len(s) == 2 && s[0] == "entries" {
-		return Some[Route]{Value: Entry{Slug: s[1]}}
+	if s.Len() == 2 && s[0] == "entries" {
+		return option.Some[Route]{Value: Entry{Slug: s[1]}}
 	}
-	None
+	option.None
 }
 
 // HrefParses (the link form): every route parses back from the link the
@@ -54,5 +55,5 @@ func Parse(_ Map, u ui.URL) Option[Route] {
 // as another path, and fails here though web.Routes' own HrefParses
 // holds.
 law HrefParses(r Route) {
-	Parse(Map, ui.ParseURL(html.URLText(web.To(Map, r)))) == Some{r}
+	Parse(Map, ui.ParseURL(html.URLText(web.To(Map, r)))) == option.Some{r}
 }

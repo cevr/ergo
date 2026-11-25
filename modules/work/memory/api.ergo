@@ -1,3 +1,4 @@
+import option
 import strings
 import slices
 import maps
@@ -50,10 +51,10 @@ law MergeFileWritesTheMerge(base string, ours string, theirs string, rows bool) 
 	case classes.Unreadable:
 		classes.Merged{Text: classes.Text(classes.MergeText(base, ours, theirs)), Conflicts: []string{"unreadable"}, Regenerate: false}
 	}
-	let clean = len(merged.Conflicts) == 0
+	let clean = merged.Conflicts.Len() == 0
 	let mut failed = false
 	let mut named = true
-	tool.MergeFile(class, "/m/o", "/m/a", "/m/b", work.MergeFileOptions{Path: Some[string]{Value: "f"}}) catch {
+	tool.MergeFile(class, "/m/o", "/m/a", "/m/b", work.MergeFileOptions{Path: option.Some[string]{Value: "f"}}) catch {
 	case work.MergeConflict as m:
 		failed = true
 		named = m.Path == "f"
@@ -100,7 +101,7 @@ law MergeFileReportsWhatItCannotMerge(base Map[int, int], ours Map[int, int], th
 	let path = if measured { "times.json" } else { "bun.lock" }
 	let mut why = ""
 	let mut conflicted = false
-	tool.MergeFile("auto", "/m/o", "/m/a", "/m/b", work.MergeFileOptions{Path: Some[string]{Value: path}}) catch {
+	tool.MergeFile("auto", "/m/o", "/m/a", "/m/b", work.MergeFileOptions{Path: option.Some[string]{Value: path}}) catch {
 	case work.MergeConflict as m:
 		conflicted = true
 		why = m.Why
@@ -136,12 +137,12 @@ func entriesText(m Map[int, int]) string {
 	let mut rows = []string{}
 	for key in 0..6 {
 		match m.Get(key) {
-		case Some[int] as v:
+		case option.Some[int] as v:
 			rows = rows.Append("    \"k\(key)\": \(v.Value)")
-		case None:
+		case option.None:
 		}
 	}
-	let inner = if len(rows) == 0 { "{}" } else { "{\n" + strings.Join(rows, ",\n") + "\n  }" }
+	let inner = if rows.Len() == 0 { "{}" } else { "{\n" + strings.Join(rows, ",\n") + "\n  }" }
 	"{\n  \"pkg\": " + inner + "\n}\n"
 }
 
@@ -151,14 +152,14 @@ func entriesText(m Map[int, int]) string {
 func keepsEveryChange(base Map[int, int], side Map[int, int], other Map[int, int], got string) bool {
 	for key in 0..6 {
 		match side.Get(key) {
-		case Some[int] as v:
-			let changed = base.Get(key) != Some[int]{Value: v.Value}
-			let free = other.Get(key) == base.Get(key) || other.Get(key) == Some[int]{Value: v.Value}
+		case option.Some[int] as v:
+			let changed = base.Get(key) != option.Some[int]{Value: v.Value}
+			let free = other.Get(key) == base.Get(key) || other.Get(key) == option.Some[int]{Value: v.Value}
 			let entry = "\"k\(key)\": \(v.Value)"
 			if changed && free && !strings.Contains(got, entry+",\n") && !strings.Contains(got, entry+"\n") {
 				return false
 			}
-		case None:
+		case option.None:
 		}
 	}
 	true

@@ -1,6 +1,7 @@
 import filepath
 import go os
 import go syscall
+import option
 import strings
 
 // HostLockOps implements LockOps on real POSIX filesystems using
@@ -63,7 +64,7 @@ func WriteLock(h HostLockOps, lockPath string, data string) fails NotHeld | Path
 	}
 	let raw = data.Bytes()
 	let mut written = 0
-	for written < len(raw) {
+	for written < raw.Len() {
 		let n = syscall.Write(fd, raw[written:]) catch {
 		case go.Error as e:
 			syscall.Close(fd) catch {
@@ -183,27 +184,27 @@ func SyncDir(h HostLockOps, dirPath string) fails DirSyncUncertain needs go.Fore
 }
 
 // ReadTarget reads the committed bytes of targetPath if it exists.
-func ReadTarget(h HostLockOps, targetPath string) Option[string] needs go.Foreign {
+func ReadTarget(h HostLockOps, targetPath string) option.Option[string] needs go.Foreign {
 	let absTarget = resolveHostPath(h, targetPath) catch {
 	case PathInvalid:
-		return None
+		return option.None
 	}
 	let dir = filepath.Dir(absTarget)
 	let r = os.OpenRoot(dir) catch {
 	case go.Error:
-		return None
+		return option.None
 	}
 	let data = r.ReadFile(filepath.Base(absTarget)) catch {
 	case go.Error:
 		r.Close() catch {
 		case go.Error:
 		}
-		return None
+		return option.None
 	}
 	r.Close() catch {
 	case go.Error:
 	}
-	Some[string]{Value: data.Text()}
+	option.Some[string]{Value: data.Text()}
 }
 
 // LockExists reports whether lockPath currently exists on disk.

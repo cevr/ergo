@@ -22,7 +22,7 @@ func Parse(text string) json.Value fails json.Malformed {
 law FailuresPointIntoTheText(text string) {
 	let _ = Parse(text) catch {
 	case json.Malformed as m:
-		return m.Offset >= 0 && m.Offset <= len(text)
+		return m.Offset >= 0 && m.Offset <= text.Len()
 	}
 	true
 }
@@ -36,7 +36,7 @@ func Locate(text string, offset int) Position {
 	let mut line = 1
 	let mut col = 1
 	for i in 0..offset {
-		if i >= len(text) {
+		if i >= text.Len() {
 			break
 		}
 		if text[i] == '\n' {

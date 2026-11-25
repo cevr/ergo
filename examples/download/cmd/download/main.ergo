@@ -3,6 +3,8 @@ import download/network
 import flag
 import fs
 import http
+import io
+import option
 import os
 
 let allowed = flag.String("allow", "", "an allowed origin").Repeated().WithAlias("a")
@@ -11,42 +13,42 @@ let hops = flag.Int("hops", 3, "the maximum redirects to follow")
 let out = flag.OptionalString("out", "save the body to this file below the working directory, as it arrives")
 let urlArg = flag.Arg("url", "the absolute URL to read")
 
-func main() needs Ambient | Console {
+func main() needs os.Ambient | io.Console {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
 	let values = flag.Parse(flag.Set{Name: "download", Usage: "fetch a runtime URL under a stated policy", Flags: []flag.Flag{allowed, anyOrigin, hops, out}, Args: []flag.ArgSpec{urlArg}}, args) catch {
 	case err:
-		Console.Println(flag.Describe(err))
+		io.Console.Println(flag.Describe(err))
 		return
 	}
 	let url = match urlArg.Get(values) {
-	case Some as u:
+	case option.Some as u:
 		u.Value
-	case None:
-		Console.Println(flag.Describe(flag.Missing{Name: "url"}))
+	case option.None:
+		io.Console.Println(flag.Describe(flag.Missing{Name: "url"}))
 		return
 	}
 	let policy http.OriginPolicy = if anyOrigin.Get(values) { http.AnyOrigin } else { http.Origins{Values: allowed.Get(values)} }
 	let net = http.NewNet(policy, http.Limits{MaxBodyBytes: 32768, MaxHeaderBytes: 8192, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, http.Follow{MaxHops: hops.Get(values)}) catch {
 	case http.InvalidLimits:
-		Console.Println("invalid network limits")
+		io.Console.Println("invalid network limits")
 		return
 	case http.InvalidClient as c:
-		Console.Println("invalid network policy: " + c.Reason)
+		io.Console.Println("invalid network policy: " + c.Reason)
 		return
 	}
 	// main owns the root: it closes when main ends, after every Save.
 	let root = fs.OpenRoot(".") catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
-		Console.Println("cannot open the working directory")
+		io.Console.Println("cannot open the working directory")
 		return
 	}
 	let report = with context { domain.Downloader: network.New(net, root) } {
 		match out.Get(values) {
-		case Some as path:
+		case option.Some as path:
 			domain.Store(url, path.Value)
-		case None:
+		case option.None:
 			domain.Run(url)
 		}
 	}
-	Console.Println(report)
+	io.Console.Println(report)
 }

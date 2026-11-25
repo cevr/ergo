@@ -43,7 +43,7 @@ func Takes(l Layout, c string) bool {
 // CanType reports whether f takes one more key cap c: its layout takes c
 // and f is not full.
 func CanType(f Field, c string) bool {
-	Takes(f.Spec.Layout, c) && (f.Spec.Max == 0 || len(f.Chars) < f.Spec.Max)
+	Takes(f.Spec.Layout, c) && (f.Spec.Max == 0 || f.Chars.Len() < f.Spec.Max)
 }
 
 // LayoutName is the word of a layout in the script and the output.

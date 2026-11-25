@@ -1,3 +1,5 @@
+import machines
+
 // Package boardtree is the formal state-machine model of the board server's
 // supervision tree (machines.md M10): RestForOne from the store writer,
 // OneForOne among workers after it, and an intensity window.
@@ -108,16 +110,16 @@ func btAnyDown(up []bool) bool {
 	false
 }
 
-func btStep(s TreeWorld, act TreeAct) Decision[TreeWorld, string] {
+func btStep(s TreeWorld, act TreeAct) machines.Decision[TreeWorld, string] {
 	let mut w = s
 	if w.GaveUp {
-		return Ignore
+		return machines.Ignore
 	}
 	match act {
 	case Crash as c:
 		let idx = btIdx(c.M)
 		if !w.Up[idx] {
-			return Ignore
+			return machines.Ignore
 		}
 		if idx == 0 {
 			w.Up[0] = false
@@ -141,17 +143,17 @@ func btStep(s TreeWorld, act TreeAct) Decision[TreeWorld, string] {
 			if w.Up[1] || w.Up[2] || w.Up[3] {
 				w.ReaderWithoutWriter = true
 			}
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		if idx == 1 {
 			w.Up[1] = false
 			w.WaitActive = false
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		if idx == 2 {
 			w.Up[2] = false
 			w.ReaperReady = false
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		w.Up[3] = false
 		if w.InFlight == 1 {
@@ -170,13 +172,13 @@ func btStep(s TreeWorld, act TreeAct) Decision[TreeWorld, string] {
 		} else if w.WaitActive {
 			w.WorkerCrashKeptWait = true
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Restart:
 		if !btAnyDown(w.Up) {
-			return Ignore
+			return machines.Ignore
 		}
 		let recent = btInWindow(w.Recent, w.Now)
-		if len(recent) >= btMaxRestarts {
+		if recent.Len() >= btMaxRestarts {
 			w.Up = []bool{false, false, false, false}
 			w.WaitActive = false
 			w.ReaperReady = false
@@ -184,7 +186,7 @@ func btStep(s TreeWorld, act TreeAct) Decision[TreeWorld, string] {
 			if w.InFlight == 1 {
 				w.InFlight = 3
 			}
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		let writerWasDown = !w.Up[0]
 		let reaperWasDown = !w.Up[2]
@@ -196,54 +198,54 @@ func btStep(s TreeWorld, act TreeAct) Decision[TreeWorld, string] {
 		if reaperWasDown {
 			w.ReaperReady = w.Mutant == btSkipReaperSweep
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case StartWait:
 		if w.WaitActive || !w.Up[1] {
-			return Ignore
+			return machines.Ignore
 		}
 		if !w.Up[0] {
 			w.ReaderWithoutWriter = true
 		}
 		w.WaitActive = true
-		return Enter{w}
+		return machines.Enter{w}
 	case BeginWrite:
 		if w.InFlight == 1 || w.LogWrites >= btMaxWrites || !w.Up[0] || !w.Up[3] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.InFlight = 1
 		if w.Mutant == btAckBeforeSave {
 			w.AckedWrites = w.AckedWrites + 1
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case FinishWrite:
 		if w.InFlight != 1 || !w.Up[0] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.LogWrites = w.LogWrites + 1
 		if w.Mutant != btAckBeforeSave {
 			w.AckedWrites = w.AckedWrites + 1
 		}
 		w.InFlight = 2
-		return Enter{w}
+		return machines.Enter{w}
 	case AcquireLease:
 		if w.LeaseState != 0 || !w.Up[0] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.LeaseState = 1
-		return Enter{w}
+		return machines.Enter{w}
 	case ExpireLease:
 		if w.LeaseState != 1 {
-			return Ignore
+			return machines.Ignore
 		}
 		if w.Up[2] {
 			w.LeaseState = 0
 		} else {
 			w.LeaseState = 2
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case ReaperSweep:
 		if !w.Up[2] || !w.Up[0] || (w.ReaperReady && w.LeaseState != 2) {
-			return Ignore
+			return machines.Ignore
 		}
 		if w.LeaseState == 2 {
 			w.LeaseState = 0
@@ -252,23 +254,23 @@ func btStep(s TreeWorld, act TreeAct) Decision[TreeWorld, string] {
 			}
 		}
 		w.ReaperReady = true
-		return Enter{w}
+		return machines.Enter{w}
 	case JudgeClaim:
 		if !w.Up[0] || !w.Up[2] || !w.ReaperReady || w.LeaseState == 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		if w.LeaseState == 2 {
 			w.ClaimedExpired = true
-			return Enter{w}
+			return machines.Enter{w}
 		}
-		return Ignore
+		return machines.Ignore
 	case Tick:
 		if w.Now >= btMaxNow {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Now = w.Now + 1
 		w.Recent = btInWindow(w.Recent, w.Now)
-		return Enter{w}
+		return machines.Enter{w}
 	}
 }
 

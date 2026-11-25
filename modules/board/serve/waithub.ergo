@@ -1,8 +1,10 @@
 import github.com/cevr/ergo/modules/board/board
+import option
 import queue
 import scope
 import sync
 import task
+import time
 
 // WaitResult is the settled outcome of WaitHub.WaitFor: a matching event with
 // its cursor, a timeout returning the last judged cursor (never head), or
@@ -57,13 +59,13 @@ func HubActive(h WaitHub) bool { h.state.Get().active }
 func HubGeneration(h WaitHub) int { h.state.Get().generation }
 
 // WaiterCount returns the number of currently parked waiters in h.
-func WaiterCount(h WaitHub) int { len(h.state.Get().waiters) }
+func WaiterCount(h WaitHub) int { h.state.Get().waiters.Len() }
 
 func hubHeadOf(st hubState, b string) board.Cursor {
 	match st.heads.Get(b) {
-	case Some[board.Cursor] as c:
+	case option.Some[board.Cursor] as c:
 		c.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -125,17 +127,17 @@ func Publish(h WaitHub, boardName string, head board.Cursor) {
 	}
 }
 
-func registerWaiter(h WaitHub, b string, scanHead board.Cursor) Option[(int, queue.Queue[int], bool, board.Cursor)] {
+func registerWaiter(h WaitHub, b string, scanHead board.Cursor) option.Option[(int, queue.Queue[int], bool, board.Cursor)] {
 	let wake = queue.New[int](1)
-	sync.Modify(h.state, func(st hubState) (Option[(int, queue.Queue[int], bool, board.Cursor)], hubState) {
+	sync.Modify(h.state, func(st hubState) (option.Option[(int, queue.Queue[int], bool, board.Cursor)], hubState) {
 		if !st.active {
-			return (None, st)
+			return (option.None, st)
 		}
 		let id = st.nextID
 		let curHead = hubHeadOf(st, b)
 		let slot = waiterSlot{id: id, board: b, from: scanHead, wake: wake}
 		let behind = curHead > scanHead
-		(Some[(int, queue.Queue[int], bool, board.Cursor)]{Value: (id, wake, behind, curHead)}, hubState{
+		(option.Some[(int, queue.Queue[int], bool, board.Cursor)]{Value: (id, wake, behind, curHead)}, hubState{
 			..st,
 			nextID:  id + 1,
 			waiters: st.waiters.Append(slot),
@@ -155,11 +157,11 @@ func unregisterWaiter(h WaitHub, id int) {
 	})
 }
 
-func recordWaitLine(rec Option[TraceRecorder], line string) {
+func recordWaitLine(rec option.Option[TraceRecorder], line string) {
 	match rec {
-	case Some[TraceRecorder] as r:
+	case option.Some[TraceRecorder] as r:
 		RecordEventLogLine(r.Value, line)
-	case None:
+	case option.None:
 	}
 }
 
@@ -175,8 +177,8 @@ func WaitFor(
 	after board.Cursor,
 	timeout duration,
 	matches func(snap board.State, ev board.Event) bool,
-	rec Option[TraceRecorder],
-) WaitResult fails board.StoreFailed needs Scheduler {
+	rec option.Option[TraceRecorder],
+) WaitResult fails board.StoreFailed needs time.Scheduler {
 	let b = board.ResolveBoard(boardName)
 	let snap0 = try store.Snapshot()
 	let initial = try store.ReadEvents(b, after)
@@ -194,9 +196,9 @@ func WaitFor(
 
 	let reg = registerWaiter(h, b, scanHead)
 	let (waiterID, wake, behind, hubHead) = match reg {
-	case Some as r:
+	case option.Some as r:
 		r.Value
-	case None:
+	case option.None:
 		return WaitStopped{Cursor: scanHead}
 	}
 	let _ = hubHead
@@ -233,7 +235,7 @@ func WaitFor(
 	let timedOut = sync.NewRef(false)
 	if timeout > 0ns {
 		let timer = task.Go() {
-			Scheduler.Sleep(timeout)
+			time.Scheduler.Sleep(timeout)
 			timedOut.Set(true)
 			wake.Offer(2) catch {
 			case queue.Full, queue.Closed:
@@ -254,7 +256,7 @@ func waitLoop(
 	matches func(board.State, board.Event) bool,
 	wake queue.Queue[int],
 	timedOut sync.Ref[bool],
-	rec Option[TraceRecorder],
+	rec option.Option[TraceRecorder],
 ) WaitResult fails board.StoreFailed {
 	let mut from = start
 	for {

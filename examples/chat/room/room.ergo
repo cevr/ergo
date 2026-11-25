@@ -5,6 +5,7 @@
 // nothing.
 
 import civil
+import machines
 import slices
 import time
 
@@ -58,7 +59,7 @@ func Apply(s State, sig Signal) State fails NameTaken | NotMember | RoomClosed {
 law SayNeedsMember(names []string, n int, text string) {
 	let s = roomOf(names)
 	// from is a member half the time: a name of names, or a new one.
-	let from = if len(names) > 0 && n%2 == 0 { names[(if n < 0 { -n } else { n })%len(names)] } else { "stranger" }
+	let from = if names.Len() > 0 && n%2 == 0 { names[(if n < 0 { -n } else { n })%names.Len()] } else { "stranger" }
 	let after = Apply(s, Say{From: from, Text: text}) catch {
 	case NotMember:
 		return !slices.Contains(Members(s), from)
@@ -90,7 +91,7 @@ law LeaveUndoesJoin(names []string, name string) {
 // ClosedRefusesAll: after a member shuts the room, every signal fails
 // with RoomClosed.
 law ClosedRefusesAll(names []string, name string, text string) {
-	if len(names) == 0 {
+	if names.Len() == 0 {
 		return true
 	}
 	let shut = try Apply(roomOf(names), Shut{By: names[0]})
@@ -105,7 +106,7 @@ law ClosedRefusesAll(names []string, name string, text string) {
 		}
 		return false
 	}
-	len(Members(shut)) == 0
+	Members(shut).Len() == 0
 }
 
 // Event is what happened in the room, in the past tense.
@@ -184,13 +185,13 @@ func Evolve(s State, e Event) State {
 // into s, and emitted. A machine has no clock, so a Said is stamped at
 // time zero; the server, which stamps each say with its clock, calls
 // Decide and Evolve itself.
-func Step(s State, sig Signal) Decision[State, []Event] fails NameTaken | NotMember | RoomClosed {
+func Step(s State, sig Signal) machines.Decision[State, []Event] fails NameTaken | NotMember | RoomClosed {
 	let events = try Decide(s, sig, time.Unix(0, 0))
 	let mut next = s
 	for e in events {
 		next = Evolve(next, e)
 	}
-	Emit[State, []Event]{Next: next, Output: events}
+	machines.Emit[State, []Event]{Next: next, Output: events}
 }
 
 // Room is the chat room as a machine.

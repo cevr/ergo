@@ -3,6 +3,9 @@
 // report.
 
 import actor
+import core
+import machines
+import option
 import sync
 import ui
 import time
@@ -19,14 +22,14 @@ type Signal = ClickedCrash{} | ClickedReload{}
 type SimulatedCrash { Message string }
 
 // Step is the pure preview/replay transition for App.
-func Step(s Calm, e Signal) Decision[Calm, Never] {
-	Enter[Calm]{Next: s}
+func Step(s Calm, e Signal) machines.Decision[Calm, core.Never] {
+	machines.Enter[Calm]{Next: s}
 }
 
 // LiveStep defects on every signal: handling any signal is the simulated
 // crash. A Reload never reaches it: while the crash view shows, the
 // session takes the crash view's signal as the reload (ui.StartLiveApp).
-func LiveStep(s Calm, e Signal) Decision[Calm, Never] defects {
+func LiveStep(s Calm, e Signal) machines.Decision[Calm, core.Never] defects {
 	die SimulatedCrash{Message: "This is a simulated crash!"}
 }
 
@@ -36,15 +39,15 @@ type App machine[Calm, Signal] {
 	step:    Step,
 }
 
-func noTimer(s Calm) Option[Timeout[Signal]] { None }
+func noTimer(s Calm) option.Option[machines.Timeout[Signal]] { option.None }
 
-func noWork(s Calm) Option[func(send entry func(e Signal)) defects] { None }
+func noWork(s Calm) option.Option[func(send entry func(e Signal)) defects] { option.None }
 
-func noExit(s Calm) Option[func()] { None }
+func noExit(s Calm) option.Option[func()] { option.None }
 
 // LiveApp is the crash app as a live machine whose step raises SimulatedCrash.
-func LiveApp() actor.LiveMachine[Calm, Signal, Never] {
-	actor.LiveMachine[Calm, Signal, Never]{Initial: Calm, Step: LiveStep, After: noTimer, Work: noWork, Exit: noExit}
+func LiveApp() actor.LiveMachine[Calm, Signal, core.Never] {
+	actor.LiveMachine[Calm, Signal, core.Never]{Initial: Calm, Step: LiveStep, After: noTimer, Work: noWork, Exit: noExit}
 }
 
 // View is the app's one screen: the Crash button.
@@ -63,12 +66,12 @@ func View(f mut ui.Frame[Signal], s Calm) {
 // no crash.
 law CrashShowsTheCrashView(cycles int) {
 	let m = time.NewManual(0)
-	with context { Scheduler: m } {
+	with context { time.Scheduler: m } {
 		crashCycles((cycles%5+5)%5+1, m)
 	}
 }
 
-func crashCycles(n int, m time.Manual) bool needs Scheduler {
+func crashCycles(n int, m time.Manual) bool needs time.Scheduler {
 	let reports = NewReports()
 	let mut h = ui.NewLiveAppTestHost(LiveApp(), 4, View, Crashes(reports), m, 16) catch {
 	case ui.BadPatch:
@@ -83,7 +86,7 @@ func crashCycles(n int, m time.Manual) bool needs Scheduler {
 		let shot = ui.Screenshot(&h)
 		let log = Logged(reports)
 		let reason = defectReason(ui.CrashOf(&h))
-		if !strings.HasPrefix(reason, "die at ") || !strings.Contains(reason, "This is a simulated crash!") || State(ui.CrashOf(&h)) != "crashed: a defect" || shot != "text \"Something went wrong\"\ntext \"\(reason)\"\nbutton \"Reload\"\n  text \"Reload\"\n" || len(log) != i+1 || log[i] != "crash report: a defect on ClickedCrash in Calm: \(reason)" {
+		if !strings.HasPrefix(reason, "die at ") || !strings.Contains(reason, "This is a simulated crash!") || State(ui.CrashOf(&h)) != "crashed: a defect" || shot != "text \"Something went wrong\"\ntext \"\(reason)\"\nbutton \"Reload\"\n  text \"Reload\"\n" || log.Len() != i+1 || log[i] != "crash report: a defect on ClickedCrash in Calm: \(reason)" {
 			return false
 		}
 		ui.Play(&h, []ui.Act{ui.TapOn{Label: "Reload"}}) catch {
@@ -98,16 +101,16 @@ func crashCycles(n int, m time.Manual) bool needs Scheduler {
 }
 
 // defectReason is the reason of a crash by a defect, or "" for none.
-func defectReason[F](c Option[ui.Crash[Calm, Signal, F]]) string {
+func defectReason[F](c option.Option[ui.Crash[Calm, Signal, F]]) string {
 	match c {
-	case Some[ui.Crash[Calm, Signal, F]] as x:
+	case option.Some[ui.Crash[Calm, Signal, F]] as x:
 		match x.Value.Cause {
 		case ui.DefectCrash as d:
 			d.Reason
 		case ui.FailureCrash[F]:
 			""
 		}
-	case None:
+	case option.None:
 		""
 	}
 }
@@ -157,27 +160,27 @@ func report[F](r Reports) func(c ui.Crash[Calm, Signal, F]) {
 
 // State is how the app's crash shows (ui.CrashOf): running, or crashed
 // and how.
-func State[F](c Option[ui.Crash[Calm, Signal, F]]) string {
+func State[F](c option.Option[ui.Crash[Calm, Signal, F]]) string {
 	match c {
-	case Some[ui.Crash[Calm, Signal, F]] as x:
+	case option.Some[ui.Crash[Calm, Signal, F]] as x:
 		"crashed: \(Kind(x.Value))"
-	case None:
+	case option.None:
 		"running"
 	}
 }
 
 // signalName names the signal a crash came around,
 // or says there was none in flight.
-func signalName(s Option[Signal]) string {
+func signalName(s option.Option[Signal]) string {
 	match s {
-	case Some[Signal] as x:
+	case option.Some[Signal] as x:
 		match x.Value {
 		case ClickedCrash:
 			"ClickedCrash"
 		case ClickedReload:
 			"ClickedReload"
 		}
-	case None:
+	case option.None:
 		"no signal"
 	}
 }

@@ -1,6 +1,7 @@
 // A state store and a lock in memory.
 
 import github.com/cevr/ergo/modules/infra
+import option
 import sync
 
 // State is the memory state store of one kind with props P. Its writes go
@@ -12,7 +13,7 @@ func NewState[P comparable](fuse Fuse) State[P] {
 	State[P]{rows: sync.NewRef(Map[string, infra.Row[P]]{}), fuse: fuse}
 }
 
-func Get[P comparable](s State[P], id string) Option[infra.Row[P]] { s.rows.Get().Get(id) }
+func Get[P comparable](s State[P], id string) option.Option[infra.Row[P]] { s.rows.Get().Get(id) }
 
 func Put[P comparable](s State[P], row infra.Row[P]) fails infra.Failed {
 	try through(s.fuse, row.ID, func() { s.rows.Update(func(m Map[string, infra.Row[P]]) Map[string, infra.Row[P]] { m.Put(row.ID, row) }) })
@@ -32,53 +33,53 @@ func List[P comparable](s State[P]) []infra.Row[P] {
 
 // Lock is the memory lock of a stack's stage. Its values are copies of
 // one lock.
-type Lock { holder sync.Ref[Option[string]] } implements infra.Lock
+type Lock { holder sync.Ref[option.Option[string]] } implements infra.Lock
 
 // NewLock is a free lock.
-func NewLock() Lock { Lock{holder: sync.NewRef[Option[string]](None)} }
+func NewLock() Lock { Lock{holder: sync.NewRef[option.Option[string]](option.None)} }
 
 func Acquire(l Lock, holder string) fails infra.Held {
-	let taken = sync.Modify(l.holder, func(h Option[string]) (Option[string], Option[string]) {
+	let taken = sync.Modify(l.holder, func(h option.Option[string]) (option.Option[string], option.Option[string]) {
 		match h {
-		case Some[string] as other:
+		case option.Some[string] as other:
 			if other.Value != holder {
 				return (h, h)
 			}
-		case None:
+		case option.None:
 		}
-		(None, Some[string]{Value: holder})
+		(option.None, option.Some[string]{Value: holder})
 	})
 	match taken {
-	case Some[string] as other:
+	case option.Some[string] as other:
 		infra.Held{Holder: other.Value}
-	case None:
+	case option.None:
 	}
 }
 
 func Release(l Lock, holder string) {
-	l.holder.Update(func(h Option[string]) Option[string] {
-		if h == (Some[string]{Value: holder}) {
-			return None
+	l.holder.Update(func(h option.Option[string]) option.Option[string] {
+		if h == (option.Some[string]{Value: holder}) {
+			return option.None
 		}
 		h
 	})
 }
 
 func Break(l Lock, holder string) fails infra.Held {
-	let other = sync.Modify(l.holder, func(h Option[string]) (Option[string], Option[string]) {
-		if h == (Some[string]{Value: holder}) {
-			return (None, None)
+	let other = sync.Modify(l.holder, func(h option.Option[string]) (option.Option[string], option.Option[string]) {
+		if h == (option.Some[string]{Value: holder}) {
+			return (option.None, option.None)
 		}
 		(h, h)
 	})
 	match other {
-	case Some[string] as o:
+	case option.Some[string] as o:
 		infra.Held{Holder: o.Value}
-	case None:
+	case option.None:
 	}
 }
 
-func Holder(l Lock) Option[string] { l.holder.Get() }
+func Holder(l Lock) option.Option[string] { l.holder.Get() }
 
 // IntRows is the memory store of int props: the instance at which ergo
 // test runs infra.State's laws in this package, since a generic provider
@@ -88,7 +89,7 @@ type IntRows { s State[int] } implements infra.State[int]
 // NewIntRows is an empty store of int props with an unarmed fuse.
 func NewIntRows() IntRows { IntRows{s: NewState[int](NewFuse())} }
 
-func Get(r IntRows, id string) Option[infra.Row[int]] { r.s.Get(id) }
+func Get(r IntRows, id string) option.Option[infra.Row[int]] { r.s.Get(id) }
 
 func Put(r IntRows, row infra.Row[int]) fails infra.Failed { try r.s.Put(row) }
 

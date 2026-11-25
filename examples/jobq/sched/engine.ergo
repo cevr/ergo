@@ -8,6 +8,7 @@
 
 import jobq/jobs
 import jobq/limit
+import option
 
 // Config is a queue's shape: its workers, its retry policy and its rate,
 // Burst starts at once and then one each Every.
@@ -23,7 +24,7 @@ law StartsKeepTheRate(c int, ns []int) {
 	}
 	let got = starts(Ran(c, ns))
 	for i, a in got {
-		for j in i..len(got) {
+		for j in i..got.Len() {
 			if int64(j-i+1) > int64(s.Burst)+int64(got[j]-a)/int64(s.Every)+1 {
 				return false
 			}
@@ -53,12 +54,12 @@ type Event = Started{At duration, ID int, N int, Worker int} | Succeeded{At dura
 // NoJobLost: every job ends exactly once, as a success or a give-up.
 law NoJobLost(c int, ns []int) {
 	let ends = Ends(Ran(c, ns))
-	for i in 1..len(ns)+1 {
+	for i in 1..ns.Len()+1 {
 		if count(ends, i) != 1 {
 			return false
 		}
 	}
-	len(ends) == len(ns)
+	ends.Len() == ns.Len()
 }
 
 // Load is the jobs of ns: each n gives a job of 0 to 500ms that fails 0
@@ -105,9 +106,9 @@ func Ends(es []Event) Map[int, int] {
 // count is m[k], or 0.
 func count(m Map[int, int], k int) int {
 	match m.Get(k) {
-	case Some[int] as v:
+	case option.Some[int] as v:
 		v.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -131,8 +132,8 @@ func InFlight(es []Event, n int) int {
 				return -1
 			}
 			on[s.Worker] = s.ID
-			if len(on) > most {
-				most = len(on)
+			if on.Len() > most {
+				most = on.Len()
 			}
 		case Succeeded as s:
 			on = drop(on, s.ID)
@@ -192,11 +193,11 @@ law RetriesWait(c int, ns []int) {
 			until[r.ID] = r.Until
 		case Started as s:
 			match until.Get(s.ID) {
-			case Some[duration] as u:
+			case option.Some[duration] as u:
 				if s.At < u.Value {
 					return false
 				}
-			case None:
+			case option.None:
 			}
 		case Succeeded:
 		case GaveUp:
@@ -316,9 +317,9 @@ func start(es []Entry, now duration, workers int, b limit.Bucket) ([]Entry, limi
 			break
 		}
 		let taken = match limit.Take(bucket, now) {
-		case Some[limit.Bucket] as t:
+		case option.Some[limit.Bucket] as t:
 			t.Value
-		case None:
+		case option.None:
 			break
 		}
 		bucket = taken
@@ -347,8 +348,8 @@ func start(es []Entry, now duration, workers int, b limit.Bucket) ([]Entry, limi
 // the first job to become ready, or, when a job is ready and a worker is
 // free but the bucket is empty, the bucket's next token. None when every
 // job is over.
-func next(es []Entry, now duration, workers int, b limit.Bucket) Option[duration] {
-	let mut best Option[duration] = None
+func next(es []Entry, now duration, workers int, b limit.Bucket) option.Option[duration] {
+	let mut best option.Option[duration] = option.None
 	for e in es {
 		match e.S {
 		case Over:
@@ -371,12 +372,12 @@ func next(es []Entry, now duration, workers int, b limit.Bucket) Option[duration
 }
 
 // earlier is the earlier of o and t.
-func earlier(o Option[duration], t duration) Option[duration] {
+func earlier(o option.Option[duration], t duration) option.Option[duration] {
 	match o {
-	case Some[duration] as s:
-		if s.Value <= t { o } else { Some[duration]{Value: t} }
-	case None:
-		Some[duration]{Value: t}
+	case option.Some[duration] as s:
+		if s.Value <= t { o } else { option.Some[duration]{Value: t} }
+	case option.None:
+		option.Some[duration]{Value: t}
 	}
 }
 
@@ -403,9 +404,9 @@ func Run(c Config, js []jobs.Job) []Event needs jobs.Worker {
 			log = log.Append(e)
 		}
 		match next(es, now, workers, bucket) {
-		case Some[duration] as t:
+		case option.Some[duration] as t:
 			now = t.Value
-		case None:
+		case option.None:
 			break
 		}
 	}

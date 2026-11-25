@@ -5,6 +5,7 @@ import fstest
 import github.com/cevr/ergo/modules/domain
 import github.com/cevr/ergo/modules/domain/memory
 import journal
+import option
 import strconv
 import strings
 import sync
@@ -47,7 +48,7 @@ func Append(l Ints, stream string, expected int, id domain.CommandID, events []i
 
 func Read(l Ints, stream string, from int) []domain.Recorded[int] { l.log.Read(stream, from) }
 
-func Seen(l Ints, id domain.CommandID) Option[domain.Receipt] { l.log.Seen(id) }
+func Seen(l Ints, id domain.CommandID) option.Option[domain.Receipt] { l.log.Seen(id) }
 
 // streamOf is one of three streams, by k.
 func streamOf(k int) string { "s\(((k % 3) + 3) % 3)" }
@@ -64,14 +65,14 @@ law ReopenedLogReads(batches [][]int, torn int) {
 	}
 	for i, events in batches {
 		let stream = streamOf(i)
-		l.Append(stream, len(l.Read(stream, 0)), domain.CommandID("c\(i)"), events) catch {
+		l.Append(stream, l.Read(stream, 0).Len(), domain.CommandID("c\(i)"), events) catch {
 		case domain.Conflict, domain.Reused, domain.Unkept:
 			return false
 		}
 	}
 	// A torn record: a prefix of a whole one, cut before its end mark.
-	let whole = recordText("s0", len(l.Read("s0", 0))+1, domain.CommandID("torn"), []int{torn}, Decimal)
-	let cut = ((torn % len(whole)) + len(whole)) % len(whole)
+	let whole = recordText("s0", l.Read("s0", 0).Len()+1, domain.CommandID("torn"), []int{torn}, Decimal)
+	let cut = ((torn % whole.Len()) + whole.Len()) % whole.Len()
 	disk.AppendFile("log", strings.Slice(whole, 0, cut)) catch {
 	case fs.NotFound, fs.Denied, fs.Failed:
 		return false
@@ -90,10 +91,10 @@ law ReopenedLogReads(batches [][]int, torn int) {
 			return false
 		}
 	}
-	if back.Seen(domain.CommandID("torn")) != None {
+	if back.Seen(domain.CommandID("torn")) != option.None {
 		return false
 	}
-	let r = back.Append("s0", len(back.Read("s0", 0)), domain.CommandID("after"), []int{1}) catch {
+	let r = back.Append("s0", back.Read("s0", 0).Len(), domain.CommandID("after"), []int{1}) catch {
 	case domain.Conflict, domain.Reused, domain.Unkept:
 		return false
 	}
@@ -101,5 +102,5 @@ law ReopenedLogReads(batches [][]int, torn int) {
 	case domain.Unkept:
 		return false
 	}
-	again.Seen(domain.CommandID("after")) == (Some[domain.Receipt]{Value: r}) && again.Read("s0", 0) == back.Read("s0", 0)
+	again.Seen(domain.CommandID("after")) == (option.Some[domain.Receipt]{Value: r}) && again.Read("s0", 0) == back.Read("s0", 0)
 }

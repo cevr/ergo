@@ -157,7 +157,7 @@ func refusalTag(r board.Refusal) string {
 func boardStoryStep(st boardStory, a boardAct) (boardStory, boardRes) {
 	match a {
 	case ActReadSnap:
-		(st, ResSnap{Messages: len(st.state.Messages), Tasks: len(st.state.Tasks)})
+		(st, ResSnap{Messages: st.state.Messages.Len(), Tasks: st.state.Tasks.Len()})
 	case ActReadEvents:
 		(st, ResEvents{Count: st.head})
 	case ActPost, ActCreateTask, ActClaimTask:
@@ -166,7 +166,7 @@ func boardStoryStep(st boardStory, a boardAct) (boardStory, boardRes) {
 		case r:
 			return (st, ResRefused{Tag: refusalTag(r)})
 		}
-		if len(evts) == 0 {
+		if evts.Len() == 0 {
 			return (st, ResCommitted{Head: st.head})
 		}
 		let mut seq = st.head
@@ -268,13 +268,13 @@ func runBoardAct(store Store, a boardAct) boardRes {
 		case board.StoreFailed:
 			return ResRefused{Tag: "StoreFailed"}
 		}
-		ResSnap{Messages: len(snap.Messages), Tasks: len(snap.Tasks)}
+		ResSnap{Messages: snap.Messages.Len(), Tasks: snap.Tasks.Len()}
 	case ActReadEvents:
 		let evts = store.ReadEvents(board.DefaultBoard, 0) catch {
 		case board.StoreFailed:
 			return ResRefused{Tag: "StoreFailed"}
 		}
-		ResEvents{Count: len(evts)}
+		ResEvents{Count: evts.Len()}
 	case ActPost, ActCreateTask, ActClaimTask:
 		execBoardOCC(store, boardCmdOf(a))
 	}

@@ -3,6 +3,7 @@
 // every run (Apply), and the law BoardIsFoldOfEvents says that the fold
 // is the board of the runs' states.
 
+import option
 import pipeline/run
 import slices
 
@@ -23,42 +24,42 @@ type Column = InQueue{} | InRun{} | InFailure{} | InPassed{} | InStopped{}
 
 // ColumnOf is the column of a run in the state r, or None for a run that
 // was never submitted.
-func ColumnOf(r run.Run) Option[Column] {
+func ColumnOf(r run.Run) option.Option[Column] {
 	match r {
 	case run.Unsubmitted:
-		None
+		option.None
 	case run.Queued:
-		Some[Column]{Value: InQueue}
+		option.Some[Column]{Value: InQueue}
 	case run.Running:
-		Some[Column]{Value: InRun}
+		option.Some[Column]{Value: InRun}
 	case run.Failing:
-		Some[Column]{Value: InFailure}
+		option.Some[Column]{Value: InFailure}
 	case run.Done as d:
 		match d.Outcome {
 		case run.Passed:
-			Some[Column]{Value: InPassed}
+			option.Some[Column]{Value: InPassed}
 		case run.GaveUp, run.Cancelled:
-			Some[Column]{Value: InStopped}
+			option.Some[Column]{Value: InStopped}
 		}
 	}
 }
 
 // moved is the column that the event e moves a run to, or None when the
 // run stays where it is.
-func moved(e run.Event) Option[Column] {
+func moved(e run.Event) option.Option[Column] {
 	match e {
 	case run.Submitted:
-		Some[Column]{Value: InQueue}
+		option.Some[Column]{Value: InQueue}
 	case run.Started, run.Retried:
-		Some[Column]{Value: InRun}
+		option.Some[Column]{Value: InRun}
 	case run.StageFailed:
-		Some[Column]{Value: InFailure}
+		option.Some[Column]{Value: InFailure}
 	case run.Finished:
-		Some[Column]{Value: InPassed}
+		option.Some[Column]{Value: InPassed}
 	case run.Abandoned, run.Stopped:
-		Some[Column]{Value: InStopped}
+		option.Some[Column]{Value: InStopped}
 	case run.StagePassed:
-		None
+		option.None
 	}
 }
 
@@ -82,11 +83,11 @@ func put(v View, c Column, id string) View {
 // run takes it out of its column and puts it last in the new one.
 func Apply(v View, id string, e run.Event) View {
 	match moved(e) {
-	case Some[Column] as c:
+	case option.Some[Column] as c:
 		let other = func(x string) bool { x != id }
 		let out = View{Queued: slices.Filter(v.Queued, other), Running: slices.Filter(v.Running, other), Failing: slices.Filter(v.Failing, other), Passed: slices.Filter(v.Passed, other), Stopped: slices.Filter(v.Stopped, other)}
 		put(out, c.Value, id)
-	case None:
+	case option.None:
 		v
 	}
 }
@@ -97,15 +98,15 @@ func Of(order []string, runs Map[string, run.Run]) View {
 	let mut v = Empty
 	for id in order {
 		let r = match runs.Get(id) {
-		case Some[run.Run] as s:
+		case option.Some[run.Run] as s:
 			s.Value
-		case None:
+		case option.None:
 			continue
 		}
 		match ColumnOf(r) {
-		case Some[Column] as c:
+		case option.Some[Column] as c:
 			v = put(v, c.Value, id)
-		case None:
+		case option.None:
 		}
 	}
 	v
@@ -121,9 +122,9 @@ law BoardIsFoldOfEvents(acts []Act) {
 	for a in acts {
 		let id = nameOf(a.Pick)
 		let s = match runs.Get(id) {
-		case Some[run.Run] as r:
+		case option.Some[run.Run] as r:
 			r.Value
-		case None:
+		case option.None:
 			run.Unsubmitted
 		}
 		let c = if a.Move%4 == 0 { run.Cancel{Why: "stop"} } else { run.Forward(s, a.OK, a.Stages) }
@@ -134,9 +135,9 @@ law BoardIsFoldOfEvents(acts []Act) {
 		for e in es {
 			v = Apply(v, id, e)
 			match moved(e) {
-			case Some[Column]:
+			case option.Some[Column]:
 				order = slices.Filter(order, func(x string) bool { x != id }).Append(id)
-			case None:
+			case option.None:
 			}
 		}
 		runs[id] = run.Fold(s, es)
@@ -155,4 +156,4 @@ let Names = []string{"a", "b", "c"}
 func nameOf(pick int) string { Names[((pick%3)+3)%3] }
 
 // Size is the number of runs on v.
-func Size(v View) int { len(v.Queued) + len(v.Running) + len(v.Failing) + len(v.Passed) + len(v.Stopped) }
+func Size(v View) int { v.Queued.Len() + v.Running.Len() + v.Failing.Len() + v.Passed.Len() + v.Stopped.Len() }

@@ -5,8 +5,9 @@
 
 import adventure/game
 import io
+import os
 
-func main() needs Console | Ambient {
+func main() needs io.Console | os.Ambient {
 	with context { io.Stdin: io.NewStdin() } {
 		let _ = game.Run()
 	}

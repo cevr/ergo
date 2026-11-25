@@ -1,8 +1,10 @@
+import core
 import explore
 import fs
 import fstest
 import gen
 import github.com/cevr/ergo/modules/domain
+import option
 import sync
 import testing
 
@@ -37,13 +39,13 @@ type fileLogDriveErr { Message string }
 type fileLogSession {
 	disk fstest.Memory,
 	cur  sync.Ref[Log[int]],
-} implements explore.PathSession[fileLogAct, explore.Observed[fileLogObs, fileLogOut, Never], fileLogDriveErr]
+} implements explore.PathSession[fileLogAct, explore.Observed[fileLogObs, fileLogOut, core.Never], fileLogDriveErr]
 
-func fileSeenPos(opt Option[domain.Receipt]) int {
+func fileSeenPos(opt option.Option[domain.Receipt]) int {
 	match opt {
-	case Some[domain.Receipt] as r:
+	case option.Some[domain.Receipt] as r:
 		r.Value.Position
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -51,7 +53,7 @@ func fileSeenPos(opt Option[domain.Receipt]) int {
 func readFileLogObs(s fileLogSession) fileLogObs {
 	let l = s.cur.Get()
 	fileLogObs{
-		Pos: len(l.Read("s", 0)),
+		Pos: l.Read("s", 0).Len(),
 		C1:  fileSeenPos(l.Seen(domain.CommandID("c1"))),
 		C2:  fileSeenPos(l.Seen(domain.CommandID("c2"))),
 	}
@@ -76,23 +78,23 @@ func applyFileLogAct(s fileLogSession, act fileLogAct) fileLogOut fails fileLogD
 			return fileLogDriveErr{Message: u.Reason}
 		}
 		s.cur.Set(reopened)
-		FileOutReopened{Pos: len(reopened.Read("s", 0))}
+		FileOutReopened{Pos: reopened.Read("s", 0).Len()}
 	}
 }
 
-func Read(s fileLogSession) explore.Observed[fileLogObs, fileLogOut, Never] fails fileLogDriveErr {
+func Read(s fileLogSession) explore.Observed[fileLogObs, fileLogOut, core.Never] fails fileLogDriveErr {
 	explore.InitialRead[fileLogObs]{State: readFileLogObs(s)}
 }
 
-func Apply(s fileLogSession, act fileLogAct) explore.Observed[fileLogObs, fileLogOut, Never] fails fileLogDriveErr {
+func Apply(s fileLogSession, act fileLogAct) explore.Observed[fileLogObs, fileLogOut, core.Never] fails fileLogDriveErr {
 	let out = try applyFileLogAct(s, act)
 	let obs = readFileLogObs(s)
-	explore.StepResult[fileLogObs, fileLogOut, Never]{
-		Step: explore.StepObs[fileLogObs, fileLogOut, Never]{
+	explore.StepResult[fileLogObs, fileLogOut, core.Never]{
+		Step: explore.StepObs[fileLogObs, fileLogOut, core.Never]{
 			Kind:     explore.DisEmit,
-			State:    Some[fileLogObs]{Value: obs},
+			State:    option.Some[fileLogObs]{Value: obs},
 			Outputs:  []fileLogOut{out},
-			Error:    None,
+			Error:    option.None,
 			Terminal: false,
 		},
 	}
@@ -143,21 +145,21 @@ func fileLogStep(st fileLogState, act fileLogAct) (fileLogState, fileLogOut) {
 	}
 }
 
-func fileLogModel() explore.PathModel[fileLogState, fileLogAct, fileLogObs, fileLogOut, Never] {
-	explore.PathModelProjected[fileLogState, fileLogAct, fileLogObs, fileLogOut, Never](
+func fileLogModel() explore.PathModel[fileLogState, fileLogAct, fileLogObs, fileLogOut, core.Never] {
+	explore.PathModelProjected[fileLogState, fileLogAct, fileLogObs, fileLogOut, core.Never](
 		[]fileLogState{fileLogState{Pos: 0, C1: 0, C1Ev: 0, C2: 0, C2Ev: 0}},
 		fileLogSignals,
 		"domain.file.log",
 		fileLogProject,
-		func(st fileLogState, act fileLogAct) explore.EdgeOutcome[fileLogState, explore.StepObs[fileLogObs, fileLogOut, Never]] {
+		func(st fileLogState, act fileLogAct) explore.EdgeOutcome[fileLogState, explore.StepObs[fileLogObs, fileLogOut, core.Never]] {
 			let (next, out) = fileLogStep(st, act)
-			explore.Continue[fileLogState, explore.StepObs[fileLogObs, fileLogOut, Never]]{
+			explore.Continue[fileLogState, explore.StepObs[fileLogObs, fileLogOut, core.Never]]{
 				Next: next,
-				Obs:  explore.StepObs[fileLogObs, fileLogOut, Never]{
+				Obs:  explore.StepObs[fileLogObs, fileLogOut, core.Never]{
 					Kind:     explore.DisEmit,
-					State:    Some[fileLogObs]{Value: fileLogProject(next)},
+					State:    option.Some[fileLogObs]{Value: fileLogProject(next)},
 					Outputs:  []fileLogOut{out},
-					Error:    None,
+					Error:    option.None,
 					Terminal: false,
 				},
 			}
@@ -176,7 +178,7 @@ type DomainFilePaths {
 			fileLogModel(),
 			explore.ToDepth{Depth: 3},
 			bounds,
-			func(start fileLogState) explore.PathSession[fileLogAct, explore.Observed[fileLogObs, fileLogOut, Never], fileLogDriveErr] fails fileLogOpenErr {
+			func(start fileLogState) explore.PathSession[fileLogAct, explore.Observed[fileLogObs, fileLogOut, core.Never], fileLogDriveErr] fails fileLogOpenErr {
 				try OpenSession(start)
 			},
 			testing.ActiveEvidenceSink(),
@@ -223,17 +225,17 @@ law FileLogWriteFaultsPreserveState() {
 		case domain.Unkept:
 			return false
 		}
-		let before = len(faultyWrites.AppendFile.Faults())
+		let before = faultyWrites.AppendFile.Faults().Len()
 		let res = tryFileAppend(l)
 		if res < 0 {
 			return false
 		}
-		if len(faultyWrites.AppendFile.Faults()) > before {
+		if faultyWrites.AppendFile.Faults().Len() > before {
 			sometimes res == 1
 			if res != 1 {
 				return false
 			}
-			return len(l.Read("s", 0)) == 0 && l.Seen(domain.CommandID("c1")) == None
+			return l.Read("s", 0).Len() == 0 && l.Seen(domain.CommandID("c1")) == option.None
 		}
 		if res != 0 {
 			return false
@@ -243,7 +245,7 @@ law FileLogWriteFaultsPreserveState() {
 		case domain.Unkept:
 			return false
 		}
-		len(reopened.Read("s", 0)) == 1 && reopened.Seen(domain.CommandID("c1")) != None
+		reopened.Read("s", 0).Len() == 1 && reopened.Seen(domain.CommandID("c1")) != option.None
 	})
 	match outcome {
 	case gen.Held:

@@ -277,8 +277,8 @@
       "name": "git-deltas-ignore-base-size-mismatch",
       "origin": "STD-GIT G-DELTAS",
       "file": "modules/git/delta/delta.ergo",
-      "from": "\tif baseSize != len(base) {\n\t\treturn BaseSizeMismatch{Expected: baseSize, Got: len(base)}\n\t}",
-      "to": "\tif false && baseSize != len(base) {\n\t\treturn BaseSizeMismatch{Expected: baseSize, Got: len(base)}\n\t}",
+      "from": "\tif baseSize != base.Len() {\n\t\treturn BaseSizeMismatch{Expected: baseSize, Got: base.Len()}\n\t}",
+      "to": "\tif false && baseSize != base.Len() {\n\t\treturn BaseSizeMismatch{Expected: baseSize, Got: base.Len()}\n\t}",
       "rule": "Apply rejects deltas whose decoded base size does not match len(base) with BaseSizeMismatch.",
       "anchor": {
         "tests": [
@@ -373,8 +373,8 @@
       "name": "git-refs-packed-shadows-loose",
       "origin": "STD-GIT G-REFS",
       "file": "modules/git/refs/store.ergo",
-      "from": "\tmatch try readLooseRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t}\n\tmatch try readPackedRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t\treturn NotFound{Name: name}\n\t}",
-      "to": "\tmatch try readPackedRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t}\n\tmatch try readLooseRef(store, name) {\n\tcase Some[Ref] as r:\n\t\treturn r.Value\n\tcase None:\n\t\treturn NotFound{Name: name}\n\t}",
+      "from": "\tmatch try readLooseRef(store, name) {\n\tcase option.Some[Ref] as r:\n\t\treturn r.Value\n\tcase option.None:\n\t}\n\tmatch try readPackedRef(store, name) {\n\tcase option.Some[Ref] as r:\n\t\treturn r.Value\n\tcase option.None:\n\t\treturn NotFound{Name: name}\n\t}",
+      "to": "\tmatch try readPackedRef(store, name) {\n\tcase option.Some[Ref] as r:\n\t\treturn r.Value\n\tcase option.None:\n\t}\n\tmatch try readLooseRef(store, name) {\n\tcase option.Some[Ref] as r:\n\t\treturn r.Value\n\tcase option.None:\n\t\treturn NotFound{Name: name}\n\t}",
       "rule": "Loose references take precedence over packed-refs entries.",
       "anchor": {
         "tests": [
@@ -405,8 +405,8 @@
       "name": "git-refs-drops-peeled-tag",
       "origin": "STD-GIT G-REFS",
       "file": "modules/git/refs/packed.ergo",
-      "from": "\t\t\tout[len(out)-1] = Ref{\n\t\t\t\tName:   last.Name,\n\t\t\t\tTarget: last.Target,\n\t\t\t\tPeeled: Some[oid.OID]{Value: peeledOID},\n\t\t\t}",
-      "to": "\t\t\tlet _ = peeledOID\n\t\t\tout[len(out)-1] = Ref{\n\t\t\t\tName:   last.Name,\n\t\t\t\tTarget: last.Target,\n\t\t\t\tPeeled: None,\n\t\t\t}",
+      "from": "\t\t\tout[out.Len()-1] = Ref{\n\t\t\t\tName:   last.Name,\n\t\t\t\tTarget: last.Target,\n\t\t\t\tPeeled: option.Some[oid.OID]{Value: peeledOID},\n\t\t\t}",
+      "to": "\t\t\tlet _ = peeledOID\n\t\t\tout[out.Len()-1] = Ref{\n\t\t\t\tName:   last.Name,\n\t\t\t\tTarget: last.Target,\n\t\t\t\tPeeled: option.None,\n\t\t\t}",
       "rule": "ParsePackedRefs attaches ^<oid> peeled tag targets to the immediately preceding annotated tag ref.",
       "anchor": {
         "tests": [
@@ -629,8 +629,8 @@
       "name": "git-tree-lex-sort-instead-of-slash",
       "origin": "STD-GIT G-TREE",
       "file": "modules/git/tree/tree.ergo",
-      "from": "\tlet ca = if n < len(ab) { int(ab[n]) } else if aIsTree { 47 } else { 0 }\n\tlet cb = if n < len(bb) { int(bb[n]) } else if bIsTree { 47 } else { 0 }",
-      "to": "\tlet ca = if n < len(ab) { int(ab[n]) } else { 0 }\n\tlet cb = if n < len(bb) { int(bb[n]) } else { 0 }",
+      "from": "\tlet ca = if n < ab.Len() { int(ab[n]) } else if aIsTree { 47 } else { 0 }\n\tlet cb = if n < bb.Len() { int(bb[n]) } else if bIsTree { 47 } else { 0 }",
+      "to": "\tlet ca = if n < ab.Len() { int(ab[n]) } else { 0 }\n\tlet cb = if n < bb.Len() { int(bb[n]) } else { 0 }",
       "rule": "CompareEntryNames compares Git tree directory entries as if followed by '/' (0x2f) rather than plain lexicographical order.",
       "anchor": {
         "tests": [
@@ -661,7 +661,7 @@
       "name": "git-tree-recurse-gitlink",
       "origin": "STD-GIT G-TREE",
       "file": "modules/git/tree/walk.ergo",
-      "from": "\t\tcase ModeGitlink:\n\t\t\tout = out.Append(WalkEntry{\n\t\t\t\tPath: fullPath,\n\t\t\t\tMode: ModeGitlink,\n\t\t\t\tKind: oid.Commit,\n\t\t\t\tOID:  e.OID,\n\t\t\t\tSize: None,\n\t\t\t})",
+      "from": "\t\tcase ModeGitlink:\n\t\t\tout = out.Append(WalkEntry{\n\t\t\t\tPath: fullPath,\n\t\t\t\tMode: ModeGitlink,\n\t\t\t\tKind: oid.Commit,\n\t\t\t\tOID:  e.OID,\n\t\t\t\tSize: option.None,\n\t\t\t})",
       "to": "\t\tcase ModeGitlink:\n\t\t\tout = try walkTreeRec(format, e.OID, fullPath, depth+1, maxDepth, maxBytes, withSizes, out)",
       "rule": "WalkTree emits 160000 gitlink entries as leaf commits without descending into them.",
       "anchor": {
@@ -933,7 +933,7 @@
       "name": "git-filemerge-union-emits-conflict",
       "origin": "STD-GIT G-FILEMERGE",
       "file": "modules/git/filemerge/merge.ergo",
-      "from": "\t\t\t\tcase FavorUnion:\n\t\t\t\t\tlet mut combined = slices.WithCapacity[string](len(midO) + len(midT))\n\t\t\t\t\tfor l in midO {\n\t\t\t\t\t\tcombined = combined.Append(l)\n\t\t\t\t\t\trendered = rendered.Append(l)\n\t\t\t\t\t}\n\t\t\t\t\tfor l in midT {\n\t\t\t\t\t\tcombined = combined.Append(l)\n\t\t\t\t\t\trendered = rendered.Append(l)\n\t\t\t\t\t}\n\t\t\t\t\thunks = hunks.Append(CleanHunk{Lines: combined})",
+      "from": "\t\t\t\tcase FavorUnion:\n\t\t\t\t\tlet mut combined = slices.WithCapacity[string](midO.Len() + midT.Len())\n\t\t\t\t\tfor l in midO {\n\t\t\t\t\t\tcombined = combined.Append(l)\n\t\t\t\t\t\trendered = rendered.Append(l)\n\t\t\t\t\t}\n\t\t\t\t\tfor l in midT {\n\t\t\t\t\t\tcombined = combined.Append(l)\n\t\t\t\t\t\trendered = rendered.Append(l)\n\t\t\t\t\t}\n\t\t\t\t\thunks = hunks.Append(CleanHunk{Lines: combined})",
       "to": "\t\t\t\tcase FavorUnion:\n\t\t\t\t\thunks = hunks.Append(ConflictHunk{Base: midB, Ours: midO, Theirs: midT})\n\t\t\t\t\trendered = renderConflictHunk(rendered, midB, midO, midT, opts)\n\t\t\t\t\tconflicts = conflicts + 1",
       "rule": "FavorUnion resolves overlapping edits cleanly by emitting ours followed by theirs without conflict markers.",
       "anchor": {
@@ -949,8 +949,8 @@
       "name": "git-rev-first-common-ancestor-only",
       "origin": "STD-GIT G-REACH",
       "file": "modules/git/revisions/dag.ergo",
-      "from": "\t\tif dominated.Get(oid.Hex(c.OID)) == None {\n\t\t\tbest = best.Append(c)\n\t\t}",
-      "to": "\t\tif dominated.Get(oid.Hex(c.OID)) == None && len(best) == 0 {\n\t\t\tbest = best.Append(c)\n\t\t}",
+      "from": "\t\tif dominated.Get(oid.Hex(c.OID)) == option.None {\n\t\t\tbest = best.Append(c)\n\t\t}",
+      "to": "\t\tif dominated.Get(oid.Hex(c.OID)) == option.None && best.Len() == 0 {\n\t\t\tbest = best.Append(c)\n\t\t}",
       "rule": "MergeBases returns all maximal best common ancestors (antichain) rather than stopping at the first common ancestor, matching git merge-base --all on criss-cross DAGs.",
       "anchor": {
         "tests": [
@@ -965,8 +965,8 @@
       "name": "git-rev-collapse-ambiguous-id",
       "origin": "STD-GIT G-REVISIONS",
       "file": "modules/git/revisions/parse.ergo",
-      "from": "\tif len(matches) > 1 {\n\t\treturn Ambiguous{Spec: spec, Candidates: matches}\n\t}",
-      "to": "\tif len(matches) > 1 {\n\t\treturn matches[0]\n\t}",
+      "from": "\tif matches.Len() > 1 {\n\t\treturn Ambiguous{Spec: spec, Candidates: matches}\n\t}",
+      "to": "\tif matches.Len() > 1 {\n\t\treturn matches[0]\n\t}",
       "rule": "ResolveRev refuses abbreviated hex prefixes matching >=2 objects with Ambiguous instead of silently returning the first match.",
       "anchor": {
         "tests": [
@@ -981,8 +981,8 @@
       "name": "git-rev-is-ancestor-swallows-missing",
       "origin": "STD-GIT G-REACH",
       "file": "modules/git/revisions/dag.ergo",
-      "from": "func loadCommitForAncestor(id oid.OID) Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {\n\tSome[CommitNode]{Value: try CommitDAG.Commit(id)}\n}",
-      "to": "func loadCommitForAncestor(id oid.OID) Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {\n\tlet node = CommitDAG.Commit(id) catch {\n\tcase NotFound, NotACommit:\n\t\treturn None\n\tcase StoreError as e:\n\t\treturn e\n\t}\n\tSome[CommitNode]{Value: node}\n}",
+      "from": "func loadCommitForAncestor(id oid.OID) option.Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {\n\toption.Some[CommitNode]{Value: try CommitDAG.Commit(id)}\n}",
+      "to": "func loadCommitForAncestor(id oid.OID) option.Option[CommitNode] fails NotFound | NotACommit | StoreError needs CommitDAG {\n\tlet node = CommitDAG.Commit(id) catch {\n\tcase NotFound, NotACommit:\n\t\treturn option.None\n\tcase StoreError as e:\n\t\treturn e\n\t}\n\toption.Some[CommitNode]{Value: node}\n}",
       "rule": "IsAncestor returns typed NotFound/NotACommit errors for missing or non-commit OIDs instead of silently swallowing them as false.",
       "anchor": {
         "tests": [
@@ -1253,8 +1253,8 @@
       "name": "git-wpack-skip-dedup",
       "origin": "STD-GIT G-WPACK",
       "file": "modules/git/wpack/encode.ergo",
-      "from": "\t\tif seen.Get(h) != None {\n\t\t\tcontinue\n\t\t}",
-      "to": "\t\tif false && seen.Get(h) != None {\n\t\t\tcontinue\n\t\t}",
+      "from": "\t\tif seen.Get(h) != option.None {\n\t\t\tcontinue\n\t\t}",
+      "to": "\t\tif false && seen.Get(h) != option.None {\n\t\t\tcontinue\n\t\t}",
       "rule": "BuildPackPair deduplicates identical input objects by canonical OID so no duplicate OIDs are written into .pack or .idx.",
       "anchor": {
         "tests": [

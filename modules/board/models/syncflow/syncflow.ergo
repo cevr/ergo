@@ -1,3 +1,5 @@
+import machines
+
 // The package syncflow is the design model of sync delivery between one
 // board thread and one platform thread (spec.md, Sync link; machines.md,
 // M4): no echo, each platform message imported at most once, each board
@@ -85,20 +87,20 @@ func blocked(w World, b int, mutant int) bool {
 	mutant == FailureBlocksMutant && b == 1 && w.Out[0] != 2
 }
 
-func step(s World, act Act, mutant int) Decision[World, string] {
+func step(s World, act Act, mutant int) machines.Decision[World, string] {
 	let mut w = s
 	match act {
 	case Try as a:
 		let b = bi(a.B)
 		if blocked(w, b, mutant) {
-			return Ignore
+			return machines.Ignore
 		}
 		let mut can = w.Out[b] == 0
 		if mutant == BlindRetryMutant {
 			can = w.Out[b] == 0 || w.Out[b] == 1
 		}
 		if !can || w.Tries[b] >= MaxTries {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Tries[b] = w.Tries[b] + 1
 		w.Copies[b] = w.Copies[b] + 1
@@ -107,62 +109,62 @@ func step(s World, act Act, mutant int) Decision[World, string] {
 		} else {
 			w.Out[b] = 2
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case TryFail as a:
 		let b = bi(a.B)
 		if blocked(w, b, mutant) || w.Out[b] != 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Tries[b] = w.Tries[b] + 1
 		if w.Tries[b] >= MaxTries {
 			w.Out[b] = 3
 		}
-		return Enter{w}
+		return machines.Enter{w}
 	case Reconcile as a:
 		let b = bi(a.B)
 		if w.Out[b] != 1 || mutant == BlindRetryMutant {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Out[b] = 2
-		return Enter{w}
+		return machines.Enter{w}
 	case UserPost as a:
 		let p = pi(a.P)
 		if w.Exists[p] {
-			return Ignore
+			return machines.Ignore
 		}
 		w.Exists[p] = true
-		return Enter{w}
+		return machines.Enter{w}
 	case Hook as a:
 		let p = pi(a.P)
 		if !w.Exists[p] {
-			return Ignore
+			return machines.Ignore
 		}
 		if w.Imported[p] == 0 {
 			w.Imported[p] = 1
-			return Enter{w}
+			return machines.Enter{w}
 		}
 		if mutant == NoDedupeMutant && w.Imported[p] < 2 {
 			w.Imported[p] = 2
-			return Enter{w}
+			return machines.Enter{w}
 		}
-		return Ignore
+		return machines.Ignore
 	case HookOwn as a:
 		let b = bi(a.B)
 		if w.Copies[b] == 0 {
-			return Ignore
+			return machines.Ignore
 		}
 		if mutant == MapOnlyMutant && w.Out[b] != 2 && w.Echo[b] == 0 {
 			w.Echo[b] = 1
-			return Enter{w}
+			return machines.Enter{w}
 		}
-		return Ignore
+		return machines.Ignore
 	case Back as a:
 		let p = pi(a.P)
 		if mutant == DeliverImportedMutant && w.Imported[p] > 0 && w.Returned[p] == 0 {
 			w.Returned[p] = 1
-			return Enter{w}
+			return machines.Enter{w}
 		}
-		return Ignore
+		return machines.Ignore
 	}
 }
 
@@ -220,12 +222,12 @@ func allSynced(w World) bool {
 func failedDoesNotBlock(w World) bool { w.Out[0] == 3 && w.Out[1] == 2 }
 func reconciled(w World) bool         { w.Out[0] == 2 && w.Tries[0] == 1 && w.Copies[0] == 1 && w.Out[1] == 1 }
 
-func design(s World, a Act) Decision[World, string]          { return step(s, a, NoMutant) }
-func blindRetry(s World, a Act) Decision[World, string]      { return step(s, a, BlindRetryMutant) }
-func mapOnly(s World, a Act) Decision[World, string]         { return step(s, a, MapOnlyMutant) }
-func noDedupe(s World, a Act) Decision[World, string]        { return step(s, a, NoDedupeMutant) }
-func deliverImported(s World, a Act) Decision[World, string] { return step(s, a, DeliverImportedMutant) }
-func failureBlocks(s World, a Act) Decision[World, string]   { return step(s, a, FailureBlocksMutant) }
+func design(s World, a Act) machines.Decision[World, string]          { return step(s, a, NoMutant) }
+func blindRetry(s World, a Act) machines.Decision[World, string]      { return step(s, a, BlindRetryMutant) }
+func mapOnly(s World, a Act) machines.Decision[World, string]         { return step(s, a, MapOnlyMutant) }
+func noDedupe(s World, a Act) machines.Decision[World, string]        { return step(s, a, NoDedupeMutant) }
+func deliverImported(s World, a Act) machines.Decision[World, string] { return step(s, a, DeliverImportedMutant) }
+func failureBlocks(s World, a Act) machines.Decision[World, string]   { return step(s, a, FailureBlocksMutant) }
 
 type Design machine[World, Act] {
 	initial: first(),

@@ -6,24 +6,26 @@
 import fluidgallery/gallery
 import fs
 import http
+import io
 import os
 import strings
 import github.com/cevr/ergo/modules/web
+import time
 
 // Usage: the fonts folder is missing.
 type Usage { Text string }
 
-func main() fails Usage | fs.NotFound | fs.Denied | fs.Failed | http.ListenFailed | http.InvalidLimits needs Console | Ambient {
+func main() fails Usage | fs.NotFound | fs.Denied | fs.Failed | http.ListenFailed | http.InvalidLimits needs io.Console | os.Ambient {
 	let args = with context { os.Process: os.NewHost() } { os.Process.Args() }
-	if len(args) < 1 || len(args) > 2 {
+	if args.Len() < 1 || args.Len() > 2 {
 		return Usage{Text: "usage: fluid-gallery-web FONT-FOLDER [ADDR]"}
 	}
-	let addr = if len(args) == 2 { args[1] } else { "127.0.0.1:0" }
+	let addr = if args.Len() == 2 { args[1] } else { "127.0.0.1:0" }
 	let fonts = try fs.OpenRoot(args[0])
 	let site = gallery.Site()
 	let l = try http.Listen(addr)
-	Console.Println("listening \(l.Addr())")
-	with context { Scheduler: NewLiveScheduler() } {
+	io.Console.Println("listening \(l.Addr())")
+	with context { time.Scheduler: time.NewLiveScheduler() } {
 		try http.Serve(l, http.Limits{MaxBodyBytes: 65536, MaxHeaderBytes: 16384, IdleTimeout: 5s, ReadHeaderTimeout: 10s, ReadBodyTimeout: 30s}, func(r http.Request) http.Response needs http.Streaming {
 			if strings.HasPrefix(r.Path, "/fonts/") {
 				return http.Files(fonts, "/fonts/", r)

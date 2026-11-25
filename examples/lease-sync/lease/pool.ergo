@@ -9,6 +9,7 @@
 // free lease) and uniqueness (two clients each take one name).
 
 import lease-sync/domain
+import option
 import time
 
 // Hold is one lease held: its name and who holds it.
@@ -37,13 +38,13 @@ type Refusal { Reason Reason }
 func Empty(n int) Pool { Pool{Cap: n, Held: []Hold{}} }
 
 // Holder is who holds the lease name, if anyone.
-func Holder(p Pool, name string) Option[string] {
+func Holder(p Pool, name string) option.Option[string] {
 	for h in p.Held {
 		if h.Name == name {
-			return Some[string]{Value: h.By}
+			return option.Some[string]{Value: h.By}
 		}
 	}
-	None
+	option.None
 }
 
 // Decide is the pool's decision on the command c.
@@ -51,16 +52,16 @@ func Decide(p Pool, c domain.Envelope[Cmd]) []Event fails Refusal {
 	match c.Command {
 	case Take as t:
 		match Holder(p, t.Name) {
-		case Some[string] as h:
+		case option.Some[string] as h:
 			return Refusal{Reason: InUse{Name: t.Name, By: h.Value}}
-		case None:
+		case option.None:
 		}
-		if len(p.Held) >= p.Cap {
+		if p.Held.Len() >= p.Cap {
 			return Refusal{Reason: Exhausted{Cap: p.Cap}}
 		}
 		[]Event{Taken{Name: t.Name, By: c.By}}
 	case Give as g:
-		if Holder(p, g.Name) != (Some[string]{Value: c.By}) {
+		if Holder(p, g.Name) != (option.Some[string]{Value: c.By}) {
 			return Refusal{Reason: NotHeld{Name: g.Name}}
 		}
 		[]Event{Given{Name: g.Name}}
@@ -102,7 +103,7 @@ func Evolve(p Pool, e Event) Pool {
 func play(cap int, cmds []Cmd, users []string) Pool {
 	let mut p = Empty(cap)
 	for i, c in cmds {
-		let by = if len(users) == 0 { "u" } else { users[i%len(users)] }
+		let by = if users.Len() == 0 { "u" } else { users[i%users.Len()] }
 		let events = Decide(p, envelope(by, c)) catch {
 		case _:
 			continue
@@ -124,7 +125,7 @@ func envelope(by string, c Cmd) domain.Envelope[Cmd] {
 law NeverOverCap(cap int, cmds []Cmd, users []string, name string) {
 	let n = (cap%4+4)%4 + 1
 	let p = play(n, cmds, users)
-	if len(p.Held) > n {
+	if p.Held.Len() > n {
 		return false
 	}
 	for i, h in p.Held {
@@ -132,7 +133,7 @@ law NeverOverCap(cap int, cmds []Cmd, users []string, name string) {
 			return false
 		}
 	}
-	if len(p.Held) < n || Holder(p, name) != None {
+	if p.Held.Len() < n || Holder(p, name) != option.None {
 		return true
 	}
 	let _ = Decide(p, envelope("x", Take{Name: name})) catch {

@@ -2,6 +2,8 @@
 // under one TLD, the catalog of TLDs, and the Api, the operation type
 // Registry with its laws. Nothing here knows the wire or a host.
 
+import core
+
 // Label is the name a search offers under each TLD: 1 to 63 bytes of
 // a to z, 0 to 9 and inner hyphens (types.md, Refinements 11). The where derives ParseLabel, so a Label on
 // the wire is decoded through it and an upper-case or dotted label fails
@@ -48,13 +50,13 @@ func NameOf(l Listing) string {
 // further, and a Limit reaches its size and no further, so a request the
 // types admit is one the catalog can answer.
 law BoundsAreTheCatalog() {
-	let n = len(Catalog)
+	let n = Catalog.Len()
 	isOffset(n-1) && !isOffset(n) && isLimit(n) && !isLimit(n+1)
 }
 
 func isOffset(n int) bool {
 	let _ = ParseOffset(n) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return false
 	}
 	true
@@ -62,7 +64,7 @@ func isOffset(n int) bool {
 
 func isLimit(n int) bool {
 	let _ = ParseLimit(n) catch {
-	case Unsatisfied:
+	case core.Unsatisfied:
 		return false
 	}
 	true

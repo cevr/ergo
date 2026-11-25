@@ -69,8 +69,8 @@
       "name": "orch2-reanswer-question",
       "origin": "wf10/ORCH-2",
       "file": "modules/orchestrate/orchestrate/lifecycle.ergo",
-      "from": "\tcase (QuestionAnswered | QuestionWithdrawn, ActAnswer | ActWithdraw):\n\t\tReject\n",
-      "to": "\tcase (QuestionAnswered, ActAnswer):\n\t\tEnter[QuestionStatus]{Next: QuestionAnswered}\n\tcase (QuestionAnswered, ActWithdraw):\n\t\tReject\n\tcase (QuestionWithdrawn, ActAnswer | ActWithdraw):\n\t\tReject\n",
+      "from": "\tcase (QuestionAnswered | QuestionWithdrawn, ActAnswer | ActWithdraw):\n\t\tmachines.Reject\n",
+      "to": "\tcase (QuestionAnswered, ActAnswer):\n\t\tmachines.Enter[QuestionStatus]{Next: QuestionAnswered}\n\tcase (QuestionAnswered, ActWithdraw):\n\t\tmachines.Reject\n\tcase (QuestionWithdrawn, ActAnswer | ActWithdraw):\n\t\tmachines.Reject\n",
       "rule": "An answered question cannot be answered again: FinalQuestionTakesNoAction and QuestionAnsweredOnce.",
       "anchor": {
         "tests": [
@@ -85,8 +85,8 @@
       "name": "orch2-memory-appends-duplicate",
       "origin": "wf10/ORCH-2",
       "file": "modules/orchestrate/memory/store.ergo",
-      "from": "\t\tif len(events) == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: len(b.log), Events: []orchestrate.Event{}, Duplicate: true}}, b)\n\t\t}\n",
-      "to": "\t\tif len(events) == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: len(b.log), Events: []orchestrate.Event{}, Duplicate: false}}, b)\n\t\t}\n",
+      "from": "\t\tif events.Len() == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: b.log.Len(), Events: []orchestrate.Event{}, Duplicate: true}}, b)\n\t\t}\n",
+      "to": "\t\tif events.Len() == 0 {\n\t\t\treturn (execOK{Result: orchestrate.ExecuteResult{Seq: b.log.Len(), Events: []orchestrate.Event{}, Duplicate: false}}, b)\n\t\t}\n",
       "rule": "An idempotent resend must report Duplicate: true: Store.StoreIdempotentExecute.",
       "anchor": {
         "tests": [

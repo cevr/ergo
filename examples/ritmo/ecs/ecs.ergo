@@ -7,6 +7,8 @@
 // columns it reads. A world is a value: a checkpoint is the old world and
 // a rewind goes back to it, with none of ritmo's Checkpoint bookkeeping.
 
+import option
+
 // Entity is one entity of a world. Ids are handed out in order and never
 // reused (ritmo's next id), so an Entity kept past its despawn names no
 // entity: a column lookup through it is None, as a stale ritmo Handle's
@@ -21,13 +23,13 @@ type Column[T] { Ents []Entity, Vals []T }
 func Empty[T]() Column[T] { Column[T]{Ents: []Entity{}, Vals: []T{}} }
 
 // Get is e's value in c, or None when e has none.
-func Get[T](c Column[T], e Entity) Option[T] {
+func Get[T](c Column[T], e Entity) option.Option[T] {
 	for i, x in c.Ents {
 		if x == e {
-			return Some[T]{Value: c.Vals[i]}
+			return option.Some[T]{Value: c.Vals[i]}
 		}
 	}
-	None
+	option.None
 }
 
 // Has reports whether e has a value in c.
@@ -66,7 +68,7 @@ func Remove[T](c Column[T], e Entity) Column[T] {
 }
 
 // Size is how many entities have a value in c.
-func Size[T](c Column[T]) int { len(c.Ents) }
+func Size[T](c Column[T]) int { c.Ents.Len() }
 
 // Command is a change a system queues while it reads the world and the
 // schedule's Apply step makes visible (ritmo's Game.Command with
@@ -80,7 +82,7 @@ type Command[D] = Spawn[D]{Draft D} | Despawn{E Entity}
 func columnOf(ids []int, vals []int) Column[int] {
 	let mut c = Empty[int]()
 	for i, id in ids {
-		if i < len(vals) {
+		if i < vals.Len() {
 			c = c.Set(Entity{Id: id}, vals[i])
 		}
 	}
@@ -89,7 +91,7 @@ func columnOf(ids []int, vals []int) Column[int] {
 
 // GetSeesSet: a value set for an entity is the value its lookup gives.
 law GetSeesSet(ids []int, vals []int, id int, v int) {
-	columnOf(ids, vals).Set(Entity{Id: id}, v).Get(Entity{Id: id}) == Some[int]{Value: v}
+	columnOf(ids, vals).Set(Entity{Id: id}, v).Get(Entity{Id: id}) == option.Some[int]{Value: v}
 }
 
 // SetKeepsTheOthers: a set changes no other entity's value.
@@ -107,7 +109,7 @@ law RemoveForgets(ids []int, vals []int, id int) {
 	let c = columnOf(ids, vals)
 	let e = Entity{Id: id}
 	let after = c.Remove(e)
-	after.Get(e) == None && !after.Has(e) && after.Size() == c.Size()-(if c.Has(e) { 1 } else { 0 })
+	after.Get(e) == option.None && !after.Has(e) && after.Size() == c.Size()-(if c.Has(e) { 1 } else { 0 })
 }
 
 // OneValueAnEntity: however often an entity is set, the column holds it
@@ -115,7 +117,7 @@ law RemoveForgets(ids []int, vals []int, id int) {
 law OneValueAnEntity(ids []int, vals []int) {
 	let c = columnOf(ids, vals)
 	for i, e in c.Ents {
-		for j in (i + 1)..len(c.Ents) {
+		for j in (i + 1)..c.Ents.Len() {
 			if c.Ents[j] == e {
 				return false
 			}

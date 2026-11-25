@@ -47,10 +47,10 @@ func count(arg string, name string, least int) int fails os.Exit {
 
 // Parse is the command of args.
 func Parse(args []string) Command fails os.Exit {
-	if len(args) == 6 && args[0] == "run" {
+	if args.Len() == 6 && args[0] == "run" {
 		return Cluster{Path: args[1], K: try count(args[2], "K", 1), Rounds: try count(args[3], "ROUNDS", 1), Workers: try count(args[4], "WORKERS", 1), Seed: uint64(try count(args[5], "SEED", 0))}
 	}
-	if len(args) == 3 && args[0] == "gen" {
+	if args.Len() == 3 && args[0] == "gen" {
 		return GenPoints{Size: try count(args[1], "N", 0), Seed: uint64(try count(args[2], "SEED", 0))}
 	}
 	usage("")
@@ -69,8 +69,8 @@ func Run(c Command) string fails os.Exit needs cluster.Source {
 		case cluster.Malformed as m:
 			return os.Exit{Code: 1, Message: "kmeans: \(k.Path): line \(m.Line): \(cluster.Explain(m.Reason))"}
 		}
-		if len(points) < k.K {
-			return os.Exit{Code: 1, Message: "kmeans: \(k.Path): \(len(points)) points, fewer than K"}
+		if points.Len() < k.K {
+			return os.Exit{Code: 1, Message: "kmeans: \(k.Path): \(points.Len()) points, fewer than K"}
 		}
 		Report(cluster.Run(points, k.K, k.Rounds, k.Workers, k.Seed))
 	case GenPoints as g:
@@ -97,7 +97,7 @@ func Report(r cluster.Result) string {
 	b.String()
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	let host = os.NewHost()
 	let c = try Parse(host.Args())
 	let source = mapped.New(fs.NewHost())

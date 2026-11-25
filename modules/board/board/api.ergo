@@ -1,4 +1,5 @@
 import maps
+import option
 import slices
 import strings
 import time
@@ -12,7 +13,7 @@ let RetentionSummary = "Messages stay until deleted by their author or an admin;
 
 // WhoamiInput selects the board whose effective grants Whoami summarizes.
 type WhoamiInput {
-	Board Option[string],
+	Board option.Option[string],
 }
 
 // WhoamiReply reports the authenticated session identity, effective channel
@@ -39,8 +40,8 @@ type BoardSummary {
 
 // ChannelsInput lists readable channels on a board, optionally under a prefix.
 type ChannelsInput {
-	Board  Option[string],
-	Prefix Option[string],
+	Board  option.Option[string],
+	Prefix option.Option[string],
 }
 
 // ChannelSummary is the wire summary of one readable channel.
@@ -53,7 +54,7 @@ type ChannelSummary {
 
 // ChannelCreateInput creates a new public or private channel on a board.
 type ChannelCreateInput {
-	Board   Option[string],
+	Board   option.Option[string],
 	Path    string,
 	Private bool,
 }
@@ -67,7 +68,7 @@ type ChannelCreatedReply {
 
 // ActorsInput lists workspace principals matching an optional search query.
 type ActorsInput {
-	Query Option[string],
+	Query option.Option[string],
 }
 
 // ActorSummary is the wire summary of a workspace principal.
@@ -145,15 +146,15 @@ type AskView {
 
 // ReadInput reads either a channel's threads or one full thread by message ID.
 type ReadInput {
-	Board    Option[string],
-	Channel  Option[string],
-	ID       Option[string],
-	By       Option[string],
-	Mentions Option[string],
+	Board    option.Option[string],
+	Channel  option.Option[string],
+	ID       option.Option[string],
+	By       option.Option[string],
+	Mentions option.Option[string],
 	Label    []string,
-	Text     Option[string],
-	After    Option[int],
-	Limit    Option[int],
+	Text     option.Option[string],
+	After    option.Option[int],
+	Limit    option.Option[int],
 }
 
 // ReadReply holds either a channel thread listing or a single thread view.
@@ -162,18 +163,18 @@ type ReadReply {
 	Board   string,
 	Cursor  Cursor,
 	Threads []ThreadSummary,
-	Message Option[MessageView],
+	Message option.Option[MessageView],
 	Replies []MessageView,
-	Task    Option[TaskView],
-	Ask     Option[AskView],
+	Task    option.Option[TaskView],
+	Ask     option.Option[AskView],
 }
 
 // SearchInput searches readable messages on a board.
 type SearchInput {
-	Board   Option[string],
+	Board   option.Option[string],
 	Query   string,
-	Channel Option[string],
-	Limit   Option[int],
+	Channel option.Option[string],
+	Limit   option.Option[int],
 }
 
 // SearchHitView pairs a matched MessageView with its snippet.
@@ -191,23 +192,23 @@ type SearchReply {
 
 // PostInput posts a new root message in a channel.
 type PostInput {
-	Board          Option[string],
+	Board          option.Option[string],
 	Channel        string,
 	Text           string,
 	Labels         []string,
 	NoSync         bool,
-	IdempotencyKey Option[string],
+	IdempotencyKey option.Option[string],
 }
 
 // ReplyInput posts a reply in an existing thread.
 type ReplyInput {
-	Board          Option[string],
+	Board          option.Option[string],
 	ID             MessageID,
 	Text           string,
-	After          Option[string],
+	After          option.Option[string],
 	Labels         []string,
 	NoSync         bool,
-	IdempotencyKey Option[string],
+	IdempotencyKey option.Option[string],
 }
 
 // PostReply confirms a posted message or reply with cursor and mentions.
@@ -221,17 +222,17 @@ type PostReply {
 
 // EditInput edits an existing message's text with optional revision check.
 type EditInput {
-	Board      Option[string],
+	Board      option.Option[string],
 	ID         MessageID,
 	Text       string,
-	IfRevision Option[int],
+	IfRevision option.Option[int],
 }
 
 // DeleteInput soft-deletes an existing message with optional revision check.
 type DeleteInput {
-	Board      Option[string],
+	Board      option.Option[string],
 	ID         MessageID,
-	IfRevision Option[int],
+	IfRevision option.Option[int],
 }
 
 // RevisionReply confirms an edit or delete with the new revision number.
@@ -242,7 +243,7 @@ type RevisionReply {
 
 // ReactInput adds or removes an emoji reaction on a message.
 type ReactInput {
-	Board  Option[string],
+	Board  option.Option[string],
 	ID     MessageID,
 	Emoji  string,
 	Remove bool,
@@ -256,7 +257,7 @@ type ReactReply {
 
 // LabelInput atomically updates labels on a message with optional guards.
 type LabelInput {
-	Board   Option[string],
+	Board   option.Option[string],
 	ID      MessageID,
 	Set     []string,
 	Unset   []string,
@@ -272,15 +273,15 @@ type LabelReply {
 
 // AskInput opens a question in a channel or existing thread.
 type AskInput {
-	Board          Option[string],
-	Channel        Option[string],
-	Thread         Option[string],
+	Board          option.Option[string],
+	Channel        option.Option[string],
+	Thread         option.Option[string],
 	Text           string,
 	To             []ActorID,
 	OnlyFromAsked  bool,
-	ExpiresInMs    Option[int],
+	ExpiresInMs    option.Option[int],
 	NoSync         bool,
-	IdempotencyKey Option[string],
+	IdempotencyKey option.Option[string],
 }
 
 // AskReply returns the opened question's ID, cursor, state, and mentions.
@@ -295,7 +296,7 @@ type AskReply {
 
 // AskWithdrawInput withdraws an open question.
 type AskWithdrawInput {
-	Board Option[string],
+	Board option.Option[string],
 	ID    MessageID,
 }
 
@@ -307,13 +308,13 @@ type AskStateReply {
 
 // TasksListInput lists readable tasks matching optional filters.
 type TasksListInput {
-	Board   Option[string],
-	Channel Option[string],
-	State   Option[string],
+	Board   option.Option[string],
+	Channel option.Option[string],
+	State   option.Option[string],
 	Label   []string,
-	By      Option[string],
-	For     Option[string],
-	Limit   Option[int],
+	By      option.Option[string],
+	For     option.Option[string],
+	Limit   option.Option[int],
 }
 
 // TasksListReply returns matching tasks (trusted: false) and board cursor.
@@ -325,17 +326,17 @@ type TasksListReply {
 
 // TasksCreateInput creates a standalone task or turns a thread into a task.
 type TasksCreateInput {
-	Board          Option[string],
-	Channel        Option[string],
-	ID             Option[string],
-	Text           Option[string],
+	Board          option.Option[string],
+	Channel        option.Option[string],
+	ID             option.Option[string],
+	Text           option.Option[string],
 	Labels         []string,
 	Needs          []MessageID,
-	For            Option[string],
+	For            option.Option[string],
 	Claim          bool,
-	LeaseMs        Option[int],
+	LeaseMs        option.Option[int],
 	NoSync         bool,
-	IdempotencyKey Option[string],
+	IdempotencyKey option.Option[string],
 }
 
 // TaskCreateReply returns the newly created task's state and optional claim.
@@ -348,10 +349,10 @@ type TaskCreateReply {
 
 // TasksPlanInput creates an atomic prerequisite DAG of up to 15 tasks.
 type TasksPlanInput {
-	Board          Option[string],
+	Board          option.Option[string],
 	Channel        string,
 	Tasks          []PlanTaskSpec,
-	IdempotencyKey Option[string],
+	IdempotencyKey option.Option[string],
 }
 
 // PlannedTaskSummary names one task created by TasksPlan.
@@ -371,11 +372,11 @@ type TasksPlanReply {
 // TasksClaimInput claims either a named task ID or the oldest ready task in a
 // channel (optionally filtered by labels).
 type TasksClaimInput {
-	Board   Option[string],
-	ID      Option[string],
-	Ready   Option[string],
+	Board   option.Option[string],
+	ID      option.Option[string],
+	Ready   option.Option[string],
 	Label   []string,
-	LeaseMs Option[int],
+	LeaseMs option.Option[int],
 }
 
 // TaskClaimReply returns the claimed task (trusted: true), fencing token, and
@@ -388,10 +389,10 @@ type TaskClaimReply {
 
 // TasksRenewInput extends an active task lease under its fencing token.
 type TasksRenewInput {
-	Board   Option[string],
+	Board   option.Option[string],
 	ID      MessageID,
 	Token   int,
-	LeaseMs Option[int],
+	LeaseMs option.Option[int],
 }
 
 // TaskRenewReply returns the renewed lease expiry timestamp.
@@ -402,17 +403,17 @@ type TaskRenewReply {
 
 // TasksReleaseInput releases an active task claim under its fencing token.
 type TasksReleaseInput {
-	Board Option[string],
+	Board option.Option[string],
 	ID    MessageID,
 	Token int,
 }
 
 // TasksCompleteInput completes a claimed task under its fencing token.
 type TasksCompleteInput {
-	Board  Option[string],
+	Board  option.Option[string],
 	ID     MessageID,
 	Token  int,
-	Result Option[string],
+	Result option.Option[string],
 }
 
 // TaskCompleteReply confirms completion and lists newly readied dependents.
@@ -424,7 +425,7 @@ type TaskCompleteReply {
 
 // TasksFailInput fails a claimed task under its fencing token.
 type TasksFailInput {
-	Board  Option[string],
+	Board  option.Option[string],
 	ID     MessageID,
 	Token  int,
 	Reason string,
@@ -432,30 +433,30 @@ type TasksFailInput {
 
 // TasksBlockInput marks a task blocked by its holder or owner.
 type TasksBlockInput {
-	Board  Option[string],
+	Board  option.Option[string],
 	ID     MessageID,
 	Reason string,
-	Kind   Option[string],
-	Token  Option[int],
+	Kind   option.Option[string],
+	Token  option.Option[int],
 }
 
 // TasksUnblockInput clears a block on a task.
 type TasksUnblockInput {
-	Board Option[string],
+	Board option.Option[string],
 	ID    MessageID,
 }
 
 // TasksReopenInput reopens a failed task.
 type TasksReopenInput {
-	Board Option[string],
+	Board option.Option[string],
 	ID    MessageID,
 }
 
 // TasksAssignInput assigns a task to a target actor or returns it to the pool.
 type TasksAssignInput {
-	Board Option[string],
+	Board option.Option[string],
 	ID    MessageID,
-	For   Option[string],
+	For   option.Option[string],
 	Pool  bool,
 }
 
@@ -467,7 +468,7 @@ type TaskAssignReply {
 
 // TasksNeedsInput updates a task's prerequisite list.
 type TasksNeedsInput {
-	Board Option[string],
+	Board option.Option[string],
 	ID    MessageID,
 	Needs []MessageID,
 }
@@ -481,7 +482,7 @@ type TaskNeedsReply {
 
 // TasksCancelInput cancels a task with a reason.
 type TasksCancelInput {
-	Board  Option[string],
+	Board  option.Option[string],
 	ID     MessageID,
 	Reason string,
 }
@@ -494,14 +495,14 @@ type TaskStateReply {
 
 // GrantsInput lists grants on a board (requires manage at *).
 type GrantsInput {
-	Board Option[string],
+	Board option.Option[string],
 }
 
 // GrantExplainInput explains which grant governs a channel for a principal.
 type GrantExplainInput {
-	Board     Option[string],
+	Board     option.Option[string],
 	Channel   string,
-	Principal Option[string],
+	Principal option.Option[string],
 }
 
 // GrantExplainReply reports the effective permissions and deciding grant ID.
@@ -514,14 +515,14 @@ type GrantExplainReply {
 
 // GrantCreateInput adds a new grant to a board (refuses profile or narrowed sessions).
 type GrantCreateInput {
-	Board      Option[string],
+	Board      option.Option[string],
 	Principals []PrincipalMatch,
 	Rules      []GrantRule,
 }
 
 // GrantRevokeInput revokes a grant on a board (refuses profile or narrowed sessions).
 type GrantRevokeInput {
-	Board Option[string],
+	Board option.Option[string],
 	ID    GrantID,
 }
 
@@ -674,43 +675,43 @@ type Api {
 	law ApiPostThenReadAndSearch(tag int) {
 		let word = "apiprobe\(tag)"
 		let posted = Post(PostInput{
-			Board:          None,
+			Board:          option.None,
 			Channel:        "dev",
 			Text:           "hello \(word)",
 			Labels:         []string{},
 			NoSync:         false,
-			IdempotencyKey: None,
+			IdempotencyKey: option.None,
 		}) catch {
 		case Unauthenticated, Forbidden, NotFound, Invalid, Gone, TooLarge, SecretDetected, IdempotencyConflict, ReservedLabel, BoardNotFound, BoardArchived, StoreFailed:
 			return true
 		}
 		let thread = Read(ReadInput{
-			Board:    None,
-			Channel:  None,
-			ID:       Some[string]{Value: posted.ID},
-			By:       None,
-			Mentions: None,
+			Board:    option.None,
+			Channel:  option.None,
+			ID:       option.Some[string]{Value: posted.ID},
+			By:       option.None,
+			Mentions: option.None,
 			Label:    []string{},
-			Text:     None,
-			After:    None,
-			Limit:    None,
+			Text:     option.None,
+			After:    option.None,
+			Limit:    option.None,
 		}) catch {
 		case _:
 			return false
 		}
 		let hits = Search(SearchInput{
-			Board:   None,
+			Board:   option.None,
 			Query:   word,
-			Channel: Some[string]{Value: "dev"},
-			Limit:   Some[int]{Value: 10},
+			Channel: option.Some[string]{Value: "dev"},
+			Limit:   option.Some[int]{Value: 10},
 		}) catch {
 		case _:
 			return false
 		}
 		let msgOk = match thread.Message {
-		case Some[MessageView] as m:
+		case option.Some[MessageView] as m:
 			m.Value.ID == posted.ID && m.Value.Text == "hello \(word)" && !m.Value.Trusted
-		case None:
+		case option.None:
 			false
 		}
 		let mut hitOk = false
@@ -726,36 +727,36 @@ type Api {
 	// trusted: true and that a stale fencing token fails ClaimLost.
 	law ApiClaimSetsTrustedAndEnforcesFence(tag int) {
 		let created = TasksCreate(TasksCreateInput{
-			Board:          None,
-			Channel:        Some[string]{Value: "dev"},
-			ID:             None,
-			Text:           Some[string]{Value: "task \(tag)"},
+			Board:          option.None,
+			Channel:        option.Some[string]{Value: "dev"},
+			ID:             option.None,
+			Text:           option.Some[string]{Value: "task \(tag)"},
 			Labels:         []string{},
 			Needs:          []MessageID{},
-			For:            None,
+			For:            option.None,
 			Claim:          false,
-			LeaseMs:        None,
+			LeaseMs:        option.None,
 			NoSync:         false,
-			IdempotencyKey: None,
+			IdempotencyKey: option.None,
 		}) catch {
 		case Unauthenticated, Forbidden, NotFound, Invalid, Gone, TooLarge, SecretDetected, IdempotencyConflict, ReservedLabel, AlreadyTask, InvalidNeeds, TaskOwnerUntrusted, BoardNotFound, BoardArchived, StoreFailed:
 			return true
 		}
 		let claimed = TasksClaim(TasksClaimInput{
-			Board:   None,
-			ID:      Some[string]{Value: created.ID},
-			Ready:   None,
+			Board:   option.None,
+			ID:      option.Some[string]{Value: created.ID},
+			Ready:   option.None,
 			Label:   []string{},
-			LeaseMs: Some[int]{Value: 60000},
+			LeaseMs: option.Some[int]{Value: 60000},
 		}) catch {
 		case Unauthenticated, Forbidden, NotFound, Invalid, Gone, TaskClaimedRefusal, TaskAssignedRefusal, TaskWaitingRefusal, TaskBlockedRefusal, TaskFinished, TaskOwnerUntrusted, NothingReady, BoardNotFound, BoardArchived, StoreFailed:
 			return true
 		}
 		let staleRejected = match (TasksComplete(TasksCompleteInput{
-			Board:  None,
+			Board:  option.None,
 			ID:     created.ID,
 			Token:  claimed.Token + 99,
-			Result: Some[string]{Value: "bad"},
+			Result: option.Some[string]{Value: "bad"},
 		}) catch {
 		case ClaimLost:
 			return claimed.Task.Trusted && claimed.Token >= 1
@@ -782,20 +783,20 @@ func NewHandler(store Store, caller Caller, clock time.Clock) Handler {
 	Handler{store: store, caller: caller, clock: clock}
 }
 
-func optStr(v Option[string]) string {
+func optStr(v option.Option[string]) string {
 	match v {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		p.Value
-	case None:
+	case option.None:
 		""
 	}
 }
 
-func optInt(v Option[int], def int) int {
+func optInt(v option.Option[int], def int) int {
 	match v {
-	case Some[int] as p:
+	case option.Some[int] as p:
 		p.Value
-	case None:
+	case option.None:
 		def
 	}
 }
@@ -808,7 +809,7 @@ func parseLabelPairs(pairs []string, field string) Map[string, string] fails Inv
 			return Invalid{Field: field, Why: "expected key=value label pair"}
 		}
 		let k = strings.Slice(pair, 0, eq)
-		let v = strings.Slice(pair, eq+1, len(strings.Bytes(pair)))
+		let v = strings.Slice(pair, eq+1, strings.Bytes(pair).Len())
 		out = out.Put(k, v)
 	}
 	out
@@ -883,28 +884,28 @@ func checkSessionActive(snap State, c Caller) fails Unauthenticated | Gone {
 		return Unauthenticated
 	}
 	match snap.Principals.Get(c.Principal) {
-	case Some[Principal] as p:
+	case option.Some[Principal] as p:
 		if p.Value.State == Offboarded {
 			return Gone
 		}
-	case None:
+	case option.None:
 	}
 }
 
 func boardGrantsOf(snap State, bName string) []Grant {
 	match snap.Grants.Get(bName) {
-	case Some[[]Grant] as gs:
+	case option.Some[[]Grant] as gs:
 		gs.Value
-	case None:
+	case option.None:
 		[]Grant{}
 	}
 }
 
 func boardHeadOf(snap State, bName string) Cursor {
 	match snap.Head.Get(bName) {
-	case Some[Cursor] as c:
+	case option.Some[Cursor] as c:
 		c.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -934,9 +935,9 @@ func messageViewOf(m Message) MessageView {
 
 func taskViewOf(snap State, t TaskRecord, trusted bool) TaskView {
 	let (text, by) = match snap.Messages.Get(t.ID) {
-	case Some[Message] as m:
+	case option.Some[Message] as m:
 		(m.Value.Text, m.Value.By)
-	case None:
+	case option.None:
 		("", t.Owner)
 	}
 	TaskView{
@@ -990,18 +991,18 @@ func matchesLabelFilter(labels Map[string, string], expr string) bool {
 	let eq = strings.Index(expr, "=")
 	if eq < 0 {
 		match labels.Get(expr) {
-		case Some[string]:
+		case option.Some[string]:
 			return true
-		case None:
+		case option.None:
 			return false
 		}
 	}
 	let key = strings.Slice(expr, 0, eq)
-	let rawVals = strings.Slice(expr, eq+1, len(strings.Bytes(expr)))
+	let rawVals = strings.Slice(expr, eq+1, strings.Bytes(expr).Len())
 	let cur = match labels.Get(key) {
-	case Some[string] as v:
+	case option.Some[string] as v:
 		v.Value
-	case None:
+	case option.None:
 		return false
 	}
 	for want in strings.Split(rawVals, "|") {
@@ -1031,11 +1032,11 @@ func resolveActorFilter(snap State, caller Caller, raw string) string {
 	let clean = strings.TrimPrefix(raw, "@")
 	for id in slices.Sorted(maps.Keys(snap.Principals)) {
 		match snap.Principals.Get(id) {
-		case Some[Principal] as p:
+		case option.Some[Principal] as p:
 			if p.Value.Handle == clean || p.Value.ID == clean {
 				return p.Value.ID
 			}
-		case None:
+		case option.None:
 		}
 	}
 	clean
@@ -1080,9 +1081,9 @@ func channelMatchesPrefix(ch string, prefix string) bool {
 func trustListFor(snap State, caller Caller) []ActorID {
 	let actor = ActorOf(caller)
 	match snap.Trusts.Get(actor) {
-	case Some[TrustSet] as ts:
+	case option.Some[TrustSet] as ts:
 		return ts.Value.TakesFrom
-	case None:
+	case option.None:
 		if caller.Profile != "" {
 			return []ActorID{caller.Principal, actor}
 		}
@@ -1097,8 +1098,8 @@ func Whoami(s Handler, input WhoamiInput) WhoamiReply fails Unauthenticated | Go
 	try checkSessionActive(snap, s.caller)
 	let bName = ResolveBoard(optStr(input.Board))
 	match snap.Boards.Get(bName) {
-	case Some[BoardRecord]:
-	case None:
+	case option.Some[BoardRecord]:
+	case option.None:
 		return BoardNotFound
 	}
 	let gs = boardGrantsOf(snap, bName)
@@ -1106,11 +1107,11 @@ func Whoami(s Handler, input WhoamiInput) WhoamiReply fails Unauthenticated | Go
 	let mut patterns = []string{"*"}
 	for key in slices.Sorted(maps.Keys(snap.Channels)) {
 		match snap.Channels.Get(key) {
-		case Some[Channel] as ch:
+		case option.Some[Channel] as ch:
 			if ch.Value.Board == bName {
 				patterns = patterns.Append(ch.Value.Path)
 			}
-		case None:
+		case option.None:
 		}
 	}
 	for pat in patterns {
@@ -1119,7 +1120,7 @@ func Whoami(s Handler, input WhoamiInput) WhoamiReply fails Unauthenticated | Go
 		for p in ps {
 			names = names.Append(PermissionName(p))
 		}
-		if len(names) > 0 {
+		if names.Len() > 0 {
 			canMap = canMap.Put(pat, names)
 		}
 	}
@@ -1143,9 +1144,9 @@ func Boards(s Handler) []BoardSummary fails Unauthenticated | Gone | StoreFailed
 	let mut out = []BoardSummary{}
 	for name in slices.Sorted(maps.Keys(snap.Boards)) {
 		match snap.Boards.Get(name) {
-		case Some[BoardRecord] as b:
+		case option.Some[BoardRecord] as b:
 			out = out.Append(BoardSummary{ID: b.Value.ID, Name: b.Value.Name, Archived: b.Value.Archived, Head: b.Value.Head})
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -1158,8 +1159,8 @@ func Channels(s Handler, input ChannelsInput) []ChannelSummary fails Unauthentic
 	try checkSessionActive(snap, s.caller)
 	let bName = ResolveBoard(optStr(input.Board))
 	match snap.Boards.Get(bName) {
-	case Some[BoardRecord]:
-	case None:
+	case option.Some[BoardRecord]:
+	case option.None:
 		return BoardNotFound
 	}
 	let gs = boardGrantsOf(snap, bName)
@@ -1167,13 +1168,13 @@ func Channels(s Handler, input ChannelsInput) []ChannelSummary fails Unauthentic
 	let mut out = []ChannelSummary{}
 	for key in slices.Sorted(maps.Keys(snap.Channels)) {
 		match snap.Channels.Get(key) {
-		case Some[Channel] as ch:
+		case option.Some[Channel] as ch:
 			if ch.Value.Board == bName && channelMatchesPrefix(ch.Value.Path, prefix) && Can(gs, s.caller, ch.Value.Path, PermRead) {
 				let mut threads = 0
 				let mut lastAt = ch.Value.CreatedAt
 				for mid in slices.Sorted(maps.Keys(snap.Messages)) {
 					match snap.Messages.Get(mid) {
-					case Some[Message] as m:
+					case option.Some[Message] as m:
 						if m.Value.Board == bName && m.Value.Channel == ch.Value.Path {
 							if m.Value.Re == "" {
 								threads = threads + 1
@@ -1182,12 +1183,12 @@ func Channels(s Handler, input ChannelsInput) []ChannelSummary fails Unauthentic
 								lastAt = m.Value.CreatedAt
 							}
 						}
-					case None:
+					case option.None:
 					}
 				}
 				out = out.Append(ChannelSummary{Path: ch.Value.Path, Private: ch.Value.Private, Threads: threads, LastAt: lastAt})
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -1229,13 +1230,13 @@ func Actors(s Handler, input ActorsInput) []ActorSummary fails Unauthenticated |
 	let mut out = []ActorSummary{}
 	for id in slices.Sorted(maps.Keys(snap.Principals)) {
 		match snap.Principals.Get(id) {
-		case Some[Principal] as p:
+		case option.Some[Principal] as p:
 			let pv = p.Value
 			let matches = q == "" || strings.Contains(strings.ToLower(pv.Handle), q) || strings.Contains(strings.ToLower(pv.Name), q) || strings.Contains(strings.ToLower(pv.ID), q)
 			if matches {
 				out = out.Append(ActorSummary{ID: pv.ID, Handle: pv.Handle, Shown: pv.Name, Kind: kindName(pv.Kind), State: stateName(pv.State)})
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -1243,7 +1244,7 @@ func Actors(s Handler, input ActorsInput) []ActorSummary fails Unauthenticated |
 
 func sortThreadSummariesDesc(xs []ThreadSummary) []ThreadSummary {
 	let mut out = xs
-	let n = len(out)
+	let n = out.Len()
 	for i in 0..n {
 		for j in (i + 1)..n {
 			if out[j].LastAt > out[i].LastAt || (out[j].LastAt == out[i].LastAt && out[j].Message.ID > out[i].Message.ID) {
@@ -1262,8 +1263,8 @@ func Read(s Handler, input ReadInput) ReadReply fails Unauthenticated | NotFound
 	try checkSessionActive(snap, s.caller)
 	let bName = ResolveBoard(optStr(input.Board))
 	match snap.Boards.Get(bName) {
-	case Some[BoardRecord]:
-	case None:
+	case option.Some[BoardRecord]:
+	case option.None:
 		return BoardNotFound
 	}
 	let gs = boardGrantsOf(snap, bName)
@@ -1275,9 +1276,9 @@ func Read(s Handler, input ReadInput) ReadReply fails Unauthenticated | NotFound
 	let textF = optStr(input.Text)
 	if idArg != "" {
 		let target = match snap.Messages.Get(idArg) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			m.Value
-		case None:
+		case option.None:
 			return NotFound{What: idArg}
 		}
 		if target.Board != bName || !Can(gs, s.caller, target.Channel, PermRead) {
@@ -1285,41 +1286,41 @@ func Read(s Handler, input ReadInput) ReadReply fails Unauthenticated | NotFound
 		}
 		let rootID = if target.Re != "" { target.Re } else { target.ID }
 		let rootMsg = match snap.Messages.Get(rootID) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			m.Value
-		case None:
+		case option.None:
 			return NotFound{What: rootID}
 		}
 		let mut replies = []MessageView{}
 		for mid in slices.Sorted(maps.Keys(snap.Messages)) {
 			match snap.Messages.Get(mid) {
-			case Some[Message] as m:
+			case option.Some[Message] as m:
 				if m.Value.Board == bName && m.Value.Re == rootID {
 					if messageMatchesFilters(snap, s.caller, m.Value, byF, menF, input.Label, textF) {
 						replies = replies.Append(messageViewOf(m.Value))
 					}
 				}
-			case None:
+			case option.None:
 			}
 		}
 		let taskOpt = match snap.Tasks.Get(rootID) {
-		case Some[TaskRecord] as t:
-			Some[TaskView]{Value: taskViewOf(snap, t.Value, false)}
-		case None:
-			None
+		case option.Some[TaskRecord] as t:
+			option.Some[TaskView]{Value: taskViewOf(snap, t.Value, false)}
+		case option.None:
+			option.None
 		}
 		let askOpt = match snap.Asks.Get(rootID) {
-		case Some[AskRecord] as a:
-			Some[AskView]{Value: askViewOf(a.Value)}
-		case None:
-			None
+		case option.Some[AskRecord] as a:
+			option.Some[AskView]{Value: askViewOf(a.Value)}
+		case option.None:
+			option.None
 		}
 		return ReadReply{
 			Kind:    "thread",
 			Board:   bName,
 			Cursor:  head,
 			Threads: []ThreadSummary{},
-			Message: Some[MessageView]{Value: messageViewOf(rootMsg)},
+			Message: option.Some[MessageView]{Value: messageViewOf(rootMsg)},
 			Replies: replies,
 			Task:    taskOpt,
 			Ask:     askOpt,
@@ -1336,27 +1337,27 @@ func Read(s Handler, input ReadInput) ReadReply fails Unauthenticated | NotFound
 	let mut threads = []ThreadSummary{}
 	for mid in slices.Sorted(maps.Keys(snap.Messages)) {
 		match snap.Messages.Get(mid) {
-		case Some[Message] as m:
+		case option.Some[Message] as m:
 			if m.Value.Board == bName && m.Value.Re == "" && channelMatchesPrefix(m.Value.Channel, chArg) && Can(gs, s.caller, m.Value.Channel, PermRead) {
 				if messageMatchesFilters(snap, s.caller, m.Value, byF, menF, input.Label, textF) {
 					let mut count = 0
 					let mut lastAt = m.Value.CreatedAt
 					for rid in slices.Sorted(maps.Keys(snap.Messages)) {
 						match snap.Messages.Get(rid) {
-						case Some[Message] as rm:
+						case option.Some[Message] as rm:
 							if rm.Value.Board == bName && rm.Value.Re == m.Value.ID {
 								count = count + 1
 								if rm.Value.CreatedAt > lastAt {
 									lastAt = rm.Value.CreatedAt
 								}
 							}
-						case None:
+						case option.None:
 						}
 					}
 					threads = threads.Append(ThreadSummary{Message: messageViewOf(m.Value), Replies: count, LastAt: lastAt})
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	let sorted = sortThreadSummariesDesc(threads)
@@ -1372,10 +1373,10 @@ func Read(s Handler, input ReadInput) ReadReply fails Unauthenticated | NotFound
 		Board:   bName,
 		Cursor:  head,
 		Threads: capped,
-		Message: None,
+		Message: option.None,
 		Replies: []MessageView{},
-		Task:    None,
-		Ask:     None,
+		Task:    option.None,
+		Ask:     option.None,
 	}
 }
 
@@ -1385,8 +1386,8 @@ func Search(s Handler, input SearchInput) SearchReply fails Unauthenticated | In
 	try checkSessionActive(snap, s.caller)
 	let bName = ResolveBoard(optStr(input.Board))
 	match snap.Boards.Get(bName) {
-	case Some[BoardRecord]:
-	case None:
+	case option.Some[BoardRecord]:
+	case option.None:
 		return BoardNotFound
 	}
 	if strings.TrimSpace(input.Query) == "" {
@@ -1424,11 +1425,11 @@ func postReplyFromEvents(snap State, bName string, evts []Event, head Cursor, ca
 	}
 	if idemKey != "" {
 		match snap.Idempotency.Get(IdempotencyKey{Actor: ActorOf(caller), Key: idemKey}) {
-		case Some[IdempotencyEntry] as ie:
+		case option.Some[IdempotencyEntry] as ie:
 			let (men, unres) = match snap.Messages.Get(ie.Value.ResultMessageID) {
-			case Some[Message] as m:
+			case option.Some[Message] as m:
 				(m.Value.Mentions, m.Value.Unresolved)
-			case None:
+			case option.None:
 				([]ActorID{}, []string{})
 			}
 			return PostReply{
@@ -1438,7 +1439,7 @@ func postReplyFromEvents(snap State, bName string, evts []Event, head Cursor, ca
 				Mentioned:  men,
 				Unresolved: unres,
 			}
-		case None:
+		case option.None:
 		}
 	}
 	PostReply{ID: "", Board: bName, Cursor: head, Mentioned: []ActorID{}, Unresolved: []string{}}
@@ -1659,9 +1660,9 @@ func React(s Handler, input ReactInput) ReactReply fails Unauthenticated | Forbi
 	}
 	let snap = try s.store.Snapshot()
 	let rx = match snap.Messages.Get(input.ID) {
-	case Some[Message] as m:
+	case option.Some[Message] as m:
 		m.Value.Reactions
-	case None:
+	case option.None:
 		Map[string, []ActorID]{}
 	}
 	ReactReply{ID: input.ID, Reactions: rx}
@@ -1710,9 +1711,9 @@ func Label(s Handler, input LabelInput) LabelReply fails Unauthenticated | Forbi
 	}
 	let snap = try s.store.Snapshot()
 	let lbs = match snap.Messages.Get(input.ID) {
-	case Some[Message] as m:
+	case option.Some[Message] as m:
 		m.Value.Labels
-	case None:
+	case option.None:
 		Map[string, string]{}
 	}
 	LabelReply{ID: input.ID, Labels: lbs}
@@ -1764,9 +1765,9 @@ func Ask(s Handler, input AskInput) AskReply fails Unauthenticated | Forbidden |
 	let snap = try s.store.Snapshot()
 	let pr = postReplyFromEvents(snap, bName, evts, head, s.caller, idem)
 	let stateStr = match snap.Asks.Get(pr.ID) {
-	case Some[AskRecord] as a:
+	case option.Some[AskRecord] as a:
 		askStateString(a.Value.State)
-	case None:
+	case option.None:
 		"open"
 	}
 	AskReply{
@@ -1825,8 +1826,8 @@ func TasksList(s Handler, input TasksListInput) TasksListReply fails Unauthentic
 	try checkSessionActive(snap, s.caller)
 	let bName = ResolveBoard(optStr(input.Board))
 	match snap.Boards.Get(bName) {
-	case Some[BoardRecord]:
-	case None:
+	case option.Some[BoardRecord]:
+	case option.None:
 		return BoardNotFound
 	}
 	let gs = boardGrantsOf(snap, bName)
@@ -1838,11 +1839,11 @@ func TasksList(s Handler, input TasksListInput) TasksListReply fails Unauthentic
 	let limit = if rawLimit <= 0 { 100 } else if rawLimit > 500 { 500 } else { rawLimit }
 	let mut out = []TaskView{}
 	for tid in slices.Sorted(maps.Keys(snap.Tasks)) {
-		if len(out) >= limit {
+		if out.Len() >= limit {
 			break
 		}
 		match snap.Tasks.Get(tid) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let t = tr.Value
 			if t.Board != bName || !Can(gs, s.caller, t.Channel, PermRead) {
 				continue
@@ -1862,11 +1863,11 @@ func TasksList(s Handler, input TasksListInput) TasksListReply fails Unauthentic
 			if forF != "" && t.For != resolveActorFilter(snap, s.caller, forF) {
 				continue
 			}
-			if len(input.Label) > 0 {
+			if input.Label.Len() > 0 {
 				let lbs = match snap.Messages.Get(t.ID) {
-				case Some[Message] as m:
+				case option.Some[Message] as m:
 					m.Value.Labels
-				case None:
+				case option.None:
 					Map[string, string]{}
 				}
 				if !matchesAllLabels(lbs, input.Label) {
@@ -1874,7 +1875,7 @@ func TasksList(s Handler, input TasksListInput) TasksListReply fails Unauthentic
 				}
 			}
 			out = out.Append(taskViewOf(snap, t, false))
-		case None:
+		case option.None:
 		}
 	}
 	TasksListReply{Board: bName, Cursor: boardHeadOf(snap, bName), Tasks: out}
@@ -1943,17 +1944,17 @@ func TasksCreate(s Handler, input TasksCreateInput) TaskCreateReply fails Unauth
 	let snap = try s.store.Snapshot()
 	if tid == "" && idem != "" {
 		match snap.Idempotency.Get(IdempotencyKey{Actor: ActorOf(s.caller), Key: idem}) {
-		case Some[IdempotencyEntry] as ie:
+		case option.Some[IdempotencyEntry] as ie:
 			tid = ie.Value.ResultMessageID
-		case None:
+		case option.None:
 		}
 	}
 	match snap.Tasks.Get(tid) {
-	case Some[TaskRecord] as tr:
+	case option.Some[TaskRecord] as tr:
 		let tok = if tr.Value.HasClaim { tr.Value.Claim.Epoch } else { 0 }
 		let lu = if tr.Value.HasClaim { tr.Value.Claim.LeaseUntil } else { 0 }
 		TaskCreateReply{ID: tr.Value.ID, State: taskStateString(tr.Value.State), Token: tok, LeaseUntil: lu}
-	case None:
+	case option.None:
 		TaskCreateReply{ID: tid, State: "ready", Token: 0, LeaseUntil: 0}
 	}
 }
@@ -2009,7 +2010,7 @@ func TasksPlan(s Handler, input TasksPlanInput) TasksPlanReply fails Unauthentic
 	}
 	let mut summaries = []PlannedTaskSummary{}
 	for i, tr in created {
-		let k = if i < len(input.Tasks) && input.Tasks[i].Key != "" { input.Tasks[i].Key } else { tr.ID }
+		let k = if i < input.Tasks.Len() && input.Tasks[i].Key != "" { input.Tasks[i].Key } else { tr.ID }
 		summaries = summaries.Append(PlannedTaskSummary{Key: k, ID: tr.ID, State: taskStateString(tr.State)})
 	}
 	TasksPlanReply{Board: bName, Cursor: head, Tasks: summaries}
@@ -2026,7 +2027,7 @@ func pickReadyTaskID(snap State, bName string, caller Caller, readyCh string, la
 	let mut bestReadyAt = 0
 	for tid in slices.Sorted(maps.Keys(snap.Tasks)) {
 		match snap.Tasks.Get(tid) {
-		case Some[TaskRecord] as tr:
+		case option.Some[TaskRecord] as tr:
 			let t = tr.Value
 			if t.Board != bName || t.State != TaskReady || !channelMatchesPrefix(t.Channel, readyCh) {
 				continue
@@ -2040,11 +2041,11 @@ func pickReadyTaskID(snap State, bName string, caller Caller, readyCh string, la
 			if !TrustedOwner(snap, caller, t.Owner) {
 				continue
 			}
-			if len(labels) > 0 {
+			if labels.Len() > 0 {
 				let lbs = match snap.Messages.Get(t.ID) {
-				case Some[Message] as m:
+				case option.Some[Message] as m:
 					m.Value.Labels
-				case None:
+				case option.None:
 					Map[string, string]{}
 				}
 				if !matchesAllLabels(lbs, labels) {
@@ -2056,7 +2057,7 @@ func pickReadyTaskID(snap State, bName string, caller Caller, readyCh string, la
 				bestID = t.ID
 				bestReadyAt = t.ReadyAt
 			}
-		case None:
+		case option.None:
 		}
 	}
 	if !found {
@@ -2076,8 +2077,8 @@ func TasksClaim(s Handler, input TasksClaimInput) TaskClaimReply fails Unauthent
 		let snap = try s.store.Snapshot()
 		try checkSessionActive(snap, s.caller)
 		match snap.Boards.Get(bName) {
-		case Some[BoardRecord]:
-		case None:
+		case option.Some[BoardRecord]:
+		case option.None:
 			return BoardNotFound
 		}
 		try pickReadyTaskID(snap, bName, s.caller, readyArg, input.Label)
@@ -2125,13 +2126,13 @@ func TasksClaim(s Handler, input TasksClaimInput) TaskClaimReply fails Unauthent
 	}
 	let after = try s.store.Snapshot()
 	match after.Tasks.Get(targetID) {
-	case Some[TaskRecord] as tr:
+	case option.Some[TaskRecord] as tr:
 		TaskClaimReply{
 			Task:       taskViewOf(after, tr.Value, true),
 			Token:      tr.Value.Claim.Epoch,
 			LeaseUntil: tr.Value.Claim.LeaseUntil,
 		}
-	case None:
+	case option.None:
 		return NotFound{What: targetID}
 	}
 }
@@ -2525,8 +2526,8 @@ func Grants(s Handler, input GrantsInput) []Grant fails Unauthenticated | Forbid
 	try checkSessionActive(snap, s.caller)
 	let bName = ResolveBoard(optStr(input.Board))
 	match snap.Boards.Get(bName) {
-	case Some[BoardRecord]:
-	case None:
+	case option.Some[BoardRecord]:
+	case option.None:
 		return BoardNotFound
 	}
 	let gs = boardGrantsOf(snap, bName)
@@ -2566,8 +2567,8 @@ func GrantExplain(s Handler, input GrantExplainInput) GrantExplainReply fails Un
 	try checkSessionActive(snap, s.caller)
 	let bName = ResolveBoard(optStr(input.Board))
 	match snap.Boards.Get(bName) {
-	case Some[BoardRecord]:
-	case None:
+	case option.Some[BoardRecord]:
+	case option.None:
 		return BoardNotFound
 	}
 	if !ValidChannelPath(input.Channel) {
@@ -2582,7 +2583,7 @@ func GrantExplain(s Handler, input GrantExplainInput) GrantExplainReply fails Un
 			return Forbidden{Permission: "manage", Channel: "*"}
 		}
 		match snap.Principals.Get(targetArg) {
-		case Some[Principal] as p:
+		case option.Some[Principal] as p:
 			Caller{
 				Principal:       p.Value.ID,
 				Profile:         "",
@@ -2594,7 +2595,7 @@ func GrantExplain(s Handler, input GrantExplainInput) GrantExplainReply fails Un
 				NarrowedProfile: "",
 				NarrowedBoards:  []string{},
 			}
-		case None:
+		case option.None:
 			return NotFound{What: targetArg}
 		}
 	}
@@ -2719,9 +2720,9 @@ func BoardRename(s Handler, input BoardRenameInput) BoardSummary fails Unauthent
 	}
 	let snap = try s.store.Snapshot()
 	match snap.Boards.Get(input.NewName) {
-	case Some[BoardRecord] as b:
+	case option.Some[BoardRecord] as b:
 		BoardSummary{ID: b.Value.ID, Name: b.Value.Name, Archived: b.Value.Archived, Head: b.Value.Head}
-	case None:
+	case option.None:
 		BoardSummary{ID: "", Name: input.NewName, Archived: false, Head: 0}
 	}
 }
@@ -2748,9 +2749,9 @@ func BoardArchive(s Handler, input BoardArchiveInput) BoardSummary fails Unauthe
 	}
 	let snap = try s.store.Snapshot()
 	match snap.Boards.Get(input.Board) {
-	case Some[BoardRecord] as b:
+	case option.Some[BoardRecord] as b:
 		BoardSummary{ID: b.Value.ID, Name: b.Value.Name, Archived: b.Value.Archived, Head: b.Value.Head}
-	case None:
+	case option.None:
 		BoardSummary{ID: "", Name: input.Board, Archived: true, Head: 0}
 	}
 }

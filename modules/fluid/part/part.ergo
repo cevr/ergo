@@ -6,6 +6,7 @@
 // which state holds.
 
 import ergo.dev/fluid/look
+import option
 import strings
 import ui
 
@@ -67,7 +68,7 @@ type Control { Root Skin, Plate Skin, Content Skin }
 // - Live: a message a reader announces.
 // - Host: a leaf each host draws itself (the escape, §2.4): its markup, and what it writes on a
 //   ui frame.
-type Node[E] = Box{Sem Sem, Skin Skin, Inline bool, Keys []Binding[E], Kids []Node[E]} | Text{Value string, Skin Skin} | Glyph{Paths string, Stroked bool, Skin Skin} | Press{Sem Sem, Skin Control, On Option[E], Kids []Node[E]} | Field{Sem Sem, Skin Skin, Name string, Value string, Hint string, Lines int, On func(text string) E} | Scale{Sem Sem, Skin Skin, Name string, Min float64, Max float64, Step float64, Value float64, On func(v float64) E} | Layer{Z int, Modal bool, Dismiss Option[E], Kids []Node[E]} | Keyed{Key string, Node Node[E]} | Live{Text string, Assertive bool} | Host{Web string, Gui func(f mut ui.Frame[E])}
+type Node[E] = Box{Sem Sem, Skin Skin, Inline bool, Keys []Binding[E], Kids []Node[E]} | Text{Value string, Skin Skin} | Glyph{Paths string, Stroked bool, Skin Skin} | Press{Sem Sem, Skin Control, On option.Option[E], Kids []Node[E]} | Field{Sem Sem, Skin Skin, Name string, Value string, Hint string, Lines int, On func(text string) E} | Scale{Sem Sem, Skin Skin, Name string, Min float64, Max float64, Step float64, Value float64, On func(v float64) E} | Layer{Z int, Modal bool, Dismiss option.Option[E], Kids []Node[E]} | Keyed{Key string, Node Node[E]} | Live{Text string, Assertive bool} | Host{Web string, Gui func(f mut ui.Frame[E])}
 
 // HasModal reports whether the tree shows a modal layer.
 func HasModal[E](n Node[E]) bool {
@@ -113,7 +114,7 @@ func Join(k string, name string) string { k + "." + escapeName(name) }
 
 func escapeName(name string) string {
 	let mut b = strings.NewBuilder()
-	for i in 0..len(name) {
+	for i in 0..name.Len() {
 		let c = name[i]
 		if c == '%' || c == '.' || c <= ' ' || c >= 127 {
 			b.WriteString("%")
@@ -216,9 +217,9 @@ func Repeated[E](n Node[E]) []string {
 	let mut out = []string{}
 	for k in Keys(n) {
 		let c = match seen.Get(k) {
-		case Some as x:
+		case option.Some as x:
 			x.Value
-		case None:
+		case option.None:
 			0
 		}
 		if c == 1 {
@@ -300,10 +301,10 @@ func nameless[E](n Node[E], f func(k string)) {
 law KeysAreUnique(a []string, b []string, n int) {
 	let ka = path(a)
 	let kb = path(b)
-	let same = len(a) == len(b) && sameNames(a, b)
+	let same = a.Len() == b.Len() && sameNames(a, b)
 	let tree Node[int] = Box{Sem: Plain(), Skin: Bare(), Inline: false, Keys: []Binding[int]{}, Kids: []Node[int]{keyed(ka), keyed(kb), keyed(Join(ka, "x"))}}
 	let rep = Repeated(tree)
-	(ka == kb) == same && (len(rep) == 1) == same && (!same || rep[0] == ka) && (n < 0 || len(Repeated(keyedRow(n%8))) == 0) && path([]string{"a.b"}) != path([]string{"a", "b"}) && path([]string{"a%2Eb"}) != path([]string{"a.b"})
+	(ka == kb) == same && (rep.Len() == 1) == same && (!same || rep[0] == ka) && (n < 0 || Repeated(keyedRow(n%8)).Len() == 0) && path([]string{"a.b"}) != path([]string{"a", "b"}) && path([]string{"a%2Eb"}) != path([]string{"a.b"})
 }
 
 // path is the key of the names under a root "n" (the empty path is no key). (a law's helper)
@@ -316,7 +317,7 @@ func path(names []string) string {
 }
 
 func sameNames(a []string, b []string) bool {
-	for i in 0..len(a) {
+	for i in 0..a.Len() {
 		if a[i] != b[i] {
 			return false
 		}
@@ -348,8 +349,8 @@ law EveryControlHasAName(stated string, text string, deep bool, hide bool) {
 		label
 	}
 	let glyph Node[int] = Glyph{Paths: "", Stroked: true, Skin: Bare()}
-	let p Node[int] = Press{Sem: Sem{..Of(Button), Name: stated, Key: "p"}, Skin: Control{Root: Bare(), Plate: Bare(), Content: Bare()}, On: Some[int]{Value: 1}, Kids: []Node[int]{glyph, inner}}
+	let p Node[int] = Press{Sem: Sem{..Of(Button), Name: stated, Key: "p"}, Skin: Control{Root: Bare(), Plate: Bare(), Content: Bare()}, On: option.Some[int]{Value: 1}, Kids: []Node[int]{glyph, inner}}
 	let seen = if deep && hide { "" } else { text }
 	let want = if stated != "" { stated } else { seen }
-	Name(p) == want && (len(Nameless(p)) == 1) == (want == "") && ControlCount(p) == 1
+	Name(p) == want && (Nameless(p).Len() == 1) == (want == "") && ControlCount(p) == 1
 }

@@ -1,6 +1,7 @@
 // Package frame draws a Tidewalk state as text: one header line, one line
 // per row of the level, and a blank line.
 
+import io
 import tidewalk/walk
 
 func eventWord(e walk.Event) string {
@@ -21,7 +22,7 @@ func eventWord(e walk.Event) string {
 }
 
 func eventWords(es []walk.Event) string {
-	if len(es) == 0 {
+	if es.Len() == 0 {
 		return "-"
 	}
 	let mut out = ""
@@ -58,21 +59,21 @@ func cell(w walk.Walk, p walk.Pos) string {
 type Step { Name string, I int, N int, Move string, Decision string }
 
 // Show prints the frame of g after a step, with the events it recorded.
-func Show(s Step, g walk.Game, es []walk.Event) needs Console {
+func Show(s Step, g walk.Game, es []walk.Event) needs io.Console {
 	let w = walk.WalkOf(g)
-	Console.Println("== \(s.Name) move \(s.I)/\(s.N) \(s.Move) \(s.Decision) tide \(w.Tide) shells \(w.Shells)/\(walk.ShellCount()) \(walk.Status(g)) events \(eventWords(es))")
+	io.Console.Println("== \(s.Name) move \(s.I)/\(s.N) \(s.Move) \(s.Decision) tide \(w.Tide) shells \(w.Shells)/\(walk.ShellCount()) \(walk.Status(g)) events \(eventWords(es))")
 	for y in 0..walk.Rows() {
 		let mut row = ""
 		for x in 0..walk.Width() {
 			row = row + cell(w, walk.Pos{X: x, Y: y})
 		}
-		Console.Println(row)
+		io.Console.Println(row)
 	}
-	Console.Println("")
+	io.Console.Println("")
 }
 
 // Result prints the line that ends a replay.
-func Result(name string, g walk.Game) needs Console {
+func Result(name string, g walk.Game) needs io.Console {
 	let w = walk.WalkOf(g)
-	Console.Println("result \(name) \(walk.Status(g)) shells \(w.Shells)/\(walk.ShellCount()) turns \(w.Turn)")
+	io.Console.Println("result \(name) \(walk.Status(g)) shells \(w.Shells)/\(walk.ShellCount()) turns \(w.Turn)")
 }

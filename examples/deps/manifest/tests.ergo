@@ -1,6 +1,8 @@
 // The manifest's tests: examples of each line. Its laws run under ergo
 // test.
 
+import machines
+
 func failure(text string) string {
 	let _ = Read(text) catch {
 	case BadLine as b:
@@ -11,8 +13,8 @@ func failure(text string) string {
 
 test ReadsBlocks {
 	let m = try Read("# x\nproject app\n  needs web ^2.1\n  needs log >=1.2   <2\n\npackage web 2.3.1\n\tneeds log ^1.4 # why\npackage log 1.5.3\n")
-	assert m.Project == "app" && len(m.Root) == 2 && m.Root[1].Want.Text == ">=1.2 <2"
-	assert len(m.Releases) == 2 && len(m.Releases[0].Needs) == 1 && len(m.Releases[1].Needs) == 0
+	assert m.Project == "app" && m.Root.Len() == 2 && m.Root[1].Want.Text == ">=1.2 <2"
+	assert m.Releases.Len() == 2 && m.Releases[0].Needs.Len() == 1 && m.Releases[1].Needs.Len() == 0
 	assert Format(m) == "project app\n  needs web ^2.1\n  needs log >=1.2 <2\n\npackage web 2.3.1\n  needs log ^1.4\n\npackage log 1.5.3\n"
 }
 
@@ -33,28 +35,28 @@ test LineAndFinishHaveSeparateContracts {
 	let (withRoot, _) = try Step(project, Line{No: 2, Text: "  needs web"})
 	let (withRelease, _) = try Step(withRoot, Line{No: 3, Text: "package web 1.0.0"})
 	let m Manifest = try Finish(withRelease)
-	assert m.Project == "app" && len(m.Root) == 1 && len(m.Releases) == 1
+	assert m.Project == "app" && m.Root.Len() == 1 && m.Releases.Len() == 1
 
 	let top = Start()
 	match try decide(top, Line{No: 1, Text: "# only a comment"}) {
-	case Ignore:
+	case machines.Ignore:
 	case _:
 		assert false
 	}
 	let inProject = match try decide(top, Line{No: 1, Text: "project app"}) {
-	case Enter[Block] as e:
+	case machines.Enter[Block] as e:
 		e.Next
 	case _:
 		top
 	}
 	match try decide(inProject, Line{No: 2, Text: "  needs web"}) {
-	case Stay[Block] as s:
-		assert len(ManifestOf(s.Next).Root) == 1
+	case machines.Stay[Block] as s:
+		assert ManifestOf(s.Next).Root.Len() == 1
 	case _:
 		assert false
 	}
 	match try decide(inProject, End) {
-	case Done[Manifest] as d:
+	case machines.Done[Manifest] as d:
 		assert d.Output.Project == "app"
 	case _:
 		assert false

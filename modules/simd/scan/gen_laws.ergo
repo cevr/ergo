@@ -33,7 +33,7 @@ law ScanKernelsAlgebraicAgreement() {
 			return false
 		}
 		let outSelf = IndexOutside(buf, a, a)
-		if (outSelf == -1) != (ca == len(buf)) {
+		if (outSelf == -1) != (ca == buf.Len()) {
 			return false
 		}
 		let escPlain = IndexNeedsEscape(buf, false)

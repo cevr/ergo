@@ -33,10 +33,10 @@ func verified(outcomes []Outcome) bool {
 test AStoredBackupIsVerifiedAtOnce {
 	with context { backup.Backups: memory.NewLog() } {
 		let d, _ = Submit(Open(), plan("a"))
-		assert len(d.Running) == 1
+		assert d.Running.Len() == 1
 		let d2, outcomes = Submit(d, backup.Store{Backup: "a", Size: 300})
-		assert len(outcomes) == 2 && verified(outcomes)
-		assert len(d2.Running) == 0
+		assert outcomes.Len() == 2 && verified(outcomes)
+		assert d2.Running.Len() == 0
 		assert backup.Backups.Current("a") == backup.Sound{S: backup.Summary{Host: "alpha", Total: 300, Files: 2}}
 	}
 }
@@ -45,9 +45,9 @@ test AnUnstoredBackupIsAbortedAtItsDeadline {
 	with context { backup.Backups: memory.NewLog() } {
 		let d, _ = Submit(Open(), plan("a"))
 		let d2, early = Advance(d, StoreWithin-1)
-		assert len(early) == 0 && len(d2.Running) == 1
+		assert early.Len() == 0 && d2.Running.Len() == 1
 		let d3, late = Advance(d2, 1)
-		assert len(late) == 1 && len(d3.Running) == 0
+		assert late.Len() == 1 && d3.Running.Len() == 0
 		assert backup.Backups.Current("a") == backup.Void{S: backup.Summary{Host: "alpha", Total: 300, Files: 2}, Reason: "not stored after 30 minutes"}
 	}
 }
@@ -56,9 +56,9 @@ test AnAbortedBackupEndsItsSaga {
 	with context { backup.Backups: memory.NewLog() } {
 		let d, _ = Submit(Open(), plan("a"))
 		let d2, _ = Submit(d, backup.Abort{Backup: "a", Reason: "no longer needed"})
-		assert len(d2.Running) == 0
+		assert d2.Running.Len() == 0
 		let _, later = Advance(d2, StoreWithin)
-		assert len(later) == 0
+		assert later.Len() == 0
 	}
 }
 
@@ -74,7 +74,7 @@ test EveryBackupSettlesHolds(seed int) {
 			d = later
 		}
 		let last, _ = Advance(d, StoreWithin)
-		assert len(last.Running) == 0
+		assert last.Running.Len() == 0
 		for id in []string{"a", "b"} {
 			match backup.Backups.Current(id) {
 			case backup.Open, backup.Held:

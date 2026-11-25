@@ -13,6 +13,7 @@ import flag
 import fs
 import fstest
 import io
+import option
 import os
 import strconv
 import strings
@@ -40,9 +41,9 @@ let usage = "confparse reads the configuration of a reverse proxy."
 // with no invented value.
 func arg(a flag.ArgSpec, name string, v flag.Values) string fails flag.Missing {
 	match a.Get(v) {
-	case Some as s:
+	case option.Some as s:
 		s.Value
-	case None:
+	case option.None:
 		flag.Missing{Name: name}
 	}
 }
@@ -81,9 +82,9 @@ func environ() Map[string, string] needs os.Process {
 	let mut env Map[string, string] = Map[string, string]{}
 	for name in config.Overridable {
 		match os.Process.Getenv(name) {
-		case Some as v:
+		case option.Some as v:
 			env[name] = v.Value
-		case None:
+		case option.None:
 		}
 	}
 	env
@@ -99,35 +100,35 @@ func Show(c config.Config) string {
 }
 
 // Value is the value at the dotted key in d.
-func Value(d toml.Doc, key string) Option[toml.Value] {
+func Value(d toml.Doc, key string) option.Option[toml.Value] {
 	let parts = strings.Split(key, ".")
-	let found (Option[toml.Table], string) = match len(parts) {
+	let found (option.Option[toml.Table], string) = match parts.Len() {
 	case 1:
-		(Some[toml.Table]{Value: d.Root}, parts[0])
+		(option.Some[toml.Table]{Value: d.Root}, parts[0])
 	case 2:
 		let ts = toml.Named(d, parts[0])
-		(if len(ts) == 1 && !ts[0].Many { Some[toml.Table]{Value: ts[0]} } else { None }, parts[1])
+		(if ts.Len() == 1 && !ts[0].Many { option.Some[toml.Table]{Value: ts[0]} } else { option.None }, parts[1])
 	case 3:
 		let ts = toml.Named(d, parts[0])
 		let n = strconv.Atoi(parts[1]) catch {
 		case strconv.Malformed, strconv.OutOfRange:
 			-1
 		}
-		(if n >= 0 && n < len(ts) && ts[n].Many { Some[toml.Table]{Value: ts[n]} } else { None }, parts[2])
+		(if n >= 0 && n < ts.Len() && ts[n].Many { option.Some[toml.Table]{Value: ts[n]} } else { option.None }, parts[2])
 	case _:
-		(None, "")
+		(option.None, "")
 	}
 	let (table, name) = found
 	match table {
-	case Some as t:
+	case option.Some as t:
 		match toml.Lookup(t.Value, name) {
-		case Some as e:
-			Some{Value: e.Value.Value}
-		case None:
-			None
+		case option.Some as e:
+			option.Some{Value: e.Value.Value}
+		case option.None:
+			option.None
 		}
-	case None:
-		None
+	case option.None:
+		option.None
 	}
 }
 
@@ -148,9 +149,9 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | os.Process {
 	case Get as g:
 		let doc = try load(g.File)
 		match Value(doc, g.Key) {
-		case Some as v:
+		case option.Some as v:
 			io.Stdout.Println(toml.PrintValue(v.Value))
-		case None:
+		case option.None:
 			return os.Exit{Code: 1, Message: "confparse: \(g.File) has no key \(g.Key)"}
 		}
 	case Fmt as f:
@@ -158,7 +159,7 @@ func run(args []string) fails os.Exit needs io.Stdout | fs.Files | os.Process {
 	}
 }
 
-func main() fails os.Exit needs Ambient {
+func main() fails os.Exit needs os.Ambient {
 	with context { os.Process: os.NewHost(), fs.Files: fs.NewHost(), io.Stdout: io.NewHost() } {
 		try run(os.Process.Args())
 	}
@@ -173,7 +174,7 @@ type proc { env Map[string, string] } implements os.Process
 
 func Args(_ proc) []string { []string{} }
 
-func Getenv(p proc, key string) Option[string] { p.env.Get(key) }
+func Getenv(p proc, key string) option.Option[string] { p.env.Get(key) }
 
 func Environ(p proc) Map[string, string] { p.env }
 

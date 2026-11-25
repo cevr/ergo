@@ -7,11 +7,13 @@
 // §18.1, L3).
 
 import actor
+import core
+import time
 import transfers/transfer
 import machines
 
 // Child is one transfer's actor.
-type Child = actor.Actor[transfer.Transfer, transfer.Signal, Decision[transfer.Transfer, Never]]
+type Child = actor.Actor[transfer.Transfer, transfer.Signal, machines.Decision[transfer.Transfer, core.Never]]
 
 // Item is one transfer of the board: its id, its file and its actor.
 type Item { ID int, File transfer.File, Child Child }
@@ -20,7 +22,7 @@ type Item { ID int, File transfer.File, Child Child }
 // one gets. Ids are never reused. It implements Closer, so it is a
 // resource and a declared root: its release stops the actors, and the
 // actors it holds leave it only with the whole board (resources R1, R17).
-type Board { Items []Item, Next int } implements Closer
+type Board { Items []Item, Next int } implements core.Closer
 
 // New is a board with no transfers.
 func New() Board { Board{Items: []Item{}, Next: 0} }
@@ -28,9 +30,9 @@ func New() Board { Board{Items: []Item{}, Next: 0} }
 // Start starts the next transfer, sending at once. It writes the one
 // board in place: a new board built from a lent board's items would be
 // a second owner of the actors, which the lent board's release stops.
-func Start(b mut Board) needs Scheduler {
+func Start(b mut Board) needs time.Scheduler {
 	let f = transfer.FileFor(b.Next)
-	let child = actor.StartMachine(machines.Start(transfer.Sender{}, f.MB), 4, func(n Never) {})
+	let child = actor.StartMachine(machines.Start(transfer.Sender{}, f.MB), 4, func(n core.Never) {})
 	b.Items = b.Items.Append(Item{ID: b.Next, File: f, Child: child})
 	b.Next = b.Next + 1
 }

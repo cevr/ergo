@@ -11,14 +11,14 @@ func one(width int, height int, ps []Particle) World {
 test MoveByVelocity {
 	let next, events = Step(one(5, 5, []Particle{Particle{ID: 0, X: 1, Y: 1, VX: 2, VY: 1}}))
 	let p = next.Particles()[0]
-	assert p.X == 3 && p.Y == 2 && len(events) == 0 && next.Tick() == 1
+	assert p.X == 3 && p.Y == 2 && events.Len() == 0 && next.Tick() == 1
 }
 
 test BounceOffTheEastWall {
 	let next, events = Step(one(5, 3, []Particle{Particle{ID: 7, X: 4, Y: 1, VX: 2, VY: 0}}))
 	let p = next.Particles()[0]
 	assert p.X == 2 && p.VX == -2
-	assert len(events) == 1
+	assert events.Len() == 1
 	match events[0] {
 	case Bounced as b:
 		assert b.ID == 7 && WallName(b.Side) == "east"
@@ -29,7 +29,7 @@ test BounceOffTheEastWall {
 
 test BounceInTheCorner {
 	let _, events = Step(one(3, 3, []Particle{Particle{ID: 1, X: 0, Y: 0, VX: -1, VY: -2}}))
-	assert len(events) == 2
+	assert events.Len() == 2
 }
 
 test LossSlowsAtTheWall {
@@ -44,7 +44,7 @@ test MeetingPassesVelocities {
 	let ps = next.Particles()
 	assert ps[0].X == 2 && ps[1].X == 2
 	assert ps[0].VX == -1 && ps[1].VX == 1
-	assert len(events) == 1 && Energy(next) == Energy(w)
+	assert events.Len() == 1 && Energy(next) == Energy(w)
 }
 
 test ThreeInACellRotate {
@@ -54,7 +54,7 @@ test ThreeInACellRotate {
 	assert ps[0].VX == -1 && ps[1].VY == 1 && ps[2].VX == 1
 	match events[0] {
 	case Met as m:
-		assert len(m.IDs) == 3 && m.X == 2 && m.Y == 2
+		assert m.IDs.Len() == 3 && m.X == 2 && m.Y == 2
 	case Bounced:
 		assert false
 	}
@@ -63,7 +63,7 @@ test ThreeInACellRotate {
 // refusal is the failure of Spawn(width, height, n, loss), told, or
 // "made" when it makes a box.
 func refusal(width int, height int, n int, loss int) string {
-	let _ = with context { Random: rand.Seeded(1) } { Spawn(width, height, n, loss) } catch {
+	let _ = with context { rand.Random: rand.Seeded(1) } { Spawn(width, height, n, loss) } catch {
 	case BadSize as b:
 		return "size \(b.Width)x\(b.Height)"
 	case BadLoss as b:

@@ -4,6 +4,8 @@
 // lands). The step's output is Selected and a Focus
 // of the button, and the parent matches them.
 
+import machines
+
 // Box is the list box: how many items it lists, whether the list is open,
 // and the active item while it is.
 type Box { Count int, Open bool, Active int }
@@ -26,38 +28,38 @@ type Effect = Selected{Index int} | Focus{}
 // ends move the active item within the list, and a pick selects the item,
 // shuts the list and gives the focus back, as Escape does without a
 // selection. A shut list takes nothing but its button.
-func Step(b Box, sig Signal) Decision[Box, []Effect] {
+func Step(b Box, sig Signal) machines.Decision[Box, []Effect] {
 	match sig {
 	case Pressed as p:
 		if b.Open {
-			return Stay[Box]{Next: Box{..b, Open: false}}
+			return machines.Stay[Box]{Next: Box{..b, Open: false}}
 		}
-		Stay[Box]{Next: Box{..b, Open: true, Active: within(b, p.Selected)}}
+		machines.Stay[Box]{Next: Box{..b, Open: true, Active: within(b, p.Selected)}}
 	case Moved as m:
 		if !b.Open {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Box]{Next: Box{..b, Active: within(b, b.Active+m.By)}}
+		machines.Stay[Box]{Next: Box{..b, Active: within(b, b.Active+m.By)}}
 	case Ended as e:
 		if !b.Open {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Box]{Next: Box{..b, Active: if e.Last { b.Count - 1 } else { 0 }}}
+		machines.Stay[Box]{Next: Box{..b, Active: if e.Last { b.Count - 1 } else { 0 }}}
 	case Hovered as h:
 		if !b.Open || h.Index < 0 || h.Index >= b.Count {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Box]{Next: Box{..b, Active: h.Index}}
+		machines.Stay[Box]{Next: Box{..b, Active: h.Index}}
 	case Picked as p:
 		if !b.Open || p.Index < 0 || p.Index >= b.Count {
-			return Ignore
+			return machines.Ignore
 		}
-		Emit[Box, []Effect]{Next: Box{..b, Open: false}, Output: []Effect{Selected{Index: p.Index}, Focus}}
+		machines.Emit[Box, []Effect]{Next: Box{..b, Open: false}, Output: []Effect{Selected{Index: p.Index}, Focus}}
 	case Dismissed:
 		if !b.Open {
-			return Ignore
+			return machines.Ignore
 		}
-		Emit[Box, []Effect]{Next: Box{..b, Open: false}, Output: []Effect{Focus}}
+		machines.Emit[Box, []Effect]{Next: Box{..b, Open: false}, Output: []Effect{Focus}}
 	}
 }
 
@@ -78,17 +80,17 @@ type Listbox machine[Box, Signal] {
 	step:    Step,
 }
 
-func after(b Box, d Decision[Box, []Effect]) Box {
+func after(b Box, d machines.Decision[Box, []Effect]) Box {
 	match d {
-	case Emit[Box, []Effect] as e:
+	case machines.Emit[Box, []Effect] as e:
 		e.Next
-	case Enter[Box] as e:
+	case machines.Enter[Box] as e:
 		e.Next
-	case Stay[Box] as s:
+	case machines.Stay[Box] as s:
 		s.Next
-	case Tell[Box, []Effect] as t:
+	case machines.Tell[Box, []Effect] as t:
 		t.Next
-	case Ignore, Reject, Done[[]Effect]:
+	case machines.Ignore, machines.Reject, machines.Done[[]Effect]:
 		b
 	}
 }
@@ -134,9 +136,9 @@ law OnlyAPickSelects(size int where 1 <= size && size <= 6, ops []int) {
 		let sig = signalOf(o, size)
 		let d = Step(b, sig)
 		let out = match d {
-		case Emit[Box, []Effect] as e:
+		case machines.Emit[Box, []Effect] as e:
 			e.Output
-		case Enter[Box], Stay[Box], Tell[Box, []Effect], Ignore, Reject, Done[[]Effect]:
+		case machines.Enter[Box], machines.Stay[Box], machines.Tell[Box, []Effect], machines.Ignore, machines.Reject, machines.Done[[]Effect]:
 			[]Effect{}
 		}
 		let want = match sig {
@@ -151,7 +153,7 @@ law OnlyAPickSelects(size int where 1 <= size && size <= 6, ops []int) {
 			return false
 		}
 		b = after(b, d)
-		if len(out) > 0 && b.Open {
+		if out.Len() > 0 && b.Open {
 			return false
 		}
 	}

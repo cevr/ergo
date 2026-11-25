@@ -11,6 +11,7 @@ import lease-sync/lease
 import lease-sync/replica
 import lease-sync/replica/memory
 import io
+import machines
 import os
 import strings
 import time
@@ -27,7 +28,7 @@ type User { State Client, Up bool }
 
 func step(st Client, sig Sig) Client {
 	match replica.Step(source, st, sig) {
-	case Stay[Client] as s:
+	case machines.Stay[Client] as s:
 		s.Next
 	case _:
 		st
@@ -111,15 +112,15 @@ func play(lines []string, auth memory.Leases) []string fails BadLine {
 	let mut out = []string{}
 	for i, line in lines {
 		let f = strings.Fields(line)
-		if len(f) == 0 {
+		if f.Len() == 0 {
 			continue
 		}
-		if len(f) == 1 && f[0] == "state" {
+		if f.Len() == 1 && f[0] == "state" {
 			out = out.Append("authority: \(pool(memory.Server(auth).State()))")
 			continue
 		}
 		let name = f[0]
-		if name != "a" && name != "b" || len(f) < 2 {
+		if name != "a" && name != "b" || f.Len() < 2 {
 			return BadLine{Line: i + 1, Why: "want a or b, then a step"}
 		}
 		let u = if name == "a" { a } else { b }
@@ -139,11 +140,11 @@ func play(lines []string, auth memory.Leases) []string fails BadLine {
 
 func act(u User, f []string, auth memory.Leases, line int) User fails BadLine {
 	let verb = f[1]
-	if (verb == "take" || verb == "give") && len(f) == 3 {
+	if (verb == "take" || verb == "give") && f.Len() == 3 {
 		let cmd = if verb == "take" { lease.Take{Name: f[2]} } else { lease.Give{Name: f[2]} }
 		return User{..u, State: step(u.State, replica.Submit[lease.Cmd]{Cmd: cmd})}
 	}
-	if len(f) != 2 {
+	if f.Len() != 2 {
 		return BadLine{Line: line, Why: "unknown step"}
 	}
 	if verb == "push" {
@@ -173,7 +174,7 @@ func act(u User, f []string, auth memory.Leases, line int) User fails BadLine {
 		return User{State: step(u.State, replica.Link{Conn: c, At: at}), Up: verb == "online"}
 	}
 	if verb == "dismiss" {
-		if len(u.State.Refused) == 0 {
+		if u.State.Refused.Len() == 0 {
 			return u
 		}
 		return User{..u, State: step(u.State, replica.Dismiss{ID: u.State.Refused[0].Envelope.ID})}
@@ -184,7 +185,7 @@ func act(u User, f []string, auth memory.Leases, line int) User fails BadLine {
 	BadLine{Line: line, Why: "unknown step \(verb)"}
 }
 
-func main() fails os.Exit needs Console | Ambient {
+func main() fails os.Exit needs io.Console | os.Ambient {
 	let mut lines = []string{}
 	with context { io.Stdin: io.NewStdin() } {
 		for line in io.Stdin.Lines() {
@@ -196,6 +197,6 @@ func main() fails os.Exit needs Console | Ambient {
 		return os.Exit{Code: 2, Message: "lease-sync: line \(b.Line): \(b.Why)"}
 	}
 	for l in out {
-		Console.Println(l)
+		io.Console.Println(l)
 	}
 }

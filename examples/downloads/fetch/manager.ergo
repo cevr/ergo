@@ -6,10 +6,12 @@
 
 import actor
 import machines
+import option
+import time
 
 // FileActor is a file's address, the child an entry's work starts. A
 // union whose only variant is an existing type is that type, an alias.
-type FileActor = actor.Actor[File, Signal, Decision[File, End]]
+type FileActor = actor.Actor[File, Signal, machines.Decision[File, End]]
 
 // Manager is the manager's state:
 //
@@ -39,7 +41,7 @@ type Report { Ends []End }
 // one at a time, and keeps each end in the order it came.
 law AddsRunInOrder(moves []int) {
 	let t = foldManager(moves)
-	if len(t.Started) > len(t.Took) {
+	if t.Started.Len() > t.Took.Len() {
 		return false
 	}
 	for i, u in t.Started {
@@ -48,12 +50,12 @@ law AddsRunInOrder(moves []int) {
 		}
 	}
 	let ends = match t.Report {
-	case Some[Report] as r:
+	case option.Some[Report] as r:
 		r.Value.Ends
-	case None:
+	case option.None:
 		EndsOf(t.Last)
 	}
-	if len(ends) != len(t.Sent) {
+	if ends.Len() != t.Sent.Len() {
 		return false
 	}
 	for i, e in ends {
@@ -101,13 +103,13 @@ type ManagerTrace {
 	Sent     []End,
 	Drained  bool,
 	Last     Manager,
-	Report   Option[Report],
+	Report   option.Option[Report],
 }
 
 // foldManager steps a new manager over the orders of moves, until its end.
 func foldManager(moves []int) ManagerTrace {
 	let mut s Manager = Idle{Ends: []End{}}
-	let mut t = ManagerTrace{Took: []string{}, LateTook: 0, Started: []string{}, Sent: []End{}, Drained: false, Last: s, Report: None}
+	let mut t = ManagerTrace{Took: []string{}, LateTook: 0, Started: []string{}, Sent: []End{}, Drained: false, Last: s, Report: option.None}
 	for i, m in moves {
 		let o = order(m, i, s)
 		let d = StepManager(s, o) catch {
@@ -125,15 +127,15 @@ func foldManager(moves []int) ManagerTrace {
 			t = ManagerTrace{..t, Drained: true}
 		}
 		match d {
-		case Done[Report] as r:
-			return ManagerTrace{..t, Last: s, Report: Some[Report]{Value: r.Output}}
-		case Enter[Manager] as e:
+		case machines.Done[Report] as r:
+			return ManagerTrace{..t, Last: s, Report: option.Some[Report]{Value: r.Output}}
+		case machines.Enter[Manager] as e:
 			s = e.Next
 			let u = runningUrl(s)
 			if u != "" {
 				t = ManagerTrace{..t, Started: t.Started.Append(u)}
 			}
-		case Stay[Manager] as e:
+		case machines.Stay[Manager] as e:
 			s = e.Next
 		case _:
 		}
@@ -146,10 +148,10 @@ func foldManager(moves []int) ManagerTrace {
 law DrainFinishesTheQueue(moves []int) {
 	let t = foldManager(moves)
 	match t.Report {
-	case Some[Report] as r:
-		t.Drained && len(r.Value.Ends) == len(t.Took)
-	case None:
-		!t.Drained || len(t.Sent) < len(t.Took)
+	case option.Some[Report] as r:
+		t.Drained && r.Value.Ends.Len() == t.Took.Len()
+	case option.None:
+		!t.Drained || t.Sent.Len() < t.Took.Len()
 	}
 }
 
@@ -162,30 +164,30 @@ func running(url string, queue []string, ends []End, open bool) Running {
 // none runs, and queues it otherwise; after Drain it is Closed. Drain lets
 // the queue finish and ends the manager after the last file (at once when
 // idle). Ended records the file's end and starts the next one.
-func StepManager(m Manager, o Order) Decision[Manager, Report] fails Closed {
+func StepManager(m Manager, o Order) machines.Decision[Manager, Report] fails Closed {
 	match (m, o) {
 	case (Idle as i, Add as a):
-		Enter[Manager]{Next: running(a.Url, []string{}, i.Ends, true)}
+		machines.Enter[Manager]{Next: running(a.Url, []string{}, i.Ends, true)}
 	case (Running as r, Add as a):
 		if !r.Open {
 			return Closed{Url: a.Url}
 		}
-		Stay[Manager]{Next: Running{..r, Queue: r.Queue.Append(a.Url)}}
+		machines.Stay[Manager]{Next: Running{..r, Queue: r.Queue.Append(a.Url)}}
 	case (Idle as i, Drain):
-		Done[Report]{Output: Report{Ends: i.Ends}}
+		machines.Done[Report]{Output: Report{Ends: i.Ends}}
 	case (Running as r, Drain):
-		Stay[Manager]{Next: Running{..r, Open: false}}
+		machines.Stay[Manager]{Next: Running{..r, Open: false}}
 	case (Running as r, Ended as e):
 		let ends = r.Ends.Append(e.End)
-		if len(r.Queue) > 0 {
-			Enter[Manager]{Next: running(r.Queue[0], r.Queue[1:], ends, r.Open)}
+		if r.Queue.Len() > 0 {
+			machines.Enter[Manager]{Next: running(r.Queue[0], r.Queue[1:], ends, r.Open)}
 		} else if r.Open {
-			Enter[Manager]{Next: Idle{Ends: ends}}
+			machines.Enter[Manager]{Next: Idle{Ends: ends}}
 		} else {
-			Done[Report]{Output: Report{Ends: ends}}
+			machines.Done[Report]{Output: Report{Ends: ends}}
 		}
 	case (Idle, Ended):
-		Ignore
+		machines.Ignore
 	}
 }
 
@@ -195,14 +197,14 @@ func ended(e End) Order { Ended{End: e} }
 // hosting is the work of each state: Running starts its file as a child
 // of the entry, in the entry's host. The child needs the Source, and
 // starting it needs the Scheduler, so the work's row is both (MB F8).
-func hosting(m Manager) Option[machines.Work[Order, Source | Scheduler]] {
+func hosting(m Manager) option.Option[machines.Work[Order, Source | time.Scheduler]] {
 	match m {
 	case Running as r:
-		Some{machines.Work{Start: func(send entry func(o Order)) needs Source | Scheduler {
+		option.Some{machines.Work{Start: func(send entry func(o Order)) needs Source | time.Scheduler {
 			let _ = actor.ChildIn(send, r.File, machines.Start(Download{}, r.Url), 4, ended)
 		}}}
 	case Idle:
-		None
+		option.None
 	}
 }
 

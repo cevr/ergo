@@ -3,11 +3,13 @@
 // on b, so b comes first. Every result is deterministic: where the order leaves a
 // choice, the smaller node comes first. It is pure.
 
+import cmp
+import option
 import slices
 
 // Graph is nodes and the edges out of each. Its fields are unexported, so
 // only Of and Add build one: every node an edge names is a node.
-type Graph[N ordered] { nodes []N, edges Map[N, []N] }
+type Graph[N cmp.Ordered] { nodes []N, edges Map[N, []N] }
 
 // Cycle is a path of edges that comes back to its first node: the first
 // and the last node are the same.
@@ -26,11 +28,11 @@ law CycleIsAClosedWalk(nodes []int, edges []Edge[int]) {
 
 // IsClosedWalk reports whether path has two nodes or more, starts and
 // ends at one node, and each step is an edge of g.
-func IsClosedWalk[N ordered](g Graph[N], path []N) bool {
-	if len(path) < 2 || path[0] != path[len(path)-1] {
+func IsClosedWalk[N cmp.Ordered](g Graph[N], path []N) bool {
+	if path.Len() < 2 || path[0] != path[path.Len()-1] {
 		return false
 	}
-	for i in 1..len(path) {
+	for i in 1..path.Len() {
 		if !slices.Contains(g.Needs(path[i-1]), path[i]) {
 			return false
 		}
@@ -55,10 +57,10 @@ func few(n int) int { ((n % 4) + 4) % 4 }
 type Edge[N] { From N, To N }
 
 // Empty is the graph with no nodes.
-func Empty[N ordered]() Graph[N] { Graph[N]{nodes: []N{}, edges: Map[N, []N]{}} }
+func Empty[N cmp.Ordered]() Graph[N] { Graph[N]{nodes: []N{}, edges: Map[N, []N]{}} }
 
 // Of is the graph of nodes and edges; a node an edge names is added.
-func Of[N ordered](nodes []N, edges []Edge[N]) Graph[N] {
+func Of[N cmp.Ordered](nodes []N, edges []Edge[N]) Graph[N] {
 	let mut g = Empty[N]()
 	for n in nodes {
 		g = g.Add(n)
@@ -70,7 +72,7 @@ func Of[N ordered](nodes []N, edges []Edge[N]) Graph[N] {
 }
 
 // Add is g with the node n.
-func Add[N ordered](g Graph[N], n N) Graph[N] {
+func Add[N cmp.Ordered](g Graph[N], n N) Graph[N] {
 	if slices.Contains(g.nodes, n) {
 		return g
 	}
@@ -80,7 +82,7 @@ func Add[N ordered](g Graph[N], n N) Graph[N] {
 }
 
 // Link is g with the edge from → to, and both nodes.
-func Link[N ordered](g Graph[N], from N, to N) Graph[N] {
+func Link[N cmp.Ordered](g Graph[N], from N, to N) Graph[N] {
 	let h = g.Add(from).Add(to)
 	let out = h.Needs(from)
 	if slices.Contains(out, to) {
@@ -92,20 +94,20 @@ func Link[N ordered](g Graph[N], from N, to N) Graph[N] {
 }
 
 // Nodes is every node of g, sorted.
-func Nodes[N ordered](g Graph[N]) []N { g.nodes }
+func Nodes[N cmp.Ordered](g Graph[N]) []N { g.nodes }
 
 // Needs is the nodes n has an edge to, sorted.
-func Needs[N ordered](g Graph[N], n N) []N {
+func Needs[N cmp.Ordered](g Graph[N], n N) []N {
 	match g.edges.Get(n) {
-	case Some[[]N] as out:
+	case option.Some[[]N] as out:
 		out.Value
-	case None:
+	case option.None:
 		[]N{}
 	}
 }
 
 // Edges is every edge of g, by From and then To.
-func Edges[N ordered](g Graph[N]) []Edge[N] {
+func Edges[N cmp.Ordered](g Graph[N]) []Edge[N] {
 	let mut out = []Edge[N]{}
 	for n in g.nodes {
 		for m in g.Needs(n) {
@@ -120,16 +122,16 @@ func Edges[N ordered](g Graph[N]) []Edge[N] {
 // algorithm with a sorted ready set). A graph with a cycle has no order:
 // it fails with the cycle that the smallest node left over is on or
 // leads to.
-func Order[N ordered](g Graph[N]) []N fails Cycle[N] {
+func Order[N cmp.Ordered](g Graph[N]) []N fails Cycle[N] {
 	let mut waiting = Map[N, int]{}
 	let mut users = Map[N, []N]{}
 	for n in g.nodes {
-		waiting[n] = len(g.Needs(n))
+		waiting[n] = g.Needs(n).Len()
 		for m in g.Needs(n) {
 			let before = match users.Get(m) {
-			case Some[[]N] as u:
+			case option.Some[[]N] as u:
 				u.Value
-			case None:
+			case option.None:
 				[]N{}
 			}
 			users[m] = before.Append(n)
@@ -137,20 +139,20 @@ func Order[N ordered](g Graph[N]) []N fails Cycle[N] {
 	}
 	let mut ready = []N{}
 	for n in g.nodes {
-		if len(g.Needs(n)) == 0 {
+		if g.Needs(n).Len() == 0 {
 			ready = ready.Append(n)
 		}
 	}
 	let mut order = []N{}
-	for len(ready) > 0 {
+	for ready.Len() > 0 {
 		let sorted = slices.Sort(ready)
 		let n = sorted[0]
 		ready = rest(sorted)
 		order = order.Append(n)
 		let us = match users.Get(n) {
-		case Some[[]N] as u:
+		case option.Some[[]N] as u:
 			u.Value
-		case None:
+		case option.None:
 			[]N{}
 		}
 		for u in us {
@@ -161,7 +163,7 @@ func Order[N ordered](g Graph[N]) []N fails Cycle[N] {
 			}
 		}
 	}
-	if len(order) < len(g.nodes) {
+	if order.Len() < g.nodes.Len() {
 		return Cycle[N]{Path: cycleIn(g, order)}
 	}
 	order
@@ -223,9 +225,9 @@ law OrderIsDeterministic(nodes []int, edges []Edge[int]) {
 
 func count[N comparable](m Map[N, int], k N) int {
 	match m.Get(k) {
-	case Some[int] as n:
+	case option.Some[int] as n:
 		n.Value
-	case None:
+	case option.None:
 		0
 	}
 }
@@ -245,7 +247,7 @@ func rest[N](xs []N) []N {
 // smallest such node, follow the smallest edge that stays among them
 // until a node repeats. Every such node waits on another, so the walk
 // never stops before it repeats.
-func cycleIn[N ordered](g Graph[N], done []N) []N {
+func cycleIn[N cmp.Ordered](g Graph[N], done []N) []N {
 	let mut start = g.nodes[0]
 	let mut found = false
 	for n in g.nodes {
@@ -283,11 +285,11 @@ func cycleIn[N ordered](g Graph[N], done []N) []N {
 // Path is the shortest path of edges from a to b, a and b included, or
 // None when b cannot be reached. Of two shortest paths, the one through
 // smaller nodes comes first.
-func Path[N ordered](g Graph[N], a N, b N) Option[[]N] {
+func Path[N cmp.Ordered](g Graph[N], a N, b N) option.Option[[]N] {
 	let mut from = Map[N, N]{}
 	let mut seen = []N{a}
 	let mut frontier = []N{a}
-	for len(frontier) > 0 {
+	for frontier.Len() > 0 {
 		let mut next = []N{}
 		for n in frontier {
 			for m in g.Needs(n) {
@@ -299,14 +301,14 @@ func Path[N ordered](g Graph[N], a N, b N) Option[[]N] {
 			}
 		}
 		if slices.Contains(seen, b) {
-			return Some[[]N]{Value: back(from, a, b)}
+			return option.Some[[]N]{Value: back(from, a, b)}
 		}
 		frontier = next
 	}
 	if a == b {
-		return Some[[]N]{Value: []N{a}}
+		return option.Some[[]N]{Value: []N{a}}
 	}
-	None
+	option.None
 }
 
 // PathFollowsEdges: a path that Path finds starts at a, ends at b and
@@ -314,32 +316,32 @@ func Path[N ordered](g Graph[N], a N, b N) Option[[]N] {
 law PathFollowsEdges(edges []Edge[int], a int, b int) {
 	let g = Of([]int{few(a), few(b)}, crowded(edges))
 	match g.Path(few(a), few(b)) {
-	case Some[[]int] as p:
+	case option.Some[[]int] as p:
 		let path = p.Value
-		if path[0] != few(a) || path[len(path)-1] != few(b) {
+		if path[0] != few(a) || path[path.Len()-1] != few(b) {
 			return false
 		}
-		for i in 1..len(path) {
+		for i in 1..path.Len() {
 			if !slices.Contains(g.Needs(path[i-1]), path[i]) {
 				return false
 			}
 		}
 		true
-	case None:
+	case option.None:
 		few(a) != few(b)
 	}
 }
 
 // back is the path to b that from records, from a.
-func back[N ordered](from Map[N, N], a N, b own N) []N {
+func back[N cmp.Ordered](from Map[N, N], a N, b own N) []N {
 	let mut path = []N{b}
 	let mut at = b
 	for at != a {
 		match from.Get(at) {
-		case Some[N] as p:
+		case option.Some[N] as p:
 			at = p.Value
 			path = path.Append(at)
-		case None:
+		case option.None:
 			return slices.Reverse(path)
 		}
 	}

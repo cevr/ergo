@@ -2,6 +2,7 @@ import limiter/bucket
 import limiter/limits
 import machines
 import maps
+import option
 import testing
 
 type limConcAct =
@@ -14,7 +15,7 @@ type limRes =
 	| LimLimited{RetryAfterMs int}
 	| LimUnknown{Key string}
 	| LimBadCost{Cost int, Capacity int}
-	| LimLevel{Level Option[limits.Level]}
+	| LimLevel{Level option.Option[limits.Level]}
 	| LimAdvanced{}
 
 func initialBuckets() Map[string, bucket.Bucket] {
@@ -28,31 +29,31 @@ func limStoryStep(bs Map[string, bucket.Bucket], a limConcAct) (Map[string, buck
 	match a {
 	case LimTake as x:
 		let b = match bs.Get(x.Key) {
-		case Some[bucket.Bucket] as s:
+		case option.Some[bucket.Bucket] as s:
 			s.Value
-		case None:
+		case option.None:
 			return (bs, LimUnknown{Key: x.Key})
 		}
 		let d = bucket.Step(b, bucket.Spend{Cost: x.Cost})
 		let mut next = bs
 		next[x.Key] = machines.Next(b, d)
 		match d {
-		case Emit[bucket.Bucket, bucket.Told] as e:
+		case machines.Emit[bucket.Bucket, bucket.Told] as e:
 			match e.Output {
 			case bucket.Granted as g:
 				(next, LimGranted{Remaining: g.Remaining})
 			case bucket.Short as s:
 				(next, LimLimited{RetryAfterMs: s.RetryAfterMs})
 			}
-		case Enter[bucket.Bucket], Stay[bucket.Bucket], Tell[bucket.Bucket, bucket.Told], Ignore, Reject, Done[bucket.Told]:
+		case machines.Enter[bucket.Bucket], machines.Stay[bucket.Bucket], machines.Tell[bucket.Bucket, bucket.Told], machines.Ignore, machines.Reject, machines.Done[bucket.Told]:
 			(bs, LimBadCost{Cost: x.Cost, Capacity: b.Capacity})
 		}
 	case LimPeek as x:
 		match bs.Get(x.Key) {
-		case Some[bucket.Bucket] as s:
-			(bs, LimLevel{Level: Some[limits.Level]{Value: bucket.LevelOf(s.Value)}})
-		case None:
-			(bs, LimLevel{Level: None})
+		case option.Some[bucket.Bucket] as s:
+			(bs, LimLevel{Level: option.Some[limits.Level]{Value: bucket.LevelOf(s.Value)}})
+		case option.None:
+			(bs, LimLevel{Level: option.None})
 		}
 	case LimAdvance as x:
 		let mut next = bs

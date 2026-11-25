@@ -20,7 +20,7 @@ func Draw(p mut ui.Paint, s canvas.State) {
 	}
 	match s {
 	case canvas.Drawing as d:
-		if len(d.Points) > 0 {
+		if d.Points.Len() > 0 {
 			ui.Stroke(p, polyline(c.View, d.Points), pending, 1.0)
 		}
 	case canvas.Selecting as l:
@@ -51,7 +51,7 @@ func shape(p mut ui.Paint, v canvas.View, sh canvas.Shape, ink ui.Color) {
 // polyline is the path through points, in screen units.
 func polyline(v canvas.View, points []canvas.Point) ui.Path {
 	let mut segs = []ui.Seg{}
-	for i in 0..len(points) {
+	for i in 0..points.Len() {
 		let at = canvas.ScreenOf(v, points[i])
 		if i == 0 {
 			segs = segs.Append(ui.MoveTo{X: px(at.X), Y: px(at.Y)})

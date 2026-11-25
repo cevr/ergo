@@ -56,17 +56,17 @@ law EncodeMajorTypesAndCanonicalHeads() {
 			int64(4294967296) + int64(gen.IntIn(0, 1000))
 		}
 		let encPos = Encode(pos)
-		if len(encPos) != expectedHeadLen(uint64(pos)) || encPos[0] != expectedMajorByte(0, uint64(pos)) {
+		if encPos.Len() != expectedHeadLen(uint64(pos)) || encPos[0] != expectedMajorByte(0, uint64(pos)) {
 			return false
 		}
 		let neg = -1 - pos
 		let encNeg = Encode(neg)
-		if len(encNeg) != expectedHeadLen(uint64(pos)) || encNeg[0] != expectedMajorByte(1, uint64(pos)) {
+		if encNeg.Len() != expectedHeadLen(uint64(pos)) || encNeg[0] != expectedMajorByte(1, uint64(pos)) {
 			return false
 		}
 		let s = gen.OneOf([]string{"", "a", "hello", "twenty-four-bytes-longer-string"})
 		let encStr = Encode(s)
-		if len(encStr) != expectedHeadLen(uint64(len(s)))+len(s) || encStr[0] != expectedMajorByte(3, uint64(len(s))) {
+		if encStr.Len() != expectedHeadLen(uint64(s.Len()))+s.Len() || encStr[0] != expectedMajorByte(3, uint64(s.Len())) {
 			return false
 		}
 		if !strings.HasSuffix(encStr, s) {
@@ -80,12 +80,12 @@ law EncodeMajorTypesAndCanonicalHeads() {
 		let rec = cborSampleRecord{Name: s, N: pos, Flag: flag}
 		let encRec1 = Encode(rec)
 		let encRec2 = Encode(rec)
-		if encRec1 != encRec2 || len(encRec1) < 2 || encRec1[0] != 0xbf || encRec1[len(encRec1)-1] != 0xff {
+		if encRec1 != encRec2 || encRec1.Len() < 2 || encRec1[0] != 0xbf || encRec1[encRec1.Len()-1] != 0xff {
 			return false
 		}
 		let arr = []int64{pos, neg}
 		let encArr = Encode(arr)
-		len(encArr) == 1+len(encPos)+len(encNeg) && encArr[0] == byte(4*32+2)
+		encArr.Len() == 1+encPos.Len()+encNeg.Len() && encArr[0] == byte(4*32+2)
 	})
 	match outcome {
 	case gen.Held:

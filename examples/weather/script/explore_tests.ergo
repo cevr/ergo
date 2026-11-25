@@ -19,7 +19,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[weather.Lookup, w
 			case weather.Ready as r:
 				r.Report.Zip != ""
 			}
-			panelOK && len(s.Offers) > 0
+			panelOK && s.Offers.Len() > 0
 		}),
 	))
 	props
@@ -27,7 +27,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[weather.Lookup, w
 
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock, weather.Forecast: memory.Stations } {
+	with context { time.Scheduler: clock, weather.Forecast: memory.Stations } {
 		let app = actor.StartMachine(weather.Weather{}, 8, func(_ weather.Never) {})
 		let mut h = ui.NewTestHost(app, screen.Screen, clock, 8) catch {
 		case ui.BadPatch as bp:

@@ -1,6 +1,7 @@
 // A drawing: its shapes by id, the next id, and the grid over them. The
 // grid is kept with every change, so a hit test never scans the drawing.
 
+import option
 import slices
 
 // Layers is how many layers a drawing has: 0 to Layers-1.
@@ -33,9 +34,9 @@ func Place(d Picture, p Placed) Picture {
 // Remove is d without the shape id; d when it has none.
 func Remove(d Picture, id int) Picture {
 	match d.Shapes.Get(id) {
-	case Some[Placed] as p:
+	case option.Some[Placed] as p:
 		Picture{..d, Shapes: d.Shapes.Delete(id), Grid: Unindex(d.Grid, id, p.Value.Shape)}
-	case None:
+	case option.None:
 		d
 	}
 }
@@ -47,11 +48,11 @@ func Room(d Picture, ids []int, want Point) Point {
 	let mut hi = Point{X: 2 * Limit, Y: 2 * Limit}
 	for id in ids {
 		match d.Shapes.Get(id) {
-		case Some[Placed] as p:
+		case option.Some[Placed] as p:
 			let b = BoxOf(p.Value.Shape)
 			lo = Point{X: most(lo.X, -Limit-b.Lo.X), Y: most(lo.Y, -Limit-b.Lo.Y)}
 			hi = Point{X: least(hi.X, Limit-b.Hi.X), Y: least(hi.Y, Limit-b.Hi.Y)}
-		case None:
+		case option.None:
 		}
 	}
 	Point{X: Clamp(want.X, lo.X, hi.X), Y: Clamp(want.Y, lo.Y, hi.Y)}
@@ -66,14 +67,14 @@ func Move(d Picture, ids []int, delta Point) Picture {
 	let mut out = d
 	for id in ids {
 		match out.Shapes.Get(id) {
-		case Some[Placed] as p:
+		case option.Some[Placed] as p:
 			let moved = Shift(p.Value.Shape, delta)
 			out = Picture{
 				..out,
 				Shapes: out.Shapes.Put(id, Placed{..p.Value, Shape: moved}),
 				Grid:   Index(Unindex(out.Grid, id, p.Value.Shape), id, moved),
 			}
-		case None:
+		case option.None:
 		}
 	}
 	out
@@ -106,10 +107,10 @@ func cellSets(g Grid) Map[int, []int] {
 func above(a Placed, b Placed) bool { a.Layer > b.Layer || a.Layer == b.Layer && a.Id > b.Id }
 
 // Top is the id of the shape painted topmost at p, found through the grid.
-func Top(d Picture, p Point) Option[int] { topOf(d, Near(d.Grid, p), p) }
+func Top(d Picture, p Point) option.Option[int] { topOf(d, Near(d.Grid, p), p) }
 
 // TopOfAll is Top found by testing every shape: the reference of the grid.
-func TopOfAll(d Picture, p Point) Option[int] {
+func TopOfAll(d Picture, p Point) option.Option[int] {
 	let mut ids = []int{}
 	for id, _ in d.Shapes {
 		ids = ids.Append(id)
@@ -117,27 +118,27 @@ func TopOfAll(d Picture, p Point) Option[int] {
 	topOf(d, ids, p)
 }
 
-func topOf(d Picture, ids []int, p Point) Option[int] {
-	let mut best Option[Placed] = None
+func topOf(d Picture, ids []int, p Point) option.Option[int] {
+	let mut best option.Option[Placed] = option.None
 	for id in ids {
 		match d.Shapes.Get(id) {
-		case Some[Placed] as s:
+		case option.Some[Placed] as s:
 			if Hits(s.Value.Shape, p) {
 				best = match best {
-				case Some[Placed] as b:
-					if above(s.Value, b.Value) { Some[Placed]{Value: s.Value} } else { best }
-				case None:
-					Some[Placed]{Value: s.Value}
+				case option.Some[Placed] as b:
+					if above(s.Value, b.Value) { option.Some[Placed]{Value: s.Value} } else { best }
+				case option.None:
+					option.Some[Placed]{Value: s.Value}
 				}
 			}
-		case None:
+		case option.None:
 		}
 	}
 	match best {
-	case Some[Placed] as b:
-		Some[int]{Value: b.Value.Id}
-	case None:
-		None
+	case option.Some[Placed] as b:
+		option.Some[int]{Value: b.Value.Id}
+	case option.None:
+		option.None
 	}
 }
 

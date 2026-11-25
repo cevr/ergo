@@ -8,6 +8,8 @@
 // fs.Writes' WriteFile replaces at once, so a crash leaves the old board
 // or the new one.
 
+import stdcodec codec
+import option
 import taskboard/board
 import fs
 import json
@@ -28,16 +30,16 @@ func NewSheet(files fs.Files, writes fs.Writes) Sheet { At(Name, files, writes) 
 func At(path string, files fs.Files, writes fs.Writes) Sheet { Sheet{path: path, files: files, writes: writes} }
 
 // Load is the board in the file, or None when there is no file.
-func Load(s Sheet) Option[[]board.Column] fails board.Broken {
+func Load(s Sheet) option.Option[[]board.Column] fails board.Broken {
 	let text = s.files.ReadFile(s.path) catch {
 	case fs.NotFound:
-		return None
+		return option.None
 	case fs.Denied as d:
 		return board.Broken{Why: "permission denied: " + d.Path}
 	case fs.Failed as f:
 		return board.Broken{Why: f.Path + ": " + f.Reason}
 	}
-	Some[[]board.Column]{Value: try Decode(s.path, text)}
+	option.Some[[]board.Column]{Value: try Decode(s.path, text)}
 }
 
 // Save writes columns as the file.
@@ -66,7 +68,7 @@ func Encode(columns []board.Column) string { json.Encode(codec(), saved{Columns:
 law ACutFileIsNamed(n int, cut int where 0 <= cut) {
 	let disk = fstest.NewMemory()
 	let text = Encode(board.Sample(n))
-	let at = cut % (len(text) - 1)
+	let at = cut % (text.Len() - 1)
 	try disk.WriteFile(Name, text[:at])
 	let _ = NewSheet(disk, disk).Load() catch {
 	case board.Broken as b:
@@ -81,9 +83,9 @@ func Decode(path string, text string) []board.Column fails board.Broken {
 	let s = json.Decode(codec(), text) catch {
 	case json.Malformed as m:
 		return board.Broken{Why: "\(path): offset \(m.Offset): \(m.Reason)"}
-	case WireMissingField as m:
+	case stdcodec.WireMissingField as m:
 		return board.Broken{Why: "\(path): \(at(m.Path, m.Field)) is missing"}
-	case WireWrongKind as w:
+	case stdcodec.WireWrongKind as w:
 		return board.Broken{Why: "\(path): \(at(w.Path, "")) is not \(w.Want)"}
 	}
 	s.Columns

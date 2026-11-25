@@ -133,7 +133,7 @@ func classItem(c byte) string {
 
 // contains reports whether the text s holds the byte c.
 func contains(s string, c byte) bool {
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		if s[i] == c {
 			return true
 		}

@@ -1,3 +1,4 @@
+import option
 import slices
 
 // MemoryIndex is an in-memory provider of IndexReader maintaining staged
@@ -11,9 +12,9 @@ type MemoryIndex {
 // and deduplicating identical (Path, Stage) pairs while preserving distinct stages.
 func NewMemoryIndex(raw []Entry) MemoryIndex {
 	let sorted = slices.SortFunc(raw, compareEntries)
-	let mut dedup = slices.WithCapacity[Entry](len(sorted))
+	let mut dedup = slices.WithCapacity[Entry](sorted.Len())
 	for e in sorted {
-		if len(dedup) == 0 || comparePathStage(dedup[len(dedup)-1].Path, dedup[len(dedup)-1].Stage, e.Path, e.Stage) != 0 {
+		if dedup.Len() == 0 || comparePathStage(dedup[dedup.Len()-1].Path, dedup[dedup.Len()-1].Stage, e.Path, e.Stage) != 0 {
 			dedup = dedup.Append(e)
 		}
 	}
@@ -26,9 +27,9 @@ func Entries(m MemoryIndex) []Entry {
 }
 
 // Lookup implements IndexReader.Lookup on MemoryIndex.
-func Lookup(m MemoryIndex, path string, stage int) Option[Entry] {
+func Lookup(m MemoryIndex, path string, stage int) option.Option[Entry] {
 	let mut lo = 0
-	let mut hi = len(m.entries)
+	let mut hi = m.entries.Len()
 	for _ in 0..64 {
 		if lo >= hi {
 			break
@@ -36,7 +37,7 @@ func Lookup(m MemoryIndex, path string, stage int) Option[Entry] {
 		let mid = lo + (hi-lo)/2
 		let cmp = comparePathStage(m.entries[mid].Path, m.entries[mid].Stage, path, stage)
 		if cmp == 0 {
-			return Some[Entry]{Value: m.entries[mid]}
+			return option.Some[Entry]{Value: m.entries[mid]}
 		}
 		if cmp < 0 {
 			lo = mid + 1
@@ -44,7 +45,7 @@ func Lookup(m MemoryIndex, path string, stage int) Option[Entry] {
 			hi = mid
 		}
 	}
-	None
+	option.None
 }
 
 // LookupAllStages implements IndexReader.LookupAllStages on MemoryIndex.

@@ -1,6 +1,7 @@
 // Package memory is a Sources provider over texts held in memory, for
 // tests: a source is named by a key.
 
+import option
 import twig/script
 
 // Texts holds the sources by name.
@@ -9,9 +10,9 @@ type Texts { Sources Map[string, string] } implements script.Sources
 // Read is the source named path.
 func Read(t Texts, path string) string fails script.Unreadable {
 	match t.Sources.Get(path) {
-	case Some[string] as s:
+	case option.Some[string] as s:
 		s.Value
-	case None:
+	case option.None:
 		script.Unreadable{Path: path, Reason: "no such source"}
 	}
 }

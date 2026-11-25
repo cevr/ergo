@@ -3,6 +3,7 @@
 
 import json
 import maps
+import option
 import slices
 import github.com/cevr/ergo/modules/work/work
 
@@ -38,7 +39,7 @@ law StatusIsTheReference(shape int) {
 	case _:
 		return false
 	}
-	let start = if len(kept) == 1 { kept[0].Base } else { "" }
+	let start = if kept.Len() == 1 { kept[0].Base } else { "" }
 	let n = (own%4 + 4) % 4
 	let k = (picked%(n+1) + n + 1) % (n + 1)
 	let m = (moves%3 + 3) % 3
@@ -100,7 +101,7 @@ law StatusIsTheReference(shape int) {
 		Dirty:         dirty,
 		Error:         json.Absent,
 	}
-	built && start != "" && len(got) == 1 && s == want && s.LastCommit > 0
+	built && start != "" && got.Len() == 1 && s == want && s.LastCommit > 0
 }
 
 // PlainListIsUnchanged: a list without -status makes no Vcs call and is
@@ -142,7 +143,7 @@ law ListStatusCostsAtMost(count int, removed int) {
 	}
 	let gone = (removed%(n+1) + n + 1) % (n + 1)
 	for i in 0..gone {
-		let _ = w.tool.Rm("c\(i)", expecting(None)) catch {
+		let _ = w.tool.Rm("c\(i)", expecting(option.None)) catch {
 		case _:
 			return false
 		}
@@ -155,7 +156,7 @@ law ListStatusCostsAtMost(count int, removed int) {
 	let calls = Calls(w.vcs) - before
 	let active = slices.Filter(got, func(l work.Listed) bool { l.State == work.Active })
 	let statusOnActive = slices.IndexFunc(got, func(l work.Listed) bool { (l.State == work.Active) != (l.Status != json.Absent) }) < 0
-	calls <= 4*len(active)+2 && len(active) == n-gone && statusOnActive
+	calls <= 4*active.Len()+2 && active.Len() == n-gone && statusOnActive
 }
 
 // ListStatusWritesNothing: after list -status every file of the base and

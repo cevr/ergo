@@ -4,6 +4,7 @@
 // exponential in the text on patterns such as (a*)*b; package nfa is the
 // engine to run.
 
+import core
 import regex/engine
 import regex/syntax
 
@@ -22,11 +23,11 @@ type Tree { pattern syntax.Node } implements engine.Matcher
 
 // Matches reports whether t's pattern matches the whole text.
 func Matches(t Tree, text string) bool {
-	run(t.pattern, text, 0, func(j int) bool { j == len(text) })
+	run(t.pattern, text, 0, func(j int) bool { j == text.Len() })
 }
 
 // Lines is the simple per-text reference; the tree keeps no scratch.
-func Lines(t Tree, lines Seq[string]) Seq[string] { engine.Filter(t, lines) }
+func Lines(t Tree, lines core.Seq[string]) core.Seq[string] { engine.Filter(t, lines) }
 
 // run reports whether n matches text from i to some j for which k(j)
 // holds.
@@ -35,11 +36,11 @@ func run(n syntax.Node, text string, i int, k func(j int) bool) bool {
 	case syntax.Empty:
 		k(i)
 	case syntax.Lit as l:
-		i < len(text) && text[i] == l.C && k(i+1)
+		i < text.Len() && text[i] == l.C && k(i+1)
 	case syntax.Any:
-		i < len(text) && k(i+1)
+		i < text.Len() && k(i+1)
 	case syntax.Class as c:
-		i < len(text) && c.Has(text[i]) && k(i+1)
+		i < text.Len() && c.Has(text[i]) && k(i+1)
 	case syntax.Cat as c:
 		sequence(c.Parts, 0, text, i, k)
 	case syntax.Alt as a:
@@ -59,7 +60,7 @@ func run(n syntax.Node, text string, i int, k func(j int) bool) bool {
 
 // sequence matches parts[at:] one after another from i.
 func sequence(parts []syntax.Node, at int, text string, i int, k func(j int) bool) bool {
-	if at == len(parts) {
+	if at == parts.Len() {
 		return k(i)
 	}
 	run(parts[at], text, i, func(j int) bool { sequence(parts, at+1, text, j, k) })

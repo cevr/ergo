@@ -1,4 +1,5 @@
 import machines
+import option
 import slices
 import time
 import forge/light
@@ -52,12 +53,12 @@ func Shown(l Line) string { "\(Show(l.At)) \(l.Who): \(l.Text)" }
 type Due = ForgeDue{At duration} | LightDue{At duration} | NoneDue{}
 
 // within is o when it is at or before upto.
-func within(o Option[duration], upto duration) Option[duration] {
+func within(o option.Option[duration], upto duration) option.Option[duration] {
 	match o {
-	case Some[duration] as d:
-		if d.Value <= upto { o } else { None }
-	case None:
-		None
+	case option.Some[duration] as d:
+		if d.Value <= upto { o } else { option.None }
+	case option.None:
+		option.None
 	}
 }
 
@@ -65,13 +66,13 @@ func within(o Option[duration], upto duration) Option[duration] {
 // goes first, so a run is the same each time.
 func due(b Both, upto duration) Due {
 	match (within(forge.Deadline(b.Forge), upto), within(light.Deadline(b.Light), upto)) {
-	case (Some[duration] as v, Some[duration] as l):
+	case (option.Some[duration] as v, option.Some[duration] as l):
 		if v.Value <= l.Value { ForgeDue{At: v.Value} } else { LightDue{At: l.Value} }
-	case (Some[duration] as v, None):
+	case (option.Some[duration] as v, option.None):
 		ForgeDue{At: v.Value}
-	case (None, Some[duration] as l):
+	case (option.None, option.Some[duration] as l):
 		LightDue{At: l.Value}
-	case (None, None):
+	case (option.None, option.None):
 		NoneDue
 	}
 }
@@ -210,13 +211,13 @@ func toLight(b Both, c light.Cue) (Both, []Line) {
 	let d = light.Step(b.Light, c)
 	let next = Both{..b, Light: machines.Next(b.Light, d), Now: at}
 	match d {
-	case Enter[light.Light] as e:
+	case machines.Enter[light.Light] as e:
 		(next, []Line{Line{At: at, Who: "light", Text: lightText(e.Next)}})
-	case Stay[light.Light] as s:
+	case machines.Stay[light.Light] as s:
 		(next, []Line{Line{At: at, Who: "light", Text: lightText(s.Next)}})
-	case Ignore:
+	case machines.Ignore:
 		(next, []Line{Line{At: at, Who: "light", Text: "ignored, still \(light.Colour(b.Light))"}})
-	case Reject:
+	case machines.Reject:
 		(next, []Line{})
 	}
 }

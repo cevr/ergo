@@ -1,4 +1,5 @@
 import html
+import option
 import strings
 
 // Value is what a template variable holds: text, a record of named
@@ -92,7 +93,7 @@ func Render(lib Library, t Template, scope Scope) string fails Unbound | NotALis
 // nodes renders ns of the template at the end of chain, the includes
 // that led to it.
 func nodes(lib Library, chain []string, ns []Node, scope Scope) string fails Unbound | NotAList | NotText | MissingTemplate | IncludeCycle {
-	let name = chain[len(chain)-1]
+	let name = chain[chain.Len()-1]
 	let mut parts = []string{}
 	for n in ns {
 		match n {
@@ -131,9 +132,9 @@ func nodes(lib Library, chain []string, ns []Node, scope Scope) string fails Unb
 				}
 			}
 			let t = match lib.Templates.Get(inc.Name) {
-			case Some[Template] as found:
+			case option.Some[Template] as found:
 				found.Value
-			case None:
+			case option.None:
 				return MissingTemplate{Template: name, Line: inc.Line, Name: inc.Name}
 			}
 			parts = parts.Append(try nodes(lib, chain.Append(inc.Name), t.Nodes, scope))
@@ -146,13 +147,13 @@ func nodes(lib Library, chain []string, ns []Node, scope Scope) string fails Unb
 // binding, then each later name as a field of a record.
 func lookup(template string, line int, scope Scope, path []string) Value fails Unbound {
 	let mut v = try find(template, line, scope, path[0])
-	for i in 1..len(path) {
+	for i in 1..path.Len() {
 		match v {
 		case Record as r:
 			match r.Fields.Get(path[i]) {
-			case Some[Value] as f:
+			case option.Some[Value] as f:
 				v = f.Value
-			case None:
+			case option.None:
 				return Unbound{Template: template, Line: line, Name: strings.Join(path, ".")}
 			}
 		case Text:
@@ -174,9 +175,9 @@ func find(template string, line int, scope Scope, name string) Value fails Unbou
 		try find(template, line, b.Outer, name)
 	case Top as t:
 		match t.Vars.Get(name) {
-		case Some[Value] as v:
+		case option.Some[Value] as v:
 			v.Value
-		case None:
+		case option.None:
 			Unbound{Template: template, Line: line, Name: name}
 		}
 	}
@@ -201,7 +202,7 @@ func truthy(v Value) bool {
 	case Text as t:
 		t.S != ""
 	case List as l:
-		len(l.Items) > 0
+		l.Items.Len() > 0
 	case Record:
 		true
 	}

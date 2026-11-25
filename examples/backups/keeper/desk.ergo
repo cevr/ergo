@@ -3,6 +3,7 @@
 // running sagas, and sends the commands the sagas end with.
 
 import backups/backup
+import option
 
 // Desk is the running sagas and the minute it is.
 type Desk { Running []Running, Now int }
@@ -35,7 +36,7 @@ func drain(d Desk, queued []backup.Command) (Desk, []Outcome) needs backup.Backu
 	let mut queue = queued
 	let mut outcomes = []Outcome{}
 	let mut i = 0
-	for i < len(queue) {
+	for i < queue.Len() {
 		let c = queue[i]
 		i = i + 1
 		let outcome = send(c)
@@ -45,9 +46,9 @@ func drain(d Desk, queued []backup.Command) (Desk, []Outcome) needs backup.Backu
 			for e in r.Events {
 				let mut running = desk.Running
 				match Starts(e, desk.Now) {
-				case Some[Running] as s:
+				case option.Some[Running] as s:
 					running = running.Append(s.Value)
-				case None:
+				case option.None:
 				}
 				let still, sends = Feed(running, Saw{E: e})
 				desk = Desk{..desk, Running: still}

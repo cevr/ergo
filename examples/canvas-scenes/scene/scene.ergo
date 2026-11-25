@@ -6,6 +6,7 @@
 import canvasscenes/balls
 import canvasscenes/flow
 import canvasscenes/seed
+import core
 import machines
 
 // Scene is the scene shown. Running is whether frames step it.
@@ -67,7 +68,7 @@ func look(s Scene) []float64 {
 	case Flow as f:
 		let mut out = []float64{1.0, if f.Field.Running { 1.0 } else { 0.0 }, float64(f.Field.NextID), f.Field.Elapsed, f.Field.Strength, f.Field.Scale}
 		for p in f.Field.Particles {
-			let head = p.Trail[len(p.Trail)-1]
+			let head = p.Trail[p.Trail.Len()-1]
 			out = out.Append(head.X).Append(head.Y).Append(p.AgeMs)
 		}
 		out
@@ -75,7 +76,7 @@ func look(s Scene) []float64 {
 }
 
 func same(a []float64, b []float64) bool {
-	if len(a) != len(b) {
+	if a.Len() != b.Len() {
 		return false
 	}
 	for i, x in a {
@@ -99,8 +100,8 @@ law ActsReachTheShownScene(n uint64, codes []int) {
 	}
 	for sig in ignored {
 		match Step(s, sig) {
-		case Ignore:
-		case Stay[Scene], Enter[Scene], Reject:
+		case machines.Ignore:
+		case machines.Stay[Scene], machines.Enter[Scene], machines.Reject:
 			return false
 		}
 	}
@@ -111,14 +112,14 @@ law ActsReachTheShownScene(n uint64, codes []int) {
 		ShowBalls
 	}
 	match Step(s, other) {
-	case Enter[Scene] as e:
+	case machines.Enter[Scene] as e:
 		match e.Next {
 		case Balls as b:
-			b.Running && len(b.Field.Balls) == 0 && b.Field.NextID == 0
+			b.Running && b.Field.Balls.Len() == 0 && b.Field.NextID == 0
 		case Flow as f:
-			f.Field.Running && len(f.Field.Particles) == 45 && f.Field.Elapsed == 0.0
+			f.Field.Running && f.Field.Particles.Len() == 45 && f.Field.Elapsed == 0.0
 		}
-	case Stay[Scene], Ignore, Reject:
+	case machines.Stay[Scene], machines.Ignore, machines.Reject:
 		false
 	}
 }
@@ -135,11 +136,11 @@ law PausedTickIsIdentity(n uint64, codes []int, ms int) {
 	let s = play(n, codes)
 	let frame = Ticked{Ms: float64(((ms % 60) + 60) % 60)}
 	match Step(s, frame) {
-	case Ignore:
+	case machines.Ignore:
 		!running(s)
-	case Stay[Scene] as t:
+	case machines.Stay[Scene] as t:
 		running(s) && running(t.Next) == running(s) && look(t.Next)[0] == look(s)[0]
-	case Enter[Scene], Reject:
+	case machines.Enter[Scene], machines.Reject:
 		false
 	}
 }
@@ -156,54 +157,54 @@ func running(s Scene) bool {
 // Open is the balls scene, running, drawing from the stream at n.
 func Open(n uint64) Scene { Balls{Field: balls.New(seed.Of(n)), Running: true} }
 
-func ballsStep(b Balls, sig Signal) Decision[Scene, Never] {
+func ballsStep(b Balls, sig Signal) machines.Decision[Scene, core.Never] {
 	match sig {
 	case Ticked as t:
 		if !b.Running {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Scene]{Next: Balls{..b, Field: balls.Advance(b.Field, t.Ms)}}
+		machines.Stay[Scene]{Next: Balls{..b, Field: balls.Advance(b.Field, t.Ms)}}
 	case Pressed as p:
-		Stay[Scene]{Next: Balls{..b, Field: balls.Drop(b.Field, p.X, p.Y)}}
+		machines.Stay[Scene]{Next: Balls{..b, Field: balls.Drop(b.Field, p.X, p.Y)}}
 	case Toggled:
-		Stay[Scene]{Next: Balls{..b, Running: !b.Running}}
+		machines.Stay[Scene]{Next: Balls{..b, Running: !b.Running}}
 	case Cleared:
-		Stay[Scene]{Next: Balls{..b, Field: balls.Clear(b.Field)}}
+		machines.Stay[Scene]{Next: Balls{..b, Field: balls.Clear(b.Field)}}
 	case ShowFlow:
-		Enter[Scene]{Next: Flow{Field: flow.New(b.Field.Seed)}}
+		machines.Enter[Scene]{Next: Flow{Field: flow.New(b.Field.Seed)}}
 	case Moved, SetStrength, SetScale, ShowBalls:
-		Ignore
+		machines.Ignore
 	}
 }
 
-func flowStep(f Flow, sig Signal) Decision[Scene, Never] {
+func flowStep(f Flow, sig Signal) machines.Decision[Scene, core.Never] {
 	match sig {
 	case Ticked as t:
 		if !f.Field.Running {
-			return Ignore
+			return machines.Ignore
 		}
-		Stay[Scene]{Next: Flow{Field: flow.Advance(f.Field, t.Ms)}}
+		machines.Stay[Scene]{Next: Flow{Field: flow.Advance(f.Field, t.Ms)}}
 	case Pressed as p:
-		Stay[Scene]{Next: Flow{Field: flow.Burst(f.Field, p.X, p.Y)}}
+		machines.Stay[Scene]{Next: Flow{Field: flow.Burst(f.Field, p.X, p.Y)}}
 	case Moved as m:
-		Stay[Scene]{Next: Flow{Field: flow.PointAt(f.Field, m.X, m.Y)}}
+		machines.Stay[Scene]{Next: Flow{Field: flow.PointAt(f.Field, m.X, m.Y)}}
 	case Toggled:
-		Stay[Scene]{Next: Flow{Field: flow.Toggle(f.Field)}}
+		machines.Stay[Scene]{Next: Flow{Field: flow.Toggle(f.Field)}}
 	case Cleared:
-		Stay[Scene]{Next: Flow{Field: flow.Reset(f.Field)}}
+		machines.Stay[Scene]{Next: Flow{Field: flow.Reset(f.Field)}}
 	case SetStrength as v:
-		Stay[Scene]{Next: Flow{Field: flow.SetStrength(f.Field, v.Value)}}
+		machines.Stay[Scene]{Next: Flow{Field: flow.SetStrength(f.Field, v.Value)}}
 	case SetScale as v:
-		Stay[Scene]{Next: Flow{Field: flow.SetScale(f.Field, v.Value)}}
+		machines.Stay[Scene]{Next: Flow{Field: flow.SetScale(f.Field, v.Value)}}
 	case ShowBalls:
-		Enter[Scene]{Next: Balls{Field: balls.New(f.Field.Seed), Running: true}}
+		machines.Enter[Scene]{Next: Balls{Field: balls.New(f.Field.Seed), Running: true}}
 	case ShowFlow:
-		Ignore
+		machines.Ignore
 	}
 }
 
 // Step is the scene's transition.
-func Step(s Scene, sig Signal) Decision[Scene, Never] {
+func Step(s Scene, sig Signal) machines.Decision[Scene, core.Never] {
 	match s {
 	case Balls as b:
 		ballsStep(b, sig)

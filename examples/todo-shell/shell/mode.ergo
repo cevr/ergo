@@ -20,33 +20,33 @@ law BlankIsIgnored(texts []string, n int) {
 
 // Tried is Step(m, s), or Reject when the line fails: what the shell does
 // with a line, as Run's turn decides it.
-func Tried(m Mode, s Signal) Decision[Mode, todo.List] {
+func Tried(m Mode, s Signal) machines.Decision[Mode, todo.List] {
 	Step(m, s) catch {
 	case Unknown:
-		Reject
+		machines.Reject
 	case BadNumber:
-		Reject
+		machines.Reject
 	case MissingText:
-		Reject
+		machines.Reject
 	case todo.NoSuchItem:
-		Reject
+		machines.Reject
 	}
 }
 
 // word names a decision.
-func word(d Decision[Mode, todo.List]) string {
+func word(d machines.Decision[Mode, todo.List]) string {
 	match d {
-	case Enter[Mode]:
+	case machines.Enter[Mode]:
 		"enter"
-	case Stay[Mode]:
+	case machines.Stay[Mode]:
 		"stay"
-	case Emit[Mode, todo.List], Tell[Mode, todo.List]:
+	case machines.Emit[Mode, todo.List], machines.Tell[Mode, todo.List]:
 		"emit"
-	case Ignore:
+	case machines.Ignore:
 		"ignore"
-	case Reject:
+	case machines.Reject:
 		"reject"
-	case Done[todo.List]:
+	case machines.Done[todo.List]:
 		"done"
 	}
 }
@@ -55,17 +55,17 @@ func word(d Decision[Mode, todo.List]) string {
 law QuitIsDone(texts []string) {
 	let l = todo.Of(texts)
 	match Tried(Listing{L: l}, Typed{Line: "quit"}) {
-	case Done[todo.List] as d:
+	case machines.Done[todo.List] as d:
 		d.Output == l
-	case Enter[Mode]:
+	case machines.Enter[Mode]:
 		false
-	case Stay[Mode]:
+	case machines.Stay[Mode]:
 		false
-	case Emit[Mode, todo.List], Tell[Mode, todo.List]:
+	case machines.Emit[Mode, todo.List], machines.Tell[Mode, todo.List]:
 		false
-	case Ignore:
+	case machines.Ignore:
 		false
-	case Reject:
+	case machines.Reject:
 		false
 	}
 }
@@ -75,19 +75,19 @@ law EndIsDone(texts []string, title string) {
 	let l = todo.Of(texts)
 	for m in []Mode{Listing{L: l}, Composing{L: l, Title: title, Lines: []string{}}, Confirming{L: l}} {
 		match Tried(m, Ended) {
-		case Done[todo.List] as d:
+		case machines.Done[todo.List] as d:
 			if d.Output != l {
 				return false
 			}
-		case Enter[Mode]:
+		case machines.Enter[Mode]:
 			return false
-		case Stay[Mode]:
+		case machines.Stay[Mode]:
 			return false
-		case Emit[Mode, todo.List], Tell[Mode, todo.List]:
+		case machines.Emit[Mode, todo.List], machines.Tell[Mode, todo.List]:
 			return false
-		case Ignore:
+		case machines.Ignore:
 			return false
-		case Reject:
+		case machines.Reject:
 			return false
 		}
 	}

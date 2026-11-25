@@ -1,8 +1,10 @@
 import actor
 import canvasscenes/app
 import canvasscenes/screen
+import core
 import gen
 import machines
+import option
 import temporal
 import time
 import ui
@@ -11,7 +13,7 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[app.Program, app.
 	let mut props = []temporal.Formula[ui.ExploreSnapshot[app.Program, app.Signal]]{}
 	let base = ui.DefaultsWith[app.Program, app.Signal](2s)
 	for i in 0..3 {
-		if i < len(base) {
+		if i < base.Len() {
 			props = props.Append(base[i])
 		}
 	}
@@ -21,13 +23,13 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[app.Program, app.
 				true
 			} else {
 				match s.State.Last {
-				case None:
+				case option.None:
 					true
-				case Some[float64]:
+				case option.Some[float64]:
 					false
 				}
 			}
-			lastOK && len(s.Offers) > 0
+			lastOK && s.Offers.Len() > 0
 		}),
 	))
 	props
@@ -35,8 +37,8 @@ func exploreProperties() []temporal.Formula[ui.ExploreSnapshot[app.Program, app.
 
 func exploreOnce(steps int) ui.Finding needs gen.Draws {
 	let clock = time.NewManual(0)
-	with context { Scheduler: clock } {
-		let site = actor.StartMachine(machines.Start(app.Shown{}, uint64(7)), 16, func(_ Never) {})
+	with context { time.Scheduler: clock } {
+		let site = actor.StartMachine(machines.Start(app.Shown{}, uint64(7)), 16, func(_ core.Never) {})
 		let mut h = ui.NewTestHost(site, screen.Screen, clock, 16) catch {
 		case ui.BadPatch as bp:
 			site.Stop()

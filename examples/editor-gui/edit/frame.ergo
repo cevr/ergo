@@ -24,7 +24,7 @@ func Frame(s State) []string {
 func Status(s State) string {
 	let d = DocOf(s)
 	let dirty = if d.Dirty { "yes" } else { "no" }
-	let base = "line=\(LineOf(d, d.Caret)) col=\(Column(d, d.Caret)) caret=\(d.Caret) len=\(piece.Len(d.Buf)) undo=\(len(d.Undo)) redo=\(len(d.Redo)) dirty=" + dirty
+	let base = "line=\(LineOf(d, d.Caret)) col=\(Column(d, d.Caret)) caret=\(d.Caret) len=\(piece.Len(d.Buf)) undo=\(d.Undo.Len()) redo=\(d.Redo.Len()) dirty=" + dirty
 	match s {
 	case Editing:
 		"editing " + base

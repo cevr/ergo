@@ -1,3 +1,4 @@
+import option
 import respd/resp
 import respd/store
 import time
@@ -16,9 +17,9 @@ func Run(s mut Session, c Command) resp.Value needs store.Engine | store.Leases 
 	match c {
 	case Ping as p:
 		match p.Message {
-		case Some[string] as m:
+		case option.Some[string] as m:
 			resp.Bulk{Data: m.Value}
-		case None:
+		case option.None:
 			resp.Simple{Text: "PONG"}
 		}
 	case Echo as e:
@@ -31,10 +32,10 @@ func Run(s mut Session, c Command) resp.Value needs store.Engine | store.Leases 
 		resp.Bulk{Data: v}
 	case Set as x:
 		let until = match x.For {
-		case Some[int64] as ms:
-			Some[time.Time]{Value: now.Add(time.Times(1ms, int(ms.Value)))}
-		case None:
-			None
+		case option.Some[int64] as ms:
+			option.Some[time.Time]{Value: now.Add(time.Times(1ms, int(ms.Value)))}
+		case option.None:
+			option.None
 		}
 		store.Engine.Set(x.Key, x.Value, x.When, until, now) catch {
 		case store.Kept:
@@ -50,7 +51,7 @@ func Run(s mut Session, c Command) resp.Value needs store.Engine | store.Leases 
 		}
 		resp.Integer{N: int64(n)}
 	case Expire as e:
-		let until = Some[time.Time]{Value: now.Add(time.Times(1ms, int(e.Ms)))}
+		let until = option.Some[time.Time]{Value: now.Add(time.Times(1ms, int(e.Ms)))}
 		store.Engine.Expire(e.Key, until, now) catch {
 		case store.Missing:
 			return resp.Integer{N: 0}
@@ -58,23 +59,23 @@ func Run(s mut Session, c Command) resp.Value needs store.Engine | store.Leases 
 		resp.Integer{N: 1}
 	case Persist as p:
 		match store.Left(p.Key, now) {
-		case Some[store.Expiry] as e:
+		case option.Some[store.Expiry] as e:
 			if e.Value == store.Forever {
 				return resp.Integer{N: 0}
 			}
-			store.Engine.Expire(p.Key, None, now) catch {
+			store.Engine.Expire(p.Key, option.None, now) catch {
 			case store.Missing:
 				return resp.Integer{N: 0}
 			}
 			resp.Integer{N: 1}
-		case None:
+		case option.None:
 			resp.Integer{N: 0}
 		}
 	case TTL as t:
 		match store.Left(t.Key, now) {
-		case None:
+		case option.None:
 			resp.Integer{N: -2}
-		case Some[store.Expiry] as e:
+		case option.Some[store.Expiry] as e:
 			match e.Value {
 			case store.Forever:
 				resp.Integer{N: -1}
@@ -98,9 +99,9 @@ func Run(s mut Session, c Command) resp.Value needs store.Engine | store.Leases 
 		resp.Integer{N: n}
 	case Hello as h:
 		let version = match h.Version {
-		case Some[int64] as v:
+		case option.Some[int64] as v:
 			v.Value
-		case None:
+		case option.None:
 			if s.Protocol == resp.Resp3 { 3 } else { 2 }
 		}
 		if version != 2 && version != 3 {

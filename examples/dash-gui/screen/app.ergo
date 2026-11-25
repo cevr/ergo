@@ -5,6 +5,7 @@
 // pause button and a policy button, and a canvas that draws its samples.
 
 import ergo.local/prototype/examples/dashgui/feed
+import machines
 import queue
 
 // Signal is what the view sends the app: a frame of the clock, or a press
@@ -21,18 +22,18 @@ func Begin(b feed.Board) Dash { Dash{Board: b} }
 // the sources' samples through their queues, then the panels) and emits
 // the notes of the frame, if any; a press pauses or resumes a panel, or
 // swaps its queue's policy.
-func Step(d Dash, e Signal) Decision[Dash, []feed.Notice] fails queue.Closed needs feed.Sensors {
+func Step(d Dash, e Signal) machines.Decision[Dash, []feed.Notice] fails queue.Closed needs feed.Sensors {
 	match e {
 	case Next:
 		let s = try feed.NextFrame(d.Board)
-		if len(s.Notes) == 0 {
-			return Stay[Dash]{Next: Dash{Board: s.Board}}
+		if s.Notes.Len() == 0 {
+			return machines.Stay[Dash]{Next: Dash{Board: s.Board}}
 		}
-		Emit[Dash, []feed.Notice]{Next: Dash{Board: s.Board}, Output: s.Notes}
+		machines.Emit[Dash, []feed.Notice]{Next: Dash{Board: s.Board}, Output: s.Notes}
 	case Toggle as t:
-		Stay[Dash]{Next: Dash{Board: feed.Toggle(d.Board, t.Panel)}}
+		machines.Stay[Dash]{Next: Dash{Board: feed.Toggle(d.Board, t.Panel)}}
 	case Swap as w:
-		Stay[Dash]{Next: Dash{Board: feed.Swap(d.Board, w.Panel)}}
+		machines.Stay[Dash]{Next: Dash{Board: feed.Swap(d.Board, w.Panel)}}
 	}
 }
 

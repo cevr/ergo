@@ -3,6 +3,7 @@
 // backtrack is the reference engine, package nfa the fast one; a binary
 // chooses one in its context.
 
+import core
 import regex/syntax
 import slices
 
@@ -53,7 +54,7 @@ type Engine {
 type Matcher {
 	// Matches reports whether the pattern matches the whole text.
 	Matches(text string) bool,
-	Lines(lines Seq[string]) Seq[string],
+	Lines(lines core.Seq[string]) core.Seq[string],
 
 	// LinesAgree: iterator matching preserves input order and can be
 	// repeated independently. Filter is the simple per-call reference.
@@ -111,14 +112,14 @@ func Select(pattern syntax.Node, m Mode) Matcher needs Engine {
 
 // Grep is the lines that pattern selects in mode m, in order, compiled
 // once by the Engine in the context.
-func Grep(pattern syntax.Node, m Mode, lines Seq[string]) Seq[string] needs Engine {
+func Grep(pattern syntax.Node, m Mode, lines core.Seq[string]) core.Seq[string] needs Engine {
 	Select(pattern, m).Lines(lines)
 }
 
 // Filter is the lines that matcher matches, in order. It is a function on
 // the operation type Matcher, so any matcher calls it as m.Filter(lines).
-func Filter(matcher Matcher, lines Seq[string]) Seq[string] {
-	Seq[string](func(yield func(v string) bool) {
+func Filter(matcher Matcher, lines core.Seq[string]) core.Seq[string] {
+	core.Seq[string](func(yield func(v string) bool) {
 		for line in lines {
 			if matcher.Matches(line) && !yield(line) {
 				return

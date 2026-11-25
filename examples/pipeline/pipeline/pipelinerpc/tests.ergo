@@ -5,17 +5,18 @@ import github.com/cevr/ergo/modules/domain/memory
 import runners pipeline/memory
 import pipeline/pipeline
 import rpc
+import scope
 import time
 
 func rpcOver() Client needs pipeline.Pipeline {
-	let held = InForce[pipeline.Pipeline]()
+	let held = scope.InForce[pipeline.Pipeline]()
 	NewClient(rpc.Loopback(func(tag string, payload string) string fails rpc.Failed {
 		with held { try Handle(tag, payload) }
 	}))
 }
 
 let overModel = context fails domain.Conflict | domain.Reused | domain.Unkept {
-	Scheduler:         time.NewManual(0),
+	time.Scheduler:    time.NewManual(0),
 	pipeline.Runner:   runners.New(Map[int, int]{}),
 	pipeline.Pipeline: try pipeline.Open(memory.New[pipeline.Entry]()),
 }

@@ -1,5 +1,6 @@
 import filepath
 import fs
+import option
 import strings
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/pack
@@ -9,7 +10,7 @@ func parseOctalDigits(bs []byte, start int) (byte, int) {
 	let mut val = 0
 	let mut pos = start
 	let mut count = 0
-	for pos < len(bs) && count < 3 && bs[pos] >= byte('0') && bs[pos] <= byte('7') {
+	for pos < bs.Len() && count < 3 && bs[pos] >= byte('0') && bs[pos] <= byte('7') {
 		val = val*8 + int(bs[pos]-byte('0'))
 		pos = pos + 1
 		count = count + 1
@@ -18,7 +19,7 @@ func parseOctalDigits(bs []byte, start int) (byte, int) {
 }
 
 func parseQuotedPattern(bs []byte, start int) (string, int, bool) {
-	let n = len(bs)
+	let n = bs.Len()
 	let mut pos = start + 1
 	let mut out = []byte{}
 	for pos < n {
@@ -58,7 +59,7 @@ func parseQuotedPattern(bs []byte, start int) (string, int, bool) {
 
 func parsePatternToken(line string) (string, string, bool) {
 	let bs = line.Bytes()
-	let n = len(bs)
+	let n = bs.Len()
 	let mut pos = 0
 	for pos < n && (bs[pos] == byte(' ') || bs[pos] == byte('\t')) {
 		pos = pos + 1
@@ -83,40 +84,40 @@ func parsePatternToken(line string) (string, string, bool) {
 		out = out.Append(bs[pos])
 		pos = pos + 1
 	}
-	if len(out) == 0 {
+	if out.Len() == 0 {
 		return ("", "", false)
 	}
 	(out.Text(), bs[pos:].Text(), true)
 }
 
-func parseAttrToken(tok string) Option[AttrAssignment] {
+func parseAttrToken(tok string) option.Option[AttrAssignment] {
 	if tok == "" {
-		return None
+		return option.None
 	}
 	if strings.HasPrefix(tok, "!") {
 		let name = tok[1:]
 		if name == "" {
-			return None
+			return option.None
 		}
-		return Some[AttrAssignment]{Value: AttrAssignment{Name: name, State: AttrUnspecified}}
+		return option.Some[AttrAssignment]{Value: AttrAssignment{Name: name, State: AttrUnspecified}}
 	}
 	if strings.HasPrefix(tok, "-") {
 		let name = tok[1:]
 		if name == "" {
-			return None
+			return option.None
 		}
-		return Some[AttrAssignment]{Value: AttrAssignment{Name: name, State: AttrUnset}}
+		return option.Some[AttrAssignment]{Value: AttrAssignment{Name: name, State: AttrUnset}}
 	}
 	let eq = strings.Index(tok, "=")
 	if eq >= 0 {
 		let name = tok[:eq]
 		let val = tok[eq+1:]
 		if name == "" {
-			return None
+			return option.None
 		}
-		return Some[AttrAssignment]{Value: AttrAssignment{Name: name, State: AttrValue{Val: val}}}
+		return option.Some[AttrAssignment]{Value: AttrAssignment{Name: name, State: AttrValue{Val: val}}}
 	}
-	Some[AttrAssignment]{Value: AttrAssignment{Name: tok, State: AttrSet}}
+	option.Some[AttrAssignment]{Value: AttrAssignment{Name: tok, State: AttrSet}}
 }
 
 // ParseAttributes parses a `.gitattributes` or `.git/info/attributes` file
@@ -135,12 +136,12 @@ func ParseAttributes(baseDir string, content string) []AttrRule {
 		let mut assigns = []AttrAssignment{}
 		for tok in strings.Fields(rest) {
 			match parseAttrToken(tok) {
-			case Some[AttrAssignment] as a:
+			case option.Some[AttrAssignment] as a:
 				assigns = assigns.Append(a.Value)
-			case None:
+			case option.None:
 			}
 		}
-		if len(assigns) == 0 {
+		if assigns.Len() == 0 {
 			continue
 		}
 		if strings.HasPrefix(rawPat, "[attr]") {
@@ -187,7 +188,7 @@ func ParseAttributes(baseDir string, content string) []AttrRule {
 }
 
 func matchCharClass(pb []byte, pStart int, ch byte) (bool, int) {
-	let n = len(pb)
+	let n = pb.Len()
 	let mut i = pStart + 1
 	if i >= n {
 		return (false, pStart)
@@ -223,8 +224,8 @@ func matchCharClass(pb []byte, pStart int, ch byte) (bool, int) {
 }
 
 func globMatchBytes(pb []byte, pi int, sb []byte, si int) bool {
-	let pn = len(pb)
-	let sn = len(sb)
+	let pn = pb.Len()
+	let sn = sb.Len()
 	if pi == pn {
 		return si == sn
 	}
@@ -335,7 +336,7 @@ func invertMacroState(st AttrState) AttrState {
 
 func setAttrState(attrs Map[string, AttrState], name string, state AttrState) Map[string, AttrState] {
 	let overwrite = true
-	if !overwrite && attrs.Get(name) != None {
+	if !overwrite && attrs.Get(name) != option.None {
 		return attrs
 	}
 	attrs.Put(name, state)
@@ -347,9 +348,9 @@ func applyAssignmentRec(attrs Map[string, AttrState], macros Map[string, []AttrA
 		return cur
 	}
 	match macros.Get(assign.Name) {
-	case None:
+	case option.None:
 		cur
-	case Some[[]AttrAssignment] as body:
+	case option.Some[[]AttrAssignment] as body:
 		match assign.State {
 		case AttrSet:
 			for sub in body.Value {
@@ -418,9 +419,9 @@ func isExternalDriverAuthorized(name string, policy DriverPolicy) bool {
 // authorized in policy.
 func ResolveMergeDriver(attrs Map[string, AttrState], policy DriverPolicy) MergeDriver fails UntrustedDriver {
 	match attrs.Get("merge") {
-	case None:
+	case option.None:
 		DriverText
-	case Some[AttrState] as st:
+	case option.Some[AttrState] as st:
 		match st.Value {
 		case AttrSet, AttrUnspecified:
 			DriverText
@@ -446,11 +447,11 @@ func ResolveMergeDriver(attrs Map[string, AttrState], policy DriverPolicy) Merge
 func parentDirsForPath(relPath string) []string {
 	let mut dirs = []string{""}
 	let parts = strings.Split(relPath, "/")
-	if len(parts) <= 1 {
+	if parts.Len() <= 1 {
 		return dirs
 	}
 	let mut acc = ""
-	for i in 0..(len(parts) - 1) {
+	for i in 0..(parts.Len() - 1) {
 		acc = if acc == "" { parts[i] } else { acc + "/" + parts[i] }
 		dirs = dirs.Append(acc)
 	}
@@ -502,31 +503,31 @@ func LoadWorktreeAttrs(gitDir string, worktreeDir string, relPath string) Map[st
 // LoadTreeAttrs loads `.gitattributes` blobs from rootTree along relPath's
 // directory prefixes (shallow to deep), appends infoAttributes (highest
 // precedence), and resolves all attributes for relPath.
-func LoadTreeAttrs(format oid.Format, rootTree Option[oid.OID], infoAttributes string, relPath string, maxBytes int) Map[string, AttrState] needs pack.ObjectStore {
+func LoadTreeAttrs(format oid.Format, rootTree option.Option[oid.OID], infoAttributes string, relPath string, maxBytes int) Map[string, AttrState] needs pack.ObjectStore {
 	let mut allRules = []AttrRule{}
 	match rootTree {
-	case None:
-	case Some[oid.OID] as rt:
+	case option.None:
+	case option.Some[oid.OID] as rt:
 		for dir in parentDirsForPath(relPath) {
 			let attrRel = if dir == "" { ".gitattributes" } else { dir + "/.gitattributes" }
 			let entryOpt = tree.LookupPath(format, rt.Value, attrRel, maxBytes) catch {
 			case tree.CorruptTree, tree.InvalidEntryName, tree.UnsortedTree, tree.DuplicateEntry, tree.WrongKind, tree.DepthExceeded, tree.MissingObject, tree.StoreError:
-				None
+				option.None
 			}
 			match entryOpt {
-			case Some[tree.Entry] as e:
+			case option.Some[tree.Entry] as e:
 				if !tree.IsTree(e.Value.Mode) && !tree.IsGitlink(e.Value.Mode) {
 					let objOpt = pack.ObjectStore.Read(e.Value.OID, maxBytes) catch {
 					case pack.Missing, pack.Corrupt, pack.MismatchedPair, pack.Collision, pack.LimitExceeded, pack.DepthExceeded, pack.IOFailed:
 						pack.Object{Kind: oid.Blob, OID: e.Value.OID, Size: 0, Data: []byte{}}
 					}
-					if len(objOpt.Data) > 0 {
+					if objOpt.Data.Len() > 0 {
 						for r in ParseAttributes(dir, objOpt.Data.Text()) {
 							allRules = allRules.Append(r)
 						}
 					}
 				}
-			case None:
+			case option.None:
 			}
 		}
 	}

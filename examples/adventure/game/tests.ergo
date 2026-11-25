@@ -9,7 +9,7 @@ import strings
 // game ended.
 func session(script string) (string, Ending) {
 	let out = io.NewRecorder()
-	with context { io.Stdin: io.Input{Text: script}, Console: out } {
+	with context { io.Stdin: io.Input{Text: script}, io.Console: out } {
 		let e = Run()
 		(out.Text(), e)
 	}

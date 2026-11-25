@@ -24,7 +24,7 @@ type Keywords { Lang string, Words []string } implements Highlighter
 // and the spans of a go block of words and keywords keep its text (the
 // drawn Keywords of Highlighter.KeepsTheText is rarely of go).
 law KeywordsMarkEachKeyword(pick int, words []string) {
-	let k = GoKeywords[index(pick, len(GoKeywords))]
+	let k = GoKeywords[index(pick, GoKeywords.Len())]
 	let h = Keywords{Lang: "go", Words: GoKeywords}
 	let code = strings.Join(words, " "+k+" ")
 	html.RenderAll(h.Highlight("go", k)) == "<span class=\"kw\">"+k+"</span>" && html.RenderAll(h.Highlight("sh", k)) == k && TextOfAll(h.Highlight("go", code)) == code
@@ -36,10 +36,10 @@ func Highlight(k Keywords, lang string, code string) []html.Node {
 	}
 	let mut out = []html.Node{}
 	let mut i = 0
-	for i < len(code) {
+	for i < code.Len() {
 		let start = i
 		let word = isWordByte(code[i])
-		for i < len(code) && isWordByte(code[i]) == word {
+		for i < code.Len() && isWordByte(code[i]) == word {
 			i += 1
 		}
 		let piece = strings.Slice(code, start, i)
@@ -85,7 +85,7 @@ type Doc { blocks []block, nodes []inline }
 func Parse(src string) Doc {
 	let mut p = parseBlocks(src)
 	let mut q = newInlines(p.refs)
-	for id in 0..len(p.blocks) {
+	for id in 0..p.blocks.Len() {
 		let k = p.blocks[id].kind
 		if k == Para || k == Heading {
 			p.blocks[id].inlines = parseInlines(&q, p.blocks[id].content)
@@ -95,7 +95,7 @@ func Parse(src string) Doc {
 }
 
 // Blocks is how many blocks d holds, the document's own included.
-func Blocks(d Doc) int { len(d.blocks) }
+func Blocks(d Doc) int { d.blocks.Len() }
 
 // Nodes is the HTML of d.
 func Nodes(d Doc, trust Trust) []html.Node needs Highlighter { children(d, trust, 0, false) }
@@ -109,7 +109,7 @@ law BlankLineSeparates(picks []int) {
 	let mut parts = []string{}
 	let mut want = strings.NewBuilder()
 	for p in picks {
-		let b = pool[index(p, len(pool))]
+		let b = pool[index(p, pool.Len())]
 		parts = parts.Append(b)
 		want.WriteString(md(b))
 	}
@@ -181,7 +181,7 @@ func blockNode(d Doc, trust Trust, id int) html.Node needs Highlighter {
 		html.El("hr", []html.Node{})
 	case Code:
 		let mut end = 0
-		for end < len(b.info) && !isSpace(b.info[end]) {
+		for end < b.info.Len() && !isSpace(b.info[end]) {
 			end += 1
 		}
 		let lang = strings.Slice(b.info, 0, end)

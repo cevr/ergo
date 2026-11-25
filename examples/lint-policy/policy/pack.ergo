@@ -6,6 +6,7 @@
 // packs the same over the same program and configuration.
 
 import lint
+import option
 import strconv
 
 // Pack is the policy pack. Its manifest is lint.Manifest(Pack, path),
@@ -21,8 +22,8 @@ let Pack = lint.Pack{
 			Name:        "strict",
 			Description: "Both policies as warnings.",
 			Rules:       Map[string, lint.RuleConfig]{
-				"provider-boundary": lint.RuleConfig{Severity: Some{Value: lint.Warning}, Options: None},
-				"forbidden-failure": lint.RuleConfig{Severity: Some{Value: lint.Warning}, Options: None},
+				"provider-boundary": lint.RuleConfig{Severity: option.Some{Value: lint.Warning}, Options: option.None},
+				"forbidden-failure": lint.RuleConfig{Severity: option.Some{Value: lint.Warning}, Options: option.None},
 			},
 		},
 	},
@@ -39,7 +40,7 @@ func functions(s lint.Snapshot, names []string) []string fails Unselected {
 	let mut out = []string{}
 	for name in names {
 		let found = lint.FunctionNamed(s, name)
-		if len(found) == 0 {
+		if found.Len() == 0 {
 			return Unselected{Name: name}
 		}
 		for f in found {
@@ -62,9 +63,9 @@ func selected(ids []string, identity string) bool {
 // nameOf is the declared name of a callable identity.
 func nameOf(s lint.Snapshot, identity string) string {
 	match lint.CallableOf(s, identity) {
-	case None:
+	case option.None:
 		identity
-	case Some[lint.Callable] as c:
+	case option.Some[lint.Callable] as c:
 		c.Value.Package + "." + c.Value.Name
 	}
 }

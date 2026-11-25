@@ -28,18 +28,18 @@ test ParseFailures {
 
 test PictureHasRules {
 	let lines = Picture(try Parse(easy))
-	assert len(lines) == 11
+	assert lines.Len() == 11
 	assert lines[0] == ". . 3 | . 2 . | 6 . ."
 	assert lines[3] == "------+-------+------"
 }
 
 test UnitsAndPeers {
-	assert len(Units) == 27 && len(Peers) == 81
+	assert Units.Len() == 27 && Peers.Len() == 81
 	for u in Units {
-		assert len(u) == 9
+		assert u.Len() == 9
 	}
 	for ps in Peers {
-		assert len(ps) == 20
+		assert ps.Len() == 20
 	}
 	assert Units[18][4] == 10 && Units[26][8] == 80
 }

@@ -1,3 +1,4 @@
+import core
 import machines
 
 // ActClaim claims an open or handed-back unit for active work.
@@ -45,45 +46,45 @@ func UnitFinal(s UnitStatus) bool {
 }
 
 // StepUnit is the pure unit lifecycle transition function.
-func StepUnit(s UnitStatus, a UnitAction) Decision[UnitStatus, Never] {
+func StepUnit(s UnitStatus, a UnitAction) machines.Decision[UnitStatus, core.Never] {
 	match (s, a) {
 	case (UnitOpen, ActClaim):
-		Enter[UnitStatus]{Next: UnitClaimed}
+		machines.Enter[UnitStatus]{Next: UnitClaimed}
 	case (UnitOpen, ActClose):
-		Enter[UnitStatus]{Next: UnitClosed}
+		machines.Enter[UnitStatus]{Next: UnitClosed}
 	case (UnitOpen, ActAdvanceRound | ActHandBack | ActLand):
-		Reject
+		machines.Reject
 	case (UnitClaimed, ActAdvanceRound):
-		Stay[UnitStatus]{Next: UnitClaimed}
+		machines.Stay[UnitStatus]{Next: UnitClaimed}
 	case (UnitClaimed, ActHandBack):
-		Enter[UnitStatus]{Next: UnitHandedBack}
+		machines.Enter[UnitStatus]{Next: UnitHandedBack}
 	case (UnitClaimed, ActClose):
-		Enter[UnitStatus]{Next: UnitClosed}
+		machines.Enter[UnitStatus]{Next: UnitClosed}
 	case (UnitClaimed, ActClaim | ActLand):
-		Reject
+		machines.Reject
 	case (UnitHandedBack, ActClaim):
-		Enter[UnitStatus]{Next: UnitClaimed}
+		machines.Enter[UnitStatus]{Next: UnitClaimed}
 	case (UnitHandedBack, ActAdvanceRound):
-		Stay[UnitStatus]{Next: UnitHandedBack}
+		machines.Stay[UnitStatus]{Next: UnitHandedBack}
 	case (UnitHandedBack, ActLand):
-		Enter[UnitStatus]{Next: UnitLanded}
+		machines.Enter[UnitStatus]{Next: UnitLanded}
 	case (UnitHandedBack, ActClose):
-		Enter[UnitStatus]{Next: UnitClosed}
+		machines.Enter[UnitStatus]{Next: UnitClosed}
 	case (UnitHandedBack, ActHandBack):
-		Reject
+		machines.Reject
 	case (UnitLanded | UnitClosed, ActClaim | ActAdvanceRound | ActHandBack | ActLand | ActClose):
-		Reject
+		machines.Reject
 	}
 }
 
 // HandBackRequiresClaim verifies that only a claimed unit can be handed back.
 law HandBackRequiresClaim(s UnitStatus) {
 	match StepUnit(s, ActHandBack) {
-	case Enter[UnitStatus]:
+	case machines.Enter[UnitStatus]:
 		s == UnitClaimed
-	case Stay[UnitStatus]:
+	case machines.Stay[UnitStatus]:
 		false
-	case Ignore, Reject:
+	case machines.Ignore, machines.Reject:
 		s != UnitClaimed
 	}
 }
@@ -91,11 +92,11 @@ law HandBackRequiresClaim(s UnitStatus) {
 // LandRequiresHandBack verifies that only a handed-back unit can be landed.
 law LandRequiresHandBack(s UnitStatus) {
 	match StepUnit(s, ActLand) {
-	case Enter[UnitStatus]:
+	case machines.Enter[UnitStatus]:
 		s == UnitHandedBack
-	case Stay[UnitStatus]:
+	case machines.Stay[UnitStatus]:
 		false
-	case Ignore, Reject:
+	case machines.Ignore, machines.Reject:
 		s != UnitHandedBack
 	}
 }
@@ -106,9 +107,9 @@ law FinalUnitTakesNoAction(s UnitStatus, a UnitAction) {
 		return true
 	}
 	match StepUnit(s, a) {
-	case Reject:
+	case machines.Reject:
 		true
-	case Enter[UnitStatus], Stay[UnitStatus], Ignore:
+	case machines.Enter[UnitStatus], machines.Stay[UnitStatus], machines.Ignore:
 		false
 	}
 }
@@ -164,14 +165,14 @@ func QuestionFinal(s QuestionStatus) bool {
 }
 
 // StepQuestion is the pure question lifecycle transition function.
-func StepQuestion(s QuestionStatus, a QuestionAction) Decision[QuestionStatus, Never] {
+func StepQuestion(s QuestionStatus, a QuestionAction) machines.Decision[QuestionStatus, core.Never] {
 	match (s, a) {
 	case (QuestionOpen, ActAnswer):
-		Enter[QuestionStatus]{Next: QuestionAnswered}
+		machines.Enter[QuestionStatus]{Next: QuestionAnswered}
 	case (QuestionOpen, ActWithdraw):
-		Enter[QuestionStatus]{Next: QuestionWithdrawn}
+		machines.Enter[QuestionStatus]{Next: QuestionWithdrawn}
 	case (QuestionAnswered | QuestionWithdrawn, ActAnswer | ActWithdraw):
-		Reject
+		machines.Reject
 	}
 }
 
@@ -181,9 +182,9 @@ law FinalQuestionTakesNoAction(s QuestionStatus, a QuestionAction) {
 		return true
 	}
 	match StepQuestion(s, a) {
-	case Reject:
+	case machines.Reject:
 		true
-	case Enter[QuestionStatus], Stay[QuestionStatus], Ignore:
+	case machines.Enter[QuestionStatus], machines.Stay[QuestionStatus], machines.Ignore:
 		false
 	}
 }

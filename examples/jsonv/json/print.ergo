@@ -152,7 +152,7 @@ func pretty(w mut writer, v json.Value, indent string, newline string) {
 	let inner = newline + indent
 	match v {
 	case json.Array as a:
-		if len(a.Items) == 0 {
+		if a.Items.Len() == 0 {
 			put(w, "[]")
 			return
 		}
@@ -163,7 +163,7 @@ func pretty(w mut writer, v json.Value, indent string, newline string) {
 		}
 		put(w, newline+"]")
 	case json.Object as o:
-		if len(o.Members) == 0 {
+		if o.Members.Len() == 0 {
 			put(w, "{}")
 			return
 		}
@@ -205,7 +205,7 @@ func quote(w mut writer, raw string) {
 	let s = strings.ToValidUTF8(raw, "\ufffd")
 	put(w, "\"")
 	let mut run = 0
-	for i in 0..len(s) {
+	for i in 0..s.Len() {
 		let e = escapeOf(s[i])
 		if e != "" {
 			put(w, strings.Slice(s, run, i))
@@ -213,7 +213,7 @@ func quote(w mut writer, raw string) {
 			run = i + 1
 		}
 	}
-	put(w, strings.Slice(s, run, len(s)))
+	put(w, strings.Slice(s, run, s.Len()))
 	put(w, "\"")
 }
 

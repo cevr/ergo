@@ -1,5 +1,7 @@
 // The summary's tests: examples (the laws run in laws.ergo).
 
+import option
+
 test SummaryOfAKnownList {
 	let s = try Summarize([]float64{2, 4, 4, 4, 5, 5, 7, 9})
 	assert s.Count == 8 && s.Min == 2 && s.Max == 9 && s.Mean == 5 && s.StdDev == 2
@@ -9,7 +11,7 @@ test SummaryOfAKnownList {
 test NoNumbersIsEmpty {
 	let n = Summarize([]float64{}) catch {
 	case Empty:
-		Summary{Count: -1, Min: 0, Max: 0, Mean: 0, StdDev: 0, GeoMean: None}
+		Summary{Count: -1, Min: 0, Max: 0, Mean: 0, StdDev: 0, GeoMean: option.None}
 	}
 	assert n.Count == -1
 }
@@ -44,9 +46,9 @@ test GeoMeanAtMostMeanOnPositives(xs []int) {
 	}
 	let s = try Summarize(small(pos, 7))
 	match s.GeoMean {
-	case Some[float64] as g:
+	case option.Some[float64] as g:
 		assert g.Value <= s.Mean*(1+1e-9)
-	case None:
+	case option.None:
 		assert false
 	}
 }

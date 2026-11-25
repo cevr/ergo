@@ -3,6 +3,8 @@
 // for the food: a new food cell is drawn from Random, so a seeded Random
 // replays a game exactly.
 
+import option
+import rand
 import slices
 
 // Point is a cell of the board: X from 0 at the left, Y from 0 at the top.
@@ -68,19 +70,19 @@ func Free(w int, h int, body []Point) []Point {
 
 // PlaceFood is a free cell of the board drawn from Random, or None when
 // the snake fills the board.
-func PlaceFood(w int, h int, body []Point) Option[Point] needs Random {
+func PlaceFood(w int, h int, body []Point) option.Option[Point] needs rand.Random {
 	let free = Free(w, h, body)
-	if len(free) == 0 {
-		return None
+	if free.Len() == 0 {
+		return option.None
 	}
-	Some[Point]{Value: free[Random.IntN(len(free))]}
+	option.Some[Point]{Value: free[rand.Random.IntN(free.Len())]}
 }
 
 // Moved is body with its head at head: the head first, then every
 // segment, less the last unless grow.
 func Moved(body []Point, head Point, grow bool) []Point {
 	let mut out = []Point{head}
-	let keep = if grow { len(body) } else { len(body) - 1 }
+	let keep = if grow { body.Len() } else { body.Len() - 1 }
 	for i in 0..keep {
 		out = out.Append(body[i])
 	}
@@ -88,4 +90,4 @@ func Moved(body []Point, head Point, grow bool) []Point {
 }
 
 // Bites reports whether the head of body is on another of its segments.
-func Bites(body []Point) bool { slices.Contains(slices.Slice(body, 1, len(body)), body[0]) }
+func Bites(body []Point) bool { slices.Contains(slices.Slice(body, 1, body.Len()), body[0]) }

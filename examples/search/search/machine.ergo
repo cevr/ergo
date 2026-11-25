@@ -1,4 +1,6 @@
 import machines
+import option
+import time
 
 // Search is the machine's state. Every state holds the pins, the entries
 // added so far.
@@ -43,12 +45,12 @@ law PinsHoldRoom(n int) {
 		return false
 	}
 	match d {
-	case Emit[Search, Output] as e:
-		have < Room && len(PinsOf(e.Next)) == have+1 && e.Output == Pinned{Name: "Pear.md"}
-	case Enter[Search] as en:
+	case machines.Emit[Search, Output] as e:
+		have < Room && PinsOf(e.Next).Len() == have+1 && e.Output == Pinned{Name: "Pear.md"}
+	case machines.Enter[Search] as en:
 		match en.Next {
 		case Problem as p:
-			have >= Room && len(p.Pins) == have
+			have >= Room && p.Pins.Len() == have
 		case _:
 			false
 		}
@@ -67,40 +69,40 @@ let Latency = 100ms
 // opens and interrupts it when the entry ends, so a key during a search
 // stops it and its result never reaches a later entry. IndexDown is a
 // failure of the Index and also a signal, so the work needs no failure map.
-func find(s Search) Option[machines.Work[Signal, Index | Scheduler]] {
+func find(s Search) option.Option[machines.Work[Signal, Index | time.Scheduler]] {
 	match s {
 	case Searching as q:
-		Some{machines.Attempt(func() []Entry fails IndexDown needs Index | Scheduler {
-			Scheduler.Sleep(Latency)
+		option.Some{machines.Attempt(func() []Entry fails IndexDown needs Index | time.Scheduler {
+			time.Scheduler.Sleep(Latency)
 			try Index.Find(q.Query)
 		}, func(hits []Entry) Signal { Found{Hits: hits} }, func(failure) {
 			let down Signal = failure
 			down
 		})}
 	case Idle:
-		None
+		option.None
 	case Typing:
-		None
+		option.None
 	case Showing:
-		None
+		option.None
 	case Problem:
-		None
+		option.None
 	}
 }
 
 // Timer is the timer of each state: Typing waits Pause, then searches.
-func Timer(s Search) Option[Timeout[Signal]] {
+func Timer(s Search) option.Option[machines.Timeout[Signal]] {
 	match s {
 	case Typing:
-		Some[Timeout[Signal]]{Value: Timeout[Signal]{In: Pause, Signal: Paused}}
+		option.Some[machines.Timeout[Signal]]{Value: machines.Timeout[Signal]{In: Pause, Signal: Paused}}
 	case Idle:
-		None
+		option.None
 	case Searching:
-		None
+		option.None
 	case Showing:
-		None
+		option.None
 	case Problem:
-		None
+		option.None
 	}
 }
 
@@ -153,26 +155,26 @@ func QueryOf(s Search) string {
 	}
 }
 
-func enter(s Search) Decision[Search, Output] { Enter[Search]{Next: s} }
+func enter(s Search) machines.Decision[Search, Output] { machines.Enter[Search]{Next: s} }
 
 // typed is the decision of the key k in s: a key always enters Typing
 // with the longer query, so it restarts the pause and stops any running
 // search: the last query wins.
-func typed(s Search, k Key) Decision[Search, Output] {
+func typed(s Search, k Key) machines.Decision[Search, Output] {
 	enter(Typing{Query: QueryOf(s) + k.Text, Pins: PinsOf(s)})
 }
 
 // pinned is the decision of Pin c in Showing w: the hit goes into the
 // pins, or the pins are full.
-func pinned(w Showing, c Pin) Decision[Search, Output] fails NoSuchHit {
-	if c.Hit < 1 || c.Hit > len(w.Hits) {
-		return NoSuchHit{Hit: c.Hit, Count: len(w.Hits)}
+func pinned(w Showing, c Pin) machines.Decision[Search, Output] fails NoSuchHit {
+	if c.Hit < 1 || c.Hit > w.Hits.Len() {
+		return NoSuchHit{Hit: c.Hit, Count: w.Hits.Len()}
 	}
-	if len(w.Pins) >= Room {
+	if w.Pins.Len() >= Room {
 		return enter(Problem{Query: w.Query, Hits: w.Hits, Pins: w.Pins, Message: "the pins are full"})
 	}
 	let entry = w.Hits[c.Hit-1]
-	Emit[Search, Output]{Next: Showing{..w, Pins: w.Pins.Append(entry)}, Output: Pinned{Name: entry.Name}}
+	machines.Emit[Search, Output]{Next: Showing{..w, Pins: w.Pins.Append(entry)}, Output: Pinned{Name: entry.Name}}
 }
 
 // Start is the machine's start function: the pins it begins with are its
@@ -184,7 +186,7 @@ func Start(pins []Entry) Search { Idle{Pins: pins} }
 // Open is Done with the pinned entries. A result in a state that has no work
 // is Ignore: the runner never sends one (rule 6), and the step does not
 // trust that.
-func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
+func Step(s Search, sig Signal) machines.Decision[Search, Output] fails NoSuchHit {
 	let pins = PinsOf(s)
 	match sig {
 	case Key as k:
@@ -192,7 +194,7 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 	case Clear:
 		match s {
 		case Idle:
-			Ignore
+			machines.Ignore
 		case Typing:
 			enter(Idle{Pins: pins})
 		case Searching:
@@ -203,45 +205,45 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 			enter(Idle{Pins: pins})
 		}
 	case Open:
-		Done[Output]{Output: Opened{Entries: pins}}
+		machines.Done[Output]{Output: Opened{Entries: pins}}
 	case Paused:
 		match s {
 		case Typing as t:
 			enter(Searching{Query: t.Query, Pins: pins})
 		case Idle:
-			Ignore
+			machines.Ignore
 		case Searching:
-			Ignore
+			machines.Ignore
 		case Showing:
-			Ignore
+			machines.Ignore
 		case Problem:
-			Ignore
+			machines.Ignore
 		}
 	case Found as f:
 		match s {
 		case Searching as q:
-			Emit[Search, Output]{Next: Showing{Query: q.Query, Hits: f.Hits, Pins: pins}, Output: Shown{Query: q.Query, Count: len(f.Hits)}}
+			machines.Emit[Search, Output]{Next: Showing{Query: q.Query, Hits: f.Hits, Pins: pins}, Output: Shown{Query: q.Query, Count: f.Hits.Len()}}
 		case Idle:
-			Ignore
+			machines.Ignore
 		case Typing:
-			Ignore
+			machines.Ignore
 		case Showing:
-			Ignore
+			machines.Ignore
 		case Problem:
-			Ignore
+			machines.Ignore
 		}
 	case IndexDown:
 		match s {
 		case Searching as q:
 			enter(Problem{Query: q.Query, Hits: []Entry{}, Pins: pins, Message: "the index is down"})
 		case Idle:
-			Ignore
+			machines.Ignore
 		case Typing:
-			Ignore
+			machines.Ignore
 		case Showing:
-			Ignore
+			machines.Ignore
 		case Problem:
-			Ignore
+			machines.Ignore
 		}
 	case Pin as c:
 		match s {
@@ -261,13 +263,13 @@ func Step(s Search, sig Signal) Decision[Search, Output] fails NoSuchHit {
 		case Problem as p:
 			enter(Showing{Query: p.Query, Hits: p.Hits, Pins: pins})
 		case Idle:
-			Ignore
+			machines.Ignore
 		case Typing:
-			Ignore
+			machines.Ignore
 		case Searching:
-			Ignore
+			machines.Ignore
 		case Showing:
-			Ignore
+			machines.Ignore
 		}
 	}
 }
@@ -291,7 +293,7 @@ func Name(s Search) string {
 	case Searching as q:
 		"searching \"\(q.Query)\""
 	case Showing as w:
-		if len(w.Hits) == 0 { "showing \"\(w.Query)\": no hits" } else { "showing \"\(w.Query)\": \(Names(w.Hits))" }
+		if w.Hits.Len() == 0 { "showing \"\(w.Query)\": no hits" } else { "showing \"\(w.Query)\": \(Names(w.Hits))" }
 	case Problem as p:
 		"problem: \(p.Message)"
 	}

@@ -2,6 +2,7 @@
 // exact and similarity rename detection, binary classification, and line
 // numstat (G-DIFF).
 
+import option
 import strconv
 import github.com/cevr/ergo/modules/git/oid
 import github.com/cevr/ergo/modules/git/tree
@@ -25,12 +26,12 @@ type Status = Added{} | Deleted{} | Modified{} | TypeChanged{} | Renamed{Score i
 // a Git index.
 type Change {
 	Status  Status,
-	OldPath Option[string],
-	NewPath Option[string],
-	OldMode Option[tree.Mode],
-	NewMode Option[tree.Mode],
-	OldOID  Option[oid.OID],
-	NewOID  Option[oid.OID],
+	OldPath option.Option[string],
+	NewPath option.Option[string],
+	OldMode option.Option[tree.Mode],
+	NewMode option.Option[tree.Mode],
+	OldOID  option.Option[oid.OID],
+	NewOID  option.Option[oid.OID],
 }
 
 // DiffOptions configures tree diffing and rename detection.
@@ -119,9 +120,9 @@ func SameSubtype(a tree.Mode, b tree.Mode) bool {
 func padScore3(score int) string {
 	let clamped = if score < 0 { 0 } else if score > 100 { 100 } else { score }
 	let s = strconv.Itoa(clamped)
-	if len(s) == 1 {
+	if s.Len() == 1 {
 		"00" + s
-	} else if len(s) == 2 {
+	} else if s.Len() == 2 {
 		"0" + s
 	} else {
 		s
@@ -164,13 +165,13 @@ func StatusLetter(s Status) string {
 // ChangePath returns the primary sort path of c (NewPath when present, else OldPath).
 func ChangePath(c Change) string {
 	match c.NewPath {
-	case Some[string] as p:
+	case option.Some[string] as p:
 		p.Value
-	case None:
+	case option.None:
 		match c.OldPath {
-		case Some[string] as p:
+		case option.Some[string] as p:
 			p.Value
-		case None:
+		case option.None:
 			""
 		}
 	}
@@ -211,7 +212,7 @@ type TreeDiffer {
 		case TreeError, MissingObject, StoreError, DepthExceeded:
 			return false
 		}
-		len(d1) == 0 && len(d2) == 0
+		d1.Len() == 0 && d2.Len() == 0
 	},
 
 	// DiffReverseInvertsAddsAndDeletes: swapping oldTree and newTree turns
@@ -252,10 +253,10 @@ type TreeDiffer {
 		case TreeError, MissingObject, StoreError, DepthExceeded:
 			return false
 		}
-		if len(fwd) != 5 || len(rev) != 5 {
+		if fwd.Len() != 5 || rev.Len() != 5 {
 			return false
 		}
-		for i in 0..len(fwd) {
+		for i in 0..fwd.Len() {
 			let f = fwd[i]
 			let r = rev[i]
 			if ChangePath(f) != ChangePath(r) {

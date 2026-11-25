@@ -5,7 +5,8 @@
 // it.
 
 import fs
+import fstest
 import kmeans/cluster
 
 // onTestHost binds the source to Files over the test's folder.
-let onTestHost = context needs TestAmbient { cluster.Source: New(fs.NewTestHost()) }
+let onTestHost = context needs fstest.TestAmbient { cluster.Source: New(fs.NewTestHost()) }

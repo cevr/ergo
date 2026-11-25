@@ -25,13 +25,13 @@ type BadLine { Text string, Why string }
 func Parse(line string) Line fails BadLine {
 	let text = strings.TrimSpace(line)
 	let words = strings.Fields(text)
-	if len(words) == 0 || strings.HasPrefix(text, "#") {
+	if words.Len() == 0 || strings.HasPrefix(text, "#") {
 		return Blank
 	}
 	let w = words[0]
 	match w {
 	case "key":
-		if len(words) != 2 {
+		if words.Len() != 2 {
 			return BadLine{Text: text, Why: "key takes one character"}
 		}
 		Press{Key: keypad.Char{Cap: words[1]}}
@@ -52,7 +52,7 @@ func Parse(line string) Line fails BadLine {
 	case "close":
 		Other{Signal: keypad.Close}
 	case "add":
-		if len(words) != 5 {
+		if words.Len() != 5 {
 			return BadLine{Text: text, Why: "add takes ID LAYOUT MIN MAX"}
 		}
 		let layout = try layoutOf(text, words[2])
@@ -65,7 +65,7 @@ func Parse(line string) Line fails BadLine {
 }
 
 func one(text string, words []string) string fails BadLine {
-	if len(words) != 2 {
+	if words.Len() != 2 {
 		return BadLine{Text: text, Why: "\(words[0]) takes one ID"}
 	}
 	words[1]
@@ -81,7 +81,7 @@ func intOf(text string, word string) int fails BadLine {
 }
 
 func millis(text string, words []string) duration fails BadLine {
-	if len(words) != 2 {
+	if words.Len() != 2 {
 		return BadLine{Text: text, Why: "wait takes milliseconds"}
 	}
 	let n = try intOf(text, words[1])

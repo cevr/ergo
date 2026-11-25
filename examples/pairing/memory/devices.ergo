@@ -10,7 +10,7 @@ type Devices {} implements pair.Devices
 
 // CodeFor is the code Devices sends to serial.
 func CodeFor(serial string) string {
-	let n = len(serial)
+	let n = serial.Len()
 	if n < 4 {
 		return ""
 	}
@@ -27,7 +27,7 @@ func Check(_ Devices, serial string, code string) pair.Device fails pair.WrongCo
 	if code == "" || code != CodeFor(serial) {
 		return pair.WrongCode
 	}
-	pair.Device{ID: "s" + serial, Name: "device " + strings.Slice(serial, len(serial)-4, len(serial))}
+	pair.Device{ID: "s" + serial, Name: "device " + strings.Slice(serial, serial.Len()-4, serial.Len())}
 }
 
 func Tag(_ Devices, tag string) pair.Device fails pair.UnknownTag {

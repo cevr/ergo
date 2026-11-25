@@ -1,5 +1,6 @@
 import gent/agent
 import maps
+import option
 import slices
 import strings
 
@@ -34,10 +35,10 @@ func Clean(path string) []string fails agent.Escapes {
 			continue
 		}
 		if name == ".." {
-			if len(names) == 0 {
+			if names.Len() == 0 {
 				return agent.Escapes{Path: path}
 			}
-			names = names[0 : len(names)-1]
+			names = names[0 : names.Len()-1]
 			continue
 		}
 		names = names.Append(name)
@@ -53,7 +54,7 @@ func files(t Tree) Map[string, string] {
 		case agent.Escapes:
 			continue
 		}
-		if len(names) > 0 {
+		if names.Len() > 0 {
 			out[strings.Join(names, "/")] = text
 		}
 	}
@@ -63,10 +64,10 @@ func files(t Tree) Map[string, string] {
 func Read(t Tree, path string) string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable {
 	let names = try Clean(path)
 	match files(t).Get(strings.Join(names, "/")) {
-	case Some[string] as text:
+	case option.Some[string] as text:
 		text.Value
-	case None:
-		if len(children(t, names)) > 0 {
+	case option.None:
+		if children(t, names).Len() > 0 {
 			return agent.Unreadable{Reason: path + " is a directory"}
 		}
 		agent.NotFound{Path: path}
@@ -76,11 +77,11 @@ func Read(t Tree, path string) string fails agent.NotFound | agent.Denied | agen
 func List(t Tree, dir string) []string fails agent.NotFound | agent.Denied | agent.Escapes | agent.Unreadable {
 	let names = try Clean(dir)
 	let shown = children(t, names)
-	if len(shown) == 0 && len(names) > 0 {
+	if shown.Len() == 0 && names.Len() > 0 {
 		match files(t).Get(strings.Join(names, "/")) {
-		case Some[string]:
+		case option.Some[string]:
 			return agent.Unreadable{Reason: dir + " is not a directory"}
-		case None:
+		case option.None:
 			return agent.NotFound{Path: dir}
 		}
 	}
@@ -93,13 +94,13 @@ func children(t Tree, names []string) []string {
 	let mut seen = Map[string, bool]{}
 	for key, _ in files(t) {
 		let at = strings.Split(key, "/")
-		if len(at) <= len(names) || !slices.Equal(at[0:len(names)], names) {
+		if at.Len() <= names.Len() || !slices.Equal(at[0:names.Len()], names) {
 			continue
 		}
-		if len(at) > len(names)+1 {
-			seen[at[len(names)]+"/"] = true
+		if at.Len() > names.Len()+1 {
+			seen[at[names.Len()]+"/"] = true
 		} else {
-			seen[at[len(names)]] = true
+			seen[at[names.Len()]] = true
 		}
 	}
 	slices.Sorted(maps.Keys(seen))

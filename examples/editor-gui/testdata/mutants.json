@@ -2,356 +2,495 @@
   "about": "editor-gui's application mutants (wf10 corpus wave GP2a, GP2b): edits of the example, each with the law or the test that kills it. A killer examples/editor-gui/PKG:law L is `ergo test examples/editor-gui/PKG --law L`; scripts/examples:editor-gui is the program's cases, killed when a case's output differs; cmd/ergo:TestEditorGuiAgreesWithControl is the seeded agreement property against the plain reference model and the hand Go control, which kills the mutants no law sees.",
   "mutants": [
     {
-      "name": "editor-count-kept-on-back", "origin": "wf10 GP editor gap 14",
+      "name": "editor-count-kept-on-back",
+      "origin": "wf10 GP editor gap 14",
       "file": "examples/editor-gui/edit/editor.ergo",
-      "from": "lastRune(f.Query))\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
-      "to": "lastRune(f.Query))\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: f.Count}}",
+      "from": "lastRune(f.Query))\n\t\tmachines.Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
+      "to": "lastRune(f.Query))\n\t\tmachines.Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: f.Count}}",
       "rule": "A query taken back counts its matches again.",
-      "killers": ["examples:editor-gui law edit.Editor.CountIsMatches"]
+      "killers": [
+        "examples:editor-gui law edit.Editor.CountIsMatches"
+      ]
     },
     {
-      "name": "editor-count-of-the-old-query", "origin": "wf10 GP editor gap 14",
+      "name": "editor-count-of-the-old-query",
+      "origin": "wf10 GP editor gap 14",
       "file": "examples/editor-gui/edit/editor.ergo",
-      "from": "let q = f.Query + t.Text\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
-      "to": "let q = f.Query + t.Text\n\t\tStay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, f.Query)}}",
+      "from": "let q = f.Query + t.Text\n\t\tmachines.Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, q)}}",
+      "to": "let q = f.Query + t.Text\n\t\tmachines.Stay[State]{Next: Searching{D: Doc{..d, Caret: FirstFrom(d, q, f.Origin)}, Query: q, Origin: f.Origin, Count: piece.Count(d.Buf, f.Query)}}",
       "rule": "A letter typed counts the matches of the new query.",
-      "killers": ["examples:editor-gui law edit.Editor.CountIsMatches"]
+      "killers": [
+        "examples:editor-gui law edit.Editor.CountIsMatches"
+      ]
     },
     {
-      "name": "editor-search-window-one-short", "origin": "wf10 GP2c",
+      "name": "editor-search-window-one-short",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/piece/piece.ergo",
-      "from": "strings.Index(Slice(b, w, end+len(query)-1), query)",
-      "to": "strings.Index(Slice(b, w, end+len(query)-2), query)",
+      "from": "strings.Index(Slice(b, w, end+query.Len()-1), query)",
+      "to": "strings.Index(Slice(b, w, end+query.Len()-2), query)",
       "rule": "A match that starts in a piece may end in the query's length after it.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-search-from-the-piece-start", "origin": "wf10 GP2c",
+      "name": "editor-search-from-the-piece-start",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/piece/piece.ergo",
       "from": "strings.Slice(source(b, p), p.Start+skip, p.Start+p.Size)",
       "to": "strings.Slice(source(b, p), p.Start, p.Start+p.Size)",
       "rule": "The search starts at from, not at the start of from's piece.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-count-counts-one-more", "origin": "wf10 GP2c",
+      "name": "editor-count-counts-one-more",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/piece/piece.ergo",
       "from": "\tlet mut n = 0\n",
       "to": "\tlet mut n = 1\n",
       "rule": "Count is how many matches Matches finds.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-goto-stops-a-rune-early", "origin": "wf10 GP2c",
+      "name": "editor-goto-stops-a-rune-early",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/edit/doc.ergo",
       "from": "if s == 0 || b+s > to {",
       "to": "if s == 0 || b+s >= to {",
       "rule": "A press on a rune boundary puts the caret on it.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-copy-takes-to-the-caret", "origin": "wf10 GP2c",
+      "name": "editor-copy-takes-to-the-caret",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "Emit[State, Output]{Next: l, Output: Copied{Text: piece.Slice(d.Buf, lo, hi)}}",
       "to": "Emit[State, Output]{Next: l, Output: Copied{Text: piece.Slice(d.Buf, l.Anchor, d.Caret)}}",
       "rule": "A copy takes the selection, whichever way it was made.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-cut-keeps-the-text", "origin": "wf10 GP2c",
+      "name": "editor-cut-keeps-the-text",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "Emit[State, Output]{Next: Editing{D: Erase(d, lo, hi)}, Output: Copied",
       "to": "Emit[State, Output]{Next: Editing{D: d}, Output: Copied",
       "rule": "A cut takes the selection out, as one change.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-paste-stays-in-flight", "origin": "wf10 GP2c",
+      "name": "editor-paste-stays-in-flight",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/screen/app.ergo",
-      "from": "Ed: edit.After(w.Ed, edit.Type{Text: c.Text}), Clipping: None}",
+      "from": "Ed: edit.After(w.Ed, edit.Type{Text: c.Text}), Clipping: option.None}",
       "to": "Ed: edit.After(w.Ed, edit.Type{Text: c.Text})}",
       "rule": "The end of a paste leaves no clipboard task in flight.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-copy-writes-no-clipboard", "origin": "wf10 GP2c",
+      "name": "editor-copy-writes-no-clipboard",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/screen/view.ergo",
       "from": "\t\tclip.Write(p.Text)\n\t\tClipWritten",
       "to": "\t\tclip.Write(p.Text[0:0])\n\t\tClipWritten",
       "rule": "The host task of a copy writes the clipboard.",
-      "killers": ["examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "examples:editor-gui",
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-press-ignores-the-shown-start", "origin": "wf10 GP2c",
+      "name": "editor-press-ignores-the-shown-start",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/screen/view.ergo",
       "from": "edit.Goto{At: from + ui.OffsetAt(",
       "to": "edit.Goto{At: ui.OffsetAt(",
       "rule": "The page lays out the shown lines, so a press's offset counts from their start.",
-      "killers": ["examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "examples:editor-gui",
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-click-aims-above-the-caret", "origin": "wf10 GP2c",
+      "name": "editor-click-aims-above-the-caret",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/script/scene.ergo",
       "from": "Y: float64(k.Top + k.Height/2.0)",
       "to": "Y: float64(k.Top - k.Height/2.0)",
       "rule": "A click aims at the middle of the caret's line.",
-      "killers": ["examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "examples:editor-gui",
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-paste-types-nothing", "origin": "wf10 GP2c",
+      "name": "editor-paste-types-nothing",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/script/script.ergo",
       "from": "edit.Type{Text: ui.Clipboard.Read()}",
       "to": "edit.Type{Text: \"\"}",
       "rule": "A paste types the clipboard's text.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-click-row-one-short", "origin": "wf10 GP2c",
+      "name": "editor-click-row-one-short",
+      "origin": "wf10 GP2c",
       "file": "examples/editor-gui/edit/frame.ergo",
       "from": "{ last } else { first + row - 1 }",
       "to": "{ last } else { first + row }",
       "rule": "Row 1 is the first line the window shows.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-undo-makes-the-edit-again", "origin": "wf10 GP2b",
+      "name": "editor-undo-makes-the-edit-again",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/edit/doc.ergo",
       "from": "backward(apply(b, inverse(edits[i])), edits, i-1)",
       "to": "backward(apply(b, edits[i]), edits, i-1)",
       "rule": "Undo makes each edit's inverse, last first.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-change-skips-its-last-edit", "origin": "wf10 GP2b",
+      "name": "editor-change-skips-its-last-edit",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/edit/doc.ergo",
-      "from": "\tif i >= len(edits) {\n\t\treturn b\n\t}",
-      "to": "\tif i >= len(edits)-1 {\n\t\treturn b\n\t}",
+      "from": "\tif i >= edits.Len() {\n\t\treturn b\n\t}",
+      "to": "\tif i >= edits.Len()-1 {\n\t\treturn b\n\t}",
       "rule": "A change makes every one of its edits.",
-      "killers": ["examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "examples:editor-gui",
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-wrote-leaves-it-dirty", "origin": "wf10 GP2b",
+      "name": "editor-wrote-leaves-it-dirty",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/screen/app.ergo",
-      "from": "Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: None}",
-      "to": "Window{..w, Writing: None}",
+      "from": "Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: option.None}",
+      "to": "Window{..w, Writing: option.None}",
       "rule": "The end of a save tells the editor Saved.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-failed-save-counts-as-saved", "origin": "wf10 GP2b",
+      "name": "editor-failed-save-counts-as-saved",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/screen/app.ergo",
-      "from": "Emit[Window, Note]{Next: Window{..w, Writing: None}, Output: CannotSave",
-      "to": "Emit[Window, Note]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: None}, Output: CannotSave",
+      "from": "machines.Emit[Window, Note]{Next: Window{..w, Writing: option.None}, Output: CannotSave",
+      "to": "machines.Emit[Window, Note]{Next: Window{..w, Ed: edit.After(w.Ed, edit.Saved), Writing: option.None}, Output: CannotSave",
       "rule": "A save that fails leaves the edits unsaved.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-ctrl-home-goes-home", "origin": "wf10 GP2b",
+      "name": "editor-ctrl-home-goes-home",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/screen/view.ergo",
       "from": "Some{Value: Do{Signal: if ctrl { edit.Top } else { edit.Home }}}",
       "to": "Some{Value: Do{Signal: edit.Home}}",
       "rule": "Ctrl+Home goes to the text's start.",
-      "killers": ["examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "examples:editor-gui",
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-caret-painted-from-the-text-start", "origin": "wf10 GP2b",
+      "name": "editor-caret-painted-from-the-text-start",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/screen/view.ergo",
       "from": "ui.CaretAt(Mono, l, d.Caret-from)",
       "to": "ui.CaretAt(Mono, l, d.Caret)",
       "rule": "The page lays out the shown lines, so the caret is where it is in them.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-selection-painted-unclipped", "origin": "wf10 GP2b",
+      "name": "editor-selection-painted-unclipped",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/screen/view.ergo",
       "from": "for r in ui.SelectionRects(Mono, l, lo-from, hi-from) {",
       "to": "for r in ui.SelectionRects(Mono, l, lo, hi) {",
       "rule": "The selection is painted where the shown lines hold it.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-scene-presses-one-key-short", "origin": "wf10 GP2b",
+      "name": "editor-scene-presses-one-key-short",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/script/scene.ergo",
       "from": "for _ in 0..n {",
       "to": "for _ in 1..n {",
       "rule": "A move of N is N presses of its arrow.",
-      "killers": ["examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "examples:editor-gui",
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-scene-reports-no-save", "origin": "wf10 GP2b",
+      "name": "editor-scene-reports-no-save",
+      "origin": "wf10 GP2b",
       "file": "examples/editor-gui/script/scene.ergo",
       "from": "ui.Play(&h, acts.Append(ui.SettleAll))",
       "to": "ui.Play(&h, acts)",
       "rule": "After each line the host settles, so a save the view asked for runs and its end shows.",
-      "killers": ["examples:editor-gui", "cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "examples:editor-gui",
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-piece-grows-any-added-piece", "origin": "wf10 GP2a",
+      "name": "editor-piece-grows-any-added-piece",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/piece/piece.ergo",
       "from": "if pos == end && isAdded(p) && p.Start+p.Size == start {",
       "to": "if pos == end && isAdded(p) {",
       "rule": "Typing grows a piece only when the piece ends where the added buffer ends.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-piece-delete-keeps-the-wrong-tail", "origin": "wf10 GP2a",
+      "name": "editor-piece-delete-keeps-the-wrong-tail",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/piece/piece.ergo",
       "from": "Start: p.Start + (hi - offset), Size: end - hi",
       "to": "Start: p.Start + (hi - lo), Size: end - hi",
       "rule": "A delete keeps the bytes of a piece after the cut.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-added-breaks-lose-their-base", "origin": "wf10 GP2a",
+      "name": "editor-added-breaks-lose-their-base",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/piece/piece.ergo",
       "from": "out = out.Append(base + at + i)",
       "to": "out = out.Append(at + i)",
       "rule": "The line index holds a break's offset in its buffer.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-below-counts-the-equal", "origin": "wf10 GP2a",
+      "name": "editor-below-counts-the-equal",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/piece/piece.ergo",
       "from": "if offsets[mid] < v {",
       "to": "if offsets[mid] <= v {",
       "rule": "A piece's breaks start at its first byte, not after it.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-undo-of-insert-inserts", "origin": "wf10 GP2a",
+      "name": "editor-undo-of-insert-inserts",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/doc.ergo",
       "from": "\t\tDeleted{At: i.At, Text: i.Text}",
       "to": "\t\tInserted{At: i.At, Text: i.Text}",
       "rule": "The inverse of an insert deletes the inserted text.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-matches-overlap", "origin": "wf10 GP2a; GP2c moved the search into piece",
+      "name": "editor-matches-overlap",
+      "origin": "wf10 GP2a; GP2c moved the search into piece",
       "file": "examples/editor-gui/piece/piece.ergo",
-      "from": "\t\tout = out.Append(h.at)\n\t\th = seek(b, query, h.at+len(query), h.k, h.offset)",
+      "from": "\t\tout = out.Append(h.at)\n\t\th = seek(b, query, h.at+query.Len(), h.k, h.offset)",
       "to": "\t\tout = out.Append(h.at)\n\t\th = seek(b, query, h.at+1, h.k, h.offset)",
       "rule": "Replace replaces the matches strings.ReplaceAll finds, none overlapping.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-search-escape-keeps-the-match", "origin": "wf10 GP2a",
+      "name": "editor-search-escape-keeps-the-match",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "Enter[State]{Next: Editing{D: Doc{..d, Caret: f.Origin}}}",
       "to": "Enter[State]{Next: Editing{D: d}}",
       "rule": "Escape from a search puts the caret back where the search started.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-selection-escape-stays", "origin": "wf10 GP2a",
+      "name": "editor-selection-escape-stays",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
-      "from": "\t\tEnter[State]{Next: Editing{D: d}}\n\tcase Saved:\n\t\tStay[State]{Next: Selecting",
-      "to": "\t\tStay[State]{Next: Selecting{D: d, Anchor: l.Anchor}}\n\tcase Saved:\n\t\tStay[State]{Next: Selecting",
+      "from": "\t\tmachines.Enter[State]{Next: Editing{D: d}}\n\tcase Saved:\n\t\tmachines.Stay[State]{Next: Selecting",
+      "to": "\t\tmachines.Stay[State]{Next: Selecting{D: d, Anchor: l.Anchor}}\n\tcase Saved:\n\t\tmachines.Stay[State]{Next: Selecting",
       "rule": "Escape ends a selection.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-next-steps-past-no-match", "origin": "wf10 GP2a",
+      "name": "editor-next-steps-past-no-match",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "if f.Query == \"\" || piece.Index(d.Buf, f.Query, 0) < 0 {",
       "to": "if f.Query == \"\" {",
       "rule": "Next with no match anywhere leaves the caret where it is.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-bottom-past-the-end", "origin": "wf10 GP2a",
+      "name": "editor-bottom-past-the-end",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "\tcase Bottom:\n\t\tpiece.Len(d.Buf)\n",
       "to": "\tcase Bottom:\n\t\tpiece.Len(d.Buf) + 1\n",
       "rule": "The caret stays inside the text.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-down-writes-up", "origin": "wf10 GP2a",
+      "name": "editor-down-writes-up",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/script/script.ergo",
       "from": "\"down \\(w.N)\"",
       "to": "\"up \\(w.N)\"",
       "rule": "A command's line reads back as the command.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-shelf-saves-another-text", "origin": "wf10 GP2a",
+      "name": "editor-shelf-saves-another-text",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/memory/memory.ergo",
       "from": "m.Put(name, text)",
       "to": "m.Put(name, text + \"\\n\")",
       "rule": "A saved text is the text that loads.",
-      "killers": ["examples:editor-gui"]
+      "killers": [
+        "examples:editor-gui"
+      ]
     },
     {
-      "name": "editor-undo-puts-the-caret-after", "origin": "wf10 GP2a",
+      "name": "editor-undo-puts-the-caret-after",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/doc.ergo",
-      "from": "Doc{Buf: backward(d.Buf, c.Edits, len(c.Edits)-1), Caret: c.Before,",
-      "to": "Doc{Buf: backward(d.Buf, c.Edits, len(c.Edits)-1), Caret: c.After,",
+      "from": "Doc{Buf: backward(d.Buf, c.Edits, c.Edits.Len()-1), Caret: c.Before,",
+      "to": "Doc{Buf: backward(d.Buf, c.Edits, c.Edits.Len()-1), Caret: c.After,",
       "rule": "Undo puts the caret where it was before the change.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-edit-keeps-redo", "origin": "wf10 GP2a",
+      "name": "editor-edit-keeps-redo",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/doc.ergo",
       "from": "Undo: d.Undo.Append(c), Redo: []Change{}, Dirty: true}",
       "to": "Undo: d.Undo.Append(c), Redo: d.Redo, Dirty: true}",
       "rule": "A new change clears what redo would make again.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-replace-puts-the-caret-back", "origin": "wf10 GP2a",
+      "name": "editor-replace-puts-the-caret-back",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "Make(d, edits, at[0])",
       "to": "Make(d, edits, d.Caret)",
       "rule": "After a replace the caret is at the first replaced match.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-selection-type-lands-at-the-end", "origin": "wf10 GP2a",
+      "name": "editor-selection-type-lands-at-the-end",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
-      "from": "Make(d, edits, lo+len(t.Text))",
-      "to": "Make(d, edits, hi+len(t.Text))",
+      "from": "Make(d, edits, lo+t.Text.Len())",
+      "to": "Make(d, edits, hi+t.Text.Len())",
       "rule": "Typing over a selection leaves the caret after the typed text.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-back-misses-four-byte-runes", "origin": "wf10 GP2a",
+      "name": "editor-back-misses-four-byte-runes",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/doc.ergo",
-      "from": "for s in 1..len(tail)+1 {",
-      "to": "for s in 1..len(tail) {",
+      "from": "for s in 1..tail.Len()+1 {",
+      "to": "for s in 1..tail.Len() {",
       "rule": "Back erases a whole rune, four bytes long too.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-line-move-drifts-a-column", "origin": "wf10 GP2a",
+      "name": "editor-line-move-drifts-a-column",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "Forward(d, start, Column(d, d.Caret), piece.LineEnd(d.Buf, line))",
       "to": "Forward(d, start, Column(d, d.Caret)+1, piece.LineEnd(d.Buf, line))",
       "rule": "Up and down keep the caret's column.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-frame-shows-one-line-below", "origin": "wf10 GP2a",
+      "name": "editor-frame-shows-one-line-below",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/frame.ergo",
       "from": "let last = if at+2 < lines { at + 2 } else { lines }\n\tfor n in",
       "to": "let last = if at+1 < lines { at + 1 } else { lines }\n\tfor n in",
       "rule": "A frame shows two lines below the caret's line.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-saved-stays-dirty", "origin": "wf10 GP2a",
+      "name": "editor-saved-stays-dirty",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/editor.ergo",
       "from": "Stay[State]{Next: Editing{D: Doc{..d, Dirty: false}}}",
       "to": "Stay[State]{Next: Editing{D: d}}",
       "rule": "A saved document is not dirty.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     },
     {
-      "name": "editor-invalid-offset-of-two-bytes", "origin": "wf10 GP2a",
+      "name": "editor-invalid-offset-of-two-bytes",
+      "origin": "wf10 GP2a",
       "file": "examples/editor-gui/edit/store.ergo",
       "from": "if r.Rune == '\\uFFFD' && r.Size == 1 {",
       "to": "if r.Rune == '\\uFFFD' && r.Size == 2 {",
       "rule": "A text that is not UTF-8 is refused with its first invalid byte.",
-      "killers": ["cmd/ergo:TestEditorGuiAgreesWithControl"]
+      "killers": [
+        "cmd/ergo:TestEditorGuiAgreesWithControl"
+      ]
     }
   ]
 }

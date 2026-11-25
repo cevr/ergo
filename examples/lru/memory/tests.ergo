@@ -4,6 +4,7 @@
 
 import lru/registry
 import cache
+import option
 import time
 
 // list is a Table of three names.
@@ -19,7 +20,7 @@ test ParseRefusesABadRow {
 	case BadRow as b:
 		NewTable(Map[string, int]{b.Line: 0})
 	}
-	assert at.ports.Get("db fifty") == Some{0}
+	assert at.ports.Get("db fifty") == option.Some{0}
 }
 
 test CacheSavesLookups {

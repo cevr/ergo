@@ -102,7 +102,7 @@ test SamplesVary {
 	for seed in 0..50 {
 		sizes[Size(Sample(seed))] = true
 	}
-	assert len(sizes) >= 5
+	assert sizes.Len() >= 5
 }
 
 test ScrambleReachesTheMetas {
