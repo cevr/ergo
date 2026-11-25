@@ -2,6 +2,7 @@
 // ergo:bind c ergo.local/bind/fixture b1cbfc1620152fe364123f95fcc8dd1c8aa3029d57be5e97dcc0cf8698ec995e 1a49e6304888f729d707156567190fdaf5754ee5b064eff975738eadfbc7f8b6 darwin/amd64 darwin/arm64 linux/amd64 linux/arm64
 
 extern go ergo.local/bind/fixture.Load func Load(path string) fails go.Error needs go.Foreign
+extern go ergo.local/bind/fixture.LiveCallbacks func LiveCallbacks() int needs go.Foreign
 
 extern go ergo.local/bind/fixture.FX_ABI_VERSION let FX_ABI_VERSION uint32
 extern go ergo.local/bind/fixture.FX_OK let FX_OK int32
@@ -81,6 +82,12 @@ extern go ergo.local/bind/fixture.Box type Box {
 }
 
 // ergo:cdata
+extern go ergo.local/bind/fixture.Visit type Visit {
+	Node   Node,
+	Ticket Ticket,
+}
+
+// ergo:cdata
 extern go ergo.local/bind/fixture.ShapeHeader type ShapeHeader {
 	Kind uint32,
 }
@@ -126,12 +133,19 @@ extern go ergo.local/bind/fixture.NodeSetName func NodeSetName(contextArg *Conte
 // ergo:writes bytes
 extern go ergo.local/bind/fixture.NodeReadName func NodeReadName(contextArg *Context, node Node, bytes []byte) ([]byte, uint32) fails go.Error needs go.Foreign
 // not bound: fx_node_set_text (param 2 (text): fx_text holds a pointer (Go memory that holds Go pointers must not reach C))
-// not bound: fx_context_visit (it takes a callback (fx_visit_callback): callbacks into Ergo are bind-c-7)
+// ergo:cbtype callback VisitCallback
+extern go ergo.local/bind/fixture.ContextVisit func ContextVisit[CE, CR](contextArg *Context, callback func(visit Visit) fails CE needs CR) fails CE | go.Error needs CR | go.Foreign
 extern go ergo.local/bind/fixture.PointLength func PointLength(point Point) float32 fails go.Error needs go.Foreign
 extern go ergo.local/bind/fixture.ContextAge func ContextAge(contextArg *Context) Seconds fails go.Error needs go.Foreign
-// not bound: fx_context_write (it takes a callback (fx_write_callback): callbacks into Ergo are bind-c-7)
-// not bound: fx_context_repeat (it takes a callback (fx_write_callback): callbacks into Ergo are bind-c-7)
-// not bound: fx_node_set_measure (it takes a callback (fx_measure_callback): callbacks into Ergo are bind-c-7)
+// ergo:cbtype writer WriteCallback
+// ergo:scoped writer.data
+// ergo:reads text
+extern go ergo.local/bind/fixture.ContextWrite func ContextWrite[CE, CR](contextArg *Context, text []byte, maxBytes uint32, writer func(data []byte) int64 fails CE needs CR) uint32 fails CE | go.Error needs CR | go.Foreign
+// ergo:cbtype writer WriteCallback
+// ergo:scoped writer.data
+extern go ergo.local/bind/fixture.ContextRepeat func ContextRepeat[CE, CR](contextArg *Context, times uint32, writer func(data []byte) int64 fails CE needs CR) int64 fails CE | go.Error needs CR | go.Foreign
+// ergo:cbtype measure MeasureCallback
+extern go ergo.local/bind/fixture.NodeSetMeasure func NodeSetMeasure(contextArg *Context, node Node, measure own func(width float32, widthMode uint32, height float32, heightMode uint32) [2]float32) fails go.Error needs go.Foreign
 extern go ergo.local/bind/fixture.NodeMeasure func NodeMeasure(contextArg *Context, node Node, width float32, height float32) Point fails go.Error needs go.Foreign
 extern go ergo.local/bind/fixture.NodeMeasureAs func NodeMeasureAs(contextArg *Context, node Node, asArg Node) Point fails go.Error needs go.Foreign
 extern go ergo.local/bind/fixture.ContextMeasureAll func ContextMeasureAll(contextArg *Context, width float32, height float32) uint32 fails go.Error needs go.Foreign

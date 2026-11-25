@@ -198,7 +198,7 @@ func (fc *funcCtx) goCall(x *syntax.CallExpr, c *check.Call) operand {
 	}
 	fc.goErrorArgs(sig, vals)
 	fc.goSeqArgs(sig, x.Args, vals, x)
-	tunnels := fc.goCallbacks(sig, x.Args, vals, x)
+	tunnels := fc.goCallbacks(c.Func, sig, x.Args, vals, x)
 	if variadic && len(vals) > 0 {
 		vals[len(vals)-1] += "..."
 	}

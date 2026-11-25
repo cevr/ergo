@@ -905,7 +905,8 @@ func (e *goEmitter) typedFunc(f *BoundFunc, symIdx int) {
 	}
 	raise := func(indent string) {
 		if guard {
-			e.p("%sif _p != nil {\n%s\tpanic(_p)\n%s}\n", indent, indent, indent)
+			e.p("%sif _p != nil {\n%s\tif _p.tunnel != nil {\n%s\t\t%s\n%s\t}\n%s\tpanic(_p)\n%s}\n",
+				indent, indent, indent, ret("_p.tunnel"), indent, indent, indent)
 		}
 	}
 	if s.Status {

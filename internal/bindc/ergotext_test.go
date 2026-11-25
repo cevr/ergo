@@ -54,6 +54,12 @@ func TestErgoTextParses(t *testing.T) {
 				}
 			}
 			want := []string{b.Contract.Go.ImportPath + ".Load Load"}
+			for _, cb := range b.Callbacks {
+				if cb.Bound() {
+					want = append(want, b.Contract.Go.ImportPath+".LiveCallbacks LiveCallbacks")
+					break
+				}
+			}
 			notBound := 0
 			for _, bf := range b.Funcs {
 				why := bf.ErgoUnbound()
@@ -65,10 +71,8 @@ func TestErgoTextParses(t *testing.T) {
 				if !strings.Contains(src, "// not bound: "+bf.C.Name+" (") {
 					t.Errorf("%s has no not-bound line for %s", path, bf.C.Name)
 				}
-				// Callbacks into Ergo are bind-c-7: a typed function
-				// that takes one keeps a not-bound line that says so.
-				if bf.Sig != nil && !strings.Contains(why, "bind-c-7") {
-					t.Errorf("%s: %s takes a callback, but its not-bound reason %q does not name bind-c-7", path, bf.C.Name, why)
+				if bf.Sig != nil {
+					t.Errorf("%s: typed function %s should be bound, got unbound reason %q", path, bf.C.Name, why)
 				}
 			}
 			if !slices.Equal(externs, want) {

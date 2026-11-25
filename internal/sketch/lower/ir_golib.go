@@ -597,6 +597,81 @@ func (b *irBuilder) hostCallback(sig *check.Signature, cb *check.Signature, site
 	return pre, lit
 }
 
+// hostCCallback is the IR adapter of e, an Ergo function value of signature
+// sig, to the Go callback type cb of a `// ergo:bind c` function (CFFI-3):
+// Go's C callback type carries no trailing error result, so a non-nil Ergo
+// failure inside a fallible ScopeCall callback panics with v1.GoTunnelError(err),
+// which cbContain catches before any C frame unwinds, returning C's contract
+// default and surfacing the typed failure at the caller through v1.GoUntunnel.
+// Statically checked `// ergo:scoped` slice parameters cross zero-copy.
+func (b *irBuilder) hostCCallback(sig *check.Signature, cb *check.Signature, scoped map[int]bool, goCbType string, site syntax.Node, e *irExpr, p irPos) ([]*irStmt, *irExpr) {
+	if b.env < 0 {
+		irNo("C callback from a pure function")
+	}
+	if sig == nil || len(cb.Results) > 1 || len(sig.Results) != len(cb.Results) || len(sig.Params) != len(cb.Params) {
+		irNo("C callback of another shape")
+	}
+	var pre []*irStmt
+	fv := e
+	if e.K != "func" {
+		l := b.temp("fv", b.sigType(sig, site), p)
+		pre = append(pre, &irStmt{K: "def", Pos: p, Local: l, X: e})
+		fv = &irExpr{K: "local", Pos: p, I: l}
+	}
+	end := p
+	lit := &irExpr{K: "func", Pos: p, End: &end}
+	call := &irExpr{K: "vcall", Pos: p, X: fv, Args: []*irExpr{{K: "local", Pos: p, I: b.env}}}
+	var params []string
+	for pi, q := range cb.Params {
+		if !b.hostValue(q.Type) && !basicSlice(q.Type) && !b.hostArgValue(q.Type) {
+			irNo("C callback of another shape")
+		}
+		gt := b.goType(q.Type, site)
+		l := b.temp("p", gt, p)
+		params = append(params, gt)
+		lit.Params = append(lit.Params, l)
+		argExpr := &irExpr{K: "local", Pos: p, I: l}
+		if !scoped[pi] && b.l.holdsValue(q.Type) && valueRule() {
+			argExpr = b.goResultCopy("cCallback", q.Type, argExpr, site)
+		}
+		call.Args = append(call.Args, argExpr)
+	}
+	errL := b.temp("err", "error", p)
+	var resL int
+	resType := ""
+	if len(cb.Results) == 0 {
+		resL = b.temp("unit", "struct{}", p)
+	} else {
+		if !b.hostValue(cb.Results[0]) && !b.hostArgValue(cb.Results[0]) {
+			irNo("C callback of another shape")
+		}
+		resType = b.goType(cb.Results[0], site)
+		resL = b.temp("r", resType, p)
+	}
+	lit.Body = append(lit.Body, &irStmt{K: "def2", Pos: p, Local: resL, Val: &errL, X: call})
+	if cb.Fallible {
+		b.keepImport("var _ = " + b.l.rt() + ".GoTunnelError")
+		tunnelCall := &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoTunnelError", Args: []*irExpr{{K: "local", Pos: p, I: errL}}}
+		lit.Body = append(lit.Body, &irStmt{
+			K:    "if",
+			Pos:  p,
+			End:  p,
+			X:    b.notNil(errL, p),
+			Then: []*irStmt{{K: "panic", Pos: p, X: tunnelCall}},
+		})
+	}
+	if resType != "" {
+		lit.Body = append(lit.Body, &irStmt{K: "ret", Pos: p, X: &irExpr{K: "local", Pos: p, I: resL}})
+		lit.T = "func(" + strings.Join(params, ", ") + ") " + resType
+	} else {
+		lit.T = "func(" + strings.Join(params, ", ") + ")"
+	}
+	if goCbType != "" {
+		return pre, &irExpr{K: "conv", Pos: p, T: goCbType, X: lit}
+	}
+	return pre, lit
+}
+
 // goErrorLit is go.Error{Text: s}, a native error of its own
 // (v1.GoErrorText), or go.Error{}, the zero go.Error (Go's nil), as the
 // emitter's composite writes them (IG5).

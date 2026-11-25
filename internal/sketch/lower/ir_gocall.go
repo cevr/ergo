@@ -37,10 +37,16 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 	}
 	shapes := make([]*v1.Body, len(f.Sig.Params))
 	fails := make([]*check.Signature, len(f.Sig.Params))
+	cCbs := make([]*check.Signature, len(f.Sig.Params))
+	isCBind := check.IsCBindFunc(f)
 	for i, q := range f.Sig.Params {
 		if cb, ok := q.Type.(*check.Signature); ok {
 			if b.fc.hostFuncRef(list[i]) != nil {
 				irNo("Go function passed to a Go package function")
+			}
+			if isCBind {
+				cCbs[i] = cb // ir_golib.go hostCCallback
+				continue
 			}
 			if cb.Fallible {
 				fails[i] = cb // ir_golib.go hostCallback
@@ -85,6 +91,17 @@ func (b *irBuilder) hostArgs(x *syntax.CallExpr, c *check.Call, f *check.Func, p
 			// goroutine of Go's (rt.Alone).
 			b.keepImport("var _ = " + b.l.rt() + ".GoHanded")
 			pre = append(pre, &irStmt{K: "expr", Pos: p, X: &irExpr{K: "pcall", Pos: p, T: runtimeImport, Name: "GoHanded"}})
+		}
+		if cCbs[i] != nil {
+			t := b.l.info.Types[list[i]]
+			if n, ok := t.(*check.Named); ok {
+				t = n.Underlying()
+			}
+			sig, _ := t.(*check.Signature)
+			bind, lit := b.hostCCallback(sig, cCbs[i], check.GoScopedCallbackParams(f, i), check.GoCallbackTypeName(f, i), list[i], args[i], p)
+			pre = append(pre, bind...)
+			args[i] = lit
+			continue
 		}
 		if fails[i] != nil {
 			t := b.l.info.Types[list[i]]

@@ -253,12 +253,18 @@ type hostPkg struct {
 	writes   map[*Func]int            // the parameter a function's `// ergo:writes` line names (GBX2, gowrites.go)
 	effect   map[*Func]bool           // a memory-only function, `// ergo:effect none (vouched: …)` (GBX6)
 	host     map[*Func]bool           // a host function, `// ergo:effect ambient (vouched: …)` (HOST-ROW)
-	// C bindings (`// ergo:bind c ...`, CFFI-2): provenance stamps and flat-type markers.
-	cBind        bool
-	cChecked     bool
-	cHeaderSHA   string
-	cContractSHA string
-	cdata        map[*TypeName]bool
+	// C bindings (`// ergo:bind c ...`, CFFI-2/CFFI-3): provenance stamps, flat-type markers,
+	// scoped C-borrowed callback slice markers (`// ergo:scoped cbParam.sliceParam`),
+	// and named Go callback type annotations (`// ergo:cbtype cbParam GoTypeName`).
+	cBind          bool
+	cChecked       bool
+	cHeaderSHA     string
+	cContractSHA   string
+	cdata          map[*TypeName]bool
+	scoped         map[*Func][]cScopedSpec
+	scopedResolved map[*Func]map[int]map[int]bool
+	cbTypes        map[*Func][]cCbTypeSpec
+	cbTypeResolved map[*Func]map[int]string
 }
 
 func hostOf(p *Package) *hostPkg {
@@ -489,7 +495,7 @@ func (h *hostPkg) load() {
 	markers := map[int]string{}
 	for _, g := range f.Comments {
 		for _, cm := range g.List {
-			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, writesMarker) || strings.HasPrefix(cm.Text, readsMarker) || strings.HasPrefix(cm.Text, effectMarker) {
+			if cm.Text == "// ergo:variadic" || cm.Text == "// ergo:context" || strings.HasPrefix(cm.Text, writesMarker) || strings.HasPrefix(cm.Text, readsMarker) || strings.HasPrefix(cm.Text, effectMarker) || strings.HasPrefix(cm.Text, scopedMarker) || strings.HasPrefix(cm.Text, cbTypeMarker) {
 				line, _ := f.Position(cm.Pos())
 				markers[line] = cm.Text
 			}
@@ -516,6 +522,10 @@ func (h *hostPkg) load() {
 					h.context[fn] = true
 				case strings.HasPrefix(text, writesMarker):
 					h.writesLine(fn, strings.TrimPrefix(text, writesMarker))
+				case strings.HasPrefix(text, scopedMarker):
+					h.scopedLine(fn, strings.TrimPrefix(text, scopedMarker))
+				case strings.HasPrefix(text, cbTypeMarker):
+					h.cbTypeLine(fn, strings.TrimPrefix(text, cbTypeMarker))
 				default:
 					if rest, ok := strings.CutPrefix(text, effectMarker); ok {
 						h.effectLine(fn, rest)

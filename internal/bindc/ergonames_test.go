@@ -336,11 +336,13 @@ func TestErgoGoAgreement(t *testing.T) {
 			}
 			norm := func(s string) string {
 				s = strings.TrimPrefix(s, "own ")
+				s = strings.TrimSuffix(s, " fails CE needs CR")
 				s = strings.ReplaceAll(s, b.Contract.Go.Package+".", "")
 				s = optionalRef.ReplaceAllString(s, "*$1")
 				s = goRef.ReplaceAllString(s, "*$1")
 				return s
 			}
+			goCbTypes := map[string]string{}
 			goSigs := map[string][]string{}
 			for name, gsrc := range goldenGoFiles(t, h.dir) {
 				fset := gotoken.NewFileSet()
@@ -356,14 +358,33 @@ func TestErgoGoAgreement(t *testing.T) {
 					return norm(x.String())
 				}
 				for _, d := range gf.Decls {
+					gd, ok := d.(*ast.GenDecl)
+					if !ok {
+						continue
+					}
+					for _, sp := range gd.Specs {
+						ts, ok := sp.(*ast.TypeSpec)
+						if !ok || !ts.Name.IsExported() {
+							continue
+						}
+						if ft, ok := ts.Type.(*ast.FuncType); ok {
+							goCbTypes[ts.Name.Name] = render(ft)
+						}
+					}
+				}
+				for _, d := range gf.Decls {
 					fn, ok := d.(*ast.FuncDecl)
 					if !ok || fn.Recv != nil || !fn.Name.IsExported() {
 						continue
 					}
 					var types []string
 					for _, p := range fn.Type.Params.List {
+						pt := render(p.Type)
+						if underlying, ok := goCbTypes[pt]; ok {
+							pt = underlying
+						}
 						for range max(1, len(p.Names)) {
-							types = append(types, render(p.Type))
+							types = append(types, pt)
 						}
 					}
 					types = append(types, "->")

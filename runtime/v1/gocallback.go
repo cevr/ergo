@@ -92,6 +92,20 @@ type GoTunnel struct{ Err error }
 
 func (t *GoTunnel) Error() string { return "Ergo failure " + t.Err.Error() + " through Go" }
 
+// IsErgoTunnel marks GoTunnel so generated C bindings (which do not import
+// runtime/v1) can distinguish a tunneled Ergo typed failure from a Go panic
+// inside cbContain without unwinding C frames.
+func (*GoTunnel) IsErgoTunnel() {}
+
+// GoTunnelError wraps any non-nil Ergo failure in a *GoTunnel for crossing
+// a C ScopeCall callback whose Go signature has no error result.
+func GoTunnelError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &GoTunnel{Err: err}
+}
+
 // GoCallbackError is the error a callback whose Go type returns one gives
 // Go for the Ergo failure err (nil when it did not fail): a go.Error is Go's
 // own error, so Go code sees what a Go function returned (fs.SkipDir

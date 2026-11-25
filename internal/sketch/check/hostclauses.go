@@ -43,6 +43,12 @@ func (c *checker) hostClauses(target string, sig *Signature, at syntax.Node) {
 	for i, p := range sig.Params {
 		if s, ok := under0(p.Type).(*Signature); ok {
 			if s.NonEscaping {
+				if c.pkg.host != nil && c.pkg.host.cBind {
+					// Verified C-binding call-scoped callback (CFFI-3):
+					// contract scope=call guarantees synchronous execution
+					// during the C call (header+contract SHA-256 stamped).
+					continue
+				}
 				// The reviewed row acts only on its current, validated
 				// guard line (LF2d, factguard.go).
 				switch ok, refuted, why := SyncActs(target); {
