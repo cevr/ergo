@@ -3,9 +3,13 @@
 package v1
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,7 +128,7 @@ func routerProgram(t *rt.Task) error {
 // TestChildrenLawsExplored searches the router's schedules with at most
 // 0, then 1, then 2 preemptions (`ergo test --explore dfs`'s bound is 2)
 // and fails at the first schedule that breaks a children law
-// (explore_laws.go), with the schedule as a token, after it replays the
+// (explore_conform.go), with the schedule as a token, after it replays the
 // schedule to the same failure. Each runner mutant of the runtime/v1
 // ledger, which changes how an entry keeps, stops or hears its children,
 // is found this way. It runs with the ergoexplore tag (the gate's
@@ -135,7 +139,7 @@ func routerProgram(t *rt.Task) error {
 // or random runs ERGO_EXPLORE_SCHEDULES seeded schedules (default 100)
 // instead, for the request's comparison.
 func TestChildrenLawsExplored(t *testing.T) {
-	pool := &sched.Pool{Start: func() (sched.Conn, error) { return startPipeWorker(routerProgram) }}
+	pool := &sched.Pool{Start: func() (sched.Conn, error) { return startBoundedPipeWorker(routerProgram, 5*time.Second) }}
 	defer pool.Close()
 	var rep sched.Report
 	switch mode := os.Getenv("ERGO_EXPLORE_MODE"); mode {
@@ -192,4 +196,111 @@ func TestChildrenLawsExplored(t *testing.T) {
 		replay = fmt.Sprintf("the schedule does not replay: %q", again.Outcome.Failure+again.Outcome.Stopped)
 	}
 	t.Fatalf("schedule %d: %s\nschedule %s\n%s", rep.Schedules, r.Outcome.Failure, sched.Token(r.Schedule()), replay)
+}
+
+type pipeReadRes struct {
+	n   int
+	err error
+}
+
+// boundedPipeWorker wraps pipeWorker with a per-read watchdog so an explored
+// run that hangs holding the scheduler baton (a wait unseen by the scheduler,
+// e.g. x7-adopt-unseen) fails deterministically instead of hanging until the
+// go test timeout.
+type boundedPipeWorker struct {
+	r          *io.PipeReader
+	w          *io.PipeWriter
+	done       chan struct{}
+	readerDone chan struct{}
+	closed     chan struct{}
+	closeOnce  sync.Once
+	req        chan []byte
+	res        chan pipeReadRes
+	limit      time.Duration
+	timer      *time.Timer
+	stuck      atomic.Bool
+}
+
+func startBoundedPipeWorker(body func(*rt.Task) error, limit time.Duration) (sched.Conn, error) {
+	toR, toW := io.Pipe()
+	fromR, fromW := io.Pipe()
+	t := time.NewTimer(limit)
+	t.Stop()
+	p := &boundedPipeWorker{
+		r:          fromR,
+		w:          toW,
+		done:       make(chan struct{}),
+		readerDone: make(chan struct{}),
+		closed:     make(chan struct{}),
+		req:        make(chan []byte),
+		res:        make(chan pipeReadRes, 1),
+		limit:      limit,
+		timer:      t,
+	}
+	go func() {
+		defer close(p.done)
+		defer fromW.Close()
+		_ = workerServe(toR, fromW, body)
+	}()
+	go func() {
+		defer close(p.readerDone)
+		for {
+			select {
+			case <-p.closed:
+				return
+			case buf := <-p.req:
+				n, err := fromR.Read(buf)
+				select {
+				case p.res <- pipeReadRes{n: n, err: err}:
+				case <-p.closed:
+					return
+				}
+			}
+		}
+	}()
+	return p, nil
+}
+
+func (p *boundedPipeWorker) Read(b []byte) (int, error) {
+	p.timer.Reset(p.limit)
+	defer p.timer.Stop()
+	select {
+	case p.req <- b:
+	case <-p.closed:
+		return 0, io.ErrClosedPipe
+	case <-p.timer.C:
+		p.stuck.Store(true)
+		p.closePipes()
+		return 0, errors.New("worker hung for " + p.limit.String() + " (wait unseen by scheduler)")
+	}
+	select {
+	case r := <-p.res:
+		return r.n, r.err
+	case <-p.closed:
+		return 0, io.ErrClosedPipe
+	case <-p.timer.C:
+		p.stuck.Store(true)
+		p.closePipes()
+		return 0, errors.New("worker hung for " + p.limit.String() + " (wait unseen by scheduler)")
+	}
+}
+
+func (p *boundedPipeWorker) Write(b []byte) (int, error) { return p.w.Write(b) }
+
+func (p *boundedPipeWorker) closePipes() {
+	p.closeOnce.Do(func() {
+		close(p.closed)
+		_ = p.w.Close()
+		_ = p.r.Close()
+	})
+}
+
+func (p *boundedPipeWorker) Close() error {
+	p.timer.Stop()
+	p.closePipes()
+	if !p.stuck.Load() {
+		<-p.done
+		<-p.readerDone
+	}
+	return nil
 }

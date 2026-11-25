@@ -714,7 +714,7 @@ var bodyTable = []bodyRow{
 	{"alarmDeadline.Stop", bodyFact{refusal: "runtime/v1: alarmDeadline.Stop: the receiver type alarmDeadline is not declared"}},
 	{"alarmDeadline.WakesItsWaiter", bodyFact{refusal: "runtime/v1: alarmDeadline.WakesItsWaiter: the receiver type alarmDeadline is not declared"}},
 	{"alarmTimers.NewTimer", bodyFact{refusal: "runtime/v1: alarmTimers.NewTimer: the receiver type alarmTimers is not declared"}},
-	{"childLaws.Event", bodyFact{refusal: "runtime/v1: childLaws.Event: the receiver type childLaws is not declared"}},
+	{"childrenConformer.Event", bodyFact{refusal: "runtime/v1: childrenConformer.Event: the receiver type childrenConformer is not declared"}},
 	{"closeFailure.Error", bodyFact{refusal: "runtime/v1: closeFailure.Error: the receiver type closeFailure is not declared"}},
 	{"closeFailure.Unwrap", bodyFact{refusal: "runtime/v1: closeFailure.Unwrap: the receiver type closeFailure is not declared"}},
 	{"deadline.C", bodyFact{refusal: "runtime/v1: deadline.C: the receiver type deadline is not declared"}},

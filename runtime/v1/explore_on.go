@@ -35,23 +35,23 @@ func exploreMain(body func(*rt.Task) error) error {
 	return res.Exit
 }
 
-// explored is one explored run: rt's result and the first children law
-// it broke (explore_laws.go), "" when none.
+// explored is one explored run: rt's result and the first models/children
+// conformance mismatch it hit (explore_conform.go), "" when none.
 type explored struct {
 	rt.Result
 	law string
 }
 
-// exploreRun is one explored run of body under p, traced for the
-// children laws.
+// exploreRun is one explored run of body under p, traced for models/children
+// conformance.
 func exploreRun(body func(*rt.Task) error, p sched.Picker) explored {
 	s := &strategy{p: p}
-	laws := newChildLaws()
-	res := rt.ExploreTraced(time.Unix(0, 0).UTC(), s, laws, func(t *rt.Task) error {
+	conf := newChildrenConformer()
+	res := rt.ExploreTraced(time.Unix(0, 0).UTC(), s, conf, func(t *rt.Task) error {
 		_, err := guarded(t, func(t *rt.Task) (struct{}, error) { return struct{}{}, body(t) })
 		return err
 	})
-	return explored{res, laws.verdict()}
+	return explored{res, conf.verdict()}
 }
 
 // exploreDefect is the text of a run that did not end as a program does,

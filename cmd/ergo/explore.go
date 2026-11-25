@@ -158,6 +158,10 @@ func exploreSearch(w io.Writer, l loaded, binary string, childArgs []string, opt
 		fmt.Fprintf(w, "ok explore %s: %s (%s)\n", opts.mode, verdict, counters)
 		return nil
 	}
+	if opts.mode != "replay" && rep.Failure.Diverged == "" && rep.Failure.Outcome.Stopped == "" {
+		minRun := sched.Minimize(x, *rep.Failure)
+		rep.Failure = &minRun
+	}
 	exploreFailure(w, l, *rep.Failure, opts.mode, run, counters)
 	return exitStatusError{code: 1, handled: true}
 }
