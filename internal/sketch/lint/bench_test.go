@@ -10,47 +10,51 @@ import (
 	sdk "ergo.local/prototype/lint"
 )
 
+// The lint benchmarks run the rules over checked packages loaded once: the
+// corpus (compiler/syntax and three examples, 13.3 KLOC) and one file of
+// 105 lines (compiler/source), so a change that speeds the corpus and slows
+// a small input shows both.
+
 var (
-	benchCorpusOnce   sync.Once
-	benchCorpusInputs []lint.Input
-	benchCorpusErr    error
+	benchCorpus = loader{dirs: []string{"compiler/syntax", "examples/jobs", "examples/confparse", "examples/bookmarks"}}
+	benchOne    = loader{dirs: []string{"compiler/source"}}
 )
 
-func loadBenchCorpus(tb testing.TB) []lint.Input {
+type loader struct {
+	dirs   []string
+	once   sync.Once
+	inputs []lint.Input
+	err    error
+}
+
+func (l *loader) load(tb testing.TB) []lint.Input {
 	tb.Helper()
-	benchCorpusOnce.Do(func() {
-		dirs := []string{
-			filepath.Join("..", "..", "..", "compiler", "syntax"),
-			filepath.Join("..", "..", "..", "examples", "jobs"),
-			filepath.Join("..", "..", "..", "examples", "confparse"),
-			filepath.Join("..", "..", "..", "examples", "bookmarks"),
-		}
-		for _, dir := range dirs {
-			targets, err := sketchfront.DiscoverPackages(dir)
+	l.once.Do(func() {
+		for _, dir := range l.dirs {
+			targets, err := sketchfront.DiscoverPackages(filepath.Join("..", "..", "..", filepath.FromSlash(dir)))
 			if err != nil {
-				benchCorpusErr = err
+				l.err = err
 				return
 			}
 			for _, target := range targets {
 				a, err := sketchfront.CheckDir(target.Dir)
 				if err != nil {
-					benchCorpusErr = err
+					l.err = err
 					return
 				}
-				in := lint.InputOf(a)
-				if in.Checked {
-					benchCorpusInputs = append(benchCorpusInputs, in)
+				if in := lint.InputOf(a); in.Checked {
+					l.inputs = append(l.inputs, in)
 				}
 			}
 		}
 	})
-	if benchCorpusErr != nil {
-		tb.Fatal(benchCorpusErr)
+	if l.err != nil {
+		tb.Fatal(l.err)
 	}
-	if len(benchCorpusInputs) == 0 {
-		tb.Fatal("bench corpus loaded 0 checked packages")
+	if len(l.inputs) == 0 {
+		tb.Fatalf("%v: no checked package", l.dirs)
 	}
-	return benchCorpusInputs
+	return l.inputs
 }
 
 func benchAllRulesConfig(tb testing.TB) *lint.Configuration {
@@ -78,82 +82,44 @@ func benchPresetConfig(tb testing.TB, presets ...string) *lint.Configuration {
 	return conf
 }
 
-func BenchmarkLintAllRules(b *testing.B) {
-	inputs := loadBenchCorpus(b)
-	conf := benchAllRulesConfig(b)
+func benchRun(b *testing.B, l *loader, conf func(testing.TB) *lint.Configuration) {
+	inputs := l.load(b)
+	c := conf(b)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		n := 0
 		for _, in := range inputs {
-			n += len(conf.Run(in).Findings)
-		}
-		if n < 0 {
-			b.Fatal(n)
+			c.Run(in)
 		}
 	}
 }
 
+func BenchmarkLintAllRules(b *testing.B) { benchRun(b, &benchCorpus, benchAllRulesConfig) }
+
+func BenchmarkLintOneFile(b *testing.B) { benchRun(b, &benchOne, benchAllRulesConfig) }
+
 func BenchmarkLintStrict(b *testing.B) {
-	inputs := loadBenchCorpus(b)
-	conf := benchPresetConfig(b, lint.Strict)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		n := 0
-		for _, in := range inputs {
-			n += len(conf.Run(in).Findings)
-		}
-		if n < 0 {
-			b.Fatal(n)
-		}
-	}
+	benchRun(b, &benchCorpus, func(tb testing.TB) *lint.Configuration { return benchPresetConfig(tb, lint.Strict) })
 }
 
 func BenchmarkLintLayout(b *testing.B) {
-	inputs := loadBenchCorpus(b)
-	conf := benchPresetConfig(b, lint.Layout)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		n := 0
-		for _, in := range inputs {
-			n += len(conf.Run(in).Findings)
-		}
-		if n < 0 {
-			b.Fatal(n)
-		}
-	}
+	benchRun(b, &benchCorpus, func(tb testing.TB) *lint.Configuration { return benchPresetConfig(tb, lint.Layout) })
 }
 
 func BenchmarkLintSpeedAndAdvisory(b *testing.B) {
-	inputs := loadBenchCorpus(b)
-	conf := benchPresetConfig(b, lint.Speed, lint.Advisory)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		n := 0
-		for _, in := range inputs {
-			n += len(conf.Run(in).Findings)
-		}
-		if n < 0 {
-			b.Fatal(n)
-		}
-	}
+	benchRun(b, &benchCorpus, func(tb testing.TB) *lint.Configuration {
+		return benchPresetConfig(tb, lint.Speed, lint.Advisory)
+	})
 }
 
 func BenchmarkLintFacts(b *testing.B) {
-	inputs := loadBenchCorpus(b)
+	inputs := benchCorpus.load(b)
 	families := sdk.Families()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		n := 0
 		for _, in := range inputs {
-			n += len(lint.Facts(in, families).Callables)
-		}
-		if n < 0 {
-			b.Fatal(n)
+			lint.Facts(in, families)
 		}
 	}
 }
