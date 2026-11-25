@@ -228,6 +228,8 @@ func pureCalls(info *check.Info, n syntax.Node) ([]*check.Func, bool) {
 			switch {
 			case c == nil:
 				ok = false
+			case c.Kind == check.CallConversion && check.WrappingProviderOf(c.Type) != nil:
+				ok = false
 			case c.Kind == check.CallLen || c.Kind == check.CallConversion || c.Kind == check.CallGoError || c.Kind == check.CallHash:
 			case c.Kind == check.CallFunc && !c.StartsTask && pureStdBody(c.Func):
 			case c.Kind == check.CallFunc && c.Func != nil && c.Func.Decl != nil && c.Func.Decl.Body != nil && c.Func.Decl.Extern == nil && !c.StartsTask:

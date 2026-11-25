@@ -437,6 +437,35 @@ func registerNatives(t nativeTables) {
 			return text, nil
 		}
 	}
+	t.reads["prelude.InForce"] = ""
+	natives["prelude.InForce"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		cv := &contextValue{}
+		var want []check.Type
+		if call, ok := at.(*syntax.CallExpr); ok && fr.pkg != nil {
+			if ctxT, ok := fr.pkg.Info.Types[call].(*check.Named); ok && len(ctxT.TArgs) == 1 {
+				if ra, ok := ctxT.TArgs[0].(*check.RowArg); ok && ra.Row != nil {
+					want = check.ErrorRowTypes(ra.Row)
+				}
+			}
+		}
+		if len(want) > 0 {
+			for _, capT := range want {
+				key := typeKey(fr.rt(capT))
+				if op, ok := fr.caps.lookup(key); ok {
+					cv.binds = append(cv.binds, capEnv{key: key, op: op})
+				}
+			}
+			return cv, nil
+		}
+		seen := map[string]bool{}
+		for c := fr.caps; c != nil; c = c.next {
+			if !seen[c.key] {
+				seen[c.key] = true
+				cv.binds = append(cv.binds, capEnv{key: c.key, op: c.op})
+			}
+		}
+		return cv, nil
+	}
 	t.reads["sync.NewRef"] = "T"
 	natives["sync.NewRef"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		if ab := in.build(fr, at, 1, 1, 0); ab != nil {

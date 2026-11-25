@@ -2,10 +2,13 @@
 // dialer owns it until Push, a worker owns Pop's result, and the queue
 // owns the unread tail. No hand-written cleanup registry is needed.
 import fetchpool/domain
+import gen
 import queue
 import slices
+import sync
 import task
 import tasks
+import testing
 
 func dial(ids []int, pending queue.Queue[domain.Conn], reports queue.Queue[domain.State]) fails queue.Closed needs domain.Fetcher {
 	for id in ids {
@@ -56,4 +59,118 @@ func Run(ids []int, workers int, limiter domain.Limiter) []domain.State fails qu
 		out = out.Append(report)
 	}
 	slices.SortFunc(out, func(a domain.State, b domain.State) int { domain.Number(a) - domain.Number(b) })
+}
+
+// OpenWithRetry opens download id, retrying transient Offline failures up to
+// attempts times and returning the last observed Offline failure when every
+// attempt fails.
+func OpenWithRetry(id int, attempts int) domain.Conn fails domain.Offline needs domain.Fetcher {
+	let tries = if attempts < 1 { 1 } else { attempts }
+	let mut lastErr = domain.Offline{ID: id}
+	for _ in 0..tries {
+		let c = domain.Fetcher.Open(id) catch {
+		case domain.Offline as err:
+			lastErr = err
+			continue
+		}
+		return c
+	}
+	lastErr
+}
+
+type retryConn { id int, closed sync.Ref[int] } implements domain.Conn, Closer
+
+func Number(c retryConn) int { c.id }
+
+func Read(c retryConn) string fails domain.ReadFailed { "ok-\(c.id)" }
+
+func Close(c retryConn) {
+	c.closed.Update(func(n int) int { n + 1 })
+}
+
+type retryFetcher {
+	opens  sync.Ref[int],
+	closed sync.Ref[int],
+} implements domain.Fetcher
+
+func Open(f retryFetcher, id int) domain.Conn fails domain.Offline {
+	let n = sync.Modify(f.opens, func(k int) (int, int) { (k + 1, k + 1) })
+	if id < 0 {
+		return domain.Offline{ID: -n}
+	}
+	retryConn{id: id, closed: f.closed}
+}
+
+func openAndNumber(id int, attempts int) int fails domain.Offline needs domain.Fetcher {
+	let c = try OpenWithRetry(id, attempts)
+	c.Number()
+}
+
+// OpenWithRetryReturnsLastErrorUnderFaulty: under testing.Faulty[domain.Fetcher],
+// OpenWithRetry retries transient Offline faults without leaking connections
+// and returns the last observed Offline failure when every attempt fails.
+law OpenWithRetryReturnsLastErrorUnderFaulty(seed int) {
+	let s = (seed%50 + 50) % 50
+	let cfg = gen.Config{Seed: uint64(s + 1), Cases: 40, Shrinks: 0, MaxDraws: 512, MaxRejected: 50}
+	let sawSuccess = sync.NewRef[bool](false)
+	let sawAllFaults = sync.NewRef[bool](false)
+	let sawInnerLast = sync.NewRef[bool](false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let innerOk = retryFetcher{opens: sync.NewRef[int](0), closed: sync.NewRef[int](0)}
+		let fOk = testing.Faulty[domain.Fetcher](innerOk)
+		let okRes = with context { domain.Fetcher: fOk } {
+			let mut failed = false
+			let mut errID = -1
+			let got = openAndNumber(7, 3) catch {
+			case domain.Offline as err:
+				failed = true
+				errID = err.ID
+				-1
+			}
+			if failed {
+				if len(fOk.Open.Faults()) != 3 || innerOk.opens.Get() != 0 || errID < 0 || errID == 7 {
+					return false
+				}
+				sawAllFaults.Set(true)
+			} else {
+				if got != 7 || innerOk.opens.Get() != 1 || innerOk.closed.Get() != 1 {
+					return false
+				}
+				sawSuccess.Set(true)
+			}
+			true
+		}
+		if !okRes {
+			return false
+		}
+		let innerFail = retryFetcher{opens: sync.NewRef[int](0), closed: sync.NewRef[int](0)}
+		let fFail = testing.Faulty[domain.Fetcher](innerFail)
+		with context { domain.Fetcher: fFail } {
+			let mut errID = 999
+			let _ = openAndNumber(-5, 2) catch {
+			case domain.Offline as err:
+				errID = err.ID
+				-1
+			}
+			let injected = len(fFail.Open.Faults())
+			if injected == 0 {
+				sawInnerLast.Set(true)
+				if errID != -2 {
+					return false
+				}
+			} else if injected == 2 {
+				if errID < 0 {
+					return false
+				}
+			}
+			true
+		}
+	})
+	let held = match outcome {
+	case gen.Held:
+		true
+	case _:
+		false
+	}
+	held && sawSuccess.Get() && sawAllFaults.Get() && sawInnerLast.Get()
 }

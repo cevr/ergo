@@ -64,6 +64,14 @@
       "from": "func Number(c connection) int { c.id }", "to": "func Number(c connection) int { c.id + 1 }",
       "rule": "Fetcher.KeepsNumber observes the provider through the domain's connection contract.",
       "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
+    },
+    {
+      "name": "fetchpool-retry-forgets-last-error", "origin": "PROPERTY-TESTING P6 (testing.Faulty)",
+      "file": "examples/fetchpool/pool/pool.ergo",
+      "from": "\t\tcase domain.Offline as err:\n\t\t\tlastErr = err\n\t\t\tcontinue",
+      "to": "\t\tcase domain.Offline as err:\n\t\t\tif lastErr.ID == id {\n\t\t\t\tlastErr = err\n\t\t\t}\n\t\t\tcontinue",
+      "rule": "OpenWithRetry must return the last observed Offline error when every attempt fails; keeping only the first error fails OpenWithRetryReturnsLastErrorUnderFaulty under testing.Faulty.",
+      "anchor": {"tests": ["examples:fetchpool"]}, "killers": ["examples:fetchpool"]
     }
   ]
 }

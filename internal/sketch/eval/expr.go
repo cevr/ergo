@@ -1420,6 +1420,9 @@ func (in *interp) option(fr *frame, x *syntax.CallExpr, v Value, found bool) (Va
 // a defined type and the type it is defined over, or a record to another
 // record type over the same fields.
 func (in *interp) convert(fr *frame, x *syntax.CallExpr, v Value, from, to rtype) (Value, *abrupt) {
+	if toN, ok := to.t.(*check.Named); ok && check.WrappingProviderOf(toN) != nil {
+		return in.wrapProviderConv(fr, x, v, toN, to)
+	}
 	// Refined conversions are admitted only for checked constants or inside
 	// the derived parser, whose ordinary predicate runs before this cast.
 	if b := to.basic(); b != nil {

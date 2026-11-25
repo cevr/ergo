@@ -61,6 +61,7 @@ type TypeName struct {
 // None, the arguments of an operation that takes none.
 type ProviderTypes struct {
 	Field, None *Named
+	Wrapping    bool
 }
 
 // Constructor is the function a generator builds the type's values with

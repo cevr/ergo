@@ -49,6 +49,41 @@ func TestProviderDerive(t *testing.T) {
 		{"Ergo Call of another shape", ergo("func Call[A, G](r Rec[A, G]) Option[G] { r.answer.Get() }", ""), "S108:9 its field type's Call is not func Call[A, G](r Rec[A, G], a A) Option[G]"},
 		{"Ergo Call with a row", ergo("func Call[A, G](r Rec[A, G], a A) Option[G] fails Gone { r.answer.Get() }", "type Gone {}\n"), "S108:9 its field type's Call has a row"},
 		{"Ergo field type unexported", "type probe { Len() int }\ntype rec[A, G] { n int }\ntype None0 {}\ntype M[S] derive Provider(Of[S](), Of[rec](), Of[None0]())\n", "S108:4 is declared in Ergo and not exported"},
+		{
+			"user wrapping provider",
+			"type Gone {}\ntype probe { Get() int fails Gone }\n" +
+				"type WrapOp[A, G] { op string }\n" +
+				"func NewWrapOp[A, G](op string, faults []string) WrapOp[A, G] { WrapOp[A, G]{op: op} }\n" +
+				"func Wrap[A, G, T, E](r WrapOp[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E { try inner() }\n" +
+				"func Draw[A, G](r WrapOp[A, G], n uint64) uint64 { uint64(0) }\n" +
+				"type None0 {}\n" +
+				"type W[S] derive Provider(Of[S](), Of[WrapOp](), Of[None0]())\n" +
+				"func f(inner probe) probe { W[probe](inner) }\n",
+			"",
+		},
+		{
+			"wrapping provider literal refused",
+			"type Gone {}\ntype probe { Get() int fails Gone }\n" +
+				"type WrapOp[A, G] { op string }\n" +
+				"func NewWrapOp[A, G](op string, faults []string) WrapOp[A, G] { WrapOp[A, G]{op: op} }\n" +
+				"func Wrap[A, G, T, E](r WrapOp[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E { try inner() }\n" +
+				"func Draw[A, G](r WrapOp[A, G], n uint64) uint64 { uint64(0) }\n" +
+				"type None0 {}\n" +
+				"type W[S] derive Provider(Of[S](), Of[WrapOp](), Of[None0]())\n" +
+				"func f() W[probe] { W[probe]{} }\n",
+			"S108:9 a W[probe] wraps an inner provider; write W[probe](inner)",
+		},
+		{
+			"wrapping provider wrong Draw shape",
+			"type probe { Get() int }\n" +
+				"type WrapOp[A, G] { op string }\n" +
+				"func NewWrapOp[A, G](op string, faults []string) WrapOp[A, G] { WrapOp[A, G]{op: op} }\n" +
+				"func Wrap[A, G, T, E](r WrapOp[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E { try inner() }\n" +
+				"func Draw[A, G](r WrapOp[A, G]) uint64 { uint64(0) }\n" +
+				"type None0 {}\n" +
+				"type W[S] derive Provider(Of[S](), Of[WrapOp](), Of[None0]())\n",
+			"S108:7 its field type's Draw is not func Draw[A, G](r WrapOp[A, G], n uint64) uint64",
+		},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {

@@ -1,0 +1,291 @@
+import gen
+import strings
+import sync
+
+// FaultEvent records one injected failure during a Faulty run: the operation
+// name and the declared failure type name.
+type FaultEvent { Op string, Failure string }
+
+// FaultOp is the per-operation fault-injection controller of a Faulty[S]
+// derived provider. It holds the operation name, declared failure names,
+// captured gen.Draws context, and shared log of injected faults.
+type FaultOp[A, G] {
+	op     string,
+	faults []string,
+	draws  Context[gen.Draws],
+	log    sync.Ref[[]FaultEvent],
+}
+
+// NewFaultOp builds the FaultOp for operation op with declared failure names
+// faults, capturing the caller's gen.Draws capability.
+func NewFaultOp[A, G](op string, faults []string) FaultOp[A, G] needs gen.Draws {
+	FaultOp[A, G]{
+		op:     op,
+		faults: faults,
+		draws:  InForce[gen.Draws](),
+		log:    sync.NewRef[[]FaultEvent]([]FaultEvent{}),
+	}
+}
+
+// Draw draws a uint64 in 0..n-1 from r's captured gen.Draws tape to build
+// payload fields of injected failure values.
+func Draw[A, G](r FaultOp[A, G], n uint64) uint64 {
+	with r.draws {
+		gen.Below(n)
+	}
+}
+
+// ChooseFault draws whether an operation with count declared failures passes
+// through (None on draw 0) or injects failure index 0..count-1.
+func ChooseFault(count int) Option[int] needs gen.Draws {
+	if count <= 0 {
+		return None
+	}
+	let k = gen.Below(uint64(count + 1))
+	if k == uint64(0) {
+		return None
+	}
+	Some[int]{Value: int(k - uint64(1))}
+}
+
+// Wrap runs one fault-injected operation call: draws pass-through or a
+// declared failure index, returning failWith(idx) before calling inner so an
+// injected failure leaves inner untouched.
+func Wrap[A, G, T, E](r FaultOp[A, G], inner func() T fails E, failWith func(idx int) T fails E) T fails E {
+	if len(r.faults) == 0 {
+		return try inner()
+	}
+	let picked = with r.draws {
+		gen.Draws.Begin("fault." + r.op)
+		let res = ChooseFault(len(r.faults))
+		match res {
+		case Some[int] as idx:
+			let name = r.faults[idx.Value]
+			r.log.Update(func(xs []FaultEvent) []FaultEvent { xs.Append(FaultEvent{Op: r.op, Failure: name}) })
+			gen.Draws.Show("fault."+r.op, name)
+		case None:
+		}
+		res
+	}
+	match picked {
+	case Some[int] as idx:
+		let res = failWith(idx.Value) catch {
+		case err:
+			with r.draws {
+				gen.Draws.End()
+			}
+			return err
+		}
+		with r.draws {
+			gen.Draws.End()
+		}
+		res
+	case None:
+		with r.draws {
+			gen.Draws.End()
+		}
+		try inner()
+	}
+}
+
+// Faults returns the list of faults injected through operation controller r.
+func Faults[A, G](r FaultOp[A, G]) []FaultEvent {
+	r.log.Get()
+}
+
+// FormatFaults formats a slice of FaultEvents as a concise comma-separated
+// summary naming each operation and injected failure.
+func FormatFaults(xs []FaultEvent) string {
+	if len(xs) == 0 {
+		return "no faults"
+	}
+	let mut parts = []string{}
+	for e in xs {
+		parts = parts.Append("\(e.Op):\(e.Failure)")
+	}
+	strings.Join(parts, ", ")
+}
+
+// Faulty is a derived test provider wrapping an inner provider of capability S
+// that injects each operation's declared failures driven by gen.Draws.
+// Construct one with testing.Faulty[S](inner).
+type Faulty[S] derive Provider(Of[S](), Of[FaultOp](), Of[NoArgs]())
+
+type faultFull {}
+
+type faultOffline { Code int }
+
+type faultDenied { Reason string }
+
+type faultNotFound { Key string }
+
+// law-exempt: local capability exercising Faulty across 0, 1, and 3 declared failures.
+type faultStore {
+	Count() int,
+	Get(k string) int fails faultNotFound,
+	Put(k string, v int) fails faultFull | faultOffline | faultDenied,
+}
+
+type memFaultStore {
+	puts  sync.Ref[int],
+	gets  sync.Ref[int],
+	items sync.Ref[Map[string, int]],
+} implements faultStore
+
+func newMemFaultStore() memFaultStore {
+	memFaultStore{
+		puts:  sync.NewRef[int](0),
+		gets:  sync.NewRef[int](0),
+		items: sync.NewRef[Map[string, int]](Map[string, int]{}),
+	}
+}
+
+func Count(s memFaultStore) int {
+	s.puts.Get()
+}
+
+func Get(s memFaultStore, k string) int fails faultNotFound {
+	s.gets.Update(func(n int) int { n + 1 })
+	match s.items.Get().Get(k) {
+	case Some[int] as v:
+		v.Value
+	case None:
+		faultNotFound{Key: k}
+	}
+}
+
+func Put(s memFaultStore, k string, v int) fails faultFull | faultOffline | faultDenied {
+	s.puts.Update(func(n int) int { n + 1 })
+	s.items.Update(func(m Map[string, int]) Map[string, int] {
+		let mut next = m
+		next[k] = v
+		next
+	})
+}
+
+// FaultyInjectsEveryDeclaredFailure: over an operation type with 0, 1, and 3
+// declared failures (including payload-bearing failures), Faulty injects every
+// declared failure of every fallible operation in some case, never injects an
+// undeclared failure, never skips the last failure, and passes infallible
+// operations straight through.
+law FaultyInjectsEveryDeclaredFailure(seed int) {
+	let seenNotFound = sync.NewRef[bool](false)
+	let seenFull = sync.NewRef[bool](false)
+	let seenOffline = sync.NewRef[bool](false)
+	let seenDenied = sync.NewRef[bool](false)
+	let seenPayload = sync.NewRef[bool](false)
+	let cfg = gen.Config{Seed: uint64(modPos(seed, 50) + 1), Cases: 36, Shrinks: 0, MaxDraws: 512, MaxRejected: 50}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = newMemFaultStore()
+		let f = Faulty[faultStore](inner)
+		with context { faultStore: f } {
+			let c0 = faultStore.Count()
+			if c0 != 0 {
+				return false
+			}
+			let mut putPassed = false
+			faultStore.Put("k", 7) catch {
+			case faultFull:
+				seenFull.Set(true)
+			case faultOffline as e:
+				seenOffline.Set(true)
+				if e.Code >= 0 {
+					seenPayload.Set(true)
+				}
+			case faultDenied as e:
+				seenDenied.Set(true)
+				let _ = e.Reason
+			}
+			if inner.puts.Get() == 1 {
+				putPassed = true
+			}
+			if putPassed && faultStore.Count() != 1 {
+				return false
+			}
+			let _ = faultStore.Get("k") catch {
+			case faultNotFound as e:
+				seenNotFound.Set(true)
+				let _ = e.Key
+				0
+			}
+			true
+		}
+	})
+	let held = match outcome {
+	case gen.Held:
+		true
+	case _:
+		false
+	}
+	held && seenNotFound.Get() && seenFull.Get() && seenOffline.Get() && seenDenied.Get() && seenPayload.Get()
+}
+
+// FaultyZeroTapeMatchesInner: on an empty (all-zero) tape, Faulty[S](inner)
+// injects zero failures and behaves identically to inner across all operations.
+law FaultyZeroTapeMatchesInner(k string, val int) {
+	let inner = newMemFaultStore()
+	let ran = gen.Replay(gen.Tape{Size: 0, Draws: []uint64{}}, func() bool fails gen.Rejected needs gen.Draws {
+		let f = Faulty[faultStore](inner)
+		with context { faultStore: f } {
+			faultStore.Put(k, val) catch {
+			case _:
+				return false
+			}
+			let v = faultStore.Get(k) catch {
+			case _:
+				return false
+			}
+			v == val && faultStore.Count() == 1 && len(f.Put.Faults()) == 0 && len(f.Get.Faults()) == 0
+		}
+	})
+	!ran.Fails && inner.puts.Get() == 1 && inner.gets.Get() == 1
+}
+
+// FaultyNeverRunsInnerOnInjectedFault: whenever Faulty injects a failure, the
+// wrapped inner provider is never invoked, leaving inner's side effects
+// unchanged.
+law FaultyNeverRunsInnerOnInjectedFault(seed int) {
+	let cfg = gen.Config{Seed: uint64(modPos(seed, 50) + 1), Cases: 20, Shrinks: 0, MaxDraws: 512, MaxRejected: 50}
+	let sawInjected = sync.NewRef[bool](false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = newMemFaultStore()
+		let f = Faulty[faultStore](inner)
+		with context { faultStore: f } {
+			let beforePut = inner.puts.Get()
+			let mut putFailed = false
+			faultStore.Put("x", 1) catch {
+			case faultFull, faultOffline, faultDenied:
+				putFailed = true
+			}
+			if putFailed {
+				sawInjected.Set(true)
+				if inner.puts.Get() != beforePut {
+					return false
+				}
+			} else if inner.puts.Get() != beforePut+1 {
+				return false
+			}
+			let beforeGet = inner.gets.Get()
+			let mut getFailed = false
+			let _ = faultStore.Get("x") catch {
+			case faultNotFound:
+				getFailed = true
+				0
+			}
+			if getFailed && len(f.Get.Faults()) > 0 {
+				sawInjected.Set(true)
+				if inner.gets.Get() != beforeGet {
+					return false
+				}
+			}
+			true
+		}
+	})
+	let held = match outcome {
+	case gen.Held:
+		true
+	case _:
+		false
+	}
+	held && sawInjected.Get()
+}
