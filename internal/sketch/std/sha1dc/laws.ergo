@@ -1,0 +1,67 @@
+import hex
+import sha1
+import slices
+
+// MatchesStdSha1: on every non-colliding input, sha1dc.SumString agrees
+// byte-for-byte with std/sha1.Sum.
+law MatchesStdSha1(s string) {
+	let got = SumString(s) catch {
+	case CollisionDetected:
+		return false
+	}
+	got == sha1.Sum(s)
+}
+
+// StreamingMatchesOneShot: feeding chunks through New/Write/Digest produces
+// the exact same 20-byte digest as one-shot Sum.
+law StreamingMatchesOneShot(a string, b string, c string) {
+	let joined = (a + b + c).Bytes()
+	let one = Sum(joined) catch {
+	case CollisionDetected:
+		return false
+	}
+	let h = Write(Write(Write(New(), a.Bytes()), b.Bytes()), c.Bytes())
+	let streamed = Digest(h) catch {
+	case CollisionDetected:
+		return false
+	}
+	slices.Equal(one[:], streamed[:])
+}
+
+// DetectsBlessedCollision: SHA-1DC detects the blessed 320-byte SHAttered
+// public collision-detection prefix (Git t/t0013/shattered-1.pdf blocks 0..4),
+// returns its standard safe-hash digest in CollisionDetected, and accepts a
+// 1-bit perturbed copy as a normal SHA-1 digest matching std/sha1.Sum.
+law DetectsBlessedCollision() {
+	let prefixHex = "255044462d312e330a25e2e3cfd30a0a0a312030206f626a0a3c3c2f57696474" +
+		"682032203020522f4865696768742033203020522f547970652034203020522f" +
+		"537562747970652035203020522f46696c7465722036203020522f436f6c6f72" +
+		"53706163652037203020522f4c656e6774682038203020522f42697473506572" +
+		"436f6d706f6e656e7420383e3e0a73747265616d0affd8fffe00245348412d31" +
+		"20697320646561642121212121852fec092339759c39b1a1c63c4c97e1fffe01" +
+		"7346dc9166b67e118f029ab621b2560ff9ca67cca8c7f85ba84c79030c2b3de2" +
+		"18f86db3a90901d5df45c14f26fedfb3dc38e96ac22fe7bd728f0e45bce046d2" +
+		"3c570feb141398bb552ef5a0a82be331fea48037b8b5d71f0e332edf93ac3500" +
+		"eb4ddc0decc1a864790c782c76215660dd309791d06bd0af3f98cda4bc4629b1"
+	let raw = hex.Decode(prefixHex) catch {
+	case hex.Malformed:
+		return false
+	}
+	let data = raw.Bytes()
+	let detected = Sum(data) catch {
+	case CollisionDetected as c:
+		let safeHex = hex.Encode(c.Digest)
+		let mut benign = slices.WithCapacity[byte](len(data))
+		for x in data {
+			benign = benign.Append(x)
+		}
+		benign[319] = benign[319] ^ byte(1)
+		let okDigest = SumString(benign.Text()) catch {
+		case CollisionDetected:
+			return false
+		}
+		return safeHex == "7117b3cb9225aaf0d8ef1a40e493957b0bf8693d" && okDigest == sha1.Sum(benign.Text())
+	}
+	let _ = detected
+	false
+}

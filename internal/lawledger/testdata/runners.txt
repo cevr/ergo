@@ -753,6 +753,9 @@ signal RaisedInOrder	TestStdLawsRun
 signal StatusIsTheShells	TestStdLawsRun
 signal StopEndsBody	TestStdLawsRun
 sha1 SumIs20Bytes	none
+sha1dc DetectsBlessedCollision	TestStdSha1dcLawsRun
+sha1dc MatchesStdSha1	TestStdSha1dcLawsRun
+sha1dc StreamingMatchesOneShot	TestStdSha1dcLawsRun
 sha256 SumIs32Bytes	none
 sha512 SumIs64Bytes	none
 slices AscendLeavesItsArgument	TestStdSlicesLawsRun

@@ -1,0 +1,298 @@
+func rotl32(x uint32, n uint32) uint32 {
+	(x << n) | (x >> (uint32(32) - n))
+}
+
+func rotr32(x uint32, n uint32) uint32 {
+	(x >> n) | (x << (uint32(32) - n))
+}
+
+func roundFunc(t int, b uint32, c uint32, d uint32) uint32 {
+	if t < 20 {
+		return d ^ (b & (c ^ d))
+	}
+	if t < 40 {
+		return b ^ c ^ d
+	}
+	if t < 60 {
+		return (b & c) + (d & (b ^ c))
+	}
+	b ^ c ^ d
+}
+
+func roundConst(t int) uint32 {
+	if t < 20 {
+		return uint32(0x5a827999)
+	}
+	if t < 40 {
+		return uint32(0x6ed9eba1)
+	}
+	if t < 60 {
+		return uint32(0x8f1bbcdc)
+	}
+	uint32(0xca62c1d6)
+}
+
+func compressW(ihv [5]uint32, w [80]uint32) [5]uint32 {
+	let mut a = ihv[0]
+	let mut b = ihv[1]
+	let mut c = ihv[2]
+	let mut d = ihv[3]
+	let mut e = ihv[4]
+	for t in 0..80 {
+		let nextA = rotl32(a, uint32(5)) + roundFunc(t, b, c, d) + e + roundConst(t) + w[t]
+		e = d
+		d = c
+		c = rotl32(b, uint32(30))
+		b = a
+		a = nextA
+	}
+	[5]uint32{ihv[0] + a, ihv[1] + b, ihv[2] + c, ihv[3] + d, ihv[4] + e}
+}
+
+func compressStates(ihv [5]uint32, block [64]byte) ([5]uint32, [80]uint32, [5]uint32, [5]uint32) {
+	let mut w = [80]uint32{}
+	for i in 0..16 {
+		let j = i * 4
+		w[i] = (uint32(block[j]) << uint32(24)) | (uint32(block[j+1]) << uint32(16)) | (uint32(block[j+2]) << uint32(8)) | uint32(block[j+3])
+	}
+	for t in 16..80 {
+		w[t] = rotl32(w[t-3]^w[t-8]^w[t-14]^w[t-16], uint32(1))
+	}
+	let mut a = ihv[0]
+	let mut b = ihv[1]
+	let mut c = ihv[2]
+	let mut d = ihv[3]
+	let mut e = ihv[4]
+	let mut state58 = [5]uint32{}
+	let mut state65 = [5]uint32{}
+	for t in 0..80 {
+		if t == 58 {
+			state58 = [5]uint32{a, b, c, d, e}
+		}
+		if t == 65 {
+			state65 = [5]uint32{a, b, c, d, e}
+		}
+		let nextA = rotl32(a, uint32(5)) + roundFunc(t, b, c, d) + e + roundConst(t) + w[t]
+		e = d
+		d = c
+		c = rotl32(b, uint32(30))
+		b = a
+		a = nextA
+	}
+	let out = [5]uint32{ihv[0] + a, ihv[1] + b, ihv[2] + c, ihv[3] + d, ihv[4] + e}
+	(out, w, state58, state65)
+}
+
+func recompressStep(step int, m2 [80]uint32, state [5]uint32) [5]uint32 {
+	let mut a = state[0]
+	let mut b = state[1]
+	let mut c = state[2]
+	let mut d = state[3]
+	let mut e = state[4]
+	let mut k = step
+	for k > 0 {
+		k = k - 1
+		let prevA = b
+		let prevB = rotr32(c, uint32(30))
+		let prevC = d
+		let prevD = e
+		let prevE = a - rotl32(prevA, uint32(5)) - roundFunc(k, prevB, prevC, prevD) - roundConst(k) - m2[k]
+		a = prevA
+		b = prevB
+		c = prevC
+		d = prevD
+		e = prevE
+	}
+	let in0 = a
+	let in1 = b
+	let in2 = c
+	let in3 = d
+	let in4 = e
+	a = state[0]
+	b = state[1]
+	c = state[2]
+	d = state[3]
+	e = state[4]
+	for t in step..80 {
+		let nextA = rotl32(a, uint32(5)) + roundFunc(t, b, c, d) + e + roundConst(t) + m2[t]
+		e = d
+		d = c
+		c = rotl32(b, uint32(30))
+		b = a
+		a = nextA
+	}
+	[5]uint32{in0 + a, in1 + b, in2 + c, in3 + d, in4 + e}
+}
+
+func detectCollision(ihv [5]uint32, m1 [80]uint32, state58 [5]uint32, state65 [5]uint32) ([5]uint32, bool) {
+	let dvmask = ubcCheck(m1)
+	if dvmask == uint32(0) {
+		return (ihv, false)
+	}
+	for i in 0..32 {
+		let dv = sha1DVs[i]
+		if (dvmask & (uint32(1) << dv.maskb)) != uint32(0) {
+			let mut m2 = [80]uint32{}
+			for j in 0..80 {
+				m2[j] = m1[j] ^ dv.dm[j]
+			}
+			let st = if dv.testt == 58 { state58 } else { state65 }
+			let ihvTmp = recompressStep(dv.testt, m2, st)
+			let diff = (ihvTmp[0] ^ ihv[0]) | (ihvTmp[1] ^ ihv[1]) | (ihvTmp[2] ^ ihv[2]) | (ihvTmp[3] ^ ihv[3]) | (ihvTmp[4] ^ ihv[4])
+			if diff == uint32(0) {
+				let safe1 = compressW(ihv, m1)
+				let safe2 = compressW(safe1, m1)
+				return (safe2, true)
+			}
+		}
+	}
+	(ihv, false)
+}
+
+func processBlock(ihv [5]uint32, block [64]byte, prevColl bool) ([5]uint32, bool) {
+	let (nextIHV, m1, state58, state65) = compressStates(ihv, block)
+	let (checkedIHV, hit) = detectCollision(nextIHV, m1, state58, state65)
+	(checkedIHV, prevColl || hit)
+}
+
+func digestBytes(ihv [5]uint32) [20]byte {
+	let mut out = [20]byte{}
+	for i in 0..5 {
+		let w = ihv[i]
+		let j = i * 4
+		out[j] = byte(w >> uint32(24))
+		out[j+1] = byte(w >> uint32(16))
+		out[j+2] = byte(w >> uint32(8))
+		out[j+3] = byte(w)
+	}
+	out
+}
+
+func digestString(d [20]byte) string {
+	d[:].Text()
+}
+
+// New returns a fresh SHA-1DC Hasher initialized with the standard SHA-1 IV.
+func New() Hasher {
+	Hasher{
+		ihv: [5]uint32{
+			uint32(0x67452301),
+			uint32(0xefcdab89),
+			uint32(0x98badcfe),
+			uint32(0x10325476),
+			uint32(0xc3d2e1f0),
+		},
+		total:          uint64(0),
+		buf:            [64]byte{},
+		bufLen:         0,
+		foundCollision: false,
+	}
+}
+
+// Write absorbs data into h and returns the updated Hasher.
+func Write(h Hasher, data []byte) Hasher {
+	let n = len(data)
+	if n == 0 {
+		return h
+	}
+	let mut ihv = h.ihv
+	let mut buf = h.buf
+	let mut bufLen = h.bufLen
+	let mut found = h.foundCollision
+	let mut pos = 0
+	if bufLen > 0 {
+		let need = 64 - bufLen
+		if n < need {
+			for i in 0..n {
+				buf[bufLen+i] = data[i]
+			}
+			return Hasher{ihv: ihv, total: h.total + uint64(n), buf: buf, bufLen: bufLen + n, foundCollision: found}
+		}
+		for i in 0..need {
+			buf[bufLen+i] = data[i]
+		}
+		let (nextIHV, nextFound) = processBlock(ihv, buf, found)
+		ihv = nextIHV
+		found = nextFound
+		pos = need
+		bufLen = 0
+	}
+	for pos+64 <= n {
+		let mut blk = [64]byte{}
+		for i in 0..64 {
+			blk[i] = data[pos+i]
+		}
+		let (nextIHV, nextFound) = processBlock(ihv, blk, found)
+		ihv = nextIHV
+		found = nextFound
+		pos = pos + 64
+	}
+	let rem = n - pos
+	if rem > 0 {
+		for i in 0..rem {
+			buf[i] = data[pos+i]
+		}
+		bufLen = rem
+	}
+	Hasher{ihv: ihv, total: h.total + uint64(n), buf: buf, bufLen: bufLen, foundCollision: found}
+}
+
+// WriteString absorbs the raw bytes of s into h and returns the updated Hasher.
+func WriteString(h Hasher, s string) Hasher {
+	Write(h, s.Bytes())
+}
+
+// Digest finalizes h without mutating it, returning the 20-byte SHA-1 digest
+// or failing with CollisionDetected (carrying the 20-byte safe-hash digest) if
+// a cryptanalytic SHA-1 collision attack was detected on any block.
+func Digest(h Hasher) [20]byte fails CollisionDetected {
+	let mut ihv = h.ihv
+	let mut buf = h.buf
+	let mut bufLen = h.bufLen
+	let mut found = h.foundCollision
+	buf[bufLen] = byte(0x80)
+	bufLen = bufLen + 1
+	if bufLen > 56 {
+		for i in bufLen..64 {
+			buf[i] = byte(0)
+		}
+		let (nextIHV, nextFound) = processBlock(ihv, buf, found)
+		ihv = nextIHV
+		found = nextFound
+		bufLen = 0
+	}
+	for i in bufLen..56 {
+		buf[i] = byte(0)
+	}
+	let bitLen = h.total << uint64(3)
+	buf[56] = byte(bitLen >> uint64(56))
+	buf[57] = byte(bitLen >> uint64(48))
+	buf[58] = byte(bitLen >> uint64(40))
+	buf[59] = byte(bitLen >> uint64(32))
+	buf[60] = byte(bitLen >> uint64(24))
+	buf[61] = byte(bitLen >> uint64(16))
+	buf[62] = byte(bitLen >> uint64(8))
+	buf[63] = byte(bitLen)
+	let (finalIHV, finalFound) = processBlock(ihv, buf, found)
+	let out = digestBytes(finalIHV)
+	if finalFound {
+		return CollisionDetected{Digest: digestString(out)}
+	}
+	out
+}
+
+// DigestString finalizes h and returns the 20 raw digest bytes as a string.
+func DigestString(h Hasher) string fails CollisionDetected {
+	let d = try Digest(h)
+	digestString(d)
+}
+
+// Sum computes the collision-detecting SHA-1 digest of data in one shot.
+func Sum(data []byte) [20]byte fails CollisionDetected {
+	try Digest(Write(New(), data))
+}
+
+// SumString computes the collision-detecting SHA-1 digest of s (20 raw bytes).
+func SumString(s string) string fails CollisionDetected {
+	try DigestString(WriteString(New(), s))
+}

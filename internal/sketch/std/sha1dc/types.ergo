@@ -1,0 +1,33 @@
+// Package sha1dc implements Marc Stevens & Dan Shumow's collision-detecting
+// SHA-1 (SHA-1DC, MIT License) wholly in pure Ergo with zero Go externs.
+//
+// Every 64-byte block runs the 80-round SHA-1 compression while capturing
+// intermediate states at steps 58 and 65, evaluates the 32 unavoidable
+// bit-condition (UBC) disturbance-vector filters, and recompresses any
+// triggered disturbance vector backward and forward to confirm whether a
+// near-collision / cryptanalytic collision attack is present. When detected,
+// SHA-1DC applies the standard double-recompression safe-hash (matching Git's
+// SHA1DC_INIT_SAFE_HASH_DEFAULT = 1) and fails with CollisionDetected carrying
+// that 20-byte safe-hash digest.
+//
+// Hasher is an immutable value type backed by fixed arrays ([5]uint32 and
+// [64]byte) so block compression stays allocation-free and every law runs both
+// in the check-time evaluator and natively.
+
+// CollisionDetected reports that SHA-1DC detected a cryptanalytic SHA-1
+// collision attack on the hashed stream. Digest carries the 20 raw bytes of
+// the safe-hash digest produced by SHA-1DC double recompression.
+type CollisionDetected {
+	Digest string,
+}
+
+// Hasher holds the incremental state of a collision-detecting SHA-1 computation.
+// Construct with New, feed chunks with Write or WriteString, and finish with
+// Digest or DigestString.
+type Hasher {
+	ihv            [5]uint32,
+	total          uint64,
+	buf            [64]byte,
+	bufLen         int,
+	foundCollision bool,
+}

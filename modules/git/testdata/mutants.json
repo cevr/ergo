@@ -64,6 +64,54 @@
       "killers": [
         "modules/git/oracle:test:OppositeResultsDetectedAndReplayed"
       ]
+    },
+    {
+      "name": "git-oid-omits-nul",
+      "origin": "STD-GIT G-OID",
+      "file": "modules/git/oid/oid.ergo",
+      "from": "\tout = out.Append(byte(0))",
+      "to": "\tlet _ = byte(0)",
+      "rule": "Canonical Git object headers terminate `<kind> <size>` with a NUL byte before payload bytes.",
+      "anchor": {
+        "tests": [
+          "modules/git/oid:HashObjectMatchesGitHashObject"
+        ]
+      },
+      "killers": [
+        "modules/git/oid:HashObjectMatchesGitHashObject"
+      ]
+    },
+    {
+      "name": "git-oid-normalizes-crlf",
+      "origin": "STD-GIT G-OID",
+      "file": "modules/git/oid/oid.ergo",
+      "from": "\tlet payload = content",
+      "to": "\tlet mut payload = []byte{}\n\tfor b in content {\n\t\tif b != byte(13) {\n\t\t\tpayload = payload.Append(b)\n\t\t}\n\t}",
+      "rule": "HashObject hashes raw object payload bytes without CRLF/line-ending conversion.",
+      "anchor": {
+        "tests": [
+          "modules/git/oid:HashObjectMatchesGitHashObject"
+        ]
+      },
+      "killers": [
+        "modules/git/oid:HashObjectMatchesGitHashObject"
+      ]
+    },
+    {
+      "name": "git-oid-accepts-uppercase-hex",
+      "origin": "STD-GIT G-OID",
+      "file": "modules/git/oid/oid.ergo",
+      "from": "\tif b >= byte('a') && b <= byte('f') {\n\t\treturn 10 + int(b-byte('a'))\n\t}",
+      "to": "\tif b >= byte('a') && b <= byte('f') {\n\t\treturn 10 + int(b-byte('a'))\n\t}\n\tif b >= byte('A') && b <= byte('F') {\n\t\treturn 10 + int(b-byte('A'))\n\t}",
+      "rule": "ParseHex enforces strict canonical lowercase hex and rejects uppercase hex digits.",
+      "anchor": {
+        "tests": [
+          "modules/git/oid:HexRoundTrips"
+        ]
+      },
+      "killers": [
+        "modules/git/oid:HexRoundTrips"
+      ]
     }
   ]
 }

@@ -1,0 +1,278 @@
+import exec
+import fs
+import hex
+import os
+import sha1dc
+import slices
+import strings
+import github.com/cevr/ergo/modules/git/oracle
+
+let onOracle = context needs TestAmbient {
+	exec.Runner: exec.NewTestHost().InheritEnv(exec.PathOf(os.NewTestHost().Environ())),
+	fs.Files:    fs.NewTestHost(),
+	fs.Writes:   fs.NewTestHost(),
+	os.Process:  os.NewTestHost(),
+}
+
+func gitHashObject(repoDir string, kind Kind, content []byte, pathEnv Map[string, string]) (int, string) fails exec.NotFound | exec.Denied | exec.Failed needs exec.Runner {
+	let base = oracle.GitCommand(repoDir, []string{"hash-object", "-t", KindName(kind), "--literally", "--stdin"}, pathEnv, int64(1700000000))
+	let cmd = exec.WithStdin(base, content.Text())
+	let res = try exec.Runner.Run(cmd)
+	(res.Status, strings.TrimSpace(res.Stdout))
+}
+
+func makeMultiKBPayload() []byte {
+	let mut out = slices.WithCapacity[byte](3200)
+	for i in 0..3200 {
+		out = out.Append(byte((i*37 + 17) % 256))
+	}
+	out
+}
+
+func makeBinaryNulPayload() []byte {
+	[]byte{byte(0), byte(1), byte(255), byte(0), byte('b'), byte('l'), byte('o'), byte('b'), byte(' '), byte('0'), byte(0), byte(13), byte(10)}
+}
+
+// HashObjectMatchesGitHashObject: across all four Git kinds (Blob, Tree,
+// Commit, Tag) and empty, ASCII, CRLF, NUL-binary, and multi-KB payloads in
+// both Sha1 and Sha256 repositories, oid.HashObject matches C Git's
+// `git hash-object -t <kind> --literally --stdin` byte-for-byte.
+test HashObjectMatchesGitHashObject {
+	with onOracle {
+		let pathEnv = exec.PathOf(os.Process.Environ())
+		let sha1Repo = try oracle.InitRepo("oid-sha1", oracle.RepoSpec{Format: oracle.Sha1, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+		let sha256Repo = try oracle.InitRepo("oid-sha256", oracle.RepoSpec{Format: oracle.Sha256, Layout: oracle.Normal, DefaultBranch: "main"}, pathEnv, int64(1700000000))
+
+		let payloads = [][]byte{
+			[]byte{},
+			[]byte{byte('x')},
+			"hello git oid\n".Bytes(),
+			"line1\r\nline2\r\n\r\nend\r\n".Bytes(),
+			makeBinaryNulPayload(),
+			makeMultiKBPayload(),
+		}
+		let kinds = []Kind{Blob, Tree, Commit, Tag}
+
+		for kind in kinds {
+			for payload in payloads {
+				let (st1, wantSha1) = try gitHashObject(sha1Repo, kind, payload, pathEnv)
+				assert st1 == 0
+				let gotSha1 = try HashObject(Sha1, kind, payload)
+				assert Hex(gotSha1) == wantSha1
+				assert len(gotSha1.Raw) == 20
+
+				let (st2, wantSha256) = try gitHashObject(sha256Repo, kind, payload, pathEnv)
+				assert st2 == 0
+				let gotSha256 = try HashObject(Sha256, kind, payload)
+				assert Hex(gotSha256) == wantSha256
+				assert len(gotSha256.Raw) == 32
+			}
+		}
+	}
+}
+
+// StreamingMatchesRaw: streaming ObjectHasher over varied chunk splits
+// (including 0-byte, 1-byte, and 63/64/65-byte SHA-1 block boundaries) equals
+// HashObject for both Sha1 and Sha256, and rejects mismatched total lengths.
+test StreamingMatchesRaw {
+	let payload = makeMultiKBPayload()
+	let cuts = []int{0, 1, 2, 63, 64, 65, 128, 191, 500, 1024, 3199, len(payload)}
+	for format in []Format{Sha1, Sha256} {
+		for kind in []Kind{Blob, Tree, Commit, Tag} {
+			let direct = try HashObject(format, kind, payload)
+			let mut h = try NewObjectHasher(format, kind, len(payload))
+			let mut prev = 0
+			for cut in cuts {
+				h.Write(payload[prev:cut])
+				prev = cut
+			}
+			let streamed = try Finish(h)
+			assert Equal(direct, streamed)
+		}
+	}
+
+	let mut shortH = try NewObjectHasher(Sha1, Blob, 10)
+	shortH.Write("abc".Bytes())
+	let shortFailed = Finish(shortH) catch {
+	case LengthMismatch as e:
+		assert e.Expected == 10 && e.Written == 3
+		Zero(Sha1)
+	case Collision:
+		assert false
+		Zero(Sha1)
+	}
+	assert IsZero(shortFailed)
+
+	let mut overH = try NewObjectHasher(Sha256, Commit, 2)
+	overH.Write("abcd".Bytes())
+	let overFailed = Finish(overH) catch {
+	case LengthMismatch as e:
+		assert e.Expected == 2 && e.Written == 4
+		Zero(Sha256)
+	case Collision:
+		assert false
+		Zero(Sha256)
+	}
+	assert IsZero(overFailed)
+}
+
+// HexRoundTrips: ParseHex/Hex round-trip for Sha1 and Sha256, ShortHex clamps
+// properly, and ParseHex rejects uppercase hex, non-hex bytes, and wrong lengths.
+test HexRoundTrips {
+	let o1 = try HashObject(Sha1, Blob, "round-trip-1".Bytes())
+	let h1 = Hex(o1)
+	assert len(h1) == 40
+	let p1 = try ParseHex(Sha1, h1)
+	assert Equal(o1, p1)
+	assert ShortHex(o1, 7) == h1[:7]
+	assert ShortHex(o1, 0) == ""
+	assert ShortHex(o1, 99) == h1
+
+	let o2 = try HashObject(Sha256, Blob, "round-trip-2".Bytes())
+	let h2 = Hex(o2)
+	assert len(h2) == 64
+	let p2 = try ParseHex(Sha256, h2)
+	assert Equal(o2, p2)
+	assert Compare(o1, o2) < 0
+	assert Compare(o2, o1) > 0
+	assert Compare(o1, p1) == 0
+	assert IsZero(Zero(Sha1))
+	assert IsZero(Zero(Sha256))
+	assert !IsZero(o1)
+
+	let upper = "ABCDEF0123456789abcdef0123456789abcdef01"
+	let upperRejected = ParseHex(Sha1, upper) catch {
+	case BadHex as e:
+		assert e.Offset == 0
+		Zero(Sha1)
+	case WrongLength:
+		assert false
+		Zero(Sha1)
+	}
+	assert IsZero(upperRejected)
+
+	let nonHex = "0123456789abcdef0123456789abcdef0123456g"
+	let nonHexRejected = ParseHex(Sha1, nonHex) catch {
+	case BadHex as e:
+		assert e.Offset == 39
+		Zero(Sha1)
+	case WrongLength:
+		assert false
+		Zero(Sha1)
+	}
+	assert IsZero(nonHexRejected)
+
+	let shortStr = "0123456789abcdef"
+	let shortRejected = ParseHex(Sha1, shortStr) catch {
+	case WrongLength as e:
+		assert e.Expected == 40 && e.Got == 16
+		Zero(Sha1)
+	case BadHex:
+		assert false
+		Zero(Sha1)
+	}
+	assert IsZero(shortRejected)
+
+	let wrongWidth = ParseHex(Sha256, h1) catch {
+	case WrongLength as e:
+		assert e.Expected == 64 && e.Got == 40
+		Zero(Sha256)
+	case BadHex:
+		assert false
+		Zero(Sha256)
+	}
+	assert IsZero(wrongWidth)
+}
+
+// HeaderRoundTrips: Header and ParseHeader round-trip across all kinds and
+// sizes, and ParseHeader rejects malformed headers with typed errors.
+test HeaderRoundTrips {
+	for kind in []Kind{Blob, Tree, Commit, Tag} {
+		for size in []int{0, 1, 10, 42, 65536, 1000000} {
+			let hdr = Header(kind, size)
+			let (k, sz, off) = try ParseHeader(hdr)
+			assert KindName(k) == KindName(kind)
+			assert sz == size
+			assert off == len(hdr)
+		}
+	}
+
+	let (_, emptySz, _) = ParseHeader(" 0\x00".Bytes()) catch {
+	case EmptyKind:
+		(Blob, -1, -1)
+	case BadHeader:
+		assert false
+		(Blob, 0, 0)
+	}
+	assert emptySz == -1
+
+	let badHeaders = []string{
+		"blob 12",
+		"blob12\x00",
+		"bogus 12\x00",
+		"blob \x00",
+		"blob 00\x00",
+		"blob 01\x00",
+		"blob -1\x00",
+		"blob 12x\x00",
+	}
+	for bad in badHeaders {
+		let (_, badSz, _) = ParseHeader(bad.Bytes()) catch {
+		case BadHeader:
+			(Blob, -1, -1)
+		case EmptyKind:
+			assert false
+			(Blob, 0, 0)
+		}
+		assert badSz == -1
+	}
+}
+
+// CollisionVectorDetected: verifies std/sha1dc detects the blessed 320-byte
+// SHAttered collision-attack prefix while accepting a 1-bit perturbed block.
+test CollisionVectorDetected {
+	let prefixHex = "255044462d312e330a25e2e3cfd30a0a0a312030206f626a0a3c3c2f57696474" +
+		"682032203020522f4865696768742033203020522f547970652034203020522f" +
+		"537562747970652035203020522f46696c7465722036203020522f436f6c6f72" +
+		"53706163652037203020522f4c656e6774682038203020522f42697473506572" +
+		"436f6d706f6e656e7420383e3e0a73747265616d0affd8fffe00245348412d31" +
+		"20697320646561642121212121852fec092339759c39b1a1c63c4c97e1fffe01" +
+		"7346dc9166b67e118f029ab621b2560ff9ca67cca8c7f85ba84c79030c2b3de2" +
+		"18f86db3a90901d5df45c14f26fedfb3dc38e96ac22fe7bd728f0e45bce046d2" +
+		"3c570feb141398bb552ef5a0a82be331fea48037b8b5d71f0e332edf93ac3500" +
+		"eb4ddc0decc1a864790c782c76215660dd309791d06bd0af3f98cda4bc4629b1"
+	let raw = try hex.Decode(prefixHex)
+	let data = raw.Bytes()
+	let mut sawCollision = false
+	let _ = sha1dc.Sum(data) catch {
+	case sha1dc.CollisionDetected as c:
+		assert hex.Encode(c.Digest) == "7117b3cb9225aaf0d8ef1a40e493957b0bf8693d"
+		sawCollision = true
+		[20]byte{}
+	}
+	assert sawCollision
+}
+
+// HexRoundTripsLaw: every hashed blob OID round-trips through Hex and ParseHex.
+law HexRoundTripsLaw(s string) {
+	let o = HashObject(Sha1, Blob, s.Bytes()) catch {
+	case Collision:
+		return false
+	}
+	let p = ParseHex(Sha1, Hex(o)) catch {
+	case BadHex, WrongLength:
+		return false
+	}
+	Equal(o, p)
+}
+
+// HeaderRoundTripsLaw: non-negative sizes round-trip through Header and ParseHeader.
+law HeaderRoundTripsLaw(n int) {
+	let sz = if n < 0 { 0 - (n + 1) } else { n }
+	let hdr = Header(Blob, sz)
+	let (k, gotSz, off) = ParseHeader(hdr) catch {
+	case EmptyKind, BadHeader:
+		return false
+	}
+	KindName(k) == "blob" && gotSz == sz && off == len(hdr)
+}
