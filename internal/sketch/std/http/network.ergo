@@ -151,19 +151,47 @@ func rejectsLoopbackStream(r URLRequest, origin string) bool needs loopbackNetwo
 	false
 }
 
-test RedirectOutsideLoopbackIsDenied {
-	with try onTestNetwork {
+type loopbackRedirectCheck {
+	DeniedRedirect() bool,
+	law RedirectOutsideLoopbackIsDenied() {
+		loopbackRedirectCheck.DeniedRedirect()
+	},
+}
+
+type redirectVerdict { denied bool } implements loopbackRedirectCheck
+
+func DeniedRedirect(v redirectVerdict) bool { v.denied }
+
+func checkRedirectOutsideLoopback() redirectVerdict fails InvalidClient | InvalidLimits needs TestLoopback {
+	let testNet = try NewTestNet(loopbackLimits(), Follow{MaxHops: 2})
+	let hostNet = net.NewTestHost()
+	let denied = with context {
+		loopbackNetwork: testNet,
+		net.Network:     hostNet,
+		Scheduler:       time.NewManual(0),
+	} {
 		let outside = "http://localhost:0"
-		let l = try net.Network.Listen("127.0.0.1:0")
+		let l = net.Network.Listen("127.0.0.1:0") catch {
+		case net.ListenFailed, net.Denied:
+			return redirectVerdict{denied: false}
+		}
 		let url = "http://" + l.Addr()
 		let server = task.Go() {
-			try Serve(l, loopbackLimits(), func(_ Request) Response {
+			Serve(l, loopbackLimits(), func(_ Request) Response {
 				Response{Status: 302, Header: []Field{Field{Name: "Location", Value: outside}}, Body: ""}
-			})
+			}) catch {
+			case InvalidLimits:
+			}
 		}
-		assert rejectsLoopbackRequest(url, outside)
+		let ok = rejectsLoopbackRequest(url, outside)
 		server.Stop()
+		ok
 	}
+	redirectVerdict{denied: denied}
+}
+
+let onTestRedirect = context fails InvalidClient | InvalidLimits needs TestLoopback {
+	loopbackRedirectCheck: try checkRedirectOutsideLoopback(),
 }
 
 // netPolicy is the checked policy of NewNet and InMemoryNetwork.

@@ -174,6 +174,41 @@ func registerNativesnet(t nativeTables) {
 		}
 		return in.netSend(fr, at, fn, args)
 	}
+	t.reads["net.loopbackAddress"] = "string"
+	natives["net.loopbackAddress"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		if ab := in.charge(fr, at, 1); ab != nil {
+			return nil, ab
+		}
+		return evalLoopbackAddress(args[0].(string)), nil
+	}
+}
+
+// evalLiteralLoopback mirrors runtime/v1/net.LiteralLoopback without importing
+// runtime/v1 from the evaluator.
+func evalLiteralLoopback(host string) bool { return host == "127.0.0.1" || host == "::1" }
+
+// evalLoopbackAddress mirrors runtime/v1/net.LoopbackAddress without importing
+// runtime/v1 from the evaluator.
+func evalLoopbackAddress(addr string) bool {
+	host, port, found := strings.Cut(addr, ":")
+	if strings.HasPrefix(addr, "[") {
+		host, port, found = strings.Cut(addr[1:], "]:")
+		if host != "::1" {
+			return false
+		}
+	} else if host != "127.0.0.1" {
+		return false
+	}
+	if !found || port == "" {
+		return false
+	}
+	for i := range len(port) {
+		if port[i] < '0' || port[i] > '9' {
+			return false
+		}
+	}
+	_, err := strconv.ParseUint(port, 10, 16)
+	return err == nil
 }
 
 // netFields is fields as a []http.Field.

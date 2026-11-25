@@ -698,11 +698,11 @@ func (l *lowerer) layoutOf(t check.Type, path map[*check.TypeName]bool, depth in
 		switch {
 		case obj.Pkg == nil || obj.Pkg.Host():
 			return goLayout{}, nil, false
-		case obj.Pkg.Prelude() && (l.flatSet[obj] != nil && l.flatSet[obj].generic || l.genericVariant(obj)):
-			// A generic flat union of the prelude (Option, Decision) or
+		case l.flatSet[obj] != nil && l.flatSet[obj].generic || l.genericVariant(obj):
+			// A generic flat union of the prelude or std/option (Option, Decision) or
 			// one of its variants (Some[T]): the general rule lays it out
 			// below, as a union of the program's own.
-		case obj.Pkg.Prelude() && l.flatSet[obj] == nil && declaredUnion(u):
+		case (obj.Pkg.Prelude() || obj.Pkg.Path == "option") && l.flatSet[obj] == nil && declaredUnion(u):
 			return goLayout{size: 16, align: 8, ssa: true}, nil, true // an interface
 		case !l.unionSourced(obj.Pkg):
 			return goLayout{}, nil, false

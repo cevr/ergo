@@ -156,9 +156,9 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 		return answer(method, path, rawPath, query, header, body)
 	}
 	// The generator reaches the two answers net/http decides that a model
-	// would most easily miss: a header over its budget, and a status the
-	// server refuses on a kept-alive connection, which the client retries.
-	sawHeaderBudget, sawRetry := false, false
+	// would most easily miss: a header over its budget, and reusing a
+	// kept-alive connection left by a warm exchange.
+	sawHeaderBudget, sawWarm := false, false
 	seeds := make([]uint64, 1000)
 	for i := range seeds {
 		seeds[i] = uint64(i + 1)
@@ -287,10 +287,10 @@ func TestHTTPLocalMatchesLoopback(t *testing.T) {
 			t.Fatalf("seed %d (replay ERGO_HTTP_LOCAL_SEED=%d go test -run TestHTTPLocalMatchesLoopback ./runtime/v1):\ncase     %+v\nloopback %+v\nlocal    %+v", seed, seed, c, want, got)
 		}
 		sawHeaderBudget = sawHeaderBudget || c.limits.MaxHeaderBytes != c.limits.MaxBodyBytes && want.Failure == fmt.Sprintf("TooLarge %d", c.limits.MaxHeaderBytes)
-		sawRetry = sawRetry || !c.redirect && len(want.Arrivals) == 2
+		sawWarm = sawWarm || !c.redirect && c.warm
 	}
-	if len(seeds) > 1 && (!sawHeaderBudget || !sawRetry) {
-		t.Fatalf("the cases never reached a header over its budget (%v) or a retried request (%v)", sawHeaderBudget, sawRetry)
+	if len(seeds) > 1 && (!sawHeaderBudget || !sawWarm) {
+		t.Fatalf("the cases never reached a header over its budget (%v) or a warm keep-alive reuse (%v)", sawHeaderBudget, sawWarm)
 	}
 }
 
@@ -327,7 +327,10 @@ func localCaseOf(r *rand.Rand) localCase {
 	}
 	c := localCase{
 		method: []string{"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"}[r.IntN(7)],
-		status: []int{200, 201, 202, 204, 206, 299, 301, 302, 303, 304, 307, 308, 400, 401, 404, 418, 500, 503, 599, 103, 100, 101, 0, 42, 1000}[r.IntN(25)],
+		// Valid HTTP status codes only (100..999): invalid buffered statuses
+		// (<100 or >999) are now Serve request defects that terminate Serve
+		// (docs/spec/stdlib.md; TestHTTPBufferedResponseDefect).
+		status: []int{200, 201, 202, 204, 206, 299, 301, 302, 303, 304, 307, 308, 400, 401, 404, 418, 500, 503, 599, 103, 100, 101}[r.IntN(22)],
 		hops:   r.IntN(4) - 1,
 		into:   r.IntN(2) == 0,
 	}

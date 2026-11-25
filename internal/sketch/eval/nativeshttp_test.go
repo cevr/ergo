@@ -149,7 +149,7 @@ func TestHTTPPolicyAgreesWithRuntime(t *testing.T) {
 			ownerTexts, credValues = append(ownerTexts, owners[i]), append(credValues, field(creds[i]))
 		}
 		header := []v1http.HTTPField{{Name: name, Value: value}}
-		got = call("http.fetch", newSlice(nil), false, limits, hops, method, raw, newSlice([]Value{field(header[0])}), newSlice(ownerTexts), newSlice(credValues), "")
+		got = call("http.fetch", newSlice(nil), false, false, limits, hops, method, raw, newSlice([]Value{field(header[0])}), newSlice(ownerTexts), newSlice(credValues), "")
 		want = runtime(func() any {
 			_, err := v1http.HTTPFetch(rt.Root("eval http policy"), nil, false, v1http.HTTPLimits{MaxBodyBytes: 1, MaxHeaderBytes: 1, IdleTimeout: 1, ReadHeaderTimeout: 1, ReadBodyTimeout: 1}, int(hops), method, raw, header, owners, creds, "")
 			return err

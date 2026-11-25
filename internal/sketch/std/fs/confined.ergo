@@ -48,6 +48,9 @@ let onTestRoot = context fails NotFound | Denied | Failed needs TestAmbient {
 
 type rootOpeningCheck {
 	DeniedOutside() bool,
+	law OpeningIsConfined() {
+		rootOpeningCheck.DeniedOutside()
+	},
 }
 
 type openingVerdict { denied bool } implements rootOpeningCheck
@@ -64,21 +67,14 @@ func openingDenied(folder TestDirectory, path string) bool needs TestAmbient {
 	false
 }
 
-func checkOutsideOpening() openingVerdict fails NotFound | Denied | Failed needs TestAmbient {
+func checkOutsideOpening() openingVerdict fails NotFound | Denied | Failed | Escapes needs TestAmbient {
 	let folder = TestRootFolder()
+	let inside = try OpenTestRoot(folder, ".")
+	let empty = len(try inside.ReadDir(".")) == 0
 	try Symlink(NewTestHost(), "..", "to-parent")
-	openingVerdict{denied: openingDenied(folder, "..") && openingDenied(folder, "to-parent") && openingDenied(folder, TestFolder())}
+	openingVerdict{denied: empty && openingDenied(folder, "..") && openingDenied(folder, "to-parent") && openingDenied(folder, TestFolder())}
 }
 
-let outsideTestRoot = context fails NotFound | Denied | Failed needs TestAmbient {
+let outsideTestRoot = context fails NotFound | Denied | Failed | Escapes needs TestAmbient {
 	rootOpeningCheck: try checkOutsideOpening(),
-}
-
-test TestRootOpeningIsConfined {
-	with try onTestRoot {
-		assert len(try Root.ReadDir(".")) == 0
-	}
-	with try outsideTestRoot {
-		assert rootOpeningCheck.DeniedOutside()
-	}
 }

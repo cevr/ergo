@@ -203,6 +203,8 @@ law DrainReleasesLeft(n int) {
 // is a defect.
 extern go ergo.local/prototype/runtime/v1.New func New[T own](capacity int) Queue[T]
 
+// OpenQueue is a queue of T that never closes.
+// law-exempt: sealed by runtimeOnly and created only by NewOpen; OpenFirstInFirstOut and OpenOfferRespectsCapacity hold its FIFO and capacity rules.
 extern go ergo.local/prototype/runtime/v1.OpenQueue type OpenQueue[T] {
 	runtimeOnly(),
 	Push(v T),
