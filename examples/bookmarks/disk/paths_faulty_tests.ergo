@@ -1,0 +1,263 @@
+import bookmarks/shelf
+import explore
+import fs
+import fstest
+import gen
+import sync
+import testing
+
+type bmState {
+	HasA bool,
+	HasB bool,
+}
+
+type bmAct =
+	| BmActAddA{}
+	| BmActAddB{}
+	| BmActListTagA{}
+	| BmActReopen{}
+
+type bmOut =
+	| BmOutOk{Count int}
+	| BmOutDup{}
+
+type bmObs {
+	HasA  bool,
+	HasB  bool,
+	Count int,
+}
+
+type bmOpenErr { Message string }
+
+type bmDriveErr { Message string }
+
+type bmSession {
+	disk fstest.Memory,
+} implements explore.PathSession[bmAct, explore.Observed[bmObs, bmOut, Never], bmDriveErr]
+
+let bmDir = "/data"
+let bmPath = "/data/bookmarks.tsv"
+
+func readBmShelf(m fstest.Memory) []shelf.Bookmark fails bmDriveErr {
+	with context { fs.Files: m } { Read(bmPath) } catch {
+	case Broken as e:
+		return bmDriveErr{Message: e.Reason}
+	}
+}
+
+func writeBmShelf(m fstest.Memory, marks []shelf.Bookmark) fails bmDriveErr {
+	with context { fs.Writes: m } { Write(bmDir, bmPath, marks) } catch {
+	case Broken as e:
+		return bmDriveErr{Message: e.Reason}
+	}
+}
+
+func observeBm(m fstest.Memory) bmObs fails bmDriveErr {
+	let marks = try readBmShelf(m)
+	let mut hasA = false
+	let mut hasB = false
+	for mk in marks {
+		if mk.URL == "https://a.example" {
+			hasA = true
+		} else if mk.URL == "https://b.example" {
+			hasB = true
+		}
+	}
+	bmObs{HasA: hasA, HasB: hasB, Count: len(marks)}
+}
+
+func applyBmAct(m fstest.Memory, act bmAct) bmOut fails bmDriveErr {
+	let cur = try readBmShelf(m)
+	match act {
+	case BmActAddA:
+		let next = shelf.Add(cur, shelf.Bookmark{URL: "https://a.example", Title: "Alpha", Tags: []string{"Go", "Web"}}) catch {
+		case shelf.Duplicate:
+			return BmOutDup
+		case shelf.NotAWebAddress, shelf.BadTag:
+			return bmDriveErr{Message: "unexpected add error"}
+		}
+		try writeBmShelf(m, next)
+		BmOutOk{Count: len(next)}
+	case BmActAddB:
+		let next = shelf.Add(cur, shelf.Bookmark{URL: "https://b.example", Title: "Beta", Tags: []string{"web"}}) catch {
+		case shelf.Duplicate:
+			return BmOutDup
+		case shelf.NotAWebAddress, shelf.BadTag:
+			return bmDriveErr{Message: "unexpected add error"}
+		}
+		try writeBmShelf(m, next)
+		BmOutOk{Count: len(next)}
+	case BmActListTagA:
+		let got = shelf.List(cur, shelf.Query{Tag: Some[string]{Value: "go"}, Limit: 10})
+		BmOutOk{Count: len(got)}
+	case BmActReopen:
+		let again = try readBmShelf(m)
+		BmOutOk{Count: len(again)}
+	}
+}
+
+func Read(s bmSession) explore.Observed[bmObs, bmOut, Never] fails bmDriveErr {
+	explore.InitialRead[bmObs]{State: try observeBm(s.disk)}
+}
+
+func Apply(s bmSession, act bmAct) explore.Observed[bmObs, bmOut, Never] fails bmDriveErr {
+	let out = try applyBmAct(s.disk, act)
+	let obs = try observeBm(s.disk)
+	explore.StepResult[bmObs, bmOut, Never]{
+		Step: explore.StepObs[bmObs, bmOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[bmObs]{Value: obs},
+			Outputs:  []bmOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s bmSession) {
+	let _ = s
+}
+
+func bmProject(st bmState) bmObs {
+	let mut n = 0
+	if st.HasA {
+		n = n + 1
+	}
+	if st.HasB {
+		n = n + 1
+	}
+	bmObs{HasA: st.HasA, HasB: st.HasB, Count: n}
+}
+
+let bmSignals = []bmAct{
+	BmActAddA,
+	BmActAddB,
+	BmActListTagA,
+	BmActReopen,
+}
+
+func bmStep(st bmState, act bmAct) (bmState, bmOut) {
+	let count = (if st.HasA { 1 } else { 0 }) + (if st.HasB { 1 } else { 0 })
+	match act {
+	case BmActAddA:
+		if st.HasA {
+			(st, BmOutDup)
+		} else {
+			(bmState{..st, HasA: true}, BmOutOk{Count: count + 1})
+		}
+	case BmActAddB:
+		if st.HasB {
+			(st, BmOutDup)
+		} else {
+			(bmState{..st, HasB: true}, BmOutOk{Count: count + 1})
+		}
+	case BmActListTagA:
+		(st, BmOutOk{Count: if st.HasA { 1 } else { 0 }})
+	case BmActReopen:
+		(st, BmOutOk{Count: count})
+	}
+}
+
+func bmModel() explore.PathModel[bmState, bmAct, bmObs, bmOut, Never] {
+	explore.PathModelProjected[bmState, bmAct, bmObs, bmOut, Never](
+		[]bmState{bmState{HasA: false, HasB: false}},
+		bmSignals,
+		"bookmarks.disk",
+		bmProject,
+		func(st bmState, act bmAct) explore.EdgeOutcome[bmState, explore.StepObs[bmObs, bmOut, Never]] {
+			let (next, out) = bmStep(st, act)
+			explore.Continue[bmState, explore.StepObs[bmObs, bmOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[bmObs, bmOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[bmObs]{Value: bmProject(next)},
+					Outputs:  []bmOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// BookmarksDiskPaths drives fresh bookmarks/disk sessions over fstest.Memory.
+type BookmarksDiskPaths {
+	OpenSession(start bmState) bmSession fails bmOpenErr,
+
+	// PathsAgree verifies add, duplicate refusal, tag listing, and disk reopen paths.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			bmModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start bmState) explore.PathSession[bmAct, explore.Observed[bmObs, bmOut, Never], bmDriveErr] fails bmOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memBmPaths {} implements BookmarksDiskPaths
+
+func OpenSession(_ memBmPaths, start bmState) bmSession fails bmOpenErr {
+	let _ = start
+	bmSession{disk: fstest.NewMemory()}
+}
+
+func tryDiskWrite(marks []shelf.Bookmark) bool needs fs.Writes {
+	Write(bmDir, bmPath, marks) catch {
+	case Broken:
+		return false
+	}
+	true
+}
+
+// BookmarksDiskWriteFaultsFailClosed wraps fs.Writes in testing.Faulty and
+// verifies injected MkdirAll/WriteFile faults surface cleanly as disk.Broken
+// while preserving previously saved bookmarks on disk.
+law BookmarksDiskWriteFaultsFailClosed() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 64, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
+	let sawSuccess = sync.NewRef(false)
+	let sawFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let disk = fstest.NewMemory()
+		let initial = []shelf.Bookmark{shelf.Bookmark{URL: "https://seed.example", Title: "Seed", Tags: []string{"base"}}}
+		let seeded = with context { fs.Writes: disk } { tryDiskWrite(initial) }
+		if !seeded {
+			return false
+		}
+		let faulty = testing.Faulty[fs.Writes](disk)
+		let m0 = len(faulty.MkdirAll.Faults())
+		let w0 = len(faulty.WriteFile.Faults())
+		let updated = initial.Append(shelf.Bookmark{URL: "https://next.example", Title: "Next", Tags: []string{"new"}})
+		let wrote = with context { fs.Writes: faulty } { tryDiskWrite(updated) }
+		let faulted = len(faulty.MkdirAll.Faults()) > m0 || len(faulty.WriteFile.Faults()) > w0
+		let onDisk = with context { fs.Files: disk } { Read(bmPath) } catch {
+		case Broken:
+			return false
+		}
+		if faulted {
+			sawFault.Set(true)
+			return !wrote && len(onDisk) == 1 && onDisk[0].URL == "https://seed.example"
+		}
+		if !wrote {
+			return false
+		}
+		sawSuccess.Set(true)
+		len(onDisk) == 2 && onDisk[1].URL == "https://next.example"
+	})
+	match outcome {
+	case gen.Held:
+		sawSuccess.Get() && sawFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

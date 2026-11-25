@@ -1,0 +1,274 @@
+import backups/backup
+import explore
+import gen
+import temporal
+import testing
+
+type bkState {
+	Status int,
+	Hist   int,
+}
+
+type bkAct =
+	| BkActPlan{}
+	| BkActStoreGood{}
+	| BkActStoreWrong{}
+	| BkActVerify{}
+	| BkActAbort{}
+
+type bkOut =
+	| BkOutOk{Added int}
+	| BkOutAlreadyPlanned{}
+	| BkOutUnknown{}
+	| BkOutWrongSize{}
+	| BkOutNotAllowed{}
+
+type bkObs {
+	Status       int,
+	Hist         int,
+	ReplayAgrees bool,
+}
+
+type bkOpenErr { Message string }
+
+type bkDriveErr { Message string }
+
+type bkSession { log Log } implements explore.PathSession[bkAct, explore.Observed[bkObs, bkOut, Never], bkDriveErr]
+
+func bkStatusCode(s backup.State) int {
+	match s {
+	case backup.Absent:
+		0
+	case backup.Open:
+		1
+	case backup.Held:
+		2
+	case backup.Sound:
+		3
+	case backup.Void:
+		4
+	}
+}
+
+func bkCmdOf(act bkAct) backup.Command {
+	match act {
+	case BkActPlan:
+		backup.Plan{Backup: "b1", Host: "db-1", Files: []backup.File{backup.File{Path: "db.dump", Count: 1, Size: 50}}}
+	case BkActStoreGood:
+		backup.Store{Backup: "b1", Size: 50}
+	case BkActStoreWrong:
+		backup.Store{Backup: "b1", Size: 10}
+	case BkActVerify:
+		backup.Verify{Backup: "b1"}
+	case BkActAbort:
+		backup.Abort{Backup: "b1", Reason: "stop"}
+	}
+}
+
+func readBkObs(l Log) bkObs {
+	let cur = l.Current("b1")
+	let hist = l.History("b1")
+	bkObs{
+		Status:       bkStatusCode(cur),
+		Hist:         len(hist),
+		ReplayAgrees: backup.Replay(hist) == cur,
+	}
+}
+
+func applyBkAct(l Log, act bkAct) bkOut {
+	let evs = l.Send(bkCmdOf(act)) catch {
+	case backup.AlreadyPlanned:
+		return BkOutAlreadyPlanned
+	case backup.UnknownBackup:
+		return BkOutUnknown
+	case backup.WrongSize:
+		return BkOutWrongSize
+	case backup.NotAllowed, backup.InvalidFile:
+		return BkOutNotAllowed
+	}
+	BkOutOk{Added: len(evs)}
+}
+
+func Read(s bkSession) explore.Observed[bkObs, bkOut, Never] fails bkDriveErr {
+	explore.InitialRead[bkObs]{State: readBkObs(s.log)}
+}
+
+func Apply(s bkSession, act bkAct) explore.Observed[bkObs, bkOut, Never] fails bkDriveErr {
+	let out = applyBkAct(s.log, act)
+	let obs = readBkObs(s.log)
+	explore.StepResult[bkObs, bkOut, Never]{
+		Step: explore.StepObs[bkObs, bkOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[bkObs]{Value: obs},
+			Outputs:  []bkOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s bkSession) {
+	let _ = s
+}
+
+func bkProject(st bkState) bkObs {
+	bkObs{Status: st.Status, Hist: st.Hist, ReplayAgrees: true}
+}
+
+let bkSignals = []bkAct{
+	BkActPlan,
+	BkActStoreGood,
+	BkActStoreWrong,
+	BkActVerify,
+	BkActAbort,
+}
+
+func bkStep(st bkState, act bkAct) (bkState, bkOut) {
+	match act {
+	case BkActPlan:
+		if st.Status == 0 {
+			(bkState{Status: 1, Hist: st.Hist + 2}, BkOutOk{Added: 2})
+		} else {
+			(st, BkOutAlreadyPlanned)
+		}
+	case BkActStoreGood:
+		if st.Status == 0 {
+			(st, BkOutUnknown)
+		} else if st.Status == 1 {
+			(bkState{Status: 2, Hist: st.Hist + 1}, BkOutOk{Added: 1})
+		} else {
+			(st, BkOutNotAllowed)
+		}
+	case BkActStoreWrong:
+		if st.Status == 0 {
+			(st, BkOutUnknown)
+		} else if st.Status == 1 {
+			(st, BkOutWrongSize)
+		} else {
+			(st, BkOutNotAllowed)
+		}
+	case BkActVerify:
+		if st.Status == 0 {
+			(st, BkOutUnknown)
+		} else if st.Status == 2 {
+			(bkState{Status: 3, Hist: st.Hist + 1}, BkOutOk{Added: 1})
+		} else {
+			(st, BkOutNotAllowed)
+		}
+	case BkActAbort:
+		if st.Status == 0 {
+			(st, BkOutUnknown)
+		} else if st.Status == 1 || st.Status == 2 {
+			(bkState{Status: 4, Hist: st.Hist + 1}, BkOutOk{Added: 1})
+		} else {
+			(st, BkOutNotAllowed)
+		}
+	}
+}
+
+func bkModel() explore.PathModel[bkState, bkAct, bkObs, bkOut, Never] {
+	explore.PathModelProjected[bkState, bkAct, bkObs, bkOut, Never](
+		[]bkState{bkState{Status: 0, Hist: 0}},
+		bkSignals,
+		"backups.log",
+		bkProject,
+		func(st bkState, act bkAct) explore.EdgeOutcome[bkState, explore.StepObs[bkObs, bkOut, Never]] {
+			let (next, out) = bkStep(st, act)
+			explore.Continue[bkState, explore.StepObs[bkObs, bkOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[bkObs, bkOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[bkObs]{Value: bkProject(next)},
+					Outputs:  []bkOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// BackupLogPaths drives fresh backup memory.Log sessions for path exploration.
+type BackupLogPaths {
+	OpenSession(start bkState) bkSession fails bkOpenErr,
+
+	// PathsAgree verifies all reachable Plan/Store/Verify/Abort paths up to depth 3.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			bkModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start bkState) explore.PathSession[bkAct, explore.Observed[bkObs, bkOut, Never], bkDriveErr] fails bkOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memBackupLogPaths {} implements BackupLogPaths
+
+func OpenSession(_ memBackupLogPaths, start bkState) bkSession fails bkOpenErr {
+	let _ = start
+	bkSession{log: NewLog()}
+}
+
+type bkModelStage { log Log } implements testing.Stage[bkAct, bkObs]
+
+func Do(st bkModelStage, act bkAct) fails testing.Refused {
+	let _ = applyBkAct(st.log, act)
+}
+
+func Advance(st bkModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st bkModelStage) {
+	let _ = st
+}
+
+func Show(st bkModelStage) bkObs {
+	readBkObs(st.log)
+}
+
+// BackupLogModelTemporal proves backup memory.Log agrees with the lifecycle model
+// and satisfies Always(replayEqualsCurrent) and Always(terminal -> Always(terminal)).
+law BackupLogModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let m = testing.Model[bkState, bkAct, bkObs]{
+			Start: bkState{Status: 0, Hist: 0},
+			Offer: func(st bkState) bkAct needs gen.Draws {
+				let _ = st
+				gen.OneOf(bkSignals)
+			},
+			Step: func(st bkState, act bkAct) (bkState, bkObs) {
+				let (next, _) = bkStep(st, act)
+				(next, bkProject(next))
+			},
+		}
+		let isTerm = temporal.Named("terminal", func(v bkObs) bool { v.Status == 3 || v.Status == 4 })
+		let formulas = []temporal.Formula[bkObs]{
+			temporal.Always(temporal.Named("replay-agrees", func(v bkObs) bool { v.ReplayAgrees })),
+			temporal.Always(temporal.Implies(isTerm, temporal.Always(isTerm))),
+		}
+		testing.AgreesAnd(m, bkModelStage{log: NewLog()}, 10, formulas) catch {
+		case testing.Diverged[bkAct, bkObs], testing.TemporalBreach[bkAct, bkObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

@@ -1,0 +1,403 @@
+import adventure/world
+import exp explore
+import gen
+import machines
+import sync
+import temporal
+import testing
+import time
+
+type advState {
+	At     string,
+	Lamp   string,
+	Key    string,
+	Asking bool,
+	Ended  string,
+}
+
+type advAct =
+	| AdvNorth{}
+	| AdvSouth{}
+	| AdvEast{}
+	| AdvWest{}
+	| AdvDown{}
+	| AdvUp{}
+	| AdvTakeLamp{}
+	| AdvDropLamp{}
+	| AdvTakeKey{}
+	| AdvQuit{}
+	| AdvCancelQuit{}
+	| AdvConfirmQuit{}
+	| AdvEnd{}
+
+type advOut =
+	| AdvOutMoved{}
+	| AdvOutStayed{}
+	| AdvOutBarred{}
+	| AdvOutNoExit{}
+	| AdvOutNotHere{}
+	| AdvOutNotCarried{}
+	| AdvOutWon{}
+	| AdvOutStopped{}
+	| AdvOutAlreadyEnded{}
+
+type advObs {
+	At     string,
+	Lamp   string,
+	Key    string,
+	Asking bool,
+	Ended  string,
+	Kept   bool,
+}
+
+type advOpenErr { Message string }
+
+type advDriveErr { Message string }
+
+type advLive {
+	State State,
+	Ended string,
+}
+
+type advSession {
+	live sync.Ref[advLive],
+} implements exp.PathSession[advAct, exp.Observed[advObs, advOut, Never], advDriveErr]
+
+func advLineOf(act advAct) Signal {
+	match act {
+	case AdvNorth:
+		Said{Line: "go north"}
+	case AdvSouth:
+		Said{Line: "go south"}
+	case AdvEast:
+		Said{Line: "go east"}
+	case AdvWest:
+		Said{Line: "go west"}
+	case AdvDown:
+		Said{Line: "go down"}
+	case AdvUp:
+		Said{Line: "go up"}
+	case AdvTakeLamp:
+		Said{Line: "take lamp"}
+	case AdvDropLamp:
+		Said{Line: "drop lamp"}
+	case AdvTakeKey:
+		Said{Line: "take key"}
+	case AdvQuit:
+		Said{Line: "quit"}
+	case AdvCancelQuit:
+		Said{Line: "no"}
+	case AdvConfirmQuit:
+		Said{Line: "yes"}
+	case AdvEnd:
+		Ended
+	}
+}
+
+func observeAdv(cur advLive) advObs {
+	let g = GameOf(cur.State)
+	let asking = match cur.State {
+	case Asking:
+		true
+	case Exploring:
+		false
+	}
+	advObs{
+		At:     g.At,
+		Lamp:   Where(g, "lamp"),
+		Key:    Where(g, "key"),
+		Asking: asking,
+		Ended:  cur.Ended,
+		Kept:   Kept(g),
+	}
+}
+
+func applyAdvLive(ref sync.Ref[advLive], act advAct) advOut {
+	let cur = ref.Get()
+	if cur.Ended != "" {
+		return AdvOutAlreadyEnded
+	}
+	let d = Step(cur.State, advLineOf(act)) catch {
+	case Barred:
+		return AdvOutBarred
+	case NoExit:
+		return AdvOutNoExit
+	case NotHere:
+		return AdvOutNotHere
+	case NotCarried:
+		return AdvOutNotCarried
+	case Unknown, Missing, NoWay:
+		return AdvOutNoExit
+	}
+	match d {
+	case Enter[State] as e:
+		ref.Set(advLive{State: e.Next, Ended: ""})
+		AdvOutMoved
+	case Stay[State] as st:
+		ref.Set(advLive{State: st.Next, Ended: ""})
+		AdvOutStayed
+	case Done[Ending] as done:
+		match done.Output {
+		case Won:
+			ref.Set(advLive{State: cur.State, Ended: "won"})
+			AdvOutWon
+		case Stopped:
+			ref.Set(advLive{State: cur.State, Ended: "stopped"})
+			AdvOutStopped
+		}
+	case Emit[State, Ending], Tell[State, Ending], Ignore, Reject:
+		AdvOutStayed
+	}
+}
+
+func Read(s advSession) exp.Observed[advObs, advOut, Never] fails advDriveErr {
+	exp.InitialRead[advObs]{State: observeAdv(s.live.Get())}
+}
+
+func Apply(s advSession, act advAct) exp.Observed[advObs, advOut, Never] fails advDriveErr {
+	let out = applyAdvLive(s.live, act)
+	let obs = observeAdv(s.live.Get())
+	exp.StepResult[advObs, advOut, Never]{
+		Step: exp.StepObs[advObs, advOut, Never]{
+			Kind:     exp.DisEmit,
+			State:    Some[advObs]{Value: obs},
+			Outputs:  []advOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s advSession) {
+	let _ = s
+}
+
+func advProject(st advState) advObs {
+	advObs{
+		At:     st.At,
+		Lamp:   st.Lamp,
+		Key:    st.Key,
+		Asking: st.Asking,
+		Ended:  st.Ended,
+		Kept:   true,
+	}
+}
+
+let advSignals = []advAct{
+	AdvNorth,
+	AdvSouth,
+	AdvEast,
+	AdvWest,
+	AdvDown,
+	AdvUp,
+	AdvTakeLamp,
+	AdvDropLamp,
+	AdvTakeKey,
+	AdvQuit,
+	AdvCancelQuit,
+	AdvConfirmQuit,
+	AdvEnd,
+}
+
+func advStep(st advState, act advAct) (advState, advOut) {
+	if st.Ended != "" {
+		return (st, AdvOutAlreadyEnded)
+	}
+	match act {
+	case AdvEnd:
+		return (advState{..st, Ended: "stopped"}, AdvOutStopped)
+	case _:
+	}
+	if st.Asking {
+		match act {
+		case AdvConfirmQuit:
+			return (advState{..st, Ended: "stopped"}, AdvOutStopped)
+		case _:
+			return (advState{..st, Asking: false}, AdvOutMoved)
+		}
+	}
+	match act {
+	case AdvNorth:
+		if st.At == "gate" {
+			(advState{..st, At: "hall"}, AdvOutMoved)
+		} else {
+			(st, AdvOutNoExit)
+		}
+	case AdvSouth:
+		if st.At == "hall" {
+			(advState{..st, At: "gate"}, AdvOutMoved)
+		} else {
+			(st, AdvOutNoExit)
+		}
+	case AdvEast:
+		if st.At == "hall" {
+			(advState{..st, At: "kitchen"}, AdvOutMoved)
+		} else if st.At == "tower" {
+			if st.Key == world.Carried {
+				(advState{..st, At: "hall"}, AdvOutMoved)
+			} else {
+				(st, AdvOutBarred)
+			}
+		} else {
+			(st, AdvOutNoExit)
+		}
+	case AdvWest:
+		if st.At == "kitchen" {
+			(advState{..st, At: "hall"}, AdvOutMoved)
+		} else if st.At == "hall" {
+			if st.Key == world.Carried {
+				(advState{..st, At: "tower"}, AdvOutMoved)
+			} else {
+				(st, AdvOutBarred)
+			}
+		} else {
+			(st, AdvOutNoExit)
+		}
+	case AdvDown:
+		if st.At == "kitchen" {
+			if st.Lamp == world.Carried {
+				(advState{..st, At: "cellar"}, AdvOutMoved)
+			} else {
+				(st, AdvOutBarred)
+			}
+		} else {
+			(st, AdvOutNoExit)
+		}
+	case AdvUp:
+		if st.At == "cellar" {
+			if st.Lamp == world.Carried {
+				(advState{..st, At: "kitchen"}, AdvOutMoved)
+			} else {
+				(st, AdvOutBarred)
+			}
+		} else if st.At == "tower" {
+			(advState{..st, Ended: "won"}, AdvOutWon)
+		} else {
+			(st, AdvOutNoExit)
+		}
+	case AdvTakeLamp:
+		if st.Lamp == st.At {
+			(advState{..st, Lamp: world.Carried}, AdvOutStayed)
+		} else {
+			(st, AdvOutNotHere)
+		}
+	case AdvDropLamp:
+		if st.Lamp == world.Carried {
+			(advState{..st, Lamp: st.At}, AdvOutStayed)
+		} else {
+			(st, AdvOutNotCarried)
+		}
+	case AdvTakeKey:
+		if st.Key == st.At {
+			(advState{..st, Key: world.Carried}, AdvOutStayed)
+		} else {
+			(st, AdvOutNotHere)
+		}
+	case AdvQuit:
+		(advState{..st, Asking: true}, AdvOutMoved)
+	case AdvCancelQuit, AdvConfirmQuit:
+		(st, AdvOutNoExit)
+	case AdvEnd:
+		(advState{..st, Ended: "stopped"}, AdvOutStopped)
+	}
+}
+
+let advStart = advState{At: "gate", Lamp: "kitchen", Key: "cellar", Asking: false, Ended: ""}
+
+func advPathSignals() []advAct {
+	[]advAct{AdvNorth, AdvEast, AdvWest, AdvDown, AdvTakeLamp, AdvQuit, AdvConfirmQuit}
+}
+
+func advModel() exp.PathModel[advState, advAct, advObs, advOut, Never] {
+	exp.PathModelProjected[advState, advAct, advObs, advOut, Never](
+		[]advState{advStart},
+		advPathSignals(),
+		"adventure.play",
+		advProject,
+		func(st advState, act advAct) exp.EdgeOutcome[advState, exp.StepObs[advObs, advOut, Never]] {
+			let (next, out) = advStep(st, act)
+			exp.Continue[advState, exp.StepObs[advObs, advOut, Never]]{
+				Next: next,
+				Obs:  exp.StepObs[advObs, advOut, Never]{
+					Kind:     exp.DisEmit,
+					State:    Some[advObs]{Value: advProject(next)},
+					Outputs:  []advOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// AdventurePaths drives fresh castle adventure sessions for path exploration.
+type AdventurePaths {
+	OpenSession(start advState) advSession fails advOpenErr,
+
+	// PathsAgree verifies all castle navigation, lamp/key gating, and quit paths up to depth 3.
+	law PathsAgree() {
+		let bounds = exp.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = exp.CheckPathsWithSink(
+			advModel(),
+			exp.ToDepth{Depth: 3},
+			bounds,
+			func(start advState) exp.PathSession[advAct, exp.Observed[advObs, advOut, Never], advDriveErr] fails advOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case exp.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case exp.CampaignRefuted, exp.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memAdvPaths {} implements AdventurePaths
+
+func OpenSession(_ memAdvPaths, start advState) advSession fails advOpenErr {
+	let _ = start
+	advSession{live: sync.NewRef(advLive{State: machines.Initial(Play{}), Ended: ""})}
+}
+
+// AdventureModelTemporal proves game.Step agrees with the castle model across
+// generated command sequences and satisfies Always(Kept) and Always(ended -> Always(ended)).
+law AdventureModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let live = sync.NewRef(advLive{State: machines.Initial(Play{}), Ended: ""})
+		let mut st = advStart
+		let mut trace = []temporal.Seen[advObs]{temporal.Seen[advObs]{State: observeAdv(live.Get()), At: time.Unix(0, 0)}}
+		for stepIdx in 1..15 {
+			let act = gen.OneOf(advSignals)
+			let gotOut = applyAdvLive(live, act)
+			let (nextSt, wantOut) = advStep(st, act)
+			let gotObs = observeAdv(live.Get())
+			if gotOut != wantOut || gotObs != advProject(nextSt) {
+				return false
+			}
+			st = nextSt
+			trace = trace.Append(temporal.Seen[advObs]{State: gotObs, At: time.Unix(int64(stepIdx), 0)})
+		}
+		let isEnded = temporal.Named("ended", func(v advObs) bool { v.Ended != "" })
+		let itemsKept = temporal.Named("items-kept", func(v advObs) bool { v.Kept })
+		let formula = temporal.And(
+			temporal.Always(itemsKept),
+			temporal.Always(temporal.Implies(isEnded, temporal.Always(isEnded))),
+		)
+		match temporal.Check(formula, trace, temporal.Idle) {
+		case temporal.Holds:
+			true
+		case temporal.Violated, temporal.Open:
+			false
+		}
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

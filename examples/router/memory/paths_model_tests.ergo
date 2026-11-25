@@ -1,0 +1,421 @@
+import explore
+import gen
+import router/route
+import sync
+import temporal
+import testing
+
+type rtPathState {
+	Phase  int,
+	CurID  int,
+	Logs   string,
+	QueueN int,
+	Ans1   int,
+	Ans2   int,
+}
+
+type rtPathAct =
+	| RtActSubmit1Disk{}
+	| RtActSubmit2Socket{}
+	| RtActReplyYes{}
+	| RtActReplyNo{}
+	| RtActChecked{}
+	| RtActAbort1{}
+
+type rtPathOut =
+	| RtOutTook{Asked bool}
+	| RtOutRejected{}
+	| RtOutIgnored{}
+
+type rtPathObs {
+	Phase  int,
+	Logs   string,
+	QueueN int,
+	Ans1   int,
+	Ans2   int,
+}
+
+type rtPathOpenErr { Message string }
+
+type rtPathDriveErr { Message string }
+
+type rtSession {
+	cur sync.Ref[route.Router],
+} implements explore.PathSession[rtPathAct, explore.Observed[rtPathObs, rtPathOut, Never], rtPathDriveErr]
+
+func rtAnsCode(r route.Router, id int) int {
+	match route.AnswerOf(r, id) {
+	case None:
+		0
+	case Some[route.Answer] as a:
+		match a.Value {
+		case route.Applied:
+			1
+		case route.Cancelled:
+			2
+		case route.Refused:
+			3
+		}
+	}
+}
+
+func rtPhaseCode(r route.Router) int {
+	match r {
+	case route.Idle:
+		0
+	case route.Confirming:
+		1
+	case route.Applying:
+		2
+	}
+}
+
+func observeRouter(r route.Router) rtPathObs {
+	let b = route.BoardOf(r)
+	let dest = match route.DestOf(b.Table, "logs") {
+	case Some[string] as d:
+		d.Value
+	case None:
+		""
+	}
+	rtPathObs{
+		Phase:  rtPhaseCode(r),
+		Logs:   dest,
+		QueueN: len(b.Queue),
+		Ans1:   rtAnsCode(r, 1),
+		Ans2:   rtAnsCode(r, 2),
+	}
+}
+
+func rtApplyTable(t route.Table, ch route.Change) route.Table {
+	match ch {
+	case route.Add as a:
+		route.Routed(t, a.Topic, a.Dest)
+	case route.Remove as rm:
+		route.Unrouted(t, rm.Topic)
+	}
+}
+
+func rtSignalFor(r route.Router, act rtPathAct) route.Signal {
+	match act {
+	case RtActSubmit1Disk:
+		route.Submit{Request: route.Request{ID: 1, Change: route.Add{Topic: "logs", Dest: "disk"}}}
+	case RtActSubmit2Socket:
+		route.Submit{Request: route.Request{ID: 2, Change: route.Add{Topic: "logs", Dest: "socket"}}}
+	case RtActReplyYes:
+		route.Reply{Yes: true}
+	case RtActReplyNo:
+		route.Reply{Yes: false}
+	case RtActChecked:
+		match r {
+		case route.Applying as c:
+			route.Checked{Table: rtApplyTable(c.Board.Table, c.Current.Change)}
+		case route.Idle, route.Confirming:
+			route.Checked{Table: route.Sample}
+		}
+	case RtActAbort1:
+		route.Abort{ID: 1}
+	}
+}
+
+func applyRouterRef(ref sync.Ref[route.Router], act rtPathAct) rtPathOut {
+	let r = ref.Get()
+	let sig = rtSignalFor(r, act)
+	let d = route.Step(r, sig)
+	match d {
+	case Enter[route.Router] as e:
+		ref.Set(e.Next)
+		RtOutTook{Asked: false}
+	case Stay[route.Router] as s:
+		ref.Set(s.Next)
+		RtOutTook{Asked: false}
+	case Emit[route.Router, route.Output] as e:
+		ref.Set(e.Next)
+		let asked = match e.Output {
+		case route.Question:
+			true
+		case route.Delivered:
+			false
+		}
+		RtOutTook{Asked: asked}
+	case Tell[route.Router, route.Output] as t:
+		ref.Set(t.Next)
+		RtOutTook{Asked: false}
+	case Reject:
+		RtOutRejected
+	case Ignore, Done[route.Output]:
+		RtOutIgnored
+	}
+}
+
+func Read(s rtSession) explore.Observed[rtPathObs, rtPathOut, Never] fails rtPathDriveErr {
+	explore.InitialRead[rtPathObs]{State: observeRouter(s.cur.Get())}
+}
+
+func Apply(s rtSession, act rtPathAct) explore.Observed[rtPathObs, rtPathOut, Never] fails rtPathDriveErr {
+	let out = applyRouterRef(s.cur, act)
+	let obs = observeRouter(s.cur.Get())
+	explore.StepResult[rtPathObs, rtPathOut, Never]{
+		Step: explore.StepObs[rtPathObs, rtPathOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[rtPathObs]{Value: obs},
+			Outputs:  []rtPathOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s rtSession) {
+	let _ = s
+}
+
+func rtProject(st rtPathState) rtPathObs {
+	rtPathObs{Phase: st.Phase, Logs: st.Logs, QueueN: st.QueueN, Ans1: st.Ans1, Ans2: st.Ans2}
+}
+
+let rtSignals = []rtPathAct{
+	RtActSubmit1Disk,
+	RtActSubmit2Socket,
+	RtActReplyYes,
+	RtActReplyNo,
+	RtActChecked,
+	RtActAbort1,
+}
+
+func rtFinishCurrent(st rtPathState, nextLogs string, ansCode int) (rtPathState, rtPathOut) {
+	let a1 = if st.CurID == 1 { ansCode } else { st.Ans1 }
+	let a2 = if st.CurID == 2 { ansCode } else { st.Ans2 }
+	if st.QueueN == 0 {
+		return (rtPathState{Phase: 0, CurID: 0, Logs: nextLogs, QueueN: 0, Ans1: a1, Ans2: a2}, RtOutTook{Asked: false})
+	}
+	let nextID = if st.CurID == 1 { 2 } else { 1 }
+	let nextDest = if nextID == 1 { "disk" } else { "socket" }
+	if nextLogs != "" && nextLogs != nextDest {
+		(rtPathState{Phase: 1, CurID: nextID, Logs: nextLogs, QueueN: 0, Ans1: a1, Ans2: a2}, RtOutTook{Asked: true})
+	} else {
+		(rtPathState{Phase: 2, CurID: nextID, Logs: nextLogs, QueueN: 0, Ans1: a1, Ans2: a2}, RtOutTook{Asked: false})
+	}
+}
+
+func rtStep(st rtPathState, act rtPathAct) (rtPathState, rtPathOut) {
+	match act {
+	case RtActSubmit1Disk:
+		let known = st.Ans1 != 0 || st.CurID == 1 || (st.QueueN == 1 && st.CurID == 2)
+		if known {
+			return (st, RtOutRejected)
+		}
+		if st.Phase == 0 {
+			if st.Logs != "" && st.Logs != "disk" {
+				(rtPathState{..st, Phase: 1, CurID: 1}, RtOutTook{Asked: true})
+			} else {
+				(rtPathState{..st, Phase: 2, CurID: 1}, RtOutTook{Asked: false})
+			}
+		} else {
+			(rtPathState{..st, QueueN: 1}, RtOutTook{Asked: false})
+		}
+	case RtActSubmit2Socket:
+		let known = st.Ans2 != 0 || st.CurID == 2 || (st.QueueN == 1 && st.CurID == 1)
+		if known {
+			return (st, RtOutRejected)
+		}
+		if st.Phase == 0 {
+			if st.Logs != "" && st.Logs != "socket" {
+				(rtPathState{..st, Phase: 1, CurID: 2}, RtOutTook{Asked: true})
+			} else {
+				(rtPathState{..st, Phase: 2, CurID: 2}, RtOutTook{Asked: false})
+			}
+		} else {
+			(rtPathState{..st, QueueN: 1}, RtOutTook{Asked: false})
+		}
+	case RtActReplyYes:
+		if st.Phase != 1 {
+			return (st, RtOutRejected)
+		}
+		(rtPathState{..st, Phase: 2}, RtOutTook{Asked: false})
+	case RtActReplyNo:
+		if st.Phase != 1 {
+			return (st, RtOutRejected)
+		}
+		rtFinishCurrent(st, st.Logs, 2)
+	case RtActChecked:
+		if st.Phase != 2 {
+			return (st, RtOutIgnored)
+		}
+		let dest = if st.CurID == 1 { "disk" } else { "socket" }
+		rtFinishCurrent(st, dest, 1)
+	case RtActAbort1:
+		if st.QueueN == 1 && st.CurID == 2 {
+			return (rtPathState{..st, QueueN: 0, Ans1: 2}, RtOutTook{Asked: false})
+		}
+		if (st.Phase == 1 || st.Phase == 2) && st.CurID == 1 {
+			return rtFinishCurrent(st, st.Logs, 2)
+		}
+		(st, RtOutRejected)
+	}
+}
+
+func rtModel() explore.PathModel[rtPathState, rtPathAct, rtPathObs, rtPathOut, Never] {
+	explore.PathModelProjected[rtPathState, rtPathAct, rtPathObs, rtPathOut, Never](
+		[]rtPathState{rtPathState{Phase: 0, CurID: 0, Logs: "", QueueN: 0, Ans1: 0, Ans2: 0}},
+		rtSignals,
+		"router.machine",
+		rtProject,
+		func(st rtPathState, act rtPathAct) explore.EdgeOutcome[rtPathState, explore.StepObs[rtPathObs, rtPathOut, Never]] {
+			let (next, out) = rtStep(st, act)
+			explore.Continue[rtPathState, explore.StepObs[rtPathObs, rtPathOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[rtPathObs, rtPathOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[rtPathObs]{Value: rtProject(next)},
+					Outputs:  []rtPathOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// RouterMachinePaths drives fresh route.Router sessions for path exploration.
+type RouterMachinePaths {
+	OpenSession(start rtPathState) rtSession fails rtPathOpenErr,
+
+	// PathsAgree verifies Submit, Confirming Question, Reply, Checked, and Abort paths.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			rtModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start rtPathState) explore.PathSession[rtPathAct, explore.Observed[rtPathObs, rtPathOut, Never], rtPathDriveErr] fails rtPathOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memRouterPaths {} implements RouterMachinePaths
+
+func OpenSession(_ memRouterPaths, start rtPathState) rtSession fails rtPathOpenErr {
+	let _ = start
+	rtSession{cur: sync.NewRef[route.Router](route.Initial)}
+}
+
+type rtModelStage {
+	get   func() route.Router,
+	apply func(act rtPathAct) rtPathOut,
+} implements testing.Stage[rtPathAct, rtPathObs]
+
+func newRtStage() rtModelStage {
+	let cur = sync.NewRef[route.Router](route.Initial)
+	rtModelStage{
+		get:   func() route.Router { cur.Get() },
+		apply: func(act rtPathAct) rtPathOut { applyRouterRef(cur, act) },
+	}
+}
+
+let onRtStage = context {
+	testing.Stage[rtPathAct, rtPathObs]: newRtStage(),
+}
+
+func Do(st rtModelStage, act rtPathAct) fails testing.Refused {
+	let _ = st.apply(act)
+}
+
+func Advance(st rtModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st rtModelStage) {
+	let _ = st
+}
+
+func Show(st rtModelStage) rtPathObs {
+	observeRouter(st.get())
+}
+
+// RouterMachineModelTemporal proves route.Step agrees with the state model and
+// satisfies Always(cancelled -> Always(cancelled)) and Always(applied -> Always(applied)).
+law RouterMachineModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let m = testing.Model[rtPathState, rtPathAct, rtPathObs]{
+			Start: rtPathState{Phase: 0, CurID: 0, Logs: "", QueueN: 0, Ans1: 0, Ans2: 0},
+			Offer: func(st rtPathState) rtPathAct needs gen.Draws {
+				let _ = st
+				gen.OneOf(rtSignals)
+			},
+			Step: func(st rtPathState, act rtPathAct) (rtPathState, rtPathObs) {
+				let (next, _) = rtStep(st, act)
+				(next, rtProject(next))
+			},
+		}
+		let ans1Cancelled = temporal.Named("ans1-cancelled", func(v rtPathObs) bool { v.Ans1 == 2 })
+		let ans1Applied = temporal.Named("ans1-applied", func(v rtPathObs) bool { v.Ans1 == 1 })
+		let formulas = []temporal.Formula[rtPathObs]{
+			temporal.Always(temporal.Implies(ans1Cancelled, temporal.Always(ans1Cancelled))),
+			temporal.Always(temporal.Implies(ans1Applied, temporal.Always(ans1Applied))),
+		}
+		testing.AgreesAnd(m, newRtStage(), 10, formulas) catch {
+		case testing.Diverged[rtPathAct, rtPathObs], testing.TemporalBreach[rtPathAct, rtPathObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+func tryCheckRoute(t route.Table, ch route.Change) Option[route.Table] needs route.Registry {
+	let next = route.Registry.Check(t, ch) catch {
+	case route.Unknown:
+		return None
+	}
+	Some[route.Table]{Value: next}
+}
+
+// RouterDirectoryFaultsFailClosed wraps route.Registry in testing.Faulty and
+// proves injected route.Unknown faults fail closed while clean checks update the table.
+law RouterDirectoryFaultsFailClosed() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 48, Shrinks: 0, MaxDraws: 1024, MaxRejected: 10}
+	let sawSuccess = sync.NewRef(false)
+	let sawFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let dir = NewDirectory()
+		let faulty = testing.Faulty[route.Registry](dir)
+		let f0 = len(faulty.Check.Faults())
+		let res = with context { route.Registry: faulty } {
+			tryCheckRoute(route.Sample, route.Add{Topic: "logs", Dest: "disk"})
+		}
+		let faulted = len(faulty.Check.Faults()) > f0
+		if faulted {
+			sawFault.Set(true)
+			return res == None
+		}
+		match res {
+		case Some[route.Table] as next:
+			sawSuccess.Set(true)
+			route.DestOf(next.Value, "logs") == Some[string]{Value: "disk"}
+		case None:
+			false
+		}
+	})
+	match outcome {
+	case gen.Held:
+		sawSuccess.Get() && sawFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

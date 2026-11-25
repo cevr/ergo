@@ -1,0 +1,421 @@
+import explore
+import gen
+import machines
+import sync
+import temporal
+import testing
+import time
+
+type tripState {
+	Phase    string,
+	NextStop int,
+	DelayMin int,
+}
+
+type tripAct =
+	| TripTickEarly{}
+	| TripTickBoard{}
+	| TripTickLeave{}
+	| TripTickMid{}
+	| TripTickArrive{}
+	| TripDelay10{}
+	| TripDelayZero{}
+	| TripCancel{}
+
+type tripOut =
+	| TripOutIgnored{}
+	| TripOutRejected{}
+	| TripOutBoarding{}
+	| TripOutLeft{}
+	| TripOutCalled{Stop int}
+	| TripOutReached{}
+	| TripOutLate{Mins int}
+	| TripOutWithdrawn{}
+
+type tripObs {
+	Phase    string,
+	NextStop int,
+	DelayMin int,
+	HasWaits bool,
+	Progress int,
+}
+
+type tripOpenErr { Message string }
+
+type tripDriveErr { Message string }
+
+type tripSession {
+	leg sync.Ref[Leg],
+} implements explore.PathSession[tripAct, explore.Observed[tripObs, tripOut, Never], tripDriveErr]
+
+let tripBase = time.Unix(1767261600, 0)
+
+func tripInitialCalls() []time.Time {
+	[]time.Time{
+		tripBase,
+		time.Add(tripBase, 30m),
+		time.Add(tripBase, 60m),
+	}
+}
+
+func tripMinsBetween(a time.Time, b time.Time) int {
+	int((time.UnixSeconds(a) - time.UnixSeconds(b)) / 60)
+}
+
+func tripHasDue(l Leg) bool {
+	match l {
+	case Scheduled as s:
+		len(s.Due) > 0
+	case Boarding as b:
+		len(b.Due) > 0
+	case Running as r:
+		len(r.Due) > 0
+	case Arrived, Cancelled:
+		true
+	}
+}
+
+func tripDelayMins(l Leg) int {
+	match l {
+	case Scheduled as s:
+		if len(s.Due) == 0 { 0 } else { tripMinsBetween(s.Due[0], tripBase) }
+	case Boarding as b:
+		if len(b.Due) == 0 { 0 } else { tripMinsBetween(b.Due[0], tripBase) }
+	case Running as r:
+		if len(r.Due) == 0 {
+			0
+		} else {
+			let expected = time.Add(tripBase, time.Times(30m, r.Next))
+			tripMinsBetween(r.Due[0], expected)
+		}
+	case Arrived as a:
+		tripMinsBetween(a.At, time.Add(tripBase, 60m))
+	case Cancelled:
+		0
+	}
+}
+
+func tripNextStop(l Leg) int {
+	match l {
+	case Running as r:
+		r.Next
+	case Scheduled, Boarding, Arrived, Cancelled:
+		0
+	}
+}
+
+func observeTrip(l Leg) tripObs {
+	if !tripHasDue(l) {
+		return tripObs{Phase: Name(l), NextStop: 0, DelayMin: 0, HasWaits: false, Progress: progress(l)}
+	}
+	let hasWaits = match Waits(l) {
+	case Some[time.Time]:
+		true
+	case None:
+		false
+	}
+	tripObs{
+		Phase:    Name(l),
+		NextStop: tripNextStop(l),
+		DelayMin: tripDelayMins(l),
+		HasWaits: hasWaits,
+		Progress: progress(l),
+	}
+}
+
+func tripCueOf(act tripAct) Cue {
+	match act {
+	case TripTickEarly:
+		Tick{At: time.Add(tripBase, -30m)}
+	case TripTickBoard:
+		Tick{At: time.Add(tripBase, -10m)}
+	case TripTickLeave:
+		Tick{At: time.Add(tripBase, 10m)}
+	case TripTickMid:
+		Tick{At: time.Add(tripBase, 40m)}
+	case TripTickArrive:
+		Tick{At: time.Add(tripBase, 80m)}
+	case TripDelay10:
+		Delay{By: 10m}
+	case TripDelayZero:
+		Delay{By: 0s}
+	case TripCancel:
+		Cancel{Reason: "crew"}
+	}
+}
+
+func applyTripLive(ref sync.Ref[Leg], act tripAct) tripOut {
+	let cur = ref.Get()
+	let dec = Step(cur, tripCueOf(act))
+	let next = machines.Next(cur, dec)
+	ref.Set(next)
+	match dec {
+	case Ignore:
+		TripOutIgnored
+	case Reject:
+		TripOutRejected
+	case Emit[Leg, Notice] as e:
+		match e.Output {
+		case BoardingOpen:
+			TripOutBoarding
+		case LeftFirst:
+			TripOutLeft
+		case Called as c:
+			TripOutCalled{Stop: c.Stop}
+		case Reached:
+			TripOutReached
+		case Late as l:
+			TripOutLate{Mins: tripMinsBetween(time.Add(tripBase, l.By), tripBase)}
+		case Withdrawn:
+			TripOutWithdrawn
+		}
+	case Enter[Leg], Stay[Leg], Tell[Leg, Notice], Done[Notice]:
+		TripOutIgnored
+	}
+}
+
+func Read(s tripSession) explore.Observed[tripObs, tripOut, Never] fails tripDriveErr {
+	explore.InitialRead[tripObs]{State: observeTrip(s.leg.Get())}
+}
+
+func Apply(s tripSession, act tripAct) explore.Observed[tripObs, tripOut, Never] fails tripDriveErr {
+	let out = applyTripLive(s.leg, act)
+	let obs = observeTrip(s.leg.Get())
+	explore.StepResult[tripObs, tripOut, Never]{
+		Step: explore.StepObs[tripObs, tripOut, Never]{
+			Kind:     explore.DisEmit,
+			State:    Some[tripObs]{Value: obs},
+			Outputs:  []tripOut{out},
+			Error:    None,
+			Terminal: false,
+		},
+	}
+}
+
+func Close(s tripSession) {
+	let _ = s
+}
+
+func tripModelProgress(st tripState) int {
+	if st.Phase == "scheduled" {
+		0
+	} else if st.Phase == "boarding" {
+		1
+	} else if st.Phase == "running" {
+		1 + st.NextStop
+	} else {
+		1000
+	}
+}
+
+func tripProject(st tripState) tripObs {
+	tripObs{
+		Phase:    st.Phase,
+		NextStop: st.NextStop,
+		DelayMin: st.DelayMin,
+		HasWaits: st.Phase != "arrived" && st.Phase != "cancelled",
+		Progress: tripModelProgress(st),
+	}
+}
+
+let tripSignals = []tripAct{
+	TripTickEarly,
+	TripTickBoard,
+	TripTickLeave,
+	TripTickMid,
+	TripTickArrive,
+	TripDelay10,
+	TripDelayZero,
+	TripCancel,
+}
+
+func tripTickMinute(act tripAct) int {
+	match act {
+	case TripTickEarly:
+		-30
+	case TripTickBoard:
+		-10
+	case TripTickLeave:
+		10
+	case TripTickMid:
+		40
+	case TripTickArrive:
+		80
+	case TripDelay10, TripDelayZero, TripCancel:
+		0
+	}
+}
+
+func tripStep(st tripState, act tripAct) (tripState, tripOut) {
+	match act {
+	case TripDelayZero:
+		(st, TripOutRejected)
+	case TripDelay10:
+		if st.Phase == "arrived" || st.Phase == "cancelled" {
+			(st, TripOutRejected)
+		} else {
+			(tripState{..st, DelayMin: st.DelayMin + 10}, TripOutLate{Mins: 10})
+		}
+	case TripCancel:
+		if st.Phase == "scheduled" || st.Phase == "boarding" {
+			(tripState{Phase: "cancelled", NextStop: 0, DelayMin: 0}, TripOutWithdrawn)
+		} else {
+			(st, TripOutRejected)
+		}
+	case TripTickEarly, TripTickBoard, TripTickLeave, TripTickMid, TripTickArrive:
+		let at = tripTickMinute(act)
+		if st.Phase == "scheduled" {
+			if at < st.DelayMin-20 {
+				(st, TripOutIgnored)
+			} else {
+				(tripState{..st, Phase: "boarding"}, TripOutBoarding)
+			}
+		} else if st.Phase == "boarding" {
+			if at < st.DelayMin {
+				(st, TripOutIgnored)
+			} else {
+				(tripState{..st, Phase: "running", NextStop: 1}, TripOutLeft)
+			}
+		} else if st.Phase == "running" {
+			let need = st.NextStop*30 + st.DelayMin
+			if at < need {
+				(st, TripOutIgnored)
+			} else if st.NextStop == 2 {
+				(tripState{Phase: "arrived", NextStop: 0, DelayMin: st.DelayMin}, TripOutReached)
+			} else {
+				(tripState{..st, NextStop: st.NextStop + 1}, TripOutCalled{Stop: st.NextStop})
+			}
+		} else {
+			(st, TripOutIgnored)
+		}
+	}
+}
+
+let tripStart = tripState{Phase: "scheduled", NextStop: 0, DelayMin: 0}
+
+let tripPathSignals = []tripAct{
+	TripTickEarly,
+	TripTickBoard,
+	TripTickLeave,
+	TripTickMid,
+	TripTickArrive,
+	TripDelay10,
+	TripCancel,
+}
+
+func tripModel() explore.PathModel[tripState, tripAct, tripObs, tripOut, Never] {
+	explore.PathModelProjected[tripState, tripAct, tripObs, tripOut, Never](
+		[]tripState{tripStart},
+		tripPathSignals,
+		"timetable.trip",
+		tripProject,
+		func(st tripState, act tripAct) explore.EdgeOutcome[tripState, explore.StepObs[tripObs, tripOut, Never]] {
+			let (next, out) = tripStep(st, act)
+			explore.Continue[tripState, explore.StepObs[tripObs, tripOut, Never]]{
+				Next: next,
+				Obs:  explore.StepObs[tripObs, tripOut, Never]{
+					Kind:     explore.DisEmit,
+					State:    Some[tripObs]{Value: tripProject(next)},
+					Outputs:  []tripOut{out},
+					Error:    None,
+					Terminal: false,
+				},
+			}
+		},
+	)
+}
+
+// TripPaths drives fresh timetable.Trip sessions for path exploration.
+type TripPaths {
+	OpenSession(start tripState) tripSession fails tripOpenErr,
+
+	// PathsAgree verifies all reachable boarding, departure, delay, stop-call, arrival, and cancel paths.
+	law PathsAgree() {
+		let bounds = explore.PathBounds{MaxStates: 64, MaxEdges: 512, MaxPaths: 512, MaxSteps: 2048, MaxWork: 50000, MaxBytes: 4194304}
+		let res = explore.CheckPathsWithSink(
+			tripModel(),
+			explore.ToDepth{Depth: 3},
+			bounds,
+			func(start tripState) explore.PathSession[tripAct, explore.Observed[tripObs, tripOut, Never], tripDriveErr] fails tripOpenErr {
+				try OpenSession(start)
+			},
+			testing.ActiveEvidenceSink(),
+		)
+		match res.Verdict {
+		case explore.CampaignPassed:
+			res.Counts.PathsCompleted > 0 && res.Counts.MatchedSteps > 0
+		case explore.CampaignRefuted, explore.CampaignIncomplete:
+			false
+		}
+	},
+}
+
+type memTripPaths {} implements TripPaths
+
+func OpenSession(_ memTripPaths, start tripState) tripSession fails tripOpenErr {
+	let _ = start
+	tripSession{leg: sync.NewRef(Plan(tripInitialCalls()))}
+}
+
+type tripModelStage {
+	leg sync.Ref[Leg],
+} implements testing.Stage[tripAct, tripObs]
+
+func Do(st tripModelStage, act tripAct) fails testing.Refused {
+	let _ = applyTripLive(st.leg, act)
+}
+
+func Advance(st tripModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st tripModelStage) {
+	let _ = st
+}
+
+func Show(st tripModelStage) tripObs {
+	observeTrip(st.leg.Get())
+}
+
+// TripModelTemporal proves timetable.Step agrees with the trip lifecycle model
+// and satisfies Always(arrived -> Always(arrived)), Always(cancelled -> Always(cancelled)),
+// and Always(terminal <-> !HasWaits).
+law TripModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let m = testing.Model[tripState, tripAct, tripObs]{
+			Start: tripStart,
+			Offer: func(st tripState) tripAct needs gen.Draws {
+				let _ = st
+				gen.OneOf(tripSignals)
+			},
+			Step: func(st tripState, act tripAct) (tripState, tripObs) {
+				let (next, _) = tripStep(st, act)
+				(next, tripProject(next))
+			},
+		}
+		let isArrived = temporal.Named("arrived", func(v tripObs) bool { v.Phase == "arrived" })
+		let isCancelled = temporal.Named("cancelled", func(v tripObs) bool { v.Phase == "cancelled" })
+		let waitsMatch = temporal.Named("waits-match", func(v tripObs) bool {
+			let term = v.Phase == "arrived" || v.Phase == "cancelled"
+			v.HasWaits == !term
+		})
+		let formulas = []temporal.Formula[tripObs]{
+			temporal.Always(waitsMatch),
+			temporal.Always(temporal.Implies(isArrived, temporal.Always(isArrived))),
+			temporal.Always(temporal.Implies(isCancelled, temporal.Always(isCancelled))),
+		}
+		let stage = tripModelStage{leg: sync.NewRef(Plan(tripInitialCalls()))}
+		testing.AgreesAnd(m, stage, 12, formulas) catch {
+		case testing.Diverged[tripAct, tripObs], testing.TemporalBreach[tripAct, tripObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}

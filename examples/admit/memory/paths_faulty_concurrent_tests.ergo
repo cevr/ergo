@@ -1,0 +1,206 @@
+import admit/jobs
+import gen
+import sync
+import temporal
+import testing
+
+type gateConcAct =
+	| GateTake{N int}
+	| GateWait{N int}
+	| GateGive{N int}
+
+func gateConcStep(free int, act gateConcAct) (int, bool) {
+	match act {
+	case GateTake as a:
+		if a.N > free {
+			(free, false)
+		} else {
+			(free - a.N, true)
+		}
+	case GateWait as a:
+		if a.N > free {
+			(free, false)
+		} else {
+			(free - a.N, true)
+		}
+	case GateGive as a:
+		(free + a.N, true)
+	}
+}
+
+// AdmitGateConcurrentLinearizable verifies that concurrent Take, Wait, and Give
+// calls on memory.Gate are strictly linearizable against an atomic capacity counter.
+law AdmitGateConcurrentLinearizable() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 24, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let g = New(4)
+		let w1 = gen.IntIn(1, 3)
+		let w2 = gen.IntIn(1, 3)
+		let plans = [][]gateConcAct{
+			[]gateConcAct{GateTake{N: w1}, GateGive{N: w1}, GateWait{N: 2}},
+			[]gateConcAct{GateTake{N: w2}, GateWait{N: 1}, GateGive{N: w2}},
+		}
+		testing.AgreesConcurrent(4, gateConcStep, plans, func(act gateConcAct) bool {
+			match act {
+			case GateTake as a:
+				g.Take(a.N)
+			case GateWait as a:
+				g.Wait(a.N) catch {
+				case jobs.Stopped:
+					return false
+				}
+				true
+			case GateGive as a:
+				g.Give(a.N)
+				true
+			}
+		}) catch {
+		case testing.NotLinearizable[gateConcAct, bool]:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+func runJobsOnGate(js []jobs.Job) bool needs jobs.Gate {
+	let _ = jobs.Run(js) catch {
+	case jobs.Stopped:
+		return false
+	}
+	true
+}
+
+// AdmitGateWaitFaultsReturnCapacity wraps memory.Gate in testing.Faulty[jobs.Gate]
+// and verifies injected jobs.Stopped faults on Wait propagate cleanly and never
+// leak capacity held by earlier jobs.
+law AdmitGateWaitFaultsReturnCapacity() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 36, Shrinks: 0, MaxDraws: 512, MaxRejected: 10}
+	let sawSuccess = sync.NewRef(false)
+	let sawFault = sync.NewRef(false)
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let inner = New(4)
+		let faulty = testing.Faulty[jobs.Gate](inner)
+		let waitBefore = len(faulty.Wait.Faults())
+		let js = []jobs.Job{
+			jobs.Job{Name: "a", Weight: 3, Payload: "1"},
+			jobs.Job{Name: "b", Weight: 2, Payload: "2"},
+		}
+		let ok = with context { jobs.Gate: faulty } { runJobsOnGate(js) }
+		let allFree = inner.Take(4)
+		if allFree {
+			inner.Give(4)
+		}
+		if !allFree {
+			return false
+		}
+		if len(faulty.Wait.Faults()) > waitBefore {
+			sawFault.Set(true)
+			return !ok
+		}
+		if !ok {
+			return false
+		}
+		sawSuccess.Set(true)
+		true
+	})
+	match outcome {
+	case gen.Held:
+		sawSuccess.Get() && sawFault.Get()
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
+
+type gateModelAct =
+	| GActTake{N int}
+	| GActGive{N int}
+
+type gateModelObs {
+	free     int,
+	inBounds bool,
+}
+
+type gateModelStage {
+	gate Gate,
+	held sync.Ref[int],
+} implements testing.Stage[gateModelAct, gateModelObs]
+
+func Do(st gateModelStage, act gateModelAct) fails testing.Refused {
+	match act {
+	case GActTake as a:
+		if st.gate.Take(a.N) {
+			st.held.Update(func(h int) int { h + a.N })
+		}
+	case GActGive as a:
+		let cur = st.held.Get()
+		if a.N <= cur {
+			st.gate.Give(a.N)
+			st.held.Update(func(h int) int { h - a.N })
+		}
+	}
+}
+
+func Advance(st gateModelStage, d duration) {
+	let _ = (st, d)
+}
+
+func Settle(st gateModelStage) {
+	let _ = st
+}
+
+func Show(st gateModelStage) gateModelObs {
+	let cap = st.gate.Capacity()
+	if cap <= 0 {
+		return gateModelObs{free: 0, inBounds: true}
+	}
+	let free = st.gate.free.Get()
+	gateModelObs{free: free, inBounds: free >= 0 && free <= cap}
+}
+
+// AdmitGateModelTemporal proves memory.Gate agrees with the bounded-capacity
+// model and satisfies Always(0 <= free <= capacity).
+law AdmitGateModelTemporal() {
+	let cfg = gen.Config{Seed: uint64(1), Cases: 20, Shrinks: 0, MaxDraws: 256, MaxRejected: 10}
+	let outcome = gen.Check(cfg, func() bool fails gen.Rejected needs gen.Draws {
+		let g = New(4)
+		let m = testing.Model[int, gateModelAct, gateModelObs]{
+			Start: 4,
+			Offer: func(free int) gateModelAct needs gen.Draws {
+				if free == 0 || (free < 4 && gen.Bool()) {
+					GActGive{N: gen.IntIn(1, 4-free)}
+				} else {
+					GActTake{N: gen.IntIn(1, 4)}
+				}
+			},
+			Step: func(free int, act gateModelAct) (int, gateModelObs) {
+				let next = match act {
+				case GActTake as a:
+					if a.N <= free { free - a.N } else { free }
+				case GActGive as a:
+					if a.N <= 4-free { free + a.N } else { free }
+				}
+				(next, gateModelObs{free: next, inBounds: true})
+			},
+		}
+		let formulas = []temporal.Formula[gateModelObs]{
+			temporal.Always(temporal.Named("free-in-bounds", func(v gateModelObs) bool { v.inBounds })),
+		}
+		testing.AgreesAnd(m, gateModelStage{gate: g, held: sync.NewRef(0)}, 10, formulas) catch {
+		case testing.Diverged[gateModelAct, gateModelObs], testing.TemporalBreach[gateModelAct, gateModelObs], testing.Refused:
+			return false
+		}
+		true
+	})
+	match outcome {
+	case gen.Held:
+		true
+	case gen.Refuted, gen.GaveUp:
+		false
+	}
+}
