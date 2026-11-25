@@ -8,7 +8,7 @@ import option
 import strings
 
 type failureExit { at dense.ID[syntax.Node], operands []dense.ID[syntax.Node] }
-type falliblePlan { exit option.Option[failureExit] }
+type falliblePlan { exits []failureExit }
 
 // envFreeFallibleFrame proves a no-call frame. Go excludes a
 // method or a row with several distinct failures from flat lowering.
@@ -16,10 +16,13 @@ type falliblePlan { exit option.Option[failureExit] }
 func envFreeFallibleFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name string, ops []dense.ID[store.TKey], n int) framePlan fails Unported {
 	let row = ops[n+1]
 	let members = try frameFailureMembers(st, row)
+	let unit = isUnit(st, ops[n])
 	if shapeGo(st, ops[n]) == "" {
-		return stop("SHAPES: unspelled success result")
+		if !unit {
+			return stop("SHAPES: unspelled success result")
+		}
 	}
-	let leading = if n != 0 { plainRecord(st, ops[0]) >= 0 } else { false }
+	let leading = if n != 0 { ordinaryRecord(st, ops[0]) >= 0 } else { false }
 	let first = if n != 0 { option.Some[dense.ID[store.TKey]]{Value: ops[0]} } else { option.None }
 	if members.Len() == 1 && (!leading || !strings.Contains(try goName(st, name, first), ".")) {
 		return stop("non-flat method required")
@@ -28,11 +31,14 @@ func envFreeFallibleFrame(st fnb, f expr.Fn, body dense.ID[syntax.Node], name st
 		return stop("formal modes unavailable")
 	}
 	for i in 0..n {
-		if f.Takes[i] || (basicGo(st, ops[i]) == "" && (i != 0 || !leading)) {
-			return stop("scalar non-taking formals or a leading value receiver required")
+		if f.Takes[i] || shapeGo(st, ops[i]) == "" {
+			return stop("SHAPES: non-taking formals required")
 		}
 	}
-	let failure = falliblePlan{exit: try fallibleTail(st, body, ops[n], members)}
+	if fallibleHasCall(st, body) {
+		return stop("CALLS: fallible frame contains a call")
+	}
+	let failure = falliblePlan{exits: try fallibleBody(st, body, ops[n], unit, members)}
 	framePlan{env: -1, slots: n, pure: false, fallible: option.Some[falliblePlan]{Value: failure}, pollEntry: false, op: option.None}
 }
 
@@ -117,79 +123,123 @@ func failureVariant(st fnb, t dense.ID[store.TKey]) option.Option[dense.ID[store
 	}
 }
 
-// Recognize only the two whole-body footprints described above. CONTROL
-// still owns branch planning, flow, liveness, positions and row emission.
-func fallibleTail(st fnb, body dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) option.Option[failureExit] fails Unported {
-	let tr = st.p.Tree
-	let list = match syntax.ViewOf(tr, body) {
+func fallibleHasCall(st fnb, x dense.ID[syntax.Node]) bool {
+	let p = st.p
+	match syntax.ViewOf(p.Tree, x) {
+	case syntax.FuncLit:
+		return true
+	case syntax.CallExpr as ce:
+		let bi = builtinOf(st, x, ce) catch {
+		case Unported:
+			return true
+		}
+		if bi == option.None {
+			return true
+		}
+	case _:
+	}
+	for c in syntax.Children(p.Tree, x, []uint32{}) {
+		if fallibleHasCall(st, syntax.NodeAt(p.Tree, int(c))) {
+			return true
+		}
+	}
+	false
+}
+
+func fallibleBody(st fnb, body dense.ID[syntax.Node], success dense.ID[store.TKey], unit bool, members []dense.ID[store.TKey]) []failureExit fails Unported {
+	let list = match syntax.ViewOf(st.p.Tree, body) {
 	case syntax.BlockStmt as b:
 		b.List
 	case _:
 		return stop("fallible body must have a value tail")
 	}
-	let n = syntax.Len(list)
-	if n != 1 && n != 2 {
+	if !unit && syntax.Len(list) == 0 {
 		return stop("fallible body must have a value tail")
 	}
-	let tail = match syntax.ViewOf(tr, syntax.Item(tr, list, n-1)) {
-	case syntax.ExprStmt as e:
-		e.X
+	let mut exits = []failureExit{}
+	try fallibleBlock(st, list, success, unit, members, true, &exits)
+	exits
+}
+
+func fallibleBlock(st fnb, list syntax.List, success dense.ID[store.TKey], unit bool, members []dense.ID[store.TKey], tail bool, exits mut []failureExit) fails Unported {
+	let tr = st.p.Tree
+	let count = syntax.Len(list)
+	for i in 0..count {
+		let isTail = tail && i == count-1
+		try fallibleStmt(st, syntax.Item(tr, list, i), success, unit, members, isTail, exits)
+	}
+}
+
+func fallibleStmt(st fnb, node dense.ID[syntax.Node], success dense.ID[store.TKey], unit bool, members []dense.ID[store.TKey], isTail bool, exits mut []failureExit) fails Unported {
+	let tr = st.p.Tree
+	match syntax.ViewOf(tr, node) {
+	case syntax.DeclStmt:
+		if isTail && !unit {
+			return stop("fallible body must have a value tail")
+		}
 	case syntax.ReturnStmt as r:
 		match dense.Unpack(r.Result) {
 		case option.Some{Value: x}:
-			x
+			match try fallibleTail(st, x, success, unit, members) {
+			case option.Some{Value: exit}:
+				*exits = (*exits).Append(exit)
+			case option.None:
+			}
 		case option.None:
-			return stop("fallible value frame has a bare return")
+			if !unit {
+				return stop("fallible value frame has a bare return")
+			}
+		}
+	case syntax.ExprStmt as e:
+		if isTail {
+			match try fallibleTail(st, e.X, success, unit, members) {
+			case option.Some{Value: exit}:
+				*exits = (*exits).Append(exit)
+			case option.None:
+			}
+		} else {
+			let t = try typeOf(st, unparen(st, e.X), "fallible statement")
+			if failureMember(members, t) {
+				return stop("fallible statement discards a failure")
+			}
+		}
+	case syntax.IfStmt as branch:
+		let branchTail = isTail && !unit && dense.Unpack(branch.Else) != option.None
+		match syntax.ViewOf(tr, branch.Body) {
+		case syntax.BlockStmt as b:
+			try fallibleBlock(st, b.List, success, unit, members, branchTail, exits)
+		case _:
+			return stop("fallible body must have a value tail")
+		}
+		match dense.Unpack(branch.Else) {
+		case option.Some{Value: e}:
+			match syntax.ViewOf(tr, e) {
+			case syntax.BlockStmt as b:
+				try fallibleBlock(st, b.List, success, unit, members, branchTail, exits)
+			case syntax.IfStmt:
+				try fallibleStmt(st, e, success, unit, members, branchTail, exits)
+			case _:
+				return stop("fallible body must have a value tail")
+			}
+		case option.None:
 		}
 	case _:
 		return stop("fallible body must have a value tail")
 	}
+}
+
+func fallibleTail(st fnb, tail dense.ID[syntax.Node], success dense.ID[store.TKey], unit bool, members []dense.ID[store.TKey]) option.Option[failureExit] fails Unported {
 	let actual = try typeOf(st, unparen(st, tail), "fallible tail")
 	if actual != success && failureMember(members, actual) {
-		if n != 1 {
-			return stop("fallible frame with several failure exits")
-		}
 		return option.Some[failureExit]{Value: try recordFailure(st, tail, success, members)}
 	}
-	if callsIn(st.p, tail) {
-		return stop("CALLS: fallible frame value tail contains a call")
+	if unit {
+		return stop("fallible unit frame returns a value")
 	}
 	if actual != success && unionGo(st, success) == "" {
 		return stop("SHAPES/UNION: fallible tail needs a success conversion")
 	}
-	// CONTROL owns value admission and source-order emission, including
-	// UNION's return injection when a checked variant joins the result.
-	if n == 1 {
-		option.None
-	} else {
-		option.Some[failureExit]{Value: try earlyFailure(st, syntax.Item(tr, list, 0), success, members)}
-	}
-}
-
-func earlyFailure(st fnb, node dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) failureExit fails Unported {
-	let tr = st.p.Tree
-	match syntax.ViewOf(tr, node) {
-	case syntax.IfStmt as branch:
-		if dense.Unpack(branch.Else) == option.None && exitScalar(st, branch.Cond) {
-			match syntax.ViewOf(tr, branch.Body) {
-			case syntax.BlockStmt as b:
-				if syntax.Len(b.List) == 1 {
-					match syntax.ViewOf(tr, syntax.Item(tr, b.List, 0)) {
-					case syntax.ReturnStmt as r:
-						match dense.Unpack(r.Result) {
-						case option.Some{Value: x}:
-							return try recordFailure(st, x, success, members)
-						case option.None:
-						}
-					case _:
-					}
-				}
-			case _:
-			}
-		}
-	case _:
-	}
-	stop("typed failure must be the early return of one scalar branch")
+	option.None
 }
 
 func recordFailure(st fnb, x dense.ID[syntax.Node], success dense.ID[store.TKey], members []dense.ID[store.TKey]) failureExit fails Unported {
@@ -198,14 +248,15 @@ func recordFailure(st fnb, x dense.ID[syntax.Node], success dense.ID[store.TKey]
 	if !failureMember(members, t) {
 		return stop("return does not build a declared failure")
 	}
-	// An error value can also be a success type (including a variant of
-	// an all-error union). Do not guess which channel the checker chose.
 	let mut s = st.s
 	if t == success || failureMember(infer.VariantsOf(&s, st.k.Unions, success), t) {
 		return stop("checker: failure also inhabits the success result")
 	}
 	if store.KindOfType(st.s, t) == store.KNamed && failureVariant(st, t) != option.None {
 		return stop("UNION: direct failure variant value")
+	}
+	if bareEmptyRecord(st, y) != "" {
+		return failureExit{at: x, operands: []dense.ID[syntax.Node]{}}
 	}
 	match syntax.ViewOf(st.p.Tree, y) {
 	case syntax.CompositeLit as lit:
@@ -234,6 +285,9 @@ func failureMember(members []dense.ID[store.TKey], t dense.ID[store.TKey]) bool 
 // taken from an existing value at the SHAPES/OWN boundary.
 func failureField(st fnb, x dense.ID[syntax.Node]) fails Unported {
 	let y = unparen(st, x)
+	if bareEmptyRecord(st, y) != "" {
+		return
+	}
 	if basicGo(st, try typeOf(st, y, "failure field")) != "" && exitScalar(st, y) {
 		return
 	}
@@ -265,6 +319,38 @@ func exitScalar(st fnb, x dense.ID[syntax.Node]) bool {
 		exitScalar(st, u.X)
 	case syntax.BinaryExpr as b:
 		exitScalar(st, b.X) && exitScalar(st, b.Y)
+	case syntax.SelectorExpr as se:
+		let ft = typeOf(st, x, "selector") catch {
+		case Unported:
+			return false
+		}
+		if basicGo(st, ft) == "" {
+			return false
+		}
+		readPlace(st, se.X) catch {
+		case Unported:
+			return false
+		}
+		true
+	case syntax.CallExpr as ce:
+		let bi = builtinOf(st, x, ce) catch {
+		case Unported:
+			return false
+		}
+		match bi {
+		case option.Some{Value: b}:
+			if b.conv {
+				exitScalar(st, b.arg)
+			} else {
+				readPlace(st, b.arg) catch {
+				case Unported:
+					return exitScalar(st, b.arg)
+				}
+				true
+			}
+		case option.None:
+			false
+		}
 	case _:
 		false
 	}
