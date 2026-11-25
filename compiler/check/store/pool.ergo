@@ -33,6 +33,7 @@ type Pool {
 	lists          dense.Strings,
 	starts         []uint32,
 	layouts        dense.Side[TKey, []ClaimLayout],
+	sigDefects     dense.Side[TKey, bool],
 	functionClaims FunctionClaims,
 }
 
@@ -46,6 +47,7 @@ func NewPool() Pool {
 		lists:          dense.NewStrings(),
 		starts:         []uint32{},
 		layouts:        dense.NewSide[TKey, []ClaimLayout]([]ClaimLayout{}),
+		sigDefects:     dense.NewSide[TKey, bool](false),
 		functionClaims: newFunctionClaims(),
 	}
 }
@@ -97,6 +99,13 @@ func anyOpen(p Pool, ts []dense.ID[TKey]) bool {
 func composite(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
 	let l = list(p, "", ts)
 	intern(p, TKey{k: uint8(k), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
+}
+
+func sigDefects(p mut Pool, ts []dense.ID[TKey]) dense.ID[TKey] {
+	let l = list(p, "d", ts)
+	let id = intern(p, TKey{k: uint8(tSig), a: l, b: uint32(len(ts))}, anyOpen(*p, ts))
+	dense.SideSet(&p.sigDefects, id, true)
+	id
 }
 
 func symbolic(p mut Pool, k int, ts []dense.ID[TKey]) dense.ID[TKey] {
@@ -279,6 +288,9 @@ func substAt(p mut Pool, t dense.ID[TKey], args []dense.ID[TKey], self dense.Opt
 	}
 	if kind == tInstance {
 		return Instance(p, OriginOf(*p, t), ts)
+	}
+	if kind == tSig && dense.SideOf(p.sigDefects, t) {
+		return sigDefects(p, ts)
 	}
 	composite(p, kind, ts)
 }

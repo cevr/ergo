@@ -56,6 +56,40 @@ func registerTasks(t nativeTables) {
 		}
 		return v.why, nil
 	}
+	t.reads["task.exitDefect"] = "host:prelude.Task"
+	natives["task.exitDefect"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		v, ok := args[0].(*taskV)
+		if !ok {
+			return nil, fr.unsupported(at, "a Task the evaluator did not start")
+		}
+		if v.defect == nil {
+			return &defectV{text: v.why}, nil
+		}
+		return v.defect, nil
+	}
+	t.reads["task.defectHas"] = "host:task.Defect"
+	natives["task.defectHas"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		d, ok := args[0].(*defectV)
+		if !ok {
+			return false, nil
+		}
+		want, ok := defectCallTypeArg(fr, at)
+		if !ok {
+			return false, nil
+		}
+		return defectMatches(d, want), nil
+	}
+	t.reads["task.defectAs"] = "host:task.Defect"
+	natives["task.defectAs"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		want, ok := defectCallTypeArg(fr, at)
+		if !ok {
+			return nil, fr.unsupported(at, "task.defectAs without a type argument")
+		}
+		if d, ok := args[0].(*defectV); ok && defectMatches(d, want) {
+			return d.payload, nil
+		}
+		return in.zero(fr, at, want)
+	}
 	t.reads["task.exitValue"] = "host:prelude.Task"
 	natives["task.exitValue"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		v, ok := args[0].(*taskV)
@@ -344,8 +378,9 @@ func (in *interp) runAction(fr *frame, e *owned) *abrupt {
 type taskV struct {
 	t         *etask
 	used      bool
-	delivered bool   // a Wait delivered the value: no release takes it
-	why       string // the defect's text exitOf gave as 2 (task.exitReason)
+	delivered bool     // a Wait delivered the value: no release takes it
+	why       string   // the defect's text exitOf gave as 2 (task.exitReason)
+	defect    *defectV // the defect view exitOf gave as 2 (task.exitDefect)
 }
 
 func (v *taskV) describe() string { return fmt.Sprintf("a Task (task #%d)", v.t.id) }
@@ -382,6 +417,7 @@ func (v *taskV) exitOf(in *interp, fr *frame, at syntax.Node) (Value, *abrupt) {
 	case t.exit.kind == ctlFail || t.exit.kind == ctlEscape:
 		return nil, fr.abrupt(ctlFail, at, t.exit.val, "")
 	case t.exit.kind == ctlDefect:
+		v.defect = defectOfAbrupt(t.exit)
 		v.why = t.exit.msg
 		return int64(2), nil
 	case t.exit.kind == ctlInterrupt && t.ended:

@@ -93,6 +93,8 @@ func (fc *funcCtx) reserveTarget(s *syntax.RangeStmt, domain check.LoopDomain) s
 		switch n := n.(type) {
 		case *syntax.BranchStmt, *syntax.ReturnStmt:
 			clean = false
+		case *syntax.DieStmt:
+			clean = false
 		case *syntax.AssignStmt:
 			if syntax.Stmt(n) != appendStmt && fc.assignsTo(n, target) {
 				clean = false

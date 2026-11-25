@@ -417,6 +417,8 @@ type Task[T any] struct {
 	ended bool
 	// why is the text of the defect TaskExit observed, for TaskReason.
 	why string
+	// defect is the structured cause view TaskExit observed, for TaskDefect.
+	defect *Defect
 	// ent is the entry of the Task's first owner (selfOwned), released
 	// by rel; a later owner makes an entry of its own (PARK2).
 	ent entry
@@ -628,6 +630,7 @@ func TaskExit[T any](ct *rt.Task, t *Task[T]) (int, error) {
 		switch {
 		case why != "":
 			t.why = why
+			t.defect = newDefect(err)
 			return taskDefected, nil
 		case t.ended:
 			return taskDone, nil
@@ -744,6 +747,17 @@ func interrupted(err error) bool {
 //
 //ergo:wait none
 func TaskReason[T any](t *Task[T]) string { return t.why }
+
+// TaskDefect is std task's exitDefect(t): the opaque read-only defect/cause
+// view TaskExit captured when it gave taskDefected (NO-UNREACHABLE §3).
+//
+//ergo:wait none
+func TaskDefect[T any](t *Task[T]) *Defect {
+	if t.defect == nil {
+		return &Defect{text: t.why}
+	}
+	return t.defect
+}
 
 // TaskValue is std task's exitValue(t): the value the block returned, read
 // after TaskExit gave taskDone. It takes the value: the Task's owner

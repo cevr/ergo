@@ -86,7 +86,7 @@ func Port(s mut store.Store, deps []Iface, foreign []Foreign, ds store.Store, pa
 	}
 	if kind == store.KSig {
 		let n = len(ops)
-		return Some{Value: store.TSig(s, ops[0:n-3], ops[n-3], ops[n-2], ops[n-1])}
+		return Some{Value: store.TSigWith(s, ops[0:n-3], ops[n-3], ops[n-2], ops[n-1], store.SigDefects(ds, dt))}
 	}
 	if kind == store.KSelf {
 		return Some{Value: store.TSelf(s, ops)}

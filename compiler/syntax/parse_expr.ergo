@@ -914,6 +914,21 @@ func parseSkip(p mut parser) uint32 {
 	row(&p.t, KSkipStmt, uint32(s), uint32(r), none)
 }
 
+func startsDie(p mut parser) bool {
+	if !isWord(p, "die") {
+		return false
+	}
+	let n = peek(p, 1)
+	n == Ident || n == Int || n == Float || n == String || n == StringHead || n == Rune || n == Not || n == Try || n == If || n == Match || (n == LBrack && peek(p, 2) == RBrack) || (n == Go && peek(p, 2) == Period)
+}
+
+func parseDie(p mut parser) uint32 {
+	let d = p.i
+	next(p)
+	let x = parseExpr(p)
+	row(&p.t, KDieStmt, uint32(d), x, none)
+}
+
 func parseStmt(p mut parser) uint32 {
 	enter(p)
 	let s = parseStmt1(p)
@@ -925,6 +940,9 @@ func parseStmt1(p mut parser) uint32 {
 	let k = p.tk
 	if startsSkip(p) {
 		return parseSkip(p)
+	}
+	if startsDie(p) {
+		return parseDie(p)
 	}
 	if k == Let {
 		let d = parseLetDecl(p, none, false)

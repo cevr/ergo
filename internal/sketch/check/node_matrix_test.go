@@ -125,6 +125,7 @@ func Step(s U, e U) Decision[U, int] { return Ignore }`, "S104", "Nope"},
 	}
 }`, "S104", "nope"},
 	{"ReturnStmt", `func F() int { return nope }`, "S104", "nope"},
+	{"DieStmt", `func F() defects { die nope }`, "S104", "nope"},
 	{"SwitchStmt", `func F(x int) {
 	match x {
 	case 1:

@@ -243,6 +243,16 @@ func (s *AssertStmt) Pos() Pos { return s.Assert }
 func (s *AssertStmt) End() Pos { return s.X.End() }
 func (*AssertStmt) stmtNode()  {}
 
+// DieStmt is `die e`: a terminating deliberate-defect statement.
+type DieStmt struct {
+	Die Pos
+	X   Expr
+}
+
+func (s *DieStmt) Pos() Pos { return s.Die }
+func (s *DieStmt) End() Pos { return s.X.End() }
+func (*DieStmt) stmtNode()  {}
+
 // SkipStmt is `skip "reason"` (runtime.md, Tests 4): it ends the test or
 // law run it stands in as skipped, with the reason, a string literal.
 // Reason is the literal's source text, quoted, from ReasonPos to

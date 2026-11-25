@@ -2647,6 +2647,7 @@ func (c *checker) signature(ft *syntax.FuncType, ctx *typeCtx) *Signature {
 	if ft.Takes != nil {
 		c.takesClause(ft.Takes, sig, ctx.method, ctx.hostRecv)
 	}
+	sig.Defects = ft.Defects
 	return sig
 }
 
@@ -2740,6 +2741,9 @@ func (c *checker) funcSig(f *Func) *Signature {
 		c.hostClauses(d.Extern.Target.Value, sig, d)
 	}
 	if d.Extern != nil {
+		if sig.Defects {
+			c.errorf(d.Type, CodeType, "an extern go declaration cannot declare defects (NO-UNREACHABLE §3)")
+		}
 		c.externRows(d, sig)
 	}
 	if d.Extern != nil && !c.pkg.Host() {

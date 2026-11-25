@@ -15,7 +15,7 @@ import time
 // and failures are the Task's T and E; the providers it needs are the
 // caller's. The block outlives the call, so its parameter is `escaping`
 // (196e): it captures no non-escaping function value.
-extern go ergo.local/prototype/runtime/v1.Go func Go[T own, E, R](body own func() T fails E needs R) Task[T, E] needs R
+extern go ergo.local/prototype/runtime/v1.Go func Go[T own, E, R](body own func() T fails E needs R defects) Task[T, E] needs R
 
 // Done is a task whose block returned Value.
 type Done[T own] { Value T }
@@ -23,10 +23,43 @@ type Done[T own] { Value T }
 // Failed is a task whose whole exit is one typed failure of its row.
 type Failed[E] { Error E }
 
+// Defect is an opaque read-only view of the defect cause that ended a task
+// or actor, preserving source position, monotonic occurrence id, full cause
+// count, and exact nominal payload lookup via ReasonOf/ReasonAs.
+// law-exempt: Defect is sealed by runtimeOnly and created only by ExitOf after a defect; task's defect laws verify it.
+extern go ergo.local/prototype/runtime/v1.Defect type Defect {
+	runtimeOnly(),
+	// Text is the rendered diagnostic text of the first defect.
+	Text() string,
+	// Position is the source position of the first deliberate defect, or "" for a foreign defect.
+	Position() string,
+	// Occurrence is the monotonic occurrence id of the first defect.
+	Occurrence() int,
+	// CauseCount is the total number of reasons recorded in the exit cause.
+	CauseCount() int,
+	// DefectCount is the number of defect reasons recorded in the exit cause.
+	DefectCount() int,
+}
+
 // Defected is a task that a defect ended: Reason is the defect's text, as
 // the runtime's report writes it after "panic: " (an Unreachable's
-// "unreachable at a.ergo:9:3: no route"), the text actor.Defected holds.
-type Defected { Reason string }
+// "unreachable at a.ergo:9:3: no route"), the text actor.Defected holds,
+// and Defect is the structured read-only cause view for ReasonAs.
+type Defected { Reason string, Defect Defect }
+
+// ReasonOf looks up the deliberate defect payload of d at the exact nominal
+// type T. Foreign faults and payloads of any other type return None.
+func ReasonOf[T](d Defect) Option[T] {
+	if defectHas[T](d) {
+		Some[T]{Value: defectAs[T](d)}
+	} else {
+		None
+	}
+}
+
+// ReasonAs looks up the deliberate defect payload of d at the exact nominal
+// type T. Foreign faults and payloads of any other type return None.
+func ReasonAs[T](d Defected) Option[T] { ReasonOf[T](d.Defect) }
 
 // Stopped is a task that a stop ended which was not its waiter's: any stop
 // that did not come from the task that called ExitOf, such as a StopAfter
@@ -60,7 +93,8 @@ func ExitOf[T own, E](t own Task[T, E]) Exit[T, E] {
 		return Failed[E]{Error: err}
 	}
 	if k == 2 {
-		return Defected{Reason: exitReason(t)}
+		let d = exitDefect(t)
+		return Defected{Reason: d.Text(), Defect: d}
 	}
 	if k == 3 || k == 4 {
 		let _ = exitReason(t)
@@ -132,6 +166,15 @@ extern go ergo.local/prototype/runtime/v1.TaskStopAfter func StopAfter[T own, E]
 // else "". Every path of ExitOf takes t, so no generic release of T
 // follows it (GEN9-GAP42).
 extern go ergo.local/prototype/runtime/v1.TaskReason func exitReason[T own, E](t own Task[T, E]) string
+
+// exitDefect takes t after exitOf gave 2 and returns the opaque Defect view.
+extern go ergo.local/prototype/runtime/v1.TaskDefect func exitDefect[T own, E](t own Task[T, E]) Defect
+
+// defectHas reports whether d's first defect is a source die with payload T.
+extern go ergo.local/prototype/runtime/v1.DefectHas func defectHas[T](d Defect) bool
+
+// defectAs returns d's first source die payload as T.
+extern go ergo.local/prototype/runtime/v1.DefectAs func defectAs[T](d Defect) T
 
 // exitValue takes the value t's block returned, after exitOf gave 0.
 extern go ergo.local/prototype/runtime/v1.TaskValue func exitValue[T own, E](t own Task[T, E]) T

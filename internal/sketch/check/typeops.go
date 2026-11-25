@@ -202,7 +202,7 @@ func (c *checker) substWith(t Type, m map[*TypeParam]Type, self selfReader) Type
 		}
 		return &Pointer{Elem: elem}
 	case *Signature:
-		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Entry: t.Entry, Takes: t.Takes, TakesSelf: t.TakesSelf, MutSelf: t.MutSelf}
+		s := &Signature{Fallible: t.Fallible, NonEscaping: t.NonEscaping, Entry: t.Entry, Defects: t.Defects, Takes: t.Takes, TakesSelf: t.TakesSelf, MutSelf: t.MutSelf}
 		changed := false
 		for _, p := range t.Params {
 			typ := read(p.Type)
@@ -324,7 +324,7 @@ func (c *checker) mayBeIdentical(a, b Type) bool {
 	}
 	as, ok := a.(*Signature)
 	bs, ok2 := b.(*Signature)
-	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping || as.Entry != bs.Entry {
+	if !ok || !ok2 || len(as.TParams) > 0 || len(bs.TParams) > 0 || as.NonEscaping != bs.NonEscaping || as.Entry != bs.Entry || as.Defects != bs.Defects {
 		return false
 	}
 	return c.sameShape(as, bs) && c.takesEffect(as, nil) == c.takesEffect(bs, nil) && c.mayBeEqualRow(as.Errors, bs.Errors) && c.mayBeEqualRow(as.Uses, bs.Uses)
@@ -630,6 +630,9 @@ func (c *checker) assignability(v, t Type) (assignment, string) {
 	if ts.Entry && !vs.Entry {
 		// Only the runner makes an entry's send (Signature.Entry).
 		return assignment{}, "only an entry's send is one: a parameter written entry func(…) that the runner or a caller gave (runtime.md, Machines and actors 14)"
+	}
+	if vs.Defects && !ts.Defects {
+		return assignment{}, fmt.Sprintf("it may defect (defects), which %s does not allow", t)
 	}
 	if !c.sameShape(vs, ts) {
 		return assignment{}, "the parameters or results differ"
@@ -1180,6 +1183,9 @@ func (c *checker) operationShape(v Type, name string, got, want *Signature, gr, 
 		if why := release(); why != "" {
 			return why
 		}
+	}
+	if got.Defects && !want.Defects {
+		return fmt.Sprintf("%s.%s may defect (defects), which the interface's method does not allow", v, name)
 	}
 	if got.Fallible != want.Fallible && !sameOperation {
 		return fmt.Sprintf("%s.%s differs in fallibility from the interface's method", v, name)

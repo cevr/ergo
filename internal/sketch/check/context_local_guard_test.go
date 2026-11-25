@@ -67,6 +67,7 @@ var contextPlaceRows = map[string]externPlaceRow{
 	"ParenExpr.X":              {guardValue, "func main() {\n\t$W\n\t_ = (@w)\n}\n"},
 	"RangeStmt.X":              {guardValue, "func main() {\n\t$W\n\tfor x in @w { _ = x }\n}\n"},
 	"ReturnStmt.Results":       {guardValue, "func get() int {\n\t$W\n\treturn @w\n}\n"},
+	"DieStmt.X":                {guardValue, "func get() defects {\n\t$W\n\tdie @w\n}\n"},
 	"SelectorExpr.X":           {guardValue, "func main() {\n\t$W\n\t_ = @w.Len\n}\n"},
 	"SliceExpr.X":              {guardValue, "func main() {\n\t$W\n\t_ = @w[0:1]\n}\n"},
 	"SliceExpr.Low":            {guardValue, "func main() {\n\t$W\n\tlet xs = []int{1}\n\t_ = xs[@w:]\n}\n"},

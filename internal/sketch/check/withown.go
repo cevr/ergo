@@ -585,7 +585,7 @@ func (c *checker) seedSig(t *Signature) Type {
 	if results == nil || errs == nil || uses == nil {
 		return nil
 	}
-	return &Signature{Params: params, Results: results, Fallible: t.Fallible, Errors: errs, Uses: uses,
+	return &Signature{Params: params, Results: results, Fallible: t.Fallible, Defects: t.Defects, Errors: errs, Uses: uses,
 		NonEscaping: t.NonEscaping, Takes: slices.Clone(t.Takes), TakesSelf: t.TakesSelf, MutSelf: t.MutSelf}
 }
 

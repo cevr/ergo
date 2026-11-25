@@ -60,7 +60,7 @@ func structural(a, b Type) bool {
 		return ok && structural(a.Elem, b.Elem)
 	case *Signature:
 		b, ok := b.(*Signature)
-		if !ok || len(a.Params) != len(b.Params) || len(a.Results) != len(b.Results) || a.NonEscaping != b.NonEscaping {
+		if !ok || len(a.Params) != len(b.Params) || len(a.Results) != len(b.Results) || a.NonEscaping != b.NonEscaping || a.Defects != b.Defects {
 			return false
 		}
 		for i := range a.Params {

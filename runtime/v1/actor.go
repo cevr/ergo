@@ -1858,6 +1858,16 @@ func ActorDefectReason[S, E, D any](a *Actor[S, E, D]) string {
 	return defectReason(a.exit)
 }
 
+// ActorDefect is std actor's exitDefect(a): the opaque read-only defect/cause
+// view of the defect that ended a (NO-UNREACHABLE §3).
+//
+//ergo:wait none
+func ActorDefect[S, E, D any](a *Actor[S, E, D]) *Defect {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return newDefect(a.exit)
+}
+
 // defectReason is the text of err's first defect, "" when it has none.
 func defectReason(err error) string {
 	c, ok := err.(*rt.Cause)

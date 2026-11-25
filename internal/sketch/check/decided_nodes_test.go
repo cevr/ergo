@@ -70,6 +70,13 @@ func f() int64 {
 }
 func main() {}
 `, nil},
+	{"core forms", "die statement and defects signature", `
+type Fault { Code int }
+func boom(n int) int defects {
+	die Fault{Code: n}
+}
+func main() {}
+`, nil},
 	{"let mut", "let mut is assigned", `
 func f() int64 {
 	let mut x int64 = 1

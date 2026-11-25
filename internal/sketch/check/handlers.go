@@ -700,6 +700,10 @@ func (c *checker) catchArm(arm *syntax.CatchArm, valueType Type, yield bool) {
 			c.errorIn(arm, at, at+1, CodeMissingRet, "this path of the arm can reach its end without a value, and the catch yields a value of type %s: end it with an expression, return or an else (rows.md, Catch 7)", valueType)
 		}
 	}
+	if c.fn != nil && c.fn.t != nil {
+		c.fn.t.inCatchArm++
+		defer func() { c.fn.t.inCatchArm-- }()
+	}
 	c.yieldList(list, k, list[len(list)-1].Pos())
 }
 

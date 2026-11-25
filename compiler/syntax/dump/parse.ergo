@@ -333,7 +333,7 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		node(d, c, x.Value)
 		opt(d, c, x.Hashing)
 	case syntax.FuncType as x:
-		line(d, depth, "FuncType "+a+" Escaping="+itoa(tp(d, x.Escaping))+" Entry="+itoa(tp(d, x.Entry))+" Func="+itoa(tp(d, x.Func)))
+		line(d, depth, "FuncType "+a+" Escaping="+itoa(tp(d, x.Escaping))+" Entry="+itoa(tp(d, x.Entry))+" Func="+itoa(tp(d, x.Func))+" Defects="+itoa(tp(d, x.Defects)))
 		opt(d, c, x.TypeParams)
 		node(d, c, x.Params)
 		opt(d, c, x.Results)
@@ -442,6 +442,9 @@ func node(d mut dumper, depth int, id dense.ID[syntax.Node]) {
 		node(d, c, x.Body)
 	case syntax.AssertStmt as x:
 		line(d, depth, "AssertStmt "+a+" Assert="+itoa(tp(d, x.Assert)))
+		node(d, c, x.X)
+	case syntax.DieStmt as x:
+		line(d, depth, "DieStmt "+a+" Die="+itoa(tp(d, x.Die)))
 		node(d, c, x.X)
 	case syntax.SkipStmt as x:
 		line(d, depth, "SkipStmt "+a+" Skip="+itoa(tp(d, x.Skip))+" ReasonPos="+itoa(tp(d, x.Reason))+" Reason="+strconv.Quote(syntax.TokText(d.p, x.Reason)))

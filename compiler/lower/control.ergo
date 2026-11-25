@@ -27,6 +27,7 @@ type controlOp =
 	| CAssert{Site string, Text string}
 	| CSkip{Reason string}
 	| CLawRet{Site string, Decl string}
+	| CDie{Site string}
 type controlSpan { lo int, hi int, terminates bool, breaks bool }
 type controlStmt {
 	op      controlOp,
@@ -314,6 +315,13 @@ func controlStatement(st mut fnb, p mut controlPlan, node dense.ID[syntax.Node],
 		let at = syntax.TokPos(parsed, sk.Skip)
 		row.op = CSkip{Reason: try skipReason(*st, sk)}
 		row.offset = at
+	case syntax.DieStmt as d:
+		p.extended = true
+		try controlOperand(*st, p, d.X)
+		let at = syntax.TokPos(parsed, d.Die)
+		row.op = CDie{Site: assertSiteText(*st, at)}
+		row.offset = at
+		row.x = dense.OptOf(d.X)
 	case _:
 		return stop(if tail { "statement form" } else { "statement form before the tail" })
 	}
@@ -617,6 +625,8 @@ func controlTerminates(row controlStmt) bool {
 		true
 	case CUnionRet:
 		true
+	case CDie:
+		true
 	case CMatch:
 		matchTerminates(row)
 	case CIf:
@@ -775,6 +785,11 @@ func controlEmitSpan(st fnb, b mut ir.Builder, p controlPlan, span controlSpan, 
 			try emitSkipStmt(b, at, sk.Reason)
 		case CLawRet:
 			return ir.Malformed{At: i, Why: "law return outside multirow emission"}
+		case CDie as d:
+			let boxed = try ir.Row(b, ir.KindCode(ir.TExpr, "toiface"), at, []uint32{ir.Text(b, "any"), x})
+			let siteExpr = try constRow(b, at, "string", d.Site)
+			let call = try ir.Row(b, ir.KindCode(ir.TExpr, "pcall"), at, []uint32{ir.Text(b, "ergo.local/prototype/runtime/v1"), 0, 0, ir.Text(b, "DieAt"), ir.List(b, []uint32{boxed, siteExpr})})
+			try ir.Row(b, ir.KindCode(ir.TStmt, "panic"), at, []uint32{call})
 		}
 		rows = rows.Append(row)
 		match s.op {

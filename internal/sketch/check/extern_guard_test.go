@@ -85,6 +85,7 @@ var externPlaceRows = map[string]externPlaceRow{
 	"ParenExpr.X":              {guardValue, "func main() {\n\t_ = (@Upper)\n}\n"},
 	"RangeStmt.X":              {guardValue, "func main() {\n\tfor x in @Upper { _ = x }\n}\n"},
 	"ReturnStmt.Results":       {guardValue, "func get() func(string) string { return @Upper }\n"},
+	"DieStmt.X":                {guardValue, "func get() defects { die @Upper }\n"},
 	"SelectorExpr.X":           {guardValue, "func main() {\n\t_ = @Upper.Len\n}\n"},
 	"SliceExpr.X":              {guardValue, "func main() {\n\t_ = @Upper[0:1]\n}\n"},
 	"SliceExpr.Low":            {guardValue, "func main() {\n\tlet xs = []int{1}\n\t_ = xs[@Upper:]\n}\n"},

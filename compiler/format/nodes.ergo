@@ -450,6 +450,10 @@ func signature(p mut Printer, ft dense.ID[syntax.Node]) {
 			p.identList(names, true)
 		}
 	}
+	if x.Defects >= 0 {
+		p.space()
+		p.token(p.tp(x.Defects), "defects")
+	}
 }
 
 func needsClause(p mut Printer, u dense.ID[syntax.Node]) {
@@ -946,6 +950,11 @@ func stmt(p mut Printer, x dense.ID[syntax.Node]) {
 		p.token(p.tp(s.Skip), "skip")
 		p.space()
 		p.tokenEnd(p.tp(s.Reason), p.text(s.Reason), syntax.TokEnd(p.P, s.Reason))
+	} else if k == syntax.KDieStmt {
+		let s = syntax.DieStmtOf(p.P.Tree, x)
+		p.token(p.tp(s.Die), "die")
+		p.space()
+		p.expr(s.X)
 	} else if k == syntax.KBlockStmt {
 		p.block(x, false)
 	} else if k == syntax.KIfStmt {

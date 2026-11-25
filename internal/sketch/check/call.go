@@ -356,6 +356,9 @@ func (c *checker) argValue(a syntax.Expr, hint Type, call *syntax.CallExpr) (ope
 // unknown error row (Row.unknown) stays unknown in the result.
 func (c *checker) result(x *syntax.CallExpr, sig *Signature) operand {
 	// An inferred row is read through its variable (class F).
+	if sig.Defects {
+		c.chargeDefect(x, "calling "+exprText(x.Fun))
+	}
 	c.chargeRow(x, c.types.resolve(sig.Uses))
 	c.readRow(sig.Errors)
 	op := operand{mode: modeValue, errs: c.types.resolve(sig.Errors)}
@@ -920,7 +923,10 @@ func (c *checker) funcLit(x *syntax.FuncLit, expected *Signature, in *inferer) o
 			}
 		}
 	}
-	t := &target{name: "this function literal", results: sig.Results, resultKnown: !resultFree, isFunc: true}
+	if !sig.Defects && expected != nil && expected.Defects {
+		sig.Defects = true
+	}
+	t := &target{name: "this function literal", results: sig.Results, resultKnown: !resultFree, isFunc: true, defects: sig.Defects}
 	// An unknown expected row declares nothing: the literal infers that row,
 	// and the unknown row accepts it (stage D1 round 4 review M2).
 	switch {
@@ -1015,6 +1021,10 @@ func (c *checker) blockLit(b *syntax.BlockStmt, expected *Signature, in *inferer
 	c.typedFrame(b)
 	sig = &Signature{Errors: newRow(), Uses: newRow()}
 	t := &target{name: "this block"}
+	if expected != nil && expected.Defects {
+		sig.Defects = true
+		t.defects = true
+	}
 	resultFree := expected == nil || in != nil && in.anyFree(expected.Results)
 	if expected != nil && len(expected.Params) > 0 {
 		c.errorf(b, CodeType, "a trailing block takes no parameters, but the parameter type %s has %d; write a func literal", expected, len(expected.Params))

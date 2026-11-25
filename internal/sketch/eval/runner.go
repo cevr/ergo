@@ -215,6 +215,14 @@ func registerRunner(t nativeTables) {
 		}
 		return a.defect.msg, nil
 	}
+	t.reads["actor.exitDefect"] = "host:actor.Actor"
+	natives["actor.exitDefect"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
+		a := actorOf(args[0])
+		if a.defect == nil {
+			return &defectV{}, nil
+		}
+		return defectOfAbrupt(a.defect), nil
+	}
 	t.reads["actor.exitKind"] = "host:actor.Actor"
 	natives["actor.exitKind"] = func(in *interp, fr *frame, at syntax.Node, fn *check.Func, args []Value) (Value, *abrupt) {
 		a := actorOf(args[0])

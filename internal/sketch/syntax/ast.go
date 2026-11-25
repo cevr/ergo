@@ -734,6 +734,11 @@ type (
 		Results    *FieldList
 		Needs      *NeedsClause
 		Takes      *TakesClause
+		// Defects marks a function signature written with `defects`
+		// (NO-UNREACHABLE §3), at DefectsPos. DefectsPos means nothing
+		// without Defects, so a zero-value FuncType has no clause.
+		Defects    bool
+		DefectsPos Pos
 	}
 
 	// StructType is the record of `type T { fields }`: Fields holds the
@@ -922,6 +927,8 @@ func (x *FuncType) Pos() Pos {
 }
 func (x *FuncType) End() Pos {
 	switch {
+	case x.Defects:
+		return x.DefectsPos + Pos(len("defects"))
 	case x.Takes != nil:
 		return x.Takes.End()
 	case x.Needs != nil:

@@ -438,6 +438,13 @@ func (in *inferer) nifySig(x, y *Signature, mode unifyMode, depth int) bool {
 	default:
 		return false
 	}
+	if mode == unifyExact {
+		if x.Defects != y.Defects {
+			return false
+		}
+	} else if y.Defects && !x.Defects {
+		return false
+	}
 	in.unifyRow(x.Errors, y.Errors)
 	in.unifyRow(x.Uses, y.Uses)
 	return true

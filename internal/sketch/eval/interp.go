@@ -246,12 +246,13 @@ const (
 
 // abrupt is a completion other than a normal one, with its site.
 type abrupt struct {
-	kind ctlKind
-	val  Value
-	msg  string
-	pkg  *check.Package
-	decl syntax.Decl
-	at   syntax.Pos
+	kind   ctlKind
+	val    Value
+	msg    string
+	defect *defectV
+	pkg    *check.Package
+	decl   syntax.Decl
+	at     syntax.Pos
 }
 
 func (fr *frame) abrupt(kind ctlKind, at syntax.Node, val Value, msg string) *abrupt {

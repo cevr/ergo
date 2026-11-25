@@ -1284,7 +1284,7 @@ func signature(s mut store.Store, e Env, ft syntax.FuncType) dense.ID[store.TKey
 		}
 	case None:
 	}
-	store.TSig(s, params, result, errs, uses)
+	store.TSigWith(s, params, result, errs, uses, ft.Defects >= 0)
 }
 
 // Printing, as the Go checker's Type.String prints: local names are
@@ -1401,6 +1401,9 @@ func Text(s store.Store, n Names, t dense.ID[store.TKey]) string {
 		let uses = rowText(s, n, store.OperandsOf(s, ops[np+2]), " | ")
 		if uses != "" {
 			b = b + " needs " + uses
+		}
+		if store.SigDefects(s, t) {
+			b = b + " defects"
 		}
 		return b
 	}

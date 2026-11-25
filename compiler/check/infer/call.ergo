@@ -202,7 +202,7 @@ func rebuild(s mut store.Store, t dense.ID[store.TKey], ts []dense.ID[store.TKey
 		store.TOwn(s, ts[0])
 	} else if k == store.KSig {
 		let n = len(ts) - 3
-		store.TSig(s, ts[0:n], ts[n], ts[n+1], ts[n+2])
+		store.TSigWith(s, ts[0:n], ts[n], ts[n+1], ts[n+2], store.SigDefects(*s, t))
 	} else {
 		t
 	}

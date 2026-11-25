@@ -735,6 +735,9 @@ func (c *checker) checkEntry() {
 			break
 		}
 	}
+	if d.Type.Defects {
+		c.errorf(d.Type, CodeEntry, "main cannot declare defects: run deliberate defects inside a child task (task.Go) and observe via task.ExitOf")
+	}
 }
 
 // checkErrorMethods reports a function Error on an error type: the emitter

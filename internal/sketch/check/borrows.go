@@ -1191,7 +1191,7 @@ func exits(b *syntax.BlockStmt) bool {
 		return false
 	}
 	switch b.List[len(b.List)-1].(type) {
-	case *syntax.ReturnStmt, *syntax.BranchStmt:
+	case *syntax.ReturnStmt, *syntax.DieStmt, *syntax.BranchStmt:
 		return true
 	}
 	return false

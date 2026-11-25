@@ -1267,6 +1267,8 @@ func (w *refWalker) stmt(s syntax.Stmt) {
 		w.exprs(s.Lhs)
 	case *syntax.ReturnStmt:
 		w.exprs(s.Results)
+	case *syntax.DieStmt:
+		w.expr(s.X)
 	case *syntax.BranchStmt:
 	case *syntax.BlockStmt:
 		w.push()

@@ -92,6 +92,10 @@ func (c *checker) raisesByName(f *Func) bool {
 		c.raises = map[*Func]bool{}
 	}
 	c.raises[f] = false
+	if f.Sig != nil && f.Sig.Defects {
+		c.raises[f] = true
+		return true
+	}
 	if f.Decl == nil || f.Decl.Body == nil || f.Pkg == nil || f.Pkg.Info == nil {
 		return false
 	}

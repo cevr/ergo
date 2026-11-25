@@ -483,6 +483,8 @@ func (w *valueWalk) moveOutHolds(mo moveOut, occ map[*syntax.Ident]*vocc) bool {
 			switch n := n.(type) {
 			case *syntax.ReturnStmt, *syntax.BranchStmt, *syntax.TryExpr, *syntax.FuncLit:
 				leaves = true
+			case *syntax.DieStmt:
+				leaves = true
 			case *syntax.CallExpr:
 				if c := w.info.Calls[n]; c == nil || failsHere(c) || n.Trailing != nil {
 					leaves = true
@@ -521,6 +523,8 @@ func (w *valueWalk) armHolds(mo moveOut, root *vvar, frame *vframe) bool {
 		syntax.Inspect(n, func(n syntax.Node) bool {
 			switch n := n.(type) {
 			case *syntax.ReturnStmt, *syntax.BranchStmt, *syntax.FuncLit, *syntax.TryExpr:
+				leaves = true
+			case *syntax.DieStmt:
 				leaves = true
 			case *syntax.CallExpr:
 				if c := w.info.Calls[n]; c == nil || failsHere(c) || n.Trailing != nil {

@@ -802,7 +802,7 @@ func (c *checker) sameOps(k, op *Interface) bool {
 	for _, m := range op.Methods {
 		km := k.method(m.Name)
 		if km == nil || km.Sig == nil || m.Sig == nil || !c.sameShape(km.Sig, m.Sig) ||
-			km.Sig.Fallible != m.Sig.Fallible || km.Sig.TakesSelf != m.Sig.TakesSelf || km.Sig.MutSelf != m.Sig.MutSelf ||
+			km.Sig.Fallible != m.Sig.Fallible || km.Sig.Defects != m.Sig.Defects || km.Sig.TakesSelf != m.Sig.TakesSelf || km.Sig.MutSelf != m.Sig.MutSelf ||
 			!km.Sig.Errors.equal(c.types, m.Sig.Errors) || !km.Sig.Uses.equal(c.types, m.Sig.Uses) {
 			return false
 		}
