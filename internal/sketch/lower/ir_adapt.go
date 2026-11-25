@@ -144,9 +144,10 @@ func (b *irBuilder) adaptOperand(sig *check.Signature, site syntax.Node, e *irEx
 	ok := len(shape.Params) == len(sig.Params)
 	switch {
 	case len(shape.Params) == 0:
-		// adaptFunc: a block; a Go result of error alone takes a block
-		// with no value.
-		ok = ok && values <= 1 && !(len(shape.Results) == 1 && fallible && len(sig.Results) != 0) && !(values == 1 && !fallible)
+		// adaptFunc / adaptTaskFunc: a block; a Go result of error alone takes
+		// a block with no value; a non-fallible 1-value callback is admitted
+		// for task callbacks (actor's decide: func(*rt.Task) R).
+		ok = ok && values <= 1 && !(len(shape.Results) == 1 && fallible && len(sig.Results) != 0) && !(values == 1 && !fallible && !(task && len(sig.Results) == 1))
 	case task:
 		// adaptTaskFunc: the Go values are the Ergo function's.
 		ok = ok && values == len(sig.Results)
