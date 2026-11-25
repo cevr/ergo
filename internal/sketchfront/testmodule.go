@@ -276,6 +276,9 @@ func BuildTests(analyses []Analysis, req BuildRequest) (build.Module, error) {
 	if req.IR {
 		// The IR bodies, as every other build lowers them (TEQb).
 		input.Emitter += "+ir"
+		if req.NoFallback {
+			input.Emitter += "+nofallback"
+		}
 		lowering = lower.LowerIRTestModule
 	}
 	var units []lower.Unit
@@ -289,6 +292,7 @@ func BuildTests(analyses []Analysis, req BuildRequest) (build.Module, error) {
 			return build.Module{}, &BuildError{Diagnostics: a.Diagnostics}
 		}
 		unit := a.program.unit()
+		unit.NoFallback = req.NoFallback
 		if err := unit.Validate(); err != nil {
 			return build.Module{}, err
 		}

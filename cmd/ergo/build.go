@@ -311,7 +311,7 @@ func buildGoText(l loaded, opts fileOptions, output receipt.Location) error {
 		return err
 	}
 	unit.NoViews = opts.noViews
-	unit.NoFallback = opts.noFallback || os.Getenv("ERGO_FALLBACK") == "off"
+	unit.NoFallback = fallbackOff(opts)
 	files, _, err := lower.LowerIR(unit)
 	if err != nil {
 		return err

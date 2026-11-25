@@ -347,11 +347,12 @@ func sharedTestCommand(opts fileOptions, module moduleTestOptions) (shared bool,
 		// saying the packages are tested alone (sharedFallback).
 		var held bytes.Buffer
 		if _, err := sketchfront.BuildTests(built, sketchfront.BuildRequest{
-			Output:    binary,
-			Cache:     build.Cache{Root: root},
-			Toolchain: tc,
-			IR:        true,
-			Stderr:    &held,
+			Output:     binary,
+			Cache:      build.Cache{Root: root},
+			Toolchain:  tc,
+			IR:         true,
+			NoFallback: fallbackOff(opts),
+			Stderr:     &held,
 		}); err != nil {
 			return sharedFallback(os.Stderr, os.Getenv(SharedFallbackVariable) == "fail", err, held.String())
 		}
