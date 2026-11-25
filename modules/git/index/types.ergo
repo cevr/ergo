@@ -1,0 +1,138 @@
+// Package index implements pure-Ergo decoding and lookup for Git binary index
+// files (v2, v3, and v4), including multi-stage conflict entries, file modes,
+// optional and mandatory extensions, split-index EWAH merging, and sparse
+// directory markers (STD-GIT: G-INDEX).
+
+import github.com/cevr/ergo/modules/git/oid
+
+// ModeRegular is the Git index mode for a non-executable regular file (0100644).
+let ModeRegular uint32 = uint32(0x81a4)
+
+// ModeExecutable is the Git index mode for an executable file (0100755).
+let ModeExecutable uint32 = uint32(0x81ed)
+
+// ModeSymlink is the Git index mode for a symbolic link (0120000).
+let ModeSymlink uint32 = uint32(0xa000)
+
+// ModeGitlink is the Git index mode for a submodule gitlink (0160000).
+let ModeGitlink uint32 = uint32(0xe000)
+
+// ModeSparseDir is the Git index mode for a sparse directory entry (0040000).
+let ModeSparseDir uint32 = uint32(0x4000)
+
+// Error is the closed failure union for Git index decoding and disk opening.
+type Error =
+	| BadMagic{Reason string}
+	| UnsupportedVersion{Version uint32}
+	| Truncated{Expected int, Got int}
+	| ChecksumMismatch{Expected string, Got string}
+	| CorruptEntry{Index int, Why string}
+	| BadPathCompression{Index int, Reason string}
+	| UnsupportedMandatoryExtension{Signature string}
+	| DuplicateStage{Path string, Stage int}
+	| UnsortedEntries{Index int, Path string}
+	| IOFailed{Op string, Detail string}
+
+// Entry is a single staged record from a Git index file.
+type Entry {
+	CTimeSec     uint32,
+	CTimeNsec    uint32,
+	MTimeSec     uint32,
+	MTimeNsec    uint32,
+	Dev          uint32,
+	Ino          uint32,
+	Mode         uint32,
+	UID          uint32,
+	GID          uint32,
+	FileSize     uint32,
+	OID          oid.OID,
+	Stage        int,
+	AssumeValid  bool,
+	Extended     bool,
+	SkipWorktree bool,
+	IntentToAdd  bool,
+	Path         string,
+}
+
+// Extension records the 4-byte ASCII signature and byte length of an index
+// extension section preserved from a decoded Git index.
+type Extension {
+	Signature string,
+	Size      int,
+}
+
+// SplitLink holds the parsed payload of a mandatory `link` split-index extension.
+type SplitLink {
+	BaseOID       oid.OID,
+	DeleteBitmap  []bool,
+	ReplaceBitmap []bool,
+}
+
+// Index is a verified, immutable Git index supporting (Path, Stage) queries
+// and extension inspection.
+type Index {
+	format     oid.Format,
+	version    int,
+	entries    []Entry,
+	extensions []Extension,
+	splitLink  Option[SplitLink],
+	checksum   oid.OID,
+} implements IndexReader
+
+// IndexReader is the capability seam for querying staged Git index entries,
+// carrying laws enforced identically on Index and MemoryIndex.
+type IndexReader {
+	Entries() []Entry,
+	Lookup(path string, stage int) Option[Entry],
+	LookupAllStages(path string) []Entry,
+
+	// LookupFindsAllStagedEntries: every staged entry returned by Entries is
+	// retrievable via Lookup(Path, Stage) with identical Mode and OID.
+	law LookupFindsAllStagedEntries() {
+		let all = Entries()
+		for e in all {
+			match Lookup(e.Path, e.Stage) {
+			case None:
+				return false
+			case Some[Entry] as got:
+				if got.Value.Path != e.Path || got.Value.Stage != e.Stage || !oid.Equal(got.Value.OID, e.OID) || got.Value.Mode != e.Mode {
+					return false
+				}
+			}
+		}
+		true
+	},
+
+	// MultiStageEntriesDoNotOverwriteEachOther: every stage present for a path
+	// appears in LookupAllStages in strict ascending stage order without loss.
+	law MultiStageEntriesDoNotOverwriteEachOther() {
+		let all = Entries()
+		for e in all {
+			let stages = LookupAllStages(e.Path)
+			let mut sawThisStage = false
+			for i in 0..len(stages) {
+				if stages[i].Path != e.Path {
+					return false
+				}
+				if i > 0 && !(stages[i-1].Stage < stages[i].Stage) {
+					return false
+				}
+				if stages[i].Stage == e.Stage && oid.Equal(stages[i].OID, e.OID) {
+					sawThisStage = true
+				}
+			}
+			if !sawThisStage {
+				return false
+			}
+		}
+		true
+	},
+
+	// MissingPathReturnsNone: querying an absent path returns None and empty stages.
+	law MissingPathReturnsNone() {
+		let missing = "__ergo_nonexistent_index_path__/missing.txt"
+			Lookup(missing, 0) == None &&
+			Lookup(missing, 1) == None &&
+			len(LookupAllStages(missing)) == 0
+	},
+}

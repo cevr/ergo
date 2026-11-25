@@ -1,0 +1,70 @@
+import slices
+
+func readU16BE(b []byte, off int) uint16 {
+	(uint16(b[off]) << uint16(8)) | uint16(b[off+1])
+}
+
+func readU32BE(b []byte, off int) uint32 {
+		(uint32(b[off]) << uint32(24)) |
+		(uint32(b[off+1]) << uint32(16)) |
+		(uint32(b[off+2]) << uint32(8)) |
+		uint32(b[off+3])
+}
+
+func readU64BE(b []byte, off int) uint64 {
+	(uint64(readU32BE(b, off)) << uint64(32)) | uint64(readU32BE(b, off+4))
+}
+
+// decodeEWAH decodes a Git EWAH-compressed 64-bit bitmap starting at pos
+// inside raw[..limit], returning (bits, nextPos).
+func decodeEWAH(raw []byte, pos int, limit int) ([]bool, int) fails Truncated {
+	if pos+8 > limit {
+		return Truncated{Expected: pos + 8, Got: limit}
+	}
+	let bitSize = int(readU32BE(raw, pos))
+	let wordCount = int(readU32BE(raw, pos+4))
+	let wordsStart = pos + 8
+	let endPos = wordsStart + wordCount*8 + 4
+	if endPos > limit {
+		return Truncated{Expected: endPos, Got: limit}
+	}
+	let mut bits = slices.WithCapacity[bool](bitSize)
+	for _ in 0..bitSize {
+		bits = bits.Append(false)
+	}
+	let mut w = 0
+	let mut bitPos = 0
+	for _ in 0..wordCount+1 {
+		if w >= wordCount {
+			break
+		}
+		let rlw = readU64BE(raw, wordsStart+w*8)
+		w = w + 1
+		let runningBit = (rlw & uint64(1)) != uint64(0)
+		let runningWords = int((rlw >> uint64(1)) & uint64(0xffffffff))
+		let literalWords = int(rlw >> uint64(33))
+		let runBits = runningWords * 64
+		if runningBit {
+			for k in 0..runBits {
+				if bitPos+k < bitSize {
+					bits[bitPos+k] = true
+				}
+			}
+		}
+		bitPos = bitPos + runBits
+		for _ in 0..literalWords {
+			if w >= wordCount {
+				break
+			}
+			let lit = readU64BE(raw, wordsStart+w*8)
+			w = w + 1
+			for b in 0..64 {
+				if bitPos+b < bitSize && (lit&(uint64(1)<<uint64(b))) != uint64(0) {
+					bits[bitPos+b] = true
+				}
+			}
+			bitPos = bitPos + 64
+		}
+	}
+	(bits, endPos)
+}

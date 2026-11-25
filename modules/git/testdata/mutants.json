@@ -496,6 +496,70 @@
       "killers": [
         "modules/git/loose:ReadMatchesGitCatFile"
       ]
+    },
+    {
+      "name": "git-index-overwrite-stage-on-dup-path",
+      "origin": "STD-GIT G-INDEX",
+      "file": "modules/git/index/codec.ergo",
+      "from": "\tif s1 < s2 {\n\t\treturn -1\n\t}\n\tif s1 > s2 {\n\t\treturn 1\n\t}\n\t0",
+      "to": "\tlet _ = s1\n\tlet _ = s2\n\t0",
+      "rule": "Index entries are ordered and keyed by (Path, Stage) so distinct conflict stages on the same path do not collide or overwrite each other.",
+      "anchor": {
+        "tests": [
+          "modules/git/index:VersionsAndModesMatchGitLsFiles"
+        ]
+      },
+      "killers": [
+        "modules/git/index:VersionsAndModesMatchGitLsFiles"
+      ]
+    },
+    {
+      "name": "git-index-accept-unknown-mandatory-ext",
+      "origin": "STD-GIT G-INDEX",
+      "file": "modules/git/index/codec.ergo",
+      "from": "\t\t\t} else {\n\t\t\t\treturn UnsupportedMandatoryExtension{Signature: sig}\n\t\t\t}",
+      "to": "\t\t\t} else {\n\t\t\t}",
+      "rule": "Unknown lowercase (mandatory) Git index extensions are rejected with UnsupportedMandatoryExtension.",
+      "anchor": {
+        "tests": [
+          "modules/git/index:ExtensionsAndCorruptionMatrix"
+        ]
+      },
+      "killers": [
+        "modules/git/index:ExtensionsAndCorruptionMatrix"
+      ]
+    },
+    {
+      "name": "git-index-wrong-v4-varint",
+      "origin": "STD-GIT G-INDEX",
+      "file": "modules/git/index/codec.ergo",
+      "from": "\t\tval = ((val + uint64(1)) << uint64(7)) | uint64(b&byte(0x7f))",
+      "to": "\t\tval = (val << uint64(7)) | uint64(b&byte(0x7f))",
+      "rule": "Index v4 path prefix-strip varint uses Git OFS-style +1 continuation bias.",
+      "anchor": {
+        "tests": [
+          "modules/git/index:VersionsAndModesMatchGitLsFiles"
+        ]
+      },
+      "killers": [
+        "modules/git/index:VersionsAndModesMatchGitLsFiles"
+      ]
+    },
+    {
+      "name": "git-index-ignore-checksum",
+      "origin": "STD-GIT G-INDEX",
+      "file": "modules/git/index/codec.ergo",
+      "from": "\tif !slices.Equal(got, want) {",
+      "to": "\tif false && !slices.Equal(got, want) {",
+      "rule": "Git index decoding verifies the trailing digest checksum over all preceding bytes.",
+      "anchor": {
+        "tests": [
+          "modules/git/index:ExtensionsAndCorruptionMatrix"
+        ]
+      },
+      "killers": [
+        "modules/git/index:ExtensionsAndCorruptionMatrix"
+      ]
     }
   ]
 }
