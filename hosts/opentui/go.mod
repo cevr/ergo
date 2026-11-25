@@ -4,7 +4,7 @@ go 1.27
 
 toolchain go1.27.4
 
-require github.com/ebitengine/purego v0.11.1
+require github.com/ebitengine/purego v0.11.3
 
 // The repository's module, for its C binder (internal/bindc), which writes
 // ot/opentui.go. Go's internal rule is by import path, and this module's

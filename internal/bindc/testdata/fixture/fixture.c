@@ -170,9 +170,18 @@ fx_status fx_node_destroy(fx_context *c, const fx_node *node) {
 #endif
 
 #if !OMITTED(6)
+#ifdef FIXTURE_BUG_RETAIN
+static const uint8_t *fx_retained_name = NULL;
+#endif
 fx_status fx_node_count(fx_context *c, uint32_t *out_count) {
     if (c == NULL || out_count == NULL) return FX_INVALID_ARGUMENT;
     if (!on_owner(c)) return FX_WRONG_THREAD;
+#ifdef FIXTURE_BUG_RETAIN
+    if (fx_retained_name != NULL) {
+        volatile uint8_t b = fx_retained_name[0];
+        (void)b;
+    }
+#endif
     uint32_t n = 0;
     for (uint32_t i = 0; i < c->capacity; i++) n += c->slots[i].live ? 1 : 0;
     *out_count = n;
@@ -211,6 +220,22 @@ static fx_status set_name(fx_context *c, const fx_node *node, const uint8_t *nam
     if (st != FX_OK) return st;
     if (name == NULL && name_bytes != 0) return FX_INVALID_ARGUMENT;
     if (name_bytes > sizeof s->name) return FX_INVALID_ARGUMENT;
+#ifdef FIXTURE_BUG_OVERREAD
+    if (name != NULL && name_bytes != 0) {
+        volatile uint8_t b = name[name_bytes];
+        (void)b;
+    }
+#endif
+#ifdef FIXTURE_BUG_CONST_WRITE
+    if (name != NULL && name_bytes != 0) {
+        ((uint8_t *)name)[0] = 'X';
+    }
+#endif
+#ifdef FIXTURE_BUG_RETAIN
+    if (name != NULL && name_bytes != 0) {
+        fx_retained_name = name;
+    }
+#endif
     if (name_bytes != 0) memcpy(s->name, name, name_bytes);
     s->name_bytes = name_bytes;
     return FX_OK;
@@ -230,6 +255,11 @@ fx_status fx_node_read_name(fx_context *c, const fx_node *node, uint8_t *bytes, 
     if (out_count == NULL || (bytes == NULL && capacity != 0)) return FX_INVALID_ARGUMENT;
     uint32_t n = s->name_bytes < capacity ? s->name_bytes : capacity;
     if (n != 0) memcpy(bytes, s->name, n);
+#ifdef FIXTURE_BUG_OUT_OVERFLOW
+    if (bytes != NULL && capacity != 0) {
+        bytes[capacity] = 0x7f;
+    }
+#endif
     *out_count = n;
     return FX_OK;
 }

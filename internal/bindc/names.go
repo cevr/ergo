@@ -133,9 +133,10 @@ var (
 	goPackageHelpers = map[string]bool{
 		"ready": true, "statusError": true, "sliceData": true, "toABI": true, "fromABI": true,
 		"loadMu": true, "loaded": true, "symbols": true,
-		// Word-direct SyscallN fast path (emitgo.go).
+		// Word-direct SyscallN fast path and C guard-page hooks (emitgo.go).
 		"wordBuf": true, "wordPool": true, "symAddrs": true, "forceRegisterFunc": true,
 		"cCall0": true, "cCall": true, "boolWord": true,
+		"cGuardIn": true, "cGuardOut": true,
 		// The callbacks (emitgo.go, callbacks): the registry, its lock and
 		// helpers, the token counter and the trampolines' C pointers.
 		"cbMu": true, "cbNext": true, "cbPtr": true, "cbFuncs": true, "cbEntry": true, "cbMake": true, "cbNew": true,
@@ -150,7 +151,7 @@ var (
 	// declaration of the header.
 	goExported = []string{"Status", "Load", "ABIMismatchError", "ErrNotLoaded", "ErrDestroyed", "ErrTooLong",
 		"LiveCallbacks", "CallbackSlotsError", "CallbackPanic", "Owner", "NewOwner", "ErrOwnerClosed", "ErrOwnerThread",
-		"ErrWrongThread", "ErrKeyInUse"}
+		"ErrWrongThread", "ErrKeyInUse", "SetCGuardHooks"}
 	// goLocals are the locals of a typed function's body (_p, the pending
 	// panic; _pin, the runtime.Pinner; _buf, the pooled wordBuf) and of a
 	// trampoline (_e, the registry entry; _ok, the Go function returned).
@@ -195,7 +196,7 @@ func isGoLocal(n string) bool {
 	if goLocals[n] {
 		return true
 	}
-	for _, p := range []string{"_o", "_i", "_c", "_k", "_s", "_h", "_a", "_v", "_u", "_out"} {
+	for _, p := range []string{"_o", "_i", "_c", "_k", "_s", "_h", "_a", "_v", "_u", "_out", "_g"} {
 		if hasNumber(n, p) {
 			return true
 		}

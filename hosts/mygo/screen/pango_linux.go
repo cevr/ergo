@@ -313,8 +313,12 @@ func fastPango(load func()) {
 		}
 		if f := sym(pango, "pango_layout_set_text"); f != 0 {
 			l.layoutSetText = func(layout uintptr, text *byte, length int32) {
+				var pin runtime.Pinner
+				if text != nil {
+					pin.Pin(text)
+				}
 				call(f, 3, layout, uintptr(unsafe.Pointer(text)), i32(length), 0)
-				runtime.KeepAlive(text)
+				pin.Unpin()
 			}
 		}
 		if f := sym(pango, "pango_layout_set_font_description"); f != 0 {
@@ -385,8 +389,12 @@ func fastPango(load func()) {
 		if l.hbNominalGlyph != nil {
 			if f := sym(hb, "hb_font_get_nominal_glyph"); f != 0 {
 				l.hbNominalGlyph = func(font uintptr, r rune, glyph *uint32) int32 {
+					var pin runtime.Pinner
+					if glyph != nil {
+						pin.Pin(glyph)
+					}
 					n := int32(call(f, 3, font, uintptr(uint32(r)), uintptr(unsafe.Pointer(glyph)), 0))
-					runtime.KeepAlive(glyph)
+					pin.Unpin()
 					return n
 				}
 			}

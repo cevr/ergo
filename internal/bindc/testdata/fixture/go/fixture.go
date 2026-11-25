@@ -127,6 +127,20 @@ func sliceData[T any](s []T) unsafe.Pointer {
 	return unsafe.Pointer(unsafe.SliceData(s))
 }
 
+// cGuardIn and cGuardOut are optional guard-page hooks installed by
+// -tags ergocguard test harnesses via SetCGuardHooks. When nil (default
+// builds), buffer calls pay zero allocations.
+var (
+	cGuardIn  func(ptr unsafe.Pointer, nbytes uintptr, fn, param string) (unsafe.Pointer, func())
+	cGuardOut func(ptr unsafe.Pointer, nbytes uintptr, fn, param string) (unsafe.Pointer, func())
+)
+
+// SetCGuardHooks installs (or clears, with nil) guard-page hooks called around
+// every typed in_buffer and out_buffer C call.
+func SetCGuardHooks(in, out func(ptr unsafe.Pointer, nbytes uintptr, fn, param string) (unsafe.Pointer, func())) {
+	cGuardIn, cGuardOut = in, out
+}
+
 // symbols are the raw functions, in header order.
 var symbols = [...]struct {
 	name string
@@ -1449,16 +1463,21 @@ func NodeSetName(context *Context, node Node, name []byte) error {
 	_buf := wordPool.Get().(*wordBuf)
 	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
 	*_s1 = node
+	_v2 := sliceData(name)
+	var _g2 func()
+	if cGuardIn != nil && len(name) > 0 {
+		_v2, _g2 = cGuardIn(_v2, uintptr(len(name)), "fx_node_set_name", "name")
+	}
 	var _pin runtime.Pinner
 	_pin.Pin(_s1)
-	if len(name) > 0 {
-		_pin.Pin(sliceData(name))
+	if _g2 == nil && len(name) > 0 {
+		_pin.Pin(_v2)
 	}
 	_u1 := uintptr(unsafe.Pointer(_s1))
-	_u2 := uintptr(sliceData(name))
+	_u2 := uintptr(_v2)
 	var _r int32
 	if forceRegisterFunc {
-		_r = c_fx_node_set_name(context.p, unsafe.Pointer(_s1), sliceData(name), uint32(len(name)))
+		_r = c_fx_node_set_name(context.p, unsafe.Pointer(_s1), _v2, uint32(len(name)))
 	} else {
 		_buf.args[0] = context.p
 		_buf.args[1] = _u1
@@ -1468,12 +1487,18 @@ func NodeSetName(context *Context, node Node, name []byte) error {
 	}
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
+		if _g2 != nil {
+			_g2()
+		}
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
 			panic(_p)
 		}
 		return err
+	}
+	if _g2 != nil {
+		_g2()
 	}
 	_pin.Unpin()
 	wordPool.Put(_buf)
@@ -1497,20 +1522,25 @@ func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error) {
 	_buf := wordPool.Get().(*wordBuf)
 	_s1 := (*Node)(unsafe.Pointer(&_buf.scratch[0]))
 	*_s1 = node
+	_v2 := sliceData(bytes)
+	var _g2 func()
+	if cGuardOut != nil && len(bytes) > 0 {
+		_v2, _g2 = cGuardOut(_v2, uintptr(len(bytes)), "fx_node_read_name", "bytes")
+	}
 	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[2]))
 	*_o4 = 0
 	var _pin runtime.Pinner
 	_pin.Pin(_s1)
-	if len(bytes) > 0 {
-		_pin.Pin(sliceData(bytes))
+	if _g2 == nil && len(bytes) > 0 {
+		_pin.Pin(_v2)
 	}
 	_pin.Pin(_o4)
 	_u1 := uintptr(unsafe.Pointer(_s1))
-	_u2 := uintptr(sliceData(bytes))
+	_u2 := uintptr(_v2)
 	_u4 := uintptr(unsafe.Pointer(_o4))
 	var _r int32
 	if forceRegisterFunc {
-		_r = c_fx_node_read_name(context.p, unsafe.Pointer(_s1), sliceData(bytes), uint32(len(bytes)), unsafe.Pointer(_o4))
+		_r = c_fx_node_read_name(context.p, unsafe.Pointer(_s1), _v2, uint32(len(bytes)), unsafe.Pointer(_o4))
 	} else {
 		_buf.args[0] = context.p
 		_buf.args[1] = _u1
@@ -1521,6 +1551,9 @@ func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error) {
 	}
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
+		if _g2 != nil {
+			_g2()
+		}
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
@@ -1529,6 +1562,9 @@ func NodeReadName(context *Context, node Node, bytes []byte) (uint32, error) {
 		return 0, err
 	}
 	_out4 := *_o4
+	if _g2 != nil {
+		_g2()
+	}
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
@@ -1619,6 +1655,11 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 		return 0, ErrTooLong
 	}
 	_buf := wordPool.Get().(*wordBuf)
+	_v1 := sliceData(text)
+	var _g1 func()
+	if cGuardIn != nil && len(text) > 0 {
+		_v1, _g1 = cGuardIn(_v1, uintptr(len(text)), "fx_context_write", "text")
+	}
 	_o4 := (*uint32)(unsafe.Pointer(&_buf.scratch[0]))
 	*_o4 = 0
 	var _c6, _k6 uintptr
@@ -1628,15 +1669,15 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 		defer cbDrop(cbMap1, _k6)
 	}
 	var _pin runtime.Pinner
-	if len(text) > 0 {
-		_pin.Pin(sliceData(text))
+	if _g1 == nil && len(text) > 0 {
+		_pin.Pin(_v1)
 	}
 	_pin.Pin(_o4)
-	_u1 := uintptr(sliceData(text))
+	_u1 := uintptr(_v1)
 	_u4 := uintptr(unsafe.Pointer(_o4))
 	var _r int32
 	if forceRegisterFunc {
-		_r = c_fx_context_write(context.p, sliceData(text), uint32(len(text)), maxBytes, unsafe.Pointer(_o4), _k6, _c6)
+		_r = c_fx_context_write(context.p, _v1, uint32(len(text)), maxBytes, unsafe.Pointer(_o4), _k6, _c6)
 	} else {
 		_buf.args[0] = context.p
 		_buf.args[1] = _u1
@@ -1649,6 +1690,9 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 	}
 	_p := cbTake()
 	if err := statusError(_r); err != nil {
+		if _g1 != nil {
+			_g1()
+		}
 		_pin.Unpin()
 		wordPool.Put(_buf)
 		if _p != nil {
@@ -1657,6 +1701,9 @@ func ContextWrite(context *Context, text []byte, maxBytes uint32, writer WriteCa
 		return 0, err
 	}
 	_out4 := *_o4
+	if _g1 != nil {
+		_g1()
+	}
 	_pin.Unpin()
 	wordPool.Put(_buf)
 	if _p != nil {
